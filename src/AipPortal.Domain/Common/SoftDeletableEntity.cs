@@ -2,12 +2,12 @@ namespace AipPortal.Domain.Common;
 
 public abstract class SoftDeletableEntity : AuditableEntity
 {
-    public DateTimeOffset? DeletedAtUtc { get; private set; }
+    public DateTimeOffset? DeletedAt { get; private set; }
 
-    public bool IsDeleted => DeletedAtUtc.HasValue;
+    public bool IsDeleted => DeletedAt.HasValue;
 
-    public void MarkDeleted(DateTimeOffset deletedAtUtc)
+    public void MarkDeleted(DateTimeOffset deletedAt)
     {
-        DeletedAtUtc = deletedAtUtc;
+        DeletedAt = deletedAt;
     }
 }

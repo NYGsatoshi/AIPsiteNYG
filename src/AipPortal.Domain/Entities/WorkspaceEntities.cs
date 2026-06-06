@@ -1,0 +1,49 @@
+using AipPortal.Domain.Common;
+using AipPortal.Domain.Enums;
+
+namespace AipPortal.Domain.Entities;
+
+public sealed class Workspace : SoftDeletableEntity
+{
+    public string Name { get; set; } = string.Empty;
+    public string Slug { get; set; } = string.Empty;
+    public string? Description { get; set; }
+
+    public ICollection<WorkspaceMember> Members { get; } = new List<WorkspaceMember>();
+    public ICollection<Group> Groups { get; } = new List<Group>();
+}
+
+public sealed class WorkspaceMember : AuditableEntity
+{
+    public Guid WorkspaceId { get; set; }
+    public Guid UserId { get; set; }
+    public WorkspaceRole Role { get; set; } = WorkspaceRole.Member;
+    public MembershipStatus Status { get; set; } = MembershipStatus.Pending;
+    public DateTimeOffset? JoinedAt { get; set; }
+
+    public Workspace? Workspace { get; set; }
+    public User? User { get; set; }
+}
+
+public sealed class Group : SoftDeletableEntity
+{
+    public Guid WorkspaceId { get; set; }
+    public string Name { get; set; } = string.Empty;
+    public string Slug { get; set; } = string.Empty;
+    public string? Description { get; set; }
+    public GroupVisibility Visibility { get; set; } = GroupVisibility.Private;
+
+    public Workspace? Workspace { get; set; }
+    public ICollection<GroupMember> Members { get; } = new List<GroupMember>();
+}
+
+public sealed class GroupMember : AuditableEntity
+{
+    public Guid GroupId { get; set; }
+    public Guid UserId { get; set; }
+    public GroupRole Role { get; set; } = GroupRole.Member;
+    public DateTimeOffset JoinedAt { get; set; }
+
+    public Group? Group { get; set; }
+    public User? User { get; set; }
+}
