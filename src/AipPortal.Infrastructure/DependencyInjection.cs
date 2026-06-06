@@ -23,6 +23,9 @@ public static class DependencyInjection
         services.AddScoped<IUserRepository, UserRepository>();
         services.AddScoped<IInviteRepository, InviteRepository>();
         services.AddScoped<ISessionRepository, SessionRepository>();
+        services.AddScoped<IWorkspaceRepository, WorkspaceRepository>();
+        services.AddScoped<IGroupRepository, GroupRepository>();
+        services.AddScoped<IChannelRepository, ChannelRepository>();
         services.AddScoped<IUnitOfWork, EfUnitOfWork>();
         services.AddScoped<IPasswordHasher, Pbkdf2PasswordHasher>();
         services.AddScoped<ITokenHasher, Sha256TokenHasher>();

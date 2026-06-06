@@ -11,14 +11,24 @@ public enum SystemRole
 {
     User = 0,
     Staff = 1,
-    Admin = 2
+    Teacher = 2,
+    Admin = 3,
+    SystemAdmin = 4
+}
+
+public enum WorkspaceStatus
+{
+    Active = 0,
+    Archived = 1
 }
 
 public enum WorkspaceRole
 {
-    Member = 0,
+    Owner = 0,
     Admin = 1,
-    Owner = 2
+    Adviser = 2,
+    Member = 3,
+    ReadOnly = 4
 }
 
 public enum MembershipStatus
@@ -30,28 +40,48 @@ public enum MembershipStatus
 
 public enum GroupRole
 {
-    Member = 0,
-    Manager = 1
+    Owner = 0,
+    Admin = 1,
+    Adviser = 2,
+    Member = 3,
+    ReadOnly = 4
 }
 
-public enum GroupVisibility
+public enum GroupType
 {
-    Private = 0,
-    Workspace = 1,
-    Public = 2
+    Committee = 0,
+    Club = 1,
+    ProjectGroup = 2,
+    Team = 3,
+    Temporary = 4,
+    Other = 5
+}
+
+public enum GroupStatus
+{
+    Active = 0,
+    Archived = 1
 }
 
 public enum ChannelType
 {
-    Workspace = 0,
-    Group = 1,
-    Private = 2
+    Public = 0,
+    Private = 1,
+    Announcement = 2,
+    Confidential = 3
+}
+
+public enum ChannelStatus
+{
+    Active = 0,
+    Archived = 1
 }
 
 public enum ChannelRole
 {
-    Member = 0,
-    Moderator = 1
+    Admin = 0,
+    Member = 1,
+    ReadOnly = 2
 }
 
 public enum ConversationType

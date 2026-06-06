@@ -15,10 +15,13 @@ public sealed class ChannelConfiguration : IEntityTypeConfiguration<Channel>
         builder.Property(channel => channel.Slug).HasMaxLength(120).IsRequired();
         builder.Property(channel => channel.Description).HasMaxLength(2000);
         builder.Property(channel => channel.Type).HasEnumStringConversion().IsRequired();
+        builder.Property(channel => channel.Status).HasEnumStringConversion().IsRequired();
 
         builder.HasIndex(channel => channel.WorkspaceId);
         builder.HasIndex(channel => channel.GroupId);
-        builder.HasIndex(channel => new { channel.WorkspaceId, channel.Slug }).IsUnique();
+        builder.HasIndex(channel => channel.CreatedByUserId);
+        builder.HasIndex(channel => channel.Status);
+        builder.HasIndex(channel => new { channel.GroupId, channel.Slug }).IsUnique();
 
         builder
             .HasOne(channel => channel.Workspace)
@@ -30,7 +33,13 @@ public sealed class ChannelConfiguration : IEntityTypeConfiguration<Channel>
             .HasOne(channel => channel.Group)
             .WithMany()
             .HasForeignKey(channel => channel.GroupId)
-            .OnDelete(DeleteBehavior.SetNull);
+            .OnDelete(DeleteBehavior.Restrict);
+
+        builder
+            .HasOne(channel => channel.CreatedByUser)
+            .WithMany()
+            .HasForeignKey(channel => channel.CreatedByUserId)
+            .OnDelete(DeleteBehavior.Restrict);
     }
 }
 
@@ -72,6 +81,8 @@ public sealed class PostConfiguration : IEntityTypeConfiguration<Post>
 
         builder.HasIndex(post => post.ChannelId);
         builder.HasIndex(post => post.AuthorUserId);
+        builder.HasIndex(post => post.PinnedAt);
+        builder.HasIndex(post => post.PinnedByUserId);
 
         builder
             .HasOne(post => post.Channel)
@@ -84,6 +95,12 @@ public sealed class PostConfiguration : IEntityTypeConfiguration<Post>
             .WithMany()
             .HasForeignKey(post => post.AuthorUserId)
             .OnDelete(DeleteBehavior.Restrict);
+
+        builder
+            .HasOne(post => post.PinnedByUser)
+            .WithMany()
+            .HasForeignKey(post => post.PinnedByUserId)
+            .OnDelete(DeleteBehavior.SetNull);
     }
 }
 

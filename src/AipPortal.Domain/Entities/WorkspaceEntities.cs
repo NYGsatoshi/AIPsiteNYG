@@ -8,7 +8,11 @@ public sealed class Workspace : SoftDeletableEntity
     public string Name { get; set; } = string.Empty;
     public string Slug { get; set; } = string.Empty;
     public string? Description { get; set; }
+    public string? Icon { get; set; }
+    public WorkspaceStatus Status { get; set; } = WorkspaceStatus.Active;
+    public Guid CreatedByUserId { get; set; }
 
+    public User? CreatedByUser { get; set; }
     public ICollection<WorkspaceMember> Members { get; } = new List<WorkspaceMember>();
     public ICollection<Group> Groups { get; } = new List<Group>();
 }
@@ -28,12 +32,18 @@ public sealed class WorkspaceMember : AuditableEntity
 public sealed class Group : SoftDeletableEntity
 {
     public Guid WorkspaceId { get; set; }
+    public Guid? ParentGroupId { get; set; }
     public string Name { get; set; } = string.Empty;
     public string Slug { get; set; } = string.Empty;
     public string? Description { get; set; }
-    public GroupVisibility Visibility { get; set; } = GroupVisibility.Private;
+    public GroupType GroupType { get; set; } = GroupType.Other;
+    public GroupStatus Status { get; set; } = GroupStatus.Active;
+    public Guid CreatedByUserId { get; set; }
 
     public Workspace? Workspace { get; set; }
+    public Group? ParentGroup { get; set; }
+    public User? CreatedByUser { get; set; }
+    public ICollection<Group> ChildGroups { get; } = new List<Group>();
     public ICollection<GroupMember> Members { get; } = new List<GroupMember>();
 }
 
