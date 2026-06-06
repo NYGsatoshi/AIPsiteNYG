@@ -12,14 +12,19 @@ public sealed class AttachmentConfiguration : IEntityTypeConfiguration<Attachmen
         builder.ConfigureSoftDeletableEntity();
 
         builder.Property(attachment => attachment.FileName).HasMaxLength(260).IsRequired();
+        builder.Property(attachment => attachment.StoredFileName).HasMaxLength(260).IsRequired();
+        builder.Property(attachment => attachment.FilePath).HasMaxLength(1024).IsRequired();
         builder.Property(attachment => attachment.ContentType).HasMaxLength(160).IsRequired();
         builder.Property(attachment => attachment.Extension).HasMaxLength(32).IsRequired();
         builder.Property(attachment => attachment.StorageProvider).HasMaxLength(80).IsRequired();
         builder.Property(attachment => attachment.StorageKey).HasMaxLength(1024).IsRequired();
+        builder.Property(attachment => attachment.OwnerType).HasConversion<string>().HasMaxLength(40);
         builder.Property(attachment => attachment.ScanStatus).HasEnumStringConversion().IsRequired();
 
         builder.HasIndex(attachment => attachment.WorkspaceId);
+        builder.HasIndex(attachment => new { attachment.OwnerType, attachment.OwnerId });
         builder.HasIndex(attachment => attachment.OwnerUserId);
+        builder.HasIndex(attachment => attachment.UploadedByUserId);
         builder.HasIndex(attachment => attachment.ScanStatus);
         builder.HasIndex(attachment => attachment.Extension);
 
@@ -33,6 +38,12 @@ public sealed class AttachmentConfiguration : IEntityTypeConfiguration<Attachmen
             .HasOne(attachment => attachment.OwnerUser)
             .WithMany()
             .HasForeignKey(attachment => attachment.OwnerUserId)
+            .OnDelete(DeleteBehavior.Restrict);
+
+        builder
+            .HasOne(attachment => attachment.UploadedByUser)
+            .WithMany()
+            .HasForeignKey(attachment => attachment.UploadedByUserId)
             .OnDelete(DeleteBehavior.Restrict);
     }
 }

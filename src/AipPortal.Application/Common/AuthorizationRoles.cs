@@ -33,4 +33,14 @@ public static class AuthorizationRoles
     {
         return role is ChannelRole.Admin or ChannelRole.Member;
     }
+
+    public static bool CanManage(this ProjectRole role)
+    {
+        return role is ProjectRole.Owner or ProjectRole.Manager;
+    }
+
+    public static bool CanContribute(this ProjectRole role)
+    {
+        return role is ProjectRole.Owner or ProjectRole.Manager or ProjectRole.Contributor or ProjectRole.Reviewer;
+    }
 }

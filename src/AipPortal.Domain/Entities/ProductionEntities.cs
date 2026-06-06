@@ -7,6 +7,7 @@ public sealed class Project : SoftDeletableEntity
 {
     public Guid WorkspaceId { get; set; }
     public Guid? GroupId { get; set; }
+    public Guid OwnerUserId { get; set; }
     public string Name { get; set; } = string.Empty;
     public string Slug { get; set; } = string.Empty;
     public string? Description { get; set; }
@@ -18,6 +19,7 @@ public sealed class Project : SoftDeletableEntity
     public Workspace? Workspace { get; set; }
     public Group? Group { get; set; }
     public User? CreatedByUser { get; set; }
+    public User? OwnerUser { get; set; }
     public ICollection<ProjectMember> Members { get; } = new List<ProjectMember>();
     public ICollection<Milestone> Milestones { get; } = new List<Milestone>();
     public ICollection<TaskItem> Tasks { get; } = new List<TaskItem>();
@@ -27,20 +29,20 @@ public sealed class ProjectMember : AuditableEntity
 {
     public Guid ProjectId { get; set; }
     public Guid UserId { get; set; }
-    public ProjectRole Role { get; set; } = ProjectRole.Member;
+    public ProjectRole Role { get; set; } = ProjectRole.Contributor;
     public DateTimeOffset JoinedAt { get; set; }
 
     public Project? Project { get; set; }
     public User? User { get; set; }
 }
 
-public sealed class Milestone : AuditableEntity
+public sealed class Milestone : SoftDeletableEntity
 {
     public Guid ProjectId { get; set; }
     public string Name { get; set; } = string.Empty;
     public string? Description { get; set; }
     public DateOnly? DueDate { get; set; }
-    public MilestoneStatus Status { get; set; } = MilestoneStatus.Open;
+    public MilestoneStatus Status { get; set; } = MilestoneStatus.NotStarted;
     public int SortOrder { get; set; }
 
     public Project? Project { get; set; }
@@ -53,7 +55,7 @@ public sealed class TaskItem : SoftDeletableEntity
     public Guid? MilestoneId { get; set; }
     public string Title { get; set; } = string.Empty;
     public string? Description { get; set; }
-    public TaskItemStatus Status { get; set; } = TaskItemStatus.Todo;
+    public TaskItemStatus Status { get; set; } = TaskItemStatus.NotStarted;
     public TaskPriority Priority { get; set; } = TaskPriority.Normal;
     public DateOnly? StartDate { get; set; }
     public DateOnly? DueDate { get; set; }
@@ -75,6 +77,8 @@ public sealed class TaskAssignment : Entity
     public Guid UserId { get; set; }
     public TaskAssignmentRole Role { get; set; } = TaskAssignmentRole.Assignee;
     public Guid AssignedByUserId { get; set; }
+    public decimal? EstimatedHours { get; set; }
+    public decimal? ActualHours { get; set; }
     public DateTimeOffset AssignedAt { get; set; }
 
     public TaskItem? TaskItem { get; set; }

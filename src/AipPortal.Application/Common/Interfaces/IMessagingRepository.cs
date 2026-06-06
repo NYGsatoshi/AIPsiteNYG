@@ -1,0 +1,22 @@
+using AipPortal.Application.Common;
+using AipPortal.Domain.Entities;
+
+namespace AipPortal.Application.Common.Interfaces;
+
+public interface IMessagingRepository
+{
+    Task<IReadOnlyList<Conversation>> ListForUserAsync(Guid userId, CancellationToken cancellationToken = default);
+    Task<Conversation?> GetConversationAsync(Guid conversationId, CancellationToken cancellationToken = default);
+    Task<Conversation?> FindDirectAsync(Guid userAId, Guid userBId, CancellationToken cancellationToken = default);
+    Task<ConversationMember?> GetMemberAsync(Guid conversationId, Guid userId, CancellationToken cancellationToken = default);
+    Task<IReadOnlyList<ConversationMember>> ListMembersAsync(Guid conversationId, CancellationToken cancellationToken = default);
+    Task<PagedResponse<Message>> ListMessagesAsync(Guid conversationId, int limit, DateTimeOffset? before, CancellationToken cancellationToken = default);
+    Task<int> CountUnreadMessagesAsync(Guid conversationId, Guid userId, DateTimeOffset? lastReadAt, CancellationToken cancellationToken = default);
+    Task<Message?> GetMessageAsync(Guid messageId, CancellationToken cancellationToken = default);
+    Task<ReadState?> GetReadStateAsync(Guid conversationId, Guid userId, CancellationToken cancellationToken = default);
+    Task AddConversationAsync(Conversation conversation, CancellationToken cancellationToken = default);
+    Task AddMemberAsync(ConversationMember member, CancellationToken cancellationToken = default);
+    Task AddMessageAsync(Message message, CancellationToken cancellationToken = default);
+    Task AddReadStateAsync(ReadState readState, CancellationToken cancellationToken = default);
+    Task AddAttachmentAsync(Attachment attachment, MessageAttachment link, CancellationToken cancellationToken = default);
+}

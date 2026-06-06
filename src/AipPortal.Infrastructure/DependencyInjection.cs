@@ -26,10 +26,13 @@ public static class DependencyInjection
         services.AddScoped<IWorkspaceRepository, WorkspaceRepository>();
         services.AddScoped<IGroupRepository, GroupRepository>();
         services.AddScoped<IChannelRepository, ChannelRepository>();
+        services.AddScoped<IMessagingRepository, MessagingRepository>();
+        services.AddScoped<IProjectRepository, ProjectRepository>();
         services.AddScoped<IUnitOfWork, EfUnitOfWork>();
         services.AddScoped<IPasswordHasher, Pbkdf2PasswordHasher>();
         services.AddScoped<ITokenHasher, Sha256TokenHasher>();
         services.AddScoped<IAuditLogger, DbAuditLogger>();
+        services.AddScoped<INotificationService, DbNotificationService>();
         services.AddSingleton<IClock, SystemClock>();
 
         return services;

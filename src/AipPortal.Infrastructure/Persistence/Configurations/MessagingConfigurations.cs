@@ -12,13 +12,21 @@ public sealed class ConversationConfiguration : IEntityTypeConfiguration<Convers
         builder.ConfigureAuditableEntity();
 
         builder.Property(conversation => conversation.Type).HasEnumStringConversion().IsRequired();
+        builder.Property(conversation => conversation.Title).HasMaxLength(200);
 
         builder.HasIndex(conversation => conversation.WorkspaceId);
+        builder.HasIndex(conversation => conversation.CreatedByUserId);
 
         builder
             .HasOne(conversation => conversation.Workspace)
             .WithMany()
             .HasForeignKey(conversation => conversation.WorkspaceId)
+            .OnDelete(DeleteBehavior.Restrict);
+
+        builder
+            .HasOne(conversation => conversation.CreatedByUser)
+            .WithMany()
+            .HasForeignKey(conversation => conversation.CreatedByUserId)
             .OnDelete(DeleteBehavior.Restrict);
     }
 }
@@ -31,10 +39,12 @@ public sealed class ConversationMemberConfiguration : IEntityTypeConfiguration<C
         builder.ConfigureAuditableEntity();
 
         builder.Property(member => member.JoinedAt).IsRequired();
+        builder.Property(member => member.Role).HasEnumStringConversion().IsRequired();
 
         builder.HasIndex(member => new { member.ConversationId, member.UserId }).IsUnique();
         builder.HasIndex(member => member.UserId);
         builder.HasIndex(member => member.LastReadMessageId);
+        builder.HasIndex(member => member.LeftAt);
 
         builder
             .HasOne(member => member.Conversation)
@@ -67,6 +77,7 @@ public sealed class MessageConfiguration : IEntityTypeConfiguration<Message>
 
         builder.HasIndex(message => message.ConversationId);
         builder.HasIndex(message => message.AuthorUserId);
+        builder.HasIndex(message => message.EditedAt);
 
         builder
             .HasOne(message => message.Conversation)
@@ -82,6 +93,30 @@ public sealed class MessageConfiguration : IEntityTypeConfiguration<Message>
     }
 }
 
+public sealed class MessageAttachmentConfiguration : IEntityTypeConfiguration<MessageAttachment>
+{
+    public void Configure(EntityTypeBuilder<MessageAttachment> builder)
+    {
+        builder.ToTable("message_attachments");
+        builder.ConfigureEntity();
+
+        builder.HasIndex(item => new { item.MessageId, item.AttachmentId }).IsUnique();
+        builder.HasIndex(item => item.AttachmentId);
+
+        builder
+            .HasOne(item => item.Message)
+            .WithMany(message => message.Attachments)
+            .HasForeignKey(item => item.MessageId)
+            .OnDelete(DeleteBehavior.Restrict);
+
+        builder
+            .HasOne(item => item.Attachment)
+            .WithMany()
+            .HasForeignKey(item => item.AttachmentId)
+            .OnDelete(DeleteBehavior.Restrict);
+    }
+}
+
 public sealed class ReadStateConfiguration : IEntityTypeConfiguration<ReadState>
 {
     public void Configure(EntityTypeBuilder<ReadState> builder)
@@ -93,7 +128,10 @@ public sealed class ReadStateConfiguration : IEntityTypeConfiguration<ReadState>
         builder.Property(readState => readState.LastReadAt).IsRequired();
 
         builder.HasIndex(readState => new { readState.UserId, readState.ScopeType, readState.ScopeId }).IsUnique();
+        builder.HasIndex(readState => new { readState.UserId, readState.ConversationId }).IsUnique();
         builder.HasIndex(readState => readState.ScopeId);
+        builder.HasIndex(readState => readState.ConversationId);
+        builder.HasIndex(readState => readState.LastReadMessageId);
         builder.HasIndex(readState => readState.LastReadAt);
 
         builder
@@ -101,5 +139,17 @@ public sealed class ReadStateConfiguration : IEntityTypeConfiguration<ReadState>
             .WithMany()
             .HasForeignKey(readState => readState.UserId)
             .OnDelete(DeleteBehavior.Restrict);
+
+        builder
+            .HasOne(readState => readState.Conversation)
+            .WithMany()
+            .HasForeignKey(readState => readState.ConversationId)
+            .OnDelete(DeleteBehavior.Restrict);
+
+        builder
+            .HasOne(readState => readState.LastReadMessage)
+            .WithMany()
+            .HasForeignKey(readState => readState.LastReadMessageId)
+            .OnDelete(DeleteBehavior.SetNull);
     }
 }

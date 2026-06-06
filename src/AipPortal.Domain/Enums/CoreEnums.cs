@@ -87,7 +87,15 @@ public enum ChannelRole
 public enum ConversationType
 {
     Direct = 0,
-    Group = 1
+    Group = 1,
+    ProjectLinked = 2,
+    System = 3
+}
+
+public enum ConversationMemberRole
+{
+    Admin = 0,
+    Member = 1
 }
 
 public enum ReadScopeType
@@ -131,32 +139,37 @@ public enum ProjectStatus
 {
     Planning = 0,
     Active = 1,
-    OnHold = 2,
+    Review = 2,
     Completed = 3,
-    Archived = 4
+    Suspended = 4,
+    Archived = 5
 }
 
 public enum ProjectRole
 {
-    Member = 0,
+    Owner = 0,
     Manager = 1,
-    Owner = 2
+    Contributor = 2,
+    Reviewer = 3,
+    Viewer = 4
 }
 
 public enum MilestoneStatus
 {
-    Open = 0,
+    NotStarted = 0,
     InProgress = 1,
-    Completed = 2
+    Completed = 2,
+    Cancelled = 3
 }
 
 public enum TaskItemStatus
 {
-    Todo = 0,
+    NotStarted = 0,
     InProgress = 1,
-    Blocked = 2,
-    Done = 3,
-    Canceled = 4
+    WaitingReview = 2,
+    Blocked = 3,
+    Completed = 4,
+    Cancelled = 5
 }
 
 public enum TaskPriority
@@ -164,19 +177,23 @@ public enum TaskPriority
     Low = 0,
     Normal = 1,
     High = 2,
-    Urgent = 3
+    Critical = 3
 }
 
 public enum TaskAssignmentRole
 {
-    Assignee = 0,
-    Reviewer = 1,
-    Watcher = 2
+    Owner = 0,
+    Assignee = 1,
+    Reviewer = 2,
+    Support = 3
 }
 
 public enum TaskDependencyType
 {
-    FinishToStart = 0
+    FinishToStart = 0,
+    StartToStart = 1,
+    FinishToFinish = 2,
+    StartToFinish = 3
 }
 
 public enum ActivityLogType
@@ -193,7 +210,8 @@ public enum CommentTargetType
     TaskItem = 1,
     Artifact = 2,
     ArtifactVersion = 3,
-    ActivityLog = 4
+    ActivityLog = 4,
+    Milestone = 5
 }
 
 public enum FeedbackTargetType
@@ -211,6 +229,14 @@ public enum FileScanStatus
     Infected = 2,
     Failed = 3,
     Skipped = 4
+}
+
+public enum AttachmentOwnerType
+{
+    Message = 0,
+    Post = 1,
+    TaskItem = 2,
+    ArtifactVersion = 3
 }
 
 public enum DockArea

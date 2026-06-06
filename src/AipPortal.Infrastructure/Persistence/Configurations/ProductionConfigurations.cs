@@ -18,6 +18,7 @@ public sealed class ProjectConfiguration : IEntityTypeConfiguration<Project>
 
         builder.HasIndex(project => project.WorkspaceId);
         builder.HasIndex(project => project.GroupId);
+        builder.HasIndex(project => project.OwnerUserId);
         builder.HasIndex(project => new { project.WorkspaceId, project.Slug }).IsUnique();
         builder.HasIndex(project => project.Status);
         builder.HasIndex(project => project.DueDate);
@@ -38,6 +39,12 @@ public sealed class ProjectConfiguration : IEntityTypeConfiguration<Project>
             .HasOne(project => project.CreatedByUser)
             .WithMany()
             .HasForeignKey(project => project.CreatedByUserId)
+            .OnDelete(DeleteBehavior.Restrict);
+
+        builder
+            .HasOne(project => project.OwnerUser)
+            .WithMany()
+            .HasForeignKey(project => project.OwnerUserId)
             .OnDelete(DeleteBehavior.Restrict);
     }
 }
@@ -74,7 +81,7 @@ public sealed class MilestoneConfiguration : IEntityTypeConfiguration<Milestone>
     public void Configure(EntityTypeBuilder<Milestone> builder)
     {
         builder.ToTable("milestones");
-        builder.ConfigureAuditableEntity();
+        builder.ConfigureSoftDeletableEntity();
 
         builder.Property(milestone => milestone.Name).HasMaxLength(200).IsRequired();
         builder.Property(milestone => milestone.Description).HasMaxLength(4000);
@@ -140,6 +147,8 @@ public sealed class TaskAssignmentConfiguration : IEntityTypeConfiguration<TaskA
         builder.ConfigureEntity();
 
         builder.Property(assignment => assignment.Role).HasEnumStringConversion().IsRequired();
+        builder.Property(assignment => assignment.EstimatedHours).HasPrecision(8, 2);
+        builder.Property(assignment => assignment.ActualHours).HasPrecision(8, 2);
         builder.Property(assignment => assignment.AssignedAt).IsRequired();
 
         builder.HasIndex(assignment => new { assignment.TaskItemId, assignment.UserId, assignment.Role }).IsUnique();

@@ -6,8 +6,13 @@ namespace AipPortal.Domain.Entities;
 public sealed class Attachment : SoftDeletableEntity
 {
     public Guid WorkspaceId { get; set; }
+    public AttachmentOwnerType? OwnerType { get; set; }
+    public Guid? OwnerId { get; set; }
     public Guid OwnerUserId { get; set; }
+    public Guid UploadedByUserId { get; set; }
     public string FileName { get; set; } = string.Empty;
+    public string StoredFileName { get; set; } = string.Empty;
+    public string FilePath { get; set; } = string.Empty;
     public string ContentType { get; set; } = string.Empty;
     public string Extension { get; set; } = string.Empty;
     public long SizeBytes { get; set; }
@@ -17,6 +22,7 @@ public sealed class Attachment : SoftDeletableEntity
 
     public Workspace? Workspace { get; set; }
     public User? OwnerUser { get; set; }
+    public User? UploadedByUser { get; set; }
     public ICollection<FileScanResult> ScanResults { get; } = new List<FileScanResult>();
 }
 
