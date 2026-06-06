@@ -114,6 +114,9 @@ public sealed class FeatureModuleConfiguration : IEntityTypeConfiguration<Featur
         builder.Property(module => module.Key).HasMaxLength(120).IsRequired();
         builder.Property(module => module.Name).HasMaxLength(160).IsRequired();
         builder.Property(module => module.Description).HasMaxLength(1000);
+        builder.Property(module => module.RequiredRole).HasConversion<string>().HasMaxLength(40);
+        builder.Property(module => module.DefaultRoute).HasMaxLength(300).IsRequired();
+        builder.Property(module => module.Icon).HasMaxLength(120);
 
         builder.HasIndex(module => module.Key).IsUnique();
         builder.HasIndex(module => module.SortOrder);
@@ -131,9 +134,12 @@ public sealed class PanelDefinitionConfiguration : IEntityTypeConfiguration<Pane
         builder.Property(panel => panel.Name).HasMaxLength(160).IsRequired();
         builder.Property(panel => panel.Route).HasMaxLength(300).IsRequired();
         builder.Property(panel => panel.DefaultDockArea).HasEnumStringConversion().IsRequired();
+        builder.Property(panel => panel.DefaultPosition).HasMaxLength(80).IsRequired();
+        builder.Property(panel => panel.RequiredPermission).HasMaxLength(160);
 
         builder.HasIndex(panel => panel.FeatureModuleId);
         builder.HasIndex(panel => panel.Key).IsUnique();
+        builder.HasIndex(panel => new { panel.FeatureModuleId, panel.SortOrder });
 
         builder
             .HasOne(panel => panel.FeatureModule)
@@ -152,10 +158,13 @@ public sealed class UserLayoutConfiguration : IEntityTypeConfiguration<UserLayou
 
         builder.Property(layout => layout.Name).HasMaxLength(160).IsRequired();
         builder.Property(layout => layout.LayoutJson).HasColumnType("jsonb").IsRequired();
+        builder.Property(layout => layout.ScopeType).HasEnumStringConversion().IsRequired();
+        builder.Property(layout => layout.CreatedAt).IsRequired();
         builder.Property(layout => layout.UpdatedAt).IsRequired();
 
         builder.HasIndex(layout => layout.UserId);
         builder.HasIndex(layout => layout.WorkspaceId);
+        builder.HasIndex(layout => new { layout.UserId, layout.ScopeType, layout.ScopeId });
         builder.HasIndex(layout => new { layout.UserId, layout.WorkspaceId, layout.Name }).IsUnique();
 
         builder
@@ -183,11 +192,15 @@ public sealed class CommandDefinitionConfiguration : IEntityTypeConfiguration<Co
         builder.Property(command => command.Name).HasMaxLength(160).IsRequired();
         builder.Property(command => command.Description).HasMaxLength(1000);
         builder.Property(command => command.Icon).HasMaxLength(120);
+        builder.Property(command => command.ActionType).HasEnumStringConversion().IsRequired();
         builder.Property(command => command.Route).HasMaxLength(300);
         builder.Property(command => command.HandlerKey).HasMaxLength(160);
+        builder.Property(command => command.RequiredPermission).HasMaxLength(160);
+        builder.Property(command => command.ContextType).HasEnumStringConversion().IsRequired();
 
         builder.HasIndex(command => command.FeatureModuleId);
         builder.HasIndex(command => command.Key).IsUnique();
+        builder.HasIndex(command => new { command.ContextType, command.SortOrder });
 
         builder
             .HasOne(command => command.FeatureModule)
@@ -205,10 +218,13 @@ public sealed class RadialMenuProfileConfiguration : IEntityTypeConfiguration<Ra
         builder.ConfigureAuditableEntity();
 
         builder.Property(profile => profile.Name).HasMaxLength(160).IsRequired();
+        builder.Property(profile => profile.ProfileKey).HasMaxLength(120).IsRequired();
+        builder.Property(profile => profile.ContextType).HasEnumStringConversion().IsRequired();
         builder.Property(profile => profile.Scope).HasEnumStringConversion().IsRequired();
 
         builder.HasIndex(profile => profile.UserId);
         builder.HasIndex(profile => profile.WorkspaceId);
+        builder.HasIndex(profile => profile.ProfileKey).IsUnique();
         builder.HasIndex(profile => new { profile.UserId, profile.WorkspaceId, profile.Name }).IsUnique();
 
         builder
@@ -234,6 +250,8 @@ public sealed class RadialMenuItemConfiguration : IEntityTypeConfiguration<Radia
 
         builder.Property(item => item.Label).HasMaxLength(160).IsRequired();
         builder.Property(item => item.Icon).HasMaxLength(120);
+        builder.Property(item => item.Direction).HasEnumStringConversion().IsRequired();
+        builder.Property(item => item.CommandKey).HasMaxLength(120).IsRequired();
         builder.Property(item => item.AngleDegrees).HasPrecision(6, 2);
         builder.Property(item => item.PayloadJson).HasColumnType("jsonb");
 

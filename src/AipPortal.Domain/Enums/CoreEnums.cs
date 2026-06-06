@@ -236,7 +236,30 @@ public enum AttachmentOwnerType
     Message = 0,
     Post = 1,
     TaskItem = 2,
-    ArtifactVersion = 3
+    ArtifactVersion = 3,
+    Comment = 4,
+    ActivityLog = 5
+}
+
+public enum ArtifactType
+{
+    Document = 0,
+    Image = 1,
+    Video = 2,
+    Code = 3,
+    Presentation = 4,
+    Spreadsheet = 5,
+    Archive = 6,
+    Other = 7
+}
+
+public enum ArtifactStatus
+{
+    Draft = 0,
+    Submitted = 1,
+    Reviewed = 2,
+    Approved = 3,
+    Archived = 4
 }
 
 public enum DockArea
@@ -252,4 +275,44 @@ public enum RadialMenuScope
     Global = 0,
     Workspace = 1,
     Project = 2
+}
+
+public enum LayoutScopeType
+{
+    Global = 0,
+    Workspace = 1,
+    Group = 2,
+    Project = 3
+}
+
+public enum CommandActionType
+{
+    Navigate = 0,
+    OpenModal = 1,
+    ApiCall = 2,
+    ClientAction = 3
+}
+
+public enum CommandContextType
+{
+    Global = 0,
+    Workspace = 1,
+    Group = 2,
+    Project = 3,
+    TaskItem = 4,
+    Artifact = 5,
+    Message = 6
+}
+
+public enum RadialMenuDirection
+{
+    Up = 0,
+    UpRight = 1,
+    Right = 2,
+    DownRight = 3,
+    Down = 4,
+    DownLeft = 5,
+    Left = 6,
+    UpLeft = 7,
+    Center = 8
 }

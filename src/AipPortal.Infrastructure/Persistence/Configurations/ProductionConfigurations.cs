@@ -252,11 +252,14 @@ public sealed class ArtifactConfiguration : IEntityTypeConfiguration<Artifact>
 
         builder.Property(artifact => artifact.Name).HasMaxLength(240).IsRequired();
         builder.Property(artifact => artifact.Description).HasMaxLength(4000);
+        builder.Property(artifact => artifact.ArtifactType).HasEnumStringConversion().IsRequired();
+        builder.Property(artifact => artifact.Status).HasEnumStringConversion().IsRequired();
 
         builder.HasIndex(artifact => artifact.ProjectId);
         builder.HasIndex(artifact => artifact.TaskItemId);
         builder.HasIndex(artifact => artifact.CurrentVersionId);
         builder.HasIndex(artifact => artifact.CreatedByUserId);
+        builder.HasIndex(artifact => artifact.Status);
 
         builder
             .HasOne(artifact => artifact.Project)
@@ -289,7 +292,7 @@ public sealed class ArtifactVersionConfiguration : IEntityTypeConfiguration<Arti
     public void Configure(EntityTypeBuilder<ArtifactVersion> builder)
     {
         builder.ToTable("artifact_versions");
-        builder.ConfigureAuditableEntity();
+        builder.ConfigureSoftDeletableEntity();
 
         builder.Property(version => version.Notes).HasMaxLength(4000);
 

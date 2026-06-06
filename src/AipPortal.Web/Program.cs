@@ -1,5 +1,6 @@
 using AipPortal.Application;
 using AipPortal.Infrastructure;
+using AipPortal.Infrastructure.Persistence;
 using AipPortal.Web.Extensions;
 using Microsoft.AspNetCore.Authentication.Cookies;
 
@@ -37,6 +38,13 @@ builder.Services
 builder.Services.AddAuthorization();
 
 var app = builder.Build();
+
+if (builder.Configuration.GetValue<bool>("UiShell:SeedOnStartup"))
+{
+    await using var scope = app.Services.CreateAsyncScope();
+    var dbContext = scope.ServiceProvider.GetRequiredService<AppDbContext>();
+    await AppDbContextSeed.SeedUiShellAsync(dbContext);
+}
 
 app.UseHttpsRedirection();
 

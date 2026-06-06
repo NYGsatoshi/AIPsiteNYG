@@ -118,6 +118,8 @@ public sealed class Artifact : SoftDeletableEntity
     public Guid? TaskItemId { get; set; }
     public string Name { get; set; } = string.Empty;
     public string? Description { get; set; }
+    public ArtifactType ArtifactType { get; set; } = ArtifactType.Other;
+    public ArtifactStatus Status { get; set; } = ArtifactStatus.Draft;
     public Guid? CurrentVersionId { get; set; }
     public Guid CreatedByUserId { get; set; }
 
@@ -128,7 +130,7 @@ public sealed class Artifact : SoftDeletableEntity
     public ICollection<ArtifactVersion> Versions { get; } = new List<ArtifactVersion>();
 }
 
-public sealed class ArtifactVersion : AuditableEntity
+public sealed class ArtifactVersion : SoftDeletableEntity
 {
     public Guid ArtifactId { get; set; }
     public int VersionNumber { get; set; }

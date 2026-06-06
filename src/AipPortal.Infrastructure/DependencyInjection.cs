@@ -1,4 +1,5 @@
 using AipPortal.Application.Common.Interfaces;
+using AipPortal.Infrastructure.Files;
 using AipPortal.Infrastructure.Audit;
 using AipPortal.Infrastructure.Persistence;
 using AipPortal.Infrastructure.Security;
@@ -28,7 +29,28 @@ public static class DependencyInjection
         services.AddScoped<IChannelRepository, ChannelRepository>();
         services.AddScoped<IMessagingRepository, MessagingRepository>();
         services.AddScoped<IProjectRepository, ProjectRepository>();
+        services.AddScoped<IFileRepository, FileRepository>();
+        services.AddScoped<IArtifactRepository, ArtifactRepository>();
+        services.AddScoped<IPlanningRepository, PlanningRepository>();
+        services.AddScoped<IUiShellRepository, UiShellRepository>();
         services.AddScoped<IUnitOfWork, EfUnitOfWork>();
+        services.Configure<FileStorageOptions>(options =>
+        {
+            var section = configuration.GetSection("FileStorage");
+            options.RootPath = section["RootPath"] ?? string.Empty;
+            if (long.TryParse(section["MaxFileSizeBytes"], out var maxFileSizeBytes))
+            {
+                options.MaxFileSizeBytes = maxFileSizeBytes;
+            }
+
+            options.AllowedExtensions = section.GetSection("AllowedExtensions")
+                .GetChildren()
+                .Select(item => item.Value)
+                .Where(item => !string.IsNullOrWhiteSpace(item))
+                .Select(item => item!)
+                .ToArray();
+        });
+        services.AddScoped<IFileStorageService, LocalFileStorageService>();
         services.AddScoped<IPasswordHasher, Pbkdf2PasswordHasher>();
         services.AddScoped<ITokenHasher, Sha256TokenHasher>();
         services.AddScoped<IAuditLogger, DbAuditLogger>();

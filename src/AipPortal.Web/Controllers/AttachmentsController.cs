@@ -1,0 +1,56 @@
+using AipPortal.Application.Files;
+using AipPortal.Domain.Enums;
+using Microsoft.AspNetCore.Authorization;
+using Microsoft.AspNetCore.Mvc;
+
+namespace AipPortal.Web.Controllers;
+
+[ApiController]
+[Authorize]
+public sealed class AttachmentsController(IFileService files) : ControllerBase
+{
+    [HttpPost("api/attachments")]
+    public async Task<IActionResult> Upload([FromForm] UploadAttachmentForm form, CancellationToken cancellationToken)
+    {
+        if (form.File is null)
+        {
+            return BadRequest(new { error = "File is required." });
+        }
+
+        await using var stream = form.File.OpenReadStream();
+        return ToActionResult(await files.UploadAsync(new AttachmentUploadInput(
+            form.OwnerType,
+            form.OwnerId,
+            form.File.FileName,
+            form.File.ContentType,
+            form.File.Length,
+            stream), cancellationToken));
+    }
+
+    [HttpGet("api/attachments/{attachmentId:guid}")]
+    public async Task<IActionResult> Get(Guid attachmentId, CancellationToken cancellationToken) => ToActionResult(await files.GetAsync(attachmentId, cancellationToken));
+
+    [HttpGet("api/attachments/{attachmentId:guid}/download")]
+    public async Task<IActionResult> Download(Guid attachmentId, CancellationToken cancellationToken)
+    {
+        var result = await files.DownloadAsync(attachmentId, cancellationToken);
+        return result.IsSuccess
+            ? File(result.Value!.Content, result.Value.ContentType, result.Value.FileName)
+            : BadRequest(new { error = result.Error });
+    }
+
+    [HttpDelete("api/attachments/{attachmentId:guid}")]
+    public async Task<IActionResult> Delete(Guid attachmentId, CancellationToken cancellationToken) => OkOrBad(await files.DeleteAsync(attachmentId, cancellationToken));
+
+    private IActionResult OkOrBad(AipPortal.Application.Common.Result result) => result.IsSuccess ? Ok(new { status = "OK" }) : BadRequest(new { error = result.Error });
+    private IActionResult ToActionResult<T>(AipPortal.Application.Common.Result<T> result) => result.IsSuccess ? Ok(result.Value) : BadRequest(new { error = result.Error });
+}
+
+public sealed class UploadAttachmentForm
+{
+    public AttachmentOwnerType OwnerType { get; set; }
+
+    public Guid OwnerId { get; set; }
+
+    public IFormFile? File { get; set; }
+}
