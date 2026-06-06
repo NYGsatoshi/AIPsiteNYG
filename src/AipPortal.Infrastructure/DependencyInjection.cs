@@ -1,4 +1,7 @@
+using AipPortal.Application.Common.Interfaces;
+using AipPortal.Infrastructure.Audit;
 using AipPortal.Infrastructure.Persistence;
+using AipPortal.Infrastructure.Security;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
@@ -16,6 +19,15 @@ public static class DependencyInjection
 
         services.AddDbContext<AppDbContext>(options =>
             options.UseNpgsql(connectionString));
+
+        services.AddScoped<IUserRepository, UserRepository>();
+        services.AddScoped<IInviteRepository, InviteRepository>();
+        services.AddScoped<ISessionRepository, SessionRepository>();
+        services.AddScoped<IUnitOfWork, EfUnitOfWork>();
+        services.AddScoped<IPasswordHasher, Pbkdf2PasswordHasher>();
+        services.AddScoped<ITokenHasher, Sha256TokenHasher>();
+        services.AddScoped<IAuditLogger, DbAuditLogger>();
+        services.AddSingleton<IClock, SystemClock>();
 
         return services;
     }

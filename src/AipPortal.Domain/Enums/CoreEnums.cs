@@ -2,9 +2,16 @@ namespace AipPortal.Domain.Enums;
 
 public enum UserStatus
 {
-    Invited = 0,
-    Active = 1,
-    Disabled = 2
+    Active = 0,
+    Suspended = 1,
+    Archived = 2
+}
+
+public enum SystemRole
+{
+    User = 0,
+    Staff = 1,
+    Admin = 2
 }
 
 public enum WorkspaceRole
@@ -74,18 +81,20 @@ public enum NotificationType
 public enum SourceType
 {
     User = 0,
-    Workspace = 1,
-    Group = 2,
-    Channel = 3,
-    Post = 4,
-    Message = 5,
-    Announcement = 6,
-    Project = 7,
-    TaskItem = 8,
-    ActivityLog = 9,
-    Artifact = 10,
-    ArtifactVersion = 11,
-    Attachment = 12
+    Session = 1,
+    Invite = 2,
+    Workspace = 3,
+    Group = 4,
+    Channel = 5,
+    Post = 6,
+    Message = 7,
+    Announcement = 8,
+    Project = 9,
+    TaskItem = 10,
+    ActivityLog = 11,
+    Artifact = 12,
+    ArtifactVersion = 13,
+    Attachment = 14
 }
 
 public enum ProjectStatus

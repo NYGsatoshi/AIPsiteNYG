@@ -9,7 +9,8 @@ public sealed class User : SoftDeletableEntity
     public string Email { get; set; } = string.Empty;
     public string NormalizedEmail { get; set; } = string.Empty;
     public string PasswordHash { get; set; } = string.Empty;
-    public UserStatus Status { get; set; } = UserStatus.Invited;
+    public SystemRole SystemRole { get; set; } = SystemRole.User;
+    public UserStatus Status { get; set; } = UserStatus.Active;
     public DateTimeOffset? LastLoginAt { get; set; }
 }
 
@@ -33,8 +34,9 @@ public sealed class Invite : AuditableEntity
     public WorkspaceRole Role { get; set; } = WorkspaceRole.Member;
     public DateTimeOffset ExpiresAt { get; set; }
     public DateTimeOffset? AcceptedAt { get; set; }
-    public Guid CreatedByUserId { get; set; }
+    public DateTimeOffset? RevokedAt { get; set; }
+    public Guid InvitedByUserId { get; set; }
 
     public Workspace? Workspace { get; set; }
-    public User? CreatedByUser { get; set; }
+    public User? InvitedByUser { get; set; }
 }
