@@ -37,6 +37,8 @@ internal sealed class TenantIsolationTestData
     public Conversation ConversationB { get; private init; } = null!;
     public Announcement AnnouncementA { get; private init; } = null!;
     public Announcement AnnouncementB { get; private init; } = null!;
+    public Notification NotificationA { get; private init; } = null!;
+    public Notification NotificationB { get; private init; } = null!;
 
     public static async Task<TenantIsolationTestData> SeedAsync(AppDbContext dbContext, CurrentTenantService currentTenant)
     {
@@ -73,6 +75,8 @@ internal sealed class TenantIsolationTestData
         var conversationB = NewConversation(tenantB.Id, workspaceB.Id, "ConversationB", tenantBOwner.Id);
         var announcementA = NewAnnouncement(tenantA.Id, workspaceA.Id, groupA.Id, tenantAOwner.Id, "AnnouncementA", now);
         var announcementB = NewAnnouncement(tenantB.Id, workspaceB.Id, groupB.Id, tenantBOwner.Id, "AnnouncementB", now);
+        var notificationA = NewNotification(tenantA.Id, tenantAMember.Id, "TenantA notification", now);
+        var notificationB = NewNotification(tenantB.Id, tenantBMember.Id, "TenantB notification", now);
 
         dbContext.Tenants.AddRange(tenantA, tenantB, suspendedTenant);
         dbContext.Users.AddRange(
@@ -124,8 +128,8 @@ internal sealed class TenantIsolationTestData
         dbContext.TaskItems.AddRange(taskA, taskB);
         dbContext.FileObjects.AddRange(fileA, fileB);
         dbContext.Attachments.AddRange(
-            NewAttachment(tenantA.Id, workspaceA.Id, fileA.Id, tenantAOwner.Id, fileA.StorageKey),
-            NewAttachment(tenantB.Id, workspaceB.Id, fileB.Id, tenantBOwner.Id, fileB.StorageKey));
+            NewAttachment(tenantA.Id, workspaceA.Id, fileA.Id, taskA.Id, tenantAOwner.Id, fileA.StorageKey),
+            NewAttachment(tenantB.Id, workspaceB.Id, fileB.Id, taskB.Id, tenantBOwner.Id, fileB.StorageKey));
         dbContext.Conversations.AddRange(conversationA, conversationB);
         dbContext.ConversationMembers.AddRange(
             NewConversationMember(tenantA.Id, conversationA.Id, tenantAMember.Id),
@@ -133,9 +137,7 @@ internal sealed class TenantIsolationTestData
             NewConversationMember(tenantB.Id, conversationB.Id, tenantBMember.Id),
             NewConversationMember(tenantB.Id, conversationB.Id, crossTenantUser.Id));
         dbContext.Announcements.AddRange(announcementA, announcementB);
-        dbContext.Notifications.AddRange(
-            NewNotification(tenantA.Id, tenantAMember.Id, "TenantA notification", now),
-            NewNotification(tenantB.Id, tenantBMember.Id, "TenantB notification", now));
+        dbContext.Notifications.AddRange(notificationA, notificationB);
         dbContext.AuditLogs.AddRange(
             NewAuditLog(tenantA.Id, tenantAAdmin.Id, workspaceA.Id, "TenantA audit", now),
             NewAuditLog(tenantB.Id, tenantBOwner.Id, workspaceB.Id, "TenantB audit", now));
@@ -198,7 +200,9 @@ internal sealed class TenantIsolationTestData
             ConversationA = conversationA,
             ConversationB = conversationB,
             AnnouncementA = announcementA,
-            AnnouncementB = announcementB
+            AnnouncementB = announcementB,
+            NotificationA = notificationA,
+            NotificationB = notificationB
         };
     }
 
@@ -313,13 +317,13 @@ internal sealed class TenantIsolationTestData
         return file;
     }
 
-    private static Attachment NewAttachment(Guid tenantId, Guid workspaceId, Guid fileObjectId, Guid userId, string storageKey) => new()
+    private static Attachment NewAttachment(Guid tenantId, Guid workspaceId, Guid fileObjectId, Guid ownerId, Guid userId, string storageKey) => new()
     {
         TenantId = tenantId,
         WorkspaceId = workspaceId,
         FileObjectId = fileObjectId,
         OwnerType = AttachmentOwnerType.TaskItem,
-        OwnerId = Guid.NewGuid(),
+        OwnerId = ownerId,
         OwnerUserId = userId,
         UploadedByUserId = userId,
         FileName = "file.txt",

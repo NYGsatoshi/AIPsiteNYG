@@ -6,3 +6,6 @@ obj/
 *.user
 *.suo
 TestResults/
+.tmp/
+data/
+src/AipPortal.Web/data/

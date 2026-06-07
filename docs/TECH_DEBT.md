@@ -8,7 +8,8 @@ Severity: High
 Description: Existing tenant isolation coverage is mostly EF/service-level. It does not yet prove the full ASP.NET Core request pipeline, cookie auth, tenant middleware, and controller routing boundaries with TenantA/TenantB/PlatformAdmin clients.
 Risk: SaaS regressions could slip through if a controller or route bypasses an application-layer authorization expectation.
 Suggested fix: Add `WebApplicationFactory` integration tests with seeded tenants, authenticated clients, tenant resolution variants, and cross-tenant negative assertions for major APIs.
-Fixed now: no
+Fixed now: yes
+Resolution: Added a Kestrel-backed authenticated HTTP tenant isolation harness in `HttpTenantIsolationTests`. It exercises real controllers, tenant middleware, authorization, application services, repositories, and startup validation with seeded TenantA/TenantB data. Coverage includes tenant resolution, workspace/group/project/task/direct-message/file/notification boundaries, cross-tenant negative lookups, file download denial, outsider access, and unauthenticated 401 behavior. The harness uses deterministic test auth claims instead of browser cookie login; cookie-auth unsafe-method CSRF coverage remains tracked separately in TD-005.
 Owner suggestion: Security
 
 ## TD-002

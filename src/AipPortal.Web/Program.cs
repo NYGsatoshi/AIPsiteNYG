@@ -9,6 +9,7 @@ using AipPortal.Web.Configuration;
 using AipPortal.Web.Extensions;
 using AipPortal.Web.Middleware;
 using Microsoft.AspNetCore.Authentication.Cookies;
+using Microsoft.AspNetCore.DataProtection;
 using Microsoft.AspNetCore.RateLimiting;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Options;
@@ -19,6 +20,15 @@ builder.Services
     .AddApplication()
     .AddInfrastructure(builder.Configuration)
     .AddWebServices(builder.Configuration);
+
+var dataProtectionKeysPath = builder.Configuration["DataProtection:KeysPath"];
+if (!string.IsNullOrWhiteSpace(dataProtectionKeysPath))
+{
+    var keysDirectory = Path.GetFullPath(dataProtectionKeysPath);
+    Directory.CreateDirectory(keysDirectory);
+    builder.Services.AddDataProtection()
+        .PersistKeysToFileSystem(new DirectoryInfo(keysDirectory));
+}
 
 builder.Services
     .AddAuthentication(CookieAuthenticationDefaults.AuthenticationScheme)

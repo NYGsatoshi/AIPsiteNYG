@@ -2,9 +2,9 @@
 
 Last updated: 2026-06-08
 
-Verification snapshot: `dotnet build AipPortal.slnx` passed with 0 errors on 2026-06-08. `dotnet test AipPortal.slnx` passed with 84 passed, 0 failed, and 0 skipped on 2026-06-08. Both commands reported NU1900 warnings because the NuGet vulnerability feed was unreachable in the sandbox.
+Verification snapshot: `dotnet build AipPortal.slnx -c Release` passed with 0 warnings and 0 errors on 2026-06-08. `dotnet test AipPortal.slnx -c Release` passed with 88 passed, 0 failed, and 0 skipped on 2026-06-08. Runtime startup was partially verified: the app starts in Development, `/health/live` returns 200, and `/api/auth/me` returns 401 when unauthenticated. `/health` and `/health/ready` return 503 because the local PostgreSQL server requires a password while the verified local connection string did not provide one.
 
-## Ready
+## Implemented
 
 - Modular ASP.NET Core app with application, domain, infrastructure, and web layers.
 - Tenant model, tenant membership, tenant settings, plans, subscriptions, and usage records.
@@ -14,7 +14,7 @@ Verification snapshot: `dotnet build AipPortal.slnx` passed with 0 errors on 202
 - PlatformAdmin tenant lifecycle APIs.
 - Tenant switching with active membership checks.
 - OnPremSingleTenant default tenant support and switching disabled.
-- Suspended tenant resolution rejection.
+- Suspended tenant resolution rejection and tenant-owned save guard.
 - File storage abstraction with local filesystem implementation.
 - Tenant-namespaced file storage keys.
 - File upload policy and quota hooks.
@@ -24,21 +24,22 @@ Verification snapshot: `dotnet build AipPortal.slnx` passed with 0 errors on 202
 - `/health/live` and `/health/ready`.
 - HSTS, HTTPS redirection, secure cookie configuration, and baseline security headers.
 - Named rate-limit policies for login, invite registration, file upload, search, and API token creation.
-- Tenant isolation/security tests and CI workflow.
-- Application-layer defense-in-depth for suspended/archived/deleted tenant writes through tenant-owned save boundaries.
+- Service/EF tenant isolation and security tests.
+- Authenticated HTTP tenant isolation tests for tenant resolution, core resource boundaries, notifications, file metadata/download denial, outsider access, and unauthenticated rejection.
 - Tenant-aware shell context, tenant switcher, separated Platform Admin and Tenant Admin navigation, tenant usage/quota/feature display, and onboarding checklist UI.
 - Local demo documentation, smoke checklist, API smoke examples, handoff guide, demo script, limitations note, and school-facing explanation.
+- Development Data Protection key path configuration for local runs in restricted workspaces.
 
-## Partially Ready
+## Partially Implemented
 
-- Rate limiting exists for the most sensitive implemented routes, including login, invite registration, file uploads, artifact version uploads, search, and API token creation; additional policies are recommended for password reset after that endpoint exists.
-- Readiness checks database, storage configuration, and on-prem default tenant; object storage adapter checks are configuration-level until object storage is implemented.
-- File sharing, upload size, extension allowlist, MIME allowlist, and quota enforcement are implemented in file upload paths; broader project/task feature gates need more service-level enforcement before pilot.
+- Rate limiting exists for sensitive implemented routes, but password reset does not exist yet.
+- Readiness checks database, storage configuration, and on-prem default tenant; object storage checks remain configuration-level until object storage is implemented.
+- File sharing, upload size, extension allowlist, MIME allowlist, and quota enforcement are implemented in upload paths; broader project/task feature gates need more service-level enforcement before pilot.
 - Search is tenant-filtered through global filters and membership predicates, but lacks PostgreSQL-backed HTTP integration tests.
 - PlatformAdmin tenant lifecycle is audited at service level; full HTTP audit assertions are still needed.
-- Suspended tenant behavior is enforced at resolution/switching boundaries and at tenant-owned save boundaries.
+- Suspended tenant behavior is enforced at resolution/switching boundaries and tenant-owned save boundaries.
 - OnPremSingleTenant mode is configuration-backed and seed-aware, but every pilot installation still needs a real startup, storage, backup, and restore smoke pass.
-- API smoke examples exist, but they use placeholders and must be run against a seeded environment.
+- API smoke examples exist, but they use placeholders and were not run against a seeded environment in this verification pass.
 
 ## Not Implemented
 
@@ -46,68 +47,74 @@ Verification snapshot: `dotnet build AipPortal.slnx` passed with 0 errors on 202
 - Full tenant restore.
 - Password reset flow and rate-limit policy.
 - API request metering middleware.
-- Full WebApplicationFactory integration harness with authenticated tenant clients.
+- API token request authentication middleware.
+- PostgreSQL-backed authenticated HTTP tenant isolation harness.
 - Frontend automated tests for tenant switcher, admin navigation visibility, disabled modules, suspended tenant state, and quota warnings.
 - Background job health checks.
 - Full CSRF token enforcement if cookie-auth browser clients begin using unsafe methods from rendered pages.
 - Live streaming, voice/video, E2EE, full billing, advanced SSO, full-text search engine, complete external integrations, advanced Gantt drag editing, and full free-form docking.
 
-## Blockers
+## Verification Status
 
-- Broad SaaS pilot is blocked by missing production object storage, authenticated HTTP tenant isolation tests, PostgreSQL-backed search isolation tests, and a recorded backup/restore drill.
-- School pilot is blocked until the target installation passes manual smoke tests and a restore drill.
-- Production use is blocked until production secrets, HTTPS, secure cookies, HSTS, admin bootstrap, and backup procedures are verified in the deployed environment.
+- Build status: Ready. Release build passed with 0 warnings and 0 errors.
+- Test status: Ready. Release test run passed with 88 passed, 0 failed, and 0 skipped.
+- Run status: Not ready. App startup and `/health/live` were verified, but `/health` and `/health/ready` return 503 until the local database connection string includes valid PostgreSQL credentials and migrations are applied.
+- Migration status: Partially verified. EF migrations compile and list through the direct `dotnet-ef.dll` fallback. Applied/pending database status was not determined because PostgreSQL rejected the passwordless local connection string with `No password has been provided but the backend requires one (in SASL/SCRAM-SHA-256)`.
+- Docker status: Not run in this pass. Dockerfile and compose files are present and use required `POSTGRES_PASSWORD` variables, but container startup was not verified.
+
+## Critical Blockers
+
+- Local database readiness is blocked until `ConnectionStrings:DefaultConnection` includes valid credentials for the local PostgreSQL server and migrations are applied.
+- Manual smoke workflows were not completed because database readiness failed.
+- SaaS readiness remains Unsafe because PostgreSQL-backed search isolation is unverified and production object storage is missing.
+
+## High Blockers
+
+- PostgreSQL-backed search isolation tests are still missing.
+- Production object storage is not implemented.
+- Backup and restore drill has not been executed or recorded.
+
+## Remaining Manual Checks
+
+- Local dev startup with a valid PostgreSQL password and migrated database.
+- `/health/ready` after database migration.
+- Default tenant resolution in Development and OnPremSingleTenant modes.
+- Login or invite-based user creation.
+- Create workspace, group, project, and task.
+- Direct message workflow if seeded users exist.
+- File upload/download authorization.
+- Notification visibility/read state.
+- TenantA/TenantB manual HTTP isolation check against a migrated environment.
+- Docker Compose startup.
+- Backup and restore drill.
+
+## Readiness
+
+- Demo readiness: Not ready. The app starts and live health works, but database-backed readiness and smoke workflows are not verified.
+- Internal school pilot readiness: Not ready. Build/tests are green, but local database readiness, manual smoke, and restore rehearsal are still open.
+- School pilot readiness: Not ready. Requires target-environment smoke tests, tenant checks, and restore rehearsal.
+- SaaS readiness: Unsafe. Authenticated HTTP tenant isolation now has automated coverage, but PostgreSQL search isolation is unverified, production object storage is missing, and no restore drill has been recorded.
+- On-prem readiness: Not ready. OnPremSingleTenant support exists, but this pass did not verify migrated startup, default tenant readiness, file storage operations, or restore.
+
+## Fixed In This Verification Pass
+
+- Added optional `DataProtection:KeysPath` support in `src/AipPortal.Web/Program.cs`.
+- Added Development-only `DataProtection:KeysPath` and disabled Development EventLog logging in `src/AipPortal.Web/appsettings.Development.json` so local runs in restricted workspaces do not attempt to use inaccessible user-profile key storage or Windows EventLog.
+- Added authenticated HTTP tenant isolation tests in `tests/AipPortal.Tests/Tenancy/HttpTenantIsolationTests.cs`.
+- Fixed tenant isolation seed attachments so file download authorization tests point at real task owners.
 
 ## Known Risks
 
-- No full HTTP authorization-boundary test harness yet.
+- HTTP authorization-boundary coverage exists for core tenant isolation paths, but it still uses EF InMemory and does not replace PostgreSQL-backed search isolation tests.
 - PostgreSQL-specific search behavior is not tested in CI.
 - Local filesystem storage is acceptable for small on-prem only; SaaS should move to object storage.
 - Backup/restore has documentation but should be rehearsed before real users.
 - Full CSRF token enforcement and API token request authentication are not implemented.
 
-## Required Manual Checks
-
-- Local dev startup.
-- Docker Compose startup.
-- OnPremSingleTenant startup.
-- SaaS-mode tenant setup.
-- First admin setup and setup-mode shutdown.
-- Basic user workflow from invite through suspension/reactivation.
-- Workspace/group/channel post/thread/pin workflow.
-- DM unread/read-state workflow.
-- Announcement read confirmation workflow.
-- Project/task/artifact/Gantt/dashboard/my-tasks workflow.
-- File upload, invalid file rejection, authorized download, and unauthorized denial.
-- TenantA/TenantB manual isolation check.
-- Backup and restore drill.
-
-## Security Limitations
-
-- Do not enable development tenant headers in production.
-- Do not enable PlatformAdmin setup mode in production.
-- Do not expose signed storage URLs without authorization.
-- Do not accept TenantId from request bodies.
-- Do not use `IgnoreQueryFilters` in normal application services.
-
-## Operational Limitations
-
-- Tenant export is metadata-only.
-- Restore is full-system restore only; tenant-level restore is future work.
-- Usage metering is not complete for API request counts.
-- Object storage readiness is configuration-only until a production adapter is added.
-
 ## Recommended Next Work
 
-1. Add HTTP integration tests with authenticated TenantA/TenantB/PlatformAdmin clients.
-2. Add PostgreSQL-backed search isolation tests.
-3. Add object storage adapter for SaaS.
-4. Add frontend tests for tenant/admin UI behavior once a frontend harness is chosen.
-5. Run a full backup and restore drill before pilot launch.
-
-## Recommendation
-
-- Ready for local demo: yes, after manual smoke.
-- Ready for school pilot: conditionally, only after environment-specific smoke tests and restore rehearsal pass.
-- Ready for SaaS pilot: no.
-- Current status: conditionally safe for an internal controlled pilot only. Unsafe for broader production SaaS until object storage, authenticated HTTP isolation tests, PostgreSQL-backed search isolation tests, and restore drill evidence are complete.
+1. Provide a valid local PostgreSQL password in `ConnectionStrings:DefaultConnection`, run migrations, and re-check `/health/ready`.
+2. Run the documented smoke workflow against the migrated local database.
+3. Add PostgreSQL-backed search isolation tests.
+4. Run and record a backup and restore drill before pilot launch.
+5. Verify Docker Compose startup and manual tenant/workflow smoke tests.
