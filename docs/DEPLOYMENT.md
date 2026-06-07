@@ -44,6 +44,8 @@ $env:ConnectionStrings__DefaultConnection='Host=localhost;Port=5432;Database=aip
 dotnet run --project src/AipPortal.Web
 ```
 
+Local development can use `appsettings.Development.json`, local PostgreSQL, and `FileStorage:Provider=LocalFileSystem`. Use development tenant headers only in development.
+
 ## Docker Compose
 
 ```powershell
@@ -60,15 +62,90 @@ $env:POSTGRES_PASSWORD='<strong-password>'
 docker compose -f docker-compose.onprem.yml up --build
 ```
 
-## VPS Outline
+## XServer VPS Outline
 
 1. Install Docker and Docker Compose.
 2. Clone the repository.
-3. Set production environment variables in a protected shell profile or `.env` file.
-4. Run `docker compose up -d --build`.
-5. Put the app behind a reverse proxy with HTTPS.
-6. Run migrations before serving real users.
-7. Create the initial SystemAdmin account through a controlled seed or database bootstrap process.
+3. Create a PostgreSQL database/user or run PostgreSQL through Compose.
+4. Set production environment variables in a protected shell profile or `.env` file.
+5. Run migrations before serving real users.
+6. Run `docker compose up -d --build`.
+7. Put the app behind nginx or another reverse proxy with HTTPS.
+8. Verify `/health/live`, `/health/ready`, login, tenant resolution, and file upload/download.
+9. Create the initial PlatformAdmin account through a controlled bootstrap process.
+10. Create the first tenant through `/api/platform/tenants`.
+
+## OCI Deployment Outline
+
+1. Use managed PostgreSQL or a hardened VM PostgreSQL deployment.
+2. Use OCI Object Storage when the object-storage adapter is implemented; until then, local filesystem is evaluation-only.
+3. Store secrets in OCI Vault or another approved secret manager.
+4. Deploy the app container to a VM, container instance, or Kubernetes service.
+5. Terminate HTTPS at a load balancer or reverse proxy.
+6. Run migrations as a controlled job.
+7. Verify health checks and tenant isolation before traffic.
+
+## OnPremSingleTenant Deployment
+
+Use:
+
+- `Tenancy:AppMode=OnPremSingleTenant`
+- `Tenancy:DefaultTenantSlug=<organization-slug>`
+- `Tenancy:AllowTenantSwitching=false`
+- `Tenancy:SeedOnStartup=true` for first startup if the default tenant should be created automatically.
+
+Confirm `/health/ready` reports ready only after the default tenant exists and the database/storage checks pass.
+
+## SaaS Deployment
+
+Use:
+
+- `Tenancy:AppMode=SaaS`
+- `Tenancy:TenantResolutionStrategy=Host` or `Subdomain`
+- `Tenancy:AllowDevelopmentHeaderInProduction=false`
+- `Security:CookieSecurePolicy=Always`
+- `Security:RequireHttps=true`
+- `Security:EnableHsts=true`
+
+SaaS should use object storage once the adapter is implemented. Local filesystem storage is not recommended for production SaaS.
+
+## Reverse Proxy And HTTPS
+
+Configure the reverse proxy to:
+
+- Terminate TLS.
+- Redirect HTTP to HTTPS.
+- Forward `X-Forwarded-For` and `X-Forwarded-Proto` when trusted proxy handling is configured.
+- Limit request body size consistently with `FileStorage:MaxFileSizeBytes`.
+- Preserve host headers when using host/subdomain tenant resolution.
+
+## Runtime
+
+For a VM/systemd deployment:
+
+1. Publish the app.
+2. Configure environment variables in the service unit or protected env file.
+3. Set `ASPNETCORE_ENVIRONMENT=Production`.
+4. Run the app as a non-root user.
+5. Restart on failure.
+
+For Docker:
+
+1. Keep secrets out of the image.
+2. Mount file storage or use object storage.
+3. Run migrations separately from app startup.
+4. Configure health checks against `/health/ready`.
+
+## Admin Bootstrap And First Tenant
+
+Do not hardcode production admin passwords. For pilot:
+
+1. Create a PlatformAdmin through a controlled bootstrap procedure.
+2. Disable any setup mode after bootstrap.
+3. Create the first tenant through platform API.
+4. Add the first tenant owner/admin.
+5. Verify PlatformAdmin cannot see tenant data through normal tenant endpoints.
+6. Verify tenant admin cannot access platform APIs.
 
 ## Backups
 

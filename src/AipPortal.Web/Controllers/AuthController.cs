@@ -4,6 +4,7 @@ using Microsoft.AspNetCore.Authentication;
 using Microsoft.AspNetCore.Authentication.Cookies;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
+using Microsoft.AspNetCore.RateLimiting;
 
 namespace AipPortal.Web.Controllers;
 
@@ -12,6 +13,7 @@ namespace AipPortal.Web.Controllers;
 public sealed class AuthController(IAuthService authService) : ControllerBase
 {
     [HttpPost("login")]
+    [EnableRateLimiting("login")]
     public async Task<ActionResult<LoginResponse>> Login(
         LoginRequest request,
         CancellationToken cancellationToken)
@@ -36,6 +38,7 @@ public sealed class AuthController(IAuthService authService) : ControllerBase
     }
 
     [HttpPost("register-by-invite")]
+    [EnableRateLimiting("invite")]
     public async Task<ActionResult<LoginResponse>> RegisterByInvite(
         RegisterByInviteRequest request,
         CancellationToken cancellationToken)

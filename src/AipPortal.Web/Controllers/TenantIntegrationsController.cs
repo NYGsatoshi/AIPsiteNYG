@@ -1,6 +1,7 @@
 using AipPortal.Application.Integrations;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
+using Microsoft.AspNetCore.RateLimiting;
 
 namespace AipPortal.Web.Controllers;
 
@@ -57,6 +58,7 @@ public sealed class TenantIntegrationsController(IIntegrationService integration
         ToActionResult(await integrations.ListApiTokensAsync(cancellationToken));
 
     [HttpPost("api/tenant/api-tokens")]
+    [EnableRateLimiting("api-token")]
     public async Task<IActionResult> CreateApiToken(CreateApiTokenRequest request, CancellationToken cancellationToken) =>
         ToActionResult(await integrations.CreateApiTokenAsync(request, cancellationToken));
 
