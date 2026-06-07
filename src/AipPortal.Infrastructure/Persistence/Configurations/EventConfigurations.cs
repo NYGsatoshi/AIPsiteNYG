@@ -64,7 +64,7 @@ public sealed class EventAttendanceConfiguration : IEntityTypeConfiguration<Even
 
         builder.HasIndex(attendance => attendance.EventId);
         builder.HasIndex(attendance => attendance.UserId);
-        builder.HasIndex(attendance => new { attendance.EventId, attendance.UserId }).IsUnique();
+        builder.HasIndex(attendance => new { attendance.TenantId, attendance.EventId, attendance.UserId }).IsUnique();
         builder.HasIndex(attendance => attendance.Status);
 
         builder

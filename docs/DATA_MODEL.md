@@ -4,11 +4,53 @@
 
 - Primary keys: `Guid Id`.
 - Timestamps: `CreatedAtUtc`, `UpdatedAtUtc`, and optional `DeletedAtUtc`.
+- Tenant-owned records include `TenantId` and implement `ITenantEntity`.
 - Soft delete: use where content should remain auditable or recoverable.
 - Names and slugs should be unique only within their required scope.
 - Store user-facing enums as strings or configured conversions for readability.
 - Add indexes for all foreign keys and common filters.
 - Use optimistic concurrency tokens for records likely to be edited by multiple users.
+
+## Tenancy
+
+### Tenant
+
+- `Id`
+- `Name`
+- `Slug`
+- `DisplayName`
+- `PrimaryDomain` nullable
+- `Status`
+- `PlanId` nullable
+- `CreatedAtUtc`
+- `UpdatedAtUtc`
+- `DeletedAtUtc`
+
+Indexes:
+
+- Unique `Slug`
+- Unique `PrimaryDomain` when set
+- `Status`
+
+### TenantUser
+
+- `Id`
+- `TenantId`
+- `UserId`
+- `Role`
+- `Status`
+- `JoinedAtUtc`
+- `InvitedByUserId` nullable
+- `CreatedAtUtc`
+- `UpdatedAtUtc`
+
+Indexes:
+
+- Unique active `(TenantId, UserId)`
+- `(TenantId, UserId, Status)`
+- `UserId`
+
+Tenant-owned entities include at least workspaces, groups, channels, messaging, announcements, notifications, projects, tasks, artifacts, files, events, forms, audit logs, security events, user layouts, and tenant-specific radial menu profiles/items. Future entities such as integration accounts, webhook endpoints, API tokens, and usage records must be tenant-scoped when implemented.
 
 ## Auth And Users
 

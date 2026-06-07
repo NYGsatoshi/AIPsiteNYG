@@ -1,9 +1,12 @@
 export const SystemRole = {
+  NormalUser: 0,
   User: 0,
   Staff: 1,
   Teacher: 2,
   Admin: 3,
-  SystemAdmin: 4
+  PlatformOperator: 4,
+  PlatformAdmin: 5,
+  SystemAdmin: 5
 };
 
 export const TaskPriority = {
@@ -40,7 +43,7 @@ export const labels = {
   taskPriority: ["Low", "Normal", "High", "Critical"],
   assignmentRole: ["Owner", "Assignee", "Reviewer", "Support"],
   projectRole: ["Owner", "Manager", "Contributor", "Reviewer", "Viewer"],
-  systemRole: ["User", "Staff", "Teacher", "Admin", "System admin"],
+  systemRole: ["Normal user", "Staff", "Teacher", "Admin", "Platform operator", "Platform admin"],
   announcementPriority: ["Normal", "Important", "Urgent"],
   artifactType: ["Document", "Image", "Video", "Code", "Presentation", "Spreadsheet", "Archive", "Other"],
   artifactStatus: ["Draft", "Submitted", "Reviewed", "Approved", "Archived"]

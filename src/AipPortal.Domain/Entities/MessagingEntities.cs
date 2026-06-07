@@ -3,8 +3,9 @@ using AipPortal.Domain.Enums;
 
 namespace AipPortal.Domain.Entities;
 
-public sealed class Conversation : AuditableEntity
+public sealed class Conversation : AuditableEntity, ITenantEntity
 {
+    public Guid TenantId { get; set; }
     public Guid WorkspaceId { get; set; }
     public ConversationType Type { get; set; } = ConversationType.Direct;
     public string? Title { get; set; }
@@ -16,8 +17,9 @@ public sealed class Conversation : AuditableEntity
     public ICollection<Message> Messages { get; } = new List<Message>();
 }
 
-public sealed class ConversationMember : AuditableEntity
+public sealed class ConversationMember : AuditableEntity, ITenantEntity
 {
+    public Guid TenantId { get; set; }
     public Guid ConversationId { get; set; }
     public Guid UserId { get; set; }
     public ConversationMemberRole Role { get; set; } = ConversationMemberRole.Member;
@@ -30,8 +32,9 @@ public sealed class ConversationMember : AuditableEntity
     public Message? LastReadMessage { get; set; }
 }
 
-public sealed class Message : SoftDeletableEntity
+public sealed class Message : SoftDeletableEntity, ITenantEntity
 {
+    public Guid TenantId { get; set; }
     public Guid ConversationId { get; set; }
     public Guid AuthorUserId { get; set; }
     public string Body { get; set; } = string.Empty;
@@ -42,8 +45,9 @@ public sealed class Message : SoftDeletableEntity
     public ICollection<MessageAttachment> Attachments { get; } = new List<MessageAttachment>();
 }
 
-public sealed class ReadState : AuditableEntity
+public sealed class ReadState : AuditableEntity, ITenantEntity
 {
+    public Guid TenantId { get; set; }
     public Guid UserId { get; set; }
     public ReadScopeType ScopeType { get; set; }
     public Guid ScopeId { get; set; }
@@ -57,8 +61,9 @@ public sealed class ReadState : AuditableEntity
     public Message? LastReadMessage { get; set; }
 }
 
-public sealed class MessageAttachment : Entity
+public sealed class MessageAttachment : Entity, ITenantEntity
 {
+    public Guid TenantId { get; set; }
     public Guid MessageId { get; set; }
     public Guid AttachmentId { get; set; }
 

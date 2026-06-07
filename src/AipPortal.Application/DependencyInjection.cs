@@ -14,8 +14,11 @@ using AipPortal.Application.Notifications;
 using AipPortal.Application.Planning;
 using AipPortal.Application.Projects;
 using AipPortal.Application.Search;
+using AipPortal.Application.Tenancy;
 using AipPortal.Application.UiShell;
 using AipPortal.Application.Workspaces;
+using AipPortal.Application.Common.Interfaces;
+using AipPortal.Application.Common.Tenancy;
 
 namespace AipPortal.Application;
 
@@ -23,6 +26,11 @@ public static class DependencyInjection
 {
     public static IServiceCollection AddApplication(this IServiceCollection services)
     {
+        services.AddScoped<CurrentTenantService>();
+        services.AddScoped<ICurrentTenant>(provider => provider.GetRequiredService<CurrentTenantService>());
+        services.AddScoped<ICurrentTenantAccessor>(provider => provider.GetRequiredService<CurrentTenantService>());
+        services.AddScoped<ITenantAuthorizationService, TenantAuthorizationService>();
+        services.AddScoped<ITenantService, TenantService>();
         services.AddScoped<IAuthService, AuthService>();
         services.AddScoped<IAdminService, AdminService>();
         services.AddScoped<IWorkspaceAuthorizationService, WorkspaceAuthorizationService>();

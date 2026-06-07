@@ -237,7 +237,7 @@ public sealed class UserLayoutConfiguration : IEntityTypeConfiguration<UserLayou
         builder.HasIndex(layout => layout.UserId);
         builder.HasIndex(layout => layout.WorkspaceId);
         builder.HasIndex(layout => new { layout.UserId, layout.ScopeType, layout.ScopeId });
-        builder.HasIndex(layout => new { layout.UserId, layout.WorkspaceId, layout.Name }).IsUnique();
+        builder.HasIndex(layout => new { layout.TenantId, layout.UserId, layout.WorkspaceId, layout.Name }).IsUnique();
 
         builder
             .HasOne(layout => layout.User)
@@ -296,8 +296,8 @@ public sealed class RadialMenuProfileConfiguration : IEntityTypeConfiguration<Ra
 
         builder.HasIndex(profile => profile.UserId);
         builder.HasIndex(profile => profile.WorkspaceId);
-        builder.HasIndex(profile => profile.ProfileKey).IsUnique();
-        builder.HasIndex(profile => new { profile.UserId, profile.WorkspaceId, profile.Name }).IsUnique();
+        builder.HasIndex(profile => new { profile.TenantId, profile.ProfileKey }).IsUnique();
+        builder.HasIndex(profile => new { profile.TenantId, profile.UserId, profile.WorkspaceId, profile.Name }).IsUnique();
 
         builder
             .HasOne(profile => profile.User)

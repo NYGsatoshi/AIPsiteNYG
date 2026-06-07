@@ -19,7 +19,7 @@ public sealed class ProjectConfiguration : IEntityTypeConfiguration<Project>
         builder.HasIndex(project => project.WorkspaceId);
         builder.HasIndex(project => project.GroupId);
         builder.HasIndex(project => project.OwnerUserId);
-        builder.HasIndex(project => new { project.WorkspaceId, project.Slug }).IsUnique();
+        builder.HasIndex(project => new { project.TenantId, project.WorkspaceId, project.Slug }).IsUnique();
         builder.HasIndex(project => project.Status);
         builder.HasIndex(project => project.DueDate);
 
@@ -59,7 +59,7 @@ public sealed class ProjectMemberConfiguration : IEntityTypeConfiguration<Projec
         builder.Property(member => member.Role).HasEnumStringConversion().IsRequired();
         builder.Property(member => member.JoinedAt).IsRequired();
 
-        builder.HasIndex(member => new { member.ProjectId, member.UserId }).IsUnique();
+        builder.HasIndex(member => new { member.TenantId, member.ProjectId, member.UserId }).IsUnique();
         builder.HasIndex(member => member.UserId);
 
         builder
@@ -152,7 +152,7 @@ public sealed class TaskAssignmentConfiguration : IEntityTypeConfiguration<TaskA
         builder.Property(assignment => assignment.ActualHours).HasPrecision(8, 2);
         builder.Property(assignment => assignment.AssignedAt).IsRequired();
 
-        builder.HasIndex(assignment => new { assignment.TaskItemId, assignment.UserId, assignment.Role }).IsUnique();
+        builder.HasIndex(assignment => new { assignment.TenantId, assignment.TaskItemId, assignment.UserId, assignment.Role }).IsUnique();
         builder.HasIndex(assignment => assignment.UserId);
         builder.HasIndex(assignment => assignment.AssignedByUserId);
 
@@ -186,7 +186,7 @@ public sealed class TaskDependencyConfiguration : IEntityTypeConfiguration<TaskD
         builder.Property(dependency => dependency.DependencyType).HasEnumStringConversion().IsRequired();
 
         builder.HasIndex(dependency => dependency.ProjectId);
-        builder.HasIndex(dependency => new { dependency.PredecessorTaskItemId, dependency.SuccessorTaskItemId }).IsUnique();
+        builder.HasIndex(dependency => new { dependency.TenantId, dependency.PredecessorTaskItemId, dependency.SuccessorTaskItemId }).IsUnique();
 
         builder
             .HasOne(dependency => dependency.Project)
@@ -297,7 +297,7 @@ public sealed class ArtifactVersionConfiguration : IEntityTypeConfiguration<Arti
 
         builder.Property(version => version.Notes).HasMaxLength(4000);
 
-        builder.HasIndex(version => new { version.ArtifactId, version.VersionNumber }).IsUnique();
+        builder.HasIndex(version => new { version.TenantId, version.ArtifactId, version.VersionNumber }).IsUnique();
         builder.HasIndex(version => version.AttachmentId);
         builder.HasIndex(version => version.CreatedByUserId);
 

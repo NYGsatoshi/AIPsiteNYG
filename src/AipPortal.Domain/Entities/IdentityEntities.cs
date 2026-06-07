@@ -25,8 +25,9 @@ public sealed class Session : AuditableEntity
     public User? User { get; set; }
 }
 
-public sealed class Invite : AuditableEntity
+public sealed class Invite : AuditableEntity, ITenantEntity
 {
+    public Guid TenantId { get; set; }
     public Guid WorkspaceId { get; set; }
     public string Email { get; set; } = string.Empty;
     public string NormalizedEmail { get; set; } = string.Empty;

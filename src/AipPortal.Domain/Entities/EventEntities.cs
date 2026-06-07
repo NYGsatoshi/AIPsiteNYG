@@ -3,8 +3,9 @@ using AipPortal.Domain.Enums;
 
 namespace AipPortal.Domain.Entities;
 
-public sealed class ActivityEvent : SoftDeletableEntity
+public sealed class ActivityEvent : SoftDeletableEntity, ITenantEntity
 {
+    public Guid TenantId { get; set; }
     public Guid? WorkspaceId { get; set; }
     public Guid? GroupId { get; set; }
     public Guid? ProjectId { get; set; }
@@ -26,8 +27,9 @@ public sealed class ActivityEvent : SoftDeletableEntity
     public ICollection<EventAttendance> Attendances { get; } = new List<EventAttendance>();
 }
 
-public sealed class EventAttendance : AuditableEntity
+public sealed class EventAttendance : AuditableEntity, ITenantEntity
 {
+    public Guid TenantId { get; set; }
     public Guid EventId { get; set; }
     public Guid UserId { get; set; }
     public AttendanceStatus Status { get; set; } = AttendanceStatus.Unanswered;

@@ -9,11 +9,56 @@ public enum UserStatus
 
 public enum SystemRole
 {
-    User = 0,
+    NormalUser = 0,
+    User = NormalUser,
     Staff = 1,
     Teacher = 2,
     Admin = 3,
-    SystemAdmin = 4
+    PlatformOperator = 4,
+    PlatformAdmin = 5,
+    SystemAdmin = PlatformAdmin
+}
+
+public enum AppMode
+{
+    SaaS = 0,
+    OnPremSingleTenant = 1,
+    OnPremMultiTenant = 2
+}
+
+public enum TenantResolutionStrategy
+{
+    Host = 0,
+    Subdomain = 1,
+    HeaderForDevelopmentOnly = 2,
+    Session = 3,
+    ConfigDefault = 4
+}
+
+public enum TenantStatus
+{
+    Active = 0,
+    Suspended = 1,
+    Archived = 2,
+    Deleted = 3
+}
+
+public enum TenantUserRole
+{
+    Owner = 0,
+    Admin = 1,
+    Staff = 2,
+    Member = 3,
+    Guest = 4
+}
+
+public enum TenantUserStatus
+{
+    Active = 0,
+    Suspended = 1,
+    Invited = 2,
+    Left = 3,
+    Archived = 4
 }
 
 public enum WorkspaceStatus

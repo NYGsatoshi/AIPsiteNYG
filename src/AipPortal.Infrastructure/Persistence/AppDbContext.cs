@@ -1,11 +1,17 @@
 using AipPortal.Domain.Common;
 using AipPortal.Domain.Entities;
+using AipPortal.Application.Common.Interfaces;
 using Microsoft.EntityFrameworkCore;
+using Microsoft.EntityFrameworkCore.Metadata;
 
 namespace AipPortal.Infrastructure.Persistence;
 
-public sealed class AppDbContext(DbContextOptions<AppDbContext> options) : DbContext(options)
+public sealed class AppDbContext(
+    DbContextOptions<AppDbContext> options,
+    ICurrentTenant currentTenant) : DbContext(options)
 {
+    public DbSet<Tenant> Tenants => Set<Tenant>();
+    public DbSet<TenantUser> TenantUsers => Set<TenantUser>();
     public DbSet<User> Users => Set<User>();
     public DbSet<Session> Sessions => Set<Session>();
     public DbSet<Invite> Invites => Set<Invite>();
@@ -57,12 +63,21 @@ public sealed class AppDbContext(DbContextOptions<AppDbContext> options) : DbCon
     public override Task<int> SaveChangesAsync(CancellationToken cancellationToken = default)
     {
         StampAuditableEntities();
+        ApplyTenantRules();
         return base.SaveChangesAsync(cancellationToken);
+    }
+
+    public override int SaveChanges()
+    {
+        StampAuditableEntities();
+        ApplyTenantRules();
+        return base.SaveChanges();
     }
 
     protected override void OnModelCreating(ModelBuilder modelBuilder)
     {
         modelBuilder.ApplyConfigurationsFromAssembly(typeof(AppDbContext).Assembly);
+        ApplyTenantEntityConfiguration(modelBuilder);
         base.OnModelCreating(modelBuilder);
     }
 
@@ -82,5 +97,71 @@ public sealed class AppDbContext(DbContextOptions<AppDbContext> options) : DbCon
                 entry.Entity.UpdatedAt = now;
             }
         }
+    }
+
+    private void ApplyTenantRules()
+    {
+        foreach (var entry in ChangeTracker.Entries<ITenantEntity>())
+        {
+            if (entry.State is EntityState.Detached or EntityState.Unchanged)
+            {
+                continue;
+            }
+
+            if (currentTenant.IsPlatformScope)
+            {
+                if (entry.State == EntityState.Added && entry.Entity.TenantId == Guid.Empty)
+                {
+                    throw new InvalidOperationException("Platform-scope tenant entities must set TenantId explicitly.");
+                }
+
+                continue;
+            }
+
+            if (!currentTenant.IsAvailable)
+            {
+                throw new InvalidOperationException("A tenant scope is required to save tenant-owned data.");
+            }
+
+            if (entry.State == EntityState.Added && entry.Entity.TenantId == Guid.Empty)
+            {
+                entry.Entity.TenantId = currentTenant.TenantId;
+                continue;
+            }
+
+            if (entry.Entity.TenantId != currentTenant.TenantId)
+            {
+                throw new InvalidOperationException("TenantId does not match the current tenant context.");
+            }
+        }
+    }
+
+    private void ApplyTenantEntityConfiguration(ModelBuilder modelBuilder)
+    {
+        foreach (var entityType in modelBuilder.Model.GetEntityTypes()
+            .Where(entityType => typeof(ITenantEntity).IsAssignableFrom(entityType.ClrType)))
+        {
+            ConfigureTenantEntity(modelBuilder, entityType);
+        }
+    }
+
+    private void ConfigureTenantEntity(ModelBuilder modelBuilder, IMutableEntityType entityType)
+    {
+        var builder = modelBuilder.Entity(entityType.ClrType);
+        builder.Property<Guid>(nameof(ITenantEntity.TenantId)).IsRequired();
+        builder.HasIndex(nameof(ITenantEntity.TenantId));
+
+        var method = typeof(AppDbContext)
+            .GetMethod(nameof(ApplyTenantQueryFilter), System.Reflection.BindingFlags.Instance | System.Reflection.BindingFlags.NonPublic)!
+            .MakeGenericMethod(entityType.ClrType);
+        method.Invoke(this, new object[] { modelBuilder });
+    }
+
+    private void ApplyTenantQueryFilter<TEntity>(ModelBuilder modelBuilder)
+        where TEntity : class, ITenantEntity
+    {
+        modelBuilder.Entity<TEntity>().HasQueryFilter(entity =>
+            currentTenant.IsPlatformScope ||
+            (currentTenant.IsAvailable && entity.TenantId == currentTenant.TenantId));
     }
 }

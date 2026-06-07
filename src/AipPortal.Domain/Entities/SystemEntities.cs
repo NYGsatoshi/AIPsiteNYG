@@ -3,8 +3,9 @@ using AipPortal.Domain.Enums;
 
 namespace AipPortal.Domain.Entities;
 
-public sealed class Attachment : SoftDeletableEntity
+public sealed class Attachment : SoftDeletableEntity, ITenantEntity
 {
+    public Guid TenantId { get; set; }
     public Guid WorkspaceId { get; set; }
     public AttachmentOwnerType? OwnerType { get; set; }
     public Guid? OwnerId { get; set; }
@@ -26,8 +27,9 @@ public sealed class Attachment : SoftDeletableEntity
     public ICollection<FileScanResult> ScanResults { get; } = new List<FileScanResult>();
 }
 
-public sealed class FileScanResult : Entity
+public sealed class FileScanResult : Entity, ITenantEntity
 {
+    public Guid TenantId { get; set; }
     public Guid AttachmentId { get; set; }
     public FileScanStatus Status { get; set; }
     public string ScannerName { get; set; } = string.Empty;
@@ -37,8 +39,9 @@ public sealed class FileScanResult : Entity
     public Attachment? Attachment { get; set; }
 }
 
-public sealed class AuditLog : Entity
+public sealed class AuditLog : Entity, ITenantEntity
 {
+    public Guid TenantId { get; set; }
     public Guid? ActorUserId { get; set; }
     public string Action { get; set; } = string.Empty;
     public string EntityType { get; set; } = string.Empty;
@@ -59,8 +62,9 @@ public sealed class AuditLog : Entity
     public Project? Project { get; set; }
 }
 
-public sealed class SecurityEvent : Entity
+public sealed class SecurityEvent : Entity, ITenantEntity
 {
+    public Guid TenantId { get; set; }
     public SecurityEventType EventType { get; set; } = SecurityEventType.AccessDenied;
     public Guid? UserId { get; set; }
     public string? Email { get; set; }
@@ -123,8 +127,9 @@ public sealed class PanelDefinition : AuditableEntity
     public FeatureModule? FeatureModule { get; set; }
 }
 
-public sealed class UserLayout : Entity
+public sealed class UserLayout : Entity, ITenantEntity
 {
+    public Guid TenantId { get; set; }
     public Guid UserId { get; set; }
     public Guid? WorkspaceId { get; set; }
     public LayoutScopeType ScopeType { get; set; } = LayoutScopeType.Global;
@@ -157,8 +162,9 @@ public sealed class CommandDefinition : AuditableEntity
     public FeatureModule? FeatureModule { get; set; }
 }
 
-public sealed class RadialMenuProfile : AuditableEntity
+public sealed class RadialMenuProfile : AuditableEntity, ITenantEntity
 {
+    public Guid TenantId { get; set; }
     public Guid? UserId { get; set; }
     public Guid? WorkspaceId { get; set; }
     public string ProfileKey { get; set; } = string.Empty;
@@ -172,8 +178,9 @@ public sealed class RadialMenuProfile : AuditableEntity
     public ICollection<RadialMenuItem> Items { get; } = new List<RadialMenuItem>();
 }
 
-public sealed class RadialMenuItem : Entity
+public sealed class RadialMenuItem : Entity, ITenantEntity
 {
+    public Guid TenantId { get; set; }
     public Guid RadialMenuProfileId { get; set; }
     public Guid? CommandDefinitionId { get; set; }
     public Guid? ParentItemId { get; set; }

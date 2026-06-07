@@ -3,8 +3,9 @@ using AipPortal.Domain.Enums;
 
 namespace AipPortal.Domain.Entities;
 
-public sealed class Workspace : SoftDeletableEntity
+public sealed class Workspace : SoftDeletableEntity, ITenantEntity
 {
+    public Guid TenantId { get; set; }
     public string Name { get; set; } = string.Empty;
     public string Slug { get; set; } = string.Empty;
     public string? Description { get; set; }
@@ -17,8 +18,9 @@ public sealed class Workspace : SoftDeletableEntity
     public ICollection<Group> Groups { get; } = new List<Group>();
 }
 
-public sealed class WorkspaceMember : AuditableEntity
+public sealed class WorkspaceMember : AuditableEntity, ITenantEntity
 {
+    public Guid TenantId { get; set; }
     public Guid WorkspaceId { get; set; }
     public Guid UserId { get; set; }
     public WorkspaceRole Role { get; set; } = WorkspaceRole.Member;
@@ -29,8 +31,9 @@ public sealed class WorkspaceMember : AuditableEntity
     public User? User { get; set; }
 }
 
-public sealed class Group : SoftDeletableEntity
+public sealed class Group : SoftDeletableEntity, ITenantEntity
 {
+    public Guid TenantId { get; set; }
     public Guid WorkspaceId { get; set; }
     public Guid? ParentGroupId { get; set; }
     public string Name { get; set; } = string.Empty;
@@ -47,8 +50,9 @@ public sealed class Group : SoftDeletableEntity
     public ICollection<GroupMember> Members { get; } = new List<GroupMember>();
 }
 
-public sealed class GroupMember : AuditableEntity
+public sealed class GroupMember : AuditableEntity, ITenantEntity
 {
+    public Guid TenantId { get; set; }
     public Guid GroupId { get; set; }
     public Guid UserId { get; set; }
     public GroupRole Role { get; set; } = GroupRole.Member;

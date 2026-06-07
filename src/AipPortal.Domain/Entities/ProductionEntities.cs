@@ -3,8 +3,9 @@ using AipPortal.Domain.Enums;
 
 namespace AipPortal.Domain.Entities;
 
-public sealed class Project : SoftDeletableEntity
+public sealed class Project : SoftDeletableEntity, ITenantEntity
 {
+    public Guid TenantId { get; set; }
     public Guid WorkspaceId { get; set; }
     public Guid? GroupId { get; set; }
     public Guid OwnerUserId { get; set; }
@@ -25,8 +26,9 @@ public sealed class Project : SoftDeletableEntity
     public ICollection<TaskItem> Tasks { get; } = new List<TaskItem>();
 }
 
-public sealed class ProjectMember : AuditableEntity
+public sealed class ProjectMember : AuditableEntity, ITenantEntity
 {
+    public Guid TenantId { get; set; }
     public Guid ProjectId { get; set; }
     public Guid UserId { get; set; }
     public ProjectRole Role { get; set; } = ProjectRole.Contributor;
@@ -36,8 +38,9 @@ public sealed class ProjectMember : AuditableEntity
     public User? User { get; set; }
 }
 
-public sealed class Milestone : SoftDeletableEntity
+public sealed class Milestone : SoftDeletableEntity, ITenantEntity
 {
+    public Guid TenantId { get; set; }
     public Guid ProjectId { get; set; }
     public string Name { get; set; } = string.Empty;
     public string? Description { get; set; }
@@ -49,8 +52,9 @@ public sealed class Milestone : SoftDeletableEntity
     public ICollection<TaskItem> Tasks { get; } = new List<TaskItem>();
 }
 
-public sealed class TaskItem : SoftDeletableEntity
+public sealed class TaskItem : SoftDeletableEntity, ITenantEntity
 {
+    public Guid TenantId { get; set; }
     public Guid ProjectId { get; set; }
     public Guid? MilestoneId { get; set; }
     public string Title { get; set; } = string.Empty;
@@ -71,8 +75,9 @@ public sealed class TaskItem : SoftDeletableEntity
     public ICollection<TaskDependency> SuccessorDependencies { get; } = new List<TaskDependency>();
 }
 
-public sealed class TaskAssignment : Entity
+public sealed class TaskAssignment : Entity, ITenantEntity
 {
+    public Guid TenantId { get; set; }
     public Guid TaskItemId { get; set; }
     public Guid UserId { get; set; }
     public TaskAssignmentRole Role { get; set; } = TaskAssignmentRole.Assignee;
@@ -86,8 +91,9 @@ public sealed class TaskAssignment : Entity
     public User? AssignedByUser { get; set; }
 }
 
-public sealed class TaskDependency : AuditableEntity
+public sealed class TaskDependency : AuditableEntity, ITenantEntity
 {
+    public Guid TenantId { get; set; }
     public Guid ProjectId { get; set; }
     public Guid PredecessorTaskItemId { get; set; }
     public Guid SuccessorTaskItemId { get; set; }
@@ -98,8 +104,9 @@ public sealed class TaskDependency : AuditableEntity
     public TaskItem? SuccessorTaskItem { get; set; }
 }
 
-public sealed class ActivityLog : AuditableEntity
+public sealed class ActivityLog : AuditableEntity, ITenantEntity
 {
+    public Guid TenantId { get; set; }
     public Guid ProjectId { get; set; }
     public Guid? TaskItemId { get; set; }
     public Guid AuthorUserId { get; set; }
@@ -112,8 +119,9 @@ public sealed class ActivityLog : AuditableEntity
     public User? AuthorUser { get; set; }
 }
 
-public sealed class Artifact : SoftDeletableEntity
+public sealed class Artifact : SoftDeletableEntity, ITenantEntity
 {
+    public Guid TenantId { get; set; }
     public Guid ProjectId { get; set; }
     public Guid? TaskItemId { get; set; }
     public string Name { get; set; } = string.Empty;
@@ -130,8 +138,9 @@ public sealed class Artifact : SoftDeletableEntity
     public ICollection<ArtifactVersion> Versions { get; } = new List<ArtifactVersion>();
 }
 
-public sealed class ArtifactVersion : SoftDeletableEntity
+public sealed class ArtifactVersion : SoftDeletableEntity, ITenantEntity
 {
+    public Guid TenantId { get; set; }
     public Guid ArtifactId { get; set; }
     public int VersionNumber { get; set; }
     public Guid AttachmentId { get; set; }
@@ -143,8 +152,9 @@ public sealed class ArtifactVersion : SoftDeletableEntity
     public User? CreatedByUser { get; set; }
 }
 
-public sealed class Comment : SoftDeletableEntity
+public sealed class Comment : SoftDeletableEntity, ITenantEntity
 {
+    public Guid TenantId { get; set; }
     public Guid WorkspaceId { get; set; }
     public Guid AuthorUserId { get; set; }
     public CommentTargetType TargetType { get; set; }
@@ -156,8 +166,9 @@ public sealed class Comment : SoftDeletableEntity
     public User? AuthorUser { get; set; }
 }
 
-public sealed class Feedback : SoftDeletableEntity
+public sealed class Feedback : SoftDeletableEntity, ITenantEntity
 {
+    public Guid TenantId { get; set; }
     public Guid WorkspaceId { get; set; }
     public Guid AuthorUserId { get; set; }
     public Guid? TargetUserId { get; set; }

@@ -3,8 +3,9 @@ using AipPortal.Domain.Enums;
 
 namespace AipPortal.Domain.Entities;
 
-public sealed class InternalForm : SoftDeletableEntity
+public sealed class InternalForm : SoftDeletableEntity, ITenantEntity
 {
+    public Guid TenantId { get; set; }
     public Guid? WorkspaceId { get; set; }
     public Guid? GroupId { get; set; }
     public Guid? ProjectId { get; set; }
@@ -25,8 +26,9 @@ public sealed class InternalForm : SoftDeletableEntity
     public ICollection<FormResponse> Responses { get; } = new List<FormResponse>();
 }
 
-public sealed class FormQuestion : AuditableEntity
+public sealed class FormQuestion : AuditableEntity, ITenantEntity
 {
+    public Guid TenantId { get; set; }
     public Guid FormId { get; set; }
     public string QuestionText { get; set; } = string.Empty;
     public FormQuestionType QuestionType { get; set; } = FormQuestionType.ShortText;
@@ -38,8 +40,9 @@ public sealed class FormQuestion : AuditableEntity
     public ICollection<FormAnswer> Answers { get; } = new List<FormAnswer>();
 }
 
-public sealed class FormResponse : AuditableEntity
+public sealed class FormResponse : AuditableEntity, ITenantEntity
 {
+    public Guid TenantId { get; set; }
     public Guid FormId { get; set; }
     public Guid? RespondentUserId { get; set; }
     public DateTimeOffset SubmittedAt { get; set; }
@@ -49,8 +52,9 @@ public sealed class FormResponse : AuditableEntity
     public ICollection<FormAnswer> Answers { get; } = new List<FormAnswer>();
 }
 
-public sealed class FormAnswer : AuditableEntity
+public sealed class FormAnswer : AuditableEntity, ITenantEntity
 {
+    public Guid TenantId { get; set; }
     public Guid FormResponseId { get; set; }
     public Guid FormQuestionId { get; set; }
     public string? AnswerText { get; set; }

@@ -3,8 +3,9 @@ using AipPortal.Domain.Enums;
 
 namespace AipPortal.Domain.Entities;
 
-public sealed class Channel : SoftDeletableEntity
+public sealed class Channel : SoftDeletableEntity, ITenantEntity
 {
+    public Guid TenantId { get; set; }
     public Guid WorkspaceId { get; set; }
     public Guid GroupId { get; set; }
     public string Name { get; set; } = string.Empty;
@@ -21,8 +22,9 @@ public sealed class Channel : SoftDeletableEntity
     public ICollection<Post> Posts { get; } = new List<Post>();
 }
 
-public sealed class ChannelMember : AuditableEntity
+public sealed class ChannelMember : AuditableEntity, ITenantEntity
 {
+    public Guid TenantId { get; set; }
     public Guid ChannelId { get; set; }
     public Guid UserId { get; set; }
     public ChannelRole Role { get; set; } = ChannelRole.Member;
@@ -32,8 +34,9 @@ public sealed class ChannelMember : AuditableEntity
     public User? User { get; set; }
 }
 
-public sealed class Post : SoftDeletableEntity
+public sealed class Post : SoftDeletableEntity, ITenantEntity
 {
+    public Guid TenantId { get; set; }
     public Guid ChannelId { get; set; }
     public Guid AuthorUserId { get; set; }
     public string Body { get; set; } = string.Empty;
@@ -47,8 +50,9 @@ public sealed class Post : SoftDeletableEntity
     public ICollection<PostThread> Threads { get; } = new List<PostThread>();
 }
 
-public sealed class PostThread : SoftDeletableEntity
+public sealed class PostThread : SoftDeletableEntity, ITenantEntity
 {
+    public Guid TenantId { get; set; }
     public Guid PostId { get; set; }
     public Guid AuthorUserId { get; set; }
     public string Body { get; set; } = string.Empty;

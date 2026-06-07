@@ -21,7 +21,7 @@ public sealed class ChannelConfiguration : IEntityTypeConfiguration<Channel>
         builder.HasIndex(channel => channel.GroupId);
         builder.HasIndex(channel => channel.CreatedByUserId);
         builder.HasIndex(channel => channel.Status);
-        builder.HasIndex(channel => new { channel.GroupId, channel.Slug }).IsUnique();
+        builder.HasIndex(channel => new { channel.TenantId, channel.GroupId, channel.Slug }).IsUnique();
 
         builder
             .HasOne(channel => channel.Workspace)
@@ -53,7 +53,7 @@ public sealed class ChannelMemberConfiguration : IEntityTypeConfiguration<Channe
         builder.Property(member => member.Role).HasEnumStringConversion().IsRequired();
         builder.Property(member => member.JoinedAt).IsRequired();
 
-        builder.HasIndex(member => new { member.ChannelId, member.UserId }).IsUnique();
+        builder.HasIndex(member => new { member.TenantId, member.ChannelId, member.UserId }).IsUnique();
         builder.HasIndex(member => member.UserId);
 
         builder

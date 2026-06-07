@@ -99,6 +99,8 @@ Use PostgreSQL with EF Core.
 Persistence rules:
 
 - Use one application DbContext initially.
+- Use `Tenant` as the top-level isolation boundary. Tenant-owned entities implement `ITenantEntity`.
+- Apply global tenant query filters in `AppDbContext`; normal services must not bypass them.
 - Configure entities using Fluent API.
 - Use UTC timestamps.
 - Prefer `Guid` identifiers unless a future requirement justifies numeric IDs.
@@ -114,6 +116,8 @@ Initial options:
 - JWT bearer later if separate clients need it.
 
 Authorization must be enforced in Application use cases, not only by controller attributes. Controller attributes can reject obviously invalid access, but they are not enough to prevent workspace, group, project, or channel data leaks.
+
+Tenant access is checked before resource access. `PlatformAdmin` is a system-level role for tenant management. Tenant `Owner` and `Admin` roles live in `TenantUser` and apply only inside that tenant.
 
 Use policy names for broad capabilities, then resource checks for specific records:
 

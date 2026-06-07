@@ -3,8 +3,9 @@ using AipPortal.Domain.Enums;
 
 namespace AipPortal.Domain.Entities;
 
-public sealed class Announcement : SoftDeletableEntity
+public sealed class Announcement : SoftDeletableEntity, ITenantEntity
 {
+    public Guid TenantId { get; set; }
     public Guid? WorkspaceId { get; set; }
     public Guid? GroupId { get; set; }
     public Guid? ChannelId { get; set; }
@@ -24,8 +25,9 @@ public sealed class Announcement : SoftDeletableEntity
     public ICollection<AnnouncementRead> Reads { get; } = new List<AnnouncementRead>();
 }
 
-public sealed class AnnouncementRead : Entity
+public sealed class AnnouncementRead : Entity, ITenantEntity
 {
+    public Guid TenantId { get; set; }
     public Guid AnnouncementId { get; set; }
     public Guid UserId { get; set; }
     public DateTimeOffset ReadAt { get; set; }
@@ -34,8 +36,9 @@ public sealed class AnnouncementRead : Entity
     public User? User { get; set; }
 }
 
-public sealed class Notification : Entity
+public sealed class Notification : Entity, ITenantEntity
 {
+    public Guid TenantId { get; set; }
     public Guid UserId { get; set; }
     public NotificationType NotificationType { get; set; } = NotificationType.System;
     public string Title { get; set; } = string.Empty;

@@ -85,7 +85,7 @@ public sealed class FormResponseConfiguration : IEntityTypeConfiguration<FormRes
 
         builder.HasIndex(response => response.FormId);
         builder.HasIndex(response => response.RespondentUserId);
-        builder.HasIndex(response => new { response.FormId, response.RespondentUserId }).IsUnique();
+        builder.HasIndex(response => new { response.TenantId, response.FormId, response.RespondentUserId }).IsUnique();
         builder.HasIndex(response => response.SubmittedAt);
 
         builder
@@ -114,7 +114,7 @@ public sealed class FormAnswerConfiguration : IEntityTypeConfiguration<FormAnswe
 
         builder.HasIndex(answer => answer.FormResponseId);
         builder.HasIndex(answer => answer.FormQuestionId);
-        builder.HasIndex(answer => new { answer.FormResponseId, answer.FormQuestionId }).IsUnique();
+        builder.HasIndex(answer => new { answer.TenantId, answer.FormResponseId, answer.FormQuestionId }).IsUnique();
 
         builder
             .HasOne(answer => answer.FormResponse)

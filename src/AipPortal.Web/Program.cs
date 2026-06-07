@@ -1,4 +1,7 @@
 using AipPortal.Application;
+using AipPortal.Application.Common.Interfaces;
+using AipPortal.Application.Common.Tenancy;
+using AipPortal.Domain.Enums;
 using AipPortal.Infrastructure;
 using AipPortal.Infrastructure.Persistence;
 using AipPortal.Web.Extensions;
@@ -11,7 +14,7 @@ var builder = WebApplication.CreateBuilder(args);
 builder.Services
     .AddApplication()
     .AddInfrastructure(builder.Configuration)
-    .AddWebServices();
+    .AddWebServices(builder.Configuration);
 
 builder.Services
     .AddAuthentication(CookieAuthenticationDefaults.AuthenticationScheme)
@@ -43,17 +46,25 @@ var app = builder.Build();
 
 app.UseMiddleware<GlobalExceptionHandlingMiddleware>();
 
-if (builder.Configuration.GetValue<bool>("UiShell:SeedOnStartup"))
+var tenancyOptions = app.Services.GetRequiredService<TenancyOptions>();
+if (tenancyOptions.SeedOnStartup || tenancyOptions.AppMode == AppMode.OnPremSingleTenant || builder.Configuration.GetValue<bool>("UiShell:SeedOnStartup"))
 {
     await using var scope = app.Services.CreateAsyncScope();
+    var currentTenant = scope.ServiceProvider.GetRequiredService<ICurrentTenantAccessor>();
+    currentTenant.SetPlatformScope();
     var dbContext = scope.ServiceProvider.GetRequiredService<AppDbContext>();
-    await AppDbContextSeed.SeedUiShellAsync(dbContext);
+    var defaultTenant = await AppDbContextSeed.SeedDefaultTenantAsync(dbContext, tenancyOptions);
+    if (builder.Configuration.GetValue<bool>("UiShell:SeedOnStartup"))
+    {
+        await AppDbContextSeed.SeedUiShellAsync(dbContext, defaultTenant.Id);
+    }
 }
 
 app.UseHttpsRedirection();
 app.UseDefaultFiles();
 app.UseStaticFiles();
 
+app.UseMiddleware<TenantResolutionMiddleware>();
 app.UseAuthentication();
 app.UseAuthorization();
 

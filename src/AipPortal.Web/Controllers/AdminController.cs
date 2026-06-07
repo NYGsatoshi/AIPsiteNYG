@@ -6,7 +6,7 @@ using Microsoft.AspNetCore.Mvc;
 namespace AipPortal.Web.Controllers;
 
 [ApiController]
-[Authorize(Roles = "SystemAdmin")]
+[Authorize(Roles = "PlatformAdmin,SystemAdmin")]
 [Route("api/admin")]
 public sealed class AdminController(IAdminService adminService) : ControllerBase
 {

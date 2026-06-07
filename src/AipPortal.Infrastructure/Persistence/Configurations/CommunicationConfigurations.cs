@@ -59,7 +59,7 @@ public sealed class AnnouncementReadConfiguration : IEntityTypeConfiguration<Ann
 
         builder.Property(read => read.ReadAt).IsRequired();
 
-        builder.HasIndex(read => new { read.AnnouncementId, read.UserId }).IsUnique();
+        builder.HasIndex(read => new { read.TenantId, read.AnnouncementId, read.UserId }).IsUnique();
         builder.HasIndex(read => read.UserId);
         builder.HasIndex(read => read.ReadAt);
 

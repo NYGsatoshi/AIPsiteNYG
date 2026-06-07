@@ -17,7 +17,7 @@ public sealed class WorkspaceConfiguration : IEntityTypeConfiguration<Workspace>
         builder.Property(workspace => workspace.Icon).HasMaxLength(120);
         builder.Property(workspace => workspace.Status).HasEnumStringConversion().IsRequired();
 
-        builder.HasIndex(workspace => workspace.Slug).IsUnique();
+        builder.HasIndex(workspace => new { workspace.TenantId, workspace.Slug }).IsUnique();
         builder.HasIndex(workspace => workspace.Status);
         builder.HasIndex(workspace => workspace.CreatedByUserId);
 
@@ -39,7 +39,7 @@ public sealed class WorkspaceMemberConfiguration : IEntityTypeConfiguration<Work
         builder.Property(member => member.Role).HasEnumStringConversion().IsRequired();
         builder.Property(member => member.Status).HasEnumStringConversion().IsRequired();
 
-        builder.HasIndex(member => new { member.WorkspaceId, member.UserId }).IsUnique();
+        builder.HasIndex(member => new { member.TenantId, member.WorkspaceId, member.UserId }).IsUnique();
         builder.HasIndex(member => new { member.WorkspaceId, member.Role });
         builder.HasIndex(member => member.UserId);
 
@@ -74,7 +74,7 @@ public sealed class GroupConfiguration : IEntityTypeConfiguration<Group>
         builder.HasIndex(group => group.ParentGroupId);
         builder.HasIndex(group => group.CreatedByUserId);
         builder.HasIndex(group => group.Status);
-        builder.HasIndex(group => new { group.WorkspaceId, group.Slug }).IsUnique();
+        builder.HasIndex(group => new { group.TenantId, group.WorkspaceId, group.Slug }).IsUnique();
 
         builder
             .HasOne(group => group.Workspace)
@@ -106,7 +106,7 @@ public sealed class GroupMemberConfiguration : IEntityTypeConfiguration<GroupMem
         builder.Property(member => member.Role).HasEnumStringConversion().IsRequired();
         builder.Property(member => member.JoinedAt).IsRequired();
 
-        builder.HasIndex(member => new { member.GroupId, member.UserId }).IsUnique();
+        builder.HasIndex(member => new { member.TenantId, member.GroupId, member.UserId }).IsUnique();
         builder.HasIndex(member => member.UserId);
 
         builder

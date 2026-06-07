@@ -1,12 +1,49 @@
 using AipPortal.Domain.Entities;
 using AipPortal.Domain.Enums;
+using AipPortal.Application.Common.Tenancy;
 using Microsoft.EntityFrameworkCore;
 
 namespace AipPortal.Infrastructure.Persistence;
 
 public static class AppDbContextSeed
 {
-    public static async Task SeedUiShellAsync(AppDbContext dbContext, CancellationToken cancellationToken = default)
+    public static readonly Guid DefaultTenantId = Guid.Parse("11111111-1111-1111-1111-111111111111");
+
+    public static async Task<Tenant> SeedDefaultTenantAsync(
+        AppDbContext dbContext,
+        TenancyOptions options,
+        CancellationToken cancellationToken = default)
+    {
+        var slug = string.IsNullOrWhiteSpace(options.DefaultTenantSlug)
+            ? "default"
+            : options.DefaultTenantSlug.Trim().ToLowerInvariant();
+
+        var tenant = await dbContext.Tenants.FirstOrDefaultAsync(candidate => candidate.Slug == slug, cancellationToken);
+        if (tenant is not null)
+        {
+            return tenant;
+        }
+
+        tenant = await dbContext.Tenants.FirstOrDefaultAsync(cancellationToken);
+        if (tenant is not null)
+        {
+            return tenant;
+        }
+
+        tenant = new Tenant(DefaultTenantId)
+        {
+            Name = "Default Tenant",
+            Slug = slug,
+            DisplayName = "Default Tenant",
+            Status = TenantStatus.Active
+        };
+
+        await dbContext.Tenants.AddAsync(tenant, cancellationToken);
+        await dbContext.SaveChangesAsync(cancellationToken);
+        return tenant;
+    }
+
+    public static async Task SeedUiShellAsync(AppDbContext dbContext, Guid tenantId, CancellationToken cancellationToken = default)
     {
         var now = DateTimeOffset.UtcNow;
         await SeedModulesAsync(dbContext, now, cancellationToken);
@@ -18,7 +55,7 @@ public static class AppDbContextSeed
         await dbContext.SaveChangesAsync(cancellationToken);
 
         var commands = await dbContext.CommandDefinitions.ToDictionaryAsync(command => command.Key, cancellationToken);
-        await SeedRadialMenusAsync(dbContext, commands, now, cancellationToken);
+        await SeedRadialMenusAsync(dbContext, commands, tenantId, now, cancellationToken);
         await dbContext.SaveChangesAsync(cancellationToken);
     }
 
@@ -130,7 +167,12 @@ public static class AppDbContextSeed
         }
     }
 
-    private static async Task SeedRadialMenusAsync(AppDbContext dbContext, IReadOnlyDictionary<string, CommandDefinition> commands, DateTimeOffset now, CancellationToken cancellationToken)
+    private static async Task SeedRadialMenusAsync(
+        AppDbContext dbContext,
+        IReadOnlyDictionary<string, CommandDefinition> commands,
+        Guid tenantId,
+        DateTimeOffset now,
+        CancellationToken cancellationToken)
     {
         await SeedProfileAsync(dbContext, commands, "default.project", "Default Project", CommandContextType.Project, new[]
         {
@@ -142,7 +184,7 @@ public static class AppDbContextSeed
             (RadialMenuDirection.DownLeft, "activityLog.create"),
             (RadialMenuDirection.Left, "artifact.upload"),
             (RadialMenuDirection.UpLeft, "gantt.open")
-        }, now, cancellationToken);
+        }, tenantId, now, cancellationToken);
 
         await SeedProfileAsync(dbContext, commands, "default.task", "Default Task", CommandContextType.TaskItem, new[]
         {
@@ -154,7 +196,7 @@ public static class AppDbContextSeed
             (RadialMenuDirection.DownLeft, "activityLog.create"),
             (RadialMenuDirection.Left, "project.open"),
             (RadialMenuDirection.UpLeft, "gantt.open")
-        }, now, cancellationToken);
+        }, tenantId, now, cancellationToken);
     }
 
     private static async Task SeedProfileAsync(
@@ -164,16 +206,18 @@ public static class AppDbContextSeed
         string name,
         CommandContextType context,
         IReadOnlyList<(RadialMenuDirection Direction, string CommandKey)> items,
+        Guid tenantId,
         DateTimeOffset now,
         CancellationToken cancellationToken)
     {
-        if (await dbContext.RadialMenuProfiles.AnyAsync(profile => profile.ProfileKey == key, cancellationToken))
+        if (await dbContext.RadialMenuProfiles.AnyAsync(profile => profile.TenantId == tenantId && profile.ProfileKey == key, cancellationToken))
         {
             return;
         }
 
         var profile = new RadialMenuProfile
         {
+            TenantId = tenantId,
             ProfileKey = key,
             Name = name,
             ContextType = context,
@@ -188,6 +232,7 @@ public static class AppDbContextSeed
             var item = items[i];
             await dbContext.RadialMenuItems.AddAsync(new RadialMenuItem
             {
+                TenantId = tenantId,
                 RadialMenuProfileId = profile.Id,
                 CommandDefinitionId = commands[item.CommandKey].Id,
                 CommandKey = item.CommandKey,

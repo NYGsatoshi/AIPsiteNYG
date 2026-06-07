@@ -41,7 +41,7 @@ public sealed class ConversationMemberConfiguration : IEntityTypeConfiguration<C
         builder.Property(member => member.JoinedAt).IsRequired();
         builder.Property(member => member.Role).HasEnumStringConversion().IsRequired();
 
-        builder.HasIndex(member => new { member.ConversationId, member.UserId }).IsUnique();
+        builder.HasIndex(member => new { member.TenantId, member.ConversationId, member.UserId }).IsUnique();
         builder.HasIndex(member => member.UserId);
         builder.HasIndex(member => member.LastReadMessageId);
         builder.HasIndex(member => member.LeftAt);
@@ -101,7 +101,7 @@ public sealed class MessageAttachmentConfiguration : IEntityTypeConfiguration<Me
         builder.ToTable("message_attachments");
         builder.ConfigureEntity();
 
-        builder.HasIndex(item => new { item.MessageId, item.AttachmentId }).IsUnique();
+        builder.HasIndex(item => new { item.TenantId, item.MessageId, item.AttachmentId }).IsUnique();
         builder.HasIndex(item => item.AttachmentId);
 
         builder
@@ -128,8 +128,8 @@ public sealed class ReadStateConfiguration : IEntityTypeConfiguration<ReadState>
         builder.Property(readState => readState.ScopeType).HasEnumStringConversion().IsRequired();
         builder.Property(readState => readState.LastReadAt).IsRequired();
 
-        builder.HasIndex(readState => new { readState.UserId, readState.ScopeType, readState.ScopeId }).IsUnique();
-        builder.HasIndex(readState => new { readState.UserId, readState.ConversationId }).IsUnique();
+        builder.HasIndex(readState => new { readState.TenantId, readState.UserId, readState.ScopeType, readState.ScopeId }).IsUnique();
+        builder.HasIndex(readState => new { readState.TenantId, readState.UserId, readState.ConversationId }).IsUnique();
         builder.HasIndex(readState => readState.ScopeId);
         builder.HasIndex(readState => readState.ConversationId);
         builder.HasIndex(readState => readState.LastReadMessageId);
