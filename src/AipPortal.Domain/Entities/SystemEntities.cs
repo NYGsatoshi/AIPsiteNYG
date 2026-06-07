@@ -40,10 +40,14 @@ public sealed class FileScanResult : Entity
 public sealed class AuditLog : Entity
 {
     public Guid? ActorUserId { get; set; }
-    public Guid? WorkspaceId { get; set; }
     public string Action { get; set; } = string.Empty;
-    public SourceType TargetType { get; set; }
-    public Guid TargetId { get; set; }
+    public string EntityType { get; set; } = string.Empty;
+    public Guid? EntityId { get; set; }
+    public Guid? WorkspaceId { get; set; }
+    public Guid? GroupId { get; set; }
+    public Guid? ProjectId { get; set; }
+    public string? IpAddress { get; set; }
+    public string? UserAgent { get; set; }
     public string? Summary { get; set; }
     public string? MetadataJson { get; set; }
     public string? CorrelationId { get; set; }
@@ -51,6 +55,23 @@ public sealed class AuditLog : Entity
 
     public User? ActorUser { get; set; }
     public Workspace? Workspace { get; set; }
+    public Group? Group { get; set; }
+    public Project? Project { get; set; }
+}
+
+public sealed class SecurityEvent : Entity
+{
+    public SecurityEventType EventType { get; set; } = SecurityEventType.AccessDenied;
+    public Guid? UserId { get; set; }
+    public string? Email { get; set; }
+    public string? IpAddress { get; set; }
+    public string? UserAgent { get; set; }
+    public SecurityEventSeverity Severity { get; set; } = SecurityEventSeverity.Info;
+    public string Summary { get; set; } = string.Empty;
+    public string? MetadataJson { get; set; }
+    public DateTimeOffset CreatedAt { get; set; }
+
+    public User? User { get; set; }
 }
 
 public sealed class FeatureModule : AuditableEntity

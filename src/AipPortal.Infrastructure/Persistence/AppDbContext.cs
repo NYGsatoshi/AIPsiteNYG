@@ -39,6 +39,7 @@ public sealed class AppDbContext(DbContextOptions<AppDbContext> options) : DbCon
     public DbSet<Attachment> Attachments => Set<Attachment>();
     public DbSet<FileScanResult> FileScanResults => Set<FileScanResult>();
     public DbSet<AuditLog> AuditLogs => Set<AuditLog>();
+    public DbSet<SecurityEvent> SecurityEvents => Set<SecurityEvent>();
     public DbSet<FeatureModule> FeatureModules => Set<FeatureModule>();
     public DbSet<PanelDefinition> PanelDefinitions => Set<PanelDefinition>();
     public DbSet<UserLayout> UserLayouts => Set<UserLayout>();

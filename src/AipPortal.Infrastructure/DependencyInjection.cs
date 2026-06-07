@@ -33,6 +33,7 @@ public static class DependencyInjection
         services.AddScoped<IArtifactRepository, ArtifactRepository>();
         services.AddScoped<IPlanningRepository, PlanningRepository>();
         services.AddScoped<IUiShellRepository, UiShellRepository>();
+        services.AddScoped<IAnnouncementRepository, AnnouncementRepository>();
         services.AddScoped<IUnitOfWork, EfUnitOfWork>();
         services.Configure<FileStorageOptions>(options =>
         {
@@ -55,6 +56,8 @@ public static class DependencyInjection
         services.AddScoped<ITokenHasher, Sha256TokenHasher>();
         services.AddScoped<IAuditLogger, DbAuditLogger>();
         services.AddScoped<INotificationService, DbNotificationService>();
+        services.AddScoped<AipPortal.Application.Search.ISearchService, DbSearchService>();
+        services.AddScoped<AipPortal.Application.Audit.IAuditQueryService, DbAuditQueryService>();
         services.AddSingleton<IClock, SystemClock>();
 
         return services;

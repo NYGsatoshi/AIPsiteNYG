@@ -108,12 +108,27 @@ public enum ReadScopeType
 
 public enum NotificationType
 {
-    Message = 0,
-    Announcement = 1,
-    Assignment = 2,
-    Comment = 3,
-    Feedback = 4,
-    System = 5
+    DirectMessage = 0,
+    Mention = 1,
+    Announcement = 2,
+    Invitation = 3,
+    TaskAssigned = 4,
+    TaskDueSoon = 5,
+    TaskStatusChanged = 6,
+    ArtifactUploaded = 7,
+    FeedbackCreated = 8,
+    ProjectUpdated = 9,
+    System = 10,
+    Message = DirectMessage,
+    Assignment = TaskAssigned,
+    Feedback = FeedbackCreated
+}
+
+public enum AnnouncementPriority
+{
+    Normal = 0,
+    Important = 1,
+    Urgent = 2
 }
 
 public enum SourceType
@@ -132,7 +147,31 @@ public enum SourceType
     ActivityLog = 11,
     Artifact = 12,
     ArtifactVersion = 13,
-    Attachment = 14
+    Attachment = 14,
+    Feedback = 15,
+    Comment = 16,
+    SecurityEvent = 17
+}
+
+public enum SecurityEventType
+{
+    LoginSuccess = 0,
+    LoginFailure = 1,
+    Logout = 2,
+    PasswordChanged = 3,
+    AccessDenied = 4,
+    RateLimitTriggered = 5,
+    SuspiciousFileUpload = 6,
+    InviteAccepted = 7,
+    InviteRejected = 8,
+    AccountSuspended = 9
+}
+
+public enum SecurityEventSeverity
+{
+    Info = 0,
+    Warning = 1,
+    Critical = 2
 }
 
 public enum ProjectStatus

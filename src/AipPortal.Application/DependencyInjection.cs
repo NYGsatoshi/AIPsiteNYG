@@ -1,12 +1,16 @@
 using Microsoft.Extensions.DependencyInjection;
 using AipPortal.Application.Auth;
+using AipPortal.Application.Announcements;
 using AipPortal.Application.Artifacts;
+using AipPortal.Application.Audit;
 using AipPortal.Application.Channels;
 using AipPortal.Application.Files;
 using AipPortal.Application.Groups;
 using AipPortal.Application.Messaging;
+using AipPortal.Application.Notifications;
 using AipPortal.Application.Planning;
 using AipPortal.Application.Projects;
+using AipPortal.Application.Search;
 using AipPortal.Application.UiShell;
 using AipPortal.Application.Workspaces;
 
@@ -27,6 +31,8 @@ public static class DependencyInjection
         services.AddScoped<ICommentAuthorizationService>(provider => provider.GetRequiredService<ProjectAuthorizationService>());
         services.AddScoped<IFileAuthorizationService, FileAuthorizationService>();
         services.AddScoped<IArtifactAuthorizationService, ArtifactAuthorizationService>();
+        services.AddScoped<INotificationApplicationService, NotificationApplicationService>();
+        services.AddScoped<IAnnouncementService, AnnouncementService>();
         services.AddScoped<IWorkspaceService, WorkspaceService>();
         services.AddScoped<IGroupService, GroupService>();
         services.AddScoped<IChannelService, ChannelService>();

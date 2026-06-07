@@ -13,17 +13,22 @@ public sealed class AnnouncementConfiguration : IEntityTypeConfiguration<Announc
 
         builder.Property(announcement => announcement.Title).HasMaxLength(200).IsRequired();
         builder.Property(announcement => announcement.Body).HasMaxLength(20000).IsRequired();
+        builder.Property(announcement => announcement.Priority).HasEnumStringConversion().IsRequired();
+        builder.Property(announcement => announcement.PublishedAt).IsRequired();
 
         builder.HasIndex(announcement => announcement.WorkspaceId);
         builder.HasIndex(announcement => announcement.GroupId);
+        builder.HasIndex(announcement => announcement.ChannelId);
         builder.HasIndex(announcement => announcement.PublishedAt);
-        builder.HasIndex(announcement => announcement.CreatedByUserId);
+        builder.HasIndex(announcement => announcement.ExpiresAt);
+        builder.HasIndex(announcement => announcement.AuthorUserId);
+        builder.HasIndex(announcement => announcement.IsPinned);
 
         builder
             .HasOne(announcement => announcement.Workspace)
             .WithMany()
             .HasForeignKey(announcement => announcement.WorkspaceId)
-            .OnDelete(DeleteBehavior.Restrict);
+            .OnDelete(DeleteBehavior.SetNull);
 
         builder
             .HasOne(announcement => announcement.Group)
@@ -32,9 +37,15 @@ public sealed class AnnouncementConfiguration : IEntityTypeConfiguration<Announc
             .OnDelete(DeleteBehavior.SetNull);
 
         builder
-            .HasOne(announcement => announcement.CreatedByUser)
+            .HasOne(announcement => announcement.Channel)
             .WithMany()
-            .HasForeignKey(announcement => announcement.CreatedByUserId)
+            .HasForeignKey(announcement => announcement.ChannelId)
+            .OnDelete(DeleteBehavior.SetNull);
+
+        builder
+            .HasOne(announcement => announcement.AuthorUser)
+            .WithMany()
+            .HasForeignKey(announcement => announcement.AuthorUserId)
             .OnDelete(DeleteBehavior.Restrict);
     }
 }
@@ -73,28 +84,23 @@ public sealed class NotificationConfiguration : IEntityTypeConfiguration<Notific
         builder.ToTable("notifications");
         builder.ConfigureEntity();
 
-        builder.Property(notification => notification.Type).HasEnumStringConversion().IsRequired();
-        builder.Property(notification => notification.SourceType).HasEnumStringConversion().IsRequired();
+        builder.Property(notification => notification.NotificationType).HasEnumStringConversion().IsRequired();
         builder.Property(notification => notification.Title).HasMaxLength(200).IsRequired();
         builder.Property(notification => notification.Body).HasMaxLength(2000);
+        builder.Property(notification => notification.RelatedEntityType).HasMaxLength(80);
         builder.Property(notification => notification.CreatedAt).IsRequired();
 
-        builder.HasIndex(notification => notification.RecipientUserId);
-        builder.HasIndex(notification => notification.WorkspaceId);
+        builder.HasIndex(notification => notification.UserId);
         builder.HasIndex(notification => notification.CreatedAt);
         builder.HasIndex(notification => notification.ReadAt);
-        builder.HasIndex(notification => new { notification.SourceType, notification.SourceId });
+        builder.HasIndex(notification => notification.DeletedAt);
+        builder.HasIndex(notification => new { notification.UserId, notification.IsRead, notification.DeletedAt });
+        builder.HasIndex(notification => new { notification.RelatedEntityType, notification.RelatedEntityId });
 
         builder
-            .HasOne(notification => notification.RecipientUser)
+            .HasOne(notification => notification.User)
             .WithMany()
-            .HasForeignKey(notification => notification.RecipientUserId)
+            .HasForeignKey(notification => notification.UserId)
             .OnDelete(DeleteBehavior.Restrict);
-
-        builder
-            .HasOne(notification => notification.Workspace)
-            .WithMany()
-            .HasForeignKey(notification => notification.WorkspaceId)
-            .OnDelete(DeleteBehavior.SetNull);
     }
 }

@@ -79,7 +79,9 @@ public sealed class AuditLogConfiguration : IEntityTypeConfiguration<AuditLog>
         builder.ConfigureEntity();
 
         builder.Property(log => log.Action).HasMaxLength(160).IsRequired();
-        builder.Property(log => log.TargetType).HasEnumStringConversion().IsRequired();
+        builder.Property(log => log.EntityType).HasMaxLength(80).IsRequired();
+        builder.Property(log => log.IpAddress).HasMaxLength(80);
+        builder.Property(log => log.UserAgent).HasMaxLength(500);
         builder.Property(log => log.Summary).HasMaxLength(2000);
         builder.Property(log => log.MetadataJson).HasColumnType("jsonb");
         builder.Property(log => log.CorrelationId).HasMaxLength(120);
@@ -87,7 +89,10 @@ public sealed class AuditLogConfiguration : IEntityTypeConfiguration<AuditLog>
 
         builder.HasIndex(log => log.ActorUserId);
         builder.HasIndex(log => log.WorkspaceId);
-        builder.HasIndex(log => new { log.TargetType, log.TargetId });
+        builder.HasIndex(log => log.GroupId);
+        builder.HasIndex(log => log.ProjectId);
+        builder.HasIndex(log => new { log.EntityType, log.EntityId });
+        builder.HasIndex(log => log.Action);
         builder.HasIndex(log => log.CreatedAt);
 
         builder
@@ -100,6 +105,48 @@ public sealed class AuditLogConfiguration : IEntityTypeConfiguration<AuditLog>
             .HasOne(log => log.Workspace)
             .WithMany()
             .HasForeignKey(log => log.WorkspaceId)
+            .OnDelete(DeleteBehavior.SetNull);
+
+        builder
+            .HasOne(log => log.Group)
+            .WithMany()
+            .HasForeignKey(log => log.GroupId)
+            .OnDelete(DeleteBehavior.SetNull);
+
+        builder
+            .HasOne(log => log.Project)
+            .WithMany()
+            .HasForeignKey(log => log.ProjectId)
+            .OnDelete(DeleteBehavior.SetNull);
+    }
+}
+
+public sealed class SecurityEventConfiguration : IEntityTypeConfiguration<SecurityEvent>
+{
+    public void Configure(EntityTypeBuilder<SecurityEvent> builder)
+    {
+        builder.ToTable("security_events");
+        builder.ConfigureEntity();
+
+        builder.Property(evt => evt.EventType).HasEnumStringConversion().IsRequired();
+        builder.Property(evt => evt.Email).HasMaxLength(320);
+        builder.Property(evt => evt.IpAddress).HasMaxLength(80);
+        builder.Property(evt => evt.UserAgent).HasMaxLength(500);
+        builder.Property(evt => evt.Severity).HasEnumStringConversion().IsRequired();
+        builder.Property(evt => evt.Summary).HasMaxLength(2000).IsRequired();
+        builder.Property(evt => evt.MetadataJson).HasColumnType("jsonb");
+        builder.Property(evt => evt.CreatedAt).IsRequired();
+
+        builder.HasIndex(evt => evt.EventType);
+        builder.HasIndex(evt => evt.Severity);
+        builder.HasIndex(evt => evt.UserId);
+        builder.HasIndex(evt => evt.Email);
+        builder.HasIndex(evt => evt.CreatedAt);
+
+        builder
+            .HasOne(evt => evt.User)
+            .WithMany()
+            .HasForeignKey(evt => evt.UserId)
             .OnDelete(DeleteBehavior.SetNull);
     }
 }
