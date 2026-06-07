@@ -51,6 +51,8 @@ if (builder.Configuration.GetValue<bool>("UiShell:SeedOnStartup"))
 }
 
 app.UseHttpsRedirection();
+app.UseDefaultFiles();
+app.UseStaticFiles();
 
 app.UseAuthentication();
 app.UseAuthorization();
@@ -73,6 +75,19 @@ app.MapGet("/health/ready", async (AppDbContext dbContext, CancellationToken can
     return databaseOk
         ? Results.Ok(new { status = "OK", database = "OK" })
         : Results.StatusCode(StatusCodes.Status503ServiceUnavailable);
+});
+
+app.MapFallback(async context =>
+{
+    if (context.Request.Path.StartsWithSegments("/api"))
+    {
+        context.Response.StatusCode = StatusCodes.Status404NotFound;
+        await context.Response.WriteAsJsonAsync(new { error = "Endpoint not found." });
+        return;
+    }
+
+    var indexPath = Path.Combine(app.Environment.WebRootPath, "index.html");
+    await context.Response.SendFileAsync(indexPath);
 });
 
 app.Run();
