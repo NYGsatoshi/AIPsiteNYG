@@ -25,6 +25,8 @@ public sealed class AppDbContext(DbContextOptions<AppDbContext> options) : DbCon
     public DbSet<Notification> Notifications => Set<Notification>();
     public DbSet<Announcement> Announcements => Set<Announcement>();
     public DbSet<AnnouncementRead> AnnouncementReads => Set<AnnouncementRead>();
+    public DbSet<ActivityEvent> ActivityEvents => Set<ActivityEvent>();
+    public DbSet<EventAttendance> EventAttendances => Set<EventAttendance>();
     public DbSet<Project> Projects => Set<Project>();
     public DbSet<ProjectMember> ProjectMembers => Set<ProjectMember>();
     public DbSet<Milestone> Milestones => Set<Milestone>();

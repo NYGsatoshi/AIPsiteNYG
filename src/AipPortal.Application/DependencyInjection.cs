@@ -4,6 +4,7 @@ using AipPortal.Application.Announcements;
 using AipPortal.Application.Artifacts;
 using AipPortal.Application.Audit;
 using AipPortal.Application.Channels;
+using AipPortal.Application.Events;
 using AipPortal.Application.Files;
 using AipPortal.Application.Groups;
 using AipPortal.Application.Messaging;
@@ -29,6 +30,7 @@ public static class DependencyInjection
         services.AddScoped<IProjectAuthorizationService>(provider => provider.GetRequiredService<ProjectAuthorizationService>());
         services.AddScoped<ITaskAuthorizationService>(provider => provider.GetRequiredService<ProjectAuthorizationService>());
         services.AddScoped<ICommentAuthorizationService>(provider => provider.GetRequiredService<ProjectAuthorizationService>());
+        services.AddScoped<IEventAuthorizationService, EventAuthorizationService>();
         services.AddScoped<IFileAuthorizationService, FileAuthorizationService>();
         services.AddScoped<IArtifactAuthorizationService, ArtifactAuthorizationService>();
         services.AddScoped<INotificationApplicationService, NotificationApplicationService>();
@@ -38,6 +40,7 @@ public static class DependencyInjection
         services.AddScoped<IChannelService, ChannelService>();
         services.AddScoped<IConversationService, ConversationService>();
         services.AddScoped<IProjectService, ProjectService>();
+        services.AddScoped<IEventService, EventService>();
         services.AddScoped<IFileService, FileService>();
         services.AddScoped<IArtifactService, ArtifactService>();
         services.AddScoped<IPlanningService, PlanningService>();

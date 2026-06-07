@@ -119,9 +119,27 @@ public enum NotificationType
     FeedbackCreated = 8,
     ProjectUpdated = 9,
     System = 10,
+    Event = 11,
     Message = DirectMessage,
     Assignment = TaskAssigned,
     Feedback = FeedbackCreated
+}
+
+public enum EventStatus
+{
+    Draft = 0,
+    Published = 1,
+    Cancelled = 2,
+    Completed = 3,
+    Archived = 4
+}
+
+public enum AttendanceStatus
+{
+    Unanswered = 0,
+    Attending = 1,
+    NotAttending = 2,
+    Maybe = 3
 }
 
 public enum AnnouncementPriority

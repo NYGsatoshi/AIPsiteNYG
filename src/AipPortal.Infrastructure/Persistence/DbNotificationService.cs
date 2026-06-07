@@ -180,6 +180,12 @@ public sealed class DbNotificationService(AppDbContext dbContext, IClock clock) 
             return NotificationType.ArtifactUploaded;
         }
 
+        if (string.Equals(sourceType, "ActivityEvent", StringComparison.OrdinalIgnoreCase) ||
+            string.Equals(sourceType, "Event", StringComparison.OrdinalIgnoreCase))
+        {
+            return NotificationType.Event;
+        }
+
         if (string.Equals(sourceType, "Feedback", StringComparison.OrdinalIgnoreCase))
         {
             return NotificationType.FeedbackCreated;
@@ -198,6 +204,7 @@ public sealed class DbNotificationService(AppDbContext dbContext, IClock clock) 
         return relatedEntityType switch
         {
             "Announcement" => $"/announcements/{relatedEntityId}",
+            "ActivityEvent" or "Event" => $"/events/{relatedEntityId}",
             "Project" => $"/projects/{relatedEntityId}",
             "TaskItem" or "Task" => $"/tasks/{relatedEntityId}",
             "Artifact" => $"/artifacts/{relatedEntityId}",

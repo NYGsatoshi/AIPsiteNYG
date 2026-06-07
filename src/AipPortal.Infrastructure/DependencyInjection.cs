@@ -29,6 +29,7 @@ public static class DependencyInjection
         services.AddScoped<IChannelRepository, ChannelRepository>();
         services.AddScoped<IMessagingRepository, MessagingRepository>();
         services.AddScoped<IProjectRepository, ProjectRepository>();
+        services.AddScoped<IEventRepository, EventRepository>();
         services.AddScoped<IFileRepository, FileRepository>();
         services.AddScoped<IArtifactRepository, ArtifactRepository>();
         services.AddScoped<IPlanningRepository, PlanningRepository>();
