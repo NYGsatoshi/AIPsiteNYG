@@ -13,7 +13,8 @@ const staticNavigation = [
   { moduleKey: "artifacts", displayName: "Artifacts", defaultRoute: "/artifacts" },
   { moduleKey: "events", displayName: "Calendar", defaultRoute: "/calendar" },
   { moduleKey: "forms", displayName: "Forms", defaultRoute: "/forms" },
-  { moduleKey: "admin", displayName: "Admin", defaultRoute: "/admin", adminOnly: true }
+  { moduleKey: "tenant-admin", displayName: "Tenant Admin", defaultRoute: "/tenant-admin", tenantAdminOnly: true },
+  { moduleKey: "platform-admin", displayName: "Platform Admin", defaultRoute: "/platform-admin", platformAdminOnly: true }
 ];
 
 const routeAliases = new Map([
@@ -27,9 +28,23 @@ const routeAliases = new Map([
 
 function isAdmin(user) {
   return user?.systemRole === SystemRole.Admin ||
-    user?.systemRole === SystemRole.SystemAdmin ||
     user?.systemRole === "Admin" ||
+    isPlatformAdmin(user);
+}
+
+function isPlatformAdmin(user) {
+  return user?.systemRole === SystemRole.PlatformAdmin ||
+    user?.systemRole === SystemRole.SystemAdmin ||
+    user?.systemRole === "PlatformAdmin" ||
     user?.systemRole === "SystemAdmin";
+}
+
+function isTenantAdmin(context) {
+  const role = context?.currentTenant?.currentUserRole;
+  return role === "Owner" ||
+    role === "Admin" ||
+    role === 0 ||
+    role === 1;
 }
 
 function normalizeModule(module) {
@@ -42,25 +57,37 @@ function normalizeModule(module) {
   };
 }
 
-export function navigationItems(modules, user) {
+export function navigationItems(modules, user, context = {}) {
   const source = modules?.length ? modules.map(normalizeModule) : staticNavigation;
   const admin = isAdmin(user);
+  const platformAdmin = isPlatformAdmin(user);
+  const tenantAdmin = isTenantAdmin(context);
 
   const items = source
     .filter((item) => admin || item.moduleKey !== "admin")
     .filter((item) => admin || !item.adminOnly)
+    .filter((item) => platformAdmin || !item.platformAdminOnly)
+    .filter((item) => tenantAdmin || !item.tenantAdminOnly)
     .sort((a, b) => (a.sortOrder ?? 100) - (b.sortOrder ?? 100));
+
+  if (tenantAdmin && !items.some((item) => item.moduleKey === "tenant-admin")) {
+    items.push(staticNavigation.find((item) => item.moduleKey === "tenant-admin"));
+  }
+
+  if (platformAdmin && !items.some((item) => item.moduleKey === "platform-admin")) {
+    items.push(staticNavigation.find((item) => item.moduleKey === "platform-admin"));
+  }
 
   if (!items.some((item) => item.moduleKey === "dashboard")) {
     items.unshift(staticNavigation[0]);
   }
 
-  return items;
+  return items.filter(Boolean);
 }
 
-export function renderNavigation(container, modules, user) {
+export function renderNavigation(container, modules, user, context = {}) {
   const current = location.pathname;
-  const items = navigationItems(modules, user);
+  const items = navigationItems(modules, user, context);
 
   container.innerHTML = `
     <nav class="sidebar-nav" aria-label="Primary">

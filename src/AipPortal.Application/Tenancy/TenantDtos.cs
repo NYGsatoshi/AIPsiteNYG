@@ -52,4 +52,9 @@ public sealed record CurrentTenantResponse(
     Guid TenantId,
     string? TenantSlug,
     bool IsAvailable,
-    bool IsPlatformScope);
+    bool IsPlatformScope,
+    string? DisplayName,
+    TenantStatus? Status,
+    TenantUserRole? CurrentUserRole,
+    AppMode AppMode,
+    bool AllowTenantSwitching);

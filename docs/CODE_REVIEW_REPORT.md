@@ -19,6 +19,10 @@ Review date: 2026-06-07
 
 ## Fixed Now
 
+- Added a save-time active-tenant guard for normal tenant-owned writes so suspended/archived/deleted tenants cannot continue writing through a stale tenant context.
+- Added tenant isolation tests for suspended-tenant write blocking and active-tenant write continuity.
+- Extended `GET /api/tenants/current` with tenant display/status/user-role/app-mode/switching context for safe tenant-aware UI rendering.
+- Added tenant-aware shell UI, tenant switcher, separated Platform Admin and Tenant Admin navigation, compact admin dashboards, quota/feature display, and onboarding checklist UI over existing backend APIs.
 - Added `FileStorage:AllowedContentTypes` configuration and startup validation.
 - Enforced MIME-type allowlist checks in general file uploads and artifact version uploads.
 - Added file-upload rate limiting to the legacy `/api/attachments` upload route.
@@ -34,7 +38,7 @@ None found in this pass.
 
 - HTTP-level tenant isolation coverage is still missing. EF/service tests are strong, but SaaS release should not rely on service-level checks alone.
 - PostgreSQL-backed search isolation is not covered in CI, even though search uses provider-specific predicates and visibility joins.
-- Suspended tenant write blocking mostly relies on tenant resolution/switching boundaries. Add application-layer defense-in-depth for write services.
+- Suspended tenant write blocking is now enforced at tenant-owned `SaveChanges` boundaries and covered by tests.
 - Production SaaS file storage is not ready until a real object storage adapter exists.
 
 ## Medium Findings
@@ -63,7 +67,7 @@ Tenant isolation confidence: Medium. The foundation is strong, but HTTP integrat
 
 SaaS, OnPremSingleTenant, and OnPremMultiTenant modes are documented and represented in configuration. OnPremSingleTenant forces configured default tenant resolution and disables switching. Development tenant headers are blocked in production by startup validation. Production setup mode is blocked in production.
 
-SaaS readiness: Not ready for broad production SaaS because object storage and HTTP isolation tests are missing.
+SaaS readiness: Not ready for broad production SaaS because object storage, HTTP isolation tests, and PostgreSQL-backed search isolation tests are still missing.
 
 On-prem readiness: Conditionally ready for a controlled pilot after backup/restore rehearsal and local storage operational checks.
 

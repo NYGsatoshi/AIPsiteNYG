@@ -21,6 +21,8 @@
 - HSTS, HTTPS redirection, secure cookie configuration, and baseline security headers.
 - Named rate-limit policies for login, invite registration, file upload, search, and API token creation.
 - Tenant isolation/security tests and CI workflow.
+- Application-layer defense-in-depth for suspended/archived/deleted tenant writes through tenant-owned save boundaries.
+- Tenant-aware shell context, tenant switcher, separated Platform Admin and Tenant Admin navigation, tenant usage/quota/feature display, and onboarding checklist UI.
 
 ## Partially Implemented
 
@@ -29,7 +31,7 @@
 - File sharing, upload size, extension allowlist, MIME allowlist, and quota enforcement are implemented in file upload paths; broader project/task feature gates need more service-level enforcement before pilot.
 - Search is tenant-filtered through global filters and membership predicates, but lacks PostgreSQL-backed HTTP integration tests.
 - PlatformAdmin tenant lifecycle is audited at service level; full HTTP audit assertions are still needed.
-- Suspended tenant behavior is enforced at resolution/switching boundaries; active sessions should also be checked for writes.
+- Suspended tenant behavior is enforced at resolution/switching boundaries and at tenant-owned save boundaries.
 
 ## Not Implemented
 
@@ -38,6 +40,7 @@
 - Password reset flow and rate-limit policy.
 - API request metering middleware.
 - Full WebApplicationFactory integration harness with authenticated tenant clients.
+- Frontend automated tests for tenant switcher, admin navigation visibility, disabled modules, suspended tenant state, and quota warnings.
 - Background job health checks.
 - Full CSRF token enforcement if cookie-auth browser clients begin using unsafe methods from rendered pages.
 
@@ -45,7 +48,6 @@
 
 - No full HTTP authorization-boundary test harness yet.
 - PostgreSQL-specific search behavior is not tested in CI.
-- Suspended tenant write blocking may rely on request tenant resolution instead of every application service checking tenant status.
 - Local filesystem storage is acceptable for small on-prem only; SaaS should move to object storage.
 - Backup/restore has documentation but should be rehearsed before real users.
 
@@ -68,8 +70,8 @@
 
 1. Add HTTP integration tests with authenticated TenantA/TenantB/PlatformAdmin clients.
 2. Add PostgreSQL-backed search isolation tests.
-3. Enforce suspended tenant status in write services as a defense-in-depth check.
-4. Add object storage adapter for SaaS.
+3. Add object storage adapter for SaaS.
+4. Add frontend tests for tenant/admin UI behavior once a frontend harness is chosen.
 5. Run a full backup and restore drill before pilot launch.
 
 ## Pilot Readiness

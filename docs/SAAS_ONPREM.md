@@ -61,6 +61,16 @@ Feature flags are tenant-scoped and can be derived from plan defaults plus tenan
 
 Tenant metadata export is controlled by the `TenantExport` feature. Webhooks are controlled by `WebhookIntegration`. API tokens are controlled by `ApiAccess`.
 
+## Tenant-Aware UI
+
+The authenticated shell calls `GET /api/tenants/current` and shows the current tenant display name, tenant status, current user's tenant role, app mode, and whether tenant switching is enabled. When switching is allowed, the shell calls `GET /api/tenants/my` and renders only server-returned memberships; switching posts the selected tenant id to `POST /api/tenants/switch` and reloads tenant-scoped navigation/data.
+
+OnPremSingleTenant hides tenant switching because `AllowTenantSwitching` is false for that mode. The UI exposes an on-prem setup checklist at `/onboarding` for default tenant, admin user, file storage, database, backup, and HTTPS checks. It does not create a production admin password or bypass backend setup policy.
+
+PlatformAdmin users see a separate `/platform-admin` area backed by `/api/platform/*` endpoints for platform overview, tenants, usage, and plans. Tenant Owner/Admin users see `/tenant-admin` for the current tenant overview, settings summary, usage/quota, and enabled features. Tenant admin UI is current-tenant only and does not expose plan/subscription editing.
+
+Feature-aware navigation comes from `GET /api/ui/modules`, which is filtered by tenant feature flags and roles in application code. The frontend hides unavailable modules, but backend feature gates remain authoritative.
+
 SaaS deployments should keep webhook URLs HTTPS-only. On-prem deployments may later allow internal HTTP webhooks through an explicit configuration switch, but the MVP rejects HTTP URLs by default.
 
 SaaS backups must include database backups, object storage backups or versioning, app settings, vault/secret recovery, audit retention, and tenant-level export. On-prem backups must include PostgreSQL dumps or snapshots, local/NAS/object file storage, Docker volumes when used, configuration, and secrets. See `docs/BACKUP_RESTORE.md`.

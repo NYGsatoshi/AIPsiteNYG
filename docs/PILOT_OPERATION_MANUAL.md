@@ -11,6 +11,8 @@ Use a PlatformAdmin account and the platform tenant API:
 
 Platform operations must not be performed through normal tenant endpoints.
 
+In the UI, PlatformAdmin users should use `/platform-admin`. Tenant admins should not see this area in normal navigation, and a TenantAdmin account should receive an access-denied response from platform APIs.
+
 ## Invite Or Add A Tenant Admin
 
 Current tenant-user management is available through tenant administration APIs. Add a user to the current tenant as `Owner` or `Admin`, then verify they can manage only that tenant.
@@ -60,6 +62,29 @@ Use tenant administration usage APIs and compare:
 - File count.
 - Storage used.
 - API request counters when metering is implemented.
+
+Tenant owners/admins can also use `/tenant-admin` to review current-tenant usage, storage/user/project quota warnings, enabled features, and settings summary. The page is current-tenant only.
+
+## Tenant Switching
+
+In SaaS or OnPremMultiTenant modes where `AllowTenantSwitching` is true, the header switcher lists only tenants returned by `GET /api/tenants/my`. Switching calls `POST /api/tenants/switch`, sets the tenant cookie server-side, and reloads tenant-scoped navigation/data.
+
+In OnPremSingleTenant mode, the switcher should be hidden. Use `/onboarding` to review the setup checklist for default tenant, admin user, file storage, database, backup, and HTTPS.
+
+## Feature Flag UI Check
+
+Confirm disabled modules are hidden from navigation after `GET /api/ui/modules`:
+
+- ProductionTracking
+- FileSharing
+- Forms
+- Calendar/Events
+- WebhookIntegration
+- ApiAccess
+- RadialMenu
+- DockingLayout
+
+Frontend hiding is only a usability signal. Backend APIs must still reject disabled features.
 
 ## Check Audit Logs
 

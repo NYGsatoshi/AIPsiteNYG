@@ -46,6 +46,10 @@ public sealed class TenancyFoundationTests
         var currentTenant = new CurrentTenantService();
         await using var dbContext = CreateDbContext(currentTenant);
         var tenantId = Guid.NewGuid();
+        currentTenant.SetPlatformScope();
+        dbContext.Tenants.Add(new Tenant(tenantId) { Name = "Tenant", Slug = "tenant", DisplayName = "Tenant" });
+        await dbContext.SaveChangesAsync();
+
         currentTenant.SetTenant(tenantId, "tenant");
 
         var workspace = new Workspace

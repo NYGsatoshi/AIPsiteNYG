@@ -170,18 +170,30 @@ public sealed class TenantService(
         return SetTenantStatusAsync(tenantId, TenantStatus.Archived, cancellationToken);
     }
 
-    public Task<Result<CurrentTenantResponse>> GetCurrentTenantAsync(CancellationToken cancellationToken = default)
+    public async Task<Result<CurrentTenantResponse>> GetCurrentTenantAsync(CancellationToken cancellationToken = default)
     {
         if (!currentTenant.IsAvailable)
         {
-            return Task.FromResult(Result<CurrentTenantResponse>.Failure("Tenant is not available for this request."));
+            return Result<CurrentTenantResponse>.Failure("Tenant is not available for this request.");
         }
 
-        return Task.FromResult(Result<CurrentTenantResponse>.Success(new CurrentTenantResponse(
+        var tenant = await tenantRepository.GetTenantAsync(currentTenant.TenantId, cancellationToken);
+        TenantUser? membership = null;
+        if (TryGetUserId(out var userId))
+        {
+            membership = await tenantRepository.GetTenantUserAsync(currentTenant.TenantId, userId, cancellationToken);
+        }
+
+        return Result<CurrentTenantResponse>.Success(new CurrentTenantResponse(
             currentTenant.TenantId,
             currentTenant.TenantSlug,
             currentTenant.IsAvailable,
-            currentTenant.IsPlatformScope)));
+            currentTenant.IsPlatformScope,
+            tenant?.DisplayName ?? tenant?.Name ?? currentTenant.TenantSlug,
+            tenant?.Status,
+            membership?.Status == TenantUserStatus.Active ? membership.Role : null,
+            options.AppMode,
+            options.AllowTenantSwitching && options.AppMode != AppMode.OnPremSingleTenant));
     }
 
     public async Task<Result<IReadOnlyList<TenantResponse>>> ListMyTenantsAsync(CancellationToken cancellationToken = default)

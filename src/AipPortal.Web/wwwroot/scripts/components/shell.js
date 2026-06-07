@@ -1,8 +1,9 @@
-import { AuthApi, DashboardApi, UiApi } from "../api.js";
+import { AuthApi, DashboardApi, TenantApi, UiApi } from "../api.js";
 import { renderNavigation } from "./navigation.js";
 import { renderNotificationArea, renderNotificationButton } from "./notification-indicator.js";
 import { renderUserMenu } from "./user-menu.js";
-import { qs, routeTo } from "../utils.js";
+import { enumLabel } from "../enums.js";
+import { escapeHtml, qs, routeTo } from "../utils.js";
 
 async function refreshNotifications(root) {
   let unreadCount = 0;
@@ -14,6 +15,48 @@ async function refreshNotifications(root) {
   }
 
   renderNotificationButton(qs("[data-notification-button]", root), unreadCount);
+}
+
+function renderTenantContext(container, currentTenant, myTenants) {
+  if (!container) return;
+
+  if (!currentTenant) {
+    container.innerHTML = `<span class="tenant-context is-unavailable">Tenant unavailable</span>`;
+    return;
+  }
+
+  const status = enumLabel("tenantStatus", currentTenant.status);
+  const role = currentTenant.currentUserRole == null ? "No tenant role" : enumLabel("tenantUserRole", currentTenant.currentUserRole);
+  const appMode = enumLabel("appMode", currentTenant.appMode);
+  const canSwitch = currentTenant.allowTenantSwitching && myTenants.length > 1;
+
+  container.innerHTML = `
+    <div class="tenant-context ${currentTenant.status === 1 || currentTenant.status === "Suspended" ? "is-warning" : ""}">
+      <div>
+        <strong>${escapeHtml(currentTenant.displayName || currentTenant.tenantSlug || "Current tenant")}</strong>
+        <span>${escapeHtml(role)} · ${escapeHtml(status)} · ${escapeHtml(appMode)}</span>
+      </div>
+      ${canSwitch ? `
+        <select data-tenant-switch aria-label="Switch tenant">
+          ${myTenants.map((tenant) => `
+            <option value="${escapeHtml(tenant.id)}" ${tenant.id === currentTenant.tenantId ? "selected" : ""}>
+              ${escapeHtml(tenant.displayName || tenant.name || tenant.slug)}
+            </option>
+          `).join("")}
+        </select>
+      ` : ""}
+    </div>
+  `;
+
+  const switcher = qs("[data-tenant-switch]", container);
+  switcher?.addEventListener("change", async (event) => {
+    try {
+      await TenantApi.switch(event.currentTarget.value);
+      location.href = "/";
+    } catch {
+      event.currentTarget.value = currentTenant.tenantId;
+    }
+  });
 }
 
 export async function showLogin(root) {
@@ -56,12 +99,24 @@ export async function showLogin(root) {
 export async function createShell(root) {
   const user = await AuthApi.me();
   let modules = [];
+  let currentTenant = null;
+  let myTenants = [];
 
   try {
     modules = await UiApi.modules();
   } catch {
     // TODO: Replace the static fallback once FeatureModule authorization is fully enforced by the API.
     modules = [];
+  }
+
+  try {
+    currentTenant = await TenantApi.current();
+    if (currentTenant.allowTenantSwitching) {
+      myTenants = await TenantApi.my();
+    }
+  } catch {
+    currentTenant = null;
+    myTenants = [];
   }
 
   root.innerHTML = `
@@ -74,6 +129,7 @@ export async function createShell(root) {
           <strong>AIP Portal</strong>
           <span data-context-label>All workspaces</span>
         </div>
+        <div data-tenant-context></div>
         <form class="search-entry" role="search" data-search-form>
           <input name="q" type="search" placeholder="Search" aria-label="Search">
         </form>
@@ -87,7 +143,8 @@ export async function createShell(root) {
     </div>
   `;
 
-  renderNavigation(qs("[data-sidebar]", root), modules, user);
+  renderTenantContext(qs("[data-tenant-context]", root), currentTenant, myTenants);
+  renderNavigation(qs("[data-sidebar]", root), modules, user, { currentTenant });
   await refreshNotifications(root);
   renderUserMenu(qs("[data-user-menu]", root), user);
   renderNotificationArea(qs("[data-notification-area]", root));
@@ -108,5 +165,5 @@ export async function createShell(root) {
   });
   window.setInterval(() => refreshNotifications(root), 45000);
 
-  return { user, modules };
+  return { user, modules, currentTenant, myTenants };
 }

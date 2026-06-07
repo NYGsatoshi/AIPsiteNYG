@@ -1,5 +1,6 @@
 import { ApiError } from "./api.js";
 import { createShell, showLogin } from "./components/shell.js";
+import { renderOnPremOnboarding, renderPlatformAdmin, renderTenantAdmin } from "./pages/admin.js";
 import { renderAnnouncements } from "./pages/announcements.js";
 import { renderDashboard } from "./pages/dashboard.js";
 import { renderMessaging } from "./pages/messaging.js";
@@ -49,6 +50,12 @@ async function renderRoute() {
     await renderAnnouncements(main, shellState, path.split("/")[2]);
   } else if (path === "/search") {
     renderSearch(main);
+  } else if (path === "/tenant-admin") {
+    await renderTenantAdmin(main, shellState);
+  } else if (path === "/platform-admin") {
+    await renderPlatformAdmin(main);
+  } else if (path === "/onboarding") {
+    renderOnPremOnboarding(main, shellState);
   } else {
     renderPlaceholder(main, path);
   }

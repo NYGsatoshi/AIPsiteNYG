@@ -64,6 +64,30 @@ export const UiApi = {
   radialMenu: () => api("/api/ui/radial-menu?contextType=Global")
 };
 
+export const TenantApi = {
+  current: () => api("/api/tenants/current"),
+  my: () => api("/api/tenants/my"),
+  switch: (tenantId) => api("/api/tenants/switch", {
+    method: "POST",
+    body: JSON.stringify({ tenantId })
+  })
+};
+
+export const TenantAdminApi = {
+  overview: () => api("/api/tenant/overview"),
+  settings: () => api("/api/tenant/settings"),
+  usage: () => api("/api/tenant/usage"),
+  features: () => api("/api/tenant/features"),
+  users: () => api("/api/tenant/users")
+};
+
+export const PlatformAdminApi = {
+  overview: () => api("/api/platform/overview"),
+  usage: () => api("/api/platform/usage"),
+  tenants: () => api("/api/platform/tenants"),
+  plans: () => api("/api/platform/plans")
+};
+
 export const DashboardApi = {
   notifications: () => api("/api/notifications?page=1&pageSize=5"),
   unreadCount: () => api("/api/notifications/unread-count"),

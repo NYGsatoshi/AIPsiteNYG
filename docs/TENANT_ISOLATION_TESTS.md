@@ -17,6 +17,8 @@ Covered:
 - Single-tenant users and outsiders cannot switch into tenants they do not belong to.
 - `OnPremSingleTenant` disables tenant switching.
 - Suspended tenants cannot be resolved by the HTTP tenant resolver or switched into.
+- Stale suspended tenant contexts cannot save tenant-owned writes after tenant status changes.
+- Active tenant contexts can still save tenant-owned writes.
 - PlatformAdmin can list tenants, suspend tenants, activate tenants, and audit entries are emitted.
 - PlatformAdmin does not bypass tenant filters on normal tenant-scoped endpoints.
 - TenantAdmin audit query sees only current-tenant audit logs.
@@ -44,7 +46,7 @@ CI runs restore, build, and test through `.github/workflows/ci.yml`.
 
 - HTTP API isolation tests are not yet backed by `WebApplicationFactory` or authenticated test clients. Current coverage is EF/service-level, not full request pipeline coverage.
 - Search tests currently verify tenant-scoped query roots, but not a full PostgreSQL-backed search request because EF InMemory does not execute provider-specific `ILike`.
-- Suspended-tenant write blocking is proven at tenant resolution and switching boundaries. Application services should also reject normal writes when a tenant has already become suspended during an active session.
+- Suspended-tenant write blocking is proven at tenant resolution, switching boundaries, and tenant-owned save boundaries.
 - File download authorization is covered in application code and file tests, but a full cross-tenant HTTP download test should be added with the integration harness.
 - Platform API cross-tenant access is tested at service level for tenant lifecycle. Add HTTP tests for `/api/platform/*` before a public pilot.
 

@@ -110,6 +110,46 @@ public sealed class TenantIsolationSecurityTests
     }
 
     [Fact]
+    public async Task SuspendedTenantContextCannotSaveTenantOwnedWritesAfterResolution()
+    {
+        var (dbContext, currentTenant, data) = await CreateSeededContextAsync();
+
+        currentTenant.SetPlatformScope();
+        data.TenantA.Status = TenantStatus.Suspended;
+        await dbContext.SaveChangesAsync();
+
+        currentTenant.SetTenant(data.TenantA.Id, data.TenantA.Slug);
+        dbContext.Workspaces.Add(new Workspace
+        {
+            Name = "Blocked",
+            Slug = "blocked",
+            CreatedByUserId = data.TenantAOwner.Id
+        });
+
+        var exception = await Assert.ThrowsAsync<InvalidOperationException>(() => dbContext.SaveChangesAsync());
+        Assert.Contains("not active", exception.Message, StringComparison.OrdinalIgnoreCase);
+    }
+
+    [Fact]
+    public async Task ActiveTenantContextCanStillSaveTenantOwnedWrites()
+    {
+        var (dbContext, currentTenant, data) = await CreateSeededContextAsync();
+
+        currentTenant.SetTenant(data.TenantA.Id, data.TenantA.Slug);
+        var workspace = new Workspace
+        {
+            Name = "Allowed",
+            Slug = "allowed",
+            CreatedByUserId = data.TenantAOwner.Id
+        };
+        dbContext.Workspaces.Add(workspace);
+
+        await dbContext.SaveChangesAsync();
+
+        Assert.Equal(data.TenantA.Id, workspace.TenantId);
+    }
+
+    [Fact]
     public async Task TenantSwitchingRequiresActiveMembershipAndEnabledMode()
     {
         var (dbContext, currentTenant, data) = await CreateSeededContextAsync();

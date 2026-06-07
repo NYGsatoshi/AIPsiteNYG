@@ -30,7 +30,8 @@ Severity: High
 Description: Suspended tenants are rejected at resolution and switching boundaries, but application services generally trust the current tenant context once established.
 Risk: A long-lived authenticated session could continue writes if tenant status changes after tenant resolution has already occurred.
 Suggested fix: Add a reusable application-layer guard for write use cases, or enrich current tenant context with active status checks per request.
-Fixed now: no
+Fixed now: yes
+Resolution: `AppDbContext.SaveChanges` and `SaveChangesAsync` now verify the current tenant is still Active before saving normal tenant-owned data. Added tests for stale suspended tenant writes and active tenant writes in `TenantIsolationSecurityTests`.
 Owner suggestion: Backend
 
 ## TD-004

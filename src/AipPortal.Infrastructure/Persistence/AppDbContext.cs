@@ -1,5 +1,6 @@
 using AipPortal.Domain.Common;
 using AipPortal.Domain.Entities;
+using AipPortal.Domain.Enums;
 using AipPortal.Application.Common.Interfaces;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore.Metadata;
@@ -69,17 +70,27 @@ public sealed class AppDbContext(
     public DbSet<RadialMenuProfile> RadialMenuProfiles => Set<RadialMenuProfile>();
     public DbSet<RadialMenuItem> RadialMenuItems => Set<RadialMenuItem>();
 
-    public override Task<int> SaveChangesAsync(CancellationToken cancellationToken = default)
+    public override async Task<int> SaveChangesAsync(CancellationToken cancellationToken = default)
     {
         StampAuditableEntities();
-        ApplyTenantRules();
-        return base.SaveChangesAsync(cancellationToken);
+        var hasNormalTenantWrite = ApplyTenantRules();
+        if (hasNormalTenantWrite)
+        {
+            await EnsureCurrentTenantCanWriteAsync(cancellationToken);
+        }
+
+        return await base.SaveChangesAsync(cancellationToken);
     }
 
     public override int SaveChanges()
     {
         StampAuditableEntities();
-        ApplyTenantRules();
+        var hasNormalTenantWrite = ApplyTenantRules();
+        if (hasNormalTenantWrite)
+        {
+            EnsureCurrentTenantCanWrite();
+        }
+
         return base.SaveChanges();
     }
 
@@ -108,8 +119,10 @@ public sealed class AppDbContext(
         }
     }
 
-    private void ApplyTenantRules()
+    private bool ApplyTenantRules()
     {
+        var hasNormalTenantWrite = false;
+
         foreach (var entry in ChangeTracker.Entries<ITenantEntity>())
         {
             if (entry.State is EntityState.Detached or EntityState.Unchanged)
@@ -127,6 +140,8 @@ public sealed class AppDbContext(
                 continue;
             }
 
+            hasNormalTenantWrite = true;
+
             if (!currentTenant.IsAvailable)
             {
                 throw new InvalidOperationException("A tenant scope is required to save tenant-owned data.");
@@ -142,6 +157,32 @@ public sealed class AppDbContext(
             {
                 throw new InvalidOperationException("TenantId does not match the current tenant context.");
             }
+        }
+
+        return hasNormalTenantWrite;
+    }
+
+    private async Task EnsureCurrentTenantCanWriteAsync(CancellationToken cancellationToken)
+    {
+        var isActive = await Tenants
+            .AsNoTracking()
+            .AnyAsync(tenant => tenant.Id == currentTenant.TenantId && tenant.Status == TenantStatus.Active, cancellationToken);
+
+        if (!isActive)
+        {
+            throw new InvalidOperationException("Current tenant is not active and cannot save tenant-owned data.");
+        }
+    }
+
+    private void EnsureCurrentTenantCanWrite()
+    {
+        var isActive = Tenants
+            .AsNoTracking()
+            .Any(tenant => tenant.Id == currentTenant.TenantId && tenant.Status == TenantStatus.Active);
+
+        if (!isActive)
+        {
+            throw new InvalidOperationException("Current tenant is not active and cannot save tenant-owned data.");
         }
     }
 

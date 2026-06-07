@@ -46,7 +46,10 @@ export const labels = {
   systemRole: ["Normal user", "Staff", "Teacher", "Admin", "Platform operator", "Platform admin"],
   announcementPriority: ["Normal", "Important", "Urgent"],
   artifactType: ["Document", "Image", "Video", "Code", "Presentation", "Spreadsheet", "Archive", "Other"],
-  artifactStatus: ["Draft", "Submitted", "Reviewed", "Approved", "Archived"]
+  artifactStatus: ["Draft", "Submitted", "Reviewed", "Approved", "Archived"],
+  appMode: ["SaaS", "On-prem single tenant", "On-prem multi tenant"],
+  tenantStatus: ["Active", "Suspended", "Archived", "Deleted"],
+  tenantUserRole: ["Owner", "Admin", "Staff", "Member", "Guest"]
 };
 
 export function enumLabel(group, value) {
