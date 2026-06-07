@@ -4,12 +4,15 @@ using AipPortal.Application.Tenancy;
 using AipPortal.Domain.Entities;
 using AipPortal.Domain.Enums;
 using AipPortal.Infrastructure.Persistence;
+using AipPortal.Infrastructure.Files;
+using AipPortal.Web.Configuration;
 using AipPortal.Web.Services;
-using Microsoft.AspNetCore.Hosting;
 using Microsoft.AspNetCore.Http;
+using Microsoft.AspNetCore.Hosting;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.FileProviders;
 using Microsoft.Extensions.Hosting;
+using Microsoft.Extensions.Logging.Abstractions;
 using Microsoft.Extensions.Options;
 
 namespace AipPortal.Tests.Tenancy;
@@ -157,6 +160,103 @@ public sealed class TenancyFoundationTests
         Assert.Equal("default", result.TenantSlug);
     }
 
+    [Fact]
+    public async Task DevelopmentHeaderTenantResolutionRequiresExplicitEnablement()
+    {
+        var currentTenant = new CurrentTenantService();
+        await using var dbContext = CreateDbContext(currentTenant);
+        currentTenant.SetPlatformScope();
+        dbContext.Tenants.Add(new Tenant { Name = "Default", Slug = "default", DisplayName = "Default" });
+        await dbContext.SaveChangesAsync();
+
+        var httpContextAccessor = new HttpContextAccessor
+        {
+            HttpContext = new DefaultHttpContext()
+        };
+        httpContextAccessor.HttpContext.Request.Headers["X-Tenant-Slug"] = "default";
+
+        var resolver = new HttpTenantResolver(
+            httpContextAccessor,
+            new FakeWebHostEnvironment(Environments.Development),
+            Options.Create(new TenancyOptions
+            {
+                AppMode = AppMode.SaaS,
+                DefaultTenantSlug = "default",
+                TenantResolutionStrategy = TenantResolutionStrategy.HeaderForDevelopmentOnly,
+                AllowDevelopmentHeaderTenantResolution = false
+            }),
+            dbContext);
+
+        var result = await resolver.ResolveAsync();
+
+        Assert.False(result.IsResolved);
+    }
+
+    [Fact]
+    public async Task OnPremSingleTenantDisablesTenantSwitching()
+    {
+        var currentTenant = new CurrentTenantService();
+        await using var dbContext = CreateDbContext(currentTenant);
+        var user = NewUser(SystemRole.User);
+        var tenant = new Tenant { Name = "Tenant", Slug = "tenant", DisplayName = "Tenant" };
+
+        currentTenant.SetPlatformScope();
+        dbContext.Users.Add(user);
+        dbContext.Tenants.Add(tenant);
+        dbContext.TenantUsers.Add(new TenantUser
+        {
+            TenantId = tenant.Id,
+            UserId = user.Id,
+            Role = TenantUserRole.Owner,
+            Status = TenantUserStatus.Active,
+            JoinedAt = DateTimeOffset.UtcNow
+        });
+        await dbContext.SaveChangesAsync();
+
+        var service = CreateTenantService(dbContext, currentTenant, user, new TenancyOptions
+        {
+            AppMode = AppMode.OnPremSingleTenant,
+            AllowTenantSwitching = true
+        });
+
+        var result = await service.SwitchTenantAsync(tenant.Id);
+
+        Assert.False(result.IsSuccess);
+        Assert.Equal("Tenant switching is disabled.", result.Error);
+    }
+
+    [Fact]
+    public async Task StartupValidationRejectsUnsafeProductionCookieConfig()
+    {
+        var validator = new StartupConfigurationValidator(
+            Options.Create(new TenancyOptions
+            {
+                AppMode = AppMode.SaaS,
+                DefaultTenantSlug = "default",
+                TenantResolutionStrategy = TenantResolutionStrategy.Host
+            }),
+            Options.Create(new FileStorageOptions
+            {
+                Provider = "LocalFileSystem",
+                RootPath = Path.Combine(Path.GetTempPath(), "aip-validation-tests", Guid.NewGuid().ToString("N")),
+                MaxFileSizeBytes = 1024,
+                AllowedExtensions = [".txt"]
+            }),
+            Options.Create(new SecurityOptions
+            {
+                CookieSecurePolicy = CookieSecurePolicy.SameAsRequest,
+                RequireHttps = true,
+                EnableHsts = true,
+                LoginLockoutEnabled = true,
+                MaxFailedLoginAttempts = 5
+            }),
+            Options.Create(new PlatformOptions()),
+            new FakeWebHostEnvironment(Environments.Production),
+            NullLogger<StartupConfigurationValidator>.Instance);
+
+        await Assert.ThrowsAsync<InvalidOperationException>(() => validator.StartAsync(CancellationToken.None));
+    }
+
     private static AppDbContext CreateDbContext(ICurrentTenant currentTenant)
     {
         var options = new DbContextOptionsBuilder<AppDbContext>()
@@ -179,6 +279,7 @@ public sealed class TenancyFoundationTests
             authorization,
             currentTenant,
             new FakeCurrentUser(currentUser),
+            new FakeAuditLogger(),
             new EfUnitOfWork(dbContext),
             options);
     }
@@ -203,6 +304,11 @@ public sealed class TenancyFoundationTests
         public string? Email => user.Email;
         public SystemRole? SystemRole => user.SystemRole;
         public bool IsAuthenticated => true;
+    }
+
+    private sealed class FakeAuditLogger : IAuditLogger
+    {
+        public Task LogAsync(AuditLogEntry entry, CancellationToken cancellationToken = default) => Task.CompletedTask;
     }
 
     private sealed class FakeWebHostEnvironment(string environmentName) : IWebHostEnvironment

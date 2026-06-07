@@ -17,6 +17,77 @@ public sealed class TenantAdministrationService(
     IAuditLogger auditLogger,
     IUnitOfWork unitOfWork) : ITenantAdministrationService
 {
+    public async Task<Result<PlatformOverviewResponse>> GetPlatformOverviewAsync(CancellationToken cancellationToken = default)
+    {
+        if (!IsPlatformAdmin())
+        {
+            return Result<PlatformOverviewResponse>.Failure("PlatformAdmin access is required.");
+        }
+
+        var tenantList = await tenants.ListTenantsAsync(cancellationToken);
+        var tenantUsage = new List<TenantUsageResponse>();
+        foreach (var tenant in tenantList)
+        {
+            tenantUsage.Add(ToUsageResponse(await quotaService.GetCurrentUsageAsync(tenant.Id, cancellationToken)));
+        }
+
+        return Result<PlatformOverviewResponse>.Success(new PlatformOverviewResponse(
+            tenantList.Count,
+            tenantList.Count(tenant => tenant.Status == TenantStatus.Active),
+            tenantList.Count(tenant => tenant.Status == TenantStatus.Suspended),
+            tenantUsage.Sum(usage => usage.TotalUserCount),
+            tenantUsage.Sum(usage => usage.StorageUsedBytes),
+            tenantUsage.Sum(usage => usage.ProjectCount),
+            tenantUsage));
+    }
+
+    public async Task<Result<PlatformUsageResponse>> GetPlatformUsageAsync(CancellationToken cancellationToken = default)
+    {
+        if (!IsPlatformAdmin())
+        {
+            return Result<PlatformUsageResponse>.Failure("PlatformAdmin access is required.");
+        }
+
+        var tenantList = await tenants.ListTenantsAsync(cancellationToken);
+        var tenantUsage = new List<TenantUsageResponse>();
+        foreach (var tenant in tenantList)
+        {
+            tenantUsage.Add(ToUsageResponse(await quotaService.GetCurrentUsageAsync(tenant.Id, cancellationToken)));
+        }
+
+        return Result<PlatformUsageResponse>.Success(new PlatformUsageResponse(
+            tenantUsage,
+            tenantUsage.Sum(usage => usage.ActiveUserCount),
+            tenantUsage.Sum(usage => usage.TotalUserCount),
+            tenantUsage.Sum(usage => usage.ProjectCount),
+            tenantUsage.Sum(usage => usage.TaskCount),
+            tenantUsage.Sum(usage => usage.FileCount),
+            tenantUsage.Sum(usage => usage.StorageUsedBytes),
+            tenantUsage.Sum(usage => usage.ApiRequestCount)));
+    }
+
+    public async Task<Result<TenantOverviewResponse>> GetCurrentTenantOverviewAsync(CancellationToken cancellationToken = default)
+    {
+        if (!await CanViewCurrentTenantAdministrationAsync(cancellationToken))
+        {
+            return Result<TenantOverviewResponse>.Failure("TenantAdmin access is required.");
+        }
+
+        var usage = await quotaService.GetCurrentUsageAsync(currentTenant.TenantId, cancellationToken);
+        var features = await featureFlags.GetEnabledFeaturesAsync(currentTenant.TenantId, cancellationToken);
+        var subscription = await tenantPlans.GetActiveSubscriptionAsync(currentTenant.TenantId, cancellationToken);
+
+        return Result<TenantOverviewResponse>.Success(new TenantOverviewResponse(
+            currentTenant.TenantId,
+            usage.ActiveUserCount,
+            usage.StorageUsedBytes,
+            usage.ProjectCount,
+            usage.TaskCount,
+            usage.FileCount,
+            features,
+            subscription is null ? null : ToSubscriptionResponse(subscription)));
+    }
+
     public async Task<Result<TenantSettingsResponse>> GetCurrentTenantSettingsAsync(CancellationToken cancellationToken = default)
     {
         if (!await CanViewCurrentTenantAdministrationAsync(cancellationToken))

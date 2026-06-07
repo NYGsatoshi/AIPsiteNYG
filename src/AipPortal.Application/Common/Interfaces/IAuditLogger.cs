@@ -51,4 +51,5 @@ public sealed record AuditLogEntry(
     Guid? ProjectId = null,
     string? IpAddress = null,
     string? UserAgent = null,
-    IReadOnlyDictionary<string, object?>? Metadata = null);
+    IReadOnlyDictionary<string, object?>? Metadata = null,
+    Guid? TenantId = null);

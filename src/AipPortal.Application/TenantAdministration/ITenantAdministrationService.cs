@@ -4,6 +4,12 @@ namespace AipPortal.Application.TenantAdministration;
 
 public interface ITenantAdministrationService
 {
+    Task<Result<PlatformOverviewResponse>> GetPlatformOverviewAsync(CancellationToken cancellationToken = default);
+
+    Task<Result<PlatformUsageResponse>> GetPlatformUsageAsync(CancellationToken cancellationToken = default);
+
+    Task<Result<TenantOverviewResponse>> GetCurrentTenantOverviewAsync(CancellationToken cancellationToken = default);
+
     Task<Result<TenantSettingsResponse>> GetCurrentTenantSettingsAsync(CancellationToken cancellationToken = default);
 
     Task<Result<TenantSettingsResponse>> UpdateCurrentTenantSettingsAsync(UpdateTenantSettingsRequest request, CancellationToken cancellationToken = default);

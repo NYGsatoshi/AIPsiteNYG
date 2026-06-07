@@ -10,6 +10,8 @@ namespace AipPortal.Infrastructure.Persistence;
 public sealed class DbAuditQueryService(
     AppDbContext dbContext,
     ICurrentUser currentUser,
+    ICurrentTenant currentTenant,
+    ITenantRepository tenantRepository,
     IWorkspaceAuthorizationService workspaceAuthorization) : IAuditQueryService
 {
     private const int MaxPageSize = 100;
@@ -23,13 +25,15 @@ public sealed class DbAuditQueryService(
 
         var userId = currentUser.UserId.Value;
         var isSystemAdmin = currentUser.SystemRole == SystemRole.SystemAdmin;
+        var isTenantAdmin = currentTenant.IsAvailable &&
+            await IsTenantAdminAsync(userId, currentTenant.TenantId, cancellationToken);
         var canReadScoped = currentUser.SystemRole is SystemRole.Teacher or SystemRole.Admin;
-        if (!isSystemAdmin && !canReadScoped)
+        if (!isSystemAdmin && !isTenantAdmin && !canReadScoped)
         {
             return Result<PagedResponse<AuditLogListItemResponse>>.Failure("You are not allowed to view audit logs.");
         }
 
-        if (!isSystemAdmin && (!query.WorkspaceId.HasValue || !await workspaceAuthorization.CanManageWorkspace(userId, query.WorkspaceId.Value, cancellationToken)))
+        if (!isSystemAdmin && !isTenantAdmin && (!query.WorkspaceId.HasValue || !await workspaceAuthorization.CanManageWorkspace(userId, query.WorkspaceId.Value, cancellationToken)))
         {
             return Result<PagedResponse<AuditLogListItemResponse>>.Failure("A manageable workspace scope is required.");
         }
@@ -38,7 +42,7 @@ public sealed class DbAuditQueryService(
         var pageSize = Math.Clamp(query.PageSize, 1, MaxPageSize);
         var source = dbContext.AuditLogs.AsNoTracking();
 
-        if (!isSystemAdmin)
+        if (!isSystemAdmin && !isTenantAdmin)
         {
             source = source.Where(log => log.WorkspaceId == query.WorkspaceId);
         }
@@ -108,7 +112,16 @@ public sealed class DbAuditQueryService(
 
     public async Task<Result<PagedResponse<SecurityEventListItemResponse>>> ListSecurityEventsAsync(SecurityEventQuery query, CancellationToken cancellationToken = default)
     {
-        if (!currentUser.IsAuthenticated || currentUser.SystemRole != SystemRole.SystemAdmin)
+        if (!currentUser.IsAuthenticated || !currentUser.UserId.HasValue)
+        {
+            return Result<PagedResponse<SecurityEventListItemResponse>>.Failure("Authentication is required.");
+        }
+
+        var isSystemAdmin = currentUser.SystemRole == SystemRole.SystemAdmin;
+        var isTenantAdmin = currentTenant.IsAvailable &&
+            await IsTenantAdminAsync(currentUser.UserId.Value, currentTenant.TenantId, cancellationToken);
+
+        if (!isSystemAdmin && !isTenantAdmin)
         {
             return Result<PagedResponse<SecurityEventListItemResponse>>.Failure("Only system admins can view security events.");
         }
@@ -166,5 +179,15 @@ public sealed class DbAuditQueryService(
             .ToListAsync(cancellationToken);
 
         return Result<PagedResponse<SecurityEventListItemResponse>>.Success(new PagedResponse<SecurityEventListItemResponse>(items, page, pageSize, total));
+    }
+
+    private async Task<bool> IsTenantAdminAsync(Guid userId, Guid tenantId, CancellationToken cancellationToken)
+    {
+        var membership = await tenantRepository.GetTenantUserAsync(tenantId, userId, cancellationToken);
+        return membership is
+        {
+            Status: TenantUserStatus.Active,
+            Role: TenantUserRole.Owner or TenantUserRole.Admin
+        };
     }
 }

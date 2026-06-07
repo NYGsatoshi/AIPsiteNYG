@@ -16,6 +16,8 @@ public sealed class TenancyOptions
 
     public bool AllowDevelopmentHeaderInProduction { get; set; }
 
+    public bool AllowDevelopmentHeaderTenantResolution { get; set; }
+
     public string DevelopmentTenantHeaderName { get; set; } = "X-Tenant-Slug";
 
     public string TenantCookieName { get; set; } = "aip_tenant";

@@ -4,6 +4,7 @@
 .config/
 .nuget/
 storage/
+data/
 tests/**/TestResults/
 *.user
 *.suo

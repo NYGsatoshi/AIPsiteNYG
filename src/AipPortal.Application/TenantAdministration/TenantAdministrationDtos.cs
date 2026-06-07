@@ -2,6 +2,25 @@ using AipPortal.Domain.Enums;
 
 namespace AipPortal.Application.TenantAdministration;
 
+public sealed record PlatformOverviewResponse(
+    int TenantCount,
+    int ActiveTenantCount,
+    int SuspendedTenantCount,
+    int TotalUserCount,
+    long TotalStorageUsedBytes,
+    int TotalProjectCount,
+    IReadOnlyList<TenantUsageResponse> TenantUsage);
+
+public sealed record TenantOverviewResponse(
+    Guid TenantId,
+    int ActiveUserCount,
+    long StorageUsedBytes,
+    int ProjectCount,
+    int TaskCount,
+    int FileCount,
+    IReadOnlyList<string> EnabledFeatures,
+    SubscriptionResponse? Subscription);
+
 public sealed record TenantSettingsResponse(
     Guid Id,
     Guid TenantId,
@@ -34,6 +53,8 @@ public sealed record UpdateTenantSettingsRequest(
     string? FeatureFlagsJson,
     string? NotificationSettingsJson);
 
+public sealed record TenantFeatureResponse(string Key, bool IsEnabled);
+
 public sealed record TenantFeaturesResponse(Guid TenantId, IReadOnlyList<string> EnabledFeatures);
 
 public sealed record TenantUsageResponse(
@@ -45,6 +66,20 @@ public sealed record TenantUsageResponse(
     int FileCount,
     long StorageUsedBytes,
     int ApiRequestCount);
+
+public sealed record PlatformUsageResponse(
+    IReadOnlyList<TenantUsageResponse> Tenants,
+    int TotalActiveUserCount,
+    int TotalUserCount,
+    int TotalProjectCount,
+    int TotalTaskCount,
+    int TotalFileCount,
+    long TotalStorageUsedBytes,
+    int TotalApiRequestCount);
+
+public sealed record InviteTenantUserRequest(
+    Guid UserId,
+    TenantUserRole Role);
 
 public sealed record PlanResponse(
     Guid Id,

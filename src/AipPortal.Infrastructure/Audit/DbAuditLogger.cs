@@ -6,7 +6,7 @@ using AipPortal.Infrastructure.Persistence;
 
 namespace AipPortal.Infrastructure.Audit;
 
-public sealed class DbAuditLogger(AppDbContext dbContext, IClock clock, ICurrentUser currentUser) : IAuditLogger
+public sealed class DbAuditLogger(AppDbContext dbContext, IClock clock, ICurrentUser currentUser, ICurrentTenant currentTenant) : IAuditLogger
 {
     private static readonly HashSet<string> SensitiveKeys = new(StringComparer.OrdinalIgnoreCase)
     {
@@ -23,8 +23,15 @@ public sealed class DbAuditLogger(AppDbContext dbContext, IClock clock, ICurrent
     {
         try
         {
+            var tenantId = entry.TenantId ?? (currentTenant.IsAvailable ? currentTenant.TenantId : (Guid?)null);
+            if (!tenantId.HasValue)
+            {
+                return;
+            }
+
             await dbContext.AuditLogs.AddAsync(new AuditLog
             {
+                TenantId = tenantId.Value,
                 ActorUserId = entry.ActorUserId ?? currentUser.UserId,
                 Action = entry.Action,
                 EntityType = entry.EntityType,
@@ -67,12 +74,19 @@ public sealed class DbAuditLogger(AppDbContext dbContext, IClock clock, ICurrent
         SecurityEventSeverity severity = SecurityEventSeverity.Info,
         CancellationToken cancellationToken = default)
     {
+        var tenantId = currentTenant.IsAvailable ? currentTenant.TenantId : (Guid?)null;
+        if (!tenantId.HasValue)
+        {
+            return;
+        }
+
         var parsed = Enum.TryParse<SecurityEventType>(action, ignoreCase: true, out var eventType)
             ? eventType
             : SecurityEventType.AccessDenied;
 
         await dbContext.SecurityEvents.AddAsync(new SecurityEvent
         {
+            TenantId = tenantId.Value,
             EventType = parsed,
             UserId = currentUser.UserId,
             Email = currentUser.Email,

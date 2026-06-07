@@ -54,6 +54,11 @@ public sealed class HttpTenantResolver(
 
     private string? ReadDevelopmentHeader(TenancyOptions tenancy)
     {
+        if (!tenancy.AllowDevelopmentHeaderTenantResolution)
+        {
+            return null;
+        }
+
         if (environment.IsProduction() && !tenancy.AllowDevelopmentHeaderInProduction)
         {
             return null;

@@ -11,10 +11,22 @@
 Configure secrets with environment variables, not committed settings files.
 
 - `ConnectionStrings__DefaultConnection`
+- `Tenancy__AppMode`
+- `Tenancy__DefaultTenantSlug`
+- `Tenancy__TenantResolutionStrategy`
+- `FileStorage__Provider`
 - `FileStorage__RootPath`
+- `FileStorage__BucketName`
+- `FileStorage__Endpoint`
+- `FileStorage__Region`
 - `FileStorage__MaxFileSizeBytes`
 - `FileStorage__AllowedExtensions__0`, `FileStorage__AllowedExtensions__1`, and so on if overriding extensions.
+- `Security__CookieSecurePolicy`
+- `Security__RequireHttps`
+- `Security__EnableHsts`
 - `ASPNETCORE_ENVIRONMENT=Production`
+
+See `docs/CONFIGURATION.md` and `docs/ENVIRONMENT_VARIABLES.md` for the full deployment profile matrix.
 
 ## Database
 
@@ -41,6 +53,13 @@ docker compose up --build
 
 The app listens on `http://localhost:8080` by default. Override the host port with `AIP_PORTAL_PORT`.
 
+For on-prem single-tenant defaults:
+
+```powershell
+$env:POSTGRES_PASSWORD='<strong-password>'
+docker compose -f docker-compose.onprem.yml up --build
+```
+
 ## VPS Outline
 
 1. Install Docker and Docker Compose.
@@ -54,7 +73,7 @@ The app listens on `http://localhost:8080` by default. Override the host port wi
 ## Backups
 
 - Back up PostgreSQL with `pg_dump` or managed snapshots.
-- Back up the upload volume separately.
+- Back up the upload volume, NAS path, MinIO bucket, or object storage bucket separately.
 - Test restores before relying on the backup plan.
 
 ## Data Lifecycle

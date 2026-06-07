@@ -1,5 +1,6 @@
 using AipPortal.Application.Common;
 using AipPortal.Application.TenantAdministration;
+using AipPortal.Application.Tenancy;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
 
@@ -7,8 +8,16 @@ namespace AipPortal.Web.Controllers;
 
 [ApiController]
 [Authorize]
-public sealed class TenantAdministrationController(ITenantAdministrationService tenantAdministration) : ControllerBase
+public sealed class TenantAdministrationController(
+    ITenantAdministrationService tenantAdministration,
+    ITenantService tenantService) : ControllerBase
 {
+    [HttpGet("api/tenant/overview")]
+    public async Task<IActionResult> GetTenantOverview(CancellationToken cancellationToken)
+    {
+        return ToActionResult(await tenantAdministration.GetCurrentTenantOverviewAsync(cancellationToken));
+    }
+
     [HttpGet("api/tenant/settings")]
     public async Task<IActionResult> GetSettings(CancellationToken cancellationToken)
     {
@@ -31,6 +40,49 @@ public sealed class TenantAdministrationController(ITenantAdministrationService 
     public async Task<IActionResult> GetUsage(CancellationToken cancellationToken)
     {
         return ToActionResult(await tenantAdministration.GetCurrentTenantUsageAsync(cancellationToken));
+    }
+
+    [HttpGet("api/tenant/users")]
+    public async Task<IActionResult> ListTenantUsers(CancellationToken cancellationToken)
+    {
+        return ToActionResult(await tenantService.ListCurrentTenantUsersAsync(cancellationToken));
+    }
+
+    [HttpPost("api/tenant/users/invite")]
+    public async Task<IActionResult> InviteTenantUser(InviteTenantUserRequest request, CancellationToken cancellationToken)
+    {
+        return ToActionResult(await tenantService.AddCurrentTenantUserAsync(new AddTenantUserRequest(request.UserId, request.Role), cancellationToken));
+    }
+
+    [HttpPatch("api/tenant/users/{userId:guid}")]
+    public async Task<IActionResult> UpdateTenantUser(Guid userId, UpdateTenantUserRequest request, CancellationToken cancellationToken)
+    {
+        return ToActionResult(await tenantService.UpdateCurrentTenantUserAsync(userId, request, cancellationToken));
+    }
+
+    [HttpPost("api/tenant/users/{userId:guid}/suspend")]
+    public async Task<IActionResult> SuspendTenantUser(Guid userId, CancellationToken cancellationToken)
+    {
+        return ToActionResult(await tenantService.UpdateCurrentTenantUserAsync(userId, new UpdateTenantUserRequest(null, AipPortal.Domain.Enums.TenantUserStatus.Suspended), cancellationToken));
+    }
+
+    [HttpPost("api/tenant/users/{userId:guid}/activate")]
+    public async Task<IActionResult> ActivateTenantUser(Guid userId, CancellationToken cancellationToken)
+    {
+        return ToActionResult(await tenantService.UpdateCurrentTenantUserAsync(userId, new UpdateTenantUserRequest(null, AipPortal.Domain.Enums.TenantUserStatus.Active), cancellationToken));
+    }
+
+    [HttpDelete("api/tenant/users/{userId:guid}")]
+    public async Task<IActionResult> DeleteTenantUser(Guid userId, CancellationToken cancellationToken)
+    {
+        return OkOrBad(await tenantService.RemoveCurrentTenantUserAsync(userId, cancellationToken));
+    }
+
+    [HttpGet("api/platform/overview")]
+    [Authorize(Roles = "PlatformAdmin,SystemAdmin")]
+    public async Task<IActionResult> GetPlatformOverview(CancellationToken cancellationToken)
+    {
+        return ToActionResult(await tenantAdministration.GetPlatformOverviewAsync(cancellationToken));
     }
 
     [HttpGet("api/platform/plans")]
@@ -80,6 +132,13 @@ public sealed class TenantAdministrationController(ITenantAdministrationService 
     public async Task<IActionResult> GetPlatformUsage(Guid tenantId, CancellationToken cancellationToken)
     {
         return ToActionResult(await tenantAdministration.GetPlatformTenantUsageAsync(tenantId, cancellationToken));
+    }
+
+    [HttpGet("api/platform/usage")]
+    [Authorize(Roles = "PlatformAdmin,SystemAdmin")]
+    public async Task<IActionResult> GetPlatformUsage(CancellationToken cancellationToken)
+    {
+        return ToActionResult(await tenantAdministration.GetPlatformUsageAsync(cancellationToken));
     }
 
     private IActionResult OkOrBad(Result result) => result.IsSuccess ? Ok(new { status = "OK" }) : BadRequest(new { error = result.Error });

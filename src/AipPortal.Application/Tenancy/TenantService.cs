@@ -11,6 +11,7 @@ public sealed class TenantService(
     ITenantAuthorizationService tenantAuthorization,
     ICurrentTenant currentTenant,
     ICurrentUser currentUser,
+    IAuditLogger auditLogger,
     IUnitOfWork unitOfWork,
     TenancyOptions options) : ITenantService
 {
@@ -61,6 +62,17 @@ public sealed class TenantService(
         };
 
         await tenantRepository.AddTenantAsync(tenant, cancellationToken);
+        await auditLogger.LogAsync(new AuditLogEntry(
+            currentUser.UserId,
+            "TenantCreated",
+            "Tenant",
+            tenant.Id,
+            "Tenant created.",
+            Metadata: new Dictionary<string, object?>
+            {
+                ["slug"] = tenant.Slug
+            },
+            TenantId: tenant.Id), cancellationToken);
         await unitOfWork.SaveChangesAsync(cancellationToken);
         return Result<TenantResponse>.Success(ToTenantResponse(tenant));
     }
@@ -73,9 +85,20 @@ public sealed class TenantService(
         }
 
         var tenant = await tenantRepository.GetTenantAsync(tenantId, cancellationToken);
-        return tenant is null
-            ? Result<TenantResponse>.Failure("Tenant not found.")
-            : Result<TenantResponse>.Success(ToTenantResponse(tenant));
+        if (tenant is null)
+        {
+            return Result<TenantResponse>.Failure("Tenant not found.");
+        }
+
+        await auditLogger.LogAsync(new AuditLogEntry(
+            currentUser.UserId,
+            "PlatformAdminAccessedTenantDetail",
+            "Tenant",
+            tenant.Id,
+            "PlatformAdmin accessed tenant detail.",
+            TenantId: tenant.Id), cancellationToken);
+        await unitOfWork.SaveChangesAsync(cancellationToken);
+        return Result<TenantResponse>.Success(ToTenantResponse(tenant));
     }
 
     public async Task<Result<TenantResponse>> UpdateTenantAsync(Guid tenantId, UpdateTenantRequest request, CancellationToken cancellationToken = default)
@@ -121,6 +144,13 @@ public sealed class TenantService(
             tenant.PlanId = NormalizeOptional(request.PlanId);
         }
 
+        await auditLogger.LogAsync(new AuditLogEntry(
+            currentUser.UserId,
+            "TenantUpdated",
+            "Tenant",
+            tenant.Id,
+            "Tenant updated.",
+            TenantId: tenant.Id), cancellationToken);
         await unitOfWork.SaveChangesAsync(cancellationToken);
         return Result<TenantResponse>.Success(ToTenantResponse(tenant));
     }
@@ -310,6 +340,19 @@ public sealed class TenantService(
             tenant.MarkDeleted(DateTimeOffset.UtcNow);
         }
 
+        await auditLogger.LogAsync(new AuditLogEntry(
+            currentUser.UserId,
+            status switch
+            {
+                TenantStatus.Suspended => "TenantSuspended",
+                TenantStatus.Active => "TenantActivated",
+                TenantStatus.Archived => "TenantArchived",
+                _ => "TenantStatusChanged"
+            },
+            "Tenant",
+            tenant.Id,
+            $"Tenant status changed to {status}.",
+            TenantId: tenant.Id), cancellationToken);
         await unitOfWork.SaveChangesAsync(cancellationToken);
         return Result.Success();
     }

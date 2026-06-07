@@ -16,6 +16,8 @@ Tenant resolution can use:
 
 SaaS deployments should prefer `Host` or `Subdomain`. Tenant switching is allowed only to tenants where the authenticated user has active membership.
 
+PlatformAdmin APIs are enabled in SaaS mode for tenant lifecycle, plans, subscription configuration, usage, audit logs, and security events. Tenant creation is PlatformAdmin-only. Use object storage for production SaaS; local filesystem storage is for development or temporary evaluation only.
+
 ## OnPremSingleTenant
 
 `AppMode = OnPremSingleTenant`
@@ -24,11 +26,15 @@ The configured `DefaultTenantSlug` is always used. Tenant switching is disabled,
 
 This mode is for an installed single organization while still keeping internal data tenant-scoped.
 
+Startup requires `DefaultTenantSlug`. Runtime seed creates the configured default tenant and initial plans idempotently. Tenant switching is disabled by default. Plan/subscription records behave as license/configuration objects; no payment or billing integration is implied.
+
 ## OnPremMultiTenant
 
 `AppMode = OnPremMultiTenant`
 
 Resolution works like SaaS, but the tenants are operated by the installed organization. This supports cases such as multiple schools or departments inside one installation.
+
+Tenant isolation is identical to SaaS. PlatformAdmin or a local super admin can manage tenants. Tenant resolution may use host, subdomain, session, or configured routing depending on the internal network and reverse proxy setup.
 
 ## File Storage
 
@@ -70,3 +76,12 @@ Migration `MultiTenantFoundation` creates a deterministic default tenant:
 Existing tenant-owned rows are backfilled to that tenant. Runtime seed is idempotent and can be enabled with `Tenancy:SeedOnStartup`; it also runs automatically for `OnPremSingleTenant`.
 
 Do not hardcode production platform-admin passwords. Use a documented setup flow or development-only seed when that feature is added.
+
+## Production Safety Checklist
+
+- Use production secrets from environment variables or a secret manager.
+- Keep `Tenancy:AllowDevelopmentHeaderInProduction=false`.
+- Keep `Security:CookieSecurePolicy=Always`, `Security:RequireHttps=true`, and `Security:EnableHsts=true`.
+- Disable `Platform:PlatformAdminSetupMode` before production.
+- Back up both PostgreSQL and the configured file storage root or bucket.
+- Test tenant resolution for every configured host/subdomain before go-live.

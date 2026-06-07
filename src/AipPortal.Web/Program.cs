@@ -4,10 +4,12 @@ using AipPortal.Application.Common.Tenancy;
 using AipPortal.Domain.Enums;
 using AipPortal.Infrastructure;
 using AipPortal.Infrastructure.Persistence;
+using AipPortal.Web.Configuration;
 using AipPortal.Web.Extensions;
 using AipPortal.Web.Middleware;
 using Microsoft.AspNetCore.Authentication.Cookies;
 using Microsoft.EntityFrameworkCore;
+using Microsoft.Extensions.Options;
 
 var builder = WebApplication.CreateBuilder(args);
 
@@ -20,12 +22,11 @@ builder.Services
     .AddAuthentication(CookieAuthenticationDefaults.AuthenticationScheme)
     .AddCookie(options =>
     {
+        var security = builder.Configuration.GetSection("Security").Get<SecurityOptions>() ?? new SecurityOptions();
         options.Cookie.Name = ".AipPortal.Auth";
         options.Cookie.HttpOnly = true;
         options.Cookie.SameSite = SameSiteMode.Lax;
-        options.Cookie.SecurePolicy = builder.Environment.IsDevelopment()
-            ? CookieSecurePolicy.SameAsRequest
-            : CookieSecurePolicy.Always;
+        options.Cookie.SecurePolicy = security.CookieSecurePolicy;
         options.ExpireTimeSpan = TimeSpan.FromHours(8);
         options.SlidingExpiration = true;
         options.Events.OnRedirectToLogin = context =>
@@ -61,7 +62,17 @@ if (tenancyOptions.SeedOnStartup || tenancyOptions.AppMode == AppMode.OnPremSing
     }
 }
 
-app.UseHttpsRedirection();
+var securityOptions = app.Services.GetRequiredService<IOptions<SecurityOptions>>().Value;
+if (securityOptions.EnableHsts && !app.Environment.IsDevelopment())
+{
+    app.UseHsts();
+}
+
+if (securityOptions.RequireHttps)
+{
+    app.UseHttpsRedirection();
+}
+
 app.UseDefaultFiles();
 app.UseStaticFiles();
 
