@@ -16,6 +16,8 @@ public sealed class ConversationConfiguration : IEntityTypeConfiguration<Convers
 
         builder.HasIndex(conversation => conversation.WorkspaceId);
         builder.HasIndex(conversation => conversation.CreatedByUserId);
+        builder.HasIndex(conversation => new { conversation.TenantId, conversation.WorkspaceId });
+        builder.HasIndex(conversation => new { conversation.TenantId, conversation.UpdatedAt });
 
         builder
             .HasOne(conversation => conversation.Workspace)
@@ -42,6 +44,7 @@ public sealed class ConversationMemberConfiguration : IEntityTypeConfiguration<C
         builder.Property(member => member.Role).HasEnumStringConversion().IsRequired();
 
         builder.HasIndex(member => new { member.TenantId, member.ConversationId, member.UserId }).IsUnique();
+        builder.HasIndex(member => new { member.TenantId, member.UserId });
         builder.HasIndex(member => member.UserId);
         builder.HasIndex(member => member.LastReadMessageId);
         builder.HasIndex(member => member.LeftAt);
@@ -79,6 +82,7 @@ public sealed class MessageConfiguration : IEntityTypeConfiguration<Message>
         builder.HasIndex(message => message.AuthorUserId);
         builder.HasIndex(message => message.EditedAt);
         builder.HasIndex(message => new { message.ConversationId, message.CreatedAt });
+        builder.HasIndex(message => new { message.TenantId, message.ConversationId, message.CreatedAt });
 
         builder
             .HasOne(message => message.Conversation)

@@ -17,7 +17,7 @@ public interface IChannelService
     Task<Result<PostResponse>> GetPostAsync(Guid postId, CancellationToken cancellationToken = default);
     Task<Result<PostResponse>> UpdatePostAsync(Guid postId, UpdatePostRequest request, CancellationToken cancellationToken = default);
     Task<Result> DeletePostAsync(Guid postId, CancellationToken cancellationToken = default);
-    Task<Result<IReadOnlyList<ThreadReplyResponse>>> ListThreadsAsync(Guid postId, CancellationToken cancellationToken = default);
+    Task<Result<PagedResponse<ThreadReplyResponse>>> ListThreadsAsync(Guid postId, ThreadListQuery query, CancellationToken cancellationToken = default);
     Task<Result<ThreadReplyResponse>> CreateThreadAsync(Guid postId, CreateThreadReplyRequest request, CancellationToken cancellationToken = default);
     Task<Result> PinPostAsync(Guid postId, CancellationToken cancellationToken = default);
     Task<Result> UnpinPostAsync(Guid postId, CancellationToken cancellationToken = default);

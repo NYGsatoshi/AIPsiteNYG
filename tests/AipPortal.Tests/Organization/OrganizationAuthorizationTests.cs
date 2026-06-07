@@ -288,7 +288,22 @@ public sealed class OrganizationAuthorizationTests
         public Task<IReadOnlyList<Post>> ListPinnedPostsAsync(Guid channelId, CancellationToken cancellationToken = default) => Task.FromResult<IReadOnlyList<Post>>(Posts.Where(post => post.ChannelId == channelId && post.PinnedAt.HasValue && !post.DeletedAt.HasValue).ToList());
         public Task<PagedResponse<Post>> ListPostsAsync(Guid channelId, int page, int pageSize, DateTimeOffset? before, DateTimeOffset? after, CancellationToken cancellationToken = default) => Task.FromResult(new PagedResponse<Post>(Posts.Where(post => post.ChannelId == channelId && !post.DeletedAt.HasValue).ToList(), page, pageSize, Posts.Count));
         public Task<Post?> GetPostByIdAsync(Guid postId, CancellationToken cancellationToken = default) => Task.FromResult(Posts.FirstOrDefault(post => post.Id == postId));
-        public Task<IReadOnlyList<PostThread>> ListThreadsAsync(Guid postId, CancellationToken cancellationToken = default) => Task.FromResult<IReadOnlyList<PostThread>>(Threads.Where(thread => thread.PostId == postId).ToList());
+        public Task<PagedResponse<PostThread>> ListThreadsAsync(Guid postId, int page, int pageSize, DateTimeOffset? before, DateTimeOffset? after, CancellationToken cancellationToken = default)
+        {
+            var source = Threads.Where(thread => thread.PostId == postId && thread.DeletedAt == null);
+            if (before.HasValue)
+            {
+                source = source.Where(thread => thread.CreatedAt < before.Value);
+            }
+
+            if (after.HasValue)
+            {
+                source = source.Where(thread => thread.CreatedAt > after.Value);
+            }
+
+            var items = source.Skip((page - 1) * pageSize).Take(pageSize).ToList();
+            return Task.FromResult(new PagedResponse<PostThread>(items, page, pageSize, source.Count()));
+        }
         public Task AddAsync(Channel channel, CancellationToken cancellationToken = default) { Items[channel.Id] = channel; return Task.CompletedTask; }
         public Task AddMemberAsync(ChannelMember member, CancellationToken cancellationToken = default) { Members.Add(member); return Task.CompletedTask; }
         public Task RemoveMemberAsync(ChannelMember member, CancellationToken cancellationToken = default) { Members.Remove(member); return Task.CompletedTask; }

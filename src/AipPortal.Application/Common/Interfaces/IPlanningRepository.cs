@@ -8,7 +8,7 @@ public interface IPlanningRepository
 
     Task<ProjectDashboardResponse?> GetDashboardAsync(Guid projectId, DateOnly today, CancellationToken cancellationToken = default);
 
-    Task<IReadOnlyList<MyTaskListItemResponse>> ListMyTasksAsync(Guid userId, MyTasksQuery query, DateOnly today, CancellationToken cancellationToken = default);
+    Task<PagedResponse<MyTaskListItemResponse>> ListMyTasksAsync(Guid userId, MyTasksQuery query, DateOnly today, CancellationToken cancellationToken = default);
 
     Task<ProjectWorkloadResponse?> GetWorkloadAsync(Guid projectId, DateOnly today, CancellationToken cancellationToken = default);
 }

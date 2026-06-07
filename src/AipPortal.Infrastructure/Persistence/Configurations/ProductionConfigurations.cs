@@ -22,6 +22,9 @@ public sealed class ProjectConfiguration : IEntityTypeConfiguration<Project>
         builder.HasIndex(project => new { project.TenantId, project.WorkspaceId, project.Slug }).IsUnique();
         builder.HasIndex(project => project.Status);
         builder.HasIndex(project => project.DueDate);
+        builder.HasIndex(project => new { project.TenantId, project.GroupId, project.Status });
+        builder.HasIndex(project => new { project.TenantId, project.Status });
+        builder.HasIndex(project => new { project.TenantId, project.CreatedAt });
 
         builder
             .HasOne(project => project.Workspace)
@@ -119,6 +122,8 @@ public sealed class TaskItemConfiguration : IEntityTypeConfiguration<TaskItem>
         builder.HasIndex(task => task.DueDate);
         builder.HasIndex(task => new { task.ProjectId, task.Status });
         builder.HasIndex(task => new { task.ProjectId, task.SortOrder });
+        builder.HasIndex(task => new { task.TenantId, task.ProjectId, task.Status });
+        builder.HasIndex(task => new { task.TenantId, task.DueDate });
 
         builder
             .HasOne(task => task.Project)
@@ -153,6 +158,8 @@ public sealed class TaskAssignmentConfiguration : IEntityTypeConfiguration<TaskA
         builder.Property(assignment => assignment.AssignedAt).IsRequired();
 
         builder.HasIndex(assignment => new { assignment.TenantId, assignment.TaskItemId, assignment.UserId, assignment.Role }).IsUnique();
+        builder.HasIndex(assignment => new { assignment.TenantId, assignment.UserId });
+        builder.HasIndex(assignment => new { assignment.TenantId, assignment.TaskItemId });
         builder.HasIndex(assignment => assignment.UserId);
         builder.HasIndex(assignment => assignment.AssignedByUserId);
 
@@ -261,6 +268,8 @@ public sealed class ArtifactConfiguration : IEntityTypeConfiguration<Artifact>
         builder.HasIndex(artifact => artifact.CurrentVersionId);
         builder.HasIndex(artifact => artifact.CreatedByUserId);
         builder.HasIndex(artifact => artifact.Status);
+        builder.HasIndex(artifact => new { artifact.TenantId, artifact.ProjectId });
+        builder.HasIndex(artifact => new { artifact.TenantId, artifact.Status });
 
         builder
             .HasOne(artifact => artifact.Project)
@@ -341,6 +350,7 @@ public sealed class CommentConfiguration : IEntityTypeConfiguration<Comment>
         builder.HasIndex(comment => comment.WorkspaceId);
         builder.HasIndex(comment => comment.AuthorUserId);
         builder.HasIndex(comment => new { comment.TargetType, comment.TargetId });
+        builder.HasIndex(comment => new { comment.TenantId, comment.TargetType, comment.TargetId, comment.CreatedAt });
 
         builder
             .HasOne(comment => comment.Workspace)

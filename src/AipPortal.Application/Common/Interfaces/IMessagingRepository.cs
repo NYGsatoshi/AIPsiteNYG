@@ -5,7 +5,7 @@ namespace AipPortal.Application.Common.Interfaces;
 
 public interface IMessagingRepository
 {
-    Task<IReadOnlyList<Conversation>> ListForUserAsync(Guid userId, CancellationToken cancellationToken = default);
+    Task<PagedResponse<Conversation>> ListForUserAsync(Guid userId, int page, int pageSize, CancellationToken cancellationToken = default);
     Task<Conversation?> GetConversationAsync(Guid conversationId, CancellationToken cancellationToken = default);
     Task<Conversation?> FindDirectAsync(Guid userAId, Guid userBId, CancellationToken cancellationToken = default);
     Task<ConversationMember?> GetMemberAsync(Guid conversationId, Guid userId, CancellationToken cancellationToken = default);

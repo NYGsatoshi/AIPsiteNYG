@@ -9,7 +9,7 @@ public sealed class WorkspaceRepository(AppDbContext dbContext) : IWorkspaceRepo
 {
     public async Task<IReadOnlyList<Workspace>> ListForUserAsync(Guid userId, bool includeAll, CancellationToken cancellationToken = default)
     {
-        var query = dbContext.Workspaces.AsQueryable();
+        var query = dbContext.Workspaces.AsNoTracking();
         if (!includeAll)
         {
             query = query.Where(workspace => workspace.Members.Any(member => member.UserId == userId));
@@ -33,6 +33,7 @@ public sealed class WorkspaceRepository(AppDbContext dbContext) : IWorkspaceRepo
     public async Task<IReadOnlyList<WorkspaceMember>> ListMembersAsync(Guid workspaceId, CancellationToken cancellationToken = default)
     {
         return await dbContext.WorkspaceMembers
+            .AsNoTracking()
             .Include(member => member.User)
             .Where(member => member.WorkspaceId == workspaceId)
             .OrderBy(member => member.User!.DisplayName)
@@ -55,6 +56,7 @@ public sealed class GroupRepository(AppDbContext dbContext) : IGroupRepository
     public async Task<IReadOnlyList<Group>> ListByWorkspaceAsync(Guid workspaceId, CancellationToken cancellationToken = default)
     {
         return await dbContext.Groups
+            .AsNoTracking()
             .Where(group => group.WorkspaceId == workspaceId)
             .OrderBy(group => group.Name)
             .ToListAsync(cancellationToken);
@@ -75,6 +77,7 @@ public sealed class GroupRepository(AppDbContext dbContext) : IGroupRepository
     public async Task<IReadOnlyList<GroupMember>> ListMembersAsync(Guid groupId, CancellationToken cancellationToken = default)
     {
         return await dbContext.GroupMembers
+            .AsNoTracking()
             .Include(member => member.User)
             .Where(member => member.GroupId == groupId)
             .OrderBy(member => member.User!.DisplayName)
@@ -97,6 +100,7 @@ public sealed class ChannelRepository(AppDbContext dbContext) : IChannelReposito
     public async Task<IReadOnlyList<Channel>> ListByGroupAsync(Guid groupId, CancellationToken cancellationToken = default)
     {
         return await dbContext.Channels
+            .AsNoTracking()
             .Where(channel => channel.GroupId == groupId)
             .OrderBy(channel => channel.Name)
             .ToListAsync(cancellationToken);
@@ -117,6 +121,7 @@ public sealed class ChannelRepository(AppDbContext dbContext) : IChannelReposito
     public async Task<IReadOnlyList<ChannelMember>> ListMembersAsync(Guid channelId, CancellationToken cancellationToken = default)
     {
         return await dbContext.ChannelMembers
+            .AsNoTracking()
             .Include(member => member.User)
             .Where(member => member.ChannelId == channelId)
             .OrderBy(member => member.User!.DisplayName)
@@ -126,6 +131,7 @@ public sealed class ChannelRepository(AppDbContext dbContext) : IChannelReposito
     public async Task<IReadOnlyList<Post>> ListPinnedPostsAsync(Guid channelId, CancellationToken cancellationToken = default)
     {
         return await dbContext.Posts
+            .AsNoTracking()
             .Include(post => post.AuthorUser)
             .Where(post => post.ChannelId == channelId && post.PinnedAt != null && post.DeletedAt == null)
             .OrderByDescending(post => post.PinnedAt)
@@ -135,6 +141,7 @@ public sealed class ChannelRepository(AppDbContext dbContext) : IChannelReposito
     public async Task<PagedResponse<Post>> ListPostsAsync(Guid channelId, int page, int pageSize, DateTimeOffset? before, DateTimeOffset? after, CancellationToken cancellationToken = default)
     {
         var query = dbContext.Posts
+            .AsNoTracking()
             .Include(post => post.AuthorUser)
             .Where(post => post.ChannelId == channelId && post.DeletedAt == null);
 
@@ -161,17 +168,36 @@ public sealed class ChannelRepository(AppDbContext dbContext) : IChannelReposito
     public Task<Post?> GetPostByIdAsync(Guid postId, CancellationToken cancellationToken = default)
     {
         return dbContext.Posts
+            .AsNoTracking()
             .Include(post => post.AuthorUser)
             .FirstOrDefaultAsync(post => post.Id == postId, cancellationToken);
     }
 
-    public async Task<IReadOnlyList<PostThread>> ListThreadsAsync(Guid postId, CancellationToken cancellationToken = default)
+    public async Task<PagedResponse<PostThread>> ListThreadsAsync(Guid postId, int page, int pageSize, DateTimeOffset? before, DateTimeOffset? after, CancellationToken cancellationToken = default)
     {
-        return await dbContext.PostThreads
+        var query = dbContext.PostThreads
+            .AsNoTracking()
             .Include(thread => thread.AuthorUser)
-            .Where(thread => thread.PostId == postId)
+            .Where(thread => thread.PostId == postId && thread.DeletedAt == null);
+
+        if (before.HasValue)
+        {
+            query = query.Where(thread => thread.CreatedAt < before.Value);
+        }
+
+        if (after.HasValue)
+        {
+            query = query.Where(thread => thread.CreatedAt > after.Value);
+        }
+
+        var total = await query.CountAsync(cancellationToken);
+        var items = await query
             .OrderBy(thread => thread.CreatedAt)
+            .Skip((page - 1) * pageSize)
+            .Take(pageSize)
             .ToListAsync(cancellationToken);
+
+        return new PagedResponse<PostThread>(items, page, pageSize, total);
     }
 
     public async Task AddAsync(Channel channel, CancellationToken cancellationToken = default)

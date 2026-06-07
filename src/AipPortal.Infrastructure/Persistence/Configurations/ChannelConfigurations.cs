@@ -22,6 +22,8 @@ public sealed class ChannelConfiguration : IEntityTypeConfiguration<Channel>
         builder.HasIndex(channel => channel.CreatedByUserId);
         builder.HasIndex(channel => channel.Status);
         builder.HasIndex(channel => new { channel.TenantId, channel.GroupId, channel.Slug }).IsUnique();
+        builder.HasIndex(channel => new { channel.TenantId, channel.GroupId });
+        builder.HasIndex(channel => new { channel.TenantId, channel.Status });
 
         builder
             .HasOne(channel => channel.Workspace)
@@ -83,6 +85,7 @@ public sealed class PostConfiguration : IEntityTypeConfiguration<Post>
         builder.HasIndex(post => post.AuthorUserId);
         builder.HasIndex(post => post.PinnedAt);
         builder.HasIndex(post => post.PinnedByUserId);
+        builder.HasIndex(post => new { post.TenantId, post.ChannelId, post.CreatedAt });
 
         builder
             .HasOne(post => post.Channel)
@@ -115,6 +118,7 @@ public sealed class PostThreadConfiguration : IEntityTypeConfiguration<PostThrea
 
         builder.HasIndex(thread => thread.PostId);
         builder.HasIndex(thread => thread.AuthorUserId);
+        builder.HasIndex(thread => new { thread.TenantId, thread.PostId, thread.CreatedAt });
 
         builder
             .HasOne(thread => thread.Post)

@@ -90,9 +90,9 @@ public sealed class ChannelsController(IChannelService channels) : ControllerBas
     }
 
     [HttpGet("api/posts/{postId:guid}/threads")]
-    public async Task<IActionResult> ListThreads(Guid postId, CancellationToken cancellationToken)
+    public async Task<IActionResult> ListThreads(Guid postId, [FromQuery] ThreadListQuery query, CancellationToken cancellationToken)
     {
-        return ToActionResult(await channels.ListThreadsAsync(postId, cancellationToken));
+        return ToActionResult(await channels.ListThreadsAsync(postId, query, cancellationToken));
     }
 
     [HttpPost("api/posts/{postId:guid}/threads")]

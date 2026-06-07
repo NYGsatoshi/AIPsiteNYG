@@ -8,7 +8,7 @@ public interface IPlanningService
 
     Task<Result<ProjectDashboardResponse>> GetDashboardAsync(Guid projectId, CancellationToken cancellationToken = default);
 
-    Task<Result<IReadOnlyList<MyTaskListItemResponse>>> ListMyTasksAsync(MyTasksQuery query, CancellationToken cancellationToken = default);
+    Task<Result<PagedResponse<MyTaskListItemResponse>>> ListMyTasksAsync(MyTasksQuery query, CancellationToken cancellationToken = default);
 
     Task<Result<ProjectWorkloadResponse>> GetWorkloadAsync(Guid projectId, CancellationToken cancellationToken = default);
 }

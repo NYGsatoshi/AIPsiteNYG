@@ -1,3 +1,4 @@
+using AipPortal.Application.Common;
 using AipPortal.Application.Common.Interfaces;
 using AipPortal.Application.Planning;
 using AipPortal.Domain.Enums;
@@ -157,11 +158,47 @@ public sealed class PlanningRepository(AppDbContext dbContext) : IPlanningReposi
         return new ProjectDashboardResponse(project.Id, project.Name, taskCounts, taskRows.Count(task => IsOverdue(task.DueDate, task.Status, today)), upcoming, activity, comments, artifacts, members);
     }
 
-    public async Task<IReadOnlyList<MyTaskListItemResponse>> ListMyTasksAsync(Guid userId, MyTasksQuery query, DateOnly today, CancellationToken cancellationToken = default)
+    public async Task<PagedResponse<MyTaskListItemResponse>> ListMyTasksAsync(Guid userId, MyTasksQuery query, DateOnly today, CancellationToken cancellationToken = default)
     {
-        var items = await dbContext.TaskAssignments
+        var source = dbContext.TaskAssignments
             .AsNoTracking()
-            .Where(assignment => assignment.UserId == userId && !assignment.TaskItem!.DeletedAt.HasValue && !assignment.TaskItem.Project!.DeletedAt.HasValue)
+            .Where(assignment =>
+                assignment.UserId == userId &&
+                !assignment.TaskItem!.DeletedAt.HasValue &&
+                !assignment.TaskItem.Project!.DeletedAt.HasValue);
+
+        if (query.Status.HasValue)
+        {
+            source = source.Where(assignment => assignment.TaskItem!.Status == query.Status.Value);
+        }
+
+        if (query.DueBefore.HasValue)
+        {
+            source = source.Where(assignment => assignment.TaskItem!.DueDate.HasValue && assignment.TaskItem.DueDate.Value <= query.DueBefore.Value);
+        }
+
+        if (query.ProjectId.HasValue)
+        {
+            source = source.Where(assignment => assignment.TaskItem!.ProjectId == query.ProjectId.Value);
+        }
+
+        if (query.OnlyOverdue)
+        {
+            source = source.Where(assignment =>
+                assignment.TaskItem!.DueDate.HasValue &&
+                assignment.TaskItem.DueDate.Value < today &&
+                assignment.TaskItem.Status != TaskItemStatus.Completed &&
+                assignment.TaskItem.Status != TaskItemStatus.Cancelled);
+        }
+
+        var page = query.SafePage;
+        var pageSize = query.SafePageSize;
+        var total = await source.CountAsync(cancellationToken);
+        var items = await source
+            .OrderBy(assignment => assignment.TaskItem!.DueDate ?? DateOnly.MaxValue)
+            .ThenBy(assignment => assignment.TaskItem!.Title)
+            .Skip((page - 1) * pageSize)
+            .Take(pageSize)
             .Select(assignment => new
             {
                 assignment.TaskItem!.Id,
@@ -174,15 +211,11 @@ public sealed class PlanningRepository(AppDbContext dbContext) : IPlanningReposi
             })
             .ToListAsync(cancellationToken);
 
-        return items
-            .Where(item => !query.Status.HasValue || item.Status == query.Status.Value)
-            .Where(item => !query.DueBefore.HasValue || item.DueDate.HasValue && item.DueDate.Value <= query.DueBefore.Value)
-            .Where(item => !query.ProjectId.HasValue || item.ProjectId == query.ProjectId.Value)
-            .Where(item => !query.OnlyOverdue || IsOverdue(item.DueDate, item.Status, today))
-            .OrderBy(item => item.DueDate ?? DateOnly.MaxValue)
-            .ThenBy(item => item.Title)
+        var responses = items
             .Select(item => new MyTaskListItemResponse(item.Id, item.ProjectId, item.ProjectTitle, item.Title, item.DueDate, item.Status, item.Priority, IsOverdue(item.DueDate, item.Status, today)))
             .ToList();
+
+        return new PagedResponse<MyTaskListItemResponse>(responses, page, pageSize, total);
     }
 
     public async Task<ProjectWorkloadResponse?> GetWorkloadAsync(Guid projectId, DateOnly today, CancellationToken cancellationToken = default)

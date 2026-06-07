@@ -18,6 +18,8 @@ public sealed class WorkspaceConfiguration : IEntityTypeConfiguration<Workspace>
         builder.Property(workspace => workspace.Status).HasEnumStringConversion().IsRequired();
 
         builder.HasIndex(workspace => new { workspace.TenantId, workspace.Slug }).IsUnique();
+        builder.HasIndex(workspace => new { workspace.TenantId, workspace.Status });
+        builder.HasIndex(workspace => new { workspace.TenantId, workspace.CreatedAt });
         builder.HasIndex(workspace => workspace.Status);
         builder.HasIndex(workspace => workspace.CreatedByUserId);
 
@@ -75,6 +77,8 @@ public sealed class GroupConfiguration : IEntityTypeConfiguration<Group>
         builder.HasIndex(group => group.CreatedByUserId);
         builder.HasIndex(group => group.Status);
         builder.HasIndex(group => new { group.TenantId, group.WorkspaceId, group.Slug }).IsUnique();
+        builder.HasIndex(group => new { group.TenantId, group.WorkspaceId });
+        builder.HasIndex(group => new { group.TenantId, group.Status });
 
         builder
             .HasOne(group => group.Workspace)

@@ -22,6 +22,13 @@ public sealed record ConversationDetailResponse(
 
 public sealed record CreateConversationRequest(ConversationType Type, string? Title, IReadOnlyList<Guid> MemberUserIds);
 
+public sealed record ConversationListQuery(int Page = 1, int PageSize = 20)
+{
+    public int SafePage => Page < 1 ? 1 : Page;
+
+    public int SafePageSize => Math.Clamp(PageSize, 1, 100);
+}
+
 public sealed record UpdateConversationRequest(string? Title);
 
 public sealed record ConversationMemberResponse(Guid UserId, string DisplayName, string Email, ConversationMemberRole Role, DateTimeOffset JoinedAt, DateTimeOffset? LeftAt);

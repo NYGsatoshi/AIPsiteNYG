@@ -9,7 +9,7 @@ namespace AipPortal.Web.Controllers;
 public sealed class ConversationsController(IConversationService conversations) : ControllerBase
 {
     [HttpGet("api/conversations")]
-    public async Task<IActionResult> List(CancellationToken cancellationToken) => ToActionResult(await conversations.ListAsync(cancellationToken));
+    public async Task<IActionResult> List([FromQuery] ConversationListQuery query, CancellationToken cancellationToken) => ToActionResult(await conversations.ListAsync(query, cancellationToken));
 
     [HttpPost("api/conversations")]
     public async Task<IActionResult> Create(CreateConversationRequest request, CancellationToken cancellationToken) => ToActionResult(await conversations.CreateAsync(request, cancellationToken));

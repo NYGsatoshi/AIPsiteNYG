@@ -10,6 +10,7 @@ public sealed class ProjectRepository(AppDbContext dbContext) : IProjectReposito
     public async Task<IReadOnlyList<Project>> ListVisibleAsync(Guid userId, CancellationToken cancellationToken = default)
     {
         return await dbContext.Projects
+            .AsNoTracking()
             .Where(project =>
                 project.Members.Any(member => member.UserId == userId) ||
                 dbContext.WorkspaceMembers.Any(member =>
@@ -35,6 +36,7 @@ public sealed class ProjectRepository(AppDbContext dbContext) : IProjectReposito
     public async Task<IReadOnlyList<ProjectMember>> ListMembersAsync(Guid projectId, CancellationToken cancellationToken = default)
     {
         return await dbContext.ProjectMembers
+            .AsNoTracking()
             .Include(member => member.User)
             .Where(member => member.ProjectId == projectId)
             .OrderBy(member => member.User!.DisplayName)
@@ -44,6 +46,7 @@ public sealed class ProjectRepository(AppDbContext dbContext) : IProjectReposito
     public async Task<IReadOnlyList<Milestone>> ListMilestonesAsync(Guid projectId, CancellationToken cancellationToken = default)
     {
         return await dbContext.Milestones
+            .AsNoTracking()
             .Where(milestone => milestone.ProjectId == projectId)
             .OrderBy(milestone => milestone.SortOrder)
             .ThenBy(milestone => milestone.DueDate)
@@ -58,6 +61,7 @@ public sealed class ProjectRepository(AppDbContext dbContext) : IProjectReposito
     public async Task<IReadOnlyList<TaskItem>> ListTasksAsync(Guid projectId, CancellationToken cancellationToken = default)
     {
         return await dbContext.TaskItems
+            .AsNoTracking()
             .Where(task => task.ProjectId == projectId)
             .OrderBy(task => task.SortOrder)
             .ThenBy(task => task.DueDate)
@@ -73,6 +77,7 @@ public sealed class ProjectRepository(AppDbContext dbContext) : IProjectReposito
     public async Task<IReadOnlyList<TaskAssignment>> ListAssignmentsAsync(Guid taskItemId, CancellationToken cancellationToken = default)
     {
         return await dbContext.TaskAssignments
+            .AsNoTracking()
             .Include(assignment => assignment.User)
             .Where(assignment => assignment.TaskItemId == taskItemId)
             .OrderBy(assignment => assignment.Role)
@@ -91,6 +96,7 @@ public sealed class ProjectRepository(AppDbContext dbContext) : IProjectReposito
     public async Task<IReadOnlyList<TaskDependency>> ListDependenciesAsync(Guid taskItemId, CancellationToken cancellationToken = default)
     {
         return await dbContext.TaskDependencies
+            .AsNoTracking()
             .Where(dependency => dependency.SuccessorTaskItemId == taskItemId || dependency.PredecessorTaskItemId == taskItemId)
             .OrderBy(dependency => dependency.CreatedAt)
             .ToListAsync(cancellationToken);
@@ -99,6 +105,7 @@ public sealed class ProjectRepository(AppDbContext dbContext) : IProjectReposito
     public async Task<IReadOnlyList<TaskDependency>> ListProjectDependenciesAsync(Guid projectId, CancellationToken cancellationToken = default)
     {
         return await dbContext.TaskDependencies
+            .AsNoTracking()
             .Where(dependency => dependency.ProjectId == projectId)
             .ToListAsync(cancellationToken);
     }
@@ -119,6 +126,7 @@ public sealed class ProjectRepository(AppDbContext dbContext) : IProjectReposito
     public async Task<IReadOnlyList<Comment>> ListCommentsAsync(CommentTargetType targetType, Guid targetId, CancellationToken cancellationToken = default)
     {
         return await dbContext.Comments
+            .AsNoTracking()
             .Where(comment => comment.TargetType == targetType && comment.TargetId == targetId)
             .OrderBy(comment => comment.CreatedAt)
             .ToListAsync(cancellationToken);

@@ -309,16 +309,20 @@ public sealed class ChannelService(
         return Result.Success();
     }
 
-    public async Task<Result<IReadOnlyList<ThreadReplyResponse>>> ListThreadsAsync(Guid postId, CancellationToken cancellationToken = default)
+    public async Task<Result<PagedResponse<ThreadReplyResponse>>> ListThreadsAsync(Guid postId, ThreadListQuery query, CancellationToken cancellationToken = default)
     {
         var post = await channels.GetPostByIdAsync(postId, cancellationToken);
         if (post is null || !TryCurrentUser(out var userId) || !await authorization.CanViewChannel(userId, post.ChannelId, cancellationToken))
         {
-            return Result<IReadOnlyList<ThreadReplyResponse>>.Failure("Post not found.");
+            return Result<PagedResponse<ThreadReplyResponse>>.Failure("Post not found.");
         }
 
-        var replies = await channels.ListThreadsAsync(postId, cancellationToken);
-        return Result<IReadOnlyList<ThreadReplyResponse>>.Success(replies.Where(r => !r.DeletedAt.HasValue).Select(ToThread).ToList());
+        var replies = await channels.ListThreadsAsync(postId, query.SafePage, query.SafePageSize, query.Before, query.After, cancellationToken);
+        return Result<PagedResponse<ThreadReplyResponse>>.Success(new PagedResponse<ThreadReplyResponse>(
+            replies.Items.Select(ToThread).ToList(),
+            replies.Page,
+            replies.PageSize,
+            replies.TotalCount));
     }
 
     public async Task<Result<ThreadReplyResponse>> CreateThreadAsync(Guid postId, CreateThreadReplyRequest request, CancellationToken cancellationToken = default)

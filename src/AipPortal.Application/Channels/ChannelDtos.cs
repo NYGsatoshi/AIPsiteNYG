@@ -70,3 +70,10 @@ public sealed record PostListQuery(int Page = 1, int PageSize = 50, DateTimeOffs
 
     public int SafePageSize => Math.Clamp(PageSize, 1, 100);
 }
+
+public sealed record ThreadListQuery(int Page = 1, int PageSize = 50, DateTimeOffset? Before = null, DateTimeOffset? After = null)
+{
+    public int SafePage => Page < 1 ? 1 : Page;
+
+    public int SafePageSize => Math.Clamp(PageSize, 1, 100);
+}

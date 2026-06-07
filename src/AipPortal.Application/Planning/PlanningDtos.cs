@@ -50,7 +50,18 @@ public sealed record DashboardArtifactResponse(Guid Id, string Title, ArtifactTy
 
 public sealed record ProjectMemberSummaryResponse(Guid UserId, string DisplayName, ProjectRole Role);
 
-public sealed record MyTasksQuery(TaskItemStatus? Status, DateOnly? DueBefore, Guid? ProjectId, bool OnlyOverdue);
+public sealed record MyTasksQuery(
+    TaskItemStatus? Status,
+    DateOnly? DueBefore,
+    Guid? ProjectId,
+    bool OnlyOverdue,
+    int Page = 1,
+    int PageSize = 50)
+{
+    public int SafePage => Page < 1 ? 1 : Page;
+
+    public int SafePageSize => Math.Clamp(PageSize, 1, 100);
+}
 
 public sealed record MyTaskListItemResponse(
     Guid TaskId,

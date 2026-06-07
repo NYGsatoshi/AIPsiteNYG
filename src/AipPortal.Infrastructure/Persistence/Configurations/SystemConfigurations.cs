@@ -149,6 +149,9 @@ public sealed class AuditLogConfiguration : IEntityTypeConfiguration<AuditLog>
         builder.HasIndex(log => new { log.EntityType, log.EntityId });
         builder.HasIndex(log => log.Action);
         builder.HasIndex(log => log.CreatedAt);
+        builder.HasIndex(log => new { log.TenantId, log.CreatedAt });
+        builder.HasIndex(log => new { log.TenantId, log.Action });
+        builder.HasIndex(log => new { log.TenantId, log.ActorUserId });
 
         builder
             .HasOne(log => log.ActorUser)
@@ -197,6 +200,8 @@ public sealed class SecurityEventConfiguration : IEntityTypeConfiguration<Securi
         builder.HasIndex(evt => evt.UserId);
         builder.HasIndex(evt => evt.Email);
         builder.HasIndex(evt => evt.CreatedAt);
+        builder.HasIndex(evt => new { evt.TenantId, evt.CreatedAt });
+        builder.HasIndex(evt => new { evt.TenantId, evt.EventType });
 
         builder
             .HasOne(evt => evt.User)

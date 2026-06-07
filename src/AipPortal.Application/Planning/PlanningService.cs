@@ -36,19 +36,19 @@ public sealed class PlanningService(
             : Result<ProjectDashboardResponse>.Success(response);
     }
 
-    public async Task<Result<IReadOnlyList<MyTaskListItemResponse>>> ListMyTasksAsync(MyTasksQuery query, CancellationToken cancellationToken = default)
+    public async Task<Result<PagedResponse<MyTaskListItemResponse>>> ListMyTasksAsync(MyTasksQuery query, CancellationToken cancellationToken = default)
     {
         if (!TryCurrentUser(out var userId))
         {
-            return Result<IReadOnlyList<MyTaskListItemResponse>>.Failure("Authentication is required.");
+            return Result<PagedResponse<MyTaskListItemResponse>>.Failure("Authentication is required.");
         }
 
         if (query.ProjectId.HasValue && !await projectAuthorization.CanViewProject(userId, query.ProjectId.Value, cancellationToken))
         {
-            return Result<IReadOnlyList<MyTaskListItemResponse>>.Failure("Project not found.");
+            return Result<PagedResponse<MyTaskListItemResponse>>.Failure("Project not found.");
         }
 
-        return Result<IReadOnlyList<MyTaskListItemResponse>>.Success(await planning.ListMyTasksAsync(userId, query, Today, cancellationToken));
+        return Result<PagedResponse<MyTaskListItemResponse>>.Success(await planning.ListMyTasksAsync(userId, query, Today, cancellationToken));
     }
 
     public async Task<Result<ProjectWorkloadResponse>> GetWorkloadAsync(Guid projectId, CancellationToken cancellationToken = default)

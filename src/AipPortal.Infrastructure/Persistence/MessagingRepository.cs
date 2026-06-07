@@ -7,12 +7,20 @@ namespace AipPortal.Infrastructure.Persistence;
 
 public sealed class MessagingRepository(AppDbContext dbContext) : IMessagingRepository
 {
-    public async Task<IReadOnlyList<Conversation>> ListForUserAsync(Guid userId, CancellationToken cancellationToken = default)
+    public async Task<PagedResponse<Conversation>> ListForUserAsync(Guid userId, int page, int pageSize, CancellationToken cancellationToken = default)
     {
-        return await dbContext.Conversations
+        var query = dbContext.Conversations
+            .AsNoTracking()
             .Where(c => c.Members.Any(m => m.UserId == userId && m.LeftAt == null))
-            .OrderByDescending(c => c.UpdatedAt ?? c.CreatedAt)
+            .OrderByDescending(c => c.UpdatedAt ?? c.CreatedAt);
+
+        var total = await query.CountAsync(cancellationToken);
+        var items = await query
+            .Skip((page - 1) * pageSize)
+            .Take(pageSize)
             .ToListAsync(cancellationToken);
+
+        return new PagedResponse<Conversation>(items, page, pageSize, total);
     }
 
     public Task<Conversation?> GetConversationAsync(Guid conversationId, CancellationToken cancellationToken = default)
@@ -39,7 +47,12 @@ public sealed class MessagingRepository(AppDbContext dbContext) : IMessagingRepo
 
     public async Task<PagedResponse<Message>> ListMessagesAsync(Guid conversationId, int limit, DateTimeOffset? before, CancellationToken cancellationToken = default)
     {
-        var query = dbContext.Messages.Include(m => m.AuthorUser).Include(m => m.Attachments).ThenInclude(a => a.Attachment).Where(m => m.ConversationId == conversationId);
+        var query = dbContext.Messages
+            .AsNoTracking()
+            .Include(m => m.AuthorUser)
+            .Include(m => m.Attachments)
+            .ThenInclude(a => a.Attachment)
+            .Where(m => m.ConversationId == conversationId && m.DeletedAt == null);
         if (before.HasValue) query = query.Where(m => m.CreatedAt < before.Value);
         var total = await query.CountAsync(cancellationToken);
         var items = await query.OrderByDescending(m => m.CreatedAt).Take(limit).ToListAsync(cancellationToken);

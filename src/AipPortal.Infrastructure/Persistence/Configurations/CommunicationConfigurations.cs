@@ -95,6 +95,7 @@ public sealed class NotificationConfiguration : IEntityTypeConfiguration<Notific
         builder.HasIndex(notification => notification.ReadAt);
         builder.HasIndex(notification => notification.DeletedAt);
         builder.HasIndex(notification => new { notification.UserId, notification.IsRead, notification.DeletedAt });
+        builder.HasIndex(notification => new { notification.TenantId, notification.UserId, notification.IsRead, notification.CreatedAt });
         builder.HasIndex(notification => new { notification.RelatedEntityType, notification.RelatedEntityId });
 
         builder

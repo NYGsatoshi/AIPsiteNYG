@@ -21,9 +21,11 @@ public sealed class PlanningController(IPlanningService planning) : ControllerBa
         [FromQuery] DateOnly? dueBefore,
         [FromQuery] Guid? projectId,
         [FromQuery] bool onlyOverdue,
-        CancellationToken cancellationToken)
+        [FromQuery] int page = 1,
+        [FromQuery] int pageSize = 50,
+        CancellationToken cancellationToken = default)
     {
-        return ToActionResult(await planning.ListMyTasksAsync(new MyTasksQuery(status, dueBefore, projectId, onlyOverdue), cancellationToken));
+        return ToActionResult(await planning.ListMyTasksAsync(new MyTasksQuery(status, dueBefore, projectId, onlyOverdue, page, pageSize), cancellationToken));
     }
 
     [HttpGet("api/projects/{projectId:guid}/workload")]

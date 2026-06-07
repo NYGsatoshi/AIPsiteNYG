@@ -18,12 +18,12 @@ public sealed class ConversationService(
     private const long MaxAttachmentBytes = 25 * 1024 * 1024;
     private static readonly HashSet<string> AllowedExtensions = [".pdf", ".png", ".jpg", ".jpeg", ".gif", ".txt", ".docx", ".xlsx", ".pptx", ".zip"];
 
-    public async Task<Result<IReadOnlyList<ConversationListItemResponse>>> ListAsync(CancellationToken cancellationToken = default)
+    public async Task<Result<PagedResponse<ConversationListItemResponse>>> ListAsync(ConversationListQuery query, CancellationToken cancellationToken = default)
     {
-        if (!TryCurrentUser(out var userId)) return Result<IReadOnlyList<ConversationListItemResponse>>.Failure("Authentication is required.");
-        var conversations = await messaging.ListForUserAsync(userId, cancellationToken);
+        if (!TryCurrentUser(out var userId)) return Result<PagedResponse<ConversationListItemResponse>>.Failure("Authentication is required.");
+        var conversations = await messaging.ListForUserAsync(userId, query.SafePage, query.SafePageSize, cancellationToken);
         var result = new List<ConversationListItemResponse>();
-        foreach (var conversation in conversations)
+        foreach (var conversation in conversations.Items)
         {
             var page = await messaging.ListMessagesAsync(conversation.Id, 1, null, cancellationToken);
             var last = page.Items.FirstOrDefault();
@@ -31,7 +31,7 @@ public sealed class ConversationService(
             var unread = await messaging.CountUnreadMessagesAsync(conversation.Id, userId, read?.LastReadAt, cancellationToken);
             result.Add(new ConversationListItemResponse(conversation.Id, conversation.Type, conversation.Title, last is null ? null : ToMessage(last), unread, conversation.CreatedAt, conversation.UpdatedAt));
         }
-        return Result<IReadOnlyList<ConversationListItemResponse>>.Success(result);
+        return Result<PagedResponse<ConversationListItemResponse>>.Success(new PagedResponse<ConversationListItemResponse>(result, conversations.Page, conversations.PageSize, conversations.TotalCount));
     }
 
     public async Task<Result<ConversationDetailResponse>> CreateAsync(CreateConversationRequest request, CancellationToken cancellationToken = default)
