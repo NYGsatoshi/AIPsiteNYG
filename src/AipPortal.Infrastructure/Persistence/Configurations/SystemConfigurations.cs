@@ -151,6 +151,31 @@ public sealed class SecurityEventConfiguration : IEntityTypeConfiguration<Securi
     }
 }
 
+public sealed class SystemSettingConfiguration : IEntityTypeConfiguration<SystemSetting>
+{
+    public void Configure(EntityTypeBuilder<SystemSetting> builder)
+    {
+        builder.ToTable("system_settings");
+        builder.ConfigureEntity();
+
+        builder.Property(setting => setting.Key).HasMaxLength(160).IsRequired();
+        builder.Property(setting => setting.Value).HasMaxLength(4000).IsRequired();
+        builder.Property(setting => setting.ValueType).HasMaxLength(80).IsRequired();
+        builder.Property(setting => setting.Description).HasMaxLength(1000);
+        builder.Property(setting => setting.UpdatedAt).IsRequired();
+
+        builder.HasIndex(setting => setting.Key).IsUnique();
+        builder.HasIndex(setting => setting.UpdatedByUserId);
+        builder.HasIndex(setting => setting.UpdatedAt);
+
+        builder
+            .HasOne(setting => setting.UpdatedByUser)
+            .WithMany()
+            .HasForeignKey(setting => setting.UpdatedByUserId)
+            .OnDelete(DeleteBehavior.SetNull);
+    }
+}
+
 public sealed class FeatureModuleConfiguration : IEntityTypeConfiguration<FeatureModule>
 {
     public void Configure(EntityTypeBuilder<FeatureModule> builder)

@@ -1,4 +1,5 @@
 using Microsoft.Extensions.DependencyInjection;
+using AipPortal.Application.Admin;
 using AipPortal.Application.Auth;
 using AipPortal.Application.Announcements;
 using AipPortal.Application.Artifacts;
@@ -23,6 +24,7 @@ public static class DependencyInjection
     public static IServiceCollection AddApplication(this IServiceCollection services)
     {
         services.AddScoped<IAuthService, AuthService>();
+        services.AddScoped<IAdminService, AdminService>();
         services.AddScoped<IWorkspaceAuthorizationService, WorkspaceAuthorizationService>();
         services.AddScoped<IGroupAuthorizationService, GroupAuthorizationService>();
         services.AddScoped<IChannelAuthorizationService, ChannelAuthorizationService>();

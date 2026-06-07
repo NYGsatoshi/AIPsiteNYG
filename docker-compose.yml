@@ -1,0 +1,35 @@
+services:
+  app:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    environment:
+      ASPNETCORE_ENVIRONMENT: Production
+      ConnectionStrings__DefaultConnection: Host=postgres;Port=5432;Database=${POSTGRES_DB:-aip_portal};Username=${POSTGRES_USER:-aip_portal};Password=${POSTGRES_PASSWORD:?set POSTGRES_PASSWORD}
+      FileStorage__RootPath: /app/storage/uploads
+      FileStorage__MaxFileSizeBytes: ${FILE_STORAGE_MAX_FILE_SIZE_BYTES:-26214400}
+    ports:
+      - "${AIP_PORTAL_PORT:-8080}:8080"
+    volumes:
+      - aip_uploads:/app/storage/uploads
+    depends_on:
+      postgres:
+        condition: service_healthy
+
+  postgres:
+    image: postgres:18-alpine
+    environment:
+      POSTGRES_DB: ${POSTGRES_DB:-aip_portal}
+      POSTGRES_USER: ${POSTGRES_USER:-aip_portal}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?set POSTGRES_PASSWORD}
+    volumes:
+      - aip_pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-aip_portal} -d ${POSTGRES_DB:-aip_portal}"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+volumes:
+  aip_pgdata:
+  aip_uploads:

@@ -78,6 +78,7 @@ public sealed class MessageConfiguration : IEntityTypeConfiguration<Message>
         builder.HasIndex(message => message.ConversationId);
         builder.HasIndex(message => message.AuthorUserId);
         builder.HasIndex(message => message.EditedAt);
+        builder.HasIndex(message => new { message.ConversationId, message.CreatedAt });
 
         builder
             .HasOne(message => message.Conversation)

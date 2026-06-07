@@ -74,6 +74,19 @@ public sealed class SecurityEvent : Entity
     public User? User { get; set; }
 }
 
+public sealed class SystemSetting : Entity
+{
+    public string Key { get; set; } = string.Empty;
+    public string Value { get; set; } = string.Empty;
+    public string ValueType { get; set; } = "String";
+    public string? Description { get; set; }
+    public bool IsSensitive { get; set; }
+    public DateTimeOffset UpdatedAt { get; set; }
+    public Guid? UpdatedByUserId { get; set; }
+
+    public User? UpdatedByUser { get; set; }
+}
+
 public sealed class FeatureModule : AuditableEntity
 {
     public string Key { get; set; } = string.Empty;

@@ -117,6 +117,7 @@ public sealed class TaskItemConfiguration : IEntityTypeConfiguration<TaskItem>
         builder.HasIndex(task => task.Status);
         builder.HasIndex(task => task.Priority);
         builder.HasIndex(task => task.DueDate);
+        builder.HasIndex(task => new { task.ProjectId, task.Status });
         builder.HasIndex(task => new { task.ProjectId, task.SortOrder });
 
         builder

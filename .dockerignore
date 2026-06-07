@@ -1,0 +1,10 @@
+**/bin/
+**/obj/
+.git/
+.config/
+.nuget/
+storage/
+tests/**/TestResults/
+*.user
+*.suo
+*.log

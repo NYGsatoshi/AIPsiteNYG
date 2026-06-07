@@ -56,6 +56,26 @@ public sealed class AuthServiceTests
     }
 
     [Fact]
+    public async Task RevokedInviteCannotBeUsed()
+    {
+        var fixture = AuthFixture.Create();
+        fixture.AddInvite(
+            "invite-token",
+            "student@example.com",
+            expiresAt: fixture.Clock.UtcNow.AddDays(1),
+            revokedAt: fixture.Clock.UtcNow);
+
+        var result = await fixture.Service.RegisterByInviteAsync(new RegisterByInviteRequest(
+            "invite-token",
+            "Student",
+            "student@example.com",
+            "Password123"));
+
+        Assert.False(result.IsSuccess);
+        Assert.DoesNotContain(fixture.Users.Values, user => user.Email == "student@example.com");
+    }
+
+    [Fact]
     public async Task SuspendedUserCannotLogin()
     {
         var fixture = AuthFixture.Create();

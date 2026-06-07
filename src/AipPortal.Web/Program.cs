@@ -2,7 +2,9 @@ using AipPortal.Application;
 using AipPortal.Infrastructure;
 using AipPortal.Infrastructure.Persistence;
 using AipPortal.Web.Extensions;
+using AipPortal.Web.Middleware;
 using Microsoft.AspNetCore.Authentication.Cookies;
+using Microsoft.EntityFrameworkCore;
 
 var builder = WebApplication.CreateBuilder(args);
 
@@ -39,6 +41,8 @@ builder.Services.AddAuthorization();
 
 var app = builder.Build();
 
+app.UseMiddleware<GlobalExceptionHandlingMiddleware>();
+
 if (builder.Configuration.GetValue<bool>("UiShell:SeedOnStartup"))
 {
     await using var scope = app.Services.CreateAsyncScope();
@@ -53,6 +57,22 @@ app.UseAuthorization();
 
 app.MapControllers();
 
-app.MapGet("/health", () => Results.Ok(new { status = "OK" }));
+app.MapGet("/health", async (AppDbContext dbContext, CancellationToken cancellationToken) =>
+{
+    var databaseOk = await dbContext.Database.CanConnectAsync(cancellationToken);
+    return databaseOk
+        ? Results.Ok(new { status = "OK", database = "OK" })
+        : Results.StatusCode(StatusCodes.Status503ServiceUnavailable);
+});
+
+app.MapGet("/health/live", () => Results.Ok(new { status = "OK" }));
+
+app.MapGet("/health/ready", async (AppDbContext dbContext, CancellationToken cancellationToken) =>
+{
+    var databaseOk = await dbContext.Database.CanConnectAsync(cancellationToken);
+    return databaseOk
+        ? Results.Ok(new { status = "OK", database = "OK" })
+        : Results.StatusCode(StatusCodes.Status503ServiceUnavailable);
+});
 
 app.Run();
