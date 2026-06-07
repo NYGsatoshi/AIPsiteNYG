@@ -299,6 +299,7 @@ public sealed class ArtifactVersionConfiguration : IEntityTypeConfiguration<Arti
 
         builder.HasIndex(version => new { version.TenantId, version.ArtifactId, version.VersionNumber }).IsUnique();
         builder.HasIndex(version => version.AttachmentId);
+        builder.HasIndex(version => version.FileObjectId);
         builder.HasIndex(version => version.CreatedByUserId);
 
         builder
@@ -312,6 +313,12 @@ public sealed class ArtifactVersionConfiguration : IEntityTypeConfiguration<Arti
             .WithMany()
             .HasForeignKey(version => version.AttachmentId)
             .OnDelete(DeleteBehavior.Restrict);
+
+        builder
+            .HasOne(version => version.FileObject)
+            .WithMany()
+            .HasForeignKey(version => version.FileObjectId)
+            .OnDelete(DeleteBehavior.SetNull);
 
         builder
             .HasOne(version => version.CreatedByUser)

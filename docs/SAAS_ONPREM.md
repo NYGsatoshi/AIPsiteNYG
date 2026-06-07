@@ -30,6 +30,29 @@ This mode is for an installed single organization while still keeping internal d
 
 Resolution works like SaaS, but the tenants are operated by the installed organization. This supports cases such as multiple schools or departments inside one installation.
 
+## File Storage
+
+File bodies are stored outside PostgreSQL through the `IFileStorageService` abstraction. The database stores `FileObject` metadata, tenant scope, ownership scope, content type, size, scan/status fields, and the generated storage key.
+
+Supported provider names:
+
+- `LocalFileSystem`: implemented for development and small on-prem deployments.
+- `ObjectStorage`, `S3Compatible`, `OCIObjectStorage`: configuration placeholders for SaaS/object-storage deployments; production adapters should keep the same provider-neutral interface.
+
+Local filesystem storage is acceptable for small on-prem deployments when the storage root is backed up and monitored. SaaS deployments should use object storage. On-prem installations can use local filesystem storage, NAS-mounted storage, MinIO, or another S3-compatible object storage service once an adapter is enabled.
+
+Storage keys are tenant-namespaced, for example `tenants/{tenantId}/files/{fileId}` and `tenants/{tenantId}/projects/{projectId}/files/{fileId}`. User-provided file names are metadata only and are never used as storage keys. Downloads go through application authorization and must not expose raw permanent object-storage URLs.
+
+Backups must include both the database and the configured file storage root or bucket. The tenant ID in each storage key makes tenant export, restore, and forensic review easier.
+
+## Plans, Features, And Quotas
+
+On-prem deployments can run without payment integration. `Plan` and `Subscription` still exist as license/configuration objects so the same feature flag and quota paths work in SaaS and installed deployments.
+
+Quota enforcement may be advisory or strict depending on deployment policy. The current foundation enforces file upload size and tenant storage quota through `IQuotaService`; user, project, guest, and API quotas have service hooks for later enforcement.
+
+Feature flags are tenant-scoped and can be derived from plan defaults plus tenant overrides. They control enabled modules such as production tracking, radial menu, docking layout, forms, calendar, API access, and file sharing. Enterprise/on-prem admins can later use the same model for offline license files or centrally managed configuration.
+
 ## Seed And Migration
 
 Migration `MultiTenantFoundation` creates a deterministic default tenant:

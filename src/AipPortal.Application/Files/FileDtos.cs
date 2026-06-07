@@ -12,11 +12,12 @@ public sealed record AttachmentUploadInput(
 
 public sealed record AttachmentResponse(
     Guid Id,
+    Guid FileObjectId,
     AttachmentOwnerType? OwnerType,
     Guid? OwnerId,
     string OriginalFileName,
     string StoredFileName,
-    string FilePath,
+    string StorageKey,
     string ContentType,
     long FileSize,
     Guid UploadedByUserId,
@@ -24,3 +25,17 @@ public sealed record AttachmentResponse(
     DateTimeOffset? DeletedAt);
 
 public sealed record FileDownloadResponse(Stream Content, string FileName, string ContentType, long SizeBytes);
+
+public sealed record FileObjectResponse(
+    Guid Id,
+    Guid? WorkspaceId,
+    Guid? GroupId,
+    Guid? ProjectId,
+    string OriginalFileName,
+    string StorageKey,
+    string ContentType,
+    long SizeBytes,
+    string Status,
+    DateTimeOffset CreatedAt,
+    DateTimeOffset? UpdatedAt,
+    DateTimeOffset? DeletedAt);

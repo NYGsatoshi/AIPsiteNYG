@@ -11,6 +11,10 @@ public sealed class AppDbContext(
     ICurrentTenant currentTenant) : DbContext(options)
 {
     public DbSet<Tenant> Tenants => Set<Tenant>();
+    public DbSet<TenantSettings> TenantSettings => Set<TenantSettings>();
+    public DbSet<Plan> Plans => Set<Plan>();
+    public DbSet<Subscription> Subscriptions => Set<Subscription>();
+    public DbSet<UsageRecord> UsageRecords => Set<UsageRecord>();
     public DbSet<TenantUser> TenantUsers => Set<TenantUser>();
     public DbSet<User> Users => Set<User>();
     public DbSet<Session> Sessions => Set<Session>();
@@ -48,6 +52,7 @@ public sealed class AppDbContext(
     public DbSet<ArtifactVersion> ArtifactVersions => Set<ArtifactVersion>();
     public DbSet<Comment> Comments => Set<Comment>();
     public DbSet<Feedback> Feedback => Set<Feedback>();
+    public DbSet<FileObject> FileObjects => Set<FileObject>();
     public DbSet<Attachment> Attachments => Set<Attachment>();
     public DbSet<FileScanResult> FileScanResults => Set<FileScanResult>();
     public DbSet<AuditLog> AuditLogs => Set<AuditLog>();

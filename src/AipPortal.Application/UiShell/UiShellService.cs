@@ -15,6 +15,7 @@ public sealed class UiShellService(
     IArtifactRepository artifacts,
     IProjectAuthorizationService projectAuthorization,
     IWorkspaceAuthorizationService workspaceAuthorization,
+    IFeatureFlagService featureFlags,
     ICurrentUser currentUser,
     IClock clock,
     IUnitOfWork unitOfWork) : IUiShellService
@@ -27,8 +28,9 @@ public sealed class UiShellService(
         }
 
         var modules = await uiShell.ListModulesAsync(cancellationToken);
+        var enabledFeatures = await GetEnabledFeatureSetAsync(cancellationToken);
         return Result<IReadOnlyList<FeatureModuleResponse>>.Success(modules
-            .Where(module => module.IsEnabled && HasRole(role, module.RequiredRole))
+            .Where(module => module.IsEnabled && HasRole(role, module.RequiredRole) && IsFeatureVisible(module.Key, enabledFeatures))
             .OrderBy(module => module.SortOrder)
             .Select(ToModule)
             .ToList());
@@ -42,8 +44,9 @@ public sealed class UiShellService(
         }
 
         var panels = await uiShell.ListPanelsAsync(moduleKey, cancellationToken);
+        var enabledFeatures = await GetEnabledFeatureSetAsync(cancellationToken);
         return Result<IReadOnlyList<PanelDefinitionResponse>>.Success(panels
-            .Where(panel => panel.IsEnabled && panel.FeatureModule?.IsEnabled == true && HasRole(role, panel.FeatureModule.RequiredRole))
+            .Where(panel => panel.IsEnabled && panel.FeatureModule?.IsEnabled == true && HasRole(role, panel.FeatureModule.RequiredRole) && IsFeatureVisible(panel.FeatureModule.Key, enabledFeatures) && enabledFeatures.Contains(FeatureKeys.DockingLayout))
             .OrderBy(panel => panel.SortOrder)
             .Select(ToPanel)
             .ToList());
@@ -158,8 +161,10 @@ public sealed class UiShellService(
         }
 
         var commands = await uiShell.ListCommandsAsync(contextType, cancellationToken);
+        var enabledFeatures = await GetEnabledFeatureSetAsync(cancellationToken);
         return Result<IReadOnlyList<CommandDefinitionResponse>>.Success(commands
-            .Where(command => command.IsEnabled && (command.FeatureModule is null || HasRole(role, command.FeatureModule.RequiredRole)))
+            .Where(command => command.IsEnabled &&
+                (command.FeatureModule is null || (HasRole(role, command.FeatureModule.RequiredRole) && IsFeatureVisible(command.FeatureModule.Key, enabledFeatures))))
             .OrderBy(command => command.SortOrder)
             .Select(ToCommand)
             .ToList());
@@ -174,7 +179,7 @@ public sealed class UiShellService(
         }
 
         var profile = await uiShell.GetDefaultRadialMenuAsync(contextType, cancellationToken);
-        if (profile is null)
+        if (profile is null || !await featureFlags.IsEnabledAsync(FeatureKeys.RadialMenu, cancellationToken))
         {
             return Result<RadialMenuResponse>.Failure("Radial menu not found.");
         }
@@ -303,6 +308,28 @@ public sealed class UiShellService(
     private static bool HasRole(SystemRole? actual, SystemRole? required)
     {
         return required is null || (actual.HasValue && actual.Value >= required.Value);
+    }
+
+    private async Task<HashSet<string>> GetEnabledFeatureSetAsync(CancellationToken cancellationToken)
+    {
+        var enabled = FeatureKeys.All.ToHashSet(StringComparer.OrdinalIgnoreCase);
+        if (currentUser.IsAuthenticated)
+        {
+            foreach (var feature in FeatureKeys.All)
+            {
+                if (!await featureFlags.IsEnabledAsync(feature, cancellationToken))
+                {
+                    enabled.Remove(feature);
+                }
+            }
+        }
+
+        return enabled;
+    }
+
+    private static bool IsFeatureVisible(string featureKey, HashSet<string> enabledFeatures)
+    {
+        return !FeatureKeys.All.Contains(featureKey, StringComparer.OrdinalIgnoreCase) || enabledFeatures.Contains(featureKey);
     }
 
     private bool TryCurrentUser(out Guid userId, out SystemRole? role)

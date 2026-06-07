@@ -362,6 +362,39 @@ public enum FileScanStatus
     Skipped = 4
 }
 
+public enum FileObjectStatus
+{
+    Active = 0,
+    Quarantined = 1,
+    Archived = 2,
+    Deleted = 3
+}
+
+public enum InvitationMode
+{
+    AdminOnly = 0,
+    DomainRestricted = 1,
+    InviteLink = 2,
+    Closed = 3
+}
+
+public enum PlanStatus
+{
+    Active = 0,
+    Archived = 1,
+    InternalOnly = 2
+}
+
+public enum SubscriptionStatus
+{
+    Trial = 0,
+    Active = 1,
+    PastDue = 2,
+    Suspended = 3,
+    Cancelled = 4,
+    Expired = 5
+}
+
 public enum AttachmentOwnerType
 {
     Message = 0,

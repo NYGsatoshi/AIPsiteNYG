@@ -15,6 +15,7 @@ using AipPortal.Application.Planning;
 using AipPortal.Application.Projects;
 using AipPortal.Application.Search;
 using AipPortal.Application.Tenancy;
+using AipPortal.Application.TenantAdministration;
 using AipPortal.Application.UiShell;
 using AipPortal.Application.Workspaces;
 using AipPortal.Application.Common.Interfaces;
@@ -31,6 +32,9 @@ public static class DependencyInjection
         services.AddScoped<ICurrentTenantAccessor>(provider => provider.GetRequiredService<CurrentTenantService>());
         services.AddScoped<ITenantAuthorizationService, TenantAuthorizationService>();
         services.AddScoped<ITenantService, TenantService>();
+        services.AddScoped<IFeatureFlagService, FeatureFlagService>();
+        services.AddScoped<IQuotaService, QuotaService>();
+        services.AddScoped<ITenantAdministrationService, TenantAdministrationService>();
         services.AddScoped<IAuthService, AuthService>();
         services.AddScoped<IAdminService, AdminService>();
         services.AddScoped<IWorkspaceAuthorizationService, WorkspaceAuthorizationService>();
@@ -55,6 +59,8 @@ public static class DependencyInjection
         services.AddScoped<IEventService, EventService>();
         services.AddScoped<IFormService, FormService>();
         services.AddScoped<IFileService, FileService>();
+        services.AddScoped<IFileObjectService>(provider => provider.GetRequiredService<IFileService>() as IFileObjectService
+            ?? throw new InvalidOperationException("IFileService must be implemented by IFileObjectService."));
         services.AddScoped<IArtifactService, ArtifactService>();
         services.AddScoped<IPlanningService, PlanningService>();
         services.AddScoped<IUiShellService, UiShellService>();

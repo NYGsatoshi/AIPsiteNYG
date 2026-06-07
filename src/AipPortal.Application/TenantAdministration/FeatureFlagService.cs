@@ -1,0 +1,99 @@
+using System.Text.Json;
+using AipPortal.Application.Common;
+using AipPortal.Application.Common.Interfaces;
+
+namespace AipPortal.Application.TenantAdministration;
+
+public sealed class FeatureFlagService(
+    ITenantPlanRepository tenantPlans,
+    ICurrentTenant currentTenant) : IFeatureFlagService
+{
+    public async Task<bool> IsEnabledAsync(string featureKey, CancellationToken cancellationToken = default)
+    {
+        if (!currentTenant.IsAvailable)
+        {
+            return false;
+        }
+
+        var enabled = await GetEnabledFeaturesAsync(currentTenant.TenantId, cancellationToken);
+        return enabled.Contains(featureKey, StringComparer.OrdinalIgnoreCase);
+    }
+
+    public async Task<Result> RequireEnabledAsync(string featureKey, CancellationToken cancellationToken = default)
+    {
+        return await IsEnabledAsync(featureKey, cancellationToken)
+            ? Result.Success()
+            : Result.Failure($"Feature '{featureKey}' is disabled for this tenant.");
+    }
+
+    public async Task<IReadOnlyList<string>> GetEnabledFeaturesAsync(Guid tenantId, CancellationToken cancellationToken = default)
+    {
+        var enabled = new HashSet<string>(FeatureKeys.All, StringComparer.OrdinalIgnoreCase);
+        var subscription = await tenantPlans.GetActiveSubscriptionAsync(tenantId, cancellationToken);
+        if (subscription?.Plan is not null)
+        {
+            enabled = ParseFeatureArray(subscription.Plan.EnabledFeaturesJson);
+        }
+
+        var settings = await tenantPlans.GetTenantSettingsAsync(tenantId, cancellationToken);
+        if (settings is not null)
+        {
+            ApplyTenantOverrides(enabled, settings.FeatureFlagsJson);
+        }
+
+        return enabled.OrderBy(key => key).ToList();
+    }
+
+    private static HashSet<string> ParseFeatureArray(string? json)
+    {
+        if (string.IsNullOrWhiteSpace(json))
+        {
+            return new HashSet<string>(FeatureKeys.All, StringComparer.OrdinalIgnoreCase);
+        }
+
+        try
+        {
+            var values = JsonSerializer.Deserialize<string[]>(json);
+            return values is { Length: > 0 }
+                ? values.ToHashSet(StringComparer.OrdinalIgnoreCase)
+                : new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+        }
+        catch (JsonException)
+        {
+            return new HashSet<string>(FeatureKeys.All, StringComparer.OrdinalIgnoreCase);
+        }
+    }
+
+    private static void ApplyTenantOverrides(HashSet<string> enabled, string? json)
+    {
+        if (string.IsNullOrWhiteSpace(json))
+        {
+            return;
+        }
+
+        try
+        {
+            var overrides = JsonSerializer.Deserialize<Dictionary<string, bool>>(json);
+            if (overrides is null)
+            {
+                return;
+            }
+
+            foreach (var (key, isEnabled) in overrides)
+            {
+                if (isEnabled)
+                {
+                    enabled.Add(key);
+                }
+                else
+                {
+                    enabled.Remove(key);
+                }
+            }
+        }
+        catch (JsonException)
+        {
+            // Invalid tenant override JSON should not disable the product shell.
+        }
+    }
+}

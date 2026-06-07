@@ -63,3 +63,101 @@ public sealed class TenantUserConfiguration : IEntityTypeConfiguration<TenantUse
             .OnDelete(DeleteBehavior.SetNull);
     }
 }
+
+public sealed class TenantSettingsConfiguration : IEntityTypeConfiguration<TenantSettings>
+{
+    public void Configure(EntityTypeBuilder<TenantSettings> builder)
+    {
+        builder.ToTable("tenant_settings");
+        builder.ConfigureAuditableEntity();
+
+        builder.Property(settings => settings.DisplayName).HasMaxLength(160).IsRequired();
+        builder.Property(settings => settings.ThemeColor).HasMaxLength(40);
+        builder.Property(settings => settings.DefaultLocale).HasMaxLength(20).IsRequired();
+        builder.Property(settings => settings.TimeZone).HasMaxLength(80).IsRequired();
+        builder.Property(settings => settings.InvitationMode).HasEnumStringConversion().IsRequired();
+        builder.Property(settings => settings.FeatureFlagsJson).HasColumnType("jsonb").IsRequired();
+        builder.Property(settings => settings.NotificationSettingsJson).HasColumnType("jsonb").IsRequired();
+
+        builder.HasIndex(settings => settings.TenantId).IsUnique();
+        builder.HasIndex(settings => settings.LogoFileId);
+
+        builder
+            .HasOne(settings => settings.Tenant)
+            .WithOne(tenant => tenant.Settings)
+            .HasForeignKey<TenantSettings>(settings => settings.TenantId)
+            .OnDelete(DeleteBehavior.Restrict);
+
+        builder
+            .HasOne(settings => settings.LogoFile)
+            .WithMany()
+            .HasForeignKey(settings => settings.LogoFileId)
+            .OnDelete(DeleteBehavior.SetNull);
+    }
+}
+
+public sealed class PlanConfiguration : IEntityTypeConfiguration<Plan>
+{
+    public void Configure(EntityTypeBuilder<Plan> builder)
+    {
+        builder.ToTable("plans");
+        builder.ConfigureAuditableEntity();
+
+        builder.Property(plan => plan.Name).HasMaxLength(120).IsRequired();
+        builder.Property(plan => plan.Description).HasMaxLength(1000);
+        builder.Property(plan => plan.EnabledFeaturesJson).HasColumnType("jsonb").IsRequired();
+        builder.Property(plan => plan.PriceMonthly).HasPrecision(12, 2);
+        builder.Property(plan => plan.Status).HasEnumStringConversion().IsRequired();
+
+        builder.HasIndex(plan => plan.Name).IsUnique();
+        builder.HasIndex(plan => plan.Status);
+    }
+}
+
+public sealed class SubscriptionConfiguration : IEntityTypeConfiguration<Subscription>
+{
+    public void Configure(EntityTypeBuilder<Subscription> builder)
+    {
+        builder.ToTable("subscriptions");
+        builder.ConfigureAuditableEntity();
+
+        builder.Property(subscription => subscription.Status).HasEnumStringConversion().IsRequired();
+        builder.Property(subscription => subscription.StartedAt).IsRequired();
+
+        builder.HasIndex(subscription => subscription.TenantId);
+        builder.HasIndex(subscription => subscription.PlanId);
+        builder.HasIndex(subscription => new { subscription.TenantId, subscription.Status });
+
+        builder
+            .HasOne(subscription => subscription.Tenant)
+            .WithMany(tenant => tenant.Subscriptions)
+            .HasForeignKey(subscription => subscription.TenantId)
+            .OnDelete(DeleteBehavior.Restrict);
+
+        builder
+            .HasOne(subscription => subscription.Plan)
+            .WithMany(plan => plan.Subscriptions)
+            .HasForeignKey(subscription => subscription.PlanId)
+            .OnDelete(DeleteBehavior.Restrict);
+    }
+}
+
+public sealed class UsageRecordConfiguration : IEntityTypeConfiguration<UsageRecord>
+{
+    public void Configure(EntityTypeBuilder<UsageRecord> builder)
+    {
+        builder.ToTable("usage_records");
+        builder.ConfigureEntity();
+
+        builder.Property(record => record.Date).IsRequired();
+        builder.Property(record => record.CreatedAt).IsRequired();
+
+        builder.HasIndex(record => new { record.TenantId, record.Date }).IsUnique();
+
+        builder
+            .HasOne(record => record.Tenant)
+            .WithMany()
+            .HasForeignKey(record => record.TenantId)
+            .OnDelete(DeleteBehavior.Restrict);
+    }
+}

@@ -21,12 +21,19 @@ public sealed class AttachmentConfiguration : IEntityTypeConfiguration<Attachmen
         builder.Property(attachment => attachment.OwnerType).HasConversion<string>().HasMaxLength(40);
         builder.Property(attachment => attachment.ScanStatus).HasEnumStringConversion().IsRequired();
 
+        builder.HasIndex(attachment => attachment.FileObjectId);
         builder.HasIndex(attachment => attachment.WorkspaceId);
         builder.HasIndex(attachment => new { attachment.OwnerType, attachment.OwnerId });
         builder.HasIndex(attachment => attachment.OwnerUserId);
         builder.HasIndex(attachment => attachment.UploadedByUserId);
         builder.HasIndex(attachment => attachment.ScanStatus);
         builder.HasIndex(attachment => attachment.Extension);
+
+        builder
+            .HasOne(attachment => attachment.FileObject)
+            .WithMany()
+            .HasForeignKey(attachment => attachment.FileObjectId)
+            .OnDelete(DeleteBehavior.Restrict);
 
         builder
             .HasOne(attachment => attachment.Workspace)
@@ -44,6 +51,54 @@ public sealed class AttachmentConfiguration : IEntityTypeConfiguration<Attachmen
             .HasOne(attachment => attachment.UploadedByUser)
             .WithMany()
             .HasForeignKey(attachment => attachment.UploadedByUserId)
+            .OnDelete(DeleteBehavior.Restrict);
+    }
+}
+
+public sealed class FileObjectConfiguration : IEntityTypeConfiguration<FileObject>
+{
+    public void Configure(EntityTypeBuilder<FileObject> builder)
+    {
+        builder.ToTable("file_objects");
+        builder.ConfigureAuditableEntity();
+
+        builder.Property(file => file.OriginalFileName).HasMaxLength(260).IsRequired();
+        builder.Property(file => file.StorageKey).HasMaxLength(1024).IsRequired();
+        builder.Property(file => file.ContentType).HasMaxLength(160).IsRequired();
+        builder.Property(file => file.HashSha256).HasMaxLength(64);
+        builder.Property(file => file.Status).HasEnumStringConversion().IsRequired();
+        builder.Property(file => file.DeleteReason).HasMaxLength(500);
+
+        builder.HasIndex(file => file.WorkspaceId);
+        builder.HasIndex(file => file.GroupId);
+        builder.HasIndex(file => file.ProjectId);
+        builder.HasIndex(file => file.UploadedByUserId);
+        builder.HasIndex(file => file.Status);
+        builder.HasIndex(file => file.StorageKey).IsUnique();
+        builder.HasIndex(file => new { file.TenantId, file.Status, file.CreatedAt });
+
+        builder
+            .HasOne(file => file.Workspace)
+            .WithMany()
+            .HasForeignKey(file => file.WorkspaceId)
+            .OnDelete(DeleteBehavior.SetNull);
+
+        builder
+            .HasOne(file => file.Group)
+            .WithMany()
+            .HasForeignKey(file => file.GroupId)
+            .OnDelete(DeleteBehavior.SetNull);
+
+        builder
+            .HasOne(file => file.Project)
+            .WithMany()
+            .HasForeignKey(file => file.ProjectId)
+            .OnDelete(DeleteBehavior.SetNull);
+
+        builder
+            .HasOne(file => file.UploadedByUser)
+            .WithMany()
+            .HasForeignKey(file => file.UploadedByUserId)
             .OnDelete(DeleteBehavior.Restrict);
     }
 }

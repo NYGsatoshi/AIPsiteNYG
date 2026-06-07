@@ -25,6 +25,7 @@ public sealed class ArtifactRepository(AppDbContext dbContext) : IArtifactReposi
         return dbContext.ArtifactVersions
             .Include(version => version.Artifact)
             .Include(version => version.Attachment)
+            .Include(version => version.FileObject)
             .FirstOrDefaultAsync(version => version.Id == versionId, cancellationToken);
     }
 
@@ -33,6 +34,7 @@ public sealed class ArtifactRepository(AppDbContext dbContext) : IArtifactReposi
         return await dbContext.ArtifactVersions
             .AsNoTracking()
             .Include(version => version.Attachment)
+            .Include(version => version.FileObject)
             .Where(version => version.ArtifactId == artifactId)
             .OrderByDescending(version => version.VersionNumber)
             .ToListAsync(cancellationToken);

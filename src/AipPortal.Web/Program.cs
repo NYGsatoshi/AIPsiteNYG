@@ -54,6 +54,7 @@ if (tenancyOptions.SeedOnStartup || tenancyOptions.AppMode == AppMode.OnPremSing
     currentTenant.SetPlatformScope();
     var dbContext = scope.ServiceProvider.GetRequiredService<AppDbContext>();
     var defaultTenant = await AppDbContextSeed.SeedDefaultTenantAsync(dbContext, tenancyOptions);
+    await AppDbContextSeed.SeedPlansAsync(dbContext);
     if (builder.Configuration.GetValue<bool>("UiShell:SeedOnStartup"))
     {
         await AppDbContextSeed.SeedUiShellAsync(dbContext, defaultTenant.Id);

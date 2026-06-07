@@ -8,39 +8,32 @@ public sealed class LocalFileStorageService(IOptions<FileStorageOptions> options
 {
     private readonly FileStorageOptions _options = options.Value;
 
-    public async Task<Result<StoredFileInfo>> SaveAsync(
-        string originalFileName,
+    public async Task<Result> SaveAsync(
+        string storageKey,
+        Stream stream,
         string contentType,
-        long sizeBytes,
-        Stream content,
         CancellationToken cancellationToken = default)
     {
-        var validation = Validate(originalFileName, sizeBytes);
-        if (!validation.IsSuccess)
+        if (string.IsNullOrWhiteSpace(_options.RootPath))
         {
-            return Result<StoredFileInfo>.Failure(validation.Error!);
+            return Result.Failure("FileStorage:RootPath is not configured.");
+        }
+
+        if (string.IsNullOrWhiteSpace(storageKey))
+        {
+            return Result.Failure("Storage key is required.");
         }
 
         var root = GetRootPath();
-        var extension = Path.GetExtension(originalFileName).ToLowerInvariant();
-        var storedFileName = $"{Guid.NewGuid():N}{extension}";
-        var dateFolder = DateTimeOffset.UtcNow.ToString("yyyy/MM/dd");
-        var storageKey = dateFolder.Replace('/', Path.DirectorySeparatorChar) + Path.DirectorySeparatorChar + storedFileName;
         var fullPath = EnsureSafePath(root, storageKey);
         Directory.CreateDirectory(Path.GetDirectoryName(fullPath)!);
 
         await using (var output = File.Create(fullPath))
         {
-            await content.CopyToAsync(output, cancellationToken);
+            await stream.CopyToAsync(output, cancellationToken);
         }
 
-        return Result<StoredFileInfo>.Success(new StoredFileInfo(
-            storedFileName,
-            Path.GetRelativePath(root, fullPath),
-            storageKey,
-            string.IsNullOrWhiteSpace(contentType) ? "application/octet-stream" : contentType,
-            extension,
-            sizeBytes));
+        return Result.Success();
     }
 
     public Task<Stream> OpenReadAsync(string storageKey, CancellationToken cancellationToken = default)
@@ -60,50 +53,15 @@ public sealed class LocalFileStorageService(IOptions<FileStorageOptions> options
         return Task.CompletedTask;
     }
 
-    public Task<StoredFileInfo?> GetFileInfoAsync(string storageKey, CancellationToken cancellationToken = default)
+    public Task<bool> ExistsAsync(string storageKey, CancellationToken cancellationToken = default)
     {
         var fullPath = EnsureSafePath(GetRootPath(), storageKey);
-        if (!File.Exists(fullPath))
-        {
-            return Task.FromResult<StoredFileInfo?>(null);
-        }
-
-        var info = new FileInfo(fullPath);
-        return Task.FromResult<StoredFileInfo?>(new StoredFileInfo(
-            info.Name,
-            Path.GetRelativePath(GetRootPath(), fullPath),
-            storageKey,
-            "application/octet-stream",
-            info.Extension,
-            info.Length));
+        return Task.FromResult(File.Exists(fullPath));
     }
 
-    private Result Validate(string originalFileName, long sizeBytes)
+    public Task<string?> CreateSignedReadUrlAsync(string storageKey, TimeSpan expiresIn, CancellationToken cancellationToken = default)
     {
-        if (string.IsNullOrWhiteSpace(_options.RootPath))
-        {
-            return Result.Failure("FileStorage:RootPath is not configured.");
-        }
-
-        if (sizeBytes <= 0)
-        {
-            return Result.Failure("Empty files are not allowed.");
-        }
-
-        if (sizeBytes > _options.MaxFileSizeBytes)
-        {
-            return Result.Failure($"File exceeds the maximum size of {_options.MaxFileSizeBytes} bytes.");
-        }
-
-        var extension = Path.GetExtension(originalFileName).ToLowerInvariant();
-        if (string.IsNullOrWhiteSpace(extension) ||
-            !_options.AllowedExtensions.Select(item => item.ToLowerInvariant()).Contains(extension))
-        {
-            return Result.Failure("File extension is not allowed.");
-        }
-
-        // TODO: add ZIP bomb protection before enabling archive inspection or extraction.
-        return Result.Success();
+        return Task.FromResult<string?>(null);
     }
 
     private string GetRootPath()

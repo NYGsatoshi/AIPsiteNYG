@@ -59,6 +59,37 @@ public static class AppDbContextSeed
         await dbContext.SaveChangesAsync(cancellationToken);
     }
 
+    public static async Task SeedPlansAsync(AppDbContext dbContext, CancellationToken cancellationToken = default)
+    {
+        var now = DateTimeOffset.UtcNow;
+        var features = "[\"ProductionTracking\",\"AdvancedGanttChart\",\"ExternalGuestAccess\",\"FileSharing\",\"Calendar\",\"Attendance\",\"Forms\",\"WebhookIntegration\",\"ApiAccess\",\"CustomBranding\",\"AuditLogViewer\",\"RadialMenu\",\"DockingLayout\"]";
+        var plans = new (string Name, string Description, int Users, long Storage, int Projects, PlanStatus Status)[]
+        {
+            ("InternalPilot", "Internal pilot and development plan.", 100, 10L * 1024 * 1024 * 1024, 100, PlanStatus.InternalOnly),
+            ("SchoolPilot", "Small school pilot plan.", 150, 25L * 1024 * 1024 * 1024, 150, PlanStatus.Active),
+            ("Standard", "Standard SaaS plan foundation.", 500, 100L * 1024 * 1024 * 1024, 500, PlanStatus.Active),
+            ("Enterprise", "Enterprise and on-prem configuration plan.", 5000, 1024L * 1024 * 1024 * 1024, 5000, PlanStatus.Active)
+        };
+
+        var existing = await dbContext.Plans.Select(plan => plan.Name).ToListAsync(cancellationToken);
+        foreach (var plan in plans.Where(plan => !existing.Contains(plan.Name)))
+        {
+            await dbContext.Plans.AddAsync(new Plan
+            {
+                Name = plan.Name,
+                Description = plan.Description,
+                MaxUsers = plan.Users,
+                MaxStorageBytes = plan.Storage,
+                MaxProjects = plan.Projects,
+                EnabledFeaturesJson = features,
+                Status = plan.Status,
+                CreatedAt = now
+            }, cancellationToken);
+        }
+
+        await dbContext.SaveChangesAsync(cancellationToken);
+    }
+
     private static async Task SeedModulesAsync(AppDbContext dbContext, DateTimeOffset now, CancellationToken cancellationToken)
     {
         var modules = new (string Key, string Name, string Route, string Icon, int Sort)[]

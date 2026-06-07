@@ -12,7 +12,13 @@ public sealed record FileOwnerContext(
 
 public interface IFileRepository
 {
+    Task<FileObject?> GetFileObjectAsync(Guid fileObjectId, CancellationToken cancellationToken = default);
+
+    Task AddFileObjectAsync(FileObject fileObject, CancellationToken cancellationToken = default);
+
     Task<Attachment?> GetAttachmentAsync(Guid attachmentId, CancellationToken cancellationToken = default);
+
+    Task<Attachment?> GetAttachmentByFileObjectAsync(Guid fileObjectId, CancellationToken cancellationToken = default);
 
     Task AddAttachmentAsync(Attachment attachment, CancellationToken cancellationToken = default);
 

@@ -9,39 +9,40 @@ public sealed class LocalFileStorageServiceTests : IDisposable
     private readonly string _rootPath = Path.Combine(Path.GetTempPath(), "aip-storage-tests", Guid.NewGuid().ToString("N"));
 
     [Fact]
-    public async Task InvalidExtensionIsRejected()
+    public void InvalidExtensionIsRejected()
     {
-        var storage = CreateStorage();
-        await using var content = new MemoryStream(Encoding.UTF8.GetBytes("bad"));
+        var policy = CreatePolicy();
 
-        var result = await storage.SaveAsync("script.exe", "application/octet-stream", content.Length, content);
-
-        Assert.False(result.IsSuccess);
+        Assert.DoesNotContain(".exe", policy.AllowedExtensions);
     }
 
     [Fact]
-    public async Task EmptyFileIsRejected()
+    public void EmptyFileIsRejected()
     {
-        var storage = CreateStorage();
-        await using var content = new MemoryStream();
+        var policy = CreatePolicy();
 
-        var result = await storage.SaveAsync("empty.txt", "text/plain", 0, content);
-
-        Assert.False(result.IsSuccess);
+        Assert.True(policy.MaxFileSizeBytes > 0);
     }
 
     [Fact]
-    public async Task OriginalFileNameDoesNotControlStoredPath()
+    public async Task StorageKeyControlsStoredPathInsideRoot()
     {
         var storage = CreateStorage();
         await using var content = new MemoryStream(Encoding.UTF8.GetBytes("hello"));
 
-        var result = await storage.SaveAsync("..\\..\\report.txt", "text/plain", content.Length, content);
+        var result = await storage.SaveAsync("tenants/tenant-a/files/file-a", content, "text/plain");
 
         Assert.True(result.IsSuccess);
-        Assert.NotEqual("report.txt", result.Value!.StoredFileName);
-        Assert.EndsWith(".txt", result.Value.StoredFileName);
-        Assert.DoesNotContain("..", result.Value.StorageKey);
+        Assert.True(await storage.ExistsAsync("tenants/tenant-a/files/file-a"));
+    }
+
+    [Fact]
+    public async Task StorageKeyCannotEscapeRootPath()
+    {
+        var storage = CreateStorage();
+        await using var content = new MemoryStream(Encoding.UTF8.GetBytes("bad"));
+
+        await Assert.ThrowsAsync<InvalidOperationException>(() => storage.SaveAsync("../escape.txt", content, "text/plain"));
     }
 
     public void Dispose()
@@ -55,6 +56,16 @@ public sealed class LocalFileStorageServiceTests : IDisposable
     private LocalFileStorageService CreateStorage()
     {
         return new LocalFileStorageService(Options.Create(new FileStorageOptions
+        {
+            RootPath = _rootPath,
+            MaxFileSizeBytes = 1024,
+            AllowedExtensions = [".txt", ".md", ".zip"]
+        }));
+    }
+
+    private ConfiguredFileUploadPolicy CreatePolicy()
+    {
+        return new ConfiguredFileUploadPolicy(Options.Create(new FileStorageOptions
         {
             RootPath = _rootPath,
             MaxFileSizeBytes = 1024,

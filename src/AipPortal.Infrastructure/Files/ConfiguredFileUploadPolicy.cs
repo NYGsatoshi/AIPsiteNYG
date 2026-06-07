@@ -1,0 +1,13 @@
+using AipPortal.Application.Common.Interfaces;
+using Microsoft.Extensions.Options;
+
+namespace AipPortal.Infrastructure.Files;
+
+public sealed class ConfiguredFileUploadPolicy(IOptions<FileStorageOptions> options) : IFileUploadPolicy
+{
+    private readonly FileStorageOptions _options = options.Value;
+
+    public long MaxFileSizeBytes => _options.MaxFileSizeBytes;
+
+    public IReadOnlyCollection<string> AllowedExtensions => _options.AllowedExtensions;
+}

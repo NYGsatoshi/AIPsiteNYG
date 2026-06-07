@@ -7,9 +7,28 @@ namespace AipPortal.Infrastructure.Persistence;
 
 public sealed class FileRepository(AppDbContext dbContext) : IFileRepository
 {
+    public Task<FileObject?> GetFileObjectAsync(Guid fileObjectId, CancellationToken cancellationToken = default)
+    {
+        return dbContext.FileObjects.FirstOrDefaultAsync(file => file.Id == fileObjectId, cancellationToken);
+    }
+
+    public async Task AddFileObjectAsync(FileObject fileObject, CancellationToken cancellationToken = default)
+    {
+        await dbContext.FileObjects.AddAsync(fileObject, cancellationToken);
+    }
+
     public Task<Attachment?> GetAttachmentAsync(Guid attachmentId, CancellationToken cancellationToken = default)
     {
-        return dbContext.Attachments.FirstOrDefaultAsync(attachment => attachment.Id == attachmentId, cancellationToken);
+        return dbContext.Attachments
+            .Include(attachment => attachment.FileObject)
+            .FirstOrDefaultAsync(attachment => attachment.Id == attachmentId, cancellationToken);
+    }
+
+    public Task<Attachment?> GetAttachmentByFileObjectAsync(Guid fileObjectId, CancellationToken cancellationToken = default)
+    {
+        return dbContext.Attachments
+            .Include(attachment => attachment.FileObject)
+            .FirstOrDefaultAsync(attachment => attachment.FileObjectId == fileObjectId, cancellationToken);
     }
 
     public async Task AddAttachmentAsync(Attachment attachment, CancellationToken cancellationToken = default)

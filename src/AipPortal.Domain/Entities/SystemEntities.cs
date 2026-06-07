@@ -6,6 +6,7 @@ namespace AipPortal.Domain.Entities;
 public sealed class Attachment : SoftDeletableEntity, ITenantEntity
 {
     public Guid TenantId { get; set; }
+    public Guid FileObjectId { get; set; }
     public Guid WorkspaceId { get; set; }
     public AttachmentOwnerType? OwnerType { get; set; }
     public Guid? OwnerId { get; set; }
@@ -21,10 +22,42 @@ public sealed class Attachment : SoftDeletableEntity, ITenantEntity
     public string StorageKey { get; set; } = string.Empty;
     public FileScanStatus ScanStatus { get; set; } = FileScanStatus.Pending;
 
+    public FileObject? FileObject { get; set; }
     public Workspace? Workspace { get; set; }
     public User? OwnerUser { get; set; }
     public User? UploadedByUser { get; set; }
     public ICollection<FileScanResult> ScanResults { get; } = new List<FileScanResult>();
+}
+
+public sealed class FileObject : AuditableEntity, ITenantEntity
+{
+    public Guid TenantId { get; set; }
+    public Guid? WorkspaceId { get; set; }
+    public Guid? GroupId { get; set; }
+    public Guid? ProjectId { get; set; }
+    public Guid UploadedByUserId { get; set; }
+    public string OriginalFileName { get; set; } = string.Empty;
+    public string StorageKey { get; set; } = string.Empty;
+    public string ContentType { get; set; } = "application/octet-stream";
+    public long SizeBytes { get; set; }
+    public string? HashSha256 { get; set; }
+    public FileObjectStatus Status { get; set; } = FileObjectStatus.Active;
+    public DateTimeOffset? DeletedAt { get; private set; }
+    public Guid? DeletedByUserId { get; set; }
+    public string? DeleteReason { get; set; }
+
+    public Workspace? Workspace { get; set; }
+    public Group? Group { get; set; }
+    public Project? Project { get; set; }
+    public User? UploadedByUser { get; set; }
+
+    public void MarkDeleted(DateTimeOffset deletedAt, Guid deletedByUserId, string? reason)
+    {
+        Status = FileObjectStatus.Deleted;
+        DeletedAt = deletedAt;
+        DeletedByUserId = deletedByUserId;
+        DeleteReason = string.IsNullOrWhiteSpace(reason) ? null : reason.Trim();
+    }
 }
 
 public sealed class FileScanResult : Entity, ITenantEntity

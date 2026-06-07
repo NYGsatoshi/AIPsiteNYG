@@ -144,11 +144,13 @@ public sealed class ArtifactVersion : SoftDeletableEntity, ITenantEntity
     public Guid ArtifactId { get; set; }
     public int VersionNumber { get; set; }
     public Guid AttachmentId { get; set; }
+    public Guid? FileObjectId { get; set; }
     public string? Notes { get; set; }
     public Guid CreatedByUserId { get; set; }
 
     public Artifact? Artifact { get; set; }
     public Attachment? Attachment { get; set; }
+    public FileObject? FileObject { get; set; }
     public User? CreatedByUser { get; set; }
 }
 

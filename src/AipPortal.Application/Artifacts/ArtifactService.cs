@@ -13,8 +13,12 @@ public sealed class ArtifactService(
     IProjectAuthorizationService projectAuthorization,
     IFileRepository files,
     IFileStorageService storage,
+    IFileUploadPolicy uploadPolicy,
+    IFeatureFlagService featureFlags,
+    IQuotaService quotaService,
     IArtifactAuthorizationService authorization,
     ICurrentUser currentUser,
+    ICurrentTenant currentTenant,
     IClock clock,
     IAuditLogger auditLogger,
     INotificationService notifications,
@@ -146,7 +150,53 @@ public sealed class ArtifactService(
             return Result<ArtifactVersionResponse>.Failure("Artifact not found.");
         }
 
-        var saved = await storage.SaveAsync(input.OriginalFileName, input.ContentType, input.Length, input.Content, cancellationToken);
+        if (!currentTenant.IsAvailable)
+        {
+            return Result<ArtifactVersionResponse>.Failure("A tenant context is required.");
+        }
+
+        var feature = await featureFlags.RequireEnabledAsync(FeatureKeys.FileSharing, cancellationToken);
+        if (!feature.IsSuccess)
+        {
+            return Result<ArtifactVersionResponse>.Failure(feature.Error!);
+        }
+
+        var validation = ValidateUpload(input.OriginalFileName, input.Length);
+        if (!validation.IsSuccess)
+        {
+            return Result<ArtifactVersionResponse>.Failure(validation.Error!);
+        }
+
+        var quota = await quotaService.CanUploadFileAsync(currentTenant.TenantId, input.Length, cancellationToken);
+        if (!quota.IsSuccess)
+        {
+            await auditLogger.LogAsync(new AuditLogEntry(userId, "FileUploadBlockedByQuota", "Artifact", artifact.Id, quota.Error), cancellationToken);
+            await unitOfWork.SaveChangesAsync(cancellationToken);
+            return Result<ArtifactVersionResponse>.Failure(quota.Error!);
+        }
+
+        var project = await projects.GetProjectAsync(artifact.ProjectId, cancellationToken);
+        if (project is null)
+        {
+            return Result<ArtifactVersionResponse>.Failure("Project not found.");
+        }
+
+        var safeFileName = SanitizeFileName(input.OriginalFileName);
+        var fileObject = new FileObject
+        {
+            TenantId = currentTenant.TenantId,
+            WorkspaceId = project.WorkspaceId,
+            GroupId = project.GroupId,
+            ProjectId = project.Id,
+            UploadedByUserId = userId,
+            OriginalFileName = safeFileName,
+            ContentType = NormalizeContentType(input.ContentType),
+            SizeBytes = input.Length,
+            Status = FileObjectStatus.Active
+        };
+        fileObject.StorageKey = $"tenants/{fileObject.TenantId:D}/projects/{project.Id:D}/files/{fileObject.Id:D}";
+
+        var saved = await storage.SaveAsync(fileObject.StorageKey, input.Content, fileObject.ContentType, cancellationToken);
         if (!saved.IsSuccess)
         {
             return Result<ArtifactVersionResponse>.Failure(saved.Error!);
@@ -156,36 +206,36 @@ public sealed class ArtifactService(
         {
             ArtifactId = artifactId,
             VersionNumber = await artifacts.GetNextVersionNumberAsync(artifactId, cancellationToken),
+            FileObjectId = fileObject.Id,
+            FileObject = fileObject,
             Notes = input.ChangeNote?.Trim(),
             CreatedByUserId = userId
         };
 
-        var project = await projects.GetProjectAsync(artifact.ProjectId, cancellationToken);
-        if (project is null)
-        {
-            return Result<ArtifactVersionResponse>.Failure("Project not found.");
-        }
-
         var attachment = new Attachment
         {
+            TenantId = currentTenant.TenantId,
+            FileObjectId = fileObject.Id,
+            FileObject = fileObject,
             WorkspaceId = project.WorkspaceId,
             OwnerType = AttachmentOwnerType.ArtifactVersion,
             OwnerId = version.Id,
             OwnerUserId = userId,
             UploadedByUserId = userId,
-            FileName = Path.GetFileName(input.OriginalFileName),
-            StoredFileName = saved.Value!.StoredFileName,
-            FilePath = saved.Value.FilePath,
-            ContentType = saved.Value.ContentType,
-            Extension = saved.Value.Extension,
-            SizeBytes = saved.Value.SizeBytes,
-            StorageProvider = "Local",
-            StorageKey = saved.Value.StorageKey,
+            FileName = safeFileName,
+            StoredFileName = fileObject.Id.ToString("N"),
+            FilePath = fileObject.StorageKey,
+            ContentType = fileObject.ContentType,
+            Extension = Path.GetExtension(safeFileName).ToLowerInvariant(),
+            SizeBytes = fileObject.SizeBytes,
+            StorageProvider = "Configured",
+            StorageKey = fileObject.StorageKey,
             ScanStatus = FileScanStatus.Skipped
         };
 
         version.AttachmentId = attachment.Id;
         version.Attachment = attachment;
+        await files.AddFileObjectAsync(fileObject, cancellationToken);
         await files.AddAttachmentAsync(attachment, cancellationToken);
         await artifacts.AddVersionAsync(version, cancellationToken);
         artifact.CurrentVersionId = version.Id;
@@ -203,10 +253,15 @@ public sealed class ArtifactService(
             return Result<FileDownloadResponse>.Failure("Artifact version not found.");
         }
 
-        var content = await storage.OpenReadAsync(version.Attachment.StorageKey, cancellationToken);
+        if (version.FileObject?.Status != FileObjectStatus.Active || version.FileObject.DeletedAt.HasValue)
+        {
+            return Result<FileDownloadResponse>.Failure("Artifact version not found.");
+        }
+
+        var content = await storage.OpenReadAsync(version.FileObject.StorageKey, cancellationToken);
         await auditLogger.LogAsync(new AuditLogEntry(userId, "ArtifactVersionDownloaded", "ArtifactVersion", version.Id), cancellationToken);
         await unitOfWork.SaveChangesAsync(cancellationToken);
-        return Result<FileDownloadResponse>.Success(new FileDownloadResponse(content, version.Attachment.FileName, version.Attachment.ContentType, version.Attachment.SizeBytes));
+        return Result<FileDownloadResponse>.Success(new FileDownloadResponse(content, version.FileObject.OriginalFileName, version.FileObject.ContentType, version.FileObject.SizeBytes));
     }
 
     public async Task<Result> DeleteVersionAsync(Guid versionId, CancellationToken cancellationToken = default)
@@ -263,6 +318,50 @@ public sealed class ArtifactService(
         return currentUser.IsAuthenticated && currentUser.UserId.HasValue;
     }
 
+    private Result ValidateUpload(string originalFileName, long length)
+    {
+        if (length <= 0)
+        {
+            return Result.Failure("Empty files are not allowed.");
+        }
+
+        if (length > uploadPolicy.MaxFileSizeBytes)
+        {
+            return Result.Failure($"File exceeds the maximum size of {uploadPolicy.MaxFileSizeBytes} bytes.");
+        }
+
+        var extension = Path.GetExtension(originalFileName).ToLowerInvariant();
+        var allowed = uploadPolicy.AllowedExtensions.Select(item => item.ToLowerInvariant()).ToHashSet(StringComparer.OrdinalIgnoreCase);
+        if (string.IsNullOrWhiteSpace(extension) || !allowed.Contains(extension))
+        {
+            return Result.Failure("File extension is not allowed.");
+        }
+
+        return Result.Success();
+    }
+
+    private static string SanitizeFileName(string originalFileName)
+    {
+        var fileName = Path.GetFileName(originalFileName);
+        if (string.IsNullOrWhiteSpace(fileName))
+        {
+            fileName = "upload";
+        }
+
+        foreach (var invalid in Path.GetInvalidFileNameChars())
+        {
+            fileName = fileName.Replace(invalid, '_');
+        }
+
+        fileName = fileName.Trim();
+        return fileName.Length <= 260 ? fileName : fileName[..260];
+    }
+
+    private static string NormalizeContentType(string contentType)
+    {
+        return string.IsNullOrWhiteSpace(contentType) ? "application/octet-stream" : contentType.Trim();
+    }
+
     private static ArtifactListItemResponse ToListItem(Artifact artifact)
     {
         return new ArtifactListItemResponse(artifact.Id, artifact.ProjectId, artifact.Name, artifact.Description, artifact.ArtifactType, artifact.Status, artifact.CurrentVersionId, artifact.CreatedByUserId, artifact.CreatedAt, artifact.UpdatedAt);
@@ -276,18 +375,19 @@ public sealed class ArtifactService(
     private static ArtifactVersionResponse ToVersion(ArtifactVersion version)
     {
         var attachment = version.Attachment ?? new Attachment();
+        var fileObject = version.FileObject;
         return new ArtifactVersionResponse(
             version.Id,
             version.ArtifactId,
             version.VersionNumber,
-            attachment.FileName,
+            fileObject?.OriginalFileName ?? attachment.FileName,
             attachment.StoredFileName,
-            attachment.FilePath,
-            attachment.ContentType,
-            attachment.SizeBytes,
+            fileObject?.StorageKey ?? attachment.FilePath,
+            fileObject?.ContentType ?? attachment.ContentType,
+            fileObject?.SizeBytes ?? attachment.SizeBytes,
             version.CreatedByUserId,
             version.Notes,
             version.CreatedAt,
-            version.DeletedAt);
+            fileObject?.DeletedAt ?? version.DeletedAt);
     }
 }
