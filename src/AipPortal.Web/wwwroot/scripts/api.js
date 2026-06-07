@@ -74,6 +74,51 @@ export const DashboardApi = {
   calendar: (fromDate, toDate) => api(`/api/calendar?fromDate=${encodeURIComponent(fromDate)}&toDate=${encodeURIComponent(toDate)}`)
 };
 
+export const ConversationApi = {
+  list: () => api("/api/conversations"),
+  get: (conversationId) => api(`/api/conversations/${conversationId}`),
+  messages: (conversationId, limit = 50) => api(`/api/conversations/${conversationId}/messages?limit=${encodeURIComponent(limit)}`),
+  create: (payload) => api("/api/conversations", {
+    method: "POST",
+    body: JSON.stringify(payload)
+  }),
+  send: (conversationId, body) => api(`/api/conversations/${conversationId}/messages`, {
+    method: "POST",
+    body: JSON.stringify({ body })
+  }),
+  markRead: (conversationId, lastReadMessageId) => api(`/api/conversations/${conversationId}/read`, {
+    method: "POST",
+    body: JSON.stringify({ lastReadMessageId })
+  })
+};
+
+export const NotificationApi = {
+  list: (page = 1, pageSize = 30) => api(`/api/notifications?page=${encodeURIComponent(page)}&pageSize=${encodeURIComponent(pageSize)}`),
+  unreadCount: () => api("/api/notifications/unread-count"),
+  markRead: (notificationId) => api(`/api/notifications/${notificationId}/read`, { method: "PATCH" }),
+  markAllRead: () => api("/api/notifications/read-all", { method: "PATCH" })
+};
+
+export const AnnouncementApi = {
+  list: (page = 1, pageSize = 30) => api(`/api/announcements?page=${encodeURIComponent(page)}&pageSize=${encodeURIComponent(pageSize)}`),
+  get: (announcementId) => api(`/api/announcements/${announcementId}`),
+  create: (payload) => api("/api/announcements", {
+    method: "POST",
+    body: JSON.stringify(payload)
+  }),
+  update: (announcementId, payload) => api(`/api/announcements/${announcementId}`, {
+    method: "PATCH",
+    body: JSON.stringify(payload)
+  }),
+  markRead: (announcementId) => api(`/api/announcements/${announcementId}/read`, { method: "POST" }),
+  readStatus: (announcementId) => api(`/api/announcements/${announcementId}/read-status`),
+  resendUnread: (announcementId) => api(`/api/announcements/${announcementId}/resend-unread`, { method: "POST" })
+};
+
+export const AdminApi = {
+  users: () => api("/api/admin/users?page=1&pageSize=50")
+};
+
 export const ProjectApi = {
   list: () => api("/api/projects"),
   get: (projectId) => api(`/api/projects/${projectId}`),

@@ -466,6 +466,212 @@ small {
   font-weight: 700;
 }
 
+.badge.is-hot {
+  background: #f4d5c0;
+  color: #6a340a;
+}
+
+.communications-layout {
+  display: grid;
+  grid-template-columns: minmax(300px, 380px) minmax(0, 1fr);
+  gap: 16px;
+  align-items: start;
+}
+
+.conversation-panel {
+  display: grid;
+  gap: 12px;
+  min-width: 0;
+}
+
+.conversation-list,
+.announcement-list {
+  display: grid;
+  gap: 8px;
+}
+
+.conversation-row,
+.announcement-row {
+  display: grid;
+  gap: 5px;
+  width: 100%;
+  min-height: 88px;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: #fff;
+  color: var(--text);
+  cursor: pointer;
+  padding: 10px;
+  text-align: left;
+}
+
+.conversation-row:hover,
+.conversation-row.is-active,
+.announcement-row:hover,
+.announcement-row.is-active {
+  border-color: var(--accent);
+  background: #eef7f5;
+}
+
+.conversation-row.is-active,
+.announcement-row.is-active {
+  box-shadow: inset 3px 0 0 var(--accent);
+}
+
+.conversation-row > span:first-child,
+.announcement-row > span:first-child,
+.conversation-detail-header {
+  display: flex;
+  justify-content: space-between;
+  gap: 10px;
+  align-items: start;
+}
+
+.conversation-row strong,
+.announcement-row strong {
+  overflow-wrap: anywhere;
+}
+
+.conversation-row time,
+.announcement-row time,
+.notification-card time {
+  color: var(--muted);
+  font-size: 12px;
+}
+
+.conversation-row mark,
+.announcement-row mark {
+  justify-self: start;
+  border-radius: 999px;
+  background: var(--danger);
+  color: #fff;
+  font-size: 11px;
+  font-weight: 800;
+  padding: 2px 8px;
+}
+
+.create-panel,
+.read-status {
+  padding: 12px;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: #fbfcfc;
+}
+
+.user-picker {
+  display: grid;
+  gap: 8px;
+  max-height: 220px;
+  overflow: auto;
+}
+
+.conversation-detail {
+  display: grid;
+  gap: 14px;
+  min-height: 560px;
+}
+
+.conversation-detail-header h2 {
+  margin: 0;
+  font-size: 22px;
+}
+
+.conversation-detail-header p {
+  margin: 4px 0 0;
+  color: var(--muted);
+  overflow-wrap: anywhere;
+}
+
+.message-list {
+  display: grid;
+  align-content: end;
+  gap: 10px;
+  min-height: 320px;
+  max-height: 54vh;
+  overflow: auto;
+  padding: 4px;
+}
+
+.message-item {
+  display: grid;
+  gap: 5px;
+  max-width: min(680px, 86%);
+  padding: 10px 12px;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: #fff;
+}
+
+.message-item.is-mine {
+  justify-self: end;
+  border-color: #cbd6df;
+  background: #edf1f6;
+}
+
+.message-item.is-deleted {
+  color: var(--muted);
+  font-style: italic;
+}
+
+.message-item > div,
+.notification-card > div {
+  display: flex;
+  justify-content: space-between;
+  gap: 12px;
+  align-items: center;
+}
+
+.message-item p,
+.notification-card p,
+.announcement-detail .prose {
+  margin: 0;
+  overflow-wrap: anywhere;
+  white-space: normal;
+}
+
+.message-composer {
+  display: grid;
+  grid-template-columns: 36px minmax(0, 1fr) auto;
+  gap: 10px;
+  align-items: end;
+}
+
+.message-composer .form-message {
+  grid-column: 2 / -1;
+}
+
+.notification-page {
+  max-width: 900px;
+}
+
+.notification-card {
+  display: grid;
+  gap: 8px;
+  padding: 12px;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: #fff;
+}
+
+.notification-card.is-unread,
+.announcement-row.is-unread {
+  border-color: var(--accent);
+}
+
+.announcement-detail {
+  display: grid;
+  gap: 16px;
+}
+
+.announcement-detail .prose {
+  min-height: 160px;
+  padding: 14px;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: #fff;
+  line-height: 1.55;
+}
+
 .project-summary {
   display: grid;
   grid-template-columns: repeat(4, minmax(0, 1fr));
@@ -699,6 +905,7 @@ small {
   .dashboard-grid,
   .detail-grid,
   .project-summary,
+  .communications-layout,
   .toolbar,
   .form-grid,
   .compact-grid {
@@ -719,6 +926,28 @@ small {
   .list-table.compact > a,
   .list-table.compact > div {
     grid-template-columns: 1fr;
+  }
+
+  .conversation-detail {
+    min-height: 0;
+  }
+
+  .message-list {
+    max-height: none;
+    min-height: 240px;
+  }
+
+  .message-item {
+    max-width: 100%;
+  }
+
+  .message-composer {
+    grid-template-columns: 36px minmax(0, 1fr);
+  }
+
+  .message-composer button[type="submit"],
+  .message-composer .form-message {
+    grid-column: 1 / -1;
   }
 
   .gantt-header,

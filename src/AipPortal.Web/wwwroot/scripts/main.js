@@ -1,6 +1,9 @@
 import { ApiError } from "./api.js";
 import { createShell, showLogin } from "./components/shell.js";
+import { renderAnnouncements } from "./pages/announcements.js";
 import { renderDashboard } from "./pages/dashboard.js";
+import { renderMessaging } from "./pages/messaging.js";
+import { renderNotifications } from "./pages/notifications.js";
 import { renderProjectDetail, renderProjects } from "./pages/projects.js";
 import { renderPlaceholder, renderSearch } from "./pages/placeholders.js";
 import { qs, routeTo } from "./utils.js";
@@ -34,6 +37,16 @@ async function renderRoute() {
     await renderProjects(main);
   } else if (path.startsWith("/projects/")) {
     await renderProjectDetail(main, path.split("/")[2]);
+  } else if (path === "/dm") {
+    await renderMessaging(main, shellState, null);
+  } else if (path.startsWith("/dm/")) {
+    await renderMessaging(main, shellState, path.split("/")[2]);
+  } else if (path === "/notifications") {
+    await renderNotifications(main);
+  } else if (path === "/announcements") {
+    await renderAnnouncements(main, shellState, null);
+  } else if (path.startsWith("/announcements/")) {
+    await renderAnnouncements(main, shellState, path.split("/")[2]);
   } else if (path === "/search") {
     renderSearch(main);
   } else {

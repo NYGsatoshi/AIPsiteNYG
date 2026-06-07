@@ -4,6 +4,18 @@ import { renderNotificationArea, renderNotificationButton } from "./notification
 import { renderUserMenu } from "./user-menu.js";
 import { qs, routeTo } from "../utils.js";
 
+async function refreshNotifications(root) {
+  let unreadCount = 0;
+  try {
+    const unread = await DashboardApi.unreadCount();
+    unreadCount = unread.unreadCount ?? 0;
+  } catch {
+    unreadCount = 0;
+  }
+
+  renderNotificationButton(qs("[data-notification-button]", root), unreadCount);
+}
+
 export async function showLogin(root) {
   root.innerHTML = `
     <main class="auth-screen">
@@ -44,20 +56,12 @@ export async function showLogin(root) {
 export async function createShell(root) {
   const user = await AuthApi.me();
   let modules = [];
-  let unreadCount = 0;
 
   try {
     modules = await UiApi.modules();
   } catch {
     // TODO: Replace the static fallback once FeatureModule authorization is fully enforced by the API.
     modules = [];
-  }
-
-  try {
-    const unread = await DashboardApi.unreadCount();
-    unreadCount = unread.unreadCount ?? 0;
-  } catch {
-    unreadCount = 0;
   }
 
   root.innerHTML = `
@@ -84,7 +88,7 @@ export async function createShell(root) {
   `;
 
   renderNavigation(qs("[data-sidebar]", root), modules, user);
-  renderNotificationButton(qs("[data-notification-button]", root), unreadCount);
+  await refreshNotifications(root);
   renderUserMenu(qs("[data-user-menu]", root), user);
   renderNotificationArea(qs("[data-notification-area]", root));
 
@@ -97,6 +101,12 @@ export async function createShell(root) {
     const query = new FormData(event.currentTarget).get("q");
     if (query) routeTo(`/search?q=${encodeURIComponent(query)}`);
   });
+
+  window.addEventListener("aip:notifications-changed", () => {
+    refreshNotifications(root);
+    renderNotificationArea(qs("[data-notification-area]", root));
+  });
+  window.setInterval(() => refreshNotifications(root), 45000);
 
   return { user, modules };
 }

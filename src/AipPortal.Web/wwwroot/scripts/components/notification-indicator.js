@@ -1,13 +1,15 @@
 import { DashboardApi } from "../api.js";
-import { formatDate, normalizeList, escapeHtml, emptyState, errorState } from "../utils.js";
+import { formatDate, normalizeList, escapeHtml, emptyState, errorState, routeTo } from "../utils.js";
 
 export function renderNotificationButton(container, unreadCount) {
   container.innerHTML = `
-    <button class="icon-button" type="button" aria-label="Notifications">
+    <button class="icon-button" type="button" aria-label="Notifications" data-notification-route>
       <span>!</span>
       ${unreadCount > 0 ? `<span class="badge-dot">${unreadCount}</span>` : ""}
     </button>
   `;
+
+  container.querySelector("[data-notification-route]").addEventListener("click", () => routeTo("/notifications"));
 }
 
 export async function renderNotificationArea(container) {
