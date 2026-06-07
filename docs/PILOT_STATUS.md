@@ -24,9 +24,9 @@
 
 ## Partially Implemented
 
-- Rate limiting exists for the most sensitive implemented routes; additional policies are recommended for password reset after that endpoint exists.
+- Rate limiting exists for the most sensitive implemented routes, including login, invite registration, file uploads, artifact version uploads, search, and API token creation; additional policies are recommended for password reset after that endpoint exists.
 - Readiness checks database, storage configuration, and on-prem default tenant; object storage adapter checks are configuration-level until object storage is implemented.
-- File sharing and quota enforcement are implemented in file upload paths; broader project/task feature gates need more service-level enforcement before pilot.
+- File sharing, upload size, extension allowlist, MIME allowlist, and quota enforcement are implemented in file upload paths; broader project/task feature gates need more service-level enforcement before pilot.
 - Search is tenant-filtered through global filters and membership predicates, but lacks PostgreSQL-backed HTTP integration tests.
 - PlatformAdmin tenant lifecycle is audited at service level; full HTTP audit assertions are still needed.
 - Suspended tenant behavior is enforced at resolution/switching boundaries; active sessions should also be checked for writes.

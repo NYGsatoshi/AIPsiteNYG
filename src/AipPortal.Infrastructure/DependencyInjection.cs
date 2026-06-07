@@ -58,6 +58,12 @@ public static class DependencyInjection
                 .Where(item => !string.IsNullOrWhiteSpace(item))
                 .Select(item => item!)
                 .ToArray();
+            options.AllowedContentTypes = section.GetSection("AllowedContentTypes")
+                .GetChildren()
+                .Select(item => item.Value)
+                .Where(item => !string.IsNullOrWhiteSpace(item))
+                .Select(item => item!)
+                .ToArray();
             options.UseSignedUrls = bool.TryParse(section["UseSignedUrls"], out var useSignedUrls) && useSignedUrls;
             options.BucketName = section["BucketName"];
             options.Region = section["Region"];

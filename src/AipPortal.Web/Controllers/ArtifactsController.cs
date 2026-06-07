@@ -1,6 +1,7 @@
 using AipPortal.Application.Artifacts;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
+using Microsoft.AspNetCore.RateLimiting;
 
 namespace AipPortal.Web.Controllers;
 
@@ -27,6 +28,7 @@ public sealed class ArtifactsController(IArtifactService artifacts) : Controller
     public async Task<IActionResult> ListVersions(Guid artifactId, CancellationToken cancellationToken) => ToActionResult(await artifacts.ListVersionsAsync(artifactId, cancellationToken));
 
     [HttpPost("api/artifacts/{artifactId:guid}/versions")]
+    [EnableRateLimiting("file-upload")]
     public async Task<IActionResult> UploadVersion(Guid artifactId, [FromForm] UploadArtifactVersionForm form, CancellationToken cancellationToken)
     {
         if (form.File is null)

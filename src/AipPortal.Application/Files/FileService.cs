@@ -246,6 +246,15 @@ public sealed class FileService(
             return Result.Failure("File extension is not allowed.");
         }
 
+        var contentType = NormalizeContentType(input.ContentType);
+        var allowedContentTypes = uploadPolicy.AllowedContentTypes
+            .Select(item => item.Trim())
+            .ToHashSet(StringComparer.OrdinalIgnoreCase);
+        if (!allowedContentTypes.Contains(contentType))
+        {
+            return Result.Failure("File content type is not allowed.");
+        }
+
         return Result.Success();
     }
 

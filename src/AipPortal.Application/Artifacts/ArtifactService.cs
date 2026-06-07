@@ -161,7 +161,7 @@ public sealed class ArtifactService(
             return Result<ArtifactVersionResponse>.Failure(feature.Error!);
         }
 
-        var validation = ValidateUpload(input.OriginalFileName, input.Length);
+        var validation = ValidateUpload(input.OriginalFileName, input.ContentType, input.Length);
         if (!validation.IsSuccess)
         {
             return Result<ArtifactVersionResponse>.Failure(validation.Error!);
@@ -318,7 +318,7 @@ public sealed class ArtifactService(
         return currentUser.IsAuthenticated && currentUser.UserId.HasValue;
     }
 
-    private Result ValidateUpload(string originalFileName, long length)
+    private Result ValidateUpload(string originalFileName, string contentType, long length)
     {
         if (length <= 0)
         {
@@ -335,6 +335,15 @@ public sealed class ArtifactService(
         if (string.IsNullOrWhiteSpace(extension) || !allowed.Contains(extension))
         {
             return Result.Failure("File extension is not allowed.");
+        }
+
+        var normalizedContentType = NormalizeContentType(contentType);
+        var allowedContentTypes = uploadPolicy.AllowedContentTypes
+            .Select(item => item.Trim())
+            .ToHashSet(StringComparer.OrdinalIgnoreCase);
+        if (!allowedContentTypes.Contains(normalizedContentType))
+        {
+            return Result.Failure("File content type is not allowed.");
         }
 
         return Result.Success();

@@ -240,7 +240,8 @@ public sealed class TenancyFoundationTests
                 Provider = "LocalFileSystem",
                 RootPath = Path.Combine(Path.GetTempPath(), "aip-validation-tests", Guid.NewGuid().ToString("N")),
                 MaxFileSizeBytes = 1024,
-                AllowedExtensions = [".txt"]
+                AllowedExtensions = [".txt"],
+                AllowedContentTypes = ["text/plain"]
             }),
             Options.Create(new SecurityOptions
             {

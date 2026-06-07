@@ -28,6 +28,8 @@ Use double underscores to override nested configuration keys.
 - `FileStorage__MaxFileSizeBytes`
 - `FileStorage__AllowedExtensions__0`
 - `FileStorage__AllowedExtensions__1`
+- `FileStorage__AllowedContentTypes__0`
+- `FileStorage__AllowedContentTypes__1`
 - `FileStorage__UseSignedUrls`
 - `FileStorage__UsePathStyle`
 

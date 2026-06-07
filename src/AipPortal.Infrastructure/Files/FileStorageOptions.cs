@@ -10,6 +10,8 @@ public sealed class FileStorageOptions
 
     public string[] AllowedExtensions { get; set; } = [];
 
+    public string[] AllowedContentTypes { get; set; } = [];
+
     public bool UseSignedUrls { get; set; }
 
     public string? BucketName { get; set; }

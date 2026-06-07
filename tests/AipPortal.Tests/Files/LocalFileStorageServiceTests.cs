@@ -17,6 +17,14 @@ public sealed class LocalFileStorageServiceTests : IDisposable
     }
 
     [Fact]
+    public void InvalidContentTypeIsRejected()
+    {
+        var policy = CreatePolicy();
+
+        Assert.DoesNotContain("application/x-msdownload", policy.AllowedContentTypes);
+    }
+
+    [Fact]
     public void EmptyFileIsRejected()
     {
         var policy = CreatePolicy();
@@ -59,7 +67,8 @@ public sealed class LocalFileStorageServiceTests : IDisposable
         {
             RootPath = _rootPath,
             MaxFileSizeBytes = 1024,
-            AllowedExtensions = [".txt", ".md", ".zip"]
+            AllowedExtensions = [".txt", ".md", ".zip"],
+            AllowedContentTypes = ["text/plain", "text/markdown", "application/zip"]
         }));
     }
 
@@ -69,7 +78,8 @@ public sealed class LocalFileStorageServiceTests : IDisposable
         {
             RootPath = _rootPath,
             MaxFileSizeBytes = 1024,
-            AllowedExtensions = [".txt", ".md", ".zip"]
+            AllowedExtensions = [".txt", ".md", ".zip"],
+            AllowedContentTypes = ["text/plain", "text/markdown", "application/zip"]
         }));
     }
 }

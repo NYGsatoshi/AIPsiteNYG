@@ -2,6 +2,7 @@ using AipPortal.Application.Files;
 using AipPortal.Domain.Enums;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
+using Microsoft.AspNetCore.RateLimiting;
 
 namespace AipPortal.Web.Controllers;
 
@@ -10,6 +11,7 @@ namespace AipPortal.Web.Controllers;
 public sealed class AttachmentsController(IFileService files) : ControllerBase
 {
     [HttpPost("api/attachments")]
+    [EnableRateLimiting("file-upload")]
     public async Task<IActionResult> Upload([FromForm] UploadAttachmentForm form, CancellationToken cancellationToken)
     {
         if (form.File is null)

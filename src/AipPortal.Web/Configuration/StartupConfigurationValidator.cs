@@ -84,11 +84,24 @@ public sealed class StartupConfigurationValidator(
             errors.Add("FileStorage:AllowedExtensions must contain at least one extension.");
         }
 
+        if (fileStorage.AllowedContentTypes.Length == 0)
+        {
+            errors.Add("FileStorage:AllowedContentTypes must contain at least one MIME type.");
+        }
+
         foreach (var extension in fileStorage.AllowedExtensions)
         {
             if (string.IsNullOrWhiteSpace(extension) || !extension.StartsWith(".", StringComparison.Ordinal))
             {
                 errors.Add($"FileStorage:AllowedExtensions contains invalid extension '{extension}'.");
+            }
+        }
+
+        foreach (var contentType in fileStorage.AllowedContentTypes)
+        {
+            if (string.IsNullOrWhiteSpace(contentType) || !contentType.Contains('/', StringComparison.Ordinal))
+            {
+                errors.Add($"FileStorage:AllowedContentTypes contains invalid MIME type '{contentType}'.");
             }
         }
 

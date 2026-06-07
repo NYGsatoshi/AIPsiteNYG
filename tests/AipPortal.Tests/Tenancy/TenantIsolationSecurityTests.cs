@@ -242,7 +242,8 @@ public sealed class TenantIsolationSecurityTests
         {
             RootPath = Path.Combine(Path.GetTempPath(), "aip-tenant-isolation", Guid.NewGuid().ToString("N")),
             MaxFileSizeBytes = 1024,
-            AllowedExtensions = [".txt"]
+            AllowedExtensions = [".txt"],
+            AllowedContentTypes = ["text/plain"]
         }));
         Assert.Null(await storage.CreateSignedReadUrlAsync(file.StorageKey, TimeSpan.FromMinutes(5)));
     }

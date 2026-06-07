@@ -26,6 +26,7 @@ Profiles are selected through ASP.NET Core environment/config files such as `app
 - `FileStorage:BucketName`, `Endpoint`, `Region`: required by object storage providers according to provider.
 - `FileStorage:MaxFileSizeBytes`: positive upload limit.
 - `FileStorage:AllowedExtensions`: non-empty list of extensions with leading dots.
+- `FileStorage:AllowedContentTypes`: non-empty list of MIME types accepted by upload endpoints.
 - `FileStorage:UseSignedUrls`: enables provider signed URL use when the adapter supports it.
 
 ## Security
@@ -56,4 +57,4 @@ Profiles are selected through ASP.NET Core environment/config files such as `app
 - `Features:EnableWebhooks`
 - `Features:EnableApiTokens`
 
-Startup validation fails fast for invalid app mode, unsafe production tenant header resolution, unsafe production cookies/HTTPS/HSTS, missing file storage settings, invalid upload limits/extensions, and production setup mode.
+Startup validation fails fast for invalid app mode, unsafe production tenant header resolution, unsafe production cookies/HTTPS/HSTS, missing file storage settings, invalid upload limits/extensions/content types, and production setup mode.

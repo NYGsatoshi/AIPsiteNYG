@@ -10,4 +10,6 @@ public sealed class ConfiguredFileUploadPolicy(IOptions<FileStorageOptions> opti
     public long MaxFileSizeBytes => _options.MaxFileSizeBytes;
 
     public IReadOnlyCollection<string> AllowedExtensions => _options.AllowedExtensions;
+
+    public IReadOnlyCollection<string> AllowedContentTypes => _options.AllowedContentTypes;
 }
