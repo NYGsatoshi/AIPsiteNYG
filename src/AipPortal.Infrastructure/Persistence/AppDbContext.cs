@@ -27,6 +27,10 @@ public sealed class AppDbContext(DbContextOptions<AppDbContext> options) : DbCon
     public DbSet<AnnouncementRead> AnnouncementReads => Set<AnnouncementRead>();
     public DbSet<ActivityEvent> ActivityEvents => Set<ActivityEvent>();
     public DbSet<EventAttendance> EventAttendances => Set<EventAttendance>();
+    public DbSet<InternalForm> InternalForms => Set<InternalForm>();
+    public DbSet<FormQuestion> FormQuestions => Set<FormQuestion>();
+    public DbSet<FormResponse> FormResponses => Set<FormResponse>();
+    public DbSet<FormAnswer> FormAnswers => Set<FormAnswer>();
     public DbSet<Project> Projects => Set<Project>();
     public DbSet<ProjectMember> ProjectMembers => Set<ProjectMember>();
     public DbSet<Milestone> Milestones => Set<Milestone>();

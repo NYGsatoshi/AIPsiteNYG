@@ -30,6 +30,7 @@ public static class DependencyInjection
         services.AddScoped<IMessagingRepository, MessagingRepository>();
         services.AddScoped<IProjectRepository, ProjectRepository>();
         services.AddScoped<IEventRepository, EventRepository>();
+        services.AddScoped<IFormRepository, FormRepository>();
         services.AddScoped<IFileRepository, FileRepository>();
         services.AddScoped<IArtifactRepository, ArtifactRepository>();
         services.AddScoped<IPlanningRepository, PlanningRepository>();

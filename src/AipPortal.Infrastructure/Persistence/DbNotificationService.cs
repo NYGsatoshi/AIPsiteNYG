@@ -205,6 +205,7 @@ public sealed class DbNotificationService(AppDbContext dbContext, IClock clock) 
         {
             "Announcement" => $"/announcements/{relatedEntityId}",
             "ActivityEvent" or "Event" => $"/events/{relatedEntityId}",
+            "InternalForm" or "Form" => $"/forms/{relatedEntityId}",
             "Project" => $"/projects/{relatedEntityId}",
             "TaskItem" or "Task" => $"/tasks/{relatedEntityId}",
             "Artifact" => $"/artifacts/{relatedEntityId}",

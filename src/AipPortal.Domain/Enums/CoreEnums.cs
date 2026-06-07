@@ -142,6 +142,35 @@ public enum AttendanceStatus
     Maybe = 3
 }
 
+public enum FormType
+{
+    Survey = 0,
+    Application = 1,
+    AttendanceSupplement = 2,
+    Preference = 3,
+    Checklist = 4,
+    Other = 5
+}
+
+public enum FormStatus
+{
+    Draft = 0,
+    Open = 1,
+    Closed = 2,
+    Archived = 3
+}
+
+public enum FormQuestionType
+{
+    ShortText = 0,
+    LongText = 1,
+    SingleChoice = 2,
+    MultipleChoice = 3,
+    Boolean = 4,
+    Date = 5,
+    Number = 6
+}
+
 public enum AnnouncementPriority
 {
     Normal = 0,
