@@ -39,6 +39,20 @@ public sealed class WorkspacesController(IWorkspaceService workspaces) : Control
         return result.IsSuccess ? Ok(new { status = "OK" }) : BadRequest(new { error = result.Error });
     }
 
+    [HttpPost("api/workspaces/{workspaceId:guid}/archive")]
+    public async Task<IActionResult> Archive(Guid workspaceId, CancellationToken cancellationToken)
+    {
+        var result = await workspaces.ArchiveAsync(workspaceId, cancellationToken);
+        return result.IsSuccess ? Ok(new { status = "OK" }) : BadRequest(new { error = result.Error });
+    }
+
+    [HttpPost("api/workspaces/{workspaceId:guid}/restore")]
+    public async Task<IActionResult> Restore(Guid workspaceId, CancellationToken cancellationToken)
+    {
+        var result = await workspaces.RestoreAsync(workspaceId, cancellationToken);
+        return result.IsSuccess ? Ok(new { status = "OK" }) : BadRequest(new { error = result.Error });
+    }
+
     [HttpGet("api/workspaces/{workspaceId:guid}/members")]
     public async Task<IActionResult> ListMembers(Guid workspaceId, CancellationToken cancellationToken)
     {

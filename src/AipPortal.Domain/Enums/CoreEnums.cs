@@ -64,7 +64,8 @@ public enum TenantUserStatus
 public enum WorkspaceStatus
 {
     Active = 0,
-    Archived = 1
+    Archived = 1,
+    Deleted = 2
 }
 
 public enum WorkspaceRole
@@ -105,7 +106,8 @@ public enum GroupType
 public enum GroupStatus
 {
     Active = 0,
-    Archived = 1
+    Archived = 1,
+    Deleted = 2
 }
 
 public enum ChannelType
@@ -119,7 +121,8 @@ public enum ChannelType
 public enum ChannelStatus
 {
     Active = 0,
-    Archived = 1
+    Archived = 1,
+    Deleted = 2
 }
 
 public enum ChannelRole
@@ -273,7 +276,8 @@ public enum ProjectStatus
     Review = 2,
     Completed = 3,
     Suspended = 4,
-    Archived = 5
+    Archived = 5,
+    Deleted = 6
 }
 
 public enum ProjectRole
@@ -367,6 +371,49 @@ public enum FileObjectStatus
     Active = 0,
     Quarantined = 1,
     Archived = 2,
+    Deleted = 3
+}
+
+public enum ExportJobStatus
+{
+    Queued = 0,
+    Running = 1,
+    Completed = 2,
+    Failed = 3,
+    Cancelled = 4
+}
+
+public enum TenantExportType
+{
+    Metadata = 0
+}
+
+public enum IntegrationProvider
+{
+    Google = 0,
+    Microsoft = 1,
+    Slack = 2,
+    Discord = 3,
+    GitHub = 4,
+    Autodesk = 5,
+    CustomWebhook = 6,
+    Other = 7
+}
+
+public enum IntegrationAccountStatus
+{
+    Draft = 0,
+    Active = 1,
+    Suspended = 2,
+    Error = 3,
+    Deleted = 4
+}
+
+public enum WebhookEndpointStatus
+{
+    Active = 0,
+    Disabled = 1,
+    Error = 2,
     Deleted = 3
 }
 

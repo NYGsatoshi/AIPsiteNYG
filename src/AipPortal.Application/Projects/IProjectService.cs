@@ -5,11 +5,12 @@ namespace AipPortal.Application.Projects;
 
 public interface IProjectService
 {
-    Task<Result<IReadOnlyList<ProjectResponse>>> ListAsync(CancellationToken cancellationToken = default);
+    Task<Result<IReadOnlyList<ProjectResponse>>> ListAsync(bool archived = false, CancellationToken cancellationToken = default);
     Task<Result<ProjectResponse>> CreateAsync(CreateProjectRequest request, CancellationToken cancellationToken = default);
     Task<Result<ProjectResponse>> GetAsync(Guid projectId, CancellationToken cancellationToken = default);
     Task<Result<ProjectResponse>> UpdateAsync(Guid projectId, UpdateProjectRequest request, CancellationToken cancellationToken = default);
     Task<Result> ArchiveAsync(Guid projectId, CancellationToken cancellationToken = default);
+    Task<Result> RestoreAsync(Guid projectId, CancellationToken cancellationToken = default);
     Task<Result<IReadOnlyList<ProjectMemberResponse>>> ListMembersAsync(Guid projectId, CancellationToken cancellationToken = default);
     Task<Result<ProjectMemberResponse>> AddMemberAsync(Guid projectId, AddProjectMemberRequest request, CancellationToken cancellationToken = default);
     Task<Result<ProjectMemberResponse>> UpdateMemberAsync(Guid projectId, Guid userId, UpdateProjectMemberRequest request, CancellationToken cancellationToken = default);

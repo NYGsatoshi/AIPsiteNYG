@@ -24,7 +24,10 @@ public sealed class WorkspaceService(
         var user = await users.GetByIdAsync(userId, cancellationToken);
         var includeAll = user?.SystemRole == SystemRole.SystemAdmin;
         var items = await workspaces.ListForUserAsync(userId, includeAll, cancellationToken);
-        return Result<IReadOnlyList<WorkspaceListItemResponse>>.Success(items.Select(ToListItem).ToList());
+        return Result<IReadOnlyList<WorkspaceListItemResponse>>.Success(items
+            .Where(workspace => !workspace.DeletedAt.HasValue && workspace.Status != WorkspaceStatus.Archived && workspace.Status != WorkspaceStatus.Deleted)
+            .Select(ToListItem)
+            .ToList());
     }
 
     public async Task<Result<WorkspaceDetailResponse>> CreateAsync(CreateWorkspaceRequest request, CancellationToken cancellationToken = default)
@@ -129,8 +132,31 @@ public sealed class WorkspaceService(
         }
 
         workspace.Status = WorkspaceStatus.Archived;
-        workspace.MarkDeleted(clock.UtcNow);
         await AuditAsync(userId, "WorkspaceArchived", workspace.Id, cancellationToken);
+        await unitOfWork.SaveChangesAsync(cancellationToken);
+        return Result.Success();
+    }
+
+    public async Task<Result> RestoreAsync(Guid workspaceId, CancellationToken cancellationToken = default)
+    {
+        if (!TryCurrentUser(out var userId) || !await authorization.CanManageWorkspace(userId, workspaceId, cancellationToken))
+        {
+            return Result.Failure("You are not allowed to manage this workspace.");
+        }
+
+        var workspace = await workspaces.GetByIdAsync(workspaceId, cancellationToken);
+        if (workspace is null)
+        {
+            return Result.Failure("Workspace not found.");
+        }
+
+        workspace.Restore();
+        if (workspace.Status is WorkspaceStatus.Archived or WorkspaceStatus.Deleted)
+        {
+            workspace.Status = WorkspaceStatus.Active;
+        }
+
+        await AuditAsync(userId, "WorkspaceRestored", workspace.Id, cancellationToken);
         await unitOfWork.SaveChangesAsync(cancellationToken);
         return Result.Success();
     }

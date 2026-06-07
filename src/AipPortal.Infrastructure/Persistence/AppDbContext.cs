@@ -15,6 +15,10 @@ public sealed class AppDbContext(
     public DbSet<Plan> Plans => Set<Plan>();
     public DbSet<Subscription> Subscriptions => Set<Subscription>();
     public DbSet<UsageRecord> UsageRecords => Set<UsageRecord>();
+    public DbSet<ExportJob> ExportJobs => Set<ExportJob>();
+    public DbSet<IntegrationAccount> IntegrationAccounts => Set<IntegrationAccount>();
+    public DbSet<WebhookEndpoint> WebhookEndpoints => Set<WebhookEndpoint>();
+    public DbSet<ApiToken> ApiTokens => Set<ApiToken>();
     public DbSet<TenantUser> TenantUsers => Set<TenantUser>();
     public DbSet<User> Users => Set<User>();
     public DbSet<Session> Sessions => Set<Session>();

@@ -96,6 +96,55 @@ public sealed class ProjectServiceTests
         Assert.False(result.IsSuccess);
     }
 
+    [Fact]
+    public async Task SoftDeletedProjectIsHiddenFromNormalList()
+    {
+        var fixture = ProjectFixture.Create();
+        var member = fixture.AddUser();
+        fixture.Current.UserIdValue = member.Id;
+        fixture.AddProjectMember(member.Id, ProjectRole.Viewer);
+        fixture.Project.MarkDeleted(fixture.Clock.UtcNow, member.Id, "test");
+
+        var result = await fixture.Service.ListAsync();
+
+        Assert.True(result.IsSuccess);
+        Assert.Empty(result.Value!);
+    }
+
+    [Fact]
+    public async Task ArchivedProjectIsVisibleOnlyWithArchiveFilter()
+    {
+        var fixture = ProjectFixture.Create();
+        var member = fixture.AddUser();
+        fixture.Current.UserIdValue = member.Id;
+        fixture.AddProjectMember(member.Id, ProjectRole.Viewer);
+        fixture.Project.Status = ProjectStatus.Archived;
+
+        var normal = await fixture.Service.ListAsync();
+        var archived = await fixture.Service.ListAsync(archived: true);
+
+        Assert.True(normal.IsSuccess);
+        Assert.Empty(normal.Value!);
+        Assert.True(archived.IsSuccess);
+        Assert.Single(archived.Value!);
+    }
+
+    [Fact]
+    public async Task ArchiveCreatesAuditLog()
+    {
+        var fixture = ProjectFixture.Create();
+        var manager = fixture.AddUser();
+        fixture.Current.UserIdValue = manager.Id;
+        fixture.AddProjectMember(manager.Id, ProjectRole.Manager);
+
+        var result = await fixture.Service.ArchiveAsync(fixture.Project.Id);
+
+        Assert.True(result.IsSuccess);
+        Assert.Equal(ProjectStatus.Archived, fixture.Project.Status);
+        Assert.False(fixture.Project.DeletedAt.HasValue);
+        Assert.Contains(fixture.Audit.Entries, entry => entry.Action == "ProjectArchived" && entry.EntityId == fixture.Project.Id);
+    }
+
     private sealed class ProjectFixture
     {
         private ProjectFixture()
@@ -277,7 +326,15 @@ public sealed class ProjectServiceTests
     }
 
     private sealed class FakeClock : IClock { public DateTimeOffset UtcNow { get; } = new(2026, 6, 6, 0, 0, 0, TimeSpan.Zero); }
-    private sealed class FakeAuditLogger : IAuditLogger { public Task LogAsync(AuditLogEntry entry, CancellationToken cancellationToken = default) => Task.CompletedTask; }
+    private sealed class FakeAuditLogger : IAuditLogger
+    {
+        public List<AuditLogEntry> Entries { get; } = [];
+        public Task LogAsync(AuditLogEntry entry, CancellationToken cancellationToken = default)
+        {
+            Entries.Add(entry);
+            return Task.CompletedTask;
+        }
+    }
     private sealed class FakeNotifications : INotificationService { public Task NotifyAsync(Guid recipientUserId, string title, string? body, string sourceType, Guid sourceId, CancellationToken cancellationToken = default) => Task.CompletedTask; }
     private sealed class FakeUnitOfWork : IUnitOfWork { public Task<int> SaveChangesAsync(CancellationToken cancellationToken = default) => Task.FromResult(1); }
 }

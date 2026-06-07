@@ -23,6 +23,8 @@ public static class DependencyInjection
 
         services.AddScoped<IUserRepository, UserRepository>();
         services.AddScoped<ITenantRepository, TenantRepository>();
+        services.AddScoped<ITenantExportRepository, TenantExportRepository>();
+        services.AddScoped<IIntegrationRepository, IntegrationRepository>();
         services.AddScoped<AipPortal.Application.Admin.IAdminRepository, AdminRepository>();
         services.AddScoped<IInviteRepository, InviteRepository>();
         services.AddScoped<ISessionRepository, SessionRepository>();

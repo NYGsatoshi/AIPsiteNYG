@@ -81,6 +81,72 @@ One tenant has one settings row. Tenant admins can update safe tenant settings; 
 
 `UsageRecord` stores daily tenant usage snapshots. Current usage can also be calculated on demand for quota checks.
 
+### ExportJob
+
+- `Id`
+- `TenantId`
+- `RequestedByUserId`
+- `Status`: `Queued`, `Running`, `Completed`, `Failed`, `Cancelled`
+- `ExportType`: `Metadata`
+- `FileObjectId` nullable
+- `CreatedAtUtc`
+- `UpdatedAtUtc` nullable
+- `CompletedAt` nullable
+- `ErrorMessage` nullable
+
+MVP export creates metadata-only JSON ZIP files. File bodies and full tenant restore are deferred.
+
+### IntegrationAccount
+
+- `Id`
+- `TenantId`
+- `Provider`: `Google`, `Microsoft`, `Slack`, `Discord`, `GitHub`, `Autodesk`, `CustomWebhook`, `Other`
+- `DisplayName`
+- `Status`: `Draft`, `Active`, `Suspended`, `Error`, `Deleted`
+- `SettingsJson`
+- `CreatedByUserId`
+- `CreatedAtUtc`
+- `UpdatedAtUtc` nullable
+- `DeletedAtUtc` nullable
+- `DeletedByUserId` nullable
+- `DeleteReason` nullable
+
+`SettingsJson` must not contain raw secrets.
+
+### WebhookEndpoint
+
+- `Id`
+- `TenantId`
+- `Name`
+- `Url`
+- `SecretHash` nullable
+- `EnabledEventsJson`
+- `Status`: `Active`, `Disabled`, `Error`, `Deleted`
+- `CreatedByUserId`
+- `CreatedAtUtc`
+- `UpdatedAtUtc` nullable
+- `DeletedAtUtc` nullable
+- `DeletedByUserId` nullable
+- `DeleteReason` nullable
+
+Webhook secrets are hashed when provided. Outbound delivery is deferred.
+
+### ApiToken
+
+- `Id`
+- `TenantId`
+- `Name`
+- `TokenHash`
+- `ScopesJson`
+- `ExpiresAt` nullable
+- `CreatedByUserId`
+- `CreatedAtUtc`
+- `UpdatedAtUtc` nullable
+- `LastUsedAt` nullable
+- `RevokedAt` nullable
+
+Raw token values are returned only once during creation.
+
 ## Auth And Users
 
 ### User

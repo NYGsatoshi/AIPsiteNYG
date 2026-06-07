@@ -19,7 +19,7 @@ public sealed class ProjectService(
     INotificationService notifications,
     IUnitOfWork unitOfWork) : IProjectService
 {
-    public async Task<Result<IReadOnlyList<ProjectResponse>>> ListAsync(CancellationToken cancellationToken = default)
+    public async Task<Result<IReadOnlyList<ProjectResponse>>> ListAsync(bool archived = false, CancellationToken cancellationToken = default)
     {
         if (!TryCurrentUser(out var userId))
         {
@@ -28,7 +28,8 @@ public sealed class ProjectService(
 
         var items = await projects.ListVisibleAsync(userId, cancellationToken);
         return Result<IReadOnlyList<ProjectResponse>>.Success(items
-            .Where(project => !project.DeletedAt.HasValue && project.Status != ProjectStatus.Archived)
+            .Where(project => !project.DeletedAt.HasValue)
+            .Where(project => archived ? project.Status == ProjectStatus.Archived : project.Status is not ProjectStatus.Archived and not ProjectStatus.Deleted)
             .Select(ToProject)
             .ToList());
     }
@@ -151,8 +152,31 @@ public sealed class ProjectService(
         }
 
         project.Status = ProjectStatus.Archived;
-        project.MarkDeleted(clock.UtcNow);
         await AuditAsync(userId, "ProjectArchived", "Project", project.Id, cancellationToken);
+        await unitOfWork.SaveChangesAsync(cancellationToken);
+        return Result.Success();
+    }
+
+    public async Task<Result> RestoreAsync(Guid projectId, CancellationToken cancellationToken = default)
+    {
+        if (!TryCurrentUser(out var userId) || !await projectAuthorization.CanManageProject(userId, projectId, cancellationToken))
+        {
+            return Result.Failure("You are not allowed to manage this project.");
+        }
+
+        var project = await projects.GetProjectAsync(projectId, cancellationToken);
+        if (project is null)
+        {
+            return Result.Failure("Project not found.");
+        }
+
+        project.Restore();
+        if (project.Status is ProjectStatus.Archived or ProjectStatus.Deleted)
+        {
+            project.Status = ProjectStatus.Active;
+        }
+
+        await AuditAsync(userId, "ProjectRestored", "Project", project.Id, cancellationToken);
         await unitOfWork.SaveChangesAsync(cancellationToken);
         return Result.Success();
     }

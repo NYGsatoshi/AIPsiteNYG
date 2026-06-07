@@ -142,8 +142,31 @@ public sealed class GroupService(
         }
 
         group.Status = GroupStatus.Archived;
-        group.MarkDeleted(clock.UtcNow);
         await AuditAsync(userId, "GroupArchived", group.Id, cancellationToken);
+        await unitOfWork.SaveChangesAsync(cancellationToken);
+        return Result.Success();
+    }
+
+    public async Task<Result> RestoreAsync(Guid groupId, CancellationToken cancellationToken = default)
+    {
+        if (!TryCurrentUser(out var userId) || !await authorization.CanManageGroup(userId, groupId, cancellationToken))
+        {
+            return Result.Failure("You are not allowed to manage this group.");
+        }
+
+        var group = await groups.GetByIdAsync(groupId, cancellationToken);
+        if (group is null)
+        {
+            return Result.Failure("Group not found.");
+        }
+
+        group.Restore();
+        if (group.Status is GroupStatus.Archived or GroupStatus.Deleted)
+        {
+            group.Status = GroupStatus.Active;
+        }
+
+        await AuditAsync(userId, "GroupRestored", group.Id, cancellationToken);
         await unitOfWork.SaveChangesAsync(cancellationToken);
         return Result.Success();
     }

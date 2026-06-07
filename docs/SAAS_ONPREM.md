@@ -53,6 +53,12 @@ Quota enforcement may be advisory or strict depending on deployment policy. The 
 
 Feature flags are tenant-scoped and can be derived from plan defaults plus tenant overrides. They control enabled modules such as production tracking, radial menu, docking layout, forms, calendar, API access, and file sharing. Enterprise/on-prem admins can later use the same model for offline license files or centrally managed configuration.
 
+Tenant metadata export is controlled by the `TenantExport` feature. Webhooks are controlled by `WebhookIntegration`. API tokens are controlled by `ApiAccess`.
+
+SaaS deployments should keep webhook URLs HTTPS-only. On-prem deployments may later allow internal HTTP webhooks through an explicit configuration switch, but the MVP rejects HTTP URLs by default.
+
+SaaS backups must include database backups, object storage backups or versioning, app settings, vault/secret recovery, audit retention, and tenant-level export. On-prem backups must include PostgreSQL dumps or snapshots, local/NAS/object file storage, Docker volumes when used, configuration, and secrets. See `docs/BACKUP_RESTORE.md`.
+
 ## Seed And Migration
 
 Migration `MultiTenantFoundation` creates a deterministic default tenant:

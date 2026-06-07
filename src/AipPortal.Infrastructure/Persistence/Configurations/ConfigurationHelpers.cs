@@ -26,7 +26,10 @@ internal static class ConfigurationHelpers
     {
         builder.ConfigureAuditableEntity();
         builder.Property(entity => entity.DeletedAt);
+        builder.Property(entity => entity.DeletedByUserId);
+        builder.Property(entity => entity.DeleteReason).HasMaxLength(500);
         builder.HasIndex(entity => entity.DeletedAt);
+        builder.HasIndex(entity => entity.DeletedByUserId);
     }
 
     public static PropertyBuilder<TEnum> HasEnumStringConversion<TEnum>(

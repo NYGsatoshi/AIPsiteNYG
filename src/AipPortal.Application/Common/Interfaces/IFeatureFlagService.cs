@@ -11,6 +11,7 @@ public static class FeatureKeys
     public const string Calendar = nameof(Calendar);
     public const string Attendance = nameof(Attendance);
     public const string Forms = nameof(Forms);
+    public const string TenantExport = nameof(TenantExport);
     public const string WebhookIntegration = nameof(WebhookIntegration);
     public const string ApiAccess = nameof(ApiAccess);
     public const string CustomBranding = nameof(CustomBranding);
@@ -27,6 +28,7 @@ public static class FeatureKeys
         Calendar,
         Attendance,
         Forms,
+        TenantExport,
         WebhookIntegration,
         ApiAccess,
         CustomBranding,

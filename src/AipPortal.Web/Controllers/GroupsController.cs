@@ -39,6 +39,20 @@ public sealed class GroupsController(IGroupService groups) : ControllerBase
         return result.IsSuccess ? Ok(new { status = "OK" }) : BadRequest(new { error = result.Error });
     }
 
+    [HttpPost("api/groups/{groupId:guid}/archive")]
+    public async Task<IActionResult> Archive(Guid groupId, CancellationToken cancellationToken)
+    {
+        var result = await groups.ArchiveAsync(groupId, cancellationToken);
+        return result.IsSuccess ? Ok(new { status = "OK" }) : BadRequest(new { error = result.Error });
+    }
+
+    [HttpPost("api/groups/{groupId:guid}/restore")]
+    public async Task<IActionResult> Restore(Guid groupId, CancellationToken cancellationToken)
+    {
+        var result = await groups.RestoreAsync(groupId, cancellationToken);
+        return result.IsSuccess ? Ok(new { status = "OK" }) : BadRequest(new { error = result.Error });
+    }
+
     [HttpGet("api/groups/{groupId:guid}/members")]
     public async Task<IActionResult> ListMembers(Guid groupId, CancellationToken cancellationToken)
     {

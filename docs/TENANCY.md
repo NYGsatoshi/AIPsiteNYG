@@ -85,3 +85,29 @@ High-risk areas:
 - Platform admin APIs that do not explicitly verify `PlatformAdmin`.
 
 When adding a tenant-owned feature, add `TenantId`, implement `ITenantEntity`, add tenant-aware unique indexes, and write a tenant isolation test.
+
+## Tenant Export
+
+Tenant metadata export is available through `POST /api/tenant/export`.
+
+Rules:
+
+- Tenant admins can export only the current tenant and only when the `TenantExport` feature is enabled.
+- Platform admins can export any tenant through the explicit request payload.
+- Export queries must always predicate by `TenantId`, including platform-scope exports.
+- Exports must not include password hashes, raw tokens, token hashes, webhook secrets, or other sensitive secrets.
+- File bodies are not exported in the MVP. `FileObject` metadata and storage keys are exported for future migration and restore design.
+- Each export creates an audit log entry.
+
+## Tenant-Scoped Integrations
+
+Integration accounts, webhook endpoints, and API tokens are tenant-owned records.
+
+Rules:
+
+- Do not accept `TenantId` from integration request bodies.
+- Use the current server-side tenant context for create/update/delete operations.
+- Webhook APIs require the `WebhookIntegration` feature flag.
+- API token APIs require the `ApiAccess` feature flag.
+- API token validation returns the token tenant ID so future middleware can set tenant context before any tenant-owned operation.
+- API token authentication must never bypass tenant query filters or resource authorization.

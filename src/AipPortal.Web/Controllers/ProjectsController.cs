@@ -10,7 +10,7 @@ namespace AipPortal.Web.Controllers;
 public sealed class ProjectsController(IProjectService projects) : ControllerBase
 {
     [HttpGet("api/projects")]
-    public async Task<IActionResult> List(CancellationToken cancellationToken) => ToActionResult(await projects.ListAsync(cancellationToken));
+    public async Task<IActionResult> List([FromQuery] bool archived, CancellationToken cancellationToken) => ToActionResult(await projects.ListAsync(archived, cancellationToken));
 
     [HttpPost("api/projects")]
     public async Task<IActionResult> Create(CreateProjectRequest request, CancellationToken cancellationToken) => ToActionResult(await projects.CreateAsync(request, cancellationToken));
@@ -23,6 +23,12 @@ public sealed class ProjectsController(IProjectService projects) : ControllerBas
 
     [HttpDelete("api/projects/{projectId:guid}")]
     public async Task<IActionResult> Delete(Guid projectId, CancellationToken cancellationToken) => OkOrBad(await projects.ArchiveAsync(projectId, cancellationToken));
+
+    [HttpPost("api/projects/{projectId:guid}/archive")]
+    public async Task<IActionResult> Archive(Guid projectId, CancellationToken cancellationToken) => OkOrBad(await projects.ArchiveAsync(projectId, cancellationToken));
+
+    [HttpPost("api/projects/{projectId:guid}/restore")]
+    public async Task<IActionResult> Restore(Guid projectId, CancellationToken cancellationToken) => OkOrBad(await projects.RestoreAsync(projectId, cancellationToken));
 
     [HttpGet("api/projects/{projectId:guid}/members")]
     public async Task<IActionResult> ListMembers(Guid projectId, CancellationToken cancellationToken) => ToActionResult(await projects.ListMembersAsync(projectId, cancellationToken));
