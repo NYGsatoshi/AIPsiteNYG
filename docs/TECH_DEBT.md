@@ -88,3 +88,14 @@ Risk: Future refactors could accidentally skip MIME validation in one upload pat
 Suggested fix: Add focused `FileService` and `ArtifactService` tests for rejected content types and accepted extension/content-type pairs.
 Fixed now: no
 Owner suggestion: Backend
+
+## TD-009
+
+Title: Run and record final manual acceptance pass
+Area: Release
+Severity: Medium
+Description: `docs/FINAL_ACCEPTANCE_TEST_PLAN.md`, `docs/SMOKE_TEST.md`, and `docs/API_SMOKE_TESTS.http` define the final pilot acceptance pass, but they still need to be executed against the target environment.
+Risk: Documentation could drift from runtime behavior, and a pilot could start with unverified workflows.
+Suggested fix: Execute the smoke plan against local dev, Docker Compose, and target on-prem/SaaS-style configuration; record pass/fail evidence in `docs/PILOT_STATUS.md`.
+Fixed now: no
+Owner suggestion: Release

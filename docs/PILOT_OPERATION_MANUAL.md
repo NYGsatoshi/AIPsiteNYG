@@ -1,5 +1,7 @@
 # Pilot Operation Manual
 
+Use this manual with `docs/SMOKE_TEST.md`, `docs/API_SMOKE_TESTS.http`, `docs/FINAL_ACCEPTANCE_TEST_PLAN.md`, and `docs/DEMO_SCRIPT.md`. Record partial or failed checks in `docs/PILOT_STATUS.md`.
+
 ## Create A Tenant
 
 Use a PlatformAdmin account and the platform tenant API:

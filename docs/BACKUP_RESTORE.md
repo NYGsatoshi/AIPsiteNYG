@@ -7,6 +7,8 @@ AIP Portal recovery has two layers:
 
 The MVP implements tenant metadata export only. It does not implement a full restore engine.
 
+Pilot handoff note: a written backup procedure is not enough. Each pilot environment must record at least one successful restore drill before real school data is relied on.
+
 ## SaaS Mode
 
 SaaS backups must include:

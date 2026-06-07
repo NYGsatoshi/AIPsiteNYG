@@ -2,13 +2,14 @@
 
 ## Build And Tests
 
-- [ ] `dotnet restore AipPortal.slnx` passes.
-- [ ] `dotnet build AipPortal.slnx` passes.
-- [ ] `dotnet test AipPortal.slnx` passes.
-- [ ] Tenant isolation tests pass.
+- [x] `dotnet restore AipPortal.slnx` passes for the release environment. Verified 2026-06-08 through build/test restore; NuGet vulnerability feed produced NU1900 warnings.
+- [x] `dotnet build AipPortal.slnx` passes for the release commit. Verified 2026-06-08 with 0 errors and NU1900 warnings.
+- [x] `dotnet test AipPortal.slnx` passes for the release commit. Verified 2026-06-08: 84 passed, 0 failed, 0 skipped.
+- [x] Tenant isolation tests pass for the release commit. Covered by the full test run on 2026-06-08.
 - [ ] Smoke test confirms app starts.
 - [ ] Smoke test confirms database is reachable.
 - [ ] Smoke test confirms `/health/live` and `/health/ready`.
+- [ ] API smoke examples in `docs/API_SMOKE_TESTS.http` run against a seeded pilot environment.
 
 ## Security
 
@@ -25,6 +26,8 @@
 - [ ] Suspended tenant behavior tested.
 - [ ] File download authorization tested.
 - [ ] API tokens, invite tokens, and webhook secrets are never logged raw.
+- [ ] Authenticated HTTP tenant isolation tests pass, or the missing coverage is accepted as a documented pilot risk.
+- [ ] PostgreSQL-backed search isolation tests pass, or the missing coverage is accepted as a documented pilot risk.
 
 ## Operations
 
@@ -36,6 +39,8 @@
 - [ ] First tenant creation documented.
 - [ ] Audit logs working.
 - [ ] Known risks listed.
+- [ ] On-prem file storage path or SaaS object storage bucket is backed up.
+- [ ] Production object storage adapter is implemented before any broad SaaS pilot.
 
 ## Product Smoke Tests
 
@@ -49,7 +54,15 @@
 - [ ] Admin APIs are protected.
 - [ ] Search is tenant-scoped.
 - [ ] Notifications are tenant-scoped.
+- [ ] Direct message unread/read state works.
+- [ ] Announcement read confirmation works.
+- [ ] Gantt, dashboard, and my-tasks views work.
 
 ## Go/No-Go
 
-Pilot release is allowed only when all critical security and backup items above are complete. If any item remains open, mark the release conditionally safe or unsafe in `docs/PILOT_STATUS.md`.
+- [ ] Local demo ready.
+- [ ] Internal pilot ready.
+- [ ] School pilot conditionally ready.
+- [ ] SaaS pilot ready.
+
+Pilot release is allowed only when all critical security and backup items above are complete. If any item remains open, mark the release conditionally safe or unsafe in `docs/PILOT_STATUS.md` and identify who accepted the risk.

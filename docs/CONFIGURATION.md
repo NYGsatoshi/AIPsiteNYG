@@ -58,3 +58,10 @@ Profiles are selected through ASP.NET Core environment/config files such as `app
 - `Features:EnableApiTokens`
 
 Startup validation fails fast for invalid app mode, unsafe production tenant header resolution, unsafe production cookies/HTTPS/HSTS, missing file storage settings, invalid upload limits/extensions/content types, and production setup mode.
+
+## Pilot Defaults
+
+- Local demo may use `Development` settings and `HeaderForDevelopmentOnly` tenant resolution.
+- OnPremSingleTenant pilot should use `Tenancy:AppMode=OnPremSingleTenant`, `Tenancy:TenantResolutionStrategy=ConfigDefault`, `Tenancy:AllowTenantSwitching=false`, and `FileStorage:Provider=LocalFileSystem`.
+- Production-like pilots should set `Security:CookieSecurePolicy=Always`, `Security:RequireHttps=true`, `Security:EnableHsts=true`, and `Platform:PlatformAdminSetupMode=false`.
+- Broad SaaS pilot should not proceed with placeholder object storage adapters.

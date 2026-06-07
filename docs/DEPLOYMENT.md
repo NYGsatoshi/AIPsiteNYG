@@ -1,5 +1,7 @@
 # Deployment
 
+Use this with `docs/SMOKE_TEST.md`, `docs/FINAL_ACCEPTANCE_TEST_PLAN.md`, and `docs/RELEASE_CHECKLIST.md` for pilot handoff. Do not treat deployment as approved until the environment-specific checklist is complete.
+
 ## Requirements
 
 - .NET 10 SDK/runtime matching the project target.
@@ -152,6 +154,12 @@ Do not hardcode production admin passwords. For pilot:
 - Back up PostgreSQL with `pg_dump` or managed snapshots.
 - Back up the upload volume, NAS path, MinIO bucket, or object storage bucket separately.
 - Test restores before relying on the backup plan.
+
+Example PostgreSQL backup command:
+
+```powershell
+pg_dump --format=custom --file=aipportal.backup "$env:AIPPORTAL_DATABASE_URL"
+```
 
 ## Data Lifecycle
 

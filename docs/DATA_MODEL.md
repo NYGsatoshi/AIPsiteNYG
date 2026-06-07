@@ -1,5 +1,7 @@
 # Data Model
 
+Pilot handoff note: this document describes implemented foundations and near-term model direction. Treat tenant metadata export, object storage, API token request authentication, and full restore as incomplete unless `docs/PILOT_STATUS.md` says otherwise.
+
 ## Conventions
 
 - Primary keys: `Guid Id`.

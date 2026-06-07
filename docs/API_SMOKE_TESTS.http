@@ -1,0 +1,245 @@
+@baseUrl = http://localhost:8080
+@tenantSlug = default
+@authCookie = .AspNetCore.Cookies=<paste-cookie-here>
+@platformToken = placeholder-platform-token
+@tenantId = 11111111-1111-1111-1111-111111111111
+@workspaceId = 00000000-0000-0000-0000-000000000001
+@groupId = 00000000-0000-0000-0000-000000000002
+@channelId = 00000000-0000-0000-0000-000000000003
+@postId = 00000000-0000-0000-0000-000000000004
+@projectId = 00000000-0000-0000-0000-000000000005
+@taskId = 00000000-0000-0000-0000-000000000006
+@conversationId = 00000000-0000-0000-0000-000000000007
+@messageId = 00000000-0000-0000-0000-000000000008
+@fileObjectId = 00000000-0000-0000-0000-000000000009
+@memberUserId = 00000000-0000-0000-0000-000000000010
+
+### Login
+POST {{baseUrl}}/api/auth/login
+Content-Type: application/json
+X-Tenant-Slug: {{tenantSlug}}
+
+{
+  "email": "admin@example.test",
+  "password": "<password>"
+}
+
+### Current user
+GET {{baseUrl}}/api/auth/me
+Cookie: {{authCookie}}
+X-Tenant-Slug: {{tenantSlug}}
+
+### Current tenant
+GET {{baseUrl}}/api/tenants/current
+Cookie: {{authCookie}}
+X-Tenant-Slug: {{tenantSlug}}
+
+### Tenant switch
+POST {{baseUrl}}/api/tenants/switch
+Content-Type: application/json
+Cookie: {{authCookie}}
+
+{
+  "tenantId": "{{tenantId}}"
+}
+
+### Platform tenant list
+GET {{baseUrl}}/api/platform/tenants
+Cookie: {{authCookie}}
+
+### Create tenant
+POST {{baseUrl}}/api/platform/tenants
+Content-Type: application/json
+Cookie: {{authCookie}}
+
+{
+  "name": "Pilot School",
+  "slug": "pilot-school",
+  "displayName": "Pilot School",
+  "primaryDomain": null,
+  "planId": null
+}
+
+### Tenant usage
+GET {{baseUrl}}/api/tenant/usage
+Cookie: {{authCookie}}
+X-Tenant-Slug: {{tenantSlug}}
+
+### Create workspace
+POST {{baseUrl}}/api/workspaces
+Content-Type: application/json
+Cookie: {{authCookie}}
+X-Tenant-Slug: {{tenantSlug}}
+
+{
+  "name": "Pilot Workspace",
+  "description": "Acceptance test workspace",
+  "icon": "folder"
+}
+
+### Create group
+POST {{baseUrl}}/api/workspaces/{{workspaceId}}/groups
+Content-Type: application/json
+Cookie: {{authCookie}}
+X-Tenant-Slug: {{tenantSlug}}
+
+{
+  "parentGroupId": null,
+  "name": "Production Team",
+  "description": "Pilot group",
+  "groupType": "Team"
+}
+
+### Create channel
+POST {{baseUrl}}/api/groups/{{groupId}}/channels
+Content-Type: application/json
+Cookie: {{authCookie}}
+X-Tenant-Slug: {{tenantSlug}}
+
+{
+  "name": "general",
+  "description": "Team messages",
+  "channelType": "Public"
+}
+
+### Create post
+POST {{baseUrl}}/api/channels/{{channelId}}/posts
+Content-Type: application/json
+Cookie: {{authCookie}}
+X-Tenant-Slug: {{tenantSlug}}
+
+{
+  "body": "Acceptance smoke post"
+}
+
+### Reply thread
+POST {{baseUrl}}/api/posts/{{postId}}/threads
+Content-Type: application/json
+Cookie: {{authCookie}}
+X-Tenant-Slug: {{tenantSlug}}
+
+{
+  "body": "Thread reply"
+}
+
+### Pin post
+POST {{baseUrl}}/api/posts/{{postId}}/pin
+Cookie: {{authCookie}}
+X-Tenant-Slug: {{tenantSlug}}
+
+### Create project
+POST {{baseUrl}}/api/projects
+Content-Type: application/json
+Cookie: {{authCookie}}
+X-Tenant-Slug: {{tenantSlug}}
+
+{
+  "workspaceId": "{{workspaceId}}",
+  "groupId": "{{groupId}}",
+  "title": "Pilot Project",
+  "description": "Acceptance test project",
+  "startDate": "2026-06-08",
+  "endDate": "2026-06-30"
+}
+
+### Create task
+POST {{baseUrl}}/api/projects/{{projectId}}/tasks
+Content-Type: application/json
+Cookie: {{authCookie}}
+X-Tenant-Slug: {{tenantSlug}}
+
+{
+  "milestoneId": null,
+  "title": "Create storyboard",
+  "description": "First task",
+  "priority": "Normal",
+  "startDate": "2026-06-08",
+  "dueDate": "2026-06-14"
+}
+
+### Assign task
+POST {{baseUrl}}/api/tasks/{{taskId}}/assignments
+Content-Type: application/json
+Cookie: {{authCookie}}
+X-Tenant-Slug: {{tenantSlug}}
+
+{
+  "userId": "{{memberUserId}}",
+  "role": "Assignee",
+  "estimatedHours": 4
+}
+
+### Create direct conversation
+POST {{baseUrl}}/api/conversations
+Content-Type: application/json
+Cookie: {{authCookie}}
+X-Tenant-Slug: {{tenantSlug}}
+
+{
+  "type": "Direct",
+  "title": null,
+  "memberUserIds": [
+    "{{memberUserId}}"
+  ]
+}
+
+### Send DM
+POST {{baseUrl}}/api/conversations/{{conversationId}}/messages
+Content-Type: application/json
+Cookie: {{authCookie}}
+X-Tenant-Slug: {{tenantSlug}}
+
+{
+  "body": "Hello from the smoke test.",
+  "attachments": []
+}
+
+### Mark conversation read
+POST {{baseUrl}}/api/conversations/{{conversationId}}/read
+Content-Type: application/json
+Cookie: {{authCookie}}
+X-Tenant-Slug: {{tenantSlug}}
+
+{
+  "lastReadMessageId": "{{messageId}}"
+}
+
+### Upload file
+POST {{baseUrl}}/api/files
+Cookie: {{authCookie}}
+X-Tenant-Slug: {{tenantSlug}}
+Content-Type: multipart/form-data; boundary=boundary
+
+--boundary
+Content-Disposition: form-data; name="ownerType"
+
+TaskItem
+--boundary
+Content-Disposition: form-data; name="ownerId"
+
+{{taskId}}
+--boundary
+Content-Disposition: form-data; name="file"; filename="smoke.txt"
+Content-Type: text/plain
+
+Smoke test file.
+--boundary--
+
+### Download file
+GET {{baseUrl}}/api/files/{{fileObjectId}}/download
+Cookie: {{authCookie}}
+X-Tenant-Slug: {{tenantSlug}}
+
+### Search
+GET {{baseUrl}}/api/search?q=pilot&type=All&page=1&pageSize=20
+Cookie: {{authCookie}}
+X-Tenant-Slug: {{tenantSlug}}
+
+### Tenant audit logs
+GET {{baseUrl}}/api/tenant/audit-logs?page=1&pageSize=20
+Cookie: {{authCookie}}
+X-Tenant-Slug: {{tenantSlug}}
+
+### Platform audit logs
+GET {{baseUrl}}/api/platform/audit-logs?page=1&pageSize=20
+Cookie: {{authCookie}}
