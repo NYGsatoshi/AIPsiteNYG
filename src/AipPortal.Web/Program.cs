@@ -169,6 +169,7 @@ app.MapFallback(async context =>
     }
 
     var indexPath = Path.Combine(app.Environment.WebRootPath, "index.html");
+    context.Response.ContentType = "text/html; charset=utf-8";
     await context.Response.SendFileAsync(indexPath);
 });
 

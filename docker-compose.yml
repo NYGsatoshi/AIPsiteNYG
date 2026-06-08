@@ -15,6 +15,27 @@ services:
     depends_on:
       postgres:
         condition: service_healthy
+      migrate:
+        condition: service_completed_successfully
+
+  migrate:
+    image: mcr.microsoft.com/dotnet/sdk:10.0-preview
+    working_dir: /src
+    volumes:
+      - ./:/src
+      - aip_nuget:/root/.nuget/packages
+    environment:
+      ASPNETCORE_ENVIRONMENT: Production
+      ConnectionStrings__DefaultConnection: Host=postgres;Port=5432;Database=${POSTGRES_DB:-aip_portal};Username=${POSTGRES_USER:-aip_portal};Password=${POSTGRES_PASSWORD:?set POSTGRES_PASSWORD}
+      NUGET_PACKAGES: /root/.nuget/packages
+      Tenancy__SeedOnStartup: "false"
+    depends_on:
+      postgres:
+        condition: service_healthy
+    command: >
+      bash -lc "dotnet tool restore &&
+      dotnet restore src/AipPortal.Web/AipPortal.Web.csproj /p:RestoreFallbackFolders= &&
+      dotnet ef database update --project src/AipPortal.Infrastructure --startup-project src/AipPortal.Web"
 
   postgres:
     image: postgres:18-alpine
@@ -23,7 +44,7 @@ services:
       POSTGRES_USER: ${POSTGRES_USER:-aip_portal}
       POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?set POSTGRES_PASSWORD}
     volumes:
-      - aip_pgdata:/var/lib/postgresql/data
+      - aip_pgdata:/var/lib/postgresql
     healthcheck:
       test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-aip_portal} -d ${POSTGRES_DB:-aip_portal}"]
       interval: 10s
@@ -33,3 +54,4 @@ services:
 volumes:
   aip_pgdata:
   aip_uploads:
+  aip_nuget:

@@ -67,12 +67,25 @@ $env:ConnectionStrings__DefaultConnection='Host=localhost;Port=5432;Database=aip
 dotnet run --project src/AipPortal.Web
 ```
 
-Run with Docker Compose:
+Run local development with Docker Compose:
 
 ```powershell
-$env:POSTGRES_PASSWORD='<strong-password>'
-docker compose up --build
+Copy-Item .env.example .env
+docker compose -f docker-compose.local.yml up --build
 ```
+
+Open http://localhost:8080, or the port configured by `AIP_PORTAL_PORT`.
+
+The Docker Compose connection string uses `Host=postgres` because the web and migration containers connect to the PostgreSQL service on the Compose network. For direct Windows execution with `dotnet run`, keep using `Host=localhost` and expose PostgreSQL with `POSTGRES_PORT`.
+
+Reset the local Docker database:
+
+```powershell
+docker compose -f docker-compose.local.yml down -v
+docker compose -f docker-compose.local.yml up --build
+```
+
+PostgreSQL 18 stores its Docker data below `/var/lib/postgresql`, so the Compose files mount database volumes at `/var/lib/postgresql`. If an older local volume was initialized through `/var/lib/postgresql/data`, reset it with `down -v` before starting again.
 
 Run on-prem single-tenant defaults:
 

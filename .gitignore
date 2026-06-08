@@ -9,3 +9,5 @@ TestResults/
 .tmp/
 data/
 src/AipPortal.Web/data/
+.env
+local.env
