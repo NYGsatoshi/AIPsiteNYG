@@ -51,6 +51,7 @@ export async function api(path, options = {}) {
 }
 
 export const AuthApi = {
+  status: () => api("/api/auth/status"),
   me: () => api("/api/auth/me"),
   login: (email, password) => api("/api/auth/login", {
     method: "POST",

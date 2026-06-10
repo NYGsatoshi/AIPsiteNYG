@@ -81,6 +81,23 @@ public sealed class AuthController(IAuthService authService) : ControllerBase
         return Ok(result.Value);
     }
 
+    [HttpGet("status")]
+    public async Task<IActionResult> Status(CancellationToken cancellationToken)
+    {
+        if (User.Identity?.IsAuthenticated != true)
+        {
+            return Ok(new { isAuthenticated = false });
+        }
+
+        var result = await authService.GetCurrentUserAsync(cancellationToken);
+        if (!result.IsSuccess || result.Value is null)
+        {
+            return Ok(new { isAuthenticated = false });
+        }
+
+        return Ok(new { isAuthenticated = true, user = result.Value });
+    }
+
     private Task SignInAsync(LoginResponse user)
     {
         var claims = new List<Claim>

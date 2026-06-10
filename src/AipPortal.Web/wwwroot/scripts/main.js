@@ -1,4 +1,4 @@
-import { ApiError } from "./api.js";
+import { ApiError, AuthApi } from "./api.js";
 import { createShell, showLogin } from "./components/shell.js";
 import { renderOnPremOnboarding, renderPlatformAdmin, renderTenantAdmin } from "./pages/admin.js";
 import { renderAnnouncements } from "./pages/announcements.js";
@@ -15,6 +15,12 @@ let shellState = null;
 // TODO: Add frontend tests for navigation, dashboard empty states, notification badges, and admin visibility once a frontend test harness is chosen.
 async function boot() {
   try {
+    const authStatus = await AuthApi.status();
+    if (!authStatus.isAuthenticated) {
+      await showLogin(root);
+      return;
+    }
+
     shellState = await createShell(root);
     await renderRoute();
   } catch (error) {
