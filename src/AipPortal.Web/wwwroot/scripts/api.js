@@ -16,12 +16,13 @@ async function parseResponse(response) {
 }
 
 function safeMessage(status, payload) {
-  if (status === 401) return "Sign in is required.";
-  if (status === 403) return "You do not have access to this workspace.";
-  if (status === 404) return "The requested item was not found.";
   if (payload && typeof payload === "object" && typeof payload.error === "string") {
     return payload.error;
   }
+
+  if (status === 401) return "Sign in is required.";
+  if (status === 403) return "You do not have access to this workspace.";
+  if (status === 404) return "The requested item was not found.";
 
   return "Something went wrong. Please try again.";
 }

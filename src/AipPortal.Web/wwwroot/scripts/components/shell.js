@@ -88,10 +88,12 @@ export async function showLogin(root) {
     message.textContent = "";
 
     try {
-      await AuthApi.login(form.get("email"), form.get("password"));
+      const email = String(form.get("email") ?? "").trim();
+      const password = String(form.get("password") ?? "").trim();
+      await AuthApi.login(email, password);
       location.href = "/";
-    } catch {
-      message.textContent = "Sign in failed.";
+    } catch (error) {
+      message.textContent = error?.message || "Sign in failed.";
     }
   });
 }

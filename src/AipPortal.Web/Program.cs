@@ -143,6 +143,8 @@ app.MapGet("/health", async (AppDbContext dbContext, CancellationToken cancellat
 
 app.MapGet("/health/live", () => Results.Ok(new { status = "OK" }));
 
+app.MapGet("/favicon.ico", () => Results.NoContent());
+
 app.MapGet("/health/ready", async (
     AppDbContext dbContext,
     IOptions<FileStorageOptions> fileStorageOptions,
