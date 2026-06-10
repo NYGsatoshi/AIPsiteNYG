@@ -1,3 +1,4 @@
+using AipPortal.Application.Auth;
 using AipPortal.Application.Common;
 using AipPortal.Application.Common.Interfaces;
 using AipPortal.Application.Common.Tenancy;
@@ -13,6 +14,7 @@ public sealed class TenantService(
     ICurrentUser currentUser,
     IAuditLogger auditLogger,
     IUnitOfWork unitOfWork,
+    IUserSessionService userSessions,
     TenancyOptions options) : ITenantService
 {
     public async Task<Result<IReadOnlyList<TenantResponse>>> ListPlatformTenantsAsync(CancellationToken cancellationToken = default)
@@ -301,14 +303,25 @@ public sealed class TenantService(
             return Result<TenantUserResponse>.Failure("Tenant user not found.");
         }
 
-        if (request.Role.HasValue)
+        var revokeSessions = false;
+        if (request.Role.HasValue && tenantUser.Role != request.Role.Value)
         {
             tenantUser.Role = request.Role.Value;
+            revokeSessions = true;
         }
 
         if (request.Status.HasValue)
         {
             tenantUser.Status = request.Status.Value;
+            if (tenantUser.Status != TenantUserStatus.Active)
+            {
+                revokeSessions = true;
+            }
+        }
+
+        if (revokeSessions)
+        {
+            await userSessions.RevokeUserSessionsAsync(userId, currentUser.UserId, "TenantMembershipChanged", cancellationToken: cancellationToken);
         }
 
         await unitOfWork.SaveChangesAsync(cancellationToken);
@@ -329,6 +342,7 @@ public sealed class TenantService(
         }
 
         tenantUser.Status = TenantUserStatus.Left;
+        await userSessions.RevokeUserSessionsAsync(userId, currentUser.UserId, "TenantMembershipRemoved", cancellationToken: cancellationToken);
         await unitOfWork.SaveChangesAsync(cancellationToken);
         return Result.Success();
     }

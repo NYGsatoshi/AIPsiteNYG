@@ -1,5 +1,6 @@
 using System.Net.Mail;
 using System.Security.Cryptography;
+using AipPortal.Application.Auth;
 using AipPortal.Application.Common;
 using AipPortal.Application.Common.Interfaces;
 using AipPortal.Domain.Entities;
@@ -13,6 +14,7 @@ public sealed class AdminService(
     IAuditLogger auditLogger,
     ICurrentUser currentUser,
     IClock clock,
+    IUserSessionService userSessions,
     IUnitOfWork unitOfWork) : IAdminService
 {
     private const int DefaultPageSize = 50;
@@ -83,12 +85,19 @@ public sealed class AdminService(
             user.NormalizedEmail = normalizedEmail;
         }
 
+        var shouldRevokeSessions = false;
         if (request.Status.HasValue)
         {
             user.Status = request.Status.Value;
+            shouldRevokeSessions = user.Status != UserStatus.Active;
         }
 
         await AuditAsync("AdminUserUpdated", "User", user.Id, "Admin updated user profile.", cancellationToken);
+        if (shouldRevokeSessions)
+        {
+            await userSessions.RevokeUserSessionsAsync(user.Id, currentUser.UserId, "AdminUserStatusChanged", cancellationToken: cancellationToken);
+        }
+
         await unitOfWork.SaveChangesAsync(cancellationToken);
         return Result<AdminUserDetailResponse>.Success(ToUserDetail(user));
     }
@@ -161,6 +170,7 @@ public sealed class AdminService(
         }
 
         await AuditAsync("UserArchived", "User", user.Id, "User archived.", cancellationToken);
+        await userSessions.RevokeUserSessionsAsync(user.Id, currentUser.UserId, "UserArchived", cancellationToken: cancellationToken);
         await unitOfWork.SaveChangesAsync(cancellationToken);
         return Result.Success();
     }
@@ -198,6 +208,7 @@ public sealed class AdminService(
                 ["oldRole"] = oldRole.ToString(),
                 ["newRole"] = user.SystemRole.ToString()
             }), cancellationToken);
+        await userSessions.RevokeUserSessionsAsync(user.Id, currentUser.UserId, "SystemRoleChanged", cancellationToken: cancellationToken);
         await unitOfWork.SaveChangesAsync(cancellationToken);
         return Result<AdminUserDetailResponse>.Success(ToUserDetail(user));
     }
@@ -503,6 +514,11 @@ public sealed class AdminService(
 
         user.Status = status;
         await AuditAsync(action, "User", user.Id, summary, cancellationToken);
+        if (status != UserStatus.Active)
+        {
+            await userSessions.RevokeUserSessionsAsync(user.Id, currentUser.UserId, action, cancellationToken: cancellationToken);
+        }
+
         await unitOfWork.SaveChangesAsync(cancellationToken);
         return Result.Success();
     }

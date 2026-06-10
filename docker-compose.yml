@@ -6,12 +6,14 @@ services:
     environment:
       ASPNETCORE_ENVIRONMENT: Production
       ConnectionStrings__DefaultConnection: Host=postgres;Port=5432;Database=${POSTGRES_DB:-aip_portal};Username=${POSTGRES_USER:-aip_portal};Password=${POSTGRES_PASSWORD:?set POSTGRES_PASSWORD}
+      DataProtection__KeysPath: /app/data/protection-keys
       FileStorage__RootPath: /app/storage/uploads
       FileStorage__MaxFileSizeBytes: ${FILE_STORAGE_MAX_FILE_SIZE_BYTES:-26214400}
     ports:
       - "${AIP_PORTAL_PORT:-8080}:8080"
     volumes:
       - aip_uploads:/app/storage/uploads
+      - aip_data_protection:/app/data/protection-keys
     depends_on:
       postgres:
         condition: service_healthy
@@ -54,4 +56,5 @@ services:
 volumes:
   aip_pgdata:
   aip_uploads:
+  aip_data_protection:
   aip_nuget:

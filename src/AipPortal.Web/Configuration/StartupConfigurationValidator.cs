@@ -1,6 +1,8 @@
+using System.Data.Common;
 using AipPortal.Application.Common.Tenancy;
 using AipPortal.Domain.Enums;
 using AipPortal.Infrastructure.Files;
+using Microsoft.AspNetCore.Antiforgery;
 using Microsoft.AspNetCore.Http;
 using Microsoft.Extensions.Options;
 
@@ -11,6 +13,9 @@ public sealed class StartupConfigurationValidator(
     IOptions<FileStorageOptions> fileStorageOptions,
     IOptions<SecurityOptions> securityOptions,
     IOptions<PlatformOptions> platformOptions,
+    IConfiguration configuration,
+    IServiceProvider serviceProvider,
+    CsrfProtectionState csrfProtectionState,
     IWebHostEnvironment environment,
     ILogger<StartupConfigurationValidator> logger) : IHostedService
 {
@@ -141,11 +146,37 @@ public sealed class StartupConfigurationValidator(
             {
                 errors.Add("Platform:PlatformAdminSetupMode must not be enabled in production.");
             }
+
+            if (security.EnableCsrfProtection)
+            {
+                if (!csrfProtectionState.IsMiddlewareActive)
+                {
+                    errors.Add("Security:EnableCsrfProtection is true, but CSRF middleware is not active.");
+                }
+
+                if (serviceProvider.GetService<IAntiforgery>() is null)
+                {
+                    errors.Add("Security:EnableCsrfProtection is true, but antiforgery services are not registered.");
+                }
+            }
+
+            if (string.IsNullOrWhiteSpace(configuration["DataProtection:KeysPath"]))
+            {
+                errors.Add("DataProtection:KeysPath must be configured in production so auth cookies survive restarts and multi-instance deployments.");
+            }
+
+            ValidateProductionConnectionString(errors, configuration.GetConnectionString("DefaultConnection"));
+            ValidateProductionSecret(errors, "FileStorage:SecretKey", fileStorage.SecretKey, required: fileStorage.Provider is "ObjectStorage" or "S3Compatible" or "OCIObjectStorage");
         }
 
         if (security.LoginLockoutEnabled && security.MaxFailedLoginAttempts <= 0)
         {
             errors.Add("Security:MaxFailedLoginAttempts must be positive when lockout is enabled.");
+        }
+
+        if (security.LoginLockoutEnabled && security.LoginLockoutDurationMinutes <= 0)
+        {
+            errors.Add("Security:LoginLockoutDurationMinutes must be positive when lockout is enabled.");
         }
 
         return errors;
@@ -187,5 +218,60 @@ public sealed class StartupConfigurationValidator(
         {
             errors.Add("FileStorage:Endpoint is required for S3Compatible storage.");
         }
+    }
+
+    private static void ValidateProductionConnectionString(ICollection<string> errors, string? connectionString)
+    {
+        if (string.IsNullOrWhiteSpace(connectionString))
+        {
+            errors.Add("ConnectionStrings:DefaultConnection is required in production.");
+            return;
+        }
+
+        try
+        {
+            var builder = new DbConnectionStringBuilder { ConnectionString = connectionString };
+            var password = TryGetValue(builder, "Password") ?? TryGetValue(builder, "Pwd");
+            if (string.IsNullOrWhiteSpace(password))
+            {
+                errors.Add("ConnectionStrings:DefaultConnection must include a database password or equivalent secret in production.");
+                return;
+            }
+
+            ValidateProductionSecret(errors, "ConnectionStrings:DefaultConnection:Password", password, required: true);
+        }
+        catch (ArgumentException)
+        {
+            errors.Add("ConnectionStrings:DefaultConnection is not a valid connection string.");
+        }
+    }
+
+    private static void ValidateProductionSecret(ICollection<string> errors, string name, string? value, bool required)
+    {
+        if (string.IsNullOrWhiteSpace(value))
+        {
+            if (required)
+            {
+                errors.Add($"{name} is required in production.");
+            }
+
+            return;
+        }
+
+        var normalized = value.Trim();
+        if (normalized.Length < 12 ||
+            normalized.Contains('<', StringComparison.Ordinal) ||
+            normalized.Contains("password", StringComparison.OrdinalIgnoreCase) ||
+            normalized.Contains("changeme", StringComparison.OrdinalIgnoreCase) ||
+            normalized.Contains("default", StringComparison.OrdinalIgnoreCase) ||
+            normalized.Contains("example", StringComparison.OrdinalIgnoreCase))
+        {
+            errors.Add($"{name} appears to contain a weak or placeholder secret.");
+        }
+    }
+
+    private static string? TryGetValue(DbConnectionStringBuilder builder, string key)
+    {
+        return builder.TryGetValue(key, out var value) ? value?.ToString() : null;
     }
 }

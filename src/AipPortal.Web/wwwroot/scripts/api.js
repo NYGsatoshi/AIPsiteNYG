@@ -6,6 +6,12 @@ export class ApiError extends Error {
   }
 }
 
+const DEFAULT_CSRF_HEADER_NAME = "X-CSRF-TOKEN";
+const SAFE_METHODS = new Set(["GET", "HEAD", "OPTIONS", "TRACE"]);
+let csrfToken = null;
+let csrfHeaderName = DEFAULT_CSRF_HEADER_NAME;
+let csrfTokenPromise = null;
+
 async function parseResponse(response) {
   const contentType = response.headers.get("content-type") || "";
   if (contentType.includes("application/json")) {
@@ -27,15 +33,61 @@ function safeMessage(status, payload) {
   return "Something went wrong. Please try again.";
 }
 
+function isUnsafeMethod(method) {
+  return !SAFE_METHODS.has((method || "GET").toUpperCase());
+}
+
+async function ensureCsrfToken() {
+  if (csrfToken) {
+    return csrfToken;
+  }
+
+  if (!csrfTokenPromise) {
+    csrfTokenPromise = fetch("/api/security/csrf-token", {
+      credentials: "same-origin",
+      headers: {
+        accept: "application/json"
+      }
+    })
+      .then(async (response) => {
+        const payload = await parseResponse(response);
+        if (!response.ok || !payload?.token) {
+          throw new ApiError("A valid CSRF token could not be created.", response.status);
+        }
+
+        csrfToken = payload.token;
+        csrfHeaderName = payload.headerName || DEFAULT_CSRF_HEADER_NAME;
+        return csrfToken;
+      })
+      .finally(() => {
+        csrfTokenPromise = null;
+      });
+  }
+
+  return csrfTokenPromise;
+}
+
+async function refreshCsrfToken() {
+  csrfToken = null;
+  return ensureCsrfToken();
+}
+
 export async function api(path, options = {}) {
   const headers = new Headers(options.headers || {});
+  const method = (options.method || "GET").toUpperCase();
   if (options.body && !(options.body instanceof FormData)) {
     headers.set("content-type", "application/json");
+  }
+
+  if (isUnsafeMethod(method)) {
+    const token = await ensureCsrfToken();
+    headers.set(csrfHeaderName, token);
   }
 
   const response = await fetch(path, {
     credentials: "same-origin",
     ...options,
+    method,
     headers
   });
 
@@ -45,6 +97,10 @@ export async function api(path, options = {}) {
 
   const payload = await parseResponse(response);
   if (!response.ok) {
+    if (response.status === 400) {
+      csrfToken = null;
+    }
+
     throw new ApiError(safeMessage(response.status, payload), response.status);
   }
 
@@ -54,11 +110,19 @@ export async function api(path, options = {}) {
 export const AuthApi = {
   status: () => api("/api/auth/status"),
   me: () => api("/api/auth/me"),
-  login: (email, password) => api("/api/auth/login", {
-    method: "POST",
-    body: JSON.stringify({ email, password })
-  }),
-  logout: () => api("/api/auth/logout", { method: "POST" })
+  login: async (email, password) => {
+    const result = await api("/api/auth/login", {
+      method: "POST",
+      body: JSON.stringify({ email, password })
+    });
+    await refreshCsrfToken();
+    return result;
+  },
+  logout: async () => {
+    const result = await api("/api/auth/logout", { method: "POST" });
+    csrfToken = null;
+    return result;
+  }
 };
 
 export const UiApi = {

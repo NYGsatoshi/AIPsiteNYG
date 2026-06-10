@@ -17,11 +17,13 @@ public sealed class UserConfiguration : IEntityTypeConfiguration<User>
         builder.Property(user => user.PasswordHash).HasMaxLength(512).IsRequired();
         builder.Property(user => user.SystemRole).HasEnumStringConversion().IsRequired();
         builder.Property(user => user.Status).HasEnumStringConversion().IsRequired();
+        builder.Property(user => user.FailedLoginAttempts).IsRequired();
 
         builder.HasIndex(user => user.Email).IsUnique();
         builder.HasIndex(user => user.NormalizedEmail).IsUnique();
         builder.HasIndex(user => user.SystemRole);
         builder.HasIndex(user => user.Status);
+        builder.HasIndex(user => user.LockoutEndAt);
     }
 }
 
@@ -37,6 +39,7 @@ public sealed class SessionConfiguration : IEntityTypeConfiguration<Session>
 
         builder.HasIndex(session => session.UserId);
         builder.HasIndex(session => session.ExpiresAt);
+        builder.HasIndex(session => session.RevokedAt);
 
         builder
             .HasOne(session => session.User)

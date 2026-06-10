@@ -17,7 +17,8 @@ These limitations are intentional release notes. Do not describe them as complet
 - Local filesystem storage is suitable for development and small on-prem pilots only.
 - Tenant metadata export is implemented, but full tenant restore is not.
 - Password reset is not implemented.
-- Full CSRF token enforcement is not implemented for cookie-auth unsafe methods.
-- SaaS readiness depends on authenticated HTTP tenant isolation tests passing.
-- SaaS readiness also depends on PostgreSQL-backed search isolation tests and object storage.
+- Cookie-auth browser CSRF protection is implemented for same-origin frontend/API calls; external API clients should use a future non-cookie API token authentication path.
+- Login lockout is persisted on existing user accounts; unknown-email attempts use generic responses and audit/rate-limit controls but do not create persistent lockout rows.
+- Sessions are not tenant-bound records yet, so tenant membership and role changes revoke the user's active sessions globally.
+- SaaS readiness still depends on PostgreSQL-backed search isolation tests and object storage.
 - Backup/restore documentation exists, but each pilot environment still needs a recorded restore drill.

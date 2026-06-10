@@ -13,6 +13,7 @@ Use this with `docs/SMOKE_TEST.md`, `docs/FINAL_ACCEPTANCE_TEST_PLAN.md`, and `d
 Configure secrets with environment variables, not committed settings files.
 
 - `ConnectionStrings__DefaultConnection`
+- `DataProtection__KeysPath`
 - `Tenancy__AppMode`
 - `Tenancy__DefaultTenantSlug`
 - `Tenancy__TenantResolutionStrategy`
@@ -26,6 +27,7 @@ Configure secrets with environment variables, not committed settings files.
 - `Security__CookieSecurePolicy`
 - `Security__RequireHttps`
 - `Security__EnableHsts`
+- `Security__EnableCsrfProtection`
 - `ASPNETCORE_ENVIRONMENT=Production`
 
 See `docs/CONFIGURATION.md` and `docs/ENVIRONMENT_VARIABLES.md` for the full deployment profile matrix.
@@ -108,6 +110,8 @@ Use:
 - `Security:CookieSecurePolicy=Always`
 - `Security:RequireHttps=true`
 - `Security:EnableHsts=true`
+- `Security:EnableCsrfProtection=true`
+- `DataProtection:KeysPath=<persisted path>`
 
 SaaS should use object storage once the adapter is implemented. Local filesystem storage is not recommended for production SaaS.
 

@@ -6,6 +6,7 @@ Use double underscores to override nested configuration keys.
 
 - `ASPNETCORE_ENVIRONMENT`
 - `ConnectionStrings__DefaultConnection`
+- `DataProtection__KeysPath` for production deployments
 
 ## Tenancy
 
@@ -44,6 +45,7 @@ Do not commit object storage access keys or database passwords. Provide them thr
 - `Security__EnableRateLimiting`
 - `Security__LoginLockoutEnabled`
 - `Security__MaxFailedLoginAttempts`
+- `Security__LoginLockoutDurationMinutes`
 - `Platform__EnablePlatformAdmin`
 - `Platform__PlatformAdminSetupMode`
 - `Platform__AllowTenantCreationFromAdmin`

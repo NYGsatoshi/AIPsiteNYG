@@ -1,3 +1,5 @@
+using AipPortal.Application.Auth;
+using AipPortal.Application.Common;
 using AipPortal.Application.Common.Interfaces;
 using AipPortal.Application.Common.Tenancy;
 using AipPortal.Application.Tenancy;
@@ -11,6 +13,8 @@ using Microsoft.AspNetCore.Http;
 using Microsoft.AspNetCore.Hosting;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.FileProviders;
+using Microsoft.Extensions.Configuration;
+using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Hosting;
 using Microsoft.Extensions.Logging.Abstractions;
 using Microsoft.Extensions.Options;
@@ -256,6 +260,15 @@ public sealed class TenancyFoundationTests
                 MaxFailedLoginAttempts = 5
             }),
             Options.Create(new PlatformOptions()),
+            new ConfigurationBuilder()
+                .AddInMemoryCollection(new Dictionary<string, string?>
+                {
+                    ["ConnectionStrings:DefaultConnection"] = "Host=db;Port=5432;Database=aip;Username=aip;Password=StrongPasswordValue123!",
+                    ["DataProtection:KeysPath"] = Path.Combine(Path.GetTempPath(), "aip-dp-validation-tests", Guid.NewGuid().ToString("N"))
+                })
+                .Build(),
+            new ServiceCollection().AddAntiforgery().BuildServiceProvider(),
+            new CsrfProtectionState(),
             new FakeWebHostEnvironment(Environments.Production),
             NullLogger<StartupConfigurationValidator>.Instance);
 
@@ -286,6 +299,7 @@ public sealed class TenancyFoundationTests
             new FakeCurrentUser(currentUser),
             new FakeAuditLogger(),
             new EfUnitOfWork(dbContext),
+            new FakeUserSessionService(),
             options);
     }
 
@@ -314,6 +328,24 @@ public sealed class TenancyFoundationTests
     private sealed class FakeAuditLogger : IAuditLogger
     {
         public Task LogAsync(AuditLogEntry entry, CancellationToken cancellationToken = default) => Task.CompletedTask;
+    }
+
+    private sealed class FakeUserSessionService : IUserSessionService
+    {
+        public Task<SessionValidationResult> ValidateSessionAsync(Guid userId, Guid sessionId, Guid? tenantId, bool requireActiveTenantMembership, CancellationToken cancellationToken = default)
+        {
+            return Task.FromResult(SessionValidationResult.Success());
+        }
+
+        public Task<Result> RevokeSessionAsync(Guid sessionId, Guid? actorUserId, string reason, CancellationToken cancellationToken = default)
+        {
+            return Task.FromResult(Result.Success());
+        }
+
+        public Task<Result<int>> RevokeUserSessionsAsync(Guid userId, Guid? actorUserId, string reason, Guid? exceptSessionId = null, CancellationToken cancellationToken = default)
+        {
+            return Task.FromResult(Result<int>.Success(0));
+        }
     }
 
     private sealed class FakeWebHostEnvironment(string environmentName) : IWebHostEnvironment

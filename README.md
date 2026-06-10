@@ -2,7 +2,7 @@
 
 AIPsiteNYG is an ASP.NET Core modular monolith for a tenant-aware school or organization portal. It combines workspaces, groups, channels, announcements, direct messages, production tracking, file/artifact management, forms, notifications, audit logs, and tenant administration in one deployable application.
 
-Current status: controlled local demo and internal pilot candidate. It is not ready for broad production SaaS until the documented gaps in HTTP tenant isolation coverage, PostgreSQL-backed search testing, object storage, and restore drills are closed.
+Current status: controlled local demo and internal pilot candidate. It is not ready for broad production SaaS until the documented gaps in PostgreSQL-backed search testing, object storage, and restore drills are closed.
 
 ## Supported Modes
 
@@ -13,7 +13,7 @@ Current status: controlled local demo and internal pilot candidate. It is not re
 
 ## Core Features
 
-- Cookie-based authentication, invite registration, login, logout, password change, and user suspension checks.
+- Cookie-based authentication, CSRF-protected browser API calls, invite registration, login lockout, DB-backed session validation, logout, password change, and user suspension checks.
 - Tenant model, tenant membership, tenant switching, feature flags, quotas, platform admin APIs, and tenant admin APIs.
 - Workspaces, groups, channels, posts, thread replies, pinned posts, and announcements with read confirmation.
 - Direct conversations, messages, unread counts, read state, and member authorization.
@@ -27,7 +27,6 @@ Current status: controlled local demo and internal pilot candidate. It is not re
 - Full tenant restore and file-body tenant export.
 - Password reset flow.
 - API token authentication middleware.
-- Full CSRF enforcement for cookie-auth unsafe methods.
 - Full-text search engine.
 - Advanced Gantt drag editing, full free-form docking, live streaming, voice/video calls, E2EE, full billing, advanced SSO, and complete external integrations.
 
@@ -97,6 +96,7 @@ docker compose -f docker-compose.onprem.yml up --build
 ## Important Environment Variables
 
 - `ConnectionStrings__DefaultConnection`
+- `DataProtection__KeysPath`
 - `Tenancy__AppMode`
 - `Tenancy__DefaultTenantSlug`
 - `Tenancy__TenantResolutionStrategy`
@@ -107,6 +107,7 @@ docker compose -f docker-compose.onprem.yml up --build
 - `Security__CookieSecurePolicy`
 - `Security__RequireHttps`
 - `Security__EnableHsts`
+- `Security__LoginLockoutDurationMinutes`
 - `Platform__PlatformAdminSetupMode`
 
 Do not commit production secrets. Production should use environment variables, a protected `.env`, or a secret manager.

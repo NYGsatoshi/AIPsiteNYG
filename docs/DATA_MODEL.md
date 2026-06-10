@@ -159,6 +159,8 @@ Raw token values are returned only once during creation.
 - `NormalizedEmail`
 - `PasswordHash`
 - `Status`
+- `FailedLoginAttempts`
+- `LockoutEndAtUtc` nullable
 - `LastLoginAtUtc`
 - `CreatedAtUtc`
 - `UpdatedAtUtc`
@@ -168,6 +170,7 @@ Indexes:
 
 - Unique `NormalizedEmail`
 - `Status`
+- `LockoutEndAtUtc`
 
 ### Session
 

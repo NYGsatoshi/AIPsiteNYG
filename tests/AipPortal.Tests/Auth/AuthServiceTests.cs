@@ -1,4 +1,5 @@
 using AipPortal.Application.Auth;
+using AipPortal.Application.Common;
 using AipPortal.Application.Common.Interfaces;
 using AipPortal.Domain.Entities;
 using AipPortal.Domain.Enums;
@@ -88,20 +89,65 @@ public sealed class AuthServiceTests
         Assert.Empty(fixture.Sessions);
     }
 
+    [Fact]
+    public async Task FailedPasswordAttemptsLockActiveUser()
+    {
+        var fixture = AuthFixture.Create(new AuthSecurityOptions
+        {
+            LoginLockoutEnabled = true,
+            MaxFailedLoginAttempts = 2,
+            LoginLockoutDurationMinutes = 30
+        });
+        var user = fixture.AddUser("student@example.com", "Password123", UserStatus.Active);
+
+        var first = await fixture.Service.LoginAsync(new LoginRequest("student@example.com", "wrong-password"));
+        var second = await fixture.Service.LoginAsync(new LoginRequest("student@example.com", "wrong-password"));
+        var lockedOut = await fixture.Service.LoginAsync(new LoginRequest("student@example.com", "Password123"));
+
+        Assert.False(first.IsSuccess);
+        Assert.False(second.IsSuccess);
+        Assert.False(lockedOut.IsSuccess);
+        Assert.Equal(2, user.FailedLoginAttempts);
+        Assert.Equal(fixture.Clock.UtcNow.AddMinutes(30), user.LockoutEndAt);
+        Assert.Empty(fixture.Sessions);
+    }
+
+    [Fact]
+    public async Task SuccessfulLoginResetsFailedAttemptState()
+    {
+        var fixture = AuthFixture.Create(new AuthSecurityOptions
+        {
+            LoginLockoutEnabled = true,
+            MaxFailedLoginAttempts = 3,
+            LoginLockoutDurationMinutes = 15
+        });
+        var user = fixture.AddUser("student@example.com", "Password123", UserStatus.Active);
+
+        await fixture.Service.LoginAsync(new LoginRequest("student@example.com", "wrong-password"));
+        var result = await fixture.Service.LoginAsync(new LoginRequest("student@example.com", "Password123"));
+
+        Assert.True(result.IsSuccess);
+        Assert.Equal(0, user.FailedLoginAttempts);
+        Assert.Null(user.LockoutEndAt);
+        Assert.Single(fixture.Sessions);
+    }
+
     private sealed class AuthFixture
     {
-        private AuthFixture()
+        private AuthFixture(AuthSecurityOptions? securityOptions)
         {
             Service = new AuthService(
                 new FakeUserRepository(Users),
                 new FakeInviteRepository(Invites),
                 new FakeSessionRepository(Sessions),
+                new FakeUserSessionService(),
                 PasswordHasher,
                 TokenHasher,
                 new FakeAuditLogger(),
                 new FakeCurrentUser(),
                 Clock,
-                new FakeUnitOfWork());
+                new FakeUnitOfWork(),
+                securityOptions ?? new AuthSecurityOptions());
         }
 
         public Dictionary<Guid, User> Users { get; } = [];
@@ -112,9 +158,9 @@ public sealed class AuthServiceTests
         public Sha256TokenHasher TokenHasher { get; } = new();
         public AuthService Service { get; }
 
-        public static AuthFixture Create() => new();
+        public static AuthFixture Create(AuthSecurityOptions? securityOptions = null) => new(securityOptions);
 
-        public void AddUser(string email, string password, UserStatus status)
+        public User AddUser(string email, string password, UserStatus status)
         {
             var user = new User
             {
@@ -127,6 +173,7 @@ public sealed class AuthServiceTests
             };
 
             Users[user.Id] = user;
+            return user;
         }
 
         public void AddInvite(
@@ -190,15 +237,51 @@ public sealed class AuthServiceTests
             return Task.CompletedTask;
         }
 
-        public Task RevokeAsync(Guid sessionId, DateTimeOffset revokedAt, CancellationToken cancellationToken = default)
+        public Task<Session?> GetByIdWithUserAsync(Guid sessionId, CancellationToken cancellationToken = default)
+        {
+            return Task.FromResult(sessions.FirstOrDefault(item => item.Id == sessionId));
+        }
+
+        public Task<bool> RevokeAsync(Guid sessionId, DateTimeOffset revokedAt, CancellationToken cancellationToken = default)
         {
             var session = sessions.FirstOrDefault(item => item.Id == sessionId);
             if (session is not null)
             {
                 session.RevokedAt = revokedAt;
+                return Task.FromResult(true);
             }
 
-            return Task.CompletedTask;
+            return Task.FromResult(false);
+        }
+
+        public Task<int> RevokeUserSessionsAsync(Guid userId, DateTimeOffset revokedAt, Guid? exceptSessionId = null, CancellationToken cancellationToken = default)
+        {
+            var revoked = 0;
+            foreach (var session in sessions.Where(item => item.UserId == userId && item.Id != exceptSessionId && !item.RevokedAt.HasValue))
+            {
+                session.RevokedAt = revokedAt;
+                revoked++;
+            }
+
+            return Task.FromResult(revoked);
+        }
+    }
+
+    private sealed class FakeUserSessionService : IUserSessionService
+    {
+        public Task<SessionValidationResult> ValidateSessionAsync(Guid userId, Guid sessionId, Guid? tenantId, bool requireActiveTenantMembership, CancellationToken cancellationToken = default)
+        {
+            return Task.FromResult(SessionValidationResult.Success());
+        }
+
+        public Task<Result> RevokeSessionAsync(Guid sessionId, Guid? actorUserId, string reason, CancellationToken cancellationToken = default)
+        {
+            return Task.FromResult(Result.Success());
+        }
+
+        public Task<Result<int>> RevokeUserSessionsAsync(Guid userId, Guid? actorUserId, string reason, Guid? exceptSessionId = null, CancellationToken cancellationToken = default)
+        {
+            return Task.FromResult(Result<int>.Success(0));
         }
     }
 

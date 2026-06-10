@@ -34,10 +34,14 @@ Profiles are selected through ASP.NET Core environment/config files such as `app
 - `Security:CookieSecurePolicy`: `Always` in production.
 - `Security:RequireHttps`: true in production.
 - `Security:EnableHsts`: true in production.
-- `Security:EnableCsrfProtection`: reserved switch for CSRF middleware/policies.
+- `Security:EnableCsrfProtection`: enables antiforgery validation for unsafe browser requests.
 - `Security:EnableRateLimiting`: reserved switch for rate limiting middleware/policies.
 - `Security:LoginLockoutEnabled`: enables login lockout policy.
 - `Security:MaxFailedLoginAttempts`: positive when lockout is enabled.
+- `Security:LoginLockoutDurationMinutes`: positive lockout duration when lockout is enabled.
+- `DataProtection:KeysPath`: required in production so auth and antiforgery cookies survive restarts and multi-instance deployments.
+
+When CSRF protection is enabled, browser clients obtain a token from `GET /api/security/csrf-token` and send it on unsafe methods with the `X-CSRF-TOKEN` header. The bundled frontend `api()` helper does this automatically for `POST`, `PUT`, `PATCH`, and `DELETE`, and refreshes the token after login so the token matches the authenticated principal.
 
 ## Platform
 
@@ -57,11 +61,11 @@ Profiles are selected through ASP.NET Core environment/config files such as `app
 - `Features:EnableWebhooks`
 - `Features:EnableApiTokens`
 
-Startup validation fails fast for invalid app mode, unsafe production tenant header resolution, unsafe production cookies/HTTPS/HSTS, missing file storage settings, invalid upload limits/extensions/content types, and production setup mode.
+Startup validation fails fast for invalid app mode, unsafe production tenant header resolution, unsafe production cookies/HTTPS/HSTS, missing CSRF middleware/services when CSRF is enabled in production, missing production Data Protection key persistence, weak detectable production secrets, missing file storage settings, invalid upload limits/extensions/content types, and production setup mode.
 
 ## Pilot Defaults
 
 - Local demo may use `Development` settings and `HeaderForDevelopmentOnly` tenant resolution.
 - OnPremSingleTenant pilot should use `Tenancy:AppMode=OnPremSingleTenant`, `Tenancy:TenantResolutionStrategy=ConfigDefault`, `Tenancy:AllowTenantSwitching=false`, and `FileStorage:Provider=LocalFileSystem`.
-- Production-like pilots should set `Security:CookieSecurePolicy=Always`, `Security:RequireHttps=true`, `Security:EnableHsts=true`, and `Platform:PlatformAdminSetupMode=false`.
+- Production-like pilots should set `Security:CookieSecurePolicy=Always`, `Security:RequireHttps=true`, `Security:EnableHsts=true`, `Security:EnableCsrfProtection=true`, `DataProtection:KeysPath` to a persisted path, and `Platform:PlatformAdminSetupMode=false`.
 - Broad SaaS pilot should not proceed with placeholder object storage adapters.

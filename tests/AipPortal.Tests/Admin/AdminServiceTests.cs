@@ -1,4 +1,5 @@
 using AipPortal.Application.Admin;
+using AipPortal.Application.Auth;
 using AipPortal.Application.Common;
 using AipPortal.Application.Common.Interfaces;
 using AipPortal.Domain.Entities;
@@ -70,6 +71,7 @@ public sealed class AdminServiceTests
                 new FakeAuditLogger(),
                 new FakeCurrentUser(ActorUser),
                 Clock,
+                new FakeUserSessionService(),
                 new FakeUnitOfWork());
         }
 
@@ -166,6 +168,24 @@ public sealed class AdminServiceTests
     private sealed class FakeAuditLogger : IAuditLogger
     {
         public Task LogAsync(AuditLogEntry entry, CancellationToken cancellationToken = default) => Task.CompletedTask;
+    }
+
+    private sealed class FakeUserSessionService : IUserSessionService
+    {
+        public Task<SessionValidationResult> ValidateSessionAsync(Guid userId, Guid sessionId, Guid? tenantId, bool requireActiveTenantMembership, CancellationToken cancellationToken = default)
+        {
+            return Task.FromResult(SessionValidationResult.Success());
+        }
+
+        public Task<Result> RevokeSessionAsync(Guid sessionId, Guid? actorUserId, string reason, CancellationToken cancellationToken = default)
+        {
+            return Task.FromResult(Result.Success());
+        }
+
+        public Task<Result<int>> RevokeUserSessionsAsync(Guid userId, Guid? actorUserId, string reason, Guid? exceptSessionId = null, CancellationToken cancellationToken = default)
+        {
+            return Task.FromResult(Result<int>.Success(0));
+        }
     }
 
     private sealed class FakeCurrentUser(User user) : ICurrentUser

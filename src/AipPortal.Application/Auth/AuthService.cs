@@ -10,12 +10,14 @@ public sealed class AuthService(
     IUserRepository users,
     IInviteRepository invites,
     ISessionRepository sessions,
+    IUserSessionService userSessions,
     IPasswordHasher passwordHasher,
     ITokenHasher tokenHasher,
     IAuditLogger auditLogger,
     ICurrentUser currentUser,
     IClock clock,
-    IUnitOfWork unitOfWork) : IAuthService
+    IUnitOfWork unitOfWork,
+    AuthSecurityOptions securityOptions) : IAuthService
 {
     private const int MinimumPasswordLength = 8;
     private const string GenericLoginError = "Invalid email or password.";
@@ -33,16 +35,51 @@ public sealed class AuthService(
         var normalizedEmail = NormalizeEmail(request.Email);
         var user = await users.GetByNormalizedEmailAsync(normalizedEmail, cancellationToken);
 
+        if (user is { DeletedAt: null, Status: UserStatus.Active })
+        {
+            NormalizeExpiredLockout(user);
+            if (IsLockedOut(user))
+            {
+                await auditLogger.LogSecurityAsync(
+                    "LoginLockout",
+                    "Login attempt rejected because the account is locked.",
+                    new Dictionary<string, object?> { ["email"] = request.Email, ["userId"] = user.Id },
+                    SecurityEventSeverity.Warning,
+                    cancellationToken);
+                await LogAndSaveAsync(user.Id, "LoginLockout", "User", user.Id, "Login attempt rejected because the account is locked.", cancellationToken);
+                return Result<LoginResponse>.Failure(GenericLoginError);
+            }
+        }
+
         if (user is null ||
             user.DeletedAt.HasValue ||
-            user.Status != UserStatus.Active ||
-            !passwordHasher.VerifyPassword(user.PasswordHash, request.Password))
+            user.Status != UserStatus.Active)
         {
             await auditLogger.LogSecurityAsync("LoginFailure", "Invalid login attempt.", new Dictionary<string, object?> { ["email"] = request.Email, ["userId"] = user?.Id }, SecurityEventSeverity.Warning, cancellationToken);
             await LogAndSaveAsync(user?.Id, "LoginFailure", "User", user?.Id, "Invalid login attempt.", cancellationToken);
             return Result<LoginResponse>.Failure(GenericLoginError);
         }
 
+        if (!passwordHasher.VerifyPassword(user.PasswordHash, request.Password))
+        {
+            ApplyFailedLogin(user);
+            await auditLogger.LogSecurityAsync("LoginFailure", "Invalid login attempt.", new Dictionary<string, object?> { ["email"] = request.Email, ["userId"] = user.Id }, SecurityEventSeverity.Warning, cancellationToken);
+            if (IsLockedOut(user))
+            {
+                await auditLogger.LogSecurityAsync(
+                    "LoginLockout",
+                    "Account locked after repeated failed login attempts.",
+                    new Dictionary<string, object?> { ["email"] = request.Email, ["userId"] = user.Id },
+                    SecurityEventSeverity.Warning,
+                    cancellationToken);
+                await auditLogger.LogAsync(new AuditLogEntry(user.Id, "LoginLockout", "User", user.Id, "Account locked after repeated failed login attempts."), cancellationToken);
+            }
+
+            await LogAndSaveAsync(user.Id, "LoginFailure", "User", user.Id, "Invalid login attempt.", cancellationToken);
+            return Result<LoginResponse>.Failure(GenericLoginError);
+        }
+
+        ResetFailedLoginState(user);
         user.LastLoginAt = clock.UtcNow;
         var session = CreateSession(user.Id);
         await sessions.AddAsync(session, cancellationToken);
@@ -125,7 +162,7 @@ public sealed class AuthService(
 
         if (currentUser.SessionId.HasValue)
         {
-            await sessions.RevokeAsync(currentUser.SessionId.Value, clock.UtcNow, cancellationToken);
+            await userSessions.RevokeSessionAsync(currentUser.SessionId.Value, currentUser.UserId, "Logout", cancellationToken);
         }
 
         await auditLogger.LogAsync(new AuditLogEntry(currentUser.UserId, "Logout", "User", currentUser.UserId), cancellationToken);
@@ -161,6 +198,7 @@ public sealed class AuthService(
         user.PasswordHash = passwordHasher.HashPassword(request.NewPassword);
         await auditLogger.LogAsync(new AuditLogEntry(user.Id, "PasswordChanged", "User", user.Id), cancellationToken);
         await auditLogger.LogSecurityAsync("PasswordChanged", "Password changed.", new Dictionary<string, object?> { ["userId"] = user.Id }, cancellationToken: cancellationToken);
+        await userSessions.RevokeUserSessionsAsync(user.Id, user.Id, "PasswordChanged", currentUser.SessionId, cancellationToken);
         await unitOfWork.SaveChangesAsync(cancellationToken);
 
         return Result.Success();
@@ -174,7 +212,7 @@ public sealed class AuthService(
         }
 
         var user = await users.GetByIdAsync(currentUser.UserId.Value, cancellationToken);
-        if (user is null || user.DeletedAt.HasValue)
+        if (user is null || user.DeletedAt.HasValue || user.Status != UserStatus.Active)
         {
             return Result<CurrentUserResponse>.Failure("Authentication is required.");
         }
@@ -207,6 +245,44 @@ public sealed class AuthService(
             user.Email,
             user.SystemRole,
             session.ExpiresAt);
+    }
+
+    private bool IsLockedOut(User user)
+    {
+        return securityOptions.LoginLockoutEnabled &&
+               user.LockoutEndAt.HasValue &&
+               user.LockoutEndAt.Value > clock.UtcNow;
+    }
+
+    private void NormalizeExpiredLockout(User user)
+    {
+        if (user.LockoutEndAt.HasValue && user.LockoutEndAt.Value <= clock.UtcNow)
+        {
+            user.LockoutEndAt = null;
+            user.FailedLoginAttempts = 0;
+        }
+    }
+
+    private void ApplyFailedLogin(User user)
+    {
+        if (!securityOptions.LoginLockoutEnabled)
+        {
+            return;
+        }
+
+        var maxAttempts = Math.Max(1, securityOptions.MaxFailedLoginAttempts);
+        var durationMinutes = Math.Max(1, securityOptions.LoginLockoutDurationMinutes);
+        user.FailedLoginAttempts++;
+        if (user.FailedLoginAttempts >= maxAttempts)
+        {
+            user.LockoutEndAt = clock.UtcNow.AddMinutes(durationMinutes);
+        }
+    }
+
+    private static void ResetFailedLoginState(User user)
+    {
+        user.FailedLoginAttempts = 0;
+        user.LockoutEndAt = null;
     }
 
     private async Task LogAndSaveAsync(

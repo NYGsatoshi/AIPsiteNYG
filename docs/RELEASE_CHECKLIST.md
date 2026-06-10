@@ -19,6 +19,8 @@
 - [ ] `Security:CookieSecurePolicy=Always`.
 - [ ] `Security:RequireHttps=true`.
 - [ ] `Security:EnableHsts=true`.
+- [ ] `Security:EnableCsrfProtection=true`.
+- [ ] `DataProtection:KeysPath` points to persisted storage.
 - [ ] HTTPS enabled at reverse proxy.
 - [ ] Development tenant header disabled in production.
 - [ ] `Platform:PlatformAdminSetupMode=false`.
@@ -26,7 +28,7 @@
 - [ ] Suspended tenant behavior tested.
 - [ ] File download authorization tested.
 - [ ] API tokens, invite tokens, and webhook secrets are never logged raw.
-- [ ] Authenticated HTTP tenant isolation tests pass, or the missing coverage is accepted as a documented pilot risk.
+- [ ] Authenticated HTTP tenant isolation tests pass.
 - [ ] PostgreSQL-backed search isolation tests pass, or the missing coverage is accepted as a documented pilot risk.
 
 ## Operations

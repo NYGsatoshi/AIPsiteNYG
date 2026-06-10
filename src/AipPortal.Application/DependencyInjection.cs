@@ -39,6 +39,7 @@ public static class DependencyInjection
         services.AddScoped<IQuotaService, QuotaService>();
         services.AddScoped<ITenantAdministrationService, TenantAdministrationService>();
         services.AddScoped<IAuthService, AuthService>();
+        services.AddScoped<IUserSessionService, UserSessionService>();
         services.AddScoped<IAdminService, AdminService>();
         services.AddScoped<IWorkspaceAuthorizationService, WorkspaceAuthorizationService>();
         services.AddScoped<IGroupAuthorizationService, GroupAuthorizationService>();

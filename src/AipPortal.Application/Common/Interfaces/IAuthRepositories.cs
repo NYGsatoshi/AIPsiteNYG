@@ -20,7 +20,11 @@ public interface ISessionRepository
 {
     Task AddAsync(Session session, CancellationToken cancellationToken = default);
 
-    Task RevokeAsync(Guid sessionId, DateTimeOffset revokedAt, CancellationToken cancellationToken = default);
+    Task<Session?> GetByIdWithUserAsync(Guid sessionId, CancellationToken cancellationToken = default);
+
+    Task<bool> RevokeAsync(Guid sessionId, DateTimeOffset revokedAt, CancellationToken cancellationToken = default);
+
+    Task<int> RevokeUserSessionsAsync(Guid userId, DateTimeOffset revokedAt, Guid? exceptSessionId = null, CancellationToken cancellationToken = default);
 }
 
 public interface IUnitOfWork

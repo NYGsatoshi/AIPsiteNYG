@@ -259,7 +259,10 @@ public enum SecurityEventType
     SuspiciousFileUpload = 6,
     InviteAccepted = 7,
     InviteRejected = 8,
-    AccountSuspended = 9
+    AccountSuspended = 9,
+    LoginLockout = 10,
+    SessionRevoked = 11,
+    SessionValidationFailure = 12
 }
 
 public enum SecurityEventSeverity

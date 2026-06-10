@@ -54,7 +54,8 @@ Severity: Medium
 Description: Configuration contains an `EnableCsrfProtection` switch, but API controllers do not currently enforce antiforgery tokens for browser cookie-auth POST/PATCH/DELETE requests.
 Risk: If the browser UI uses cookies for authenticated unsafe methods, cross-site requests could trigger state changes.
 Suggested fix: Add antiforgery token issuance and validation for cookie-auth browser clients, or move unsafe API calls to a token pattern that is not automatically sent cross-site.
-Fixed now: no
+Fixed now: yes
+Resolution: Added ASP.NET Core antiforgery services, `/api/security/csrf-token`, `CsrfProtectionMiddleware`, and frontend `api()` token injection using `X-CSRF-TOKEN`. Unsafe `POST`, `PUT`, `PATCH`, and `DELETE` requests are rejected without a valid token when `Security:EnableCsrfProtection` is enabled. Added Kestrel-backed HTTP tests for missing token rejection, valid token success, and safe GET behavior.
 Owner suggestion: Security
 
 ## TD-006

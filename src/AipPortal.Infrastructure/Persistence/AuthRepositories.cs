@@ -37,13 +37,42 @@ public sealed class SessionRepository(AppDbContext dbContext) : ISessionReposito
         await dbContext.Sessions.AddAsync(session, cancellationToken);
     }
 
-    public async Task RevokeAsync(Guid sessionId, DateTimeOffset revokedAt, CancellationToken cancellationToken = default)
+    public Task<Session?> GetByIdWithUserAsync(Guid sessionId, CancellationToken cancellationToken = default)
+    {
+        return dbContext.Sessions
+            .Include(session => session.User)
+            .FirstOrDefaultAsync(session => session.Id == sessionId, cancellationToken);
+    }
+
+    public async Task<bool> RevokeAsync(Guid sessionId, DateTimeOffset revokedAt, CancellationToken cancellationToken = default)
     {
         var session = await dbContext.Sessions.FirstOrDefaultAsync(item => item.Id == sessionId, cancellationToken);
         if (session is not null && !session.RevokedAt.HasValue)
         {
             session.RevokedAt = revokedAt;
+            return true;
         }
+
+        return false;
+    }
+
+    public async Task<int> RevokeUserSessionsAsync(Guid userId, DateTimeOffset revokedAt, Guid? exceptSessionId = null, CancellationToken cancellationToken = default)
+    {
+        var query = dbContext.Sessions
+            .Where(session => session.UserId == userId && !session.RevokedAt.HasValue);
+
+        if (exceptSessionId.HasValue)
+        {
+            query = query.Where(session => session.Id != exceptSessionId.Value);
+        }
+
+        var activeSessions = await query.ToListAsync(cancellationToken);
+        foreach (var session in activeSessions)
+        {
+            session.RevokedAt = revokedAt;
+        }
+
+        return activeSessions.Count;
     }
 }
 

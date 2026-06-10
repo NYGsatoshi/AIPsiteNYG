@@ -8,6 +8,7 @@ using AipPortal.Infrastructure.Persistence;
 using AipPortal.Web.Configuration;
 using AipPortal.Web.Extensions;
 using AipPortal.Web.Middleware;
+using AipPortal.Web.Security;
 using Microsoft.AspNetCore.Authentication.Cookies;
 using Microsoft.AspNetCore.DataProtection;
 using Microsoft.AspNetCore.RateLimiting;
@@ -41,16 +42,7 @@ builder.Services
         options.Cookie.SecurePolicy = security.CookieSecurePolicy;
         options.ExpireTimeSpan = TimeSpan.FromHours(8);
         options.SlidingExpiration = true;
-        options.Events.OnRedirectToLogin = context =>
-        {
-            context.Response.StatusCode = StatusCodes.Status401Unauthorized;
-            return Task.CompletedTask;
-        };
-        options.Events.OnRedirectToAccessDenied = context =>
-        {
-            context.Response.StatusCode = StatusCodes.Status403Forbidden;
-            return Task.CompletedTask;
-        };
+        options.EventsType = typeof(DbSessionCookieAuthenticationEvents);
     });
 
 builder.Services.AddAuthorization();
@@ -129,6 +121,11 @@ if (securityOptions.EnableRateLimiting)
     app.UseRateLimiter();
 }
 app.UseAuthentication();
+if (securityOptions.EnableCsrfProtection)
+{
+    app.Services.GetRequiredService<CsrfProtectionState>().MarkMiddlewareActive();
+    app.UseMiddleware<CsrfProtectionMiddleware>();
+}
 app.UseAuthorization();
 
 app.MapControllers();

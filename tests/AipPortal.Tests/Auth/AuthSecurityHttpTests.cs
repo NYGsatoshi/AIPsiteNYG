@@ -1,0 +1,290 @@
+using System.Net;
+using System.Net.Http.Json;
+using AipPortal.Application;
+using AipPortal.Application.Auth;
+using AipPortal.Application.Common.Interfaces;
+using AipPortal.Application.Common.Tenancy;
+using AipPortal.Domain.Entities;
+using AipPortal.Domain.Enums;
+using AipPortal.Infrastructure.Audit;
+using AipPortal.Infrastructure.Files;
+using AipPortal.Infrastructure.Persistence;
+using AipPortal.Infrastructure.Security;
+using AipPortal.Web.Configuration;
+using AipPortal.Web.Controllers;
+using AipPortal.Web.Extensions;
+using AipPortal.Web.Middleware;
+using AipPortal.Web.Security;
+using Microsoft.AspNetCore.Authentication.Cookies;
+using Microsoft.AspNetCore.Builder;
+using Microsoft.AspNetCore.Hosting;
+using Microsoft.AspNetCore.Hosting.Server;
+using Microsoft.AspNetCore.Hosting.Server.Features;
+using Microsoft.AspNetCore.Http;
+using Microsoft.EntityFrameworkCore;
+using Microsoft.Extensions.Configuration;
+using Microsoft.Extensions.DependencyInjection;
+using Microsoft.Extensions.Hosting;
+using Microsoft.Extensions.Logging;
+
+namespace AipPortal.Tests.Auth;
+
+public sealed class AuthSecurityHttpTests
+{
+    [Fact]
+    public async Task UnsafeRequestWithoutCsrfTokenIsRejected()
+    {
+        await using var app = await AuthSecurityTestApp.CreateAsync();
+
+        var response = await app.Client.PostAsJsonAsync("/api/auth/login", new LoginRequest(app.Email, "Password123"));
+
+        Assert.Equal(HttpStatusCode.BadRequest, response.StatusCode);
+    }
+
+    [Fact]
+    public async Task UnsafeRequestWithValidCsrfTokenSucceeds()
+    {
+        await using var app = await AuthSecurityTestApp.CreateAsync();
+
+        var response = await app.LoginAsync();
+
+        Assert.Equal(HttpStatusCode.OK, response.StatusCode);
+    }
+
+    [Fact]
+    public async Task GetRequestDoesNotRequireCsrfToken()
+    {
+        await using var app = await AuthSecurityTestApp.CreateAsync();
+
+        var response = await app.Client.GetAsync("/api/auth/status");
+
+        Assert.Equal(HttpStatusCode.OK, response.StatusCode);
+    }
+
+    [Fact]
+    public async Task RevokedSessionCannotAccessAuthenticatedEndpoint()
+    {
+        await using var app = await AuthSecurityTestApp.CreateAsync();
+        var login = await app.LoginAndReadAsync();
+
+        await app.UpdateSessionAsync(login.SessionId, session => session.RevokedAt = DateTimeOffset.UtcNow);
+        var response = await app.Client.GetAsync("/api/auth/me");
+
+        Assert.Equal(HttpStatusCode.Unauthorized, response.StatusCode);
+    }
+
+    [Fact]
+    public async Task ExpiredSessionCannotAccessAuthenticatedEndpoint()
+    {
+        await using var app = await AuthSecurityTestApp.CreateAsync();
+        var login = await app.LoginAndReadAsync();
+
+        await app.UpdateSessionAsync(login.SessionId, session => session.ExpiresAt = DateTimeOffset.UtcNow.AddMinutes(-1));
+        var response = await app.Client.GetAsync("/api/auth/me");
+
+        Assert.Equal(HttpStatusCode.Unauthorized, response.StatusCode);
+    }
+
+    [Fact]
+    public async Task DisabledUserCannotContinueWithOldCookie()
+    {
+        await using var app = await AuthSecurityTestApp.CreateAsync();
+        await app.LoginAndReadAsync();
+
+        await app.UpdateUserAsync(user => user.Status = UserStatus.Suspended);
+        var response = await app.Client.GetAsync("/api/auth/me");
+
+        Assert.Equal(HttpStatusCode.Unauthorized, response.StatusCode);
+    }
+
+    private sealed class AuthSecurityTestApp : IAsyncDisposable
+    {
+        private AuthSecurityTestApp(WebApplication app, HttpClient client, Guid userId, string email)
+        {
+            App = app;
+            Client = client;
+            UserId = userId;
+            Email = email;
+        }
+
+        private WebApplication App { get; }
+        public HttpClient Client { get; }
+        public Guid UserId { get; }
+        public string Email { get; }
+
+        public static async Task<AuthSecurityTestApp> CreateAsync()
+        {
+            var builder = WebApplication.CreateBuilder(new WebApplicationOptions
+            {
+                EnvironmentName = Environments.Development
+            });
+            builder.WebHost.UseKestrel().UseUrls("http://127.0.0.1:0");
+            builder.Logging.ClearProviders();
+            builder.Configuration.AddInMemoryCollection(new Dictionary<string, string?>
+            {
+                ["Tenancy:AppMode"] = "SaaS",
+                ["Tenancy:TenantResolutionStrategy"] = "ConfigDefault",
+                ["Tenancy:DefaultTenantSlug"] = "default",
+                ["Tenancy:AllowTenantSwitching"] = "true",
+                ["Security:CookieSecurePolicy"] = "SameAsRequest",
+                ["Security:RequireHttps"] = "false",
+                ["Security:EnableHsts"] = "false",
+                ["Security:EnableCsrfProtection"] = "true",
+                ["Security:EnableRateLimiting"] = "false",
+                ["Security:LoginLockoutEnabled"] = "true",
+                ["Security:MaxFailedLoginAttempts"] = "5",
+                ["Security:LoginLockoutDurationMinutes"] = "15",
+                ["FileStorage:Provider"] = "LocalFileSystem",
+                ["FileStorage:RootPath"] = Path.Combine(Path.GetTempPath(), "aip-auth-security-tests", Guid.NewGuid().ToString("N")),
+                ["FileStorage:MaxFileSizeBytes"] = "10485760",
+                ["FileStorage:AllowedExtensions:0"] = ".txt",
+                ["FileStorage:AllowedContentTypes:0"] = "text/plain"
+            });
+
+            builder.Services
+                .AddApplication()
+                .AddWebServices(builder.Configuration);
+            builder.Services.AddControllers().AddApplicationPart(typeof(AuthController).Assembly);
+            builder.Services
+                .AddAuthentication(CookieAuthenticationDefaults.AuthenticationScheme)
+                .AddCookie(options =>
+                {
+                    options.Cookie.Name = ".AipPortal.Auth.Test";
+                    options.Cookie.HttpOnly = true;
+                    options.Cookie.SameSite = SameSiteMode.Lax;
+                    options.Cookie.SecurePolicy = CookieSecurePolicy.SameAsRequest;
+                    options.ExpireTimeSpan = TimeSpan.FromHours(8);
+                    options.SlidingExpiration = true;
+                    options.EventsType = typeof(DbSessionCookieAuthenticationEvents);
+                });
+            builder.Services.AddAuthorization();
+            var databaseName = Guid.NewGuid().ToString("N");
+            builder.Services.AddDbContext<AppDbContext>(options => options.UseInMemoryDatabase(databaseName));
+            AddInfrastructureLikeServices(builder.Services, builder.Configuration);
+
+            var app = builder.Build();
+            app.UseMiddleware<TenantResolutionMiddleware>();
+            app.UseAuthentication();
+            app.Services.GetRequiredService<CsrfProtectionState>().MarkMiddlewareActive();
+            app.UseMiddleware<CsrfProtectionMiddleware>();
+            app.UseAuthorization();
+            app.MapControllers();
+
+            await app.StartAsync();
+
+            var userId = await SeedUserAsync(app.Services);
+            var address = app.Services.GetRequiredService<IServer>()
+                .Features.Get<IServerAddressesFeature>()?.Addresses.Single()
+                ?? throw new InvalidOperationException("Test server address was not available.");
+            var handler = new HttpClientHandler
+            {
+                UseCookies = true,
+                CookieContainer = new CookieContainer()
+            };
+            return new AuthSecurityTestApp(app, new HttpClient(handler) { BaseAddress = new Uri(address) }, userId, "student@example.com");
+        }
+
+        public async Task<HttpResponseMessage> LoginAsync()
+        {
+            var token = await GetCsrfTokenAsync();
+            using var request = new HttpRequestMessage(HttpMethod.Post, "/api/auth/login")
+            {
+                Content = JsonContent.Create(new LoginRequest(Email, "Password123"))
+            };
+            request.Headers.TryAddWithoutValidation(SecurityOptions.CsrfHeaderName, token);
+            return await Client.SendAsync(request);
+        }
+
+        public async Task<LoginResponse> LoginAndReadAsync()
+        {
+            var response = await LoginAsync();
+            response.EnsureSuccessStatusCode();
+            return await response.Content.ReadFromJsonAsync<LoginResponse>()
+                ?? throw new InvalidOperationException("Login response was empty.");
+        }
+
+        public async Task UpdateSessionAsync(Guid sessionId, Action<Session> update)
+        {
+            await using var scope = App.Services.CreateAsyncScope();
+            var dbContext = scope.ServiceProvider.GetRequiredService<AppDbContext>();
+            var session = await dbContext.Sessions.FirstAsync(item => item.Id == sessionId);
+            update(session);
+            await dbContext.SaveChangesAsync();
+        }
+
+        public async Task UpdateUserAsync(Action<User> update)
+        {
+            await using var scope = App.Services.CreateAsyncScope();
+            var dbContext = scope.ServiceProvider.GetRequiredService<AppDbContext>();
+            var user = await dbContext.Users.FirstAsync(item => item.Id == UserId);
+            update(user);
+            await dbContext.SaveChangesAsync();
+        }
+
+        public async ValueTask DisposeAsync()
+        {
+            Client.Dispose();
+            await App.DisposeAsync();
+        }
+
+        private async Task<string> GetCsrfTokenAsync()
+        {
+            var tokenResponse = await Client.GetFromJsonAsync<CsrfTokenResponse>("/api/security/csrf-token");
+            return tokenResponse?.Token ?? throw new InvalidOperationException("CSRF token response was empty.");
+        }
+
+        private static async Task<Guid> SeedUserAsync(IServiceProvider services)
+        {
+            await using var scope = services.CreateAsyncScope();
+            var dbContext = scope.ServiceProvider.GetRequiredService<AppDbContext>();
+            var passwordHasher = scope.ServiceProvider.GetRequiredService<IPasswordHasher>();
+            var user = new User
+            {
+                DisplayName = "Student",
+                Email = "student@example.com",
+                NormalizedEmail = "STUDENT@EXAMPLE.COM",
+                PasswordHash = passwordHasher.HashPassword("Password123"),
+                SystemRole = SystemRole.User,
+                Status = UserStatus.Active
+            };
+            dbContext.Users.Add(user);
+            await dbContext.SaveChangesAsync();
+            return user.Id;
+        }
+
+        private static void AddInfrastructureLikeServices(IServiceCollection services, IConfiguration configuration)
+        {
+            services.Configure<FileStorageOptions>(configuration.GetSection("FileStorage"));
+            services.AddScoped<IUserRepository, UserRepository>();
+            services.AddScoped<ITenantRepository, TenantRepository>();
+            services.AddScoped<ITenantExportRepository, TenantExportRepository>();
+            services.AddScoped<IIntegrationRepository, IntegrationRepository>();
+            services.AddScoped<AipPortal.Application.Admin.IAdminRepository, AdminRepository>();
+            services.AddScoped<IInviteRepository, InviteRepository>();
+            services.AddScoped<ISessionRepository, SessionRepository>();
+            services.AddScoped<IWorkspaceRepository, WorkspaceRepository>();
+            services.AddScoped<IGroupRepository, GroupRepository>();
+            services.AddScoped<IChannelRepository, ChannelRepository>();
+            services.AddScoped<IMessagingRepository, MessagingRepository>();
+            services.AddScoped<IProjectRepository, ProjectRepository>();
+            services.AddScoped<IEventRepository, EventRepository>();
+            services.AddScoped<IFormRepository, FormRepository>();
+            services.AddScoped<IFileRepository, FileRepository>();
+            services.AddScoped<ITenantPlanRepository, TenantPlanRepository>();
+            services.AddScoped<IArtifactRepository, ArtifactRepository>();
+            services.AddScoped<IPlanningRepository, PlanningRepository>();
+            services.AddScoped<IUiShellRepository, UiShellRepository>();
+            services.AddScoped<IAnnouncementRepository, AnnouncementRepository>();
+            services.AddScoped<IUnitOfWork, EfUnitOfWork>();
+            services.AddScoped<IFileUploadPolicy, ConfiguredFileUploadPolicy>();
+            services.AddScoped<IFileStorageService, LocalFileStorageService>();
+            services.AddScoped<IPasswordHasher, Pbkdf2PasswordHasher>();
+            services.AddScoped<ITokenHasher, Sha256TokenHasher>();
+            services.AddScoped<IAuditLogger, DbAuditLogger>();
+            services.AddScoped<INotificationService, DbNotificationService>();
+            services.AddScoped<AipPortal.Application.Search.ISearchService, DbSearchService>();
+            services.AddScoped<AipPortal.Application.Audit.IAuditQueryService, DbAuditQueryService>();
+            services.AddSingleton<IClock, SystemClock>();
+        }
+    }
+}

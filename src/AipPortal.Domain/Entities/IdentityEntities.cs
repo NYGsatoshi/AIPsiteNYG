@@ -12,6 +12,8 @@ public sealed class User : SoftDeletableEntity
     public SystemRole SystemRole { get; set; } = SystemRole.User;
     public UserStatus Status { get; set; } = UserStatus.Active;
     public DateTimeOffset? LastLoginAt { get; set; }
+    public int FailedLoginAttempts { get; set; }
+    public DateTimeOffset? LockoutEndAt { get; set; }
 }
 
 public sealed class Session : AuditableEntity

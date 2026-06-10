@@ -6,6 +6,7 @@ services:
     environment:
       ASPNETCORE_ENVIRONMENT: Production
       ConnectionStrings__DefaultConnection: Host=postgres;Port=5432;Database=${POSTGRES_DB:-aip_portal};Username=${POSTGRES_USER:-aip_portal};Password=${POSTGRES_PASSWORD:?set POSTGRES_PASSWORD}
+      DataProtection__KeysPath: /app/data/protection-keys
       Tenancy__AppMode: ${TENANCY_APP_MODE:-OnPremSingleTenant}
       Tenancy__DefaultTenantSlug: ${TENANCY_DEFAULT_TENANT_SLUG:-default}
       Tenancy__TenantResolutionStrategy: ${TENANCY_RESOLUTION_STRATEGY:-ConfigDefault}
@@ -22,6 +23,7 @@ services:
       - "${AIP_PORTAL_PORT:-8080}:8080"
     volumes:
       - aip_onprem_uploads:/app/storage/uploads
+      - aip_onprem_data_protection:/app/data/protection-keys
     depends_on:
       postgres:
         condition: service_healthy
@@ -43,3 +45,4 @@ services:
 volumes:
   aip_onprem_pgdata:
   aip_onprem_uploads:
+  aip_onprem_data_protection:
