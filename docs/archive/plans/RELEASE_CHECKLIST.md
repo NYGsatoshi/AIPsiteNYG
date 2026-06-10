@@ -67,4 +67,4 @@
 - [ ] School pilot conditionally ready.
 - [ ] SaaS pilot ready.
 
-Pilot release is allowed only when all critical security and backup items above are complete. If any item remains open, mark the release conditionally safe or unsafe in `docs/PILOT_STATUS.md` and identify who accepted the risk.
+Pilot release is allowed only when all critical security and backup items above are complete. If any item remains open, mark the release conditionally safe or unsafe in `docs/archive/status/PILOT_STATUS.md` and identify who accepted the risk.

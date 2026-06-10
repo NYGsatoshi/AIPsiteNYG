@@ -24,6 +24,6 @@ Include:
 - File uploads must validate size, extension, MIME type, authorization, quota, and generated storage keys.
 - Production deployments must disable development tenant headers and setup mode, use HTTPS/HSTS, and keep secrets out of committed config.
 
-## Known Limitations
+## Implementation Security Documentation
 
-See `docs/CODE_REVIEW_REPORT.md`, `docs/TECH_DEBT.md`, and `docs/PILOT_STATUS.md` for current readiness and unresolved risks.
+See `docs/SECURITY.md` for current implementation security rules and `docs/ROADMAP.md` for current readiness and unresolved risks.

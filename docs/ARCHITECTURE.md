@@ -4,7 +4,7 @@
 
 AIP Portal uses a modular monolith. The application is deployed as one ASP.NET Core app, but code is organized around business modules with clear boundaries. This keeps the first version simple while leaving room to split modules later if the product grows.
 
-Pilot handoff note: this architecture is implemented enough for controlled local/on-prem demos, but broad SaaS readiness still depends on the gaps tracked in `docs/PILOT_STATUS.md`, `docs/TECH_DEBT.md`, and `docs/LIMITATIONS.md`.
+Pilot handoff note: this architecture is implemented enough for controlled local/on-prem demos, but broad SaaS readiness still depends on the gaps tracked in `docs/ROADMAP.md`.
 
 ## Solution Structure
 

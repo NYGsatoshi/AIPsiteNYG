@@ -1,6 +1,6 @@
 # Smoke Test
 
-Run this checklist before a local demo, internal pilot handoff, or on-prem school demonstration. Record failures in `docs/PILOT_STATUS.md`; do not silently skip broken workflows.
+Run this checklist before a local demo, internal pilot handoff, or on-prem school demonstration. Record failures in `docs/archive/status/PILOT_STATUS.md`; do not silently skip broken workflows.
 
 ## Local Dev Startup
 

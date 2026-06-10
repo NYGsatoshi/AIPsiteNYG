@@ -1,6 +1,6 @@
 # Data Model
 
-Pilot handoff note: this document describes implemented foundations and near-term model direction. Treat tenant metadata export, object storage, API token request authentication, and full restore as incomplete unless `docs/PILOT_STATUS.md` says otherwise.
+Pilot handoff note: this document describes implemented foundations and near-term model direction. Treat object storage, API token request authentication, and full restore as incomplete unless `docs/ROADMAP.md` says otherwise.
 
 ## Conventions
 

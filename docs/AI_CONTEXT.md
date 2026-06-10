@@ -1,120 +1,91 @@
 # AI Context
 
-## Product
+This is the entry point for future Codex work on AIP Portal.
 
-AIP Portal is a school activity operations platform for extracurricular activities, committees, inquiry learning, and production/project management.
+AIP Portal is an ASP.NET Core modular monolith for a tenant-aware school or organization operations portal. It supports workspaces, groups, channels, announcements, direct messages, projects, tasks, files/artifacts, forms/events foundations, notifications, search, audit logs, tenant administration, and platform administration.
 
-It is not only a chat app. Messaging is one part of a wider system that connects workspaces, groups, channels, direct messages, announcements, tasks, attendance/event handling later, files, project tracking, artifacts, feedback, notifications, search, and audit logs.
+Current status: controlled local demo and internal/on-prem pilot candidate. It is not ready for broad production SaaS until object storage, PostgreSQL-backed search isolation tests, and a recorded restore drill are complete.
 
-## Initial Scope
+## Current Stack
 
-The first production target is about 100 users. Prefer clear, maintainable ASP.NET Core code over distributed-system complexity.
-
-Primary stack:
-
-- ASP.NET Core / C#
-- PostgreSQL
+- .NET 10 / ASP.NET Core
+- C#
 - EF Core
-- Modular monolith
-- REST API first
-- SignalR later for realtime messaging
-- Docker-ready later, but Docker is not mandatory at first
+- PostgreSQL
+- Cookie authentication for the bundled browser UI
+- REST APIs as the source of truth
+- Docker and Docker Compose support
+- Local filesystem file storage for development and small on-prem pilots
 
-## Explicitly Deferred
+## Architecture Summary
 
-- Voice calls
-- Video calls
-- Live streaming
-- End-to-end encrypted direct messages
-- Post-quantum cryptography
-- Advanced external integrations
-- Advanced AI features
-- Fully dynamic plugin marketplace
-- Fully free-form docking UI
+The app is one deployable ASP.NET Core application split into four projects:
 
-## Architecture Direction
+- `AipPortal.Web`: startup, middleware, controllers, static frontend assets.
+- `AipPortal.Application`: use cases, authorization, DTOs, audit/notification orchestration.
+- `AipPortal.Domain`: entities, enums, domain primitives.
+- `AipPortal.Infrastructure`: EF Core, PostgreSQL persistence, migrations, file storage, search, infrastructure services.
 
-Use a modular monolith, not microservices. Modules should have clear namespaces, application services, DTOs, validators, and persistence mappings, but they initially deploy as one ASP.NET Core application.
+Keep the modular monolith. Do not introduce microservices or new platform dependencies without an explicit product need.
 
-Recommended solution structure:
+## Security Rules
 
-```text
-src/
-  AipPortal.Web/
-  AipPortal.Application/
-  AipPortal.Domain/
-  AipPortal.Infrastructure/
-tests/
-  AipPortal.Tests/
-```
+- Never store or log raw passwords, session keys, invite tokens, API tokens, webhook secrets, signed URLs, or file contents.
+- Return DTOs from APIs; never return EF entities directly.
+- Enforce authorization in Application services, not only controller attributes.
+- Use pagination for any potentially large list.
+- Validate uploads by authorization, feature flag, quota, size, extension, MIME type, and generated storage key.
+- Keep production configuration in environment variables or a secret manager.
+- Keep `Platform:PlatformAdminSetupMode` and development tenant headers disabled outside controlled setup/development.
 
-Layer responsibilities:
+## Multi-Tenant Rules
 
-- `Web`: HTTP endpoints, pages/components, request/response DTO binding, auth middleware setup.
-- `Application`: use cases, authorization checks, transactions, notifications, audit logging.
-- `Domain`: entities, enums, value objects, domain rules.
-- `Infrastructure`: EF Core, PostgreSQL persistence, file storage, background jobs, search, external services.
+Tenant is the highest-level isolation boundary.
 
-## Module List
+- Tenant-owned entities must include `TenantId` and implement `ITenantEntity`.
+- Normal tenant endpoints must use the current server-side tenant context; never trust `TenantId` from request bodies.
+- EF global query filters are part of isolation and must not be bypassed in normal services.
+- `IgnoreQueryFilters` is allowed only in explicit platform/tenant infrastructure paths with tenant predicates.
+- PlatformAdmin uses `/api/platform/*`; tenant admins operate only inside the current tenant.
+- File storage keys must be tenant-namespaced, for example `tenants/{tenantId}/files/{fileId}`.
 
-- Auth
-- Users
-- Workspaces
-- Groups
-- Channels
-- Messaging
-- Announcements
-- Notifications
-- Files
-- Projects
-- ProductionTracking
-- Feedback
-- Search
-- Audit
-- UiShell
-- Admin
+## What Codex Should Read
 
-## Implementation Priorities
+For most tasks, read only:
 
-1. Auth and authorization
-2. Workspace, group, and member management
-3. Channels, posts, and threads
-4. Direct messages and unread management
-5. Announcements and read confirmation
-6. Files and attachments
-7. Project management
-8. Production tracking
-9. Tasks, assignments, comments, artifacts, uploads
-10. Basic Gantt chart data API
-11. Notifications
-12. Search
-13. Audit logs
-14. UI docking foundation
-15. Maya-like radial menu foundation
+- `docs/AI_CONTEXT.md`
+- `docs/ARCHITECTURE.md`
+- `docs/CODING_RULES.md`
+- `docs/DATA_MODEL.md`
 
-## Security Principles
+For security, authentication, authorization, tenancy, audit logs, file access, integrations, API tokens, or privacy-sensitive changes, also read:
 
-- Hash passwords. Never store plaintext passwords.
-- Enforce authorization server-side for all modifying operations.
-- Prevent cross-workspace and cross-group data leaks.
-- Use secure cookies if cookie authentication is chosen.
-- Use soft delete where appropriate.
-- Record audit logs for important operations.
-- Validate file size and extension.
-- Store file paths and limits in settings, not hardcoded paths.
+- `docs/SECURITY.md`
 
-## AI Assistance Rules
+For deployment, Docker, configuration, environment variables, migrations, backup, restore, smoke tests, or production operation, also read:
 
-When generating code for this project:
+- `docs/DEPLOYMENT.md`
+- `docs/OPERATIONS.md`
 
-- Do not put business logic directly in controllers.
-- Do not return EF entities directly from APIs.
-- Use DTOs for requests and responses.
-- Put authorization checks in Application use cases.
-- Make important operations audit-log-ready.
-- Use pagination for list APIs.
-- Avoid N+1 queries.
-- Prefer simple EF Core queries and explicit includes/projections.
-- Keep the first Gantt API read-only and simple.
-- Add indexes for foreign keys and common filters.
-- Keep abstractions small and tied to current requirements.
+For API changes, also read:
+
+- `docs/API_CONTRACTS.md`
+
+For scope, deferred work, readiness, or prioritization questions, also read:
+
+- `docs/ROADMAP.md`
+
+Do not read `docs/archive/` unless explicitly instructed. Archived documents are historical and may be outdated.
+
+## Active Documentation Map
+
+- `docs/ARCHITECTURE.md`: solution structure, layers, request flow, persistence, files, notifications, search, audit, UI shell.
+- `docs/CODING_RULES.md`: coding, layering, API, security, testing, and documentation rules.
+- `docs/DATA_MODEL.md`: entity model, conventions, tenant ownership, soft delete, feature foundations.
+- `docs/SECURITY.md`: detailed current security, tenancy, authorization, file access, secrets, and known security limitations.
+- `docs/API_CONTRACTS.md`: API conventions, DTO rules, errors, validation, auth expectations, pagination.
+- `docs/DEPLOYMENT.md`: local, Docker, SaaS, on-prem, configuration, environment variables, migrations.
+- `docs/OPERATIONS.md`: smoke tests, backups, restore drills, production checklist, incident handling.
+- `docs/ROADMAP.md`: MVP scope, deferred features, current blockers, technical debt, and near-term work.
+
+Root `README.md` is the quick-start summary. Root `SECURITY.md` is the vulnerability reporting policy.

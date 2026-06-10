@@ -75,7 +75,7 @@ Feature-aware navigation comes from `GET /api/ui/modules`, which is filtered by 
 
 SaaS deployments should keep webhook URLs HTTPS-only. On-prem deployments may later allow internal HTTP webhooks through an explicit configuration switch, but the MVP rejects HTTP URLs by default.
 
-SaaS backups must include database backups, object storage backups or versioning, app settings, vault/secret recovery, audit retention, and tenant-level export. On-prem backups must include PostgreSQL dumps or snapshots, local/NAS/object file storage, Docker volumes when used, configuration, and secrets. See `docs/BACKUP_RESTORE.md`.
+SaaS backups must include database backups, object storage backups or versioning, app settings, vault/secret recovery, audit retention, and tenant-level export. On-prem backups must include PostgreSQL dumps or snapshots, local/NAS/object file storage, Docker volumes when used, configuration, and secrets. See `docs/archive/old-specs/BACKUP_RESTORE.md`.
 
 ## Seed And Migration
 

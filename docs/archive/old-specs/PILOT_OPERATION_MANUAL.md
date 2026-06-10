@@ -1,6 +1,6 @@
 # Pilot Operation Manual
 
-Use this manual with `docs/SMOKE_TEST.md`, `docs/API_SMOKE_TESTS.http`, `docs/FINAL_ACCEPTANCE_TEST_PLAN.md`, and `docs/DEMO_SCRIPT.md`. Record partial or failed checks in `docs/PILOT_STATUS.md`.
+Use this manual with `docs/archive/old-specs/SMOKE_TEST.md`, `docs/API_SMOKE_TESTS.http`, `docs/archive/plans/FINAL_ACCEPTANCE_TEST_PLAN.md`, and `docs/archive/status/DEMO_SCRIPT.md`. Record partial or failed checks in `docs/archive/status/PILOT_STATUS.md`.
 
 ## Create A Tenant
 

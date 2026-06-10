@@ -102,14 +102,14 @@ Add a feature slice by following existing modules:
 
 - `README.md`
 - `docs/AI_CONTEXT.md`
-- `docs/MVP_SCOPE.md`
+- `docs/archive/plans/MVP_SCOPE.md`
 - `docs/ARCHITECTURE.md`
-- `docs/TENANCY.md`
-- `docs/SAAS_ONPREM.md`
+- `docs/archive/old-specs/TENANCY.md`
+- `docs/archive/old-specs/SAAS_ONPREM.md`
 - `docs/DEPLOYMENT.md`
-- `docs/BACKUP_RESTORE.md`
-- `docs/PILOT_STATUS.md`
-- `docs/FINAL_ACCEPTANCE_TEST_PLAN.md`
-- `docs/SMOKE_TEST.md`
+- `docs/archive/old-specs/BACKUP_RESTORE.md`
+- `docs/archive/status/PILOT_STATUS.md`
+- `docs/archive/plans/FINAL_ACCEPTANCE_TEST_PLAN.md`
+- `docs/archive/old-specs/SMOKE_TEST.md`
 - `docs/API_SMOKE_TESTS.http`
-- `docs/LIMITATIONS.md`
+- `docs/archive/old-specs/LIMITATIONS.md`

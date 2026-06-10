@@ -21,7 +21,7 @@ Migration/backfill tests are database-heavy and should be rehearsed against a di
 
 ## Verification
 
-Run the verification queries in `docs/MIGRATIONS.md`, then run:
+Run the verification queries in `docs/archive/old-specs/MIGRATIONS.md`, then run:
 
 ```powershell
 dotnet build AipPortal.slnx

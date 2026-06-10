@@ -123,13 +123,19 @@ Do not commit production secrets. Production should use environment variables, a
 
 ## First Docs To Read
 
+Start with `docs/AI_CONTEXT.md`. For most development tasks, read only:
+
 - `docs/AI_CONTEXT.md`
-- `docs/MVP_SCOPE.md`
 - `docs/ARCHITECTURE.md`
-- `docs/TENANCY.md`
-- `docs/SAAS_ONPREM.md`
-- `docs/DEPLOYMENT.md`
-- `docs/BACKUP_RESTORE.md`
-- `docs/PILOT_STATUS.md`
-- `docs/FINAL_ACCEPTANCE_TEST_PLAN.md`
-- `docs/HANDOFF_GUIDE.md`
+- `docs/CODING_RULES.md`
+- `docs/DATA_MODEL.md`
+
+Then add the focused current doc only when needed:
+
+- Security, authentication, authorization, tenancy, audit logs, file access, or privacy-sensitive changes: `docs/SECURITY.md`
+- API changes: `docs/API_CONTRACTS.md`
+- Deployment, Docker, configuration, environment variables, or migrations: `docs/DEPLOYMENT.md`
+- Smoke tests, backup, restore, production operation, or incidents: `docs/OPERATIONS.md`
+- Scope, deferred work, readiness, or priorities: `docs/ROADMAP.md`
+
+Do not treat `docs/archive/` as current truth unless explicitly instructed.

@@ -2,7 +2,7 @@
 
 | Risk | Description | Probability | Impact | Mitigation | Owner |
 | --- | --- | --- | --- | --- | --- |
-| Scope creep | MVP expands into deferred realtime, AI, docking, or external integrations. | High | High | Keep `docs/MVP_SCOPE.md` as the lock; convert extras to post-MVP issues. | Shared |
+| Scope creep | MVP expands into deferred realtime, AI, docking, or external integrations. | High | High | Keep `docs/archive/plans/MVP_SCOPE.md` as the lock; convert extras to post-MVP issues. | Shared |
 | Authorization bugs | Cross-workspace, group, channel, conversation, project, file, or audit leaks. | Medium | High | Enforce authorization in Application services and add cross-scope tests. | Backend |
 | Data model churn | Late entity changes create migration and UI contract churn. | Medium | Medium | Freeze MVP fields early; use explicit DTOs; defer nice-to-have fields. | Backend |
 | File upload security | Unsafe extension, MIME, size, path, or download behavior. | Medium | High | Validate before storage; configure paths; test invalid uploads and unauthorized downloads. | Backend |
