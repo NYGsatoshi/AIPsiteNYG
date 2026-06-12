@@ -1,29 +1,11 @@
 # Security Policy
 
-## Supported Scope
+AIPsiteNYG handles school and organization data. Even in a demo or pilot, treat names, accounts, messages, files, audit logs, tenant metadata, and operational logs as sensitive.
 
-AIP Portal is pre-production. Security fixes are tracked against the current `main` branch until formal versioning is introduced.
+This repository is pre-production. Security fixes target the current `main` branch until formal release versioning is introduced.
 
-## Reporting A Vulnerability
+## Supported scope
 
-Report suspected vulnerabilities privately to the repository owner or project maintainer. Do not open public issues containing credentials, raw tokens, tenant data, file contents, signed URLs, or exploit details.
+Currently supported for security triage:
 
-Include:
-
-- affected route, feature, or configuration
-- reproduction steps
-- expected and actual behavior
-- tenant/isolation impact if known
-- relevant logs with secrets redacted
-
-## Security Baseline
-
-- Passwords, invite tokens, session keys, API tokens, and webhook secrets must not be stored or logged raw.
-- Tenant-owned data must be protected by `TenantId`, `ITenantEntity`, EF global query filters, and application-layer authorization.
-- Platform operations must stay under explicit platform-scoped APIs.
-- File uploads must validate size, extension, MIME type, authorization, quota, and generated storage keys.
-- Production deployments must disable development tenant headers and setup mode, use HTTPS/HSTS, and keep secrets out of committed config.
-
-## Implementation Security Documentation
-
-See `docs/SECURITY.md` for current implementation security rules and `docs/ROADMAP.md` for current readiness and unresolved risks.
+- Current `main` branch
