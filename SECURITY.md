@@ -6,6 +6,10 @@ AIPsiteNYG handles sensitive school and organization data.
 
 Security fixes target the current `main` branch. The project is pre-production and intended for controlled demos or internal pilots only.
 
-## Reporting a vulnerability
+## Reporting
 
-Report vulnerabilities privately to the repository owner or maintainer. Do not open public issues with credentials, tokens, tenant data, file contents, exploit details,
+Report vulnerabilities privately to the repository owner or maintainer.
+Do not open public issues containing credentials, tokens, tenant data, file contents, exploit details, or personal information.
+
+## Baseline
+
