@@ -8,8 +8,8 @@ Security fixes target the current `main` branch. The project is pre-production a
 
 ## Reporting
 
-Report vulnerabilities privately to the repository owner or maintainer.
-Do not open public issues containing credentials, tokens, tenant data, file contents, exploit details, or personal information.
+Report vulnerabilities privately to the repository owner or maintainer. Do not open public issues containing credentials, tokens, tenant data, file contents, exploit details, or personal information.
 
 ## Baseline
 
+Keep secrets out of the repository.
