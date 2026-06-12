@@ -1,5 +1,7 @@
 # AIPsiteNYG
 
-AIPsiteNYG is a tenant-aware school and organization portal built as an ASP.NET Core modular monolith. The current codebase is suitable for controlled local demos and internal pilot validation. It is not yet positioned as a public production SaaS until storage, backup/restore, tenant-isolation, and operational drills are completed.
+AIPsiteNYG is a tenant-aware school and organization portal built as an ASP.NET Core modular monolith. It is currently suitable for controlled local demos and internal pilot validation. It should not be treated as a public production SaaS until object storage, restore drills, tenant-isolation tests, and operational monitoring are completed.
 
-The product direction is a school-optimized collaboration platform that combines announcements, groups, workspaces, project/task tracking, files, direct communication
+## Product Positioning
+
+The product combines school communication and project operations in one portal: announcements, groups, workspaces, channels, direct messages, project/task tracking, file handling, notifications, audit logs, and tenant administration
