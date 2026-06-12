@@ -8,4 +8,4 @@ This repository is pre-production. Security fixes target the current `main` bran
 
 Currently supported for security triage:
 
-- Current `main` branch
+- Current `main` branch.
