@@ -1,11 +1,15 @@
 # Security Policy
 
-AIPsiteNYG handles school and organization data. Treat names, accounts, messages, files, audit logs, tenant metadata, and operational logs as sensitive, even in demos.
+AIPsiteNYG handles sensitive school and organization data.
 
 ## Supported scope
 
-Security fixes target the current `main` branch until formal release versioning is introduced.
+Security fixes target the current `main` branch until formal releases are introduced.
 
 ## Reporting a vulnerability
 
-Report suspected vulnerabilities privately to the repository owner or project maint
+Report vulnerabilities privately to the repository owner or maintainer. Do not open public issues containing credentials, tokens, tenant data, file contents, exploit details, or personal information.
+
+## Baseline
+
+Keep secrets out of the repository.
