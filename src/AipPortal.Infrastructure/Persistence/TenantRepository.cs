@@ -61,6 +61,7 @@ public sealed class TenantRepository(AppDbContext dbContext) : ITenantRepository
         return dbContext.TenantUsers
             .IgnoreQueryFilters()
             .Include(tenantUser => tenantUser.User)
+            .Include(tenantUser => tenantUser.Tenant)
             .FirstOrDefaultAsync(
                 tenantUser => tenantUser.TenantId == tenantId && tenantUser.UserId == userId,
                 cancellationToken);

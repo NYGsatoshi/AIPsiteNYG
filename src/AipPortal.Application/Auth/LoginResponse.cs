@@ -1,9 +1,11 @@
+using System.Text.Json.Serialization;
 using AipPortal.Domain.Enums;
 
 namespace AipPortal.Application.Auth;
 
 public sealed record LoginResponse(
     Guid UserId,
+    [property: JsonIgnore]
     Guid SessionId,
     string DisplayName,
     string Email,
