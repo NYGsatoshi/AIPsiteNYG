@@ -24,30 +24,34 @@ public sealed class UserSessionService(
         var session = await sessions.GetByIdWithUserAsync(sessionId, cancellationToken);
         if (session is null || session.UserId != userId)
         {
-            return await FailAsync(userId, sessionId, "SessionNotFound", cancellationToken);
+            return await FailAsync(userId, "SessionNotFound", cancellationToken);
         }
 
         if (session.RevokedAt.HasValue)
         {
-            return await FailAsync(userId, sessionId, "SessionRevoked", cancellationToken);
+            return await FailAsync(userId, "SessionRevoked", cancellationToken);
         }
 
         if (session.ExpiresAt <= now)
         {
-            return await FailAsync(userId, sessionId, "SessionExpired", cancellationToken);
+            return await FailAsync(userId, "SessionExpired", cancellationToken);
         }
 
         if (session.User is null || session.User.DeletedAt.HasValue || session.User.Status != UserStatus.Active)
         {
-            return await FailAsync(userId, sessionId, "UserInactive", cancellationToken);
+            return await FailAsync(userId, "UserInactive", cancellationToken);
         }
 
         if (requireActiveTenantMembership && tenantId.HasValue)
         {
             var membership = await tenants.GetTenantUserAsync(tenantId.Value, userId, cancellationToken);
-            if (membership is null || membership.Status != TenantUserStatus.Active)
+            if (membership is null ||
+                membership.Status != TenantUserStatus.Active ||
+                membership.Tenant is null ||
+                membership.Tenant.DeletedAt.HasValue ||
+                membership.Tenant.Status != TenantStatus.Active)
             {
-                return await FailAsync(userId, sessionId, "TenantMembershipInactive", cancellationToken);
+                return await FailAsync(userId, "TenantMembershipInactive", cancellationToken);
             }
         }
 
@@ -69,7 +73,7 @@ public sealed class UserSessionService(
         var revoked = await sessions.RevokeAsync(sessionId, clock.UtcNow, cancellationToken);
         if (revoked)
         {
-            await LogRevocationAsync(actorUserId, sessionId, reason, 1, cancellationToken);
+            await LogRevocationAsync(actorUserId, reason, 1, cancellationToken);
             await unitOfWork.SaveChangesAsync(cancellationToken);
         }
 
@@ -86,7 +90,7 @@ public sealed class UserSessionService(
         var count = await sessions.RevokeUserSessionsAsync(userId, clock.UtcNow, exceptSessionId, cancellationToken);
         if (count > 0)
         {
-            await LogRevocationAsync(actorUserId, exceptSessionId, reason, count, cancellationToken);
+            await LogRevocationAsync(actorUserId, reason, count, cancellationToken);
             await unitOfWork.SaveChangesAsync(cancellationToken);
         }
 
@@ -95,7 +99,6 @@ public sealed class UserSessionService(
 
     private async Task<SessionValidationResult> FailAsync(
         Guid userId,
-        Guid sessionId,
         string reason,
         CancellationToken cancellationToken)
     {
@@ -105,7 +108,6 @@ public sealed class UserSessionService(
             new Dictionary<string, object?>
             {
                 ["userId"] = userId,
-                ["sessionId"] = sessionId,
                 ["reason"] = reason
             },
             SecurityEventSeverity.Warning,
@@ -116,7 +118,6 @@ public sealed class UserSessionService(
 
     private async Task LogRevocationAsync(
         Guid? actorUserId,
-        Guid? sessionId,
         string reason,
         int count,
         CancellationToken cancellationToken)
@@ -125,7 +126,7 @@ public sealed class UserSessionService(
             actorUserId,
             "SessionRevoked",
             "Session",
-            sessionId,
+            null,
             "User session revoked.",
             Metadata: new Dictionary<string, object?>
             {

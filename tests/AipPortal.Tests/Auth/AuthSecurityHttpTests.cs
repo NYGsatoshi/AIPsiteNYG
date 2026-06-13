@@ -1,5 +1,6 @@
 using System.Net;
 using System.Net.Http.Json;
+using System.Text.Json;
 using AipPortal.Application;
 using AipPortal.Application.Auth;
 using AipPortal.Application.Common.Interfaces;
@@ -62,12 +63,24 @@ public sealed class AuthSecurityHttpTests
     }
 
     [Fact]
+    public async Task LoginResponseDoesNotExposeSessionId()
+    {
+        await using var app = await AuthSecurityTestApp.CreateAsync();
+
+        var response = await app.LoginAsync();
+        response.EnsureSuccessStatusCode();
+        using var payload = JsonDocument.Parse(await response.Content.ReadAsStringAsync());
+
+        Assert.False(payload.RootElement.TryGetProperty("sessionId", out _));
+    }
+
+    [Fact]
     public async Task RevokedSessionCannotAccessAuthenticatedEndpoint()
     {
         await using var app = await AuthSecurityTestApp.CreateAsync();
-        var login = await app.LoginAndReadAsync();
+        await app.LoginAndReadAsync();
 
-        await app.UpdateSessionAsync(login.SessionId, session => session.RevokedAt = DateTimeOffset.UtcNow);
+        await app.UpdateCurrentSessionAsync(session => session.RevokedAt = DateTimeOffset.UtcNow);
         var response = await app.Client.GetAsync("/api/auth/me");
 
         Assert.Equal(HttpStatusCode.Unauthorized, response.StatusCode);
@@ -77,9 +90,9 @@ public sealed class AuthSecurityHttpTests
     public async Task ExpiredSessionCannotAccessAuthenticatedEndpoint()
     {
         await using var app = await AuthSecurityTestApp.CreateAsync();
-        var login = await app.LoginAndReadAsync();
+        await app.LoginAndReadAsync();
 
-        await app.UpdateSessionAsync(login.SessionId, session => session.ExpiresAt = DateTimeOffset.UtcNow.AddMinutes(-1));
+        await app.UpdateCurrentSessionAsync(session => session.ExpiresAt = DateTimeOffset.UtcNow.AddMinutes(-1));
         var response = await app.Client.GetAsync("/api/auth/me");
 
         Assert.Equal(HttpStatusCode.Unauthorized, response.StatusCode);
@@ -203,11 +216,11 @@ public sealed class AuthSecurityHttpTests
                 ?? throw new InvalidOperationException("Login response was empty.");
         }
 
-        public async Task UpdateSessionAsync(Guid sessionId, Action<Session> update)
+        public async Task UpdateCurrentSessionAsync(Action<Session> update)
         {
             await using var scope = App.Services.CreateAsyncScope();
             var dbContext = scope.ServiceProvider.GetRequiredService<AppDbContext>();
-            var session = await dbContext.Sessions.FirstAsync(item => item.Id == sessionId);
+            var session = await dbContext.Sessions.FirstAsync(item => item.UserId == UserId);
             update(session);
             await dbContext.SaveChangesAsync();
         }
