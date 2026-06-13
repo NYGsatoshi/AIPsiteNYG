@@ -24,7 +24,7 @@ Deferred auth capabilities:
 
 ## CSRF
 
-When `Security:EnableCsrfProtection` is enabled, browser clients get a token from `GET /api/security/csrf-token` and send it with unsafe methods using `X-CSRF-TOKEN`. The bundled frontend `api()` helper handles this for `POST`, `PUT`, `PATCH`, and `DELETE`.
+When `Security:EnableCsrfProtection` is enabled, browser clients get a token from `GET /api/security/csrf-token` and send it with unsafe methods using `X-CSRF-Token`. The bundled frontend `api()` helper handles this for `POST`, `PUT`, `PATCH`, and `DELETE`.
 
 External API clients should use a future non-cookie API token authentication path instead of browser cookies.
 

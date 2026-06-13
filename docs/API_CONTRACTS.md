@@ -91,7 +91,7 @@ Upload endpoints must:
 
 ## CSRF And Browser Calls
 
-When cookie auth and `Security:EnableCsrfProtection` are enabled, unsafe browser requests must include the `X-CSRF-TOKEN` header obtained from `GET /api/security/csrf-token`.
+When cookie auth and `Security:EnableCsrfProtection` are enabled, unsafe browser requests must include the `X-CSRF-Token` header obtained from `GET /api/security/csrf-token`.
 
 Safe `GET` requests do not require a CSRF token.
 
