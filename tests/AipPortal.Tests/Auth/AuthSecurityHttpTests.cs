@@ -39,7 +39,7 @@ public sealed class AuthSecurityHttpTests
 
         var response = await app.Client.PostAsJsonAsync("/api/auth/login", new LoginRequest(app.Email, "Password123"));
 
-        Assert.Equal(HttpStatusCode.BadRequest, response.StatusCode);
+        Assert.Equal(HttpStatusCode.Forbidden, response.StatusCode);
     }
 
     [Fact]
@@ -60,6 +60,46 @@ public sealed class AuthSecurityHttpTests
         var response = await app.Client.GetAsync("/api/auth/status");
 
         Assert.Equal(HttpStatusCode.OK, response.StatusCode);
+    }
+
+
+    [Theory]
+    [InlineData("POST", "/api/auth/logout")]
+    [InlineData("PATCH", "/api/admin/users/00000000-0000-0000-0000-000000000000")]
+    [InlineData("DELETE", "/api/files/00000000-0000-0000-0000-000000000000")]
+    [InlineData("POST", "/api/auth/register-by-invite")]
+    public async Task UnsafeCookieAuthFlowsWithoutCsrfTokenAreRejected(string method, string path)
+    {
+        await using var app = await AuthSecurityTestApp.CreateAsync();
+        await app.LoginAndReadAsync();
+
+        using var request = new HttpRequestMessage(new HttpMethod(method), path)
+        {
+            Content = JsonContent.Create(new { })
+        };
+        var response = await app.Client.SendAsync(request);
+
+        Assert.Equal(HttpStatusCode.Forbidden, response.StatusCode);
+    }
+
+    [Theory]
+    [InlineData("POST")]
+    [InlineData("PUT")]
+    [InlineData("PATCH")]
+    [InlineData("DELETE")]
+    public async Task UnsafeMethodsWithValidCsrfTokenReachEndpointRouting(string method)
+    {
+        await using var app = await AuthSecurityTestApp.CreateAsync();
+        var token = await app.GetCsrfTokenAsync();
+
+        using var request = new HttpRequestMessage(new HttpMethod(method), "/api/not-found-for-csrf-test")
+        {
+            Content = JsonContent.Create(new { })
+        };
+        request.Headers.TryAddWithoutValidation(SecurityOptions.CsrfHeaderName, token);
+        var response = await app.Client.SendAsync(request);
+
+        Assert.Equal(HttpStatusCode.NotFound, response.StatusCode);
     }
 
     [Fact]
@@ -240,7 +280,7 @@ public sealed class AuthSecurityHttpTests
             await App.DisposeAsync();
         }
 
-        private async Task<string> GetCsrfTokenAsync()
+        public async Task<string> GetCsrfTokenAsync()
         {
             var tokenResponse = await Client.GetFromJsonAsync<CsrfTokenResponse>("/api/security/csrf-token");
             return tokenResponse?.Token ?? throw new InvalidOperationException("CSRF token response was empty.");

@@ -4,7 +4,7 @@ namespace AipPortal.Web.Configuration;
 
 public sealed class SecurityOptions
 {
-    public const string CsrfHeaderName = "X-CSRF-TOKEN";
+    public const string CsrfHeaderName = "X-CSRF-Token";
 
     public CookieSecurePolicy CookieSecurePolicy { get; set; } = CookieSecurePolicy.Always;
 

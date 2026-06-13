@@ -25,7 +25,7 @@ public sealed class CsrfProtectionMiddleware(
         catch (AntiforgeryValidationException ex)
         {
             logger.LogWarning(ex, "Rejected unsafe request without a valid CSRF token: {Method} {Path}", context.Request.Method, context.Request.Path);
-            context.Response.StatusCode = StatusCodes.Status400BadRequest;
+            context.Response.StatusCode = StatusCodes.Status403Forbidden;
             await context.Response.WriteAsJsonAsync(new { error = "A valid CSRF token is required." }, context.RequestAborted);
             return;
         }

@@ -125,6 +125,19 @@ public sealed class StartupConfigurationValidator(
                 break;
         }
 
+        if (security.EnableCsrfProtection)
+        {
+            if (!csrfProtectionState.IsMiddlewareActive)
+            {
+                errors.Add("Security:EnableCsrfProtection is true, but CSRF middleware is not active.");
+            }
+
+            if (serviceProvider.GetService<IAntiforgery>() is null)
+            {
+                errors.Add("Security:EnableCsrfProtection is true, but antiforgery services are not registered.");
+            }
+        }
+
         if (isProduction)
         {
             if (security.CookieSecurePolicy != CookieSecurePolicy.Always)
@@ -145,19 +158,6 @@ public sealed class StartupConfigurationValidator(
             if (platform.PlatformAdminSetupMode)
             {
                 errors.Add("Platform:PlatformAdminSetupMode must not be enabled in production.");
-            }
-
-            if (security.EnableCsrfProtection)
-            {
-                if (!csrfProtectionState.IsMiddlewareActive)
-                {
-                    errors.Add("Security:EnableCsrfProtection is true, but CSRF middleware is not active.");
-                }
-
-                if (serviceProvider.GetService<IAntiforgery>() is null)
-                {
-                    errors.Add("Security:EnableCsrfProtection is true, but antiforgery services are not registered.");
-                }
             }
 
             if (string.IsNullOrWhiteSpace(configuration["DataProtection:KeysPath"]))

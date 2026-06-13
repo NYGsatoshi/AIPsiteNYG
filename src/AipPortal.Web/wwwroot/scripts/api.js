@@ -6,7 +6,7 @@ export class ApiError extends Error {
   }
 }
 
-const DEFAULT_CSRF_HEADER_NAME = "X-CSRF-TOKEN";
+const DEFAULT_CSRF_HEADER_NAME = "X-CSRF-Token";
 const SAFE_METHODS = new Set(["GET", "HEAD", "OPTIONS", "TRACE"]);
 let csrfToken = null;
 let csrfHeaderName = DEFAULT_CSRF_HEADER_NAME;
@@ -97,7 +97,7 @@ export async function api(path, options = {}) {
 
   const payload = await parseResponse(response);
   if (!response.ok) {
-    if (response.status === 400) {
+    if (response.status === 403) {
       csrfToken = null;
     }
 

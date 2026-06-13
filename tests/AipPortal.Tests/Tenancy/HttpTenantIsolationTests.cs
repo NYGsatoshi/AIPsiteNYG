@@ -173,6 +173,7 @@ public sealed class HttpTenantIsolationTests
                 ["Security:CookieSecurePolicy"] = "SameAsRequest",
                 ["Security:RequireHttps"] = "false",
                 ["Security:EnableHsts"] = "false",
+                ["Security:EnableCsrfProtection"] = "false",
                 ["Security:EnableRateLimiting"] = "false",
                 ["FileStorage:Provider"] = "LocalFileSystem",
                 ["FileStorage:RootPath"] = Path.Combine(Path.GetTempPath(), "aip-http-tenant-tests", Guid.NewGuid().ToString("N")),
