@@ -9,6 +9,26 @@ jobs:
   build-test:
     runs-on: ubuntu-latest
 
+    services:
+      postgres:
+        image: postgres:18-alpine
+        env:
+          POSTGRES_DB: aip_portal_ci
+          POSTGRES_USER: aip_portal_ci
+          POSTGRES_PASSWORD: aip_portal_ci_password
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U aip_portal_ci -d aip_portal_ci"
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+
+    env:
+      ASPNETCORE_ENVIRONMENT: Test
+      ConnectionStrings__DefaultConnection: Host=localhost;Port=5432;Database=aip_portal_ci;Username=aip_portal_ci;Password=aip_portal_ci_password
+      POSTGRES_TEST_CONNECTION_STRING: Host=localhost;Port=5432;Database=aip_portal_ci;Username=aip_portal_ci;Password=aip_portal_ci_password
+
     steps:
       - name: Checkout
         uses: actions/checkout@v4
@@ -22,7 +42,17 @@ jobs:
         run: dotnet restore AipPortal.slnx
 
       - name: Build
-        run: dotnet build AipPortal.slnx --no-restore
+        run: dotnet build AipPortal.slnx --configuration Release --no-restore
+
+      - name: Restore .NET tools
+        run: dotnet tool restore
+
+      - name: Apply PostgreSQL migrations
+        run: dotnet ef database update --project src/AipPortal.Infrastructure --startup-project src/AipPortal.Web --configuration Release
 
       - name: Test
-        run: dotnet test AipPortal.slnx --no-build --verbosity normal
+        run: dotnet test AipPortal.slnx --configuration Release --no-build --verbosity normal
+
+      - name: PostgreSQL logs on failure
+        if: failure()
+        run: docker logs ${{ job.services.postgres.id }}
