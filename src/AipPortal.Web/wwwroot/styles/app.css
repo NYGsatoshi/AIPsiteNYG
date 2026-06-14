@@ -1049,7 +1049,7 @@ small {
   display: inline-flex;
   gap: 0.4rem;
   font-size: 0.85rem;
-  color: var(--muted-text, #64748b);
+  color: var(--muted, #607078);
 }
 
 .language-selector select {

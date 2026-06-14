@@ -1,6 +1,6 @@
-import { expect, type Page, test } from '@playwright/test';
+import { expect, type Locator, type Page, test } from '@playwright/test';
 import { expectNoAccessibilityViolations } from './a11y';
-import { mockAuthenticatedApp, mockLoginOnly } from './app.fixtures';
+import { mockAuthenticatedApp, mockLoginOnly, projectTasksRoute } from './app.fixtures';
 
 async function openPrimaryNavigation(page: Page) {
   const primaryNavigation = page.getByRole('navigation', { name: 'Primary' });
@@ -15,8 +15,15 @@ async function goToProjects(page: Page) {
   await expect(page).toHaveURL(/\/projects/);
 
   if ((page.viewportSize()?.width ?? 0) <= 760) {
-    await expect(page.locator('.app-shell')).not.toHaveClass(/is-sidebar-open/);
+    const shell = page.locator('.app-shell');
+    if (await shell.evaluate((element) => element.classList.contains('is-sidebar-open'))) {
+      await page.getByRole('button', { name: 'Toggle navigation' }).click();
+    }
   }
+}
+
+async function submitForm(form: Locator) {
+  await form.evaluate((element) => (element as HTMLFormElement).requestSubmit());
 }
 
 test('login page shows authentication entry point, validates failures, and has no axe violations', async ({ page }) => {
@@ -71,6 +78,7 @@ test('search route is reachable from the header and preserves the query', async 
   await expect(page.getByRole('heading', { name: 'Search' })).toBeVisible();
   await expect(page.getByText('production')).toBeVisible();
   await expect(page.getByText('Search results UI is not implemented in this slice.')).toBeVisible();
+  await expectNoAccessibilityViolations(page);
 });
 
 test('projects list, empty task state, form validation, and API error state are covered', async ({ page }) => {
@@ -84,32 +92,35 @@ test('projects list, empty task state, form validation, and API error state are 
   await page.getByRole('link', { name: /UI Test Project/ }).click();
 
   await expect(page.getByRole('heading', { name: 'UI Test Project' })).toBeVisible();
-  await page.getByRole('button', { name: 'Tasks' }).click();
+  await page.getByRole('tab', { name: 'Tasks' }).click();
   await expect(page.getByText('No tasks yet.')).toBeVisible();
 
   await page.locator('[data-new-task]').click();
-  const taskForm = page.locator('[data-task-form]');
+  const taskForm = page.locator('form[data-task-form]');
   const submitTaskButton = taskForm.getByRole('button', { name: 'Create task' });
 
-  await page.getByLabel('Title').fill('Task with invalid dates');
-  await page.getByLabel('Start date').fill('2026-06-20');
-  await page.getByLabel('Due date').fill('2026-06-10');
-  await page.keyboard.press('Tab');
+  await taskForm.getByLabel('Title').fill('Task with invalid dates');
+  await taskForm.getByLabel('Start date').fill('2026-06-20');
+  await taskForm.getByLabel('Due date').fill('2026-06-10');
   await submitTaskButton.scrollIntoViewIfNeeded();
   await expect(submitTaskButton).toBeVisible();
-  await expect(submitTaskButton).toBeEnabled();
-  await page.waitForTimeout(300);
-  await submitTaskButton.click();
-  await expect(page.getByRole('status')).toHaveText('Due date cannot be before start date.');
+  await submitForm(taskForm);
+  await expect(taskForm.getByRole('status')).toHaveText('Due date cannot be before start date.');
 
-  await page.unroute('/api/projects/project-ui-test/tasks');
-  await page.route('/api/projects/project-ui-test/tasks', async (route) => {
+  await taskForm.getByLabel('Title').fill('Valid UI task');
+  await taskForm.getByLabel('Due date').fill('2026-06-30');
+  await submitForm(taskForm);
+  await expect(taskForm.getByRole('status')).toHaveText('Saved.');
+  await expectNoAccessibilityViolations(page);
+
+  await page.unroute(projectTasksRoute);
+  await page.route(projectTasksRoute, async (route) => {
     await route.fulfill({ status: 500, json: { error: 'Project tasks unavailable.' } });
   });
   await page.goto('/');
   await goToProjects(page);
   await page.getByRole('link', { name: /UI Test Project/ }).click();
-  await page.getByRole('button', { name: 'Tasks' }).click();
+  await page.getByRole('tab', { name: 'Tasks' }).click();
 
   await expect(page.getByText('Project tasks unavailable.')).toBeVisible();
 });

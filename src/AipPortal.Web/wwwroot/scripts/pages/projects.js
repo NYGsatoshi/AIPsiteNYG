@@ -76,16 +76,22 @@ export async function renderProjectDetail(root, projectId) {
       <div><span>${t("projects.scope")}</span><strong>${project.groupId ? t("projects.group") : t("projects.workspace")}</strong></div>
     </section>
     <section class="panel">
-      <div class="tabs" role="tablist">
-        ${tabs.map((tab, index) => `<button type="button" class="${index === 0 ? "is-active" : ""}" data-tab="${tab.key}">${escapeHtml(t(tab.label))}</button>`).join("")}
+      <div class="tabs" role="tablist" aria-label="${t("projects.detail")}">
+        ${tabs.map((tab, index) => `<button type="button" id="project-tab-${tab.key}" role="tab" aria-controls="project-tab-panel" aria-selected="${index === 0 ? "true" : "false"}" tabindex="${index === 0 ? "0" : "-1"}" class="${index === 0 ? "is-active" : ""}" data-tab="${tab.key}">${escapeHtml(t(tab.label))}</button>`).join("")}
       </div>
-      <div data-tab-panel>${loadingState()}</div>
+      <div id="project-tab-panel" role="tabpanel" aria-labelledby="project-tab-overview" data-tab-panel>${loadingState()}</div>
     </section>
   `;
 
   const panel = qs("[data-tab-panel]", root);
   const activate = async (name) => {
-    qsa("[data-tab]", root).forEach((button) => button.classList.toggle("is-active", button.dataset.tab === name));
+    qsa("[data-tab]", root).forEach((button) => {
+      const active = button.dataset.tab === name;
+      button.classList.toggle("is-active", active);
+      button.setAttribute("aria-selected", String(active));
+      button.setAttribute("tabindex", active ? "0" : "-1");
+    });
+    panel.setAttribute("aria-labelledby", `project-tab-${name}`);
     panel.innerHTML = loadingState();
 
     if (name === "overview") await renderOverview(panel, projectId);
