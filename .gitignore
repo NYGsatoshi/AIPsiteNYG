@@ -3,9 +3,13 @@ obj/
 .nuget/
 .vs/
 .vscode/
+node_modules/
 *.user
 *.suo
 TestResults/
+test-results/
+playwright-report/
+.playwright/
 .tmp/
 data/
 src/AipPortal.Web/data/

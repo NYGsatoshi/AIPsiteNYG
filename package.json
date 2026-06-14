@@ -1,0 +1,15 @@
+{
+  "name": "aipsite-nyg-ui-tests",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "serve:ui": "node tests/ui/serve-static.mjs",
+    "test": "npm run test:ui",
+    "test:ui": "playwright test"
+  },
+  "devDependencies": {
+    "@axe-core/playwright": "^4.10.2",
+    "@playwright/test": "^1.56.1"
+  }
+}
