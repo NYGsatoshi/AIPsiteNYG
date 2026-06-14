@@ -74,7 +74,7 @@ The app exposes separate health endpoints for container and production-style mon
 - `GET /health/live` is a liveness probe. It returns `200 OK` when the ASP.NET Core process can serve requests and does not check dependencies.
 - `GET /health/ready` is a readiness probe. It returns `200 OK` only when required dependencies are usable: PostgreSQL is reachable, EF Core has no pending migrations, configured local file storage is writable, configured Data Protection key storage is available, and the default tenant exists for single-tenant mode. It returns a generic `503` response when not ready and does not include secrets, connection strings, environment variables, or internal exception details.
 
-`docker-compose.yml` wires the app service healthcheck to `/health/ready`, so `docker compose ps` reports whether the container is ready to receive traffic after PostgreSQL and migrations complete.
+The Compose profiles wire the app service healthcheck to `/health/ready`, so `docker compose ps` reports whether the container is ready to receive traffic after PostgreSQL and migrations complete.
 
 ## Required operational rules
 
