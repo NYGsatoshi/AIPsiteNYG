@@ -88,10 +88,16 @@ test('projects list, empty task state, form validation, and API error state are 
   await expect(page.getByText('No tasks yet.')).toBeVisible();
 
   await page.locator('[data-new-task]').click();
+  const taskForm = page.locator('[data-task-form]');
+  const submitTaskButton = taskForm.getByRole('button', { name: 'Create task' });
+
   await page.getByLabel('Title').fill('Task with invalid dates');
   await page.getByLabel('Start date').fill('2026-06-20');
   await page.getByLabel('Due date').fill('2026-06-10');
-  await page.locator('[data-task-form]').getByRole('button', { name: 'Create task' }).click();
+  await page.keyboard.press('Tab');
+  await submitTaskButton.scrollIntoViewIfNeeded();
+  await expect(submitTaskButton).toBeVisible();
+  await submitTaskButton.click();
   await expect(page.getByRole('status')).toHaveText('Due date cannot be before start date.');
 
   await page.unroute('/api/projects/project-ui-test/tasks');
