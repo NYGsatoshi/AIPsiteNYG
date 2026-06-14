@@ -26,6 +26,7 @@ public sealed record AuditLogListItemResponse(
     Guid? ProjectId,
     string? Summary,
     string? MetadataJson,
+    string? CorrelationId,
     DateTimeOffset CreatedAt);
 
 public sealed record SecurityEventQuery(
@@ -48,4 +49,5 @@ public sealed record SecurityEventListItemResponse(
     SecurityEventSeverity Severity,
     string Summary,
     string? MetadataJson,
+    string? CorrelationId,
     DateTimeOffset CreatedAt);

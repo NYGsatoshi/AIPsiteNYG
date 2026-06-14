@@ -129,11 +129,12 @@ public sealed class ProjectService(
             project.Slug = SlugGenerator.FromName(project.Name);
         }
 
+        var previousStatus = project.Status;
         project.Description = request.Description?.Trim() ?? project.Description;
         project.Status = request.Status ?? project.Status;
         project.StartDate = request.StartDate ?? project.StartDate;
         project.DueDate = request.EndDate ?? project.DueDate;
-        await AuditAsync(userId, "ProjectUpdated", "Project", project.Id, cancellationToken);
+        await AuditAsync(userId, project.Status == previousStatus ? "ProjectUpdated" : "ProjectStatusChanged", "Project", project.Id, cancellationToken);
         await unitOfWork.SaveChangesAsync(cancellationToken);
         return Result<ProjectResponse>.Success(ToProject(project));
     }
@@ -943,8 +944,17 @@ public sealed class ProjectService(
 
     private Task AuditAsync(Guid actorUserId, string action, string targetType, Guid targetId, CancellationToken cancellationToken)
     {
-        return auditLogger.LogAsync(new AuditLogEntry(actorUserId, action, targetType, targetId), cancellationToken);
+        return auditLogger.LogAsync(new AuditLogEntry(actorUserId, action, targetType, targetId, SummaryFor(action)), cancellationToken);
     }
+
+    private static string SummaryFor(string action) => action switch
+    {
+        "ProjectStatusChanged" => "Project status changed.",
+        "TaskAssigned" => "Task assignment added.",
+        "TaskAssignmentUpdated" => "Task assignment changed.",
+        "TaskAssignmentRemoved" => "Task assignment removed.",
+        _ => $"{action} completed."
+    };
 
     private static bool HasInvalidDateRange(DateOnly? startDate, DateOnly? endDate)
     {

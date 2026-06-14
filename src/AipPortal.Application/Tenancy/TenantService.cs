@@ -285,6 +285,17 @@ public sealed class TenantService(
             await tenantRepository.AddTenantUserAsync(tenantUser, cancellationToken);
         }
 
+        await auditLogger.LogAsync(new AuditLogEntry(
+            currentUser.UserId,
+            existing is null ? "TenantUserAdded" : "TenantUserReactivated",
+            "TenantUser",
+            tenantUser.Id,
+            existing is null ? "Tenant user added." : "Tenant user reactivated.",
+            Metadata: new Dictionary<string, object?>
+            {
+                ["targetUserId"] = tenantUser.UserId,
+                ["role"] = tenantUser.Role.ToString()
+            }), cancellationToken);
         await unitOfWork.SaveChangesAsync(cancellationToken);
         tenantUser.User = user;
         return Result<TenantUserResponse>.Success(ToTenantUserResponse(tenantUser));
@@ -303,6 +314,8 @@ public sealed class TenantService(
             return Result<TenantUserResponse>.Failure("Tenant user not found.");
         }
 
+        var previousRole = tenantUser.Role;
+        var previousStatus = tenantUser.Status;
         var revokeSessions = false;
         if (request.Role.HasValue && tenantUser.Role != request.Role.Value)
         {
@@ -317,6 +330,24 @@ public sealed class TenantService(
             {
                 revokeSessions = true;
             }
+        }
+
+        if (tenantUser.Role != previousRole || tenantUser.Status != previousStatus)
+        {
+            await auditLogger.LogAsync(new AuditLogEntry(
+                currentUser.UserId,
+                tenantUser.Status != previousStatus ? "TenantUserStatusChanged" : "TenantUserRoleChanged",
+                "TenantUser",
+                tenantUser.Id,
+                tenantUser.Status != previousStatus ? "Tenant user status changed." : "Tenant user role changed.",
+                Metadata: new Dictionary<string, object?>
+                {
+                    ["targetUserId"] = tenantUser.UserId,
+                    ["oldRole"] = previousRole.ToString(),
+                    ["newRole"] = tenantUser.Role.ToString(),
+                    ["oldStatus"] = previousStatus.ToString(),
+                    ["newStatus"] = tenantUser.Status.ToString()
+                }), cancellationToken);
         }
 
         if (revokeSessions)
@@ -342,6 +373,13 @@ public sealed class TenantService(
         }
 
         tenantUser.Status = TenantUserStatus.Left;
+        await auditLogger.LogAsync(new AuditLogEntry(
+            currentUser.UserId,
+            "TenantUserRemoved",
+            "TenantUser",
+            tenantUser.Id,
+            "Tenant user removed.",
+            Metadata: new Dictionary<string, object?> { ["targetUserId"] = tenantUser.UserId }), cancellationToken);
         await userSessions.RevokeUserSessionsAsync(userId, currentUser.UserId, "TenantMembershipRemoved", cancellationToken: cancellationToken);
         await unitOfWork.SaveChangesAsync(cancellationToken);
         return Result.Success();
