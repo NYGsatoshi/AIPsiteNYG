@@ -284,11 +284,11 @@ public sealed class TenancyFoundationTests
             {
                 Provider = "S3Compatible",
                 BucketName = "aip-files",
-                Endpoint = "https://storage.example.test",
+                Endpoint = "https://storage.invalid.test",
                 MaxFileSizeBytes = 1024,
                 AllowedExtensions = [".txt"],
                 AllowedContentTypes = ["text/plain"],
-                SecretKey = "StrongStorageSecret123!"
+                SecretKey = "ObjStoreS3cretValue123!"
             },
             new SecurityOptions());
 
