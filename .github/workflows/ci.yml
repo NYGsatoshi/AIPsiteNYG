@@ -130,8 +130,11 @@ jobs:
             dotnet-deprecated-packages.txt
           if-no-files-found: error
 
-      - name: Validate Docker Compose config
-        run: docker compose config --quiet
+      - name: Validate Docker Compose configs
+        run: |
+          docker compose config --quiet
+          docker compose -f docker-compose.local.yml config --quiet
+          docker compose -f docker-compose.onprem.yml config --quiet
 
       - name: Build Docker image
         run: docker build --pull --tag "$IMAGE_NAME" .
