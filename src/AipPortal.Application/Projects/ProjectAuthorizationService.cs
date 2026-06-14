@@ -47,7 +47,7 @@ public sealed class ProjectAuthorizationService(
             return false;
         }
 
-        var group = await groups.GetByIdAsync(groupId, cancellationToken);
+        var group = await groupRepository.GetByIdAsync(groupId, cancellationToken);
         return group is not null &&
             group.WorkspaceId == workspaceId &&
             await groups.CanManageGroup(userId, groupId, cancellationToken);
