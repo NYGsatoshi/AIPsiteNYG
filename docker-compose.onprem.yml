@@ -24,6 +24,12 @@ services:
     volumes:
       - aip_onprem_uploads:/app/storage/uploads
       - aip_onprem_data_protection:/app/data/protection-keys
+    healthcheck:
+      test: ["CMD-SHELL", "curl --fail --silent --show-error http://localhost:8080/health/ready >/dev/null"]
+      interval: 10s
+      timeout: 5s
+      retries: 12
+      start_period: 30s
     depends_on:
       postgres:
         condition: service_healthy

@@ -62,6 +62,8 @@ docker compose -f docker-compose.local.yml up --build
 
 Default app URL: `http://localhost:8080`, unless `AIP_PORTAL_PORT` is overridden.
 
+The app service healthcheck in each Compose profile probes `/health/ready`, so `docker compose ps` reports `healthy` only after PostgreSQL, migrations, configured storage, and configured Data Protection key storage are ready.
+
 On-prem single-tenant defaults:
 
 ```powershell
