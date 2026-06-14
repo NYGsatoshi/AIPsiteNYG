@@ -106,7 +106,7 @@ Integration accounts, webhook endpoints, and API tokens are tenant-owned.
 - Webhook APIs require the `WebhookIntegration` feature flag.
 - API token APIs require the `ApiAccess` feature flag.
 
-Outbound webhook delivery and API token authentication middleware are deferred.
+Outbound webhook delivery and API token authentication middleware are deferred. Production startup intentionally fails if the global `Features:EnableWebhooks` or `Features:EnableApiTokens` placeholder switches are enabled.
 
 ## Rate Limiting And Lockout
 
@@ -124,10 +124,10 @@ Login lockout is implemented for existing accounts. Generic responses must be pr
 
 ## Current Security Limitations
 
-- Production object storage adapter is not implemented.
+- Production object storage adapter and signed URL generation are not implemented; Production startup intentionally fails if object storage providers or signed URLs are enabled.
 - PostgreSQL-backed search isolation tests are enforced in CI through `POSTGRES_TEST_CONNECTION_STRING`.
 - Full tenant restore is not implemented.
 - Password reset is not implemented.
-- API token authentication middleware is not implemented.
+- API token authentication middleware is not implemented; Production startup intentionally fails if the global API token placeholder switch is enabled.
 - Full external SSO is not implemented.
 - Each pilot environment still needs a recorded backup/restore drill before real school data is relied on.

@@ -260,6 +260,7 @@ public sealed class TenancyFoundationTests
                 MaxFailedLoginAttempts = 5
             }),
             Options.Create(new PlatformOptions()),
+            Options.Create(new FeatureOptions()),
             new ConfigurationBuilder()
                 .AddInMemoryCollection(new Dictionary<string, string?>
                 {
@@ -275,6 +276,69 @@ public sealed class TenancyFoundationTests
         await Assert.ThrowsAsync<InvalidOperationException>(() => validator.StartAsync(CancellationToken.None));
     }
 
+    [Fact]
+    public async Task StartupValidationRejectsProductionObjectStorageBecauseAdapterIsDeferred()
+    {
+        var validator = CreateStartupValidator(
+            new FileStorageOptions
+            {
+                Provider = "S3Compatible",
+                BucketName = "aip-files",
+                Endpoint = "https://storage.example.test",
+                MaxFileSizeBytes = 1024,
+                AllowedExtensions = [".txt"],
+                AllowedContentTypes = ["text/plain"],
+                SecretKey = "StrongStorageSecret123!"
+            },
+            new SecurityOptions());
+
+        var ex = await Assert.ThrowsAsync<InvalidOperationException>(() => validator.StartAsync(CancellationToken.None));
+
+        Assert.Contains("object storage is not implemented", ex.Message);
+    }
+
+    [Fact]
+    public async Task StartupValidationRejectsSignedUrlsBecauseGenerationIsDeferred()
+    {
+        var validator = CreateStartupValidator(
+            new FileStorageOptions
+            {
+                Provider = "LocalFileSystem",
+                RootPath = Path.Combine(Path.GetTempPath(), "aip-validation-tests", Guid.NewGuid().ToString("N")),
+                MaxFileSizeBytes = 1024,
+                AllowedExtensions = [".txt"],
+                AllowedContentTypes = ["text/plain"],
+                UseSignedUrls = true
+            },
+            new SecurityOptions(),
+            Environments.Development);
+
+        var ex = await Assert.ThrowsAsync<InvalidOperationException>(() => validator.StartAsync(CancellationToken.None));
+
+        Assert.Contains("signed URL generation is not implemented", ex.Message);
+    }
+
+    [Fact]
+    public async Task StartupValidationRejectsProductionGlobalDeferredFeatureSwitches()
+    {
+        var validator = CreateStartupValidator(
+            new FileStorageOptions
+            {
+                Provider = "LocalFileSystem",
+                RootPath = Path.Combine(Path.GetTempPath(), "aip-validation-tests", Guid.NewGuid().ToString("N")),
+                MaxFileSizeBytes = 1024,
+                AllowedExtensions = [".txt"],
+                AllowedContentTypes = ["text/plain"]
+            },
+            new SecurityOptions(),
+            features: new FeatureOptions { EnableWebhooks = true, EnableApiTokens = true });
+
+        var ex = await Assert.ThrowsAsync<InvalidOperationException>(() => validator.StartAsync(CancellationToken.None));
+
+        Assert.Contains("Features:EnableWebhooks", ex.Message);
+        Assert.Contains("Features:EnableApiTokens", ex.Message);
+    }
+
     private static AppDbContext CreateDbContext(ICurrentTenant currentTenant)
     {
         var options = new DbContextOptionsBuilder<AppDbContext>()
@@ -282,6 +346,43 @@ public sealed class TenancyFoundationTests
             .Options;
 
         return new AppDbContext(options, currentTenant);
+    }
+
+    private static StartupConfigurationValidator CreateStartupValidator(
+        FileStorageOptions fileStorage,
+        SecurityOptions security,
+        string environmentName = Environments.Production,
+        FeatureOptions? features = null)
+    {
+        var services = new ServiceCollection().AddAntiforgery();
+        var csrfState = new CsrfProtectionState();
+        if (security.EnableCsrfProtection)
+        {
+            csrfState.MarkMiddlewareActive();
+        }
+
+        return new StartupConfigurationValidator(
+            Options.Create(new TenancyOptions
+            {
+                AppMode = AppMode.SaaS,
+                DefaultTenantSlug = "default",
+                TenantResolutionStrategy = TenantResolutionStrategy.Host
+            }),
+            Options.Create(fileStorage),
+            Options.Create(security),
+            Options.Create(new PlatformOptions()),
+            Options.Create(features ?? new FeatureOptions()),
+            new ConfigurationBuilder()
+                .AddInMemoryCollection(new Dictionary<string, string?>
+                {
+                    ["ConnectionStrings:DefaultConnection"] = "Host=db;Port=5432;Database=aip;Username=aip;Password=StrongPasswordValue123!",
+                    ["DataProtection:KeysPath"] = Path.Combine(Path.GetTempPath(), "aip-dp-validation-tests", Guid.NewGuid().ToString("N"))
+                })
+                .Build(),
+            services.BuildServiceProvider(),
+            csrfState,
+            new FakeWebHostEnvironment(environmentName),
+            NullLogger<StartupConfigurationValidator>.Instance);
     }
 
     private static TenantService CreateTenantService(

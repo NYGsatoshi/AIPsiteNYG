@@ -13,6 +13,7 @@ public sealed class StartupConfigurationValidator(
     IOptions<FileStorageOptions> fileStorageOptions,
     IOptions<SecurityOptions> securityOptions,
     IOptions<PlatformOptions> platformOptions,
+    IOptions<FeatureOptions> featureOptions,
     IConfiguration configuration,
     IServiceProvider serviceProvider,
     CsrfProtectionState csrfProtectionState,
@@ -44,6 +45,7 @@ public sealed class StartupConfigurationValidator(
         var fileStorage = fileStorageOptions.Value;
         var security = securityOptions.Value;
         var platform = platformOptions.Value;
+        var features = featureOptions.Value;
         var isProduction = environment.IsProduction();
 
         if (!Enum.IsDefined(tenancy.AppMode))
@@ -110,6 +112,11 @@ public sealed class StartupConfigurationValidator(
             }
         }
 
+        if (fileStorage.UseSignedUrls)
+        {
+            errors.Add("FileStorage:UseSignedUrls is configured, but signed URL generation is not implemented in this build.");
+        }
+
         switch (fileStorage.Provider)
         {
             case "LocalFileSystem":
@@ -166,6 +173,21 @@ public sealed class StartupConfigurationValidator(
             }
 
             ValidateProductionConnectionString(errors, configuration.GetConnectionString("DefaultConnection"));
+            if (fileStorage.Provider is "ObjectStorage" or "S3Compatible" or "OCIObjectStorage")
+            {
+                errors.Add($"FileStorage:Provider '{fileStorage.Provider}' is configured, but object storage is not implemented in this build.");
+            }
+
+            if (features.EnableWebhooks)
+            {
+                errors.Add("Features:EnableWebhooks is configured, but outbound webhook delivery is deferred in this build.");
+            }
+
+            if (features.EnableApiTokens)
+            {
+                errors.Add("Features:EnableApiTokens is configured, but API token authentication middleware is deferred in this build.");
+            }
+
             ValidateProductionSecret(errors, "FileStorage:SecretKey", fileStorage.SecretKey, required: fileStorage.Provider is "ObjectStorage" or "S3Compatible" or "OCIObjectStorage");
         }
 

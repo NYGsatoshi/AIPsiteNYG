@@ -135,8 +135,9 @@ Do not paste passwords, raw tokens, invite token values, API token raw values, w
 
 ## Known Operational Gaps
 
-- Production object storage adapter is not implemented.
+- Production object storage adapter is not implemented; Production startup intentionally fails if object storage providers or signed URLs are enabled.
 - Full tenant restore is not implemented.
 - Backup/restore must be rehearsed per environment.
 - Background job health checks are not complete.
 - API smoke examples are placeholders until run against a seeded target environment.
+- Global `Features:EnableWebhooks` and `Features:EnableApiTokens` are deferred placeholders and intentionally fail Production startup if enabled.

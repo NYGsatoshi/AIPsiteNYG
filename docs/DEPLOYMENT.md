@@ -143,6 +143,28 @@ Docker Compose variables:
 
 Do not commit object storage keys, database passwords, API keys, or production secrets. Use environment variables, protected `.env` files, a vault, or deployment-platform secrets.
 
+
+## Supported Configuration Notes
+
+This section records configuration switches that are accepted by configuration binding versus switches that are enforced by the current implementation.
+
+Supported and enforced at startup:
+
+- `Tenancy:AppMode`, `Tenancy:DefaultTenantSlug`, `Tenancy:TenantResolutionStrategy`, development tenant-header switches, and production tenant-header safety checks.
+- `Security:CookieSecurePolicy`, `Security:RequireHttps`, `Security:EnableHsts`, `Security:EnableCsrfProtection`, `Security:EnableRateLimiting`, and login lockout limits.
+- `DataProtection:KeysPath` in Production.
+- `FileStorage:Provider=LocalFileSystem`, `FileStorage:RootPath`, upload size, extensions, and MIME types.
+- `Platform:PlatformAdminSetupMode` must remain disabled in Production.
+
+Deferred or non-enforcing switches:
+
+- `FileStorage:Provider=ObjectStorage`, `S3Compatible`, and `OCIObjectStorage` are placeholders only. Production startup fails if one is configured because object storage adapters are not implemented in this build.
+- `FileStorage:UseSignedUrls` is a placeholder only. Startup fails when it is enabled because signed URL generation is not implemented in this build.
+- `FileStorage:BucketName`, `FileStorage:Region`, `FileStorage:Endpoint`, `FileStorage:UsePathStyle`, `FileStorage:AccessKey`, and `FileStorage:SecretKey` are reserved for the deferred object storage adapters.
+- `Features:EnableWebhooks` and `Features:EnableApiTokens` are global placeholders. Production startup fails if either is enabled because outbound webhook delivery and API token authentication middleware are deferred.
+- `Features:EnableRadialMenu`, `Features:EnableDockingLayout`, `Features:EnableForms`, `Features:EnableEvents`, and `Features:EnableProductionTracking` document intended product defaults, but current feature enforcement is tenant-plan driven rather than these global switches.
+- `Platform:EnablePlatformAdmin`, `Platform:AllowTenantCreationFromAdmin`, `Platform:EnablePlansAndSubscriptions`, and `Platform:EnableUsageQuota` are bound for future operator policy but are not comprehensive runtime kill switches today.
+
 ## SaaS
 
 Use:
@@ -156,7 +178,7 @@ Use:
 - `Security:EnableCsrfProtection=true`
 - `DataProtection:KeysPath=<persisted path>`
 
-Production SaaS should use object storage once the adapter is implemented. Local filesystem storage is not recommended for production SaaS.
+Production SaaS should use object storage after an adapter is implemented. Until then, object storage settings intentionally fail Production startup; LocalFileSystem is the only implemented provider and is not recommended for multi-instance SaaS beyond controlled pilots.
 
 ## OnPremSingleTenant
 
