@@ -125,7 +125,7 @@ Login lockout is implemented for existing accounts. Generic responses must be pr
 ## Current Security Limitations
 
 - Production object storage adapter is not implemented.
-- PostgreSQL-backed search isolation tests are still needed.
+- PostgreSQL-backed search isolation tests exist behind `POSTGRES_TEST_CONNECTION_STRING`; CI still needs a PostgreSQL test database connection string to enforce them.
 - Full tenant restore is not implemented.
 - Password reset is not implemented.
 - API token authentication middleware is not implemented.
