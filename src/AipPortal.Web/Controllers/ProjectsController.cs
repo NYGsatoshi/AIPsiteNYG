@@ -1,5 +1,6 @@
 using AipPortal.Application.Projects;
 using AipPortal.Domain.Enums;
+using AipPortal.Web.Models;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
 
@@ -10,7 +11,7 @@ namespace AipPortal.Web.Controllers;
 public sealed class ProjectsController(IProjectService projects) : ControllerBase
 {
     [HttpGet("api/projects")]
-    public async Task<IActionResult> List([FromQuery] bool archived, CancellationToken cancellationToken) => ToActionResult(await projects.ListAsync(archived, cancellationToken));
+    public async Task<IActionResult> List([FromQuery] ProjectListQuery query, CancellationToken cancellationToken) => ToActionResult(await projects.ListAsync(query, cancellationToken));
 
     [HttpPost("api/projects")]
     public async Task<IActionResult> Create(CreateProjectRequest request, CancellationToken cancellationToken) => ToActionResult(await projects.CreateAsync(request, cancellationToken));
@@ -43,7 +44,7 @@ public sealed class ProjectsController(IProjectService projects) : ControllerBas
     public async Task<IActionResult> RemoveMember(Guid projectId, Guid userId, CancellationToken cancellationToken) => OkOrBad(await projects.RemoveMemberAsync(projectId, userId, cancellationToken));
 
     [HttpGet("api/projects/{projectId:guid}/milestones")]
-    public async Task<IActionResult> ListMilestones(Guid projectId, CancellationToken cancellationToken) => ToActionResult(await projects.ListMilestonesAsync(projectId, cancellationToken));
+    public async Task<IActionResult> ListMilestones(Guid projectId, [FromQuery] ProjectChildListQuery query, CancellationToken cancellationToken) => ToActionResult(await projects.ListMilestonesAsync(projectId, query, cancellationToken));
 
     [HttpPost("api/projects/{projectId:guid}/milestones")]
     public async Task<IActionResult> CreateMilestone(Guid projectId, CreateMilestoneRequest request, CancellationToken cancellationToken) => ToActionResult(await projects.CreateMilestoneAsync(projectId, request, cancellationToken));
@@ -55,7 +56,7 @@ public sealed class ProjectsController(IProjectService projects) : ControllerBas
     public async Task<IActionResult> DeleteMilestone(Guid milestoneId, CancellationToken cancellationToken) => OkOrBad(await projects.DeleteMilestoneAsync(milestoneId, cancellationToken));
 
     [HttpGet("api/projects/{projectId:guid}/tasks")]
-    public async Task<IActionResult> ListTasks(Guid projectId, CancellationToken cancellationToken) => ToActionResult(await projects.ListTasksAsync(projectId, cancellationToken));
+    public async Task<IActionResult> ListTasks(Guid projectId, [FromQuery] ProjectChildListQuery query, CancellationToken cancellationToken) => ToActionResult(await projects.ListTasksAsync(projectId, query, cancellationToken));
 
     [HttpPost("api/projects/{projectId:guid}/tasks")]
     public async Task<IActionResult> CreateTask(Guid projectId, CreateTaskItemRequest request, CancellationToken cancellationToken) => ToActionResult(await projects.CreateTaskAsync(projectId, request, cancellationToken));
@@ -91,7 +92,7 @@ public sealed class ProjectsController(IProjectService projects) : ControllerBas
     public async Task<IActionResult> DeleteDependency(Guid dependencyId, CancellationToken cancellationToken) => OkOrBad(await projects.DeleteDependencyAsync(dependencyId, cancellationToken));
 
     [HttpGet("api/comments")]
-    public async Task<IActionResult> ListComments([FromQuery] CommentTargetType targetType, [FromQuery] Guid targetId, CancellationToken cancellationToken) => ToActionResult(await projects.ListCommentsAsync(targetType, targetId, cancellationToken));
+    public async Task<IActionResult> ListComments([FromQuery] CommentTargetType targetType, [FromQuery] Guid targetId, [FromQuery] ProjectChildListQuery query, CancellationToken cancellationToken) => ToActionResult(await projects.ListCommentsAsync(targetType, targetId, query, cancellationToken));
 
     [HttpPost("api/comments")]
     public async Task<IActionResult> AddComment(CreateCommentRequest request, CancellationToken cancellationToken) => ToActionResult(await projects.AddCommentAsync(request, cancellationToken));
@@ -102,6 +103,7 @@ public sealed class ProjectsController(IProjectService projects) : ControllerBas
     [HttpDelete("api/comments/{commentId:guid}")]
     public async Task<IActionResult> DeleteComment(Guid commentId, CancellationToken cancellationToken) => OkOrBad(await projects.DeleteCommentAsync(commentId, cancellationToken));
 
-    private IActionResult OkOrBad(AipPortal.Application.Common.Result result) => result.IsSuccess ? Ok(new { status = "OK" }) : BadRequest(new { error = result.Error });
-    private IActionResult ToActionResult<T>(AipPortal.Application.Common.Result<T> result) => result.IsSuccess ? Ok(result.Value) : BadRequest(new { error = result.Error });
+    private IActionResult OkOrBad(AipPortal.Application.Common.Result result) => result.IsSuccess ? Ok(new { status = "OK" }) : BadRequest(ToErrorResponse(result.Error));
+    private IActionResult ToActionResult<T>(AipPortal.Application.Common.Result<T> result) => result.IsSuccess ? Ok(result.Value) : BadRequest(ToErrorResponse(result.Error));
+    private ErrorResponse ToErrorResponse(string? message) => new("BadRequest", message ?? "The request could not be completed.", HttpContext.TraceIdentifier);
 }

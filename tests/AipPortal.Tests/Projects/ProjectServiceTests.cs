@@ -28,10 +28,10 @@ public sealed class ProjectServiceTests
         fixture.AddProjectMember(member.Id, ProjectRole.Viewer);
         fixture.AddTask("Storyboard");
 
-        var result = await fixture.Service.ListTasksAsync(fixture.Project.Id);
+        var result = await fixture.Service.ListTasksAsync(fixture.Project.Id, new ProjectChildListQuery());
 
         Assert.True(result.IsSuccess);
-        Assert.Single(result.Value!);
+        Assert.Single(result.Value!.Items);
     }
 
     [Fact]
@@ -105,10 +105,10 @@ public sealed class ProjectServiceTests
         fixture.AddProjectMember(member.Id, ProjectRole.Viewer);
         fixture.Project.MarkDeleted(fixture.Clock.UtcNow, member.Id, "test");
 
-        var result = await fixture.Service.ListAsync();
+        var result = await fixture.Service.ListAsync(new ProjectListQuery());
 
         Assert.True(result.IsSuccess);
-        Assert.Empty(result.Value!);
+        Assert.Empty(result.Value!.Items);
     }
 
     [Fact]
@@ -120,13 +120,42 @@ public sealed class ProjectServiceTests
         fixture.AddProjectMember(member.Id, ProjectRole.Viewer);
         fixture.Project.Status = ProjectStatus.Archived;
 
-        var normal = await fixture.Service.ListAsync();
-        var archived = await fixture.Service.ListAsync(archived: true);
+        var normal = await fixture.Service.ListAsync(new ProjectListQuery());
+        var archived = await fixture.Service.ListAsync(new ProjectListQuery(Archived: true));
 
         Assert.True(normal.IsSuccess);
-        Assert.Empty(normal.Value!);
+        Assert.Empty(normal.Value!.Items);
         Assert.True(archived.IsSuccess);
-        Assert.Single(archived.Value!);
+        Assert.Single(archived.Value!.Items);
+    }
+
+    [Fact]
+    public async Task ProjectListSupportsPagingAndSearch()
+    {
+        var fixture = ProjectFixture.Create();
+        var member = fixture.AddUser();
+        fixture.Current.UserIdValue = member.Id;
+        fixture.AddProjectMember(member.Id, ProjectRole.Viewer);
+        var secondProject = new Project
+        {
+            WorkspaceId = fixture.Workspace.Id,
+            OwnerUserId = member.Id,
+            CreatedByUserId = member.Id,
+            Name = "Marketing Launch",
+            Slug = "marketing-launch",
+            Description = "Campaign timeline",
+            Status = ProjectStatus.Active
+        };
+        fixture.Projects.ProjectItems[secondProject.Id] = secondProject;
+        fixture.Projects.Members.Add(new ProjectMember { ProjectId = secondProject.Id, UserId = member.Id, User = member, Role = ProjectRole.Viewer, JoinedAt = fixture.Clock.UtcNow });
+
+        var result = await fixture.Service.ListAsync(new ProjectListQuery(Search: "marketing", Page: 1, PageSize: 1));
+
+        Assert.True(result.IsSuccess);
+        Assert.Equal(1, result.Value!.Page);
+        Assert.Equal(1, result.Value.PageSize);
+        Assert.Equal(1, result.Value.TotalCount);
+        Assert.Equal(secondProject.Id, Assert.Single(result.Value.Items).Id);
     }
 
     [Fact]
