@@ -97,6 +97,8 @@ test('projects list, empty task state, form validation, and API error state are 
   await page.keyboard.press('Tab');
   await submitTaskButton.scrollIntoViewIfNeeded();
   await expect(submitTaskButton).toBeVisible();
+  await expect(submitTaskButton).toBeEnabled();
+  await page.waitForTimeout(300);
   await submitTaskButton.click();
   await expect(page.getByRole('status')).toHaveText('Due date cannot be before start date.');
 
