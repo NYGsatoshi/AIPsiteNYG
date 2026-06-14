@@ -61,7 +61,6 @@ jobs:
     runs-on: ubuntu-latest
     permissions:
       contents: read
-      security-events: write
     env:
       IMAGE_NAME: aipsite-nyg-ci:${{ github.sha }}
       POSTGRES_PASSWORD: ci_only_compose_config_password
@@ -71,6 +70,22 @@ jobs:
         uses: actions/checkout@v4
         with:
           fetch-depth: 0
+
+      - name: Scan repository secrets with Gitleaks
+        run: |
+          docker run --rm \
+            -v "$PWD:/repo" \
+            zricethezav/gitleaks:v8.24.3 \
+            detect --no-git --source /repo --redact --verbose \
+            --report-format json --report-path /repo/gitleaks-report.json
+
+      - name: Upload Gitleaks secret scan report
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: gitleaks-secret-scan-report
+          path: gitleaks-report.json
+          if-no-files-found: error
 
       - name: Setup .NET
         uses: actions/setup-dotnet@v4
@@ -132,10 +147,3 @@ jobs:
           name: trivy-image-scan-report
           path: trivy-image-report.txt
           if-no-files-found: error
-
-      - name: Scan repository secrets with Gitleaks
-        uses: gitleaks/gitleaks-action@v2
-        env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-          GITLEAKS_ENABLE_UPLOAD_ARTIFACT: true
-          GITLEAKS_ENABLE_SUMMARY: true
