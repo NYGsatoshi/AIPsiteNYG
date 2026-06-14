@@ -90,6 +90,33 @@ public sealed class AuthServiceTests
     }
 
     [Fact]
+    public async Task ArchivedUserCannotLogin()
+    {
+        var fixture = AuthFixture.Create();
+        fixture.AddUser("student@example.com", "Password123", UserStatus.Archived);
+
+        var result = await fixture.Service.LoginAsync(new LoginRequest("student@example.com", "Password123"));
+
+        Assert.False(result.IsSuccess);
+        Assert.Equal("Invalid email or password.", result.Error);
+        Assert.Empty(fixture.Sessions);
+    }
+
+    [Fact]
+    public async Task DeletedUserCannotLogin()
+    {
+        var fixture = AuthFixture.Create();
+        var user = fixture.AddUser("student@example.com", "Password123", UserStatus.Active);
+        user.MarkDeleted(fixture.Clock.UtcNow);
+
+        var result = await fixture.Service.LoginAsync(new LoginRequest("student@example.com", "Password123"));
+
+        Assert.False(result.IsSuccess);
+        Assert.Equal("Invalid email or password.", result.Error);
+        Assert.Empty(fixture.Sessions);
+    }
+
+    [Fact]
     public async Task FailedPasswordAttemptsLockActiveUser()
     {
         var fixture = AuthFixture.Create(new AuthSecurityOptions
@@ -124,6 +151,29 @@ public sealed class AuthServiceTests
         var user = fixture.AddUser("student@example.com", "Password123", UserStatus.Active);
 
         await fixture.Service.LoginAsync(new LoginRequest("student@example.com", "wrong-password"));
+        var result = await fixture.Service.LoginAsync(new LoginRequest("student@example.com", "Password123"));
+
+        Assert.True(result.IsSuccess);
+        Assert.Equal(0, user.FailedLoginAttempts);
+        Assert.Null(user.LockoutEndAt);
+        Assert.Single(fixture.Sessions);
+    }
+
+    [Fact]
+    public async Task ExpiredLockoutIsClearedBeforePasswordVerification()
+    {
+        var fixture = AuthFixture.Create(new AuthSecurityOptions
+        {
+            LoginLockoutEnabled = true,
+            MaxFailedLoginAttempts = 2,
+            LoginLockoutDurationMinutes = 30
+        });
+        var user = fixture.AddUser("student@example.com", "Password123", UserStatus.Active);
+
+        await fixture.Service.LoginAsync(new LoginRequest("student@example.com", "wrong-password"));
+        await fixture.Service.LoginAsync(new LoginRequest("student@example.com", "wrong-password"));
+        fixture.Clock.Advance(TimeSpan.FromMinutes(31));
+
         var result = await fixture.Service.LoginAsync(new LoginRequest("student@example.com", "Password123"));
 
         Assert.True(result.IsSuccess);
@@ -301,7 +351,12 @@ public sealed class AuthServiceTests
 
     private sealed class FakeClock(DateTimeOffset utcNow) : IClock
     {
-        public DateTimeOffset UtcNow { get; } = utcNow;
+        public DateTimeOffset UtcNow { get; private set; } = utcNow;
+
+        public void Advance(TimeSpan amount)
+        {
+            UtcNow = UtcNow.Add(amount);
+        }
     }
 
     private sealed class FakeUnitOfWork : IUnitOfWork

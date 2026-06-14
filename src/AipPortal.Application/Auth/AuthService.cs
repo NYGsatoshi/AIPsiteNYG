@@ -35,7 +35,7 @@ public sealed class AuthService(
         var normalizedEmail = NormalizeEmail(request.Email);
         var user = await users.GetByNormalizedEmailAsync(normalizedEmail, cancellationToken);
 
-        if (user is { DeletedAt: null, Status: UserStatus.Active })
+        if (user is not null && CanUserLogin(user))
         {
             NormalizeExpiredLockout(user);
             if (IsLockedOut(user))
@@ -51,9 +51,7 @@ public sealed class AuthService(
             }
         }
 
-        if (user is null ||
-            user.DeletedAt.HasValue ||
-            user.Status != UserStatus.Active)
+        if (user is null || !CanUserLogin(user))
         {
             await auditLogger.LogSecurityAsync("LoginFailure", "Invalid login attempt.", new Dictionary<string, object?> { ["email"] = request.Email, ["userId"] = user?.Id }, SecurityEventSeverity.Warning, cancellationToken);
             await LogAndSaveAsync(user?.Id, "LoginFailure", "User", user?.Id, "Invalid login attempt.", cancellationToken);
@@ -252,6 +250,11 @@ public sealed class AuthService(
         return securityOptions.LoginLockoutEnabled &&
                user.LockoutEndAt.HasValue &&
                user.LockoutEndAt.Value > clock.UtcNow;
+    }
+
+    private static bool CanUserLogin(User user)
+    {
+        return !user.DeletedAt.HasValue && user.Status == UserStatus.Active;
     }
 
     private void NormalizeExpiredLockout(User user)
