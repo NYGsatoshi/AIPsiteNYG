@@ -134,7 +134,7 @@ public sealed class AdminRepository(AppDbContext dbContext) : IAdminRepository
             .AsNoTracking()
             .OrderByDescending(log => log.CreatedAt)
             .Take(recentCount)
-            .Select(log => new AuditLogListItemResponse(log.Id, log.ActorUserId, log.ActorUser == null ? null : log.ActorUser.DisplayName, log.Action, log.EntityType, log.EntityId, log.WorkspaceId, log.GroupId, log.ProjectId, log.Summary, log.MetadataJson, log.CreatedAt))
+            .Select(log => new AuditLogListItemResponse(log.Id, log.ActorUserId, log.ActorUser == null ? null : log.ActorUser.DisplayName, log.Action, log.EntityType, log.EntityId, log.WorkspaceId, log.GroupId, log.ProjectId, log.Summary, log.MetadataJson, log.CorrelationId, log.CreatedAt))
             .ToListAsync(cancellationToken);
 
         var recentSecurityEvents = await dbContext.SecurityEvents

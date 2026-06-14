@@ -81,7 +81,7 @@ public sealed class AuthService(
         user.LastLoginAt = clock.UtcNow;
         var session = CreateSession(user.Id);
         await sessions.AddAsync(session, cancellationToken);
-        await auditLogger.LogAsync(new AuditLogEntry(user.Id, "LoginSuccess", "User", user.Id), cancellationToken);
+        await auditLogger.LogAsync(new AuditLogEntry(user.Id, "LoginSuccess", "User", user.Id, "User logged in."), cancellationToken);
         await auditLogger.LogSecurityAsync("LoginSuccess", "User logged in.", new Dictionary<string, object?> { ["userId"] = user.Id, ["email"] = user.Email }, cancellationToken: cancellationToken);
         await unitOfWork.SaveChangesAsync(cancellationToken);
 
@@ -144,7 +144,7 @@ public sealed class AuthService(
         await users.AddAsync(user, cancellationToken);
         var session = CreateSession(user.Id);
         await sessions.AddAsync(session, cancellationToken);
-        await auditLogger.LogAsync(new AuditLogEntry(user.Id, "InviteAccepted", "Invite", invite.Id), cancellationToken);
+        await auditLogger.LogAsync(new AuditLogEntry(user.Id, "InviteAccepted", "Invite", invite.Id, "Invite accepted."), cancellationToken);
         await auditLogger.LogSecurityAsync("InviteAccepted", "Invite accepted.", new Dictionary<string, object?> { ["userId"] = user.Id, ["inviteId"] = invite.Id }, cancellationToken: cancellationToken);
         await unitOfWork.SaveChangesAsync(cancellationToken);
 
@@ -163,7 +163,7 @@ public sealed class AuthService(
             await userSessions.RevokeSessionAsync(currentUser.SessionId.Value, currentUser.UserId, "Logout", cancellationToken);
         }
 
-        await auditLogger.LogAsync(new AuditLogEntry(currentUser.UserId, "Logout", "User", currentUser.UserId), cancellationToken);
+        await auditLogger.LogAsync(new AuditLogEntry(currentUser.UserId, "Logout", "User", currentUser.UserId, "User logged out."), cancellationToken);
         await auditLogger.LogSecurityAsync("Logout", "User logged out.", cancellationToken: cancellationToken);
         await unitOfWork.SaveChangesAsync(cancellationToken);
 
@@ -194,7 +194,7 @@ public sealed class AuthService(
         }
 
         user.PasswordHash = passwordHasher.HashPassword(request.NewPassword);
-        await auditLogger.LogAsync(new AuditLogEntry(user.Id, "PasswordChanged", "User", user.Id), cancellationToken);
+        await auditLogger.LogAsync(new AuditLogEntry(user.Id, "PasswordChanged", "User", user.Id, "Password changed."), cancellationToken);
         await auditLogger.LogSecurityAsync("PasswordChanged", "Password changed.", new Dictionary<string, object?> { ["userId"] = user.Id }, cancellationToken: cancellationToken);
         await userSessions.RevokeUserSessionsAsync(user.Id, user.Id, "PasswordChanged", currentUser.SessionId, cancellationToken);
         await unitOfWork.SaveChangesAsync(cancellationToken);

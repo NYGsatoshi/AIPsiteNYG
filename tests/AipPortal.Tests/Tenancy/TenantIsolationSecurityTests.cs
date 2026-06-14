@@ -248,6 +248,25 @@ public sealed class TenantIsolationSecurityTests
         Assert.Equal(data.WorkspaceA.Id, items[0].WorkspaceId);
     }
 
+
+    [Fact]
+    public async Task NonAdminAuditQueryIsDenied()
+    {
+        var (dbContext, currentTenant, data) = await CreateSeededContextAsync();
+        currentTenant.SetTenant(data.TenantA.Id, data.TenantA.Slug);
+        var service = new DbAuditQueryService(
+            dbContext,
+            new TestCurrentUser(data.TenantAMember),
+            currentTenant,
+            new TenantRepository(dbContext),
+            new WorkspaceAuthorizationService(new UserRepository(dbContext), new WorkspaceRepository(dbContext)));
+
+        var result = await service.ListAuditLogsAsync(new AuditLogQuery(WorkspaceId: data.WorkspaceA.Id));
+
+        Assert.False(result.IsSuccess);
+        Assert.Equal("You are not allowed to view audit logs.", result.Error);
+    }
+
     [Fact]
     public async Task TenantFeatureOverridesAndQuotaLimitsStayTenantScoped()
     {

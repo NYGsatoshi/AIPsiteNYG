@@ -1,3 +1,4 @@
+using System.Diagnostics;
 using System.Text.Json;
 using AipPortal.Application.Common.Interfaces;
 using AipPortal.Domain.Entities;
@@ -16,7 +17,10 @@ public sealed class DbAuditLogger(AppDbContext dbContext, IClock clock, ICurrent
         "rawFilePath",
         "filePath",
         "messageBody",
-        "body"
+        "body",
+        "cookie",
+        "connectionString",
+        "environmentVariable"
     };
 
     public async Task LogAsync(AuditLogEntry entry, CancellationToken cancellationToken = default)
@@ -43,6 +47,7 @@ public sealed class DbAuditLogger(AppDbContext dbContext, IClock clock, ICurrent
                 UserAgent = entry.UserAgent,
                 Summary = entry.Summary,
                 MetadataJson = SerializeMetadata(entry.Metadata),
+                CorrelationId = entry.CorrelationId ?? Activity.Current?.TraceId.ToString(),
                 CreatedAt = clock.UtcNow
             }, cancellationToken);
         }

@@ -267,8 +267,15 @@ public sealed class GroupService(
 
     private Task AuditAsync(Guid actorUserId, string action, Guid targetId, CancellationToken cancellationToken)
     {
-        return auditLogger.LogAsync(new AuditLogEntry(actorUserId, action, "Group", targetId), cancellationToken);
+        return auditLogger.LogAsync(new AuditLogEntry(actorUserId, action, "Group", targetId, SummaryFor(action)), cancellationToken);
     }
+
+    private static string SummaryFor(string action) => action switch
+    {
+        "GroupCreated" => "Group created.",
+        "GroupMemberRoleChanged" => "Group permission changed.",
+        _ => $"{action} completed."
+    };
 
     private static GroupListItemResponse ToListItem(Group group)
     {

@@ -24,28 +24,17 @@ public sealed class DbAuditQueryService(
         }
 
         var userId = currentUser.UserId.Value;
-        var isSystemAdmin = currentUser.SystemRole == SystemRole.SystemAdmin;
+        var isSystemAdmin = currentUser.SystemRole is SystemRole.SystemAdmin or SystemRole.PlatformAdmin;
         var isTenantAdmin = currentTenant.IsAvailable &&
             await IsTenantAdminAsync(userId, currentTenant.TenantId, cancellationToken);
-        var canReadScoped = currentUser.SystemRole is SystemRole.Teacher or SystemRole.Admin;
-        if (!isSystemAdmin && !isTenantAdmin && !canReadScoped)
+        if (!isSystemAdmin && !isTenantAdmin)
         {
             return Result<PagedResponse<AuditLogListItemResponse>>.Failure("You are not allowed to view audit logs.");
-        }
-
-        if (!isSystemAdmin && !isTenantAdmin && (!query.WorkspaceId.HasValue || !await workspaceAuthorization.CanManageWorkspace(userId, query.WorkspaceId.Value, cancellationToken)))
-        {
-            return Result<PagedResponse<AuditLogListItemResponse>>.Failure("A manageable workspace scope is required.");
         }
 
         var page = Math.Max(1, query.Page);
         var pageSize = Math.Clamp(query.PageSize, 1, MaxPageSize);
         var source = dbContext.AuditLogs.AsNoTracking();
-
-        if (!isSystemAdmin && !isTenantAdmin)
-        {
-            source = source.Where(log => log.WorkspaceId == query.WorkspaceId);
-        }
 
         if (!string.IsNullOrWhiteSpace(query.Action))
         {
@@ -104,6 +93,7 @@ public sealed class DbAuditQueryService(
                 log.ProjectId,
                 log.Summary,
                 log.MetadataJson,
+                log.CorrelationId,
                 log.CreatedAt))
             .ToListAsync(cancellationToken);
 
@@ -117,7 +107,7 @@ public sealed class DbAuditQueryService(
             return Result<PagedResponse<SecurityEventListItemResponse>>.Failure("Authentication is required.");
         }
 
-        var isSystemAdmin = currentUser.SystemRole == SystemRole.SystemAdmin;
+        var isSystemAdmin = currentUser.SystemRole is SystemRole.SystemAdmin or SystemRole.PlatformAdmin;
         var isTenantAdmin = currentTenant.IsAvailable &&
             await IsTenantAdminAsync(currentUser.UserId.Value, currentTenant.TenantId, cancellationToken);
 

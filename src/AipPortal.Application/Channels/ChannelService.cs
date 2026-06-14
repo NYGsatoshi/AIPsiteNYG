@@ -395,8 +395,16 @@ public sealed class ChannelService(
 
     private Task AuditAsync(Guid actorUserId, string action, Guid targetId, CancellationToken cancellationToken)
     {
-        return auditLogger.LogAsync(new AuditLogEntry(actorUserId, action, "Channel", targetId), cancellationToken);
+        var targetType = action.StartsWith("Post", StringComparison.Ordinal) ? "Post" : "Channel";
+        return auditLogger.LogAsync(new AuditLogEntry(actorUserId, action, targetType, targetId, SummaryFor(action)), cancellationToken);
     }
+
+    private static string SummaryFor(string action) => action switch
+    {
+        "ChannelCreated" => "Channel created.",
+        "PostDeleted" => "Post deleted.",
+        _ => $"{action} completed."
+    };
 
     private static ChannelListItemResponse ToListItem(Channel channel)
     {

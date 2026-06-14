@@ -52,4 +52,5 @@ public sealed record AuditLogEntry(
     string? IpAddress = null,
     string? UserAgent = null,
     IReadOnlyDictionary<string, object?>? Metadata = null,
-    Guid? TenantId = null);
+    Guid? TenantId = null,
+    string? CorrelationId = null);
