@@ -8,6 +8,7 @@ import { renderNotifications } from "./pages/notifications.js";
 import { renderProjectDetail, renderProjects } from "./pages/projects.js";
 import { renderPlaceholder, renderSearch } from "./pages/placeholders.js";
 import { qs, routeTo } from "./utils.js";
+import { t } from "./i18n/index.js";
 
 const root = document.getElementById("app");
 let shellState = null;
@@ -29,7 +30,7 @@ async function boot() {
       return;
     }
 
-    root.innerHTML = `<main class="auth-screen"><section class="auth-card"><h1>AIP Portal</h1><p>Unable to start the app.</p></section></main>`;
+    root.innerHTML = `<main class="auth-screen"><section class="auth-card"><h1>AIP Portal</h1><p>${t("common.error")}</p></section></main>`;
   }
 }
 
@@ -77,5 +78,6 @@ async function renderRoute() {
 
 window.addEventListener("popstate", renderRoute);
 window.addEventListener("aip:navigate", renderRoute);
+window.addEventListener("aip:locale-changed", () => location.reload());
 
 boot();

@@ -1,6 +1,7 @@
 import { DashboardApi } from "../api.js";
 import { enumLabel } from "../enums.js";
 import { emptyState, errorState, escapeHtml, formatDate, loadingState, normalizeList, pageTitle, todayIso } from "../utils.js";
+import { t } from "../i18n/index.js";
 
 async function fillSection(root, selector, loader, renderer, emptyMessage) {
   const target = root.querySelector(selector);
@@ -18,35 +19,35 @@ async function fillSection(root, selector, loader, renderer, emptyMessage) {
 
 export function renderDashboard(root) {
   root.innerHTML = `
-    ${pageTitle("Dashboard", "My work, updates, and production activity.")}
+    ${pageTitle(t("dashboard.title"), t("dashboard.subtitle"))}
     <section class="dashboard-grid">
       <article class="panel span-2">
-        <div class="section-heading"><h2>My work summary</h2></div>
+        <div class="section-heading"><h2>${t("dashboard.myWork")}</h2></div>
         <div data-my-work>${loadingState()}</div>
       </article>
       <article class="panel">
-        <div class="section-heading"><h2>DM</h2></div>
+        <div class="section-heading"><h2>${t("chat.title")}</h2></div>
         <div data-conversations>${loadingState()}</div>
       </article>
       <article class="panel">
-        <div class="section-heading"><h2>Unread notifications</h2></div>
+        <div class="section-heading"><h2>${t("dashboard.unreadNotifications")}</h2></div>
         <div data-unread>${loadingState()}</div>
       </article>
       <article class="panel">
-        <div class="section-heading"><h2>Announcements</h2></div>
+        <div class="section-heading"><h2>${t("announcements.title")}</h2></div>
         <div data-announcements>${loadingState()}</div>
       </article>
       <article class="panel">
-        <div class="section-heading"><h2>Upcoming events</h2></div>
+        <div class="section-heading"><h2>${t("dashboard.upcomingEvents")}</h2></div>
         <div data-events>${loadingState()}</div>
       </article>
       <article class="panel span-2">
-        <div class="section-heading"><h2>Projects</h2></div>
+        <div class="section-heading"><h2>${t("projects.title")}</h2></div>
         <div data-projects>${loadingState()}</div>
       </article>
       <article class="panel span-2">
-        <div class="section-heading"><h2>Recent artifacts or activity</h2></div>
-        <div data-activity>${emptyState("No recent activity yet.")}</div>
+        <div class="section-heading"><h2>${t("dashboard.recentActivity")}</h2></div>
+        <div data-activity>${emptyState(t("dashboard.noActivity"))}</div>
       </article>
     </section>
   `;
@@ -54,8 +55,8 @@ export function renderDashboard(root) {
   const dueBefore = todayIso(14);
   fillSection(root, "[data-my-work]", () => DashboardApi.myTasks(dueBefore), (items) => `
     <div class="metric-row">
-      <div><strong>${items.length}</strong><span>tasks due soon</span></div>
-      <div><strong>${items.filter((task) => task.isOverdue).length}</strong><span>overdue</span></div>
+      <div><strong>${items.length}</strong><span>${t("dashboard.tasksDueSoon")}</span></div>
+      <div><strong>${items.filter((task) => task.isOverdue).length}</strong><span>${t("dashboard.overdue")}</span></div>
     </div>
     <div class="list-table compact">
       ${items.slice(0, 5).map((task) => `
@@ -66,27 +67,27 @@ export function renderDashboard(root) {
         </a>
       `).join("")}
     </div>
-  `, "No assigned tasks due soon.");
+  `, t("dashboard.noTasks"));
 
   fillSection(root, "[data-conversations]", DashboardApi.conversations, (items) => `
     <div class="metric-row single">
-      <div><strong>${items.reduce((sum, item) => sum + (item.unreadCount || 0), 0)}</strong><span>unread messages</span></div>
+      <div><strong>${items.reduce((sum, item) => sum + (item.unreadCount || 0), 0)}</strong><span>${t("dashboard.unreadMessages")}</span></div>
     </div>
     <div class="stack small">
       ${items.slice(0, 4).map((item) => `
         <article class="mini-item">
-          <strong>${escapeHtml(item.title || "Direct message")}</strong>
-          <span>${escapeHtml(item.lastMessage?.body || "No messages yet.")}</span>
+          <strong>${escapeHtml(item.title || t("chat.directMessage"))}</strong>
+          <span>${escapeHtml(item.lastMessage?.body || t("chat.noMessages"))}</span>
         </article>
       `).join("")}
     </div>
-  `, "No recent conversations.");
+  `, t("dashboard.noConversations"));
 
   fillSection(root, "[data-unread]", DashboardApi.unreadCount, (_, payload) => `
     <div class="metric-row single">
-      <div><strong>${payload.unreadCount ?? 0}</strong><span>unread notifications</span></div>
+      <div><strong>${payload.unreadCount ?? 0}</strong><span>${t("notifications.unread")} ${t("notifications.label")}</span></div>
     </div>
-  `, "No unread notifications.");
+  `, t("dashboard.noNotifications"));
 
   fillSection(root, "[data-announcements]", DashboardApi.announcements, (items) => `
     <div class="stack small">
@@ -98,19 +99,19 @@ export function renderDashboard(root) {
         </article>
       `).join("")}
     </div>
-  `, "No announcements yet.");
+  `, t("dashboard.noAnnouncements"));
 
   fillSection(root, "[data-events]", () => DashboardApi.calendar(new Date().toISOString(), todayIso(30)), (items) => `
     <div class="stack small">
       ${items.slice(0, 5).map((item) => `
         <article class="mini-item">
           <strong>${escapeHtml(item.title)}</strong>
-          <span>${escapeHtml(item.relatedScope?.label || "Calendar")}</span>
+          <span>${escapeHtml(item.relatedScope?.label || t("nav.calendar"))}</span>
           <time>${formatDate(item.startsAt)}</time>
         </article>
       `).join("")}
     </div>
-  `, "No upcoming events.");
+  `, t("dashboard.noEvents"));
 
   fillSection(root, "[data-projects]", DashboardApi.projects, (items) => `
     <div class="list-table">
@@ -122,5 +123,5 @@ export function renderDashboard(root) {
         </a>
       `).join("")}
     </div>
-  `, "No projects yet.");
+  `, t("projects.empty"));
 }

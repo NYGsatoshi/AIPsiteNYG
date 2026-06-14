@@ -1,3 +1,5 @@
+import { t } from "./i18n/index.js";
+
 export const SystemRole = {
   NormalUser: 0,
   User: 0,
@@ -55,8 +57,9 @@ export const labels = {
 
 export function enumLabel(group, value) {
   if (typeof value === "string") {
-    return value.replace(/([a-z])([A-Z])/g, "$1 $2");
+    const index = labels[group]?.findIndex((label) => label.replaceAll(" ", "") === value || label === value);
+    return index >= 0 ? t(`enum.${group}.${index}`) : value.replace(/([a-z])([A-Z])/g, "$1 $2");
   }
 
-  return labels[group]?.[value] ?? String(value ?? "");
+  return t(`enum.${group}.${value}`, {}, labels[group]?.[value] ?? String(value ?? ""));
 }

@@ -1,5 +1,6 @@
 import { AdminApi, ConversationApi } from "../api.js";
 import { badge, emptyState, errorState, escapeHtml, formatDate, loadingState, normalizeList, pageTitle, routeTo } from "../utils.js";
+import { t } from "../i18n/index.js";
 
 const ConversationType = {
   Direct: 0,
@@ -9,20 +10,20 @@ const ConversationType = {
 let dmPollId = null;
 
 function typeLabel(value) {
-  if (value === ConversationType.Group || value === "Group") return "Group";
-  return "Direct";
+  if (value === ConversationType.Group || value === "Group") return t("chat.group");
+  return t("chat.direct");
 }
 
 function conversationTitle(conversation, currentUser) {
   if (conversation.title) return conversation.title;
   const otherMember = conversation.members?.find((member) => member.userId !== currentUser?.id && !member.leftAt);
-  return otherMember?.displayName || "Direct message";
+  return otherMember?.displayName || t("chat.directMessage");
 }
 
 function messagePreview(message) {
-  if (!message) return "No messages yet.";
-  if (message.isDeleted) return "Message deleted";
-  return message.body || "Attachment";
+  if (!message) return t("chat.noMessages");
+  if (message.isDeleted) return t("chat.deleted");
+  return message.body || t("chat.attachment");
 }
 
 function renderConversationRow(item, selectedId) {
@@ -42,11 +43,11 @@ function renderConversationRow(item, selectedId) {
 
 function renderMessage(message, currentUser) {
   const mine = message.authorUserId === currentUser?.id ? "is-mine" : "";
-  const body = message.isDeleted ? "Message deleted" : message.body;
+  const body = message.isDeleted ? t("chat.deleted") : message.body;
   return `
     <article class="message-item ${mine} ${message.isDeleted ? "is-deleted" : ""}">
       <div>
-        <strong>${escapeHtml(message.authorDisplayName || "Unknown")}</strong>
+        <strong>${escapeHtml(message.authorDisplayName || t("chat.unknown"))}</strong>
         <time>${formatDate(message.createdAt)}</time>
       </div>
       <p>${escapeHtml(body)}</p>
@@ -58,7 +59,7 @@ async function loadAdminUsers(root, currentUser) {
   const picker = root.querySelector("[data-user-picker]");
   if (!picker) return;
 
-  picker.innerHTML = loadingState("Loading users");
+  picker.innerHTML = loadingState(t("chat.loadingUsers"));
   try {
     const payload = await AdminApi.users();
     const users = normalizeList(payload).filter((user) => user.id !== currentUser?.id);
@@ -69,24 +70,24 @@ async function loadAdminUsers(root, currentUser) {
             <span>${escapeHtml(user.displayName)} <small>${escapeHtml(user.email)}</small></span>
           </label>
         `).join("")
-      : emptyState("No users available.");
+      : emptyState(t("chat.noUsers"));
   } catch (error) {
     // TODO: Replace this with a scoped user search/member picker when a non-admin API exists.
     picker.innerHTML = error.status === 403
-      ? emptyState("User search is unavailable for this account.")
+      ? emptyState(t("chat.userSearchUnavailable"))
       : errorState(error.message);
   }
 }
 
 async function loadConversationList(root, selectedId) {
   const target = root.querySelector("[data-conversation-list]");
-  target.innerHTML = loadingState("Loading conversations");
+  target.innerHTML = loadingState(t("chat.loadingConversations"));
 
   try {
     const conversations = normalizeList(await ConversationApi.list());
     target.innerHTML = conversations.length
       ? conversations.map((item) => renderConversationRow(item, selectedId)).join("")
-      : emptyState("No conversations yet.");
+      : emptyState(t("chat.noConversations"));
 
     target.querySelectorAll("[data-conversation-id]").forEach((button) => {
       button.addEventListener("click", () => routeTo(`/dm/${button.dataset.conversationId}`));
@@ -108,7 +109,7 @@ async function markConversationRead(conversationId, messages) {
 
 async function loadConversationDetail(root, conversationId, currentUser) {
   const detail = root.querySelector("[data-conversation-detail]");
-  detail.innerHTML = loadingState("Loading conversation");
+  detail.innerHTML = loadingState(t("chat.loadingConversation"));
 
   try {
     const [conversation, messagePage] = await Promise.all([
@@ -123,17 +124,17 @@ async function loadConversationDetail(root, conversationId, currentUser) {
       <div class="conversation-detail-header">
         <div>
           <h2>${escapeHtml(conversationTitle(conversation, currentUser))}</h2>
-          <p>${escapeHtml(conversation.members?.filter((member) => !member.leftAt).map((member) => member.displayName || member.email).join(", ") || "No active members")}</p>
+          <p>${escapeHtml(conversation.members?.filter((member) => !member.leftAt).map((member) => member.displayName || member.email).join(", ") || t("chat.noActiveMembers"))}</p>
         </div>
         ${badge(typeLabel(conversation.type))}
       </div>
       <div class="message-list" data-message-list>
-        ${messages.length ? messages.slice().reverse().map((message) => renderMessage(message, currentUser)).join("") : emptyState("No messages yet.")}
+        ${messages.length ? messages.slice().reverse().map((message) => renderMessage(message, currentUser)).join("") : emptyState(t("chat.noMessages"))}
       </div>
       <form class="message-composer" data-message-form>
-        <button class="icon-button" type="button" aria-label="Attachments unavailable" disabled>+</button>
-        <textarea name="body" rows="2" placeholder="Message" aria-label="Message body"></textarea>
-        <button class="primary-action compact-action" type="submit">Send</button>
+        <button class="icon-button" type="button" aria-label="${t("chat.attachmentsUnavailable")}" disabled>+</button>
+        <textarea name="body" rows="2" placeholder="${t("chat.message")}" aria-label="${t("chat.messageBody")}"></textarea>
+        <button class="primary-action compact-action" type="submit">${t("common.send")}</button>
         <p class="form-message" data-send-message role="status"></p>
       </form>
     `;
@@ -153,7 +154,7 @@ async function loadConversationDetail(root, conversationId, currentUser) {
       const body = textarea.value.trim();
       messageTarget.textContent = "";
       if (!body) {
-        messageTarget.textContent = "Message body is required.";
+        messageTarget.textContent = t("chat.messageRequired");
         return;
       }
 
@@ -189,12 +190,12 @@ function bindCreateConversation(root, currentUser) {
     message.textContent = "";
 
     if (!selected.length) {
-      message.textContent = "Select at least one user.";
+      message.textContent = t("chat.selectUser");
       return;
     }
 
     if (type === "Direct" && selected.length !== 1) {
-      message.textContent = "Direct conversations need one other user.";
+      message.textContent = t("chat.directNeedsOne");
       return;
     }
 
@@ -218,35 +219,35 @@ export async function renderMessaging(root, shellState, conversationId) {
   }
 
   root.innerHTML = `
-    ${pageTitle("DM", "Recent conversations and unread messages.")}
+    ${pageTitle(t("chat.title"), t("chat.subtitle"))}
     <section class="communications-layout">
       <aside class="conversation-panel">
         <div class="section-heading">
-          <h2>Conversations</h2>
-          <button class="primary-action compact-action" type="button" data-new-conversation>New</button>
+          <h2>${t("chat.conversations")}</h2>
+          <button class="primary-action compact-action" type="button" data-new-conversation>${t("common.new")}</button>
         </div>
         <div class="create-panel" data-create-panel hidden>
           <form class="stack small" data-create-conversation-form>
             <label>
-              <span>Type</span>
+              <span>${t("common.type")}</span>
               <select name="type">
-                <option value="Direct">Direct</option>
-                <option value="Group">Group</option>
+                <option value="Direct">${t("chat.direct")}</option>
+                <option value="Group">${t("chat.group")}</option>
               </select>
             </label>
             <label>
-              <span>Group title</span>
+              <span>${t("chat.groupTitle")}</span>
               <input name="title" type="text" maxlength="120">
             </label>
             <div class="user-picker" data-user-picker></div>
-            <button class="primary-action compact-action" type="submit">Create</button>
+            <button class="primary-action compact-action" type="submit">${t("common.create")}</button>
             <p class="form-message" data-create-message role="status"></p>
           </form>
         </div>
         <div class="conversation-list" data-conversation-list>${loadingState()}</div>
       </aside>
       <section class="conversation-detail panel" data-conversation-detail>
-        ${emptyState("Select a conversation.")}
+        ${emptyState(t("chat.selectConversation"))}
       </section>
     </section>
   `;

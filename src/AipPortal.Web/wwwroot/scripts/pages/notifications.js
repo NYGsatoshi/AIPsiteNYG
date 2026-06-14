@@ -1,5 +1,6 @@
 import { NotificationApi } from "../api.js";
 import { emptyState, errorState, escapeHtml, formatDate, loadingState, normalizeList, pageTitle, routeTo } from "../utils.js";
+import { t } from "../i18n/index.js";
 
 function renderNotification(item) {
   const linkedTitle = item.targetRoute
@@ -12,10 +13,10 @@ function renderNotification(item) {
         <strong>${linkedTitle}</strong>
         <time>${formatDate(item.createdAt)}</time>
       </div>
-      <p>${escapeHtml(item.body || "No details")}</p>
+      <p>${escapeHtml(item.body || t("common.noDetails"))}</p>
       <div class="row-actions">
         ${item.relatedEntityType ? `<small>${escapeHtml(item.relatedEntityType)}</small>` : ""}
-        ${item.isRead ? "" : `<button class="text-button" type="button" data-mark-read>Mark read</button>`}
+        ${item.isRead ? "" : `<button class="text-button" type="button" data-mark-read>${t("notifications.markRead")}</button>`}
       </div>
     </article>
   `;
@@ -23,7 +24,7 @@ function renderNotification(item) {
 
 async function refreshNotifications(root) {
   const list = root.querySelector("[data-notification-list]");
-  list.innerHTML = loadingState("Loading notifications");
+  list.innerHTML = loadingState(t("notifications.loading"));
 
   try {
     const payload = await NotificationApi.list();
@@ -33,7 +34,7 @@ async function refreshNotifications(root) {
 
     list.innerHTML = items.length
       ? items.map(renderNotification).join("")
-      : emptyState("No notifications.");
+      : emptyState(t("notifications.empty"));
 
     list.querySelectorAll("[data-mark-read]").forEach((button) => {
       button.addEventListener("click", async () => {
@@ -57,11 +58,11 @@ async function refreshNotifications(root) {
 
 export async function renderNotifications(root) {
   root.innerHTML = `
-    ${pageTitle("Notifications", "Unread updates and related activity.")}
+    ${pageTitle(t("notifications.title"), t("notifications.subtitle"))}
     <section class="panel notification-page">
       <div class="section-heading">
-        <h2><span data-unread-total>0</span> unread</h2>
-        <button class="primary-action compact-action" type="button" data-mark-all>Mark all read</button>
+        <h2><span data-unread-total>0</span> ${t("notifications.unread")}</h2>
+        <button class="primary-action compact-action" type="button" data-mark-all>${t("notifications.markAllRead")}</button>
       </div>
       <div class="stack" data-notification-list>${loadingState()}</div>
     </section>

@@ -1,3 +1,5 @@
+import { t } from "./i18n/index.js";
+
 export class ApiError extends Error {
   constructor(message, status) {
     super(message);
@@ -26,11 +28,11 @@ function safeMessage(status, payload) {
     return payload.error;
   }
 
-  if (status === 401) return "Sign in is required.";
-  if (status === 403) return "You do not have access to this workspace.";
-  if (status === 404) return "The requested item was not found.";
+  if (status === 401) return t("auth.required");
+  if (status === 403) return t("auth.forbidden");
+  if (status === 404) return t("auth.notFound");
 
-  return "Something went wrong. Please try again.";
+  return t("common.error");
 }
 
 function isUnsafeMethod(method) {
@@ -52,7 +54,7 @@ async function ensureCsrfToken() {
       .then(async (response) => {
         const payload = await parseResponse(response);
         if (!response.ok || !payload?.token) {
-          throw new ApiError("A valid CSRF token could not be created.", response.status);
+          throw new ApiError(t("common.error"), response.status);
         }
 
         csrfToken = payload.token;
