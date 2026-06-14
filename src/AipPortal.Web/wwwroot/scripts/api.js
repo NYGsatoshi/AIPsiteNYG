@@ -213,6 +213,16 @@ export const ProjectApi = {
   list: () => api("/api/projects"),
   get: (projectId) => api(`/api/projects/${projectId}`),
   dashboard: (projectId) => api(`/api/projects/${projectId}/dashboard`),
+  milestones: (projectId) => api(`/api/projects/${projectId}/milestones`),
+  createMilestone: (projectId, payload) => api(`/api/projects/${projectId}/milestones`, {
+    method: "POST",
+    body: JSON.stringify(payload)
+  }),
+  updateMilestone: (milestoneId, payload) => api(`/api/milestones/${milestoneId}`, {
+    method: "PATCH",
+    body: JSON.stringify(payload)
+  }),
+  deleteMilestone: (milestoneId) => api(`/api/milestones/${milestoneId}`, { method: "DELETE" }),
   tasks: (projectId) => api(`/api/projects/${projectId}/tasks`),
   createTask: (projectId, payload) => api(`/api/projects/${projectId}/tasks`, {
     method: "POST",

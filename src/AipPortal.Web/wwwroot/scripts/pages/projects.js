@@ -2,7 +2,7 @@ import { ProjectApi } from "../api.js";
 import { CommentTargetType, TaskAssignmentRole, TaskPriority, TaskStatus, enumLabel } from "../enums.js";
 import { asInt, badge, emptyState, errorState, escapeHtml, formatDate, loadingState, normalizeList, pageTitle, qs, qsa, routeTo } from "../utils.js";
 
-const tabNames = ["Overview", "Tasks", "Gantt", "Members", "Artifacts", "Activity logs", "Comments", "Feedback"];
+const tabNames = ["Overview", "Milestones", "Tasks", "Gantt", "Members", "Artifacts", "Activity logs", "Comments", "Feedback"];
 
 export async function renderProjects(root) {
   root.innerHTML = `
@@ -88,6 +88,7 @@ export async function renderProjectDetail(root, projectId) {
     panel.innerHTML = loadingState();
 
     if (name === "Overview") await renderOverview(panel, projectId);
+    if (name === "Milestones") await renderMilestones(panel, projectId);
     if (name === "Tasks") await renderTasks(panel, projectId);
     if (name === "Gantt") await renderGantt(panel, projectId);
     if (name === "Members") await renderMembers(panel, projectId);
@@ -132,6 +133,58 @@ async function renderOverview(root, projectId) {
   } catch (error) {
     root.innerHTML = errorState(error.message);
   }
+}
+
+async function renderMilestones(root, projectId) {
+  try {
+    const milestones = normalizeList(await ProjectApi.milestones(projectId));
+    root.innerHTML = `
+      <div class="toolbar"><button type="button" data-new-milestone>New milestone</button></div>
+      <div data-milestone-form></div>
+      ${milestones.length ? `
+        <div class="list-table compact">
+          ${milestones.map((milestone) => `
+            <div>
+              <span><strong>${escapeHtml(milestone.title)}</strong><small>${escapeHtml(milestone.description || "No description")}</small></span>
+              <span>${escapeHtml(enumLabel("milestoneStatus", milestone.status))}</span>
+              <span>${formatDate(milestone.dueDate)}</span>
+              <span>Order ${escapeHtml(String(milestone.displayOrder ?? 0))}</span>
+            </div>
+          `).join("")}
+        </div>
+      ` : emptyState("No milestones yet.")}
+    `;
+    qs("[data-new-milestone]", root).addEventListener("click", () => renderMilestoneForm(qs("[data-milestone-form]", root), projectId));
+  } catch (error) {
+    root.innerHTML = errorState(error.message);
+  }
+}
+
+function renderMilestoneForm(root, projectId) {
+  root.innerHTML = `
+    <form class="inline-form" data-milestone-editor>
+      <label><span>Title</span><input name="title" required></label>
+      <label><span>Description</span><input name="description"></label>
+      <label><span>Due date</span><input name="dueDate" type="date"></label>
+      <label><span>Display order</span><input name="displayOrder" type="number" value="0"></label>
+      <button type="submit">Save milestone</button>
+    </form>
+  `;
+  qs("[data-milestone-editor]", root).addEventListener("submit", async (event) => {
+    event.preventDefault();
+    const form = new FormData(event.currentTarget);
+    try {
+      await ProjectApi.createMilestone(projectId, {
+        title: form.get("title"),
+        description: form.get("description") || null,
+        dueDate: form.get("dueDate") || null,
+        displayOrder: asInt(form.get("displayOrder"), 0)
+      });
+      await renderMilestones(root.parentElement, projectId);
+    } catch (error) {
+      root.insertAdjacentHTML("beforeend", errorState(error.message));
+    }
+  });
 }
 
 async function renderTasks(root, projectId) {

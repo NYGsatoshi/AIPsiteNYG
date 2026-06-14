@@ -20,9 +20,9 @@ public sealed record ProjectChildListQuery(string? Search = null, int Page = 1, 
     public int SafePageSize => PageSize < 1 ? 50 : Math.Min(PageSize, 100);
 }
 
-public sealed record MilestoneResponse(Guid Id, Guid ProjectId, string Title, string? Description, DateOnly? DueDate, MilestoneStatus Status, int SortOrder, DateTimeOffset CreatedAt, DateTimeOffset? UpdatedAt);
-public sealed record CreateMilestoneRequest(string Title, string? Description, DateOnly? DueDate, int SortOrder);
-public sealed record UpdateMilestoneRequest(string? Title, string? Description, DateOnly? DueDate, MilestoneStatus? Status, int? SortOrder);
+public sealed record MilestoneResponse(Guid Id, Guid ProjectId, string Title, string? Description, DateOnly? DueDate, MilestoneStatus Status, int DisplayOrder, DateTimeOffset CreatedAt, DateTimeOffset? UpdatedAt);
+public sealed record CreateMilestoneRequest(string Title, string? Description, DateOnly? DueDate, int DisplayOrder);
+public sealed record UpdateMilestoneRequest(string? Title, string? Description, DateOnly? DueDate, MilestoneStatus? Status, int? DisplayOrder);
 public sealed record TaskItemResponse(Guid Id, Guid ProjectId, Guid? MilestoneId, string Title, string? Description, TaskItemStatus Status, TaskPriority Priority, DateOnly? StartDate, DateOnly? DueDate, int ProgressPercent, Guid CreatedByUserId, DateTimeOffset CreatedAt, DateTimeOffset? UpdatedAt);
 public sealed record CreateTaskItemRequest(Guid? MilestoneId, string Title, string? Description, TaskPriority Priority, DateOnly? StartDate, DateOnly? DueDate);
 public sealed record UpdateTaskItemRequest(Guid? MilestoneId, string? Title, string? Description, TaskItemStatus? Status, TaskPriority? Priority, DateOnly? StartDate, DateOnly? DueDate, int? ProgressPercent);

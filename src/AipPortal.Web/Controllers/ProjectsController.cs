@@ -49,6 +49,9 @@ public sealed class ProjectsController(IProjectService projects) : ControllerBas
     [HttpPost("api/projects/{projectId:guid}/milestones")]
     public async Task<IActionResult> CreateMilestone(Guid projectId, CreateMilestoneRequest request, CancellationToken cancellationToken) => ToActionResult(await projects.CreateMilestoneAsync(projectId, request, cancellationToken));
 
+    [HttpGet("api/milestones/{milestoneId:guid}")]
+    public async Task<IActionResult> GetMilestone(Guid milestoneId, CancellationToken cancellationToken) => ToActionResult(await projects.GetMilestoneAsync(milestoneId, cancellationToken));
+
     [HttpPatch("api/milestones/{milestoneId:guid}")]
     public async Task<IActionResult> UpdateMilestone(Guid milestoneId, UpdateMilestoneRequest request, CancellationToken cancellationToken) => ToActionResult(await projects.UpdateMilestoneAsync(milestoneId, request, cancellationToken));
 
