@@ -57,7 +57,7 @@ Controlled local/on-prem pilot candidate, not broad SaaS-ready.
 Known blockers:
 
 - Production object storage is not implemented.
-- PostgreSQL-backed search isolation tests exist behind `POSTGRES_TEST_CONNECTION_STRING`; wire the environment variable in CI before treating the check as enforced.
+- PostgreSQL-backed search isolation tests are enforced in CI through `POSTGRES_TEST_CONNECTION_STRING`.
 - Backup/restore drill has not been recorded for each target environment.
 - Full tenant restore is not implemented.
 
@@ -65,7 +65,6 @@ OnPremSingleTenant is the safest controlled pilot mode after manual smoke and re
 
 ## Active Technical Debt
 
-- Wire PostgreSQL-backed search isolation tests into CI with `POSTGRES_TEST_CONNECTION_STRING`.
 - Implement production object storage adapter.
 - Complete API token authentication middleware.
 - Rehearse and record backup/restore before pilot.
