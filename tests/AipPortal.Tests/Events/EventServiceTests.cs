@@ -167,7 +167,7 @@ public sealed class EventServiceTests
         {
             WorkspaceAuthorization = new WorkspaceAuthorizationService(Users, Workspaces);
             GroupAuthorization = new GroupAuthorizationService(Groups, Workspaces, WorkspaceAuthorization);
-            ProjectAuthorization = new ProjectAuthorizationService(Projects, WorkspaceAuthorization, GroupAuthorization);
+            ProjectAuthorization = new ProjectAuthorizationService(Projects, WorkspaceAuthorization, GroupAuthorization, Groups);
             EventAuthorization = new EventAuthorizationService(Users, WorkspaceAuthorization, GroupAuthorization, ProjectAuthorization);
             Service = new EventService(
                 Events,

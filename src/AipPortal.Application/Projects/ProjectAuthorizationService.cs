@@ -8,7 +8,8 @@ namespace AipPortal.Application.Projects;
 public sealed class ProjectAuthorizationService(
     IProjectRepository projects,
     IWorkspaceAuthorizationService workspaces,
-    IGroupAuthorizationService groups) : IProjectAuthorizationService, ITaskAuthorizationService, ICommentAuthorizationService
+    IGroupAuthorizationService groups,
+    IGroupRepository groupRepository) : IProjectAuthorizationService, ITaskAuthorizationService, ICommentAuthorizationService
 {
     public async Task<bool> CanViewProject(Guid userId, Guid projectId, CancellationToken cancellationToken = default)
     {
@@ -20,9 +21,13 @@ public sealed class ProjectAuthorizationService(
             return false;
         }
 
-        return project.GroupId.HasValue
-            ? await groups.CanViewGroup(userId, project.GroupId.Value, cancellationToken)
-            : await workspaces.CanViewWorkspace(userId, project.WorkspaceId, cancellationToken);
+        if (!project.GroupId.HasValue)
+        {
+            return await workspaces.CanViewWorkspace(userId, project.WorkspaceId, cancellationToken);
+        }
+
+        return await workspaces.CanManageWorkspace(userId, project.WorkspaceId, cancellationToken) ||
+            await groupRepository.GetMemberAsync(project.GroupId.Value, userId, cancellationToken) is not null;
     }
 
     public async Task<bool> CanManageProject(Guid userId, Guid projectId, CancellationToken cancellationToken = default)
@@ -35,11 +40,17 @@ public sealed class ProjectAuthorizationService(
         return member?.Role is ProjectRole.Owner or ProjectRole.Manager;
     }
 
-    public async Task<bool> CanCreateProject(Guid userId, Guid workspaceId, Guid? groupId, CancellationToken cancellationToken = default)
+    public async Task<bool> CanCreateProject(Guid userId, Guid workspaceId, Guid groupId, CancellationToken cancellationToken = default)
     {
-        return groupId.HasValue
-            ? await groups.CanManageGroup(userId, groupId.Value, cancellationToken)
-            : await workspaces.CanManageWorkspace(userId, workspaceId, cancellationToken);
+        if (groupId == Guid.Empty)
+        {
+            return false;
+        }
+
+        var group = await groups.GetByIdAsync(groupId, cancellationToken);
+        return group is not null &&
+            group.WorkspaceId == workspaceId &&
+            await groups.CanManageGroup(userId, groupId, cancellationToken);
     }
 
     public Task<bool> CanCreateTask(Guid userId, Guid projectId, CancellationToken cancellationToken = default) => CanManageProject(userId, projectId, cancellationToken);
