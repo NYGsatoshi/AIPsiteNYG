@@ -397,7 +397,7 @@ public sealed class ProjectService(
         return Result.Success();
     }
 
-    public async Task<Result<PagedResponse<TaskItemResponse>>> ListTasksAsync(Guid projectId, ProjectChildListQuery query, CancellationToken cancellationToken = default)
+    public async Task<Result<PagedResponse<TaskItemResponse>>> ListTasksAsync(Guid projectId, TaskListQuery query, CancellationToken cancellationToken = default)
     {
         if (!TryCurrentUser(out var userId) || !await projectAuthorization.CanViewProject(userId, projectId, cancellationToken))
         {
@@ -405,9 +405,21 @@ public sealed class ProjectService(
         }
 
         var tasks = await projects.ListTasksAsync(projectId, cancellationToken);
+        HashSet<Guid>? taskIdsForAssignee = query.AssignedUserId.HasValue
+            ? (await Task.WhenAll(tasks.Select(async task => new
+            {
+                task.Id,
+                IsAssigned = (await projects.ListAssignmentsAsync(task.Id, cancellationToken)).Any(assignment => assignment.UserId == query.AssignedUserId.Value)
+            }))).Where(item => item.IsAssigned).Select(item => item.Id).ToHashSet()
+            : null;
+
         var filtered = tasks
             .Where(task => !task.DeletedAt.HasValue)
             .Where(task => MatchesSearch(task.Title, task.Description, query.Search))
+            .Where(task => !query.Status.HasValue || task.Status == query.Status.Value)
+            .Where(task => !query.Priority.HasValue || task.Priority == query.Priority.Value)
+            .Where(task => !query.MilestoneId.HasValue || task.MilestoneId == query.MilestoneId.Value)
+            .Where(task => taskIdsForAssignee is null || taskIdsForAssignee.Contains(task.Id))
             .Select(ToTask)
             .ToList();
         return Result<PagedResponse<TaskItemResponse>>.Success(ToPagedResponse(filtered, query.SafePage, query.SafePageSize));
@@ -597,9 +609,16 @@ public sealed class ProjectService(
             return Result<TaskAssignmentResponse>.Failure("Hours cannot be negative.");
         }
 
+        var existing = await projects.ListAssignmentsAsync(assignment.TaskItemId, cancellationToken);
+        if (existing.Any(item => item.Id != assignment.Id && item.UserId == assignment.UserId && item.Role == request.Role))
+        {
+            return Result<TaskAssignmentResponse>.Failure("User already has this assignment role.");
+        }
+
         assignment.Role = request.Role;
         assignment.EstimatedHours = request.EstimatedHours;
         assignment.ActualHours = request.ActualHours;
+        await notifications.NotifyAsync(assignment.UserId, "Task assignment updated", assignment.TaskItem.Title, "TaskItem", assignment.TaskItemId, cancellationToken);
         await AuditAsync(userId, "TaskAssignmentUpdated", "TaskItem", assignment.TaskItemId, cancellationToken);
         await unitOfWork.SaveChangesAsync(cancellationToken);
         return Result<TaskAssignmentResponse>.Success(ToAssignment(assignment));
@@ -619,6 +638,7 @@ public sealed class ProjectService(
         }
 
         projects.RemoveAssignment(assignment);
+        await notifications.NotifyAsync(assignment.UserId, "Task assignment removed", assignment.TaskItem?.Title, "TaskItem", assignment.TaskItemId, cancellationToken);
         await AuditAsync(userId, "TaskAssignmentRemoved", "TaskItem", assignment.TaskItemId, cancellationToken);
         await unitOfWork.SaveChangesAsync(cancellationToken);
         return Result.Success();

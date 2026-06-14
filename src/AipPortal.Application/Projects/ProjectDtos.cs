@@ -20,6 +20,19 @@ public sealed record ProjectChildListQuery(string? Search = null, int Page = 1, 
     public int SafePageSize => PageSize < 1 ? 50 : Math.Min(PageSize, 100);
 }
 
+public sealed record TaskListQuery(
+    string? Search = null,
+    TaskItemStatus? Status = null,
+    TaskPriority? Priority = null,
+    Guid? MilestoneId = null,
+    Guid? AssignedUserId = null,
+    int Page = 1,
+    int PageSize = 50)
+{
+    public int SafePage => Page < 1 ? 1 : Page;
+    public int SafePageSize => PageSize < 1 ? 50 : Math.Min(PageSize, 100);
+}
+
 public sealed record MilestoneResponse(Guid Id, Guid ProjectId, string Title, string? Description, DateOnly? DueDate, MilestoneStatus Status, int DisplayOrder, DateTimeOffset CreatedAt, DateTimeOffset? UpdatedAt);
 public sealed record CreateMilestoneRequest(string Title, string? Description, DateOnly? DueDate, int DisplayOrder);
 public sealed record UpdateMilestoneRequest(string? Title, string? Description, DateOnly? DueDate, MilestoneStatus? Status, int? DisplayOrder);

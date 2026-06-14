@@ -28,7 +28,7 @@ public sealed class ProjectServiceTests
         fixture.AddProjectMember(member.Id, ProjectRole.Viewer);
         fixture.AddTask("Storyboard");
 
-        var result = await fixture.Service.ListTasksAsync(fixture.Project.Id, new ProjectChildListQuery());
+        var result = await fixture.Service.ListTasksAsync(fixture.Project.Id, new TaskListQuery());
 
         Assert.True(result.IsSuccess);
         Assert.Single(result.Value!.Items);
@@ -47,6 +47,81 @@ public sealed class ProjectServiceTests
         var result = await fixture.Service.AddAssignmentAsync(task.Id, new AddTaskAssignmentRequest(outsider.Id, TaskAssignmentRole.Assignee, 2));
 
         Assert.False(result.IsSuccess);
+    }
+
+
+    [Fact]
+    public async Task ProjectParticipantCanCreateAndUpdateTaskFields()
+    {
+        var fixture = ProjectFixture.Create();
+        var contributor = fixture.AddUser();
+        fixture.Current.UserIdValue = contributor.Id;
+        fixture.AddProjectMember(contributor.Id, ProjectRole.Contributor);
+        var milestone = fixture.AddMilestone("Build", 1);
+        var start = new DateOnly(2026, 6, 10);
+        var due = new DateOnly(2026, 6, 30);
+
+        var created = await fixture.Service.CreateTaskAsync(fixture.Project.Id, new CreateTaskItemRequest(milestone.Id, "Prep assets", "Collect references", TaskPriority.High, start, due));
+
+        Assert.True(created.IsSuccess);
+        Assert.Equal(milestone.Id, created.Value!.MilestoneId);
+        Assert.Equal(TaskPriority.High, created.Value.Priority);
+        Assert.Equal(TaskItemStatus.NotStarted, created.Value.Status);
+        Assert.Equal(0, created.Value.ProgressPercent);
+
+        var membership = fixture.Projects.Members.Single(member => member.ProjectId == fixture.Project.Id && member.UserId == contributor.Id);
+        membership.Role = ProjectRole.Manager;
+        var updated = await fixture.Service.UpdateTaskAsync(created.Value.Id, new UpdateTaskItemRequest(null, null, null, TaskItemStatus.InProgress, TaskPriority.Critical, null, null, 35));
+
+        Assert.True(updated.IsSuccess);
+        Assert.Equal(TaskItemStatus.InProgress, updated.Value!.Status);
+        Assert.Equal(TaskPriority.Critical, updated.Value.Priority);
+        Assert.Equal(35, updated.Value.ProgressPercent);
+    }
+
+    [Fact]
+    public async Task TaskListSupportsPagingSearchAndFilters()
+    {
+        var fixture = ProjectFixture.Create();
+        var viewer = fixture.AddUser();
+        fixture.Current.UserIdValue = viewer.Id;
+        fixture.AddProjectMember(viewer.Id, ProjectRole.Viewer);
+        var milestone = fixture.AddMilestone("Delivery", 1);
+        fixture.AddTask("Draft brief").Status = TaskItemStatus.Blocked;
+        var target = fixture.AddTask("Review cut");
+        target.MilestoneId = milestone.Id;
+        target.Status = TaskItemStatus.WaitingReview;
+        target.Priority = TaskPriority.Critical;
+
+        var result = await fixture.Service.ListTasksAsync(fixture.Project.Id, new TaskListQuery(Search: "review", Status: TaskItemStatus.WaitingReview, Priority: TaskPriority.Critical, MilestoneId: milestone.Id, Page: 1, PageSize: 1));
+
+        Assert.True(result.IsSuccess);
+        Assert.Equal(1, result.Value!.TotalCount);
+        Assert.Equal(target.Id, Assert.Single(result.Value.Items).Id);
+    }
+
+    [Fact]
+    public async Task AssignmentUpdateRejectsDuplicateRoleAndAuditsChanges()
+    {
+        var fixture = ProjectFixture.Create();
+        var manager = fixture.AddUser();
+        var assignee = fixture.AddUser();
+        fixture.Current.UserIdValue = manager.Id;
+        fixture.AddProjectMember(manager.Id, ProjectRole.Manager);
+        fixture.AddProjectMember(assignee.Id, ProjectRole.Contributor);
+        var task = fixture.AddTask("Composite");
+        var owner = await fixture.Service.AddAssignmentAsync(task.Id, new AddTaskAssignmentRequest(assignee.Id, TaskAssignmentRole.Owner, 4));
+        var reviewer = await fixture.Service.AddAssignmentAsync(task.Id, new AddTaskAssignmentRequest(assignee.Id, TaskAssignmentRole.Reviewer, 2));
+
+        var duplicate = await fixture.Service.UpdateAssignmentAsync(reviewer.Value!.Id, new UpdateTaskAssignmentRequest(TaskAssignmentRole.Owner, 3, 1));
+        var updated = await fixture.Service.UpdateAssignmentAsync(owner.Value!.Id, new UpdateTaskAssignmentRequest(TaskAssignmentRole.Assignee, 3, 1));
+
+        Assert.False(duplicate.IsSuccess);
+        Assert.True(updated.IsSuccess);
+        Assert.Equal(TaskAssignmentRole.Assignee, updated.Value!.Role);
+        Assert.Equal(3, updated.Value.EstimatedHours);
+        Assert.Equal(1, updated.Value.ActualHours);
+        Assert.Contains(fixture.Audit.Entries, entry => entry.Action == "TaskAssignmentUpdated" && entry.EntityId == task.Id);
     }
 
     [Fact]
@@ -436,7 +511,15 @@ public sealed class ProjectServiceTests
         public Task<IReadOnlyList<TaskItem>> ListTasksAsync(Guid projectId, CancellationToken cancellationToken = default) => Task.FromResult<IReadOnlyList<TaskItem>>(Tasks.Values.Where(task => task.ProjectId == projectId).ToList());
         public Task<TaskItem?> GetTaskAsync(Guid taskItemId, CancellationToken cancellationToken = default) => Task.FromResult(Tasks.GetValueOrDefault(taskItemId));
         public Task<IReadOnlyList<TaskAssignment>> ListAssignmentsAsync(Guid taskItemId, CancellationToken cancellationToken = default) => Task.FromResult<IReadOnlyList<TaskAssignment>>(Assignments.Where(assignment => assignment.TaskItemId == taskItemId).ToList());
-        public Task<TaskAssignment?> GetAssignmentAsync(Guid assignmentId, CancellationToken cancellationToken = default) => Task.FromResult(Assignments.FirstOrDefault(assignment => assignment.Id == assignmentId));
+        public Task<TaskAssignment?> GetAssignmentAsync(Guid assignmentId, CancellationToken cancellationToken = default)
+        {
+            var assignment = Assignments.FirstOrDefault(assignment => assignment.Id == assignmentId);
+            if (assignment is not null && Tasks.TryGetValue(assignment.TaskItemId, out var task))
+            {
+                assignment.TaskItem = task;
+            }
+            return Task.FromResult(assignment);
+        }
         public Task<IReadOnlyList<TaskDependency>> ListDependenciesAsync(Guid taskItemId, CancellationToken cancellationToken = default) => Task.FromResult<IReadOnlyList<TaskDependency>>(Dependencies.Where(dependency => dependency.PredecessorTaskItemId == taskItemId || dependency.SuccessorTaskItemId == taskItemId).ToList());
         public Task<IReadOnlyList<TaskDependency>> ListProjectDependenciesAsync(Guid projectId, CancellationToken cancellationToken = default) => Task.FromResult<IReadOnlyList<TaskDependency>>(Dependencies.Where(dependency => dependency.ProjectId == projectId).ToList());
         public Task<TaskDependency?> GetDependencyAsync(Guid dependencyId, CancellationToken cancellationToken = default) => Task.FromResult(Dependencies.FirstOrDefault(dependency => dependency.Id == dependencyId));
