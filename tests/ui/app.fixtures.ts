@@ -54,18 +54,18 @@ const routes: Record<string, unknown> = {
   '/api/comments?targetType=2&targetId=project-ui-test': { items: [] }
 };
 
+function escapeRegExp(value: string) {
+  return value.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+}
+
 function routeMatches(pattern: string, url: URL) {
   const actual = `${url.pathname}${url.search}`;
-  if (pattern.endsWith('*')) {
-    return actual.startsWith(pattern.slice(0, -1));
+  if (!pattern.includes('*')) {
+    return actual === pattern;
   }
 
-  if (pattern.includes('*')) {
-    const escaped = pattern.replace(/[.+?^${}()|[\]\\]/g, '\\$&').replace(/\*/g, '.*');
-    return new RegExp(`^${escaped}$`).test(actual);
-  }
-
-  return actual === pattern;
+  const wildcardPattern = pattern.split('*').map(escapeRegExp).join('.*');
+  return new RegExp(`^${wildcardPattern}$`).test(actual);
 }
 
 export async function mockAuthenticatedApp(page: Page) {

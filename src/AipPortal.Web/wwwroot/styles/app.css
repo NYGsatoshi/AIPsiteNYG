@@ -160,7 +160,7 @@ textarea {
 
 .radial-placeholder:disabled {
   cursor: default;
-  opacity: 0.7;
+  opacity: 1;
 }
 
 .form-message {
