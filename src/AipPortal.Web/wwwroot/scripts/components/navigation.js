@@ -107,6 +107,7 @@ export function renderNavigation(container, modules, user, context = {}) {
     link.addEventListener("click", (event) => {
       event.preventDefault();
       routeTo(link.getAttribute("href"));
+      link.closest(".app-shell")?.classList.remove("is-sidebar-open");
     });
   });
 }
