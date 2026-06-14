@@ -59,7 +59,7 @@ public sealed class ProjectsController(IProjectService projects) : ControllerBas
     public async Task<IActionResult> DeleteMilestone(Guid milestoneId, CancellationToken cancellationToken) => OkOrBad(await projects.DeleteMilestoneAsync(milestoneId, cancellationToken));
 
     [HttpGet("api/projects/{projectId:guid}/tasks")]
-    public async Task<IActionResult> ListTasks(Guid projectId, [FromQuery] ProjectChildListQuery query, CancellationToken cancellationToken) => ToActionResult(await projects.ListTasksAsync(projectId, query, cancellationToken));
+    public async Task<IActionResult> ListTasks(Guid projectId, [FromQuery] TaskListQuery query, CancellationToken cancellationToken) => ToActionResult(await projects.ListTasksAsync(projectId, query, cancellationToken));
 
     [HttpPost("api/projects/{projectId:guid}/tasks")]
     public async Task<IActionResult> CreateTask(Guid projectId, CreateTaskItemRequest request, CancellationToken cancellationToken) => ToActionResult(await projects.CreateTaskAsync(projectId, request, cancellationToken));

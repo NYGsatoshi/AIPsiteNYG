@@ -53,7 +53,11 @@ public sealed class ProjectAuthorizationService(
             await groups.CanManageGroup(userId, groupId, cancellationToken);
     }
 
-    public Task<bool> CanCreateTask(Guid userId, Guid projectId, CancellationToken cancellationToken = default) => CanManageProject(userId, projectId, cancellationToken);
+    public async Task<bool> CanCreateTask(Guid userId, Guid projectId, CancellationToken cancellationToken = default)
+    {
+        var member = await projects.GetMemberAsync(projectId, userId, cancellationToken);
+        return member is not null || await CanManageProject(userId, projectId, cancellationToken);
+    }
 
     public async Task<bool> CanUpdateTask(Guid userId, Guid taskItemId, CancellationToken cancellationToken = default)
     {
