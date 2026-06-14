@@ -76,7 +76,8 @@ test('search route is reachable from the header and preserves the query', async 
 test('projects list, empty task state, form validation, and API error state are covered', async ({ page }) => {
   await mockAuthenticatedApp(page);
 
-  await page.goto('/projects');
+  await page.goto('/');
+  await goToProjects(page);
 
   await expect(page.getByRole('heading', { name: 'Projects' })).toBeVisible();
   await expect(page.getByRole('link', { name: /UI Test Project/ })).toBeVisible();
@@ -97,7 +98,8 @@ test('projects list, empty task state, form validation, and API error state are 
   await page.route('/api/projects/project-ui-test/tasks', async (route) => {
     await route.fulfill({ status: 500, json: { error: 'Project tasks unavailable.' } });
   });
-  await page.goto('/projects');
+  await page.goto('/');
+  await goToProjects(page);
   await page.getByRole('link', { name: /UI Test Project/ }).click();
   await page.getByRole('button', { name: 'Tasks' }).click();
 
