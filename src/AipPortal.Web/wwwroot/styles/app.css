@@ -1043,3 +1043,25 @@ small {
     grid-template-columns: 1fr;
   }
 }
+
+.language-selector {
+  align-items: center;
+  display: inline-flex;
+  gap: 0.4rem;
+  font-size: 0.85rem;
+  color: var(--muted-text, #64748b);
+}
+
+.language-selector select {
+  border: 1px solid var(--border-color, #cbd5e1);
+  border-radius: 999px;
+  padding: 0.35rem 0.65rem;
+  background: var(--surface, #fff);
+  color: inherit;
+}
+
+.auth-language {
+  justify-content: flex-end;
+  width: 100%;
+  margin-bottom: 1rem;
+}

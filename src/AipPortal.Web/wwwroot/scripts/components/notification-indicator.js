@@ -1,9 +1,10 @@
 import { DashboardApi } from "../api.js";
 import { formatDate, normalizeList, escapeHtml, emptyState, errorState, routeTo } from "../utils.js";
+import { t } from "../i18n/index.js";
 
 export function renderNotificationButton(container, unreadCount) {
   container.innerHTML = `
-    <button class="icon-button" type="button" aria-label="Notifications" data-notification-route>
+    <button class="icon-button" type="button" aria-label="${t("notifications.label")}" data-notification-route>
       <span>!</span>
       ${unreadCount > 0 ? `<span class="badge-dot">${unreadCount}</span>` : ""}
     </button>
@@ -14,9 +15,9 @@ export function renderNotificationButton(container, unreadCount) {
 
 export async function renderNotificationArea(container) {
   container.innerHTML = `
-    <section class="notification-area" aria-label="Notifications">
+    <section class="notification-area" aria-label="${t("notifications.label")}">
       <div class="section-heading">
-        <h2>Notifications</h2>
+        <h2>${t("notifications.label")}</h2>
       </div>
       <div class="stack small" data-notification-list></div>
     </section>
@@ -30,11 +31,11 @@ export async function renderNotificationArea(container) {
       ? items.map((item) => `
           <article class="mini-item ${item.isRead ? "" : "is-unread"}">
             <strong>${escapeHtml(item.title)}</strong>
-            <span>${escapeHtml(item.body || "No details")}</span>
+            <span>${escapeHtml(item.body || t("common.noDetails"))}</span>
             <time>${formatDate(item.createdAt)}</time>
           </article>
         `).join("")
-      : emptyState("No unread notifications.");
+      : emptyState(t("notifications.noUnread"));
   } catch (error) {
     list.innerHTML = errorState(error.message);
   }

@@ -1,6 +1,9 @@
+import { locale, t } from "./i18n/index.js";
+
 export function qs(selector, root = document) {
   return root.querySelector(selector);
 }
+
 
 export function qsa(selector, root = document) {
   return Array.from(root.querySelectorAll(selector));
@@ -23,10 +26,10 @@ export function pageTitle(title, subtitle) {
 }
 
 export function formatDate(value) {
-  if (!value) return "No date";
+  if (!value) return t("common.noDate");
   const date = new Date(value);
   if (Number.isNaN(date.getTime())) return value;
-  return new Intl.DateTimeFormat(undefined, { month: "short", day: "numeric", year: "numeric" }).format(date);
+  return new Intl.DateTimeFormat(locale(), { month: "short", day: "numeric", year: "numeric" }).format(date);
 }
 
 export function todayIso(offsetDays = 0) {
@@ -47,10 +50,10 @@ export function emptyState(message) {
 }
 
 export function errorState(message) {
-  return `<div class="empty-state is-error">${escapeHtml(message || "Unable to load this section.")}</div>`;
+  return `<div class="empty-state is-error">${escapeHtml(message || t("common.error"))}</div>`;
 }
 
-export function loadingState(message = "Loading") {
+export function loadingState(message = t("common.loading")) {
   return `<div class="empty-state is-loading">${escapeHtml(message)}...</div>`;
 }
 

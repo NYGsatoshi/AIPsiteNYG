@@ -1,24 +1,25 @@
 import { emptyState, pageTitle } from "../utils.js";
+import { t } from "../i18n/index.js";
 
 const titles = {
-  "/workspaces": "Workspaces",
-  "/groups": "Groups",
-  "/channels": "Channels",
-  "/dm": "DM",
-  "/announcements": "Announcements",
-  "/tasks": "Tasks",
-  "/artifacts": "Artifacts",
-  "/calendar": "Calendar",
-  "/forms": "Forms",
-  "/admin": "Admin"
+  "/workspaces": "nav.workspaces",
+  "/groups": "nav.groups",
+  "/channels": "nav.channels",
+  "/dm": "nav.chat",
+  "/announcements": "nav.announcements",
+  "/tasks": "nav.tasks",
+  "/artifacts": "nav.files",
+  "/calendar": "nav.calendar",
+  "/forms": "nav.forms",
+  "/admin": "nav.admin"
 };
 
 export function renderPlaceholder(root, path) {
-  const title = titles[path] || "Page";
+  const title = t(titles[path] || "common.page");
   root.innerHTML = `
     ${pageTitle(title, "")}
     <section class="panel">
-      ${emptyState(`${title} UI is not implemented in this slice.`)}
+      ${emptyState(t("placeholder.unimplemented", { title }))}
     </section>
   `;
 }
@@ -26,9 +27,9 @@ export function renderPlaceholder(root, path) {
 export function renderSearch(root) {
   const query = new URLSearchParams(location.search).get("q") || "";
   root.innerHTML = `
-    ${pageTitle("Search", query)}
+    ${pageTitle(t("common.search"), query)}
     <section class="panel">
-      ${emptyState("Search results UI is not implemented in this slice.")}
+      ${emptyState(t("search.resultsUnavailable"))}
     </section>
   `;
 }

@@ -1,20 +1,21 @@
 import { SystemRole } from "../enums.js";
 import { escapeHtml, routeTo } from "../utils.js";
+import { t } from "../i18n/index.js";
 
 const staticNavigation = [
-  { moduleKey: "dashboard", displayName: "Dashboard", defaultRoute: "/" },
-  { moduleKey: "workspaces", displayName: "Workspaces", defaultRoute: "/workspaces" },
-  { moduleKey: "groups", displayName: "Groups", defaultRoute: "/groups" },
-  { moduleKey: "channels", displayName: "Channels", defaultRoute: "/channels" },
-  { moduleKey: "direct-messages", displayName: "DM", defaultRoute: "/dm" },
-  { moduleKey: "announcements", displayName: "Announcements", defaultRoute: "/announcements" },
-  { moduleKey: "projects", displayName: "Projects", defaultRoute: "/projects" },
-  { moduleKey: "tasks", displayName: "Tasks", defaultRoute: "/tasks" },
-  { moduleKey: "artifacts", displayName: "Artifacts", defaultRoute: "/artifacts" },
-  { moduleKey: "events", displayName: "Calendar", defaultRoute: "/calendar" },
-  { moduleKey: "forms", displayName: "Forms", defaultRoute: "/forms" },
-  { moduleKey: "tenant-admin", displayName: "Tenant Admin", defaultRoute: "/tenant-admin", tenantAdminOnly: true },
-  { moduleKey: "platform-admin", displayName: "Platform Admin", defaultRoute: "/platform-admin", platformAdminOnly: true }
+  { moduleKey: "dashboard", displayName: "nav.dashboard", defaultRoute: "/" },
+  { moduleKey: "workspaces", displayName: "nav.workspaces", defaultRoute: "/workspaces" },
+  { moduleKey: "groups", displayName: "nav.groups", defaultRoute: "/groups" },
+  { moduleKey: "channels", displayName: "nav.channels", defaultRoute: "/channels" },
+  { moduleKey: "direct-messages", displayName: "nav.chat", defaultRoute: "/dm" },
+  { moduleKey: "announcements", displayName: "nav.announcements", defaultRoute: "/announcements" },
+  { moduleKey: "projects", displayName: "nav.projects", defaultRoute: "/projects" },
+  { moduleKey: "tasks", displayName: "nav.tasks", defaultRoute: "/tasks" },
+  { moduleKey: "artifacts", displayName: "nav.files", defaultRoute: "/artifacts" },
+  { moduleKey: "events", displayName: "nav.calendar", defaultRoute: "/calendar" },
+  { moduleKey: "forms", displayName: "nav.forms", defaultRoute: "/forms" },
+  { moduleKey: "tenant-admin", displayName: "nav.tenantAdmin", defaultRoute: "/tenant-admin", tenantAdminOnly: true },
+  { moduleKey: "platform-admin", displayName: "nav.platformAdmin", defaultRoute: "/platform-admin", platformAdminOnly: true }
 ];
 
 const routeAliases = new Map([
@@ -52,6 +53,7 @@ function normalizeModule(module) {
   return {
     moduleKey: key,
     displayName: module.displayName || module.name || key,
+    labelKey: staticNavigation.find((item) => item.moduleKey === key)?.displayName,
     defaultRoute: module.defaultRoute || routeAliases.get(key) || `/${key}`,
     sortOrder: module.sortOrder ?? 100
   };
@@ -90,13 +92,13 @@ export function renderNavigation(container, modules, user, context = {}) {
   const items = navigationItems(modules, user, context);
 
   container.innerHTML = `
-    <nav class="sidebar-nav" aria-label="Primary">
+    <nav class="sidebar-nav" aria-label="${t("nav.primary")}">
       ${items.map((item) => {
         const active = current === item.defaultRoute || (item.defaultRoute !== "/" && current.startsWith(item.defaultRoute));
         return `
           <a href="${escapeHtml(item.defaultRoute)}" class="${active ? "is-active" : ""}" data-route>
-            <span class="nav-icon">${escapeHtml(item.displayName.slice(0, 1).toUpperCase())}</span>
-            <span>${escapeHtml(item.displayName)}</span>
+            <span class="nav-icon">${escapeHtml((t(item.labelKey || item.displayName, {}, item.displayName)).slice(0, 1).toUpperCase())}</span>
+            <span>${escapeHtml(t(item.labelKey || item.displayName, {}, item.displayName))}</span>
           </a>
         `;
       }).join("")}
