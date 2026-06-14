@@ -264,7 +264,7 @@ public sealed class TenancyFoundationTests
             new ConfigurationBuilder()
                 .AddInMemoryCollection(new Dictionary<string, string?>
                 {
-                    ["ConnectionStrings:DefaultConnection"] = "Host=db;Port=5432;Database=aip;Username=aip;Password=StrongPasswordValue123!",
+                    ["ConnectionStrings:DefaultConnection"] = "Host=db;Port=5432;Database=aip;Username=aip;Password=C0mp1exS3cretValue123!",
                     ["DataProtection:KeysPath"] = Path.Combine(Path.GetTempPath(), "aip-dp-validation-tests", Guid.NewGuid().ToString("N"))
                 })
                 .Build(),
@@ -377,7 +377,7 @@ public sealed class TenancyFoundationTests
             new ConfigurationBuilder()
                 .AddInMemoryCollection(new Dictionary<string, string?>
                 {
-                    ["ConnectionStrings:DefaultConnection"] = "Host=db;Port=5432;Database=aip;Username=aip;Password=StrongPasswordValue123!",
+                    ["ConnectionStrings:DefaultConnection"] = "Host=db;Port=5432;Database=aip;Username=aip;Password=C0mp1exS3cretValue123!",
                     ["DataProtection:KeysPath"] = Path.Combine(Path.GetTempPath(), "aip-dp-validation-tests", Guid.NewGuid().ToString("N"))
                 })
                 .Build(),
