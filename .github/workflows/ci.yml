@@ -56,3 +56,112 @@ jobs:
       - name: PostgreSQL logs on failure
         if: failure()
         run: docker logs ${{ job.services.postgres.id }}
+
+  security-scan:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    env:
+      IMAGE_NAME: aipsite-nyg-ci:${{ github.sha }}
+      POSTGRES_PASSWORD: ci_only_compose_config_password
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Scan repository secrets with Gitleaks
+        run: |
+          set +e
+          docker run --rm \
+            -v "$PWD:/repo" \
+            zricethezav/gitleaks:v8.24.3 \
+            detect --no-git --source /repo --redact --verbose \
+            --report-format json --report-path /repo/gitleaks-report.json
+          gitleaks_status=$?
+          if [ ! -f gitleaks-report.json ]; then
+            printf '[]\n' > gitleaks-report.json
+          fi
+          cat gitleaks-report.json
+          exit "$gitleaks_status"
+
+      - name: Upload Gitleaks secret scan report
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: gitleaks-secret-scan-report
+          path: gitleaks-report.json
+          if-no-files-found: error
+
+      - name: Setup .NET
+        uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: "10.0.x"
+
+      - name: Restore
+        run: dotnet restore AipPortal.slnx
+
+      - name: Check .NET vulnerable packages
+        run: |
+          set -o pipefail
+          dotnet list AipPortal.slnx package --vulnerable --include-transitive 2>&1 | tee dotnet-vulnerable-packages.txt
+          if grep -q "has the following vulnerable packages" dotnet-vulnerable-packages.txt; then
+            echo "Vulnerable .NET packages were detected. Review dotnet-vulnerable-packages.txt."
+            exit 1
+          fi
+
+      - name: Report .NET deprecated packages
+        run: |
+          set -o pipefail
+          dotnet list AipPortal.slnx package --deprecated 2>&1 | tee dotnet-deprecated-packages.txt
+          if grep -q "has the following deprecated packages" dotnet-deprecated-packages.txt; then
+            echo "Deprecated .NET packages were detected. Review dotnet-deprecated-packages.txt."
+            echo "Deprecated packages are report-only for the initial security baseline."
+          fi
+
+      - name: Upload .NET dependency scan reports
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: dotnet-dependency-scan-reports
+          path: |
+            dotnet-vulnerable-packages.txt
+            dotnet-deprecated-packages.txt
+          if-no-files-found: error
+
+      - name: Validate Docker Compose config
+        run: docker compose config --quiet
+
+      - name: Build Docker image
+        run: docker build --pull --tag "$IMAGE_NAME" .
+
+      - name: Scan Docker image with Trivy
+        run: |
+          set +e
+          docker run --rm \
+            -v /var/run/docker.sock:/var/run/docker.sock \
+            -v "$PWD:/repo" \
+            aquasec/trivy:0.65.0 \
+            image --scanners vuln --vuln-type os,library \
+            --severity HIGH,CRITICAL --ignore-unfixed \
+            --format table --output /repo/trivy-image-report.txt \
+            "$IMAGE_NAME"
+          trivy_status=$?
+          if [ ! -s trivy-image-report.txt ]; then
+            echo "No Trivy report was generated." > trivy-image-report.txt
+          fi
+          cat trivy-image-report.txt
+          if [ "$trivy_status" -ne 0 ]; then
+            echo "Trivy scan command failed; failing CI because the image scan did not complete."
+            exit "$trivy_status"
+          fi
+          echo "Trivy HIGH/CRITICAL findings are report-only for the initial security baseline."
+
+      - name: Upload Trivy image scan report
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: trivy-image-scan-report
+          path: trivy-image-report.txt
+          if-no-files-found: error
