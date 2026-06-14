@@ -297,6 +297,18 @@ public sealed class ProjectService(
         return Result<PagedResponse<MilestoneResponse>>.Success(ToPagedResponse(filtered, query.SafePage, query.SafePageSize));
     }
 
+    public async Task<Result<MilestoneResponse>> GetMilestoneAsync(Guid milestoneId, CancellationToken cancellationToken = default)
+    {
+        var milestone = await projects.GetMilestoneAsync(milestoneId, cancellationToken);
+        if (milestone is null || milestone.DeletedAt.HasValue || !TryCurrentUser(out var userId) ||
+            !await projectAuthorization.CanViewProject(userId, milestone.ProjectId, cancellationToken))
+        {
+            return Result<MilestoneResponse>.Failure("Milestone not found.");
+        }
+
+        return Result<MilestoneResponse>.Success(ToMilestone(milestone));
+    }
+
     public async Task<Result<MilestoneResponse>> CreateMilestoneAsync(Guid projectId, CreateMilestoneRequest request, CancellationToken cancellationToken = default)
     {
         if (!TryCurrentUser(out var userId) || !await projectAuthorization.CanManageProject(userId, projectId, cancellationToken))
@@ -320,7 +332,7 @@ public sealed class ProjectService(
             Name = request.Title.Trim(),
             Description = request.Description?.Trim(),
             DueDate = request.DueDate,
-            SortOrder = request.SortOrder
+            SortOrder = request.DisplayOrder
         };
 
         await projects.AddMilestoneAsync(milestone, cancellationToken);
@@ -352,10 +364,15 @@ public sealed class ProjectService(
             milestone.Name = request.Title.Trim();
         }
 
+        if (request.Status.HasValue && request.Status.Value is not (MilestoneStatus.NotStarted or MilestoneStatus.InProgress or MilestoneStatus.Completed))
+        {
+            return Result<MilestoneResponse>.Failure("Milestone status must be NotStarted, InProgress, or Completed.");
+        }
+
         milestone.Description = request.Description?.Trim() ?? milestone.Description;
         milestone.DueDate = request.DueDate ?? milestone.DueDate;
         milestone.Status = request.Status ?? milestone.Status;
-        milestone.SortOrder = request.SortOrder ?? milestone.SortOrder;
+        milestone.SortOrder = request.DisplayOrder ?? milestone.SortOrder;
         await AuditAsync(userId, "MilestoneUpdated", "Milestone", milestone.Id, cancellationToken);
         await unitOfWork.SaveChangesAsync(cancellationToken);
         return Result<MilestoneResponse>.Success(ToMilestone(milestone));

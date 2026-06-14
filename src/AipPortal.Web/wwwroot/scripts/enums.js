@@ -41,6 +41,7 @@ export const labels = {
   projectStatus: ["Planning", "Active", "Review", "Completed", "Suspended", "Archived"],
   taskStatus: ["Not started", "In progress", "Waiting review", "Blocked", "Completed", "Cancelled"],
   taskPriority: ["Low", "Normal", "High", "Critical"],
+  milestoneStatus: ["Not started", "In progress", "Completed", "Cancelled"],
   assignmentRole: ["Owner", "Assignee", "Reviewer", "Support"],
   projectRole: ["Owner", "Manager", "Contributor", "Reviewer", "Viewer"],
   systemRole: ["Normal user", "Staff", "Teacher", "Admin", "Platform operator", "Platform admin"],

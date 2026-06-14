@@ -221,6 +221,82 @@ public sealed class ProjectServiceTests
         Assert.Contains(fixture.Audit.Entries, entry => entry.Action == "ProjectArchived" && entry.EntityId == fixture.Project.Id);
     }
 
+    [Fact]
+    public async Task ProjectManagerCanCreateAndUpdateMilestoneFields()
+    {
+        var fixture = ProjectFixture.Create();
+        var manager = fixture.AddUser();
+        fixture.Current.UserIdValue = manager.Id;
+        fixture.AddProjectMember(manager.Id, ProjectRole.Manager);
+        var dueDate = new DateOnly(2026, 7, 15);
+
+        var created = await fixture.Service.CreateMilestoneAsync(fixture.Project.Id, new CreateMilestoneRequest("Alpha", "Scope", dueDate, 20));
+
+        Assert.True(created.IsSuccess);
+        Assert.Equal(fixture.Project.Id, created.Value!.ProjectId);
+        Assert.Equal(dueDate, created.Value.DueDate);
+        Assert.Equal(MilestoneStatus.NotStarted, created.Value.Status);
+        Assert.Equal(20, created.Value.DisplayOrder);
+
+        var updated = await fixture.Service.UpdateMilestoneAsync(created.Value.Id, new UpdateMilestoneRequest(null, "Updated", new DateOnly(2026, 8, 1), MilestoneStatus.InProgress, 10));
+
+        Assert.True(updated.IsSuccess);
+        Assert.Equal("Updated", updated.Value!.Description);
+        Assert.Equal(new DateOnly(2026, 8, 1), updated.Value.DueDate);
+        Assert.Equal(MilestoneStatus.InProgress, updated.Value.Status);
+        Assert.Equal(10, updated.Value.DisplayOrder);
+    }
+
+    [Fact]
+    public async Task MilestoneListPreservesDisplayOrder()
+    {
+        var fixture = ProjectFixture.Create();
+        var viewer = fixture.AddUser();
+        fixture.Current.UserIdValue = viewer.Id;
+        fixture.AddProjectMember(viewer.Id, ProjectRole.Viewer);
+        fixture.AddMilestone("Second", 20);
+        fixture.AddMilestone("First", 10);
+
+        var result = await fixture.Service.ListMilestonesAsync(fixture.Project.Id, new ProjectChildListQuery());
+
+        Assert.True(result.IsSuccess);
+        Assert.Collection(result.Value!.Items,
+            milestone => Assert.Equal("First", milestone.Title),
+            milestone => Assert.Equal("Second", milestone.Title));
+    }
+
+    [Fact]
+    public async Task UnauthorizedUserCannotCreateOrViewMilestones()
+    {
+        var fixture = ProjectFixture.Create();
+        var outsider = fixture.AddUser(addWorkspaceMember: false);
+        fixture.Current.UserIdValue = outsider.Id;
+        var milestone = fixture.AddMilestone("Restricted", 1);
+
+        var list = await fixture.Service.ListMilestonesAsync(fixture.Project.Id, new ProjectChildListQuery());
+        var get = await fixture.Service.GetMilestoneAsync(milestone.Id);
+        var create = await fixture.Service.CreateMilestoneAsync(fixture.Project.Id, new CreateMilestoneRequest("Blocked", null, null, 2));
+
+        Assert.False(list.IsSuccess);
+        Assert.False(get.IsSuccess);
+        Assert.False(create.IsSuccess);
+    }
+
+    [Fact]
+    public async Task UnsupportedMilestoneStatusIsRejected()
+    {
+        var fixture = ProjectFixture.Create();
+        var manager = fixture.AddUser();
+        fixture.Current.UserIdValue = manager.Id;
+        fixture.AddProjectMember(manager.Id, ProjectRole.Manager);
+        var milestone = fixture.AddMilestone("Alpha", 1);
+
+        var result = await fixture.Service.UpdateMilestoneAsync(milestone.Id, new UpdateMilestoneRequest(null, null, null, MilestoneStatus.Cancelled, null));
+
+        Assert.False(result.IsSuccess);
+        Assert.Equal(MilestoneStatus.NotStarted, milestone.Status);
+    }
+
     private sealed class ProjectFixture
     {
         private ProjectFixture()
@@ -327,6 +403,18 @@ public sealed class ProjectServiceTests
             Projects.Tasks[task.Id] = task;
             return task;
         }
+
+        public Milestone AddMilestone(string title, int displayOrder)
+        {
+            var milestone = new Milestone
+            {
+                ProjectId = Project.Id,
+                Name = title,
+                SortOrder = displayOrder
+            };
+            Projects.Milestones[milestone.Id] = milestone;
+            return milestone;
+        }
     }
 
     private sealed class FakeProjects : IProjectRepository
@@ -343,7 +431,7 @@ public sealed class ProjectServiceTests
         public Task<Project?> GetProjectAsync(Guid projectId, CancellationToken cancellationToken = default) => Task.FromResult(ProjectItems.GetValueOrDefault(projectId));
         public Task<ProjectMember?> GetMemberAsync(Guid projectId, Guid userId, CancellationToken cancellationToken = default) => Task.FromResult(Members.FirstOrDefault(member => member.ProjectId == projectId && member.UserId == userId));
         public Task<IReadOnlyList<ProjectMember>> ListMembersAsync(Guid projectId, CancellationToken cancellationToken = default) => Task.FromResult<IReadOnlyList<ProjectMember>>(Members.Where(member => member.ProjectId == projectId).ToList());
-        public Task<IReadOnlyList<Milestone>> ListMilestonesAsync(Guid projectId, CancellationToken cancellationToken = default) => Task.FromResult<IReadOnlyList<Milestone>>(Milestones.Values.Where(milestone => milestone.ProjectId == projectId).ToList());
+        public Task<IReadOnlyList<Milestone>> ListMilestonesAsync(Guid projectId, CancellationToken cancellationToken = default) => Task.FromResult<IReadOnlyList<Milestone>>(Milestones.Values.Where(milestone => milestone.ProjectId == projectId).OrderBy(milestone => milestone.SortOrder).ThenBy(milestone => milestone.DueDate).ToList());
         public Task<Milestone?> GetMilestoneAsync(Guid milestoneId, CancellationToken cancellationToken = default) => Task.FromResult(Milestones.GetValueOrDefault(milestoneId));
         public Task<IReadOnlyList<TaskItem>> ListTasksAsync(Guid projectId, CancellationToken cancellationToken = default) => Task.FromResult<IReadOnlyList<TaskItem>>(Tasks.Values.Where(task => task.ProjectId == projectId).ToList());
         public Task<TaskItem?> GetTaskAsync(Guid taskItemId, CancellationToken cancellationToken = default) => Task.FromResult(Tasks.GetValueOrDefault(taskItemId));
