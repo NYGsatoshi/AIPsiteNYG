@@ -109,7 +109,9 @@ if (securityOptions.EnableHsts && !app.Environment.IsDevelopment())
 
 if (securityOptions.RequireHttps)
 {
-    app.UseHttpsRedirection();
+    app.UseWhen(
+        context => !context.Request.Path.StartsWithSegments("/health"),
+        branch => branch.UseHttpsRedirection());
 }
 
 app.UseDefaultFiles();
@@ -130,13 +132,7 @@ app.UseAuthorization();
 
 app.MapControllers();
 
-app.MapGet("/health", async (AppDbContext dbContext, CancellationToken cancellationToken) =>
-{
-    var databaseOk = await dbContext.Database.CanConnectAsync(cancellationToken);
-    return databaseOk
-        ? Results.Ok(new { status = "OK", database = "OK" })
-        : Results.StatusCode(StatusCodes.Status503ServiceUnavailable);
-});
+app.MapGet("/health", () => Results.Redirect("/health/ready", permanent: false));
 
 app.MapGet("/health/live", () => Results.Ok(new { status = "OK" }));
 
@@ -146,16 +142,19 @@ app.MapGet("/health/ready", async (
     AppDbContext dbContext,
     IOptions<FileStorageOptions> fileStorageOptions,
     TenancyOptions tenancyOptions,
+    IConfiguration configuration,
     CancellationToken cancellationToken) =>
 {
-    var databaseOk = await dbContext.Database.CanConnectAsync(cancellationToken);
-    var storageOk = IsFileStorageReady(fileStorageOptions.Value);
-    var defaultTenantOk = await IsDefaultTenantReadyAsync(dbContext, tenancyOptions, cancellationToken);
-    var ready = databaseOk && storageOk && defaultTenantOk;
+    var databaseOk = await IsDatabaseReadyAsync(dbContext, cancellationToken);
+    var migrationsOk = databaseOk && await AreMigrationsReadyAsync(dbContext, cancellationToken);
+    var storageOk = await IsFileStorageReadyAsync(fileStorageOptions.Value, cancellationToken);
+    var dataProtectionOk = IsDataProtectionReady(configuration);
+    var defaultTenantOk = databaseOk && await IsDefaultTenantReadyAsync(dbContext, tenancyOptions, cancellationToken);
+    var ready = databaseOk && migrationsOk && storageOk && dataProtectionOk && defaultTenantOk;
 
     return ready
-        ? Results.Ok(new { status = "OK", database = "OK", fileStorage = "OK", defaultTenant = "OK" })
-        : Results.StatusCode(StatusCodes.Status503ServiceUnavailable);
+        ? Results.Ok(new { status = "OK", checks = new { database = "OK", migrations = "OK", fileStorage = "OK", dataProtection = "OK", defaultTenant = "OK" } })
+        : Results.Json(new { status = "Unhealthy" }, statusCode: StatusCodes.Status503ServiceUnavailable);
 });
 
 app.MapFallback(async context =>
@@ -174,14 +173,90 @@ app.MapFallback(async context =>
 
 app.Run();
 
-static bool IsFileStorageReady(FileStorageOptions options)
+static async Task<bool> IsDatabaseReadyAsync(AppDbContext dbContext, CancellationToken cancellationToken)
 {
-    return options.Provider switch
+    try
     {
-        "LocalFileSystem" => !string.IsNullOrWhiteSpace(options.RootPath) && Directory.Exists(Path.GetFullPath(options.RootPath)),
-        "ObjectStorage" or "S3Compatible" or "OCIObjectStorage" => !string.IsNullOrWhiteSpace(options.BucketName),
-        _ => false
-    };
+        return await dbContext.Database.CanConnectAsync(cancellationToken);
+    }
+    catch
+    {
+        return false;
+    }
+}
+
+static async Task<bool> AreMigrationsReadyAsync(AppDbContext dbContext, CancellationToken cancellationToken)
+{
+    try
+    {
+        var pendingMigrations = await dbContext.Database.GetPendingMigrationsAsync(cancellationToken);
+        return !pendingMigrations.Any();
+    }
+    catch
+    {
+        return false;
+    }
+}
+
+static async Task<bool> IsFileStorageReadyAsync(FileStorageOptions options, CancellationToken cancellationToken)
+{
+    try
+    {
+        return options.Provider switch
+        {
+            "LocalFileSystem" => await IsLocalFileStorageReadyAsync(options.RootPath, cancellationToken),
+            "ObjectStorage" or "S3Compatible" or "OCIObjectStorage" => false,
+            _ => false
+        };
+    }
+    catch
+    {
+        return false;
+    }
+}
+
+static async Task<bool> IsLocalFileStorageReadyAsync(string rootPath, CancellationToken cancellationToken)
+{
+    if (string.IsNullOrWhiteSpace(rootPath))
+    {
+        return false;
+    }
+
+    var fullPath = Path.GetFullPath(rootPath);
+    Directory.CreateDirectory(fullPath);
+    var probePath = Path.Combine(fullPath, $".health-{Guid.NewGuid():N}");
+    try
+    {
+        await File.WriteAllTextAsync(probePath, "OK", cancellationToken);
+        return true;
+    }
+    finally
+    {
+        File.Delete(probePath);
+    }
+}
+
+static bool IsDataProtectionReady(IConfiguration configuration)
+{
+    var keysPath = configuration["DataProtection:KeysPath"];
+    if (string.IsNullOrWhiteSpace(keysPath))
+    {
+        return true;
+    }
+
+    try
+    {
+        var fullPath = Path.GetFullPath(keysPath);
+        Directory.CreateDirectory(fullPath);
+        var probePath = Path.Combine(fullPath, $".health-{Guid.NewGuid():N}");
+        File.WriteAllText(probePath, "OK");
+        File.Delete(probePath);
+        return true;
+    }
+    catch
+    {
+        return false;
+    }
 }
 
 static async Task<bool> IsDefaultTenantReadyAsync(AppDbContext dbContext, TenancyOptions tenancyOptions, CancellationToken cancellationToken)
@@ -196,6 +271,13 @@ static async Task<bool> IsDefaultTenantReadyAsync(AppDbContext dbContext, Tenanc
         return false;
     }
 
-    var slug = tenancyOptions.DefaultTenantSlug.Trim().ToLowerInvariant();
-    return await dbContext.Tenants.AnyAsync(tenant => tenant.Slug == slug && tenant.Status == TenantStatus.Active, cancellationToken);
+    try
+    {
+        var slug = tenancyOptions.DefaultTenantSlug.Trim().ToLowerInvariant();
+        return await dbContext.Tenants.AnyAsync(tenant => tenant.Slug == slug && tenant.Status == TenantStatus.Active, cancellationToken);
+    }
+    catch
+    {
+        return false;
+    }
 }
