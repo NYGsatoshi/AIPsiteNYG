@@ -173,7 +173,7 @@ public sealed class FormServiceTests
             Forms = new FakeForms(Users);
             WorkspaceAuthorization = new WorkspaceAuthorizationService(Users, Workspaces);
             GroupAuthorization = new GroupAuthorizationService(Groups, Workspaces, WorkspaceAuthorization);
-            ProjectAuthorization = new ProjectAuthorizationService(Projects, WorkspaceAuthorization, GroupAuthorization);
+            ProjectAuthorization = new ProjectAuthorizationService(Projects, WorkspaceAuthorization, GroupAuthorization, Groups);
             FormAuthorization = new FormAuthorizationService(Users, WorkspaceAuthorization, GroupAuthorization, ProjectAuthorization);
             Service = new FormService(
                 Forms,

@@ -6,7 +6,7 @@ public interface IProjectAuthorizationService
 {
     Task<bool> CanViewProject(Guid userId, Guid projectId, CancellationToken cancellationToken = default);
     Task<bool> CanManageProject(Guid userId, Guid projectId, CancellationToken cancellationToken = default);
-    Task<bool> CanCreateProject(Guid userId, Guid workspaceId, Guid? groupId, CancellationToken cancellationToken = default);
+    Task<bool> CanCreateProject(Guid userId, Guid workspaceId, Guid groupId, CancellationToken cancellationToken = default);
 }
 
 public interface ITaskAuthorizationService

@@ -8,8 +8,8 @@ public sealed record ProjectListQuery(bool Archived = false, string? Search = nu
     public int SafePageSize => PageSize < 1 ? 50 : Math.Min(PageSize, 100);
 }
 
-public sealed record ProjectResponse(Guid Id, Guid WorkspaceId, Guid? GroupId, Guid OwnerUserId, string Title, string? Description, ProjectStatus Status, DateOnly? StartDate, DateOnly? EndDate, DateTimeOffset CreatedAt, DateTimeOffset? UpdatedAt);
-public sealed record CreateProjectRequest(Guid WorkspaceId, Guid? GroupId, string Title, string? Description, DateOnly? StartDate, DateOnly? EndDate);
+public sealed record ProjectResponse(Guid Id, Guid WorkspaceId, Guid GroupId, Guid OwnerUserId, string Title, string? Description, ProjectStatus Status, DateOnly? StartDate, DateOnly? EndDate, DateTimeOffset CreatedAt, DateTimeOffset? UpdatedAt);
+public sealed record CreateProjectRequest(Guid WorkspaceId, Guid GroupId, string Title, string? Description, DateOnly? StartDate, DateOnly? EndDate);
 public sealed record UpdateProjectRequest(string? Title, string? Description, ProjectStatus? Status, DateOnly? StartDate, DateOnly? EndDate);
 public sealed record ProjectMemberResponse(Guid UserId, string DisplayName, string Email, ProjectRole Role, DateTimeOffset JoinedAt);
 public sealed record AddProjectMemberRequest(Guid UserId, ProjectRole Role);

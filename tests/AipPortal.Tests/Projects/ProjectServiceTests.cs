@@ -158,6 +158,53 @@ public sealed class ProjectServiceTests
         Assert.Equal(secondProject.Id, Assert.Single(result.Value.Items).Id);
     }
 
+
+    [Fact]
+    public async Task CreateRequiresGroup()
+    {
+        var fixture = ProjectFixture.Create();
+        var manager = fixture.AddUser(workspaceRole: WorkspaceRole.Admin);
+        fixture.Current.UserIdValue = manager.Id;
+
+        var result = await fixture.Service.CreateAsync(new CreateProjectRequest(fixture.Workspace.Id, Guid.Empty, "New Project", null, null, null));
+
+        Assert.False(result.IsSuccess);
+    }
+
+    [Fact]
+    public async Task AuthorizedGroupManagerCanCreateProjectWithDates()
+    {
+        var fixture = ProjectFixture.Create();
+        var manager = fixture.AddUser();
+        var group = fixture.AddGroup(manager.Id, GroupRole.Admin);
+        fixture.Current.UserIdValue = manager.Id;
+        var start = new DateOnly(2026, 6, 1);
+        var expectedEnd = new DateOnly(2026, 7, 1);
+
+        var result = await fixture.Service.CreateAsync(new CreateProjectRequest(fixture.Workspace.Id, group.Id, "New Project", "Scoped", start, expectedEnd));
+
+        Assert.True(result.IsSuccess);
+        Assert.Equal(group.Id, result.Value!.GroupId);
+        Assert.Equal(start, result.Value.StartDate);
+        Assert.Equal(expectedEnd, result.Value.EndDate);
+        Assert.Contains(fixture.Projects.Members, member => member.ProjectId == result.Value.Id && member.UserId == manager.Id && member.Role == ProjectRole.Owner);
+    }
+
+    [Fact]
+    public async Task InvalidStatusTransitionIsRejected()
+    {
+        var fixture = ProjectFixture.Create();
+        var manager = fixture.AddUser();
+        fixture.Current.UserIdValue = manager.Id;
+        fixture.AddProjectMember(manager.Id, ProjectRole.Manager);
+        fixture.Project.Status = ProjectStatus.Completed;
+
+        var result = await fixture.Service.UpdateAsync(fixture.Project.Id, new UpdateProjectRequest(null, null, ProjectStatus.Active, null, null));
+
+        Assert.False(result.IsSuccess);
+        Assert.Equal(ProjectStatus.Completed, fixture.Project.Status);
+    }
+
     [Fact]
     public async Task ArchiveCreatesAuditLog()
     {
@@ -180,7 +227,7 @@ public sealed class ProjectServiceTests
         {
             WorkspaceAuthorization = new WorkspaceAuthorizationService(Users, Workspaces);
             GroupAuthorization = new GroupAuthorizationService(Groups, Workspaces, WorkspaceAuthorization);
-            ProjectAuthorization = new ProjectAuthorizationService(Projects, WorkspaceAuthorization, GroupAuthorization);
+            ProjectAuthorization = new ProjectAuthorizationService(Projects, WorkspaceAuthorization, GroupAuthorization, Groups);
             Service = new ProjectService(
                 Projects,
                 Workspaces,
@@ -222,7 +269,7 @@ public sealed class ProjectServiceTests
             return fixture;
         }
 
-        public User AddUser(bool addWorkspaceMember = true)
+        public User AddUser(bool addWorkspaceMember = true, WorkspaceRole workspaceRole = WorkspaceRole.Member)
         {
             var user = new User
             {
@@ -240,13 +287,21 @@ public sealed class ProjectServiceTests
                     WorkspaceId = Workspace.Id,
                     UserId = user.Id,
                     User = user,
-                    Role = WorkspaceRole.Member,
+                    Role = workspaceRole,
                     Status = MembershipStatus.Active,
                     JoinedAt = Clock.UtcNow
                 });
             }
 
             return user;
+        }
+
+        public Group AddGroup(Guid userId, GroupRole role = GroupRole.Member)
+        {
+            var group = new Group { WorkspaceId = Workspace.Id, Name = "Projects", Slug = "projects", GroupType = GroupType.ProjectGroup, Status = GroupStatus.Active, CreatedByUserId = userId };
+            Groups.Items[group.Id] = group;
+            Groups.Members.Add(new GroupMember { GroupId = group.Id, UserId = userId, Role = role, JoinedAt = Clock.UtcNow });
+            return group;
         }
 
         public void AddProjectMember(Guid userId, ProjectRole role)

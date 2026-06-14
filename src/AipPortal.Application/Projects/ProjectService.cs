@@ -134,8 +134,14 @@ public sealed class ProjectService(
         }
 
         var previousStatus = project.Status;
+        var nextStatus = request.Status ?? project.Status;
+        if (!IsValidProjectStatusTransition(previousStatus, nextStatus))
+        {
+            return Result<ProjectResponse>.Failure($"Project status cannot transition from {previousStatus} to {nextStatus}.");
+        }
+
         project.Description = request.Description?.Trim() ?? project.Description;
-        project.Status = request.Status ?? project.Status;
+        project.Status = nextStatus;
         project.StartDate = request.StartDate ?? project.StartDate;
         project.DueDate = request.EndDate ?? project.DueDate;
         await AuditAsync(userId, project.Status == previousStatus ? "ProjectUpdated" : "ProjectStatusChanged", "Project", project.Id, cancellationToken);
@@ -773,20 +779,22 @@ public sealed class ProjectService(
         return Result.Success();
     }
 
-    private async Task<Result> ValidateProjectParentAsync(Guid workspaceId, Guid? groupId, CancellationToken cancellationToken)
+    private async Task<Result> ValidateProjectParentAsync(Guid workspaceId, Guid groupId, CancellationToken cancellationToken)
     {
         if (await workspaces.GetByIdAsync(workspaceId, cancellationToken) is null)
         {
             return Result.Failure("Workspace not found.");
         }
 
-        if (groupId.HasValue)
+        if (groupId == Guid.Empty)
         {
-            var group = await groups.GetByIdAsync(groupId.Value, cancellationToken);
-            if (group is null || group.WorkspaceId != workspaceId)
-            {
-                return Result.Failure("Group must belong to the selected workspace.");
-            }
+            return Result.Failure("Project group is required.");
+        }
+
+        var group = await groups.GetByIdAsync(groupId, cancellationToken);
+        if (group is null || group.WorkspaceId != workspaceId || group.Status != GroupStatus.Active)
+        {
+            return Result.Failure("Group must belong to the selected workspace.");
         }
 
         return Result.Success();
@@ -966,6 +974,23 @@ public sealed class ProjectService(
         return auditLogger.LogAsync(new AuditLogEntry(actorUserId, action, targetType, targetId, SummaryFor(action)), cancellationToken);
     }
 
+    private static bool IsValidProjectStatusTransition(ProjectStatus current, ProjectStatus next)
+    {
+        if (current == next) return true;
+        if (next == ProjectStatus.Deleted) return false;
+
+        return current switch
+        {
+            ProjectStatus.Planning => next is ProjectStatus.Active or ProjectStatus.Suspended or ProjectStatus.Archived,
+            ProjectStatus.Active => next is ProjectStatus.Review or ProjectStatus.Completed or ProjectStatus.Suspended or ProjectStatus.Archived,
+            ProjectStatus.Review => next is ProjectStatus.Active or ProjectStatus.Completed or ProjectStatus.Suspended or ProjectStatus.Archived,
+            ProjectStatus.Completed => next is ProjectStatus.Archived,
+            ProjectStatus.Suspended => next is ProjectStatus.Planning or ProjectStatus.Active or ProjectStatus.Archived,
+            ProjectStatus.Archived => false,
+            _ => false
+        };
+    }
+
     private static string SummaryFor(string action) => action switch
     {
         "ProjectStatusChanged" => "Project status changed.",
@@ -998,7 +1023,7 @@ public sealed class ProjectService(
 
     private static ProjectResponse ToProject(Project project)
     {
-        return new ProjectResponse(project.Id, project.WorkspaceId, project.GroupId, project.OwnerUserId, project.Name, project.Description, project.Status, project.StartDate, project.DueDate, project.CreatedAt, project.UpdatedAt);
+        return new ProjectResponse(project.Id, project.WorkspaceId, project.GroupId ?? Guid.Empty, project.OwnerUserId, project.Name, project.Description, project.Status, project.StartDate, project.DueDate, project.CreatedAt, project.UpdatedAt);
     }
 
     private static ProjectMemberResponse ToProjectMember(ProjectMember member)

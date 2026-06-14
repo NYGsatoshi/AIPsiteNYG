@@ -16,7 +16,11 @@ public sealed class ProjectRepository(AppDbContext dbContext) : IProjectReposito
                 dbContext.WorkspaceMembers.Any(member =>
                     member.WorkspaceId == project.WorkspaceId &&
                     member.UserId == userId &&
-                    member.Status == MembershipStatus.Active))
+                    member.Status == MembershipStatus.Active &&
+                    (member.Role == WorkspaceRole.Owner || member.Role == WorkspaceRole.Admin)) ||
+                (project.GroupId.HasValue && dbContext.GroupMembers.Any(member =>
+                    member.GroupId == project.GroupId.Value &&
+                    member.UserId == userId)))
             .OrderBy(project => project.Name)
             .ToListAsync(cancellationToken);
     }
