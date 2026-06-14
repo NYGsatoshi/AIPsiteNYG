@@ -56,3 +56,86 @@ jobs:
       - name: PostgreSQL logs on failure
         if: failure()
         run: docker logs ${{ job.services.postgres.id }}
+
+  security-scan:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      security-events: write
+    env:
+      IMAGE_NAME: aipsite-nyg-ci:${{ github.sha }}
+      POSTGRES_PASSWORD: ci_only_compose_config_password
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Setup .NET
+        uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: "10.0.x"
+
+      - name: Restore
+        run: dotnet restore AipPortal.slnx
+
+      - name: Check .NET vulnerable packages
+        run: |
+          set -o pipefail
+          dotnet list AipPortal.slnx package --vulnerable --include-transitive 2>&1 | tee dotnet-vulnerable-packages.txt
+          if grep -q "has the following vulnerable packages" dotnet-vulnerable-packages.txt; then
+            echo "Vulnerable .NET packages were detected. Review dotnet-vulnerable-packages.txt."
+            exit 1
+          fi
+
+      - name: Check .NET deprecated packages
+        run: |
+          set -o pipefail
+          dotnet list AipPortal.slnx package --deprecated 2>&1 | tee dotnet-deprecated-packages.txt
+          if grep -q "has the following deprecated packages" dotnet-deprecated-packages.txt; then
+            echo "Deprecated .NET packages were detected. Review dotnet-deprecated-packages.txt."
+            exit 1
+          fi
+
+      - name: Upload .NET dependency scan reports
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: dotnet-dependency-scan-reports
+          path: |
+            dotnet-vulnerable-packages.txt
+            dotnet-deprecated-packages.txt
+          if-no-files-found: error
+
+      - name: Validate Docker Compose config
+        run: docker compose config --quiet
+
+      - name: Build Docker image
+        run: docker build --pull --tag "$IMAGE_NAME" .
+
+      - name: Scan Docker image with Trivy
+        uses: aquasecurity/trivy-action@0.31.0
+        with:
+          image-ref: ${{ env.IMAGE_NAME }}
+          vuln-type: os,library
+          severity: HIGH,CRITICAL
+          ignore-unfixed: true
+          format: table
+          output: trivy-image-report.txt
+          exit-code: "1"
+
+      - name: Upload Trivy image scan report
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: trivy-image-scan-report
+          path: trivy-image-report.txt
+          if-no-files-found: error
+
+      - name: Scan repository secrets with Gitleaks
+        uses: gitleaks/gitleaks-action@v2
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GITLEAKS_ENABLE_UPLOAD_ARTIFACT: true
+          GITLEAKS_ENABLE_SUMMARY: true
