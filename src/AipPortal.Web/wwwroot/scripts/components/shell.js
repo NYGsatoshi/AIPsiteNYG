@@ -139,9 +139,9 @@ export async function createShell(root) {
         <div data-notification-button></div>
         <div data-user-menu></div>
       </header>
-      <aside class="app-sidebar" data-sidebar></aside>
+      <aside class="app-sidebar" aria-label="Primary navigation" data-sidebar></aside>
       <main id="main" class="main-content" tabindex="-1"></main>
-      <aside class="app-notifications" data-notification-area></aside>
+      <aside class="app-notifications" aria-label="Notifications" data-notification-area></aside>
     </div>
   `;
 

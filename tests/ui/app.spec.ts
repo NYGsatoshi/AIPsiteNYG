@@ -1,6 +1,18 @@
-import { expect, test } from '@playwright/test';
+import { expect, type Page, test } from '@playwright/test';
 import { expectNoAccessibilityViolations } from './a11y';
 import { mockAuthenticatedApp, mockLoginOnly } from './app.fixtures';
+
+async function openPrimaryNavigation(page: Page) {
+  const primaryNavigation = page.getByRole('navigation', { name: 'Primary' });
+  if ((page.viewportSize()?.width ?? 0) <= 760 && !(await primaryNavigation.isVisible())) {
+    await page.getByRole('button', { name: 'Toggle navigation' }).click();
+  }
+}
+
+async function goToProjects(page: Page) {
+  await openPrimaryNavigation(page);
+  await page.getByRole('link', { name: /Projects/ }).click();
+}
 
 test('login page shows authentication entry point, validates failures, and has no axe violations', async ({ page }) => {
   await mockLoginOnly(page);
@@ -25,11 +37,22 @@ test('dashboard shell renders primary navigation, empty states, and passes axe c
   await page.goto('/');
 
   await expect(page.getByRole('heading', { name: 'Dashboard' })).toBeVisible();
-  await expect(page.getByRole('navigation', { name: 'Primary' })).toBeVisible();
-  await expect(page.getByRole('link', { name: /Projects/ })).toBeVisible();
+  if ((page.viewportSize()?.width ?? 0) <= 760) {
+    await openPrimaryNavigation(page);
+    await expect(page.getByRole('navigation', { name: 'Primary' })).toBeVisible();
+  } else {
+    await expect(page.getByRole('navigation', { name: 'Primary' })).toBeVisible();
+    await expect(page.getByRole('link', { name: /Projects/ })).toBeVisible();
+  }
   await expect(page.getByText('No assigned tasks due soon.')).toBeVisible();
   await expect(page.getByText('No recent conversations.')).toBeVisible();
   await expectNoAccessibilityViolations(page);
+
+  if ((page.viewportSize()?.width ?? 0) <= 760) {
+    await goToProjects(page);
+    await expect(page).toHaveURL(/\/projects/);
+    await expect(page.getByRole('heading', { name: 'Projects' })).toBeVisible();
+  }
 });
 
 test('search route is reachable from the header and preserves the query', async ({ page }) => {
@@ -49,7 +72,7 @@ test('projects list, empty task state, form validation, and API error state are 
   await mockAuthenticatedApp(page);
 
   await page.goto('/');
-  await page.getByRole('link', { name: /Projects/ }).click();
+  await goToProjects(page);
 
   await expect(page.getByRole('heading', { name: 'Projects' })).toBeVisible();
   await expect(page.getByRole('link', { name: /UI Test Project/ })).toBeVisible();
@@ -59,11 +82,11 @@ test('projects list, empty task state, form validation, and API error state are 
   await page.getByRole('button', { name: 'Tasks' }).click();
   await expect(page.getByText('No tasks yet.')).toBeVisible();
 
-  await page.getByRole('button', { name: 'Create task' }).click();
+  await page.locator('[data-new-task]').click();
   await page.getByLabel('Title').fill('Task with invalid dates');
   await page.getByLabel('Start date').fill('2026-06-20');
   await page.getByLabel('Due date').fill('2026-06-10');
-  await page.getByRole('button', { name: 'Create task' }).click();
+  await page.locator('[data-task-form]').getByRole('button', { name: 'Create task' }).click();
   await expect(page.getByRole('status')).toHaveText('Due date cannot be before start date.');
 
   await page.unroute('/api/projects/project-ui-test/tasks');
@@ -71,7 +94,7 @@ test('projects list, empty task state, form validation, and API error state are 
     await route.fulfill({ status: 500, json: { error: 'Project tasks unavailable.' } });
   });
   await page.reload();
-  await page.getByRole('link', { name: /Projects/ }).click();
+  await goToProjects(page);
   await page.getByRole('link', { name: /UI Test Project/ }).click();
   await page.getByRole('button', { name: 'Tasks' }).click();
 
