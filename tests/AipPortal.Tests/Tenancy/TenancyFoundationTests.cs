@@ -351,9 +351,11 @@ public sealed class TenancyFoundationTests
     private static StartupConfigurationValidator CreateStartupValidator(
         FileStorageOptions fileStorage,
         SecurityOptions security,
-        string environmentName = Environments.Production,
+        string? environmentName = null,
         FeatureOptions? features = null)
     {
+        environmentName ??= Environments.Production;
+
         var services = new ServiceCollection().AddAntiforgery();
         var csrfState = new CsrfProtectionState();
         if (security.EnableCsrfProtection)
