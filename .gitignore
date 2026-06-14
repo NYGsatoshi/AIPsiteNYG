@@ -11,3 +11,6 @@ data/
 src/AipPortal.Web/data/
 .env
 local.env
+node_modules/
+playwright-report/
+test-results/

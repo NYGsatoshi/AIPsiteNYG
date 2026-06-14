@@ -1,0 +1,15 @@
+{
+  "name": "aipsite-nyg-ui-tests",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Playwright UI tests for AIP Portal.",
+  "scripts": {
+    "build": "dotnet build AipPortal.slnx --configuration Release",
+    "test": "playwright test",
+    "test:ui": "playwright test"
+  },
+  "devDependencies": {
+    "@axe-core/playwright": "^4.10.2",
+    "@playwright/test": "^1.53.1"
+  }
+}
