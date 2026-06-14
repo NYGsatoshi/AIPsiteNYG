@@ -49,5 +49,4 @@ public sealed record SecurityEventListItemResponse(
     SecurityEventSeverity Severity,
     string Summary,
     string? MetadataJson,
-    string? CorrelationId,
     DateTimeOffset CreatedAt);
