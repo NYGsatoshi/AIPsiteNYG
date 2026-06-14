@@ -8,6 +8,7 @@ using AipPortal.Infrastructure.Persistence;
 using AipPortal.Web.Configuration;
 using AipPortal.Web.Extensions;
 using AipPortal.Web.Middleware;
+using AipPortal.Web.Models;
 using AipPortal.Web.Security;
 using Microsoft.AspNetCore.Authentication.Cookies;
 using Microsoft.AspNetCore.DataProtection;
@@ -162,7 +163,7 @@ app.MapFallback(async context =>
     if (context.Request.Path.StartsWithSegments("/api"))
     {
         context.Response.StatusCode = StatusCodes.Status404NotFound;
-        await context.Response.WriteAsJsonAsync(new { error = "Endpoint not found." });
+        await context.Response.WriteAsJsonAsync(new ErrorResponse("NotFound", "Endpoint not found.", context.TraceIdentifier));
         return;
     }
 

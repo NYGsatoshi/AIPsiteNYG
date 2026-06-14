@@ -19,19 +19,23 @@ public sealed class ProjectService(
     INotificationService notifications,
     IUnitOfWork unitOfWork) : IProjectService
 {
-    public async Task<Result<IReadOnlyList<ProjectResponse>>> ListAsync(bool archived = false, CancellationToken cancellationToken = default)
+    public async Task<Result<PagedResponse<ProjectResponse>>> ListAsync(ProjectListQuery query, CancellationToken cancellationToken = default)
     {
         if (!TryCurrentUser(out var userId))
         {
-            return Result<IReadOnlyList<ProjectResponse>>.Failure("Authentication is required.");
+            return Result<PagedResponse<ProjectResponse>>.Failure("Authentication is required.");
         }
 
         var items = await projects.ListVisibleAsync(userId, cancellationToken);
-        return Result<IReadOnlyList<ProjectResponse>>.Success(items
+        var filtered = items
             .Where(project => !project.DeletedAt.HasValue)
-            .Where(project => archived ? project.Status == ProjectStatus.Archived : project.Status is not ProjectStatus.Archived and not ProjectStatus.Deleted)
+            .Where(project => query.Archived ? project.Status == ProjectStatus.Archived : project.Status is not ProjectStatus.Archived and not ProjectStatus.Deleted)
+            .Where(project => !query.Status.HasValue || project.Status == query.Status.Value)
+            .Where(project => MatchesSearch(project.Name, project.Description, query.Search))
             .Select(ToProject)
-            .ToList());
+            .ToList();
+
+        return Result<PagedResponse<ProjectResponse>>.Success(ToPagedResponse(filtered, query.SafePage, query.SafePageSize));
     }
 
     public async Task<Result<ProjectResponse>> CreateAsync(CreateProjectRequest request, CancellationToken cancellationToken = default)
@@ -271,15 +275,20 @@ public sealed class ProjectService(
         return Result.Success();
     }
 
-    public async Task<Result<IReadOnlyList<MilestoneResponse>>> ListMilestonesAsync(Guid projectId, CancellationToken cancellationToken = default)
+    public async Task<Result<PagedResponse<MilestoneResponse>>> ListMilestonesAsync(Guid projectId, ProjectChildListQuery query, CancellationToken cancellationToken = default)
     {
         if (!TryCurrentUser(out var userId) || !await projectAuthorization.CanViewProject(userId, projectId, cancellationToken))
         {
-            return Result<IReadOnlyList<MilestoneResponse>>.Failure("Project not found.");
+            return Result<PagedResponse<MilestoneResponse>>.Failure("Project not found.");
         }
 
         var milestones = await projects.ListMilestonesAsync(projectId, cancellationToken);
-        return Result<IReadOnlyList<MilestoneResponse>>.Success(milestones.Where(m => !m.DeletedAt.HasValue).Select(ToMilestone).ToList());
+        var filtered = milestones
+            .Where(m => !m.DeletedAt.HasValue)
+            .Where(m => MatchesSearch(m.Name, m.Description, query.Search))
+            .Select(ToMilestone)
+            .ToList();
+        return Result<PagedResponse<MilestoneResponse>>.Success(ToPagedResponse(filtered, query.SafePage, query.SafePageSize));
     }
 
     public async Task<Result<MilestoneResponse>> CreateMilestoneAsync(Guid projectId, CreateMilestoneRequest request, CancellationToken cancellationToken = default)
@@ -365,15 +374,20 @@ public sealed class ProjectService(
         return Result.Success();
     }
 
-    public async Task<Result<IReadOnlyList<TaskItemResponse>>> ListTasksAsync(Guid projectId, CancellationToken cancellationToken = default)
+    public async Task<Result<PagedResponse<TaskItemResponse>>> ListTasksAsync(Guid projectId, ProjectChildListQuery query, CancellationToken cancellationToken = default)
     {
         if (!TryCurrentUser(out var userId) || !await projectAuthorization.CanViewProject(userId, projectId, cancellationToken))
         {
-            return Result<IReadOnlyList<TaskItemResponse>>.Failure("Project not found.");
+            return Result<PagedResponse<TaskItemResponse>>.Failure("Project not found.");
         }
 
         var tasks = await projects.ListTasksAsync(projectId, cancellationToken);
-        return Result<IReadOnlyList<TaskItemResponse>>.Success(tasks.Where(task => !task.DeletedAt.HasValue).Select(ToTask).ToList());
+        var filtered = tasks
+            .Where(task => !task.DeletedAt.HasValue)
+            .Where(task => MatchesSearch(task.Title, task.Description, query.Search))
+            .Select(ToTask)
+            .ToList();
+        return Result<PagedResponse<TaskItemResponse>>.Success(ToPagedResponse(filtered, query.SafePage, query.SafePageSize));
     }
 
     public async Task<Result<TaskItemResponse>> CreateTaskAsync(Guid projectId, CreateTaskItemRequest request, CancellationToken cancellationToken = default)
@@ -666,15 +680,20 @@ public sealed class ProjectService(
         return Result.Success();
     }
 
-    public async Task<Result<IReadOnlyList<CommentResponse>>> ListCommentsAsync(CommentTargetType targetType, Guid targetId, CancellationToken cancellationToken = default)
+    public async Task<Result<PagedResponse<CommentResponse>>> ListCommentsAsync(CommentTargetType targetType, Guid targetId, ProjectChildListQuery query, CancellationToken cancellationToken = default)
     {
         if (!TryCurrentUser(out var userId) || !await commentAuthorization.CanCommentOnTarget(userId, targetType, targetId, cancellationToken))
         {
-            return Result<IReadOnlyList<CommentResponse>>.Failure("Comment target not found.");
+            return Result<PagedResponse<CommentResponse>>.Failure("Comment target not found.");
         }
 
         var comments = await projects.ListCommentsAsync(targetType, targetId, cancellationToken);
-        return Result<IReadOnlyList<CommentResponse>>.Success(comments.Where(comment => !comment.DeletedAt.HasValue).Select(ToComment).ToList());
+        var filtered = comments
+            .Where(comment => !comment.DeletedAt.HasValue)
+            .Where(comment => MatchesSearch(comment.Body, null, query.Search))
+            .Select(ToComment)
+            .ToList();
+        return Result<PagedResponse<CommentResponse>>.Success(ToPagedResponse(filtered, query.SafePage, query.SafePageSize));
     }
 
     public async Task<Result<CommentResponse>> AddCommentAsync(CreateCommentRequest request, CancellationToken cancellationToken = default)
@@ -959,6 +978,22 @@ public sealed class ProjectService(
     private static bool HasInvalidDateRange(DateOnly? startDate, DateOnly? endDate)
     {
         return startDate.HasValue && endDate.HasValue && endDate.Value < startDate.Value;
+    }
+
+    private static bool MatchesSearch(string value, string? secondaryValue, string? search)
+    {
+        if (string.IsNullOrWhiteSpace(search))
+        {
+            return true;
+        }
+
+        return value.Contains(search.Trim(), StringComparison.OrdinalIgnoreCase) ||
+            (secondaryValue?.Contains(search.Trim(), StringComparison.OrdinalIgnoreCase) ?? false);
+    }
+
+    private static PagedResponse<T> ToPagedResponse<T>(IReadOnlyList<T> items, int page, int pageSize)
+    {
+        return new PagedResponse<T>(items.Skip((page - 1) * pageSize).Take(pageSize).ToList(), page, pageSize, items.Count);
     }
 
     private static ProjectResponse ToProject(Project project)

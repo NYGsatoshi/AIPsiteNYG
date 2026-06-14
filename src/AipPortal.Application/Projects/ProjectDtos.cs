@@ -2,12 +2,24 @@ using AipPortal.Domain.Enums;
 
 namespace AipPortal.Application.Projects;
 
+public sealed record ProjectListQuery(bool Archived = false, string? Search = null, ProjectStatus? Status = null, int Page = 1, int PageSize = 50)
+{
+    public int SafePage => Page < 1 ? 1 : Page;
+    public int SafePageSize => PageSize < 1 ? 50 : Math.Min(PageSize, 100);
+}
+
 public sealed record ProjectResponse(Guid Id, Guid WorkspaceId, Guid? GroupId, Guid OwnerUserId, string Title, string? Description, ProjectStatus Status, DateOnly? StartDate, DateOnly? EndDate, DateTimeOffset CreatedAt, DateTimeOffset? UpdatedAt);
 public sealed record CreateProjectRequest(Guid WorkspaceId, Guid? GroupId, string Title, string? Description, DateOnly? StartDate, DateOnly? EndDate);
 public sealed record UpdateProjectRequest(string? Title, string? Description, ProjectStatus? Status, DateOnly? StartDate, DateOnly? EndDate);
 public sealed record ProjectMemberResponse(Guid UserId, string DisplayName, string Email, ProjectRole Role, DateTimeOffset JoinedAt);
 public sealed record AddProjectMemberRequest(Guid UserId, ProjectRole Role);
 public sealed record UpdateProjectMemberRequest(ProjectRole Role);
+public sealed record ProjectChildListQuery(string? Search = null, int Page = 1, int PageSize = 50)
+{
+    public int SafePage => Page < 1 ? 1 : Page;
+    public int SafePageSize => PageSize < 1 ? 50 : Math.Min(PageSize, 100);
+}
+
 public sealed record MilestoneResponse(Guid Id, Guid ProjectId, string Title, string? Description, DateOnly? DueDate, MilestoneStatus Status, int SortOrder, DateTimeOffset CreatedAt, DateTimeOffset? UpdatedAt);
 public sealed record CreateMilestoneRequest(string Title, string? Description, DateOnly? DueDate, int SortOrder);
 public sealed record UpdateMilestoneRequest(string? Title, string? Description, DateOnly? DueDate, MilestoneStatus? Status, int? SortOrder);
