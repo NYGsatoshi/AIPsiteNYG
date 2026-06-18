@@ -1,196 +1,185 @@
 # Architecture
 
-## Style
+Last implementation audit: 2026-06-18.
 
-AIP Portal uses a modular monolith. The application is deployed as one ASP.NET Core app, but code is organized around business modules with clear boundaries. This keeps the first version simple while leaving room to split modules later if the product grows.
+## System shape
 
-Pilot handoff note: this architecture is implemented enough for controlled local/on-prem demos, but broad SaaS readiness still depends on the gaps tracked in `docs/ROADMAP.md`.
-
-## Solution Structure
+AIPsiteNYG is a modular monolith deployed as one ASP.NET Core application. PostgreSQL stores relational data; file bytes use an `IFileStorageService` implementation.
 
 ```text
-src/
-  AipPortal.Web/
-  AipPortal.Application/
-  AipPortal.Domain/
-  AipPortal.Infrastructure/
-tests/
-  AipPortal.Tests/
+AipPortal.Web
+  -> AipPortal.Application
+  -> AipPortal.Infrastructure
+       -> AipPortal.Application
+       -> AipPortal.Domain
+AipPortal.Application
+  -> AipPortal.Domain
 ```
 
-## Layer Responsibilities
+The actual references are in the four `src/*/*.csproj` files. There are no separate services, message brokers, job workers, or plugin hosts.
 
-### Web
+## Projects
 
-- ASP.NET Core startup, middleware, auth configuration, routing.
-- REST controllers or minimal API endpoints.
-- Request and response DTOs.
-- Model validation responses.
-- No business rules beyond request shaping.
+### `AipPortal.Domain`
 
-### Application
+Contains:
 
-- Use cases and command/query handlers.
-- Server-side authorization checks.
-- Transaction boundaries.
-- Notification dispatch requests.
-- Audit log creation.
-- Pagination, filtering, and sorting policies.
-- DTO projection contracts.
+- common entity bases and `ITenantEntity`;
+- entities grouped into identity, tenancy, workspace, messaging, communication, events, forms, production, integration, and system files;
+- enums in `Domain/Enums/CoreEnums.cs`.
 
-### Domain
+Most business rules are currently implemented in application services rather than rich domain methods.
 
-- Entities, enums, value objects, and domain rules.
-- Invariants that do not require infrastructure.
-- No EF-specific query logic.
-- No HTTP concerns.
+### `AipPortal.Application`
 
-### Infrastructure
+Contains:
 
-- EF Core DbContext, configurations, migrations.
-- PostgreSQL persistence.
-- File storage implementation.
-- Search indexing/query implementation.
-- Background jobs.
-- Email or other external service adapters later.
+- request/response DTOs;
+- service interfaces and service implementations;
+- resource authorization services;
+- current tenant/user abstractions;
+- feature-flag and quota logic;
+- repository and infrastructure contracts.
 
-## Module Boundaries
+Services are registered in `AipPortal.Application/DependencyInjection.cs`.
 
-Modules are namespaces and folders inside the layers, not separate services at first.
+### `AipPortal.Infrastructure`
 
-Suggested module folders:
+Contains:
 
-```text
-AipPortal.Application/
-  Auth/
-  Users/
-  Workspaces/
-  Groups/
-  Channels/
-  Messaging/
-  Announcements/
-  Notifications/
-  Files/
-  Projects/
-  ProductionTracking/
-  Feedback/
-  Search/
-  Audit/
-  UiShell/
-  Admin/
-```
+- `AppDbContext`, entity configurations, migrations, and repositories;
+- local filesystem storage and the unsupported object-storage placeholder;
+- PBKDF2 password hashing and SHA-256 token hashing;
+- database-backed audit, notifications, and search.
 
-The Domain and Infrastructure projects should mirror these modules where useful.
+Infrastructure registrations are in `AipPortal.Infrastructure/DependencyInjection.cs`.
 
-## Request Flow
+### `AipPortal.Web`
 
-1. Web endpoint receives a request DTO.
-2. Web maps identity claims to a user context.
-3. Web calls an Application use case.
-4. Application loads required data using repositories or DbContext-backed services.
-5. Application performs server-side authorization.
-6. Application changes domain state inside a transaction.
-7. Application records audit log entries for important operations.
-8. Application queues or creates notifications when needed.
-9. Web returns a response DTO.
+Contains:
+
+- host startup and middleware ordering in `Program.cs`;
+- cookie authentication and database session validation;
+- tenant resolution;
+- controllers;
+- configuration validation;
+- static HTML/CSS/JavaScript in `wwwroot/`.
+
+## Request pipeline
+
+The implemented order in `Program.cs` is:
+
+1. Global exception handling.
+2. Security response headers.
+3. Optional HSTS and HTTPS redirection.
+4. Static/default files.
+5. Tenant resolution.
+6. Optional rate limiting.
+7. Cookie authentication.
+8. Optional CSRF validation.
+9. Authorization.
+10. Controllers, health endpoints, and SPA fallback.
+
+Consequences:
+
+- Platform paths under `/api/platform` set platform scope before authentication.
+- Other requests attempt tenant resolution before cookie principal validation.
+- Static files are served before tenant resolution and authentication.
+- Unsafe methods require antiforgery tokens whenever CSRF is enabled, including login and invite registration.
+
+## Tenancy boundary
+
+Tenant is the primary data boundary.
+
+- Tenant-owned entities implement `ITenantEntity`.
+- `AppDbContext` adds a `TenantId` index and global query filter to every mapped `ITenantEntity`.
+- Normal writes stamp an empty `TenantId` and reject mismatches.
+- Normal tenant-owned writes verify that the current tenant is still active.
+- Platform scope bypasses global filters; explicit platform repositories must predicate by target tenant.
+
+These controls are implemented in `Infrastructure/Persistence/AppDbContext.cs`.
+
+**Inferred:** query-filter coverage applies to every currently mapped `ITenantEntity` because configuration is generated by reflection in `OnModelCreating`. A schema audit is still required whenever a new entity is added.
+
+## Authentication and authorization
+
+Cookie authentication is the only request authentication scheme wired into the host.
+
+- The cookie contains user, role, and session identifiers.
+- The session identifier is not serialized in login JSON.
+- Each authenticated request validates the database session, user status, expiry/revocation, and—on tenant API routes—active tenant membership when a tenant was resolved.
+- Controllers use `[Authorize]` for coarse checks.
+- Application services perform most resource authorization.
+
+API token validation exists as a service but is not connected to ASP.NET Core authentication.
+
+`SystemRole.SystemAdmin` is a deprecated compatibility alias for `SystemRole.PlatformAdmin`.
 
 ## Persistence
 
-Use PostgreSQL with EF Core.
+- One `AppDbContext`.
+- PostgreSQL through Npgsql.
+- Fluent configurations under `Infrastructure/Persistence/Configurations/`.
+- Thirteen migration classes as of 2026-06-18.
+- Enums are generally stored as strings through `HasEnumStringConversion`.
+- Foreign-key deletion is predominantly `Restrict` or `SetNull`; user-facing lifecycle operations often use status plus soft-delete metadata.
 
-Persistence rules:
+See `docs/DATABASE.md`.
 
-- Use one application DbContext initially.
-- Use `Tenant` as the top-level isolation boundary. Tenant-owned entities implement `ITenantEntity`.
-- Apply global tenant query filters in `AppDbContext`; normal services must not bypass them.
-- Configure entities using Fluent API.
-- Use UTC timestamps.
-- Prefer `Guid` identifiers unless a future requirement justifies numeric IDs.
-- Add indexes for foreign keys, slugs, timestamps, read states, search fields, and common filters.
-- Use soft delete for user-facing content where recovery or audit visibility matters.
-- Do not expose EF entities directly from APIs.
+## Feature and configuration systems
 
-## Authentication And Authorization
+There are two distinct mechanisms:
 
-Initial options:
+1. Database-backed tenant features through `IFeatureFlagService`, subscriptions, plans, and tenant overrides.
+2. Appsettings classes `FeatureOptions` and `PlatformOptions`.
 
-- Cookie auth for server-rendered UI and same-site API calls.
-- JWT bearer later if separate clients need it.
+The database-backed mechanism is used selectively by files, artifacts, integrations, exports, and UI-shell services.
 
-Authorization must be enforced in Application use cases, not only by controller attributes. Controller attributes can reject obviously invalid access, but they are not enough to prevent workspace, group, project, or channel data leaks.
+The appsettings `Features:*` switches are bound but not read by feature controllers/services. Most `Platform:*` switches are also not enforcement gates. Treat them as partially implemented configuration, not authoritative runtime controls.
 
-Tenant access is checked before resource access. `PlatformAdmin` is a system-level role for tenant management. Tenant `Owner` and `Admin` roles live in `TenantUser` and apply only inside that tenant.
+## Backend/UI coverage
 
-Use policy names for broad capabilities, then resource checks for specific records:
+| Module | Backend | Bundled browser UI |
+| --- | --- | --- |
+| Auth | Login/logout/change password/invite endpoint | Login only |
+| Tenant context | Current/list/switch/admin APIs | Context display and switcher |
+| Workspaces/groups/channels | CRUD and membership APIs | Placeholder routes |
+| Messaging | Conversation/message APIs | Polling conversation UI |
+| Announcements | CRUD/read-state APIs | List/detail/create/edit/read UI |
+| Notifications | List/read/delete APIs | List/read UI and polling badge |
+| Projects/planning | Broad project/task/planning APIs | Main implemented feature UI |
+| Files/artifacts | Upload/download/version APIs | Artifact list only in project UI |
+| Events/forms | Broad APIs | Placeholder routes; dashboard reads calendar |
+| Search | Tenant-aware database search API | Placeholder results page |
+| Platform/tenant admin | Broad APIs | Read-only summary dashboards |
+| UI shell | Data APIs | Static navigation fallback; disabled radial button |
 
-- Workspace member required
-- Workspace admin required
-- Group member required
-- Channel member required
-- Project member required
-- Owner/admin override where appropriate
+## Health and startup
 
-## Files
+Health endpoints are implemented in `Program.cs`:
 
-Files are stored through an abstraction, not direct local path usage.
+- `/health/live`: process liveness only.
+- `/health/ready`: database connectivity, pending migrations, storage, Data Protection path, and single-tenant default tenant.
 
-Initial implementation can use local disk storage configured through settings:
+Startup can seed:
 
-- Base storage path
-- Max file size
-- Allowed extensions
-- Allowed MIME types
-- Scan status behavior
+- a default tenant;
+- plan records;
+- optional UI-shell records.
 
-Store metadata in PostgreSQL. Store file bytes outside the database unless a later requirement changes this.
+Startup does not seed a user, administrator, tenant membership, workspace, or demo content.
 
-## Notifications
+## Components not present
 
-Start with database-backed notifications. Each notification should have recipient, type, source object, created timestamp, read timestamp, and compact display data.
+The following are planned, not architectural components in the current build:
 
-SignalR can be added later to push new notifications and messages in realtime. The REST API should remain the source of truth.
-
-## Search
-
-Start with PostgreSQL-backed search using indexed fields and simple text search. Keep the search module behind an Application/Infrastructure abstraction so a dedicated search engine can be introduced later.
-
-## Audit
-
-Audit logs should be append-only from normal application code.
-
-Capture:
-
-- Actor user ID
-- Action
-- Target type and ID
-- Workspace or project scope when applicable
-- Timestamp
-- Summary metadata
-- Request correlation ID when available
-
-Avoid storing sensitive secrets or raw file contents in audit metadata.
-
-## UI Shell Foundation
-
-The UI shell starts with persisted data structures, not a fully dynamic desktop system.
-
-Foundational concepts:
-
-- `FeatureModule`: registered app feature.
-- `PanelDefinition`: dockable or navigable panel type.
-- `UserLayout`: user-specific persisted panel arrangement.
-- `CommandDefinition`: command palette and action registry item.
-- `RadialMenuProfile`: named radial menu configuration.
-- `RadialMenuItem`: menu item linked to command, panel, or route.
-
-Docking and radial menu data should be stable enough that a richer UI can be added later without changing core tables.
-
-## Docker Readiness
-
-Docker is not mandatory for the first commit, but the app should avoid assumptions that block containers:
-
-- No hardcoded absolute storage paths.
-- Configuration through environment variables and settings files.
-- PostgreSQL connection string from configuration.
-- Static files and uploads separated.
-- Health endpoint later for container checks.
+- background job runner;
+- email delivery;
+- outbound webhook dispatcher;
+- API token authentication handler;
+- object-storage client;
+- external SSO/MFA;
+- SignalR/realtime messaging;
+- billing/payment provider;
+- tenant restore engine;
+- full-text search service.

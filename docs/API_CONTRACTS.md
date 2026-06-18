@@ -2,6 +2,8 @@
 
 This document is the active API convention guide. For endpoint examples, use `docs/API_SMOKE_TESTS.http`.
 
+Implementation note: this document describes the intended contract. The current controllers do not consistently follow one error shape or HTTP status mapping. Global exceptions return `ErrorResponse(Code, Message, TraceId)`, while many controller failures return `{ "error": "..." }` and map authorization/not-found failures to `400`. Track this mismatch in `docs/KNOWN_ISSUES.md`.
+
 ## General Rules
 
 - REST APIs are the source of truth for the bundled frontend.
@@ -29,7 +31,7 @@ This document is the active API convention guide. For endpoint examples, use `do
 
 ## Errors
 
-Use the shared error response shape from `src/AipPortal.Web/Models/ErrorResponse.cs`.
+Target the shared error response shape from `src/AipPortal.Web/Models/ErrorResponse.cs`. Existing endpoints still need migration to this contract.
 
 Error responses should include:
 

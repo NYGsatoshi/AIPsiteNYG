@@ -1,228 +1,177 @@
 # Deployment
 
-This document is the active source for local setup, Docker, configuration, environment variables, and migrations. Operational runbooks live in `docs/OPERATIONS.md`.
+Last implementation audit: 2026-06-18.
 
-## Requirements
+This document describes what the repository currently supports. It is not a production certification.
 
-- .NET 10 SDK/runtime matching the project target.
-- PostgreSQL 18 or another PostgreSQL version supported by the configured Npgsql provider.
-- A writable file storage directory for local/on-prem storage.
-- Docker and Docker Compose when using containerized startup.
+## Deployment readiness
 
-## Deployment Profiles
+| Profile | Status | Current limitation |
+| --- | --- | --- |
+| Direct local development | Partially implemented | Requires external PostgreSQL, migrations, tenant data, and a manually provisioned user |
+| `docker-compose.local.yml` | Partially implemented | Migrates and seeds a tenant, but no user/admin bootstrap exists |
+| `docker-compose.yml` | Partially implemented | Migrates, but default SaaS startup seeds no tenant or user |
+| `docker-compose.onprem.yml` | Incomplete | Does not run migrations and expects production HTTPS behavior without including a reverse proxy |
+| Broad public SaaS | Not ready | Object storage, bootstrap, API-token auth, recovery evidence, and deployment hardening are incomplete |
 
-- `Development`: local development with safe setup switches and development tenant header resolution only when enabled.
-- `SaaS`: hosted multi-tenant deployment with platform tenant lifecycle APIs.
-- `OnPremSingleTenant`: installed single-tenant deployment using a configured default tenant.
-- `OnPremMultiTenant`: installed multi-tenant deployment; treat as pre-pilot until the same isolation checks pass.
-- `Test`: repeatable automated test profile.
+## Container files
 
-Profiles are selected through ASP.NET Core configuration files and environment variables. Environment variables override JSON configuration.
+### `Dockerfile`
 
-## Local Development
+- Builds and publishes `AipPortal.Web`.
+- Uses .NET 10 `-preview` image tags even though projects target stable `net10.0`; this should be reviewed.
+- Installs `curl` for health checks.
+- Listens on HTTP port 8080.
+- Does not apply migrations.
 
-Restore, build, and test:
+### `docker-compose.local.yml`
 
-```powershell
-dotnet restore AipPortal.slnx
-dotnet build AipPortal.slnx
-dotnet test AipPortal.slnx
-```
+- PostgreSQL 18.
+- Separate SDK migration service.
+- Development app profile.
+- `OnPremSingleTenant` with startup tenant seed.
+- Local filesystem uploads in a named volume.
+- No persistent Data Protection volume in this profile.
+- No seeded user/admin.
 
-Run migrations:
+### `docker-compose.yml`
 
-```powershell
+- PostgreSQL 18.
+- Separate SDK migration service.
+- Production app profile.
+- Local filesystem uploads despite the base app mode being SaaS.
+- Persistent Data Protection keys and uploads.
+- No tenant or user seed by default.
+
+### `docker-compose.onprem.yml`
+
+- PostgreSQL and app only.
+- No migration service and no automatic migration in the app.
+- `Tenancy:SeedOnStartup=true`, but seeding cannot work against a fresh database before the schema exists.
+- Production HTTPS redirect and secure-cookie settings are enabled.
+- No reverse-proxy/TLS service is included.
+
+For a fresh on-prem deployment, apply migrations before starting the app.
+
+## Configuration sources
+
+Effective configuration is composed from:
+
+- `src/AipPortal.Web/appsettings.json`;
+- environment-specific `appsettings.*.json`;
+- environment variables;
+- command-line configuration.
+
+The `*.example.json` files are examples only. ASP.NET Core does not automatically load `appsettings.SaaS.example.json`, `appsettings.OnPremSingleTenant.example.json`, or similar files.
+
+Values such as `${DB_HOST}` inside JSON are not shell-expanded by ASP.NET Core. Copying an example file without replacing placeholders will not produce a working deployment.
+
+## Enforced configuration
+
+Startup validation checks:
+
+- tenancy enum values and development-header policy;
+- file provider names and required provider fields;
+- upload size, extensions, and MIME types;
+- CSRF service/middleware registration;
+- production secure cookies, HTTPS, HSTS, persisted Data Protection keys, and disabled setup mode;
+- production database password presence and basic placeholder/strength heuristics;
+- object-storage secret presence when object storage is selected.
+
+Source: `src/AipPortal.Web/Configuration/StartupConfigurationValidator.cs`.
+
+## Bound but not enforced settings
+
+The following settings should not be treated as runtime gates:
+
+- `Features:EnableRadialMenu`
+- `Features:EnableDockingLayout`
+- `Features:EnableForms`
+- `Features:EnableEvents`
+- `Features:EnableProductionTracking`
+- `Features:EnableWebhooks`
+- `Features:EnableApiTokens`
+- `Platform:EnablePlatformAdmin`
+- `Platform:AllowTenantCreationFromAdmin`
+- `Platform:EnablePlansAndSubscriptions`
+- `Platform:EnableUsageQuota`
+
+`Platform:PlatformAdminSetupMode` is read only by production startup validation. It does not implement bootstrap.
+
+Tenant feature enforcement uses database plan/settings data through `FeatureFlagService`, not the `Features:*` section.
+
+## Database migrations
+
+Apply migrations before app startup:
+
+```bash
 dotnet tool restore
-dotnet ef database update --project src/AipPortal.Infrastructure --startup-project src/AipPortal.Web
+dotnet ef database update \
+  --project src/AipPortal.Infrastructure \
+  --startup-project src/AipPortal.Web
 ```
 
-If PowerShell does not pick up the local EF tool, use the restored tool DLL:
+Generate a review script:
 
-```powershell
-dotnet $env:USERPROFILE\.nuget\packages\dotnet-ef\10.0.8\tools\net8.0\any\dotnet-ef.dll database update --project src/AipPortal.Infrastructure --startup-project src/AipPortal.Web
+```bash
+dotnet ef migrations script \
+  --project src/AipPortal.Infrastructure \
+  --startup-project src/AipPortal.Web
 ```
 
-Run locally:
+The app checks for pending migrations in `/health/ready` but does not apply them.
 
-```powershell
-$env:ConnectionStrings__DefaultConnection='Host=localhost;Port=5432;Database=aip_portal_dev;Username=aip_portal;Password=<local-password>'
-dotnet run --project src/AipPortal.Web
-```
+## Tenant and administrator bootstrap
 
-Use development tenant headers only in development.
+Implemented startup seed can create a default tenant and plans.
 
-## Docker Compose
+No supported workflow creates the first user or PlatformAdmin. The following documentation claim is therefore a mismatch: “enable setup mode and create the first administrator.” Setup mode has no corresponding endpoint or seed.
 
-Local development:
+Do not expose a fresh deployment until a reviewed bootstrap procedure is implemented.
 
-```powershell
-Copy-Item .env.example .env
-docker compose -f docker-compose.local.yml up --build
-```
+## Files
 
-Default app URL: `http://localhost:8080`, unless `AIP_PORTAL_PORT` is overridden.
+`LocalFileSystem` is the only implemented provider.
 
-The app service healthcheck in each Compose profile probes `/health/ready`, so `docker compose ps` reports `healthy` only after PostgreSQL, migrations, configured storage, and configured Data Protection key storage are ready.
+The names `ObjectStorage`, `S3Compatible`, and `OCIObjectStorage` pass provider-name validation but resolve to `UnsupportedObjectStorageService`. Readiness returns unhealthy for these providers, saves fail, reads throw, and signed URLs are unavailable.
 
-On-prem single-tenant defaults:
+Tenant metadata export does not include file bodies and cannot replace storage backups.
 
-```powershell
-$env:POSTGRES_PASSWORD='<strong-password>'
-docker compose -f docker-compose.onprem.yml up --build
-```
+## HTTPS and reverse proxies
 
-The Compose connection string uses `Host=postgres` because the web and migration containers connect to PostgreSQL on the Compose network. For direct Windows execution with `dotnet run`, use `Host=localhost` and expose PostgreSQL with `POSTGRES_PORT`.
+Production startup requires HTTPS redirect, HSTS, and secure cookies.
 
-Reset the local Docker database:
+The current host does not call `UseForwardedHeaders`. Therefore, correct `X-Forwarded-Proto`/host handling behind a TLS-terminating proxy is **needs verification** and may cause redirects or incorrect tenant-host resolution.
 
-```powershell
-docker compose -f docker-compose.local.yml down -v
-docker compose -f docker-compose.local.yml up --build
-```
+Do not claim reverse-proxy readiness until trusted proxy handling is implemented and tested.
 
-PostgreSQL 18 stores Docker data below `/var/lib/postgresql`; reset older local volumes initialized through `/var/lib/postgresql/data` before starting again.
+## Health endpoints
 
-## Configuration
+- `GET /health/live`: process liveness.
+- `GET /health/ready`: database connection, no pending migrations, storage readiness, Data Protection path, and default tenant in single-tenant mode.
+- `GET /health`: temporary redirect to readiness.
 
-Important configuration groups:
+Readiness does not prove:
 
-- `Tenancy`: app mode, default tenant slug, resolution strategy, tenant switching, development header policy.
-- `FileStorage`: provider, root path or object storage settings, max size, extensions, MIME types, signed URL settings.
-- `Security`: HTTPS, HSTS, secure cookie policy, CSRF, rate limiting, login lockout.
-- `DataProtection`: persisted key path for production and multi-instance deployments.
-- `Platform`: platform admin enablement, setup mode, tenant creation, plans/subscriptions, usage quotas.
-- `Features`: feature flags for radial menu, docking, forms, events, production tracking, webhooks, API tokens.
+- an admin user exists;
+- login works;
+- tenant memberships exist;
+- core workflows pass;
+- backups can be restored;
+- reverse-proxy routing is correct.
 
-Startup validation fails fast for invalid app mode, unsafe production tenant header resolution, unsafe production cookies/HTTPS/HSTS, missing production Data Protection key persistence, weak detectable production secrets, missing file storage settings, invalid upload limits/extensions/content types, and production setup mode.
+## Required pre-deployment audit
 
-## Environment Variables
+Before any pilot:
 
-Use double underscores to override nested configuration keys.
+1. Implement or document a supported first-admin bootstrap.
+2. Apply and record migrations.
+3. Verify tenant resolution for the exact host/proxy topology.
+4. Verify login, tenant membership, and role separation.
+5. Run cross-tenant HTTP tests against PostgreSQL.
+6. Verify uploads/downloads using the configured storage.
+7. Back up and restore PostgreSQL plus file storage.
+8. Record the app image/tag and configuration.
+9. Confirm no placeholder secrets or example configuration remain.
 
-Required or commonly used:
-
-- `ASPNETCORE_ENVIRONMENT`
-- `ConnectionStrings__DefaultConnection`
-- `DataProtection__KeysPath`
-- `Tenancy__AppMode`
-- `Tenancy__DefaultTenantSlug`
-- `Tenancy__TenantResolutionStrategy`
-- `Tenancy__AllowTenantSwitching`
-- `Tenancy__AllowDevelopmentHeaderTenantResolution`
-- `Tenancy__AllowDevelopmentHeaderInProduction`
-- `FileStorage__Provider`
-- `FileStorage__RootPath`
-- `FileStorage__BucketName`
-- `FileStorage__Endpoint`
-- `FileStorage__Region`
-- `FileStorage__MaxFileSizeBytes`
-- `FileStorage__AllowedExtensions__0`
-- `FileStorage__AllowedContentTypes__0`
-- `FileStorage__UseSignedUrls`
-- `FileStorage__UsePathStyle`
-- `Security__CookieSecurePolicy`
-- `Security__RequireHttps`
-- `Security__EnableHsts`
-- `Security__EnableCsrfProtection`
-- `Security__EnableRateLimiting`
-- `Security__LoginLockoutEnabled`
-- `Security__MaxFailedLoginAttempts`
-- `Security__LoginLockoutDurationMinutes`
-- `Platform__EnablePlatformAdmin`
-- `Platform__PlatformAdminSetupMode`
-- `Platform__AllowTenantCreationFromAdmin`
-- `Platform__EnablePlansAndSubscriptions`
-- `Platform__EnableUsageQuota`
-
-Docker Compose variables:
-
-- `POSTGRES_DB`
-- `POSTGRES_USER`
-- `POSTGRES_PASSWORD`
-- `POSTGRES_PORT`
-- `AIP_PORTAL_PORT`
-- `FILE_STORAGE_MAX_FILE_SIZE_BYTES`
-
-Do not commit object storage keys, database passwords, API keys, or production secrets. Use environment variables, protected `.env` files, a vault, or deployment-platform secrets.
-
-## SaaS
-
-Use:
-
-- `Tenancy:AppMode=SaaS`
-- `Tenancy:TenantResolutionStrategy=Host` or `Subdomain`
-- `Tenancy:AllowDevelopmentHeaderInProduction=false`
-- `Security:CookieSecurePolicy=Always`
-- `Security:RequireHttps=true`
-- `Security:EnableHsts=true`
-- `Security:EnableCsrfProtection=true`
-- `DataProtection:KeysPath=<persisted path>`
-
-Production SaaS should use object storage once the adapter is implemented. Local filesystem storage is not recommended for production SaaS.
-
-## OnPremSingleTenant
-
-Use:
-
-- `Tenancy:AppMode=OnPremSingleTenant`
-- `Tenancy:DefaultTenantSlug=<organization-slug>`
-- `Tenancy:TenantResolutionStrategy=ConfigDefault`
-- `Tenancy:AllowTenantSwitching=false`
-- `Tenancy:SeedOnStartup=true` for first startup when the default tenant should be created automatically.
-- `FileStorage:Provider=LocalFileSystem`
-
-Confirm `/health/ready` reports ready only after the default tenant exists and database/storage checks pass.
-
-## Reverse Proxy And HTTPS
-
-Configure the reverse proxy to:
-
-- Terminate TLS.
-- Redirect HTTP to HTTPS.
-- Forward `X-Forwarded-For` and `X-Forwarded-Proto` only when trusted proxy handling is configured.
-- Limit request body size consistently with `FileStorage:MaxFileSizeBytes`.
-- Preserve host headers when using host/subdomain tenant resolution.
-
-## Migrations
-
-Add a migration:
-
-```powershell
-dotnet tool restore
-dotnet ef migrations add <MigrationName> --project src/AipPortal.Infrastructure --startup-project src/AipPortal.Web
-```
-
-Apply migrations:
-
-```powershell
-dotnet ef database update --project src/AipPortal.Infrastructure --startup-project src/AipPortal.Web
-```
-
-For Docker deployments, run migrations in a controlled SDK container or maintenance job with the same environment variables as the app.
-
-Before production migrations:
-
-1. Back up PostgreSQL and file storage.
-2. Stop or drain the app if the migration can lock heavily used tables.
-3. Review generated migrations and SQL scripts before applying destructive changes.
-4. Verify tenant-owned tables include `TenantId`, tenant-aware indexes, and foreign keys.
-5. Run tenant isolation smoke tests after migration.
-
-Generate a script for review:
-
-```powershell
-dotnet ef migrations script --project src/AipPortal.Infrastructure --startup-project src/AipPortal.Web
-```
-
-Tenant backfills are data migrations. Restoring a backup is safer than relying on EF down scripts for destructive or tenant-stamping changes.
-
-## Admin Bootstrap And First Tenant
-
-Do not hardcode production admin passwords.
-
-1. Create a PlatformAdmin through a controlled bootstrap procedure.
-2. Disable setup mode after bootstrap.
-3. Create the first tenant through platform APIs.
-4. Add the first tenant owner/admin.
-5. Verify PlatformAdmin cannot see tenant data through normal tenant endpoints.
-6. Verify tenant admin cannot access platform APIs.
+See `docs/KNOWN_ISSUES.md` and `docs/OPERATIONS.md`.

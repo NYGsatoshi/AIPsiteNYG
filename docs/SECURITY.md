@@ -2,6 +2,8 @@
 
 This is the active implementation security guide. Root `SECURITY.md` is only the vulnerability reporting policy.
 
+Use `docs/SECURITY_MODEL.md` for the audited implemented/partial/planned status and `docs/KNOWN_ISSUES.md` for open mismatches.
+
 ## Baseline
 
 - Passwords are hashed with a proven password hasher.
@@ -14,7 +16,9 @@ This is the active implementation security guide. Root `SECURITY.md` is only the
 
 The bundled browser UI uses cookie authentication. Login lockout is persisted for existing accounts, and unknown-email login attempts use generic responses with audit/rate-limit controls.
 
-Implemented auth capabilities include login, logout, invite registration, password change, current-user lookup, DB-backed session validation, user suspension checks, CSRF token issuance, and CSRF validation for unsafe browser requests when enabled.
+Implemented auth capabilities include login, logout, password change, current-user lookup, DB-backed session validation, user suspension checks, CSRF token issuance, and CSRF validation for unsafe browser requests when enabled.
+
+Invite registration is partial: it creates a user and session but does not create tenant or workspace membership. Initial administrator bootstrap is not implemented.
 
 Deferred auth capabilities:
 
@@ -124,6 +128,10 @@ Login lockout is implemented for existing accounts. Generic responses must be pr
 
 ## Current Security Limitations
 
+- No supported first-user/PlatformAdmin bootstrap.
+- Invite registration does not create tenant/workspace membership.
+- `Features:*` and most `Platform:*` appsettings switches are not runtime authorization gates.
+- Forwarded-header handling for production reverse proxies is not configured.
 - Production object storage adapter is not implemented.
 - PostgreSQL-backed search isolation tests are enforced in CI through `POSTGRES_TEST_CONNECTION_STRING`.
 - Full tenant restore is not implemented.

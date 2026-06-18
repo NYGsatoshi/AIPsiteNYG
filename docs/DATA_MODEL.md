@@ -1,17 +1,17 @@
 # Data Model
 
-Pilot handoff note: this document describes implemented foundations and near-term model direction. Treat object storage, API token request authentication, and full restore as incomplete unless `docs/ROADMAP.md` says otherwise.
+Audit note: use `docs/DATABASE.md`, `AppDbContext`, Fluent configurations, and the current model snapshot for schema truth. This long-form inventory can lag implementation and does not prove that a feature has a complete service or UI workflow.
 
 ## Conventions
 
 - Primary keys: `Guid Id`.
-- Timestamps: `CreatedAtUtc`, `UpdatedAtUtc`, and optional `DeletedAtUtc`.
+- Timestamps: `CreatedAt`, `UpdatedAt`, and optional `DeletedAt`.
 - Tenant-owned records include `TenantId` and implement `ITenantEntity`.
 - Soft delete: use where content should remain auditable or recoverable.
 - Names and slugs should be unique only within their required scope.
 - Store user-facing enums as strings or configured conversions for readability.
 - Add indexes for all foreign keys and common filters.
-- Use optimistic concurrency tokens for records likely to be edited by multiple users.
+- Optimistic concurrency tokens are a planned hardening measure; no general concurrency-token implementation was found.
 
 ## Tenancy
 
