@@ -1,99 +1,108 @@
 # AIPsiteNYG
 
-AIPsiteNYG is a tenant-aware school and organization portal built as an ASP.NET Core modular monolith. It is currently appropriate for controlled local demos and internal pilot validation. It is not yet ready for unrestricted public SaaS operation.
+AIPsiteNYG is a tenant-aware school and organization portal implemented as a .NET 10 ASP.NET Core modular monolith.
 
-## Product positioning
+Repository audit status as of 2026-06-18: the backend contains a broad set of REST APIs, EF Core entities, PostgreSQL migrations, authorization services, and automated tests. The bundled browser UI covers a smaller subset. The repository is suitable for development and controlled technical evaluation, but it is not a turnkey pilot or production deployment.
 
-AIPsiteNYG is designed to combine school communication and project operations in one portal: announcements, workspaces, groups, channels, direct messages, projects, tasks, files, notifications, audit logs, and tenant administration.
+## Status language
 
-The main product goal is to reduce scattered school operations across chat tools, file drives, spreadsheets, and ad-hoc announcements while keeping tenant isolation and operational traceability as first-class requirements.
+Project documentation uses these labels:
 
-## Current implementation scope
+- **Implemented**: wired into the running application and supported by direct code evidence.
+- **Partially implemented**: meaningful code exists, but an end-to-end workflow, UI, integration, or enforcement layer is incomplete.
+- **Planned**: described as future work and not implemented.
+- **Deprecated**: retained only for compatibility or historical reference.
+- **Needs verification**: source evidence is insufficient, environment-dependent, or not exercised in this audit.
+- **Inferred**: behavior is concluded from code structure rather than a completed runtime check.
 
-Implemented or represented in the current application:
+## Current implementation summary
 
-- ASP.NET Core web host with modular Domain, Application, Infrastructure, and Web projects.
-- PostgreSQL-backed persistence through EF Core.
-- Cookie-based browser authentication, CSRF protection, login lockout, session validation, password change, logout, and user suspension checks.
-- Tenant model, tenant membership, tenant switching, tenant administration, platform administration, feature flags, quotas, and audit logging.
-- Workspaces, groups, channels, posts, thread replies, pinned posts, announcements, projects, milestones, tasks, assignments, comments, files, artifacts, notifications, and tenant-scoped search foundations.
-- Docker and Docker Compose based local/on-prem development flow.
+| Area | Status | Evidence and limits |
+| --- | --- | --- |
+| ASP.NET Core host and modular projects | Implemented | `src/AipPortal.Web/Program.cs`, `AipPortal.slnx` |
+| PostgreSQL and EF Core migrations | Implemented | `src/AipPortal.Infrastructure/Persistence/AppDbContext.cs`, `src/AipPortal.Infrastructure/Persistence/Migrations/` |
+| Cookie login, logout, password change, CSRF, session validation, lockout | Implemented | `src/AipPortal.Application/Auth/`, `src/AipPortal.Web/Security/`, `src/AipPortal.Web/Middleware/CsrfProtectionMiddleware.cs` |
+| Initial administrator bootstrap | **Not implemented** | Startup seed creates tenants/plans/UI metadata, not users; see `src/AipPortal.Infrastructure/Persistence/AppDbContextSeed.cs` |
+| Invite registration | Partially implemented | Creates a user and session, but does not create tenant or workspace membership |
+| Tenant filters and tenant-aware save rules | Implemented | `src/AipPortal.Infrastructure/Persistence/AppDbContext.cs` |
+| Workspaces, groups, channels, messaging, projects, forms, events, files, notifications | Backend implemented; UI varies | Controllers and services exist; several browser routes are placeholders |
+| Local filesystem storage | Implemented | `src/AipPortal.Infrastructure/Files/LocalFileStorageService.cs` |
+| Object storage | Planned | Config names exist, but `UnsupportedObjectStorageService` is used |
+| Tenant metadata export | Partially implemented | ZIP metadata export exists; file bodies and restore do not |
+| Webhooks and API tokens | Foundation only | Management/validation code exists; no outbound delivery or request authentication middleware |
+| Docker Compose | Partially implemented | Local profile includes migrations; on-prem profile does not |
 
-## Not production-ready yet
+See [AI context](docs/AI_CONTEXT.md) for the full status matrix and [known issues](docs/KNOWN_ISSUES.md) before planning work.
 
-Do not sell, expose, or operate this as a broad public service until these are closed:
+## Repository layout
 
-- Production object storage adapter and file-body export/restore.
-- Restore drills for PostgreSQL and file storage.
-- Full tenant-isolation tests under hosted HTTP conditions.
-- Password reset flow, API token middleware, advanced SSO/MFA, billing, and external integrations.
-- Operational monitoring, incident process, and backup verification.
+```text
+src/
+  AipPortal.Domain/          Entities, enums, common domain types
+  AipPortal.Application/     Use cases, DTOs, authorization, service contracts
+  AipPortal.Infrastructure/  EF Core, PostgreSQL, repositories, files, audit, search
+  AipPortal.Web/             Startup, middleware, controllers, static browser UI
+tests/
+  AipPortal.Tests/           Unit, service, HTTP, tenancy, and PostgreSQL-conditional tests
+  ui/                        Playwright tests against static assets with mocked APIs
+docs/                        Active documentation
+docs/archive/                Historical plans, reports, specifications, and status snapshots
+```
 
-## Quick start
+## Development start
 
 Requirements:
 
-- .NET 10 SDK or the SDK version required by the current project files.
-- PostgreSQL compatible with the configured Npgsql provider.
-- Docker Desktop or compatible Docker engine for Compose workflows.
+- .NET 10 SDK
+- PostgreSQL
+- Node.js 24 for the UI test workflow
+- Docker and Docker Compose for container workflows
 
-```powershell
+```bash
 dotnet restore AipPortal.slnx
-dotnet build AipPortal.slnx
-dotnet test AipPortal.slnx
-```
-
-Run database migrations:
-
-```powershell
 dotnet tool restore
-dotnet ef database update --project src/AipPortal.Infrastructure --startup-project src/AipPortal.Web
-```
-
-Run locally:
-
-```powershell
-$env:ConnectionStrings__DefaultConnection='Host=localhost;Port=5432;Database=aip_portal_dev;Username=aip_portal;Password=<local-password>'
+dotnet ef database update \
+  --project src/AipPortal.Infrastructure \
+  --startup-project src/AipPortal.Web
 dotnet run --project src/AipPortal.Web
 ```
 
-Run with Docker Compose:
+Set `ConnectionStrings__DefaultConnection` to a PostgreSQL connection string with valid credentials before applying migrations or starting the app.
 
-```powershell
-Copy-Item .env.example .env
+For the local Compose profile:
+
+```bash
+cp .env.example .env
 docker compose -f docker-compose.local.yml up --build
 ```
 
-Open `http://localhost:8080` unless `AIP_PORTAL_PORT` is changed.
+The local profile migrates the database and seeds a default tenant. It does **not** seed a login user or administrator. A supported first-admin bootstrap workflow is a known missing feature.
 
+## Verification snapshot
 
-## Health checks
+On 2026-06-18:
 
-The app exposes separate health endpoints for container and production-style monitoring:
+- `dotnet test AipPortal.slnx --configuration Release --no-restore --disable-build-servers -m:1` passed 123 tests with one compile warning.
+- `POSTGRES_TEST_CONNECTION_STRING` was unset, so the two PostgreSQL tests returned without executing their database assertions even though the test runner counted them as passed.
+- All three Compose files passed `docker compose ... config --quiet` when a validation-only `POSTGRES_PASSWORD` was supplied where required.
+- Playwright tests were not run because locked frontend dependencies were not installed in this workspace.
 
-- `GET /health/live` is a liveness probe. It returns `200 OK` when the ASP.NET Core process can serve requests and does not check dependencies.
-- `GET /health/ready` is a readiness probe. It returns `200 OK` only when required dependencies are usable: PostgreSQL is reachable, EF Core has no pending migrations, configured local file storage is writable, configured Data Protection key storage is available, and the default tenant exists for single-tenant mode. It returns a generic `503` response when not ready and does not include secrets, connection strings, environment variables, or internal exception details.
+See [testing](docs/TESTING.md) for exact interpretation.
 
-The Compose profiles wire the app service healthcheck to `/health/ready`, so `docker compose ps` reports whether the container is ready to receive traffic after PostgreSQL and migrations complete.
+## Documentation
 
-## Required operational rules
+- [AI context](docs/AI_CONTEXT.md)
+- [Architecture](docs/ARCHITECTURE.md)
+- [Development](docs/DEVELOPMENT.md)
+- [Deployment](docs/DEPLOYMENT.md)
+- [Security model](docs/SECURITY_MODEL.md)
+- [Database](docs/DATABASE.md)
+- [Testing](docs/TESTING.md)
+- [Known issues](docs/KNOWN_ISSUES.md)
+- [Coding rules](docs/CODING_RULES.md)
+- [API conventions](docs/API_CONTRACTS.md)
+- [Operations](docs/OPERATIONS.md)
+- [Roadmap](docs/ROADMAP.md)
+- [Archive index](docs/archive/README.md)
 
-- Never commit production secrets, passwords, tokens, keys, or real student data.
-- Disable development tenant headers and platform setup mode outside controlled setup.
-- Use HTTPS, secure cookies, HSTS, and protected Data Protection keys in production-like environments.
-- Back up both PostgreSQL and file storage before pilot use.
-- Rehearse restore before relying on backups.
-
-## Documentation map
-
-Start with `docs/AI_CONTEXT.md`, then read only the focused document needed for the task:
-
-- Architecture: `docs/ARCHITECTURE.md`
-- Coding rules: `docs/CODING_RULES.md`
-- Data model: `docs/DATA_MODEL.md`
-- Security: `docs/SECURITY.md` and `SECURITY.md`
-- Deployment: `docs/DEPLOYMENT.md`
-- Operations: `docs/OPERATIONS.md`
-- Roadmap and deferred work: `docs/ROADMAP.md`
-
-Do not treat `docs/archive/` as current truth unless explicitly instructed.
+Archived documents are historical evidence, not current project truth.

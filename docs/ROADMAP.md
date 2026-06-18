@@ -2,6 +2,8 @@
 
 This is the active source for scope, deferred work, readiness, and current technical debt. Historical plans and status snapshots are in `docs/archive/`.
 
+Implementation status is maintained in `docs/AI_CONTEXT.md` and `docs/KNOWN_ISSUES.md`. Items listed as MVP scope here may be backend-only or partially implemented; this file expresses intended direction, not proof of completion.
+
 ## Current Target
 
 Usable operation by mid-July 2026 for an initial school activity deployment of about 100 users.
@@ -52,14 +54,17 @@ MVP rules:
 
 ## Current Readiness
 
-Controlled local/on-prem pilot candidate, not broad SaaS-ready.
+Development and controlled technical-evaluation build, not a turnkey pilot or broad SaaS deployment.
 
 Known blockers:
 
+- No supported first-user/PlatformAdmin bootstrap.
+- Invite registration does not create tenant/workspace membership.
 - Production object storage is not implemented.
 - PostgreSQL-backed search isolation tests are enforced in CI through `POSTGRES_TEST_CONNECTION_STRING`.
 - Backup/restore drill has not been recorded for each target environment.
 - Full tenant restore is not implemented.
+- On-prem Compose does not apply migrations and reverse-proxy forwarded headers are not configured.
 
 OnPremSingleTenant is the safest controlled pilot mode after manual smoke and restore rehearsal.
 
