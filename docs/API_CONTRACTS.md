@@ -2,7 +2,7 @@
 
 This document is the active API convention guide. For endpoint examples, use `docs/API_SMOKE_TESTS.http`.
 
-Implementation note: this document describes the intended contract. The current controllers do not consistently follow one error shape or HTTP status mapping. Global exceptions return `ErrorResponse(Code, Message, TraceId)`, while many controller failures return `{ "error": "..." }` and map authorization/not-found failures to `400`. Track this mismatch in `docs/KNOWN_ISSUES.md`.
+Implementation note: this document describes the intended contract. The current controllers do not consistently follow one error shape or HTTP status mapping. Global exceptions return `ErrorResponse(Code, Message, TraceId)`, while many controller failures return `{ "error": "..." }` and map authorization/not-found failures to `400`. Track this mismatch in `docs/KNOWN_ISSUES.md`; exact controller/service findings are in `docs/BACKEND_LOGIC_AUDIT.md`.
 
 ## General Rules
 
@@ -53,6 +53,8 @@ Validate input before executing use cases:
 - Feature flag availability.
 - Quota availability.
 
+Current implementation gaps include inconsistent enum and GUID validation, missing persistence-length checks, malformed JSON escaping as server errors, nullable collection assumptions, and query date ranges that are not always validated. See `docs/BACKEND_LOGIC_AUDIT.md`.
+
 Use Application-level validation for rules that need database state or authorization context.
 
 ## Authorization Expectations
@@ -90,6 +92,10 @@ Upload endpoints must:
 - Store bytes through `IFileStorageService`.
 - Generate tenant-namespaced storage keys.
 - Return metadata DTOs, not raw filesystem paths or permanent object URLs.
+
+Storage and metadata are separate failure domains. Upload implementations must clean up newly written bytes if metadata/audit persistence fails, and local storage should publish completed files atomically rather than writing directly to the final path.
+
+Messaging must reference canonical, authorized file or attachment IDs. It must not accept client-supplied storage keys, stored filenames, or internal file paths as proof of an uploaded file.
 
 ## CSRF And Browser Calls
 

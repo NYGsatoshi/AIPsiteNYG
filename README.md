@@ -2,7 +2,7 @@
 
 AIPsiteNYG is a tenant-aware school and organization portal implemented as a .NET 10 ASP.NET Core modular monolith.
 
-Repository audit status as of 2026-06-18: the backend contains a broad set of REST APIs, EF Core entities, PostgreSQL migrations, authorization services, and automated tests. The bundled browser UI covers a smaller subset. The repository is suitable for development and controlled technical evaluation, but it is not a turnkey pilot or production deployment.
+Repository audit status as of 2026-06-19: the backend contains a broad set of REST APIs, EF Core entities, PostgreSQL migrations, authorization services, and automated tests. A focused backend logic audit also identified critical defects in scoped announcement visibility, search authorization, conversation persistence, and message attachment handling. The bundled browser UI covers a smaller subset. The repository is suitable for development and controlled technical evaluation, but it is not a turnkey pilot or production deployment.
 
 ## Status language
 
@@ -33,6 +33,7 @@ Project documentation uses these labels:
 | Docker Compose | Partially implemented | Local profile includes migrations; on-prem profile does not |
 
 See [AI context](docs/AI_CONTEXT.md) for the full status matrix and [known issues](docs/KNOWN_ISSUES.md) before planning work.
+See [backend logic audit](docs/BACKEND_LOGIC_AUDIT.md) for controller, service, validation, error-handling, file, project, messaging, announcement, DI, and HTTP-status findings.
 
 ## Repository layout
 
@@ -99,6 +100,7 @@ See [testing](docs/TESTING.md) for exact interpretation.
 - [Database](docs/DATABASE.md)
 - [Testing](docs/TESTING.md)
 - [Known issues](docs/KNOWN_ISSUES.md)
+- [Backend logic audit](docs/BACKEND_LOGIC_AUDIT.md)
 - [Coding rules](docs/CODING_RULES.md)
 - [API conventions](docs/API_CONTRACTS.md)
 - [Operations](docs/OPERATIONS.md)

@@ -4,6 +4,23 @@ Last implementation audit: 2026-06-19.
 
 This list records confirmed implementation/documentation mismatches and major unknowns. It is not limited to defects already filed in GitHub.
 
+## Backend application logic audit findings
+
+The detailed controller, service, validation, error-handling, file, project, messaging, announcement, DI, and HTTP-status audit is maintained in `docs/BACKEND_LOGIC_AUDIT.md`.
+
+The highest-severity confirmed findings are:
+
+- **BE-001, critical:** scoped group/private-channel announcements can be disclosed to active workspace members because visibility predicates are not mutually exclusive.
+- **BE-002, critical:** search authorization is broader than normal project/comment authorization and can expose restricted project-derived content.
+- **BE-003, critical:** conversation creation writes `WorkspaceId = Guid.Empty` despite a required workspace foreign key.
+- **BE-004, critical:** message attachment requests trust client storage metadata and create records without required workspace/file-object relationships.
+- **BE-005, high:** post update/delete/pin operations mutate entities loaded with `AsNoTracking`, so successful responses may not correspond to persisted changes.
+- **BE-006, high:** assignee task filtering launches parallel EF operations on one scoped `DbContext`.
+- **BE-007, high:** file and artifact uploads can leave orphaned or partial files when metadata persistence fails.
+- **BE-008 through BE-012, high:** conversation read-state integrity, task notification targets, duplicate My Tasks rows, notification length limits, and HTTP/error mapping require focused patches.
+
+Use the backend audit document for exact files, methods, impact, patch suggestions, test cases, validation gaps, and the issue-ready list. These findings supersede any broader status label that calls the affected workflow fully implemented without qualification.
+
 ## Frontend UI audit findings
 
 Audit scope: browser rendering, navigation, dashboard behavior, login/register/admin UI, Japanese localization, responsive CSS, accessibility, broken links, and client-side JavaScript. The current frontend is a vanilla-JavaScript SPA under `src/AipPortal.Web/wwwroot`; the repository contains no Razor or `.cshtml` views.
@@ -356,6 +373,7 @@ Audit scope: browser rendering, navigation, dashboard behavior, login/register/a
 - Status: confirmed mismatch.
 - Evidence: global exceptions use `ErrorResponse(Code, Message, TraceId)`; many controllers return `{ error }`; authorization/not-found failures frequently return 400.
 - Mismatch: `docs/API_CONTRACTS.md` described one shared error shape.
+- Expanded evidence: backend audit `BE-012` documents inconsistent success codes, error categories, and controller-local mappings.
 - Suggested issue: **Standardize API problem/error responses and status mapping**.
 
 ### KI-011: PostgreSQL tests silently pass when not configured
@@ -474,3 +492,4 @@ Audit scope: browser rendering, navigation, dashboard behavior, login/register/a
 11. Run Playwright in an environment with the documented Chromium native dependencies.
 12. Add a real-host frontend contract profile covering current-user DTOs and enum request payloads.
 13. Exercise Japanese desktop and mobile workflows for every implemented page.
+14. Run the critical and high-priority regression plan in `docs/BACKEND_LOGIC_AUDIT.md` against PostgreSQL.

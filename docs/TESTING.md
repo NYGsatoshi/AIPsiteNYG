@@ -1,6 +1,6 @@
 # Testing
 
-Last local audit: 2026-06-18.
+Last completed local test-run audit: 2026-06-18. Backend source/build audit: 2026-06-19.
 
 ## Verification snapshot
 
@@ -24,6 +24,13 @@ Result:
 Important qualification: `POSTGRES_TEST_CONNECTION_STRING` was unset. The two tests marked `PostgreSQLIntegration` returned before assertions and were counted as passed.
 
 Playwright was not run in this workspace because frontend dependencies were not installed.
+
+### 2026-06-19 backend audit verification
+
+- Release build completed with 0 warnings and 0 errors.
+- The audit environment prevented the .NET test runner from opening its local IPC socket, so tests did not execute in that turn.
+- Existing test files were inspected for coverage, but the backend audit does not claim a fresh passing test run.
+- Detailed regression recommendations are in `docs/BACKEND_LOGIC_AUDIT.md`.
 
 ## Test layers
 
@@ -150,6 +157,16 @@ POSTGRES_PASSWORD=validation_only docker compose -f docker-compose.onprem.yml co
 
 High priority:
 
+- scoped announcement visibility across workspace, group, public-channel, private-channel, and confidential-channel scopes;
+- search authorization parity with normal project and comment authorization;
+- PostgreSQL conversation creation and message attachment persistence;
+- EF-backed post update/delete/pin persistence;
+- assignee-filtered task queries against a real scoped `DbContext`;
+- file cleanup when database/audit/notification persistence fails;
+- conversation read-state message ownership;
+- distinct My Tasks rows for users with multiple assignment roles;
+- notification title/body boundary handling;
+- HTTP status-code and shared error-response contract tests;
 - first-admin/bootstrap workflow;
 - successful invite acceptance creating tenant/workspace membership;
 - frontend/backend DTO contract tests;
@@ -161,6 +178,12 @@ High priority:
 
 Medium priority:
 
+- route parent-child mismatch rejection;
+- explicit nullable-field clearing for PATCH requests;
+- concurrent artifact-version allocation and event-capacity enforcement;
+- maximum-length, invalid-enum, empty-GUID, null-collection, malformed-JSON, and reversed-date-range tests;
+- missing physical-file behavior;
+- DI scope-validation smoke tests resolving all controllers and services;
 - real API smoke execution from `docs/API_SMOKE_TESTS.http`;
 - feature/platform configuration enforcement;
 - forms/events/workspaces/groups/channels browser workflows;

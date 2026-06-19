@@ -2,7 +2,7 @@
 
 This is the primary entry point for future Codex work on AIPsiteNYG.
 
-Last repository audit: **2026-06-18**.
+Last repository audit: **2026-06-19**.
 
 ## Documentation authority
 
@@ -67,14 +67,14 @@ Project references enforce a conventional dependency direction. See `docs/ARCHIT
 | Database tenant feature flags and quotas | Partially implemented | File uploads, exports, integrations, and UI shell use them; broad module gating is incomplete |
 | `Features:*` appsettings switches | Documentation mismatch | Bound in DI but not used to gate controllers/services |
 | Workspaces/groups/channels/posts | Backend implemented; browser UI planned/partial | REST layers exist; routes render placeholders |
-| Messaging | Partially implemented | REST and polling UI exist; member picker depends on platform-admin user API |
-| Announcements | Partially implemented | REST and UI exist; frontend role and user-ID assumptions need audit |
-| Projects/tasks/milestones/assignments/comments/Gantt data | Partially implemented | Broad API and project UI exist; some controls use raw IDs and feedback is unavailable |
+| Messaging | Partially implemented | REST and polling UI exist; conversation persistence and attachment ownership have critical backend defects documented in `BACKEND_LOGIC_AUDIT.md` |
+| Announcements | Partially implemented | REST and UI exist; scoped visibility and frontend role/user-ID behavior have confirmed defects |
+| Projects/tasks/milestones/assignments/comments/Gantt data | Partially implemented | Broad API and project UI exist; search authorization, assignee filtering, notification targets, and task-list deduplication need patches |
 | Events/attendance/calendar | Backend implemented; browser UI planned | Controller/service/repository/tests exist; calendar route is a placeholder outside dashboard summary |
 | Forms/surveys | Backend implemented; browser UI planned | Controller/service/repository/tests exist; `/forms` is a placeholder |
 | Notifications | Implemented with polling UI | Database-backed; no realtime push |
-| Search | Backend implemented; browser UI planned | `DbSearchService` exists; `/search` explicitly says results UI is unavailable |
-| Local filesystem files | Implemented | Authorization, policy, repository, and storage service exist |
+| Search | Partially implemented | `DbSearchService` exists, but project/comment visibility is broader than canonical authorization; `/search` UI remains unavailable |
+| Local filesystem files | Partially implemented | Authorization, policy, repository, and storage exist; upload/database failure cleanup and controlled missing-file handling are incomplete |
 | Object storage | Planned | Unsupported adapter is selected for object-storage provider names |
 | Tenant export | Partially implemented | Metadata ZIP only; excludes file bodies; no restore |
 | API token records and validator | Foundation only | No request authentication handler, tenant binding, or scope middleware |
@@ -130,8 +130,9 @@ Project references enforce a conventional dependency direction. See `docs/ARCHIT
 - Browser UI coverage is materially smaller than backend API coverage.
 - Playwright tests mock API contracts and do not prove frontend/backend compatibility.
 - API errors are not standardized despite `docs/API_CONTRACTS.md` describing a shared shape.
+- Critical backend logic defects affect scoped announcements, search authorization, conversation persistence, and message attachments.
 
-Details and suggested issue titles are in `docs/KNOWN_ISSUES.md`.
+Details and suggested issue titles are in `docs/KNOWN_ISSUES.md` and `docs/BACKEND_LOGIC_AUDIT.md`.
 
 ## Testing facts
 
@@ -154,6 +155,7 @@ Always start with:
 
 Then add:
 
+- Backend controllers, services, validation, files, or business logic: `docs/BACKEND_LOGIC_AUDIT.md`
 - Architecture or module boundaries: `docs/ARCHITECTURE.md`
 - Local work: `docs/DEVELOPMENT.md`
 - Deployment/configuration: `docs/DEPLOYMENT.md`
