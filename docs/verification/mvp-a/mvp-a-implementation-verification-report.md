@@ -1,0 +1,122 @@
+# MVP-A Implementation Verification Report
+
+Verification date: 2026-06-24
+
+## Summary
+
+MVP-A implementation verification is not complete.
+
+The repository builds, starts, applies EF Core migrations to PostgreSQL, exposes working health checks, protects anonymous API access, and has broad source/test evidence for authorization, tenancy, files, messaging, and audit logging.
+
+The current P0 blocker is baseline identity/bootstrap: a fresh startup seeds a tenant and plans but no user, tenant membership, invite, or administrator. Because of that, authenticated dashboard/admin access, admin-vs-user authorization, cross-tenant runtime checks, and authenticated AuditLog verification are blocked.
+
+## Environment
+
+| Item | Observed value |
+| --- | --- |
+| OS | Ubuntu 24.04 container |
+| .NET SDK | 10.0.200 |
+| .NET runtime | Microsoft.NETCore.App 10.0.4, Microsoft.AspNetCore.App 10.0.4 |
+| Docker | 29.3.0-1 |
+| Docker Compose | v2.40.3 |
+| Node.js / npm | Node v24.14.0, npm 11.9.0 |
+| PostgreSQL | Docker Compose `postgres:18-alpine` from `docker-compose.local.yml` |
+| Important limitation | No seeded/bootstrap login user exists on fresh startup |
+
+See [mvp-a-environment-notes.md](mvp-a-environment-notes.md).
+
+## Repository Inventory
+
+| Item | Evidence |
+| --- | --- |
+| Solution | `AipPortal.slnx` |
+| Projects | `src/AipPortal.Domain`, `src/AipPortal.Application`, `src/AipPortal.Infrastructure`, `src/AipPortal.Web`, `tests/AipPortal.Tests` |
+| Target framework | `net10.0` in all .NET projects inspected |
+| Application entrypoint | `src/AipPortal.Web/Program.cs` |
+| Startup configuration | `Program.cs`, `src/AipPortal.Web/Extensions/DependencyInjection.cs`, `src/AipPortal.Infrastructure/DependencyInjection.cs` |
+| Appsettings | `appsettings.json`, `appsettings.Development.json`, `appsettings.Test.json`, on-prem/SaaS/production examples |
+| Docker | `Dockerfile`, `docker-compose.yml`, `docker-compose.local.yml`, `docker-compose.onprem.yml` |
+| Database config | Npgsql provider in `AipPortal.Infrastructure/DependencyInjection.cs`; connection string `DefaultConnection` |
+| DbContext | `src/AipPortal.Infrastructure/Persistence/AppDbContext.cs` |
+| Migrations | 12 migrations in `src/AipPortal.Infrastructure/Persistence/Migrations/` |
+| Authentication | Cookie auth in `Program.cs`; auth APIs in `AuthController`; session validation in `DbSessionCookieAuthenticationEvents` |
+| Authorization | Controller `[Authorize]` attributes plus service authorization classes for tenant, workspace, group, channel, project, file, conversation, forms, events, admin |
+| Dashboard/UI | Static SPA in `src/AipPortal.Web/wwwroot`; dashboard route handled by frontend fallback |
+| AuditLog | `AuditLog`, `SecurityEvent`, `DbAuditLogger`, `DbAuditQueryService`, service audit calls |
+| File/messaging | `FilesController`, `FileService`, `FileAuthorizationService`, `ConversationsController`, `ConversationService`, `ConversationAuthorizationService` |
+| Tests | `tests/AipPortal.Tests` and `tests/ui` Playwright tests |
+| CI | `.github/workflows/ci.yml` |
+| README startup docs | `README.md` documents restore, EF update, run, local Compose, and missing admin bootstrap |
+
+## Verification Matrix
+
+| Area | Status | Evidence | Blocker | Next action |
+| --- | --- | --- | --- | --- |
+| Build / Startup | Pass | EV-003, EV-005, EV-013 | None | Keep using `--no-launch-profile` when environment overrides matter. |
+| Health check | Pass | EV-014, EV-015, EV-016 | None | Optional P1: decide whether `/healthz` or `/api/health` aliases are required. |
+| Auth / Login | Partial | EV-019, EV-020, EV-021, EV-022, EV-023 | P0-001 | Add minimal approved bootstrap/seed login path for verification. |
+| Tenant / User / Role | Failed | EV-023 plus source inventory | P0-001 | Seed or bootstrap first admin/user with tenant membership for MVP-A verification. |
+| Authorization | Blocked | EV-024, EV-025, EV-026 plus tests/source | P0-002 | Run admin/non-admin/tenant smoke tests after P0-001. |
+| EF Core / PostgreSQL | Pass | EV-007, EV-008, EV-009, EV-010, EV-011 | None | Keep PostgreSQL connection-string requirement documented. |
+| Dashboard reachability | Partial | EV-027 | P0-001 | Verify authenticated dashboard after baseline login exists. |
+| AuditLog | Partial | EV-028 | P0-001 | Trigger login/logout/admin/file/message actions after baseline login exists. |
+| File / Messaging | Partial | EV-029 | None P0; P1 follow-up | Verify runtime file/message permission checks with real users after P0-001. |
+| CI / tests | Partial | EV-006, EV-030, EV-031, EV-032, EV-033 | None P0 | Install frontend deps or rely on CI job; ensure Compose env docs are clear. |
+
+## P0 Blockers
+
+See [mvp-a-p0-blockers.md](mvp-a-p0-blockers.md).
+
+- P0-001: Fresh MVP-A startup has no usable login/admin bootstrap.
+- P0-002: End-to-end authorization verification is blocked by missing baseline identity.
+
+## P1 Follow-Up
+
+- Add or document explicit local verification setup for frontend Playwright dependencies; local `npm test` currently fails because `playwright` is not installed.
+- Decide whether `/healthz`, `/api/health`, `/ready`, or `/live` aliases are needed. Current canonical endpoints are `/health/live` and `/health/ready`.
+- Document that default and on-prem Compose config require `POSTGRES_PASSWORD`; raw `docker compose config` fails without it.
+- Verify AuditLog runtime coverage for authorization failures, admin actions, role changes, file operations, and message operations after P0-001.
+- Verify file download authorization and messaging tenant/member boundaries with real seeded users after P0-001.
+- Review messaging attachment behavior: `ConversationService` stores message attachments as metadata-only, while general file upload uses the file storage service.
+
+## Evidence Collected
+
+Primary evidence file: [mvp-a-evidence-log.md](mvp-a-evidence-log.md).
+
+Key evidence IDs:
+
+- Build/test: EV-003 through EV-006.
+- PostgreSQL/migrations: EV-007 through EV-011.
+- Startup/health: EV-012 through EV-018.
+- Auth/login: EV-019 through EV-023.
+- Authorization/dashboard: EV-024 through EV-027.
+- Audit/file/messaging/CI: EV-028 through EV-033.
+
+## Not Verified
+
+- Authenticated user dashboard access: blocked by no baseline user.
+- Authenticated admin dashboard/API access: blocked by no baseline admin.
+- Non-admin receiving 403 on admin APIs: blocked by no baseline non-admin session.
+- Cross-tenant runtime denial with authenticated users: blocked by no baseline users/memberships.
+- File download permission behavior at runtime: blocked by no baseline users/data.
+- Message send/history runtime behavior: blocked by no baseline users/data.
+- Logout behavior with an authenticated session: blocked by no baseline user.
+- AuditLog rows for authenticated core admin/auth/file/message actions: blocked by no baseline user.
+- Full local Playwright UI test run: blocked by missing local frontend dependencies.
+
+## Scope Confirmation
+
+- No new product scope was added.
+- No Future / Deferred work was promoted into MVP-A.
+- No school production readiness was claimed.
+- No Cultural Festival Pilot approval was claimed.
+- No sensitive information was committed.
+- No product code was changed.
+- No destructive database command was run.
+
+## Recommended Next PRs
+
+1. Add the smallest MVP-A verification bootstrap path for a first admin/user and tenant membership, limited to local/dev/test verification and documented startup use.
+2. Add a narrow authorization smoke test suite covering anonymous, non-admin, admin, tenant boundary, and file download denial paths.
+3. Add AuditLog smoke checks for login success/failure, logout, admin role/action, file upload/download/delete, and message send/delete.
+4. Update local verification docs for `POSTGRES_PASSWORD`, `--no-launch-profile`, and frontend test dependency setup.

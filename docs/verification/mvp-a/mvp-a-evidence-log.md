@@ -1,0 +1,47 @@
+# MVP-A Evidence Log
+
+Verification date: 2026-06-24
+
+Result status values: Pass, Partial, Failed, Blocked, Missing, Needs verification.
+
+| Evidence ID | Area | Command or method | Environment | Observed result | Status | Related blocker | Sensitive data status |
+| --- | --- | --- | --- | --- | --- | --- | --- |
+| EV-001 | Repository inventory | `find . -maxdepth 3 ...` and source inspection | Workspace | Found `AipPortal.slnx`, four source projects, one .NET test project, UI tests, Dockerfiles/Compose, and GitHub Actions CI. | Pass | None | No secrets copied |
+| EV-002 | Build / Startup | `dotnet --info` | Ubuntu 24.04 container | .NET SDK 10.0.200 and ASP.NET Core runtime 10.0.4 available. | Pass | None | No secrets |
+| EV-003 | Build / Startup | `dotnet restore AipPortal.slnx` | Workspace, escalated for package/cache access | Restore succeeded; all projects up-to-date. | Pass | None | No secrets |
+| EV-004 | Build / Startup | `dotnet build AipPortal.slnx --configuration Release --no-restore` | Sandbox | Failed with no compiler errors due MSBuild `SocketException (13): Permission denied` creating named pipe server streams. | Blocked | Environment limitation | No secrets |
+| EV-005 | Build / Startup | `dotnet build AipPortal.slnx --configuration Release --no-restore --disable-build-servers -m:1` | Escalated process permissions | Build succeeded, 0 warnings, 0 errors. | Pass | None | No secrets |
+| EV-006 | CI / tests | `dotnet test AipPortal.slnx --configuration Release --no-build --verbosity normal --disable-build-servers -m:1` | Escalated process permissions | 123 tests passed. PostgreSQL tests were counted but require separate connection-string verification. | Partial | None | No secrets |
+| EV-007 | EF Core / PostgreSQL | `docker compose -f docker-compose.local.yml up -d postgres` | Docker local | PostgreSQL 18 container started and became healthy. | Pass | None | Local throwaway credential only |
+| EV-008 | EF Core / PostgreSQL | `dotnet ef migrations list` before update | Local PostgreSQL | All 12 migrations listed as pending on empty `aip_portal` database. | Pass | None | Local throwaway credential redacted |
+| EV-009 | EF Core / PostgreSQL | `dotnet ef database update` | Local PostgreSQL | All migrations applied successfully. | Pass | None | Local throwaway credential redacted |
+| EV-010 | EF Core / PostgreSQL | `dotnet ef migrations list` after update | Local PostgreSQL | 12 migrations listed without pending markers. | Pass | None | Local throwaway credential redacted |
+| EV-011 | EF Core / PostgreSQL | `POSTGRES_TEST_CONNECTION_STRING=... dotnet test ... --filter Category=PostgreSQLIntegration` | Local PostgreSQL | 2 PostgreSQL integration tests passed with real DB assertions. | Pass | None | Local throwaway credential redacted |
+| EV-012 | Startup | `dotnet run --project src/AipPortal.Web --configuration Release --no-build` | Local PostgreSQL | App started, but launch profile forced `Development` and `http://localhost:5098`. | Partial | Environment/config note | Connection string redacted |
+| EV-013 | Startup | `dotnet run ... --no-launch-profile` with `ASPNETCORE_ENVIRONMENT=Test` | Local PostgreSQL | App started in Test on `http://127.0.0.1:5086`. | Pass | None | Connection string redacted |
+| EV-014 | Health check | `GET /health` | Running app | Returned `302` to `/health/ready`. | Pass | None | No secrets |
+| EV-015 | Health check | `GET /health/live` | Running app | Returned `200` and `{"status":"OK"}`. | Pass | None | No secrets |
+| EV-016 | Health check | `GET /health/ready` | Running app | Returned `200` with checks for database, migrations, fileStorage, dataProtection, and defaultTenant all OK. | Pass | None | No secrets |
+| EV-017 | Health check | `GET /healthz` | Running app | Returned SPA fallback HTML, not a health endpoint. | Missing | P1 follow-up | No secrets |
+| EV-018 | Health check | `GET /api/health` | Running app | Returned `404` JSON. | Missing | P1 follow-up | No secrets |
+| EV-019 | Auth / Login | `GET /api/auth/status` | Running app | Returned `200` with unauthenticated status. | Pass | None | No secrets |
+| EV-020 | Auth / Login | `GET /api/auth/me` | Running app | Returned `401 Unauthorized`. | Pass | None | No secrets |
+| EV-021 | Auth / Login | `POST /api/auth/login` without CSRF | Running app | Returned `403` with CSRF error. | Pass | None | Dummy credentials only |
+| EV-022 | Auth / Login | `POST /api/auth/login` with valid CSRF and invalid credentials | Running app | Returned `401` with generic error `Invalid email or password.` | Pass | None | Dummy credentials only |
+| EV-023 | Tenant / User / Role | Fresh DB startup counts | Fresh local PostgreSQL database | After migrations and Test startup: tenants 1, plans 4, users 0, tenant_users 0. | Failed | P0-001 | Counts only |
+| EV-024 | Authorization | `GET /api/admin/users` anonymous | Running app | Returned `401 Unauthorized`. | Pass | P0-002 for deeper checks | No secrets |
+| EV-025 | Authorization | `GET /api/projects` anonymous | Running app | Returned `401 Unauthorized`. | Pass | P0-002 for deeper checks | No secrets |
+| EV-026 | Authorization | `GET /api/ui/modules` anonymous | Running app | Returned `401 Unauthorized`. | Pass | P0-002 for deeper checks | No secrets |
+| EV-027 | Dashboard reachability | `GET /` and `GET /dashboard` anonymous | Running app | Returned SPA login HTML. Authenticated dashboard data could not be verified without a user. | Partial | P0-001 | No private data |
+| EV-028 | AuditLog | Source inspection | `DbAuditLogger`, `AuditLog`, `SecurityEvent`, services | AuditLog/SecurityEvent models and logger exist; metadata sensitive-key redaction exists; many services call audit logger. Runtime authenticated audit coverage blocked by no user. | Partial | P0-001 | No secrets |
+| EV-029 | File / Messaging baseline | Source inspection | File and messaging services/controllers | File upload/download/delete use storage, permission checks, and audit calls. Messaging APIs require authorization and audit message actions; conversation attachment path is metadata-only. | Partial | P1 follow-up | No secrets |
+| EV-030 | CI / tests | `.github/workflows/ci.yml` inspection | Workspace | CI includes PostgreSQL service, restore, build, migrations, tests, npm ci, Playwright install/tests, secret scan, dependency scan, Compose validation, Docker build, Trivy scan. | Pass | None | No secrets |
+| EV-031 | CI / tests | `npm test -- --reporter=list` | Workspace | Failed with `playwright: not found` because `node_modules` is absent. | Blocked | P1 follow-up | No secrets |
+| EV-032 | Docker / Compose | `docker compose config` | Workspace | Failed without `POSTGRES_PASSWORD`. | Partial | P1 follow-up | No secrets |
+| EV-033 | Docker / Compose | `POSTGRES_PASSWORD=verification_only_password docker compose config` and on-prem equivalent | Workspace | Default and on-prem Compose configs rendered successfully with dummy value. Local Compose config rendered successfully without extra env. | Pass | None | Dummy value only |
+
+## Evidence Notes
+
+- `Pass` is used only where direct command/runtime/source evidence was collected.
+- Authenticated admin/non-admin/tenant runtime checks are not marked Pass because no baseline login user exists.
+- No screenshots were captured because curl evidence was sufficient and no private data was exposed.
