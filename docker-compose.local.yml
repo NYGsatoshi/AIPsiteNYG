@@ -55,6 +55,10 @@ services:
       Platform__EnablePlatformAdmin: "true"
       Platform__PlatformAdminSetupMode: "true"
       Platform__AllowTenantCreationFromAdmin: "true"
+      LocalAdmin__SeedOnStartup: ${LOCAL_ADMIN_SEED_ON_STARTUP:-true}
+      LocalAdmin__Email: ${LOCAL_ADMIN_EMAIL:-admin@example.com}
+      LocalAdmin__Password: ${LOCAL_ADMIN_PASSWORD:-ChangeMe123!}
+      LocalAdmin__DisplayName: ${LOCAL_ADMIN_DISPLAY_NAME:-Local Admin}
     ports:
       - "${AIP_PORTAL_PORT:-8080}:8080"
     volumes:

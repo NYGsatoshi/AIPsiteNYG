@@ -1,5 +1,6 @@
 using AipPortal.Domain.Entities;
 using AipPortal.Domain.Enums;
+using AipPortal.Application.Common.Interfaces;
 using AipPortal.Application.Common.Tenancy;
 using Microsoft.EntityFrameworkCore;
 
@@ -85,6 +86,75 @@ public static class AppDbContextSeed
                 Status = plan.Status,
                 CreatedAt = now
             }, cancellationToken);
+        }
+
+        await dbContext.SaveChangesAsync(cancellationToken);
+    }
+
+    public static async Task SeedLocalAdminAsync(
+        AppDbContext dbContext,
+        IPasswordHasher passwordHasher,
+        Guid tenantId,
+        string email,
+        string password,
+        string? displayName,
+        CancellationToken cancellationToken = default)
+    {
+        ArgumentException.ThrowIfNullOrWhiteSpace(email);
+        ArgumentException.ThrowIfNullOrWhiteSpace(password);
+
+        var normalizedEmail = email.Trim().ToUpperInvariant();
+        var user = await dbContext.Users.FirstOrDefaultAsync(candidate => candidate.NormalizedEmail == normalizedEmail, cancellationToken);
+        if (user is null)
+        {
+            user = new User
+            {
+                DisplayName = string.IsNullOrWhiteSpace(displayName) ? "Local Admin" : displayName.Trim(),
+                Email = email.Trim(),
+                NormalizedEmail = normalizedEmail,
+                PasswordHash = passwordHasher.HashPassword(password),
+                SystemRole = SystemRole.SystemAdmin,
+                Status = UserStatus.Active,
+                CreatedAt = DateTimeOffset.UtcNow
+            };
+
+            await dbContext.Users.AddAsync(user, cancellationToken);
+        }
+        else
+        {
+            user.DisplayName = string.IsNullOrWhiteSpace(displayName) ? user.DisplayName : displayName.Trim();
+            user.Email = email.Trim();
+            user.PasswordHash = passwordHasher.HashPassword(password);
+            user.SystemRole = SystemRole.SystemAdmin;
+            user.Status = UserStatus.Active;
+            user.FailedLoginAttempts = 0;
+            user.LockoutEndAt = null;
+            user.Restore();
+            user.UpdatedAt = DateTimeOffset.UtcNow;
+        }
+
+        var tenantUser = await dbContext.TenantUsers
+            .FirstOrDefaultAsync(candidate => candidate.TenantId == tenantId && candidate.UserId == user.Id, cancellationToken);
+        if (tenantUser is null)
+        {
+            tenantUser = new TenantUser
+            {
+                TenantId = tenantId,
+                UserId = user.Id,
+                Role = TenantUserRole.Owner,
+                Status = TenantUserStatus.Active,
+                JoinedAt = DateTimeOffset.UtcNow,
+                CreatedAt = DateTimeOffset.UtcNow
+            };
+
+            await dbContext.TenantUsers.AddAsync(tenantUser, cancellationToken);
+        }
+        else
+        {
+            tenantUser.Role = TenantUserRole.Owner;
+            tenantUser.Status = TenantUserStatus.Active;
+            tenantUser.JoinedAt = tenantUser.JoinedAt == default ? DateTimeOffset.UtcNow : tenantUser.JoinedAt;
+            tenantUser.UpdatedAt = DateTimeOffset.UtcNow;
         }
 
         await dbContext.SaveChangesAsync(cancellationToken);

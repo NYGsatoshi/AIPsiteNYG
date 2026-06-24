@@ -96,6 +96,17 @@ if (tenancyOptions.SeedOnStartup || tenancyOptions.AppMode == AppMode.OnPremSing
     var dbContext = scope.ServiceProvider.GetRequiredService<AppDbContext>();
     var defaultTenant = await AppDbContextSeed.SeedDefaultTenantAsync(dbContext, tenancyOptions);
     await AppDbContextSeed.SeedPlansAsync(dbContext);
+    if (app.Environment.IsDevelopment() && builder.Configuration.GetValue<bool>("LocalAdmin:SeedOnStartup"))
+    {
+        await AppDbContextSeed.SeedLocalAdminAsync(
+            dbContext,
+            scope.ServiceProvider.GetRequiredService<IPasswordHasher>(),
+            defaultTenant.Id,
+            builder.Configuration["LocalAdmin:Email"] ?? "admin@example.com",
+            builder.Configuration["LocalAdmin:Password"] ?? "ChangeMe123!",
+            builder.Configuration["LocalAdmin:DisplayName"] ?? "Local Admin");
+    }
+
     if (builder.Configuration.GetValue<bool>("UiShell:SeedOnStartup"))
     {
         await AppDbContextSeed.SeedUiShellAsync(dbContext, defaultTenant.Id);
