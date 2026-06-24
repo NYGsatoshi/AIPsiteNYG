@@ -1,5 +1,5 @@
 # AIPsiteNYG
-仕様に関しては全て**AIPsiteNYGspec**に従うこと
+仕様に関しては全て**[AIPsiteNYGspec](https://github.com/NYGsatoshi/AIPsiteNYGspec)**に従うこと
 
 AIPsiteNYG is a tenant-aware school and organization portal implemented as a .NET 10 ASP.NET Core modular monolith.
 
