@@ -411,12 +411,12 @@ Audit scope: browser rendering, navigation, dashboard behavior, login/register/a
 - Impact: mixed naming persists in controller role strings and services.
 - Suggested issue: **Normalize PlatformAdmin naming while preserving serialized compatibility**.
 
-### KI-016: Dockerfile uses .NET 10 preview image tags
+### KI-016: Dockerfile used .NET 10 preview image tags
 
-- Status: needs verification.
-- Evidence: `mcr.microsoft.com/dotnet/*:10.0-preview`.
-- Impact: image provenance and long-term availability differ from stable tags.
-- Suggested issue: **Move Dockerfile to reviewed stable .NET 10 image tags**.
+- Status: resolved.
+- Evidence: Dockerfile and Compose migration services use `mcr.microsoft.com/dotnet/*:10.0`.
+- Impact: older deployments built before this change may still run preview images until rebuilt.
+- Suggested issue: **Rebuild deployed containers after switching to stable .NET 10 image tags**.
 
 ### KI-017: File scan records exist without a scanning pipeline
 

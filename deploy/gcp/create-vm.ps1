@@ -13,6 +13,7 @@ param(
 )
 
 $ErrorActionPreference = "Stop"
+$GcloudCommand = "gcloud.cmd"
 
 if ($ProjectId -eq "YOUR_GCP_PROJECT_ID") {
     throw "Set -ProjectId to your GCP project ID."
@@ -20,9 +21,26 @@ if ($ProjectId -eq "YOUR_GCP_PROJECT_ID") {
 
 function Invoke-Gcloud {
     param([Parameter(ValueFromRemainingArguments = $true)][string[]]$Args)
-    & gcloud @Args
+    & $GcloudCommand @Args
     if ($LASTEXITCODE -ne 0) {
         throw "gcloud command failed: gcloud $($Args -join ' ')"
+    }
+}
+
+function Invoke-GcloudOptionalValue {
+    param([Parameter(ValueFromRemainingArguments = $true)][string[]]$Args)
+    $previousErrorActionPreference = $ErrorActionPreference
+    $ErrorActionPreference = "Continue"
+    try {
+        $output = & $GcloudCommand @Args 2>$null
+        if ($LASTEXITCODE -eq 0) {
+            return ($output | Out-String).Trim()
+        }
+
+        return $null
+    }
+    finally {
+        $ErrorActionPreference = $previousErrorActionPreference
     }
 }
 
@@ -30,8 +48,8 @@ Write-Host "Using project $ProjectId in zone $Zone"
 Invoke-Gcloud config set project $ProjectId
 Invoke-Gcloud services enable compute.googleapis.com
 
-$existingVm = & gcloud compute instances describe $VmName --zone $Zone --format "value(name)" 2>$null
-if ($LASTEXITCODE -ne 0 -or [string]::IsNullOrWhiteSpace($existingVm)) {
+$existingVm = Invoke-GcloudOptionalValue compute instances describe $VmName --zone $Zone --format "value(name)"
+if ([string]::IsNullOrWhiteSpace($existingVm)) {
     Write-Host "Creating VM $VmName..."
     Invoke-Gcloud compute instances create $VmName `
         --zone $Zone `
@@ -45,8 +63,8 @@ if ($LASTEXITCODE -ne 0 -or [string]::IsNullOrWhiteSpace($existingVm)) {
 }
 
 $firewallName = "$VmName-http-8080"
-$existingFirewall = & gcloud compute firewall-rules describe $firewallName --format "value(name)" 2>$null
-if ($LASTEXITCODE -ne 0 -or [string]::IsNullOrWhiteSpace($existingFirewall)) {
+$existingFirewall = Invoke-GcloudOptionalValue compute firewall-rules describe $firewallName --format "value(name)"
+if ([string]::IsNullOrWhiteSpace($existingFirewall)) {
     Write-Host "Creating firewall rule $firewallName for tcp:80,8080..."
     Invoke-Gcloud compute firewall-rules create $firewallName `
         --allow tcp:80,tcp:8080 `
@@ -57,21 +75,27 @@ if ($LASTEXITCODE -ne 0 -or [string]::IsNullOrWhiteSpace($existingFirewall)) {
 }
 
 Write-Host "Copying GCP helper scripts to VM home directory..."
-Invoke-Gcloud compute ssh $VmName --zone $Zone --command "mkdir -p ~/aipsite-gcp"
-Invoke-Gcloud compute scp --recurse ".\deploy\gcp" "${VmName}:~/aipsite-gcp" --zone $Zone
-Invoke-Gcloud compute ssh $VmName --zone $Zone --command "chmod +x ~/aipsite-gcp/gcp/*.sh"
+$remoteUser = Invoke-GcloudOptionalValue compute ssh $VmName --zone $Zone --quiet --command "whoami"
+if ([string]::IsNullOrWhiteSpace($remoteUser)) {
+    throw "Could not determine the remote SSH user for $VmName."
+}
+
+$remoteBase = "/home/$remoteUser/aipsite-gcp"
+Invoke-Gcloud compute ssh $VmName --zone $Zone --command "mkdir -p '$remoteBase'"
+Invoke-Gcloud compute scp --recurse ".\deploy\gcp" "${VmName}:$remoteBase" --zone $Zone
+Invoke-Gcloud compute ssh $VmName --zone $Zone --command "chmod +x '$remoteBase/gcp/'*.sh"
 
 if ($RunBootstrap) {
     Write-Host "Running bootstrap-vm.sh on VM..."
-    Invoke-Gcloud compute ssh $VmName --zone $Zone --command "bash ~/aipsite-gcp/gcp/bootstrap-vm.sh"
+    Invoke-Gcloud compute ssh $VmName --zone $Zone --command "bash '$remoteBase/gcp/bootstrap-vm.sh'"
 }
 
 if ($RunDeploy) {
     Write-Host "Running deploy-app.sh on VM..."
-    Invoke-Gcloud compute ssh $VmName --zone $Zone --command "REPO_URL='$RepoUrl' bash ~/aipsite-gcp/gcp/deploy-app.sh"
+    Invoke-Gcloud compute ssh $VmName --zone $Zone --command "REPO_URL='$RepoUrl' bash '$remoteBase/gcp/deploy-app.sh'"
 }
 
-$externalIp = & gcloud compute instances describe $VmName --zone $Zone --format "value(networkInterfaces[0].accessConfigs[0].natIP)"
+$externalIp = Invoke-GcloudOptionalValue compute instances describe $VmName --zone $Zone --format "value(networkInterfaces[0].accessConfigs[0].natIP)"
 
 Write-Host ""
 Write-Host "VM is ready."

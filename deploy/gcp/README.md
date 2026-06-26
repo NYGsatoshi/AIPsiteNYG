@@ -67,6 +67,19 @@ From Windows PowerShell:
 
 If Docker group membership was just added, log out and back in before running manual Docker commands without `sudo`.
 
+## Private repository fallback
+
+If the VM cannot clone the GitHub repository, deploy the current local working tree as an archive. Replace `REMOTE_USER` with the username shown by `gcloud compute ssh aipsite-dev --zone us-central1-a --command "whoami"`.
+
+```powershell
+tar -cf aipsite-deploy.tar --exclude=.git --exclude=.env --exclude=aipsite-deploy.tar --exclude=node_modules --exclude=bin --exclude=obj --exclude=.tmp --exclude=TestResults --exclude=test-results --exclude=playwright-report --exclude=.playwright --exclude=data --exclude=src/AipPortal.Web/data .
+gcloud compute scp .\aipsite-deploy.tar aipsite-dev:/tmp/aipsite-deploy.tar --zone us-central1-a
+gcloud compute scp .\deploy\gcp\deploy-uploaded-archive.sh aipsite-dev:/home/REMOTE_USER/aipsite-gcp/gcp/deploy-uploaded-archive.sh --zone us-central1-a
+gcloud compute ssh aipsite-dev --zone us-central1-a --command "chmod +x ~/aipsite-gcp/gcp/deploy-uploaded-archive.sh && bash ~/aipsite-gcp/gcp/deploy-uploaded-archive.sh"
+```
+
+This path does not copy `.env`, `.git`, local secrets, build outputs, app data, or service account keys.
+
 ## Updating without deleting the DB
 
 On the VM:
