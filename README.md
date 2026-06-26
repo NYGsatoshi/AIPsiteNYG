@@ -23,7 +23,7 @@ Project documentation uses these labels:
 | ASP.NET Core host and modular projects | Implemented | `src/AipPortal.Web/Program.cs`, `AipPortal.slnx` |
 | PostgreSQL and EF Core migrations | Implemented | `src/AipPortal.Infrastructure/Persistence/AppDbContext.cs`, `src/AipPortal.Infrastructure/Persistence/Migrations/` |
 | Cookie login, logout, password change, CSRF, session validation, lockout | Implemented | `src/AipPortal.Application/Auth/`, `src/AipPortal.Web/Security/`, `src/AipPortal.Web/Middleware/CsrfProtectionMiddleware.cs` |
-| Initial administrator bootstrap | **Not implemented** | Startup seed creates tenants/plans/UI metadata, not users; see `src/AipPortal.Infrastructure/Persistence/AppDbContextSeed.cs` |
+| Initial administrator bootstrap | Implemented for Development | `LocalAdmin__SeedOnStartup` can seed or update a development admin user; do not use this as a production bootstrap workflow |
 | Invite registration | Partially implemented | Creates a user and session, but does not create tenant or workspace membership |
 | Tenant filters and tenant-aware save rules | Implemented | `src/AipPortal.Infrastructure/Persistence/AppDbContext.cs` |
 | Workspaces, groups, channels, messaging, projects, forms, events, files, notifications | Backend implemented; UI varies | Controllers and services exist; several browser routes are placeholders |
@@ -78,7 +78,48 @@ cp .env.example .env
 docker compose -f docker-compose.local.yml up --build
 ```
 
-The local profile migrates the database and seeds a default tenant. It does **not** seed a login user or administrator. A supported first-admin bootstrap workflow is a known missing feature.
+The local profile migrates the database and seeds a default tenant. In `Development`, it can also seed a local administrator from the `LOCAL_ADMIN_*` values in `.env`.
+
+## GCP Compute Engine development deployment
+
+This repository includes a Docker Compose deployment path for a single Google Compute Engine VM with PostgreSQL running inside Compose.
+
+Start from Windows PowerShell in VSCode:
+
+```powershell
+gcloud init
+gcloud auth login
+gcloud config set project YOUR_GCP_PROJECT_ID
+.\deploy\gcp\create-vm.ps1 -ProjectId YOUR_GCP_PROJECT_ID -Zone us-central1-a -VmName aipsite-dev
+gcloud compute ssh aipsite-dev --zone us-central1-a
+```
+
+On the VM:
+
+```bash
+bash ~/aipsite-gcp/gcp/bootstrap-vm.sh
+exit
+```
+
+Reconnect from Windows PowerShell so Docker group membership is active, then deploy:
+
+```powershell
+gcloud compute ssh aipsite-dev --zone us-central1-a
+```
+
+On the VM:
+
+```bash
+bash ~/aipsite-gcp/gcp/deploy-app.sh
+```
+
+Then open `http://EXTERNAL_IP:8080`. For updates that keep the database volume, run:
+
+```bash
+bash ~/aipsite-gcp/gcp/update-app.sh
+```
+
+See [deploy/gcp/README.md](deploy/gcp/README.md) for VM creation, Docker setup, environment variables, logs, reset commands, and common error fixes. This is a development deployment; production should add HTTPS/reverse proxying, backups, monitoring, and hardened secret management.
 
 ## Verification snapshot
 

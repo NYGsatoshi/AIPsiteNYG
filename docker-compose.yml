@@ -3,12 +3,28 @@ services:
     build:
       context: .
       dockerfile: Dockerfile
+    restart: unless-stopped
     environment:
-      ASPNETCORE_ENVIRONMENT: Production
+      ASPNETCORE_ENVIRONMENT: ${ASPNETCORE_ENVIRONMENT:-Development}
+      ASPNETCORE_URLS: http://0.0.0.0:8080
       ConnectionStrings__DefaultConnection: Host=postgres;Port=5432;Database=${POSTGRES_DB:-aip_portal};Username=${POSTGRES_USER:-aip_portal};Password=${POSTGRES_PASSWORD:?set POSTGRES_PASSWORD}
       DataProtection__KeysPath: /app/data/protection-keys
+      Tenancy__AppMode: ${TENANCY_APP_MODE:-OnPremSingleTenant}
+      Tenancy__DefaultTenantSlug: ${TENANCY_DEFAULT_TENANT_SLUG:-default}
+      Tenancy__TenantResolutionStrategy: ${TENANCY_RESOLUTION_STRATEGY:-ConfigDefault}
+      Tenancy__AllowTenantSwitching: ${TENANCY_ALLOW_SWITCHING:-false}
+      Tenancy__SeedOnStartup: "true"
+      FileStorage__Provider: LocalFileSystem
       FileStorage__RootPath: /app/storage/uploads
       FileStorage__MaxFileSizeBytes: ${FILE_STORAGE_MAX_FILE_SIZE_BYTES:-26214400}
+      Security__CookieSecurePolicy: ${SECURITY_COOKIE_SECURE_POLICY:-SameAsRequest}
+      Security__RequireHttps: ${SECURITY_REQUIRE_HTTPS:-false}
+      Security__EnableHsts: ${SECURITY_ENABLE_HSTS:-false}
+      Platform__PlatformAdminSetupMode: ${PLATFORM_ADMIN_SETUP_MODE:-true}
+      LocalAdmin__SeedOnStartup: ${LOCAL_ADMIN_SEED_ON_STARTUP:-true}
+      LocalAdmin__Email: ${LOCAL_ADMIN_EMAIL:-admin@example.com}
+      LocalAdmin__Password: ${LOCAL_ADMIN_PASSWORD:-ChangeMe123!}
+      LocalAdmin__DisplayName: ${LOCAL_ADMIN_DISPLAY_NAME:-Local Admin}
     ports:
       - "${AIP_PORTAL_PORT:-8080}:8080"
     volumes:
@@ -29,11 +45,12 @@ services:
   migrate:
     image: mcr.microsoft.com/dotnet/sdk:10.0-preview
     working_dir: /src
+    restart: "no"
     volumes:
       - ./:/src
       - aip_nuget:/root/.nuget/packages
     environment:
-      ASPNETCORE_ENVIRONMENT: Production
+      ASPNETCORE_ENVIRONMENT: ${ASPNETCORE_ENVIRONMENT:-Development}
       ConnectionStrings__DefaultConnection: Host=postgres;Port=5432;Database=${POSTGRES_DB:-aip_portal};Username=${POSTGRES_USER:-aip_portal};Password=${POSTGRES_PASSWORD:?set POSTGRES_PASSWORD}
       NUGET_PACKAGES: /root/.nuget/packages
       Tenancy__SeedOnStartup: "false"
@@ -47,6 +64,7 @@ services:
 
   postgres:
     image: postgres:18-alpine
+    restart: unless-stopped
     environment:
       POSTGRES_DB: ${POSTGRES_DB:-aip_portal}
       POSTGRES_USER: ${POSTGRES_USER:-aip_portal}
