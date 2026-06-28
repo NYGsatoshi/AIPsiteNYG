@@ -98,12 +98,18 @@ if (tenancyOptions.SeedOnStartup || tenancyOptions.AppMode == AppMode.OnPremSing
     await AppDbContextSeed.SeedPlansAsync(dbContext);
     if (app.Environment.IsDevelopment() && builder.Configuration.GetValue<bool>("LocalAdmin:SeedOnStartup"))
     {
+        var localAdminPassword = builder.Configuration["LocalAdmin:Password"];
+        if (string.IsNullOrWhiteSpace(localAdminPassword))
+        {
+            throw new InvalidOperationException("LocalAdmin:Password is required when LocalAdmin:SeedOnStartup is enabled.");
+        }
+
         await AppDbContextSeed.SeedLocalAdminAsync(
             dbContext,
             scope.ServiceProvider.GetRequiredService<IPasswordHasher>(),
             defaultTenant.Id,
             builder.Configuration["LocalAdmin:Email"] ?? "admin@example.com",
-            builder.Configuration["LocalAdmin:Password"] ?? "ChangeMe123!",
+            localAdminPassword,
             builder.Configuration["LocalAdmin:DisplayName"] ?? "Local Admin");
     }
 
