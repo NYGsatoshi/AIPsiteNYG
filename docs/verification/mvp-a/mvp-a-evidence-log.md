@@ -4,6 +4,17 @@ Verification date: 2026-06-24
 
 Result status values: Pass, Partial, Failed, Blocked, Missing, Needs verification.
 
+## A-01 Baseline Refresh
+
+Refresh date: 2026-06-28
+
+Detailed evidence:
+
+- `docs/evidence/mvp-a/a-01-build-test-baseline.md`
+- `docs/evidence/mvp-a/a-01-baseline-failure-log.md`
+
+Summary: `dotnet restore`, `dotnet build`, and `dotnet test` passed on Windows with .NET SDK 10.0.301; the test runner reported 128/128 passing. Docker build/startup evidence is blocked because the Docker Desktop Linux engine endpoint is unavailable. Local UI test evidence is blocked because Playwright is not installed in `node_modules`. Live PostgreSQL assertions remain Needs verification because `POSTGRES_TEST_CONNECTION_STRING` was not set.
+
 | Evidence ID | Area | Command or method | Environment | Observed result | Status | Related blocker | Sensitive data status |
 | --- | --- | --- | --- | --- | --- | --- | --- |
 | EV-001 | Repository inventory | `find . -maxdepth 3 ...` and source inspection | Workspace | Found `AipPortal.slnx`, four source projects, one .NET test project, UI tests, Dockerfiles/Compose, and GitHub Actions CI. | Pass | None | No secrets copied |

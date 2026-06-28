@@ -71,3 +71,11 @@ After P0-001, run a narrow authorization smoke suite with a seeded/admin identit
 - Health: Pass for `/health/live` and `/health/ready`.
 - AuditLog implementation: Present, but runtime coverage is partial/blocked by P0-001.
 - CI configuration: Present, but local UI test execution is blocked by missing frontend dependencies. Classified as P1 for local verification.
+
+## A-01 Baseline Refresh Note
+
+Refresh date: 2026-06-28
+
+The A-01 evidence baseline is recorded in `docs/evidence/mvp-a/a-01-build-test-baseline.md` and `docs/evidence/mvp-a/a-01-baseline-failure-log.md`.
+
+The .NET restore/build/test baseline passed on the Windows host. Docker/container evidence remains blocked by local Docker Desktop Linux engine availability, and live PostgreSQL assertions remain Needs verification because no local/dev PostgreSQL connection string was provided. These results do not change P0-001 or P0-002 and do not imply MVP-A Go or production readiness.

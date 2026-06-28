@@ -2,6 +2,30 @@
 
 Verification date: 2026-06-24
 
+## A-01 Windows Baseline Refresh
+
+Refresh date: 2026-06-28
+
+Evidence files:
+
+- `docs/evidence/mvp-a/a-01-build-test-baseline.md`
+- `docs/evidence/mvp-a/a-01-baseline-failure-log.md`
+
+Observed local host:
+
+| Item | Observed value |
+| --- | --- |
+| OS | Windows 10.0.26200, win-x64 |
+| .NET SDK | 10.0.301 |
+| .NET runtime | Microsoft.NETCore.App 10.0.9, Microsoft.AspNetCore.App 10.0.9 |
+| global.json | Present, pins 10.0.301 |
+| Docker | Client 29.5.3 installed; Docker Desktop Linux engine unavailable |
+| Docker Compose | v5.1.4 |
+| Node.js | v26.4.0 |
+| npm | 11.17.0 through `npm.cmd`; `npm.ps1` blocked by PowerShell execution policy |
+
+The 2026-06-28 .NET baseline passed restore, Release build, and the backend test runner. Docker runtime evidence, root UI tests, and live PostgreSQL assertions remain blocked or Needs verification as recorded in the A-01 evidence files. No secret values were copied into the evidence.
+
 Repository: `/workspaces/AIPsiteNYG`
 
 ## Local Environment
