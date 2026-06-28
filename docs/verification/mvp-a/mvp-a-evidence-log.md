@@ -15,6 +15,17 @@ Detailed evidence:
 
 Summary: `dotnet restore`, `dotnet build`, and `dotnet test` passed on Windows with .NET SDK 10.0.301; the test runner reported 128/128 passing. Docker build/startup evidence is blocked because the Docker Desktop Linux engine endpoint is unavailable. Local UI test evidence is blocked because Playwright is not installed in `node_modules`. Live PostgreSQL assertions remain Needs verification because `POSTGRES_TEST_CONNECTION_STRING` was not set.
 
+## A-02 Health Check Refresh
+
+Refresh date: 2026-06-28
+
+Detailed evidence:
+
+- `docs/evidence/mvp-a/a-02-health-check-baseline.md`
+- `docs/evidence/mvp-a/a-02-health-check-failure-log.md`
+
+Summary: the app started locally and `/health/live` returned 200 with `{"status":"OK"}`, but `/health/ready` returned 503 with `{"status":"Unhealthy"}`. Local PostgreSQL on port 5432 was unavailable, Docker Desktop Linux engine was unavailable, and PostgreSQL/container health could not be verified. This A-02 refresh is Blocked and does not imply production approval.
+
 | Evidence ID | Area | Command or method | Environment | Observed result | Status | Related blocker | Sensitive data status |
 | --- | --- | --- | --- | --- | --- | --- | --- |
 | EV-001 | Repository inventory | `find . -maxdepth 3 ...` and source inspection | Workspace | Found `AipPortal.slnx`, four source projects, one .NET test project, UI tests, Dockerfiles/Compose, and GitHub Actions CI. | Pass | None | No secrets copied |
@@ -50,9 +61,16 @@ Summary: `dotnet restore`, `dotnet build`, and `dotnet test` passed on Windows w
 | EV-031 | CI / tests | `npm test -- --reporter=list` | Workspace | Failed with `playwright: not found` because `node_modules` is absent. | Blocked | P1 follow-up | No secrets |
 | EV-032 | Docker / Compose | `docker compose config` | Workspace | Failed without `POSTGRES_PASSWORD`. | Partial | P1 follow-up | No secrets |
 | EV-033 | Docker / Compose | `POSTGRES_PASSWORD=verification_only_password docker compose config` and on-prem equivalent | Workspace | Default and on-prem Compose configs rendered successfully with dummy value. Local Compose config rendered successfully without extra env. | Pass | None | Dummy value only |
+| EV-034 | A-02 health source | Source inspection of `Program.cs`, Docker/Compose, appsettings, and deployment docs | Windows host | Existing custom endpoints are `/health`, `/health/live`, and `/health/ready`; `/healthz`, `/ready`, and `/live` are not dedicated health endpoints. | Pass | None | No secrets |
+| EV-035 | A-02 local liveness | `curl.exe -i -s http://localhost:5098/health/live` | Windows host, local `dotnet run` | Returned 200 with `{"status":"OK"}`. | Pass | None | No secrets |
+| EV-036 | A-02 local readiness | `curl.exe -i -s http://localhost:5098/health/ready` | Windows host, local `dotnet run` | Returned 503 with `{"status":"Unhealthy"}` because required DB-backed readiness was unavailable in this run. | Blocked | A-02 health baseline | No secrets |
+| EV-037 | A-02 DB dependency | `Test-NetConnection -ComputerName localhost -Port 5432` | Windows host | TCP connection to local PostgreSQL port 5432 failed. | Blocked | A-02 health baseline | No secrets |
+| EV-038 | A-02 Docker dependency | `docker info`; `docker compose --env-file .env.example ps` | Windows host | Docker Desktop Linux engine endpoint unavailable; PostgreSQL/app container health could not be inspected. | Blocked | A-02 health baseline | No secrets |
+| EV-039 | A-02 backend suite | `dotnet test AipPortal.slnx --configuration Release --no-build --verbosity normal --disable-build-servers -m:1` | Windows host | 115 passed, 13 failed; failures clustered in `AuthSecurityHttpTests` CSRF/login setup returning 500. | Blocked | A-02 clean gate evidence | No secrets |
 
 ## Evidence Notes
 
 - `Pass` is used only where direct command/runtime/source evidence was collected.
 - Authenticated admin/non-admin/tenant runtime checks are not marked Pass because no baseline login user exists.
 - No screenshots were captured because curl evidence was sufficient and no private data was exposed.
+- A-02 readiness is not accepted in the 2026-06-28 Windows refresh; liveness success is not production approval.

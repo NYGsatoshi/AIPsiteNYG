@@ -26,6 +26,28 @@ Observed local host:
 
 The 2026-06-28 .NET baseline passed restore, Release build, and the backend test runner. Docker runtime evidence, root UI tests, and live PostgreSQL assertions remain blocked or Needs verification as recorded in the A-01 evidence files. No secret values were copied into the evidence.
 
+## A-02 Windows Health Refresh
+
+Refresh date: 2026-06-28
+
+Evidence files:
+
+- `docs/evidence/mvp-a/a-02-health-check-baseline.md`
+- `docs/evidence/mvp-a/a-02-health-check-failure-log.md`
+
+Observed local host:
+
+| Item | Observed value |
+| --- | --- |
+| OS | Windows NT 10.0.26200.0, win-x64 |
+| .NET SDK | 10.0.301 |
+| .NET runtime | Microsoft.NETCore.App 10.0.9, Microsoft.AspNetCore.App 10.0.9 |
+| Docker | Client 29.5.3 installed; Docker Desktop Linux engine unavailable |
+| Docker Compose | v5.1.4 |
+| Local app URL | `http://localhost:5098` from launch profile |
+
+The app process started and `/health/live` returned 200, but `/health/ready` returned 503. Local PostgreSQL on port 5432 was not reachable and Docker Compose container health could not be inspected. This A-02 refresh is Blocked; it does not imply production approval.
+
 Repository: `/workspaces/AIPsiteNYG`
 
 ## Local Environment
