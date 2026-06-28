@@ -72,6 +72,29 @@ Evidence files:
 
 The app process started, root and SPA shell routes returned 200, `/health/live` returned 200, public auth status was safe, unsafe anonymous POSTs without CSRF returned 403, and protected anonymous APIs returned 401. `/health/ready`, Docker runtime, PostgreSQL runtime, frontend Angular/Storybook builds, root Playwright UI tests, and authenticated admin/non-admin/tenant smoke checks remain blocked or need verification as recorded in the A-03 evidence files. No secret values, CSRF token values, cookies, connection strings, tenant identifiers, or personal data were copied into the evidence.
 
+## A-04 AuthZ Boundary Refresh
+
+Refresh date: 2026-06-28
+
+Evidence files:
+
+- `docs/evidence/mvp-a/a-04-authz-boundary-baseline.md`
+- `docs/evidence/mvp-a/a-04-authz-boundary-failure-log.md`
+
+| Item | Observed value |
+| --- | --- |
+| Branch | `main` |
+| Commit | `e013561b04b8a15c239e5d04663c5b71ffa7a0cd` |
+| OS | Windows 10.0.26200, win-x64 |
+| .NET SDK | 10.0.301 |
+| .NET runtime | Microsoft.NETCore.App 10.0.9, Microsoft.AspNetCore.App 10.0.9 |
+| Docker client | 29.5.3 |
+| Docker Compose | v5.1.4 |
+| Docker daemon | Unavailable on `npipe:////./pipe/docker_engine` |
+| PostgreSQL local port 5432 | TCP connection failed |
+
+The A-04 backend verification pass fixed a test-harness Data Protection key-path issue and then passed focused auth security tests, focused tenant isolation tests, and the full backend suite. Docker runtime and local PostgreSQL remained unavailable, and fresh-runtime authenticated admin/non-admin/tenant smoke remains blocked by the baseline identity/bootstrap gap. No secret values, CSRF token values, cookies, connection strings, tenant identifiers, or personal data were copied into the evidence.
+
 Repository: `/workspaces/AIPsiteNYG`
 
 ## Local Environment

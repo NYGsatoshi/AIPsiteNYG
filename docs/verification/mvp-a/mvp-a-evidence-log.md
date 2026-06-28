@@ -37,6 +37,17 @@ Detailed evidence:
 
 Summary: the app started locally on `http://127.0.0.1:18083`; root/login/dashboard SPA shell routes returned 200; `/health/live` returned 200; `/health/ready` returned 503; public auth status returned unauthenticated; CSRF protection rejected unsafe anonymous POSTs; protected anonymous APIs returned 401; API 404 returned safe JSON. Local PostgreSQL on port 5432 and Docker Desktop Linux engine were unavailable. Frontend Angular, Storybook, and root Playwright smoke checks were blocked by incomplete local `node_modules`. This A-03 refresh is Blocked and does not imply production approval, MVP-A Go, or production readiness.
 
+## A-04 AuthZ Boundary Refresh
+
+Refresh date: 2026-06-28
+
+Detailed evidence:
+
+- `docs/evidence/mvp-a/a-04-authz-boundary-baseline.md`
+- `docs/evidence/mvp-a/a-04-authz-boundary-failure-log.md`
+
+Summary: source inspection and automated backend verification found cookie auth, CSRF, session invalidation, tenant/project/conversation/file isolation, admin denial, audit-log role checks, and security-event tenant scoping materially covered by tests. A test-harness Data Protection key-path failure was fixed, then `AuthSecurityHttpTests` passed 15/15, `TenantIsolation` filtered tests passed 24/24, and the full backend suite passed 128/128. A-04 remains Needs verification for fresh-runtime authenticated smoke because the baseline identity/bootstrap blocker still prevents direct admin/non-admin/wrong-tenant runtime checks on a fresh app baseline. Docker runtime and local PostgreSQL also remained unavailable. This A-04 refresh does not imply production approval, MVP-A Go, or production readiness.
+
 | Evidence ID | Area | Command or method | Environment | Observed result | Status | Related blocker | Sensitive data status |
 | --- | --- | --- | --- | --- | --- | --- | --- |
 | EV-001 | Repository inventory | `find . -maxdepth 3 ...` and source inspection | Workspace | Found `AipPortal.slnx`, four source projects, one .NET test project, UI tests, Dockerfiles/Compose, and GitHub Actions CI. | Pass | None | No secrets copied |
@@ -93,6 +104,18 @@ Summary: the app started locally on `http://127.0.0.1:18083`; root/login/dashboa
 | EV-052 | A-03 frontend build | `npm.cmd run build` in `aipsite-frontend` | Windows host | Blocked because local Angular CLI was missing from `aipsite-frontend/node_modules`. | Blocked | A-03 frontend smoke | No secrets |
 | EV-053 | A-03 Storybook build | `npm.cmd run build-storybook` in `aipsite-frontend` | Windows host | Blocked because local Angular CLI was missing from `aipsite-frontend/node_modules`. | Blocked | A-03 frontend smoke | No secrets |
 | EV-054 | A-03 root UI tests | `npm.cmd test -- --reporter=list` | Windows host | Blocked because the Playwright executable was unavailable. | Blocked | A-03 UI smoke | No secrets |
+| EV-055 | A-04 source inventory | Source inspection of `Program.cs`, controllers, services, auth/tenant tests, and audit query service | Windows host | Cookie auth, CSRF middleware, `[Authorize]` coverage, resource authorization services, tenant query filters, and audit/security query role checks identified. | Pass | A-04 | No secrets |
+| EV-056 | A-04 restore sandbox attempt | `dotnet restore AipPortal.slnx --disable-build-servers` | Sandboxed Windows host | Failed because sandbox blocked NuGet access to `api.nuget.org:443`. | Blocked | Environment permission | No secrets |
+| EV-057 | A-04 restore approved network | `dotnet restore AipPortal.slnx --disable-build-servers` | Windows host with approved network access | Restore passed. | Pass | None | No secrets |
+| EV-058 | A-04 build | `dotnet build AipPortal.slnx --configuration Release --no-restore --disable-build-servers -m:1` | Windows host | Build passed with 0 warnings and 0 errors. | Pass | None | No secrets |
+| EV-059 | A-04 initial full test | `dotnet test AipPortal.slnx --configuration Release --no-build --verbosity normal --disable-build-servers -m:1` | Windows host | Failed 115 passed / 13 failed; all failures were `AuthSecurityHttpTests` blocked by Data Protection key writes to the user profile. | Failed | A-04 test harness | No token values copied |
+| EV-060 | A-04 auth security fix | Test-harness Data Protection key path update | Workspace | `AuthSecurityHttpTests` now persists Data Protection keys to an isolated temp directory. | Pass | None | No secrets |
+| EV-061 | A-04 auth security tests | `dotnet test tests\AipPortal.Tests\AipPortal.Tests.csproj --configuration Release --no-build --filter FullyQualifiedName~AuthSecurityHttpTests --logger "console;verbosity=normal"` | Windows host | 15/15 passed: CSRF rejection/acceptance, hidden session ID, revoked/expired/disabled sessions, and unsafe-method routing covered. | Pass | None | No token values copied |
+| EV-062 | A-04 tenant isolation tests | `dotnet test tests\AipPortal.Tests\AipPortal.Tests.csproj --configuration Release --no-build --filter FullyQualifiedName~TenantIsolation --logger "console;verbosity=normal"` | Windows host | 24/24 passed: tenant, workspace, project, conversation, file, notification, audit, security-event, suspended-tenant, and platform-scope boundaries covered. | Pass | None | Synthetic data only |
+| EV-063 | A-04 final backend suite | `dotnet test AipPortal.slnx --configuration Release --no-build --verbosity normal --disable-build-servers -m:1` | Windows host | 128/128 passed. PostgreSQL tests still require separate live connection-string evidence because they return early when `POSTGRES_TEST_CONNECTION_STRING` is absent. | Pass | Live PostgreSQL still Needs verification | No secrets |
+| EV-064 | A-04 Compose config | `docker compose --env-file .env.example config --quiet` | Windows host | Compose config passed. | Pass | None | `.env.example` values not copied |
+| EV-065 | A-04 Docker daemon | `docker info` | Windows host | Docker client available, but daemon endpoint `npipe:////./pipe/docker_engine` was unavailable; Docker config access warning also observed. | Blocked | Docker runtime | No secrets |
+| EV-066 | A-04 PostgreSQL local port | `Test-NetConnection -ComputerName localhost -Port 5432` | Windows host | TCP connection failed. | Blocked | Live PostgreSQL runtime | No secrets |
 
 ## Evidence Notes
 
@@ -101,3 +124,4 @@ Summary: the app started locally on `http://127.0.0.1:18083`; root/login/dashboa
 - No screenshots were captured because curl evidence was sufficient and no private data was exposed.
 - A-02 readiness is not accepted in the 2026-06-28 Windows refresh; liveness success is not production approval.
 - A-03 smoke success on public shell/protected-anonymous checks is not MVP-A Go; readiness, Docker/PostgreSQL, frontend dependencies, and authenticated runtime checks remain blocked or need verification.
+- A-04 automated auth/tenant/audit boundary tests passed after the test-harness Data Protection fix, but fresh-runtime authenticated admin/non-admin/wrong-tenant smoke remains Needs verification until the baseline identity/bootstrap blocker is resolved.

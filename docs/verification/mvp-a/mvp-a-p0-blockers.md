@@ -95,3 +95,13 @@ Refresh date: 2026-06-28
 The A-03 smoke evidence is recorded in `docs/evidence/mvp-a/a-03-application-smoke-baseline.md` and `docs/evidence/mvp-a/a-03-smoke-failure-log.md`.
 
 The local app process started and public shell routes, liveness, anonymous auth status, CSRF rejection, protected-anonymous 401 behavior, and safe API 404 behavior were verified. `/health/ready` remained 503 because local DB-backed readiness was unavailable, Docker Desktop Linux engine was unavailable, frontend/UI dependencies were incomplete locally, and authenticated admin/non-admin/tenant runtime smoke remains blocked by P0-001/P0-002. This A-03 refresh is Blocked and does not imply production approval, MVP-A Go, or production readiness.
+
+## A-04 AuthZ Boundary Refresh Note
+
+Refresh date: 2026-06-28
+
+The A-04 AuthZ evidence is recorded in `docs/evidence/mvp-a/a-04-authz-boundary-baseline.md` and `docs/evidence/mvp-a/a-04-authz-boundary-failure-log.md`.
+
+Automated backend AuthZ boundary evidence improved: the CSRF/auth HTTP harness Data Protection key-path issue was fixed, `AuthSecurityHttpTests` passed 15/15, tenant isolation filtering passed 24/24, and the full backend suite passed 128/128. These tests cover anonymous rejection, CSRF enforcement, revoked/expired/disabled sessions, admin denial, tenant/project/conversation/file cross-scope denial, audit-log role checks, and security-event tenant scoping on synthetic test data.
+
+P0-001 remains open. P0-002 remains open for fresh-runtime MVP-A acceptance because direct admin/non-admin/wrong-tenant smoke on a fresh app baseline still needs a supported seeded/bootstrap identity. Docker runtime and local PostgreSQL were also unavailable. This A-04 refresh is Needs verification and does not imply production approval, MVP-A Go, or production readiness.

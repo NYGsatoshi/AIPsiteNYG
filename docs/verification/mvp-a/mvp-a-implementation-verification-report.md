@@ -10,6 +10,8 @@ The repository builds, starts, applies EF Core migrations to PostgreSQL, exposes
 
 The current P0 blocker is baseline identity/bootstrap: a fresh startup seeds a tenant and plans but no user, tenant membership, invite, or administrator. Because of that, authenticated dashboard/admin access, admin-vs-user authorization, cross-tenant runtime checks, and authenticated AuditLog verification are blocked.
 
+2026-06-28 A-04 refresh: automated backend AuthZ boundary verification passed after fixing the auth HTTP test harness Data Protection key path. `AuthSecurityHttpTests` passed 15/15, `TenantIsolation` filtered tests passed 24/24, and the full backend suite passed 128/128. Fresh-runtime admin/non-admin/wrong-tenant smoke remains blocked by the baseline identity/bootstrap gap and is not accepted as MVP-A Go.
+
 ## Environment
 
 | Item | Observed value |
@@ -56,7 +58,7 @@ See [mvp-a-environment-notes.md](mvp-a-environment-notes.md).
 | Health check | Pass | EV-014, EV-015, EV-016 | None | Optional P1: decide whether `/healthz` or `/api/health` aliases are required. |
 | Auth / Login | Partial | EV-019, EV-020, EV-021, EV-022, EV-023 | P0-001 | Add minimal approved bootstrap/seed login path for verification. |
 | Tenant / User / Role | Failed | EV-023 plus source inventory | P0-001 | Seed or bootstrap first admin/user with tenant membership for MVP-A verification. |
-| Authorization | Blocked | EV-024, EV-025, EV-026 plus tests/source | P0-002 | Run admin/non-admin/tenant smoke tests after P0-001. |
+| Authorization | Partial / Needs verification | EV-024, EV-025, EV-026, EV-055 through EV-063 plus tests/source | P0-002 for fresh-runtime smoke | Keep automated AuthZ tests green; run admin/non-admin/tenant smoke after P0-001. |
 | EF Core / PostgreSQL | Pass | EV-007, EV-008, EV-009, EV-010, EV-011 | None | Keep PostgreSQL connection-string requirement documented. |
 | Dashboard reachability | Partial | EV-027 | P0-001 | Verify authenticated dashboard after baseline login exists. |
 | AuditLog | Partial | EV-028 | P0-001 | Trigger login/logout/admin/file/message actions after baseline login exists. |
@@ -78,6 +80,7 @@ See [mvp-a-p0-blockers.md](mvp-a-p0-blockers.md).
 - Verify AuditLog runtime coverage for authorization failures, admin actions, role changes, file operations, and message operations after P0-001.
 - Verify file download authorization and messaging tenant/member boundaries with real seeded users after P0-001.
 - Review messaging attachment behavior: `ConversationService` stores message attachments as metadata-only, while general file upload uses the file storage service.
+- Normalize safe-denial HTTP status mapping where controller/service failures currently return `400` for authorization/not-found denials, if API-contract quality requires 403/404 instead.
 
 ## Evidence Collected
 

@@ -1,6 +1,6 @@
 # Testing
 
-Last completed local test-run audit: 2026-06-18. Backend source/build audit: 2026-06-19.
+Last completed local test-run audit: 2026-06-28. Backend source/build audit: 2026-06-28.
 
 ## Verification snapshot
 
@@ -16,14 +16,22 @@ dotnet test AipPortal.slnx \
 
 Result:
 
-- 123 passed
+- 128 passed
 - 0 failed
-- 0 skipped
-- one compile warning: unread `workspaceAuthorization` parameter in `DbAuditQueryService`
+- 0 skipped reported
+- 0 build warnings
 
-Important qualification: `POSTGRES_TEST_CONNECTION_STRING` was unset. The two tests marked `PostgreSQLIntegration` returned before assertions and were counted as passed.
+Important qualification: `POSTGRES_TEST_CONNECTION_STRING` was unset. The two tests marked `PostgreSQLIntegration` returned before live PostgreSQL assertions and were counted as passed.
 
 Playwright was not run in this workspace because frontend dependencies were not installed.
+
+### 2026-06-28 A-04 auth boundary verification
+
+- Release build completed with 0 warnings and 0 errors.
+- `AuthSecurityHttpTests` passed 15/15 after the test harness persisted Data Protection keys to an isolated temp directory instead of the Windows user-profile key folder.
+- `TenantIsolation` filtered tests passed 24/24.
+- Full backend suite passed 128/128.
+- Docker daemon and local PostgreSQL were unavailable on this host, so container/runtime database assertions remain separate evidence work.
 
 ### 2026-06-19 backend audit verification
 

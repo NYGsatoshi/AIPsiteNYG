@@ -18,6 +18,7 @@ using AipPortal.Web.Middleware;
 using AipPortal.Web.Security;
 using Microsoft.AspNetCore.Authentication.Cookies;
 using Microsoft.AspNetCore.Builder;
+using Microsoft.AspNetCore.DataProtection;
 using Microsoft.AspNetCore.Hosting;
 using Microsoft.AspNetCore.Hosting.Server;
 using Microsoft.AspNetCore.Hosting.Server.Features;
@@ -152,15 +153,17 @@ public sealed class AuthSecurityHttpTests
 
     private sealed class AuthSecurityTestApp : IAsyncDisposable
     {
-        private AuthSecurityTestApp(WebApplication app, HttpClient client, Guid userId, string email)
+        private AuthSecurityTestApp(WebApplication app, HttpClient client, Guid userId, string email, string dataProtectionKeysPath)
         {
             App = app;
             Client = client;
             UserId = userId;
             Email = email;
+            DataProtectionKeysPath = dataProtectionKeysPath;
         }
 
         private WebApplication App { get; }
+        private string DataProtectionKeysPath { get; }
         public HttpClient Client { get; }
         public Guid UserId { get; }
         public string Email { get; }
@@ -193,6 +196,15 @@ public sealed class AuthSecurityHttpTests
                 ["FileStorage:AllowedExtensions:0"] = ".txt",
                 ["FileStorage:AllowedContentTypes:0"] = "text/plain"
             });
+
+            var dataProtectionKeysPath = Path.Combine(
+                Path.GetTempPath(),
+                "aip-auth-security-tests",
+                "data-protection",
+                Guid.NewGuid().ToString("N"));
+            Directory.CreateDirectory(dataProtectionKeysPath);
+            builder.Services.AddDataProtection()
+                .PersistKeysToFileSystem(new DirectoryInfo(dataProtectionKeysPath));
 
             builder.Services
                 .AddApplication()
@@ -234,7 +246,12 @@ public sealed class AuthSecurityHttpTests
                 UseCookies = true,
                 CookieContainer = new CookieContainer()
             };
-            return new AuthSecurityTestApp(app, new HttpClient(handler) { BaseAddress = new Uri(address) }, userId, "student@example.com");
+            return new AuthSecurityTestApp(
+                app,
+                new HttpClient(handler) { BaseAddress = new Uri(address) },
+                userId,
+                "student@example.com",
+                dataProtectionKeysPath);
         }
 
         public async Task<HttpResponseMessage> LoginAsync()
@@ -278,11 +295,21 @@ public sealed class AuthSecurityHttpTests
         {
             Client.Dispose();
             await App.DisposeAsync();
+            TryDeleteDirectory(DataProtectionKeysPath);
         }
 
         public async Task<string> GetCsrfTokenAsync()
         {
-            var tokenResponse = await Client.GetFromJsonAsync<CsrfTokenResponse>("/api/security/csrf-token");
+            var response = await Client.GetAsync("/api/security/csrf-token");
+            var body = await response.Content.ReadAsStringAsync();
+            if (!response.IsSuccessStatusCode)
+            {
+                throw new InvalidOperationException($"CSRF token request failed with {(int)response.StatusCode} {response.StatusCode}: {body}");
+            }
+
+            var tokenResponse = JsonSerializer.Deserialize<CsrfTokenResponse>(
+                body,
+                new JsonSerializerOptions(JsonSerializerDefaults.Web));
             return tokenResponse?.Token ?? throw new InvalidOperationException("CSRF token response was empty.");
         }
 
@@ -303,6 +330,20 @@ public sealed class AuthSecurityHttpTests
             dbContext.Users.Add(user);
             await dbContext.SaveChangesAsync();
             return user.Id;
+        }
+
+        private static void TryDeleteDirectory(string path)
+        {
+            try
+            {
+                if (Directory.Exists(path))
+                {
+                    Directory.Delete(path, recursive: true);
+                }
+            }
+            catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
+            {
+            }
         }
 
         private static void AddInfrastructureLikeServices(IServiceCollection services, IConfiguration configuration)
