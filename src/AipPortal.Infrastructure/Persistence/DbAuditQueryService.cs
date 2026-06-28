@@ -24,10 +24,11 @@ public sealed class DbAuditQueryService(
         }
 
         var userId = currentUser.UserId.Value;
-        var isSystemAdmin = currentUser.SystemRole is SystemRole.SystemAdmin or SystemRole.PlatformAdmin;
+        var isSystemAdmin = IsSystemAdmin();
         var isTenantAdmin = currentTenant.IsAvailable &&
             await IsTenantAdminAsync(userId, currentTenant.TenantId, cancellationToken);
-        if (!isSystemAdmin && !isTenantAdmin)
+
+        if (!isSystemAdmin && !await CanViewRequestedAuditScopeAsync(userId, isTenantAdmin, query.WorkspaceId, cancellationToken))
         {
             return Result<PagedResponse<AuditLogListItemResponse>>.Failure("You are not allowed to view audit logs.");
         }
@@ -35,6 +36,10 @@ public sealed class DbAuditQueryService(
         var page = Math.Max(1, query.Page);
         var pageSize = Math.Clamp(query.PageSize, 1, MaxPageSize);
         var source = dbContext.AuditLogs.AsNoTracking();
+        if (currentTenant.IsAvailable)
+        {
+            source = source.Where(log => log.TenantId == currentTenant.TenantId);
+        }
 
         if (!string.IsNullOrWhiteSpace(query.Action))
         {
@@ -107,7 +112,7 @@ public sealed class DbAuditQueryService(
             return Result<PagedResponse<SecurityEventListItemResponse>>.Failure("Authentication is required.");
         }
 
-        var isSystemAdmin = currentUser.SystemRole is SystemRole.SystemAdmin or SystemRole.PlatformAdmin;
+        var isSystemAdmin = IsSystemAdmin();
         var isTenantAdmin = currentTenant.IsAvailable &&
             await IsTenantAdminAsync(currentUser.UserId.Value, currentTenant.TenantId, cancellationToken);
 
@@ -119,6 +124,10 @@ public sealed class DbAuditQueryService(
         var page = Math.Max(1, query.Page);
         var pageSize = Math.Clamp(query.PageSize, 1, MaxPageSize);
         var source = dbContext.SecurityEvents.AsNoTracking();
+        if (currentTenant.IsAvailable)
+        {
+            source = source.Where(item => item.TenantId == currentTenant.TenantId);
+        }
 
         if (query.EventType.HasValue)
         {
@@ -179,5 +188,34 @@ public sealed class DbAuditQueryService(
             Status: TenantUserStatus.Active,
             Role: TenantUserRole.Owner or TenantUserRole.Admin
         };
+    }
+
+    private async Task<bool> CanManageRequestedWorkspaceAsync(Guid userId, Guid? workspaceId, CancellationToken cancellationToken)
+    {
+        return workspaceId.HasValue &&
+            await workspaceAuthorization.CanManageWorkspace(userId, workspaceId.Value, cancellationToken);
+    }
+
+    private async Task<bool> CanViewRequestedAuditScopeAsync(Guid userId, bool isTenantAdmin, Guid? workspaceId, CancellationToken cancellationToken)
+    {
+        if (!workspaceId.HasValue)
+        {
+            return isTenantAdmin;
+        }
+
+        if (isTenantAdmin)
+        {
+            return currentTenant.IsAvailable &&
+                await dbContext.Workspaces
+                    .AsNoTracking()
+                    .AnyAsync(workspace => workspace.Id == workspaceId.Value && workspace.TenantId == currentTenant.TenantId, cancellationToken);
+        }
+
+        return await CanManageRequestedWorkspaceAsync(userId, workspaceId, cancellationToken);
+    }
+
+    private bool IsSystemAdmin()
+    {
+        return currentUser.SystemRole is SystemRole.SystemAdmin or SystemRole.PlatformAdmin;
     }
 }
