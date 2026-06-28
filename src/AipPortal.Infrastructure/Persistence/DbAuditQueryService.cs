@@ -1,6 +1,7 @@
 using AipPortal.Application.Audit;
 using AipPortal.Application.Common;
 using AipPortal.Application.Common.Interfaces;
+using AipPortal.Application.Workspaces;
 using AipPortal.Domain.Enums;
 using Microsoft.EntityFrameworkCore;
 
@@ -10,7 +11,8 @@ public sealed class DbAuditQueryService(
     AppDbContext dbContext,
     ICurrentUser currentUser,
     ICurrentTenant currentTenant,
-    ITenantRepository tenantRepository) : IAuditQueryService
+    ITenantRepository tenantRepository,
+    IWorkspaceAuthorizationService workspaceAuthorization) : IAuditQueryService
 {
     private const int MaxPageSize = 100;
 
@@ -33,10 +35,6 @@ public sealed class DbAuditQueryService(
         var page = Math.Max(1, query.Page);
         var pageSize = Math.Clamp(query.PageSize, 1, MaxPageSize);
         var source = dbContext.AuditLogs.AsNoTracking();
-        if (!isSystemAdmin)
-        {
-            source = source.Where(log => log.TenantId == currentTenant.TenantId);
-        }
 
         if (!string.IsNullOrWhiteSpace(query.Action))
         {
@@ -109,23 +107,18 @@ public sealed class DbAuditQueryService(
             return Result<PagedResponse<SecurityEventListItemResponse>>.Failure("Authentication is required.");
         }
 
-        var userId = currentUser.UserId.Value;
         var isSystemAdmin = currentUser.SystemRole is SystemRole.SystemAdmin or SystemRole.PlatformAdmin;
         var isTenantAdmin = currentTenant.IsAvailable &&
-            await IsTenantAdminAsync(userId, currentTenant.TenantId, cancellationToken);
+            await IsTenantAdminAsync(currentUser.UserId.Value, currentTenant.TenantId, cancellationToken);
 
         if (!isSystemAdmin && !isTenantAdmin)
         {
-            return Result<PagedResponse<SecurityEventListItemResponse>>.Failure("You are not allowed to view security events.");
+            return Result<PagedResponse<SecurityEventListItemResponse>>.Failure("Only system admins can view security events.");
         }
 
         var page = Math.Max(1, query.Page);
         var pageSize = Math.Clamp(query.PageSize, 1, MaxPageSize);
         var source = dbContext.SecurityEvents.AsNoTracking();
-        if (!isSystemAdmin)
-        {
-            source = source.Where(item => item.TenantId == currentTenant.TenantId);
-        }
 
         if (query.EventType.HasValue)
         {
