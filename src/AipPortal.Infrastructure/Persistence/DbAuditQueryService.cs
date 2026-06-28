@@ -1,7 +1,6 @@
 using AipPortal.Application.Audit;
 using AipPortal.Application.Common;
 using AipPortal.Application.Common.Interfaces;
-using AipPortal.Application.Workspaces;
 using AipPortal.Domain.Enums;
 using Microsoft.EntityFrameworkCore;
 
@@ -11,8 +10,7 @@ public sealed class DbAuditQueryService(
     AppDbContext dbContext,
     ICurrentUser currentUser,
     ICurrentTenant currentTenant,
-    ITenantRepository tenantRepository,
-    IWorkspaceAuthorizationService workspaceAuthorization) : IAuditQueryService
+    ITenantRepository tenantRepository) : IAuditQueryService
 {
     private const int MaxPageSize = 100;
 

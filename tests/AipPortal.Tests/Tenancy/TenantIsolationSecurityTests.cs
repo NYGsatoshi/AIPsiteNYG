@@ -5,7 +5,6 @@ using AipPortal.Application.Common.Interfaces;
 using AipPortal.Application.Common.Tenancy;
 using AipPortal.Application.Tenancy;
 using AipPortal.Application.TenantAdministration;
-using AipPortal.Application.Workspaces;
 using AipPortal.Domain.Entities;
 using AipPortal.Domain.Enums;
 using AipPortal.Infrastructure.Files;
@@ -258,61 +257,57 @@ public sealed class TenantIsolationSecurityTests
         Assert.Equal("TenantA audit", item.Action);
     }
 
+ [Fact]
+public async Task WorkspaceAdminCannotReadAuditLogsForTheirWorkspace()
+{
+    var (dbContext, currentTenant, data) = await CreateSeededContextAsync();
+    currentTenant.SetTenant(data.TenantA.Id, data.TenantA.Slug);
+
+    var workspaceAdmin = new User
+    {
+        DisplayName = "WorkspaceAdmin",
+        Email = "workspace-admin@example.test",
+        NormalizedEmail = "WORKSPACE-ADMIN@EXAMPLE.TEST",
+        PasswordHash = "hash",
+        SystemRole = SystemRole.User,
+        Status = UserStatus.Active
+    };
+
+    dbContext.Users.Add(workspaceAdmin);
+    dbContext.TenantUsers.Add(new TenantUser
+    {
+        TenantId = data.TenantA.Id,
+        UserId = workspaceAdmin.Id,
+        Role = TenantUserRole.Member,
+        Status = TenantUserStatus.Active,
+        JoinedAt = DateTimeOffset.UtcNow
+    });
+    dbContext.WorkspaceMembers.Add(new WorkspaceMember
+    {
+        TenantId = data.TenantA.Id,
+        WorkspaceId = data.WorkspaceA.Id,
+        UserId = workspaceAdmin.Id,
+        Role = WorkspaceRole.Admin,
+        Status = MembershipStatus.Active,
+        JoinedAt = DateTimeOffset.UtcNow
+    });
+
+    await dbContext.SaveChangesAsync();
+
+    var service = CreateAuditQueryService(dbContext, currentTenant, workspaceAdmin);
+
+    var result = await service.ListAuditLogsAsync(new AuditLogQuery(WorkspaceId: data.WorkspaceA.Id));
+
+    Assert.False(result.IsSuccess);
+    Assert.Equal("You are not allowed to view audit logs.", result.Error);
+}  
     [Fact]
     public async Task TenantAdminAuditQueryWithOtherTenantWorkspaceReturnsNoLogs()
-=======
-    public async Task WorkspaceAdminCanReadAuditLogsForTheirWorkspace()
-    {
-        var (dbContext, currentTenant, data) = await CreateSeededContextAsync();
-        currentTenant.SetTenant(data.TenantA.Id, data.TenantA.Slug);
-        var workspaceAdmin = new User
-        {
-            DisplayName = "WorkspaceAdmin",
-            Email = "workspace-admin@example.test",
-            NormalizedEmail = "WORKSPACE-ADMIN@EXAMPLE.TEST",
-            PasswordHash = "hash",
-            SystemRole = SystemRole.User,
-            Status = UserStatus.Active
-        };
-        dbContext.Users.Add(workspaceAdmin);
-        dbContext.TenantUsers.Add(new TenantUser
-        {
-            TenantId = data.TenantA.Id,
-            UserId = workspaceAdmin.Id,
-            Role = TenantUserRole.Member,
-            Status = TenantUserStatus.Active,
-            JoinedAt = DateTimeOffset.UtcNow
-        });
-        dbContext.WorkspaceMembers.Add(new WorkspaceMember
-        {
-            TenantId = data.TenantA.Id,
-            WorkspaceId = data.WorkspaceA.Id,
-            UserId = workspaceAdmin.Id,
-            Role = WorkspaceRole.Admin,
-            Status = MembershipStatus.Active,
-            JoinedAt = DateTimeOffset.UtcNow
-        });
-        await dbContext.SaveChangesAsync();
-        var service = CreateAuditQueryService(dbContext, currentTenant, workspaceAdmin);
-
-        var result = await service.ListAuditLogsAsync(new AuditLogQuery(WorkspaceId: data.WorkspaceA.Id));
-
-        Assert.True(result.IsSuccess);
-        var items = result.Value!.Items;
-        Assert.Single(items);
-        Assert.Equal(data.WorkspaceA.Id, items[0].WorkspaceId);
-        Assert.All(items, item => Assert.NotEqual(data.WorkspaceB.Id, item.WorkspaceId));
-    }
-
-    [Fact]
-    public async Task TenantAdminCannotQueryAuditLogsForAnotherTenantWorkspace()
->>>>>>> workspaceAuthorization-CS9113Warnings-Debug
     {
         var (dbContext, currentTenant, data) = await CreateSeededContextAsync();
         currentTenant.SetTenant(data.TenantA.Id, data.TenantA.Slug);
         var service = CreateAuditQueryService(dbContext, currentTenant, data.TenantAAdmin);
 
-<<<<<<< HEAD
         var result = await service.ListAuditLogsAsync(new AuditLogQuery(WorkspaceId: data.WorkspaceB.Id, Page: 1, PageSize: 20));
 
         Assert.True(result.IsSuccess);
@@ -348,18 +343,11 @@ public sealed class TenantIsolationSecurityTests
         Assert.True(audit.IsSuccess);
         Assert.Contains(audit.Value!.Items, item => item.WorkspaceId == data.WorkspaceA.Id);
         Assert.Contains(audit.Value.Items, item => item.WorkspaceId == data.WorkspaceB.Id);
+
         Assert.True(security.IsSuccess);
         Assert.Contains(security.Value!.Items, item => item.Summary == "TenantA denied");
         Assert.Contains(security.Value.Items, item => item.Summary == "TenantB denied");
     }
-
-=======
-        var result = await service.ListAuditLogsAsync(new AuditLogQuery(WorkspaceId: data.WorkspaceB.Id));
-
-        Assert.False(result.IsSuccess);
-        Assert.Equal("You are not allowed to view audit logs.", result.Error);
-    }
->>>>>>> workspaceAuthorization-CS9113Warnings-Debug
 
     [Fact]
     public async Task NonAdminAuditQueryIsDenied()
@@ -459,22 +447,17 @@ public sealed class TenantIsolationSecurityTests
             options);
     }
 
-    private static DbAuditQueryService CreateAuditQueryService(
-        AppDbContext dbContext,
-        ICurrentTenant currentTenant,
-        User user)
-    {
-        return new DbAuditQueryService(
-            dbContext,
-            new TestCurrentUser(user),
-            currentTenant,
-<<<<<<< HEAD
-            new TenantRepository(dbContext));
-=======
-            new TenantRepository(dbContext),
-            new WorkspaceAuthorizationService(new UserRepository(dbContext), new WorkspaceRepository(dbContext)));
->>>>>>> workspaceAuthorization-CS9113Warnings-Debug
-    }
+      private static DbAuditQueryService CreateAuditQueryService(
+    AppDbContext dbContext,
+    ICurrentTenant currentTenant,
+    User user)
+{
+    return new DbAuditQueryService(
+        dbContext,
+        new TestCurrentUser(user),
+        currentTenant,
+        new TenantRepository(dbContext));
+}
 
     private sealed class TestCurrentUser(User user) : ICurrentUser
     {
