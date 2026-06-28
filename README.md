@@ -1,5 +1,6 @@
 # AIPsiteNYG
 ### 仕様に関しては全て[AIPsiteNYGspec](https://github.com/NYGsatoshi/AIPsiteNYGspec)に従うこと
+### [Issue#179](https://github.com/NYGsatoshi/AIPsiteNYG/issues/179)のテスト手順を踏んでPRに記載すること
 
 AIPsiteNYG is a tenant-aware school and organization portal implemented as a .NET 10 ASP.NET Core modular monolith.
 
