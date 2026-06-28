@@ -26,6 +26,17 @@ Detailed evidence:
 
 Summary: the app started locally and `/health/live` returned 200 with `{"status":"OK"}`, but `/health/ready` returned 503 with `{"status":"Unhealthy"}`. Local PostgreSQL on port 5432 was unavailable, Docker Desktop Linux engine was unavailable, and PostgreSQL/container health could not be verified. This A-02 refresh is Blocked and does not imply production approval.
 
+## A-03 Application Smoke Refresh
+
+Refresh date: 2026-06-28
+
+Detailed evidence:
+
+- `docs/evidence/mvp-a/a-03-application-smoke-baseline.md`
+- `docs/evidence/mvp-a/a-03-smoke-failure-log.md`
+
+Summary: the app started locally on `http://127.0.0.1:18083`; root/login/dashboard SPA shell routes returned 200; `/health/live` returned 200; `/health/ready` returned 503; public auth status returned unauthenticated; CSRF protection rejected unsafe anonymous POSTs; protected anonymous APIs returned 401; API 404 returned safe JSON. Local PostgreSQL on port 5432 and Docker Desktop Linux engine were unavailable. Frontend Angular, Storybook, and root Playwright smoke checks were blocked by incomplete local `node_modules`. This A-03 refresh is Blocked and does not imply production approval, MVP-A Go, or production readiness.
+
 | Evidence ID | Area | Command or method | Environment | Observed result | Status | Related blocker | Sensitive data status |
 | --- | --- | --- | --- | --- | --- | --- | --- |
 | EV-001 | Repository inventory | `find . -maxdepth 3 ...` and source inspection | Workspace | Found `AipPortal.slnx`, four source projects, one .NET test project, UI tests, Dockerfiles/Compose, and GitHub Actions CI. | Pass | None | No secrets copied |
@@ -67,6 +78,21 @@ Summary: the app started locally and `/health/live` returned 200 with `{"status"
 | EV-037 | A-02 DB dependency | `Test-NetConnection -ComputerName localhost -Port 5432` | Windows host | TCP connection to local PostgreSQL port 5432 failed. | Blocked | A-02 health baseline | No secrets |
 | EV-038 | A-02 Docker dependency | `docker info`; `docker compose --env-file .env.example ps` | Windows host | Docker Desktop Linux engine endpoint unavailable; PostgreSQL/app container health could not be inspected. | Blocked | A-02 health baseline | No secrets |
 | EV-039 | A-02 backend suite | `dotnet test AipPortal.slnx --configuration Release --no-build --verbosity normal --disable-build-servers -m:1` | Windows host | 115 passed, 13 failed; failures clustered in `AuthSecurityHttpTests` CSRF/login setup returning 500. | Blocked | A-02 clean gate evidence | No secrets |
+| EV-040 | A-03 backend suite | `dotnet restore`; `dotnet build`; `dotnet test` | Windows host | Restore passed, Release build passed with 0 warnings/errors, and 128/128 backend tests passed. | Pass | None | No secrets |
+| EV-041 | A-03 app startup | `dotnet run ... --no-launch-profile` | Windows host | App started in Development on `http://127.0.0.1:18083`. | Pass | None | No secrets |
+| EV-042 | A-03 root and shell routes | `GET /`, `/login`, `/dashboard` | Running local app | Returned SPA shell HTML with no private data observed. Authenticated dashboard data was not verified. | Partial | P0-001 for authenticated dashboard | No private data |
+| EV-043 | A-03 health routes | `GET /health`, `/health/live`, `/health/ready` | Running local app | `/health` redirected to readiness, `/health/live` returned 200, and `/health/ready` returned 503 with minimal unhealthy JSON. | Blocked | A-03 smoke baseline | No secrets |
+| EV-044 | A-03 health alias candidates | `GET /healthz`, `/ready`, `/live` | Running local app | Returned SPA fallback HTML, not dedicated health endpoints. | Missing | P1 follow-up | No secrets |
+| EV-045 | A-03 Swagger/OpenAPI candidates | `GET /swagger`, `/swagger/index.html`, `/openapi` | Running local app | No dedicated Swagger/OpenAPI endpoint was verified; routes returned SPA fallback or 404. | Needs verification | A-03 smoke baseline | No secrets |
+| EV-046 | A-03 public auth status | `GET /api/auth/status`; `GET /api/security/csrf-token` | Running local app | Auth status returned unauthenticated; CSRF endpoint returned a token payload whose value was not copied. | Pass | None | Token value omitted |
+| EV-047 | A-03 unsafe anonymous POSTs | `POST /api/auth/login`; `POST /api/auth/logout` without CSRF | Running local app | Returned 403 with generic CSRF error. | Pass | None | Dummy credentials only |
+| EV-048 | A-03 anonymous protected APIs | `GET /api/auth/me`; `/api/admin/users`; `/api/projects`; `/api/ui/modules` | Running local app | All returned 401 without exposing private bodies. | Pass | P0-002 for deeper authenticated checks | No private data |
+| EV-049 | A-03 safe 404 behavior | `GET /api/not-found-test`; `/api/auth/not-found-test` | Running local app | Returned generic 404 JSON with trace ID and no stack trace observed. | Pass | None | No secrets |
+| EV-050 | A-03 local DB dependency | `Test-NetConnection -ComputerName localhost -Port 5432` | Windows host | TCP connection to local PostgreSQL port 5432 failed. | Blocked | A-03 smoke baseline | No secrets |
+| EV-051 | A-03 Docker dependency | `docker info`; `docker compose --env-file .env.example config --quiet` | Windows host | Compose config passed, but Docker Desktop Linux engine endpoint was unavailable. | Blocked | A-03 smoke baseline | No secrets |
+| EV-052 | A-03 frontend build | `npm.cmd run build` in `aipsite-frontend` | Windows host | Blocked because local Angular CLI was missing from `aipsite-frontend/node_modules`. | Blocked | A-03 frontend smoke | No secrets |
+| EV-053 | A-03 Storybook build | `npm.cmd run build-storybook` in `aipsite-frontend` | Windows host | Blocked because local Angular CLI was missing from `aipsite-frontend/node_modules`. | Blocked | A-03 frontend smoke | No secrets |
+| EV-054 | A-03 root UI tests | `npm.cmd test -- --reporter=list` | Windows host | Blocked because the Playwright executable was unavailable. | Blocked | A-03 UI smoke | No secrets |
 
 ## Evidence Notes
 
@@ -74,3 +100,4 @@ Summary: the app started locally and `/health/live` returned 200 with `{"status"
 - Authenticated admin/non-admin/tenant runtime checks are not marked Pass because no baseline login user exists.
 - No screenshots were captured because curl evidence was sufficient and no private data was exposed.
 - A-02 readiness is not accepted in the 2026-06-28 Windows refresh; liveness success is not production approval.
+- A-03 smoke success on public shell/protected-anonymous checks is not MVP-A Go; readiness, Docker/PostgreSQL, frontend dependencies, and authenticated runtime checks remain blocked or need verification.

@@ -48,6 +48,30 @@ Observed local host:
 
 The app process started and `/health/live` returned 200, but `/health/ready` returned 503. Local PostgreSQL on port 5432 was not reachable and Docker Compose container health could not be inspected. This A-02 refresh is Blocked; it does not imply production approval.
 
+## A-03 Application Smoke Refresh
+
+Refresh date: 2026-06-28
+
+Evidence files:
+
+- `docs/evidence/mvp-a/a-03-application-smoke-baseline.md`
+- `docs/evidence/mvp-a/a-03-smoke-failure-log.md`
+
+| Item | Observed value |
+| --- | --- |
+| Branch | `main` |
+| Commit | `d20589a6d237e3c7c0fbbefb8040861bfd4b7506` |
+| OS | Windows 10.0.26200, win-x64 |
+| .NET SDK | 10.0.301 |
+| .NET runtime | Microsoft.NETCore.App 10.0.9, Microsoft.AspNetCore.App 10.0.9 |
+| Docker client | 29.5.3 |
+| Docker Compose | v5.1.4 |
+| Node.js | v26.4.0 |
+| npm | 11.17.0 through `npm.cmd` |
+| Smoke base URL | `http://127.0.0.1:18083` |
+
+The app process started, root and SPA shell routes returned 200, `/health/live` returned 200, public auth status was safe, unsafe anonymous POSTs without CSRF returned 403, and protected anonymous APIs returned 401. `/health/ready`, Docker runtime, PostgreSQL runtime, frontend Angular/Storybook builds, root Playwright UI tests, and authenticated admin/non-admin/tenant smoke checks remain blocked or need verification as recorded in the A-03 evidence files. No secret values, CSRF token values, cookies, connection strings, tenant identifiers, or personal data were copied into the evidence.
+
 Repository: `/workspaces/AIPsiteNYG`
 
 ## Local Environment

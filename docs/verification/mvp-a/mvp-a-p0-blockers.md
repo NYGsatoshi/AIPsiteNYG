@@ -87,3 +87,11 @@ Refresh date: 2026-06-28
 The A-02 health evidence is recorded in `docs/evidence/mvp-a/a-02-health-check-baseline.md` and `docs/evidence/mvp-a/a-02-health-check-failure-log.md`.
 
 The local app process started and `/health/live` returned 200, but `/health/ready` returned 503. Local PostgreSQL on port 5432 was unavailable, Docker Desktop Linux engine was unavailable, and container/PostgreSQL health could not be verified. This A-02 refresh is Blocked and does not imply production approval, MVP-A Go, or production readiness.
+
+## A-03 Application Smoke Refresh Note
+
+Refresh date: 2026-06-28
+
+The A-03 smoke evidence is recorded in `docs/evidence/mvp-a/a-03-application-smoke-baseline.md` and `docs/evidence/mvp-a/a-03-smoke-failure-log.md`.
+
+The local app process started and public shell routes, liveness, anonymous auth status, CSRF rejection, protected-anonymous 401 behavior, and safe API 404 behavior were verified. `/health/ready` remained 503 because local DB-backed readiness was unavailable, Docker Desktop Linux engine was unavailable, frontend/UI dependencies were incomplete locally, and authenticated admin/non-admin/tenant runtime smoke remains blocked by P0-001/P0-002. This A-03 refresh is Blocked and does not imply production approval, MVP-A Go, or production readiness.
