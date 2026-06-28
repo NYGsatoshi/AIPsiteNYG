@@ -244,7 +244,6 @@ public sealed class TenantIsolationSecurityTests
     }
 
     [Fact]
-<<<<<<< HEAD
     public async Task TenantOwnerAuditQueryWithoutWorkspaceFilterStaysTenantScoped()
     {
         var (dbContext, currentTenant, data) = await CreateSeededContextAsync();
