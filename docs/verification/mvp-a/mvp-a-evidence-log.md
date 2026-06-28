@@ -48,6 +48,17 @@ Detailed evidence:
 
 Summary: source inspection and automated backend verification found cookie auth, CSRF, session invalidation, tenant/project/conversation/file isolation, admin denial, audit-log role checks, and security-event tenant scoping materially covered by tests. A test-harness Data Protection key-path failure was fixed, then `AuthSecurityHttpTests` passed 15/15, `TenantIsolation` filtered tests passed 24/24, and the full backend suite passed 128/128. A-04 remains Needs verification for fresh-runtime authenticated smoke because the baseline identity/bootstrap blocker still prevents direct admin/non-admin/wrong-tenant runtime checks on a fresh app baseline. Docker runtime and local PostgreSQL also remained unavailable. This A-04 refresh does not imply production approval, MVP-A Go, or production readiness.
 
+## A-05 Sensitive Data Boundary Refresh
+
+Refresh date: 2026-06-28
+
+Detailed evidence:
+
+- `docs/evidence/mvp-a/a-05-sensitive-data-boundary-baseline.md`
+- `docs/evidence/mvp-a/a-05-sensitive-data-boundary-failure-log.md`
+
+Summary: repo keyword scans and source inspection found no confirmed committed raw secret in this pass, and the ignored local `.env` was treated as local sensitive config without copying values. A source-level Development error-response leak was fixed by making global unhandled exception responses generic in every environment, and the new regression test plus full backend suite passed 129/129. A-05 remains Needs verification because local redacted Gitleaks reproduction is blocked by missing local `gitleaks` and unavailable Docker daemon, live runtime logs were not captured, authenticated API/UI/export smoke remains blocked by P0-001/P0-002, and existing historical docs/evidence still need broader human review. This A-05 refresh does not imply production approval, MVP-A Go, or production readiness.
+
 | Evidence ID | Area | Command or method | Environment | Observed result | Status | Related blocker | Sensitive data status |
 | --- | --- | --- | --- | --- | --- | --- | --- |
 | EV-001 | Repository inventory | `find . -maxdepth 3 ...` and source inspection | Workspace | Found `AipPortal.slnx`, four source projects, one .NET test project, UI tests, Dockerfiles/Compose, and GitHub Actions CI. | Pass | None | No secrets copied |
@@ -116,6 +127,15 @@ Summary: source inspection and automated backend verification found cookie auth,
 | EV-064 | A-04 Compose config | `docker compose --env-file .env.example config --quiet` | Windows host | Compose config passed. | Pass | None | `.env.example` values not copied |
 | EV-065 | A-04 Docker daemon | `docker info` | Windows host | Docker client available, but daemon endpoint `npipe:////./pipe/docker_engine` was unavailable; Docker config access warning also observed. | Blocked | Docker runtime | No secrets |
 | EV-066 | A-04 PostgreSQL local port | `Test-NetConnection -ComputerName localhost -Port 5432` | Windows host | TCP connection failed. | Blocked | Live PostgreSQL runtime | No secrets |
+| EV-067 | A-05 definition/source inventory | Repo search and source inspection | Windows host | No pre-existing A-05 evidence file was found; working definition came from the attached issue text; config, source, docs/evidence, logging, API error, UI, and export/download scopes were inventoried. | Pass | A-05 | No raw values copied |
+| EV-068 | A-05 keyword scan | `git grep -n -I -i` A-05 terms, counted without printing raw values | Windows host | Broad keyword counts completed: examples include password 274/105 files, secret 174/52 files, token 3511/232 files, private-key marker 0/0 files, client_secret 0/0 files. | Partial | A-05 scanner follow-up | Counts only |
+| EV-069 | A-05 high-signal secret scan | `git grep -l -I -i -E "BEGIN ... PRIVATE KEY|client_secret|api_key|apikey|AKIA...|ghp_...|xox..." -- .` | Windows host | One source file matched an `apiKey` validation literal; no private-key/OAuth/GitHub/AWS/Slack token file hit was observed. | Pass | None | File name only |
+| EV-070 | A-05 local `.env` boundary | `git ls-files`, `git check-ignore`, redacted key counting | Windows host | `.env` is ignored/untracked and contains sensitive key names; raw values were not printed. | Needs verification | Local secret provenance | Values omitted |
+| EV-071 | A-05 redacted scanner availability | `gitleaks version`; `docker info` | Windows host | Local `gitleaks` is not installed and Docker daemon is unavailable, so CI-style redacted Gitleaks reproduction did not run locally. | Blocked | A-05 scanner follow-up | No report generated |
+| EV-072 | A-05 config boundary | appsettings, Compose, workflow, launch settings, `.env.example` inspection plus `docker compose --env-file .env.example config --quiet` | Windows host | Committed production-like configs use placeholders or environment requirements; Compose config with `.env.example` passed. | Pass | Local `.env` caveat | No raw secrets copied |
+| EV-073 | A-05 error response fix | `GlobalExceptionHandlingMiddleware` update and regression test | Windows host | Global unhandled exception responses now use a generic message in every environment; focused regression test passed. | Pass | None | Synthetic sensitive-looking text only |
+| EV-074 | A-05 backend suite | `dotnet test AipPortal.slnx --configuration Release --no-build --verbosity normal --disable-build-servers -m:1` | Windows host | 129/129 passed after the A-05 error-response fix and test. | Pass | None | No raw secrets copied |
+| EV-075 | A-05 log/API/UI/export runtime coverage | Source inspection plus existing A-03/A-04 evidence review | Windows host | No broad request-body logging or EF sensitive-data logging was found; live logs, authenticated UI/API/export smoke, and historical docs review remain incomplete. | Needs verification | P0-001/P0-002 plus A-05 runtime follow-up | No live private data copied |
 
 ## Evidence Notes
 
@@ -125,3 +145,4 @@ Summary: source inspection and automated backend verification found cookie auth,
 - A-02 readiness is not accepted in the 2026-06-28 Windows refresh; liveness success is not production approval.
 - A-03 smoke success on public shell/protected-anonymous checks is not MVP-A Go; readiness, Docker/PostgreSQL, frontend dependencies, and authenticated runtime checks remain blocked or need verification.
 - A-04 automated auth/tenant/audit boundary tests passed after the test-harness Data Protection fix, but fresh-runtime authenticated admin/non-admin/wrong-tenant smoke remains Needs verification until the baseline identity/bootstrap blocker is resolved.
+- A-05 fixed a source-level Development exception-message response leak, but A-05 remains Needs verification until redacted scanner artifacts, live logs, authenticated API/UI/export smoke, and historical evidence review are complete.

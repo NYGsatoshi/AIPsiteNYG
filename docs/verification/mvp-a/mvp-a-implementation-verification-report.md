@@ -12,6 +12,8 @@ The current P0 blocker is baseline identity/bootstrap: a fresh startup seeds a t
 
 2026-06-28 A-04 refresh: automated backend AuthZ boundary verification passed after fixing the auth HTTP test harness Data Protection key path. `AuthSecurityHttpTests` passed 15/15, `TenantIsolation` filtered tests passed 24/24, and the full backend suite passed 128/128. Fresh-runtime admin/non-admin/wrong-tenant smoke remains blocked by the baseline identity/bootstrap gap and is not accepted as MVP-A Go.
 
+2026-06-28 A-05 refresh: a source-level Development error-response leakage risk was fixed by making global unhandled exception responses generic in every environment. Repo keyword scans found no confirmed committed raw secret in this pass, and the full backend suite passed 129/129. A-05 remains Needs verification because redacted Gitleaks reproduction, live logs, authenticated API/UI/export smoke, and historical evidence review are not complete.
+
 ## Environment
 
 | Item | Observed value |
@@ -64,6 +66,7 @@ See [mvp-a-environment-notes.md](mvp-a-environment-notes.md).
 | AuditLog | Partial | EV-028 | P0-001 | Trigger login/logout/admin/file/message actions after baseline login exists. |
 | File / Messaging | Partial | EV-029 | None P0; P1 follow-up | Verify runtime file/message permission checks with real users after P0-001. |
 | CI / tests | Partial | EV-006, EV-030, EV-031, EV-032, EV-033 | None P0 | Install frontend deps or rely on CI job; ensure Compose env docs are clear. |
+| Sensitive data boundary | Needs verification | EV-067 through EV-075 | A-05 scanner/log/UI/export follow-up plus P0-001/P0-002 | Run redacted scanner artifacts, live sanitized logs, authenticated API/UI/export smoke, and historical evidence review. |
 
 ## P0 Blockers
 
@@ -94,6 +97,7 @@ Key evidence IDs:
 - Auth/login: EV-019 through EV-023.
 - Authorization/dashboard: EV-024 through EV-027.
 - Audit/file/messaging/CI: EV-028 through EV-033.
+- A-02 through A-05 refresh evidence: EV-034 through EV-075.
 
 ## Not Verified
 
@@ -106,6 +110,8 @@ Key evidence IDs:
 - Logout behavior with an authenticated session: blocked by no baseline user.
 - AuditLog rows for authenticated core admin/auth/file/message actions: blocked by no baseline user.
 - Full local Playwright UI test run: blocked by missing local frontend dependencies.
+- A-05 redacted Gitleaks local reproduction: blocked by missing local `gitleaks` and unavailable Docker daemon.
+- A-05 live runtime log review and authenticated API/UI/export smoke: blocked or Needs verification until synthetic authenticated users and sanitized runtime captures are available.
 
 ## Scope Confirmation
 
@@ -113,8 +119,8 @@ Key evidence IDs:
 - No Future / Deferred work was promoted into MVP-A.
 - No school production readiness was claimed.
 - No Cultural Festival Pilot approval was claimed.
-- No sensitive information was committed.
-- No product code was changed.
+- No raw sensitive information was committed in the evidence.
+- Product code changed only for the A-05 error-response hardening fix.
 - No destructive database command was run.
 
 ## Recommended Next PRs

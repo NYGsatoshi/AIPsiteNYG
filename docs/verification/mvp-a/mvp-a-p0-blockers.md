@@ -105,3 +105,13 @@ The A-04 AuthZ evidence is recorded in `docs/evidence/mvp-a/a-04-authz-boundary-
 Automated backend AuthZ boundary evidence improved: the CSRF/auth HTTP harness Data Protection key-path issue was fixed, `AuthSecurityHttpTests` passed 15/15, tenant isolation filtering passed 24/24, and the full backend suite passed 128/128. These tests cover anonymous rejection, CSRF enforcement, revoked/expired/disabled sessions, admin denial, tenant/project/conversation/file cross-scope denial, audit-log role checks, and security-event tenant scoping on synthetic test data.
 
 P0-001 remains open. P0-002 remains open for fresh-runtime MVP-A acceptance because direct admin/non-admin/wrong-tenant smoke on a fresh app baseline still needs a supported seeded/bootstrap identity. Docker runtime and local PostgreSQL were also unavailable. This A-04 refresh is Needs verification and does not imply production approval, MVP-A Go, or production readiness.
+
+## A-05 Sensitive Data Boundary Refresh Note
+
+Refresh date: 2026-06-28
+
+The A-05 sensitive data boundary evidence is recorded in `docs/evidence/mvp-a/a-05-sensitive-data-boundary-baseline.md` and `docs/evidence/mvp-a/a-05-sensitive-data-boundary-failure-log.md`.
+
+One source-level error detail leakage risk was found and fixed: `GlobalExceptionHandlingMiddleware` no longer returns raw exception messages in Development, and the new regression test plus full backend suite passed 129/129. Repo keyword scans and source inspection found no confirmed committed raw secret in this pass, and raw `.env` values were not copied into evidence.
+
+A-05 remains Needs verification. Local redacted Gitleaks reproduction is blocked because local `gitleaks` is not installed and Docker daemon access is unavailable. Ignored local `.env` value provenance remains Needs verification, live runtime logs were not captured, authenticated API/UI/export smoke remains blocked by P0-001/P0-002, and historical docs/evidence still need broader human review. This A-05 refresh does not imply production approval, MVP-A Go, or production readiness.

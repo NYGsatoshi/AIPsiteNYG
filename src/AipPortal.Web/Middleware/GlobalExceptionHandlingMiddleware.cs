@@ -4,8 +4,7 @@ namespace AipPortal.Web.Middleware;
 
 public sealed class GlobalExceptionHandlingMiddleware(
     RequestDelegate next,
-    ILogger<GlobalExceptionHandlingMiddleware> logger,
-    IHostEnvironment environment)
+    ILogger<GlobalExceptionHandlingMiddleware> logger)
 {
     public async Task InvokeAsync(HttpContext context)
     {
@@ -19,11 +18,10 @@ public sealed class GlobalExceptionHandlingMiddleware(
             context.Response.StatusCode = StatusCodes.Status500InternalServerError;
             context.Response.ContentType = "application/json";
 
-            var message = environment.IsDevelopment()
-                ? exception.Message
-                : "An unexpected server error occurred.";
-
-            await context.Response.WriteAsJsonAsync(new ErrorResponse("InternalServerError", message, context.TraceIdentifier));
+            await context.Response.WriteAsJsonAsync(new ErrorResponse(
+                "InternalServerError",
+                "An unexpected server error occurred.",
+                context.TraceIdentifier));
         }
     }
 }
