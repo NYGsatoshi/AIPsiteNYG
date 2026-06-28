@@ -233,12 +233,7 @@ public sealed class TenantIsolationSecurityTests
     {
         var (dbContext, currentTenant, data) = await CreateSeededContextAsync();
         currentTenant.SetTenant(data.TenantA.Id, data.TenantA.Slug);
-        var service = new DbAuditQueryService(
-            dbContext,
-            new TestCurrentUser(data.TenantAAdmin),
-            currentTenant,
-            new TenantRepository(dbContext),
-            new WorkspaceAuthorizationService(new UserRepository(dbContext), new WorkspaceRepository(dbContext)));
+        var service = CreateAuditQueryService(dbContext, currentTenant, data.TenantAAdmin);
 
         var result = await service.ListAuditLogsAsync(new AuditLogQuery(Page: 1, PageSize: 20));
 
@@ -248,18 +243,75 @@ public sealed class TenantIsolationSecurityTests
         Assert.Equal(data.WorkspaceA.Id, items[0].WorkspaceId);
     }
 
+    [Fact]
+    public async Task TenantOwnerAuditQueryWithoutWorkspaceFilterStaysTenantScoped()
+    {
+        var (dbContext, currentTenant, data) = await CreateSeededContextAsync();
+        currentTenant.SetTenant(data.TenantA.Id, data.TenantA.Slug);
+        var service = CreateAuditQueryService(dbContext, currentTenant, data.TenantAOwner);
+
+        var result = await service.ListAuditLogsAsync(new AuditLogQuery(Page: 1, PageSize: 20));
+
+        Assert.True(result.IsSuccess);
+        var item = Assert.Single(result.Value!.Items);
+        Assert.Equal(data.WorkspaceA.Id, item.WorkspaceId);
+        Assert.Equal("TenantA audit", item.Action);
+    }
+
+    [Fact]
+    public async Task TenantAdminAuditQueryWithOtherTenantWorkspaceReturnsNoLogs()
+    {
+        var (dbContext, currentTenant, data) = await CreateSeededContextAsync();
+        currentTenant.SetTenant(data.TenantA.Id, data.TenantA.Slug);
+        var service = CreateAuditQueryService(dbContext, currentTenant, data.TenantAAdmin);
+
+        var result = await service.ListAuditLogsAsync(new AuditLogQuery(WorkspaceId: data.WorkspaceB.Id, Page: 1, PageSize: 20));
+
+        Assert.True(result.IsSuccess);
+        Assert.Empty(result.Value!.Items);
+        Assert.Equal(0, result.Value.TotalCount);
+    }
+
+    [Fact]
+    public async Task TenantAdminSecurityEventQuerySeesOnlyCurrentTenantEvents()
+    {
+        var (dbContext, currentTenant, data) = await CreateSeededContextAsync();
+        currentTenant.SetTenant(data.TenantA.Id, data.TenantA.Slug);
+        var service = CreateAuditQueryService(dbContext, currentTenant, data.TenantAAdmin);
+
+        var result = await service.ListSecurityEventsAsync(new SecurityEventQuery(Page: 1, PageSize: 20));
+
+        Assert.True(result.IsSuccess);
+        var item = Assert.Single(result.Value!.Items);
+        Assert.Equal(data.TenantAMember.Id, item.UserId);
+        Assert.Equal("TenantA denied", item.Summary);
+    }
+
+    [Fact]
+    public async Task PlatformAdminAuditAndSecurityQueriesCanReadGlobalData()
+    {
+        var (dbContext, currentTenant, data) = await CreateSeededContextAsync();
+        currentTenant.SetPlatformScope();
+        var service = CreateAuditQueryService(dbContext, currentTenant, data.PlatformAdmin);
+
+        var audit = await service.ListAuditLogsAsync(new AuditLogQuery(Page: 1, PageSize: 20));
+        var security = await service.ListSecurityEventsAsync(new SecurityEventQuery(Page: 1, PageSize: 20));
+
+        Assert.True(audit.IsSuccess);
+        Assert.Contains(audit.Value!.Items, item => item.WorkspaceId == data.WorkspaceA.Id);
+        Assert.Contains(audit.Value.Items, item => item.WorkspaceId == data.WorkspaceB.Id);
+        Assert.True(security.IsSuccess);
+        Assert.Contains(security.Value!.Items, item => item.Summary == "TenantA denied");
+        Assert.Contains(security.Value.Items, item => item.Summary == "TenantB denied");
+    }
+
 
     [Fact]
     public async Task NonAdminAuditQueryIsDenied()
     {
         var (dbContext, currentTenant, data) = await CreateSeededContextAsync();
         currentTenant.SetTenant(data.TenantA.Id, data.TenantA.Slug);
-        var service = new DbAuditQueryService(
-            dbContext,
-            new TestCurrentUser(data.TenantAMember),
-            currentTenant,
-            new TenantRepository(dbContext),
-            new WorkspaceAuthorizationService(new UserRepository(dbContext), new WorkspaceRepository(dbContext)));
+        var service = CreateAuditQueryService(dbContext, currentTenant, data.TenantAMember);
 
         var result = await service.ListAuditLogsAsync(new AuditLogQuery(WorkspaceId: data.WorkspaceA.Id));
 
@@ -350,6 +402,18 @@ public sealed class TenantIsolationSecurityTests
             new EfUnitOfWork(dbContext),
             new FakeUserSessionService(),
             options);
+    }
+
+    private static DbAuditQueryService CreateAuditQueryService(
+        AppDbContext dbContext,
+        ICurrentTenant currentTenant,
+        User user)
+    {
+        return new DbAuditQueryService(
+            dbContext,
+            new TestCurrentUser(user),
+            currentTenant,
+            new TenantRepository(dbContext));
     }
 
     private sealed class TestCurrentUser(User user) : ICurrentUser
