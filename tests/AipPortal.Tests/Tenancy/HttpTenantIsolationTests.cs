@@ -1,5 +1,6 @@
 using System.Net;
 using System.Security.Claims;
+using System.Text;
 using System.Text.Encodings.Web;
 using AipPortal.Application;
 using AipPortal.Application.Common;
@@ -145,6 +146,95 @@ public sealed class HttpTenantIsolationTests
     }
 
     [Fact]
+    public async Task CommunicationBodiesStayParticipantScopedAndDeniedResponsesAreGeneric()
+    {
+        await using var app = await HttpTenantIsolationTestApp.CreateAsync();
+        var data = app.Data;
+
+        var allowedMessages = await app.SendAsync(data.TenantAMember, data.TenantA.Slug, $"/api/conversations/{data.ConversationA.Id}/messages");
+        var allowedBody = await allowedMessages.Content.ReadAsStringAsync();
+
+        Assert.Equal(HttpStatusCode.OK, allowedMessages.StatusCode);
+        Assert.Contains(data.MessageA.Body, allowedBody, StringComparison.Ordinal);
+        Assert.DoesNotContain(data.MessageB.Body, allowedBody, StringComparison.Ordinal);
+
+        var deniedOutsider = await app.SendAsync(data.Outsider, data.TenantA.Slug, $"/api/conversations/{data.ConversationA.Id}/messages");
+        var deniedOutsiderBody = await deniedOutsider.Content.ReadAsStringAsync();
+
+        Assert.Equal(HttpStatusCode.BadRequest, deniedOutsider.StatusCode);
+        Assert.DoesNotContain(data.MessageA.Body, deniedOutsiderBody, StringComparison.Ordinal);
+        Assert.DoesNotContain(data.TenantAMember.Email, deniedOutsiderBody, StringComparison.OrdinalIgnoreCase);
+
+        var deniedCrossTenant = await app.SendAsync(data.CrossTenantUser, data.TenantA.Slug, $"/api/conversations/{data.ConversationB.Id}/messages");
+        var deniedCrossTenantBody = await deniedCrossTenant.Content.ReadAsStringAsync();
+
+        Assert.Equal(HttpStatusCode.BadRequest, deniedCrossTenant.StatusCode);
+        Assert.DoesNotContain(data.MessageB.Body, deniedCrossTenantBody, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public async Task RemovedConversationParticipantCannotReadEditOrDeleteExistingMessage()
+    {
+        await using var app = await HttpTenantIsolationTestApp.CreateAsync();
+        var data = app.Data;
+
+        await AssertStatusAsync(app, data.TenantAMember, data.TenantA.Slug, $"/api/conversations/{data.ConversationA.Id}/leave", HttpStatusCode.OK, HttpMethod.Post);
+
+        var deniedRead = await app.SendAsync(data.TenantAMember, data.TenantA.Slug, $"/api/conversations/{data.ConversationA.Id}/messages");
+        var deniedReadBody = await deniedRead.Content.ReadAsStringAsync();
+
+        Assert.Equal(HttpStatusCode.BadRequest, deniedRead.StatusCode);
+        Assert.DoesNotContain(data.MessageA.Body, deniedReadBody, StringComparison.Ordinal);
+
+        using var editContent = JsonContent("""{"body":"A-08 edited body should not be accepted"}""");
+        var deniedEdit = await app.SendAsync(data.TenantAMember, data.TenantA.Slug, $"/api/messages/{data.MessageA.Id}", HttpMethod.Patch, editContent);
+        var deniedEditBody = await deniedEdit.Content.ReadAsStringAsync();
+
+        Assert.Equal(HttpStatusCode.BadRequest, deniedEdit.StatusCode);
+        Assert.DoesNotContain(data.MessageA.Body, deniedEditBody, StringComparison.Ordinal);
+        Assert.DoesNotContain("A-08 edited body should not be accepted", deniedEditBody, StringComparison.Ordinal);
+
+        var deniedDelete = await app.SendAsync(data.TenantAMember, data.TenantA.Slug, $"/api/messages/{data.MessageA.Id}", HttpMethod.Delete);
+
+        Assert.Equal(HttpStatusCode.BadRequest, deniedDelete.StatusCode);
+    }
+
+    [Fact]
+    public async Task ConversationReadCursorMustReferenceMessageInSameConversation()
+    {
+        await using var app = await HttpTenantIsolationTestApp.CreateAsync();
+        var data = app.Data;
+
+        using var content = JsonContent($$"""{"lastReadMessageId":"{{data.MessageB.Id:D}}"}""");
+        var response = await app.SendAsync(data.CrossTenantUser, data.TenantA.Slug, $"/api/conversations/{data.ConversationA.Id}/read", HttpMethod.Post, content);
+        var body = await response.Content.ReadAsStringAsync();
+
+        Assert.Equal(HttpStatusCode.BadRequest, response.StatusCode);
+        Assert.DoesNotContain(data.MessageB.Body, body, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public async Task MessageNotificationDoesNotEmbedPrivateMessageBody()
+    {
+        await using var app = await HttpTenantIsolationTestApp.CreateAsync();
+        var data = app.Data;
+        const string privateMessageBody = "A-08 synthetic private notification body";
+
+        using var sendContent = JsonContent($$"""{"body":"{{privateMessageBody}}","attachments":[]}""");
+        var sendResponse = await app.SendAsync(data.CrossTenantUser, data.TenantA.Slug, $"/api/conversations/{data.ConversationA.Id}/messages", HttpMethod.Post, sendContent);
+
+        Assert.Equal(HttpStatusCode.OK, sendResponse.StatusCode);
+
+        var notifications = await app.SendAsync(data.TenantAMember, data.TenantA.Slug, "/api/notifications?page=1&pageSize=20");
+        var body = await notifications.Content.ReadAsStringAsync();
+
+        Assert.Equal(HttpStatusCode.OK, notifications.StatusCode);
+        Assert.Contains("New direct message", body, StringComparison.Ordinal);
+        Assert.Contains("You have a new message.", body, StringComparison.Ordinal);
+        Assert.DoesNotContain(privateMessageBody, body, StringComparison.Ordinal);
+    }
+
+    [Fact]
     public async Task TenantHeaderDoesNotGrantAccessWithoutResourceMembership()
     {
         await using var app = await HttpTenantIsolationTestApp.CreateAsync();
@@ -198,6 +288,8 @@ public sealed class HttpTenantIsolationTests
     {
         return AssertStatusAsync(app, user, tenantSlug, path, HttpStatusCode.BadRequest, method);
     }
+
+    private static StringContent JsonContent(string json) => new(json, Encoding.UTF8, "application/json");
 
     private static async Task AssertStatusAsync(
         HttpTenantIsolationTestApp app,

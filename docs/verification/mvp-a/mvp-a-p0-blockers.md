@@ -125,3 +125,13 @@ The A-07 file boundary evidence is recorded in `docs/evidence/mvp-a/a-07-file-bo
 One metadata-only file boundary risk was found and fixed: file and artifact-version metadata responses no longer return internal storage identifiers. File, attachment, and artifact-version downloads now send private no-store headers, and denied file metadata/download attempts now write generic metadata-only audit entries. The targeted file/storage/tenant-boundary test slice passed 32/32, and the full backend suite passed 134/134.
 
 No confirmed unauthorized file-body exposure was observed in the tested synthetic paths after the fix. A-07 remains Needs verification for fresh-runtime authenticated file smoke, attachment/conversation attachment body matrix, removed-participant behavior, explicit grant/revoked-grant behavior, object-storage/signed-URL behavior, live PostgreSQL/container evidence, and broader authorized metadata classification. P0-001 and P0-002 remain open. This A-07 refresh does not imply production approval, MVP-A Go, or production readiness.
+
+## A-08 Communication Boundary Refresh Note
+
+Refresh date: 2026-06-29
+
+The A-08 communication boundary evidence is recorded in `docs/evidence/mvp-a/a-08-communication-boundary-baseline.md` and `docs/evidence/mvp-a/a-08-communication-boundary-failure-log.md`.
+
+Three communication boundary risks were found and fixed: removed message authors now must remain active conversation participants to edit/delete messages, read cursor updates now reject missing/deleted/cross-conversation message IDs, and message notification bodies no longer embed private message text. The focused HTTP tenant and communication-boundary test slice passed 11/11, and the full backend suite passed 138/138.
+
+No confirmed unauthorized conversation/message body exposure was observed in the tested synthetic paths after the fixes. A-08 remains Needs verification for fresh-runtime authenticated communication smoke, same-tenant DM non-participant/admin policy, teacher/school-admin policy if implemented, thread coverage, realtime/polling coverage, live audit/log review, live PostgreSQL/container evidence, and safe-denial status-code classification. P0-001 and P0-002 remain open. This A-08 refresh does not imply production approval, MVP-A Go, or production readiness.

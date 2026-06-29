@@ -29,12 +29,18 @@ public sealed class ConversationAuthorizationService(IMessagingRepository messag
     public async Task<bool> CanEditMessage(Guid userId, Guid messageId, CancellationToken cancellationToken = default)
     {
         var message = await messaging.GetMessageAsync(messageId, cancellationToken);
-        return message is not null && message.AuthorUserId == userId && !message.DeletedAt.HasValue;
+        return message is not null &&
+            message.AuthorUserId == userId &&
+            !message.DeletedAt.HasValue &&
+            await CanViewConversation(userId, message.ConversationId, cancellationToken);
     }
 
     public async Task<bool> CanDeleteMessage(Guid userId, Guid messageId, CancellationToken cancellationToken = default)
     {
         var message = await messaging.GetMessageAsync(messageId, cancellationToken);
-        return message is not null && (message.AuthorUserId == userId || await CanManageConversation(userId, message.ConversationId, cancellationToken));
+        return message is not null &&
+            !message.DeletedAt.HasValue &&
+            ((message.AuthorUserId == userId && await CanViewConversation(userId, message.ConversationId, cancellationToken)) ||
+            await CanManageConversation(userId, message.ConversationId, cancellationToken));
     }
 }

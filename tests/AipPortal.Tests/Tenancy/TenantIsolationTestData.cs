@@ -35,6 +35,8 @@ internal sealed class TenantIsolationTestData
     public FileObject FileB { get; private init; } = null!;
     public Conversation ConversationA { get; private init; } = null!;
     public Conversation ConversationB { get; private init; } = null!;
+    public Message MessageA { get; private init; } = null!;
+    public Message MessageB { get; private init; } = null!;
     public Announcement AnnouncementA { get; private init; } = null!;
     public Announcement AnnouncementB { get; private init; } = null!;
     public Notification NotificationA { get; private init; } = null!;
@@ -73,6 +75,8 @@ internal sealed class TenantIsolationTestData
         var fileB = NewFile(tenantB.Id, workspaceB.Id, projectB.Id, tenantBOwner.Id);
         var conversationA = NewConversation(tenantA.Id, workspaceA.Id, "ConversationA", tenantAOwner.Id);
         var conversationB = NewConversation(tenantB.Id, workspaceB.Id, "ConversationB", tenantBOwner.Id);
+        var messageA = NewMessage(tenantA.Id, conversationA.Id, tenantAMember.Id, "TenantA private message body");
+        var messageB = NewMessage(tenantB.Id, conversationB.Id, tenantBMember.Id, "TenantB private message body");
         var announcementA = NewAnnouncement(tenantA.Id, workspaceA.Id, groupA.Id, tenantAOwner.Id, "AnnouncementA", now);
         var announcementB = NewAnnouncement(tenantB.Id, workspaceB.Id, groupB.Id, tenantBOwner.Id, "AnnouncementB", now);
         var notificationA = NewNotification(tenantA.Id, tenantAMember.Id, "TenantA notification", now);
@@ -136,6 +140,7 @@ internal sealed class TenantIsolationTestData
             NewConversationMember(tenantA.Id, conversationA.Id, crossTenantUser.Id),
             NewConversationMember(tenantB.Id, conversationB.Id, tenantBMember.Id),
             NewConversationMember(tenantB.Id, conversationB.Id, crossTenantUser.Id));
+        dbContext.Messages.AddRange(messageA, messageB);
         dbContext.Announcements.AddRange(announcementA, announcementB);
         dbContext.Notifications.AddRange(notificationA, notificationB);
         dbContext.AuditLogs.AddRange(
@@ -199,6 +204,8 @@ internal sealed class TenantIsolationTestData
             FileB = fileB,
             ConversationA = conversationA,
             ConversationB = conversationB,
+            MessageA = messageA,
+            MessageB = messageB,
             AnnouncementA = announcementA,
             AnnouncementB = announcementB,
             NotificationA = notificationA,
@@ -352,6 +359,14 @@ internal sealed class TenantIsolationTestData
         ConversationId = conversationId,
         UserId = userId,
         JoinedAt = DateTimeOffset.UtcNow
+    };
+
+    private static Message NewMessage(Guid tenantId, Guid conversationId, Guid authorUserId, string body) => new()
+    {
+        TenantId = tenantId,
+        ConversationId = conversationId,
+        AuthorUserId = authorUserId,
+        Body = body
     };
 
     private static Announcement NewAnnouncement(Guid tenantId, Guid workspaceId, Guid groupId, Guid userId, string title, DateTimeOffset now) => new()

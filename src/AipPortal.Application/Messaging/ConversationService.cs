@@ -166,7 +166,7 @@ public sealed class ConversationService(
         var members = await messaging.ListMembersAsync(conversationId, cancellationToken);
         foreach (var member in members.Where(m => m.UserId != userId && m.LeftAt is null))
         {
-            await notifications.NotifyAsync(member.UserId, "New direct message", message.Body.Length > 120 ? message.Body[..120] : message.Body, "Message", message.Id, cancellationToken);
+            await notifications.NotifyAsync(member.UserId, "New direct message", "You have a new message.", "Message", message.Id, cancellationToken);
         }
         await AuditAsync(userId, "MessageSent", message.Id, cancellationToken);
         await unitOfWork.SaveChangesAsync(cancellationToken);
@@ -199,6 +199,15 @@ public sealed class ConversationService(
     public async Task<Result> MarkReadAsync(Guid conversationId, MarkConversationReadRequest request, CancellationToken cancellationToken = default)
     {
         if (!TryCurrentUser(out var userId) || !await authorization.CanViewConversation(userId, conversationId, cancellationToken)) return Result.Failure("Conversation not found.");
+        if (request.LastReadMessageId.HasValue)
+        {
+            var lastReadMessage = await messaging.GetMessageAsync(request.LastReadMessageId.Value, cancellationToken);
+            if (lastReadMessage is null || lastReadMessage.ConversationId != conversationId || lastReadMessage.DeletedAt.HasValue)
+            {
+                return Result.Failure("Message not found.");
+            }
+        }
+
         var state = await messaging.GetReadStateAsync(conversationId, userId, cancellationToken);
         if (state is null)
         {

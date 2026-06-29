@@ -16,6 +16,8 @@ The current P0 blocker is baseline identity/bootstrap: a fresh startup seeds a t
 
 2026-06-29 A-07 refresh: a file metadata storage identifier exposure risk was fixed by removing internal storage identifiers from file and artifact-version API response DTOs. File/attachment/artifact downloads now set private no-store headers, denied file metadata/download attempts now write metadata-only audit entries, the targeted file/storage/tenant-boundary test slice passed 32/32, and the full backend suite passed 134/134. A-07 remains Needs verification for fresh-runtime authenticated file smoke, attachment/conversation body matrix, removed-participant and explicit-grant/revoked-grant behavior, object-storage/signed-URL behavior, and live PostgreSQL/container evidence.
 
+2026-06-29 A-08 refresh: removed-participant message mutation, cross-conversation read cursor, and private message notification-body risks were fixed in the communication service path. The focused HTTP tenant and communication-boundary test slice passed 11/11, and the full backend suite passed 138/138. A-08 remains Needs verification for fresh-runtime authenticated communication smoke, same-tenant DM non-participant/admin policy, thread coverage, realtime/polling coverage, live audit/log review, and live PostgreSQL/container evidence.
+
 ## Environment
 
 | Item | Observed value |
@@ -66,7 +68,7 @@ See [mvp-a-environment-notes.md](mvp-a-environment-notes.md).
 | EF Core / PostgreSQL | Pass | EV-007, EV-008, EV-009, EV-010, EV-011 | None | Keep PostgreSQL connection-string requirement documented. |
 | Dashboard reachability | Partial | EV-027 | P0-001 | Verify authenticated dashboard after baseline login exists. |
 | AuditLog | Partial | EV-028 | P0-001 | Trigger login/logout/admin/file/message actions after baseline login exists. |
-| File / Messaging | Needs verification | EV-029, EV-076 through EV-082 | A-07 runtime and actor-matrix follow-up | Verify runtime file/message permission checks with approved synthetic users after P0-001; expand attachment/conversation/grant matrix. |
+| File / Messaging | Needs verification | EV-029, EV-076 through EV-090 | A-07 and A-08 runtime and actor-matrix follow-up | Verify runtime file/message permission checks with approved synthetic users after P0-001; expand attachment/conversation/grant, DM, thread, realtime, and audit/log matrices. |
 | CI / tests | Partial | EV-006, EV-030, EV-031, EV-032, EV-033 | None P0 | Install frontend deps or rely on CI job; ensure Compose env docs are clear. |
 | Sensitive data boundary | Needs verification | EV-067 through EV-075 | A-05 scanner/log/UI/export follow-up plus P0-001/P0-002 | Run redacted scanner artifacts, live sanitized logs, authenticated API/UI/export smoke, and historical evidence review. |
 
@@ -99,7 +101,7 @@ Key evidence IDs:
 - Auth/login: EV-019 through EV-023.
 - Authorization/dashboard: EV-024 through EV-027.
 - Audit/file/messaging/CI: EV-028 through EV-033.
-- A-02 through A-07 refresh evidence: EV-034 through EV-082.
+- A-02 through A-08 refresh evidence: EV-034 through EV-090.
 
 ## Not Verified
 
@@ -116,6 +118,8 @@ Key evidence IDs:
 - A-05 live runtime log review and authenticated API/UI/export smoke: blocked or Needs verification until synthetic authenticated users and sanitized runtime captures are available.
 - A-07 fresh-runtime authenticated file upload/download/denial smoke: blocked by no baseline user.
 - A-07 attachment/conversation attachment body matrix, removed-participant behavior, explicit grant/revoked-grant behavior, and object-storage/signed-URL behavior: Needs verification or blocked by missing implementation/runtime.
+- A-08 fresh-runtime authenticated communication smoke: blocked by no baseline user.
+- A-08 same-tenant DM non-participant/admin policy, thread coverage, realtime/polling coverage, live audit/log review, PostgreSQL, and container runtime evidence: Needs verification or blocked by missing implementation/runtime.
 
 ## Scope Confirmation
 
@@ -124,7 +128,7 @@ Key evidence IDs:
 - No school production readiness was claimed.
 - No Cultural Festival Pilot approval was claimed.
 - No raw sensitive information was committed in the evidence.
-- Product code changed for the A-05 error-response hardening fix and A-07 file boundary hardening.
+- Product code changed for the A-05 error-response hardening fix, A-07 file boundary hardening, and A-08 communication boundary hardening.
 - No destructive database command was run.
 
 ## Recommended Next PRs
@@ -134,3 +138,4 @@ Key evidence IDs:
 3. Add AuditLog smoke checks for login success/failure, logout, admin role/action, file upload/download/delete, and message send/delete.
 4. Update local verification docs for `POSTGRES_PASSWORD`, `--no-launch-profile`, and frontend test dependency setup.
 5. Add A-07 attachment/conversation/grant matrix tests after the baseline identity/bootstrap path exists.
+6. Add A-08 same-tenant DM, admin policy, thread, realtime/polling, and live audit/log matrix tests after the baseline identity/bootstrap path exists.
