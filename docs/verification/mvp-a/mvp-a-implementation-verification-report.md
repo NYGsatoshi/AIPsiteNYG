@@ -18,6 +18,8 @@ The current P0 blocker is baseline identity/bootstrap: a fresh startup seeds a t
 
 2026-06-29 A-08 refresh: removed-participant message mutation, cross-conversation read cursor, and private message notification-body risks were fixed in the communication service path. The focused HTTP tenant and communication-boundary test slice passed 11/11, and the full backend suite passed 138/138. A-08 remains Needs verification for fresh-runtime authenticated communication smoke, same-tenant DM non-participant/admin policy, thread coverage, realtime/polling coverage, live audit/log review, and live PostgreSQL/container evidence.
 
+2026-06-29 A-09 refresh: audit-query tenant scoping, covered conversation/message denial audit logging, and login security metadata minimization were fixed. The focused auth/tenant/audit test slice passed 42/42, and the full backend suite passed 146/146. A-09 remains Needs verification for live audit/security log review, full denial/admin/file/communication event matrix coverage, metadata sanitizer policy, `SecurityEvent.Email` policy, and live PostgreSQL/container evidence.
+
 ## Environment
 
 | Item | Observed value |
@@ -67,7 +69,7 @@ See [mvp-a-environment-notes.md](mvp-a-environment-notes.md).
 | Authorization | Partial / Needs verification | EV-024, EV-025, EV-026, EV-055 through EV-063 plus tests/source | P0-002 for fresh-runtime smoke | Keep automated AuthZ tests green; run admin/non-admin/tenant smoke after P0-001. |
 | EF Core / PostgreSQL | Pass | EV-007, EV-008, EV-009, EV-010, EV-011 | None | Keep PostgreSQL connection-string requirement documented. |
 | Dashboard reachability | Partial | EV-027 | P0-001 | Verify authenticated dashboard after baseline login exists. |
-| AuditLog | Partial | EV-028 | P0-001 | Trigger login/logout/admin/file/message actions after baseline login exists. |
+| AuditLog | Needs verification | EV-028, EV-091 through EV-098 | P0-001 plus A-09 runtime and matrix follow-up | Keep auth/query/denial audit tests green; trigger live login/logout/admin/file/message denial actions after baseline login exists. |
 | File / Messaging | Needs verification | EV-029, EV-076 through EV-090 | A-07 and A-08 runtime and actor-matrix follow-up | Verify runtime file/message permission checks with approved synthetic users after P0-001; expand attachment/conversation/grant, DM, thread, realtime, and audit/log matrices. |
 | CI / tests | Partial | EV-006, EV-030, EV-031, EV-032, EV-033 | None P0 | Install frontend deps or rely on CI job; ensure Compose env docs are clear. |
 | Sensitive data boundary | Needs verification | EV-067 through EV-075 | A-05 scanner/log/UI/export follow-up plus P0-001/P0-002 | Run redacted scanner artifacts, live sanitized logs, authenticated API/UI/export smoke, and historical evidence review. |

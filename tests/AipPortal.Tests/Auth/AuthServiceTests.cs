@@ -90,6 +90,22 @@ public sealed class AuthServiceTests
     }
 
     [Fact]
+    public async Task FailedLoginSecurityMetadataDoesNotStoreSubmittedEmail()
+    {
+        var fixture = AuthFixture.Create();
+        fixture.AddUser("student@example.com", "Password123", UserStatus.Active);
+
+        var result = await fixture.Service.LoginAsync(new LoginRequest("student@example.com", "wrong-password"));
+
+        Assert.False(result.IsSuccess);
+        var securityEvent = Assert.Single(fixture.AuditLogger.Entries, entry => entry.EntityType == "SecurityEvent" && entry.Action == "LoginFailure");
+        Assert.NotNull(securityEvent.Metadata);
+        Assert.DoesNotContain(securityEvent.Metadata!, pair => string.Equals(pair.Key, "email", StringComparison.OrdinalIgnoreCase));
+        Assert.DoesNotContain(securityEvent.Metadata!.Values, value => string.Equals(value?.ToString(), "student@example.com", StringComparison.OrdinalIgnoreCase));
+        Assert.Contains(securityEvent.Metadata!, pair => pair.Key == "emailProvided" && pair.Value is true);
+    }
+
+    [Fact]
     public async Task ArchivedUserCannotLogin()
     {
         var fixture = AuthFixture.Create();
@@ -193,7 +209,7 @@ public sealed class AuthServiceTests
                 new FakeUserSessionService(),
                 PasswordHasher,
                 TokenHasher,
-                new FakeAuditLogger(),
+                AuditLogger,
                 new FakeCurrentUser(),
                 Clock,
                 new FakeUnitOfWork(),
@@ -206,6 +222,7 @@ public sealed class AuthServiceTests
         public FakeClock Clock { get; } = new(new DateTimeOffset(2026, 6, 6, 0, 0, 0, TimeSpan.Zero));
         public Pbkdf2PasswordHasher PasswordHasher { get; } = new();
         public Sha256TokenHasher TokenHasher { get; } = new();
+        public FakeAuditLogger AuditLogger { get; } = new();
         public AuthService Service { get; }
 
         public static AuthFixture Create(AuthSecurityOptions? securityOptions = null) => new(securityOptions);
@@ -337,7 +354,13 @@ public sealed class AuthServiceTests
 
     private sealed class FakeAuditLogger : IAuditLogger
     {
-        public Task LogAsync(AuditLogEntry entry, CancellationToken cancellationToken = default) => Task.CompletedTask;
+        public List<AuditLogEntry> Entries { get; } = [];
+
+        public Task LogAsync(AuditLogEntry entry, CancellationToken cancellationToken = default)
+        {
+            Entries.Add(entry);
+            return Task.CompletedTask;
+        }
     }
 
     private sealed class FakeCurrentUser : ICurrentUser

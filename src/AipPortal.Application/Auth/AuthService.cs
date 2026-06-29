@@ -27,7 +27,7 @@ public sealed class AuthService(
     {
         if (!IsValidEmail(request.Email) || string.IsNullOrWhiteSpace(request.Password))
         {
-            await auditLogger.LogSecurityAsync("LoginFailure", "Invalid login attempt.", new Dictionary<string, object?> { ["email"] = request.Email }, SecurityEventSeverity.Warning, cancellationToken);
+            await auditLogger.LogSecurityAsync("LoginFailure", "Invalid login attempt.", LoginSecurityMetadata(null, request.Email), SecurityEventSeverity.Warning, cancellationToken);
             await LogAndSaveAsync(null, "LoginFailure", "User", null, "Invalid login attempt.", cancellationToken);
             return Result<LoginResponse>.Failure(GenericLoginError);
         }
@@ -43,7 +43,7 @@ public sealed class AuthService(
                 await auditLogger.LogSecurityAsync(
                     "LoginLockout",
                     "Login attempt rejected because the account is locked.",
-                    new Dictionary<string, object?> { ["email"] = request.Email, ["userId"] = user.Id },
+                    LoginSecurityMetadata(user, request.Email),
                     SecurityEventSeverity.Warning,
                     cancellationToken);
                 await LogAndSaveAsync(user.Id, "LoginLockout", "User", user.Id, "Login attempt rejected because the account is locked.", cancellationToken);
@@ -53,7 +53,7 @@ public sealed class AuthService(
 
         if (user is null || !CanUserLogin(user))
         {
-            await auditLogger.LogSecurityAsync("LoginFailure", "Invalid login attempt.", new Dictionary<string, object?> { ["email"] = request.Email, ["userId"] = user?.Id }, SecurityEventSeverity.Warning, cancellationToken);
+            await auditLogger.LogSecurityAsync("LoginFailure", "Invalid login attempt.", LoginSecurityMetadata(user, request.Email), SecurityEventSeverity.Warning, cancellationToken);
             await LogAndSaveAsync(user?.Id, "LoginFailure", "User", user?.Id, "Invalid login attempt.", cancellationToken);
             return Result<LoginResponse>.Failure(GenericLoginError);
         }
@@ -61,13 +61,13 @@ public sealed class AuthService(
         if (!passwordHasher.VerifyPassword(user.PasswordHash, request.Password))
         {
             ApplyFailedLogin(user);
-            await auditLogger.LogSecurityAsync("LoginFailure", "Invalid login attempt.", new Dictionary<string, object?> { ["email"] = request.Email, ["userId"] = user.Id }, SecurityEventSeverity.Warning, cancellationToken);
+            await auditLogger.LogSecurityAsync("LoginFailure", "Invalid login attempt.", LoginSecurityMetadata(user, request.Email), SecurityEventSeverity.Warning, cancellationToken);
             if (IsLockedOut(user))
             {
                 await auditLogger.LogSecurityAsync(
                     "LoginLockout",
                     "Account locked after repeated failed login attempts.",
-                    new Dictionary<string, object?> { ["email"] = request.Email, ["userId"] = user.Id },
+                    LoginSecurityMetadata(user, request.Email),
                     SecurityEventSeverity.Warning,
                     cancellationToken);
                 await auditLogger.LogAsync(new AuditLogEntry(user.Id, "LoginLockout", "User", user.Id, "Account locked after repeated failed login attempts."), cancellationToken);
@@ -82,7 +82,7 @@ public sealed class AuthService(
         var session = CreateSession(user.Id);
         await sessions.AddAsync(session, cancellationToken);
         await auditLogger.LogAsync(new AuditLogEntry(user.Id, "LoginSuccess", "User", user.Id, "User logged in."), cancellationToken);
-        await auditLogger.LogSecurityAsync("LoginSuccess", "User logged in.", new Dictionary<string, object?> { ["userId"] = user.Id, ["email"] = user.Email }, cancellationToken: cancellationToken);
+        await auditLogger.LogSecurityAsync("LoginSuccess", "User logged in.", LoginSecurityMetadata(user, request.Email), cancellationToken: cancellationToken);
         await unitOfWork.SaveChangesAsync(cancellationToken);
 
         return Result<LoginResponse>.Success(ToLoginResponse(user, session));
@@ -303,6 +303,15 @@ public sealed class AuthService(
     private static bool IsValidPassword(string password)
     {
         return !string.IsNullOrWhiteSpace(password) && password.Length >= MinimumPasswordLength;
+    }
+
+    private static IReadOnlyDictionary<string, object?> LoginSecurityMetadata(User? user, string? submittedEmail)
+    {
+        return new Dictionary<string, object?>
+        {
+            ["emailProvided"] = !string.IsNullOrWhiteSpace(submittedEmail),
+            ["userId"] = user?.Id
+        };
     }
 
     private static bool IsValidEmail(string email)

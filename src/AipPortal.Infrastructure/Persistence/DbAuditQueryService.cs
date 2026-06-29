@@ -34,6 +34,11 @@ public sealed class DbAuditQueryService(
         var pageSize = Math.Clamp(query.PageSize, 1, MaxPageSize);
         var source = dbContext.AuditLogs.AsNoTracking();
 
+        if (!isSystemAdmin && currentTenant.IsAvailable)
+        {
+            source = source.Where(log => log.TenantId == currentTenant.TenantId);
+        }
+
         if (!string.IsNullOrWhiteSpace(query.Action))
         {
             source = source.Where(log => log.Action == query.Action);
@@ -117,6 +122,11 @@ public sealed class DbAuditQueryService(
         var page = Math.Max(1, query.Page);
         var pageSize = Math.Clamp(query.PageSize, 1, MaxPageSize);
         var source = dbContext.SecurityEvents.AsNoTracking();
+
+        if (!isSystemAdmin && currentTenant.IsAvailable)
+        {
+            source = source.Where(item => item.TenantId == currentTenant.TenantId);
+        }
 
         if (query.EventType.HasValue)
         {

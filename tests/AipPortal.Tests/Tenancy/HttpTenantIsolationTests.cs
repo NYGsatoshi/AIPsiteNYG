@@ -170,6 +170,20 @@ public sealed class HttpTenantIsolationTests
 
         Assert.Equal(HttpStatusCode.BadRequest, deniedCrossTenant.StatusCode);
         Assert.DoesNotContain(data.MessageB.Body, deniedCrossTenantBody, StringComparison.Ordinal);
+
+        var auditLogs = await app.ListAuditLogsAsync(data.TenantA.Id, data.TenantA.Slug);
+        var denialLogs = auditLogs.Where(log => log.Action == "ConversationAccessDenied").ToList();
+
+        Assert.Contains(denialLogs, log => log.EntityId == data.ConversationA.Id);
+        Assert.Contains(denialLogs, log => log.EntityId == data.ConversationB.Id);
+        Assert.All(denialLogs, log =>
+        {
+            Assert.Equal("Conversation access denied.", log.Summary);
+            Assert.DoesNotContain(data.MessageA.Body, log.MetadataJson ?? string.Empty, StringComparison.Ordinal);
+            Assert.DoesNotContain(data.MessageB.Body, log.MetadataJson ?? string.Empty, StringComparison.Ordinal);
+            Assert.DoesNotContain(data.TenantAMember.Email, log.MetadataJson ?? string.Empty, StringComparison.OrdinalIgnoreCase);
+            Assert.DoesNotContain(data.FileA.StorageKey, log.MetadataJson ?? string.Empty, StringComparison.Ordinal);
+        });
     }
 
     [Fact]
@@ -387,6 +401,15 @@ public sealed class HttpTenantIsolationTests
             request.Headers.TryAddWithoutValidation("X-Tenant-Slug", tenantSlug);
             request.Content = content;
             return Client.SendAsync(request);
+        }
+
+        public async Task<IReadOnlyList<AuditLog>> ListAuditLogsAsync(Guid tenantId, string tenantSlug)
+        {
+            await using var scope = App.Services.CreateAsyncScope();
+            var currentTenant = scope.ServiceProvider.GetRequiredService<CurrentTenantService>();
+            currentTenant.SetTenant(tenantId, tenantSlug);
+            var dbContext = scope.ServiceProvider.GetRequiredService<AppDbContext>();
+            return await dbContext.AuditLogs.AsNoTracking().ToListAsync();
         }
 
         public async ValueTask DisposeAsync()

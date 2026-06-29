@@ -135,3 +135,13 @@ The A-08 communication boundary evidence is recorded in `docs/evidence/mvp-a/a-0
 Three communication boundary risks were found and fixed: removed message authors now must remain active conversation participants to edit/delete messages, read cursor updates now reject missing/deleted/cross-conversation message IDs, and message notification bodies no longer embed private message text. The focused HTTP tenant and communication-boundary test slice passed 11/11, and the full backend suite passed 138/138.
 
 No confirmed unauthorized conversation/message body exposure was observed in the tested synthetic paths after the fixes. A-08 remains Needs verification for fresh-runtime authenticated communication smoke, same-tenant DM non-participant/admin policy, teacher/school-admin policy if implemented, thread coverage, realtime/polling coverage, live audit/log review, live PostgreSQL/container evidence, and safe-denial status-code classification. P0-001 and P0-002 remain open. This A-08 refresh does not imply production approval, MVP-A Go, or production readiness.
+
+## A-09 Audit Security Refresh Note
+
+Refresh date: 2026-06-29
+
+The A-09 audit/security evidence is recorded in `docs/evidence/mvp-a/a-09-audit-security-baseline.md` and `docs/evidence/mvp-a/a-09-audit-security-failure-log.md`.
+
+Three audit/security baseline risks were found and fixed: tenant-admin audit/security reads now include explicit `TenantId` predicates in the query service, covered conversation/message denial paths now write generic metadata-only audit entries, and login security metadata no longer stores the submitted email string. The focused auth/tenant/audit test slice passed 42/42, and the full backend suite passed 146/146.
+
+No confirmed audit/security log private body, token, cookie, password, connection-string, file body, or message body exposure was observed in the tested synthetic paths after the fixes. A-09 remains Needs verification for live audit/security log review, full denial/admin/file/communication event matrix coverage, file grant/revoke behavior, destructive-operation attempt policy, metadata sanitizer completeness, `SecurityEvent.Email` policy, live PostgreSQL/container evidence, and fresh-runtime authenticated smoke. P0-001 and P0-002 remain open. This A-09 refresh does not imply production approval, MVP-A Go, or production readiness.
