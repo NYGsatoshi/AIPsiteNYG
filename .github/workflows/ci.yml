@@ -156,16 +156,25 @@ jobs:
           if-no-files-found: error
 
       - name: Validate Docker Compose configs
+        env:
+          POSTGRES_DB: aip_portal
+          POSTGRES_USER: aip_portal
+          POSTGRES_PASSWORD: ci_dummy_password
+          LOCAL_ADMIN_PASSWORD: ci_dummy_local_admin_password
         run: |
           docker compose config --quiet
           docker compose -f docker-compose.local.yml config --quiet
           docker compose -f docker-compose.onprem.yml config --quiet
+
+      - name: Initialize Trivy image scan report
+        run: printf 'Trivy image scan did not run.\n' > trivy-image-report.txt
 
       - name: Build Docker image
         run: docker build --pull --tag "$IMAGE_NAME" .
 
       - name: Scan Docker image with Trivy
         run: |
+          printf 'Trivy image scan started but did not complete.\n' > trivy-image-report.txt
           set +e
           docker run --rm \
             -v /var/run/docker.sock:/var/run/docker.sock \
@@ -192,4 +201,4 @@ jobs:
         with:
           name: trivy-image-scan-report
           path: trivy-image-report.txt
-          if-no-files-found: error
+          if-no-files-found: warn
