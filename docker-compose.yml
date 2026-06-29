@@ -1,4 +1,4 @@
-Coidservices:
+services:
   app:
     build:
       context: .
