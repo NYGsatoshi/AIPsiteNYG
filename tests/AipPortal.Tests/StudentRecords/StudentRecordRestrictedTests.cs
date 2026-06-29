@@ -1,3 +1,4 @@
+using System.Text;
 using System.Text.Json;
 using AipPortal.Application.Common.Interfaces;
 using AipPortal.Application.StudentRecords;
@@ -257,6 +258,272 @@ public sealed class StudentRecordRestrictedTests
         Assert.DoesNotContain(fixture.Record.InternalSensitiveNotes!, JsonSerializer.Serialize(result.Value));
     }
 
+    [Fact]
+    public async Task AuthorizedSensitiveStudentRecordViewCreatesMetadataOnlyAudit()
+    {
+        var fixture = new Fixture(new StudentRecordSchoolAccessContext(SchoolRole.SchoolAdmin, HasSchoolAdminScope: true));
+
+        await fixture.Service.GetRestrictedAsync(
+            fixture.Record.Id,
+            new StudentRecordRestrictedRequest([StudentRecordDataPolicy.HealthNotes]));
+
+        var entry = Assert.Single(fixture.Audit.Entries, item => item.Action == "student_record.view_sensitive");
+        var serialized = JsonSerializer.Serialize(entry);
+        Assert.Contains(StudentRecordDataPolicy.HealthNotes, serialized);
+        Assert.Contains("allow", serialized);
+        Assert.DoesNotContain(fixture.Record.HealthNotes!, serialized);
+        Assert.DoesNotContain(fixture.Record.GuardianContact!, serialized);
+        Assert.DoesNotContain(fixture.Record.Grades!, serialized);
+        Assert.DoesNotContain(fixture.Record.InternalSensitiveNotes!, serialized);
+    }
+
+    [Fact]
+    public async Task StudentRecordRestrictedExportWithoutReasonIsDeniedAndAuditedWithoutValues()
+    {
+        var fixture = new Fixture(new StudentRecordSchoolAccessContext(SchoolRole.SchoolAdmin, HasSchoolAdminScope: true));
+
+        var result = await fixture.Service.RequestRestrictedExportAsync(
+            fixture.Record.Id,
+            ExportRequest(reason: null));
+
+        Assert.False(result.IsSuccess);
+        Assert.Empty(fixture.ExportGrants.Grants);
+        AssertAuditDenial(fixture, "missing-reason");
+    }
+
+    [Fact]
+    public async Task StudentRecordRestrictedExportWithInvalidReasonIsDenied()
+    {
+        var fixture = new Fixture(new StudentRecordSchoolAccessContext(SchoolRole.SchoolAdmin, HasSchoolAdminScope: true));
+
+        var result = await fixture.Service.RequestRestrictedExportAsync(
+            fixture.Record.Id,
+            ExportRequest(reason: "short"));
+
+        Assert.False(result.IsSuccess);
+        Assert.Empty(fixture.ExportGrants.Grants);
+        AssertAuditDenial(fixture, "invalid-reason");
+    }
+
+    [Fact]
+    public async Task StudentRecordRestrictedExportRequestRequiresFreshReauthorizationAndFieldPolicy()
+    {
+        var fixture = new Fixture(new StudentRecordSchoolAccessContext(SchoolRole.SchoolAdmin, HasSchoolAdminScope: true));
+
+        var result = await fixture.Service.RequestRestrictedExportAsync(fixture.Record.Id, ExportRequest());
+
+        Assert.True(result.IsSuccess);
+        Assert.Single(fixture.ExportGrants.Grants);
+        Assert.Contains(StudentRecordDataPolicy.HealthNotes, result.Value!.AuthorizedFields);
+        Assert.Contains(fixture.Audit.Entries, item => item.Action == "student_record.export.request");
+    }
+
+    [Fact]
+    public async Task FailedReauthorizationBlocksStudentRecordRestrictedExport()
+    {
+        var fixture = new Fixture(new StudentRecordSchoolAccessContext(SchoolRole.Guardian));
+
+        var result = await fixture.Service.RequestRestrictedExportAsync(fixture.Record.Id, ExportRequest());
+
+        Assert.False(result.IsSuccess);
+        Assert.Empty(fixture.ExportGrants.Grants);
+        AssertAuditDenial(fixture, "failed-reauthorization");
+    }
+
+    [Fact]
+    public async Task UnauthorizedRestrictedFieldIsDeniedDuringExportRequest()
+    {
+        var fixture = new Fixture(new StudentRecordSchoolAccessContext(
+            SchoolRole.Guardian,
+            HasGuardianRelationship: true));
+
+        var result = await fixture.Service.RequestRestrictedExportAsync(
+            fixture.Record.Id,
+            ExportRequest(fields: [StudentRecordDataPolicy.HealthNotes]));
+
+        Assert.False(result.IsSuccess);
+        Assert.Empty(fixture.ExportGrants.Grants);
+        AssertAuditDenial(fixture, "unauthorized-restricted-field");
+    }
+
+    [Fact]
+    public async Task UnknownSensitiveFieldIsDeniedByDefaultDuringExportRequest()
+    {
+        var fixture = new Fixture(new StudentRecordSchoolAccessContext(SchoolRole.SchoolAdmin, HasSchoolAdminScope: true));
+
+        var result = await fixture.Service.RequestRestrictedExportAsync(
+            fixture.Record.Id,
+            ExportRequest(fields: ["internalSensitiveNotes"]));
+
+        Assert.False(result.IsSuccess);
+        Assert.Empty(fixture.ExportGrants.Grants);
+        AssertAuditDenial(fixture, "unauthorized-restricted-field");
+    }
+
+    [Fact]
+    public async Task MissingFieldAccessPolicyFailsClosedForExportRequest()
+    {
+        var fixture = new Fixture(new StudentRecordSchoolAccessContext(
+            SchoolRole.StudentAdmin,
+            HasStudentAdminScope: true));
+
+        var result = await fixture.Service.RequestRestrictedExportAsync(
+            fixture.Record.Id,
+            ExportRequest(fields: [StudentRecordDataPolicy.HealthNotes]));
+
+        Assert.False(result.IsSuccess);
+        Assert.Empty(fixture.ExportGrants.Grants);
+        AssertAuditDenial(fixture, "unauthorized-restricted-field");
+    }
+
+    [Fact]
+    public async Task ExportBuildRechecksFieldAccessPolicyAndBlocksPolicyChangeAfterRequest()
+    {
+        var fixture = new Fixture(new StudentRecordSchoolAccessContext(SchoolRole.SchoolAdmin, HasSchoolAdminScope: true));
+        var grant = await RequestExportGrantAsync(fixture);
+        fixture.SchoolAccess.Context = new StudentRecordSchoolAccessContext(
+            SchoolRole.GradeTeacher,
+            HasGradeScope: true);
+
+        var result = await fixture.Service.BuildRestrictedExportAsync(grant.ExportPackageGrantId);
+
+        Assert.False(result.IsSuccess);
+        AssertAuditDenial(fixture, "policy-changed-after-request");
+    }
+
+    [Fact]
+    public async Task ExportDownloadRechecksFieldAccessPolicyAndBlocksPolicyChangeAfterBuild()
+    {
+        var fixture = new Fixture(new StudentRecordSchoolAccessContext(SchoolRole.SchoolAdmin, HasSchoolAdminScope: true));
+        var grant = await RequestExportGrantAsync(fixture);
+        var build = await fixture.Service.BuildRestrictedExportAsync(grant.ExportPackageGrantId);
+        Assert.True(build.IsSuccess);
+        fixture.SchoolAccess.Context = new StudentRecordSchoolAccessContext(
+            SchoolRole.GradeTeacher,
+            HasGradeScope: true);
+
+        var result = await fixture.Service.DownloadRestrictedExportAsync(grant.ExportPackageGrantId);
+
+        Assert.False(result.IsSuccess);
+        AssertAuditDenial(fixture, "policy-changed-after-build");
+    }
+
+    [Fact]
+    public async Task RoleChangeAfterExportRequestBlocksBuild()
+    {
+        var fixture = new Fixture(new StudentRecordSchoolAccessContext(SchoolRole.SchoolAdmin, HasSchoolAdminScope: true));
+        var grant = await RequestExportGrantAsync(fixture);
+        fixture.SchoolAccess.Context = new StudentRecordSchoolAccessContext(
+            SchoolRole.ExternalGuest);
+
+        var result = await fixture.Service.BuildRestrictedExportAsync(grant.ExportPackageGrantId);
+
+        Assert.False(result.IsSuccess);
+        AssertAuditDenial(fixture, "failed-reauthorization");
+    }
+
+    [Fact]
+    public async Task GuardianRelationshipRemovalBlocksBuild()
+    {
+        var fixture = new Fixture(new StudentRecordSchoolAccessContext(
+            SchoolRole.Guardian,
+            HasGuardianRelationship: true));
+        var grant = await RequestExportGrantAsync(fixture, fields: [StudentRecordDataPolicy.GuardianContact]);
+        fixture.SchoolAccess.Context = new StudentRecordSchoolAccessContext(SchoolRole.Guardian);
+
+        var result = await fixture.Service.BuildRestrictedExportAsync(grant.ExportPackageGrantId);
+
+        Assert.False(result.IsSuccess);
+        AssertAuditDenial(fixture, "failed-reauthorization");
+    }
+
+    [Fact]
+    public async Task TeacherScopeRemovalBlocksBuild()
+    {
+        var fixture = new Fixture(new StudentRecordSchoolAccessContext(
+            SchoolRole.Teacher,
+            HasTeacherScope: true));
+        var grant = await RequestExportGrantAsync(fixture, fields: [StudentRecordDataPolicy.Grades]);
+        fixture.SchoolAccess.Context = new StudentRecordSchoolAccessContext(SchoolRole.Teacher);
+
+        var result = await fixture.Service.BuildRestrictedExportAsync(grant.ExportPackageGrantId);
+
+        Assert.False(result.IsSuccess);
+        AssertAuditDenial(fixture, "failed-reauthorization");
+    }
+
+    [Fact]
+    public async Task ExpiredExportPackageGrantBlocksDownload()
+    {
+        var fixture = new Fixture(new StudentRecordSchoolAccessContext(SchoolRole.SchoolAdmin, HasSchoolAdminScope: true));
+        var grant = await RequestExportGrantAsync(fixture);
+        var build = await fixture.Service.BuildRestrictedExportAsync(grant.ExportPackageGrantId);
+        Assert.True(build.IsSuccess);
+        fixture.Clock.UtcNow = grant.ExpiresAt.AddSeconds(1);
+
+        var result = await fixture.Service.DownloadRestrictedExportAsync(grant.ExportPackageGrantId);
+
+        Assert.False(result.IsSuccess);
+        AssertAuditDenial(fixture, "export-package-grant-expired");
+    }
+
+    [Fact]
+    public async Task ExportPackageGrantScopeMismatchBlocksDownload()
+    {
+        var fixture = new Fixture(new StudentRecordSchoolAccessContext(SchoolRole.SchoolAdmin, HasSchoolAdminScope: true));
+        var grant = await RequestExportGrantAsync(fixture);
+        var build = await fixture.Service.BuildRestrictedExportAsync(grant.ExportPackageGrantId);
+        Assert.True(build.IsSuccess);
+        fixture.ExportGrants.Grants[0].WorkspaceId = Guid.NewGuid();
+
+        var result = await fixture.Service.DownloadRestrictedExportAsync(grant.ExportPackageGrantId);
+
+        Assert.False(result.IsSuccess);
+        AssertAuditDenial(fixture, "export-package-grant-scope-mismatch");
+    }
+
+    [Fact]
+    public async Task ExportPackageGrantStoresOnlyMetadataAndPackageContainsOnlyAuthorizedFields()
+    {
+        var fixture = new Fixture(new StudentRecordSchoolAccessContext(
+            SchoolRole.Guardian,
+            HasGuardianRelationship: true));
+        var grant = await RequestExportGrantAsync(
+            fixture,
+            fields: [StudentRecordDataPolicy.GuardianContact, StudentRecordDataPolicy.AttendanceStatus]);
+
+        var build = await fixture.Service.BuildRestrictedExportAsync(grant.ExportPackageGrantId);
+
+        Assert.True(build.IsSuccess);
+        var storedGrant = Assert.Single(fixture.ExportGrants.Grants);
+        var grantJson = JsonSerializer.Serialize(storedGrant);
+        Assert.DoesNotContain(fixture.Record.HealthNotes!, grantJson);
+        Assert.DoesNotContain(fixture.Record.GuardianContact!, grantJson);
+        Assert.DoesNotContain(fixture.Record.Grades!, grantJson);
+        Assert.DoesNotContain(fixture.Record.InternalSensitiveNotes!, grantJson);
+
+        var packageJson = Encoding.UTF8.GetString(build.Value!.Content);
+        Assert.Contains(StudentRecordDataPolicy.GuardianContact, packageJson);
+        Assert.Contains(StudentRecordDataPolicy.AttendanceStatus, packageJson);
+        Assert.DoesNotContain(fixture.Record.HealthNotes!, packageJson);
+        Assert.DoesNotContain(fixture.Record.Grades!, packageJson);
+        Assert.DoesNotContain(fixture.Record.InternalSensitiveNotes!, packageJson);
+    }
+
+    [Fact]
+    public async Task DenialAuditForExportDoesNotContainRestrictedValues()
+    {
+        var fixture = new Fixture(new StudentRecordSchoolAccessContext(SchoolRole.ExternalGuest));
+
+        await fixture.Service.RequestRestrictedExportAsync(fixture.Record.Id, ExportRequest());
+
+        var serialized = JsonSerializer.Serialize(fixture.Audit.Entries);
+        Assert.DoesNotContain(fixture.Record.HealthNotes!, serialized);
+        Assert.DoesNotContain(fixture.Record.GuardianContact!, serialized);
+        Assert.DoesNotContain(fixture.Record.Grades!, serialized);
+        Assert.DoesNotContain(fixture.Record.InternalSensitiveNotes!, serialized);
+    }
+
     private static StudentRecordRestrictedRequest RestrictedRequest()
     {
         return new StudentRecordRestrictedRequest(
@@ -266,6 +533,34 @@ public sealed class StudentRecordRestrictedTests
                 StudentRecordDataPolicy.Grades,
                 StudentRecordDataPolicy.AttendanceStatus
             ]);
+    }
+
+    private static StudentRecordExportRequest ExportRequest(
+        IReadOnlyCollection<string>? fields = null,
+        string? reason = "Operational school record export")
+    {
+        return new StudentRecordExportRequest(
+            fields ?? [StudentRecordDataPolicy.HealthNotes],
+            reason);
+    }
+
+    private static async Task<StudentRecordExportGrantResponse> RequestExportGrantAsync(
+        Fixture fixture,
+        IReadOnlyCollection<string>? fields = null)
+    {
+        var result = await fixture.Service.RequestRestrictedExportAsync(fixture.Record.Id, ExportRequest(fields));
+        Assert.True(result.IsSuccess);
+        return result.Value!;
+    }
+
+    private static void AssertAuditDenial(Fixture fixture, string reason)
+    {
+        var serialized = JsonSerializer.Serialize(fixture.Audit.Entries);
+        Assert.Contains(reason, serialized);
+        Assert.DoesNotContain(fixture.Record.HealthNotes!, serialized);
+        Assert.DoesNotContain(fixture.Record.GuardianContact!, serialized);
+        Assert.DoesNotContain(fixture.Record.Grades!, serialized);
+        Assert.DoesNotContain(fixture.Record.InternalSensitiveNotes!, serialized);
     }
 
     private sealed class Fixture
@@ -279,12 +574,18 @@ public sealed class StudentRecordRestrictedTests
             StudentRecords = new FakeStudentRecordRepository(Record);
             Workspaces = new FakeWorkspaceRepository(WorkspaceId, UserId, WorkspaceRole.Admin);
             SchoolAccess = new FakeStudentRecordSchoolAccessContextProvider(context);
+            ExportGrants = new FakeStudentRecordExportGrantRepository();
+            Clock = new FakeClock();
+            UnitOfWork = new FakeUnitOfWork();
             Audit = new FakeAuditLogger();
             Service = new StudentRecordService(
                 StudentRecords,
+                ExportGrants,
                 new StudentRecordAuthorizationService(Workspaces, SchoolAccess),
                 CurrentUser,
                 CurrentTenant,
+                Clock,
+                UnitOfWork,
                 Audit);
         }
 
@@ -310,18 +611,23 @@ public sealed class StudentRecordRestrictedTests
         public FakeStudentRecordRepository StudentRecords { get; }
         public FakeWorkspaceRepository Workspaces { get; }
         public FakeStudentRecordSchoolAccessContextProvider SchoolAccess { get; }
+        public FakeStudentRecordExportGrantRepository ExportGrants { get; }
+        public FakeClock Clock { get; }
+        public FakeUnitOfWork UnitOfWork { get; }
         public FakeAuditLogger Audit { get; }
         public StudentRecordService Service { get; }
     }
 
     private sealed class FakeStudentRecordSchoolAccessContextProvider(StudentRecordSchoolAccessContext? context) : IStudentRecordSchoolAccessContextProvider
     {
+        public StudentRecordSchoolAccessContext? Context { get; set; } = context;
+
         public Task<StudentRecordSchoolAccessContext?> GetAccessContextAsync(
             Guid userId,
             StudentRecord record,
             CancellationToken cancellationToken = default)
         {
-            return Task.FromResult(context);
+            return Task.FromResult(Context);
         }
     }
 
@@ -397,6 +703,35 @@ public sealed class StudentRecordRestrictedTests
         public bool IsAvailable => true;
         public string? TenantSlug => "tenant-a";
         public bool IsPlatformScope => false;
+    }
+
+    private sealed class FakeStudentRecordExportGrantRepository : IStudentRecordExportGrantRepository
+    {
+        public List<ExportPackageGrant> Grants { get; } = [];
+
+        public Task<ExportPackageGrant?> GetAsync(Guid exportPackageGrantId, CancellationToken cancellationToken = default)
+        {
+            return Task.FromResult(Grants.FirstOrDefault(grant => grant.Id == exportPackageGrantId));
+        }
+
+        public Task AddAsync(ExportPackageGrant grant, CancellationToken cancellationToken = default)
+        {
+            Grants.Add(grant);
+            return Task.CompletedTask;
+        }
+    }
+
+    private sealed class FakeClock : IClock
+    {
+        public DateTimeOffset UtcNow { get; set; } = new(2026, 6, 30, 0, 0, 0, TimeSpan.Zero);
+    }
+
+    private sealed class FakeUnitOfWork : IUnitOfWork
+    {
+        public Task<int> SaveChangesAsync(CancellationToken cancellationToken = default)
+        {
+            return Task.FromResult(1);
+        }
     }
 
     private sealed class FakeAuditLogger : IAuditLogger

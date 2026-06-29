@@ -34,6 +34,25 @@ public sealed class ExportJobConfiguration : IEntityTypeConfiguration<ExportJob>
     }
 }
 
+public sealed class ExportPackageGrantConfiguration : IEntityTypeConfiguration<ExportPackageGrant>
+{
+    public void Configure(EntityTypeBuilder<ExportPackageGrant> builder)
+    {
+        builder.ToTable("export_package_grants");
+        builder.ConfigureAuditableEntity();
+
+        builder.Property(grant => grant.Classification).HasEnumStringConversion().IsRequired();
+        builder.Property(grant => grant.RequestedFields).HasMaxLength(1000).IsRequired();
+        builder.Property(grant => grant.AuthorizedFields).HasMaxLength(1000).IsRequired();
+        builder.Property(grant => grant.PolicyStamp).HasMaxLength(128).IsRequired();
+
+        builder.HasIndex(grant => grant.RequestedByUserId);
+        builder.HasIndex(grant => grant.StudentRecordId);
+        builder.HasIndex(grant => grant.WorkspaceId);
+        builder.HasIndex(grant => grant.ExpiresAt);
+    }
+}
+
 public sealed class IntegrationAccountConfiguration : IEntityTypeConfiguration<IntegrationAccount>
 {
     public void Configure(EntityTypeBuilder<IntegrationAccount> builder)

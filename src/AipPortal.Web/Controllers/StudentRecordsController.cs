@@ -27,6 +27,27 @@ public sealed class StudentRecordsController(IStudentRecordService studentRecord
             cancellationToken));
     }
 
+    [HttpPost("api/student-records/{studentRecordId:guid}/restricted/export-requests")]
+    public async Task<IActionResult> RequestRestrictedExport(
+        Guid studentRecordId,
+        [FromBody] StudentRecordExportRequest request,
+        CancellationToken cancellationToken)
+    {
+        return ToActionResult(await studentRecords.RequestRestrictedExportAsync(studentRecordId, request, cancellationToken));
+    }
+
+    [HttpPost("api/student-records/restricted/export-packages/{exportPackageGrantId:guid}/build")]
+    public async Task<IActionResult> BuildRestrictedExport(Guid exportPackageGrantId, CancellationToken cancellationToken)
+    {
+        return ToActionResult(await studentRecords.BuildRestrictedExportAsync(exportPackageGrantId, cancellationToken));
+    }
+
+    [HttpGet("api/student-records/restricted/export-packages/{exportPackageGrantId:guid}/download")]
+    public async Task<IActionResult> DownloadRestrictedExport(Guid exportPackageGrantId, CancellationToken cancellationToken)
+    {
+        return ToActionResult(await studentRecords.DownloadRestrictedExportAsync(exportPackageGrantId, cancellationToken));
+    }
+
     private IActionResult ToActionResult<T>(AipPortal.Application.Common.Result<T> result)
     {
         return result.IsSuccess ? Ok(result.Value) : BadRequest(new { error = result.Error });

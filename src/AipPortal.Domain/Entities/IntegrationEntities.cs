@@ -17,6 +17,22 @@ public sealed class ExportJob : AuditableEntity, ITenantEntity
     public FileObject? FileObject { get; set; }
 }
 
+public sealed class ExportPackageGrant : AuditableEntity, ITenantEntity
+{
+    public Guid TenantId { get; set; }
+    public Guid RequestedByUserId { get; set; }
+    public Guid StudentRecordId { get; set; }
+    public Guid WorkspaceId { get; set; }
+    public DataClassification Classification { get; set; } = DataClassification.StudentRecordRestricted;
+    public string RequestedFields { get; set; } = string.Empty;
+    public string AuthorizedFields { get; set; } = string.Empty;
+    public string PolicyStamp { get; set; } = string.Empty;
+    public DateTimeOffset ReauthorizedAt { get; set; }
+    public DateTimeOffset ExpiresAt { get; set; }
+    public DateTimeOffset? BuiltAt { get; set; }
+    public DateTimeOffset? DownloadedAt { get; set; }
+}
+
 public sealed class IntegrationAccount : SoftDeletableEntity, ITenantEntity
 {
     public Guid TenantId { get; set; }
