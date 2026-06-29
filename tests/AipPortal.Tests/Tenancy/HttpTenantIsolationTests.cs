@@ -65,6 +65,75 @@ public sealed class HttpTenantIsolationTests
     }
 
     [Fact]
+    public async Task FileMetadataAndDeniedResponsesDoNotExposeStorageIdentifiers()
+    {
+        await using var app = await HttpTenantIsolationTestApp.CreateAsync();
+        var data = app.Data;
+
+        var allowedMetadata = await app.SendAsync(data.CrossTenantUser, data.TenantA.Slug, $"/api/files/{data.FileA.Id}");
+        var allowedBody = await allowedMetadata.Content.ReadAsStringAsync();
+
+        Assert.Equal(HttpStatusCode.OK, allowedMetadata.StatusCode);
+        Assert.Contains(data.FileA.OriginalFileName, allowedBody, StringComparison.Ordinal);
+        Assert.DoesNotContain("storageKey", allowedBody, StringComparison.OrdinalIgnoreCase);
+        Assert.DoesNotContain("storedFileName", allowedBody, StringComparison.OrdinalIgnoreCase);
+        Assert.DoesNotContain(data.FileA.StorageKey, allowedBody, StringComparison.Ordinal);
+
+        var deniedMetadata = await app.SendAsync(data.CrossTenantUser, data.TenantA.Slug, $"/api/files/{data.FileB.Id}");
+        var deniedMetadataBody = await deniedMetadata.Content.ReadAsStringAsync();
+
+        Assert.Equal(HttpStatusCode.BadRequest, deniedMetadata.StatusCode);
+        Assert.DoesNotContain(data.FileB.OriginalFileName, deniedMetadataBody, StringComparison.Ordinal);
+        Assert.DoesNotContain(data.FileB.StorageKey, deniedMetadataBody, StringComparison.Ordinal);
+
+        var deniedDownload = await app.SendAsync(data.CrossTenantUser, data.TenantA.Slug, $"/api/files/{data.FileB.Id}/download");
+        var deniedDownloadBody = await deniedDownload.Content.ReadAsStringAsync();
+
+        Assert.Equal(HttpStatusCode.BadRequest, deniedDownload.StatusCode);
+        Assert.DoesNotContain(data.FileB.OriginalFileName, deniedDownloadBody, StringComparison.Ordinal);
+        Assert.DoesNotContain(data.FileB.StorageKey, deniedDownloadBody, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public async Task FileDownloadResponsesUsePrivateCacheHeaders()
+    {
+        await using var app = await HttpTenantIsolationTestApp.CreateAsync();
+        var data = app.Data;
+
+        var response = await app.SendAsync(data.CrossTenantUser, data.TenantA.Slug, $"/api/files/{data.FileA.Id}/download");
+
+        Assert.Equal(HttpStatusCode.OK, response.StatusCode);
+        Assert.Contains("no-store", response.Headers.CacheControl?.ToString(), StringComparison.OrdinalIgnoreCase);
+        Assert.Contains(response.Headers.Pragma, value => string.Equals(value.Name, "no-cache", StringComparison.OrdinalIgnoreCase));
+    }
+
+    [Fact]
+    public async Task UploadSanitizesOriginalFileNameAndDoesNotReturnStorageIdentifiers()
+    {
+        await using var app = await HttpTenantIsolationTestApp.CreateAsync();
+        var data = app.Data;
+
+        using var content = new MultipartFormDataContent
+        {
+            { new StringContent(AttachmentOwnerType.TaskItem.ToString()), "OwnerType" },
+            { new StringContent(data.TaskB.Id.ToString("D")), "OwnerId" }
+        };
+        var file = new ByteArrayContent("hello"u8.ToArray());
+        file.Headers.ContentType = new System.Net.Http.Headers.MediaTypeHeaderValue("text/plain");
+        content.Add(file, "File", @"..\secret.txt");
+
+        var response = await app.SendAsync(data.TenantBMember, data.TenantB.Slug, "/api/files", HttpMethod.Post, content);
+        var body = await response.Content.ReadAsStringAsync();
+
+        Assert.Equal(HttpStatusCode.OK, response.StatusCode);
+        Assert.Contains("secret.txt", body, StringComparison.Ordinal);
+        Assert.DoesNotContain("..", body, StringComparison.Ordinal);
+        Assert.DoesNotContain("storageKey", body, StringComparison.OrdinalIgnoreCase);
+        Assert.DoesNotContain("storedFileName", body, StringComparison.OrdinalIgnoreCase);
+        Assert.DoesNotContain($"tenants/{data.TenantB.Id:D}", body, StringComparison.Ordinal);
+    }
+
+    [Fact]
     public async Task AuthenticatedHttpNotificationsStayUserAndTenantScoped()
     {
         await using var app = await HttpTenantIsolationTestApp.CreateAsync();
@@ -217,13 +286,14 @@ public sealed class HttpTenantIsolationTests
             return new HttpTenantIsolationTestApp(app, new HttpClient { BaseAddress = new Uri(address) }, data);
         }
 
-        public Task<HttpResponseMessage> SendAsync(User user, string tenantSlug, string path, HttpMethod? method = null)
+        public Task<HttpResponseMessage> SendAsync(User user, string tenantSlug, string path, HttpMethod? method = null, HttpContent? content = null)
         {
             var request = new HttpRequestMessage(method ?? HttpMethod.Get, path);
             request.Headers.TryAddWithoutValidation("X-Test-User-Id", user.Id.ToString("D"));
             request.Headers.TryAddWithoutValidation("X-Test-Email", user.Email);
             request.Headers.TryAddWithoutValidation("X-Test-System-Role", user.SystemRole.ToString());
             request.Headers.TryAddWithoutValidation("X-Tenant-Slug", tenantSlug);
+            request.Content = content;
             return Client.SendAsync(request);
         }
 

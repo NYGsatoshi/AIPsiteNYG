@@ -40,7 +40,7 @@ public sealed class FilesController(IFileObjectService files) : ControllerBase
     {
         var result = await files.DownloadFileObjectAsync(fileObjectId, cancellationToken);
         return result.IsSuccess
-            ? File(result.Value!.Content, result.Value.ContentType, result.Value.FileName)
+            ? PrivateFile(result.Value!.Content, result.Value.ContentType, result.Value.FileName)
             : BadRequest(new { error = result.Error });
     }
 
@@ -53,4 +53,12 @@ public sealed class FilesController(IFileObjectService files) : ControllerBase
     private IActionResult OkOrBad(Result result) => result.IsSuccess ? Ok(new { status = "OK" }) : BadRequest(new { error = result.Error });
 
     private IActionResult ToActionResult<T>(Result<T> result) => result.IsSuccess ? Ok(result.Value) : BadRequest(new { error = result.Error });
+
+    private FileStreamResult PrivateFile(Stream content, string contentType, string fileName)
+    {
+        Response.Headers.CacheControl = "no-store, max-age=0";
+        Response.Headers.Pragma = "no-cache";
+        Response.Headers.Expires = "0";
+        return File(content, contentType, fileName);
+    }
 }

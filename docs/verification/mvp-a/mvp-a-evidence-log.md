@@ -59,6 +59,17 @@ Detailed evidence:
 
 Summary: repo keyword scans and source inspection found no confirmed committed raw secret in this pass, and the ignored local `.env` was treated as local sensitive config without copying values. A source-level Development error-response leak was fixed by making global unhandled exception responses generic in every environment, and the new regression test plus full backend suite passed 129/129. A-05 remains Needs verification because local redacted Gitleaks reproduction is blocked by missing local `gitleaks` and unavailable Docker daemon, live runtime logs were not captured, authenticated API/UI/export smoke remains blocked by P0-001/P0-002, and existing historical docs/evidence still need broader human review. This A-05 refresh does not imply production approval, MVP-A Go, or production readiness.
 
+## A-07 File Boundary Refresh
+
+Refresh date: 2026-06-29
+
+Detailed evidence:
+
+- `docs/evidence/mvp-a/a-07-file-boundary-baseline.md`
+- `docs/evidence/mvp-a/a-07-file-boundary-failure-log.md`
+
+Summary: source inspection and automated backend verification found no confirmed unauthorized file-body exposure in the tested synthetic paths after this pass. A metadata-only storage identifier exposure risk was fixed by removing internal storage identifiers from file and artifact-version API response DTOs, private no-store headers were added to file/attachment/artifact download responses, and metadata-only denied file access audit entries were added. The targeted file/storage/tenant-boundary test slice passed 32/32, and the full backend suite passed 134/134. A-07 remains Needs verification for fresh-runtime authenticated file smoke, attachment/conversation body actor matrix, removed-participant and explicit-grant/revoked-grant behavior, object-storage/signed-URL behavior, and live PostgreSQL/container evidence. This A-07 refresh does not imply production approval, MVP-A Go, or production readiness.
+
 | Evidence ID | Area | Command or method | Environment | Observed result | Status | Related blocker | Sensitive data status |
 | --- | --- | --- | --- | --- | --- | --- | --- |
 | EV-001 | Repository inventory | `find . -maxdepth 3 ...` and source inspection | Workspace | Found `AipPortal.slnx`, four source projects, one .NET test project, UI tests, Dockerfiles/Compose, and GitHub Actions CI. | Pass | None | No secrets copied |
@@ -136,6 +147,13 @@ Summary: repo keyword scans and source inspection found no confirmed committed r
 | EV-073 | A-05 error response fix | `GlobalExceptionHandlingMiddleware` update and regression test | Windows host | Global unhandled exception responses now use a generic message in every environment; focused regression test passed. | Pass | None | Synthetic sensitive-looking text only |
 | EV-074 | A-05 backend suite | `dotnet test AipPortal.slnx --configuration Release --no-build --verbosity normal --disable-build-servers -m:1` | Windows host | 129/129 passed after the A-05 error-response fix and test. | Pass | None | No raw secrets copied |
 | EV-075 | A-05 log/API/UI/export runtime coverage | Source inspection plus existing A-03/A-04 evidence review | Windows host | No broad request-body logging or EF sensitive-data logging was found; live logs, authenticated UI/API/export smoke, and historical docs review remain incomplete. | Needs verification | P0-001/P0-002 plus A-05 runtime follow-up | No live private data copied |
+| EV-076 | A-07 source inventory | Repo search and source inspection | Windows host | No pre-existing A-07 evidence file was found; file, attachment, artifact-version, local storage, upload policy, authorization, and test surfaces were inventoried. | Pass | A-07 | No real files copied |
+| EV-077 | A-07 storage identifier fix | DTO and service response shaping | Workspace | Removed `storageKey`, `storedFileName`, and artifact-version `filePath` from file/artifact API response DTOs. | Pass | None | Internal storage identifiers not copied |
+| EV-078 | A-07 private download cache headers | Controller download response update | Workspace | File, attachment, and artifact-version download actions set no-store/no-cache headers before returning file streams. | Pass | None | No file body copied |
+| EV-079 | A-07 denied file access audit | `FileService` denied metadata/download audit update | Workspace | Denied file/attachment metadata and download attempts now write generic metadata-only audit entries. | Partial | A-07 audit matrix follow-up | No filename, body, storage key, token, cookie, or signed URL copied |
+| EV-080 | A-07 focused tests | `dotnet test --no-build --filter "FullyQualifiedName~HttpTenantIsolationTests|FullyQualifiedName~LocalFileStorageServiceTests|FullyQualifiedName~TenantIsolationSecurityTests"` | Windows host | 32/32 passed: file metadata storage identifiers omitted, denied responses safe, download private cache header present, traversal-like upload filename sanitized, local storage traversal rejected, tenant isolation covered. | Pass | Live runtime still Needs verification | Synthetic test data only |
+| EV-081 | A-07 full backend suite | `dotnet test --no-build` | Windows host | 134/134 passed after A-07 file boundary fixes and tests. | Pass | None | No real files copied |
+| EV-082 | A-07 remaining file-boundary gaps | Source inspection plus test review | Windows host | Fresh-runtime authenticated file smoke, conversation attachment body matrix, removed participant, explicit grant/revoked grant, object storage/signed URL, and live PostgreSQL/container evidence remain incomplete. | Needs verification | P0-001/P0-002 plus A-07 follow-up | No real files copied |
 
 ## Evidence Notes
 
@@ -146,3 +164,4 @@ Summary: repo keyword scans and source inspection found no confirmed committed r
 - A-03 smoke success on public shell/protected-anonymous checks is not MVP-A Go; readiness, Docker/PostgreSQL, frontend dependencies, and authenticated runtime checks remain blocked or need verification.
 - A-04 automated auth/tenant/audit boundary tests passed after the test-harness Data Protection fix, but fresh-runtime authenticated admin/non-admin/wrong-tenant smoke remains Needs verification until the baseline identity/bootstrap blocker is resolved.
 - A-05 fixed a source-level Development exception-message response leak, but A-05 remains Needs verification until redacted scanner artifacts, live logs, authenticated API/UI/export smoke, and historical evidence review are complete.
+- A-07 fixed file/artifact API storage identifier response exposure and added private download cache headers plus denied-access audit logging, but A-07 remains Needs verification until fresh-runtime file smoke, attachment/conversation actor matrix, explicit grant/revoked grant behavior, object storage/signed URL behavior, and live runtime evidence are complete.

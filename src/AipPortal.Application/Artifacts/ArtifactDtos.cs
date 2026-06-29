@@ -51,8 +51,6 @@ public sealed record ArtifactVersionResponse(
     Guid ArtifactId,
     int VersionNumber,
     string OriginalFileName,
-    string StoredFileName,
-    string FilePath,
     string ContentType,
     long FileSize,
     Guid UploadedByUserId,

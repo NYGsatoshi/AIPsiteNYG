@@ -115,9 +115,14 @@ public sealed class FileService(
     public async Task<Result<AttachmentResponse>> GetAsync(Guid attachmentId, CancellationToken cancellationToken = default)
     {
         var attachment = await files.GetAttachmentAsync(attachmentId, cancellationToken);
-        if (attachment is null || !TryCurrentUser(out var userId) ||
-            !await authorization.CanViewAttachment(userId, attachment, cancellationToken))
+        if (attachment is null || !TryCurrentUser(out var userId))
         {
+            return Result<AttachmentResponse>.Failure("Attachment not found.");
+        }
+
+        if (!await authorization.CanViewAttachment(userId, attachment, cancellationToken))
+        {
+            await LogDeniedFileAccessAsync(userId, "AttachmentMetadataDenied", attachment, cancellationToken);
             return Result<AttachmentResponse>.Failure("Attachment not found.");
         }
 
@@ -127,9 +132,14 @@ public sealed class FileService(
     public async Task<Result<FileDownloadResponse>> DownloadAsync(Guid attachmentId, CancellationToken cancellationToken = default)
     {
         var attachment = await files.GetAttachmentAsync(attachmentId, cancellationToken);
-        if (attachment is null || !TryCurrentUser(out var userId) ||
-            !await authorization.CanDownloadAttachment(userId, attachment, cancellationToken))
+        if (attachment is null || !TryCurrentUser(out var userId))
         {
+            return Result<FileDownloadResponse>.Failure("Attachment not found.");
+        }
+
+        if (!await authorization.CanDownloadAttachment(userId, attachment, cancellationToken))
+        {
+            await LogDeniedFileAccessAsync(userId, "AttachmentDownloadDenied", attachment, cancellationToken);
             return Result<FileDownloadResponse>.Failure("Attachment not found.");
         }
 
@@ -166,9 +176,14 @@ public sealed class FileService(
     public async Task<Result<FileObjectResponse>> GetFileObjectAsync(Guid fileObjectId, CancellationToken cancellationToken = default)
     {
         var attachment = await files.GetAttachmentByFileObjectAsync(fileObjectId, cancellationToken);
-        if (attachment is null || attachment.FileObject is null || !TryCurrentUser(out var userId) ||
-            !await authorization.CanViewAttachment(userId, attachment, cancellationToken))
+        if (attachment is null || attachment.FileObject is null || !TryCurrentUser(out var userId))
         {
+            return Result<FileObjectResponse>.Failure("File not found.");
+        }
+
+        if (!await authorization.CanViewAttachment(userId, attachment, cancellationToken))
+        {
+            await LogDeniedFileAccessAsync(userId, "FileMetadataDenied", attachment, cancellationToken);
             return Result<FileObjectResponse>.Failure("File not found.");
         }
 
@@ -218,8 +233,6 @@ public sealed class FileService(
             attachment.OwnerType,
             attachment.OwnerId,
             attachment.FileObject?.OriginalFileName ?? attachment.FileName,
-            attachment.StoredFileName,
-            attachment.FileObject?.StorageKey ?? attachment.StorageKey,
             attachment.FileObject?.ContentType ?? attachment.ContentType,
             attachment.FileObject?.SizeBytes ?? attachment.SizeBytes,
             attachment.UploadedByUserId,
@@ -267,6 +280,17 @@ public sealed class FileService(
         return Result.Success();
     }
 
+    private async Task LogDeniedFileAccessAsync(Guid userId, string action, Attachment attachment, CancellationToken cancellationToken)
+    {
+        await auditLogger.LogAsync(new AuditLogEntry(
+            userId,
+            action,
+            "FileObject",
+            attachment.FileObjectId,
+            "File access denied."), cancellationToken);
+        await unitOfWork.SaveChangesAsync(cancellationToken);
+    }
+
     private static string CreateStorageKey(FileObject fileObject)
     {
         var tenantPart = fileObject.TenantId.ToString("D");
@@ -306,7 +330,6 @@ public sealed class FileService(
             fileObject.GroupId,
             fileObject.ProjectId,
             fileObject.OriginalFileName,
-            fileObject.StorageKey,
             fileObject.ContentType,
             fileObject.SizeBytes,
             fileObject.Status.ToString(),

@@ -95,6 +95,29 @@ Evidence files:
 
 The A-04 backend verification pass fixed a test-harness Data Protection key-path issue and then passed focused auth security tests, focused tenant isolation tests, and the full backend suite. Docker runtime and local PostgreSQL remained unavailable, and fresh-runtime authenticated admin/non-admin/tenant smoke remains blocked by the baseline identity/bootstrap gap. No secret values, CSRF token values, cookies, connection strings, tenant identifiers, or personal data were copied into the evidence.
 
+## A-07 File Boundary Refresh
+
+Refresh date: 2026-06-29
+
+Evidence files:
+
+- `docs/evidence/mvp-a/a-07-file-boundary-baseline.md`
+- `docs/evidence/mvp-a/a-07-file-boundary-failure-log.md`
+
+| Item | Observed value |
+| --- | --- |
+| Branch | `main` |
+| Commit | `69a694adc2d45e2e680274d37974dd581405e8c9` |
+| OS | Windows 10.0.26200, win-x64 |
+| .NET SDK | 10.0.301 |
+| .NET runtime | Microsoft.NETCore.App 10.0.9, Microsoft.AspNetCore.App 10.0.9 |
+| Docker client | 29.5.3 |
+| Docker Compose | v5.1.4 |
+| Docker runtime | Not verified in this pass; Docker emitted a local config access warning |
+| Test data | Synthetic in-memory tenants, users, projects, tasks, files, and attachments only |
+
+The A-07 backend verification pass fixed file/artifact response storage identifier exposure, added private no-store download headers, added metadata-only denied file-access audit logging, passed a targeted file/storage/tenant-boundary test slice at 32/32, and passed the full backend suite at 134/134. Fresh-runtime authenticated file smoke remains blocked by the baseline identity/bootstrap gap, and attachment/conversation actor matrix, explicit grant/revoked-grant behavior, object storage/signed URL behavior, live PostgreSQL, and container runtime evidence remain Needs verification or Blocked. No real file bodies, raw secrets, token values, cookies, connection strings, signed URLs, tenant identifiers, or personal data were copied into the evidence.
+
 Repository: `/workspaces/AIPsiteNYG`
 
 ## Local Environment

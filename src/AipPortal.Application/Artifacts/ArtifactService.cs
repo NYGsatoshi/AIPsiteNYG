@@ -390,8 +390,6 @@ public sealed class ArtifactService(
             version.ArtifactId,
             version.VersionNumber,
             fileObject?.OriginalFileName ?? attachment.FileName,
-            attachment.StoredFileName,
-            fileObject?.StorageKey ?? attachment.FilePath,
             fileObject?.ContentType ?? attachment.ContentType,
             fileObject?.SizeBytes ?? attachment.SizeBytes,
             version.CreatedByUserId,
