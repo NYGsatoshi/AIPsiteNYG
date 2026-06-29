@@ -124,7 +124,7 @@ The A-07 file boundary evidence is recorded in `docs/evidence/mvp-a/a-07-file-bo
 
 One metadata-only file boundary risk was found and fixed: file and artifact-version metadata responses no longer return internal storage identifiers. File, attachment, and artifact-version downloads now send private no-store headers, and denied file metadata/download attempts now write generic metadata-only audit entries. The targeted file/storage/tenant-boundary test slice passed 32/32, and the full backend suite passed 134/134.
 
-No confirmed unauthorized file-body exposure was observed in the tested synthetic paths after the fix. A-07 remains Needs verification for fresh-runtime authenticated file smoke, attachment/conversation attachment body matrix, removed-participant behavior, explicit grant/revoked-grant behavior, object-storage/signed-URL behavior, live PostgreSQL/container evidence, and broader authorized metadata classification. P0-001 and P0-002 remain open. This A-07 refresh does not imply production approval, MVP-A Go, or production readiness.
+No confirmed unauthorized file-body exposure was observed in the tested synthetic paths after the fix. A-07 remains Needs verification for fresh-runtime file smoke under signed-in test users, attachment/conversation sensitive-body coverage, removed-participant behavior, explicit grant/revoked-grant behavior, object-storage/signed-URL behavior, live PostgreSQL/container evidence, and broader authorized metadata classification. P0-001 and P0-002 remain open. This A-07 refresh does not imply production approval, MVP-A Go, or production readiness.
 
 ## A-08 Communication Boundary Refresh Note
 

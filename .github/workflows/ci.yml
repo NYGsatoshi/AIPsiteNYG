@@ -96,6 +96,11 @@ jobs:
         with:
           fetch-depth: 0
 
+      - name: Initialize .NET dependency scan reports
+        run: |
+          printf 'Vulnerable package scan did not run.\n' > dotnet-vulnerable-packages.txt
+          printf 'Deprecated package scan did not run.\n' > dotnet-deprecated-packages.txt
+
       - name: Scan repository secrets with Gitleaks
         run: |
           set +e
@@ -129,20 +134,42 @@ jobs:
 
       - name: Check .NET vulnerable packages
         run: |
-          set -o pipefail
-          dotnet list AipPortal.slnx package --vulnerable --include-transitive 2>&1 | tee dotnet-vulnerable-packages.txt
+          printf 'Vulnerable package scan started but did not complete.\n' > dotnet-vulnerable-packages.txt
+          set +e
+          dotnet list AipPortal.slnx package --vulnerable --include-transitive > dotnet-vulnerable-packages.txt 2>&1
+          vulnerable_status=$?
+          set -e
+          if [ ! -s dotnet-vulnerable-packages.txt ]; then
+            echo "dotnet vulnerable package report was not generated." > dotnet-vulnerable-packages.txt
+          fi
+          cat dotnet-vulnerable-packages.txt
           if grep -q "has the following vulnerable packages" dotnet-vulnerable-packages.txt; then
             echo "Vulnerable .NET packages were detected. Review dotnet-vulnerable-packages.txt."
             exit 1
           fi
+          if [ "$vulnerable_status" -ne 0 ]; then
+            echo "dotnet vulnerable package scan failed."
+            exit "$vulnerable_status"
+          fi
 
       - name: Report .NET deprecated packages
         run: |
-          set -o pipefail
-          dotnet list AipPortal.slnx package --deprecated 2>&1 | tee dotnet-deprecated-packages.txt
+          printf 'Deprecated package scan started but did not complete.\n' > dotnet-deprecated-packages.txt
+          set +e
+          dotnet list AipPortal.slnx package --deprecated > dotnet-deprecated-packages.txt 2>&1
+          deprecated_status=$?
+          set -e
+          if [ ! -s dotnet-deprecated-packages.txt ]; then
+            echo "dotnet deprecated package report was not generated." > dotnet-deprecated-packages.txt
+          fi
+          cat dotnet-deprecated-packages.txt
           if grep -q "has the following deprecated packages" dotnet-deprecated-packages.txt; then
             echo "Deprecated .NET packages were detected. Review dotnet-deprecated-packages.txt."
             echo "Deprecated packages are report-only for the initial security baseline."
+          fi
+          if [ "$deprecated_status" -ne 0 ]; then
+            echo "dotnet deprecated package scan failed."
+            exit "$deprecated_status"
           fi
 
       - name: Upload .NET dependency scan reports
