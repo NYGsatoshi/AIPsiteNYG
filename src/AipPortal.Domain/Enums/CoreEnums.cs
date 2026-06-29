@@ -190,6 +190,12 @@ public enum AttendanceStatus
     Maybe = 3
 }
 
+public enum DataClassification
+{
+    Public = 0,
+    StudentRecordRestricted = 1
+}
+
 public enum FormType
 {
     Survey = 0,

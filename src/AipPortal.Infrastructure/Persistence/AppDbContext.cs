@@ -42,6 +42,7 @@ public sealed class AppDbContext(
     public DbSet<AnnouncementRead> AnnouncementReads => Set<AnnouncementRead>();
     public DbSet<ActivityEvent> ActivityEvents => Set<ActivityEvent>();
     public DbSet<EventAttendance> EventAttendances => Set<EventAttendance>();
+    public DbSet<StudentRecord> StudentRecords => Set<StudentRecord>();
     public DbSet<InternalForm> InternalForms => Set<InternalForm>();
     public DbSet<FormQuestion> FormQuestions => Set<FormQuestion>();
     public DbSet<FormResponse> FormResponses => Set<FormResponse>();

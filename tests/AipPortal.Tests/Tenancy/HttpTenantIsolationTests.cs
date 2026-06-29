@@ -451,6 +451,7 @@ public sealed class HttpTenantIsolationTests
             services.AddScoped<AipPortal.Application.Search.ISearchService, DbSearchService>();
             services.AddScoped<AipPortal.Application.Audit.IAuditQueryService, DbAuditQueryService>();
             services.AddSingleton<IClock, AipPortal.Infrastructure.Security.SystemClock>();
+            services.AddScoped<IStudentRecordRepository, StudentRecordRepository>();
         }
     }
 

@@ -11,5 +11,8 @@
   "devDependencies": {
     "@axe-core/playwright": "^4.10.2",
     "@playwright/test": "^1.56.1"
+  },
+  "dependencies": {
+    "rg": "^0.0.2"
   }
 }

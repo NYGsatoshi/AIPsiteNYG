@@ -15,6 +15,7 @@ using AipPortal.Application.Notifications;
 using AipPortal.Application.Planning;
 using AipPortal.Application.Projects;
 using AipPortal.Application.Search;
+using AipPortal.Application.StudentRecords;
 using AipPortal.Application.Tenancy;
 using AipPortal.Application.TenantAdministration;
 using AipPortal.Application.TenantExports;
@@ -53,6 +54,7 @@ public static class DependencyInjection
         services.AddScoped<IFormAuthorizationService, FormAuthorizationService>();
         services.AddScoped<IFileAuthorizationService, FileAuthorizationService>();
         services.AddScoped<IArtifactAuthorizationService, ArtifactAuthorizationService>();
+        services.AddScoped<IStudentRecordAuthorizationService, StudentRecordAuthorizationService>();
         services.AddScoped<INotificationApplicationService, NotificationApplicationService>();
         services.AddScoped<IAnnouncementService, AnnouncementService>();
         services.AddScoped<IWorkspaceService, WorkspaceService>();
@@ -71,6 +73,7 @@ public static class DependencyInjection
         services.AddScoped<IArtifactService, ArtifactService>();
         services.AddScoped<IPlanningService, PlanningService>();
         services.AddScoped<IUiShellService, UiShellService>();
+        services.AddScoped<IStudentRecordService, StudentRecordService>();
         return services;
     }
 }

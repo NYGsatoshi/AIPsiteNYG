@@ -1,4 +1,4 @@
-using System.Net;
+﻿using System.Net;
 using System.Net.Http.Json;
 using System.Text.Json;
 using AipPortal.Application;
@@ -226,6 +226,7 @@ public sealed class AuthSecurityHttpTests
             var databaseName = Guid.NewGuid().ToString("N");
             builder.Services.AddDbContext<AppDbContext>(options => options.UseInMemoryDatabase(databaseName));
             AddInfrastructureLikeServices(builder.Services, builder.Configuration);
+            builder.Services.AddScoped<IStudentRecordRepository, StudentRecordRepository>();
 
             var app = builder.Build();
             app.UseMiddleware<TenantResolutionMiddleware>();
@@ -382,3 +383,4 @@ public sealed class AuthSecurityHttpTests
         }
     }
 }
+
