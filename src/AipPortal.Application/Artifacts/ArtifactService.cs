@@ -181,7 +181,7 @@ public sealed class ArtifactService(
             return Result<ArtifactVersionResponse>.Failure("Project not found.");
         }
 
-        var safeFileName = SanitizeFileName(input.OriginalFileName);
+        var safeFileName = FileNameSanitizer.SanitizeOriginalFileName(input.OriginalFileName);
         var fileObject = new FileObject
         {
             TenantId = currentTenant.TenantId,
@@ -347,23 +347,6 @@ public sealed class ArtifactService(
         }
 
         return Result.Success();
-    }
-
-    private static string SanitizeFileName(string originalFileName)
-    {
-        var fileName = Path.GetFileName(originalFileName);
-        if (string.IsNullOrWhiteSpace(fileName))
-        {
-            fileName = "upload";
-        }
-
-        foreach (var invalid in Path.GetInvalidFileNameChars())
-        {
-            fileName = fileName.Replace(invalid, '_');
-        }
-
-        fileName = fileName.Trim();
-        return fileName.Length <= 260 ? fileName : fileName[..260];
     }
 
     private static string NormalizeContentType(string contentType)
