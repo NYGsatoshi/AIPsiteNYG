@@ -17,13 +17,13 @@ public sealed class StudentRecordRestrictedTests
         Assert.Equal(DataClassification.StudentRecordRestricted, StudentRecordDataPolicy.Classify(StudentRecordDataPolicy.AttendanceStatus));
         Assert.Equal(DataClassification.Public, StudentRecordDataPolicy.Classify(StudentRecordDataPolicy.PublicDisplayName));
         Assert.Equal(DataClassification.Public, StudentRecordDataPolicy.Classify(StudentRecordDataPolicy.HomeroomLabel));
-        Assert.Null(StudentRecordDataPolicy.Classify("internalSensitiveNotes"));
+        Assert.Equal(DataClassification.UnknownSensitive, StudentRecordDataPolicy.Classify("internalSensitiveNotes"));
     }
 
     [Fact]
     public async Task UnauthorizedCallerCannotReadStudentRecordRestrictedValues()
     {
-        var fixture = new Fixture(WorkspaceRole.ReadOnly);
+        var fixture = new Fixture(new StudentRecordSchoolAccessContext(SchoolRole.ExternalGuest));
 
         var result = await fixture.Service.GetRestrictedAsync(fixture.Record.Id, RestrictedRequest());
 
@@ -38,7 +38,7 @@ public sealed class StudentRecordRestrictedTests
     [Fact]
     public async Task UnauthorizedDenialAuditDoesNotContainRestrictedValues()
     {
-        var fixture = new Fixture(WorkspaceRole.Member);
+        var fixture = new Fixture(new StudentRecordSchoolAccessContext(SchoolRole.ExternalGuest));
 
         await fixture.Service.GetRestrictedAsync(fixture.Record.Id, RestrictedRequest());
 
@@ -55,7 +55,7 @@ public sealed class StudentRecordRestrictedTests
     [Fact]
     public async Task AuthorizedScopedCallerCanReadOnlyRequestedRestrictedValues()
     {
-        var fixture = new Fixture(WorkspaceRole.Admin);
+        var fixture = new Fixture(new StudentRecordSchoolAccessContext(SchoolRole.SchoolAdmin, HasSchoolAdminScope: true));
 
         var result = await fixture.Service.GetRestrictedAsync(
             fixture.Record.Id,
@@ -76,7 +76,7 @@ public sealed class StudentRecordRestrictedTests
     [Fact]
     public async Task UnknownSensitiveStudentFieldIsFailClosedByDefault()
     {
-        var fixture = new Fixture(WorkspaceRole.Owner);
+        var fixture = new Fixture(new StudentRecordSchoolAccessContext(SchoolRole.SchoolAdmin, HasSchoolAdminScope: true));
 
         var result = await fixture.Service.GetRestrictedAsync(
             fixture.Record.Id,
@@ -84,6 +84,176 @@ public sealed class StudentRecordRestrictedTests
 
         Assert.True(result.IsSuccess);
         Assert.Empty(result.Value!.RestrictedFields);
+        Assert.DoesNotContain(fixture.Record.InternalSensitiveNotes!, JsonSerializer.Serialize(result.Value));
+    }
+
+    [Fact]
+    public async Task GuardianCanReadOnlyPolicyPermittedFieldsOfLinkedStudent()
+    {
+        var fixture = new Fixture(new StudentRecordSchoolAccessContext(
+            SchoolRole.Guardian,
+            HasGuardianRelationship: true));
+
+        var result = await fixture.Service.GetRestrictedAsync(fixture.Record.Id, RestrictedRequest());
+
+        Assert.True(result.IsSuccess);
+        var fields = result.Value!.RestrictedFields;
+        Assert.Equal(fixture.Record.GuardianContact, fields[StudentRecordDataPolicy.GuardianContact]);
+        Assert.Equal(fixture.Record.AttendanceStatus!.Value.ToString(), fields[StudentRecordDataPolicy.AttendanceStatus]);
+        Assert.DoesNotContain(StudentRecordDataPolicy.Grades, fields.Keys);
+        Assert.DoesNotContain(StudentRecordDataPolicy.HealthNotes, fields.Keys);
+    }
+
+    [Fact]
+    public async Task GuardianCannotReadUnlinkedStudentRestrictedRecord()
+    {
+        var fixture = new Fixture(new StudentRecordSchoolAccessContext(SchoolRole.Guardian));
+
+        var result = await fixture.Service.GetRestrictedAsync(fixture.Record.Id, RestrictedRequest());
+
+        Assert.False(result.IsSuccess);
+        Assert.DoesNotContain(fixture.Record.HealthNotes!, JsonSerializer.Serialize(result));
+        Assert.DoesNotContain(fixture.Record.GuardianContact!, JsonSerializer.Serialize(result));
+        Assert.DoesNotContain(fixture.Record.Grades!, JsonSerializer.Serialize(result));
+    }
+
+    [Fact]
+    public async Task StudentCanReadOnlySelfPolicyPermittedFields()
+    {
+        var fixture = new Fixture(new StudentRecordSchoolAccessContext(SchoolRole.Student, IsSelf: true));
+
+        var result = await fixture.Service.GetRestrictedAsync(fixture.Record.Id, RestrictedRequest());
+
+        Assert.True(result.IsSuccess);
+        var fields = result.Value!.RestrictedFields;
+        Assert.Equal(fixture.Record.AttendanceStatus!.Value.ToString(), fields[StudentRecordDataPolicy.AttendanceStatus]);
+        Assert.DoesNotContain(StudentRecordDataPolicy.HealthNotes, fields.Keys);
+        Assert.DoesNotContain(StudentRecordDataPolicy.GuardianContact, fields.Keys);
+        Assert.DoesNotContain(StudentRecordDataPolicy.Grades, fields.Keys);
+    }
+
+    [Fact]
+    public async Task TeacherOutsideScopeCannotReadRestrictedStudentRecord()
+    {
+        var fixture = new Fixture(new StudentRecordSchoolAccessContext(SchoolRole.Teacher));
+
+        var result = await fixture.Service.GetRestrictedAsync(fixture.Record.Id, RestrictedRequest());
+
+        Assert.False(result.IsSuccess);
+        Assert.DoesNotContain(fixture.Record.HealthNotes!, JsonSerializer.Serialize(result));
+        Assert.DoesNotContain(fixture.Record.Grades!, JsonSerializer.Serialize(result));
+    }
+
+    [Fact]
+    public async Task HomeroomTeacherCanReadOnlyPolicyPermittedFieldsWithinHomeroomScope()
+    {
+        var fixture = new Fixture(new StudentRecordSchoolAccessContext(
+            SchoolRole.HomeroomTeacher,
+            HasHomeroomScope: true));
+
+        var result = await fixture.Service.GetRestrictedAsync(fixture.Record.Id, RestrictedRequest());
+
+        Assert.True(result.IsSuccess);
+        var fields = result.Value!.RestrictedFields;
+        Assert.Equal(fixture.Record.HealthNotes, fields[StudentRecordDataPolicy.HealthNotes]);
+        Assert.Equal(fixture.Record.Grades, fields[StudentRecordDataPolicy.Grades]);
+        Assert.DoesNotContain(StudentRecordDataPolicy.GuardianContact, fields.Keys);
+    }
+
+    [Fact]
+    public async Task GradeTeacherCanReadOnlyPolicyPermittedFieldsWithinGradeScope()
+    {
+        var fixture = new Fixture(new StudentRecordSchoolAccessContext(
+            SchoolRole.GradeTeacher,
+            HasGradeScope: true));
+
+        var result = await fixture.Service.GetRestrictedAsync(fixture.Record.Id, RestrictedRequest());
+
+        Assert.True(result.IsSuccess);
+        var fields = result.Value!.RestrictedFields;
+        Assert.Equal(fixture.Record.Grades, fields[StudentRecordDataPolicy.Grades]);
+        Assert.Equal(fixture.Record.AttendanceStatus!.Value.ToString(), fields[StudentRecordDataPolicy.AttendanceStatus]);
+        Assert.DoesNotContain(StudentRecordDataPolicy.HealthNotes, fields.Keys);
+        Assert.DoesNotContain(StudentRecordDataPolicy.GuardianContact, fields.Keys);
+    }
+
+    [Fact]
+    public async Task ExternalGuestCannotAccessStudentRecordRestricted()
+    {
+        var fixture = new Fixture(new StudentRecordSchoolAccessContext(SchoolRole.ExternalGuest));
+
+        var result = await fixture.Service.GetRestrictedAsync(fixture.Record.Id, RestrictedRequest());
+
+        Assert.False(result.IsSuccess);
+        Assert.DoesNotContain(fixture.Record.HealthNotes!, JsonSerializer.Serialize(result));
+        Assert.DoesNotContain(fixture.Record.GuardianContact!, JsonSerializer.Serialize(result));
+    }
+
+    [Fact]
+    public async Task MissingRoleFailsClosed()
+    {
+        var fixture = new Fixture(null);
+
+        var result = await fixture.Service.GetRestrictedAsync(fixture.Record.Id, RestrictedRequest());
+
+        Assert.False(result.IsSuccess);
+        Assert.DoesNotContain(fixture.Record.HealthNotes!, JsonSerializer.Serialize(result));
+    }
+
+    [Fact]
+    public async Task MissingGuardianRelationshipFailsClosed()
+    {
+        var fixture = new Fixture(new StudentRecordSchoolAccessContext(SchoolRole.Guardian));
+
+        var result = await fixture.Service.GetRestrictedAsync(fixture.Record.Id, RestrictedRequest());
+
+        Assert.False(result.IsSuccess);
+        Assert.DoesNotContain(fixture.Record.GuardianContact!, JsonSerializer.Serialize(result));
+    }
+
+    [Fact]
+    public async Task MissingTeacherScopeFailsClosed()
+    {
+        var fixture = new Fixture(new StudentRecordSchoolAccessContext(SchoolRole.Teacher));
+
+        var result = await fixture.Service.GetRestrictedAsync(fixture.Record.Id, RestrictedRequest());
+
+        Assert.False(result.IsSuccess);
+        Assert.DoesNotContain(fixture.Record.Grades!, JsonSerializer.Serialize(result));
+    }
+
+    [Fact]
+    public async Task MissingFieldAccessPolicyForRoleOmitsRestrictedField()
+    {
+        var fixture = new Fixture(new StudentRecordSchoolAccessContext(
+            SchoolRole.StudentAdmin,
+            HasStudentAdminScope: true));
+
+        var result = await fixture.Service.GetRestrictedAsync(
+            fixture.Record.Id,
+            new StudentRecordRestrictedRequest([StudentRecordDataPolicy.HealthNotes, StudentRecordDataPolicy.Grades]));
+
+        Assert.True(result.IsSuccess);
+        var fields = result.Value!.RestrictedFields;
+        Assert.Equal(fixture.Record.Grades, fields[StudentRecordDataPolicy.Grades]);
+        Assert.DoesNotContain(StudentRecordDataPolicy.HealthNotes, fields.Keys);
+        Assert.DoesNotContain(fixture.Record.HealthNotes!, JsonSerializer.Serialize(result.Value));
+    }
+
+    [Fact]
+    public async Task SchoolAdminCanAccessOnlyPolicyPermittedFieldsInsideScope()
+    {
+        var fixture = new Fixture(new StudentRecordSchoolAccessContext(
+            SchoolRole.SchoolAdmin,
+            HasSchoolAdminScope: true));
+
+        var result = await fixture.Service.GetRestrictedAsync(
+            fixture.Record.Id,
+            new StudentRecordRestrictedRequest([StudentRecordDataPolicy.HealthNotes, "internalSensitiveNotes"]));
+
+        Assert.True(result.IsSuccess);
+        Assert.Equal(fixture.Record.HealthNotes, result.Value!.RestrictedFields[StudentRecordDataPolicy.HealthNotes]);
+        Assert.DoesNotContain("internalSensitiveNotes", result.Value.RestrictedFields.Keys);
         Assert.DoesNotContain(fixture.Record.InternalSensitiveNotes!, JsonSerializer.Serialize(result.Value));
     }
 
@@ -100,18 +270,19 @@ public sealed class StudentRecordRestrictedTests
 
     private sealed class Fixture
     {
-        public Fixture(WorkspaceRole callerWorkspaceRole)
+        public Fixture(StudentRecordSchoolAccessContext? context)
         {
             Record.TenantId = TenantId;
             Record.WorkspaceId = WorkspaceId;
             CurrentUser = new FakeCurrentUser(UserId);
             CurrentTenant = new FakeCurrentTenant(TenantId);
             StudentRecords = new FakeStudentRecordRepository(Record);
-            Workspaces = new FakeWorkspaceRepository(WorkspaceId, UserId, callerWorkspaceRole);
+            Workspaces = new FakeWorkspaceRepository(WorkspaceId, UserId, WorkspaceRole.Admin);
+            SchoolAccess = new FakeStudentRecordSchoolAccessContextProvider(context);
             Audit = new FakeAuditLogger();
             Service = new StudentRecordService(
                 StudentRecords,
-                new StudentRecordAuthorizationService(Workspaces),
+                new StudentRecordAuthorizationService(Workspaces, SchoolAccess),
                 CurrentUser,
                 CurrentTenant,
                 Audit);
@@ -138,8 +309,20 @@ public sealed class StudentRecordRestrictedTests
         public FakeCurrentTenant CurrentTenant { get; }
         public FakeStudentRecordRepository StudentRecords { get; }
         public FakeWorkspaceRepository Workspaces { get; }
+        public FakeStudentRecordSchoolAccessContextProvider SchoolAccess { get; }
         public FakeAuditLogger Audit { get; }
         public StudentRecordService Service { get; }
+    }
+
+    private sealed class FakeStudentRecordSchoolAccessContextProvider(StudentRecordSchoolAccessContext? context) : IStudentRecordSchoolAccessContextProvider
+    {
+        public Task<StudentRecordSchoolAccessContext?> GetAccessContextAsync(
+            Guid userId,
+            StudentRecord record,
+            CancellationToken cancellationToken = default)
+        {
+            return Task.FromResult(context);
+        }
     }
 
     private sealed class FakeStudentRecordRepository(StudentRecord record) : IStudentRecordRepository

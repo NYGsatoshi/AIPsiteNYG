@@ -38,7 +38,7 @@ public static class StudentRecordDataPolicy
             return DataClassification.StudentRecordRestricted;
         }
 
-        return null;
+        return DataClassification.UnknownSensitive;
     }
 
     public static bool IsKnownRestrictedField(string fieldName)
@@ -80,7 +80,7 @@ public static class StudentRecordDataPolicy
         return values;
     }
 
-    private static string CanonicalName(string field)
+    public static string CanonicalName(string field)
     {
         if (field.Equals(HealthNotes, StringComparison.OrdinalIgnoreCase))
         {

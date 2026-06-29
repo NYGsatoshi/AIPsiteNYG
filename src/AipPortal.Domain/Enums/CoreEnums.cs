@@ -193,7 +193,21 @@ public enum AttendanceStatus
 public enum DataClassification
 {
     Public = 0,
-    StudentRecordRestricted = 1
+    StudentRecordRestricted = 1,
+    InternalSchoolOperational = 2,
+    UnknownSensitive = 3
+}
+
+public enum SchoolRole
+{
+    Student = 0,
+    Guardian = 1,
+    Teacher = 2,
+    HomeroomTeacher = 3,
+    GradeTeacher = 4,
+    StudentAdmin = 5,
+    SchoolAdmin = 6,
+    ExternalGuest = 7
 }
 
 public enum FormType

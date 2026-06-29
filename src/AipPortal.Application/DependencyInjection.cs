@@ -54,6 +54,7 @@ public static class DependencyInjection
         services.AddScoped<IFormAuthorizationService, FormAuthorizationService>();
         services.AddScoped<IFileAuthorizationService, FileAuthorizationService>();
         services.AddScoped<IArtifactAuthorizationService, ArtifactAuthorizationService>();
+        services.AddScoped<IStudentRecordSchoolAccessContextProvider, WorkspaceSchoolAccessContextProvider>();
         services.AddScoped<IStudentRecordAuthorizationService, StudentRecordAuthorizationService>();
         services.AddScoped<INotificationApplicationService, NotificationApplicationService>();
         services.AddScoped<IAnnouncementService, AnnouncementService>();
