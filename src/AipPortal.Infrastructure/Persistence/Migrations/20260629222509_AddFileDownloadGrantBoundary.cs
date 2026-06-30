@@ -11,12 +11,10 @@ namespace AipPortal.Infrastructure.Persistence.Migrations
         /// <inheritdoc />
         protected override void Up(MigrationBuilder migrationBuilder)
         {
-            migrationBuilder.AddColumn<string>(
-                name: "Classification",
-                table: "file_objects",
-                type: "character varying(40)",
-                maxLength: 40,
-                nullable: true);
+            migrationBuilder.Sql("""
+                ALTER TABLE file_objects
+                ADD COLUMN IF NOT EXISTS "Classification" character varying(40);
+                """);
 
             migrationBuilder.AddColumn<string>(
                 name: "BuildAuthorizationState",
@@ -106,10 +104,10 @@ namespace AipPortal.Infrastructure.Persistence.Migrations
                     table.PrimaryKey("PK_file_download_grants", x => x.Id);
                 });
 
-            migrationBuilder.CreateIndex(
-                name: "IX_file_objects_Classification",
-                table: "file_objects",
-                column: "Classification");
+            migrationBuilder.Sql("""
+                CREATE INDEX IF NOT EXISTS "IX_file_objects_Classification"
+                ON file_objects ("Classification");
+                """);
 
             migrationBuilder.CreateIndex(
                 name: "IX_export_package_grants_RequestedScopeType_RequestedScopeId",
@@ -178,9 +176,9 @@ namespace AipPortal.Infrastructure.Persistence.Migrations
             migrationBuilder.DropTable(
                 name: "file_download_grants");
 
-            migrationBuilder.DropIndex(
-                name: "IX_file_objects_Classification",
-                table: "file_objects");
+            migrationBuilder.Sql("""
+                DROP INDEX IF EXISTS "IX_file_objects_Classification";
+                """);
 
             migrationBuilder.DropIndex(
                 name: "IX_export_package_grants_RequestedScopeType_RequestedScopeId",
@@ -190,9 +188,10 @@ namespace AipPortal.Infrastructure.Persistence.Migrations
                 name: "IX_export_package_grants_RevokedAt",
                 table: "export_package_grants");
 
-            migrationBuilder.DropColumn(
-                name: "Classification",
-                table: "file_objects");
+            migrationBuilder.Sql("""
+                ALTER TABLE IF EXISTS file_objects
+                DROP COLUMN IF EXISTS "Classification";
+                """);
 
             migrationBuilder.DropColumn(
                 name: "BuildAuthorizationState",
