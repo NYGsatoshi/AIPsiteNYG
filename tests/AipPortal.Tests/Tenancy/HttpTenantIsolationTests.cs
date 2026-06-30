@@ -2,6 +2,7 @@ using System.Net;
 using System.Security.Claims;
 using System.Text;
 using System.Text.Encodings.Web;
+using System.Text.Json;
 using AipPortal.Application;
 using AipPortal.Application.Common;
 using AipPortal.Application.Common.Interfaces;
@@ -187,6 +188,116 @@ public sealed class HttpTenantIsolationTests
     }
 
     [Fact]
+    public async Task ConversationCreateSupportsOnlyMvpTypesAndKeepsScopeFields()
+    {
+        await using var app = await HttpTenantIsolationTestApp.CreateAsync();
+        var data = app.Data;
+
+        using var directContent = JsonContent($$"""
+            {"type":"DirectMessage","workspaceId":"{{data.WorkspaceA.Id:D}}","title":"direct title must not be stored","memberUserIds":["{{data.TenantAMember.Id:D}}"]}
+            """);
+        var directResponse = await app.SendAsync(data.TenantAOwner, data.TenantA.Slug, "/api/conversations", HttpMethod.Post, directContent);
+        var directBody = await directResponse.Content.ReadAsStringAsync();
+
+        Assert.Equal(HttpStatusCode.OK, directResponse.StatusCode);
+        Assert.Contains("DirectMessage", directBody, StringComparison.Ordinal);
+        Assert.DoesNotContain("ProjectChannel", directBody, StringComparison.Ordinal);
+        Assert.DoesNotContain("direct title must not be stored", directBody, StringComparison.Ordinal);
+
+        using var projectContent = JsonContent($$"""
+            {"type":"ProjectChannel","workspaceId":"{{data.WorkspaceA.Id:D}}","projectId":"{{data.ProjectA.Id:D}}","title":"Project Alpha","memberUserIds":[]}
+            """);
+        var projectResponse = await app.SendAsync(data.TenantAOwner, data.TenantA.Slug, "/api/conversations", HttpMethod.Post, projectContent);
+        var projectBody = await projectResponse.Content.ReadAsStringAsync();
+        var projectConversationId = ReadResponseId(projectBody);
+
+        Assert.Equal(HttpStatusCode.OK, projectResponse.StatusCode);
+        Assert.Contains("ProjectChannel", projectBody, StringComparison.Ordinal);
+        Assert.Contains(data.ProjectA.Id.ToString("D"), projectBody, StringComparison.OrdinalIgnoreCase);
+
+        var storedProjectChannel = await app.GetConversationAsync(data.TenantA.Id, data.TenantA.Slug, projectConversationId);
+        Assert.NotNull(storedProjectChannel);
+        Assert.Equal(ConversationType.ProjectChannel, storedProjectChannel.Type);
+        Assert.Equal(data.WorkspaceA.Id, storedProjectChannel.WorkspaceId);
+        Assert.Equal(data.ProjectA.Id, storedProjectChannel.ProjectId);
+    }
+
+    [Fact]
+    public async Task ConversationThreadCreationInheritsParentScopeAndMembers()
+    {
+        await using var app = await HttpTenantIsolationTestApp.CreateAsync();
+        var data = app.Data;
+
+        using var content = JsonContent($$"""
+            {"type":"Thread","workspaceId":"{{data.WorkspaceA.Id:D}}","parentConversationId":"{{data.ConversationA.Id:D}}","title":"Thread A","memberUserIds":[]}
+            """);
+        var response = await app.SendAsync(data.CrossTenantUser, data.TenantA.Slug, "/api/conversations", HttpMethod.Post, content);
+        var body = await response.Content.ReadAsStringAsync();
+        var threadId = ReadResponseId(body);
+
+        Assert.Equal(HttpStatusCode.OK, response.StatusCode);
+        Assert.Contains("Thread", body, StringComparison.Ordinal);
+        Assert.Contains(data.ConversationA.Id.ToString("D"), body, StringComparison.OrdinalIgnoreCase);
+
+        var thread = await app.GetConversationAsync(data.TenantA.Id, data.TenantA.Slug, threadId);
+        Assert.NotNull(thread);
+        Assert.Equal(ConversationType.Thread, thread.Type);
+        Assert.Equal(data.WorkspaceA.Id, thread.WorkspaceId);
+        Assert.Null(thread.ProjectId);
+        Assert.Equal(data.ConversationA.Id, thread.ParentConversationId);
+        Assert.Equal(data.ConversationA.Id, thread.RootConversationId);
+        Assert.Equal(
+            new[] { data.CrossTenantUser.Id, data.TenantAMember.Id }.Order().ToArray(),
+            thread.Members.Select(member => member.UserId).Order().ToArray());
+    }
+
+    [Fact]
+    public async Task ConversationCreateRejectsDisabledTypesAndInvalidThreadBoundariesWithoutBodyLeak()
+    {
+        await using var app = await HttpTenantIsolationTestApp.CreateAsync();
+        var data = app.Data;
+        var otherWorkspaceId = await app.AddWorkspaceAsync(data.TenantA.Id, data.TenantA.Slug, data.TenantAOwner.Id);
+
+        foreach (var disabledType in new[] { "CommitteeChannel", "AnnouncementThread", "ExternalSharedChannel", "LegalHoldConversation" })
+        {
+            using var content = JsonContent($$"""
+                {"type":"{{disabledType}}","workspaceId":"{{data.WorkspaceA.Id:D}}","projectId":"{{data.ProjectA.Id:D}}","title":"secret disabled title","memberUserIds":["{{data.TenantAMember.Id:D}}"]}
+                """);
+            var response = await app.SendAsync(data.TenantAOwner, data.TenantA.Slug, "/api/conversations", HttpMethod.Post, content);
+            var body = await response.Content.ReadAsStringAsync();
+
+            Assert.Equal(HttpStatusCode.BadRequest, response.StatusCode);
+            Assert.DoesNotContain("secret disabled title", body, StringComparison.Ordinal);
+        }
+
+        await AssertConversationCreateRejectedWithoutLeakAsync(
+            app,
+            data,
+            $$"""{"type":"Thread","workspaceId":"{{data.WorkspaceA.Id:D}}","title":"secret missing parent","memberUserIds":[]}""",
+            "secret missing parent");
+        await AssertConversationCreateRejectedWithoutLeakAsync(
+            app,
+            data,
+            $$"""{"type":"Thread","workspaceId":"{{data.WorkspaceA.Id:D}}","parentConversationId":"{{Guid.NewGuid():D}}","title":"secret missing parent row","memberUserIds":[]}""",
+            "secret missing parent row");
+        await AssertConversationCreateRejectedWithoutLeakAsync(
+            app,
+            data,
+            $$"""{"type":"Thread","workspaceId":"{{otherWorkspaceId:D}}","parentConversationId":"{{data.ConversationA.Id:D}}","title":"secret workspace mismatch","memberUserIds":[]}""",
+            "secret workspace mismatch");
+        await AssertConversationCreateRejectedWithoutLeakAsync(
+            app,
+            data,
+            $$"""{"type":"Thread","workspaceId":"{{data.WorkspaceA.Id:D}}","projectId":"{{data.ProjectA.Id:D}}","parentConversationId":"{{data.ConversationA.Id:D}}","title":"secret project expansion","memberUserIds":[]}""",
+            "secret project expansion");
+        await AssertConversationCreateRejectedWithoutLeakAsync(
+            app,
+            data,
+            $$"""{"type":"Thread","workspaceId":"{{data.WorkspaceA.Id:D}}","parentConversationId":"{{data.ConversationA.Id:D}}","title":"secret member expansion","memberUserIds":["{{data.Outsider.Id:D}}"]}""",
+            "secret member expansion");
+    }
+
+    [Fact]
     public async Task RemovedConversationParticipantCannotReadEditOrDeleteExistingMessage()
     {
         await using var app = await HttpTenantIsolationTestApp.CreateAsync();
@@ -305,6 +416,28 @@ public sealed class HttpTenantIsolationTests
 
     private static StringContent JsonContent(string json) => new(json, Encoding.UTF8, "application/json");
 
+    private static Guid ReadResponseId(string json)
+    {
+        using var document = JsonDocument.Parse(json);
+        return document.RootElement.GetProperty("id").GetGuid();
+    }
+
+    private static async Task AssertConversationCreateRejectedWithoutLeakAsync(
+        HttpTenantIsolationTestApp app,
+        TenantIsolationTestData data,
+        string json,
+        string leakedValue)
+    {
+        using var content = JsonContent(json);
+        var response = await app.SendAsync(data.CrossTenantUser, data.TenantA.Slug, "/api/conversations", HttpMethod.Post, content);
+        var body = await response.Content.ReadAsStringAsync();
+
+        Assert.Equal(HttpStatusCode.BadRequest, response.StatusCode);
+        Assert.DoesNotContain(leakedValue, body, StringComparison.Ordinal);
+        Assert.DoesNotContain(data.MessageA.Body, body, StringComparison.Ordinal);
+        Assert.DoesNotContain(data.MessageB.Body, body, StringComparison.Ordinal);
+    }
+
     private static async Task AssertStatusAsync(
         HttpTenantIsolationTestApp app,
         User user,
@@ -410,6 +543,46 @@ public sealed class HttpTenantIsolationTests
             currentTenant.SetTenant(tenantId, tenantSlug);
             var dbContext = scope.ServiceProvider.GetRequiredService<AppDbContext>();
             return await dbContext.AuditLogs.AsNoTracking().ToListAsync();
+        }
+
+        public async Task<Conversation?> GetConversationAsync(Guid tenantId, string tenantSlug, Guid conversationId)
+        {
+            await using var scope = App.Services.CreateAsyncScope();
+            var currentTenant = scope.ServiceProvider.GetRequiredService<CurrentTenantService>();
+            currentTenant.SetTenant(tenantId, tenantSlug);
+            var dbContext = scope.ServiceProvider.GetRequiredService<AppDbContext>();
+            return await dbContext.Conversations
+                .AsNoTracking()
+                .Include(conversation => conversation.Members)
+                .FirstOrDefaultAsync(conversation => conversation.Id == conversationId);
+        }
+
+        public async Task<Guid> AddWorkspaceAsync(Guid tenantId, string tenantSlug, Guid userId)
+        {
+            await using var scope = App.Services.CreateAsyncScope();
+            var currentTenant = scope.ServiceProvider.GetRequiredService<CurrentTenantService>();
+            currentTenant.SetTenant(tenantId, tenantSlug);
+            var dbContext = scope.ServiceProvider.GetRequiredService<AppDbContext>();
+            var workspace = new Workspace
+            {
+                TenantId = tenantId,
+                Name = "WorkspaceA-ThreadMismatch",
+                Slug = $"workspace-a-thread-mismatch-{Guid.NewGuid():N}",
+                CreatedByUserId = userId,
+                Status = WorkspaceStatus.Active
+            };
+            dbContext.Workspaces.Add(workspace);
+            dbContext.WorkspaceMembers.Add(new WorkspaceMember
+            {
+                TenantId = tenantId,
+                WorkspaceId = workspace.Id,
+                UserId = userId,
+                Role = WorkspaceRole.Owner,
+                Status = MembershipStatus.Active,
+                JoinedAt = DateTimeOffset.UtcNow
+            });
+            await dbContext.SaveChangesAsync();
+            return workspace.Id;
         }
 
         public async ValueTask DisposeAsync()

@@ -5,8 +5,12 @@ namespace AipPortal.Application.Messaging;
 
 public sealed record ConversationListItemResponse(
     Guid Id,
+    Guid WorkspaceId,
+    Guid? ProjectId,
     ConversationType Type,
     string? Title,
+    Guid? ParentConversationId,
+    Guid? RootConversationId,
     MessageResponse? LastMessage,
     int UnreadCount,
     DateTimeOffset CreatedAt,
@@ -14,13 +18,25 @@ public sealed record ConversationListItemResponse(
 
 public sealed record ConversationDetailResponse(
     Guid Id,
+    Guid WorkspaceId,
+    Guid? ProjectId,
     ConversationType Type,
     string? Title,
+    Guid? ParentConversationId,
+    Guid? RootConversationId,
+    bool IsArchived,
+    bool IsLocked,
     IReadOnlyList<ConversationMemberResponse> Members,
     DateTimeOffset CreatedAt,
     DateTimeOffset? UpdatedAt);
 
-public sealed record CreateConversationRequest(ConversationType Type, string? Title, IReadOnlyList<Guid> MemberUserIds);
+public sealed record CreateConversationRequest(
+    ConversationType Type,
+    string? Title,
+    IReadOnlyList<Guid> MemberUserIds,
+    Guid? WorkspaceId = null,
+    Guid? ProjectId = null,
+    Guid? ParentConversationId = null);
 
 public sealed record ConversationListQuery(int Page = 1, int PageSize = 20)
 {
@@ -39,7 +55,7 @@ public sealed record AttachmentMetadataRequest(string FileName, string StoredFil
 
 public sealed record AttachmentResponse(Guid Id, string FileName, string ContentType, long FileSize);
 
-public sealed record MessageResponse(Guid Id, Guid ConversationId, Guid AuthorUserId, string AuthorDisplayName, string Body, IReadOnlyList<AttachmentResponse> Attachments, DateTimeOffset CreatedAt, DateTimeOffset? UpdatedAt, DateTimeOffset? EditedAt, bool IsDeleted);
+public sealed record MessageResponse(Guid Id, Guid WorkspaceId, Guid ConversationId, Guid AuthorUserId, string AuthorDisplayName, string Body, IReadOnlyList<AttachmentResponse> Attachments, DateTimeOffset CreatedAt, DateTimeOffset? UpdatedAt, DateTimeOffset? EditedAt, bool IsDeleted);
 
 public sealed record SendMessageRequest(string? Body, IReadOnlyList<AttachmentMetadataRequest>? Attachments = null);
 

@@ -8,6 +8,8 @@ namespace AipPortal.Application.Messaging;
 public sealed class ConversationService(
     IMessagingRepository messaging,
     IUserRepository users,
+    IWorkspaceRepository workspaces,
+    IProjectRepository projects,
     IConversationAuthorizationService authorization,
     ICurrentUser currentUser,
     IClock clock,
@@ -29,7 +31,18 @@ public sealed class ConversationService(
             var last = page.Items.FirstOrDefault();
             var read = await messaging.GetReadStateAsync(conversation.Id, userId, cancellationToken);
             var unread = await messaging.CountUnreadMessagesAsync(conversation.Id, userId, read?.LastReadAt, cancellationToken);
-            result.Add(new ConversationListItemResponse(conversation.Id, conversation.Type, conversation.Title, last is null ? null : ToMessage(last), unread, conversation.CreatedAt, conversation.UpdatedAt));
+            result.Add(new ConversationListItemResponse(
+                conversation.Id,
+                conversation.WorkspaceId,
+                conversation.ProjectId,
+                conversation.Type,
+                conversation.Title,
+                conversation.ParentConversationId,
+                conversation.RootConversationId,
+                last is null ? null : ToMessage(last),
+                unread,
+                conversation.CreatedAt,
+                conversation.UpdatedAt));
         }
         return Result<PagedResponse<ConversationListItemResponse>>.Success(new PagedResponse<ConversationListItemResponse>(result, conversations.Page, conversations.PageSize, conversations.TotalCount));
     }
@@ -37,16 +50,57 @@ public sealed class ConversationService(
     public async Task<Result<ConversationDetailResponse>> CreateAsync(CreateConversationRequest request, CancellationToken cancellationToken = default)
     {
         if (!TryCurrentUser(out var userId)) return Result<ConversationDetailResponse>.Failure("Authentication is required.");
+
+        if (!IsSupportedMvpType(request.Type))
+        {
+            return Result<ConversationDetailResponse>.Failure("Conversation type is not supported in MVP.");
+        }
+
+        if (request.Type == ConversationType.Thread)
+        {
+            return await CreateThreadAsync(request, userId, cancellationToken);
+        }
+
+        if (!request.WorkspaceId.HasValue || request.WorkspaceId.Value == Guid.Empty)
+        {
+            return Result<ConversationDetailResponse>.Failure("WorkspaceId is required.");
+        }
+
+        var workspace = await workspaces.GetByIdAsync(request.WorkspaceId.Value, cancellationToken);
+        if (workspace is null || workspace.DeletedAt.HasValue || workspace.Status != WorkspaceStatus.Active)
+        {
+            return Result<ConversationDetailResponse>.Failure("Workspace not found.");
+        }
+
+        Project? project = null;
+        if (request.Type == ConversationType.ProjectChannel)
+        {
+            if (!request.ProjectId.HasValue || request.ProjectId.Value == Guid.Empty)
+            {
+                return Result<ConversationDetailResponse>.Failure("ProjectChannel requires ProjectId.");
+            }
+
+            project = await projects.GetProjectAsync(request.ProjectId.Value, cancellationToken);
+            if (project is null || project.DeletedAt.HasValue || project.WorkspaceId != request.WorkspaceId.Value)
+            {
+                return Result<ConversationDetailResponse>.Failure("Project must belong to the selected workspace.");
+            }
+        }
+        else if (request.ProjectId.HasValue)
+        {
+            project = await projects.GetProjectAsync(request.ProjectId.Value, cancellationToken);
+            if (project is null || project.DeletedAt.HasValue || project.WorkspaceId != request.WorkspaceId.Value)
+            {
+                return Result<ConversationDetailResponse>.Failure("Project must belong to the selected workspace.");
+            }
+        }
+
         var memberIds = request.MemberUserIds.Append(userId).Distinct().ToList();
-        if (request.Type == ConversationType.Direct)
+        if (request.Type == ConversationType.DirectMessage)
         {
             if (memberIds.Count != 2) return Result<ConversationDetailResponse>.Failure("Direct conversations require exactly two members.");
-            var existing = await messaging.FindDirectAsync(memberIds[0], memberIds[1], cancellationToken);
+            var existing = await messaging.FindDirectAsync(request.WorkspaceId.Value, memberIds[0], memberIds[1], cancellationToken);
             if (existing is not null) return Result<ConversationDetailResponse>.Success(await ToDetailAsync(existing, cancellationToken));
-        }
-        else if (request.Type == ConversationType.Group && memberIds.Count < 2)
-        {
-            return Result<ConversationDetailResponse>.Failure("Group conversations require at least two members.");
         }
 
         foreach (var memberId in memberIds)
@@ -56,9 +110,10 @@ public sealed class ConversationService(
 
         var conversation = new Conversation
         {
-            WorkspaceId = Guid.Empty,
+            WorkspaceId = request.WorkspaceId.Value,
+            ProjectId = project?.Id,
             Type = request.Type,
-            Title = request.Type == ConversationType.Direct ? null : request.Title?.Trim(),
+            Title = request.Type == ConversationType.DirectMessage ? null : request.Title?.Trim(),
             CreatedByUserId = userId
         };
         await messaging.AddConversationAsync(conversation, cancellationToken);
@@ -98,7 +153,7 @@ public sealed class ConversationService(
         }
 
         var conversation = await messaging.GetConversationAsync(conversationId, cancellationToken);
-        if (conversation is null || conversation.Type == ConversationType.Direct) return Result<ConversationDetailResponse>.Failure("Conversation not found.");
+        if (conversation is null || conversation.Type == ConversationType.DirectMessage) return Result<ConversationDetailResponse>.Failure("Conversation not found.");
         conversation.Title = request.Title?.Trim();
         await unitOfWork.SaveChangesAsync(cancellationToken);
         return Result<ConversationDetailResponse>.Success(await ToDetailAsync(conversation, cancellationToken));
@@ -136,7 +191,8 @@ public sealed class ConversationService(
         }
 
         var conversation = await messaging.GetConversationAsync(conversationId, cancellationToken);
-        if (conversation is null || conversation.Type == ConversationType.Direct) return Result<ConversationMemberResponse>.Failure("Direct conversations cannot add extra members.");
+        if (conversation is null || conversation.Type == ConversationType.DirectMessage) return Result<ConversationMemberResponse>.Failure("Direct conversations cannot add extra members.");
+        if (conversation.Type == ConversationType.Thread) return Result<ConversationMemberResponse>.Failure("Thread membership is inherited from the parent conversation.");
         if (await messaging.GetMemberAsync(conversationId, request.UserId, cancellationToken) is not null) return Result<ConversationMemberResponse>.Failure("User is already a conversation member.");
         var user = await users.GetByIdAsync(request.UserId, cancellationToken);
         if (user is null) return Result<ConversationMemberResponse>.Failure("User not found.");
@@ -185,16 +241,18 @@ public sealed class ConversationService(
 
         var attachments = request.Attachments ?? [];
         if (string.IsNullOrWhiteSpace(request.Body) && attachments.Count == 0) return Result<MessageResponse>.Failure("Message body or attachment is required.");
+        var conversation = await messaging.GetConversationAsync(conversationId, cancellationToken);
+        if (conversation is null) return Result<MessageResponse>.Failure("Conversation not found.");
         foreach (var attachment in attachments)
         {
             var extension = Path.GetExtension(attachment.FileName).ToLowerInvariant();
             if (attachment.FileSize <= 0 || attachment.FileSize > MaxAttachmentBytes || !AllowedExtensions.Contains(extension)) return Result<MessageResponse>.Failure("Attachment is not allowed.");
         }
-        var message = new Message { ConversationId = conversationId, AuthorUserId = userId, Body = request.Body?.Trim() ?? string.Empty };
+        var message = new Message { WorkspaceId = conversation.WorkspaceId, ConversationId = conversationId, AuthorUserId = userId, Body = request.Body?.Trim() ?? string.Empty };
         await messaging.AddMessageAsync(message, cancellationToken);
         foreach (var item in attachments)
         {
-            var attachment = new Attachment { WorkspaceId = Guid.Empty, OwnerType = AttachmentOwnerType.Message, OwnerId = message.Id, OwnerUserId = userId, UploadedByUserId = userId, FileName = item.FileName, StoredFileName = item.StoredFileName, FilePath = item.FilePath, ContentType = item.ContentType, Extension = Path.GetExtension(item.FileName), SizeBytes = item.FileSize, StorageProvider = "metadata-only", StorageKey = item.FilePath };
+            var attachment = new Attachment { WorkspaceId = conversation.WorkspaceId, OwnerType = AttachmentOwnerType.Message, OwnerId = message.Id, OwnerUserId = userId, UploadedByUserId = userId, FileName = item.FileName, StoredFileName = item.StoredFileName, FilePath = item.FilePath, ContentType = item.ContentType, Extension = Path.GetExtension(item.FileName), SizeBytes = item.FileSize, StorageProvider = "metadata-only", StorageKey = item.FilePath };
             await messaging.AddAttachmentAsync(attachment, new MessageAttachment { MessageId = message.Id, AttachmentId = attachment.Id }, cancellationToken);
             await AuditAsync(userId, "MessageAttachmentAdded", message.Id, cancellationToken);
         }
@@ -272,6 +330,77 @@ public sealed class ConversationService(
     }
 
     private bool TryCurrentUser(out Guid userId) { userId = currentUser.UserId ?? Guid.Empty; return currentUser.IsAuthenticated && currentUser.UserId.HasValue; }
+    private static bool IsSupportedMvpType(ConversationType type) => type is ConversationType.DirectMessage or ConversationType.ProjectChannel or ConversationType.Thread;
+
+    private async Task<Result<ConversationDetailResponse>> CreateThreadAsync(CreateConversationRequest request, Guid userId, CancellationToken cancellationToken)
+    {
+        if (!request.ParentConversationId.HasValue || request.ParentConversationId.Value == Guid.Empty)
+        {
+            return Result<ConversationDetailResponse>.Failure("Thread conversations require ParentConversationId.");
+        }
+
+        var parent = await messaging.GetConversationAsync(request.ParentConversationId.Value, cancellationToken);
+        if (parent is null || parent.Type == ConversationType.Thread && parent.ParentConversationId is null)
+        {
+            return Result<ConversationDetailResponse>.Failure("Parent conversation not found.");
+        }
+
+        if (parent.IsArchived || parent.IsLocked)
+        {
+            return Result<ConversationDetailResponse>.Failure("Parent conversation cannot accept threads.");
+        }
+
+        if (!await authorization.CanViewConversation(userId, parent.Id, cancellationToken))
+        {
+            return await DenyAsync<ConversationDetailResponse>(userId, "ConversationAccessDenied", "Conversation", parent.Id, "Parent conversation not found.", cancellationToken);
+        }
+
+        if (request.WorkspaceId.HasValue && request.WorkspaceId.Value != parent.WorkspaceId)
+        {
+            return Result<ConversationDetailResponse>.Failure("Thread workspace scope must match parent conversation.");
+        }
+
+        if (request.ProjectId.HasValue && request.ProjectId != parent.ProjectId)
+        {
+            return Result<ConversationDetailResponse>.Failure("Thread project scope must match parent conversation.");
+        }
+
+        var parentMembers = (await messaging.ListMembersAsync(parent.Id, cancellationToken))
+            .Where(member => member.LeftAt is null)
+            .ToList();
+        var requestedMembers = request.MemberUserIds.Distinct().ToList();
+        if (requestedMembers.Any(memberId => parentMembers.All(parentMember => parentMember.UserId != memberId)))
+        {
+            return Result<ConversationDetailResponse>.Failure("Thread membership must stay within the parent conversation.");
+        }
+
+        var conversation = new Conversation
+        {
+            WorkspaceId = parent.WorkspaceId,
+            ProjectId = parent.ProjectId,
+            Type = ConversationType.Thread,
+            Title = request.Title?.Trim(),
+            ParentConversationId = parent.Id,
+            RootConversationId = parent.RootConversationId ?? parent.Id,
+            CreatedByUserId = userId
+        };
+        await messaging.AddConversationAsync(conversation, cancellationToken);
+        foreach (var parentMember in parentMembers)
+        {
+            await messaging.AddMemberAsync(new ConversationMember
+            {
+                ConversationId = conversation.Id,
+                UserId = parentMember.UserId,
+                Role = parentMember.Role,
+                JoinedAt = clock.UtcNow
+            }, cancellationToken);
+        }
+
+        await AuditAsync(userId, "ConversationThreadCreated", conversation.Id, cancellationToken);
+        await unitOfWork.SaveChangesAsync(cancellationToken);
+        return Result<ConversationDetailResponse>.Success(await ToDetailAsync(conversation, cancellationToken));
+    }
+
     private Task AuditAsync(Guid actorUserId, string action, Guid targetId, CancellationToken cancellationToken) => auditLogger.LogAsync(new AuditLogEntry(actorUserId, action, "Message", targetId), cancellationToken);
     private async Task<Result<T>> DenyAsync<T>(Guid actorUserId, string action, string entityType, Guid entityId, string error, CancellationToken cancellationToken)
     {
@@ -285,7 +414,19 @@ public sealed class ConversationService(
         await unitOfWork.SaveChangesAsync(cancellationToken);
         return Result.Failure(error);
     }
-    private async Task<ConversationDetailResponse> ToDetailAsync(Conversation conversation, CancellationToken cancellationToken) => new(conversation.Id, conversation.Type, conversation.Title, (await messaging.ListMembersAsync(conversation.Id, cancellationToken)).Select(ToMember).ToList(), conversation.CreatedAt, conversation.UpdatedAt);
+    private async Task<ConversationDetailResponse> ToDetailAsync(Conversation conversation, CancellationToken cancellationToken) => new(
+        conversation.Id,
+        conversation.WorkspaceId,
+        conversation.ProjectId,
+        conversation.Type,
+        conversation.Title,
+        conversation.ParentConversationId,
+        conversation.RootConversationId,
+        conversation.IsArchived,
+        conversation.IsLocked,
+        (await messaging.ListMembersAsync(conversation.Id, cancellationToken)).Select(ToMember).ToList(),
+        conversation.CreatedAt,
+        conversation.UpdatedAt);
     private static ConversationMemberResponse ToMember(ConversationMember member) => new(member.UserId, member.User?.DisplayName ?? string.Empty, member.User?.Email ?? string.Empty, member.Role, member.JoinedAt, member.LeftAt);
-    private static MessageResponse ToMessage(Message message) => new(message.Id, message.ConversationId, message.AuthorUserId, message.AuthorUser?.DisplayName ?? string.Empty, message.DeletedAt.HasValue ? string.Empty : message.Body, message.Attachments.Select(a => new AttachmentResponse(a.AttachmentId, a.Attachment?.FileName ?? string.Empty, a.Attachment?.ContentType ?? string.Empty, a.Attachment?.SizeBytes ?? 0)).ToList(), message.CreatedAt, message.UpdatedAt, message.EditedAt, message.DeletedAt.HasValue);
+    private static MessageResponse ToMessage(Message message) => new(message.Id, message.WorkspaceId, message.ConversationId, message.AuthorUserId, message.AuthorUser?.DisplayName ?? string.Empty, message.DeletedAt.HasValue ? string.Empty : message.Body, message.Attachments.Select(a => new AttachmentResponse(a.AttachmentId, a.Attachment?.FileName ?? string.Empty, a.Attachment?.ContentType ?? string.Empty, a.Attachment?.SizeBytes ?? 0)).ToList(), message.CreatedAt, message.UpdatedAt, message.EditedAt, message.DeletedAt.HasValue);
 }

@@ -28,10 +28,10 @@ public sealed class MessagingRepository(AppDbContext dbContext) : IMessagingRepo
         return dbContext.Conversations.FirstOrDefaultAsync(c => c.Id == conversationId, cancellationToken);
     }
 
-    public Task<Conversation?> FindDirectAsync(Guid userAId, Guid userBId, CancellationToken cancellationToken = default)
+    public Task<Conversation?> FindDirectAsync(Guid workspaceId, Guid userAId, Guid userBId, CancellationToken cancellationToken = default)
     {
         return dbContext.Conversations
-            .Where(c => c.Type == Domain.Enums.ConversationType.Direct && c.Members.Count == 2)
+            .Where(c => c.WorkspaceId == workspaceId && c.Type == Domain.Enums.ConversationType.DirectMessage && c.Members.Count == 2)
             .FirstOrDefaultAsync(c => c.Members.Any(m => m.UserId == userAId) && c.Members.Any(m => m.UserId == userBId), cancellationToken);
     }
 

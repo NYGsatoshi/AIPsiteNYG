@@ -18,7 +18,7 @@ public sealed class ConversationAuthorizationService(IMessagingRepository messag
     public async Task<bool> CanManageConversation(Guid userId, Guid conversationId, CancellationToken cancellationToken = default)
     {
         var conversation = await messaging.GetConversationAsync(conversationId, cancellationToken);
-        if (conversation?.Type == ConversationType.Direct)
+        if (conversation?.Type == ConversationType.DirectMessage)
         {
             return false;
         }

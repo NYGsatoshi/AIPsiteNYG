@@ -1,3 +1,5 @@
+using System.Text.Json.Serialization;
+
 namespace AipPortal.Domain.Enums;
 
 public enum UserStatus
@@ -132,12 +134,19 @@ public enum ChannelRole
     ReadOnly = 2
 }
 
+[JsonConverter(typeof(JsonStringEnumConverter))]
 public enum ConversationType
 {
-    Direct = 0,
-    Group = 1,
-    ProjectLinked = 2,
-    System = 3
+    DirectMessage = 0,
+    ProjectChannel = 1,
+    Thread = 2,
+    CommitteeChannel = 3,
+    AnnouncementThread = 4,
+    ExternalSharedChannel = 5,
+    LegalHoldConversation = 6,
+    Group = 7,
+    ProjectLinked = 8,
+    System = 9
 }
 
 public enum ConversationMemberRole

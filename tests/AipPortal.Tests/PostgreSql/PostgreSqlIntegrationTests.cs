@@ -188,9 +188,9 @@ public sealed class PostgreSqlIntegrationTests
         var project = new Project { TenantId = tenant.Id, WorkspaceId = workspace.Id, GroupId = group.Id, Name = $"{prefix} SeCuReSearchNeedle Project", Slug = $"{prefix.ToLowerInvariant()}-prj-{runId}", Description = $"{prefix} project", OwnerUserId = user.Id, CreatedByUserId = user.Id, Status = ProjectStatus.Active, CreatedAt = now };
         var task = new TaskItem { TenantId = tenant.Id, ProjectId = project.Id, Title = $"{prefix} SeCuReSearchNeedle Task", Description = $"{prefix} task", CreatedByUserId = user.Id, Status = TaskItemStatus.NotStarted, CreatedAt = now };
         var artifact = new Artifact { TenantId = tenant.Id, ProjectId = project.Id, TaskItemId = task.Id, Name = $"{prefix} SeCuReSearchNeedle Artifact", Description = $"{prefix} artifact", CreatedByUserId = user.Id, ArtifactType = ArtifactType.Other, Status = ArtifactStatus.Draft, CreatedAt = now };
-        var conversation = new Conversation { TenantId = tenant.Id, WorkspaceId = workspace.Id, Title = $"{prefix} conversation", CreatedByUserId = user.Id, Type = ConversationType.Direct, CreatedAt = now };
+        var conversation = new Conversation { TenantId = tenant.Id, WorkspaceId = workspace.Id, Title = $"{prefix} conversation", CreatedByUserId = user.Id, Type = ConversationType.DirectMessage, CreatedAt = now };
         var post = new Post { TenantId = tenant.Id, ChannelId = channel.Id, AuthorUserId = user.Id, Body = $"{prefix} SeCuReSearchNeedle post body", CreatedAt = now };
-        var message = new Message { TenantId = tenant.Id, ConversationId = conversation.Id, AuthorUserId = user.Id, Body = $"{prefix} SeCuReSearchNeedle message body", CreatedAt = now };
+        var message = new Message { TenantId = tenant.Id, WorkspaceId = workspace.Id, ConversationId = conversation.Id, AuthorUserId = user.Id, Body = $"{prefix} SeCuReSearchNeedle message body", CreatedAt = now };
 
         dbContext.TenantUsers.Add(new TenantUser { TenantId = tenant.Id, UserId = user.Id, Role = TenantUserRole.Member, Status = TenantUserStatus.Active, JoinedAt = now });
         dbContext.Workspaces.Add(workspace);

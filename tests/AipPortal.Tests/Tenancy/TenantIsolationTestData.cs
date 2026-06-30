@@ -75,8 +75,8 @@ internal sealed class TenantIsolationTestData
         var fileB = NewFile(tenantB.Id, workspaceB.Id, projectB.Id, tenantBOwner.Id);
         var conversationA = NewConversation(tenantA.Id, workspaceA.Id, "ConversationA", tenantAOwner.Id);
         var conversationB = NewConversation(tenantB.Id, workspaceB.Id, "ConversationB", tenantBOwner.Id);
-        var messageA = NewMessage(tenantA.Id, conversationA.Id, tenantAMember.Id, "TenantA private message body");
-        var messageB = NewMessage(tenantB.Id, conversationB.Id, tenantBMember.Id, "TenantB private message body");
+        var messageA = NewMessage(tenantA.Id, workspaceA.Id, conversationA.Id, tenantAMember.Id, "TenantA private message body");
+        var messageB = NewMessage(tenantB.Id, workspaceB.Id, conversationB.Id, tenantBMember.Id, "TenantB private message body");
         var announcementA = NewAnnouncement(tenantA.Id, workspaceA.Id, groupA.Id, tenantAOwner.Id, "AnnouncementA", now);
         var announcementB = NewAnnouncement(tenantB.Id, workspaceB.Id, groupB.Id, tenantBOwner.Id, "AnnouncementB", now);
         var notificationA = NewNotification(tenantA.Id, tenantAMember.Id, "TenantA notification", now);
@@ -350,7 +350,7 @@ internal sealed class TenantIsolationTestData
         TenantId = tenantId,
         WorkspaceId = workspaceId,
         Title = title,
-        Type = ConversationType.Direct,
+        Type = ConversationType.DirectMessage,
         CreatedByUserId = userId
     };
 
@@ -362,9 +362,10 @@ internal sealed class TenantIsolationTestData
         JoinedAt = DateTimeOffset.UtcNow
     };
 
-    private static Message NewMessage(Guid tenantId, Guid conversationId, Guid authorUserId, string body) => new()
+    private static Message NewMessage(Guid tenantId, Guid workspaceId, Guid conversationId, Guid authorUserId, string body) => new()
     {
         TenantId = tenantId,
+        WorkspaceId = workspaceId,
         ConversationId = conversationId,
         AuthorUserId = authorUserId,
         Body = body

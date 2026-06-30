@@ -15,14 +15,37 @@ public sealed class ConversationConfiguration : IEntityTypeConfiguration<Convers
         builder.Property(conversation => conversation.Title).HasMaxLength(200);
 
         builder.HasIndex(conversation => conversation.WorkspaceId);
+        builder.HasIndex(conversation => conversation.ProjectId);
+        builder.HasIndex(conversation => conversation.ParentConversationId);
+        builder.HasIndex(conversation => conversation.RootConversationId);
         builder.HasIndex(conversation => conversation.CreatedByUserId);
         builder.HasIndex(conversation => new { conversation.TenantId, conversation.WorkspaceId });
+        builder.HasIndex(conversation => new { conversation.TenantId, conversation.WorkspaceId, conversation.ProjectId });
+        builder.HasIndex(conversation => new { conversation.TenantId, conversation.ParentConversationId });
         builder.HasIndex(conversation => new { conversation.TenantId, conversation.UpdatedAt });
 
         builder
             .HasOne(conversation => conversation.Workspace)
             .WithMany()
             .HasForeignKey(conversation => conversation.WorkspaceId)
+            .OnDelete(DeleteBehavior.Restrict);
+
+        builder
+            .HasOne(conversation => conversation.Project)
+            .WithMany()
+            .HasForeignKey(conversation => conversation.ProjectId)
+            .OnDelete(DeleteBehavior.Restrict);
+
+        builder
+            .HasOne(conversation => conversation.ParentConversation)
+            .WithMany(conversation => conversation.Threads)
+            .HasForeignKey(conversation => conversation.ParentConversationId)
+            .OnDelete(DeleteBehavior.Restrict);
+
+        builder
+            .HasOne(conversation => conversation.RootConversation)
+            .WithMany()
+            .HasForeignKey(conversation => conversation.RootConversationId)
             .OnDelete(DeleteBehavior.Restrict);
 
         builder
@@ -78,11 +101,19 @@ public sealed class MessageConfiguration : IEntityTypeConfiguration<Message>
 
         builder.Property(message => message.Body).HasMaxLength(12000).IsRequired();
 
+        builder.HasIndex(message => message.WorkspaceId);
         builder.HasIndex(message => message.ConversationId);
         builder.HasIndex(message => message.AuthorUserId);
         builder.HasIndex(message => message.EditedAt);
         builder.HasIndex(message => new { message.ConversationId, message.CreatedAt });
+        builder.HasIndex(message => new { message.TenantId, message.WorkspaceId, message.CreatedAt });
         builder.HasIndex(message => new { message.TenantId, message.ConversationId, message.CreatedAt });
+
+        builder
+            .HasOne(message => message.Workspace)
+            .WithMany()
+            .HasForeignKey(message => message.WorkspaceId)
+            .OnDelete(DeleteBehavior.Restrict);
 
         builder
             .HasOne(message => message.Conversation)
