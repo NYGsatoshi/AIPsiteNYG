@@ -15,7 +15,10 @@ public sealed class MessagingRepository(AppDbContext dbContext) : IMessagingRepo
                 (c.Type == Domain.Enums.ConversationType.DirectMessage ||
                     c.Type == Domain.Enums.ConversationType.ProjectChannel ||
                     c.Type == Domain.Enums.ConversationType.Thread) &&
-                c.Members.Any(m => m.UserId == userId && m.LeftAt == null && m.RemovedAt == null && m.CanRead))
+                c.Members.Any(m => m.UserId == userId && m.LeftAt == null && m.RemovedAt == null && m.CanRead) &&
+                (c.Type != Domain.Enums.ConversationType.Thread ||
+                    c.ParentConversationId != null &&
+                    c.ParentConversation!.Members.Any(m => m.UserId == userId && m.LeftAt == null && m.RemovedAt == null && m.CanRead)))
             .OrderByDescending(c => c.UpdatedAt ?? c.CreatedAt);
 
         var total = await query.CountAsync(cancellationToken);

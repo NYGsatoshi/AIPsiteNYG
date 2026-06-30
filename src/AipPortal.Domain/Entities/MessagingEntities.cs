@@ -40,12 +40,18 @@ public sealed class ConversationMember : AuditableEntity, ITenantEntity
     public DateTimeOffset? LeftAt { get; set; }
     public DateTimeOffset? RemovedAt { get; set; }
     public Guid? RemovedByUserId { get; set; }
+    public DateTimeOffset? LastOpenedAt { get; set; }
     public Guid? LastReadMessageId { get; set; }
+    public DateTimeOffset? LastReadAt { get; set; }
+    public Guid? UnreadCursorMessageId { get; set; }
+    public bool IsMuted { get; set; }
+    public bool IsArchived { get; set; }
 
     public Conversation? Conversation { get; set; }
     public User? User { get; set; }
     public User? RemovedByUser { get; set; }
     public Message? LastReadMessage { get; set; }
+    public Message? UnreadCursorMessage { get; set; }
 }
 
 public sealed class Message : SoftDeletableEntity, ITenantEntity

@@ -1087,6 +1087,22 @@ namespace AipPortal.Infrastructure.Persistence.Migrations
                     b.Property<DateTimeOffset>("JoinedAt")
                         .HasColumnType("timestamp with time zone");
 
+                    b.Property<bool>("IsArchived")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("boolean")
+                        .HasDefaultValue(false);
+
+                    b.Property<bool>("IsMuted")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("boolean")
+                        .HasDefaultValue(false);
+
+                    b.Property<DateTimeOffset?>("LastOpenedAt")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<DateTimeOffset?>("LastReadAt")
+                        .HasColumnType("timestamp with time zone");
+
                     b.Property<Guid?>("LastReadMessageId")
                         .HasColumnType("uuid");
 
@@ -1110,6 +1126,9 @@ namespace AipPortal.Infrastructure.Persistence.Migrations
                     b.Property<DateTimeOffset?>("UpdatedAt")
                         .HasColumnType("timestamp with time zone");
 
+                    b.Property<Guid?>("UnreadCursorMessageId")
+                        .HasColumnType("uuid");
+
                     b.Property<Guid>("UserId")
                         .HasColumnType("uuid");
 
@@ -1118,6 +1137,10 @@ namespace AipPortal.Infrastructure.Persistence.Migrations
                     b.HasIndex("ConversationId");
 
                     b.HasIndex("CreatedAt");
+
+                    b.HasIndex("LastOpenedAt");
+
+                    b.HasIndex("LastReadAt");
 
                     b.HasIndex("LastReadMessageId");
 
@@ -1128,6 +1151,8 @@ namespace AipPortal.Infrastructure.Persistence.Migrations
                     b.HasIndex("RemovedByUserId");
 
                     b.HasIndex("TenantId");
+
+                    b.HasIndex("UnreadCursorMessageId");
 
                     b.HasIndex("UserId");
 
@@ -4467,6 +4492,11 @@ namespace AipPortal.Infrastructure.Persistence.Migrations
                         .HasForeignKey("LastReadMessageId")
                         .OnDelete(DeleteBehavior.SetNull);
 
+                    b.HasOne("AipPortal.Domain.Entities.Message", "UnreadCursorMessage")
+                        .WithMany()
+                        .HasForeignKey("UnreadCursorMessageId")
+                        .OnDelete(DeleteBehavior.SetNull);
+
                     b.HasOne("AipPortal.Domain.Entities.User", "RemovedByUser")
                         .WithMany()
                         .HasForeignKey("RemovedByUserId")
@@ -4483,6 +4513,8 @@ namespace AipPortal.Infrastructure.Persistence.Migrations
                     b.Navigation("LastReadMessage");
 
                     b.Navigation("RemovedByUser");
+
+                    b.Navigation("UnreadCursorMessage");
 
                     b.Navigation("User");
                 });

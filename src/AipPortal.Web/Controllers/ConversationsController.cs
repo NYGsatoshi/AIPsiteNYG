@@ -44,6 +44,12 @@ public sealed class ConversationsController(IConversationService conversations) 
     [HttpDelete("api/messages/{messageId:guid}")]
     public async Task<IActionResult> DeleteMessage(Guid messageId, CancellationToken cancellationToken) => OkOrBad(await conversations.DeleteMessageAsync(messageId, cancellationToken));
 
+    [HttpGet("api/conversations/{conversationId:guid}/state")]
+    public async Task<IActionResult> State(Guid conversationId, CancellationToken cancellationToken) => ToActionResult(await conversations.GetParticipantStateAsync(conversationId, cancellationToken));
+
+    [HttpPatch("api/conversations/{conversationId:guid}/state")]
+    public async Task<IActionResult> UpdateState(Guid conversationId, UpdateParticipantStateRequest request, CancellationToken cancellationToken) => ToActionResult(await conversations.UpdateParticipantStateAsync(conversationId, request, cancellationToken));
+
     [HttpPost("api/conversations/{conversationId:guid}/read")]
     public async Task<IActionResult> MarkRead(Guid conversationId, MarkConversationReadRequest request, CancellationToken cancellationToken) => OkOrBad(await conversations.MarkReadAsync(conversationId, request, cancellationToken));
 

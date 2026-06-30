@@ -467,6 +467,86 @@ public sealed class HttpTenantIsolationTests
     }
 
     [Fact]
+    public async Task ParticipantStateIsOwnStateOnlyAndDoesNotExposeOtherParticipantMetadata()
+    {
+        await using var app = await HttpTenantIsolationTestApp.CreateAsync();
+        var data = app.Data;
+
+        var ownState = await app.SendAsync(data.CrossTenantUser, data.TenantA.Slug, $"/api/conversations/{data.ConversationA.Id}/state");
+        var ownStateBody = await ownState.Content.ReadAsStringAsync();
+
+        Assert.Equal(HttpStatusCode.OK, ownState.StatusCode);
+        Assert.Contains($@"""userId"":""{data.CrossTenantUser.Id:D}""", ownStateBody, StringComparison.OrdinalIgnoreCase);
+        Assert.DoesNotContain(data.TenantAMember.Email, ownStateBody, StringComparison.OrdinalIgnoreCase);
+        Assert.DoesNotContain(data.MessageA.Body, ownStateBody, StringComparison.Ordinal);
+
+        using var updateContent = JsonContent($$"""
+            {"lastReadMessageId":"{{data.MessageA.Id:D}}","unreadCursorMessageId":"{{data.MessageA.Id:D}}","isMuted":true,"isArchived":true}
+            """);
+        var updateState = await app.SendAsync(data.CrossTenantUser, data.TenantA.Slug, $"/api/conversations/{data.ConversationA.Id}/state", HttpMethod.Patch, updateContent);
+        var updateStateBody = await updateState.Content.ReadAsStringAsync();
+
+        Assert.Equal(HttpStatusCode.OK, updateState.StatusCode);
+        Assert.Contains($@"""lastReadMessageId"":""{data.MessageA.Id:D}""", updateStateBody, StringComparison.OrdinalIgnoreCase);
+        Assert.Contains(@"""isMuted"":true", updateStateBody, StringComparison.OrdinalIgnoreCase);
+        Assert.Contains(@"""isArchived"":true", updateStateBody, StringComparison.OrdinalIgnoreCase);
+        Assert.DoesNotContain(data.TenantAMember.Email, updateStateBody, StringComparison.OrdinalIgnoreCase);
+        Assert.DoesNotContain(data.MessageA.Body, updateStateBody, StringComparison.Ordinal);
+
+        var list = await app.SendAsync(data.CrossTenantUser, data.TenantA.Slug, "/api/conversations");
+        var listBody = await list.Content.ReadAsStringAsync();
+
+        Assert.Equal(HttpStatusCode.OK, list.StatusCode);
+        Assert.Contains(@"""isMuted"":true", listBody, StringComparison.OrdinalIgnoreCase);
+        Assert.Contains(@"""isArchived"":true", listBody, StringComparison.OrdinalIgnoreCase);
+        Assert.DoesNotContain(data.TenantAMember.Email, listBody, StringComparison.OrdinalIgnoreCase);
+    }
+
+    [Fact]
+    public async Task ParticipantStateDeniesNonParticipantsRemovedParticipantsAndCrossConversationCursors()
+    {
+        await using var app = await HttpTenantIsolationTestApp.CreateAsync();
+        var data = app.Data;
+
+        var deniedAdminState = await app.SendAsync(data.TenantAAdmin, data.TenantA.Slug, $"/api/conversations/{data.ConversationA.Id}/state");
+        var deniedAdminStateBody = await deniedAdminState.Content.ReadAsStringAsync();
+
+        Assert.Equal(HttpStatusCode.BadRequest, deniedAdminState.StatusCode);
+        Assert.DoesNotContain(data.MessageA.Body, deniedAdminStateBody, StringComparison.Ordinal);
+        Assert.DoesNotContain(data.TenantAMember.Email, deniedAdminStateBody, StringComparison.OrdinalIgnoreCase);
+        Assert.DoesNotContain("isMuted", deniedAdminStateBody, StringComparison.OrdinalIgnoreCase);
+
+        using var deniedAdminUpdateContent = JsonContent("""{"isMuted":true,"isArchived":true}""");
+        var deniedAdminUpdate = await app.SendAsync(data.TenantAAdmin, data.TenantA.Slug, $"/api/conversations/{data.ConversationA.Id}/state", HttpMethod.Patch, deniedAdminUpdateContent);
+        var deniedAdminUpdateBody = await deniedAdminUpdate.Content.ReadAsStringAsync();
+
+        Assert.Equal(HttpStatusCode.BadRequest, deniedAdminUpdate.StatusCode);
+        Assert.DoesNotContain("isMuted", deniedAdminUpdateBody, StringComparison.OrdinalIgnoreCase);
+        Assert.DoesNotContain("isArchived", deniedAdminUpdateBody, StringComparison.OrdinalIgnoreCase);
+
+        using var cursorMismatchContent = JsonContent($$"""{"unreadCursorMessageId":"{{data.MessageB.Id:D}}"}""");
+        var cursorMismatch = await app.SendAsync(data.CrossTenantUser, data.TenantA.Slug, $"/api/conversations/{data.ConversationA.Id}/state", HttpMethod.Patch, cursorMismatchContent);
+        var cursorMismatchBody = await cursorMismatch.Content.ReadAsStringAsync();
+
+        Assert.Equal(HttpStatusCode.BadRequest, cursorMismatch.StatusCode);
+        Assert.DoesNotContain(data.MessageB.Body, cursorMismatchBody, StringComparison.Ordinal);
+
+        await app.UpdateConversationMemberAsync(data.TenantA.Id, data.TenantA.Slug, data.ConversationA.Id, data.CrossTenantUser.Id, member =>
+        {
+            member.LeftAt = DateTimeOffset.UtcNow;
+            member.RemovedAt = DateTimeOffset.UtcNow;
+            member.RemovedByUserId = data.TenantAMember.Id;
+        });
+
+        var deniedRemovedState = await app.SendAsync(data.CrossTenantUser, data.TenantA.Slug, $"/api/conversations/{data.ConversationA.Id}/state");
+        var deniedRemovedStateBody = await deniedRemovedState.Content.ReadAsStringAsync();
+
+        Assert.Equal(HttpStatusCode.BadRequest, deniedRemovedState.StatusCode);
+        Assert.DoesNotContain(data.MessageA.Body, deniedRemovedStateBody, StringComparison.Ordinal);
+        Assert.DoesNotContain("lastReadMessageId", deniedRemovedStateBody, StringComparison.OrdinalIgnoreCase);
+    }
+
+    [Fact]
     public async Task MessageNotificationDoesNotEmbedPrivateMessageBody()
     {
         await using var app = await HttpTenantIsolationTestApp.CreateAsync();

@@ -13,6 +13,8 @@ public sealed record ConversationListItemResponse(
     Guid? RootConversationId,
     MessageResponse? LastMessage,
     int UnreadCount,
+    bool IsMuted,
+    bool IsArchived,
     DateTimeOffset CreatedAt,
     DateTimeOffset? UpdatedAt);
 
@@ -73,6 +75,27 @@ public sealed record SendMessageRequest(string? Body, IReadOnlyList<AttachmentMe
 public sealed record UpdateMessageRequest(string Body);
 
 public sealed record MarkConversationReadRequest(Guid? LastReadMessageId);
+
+public sealed record ParticipantStateResponse(
+    Guid ParticipantId,
+    Guid UserId,
+    Guid ConversationId,
+    DateTimeOffset? LastOpenedAt,
+    Guid? LastReadMessageId,
+    DateTimeOffset? LastReadAt,
+    Guid? UnreadCursorMessageId,
+    int UnreadCount,
+    bool IsMuted,
+    bool IsArchived,
+    DateTimeOffset CreatedAt,
+    DateTimeOffset? UpdatedAt);
+
+public sealed record UpdateParticipantStateRequest(
+    DateTimeOffset? LastOpenedAt = null,
+    Guid? LastReadMessageId = null,
+    Guid? UnreadCursorMessageId = null,
+    bool? IsMuted = null,
+    bool? IsArchived = null);
 
 public sealed record MessageListQuery(int Limit = 50, DateTimeOffset? Before = null)
 {

@@ -69,11 +69,16 @@ public sealed class ConversationMemberConfiguration : IEntityTypeConfiguration<C
         builder.Property(member => member.CanPost).IsRequired().HasDefaultValue(true);
         builder.Property(member => member.CanManageMembers).IsRequired().HasDefaultValue(false);
         builder.Property(member => member.CanCreateThread).IsRequired().HasDefaultValue(true);
+        builder.Property(member => member.IsMuted).IsRequired().HasDefaultValue(false);
+        builder.Property(member => member.IsArchived).IsRequired().HasDefaultValue(false);
 
         builder.HasIndex(member => new { member.TenantId, member.ConversationId, member.UserId }).IsUnique();
         builder.HasIndex(member => new { member.TenantId, member.UserId });
         builder.HasIndex(member => member.UserId);
+        builder.HasIndex(member => member.LastOpenedAt);
         builder.HasIndex(member => member.LastReadMessageId);
+        builder.HasIndex(member => member.LastReadAt);
+        builder.HasIndex(member => member.UnreadCursorMessageId);
         builder.HasIndex(member => member.LeftAt);
         builder.HasIndex(member => member.RemovedAt);
         builder.HasIndex(member => member.RemovedByUserId);
@@ -100,6 +105,12 @@ public sealed class ConversationMemberConfiguration : IEntityTypeConfiguration<C
             .HasOne(member => member.LastReadMessage)
             .WithMany()
             .HasForeignKey(member => member.LastReadMessageId)
+            .OnDelete(DeleteBehavior.SetNull);
+
+        builder
+            .HasOne(member => member.UnreadCursorMessage)
+            .WithMany()
+            .HasForeignKey(member => member.UnreadCursorMessageId)
             .OnDelete(DeleteBehavior.SetNull);
     }
 }

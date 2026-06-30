@@ -31,6 +31,7 @@ public sealed class ConversationService(
             var last = page.Items.FirstOrDefault();
             var read = await messaging.GetReadStateAsync(conversation.Id, userId, cancellationToken);
             var unread = await messaging.CountUnreadMessagesAsync(conversation.Id, userId, read?.LastReadAt, cancellationToken);
+            var member = await messaging.GetMemberAsync(conversation.Id, userId, cancellationToken);
             result.Add(new ConversationListItemResponse(
                 conversation.Id,
                 conversation.WorkspaceId,
@@ -41,6 +42,8 @@ public sealed class ConversationService(
                 conversation.RootConversationId,
                 last is null ? null : ToMessage(last),
                 unread,
+                member?.IsMuted ?? false,
+                member?.IsArchived ?? false,
                 conversation.CreatedAt,
                 conversation.UpdatedAt));
         }
@@ -324,16 +327,18 @@ public sealed class ConversationService(
         if (!TryCurrentUser(out var userId)) return Result.Failure("Conversation not found.");
         if (!await authorization.CanViewConversation(userId, conversationId, cancellationToken))
         {
-            return await DenyAsync(userId, "ConversationReadDenied", "Conversation", conversationId, "Conversation not found.", cancellationToken);
+            return await DenyAsync(userId, "ConversationReadDenied", "Conversation", conversationId, "Conversation not found.", cancellationToken, "participant_missing");
         }
 
-        if (request.LastReadMessageId.HasValue)
+        if (!await ValidateReadableConversationMessageAsync(userId, conversationId, request.LastReadMessageId, "cursor_message_denied", cancellationToken))
         {
-            var lastReadMessage = await messaging.GetMessageAsync(request.LastReadMessageId.Value, cancellationToken);
-            if (lastReadMessage is null || lastReadMessage.ConversationId != conversationId || lastReadMessage.DeletedAt.HasValue)
-            {
-                return Result.Failure("Message not found.");
-            }
+            return await DenyAsync(userId, "ConversationReadDenied", "Conversation", conversationId, "Message not found.", cancellationToken, "cursor_message_denied");
+        }
+
+        var member = await messaging.GetMemberAsync(conversationId, userId, cancellationToken);
+        if (!IsActiveParticipant(member))
+        {
+            return await DenyAsync(userId, "ConversationReadDenied", "Conversation", conversationId, "Conversation not found.", cancellationToken, "participant_removed");
         }
 
         var state = await messaging.GetReadStateAsync(conversationId, userId, cancellationToken);
@@ -345,8 +350,87 @@ public sealed class ConversationService(
         state.LastReadMessageId = request.LastReadMessageId;
         state.LastReadItemId = request.LastReadMessageId;
         state.LastReadAt = clock.UtcNow;
+        member!.LastReadMessageId = request.LastReadMessageId;
+        member.LastReadAt = state.LastReadAt;
+        member.UnreadCursorMessageId = null;
+        await AuditParticipantStateAsync(userId, "mark_read", conversationId, "allow", "self_state_only", cancellationToken);
         await unitOfWork.SaveChangesAsync(cancellationToken);
         return Result.Success();
+    }
+
+    public async Task<Result<ParticipantStateResponse>> GetParticipantStateAsync(Guid conversationId, CancellationToken cancellationToken = default)
+    {
+        if (!TryCurrentUser(out var userId)) return Result<ParticipantStateResponse>.Failure("Conversation not found.");
+        if (!await authorization.CanViewConversation(userId, conversationId, cancellationToken))
+        {
+            return await DenyAsync<ParticipantStateResponse>(userId, "ParticipantStateReadDenied", "Conversation", conversationId, "Conversation not found.", cancellationToken, "self_state_only");
+        }
+
+        var member = await messaging.GetMemberAsync(conversationId, userId, cancellationToken);
+        if (!IsActiveParticipant(member))
+        {
+            return await DenyAsync<ParticipantStateResponse>(userId, "ParticipantStateReadDenied", "Conversation", conversationId, "Conversation not found.", cancellationToken, "participant_removed");
+        }
+
+        return Result<ParticipantStateResponse>.Success(await ToParticipantStateAsync(member!, userId, cancellationToken));
+    }
+
+    public async Task<Result<ParticipantStateResponse>> UpdateParticipantStateAsync(Guid conversationId, UpdateParticipantStateRequest request, CancellationToken cancellationToken = default)
+    {
+        if (!TryCurrentUser(out var userId)) return Result<ParticipantStateResponse>.Failure("Conversation not found.");
+        if (!await authorization.CanViewConversation(userId, conversationId, cancellationToken))
+        {
+            return await DenyAsync<ParticipantStateResponse>(userId, "ParticipantStateUpdateDenied", "Conversation", conversationId, "Conversation not found.", cancellationToken, "self_state_only");
+        }
+
+        var member = await messaging.GetMemberAsync(conversationId, userId, cancellationToken);
+        if (!IsActiveParticipant(member))
+        {
+            return await DenyAsync<ParticipantStateResponse>(userId, "ParticipantStateUpdateDenied", "Conversation", conversationId, "Conversation not found.", cancellationToken, "participant_removed");
+        }
+
+        if (!await ValidateReadableConversationMessageAsync(userId, conversationId, request.LastReadMessageId, "cursor_message_denied", cancellationToken) ||
+            !await ValidateReadableConversationMessageAsync(userId, conversationId, request.UnreadCursorMessageId, "cursor_message_denied", cancellationToken))
+        {
+            return await DenyAsync<ParticipantStateResponse>(userId, "ParticipantStateUpdateDenied", "Conversation", conversationId, "Message not found.", cancellationToken, "cursor_message_denied");
+        }
+
+        var now = clock.UtcNow;
+        member!.LastOpenedAt = request.LastOpenedAt ?? now;
+        if (request.LastReadMessageId.HasValue)
+        {
+            member.LastReadMessageId = request.LastReadMessageId;
+            member.LastReadAt = now;
+            var state = await messaging.GetReadStateAsync(conversationId, userId, cancellationToken);
+            if (state is null)
+            {
+                state = new ReadState { UserId = userId, ScopeType = ReadScopeType.Conversation, ScopeId = conversationId, ConversationId = conversationId };
+                await messaging.AddReadStateAsync(state, cancellationToken);
+            }
+
+            state.LastReadMessageId = request.LastReadMessageId;
+            state.LastReadItemId = request.LastReadMessageId;
+            state.LastReadAt = now;
+        }
+
+        if (request.UnreadCursorMessageId.HasValue)
+        {
+            member.UnreadCursorMessageId = request.UnreadCursorMessageId;
+        }
+
+        if (request.IsMuted.HasValue)
+        {
+            member.IsMuted = request.IsMuted.Value;
+        }
+
+        if (request.IsArchived.HasValue)
+        {
+            member.IsArchived = request.IsArchived.Value;
+        }
+
+        await AuditParticipantStateAsync(userId, "update_participant_state", conversationId, "allow", "self_state_only", cancellationToken);
+        await unitOfWork.SaveChangesAsync(cancellationToken);
+        return Result<ParticipantStateResponse>.Success(await ToParticipantStateAsync(member, userId, cancellationToken));
     }
 
     private bool TryCurrentUser(out Guid userId) { userId = currentUser.UserId ?? Guid.Empty; return currentUser.IsAuthenticated && currentUser.UserId.HasValue; }
@@ -426,6 +510,23 @@ public sealed class ConversationService(
     }
 
     private Task AuditAsync(Guid actorUserId, string action, Guid targetId, CancellationToken cancellationToken) => auditLogger.LogAsync(new AuditLogEntry(actorUserId, action, "Message", targetId), cancellationToken);
+    private Task AuditParticipantStateAsync(Guid actorUserId, string operation, Guid conversationId, string decision, string reasonCode, CancellationToken cancellationToken)
+    {
+        return auditLogger.LogAsync(new AuditLogEntry(
+            actorUserId,
+            operation == "mark_read" ? "ConversationMarkedRead" : "ParticipantStateUpdated",
+            "Conversation",
+            conversationId,
+            "Conversation participant state updated.",
+            Metadata: new Dictionary<string, object?>
+            {
+                ["operation"] = operation,
+                ["decision"] = decision,
+                ["reasonCode"] = reasonCode
+            }),
+            cancellationToken);
+    }
+
     private async Task<Result<T>> DenyAsync<T>(Guid actorUserId, string action, string entityType, Guid entityId, string error, CancellationToken cancellationToken, string? reasonCode = null)
     {
         await auditLogger.LogAsync(new AuditLogEntry(
@@ -452,6 +553,7 @@ public sealed class ConversationService(
         await unitOfWork.SaveChangesAsync(cancellationToken);
         return Result.Failure(error);
     }
+
     private async Task<ConversationDetailResponse> ToDetailAsync(Conversation conversation, CancellationToken cancellationToken) => new(
         conversation.Id,
         conversation.WorkspaceId,
@@ -465,6 +567,39 @@ public sealed class ConversationService(
         (await messaging.ListMembersAsync(conversation.Id, cancellationToken)).Select(ToMember).ToList(),
         conversation.CreatedAt,
         conversation.UpdatedAt);
+
+    private async Task<ParticipantStateResponse> ToParticipantStateAsync(ConversationMember member, Guid actorUserId, CancellationToken cancellationToken)
+    {
+        var unread = await messaging.CountUnreadMessagesAsync(member.ConversationId, actorUserId, member.LastReadAt, cancellationToken);
+        return new ParticipantStateResponse(
+            member.Id,
+            member.UserId,
+            member.ConversationId,
+            member.LastOpenedAt,
+            member.LastReadMessageId,
+            member.LastReadAt,
+            member.UnreadCursorMessageId,
+            unread,
+            member.IsMuted,
+            member.IsArchived,
+            member.CreatedAt,
+            member.UpdatedAt);
+    }
+
+    private async Task<bool> ValidateReadableConversationMessageAsync(Guid actorUserId, Guid conversationId, Guid? messageId, string reasonCode, CancellationToken cancellationToken)
+    {
+        if (!messageId.HasValue)
+        {
+            return true;
+        }
+
+        var message = await messaging.GetMessageAsync(messageId.Value, cancellationToken);
+        return message is not null &&
+            message.ConversationId == conversationId &&
+            !message.DeletedAt.HasValue &&
+            await authorization.CanViewConversation(actorUserId, message.ConversationId, cancellationToken);
+    }
+
     private async Task<IReadOnlyDictionary<string, object?>> BuildDenialMetadataAsync(Guid actorUserId, string action, string entityType, Guid entityId, string? reasonCode, CancellationToken cancellationToken)
     {
         return new Dictionary<string, object?>
@@ -494,6 +629,8 @@ public sealed class ConversationService(
         return action switch
         {
             "ConversationAccessDenied" or "ConversationReadDenied" => "participant_read_denied",
+            "ParticipantStateReadDenied" => "self_state_only",
+            "ParticipantStateUpdateDenied" => "state_update_denied",
             "MessageSendDenied" => "participant_post_denied",
             "ConversationManageDenied" => "participant_manage_members_denied",
             "ConversationThreadCreateDenied" => "participant_thread_create_denied",
