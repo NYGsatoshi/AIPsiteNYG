@@ -124,6 +124,10 @@ public sealed class ConversationService(
                 ConversationId = conversation.Id,
                 UserId = memberId,
                 Role = memberId == userId ? ConversationMemberRole.Admin : ConversationMemberRole.Member,
+                CanRead = true,
+                CanPost = true,
+                CanManageMembers = memberId == userId,
+                CanCreateThread = true,
                 JoinedAt = clock.UtcNow
             }, cancellationToken);
         }
@@ -193,11 +197,25 @@ public sealed class ConversationService(
         var conversation = await messaging.GetConversationAsync(conversationId, cancellationToken);
         if (conversation is null || conversation.Type == ConversationType.DirectMessage) return Result<ConversationMemberResponse>.Failure("Direct conversations cannot add extra members.");
         if (conversation.Type == ConversationType.Thread) return Result<ConversationMemberResponse>.Failure("Thread membership is inherited from the parent conversation.");
-        if (await messaging.GetMemberAsync(conversationId, request.UserId, cancellationToken) is not null) return Result<ConversationMemberResponse>.Failure("User is already a conversation member.");
+        var existingMember = await messaging.GetMemberAsync(conversationId, request.UserId, cancellationToken);
+        if (IsActiveParticipant(existingMember)) return Result<ConversationMemberResponse>.Failure("User is already a conversation member.");
         var user = await users.GetByIdAsync(request.UserId, cancellationToken);
         if (user is null) return Result<ConversationMemberResponse>.Failure("User not found.");
-        var member = new ConversationMember { ConversationId = conversationId, UserId = request.UserId, User = user, Role = ConversationMemberRole.Member, JoinedAt = clock.UtcNow };
-        await messaging.AddMemberAsync(member, cancellationToken);
+        var member = existingMember ?? new ConversationMember { ConversationId = conversationId, UserId = request.UserId };
+        member.User = user;
+        member.Role = ConversationMemberRole.Member;
+        member.CanRead = true;
+        member.CanPost = true;
+        member.CanManageMembers = false;
+        member.CanCreateThread = true;
+        member.JoinedAt = clock.UtcNow;
+        member.LeftAt = null;
+        member.RemovedAt = null;
+        member.RemovedByUserId = null;
+        if (existingMember is null)
+        {
+            await messaging.AddMemberAsync(member, cancellationToken);
+        }
         await AuditAsync(userId, "ConversationMemberAdded", conversationId, cancellationToken);
         await unitOfWork.SaveChangesAsync(cancellationToken);
         return Result<ConversationMemberResponse>.Success(ToMember(member));
@@ -214,6 +232,8 @@ public sealed class ConversationService(
         var member = await messaging.GetMemberAsync(conversationId, removeUserId, cancellationToken);
         if (member is null) return Result.Failure("Conversation member not found.");
         member.LeftAt = clock.UtcNow;
+        member.RemovedAt = member.LeftAt;
+        member.RemovedByUserId = userId;
         await AuditAsync(userId, "ConversationMemberRemoved", conversationId, cancellationToken);
         await unitOfWork.SaveChangesAsync(cancellationToken);
         return Result.Success();
@@ -257,7 +277,7 @@ public sealed class ConversationService(
             await AuditAsync(userId, "MessageAttachmentAdded", message.Id, cancellationToken);
         }
         var members = await messaging.ListMembersAsync(conversationId, cancellationToken);
-        foreach (var member in members.Where(m => m.UserId != userId && m.LeftAt is null))
+        foreach (var member in members.Where(m => m.UserId != userId && IsActiveParticipant(m)))
         {
             await notifications.NotifyAsync(member.UserId, "New direct message", "You have a new message.", "Message", message.Id, cancellationToken);
         }
@@ -350,9 +370,9 @@ public sealed class ConversationService(
             return Result<ConversationDetailResponse>.Failure("Parent conversation cannot accept threads.");
         }
 
-        if (!await authorization.CanViewConversation(userId, parent.Id, cancellationToken))
+        if (!await authorization.CanCreateThread(userId, parent.Id, cancellationToken))
         {
-            return await DenyAsync<ConversationDetailResponse>(userId, "ConversationAccessDenied", "Conversation", parent.Id, "Parent conversation not found.", cancellationToken);
+            return await DenyAsync<ConversationDetailResponse>(userId, "ConversationThreadCreateDenied", "Conversation", parent.Id, "Parent conversation not found.", cancellationToken, "participant_thread_create_denied");
         }
 
         if (request.WorkspaceId.HasValue && request.WorkspaceId.Value != parent.WorkspaceId)
@@ -366,7 +386,7 @@ public sealed class ConversationService(
         }
 
         var parentMembers = (await messaging.ListMembersAsync(parent.Id, cancellationToken))
-            .Where(member => member.LeftAt is null)
+            .Where(IsActiveParticipant)
             .ToList();
         var requestedMembers = request.MemberUserIds.Distinct().ToList();
         if (requestedMembers.Any(memberId => parentMembers.All(parentMember => parentMember.UserId != memberId)))
@@ -392,6 +412,10 @@ public sealed class ConversationService(
                 ConversationId = conversation.Id,
                 UserId = parentMember.UserId,
                 Role = parentMember.Role,
+                CanRead = parentMember.CanRead,
+                CanPost = parentMember.CanPost,
+                CanManageMembers = false,
+                CanCreateThread = parentMember.CanCreateThread,
                 JoinedAt = clock.UtcNow
             }, cancellationToken);
         }
@@ -402,15 +426,29 @@ public sealed class ConversationService(
     }
 
     private Task AuditAsync(Guid actorUserId, string action, Guid targetId, CancellationToken cancellationToken) => auditLogger.LogAsync(new AuditLogEntry(actorUserId, action, "Message", targetId), cancellationToken);
-    private async Task<Result<T>> DenyAsync<T>(Guid actorUserId, string action, string entityType, Guid entityId, string error, CancellationToken cancellationToken)
+    private async Task<Result<T>> DenyAsync<T>(Guid actorUserId, string action, string entityType, Guid entityId, string error, CancellationToken cancellationToken, string? reasonCode = null)
     {
-        await auditLogger.LogAsync(new AuditLogEntry(actorUserId, action, entityType, entityId, "Conversation access denied."), cancellationToken);
+        await auditLogger.LogAsync(new AuditLogEntry(
+            actorUserId,
+            action,
+            entityType,
+            entityId,
+            "Conversation access denied.",
+            Metadata: await BuildDenialMetadataAsync(actorUserId, action, entityType, entityId, reasonCode, cancellationToken)),
+            cancellationToken);
         await unitOfWork.SaveChangesAsync(cancellationToken);
         return Result<T>.Failure(error);
     }
-    private async Task<Result> DenyAsync(Guid actorUserId, string action, string entityType, Guid entityId, string error, CancellationToken cancellationToken)
+    private async Task<Result> DenyAsync(Guid actorUserId, string action, string entityType, Guid entityId, string error, CancellationToken cancellationToken, string? reasonCode = null)
     {
-        await auditLogger.LogAsync(new AuditLogEntry(actorUserId, action, entityType, entityId, "Conversation access denied."), cancellationToken);
+        await auditLogger.LogAsync(new AuditLogEntry(
+            actorUserId,
+            action,
+            entityType,
+            entityId,
+            "Conversation access denied.",
+            Metadata: await BuildDenialMetadataAsync(actorUserId, action, entityType, entityId, reasonCode, cancellationToken)),
+            cancellationToken);
         await unitOfWork.SaveChangesAsync(cancellationToken);
         return Result.Failure(error);
     }
@@ -427,6 +465,58 @@ public sealed class ConversationService(
         (await messaging.ListMembersAsync(conversation.Id, cancellationToken)).Select(ToMember).ToList(),
         conversation.CreatedAt,
         conversation.UpdatedAt);
-    private static ConversationMemberResponse ToMember(ConversationMember member) => new(member.UserId, member.User?.DisplayName ?? string.Empty, member.User?.Email ?? string.Empty, member.Role, member.JoinedAt, member.LeftAt);
+    private async Task<IReadOnlyDictionary<string, object?>> BuildDenialMetadataAsync(Guid actorUserId, string action, string entityType, Guid entityId, string? reasonCode, CancellationToken cancellationToken)
+    {
+        return new Dictionary<string, object?>
+        {
+            ["targetOperation"] = action,
+            ["decision"] = "deny",
+            ["reasonCode"] = reasonCode ?? DefaultReasonCode(action),
+            ["participantState"] = entityType == "Conversation"
+                ? await GetParticipantStateAsync(entityId, actorUserId, cancellationToken)
+                : "unknown"
+        };
+    }
+
+    private async Task<string> GetParticipantStateAsync(Guid conversationId, Guid actorUserId, CancellationToken cancellationToken)
+    {
+        var member = await messaging.GetMemberAsync(conversationId, actorUserId, cancellationToken);
+        if (member is null)
+        {
+            return "missing";
+        }
+
+        return IsActiveParticipant(member) ? "active" : "removed";
+    }
+
+    private static string DefaultReasonCode(string action)
+    {
+        return action switch
+        {
+            "ConversationAccessDenied" or "ConversationReadDenied" => "participant_read_denied",
+            "MessageSendDenied" => "participant_post_denied",
+            "ConversationManageDenied" => "participant_manage_members_denied",
+            "ConversationThreadCreateDenied" => "participant_thread_create_denied",
+            _ => "participant_missing"
+        };
+    }
+
+    private static bool IsActiveParticipant(ConversationMember? member)
+    {
+        return member is { LeftAt: null, RemovedAt: null, CanRead: true };
+    }
+
+    private static ConversationMemberResponse ToMember(ConversationMember member) => new(
+        member.UserId,
+        member.User?.DisplayName ?? string.Empty,
+        member.User?.Email ?? string.Empty,
+        member.Role,
+        member.CanRead,
+        member.CanPost,
+        member.CanManageMembers,
+        member.CanCreateThread,
+        member.JoinedAt,
+        member.LeftAt,
+        member.RemovedAt);
     private static MessageResponse ToMessage(Message message) => new(message.Id, message.WorkspaceId, message.ConversationId, message.AuthorUserId, message.AuthorUser?.DisplayName ?? string.Empty, message.DeletedAt.HasValue ? string.Empty : message.Body, message.Attachments.Select(a => new AttachmentResponse(a.AttachmentId, a.Attachment?.FileName ?? string.Empty, a.Attachment?.ContentType ?? string.Empty, a.Attachment?.SizeBytes ?? 0)).ToList(), message.CreatedAt, message.UpdatedAt, message.EditedAt, message.DeletedAt.HasValue);
 }

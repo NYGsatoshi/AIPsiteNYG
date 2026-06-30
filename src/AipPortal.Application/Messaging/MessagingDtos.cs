@@ -47,7 +47,18 @@ public sealed record ConversationListQuery(int Page = 1, int PageSize = 20)
 
 public sealed record UpdateConversationRequest(string? Title);
 
-public sealed record ConversationMemberResponse(Guid UserId, string DisplayName, string Email, ConversationMemberRole Role, DateTimeOffset JoinedAt, DateTimeOffset? LeftAt);
+public sealed record ConversationMemberResponse(
+    Guid UserId,
+    string DisplayName,
+    string Email,
+    ConversationMemberRole Role,
+    bool CanRead,
+    bool CanPost,
+    bool CanManageMembers,
+    bool CanCreateThread,
+    DateTimeOffset JoinedAt,
+    DateTimeOffset? LeftAt,
+    DateTimeOffset? RemovedAt);
 
 public sealed record AddConversationMemberRequest(Guid UserId);
 

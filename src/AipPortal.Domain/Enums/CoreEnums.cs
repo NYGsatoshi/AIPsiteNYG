@@ -152,7 +152,8 @@ public enum ConversationType
 public enum ConversationMemberRole
 {
     Admin = 0,
-    Member = 1
+    Member = 1,
+    ReadOnly = 2
 }
 
 public enum ReadScopeType

@@ -188,6 +188,134 @@ public sealed class HttpTenantIsolationTests
     }
 
     [Fact]
+    public async Task DmBodyAndMessageListStayParticipantOnlyEvenForElevatedTenantUsers()
+    {
+        await using var app = await HttpTenantIsolationTestApp.CreateAsync();
+        var data = app.Data;
+
+        var deniedAdminMessages = await app.SendAsync(data.TenantAAdmin, data.TenantA.Slug, $"/api/conversations/{data.ConversationA.Id}/messages");
+        var deniedAdminMessagesBody = await deniedAdminMessages.Content.ReadAsStringAsync();
+
+        Assert.Equal(HttpStatusCode.BadRequest, deniedAdminMessages.StatusCode);
+        Assert.DoesNotContain(data.MessageA.Body, deniedAdminMessagesBody, StringComparison.Ordinal);
+        Assert.DoesNotContain(data.TenantAMember.Email, deniedAdminMessagesBody, StringComparison.OrdinalIgnoreCase);
+
+        var deniedAdminDetail = await app.SendAsync(data.TenantAAdmin, data.TenantA.Slug, $"/api/conversations/{data.ConversationA.Id}");
+        var deniedAdminDetailBody = await deniedAdminDetail.Content.ReadAsStringAsync();
+
+        Assert.Equal(HttpStatusCode.BadRequest, deniedAdminDetail.StatusCode);
+        Assert.DoesNotContain(data.MessageA.Body, deniedAdminDetailBody, StringComparison.Ordinal);
+        Assert.DoesNotContain(data.TenantAMember.Email, deniedAdminDetailBody, StringComparison.OrdinalIgnoreCase);
+    }
+
+    [Fact]
+    public async Task ReadOnlyAndRemovedParticipantsCannotPostOrCreateThreads()
+    {
+        await using var app = await HttpTenantIsolationTestApp.CreateAsync();
+        var data = app.Data;
+
+        await app.UpdateConversationMemberAsync(data.TenantA.Id, data.TenantA.Slug, data.ConversationA.Id, data.TenantAMember.Id, member =>
+        {
+            member.Role = ConversationMemberRole.ReadOnly;
+            member.CanPost = false;
+            member.CanCreateThread = false;
+        });
+
+        using var postContent = JsonContent("""{"body":"B-07 readonly post body","attachments":[]}""");
+        var postResponse = await app.SendAsync(data.TenantAMember, data.TenantA.Slug, $"/api/conversations/{data.ConversationA.Id}/messages", HttpMethod.Post, postContent);
+        var postBody = await postResponse.Content.ReadAsStringAsync();
+
+        Assert.Equal(HttpStatusCode.BadRequest, postResponse.StatusCode);
+        Assert.DoesNotContain("B-07 readonly post body", postBody, StringComparison.Ordinal);
+
+        using var threadContent = JsonContent($$"""
+            {"type":"Thread","workspaceId":"{{data.WorkspaceA.Id:D}}","parentConversationId":"{{data.ConversationA.Id:D}}","title":"B-07 readonly thread","memberUserIds":[]}
+            """);
+        var threadResponse = await app.SendAsync(data.TenantAMember, data.TenantA.Slug, "/api/conversations", HttpMethod.Post, threadContent);
+        var threadBody = await threadResponse.Content.ReadAsStringAsync();
+
+        Assert.Equal(HttpStatusCode.BadRequest, threadResponse.StatusCode);
+        Assert.DoesNotContain("B-07 readonly thread", threadBody, StringComparison.Ordinal);
+
+        await app.UpdateConversationMemberAsync(data.TenantA.Id, data.TenantA.Slug, data.ConversationA.Id, data.TenantAMember.Id, member =>
+        {
+            member.Role = ConversationMemberRole.Member;
+            member.CanPost = true;
+            member.CanCreateThread = true;
+            member.LeftAt = DateTimeOffset.UtcNow;
+            member.RemovedAt = DateTimeOffset.UtcNow;
+            member.RemovedByUserId = data.CrossTenantUser.Id;
+        });
+
+        using var removedPostContent = JsonContent("""{"body":"B-07 removed post body","attachments":[]}""");
+        var removedPostResponse = await app.SendAsync(data.TenantAMember, data.TenantA.Slug, $"/api/conversations/{data.ConversationA.Id}/messages", HttpMethod.Post, removedPostContent);
+        var removedPostBody = await removedPostResponse.Content.ReadAsStringAsync();
+
+        Assert.Equal(HttpStatusCode.BadRequest, removedPostResponse.StatusCode);
+        Assert.DoesNotContain("B-07 removed post body", removedPostBody, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public async Task ThreadAccessRequiresParentConversationParticipantBoundary()
+    {
+        await using var app = await HttpTenantIsolationTestApp.CreateAsync();
+        var data = app.Data;
+
+        using var threadContent = JsonContent($$"""
+            {"type":"Thread","workspaceId":"{{data.WorkspaceA.Id:D}}","parentConversationId":"{{data.ConversationA.Id:D}}","title":"B-07 parent scoped thread","memberUserIds":[]}
+            """);
+        var threadResponse = await app.SendAsync(data.CrossTenantUser, data.TenantA.Slug, "/api/conversations", HttpMethod.Post, threadContent);
+        var threadBody = await threadResponse.Content.ReadAsStringAsync();
+        var threadId = ReadResponseId(threadBody);
+
+        Assert.Equal(HttpStatusCode.OK, threadResponse.StatusCode);
+
+        using var threadMessageContent = JsonContent("""{"body":"B-07 thread private body","attachments":[]}""");
+        var sendThreadMessage = await app.SendAsync(data.CrossTenantUser, data.TenantA.Slug, $"/api/conversations/{threadId}/messages", HttpMethod.Post, threadMessageContent);
+        Assert.Equal(HttpStatusCode.OK, sendThreadMessage.StatusCode);
+
+        await app.UpdateConversationMemberAsync(data.TenantA.Id, data.TenantA.Slug, data.ConversationA.Id, data.CrossTenantUser.Id, member =>
+        {
+            member.LeftAt = DateTimeOffset.UtcNow;
+            member.RemovedAt = DateTimeOffset.UtcNow;
+            member.RemovedByUserId = data.TenantAMember.Id;
+        });
+
+        var deniedThreadRead = await app.SendAsync(data.CrossTenantUser, data.TenantA.Slug, $"/api/conversations/{threadId}/messages");
+        var deniedThreadReadBody = await deniedThreadRead.Content.ReadAsStringAsync();
+
+        Assert.Equal(HttpStatusCode.BadRequest, deniedThreadRead.StatusCode);
+        Assert.DoesNotContain("B-07 thread private body", deniedThreadReadBody, StringComparison.Ordinal);
+        Assert.DoesNotContain(data.MessageA.Body, deniedThreadReadBody, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public async Task ProjectChannelBodyStillRequiresConversationParticipantMembership()
+    {
+        await using var app = await HttpTenantIsolationTestApp.CreateAsync();
+        var data = app.Data;
+
+        using var projectContent = JsonContent($$"""
+            {"type":"ProjectChannel","workspaceId":"{{data.WorkspaceA.Id:D}}","projectId":"{{data.ProjectA.Id:D}}","title":"B-07 Project Channel","memberUserIds":[]}
+            """);
+        var projectResponse = await app.SendAsync(data.CrossTenantUser, data.TenantA.Slug, "/api/conversations", HttpMethod.Post, projectContent);
+        var projectBody = await projectResponse.Content.ReadAsStringAsync();
+        var projectChannelId = ReadResponseId(projectBody);
+
+        Assert.Equal(HttpStatusCode.OK, projectResponse.StatusCode);
+
+        using var messageContent = JsonContent("""{"body":"B-07 project channel private body","attachments":[]}""");
+        var sendResponse = await app.SendAsync(data.CrossTenantUser, data.TenantA.Slug, $"/api/conversations/{projectChannelId}/messages", HttpMethod.Post, messageContent);
+        Assert.Equal(HttpStatusCode.OK, sendResponse.StatusCode);
+
+        var deniedProjectMember = await app.SendAsync(data.TenantAMember, data.TenantA.Slug, $"/api/conversations/{projectChannelId}/messages");
+        var deniedProjectMemberBody = await deniedProjectMember.Content.ReadAsStringAsync();
+
+        Assert.Equal(HttpStatusCode.BadRequest, deniedProjectMember.StatusCode);
+        Assert.DoesNotContain("B-07 project channel private body", deniedProjectMemberBody, StringComparison.Ordinal);
+    }
+
+    [Fact]
     public async Task ConversationCreateSupportsOnlyMvpTypesAndKeepsScopeFields()
     {
         await using var app = await HttpTenantIsolationTestApp.CreateAsync();
@@ -583,6 +711,17 @@ public sealed class HttpTenantIsolationTests
             });
             await dbContext.SaveChangesAsync();
             return workspace.Id;
+        }
+
+        public async Task UpdateConversationMemberAsync(Guid tenantId, string tenantSlug, Guid conversationId, Guid userId, Action<ConversationMember> update)
+        {
+            await using var scope = App.Services.CreateAsyncScope();
+            var currentTenant = scope.ServiceProvider.GetRequiredService<CurrentTenantService>();
+            currentTenant.SetTenant(tenantId, tenantSlug);
+            var dbContext = scope.ServiceProvider.GetRequiredService<AppDbContext>();
+            var member = await dbContext.ConversationMembers.FirstAsync(item => item.ConversationId == conversationId && item.UserId == userId);
+            update(member);
+            await dbContext.SaveChangesAsync();
         }
 
         public async ValueTask DisposeAsync()

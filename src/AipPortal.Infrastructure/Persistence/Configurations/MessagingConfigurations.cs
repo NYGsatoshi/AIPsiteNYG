@@ -65,12 +65,18 @@ public sealed class ConversationMemberConfiguration : IEntityTypeConfiguration<C
 
         builder.Property(member => member.JoinedAt).IsRequired();
         builder.Property(member => member.Role).HasEnumStringConversion().IsRequired();
+        builder.Property(member => member.CanRead).IsRequired().HasDefaultValue(true);
+        builder.Property(member => member.CanPost).IsRequired().HasDefaultValue(true);
+        builder.Property(member => member.CanManageMembers).IsRequired().HasDefaultValue(false);
+        builder.Property(member => member.CanCreateThread).IsRequired().HasDefaultValue(true);
 
         builder.HasIndex(member => new { member.TenantId, member.ConversationId, member.UserId }).IsUnique();
         builder.HasIndex(member => new { member.TenantId, member.UserId });
         builder.HasIndex(member => member.UserId);
         builder.HasIndex(member => member.LastReadMessageId);
         builder.HasIndex(member => member.LeftAt);
+        builder.HasIndex(member => member.RemovedAt);
+        builder.HasIndex(member => member.RemovedByUserId);
 
         builder
             .HasOne(member => member.Conversation)
@@ -82,6 +88,12 @@ public sealed class ConversationMemberConfiguration : IEntityTypeConfiguration<C
             .HasOne(member => member.User)
             .WithMany()
             .HasForeignKey(member => member.UserId)
+            .OnDelete(DeleteBehavior.Restrict);
+
+        builder
+            .HasOne(member => member.RemovedByUser)
+            .WithMany()
+            .HasForeignKey(member => member.RemovedByUserId)
             .OnDelete(DeleteBehavior.Restrict);
 
         builder

@@ -32,12 +32,19 @@ public sealed class ConversationMember : AuditableEntity, ITenantEntity
     public Guid ConversationId { get; set; }
     public Guid UserId { get; set; }
     public ConversationMemberRole Role { get; set; } = ConversationMemberRole.Member;
+    public bool CanRead { get; set; } = true;
+    public bool CanPost { get; set; } = true;
+    public bool CanManageMembers { get; set; }
+    public bool CanCreateThread { get; set; } = true;
     public DateTimeOffset JoinedAt { get; set; }
     public DateTimeOffset? LeftAt { get; set; }
+    public DateTimeOffset? RemovedAt { get; set; }
+    public Guid? RemovedByUserId { get; set; }
     public Guid? LastReadMessageId { get; set; }
 
     public Conversation? Conversation { get; set; }
     public User? User { get; set; }
+    public User? RemovedByUser { get; set; }
     public Message? LastReadMessage { get; set; }
 }
 

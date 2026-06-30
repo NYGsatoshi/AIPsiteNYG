@@ -11,7 +11,11 @@ public sealed class MessagingRepository(AppDbContext dbContext) : IMessagingRepo
     {
         var query = dbContext.Conversations
             .AsNoTracking()
-            .Where(c => c.Members.Any(m => m.UserId == userId && m.LeftAt == null))
+            .Where(c =>
+                (c.Type == Domain.Enums.ConversationType.DirectMessage ||
+                    c.Type == Domain.Enums.ConversationType.ProjectChannel ||
+                    c.Type == Domain.Enums.ConversationType.Thread) &&
+                c.Members.Any(m => m.UserId == userId && m.LeftAt == null && m.RemovedAt == null && m.CanRead))
             .OrderByDescending(c => c.UpdatedAt ?? c.CreatedAt);
 
         var total = await query.CountAsync(cancellationToken);
@@ -32,7 +36,10 @@ public sealed class MessagingRepository(AppDbContext dbContext) : IMessagingRepo
     {
         return dbContext.Conversations
             .Where(c => c.WorkspaceId == workspaceId && c.Type == Domain.Enums.ConversationType.DirectMessage && c.Members.Count == 2)
-            .FirstOrDefaultAsync(c => c.Members.Any(m => m.UserId == userAId) && c.Members.Any(m => m.UserId == userBId), cancellationToken);
+            .FirstOrDefaultAsync(c =>
+                c.Members.Any(m => m.UserId == userAId && m.LeftAt == null && m.RemovedAt == null && m.CanRead) &&
+                c.Members.Any(m => m.UserId == userBId && m.LeftAt == null && m.RemovedAt == null && m.CanRead),
+                cancellationToken);
     }
 
     public Task<ConversationMember?> GetMemberAsync(Guid conversationId, Guid userId, CancellationToken cancellationToken = default)
