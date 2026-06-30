@@ -34,6 +34,28 @@ public sealed class ConversationAuthorizationService(IMessagingRepository messag
             (member.Role == ConversationMemberRole.Admin || member.CanManageMembers);
     }
 
+    public async Task<bool> CanModerateConversation(Guid userId, Guid conversationId, CancellationToken cancellationToken = default)
+    {
+        var conversation = await messaging.GetConversationAsync(conversationId, cancellationToken);
+        if (conversation is null ||
+            !IsSupportedMvpType(conversation.Type) ||
+            !await IsConversationScopeAllowed(userId, conversation, cancellationToken))
+        {
+            return false;
+        }
+
+        var member = await messaging.GetMemberAsync(conversationId, userId, cancellationToken);
+        if (member is null ||
+            !IsActiveParticipant(member) ||
+            (member.Role != ConversationMemberRole.Admin && !member.CanManageMembers))
+        {
+            return false;
+        }
+
+        return conversation.Type != ConversationType.Thread ||
+            await CanModerateConversation(userId, conversation.ParentConversationId ?? Guid.Empty, cancellationToken);
+    }
+
     public async Task<bool> CanCreateThread(Guid userId, Guid parentConversationId, CancellationToken cancellationToken = default)
     {
         var parent = await messaging.GetConversationAsync(parentConversationId, cancellationToken);
@@ -61,7 +83,7 @@ public sealed class ConversationAuthorizationService(IMessagingRepository messag
         return message is not null &&
             message.AuthorUserId == userId &&
             !message.DeletedAt.HasValue &&
-            await CanViewConversation(userId, message.ConversationId, cancellationToken);
+            await CanSendMessage(userId, message.ConversationId, cancellationToken);
     }
 
     public async Task<bool> CanDeleteMessage(Guid userId, Guid messageId, CancellationToken cancellationToken = default)
@@ -70,7 +92,7 @@ public sealed class ConversationAuthorizationService(IMessagingRepository messag
         return message is not null &&
             !message.DeletedAt.HasValue &&
             ((message.AuthorUserId == userId && await CanViewConversation(userId, message.ConversationId, cancellationToken)) ||
-            await CanManageConversation(userId, message.ConversationId, cancellationToken));
+            await CanModerateConversation(userId, message.ConversationId, cancellationToken));
     }
 
     private async Task<bool> CanViewConversationCore(Guid userId, Guid conversationId, HashSet<Guid> visited, CancellationToken cancellationToken)

@@ -20,6 +20,18 @@ public sealed class ConversationsController(IConversationService conversations) 
     [HttpPatch("api/conversations/{conversationId:guid}")]
     public async Task<IActionResult> Update(Guid conversationId, UpdateConversationRequest request, CancellationToken cancellationToken) => ToActionResult(await conversations.UpdateAsync(conversationId, request, cancellationToken));
 
+    [HttpPost("api/conversations/{conversationId:guid}/lock")]
+    public async Task<IActionResult> Lock(Guid conversationId, ConversationLockRequest request, CancellationToken cancellationToken) => ToActionResult(await conversations.LockAsync(conversationId, request, cancellationToken));
+
+    [HttpPost("api/conversations/{conversationId:guid}/unlock")]
+    public async Task<IActionResult> Unlock(Guid conversationId, ConversationLockRequest request, CancellationToken cancellationToken) => ToActionResult(await conversations.UnlockAsync(conversationId, request, cancellationToken));
+
+    [HttpPost("api/conversations/{conversationId:guid}/archive")]
+    public async Task<IActionResult> Archive(Guid conversationId, CancellationToken cancellationToken) => ToActionResult(await conversations.ArchiveAsync(conversationId, cancellationToken));
+
+    [HttpPost("api/conversations/{conversationId:guid}/report")]
+    public async Task<IActionResult> ReportConversation(Guid conversationId, ConversationReportRequest request, CancellationToken cancellationToken) => OkOrBad(await conversations.ReportConversationAsync(conversationId, request, cancellationToken));
+
     [HttpPost("api/conversations/{conversationId:guid}/leave")]
     public async Task<IActionResult> Leave(Guid conversationId, CancellationToken cancellationToken) => OkOrBad(await conversations.LeaveAsync(conversationId, cancellationToken));
 
@@ -43,6 +55,9 @@ public sealed class ConversationsController(IConversationService conversations) 
 
     [HttpDelete("api/messages/{messageId:guid}")]
     public async Task<IActionResult> DeleteMessage(Guid messageId, CancellationToken cancellationToken) => OkOrBad(await conversations.DeleteMessageAsync(messageId, cancellationToken));
+
+    [HttpPost("api/messages/{messageId:guid}/report")]
+    public async Task<IActionResult> ReportMessage(Guid messageId, MessageReportRequest request, CancellationToken cancellationToken) => OkOrBad(await conversations.ReportMessageAsync(messageId, request, cancellationToken));
 
     [HttpGet("api/conversations/{conversationId:guid}/state")]
     public async Task<IActionResult> State(Guid conversationId, CancellationToken cancellationToken) => ToActionResult(await conversations.GetParticipantStateAsync(conversationId, cancellationToken));

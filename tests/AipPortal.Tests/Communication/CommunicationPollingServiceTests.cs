@@ -390,6 +390,7 @@ public sealed class CommunicationPollingServiceTests
 
         public Task<bool> CanSendMessage(Guid userId, Guid conversationId, CancellationToken cancellationToken = default) => Task.FromResult(true);
         public Task<bool> CanManageConversation(Guid userId, Guid conversationId, CancellationToken cancellationToken = default) => Task.FromResult(true);
+        public Task<bool> CanModerateConversation(Guid userId, Guid conversationId, CancellationToken cancellationToken = default) => Task.FromResult(true);
         public Task<bool> CanCreateThread(Guid userId, Guid parentConversationId, CancellationToken cancellationToken = default) => Task.FromResult(true);
         public Task<bool> CanEditMessage(Guid userId, Guid messageId, CancellationToken cancellationToken = default) => Task.FromResult(true);
         public Task<bool> CanDeleteMessage(Guid userId, Guid messageId, CancellationToken cancellationToken = default) => Task.FromResult(true);

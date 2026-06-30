@@ -49,6 +49,10 @@ public sealed record ConversationListQuery(int Page = 1, int PageSize = 20)
 
 public sealed record UpdateConversationRequest(string? Title);
 
+public sealed record ConversationLockRequest(string? ReasonCode = null);
+
+public sealed record ConversationReportRequest(string ReasonCode, string? Reason = null);
+
 public sealed record ConversationMemberResponse(
     Guid UserId,
     string DisplayName,
@@ -73,6 +77,8 @@ public sealed record MessageResponse(Guid Id, Guid WorkspaceId, Guid Conversatio
 public sealed record SendMessageRequest(string? Body, IReadOnlyList<AttachmentMetadataRequest>? Attachments = null);
 
 public sealed record UpdateMessageRequest(string Body);
+
+public sealed record MessageReportRequest(string ReasonCode, string? Reason = null);
 
 public sealed record MarkConversationReadRequest(Guid? LastReadMessageId);
 

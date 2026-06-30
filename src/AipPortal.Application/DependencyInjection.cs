@@ -59,6 +59,8 @@ public static class DependencyInjection
         services.AddScoped<IStudentRecordAuthorizationService, StudentRecordAuthorizationService>();
         services.AddScoped<INotificationApplicationService, NotificationApplicationService>();
         services.AddScoped<ICommunicationPollingService, CommunicationPollingService>();
+        services.AddSingleton(new CommunicationSafetyOptions());
+        services.AddSingleton<ICommunicationSafetyGuard, InMemoryCommunicationSafetyGuard>();
         services.AddScoped<IAnnouncementService, AnnouncementService>();
         services.AddScoped<IWorkspaceService, WorkspaceService>();
         services.AddScoped<IGroupService, GroupService>();

@@ -13,6 +13,8 @@ public sealed class ConversationService(
     IConversationAuthorizationService authorization,
     ICurrentUser currentUser,
     IClock clock,
+    CommunicationSafetyOptions safetyOptions,
+    ICommunicationSafetyGuard safetyGuard,
     IAuditLogger auditLogger,
     INotificationService notifications,
     IUnitOfWork unitOfWork) : IConversationService
@@ -259,19 +261,64 @@ public sealed class ConversationService(
         if (!TryCurrentUser(out var userId)) return Result<MessageResponse>.Failure("You are not allowed to send messages.");
         if (!await authorization.CanSendMessage(userId, conversationId, cancellationToken))
         {
-            return await DenyAsync<MessageResponse>(userId, "MessageSendDenied", "Conversation", conversationId, "You are not allowed to send messages.", cancellationToken);
+            return await DenyAsync<MessageResponse>(userId, "communication.message_post_denied", "Conversation", conversationId, "You are not allowed to send messages.", cancellationToken, "post_permission_denied");
         }
 
         var attachments = request.Attachments ?? [];
-        if (string.IsNullOrWhiteSpace(request.Body) && attachments.Count == 0) return Result<MessageResponse>.Failure("Message body or attachment is required.");
         var conversation = await messaging.GetConversationAsync(conversationId, cancellationToken);
         if (conversation is null) return Result<MessageResponse>.Failure("Conversation not found.");
+        var normalizedBody = request.Body?.Trim() ?? string.Empty;
+        if (!IsSupportedMvpType(conversation.Type))
+        {
+            return await DenyAsync<MessageResponse>(userId, "communication.message_post_denied", "Conversation", conversationId, "You are not allowed to send messages.", cancellationToken, "disabled_conversation_type");
+        }
+
+        if (conversation.IsArchived)
+        {
+            return await DenyAsync<MessageResponse>(userId, "communication.message_post_denied", "Conversation", conversationId, "You are not allowed to send messages.", cancellationToken, "archived_conversation");
+        }
+
+        if (conversation.IsLocked)
+        {
+            return await DenyAsync<MessageResponse>(userId, "communication.message_post_denied", "Conversation", conversationId, "You are not allowed to send messages.", cancellationToken, conversation.Type == ConversationType.Thread ? "locked_thread" : "locked_conversation");
+        }
+
+        if (string.IsNullOrWhiteSpace(normalizedBody) && attachments.Count == 0)
+        {
+            await LogCommunicationAuditAsync(userId, "communication.message_post_denied", "Conversation", conversation.Id, conversation, null, conversation.Type == ConversationType.Thread ? conversation.Id : null, "deny", "body_empty", cancellationToken);
+            await unitOfWork.SaveChangesAsync(cancellationToken);
+            return Result<MessageResponse>.Failure("Message body or attachment is required.");
+        }
+
+        if (normalizedBody.Length > safetyOptions.MaxMessageLength)
+        {
+            await LogCommunicationAuditAsync(userId, "communication.message_post_denied", "Conversation", conversation.Id, conversation, null, conversation.Type == ConversationType.Thread ? conversation.Id : null, "deny", "body_too_large", cancellationToken);
+            await unitOfWork.SaveChangesAsync(cancellationToken);
+            return Result<MessageResponse>.Failure("Message body is too large.");
+        }
+
+        if (attachments.Count > safetyOptions.MaxAttachmentsPerMessage)
+        {
+            await LogCommunicationAuditAsync(userId, "communication.message_post_denied", "Conversation", conversation.Id, conversation, null, conversation.Type == ConversationType.Thread ? conversation.Id : null, "deny", "attachment_count_too_large", cancellationToken);
+            await unitOfWork.SaveChangesAsync(cancellationToken);
+            return Result<MessageResponse>.Failure("Too many attachments.");
+        }
+
+        var safetyDecision = safetyGuard.CheckMessagePost(new CommunicationSafetyScope(userId, conversation.TenantId, conversation.WorkspaceId, conversation.Id), normalizedBody, clock.UtcNow);
+        if (!safetyDecision.IsAllowed)
+        {
+            var action = safetyDecision.ReasonCode == "duplicate_post" ? "communication.spam_guard_triggered" : "communication.rate_limited";
+            await LogCommunicationAuditAsync(userId, action, "Conversation", conversation.Id, conversation, null, conversation.Type == ConversationType.Thread ? conversation.Id : null, "deny", safetyDecision.ReasonCode, cancellationToken);
+            await unitOfWork.SaveChangesAsync(cancellationToken);
+            return Result<MessageResponse>.Failure("Message cannot be posted right now.");
+        }
+
         foreach (var attachment in attachments)
         {
             var extension = Path.GetExtension(attachment.FileName).ToLowerInvariant();
             if (attachment.FileSize <= 0 || attachment.FileSize > MaxAttachmentBytes || !AllowedExtensions.Contains(extension)) return Result<MessageResponse>.Failure("Attachment is not allowed.");
         }
-        var message = new Message { WorkspaceId = conversation.WorkspaceId, ConversationId = conversationId, AuthorUserId = userId, Body = request.Body?.Trim() ?? string.Empty };
+        var message = new Message { WorkspaceId = conversation.WorkspaceId, ConversationId = conversationId, AuthorUserId = userId, Body = normalizedBody };
         await messaging.AddMessageAsync(message, cancellationToken);
         foreach (var item in attachments)
         {
@@ -284,7 +331,7 @@ public sealed class ConversationService(
         {
             await notifications.NotifyAsync(member.UserId, "New direct message", "You have a new message.", "Message", message.Id, cancellationToken);
         }
-        await AuditAsync(userId, "MessageSent", message.Id, cancellationToken);
+        await LogCommunicationAuditAsync(userId, "communication.message_posted", "Message", message.Id, conversation, message.Id, conversation.Type == ConversationType.Thread ? conversation.Id : null, "allow", "posted", cancellationToken);
         await unitOfWork.SaveChangesAsync(cancellationToken);
         message.AuthorUser = await users.GetByIdAsync(userId, cancellationToken);
         return Result<MessageResponse>.Success(ToMessage(message));
@@ -295,14 +342,18 @@ public sealed class ConversationService(
         if (!TryCurrentUser(out var userId)) return Result<MessageResponse>.Failure("You are not allowed to edit this message.");
         if (!await authorization.CanEditMessage(userId, messageId, cancellationToken))
         {
-            return await DenyAsync<MessageResponse>(userId, "MessageEditDenied", "Message", messageId, "You are not allowed to edit this message.", cancellationToken);
+            return await DenyAsync<MessageResponse>(userId, "communication.message_edit_denied", "Message", messageId, "You are not allowed to edit this message.", cancellationToken, "author_required");
         }
 
         if (string.IsNullOrWhiteSpace(request.Body)) return Result<MessageResponse>.Failure("Message body is required.");
+        var normalizedBody = request.Body.Trim();
+        if (normalizedBody.Length > safetyOptions.MaxMessageLength) return Result<MessageResponse>.Failure("Message body is too large.");
         var message = await messaging.GetMessageAsync(messageId, cancellationToken);
-        message!.Body = request.Body.Trim();
+        var conversation = await messaging.GetConversationAsync(message!.ConversationId, cancellationToken);
+        if (conversation is null) return Result<MessageResponse>.Failure("Message not found.");
+        message.Body = normalizedBody;
         message.EditedAt = clock.UtcNow;
-        await AuditAsync(userId, "MessageEdited", message.Id, cancellationToken);
+        await LogCommunicationAuditAsync(userId, "communication.message_edited", "Message", message.Id, conversation, message.Id, conversation.Type == ConversationType.Thread ? conversation.Id : null, "allow", "author", cancellationToken);
         await unitOfWork.SaveChangesAsync(cancellationToken);
         return Result<MessageResponse>.Success(ToMessage(message));
     }
@@ -312,12 +363,63 @@ public sealed class ConversationService(
         if (!TryCurrentUser(out var userId)) return Result.Failure("You are not allowed to delete this message.");
         if (!await authorization.CanDeleteMessage(userId, messageId, cancellationToken))
         {
-            return await DenyAsync(userId, "MessageDeleteDenied", "Message", messageId, "You are not allowed to delete this message.", cancellationToken);
+            return await DenyAsync(userId, "communication.message_delete_denied", "Message", messageId, "You are not allowed to delete this message.", cancellationToken, "moderation_permission_denied");
         }
 
         var message = await messaging.GetMessageAsync(messageId, cancellationToken);
-        message!.MarkDeleted(clock.UtcNow);
-        await AuditAsync(userId, "MessageDeleted", message.Id, cancellationToken);
+        var conversation = await messaging.GetConversationAsync(message!.ConversationId, cancellationToken);
+        if (conversation is null) return Result.Failure("Message not found.");
+        var reasonCode = message.AuthorUserId == userId ? "author_delete" : "moderation_delete";
+        message.MarkDeleted(clock.UtcNow, userId, reasonCode);
+        message.Body = string.Empty;
+        await LogCommunicationAuditAsync(userId, "communication.message_deleted", "Message", message.Id, conversation, message.Id, conversation.Type == ConversationType.Thread ? conversation.Id : null, "allow", reasonCode, cancellationToken);
+        await unitOfWork.SaveChangesAsync(cancellationToken);
+        return Result.Success();
+    }
+
+    public async Task<Result> ReportMessageAsync(Guid messageId, MessageReportRequest request, CancellationToken cancellationToken = default)
+    {
+        if (!TryCurrentUser(out var userId)) return Result.Failure("You are not allowed to report this message.");
+        var message = await messaging.GetMessageAsync(messageId, cancellationToken);
+        if (message is null || message.DeletedAt.HasValue || !await authorization.CanViewConversation(userId, message.ConversationId, cancellationToken))
+        {
+            return await DenyAsync(userId, "communication.message_report_denied", "Message", messageId, "Message not found.", cancellationToken, "report_target_not_visible");
+        }
+
+        var conversation = await messaging.GetConversationAsync(message.ConversationId, cancellationToken);
+        if (conversation is null) return Result.Failure("Message not found.");
+        var safetyDecision = safetyGuard.CheckReport(new CommunicationSafetyScope(userId, conversation.TenantId, conversation.WorkspaceId, conversation.Id), clock.UtcNow);
+        if (!safetyDecision.IsAllowed)
+        {
+            await LogCommunicationAuditAsync(userId, "communication.rate_limited", "Message", message.Id, conversation, message.Id, conversation.Type == ConversationType.Thread ? conversation.Id : null, "deny", safetyDecision.ReasonCode, cancellationToken);
+            await unitOfWork.SaveChangesAsync(cancellationToken);
+            return Result.Failure("Report cannot be created right now.");
+        }
+
+        await LogCommunicationAuditAsync(userId, "communication.message_reported", "Message", message.Id, conversation, message.Id, conversation.Type == ConversationType.Thread ? conversation.Id : null, "allow", NormalizeReasonCode(request.ReasonCode, "reported"), cancellationToken);
+        await unitOfWork.SaveChangesAsync(cancellationToken);
+        return Result.Success();
+    }
+
+    public async Task<Result> ReportConversationAsync(Guid conversationId, ConversationReportRequest request, CancellationToken cancellationToken = default)
+    {
+        if (!TryCurrentUser(out var userId)) return Result.Failure("You are not allowed to report this conversation.");
+        if (!await authorization.CanViewConversation(userId, conversationId, cancellationToken))
+        {
+            return await DenyAsync(userId, "communication.message_report_denied", "Conversation", conversationId, "Conversation not found.", cancellationToken, "report_target_not_visible");
+        }
+
+        var conversation = await messaging.GetConversationAsync(conversationId, cancellationToken);
+        if (conversation is null) return Result.Failure("Conversation not found.");
+        var safetyDecision = safetyGuard.CheckReport(new CommunicationSafetyScope(userId, conversation.TenantId, conversation.WorkspaceId, conversation.Id), clock.UtcNow);
+        if (!safetyDecision.IsAllowed)
+        {
+            await LogCommunicationAuditAsync(userId, "communication.rate_limited", "Conversation", conversation.Id, conversation, null, conversation.Type == ConversationType.Thread ? conversation.Id : null, "deny", safetyDecision.ReasonCode, cancellationToken);
+            await unitOfWork.SaveChangesAsync(cancellationToken);
+            return Result.Failure("Report cannot be created right now.");
+        }
+
+        await LogCommunicationAuditAsync(userId, "communication.message_reported", "Conversation", conversation.Id, conversation, null, conversation.Type == ConversationType.Thread ? conversation.Id : null, "allow", NormalizeReasonCode(request.ReasonCode, "reported"), cancellationToken);
         await unitOfWork.SaveChangesAsync(cancellationToken);
         return Result.Success();
     }
@@ -433,6 +535,29 @@ public sealed class ConversationService(
         return Result<ParticipantStateResponse>.Success(await ToParticipantStateAsync(member, userId, cancellationToken));
     }
 
+    private async Task<Result<ConversationDetailResponse>> SetConversationLockAsync(Guid conversationId, bool isLocked, string? reasonCode, CancellationToken cancellationToken)
+    {
+        if (!TryCurrentUser(out var userId)) return Result<ConversationDetailResponse>.Failure("You are not allowed to manage this conversation.");
+        if (!await authorization.CanModerateConversation(userId, conversationId, cancellationToken))
+        {
+            return await DenyAsync<ConversationDetailResponse>(userId, isLocked ? "communication.conversation_lock_denied" : "communication.conversation_unlock_denied", "Conversation", conversationId, "You are not allowed to manage this conversation.", cancellationToken, "moderation_permission_denied");
+        }
+
+        var conversation = await messaging.GetConversationAsync(conversationId, cancellationToken);
+        if (conversation is null || !IsSupportedMvpType(conversation.Type))
+        {
+            return Result<ConversationDetailResponse>.Failure("Conversation not found.");
+        }
+
+        conversation.IsLocked = isLocked;
+        var action = isLocked
+            ? conversation.Type == ConversationType.Thread ? "communication.thread_locked" : "communication.conversation_locked"
+            : conversation.Type == ConversationType.Thread ? "communication.thread_unlocked" : "communication.conversation_unlocked";
+        await LogCommunicationAuditAsync(userId, action, "Conversation", conversation.Id, conversation, null, conversation.Type == ConversationType.Thread ? conversation.Id : null, "allow", NormalizeReasonCode(reasonCode, isLocked ? "locked" : "unlocked"), cancellationToken);
+        await unitOfWork.SaveChangesAsync(cancellationToken);
+        return Result<ConversationDetailResponse>.Success(await ToDetailAsync(conversation, cancellationToken));
+    }
+
     private bool TryCurrentUser(out Guid userId) { userId = currentUser.UserId ?? Guid.Empty; return currentUser.IsAuthenticated && currentUser.UserId.HasValue; }
     private static bool IsSupportedMvpType(ConversationType type) => type is ConversationType.DirectMessage or ConversationType.ProjectChannel or ConversationType.Thread;
 
@@ -457,6 +582,14 @@ public sealed class ConversationService(
         if (!await authorization.CanCreateThread(userId, parent.Id, cancellationToken))
         {
             return await DenyAsync<ConversationDetailResponse>(userId, "ConversationThreadCreateDenied", "Conversation", parent.Id, "Parent conversation not found.", cancellationToken, "participant_thread_create_denied");
+        }
+
+        var safetyDecision = safetyGuard.CheckThreadCreate(new CommunicationSafetyScope(userId, parent.TenantId, parent.WorkspaceId, parent.Id), clock.UtcNow);
+        if (!safetyDecision.IsAllowed)
+        {
+            await LogCommunicationAuditAsync(userId, "communication.rate_limited", "Conversation", parent.Id, parent, null, null, "deny", safetyDecision.ReasonCode, cancellationToken);
+            await unitOfWork.SaveChangesAsync(cancellationToken);
+            return Result<ConversationDetailResponse>.Failure("Thread cannot be created right now.");
         }
 
         if (request.WorkspaceId.HasValue && request.WorkspaceId.Value != parent.WorkspaceId)
@@ -509,7 +642,75 @@ public sealed class ConversationService(
         return Result<ConversationDetailResponse>.Success(await ToDetailAsync(conversation, cancellationToken));
     }
 
+    public async Task<Result<ConversationDetailResponse>> LockAsync(Guid conversationId, ConversationLockRequest request, CancellationToken cancellationToken = default)
+    {
+        return await SetConversationLockAsync(conversationId, isLocked: true, request.ReasonCode, cancellationToken);
+    }
+
+    public async Task<Result<ConversationDetailResponse>> UnlockAsync(Guid conversationId, ConversationLockRequest request, CancellationToken cancellationToken = default)
+    {
+        return await SetConversationLockAsync(conversationId, isLocked: false, request.ReasonCode, cancellationToken);
+    }
+
+    public async Task<Result<ConversationDetailResponse>> ArchiveAsync(Guid conversationId, CancellationToken cancellationToken = default)
+    {
+        if (!TryCurrentUser(out var userId)) return Result<ConversationDetailResponse>.Failure("You are not allowed to manage this conversation.");
+        if (!await authorization.CanModerateConversation(userId, conversationId, cancellationToken))
+        {
+            return await DenyAsync<ConversationDetailResponse>(userId, "communication.conversation_archive_denied", "Conversation", conversationId, "You are not allowed to manage this conversation.", cancellationToken, "moderation_permission_denied");
+        }
+
+        var conversation = await messaging.GetConversationAsync(conversationId, cancellationToken);
+        if (conversation is null || !IsSupportedMvpType(conversation.Type))
+        {
+            return Result<ConversationDetailResponse>.Failure("Conversation not found.");
+        }
+
+        conversation.IsArchived = true;
+        await LogCommunicationAuditAsync(userId, "communication.conversation_archived", "Conversation", conversation.Id, conversation, messageId: null, threadId: conversation.Type == ConversationType.Thread ? conversation.Id : null, decision: "allow", reasonCode: "archived", cancellationToken);
+        await unitOfWork.SaveChangesAsync(cancellationToken);
+        return Result<ConversationDetailResponse>.Success(await ToDetailAsync(conversation, cancellationToken));
+    }
+
     private Task AuditAsync(Guid actorUserId, string action, Guid targetId, CancellationToken cancellationToken) => auditLogger.LogAsync(new AuditLogEntry(actorUserId, action, "Message", targetId), cancellationToken);
+
+    private Task LogCommunicationAuditAsync(
+        Guid actorUserId,
+        string action,
+        string entityType,
+        Guid entityId,
+        Conversation conversation,
+        Guid? messageId,
+        Guid? threadId,
+        string decision,
+        string reasonCode,
+        CancellationToken cancellationToken)
+    {
+        return auditLogger.LogAsync(new AuditLogEntry(
+            actorUserId,
+            action,
+            entityType,
+            entityId,
+            "Communication safety event.",
+            WorkspaceId: conversation.WorkspaceId,
+            ProjectId: conversation.ProjectId,
+            Metadata: new Dictionary<string, object?>
+            {
+                ["actorUserId"] = actorUserId,
+                ["tenantId"] = conversation.TenantId,
+                ["workspaceId"] = conversation.WorkspaceId,
+                ["conversationId"] = conversation.Id,
+                ["threadId"] = threadId,
+                ["messageId"] = messageId,
+                ["targetOperation"] = action,
+                ["decision"] = decision,
+                ["reasonCode"] = reasonCode,
+                ["conversationType"] = conversation.Type.ToString(),
+                ["timestamp"] = clock.UtcNow
+            }),
+            cancellationToken);
+    }
+
     private Task AuditParticipantStateAsync(Guid actorUserId, string operation, Guid conversationId, string decision, string reasonCode, CancellationToken cancellationToken)
     {
         return auditLogger.LogAsync(new AuditLogEntry(
@@ -602,14 +803,38 @@ public sealed class ConversationService(
 
     private async Task<IReadOnlyDictionary<string, object?>> BuildDenialMetadataAsync(Guid actorUserId, string action, string entityType, Guid entityId, string? reasonCode, CancellationToken cancellationToken)
     {
+        Conversation? conversation = null;
+        Guid? messageId = null;
+        if (entityType == "Conversation")
+        {
+            conversation = await messaging.GetConversationAsync(entityId, cancellationToken);
+        }
+        else if (entityType == "Message")
+        {
+            var message = await messaging.GetMessageAsync(entityId, cancellationToken);
+            if (message is not null)
+            {
+                messageId = message.Id;
+                conversation = await messaging.GetConversationAsync(message.ConversationId, cancellationToken);
+            }
+        }
+
         return new Dictionary<string, object?>
         {
+            ["actorUserId"] = actorUserId,
+            ["tenantId"] = conversation?.TenantId,
+            ["workspaceId"] = conversation?.WorkspaceId,
+            ["conversationId"] = conversation?.Id,
+            ["threadId"] = conversation?.Type == ConversationType.Thread ? conversation.Id : null,
+            ["messageId"] = messageId,
             ["targetOperation"] = action,
             ["decision"] = "deny",
             ["reasonCode"] = reasonCode ?? DefaultReasonCode(action),
-            ["participantState"] = entityType == "Conversation"
-                ? await GetParticipantStateAsync(entityId, actorUserId, cancellationToken)
-                : "unknown"
+            ["participantState"] = conversation is not null
+                ? await GetParticipantStateAsync(conversation.Id, actorUserId, cancellationToken)
+                : "unknown",
+            ["conversationType"] = conversation?.Type.ToString(),
+            ["timestamp"] = clock.UtcNow
         };
     }
 
@@ -631,11 +856,26 @@ public sealed class ConversationService(
             "ConversationAccessDenied" or "ConversationReadDenied" => "participant_read_denied",
             "ParticipantStateReadDenied" => "self_state_only",
             "ParticipantStateUpdateDenied" => "state_update_denied",
-            "MessageSendDenied" => "participant_post_denied",
+            "MessageSendDenied" or "communication.message_post_denied" => "participant_post_denied",
+            "communication.message_edit_denied" => "author_required",
+            "communication.message_delete_denied" => "moderation_permission_denied",
+            "communication.message_report_denied" => "report_target_not_visible",
+            "communication.conversation_lock_denied" => "moderation_permission_denied",
             "ConversationManageDenied" => "participant_manage_members_denied",
             "ConversationThreadCreateDenied" => "participant_thread_create_denied",
             _ => "participant_missing"
         };
+    }
+
+    private static string NormalizeReasonCode(string? reasonCode, string fallback)
+    {
+        if (string.IsNullOrWhiteSpace(reasonCode))
+        {
+            return fallback;
+        }
+
+        var trimmed = reasonCode.Trim();
+        return trimmed.Length > 80 ? trimmed[..80] : trimmed;
     }
 
     private static bool IsActiveParticipant(ConversationMember? member)

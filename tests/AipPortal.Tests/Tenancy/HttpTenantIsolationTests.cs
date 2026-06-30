@@ -453,6 +453,164 @@ public sealed class HttpTenantIsolationTests
     }
 
     [Fact]
+    public async Task CommunicationSafetyBaselineEnforcesPostValidationSpamRateLimitAndClosedStates()
+    {
+        await using var app = await HttpTenantIsolationTestApp.CreateAsync();
+        var data = app.Data;
+
+        using var activeContent = JsonContent("""{"body":"B-10 active participant post","attachments":[]}""");
+        var activePost = await app.SendAsync(data.CrossTenantUser, data.TenantA.Slug, $"/api/conversations/{data.ConversationA.Id}/messages", HttpMethod.Post, activeContent);
+        Assert.Equal(HttpStatusCode.OK, activePost.StatusCode);
+
+        using var emptyContent = JsonContent("""{"body":"   ","attachments":[]}""");
+        var emptyPost = await app.SendAsync(data.CrossTenantUser, data.TenantA.Slug, $"/api/conversations/{data.ConversationA.Id}/messages", HttpMethod.Post, emptyContent);
+        Assert.Equal(HttpStatusCode.BadRequest, emptyPost.StatusCode);
+
+        using var oversizedContent = JsonContent($$"""{"body":"{{new string('x', 121)}}","attachments":[]}""");
+        var oversizedPost = await app.SendAsync(data.CrossTenantUser, data.TenantA.Slug, $"/api/conversations/{data.ConversationA.Id}/messages", HttpMethod.Post, oversizedContent);
+        Assert.Equal(HttpStatusCode.BadRequest, oversizedPost.StatusCode);
+
+        await using var duplicateApp = await HttpTenantIsolationTestApp.CreateAsync();
+        var duplicateData = duplicateApp.Data;
+        using var duplicateOne = JsonContent("""{"body":"B-10 duplicate body","attachments":[]}""");
+        var firstDuplicate = await duplicateApp.SendAsync(duplicateData.CrossTenantUser, duplicateData.TenantA.Slug, $"/api/conversations/{duplicateData.ConversationA.Id}/messages", HttpMethod.Post, duplicateOne);
+        Assert.Equal(HttpStatusCode.OK, firstDuplicate.StatusCode);
+        using var duplicateTwo = JsonContent("""{"body":"B-10 duplicate body","attachments":[]}""");
+        var secondDuplicate = await duplicateApp.SendAsync(duplicateData.CrossTenantUser, duplicateData.TenantA.Slug, $"/api/conversations/{duplicateData.ConversationA.Id}/messages", HttpMethod.Post, duplicateTwo);
+        var secondDuplicateBody = await secondDuplicate.Content.ReadAsStringAsync();
+        Assert.Equal(HttpStatusCode.BadRequest, secondDuplicate.StatusCode);
+        Assert.DoesNotContain("B-10 duplicate body", secondDuplicateBody, StringComparison.Ordinal);
+
+        await using var rateApp = await HttpTenantIsolationTestApp.CreateAsync();
+        var rateData = rateApp.Data;
+        for (var index = 0; index < 3; index++)
+        {
+            using var rateContent = JsonContent($$"""{"body":"B-10 rate {{index}}","attachments":[]}""");
+            var response = await rateApp.SendAsync(rateData.CrossTenantUser, rateData.TenantA.Slug, $"/api/conversations/{rateData.ConversationA.Id}/messages", HttpMethod.Post, rateContent);
+            Assert.Equal(HttpStatusCode.OK, response.StatusCode);
+        }
+
+        using var limitedContent = JsonContent("""{"body":"B-10 rate limited body","attachments":[]}""");
+        var limited = await rateApp.SendAsync(rateData.CrossTenantUser, rateData.TenantA.Slug, $"/api/conversations/{rateData.ConversationA.Id}/messages", HttpMethod.Post, limitedContent);
+        var limitedBody = await limited.Content.ReadAsStringAsync();
+        Assert.Equal(HttpStatusCode.BadRequest, limited.StatusCode);
+        Assert.DoesNotContain("B-10 rate limited body", limitedBody, StringComparison.Ordinal);
+
+        await app.UpdateConversationAsync(data.TenantA.Id, data.TenantA.Slug, data.ConversationA.Id, conversation => conversation.IsLocked = true);
+        using var lockedContent = JsonContent("""{"body":"B-10 locked body","attachments":[]}""");
+        var lockedPost = await app.SendAsync(data.CrossTenantUser, data.TenantA.Slug, $"/api/conversations/{data.ConversationA.Id}/messages", HttpMethod.Post, lockedContent);
+        var lockedBody = await lockedPost.Content.ReadAsStringAsync();
+        Assert.Equal(HttpStatusCode.BadRequest, lockedPost.StatusCode);
+        Assert.DoesNotContain("B-10 locked body", lockedBody, StringComparison.Ordinal);
+
+        await app.UpdateConversationAsync(data.TenantA.Id, data.TenantA.Slug, data.ConversationA.Id, conversation =>
+        {
+            conversation.IsLocked = false;
+            conversation.IsArchived = true;
+        });
+        using var archivedContent = JsonContent("""{"body":"B-10 archived body","attachments":[]}""");
+        var archivedPost = await app.SendAsync(data.CrossTenantUser, data.TenantA.Slug, $"/api/conversations/{data.ConversationA.Id}/messages", HttpMethod.Post, archivedContent);
+        Assert.Equal(HttpStatusCode.BadRequest, archivedPost.StatusCode);
+
+        await app.UpdateConversationAsync(data.TenantA.Id, data.TenantA.Slug, data.ConversationA.Id, conversation =>
+        {
+            conversation.IsArchived = false;
+            conversation.Type = ConversationType.ExternalSharedChannel;
+        });
+        using var unsupportedContent = JsonContent("""{"body":"B-10 unsupported type body","attachments":[]}""");
+        var unsupportedPost = await app.SendAsync(data.CrossTenantUser, data.TenantA.Slug, $"/api/conversations/{data.ConversationA.Id}/messages", HttpMethod.Post, unsupportedContent);
+        var unsupportedBody = await unsupportedPost.Content.ReadAsStringAsync();
+        Assert.Equal(HttpStatusCode.BadRequest, unsupportedPost.StatusCode);
+        Assert.DoesNotContain("B-10 unsupported type body", unsupportedBody, StringComparison.Ordinal);
+
+        var auditLogs = await app.ListAuditLogsAsync(data.TenantA.Id, data.TenantA.Slug);
+        var auditJson = JsonSerializer.Serialize(auditLogs.Select(log => new { log.Action, log.Summary, log.MetadataJson }));
+        Assert.Contains("communication.message_post_denied", auditJson, StringComparison.Ordinal);
+        Assert.Contains("communication.rate_limited", JsonSerializer.Serialize(await rateApp.ListAuditLogsAsync(rateData.TenantA.Id, rateData.TenantA.Slug)), StringComparison.Ordinal);
+        Assert.Contains("communication.spam_guard_triggered", JsonSerializer.Serialize(await duplicateApp.ListAuditLogsAsync(duplicateData.TenantA.Id, duplicateData.TenantA.Slug)), StringComparison.Ordinal);
+        Assert.DoesNotContain("B-10 locked body", auditJson, StringComparison.Ordinal);
+        Assert.DoesNotContain("B-10 unsupported type body", auditJson, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public async Task CommunicationEditDeleteReportAndLockStayParticipantBoundedAndMetadataOnly()
+    {
+        await using var app = await HttpTenantIsolationTestApp.CreateAsync();
+        var data = app.Data;
+
+        using var editContent = JsonContent("""{"body":"B-10 edited body"}""");
+        var edit = await app.SendAsync(data.TenantAMember, data.TenantA.Slug, $"/api/messages/{data.MessageA.Id}", HttpMethod.Patch, editContent);
+        Assert.Equal(HttpStatusCode.OK, edit.StatusCode);
+
+        using var deniedEditContent = JsonContent("""{"body":"B-10 non-author edit body"}""");
+        var deniedEdit = await app.SendAsync(data.CrossTenantUser, data.TenantA.Slug, $"/api/messages/{data.MessageA.Id}", HttpMethod.Patch, deniedEditContent);
+        var deniedEditBody = await deniedEdit.Content.ReadAsStringAsync();
+        Assert.Equal(HttpStatusCode.BadRequest, deniedEdit.StatusCode);
+        Assert.DoesNotContain("B-10 edited body", deniedEditBody, StringComparison.Ordinal);
+        Assert.DoesNotContain("B-10 non-author edit body", deniedEditBody, StringComparison.Ordinal);
+
+        using var reportContent = JsonContent("""{"reasonCode":"abuse","reason":"raw report text token storage/path DM body"}""");
+        var report = await app.SendAsync(data.CrossTenantUser, data.TenantA.Slug, $"/api/messages/{data.MessageA.Id}/report", HttpMethod.Post, reportContent);
+        Assert.Equal(HttpStatusCode.OK, report.StatusCode);
+
+        using var deniedReportContent = JsonContent("""{"reasonCode":"abuse","reason":"raw report text token storage/path DM body"}""");
+        var deniedReport = await app.SendAsync(data.TenantAAdmin, data.TenantA.Slug, $"/api/messages/{data.MessageA.Id}/report", HttpMethod.Post, deniedReportContent);
+        var deniedReportBody = await deniedReport.Content.ReadAsStringAsync();
+        Assert.Equal(HttpStatusCode.BadRequest, deniedReport.StatusCode);
+        Assert.DoesNotContain(data.MessageA.Body, deniedReportBody, StringComparison.Ordinal);
+
+        var deniedAdminLock = await app.SendAsync(data.TenantAAdmin, data.TenantA.Slug, $"/api/conversations/{data.ConversationA.Id}/lock", HttpMethod.Post, JsonContent("""{"reasonCode":"admin-non-participant"}"""));
+        var deniedAdminLockBody = await deniedAdminLock.Content.ReadAsStringAsync();
+        Assert.Equal(HttpStatusCode.BadRequest, deniedAdminLock.StatusCode);
+        Assert.DoesNotContain(data.MessageA.Body, deniedAdminLockBody, StringComparison.Ordinal);
+
+        await app.UpdateConversationMemberAsync(data.TenantA.Id, data.TenantA.Slug, data.ConversationA.Id, data.CrossTenantUser.Id, member =>
+        {
+            member.Role = ConversationMemberRole.Admin;
+            member.CanManageMembers = true;
+        });
+
+        var lockResponse = await app.SendAsync(data.CrossTenantUser, data.TenantA.Slug, $"/api/conversations/{data.ConversationA.Id}/lock", HttpMethod.Post, JsonContent("""{"reasonCode":"moderation_lock"}"""));
+        Assert.Equal(HttpStatusCode.OK, lockResponse.StatusCode);
+
+        using var lockedEditContent = JsonContent("""{"body":"B-10 locked edit body"}""");
+        var lockedEdit = await app.SendAsync(data.TenantAMember, data.TenantA.Slug, $"/api/messages/{data.MessageA.Id}", HttpMethod.Patch, lockedEditContent);
+        Assert.Equal(HttpStatusCode.BadRequest, lockedEdit.StatusCode);
+
+        var unlockResponse = await app.SendAsync(data.CrossTenantUser, data.TenantA.Slug, $"/api/conversations/{data.ConversationA.Id}/unlock", HttpMethod.Post, JsonContent("""{"reasonCode":"moderation_unlock"}"""));
+        Assert.Equal(HttpStatusCode.OK, unlockResponse.StatusCode);
+
+        var deleteResponse = await app.SendAsync(data.CrossTenantUser, data.TenantA.Slug, $"/api/messages/{data.MessageA.Id}", HttpMethod.Delete);
+        Assert.Equal(HttpStatusCode.OK, deleteResponse.StatusCode);
+
+        var deletedRead = await app.SendAsync(data.CrossTenantUser, data.TenantA.Slug, $"/api/conversations/{data.ConversationA.Id}/messages");
+        var deletedReadBody = await deletedRead.Content.ReadAsStringAsync();
+        Assert.Equal(HttpStatusCode.OK, deletedRead.StatusCode);
+        Assert.DoesNotContain("B-10 edited body", deletedReadBody, StringComparison.Ordinal);
+        Assert.DoesNotContain(data.MessageA.Body, deletedReadBody, StringComparison.Ordinal);
+
+        var storedMessage = await app.GetMessageAsync(data.TenantA.Id, data.TenantA.Slug, data.MessageA.Id);
+        Assert.NotNull(storedMessage);
+        Assert.NotNull(storedMessage.DeletedAt);
+        Assert.Equal(data.CrossTenantUser.Id, storedMessage.DeletedByUserId);
+        Assert.Equal(string.Empty, storedMessage.Body);
+
+        var auditLogs = await app.ListAuditLogsAsync(data.TenantA.Id, data.TenantA.Slug);
+        var auditJson = JsonSerializer.Serialize(auditLogs.Select(log => new { log.Action, log.Summary, log.MetadataJson }));
+        Assert.Contains("communication.message_edited", auditJson, StringComparison.Ordinal);
+        Assert.Contains("communication.message_edit_denied", auditJson, StringComparison.Ordinal);
+        Assert.Contains("communication.message_reported", auditJson, StringComparison.Ordinal);
+        Assert.Contains("communication.message_report_denied", auditJson, StringComparison.Ordinal);
+        Assert.Contains("communication.conversation_locked", auditJson, StringComparison.Ordinal);
+        Assert.Contains("communication.message_deleted", auditJson, StringComparison.Ordinal);
+        Assert.DoesNotContain("B-10 edited body", auditJson, StringComparison.Ordinal);
+        Assert.DoesNotContain("B-10 non-author edit body", auditJson, StringComparison.Ordinal);
+        Assert.DoesNotContain("raw report text", auditJson, StringComparison.Ordinal);
+        Assert.DoesNotContain(data.FileA.StorageKey, auditJson, StringComparison.Ordinal);
+        Assert.DoesNotContain("StudentRecordRestricted", auditJson, StringComparison.Ordinal);
+    }
+
+    [Fact]
     public async Task ConversationReadCursorMustReferenceMessageInSameConversation()
     {
         await using var app = await HttpTenantIsolationTestApp.CreateAsync();
@@ -691,6 +849,13 @@ public sealed class HttpTenantIsolationTests
                 ["Security:EnableHsts"] = "false",
                 ["Security:EnableCsrfProtection"] = "false",
                 ["Security:EnableRateLimiting"] = "false",
+                ["CommunicationSafety:MaxMessageLength"] = "120",
+                ["CommunicationSafety:MaxAttachmentsPerMessage"] = "2",
+                ["CommunicationSafety:MaxPostsPerMinutePerUser"] = "3",
+                ["CommunicationSafety:MaxPostsPerMinutePerConversation"] = "30",
+                ["CommunicationSafety:MaxThreadCreatesPerMinutePerUser"] = "3",
+                ["CommunicationSafety:MaxReportsPerHourPerUser"] = "3",
+                ["CommunicationSafety:DuplicatePostWindowSeconds"] = "60",
                 ["FileStorage:Provider"] = "LocalFileSystem",
                 ["FileStorage:RootPath"] = Path.Combine(Path.GetTempPath(), "aip-http-tenant-tests", Guid.NewGuid().ToString("N")),
                 ["FileStorage:MaxFileSizeBytes"] = "10485760",
@@ -765,6 +930,17 @@ public sealed class HttpTenantIsolationTests
                 .FirstOrDefaultAsync(conversation => conversation.Id == conversationId);
         }
 
+        public async Task<Message?> GetMessageAsync(Guid tenantId, string tenantSlug, Guid messageId)
+        {
+            await using var scope = App.Services.CreateAsyncScope();
+            var currentTenant = scope.ServiceProvider.GetRequiredService<CurrentTenantService>();
+            currentTenant.SetTenant(tenantId, tenantSlug);
+            var dbContext = scope.ServiceProvider.GetRequiredService<AppDbContext>();
+            return await dbContext.Messages
+                .AsNoTracking()
+                .FirstOrDefaultAsync(message => message.Id == messageId);
+        }
+
         public async Task<Guid> AddWorkspaceAsync(Guid tenantId, string tenantSlug, Guid userId)
         {
             await using var scope = App.Services.CreateAsyncScope();
@@ -801,6 +977,17 @@ public sealed class HttpTenantIsolationTests
             var dbContext = scope.ServiceProvider.GetRequiredService<AppDbContext>();
             var member = await dbContext.ConversationMembers.FirstAsync(item => item.ConversationId == conversationId && item.UserId == userId);
             update(member);
+            await dbContext.SaveChangesAsync();
+        }
+
+        public async Task UpdateConversationAsync(Guid tenantId, string tenantSlug, Guid conversationId, Action<Conversation> update)
+        {
+            await using var scope = App.Services.CreateAsyncScope();
+            var currentTenant = scope.ServiceProvider.GetRequiredService<CurrentTenantService>();
+            currentTenant.SetTenant(tenantId, tenantSlug);
+            var dbContext = scope.ServiceProvider.GetRequiredService<AppDbContext>();
+            var conversation = await dbContext.Conversations.FirstAsync(item => item.Id == conversationId);
+            update(conversation);
             await dbContext.SaveChangesAsync();
         }
 

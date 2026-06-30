@@ -1,6 +1,7 @@
 using AipPortal.Application.Common.Interfaces;
 using AipPortal.Application.Common.Tenancy;
 using AipPortal.Application.Auth;
+using AipPortal.Application.Messaging;
 using AipPortal.Web.Configuration;
 using AipPortal.Web.Security;
 using AipPortal.Web.Services;
@@ -14,6 +15,7 @@ public static class DependencyInjection
     {
         services.Configure<TenancyOptions>(configuration.GetSection("Tenancy"));
         services.Configure<SecurityOptions>(configuration.GetSection("Security"));
+        services.AddSingleton(configuration.GetSection("CommunicationSafety").Get<CommunicationSafetyOptions>() ?? new CommunicationSafetyOptions());
         services.AddSingleton(configuration.GetSection("Security").Get<AuthSecurityOptions>() ?? new AuthSecurityOptions());
         services.Configure<PlatformOptions>(configuration.GetSection("Platform"));
         services.Configure<FeatureOptions>(configuration.GetSection("Features"));
