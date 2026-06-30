@@ -41,6 +41,30 @@ public sealed class AttachmentsController(IFileService files) : ControllerBase
             : BadRequest(new { error = result.Error });
     }
 
+    [HttpPost("api/attachments/{attachmentId:guid}/download-grants")]
+    public async Task<IActionResult> CreateDownloadGrant(
+        Guid attachmentId,
+        [FromBody] FileDownloadGrantRequest? request,
+        CancellationToken cancellationToken)
+    {
+        return ToActionResult(await files.RequestDownloadGrantAsync(
+            attachmentId,
+            request ?? new FileDownloadGrantRequest(),
+            cancellationToken));
+    }
+
+    [HttpPost("api/attachment-download-grants/{fileDownloadGrantId:guid}/download")]
+    public async Task<IActionResult> DownloadWithGrant(
+        Guid fileDownloadGrantId,
+        [FromBody] FileDownloadGrantTokenRequest request,
+        CancellationToken cancellationToken)
+    {
+        var result = await files.DownloadWithGrantAsync(fileDownloadGrantId, request.Token, cancellationToken);
+        return result.IsSuccess
+            ? PrivateFile(result.Value!.Content, result.Value.ContentType, result.Value.FileName)
+            : BadRequest(new { error = result.Error });
+    }
+
     [HttpDelete("api/attachments/{attachmentId:guid}")]
     public async Task<IActionResult> Delete(Guid attachmentId, CancellationToken cancellationToken) => OkOrBad(await files.DeleteAsync(attachmentId, cancellationToken));
 

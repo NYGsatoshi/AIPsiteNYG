@@ -38,6 +38,7 @@ public static class DependencyInjection
         services.AddScoped<IStudentRecordExportGrantRepository, StudentRecordExportGrantRepository>();
         services.AddScoped<IFormRepository, FormRepository>();
         services.AddScoped<IFileRepository, FileRepository>();
+        services.AddScoped<IFileDownloadGrantRepository, FileDownloadGrantRepository>();
         services.AddScoped<ITenantPlanRepository, TenantPlanRepository>();
         services.AddScoped<IArtifactRepository, ArtifactRepository>();
         services.AddScoped<IPlanningRepository, PlanningRepository>();

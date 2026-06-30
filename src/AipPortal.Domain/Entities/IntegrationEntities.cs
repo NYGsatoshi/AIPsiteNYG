@@ -23,12 +23,20 @@ public sealed class ExportPackageGrant : AuditableEntity, ITenantEntity
     public Guid RequestedByUserId { get; set; }
     public Guid StudentRecordId { get; set; }
     public Guid WorkspaceId { get; set; }
+    public string ExportType { get; set; } = "StudentRecordRestricted";
+    public string IncludedClassifications { get; set; } = DataClassification.StudentRecordRestricted.ToString();
+    public string RequestedScopeType { get; set; } = "StudentRecord";
+    public Guid RequestedScopeId { get; set; }
+    public bool ReasonRequired { get; set; } = true;
     public DataClassification Classification { get; set; } = DataClassification.StudentRecordRestricted;
     public string RequestedFields { get; set; } = string.Empty;
     public string AuthorizedFields { get; set; } = string.Empty;
     public string PolicyStamp { get; set; } = string.Empty;
+    public string BuildAuthorizationState { get; set; } = string.Empty;
+    public string DownloadAuthorizationState { get; set; } = string.Empty;
     public DateTimeOffset ReauthorizedAt { get; set; }
     public DateTimeOffset ExpiresAt { get; set; }
+    public DateTimeOffset? RevokedAt { get; set; }
     public DateTimeOffset? BuiltAt { get; set; }
     public DateTimeOffset? DownloadedAt { get; set; }
 }

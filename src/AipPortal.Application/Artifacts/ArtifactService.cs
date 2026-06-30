@@ -192,6 +192,7 @@ public sealed class ArtifactService(
             OriginalFileName = safeFileName,
             ContentType = NormalizeContentType(input.ContentType),
             SizeBytes = input.Length,
+            Classification = DataClassification.Private,
             Status = FileObjectStatus.Active
         };
         fileObject.StorageKey = $"tenants/{fileObject.TenantId:D}/projects/{project.Id:D}/files/{fileObject.Id:D}";

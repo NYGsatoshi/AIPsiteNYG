@@ -116,10 +116,17 @@ public sealed class StudentRecordService(
             RequestedByUserId = userId,
             StudentRecordId = record.Id,
             WorkspaceId = record.WorkspaceId,
+            ExportType = "StudentRecordRestricted",
+            IncludedClassifications = DataClassification.StudentRecordRestricted.ToString(),
+            RequestedScopeType = "StudentRecord",
+            RequestedScopeId = record.Id,
+            ReasonRequired = true,
             Classification = DataClassification.StudentRecordRestricted,
             RequestedFields = JoinFields(decision.RequestedRestrictedFields),
             AuthorizedFields = JoinFields(decision.AuthorizedFields),
             PolicyStamp = decision.PolicyStamp,
+            BuildAuthorizationState = "pending",
+            DownloadAuthorizationState = "pending",
             ReauthorizedAt = now,
             ExpiresAt = now.Add(ExportGrantLifetime)
         };
@@ -153,6 +160,7 @@ public sealed class StudentRecordService(
         var now = clock.UtcNow;
         validation.Grant!.BuiltAt = now;
         validation.Grant.ReauthorizedAt = now;
+        validation.Grant.BuildAuthorizationState = "authorized";
         await unitOfWork.SaveChangesAsync(cancellationToken);
 
         await AuditExportAllowAsync(validation.UserId, validation.Record!, validation.Grant, "build", validation.Decision!, cancellationToken);
@@ -172,6 +180,7 @@ public sealed class StudentRecordService(
         var now = clock.UtcNow;
         validation.Grant!.DownloadedAt = now;
         validation.Grant.ReauthorizedAt = now;
+        validation.Grant.DownloadAuthorizationState = "authorized";
         await unitOfWork.SaveChangesAsync(cancellationToken);
 
         await AuditExportAllowAsync(validation.UserId, validation.Record!, validation.Grant, "download", validation.Decision!, cancellationToken);
@@ -215,6 +224,7 @@ public sealed class StudentRecordService(
             },
             SecurityEventSeverity.Warning,
             cancellationToken);
+        await unitOfWork.SaveChangesAsync(cancellationToken);
     }
 
     private Task AuditRestrictedViewAsync(
@@ -256,20 +266,47 @@ public sealed class StudentRecordService(
         }
 
         var grant = await exportGrants.GetAsync(exportPackageGrantId, cancellationToken);
-        if (grant is null ||
-            grant.TenantId != currentTenant.TenantId ||
-            grant.RequestedByUserId != userId ||
-            grant.Classification != DataClassification.StudentRecordRestricted)
+        if (grant is null)
         {
+            return ExportGrantValidation.Failure("Student record export not found.");
+        }
+
+        if (grant.TenantId != currentTenant.TenantId)
+        {
+            await AuditExportGrantBoundaryDenialAsync(userId, grant, stage, "export-package-grant-tenant-mismatch", cancellationToken);
+            return ExportGrantValidation.Failure("Student record export not found.");
+        }
+
+        if (grant.RequestedByUserId != userId)
+        {
+            await AuditExportGrantBoundaryDenialAsync(userId, grant, stage, "grant.actor_mismatch", cancellationToken);
+            return ExportGrantValidation.Failure("Student record export not found.");
+        }
+
+        if (grant.Classification != DataClassification.StudentRecordRestricted ||
+            !string.Equals(grant.ExportType, "StudentRecordRestricted", StringComparison.Ordinal) ||
+            !string.Equals(grant.IncludedClassifications, DataClassification.StudentRecordRestricted.ToString(), StringComparison.Ordinal) ||
+            !string.Equals(grant.RequestedScopeType, "StudentRecord", StringComparison.Ordinal) ||
+            grant.RequestedScopeId != grant.StudentRecordId ||
+            !grant.ReasonRequired)
+        {
+            await AuditExportGrantBoundaryDenialAsync(userId, grant, stage, "export-package-grant-scope-mismatch", cancellationToken);
             return ExportGrantValidation.Failure("Student record export not found.");
         }
 
         var record = await studentRecords.GetByIdAsync(grant.StudentRecordId, cancellationToken);
         if (record is null ||
             record.TenantId != grant.TenantId ||
-            record.WorkspaceId != grant.WorkspaceId)
+            record.WorkspaceId != grant.WorkspaceId ||
+            record.Id != grant.RequestedScopeId)
         {
             await AuditExportDenialAsync(userId, record, grant, stage, "export-package-grant-scope-mismatch", SplitFields(grant.RequestedFields), null, cancellationToken);
+            return ExportGrantValidation.Failure("Student record export not found.");
+        }
+
+        if (grant.RevokedAt.HasValue)
+        {
+            await AuditExportDenialAsync(userId, record, grant, stage, "export-package-grant-revoked", SplitFields(grant.RequestedFields), null, cancellationToken);
             return ExportGrantValidation.Failure("Student record export not found.");
         }
 
@@ -293,6 +330,34 @@ public sealed class StudentRecordService(
         }
 
         return ExportGrantValidation.Success(userId, grant, record, decision);
+    }
+
+    private async Task AuditExportGrantBoundaryDenialAsync(
+        Guid userId,
+        ExportPackageGrant grant,
+        string stage,
+        string decisionReason,
+        CancellationToken cancellationToken)
+    {
+        await auditLogger.LogSecurityAsync(
+            "AccessDenied",
+            "Export package grant denied.",
+            new Dictionary<string, object?>
+            {
+                ["classification"] = grant.Classification.ToString(),
+                ["studentRecordId"] = grant.StudentRecordId,
+                ["workspaceId"] = grant.WorkspaceId,
+                ["exportPackageGrantId"] = grant.Id,
+                ["exportType"] = grant.ExportType,
+                ["requestedScopeType"] = grant.RequestedScopeType,
+                ["requestedScopeId"] = grant.RequestedScopeId,
+                ["stage"] = stage,
+                ["decision"] = "deny",
+                ["decisionReason"] = decisionReason
+            },
+            SecurityEventSeverity.Warning,
+            cancellationToken);
+        await unitOfWork.SaveChangesAsync(cancellationToken);
     }
 
     private async Task<StudentRecordExportAuthorization> ReauthorizeExportAsync(
@@ -445,6 +510,7 @@ public sealed class StudentRecordService(
             },
             SecurityEventSeverity.Warning,
             cancellationToken);
+        await unitOfWork.SaveChangesAsync(cancellationToken);
     }
 
     private static IReadOnlyDictionary<string, object?> ExportAuditMetadata(
@@ -461,6 +527,10 @@ public sealed class StudentRecordService(
             ["studentRecordId"] = record.Id,
             ["workspaceId"] = record.WorkspaceId,
             ["exportPackageGrantId"] = grant.Id,
+            ["exportType"] = grant.ExportType,
+            ["includedClassifications"] = grant.IncludedClassifications,
+            ["requestedScopeType"] = grant.RequestedScopeType,
+            ["requestedScopeId"] = grant.RequestedScopeId,
             ["stage"] = stage,
             ["decision"] = decision,
             ["decisionReason"] = decisionReason,
@@ -468,6 +538,9 @@ public sealed class StudentRecordService(
             ["requestedRestrictedFields"] = string.Join(",", authorization.RequestedRestrictedFields),
             ["authorizedRestrictedFields"] = string.Join(",", authorization.AuthorizedFields),
             ["reasonProvided"] = true,
+            ["reasonRequired"] = grant.ReasonRequired,
+            ["buildAuthorizationState"] = grant.BuildAuthorizationState,
+            ["downloadAuthorizationState"] = grant.DownloadAuthorizationState,
             ["grantExpiresAt"] = grant.ExpiresAt
         };
     }

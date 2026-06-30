@@ -42,14 +42,21 @@ public sealed class ExportPackageGrantConfiguration : IEntityTypeConfiguration<E
         builder.ConfigureAuditableEntity();
 
         builder.Property(grant => grant.Classification).HasEnumStringConversion().IsRequired();
+        builder.Property(grant => grant.ExportType).HasMaxLength(80).IsRequired();
+        builder.Property(grant => grant.IncludedClassifications).HasMaxLength(500).IsRequired();
+        builder.Property(grant => grant.RequestedScopeType).HasMaxLength(80).IsRequired();
         builder.Property(grant => grant.RequestedFields).HasMaxLength(1000).IsRequired();
         builder.Property(grant => grant.AuthorizedFields).HasMaxLength(1000).IsRequired();
         builder.Property(grant => grant.PolicyStamp).HasMaxLength(128).IsRequired();
+        builder.Property(grant => grant.BuildAuthorizationState).HasMaxLength(80).IsRequired();
+        builder.Property(grant => grant.DownloadAuthorizationState).HasMaxLength(80).IsRequired();
 
         builder.HasIndex(grant => grant.RequestedByUserId);
         builder.HasIndex(grant => grant.StudentRecordId);
         builder.HasIndex(grant => grant.WorkspaceId);
+        builder.HasIndex(grant => new { grant.RequestedScopeType, grant.RequestedScopeId });
         builder.HasIndex(grant => grant.ExpiresAt);
+        builder.HasIndex(grant => grant.RevokedAt);
     }
 }
 

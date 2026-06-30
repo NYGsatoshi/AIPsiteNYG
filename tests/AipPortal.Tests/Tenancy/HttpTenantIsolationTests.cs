@@ -436,6 +436,7 @@ public sealed class HttpTenantIsolationTests
             services.AddScoped<IEventRepository, EventRepository>();
             services.AddScoped<IFormRepository, FormRepository>();
             services.AddScoped<IFileRepository, FileRepository>();
+            services.AddScoped<IFileDownloadGrantRepository, FileDownloadGrantRepository>();
             services.AddScoped<IStudentRecordExportGrantRepository, StudentRecordExportGrantRepository>();
             services.AddScoped<ITenantPlanRepository, TenantPlanRepository>();
             services.AddScoped<IArtifactRepository, ArtifactRepository>();

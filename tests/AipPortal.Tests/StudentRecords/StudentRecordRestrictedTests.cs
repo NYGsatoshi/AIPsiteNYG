@@ -468,6 +468,36 @@ public sealed class StudentRecordRestrictedTests
     }
 
     [Fact]
+    public async Task RevokedExportPackageGrantBlocksDownload()
+    {
+        var fixture = new Fixture(new StudentRecordSchoolAccessContext(SchoolRole.SchoolAdmin, HasSchoolAdminScope: true));
+        var grant = await RequestExportGrantAsync(fixture);
+        var build = await fixture.Service.BuildRestrictedExportAsync(grant.ExportPackageGrantId);
+        Assert.True(build.IsSuccess);
+        fixture.ExportGrants.Grants[0].RevokedAt = fixture.Clock.UtcNow;
+
+        var result = await fixture.Service.DownloadRestrictedExportAsync(grant.ExportPackageGrantId);
+
+        Assert.False(result.IsSuccess);
+        AssertAuditDenial(fixture, "export-package-grant-revoked");
+    }
+
+    [Fact]
+    public async Task ExportPackageGrantActorMismatchBlocksDownload()
+    {
+        var fixture = new Fixture(new StudentRecordSchoolAccessContext(SchoolRole.SchoolAdmin, HasSchoolAdminScope: true));
+        var grant = await RequestExportGrantAsync(fixture);
+        var build = await fixture.Service.BuildRestrictedExportAsync(grant.ExportPackageGrantId);
+        Assert.True(build.IsSuccess);
+        fixture.CurrentUser.UserIdValue = Guid.NewGuid();
+
+        var result = await fixture.Service.DownloadRestrictedExportAsync(grant.ExportPackageGrantId);
+
+        Assert.False(result.IsSuccess);
+        Assert.Contains("grant.actor_mismatch", JsonSerializer.Serialize(fixture.Audit.Entries));
+    }
+
+    [Fact]
     public async Task ExportPackageGrantScopeMismatchBlocksDownload()
     {
         var fixture = new Fixture(new StudentRecordSchoolAccessContext(SchoolRole.SchoolAdmin, HasSchoolAdminScope: true));
@@ -501,6 +531,8 @@ public sealed class StudentRecordRestrictedTests
         Assert.DoesNotContain(fixture.Record.GuardianContact!, grantJson);
         Assert.DoesNotContain(fixture.Record.Grades!, grantJson);
         Assert.DoesNotContain(fixture.Record.InternalSensitiveNotes!, grantJson);
+        Assert.Contains("StudentRecordRestricted", grantJson);
+        Assert.Contains("StudentRecord", grantJson);
 
         var packageJson = Encoding.UTF8.GetString(build.Value!.Content);
         Assert.Contains(StudentRecordDataPolicy.GuardianContact, packageJson);
@@ -690,7 +722,8 @@ public sealed class StudentRecordRestrictedTests
 
     private sealed class FakeCurrentUser(Guid userId) : ICurrentUser
     {
-        public Guid? UserId => userId;
+        public Guid? UserIdValue { get; set; } = userId;
+        public Guid? UserId => UserIdValue;
         public Guid? SessionId => Guid.NewGuid();
         public string? Email => "student-record-reader@example.test";
         public SystemRole? SystemRole => global::AipPortal.Domain.Enums.SystemRole.Admin;

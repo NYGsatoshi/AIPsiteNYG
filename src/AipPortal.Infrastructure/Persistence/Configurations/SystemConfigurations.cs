@@ -66,6 +66,7 @@ public sealed class FileObjectConfiguration : IEntityTypeConfiguration<FileObjec
         builder.Property(file => file.StorageKey).HasMaxLength(1024).IsRequired();
         builder.Property(file => file.ContentType).HasMaxLength(160).IsRequired();
         builder.Property(file => file.HashSha256).HasMaxLength(64);
+        builder.Property(file => file.Classification).HasConversion<string>().HasMaxLength(40);
         builder.Property(file => file.Status).HasEnumStringConversion().IsRequired();
         builder.Property(file => file.DeleteReason).HasMaxLength(500);
 
@@ -74,6 +75,7 @@ public sealed class FileObjectConfiguration : IEntityTypeConfiguration<FileObjec
         builder.HasIndex(file => file.ProjectId);
         builder.HasIndex(file => file.UploadedByUserId);
         builder.HasIndex(file => file.Status);
+        builder.HasIndex(file => file.Classification);
         builder.HasIndex(file => file.StorageKey).IsUnique();
         builder.HasIndex(file => new { file.TenantId, file.Status, file.CreatedAt });
 
@@ -100,6 +102,31 @@ public sealed class FileObjectConfiguration : IEntityTypeConfiguration<FileObjec
             .WithMany()
             .HasForeignKey(file => file.UploadedByUserId)
             .OnDelete(DeleteBehavior.Restrict);
+    }
+}
+
+public sealed class FileDownloadGrantConfiguration : IEntityTypeConfiguration<FileDownloadGrant>
+{
+    public void Configure(EntityTypeBuilder<FileDownloadGrant> builder)
+    {
+        builder.ToTable("file_download_grants");
+        builder.ConfigureAuditableEntity();
+
+        builder.Property(grant => grant.TargetScopeType).HasEnumStringConversion().IsRequired();
+        builder.Property(grant => grant.Classification).HasEnumStringConversion().IsRequired();
+        builder.Property(grant => grant.AllowedOperation).HasMaxLength(40).IsRequired();
+        builder.Property(grant => grant.TokenHash).HasMaxLength(128).IsRequired();
+        builder.Property(grant => grant.PolicyStamp).HasMaxLength(128).IsRequired();
+        builder.Property(grant => grant.Purpose).HasMaxLength(160);
+
+        builder.HasIndex(grant => grant.ActorUserId);
+        builder.HasIndex(grant => grant.WorkspaceId);
+        builder.HasIndex(grant => grant.FileObjectId);
+        builder.HasIndex(grant => grant.AttachmentId);
+        builder.HasIndex(grant => new { grant.TargetScopeType, grant.TargetScopeId });
+        builder.HasIndex(grant => grant.TokenHash);
+        builder.HasIndex(grant => grant.ExpiresAt);
+        builder.HasIndex(grant => grant.RevokedAt);
     }
 }
 

@@ -61,6 +61,7 @@ public sealed class AppDbContext(
     public DbSet<Feedback> Feedback => Set<Feedback>();
     public DbSet<FileObject> FileObjects => Set<FileObject>();
     public DbSet<Attachment> Attachments => Set<Attachment>();
+    public DbSet<FileDownloadGrant> FileDownloadGrants => Set<FileDownloadGrant>();
     public DbSet<FileScanResult> FileScanResults => Set<FileScanResult>();
     public DbSet<AuditLog> AuditLogs => Set<AuditLog>();
     public DbSet<SecurityEvent> SecurityEvents => Set<SecurityEvent>();

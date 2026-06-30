@@ -195,7 +195,9 @@ public enum DataClassification
     Public = 0,
     StudentRecordRestricted = 1,
     InternalSchoolOperational = 2,
-    UnknownSensitive = 3
+    UnknownSensitive = 3,
+    Internal = 4,
+    Private = 5
 }
 
 public enum SchoolRole

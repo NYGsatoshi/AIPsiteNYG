@@ -24,6 +24,20 @@ public sealed record AttachmentResponse(
 
 public sealed record FileDownloadResponse(Stream Content, string FileName, string ContentType, long SizeBytes);
 
+public sealed record FileDownloadGrantRequest(string? Purpose = null);
+
+public sealed record FileDownloadGrantResponse(
+    Guid FileDownloadGrantId,
+    Guid AttachmentId,
+    Guid FileObjectId,
+    AttachmentOwnerType TargetScopeType,
+    Guid TargetScopeId,
+    string Classification,
+    DateTimeOffset ExpiresAt,
+    string Token);
+
+public sealed record FileDownloadGrantTokenRequest(string Token);
+
 public sealed record FileObjectResponse(
     Guid Id,
     Guid? WorkspaceId,

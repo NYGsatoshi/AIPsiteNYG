@@ -8,6 +8,16 @@ public interface IFileObjectService
 
     Task<Result<FileObjectResponse>> GetFileObjectAsync(Guid fileObjectId, CancellationToken cancellationToken = default);
 
+    Task<Result<FileDownloadGrantResponse>> RequestFileObjectDownloadGrantAsync(
+        Guid fileObjectId,
+        FileDownloadGrantRequest request,
+        CancellationToken cancellationToken = default);
+
+    Task<Result<FileDownloadResponse>> DownloadFileObjectWithGrantAsync(
+        Guid fileDownloadGrantId,
+        string token,
+        CancellationToken cancellationToken = default);
+
     Task<Result<FileDownloadResponse>> DownloadFileObjectAsync(Guid fileObjectId, CancellationToken cancellationToken = default);
 
     Task<Result> DeleteFileObjectAsync(Guid fileObjectId, string? reason = null, CancellationToken cancellationToken = default);

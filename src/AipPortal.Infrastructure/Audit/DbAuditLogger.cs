@@ -13,7 +13,11 @@ public sealed class DbAuditLogger(AppDbContext dbContext, IClock clock, ICurrent
     {
         "password",
         "token",
+        "grantToken",
         "secret",
+        "signedUrl",
+        "storageKey",
+        "objectStoragePath",
         "rawFilePath",
         "filePath",
         "messageBody",

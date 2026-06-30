@@ -318,6 +318,7 @@ internal sealed class TenantIsolationTestData
             OriginalFileName = $"{projectId:N}.txt",
             ContentType = "text/plain",
             SizeBytes = 10,
+            Classification = DataClassification.Private,
             Status = FileObjectStatus.Active
         };
         file.StorageKey = $"tenants/{tenantId:D}/projects/{projectId:D}/files/{file.Id:D}";

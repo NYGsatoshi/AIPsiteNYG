@@ -41,6 +41,7 @@ public sealed class FileObject : AuditableEntity, ITenantEntity
     public string ContentType { get; set; } = "application/octet-stream";
     public long SizeBytes { get; set; }
     public string? HashSha256 { get; set; }
+    public DataClassification? Classification { get; set; }
     public FileObjectStatus Status { get; set; } = FileObjectStatus.Active;
     public DateTimeOffset? DeletedAt { get; private set; }
     public Guid? DeletedByUserId { get; set; }
@@ -58,6 +59,25 @@ public sealed class FileObject : AuditableEntity, ITenantEntity
         DeletedByUserId = deletedByUserId;
         DeleteReason = string.IsNullOrWhiteSpace(reason) ? null : reason.Trim();
     }
+}
+
+public sealed class FileDownloadGrant : AuditableEntity, ITenantEntity
+{
+    public Guid TenantId { get; set; }
+    public Guid ActorUserId { get; set; }
+    public Guid WorkspaceId { get; set; }
+    public Guid FileObjectId { get; set; }
+    public Guid AttachmentId { get; set; }
+    public AttachmentOwnerType TargetScopeType { get; set; }
+    public Guid TargetScopeId { get; set; }
+    public DataClassification Classification { get; set; }
+    public string AllowedOperation { get; set; } = "download";
+    public string TokenHash { get; set; } = string.Empty;
+    public string PolicyStamp { get; set; } = string.Empty;
+    public string? Purpose { get; set; }
+    public DateTimeOffset ExpiresAt { get; set; }
+    public DateTimeOffset? RevokedAt { get; set; }
+    public DateTimeOffset? DownloadedAt { get; set; }
 }
 
 public sealed class FileScanResult : Entity, ITenantEntity
