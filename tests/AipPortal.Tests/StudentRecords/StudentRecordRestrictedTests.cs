@@ -288,7 +288,8 @@ public sealed class StudentRecordRestrictedTests
 
         Assert.False(result.IsSuccess);
         Assert.Empty(fixture.ExportGrants.Grants);
-        AssertAuditDenial(fixture, "missing-reason");
+        AssertAuditDenial(fixture, "export_reason_missing");
+        Assert.Contains(fixture.Audit.Entries, item => item.Action == "export_package.grant_issue_denied");
     }
 
     [Fact]
@@ -302,7 +303,7 @@ public sealed class StudentRecordRestrictedTests
 
         Assert.False(result.IsSuccess);
         Assert.Empty(fixture.ExportGrants.Grants);
-        AssertAuditDenial(fixture, "invalid-reason");
+        AssertAuditDenial(fixture, "invalid_export_reason");
     }
 
     [Fact]
@@ -315,7 +316,8 @@ public sealed class StudentRecordRestrictedTests
         Assert.True(result.IsSuccess);
         Assert.Single(fixture.ExportGrants.Grants);
         Assert.Contains(StudentRecordDataPolicy.HealthNotes, result.Value!.AuthorizedFields);
-        Assert.Contains(fixture.Audit.Entries, item => item.Action == "student_record.export.request");
+        Assert.Contains(fixture.Audit.Entries, item => item.Action == "export_package.reauthorization_passed");
+        Assert.Contains(fixture.Audit.Entries, item => item.Action == "export_package.grant_issued");
     }
 
     [Fact]
@@ -327,7 +329,8 @@ public sealed class StudentRecordRestrictedTests
 
         Assert.False(result.IsSuccess);
         Assert.Empty(fixture.ExportGrants.Grants);
-        AssertAuditDenial(fixture, "failed-reauthorization");
+        AssertAuditDenial(fixture, "guardian_relationship_removed");
+        Assert.Contains(fixture.Audit.Entries, item => item.Action == "export_package.reauthorization_failed");
     }
 
     [Fact]
@@ -343,7 +346,7 @@ public sealed class StudentRecordRestrictedTests
 
         Assert.False(result.IsSuccess);
         Assert.Empty(fixture.ExportGrants.Grants);
-        AssertAuditDenial(fixture, "unauthorized-restricted-field");
+        AssertAuditDenial(fixture, "field_access_denied");
     }
 
     [Fact]
@@ -357,7 +360,7 @@ public sealed class StudentRecordRestrictedTests
 
         Assert.False(result.IsSuccess);
         Assert.Empty(fixture.ExportGrants.Grants);
-        AssertAuditDenial(fixture, "unauthorized-restricted-field");
+        AssertAuditDenial(fixture, "unknown_sensitive_classification");
     }
 
     [Fact]
@@ -373,7 +376,7 @@ public sealed class StudentRecordRestrictedTests
 
         Assert.False(result.IsSuccess);
         Assert.Empty(fixture.ExportGrants.Grants);
-        AssertAuditDenial(fixture, "unauthorized-restricted-field");
+        AssertAuditDenial(fixture, "field_access_denied");
     }
 
     [Fact]
@@ -388,7 +391,7 @@ public sealed class StudentRecordRestrictedTests
         var result = await fixture.Service.BuildRestrictedExportAsync(grant.ExportPackageGrantId);
 
         Assert.False(result.IsSuccess);
-        AssertAuditDenial(fixture, "policy-changed-after-request");
+        AssertAuditDenial(fixture, "policy_changed");
     }
 
     [Fact]
@@ -405,7 +408,8 @@ public sealed class StudentRecordRestrictedTests
         var result = await fixture.Service.DownloadRestrictedExportAsync(grant.ExportPackageGrantId);
 
         Assert.False(result.IsSuccess);
-        AssertAuditDenial(fixture, "policy-changed-after-build");
+        AssertAuditDenial(fixture, "policy_changed");
+        Assert.Contains(fixture.Audit.Entries, item => item.Action == "export_package.download_denied_policy_changed");
     }
 
     [Fact]
@@ -419,7 +423,22 @@ public sealed class StudentRecordRestrictedTests
         var result = await fixture.Service.BuildRestrictedExportAsync(grant.ExportPackageGrantId);
 
         Assert.False(result.IsSuccess);
-        AssertAuditDenial(fixture, "failed-reauthorization");
+        AssertAuditDenial(fixture, "export_reauthorization_failed");
+    }
+
+    [Fact]
+    public async Task ExistingExportPackageDownloadIsDeniedAfterRoleChange()
+    {
+        var fixture = new Fixture(new StudentRecordSchoolAccessContext(SchoolRole.SchoolAdmin, HasSchoolAdminScope: true));
+        var grant = await RequestExportGrantAsync(fixture);
+        var build = await fixture.Service.BuildRestrictedExportAsync(grant.ExportPackageGrantId);
+        Assert.True(build.IsSuccess);
+        fixture.SchoolAccess.Context = new StudentRecordSchoolAccessContext(SchoolRole.ExternalGuest);
+
+        var result = await fixture.Service.DownloadRestrictedExportAsync(grant.ExportPackageGrantId);
+
+        Assert.False(result.IsSuccess);
+        AssertAuditDenial(fixture, "export_reauthorization_failed");
     }
 
     [Fact]
@@ -434,7 +453,25 @@ public sealed class StudentRecordRestrictedTests
         var result = await fixture.Service.BuildRestrictedExportAsync(grant.ExportPackageGrantId);
 
         Assert.False(result.IsSuccess);
-        AssertAuditDenial(fixture, "failed-reauthorization");
+        AssertAuditDenial(fixture, "guardian_relationship_removed");
+    }
+
+    [Fact]
+    public async Task ExistingExportPackageDownloadIsDeniedAfterGuardianRelationshipRemoval()
+    {
+        var fixture = new Fixture(new StudentRecordSchoolAccessContext(
+            SchoolRole.Guardian,
+            HasGuardianRelationship: true));
+        var grant = await RequestExportGrantAsync(fixture, fields: [StudentRecordDataPolicy.GuardianContact]);
+        var build = await fixture.Service.BuildRestrictedExportAsync(grant.ExportPackageGrantId);
+        Assert.True(build.IsSuccess);
+        fixture.SchoolAccess.Context = new StudentRecordSchoolAccessContext(SchoolRole.Guardian);
+
+        var result = await fixture.Service.DownloadRestrictedExportAsync(grant.ExportPackageGrantId);
+
+        Assert.False(result.IsSuccess);
+        AssertAuditDenial(fixture, "guardian_relationship_removed");
+        Assert.Contains(fixture.Audit.Entries, item => item.Action == "export_package.download_denied_scope_changed");
     }
 
     [Fact]
@@ -449,7 +486,25 @@ public sealed class StudentRecordRestrictedTests
         var result = await fixture.Service.BuildRestrictedExportAsync(grant.ExportPackageGrantId);
 
         Assert.False(result.IsSuccess);
-        AssertAuditDenial(fixture, "failed-reauthorization");
+        AssertAuditDenial(fixture, "teacher_scope_removed");
+    }
+
+    [Fact]
+    public async Task ExistingExportPackageDownloadIsDeniedAfterTeacherScopeRemoval()
+    {
+        var fixture = new Fixture(new StudentRecordSchoolAccessContext(
+            SchoolRole.Teacher,
+            HasTeacherScope: true));
+        var grant = await RequestExportGrantAsync(fixture, fields: [StudentRecordDataPolicy.Grades]);
+        var build = await fixture.Service.BuildRestrictedExportAsync(grant.ExportPackageGrantId);
+        Assert.True(build.IsSuccess);
+        fixture.SchoolAccess.Context = new StudentRecordSchoolAccessContext(SchoolRole.Teacher);
+
+        var result = await fixture.Service.DownloadRestrictedExportAsync(grant.ExportPackageGrantId);
+
+        Assert.False(result.IsSuccess);
+        AssertAuditDenial(fixture, "teacher_scope_removed");
+        Assert.Contains(fixture.Audit.Entries, item => item.Action == "export_package.download_denied_scope_changed");
     }
 
     [Fact]
@@ -464,7 +519,8 @@ public sealed class StudentRecordRestrictedTests
         var result = await fixture.Service.DownloadRestrictedExportAsync(grant.ExportPackageGrantId);
 
         Assert.False(result.IsSuccess);
-        AssertAuditDenial(fixture, "export-package-grant-expired");
+        AssertAuditDenial(fixture, "grant_expired");
+        Assert.Contains(fixture.Audit.Entries, item => item.Action == "export_package.grant_expired");
     }
 
     [Fact]
@@ -479,7 +535,8 @@ public sealed class StudentRecordRestrictedTests
         var result = await fixture.Service.DownloadRestrictedExportAsync(grant.ExportPackageGrantId);
 
         Assert.False(result.IsSuccess);
-        AssertAuditDenial(fixture, "export-package-grant-revoked");
+        AssertAuditDenial(fixture, "grant_revoked");
+        Assert.Contains(fixture.Audit.Entries, item => item.Action == "export_package.grant_revoked");
     }
 
     [Fact]
@@ -494,7 +551,7 @@ public sealed class StudentRecordRestrictedTests
         var result = await fixture.Service.DownloadRestrictedExportAsync(grant.ExportPackageGrantId);
 
         Assert.False(result.IsSuccess);
-        Assert.Contains("grant.actor_mismatch", JsonSerializer.Serialize(fixture.Audit.Entries));
+        Assert.Contains("actor_mismatch", JsonSerializer.Serialize(fixture.Audit.Entries));
     }
 
     [Fact]
@@ -509,7 +566,8 @@ public sealed class StudentRecordRestrictedTests
         var result = await fixture.Service.DownloadRestrictedExportAsync(grant.ExportPackageGrantId);
 
         Assert.False(result.IsSuccess);
-        AssertAuditDenial(fixture, "export-package-grant-scope-mismatch");
+        AssertAuditDenial(fixture, "scope_mismatch");
+        Assert.Contains(fixture.Audit.Entries, item => item.Action == "export_package.download_denied_scope_changed");
     }
 
     [Fact]

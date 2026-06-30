@@ -158,7 +158,7 @@ public sealed class FileService(
         var decision = await ValidateAttachmentForGrantAsync(userId, attachment, existingGrant: null, cancellationToken);
         if (!decision.IsAllowed)
         {
-            await LogFileGrantDeniedAsync(userId, attachment, null, decision.AuditAction, decision.DenialReason, cancellationToken);
+            await LogFileGrantDeniedAsync(userId, attachment, null, "file_download.grant_issue_denied", "issue", decision.DenialReason, cancellationToken);
             return Result<FileDownloadGrantResponse>.Failure("Attachment not found.");
         }
 
@@ -183,13 +183,23 @@ public sealed class FileService(
         await downloadGrants.AddAsync(grant, cancellationToken);
         await auditLogger.LogAsync(new AuditLogEntry(
             userId,
-            "file_download.grant_created",
+            "file_download.reauthorization_passed",
             "FileDownloadGrant",
             grant.Id,
-            "File download grant created.",
+            "File download grant issuance reauthorized.",
             WorkspaceId: grant.WorkspaceId,
             ProjectId: attachment.FileObject.ProjectId,
-            Metadata: FileGrantAuditMetadata(grant, "allow", "created"),
+            Metadata: FileGrantAuditMetadata(grant, "allow", "reauthorization_passed", "issue"),
+            TenantId: grant.TenantId), cancellationToken);
+        await auditLogger.LogAsync(new AuditLogEntry(
+            userId,
+            "file_download.grant_issued",
+            "FileDownloadGrant",
+            grant.Id,
+            "File download grant issued.",
+            WorkspaceId: grant.WorkspaceId,
+            ProjectId: attachment.FileObject.ProjectId,
+            Metadata: FileGrantAuditMetadata(grant, "allow", "grant_issued", "issue"),
             TenantId: grant.TenantId), cancellationToken);
         await unitOfWork.SaveChangesAsync(cancellationToken);
 
@@ -214,34 +224,34 @@ public sealed class FileService(
 
         if (grant.TenantId != currentTenant.TenantId)
         {
-            await LogFileGrantDeniedAsync(userId, null, grant, "grant.scope_mismatch", "tenant-mismatch", cancellationToken);
+            await LogFileGrantDeniedAsync(userId, null, grant, "file_download.grant_use_denied", "download", "tenant_mismatch", cancellationToken);
             return Result<FileDownloadResponse>.Failure("Attachment not found.");
         }
 
         if (grant.ActorUserId != userId)
         {
-            await LogFileGrantDeniedAsync(userId, null, grant, "grant.actor_mismatch", "actor-mismatch", cancellationToken);
+            await LogFileGrantDeniedAsync(userId, null, grant, "file_download.grant_use_denied", "download", "actor_mismatch", cancellationToken);
             return Result<FileDownloadResponse>.Failure("Attachment not found.");
         }
 
         if (string.IsNullOrWhiteSpace(token) ||
             !string.Equals(grant.TokenHash, tokenHasher.HashToken(token), StringComparison.Ordinal))
         {
-            await LogFileGrantDeniedAsync(userId, null, grant, "file_download.denied", "invalid-grant-token", cancellationToken);
+            await LogFileGrantDeniedAsync(userId, null, grant, "file_download.grant_use_denied", "download", "invalid_grant_token", cancellationToken);
             return Result<FileDownloadResponse>.Failure("Attachment not found.");
         }
 
         var attachment = await files.GetAttachmentAsync(grant.AttachmentId, cancellationToken);
         if (attachment is null)
         {
-            await LogFileGrantDeniedAsync(userId, null, grant, "grant.scope_mismatch", "attachment-missing", cancellationToken);
+            await LogFileGrantDeniedAsync(userId, null, grant, "file_download.grant_use_denied", "download", "target_missing", cancellationToken);
             return Result<FileDownloadResponse>.Failure("Attachment not found.");
         }
 
         var decision = await ValidateAttachmentForGrantAsync(userId, attachment, grant, cancellationToken);
         if (!decision.IsAllowed)
         {
-            await LogFileGrantDeniedAsync(userId, attachment, grant, decision.AuditAction, decision.DenialReason, cancellationToken);
+            await LogFileGrantDeniedAsync(userId, attachment, grant, "file_download.grant_use_denied", "download", decision.DenialReason, cancellationToken);
             return Result<FileDownloadResponse>.Failure("Attachment not found.");
         }
 
@@ -250,13 +260,23 @@ public sealed class FileService(
         grant.DownloadedAt = clock.UtcNow;
         await auditLogger.LogAsync(new AuditLogEntry(
             userId,
-            "file_download.started",
+            "file_download.reauthorization_passed",
             "FileDownloadGrant",
             grant.Id,
-            "File download authorized.",
+            "File download grant use reauthorized.",
             WorkspaceId: attachment.WorkspaceId,
             ProjectId: fileObject.ProjectId,
-            Metadata: FileGrantAuditMetadata(grant, "allow", "fresh-reauthorization"),
+            Metadata: FileGrantAuditMetadata(grant, "allow", "reauthorization_passed", "download"),
+            TenantId: grant.TenantId), cancellationToken);
+        await auditLogger.LogAsync(new AuditLogEntry(
+            userId,
+            "file_download.grant_used",
+            "FileDownloadGrant",
+            grant.Id,
+            "File download grant used.",
+            WorkspaceId: attachment.WorkspaceId,
+            ProjectId: fileObject.ProjectId,
+            Metadata: FileGrantAuditMetadata(grant, "allow", "grant_used", "download"),
             TenantId: grant.TenantId), cancellationToken);
         await unitOfWork.SaveChangesAsync(cancellationToken);
         return Result<FileDownloadResponse>.Success(new FileDownloadResponse(content, fileObject.OriginalFileName, fileObject.ContentType, fileObject.SizeBytes));
@@ -422,24 +442,24 @@ public sealed class FileService(
             attachment.FileObject is null ||
             attachment.FileObject.TenantId != currentTenant.TenantId)
         {
-            return FileGrantDecision.Deny("grant.scope_mismatch", "tenant-mismatch");
+            return FileGrantDecision.Deny("tenant_mismatch");
         }
 
         if (existingGrant is not null)
         {
             if (!string.Equals(existingGrant.AllowedOperation, "download", StringComparison.OrdinalIgnoreCase))
             {
-                return FileGrantDecision.Deny("file_download.denied", "operation-mismatch");
+                return FileGrantDecision.Deny("operation_mismatch");
             }
 
             if (clock.UtcNow >= existingGrant.ExpiresAt)
             {
-                return FileGrantDecision.Deny("grant.expired", "grant-expired");
+                return FileGrantDecision.Deny("grant_expired");
             }
 
             if (existingGrant.RevokedAt.HasValue)
             {
-                return FileGrantDecision.Deny("grant.revoked", "grant-revoked");
+                return FileGrantDecision.Deny("grant_revoked");
             }
 
             if (existingGrant.TenantId != attachment.TenantId ||
@@ -449,41 +469,59 @@ public sealed class FileService(
                 existingGrant.TargetScopeType != attachment.OwnerType ||
                 existingGrant.TargetScopeId != attachment.OwnerId)
             {
-                return FileGrantDecision.Deny("grant.scope_mismatch", "scope-mismatch");
+                return FileGrantDecision.Deny("scope_mismatch");
             }
         }
 
         if (attachment.DeletedAt.HasValue ||
-            !attachment.OwnerType.HasValue ||
-            !attachment.OwnerId.HasValue ||
-            attachment.FileObject.Status != FileObjectStatus.Active ||
             attachment.FileObject.DeletedAt.HasValue ||
-            attachment.ScanStatus is FileScanStatus.Pending or FileScanStatus.Infected or FileScanStatus.Failed)
+            attachment.FileObject.Status == FileObjectStatus.Deleted)
         {
-            return FileGrantDecision.Deny("file_download.denied", "file-inaccessible");
+            return FileGrantDecision.Deny("target_deleted");
         }
 
-        if (!IsAllowedClassification(attachment.FileObject.Classification))
+        if (!attachment.OwnerType.HasValue || !attachment.OwnerId.HasValue)
         {
-            return FileGrantDecision.Deny("file_download.denied", "classification-fail-closed");
+            return FileGrantDecision.Deny("scope_mismatch");
+        }
+
+        if (attachment.FileObject.Status == FileObjectStatus.Archived)
+        {
+            return FileGrantDecision.Deny("target_archived");
+        }
+
+        if (attachment.FileObject.Status == FileObjectStatus.Quarantined ||
+            attachment.ScanStatus is FileScanStatus.Pending or FileScanStatus.Infected or FileScanStatus.Failed)
+        {
+            return FileGrantDecision.Deny("target_quarantined");
+        }
+
+        if (!attachment.FileObject.Classification.HasValue)
+        {
+            return FileGrantDecision.Deny("missing_classification");
+        }
+
+        if (attachment.FileObject.Classification == DataClassification.UnknownSensitive)
+        {
+            return FileGrantDecision.Deny("unknown_sensitive_classification");
         }
 
         var classification = attachment.FileObject.Classification;
         if (existingGrant is not null &&
             (!classification.HasValue || existingGrant.Classification != classification.Value))
         {
-            return FileGrantDecision.Deny("grant.scope_mismatch", "classification-mismatch");
+            return FileGrantDecision.Deny("policy_changed");
         }
 
         if (!await authorization.CanDownloadAttachment(userId, attachment, cancellationToken))
         {
-            return FileGrantDecision.Deny("file_download.denied", "current-authorization-failed");
+            return FileGrantDecision.Deny("current_authorization_failed");
         }
 
         if (existingGrant is not null &&
             !string.Equals(existingGrant.PolicyStamp, ComputeFilePolicyStamp(userId, attachment), StringComparison.Ordinal))
         {
-            return FileGrantDecision.Deny("grant.stale_policy", "stale-policy");
+            return FileGrantDecision.Deny("policy_changed");
         }
 
         return FileGrantDecision.Allow();
@@ -494,15 +532,30 @@ public sealed class FileService(
         Attachment? attachment,
         FileDownloadGrant? grant,
         string action,
+        string operationType,
         string reason,
         CancellationToken cancellationToken)
     {
+        var metadata = FileGrantDenialMetadata(userId, attachment, grant, reason, operationType);
         await auditLogger.LogSecurityAsync(
             "AccessDenied",
             "File download grant denied.",
-            FileGrantDenialMetadata(attachment, grant, reason),
+            metadata,
             SecurityEventSeverity.Warning,
             cancellationToken);
+
+        await auditLogger.LogAsync(new AuditLogEntry(
+            userId,
+            "file_download.reauthorization_failed",
+            grant is null ? "FileObject" : "FileDownloadGrant",
+            grant?.Id ?? attachment?.FileObjectId,
+            "File download grant reauthorization failed.",
+            WorkspaceId: attachment?.WorkspaceId ?? grant?.WorkspaceId,
+            ProjectId: attachment?.FileObject?.ProjectId,
+            Metadata: metadata,
+            TenantId: currentTenant.IsAvailable
+                ? currentTenant.TenantId
+                : attachment?.TenantId ?? grant?.TenantId), cancellationToken);
 
         await auditLogger.LogAsync(new AuditLogEntry(
             userId,
@@ -512,21 +565,45 @@ public sealed class FileService(
             "File download grant denied.",
             WorkspaceId: attachment?.WorkspaceId ?? grant?.WorkspaceId,
             ProjectId: attachment?.FileObject?.ProjectId,
-            Metadata: FileGrantDenialMetadata(attachment, grant, reason),
+            Metadata: metadata,
             TenantId: currentTenant.IsAvailable
                 ? currentTenant.TenantId
                 : attachment?.TenantId ?? grant?.TenantId), cancellationToken);
+        var lifecycleAction = reason switch
+        {
+            "grant_expired" => "file_download.grant_expired",
+            "grant_revoked" => "file_download.grant_revoked",
+            _ => null
+        };
+        if (lifecycleAction is not null)
+        {
+            await auditLogger.LogAsync(new AuditLogEntry(
+                userId,
+                lifecycleAction,
+                "FileDownloadGrant",
+                grant?.Id,
+                "File download grant lifecycle denial.",
+                WorkspaceId: attachment?.WorkspaceId ?? grant?.WorkspaceId,
+                ProjectId: attachment?.FileObject?.ProjectId,
+                Metadata: metadata,
+                TenantId: currentTenant.IsAvailable
+                    ? currentTenant.TenantId
+                    : attachment?.TenantId ?? grant?.TenantId), cancellationToken);
+        }
         await unitOfWork.SaveChangesAsync(cancellationToken);
     }
 
     private static IReadOnlyDictionary<string, object?> FileGrantDenialMetadata(
+        Guid actorUserId,
         Attachment? attachment,
         FileDownloadGrant? grant,
-        string reason)
+        string reason,
+        string operationType)
     {
         return new Dictionary<string, object?>
         {
-            ["actorUserId"] = grant?.ActorUserId,
+            ["actorUserId"] = actorUserId,
+            ["grantActorUserId"] = grant?.ActorUserId,
             ["tenantId"] = attachment?.TenantId ?? grant?.TenantId,
             ["workspaceId"] = attachment?.WorkspaceId ?? grant?.WorkspaceId,
             ["fileObjectId"] = attachment?.FileObjectId ?? grant?.FileObjectId,
@@ -537,14 +614,17 @@ public sealed class FileService(
             ["decision"] = "deny",
             ["decisionReason"] = reason,
             ["grantId"] = grant?.Id,
-            ["policyStamp"] = grant?.PolicyStamp
+            ["policyVersion"] = grant?.PolicyStamp,
+            ["accessStamp"] = grant?.PolicyStamp,
+            ["operationType"] = operationType
         };
     }
 
     private static IReadOnlyDictionary<string, object?> FileGrantAuditMetadata(
         FileDownloadGrant grant,
         string decision,
-        string reason)
+        string reason,
+        string operationType)
     {
         return new Dictionary<string, object?>
         {
@@ -560,18 +640,11 @@ public sealed class FileService(
             ["decision"] = decision,
             ["decisionReason"] = reason,
             ["grantId"] = grant.Id,
-            ["policyStamp"] = grant.PolicyStamp,
-            ["expiresAt"] = grant.ExpiresAt
+            ["policyVersion"] = grant.PolicyStamp,
+            ["accessStamp"] = grant.PolicyStamp,
+            ["expiresAt"] = grant.ExpiresAt,
+            ["operationType"] = operationType
         };
-    }
-
-    private static bool IsAllowedClassification(DataClassification? classification)
-    {
-        return classification is DataClassification.Public
-            or DataClassification.Internal
-            or DataClassification.InternalSchoolOperational
-            or DataClassification.Private
-            or DataClassification.StudentRecordRestricted;
     }
 
     private static string ComputeFilePolicyStamp(Guid userId, Attachment attachment)
@@ -609,11 +682,11 @@ public sealed class FileService(
         return Convert.ToBase64String(RandomNumberGenerator.GetBytes(32));
     }
 
-    private sealed record FileGrantDecision(bool IsAllowed, string AuditAction, string DenialReason)
+    private sealed record FileGrantDecision(bool IsAllowed, string DenialReason)
     {
-        public static FileGrantDecision Allow() => new(true, string.Empty, string.Empty);
+        public static FileGrantDecision Allow() => new(true, string.Empty);
 
-        public static FileGrantDecision Deny(string auditAction, string denialReason) => new(false, auditAction, denialReason);
+        public static FileGrantDecision Deny(string denialReason) => new(false, denialReason);
     }
 
     private static string CreateStorageKey(FileObject fileObject)

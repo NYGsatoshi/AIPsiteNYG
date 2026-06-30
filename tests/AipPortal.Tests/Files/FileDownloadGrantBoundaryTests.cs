@@ -28,13 +28,16 @@ public sealed class FileDownloadGrantBoundaryTests
         Assert.Equal(fixture.Attachment.OwnerId, stored.TargetScopeId);
         Assert.Equal(DataClassification.Private, stored.Classification);
         Assert.NotEqual(grant.Value!.Token, stored.TokenHash);
-        Assert.Contains(fixture.Audit.Entries, entry => entry.Action == "file_download.grant_created");
+        Assert.Contains(fixture.Audit.Entries, entry => entry.Action == "file_download.reauthorization_passed");
+        Assert.Contains(fixture.Audit.Entries, entry => entry.Action == "file_download.grant_issued");
 
         fixture.Authorization.CanDownload = false;
         var denied = await fixture.Service.RequestDownloadGrantAsync(fixture.Attachment.Id, new FileDownloadGrantRequest("case-file"));
 
         Assert.False(denied.IsSuccess);
         Assert.Single(fixture.Grants.Grants);
+        Assert.Contains(fixture.Audit.Entries, entry => entry.Action == "file_download.grant_issue_denied");
+        AssertAuditContainsReason(fixture, "current_authorization_failed");
     }
 
     [Fact]
@@ -47,7 +50,9 @@ public sealed class FileDownloadGrantBoundaryTests
         var result = await fixture.Service.DownloadWithGrantAsync(grant.FileDownloadGrantId, grant.Token);
 
         Assert.False(result.IsSuccess);
-        AssertAuditContainsReason(fixture, "current-authorization-failed");
+        AssertAuditContainsReason(fixture, "current_authorization_failed");
+        Assert.Contains(fixture.Audit.Entries, entry => entry.Action == "file_download.reauthorization_failed");
+        Assert.Contains(fixture.Audit.Entries, entry => entry.Action == "file_download.grant_use_denied");
     }
 
     [Fact]
@@ -60,7 +65,8 @@ public sealed class FileDownloadGrantBoundaryTests
         var expired = await expiredFixture.Service.DownloadWithGrantAsync(expiredGrant.FileDownloadGrantId, expiredGrant.Token);
 
         Assert.False(expired.IsSuccess);
-        AssertAuditContainsReason(expiredFixture, "grant-expired");
+        AssertAuditContainsReason(expiredFixture, "grant_expired");
+        Assert.Contains(expiredFixture.Audit.Entries, entry => entry.Action == "file_download.grant_expired");
 
         var revokedFixture = new Fixture();
         var revokedGrant = await CreateGrantAsync(revokedFixture);
@@ -69,7 +75,8 @@ public sealed class FileDownloadGrantBoundaryTests
         var revoked = await revokedFixture.Service.DownloadWithGrantAsync(revokedGrant.FileDownloadGrantId, revokedGrant.Token);
 
         Assert.False(revoked.IsSuccess);
-        AssertAuditContainsReason(revokedFixture, "grant-revoked");
+        AssertAuditContainsReason(revokedFixture, "grant_revoked");
+        Assert.Contains(revokedFixture.Audit.Entries, entry => entry.Action == "file_download.grant_revoked");
     }
 
     [Fact]
@@ -82,7 +89,7 @@ public sealed class FileDownloadGrantBoundaryTests
         var actorMismatch = await fixture.Service.DownloadWithGrantAsync(grant.FileDownloadGrantId, grant.Token);
 
         Assert.False(actorMismatch.IsSuccess);
-        AssertAuditContainsReason(fixture, "actor-mismatch");
+        AssertAuditContainsReason(fixture, "actor_mismatch");
 
         var tokenFixture = new Fixture();
         var tokenGrant = await CreateGrantAsync(tokenFixture);
@@ -90,7 +97,7 @@ public sealed class FileDownloadGrantBoundaryTests
 
         Assert.False(tokenMismatch.IsSuccess);
         var audit = JsonSerializer.Serialize(tokenFixture.Audit.Entries);
-        Assert.Contains("invalid-grant-token", audit);
+        Assert.Contains("invalid_grant_token", audit);
         Assert.DoesNotContain(tokenGrant.Token, audit);
         Assert.DoesNotContain("leaked-token", audit);
     }
@@ -113,7 +120,7 @@ public sealed class FileDownloadGrantBoundaryTests
         var workspaceMismatch = await workspaceFixture.Service.DownloadWithGrantAsync(workspaceGrant.FileDownloadGrantId, workspaceGrant.Token);
 
         Assert.False(workspaceMismatch.IsSuccess);
-        AssertAuditContainsReason(workspaceFixture, "scope-mismatch");
+        AssertAuditContainsReason(workspaceFixture, "scope_mismatch");
 
         var scopeFixture = new Fixture();
         var scopeGrant = await CreateGrantAsync(scopeFixture);
@@ -122,7 +129,7 @@ public sealed class FileDownloadGrantBoundaryTests
         var scopeMismatch = await scopeFixture.Service.DownloadWithGrantAsync(scopeGrant.FileDownloadGrantId, scopeGrant.Token);
 
         Assert.False(scopeMismatch.IsSuccess);
-        AssertAuditContainsReason(scopeFixture, "scope-mismatch");
+        AssertAuditContainsReason(scopeFixture, "scope_mismatch");
     }
 
     [Fact]
@@ -135,7 +142,7 @@ public sealed class FileDownloadGrantBoundaryTests
         var stale = await staleFixture.Service.DownloadWithGrantAsync(staleGrant.FileDownloadGrantId, staleGrant.Token);
 
         Assert.False(stale.IsSuccess);
-        AssertAuditContainsReason(staleFixture, "stale-policy");
+        AssertAuditContainsReason(staleFixture, "policy_changed");
 
         var classificationFixture = new Fixture();
         var classificationGrant = await CreateGrantAsync(classificationFixture);
@@ -144,7 +151,7 @@ public sealed class FileDownloadGrantBoundaryTests
         var mismatch = await classificationFixture.Service.DownloadWithGrantAsync(classificationGrant.FileDownloadGrantId, classificationGrant.Token);
 
         Assert.False(mismatch.IsSuccess);
-        AssertAuditContainsReason(classificationFixture, "classification-mismatch");
+        AssertAuditContainsReason(classificationFixture, "policy_changed");
     }
 
     [Fact]
@@ -157,19 +164,19 @@ public sealed class FileDownloadGrantBoundaryTests
         var deleted = await deletedFixture.Service.DownloadWithGrantAsync(deletedGrant.FileDownloadGrantId, deletedGrant.Token);
 
         Assert.False(deleted.IsSuccess);
-        AssertAuditContainsReason(deletedFixture, "file-inaccessible");
+        AssertAuditContainsReason(deletedFixture, "target_deleted");
 
         var unknownFixture = new Fixture { FileObject = { Classification = DataClassification.UnknownSensitive } };
         var unknown = await unknownFixture.Service.RequestDownloadGrantAsync(unknownFixture.Attachment.Id, new FileDownloadGrantRequest());
 
         Assert.False(unknown.IsSuccess);
-        AssertAuditContainsReason(unknownFixture, "classification-fail-closed");
+        AssertAuditContainsReason(unknownFixture, "unknown_sensitive_classification");
 
         var missingFixture = new Fixture { FileObject = { Classification = null } };
         var missing = await missingFixture.Service.RequestDownloadGrantAsync(missingFixture.Attachment.Id, new FileDownloadGrantRequest());
 
         Assert.False(missing.IsSuccess);
-        AssertAuditContainsReason(missingFixture, "classification-fail-closed");
+        AssertAuditContainsReason(missingFixture, "missing_classification");
     }
 
     [Fact]
@@ -180,9 +187,12 @@ public sealed class FileDownloadGrantBoundaryTests
         await fixture.Service.DownloadWithGrantAsync(grant.FileDownloadGrantId, grant.Token);
 
         var audit = JsonSerializer.Serialize(fixture.Audit.Entries);
+        Assert.Contains("file_download.grant_used", audit);
+        Assert.Contains("file_download.reauthorization_passed", audit);
         Assert.DoesNotContain(grant.Token, audit);
         Assert.DoesNotContain(fixture.FileObject.StorageKey, audit);
         Assert.DoesNotContain("https://storage.example.test/signed", audit, StringComparison.OrdinalIgnoreCase);
+        Assert.DoesNotContain("file content", audit, StringComparison.OrdinalIgnoreCase);
         Assert.DoesNotContain("peanut allergy", audit, StringComparison.OrdinalIgnoreCase);
     }
 
