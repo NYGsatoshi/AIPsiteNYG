@@ -1,4 +1,5 @@
 using AipPortal.Application.Channels;
+using AipPortal.Application.Communication;
 using AipPortal.Application.Messaging;
 using AipPortal.Application.Planning;
 using AipPortal.Application.Projects;
@@ -49,6 +50,15 @@ public sealed class PaginationSafetyTests
 
         Assert.Equal(1, query.SafePage);
         Assert.Equal(100, query.SafePageSize);
+    }
+
+    [Fact]
+    public void CommunicationPollingQueryCanAcceptUnsafeInputForServiceClamping()
+    {
+        var query = new CommunicationPollingQuery(Page: -1, PageSize: 10_000);
+
+        Assert.Equal(-1, query.Page);
+        Assert.Equal(10_000, query.PageSize);
     }
 
     [Fact]

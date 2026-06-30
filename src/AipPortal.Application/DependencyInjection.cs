@@ -5,6 +5,7 @@ using AipPortal.Application.Announcements;
 using AipPortal.Application.Artifacts;
 using AipPortal.Application.Audit;
 using AipPortal.Application.Channels;
+using AipPortal.Application.Communication;
 using AipPortal.Application.Events;
 using AipPortal.Application.Files;
 using AipPortal.Application.Forms;
@@ -57,6 +58,7 @@ public static class DependencyInjection
         services.AddScoped<IStudentRecordSchoolAccessContextProvider, WorkspaceSchoolAccessContextProvider>();
         services.AddScoped<IStudentRecordAuthorizationService, StudentRecordAuthorizationService>();
         services.AddScoped<INotificationApplicationService, NotificationApplicationService>();
+        services.AddScoped<ICommunicationPollingService, CommunicationPollingService>();
         services.AddScoped<IAnnouncementService, AnnouncementService>();
         services.AddScoped<IWorkspaceService, WorkspaceService>();
         services.AddScoped<IGroupService, GroupService>();
