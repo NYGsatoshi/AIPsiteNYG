@@ -10,7 +10,7 @@ import { RightPanelMode } from '../app-shell/app-shell.facade';
   standalone: true,
   imports: [FormsModule],
   template: `
-    <header class="top-bar">
+    <header class="top-bar" data-testid="top-bar">
       <div class="top-bar__workspace">
         <span class="top-bar__label">場所</span>
         <strong>{{ workspace?.label || '未選択' }}</strong>
@@ -19,6 +19,7 @@ import { RightPanelMode } from '../app-shell/app-shell.facade';
         <span>ページ内検索</span>
         <input
           type="search"
+          data-testid="page-search"
           [ngModel]="searchValue"
           (ngModelChange)="searchValueChange.emit($event)"
           placeholder="準備中"
@@ -29,7 +30,7 @@ import { RightPanelMode } from '../app-shell/app-shell.facade';
         @if (sessionStatus === 'expired') {
           <span class="top-bar__status">期限切れ</span>
         }
-        <button type="button" class="top-bar__panel-button" (click)="rightPanelToggle.emit()">
+        <button type="button" class="top-bar__panel-button" data-testid="right-panel-toggle" (click)="rightPanelToggle.emit()">
           {{ rightPanelMode === 'expanded' ? '閉じる' : '詳細' }}
         </button>
       </div>

@@ -26,6 +26,17 @@ infrastructure only.
 - Stage 3, later: ASP.NET Core host plus built Angular and real or seeded API
   data after the backend-hosted frontend path is ready for deterministic CI.
 
+## Screenshot Regression Status
+
+No blocking screenshot baselines are committed for this first Angular smoke
+lane. The current route states are placeholders and shell contracts are still
+being stabilized, so visual regression should remain pending until the
+desktop shell, mobile shell, and permission-denied state have Angular-approved
+baselines. Future screenshot failures should be treated as blocking only for
+hidden action exposure, hidden route exposure, unusable primary navigation,
+permission/session screen breakage, messaging composer/file upload/admin grid
+unusability, or major shell layout collapse.
+
 ## Legacy Static SPA Handling
 
 Legacy static SPA routes, DOM selectors, mocked route behavior, and screenshot

@@ -3,6 +3,7 @@ import { Routes } from '@angular/router';
 import { PagePlaceholderComponent } from './core/routing/page-placeholder.component';
 import { SessionExpiredPageComponent } from './core/session/session-expired-page.component';
 import { AppShellComponent } from './layout/app-shell/app-shell.component';
+import { AppPermissionDeniedComponent } from './shared/permission/app-permission-denied/app-permission-denied.component';
 
 export const routes: Routes = [
   {
@@ -17,6 +18,10 @@ export const routes: Routes = [
   {
     path: 'session-expired',
     component: SessionExpiredPageComponent
+  },
+  {
+    path: 'permission-denied',
+    component: AppPermissionDeniedComponent
   },
   {
     path: 'app',

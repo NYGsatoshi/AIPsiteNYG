@@ -15,7 +15,12 @@ interface PagePlaceholderViewModel {
   imports: [AsyncPipe],
   template: `
     @if (page$ | async; as page) {
-      <section class="page-placeholder" [attr.data-tone]="page.tone" aria-labelledby="page-placeholder-title">
+      <section
+        class="page-placeholder"
+        data-testid="page-placeholder"
+        [attr.data-tone]="page.tone"
+        aria-labelledby="page-placeholder-title"
+      >
         <p class="page-placeholder__eyebrow">MVP-A P0</p>
         <h1 id="page-placeholder-title">{{ page.title }}</h1>
         <p>{{ page.summary }}</p>

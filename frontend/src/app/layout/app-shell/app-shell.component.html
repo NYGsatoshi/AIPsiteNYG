@@ -2,11 +2,13 @@
 
 <div
   class="app-shell"
+  data-testid="app-shell"
   [class.app-shell--drawer-open]="mobileDrawerOpen()"
   [class.app-shell--right-expanded]="vm.rightPanelMode === 'expanded'"
 >
   <app-mobile-header
     class="app-shell__mobile-header"
+    data-testid="mobile-header"
     [workspaceLabel]="vm.workspace?.label || ''"
     [drawerOpen]="mobileDrawerOpen()"
     (drawerToggle)="toggleMobileDrawer()"
@@ -14,14 +16,16 @@
 
   <app-account-rail
     class="app-shell__account-rail"
+    data-testid="account-rail"
     [displayName]="vm.session.displayName"
     [supportingUsers]="vm.session.supportingUsers"
   />
 
   <app-feature-menu class="app-shell__feature-menu" [navigationItems]="vm.navigationItems" />
 
-  <div class="app-shell__body">
+  <div class="app-shell__body" data-testid="shell-body">
     <app-top-bar
+      data-testid="top-bar-region"
       [workspace]="vm.workspace"
       [searchValue]="pageSearch()"
       [sessionStatus]="vm.session.status"
@@ -36,6 +40,7 @@
 
   <app-right-panel
     class="app-shell__right-panel"
+    data-testid="right-panel-region"
     [session]="vm.session"
     [workspace]="vm.workspace"
     [mode]="vm.rightPanelMode"
@@ -45,6 +50,7 @@
   <aside
     id="mobile-navigation"
     class="app-shell__mobile-drawer"
+    data-testid="mobile-navigation"
     aria-label="モバイル機能"
     [attr.aria-hidden]="!mobileDrawerOpen()"
     [attr.inert]="mobileDrawerOpen() ? null : ''"

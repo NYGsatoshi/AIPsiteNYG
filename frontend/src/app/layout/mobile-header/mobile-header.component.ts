@@ -8,6 +8,7 @@ import { Component, EventEmitter, Input, Output } from '@angular/core';
       <button
         type="button"
         class="mobile-header__menu"
+        data-testid="mobile-nav-toggle"
         [attr.aria-expanded]="drawerOpen"
         aria-controls="mobile-navigation"
         aria-label="メニュー"
