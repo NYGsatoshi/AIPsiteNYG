@@ -1,6 +1,7 @@
 import { Routes } from '@angular/router';
 
 import { PagePlaceholderComponent } from './core/routing/page-placeholder.component';
+import { SessionExpiredPageComponent } from './core/session/session-expired-page.component';
 import { AppShellComponent } from './layout/app-shell/app-shell.component';
 
 export const routes: Routes = [
@@ -15,12 +16,7 @@ export const routes: Routes = [
   },
   {
     path: 'session-expired',
-    component: PagePlaceholderComponent,
-    data: {
-      title: 'セッション期限切れ',
-      summary: '再ログイン準備中',
-      tone: 'warning'
-    }
+    component: SessionExpiredPageComponent
   },
   {
     path: 'app',
