@@ -1,0 +1,48 @@
+:host {
+  display: block;
+  min-width: 0;
+}
+
+.account-rail {
+  display: grid;
+  grid-template-rows: auto 1fr;
+  justify-items: center;
+  gap: var(--shell-space-4, 16px);
+  height: 100%;
+  border-right: 1px solid var(--shell-border-color, #d9e0e8);
+  background: #1e2a36;
+  padding: var(--shell-space-3, 12px) var(--shell-space-2, 8px);
+  color: #ffffff;
+}
+
+.account-rail__brand,
+.account-rail__avatar {
+  display: grid;
+  width: 40px;
+  height: 40px;
+  place-items: center;
+  border-radius: var(--shell-radius-md, 6px);
+  font-weight: 700;
+}
+
+.account-rail__brand {
+  background: #f5c542;
+  color: #17202a;
+}
+
+.account-rail__users {
+  display: grid;
+  align-content: start;
+  gap: var(--shell-space-2, 8px);
+}
+
+.account-rail__avatar {
+  border: 1px solid rgb(255 255 255 / 18%);
+  background: rgb(255 255 255 / 10%);
+  color: #f5f8fb;
+  font-size: 0.875rem;
+}
+
+.account-rail__avatar--active {
+  background: #4d8ac8;
+}

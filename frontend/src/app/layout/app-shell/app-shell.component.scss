@@ -1,0 +1,135 @@
+:host {
+  --shell-topbar-height: 64px;
+  --shell-account-rail-width: 64px;
+  --shell-feature-menu-width: 216px;
+  --shell-right-panel-expanded-width: 280px;
+  --shell-right-panel-collapsed-width: 56px;
+  --shell-mobile-header-height: 56px;
+  --shell-space-1: 4px;
+  --shell-space-2: 8px;
+  --shell-space-3: 12px;
+  --shell-space-4: 16px;
+  --shell-space-5: 24px;
+  --shell-radius-sm: 4px;
+  --shell-radius-md: 6px;
+  --shell-radius-lg: 8px;
+  --shell-border-color: #d9e0e8;
+
+  display: block;
+  min-width: 0;
+  min-height: 100dvh;
+  color: #17202a;
+  background: #f4f6f8;
+  font-family:
+    "Segoe UI",
+    "Yu Gothic",
+    "Hiragino Kaku Gothic ProN",
+    Meiryo,
+    sans-serif;
+}
+
+.app-shell {
+  position: relative;
+  display: grid;
+  grid-template-columns:
+    var(--shell-account-rail-width)
+    var(--shell-feature-menu-width)
+    minmax(0, 1fr)
+    var(--shell-right-panel-collapsed-width);
+  min-width: 0;
+  min-height: 100dvh;
+  overflow-x: hidden;
+}
+
+.app-shell--right-expanded {
+  grid-template-columns:
+    var(--shell-account-rail-width)
+    var(--shell-feature-menu-width)
+    minmax(0, 1fr)
+    var(--shell-right-panel-expanded-width);
+}
+
+.app-shell__mobile-header,
+.app-shell__mobile-drawer,
+.app-shell__scrim {
+  display: none;
+}
+
+.app-shell__account-rail,
+.app-shell__feature-menu,
+.app-shell__right-panel,
+.app-shell__body {
+  min-width: 0;
+  min-height: 100dvh;
+}
+
+.app-shell__body {
+  display: grid;
+  grid-template-rows: auto minmax(0, 1fr);
+}
+
+.app-shell__main {
+  min-width: 0;
+  padding: var(--shell-space-5);
+  overflow: auto;
+}
+
+@media (max-width: 860px) {
+  .app-shell,
+  .app-shell--right-expanded {
+    grid-template-columns: minmax(0, 1fr);
+    grid-template-rows: auto minmax(0, 1fr);
+  }
+
+  .app-shell__mobile-header {
+    display: block;
+  }
+
+  .app-shell__account-rail,
+  .app-shell__feature-menu,
+  .app-shell__right-panel {
+    display: none;
+  }
+
+  .app-shell__body {
+    min-height: calc(100dvh - var(--shell-mobile-header-height));
+  }
+
+  .app-shell__main {
+    padding: var(--shell-space-3);
+  }
+
+  .app-shell__mobile-drawer {
+    position: fixed;
+    inset: var(--shell-mobile-header-height) auto 0 0;
+    z-index: 20;
+    display: block;
+    width: min(280px, 86vw);
+    max-width: 100vw;
+    border-right: 1px solid var(--shell-border-color);
+    background: #ffffff;
+    transform: translateX(-100%);
+    transition: transform 160ms ease;
+  }
+
+  .app-shell--drawer-open .app-shell__mobile-drawer {
+    transform: translateX(0);
+  }
+
+  .app-shell__scrim {
+    position: fixed;
+    inset: var(--shell-mobile-header-height) 0 0;
+    z-index: 10;
+    background: rgb(23 32 42 / 36%);
+  }
+
+  .app-shell--drawer-open .app-shell__scrim {
+    display: block;
+  }
+}
+
+@media (max-width: 360px) {
+  .app-shell__main {
+    padding: var(--shell-space-2);
+  }
+}

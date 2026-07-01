@@ -6,8 +6,19 @@ test.describe('MVP-A P0 Angular frontend smoke', () => {
     await page.goto('/');
 
     await expect(page.locator('app-root')).toBeVisible();
-    await expect(page.getByText('MVP-A P0 Angular Frontend')).toBeVisible();
-    await expect(page.locator('router-outlet')).toBeAttached();
+    await expect(page.locator('app-shell')).toBeVisible();
+    await expect(page.locator('router-outlet').first()).toBeAttached();
+    await expect(page.locator('app-shell router-outlet')).toBeAttached();
+
+    const body = page.locator('body');
+    await expect(body).not.toContainText('Cannot GET /');
+    await expect(body).not.toContainText('Application error');
+    await expect(body).not.toContainText(/NG0\d+/);
+    await expect(body).not.toContainText('TypeError');
+
+    const bodyText = await body.innerText();
+    expect(bodyText.trim().length).toBeGreaterThan(0);
+
     await expectNoAccessibilityViolations(page);
   });
 

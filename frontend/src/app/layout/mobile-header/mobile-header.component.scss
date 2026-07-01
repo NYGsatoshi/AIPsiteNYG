@@ -1,0 +1,42 @@
+:host {
+  display: block;
+  min-width: 0;
+}
+
+.mobile-header {
+  display: grid;
+  grid-template-columns: 44px minmax(0, 1fr);
+  align-items: center;
+  gap: var(--shell-space-3, 12px);
+  height: var(--shell-mobile-header-height, 56px);
+  border-bottom: 1px solid var(--shell-border-color, #d9e0e8);
+  background: #ffffff;
+  padding: 0 var(--shell-space-3, 12px);
+}
+
+.mobile-header__menu {
+  display: grid;
+  width: 40px;
+  height: 40px;
+  place-items: center;
+  border: 1px solid var(--shell-border-color, #d9e0e8);
+  border-radius: var(--shell-radius-md, 6px);
+  background: #ffffff;
+  cursor: pointer;
+}
+
+.mobile-header__menu span {
+  width: 18px;
+  height: 2px;
+  border-radius: 2px;
+  background: #263542;
+}
+
+.mobile-header__title {
+  min-width: 0;
+  color: #17202a;
+  font-weight: 700;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
