@@ -6,7 +6,8 @@
   "scripts": {
     "serve:ui": "node tests/ui/serve-static.mjs",
     "test": "npm run test:ui",
-    "test:ui": "playwright test"
+    "test:ui": "npm run test:ui:angular",
+    "test:ui:angular": "node tests/ui/run-angular-playwright.mjs"
   },
   "devDependencies": {
     "@axe-core/playwright": "^4.10.2",

@@ -43,6 +43,9 @@ jobs:
         with:
           node-version: "24"
           cache: npm
+          cache-dependency-path: |
+            package-lock.json
+            frontend/package-lock.json
 
       - name: Restore
         run: dotnet restore AipPortal.slnx
@@ -59,14 +62,30 @@ jobs:
       - name: Test
         run: dotnet test AipPortal.slnx --configuration Release --no-build --verbosity normal
 
-      - name: Install frontend test dependencies
+      - name: Install repo Playwright dependencies
         run: npm ci
+
+      - name: Install Angular frontend dependencies
+        working-directory: frontend
+        run: npm ci
+
+      - name: Angular production build
+        working-directory: frontend
+        run: npm run build
+
+      - name: Angular unit tests
+        working-directory: frontend
+        run: npm run test
+
+      - name: Angular Storybook build
+        working-directory: frontend
+        run: npm run build-storybook
 
       - name: Install Playwright browsers
         run: npx playwright install --with-deps chromium
 
-      - name: UI tests
-        run: npm run test:ui
+      - name: Angular Playwright smoke
+        run: npm run test:ui:angular
 
       - name: Upload Playwright artifacts
         if: failure()

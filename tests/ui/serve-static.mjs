@@ -97,6 +97,8 @@ server.listen(port, host, () => {
 
 for (const signal of ["SIGINT", "SIGTERM"]) {
   process.on(signal, () => {
+    server.closeAllConnections?.();
     server.close(() => process.exit(0));
+    setTimeout(() => process.exit(0), 1_000).unref();
   });
 }

@@ -5,6 +5,7 @@ const baseURL = process.env.PLAYWRIGHT_BASE_URL ?? `http://127.0.0.1:${port}`;
 
 export default defineConfig({
   testDir: "./tests/ui",
+  snapshotPathTemplate: "{testDir}/__angular_snapshots__/{testFilePath}/{arg}{ext}",
   timeout: 30_000,
   expect: {
     timeout: 5_000
@@ -27,7 +28,7 @@ export default defineConfig({
   webServer: process.env.PLAYWRIGHT_BASE_URL
     ? undefined
     : {
-        command: `npm run serve:ui -- --port ${port}`,
+        command: `node tests/ui/serve-static.mjs --port ${port}`,
         url: `${baseURL}/health`,
         reuseExistingServer: !process.env.CI,
         timeout: 120_000,
