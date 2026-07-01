@@ -4,7 +4,7 @@
 
 AIPsiteNYG is a tenant-aware school and organization portal implemented as a .NET 10 ASP.NET Core modular monolith.
 
-Repository audit status as of 2026-06-19: the backend contains a broad set of REST APIs, EF Core entities, PostgreSQL migrations, authorization services, and automated tests. A focused backend logic audit also identified critical defects in scoped announcement visibility, search authorization, conversation persistence, and message attachment handling. The bundled browser UI covers a smaller subset. The repository is suitable for development and controlled technical evaluation, but it is not a turnkey pilot or production deployment.
+Repository audit status as of 2026-06-19: the backend contains a broad set of REST APIs, EF Core entities, PostgreSQL migrations, authorization services, and automated tests. A focused backend logic audit also identified critical defects in scoped announcement visibility, search authorization, conversation persistence, and message attachment handling. The MVP-A P0 user-facing frontend target is Angular under `frontend/`; hosted build artifacts are copied into `src/AipPortal.Web/wwwroot`. The repository is suitable for development and controlled technical evaluation, but it is not a turnkey pilot or production deployment.
 
 ## Status language
 
@@ -44,10 +44,11 @@ src/
   AipPortal.Domain/          Entities, enums, common domain types
   AipPortal.Application/     Use cases, DTOs, authorization, service contracts
   AipPortal.Infrastructure/  EF Core, PostgreSQL, repositories, files, audit, search
-  AipPortal.Web/             Startup, middleware, controllers, static browser UI
+  AipPortal.Web/             Startup, middleware, controllers, hosted Angular artifacts
+frontend/                    Angular frontend source
 tests/
   AipPortal.Tests/           Unit, service, HTTP, tenancy, and PostgreSQL-conditional tests
-  ui/                        Playwright tests against static assets with mocked APIs
+  ui/                        Playwright infrastructure; legacy static-SPA specs are obsolete
 docs/                        Active documentation
 docs/archive/                Historical plans, reports, specifications, and status snapshots
 ```

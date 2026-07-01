@@ -19,7 +19,7 @@ This document describes what the repository currently supports. It is not a prod
 ### `Dockerfile`
 
 - Builds and publishes `AipPortal.Web`.
-- Uses .NET 10 `-preview` image tags even though projects target stable `net10.0`; this should be reviewed.
+- Builds the Angular frontend in a Node.js stage and copies the browser artifacts into `src/AipPortal.Web/wwwroot` before publishing `AipPortal.Web`.
 - Installs `curl` for health checks.
 - Listens on HTTP port 8080.
 - Does not apply migrations.
@@ -120,6 +120,39 @@ dotnet ef migrations script \
 ```
 
 The app checks for pending migrations in `/health/ready` but does not apply them.
+
+## Frontend static hosting
+
+Production static hosting serves Angular build artifacts from
+`src/AipPortal.Web/wwwroot`. The Angular source of truth remains under
+`frontend/`; the `wwwroot` files are build output for hosting.
+
+Local hosted build:
+
+```bash
+cd frontend
+npm ci
+npm run build:hosted
+cd ..
+dotnet run --project src/AipPortal.Web
+```
+
+Publish build with Node.js available:
+
+```bash
+dotnet publish src/AipPortal.Web/AipPortal.Web.csproj -c Release -p:BuildAngularFrontendOnPublish=true
+```
+
+The Dockerfile uses a separate Node.js stage and copies
+`frontend/dist/aipportal-web` into `src/AipPortal.Web/wwwroot` before
+`dotnet publish`.
+
+Angular fallback is limited to safe user-facing GET routes after the Angular
+build marker is present. `/api/*` returns backend API 404 behavior and never
+serves Angular `index.html`. Backend-owned routes remain outside Angular
+fallback: `/health`, `/health/live`, `/health/ready`, `/healthz`, `/metrics`,
+`/swagger/*`, `/hangfire/*`, `/signin-google`, `/auth/callback/*`, and
+`/favicon.ico`.
 
 ## Tenant and administrator bootstrap
 

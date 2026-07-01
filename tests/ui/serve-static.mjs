@@ -3,7 +3,7 @@ import { stat } from "node:fs/promises";
 import { createServer } from "node:http";
 import path from "node:path";
 
-const root = path.resolve(process.cwd(), "src/AipPortal.Web/wwwroot");
+const root = path.resolve(process.env.PLAYWRIGHT_STATIC_ROOT ?? path.join(process.cwd(), "frontend/dist/aipportal-web"));
 const host = argValue("--host") ?? process.env.PLAYWRIGHT_HOST ?? "127.0.0.1";
 const port = Number(argValue("--port") ?? process.env.PLAYWRIGHT_PORT ?? 4173);
 
@@ -64,7 +64,12 @@ const server = createServer(async (request, response) => {
       return;
     }
 
-    filePath = path.join(root, "index.html");
+    filePath = await existingFile(path.join(root, "index.html"));
+    if (!filePath) {
+      response.writeHead(404, { "content-type": "text/plain; charset=utf-8" });
+      response.end("Angular build output was not found. Run npm run build in frontend/ before Playwright.");
+      return;
+    }
   }
 
   response.writeHead(200, {

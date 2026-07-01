@@ -62,6 +62,42 @@ Development defaults use:
 
 Important: setup mode does not create an administrator. It is currently only a configuration value rejected in production.
 
+## Angular hosted by ASP.NET Core
+
+Angular source lives under `frontend/`. The ASP.NET Core app serves built
+Angular artifacts from `src/AipPortal.Web/wwwroot`; do not place Angular source
+files in `wwwroot`.
+
+Build and copy the Angular app into the ASP.NET Core static root:
+
+```bash
+cd frontend
+npm ci
+npm run build:hosted
+cd ..
+dotnet run --project src/AipPortal.Web
+```
+
+`npm run build` writes to `frontend/dist/aipportal-web`. `npm run build:hosted`
+copies those artifacts into `src/AipPortal.Web/wwwroot` and replaces the legacy
+static SPA entrypoint. The Angular build emits `angular-app.marker`; without
+that marker, ASP.NET Core does not use `wwwroot/index.html` as the user-facing
+fallback.
+
+To have `dotnet publish` run the Angular build on a machine with Node.js
+available:
+
+```bash
+dotnet publish src/AipPortal.Web/AipPortal.Web.csproj -c Release -p:BuildAngularFrontendOnPublish=true
+```
+
+Angular owns user-facing non-API routes such as `/login`, `/register/invite`,
+`/workspaces`, `/projects`, `/conversations`, `/admin`, `/account`, `/files`,
+and `/notifications` after the hosted build is present. Backend-owned routes do
+not fall back to Angular: `/api/*`, `/health`, `/health/live`,
+`/health/ready`, `/healthz`, `/metrics`, `/swagger/*`, `/hangfire/*`,
+`/signin-google`, `/auth/callback/*`, and `/favicon.ico`.
+
 ## Local Compose
 
 ```bash

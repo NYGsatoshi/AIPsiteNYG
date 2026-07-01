@@ -91,14 +91,14 @@ Current behavior when the variable is absent is an early `return`, not an explic
 
 ### Browser UI tests
 
-Playwright tests:
+Root Playwright infrastructure remains under `tests/ui`, but the legacy static-SPA specs have been marked obsolete after the MVP-A P0 Angular migration.
 
-- serve `src/AipPortal.Web/wwwroot` with `tests/ui/serve-static.mjs`;
-- intercept and mock API requests in `tests/ui/app.fixtures.ts`;
+- `tests/ui/serve-static.mjs` serves Angular build output from `frontend/dist/aipportal-web` by default;
+- legacy vanilla-SPA mocked API fixtures were removed;
 - run desktop and mobile Chromium projects;
 - use axe for accessibility checks.
 
-They verify static frontend behavior, routing, empty/error states, form validation, and selected accessibility states.
+The current skipped legacy spec is not acceptance evidence. Add new Angular-facing specs after frontend dependencies, routes, and selectors are intentionally defined.
 
 They do **not** verify:
 
@@ -150,6 +150,8 @@ UI:
 ```bash
 npm ci
 npx playwright install --with-deps chromium
+npm --prefix frontend ci
+npm --prefix frontend run build
 npm run test:ui
 ```
 

@@ -63,7 +63,7 @@ Contains:
 - tenant resolution;
 - controllers;
 - configuration validation;
-- static HTML/CSS/JavaScript in `wwwroot/`.
+- Angular build artifacts hosted from `wwwroot/`; source lives under `frontend/`.
 
 ## Request pipeline
 
@@ -72,7 +72,7 @@ The implemented order in `Program.cs` is:
 1. Global exception handling.
 2. Security response headers.
 3. Optional HSTS and HTTPS redirection.
-4. Static/default files.
+4. Static files.
 5. Tenant resolution.
 6. Optional rate limiting.
 7. Cookie authentication.
@@ -139,20 +139,20 @@ The appsettings `Features:*` switches are bound but not read by feature controll
 
 ## Backend/UI coverage
 
-| Module | Backend | Bundled browser UI |
+| Module | Backend | Browser UI |
 | --- | --- | --- |
-| Auth | Login/logout/change password/invite endpoint | Login only |
-| Tenant context | Current/list/switch/admin APIs | Context display and switcher |
-| Workspaces/groups/channels | CRUD and membership APIs | Placeholder routes |
-| Messaging | Conversation/message APIs | Polling conversation UI |
-| Announcements | CRUD/read-state APIs | List/detail/create/edit/read UI |
-| Notifications | List/read/delete APIs | List/read UI and polling badge |
-| Projects/planning | Broad project/task/planning APIs | Main implemented feature UI |
-| Files/artifacts | Upload/download/version APIs | Artifact list only in project UI |
-| Events/forms | Broad APIs | Placeholder routes; dashboard reads calendar |
-| Search | Tenant-aware database search API | Placeholder results page |
-| Platform/tenant admin | Broad APIs | Read-only summary dashboards |
-| UI shell | Data APIs | Static navigation fallback; disabled radial button |
+| Auth | Login/logout/change password/invite endpoint | Angular target; route implementation is MVP-A follow-up |
+| Tenant context | Current/list/switch/admin APIs | Angular target; route implementation is MVP-A follow-up |
+| Workspaces/groups/channels | CRUD and membership APIs | Angular target; route implementation is MVP-A follow-up |
+| Messaging | Conversation/message APIs | Angular target; route implementation is MVP-A follow-up |
+| Announcements | CRUD/read-state APIs | Angular target; route implementation is MVP-A follow-up |
+| Notifications | List/read/delete APIs | Angular target; route implementation is MVP-A follow-up |
+| Projects/planning | Broad project/task/planning APIs | Angular target; route implementation is MVP-A follow-up |
+| Files/artifacts | Upload/download/version APIs | Angular target; route implementation is MVP-A follow-up |
+| Events/forms | Broad APIs | Angular target; route implementation is MVP-A follow-up |
+| Search | Tenant-aware database search API | Angular target; route implementation is MVP-A follow-up |
+| Platform/tenant admin | Broad APIs | Angular target; route implementation is MVP-A follow-up |
+| UI shell | Data APIs | Angular target; route implementation is MVP-A follow-up |
 
 ## Health and startup
 

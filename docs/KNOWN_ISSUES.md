@@ -23,7 +23,9 @@ Use the backend audit document for exact files, methods, impact, patch suggestio
 
 ## Frontend UI audit findings
 
-Audit scope: browser rendering, navigation, dashboard behavior, login/register/admin UI, Japanese localization, responsive CSS, accessibility, broken links, and client-side JavaScript. The current frontend is a vanilla-JavaScript SPA under `src/AipPortal.Web/wwwroot`; the repository contains no Razor or `.cshtml` views.
+Audit scope: browser rendering, navigation, dashboard behavior, login/register/admin UI, Japanese localization, responsive CSS, accessibility, broken links, and client-side JavaScript. These UI-001 through UI-024 findings describe the removed legacy vanilla-JavaScript SPA that lived under `src/AipPortal.Web/wwwroot`.
+
+Status after the MVP-A P0 Angular migration: obsolete as active frontend defects. Do not treat the listed legacy routes, DOM selectors, mocked fixtures, JavaScript entrypoints, CSS bundles, screenshot behavior, or `wwwroot/scripts` files as P0 acceptance contracts. Re-open only defects that are reproduced against the Angular frontend under `frontend/`.
 
 ### UI-001: API-provided module routes do not match SPA routes
 
@@ -293,7 +295,7 @@ Audit scope: browser rendering, navigation, dashboard behavior, login/register/a
 
 ### Frontend audit verification
 
-- JavaScript syntax checks passed for all files under `wwwroot/scripts`.
+- Legacy JavaScript syntax checks applied only to the removed static SPA under `wwwroot/scripts`.
 - Release build completed successfully.
 - All 123 .NET tests passed.
 - Playwright dependencies and Chromium downloaded, but browser execution was blocked in the audit container because `libatk-1.0.so.0` was unavailable. The reported Playwright failures were browser-launch infrastructure failures, not application assertions.

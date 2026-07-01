@@ -1,0 +1,17 @@
+{
+  "/api": {
+    "target": "http://localhost:5098",
+    "secure": false,
+    "changeOrigin": false
+  },
+  "/health": {
+    "target": "http://localhost:5098",
+    "secure": false,
+    "changeOrigin": false
+  },
+  "/healthz": {
+    "target": "http://localhost:5098",
+    "secure": false,
+    "changeOrigin": false
+  }
+}

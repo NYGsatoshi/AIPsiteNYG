@@ -5,6 +5,7 @@ using AipPortal.Domain.Enums;
 using AipPortal.Infrastructure;
 using AipPortal.Infrastructure.Files;
 using AipPortal.Infrastructure.Persistence;
+using AipPortal.Web;
 using AipPortal.Web.Configuration;
 using AipPortal.Web.Extensions;
 using AipPortal.Web.Middleware;
@@ -132,7 +133,20 @@ if (securityOptions.RequireHttps)
         branch => branch.UseHttpsRedirection());
 }
 
-app.UseDefaultFiles();
+var webRootPath = app.Environment.WebRootPath ?? Path.Combine(app.Environment.ContentRootPath, "wwwroot");
+
+app.Use(async (context, next) =>
+{
+    if (AngularSpaFallback.IsAngularIndexPath(context.Request.Path) &&
+        !AngularSpaFallback.HasAngularBuild(webRootPath))
+    {
+        context.Response.StatusCode = StatusCodes.Status404NotFound;
+        return;
+    }
+
+    await next();
+});
+
 app.UseStaticFiles();
 
 app.UseMiddleware<TenantResolutionMiddleware>();
@@ -175,19 +189,7 @@ app.MapGet("/health/ready", async (
         : Results.Json(new { status = "Unhealthy" }, statusCode: StatusCodes.Status503ServiceUnavailable);
 });
 
-app.MapFallback(async context =>
-{
-    if (context.Request.Path.StartsWithSegments("/api"))
-    {
-        context.Response.StatusCode = StatusCodes.Status404NotFound;
-        await context.Response.WriteAsJsonAsync(new ErrorResponse("NotFound", "Endpoint not found.", context.TraceIdentifier));
-        return;
-    }
-
-    var indexPath = Path.Combine(app.Environment.WebRootPath, "index.html");
-    context.Response.ContentType = "text/html; charset=utf-8";
-    await context.Response.SendFileAsync(indexPath);
-});
+app.MapFallback(context => AngularSpaFallback.HandleAsync(context, webRootPath));
 
 app.Run();
 

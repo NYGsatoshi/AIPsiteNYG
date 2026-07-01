@@ -1,3 +1,10 @@
+FROM node:24 AS frontend-build
+WORKDIR /src/frontend
+COPY frontend/package*.json ./
+RUN npm ci
+COPY frontend/ ./
+RUN npm run build
+
 FROM mcr.microsoft.com/dotnet/sdk:10.0 AS build
 WORKDIR /src
 
@@ -9,6 +16,8 @@ COPY src/AipPortal.Web/AipPortal.Web.csproj src/AipPortal.Web/
 RUN dotnet restore src/AipPortal.Web/AipPortal.Web.csproj
 
 COPY . .
+RUN rm -rf src/AipPortal.Web/wwwroot/*
+COPY --from=frontend-build /src/frontend/dist/aipportal-web/ src/AipPortal.Web/wwwroot/
 RUN dotnet publish src/AipPortal.Web/AipPortal.Web.csproj -c Release -o /app/publish --no-restore
 
 FROM mcr.microsoft.com/dotnet/aspnet:10.0 AS runtime

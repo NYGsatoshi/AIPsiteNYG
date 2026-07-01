@@ -16,6 +16,19 @@
     <TargetFramework>net10.0</TargetFramework>
     <Nullable>enable</Nullable>
     <ImplicitUsings>enable</ImplicitUsings>
+    <BuildAngularFrontendOnPublish>false</BuildAngularFrontendOnPublish>
   </PropertyGroup>
+
+  <PropertyGroup>
+    <FrontendProjectDirectory>$([System.IO.Path]::GetFullPath('$(MSBuildProjectDirectory)/../../frontend'))</FrontendProjectDirectory>
+  </PropertyGroup>
+
+  <Target Name="BuildAngularFrontendForPublish"
+          BeforeTargets="ComputeFilesToPublish"
+          Condition="'$(BuildAngularFrontendOnPublish)' == 'true'">
+    <Message Importance="high" Text="Building Angular frontend from $(FrontendProjectDirectory)" />
+    <Exec WorkingDirectory="$(FrontendProjectDirectory)" Command="npm ci" />
+    <Exec WorkingDirectory="$(FrontendProjectDirectory)" Command="npm run build:hosted" />
+  </Target>
 
 </Project>

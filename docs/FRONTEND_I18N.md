@@ -1,29 +1,23 @@
 # Frontend internationalization
 
-The frontend uses a small vanilla JavaScript i18n layer because the current UI is served from `src/AipPortal.Web/wwwroot` without a frontend framework or package build step.
+The legacy vanilla JavaScript i18n layer under `src/AipPortal.Web/wwwroot/scripts/i18n` was removed with the static SPA. MVP-A P0 frontend work should define i18n inside the Angular source under `frontend/`.
 
 ## Locales
 
-Locale files are stored in:
+Do not add new locale files under `src/AipPortal.Web/wwwroot`. That directory is for hosted Angular build artifacts only.
 
-```text
-src/AipPortal.Web/wwwroot/scripts/i18n/locales/en-US.js
-src/AipPortal.Web/wwwroot/scripts/i18n/locales/ja-JP.js
-```
-
-`ja-JP` is the default locale. `en-US` remains available through the language selector. The selected locale is persisted in `localStorage` under `aip.locale`.
+Angular locale file paths, the default locale, and persistence rules are pending frontend implementation.
 
 ## Adding UI text
 
-1. Add the same stable key to both locale files.
-2. Use the `t` helper from `scripts/i18n/index.js` in UI code.
-3. Keep keys hierarchical and feature-oriented, for example:
+1. Add text through the Angular i18n mechanism selected for MVP-A.
+2. Keep keys or message identifiers hierarchical and feature-oriented, for example:
    - `common.save`
    - `auth.signIn`
    - `nav.projects`
    - `projects.empty`
    - `chat.messageRequired`
-4. Use interpolation for dynamic UI text: `t("placeholder.unimplemented", { title })`.
+3. Use interpolation for dynamic UI text.
 
 ## Rules
 

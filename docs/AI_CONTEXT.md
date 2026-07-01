@@ -32,7 +32,7 @@ Do not infer that an entity, configuration property, controller route, or archiv
 - .NET 10 / ASP.NET Core: project files under `src/`.
 - EF Core 10 with Npgsql/PostgreSQL: `src/AipPortal.Infrastructure/AipPortal.Infrastructure.csproj`.
 - Cookie authentication: `src/AipPortal.Web/Program.cs`.
-- Static JavaScript/CSS browser UI: `src/AipPortal.Web/wwwroot/`.
+- Angular browser UI source: `frontend/`; hosted build artifacts are copied to `src/AipPortal.Web/wwwroot/`.
 - xUnit tests: `tests/AipPortal.Tests/`.
 - Playwright and axe UI tests: `tests/ui/`, using mocked API responses.
 - Docker and Docker Compose: `Dockerfile`, `docker-compose*.yml`.
@@ -44,7 +44,7 @@ The application is one deployable ASP.NET Core process split into four projects:
 - `AipPortal.Domain`: entities, enums, and shared domain types.
 - `AipPortal.Application`: service interfaces, use cases, DTOs, authorization, feature/quota logic.
 - `AipPortal.Infrastructure`: `AppDbContext`, migrations, repositories, local files, audit, notifications, search, hashing.
-- `AipPortal.Web`: startup, middleware, controllers, authentication, tenant resolution, and static frontend.
+- `AipPortal.Web`: startup, middleware, controllers, authentication, tenant resolution, and hosted frontend artifacts.
 
 Project references enforce a conventional dependency direction. See `docs/ARCHITECTURE.md`.
 
@@ -52,7 +52,7 @@ Project references enforce a conventional dependency direction. See `docs/ARCHIT
 
 | Capability | Status | Source evidence and qualification |
 | --- | --- | --- |
-| Host, controllers, middleware, static frontend | Implemented | `src/AipPortal.Web/Program.cs`, `Controllers/`, `wwwroot/` |
+| Host, controllers, middleware, hosted Angular frontend | Partially implemented | `src/AipPortal.Web/Program.cs`, `Controllers/`, `AngularSpaFallback.cs`, `frontend/`; Angular build artifacts are required in `wwwroot/` for user-facing routes |
 | Cookie auth, login/logout, password change | Implemented | `Application/Auth/`, `Web/Controllers/AuthController.cs` |
 | Database-backed session revocation/expiry/user-state checks | Implemented | `Auth/UserSessionService.cs`, `Web/Security/DbSessionCookieAuthenticationEvents.cs` |
 | Login lockout | Implemented | `Auth/AuthService.cs`; production defaults enable it |
@@ -127,7 +127,7 @@ Project references enforce a conventional dependency direction. See `docs/ARCHIT
 - Object-storage examples are not deployable because the adapter is intentionally unsupported.
 - `docker-compose.onprem.yml` does not apply EF migrations.
 - Production reverse-proxy support is incomplete because forwarded-header middleware is not configured.
-- Browser UI coverage is materially smaller than backend API coverage.
+- Angular browser UI coverage is materially smaller than backend API coverage.
 - Playwright tests mock API contracts and do not prove frontend/backend compatibility.
 - API errors are not standardized despite `docs/API_CONTRACTS.md` describing a shared shape.
 - Critical backend logic defects affect scoped announcements, search authorization, conversation persistence, and message attachments.
@@ -140,7 +140,7 @@ The 2026-06-18 local audit observed 123 passing .NET tests. This result needs qu
 
 - The two PostgreSQL tests return immediately when `POSTGRES_TEST_CONNECTION_STRING` is absent, and xUnit reports them as passed rather than skipped.
 - HTTP tests use Kestrel but mostly EF Core InMemory.
-- Playwright serves static files and mocks API responses.
+- Root Playwright legacy static-SPA specs are obsolete after the Angular migration; future Playwright coverage should target Angular build output or a hosted Angular app.
 - CI supplies PostgreSQL and runs migrations before `dotnet test`.
 
 Read `docs/TESTING.md` before using “tests pass” as evidence.
@@ -176,6 +176,6 @@ Only read `docs/archive/` when historical decisions or earlier claims are releva
 - Mark environment claims as **needs verification** without deployment evidence.
 - Treat configuration properties as inert until a code reader is found.
 - Treat a route as backend-only unless the bundled UI actually exposes a working flow.
-- Treat mocked UI tests as frontend behavior tests, not API integration tests.
+- Treat mocked UI tests as frontend behavior tests, not API integration tests. Do not treat removed legacy static-SPA selectors or mocks as UI contracts.
 - Do not call an export a backup or restore mechanism.
 - Do not call an archived status snapshot current.

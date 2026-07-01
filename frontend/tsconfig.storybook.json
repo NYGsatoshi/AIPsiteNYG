@@ -1,0 +1,14 @@
+{
+  "extends": "./tsconfig.json",
+  "compilerOptions": {
+    "outDir": "./out-tsc/storybook",
+    "types": [
+      "node"
+    ]
+  },
+  "include": [
+    ".storybook/preview.ts",
+    "src/**/*.d.ts",
+    "src/**/*.stories.ts"
+  ]
+}

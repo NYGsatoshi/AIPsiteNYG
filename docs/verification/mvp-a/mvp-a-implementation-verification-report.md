@@ -51,7 +51,7 @@ See [mvp-a-environment-notes.md](mvp-a-environment-notes.md).
 | Migrations | 12 migrations in `src/AipPortal.Infrastructure/Persistence/Migrations/` |
 | Authentication | Cookie auth in `Program.cs`; auth APIs in `AuthController`; session validation in `DbSessionCookieAuthenticationEvents` |
 | Authorization | Controller `[Authorize]` attributes plus service authorization classes for tenant, workspace, group, channel, project, file, conversation, forms, events, admin |
-| Dashboard/UI | Static SPA in `src/AipPortal.Web/wwwroot`; dashboard route handled by frontend fallback |
+| Dashboard/UI | Angular is the MVP-A P0 frontend target under `frontend/`; hosted artifacts must include `angular-app.marker` before user-facing fallback routes are served |
 | AuditLog | `AuditLog`, `SecurityEvent`, `DbAuditLogger`, `DbAuditQueryService`, service audit calls |
 | File/messaging | `FilesController`, `FileService`, `FileAuthorizationService`, `ConversationsController`, `ConversationService`, `ConversationAuthorizationService` |
 | Tests | `tests/AipPortal.Tests` and `tests/ui` Playwright tests |
@@ -115,7 +115,7 @@ Key evidence IDs:
 - Message send/history runtime behavior: blocked by no baseline users/data.
 - Logout behavior with an authenticated session: blocked by no baseline user.
 - AuditLog rows for authenticated core admin/auth/file/message actions: blocked by no baseline user.
-- Full local Playwright UI test run: blocked by missing local frontend dependencies.
+- Full local Angular-facing Playwright UI test run: pending new specs and frontend dependency setup; legacy static-SPA specs are obsolete.
 - A-05 redacted Gitleaks local reproduction: blocked by missing local `gitleaks` and unavailable Docker daemon.
 - A-05 live runtime log review and authenticated API/UI/export smoke: blocked or Needs verification until synthetic authenticated users and sanitized runtime captures are available.
 - A-07 fresh-runtime authenticated file upload/download/denial smoke: blocked by no baseline user.
