@@ -45,6 +45,12 @@ async function existingFile(filePath) {
 const server = createServer(async (request, response) => {
   const requestUrl = new URL(request.url ?? "/", `http://${request.headers.host ?? `${host}:${port}`}`);
   const pathname = decodeURIComponent(requestUrl.pathname);
+  if (pathname === "/health") {
+    response.writeHead(200, { "content-type": "application/json; charset=utf-8" });
+    response.end(JSON.stringify({ status: "OK" }));
+    return;
+  }
+
   if (pathname.includes("\0")) {
     response.writeHead(400).end("Bad request");
     return;

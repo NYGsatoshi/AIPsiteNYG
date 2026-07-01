@@ -28,9 +28,11 @@ export default defineConfig({
     ? undefined
     : {
         command: `npm run serve:ui -- --port ${port}`,
-        url: baseURL,
+        url: `${baseURL}/health`,
         reuseExistingServer: !process.env.CI,
-        timeout: 120_000
+        timeout: 120_000,
+        stdout: "pipe",
+        stderr: "pipe"
       },
   projects: [
     {
