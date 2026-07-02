@@ -1,0 +1,10 @@
+:host {
+  display: block;
+  min-width: 0;
+}
+
+.recent-files {
+  display: grid;
+  gap: 10px;
+  min-width: 0;
+}

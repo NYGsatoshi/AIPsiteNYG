@@ -1,0 +1,79 @@
+<article class="file-row" data-testid="file-row">
+  <div class="file-row__main">
+    <div class="file-row__title-line">
+      <h3 data-testid="file-name">{{ file.originalFileName }}</h3>
+      <app-file-scan-status-badge [status]="file.scanStatus" />
+    </div>
+
+    <dl class="file-row__meta" aria-label="ファイル情報">
+      <div>
+        <dt>contentType</dt>
+        <dd data-testid="file-content-type">{{ file.contentType }}</dd>
+      </div>
+      <div>
+        <dt>sizeBytes</dt>
+        <dd>{{ formatBytes(file.sizeBytes) }}</dd>
+      </div>
+      <div>
+        <dt>uploadedByDisplay</dt>
+        <dd>{{ file.uploadedByDisplay }}</dd>
+      </div>
+      <div>
+        <dt>createdAt</dt>
+        <dd>{{ file.createdAtLabel }}</dd>
+      </div>
+    </dl>
+
+    <p class="file-row__preview-policy" role="status" data-testid="preview-disabled">
+      プレビューはP0では無効です。
+      @if (file.kind === 'zip') {
+        <span>ZIPの展開、プレビュー、索引化は行いません。</span>
+      } @else if (file.kind === 'video') {
+        <span>動画の再生、ストリーミング、公開リンクはありません。</span>
+      } @else if (file.kind === 'svg') {
+        <span>SVGは画像として表示しません。</span>
+      }
+    </p>
+  </div>
+
+  <div class="file-row__actions">
+    <button
+      type="button"
+      [disabled]="!canDownload()"
+      (click)="requestDownload()"
+      data-testid="download-action"
+    >
+      ダウンロード
+    </button>
+    @if (downloadDisabledReason()) {
+      <p class="file-row__safe-state" data-testid="download-disabled-reason">{{ downloadDisabledReason() }}</p>
+    }
+  </div>
+
+  @if (showAdminOverride()) {
+    <section class="file-row__override" data-testid="admin-override-panel">
+      <strong>管理者オーバーライドが必要です</strong>
+      <p>高権限の明示的な許可と監査理由が必要です。ファイルは実行せず、プレビューもしません。</p>
+      @if (file.capabilities.includes('adminOverrideBlockedDownload')) {
+        <label>
+          <span>監査理由</span>
+          <textarea
+            [value]="auditReason()"
+            (input)="updateAuditReason($any($event.target).value)"
+            data-testid="admin-override-reason"
+          ></textarea>
+        </label>
+        <button
+          type="button"
+          [disabled]="!canRequestAdminOverride()"
+          (click)="requestAdminOverride()"
+          data-testid="admin-override-action"
+        >
+          理由付きで申請
+        </button>
+      } @else {
+        <p data-testid="admin-override-no-capability">高権限の許可がないため操作できません。</p>
+      }
+    </section>
+  }
+</article>

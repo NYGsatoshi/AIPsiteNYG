@@ -1,0 +1,138 @@
+:host {
+  display: block;
+  min-width: 0;
+}
+
+.file-row {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(180px, auto);
+  gap: 14px;
+  min-width: 0;
+  border: 1px solid #d4dce6;
+  border-radius: 8px;
+  padding: 14px;
+  background: #ffffff;
+  color: #17202a;
+}
+
+.file-row__main,
+.file-row__actions,
+.file-row__override {
+  min-width: 0;
+}
+
+.file-row__title-line {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+}
+
+h3 {
+  margin: 0;
+  font-size: 1rem;
+  line-height: 1.3;
+  overflow-wrap: anywhere;
+}
+
+.file-row__meta {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px 14px;
+  margin: 10px 0 0;
+  color: #526173;
+  font-size: 0.82rem;
+}
+
+.file-row__meta div {
+  display: grid;
+  gap: 2px;
+  min-width: 0;
+}
+
+.file-row__meta dt {
+  color: #334155;
+  font-weight: 900;
+}
+
+.file-row__meta dd {
+  margin: 0;
+  overflow-wrap: anywhere;
+}
+
+.file-row__preview-policy,
+.file-row__safe-state,
+.file-row__override p {
+  margin: 10px 0 0;
+  color: #526173;
+  font-size: 0.86rem;
+  font-weight: 800;
+  overflow-wrap: anywhere;
+}
+
+.file-row__preview-policy span {
+  display: block;
+}
+
+.file-row__actions {
+  display: grid;
+  align-content: start;
+  justify-items: stretch;
+  gap: 8px;
+}
+
+button {
+  min-height: 38px;
+  border: 1px solid #2458a6;
+  border-radius: 6px;
+  padding: 0 12px;
+  background: #2458a6;
+  color: #ffffff;
+  font: inherit;
+  font-weight: 900;
+  cursor: pointer;
+}
+
+button:disabled {
+  border-color: #9aa8b8;
+  background: #e2e8f0;
+  color: #526173;
+  cursor: not-allowed;
+}
+
+.file-row__override {
+  grid-column: 1 / -1;
+  display: grid;
+  gap: 10px;
+  border: 1px solid #c2410c;
+  border-radius: 8px;
+  padding: 12px;
+  background: #fff7ed;
+}
+
+.file-row__override strong {
+  color: #9a3412;
+}
+
+.file-row__override label {
+  display: grid;
+  gap: 6px;
+  color: #334155;
+  font-weight: 900;
+}
+
+.file-row__override textarea {
+  min-height: 72px;
+  resize: vertical;
+  border: 1px solid #9aa8b8;
+  border-radius: 6px;
+  padding: 10px;
+  font: inherit;
+}
+
+@media (max-width: 720px) {
+  .file-row {
+    grid-template-columns: minmax(0, 1fr);
+  }
+}

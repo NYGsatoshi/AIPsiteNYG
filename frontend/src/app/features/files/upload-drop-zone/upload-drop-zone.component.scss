@@ -1,0 +1,114 @@
+:host {
+  display: block;
+  min-width: 0;
+}
+
+.upload-drop-zone {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: 14px;
+  align-items: center;
+  min-width: 0;
+  border: 1px dashed #8ea0b5;
+  border-radius: 8px;
+  padding: 16px;
+  background: #f8fafc;
+}
+
+.upload-drop-zone__copy {
+  min-width: 0;
+}
+
+.upload-drop-zone__copy p,
+.upload-drop-zone__copy h2,
+.upload-drop-zone__copy span {
+  margin: 0;
+}
+
+.upload-drop-zone__copy p {
+  color: #526173;
+  font-size: 0.78rem;
+  font-weight: 900;
+}
+
+.upload-drop-zone__copy h2 {
+  color: #17202a;
+  font-size: 1.08rem;
+  line-height: 1.25;
+}
+
+.upload-drop-zone__copy span,
+.upload-drop-zone__state {
+  color: #526173;
+  font-size: 0.88rem;
+  font-weight: 700;
+}
+
+.upload-drop-zone__button {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-height: 40px;
+  border: 1px solid #2458a6;
+  border-radius: 6px;
+  padding: 0 14px;
+  background: #2458a6;
+  color: #ffffff;
+  font-weight: 900;
+  cursor: pointer;
+}
+
+.upload-drop-zone__button input {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  opacity: 0;
+  pointer-events: none;
+}
+
+.upload-drop-zone__state {
+  grid-column: 1 / -1;
+  display: grid;
+  gap: 6px;
+  min-width: 0;
+}
+
+.upload-drop-zone__state strong {
+  color: #17202a;
+  overflow-wrap: anywhere;
+}
+
+.upload-drop-zone__state progress {
+  width: 100%;
+  height: 10px;
+}
+
+.upload-drop-zone--failed,
+.upload-drop-zone--tooLarge,
+.upload-drop-zone--quotaExceeded,
+.upload-drop-zone--quotaExceptionRejected {
+  border-color: #c2410c;
+  background: #fff7ed;
+}
+
+.upload-drop-zone--pending,
+.upload-drop-zone--progress,
+.upload-drop-zone--quotaExceptionRequested {
+  border-color: #b7791f;
+  background: #fff8e6;
+}
+
+.upload-drop-zone--quotaExceptionApproved {
+  border-color: #2f855a;
+  background: #ecfdf3;
+}
+
+@media (max-width: 640px) {
+  .upload-drop-zone {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  .upload-drop-zone__button {
+    width: 100%;
+  }
+}

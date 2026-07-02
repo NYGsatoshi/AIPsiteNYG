@@ -1,0 +1,41 @@
+@let vm = page();
+
+<section class="files-page" data-testid="files-page">
+  <header class="files-page__header">
+    <div>
+      <p>{{ vm.subtitle }}</p>
+      <h1>{{ vm.title }}</h1>
+    </div>
+  </header>
+
+  <div class="files-page__grid">
+    <div class="files-page__main">
+      <app-upload-drop-zone
+        [upload]="vm.upload"
+        [maxUploadBytes]="vm.maxUploadBytes"
+        (uploadAccepted)="acceptUpload($event)"
+        (uploadRejected)="rejectUpload($event)"
+      />
+
+      <app-file-quota-state [quota]="vm.quota" />
+
+      <section class="files-page__panel" aria-label="最近のファイル">
+        <div class="files-page__panel-header">
+          <p>最近のファイル</p>
+          <strong>ダウンロードは安全確認と権限で制御されます</strong>
+        </div>
+        <app-recent-files-list [files]="vm.recentFiles" />
+      </section>
+    </div>
+
+    <aside class="files-page__side">
+      <app-attachment-picker-dialog [files]="vm.pickerFiles" />
+      <section class="files-page__policy" data-testid="file-policy">
+        <strong>プレビューはP0では無効です。</strong>
+        <span>画像、PDF、動画、SVG、ZIPは添付のみです。SVGを画像として表示しません。</span>
+        <span>ストリーミング、CDN公開、公開動画リンクはありません。</span>
+        <span>UI非表示は認可ではありません。バックエンド認可が必須です。</span>
+      </section>
+    </aside>
+  </div>
+</section>

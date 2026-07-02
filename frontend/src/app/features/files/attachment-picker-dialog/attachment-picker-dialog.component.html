@@ -1,0 +1,28 @@
+<section class="attachment-picker" aria-label="添付ファイル選択" data-testid="attachment-picker">
+  <header>
+    <p>添付ピッカー</p>
+    <h2>正規ファイルIDがあるファイルのみ選択できます</h2>
+  </header>
+
+  <div class="attachment-picker__list">
+    @for (file of files; track file.id) {
+      <label class="attachment-picker__row" data-testid="attachment-picker-row">
+        <input
+          type="checkbox"
+          [disabled]="!file.canonicalFileId"
+          (change)="toggleFile(file, $any($event.target).checked)"
+          data-testid="attachment-picker-checkbox"
+        />
+        <span class="attachment-picker__name">{{ file.originalFileName }}</span>
+        <app-file-scan-status-badge [status]="file.scanStatus" />
+        @if (!file.canonicalFileId) {
+          <span class="attachment-picker__note" data-testid="non-canonical-disabled">正規ファイルIDの確定待ち</span>
+        }
+      </label>
+    }
+  </div>
+
+  <p class="attachment-picker__selection" data-testid="selected-canonical-file-ids">
+    選択中: {{ selectedCanonicalFileIds().join(', ') || 'なし' }}
+  </p>
+</section>

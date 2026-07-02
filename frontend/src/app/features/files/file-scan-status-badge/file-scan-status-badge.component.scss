@@ -1,0 +1,38 @@
+:host {
+  display: inline-flex;
+  min-width: 0;
+}
+
+.scan-badge {
+  display: inline-flex;
+  align-items: center;
+  min-height: 24px;
+  border: 1px solid #9aa8b8;
+  border-radius: 999px;
+  padding: 2px 9px;
+  background: #f8fafc;
+  color: #334155;
+  font-size: 0.78rem;
+  font-weight: 900;
+  line-height: 1.2;
+  overflow-wrap: anywhere;
+}
+
+.scan-badge--allowed {
+  border-color: #2f855a;
+  background: #ecfdf3;
+  color: #166534;
+}
+
+.scan-badge--pending,
+.scan-badge--unavailable {
+  border-color: #b7791f;
+  background: #fff8e6;
+  color: #7c4a03;
+}
+
+.scan-badge--blocked {
+  border-color: #c2410c;
+  background: #fff1eb;
+  color: #9a3412;
+}

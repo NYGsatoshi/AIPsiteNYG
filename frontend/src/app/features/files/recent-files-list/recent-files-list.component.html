@@ -1,0 +1,5 @@
+<section class="recent-files" aria-label="最近のファイル" data-testid="recent-files-list">
+  @for (file of files; track file.id) {
+    <app-file-row [file]="file" />
+  }
+</section>

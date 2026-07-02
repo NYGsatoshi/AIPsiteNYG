@@ -1,0 +1,62 @@
+:host {
+  display: block;
+  min-width: 0;
+}
+
+.quota {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  min-width: 0;
+  border: 1px solid #cbd5e1;
+  border-radius: 8px;
+  padding: 12px;
+  background: #ffffff;
+  color: #334155;
+}
+
+.quota p,
+.quota strong {
+  margin: 0;
+}
+
+.quota p {
+  color: #526173;
+  font-size: 0.78rem;
+  font-weight: 900;
+}
+
+.quota strong {
+  display: block;
+  overflow-wrap: anywhere;
+}
+
+.quota span {
+  flex: 0 0 auto;
+  color: #526173;
+  font-size: 0.86rem;
+  font-weight: 900;
+}
+
+.quota--exceeded,
+.quota--exceptionRejected {
+  border-color: #c2410c;
+  background: #fff7ed;
+}
+
+.quota--exceptionRequested {
+  border-color: #b7791f;
+  background: #fff8e6;
+}
+
+.quota--exceptionApproved {
+  border-color: #2f855a;
+  background: #ecfdf3;
+}
+
+@media (max-width: 640px) {
+  .quota {
+    display: grid;
+  }
+}

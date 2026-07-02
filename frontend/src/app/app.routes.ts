@@ -82,11 +82,8 @@ export const routes: Routes = [
       },
       {
         path: 'files',
-        component: PagePlaceholderComponent,
-        data: {
-          title: 'ファイル',
-          summary: '未実装'
-        }
+        loadComponent: () =>
+          import('./features/files/files-page/files-page.component').then((m) => m.FilesPageComponent)
       },
       {
         path: 'account',
