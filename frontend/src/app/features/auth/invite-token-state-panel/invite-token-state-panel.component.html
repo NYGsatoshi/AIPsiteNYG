@@ -1,0 +1,43 @@
+<section
+  class="invite-token-state"
+  [class.invite-token-state--blocking]="isBlockingState"
+  [attr.data-status]="state.status"
+  data-testid="invite-token-state-panel"
+>
+  @switch (state.status) {
+    @case ('validating') {
+      <p role="status">招待リンクを確認しています。</p>
+    }
+    @case ('missing') {
+      <p data-testid="safe-unusable-link">招待リンクを使用できません。</p>
+    }
+    @case ('invalid') {
+      <p data-testid="safe-unusable-link">招待リンクを使用できません。</p>
+    }
+    @case ('expired') {
+      <p data-testid="safe-unusable-link">招待リンクを使用できません。</p>
+    }
+    @case ('alreadyAccepted') {
+      <p>登録済みです。ログインしてください。</p>
+    }
+    @case ('backendTransactionGated') {
+      <p>この招待登録は現在準備中です。</p>
+      <p class="invite-token-state__note">
+        実装メモ: backend transaction fix remains P0 blocker. ユーザー、テナント所属、ワークスペース所属、初期セッションの作成をバックエンドで同一トランザクションとして再検証するまで登録は送信できません。
+      </p>
+    }
+    @case ('registrationSuccessAutoSession') {
+      <p role="status">登録が完了しました。ワークスペースを準備しています。</p>
+    }
+    @case ('registrationSuccessLoginRequired') {
+      <p role="status">登録が完了しました。ログインしてください。</p>
+    }
+    @case ('registrationFailure') {
+      <p role="alert">登録できませんでした。時間をおいてもう一度お試しください。</p>
+      @if (state.requestId) {
+        <p class="invite-token-state__request" data-testid="invite-request-id">Request ID: {{ state.requestId }}</p>
+      }
+    }
+  }
+</section>
+

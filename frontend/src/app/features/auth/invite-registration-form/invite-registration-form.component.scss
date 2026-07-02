@@ -1,0 +1,43 @@
+.invite-registration-form {
+  display: grid;
+  gap: 1rem;
+}
+
+.invite-registration-form__field {
+  display: grid;
+  gap: 0.4rem;
+  color: #1e293b;
+  font-weight: 700;
+}
+
+.invite-registration-form__field input {
+  min-height: 2.75rem;
+  border: 1px solid #cbd5e1;
+  border-radius: 6px;
+  padding: 0.65rem 0.75rem;
+  color: #0f172a;
+  font: inherit;
+  font-weight: 500;
+}
+
+.invite-registration-form__field input[readonly] {
+  background: #f1f5f9;
+  color: #475569;
+}
+
+.invite-registration-form__submit {
+  min-height: 2.75rem;
+  border: 0;
+  border-radius: 6px;
+  background: #14532d;
+  color: #ffffff;
+  font: inherit;
+  font-weight: 700;
+  cursor: pointer;
+}
+
+.invite-registration-form__submit:disabled {
+  background: #94a3b8;
+  cursor: not-allowed;
+}
+

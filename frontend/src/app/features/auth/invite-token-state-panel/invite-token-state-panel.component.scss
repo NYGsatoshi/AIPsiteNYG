@@ -1,0 +1,27 @@
+.invite-token-state {
+  display: grid;
+  gap: 0.5rem;
+  border: 1px solid #cbd5e1;
+  border-radius: 8px;
+  background: #f8fafc;
+  padding: 1rem;
+  color: #334155;
+}
+
+.invite-token-state--blocking {
+  border-color: #fbbf24;
+  background: #fffbeb;
+  color: #78350f;
+}
+
+.invite-token-state p {
+  margin: 0;
+  line-height: 1.6;
+}
+
+.invite-token-state__note,
+.invite-token-state__request {
+  overflow-wrap: anywhere;
+  font-size: 0.875rem;
+}
+

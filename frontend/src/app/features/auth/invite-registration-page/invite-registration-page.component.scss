@@ -1,0 +1,50 @@
+.invite-registration-page {
+  min-height: 100dvh;
+  display: grid;
+  place-items: center;
+  background: #eef2f7;
+  padding: 2rem 1rem;
+}
+
+.invite-registration-page__panel {
+  width: min(100%, 30rem);
+  display: grid;
+  gap: 1.25rem;
+  border: 1px solid #dbe3ec;
+  border-radius: 8px;
+  background: #ffffff;
+  padding: 1.5rem;
+  box-shadow: 0 18px 40px rgba(15, 23, 42, 0.08);
+}
+
+.invite-registration-page__header {
+  display: grid;
+  gap: 0.25rem;
+}
+
+.invite-registration-page__header p,
+.invite-registration-page__header h1 {
+  margin: 0;
+}
+
+.invite-registration-page__header p {
+  color: #475569;
+  font-size: 0.9rem;
+  font-weight: 700;
+}
+
+.invite-registration-page__header h1 {
+  color: #0f172a;
+  font-size: 1.75rem;
+}
+
+@media (max-width: 480px) {
+  .invite-registration-page {
+    align-items: start;
+    padding: 1rem;
+  }
+
+  .invite-registration-page__panel {
+    padding: 1rem;
+  }
+}

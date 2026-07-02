@@ -1,0 +1,47 @@
+<form class="invite-registration-form" [formGroup]="form" (ngSubmit)="submit()" data-testid="invite-registration-form">
+  <label class="invite-registration-form__field">
+    <span>メールアドレス</span>
+    <input type="email" [value]="email" readonly aria-readonly="true" autocomplete="username" data-testid="invite-email" />
+  </label>
+
+  <label class="invite-registration-form__field">
+    <span>表示名</span>
+    <input
+      type="text"
+      formControlName="displayName"
+      autocomplete="name"
+      aria-describedby="invite-display-name-error"
+      data-testid="invite-display-name"
+    />
+    <app-field-error id="invite-display-name-error" [messages]="displayNameMessages" />
+  </label>
+
+  <label class="invite-registration-form__field">
+    <span>パスワード</span>
+    <input
+      type="password"
+      formControlName="password"
+      autocomplete="new-password"
+      aria-describedby="invite-password-error"
+      data-testid="invite-password"
+    />
+    <app-field-error id="invite-password-error" [messages]="passwordMessages" />
+  </label>
+
+  <label class="invite-registration-form__field">
+    <span>パスワード確認</span>
+    <input
+      type="password"
+      formControlName="confirmPassword"
+      autocomplete="new-password"
+      aria-describedby="invite-confirm-password-error"
+      data-testid="invite-confirm-password"
+    />
+    <app-field-error id="invite-confirm-password-error" [messages]="confirmPasswordMessages" />
+  </label>
+
+  <button class="invite-registration-form__submit" type="submit" [disabled]="!canSubmit" data-testid="invite-submit">
+    登録
+  </button>
+</form>
+

@@ -20,6 +20,13 @@ export const routes: Routes = [
     component: SessionExpiredPageComponent
   },
   {
+    path: 'register/invite',
+    loadComponent: () =>
+      import('./features/auth/invite-registration-page/invite-registration-page.component').then(
+        (m) => m.InviteRegistrationPageComponent
+      )
+  },
+  {
     path: 'permission-denied',
     component: AppPermissionDeniedComponent
   },
