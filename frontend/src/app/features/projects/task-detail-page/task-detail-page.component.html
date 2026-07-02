@@ -1,0 +1,46 @@
+@let vm = page();
+
+<section class="task-detail-page" data-testid="task-detail-page">
+  <a class="task-detail-page__back" routerLink="/app/projects">Back to projects</a>
+
+  @if (vm.status === 'loading') {
+    <app-inline-loading label="Loading task" />
+  } @else if (vm.status === 'permissionDenied') {
+    <app-permission-denied [title]="vm.message ?? 'Task detail is not available for this workspace.'" />
+  } @else if (!vm.task || !vm.editorTask || !vm.project) {
+    <app-empty-state title="Task not found" message="No authorized task detail is available in this mock state." />
+  } @else {
+    <header class="task-detail-page__header">
+      <div>
+        <p>{{ vm.project.name }} / {{ vm.project.group }}</p>
+        <h1>{{ vm.task.title }}</h1>
+      </div>
+      <app-task-status-badge [status]="vm.task.status" [label]="vm.task.statusLabel" />
+    </header>
+
+    <section class="task-detail-page__summary">
+      <div>
+        <span>Priority</span>
+        <strong>{{ vm.task.priorityLabel }}</strong>
+      </div>
+      <div>
+        <span>Assignee</span>
+        <strong>{{ vm.task.assignee }}</strong>
+      </div>
+      <div>
+        <span>Due</span>
+        <strong>{{ vm.task.dueDate }}</strong>
+      </div>
+      <app-task-progress-field [value]="vm.task.progressPercent" />
+    </section>
+
+    <app-task-editor
+      [task]="vm.editorTask"
+      [capabilities]="vm.capabilities"
+      [state]="vm.detailState"
+      [transitionNote]="vm.transitionNote"
+    />
+
+    <app-task-dependencies-readonly [dependencies]="vm.dependencies" />
+  }
+</section>

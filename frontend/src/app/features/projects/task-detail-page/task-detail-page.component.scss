@@ -1,0 +1,56 @@
+.task-detail-page {
+  display: grid;
+  gap: 1.25rem;
+  padding: 1.5rem;
+}
+
+.task-detail-page__back {
+  width: fit-content;
+  color: #1d4f91;
+  font-weight: 700;
+}
+
+.task-detail-page__header {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 1rem;
+}
+
+.task-detail-page__header h1,
+.task-detail-page__header p {
+  margin: 0;
+}
+
+.task-detail-page__header p,
+.task-detail-page__summary span {
+  color: #536179;
+}
+
+.task-detail-page__summary {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 0.75rem;
+}
+
+.task-detail-page__summary div,
+.task-detail-page__summary app-task-progress-field {
+  display: grid;
+  gap: 0.25rem;
+  padding: 0.75rem;
+  border: 1px solid #d7deea;
+  border-radius: 0.5rem;
+  background: #fff;
+}
+
+@media (max-width: 720px) {
+  .task-detail-page {
+    padding: 1rem;
+  }
+
+  .task-detail-page__header,
+  .task-detail-page__summary {
+    display: grid;
+    grid-template-columns: 1fr;
+  }
+}

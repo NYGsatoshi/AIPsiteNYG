@@ -1,0 +1,39 @@
+@let vm = page();
+
+<section class="projects-page" data-testid="projects-overview-page">
+  <header class="projects-page__header">
+    <div>
+      <p>{{ vm.subtitle }}</p>
+      <h1>{{ vm.title }}</h1>
+    </div>
+    <a routerLink="/app/tasks">My tasks</a>
+  </header>
+
+  @if (vm.status === 'loading') {
+    <app-inline-loading label="Loading projects" />
+  } @else if (vm.status === 'permissionDenied') {
+    <app-permission-denied [title]="vm.message ?? 'Projects are not available for this workspace.'" />
+  } @else if (vm.status === 'empty' || vm.projects.length === 0) {
+    <app-empty-state title="No projects" message="No authorized project records are available in this mock state." />
+  } @else {
+    <app-project-summary-panel [projects]="vm.projects" />
+
+    <section class="projects-page__tasks">
+      <div>
+        <h2>Project tasks</h2>
+        <p>Rows are mock records already scoped to the authorized project set.</p>
+      </div>
+
+      @if (vm.rows.length > 0) {
+        <app-task-table
+          [rows]="vm.rows"
+          [defaultPageSize]="vm.pageSize.defaultPageSize"
+          [maximumPageSize]="vm.pageSize.maximumPageSize"
+          (actionInvoked)="handleTaskAction($event)"
+        />
+      } @else {
+        <app-empty-state title="No tasks" message="No authorized task records are available in this mock state." />
+      }
+    </section>
+  }
+</section>

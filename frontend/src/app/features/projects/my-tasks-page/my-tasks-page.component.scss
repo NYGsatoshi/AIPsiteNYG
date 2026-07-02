@@ -1,0 +1,25 @@
+.my-tasks-page {
+  display: grid;
+  gap: 1.25rem;
+  padding: 1.5rem;
+}
+
+.my-tasks-page header {
+  display: grid;
+  gap: 0.25rem;
+}
+
+.my-tasks-page h1,
+.my-tasks-page p {
+  margin: 0;
+}
+
+.my-tasks-page p {
+  color: #536179;
+}
+
+@media (max-width: 720px) {
+  .my-tasks-page {
+    padding: 1rem;
+  }
+}

@@ -1,0 +1,23 @@
+@let vm = page();
+
+<section class="my-tasks-page" data-testid="my-tasks-page">
+  <header>
+    <p>{{ vm.subtitle }}</p>
+    <h1>{{ vm.title }}</h1>
+  </header>
+
+  @if (vm.status === 'loading') {
+    <app-inline-loading label="Loading tasks" />
+  } @else if (vm.status === 'permissionDenied') {
+    <app-permission-denied [title]="vm.message ?? 'Tasks are not available for this workspace.'" />
+  } @else if (vm.status === 'empty' || vm.rows.length === 0) {
+    <app-empty-state title="No tasks" message="No authorized task records are assigned in this mock state." />
+  } @else {
+    <app-task-table
+      [rows]="vm.rows"
+      [defaultPageSize]="vm.pageSize.defaultPageSize"
+      [maximumPageSize]="vm.pageSize.maximumPageSize"
+      (actionInvoked)="handleTaskAction($event)"
+    />
+  }
+</section>

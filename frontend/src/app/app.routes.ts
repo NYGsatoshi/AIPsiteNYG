@@ -73,12 +73,23 @@ export const routes: Routes = [
           )
       },
       {
+        path: 'projects/:projectId/tasks/:taskId',
+        loadComponent: () =>
+          import('./features/projects/task-detail-page/task-detail-page.component').then(
+            (m) => m.TaskDetailPageComponent
+          )
+      },
+      {
+        path: 'tasks',
+        loadComponent: () =>
+          import('./features/projects/my-tasks-page/my-tasks-page.component').then((m) => m.MyTasksPageComponent)
+      },
+      {
         path: 'projects',
-        component: PagePlaceholderComponent,
-        data: {
-          title: '制作',
-          summary: '準備中'
-        }
+        loadComponent: () =>
+          import('./features/projects/projects-overview-page/projects-overview-page.component').then(
+            (m) => m.ProjectsOverviewPageComponent
+          )
       },
       {
         path: 'files',
