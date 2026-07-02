@@ -30,7 +30,7 @@
         (actionInvoked)="handleGridAction($event)"
       />
 
-      <app-audit-detail-drawer [audit]="selectedAudit()" (close)="closeDrawer()" />
+      <app-audit-detail-drawer [audit]="selectedAudit()" [returnFocusTo]="drawerReturnFocus()" (close)="closeDrawer()" />
     </div>
   }
 </section>

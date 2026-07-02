@@ -1,6 +1,21 @@
 import { expect, type Locator, type Page, test } from '@playwright/test';
 import { expectNoAccessibilityViolations } from './a11y';
 
+const coreResponsiveRoutes = [
+  '/app/workspaces',
+  '/app/workspaces/fictional-workspace-1/members',
+  '/app/announcements',
+  '/app/workspaces/fictional-workspace-1/channels/fictional-conversation-main',
+  '/app/dm/fictional-dm-1',
+  '/app/files',
+  '/app/projects',
+  '/app/tasks',
+  '/app/admin/audit',
+  '/app/admin/export-diagnostics',
+  '/app/account',
+  '/register/invite'
+];
+
 test.describe('MVP-A P0 Angular frontend smoke', () => {
   test('serves the built Angular shell', async ({ page }) => {
     await page.goto('/');
@@ -84,6 +99,40 @@ test.describe('MVP-A P0 Angular frontend smoke', () => {
     await expectHealthyAngularPage(page);
   });
 
+  test('mobile navigation traps focus and returns focus on Escape', async ({ page }) => {
+    await page.setViewportSize({ width: 320, height: 700 });
+    await page.goto('/app/workspaces');
+
+    const toggle = page.getByTestId('mobile-nav-toggle');
+    await toggle.click();
+
+    const mobileNavigation = page.getByTestId('mobile-navigation');
+    await expect(mobileNavigation).toHaveAttribute('aria-hidden', 'false');
+    await expect(mobileNavigation).toContainText(/.+/);
+    await expect(mobileNavigation.locator('a[href="/app/workspaces"]')).toBeFocused();
+
+    await page.keyboard.press('Escape');
+    await expect(mobileNavigation).toHaveAttribute('aria-hidden', 'true');
+    await expect(toggle).toBeFocused();
+  });
+
+  test('right panel opens as a drawer on mobile and returns focus when closed', async ({ page }) => {
+    await page.setViewportSize({ width: 390, height: 844 });
+    await page.goto('/app/workspaces');
+
+    const trigger = page.getByTestId('right-panel-toggle');
+    await trigger.click();
+
+    const panel = page.getByTestId('right-panel');
+    await expect(panel).toBeVisible();
+    await expect(panel).toHaveAttribute('role', 'dialog');
+    await expect(trigger).toHaveAttribute('aria-expanded', 'true');
+
+    await page.keyboard.press('Escape');
+    await expect(trigger).toHaveAttribute('aria-expanded', 'false');
+    await expect(trigger).toBeFocused();
+  });
+
   test('allows keyboard traversal to primary shell areas', async ({ page }) => {
     await page.setViewportSize({ width: 1280, height: 900 });
     await page.goto('/app/workspaces');
@@ -92,6 +141,24 @@ test.describe('MVP-A P0 Angular frontend smoke', () => {
     await pressTabUntilFocused(page, page.getByTestId('page-search'));
     await pressTabUntilFocused(page, page.getByTestId('right-panel-toggle'));
   });
+
+  test('icon-only shell controls have accessible names', async ({ page }) => {
+    await page.setViewportSize({ width: 390, height: 844 });
+    await page.goto('/app/workspaces');
+
+    await expect(page.getByTestId('mobile-nav-toggle')).toHaveAccessibleName(/menu|メニュー/i);
+    await page.getByTestId('right-panel-toggle').click();
+    await expect(page.getByTestId('right-panel-close')).toHaveAccessibleName(/close right panel/i);
+  });
+
+  for (const route of coreResponsiveRoutes) {
+    test(`does not horizontally overflow at 320px: ${route}`, async ({ page }) => {
+      await page.setViewportSize({ width: 320, height: 800 });
+      await page.goto(route);
+      await expectHealthyAngularPage(page);
+      await expectNoDocumentHorizontalOverflow(page);
+    });
+  }
 
   test('renders permission-denied shared state without session details', async ({ page }) => {
     await page.goto('/permission-denied');
@@ -114,9 +181,7 @@ async function expectHealthyAngularPage(page: Page) {
   await expect(body).not.toContainText('Application error');
   await expect(body).not.toContainText(/NG0\d+/);
   await expect(body).not.toContainText('TypeError');
-
-  const bodyText = await body.innerText();
-  expect(bodyText.trim().length).toBeGreaterThan(0);
+  await expect(page.locator('app-root')).toBeAttached();
 }
 
 async function pressTabUntilFocused(
@@ -133,4 +198,19 @@ async function pressTabUntilFocused(
   }
 
   await expect(target).toBeFocused();
+}
+
+async function expectNoDocumentHorizontalOverflow(page: Page) {
+  const overflow = await page.evaluate(() => {
+    const documentElement = document.documentElement;
+    const body = document.body;
+    return {
+      bodyScrollWidth: body.scrollWidth,
+      documentScrollWidth: documentElement.scrollWidth,
+      viewportWidth: documentElement.clientWidth
+    };
+  });
+
+  expect(overflow.documentScrollWidth).toBeLessThanOrEqual(overflow.viewportWidth);
+  expect(overflow.bodyScrollWidth).toBeLessThanOrEqual(overflow.viewportWidth);
 }

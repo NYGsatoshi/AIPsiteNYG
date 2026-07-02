@@ -35,7 +35,7 @@
         (actionInvoked)="handleGridAction($event)"
       />
 
-      <app-export-job-detail-drawer [job]="selectedJob()" (close)="closeDrawer()" />
+      <app-export-job-detail-drawer [job]="selectedJob()" [returnFocusTo]="drawerReturnFocus()" (close)="closeDrawer()" />
     </div>
   }
 </section>

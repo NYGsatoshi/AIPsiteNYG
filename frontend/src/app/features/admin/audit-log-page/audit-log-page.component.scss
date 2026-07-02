@@ -1,7 +1,9 @@
 .admin-page {
   display: grid;
   gap: 1rem;
+  min-width: 0;
   padding: 1.25rem;
+  overflow-wrap: anywhere;
 }
 
 .admin-page__header {
@@ -41,6 +43,11 @@
   grid-template-columns: minmax(0, 1fr) minmax(18rem, 24rem);
   gap: 1rem;
   align-items: start;
+  min-width: 0;
+}
+
+.admin-page__layout > * {
+  min-width: 0;
 }
 
 :host ::ng-deep .admin-grid-link {
@@ -54,6 +61,11 @@
   overflow-wrap: anywhere;
 }
 
+:host ::ng-deep .admin-grid-link:focus-visible {
+  outline: var(--shell-focus-outline, 3px solid #1d4ed8);
+  outline-offset: 2px;
+}
+
 :host ::ng-deep .admin-grid-badge {
   display: inline-flex;
   border: 1px solid #cbd5e1;
@@ -65,7 +77,7 @@
 
 @media (max-width: 860px) {
   .admin-page {
-    padding: 1rem;
+    padding: 0.75rem;
   }
 
   .admin-page__layout {

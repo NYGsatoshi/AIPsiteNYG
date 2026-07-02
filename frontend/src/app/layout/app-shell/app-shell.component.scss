@@ -4,6 +4,10 @@
   --shell-feature-menu-width: 216px;
   --shell-right-panel-expanded-width: 280px;
   --shell-right-panel-collapsed-width: 56px;
+  --shell-drawer-width: min(280px, calc(100vw - 24px));
+  --shell-right-drawer-width: min(360px, 100vw);
+  --shell-touch-target: var(--aip-touch-target, 44px);
+  --shell-focus-outline: var(--aip-focus-outline, 3px solid #1d4ed8);
   --shell-mobile-header-height: 56px;
   --shell-space-1: 4px;
   --shell-space-2: 8px;
@@ -72,6 +76,7 @@
   min-width: 0;
   padding: var(--shell-space-5);
   overflow: auto;
+  overflow-wrap: anywhere;
 }
 
 @media (max-width: 860px) {
@@ -91,6 +96,10 @@
     display: none;
   }
 
+  .app-shell__right-panel--drawer {
+    display: block;
+  }
+
   .app-shell__body {
     min-height: calc(100dvh - var(--shell-mobile-header-height));
   }
@@ -104,12 +113,21 @@
     inset: var(--shell-mobile-header-height) auto 0 0;
     z-index: 20;
     display: block;
-    width: min(280px, 86vw);
+    width: var(--shell-drawer-width);
     max-width: 100vw;
     border-right: 1px solid var(--shell-border-color);
     background: #ffffff;
     transform: translateX(-100%);
     transition: transform 160ms ease;
+  }
+
+  .app-shell__mobile-drawer:focus {
+    outline: none;
+  }
+
+  .app-shell__mobile-drawer:focus-visible {
+    outline: var(--shell-focus-outline);
+    outline-offset: -3px;
   }
 
   .app-shell--drawer-open .app-shell__mobile-drawer {

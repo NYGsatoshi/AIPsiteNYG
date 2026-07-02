@@ -2,10 +2,13 @@
   display: grid;
   gap: 0.5rem;
   min-width: 0;
+  max-width: 100%;
+  overflow-x: auto;
+  overflow-y: visible;
 }
 
 .app-data-grid__grid {
-  width: 100%;
+  width: max(100%, 42rem);
   min-height: 18rem;
   --ag-font-family: inherit;
   --ag-font-size: 0.875rem;
@@ -44,8 +47,15 @@
   font-size: 0.8125rem;
   font-weight: 700;
   line-height: 1.2;
+  min-height: 2.25rem;
   padding: 0.35rem 0.5rem;
   white-space: nowrap;
+}
+
+:host ::ng-deep .app-grid-actions__button:focus-visible,
+:host ::ng-deep .ag-root-wrapper :focus-visible {
+  outline: var(--shell-focus-outline, 3px solid #1d4ed8);
+  outline-offset: 2px;
 }
 
 :host ::ng-deep .app-grid-actions__button--danger {

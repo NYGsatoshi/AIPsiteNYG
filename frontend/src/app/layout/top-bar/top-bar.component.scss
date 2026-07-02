@@ -5,7 +5,7 @@
 
 .top-bar {
   display: grid;
-  grid-template-columns: minmax(140px, 1fr) minmax(180px, 320px) auto;
+  grid-template-columns: minmax(0, 1fr) minmax(12rem, 20rem) auto;
   align-items: center;
   gap: var(--shell-space-3, 12px);
   min-width: 0;
@@ -48,6 +48,7 @@
 .top-bar__search input {
   width: 100%;
   min-width: 0;
+  min-height: var(--shell-touch-target, 44px);
   border: 1px solid var(--shell-border-color, #d9e0e8);
   border-radius: var(--shell-radius-md, 6px);
   padding: 8px 10px;
@@ -67,13 +68,21 @@
 }
 
 .top-bar__panel-button {
-  min-height: 36px;
+  min-height: var(--shell-touch-target, 44px);
+  min-width: var(--shell-touch-target, 44px);
   border: 1px solid #8aa6bf;
   border-radius: var(--shell-radius-md, 6px);
   background: #ffffff;
   color: #1e5d92;
   font-weight: 700;
   cursor: pointer;
+  padding: 0 var(--shell-space-3, 12px);
+}
+
+.top-bar__panel-button:focus-visible,
+.top-bar__search input:focus-visible {
+  outline: var(--shell-focus-outline, 3px solid #1d4ed8);
+  outline-offset: 2px;
 }
 
 @media (max-width: 860px) {

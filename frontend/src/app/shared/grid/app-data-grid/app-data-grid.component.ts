@@ -91,6 +91,6 @@ export class AppDataGridComponent<TData extends object> {
       return;
     }
 
-    this.actionInvoked.emit({ actionId, row: event.data });
+    this.actionInvoked.emit({ actionId, row: event.data, trigger: actionTarget });
   }
 }

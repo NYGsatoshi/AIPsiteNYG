@@ -7,6 +7,7 @@ export const APP_DATA_GRID_MAXIMUM_PAGE_SIZE = 100;
 export interface AppDataGridActionEvent<TData> {
   readonly actionId: string;
   readonly row: TData;
+  readonly trigger?: HTMLElement;
 }
 
 export interface AppDataGridColumnDef<TData> {

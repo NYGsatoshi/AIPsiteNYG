@@ -1,3 +1,4 @@
+import { A11yModule } from '@angular/cdk/a11y';
 import { Component, ElementRef, Input, OnChanges, SimpleChanges, ViewChild, inject } from '@angular/core';
 
 import { AuthSessionSnapshot } from '../../../core/auth/auth-session.facade';
@@ -16,9 +17,13 @@ import {
 @Component({
   selector: 'app-right-panel',
   standalone: true,
-  imports: [MembersTabComponent, NotificationsTabComponent],
+  imports: [A11yModule, MembersTabComponent, NotificationsTabComponent],
   template: `
     @let vm = facade.viewModel();
+
+    @if (vm.mode === 'drawer') {
+      <div class="right-panel__scrim" aria-hidden="true" (click)="closePanel()"></div>
+    }
 
     <aside
       class="right-panel"
@@ -28,7 +33,10 @@ import {
       [class.right-panel--drawer]="vm.mode === 'drawer'"
       [attr.role]="vm.mode === 'drawer' ? 'dialog' : null"
       [attr.aria-modal]="vm.mode === 'drawer' ? 'true' : null"
-      aria-label="右パネル"
+      aria-label="Right panel"
+      tabindex="-1"
+      [cdkTrapFocus]="vm.mode === 'drawer'"
+      [cdkTrapFocusAutoCapture]="vm.mode === 'drawer'"
       (keydown.escape)="closeFromEscape($event)"
     >
       @if (vm.mode === 'collapsed') {
@@ -37,8 +45,8 @@ import {
           type="button"
           class="right-panel__rail-button"
           data-testid="right-panel-open"
-          aria-label="右パネルを開く"
-          title="右パネルを開く"
+          aria-label="Open right panel"
+          title="Open right panel"
           (click)="openFromTrigger(panelTrigger)"
         >
           <span aria-hidden="true">i</span>
@@ -46,28 +54,28 @@ import {
       } @else {
         <header class="right-panel__header">
           <div>
-            <p class="right-panel__eyebrow">現在のスコープ</p>
-            <h2>通知とメンバー</h2>
+            <p class="right-panel__eyebrow">Current scope</p>
+            <h2>Notifications and members</h2>
           </div>
           <button
             type="button"
             class="right-panel__icon-button"
             data-testid="right-panel-close"
-            aria-label="右パネルを閉じる"
-            title="右パネルを閉じる"
+            aria-label="Close right panel"
+            title="Close right panel"
             (click)="closePanel()"
           >
             <span aria-hidden="true">x</span>
           </button>
         </header>
 
-        <div class="right-panel__scope" aria-label="表示スコープ">
+        <div class="right-panel__scope" aria-label="Display scope">
           <span>{{ vm.scope.workspaceId }}</span>
           <span>{{ vm.scope.projectId }}</span>
           <span>{{ vm.scope.conversationId }}</span>
         </div>
 
-        <div class="right-panel__tabs" role="tablist" aria-label="右パネル表示切替">
+        <div class="right-panel__tabs" role="tablist" aria-label="Right panel view">
           <button
             type="button"
             role="tab"
@@ -78,7 +86,7 @@ import {
             aria-controls="right-panel-panel-notifications"
             (click)="selectTab('notifications')"
           >
-            通知
+            Notifications
             @if (vm.unreadCount > 0) {
               <span class="right-panel__badge">{{ vm.unreadCount }}</span>
             }
@@ -93,7 +101,7 @@ import {
             aria-controls="right-panel-panel-members"
             (click)="selectTab('members')"
           >
-            メンバー
+            Members
           </button>
         </div>
 
@@ -133,6 +141,7 @@ export class RightPanelComponent implements OnChanges {
   @Input() selectedTab: RightPanelTab | null = null;
   @Input() activeScope: RightPanelScope | null = null;
   @Input() permission: RightPanelPermission | null = null;
+  @Input() returnFocusTo: HTMLElement | null = null;
 
   @ViewChild('panelTrigger') panelTrigger?: ElementRef<HTMLButtonElement>;
 
@@ -160,15 +169,21 @@ export class RightPanelComponent implements OnChanges {
   }
 
   closePanel(): void {
+    const returnTarget =
+      this.facade.mode() === 'drawer'
+        ? this.returnFocusTo
+        : (this.lastTrigger ?? this.panelTrigger?.nativeElement ?? null);
     this.facade.closePanel();
-    this.returnFocusToTrigger();
+    this.returnFocusToTrigger(returnTarget);
   }
 
   closeFromEscape(event: KeyboardEvent): void {
-    if (this.facade.mode() === 'drawer') {
-      event.preventDefault();
-      this.closePanel();
+    if (this.facade.mode() !== 'drawer') {
+      return;
     }
+
+    event.preventDefault();
+    this.closePanel();
   }
 
   selectTab(tab: RightPanelTab): void {
@@ -194,8 +209,7 @@ export class RightPanelComponent implements OnChanges {
     return DEFAULT_RIGHT_PANEL_SCOPE;
   }
 
-  private returnFocusToTrigger(): void {
-    const target = this.lastTrigger ?? this.panelTrigger?.nativeElement ?? null;
+  private returnFocusToTrigger(target: HTMLElement | null): void {
     setTimeout(() => target?.focus());
   }
 }

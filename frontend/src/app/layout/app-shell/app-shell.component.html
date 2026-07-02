@@ -31,19 +31,21 @@
       [sessionStatus]="vm.session.status"
       [rightPanelMode]="vm.rightPanelMode"
       (searchValueChange)="setPageSearch($event)"
-      (rightPanelToggle)="facade.toggleRightPanel()"
+      (rightPanelToggle)="toggleRightPanelFromTopBar($event)"
     />
-    <main class="app-shell__main" aria-label="内容">
+    <main class="app-shell__main" aria-label="Main content" tabindex="-1">
       <router-outlet />
     </main>
   </div>
 
   <app-right-panel
     class="app-shell__right-panel"
+    [class.app-shell__right-panel--drawer]="vm.rightPanelMode === 'drawer'"
     data-testid="right-panel-region"
     [session]="vm.session"
     [workspace]="vm.workspace"
     [mode]="vm.rightPanelMode"
+    [returnFocusTo]="rightPanelReturnFocus()"
     [activeScope]="{
       workspaceId: vm.workspace?.id || 'fictional-workspace-1',
       projectId: 'fictional-project-a',
@@ -53,17 +55,25 @@
 
   <div class="app-shell__scrim" aria-hidden="true" (click)="closeMobileDrawer()"></div>
   <aside
+    #mobileDrawer
     id="mobile-navigation"
     class="app-shell__mobile-drawer"
     data-testid="mobile-navigation"
-    aria-label="モバイル機能"
+    role="dialog"
+    aria-modal="true"
+    aria-label="Mobile navigation"
     [attr.aria-hidden]="!mobileDrawerOpen()"
     [attr.inert]="mobileDrawerOpen() ? null : ''"
+    tabindex="-1"
+    [cdkTrapFocus]="mobileDrawerOpen()"
+    [cdkTrapFocusAutoCapture]="mobileDrawerOpen()"
   >
-    <app-feature-menu
-      [compact]="true"
-      [navigationItems]="vm.navigationItems"
-      (itemSelected)="closeMobileDrawer()"
-    />
+    <nav aria-label="Mobile feature navigation">
+      <app-feature-menu
+        [compact]="true"
+        [navigationItems]="vm.navigationItems"
+        (itemSelected)="closeMobileDrawer(false)"
+      />
+    </nav>
   </aside>
 </div>

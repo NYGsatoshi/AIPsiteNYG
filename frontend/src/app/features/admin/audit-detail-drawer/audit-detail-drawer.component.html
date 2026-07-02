@@ -1,11 +1,20 @@
 @if (audit; as selectedAudit) {
-  <aside class="admin-drawer" aria-label="Audit detail" data-testid="audit-detail-drawer">
+  <aside class="admin-drawer" aria-label="Audit detail" data-testid="audit-detail-drawer" tabindex="-1">
     <header class="admin-drawer__header">
       <div>
         <p class="admin-drawer__eyebrow">Redacted detail</p>
         <h2>{{ selectedAudit.action }}</h2>
       </div>
-      <button type="button" class="admin-drawer__close" data-testid="audit-detail-close" (click)="close.emit()">Close</button>
+      <button
+        #closeButton
+        type="button"
+        class="admin-drawer__close"
+        data-testid="audit-detail-close"
+        aria-label="Close audit detail"
+        (click)="close.emit()"
+      >
+        Close
+      </button>
     </header>
 
     <dl class="admin-drawer__summary">

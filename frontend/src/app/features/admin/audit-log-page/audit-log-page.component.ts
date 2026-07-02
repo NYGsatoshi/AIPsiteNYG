@@ -28,6 +28,7 @@ import { AuditGridRow, AuditLogViewModel } from '../admin.types';
 export class AuditLogPageComponent {
   private readonly facade = inject(AdminFacade);
   private readonly selectedAuditId = signal<string | null | undefined>(undefined);
+  readonly drawerReturnFocus = signal<HTMLElement | null>(null);
 
   readonly vm = computed(() => this.withColumns(this.facade.getAuditLog()));
   readonly selectedAudit = computed(() => {
@@ -39,12 +40,16 @@ export class AuditLogPageComponent {
 
   handleGridAction(event: AppDataGridActionEvent<AuditGridRow>): void {
     if (event.actionId === 'openAuditDetail') {
+      this.drawerReturnFocus.set(event.trigger ?? null);
       this.selectedAuditId.set(event.row.id);
     }
   }
 
   closeDrawer(): void {
     this.selectedAuditId.set(null);
+    const target = this.drawerReturnFocus();
+    queueMicrotask(() => target?.focus());
+    this.drawerReturnFocus.set(null);
   }
 
   private withColumns(vm: AuditLogViewModel): AuditLogViewModel {

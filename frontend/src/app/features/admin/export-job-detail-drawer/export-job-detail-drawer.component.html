@@ -1,11 +1,18 @@
 @if (job; as selectedJob) {
-  <aside class="admin-drawer" aria-label="Export job detail" data-testid="export-job-detail-drawer">
+  <aside class="admin-drawer" aria-label="Export job detail" data-testid="export-job-detail-drawer" tabindex="-1">
     <header class="admin-drawer__header">
       <div>
         <p class="admin-drawer__eyebrow">Server-owned job detail</p>
         <h2>{{ selectedJob.jobType }}</h2>
       </div>
-      <button type="button" class="admin-drawer__close" data-testid="export-job-detail-close" (click)="close.emit()">
+      <button
+        #closeButton
+        type="button"
+        class="admin-drawer__close"
+        data-testid="export-job-detail-close"
+        aria-label="Close export job detail"
+        (click)="close.emit()"
+      >
         Close
       </button>
     </header>

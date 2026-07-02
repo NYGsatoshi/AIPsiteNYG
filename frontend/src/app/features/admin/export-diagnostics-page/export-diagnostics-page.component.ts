@@ -31,6 +31,7 @@ export class ExportDiagnosticsPageComponent {
   private readonly facade = inject(AdminFacade);
   private readonly requestedJobs = signal<readonly ExportJobGridRow[]>([]);
   private readonly selectedJobId = signal<string | null | undefined>(undefined);
+  readonly drawerReturnFocus = signal<HTMLElement | null>(null);
 
   readonly vm = computed(() => {
     const page = this.withColumns(this.facade.getExportDiagnostics());
@@ -48,6 +49,7 @@ export class ExportDiagnosticsPageComponent {
 
   handleGridAction(event: AppDataGridActionEvent<ExportJobGridRow>): void {
     if (event.actionId === 'openExportJobDetail') {
+      this.drawerReturnFocus.set(event.trigger ?? null);
       this.selectedJobId.set(event.row.id);
     }
   }
@@ -55,11 +57,15 @@ export class ExportDiagnosticsPageComponent {
   requestDiagnosticsExport(): void {
     const newJob = this.facade.requestDiagnosticsJob();
     this.requestedJobs.update((rows) => [newJob, ...rows]);
+    this.drawerReturnFocus.set(null);
     this.selectedJobId.set(newJob.id);
   }
 
   closeDrawer(): void {
     this.selectedJobId.set(null);
+    const target = this.drawerReturnFocus();
+    queueMicrotask(() => target?.focus());
+    this.drawerReturnFocus.set(null);
   }
 
   private withColumns(vm: ExportDiagnosticsViewModel): ExportDiagnosticsViewModel {
