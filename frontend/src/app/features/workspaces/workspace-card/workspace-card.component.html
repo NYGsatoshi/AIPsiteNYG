@@ -1,0 +1,34 @@
+<article class="workspace-card" data-testid="workspace-card">
+  <header class="workspace-card__header">
+    <p class="workspace-card__eyebrow">ワークスペース</p>
+    <h2 data-testid="workspace-name">{{ workspace.displayName }}</h2>
+    <span class="workspace-card__role">{{ workspace.roleLabel }}</span>
+  </header>
+
+  <dl class="workspace-card__metrics" aria-label="ワークスペース概要">
+    <div>
+      <dt>未読お知らせ</dt>
+      <dd [class.workspace-card__metric-unavailable]="!workspace.availability.unreadAnnouncements">
+        {{ unavailableLabel(workspace.availability.unreadAnnouncements, workspace.unreadAnnouncementCount) }}
+      </dd>
+    </div>
+    <div>
+      <dt>未読会話</dt>
+      <dd [class.workspace-card__metric-unavailable]="!workspace.availability.unreadConversations">
+        {{ unavailableLabel(workspace.availability.unreadConversations, workspace.unreadConversationCount) }}
+      </dd>
+    </div>
+    <div>
+      <dt>進行中</dt>
+      <dd [class.workspace-card__metric-unavailable]="!workspace.availability.activeProjects">
+        {{ unavailableLabel(workspace.availability.activeProjects, workspace.activeProjectCount) }}
+      </dd>
+    </div>
+  </dl>
+
+  <p class="workspace-card__updated" [class.workspace-card__metric-unavailable]="!workspace.availability.lastUpdated">
+    最終更新: {{ unavailableLabel(workspace.availability.lastUpdated, workspace.lastUpdatedLabel) }}
+  </p>
+
+  <app-workspace-quick-actions [workspaceId]="workspace.id" [capabilities]="workspace.capabilities" />
+</article>

@@ -1,0 +1,5 @@
+<section class="workspace-list" aria-label="参加中のワークスペース">
+  @for (workspace of workspaces; track workspace.id) {
+    <app-workspace-card [workspace]="workspace" />
+  }
+</section>

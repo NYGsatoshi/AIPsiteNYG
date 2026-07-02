@@ -1,0 +1,133 @@
+:host {
+  display: block;
+  min-width: 0;
+}
+
+.workspace-dashboard {
+  display: grid;
+  gap: 20px;
+  min-width: 0;
+  max-width: 1180px;
+  margin: 0 auto;
+}
+
+.workspace-dashboard__header {
+  display: flex;
+  align-items: end;
+  justify-content: space-between;
+  gap: 16px;
+  min-width: 0;
+}
+
+.workspace-dashboard__eyebrow,
+h1 {
+  margin: 0;
+}
+
+.workspace-dashboard__eyebrow {
+  color: #526173;
+  font-size: 0.86rem;
+  font-weight: 800;
+}
+
+h1 {
+  color: #17202a;
+  font-size: 1.7rem;
+  line-height: 1.2;
+}
+
+.workspace-dashboard__create {
+  flex: 0 0 auto;
+  min-height: 40px;
+  border: 1px solid #2458a6;
+  border-radius: 6px;
+  padding: 0 14px;
+  background: #2458a6;
+  color: #ffffff;
+  font: inherit;
+  font-weight: 800;
+  cursor: pointer;
+}
+
+.workspace-dashboard__notice {
+  margin: 0;
+  border: 1px solid #f3c370;
+  border-radius: 6px;
+  padding: 10px 12px;
+  background: #fff8ea;
+  color: #70420f;
+  font-weight: 700;
+}
+
+.workspace-dashboard__search {
+  display: grid;
+  gap: 6px;
+  max-width: 360px;
+  color: #334155;
+  font-weight: 800;
+}
+
+.workspace-dashboard__search input {
+  min-width: 0;
+  width: 100%;
+  border: 1px solid #9aa8b8;
+  border-radius: 6px;
+  padding: 10px 12px;
+  font: inherit;
+  font-weight: 400;
+}
+
+.workspace-dashboard__loading {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 16px;
+}
+
+.workspace-dashboard__loading span {
+  display: block;
+  min-height: 210px;
+  border-radius: 8px;
+  background: linear-gradient(90deg, #eef2f7 0%, #f8fafc 50%, #eef2f7 100%);
+  background-size: 240% 100%;
+  animation: workspace-loading 1.2s ease-in-out infinite;
+}
+
+@keyframes workspace-loading {
+  from {
+    background-position: 100% 0;
+  }
+
+  to {
+    background-position: -100% 0;
+  }
+}
+
+@media (max-width: 860px) {
+  .workspace-dashboard__loading {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+}
+
+@media (max-width: 520px) {
+  .workspace-dashboard {
+    gap: 14px;
+  }
+
+  .workspace-dashboard__header {
+    display: grid;
+    align-items: start;
+  }
+
+  h1 {
+    font-size: 1.32rem;
+  }
+
+  .workspace-dashboard__create,
+  .workspace-dashboard__search {
+    width: 100%;
+  }
+
+  .workspace-dashboard__loading {
+    grid-template-columns: minmax(0, 1fr);
+  }
+}

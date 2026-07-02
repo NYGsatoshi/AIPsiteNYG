@@ -1,0 +1,13 @@
+<div class="workspace-actions" [attr.data-workspace-id]="workspaceId">
+  @if (hasCapability('openWorkspace')) {
+    <button class="workspace-actions__primary" type="button" data-testid="open-workspace-action">開く</button>
+  }
+
+  @if (hasCapability('openMembers')) {
+    <button type="button" data-testid="open-members-action">メンバー</button>
+  }
+
+  @if (hasCapability('openProjects')) {
+    <button type="button" data-testid="open-projects-action">プロジェクト</button>
+  }
+</div>

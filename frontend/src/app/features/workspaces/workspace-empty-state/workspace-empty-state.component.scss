@@ -1,0 +1,28 @@
+:host {
+  display: block;
+  min-width: 0;
+}
+
+.workspace-empty {
+  display: grid;
+  gap: 8px;
+  min-width: 0;
+  border: 1px dashed #b9c4d0;
+  border-radius: 8px;
+  padding: 24px;
+  background: #ffffff;
+}
+
+h2,
+p {
+  margin: 0;
+}
+
+h2 {
+  color: #17202a;
+  font-size: 1.1rem;
+}
+
+p {
+  color: #526173;
+}

@@ -34,11 +34,10 @@ export const routes: Routes = [
       },
       {
         path: 'workspaces',
-        component: PagePlaceholderComponent,
-        data: {
-          title: 'ワークスペース',
-          summary: '未実装'
-        }
+        loadComponent: () =>
+          import('./features/workspaces/workspace-dashboard-page/workspace-dashboard-page.component').then(
+            (m) => m.WorkspaceDashboardPageComponent
+          )
       },
       {
         path: 'projects',

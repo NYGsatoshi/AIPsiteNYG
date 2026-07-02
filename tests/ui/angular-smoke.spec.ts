@@ -32,7 +32,7 @@ test.describe('MVP-A P0 Angular frontend smoke', () => {
 
     await expect(page.getByTestId('app-shell')).toBeVisible();
     await expect(page.locator('a[href="/app/workspaces"]').first()).toBeAttached();
-    await expect(page.getByTestId('page-placeholder')).toBeVisible();
+    await expect(page.getByTestId('workspace-dashboard')).toBeVisible();
     await expectHealthyAngularPage(page);
   });
 
