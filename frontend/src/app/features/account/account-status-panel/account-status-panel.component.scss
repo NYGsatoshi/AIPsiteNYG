@@ -1,0 +1,30 @@
+.status-panel {
+  border: 1px solid #d8dee8;
+  border-left-width: 5px;
+  border-radius: 8px;
+  background: #ffffff;
+  padding: 16px 18px;
+}
+
+.status-panel--active {
+  border-left-color: #23765a;
+}
+
+.status-panel--disabled {
+  border-left-color: #a15c00;
+}
+
+.status-panel--deleted {
+  border-left-color: #9f3333;
+}
+
+.status-panel__label {
+  margin: 0 0 6px;
+  color: #172033;
+  font-weight: 800;
+}
+
+.status-panel__message {
+  margin: 0;
+  color: #526070;
+}

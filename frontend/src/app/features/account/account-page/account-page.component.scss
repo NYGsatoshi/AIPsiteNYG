@@ -1,0 +1,49 @@
+.account-page {
+  display: grid;
+  gap: 20px;
+  padding: 24px;
+  background: #f6f8fb;
+  min-height: 100%;
+}
+
+.account-page__header {
+  display: flex;
+  justify-content: space-between;
+  gap: 16px;
+}
+
+.account-page__header h1 {
+  margin: 0;
+  color: #172033;
+  font-size: clamp(1.7rem, 2.4vw, 2.2rem);
+}
+
+.account-page__eyebrow {
+  margin: 0 0 4px;
+  color: #526070;
+  font-size: 0.9rem;
+  font-weight: 800;
+}
+
+.account-page__grid {
+  display: grid;
+  grid-template-columns: minmax(0, 1.2fr) minmax(300px, 0.8fr);
+  gap: 20px;
+  align-items: start;
+}
+
+.account-page__main,
+.account-page__aside {
+  display: grid;
+  gap: 20px;
+}
+
+@media (max-width: 900px) {
+  .account-page {
+    padding: 16px;
+  }
+
+  .account-page__grid {
+    grid-template-columns: 1fr;
+  }
+}

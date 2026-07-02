@@ -1,0 +1,36 @@
+<section class="account-card" data-testid="account-profile-panel">
+  <div class="account-card__header">
+    <p class="account-card__eyebrow">プロフィール</p>
+    <h2>{{ profile.displayName }}</h2>
+  </div>
+
+  <dl class="account-profile">
+    @if (profile.ownEmail) {
+      <div>
+        <dt>メール</dt>
+        <dd data-testid="own-email">{{ profile.ownEmail }}</dd>
+      </div>
+    } @else {
+      <div>
+        <dt>メール</dt>
+        <dd>表示できるメールはありません</dd>
+      </div>
+    }
+    <div>
+      <dt>状態</dt>
+      <dd>{{ profile.accountStatusLabel }}</dd>
+    </div>
+    <div>
+      <dt>ロール</dt>
+      <dd>{{ profile.roleSummary }}</dd>
+    </div>
+    <div>
+      <dt>テナント</dt>
+      <dd>{{ profile.tenantSummary }}</dd>
+    </div>
+    <div>
+      <dt>ワークスペース</dt>
+      <dd>{{ profile.workspaceSummary }}</dd>
+    </div>
+  </dl>
+</section>

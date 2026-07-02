@@ -105,11 +105,8 @@ export const routes: Routes = [
       },
       {
         path: 'account',
-        component: PagePlaceholderComponent,
-        data: {
-          title: 'アカウント',
-          summary: '準備中'
-        }
+        loadComponent: () =>
+          import('./features/account/account-page/account-page.component').then((m) => m.AccountPageComponent)
       },
       {
         path: 'admin/audit',

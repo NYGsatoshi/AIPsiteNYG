@@ -1,0 +1,55 @@
+.account-card {
+  border: 1px solid #d8dee8;
+  border-radius: 8px;
+  background: #ffffff;
+  padding: 20px;
+}
+
+.account-card__header {
+  display: grid;
+  gap: 4px;
+  margin-bottom: 16px;
+}
+
+.account-card__header h2 {
+  margin: 0;
+  color: #172033;
+  font-size: 1.25rem;
+}
+
+.account-card__eyebrow {
+  margin: 0;
+  color: #526070;
+  font-size: 0.85rem;
+  font-weight: 700;
+}
+
+.account-profile {
+  display: grid;
+  gap: 12px;
+  margin: 0;
+}
+
+.account-profile div {
+  display: grid;
+  grid-template-columns: minmax(92px, 0.35fr) 1fr;
+  gap: 12px;
+}
+
+.account-profile dt {
+  color: #526070;
+  font-weight: 700;
+}
+
+.account-profile dd {
+  margin: 0;
+  color: #172033;
+  overflow-wrap: anywhere;
+}
+
+@media (max-width: 640px) {
+  .account-profile div {
+    grid-template-columns: 1fr;
+    gap: 4px;
+  }
+}
