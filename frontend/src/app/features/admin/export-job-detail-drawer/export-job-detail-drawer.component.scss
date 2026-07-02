@@ -1,0 +1,82 @@
+.admin-drawer {
+  display: grid;
+  gap: 1rem;
+  border: 1px solid #cbd5e1;
+  border-radius: 8px;
+  background: #ffffff;
+  padding: 1rem;
+  box-shadow: 0 12px 28px rgba(15, 23, 42, 0.12);
+}
+
+.admin-drawer__header {
+  display: flex;
+  align-items: start;
+  justify-content: space-between;
+  gap: 1rem;
+}
+
+.admin-drawer__eyebrow {
+  margin: 0 0 0.25rem;
+  color: #475569;
+  font-size: 0.75rem;
+  font-weight: 700;
+  text-transform: uppercase;
+}
+
+.admin-drawer h2,
+.admin-drawer h3,
+.admin-drawer dl {
+  margin: 0;
+}
+
+.admin-drawer h2 {
+  overflow-wrap: anywhere;
+  color: #0f172a;
+  font-size: 1.125rem;
+}
+
+.admin-drawer__close {
+  border: 1px solid #94a3b8;
+  border-radius: 6px;
+  background: #f8fafc;
+  color: #0f172a;
+  cursor: pointer;
+  padding: 0.35rem 0.65rem;
+}
+
+.admin-drawer__summary,
+.admin-drawer__redactions {
+  display: grid;
+  gap: 0.75rem;
+}
+
+.admin-drawer__summary div,
+.admin-drawer__redactions div {
+  display: grid;
+  gap: 0.25rem;
+  border-top: 1px solid #e2e8f0;
+  padding-top: 0.75rem;
+}
+
+.admin-drawer dt {
+  color: #475569;
+  font-size: 0.75rem;
+  font-weight: 700;
+}
+
+.admin-drawer dd {
+  margin: 0;
+  overflow-wrap: anywhere;
+  color: #0f172a;
+}
+
+.admin-drawer__section {
+  display: grid;
+  gap: 0.5rem;
+}
+
+[data-redaction-state='redacted'] dd,
+[data-redaction-state='suppressed'] dd {
+  color: #b91c1c;
+  font-weight: 700;
+}

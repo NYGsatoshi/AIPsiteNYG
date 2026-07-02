@@ -1,0 +1,59 @@
+@if (audit; as selectedAudit) {
+  <aside class="admin-drawer" aria-label="Audit detail" data-testid="audit-detail-drawer">
+    <header class="admin-drawer__header">
+      <div>
+        <p class="admin-drawer__eyebrow">Redacted detail</p>
+        <h2>{{ selectedAudit.action }}</h2>
+      </div>
+      <button type="button" class="admin-drawer__close" data-testid="audit-detail-close" (click)="close.emit()">Close</button>
+    </header>
+
+    <dl class="admin-drawer__summary">
+      <div>
+        <dt>Created</dt>
+        <dd>{{ selectedAudit.createdAt }}</dd>
+      </div>
+      <div>
+        <dt>Actor</dt>
+        <dd>{{ selectedAudit.actorDisplay }}</dd>
+      </div>
+      <div>
+        <dt>Target</dt>
+        <dd>{{ selectedAudit.targetType }}</dd>
+      </div>
+      <div>
+        <dt>Workspace</dt>
+        <dd>{{ selectedAudit.workspace }}</dd>
+      </div>
+      <div>
+        <dt>Severity</dt>
+        <dd><app-audit-severity-badge [severity]="selectedAudit.severity" [label]="selectedAudit.severityLabel" /></dd>
+      </div>
+      <div>
+        <dt>Result</dt>
+        <dd><app-audit-result-badge [result]="selectedAudit.result" [label]="selectedAudit.resultLabel" /></dd>
+      </div>
+      <div>
+        <dt>Request ID</dt>
+        <dd data-testid="audit-detail-request-id">{{ selectedAudit.requestId }}</dd>
+      </div>
+    </dl>
+
+    <section class="admin-drawer__section">
+      <h3>Summary</h3>
+      <p data-testid="audit-detail-summary">{{ selectedAudit.summary }}</p>
+    </section>
+
+    <section class="admin-drawer__section">
+      <h3>Safe detail fields</h3>
+      <dl class="admin-drawer__redactions">
+        @for (line of selectedAudit.redactedDetails; track line.label) {
+          <div [attr.data-redaction-state]="line.state">
+            <dt>{{ line.label }}</dt>
+            <dd>{{ line.value }}</dd>
+          </div>
+        }
+      </dl>
+    </section>
+  </aside>
+}

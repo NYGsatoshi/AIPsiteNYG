@@ -1,0 +1,134 @@
+import { AppDataGridColumnDef } from '../../shared/grid/app-data-grid/app-data-grid.types';
+
+export const ADMIN_DEFAULT_PAGE_SIZE = 50;
+export const ADMIN_MAXIMUM_PAGE_SIZE = 100;
+
+export type AdminPageStatus = 'ready' | 'loading' | 'empty' | 'permissionDenied';
+export type AuditSeverity = 'info' | 'warning' | 'critical';
+export type AuditResult = 'success' | 'denied' | 'failed';
+export type ExportJobStatus = 'pending' | 'running' | 'succeeded' | 'failed';
+export type ExportJobResult = 'notReady' | 'available' | 'failed' | 'suppressed';
+
+export const AUDIT_TYPED_FIELD_NOTE = {
+  owner: 'backendApiTypedFieldsWhenLive',
+  severityResultSource: 'typedViewModelFields',
+  metadataParsing: 'prohibited'
+} as const;
+
+export const EXPORT_AUTHORIZATION_NOTE = {
+  requestOwner: 'backendOwnedWhenLive',
+  downloadOwner: 'backendReauthorizedWhenLive',
+  uiHiding: 'notAuthorization'
+} as const;
+
+export interface AdminPageSizePolicy {
+  readonly defaultPageSize: typeof ADMIN_DEFAULT_PAGE_SIZE;
+  readonly maximumPageSize: typeof ADMIN_MAXIMUM_PAGE_SIZE;
+}
+
+export interface RedactedDetailLine {
+  readonly label: string;
+  readonly value: string;
+  readonly state: 'shown' | 'redacted' | 'suppressed';
+}
+
+export interface AuditMockRecord {
+  readonly id: string;
+  readonly createdAt: string;
+  readonly action: string;
+  readonly actorDisplay: string;
+  readonly targetType: string;
+  readonly workspace: string;
+  readonly severity: AuditSeverity;
+  readonly result: AuditResult;
+  readonly summary: string;
+  readonly requestId: string;
+  readonly redactedDetails: readonly RedactedDetailLine[];
+  readonly rawMetadataProbeNeverRender: string;
+}
+
+export interface AuditGridRow {
+  readonly id: string;
+  readonly createdAt: string;
+  readonly action: string;
+  readonly actorDisplay: string;
+  readonly targetType: string;
+  readonly workspace: string;
+  readonly severity: AuditSeverity;
+  readonly severityLabel: string;
+  readonly result: AuditResult;
+  readonly resultLabel: string;
+  readonly summary: string;
+  readonly requestId: string;
+  readonly redactedDetails: readonly RedactedDetailLine[];
+}
+
+export interface AuditLogViewModel {
+  readonly status: AdminPageStatus;
+  readonly title: string;
+  readonly subtitle: string;
+  readonly rows: readonly AuditGridRow[];
+  readonly columns: readonly AppDataGridColumnDef<AuditGridRow>[];
+  readonly pageSize: AdminPageSizePolicy;
+  readonly typedFieldNote: typeof AUDIT_TYPED_FIELD_NOTE;
+  readonly initialSelectedAuditId?: string;
+  readonly message?: string;
+}
+
+export interface AuditLogScenario {
+  readonly status: AdminPageStatus;
+  readonly title: string;
+  readonly subtitle: string;
+  readonly auditRecords: readonly AuditMockRecord[];
+  readonly initialSelectedAuditId?: string;
+  readonly message?: string;
+}
+
+export interface ExportJobMockRecord {
+  readonly id: string;
+  readonly createdAt: string;
+  readonly jobType: string;
+  readonly status: ExportJobStatus;
+  readonly requestedBy: string;
+  readonly scope: string;
+  readonly result: ExportJobResult;
+  readonly requestId: string;
+  readonly redactedDetails: readonly RedactedDetailLine[];
+}
+
+export interface ExportJobGridRow {
+  readonly id: string;
+  readonly createdAt: string;
+  readonly jobType: string;
+  readonly status: ExportJobStatus;
+  readonly statusLabel: string;
+  readonly requestedBy: string;
+  readonly scope: string;
+  readonly result: ExportJobResult;
+  readonly resultLabel: string;
+  readonly requestId: string;
+  readonly redactedDetails: readonly RedactedDetailLine[];
+}
+
+export interface ExportDiagnosticsViewModel {
+  readonly status: AdminPageStatus;
+  readonly title: string;
+  readonly subtitle: string;
+  readonly rows: readonly ExportJobGridRow[];
+  readonly columns: readonly AppDataGridColumnDef<ExportJobGridRow>[];
+  readonly pageSize: AdminPageSizePolicy;
+  readonly canRequestDiagnosticsExport: boolean;
+  readonly authorizationNote: typeof EXPORT_AUTHORIZATION_NOTE;
+  readonly initialSelectedJobId?: string;
+  readonly message?: string;
+}
+
+export interface ExportDiagnosticsScenario {
+  readonly status: AdminPageStatus;
+  readonly title: string;
+  readonly subtitle: string;
+  readonly exportJobs: readonly ExportJobMockRecord[];
+  readonly canRequestDiagnosticsExport: boolean;
+  readonly initialSelectedJobId?: string;
+  readonly message?: string;
+}

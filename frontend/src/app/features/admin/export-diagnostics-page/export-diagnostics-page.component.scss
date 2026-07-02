@@ -1,0 +1,80 @@
+.admin-page {
+  display: grid;
+  gap: 1rem;
+  padding: 1.25rem;
+}
+
+.admin-page__header {
+  display: flex;
+  align-items: end;
+  justify-content: space-between;
+  gap: 1rem;
+}
+
+.admin-page__eyebrow,
+.admin-page__policy {
+  margin: 0;
+  color: #475569;
+}
+
+.admin-page__eyebrow {
+  font-size: 0.75rem;
+  font-weight: 700;
+  text-transform: uppercase;
+}
+
+.admin-page h1 {
+  margin: 0.25rem 0 0;
+  color: #0f172a;
+  font-size: 1.6rem;
+}
+
+.admin-page__policy {
+  max-width: 72rem;
+  border-left: 4px solid #0f766e;
+  background: #f8fafc;
+  padding: 0.75rem 1rem;
+}
+
+.admin-page__layout {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(18rem, 24rem);
+  gap: 1rem;
+  align-items: start;
+}
+
+:host ::ng-deep .admin-grid-link {
+  border: 0;
+  background: transparent;
+  color: #1d4ed8;
+  cursor: pointer;
+  font: inherit;
+  padding: 0;
+  text-align: left;
+  overflow-wrap: anywhere;
+}
+
+:host ::ng-deep .admin-grid-badge {
+  display: inline-flex;
+  border: 1px solid #cbd5e1;
+  border-radius: 999px;
+  padding: 0.125rem 0.5rem;
+  background: #f8fafc;
+  font-weight: 700;
+}
+
+@media (max-width: 860px) {
+  .admin-page {
+    padding: 1rem;
+  }
+
+  .admin-page__header,
+  .admin-page__layout {
+    display: grid;
+    grid-template-columns: 1fr;
+  }
+
+  .admin-page__header {
+    align-items: stretch;
+  }
+}

@@ -1,0 +1,36 @@
+@let page = vm();
+
+<section class="admin-page" data-testid="audit-log-page">
+  <header class="admin-page__header">
+    <div>
+      <p class="admin-page__eyebrow">{{ page.subtitle }}</p>
+      <h1>{{ page.title }}</h1>
+    </div>
+  </header>
+
+  <p class="admin-page__policy" data-testid="audit-typed-field-note">
+    backend/API should own typed severity/result fields for scalable filtering; this UI does not parse raw metadata.
+  </p>
+
+  @if (page.status === 'loading') {
+    <app-inline-loading label="Loading audit log" />
+  } @else if (page.status === 'permissionDenied') {
+    <app-permission-denied [title]="page.message ?? 'Audit log access is unavailable.'" />
+  } @else if (page.status === 'empty' || page.rows.length === 0) {
+    <app-empty-state title="No audit entries" message="No mock audit entries are available." />
+  } @else {
+    <div class="admin-page__layout">
+      <app-data-grid
+        ariaLabel="Admin audit log"
+        rowIdField="id"
+        [rows]="page.rows"
+        [columns]="page.columns"
+        [defaultPageSize]="page.pageSize.defaultPageSize"
+        [maximumPageSize]="page.pageSize.maximumPageSize"
+        (actionInvoked)="handleGridAction($event)"
+      />
+
+      <app-audit-detail-drawer [audit]="selectedAudit()" (close)="closeDrawer()" />
+    </div>
+  }
+</section>

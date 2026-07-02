@@ -1,0 +1,52 @@
+@if (job; as selectedJob) {
+  <aside class="admin-drawer" aria-label="Export job detail" data-testid="export-job-detail-drawer">
+    <header class="admin-drawer__header">
+      <div>
+        <p class="admin-drawer__eyebrow">Server-owned job detail</p>
+        <h2>{{ selectedJob.jobType }}</h2>
+      </div>
+      <button type="button" class="admin-drawer__close" data-testid="export-job-detail-close" (click)="close.emit()">
+        Close
+      </button>
+    </header>
+
+    <dl class="admin-drawer__summary">
+      <div>
+        <dt>Created</dt>
+        <dd>{{ selectedJob.createdAt }}</dd>
+      </div>
+      <div>
+        <dt>Status</dt>
+        <dd data-testid="export-job-status">{{ selectedJob.statusLabel }}</dd>
+      </div>
+      <div>
+        <dt>Requested by</dt>
+        <dd>{{ selectedJob.requestedBy }}</dd>
+      </div>
+      <div>
+        <dt>Scope</dt>
+        <dd>{{ selectedJob.scope }}</dd>
+      </div>
+      <div>
+        <dt>Result</dt>
+        <dd data-testid="export-job-result">{{ selectedJob.resultLabel }}</dd>
+      </div>
+      <div>
+        <dt>Request ID</dt>
+        <dd data-testid="export-job-request-id">{{ selectedJob.requestId }}</dd>
+      </div>
+    </dl>
+
+    <section class="admin-drawer__section">
+      <h3>Safe job details</h3>
+      <dl class="admin-drawer__redactions">
+        @for (line of selectedJob.redactedDetails; track line.label) {
+          <div [attr.data-redaction-state]="line.state">
+            <dt>{{ line.label }}</dt>
+            <dd>{{ line.value }}</dd>
+          </div>
+        }
+      </dl>
+    </section>
+  </aside>
+}

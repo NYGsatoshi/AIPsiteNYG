@@ -106,11 +106,15 @@ export const routes: Routes = [
       },
       {
         path: 'admin/audit',
-        component: PagePlaceholderComponent,
-        data: {
-          title: '監査',
-          summary: '未実装'
-        }
+        loadComponent: () =>
+          import('./features/admin/audit-log-page/audit-log-page.component').then((m) => m.AuditLogPageComponent)
+      },
+      {
+        path: 'admin/export-diagnostics',
+        loadComponent: () =>
+          import('./features/admin/export-diagnostics-page/export-diagnostics-page.component').then(
+            (m) => m.ExportDiagnosticsPageComponent
+          )
       }
     ]
   },
