@@ -1,0 +1,71 @@
+:host {
+  display: block;
+  min-width: 0;
+}
+
+.timeline {
+  display: grid;
+  gap: 12px;
+  min-width: 0;
+}
+
+.timeline__actions {
+  display: flex;
+  gap: 8px;
+  justify-content: center;
+}
+
+.timeline__actions button {
+  min-height: 34px;
+  border: 1px solid #9aa8b8;
+  border-radius: 6px;
+  padding: 0 10px;
+  background: #ffffff;
+  color: #334155;
+  font: inherit;
+  font-size: 0.86rem;
+  font-weight: 800;
+  cursor: pointer;
+}
+
+.timeline__error {
+  margin: 0;
+  border: 1px solid #d27b59;
+  border-radius: 6px;
+  padding: 10px 12px;
+  background: #fff7f2;
+  color: #8a3d19;
+  font-weight: 800;
+}
+
+.timeline__messages {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  min-width: 0;
+}
+
+.timeline__empty {
+  display: grid;
+  gap: 6px;
+  border: 1px solid #d4dde8;
+  border-radius: 8px;
+  padding: 20px;
+  background: #f8fafc;
+  text-align: center;
+}
+
+.timeline__empty h2,
+.timeline__empty p {
+  margin: 0;
+}
+
+.timeline__empty h2 {
+  color: #17202a;
+  font-size: 1.08rem;
+}
+
+.timeline__empty p {
+  color: #526173;
+  font-weight: 700;
+}

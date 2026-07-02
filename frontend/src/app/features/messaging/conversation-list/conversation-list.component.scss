@@ -1,0 +1,54 @@
+:host {
+  display: block;
+  min-width: 0;
+}
+
+.conversation-list {
+  display: grid;
+  gap: 8px;
+}
+
+.conversation-list__item {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: 4px 10px;
+  border: 1px solid #d4dde8;
+  border-radius: 8px;
+  padding: 12px;
+  background: #ffffff;
+  color: #17202a;
+  text-decoration: none;
+}
+
+.conversation-list__title {
+  min-width: 0;
+  overflow-wrap: anywhere;
+  font-weight: 900;
+}
+
+.conversation-list__meta,
+.conversation-list__preview {
+  color: #526173;
+  font-size: 0.84rem;
+  font-weight: 700;
+}
+
+.conversation-list__preview {
+  grid-column: 1 / -1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.conversation-list__badge {
+  justify-self: end;
+  min-width: 24px;
+  border-radius: 999px;
+  padding: 2px 8px;
+  background: #2458a6;
+  color: #ffffff;
+  text-align: center;
+  font-size: 0.8rem;
+  font-weight: 900;
+}

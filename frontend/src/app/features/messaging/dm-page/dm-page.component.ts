@@ -1,0 +1,41 @@
+import { Component, computed, inject } from '@angular/core';
+
+import { MessageComposerComponent } from '../message-composer/message-composer.component';
+import { MessageTimelineComponent } from '../message-timeline/message-timeline.component';
+import { MessagingFacade } from '../messaging.facade';
+
+@Component({
+  selector: 'app-dm-page',
+  standalone: true,
+  imports: [MessageComposerComponent, MessageTimelineComponent],
+  templateUrl: './dm-page.component.html',
+  styleUrl: './dm-page.component.scss'
+})
+export class DmPageComponent {
+  readonly facade = inject(MessagingFacade);
+  readonly page = this.facade.page;
+
+  readonly canReadBody = computed(
+    () =>
+      this.page().conversation.kind === 'dm' &&
+      this.page().conversation.viewerIsParticipant &&
+      !this.page().conversation.viewerWasRemoved &&
+      this.page().conversation.capabilities.includes('readBody')
+  );
+
+  readonly canPost = computed(
+    () => this.canReadBody() && this.page().conversation.capabilities.includes('postMessage')
+  );
+
+  readonly showComposer = computed(
+    () => this.page().conversation.viewerIsParticipant && !this.page().conversation.viewerWasRemoved
+  );
+
+  readonly composerDisabledReason = computed(() => {
+    const page = this.page();
+    if (!page.conversation.viewerIsParticipant) {
+      return 'DM参加者ではないため送信できません';
+    }
+    return page.conversation.composerDisabledReason ?? '';
+  });
+}

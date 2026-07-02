@@ -1,0 +1,56 @@
+:host {
+  display: block;
+}
+
+.failed-message {
+  display: grid;
+  gap: 8px;
+  max-width: 760px;
+  margin-left: auto;
+  border: 1px solid #d27b59;
+  border-radius: 8px;
+  padding: 12px 14px;
+  background: #fff7f2;
+  color: #17202a;
+}
+
+.failed-message__meta {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  color: #70420f;
+  font-size: 0.82rem;
+  font-weight: 800;
+}
+
+.failed-message__body,
+.failed-message__reason {
+  margin: 0;
+  overflow-wrap: anywhere;
+  white-space: pre-wrap;
+}
+
+.failed-message__reason {
+  color: #8a3d19;
+  font-weight: 800;
+}
+
+button {
+  justify-self: start;
+  min-height: 36px;
+  border: 1px solid #a64f28;
+  border-radius: 6px;
+  padding: 0 12px;
+  background: #a64f28;
+  color: #ffffff;
+  font: inherit;
+  font-weight: 800;
+  cursor: pointer;
+}
+
+button:disabled {
+  border-color: #b6c1ce;
+  background: #d7dee8;
+  color: #526173;
+  cursor: not-allowed;
+}

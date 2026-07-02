@@ -1,0 +1,56 @@
+:host {
+  display: block;
+}
+
+.message {
+  display: grid;
+  gap: 8px;
+  max-width: 760px;
+  border: 1px solid #d4dde8;
+  border-radius: 8px;
+  padding: 12px 14px;
+  background: #ffffff;
+  color: #17202a;
+}
+
+.message--own {
+  margin-left: auto;
+  border-color: #8bb8df;
+  background: #f4fbff;
+}
+
+.message__meta {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  align-items: center;
+  color: #526173;
+  font-size: 0.84rem;
+  font-weight: 700;
+}
+
+.message__author {
+  color: #17202a;
+  font-weight: 900;
+}
+
+.message__role {
+  border: 1px solid #c9d5e2;
+  border-radius: 999px;
+  padding: 2px 7px;
+  background: #f8fafc;
+}
+
+.message__body {
+  margin: 0;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+  line-height: 1.62;
+}
+
+.message__read {
+  margin: 0;
+  color: #526173;
+  font-size: 0.82rem;
+  font-weight: 700;
+}

@@ -33,6 +33,18 @@ export const routes: Routes = [
         redirectTo: 'workspaces'
       },
       {
+        path: 'workspaces/:workspaceId/channels/:conversationId',
+        loadComponent: () =>
+          import('./features/messaging/channel-messaging-page/channel-messaging-page.component').then(
+            (m) => m.ChannelMessagingPageComponent
+          )
+      },
+      {
+        path: 'dm/:conversationId',
+        loadComponent: () =>
+          import('./features/messaging/dm-page/dm-page.component').then((m) => m.DmPageComponent)
+      },
+      {
         path: 'workspaces/:workspaceId/members',
         loadComponent: () =>
           import('./features/workspaces/workspace-members-page/workspace-members-page.component').then(
