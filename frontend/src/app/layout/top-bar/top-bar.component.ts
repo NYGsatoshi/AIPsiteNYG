@@ -3,7 +3,7 @@ import { FormsModule } from '@angular/forms';
 
 import { AuthSessionStatus } from '../../core/auth/auth-session.facade';
 import { WorkspaceSummary } from '../../core/workspace/active-workspace.facade';
-import { RightPanelMode } from '../app-shell/app-shell.facade';
+import { RightPanelMode } from '../../shared/right-panel/right-panel.types';
 
 @Component({
   selector: 'app-top-bar',

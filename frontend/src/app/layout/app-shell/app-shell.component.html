@@ -44,6 +44,11 @@
     [session]="vm.session"
     [workspace]="vm.workspace"
     [mode]="vm.rightPanelMode"
+    [activeScope]="{
+      workspaceId: vm.workspace?.id || 'fictional-workspace-1',
+      projectId: 'fictional-project-a',
+      conversationId: 'fictional-conversation-main'
+    }"
   />
 
   <div class="app-shell__scrim" aria-hidden="true" (click)="closeMobileDrawer()"></div>

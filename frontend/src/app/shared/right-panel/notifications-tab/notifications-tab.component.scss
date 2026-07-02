@@ -1,0 +1,24 @@
+.notifications-tab {
+  display: grid;
+  gap: 10px;
+}
+
+.notifications-tab__note,
+.notifications-tab__empty {
+  margin: 0;
+  color: #5f6f7f;
+  font-size: 0.82rem;
+  line-height: 1.45;
+}
+
+.notifications-tab__empty {
+  border: 1px dashed #c8d3df;
+  border-radius: 8px;
+  padding: 14px;
+  background: #f8fafc;
+}
+
+.notifications-tab__list {
+  display: grid;
+  gap: 10px;
+}

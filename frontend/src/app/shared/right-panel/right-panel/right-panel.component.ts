@@ -1,0 +1,201 @@
+import { Component, ElementRef, Input, OnChanges, SimpleChanges, ViewChild, inject } from '@angular/core';
+
+import { AuthSessionSnapshot } from '../../../core/auth/auth-session.facade';
+import { WorkspaceSummary } from '../../../core/workspace/active-workspace.facade';
+import { MembersTabComponent } from '../members-tab/members-tab.component';
+import { NotificationsTabComponent } from '../notifications-tab/notifications-tab.component';
+import { RightPanelFacade } from '../right-panel.facade';
+import { DEFAULT_RIGHT_PANEL_SCOPE } from '../right-panel.mock';
+import {
+  RightPanelMode,
+  RightPanelPermission,
+  RightPanelScope,
+  RightPanelTab
+} from '../right-panel.types';
+
+@Component({
+  selector: 'app-right-panel',
+  standalone: true,
+  imports: [MembersTabComponent, NotificationsTabComponent],
+  template: `
+    @let vm = facade.viewModel();
+
+    <aside
+      class="right-panel"
+      data-testid="right-panel"
+      [class.right-panel--collapsed]="vm.mode === 'collapsed'"
+      [class.right-panel--expanded]="vm.mode === 'expanded'"
+      [class.right-panel--drawer]="vm.mode === 'drawer'"
+      [attr.role]="vm.mode === 'drawer' ? 'dialog' : null"
+      [attr.aria-modal]="vm.mode === 'drawer' ? 'true' : null"
+      aria-label="右パネル"
+      (keydown.escape)="closeFromEscape($event)"
+    >
+      @if (vm.mode === 'collapsed') {
+        <button
+          #panelTrigger
+          type="button"
+          class="right-panel__rail-button"
+          data-testid="right-panel-open"
+          aria-label="右パネルを開く"
+          title="右パネルを開く"
+          (click)="openFromTrigger(panelTrigger)"
+        >
+          <span aria-hidden="true">i</span>
+        </button>
+      } @else {
+        <header class="right-panel__header">
+          <div>
+            <p class="right-panel__eyebrow">現在のスコープ</p>
+            <h2>通知とメンバー</h2>
+          </div>
+          <button
+            type="button"
+            class="right-panel__icon-button"
+            data-testid="right-panel-close"
+            aria-label="右パネルを閉じる"
+            title="右パネルを閉じる"
+            (click)="closePanel()"
+          >
+            <span aria-hidden="true">x</span>
+          </button>
+        </header>
+
+        <div class="right-panel__scope" aria-label="表示スコープ">
+          <span>{{ vm.scope.workspaceId }}</span>
+          <span>{{ vm.scope.projectId }}</span>
+          <span>{{ vm.scope.conversationId }}</span>
+        </div>
+
+        <div class="right-panel__tabs" role="tablist" aria-label="右パネル表示切替">
+          <button
+            type="button"
+            role="tab"
+            id="right-panel-tab-notifications"
+            class="right-panel__tab"
+            [class.right-panel__tab--active]="vm.selectedTab === 'notifications'"
+            [attr.aria-selected]="vm.selectedTab === 'notifications'"
+            aria-controls="right-panel-panel-notifications"
+            (click)="selectTab('notifications')"
+          >
+            通知
+            @if (vm.unreadCount > 0) {
+              <span class="right-panel__badge">{{ vm.unreadCount }}</span>
+            }
+          </button>
+          <button
+            type="button"
+            role="tab"
+            id="right-panel-tab-members"
+            class="right-panel__tab"
+            [class.right-panel__tab--active]="vm.selectedTab === 'members'"
+            [attr.aria-selected]="vm.selectedTab === 'members'"
+            aria-controls="right-panel-panel-members"
+            (click)="selectTab('members')"
+          >
+            メンバー
+          </button>
+        </div>
+
+        @if (vm.selectedTab === 'notifications') {
+          <div
+            id="right-panel-panel-notifications"
+            role="tabpanel"
+            aria-labelledby="right-panel-tab-notifications"
+          >
+            <app-notifications-tab
+              [notifications]="vm.notifications"
+              (targetSelected)="displayNotificationTarget($event)"
+              (markRead)="facade.markNotificationRead($event)"
+            />
+          </div>
+        } @else {
+          <div
+            id="right-panel-panel-members"
+            role="tabpanel"
+            aria-labelledby="right-panel-tab-members"
+          >
+            <app-members-tab [members]="vm.members" [permission]="vm.permission" />
+          </div>
+        }
+      }
+    </aside>
+  `,
+  styleUrl: './right-panel.component.scss'
+})
+export class RightPanelComponent implements OnChanges {
+  readonly facade = inject(RightPanelFacade);
+  private lastTrigger: HTMLElement | null = null;
+
+  @Input() session: AuthSessionSnapshot | null = null;
+  @Input() workspace: WorkspaceSummary | null = null;
+  @Input() mode: RightPanelMode | null = null;
+  @Input() selectedTab: RightPanelTab | null = null;
+  @Input() activeScope: RightPanelScope | null = null;
+  @Input() permission: RightPanelPermission | null = null;
+
+  @ViewChild('panelTrigger') panelTrigger?: ElementRef<HTMLButtonElement>;
+
+  ngOnChanges(changes: SimpleChanges): void {
+    if (changes['mode'] && this.mode) {
+      this.facade.setMode(this.mode);
+    }
+
+    if (changes['permission'] && this.permission) {
+      this.facade.setPermission(this.permission);
+    }
+
+    if (changes['selectedTab'] && this.selectedTab) {
+      this.facade.setSelectedTab(this.selectedTab);
+    }
+
+    if (changes['activeScope'] || changes['workspace']) {
+      this.facade.setActiveScope(this.resolveScope());
+    }
+  }
+
+  openFromTrigger(trigger: HTMLElement): void {
+    this.lastTrigger = trigger;
+    this.facade.setMode('expanded');
+  }
+
+  closePanel(): void {
+    this.facade.closePanel();
+    this.returnFocusToTrigger();
+  }
+
+  closeFromEscape(event: KeyboardEvent): void {
+    if (this.facade.mode() === 'drawer') {
+      event.preventDefault();
+      this.closePanel();
+    }
+  }
+
+  selectTab(tab: RightPanelTab): void {
+    this.facade.setSelectedTab(tab);
+  }
+
+  displayNotificationTarget(notificationId: string): void {
+    this.facade.displayNotificationTarget(notificationId);
+  }
+
+  private resolveScope(): RightPanelScope {
+    if (this.activeScope) {
+      return this.activeScope;
+    }
+
+    if (this.workspace) {
+      return {
+        ...DEFAULT_RIGHT_PANEL_SCOPE,
+        workspaceId: this.workspace.id
+      };
+    }
+
+    return DEFAULT_RIGHT_PANEL_SCOPE;
+  }
+
+  private returnFocusToTrigger(): void {
+    const target = this.lastTrigger ?? this.panelTrigger?.nativeElement ?? null;
+    setTimeout(() => target?.focus());
+  }
+}

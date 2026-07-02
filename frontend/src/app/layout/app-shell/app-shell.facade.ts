@@ -1,4 +1,4 @@
-import { computed, Injectable, InjectionToken, inject, signal } from '@angular/core';
+import { computed, Injectable, InjectionToken, inject } from '@angular/core';
 
 import { AuthSessionFacade, AuthSessionSnapshot } from '../../core/auth/auth-session.facade';
 import { ActiveWorkspaceFacade, WorkspaceSummary } from '../../core/workspace/active-workspace.facade';
@@ -6,8 +6,8 @@ import {
   filterNavigationItems,
   NavigationItem
 } from '../../shared/navigation/navigation.models';
-
-export type RightPanelMode = 'collapsed' | 'expanded';
+import { RightPanelFacade } from '../../shared/right-panel/right-panel.facade';
+import { RightPanelMode } from '../../shared/right-panel/right-panel.types';
 
 export interface AppShellViewModel {
   readonly session: AuthSessionSnapshot;
@@ -60,8 +60,8 @@ export const AIP_APP_SHELL_MOCK = new InjectionToken<AppShellMockState>('AIP_APP
 export class AppShellFacade {
   private readonly authSession = inject(AuthSessionFacade);
   private readonly activeWorkspace = inject(ActiveWorkspaceFacade);
+  private readonly rightPanel = inject(RightPanelFacade);
   private readonly mockState = inject(AIP_APP_SHELL_MOCK, { optional: true });
-  private readonly rightPanelModeState = signal<RightPanelMode>(this.mockState?.rightPanelMode ?? 'collapsed');
 
   readonly viewModel = computed<AppShellViewModel>(() => {
     const session = this.authSession.session();
@@ -71,15 +71,15 @@ export class AppShellFacade {
       session,
       workspace: this.activeWorkspace.activeWorkspace(),
       navigationItems: filterNavigationItems(allItems, session.capabilities),
-      rightPanelMode: this.rightPanelModeState()
+      rightPanelMode: this.rightPanel.mode()
     };
   });
 
   setRightPanelMode(mode: RightPanelMode): void {
-    this.rightPanelModeState.set(mode);
+    this.rightPanel.setMode(mode);
   }
 
   toggleRightPanel(): void {
-    this.rightPanelModeState.update((mode) => (mode === 'expanded' ? 'collapsed' : 'expanded'));
+    this.rightPanel.togglePanel();
   }
 }

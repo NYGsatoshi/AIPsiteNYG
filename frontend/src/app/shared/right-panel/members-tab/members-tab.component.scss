@@ -1,0 +1,27 @@
+.members-tab {
+  display: grid;
+  gap: 10px;
+}
+
+.members-tab__note,
+.members-tab__empty {
+  margin: 0;
+  color: #5f6f7f;
+  font-size: 0.82rem;
+  line-height: 1.45;
+}
+
+.members-tab__empty {
+  border: 1px dashed #c8d3df;
+  border-radius: 8px;
+  padding: 14px;
+  background: #f8fafc;
+}
+
+.members-tab__list {
+  display: grid;
+  gap: 0;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}

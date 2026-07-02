@@ -1,0 +1,139 @@
+:host {
+  display: block;
+  min-width: 0;
+  height: 100%;
+}
+
+.right-panel {
+  width: var(--shell-right-panel-expanded-width, 320px);
+  height: 100%;
+  border-left: 1px solid var(--shell-border-color, #d9e0e8);
+  background: #ffffff;
+  color: #263542;
+  overflow: hidden auto;
+}
+
+.right-panel--collapsed {
+  display: grid;
+  place-items: start center;
+  width: var(--shell-right-panel-collapsed-width, 56px);
+  padding: 12px 8px;
+  overflow: hidden;
+}
+
+.right-panel--expanded,
+.right-panel--drawer {
+  display: grid;
+  align-content: start;
+  gap: 14px;
+  padding: 14px;
+}
+
+.right-panel--drawer {
+  position: fixed;
+  inset: 0 0 0 auto;
+  z-index: 50;
+  width: min(360px, 100vw);
+  box-shadow: -16px 0 30px rgb(29 43 58 / 20%);
+}
+
+.right-panel__header,
+.right-panel__tabs,
+.right-panel__scope {
+  display: flex;
+  gap: 8px;
+  align-items: center;
+}
+
+.right-panel__header {
+  justify-content: space-between;
+}
+
+.right-panel__eyebrow {
+  margin: 0 0 2px;
+  color: #647181;
+  font-size: 0.72rem;
+  font-weight: 700;
+}
+
+h2 {
+  margin: 0;
+  color: #1c2a36;
+  font-size: 1rem;
+  line-height: 1.35;
+}
+
+.right-panel__scope {
+  flex-wrap: wrap;
+  border: 1px solid #d8e0e8;
+  border-radius: 8px;
+  padding: 8px;
+  background: #f8fafc;
+}
+
+.right-panel__scope span {
+  max-width: 100%;
+  overflow-wrap: anywhere;
+  color: #516272;
+  font-size: 0.72rem;
+}
+
+.right-panel__tabs {
+  border-bottom: 1px solid #d8e0e8;
+}
+
+.right-panel__tab {
+  display: inline-flex;
+  gap: 6px;
+  align-items: center;
+  min-height: 36px;
+  border: 0;
+  border-bottom: 3px solid transparent;
+  padding: 0 10px;
+  background: transparent;
+  color: #516272;
+  cursor: pointer;
+  font-weight: 700;
+}
+
+.right-panel__tab--active {
+  border-bottom-color: #2d6f9f;
+  color: #1f527c;
+}
+
+.right-panel__badge {
+  min-width: 20px;
+  border-radius: 999px;
+  padding: 2px 6px;
+  background: #dcecf8;
+  color: #1f527c;
+  font-size: 0.72rem;
+}
+
+.right-panel__rail-button,
+.right-panel__icon-button {
+  display: inline-grid;
+  place-items: center;
+  width: 36px;
+  height: 36px;
+  border: 1px solid #c8d3df;
+  border-radius: 8px;
+  background: #ffffff;
+  color: #263542;
+  cursor: pointer;
+  font-weight: 800;
+}
+
+.right-panel__rail-button:focus-visible,
+.right-panel__icon-button:focus-visible,
+.right-panel__tab:focus-visible {
+  outline: 3px solid #9bc6ea;
+  outline-offset: 2px;
+}
+
+@media (max-width: 840px) {
+  .right-panel--expanded {
+    width: var(--shell-right-panel-collapsed-width, 56px);
+    padding: 12px 8px;
+  }
+}
