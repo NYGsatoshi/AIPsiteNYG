@@ -58,7 +58,8 @@ services:
       postgres:
         condition: service_healthy
     command: >
-      bash -lc "dotnet tool restore &&
+      bash -lc "mkdir -p /src/src/AipPortal.Web/wwwroot &&
+      dotnet tool restore &&
       dotnet restore src/AipPortal.Web/AipPortal.Web.csproj /p:RestoreFallbackFolders= &&
       dotnet ef database update --project src/AipPortal.Infrastructure --startup-project src/AipPortal.Web"
 
