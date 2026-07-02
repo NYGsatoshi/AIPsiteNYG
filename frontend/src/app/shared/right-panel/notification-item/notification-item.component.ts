@@ -47,6 +47,10 @@ export class NotificationItemComponent {
   }
 
   get safeHref(): string {
+    if (this.notification.target.type === 'announcement' && this.notification.target.id) {
+      return `/app/announcements/${encodeURIComponent(this.notification.target.id)}`;
+    }
+
     return `#right-panel-${this.notification.id}`;
   }
 

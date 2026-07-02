@@ -1,5 +1,6 @@
 export type AppCapability =
   | 'workspace:view'
+  | 'announcements:view'
   | 'projects:view'
   | 'files:view'
   | 'account:view'

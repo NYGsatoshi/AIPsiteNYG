@@ -1,0 +1,133 @@
+:host {
+  display: block;
+  min-width: 0;
+}
+
+.announcements-page {
+  display: grid;
+  gap: 18px;
+  min-width: 0;
+  max-width: 1180px;
+  margin: 0 auto;
+}
+
+.announcements-page__header {
+  display: flex;
+  align-items: end;
+  justify-content: space-between;
+  gap: 16px;
+  min-width: 0;
+}
+
+.announcements-page__header p,
+h1 {
+  margin: 0;
+}
+
+.announcements-page__header p {
+  color: #526173;
+  font-size: 0.86rem;
+  font-weight: 900;
+}
+
+h1 {
+  color: #17202a;
+  font-size: 1.7rem;
+  line-height: 1.2;
+  overflow-wrap: anywhere;
+}
+
+.announcements-page__create {
+  flex: 0 0 auto;
+  min-height: 40px;
+  border: 1px solid #2458a6;
+  border-radius: 6px;
+  padding: 0 14px;
+  background: #2458a6;
+  color: #ffffff;
+  font: inherit;
+  font-weight: 800;
+  cursor: pointer;
+}
+
+.announcements-page__search {
+  display: grid;
+  gap: 6px;
+  max-width: 360px;
+  color: #334155;
+  font-weight: 800;
+}
+
+.announcements-page__search input {
+  min-width: 0;
+  width: 100%;
+  border: 1px solid #9aa8b8;
+  border-radius: 6px;
+  padding: 10px 12px;
+  font: inherit;
+  font-weight: 400;
+}
+
+.announcements-page__content {
+  display: grid;
+  grid-template-columns: minmax(260px, 0.85fr) minmax(0, 1.4fr);
+  gap: 16px;
+  align-items: start;
+  min-width: 0;
+}
+
+.announcements-page__main {
+  min-width: 0;
+}
+
+.announcements-page__state {
+  border: 1px solid #d4dce6;
+  border-radius: 8px;
+  padding: 18px;
+  background: #ffffff;
+  color: #334155;
+  font-weight: 900;
+  overflow-wrap: anywhere;
+}
+
+.announcements-page__loading {
+  display: grid;
+  grid-template-columns: minmax(260px, 0.85fr) minmax(0, 1.4fr);
+  gap: 16px;
+}
+
+.announcements-page__loading span {
+  display: block;
+  min-height: 260px;
+  border-radius: 8px;
+  background: linear-gradient(90deg, #eef2f7 0%, #f8fafc 50%, #eef2f7 100%);
+  background-size: 240% 100%;
+  animation: announcement-loading 1.2s ease-in-out infinite;
+}
+
+@keyframes announcement-loading {
+  from {
+    background-position: 100% 0;
+  }
+
+  to {
+    background-position: -100% 0;
+  }
+}
+
+@media (max-width: 760px) {
+  .announcements-page__header {
+    display: grid;
+    align-items: start;
+  }
+
+  .announcements-page__create,
+  .announcements-page__search {
+    width: 100%;
+  }
+
+  .announcements-page__content,
+  .announcements-page__loading {
+    grid-template-columns: minmax(0, 1fr);
+  }
+}

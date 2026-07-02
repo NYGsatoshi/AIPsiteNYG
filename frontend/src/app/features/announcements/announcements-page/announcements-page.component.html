@@ -1,0 +1,67 @@
+@let vm = page();
+
+<section class="announcements-page" data-testid="announcements-page">
+  <header class="announcements-page__header">
+    <div>
+      <p>公開</p>
+      <h1>{{ vm.title }}</h1>
+    </div>
+
+    @if (canCreate()) {
+      <button type="button" class="announcements-page__create" (click)="showCreateEditor()" data-testid="create-announcement-action">
+        新しいお知らせ
+      </button>
+    }
+  </header>
+
+  @if (vm.status === 'loading') {
+    <section class="announcements-page__loading" aria-label="読み込み中" data-testid="announcements-loading">
+      <span></span>
+      <span></span>
+    </section>
+  } @else if (vm.status === 'error') {
+    <section class="announcements-page__state" role="alert" data-testid="announcements-error">{{ vm.message }}</section>
+  } @else if (vm.status === 'permissionDenied' || vm.status === 'recordAccessDenied' || !hasReadPermission()) {
+    <section class="announcements-page__state" data-testid="announcement-permission-denied">
+      このお知らせを表示する権限がありません。
+    </section>
+  } @else if (vm.status === 'empty' || vm.announcements.length === 0) {
+    <section class="announcements-page__state" data-testid="announcements-empty">表示できるお知らせがありません。</section>
+  } @else {
+    <label class="announcements-page__search">
+      <span>このページ内を検索</span>
+      <input
+        type="search"
+        [ngModel]="searchValue()"
+        (ngModelChange)="updateSearch($event)"
+        placeholder="表示中のお知らせを絞り込み"
+        autocomplete="off"
+        data-testid="announcement-local-search"
+      />
+    </label>
+
+    <div class="announcements-page__content">
+      <app-announcement-list
+        [announcements]="filteredAnnouncements()"
+        [selectedAnnouncementId]="selectedAnnouncement()?.id ?? null"
+        (announcementSelected)="selectAnnouncement($event)"
+      />
+
+      <div class="announcements-page__main">
+        @if (filteredAnnouncements().length === 0) {
+          <section class="announcements-page__state" data-testid="announcements-filter-empty">
+            表示できるお知らせがありません。
+          </section>
+        } @else if (editorVisible() && vm.editorDraft) {
+          <app-announcement-editor [draft]="vm.editorDraft" />
+        } @else {
+          <app-announcement-detail
+            [announcement]="selectedAnnouncement()"
+            [canEdit]="canEdit()"
+            (editRequested)="showEditEditor()"
+          />
+        }
+      </div>
+    </div>
+  }
+</section>

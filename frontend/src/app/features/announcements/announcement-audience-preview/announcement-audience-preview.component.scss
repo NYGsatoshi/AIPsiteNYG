@@ -1,0 +1,14 @@
+:host {
+  display: inline-flex;
+  min-width: 0;
+}
+
+.announcement-audience-preview {
+  border: 1px solid #bac5d2;
+  border-radius: 999px;
+  padding: 4px 8px;
+  color: #334155;
+  font-size: 0.82rem;
+  font-weight: 800;
+  overflow-wrap: anywhere;
+}

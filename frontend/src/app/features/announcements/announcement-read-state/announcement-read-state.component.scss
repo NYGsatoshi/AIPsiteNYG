@@ -1,0 +1,19 @@
+:host {
+  display: inline-flex;
+  min-width: 0;
+}
+
+.announcement-read-state {
+  border-radius: 999px;
+  padding: 4px 8px;
+  background: #eef7f1;
+  color: #245139;
+  font-size: 0.82rem;
+  font-weight: 800;
+  overflow-wrap: anywhere;
+}
+
+.announcement-read-state--pending {
+  background: #fff4d6;
+  color: #6d4700;
+}

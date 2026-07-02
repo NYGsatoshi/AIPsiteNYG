@@ -69,9 +69,9 @@ export const DEFAULT_AUTH_SESSION: AuthSessionSnapshot = {
   isAuthenticated: true,
   displayName: 'Mock User A',
   supportingUsers: ['Support User', 'Review User', 'Operations User'],
-  capabilities: ['workspace:view', 'projects:view', 'files:view', 'account:view', 'audit:view'],
+  capabilities: ['workspace:view', 'announcements:view', 'projects:view', 'files:view', 'account:view', 'audit:view'],
   navigation: {
-    capabilities: ['workspace:view', 'projects:view', 'files:view', 'account:view', 'audit:view'],
+    capabilities: ['workspace:view', 'announcements:view', 'projects:view', 'files:view', 'account:view', 'audit:view'],
     isLoaded: true
   }
 };

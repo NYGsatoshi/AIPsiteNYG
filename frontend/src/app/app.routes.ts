@@ -47,6 +47,20 @@ export const routes: Routes = [
           )
       },
       {
+        path: 'announcements',
+        loadComponent: () =>
+          import('./features/announcements/announcements-page/announcements-page.component').then(
+            (m) => m.AnnouncementsPageComponent
+          )
+      },
+      {
+        path: 'announcements/:announcementId',
+        loadComponent: () =>
+          import('./features/announcements/announcements-page/announcements-page.component').then(
+            (m) => m.AnnouncementsPageComponent
+          )
+      },
+      {
         path: 'projects',
         component: PagePlaceholderComponent,
         data: {
