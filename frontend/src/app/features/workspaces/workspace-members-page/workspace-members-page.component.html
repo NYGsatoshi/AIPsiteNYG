@@ -1,0 +1,62 @@
+@let page = vm();
+
+<section class="workspace-members" data-testid="workspace-members-page">
+  <header class="workspace-members__header">
+    <div>
+      <p class="workspace-members__eyebrow">{{ page.subtitle }}</p>
+      <h1>{{ page.title }}</h1>
+    </div>
+  </header>
+
+  @if (page.status === 'loading') {
+    <app-inline-loading label="メンバーを読み込み中" />
+  } @else if (page.status === 'error') {
+    <app-empty-state title="読み込めませんでした" [message]="page.message ?? 'メンバー一覧を読み込めませんでした。'" />
+  } @else if (page.status === 'permissionDenied') {
+    <app-permission-denied [title]="page.message ?? 'このワークスペースのメンバーを表示する権限がありません。'" />
+  } @else {
+    @if (page.rows.length > 0) {
+      <label class="workspace-members__search">
+        <span>ページ内検索</span>
+        <input
+          type="search"
+          [ngModel]="searchValue()"
+          (ngModelChange)="updateSearch($event)"
+          placeholder="表示中のメンバーを絞り込み"
+          autocomplete="off"
+          data-testid="workspace-members-local-search"
+        />
+      </label>
+    }
+
+    @if (filteredRows().length > 0) {
+      <app-data-grid
+        ariaLabel="ワークスペースメンバー"
+        rowIdField="id"
+        [rows]="filteredRows()"
+        [columns]="page.columns"
+        [defaultPageSize]="page.pageSize.defaultPageSize"
+        [maximumPageSize]="page.pageSize.maximumPageSize"
+        (actionInvoked)="handleGridAction($event)"
+      />
+    } @else {
+      <app-empty-state title="メンバーはありません" message="表示できるメンバーはありません。" />
+    }
+  }
+
+  <app-confirm-dialog
+    title="利用停止しますか"
+    message="この操作には確認と監査理由が必要です。"
+    confirmLabel="理由を入力"
+    [open]="confirmAction() !== null"
+    (confirm)="continueToAuditReason()"
+    (cancel)="closeConfirm()"
+  />
+
+  <app-audit-reason-dialog
+    title="監査理由"
+    [open]="auditAction() !== null"
+    (reasonSubmit)="submitAuditReason($event)"
+    (cancel)="cancelAuditReason()"
+  />
+</section>

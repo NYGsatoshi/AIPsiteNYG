@@ -33,6 +33,13 @@ export const routes: Routes = [
         redirectTo: 'workspaces'
       },
       {
+        path: 'workspaces/:workspaceId/members',
+        loadComponent: () =>
+          import('./features/workspaces/workspace-members-page/workspace-members-page.component').then(
+            (m) => m.WorkspaceMembersPageComponent
+          )
+      },
+      {
         path: 'workspaces',
         loadComponent: () =>
           import('./features/workspaces/workspace-dashboard-page/workspace-dashboard-page.component').then(

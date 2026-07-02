@@ -1,0 +1,66 @@
+.workspace-members {
+  display: grid;
+  gap: 1rem;
+  min-width: 0;
+  padding: clamp(1rem, 2vw, 1.5rem);
+}
+
+.workspace-members__header {
+  align-items: start;
+  display: flex;
+  gap: 1rem;
+  justify-content: space-between;
+}
+
+.workspace-members__eyebrow,
+.workspace-members h1 {
+  margin: 0;
+}
+
+.workspace-members__eyebrow {
+  color: #475569;
+  font-size: 0.875rem;
+  font-weight: 700;
+}
+
+.workspace-members h1 {
+  color: #0f172a;
+  font-size: clamp(1.5rem, 2vw, 2rem);
+  line-height: 1.2;
+}
+
+.workspace-members__search {
+  display: grid;
+  gap: 0.35rem;
+  max-width: 32rem;
+}
+
+.workspace-members__search span {
+  color: #334155;
+  font-size: 0.875rem;
+  font-weight: 700;
+}
+
+.workspace-members__search input {
+  border: 1px solid #cbd5e1;
+  border-radius: 8px;
+  color: #0f172a;
+  font: inherit;
+  min-height: 2.5rem;
+  padding: 0.55rem 0.75rem;
+  width: 100%;
+}
+
+:host ::ng-deep .workspace-members__display-name {
+  overflow-wrap: anywhere;
+}
+
+@media (max-width: 640px) {
+  .workspace-members {
+    padding: 1rem;
+  }
+
+  .workspace-members__header {
+    display: grid;
+  }
+}

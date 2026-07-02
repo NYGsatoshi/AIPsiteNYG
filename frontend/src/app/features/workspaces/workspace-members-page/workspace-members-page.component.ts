@@ -1,0 +1,186 @@
+import { Component, computed, inject, signal } from '@angular/core';
+import { FormsModule } from '@angular/forms';
+import { ActivatedRoute } from '@angular/router';
+
+import {
+  AppDataGridActionEvent,
+  AppDataGridColumnDef
+} from '../../../shared/grid/app-data-grid/app-data-grid.types';
+import { AppDataGridComponent } from '../../../shared/grid/app-data-grid/app-data-grid.component';
+import { AppAuditReasonDialogComponent } from '../../../shared/dialog/app-audit-reason-dialog/app-audit-reason-dialog.component';
+import { AppConfirmDialogComponent } from '../../../shared/dialog/app-confirm-dialog/app-confirm-dialog.component';
+import { AppEmptyStateComponent } from '../../../shared/empty-state/app-empty-state/app-empty-state.component';
+import { AppInlineLoadingComponent } from '../../../shared/loading/app-inline-loading/app-inline-loading.component';
+import { AppPermissionDeniedComponent } from '../../../shared/permission/app-permission-denied/app-permission-denied.component';
+import { MemberRoleBadgeComponent } from '../member-role-badge/member-role-badge.component';
+import { WorkspaceMembersFacade } from '../members.facade';
+import { WorkspaceMemberGridRow, WorkspaceMemberRowAction } from '../members.types';
+
+@Component({
+  selector: 'app-workspace-members-page',
+  standalone: true,
+  imports: [
+    FormsModule,
+    AppAuditReasonDialogComponent,
+    AppConfirmDialogComponent,
+    AppDataGridComponent,
+    AppEmptyStateComponent,
+    AppInlineLoadingComponent,
+    AppPermissionDeniedComponent
+  ],
+  templateUrl: './workspace-members-page.component.html',
+  styleUrl: './workspace-members-page.component.scss'
+})
+export class WorkspaceMembersPageComponent {
+  private readonly facade = inject(WorkspaceMembersFacade);
+  private readonly route = inject(ActivatedRoute);
+
+  readonly searchValue = signal('');
+  readonly confirmAction = signal<AppDataGridActionEvent<WorkspaceMemberGridRow> | null>(null);
+  readonly auditAction = signal<AppDataGridActionEvent<WorkspaceMemberGridRow> | null>(null);
+  readonly lastAuditReason = signal<string | null>(null);
+  readonly workspaceId = this.route.snapshot.paramMap.get('workspaceId') ?? 'workspace-alpha';
+  readonly vm = computed(() => this.withColumns(this.facade.getPage(this.workspaceId)));
+  readonly filteredRows = computed(() => this.filterRows(this.vm().rows, this.searchValue()));
+
+  updateSearch(value: string): void {
+    this.searchValue.set(value);
+  }
+
+  handleGridAction(event: AppDataGridActionEvent<WorkspaceMemberGridRow>): void {
+    if (this.facade.isDestructiveAction(event.actionId)) {
+      this.confirmAction.set(event);
+      return;
+    }
+
+    this.lastAuditReason.set(null);
+  }
+
+  closeConfirm(): void {
+    this.confirmAction.set(null);
+  }
+
+  continueToAuditReason(): void {
+    const pendingAction = this.confirmAction();
+    this.confirmAction.set(null);
+    this.auditAction.set(pendingAction);
+  }
+
+  cancelAuditReason(): void {
+    this.auditAction.set(null);
+  }
+
+  submitAuditReason(reason: string): void {
+    this.lastAuditReason.set(reason);
+    this.auditAction.set(null);
+  }
+
+  private withColumns(vm: ReturnType<WorkspaceMembersFacade['getPage']>): ReturnType<WorkspaceMembersFacade['getPage']> {
+    return {
+      ...vm,
+      columns: this.columns
+    };
+  }
+
+  private readonly columns: readonly AppDataGridColumnDef<WorkspaceMemberGridRow>[] = [
+    {
+      field: 'displayName',
+      headerName: '表示名',
+      minWidth: 190,
+      flex: 1.3,
+      sortable: true,
+      filter: false,
+      wrapText: true,
+      autoHeight: true,
+      cellClass: 'workspace-members__display-name'
+    },
+    {
+      field: 'roleLabel',
+      headerName: 'ロール',
+      minWidth: 130,
+      flex: 0.8,
+      sortable: true,
+      filter: false,
+      cellRenderer: MemberRoleBadgeComponent
+    },
+    {
+      field: 'groupProjectLabel',
+      headerName: 'グループ / プロジェクト',
+      minWidth: 210,
+      flex: 1.2,
+      sortable: true,
+      filter: false,
+      wrapText: true,
+      autoHeight: true
+    },
+    {
+      field: 'accountStatusLabel',
+      headerName: '状態',
+      minWidth: 120,
+      flex: 0.7,
+      sortable: true,
+      filter: false
+    },
+    {
+      field: 'joinedAtLabel',
+      headerName: '参加日',
+      minWidth: 130,
+      flex: 0.7,
+      sortable: true,
+      filter: false
+    },
+    {
+      colId: 'rowActions',
+      headerName: '操作',
+      minWidth: 250,
+      flex: 1.2,
+      sortable: false,
+      filter: false,
+      cellRenderer: (params: { data?: WorkspaceMemberGridRow }) => this.renderActions(params.data?.rowActions ?? [])
+    }
+  ];
+
+  private filterRows(rows: readonly WorkspaceMemberGridRow[], searchValue: string): readonly WorkspaceMemberGridRow[] {
+    const query = searchValue.trim().toLocaleLowerCase('ja-JP');
+    if (!query) {
+      return rows;
+    }
+
+    return rows.filter((row) =>
+      [row.displayName, row.roleLabel, row.groupProjectLabel, row.accountStatusLabel, row.joinedAtLabel]
+        .join(' ')
+        .toLocaleLowerCase('ja-JP')
+        .includes(query)
+    );
+  }
+
+  private renderActions(actions: readonly WorkspaceMemberRowAction[]): HTMLElement {
+    const container = document.createElement('div');
+    container.className = 'app-grid-actions';
+
+    if (actions.length === 0) {
+      const empty = document.createElement('span');
+      empty.className = 'app-grid-actions__empty';
+      empty.textContent = '操作なし';
+      container.append(empty);
+      return container;
+    }
+
+    actions.forEach((action) => {
+      const button = document.createElement('button');
+      button.type = 'button';
+      button.className = action.destructive
+        ? 'app-grid-actions__button app-grid-actions__button--danger'
+        : 'app-grid-actions__button';
+      button.dataset['gridAction'] = action.id;
+      button.textContent = action.label;
+      button.setAttribute('aria-disabled', String(action.disabled));
+      if (action.disabledReason) {
+        button.title = action.disabledReason;
+      }
+      container.append(button);
+    });
+
+    return container;
+  }
+}

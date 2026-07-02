@@ -1,0 +1,64 @@
+.app-data-grid {
+  display: grid;
+  gap: 0.5rem;
+  min-width: 0;
+}
+
+.app-data-grid__grid {
+  width: 100%;
+  min-height: 18rem;
+  --ag-font-family: inherit;
+  --ag-font-size: 0.875rem;
+  --ag-border-radius: 8px;
+  --ag-wrapper-border-radius: 8px;
+  --ag-header-background-color: #f8fafc;
+  --ag-foreground-color: #0f172a;
+  --ag-secondary-foreground-color: #475569;
+  --ag-border-color: #dbe3ef;
+  --ag-row-hover-color: #f1f5f9;
+  --ag-selected-row-background-color: #e0f2fe;
+}
+
+.app-data-grid__page-limit {
+  margin: 0;
+  color: #64748b;
+  font-size: 0.75rem;
+  justify-self: end;
+}
+
+:host ::ng-deep .app-grid-actions {
+  align-items: center;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.35rem;
+  min-height: 100%;
+}
+
+:host ::ng-deep .app-grid-actions__button {
+  border: 1px solid #cbd5e1;
+  border-radius: 6px;
+  background: #ffffff;
+  color: #0f172a;
+  cursor: pointer;
+  font: inherit;
+  font-size: 0.8125rem;
+  font-weight: 700;
+  line-height: 1.2;
+  padding: 0.35rem 0.5rem;
+  white-space: nowrap;
+}
+
+:host ::ng-deep .app-grid-actions__button--danger {
+  border-color: #fecaca;
+  color: #991b1b;
+}
+
+:host ::ng-deep .app-grid-actions__button[aria-disabled='true'] {
+  cursor: not-allowed;
+  opacity: 0.58;
+}
+
+:host ::ng-deep .app-grid-actions__empty {
+  color: #64748b;
+  font-size: 0.8125rem;
+}
