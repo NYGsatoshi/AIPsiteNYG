@@ -6,6 +6,14 @@ import { catchError, map, Observable, of, tap } from 'rxjs';
 import { AppCapability } from '../../shared/navigation/navigation.models';
 import { TenantScopedStateFacade } from '../tenant/tenant-scoped-state.facade';
 import { ActiveWorkspaceFacade } from '../workspace/active-workspace.facade';
+import {
+  AuthStatusResponseDto,
+  CurrentTenantResponseDto,
+  CurrentUserResponseDto,
+  mapAuthStatusResponse,
+  mapCurrentTenantResponse,
+  mapCurrentUserResponse
+} from './auth-session.api';
 import { CsrfTokenService } from './csrf-token.service';
 
 export type AuthSessionStatus = 'anonymous' | 'active' | 'expired';
@@ -78,11 +86,6 @@ export const DEFAULT_AUTH_SESSION: AuthSessionSnapshot = {
 
 export const AIP_AUTH_SESSION_MOCK = new InjectionToken<AuthSessionSnapshot>('AIP_AUTH_SESSION_MOCK');
 
-interface AuthStatusResponse {
-  readonly isAuthenticated?: boolean;
-  readonly user?: AuthCurrentUser;
-}
-
 @Injectable({ providedIn: 'root' })
 export class AuthSessionFacade {
   private readonly initialSession = inject(AIP_AUTH_SESSION_MOCK, { optional: true }) ?? DEFAULT_AUTH_SESSION;
@@ -125,7 +128,8 @@ export class AuthSessionFacade {
       return of(null);
     }
 
-    return http.get<AuthCurrentUser>('/api/auth/me', { withCredentials: true }).pipe(
+    return http.get<CurrentUserResponseDto>('/api/auth/me', { withCredentials: true }).pipe(
+      map((response) => mapCurrentUserResponse(response)),
       tap((user) => this.patchUser(user)),
       map(() => this.sessionState()),
       catchError(() => of(null))
@@ -138,7 +142,8 @@ export class AuthSessionFacade {
       return of(null);
     }
 
-    return http.get<AuthStatusResponse>('/api/auth/status', { withCredentials: true }).pipe(
+    return http.get<AuthStatusResponseDto>('/api/auth/status', { withCredentials: true }).pipe(
+      map((response) => mapAuthStatusResponse(response)),
       tap((status) => {
         if (status.isAuthenticated && status.user) {
           this.patchUser(status.user);
@@ -158,7 +163,8 @@ export class AuthSessionFacade {
       return of(null);
     }
 
-    return http.get<AuthCurrentTenant>('/api/tenants/current', { withCredentials: true }).pipe(
+    return http.get<CurrentTenantResponseDto>('/api/tenants/current', { withCredentials: true }).pipe(
+      map((response) => mapCurrentTenantResponse(response)),
       tap((tenant) => this.patchTenant(tenant)),
       catchError(() => of(null))
     );
