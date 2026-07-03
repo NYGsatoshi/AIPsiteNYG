@@ -1,5 +1,6 @@
 import {
   HttpContextToken,
+  HttpEvent,
   HttpErrorResponse,
   HttpHandlerFn,
   HttpInterceptorFn,
@@ -56,7 +57,7 @@ function handleApiError(
   next: HttpHandlerFn,
   authSession: AuthSessionFacade,
   csrfTokens: CsrfTokenService
-): Observable<never> {
+): Observable<HttpEvent<unknown>> {
   const normalized = normalizeApiError(error);
 
   if (normalized.httpStatus === 401) {
@@ -76,15 +77,19 @@ function handleApiError(
   if (normalized.httpStatus === 403 && isLikelyCsrfFailure(error, normalized.message)) {
     csrfTokens.clearToken();
 
-    if (!isUnsafeMethod(request.method) && !request.context.get(RETRIED_CSRF_FAILURE)) {
-      const retryRequest = request.clone({
-        context: request.context.set(RETRIED_CSRF_FAILURE, true)
-      });
-
+    if (isUnsafeMethod(request.method) && !request.context.get(RETRIED_CSRF_FAILURE)) {
       return csrfTokens.ensureToken(authSession.csrfCacheKey()).pipe(
-        switchMap(() => next(retryRequest)),
+        map((csrfToken) =>
+          request.clone({
+            context: request.context.set(RETRIED_CSRF_FAILURE, true),
+            setHeaders: {
+              [csrfToken.headerName]: csrfToken.token
+            }
+          })
+        ),
+        switchMap((retryRequest) => next(retryRequest)),
         catchError((retryError) => throwError(() => normalizeApiError(retryError)))
-      ) as Observable<never>;
+      );
     }
   }
 
