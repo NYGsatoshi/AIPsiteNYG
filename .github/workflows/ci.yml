@@ -81,11 +81,8 @@ jobs:
         working-directory: frontend
         run: npm run build-storybook
 
-      - name: Install Playwright browsers
-        run: npx playwright install --with-deps chromium
-
       - name: Angular Playwright smoke
-        run: npm run test:ui:angular
+        run: npm run test:ui:angular:docker
 
       - name: Upload Playwright artifacts
         if: failure()

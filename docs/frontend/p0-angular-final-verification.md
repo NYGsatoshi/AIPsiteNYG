@@ -6,9 +6,13 @@ Scope: Angular frontend under `frontend/`, repo-level Angular Playwright wrapper
 
 ## P0 Status
 
-Go.
+Conditional Go.
 
-The automated Angular gate is green after the CSRF retry fix and the final screenshot closeout: production build, unit tests, Storybook build, Angular Playwright smoke, backend tests, guardrail scans, and Angular-approved screenshot regression all passed on valid reruns. The previous Conditional Go blocker is closed by the newly approved Angular P0 screenshot baselines under `tests/ui/__angular_snapshots__/`.
+The host-native Windows Angular gate previously passed, but GitHub Actions
+Ubuntu reported screenshot-only baseline drift for the desktop workspace shell
+and mobile workspace drawer. Functional Angular smoke checks still pass. Final
+Go remains blocked until the Docker/Linux Playwright screenshot regression
+passes in GitHub Actions.
 
 ## Pass/Fail Summary
 
@@ -19,13 +23,13 @@ The automated Angular gate is green after the CSRF retry fix and the final scree
 | Angular production build | Pass | Initial sandbox run hit the known `Cannot read directory "../../../..": Access is denied.` issue; valid post-fix unsandboxed run passed in `13-frontend-build-after-csrf-fix.log`; final screenshot closeout build passed in `17c-frontend-build-for-screenshot-baselines-clean-exit.log` with the known non-fatal initial bundle budget warning. |
 | Angular unit tests | Pass | Post-fix rerun passed 17 files / 125 tests in `14b-frontend-test-after-csrf-fix-rerun.log`. The previous post-fix attempt timed out in existing tests under host load; it is retained as `14-frontend-test-after-csrf-fix.log`. |
 | Storybook build | Pass | Post-fix unsandboxed run completed and emitted `frontend/storybook-static`; see `15-frontend-build-storybook-after-csrf-fix.log`. |
-| Angular Playwright smoke | Pass | Final run passed 48 tests with 2 skipped non-P0 legacy static SPA placeholders; see `20-root-angular-playwright-with-screenshot-baselines.log`. |
+| Angular Playwright smoke | Local Docker pass, CI pending | Docker Playwright run passed 48 tests with 2 skipped non-P0 legacy static SPA placeholders after regenerating the two approved Linux baselines. GitHub Actions screenshot regression is still pending. |
 | Backend tests | Pass | Unsandboxed rerun passed 234/234 tests; see `07-backend-dotnet-test-rerun-unsandboxed.log`. The sandbox attempt was blocked by NuGet network access. |
 | AG Grid Enterprise absence | Pass | Source/package scan found no package or import usage; only tests asserting absence matched. See `08-ag-grid-enterprise-scan.log`. |
 | AG Grid wrapper boundary | Pass | `AgGridAngular` is used by `AppDataGridComponent`; route pages import the wrapper. See `09-ag-grid-wrapper-scan.log`. |
 | Global search boundary | Pass | Route/nav scan found page-local search only, no global DB search route. See `10-search-route-scan.log`. |
 | CSRF/session/storage scan | Pass after fix | Unsafe same-origin API requests attach CSRF, token fetch failure blocks mutation, third-party requests do not receive CSRF, and retry is now covered once. See `11-csrf-storage-scan.log` and updated unit test. |
-| Screenshot regression | Pass | Three Angular-approved P0 baselines were generated and the targeted regression passed; see `18b-screenshot-baseline-update-after-mobile-tightening.log`, `19-screenshot-regression.log`, and `21-screenshot-baseline-file-list.log`. |
+| Screenshot regression | Conditional | The two GitHub Actions-drifting baselines were regenerated in the pinned Docker/Linux Playwright environment and passed locally. Final Go waits for the same lane to pass in GitHub Actions. |
 | Lint/format scripts | Not configured | Root and frontend package scripts do not define `lint` or `format`; final whitespace check is `git diff --check`. |
 
 ## Commands Run
@@ -41,6 +45,7 @@ The automated Angular gate is green after the CSRF retry fix and the final scree
 | `npm.cmd run test:ui:angular -- tests/ui/angular-smoke.spec.ts --grep "matches approved Angular P0 screenshot baselines" --update-snapshots` | repo root | Pass; generated the approved Angular P0 screenshot baselines. |
 | `npm.cmd run test:ui:angular -- tests/ui/angular-smoke.spec.ts --grep "matches approved Angular P0 screenshot baselines"` | repo root | Pass; screenshot regression matched the new baselines without updating. |
 | `npm.cmd run test:ui:angular` | repo root | Pass; served `frontend/dist/aipportal-web` and passed 48 tests with 2 obsolete non-P0 skips. |
+| `npm.cmd run test:ui:angular:docker` | repo root | Pass; pinned Linux Playwright image ran production build plus Angular UI smoke and passed 48 tests with 2 skipped non-P0 legacy static SPA placeholders. |
 | `dotnet test AipPortal.slnx --configuration Release --verbosity normal --disable-build-servers -m:1` | repo root | Sandbox restore blocked by NuGet network; valid unsandboxed rerun passed 234 tests. |
 | `rg` guardrail scans for AG Grid, search, CSRF/storage, screenshots | repo root | Pass. |
 | `git diff --check` | repo root | Pass. |
@@ -78,17 +83,18 @@ Storybook build covered the Angular story bundles for app shell, navigation, rig
 
 ## Screenshot Baseline Decision
 
-Angular-approved screenshot baselines were added for the remaining P0 screenshot blocker.
+The two GitHub Actions-drifting Angular-approved screenshot baselines were
+regenerated from the pinned Docker/Linux Playwright environment.
 
 Approved targets:
 
 - `tests/ui/__angular_snapshots__/angular-smoke.spec.ts/desktop-shell-workspaces.png`: `/app/workspaces`, `chromium-desktop`, 1280x900 desktop shell.
 - `tests/ui/__angular_snapshots__/angular-smoke.spec.ts/mobile-shell-workspaces-drawer.png`: `/app/workspaces`, `chromium-mobile`, 390x844 mobile shell with drawer open.
-- `tests/ui/__angular_snapshots__/angular-smoke.spec.ts/permission-denied-state.png`: `/permission-denied`, `chromium-desktop`, 1280x900 permission-denied state.
+- `tests/ui/__angular_snapshots__/angular-smoke.spec.ts/permission-denied-state.png`: retained from the previous local Windows closeout, but not used as current Linux CI acceptance evidence.
 
 No obsolete legacy static SPA baselines were added. The skipped `tests/ui/app.spec.ts` placeholder remains labeled non-P0 and did not receive snapshots.
 
-Evidence:
+Historical evidence from the earlier host-native closeout:
 
 - Baseline generation: `docs/evidence/mvp-a/frontend-final-2026-07-03/18b-screenshot-baseline-update-after-mobile-tightening.log`
 - Targeted screenshot regression: `docs/evidence/mvp-a/frontend-final-2026-07-03/19-screenshot-regression.log`
@@ -101,7 +107,9 @@ Generated Playwright artifacts:
 - `playwright-report/index.html`
 - `test-results/playwright-results.xml`
 
-No failure screenshots, traces, or videos were required by the final passing run.
+No failure screenshots, traces, or videos were required by the final local
+Docker passing run. GitHub Actions artifact upload remains configured for
+`playwright-report/` and `test-results/` on failure.
 
 ## Remaining Backend Blockers
 

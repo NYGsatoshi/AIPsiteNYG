@@ -2,10 +2,13 @@ import { defineConfig, devices } from "@playwright/test";
 
 const port = Number(process.env.PLAYWRIGHT_PORT ?? 4173);
 const baseURL = process.env.PLAYWRIGHT_BASE_URL ?? `http://127.0.0.1:${port}`;
+const snapshotPathTemplate = process.env.CI
+  ? "{testDir}/__angular_snapshots__/linux/{testFilePath}/{arg}{ext}"
+  : "{testDir}/__angular_snapshots__/{testFilePath}/{arg}{ext}";
 
 export default defineConfig({
   testDir: "./tests/ui",
-  snapshotPathTemplate: "{testDir}/__angular_snapshots__/{testFilePath}/{arg}{ext}",
+  snapshotPathTemplate,
   timeout: 30_000,
   expect: {
     timeout: 5_000

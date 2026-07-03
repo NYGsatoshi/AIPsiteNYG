@@ -15,8 +15,8 @@ infrastructure only.
    (currently Angular's Vitest-backed `ng test --watch=false`).
 6. `frontend npm run build-storybook` verifies Storybook can build from the
    Angular component source.
-7. Root `npm run test:ui:angular` starts `tests/ui/serve-static.mjs` and runs
-   Playwright against `frontend/dist/aipportal-web`.
+7. Root `npm run test:ui:angular:docker` runs the Angular Playwright smoke in
+   the pinned Linux Playwright image from `docker-compose.playwright.yml`.
 
 ## Staged Playwright Plan
 
@@ -28,11 +28,13 @@ infrastructure only.
 
 ## Screenshot Regression Status
 
-Blocking Angular-approved screenshot baselines now exist for the P0 desktop
-shell, mobile shell, and permission-denied state under
-`tests/ui/__angular_snapshots__/angular-smoke.spec.ts/`. The repo-level
-`npm run test:ui:angular` lane exercises these baselines through
-`tests/ui/angular-smoke.spec.ts`.
+Blocking Angular-approved screenshot baselines exist for the P0 desktop shell
+and mobile shell under
+`tests/ui/__angular_snapshots__/angular-smoke.spec.ts/`. CI and local baseline
+verification must use `npm run test:ui:angular:docker`, which pins the Linux
+Playwright browser/runtime to the repository's locked `@playwright/test`
+version. Do not approve screenshot baselines generated from Windows or macOS
+host-native Playwright runs.
 
 Screenshot failures are blocking for hidden action exposure, hidden route
 exposure, unusable primary navigation, permission/session screen breakage,
@@ -46,7 +48,8 @@ baselines from `src/AipPortal.Web/wwwroot` are not MVP-A P0 requirements. The
 remaining legacy Playwright placeholder is skipped and labeled non-P0. New
 Playwright screenshot assertions, if added later, must use the
 `tests/ui/__angular_snapshots__/` path configured by `playwright.config.ts` and
-must be reviewed as Angular-approved baselines.
+must be reviewed as Angular-approved baselines generated in the Docker
+Playwright environment.
 
 `/api/*` paths are not Angular routes. The static Playwright server returns JSON
 404 responses for unknown `/api/*` paths instead of falling them back to

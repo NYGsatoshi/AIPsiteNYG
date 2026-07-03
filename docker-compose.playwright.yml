@@ -1,0 +1,20 @@
+services:
+  angular-playwright:
+    # Keep this tag aligned with the exact package-lock.json @playwright/test version.
+    image: mcr.microsoft.com/playwright:v1.60.0-noble
+    working_dir: /work
+    environment:
+      CI: "true"
+    volumes:
+      - .:/work
+      - playwright-root-node-modules:/work/node_modules
+      - playwright-frontend-node-modules:/work/frontend/node_modules
+    command: >
+      bash -lc "npm ci &&
+      npm --prefix frontend ci &&
+      npm --prefix frontend run build &&
+      npm run test:ui:angular"
+
+volumes:
+  playwright-root-node-modules:
+  playwright-frontend-node-modules:

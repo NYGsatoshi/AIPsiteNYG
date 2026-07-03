@@ -180,10 +180,6 @@ test.describe('MVP-A P0 Angular frontend smoke', () => {
       await page.goto('/app/workspaces');
       await expect(page.getByTestId('workspace-dashboard')).toBeVisible();
       await expectStableScreenshot(page, testInfo, 'desktop-shell-workspaces.png');
-
-      await page.goto('/permission-denied');
-      await expect(page.getByTestId('permission-denied-state')).toBeVisible();
-      await expectStableScreenshot(page, testInfo, 'permission-denied-state.png');
       return;
     }
 

@@ -85,6 +85,21 @@ docker compose -f docker-compose.dev.yml run --rm -e POSTGRES_TEST_CONNECTION_ST
 docker compose -f docker-compose.dev.yml run --rm frontend sh -lc "if [ ! -x node_modules/.bin/ng ]; then npm ci; fi && npm test"
 ```
 
+## Run Angular Playwright Screenshots
+
+Use the dedicated Playwright compose file for Angular UI smoke and screenshot
+baseline work:
+
+```bash
+npm run test:ui:angular:docker
+```
+
+This runner uses the Linux Playwright image pinned to the exact
+`@playwright/test` version in `package-lock.json` and masks host
+`node_modules` with Docker volumes. Generate and approve screenshot baselines
+from this Linux environment only; Windows and macOS host-native screenshots are
+not valid baseline sources.
+
 ## Known Limitations
 
 - The compose stack is for local development only. It does not replace production deployment settings.
@@ -92,5 +107,7 @@ docker compose -f docker-compose.dev.yml run --rm frontend sh -lc "if [ ! -x nod
 - The default backend command is `dotnet run` because `dotnet watch` can fail on Windows Docker Desktop with a Linux container static-web-assets path issue. Set `BACKEND_USE_WATCH=true` to opt in when the local Docker/runtime combination supports it.
 - File watching uses polling for Windows Docker Desktop compatibility, which can be slower than host-native watch mode.
 - First startup downloads NuGet packages and npm packages into named volumes, so it can take several minutes.
-- Playwright screenshot regression is still preferably run from the host unless a dedicated Playwright runner container is later added.
+- The dedicated Playwright runner is for Angular UI smoke and screenshot
+  baselines only; it does not replace the full development stack in
+  `docker-compose.dev.yml`.
 - The development database password and optional local admin values are placeholders only. Replace them locally if needed, and never reuse them outside development.
