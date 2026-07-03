@@ -1,0 +1,88 @@
+services:
+  postgres:
+    image: postgres:18-alpine
+    environment:
+      POSTGRES_DB: ${POSTGRES_DB:-aip_portal_dev}
+      POSTGRES_USER: ${POSTGRES_USER:-aip_portal}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-aip_portal_dev_password}
+    ports:
+      - "${POSTGRES_DEV_HOST_PORT:-5433}:5432"
+    volumes:
+      - aip_dev_pgdata:/var/lib/postgresql
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U \"$${POSTGRES_USER}\" -d \"$${POSTGRES_DB}\""]
+      interval: 5s
+      timeout: 5s
+      retries: 20
+
+  backend:
+    build:
+      context: .
+      dockerfile: backend.Dockerfile
+    environment:
+      ASPNETCORE_ENVIRONMENT: Development
+      ASPNETCORE_URLS: http://0.0.0.0:8080
+      DOTNET_USE_POLLING_FILE_WATCHER: "true"
+      DOTNET_WATCH_SUPPRESS_LAUNCH_BROWSER: "true"
+      NUGET_PACKAGES: /root/.nuget/packages
+      BACKEND_USE_WATCH: ${BACKEND_USE_WATCH:-false}
+      ConnectionStrings__DefaultConnection: Host=postgres;Port=5432;Database=${POSTGRES_DB:-aip_portal_dev};Username=${POSTGRES_USER:-aip_portal};Password=${POSTGRES_PASSWORD:-aip_portal_dev_password}
+      Tenancy__AppMode: OnPremSingleTenant
+      Tenancy__DefaultTenantSlug: default
+      Tenancy__TenantResolutionStrategy: ConfigDefault
+      Tenancy__AllowTenantSwitching: "false"
+      Tenancy__SeedOnStartup: "true"
+      FileStorage__Provider: LocalFileSystem
+      FileStorage__RootPath: ./data/files
+      FileStorage__MaxFileSizeBytes: ${FILE_STORAGE_MAX_FILE_SIZE_BYTES:-52428800}
+      Security__CookieSecurePolicy: SameAsRequest
+      Security__RequireHttps: "false"
+      Security__EnableHsts: "false"
+      Security__EnableRateLimiting: "false"
+      Platform__EnablePlatformAdmin: "true"
+      Platform__PlatformAdminSetupMode: "true"
+      Platform__AllowTenantCreationFromAdmin: "true"
+      LocalAdmin__SeedOnStartup: ${LOCAL_ADMIN_SEED_ON_STARTUP:-false}
+      LocalAdmin__Email: ${LOCAL_ADMIN_EMAIL:-admin@example.com}
+      LocalAdmin__Password: ${LOCAL_ADMIN_PASSWORD:-change_me_for_local_admin}
+      LocalAdmin__DisplayName: ${LOCAL_ADMIN_DISPLAY_NAME:-Local Admin}
+    ports:
+      - "${AIP_PORTAL_PORT:-8080}:8080"
+    volumes:
+      - ./:/workspace
+      - aip_dev_nuget:/root/.nuget/packages
+      - aip_dev_backend_data:/workspace/src/AipPortal.Web/data
+    depends_on:
+      postgres:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD-SHELL", "curl --fail --silent --show-error http://localhost:8080/health/ready >/dev/null"]
+      interval: 10s
+      timeout: 5s
+      retries: 12
+      start_period: 300s
+
+  frontend:
+    build:
+      context: .
+      dockerfile: frontend.Dockerfile
+    environment:
+      CHOKIDAR_USEPOLLING: "true"
+      WATCHPACK_POLLING: "true"
+      NG_POLL_INTERVAL: ${NG_POLL_INTERVAL:-2000}
+    ports:
+      - "${FRONTEND_PORT:-4200}:4200"
+    volumes:
+      - ./frontend:/workspace/frontend
+      - aip_dev_frontend_node_modules:/workspace/frontend/node_modules
+      - aip_dev_frontend_npm_cache:/home/node/.npm
+    depends_on:
+      backend:
+        condition: service_started
+
+volumes:
+  aip_dev_pgdata:
+  aip_dev_nuget:
+  aip_dev_backend_data:
+  aip_dev_frontend_node_modules:
+  aip_dev_frontend_npm_cache:
