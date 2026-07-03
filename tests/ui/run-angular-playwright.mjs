@@ -5,6 +5,7 @@ const port = Number(process.env.PLAYWRIGHT_PORT ?? 4173);
 const baseURL = process.env.PLAYWRIGHT_BASE_URL ?? `http://127.0.0.1:${port}`;
 const serverPath = fileURLToPath(new URL('./serve-static.mjs', import.meta.url));
 const playwrightCli = fileURLToPath(new URL('../../node_modules/@playwright/test/cli.js', import.meta.url));
+const playwrightArgs = process.argv.slice(2);
 
 const server = spawn(process.execPath, [serverPath, '--port', String(port)], {
   cwd: process.cwd(),
@@ -26,7 +27,7 @@ process.exit(exitCode);
 
 function runPlaywright() {
   return new Promise((resolve) => {
-    const child = spawn(process.execPath, [playwrightCli, 'test'], {
+    const child = spawn(process.execPath, [playwrightCli, 'test', ...playwrightArgs], {
       cwd: process.cwd(),
       env: { ...process.env, PLAYWRIGHT_BASE_URL: baseURL },
       stdio: 'inherit'

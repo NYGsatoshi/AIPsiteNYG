@@ -28,14 +28,16 @@ infrastructure only.
 
 ## Screenshot Regression Status
 
-No blocking screenshot baselines are committed for this first Angular smoke
-lane. The current route states are placeholders and shell contracts are still
-being stabilized, so visual regression should remain pending until the
-desktop shell, mobile shell, and permission-denied state have Angular-approved
-baselines. Future screenshot failures should be treated as blocking only for
-hidden action exposure, hidden route exposure, unusable primary navigation,
-permission/session screen breakage, messaging composer/file upload/admin grid
-unusability, or major shell layout collapse.
+Blocking Angular-approved screenshot baselines now exist for the P0 desktop
+shell, mobile shell, and permission-denied state under
+`tests/ui/__angular_snapshots__/angular-smoke.spec.ts/`. The repo-level
+`npm run test:ui:angular` lane exercises these baselines through
+`tests/ui/angular-smoke.spec.ts`.
+
+Screenshot failures are blocking for hidden action exposure, hidden route
+exposure, unusable primary navigation, permission/session screen breakage,
+messaging composer/file upload/admin grid unusability, or major shell layout
+collapse.
 
 ## Legacy Static SPA Handling
 

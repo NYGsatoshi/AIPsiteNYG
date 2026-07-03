@@ -1,0 +1,6 @@
+warning: in the working copy of 'debug.log', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'docs/frontend/p0-angular-final-verification.md', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'docs/verification/mvp-a/frontend-ci-stages.md', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'tests/ui/angular-smoke.spec.ts', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'tests/ui/run-angular-playwright.mjs', LF will be replaced by CRLF the next time Git touches it
+exit_code=0

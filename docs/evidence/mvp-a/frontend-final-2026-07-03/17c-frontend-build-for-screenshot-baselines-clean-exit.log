@@ -1,0 +1,43 @@
+
+> frontend@0.0.0 build
+> ng build --configuration production
+
+> Building...
+√ Building...
+Initial chunk files | Names                              |  Raw size | Estimated transfer size
+styles-JJQS4JJJ.css | styles                             | 285.06 kB |                37.43 kB
+chunk-MUDPC65Q.js   | -                                  | 146.78 kB |                43.36 kB
+chunk-QZ5GUYPX.js   | -                                  | 106.27 kB |                27.01 kB
+main-R3ZUWA6C.js    | main                               |  57.63 kB |                13.23 kB
+chunk-R3LF55TJ.js   | -                                  |  46.06 kB |                 9.35 kB
+chunk-UYM372HN.js   | -                                  |  13.46 kB |                 3.83 kB
+chunk-ATVZK5GJ.js   | -                                  |   7.13 kB |                 2.06 kB
+chunk-3PSZKLS4.js   | -                                  |   1.00 kB |                 1.00 kB
+
+                    | Initial total                      | 663.40 kB |               137.27 kB
+
+Lazy chunk files    | Names                              |  Raw size | Estimated transfer size
+chunk-APIJIXSE.js   | -                                  |   1.10 MB |               244.90 kB
+chunk-GYOOE7MF.js   | files-page-component               |  29.76 kB |                 6.15 kB
+chunk-E4XUC6FL.js   | announcements-page-component       |  26.19 kB |                 5.77 kB
+chunk-RB3HS4WJ.js   | -                                  |  23.01 kB |                 5.61 kB
+chunk-UGE44CKB.js   | workspace-members-page-component   |  22.35 kB |                 5.57 kB
+chunk-YULDNGDC.js   | account-page-component             |  20.60 kB |                 4.59 kB
+chunk-XKDODLAQ.js   | workspace-dashboard-page-component |  17.79 kB |                 4.12 kB
+chunk-4OS2OXNS.js   | task-detail-page-component         |  13.76 kB |                 3.64 kB
+chunk-P7KOMSZL.js   | invite-registration-page-component |  13.53 kB |                 3.44 kB
+chunk-H2AGGTI4.js   | audit-log-page-component           |  12.06 kB |                 3.31 kB
+chunk-E4HRGIA5.js   | export-diagnostics-page-component  |  11.54 kB |                 3.29 kB
+chunk-ZFDWG2DR.js   | -                                  |   9.42 kB |                 2.33 kB
+chunk-3DJAWXA3.js   | channel-messaging-page-component   |   8.41 kB |                 2.35 kB
+chunk-7AOY23NK.js   | -                                  |   7.79 kB |                 2.00 kB
+chunk-QOL5DPGP.js   | projects-overview-page-component   |   5.89 kB |                 1.79 kB
+...and 5 more lazy chunks files. Use "--verbose" to show all the files.
+
+Application bundle generation complete. [19.862 seconds] - 2026-07-03T04:53:55.959Z
+
+▲ [WARNING] bundle initial exceeded maximum budget. Budget 500.00 kB was not met by 163.40 kB with a total of 663.40 kB.
+
+
+Output location: C:\Users\satos\Documents\GitHub\AIPsiteNYG\frontend\dist\aipportal-web
+

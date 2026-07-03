@@ -1,0 +1,83 @@
+
+> aipsite-nyg-ui-tests@0.0.0 test:ui:angular
+> node tests/ui/run-angular-playwright.mjs
+
+Serving C:\Users\satos\Documents\GitHub\AIPsiteNYG\frontend\dist\aipportal-web at http://127.0.0.1:4173
+(node:25228) [DEP0205] DeprecationWarning: `module.register()` is deprecated. Use `module.registerHooks()` instead.
+(Use `node --trace-deprecation ...` to show where the warning was created)
+
+Running 50 tests using 2 workers
+
+(node:24268) Warning: The 'NO_COLOR' env is ignored due to the 'FORCE_COLOR' env being set.
+(Use `node --trace-warnings ...` to show where the warning was created)
+(node:7128) Warning: The 'NO_COLOR' env is ignored due to the 'FORCE_COLOR' env being set.
+(Use `node --trace-warnings ...` to show where the warning was created)
+(node:24268) [DEP0205] DeprecationWarning: `module.register()` is deprecated. Use `module.registerHooks()` instead.
+(node:24268) Warning: The 'NO_COLOR' env is ignored due to the 'FORCE_COLOR' env being set.
+(Use `node --trace-warnings ...` to show where the warning was created)
+(node:7128) [DEP0205] DeprecationWarning: `module.register()` is deprecated. Use `module.registerHooks()` instead.
+(node:7128) Warning: The 'NO_COLOR' env is ignored due to the 'FORCE_COLOR' env being set.
+(Use `node --trace-warnings ...` to show where the warning was created)
+  ok  2 [chromium-desktop] › tests\ui\angular-smoke.spec.ts:35:3 › MVP-A P0 Angular frontend smoke › renders the Angular login/session placeholder route (4.0s)
+  ok  3 [chromium-desktop] › tests\ui\angular-smoke.spec.ts:45:3 › MVP-A P0 Angular frontend smoke › renders the workspace route in the Angular shell (2.6s)
+  ok  4 [chromium-desktop] › tests\ui\angular-smoke.spec.ts:54:3 › MVP-A P0 Angular frontend smoke › falls back to Angular index.html for unknown user-facing routes (1.8s)
+  ok  5 [chromium-desktop] › tests\ui\angular-smoke.spec.ts:67:3 › MVP-A P0 Angular frontend smoke › keeps API paths out of Angular fallback routing (38ms)
+  ok  1 [chromium-desktop] › tests\ui\angular-smoke.spec.ts:20:3 › MVP-A P0 Angular frontend smoke › serves the built Angular shell (11.5s)
+  ok  6 [chromium-desktop] › tests\ui\angular-smoke.spec.ts:79:3 › MVP-A P0 Angular frontend smoke › renders the mobile shell drawer without legacy route exposure (2.4s)
+  ok  7 [chromium-desktop] › tests\ui\angular-smoke.spec.ts:102:3 › MVP-A P0 Angular frontend smoke › mobile navigation traps focus and returns focus on Escape (2.2s)
+  ok  8 [chromium-desktop] › tests\ui\angular-smoke.spec.ts:119:3 › MVP-A P0 Angular frontend smoke › right panel opens as a drawer on mobile and returns focus when closed (3.3s)
+  ok  9 [chromium-desktop] › tests\ui\angular-smoke.spec.ts:136:3 › MVP-A P0 Angular frontend smoke › allows keyboard traversal to primary shell areas (3.7s)
+  ok 10 [chromium-desktop] › tests\ui\angular-smoke.spec.ts:145:3 › MVP-A P0 Angular frontend smoke › icon-only shell controls have accessible names (2.6s)
+  ok 11 [chromium-desktop] › tests\ui\angular-smoke.spec.ts:155:5 › MVP-A P0 Angular frontend smoke › does not horizontally overflow at 320px: /app/workspaces (2.1s)
+  ok 12 [chromium-desktop] › tests\ui\angular-smoke.spec.ts:155:5 › MVP-A P0 Angular frontend smoke › does not horizontally overflow at 320px: /app/workspaces/fictional-workspace-1/members (1.9s)
+  ok 13 [chromium-desktop] › tests\ui\angular-smoke.spec.ts:155:5 › MVP-A P0 Angular frontend smoke › does not horizontally overflow at 320px: /app/announcements (1.8s)
+  ok 14 [chromium-desktop] › tests\ui\angular-smoke.spec.ts:155:5 › MVP-A P0 Angular frontend smoke › does not horizontally overflow at 320px: /app/workspaces/fictional-workspace-1/channels/fictional-conversation-main (2.2s)
+  ok 15 [chromium-desktop] › tests\ui\angular-smoke.spec.ts:155:5 › MVP-A P0 Angular frontend smoke › does not horizontally overflow at 320px: /app/dm/fictional-dm-1 (1.9s)
+  ok 17 [chromium-desktop] › tests\ui\angular-smoke.spec.ts:155:5 › MVP-A P0 Angular frontend smoke › does not horizontally overflow at 320px: /app/projects (1.5s)
+  ok 16 [chromium-desktop] › tests\ui\angular-smoke.spec.ts:155:5 › MVP-A P0 Angular frontend smoke › does not horizontally overflow at 320px: /app/files (2.9s)
+  ok 18 [chromium-desktop] › tests\ui\angular-smoke.spec.ts:155:5 › MVP-A P0 Angular frontend smoke › does not horizontally overflow at 320px: /app/tasks (3.6s)
+  ok 20 [chromium-desktop] › tests\ui\angular-smoke.spec.ts:155:5 › MVP-A P0 Angular frontend smoke › does not horizontally overflow at 320px: /app/admin/export-diagnostics (999ms)
+  ok 19 [chromium-desktop] › tests\ui\angular-smoke.spec.ts:155:5 › MVP-A P0 Angular frontend smoke › does not horizontally overflow at 320px: /app/admin/audit (4.8s)
+  ok 21 [chromium-desktop] › tests\ui\angular-smoke.spec.ts:155:5 › MVP-A P0 Angular frontend smoke › does not horizontally overflow at 320px: /app/account (1.9s)
+  ok 22 [chromium-desktop] › tests\ui\angular-smoke.spec.ts:155:5 › MVP-A P0 Angular frontend smoke › does not horizontally overflow at 320px: /register/invite (1.8s)
+  ok 23 [chromium-desktop] › tests\ui\angular-smoke.spec.ts:163:3 › MVP-A P0 Angular frontend smoke › renders permission-denied shared state without session details (2.3s)
+  -  25 [chromium-desktop] › tests\ui\app.spec.ts:4:3 › legacy static SPA Playwright coverage (non-P0) › obsolete after the MVP-A P0 Angular frontend migration
+  ok 24 [chromium-desktop] › tests\ui\angular-smoke.spec.ts:177:3 › MVP-A P0 Angular frontend smoke › matches approved Angular P0 screenshot baselines (3.2s)
+(node:21252) Warning: The 'NO_COLOR' env is ignored due to the 'FORCE_COLOR' env being set.
+(Use `node --trace-warnings ...` to show where the warning was created)
+(node:21252) [DEP0205] DeprecationWarning: `module.register()` is deprecated. Use `module.registerHooks()` instead.
+(node:21252) Warning: The 'NO_COLOR' env is ignored due to the 'FORCE_COLOR' env being set.
+(Use `node --trace-warnings ...` to show where the warning was created)
+(node:1536) Warning: The 'NO_COLOR' env is ignored due to the 'FORCE_COLOR' env being set.
+(Use `node --trace-warnings ...` to show where the warning was created)
+(node:1536) [DEP0205] DeprecationWarning: `module.register()` is deprecated. Use `module.registerHooks()` instead.
+(node:1536) Warning: The 'NO_COLOR' env is ignored due to the 'FORCE_COLOR' env being set.
+(Use `node --trace-warnings ...` to show where the warning was created)
+  ok 27 [chromium-mobile] › tests\ui\angular-smoke.spec.ts:35:3 › MVP-A P0 Angular frontend smoke › renders the Angular login/session placeholder route (3.3s)
+  ok 28 [chromium-mobile] › tests\ui\angular-smoke.spec.ts:45:3 › MVP-A P0 Angular frontend smoke › renders the workspace route in the Angular shell (2.5s)
+  ok 29 [chromium-mobile] › tests\ui\angular-smoke.spec.ts:54:3 › MVP-A P0 Angular frontend smoke › falls back to Angular index.html for unknown user-facing routes (1.4s)
+  ok 30 [chromium-mobile] › tests\ui\angular-smoke.spec.ts:67:3 › MVP-A P0 Angular frontend smoke › keeps API paths out of Angular fallback routing (43ms)
+  ok 26 [chromium-mobile] › tests\ui\angular-smoke.spec.ts:20:3 › MVP-A P0 Angular frontend smoke › serves the built Angular shell (8.3s)
+  ok 31 [chromium-mobile] › tests\ui\angular-smoke.spec.ts:79:3 › MVP-A P0 Angular frontend smoke › renders the mobile shell drawer without legacy route exposure (3.3s)
+  ok 32 [chromium-mobile] › tests\ui\angular-smoke.spec.ts:102:3 › MVP-A P0 Angular frontend smoke › mobile navigation traps focus and returns focus on Escape (2.5s)
+  ok 33 [chromium-mobile] › tests\ui\angular-smoke.spec.ts:119:3 › MVP-A P0 Angular frontend smoke › right panel opens as a drawer on mobile and returns focus when closed (3.3s)
+  ok 34 [chromium-mobile] › tests\ui\angular-smoke.spec.ts:136:3 › MVP-A P0 Angular frontend smoke › allows keyboard traversal to primary shell areas (4.5s)
+  ok 35 [chromium-mobile] › tests\ui\angular-smoke.spec.ts:145:3 › MVP-A P0 Angular frontend smoke › icon-only shell controls have accessible names (3.0s)
+  ok 36 [chromium-mobile] › tests\ui\angular-smoke.spec.ts:155:5 › MVP-A P0 Angular frontend smoke › does not horizontally overflow at 320px: /app/workspaces (2.3s)
+  ok 37 [chromium-mobile] › tests\ui\angular-smoke.spec.ts:155:5 › MVP-A P0 Angular frontend smoke › does not horizontally overflow at 320px: /app/workspaces/fictional-workspace-1/members (1.8s)
+  ok 38 [chromium-mobile] › tests\ui\angular-smoke.spec.ts:155:5 › MVP-A P0 Angular frontend smoke › does not horizontally overflow at 320px: /app/announcements (2.2s)
+  ok 40 [chromium-mobile] › tests\ui\angular-smoke.spec.ts:155:5 › MVP-A P0 Angular frontend smoke › does not horizontally overflow at 320px: /app/dm/fictional-dm-1 (2.2s)
+  ok 39 [chromium-mobile] › tests\ui\angular-smoke.spec.ts:155:5 › MVP-A P0 Angular frontend smoke › does not horizontally overflow at 320px: /app/workspaces/fictional-workspace-1/channels/fictional-conversation-main (3.9s)
+  ok 42 [chromium-mobile] › tests\ui\angular-smoke.spec.ts:155:5 › MVP-A P0 Angular frontend smoke › does not horizontally overflow at 320px: /app/projects (2.5s)
+  ok 41 [chromium-mobile] › tests\ui\angular-smoke.spec.ts:155:5 › MVP-A P0 Angular frontend smoke › does not horizontally overflow at 320px: /app/files (4.9s)
+  ok 43 [chromium-mobile] › tests\ui\angular-smoke.spec.ts:155:5 › MVP-A P0 Angular frontend smoke › does not horizontally overflow at 320px: /app/tasks (1.7s)
+  ok 45 [chromium-mobile] › tests\ui\angular-smoke.spec.ts:155:5 › MVP-A P0 Angular frontend smoke › does not horizontally overflow at 320px: /app/admin/export-diagnostics (2.1s)
+  ok 44 [chromium-mobile] › tests\ui\angular-smoke.spec.ts:155:5 › MVP-A P0 Angular frontend smoke › does not horizontally overflow at 320px: /app/admin/audit (3.2s)
+  ok 46 [chromium-mobile] › tests\ui\angular-smoke.spec.ts:155:5 › MVP-A P0 Angular frontend smoke › does not horizontally overflow at 320px: /app/account (2.6s)
+  ok 47 [chromium-mobile] › tests\ui\angular-smoke.spec.ts:155:5 › MVP-A P0 Angular frontend smoke › does not horizontally overflow at 320px: /register/invite (2.4s)
+  ok 48 [chromium-mobile] › tests\ui\angular-smoke.spec.ts:163:3 › MVP-A P0 Angular frontend smoke › renders permission-denied shared state without session details (2.5s)
+  -  50 [chromium-mobile] › tests\ui\app.spec.ts:4:3 › legacy static SPA Playwright coverage (non-P0) › obsolete after the MVP-A P0 Angular frontend migration
+  ok 49 [chromium-mobile] › tests\ui\angular-smoke.spec.ts:177:3 › MVP-A P0 Angular frontend smoke › matches approved Angular P0 screenshot baselines (2.4s)
+
+  2 skipped
+  48 passed (1.3m)

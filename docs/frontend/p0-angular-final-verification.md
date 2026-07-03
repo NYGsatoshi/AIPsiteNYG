@@ -6,9 +6,9 @@ Scope: Angular frontend under `frontend/`, repo-level Angular Playwright wrapper
 
 ## P0 Status
 
-Conditional Go.
+Go.
 
-The automated Angular gate is green after the CSRF retry fix: production build, unit tests, Storybook build, Angular Playwright smoke, and backend tests all passed on valid reruns. The status remains Conditional Go rather than full Go because no Angular-approved screenshot baselines exist yet, so screenshot regression was intentionally not activated or updated in this pass.
+The automated Angular gate is green after the CSRF retry fix and the final screenshot closeout: production build, unit tests, Storybook build, Angular Playwright smoke, backend tests, guardrail scans, and Angular-approved screenshot regression all passed on valid reruns. The previous Conditional Go blocker is closed by the newly approved Angular P0 screenshot baselines under `tests/ui/__angular_snapshots__/`.
 
 ## Pass/Fail Summary
 
@@ -16,16 +16,16 @@ The automated Angular gate is green after the CSRF retry fix: production build, 
 | --- | --- | --- |
 | Root Playwright dependencies | Pass | `docs/evidence/mvp-a/frontend-final-2026-07-03/01-root-npm-ci.log` |
 | Angular dependencies | Pass | `docs/evidence/mvp-a/frontend-final-2026-07-03/02-frontend-npm-ci.log` |
-| Angular production build | Pass | Initial sandbox run hit the known `Cannot read directory "../../../..": Access is denied.` issue; valid post-fix unsandboxed run passed in `13-frontend-build-after-csrf-fix.log`. |
+| Angular production build | Pass | Initial sandbox run hit the known `Cannot read directory "../../../..": Access is denied.` issue; valid post-fix unsandboxed run passed in `13-frontend-build-after-csrf-fix.log`; final screenshot closeout build passed in `17c-frontend-build-for-screenshot-baselines-clean-exit.log` with the known non-fatal initial bundle budget warning. |
 | Angular unit tests | Pass | Post-fix rerun passed 17 files / 125 tests in `14b-frontend-test-after-csrf-fix-rerun.log`. The previous post-fix attempt timed out in existing tests under host load; it is retained as `14-frontend-test-after-csrf-fix.log`. |
 | Storybook build | Pass | Post-fix unsandboxed run completed and emitted `frontend/storybook-static`; see `15-frontend-build-storybook-after-csrf-fix.log`. |
-| Angular Playwright smoke | Pass | Post-fix run passed 46 tests with 2 skipped non-P0 legacy static SPA placeholders; see `16-root-angular-playwright-after-csrf-fix.log`. |
+| Angular Playwright smoke | Pass | Final run passed 48 tests with 2 skipped non-P0 legacy static SPA placeholders; see `20-root-angular-playwright-with-screenshot-baselines.log`. |
 | Backend tests | Pass | Unsandboxed rerun passed 234/234 tests; see `07-backend-dotnet-test-rerun-unsandboxed.log`. The sandbox attempt was blocked by NuGet network access. |
 | AG Grid Enterprise absence | Pass | Source/package scan found no package or import usage; only tests asserting absence matched. See `08-ag-grid-enterprise-scan.log`. |
 | AG Grid wrapper boundary | Pass | `AgGridAngular` is used by `AppDataGridComponent`; route pages import the wrapper. See `09-ag-grid-wrapper-scan.log`. |
 | Global search boundary | Pass | Route/nav scan found page-local search only, no global DB search route. See `10-search-route-scan.log`. |
 | CSRF/session/storage scan | Pass after fix | Unsafe same-origin API requests attach CSRF, token fetch failure blocks mutation, third-party requests do not receive CSRF, and retry is now covered once. See `11-csrf-storage-scan.log` and updated unit test. |
-| Screenshot regression | Not run by design | No Angular-approved baselines or snapshot images exist; see `12-screenshot-baseline-scan.log`. |
+| Screenshot regression | Pass | Three Angular-approved P0 baselines were generated and the targeted regression passed; see `18b-screenshot-baseline-update-after-mobile-tightening.log`, `19-screenshot-regression.log`, and `21-screenshot-baseline-file-list.log`. |
 | Lint/format scripts | Not configured | Root and frontend package scripts do not define `lint` or `format`; final whitespace check is `git diff --check`. |
 
 ## Commands Run
@@ -37,7 +37,10 @@ The automated Angular gate is green after the CSRF retry fix: production build, 
 | `npm.cmd run build` | `frontend/` | Sandbox blocked first; valid unsandboxed reruns passed. |
 | `npm.cmd run test` | `frontend/` | Sandbox blocked first; valid pre-fix run passed 124 tests; post-fix rerun passed 125 tests. |
 | `npm.cmd run build-storybook` | `frontend/` | Sandbox blocked first; valid unsandboxed reruns passed. |
-| `npm.cmd run test:ui:angular` | repo root | Pass; served `frontend/dist/aipportal-web`. |
+| `npm.cmd run build` | `frontend/` | Final screenshot closeout build passed; see `17c-frontend-build-for-screenshot-baselines-clean-exit.log`. |
+| `npm.cmd run test:ui:angular -- tests/ui/angular-smoke.spec.ts --grep "matches approved Angular P0 screenshot baselines" --update-snapshots` | repo root | Pass; generated the approved Angular P0 screenshot baselines. |
+| `npm.cmd run test:ui:angular -- tests/ui/angular-smoke.spec.ts --grep "matches approved Angular P0 screenshot baselines"` | repo root | Pass; screenshot regression matched the new baselines without updating. |
+| `npm.cmd run test:ui:angular` | repo root | Pass; served `frontend/dist/aipportal-web` and passed 48 tests with 2 obsolete non-P0 skips. |
 | `dotnet test AipPortal.slnx --configuration Release --verbosity normal --disable-build-servers -m:1` | repo root | Sandbox restore blocked by NuGet network; valid unsandboxed rerun passed 234 tests. |
 | `rg` guardrail scans for AG Grid, search, CSRF/storage, screenshots | repo root | Pass. |
 | `git diff --check` | repo root | Pass. |
@@ -70,12 +73,28 @@ Storybook build covered the Angular story bundles for app shell, navigation, rig
 
 - Updated `frontend/src/app/core/auth/auth-session.interceptor.ts` so likely CSRF `403` responses on unsafe first-party API requests clear the stale token, fetch a fresh token, retry once with the refreshed header, and then stop.
 - Added `retries unsafe CSRF failures once with a refreshed token` in `frontend/src/app/core/auth/auth-session.interceptor.spec.ts`.
+- Added an Angular-only Playwright screenshot regression for the approved P0 targets in `tests/ui/angular-smoke.spec.ts`.
+- Updated `tests/ui/run-angular-playwright.mjs` to forward optional Playwright arguments while preserving the default full-suite behavior.
 
 ## Screenshot Baseline Decision
 
-No screenshot baselines were used or added.
+Angular-approved screenshot baselines were added for the remaining P0 screenshot blocker.
 
-Reason: `docs/verification/mvp-a/frontend-ci-stages.md` says this Angular smoke lane has no blocking screenshot baselines yet, and `playwright.config.ts` points future approved snapshots to `tests/ui/__angular_snapshots__/`. The scan in `12-screenshot-baseline-scan.log` found no Angular snapshot images. Creating new baselines during this verification would make unreviewed images authoritative, so this pass kept screenshot regression pending.
+Approved targets:
+
+- `tests/ui/__angular_snapshots__/angular-smoke.spec.ts/desktop-shell-workspaces.png`: `/app/workspaces`, `chromium-desktop`, 1280x900 desktop shell.
+- `tests/ui/__angular_snapshots__/angular-smoke.spec.ts/mobile-shell-workspaces-drawer.png`: `/app/workspaces`, `chromium-mobile`, 390x844 mobile shell with drawer open.
+- `tests/ui/__angular_snapshots__/angular-smoke.spec.ts/permission-denied-state.png`: `/permission-denied`, `chromium-desktop`, 1280x900 permission-denied state.
+
+No obsolete legacy static SPA baselines were added. The skipped `tests/ui/app.spec.ts` placeholder remains labeled non-P0 and did not receive snapshots.
+
+Evidence:
+
+- Baseline generation: `docs/evidence/mvp-a/frontend-final-2026-07-03/18b-screenshot-baseline-update-after-mobile-tightening.log`
+- Targeted screenshot regression: `docs/evidence/mvp-a/frontend-final-2026-07-03/19-screenshot-regression.log`
+- Full Angular UI run: `docs/evidence/mvp-a/frontend-final-2026-07-03/20-root-angular-playwright-with-screenshot-baselines.log`
+- Baseline file list: `docs/evidence/mvp-a/frontend-final-2026-07-03/21-screenshot-baseline-file-list.log`
+- Final diff check: `docs/evidence/mvp-a/frontend-final-2026-07-03/22-git-diff-check.log`
 
 Generated Playwright artifacts:
 
@@ -90,10 +109,9 @@ No backend automated test blocker remained in this pass: the full backend test c
 
 Backend authorization remains mandatory and is not replaced by UI hiding. Live product Go still depends on keeping the backend authorization, tenancy, CSRF, file, messaging, audit, and PostgreSQL checks green in CI and on closing any separate live API-binding gaps tracked outside this final Angular mock verification.
 
-## Remaining Frontend Blockers
+## Remaining Frontend Watch Items
 
-- Screenshot regression is pending until Angular-approved baselines are reviewed and committed.
-- The production Angular build still reports a non-fatal initial bundle budget warning: initial bundle is about 663 kB against the 500 kB budget.
+- The production Angular build still reports a non-fatal initial bundle budget warning: initial bundle is about 663 kB against the 500 kB budget. This remains a watch item, not a P0 blocker, because the configured build completed successfully.
 - The first post-fix unit run timed out in four existing specs under host load, then the exact rerun passed 125/125. Treat this as an environment-performance warning unless it repeats in CI.
 
 ## Evidence Paths

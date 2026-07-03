@@ -1,0 +1,24 @@
+
+> aipsite-nyg-ui-tests@0.0.0 test:ui:angular
+> node tests/ui/run-angular-playwright.mjs tests/ui/angular-smoke.spec.ts --grep matches approved Angular P0 screenshot baselines
+
+Serving C:\Users\satos\Documents\GitHub\AIPsiteNYG\frontend\dist\aipportal-web at http://127.0.0.1:4173
+(node:16628) [DEP0205] DeprecationWarning: `module.register()` is deprecated. Use `module.registerHooks()` instead.
+(Use `node --trace-deprecation ...` to show where the warning was created)
+
+Running 2 tests using 2 workers
+
+(node:1208) Warning: The 'NO_COLOR' env is ignored due to the 'FORCE_COLOR' env being set.
+(Use `node --trace-warnings ...` to show where the warning was created)
+(node:18076) Warning: The 'NO_COLOR' env is ignored due to the 'FORCE_COLOR' env being set.
+(Use `node --trace-warnings ...` to show where the warning was created)
+(node:1208) [DEP0205] DeprecationWarning: `module.register()` is deprecated. Use `module.registerHooks()` instead.
+(node:18076) [DEP0205] DeprecationWarning: `module.register()` is deprecated. Use `module.registerHooks()` instead.
+(node:1208) Warning: The 'NO_COLOR' env is ignored due to the 'FORCE_COLOR' env being set.
+(Use `node --trace-warnings ...` to show where the warning was created)
+(node:18076) Warning: The 'NO_COLOR' env is ignored due to the 'FORCE_COLOR' env being set.
+(Use `node --trace-warnings ...` to show where the warning was created)
+  ok 1 [chromium-mobile] › tests\ui\angular-smoke.spec.ts:177:3 › MVP-A P0 Angular frontend smoke › matches approved Angular P0 screenshot baselines (5.9s)
+  ok 2 [chromium-desktop] › tests\ui\angular-smoke.spec.ts:177:3 › MVP-A P0 Angular frontend smoke › matches approved Angular P0 screenshot baselines (6.9s)
+
+  2 passed (13.0s)

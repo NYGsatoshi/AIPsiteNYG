@@ -1,4 +1,4 @@
-import { expect, type Locator, type Page, test } from '@playwright/test';
+import { expect, type Locator, type Page, type TestInfo, test } from '@playwright/test';
 import { expectNoAccessibilityViolations } from './a11y';
 
 const coreResponsiveRoutes = [
@@ -173,6 +173,33 @@ test.describe('MVP-A P0 Angular frontend smoke', () => {
     await expect(body).not.toContainText('Support User');
     await expectHealthyAngularPage(page);
   });
+
+  test('matches approved Angular P0 screenshot baselines', async ({ page }, testInfo) => {
+    if (testInfo.project.name === 'chromium-desktop') {
+      await page.setViewportSize({ width: 1280, height: 900 });
+      await page.goto('/app/workspaces');
+      await expect(page.getByTestId('workspace-dashboard')).toBeVisible();
+      await expectStableScreenshot(page, testInfo, 'desktop-shell-workspaces.png');
+
+      await page.goto('/permission-denied');
+      await expect(page.getByTestId('permission-denied-state')).toBeVisible();
+      await expectStableScreenshot(page, testInfo, 'permission-denied-state.png');
+      return;
+    }
+
+    if (testInfo.project.name === 'chromium-mobile') {
+      await page.setViewportSize({ width: 390, height: 844 });
+      await page.goto('/app/workspaces');
+      await expect(page.getByTestId('mobile-header')).toBeVisible();
+      await page.getByTestId('mobile-nav-toggle').click();
+      await expect(page.getByTestId('mobile-navigation')).toHaveAttribute('aria-hidden', 'false');
+      await expect(page.getByTestId('workspace-dashboard')).toBeVisible();
+      await expectStableScreenshot(page, testInfo, 'mobile-shell-workspaces-drawer.png', { fullPage: false });
+      return;
+    }
+
+    throw new Error(`Unexpected Playwright project for Angular screenshots: ${testInfo.project.name}`);
+  });
 });
 
 async function expectHealthyAngularPage(page: Page) {
@@ -213,4 +240,23 @@ async function expectNoDocumentHorizontalOverflow(page: Page) {
 
   expect(overflow.documentScrollWidth).toBeLessThanOrEqual(overflow.viewportWidth);
   expect(overflow.bodyScrollWidth).toBeLessThanOrEqual(overflow.viewportWidth);
+}
+
+async function expectStableScreenshot(
+  page: Page,
+  testInfo: TestInfo,
+  name: string,
+  options: { fullPage?: boolean } = {}
+) {
+  await page.evaluate(() => document.fonts?.ready);
+  testInfo.annotations.push({
+    type: 'Angular P0 screenshot baseline',
+    description: name
+  });
+  await expect(page).toHaveScreenshot(name, {
+    animations: 'disabled',
+    caret: 'hide',
+    fullPage: options.fullPage ?? true,
+    scale: 'css'
+  });
 }
