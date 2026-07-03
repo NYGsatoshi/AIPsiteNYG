@@ -8,7 +8,7 @@
     "test": "npm run test:ui",
     "test:ui": "npm run test:ui:angular",
     "test:ui:angular": "node tests/ui/run-angular-playwright.mjs",
-    "test:ui:angular:docker": "docker compose -f docker-compose.playwright.yml run --rm angular-playwright"
+    "test:ui:angular:docker": "docker compose -f docker-compose.playwright.yml run --build --rm angular-playwright"
   },
   "devDependencies": {
     "@axe-core/playwright": "^4.10.2",

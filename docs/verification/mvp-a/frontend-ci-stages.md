@@ -35,6 +35,8 @@ verification must use `npm run test:ui:angular:docker`, which pins the Linux
 Playwright browser/runtime to the repository's locked `@playwright/test`
 version. Do not approve screenshot baselines generated from Windows or macOS
 host-native Playwright runs.
+GitHub Actions screenshot failures remain Conditional Go until the same
+regression passes again in this Linux Playwright environment.
 
 Screenshot failures are blocking for hidden action exposure, hidden route
 exposure, unusable primary navigation, permission/session screen breakage,

@@ -118,11 +118,15 @@ They do **not** verify:
 - applies EF migrations;
 - sets `POSTGRES_TEST_CONNECTION_STRING`;
 - runs .NET tests;
-- installs Node dependencies and Playwright Chromium;
-- runs UI tests;
+- installs Node dependencies;
+- runs Angular Playwright smoke in the pinned Linux Docker runner;
 - runs Gitleaks, .NET package reports, Compose validation, Docker build, and Trivy.
 
 This is configuration evidence. Check the actual GitHub Actions run before claiming a branch is green.
+
+Angular screenshot baselines remain strict. Local Windows/macOS Playwright runs
+are diagnostic only; baseline approval and CI-parity reruns must use the pinned
+Linux Docker runner via `npm run test:ui:angular:docker`.
 
 ## Commands
 
@@ -155,9 +159,21 @@ npm --prefix frontend run build
 npm run test:ui
 ```
 
+Linux screenshot parity:
+
+```bash
+npm run test:ui:angular:docker
+```
+
+Use the Linux runner for screenshot baseline approval. Do not approve
+Windows/macOS host-native screenshots as authoritative baselines.
+
 Compose syntax:
 
 ```bash
+docker compose -f docker-compose.db.yml config --quiet
+docker compose -f docker-compose.dev.yml config --quiet
+docker compose -f docker-compose.playwright.yml config --quiet
 POSTGRES_PASSWORD=validation_only docker compose config --quiet
 docker compose -f docker-compose.local.yml config --quiet
 POSTGRES_PASSWORD=validation_only docker compose -f docker-compose.onprem.yml config --quiet

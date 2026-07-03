@@ -205,6 +205,9 @@ jobs:
           POSTGRES_PASSWORD: ci_dummy_password
           LOCAL_ADMIN_PASSWORD: ci_dummy_local_admin_password
         run: |
+          docker compose -f docker-compose.db.yml config --quiet
+          docker compose -f docker-compose.dev.yml config --quiet
+          docker compose -f docker-compose.playwright.yml config --quiet
           docker compose config --quiet
           docker compose -f docker-compose.local.yml config --quiet
           docker compose -f docker-compose.onprem.yml config --quiet

@@ -1,0 +1,22 @@
+# Recommended default Docker usage for contributors: PostgreSQL only.
+services:
+  postgres:
+    image: postgres:18-alpine
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: ${POSTGRES_DB:-aip_portal_dev}
+      POSTGRES_USER: ${POSTGRES_USER:-aip_portal}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-aip_portal_dev_password}
+    ports:
+      - "${POSTGRES_DEV_HOST_PORT:-5433}:5432"
+    volumes:
+      - aip_db_pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U \"$${POSTGRES_USER}\" -d \"$${POSTGRES_DB}\""]
+      interval: 5s
+      timeout: 5s
+      retries: 20
+      start_period: 5s
+
+volumes:
+  aip_db_pgdata:

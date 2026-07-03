@@ -5,9 +5,9 @@ Last verified: 2026-06-18.
 ## Prerequisites
 
 - .NET 10 SDK.
-- PostgreSQL supported by the current Npgsql package.
-- Node.js 24 for the CI-equivalent UI test workflow.
-- Docker/Compose when using container profiles.
+- PostgreSQL supported by the current Npgsql package, either host-native or through `docker-compose.db.yml`.
+- Node.js 24 for the Angular workspace and CI-equivalent UI test workflow.
+- Docker/Compose for the recommended PostgreSQL-only mode, optional full-container development, and Linux Playwright parity.
 
 The repository pins `dotnet-ef` 10.0.8 in both `dotnet-tools.json` and `.config/dotnet-tools.json`.
 
@@ -27,11 +27,17 @@ dotnet build AipPortal.slnx --disable-build-servers -m:1
 
 ## Database setup
 
-Set a real local PostgreSQL connection string:
+Recommended default: start PostgreSQL only in Docker.
 
 ```bash
-export ConnectionStrings__DefaultConnection='Host=localhost;Port=5432;Database=aip_portal_dev;Username=aip_portal;Password=<local-password>'
+docker compose -f docker-compose.db.yml up -d
 ```
+
+`src/AipPortal.Web/appsettings.Development.json` points to that container on
+`localhost:5433` with safe development-only credentials. If you want a
+different local PostgreSQL instance, override
+`ConnectionStrings__DefaultConnection` before applying migrations or starting
+the app.
 
 Apply migrations:
 
@@ -61,6 +67,17 @@ Development defaults use:
 - `PlatformAdminSetupMode=true`.
 
 Important: setup mode does not create an administrator. It is currently only a configuration value rejected in production.
+
+Run the Angular dev server on the host:
+
+```bash
+cd frontend
+npm ci
+npm run start
+```
+
+`frontend/proxy.conf.json` targets the backend at `http://localhost:5098`,
+which matches `src/AipPortal.Web/Properties/launchSettings.json`.
 
 ## Angular hosted by ASP.NET Core
 
@@ -98,22 +115,23 @@ not fall back to Angular: `/api/*`, `/health`, `/health/live`,
 `/health/ready`, `/healthz`, `/metrics`, `/swagger/*`, `/hangfire/*`,
 `/signin-google`, `/auth/callback/*`, and `/favicon.ico`.
 
-## Local Compose
+## Optional full Docker development
 
 ```bash
 cp .env.example .env
-docker compose -f docker-compose.local.yml up --build
+docker compose -f docker-compose.dev.yml up --build
 ```
 
-This profile:
+This optional profile:
 
 - starts PostgreSQL;
-- runs EF migrations in a separate SDK container;
-- starts the app as `OnPremSingleTenant`;
-- seeds the default tenant and plans;
-- stores uploaded files in a Docker volume.
+- starts the backend and frontend in containers;
+- uses the same safe development-only PostgreSQL defaults as the lightweight mode;
+- uses polling-based file watching for Windows Docker Desktop compatibility.
 
-It does not seed users or a first administrator. A fresh environment therefore lacks a supported login/bootstrap path.
+It is not the default contributor path and can be slower on Windows Docker Desktop because the backend and frontend both watch bind-mounted files.
+
+See [README.dev-env.md](../README.dev-env.md) for the lightweight mode, the optional full-container mode, and the Linux Playwright parity runner.
 
 ## Seed behavior
 

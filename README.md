@@ -58,29 +58,40 @@ docs/archive/                Historical plans, reports, specifications, and stat
 Requirements:
 
 - .NET 10 SDK
-- PostgreSQL
-- Node.js 24 for the UI test workflow
-- Docker and Docker Compose for container workflows
+- Node.js 24 for the Angular dev server and UI test workflow
+- Docker and Docker Compose for the recommended PostgreSQL-only mode, optional full-container development, and Linux Playwright screenshot parity
+
+Recommended first-time local setup:
 
 ```bash
 dotnet restore AipPortal.slnx
 dotnet tool restore
+docker compose -f docker-compose.db.yml up -d
 dotnet ef database update \
   --project src/AipPortal.Infrastructure \
   --startup-project src/AipPortal.Web
-dotnet run --project src/AipPortal.Web
+cd frontend && npm ci
 ```
 
-Set `ConnectionStrings__DefaultConnection` to a PostgreSQL connection string with valid credentials before applying migrations or starting the app.
+Recommended day-to-day local development:
 
-For the local Compose profile:
+```bash
+dotnet run --project src/AipPortal.Web
+cd frontend && npm run start
+```
+
+`src/AipPortal.Web/appsettings.Development.json` now points to the Docker PostgreSQL-only profile on `localhost:5433` with safe development-only credentials. Override `ConnectionStrings__DefaultConnection` if you want to use a different local PostgreSQL instance.
+
+Full application Docker is optional. Use it only when you specifically want the whole stack containerized:
 
 ```bash
 cp .env.example .env
-docker compose -f docker-compose.local.yml up --build
+docker compose -f docker-compose.dev.yml up --build
 ```
 
-The local profile migrates the database and seeds a default tenant. In `Development`, it can also seed a local administrator from the `LOCAL_ADMIN_*` values in `.env`.
+Use `npm run test:ui:angular:docker` when you need Linux Playwright screenshot parity with GitHub Actions. Windows and macOS host-native screenshots are not authoritative for baseline approval.
+
+See [README.dev-env.md](README.dev-env.md) for the three supported contributor modes and exact commands.
 
 ## GCP Compute Engine development deployment
 

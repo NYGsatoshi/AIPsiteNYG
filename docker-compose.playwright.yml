@@ -1,7 +1,10 @@
+# Optional CI-parity runner for local Angular screenshot verification.
+# Do not approve Windows/macOS host-native screenshot baselines; use this Linux runner or GitHub Actions.
 services:
   angular-playwright:
-    # Keep this tag aligned with the exact package-lock.json @playwright/test version.
-    image: mcr.microsoft.com/playwright:v1.60.0-noble
+    build:
+      context: .
+      dockerfile: Dockerfile.playwright
     working_dir: /work
     environment:
       CI: "true"
