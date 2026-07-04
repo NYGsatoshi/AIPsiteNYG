@@ -37,11 +37,11 @@ run_compose exec -T app sh -lc 'hostname -i' || true
 
 echo ""
 echo "== postgres readiness =="
-run_compose exec -T postgres sh -lc 'pg_isready -U "${POSTGRES_USER}" -d "${POSTGRES_DB}"'
+run_compose exec -T postgres sh -lc 'pg_isready -U "${DB_USER}" -d "${DB_NAME}"'
 
 echo ""
 echo "== postgres connection =="
-run_compose exec -T postgres sh -lc 'psql -U "${POSTGRES_USER}" -d "${POSTGRES_DB}" -c "select current_database(), current_user, now();"'
+run_compose exec -T postgres sh -lc 'psql -U "${DB_USER}" -d "${DB_NAME}" -c "select current_database(), current_user, now();"'
 
 echo ""
 echo "== disk =="

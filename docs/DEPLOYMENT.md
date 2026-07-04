@@ -121,6 +121,8 @@ dotnet ef migrations script \
 
 The app checks for pending migrations in `/health/ready` but does not apply them.
 
+For container deployments, the application reads the PostgreSQL connection string from `ConnectionStrings__DefaultConnection`. The production Compose files in this repository assemble that value from `DB_HOST`, `DB_NAME`, `DB_USER`, and `DB_PASSWORD`, and they provision the PostgreSQL container with the same `DB_NAME` / `DB_USER` / `DB_PASSWORD` values to keep the migration and web containers aligned.
+
 ## Frontend static hosting
 
 Production static hosting serves Angular build artifacts from

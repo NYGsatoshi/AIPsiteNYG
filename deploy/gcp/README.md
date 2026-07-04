@@ -9,7 +9,7 @@ For production, put the app behind Nginx or another reverse proxy with HTTPS, or
 - Compose services: `app`, `migrate`, `postgres`
 - App port inside Docker: `8080`
 - External development port: `${AIP_PORTAL_PORT:-8080}`
-- Database host from the app container: `postgres`
+- Database host from the app container: `db` (provided as an alias for the `postgres` service)
 - Database name/user defaults: `aip_portal` / `aip_portal`
 - Database password: generated into `/opt/aipsite/.env` by `deploy-app.sh`
 - EF Core migrations: applied by the `migrate` service before `app` starts
@@ -134,9 +134,10 @@ The volume reset is destructive and intended only for development.
 Important values:
 
 ```text
-POSTGRES_DB=aip_portal
-POSTGRES_USER=aip_portal
-POSTGRES_PASSWORD=<generated>
+DB_HOST=db
+DB_NAME=aip_portal
+DB_USER=aip_portal
+DB_PASSWORD=<generated>
 AIP_PORTAL_PORT=8080
 ASPNETCORE_ENVIRONMENT=Development
 TENANCY_APP_MODE=OnPremSingleTenant
@@ -148,17 +149,17 @@ LOCAL_ADMIN_EMAIL=admin@example.com
 LOCAL_ADMIN_PASSWORD=<generated>
 ```
 
-Change `POSTGRES_PASSWORD` only when creating a fresh database volume, or update the PostgreSQL user password inside the existing database first.
+Change `DB_PASSWORD` only when creating a fresh database volume, or update the PostgreSQL user password inside the existing database first.
 
 The repository `.env.example` contains only dummy local-development values. On GCP, prefer letting `deploy-app.sh` generate `.env` on the VM.
 
 ## Common errors
 
-`POSTGRES_PASSWORD` is not set:
-Run `bash ~/aipsite-gcp/gcp/deploy-app.sh`; it creates `.env`. If you write `.env` manually, include `POSTGRES_PASSWORD`.
+`DB_PASSWORD` is not set:
+Run `bash ~/aipsite-gcp/gcp/deploy-app.sh`; it creates `.env`. If you write `.env` manually, include `DB_PASSWORD`.
 
 PostgreSQL connection fails:
-In Docker, the DB host must be `postgres`, not `localhost`. Check `ConnectionStrings__DefaultConnection` in `docker-compose.yml`.
+In Docker, the DB host must be `db`, not `localhost`. Check `ConnectionStrings__DefaultConnection` in `docker-compose.yml` and confirm `DB_USER` matches the existing database owner/user.
 
 App waits forever or exits during startup:
 Check `docker compose logs migrate` first. The `app` service waits for PostgreSQL health and completed EF Core migrations.

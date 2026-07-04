@@ -174,9 +174,9 @@ Compose syntax:
 docker compose -f docker-compose.db.yml config --quiet
 docker compose -f docker-compose.dev.yml config --quiet
 docker compose -f docker-compose.playwright.yml config --quiet
-POSTGRES_PASSWORD=validation_only docker compose config --quiet
+DB_PASSWORD=validation_only docker compose config --quiet
 docker compose -f docker-compose.local.yml config --quiet
-POSTGRES_PASSWORD=validation_only docker compose -f docker-compose.onprem.yml config --quiet
+DB_PASSWORD=validation_only docker compose -f docker-compose.onprem.yml config --quiet
 ```
 
 ## Coverage gaps

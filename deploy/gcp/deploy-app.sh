@@ -17,7 +17,7 @@ run_compose() {
 wait_for_postgres() {
   echo "Waiting for PostgreSQL health..."
   for attempt in $(seq 1 60); do
-    if run_compose exec -T postgres sh -lc 'pg_isready -U "${POSTGRES_USER}" -d "${POSTGRES_DB}"' >/dev/null 2>&1; then
+    if run_compose exec -T postgres sh -lc 'pg_isready -U "${DB_USER}" -d "${DB_NAME}"' >/dev/null 2>&1; then
       return 0
     fi
     sleep 2
@@ -51,9 +51,10 @@ if [ ! -f .env ]; then
   POSTGRES_PASSWORD_VALUE="$(random_secret)"
   LOCAL_ADMIN_PASSWORD_VALUE="$(random_secret)"
   cat > .env <<EOF_ENV
-POSTGRES_DB=aip_portal
-POSTGRES_USER=aip_portal
-POSTGRES_PASSWORD=${POSTGRES_PASSWORD_VALUE}
+DB_HOST=db
+DB_NAME=aip_portal
+DB_USER=aip_portal
+DB_PASSWORD=${POSTGRES_PASSWORD_VALUE}
 AIP_PORTAL_PORT=8080
 FILE_STORAGE_MAX_FILE_SIZE_BYTES=52428800
 ASPNETCORE_ENVIRONMENT=Development
