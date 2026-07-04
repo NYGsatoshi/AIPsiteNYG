@@ -1,11 +1,17 @@
 import { Routes } from '@angular/router';
 
+import { authSessionGuard } from './core/auth/auth-session.guard';
 import { PagePlaceholderComponent } from './core/routing/page-placeholder.component';
 import { SessionExpiredPageComponent } from './core/session/session-expired-page.component';
 import { AppShellComponent } from './layout/app-shell/app-shell.component';
 import { AppPermissionDeniedComponent } from './shared/permission/app-permission-denied/app-permission-denied.component';
 
 export const routes: Routes = [
+  {
+    path: 'signin',
+    pathMatch: 'full',
+    redirectTo: 'login'
+  },
   {
     path: 'login',
     component: PagePlaceholderComponent,
@@ -31,8 +37,9 @@ export const routes: Routes = [
     component: AppPermissionDeniedComponent
   },
   {
-    path: 'app',
+    path: '',
     component: AppShellComponent,
+    canActivate: [authSessionGuard],
     children: [
       {
         path: '',
@@ -121,11 +128,6 @@ export const routes: Routes = [
           )
       }
     ]
-  },
-  {
-    path: '',
-    pathMatch: 'full',
-    redirectTo: 'app/workspaces'
   },
   {
     path: '**',

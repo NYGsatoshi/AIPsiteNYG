@@ -81,7 +81,7 @@ const conversations = [
     id: 'channel-general',
     kind: 'channel' as const,
     title: '学習連絡チャンネル',
-    route: '/app/workspaces/workspace-mock-a/channels/channel-general',
+    route: '/workspaces/workspace-mock-a/channels/channel-general',
     lastActivityLabel: '09:05',
     safePreviewLabel: '本日の共有事項をここにまとめます。',
     viewerIsParticipant: true,
@@ -91,7 +91,7 @@ const conversations = [
     id: 'dm-support-a',
     kind: 'dm' as const,
     title: 'サポート担当とのDM',
-    route: '/app/dm/dm-support-a',
+    route: '/dm/dm-support-a',
     lastActivityLabel: '08:40',
     safePreviewLabel: 'DMプレビューは参加者ルート内でのみ表示',
     viewerIsParticipant: true

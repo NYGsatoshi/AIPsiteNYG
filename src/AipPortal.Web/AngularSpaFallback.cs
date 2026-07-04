@@ -5,6 +5,7 @@ namespace AipPortal.Web;
 public static class AngularSpaFallback
 {
     public const string BuildMarkerFileName = "angular-app.marker";
+    public const string AppRequestPath = "/app";
 
     private static readonly PathString[] BackendOwnedPrefixes =
     [
@@ -25,8 +26,12 @@ public static class AngularSpaFallback
     public static bool IsBackendOwnedPath(PathString path) =>
         BackendOwnedPrefixes.Any(prefix => path.StartsWithSegments(prefix, StringComparison.OrdinalIgnoreCase));
 
+    public static bool IsAppPath(PathString path) =>
+        path.Equals(new PathString(AppRequestPath), StringComparison.OrdinalIgnoreCase) ||
+        path.StartsWithSegments(new PathString(AppRequestPath), StringComparison.OrdinalIgnoreCase);
+
     public static bool IsAngularIndexPath(PathString path) =>
-        path.Equals(new PathString("/index.html"), StringComparison.OrdinalIgnoreCase);
+        path.Equals(new PathString($"{AppRequestPath}/index.html"), StringComparison.OrdinalIgnoreCase);
 
     public static bool HasAngularBuild(string webRootPath) =>
         File.Exists(Path.Combine(webRootPath, "index.html")) &&
@@ -35,6 +40,7 @@ public static class AngularSpaFallback
     public static bool CanServeAngularFallback(HttpRequest request, string webRootPath) =>
         (HttpMethods.IsGet(request.Method) || HttpMethods.IsHead(request.Method)) &&
         HasAngularBuild(webRootPath) &&
+        IsAppPath(request.Path) &&
         !IsBackendOwnedPath(request.Path) &&
         !LooksLikeStaticAssetPath(request.Path);
 

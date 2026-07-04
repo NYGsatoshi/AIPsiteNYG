@@ -14,16 +14,18 @@ public sealed class AngularSpaFallbackTests : IDisposable
     }
 
     [Theory]
-    [InlineData("/")]
-    [InlineData("/login")]
-    [InlineData("/register/invite")]
-    [InlineData("/workspaces")]
-    [InlineData("/projects")]
-    [InlineData("/conversations")]
-    [InlineData("/admin")]
-    [InlineData("/account")]
-    [InlineData("/files")]
-    [InlineData("/notifications")]
+    [InlineData("/app")]
+    [InlineData("/app/")]
+    [InlineData("/app/login")]
+    [InlineData("/app/register/invite")]
+    [InlineData("/app/workspaces")]
+    [InlineData("/app/dashboard")]
+    [InlineData("/app/projects")]
+    [InlineData("/app/conversations")]
+    [InlineData("/app/admin")]
+    [InlineData("/app/account")]
+    [InlineData("/app/files")]
+    [InlineData("/app/notifications")]
     public void UserFacingRoutesCanFallBackToAngularWhenBuildExists(string path)
     {
         WriteAngularBuild();
@@ -33,6 +35,10 @@ public sealed class AngularSpaFallbackTests : IDisposable
     }
 
     [Theory]
+    [InlineData("/")]
+    [InlineData("/login")]
+    [InlineData("/register/invite")]
+    [InlineData("/workspaces")]
     [InlineData("/api/not-found")]
     [InlineData("/health")]
     [InlineData("/health/live")]
@@ -55,7 +61,7 @@ public sealed class AngularSpaFallbackTests : IDisposable
     public void UserFacingRoutesDoNotFallBackToLegacyWwwrootWithoutAngularMarker()
     {
         File.WriteAllText(Path.Combine(webRootPath, "index.html"), "<html>legacy</html>");
-        var context = CreateContext("/login");
+        var context = CreateContext("/app/login");
 
         Assert.False(AngularSpaFallback.CanServeAngularFallback(context.Request, webRootPath));
     }
@@ -64,7 +70,7 @@ public sealed class AngularSpaFallbackTests : IDisposable
     public void StaticAssetMissesDoNotFallBackToAngular()
     {
         WriteAngularBuild();
-        var context = CreateContext("/assets/missing.js");
+        var context = CreateContext("/app/assets/missing.js");
 
         Assert.False(AngularSpaFallback.CanServeAngularFallback(context.Request, webRootPath));
     }

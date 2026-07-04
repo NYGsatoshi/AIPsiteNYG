@@ -27,6 +27,6 @@ RUN apt-get update \
     && rm -rf /var/lib/apt/lists/* \
     && mkdir -p /app/storage/uploads
 COPY --from=build /app/publish .
-ENV ASPNETCORE_URLS=http://+:8080
+ENV PORT=8080
 EXPOSE 8080
-ENTRYPOINT ["dotnet", "AipPortal.Web.dll"]
+ENTRYPOINT ["sh", "-c", "exec dotnet AipPortal.Web.dll --urls http://0.0.0.0:${PORT:-8080}"]

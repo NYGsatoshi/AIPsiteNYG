@@ -1,7 +1,7 @@
 @let vm = page();
 
 <section class="task-detail-page" data-testid="task-detail-page">
-  <a class="task-detail-page__back" routerLink="/app/projects">Back to projects</a>
+  <a class="task-detail-page__back" routerLink="/projects">Back to projects</a>
 
   @if (vm.status === 'loading') {
     <app-inline-loading label="Loading task" />

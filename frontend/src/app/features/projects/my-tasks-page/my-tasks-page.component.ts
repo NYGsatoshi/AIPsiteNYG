@@ -25,7 +25,7 @@ export class MyTasksPageComponent {
 
   handleTaskAction(event: AppDataGridActionEvent<TaskGridRow>): void {
     if (event.actionId === 'openDetail') {
-      void this.router.navigate(['/app/projects', event.row.projectId, 'tasks', event.row.id]);
+      void this.router.navigate(['/projects', event.row.projectId, 'tasks', event.row.id]);
       return;
     }
 

@@ -6,6 +6,7 @@ import path from "node:path";
 const root = path.resolve(process.env.PLAYWRIGHT_STATIC_ROOT ?? path.join(process.cwd(), "frontend/dist/aipportal-web"));
 const host = argValue("--host") ?? process.env.PLAYWRIGHT_HOST ?? "127.0.0.1";
 const port = Number(argValue("--port") ?? process.env.PLAYWRIGHT_PORT ?? 4173);
+const appPath = "/app";
 
 function argValue(name) {
   const index = process.argv.indexOf(name);
@@ -27,6 +28,18 @@ function safePath(pathname) {
   const relativePath = pathname === "/" ? "index.html" : pathname.slice(1);
   const filePath = path.resolve(root, relativePath);
   return filePath.startsWith(root + path.sep) || filePath === root ? filePath : null;
+}
+
+function frontendPath(pathname) {
+  if (pathname === appPath || pathname === `${appPath}/`) {
+    return "/";
+  }
+
+  if (pathname.startsWith(`${appPath}/`)) {
+    return pathname.slice(appPath.length);
+  }
+
+  return null;
 }
 
 async function existingFile(filePath) {
@@ -51,12 +64,58 @@ const server = createServer(async (request, response) => {
     return;
   }
 
+  if (pathname === "/") {
+    response.writeHead(302, { location: `${appPath}/` });
+    response.end();
+    return;
+  }
+
+  if (pathname === "/api/auth/me") {
+    response.writeHead(200, { "content-type": "application/json; charset=utf-8" });
+    response.end(JSON.stringify({
+      userId: "mock-user-a",
+      displayName: "Mock User A",
+      email: "mock-user-a@example.invalid",
+      systemRole: "TenantUser",
+      status: "Active"
+    }));
+    return;
+  }
+
+  if (pathname === "/api/auth/status") {
+    response.writeHead(200, { "content-type": "application/json; charset=utf-8" });
+    response.end(JSON.stringify({
+      isAuthenticated: true,
+      user: {
+        userId: "mock-user-a",
+        displayName: "Mock User A",
+        email: "mock-user-a@example.invalid",
+        systemRole: "TenantUser",
+        status: "Active"
+      }
+    }));
+    return;
+  }
+
+  if (pathname.startsWith("/api/")) {
+    response.writeHead(404, { "content-type": "application/json; charset=utf-8" });
+    response.end(JSON.stringify({ error: "Endpoint not found." }));
+    return;
+  }
+
   if (pathname.includes("\0")) {
     response.writeHead(400).end("Bad request");
     return;
   }
 
-  const requestedPath = safePath(pathname);
+  const appRelativePath = frontendPath(pathname);
+  if (!appRelativePath) {
+    response.writeHead(404, { "content-type": "text/plain; charset=utf-8" });
+    response.end("Not found");
+    return;
+  }
+
+  const requestedPath = safePath(appRelativePath);
   if (!requestedPath) {
     response.writeHead(403).end("Forbidden");
     return;
@@ -64,9 +123,9 @@ const server = createServer(async (request, response) => {
 
   let filePath = await existingFile(requestedPath);
   if (!filePath) {
-    if (pathname.startsWith("/api/")) {
-      response.writeHead(404, { "content-type": "application/json; charset=utf-8" });
-      response.end(JSON.stringify({ error: "Endpoint not found." }));
+    if (path.extname(appRelativePath)) {
+      response.writeHead(404, { "content-type": "text/plain; charset=utf-8" });
+      response.end("Not found");
       return;
     }
 

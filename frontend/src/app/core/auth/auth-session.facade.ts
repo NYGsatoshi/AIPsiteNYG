@@ -84,11 +84,13 @@ export const DEFAULT_AUTH_SESSION: AuthSessionSnapshot = {
   }
 };
 
+export const ANONYMOUS_AUTH_SESSION: AuthSessionSnapshot = createSessionSnapshot(null, null, 'anonymous', []);
+
 export const AIP_AUTH_SESSION_MOCK = new InjectionToken<AuthSessionSnapshot>('AIP_AUTH_SESSION_MOCK');
 
 @Injectable({ providedIn: 'root' })
 export class AuthSessionFacade {
-  private readonly initialSession = inject(AIP_AUTH_SESSION_MOCK, { optional: true }) ?? DEFAULT_AUTH_SESSION;
+  private readonly initialSession = inject(AIP_AUTH_SESSION_MOCK, { optional: true }) ?? ANONYMOUS_AUTH_SESSION;
   private readonly httpBackend = inject(HttpBackend, { optional: true });
   private readonly router = inject(Router, { optional: true });
   private readonly csrfTokens = inject(CsrfTokenService);
@@ -133,6 +135,19 @@ export class AuthSessionFacade {
       tap((user) => this.patchUser(user)),
       map(() => this.sessionState()),
       catchError(() => of(null))
+    );
+  }
+
+  validateServerSession(): Observable<AuthSessionSnapshot> {
+    const http = this.createBackendHttpClient();
+    if (!http) {
+      return of(this.sessionState());
+    }
+
+    return http.get<CurrentUserResponseDto>('/api/auth/me', { withCredentials: true }).pipe(
+      map((response) => mapCurrentUserResponse(response)),
+      tap((user) => this.patchUser(user)),
+      map(() => this.sessionState())
     );
   }
 
@@ -181,7 +196,12 @@ export class AuthSessionFacade {
 
   private patchUser(user: AuthCurrentUser): void {
     this.sessionState.update((session) =>
-      createSessionSnapshot(user, session.currentTenant, 'active', session.capabilities)
+      createSessionSnapshot(
+        user,
+        session.currentTenant,
+        'active',
+        session.capabilities.length > 0 ? session.capabilities : DEFAULT_AUTH_SESSION.capabilities
+      )
     );
   }
 

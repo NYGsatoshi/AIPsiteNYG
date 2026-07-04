@@ -13,7 +13,7 @@ const coreResponsiveRoutes = [
   '/app/admin/audit',
   '/app/admin/export-diagnostics',
   '/app/account',
-  '/register/invite'
+  '/app/register/invite'
 ];
 
 test.describe('MVP-A P0 Angular frontend smoke', () => {
@@ -33,7 +33,7 @@ test.describe('MVP-A P0 Angular frontend smoke', () => {
   });
 
   test('renders the Angular login/session placeholder route', async ({ page }) => {
-    await page.goto('/login');
+    await page.goto('/app/login');
 
     await expect(page.locator('app-root')).toBeVisible();
     await expect(page.getByTestId('page-placeholder')).toBeVisible();
@@ -52,15 +52,32 @@ test.describe('MVP-A P0 Angular frontend smoke', () => {
   });
 
   test('falls back to Angular index.html for unknown user-facing routes', async ({ page, request }) => {
-    const response = await request.get('/not-a-real-angular-route');
+    const response = await request.get('/app/not-a-real-angular-route');
 
     expect(response.status()).toBe(200);
     expect(response.headers()['content-type']).toContain('text/html');
     await expect(response.text()).resolves.toContain('<app-root');
 
-    await page.goto('/not-a-real-angular-route');
+    await page.goto('/app/not-a-real-angular-route');
     await expect(page.locator('app-root')).toBeVisible();
     await expect(page.getByTestId('page-placeholder')).toBeVisible();
+    await expectHealthyAngularPage(page);
+  });
+
+  test('redirects unauthenticated private route access to login', async ({ page }) => {
+    await page.route('**/api/auth/me', async (route) => {
+      await route.fulfill({
+        status: 401,
+        contentType: 'application/json; charset=utf-8',
+        body: JSON.stringify({ error: 'Unauthorized' })
+      });
+    });
+
+    await page.goto('/app/workspaces');
+
+    await expect(page).toHaveURL(/\/app\/login$/);
+    await expect(page.getByTestId('page-placeholder')).toBeVisible();
+    await expect(page.locator('app-shell')).toHaveCount(0);
     await expectHealthyAngularPage(page);
   });
 
@@ -161,7 +178,7 @@ test.describe('MVP-A P0 Angular frontend smoke', () => {
   }
 
   test('renders permission-denied shared state without session details', async ({ page }) => {
-    await page.goto('/permission-denied');
+    await page.goto('/app/permission-denied');
 
     await expect(page.locator('app-root')).toBeVisible();
     await expect(page.getByTestId('permission-denied-state')).toBeVisible();

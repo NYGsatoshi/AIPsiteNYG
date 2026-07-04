@@ -25,37 +25,37 @@ export const DEFAULT_NAVIGATION_ITEMS: readonly NavigationItem[] = [
   {
     id: 'workspaces',
     label: '場所',
-    route: '/app/workspaces',
+    route: '/workspaces',
     requiredCapability: 'workspace:view'
   },
   {
     id: 'announcements',
     label: 'お知らせ',
-    route: '/app/announcements',
+    route: '/announcements',
     requiredCapability: 'announcements:view'
   },
   {
     id: 'projects',
     label: '制作',
-    route: '/app/projects',
+    route: '/projects',
     requiredCapability: 'projects:view'
   },
   {
     id: 'files',
     label: 'ファイル',
-    route: '/app/files',
+    route: '/files',
     requiredCapability: 'files:view'
   },
   {
     id: 'account',
     label: '設定',
-    route: '/app/account',
+    route: '/account',
     requiredCapability: 'account:view'
   },
   {
     id: 'audit',
     label: '監査',
-    route: '/app/admin/audit',
+    route: '/admin/audit',
     requiredCapability: 'audit:view'
   }
 ];

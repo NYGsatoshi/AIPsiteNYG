@@ -151,7 +151,7 @@ describe('Admin audit and export mock UI', () => {
   afterEach(() => TestBed.resetTestingModule());
 
   it('registers target admin routes', () => {
-    const appRoute = routes.find((route) => route.path === 'app');
+    const appRoute = routes.find((route) => route.path === '' && route.children);
     const childPaths = appRoute?.children?.map((route) => route.path) ?? [];
 
     expect(childPaths).toContain('admin/audit');

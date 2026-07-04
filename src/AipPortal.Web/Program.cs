@@ -137,7 +137,7 @@ var webRootPath = app.Environment.WebRootPath ?? Path.Combine(app.Environment.Co
 
 app.Use(async (context, next) =>
 {
-    if (AngularSpaFallback.IsAngularIndexPath(context.Request.Path) &&
+    if ((AngularSpaFallback.IsAppPath(context.Request.Path) || AngularSpaFallback.IsAngularIndexPath(context.Request.Path)) &&
         !AngularSpaFallback.HasAngularBuild(webRootPath))
     {
         context.Response.StatusCode = StatusCodes.Status404NotFound;
@@ -147,7 +147,10 @@ app.Use(async (context, next) =>
     await next();
 });
 
-app.UseStaticFiles();
+app.UseStaticFiles(new StaticFileOptions
+{
+    RequestPath = AngularSpaFallback.AppRequestPath
+});
 
 app.UseMiddleware<TenantResolutionMiddleware>();
 if (securityOptions.EnableRateLimiting)
@@ -163,6 +166,8 @@ if (securityOptions.EnableCsrfProtection)
 app.UseAuthorization();
 
 app.MapControllers();
+
+app.MapGet("/", () => Results.Redirect($"{AngularSpaFallback.AppRequestPath}/", permanent: false));
 
 app.MapGet("/health", () => Results.Redirect("/health/ready", permanent: false));
 

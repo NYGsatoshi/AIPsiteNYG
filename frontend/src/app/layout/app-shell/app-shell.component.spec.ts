@@ -41,8 +41,8 @@ describe('AppShellComponent', () => {
     fixture.detectChanges();
 
     const element = fixture.nativeElement as HTMLElement;
-    expect(element.querySelector('a[href="/app/projects"]')).toBeTruthy();
-    expect(element.querySelector('a[href="/app/admin/audit"]')).toBeNull();
+    expect(element.querySelector('a[href="/projects"]')).toBeTruthy();
+    expect(element.querySelector('a[href="/admin/audit"]')).toBeNull();
   });
 
   it('does not expose hidden routes in mobile navigation', async () => {
@@ -55,8 +55,8 @@ describe('AppShellComponent', () => {
     const element = fixture.nativeElement as HTMLElement;
     const mobileDrawer = element.querySelector('.app-shell__mobile-drawer');
 
-    expect(mobileDrawer?.querySelector('a[href="/app/projects"]')).toBeTruthy();
-    expect(mobileDrawer?.querySelector('a[href="/app/admin/audit"]')).toBeNull();
+    expect(mobileDrawer?.querySelector('a[href="/projects"]')).toBeTruthy();
+    expect(mobileDrawer?.querySelector('a[href="/admin/audit"]')).toBeNull();
   });
 
   it('clears page-local search on route change', async () => {
