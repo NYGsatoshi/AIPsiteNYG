@@ -117,6 +117,11 @@ export const routes: Routes = [
           import('./features/admin/audit-log-page/audit-log-page.component').then((m) => m.AuditLogPageComponent)
       },
       {
+        path: 'admin/invites',
+        loadComponent: () =>
+          import('./features/admin/invite-admin-page/invite-admin-page.component').then((m) => m.InviteAdminPageComponent)
+      },
+      {
         path: 'admin/export-diagnostics',
         loadComponent: () =>
           import('./features/admin/export-diagnostics-page/export-diagnostics-page.component').then(

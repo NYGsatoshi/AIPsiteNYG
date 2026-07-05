@@ -7,4 +7,5 @@ public sealed record CurrentUserResponse(
     string DisplayName,
     string Email,
     SystemRole SystemRole,
-    UserStatus Status);
+    UserStatus Status,
+    IReadOnlyList<string> Capabilities);

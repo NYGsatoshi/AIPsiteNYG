@@ -6,6 +6,7 @@ export interface CurrentUserResponseDto {
   readonly email?: unknown;
   readonly systemRole?: unknown;
   readonly status?: unknown;
+  readonly capabilities?: unknown;
 }
 
 export interface LoginResponseDto extends CurrentUserResponseDto {
@@ -53,7 +54,8 @@ export function mapCurrentUserResponse(dto: CurrentUserResponseDto): AuthCurrent
     displayName: stringValue(dto.displayName),
     email: stringValue(dto.email),
     systemRole: enumValue(dto.systemRole),
-    status: enumValue(dto.status)
+    status: enumValue(dto.status),
+    capabilities: capabilityValues(dto.capabilities)
   };
 }
 
@@ -118,4 +120,12 @@ function enumOrNumberValue(value: unknown): string | number {
   }
 
   return '';
+}
+
+function capabilityValues(value: unknown): string[] {
+  if (!Array.isArray(value)) {
+    return [];
+  }
+
+  return value.filter((item): item is string => typeof item === 'string' && item.length > 0);
 }

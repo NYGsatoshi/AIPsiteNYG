@@ -24,39 +24,45 @@ export interface AppShellMockState {
 export const DEFAULT_NAVIGATION_ITEMS: readonly NavigationItem[] = [
   {
     id: 'workspaces',
-    label: '場所',
+    label: 'Workspaces',
     route: '/workspaces',
     requiredCapability: 'workspace:view'
   },
   {
     id: 'announcements',
-    label: 'お知らせ',
+    label: 'Announcements',
     route: '/announcements',
     requiredCapability: 'announcements:view'
   },
   {
     id: 'projects',
-    label: '制作',
+    label: 'Projects',
     route: '/projects',
     requiredCapability: 'projects:view'
   },
   {
     id: 'files',
-    label: 'ファイル',
+    label: 'Files',
     route: '/files',
     requiredCapability: 'files:view'
   },
   {
     id: 'account',
-    label: '設定',
+    label: 'Account',
     route: '/account',
     requiredCapability: 'account:view'
   },
   {
     id: 'audit',
-    label: '監査',
+    label: 'Audit',
     route: '/admin/audit',
     requiredCapability: 'audit:view'
+  },
+  {
+    id: 'invites',
+    label: 'Invites',
+    route: '/admin/invites',
+    requiredCapability: 'invite:read'
   }
 ];
 

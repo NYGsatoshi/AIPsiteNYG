@@ -1,0 +1,101 @@
+<section class="admin-invites" data-testid="invite-admin-page">
+  <header class="admin-invites__header">
+    <div>
+      <p class="admin-invites__eyebrow">Live API data</p>
+      <h1>Invites</h1>
+    </div>
+    <button type="button" class="admin-invites__refresh" (click)="load()">Refresh</button>
+  </header>
+
+  @if (status() === 'loading') {
+    <app-inline-loading label="Loading invites" />
+  } @else if (status() === 'permissionDenied') {
+    <app-permission-denied [title]="message() ?? 'Admin access is required.'" />
+  } @else if (status() === 'error') {
+    <app-empty-state title="Invite API request failed" [message]="message() ?? 'Try again after checking the backend.'" />
+  } @else if (status() === 'empty') {
+    <app-empty-state title="No workspace available" message="Create or seed a workspace before issuing invites." />
+  } @else {
+    <form class="admin-invites__form" (ngSubmit)="createInvite()" aria-label="Create invite">
+      <label>
+        Workspace
+        <select name="workspaceId" [ngModel]="selectedWorkspaceId()" (ngModelChange)="selectedWorkspaceId.set($event)" required>
+          @for (workspace of workspaces(); track workspace.id) {
+            <option [value]="workspace.id">{{ workspace.name }}</option>
+          }
+        </select>
+      </label>
+
+      <label>
+        Email
+        <input
+          type="email"
+          name="email"
+          autocomplete="email"
+          [ngModel]="email()"
+          (ngModelChange)="email.set($event)"
+          required
+          data-testid="invite-admin-email"
+        />
+      </label>
+
+      <label>
+        Role
+        <select name="role" [ngModel]="role()" (ngModelChange)="role.set($event)" required>
+          @for (roleOption of roleOptions; track roleOption) {
+            <option [value]="roleOption">{{ roleOption }}</option>
+          }
+        </select>
+      </label>
+
+      <label>
+        Expires at
+        <input
+          type="datetime-local"
+          name="expiresAt"
+          [ngModel]="expiresAt()"
+          (ngModelChange)="expiresAt.set($event)"
+        />
+      </label>
+
+      <button type="submit" [disabled]="!canSubmit()" data-testid="invite-admin-submit">
+        {{ submitting() ? 'Creating' : 'Create invite' }}
+      </button>
+    </form>
+
+    @if (createdNotice()) {
+      <p class="admin-invites__notice" role="status" data-testid="invite-admin-created">{{ createdNotice() }}</p>
+    }
+
+    @if (message()) {
+      <p class="admin-invites__error" role="alert">{{ message() }}</p>
+    }
+
+    @if (invites().length === 0) {
+      <app-empty-state title="No invites" message="No invites were returned by the API." />
+    } @else {
+      <div class="admin-invites__table" role="region" aria-label="Invites">
+        <table>
+          <thead>
+            <tr>
+              <th>Email</th>
+              <th>Role</th>
+              <th>Status</th>
+              <th>Expires</th>
+            </tr>
+          </thead>
+          <tbody>
+            @for (invite of invites(); track invite.id) {
+              <tr>
+                <td>{{ invite.email }}</td>
+                <td>{{ invite.role }}</td>
+                <td>{{ invite.status }}</td>
+                <td>{{ invite.expiresAt }}</td>
+              </tr>
+            }
+          </tbody>
+        </table>
+      </div>
+    }
+  }
+</section>

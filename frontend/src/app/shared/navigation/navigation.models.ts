@@ -4,7 +4,10 @@ export type AppCapability =
   | 'projects:view'
   | 'files:view'
   | 'account:view'
-  | 'audit:view';
+  | 'audit:view'
+  | 'admin:access'
+  | 'invite:read'
+  | 'invite:create';
 
 export interface NavigationItem {
   readonly id: string;

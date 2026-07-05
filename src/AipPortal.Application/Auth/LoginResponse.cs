@@ -10,4 +10,5 @@ public sealed record LoginResponse(
     string DisplayName,
     string Email,
     SystemRole SystemRole,
-    DateTimeOffset ExpiresAt);
+    DateTimeOffset ExpiresAt,
+    IReadOnlyList<string> Capabilities);

@@ -109,6 +109,7 @@ public sealed class AuthController(IAuthService authService) : ControllerBase
             new("system_role", user.SystemRole.ToString()),
             new("session_id", user.SessionId.ToString())
         };
+        claims.AddRange(user.Capabilities.Select(capability => new Claim("capability", capability)));
 
         var identity = new ClaimsIdentity(claims, CookieAuthenticationDefaults.AuthenticationScheme);
         var principal = new ClaimsPrincipal(identity);

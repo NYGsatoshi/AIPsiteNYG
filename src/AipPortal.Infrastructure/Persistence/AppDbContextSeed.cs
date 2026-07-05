@@ -103,10 +103,34 @@ public static class AppDbContextSeed
         ArgumentException.ThrowIfNullOrWhiteSpace(email);
         ArgumentException.ThrowIfNullOrWhiteSpace(password);
 
+        await EnsureBootstrapAdminAsync(
+            dbContext,
+            passwordHasher,
+            tenantId,
+            email,
+            password,
+            displayName,
+            ensureDefaultWorkspace: true,
+            cancellationToken);
+    }
+
+    public static async Task EnsureBootstrapAdminAsync(
+        AppDbContext dbContext,
+        IPasswordHasher passwordHasher,
+        Guid tenantId,
+        string email,
+        string? password = null,
+        string? displayName = null,
+        bool ensureDefaultWorkspace = true,
+        CancellationToken cancellationToken = default)
+    {
+        ArgumentException.ThrowIfNullOrWhiteSpace(email);
+
         var normalizedEmail = email.Trim().ToUpperInvariant();
         var user = await dbContext.Users.FirstOrDefaultAsync(candidate => candidate.NormalizedEmail == normalizedEmail, cancellationToken);
         if (user is null)
         {
+            ArgumentException.ThrowIfNullOrWhiteSpace(password);
             user = new User
             {
                 DisplayName = string.IsNullOrWhiteSpace(displayName) ? "Local Admin" : displayName.Trim(),
@@ -134,7 +158,7 @@ public static class AppDbContextSeed
                 user.Email = trimmedEmail;
             }
 
-            if (!passwordHasher.VerifyPassword(user.PasswordHash, password))
+            if (!string.IsNullOrWhiteSpace(password) && !passwordHasher.VerifyPassword(user.PasswordHash, password))
             {
                 user.PasswordHash = passwordHasher.HashPassword(password);
             }
@@ -199,7 +223,82 @@ public static class AppDbContextSeed
             }
         }
 
+        if (ensureDefaultWorkspace)
+        {
+            await EnsureDefaultWorkspaceOwnerAsync(dbContext, tenantId, user, cancellationToken);
+        }
+
         await dbContext.SaveChangesAsync(cancellationToken);
+    }
+
+    private static async Task EnsureDefaultWorkspaceOwnerAsync(
+        AppDbContext dbContext,
+        Guid tenantId,
+        User user,
+        CancellationToken cancellationToken)
+    {
+        const string workspaceSlug = "default-workspace";
+
+        var workspace = await dbContext.Workspaces
+            .FirstOrDefaultAsync(candidate => candidate.TenantId == tenantId && candidate.Slug == workspaceSlug, cancellationToken);
+        if (workspace is null)
+        {
+            workspace = new Workspace
+            {
+                TenantId = tenantId,
+                Name = "Default Workspace",
+                Slug = workspaceSlug,
+                Description = "Bootstrap workspace for initial admin operations.",
+                Status = WorkspaceStatus.Active,
+                CreatedByUserId = user.Id
+            };
+            await dbContext.Workspaces.AddAsync(workspace, cancellationToken);
+        }
+        else
+        {
+            if (workspace.Status != WorkspaceStatus.Active)
+            {
+                workspace.Status = WorkspaceStatus.Active;
+            }
+
+            if (workspace.IsDeleted)
+            {
+                workspace.Restore();
+            }
+        }
+
+        var member = await dbContext.WorkspaceMembers
+            .FirstOrDefaultAsync(candidate => candidate.TenantId == tenantId && candidate.WorkspaceId == workspace.Id && candidate.UserId == user.Id, cancellationToken);
+        if (member is null)
+        {
+            member = new WorkspaceMember
+            {
+                TenantId = tenantId,
+                WorkspaceId = workspace.Id,
+                UserId = user.Id,
+                Role = WorkspaceRole.Owner,
+                Status = MembershipStatus.Active,
+                JoinedAt = DateTimeOffset.UtcNow
+            };
+            await dbContext.WorkspaceMembers.AddAsync(member, cancellationToken);
+        }
+        else
+        {
+            if (member.Role != WorkspaceRole.Owner)
+            {
+                member.Role = WorkspaceRole.Owner;
+            }
+
+            if (member.Status != MembershipStatus.Active)
+            {
+                member.Status = MembershipStatus.Active;
+            }
+
+            if (!member.JoinedAt.HasValue)
+            {
+                member.JoinedAt = DateTimeOffset.UtcNow;
+            }
+        }
     }
 
     private static async Task SeedModulesAsync(AppDbContext dbContext, DateTimeOffset now, CancellationToken cancellationToken)
@@ -221,8 +320,8 @@ public static class AppDbContextSeed
             ("Admin", "Admin", "/admin", "shield", 130)
         };
 
-        var existing = await dbContext.FeatureModules.Select(module => module.Key).ToListAsync(cancellationToken);
-        foreach (var module in modules.Where(module => !existing.Contains(module.Key)))
+        var existing = await dbContext.FeatureModules.ToDictionaryAsync(module => module.Key, cancellationToken);
+        foreach (var module in modules.Where(module => !existing.ContainsKey(module.Key)))
         {
             await dbContext.FeatureModules.AddAsync(new FeatureModule
             {
@@ -234,6 +333,11 @@ public static class AppDbContextSeed
                 SortOrder = module.Sort,
                 CreatedAt = now
             }, cancellationToken);
+        }
+
+        if (existing.TryGetValue("Admin", out var adminModule) && adminModule.RequiredRole != SystemRole.Admin)
+        {
+            adminModule.RequiredRole = SystemRole.Admin;
         }
     }
 

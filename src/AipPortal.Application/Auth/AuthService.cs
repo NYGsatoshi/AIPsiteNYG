@@ -220,7 +220,8 @@ public sealed class AuthService(
             user.DisplayName,
             user.Email,
             user.SystemRole,
-            user.Status));
+            user.Status,
+            BuildCapabilities(user.SystemRole)));
     }
 
     private Session CreateSession(Guid userId)
@@ -242,7 +243,34 @@ public sealed class AuthService(
             user.DisplayName,
             user.Email,
             user.SystemRole,
-            session.ExpiresAt);
+            session.ExpiresAt,
+            BuildCapabilities(user.SystemRole));
+    }
+
+    private static IReadOnlyList<string> BuildCapabilities(SystemRole role)
+    {
+        var capabilities = new List<string>
+        {
+            "workspace:view",
+            "announcements:view",
+            "projects:view",
+            "files:view",
+            "account:view"
+        };
+
+        if (role is SystemRole.Admin or SystemRole.PlatformAdmin or SystemRole.SystemAdmin)
+        {
+            capabilities.Add("audit:view");
+        }
+
+        if (role is SystemRole.PlatformAdmin or SystemRole.SystemAdmin)
+        {
+            capabilities.Add("admin:access");
+            capabilities.Add("invite:read");
+            capabilities.Add("invite:create");
+        }
+
+        return capabilities;
     }
 
     private bool IsLockedOut(User user)

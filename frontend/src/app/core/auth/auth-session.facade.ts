@@ -25,6 +25,7 @@ export interface AuthCurrentUser {
   readonly email: string;
   readonly systemRole: string;
   readonly status: string;
+  readonly capabilities: readonly string[];
 }
 
 export interface AuthCurrentTenant {
@@ -62,7 +63,8 @@ export const DEFAULT_AUTH_SESSION: AuthSessionSnapshot = {
     displayName: 'Mock User A',
     email: 'mock-user-a@example.invalid',
     systemRole: 'TenantUser',
-    status: 'Active'
+    status: 'Active',
+    capabilities: ['workspace:view', 'announcements:view', 'projects:view', 'files:view', 'account:view', 'audit:view']
   },
   currentTenant: {
     tenantId: 'mock-tenant',
@@ -258,14 +260,19 @@ export class AuthSessionFacade {
         user,
         session.currentTenant,
         'active',
-        session.capabilities.length > 0 ? session.capabilities : DEFAULT_AUTH_SESSION.capabilities
+        deriveCapabilities(user, session.currentTenant)
       )
     );
   }
 
   private patchTenant(tenant: AuthCurrentTenant): void {
     this.sessionState.update((session) =>
-      createSessionSnapshot(session.currentUser, tenant, session.currentUser ? 'active' : 'anonymous', session.capabilities)
+      createSessionSnapshot(
+        session.currentUser,
+        tenant,
+        session.currentUser ? 'active' : 'anonymous',
+        session.currentUser ? deriveCapabilities(session.currentUser, tenant) : []
+      )
     );
   }
 
@@ -297,4 +304,64 @@ function createSessionSnapshot(
 
 function isExpectedUnauthenticatedError(error: unknown): boolean {
   return error instanceof HttpErrorResponse && (error.status === 401 || error.status === 403);
+}
+
+function deriveCapabilities(
+  user: AuthCurrentUser | null,
+  tenant: AuthCurrentTenant | null
+): readonly AppCapability[] {
+  if (!user) {
+    return [];
+  }
+
+  const apiCapabilities = user.capabilities.filter(isAppCapability);
+  if (apiCapabilities.length > 0) {
+    return [...new Set(apiCapabilities)];
+  }
+
+  const capabilities = new Set<AppCapability>(['account:view']);
+  if (tenant?.isAvailable || isPlatformAdmin(user.systemRole)) {
+    capabilities.add('workspace:view');
+    capabilities.add('announcements:view');
+    capabilities.add('projects:view');
+    capabilities.add('files:view');
+  }
+
+  if (isAdmin(user.systemRole) || isTenantAdmin(tenant?.currentUserRole)) {
+    capabilities.add('audit:view');
+  }
+
+  if (isPlatformAdmin(user.systemRole)) {
+    capabilities.add('admin:access');
+    capabilities.add('invite:read');
+    capabilities.add('invite:create');
+  }
+
+  return [...capabilities];
+}
+
+function isAppCapability(value: string): value is AppCapability {
+  return (
+    value === 'workspace:view' ||
+    value === 'announcements:view' ||
+    value === 'projects:view' ||
+    value === 'files:view' ||
+    value === 'account:view' ||
+    value === 'audit:view' ||
+    value === 'admin:access' ||
+    value === 'invite:read' ||
+    value === 'invite:create'
+  );
+}
+
+function isPlatformAdmin(role: string): boolean {
+  return role === 'PlatformAdmin' || role === 'SystemAdmin' || role === '5';
+}
+
+function isAdmin(role: string): boolean {
+  return role === 'Admin' || role === '3' || isPlatformAdmin(role);
+}
+
+function isTenantAdmin(role: string | null | undefined): boolean {
+  return role === 'Owner' || role === 'Admin' || role === '0' || role === '1';
 }

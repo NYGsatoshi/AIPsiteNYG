@@ -55,6 +55,8 @@ public sealed class AppDbContextSeedTests
         var user = await dbContext.Users.SingleAsync();
         var passwordHashAfterPasswordChange = user.PasswordHash;
         var tenantUser = await dbContext.TenantUsers.SingleAsync();
+        var workspace = await dbContext.Workspaces.SingleAsync();
+        var workspaceMember = await dbContext.WorkspaceMembers.SingleAsync();
 
         Assert.Equal("Updated Admin", user.DisplayName);
         Assert.True(passwordHasher.VerifyPassword(user.PasswordHash, "second-local-password"));
@@ -64,6 +66,14 @@ public sealed class AppDbContextSeedTests
         Assert.Equal(user.Id, tenantUser.UserId);
         Assert.Equal(TenantUserRole.Owner, tenantUser.Role);
         Assert.Equal(TenantUserStatus.Active, tenantUser.Status);
+        Assert.Equal(tenant.Id, workspace.TenantId);
+        Assert.Equal("default-workspace", workspace.Slug);
+        Assert.Equal(WorkspaceStatus.Active, workspace.Status);
+        Assert.Equal(tenant.Id, workspaceMember.TenantId);
+        Assert.Equal(workspace.Id, workspaceMember.WorkspaceId);
+        Assert.Equal(user.Id, workspaceMember.UserId);
+        Assert.Equal(WorkspaceRole.Owner, workspaceMember.Role);
+        Assert.Equal(MembershipStatus.Active, workspaceMember.Status);
 
         await AppDbContextSeed.SeedLocalAdminAsync(
             dbContext,
@@ -121,6 +131,7 @@ public sealed class AppDbContextSeedTests
 
         var user = await dbContext.Users.SingleAsync();
         var tenantUser = await dbContext.TenantUsers.SingleAsync();
+        var workspaceMember = await dbContext.WorkspaceMembers.SingleAsync();
 
         Assert.Equal(existingUser.Id, user.Id);
         Assert.Equal("Seeded Admin", user.DisplayName);
@@ -133,6 +144,47 @@ public sealed class AppDbContextSeedTests
         Assert.Equal(TenantUserRole.Owner, tenantUser.Role);
         Assert.Equal(TenantUserStatus.Active, tenantUser.Status);
         Assert.NotEqual(default, tenantUser.JoinedAt);
+        Assert.Equal(user.Id, workspaceMember.UserId);
+        Assert.Equal(WorkspaceRole.Owner, workspaceMember.Role);
+        Assert.Equal(MembershipStatus.Active, workspaceMember.Status);
+    }
+
+    [Fact]
+    public async Task BootstrapAdminPromotesExistingUserWithoutChangingPassword()
+    {
+        var currentTenant = new CurrentTenantService();
+        currentTenant.SetPlatformScope();
+        await using var dbContext = CreateDbContext(currentTenant);
+        var tenant = await AppDbContextSeed.SeedDefaultTenantAsync(dbContext, new TenancyOptions { DefaultTenantSlug = "default" });
+        var passwordHasher = new Pbkdf2PasswordHasher();
+        var existingHash = passwordHasher.HashPassword("existing-password");
+
+        await dbContext.Users.AddAsync(new Domain.Entities.User
+        {
+            DisplayName = "Existing User",
+            Email = "admin@example.com",
+            NormalizedEmail = "ADMIN@EXAMPLE.COM",
+            PasswordHash = existingHash,
+            SystemRole = SystemRole.User,
+            Status = UserStatus.Active,
+            CreatedAt = DateTimeOffset.UtcNow
+        });
+        await dbContext.SaveChangesAsync();
+
+        await AppDbContextSeed.EnsureBootstrapAdminAsync(
+            dbContext,
+            passwordHasher,
+            tenant.Id,
+            "admin@example.com");
+
+        var user = await dbContext.Users.SingleAsync();
+        var tenantUser = await dbContext.TenantUsers.SingleAsync();
+        var workspaceMember = await dbContext.WorkspaceMembers.SingleAsync();
+
+        Assert.Equal(existingHash, user.PasswordHash);
+        Assert.Equal(SystemRole.SystemAdmin, user.SystemRole);
+        Assert.Equal(TenantUserRole.Owner, tenantUser.Role);
+        Assert.Equal(WorkspaceRole.Owner, workspaceMember.Role);
     }
 
     private static AppDbContext CreateDbContext(CurrentTenantService currentTenant)

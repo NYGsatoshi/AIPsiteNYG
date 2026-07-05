@@ -101,10 +101,14 @@ app.UseMiddleware<SecurityHeadersMiddleware>();
 
 var tenancyOptions = app.Services.GetRequiredService<TenancyOptions>();
 var seedAdminEnabled = builder.Configuration.GetValue<bool>("AIP_SEED_ADMIN_ENABLED");
+var bootstrapAdminEmail =
+    builder.Configuration["AIP_BOOTSTRAP_ADMIN_EMAIL"] ??
+    builder.Configuration["BootstrapAdmin:Email"];
 if (tenancyOptions.SeedOnStartup ||
     tenancyOptions.AppMode == AppMode.OnPremSingleTenant ||
     builder.Configuration.GetValue<bool>("UiShell:SeedOnStartup") ||
-    seedAdminEnabled)
+    seedAdminEnabled ||
+    !string.IsNullOrWhiteSpace(bootstrapAdminEmail))
 {
     await using var scope = app.Services.CreateAsyncScope();
     var currentTenant = scope.ServiceProvider.GetRequiredService<ICurrentTenantAccessor>();
@@ -132,6 +136,16 @@ if (tenancyOptions.SeedOnStartup ||
             seedAdminEmail,
             seedAdminPassword,
             seedAdminUsername);
+    }
+    else if (!string.IsNullOrWhiteSpace(bootstrapAdminEmail))
+    {
+        await AppDbContextSeed.EnsureBootstrapAdminAsync(
+            dbContext,
+            scope.ServiceProvider.GetRequiredService<IPasswordHasher>(),
+            defaultTenant.Id,
+            bootstrapAdminEmail,
+            builder.Configuration["AIP_BOOTSTRAP_ADMIN_PASSWORD"],
+            builder.Configuration["AIP_BOOTSTRAP_ADMIN_DISPLAY_NAME"] ?? builder.Configuration["BootstrapAdmin:DisplayName"]);
     }
     else if (app.Environment.IsDevelopment() && builder.Configuration.GetValue<bool>("LocalAdmin:SeedOnStartup"))
     {
