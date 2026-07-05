@@ -6,7 +6,6 @@ public sealed class SecurityHeadersMiddleware(RequestDelegate next)
     {
         var headers = context.Response.Headers;
         headers.TryAdd("X-Content-Type-Options", "nosniff");
-        headers.TryAdd("X-Frame-Options", "DENY");
         headers.TryAdd("Referrer-Policy", "strict-origin-when-cross-origin");
         headers.TryAdd("Permissions-Policy", "camera=(), microphone=(), geolocation=()");
         // TODO: Replace this temporary Angular runtime style allowance with nonce-based CSP via ngCspNonce/CSP_NONCE.

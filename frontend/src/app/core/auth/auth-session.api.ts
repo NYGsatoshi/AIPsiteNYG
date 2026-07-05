@@ -8,6 +8,10 @@ export interface CurrentUserResponseDto {
   readonly status?: unknown;
 }
 
+export interface LoginResponseDto extends CurrentUserResponseDto {
+  readonly expiresAt?: unknown;
+}
+
 export interface AuthStatusResponseDto {
   readonly isAuthenticated?: unknown;
   readonly user?: CurrentUserResponseDto | null;

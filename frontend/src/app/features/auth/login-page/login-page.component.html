@@ -1,0 +1,46 @@
+<main class="login-page" data-testid="login-page">
+  <section
+    class="login-page__panel page-placeholder page-placeholder--public"
+    data-testid="page-placeholder"
+    data-tone="public"
+    aria-labelledby="login-title"
+  >
+    <header class="login-page__header">
+      <p>アカウント</p>
+      <h1 id="login-title">ログイン</h1>
+    </header>
+
+    <form class="login-page__form" [formGroup]="form" (ngSubmit)="submit()" novalidate>
+      <label class="login-page__field">
+        <span>メールアドレス</span>
+        <input
+          type="email"
+          formControlName="email"
+          autocomplete="username"
+          inputmode="email"
+          data-testid="login-email"
+          [attr.aria-invalid]="form.controls.email.invalid && form.controls.email.touched"
+        />
+      </label>
+
+      <label class="login-page__field">
+        <span>パスワード</span>
+        <input
+          type="password"
+          formControlName="password"
+          autocomplete="current-password"
+          data-testid="login-password"
+          [attr.aria-invalid]="form.controls.password.invalid && form.controls.password.touched"
+        />
+      </label>
+
+      @if (errorMessage()) {
+        <p class="login-page__error" role="alert" data-testid="login-error">{{ errorMessage() }}</p>
+      }
+
+      <button type="submit" data-testid="login-submit" [disabled]="isSubmitting()">
+        {{ isSubmitting() ? '送信中' : 'ログイン' }}
+      </button>
+    </form>
+  </section>
+</main>

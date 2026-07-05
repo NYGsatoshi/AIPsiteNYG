@@ -14,12 +14,8 @@ export const routes: Routes = [
   },
   {
     path: 'login',
-    component: PagePlaceholderComponent,
-    data: {
-      title: 'ログイン',
-      summary: '準備中',
-      tone: 'public'
-    }
+    loadComponent: () =>
+      import('./features/auth/login-page/login-page.component').then((m) => m.LoginPageComponent)
   },
   {
     path: 'session-expired',

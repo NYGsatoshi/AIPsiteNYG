@@ -35,23 +35,31 @@ describe('authSessionGuard', () => {
   });
 
   it('redirects unauthenticated users to login', async () => {
+    const authSession = TestBed.inject(AuthSessionFacade);
     const result = firstValueFrom(runGuard('/workspaces'));
     const request = TestBed.inject(HttpTestingController).expectOne('/api/auth/me');
 
+    expect(authSession.loading()).toBe(true);
     request.flush({ error: 'Unauthorized' }, { status: 401, statusText: 'Unauthorized' });
 
     const tree = await result;
     expect(serializeUrl(tree)).toBe('/login');
-    expect(TestBed.inject(AuthSessionFacade).isAuthenticated()).toBe(false);
+    expect(authSession.isAuthenticated()).toBe(false);
+    expect(authSession.session().status).toBe('anonymous');
+    expect(authSession.loading()).toBe(false);
   });
 
-  it('sends forbidden users to permission denied', async () => {
+  it('treats forbidden bootstrap responses as unauthenticated and redirects to login', async () => {
+    const authSession = TestBed.inject(AuthSessionFacade);
     const result = firstValueFrom(runGuard('/admin/audit'));
     const request = TestBed.inject(HttpTestingController).expectOne('/api/auth/me');
 
     request.flush({ error: 'Forbidden' }, { status: 403, statusText: 'Forbidden' });
 
-    expect(serializeUrl(await result)).toBe('/permission-denied');
+    expect(serializeUrl(await result)).toBe('/login');
+    expect(authSession.isAuthenticated()).toBe(false);
+    expect(authSession.session().status).toBe('anonymous');
+    expect(authSession.loading()).toBe(false);
   });
 });
 

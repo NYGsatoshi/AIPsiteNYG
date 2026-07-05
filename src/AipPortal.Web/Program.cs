@@ -149,7 +149,9 @@ app.Use(async (context, next) =>
 
 app.UseStaticFiles(new StaticFileOptions
 {
-    RequestPath = AngularSpaFallback.AppRequestPath
+    RequestPath = AngularSpaFallback.AppRequestPath,
+    OnPrepareResponse = context =>
+        AngularSpaFallback.ApplyStaticFileHeaders(context.Context.Response, context.Context.Request.Path)
 });
 
 app.UseMiddleware<TenantResolutionMiddleware>();

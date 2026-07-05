@@ -1,7 +1,7 @@
-import { HttpBackend, HttpClient } from '@angular/common/http';
+import { HttpBackend, HttpClient, HttpErrorResponse } from '@angular/common/http';
 import { computed, inject, Injectable, InjectionToken, signal } from '@angular/core';
 import { Router } from '@angular/router';
-import { catchError, map, Observable, of, tap } from 'rxjs';
+import { catchError, defer, finalize, map, Observable, of, switchMap, tap } from 'rxjs';
 
 import { AppCapability } from '../../shared/navigation/navigation.models';
 import { TenantScopedStateFacade } from '../tenant/tenant-scoped-state.facade';
@@ -10,6 +10,7 @@ import {
   AuthStatusResponseDto,
   CurrentTenantResponseDto,
   CurrentUserResponseDto,
+  LoginResponseDto,
   mapAuthStatusResponse,
   mapCurrentTenantResponse,
   mapCurrentUserResponse
@@ -97,8 +98,10 @@ export class AuthSessionFacade {
   private readonly activeWorkspace = inject(ActiveWorkspaceFacade);
   private readonly tenantScopedState = inject(TenantScopedStateFacade);
   private readonly sessionState = signal<AuthSessionSnapshot>(this.initialSession);
+  private readonly loadingState = signal(false);
 
   readonly session = this.sessionState.asReadonly();
+  readonly loading = this.loadingState.asReadonly();
   readonly currentUser = computed(() => this.sessionState().currentUser);
   readonly currentTenant = computed(() => this.sessionState().currentTenant);
   readonly isAuthenticated = computed(() => this.sessionState().isAuthenticated);
@@ -124,6 +127,56 @@ export class AuthSessionFacade {
     this.clearSessionState('anonymous');
   }
 
+  bootstrap(): Observable<AuthSessionSnapshot> {
+    return defer(() => {
+      this.loadingState.set(true);
+      const http = this.createBackendHttpClient();
+      const bootstrapRequest = http
+        ? http.get<CurrentUserResponseDto>('/api/auth/me', { withCredentials: true }).pipe(
+            map((response) => mapCurrentUserResponse(response)),
+            tap((user) => this.patchUser(user)),
+            map(() => this.sessionState()),
+            catchError((error: unknown) => {
+              if (!isExpectedUnauthenticatedError(error)) {
+                console.error('Auth bootstrap failed', error);
+              }
+
+              this.clearSessionState('anonymous');
+              return of(this.sessionState());
+            })
+          )
+        : of(this.sessionState());
+
+      return bootstrapRequest.pipe(finalize(() => this.loadingState.set(false)));
+    });
+  }
+
+  login(email: string, password: string): Observable<AuthSessionSnapshot> {
+    const http = this.createBackendHttpClient();
+    if (!http) {
+      throw new Error('Auth login endpoint is unavailable in this Angular context.');
+    }
+
+    return this.csrfTokens.ensureToken(this.csrfCacheKey()).pipe(
+      switchMap((csrfToken) =>
+        http.post<LoginResponseDto>(
+          '/api/auth/login',
+          { email, password },
+          {
+            withCredentials: true,
+            headers: {
+              [csrfToken.headerName]: csrfToken.token
+            }
+          }
+        )
+      ),
+      map((response) => mapCurrentUserResponse(response)),
+      tap((user) => this.patchUser(user)),
+      switchMap(() => this.refreshCurrentTenant()),
+      map(() => this.sessionState())
+    );
+  }
+
   refreshCurrentUser(): Observable<AuthSessionSnapshot | null> {
     const http = this.createBackendHttpClient();
     if (!http) {
@@ -134,21 +187,19 @@ export class AuthSessionFacade {
       map((response) => mapCurrentUserResponse(response)),
       tap((user) => this.patchUser(user)),
       map(() => this.sessionState()),
-      catchError(() => of(null))
+      catchError((error: unknown) => {
+        if (isExpectedUnauthenticatedError(error)) {
+          this.clearSessionState('anonymous');
+          return of(this.sessionState());
+        }
+
+        return of(null);
+      })
     );
   }
 
   validateServerSession(): Observable<AuthSessionSnapshot> {
-    const http = this.createBackendHttpClient();
-    if (!http) {
-      return of(this.sessionState());
-    }
-
-    return http.get<CurrentUserResponseDto>('/api/auth/me', { withCredentials: true }).pipe(
-      map((response) => mapCurrentUserResponse(response)),
-      tap((user) => this.patchUser(user)),
-      map(() => this.sessionState())
-    );
+    return this.bootstrap();
   }
 
   refreshSessionContext(): Observable<AuthSessionSnapshot | null> {
@@ -168,7 +219,14 @@ export class AuthSessionFacade {
         this.clearSessionState('anonymous');
       }),
       map(() => this.sessionState()),
-      catchError(() => of(null))
+      catchError((error: unknown) => {
+        if (isExpectedUnauthenticatedError(error)) {
+          this.clearSessionState('anonymous');
+          return of(this.sessionState());
+        }
+
+        return of(null);
+      })
     );
   }
 
@@ -235,4 +293,8 @@ function createSessionSnapshot(
       isLoaded: capabilities.length > 0
     }
   };
+}
+
+function isExpectedUnauthenticatedError(error: unknown): boolean {
+  return error instanceof HttpErrorResponse && (error.status === 401 || error.status === 403);
 }

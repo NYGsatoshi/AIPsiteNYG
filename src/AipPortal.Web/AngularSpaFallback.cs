@@ -60,13 +60,55 @@ public static class AngularSpaFallback
             return;
         }
 
-        context.Response.ContentType = "text/html; charset=utf-8";
+        ApplySpaHtmlHeaders(context.Response);
         if (HttpMethods.IsHead(context.Request.Method))
         {
             return;
         }
 
         await context.Response.SendFileAsync(Path.Combine(webRootPath, "index.html"));
+    }
+
+    public static void ApplyStaticFileHeaders(HttpResponse response, PathString requestPath)
+    {
+        var path = requestPath.Value ?? string.Empty;
+        if (path.EndsWith(".html", StringComparison.OrdinalIgnoreCase))
+        {
+            ApplySpaHtmlHeaders(response);
+            return;
+        }
+
+        if (path.EndsWith(".js", StringComparison.OrdinalIgnoreCase))
+        {
+            response.ContentType = "text/javascript; charset=utf-8";
+            ApplyImmutableCacheHeaders(response);
+            return;
+        }
+
+        if (path.EndsWith(".css", StringComparison.OrdinalIgnoreCase))
+        {
+            response.ContentType = "text/css; charset=utf-8";
+            ApplyImmutableCacheHeaders(response);
+            return;
+        }
+
+        if (IsImmutableAssetPath(path))
+        {
+            ApplyImmutableCacheHeaders(response);
+        }
+    }
+
+    private static void ApplySpaHtmlHeaders(HttpResponse response)
+    {
+        response.ContentType = "text/html; charset=utf-8";
+        response.Headers.CacheControl = "no-cache, no-store, must-revalidate";
+        response.Headers.Pragma = "no-cache";
+        response.Headers.Expires = "0";
+    }
+
+    private static void ApplyImmutableCacheHeaders(HttpResponse response)
+    {
+        response.Headers.CacheControl = "public, max-age=31536000, immutable";
     }
 
     private static bool LooksLikeStaticAssetPath(PathString path)
@@ -80,4 +122,14 @@ public static class AngularSpaFallback
         var lastSegment = value[(value.LastIndexOf('/') + 1)..];
         return Path.HasExtension(lastSegment);
     }
+
+    private static bool IsImmutableAssetPath(string path) =>
+        path.EndsWith(".woff2", StringComparison.OrdinalIgnoreCase) ||
+        path.EndsWith(".svg", StringComparison.OrdinalIgnoreCase) ||
+        path.EndsWith(".png", StringComparison.OrdinalIgnoreCase) ||
+        path.EndsWith(".jpg", StringComparison.OrdinalIgnoreCase) ||
+        path.EndsWith(".jpeg", StringComparison.OrdinalIgnoreCase) ||
+        path.EndsWith(".webp", StringComparison.OrdinalIgnoreCase) ||
+        path.EndsWith(".avif", StringComparison.OrdinalIgnoreCase) ||
+        path.EndsWith(".ico", StringComparison.OrdinalIgnoreCase);
 }

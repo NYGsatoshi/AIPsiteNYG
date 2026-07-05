@@ -93,6 +93,45 @@ public sealed class AngularSpaFallbackTests : IDisposable
         Assert.DoesNotContain("Angular", body, StringComparison.OrdinalIgnoreCase);
     }
 
+    [Fact]
+    public async Task AngularFallbackHtmlUsesNoCacheHeaders()
+    {
+        WriteAngularBuild();
+        var context = CreateContext("/app/login");
+        context.Response.Body = new MemoryStream();
+
+        await AngularSpaFallback.HandleAsync(context, webRootPath);
+
+        Assert.Equal("text/html; charset=utf-8", context.Response.ContentType);
+        Assert.Equal("no-cache, no-store, must-revalidate", context.Response.Headers.CacheControl.ToString());
+        Assert.Equal("no-cache", context.Response.Headers.Pragma.ToString());
+        Assert.Equal("0", context.Response.Headers.Expires.ToString());
+    }
+
+    [Theory]
+    [InlineData("/app/main-ABC123.js", "text/javascript; charset=utf-8")]
+    [InlineData("/app/styles-ABC123.css", "text/css; charset=utf-8")]
+    public void StaticJavaScriptAndCssUseCharsetAndImmutableCache(string path, string contentType)
+    {
+        var context = CreateContext(path);
+
+        AngularSpaFallback.ApplyStaticFileHeaders(context.Response, context.Request.Path);
+
+        Assert.Equal(contentType, context.Response.ContentType);
+        Assert.Equal("public, max-age=31536000, immutable", context.Response.Headers.CacheControl.ToString());
+    }
+
+    [Fact]
+    public void StaticIndexUsesNoCacheHeaders()
+    {
+        var context = CreateContext("/app/index.html");
+
+        AngularSpaFallback.ApplyStaticFileHeaders(context.Response, context.Request.Path);
+
+        Assert.Equal("text/html; charset=utf-8", context.Response.ContentType);
+        Assert.Equal("no-cache, no-store, must-revalidate", context.Response.Headers.CacheControl.ToString());
+    }
+
     public void Dispose()
     {
         try
