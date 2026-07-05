@@ -42,6 +42,7 @@ This document describes what the repository currently supports. It is not a prod
 - Local filesystem uploads despite the base app mode being SaaS.
 - Persistent Data Protection keys and uploads.
 - Initial administrator seed is available through `AIP_SEED_ADMIN_ENABLED`; it is disabled by default.
+- The development-only `LocalAdmin:*` compatibility seed is not enabled by default in this profile.
 
 ### `docker-compose.onprem.yml`
 

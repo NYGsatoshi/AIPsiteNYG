@@ -25,7 +25,7 @@ services:
       AIP_SEED_ADMIN_EMAIL: ${AIP_SEED_ADMIN_EMAIL:-admin@example.local}
       AIP_SEED_ADMIN_USERNAME: ${AIP_SEED_ADMIN_USERNAME:-admin}
       AIP_SEED_ADMIN_PASSWORD: ${AIP_SEED_ADMIN_PASSWORD:-}
-      LocalAdmin__SeedOnStartup: ${LOCAL_ADMIN_SEED_ON_STARTUP:-true}
+      LocalAdmin__SeedOnStartup: ${LOCAL_ADMIN_SEED_ON_STARTUP:-false}
       LocalAdmin__Email: ${LOCAL_ADMIN_EMAIL:-admin@example.com}
       LocalAdmin__Password: ${LOCAL_ADMIN_PASSWORD:-}
       LocalAdmin__DisplayName: ${LOCAL_ADMIN_DISPLAY_NAME:-Local Admin}

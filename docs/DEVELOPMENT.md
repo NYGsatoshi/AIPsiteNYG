@@ -145,6 +145,8 @@ See [README.dev-env.md](../README.dev-env.md) for the lightweight mode, the opti
 
 The administrator seed uses the existing password hasher and creates or updates a platform administrator with owner membership in the default tenant. `AIP_SEED_ADMIN_USERNAME` is stored as the display name because the current user model uses email for login and has no username column.
 
+The legacy `LocalAdmin:*` compatibility path is separate from the explicit `AIP_SEED_ADMIN_*` bootstrap. Keep `LOCAL_ADMIN_SEED_ON_STARTUP=false` unless you intentionally want that development-only behavior.
+
 It does not create workspaces, groups, channels, projects, demo data, or invite links.
 
 Do not document seeded demo users unless code is added.
