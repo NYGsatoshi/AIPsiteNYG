@@ -338,12 +338,12 @@ Status after the MVP-A P0 Angular migration: obsolete as active frontend defects
 - Impact: startup seed queries an absent schema on a fresh database.
 - Suggested issue: **Add controlled migrations to the on-prem Compose workflow**.
 
-### KI-006: Reverse-proxy HTTPS behavior is not implemented end to end
+### KI-006: Reverse-proxy HTTPS behavior still requires deployment-specific verification
 
-- Status: needs verification.
-- Evidence: production requires HTTPS/HSTS, but `Program.cs` does not configure forwarded-header middleware and Compose includes no TLS proxy.
-- Impact: redirect loops, incorrect scheme detection, or incorrect host-based tenant resolution are possible.
-- Suggested issue: **Add trusted forwarded-header configuration and reverse-proxy integration tests**.
+- Status: partially implemented.
+- Evidence: `Program.cs` now has opt-in forwarded-header handling behind `ReverseProxy:TrustForwardedHeaders`, and focused tests cover `GET /api/security/csrf-token` with forwarded HTTPS. Compose still does not bundle a TLS proxy, and the current trust model assumes the app is reachable only behind that proxy or tunnel.
+- Impact: environment-specific mistakes can still cause redirect loops, incorrect scheme detection, or incorrect host-based tenant resolution.
+- Suggested issue: **Add deployment-specific proxy examples plus explicit trusted proxy/network allowlists**.
 
 ## Medium priority
 

@@ -18,6 +18,7 @@ services:
       Security__CookieSecurePolicy: Always
       Security__RequireHttps: "true"
       Security__EnableHsts: "true"
+      ReverseProxy__TrustForwardedHeaders: ${REVERSE_PROXY_TRUST_FORWARDED_HEADERS:-false}
       Platform__PlatformAdminSetupMode: "false"
       AIP_SEED_ADMIN_ENABLED: ${AIP_SEED_ADMIN_ENABLED:-false}
       AIP_SEED_ADMIN_EMAIL: ${AIP_SEED_ADMIN_EMAIL:-admin@example.local}

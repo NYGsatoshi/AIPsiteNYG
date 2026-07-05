@@ -13,6 +13,7 @@ using AipPortal.Web.Models;
 using AipPortal.Web.Security;
 using Microsoft.AspNetCore.Authentication.Cookies;
 using Microsoft.AspNetCore.DataProtection;
+using Microsoft.AspNetCore.HttpOverrides;
 using Microsoft.AspNetCore.RateLimiting;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Options;
@@ -83,7 +84,17 @@ builder.Services.AddRateLimiter(options =>
     });
 });
 
+if (ForwardedHeadersConfiguration.ShouldTrustForwardedHeaders(builder.Configuration))
+{
+    builder.Services.Configure<ForwardedHeadersOptions>(ForwardedHeadersConfiguration.Configure);
+}
+
 var app = builder.Build();
+
+if (ForwardedHeadersConfiguration.ShouldTrustForwardedHeaders(app.Configuration))
+{
+    app.UseForwardedHeaders();
+}
 
 app.UseMiddleware<GlobalExceptionHandlingMiddleware>();
 app.UseMiddleware<SecurityHeadersMiddleware>();

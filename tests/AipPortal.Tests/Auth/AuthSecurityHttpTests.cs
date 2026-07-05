@@ -23,6 +23,7 @@ using Microsoft.AspNetCore.Hosting;
 using Microsoft.AspNetCore.Hosting.Server;
 using Microsoft.AspNetCore.Hosting.Server.Features;
 using Microsoft.AspNetCore.Http;
+using Microsoft.AspNetCore.HttpOverrides;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
@@ -61,6 +62,30 @@ public sealed class AuthSecurityHttpTests
         var response = await app.Client.GetAsync("/api/auth/status");
 
         Assert.Equal(HttpStatusCode.OK, response.StatusCode);
+    }
+
+    [Fact]
+    public async Task CsrfTokenRequestSucceedsBehindTrustedForwardedHttps()
+    {
+        await using var app = await AuthSecurityTestApp.CreateAsync(
+            cookieSecurePolicy: CookieSecurePolicy.Always,
+            trustForwardedHeaders: true);
+
+        using var request = new HttpRequestMessage(HttpMethod.Get, "/api/security/csrf-token");
+        request.Headers.TryAddWithoutValidation("X-Forwarded-Proto", "https");
+        request.Headers.TryAddWithoutValidation("X-Forwarded-Host", "portal.example.com");
+
+        var response = await app.Client.SendAsync(request);
+
+        response.EnsureSuccessStatusCode();
+        var payload = await response.Content.ReadFromJsonAsync<CsrfTokenResponse>();
+        Assert.False(string.IsNullOrWhiteSpace(payload?.Token));
+        Assert.Equal(SecurityOptions.CsrfHeaderName, payload?.HeaderName);
+        Assert.True(
+            response.Headers.TryGetValues("Set-Cookie", out var cookies) &&
+            cookies.Any(cookie => cookie.Contains(".AipPortal.Csrf=", StringComparison.Ordinal) &&
+                                  cookie.Contains("secure", StringComparison.OrdinalIgnoreCase)),
+            response.Headers.ToString());
     }
 
 
@@ -168,7 +193,9 @@ public sealed class AuthSecurityHttpTests
         public Guid UserId { get; }
         public string Email { get; }
 
-        public static async Task<AuthSecurityTestApp> CreateAsync()
+        public static async Task<AuthSecurityTestApp> CreateAsync(
+            CookieSecurePolicy cookieSecurePolicy = CookieSecurePolicy.SameAsRequest,
+            bool trustForwardedHeaders = false)
         {
             var builder = WebApplication.CreateBuilder(new WebApplicationOptions
             {
@@ -182,7 +209,7 @@ public sealed class AuthSecurityHttpTests
                 ["Tenancy:TenantResolutionStrategy"] = "ConfigDefault",
                 ["Tenancy:DefaultTenantSlug"] = "default",
                 ["Tenancy:AllowTenantSwitching"] = "true",
-                ["Security:CookieSecurePolicy"] = "SameAsRequest",
+                ["Security:CookieSecurePolicy"] = cookieSecurePolicy.ToString(),
                 ["Security:RequireHttps"] = "false",
                 ["Security:EnableHsts"] = "false",
                 ["Security:EnableCsrfProtection"] = "true",
@@ -190,6 +217,7 @@ public sealed class AuthSecurityHttpTests
                 ["Security:LoginLockoutEnabled"] = "true",
                 ["Security:MaxFailedLoginAttempts"] = "5",
                 ["Security:LoginLockoutDurationMinutes"] = "15",
+                [ForwardedHeadersConfiguration.TrustForwardedHeadersKey] = trustForwardedHeaders.ToString(),
                 ["FileStorage:Provider"] = "LocalFileSystem",
                 ["FileStorage:RootPath"] = Path.Combine(Path.GetTempPath(), "aip-auth-security-tests", Guid.NewGuid().ToString("N")),
                 ["FileStorage:MaxFileSizeBytes"] = "10485760",
@@ -209,6 +237,10 @@ public sealed class AuthSecurityHttpTests
             builder.Services
                 .AddApplication()
                 .AddWebServices(builder.Configuration);
+            if (ForwardedHeadersConfiguration.ShouldTrustForwardedHeaders(builder.Configuration))
+            {
+                builder.Services.Configure<ForwardedHeadersOptions>(ForwardedHeadersConfiguration.Configure);
+            }
             builder.Services.AddControllers().AddApplicationPart(typeof(AuthController).Assembly);
             builder.Services
                 .AddAuthentication(CookieAuthenticationDefaults.AuthenticationScheme)
@@ -217,7 +249,7 @@ public sealed class AuthSecurityHttpTests
                     options.Cookie.Name = ".AipPortal.Auth.Test";
                     options.Cookie.HttpOnly = true;
                     options.Cookie.SameSite = SameSiteMode.Lax;
-                    options.Cookie.SecurePolicy = CookieSecurePolicy.SameAsRequest;
+                    options.Cookie.SecurePolicy = cookieSecurePolicy;
                     options.ExpireTimeSpan = TimeSpan.FromHours(8);
                     options.SlidingExpiration = true;
                     options.EventsType = typeof(DbSessionCookieAuthenticationEvents);
@@ -229,6 +261,10 @@ public sealed class AuthSecurityHttpTests
             builder.Services.AddScoped<IStudentRecordRepository, StudentRecordRepository>();
 
             var app = builder.Build();
+            if (ForwardedHeadersConfiguration.ShouldTrustForwardedHeaders(app.Configuration))
+            {
+                app.UseForwardedHeaders();
+            }
             app.UseMiddleware<TenantResolutionMiddleware>();
             app.UseAuthentication();
             app.Services.GetRequiredService<CsrfProtectionState>().MarkMiddlewareActive();

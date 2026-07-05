@@ -20,6 +20,7 @@ services:
       Security__CookieSecurePolicy: ${SECURITY_COOKIE_SECURE_POLICY:-SameAsRequest}
       Security__RequireHttps: ${SECURITY_REQUIRE_HTTPS:-false}
       Security__EnableHsts: ${SECURITY_ENABLE_HSTS:-false}
+      ReverseProxy__TrustForwardedHeaders: ${REVERSE_PROXY_TRUST_FORWARDED_HEADERS:-false}
       Platform__PlatformAdminSetupMode: ${PLATFORM_ADMIN_SETUP_MODE:-true}
       AIP_SEED_ADMIN_ENABLED: ${AIP_SEED_ADMIN_ENABLED:-false}
       AIP_SEED_ADMIN_EMAIL: ${AIP_SEED_ADMIN_EMAIL:-admin@example.local}

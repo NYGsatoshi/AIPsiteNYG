@@ -186,9 +186,13 @@ Tenant metadata export does not include file bodies and cannot replace storage b
 
 Production startup requires HTTPS redirect, HSTS, and secure cookies.
 
-The current host does not call `UseForwardedHeaders`. Therefore, correct `X-Forwarded-Proto`/host handling behind a TLS-terminating proxy is **needs verification** and may cause redirects or incorrect tenant-host resolution.
+The host now enables `UseForwardedHeaders` when `ReverseProxy:TrustForwardedHeaders=true` (for example `ReverseProxy__TrustForwardedHeaders=true` in Compose or environment variables). This opt-in path applies `X-Forwarded-For`, `X-Forwarded-Proto`, and `X-Forwarded-Host`, which fixes secure-cookie and HTTPS detection for TLS-terminating proxies such as Caddy or Cloudflare Tunnel.
 
-Do not claim reverse-proxy readiness until trusted proxy handling is implemented and tested.
+Do not enable `ReverseProxy:TrustForwardedHeaders` when the app is directly reachable from untrusted clients. The current implementation clears the ASP.NET Core proxy allowlists and assumes the app is network-isolated behind the trusted proxy or tunnel.
+
+Focused automated coverage now verifies that `GET /api/security/csrf-token` succeeds with `Security:CookieSecurePolicy=Always` when `X-Forwarded-Proto: https` is trusted.
+
+Do not claim reverse-proxy readiness until the exact deployment topology is tested end to end.
 
 ## Health endpoints
 
