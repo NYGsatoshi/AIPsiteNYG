@@ -1,18 +1,31 @@
 import { A11yModule } from '@angular/cdk/a11y';
-import { Component, ElementRef, Input, OnChanges, SimpleChanges, ViewChild, inject } from '@angular/core';
+import {
+  Component,
+  ElementRef,
+  Input,
+  OnChanges,
+  SimpleChanges,
+  ViewChild,
+  inject,
+} from '@angular/core';
 
 import { AuthSessionSnapshot } from '../../../core/auth/auth-session.facade';
 import { WorkspaceSummary } from '../../../core/workspace/active-workspace.facade';
 import { MembersTabComponent } from '../members-tab/members-tab.component';
 import { NotificationsTabComponent } from '../notifications-tab/notifications-tab.component';
 import { RightPanelFacade } from '../right-panel.facade';
-import { DEFAULT_RIGHT_PANEL_SCOPE } from '../right-panel.mock';
 import {
   RightPanelMode,
   RightPanelPermission,
   RightPanelScope,
-  RightPanelTab
+  RightPanelTab,
 } from '../right-panel.types';
+
+const DEFAULT_RIGHT_PANEL_SCOPE: RightPanelScope = {
+  workspaceId: '',
+  projectId: '',
+  conversationId: '',
+};
 
 @Component({
   selector: 'app-right-panel',
@@ -129,7 +142,7 @@ import {
       }
     </aside>
   `,
-  styleUrl: './right-panel.component.scss'
+  styleUrl: './right-panel.component.scss',
 })
 export class RightPanelComponent implements OnChanges {
   readonly facade = inject(RightPanelFacade);
@@ -202,7 +215,7 @@ export class RightPanelComponent implements OnChanges {
     if (this.workspace) {
       return {
         ...DEFAULT_RIGHT_PANEL_SCOPE,
-        workspaceId: this.workspace.id
+        workspaceId: this.workspace.id,
       };
     }
 

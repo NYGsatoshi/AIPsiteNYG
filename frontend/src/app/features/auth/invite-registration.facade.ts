@@ -1,23 +1,21 @@
 import { inject, Injectable, InjectionToken, signal } from '@angular/core';
 
-import { INVITE_REGISTRATION_SCENARIOS, INVITE_REGISTRATION_STATES } from './invite-registration.mock';
 import {
   InviteBootstrapAction,
   InviteRegistrationScenario,
   InviteRegistrationSubmitModel,
-  InviteRegistrationViewModel
+  InviteRegistrationViewModel,
 } from './invite-registration.types';
 
 export const AIP_INVITE_REGISTRATION_SCENARIO = new InjectionToken<InviteRegistrationScenario>(
-  'AIP_INVITE_REGISTRATION_SCENARIO'
+  'AIP_INVITE_REGISTRATION_SCENARIO',
 );
 
 @Injectable({
-  providedIn: 'root'
+  providedIn: 'root',
 })
 export class InviteRegistrationFacade {
-  private readonly scenario =
-    inject(AIP_INVITE_REGISTRATION_SCENARIO, { optional: true }) ?? INVITE_REGISTRATION_SCENARIOS.defaultValid;
+  private readonly scenario = inject(AIP_INVITE_REGISTRATION_SCENARIO, { optional: true });
   private readonly submittedModelState = signal<InviteRegistrationSubmitModel | null>(null);
   private readonly bootstrapActionState = signal<readonly InviteBootstrapAction[]>([]);
 
@@ -26,15 +24,40 @@ export class InviteRegistrationFacade {
 
   validateToken(token: string | null): InviteRegistrationViewModel {
     if (!token) {
-      return INVITE_REGISTRATION_STATES['missing'];
+      return {
+        status: 'missing',
+        email: null,
+        message: 'Invite token is missing.',
+        submitDisabled: true,
+        bootstrapActions: [],
+      };
     }
 
-    return this.scenario.initialState;
+    return (
+      this.scenario?.initialState ?? {
+        status: 'invalid',
+        email: null,
+        message: 'Invite token validation API is not implemented.',
+        submitDisabled: true,
+        bootstrapActions: [],
+      }
+    );
   }
 
   register(model: InviteRegistrationSubmitModel): InviteRegistrationViewModel {
     this.submittedModelState.set(model);
-    this.bootstrapActionState.set(this.scenario.submitResult.bootstrapActions);
-    return this.scenario.submitResult;
+    if (this.scenario) {
+      this.bootstrapActionState.set(this.scenario.submitResult.bootstrapActions);
+      return this.scenario.submitResult;
+    }
+
+    this.bootstrapActionState.set([]);
+    return {
+      status: 'registrationFailure',
+      email: model.email,
+      message: 'Invite registration submit API is not wired to this synchronous screen yet.',
+      submitDisabled: true,
+      bootstrapActions: [],
+    };
   }
 }

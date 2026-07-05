@@ -9,14 +9,16 @@ export interface WorkspaceSummary {
 export const DEFAULT_ACTIVE_WORKSPACE: WorkspaceSummary = {
   id: 'fictional-workspace-1',
   label: '検証ワークスペース',
-  description: '準備中'
+  description: '準備中',
 };
 
-export const AIP_ACTIVE_WORKSPACE_MOCK = new InjectionToken<WorkspaceSummary | null>('AIP_ACTIVE_WORKSPACE_MOCK');
+export const AIP_ACTIVE_WORKSPACE_MOCK = new InjectionToken<WorkspaceSummary | null>(
+  'AIP_ACTIVE_WORKSPACE_MOCK',
+);
 
 @Injectable({ providedIn: 'root' })
 export class ActiveWorkspaceFacade {
-  private readonly initialWorkspace = inject(AIP_ACTIVE_WORKSPACE_MOCK, { optional: true }) ?? DEFAULT_ACTIVE_WORKSPACE;
+  private readonly initialWorkspace = inject(AIP_ACTIVE_WORKSPACE_MOCK, { optional: true }) ?? null;
   private readonly activeWorkspaceState = signal<WorkspaceSummary | null>(this.initialWorkspace);
 
   readonly activeWorkspace = this.activeWorkspaceState.asReadonly();

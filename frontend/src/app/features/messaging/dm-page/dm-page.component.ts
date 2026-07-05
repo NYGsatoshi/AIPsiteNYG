@@ -1,4 +1,5 @@
 import { Component, computed, inject } from '@angular/core';
+import { ActivatedRoute } from '@angular/router';
 
 import { MessageComposerComponent } from '../message-composer/message-composer.component';
 import { MessageTimelineComponent } from '../message-timeline/message-timeline.component';
@@ -9,26 +10,32 @@ import { MessagingFacade } from '../messaging.facade';
   standalone: true,
   imports: [MessageComposerComponent, MessageTimelineComponent],
   templateUrl: './dm-page.component.html',
-  styleUrl: './dm-page.component.scss'
+  styleUrl: './dm-page.component.scss',
 })
 export class DmPageComponent {
   readonly facade = inject(MessagingFacade);
+  private readonly route = inject(ActivatedRoute);
   readonly page = this.facade.page;
+
+  constructor() {
+    this.facade.loadConversation(this.route.snapshot.paramMap.get('conversationId'), 'dm');
+  }
 
   readonly canReadBody = computed(
     () =>
       this.page().conversation.kind === 'dm' &&
       this.page().conversation.viewerIsParticipant &&
       !this.page().conversation.viewerWasRemoved &&
-      this.page().conversation.capabilities.includes('readBody')
+      this.page().conversation.capabilities.includes('readBody'),
   );
 
   readonly canPost = computed(
-    () => this.canReadBody() && this.page().conversation.capabilities.includes('postMessage')
+    () => this.canReadBody() && this.page().conversation.capabilities.includes('postMessage'),
   );
 
   readonly showComposer = computed(
-    () => this.page().conversation.viewerIsParticipant && !this.page().conversation.viewerWasRemoved
+    () =>
+      this.page().conversation.viewerIsParticipant && !this.page().conversation.viewerWasRemoved,
   );
 
   readonly composerDisabledReason = computed(() => {

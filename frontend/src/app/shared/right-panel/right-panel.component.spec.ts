@@ -7,11 +7,18 @@ import {
   DEFAULT_RIGHT_PANEL_SCOPE,
   OTHER_RIGHT_PANEL_SCOPE,
   RIGHT_PANEL_MEMBERS,
-  RIGHT_PANEL_NOTIFICATIONS
+  RIGHT_PANEL_NOTIFICATIONS,
 } from './right-panel.mock';
 import { RightPanelMember, RightPanelNotification } from './right-panel.types';
 
 const storageKey = 'aipsite.rightPanel.mode';
+const rightPanelMockState = {
+  mode: 'expanded',
+  selectedTab: 'members',
+  activeScope: DEFAULT_RIGHT_PANEL_SCOPE,
+  members: RIGHT_PANEL_MEMBERS,
+  notifications: RIGHT_PANEL_NOTIFICATIONS,
+};
 
 describe('RightPanelComponent', () => {
   beforeEach(() => {
@@ -22,9 +29,12 @@ describe('RightPanelComponent', () => {
     sessionStorage.clear();
   });
 
-  async function createRightPanel(): Promise<ReturnType<typeof TestBed.createComponent<RightPanelComponent>>> {
+  async function createRightPanel(): Promise<
+    ReturnType<typeof TestBed.createComponent<RightPanelComponent>>
+  > {
     await TestBed.configureTestingModule({
-      imports: [RightPanelComponent]
+      imports: [RightPanelComponent],
+      providers: [{ provide: AIP_RIGHT_PANEL_MOCK, useValue: rightPanelMockState }],
     }).compileComponents();
 
     const fixture = TestBed.createComponent(RightPanelComponent);
@@ -59,7 +69,7 @@ describe('RightPanelComponent', () => {
   it('email is not rendered', async () => {
     const memberWithEmail = {
       ...RIGHT_PANEL_MEMBERS[0],
-      email: 'member-a@example.test'
+      email: 'member-a@example.test',
     } as RightPanelMember & { email: string };
 
     await TestBed.configureTestingModule({
@@ -72,10 +82,10 @@ describe('RightPanelComponent', () => {
             selectedTab: 'members',
             activeScope: DEFAULT_RIGHT_PANEL_SCOPE,
             members: [memberWithEmail],
-            notifications: RIGHT_PANEL_NOTIFICATIONS
-          }
-        }
-      ]
+            notifications: RIGHT_PANEL_NOTIFICATIONS,
+          },
+        },
+      ],
     }).compileComponents();
 
     const fixture = TestBed.createComponent(RightPanelComponent);
@@ -92,12 +102,12 @@ describe('RightPanelComponent', () => {
 
   it('unsupported notification has no link', async () => {
     await TestBed.configureTestingModule({
-      imports: [NotificationItemComponent]
+      imports: [NotificationItemComponent],
     }).compileComponents();
 
     const fixture = TestBed.createComponent(NotificationItemComponent);
     const unsupported = RIGHT_PANEL_NOTIFICATIONS.find(
-      (notification) => notification.id === 'notification-unsupported'
+      (notification) => notification.id === 'notification-unsupported',
     ) as RightPanelNotification;
     fixture.componentRef.setInput('notification', unsupported);
     fixture.detectChanges();
@@ -109,12 +119,12 @@ describe('RightPanelComponent', () => {
 
   it('notification body is not rendered as HTML', async () => {
     await TestBed.configureTestingModule({
-      imports: [NotificationItemComponent]
+      imports: [NotificationItemComponent],
     }).compileComponents();
 
     const fixture = TestBed.createComponent(NotificationItemComponent);
     const htmlBody = RIGHT_PANEL_NOTIFICATIONS.find(
-      (notification) => notification.id === 'notification-html-body'
+      (notification) => notification.id === 'notification-html-body',
     ) as RightPanelNotification;
     fixture.componentRef.setInput('notification', htmlBody);
     fixture.detectChanges();
@@ -126,7 +136,8 @@ describe('RightPanelComponent', () => {
 
   it('panel collapsed state stored in sessionStorage', async () => {
     await TestBed.configureTestingModule({
-      imports: [RightPanelComponent]
+      imports: [RightPanelComponent],
+      providers: [{ provide: AIP_RIGHT_PANEL_MOCK, useValue: rightPanelMockState }],
     }).compileComponents();
 
     const facade = TestBed.inject(RightPanelFacade);
@@ -139,7 +150,8 @@ describe('RightPanelComponent', () => {
 
   it('session clear removes panel state', async () => {
     await TestBed.configureTestingModule({
-      imports: [RightPanelComponent]
+      imports: [RightPanelComponent],
+      providers: [{ provide: AIP_RIGHT_PANEL_MOCK, useValue: rightPanelMockState }],
     }).compileComponents();
 
     const facade = TestBed.inject(RightPanelFacade);

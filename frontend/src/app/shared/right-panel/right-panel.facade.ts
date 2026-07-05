@@ -1,10 +1,6 @@
+import { HttpClient } from '@angular/common/http';
 import { computed, Injectable, InjectionToken, inject, signal } from '@angular/core';
 
-import {
-  DEFAULT_RIGHT_PANEL_SCOPE,
-  RIGHT_PANEL_MEMBERS,
-  RIGHT_PANEL_NOTIFICATIONS
-} from './right-panel.mock';
 import {
   NotificationTargetType,
   RightPanelMember,
@@ -14,7 +10,7 @@ import {
   RightPanelPermission,
   RightPanelScope,
   RightPanelTab,
-  RightPanelViewModel
+  RightPanelViewModel,
 } from './right-panel.types';
 
 const RIGHT_PANEL_STORAGE_KEY = 'aipsite.rightPanel.mode';
@@ -23,10 +19,30 @@ const SUPPORTED_TARGETS = new Set<NotificationTargetType>([
   'channelConversation',
   'dmConversation',
   'project',
-  'task'
+  'task',
 ]);
 
 export const AIP_RIGHT_PANEL_MOCK = new InjectionToken<RightPanelMockState>('AIP_RIGHT_PANEL_MOCK');
+
+const EMPTY_RIGHT_PANEL_SCOPE: RightPanelScope = {
+  workspaceId: '',
+  projectId: '',
+  conversationId: '',
+};
+
+interface PagedResponseDto<T> {
+  readonly items?: readonly T[];
+}
+
+interface NotificationDto {
+  readonly id?: unknown;
+  readonly title?: unknown;
+  readonly body?: unknown;
+  readonly relatedEntityType?: unknown;
+  readonly relatedEntityId?: unknown;
+  readonly isRead?: unknown;
+  readonly targetRoute?: unknown;
+}
 
 export function isSupportedNotificationTarget(target: NotificationTargetType): boolean {
   return SUPPORTED_TARGETS.has(target);
@@ -38,15 +54,24 @@ export function clampRightPanelText(value: string, maxLength: number): string {
 
 @Injectable({ providedIn: 'root' })
 export class RightPanelFacade {
+  private readonly http = inject(HttpClient);
   private readonly mockState = inject(AIP_RIGHT_PANEL_MOCK, { optional: true });
-  private readonly modeState = signal<RightPanelMode>(this.mockState?.mode ?? this.readStoredMode());
-  private readonly selectedTabState = signal<RightPanelTab>(this.mockState?.selectedTab ?? 'notifications');
-  private readonly permissionState = signal<RightPanelPermission>(this.mockState?.permission ?? 'granted');
-  private readonly scopeState = signal<RightPanelScope>(this.mockState?.activeScope ?? DEFAULT_RIGHT_PANEL_SCOPE);
-  private readonly notificationState = signal<readonly RightPanelNotification[]>(
-    this.normalizeNotifications(this.mockState?.notifications ?? RIGHT_PANEL_NOTIFICATIONS)
+  private readonly modeState = signal<RightPanelMode>(
+    this.mockState?.mode ?? this.readStoredMode(),
   );
-  private readonly memberState = signal<readonly RightPanelMember[]>(this.mockState?.members ?? RIGHT_PANEL_MEMBERS);
+  private readonly selectedTabState = signal<RightPanelTab>(
+    this.mockState?.selectedTab ?? 'notifications',
+  );
+  private readonly permissionState = signal<RightPanelPermission>(
+    this.mockState?.permission ?? 'granted',
+  );
+  private readonly scopeState = signal<RightPanelScope>(
+    this.mockState?.activeScope ?? EMPTY_RIGHT_PANEL_SCOPE,
+  );
+  private readonly notificationState = signal<readonly RightPanelNotification[]>(
+    this.normalizeNotifications(this.mockState?.notifications ?? []),
+  );
+  private readonly memberState = signal<readonly RightPanelMember[]>(this.mockState?.members ?? []);
   private readonly selectedNotificationIdState = signal<string | null>(null);
 
   readonly mode = this.modeState.asReadonly();
@@ -55,7 +80,9 @@ export class RightPanelFacade {
 
   readonly viewModel = computed<RightPanelViewModel>(() => {
     const scope = this.scopeState();
-    const notifications = this.notificationState().filter((notification) => this.inScope(notification.scope, scope));
+    const notifications = this.notificationState().filter((notification) =>
+      this.inScope(notification.scope, scope),
+    );
     const members = this.memberState().filter((member) => this.inScope(member.scope, scope));
 
     return {
@@ -66,9 +93,15 @@ export class RightPanelFacade {
       notifications,
       unreadCount: notifications.filter((notification) => !notification.read).length,
       members,
-      selectedNotificationId: this.selectedNotificationIdState()
+      selectedNotificationId: this.selectedNotificationIdState(),
     };
   });
+
+  constructor() {
+    if (!this.mockState) {
+      this.loadNotifications();
+    }
+  }
 
   setMode(mode: RightPanelMode): void {
     this.modeState.set(mode);
@@ -115,8 +148,8 @@ export class RightPanelFacade {
   markNotificationRead(notificationId: string): void {
     this.notificationState.update((notifications) =>
       notifications.map((notification) =>
-        notification.id === notificationId ? { ...notification, read: true } : notification
-      )
+        notification.id === notificationId ? { ...notification, read: true } : notification,
+      ),
     );
   }
 
@@ -125,15 +158,54 @@ export class RightPanelFacade {
     this.modeState.set('collapsed');
     this.selectedTabState.set('notifications');
     this.permissionState.set(this.mockState?.permission ?? 'granted');
-    this.scopeState.set(this.mockState?.activeScope ?? DEFAULT_RIGHT_PANEL_SCOPE);
+    this.scopeState.set(this.mockState?.activeScope ?? EMPTY_RIGHT_PANEL_SCOPE);
     this.selectedNotificationIdState.set(null);
   }
 
-  private normalizeNotifications(notifications: readonly RightPanelNotification[]): readonly RightPanelNotification[] {
+  private loadNotifications(): void {
+    this.http
+      .get<PagedResponseDto<NotificationDto>>('/api/notifications', { withCredentials: true })
+      .subscribe({
+        next: (response) => {
+          this.notificationState.set(
+            this.normalizeNotifications(
+              (response.items ?? []).map((item) => this.toNotification(item)),
+            ),
+          );
+        },
+        error: (error: { status?: number }) => {
+          if (error.status === 401 || error.status === 403) {
+            this.permissionState.set('denied');
+          }
+          this.notificationState.set([]);
+        },
+      });
+  }
+
+  private toNotification(item: NotificationDto): RightPanelNotification {
+    const targetType = notificationTargetType(item.relatedEntityType);
+
+    return {
+      id: stringValue(item.id) ?? '',
+      scope: EMPTY_RIGHT_PANEL_SCOPE,
+      title: stringValue(item.title) ?? 'Notification',
+      body: stringValue(item.body) ?? '',
+      target: {
+        type: targetType,
+        id: stringValue(item.relatedEntityId),
+        label: stringValue(item.targetRoute) ?? targetType,
+      },
+      read: item.isRead === true,
+    };
+  }
+
+  private normalizeNotifications(
+    notifications: readonly RightPanelNotification[],
+  ): readonly RightPanelNotification[] {
     return notifications.map((notification) => ({
       ...notification,
       title: clampRightPanelText(notification.title, 80),
-      body: clampRightPanelText(notification.body, 160)
+      body: clampRightPanelText(notification.body, 160),
     }));
   }
 
@@ -169,4 +241,25 @@ export class RightPanelFacade {
       // Storage can be unavailable in hardened browsers or tests.
     }
   }
+}
+
+function stringValue(value: unknown): string | undefined {
+  return typeof value === 'string' && value.length > 0 ? value : undefined;
+}
+
+function notificationTargetType(value: unknown): NotificationTargetType {
+  const normalized = String(value ?? '').toLowerCase();
+  if (normalized.includes('announcement')) {
+    return 'announcement';
+  }
+  if (normalized.includes('conversation') || normalized.includes('channel')) {
+    return 'channelConversation';
+  }
+  if (normalized.includes('project')) {
+    return 'project';
+  }
+  if (normalized.includes('task')) {
+    return 'task';
+  }
+  return 'unsupported';
 }

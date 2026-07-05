@@ -8,16 +8,19 @@ import { authSessionInterceptor } from '../auth/auth-session.interceptor';
 import {
   AIP_AUTH_SESSION_MOCK,
   AuthSessionFacade,
-  DEFAULT_AUTH_SESSION
+  DEFAULT_AUTH_SESSION,
 } from '../auth/auth-session.facade';
 import type { AuthCurrentTenant } from '../auth/auth-session.facade';
 import { ActiveWorkspaceFacade } from '../workspace/active-workspace.facade';
-import { RightPanelFacade } from '../../shared/right-panel/right-panel.facade';
+import {
+  AIP_RIGHT_PANEL_MOCK,
+  RightPanelFacade,
+} from '../../shared/right-panel/right-panel.facade';
 import { TenantSwitchFacade } from './tenant-switch.facade';
 
 @Component({
   standalone: true,
-  template: ''
+  template: '',
 })
 class EmptyRouteComponent {}
 
@@ -36,9 +39,16 @@ describe('TenantSwitchFacade', () => {
         provideHttpClientTesting(),
         {
           provide: AIP_AUTH_SESSION_MOCK,
-          useValue: DEFAULT_AUTH_SESSION
-        }
-      ]
+          useValue: DEFAULT_AUTH_SESSION,
+        },
+        {
+          provide: AIP_RIGHT_PANEL_MOCK,
+          useValue: {
+            notifications: [],
+            members: [],
+          },
+        },
+      ],
     });
 
     TestBed.inject(HttpClient);
@@ -67,7 +77,7 @@ describe('TenantSwitchFacade', () => {
 
     httpMock.expectOne('/api/security/csrf-token').flush({
       token: 'csrf-tenant-switch',
-      headerName: 'X-CSRF-Token'
+      headerName: 'X-CSRF-Token',
     });
 
     const switchRequest = httpMock.expectOne('/api/tenants/switch');
@@ -80,7 +90,7 @@ describe('TenantSwitchFacade', () => {
       name: 'Tenant Next',
       slug: 'next',
       displayName: 'Tenant Next',
-      status: 1
+      status: 1,
     });
 
     httpMock.expectOne('/api/auth/status').flush({
@@ -90,8 +100,8 @@ describe('TenantSwitchFacade', () => {
         displayName: 'Next User',
         email: 'next@example.test',
         systemRole: 2,
-        status: 1
-      }
+        status: 1,
+      },
     });
 
     httpMock.expectOne('/api/tenants/current').flush({
@@ -103,7 +113,7 @@ describe('TenantSwitchFacade', () => {
       status: 1,
       currentUserRole: 3,
       appMode: 0,
-      allowTenantSwitching: true
+      allowTenantSwitching: true,
     });
 
     expect(emitted[0]?.tenantId).toBe('tenant-next');
@@ -116,10 +126,9 @@ describe('TenantSwitchFacade', () => {
 
     tenantSwitch.switchTenant('tenant-next').subscribe((tenant) => emitted.push(tenant));
 
-    httpMock.expectOne('/api/security/csrf-token').flush(
-      { error: 'CSRF unavailable' },
-      { status: 500, statusText: 'Server Error' }
-    );
+    httpMock
+      .expectOne('/api/security/csrf-token')
+      .flush({ error: 'CSRF unavailable' }, { status: 500, statusText: 'Server Error' });
 
     httpMock.expectNone('/api/tenants/switch');
     expect(emitted).toEqual([null]);

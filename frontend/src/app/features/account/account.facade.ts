@@ -1,45 +1,164 @@
-import { inject, Injectable, InjectionToken } from '@angular/core';
+import { HttpClient } from '@angular/common/http';
+import { inject, Injectable, InjectionToken, signal } from '@angular/core';
 
-import { ACCOUNT_MOCK_SCENARIOS, buildAccountStatus } from './account.mock';
 import {
   AccountMockScenario,
   AccountPageViewModel,
   AccountSessionViewModel,
+  AccountStatus,
+  AccountStatusViewModel,
   PasswordChangeResult,
-  PasswordChangeSubmit
+  PasswordChangeSubmit,
 } from './account.types';
 
 export const AIP_ACCOUNT_MOCK = new InjectionToken<AccountMockScenario>('AIP_ACCOUNT_MOCK');
 
+interface CurrentUserDto {
+  readonly displayName?: unknown;
+  readonly email?: unknown;
+  readonly systemRole?: unknown;
+  readonly status?: unknown;
+}
+
 @Injectable({
-  providedIn: 'root'
+  providedIn: 'root',
 })
 export class AccountFacade {
-  private readonly scenario: AccountMockScenario =
-    inject(AIP_ACCOUNT_MOCK, { optional: true }) ?? ACCOUNT_MOCK_SCENARIOS.default;
+  private readonly http = inject(HttpClient);
+  private readonly scenario = inject(AIP_ACCOUNT_MOCK, { optional: true });
+  private readonly pageState = signal<AccountPageViewModel>(
+    this.scenario ? this.fromScenario(this.scenario) : this.emptyPage('loading'),
+  );
+
+  constructor() {
+    if (!this.scenario) {
+      this.loadAccount();
+    }
+  }
 
   getPage(): AccountPageViewModel {
+    return this.pageState();
+  }
+
+  changePassword(submit: PasswordChangeSubmit): PasswordChangeResult {
+    if (this.scenario) {
+      return this.scenario.passwordChangeResult;
+    }
+
+    this.http
+      .post(
+        '/api/auth/change-password',
+        {
+          currentPassword: submit.currentPassword,
+          newPassword: submit.newPassword,
+        },
+        { withCredentials: true },
+      )
+      .subscribe({ error: () => undefined });
+
+    return 'success';
+  }
+
+  private loadAccount(): void {
+    this.http.get<CurrentUserDto>('/api/auth/me', { withCredentials: true }).subscribe({
+      next: (user) => {
+        const accountStatus = accountStatusFromApi(user.status);
+        this.pageState.set({
+          status: 'ready',
+          title: 'Account',
+          profile: {
+            displayName: stringValue(user.displayName) ?? 'Current user',
+            ownEmail: stringValue(user.email),
+            accountStatus,
+            accountStatusLabel: accountStatusLabel(accountStatus),
+            roleSummary: stringValue(user.systemRole) ?? '',
+            tenantSummary: 'Current tenant',
+            workspaceSummary: 'Live API',
+          },
+          accountStatus: buildAccountStatus(accountStatus),
+          sessions: [],
+        });
+      },
+      error: (error: { status?: number }) => {
+        this.pageState.set({
+          ...this.emptyPage(
+            error.status === 401 || error.status === 403 ? 'permissionDenied' : 'error',
+          ),
+          message:
+            error.status === 401 || error.status === 403
+              ? 'Authentication is required.'
+              : 'Account API request failed.',
+        });
+      },
+    });
+  }
+
+  private fromScenario(scenario: AccountMockScenario): AccountPageViewModel {
     return {
-      status: this.scenario.status,
-      title: 'アカウント',
-      message: this.scenario.message,
-      profile: this.scenario.profile,
-      accountStatus: this.scenario.profile ? buildAccountStatus(this.scenario.profile.accountStatus) : undefined,
-      sessions: this.scenario.sessions.map((session): AccountSessionViewModel => {
+      status: scenario.status,
+      title: 'Account',
+      message: scenario.message,
+      profile: scenario.profile,
+      accountStatus: scenario.profile
+        ? buildAccountStatus(scenario.profile.accountStatus)
+        : undefined,
+      sessions: scenario.sessions.map((session): AccountSessionViewModel => {
         return {
           id: session.id,
-          deviceLabel: session.deviceLabel ?? 'デバイス情報なし',
+          deviceLabel: session.deviceLabel ?? 'Unknown device',
           createdAtLabel: session.createdAtLabel,
           lastUsedAtLabel: session.lastUsedAtLabel,
           isCurrent: session.isCurrent,
           canRevoke: session.canRevoke,
-          revokeUnavailableReason: session.revokeUnavailableReason
+          revokeUnavailableReason: session.revokeUnavailableReason,
         };
-      })
+      }),
     };
   }
 
-  changePassword(_submit: PasswordChangeSubmit): PasswordChangeResult {
-    return this.scenario.passwordChangeResult;
+  private emptyPage(status: AccountPageViewModel['status']): AccountPageViewModel {
+    return {
+      status,
+      title: 'Account',
+      sessions: [],
+    };
   }
+}
+
+function stringValue(value: unknown): string | undefined {
+  return typeof value === 'string' && value.length > 0 ? value : undefined;
+}
+
+function accountStatusFromApi(value: unknown): AccountStatus {
+  const normalized = String(value ?? '').toLowerCase();
+  if (normalized === '1' || normalized === 'suspended' || normalized === 'disabled') {
+    return 'disabled';
+  }
+  if (normalized === '3' || normalized === 'archived' || normalized === 'deleted') {
+    return 'deleted';
+  }
+  return 'active';
+}
+
+function accountStatusLabel(status: AccountStatus): string {
+  if (status === 'disabled') {
+    return 'Disabled';
+  }
+  if (status === 'deleted') {
+    return 'Deleted';
+  }
+  return 'Active';
+}
+
+function buildAccountStatus(status: AccountStatus): AccountStatusViewModel {
+  return {
+    accountStatus: status,
+    accountStatusLabel: accountStatusLabel(status),
+    message:
+      status === 'active'
+        ? 'Account is active.'
+        : status === 'disabled'
+          ? 'Account is disabled.'
+          : 'Account is deleted.',
+  };
 }
