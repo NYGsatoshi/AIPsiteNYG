@@ -58,7 +58,7 @@ Development and controlled technical-evaluation build, not a turnkey pilot or br
 
 Known blockers:
 
-- No supported first-user/PlatformAdmin bootstrap.
+- First-user/PlatformAdmin bootstrap depends on the explicit `AIP_SEED_ADMIN_*` startup seed and operator control.
 - Invite registration does not create tenant/workspace membership.
 - Production object storage is not implemented.
 - PostgreSQL-backed search isolation tests are enforced in CI through `POSTGRES_TEST_CONNECTION_STRING`.

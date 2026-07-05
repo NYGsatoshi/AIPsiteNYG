@@ -45,6 +45,10 @@ services:
       Platform__EnablePlatformAdmin: "true"
       Platform__PlatformAdminSetupMode: "true"
       Platform__AllowTenantCreationFromAdmin: "true"
+      AIP_SEED_ADMIN_ENABLED: ${AIP_SEED_ADMIN_ENABLED:-false}
+      AIP_SEED_ADMIN_EMAIL: ${AIP_SEED_ADMIN_EMAIL:-admin@example.local}
+      AIP_SEED_ADMIN_USERNAME: ${AIP_SEED_ADMIN_USERNAME:-admin}
+      AIP_SEED_ADMIN_PASSWORD: ${AIP_SEED_ADMIN_PASSWORD:-}
       LocalAdmin__SeedOnStartup: ${LOCAL_ADMIN_SEED_ON_STARTUP:-false}
       LocalAdmin__Email: ${LOCAL_ADMIN_EMAIL:-admin@example.com}
       LocalAdmin__Password: ${LOCAL_ADMIN_PASSWORD:-change_me_for_local_admin}

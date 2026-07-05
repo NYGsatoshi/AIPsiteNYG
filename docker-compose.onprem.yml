@@ -19,6 +19,10 @@ services:
       Security__RequireHttps: "true"
       Security__EnableHsts: "true"
       Platform__PlatformAdminSetupMode: "false"
+      AIP_SEED_ADMIN_ENABLED: ${AIP_SEED_ADMIN_ENABLED:-false}
+      AIP_SEED_ADMIN_EMAIL: ${AIP_SEED_ADMIN_EMAIL:-admin@example.local}
+      AIP_SEED_ADMIN_USERNAME: ${AIP_SEED_ADMIN_USERNAME:-admin}
+      AIP_SEED_ADMIN_PASSWORD: ${AIP_SEED_ADMIN_PASSWORD:-}
     ports:
       - "${AIP_PORTAL_PORT:-8080}:8080"
     volumes:

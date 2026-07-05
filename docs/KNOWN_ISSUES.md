@@ -303,13 +303,12 @@ Status after the MVP-A P0 Angular migration: obsolete as active frontend defects
 
 ## High priority
 
-### KI-001: No supported first-administrator bootstrap
+### KI-001: First-administrator bootstrap requires explicit startup seed control
 
-- Status: confirmed missing.
-- Evidence: `AppDbContextSeed.cs` creates tenants, plans, and optional UI-shell data only.
-- Mismatch: deployment and operations docs previously assumed a controlled bootstrap procedure and meaningful `PlatformAdminSetupMode`.
-- Impact: a fresh installation cannot reach authenticated admin workflows without an external/manual database procedure.
-- Suggested issue: **Implement a secure first-PlatformAdmin bootstrap workflow**.
+- Status: implemented with operational constraints.
+- Evidence: `Program.cs` reads `AIP_SEED_ADMIN_ENABLED`; `AppDbContextSeed.cs` creates or updates a platform administrator through `IPasswordHasher` and default-tenant owner membership.
+- Constraint: `PlatformAdminSetupMode` still does not create an administrator, and bootstrap credentials must come from deployment environment variables or secret management.
+- Suggested issue: **Add an audited operator runbook for first-PlatformAdmin bootstrap and post-bootstrap disablement**.
 
 ### KI-002: Invite registration does not create membership
 
@@ -460,7 +459,7 @@ Status after the MVP-A P0 Angular migration: obsolete as active frontend defects
 
 ## Documentation still missing
 
-- A truthful first-administrator bootstrap runbook; blocked until the workflow exists.
+- A truthful first-administrator bootstrap runbook for the explicit startup seed.
 - A generated or maintained endpoint inventory/OpenAPI contract.
 - A frontend/backend DTO compatibility guide.
 - A canonical frontend route and UI-module mapping.
@@ -483,7 +482,7 @@ Status after the MVP-A P0 Angular migration: obsolete as active frontend defects
 
 1. Run the full GitHub Actions workflow and attach results to the documentation PR.
 2. Exercise each Compose profile from an empty volume and record startup failures.
-3. Design and threat-model first-admin bootstrap before implementation.
+3. Threat-model and document the explicit first-admin startup seed before pilot use.
 4. Trace invite acceptance through user, tenant membership, workspace membership, and session validation.
 5. Compare every frontend API call and mocked fixture with the real DTOs/controllers.
 6. Audit all `IgnoreQueryFilters` calls and all tenant-owned entities.

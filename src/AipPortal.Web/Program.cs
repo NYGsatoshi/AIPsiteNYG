@@ -89,7 +89,11 @@ app.UseMiddleware<GlobalExceptionHandlingMiddleware>();
 app.UseMiddleware<SecurityHeadersMiddleware>();
 
 var tenancyOptions = app.Services.GetRequiredService<TenancyOptions>();
-if (tenancyOptions.SeedOnStartup || tenancyOptions.AppMode == AppMode.OnPremSingleTenant || builder.Configuration.GetValue<bool>("UiShell:SeedOnStartup"))
+var seedAdminEnabled = builder.Configuration.GetValue<bool>("AIP_SEED_ADMIN_ENABLED");
+if (tenancyOptions.SeedOnStartup ||
+    tenancyOptions.AppMode == AppMode.OnPremSingleTenant ||
+    builder.Configuration.GetValue<bool>("UiShell:SeedOnStartup") ||
+    seedAdminEnabled)
 {
     await using var scope = app.Services.CreateAsyncScope();
     var currentTenant = scope.ServiceProvider.GetRequiredService<ICurrentTenantAccessor>();
@@ -97,7 +101,28 @@ if (tenancyOptions.SeedOnStartup || tenancyOptions.AppMode == AppMode.OnPremSing
     var dbContext = scope.ServiceProvider.GetRequiredService<AppDbContext>();
     var defaultTenant = await AppDbContextSeed.SeedDefaultTenantAsync(dbContext, tenancyOptions);
     await AppDbContextSeed.SeedPlansAsync(dbContext);
-    if (app.Environment.IsDevelopment() && builder.Configuration.GetValue<bool>("LocalAdmin:SeedOnStartup"))
+    if (seedAdminEnabled)
+    {
+        var seedAdminEmail = builder.Configuration["AIP_SEED_ADMIN_EMAIL"];
+        var seedAdminUsername = builder.Configuration["AIP_SEED_ADMIN_USERNAME"];
+        var seedAdminPassword = builder.Configuration["AIP_SEED_ADMIN_PASSWORD"];
+        if (string.IsNullOrWhiteSpace(seedAdminEmail) ||
+            string.IsNullOrWhiteSpace(seedAdminUsername) ||
+            string.IsNullOrWhiteSpace(seedAdminPassword))
+        {
+            throw new InvalidOperationException(
+                "AIP seed admin is enabled but AIP_SEED_ADMIN_EMAIL, AIP_SEED_ADMIN_USERNAME, or AIP_SEED_ADMIN_PASSWORD is missing.");
+        }
+
+        await AppDbContextSeed.SeedLocalAdminAsync(
+            dbContext,
+            scope.ServiceProvider.GetRequiredService<IPasswordHasher>(),
+            defaultTenant.Id,
+            seedAdminEmail,
+            seedAdminPassword,
+            seedAdminUsername);
+    }
+    else if (app.Environment.IsDevelopment() && builder.Configuration.GetValue<bool>("LocalAdmin:SeedOnStartup"))
     {
         var localAdminPassword = builder.Configuration["LocalAdmin:Password"];
         if (string.IsNullOrWhiteSpace(localAdminPassword))

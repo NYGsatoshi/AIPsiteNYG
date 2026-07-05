@@ -2,7 +2,7 @@
 
 This is the active runbook for smoke tests, backup, restore, production checks, and incidents. Deployment setup lives in `docs/DEPLOYMENT.md`.
 
-Current blocker: the repository has no supported first-user/PlatformAdmin bootstrap. Smoke steps that require an administrator cannot be completed on a fresh environment until that gap is resolved. `PlatformAdminSetupMode` does not create an administrator.
+Fresh environments can bootstrap the first administrator by setting `AIP_SEED_ADMIN_ENABLED=true` plus the `AIP_SEED_ADMIN_EMAIL`, `AIP_SEED_ADMIN_USERNAME`, and `AIP_SEED_ADMIN_PASSWORD` variables for startup. `PlatformAdminSetupMode` still does not create an administrator.
 
 ## Readiness Rule
 
@@ -24,7 +24,7 @@ Run this before a local demo, internal pilot handoff, or on-prem school demonstr
 1. Start PostgreSQL and the app.
 2. Apply migrations.
 3. Check `/health/live` and `/health/ready`.
-4. Sign in as an already provisioned PlatformAdmin. On a fresh installation this is blocked by the missing bootstrap workflow.
+4. Sign in as an already provisioned PlatformAdmin. On a fresh installation, first run the explicit startup seed and then disable it unless continued reconciliation is intentional.
 5. Create or verify a tenant.
 6. Add a tenant owner/admin.
 7. Sign in as tenant admin.
@@ -62,7 +62,7 @@ SaaS checks:
 - File storage path, volume, or bucket configured and backed up.
 - Database backup configured.
 - Restore tested.
-- Evidence of the exact administrator provisioning method; no supported repository workflow currently exists.
+- Evidence of the exact administrator provisioning method and confirmation that bootstrap credentials were not committed.
 - Default passwords removed.
 - Allowed upload extensions and MIME types reviewed.
 - Upload size reviewed.
@@ -137,7 +137,7 @@ Do not paste passwords, raw tokens, invite token values, API token raw values, w
 
 ## Known Operational Gaps
 
-- First-user/PlatformAdmin bootstrap is not implemented.
+- First-user/PlatformAdmin bootstrap is startup-seed based and must be explicitly controlled per environment.
 - `docker-compose.onprem.yml` does not apply migrations.
 - Forwarded-header handling for a TLS-terminating reverse proxy is not configured.
 - Production object storage adapter is not implemented.

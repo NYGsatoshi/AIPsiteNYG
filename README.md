@@ -24,7 +24,7 @@ Project documentation uses these labels:
 | ASP.NET Core host and modular projects | Implemented | `src/AipPortal.Web/Program.cs`, `AipPortal.slnx` |
 | PostgreSQL and EF Core migrations | Implemented | `src/AipPortal.Infrastructure/Persistence/AppDbContext.cs`, `src/AipPortal.Infrastructure/Persistence/Migrations/` |
 | Cookie login, logout, password change, CSRF, session validation, lockout | Implemented | `src/AipPortal.Application/Auth/`, `src/AipPortal.Web/Security/`, `src/AipPortal.Web/Middleware/CsrfProtectionMiddleware.cs` |
-| Initial administrator bootstrap | Implemented for Development | `LocalAdmin__SeedOnStartup` can seed or update a development admin user; do not use this as a production bootstrap workflow |
+| Initial administrator bootstrap | Implemented | `AIP_SEED_ADMIN_ENABLED=true` can seed or update the first administrator through the normal password hasher; `LocalAdmin__SeedOnStartup` remains a development-only compatibility path |
 | Invite registration | Partially implemented | Creates a user and session, but does not create tenant or workspace membership |
 | Tenant filters and tenant-aware save rules | Implemented | `src/AipPortal.Infrastructure/Persistence/AppDbContext.cs` |
 | Workspaces, groups, channels, messaging, projects, forms, events, files, notifications | Backend implemented; UI varies | Controllers and services exist; several browser routes are placeholders |
@@ -87,6 +87,15 @@ Full application Docker is optional. Use it only when you specifically want the 
 ```bash
 cp .env.example .env
 docker compose -f docker-compose.dev.yml up --build
+```
+
+For a fresh Docker/VPS environment, set these values in `.env` or your secret manager before first startup. Keep `AIP_SEED_ADMIN_ENABLED=false` after the initial bootstrap unless you intentionally want the startup seed to reconcile that administrator again.
+
+```bash
+AIP_SEED_ADMIN_ENABLED=true
+AIP_SEED_ADMIN_EMAIL=admin@example.local
+AIP_SEED_ADMIN_USERNAME=admin
+AIP_SEED_ADMIN_PASSWORD=<strong-password>
 ```
 
 Use `npm run test:ui:angular:docker` when you need Linux Playwright screenshot parity with GitHub Actions. Windows and macOS host-native screenshots are not authoritative for baseline approval.

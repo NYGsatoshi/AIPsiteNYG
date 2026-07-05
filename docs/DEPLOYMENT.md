@@ -8,9 +8,9 @@ This document describes what the repository currently supports. It is not a prod
 
 | Profile | Status | Current limitation |
 | --- | --- | --- |
-| Direct local development | Partially implemented | Requires external PostgreSQL, migrations, tenant data, and a manually provisioned user |
-| `docker-compose.local.yml` | Partially implemented | Migrates and seeds a tenant, but no user/admin bootstrap exists |
-| `docker-compose.yml` | Partially implemented | Migrates, but default SaaS startup seeds no tenant or user |
+| Direct local development | Partially implemented | Requires external PostgreSQL and migrations; initial administrator seed is opt-in |
+| `docker-compose.local.yml` | Partially implemented | Migrates and can opt in to initial administrator seed |
+| `docker-compose.yml` | Partially implemented | Migrates and can opt in to initial administrator seed |
 | `docker-compose.onprem.yml` | Incomplete | Does not run migrations and expects production HTTPS behavior without including a reverse proxy |
 | Broad public SaaS | Not ready | Object storage, bootstrap, API-token auth, recovery evidence, and deployment hardening are incomplete |
 
@@ -32,7 +32,7 @@ This document describes what the repository currently supports. It is not a prod
 - `OnPremSingleTenant` with startup tenant seed.
 - Local filesystem uploads in a named volume.
 - No persistent Data Protection volume in this profile.
-- No seeded user/admin.
+- Initial administrator seed is available through `AIP_SEED_ADMIN_ENABLED`.
 
 ### `docker-compose.yml`
 
@@ -41,7 +41,7 @@ This document describes what the repository currently supports. It is not a prod
 - Production app profile.
 - Local filesystem uploads despite the base app mode being SaaS.
 - Persistent Data Protection keys and uploads.
-- No tenant or user seed by default.
+- Initial administrator seed is available through `AIP_SEED_ADMIN_ENABLED`; it is disabled by default.
 
 ### `docker-compose.onprem.yml`
 
@@ -158,11 +158,20 @@ fallback: `/health`, `/health/live`, `/health/ready`, `/healthz`, `/metrics`,
 
 ## Tenant and administrator bootstrap
 
-Implemented startup seed can create a default tenant and plans.
+Implemented startup seed can create a default tenant, plans, and an explicit initial administrator.
 
-No supported workflow creates the first user or PlatformAdmin. The following documentation claim is therefore a mismatch: “enable setup mode and create the first administrator.” Setup mode has no corresponding endpoint or seed.
+Set the following environment variables only when intentionally bootstrapping or reconciling the first administrator:
 
-Do not expose a fresh deployment until a reviewed bootstrap procedure is implemented.
+```bash
+AIP_SEED_ADMIN_ENABLED=true
+AIP_SEED_ADMIN_EMAIL=admin@example.local
+AIP_SEED_ADMIN_USERNAME=admin
+AIP_SEED_ADMIN_PASSWORD=<strong-password>
+```
+
+The seed uses the existing `IPasswordHasher` and `User` model rather than writing password hashes directly. The account receives the platform administrator system role and an active owner membership in the default tenant. This project has no separate role table, so role creation maps to those existing enum-backed roles.
+
+Do not keep bootstrap credentials in committed Compose files. Store the password in `.env`, deployment environment variables, or a secret manager, and disable `AIP_SEED_ADMIN_ENABLED` after first startup unless continued reconciliation is intentional.
 
 ## Files
 
@@ -199,7 +208,7 @@ Readiness does not prove:
 
 Before any pilot:
 
-1. Implement or document a supported first-admin bootstrap.
+1. Apply or explicitly disable the supported first-admin bootstrap.
 2. Apply and record migrations.
 3. Verify tenant resolution for the exact host/proxy topology.
 4. Verify login, tenant membership, and role separation.

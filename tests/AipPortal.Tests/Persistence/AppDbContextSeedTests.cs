@@ -53,15 +53,27 @@ public sealed class AppDbContextSeedTests
             "Updated Admin");
 
         var user = await dbContext.Users.SingleAsync();
+        var passwordHashAfterPasswordChange = user.PasswordHash;
         var tenantUser = await dbContext.TenantUsers.SingleAsync();
 
         Assert.Equal("Updated Admin", user.DisplayName);
+        Assert.True(passwordHasher.VerifyPassword(user.PasswordHash, "second-local-password"));
         Assert.Equal(SystemRole.SystemAdmin, user.SystemRole);
         Assert.Equal(UserStatus.Active, user.Status);
         Assert.Equal(tenant.Id, tenantUser.TenantId);
         Assert.Equal(user.Id, tenantUser.UserId);
         Assert.Equal(TenantUserRole.Owner, tenantUser.Role);
         Assert.Equal(TenantUserStatus.Active, tenantUser.Status);
+
+        await AppDbContextSeed.SeedLocalAdminAsync(
+            dbContext,
+            passwordHasher,
+            tenant.Id,
+            "admin@example.com",
+            "second-local-password",
+            "Updated Admin");
+
+        Assert.Equal(passwordHashAfterPasswordChange, user.PasswordHash);
     }
 
     private static AppDbContext CreateDbContext(CurrentTenantService currentTenant)

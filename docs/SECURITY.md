@@ -18,7 +18,7 @@ The bundled browser UI uses cookie authentication. Login lockout is persisted fo
 
 Implemented auth capabilities include login, logout, password change, current-user lookup, DB-backed session validation, user suspension checks, CSRF token issuance, and CSRF validation for unsafe browser requests when enabled.
 
-Invite registration is partial: it creates a user and session but does not create tenant or workspace membership. Initial administrator bootstrap is not implemented.
+Invite registration is partial: it creates a user and session but does not create tenant or workspace membership. Initial administrator bootstrap is available only through explicit startup environment variables and must not be left enabled casually in production.
 
 Deferred auth capabilities:
 
@@ -128,7 +128,7 @@ Login lockout is implemented for existing accounts. Generic responses must be pr
 
 ## Current Security Limitations
 
-- No supported first-user/PlatformAdmin bootstrap.
+- First-user/PlatformAdmin bootstrap is startup-seed based and must be explicitly enabled and operationally controlled.
 - Invite registration does not create tenant/workspace membership.
 - `Features:*` and most `Platform:*` appsettings switches are not runtime authorization gates.
 - Forwarded-header handling for production reverse proxies is not configured.

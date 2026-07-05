@@ -29,7 +29,7 @@ This document separates implemented security controls from intended policy. Root
 ### Partially implemented
 
 - Invite registration validates a hashed invite token and creates a user/session, but it does not create tenant or workspace membership.
-- A fresh deployment cannot create its first administrator through a supported bootstrap path.
+- A fresh deployment can create its first administrator only through the explicit `AIP_SEED_ADMIN_*` startup seed.
 
 ### Planned
 
@@ -156,7 +156,7 @@ Needs verification:
 
 ## Current high-priority security gaps
 
-1. No supported first-admin bootstrap.
+1. First-admin bootstrap is startup-seed based and must be explicitly controlled per environment.
 2. Invite acceptance does not create scoped membership.
 3. Inert feature/platform settings can create false confidence.
 4. Object storage and scanning are not implemented.

@@ -57,7 +57,7 @@ Project references enforce a conventional dependency direction. See `docs/ARCHIT
 | Database-backed session revocation/expiry/user-state checks | Implemented | `Auth/UserSessionService.cs`, `Web/Security/DbSessionCookieAuthenticationEvents.cs` |
 | Login lockout | Implemented | `Auth/AuthService.cs`; production defaults enable it |
 | Password reset | Planned | Admin reset endpoint only records an audit event |
-| Initial admin bootstrap | **Not implemented** | `AppDbContextSeed` does not create users; `PlatformAdminSetupMode` is not a bootstrap implementation |
+| Initial admin bootstrap | Implemented | `Program.cs` reads `AIP_SEED_ADMIN_ENABLED`; `AppDbContextSeed.SeedLocalAdminAsync` creates or updates a platform administrator through `IPasswordHasher` and default-tenant owner membership |
 | Invite registration | Partially implemented | User/session creation exists; tenant/workspace membership creation is missing |
 | Tenant resolution | Implemented | Host, subdomain, session, development header, and config-default strategies in `HttpTenantResolver.cs` |
 | Tenant query isolation and save stamping | Implemented | Global filters and save rules in `AppDbContext.cs` |
@@ -122,7 +122,7 @@ Project references enforce a conventional dependency direction. See `docs/ARCHIT
 
 ## Critical current constraints
 
-- A fresh environment has no supported way to create the first login user or PlatformAdmin.
+- A fresh environment can create the first login user or PlatformAdmin only through the explicit `AIP_SEED_ADMIN_*` startup seed.
 - Invite acceptance does not create tenant/workspace membership.
 - Object-storage examples are not deployable because the adapter is intentionally unsupported.
 - `docker-compose.onprem.yml` does not apply EF migrations.

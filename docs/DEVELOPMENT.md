@@ -66,7 +66,7 @@ Development defaults use:
 - rate limiting and lockout disabled;
 - `PlatformAdminSetupMode=true`.
 
-Important: setup mode does not create an administrator. It is currently only a configuration value rejected in production.
+Important: setup mode does not create an administrator. Use the explicit seed variables below, or the development-only `LocalAdmin:*` compatibility path, when a local administrator is required.
 
 Run the Angular dev server on the host:
 
@@ -139,14 +139,13 @@ See [README.dev-env.md](../README.dev-env.md) for the lightweight mode, the opti
 
 - one default tenant;
 - four plan records;
+- an explicit initial administrator when `AIP_SEED_ADMIN_ENABLED=true`;
+- a development-only local administrator when `LocalAdmin:SeedOnStartup=true` in Development;
 - optional UI-shell modules, panels, commands, and radial profiles.
 
-It does not create:
+The administrator seed uses the existing password hasher and creates or updates a platform administrator with owner membership in the default tenant. `AIP_SEED_ADMIN_USERNAME` is stored as the display name because the current user model uses email for login and has no username column.
 
-- users or passwords;
-- PlatformAdmin/TenantAdmin memberships;
-- workspaces, groups, channels, projects, or demo data;
-- invite links.
+It does not create workspaces, groups, channels, projects, demo data, or invite links.
 
 Do not document seeded demo users unless code is added.
 

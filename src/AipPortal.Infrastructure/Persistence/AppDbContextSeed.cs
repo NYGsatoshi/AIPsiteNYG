@@ -122,15 +122,47 @@ public static class AppDbContextSeed
         }
         else
         {
-            user.DisplayName = string.IsNullOrWhiteSpace(displayName) ? user.DisplayName : displayName.Trim();
-            user.Email = email.Trim();
-            user.PasswordHash = passwordHasher.HashPassword(password);
-            user.SystemRole = SystemRole.SystemAdmin;
-            user.Status = UserStatus.Active;
-            user.FailedLoginAttempts = 0;
-            user.LockoutEndAt = null;
-            user.Restore();
-            user.UpdatedAt = DateTimeOffset.UtcNow;
+            var trimmedDisplayName = string.IsNullOrWhiteSpace(displayName) ? user.DisplayName : displayName.Trim();
+            if (user.DisplayName != trimmedDisplayName)
+            {
+                user.DisplayName = trimmedDisplayName;
+            }
+
+            var trimmedEmail = email.Trim();
+            if (user.Email != trimmedEmail)
+            {
+                user.Email = trimmedEmail;
+            }
+
+            if (!passwordHasher.VerifyPassword(user.PasswordHash, password))
+            {
+                user.PasswordHash = passwordHasher.HashPassword(password);
+            }
+
+            if (user.SystemRole != SystemRole.SystemAdmin)
+            {
+                user.SystemRole = SystemRole.SystemAdmin;
+            }
+
+            if (user.Status != UserStatus.Active)
+            {
+                user.Status = UserStatus.Active;
+            }
+
+            if (user.FailedLoginAttempts != 0)
+            {
+                user.FailedLoginAttempts = 0;
+            }
+
+            if (user.LockoutEndAt.HasValue)
+            {
+                user.LockoutEndAt = null;
+            }
+
+            if (user.IsDeleted)
+            {
+                user.Restore();
+            }
         }
 
         var tenantUser = await dbContext.TenantUsers
@@ -151,10 +183,20 @@ public static class AppDbContextSeed
         }
         else
         {
-            tenantUser.Role = TenantUserRole.Owner;
-            tenantUser.Status = TenantUserStatus.Active;
-            tenantUser.JoinedAt = tenantUser.JoinedAt == default ? DateTimeOffset.UtcNow : tenantUser.JoinedAt;
-            tenantUser.UpdatedAt = DateTimeOffset.UtcNow;
+            if (tenantUser.Role != TenantUserRole.Owner)
+            {
+                tenantUser.Role = TenantUserRole.Owner;
+            }
+
+            if (tenantUser.Status != TenantUserStatus.Active)
+            {
+                tenantUser.Status = TenantUserStatus.Active;
+            }
+
+            if (tenantUser.JoinedAt == default)
+            {
+                tenantUser.JoinedAt = DateTimeOffset.UtcNow;
+            }
         }
 
         await dbContext.SaveChangesAsync(cancellationToken);
