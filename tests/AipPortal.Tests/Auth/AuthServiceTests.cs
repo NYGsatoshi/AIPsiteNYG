@@ -77,6 +77,56 @@ public sealed class AuthServiceTests
     }
 
     [Fact]
+    public async Task ValidInviteCanBeValidatedWithoutReturningToken()
+    {
+        var fixture = AuthFixture.Create();
+        fixture.AddInvite("invite-token", "student@example.com", expiresAt: fixture.Clock.UtcNow.AddDays(1));
+
+        var result = await fixture.Service.ValidateInviteAsync("invite-token");
+
+        Assert.True(result.IsSuccess);
+        Assert.True(result.Value!.Valid);
+        Assert.Equal("student@example.com", result.Value.Email);
+        Assert.Equal("Member", result.Value.Role);
+        Assert.Equal("AIP Portal", result.Value.TenantName);
+    }
+
+    [Fact]
+    public async Task AcceptInviteCreatesUserMembershipsSessionAndMarksInviteUsed()
+    {
+        var fixture = AuthFixture.Create();
+        var invite = fixture.AddInvite("invite-token", "student@example.com", expiresAt: fixture.Clock.UtcNow.AddDays(1));
+
+        var result = await fixture.Service.AcceptInviteAsync(new AcceptInviteRequest(
+            "invite-token",
+            "Student",
+            "Password123"));
+
+        Assert.True(result.IsSuccess);
+        Assert.Equal(fixture.Clock.UtcNow, invite.AcceptedAt);
+        var user = Assert.Single(fixture.Users.Values, user => user.Email == "student@example.com");
+        Assert.True(fixture.PasswordHasher.VerifyPassword(user.PasswordHash, "Password123"));
+        Assert.Contains(fixture.TenantUsers, membership => membership.TenantId == invite.TenantId && membership.UserId == user.Id && membership.Status == TenantUserStatus.Active);
+        Assert.Contains(fixture.WorkspaceMembers, membership => membership.WorkspaceId == invite.WorkspaceId && membership.UserId == user.Id && membership.Status == MembershipStatus.Active);
+        Assert.Single(fixture.Sessions);
+    }
+
+    [Fact]
+    public async Task UsedInviteCannotBeAcceptedAgain()
+    {
+        var fixture = AuthFixture.Create();
+        fixture.AddInvite("invite-token", "student@example.com", expiresAt: fixture.Clock.UtcNow.AddDays(1));
+
+        var first = await fixture.Service.AcceptInviteAsync(new AcceptInviteRequest("invite-token", "Student", "Password123"));
+        var second = await fixture.Service.AcceptInviteAsync(new AcceptInviteRequest("invite-token", "Student", "Password123"));
+
+        Assert.True(first.IsSuccess);
+        Assert.False(second.IsSuccess);
+        Assert.Equal("Invite has already been used.", second.Error);
+        Assert.Single(fixture.Sessions);
+    }
+
+    [Fact]
     public async Task SuspendedUserCannotLogin()
     {
         var fixture = AuthFixture.Create();
@@ -205,6 +255,8 @@ public sealed class AuthServiceTests
             Service = new AuthService(
                 new FakeUserRepository(Users),
                 new FakeInviteRepository(Invites),
+                new FakeTenantRepository(Tenants, TenantUsers),
+                new FakeWorkspaceRepository(WorkspaceMembers),
                 new FakeSessionRepository(Sessions),
                 new FakeUserSessionService(),
                 PasswordHasher,
@@ -218,6 +270,9 @@ public sealed class AuthServiceTests
 
         public Dictionary<Guid, User> Users { get; } = [];
         public Dictionary<string, Invite> Invites { get; } = [];
+        public Dictionary<Guid, Tenant> Tenants { get; } = [];
+        public List<TenantUser> TenantUsers { get; } = [];
+        public List<WorkspaceMember> WorkspaceMembers { get; } = [];
         public List<Session> Sessions { get; } = [];
         public FakeClock Clock { get; } = new(new DateTimeOffset(2026, 6, 6, 0, 0, 0, TimeSpan.Zero));
         public Pbkdf2PasswordHasher PasswordHasher { get; } = new();
@@ -243,15 +298,24 @@ public sealed class AuthServiceTests
             return user;
         }
 
-        public void AddInvite(
+        public Invite AddInvite(
             string token,
             string email,
             DateTimeOffset expiresAt,
             DateTimeOffset? acceptedAt = null,
             DateTimeOffset? revokedAt = null)
         {
+            var tenant = new Tenant
+            {
+                Name = "AIP Portal",
+                DisplayName = "AIP Portal",
+                Slug = "aip-portal",
+                Status = TenantStatus.Active
+            };
+            Tenants[tenant.Id] = tenant;
             var invite = new Invite
             {
+                TenantId = tenant.Id,
                 WorkspaceId = Guid.NewGuid(),
                 Email = email,
                 NormalizedEmail = email.ToUpperInvariant(),
@@ -264,6 +328,7 @@ public sealed class AuthServiceTests
             };
 
             Invites[invite.TokenHash] = invite;
+            return invite;
         }
     }
 
@@ -359,6 +424,98 @@ public sealed class AuthServiceTests
         public Task LogAsync(AuditLogEntry entry, CancellationToken cancellationToken = default)
         {
             Entries.Add(entry);
+            return Task.CompletedTask;
+        }
+    }
+
+    private sealed class FakeTenantRepository(
+        Dictionary<Guid, Tenant> tenants,
+        List<TenantUser> tenantUsers) : ITenantRepository
+    {
+        public Task<IReadOnlyList<Tenant>> ListTenantsAsync(CancellationToken cancellationToken = default)
+        {
+            return Task.FromResult<IReadOnlyList<Tenant>>(tenants.Values.ToList());
+        }
+
+        public Task<Tenant?> GetTenantAsync(Guid tenantId, CancellationToken cancellationToken = default)
+        {
+            tenants.TryGetValue(tenantId, out var tenant);
+            return Task.FromResult(tenant);
+        }
+
+        public Task<Tenant?> GetTenantBySlugAsync(string slug, CancellationToken cancellationToken = default)
+        {
+            return Task.FromResult(tenants.Values.FirstOrDefault(tenant => tenant.Slug == slug));
+        }
+
+        public Task<Tenant?> GetTenantByPrimaryDomainAsync(string primaryDomain, CancellationToken cancellationToken = default)
+        {
+            return Task.FromResult(tenants.Values.FirstOrDefault(tenant => tenant.PrimaryDomain == primaryDomain));
+        }
+
+        public Task AddTenantAsync(Tenant tenant, CancellationToken cancellationToken = default)
+        {
+            tenants[tenant.Id] = tenant;
+            return Task.CompletedTask;
+        }
+
+        public Task<IReadOnlyList<TenantUser>> ListTenantUsersAsync(Guid tenantId, CancellationToken cancellationToken = default)
+        {
+            return Task.FromResult<IReadOnlyList<TenantUser>>(tenantUsers.Where(item => item.TenantId == tenantId).ToList());
+        }
+
+        public Task<IReadOnlyList<TenantUser>> ListUserTenantMembershipsAsync(Guid userId, CancellationToken cancellationToken = default)
+        {
+            return Task.FromResult<IReadOnlyList<TenantUser>>(tenantUsers.Where(item => item.UserId == userId).ToList());
+        }
+
+        public Task<TenantUser?> GetTenantUserAsync(Guid tenantId, Guid userId, CancellationToken cancellationToken = default)
+        {
+            return Task.FromResult(tenantUsers.FirstOrDefault(item => item.TenantId == tenantId && item.UserId == userId));
+        }
+
+        public Task AddTenantUserAsync(TenantUser tenantUser, CancellationToken cancellationToken = default)
+        {
+            tenantUsers.Add(tenantUser);
+            return Task.CompletedTask;
+        }
+
+        public Task<User?> GetUserAsync(Guid userId, CancellationToken cancellationToken = default)
+        {
+            return Task.FromResult<User?>(null);
+        }
+    }
+
+    private sealed class FakeWorkspaceRepository(List<WorkspaceMember> members) : IWorkspaceRepository
+    {
+        public Task<IReadOnlyList<Workspace>> ListForUserAsync(Guid userId, bool includeAll, CancellationToken cancellationToken = default)
+        {
+            return Task.FromResult<IReadOnlyList<Workspace>>([]);
+        }
+
+        public Task<Workspace?> GetByIdAsync(Guid workspaceId, CancellationToken cancellationToken = default)
+        {
+            return Task.FromResult<Workspace?>(new Workspace { CreatedByUserId = Guid.NewGuid() });
+        }
+
+        public Task<WorkspaceMember?> GetMemberAsync(Guid workspaceId, Guid userId, CancellationToken cancellationToken = default)
+        {
+            return Task.FromResult(members.FirstOrDefault(item => item.WorkspaceId == workspaceId && item.UserId == userId));
+        }
+
+        public Task<IReadOnlyList<WorkspaceMember>> ListMembersAsync(Guid workspaceId, CancellationToken cancellationToken = default)
+        {
+            return Task.FromResult<IReadOnlyList<WorkspaceMember>>(members.Where(item => item.WorkspaceId == workspaceId).ToList());
+        }
+
+        public Task AddAsync(Workspace workspace, CancellationToken cancellationToken = default)
+        {
+            return Task.CompletedTask;
+        }
+
+        public Task AddMemberAsync(WorkspaceMember member, CancellationToken cancellationToken = default)
+        {
+            members.Add(member);
             return Task.CompletedTask;
         }
     }

@@ -67,6 +67,33 @@
       <p class="admin-invites__notice" role="status" data-testid="invite-admin-created">{{ createdNotice() }}</p>
     }
 
+    @if (createdInvite(); as invite) {
+      <section class="admin-invites__created" aria-label="Created invite">
+        <div>
+          <p class="admin-invites__created-label">Invite URL</p>
+          <p class="admin-invites__created-url" data-testid="invite-admin-url">{{ invite.inviteUrl }}</p>
+        </div>
+        <button type="button" class="admin-invites__copy" (click)="copyInviteUrl()" data-testid="invite-admin-copy">
+          Copy
+        </button>
+        <dl>
+          <div>
+            <dt>Email</dt>
+            <dd data-testid="invite-admin-created-email">{{ invite.email }}</dd>
+          </div>
+          <div>
+            <dt>Role</dt>
+            <dd data-testid="invite-admin-created-role">{{ invite.role }}</dd>
+          </div>
+          <div>
+            <dt>Expires</dt>
+            <dd data-testid="invite-admin-created-expires">{{ invite.expiresAt }}</dd>
+          </div>
+        </dl>
+        <p class="admin-invites__delivery-note">Email delivery is not implemented. Send this link to the invitee.</p>
+      </section>
+    }
+
     @if (message()) {
       <p class="admin-invites__error" role="alert">{{ message() }}</p>
     }

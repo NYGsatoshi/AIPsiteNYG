@@ -5,6 +5,32 @@
   data-testid="invite-token-state-panel"
 >
   @switch (state.status) {
+    @case ('valid') {
+      <dl class="invite-token-state__details" data-testid="invite-details">
+        <div>
+          <dt>メール</dt>
+          <dd>{{ state.email }}</dd>
+        </div>
+        @if (state.role) {
+          <div>
+            <dt>Role</dt>
+            <dd>{{ state.role }}</dd>
+          </div>
+        }
+        @if (state.tenantName) {
+          <div>
+            <dt>Tenant</dt>
+            <dd>{{ state.tenantName }}</dd>
+          </div>
+        }
+        @if (state.expiresAt) {
+          <div>
+            <dt>有効期限</dt>
+            <dd>{{ state.expiresAt }}</dd>
+          </div>
+        }
+      </dl>
+    }
     @case ('validating') {
       <p role="status">招待リンクを確認しています。</p>
     }
@@ -40,4 +66,3 @@
     }
   }
 </section>
-

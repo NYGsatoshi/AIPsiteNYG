@@ -94,6 +94,7 @@ public sealed class AuthSecurityHttpTests
     [InlineData("PATCH", "/api/admin/users/00000000-0000-0000-0000-000000000000")]
     [InlineData("DELETE", "/api/files/00000000-0000-0000-0000-000000000000")]
     [InlineData("POST", "/api/auth/register-by-invite")]
+    [InlineData("POST", "/api/invites/accept")]
     public async Task UnsafeCookieAuthFlowsWithoutCsrfTokenAreRejected(string method, string path)
     {
         await using var app = await AuthSecurityTestApp.CreateAsync();

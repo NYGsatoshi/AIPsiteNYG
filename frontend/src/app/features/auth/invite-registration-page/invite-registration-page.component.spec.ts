@@ -1,3 +1,5 @@
+import { provideHttpClient } from '@angular/common/http';
+import { HttpTestingController, provideHttpClientTesting } from '@angular/common/http/testing';
 import { ComponentFixture, TestBed } from '@angular/core/testing';
 import { By } from '@angular/platform-browser';
 import { ActivatedRoute, convertToParamMap } from '@angular/router';
@@ -38,6 +40,23 @@ const textContent = (fixture: ComponentFixture<InviteRegistrationPageComponent>)
 const getForm = (fixture: ComponentFixture<InviteRegistrationPageComponent>): InviteRegistrationFormComponent =>
   fixture.debugElement.query(By.directive(InviteRegistrationFormComponent)).componentInstance as InviteRegistrationFormComponent;
 
+const renderPageWithApi = async (
+  token: string | null = 'safe-api-token'
+): Promise<{ fixture: ComponentFixture<InviteRegistrationPageComponent>; httpMock: HttpTestingController }> => {
+  await TestBed.configureTestingModule({
+    imports: [InviteRegistrationPageComponent],
+    providers: [
+      provideHttpClient(),
+      provideHttpClientTesting(),
+      { provide: ActivatedRoute, useValue: routeWithToken(token) }
+    ]
+  }).compileComponents();
+
+  const fixture = TestBed.createComponent(InviteRegistrationPageComponent);
+  fixture.detectChanges();
+  return { fixture, httpMock: TestBed.inject(HttpTestingController) };
+};
+
 describe('InviteRegistrationPageComponent', () => {
   afterEach(() => TestBed.resetTestingModule());
 
@@ -66,6 +85,60 @@ describe('InviteRegistrationPageComponent', () => {
     const email = (fixture.nativeElement as HTMLElement).querySelector<HTMLInputElement>('[data-testid="invite-email"]');
     expect(email?.readOnly).toBe(true);
     expect(email?.value).toBe('mock-invitee@example.invalid');
+  });
+
+  it('validates a real invite token and renders the registration form', async () => {
+    const { fixture, httpMock } = await renderPageWithApi('safe-api-token');
+
+    const validateRequest = httpMock.expectOne((request) =>
+      request.url === '/api/invites/validate' && request.params.get('token') === 'safe-api-token'
+    );
+    validateRequest.flush({
+      valid: true,
+      email: 'new-user@example.invalid',
+      role: 'Member',
+      tenantName: 'AIP Portal',
+      expiresAt: '2026-07-13T00:00:00Z'
+    });
+    fixture.detectChanges();
+
+    expect((fixture.nativeElement as HTMLElement).querySelector('[data-testid="invite-registration-form"]')).not.toBeNull();
+    expect(textContent(fixture)).toContain('new-user@example.invalid');
+    expect(textContent(fixture)).toContain('Member');
+    httpMock.verify();
+  });
+
+  it('accepts a valid invite without sending email from the form payload', async () => {
+    const { fixture, httpMock } = await renderPageWithApi('safe-api-token');
+
+    httpMock.expectOne('/api/invites/validate?token=safe-api-token').flush({
+      valid: true,
+      email: 'new-user@example.invalid',
+      role: 'Member',
+      tenantName: 'AIP Portal',
+      expiresAt: '2026-07-13T00:00:00Z'
+    });
+    fixture.detectChanges();
+
+    const form = getForm(fixture);
+    form.form.setValue({
+      displayName: 'New User',
+      password: 'Password123',
+      confirmPassword: 'Password123'
+    });
+    form.submit();
+
+    const acceptRequest = httpMock.expectOne('/api/invites/accept');
+    expect(acceptRequest.request.body).toEqual({
+      token: 'safe-api-token',
+      displayName: 'New User',
+      password: 'Password123'
+    });
+    acceptRequest.flush({ userId: 'user-a', displayName: 'New User', email: 'new-user@example.invalid' });
+    fixture.detectChanges();
+
+    expect(textContent(fixture)).toContain('登録が完了しました。');
+    httpMock.verify();
   });
 
   it('does not trim password before submit model construction', async () => {
@@ -100,11 +173,11 @@ describe('InviteRegistrationPageComponent', () => {
     expect(textContent(fixture)).toContain('パスワードが一致しません。');
   });
 
-  it('disables submit in backend transaction gated state', async () => {
+  it('does not render registration submit in legacy backend transaction gated state', async () => {
     const fixture = await renderPage(INVITE_REGISTRATION_SCENARIOS.backendTransactionGated);
 
     const submit = (fixture.nativeElement as HTMLElement).querySelector<HTMLButtonElement>('[data-testid="invite-submit"]');
-    expect(submit?.disabled).toBe(true);
+    expect(submit).toBeNull();
     expect(textContent(fixture)).toContain('この招待登録は現在準備中です。');
   });
 

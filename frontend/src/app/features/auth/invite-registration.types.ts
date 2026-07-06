@@ -13,6 +13,9 @@ export type InviteTokenStatus =
 export interface InviteRegistrationViewModel {
   readonly status: InviteTokenStatus;
   readonly email: string | null;
+  readonly role?: string | null;
+  readonly tenantName?: string | null;
+  readonly expiresAt?: string | null;
   readonly requestId?: string | null;
   readonly targetWorkspacePath?: string | null;
   readonly message?: string | null;
@@ -45,4 +48,3 @@ export type InviteBootstrapAction =
   | 'fetchCsrfToken'
   | 'navigateTargetWorkspace'
   | 'navigateLogin';
-

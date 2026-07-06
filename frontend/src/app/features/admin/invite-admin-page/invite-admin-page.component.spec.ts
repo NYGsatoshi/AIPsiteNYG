@@ -64,6 +64,7 @@ describe('InviteAdminPageComponent', () => {
       workspaceId: 'workspace-a',
       email: 'new-user@example.invalid',
       role: 3,
+      inviteUrl: 'https://portal.example.test/app/register/invite?token=safe-token',
       expiresAt: '2026-07-13T00:00:00Z'
     });
 
@@ -80,6 +81,11 @@ describe('InviteAdminPageComponent', () => {
     });
 
     expect(component.invites()[0]?.role).toBe('Member');
+    fixture.detectChanges();
+    expect((fixture.nativeElement as HTMLElement).textContent).toContain(
+      'https://portal.example.test/app/register/invite?token=safe-token'
+    );
+    expect((fixture.nativeElement as HTMLElement).textContent).toContain('Send this link to the invitee.');
   });
 
   it('shows ProblemDetails validation errors instead of a generic invite failure', () => {

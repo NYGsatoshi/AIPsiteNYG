@@ -22,6 +22,41 @@ public sealed class AdminServiceTests
     }
 
     [Fact]
+    public async Task NormalUserCannotCreateInvite()
+    {
+        var fixture = AdminFixture.Create(SystemRole.User);
+
+        var result = await fixture.Service.CreateInviteAsync(new CreateInviteRequest(
+            Guid.NewGuid(),
+            "new-user@example.com",
+            WorkspaceRole.Member,
+            null));
+
+        Assert.False(result.IsSuccess);
+        Assert.Equal("SystemAdmin access is required.", result.Error);
+        Assert.Empty(fixture.Repository.Invites);
+    }
+
+    [Fact]
+    public async Task CreateInviteReturnsRawTokenOnceAndStoresOnlyHash()
+    {
+        var fixture = AdminFixture.Create(SystemRole.SystemAdmin);
+
+        var result = await fixture.Service.CreateInviteAsync(new CreateInviteRequest(
+            Guid.NewGuid(),
+            "new-user@example.com",
+            WorkspaceRole.Member,
+            null));
+
+        Assert.True(result.IsSuccess);
+        Assert.False(string.IsNullOrWhiteSpace(result.Value?.InviteToken));
+        var storedInvite = Assert.Single(fixture.Repository.Invites);
+        Assert.NotEqual(result.Value!.InviteToken, storedInvite.TokenHash);
+        Assert.Equal(new Sha256TokenHasher().HashToken(result.Value.InviteToken!), storedInvite.TokenHash);
+        Assert.Equal(fixture.Clock.UtcNow.AddDays(7), storedInvite.ExpiresAt);
+    }
+
+    [Fact]
     public async Task LastSystemAdminDemotionIsPrevented()
     {
         var fixture = AdminFixture.Create(SystemRole.SystemAdmin);
@@ -87,7 +122,7 @@ public sealed class AdminServiceTests
     {
         public Dictionary<Guid, User> Users { get; } = [];
         public List<SystemSetting> Settings { get; } = [];
-        private readonly List<Invite> invites = [];
+        public List<Invite> Invites { get; } = [];
 
         public Task<PagedResponse<AdminUserListItemResponse>> ListUsersAsync(int page, int pageSize, CancellationToken cancellationToken = default)
         {
@@ -120,19 +155,19 @@ public sealed class AdminServiceTests
 
         public Task<PagedResponse<AdminInviteResponse>> ListInvitesAsync(int page, int pageSize, CancellationToken cancellationToken = default)
         {
-            var items = invites.Select(invite => new AdminInviteResponse(invite.Id, invite.WorkspaceId, invite.Email, invite.Role, invite.ExpiresAt, invite.AcceptedAt, invite.RevokedAt, invite.InvitedByUserId, invite.CreatedAt)).ToList();
+            var items = Invites.Select(invite => new AdminInviteResponse(invite.Id, invite.WorkspaceId, invite.Email, invite.Role, invite.ExpiresAt, invite.AcceptedAt, invite.RevokedAt, invite.InvitedByUserId, invite.CreatedAt)).ToList();
             return Task.FromResult(new PagedResponse<AdminInviteResponse>(items, page, pageSize, items.Count));
         }
 
         public Task AddInviteAsync(Invite invite, CancellationToken cancellationToken = default)
         {
-            invites.Add(invite);
+            Invites.Add(invite);
             return Task.CompletedTask;
         }
 
         public Task<Invite?> GetInviteAsync(Guid inviteId, CancellationToken cancellationToken = default)
         {
-            return Task.FromResult(invites.FirstOrDefault(invite => invite.Id == inviteId));
+            return Task.FromResult(Invites.FirstOrDefault(invite => invite.Id == inviteId));
         }
 
         public Task<Workspace?> GetWorkspaceAsync(Guid workspaceId, CancellationToken cancellationToken = default) => Task.FromResult<Workspace?>(new Workspace { CreatedByUserId = Guid.NewGuid() });

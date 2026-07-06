@@ -27,6 +27,7 @@ interface InviteDto {
   readonly workspaceId?: unknown;
   readonly email?: unknown;
   readonly role?: unknown;
+  readonly inviteUrl?: unknown;
   readonly expiresAt?: unknown;
   readonly acceptedAt?: unknown;
   readonly revokedAt?: unknown;
@@ -48,6 +49,13 @@ interface InviteRow {
   readonly email: string;
   readonly role: string;
   readonly status: string;
+  readonly expiresAt: string;
+}
+
+interface CreatedInviteDetails {
+  readonly email: string;
+  readonly role: string;
+  readonly inviteUrl: string;
   readonly expiresAt: string;
 }
 
@@ -79,6 +87,7 @@ export class InviteAdminPageComponent {
   readonly expiresAt = signal('');
   readonly submitting = signal(false);
   readonly createdNotice = signal<string | null>(null);
+  readonly createdInvite = signal<CreatedInviteDetails | null>(null);
 
   readonly canSubmit = computed(
     () =>
@@ -129,6 +138,7 @@ export class InviteAdminPageComponent {
 
     this.submitting.set(true);
     this.createdNotice.set(null);
+    this.createdInvite.set(null);
     const body = {
       workspaceId: this.selectedWorkspaceId(),
       email: this.email().trim(),
@@ -143,8 +153,10 @@ export class InviteAdminPageComponent {
       )
       .subscribe({
         next: (invite) => {
+          const created = toCreatedInviteDetails(invite, body.email);
           this.email.set('');
-          this.createdNotice.set(`${stringValue(invite.email) || body.email} was created. Invite token delivery is not implemented in this UI.`);
+          this.createdInvite.set(created);
+          this.createdNotice.set(`${created.email} was created. Send this link to the invitee.`);
           this.loadInvites();
         },
         error: (error: unknown) => {
@@ -154,6 +166,19 @@ export class InviteAdminPageComponent {
           }
         }
       });
+  }
+
+  copyInviteUrl(): void {
+    const inviteUrl = this.createdInvite()?.inviteUrl;
+    if (!inviteUrl || typeof navigator === 'undefined' || !navigator.clipboard) {
+      this.message.set('Copy is not available in this browser. Select and copy the invite URL.');
+      return;
+    }
+
+    void navigator.clipboard.writeText(inviteUrl).then(
+      () => this.createdNotice.set('Invite URL copied. Send this link to the invitee.'),
+      () => this.message.set('Copy failed. Select and copy the invite URL.')
+    );
   }
 
   private loadInvites(): void {
@@ -224,6 +249,15 @@ function toInviteRow(invite: InviteDto): InviteRow {
     email: stringValue(invite.email),
     role: workspaceRoleLabel(invite.role),
     status: revokedAt ? 'Revoked' : acceptedAt ? 'Accepted' : 'Pending',
+    expiresAt: formatDate(invite.expiresAt)
+  };
+}
+
+function toCreatedInviteDetails(invite: InviteDto, fallbackEmail: string): CreatedInviteDetails {
+  return {
+    email: stringValue(invite.email) || fallbackEmail,
+    role: workspaceRoleLabel(invite.role),
+    inviteUrl: stringValue(invite.inviteUrl),
     expiresAt: formatDate(invite.expiresAt)
   };
 }

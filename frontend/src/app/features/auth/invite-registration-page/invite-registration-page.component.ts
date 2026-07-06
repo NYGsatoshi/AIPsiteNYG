@@ -17,12 +17,16 @@ export class InviteRegistrationPageComponent {
   private readonly route = inject(ActivatedRoute);
   private readonly facade = inject(InviteRegistrationFacade);
   private readonly inviteToken = this.route.snapshot.queryParamMap.get('token');
-  private readonly state = signal<InviteRegistrationViewModel>(this.facade.validateToken(this.inviteToken));
+  private readonly state = signal<InviteRegistrationViewModel>(initialState(this.inviteToken));
 
   readonly viewState = this.state.asReadonly();
   readonly canShowForm = computed(() =>
-    ['valid', 'backendTransactionGated', 'registrationFailure'].includes(this.state().status)
+    ['valid', 'registrationFailure'].includes(this.state().status)
   );
+
+  constructor() {
+    this.facade.validateToken(this.inviteToken).subscribe((state) => this.state.set(state));
+  }
 
   submitRegistration(model: InviteRegistrationFormSubmit): void {
     const currentState = this.state();
@@ -30,14 +34,32 @@ export class InviteRegistrationPageComponent {
       return;
     }
 
-    this.state.set(
-      this.facade.register({
+    this.state.set({ ...currentState, submitDisabled: true });
+    this.facade
+      .register({
         token: this.inviteToken,
         email: currentState.email,
         displayName: model.displayName,
         password: model.password
       })
-    );
+      .subscribe((state) => this.state.set(state));
   }
 }
 
+function initialState(token: string | null): InviteRegistrationViewModel {
+  return token
+    ? {
+        status: 'validating',
+        email: null,
+        message: null,
+        submitDisabled: true,
+        bootstrapActions: []
+      }
+    : {
+        status: 'missing',
+        email: null,
+        message: 'Invite token is missing.',
+        submitDisabled: true,
+        bootstrapActions: []
+      };
+}

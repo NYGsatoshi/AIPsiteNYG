@@ -67,7 +67,10 @@ public sealed class AdminController(IAdminService adminService) : ControllerBase
     [HttpPost("invites")]
     public async Task<IActionResult> CreateInvite(CreateInviteRequest request, CancellationToken cancellationToken)
     {
-        return ToActionResult(await adminService.CreateInviteAsync(request, cancellationToken));
+        var result = await adminService.CreateInviteAsync(request, cancellationToken);
+        return result.IsSuccess && result.Value is not null
+            ? Ok(ToHttpInviteResponse(result.Value))
+            : BadRequest(new { error = result.Error });
     }
 
     [HttpPost("invites/{inviteId:guid}/revoke")]
@@ -79,7 +82,10 @@ public sealed class AdminController(IAdminService adminService) : ControllerBase
     [HttpPost("invites/bulk")]
     public async Task<IActionResult> BulkCreateInvites(BulkCreateInviteRequest request, CancellationToken cancellationToken)
     {
-        return ToActionResult(await adminService.BulkCreateInvitesAsync(request, cancellationToken));
+        var result = await adminService.BulkCreateInvitesAsync(request, cancellationToken);
+        return result.IsSuccess && result.Value is not null
+            ? Ok(result.Value.Select(ToHttpInviteResponse).ToList())
+            : BadRequest(new { error = result.Error });
     }
 
     [HttpGet("settings")]
@@ -139,4 +145,41 @@ public sealed class AdminController(IAdminService adminService) : ControllerBase
     {
         return result.IsSuccess ? Ok(new { status = "OK" }) : BadRequest(new { error = result.Error });
     }
+
+    private AdminInviteHttpResponse ToHttpInviteResponse(AdminInviteResponse invite)
+    {
+        var inviteUrl = string.IsNullOrWhiteSpace(invite.InviteToken)
+            ? null
+            : BuildInviteUrl(invite.InviteToken);
+
+        return new AdminInviteHttpResponse(
+            invite.Id,
+            invite.WorkspaceId,
+            invite.Email,
+            invite.Role.ToString(),
+            invite.ExpiresAt,
+            invite.AcceptedAt,
+            invite.RevokedAt,
+            invite.InvitedByUserId,
+            invite.CreatedAt,
+            inviteUrl);
+    }
+
+    private string BuildInviteUrl(string token)
+    {
+        var pathBase = Request.PathBase.HasValue ? Request.PathBase.Value : string.Empty;
+        return $"{Request.Scheme}://{Request.Host}{pathBase}/app/register/invite?token={Uri.EscapeDataString(token)}";
+    }
+
+    private sealed record AdminInviteHttpResponse(
+        Guid Id,
+        Guid WorkspaceId,
+        string Email,
+        string Role,
+        DateTimeOffset ExpiresAt,
+        DateTimeOffset? AcceptedAt,
+        DateTimeOffset? RevokedAt,
+        Guid InvitedByUserId,
+        DateTimeOffset CreatedAt,
+        string? InviteUrl);
 }
