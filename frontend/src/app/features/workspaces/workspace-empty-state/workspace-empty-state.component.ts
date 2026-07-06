@@ -7,6 +7,6 @@ import { Component, Input } from '@angular/core';
   styleUrl: './workspace-empty-state.component.scss'
 })
 export class WorkspaceEmptyStateComponent {
-  @Input() title = '表示できるワークスペースがありません。';
-  @Input() message = '参加できるワークスペースが追加されると、ここに表示されます。';
+  @Input() title = '表示できるWorkspaceがありません';
+  @Input() message = 'Workspaceの作成または招待が完了すると、ここに表示されます。';
 }

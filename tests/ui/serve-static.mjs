@@ -7,6 +7,14 @@ const root = path.resolve(process.env.PLAYWRIGHT_STATIC_ROOT ?? path.join(proces
 const host = argValue("--host") ?? process.env.PLAYWRIGHT_HOST ?? "127.0.0.1";
 const port = Number(argValue("--port") ?? process.env.PLAYWRIGHT_PORT ?? 4173);
 const appPath = "/app";
+const staticWorkspace = {
+  id: "static-workspace-1",
+  name: "Static Workspace",
+  description: "Playwright static workspace",
+  status: "Active",
+  createdAt: "2026-07-06T00:00:00Z",
+  updatedAt: "2026-07-06T00:00:00Z"
+};
 
 function argValue(name) {
   const index = process.argv.indexOf(name);
@@ -77,7 +85,10 @@ const server = createServer(async (request, response) => {
       displayName: "Mock User A",
       email: "mock-user-a@example.invalid",
       systemRole: "TenantUser",
-      status: "Active"
+      status: "Active",
+      capabilities: ["workspace:view", "announcements:view", "projects:view", "files:view", "account:view", "audit:view"],
+      currentWorkspace: staticWorkspace,
+      workspaces: [staticWorkspace]
     }));
     return;
   }
@@ -91,7 +102,10 @@ const server = createServer(async (request, response) => {
         displayName: "Mock User A",
         email: "mock-user-a@example.invalid",
         systemRole: "TenantUser",
-        status: "Active"
+        status: "Active",
+        capabilities: ["workspace:view", "announcements:view", "projects:view", "files:view", "account:view", "audit:view"],
+        currentWorkspace: staticWorkspace,
+        workspaces: [staticWorkspace]
       }
     }));
     return;
@@ -110,6 +124,12 @@ const server = createServer(async (request, response) => {
       appMode: "OnPremSingleTenant",
       allowTenantSwitching: true
     }));
+    return;
+  }
+
+  if (pathname === "/api/workspaces") {
+    response.writeHead(200, { "content-type": "application/json; charset=utf-8" });
+    response.end(JSON.stringify([staticWorkspace]));
     return;
   }
 

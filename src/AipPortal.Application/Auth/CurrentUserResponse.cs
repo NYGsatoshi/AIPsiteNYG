@@ -8,4 +8,12 @@ public sealed record CurrentUserResponse(
     string Email,
     SystemRole SystemRole,
     UserStatus Status,
-    IReadOnlyList<string> Capabilities);
+    IReadOnlyList<string> Capabilities,
+    AuthWorkspaceSummary? CurrentWorkspace,
+    IReadOnlyList<AuthWorkspaceSummary> Workspaces);
+
+public sealed record AuthWorkspaceSummary(
+    Guid Id,
+    string Name,
+    string? Description,
+    WorkspaceStatus Status);

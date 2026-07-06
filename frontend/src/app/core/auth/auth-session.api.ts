@@ -1,4 +1,5 @@
 import type { AuthCurrentTenant, AuthCurrentUser } from './auth-session.facade';
+import type { WorkspaceSummary } from '../workspace/active-workspace.facade';
 
 export interface CurrentUserResponseDto {
   readonly userId?: unknown;
@@ -7,6 +8,15 @@ export interface CurrentUserResponseDto {
   readonly systemRole?: unknown;
   readonly status?: unknown;
   readonly capabilities?: unknown;
+  readonly currentWorkspace?: WorkspaceSummaryDto | null;
+  readonly workspaces?: unknown;
+}
+
+export interface WorkspaceSummaryDto {
+  readonly id?: unknown;
+  readonly name?: unknown;
+  readonly description?: unknown;
+  readonly status?: unknown;
 }
 
 export interface LoginResponseDto extends CurrentUserResponseDto {
@@ -55,7 +65,9 @@ export function mapCurrentUserResponse(dto: CurrentUserResponseDto): AuthCurrent
     email: stringValue(dto.email),
     systemRole: enumValue(dto.systemRole),
     status: enumValue(dto.status),
-    capabilities: capabilityValues(dto.capabilities)
+    capabilities: capabilityValues(dto.capabilities),
+    currentWorkspace: workspaceSummaryValue(dto.currentWorkspace),
+    workspaces: workspaceSummaryValues(dto.workspaces)
   };
 }
 
@@ -128,4 +140,33 @@ function capabilityValues(value: unknown): string[] {
   }
 
   return value.filter((item): item is string => typeof item === 'string' && item.length > 0);
+}
+
+function workspaceSummaryValues(value: unknown): WorkspaceSummary[] {
+  if (!Array.isArray(value)) {
+    return [];
+  }
+
+  return value
+    .map((item) => workspaceSummaryValue(item))
+    .filter((item): item is WorkspaceSummary => item !== null);
+}
+
+function workspaceSummaryValue(value: unknown): WorkspaceSummary | null {
+  if (!value || typeof value !== 'object') {
+    return null;
+  }
+
+  const dto = value as WorkspaceSummaryDto;
+  const id = nullableString(dto.id);
+  if (!id) {
+    return null;
+  }
+
+  const name = nullableString(dto.name);
+  return {
+    id,
+    label: name && name.length > 0 ? name : id,
+    description: nullableString(dto.description)
+  };
 }

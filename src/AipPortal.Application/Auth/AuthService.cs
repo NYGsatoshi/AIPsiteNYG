@@ -87,7 +87,7 @@ public sealed class AuthService(
         await auditLogger.LogSecurityAsync("LoginSuccess", "User logged in.", LoginSecurityMetadata(user, request.Email), cancellationToken: cancellationToken);
         await unitOfWork.SaveChangesAsync(cancellationToken);
 
-        return Result<LoginResponse>.Success(ToLoginResponse(user, session));
+        return Result<LoginResponse>.Success(await ToLoginResponseAsync(user, session, cancellationToken));
     }
 
     public async Task<Result<LoginResponse>> RegisterByInviteAsync(RegisterByInviteRequest request, CancellationToken cancellationToken = default)
@@ -213,7 +213,7 @@ public sealed class AuthService(
         await auditLogger.LogSecurityAsync("InviteAccepted", "Invite accepted.", new Dictionary<string, object?> { ["userId"] = user.Id, ["inviteId"] = invite.Id }, cancellationToken: cancellationToken);
         await unitOfWork.SaveChangesAsync(cancellationToken);
 
-        return Result<LoginResponse>.Success(ToLoginResponse(user, session));
+        return Result<LoginResponse>.Success(await ToLoginResponseAsync(user, session, cancellationToken));
     }
 
     private async Task<Result<Invite>> GetUsableInviteAsync(string token, CancellationToken cancellationToken)
@@ -368,13 +368,17 @@ public sealed class AuthService(
             return Result<CurrentUserResponse>.Failure("Authentication is required.");
         }
 
+        var workspaceContext = await BuildWorkspaceContextAsync(user, cancellationToken);
+
         return Result<CurrentUserResponse>.Success(new CurrentUserResponse(
             user.Id,
             user.DisplayName,
             user.Email,
             user.SystemRole,
             user.Status,
-            BuildCapabilities(user.SystemRole)));
+            BuildCapabilities(user.SystemRole),
+            workspaceContext.CurrentWorkspace,
+            workspaceContext.Workspaces));
     }
 
     private Session CreateSession(Guid userId)
@@ -388,8 +392,10 @@ public sealed class AuthService(
         };
     }
 
-    private static LoginResponse ToLoginResponse(User user, Session session)
+    private async Task<LoginResponse> ToLoginResponseAsync(User user, Session session, CancellationToken cancellationToken)
     {
+        var workspaceContext = await BuildWorkspaceContextAsync(user, cancellationToken);
+
         return new LoginResponse(
             user.Id,
             session.Id,
@@ -397,8 +403,27 @@ public sealed class AuthService(
             user.Email,
             user.SystemRole,
             session.ExpiresAt,
-            BuildCapabilities(user.SystemRole));
+            BuildCapabilities(user.SystemRole),
+            workspaceContext.CurrentWorkspace,
+            workspaceContext.Workspaces);
     }
+
+    private async Task<WorkspaceContext> BuildWorkspaceContextAsync(User user, CancellationToken cancellationToken)
+    {
+        var includeAll = user.SystemRole == SystemRole.SystemAdmin;
+        var userWorkspaces = await workspaces.ListForUserAsync(user.Id, includeAll, cancellationToken);
+        var activeWorkspaces = userWorkspaces
+            .Where(workspace => !workspace.DeletedAt.HasValue && workspace.Status is not WorkspaceStatus.Archived and not WorkspaceStatus.Deleted)
+            .OrderBy(workspace => workspace.CreatedAt)
+            .Select(workspace => new AuthWorkspaceSummary(workspace.Id, workspace.Name, workspace.Description, workspace.Status))
+            .ToList();
+
+        return new WorkspaceContext(activeWorkspaces.FirstOrDefault(), activeWorkspaces);
+    }
+
+    private sealed record WorkspaceContext(
+        AuthWorkspaceSummary? CurrentWorkspace,
+        IReadOnlyList<AuthWorkspaceSummary> Workspaces);
 
     private static IReadOnlyList<string> BuildCapabilities(SystemRole role)
     {

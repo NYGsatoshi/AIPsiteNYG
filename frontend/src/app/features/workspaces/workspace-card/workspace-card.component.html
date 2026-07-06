@@ -1,11 +1,11 @@
 <article class="workspace-card" data-testid="workspace-card">
   <header class="workspace-card__header">
-    <p class="workspace-card__eyebrow">ワークスペース</p>
+    <p class="workspace-card__eyebrow">Workspace</p>
     <h2 data-testid="workspace-name">{{ workspace.displayName }}</h2>
     <span class="workspace-card__role">{{ workspace.roleLabel }}</span>
   </header>
 
-  <dl class="workspace-card__metrics" aria-label="ワークスペース概要">
+  <dl class="workspace-card__metrics" aria-label="Workspace概要">
     <div>
       <dt>未読お知らせ</dt>
       <dd [class.workspace-card__metric-unavailable]="!workspace.availability.unreadAnnouncements">
@@ -19,7 +19,7 @@
       </dd>
     </div>
     <div>
-      <dt>進行中</dt>
+      <dt>進行中Project</dt>
       <dd [class.workspace-card__metric-unavailable]="!workspace.availability.activeProjects">
         {{ unavailableLabel(workspace.availability.activeProjects, workspace.activeProjectCount) }}
       </dd>

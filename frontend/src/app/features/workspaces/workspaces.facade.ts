@@ -1,6 +1,8 @@
-import { HttpClient } from '@angular/common/http';
+import { HttpClient, HttpErrorResponse } from '@angular/common/http';
 import { inject, Injectable, InjectionToken, signal } from '@angular/core';
 
+import { AuthSessionFacade } from '../../core/auth/auth-session.facade';
+import { ActiveWorkspaceFacade } from '../../core/workspace/active-workspace.facade';
 import {
   WorkspaceCardViewModel,
   WorkspaceDashboardViewModel,
@@ -25,6 +27,8 @@ interface WorkspaceListItemDto {
 })
 export class WorkspacesFacade {
   private readonly http = inject(HttpClient);
+  private readonly activeWorkspace = inject(ActiveWorkspaceFacade);
+  private readonly authSession = inject(AuthSessionFacade);
   private readonly mockDashboard = inject(AIP_WORKSPACES_DASHBOARD_MOCK, { optional: true });
   private readonly dashboardState = signal<WorkspaceDashboardViewModel>(
     this.mockDashboard ?? this.emptyDashboard('loading'),
@@ -38,30 +42,59 @@ export class WorkspacesFacade {
     }
   }
 
-  private loadWorkspaces(): void {
+  loadWorkspaces(): void {
     this.http
       .get<readonly WorkspaceListItemDto[]>('/api/workspaces', { withCredentials: true })
       .subscribe({
-        next: (workspaces) => {
-          const cards = workspaces.map((workspace) => this.toWorkspaceCard(workspace));
-          this.dashboardState.set({
-            ...this.emptyDashboard(cards.length === 0 ? 'noWorkspaceAccess' : 'ready'),
-            workspaces: cards,
-            message:
-              cards.length === 0 ? 'No authorized workspaces were returned by the API.' : undefined,
-          });
-        },
-        error: (error: { status?: number }) => {
-          const status = error.status === 401 ? 'permissionDenied' : 'error';
-          this.dashboardState.set({
-            ...this.emptyDashboard(status),
-            message:
-              status === 'permissionDenied'
-                ? 'Authentication is required.'
-                : 'Workspace API request failed.',
-          });
-        },
+        next: (workspaces) => this.applyWorkspaceResponse(workspaces),
+        error: (error: unknown) => this.applyWorkspaceError(error),
       });
+  }
+
+  private applyWorkspaceResponse(workspaces: readonly WorkspaceListItemDto[]): void {
+    const cards = workspaces
+      .map((workspace) => this.toWorkspaceCard(workspace))
+      .filter((workspace) => workspace.id.length > 0);
+
+    this.activeWorkspace.setActiveWorkspace(
+      cards[0] ? { id: cards[0].id, label: cards[0].displayName } : null,
+    );
+
+    if (cards.length === 0) {
+      this.dashboardState.set({
+        ...this.emptyDashboard('noWorkspaceAccess'),
+        message: this.emptyWorkspaceMessage(),
+      });
+      return;
+    }
+
+    this.dashboardState.set({
+      ...this.emptyDashboard('ready'),
+      workspaces: cards,
+      partialSummaryUnavailable: true,
+      message: '一部の集計情報はまだAPI未実装です。',
+    });
+  }
+
+  private applyWorkspaceError(error: unknown): void {
+    this.activeWorkspace.clearWorkspace();
+    const httpError = error instanceof HttpErrorResponse ? error : null;
+    const status = httpError?.status;
+    const permissionDenied = status === 401 || status === 403;
+
+    this.dashboardState.set({
+      ...this.emptyDashboard(permissionDenied ? 'permissionDenied' : 'error'),
+      message: workspaceErrorMessage(status),
+    });
+  }
+
+  private emptyWorkspaceMessage(): string {
+    const capabilities = this.authSession.session().capabilities;
+    if (capabilities.includes('admin:access')) {
+      return 'Workspaceがまだ作成されていません。起動時seedまたは管理画面からDefault Workspaceを作成してください。';
+    }
+
+    return 'Workspaceに所属していません。管理者に招待を依頼してください。';
   }
 
   private emptyDashboard(
@@ -70,10 +103,10 @@ export class WorkspacesFacade {
     return {
       status,
       title: 'Workspaces',
-      subtitle: 'Live API data',
+      subtitle: '参加中のWorkspace',
       workspaces: [],
       pageCapabilities: [],
-      partialSummaryUnavailable: true,
+      partialSummaryUnavailable: false,
     };
   }
 
@@ -87,20 +120,44 @@ export class WorkspacesFacade {
       unreadAnnouncementCount: null,
       unreadConversationCount: null,
       activeProjectCount: null,
-      lastUpdatedLabel: updatedAt ? new Date(updatedAt).toLocaleDateString() : null,
+      lastUpdatedLabel: updatedAt ? new Date(updatedAt).toLocaleDateString('ja-JP') : null,
       availability: {
         unreadAnnouncements: false,
         unreadConversations: false,
         activeProjects: false,
         lastUpdated: updatedAt !== undefined,
       },
-      capabilities: ['openWorkspace', 'openMembers', 'openProjects'],
+      capabilities: ['openMembers', 'openProjects'],
     };
   }
 
   private roleLabel(): WorkspaceRoleLabel {
-    return '繝｡繝ｳ繝舌・' as WorkspaceRoleLabel;
+    return 'メンバー';
   }
+}
+
+function workspaceErrorMessage(status: number | undefined): string {
+  if (status === 0) {
+    return 'ネットワークエラーまたはAPIに接続できません。';
+  }
+
+  if (status === 401) {
+    return '未ログインまたは認証cookieが無効です。再ログインしてください。';
+  }
+
+  if (status === 403) {
+    return 'Workspaceを表示する権限がありません。';
+  }
+
+  if (status === 404) {
+    return 'Workspace APIが見つかりません。バックエンドのルートを確認してください。';
+  }
+
+  if (status !== undefined && status >= 500) {
+    return 'Workspace APIでサーバーエラーが発生しました。';
+  }
+
+  return 'Workspaceを取得できません。';
 }
 
 function stringValue(value: unknown): string | undefined {

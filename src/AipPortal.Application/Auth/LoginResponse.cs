@@ -11,4 +11,6 @@ public sealed record LoginResponse(
     string Email,
     SystemRole SystemRole,
     DateTimeOffset ExpiresAt,
-    IReadOnlyList<string> Capabilities);
+    IReadOnlyList<string> Capabilities,
+    AuthWorkspaceSummary? CurrentWorkspace,
+    IReadOnlyList<AuthWorkspaceSummary> Workspaces);

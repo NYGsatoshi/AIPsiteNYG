@@ -21,7 +21,9 @@ describe('auth session API adapters', () => {
       email: 'self@example.test',
       systemRole: '2',
       status: '1',
-      capabilities: ['workspace:view', 'invite:create']
+      capabilities: ['workspace:view', 'invite:create'],
+      currentWorkspace: null,
+      workspaces: []
     });
   });
 

@@ -3,10 +3,10 @@ import { expectNoAccessibilityViolations } from './a11y';
 
 const coreResponsiveRoutes = [
   '/app/workspaces',
-  '/app/workspaces/fictional-workspace-1/members',
+  '/app/workspaces/static-workspace-1/members',
   '/app/announcements',
-  '/app/workspaces/fictional-workspace-1/channels/fictional-conversation-main',
-  '/app/dm/fictional-dm-1',
+  '/app/workspaces/static-workspace-1/channels/static-conversation-main',
+  '/app/dm/static-dm-1',
   '/app/files',
   '/app/projects',
   '/app/tasks',

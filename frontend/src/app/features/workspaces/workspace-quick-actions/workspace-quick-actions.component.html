@@ -1,13 +1,21 @@
 <div class="workspace-actions" [attr.data-workspace-id]="workspaceId">
   @if (hasCapability('openWorkspace')) {
-    <button class="workspace-actions__primary" type="button" data-testid="open-workspace-action">開く</button>
+    <button
+      class="workspace-actions__primary"
+      type="button"
+      data-testid="open-workspace-action"
+      disabled
+      title="Workspace詳細画面は未実装です。"
+    >
+      詳細は未実装
+    </button>
   }
 
   @if (hasCapability('openMembers')) {
-    <button type="button" data-testid="open-members-action">メンバー</button>
+    <a [routerLink]="['/workspaces', workspaceId, 'members']" data-testid="open-members-action">メンバー</a>
   }
 
   @if (hasCapability('openProjects')) {
-    <button type="button" data-testid="open-projects-action">プロジェクト</button>
+    <a routerLink="/projects" data-testid="open-projects-action">プロジェクト</a>
   }
 </div>

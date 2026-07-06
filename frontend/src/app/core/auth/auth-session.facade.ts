@@ -16,6 +16,7 @@ import {
   mapCurrentUserResponse
 } from './auth-session.api';
 import { CsrfTokenService } from './csrf-token.service';
+import { WorkspaceSummary } from '../workspace/active-workspace.facade';
 
 export type AuthSessionStatus = 'anonymous' | 'active' | 'expired';
 
@@ -26,6 +27,8 @@ export interface AuthCurrentUser {
   readonly systemRole: string;
   readonly status: string;
   readonly capabilities: readonly string[];
+  readonly currentWorkspace: WorkspaceSummary | null;
+  readonly workspaces: readonly WorkspaceSummary[];
 }
 
 export interface AuthCurrentTenant {
@@ -64,7 +67,9 @@ export const DEFAULT_AUTH_SESSION: AuthSessionSnapshot = {
     email: 'mock-user-a@example.invalid',
     systemRole: 'TenantUser',
     status: 'Active',
-    capabilities: ['workspace:view', 'announcements:view', 'projects:view', 'files:view', 'account:view', 'audit:view']
+    capabilities: ['workspace:view', 'announcements:view', 'projects:view', 'files:view', 'account:view', 'audit:view'],
+    currentWorkspace: null,
+    workspaces: []
   },
   currentTenant: {
     tenantId: 'mock-tenant',
@@ -256,6 +261,7 @@ export class AuthSessionFacade {
   }
 
   private patchUser(user: AuthCurrentUser): void {
+    this.activeWorkspace.setActiveWorkspace(user.currentWorkspace ?? user.workspaces[0] ?? null);
     this.sessionState.update((session) =>
       createSessionSnapshot(
         user,

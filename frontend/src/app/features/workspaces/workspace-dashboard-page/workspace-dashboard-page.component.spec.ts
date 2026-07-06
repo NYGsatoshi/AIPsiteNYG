@@ -1,4 +1,5 @@
 import { ComponentFixture, TestBed } from '@angular/core/testing';
+import { provideRouter } from '@angular/router';
 
 import { AIP_WORKSPACES_DASHBOARD_MOCK } from '../workspaces.facade';
 import { DEFAULT_WORKSPACES, LONG_NAME_WORKSPACE, WORKSPACE_DASHBOARD_SCENARIOS } from '../workspaces.mock';
@@ -8,7 +9,10 @@ import { WorkspaceDashboardPageComponent } from './workspace-dashboard-page.comp
 const renderDashboard = async (dashboard: WorkspaceDashboardViewModel): Promise<ComponentFixture<WorkspaceDashboardPageComponent>> => {
   await TestBed.configureTestingModule({
     imports: [WorkspaceDashboardPageComponent],
-    providers: [{ provide: AIP_WORKSPACES_DASHBOARD_MOCK, useValue: dashboard }]
+    providers: [
+      provideRouter([]),
+      { provide: AIP_WORKSPACES_DASHBOARD_MOCK, useValue: dashboard }
+    ]
   }).compileComponents();
 
   const fixture = TestBed.createComponent(WorkspaceDashboardPageComponent);

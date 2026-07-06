@@ -3,14 +3,8 @@ import { InjectionToken, inject, Injectable, signal } from '@angular/core';
 export interface WorkspaceSummary {
   readonly id: string;
   readonly label: string;
-  readonly description: string;
+  readonly description?: string | null;
 }
-
-export const DEFAULT_ACTIVE_WORKSPACE: WorkspaceSummary = {
-  id: 'fictional-workspace-1',
-  label: '検証ワークスペース',
-  description: '準備中',
-};
 
 export const AIP_ACTIVE_WORKSPACE_MOCK = new InjectionToken<WorkspaceSummary | null>(
   'AIP_ACTIVE_WORKSPACE_MOCK',
@@ -27,7 +21,11 @@ export class ActiveWorkspaceFacade {
     this.activeWorkspaceState.set(null);
   }
 
-  setMockWorkspace(workspace: WorkspaceSummary | null): void {
+  setActiveWorkspace(workspace: WorkspaceSummary | null): void {
     this.activeWorkspaceState.set(workspace);
+  }
+
+  setMockWorkspace(workspace: WorkspaceSummary | null): void {
+    this.setActiveWorkspace(workspace);
   }
 }

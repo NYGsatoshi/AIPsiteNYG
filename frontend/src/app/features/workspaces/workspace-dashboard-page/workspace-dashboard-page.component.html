@@ -8,14 +8,20 @@
     </div>
 
     @if (canCreateWorkspace()) {
-      <button class="workspace-dashboard__create" type="button" data-testid="create-workspace-action">
-        ワークスペースを作成
+      <button
+        class="workspace-dashboard__create"
+        type="button"
+        data-testid="create-workspace-action"
+        disabled
+        title="Workspace作成画面は未実装です。"
+      >
+        Workspace作成
       </button>
     }
   </header>
 
-  @if (vm.partialSummaryUnavailable) {
-    <p class="workspace-dashboard__notice" role="status">一部の情報を取得できませんでした。</p>
+  @if (vm.partialSummaryUnavailable && vm.message) {
+    <p class="workspace-dashboard__notice" role="status">{{ vm.message }}</p>
   }
 
   @if (vm.status === 'loading') {
@@ -25,20 +31,20 @@
       <span></span>
     </section>
   } @else if (vm.status === 'error') {
-    <app-workspace-empty-state title="一部の情報を取得できませんでした。" [message]="vm.message ?? '時間をおいてもう一度確認してください。'" />
+    <app-workspace-empty-state title="Workspaceを取得できません" [message]="vm.message ?? '時間をおいて再度確認してください。'" />
   } @else if (vm.status === 'permissionDenied') {
-    <app-workspace-empty-state title="このワークスペースを表示する権限がありません。" [message]="vm.message ?? '必要な権限が付与されるまで表示できません。'" />
+    <app-workspace-empty-state title="Workspaceを表示できません" [message]="vm.message ?? '必要な権限が付与されるまで表示できません。'" />
   } @else if (vm.status === 'noWorkspaceAccess') {
-    <app-workspace-empty-state title="表示できるワークスペースがありません。" [message]="vm.message ?? 'アクセス可能なワークスペースだけが表示されます。'" />
+    <app-workspace-empty-state title="表示できるWorkspaceがありません" [message]="vm.message ?? 'Workspaceの作成または招待が必要です。'" />
   } @else {
     @if (vm.workspaces.length > 0) {
       <label class="workspace-dashboard__search">
-        <span>このページ内を検索</span>
+        <span>このページを検索</span>
         <input
           type="search"
           [ngModel]="searchValue()"
           (ngModelChange)="updateSearch($event)"
-          placeholder="表示中のワークスペースを絞り込み"
+          placeholder="表示中のWorkspaceを絞り込み"
           autocomplete="off"
           data-testid="workspace-local-search"
         />

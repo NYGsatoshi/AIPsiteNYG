@@ -14,6 +14,6 @@ export class WorkspaceCardComponent {
   @Input({ required: true }) workspace!: WorkspaceCardViewModel;
 
   unavailableLabel(available: boolean, value: number | string | null): string {
-    return available && value !== null ? String(value) : '取得不可';
+    return available && value !== null ? String(value) : '未提供';
   }
 }
