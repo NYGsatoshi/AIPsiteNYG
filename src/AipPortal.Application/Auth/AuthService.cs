@@ -141,12 +141,17 @@ public sealed class AuthService(
             : !string.IsNullOrWhiteSpace(tenant?.Name)
                 ? tenant.Name
                 : "AIP Portal";
+        var workspace = await workspaces.GetByIdAsync(inviteResult.Value.WorkspaceId, cancellationToken);
+        var workspaceName = !string.IsNullOrWhiteSpace(workspace?.Name)
+            ? workspace.Name
+            : "Default Workspace";
 
         return Result<InviteValidationResponse>.Success(new InviteValidationResponse(
             true,
             inviteResult.Value.Email,
             inviteResult.Value.Role.ToString(),
             tenantName,
+            workspaceName,
             inviteResult.Value.ExpiresAt));
     }
 

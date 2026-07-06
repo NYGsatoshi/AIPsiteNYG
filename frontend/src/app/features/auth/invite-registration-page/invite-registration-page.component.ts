@@ -58,7 +58,7 @@ function initialState(token: string | null): InviteRegistrationViewModel {
     : {
         status: 'missing',
         email: null,
-        message: 'Invite token is missing.',
+        message: '招待リンクが無効です。管理者から送られた招待URLを開いてください。',
         submitDisabled: true,
         bootstrapActions: []
       };

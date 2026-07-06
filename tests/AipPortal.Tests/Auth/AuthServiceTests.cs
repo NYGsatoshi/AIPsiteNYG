@@ -89,6 +89,7 @@ public sealed class AuthServiceTests
         Assert.Equal("student@example.com", result.Value.Email);
         Assert.Equal("Member", result.Value.Role);
         Assert.Equal("AIP Portal", result.Value.TenantName);
+        Assert.Equal("Default Workspace", result.Value.WorkspaceName);
     }
 
     [Fact]
@@ -124,6 +125,41 @@ public sealed class AuthServiceTests
         Assert.False(second.IsSuccess);
         Assert.Equal("Invite has already been used.", second.Error);
         Assert.Single(fixture.Sessions);
+    }
+
+    [Fact]
+    public async Task ExpiredInviteCannotBeAccepted()
+    {
+        var fixture = AuthFixture.Create();
+        fixture.AddInvite("invite-token", "student@example.com", expiresAt: fixture.Clock.UtcNow.AddMinutes(-1));
+
+        var result = await fixture.Service.AcceptInviteAsync(new AcceptInviteRequest(
+            "invite-token",
+            "Student",
+            "Password123"));
+
+        Assert.False(result.IsSuccess);
+        Assert.Equal("Invite has expired.", result.Error);
+        Assert.DoesNotContain(fixture.Users.Values, user => user.Email == "student@example.com");
+        Assert.Empty(fixture.Sessions);
+    }
+
+    [Fact]
+    public async Task AcceptedInviteUserCanLoginWithCreatedPassword()
+    {
+        var fixture = AuthFixture.Create();
+        fixture.AddInvite("invite-token", "student@example.com", expiresAt: fixture.Clock.UtcNow.AddDays(1));
+
+        var accept = await fixture.Service.AcceptInviteAsync(new AcceptInviteRequest(
+            "invite-token",
+            "Student",
+            "Password123"));
+        var login = await fixture.Service.LoginAsync(new LoginRequest("student@example.com", "Password123"));
+
+        Assert.True(accept.IsSuccess);
+        Assert.True(login.IsSuccess);
+        Assert.Equal("student@example.com", login.Value!.Email);
+        Assert.Equal(2, fixture.Sessions.Count);
     }
 
     [Fact]
@@ -495,7 +531,7 @@ public sealed class AuthServiceTests
 
         public Task<Workspace?> GetByIdAsync(Guid workspaceId, CancellationToken cancellationToken = default)
         {
-            return Task.FromResult<Workspace?>(new Workspace { CreatedByUserId = Guid.NewGuid() });
+            return Task.FromResult<Workspace?>(new Workspace { Name = "Default Workspace", CreatedByUserId = Guid.NewGuid() });
         }
 
         public Task<WorkspaceMember?> GetMemberAsync(Guid workspaceId, Guid userId, CancellationToken cancellationToken = default)

@@ -1,10 +1,15 @@
-import { provideHttpClient } from '@angular/common/http';
+import { provideHttpClient, withInterceptors } from '@angular/common/http';
 import { HttpTestingController, provideHttpClientTesting } from '@angular/common/http/testing';
 import { ComponentFixture, TestBed } from '@angular/core/testing';
 import { By } from '@angular/platform-browser';
 import { ActivatedRoute, convertToParamMap } from '@angular/router';
 
 import { routes } from '../../../app.routes';
+import {
+  AIP_AUTH_SESSION_MOCK,
+  DEFAULT_AUTH_SESSION
+} from '../../../core/auth/auth-session.facade';
+import { authSessionInterceptor } from '../../../core/auth/auth-session.interceptor';
 import { AIP_INVITE_REGISTRATION_SCENARIO, InviteRegistrationFacade } from '../invite-registration.facade';
 import { INVITE_REGISTRATION_SCENARIOS } from '../invite-registration.mock';
 import { InviteRegistrationScenario } from '../invite-registration.types';
@@ -34,20 +39,18 @@ const renderPage = async (
   return fixture;
 };
 
-const textContent = (fixture: ComponentFixture<InviteRegistrationPageComponent>): string =>
-  (fixture.nativeElement as HTMLElement).textContent ?? '';
-
-const getForm = (fixture: ComponentFixture<InviteRegistrationPageComponent>): InviteRegistrationFormComponent =>
-  fixture.debugElement.query(By.directive(InviteRegistrationFormComponent)).componentInstance as InviteRegistrationFormComponent;
-
 const renderPageWithApi = async (
   token: string | null = 'safe-api-token'
 ): Promise<{ fixture: ComponentFixture<InviteRegistrationPageComponent>; httpMock: HttpTestingController }> => {
   await TestBed.configureTestingModule({
     imports: [InviteRegistrationPageComponent],
     providers: [
-      provideHttpClient(),
+      provideHttpClient(withInterceptors([authSessionInterceptor])),
       provideHttpClientTesting(),
+      {
+        provide: AIP_AUTH_SESSION_MOCK,
+        useValue: DEFAULT_AUTH_SESSION
+      },
       { provide: ActivatedRoute, useValue: routeWithToken(token) }
     ]
   }).compileComponents();
@@ -57,17 +60,23 @@ const renderPageWithApi = async (
   return { fixture, httpMock: TestBed.inject(HttpTestingController) };
 };
 
+const textContent = (fixture: ComponentFixture<InviteRegistrationPageComponent>): string =>
+  (fixture.nativeElement as HTMLElement).textContent ?? '';
+
+const getForm = (fixture: ComponentFixture<InviteRegistrationPageComponent>): InviteRegistrationFormComponent =>
+  fixture.debugElement.query(By.directive(InviteRegistrationFormComponent)).componentInstance as InviteRegistrationFormComponent;
+
 describe('InviteRegistrationPageComponent', () => {
   afterEach(() => TestBed.resetTestingModule());
 
-  it('configures the /register/invite route', () => {
+  it('configures the /app/register/invite Angular route segment', () => {
     expect(routes.some((route) => route.path === 'register/invite')).toBe(true);
   });
 
   it('shows a safe unusable-link state when the token is absent', async () => {
     const fixture = await renderPage(INVITE_REGISTRATION_SCENARIOS.defaultValid, null);
 
-    expect(textContent(fixture)).toContain('招待リンクを使用できません。');
+    expect(textContent(fixture)).toContain('招待リンクが無効です。管理者から送られた招待URLを開いてください。');
     expect((fixture.nativeElement as HTMLElement).querySelector('[data-testid="invite-registration-form"]')).toBeNull();
   });
 
@@ -90,14 +99,12 @@ describe('InviteRegistrationPageComponent', () => {
   it('validates a real invite token and renders the registration form', async () => {
     const { fixture, httpMock } = await renderPageWithApi('safe-api-token');
 
-    const validateRequest = httpMock.expectOne((request) =>
-      request.url === '/api/invites/validate' && request.params.get('token') === 'safe-api-token'
-    );
-    validateRequest.flush({
+    httpMock.expectOne('/api/invites/validate?token=safe-api-token').flush({
       valid: true,
       email: 'new-user@example.invalid',
       role: 'Member',
       tenantName: 'AIP Portal',
+      workspaceName: 'Default Workspace',
       expiresAt: '2026-07-13T00:00:00Z'
     });
     fixture.detectChanges();
@@ -105,10 +112,28 @@ describe('InviteRegistrationPageComponent', () => {
     expect((fixture.nativeElement as HTMLElement).querySelector('[data-testid="invite-registration-form"]')).not.toBeNull();
     expect(textContent(fixture)).toContain('new-user@example.invalid');
     expect(textContent(fixture)).toContain('Member');
+    expect(textContent(fixture)).toContain('Default Workspace');
     httpMock.verify();
   });
 
-  it('accepts a valid invite without sending email from the form payload', async () => {
+  it('shows a clear unusable-link state for an invalid token', async () => {
+    const { fixture, httpMock } = await renderPageWithApi('bad-token');
+
+    httpMock.expectOne('/api/invites/validate?token=bad-token').flush(
+      {
+        title: 'Invite validation failed.',
+        detail: '招待リンクが無効です。管理者から送られた招待URLを開いてください。'
+      },
+      { status: 400, statusText: 'Bad Request' }
+    );
+    fixture.detectChanges();
+
+    expect(textContent(fixture)).toContain('招待リンクが無効です。管理者から送られた招待URLを開いてください。');
+    expect((fixture.nativeElement as HTMLElement).querySelector('[data-testid="invite-registration-form"]')).toBeNull();
+    httpMock.verify();
+  });
+
+  it('accepts a valid invite with CSRF and without sending email from the form payload', async () => {
     const { fixture, httpMock } = await renderPageWithApi('safe-api-token');
 
     httpMock.expectOne('/api/invites/validate?token=safe-api-token').flush({
@@ -116,6 +141,7 @@ describe('InviteRegistrationPageComponent', () => {
       email: 'new-user@example.invalid',
       role: 'Member',
       tenantName: 'AIP Portal',
+      workspaceName: 'Default Workspace',
       expiresAt: '2026-07-13T00:00:00Z'
     });
     fixture.detectChanges();
@@ -128,7 +154,14 @@ describe('InviteRegistrationPageComponent', () => {
     });
     form.submit();
 
+    httpMock.expectOne('/api/security/csrf-token').flush({
+      token: 'csrf-register',
+      headerName: 'X-CSRF-Token'
+    });
+
     const acceptRequest = httpMock.expectOne('/api/invites/accept');
+    expect(acceptRequest.request.withCredentials).toBe(true);
+    expect(acceptRequest.request.headers.get('X-CSRF-Token')).toBe('csrf-register');
     expect(acceptRequest.request.body).toEqual({
       token: 'safe-api-token',
       displayName: 'New User',

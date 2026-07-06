@@ -156,7 +156,7 @@ export class InviteAdminPageComponent {
           const created = toCreatedInviteDetails(invite, body.email);
           this.email.set('');
           this.createdInvite.set(created);
-          this.createdNotice.set(`${created.email} was created. Send this link to the invitee.`);
+          this.createdNotice.set(`${created.email} の招待URLを作成しました。このリンクを相手に送ってください。`);
           this.loadInvites();
         },
         error: (error: unknown) => {
@@ -176,7 +176,7 @@ export class InviteAdminPageComponent {
     }
 
     void navigator.clipboard.writeText(inviteUrl).then(
-      () => this.createdNotice.set('Invite URL copied. Send this link to the invitee.'),
+      () => this.createdNotice.set('招待URLをコピーしました。このリンクを相手に送ってください。'),
       () => this.message.set('Copy failed. Select and copy the invite URL.')
     );
   }

@@ -85,7 +85,7 @@ describe('InviteAdminPageComponent', () => {
     expect((fixture.nativeElement as HTMLElement).textContent).toContain(
       'https://portal.example.test/app/register/invite?token=safe-token'
     );
-    expect((fixture.nativeElement as HTMLElement).textContent).toContain('Send this link to the invitee.');
+    expect((fixture.nativeElement as HTMLElement).textContent).toContain('このリンクを相手に送ってください。');
   });
 
   it('shows ProblemDetails validation errors instead of a generic invite failure', () => {

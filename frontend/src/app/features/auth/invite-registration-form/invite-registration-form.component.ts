@@ -73,4 +73,3 @@ function confirmPasswordMatchesValidator(): ValidatorFn {
     return password && confirmPassword && password !== confirmPassword ? { passwordMismatch: true } : null;
   };
 }
-

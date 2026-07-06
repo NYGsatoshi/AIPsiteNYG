@@ -18,6 +18,9 @@ export const INVITE_REGISTRATION_STATES: Record<string, InviteRegistrationViewMo
   valid: {
     status: 'valid',
     email: INVITE_REGISTRATION_SAFE_EMAIL,
+    role: 'Member',
+    tenantName: 'Mock Tenant',
+    workspaceName: 'Mock Workspace',
     submitDisabled: false,
     bootstrapActions: []
   },
@@ -120,4 +123,3 @@ export const INVITE_REGISTRATION_SCENARIOS = {
     submitResult: INVITE_REGISTRATION_STATES['registrationFailure']
   }
 } satisfies Record<string, InviteRegistrationScenario>;
-

@@ -17,7 +17,7 @@ public sealed class InvitesController(IAuthService authService) : ControllerBase
         var result = await authService.ValidateInviteAsync(token ?? string.Empty, cancellationToken);
         return result.IsSuccess
             ? Ok(result.Value)
-            : BadRequest(new { valid = false, error = result.Error });
+            : InviteProblem(result.Error, "Invite validation failed.");
     }
 
     [HttpPost("accept")]
@@ -27,11 +27,19 @@ public sealed class InvitesController(IAuthService authService) : ControllerBase
         var result = await authService.AcceptInviteAsync(request, cancellationToken);
         if (!result.IsSuccess || result.Value is null)
         {
-            return BadRequest(new { error = result.Error });
+            return InviteProblem(result.Error, "Invite acceptance failed.");
         }
 
         await SignInAsync(result.Value);
         return Ok(result.Value);
+    }
+
+    private ObjectResult InviteProblem(string? detail, string title)
+    {
+        return Problem(
+            title: title,
+            detail: string.IsNullOrWhiteSpace(detail) ? "Invite is invalid." : detail,
+            statusCode: StatusCodes.Status400BadRequest);
     }
 
     private Task SignInAsync(LoginResponse user)

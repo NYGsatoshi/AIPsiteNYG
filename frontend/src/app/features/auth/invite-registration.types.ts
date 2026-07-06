@@ -15,6 +15,7 @@ export interface InviteRegistrationViewModel {
   readonly email: string | null;
   readonly role?: string | null;
   readonly tenantName?: string | null;
+  readonly workspaceName?: string | null;
   readonly expiresAt?: string | null;
   readonly requestId?: string | null;
   readonly targetWorkspacePath?: string | null;

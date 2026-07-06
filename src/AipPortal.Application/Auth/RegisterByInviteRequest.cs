@@ -16,4 +16,5 @@ public sealed record InviteValidationResponse(
     string Email,
     string Role,
     string TenantName,
+    string WorkspaceName,
     DateTimeOffset ExpiresAt);

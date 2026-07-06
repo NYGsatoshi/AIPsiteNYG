@@ -18,6 +18,7 @@ interface InviteValidationDto {
   readonly email?: unknown;
   readonly role?: unknown;
   readonly tenantName?: unknown;
+  readonly workspaceName?: unknown;
   readonly expiresAt?: unknown;
 }
 
@@ -38,7 +39,7 @@ export class InviteRegistrationFacade {
       return of({
         status: 'missing',
         email: null,
-        message: 'Invite token is missing.',
+        message: '招待リンクが無効です。管理者から送られた招待URLを開いてください。',
         submitDisabled: true,
         bootstrapActions: [],
       });
@@ -52,7 +53,7 @@ export class InviteRegistrationFacade {
       return of({
         status: 'invalid',
         email: null,
-        message: 'Invite token validation API is not available.',
+        message: '招待リンクを確認できません。時間をおいてもう一度開いてください。',
         submitDisabled: true,
         bootstrapActions: [],
       });
@@ -81,7 +82,7 @@ export class InviteRegistrationFacade {
       return of({
         status: 'registrationFailure',
         email: model.email,
-        message: 'Invite registration submit API is not available.',
+        message: '登録APIに接続できません。時間をおいてもう一度送信してください。',
         submitDisabled: true,
         bootstrapActions: [],
       });
@@ -122,7 +123,7 @@ export class InviteRegistrationFacade {
             status: 'registrationFailure',
             email: model.email,
             requestId: requestIdFrom(error),
-            message: errorMessageFrom(error) || 'Invite registration failed.',
+            message: errorMessageFrom(error) || '登録できませんでした。入力内容と招待リンクを確認してください。',
             submitDisabled: false,
             bootstrapActions: [],
           } satisfies InviteRegistrationViewModel);
@@ -136,7 +137,7 @@ function toValidState(response: InviteValidationDto): InviteRegistrationViewMode
     return {
       status: 'invalid',
       email: null,
-      message: 'Invite link is invalid.',
+      message: '招待リンクが無効です。管理者から送られた招待URLを開いてください。',
       submitDisabled: true,
       bootstrapActions: [],
     };
@@ -147,6 +148,7 @@ function toValidState(response: InviteValidationDto): InviteRegistrationViewMode
     email: stringValue(response.email),
     role: stringValue(response.role),
     tenantName: stringValue(response.tenantName),
+    workspaceName: stringValue(response.workspaceName),
     expiresAt: stringValue(response.expiresAt),
     message: null,
     submitDisabled: false,
@@ -155,7 +157,7 @@ function toValidState(response: InviteValidationDto): InviteRegistrationViewMode
 }
 
 function toInvalidState(error: HttpErrorResponse): InviteRegistrationViewModel {
-  const message = errorMessageFrom(error) || 'Invite link is invalid.';
+  const message = errorMessageFrom(error) || '招待リンクが無効です。管理者から送られた招待URLを開いてください。';
   return {
     status: inviteStatusFromMessage(message),
     email: null,
@@ -168,11 +170,11 @@ function toInvalidState(error: HttpErrorResponse): InviteRegistrationViewModel {
 
 function inviteStatusFromMessage(message: string): InviteRegistrationViewModel['status'] {
   const normalized = message.toLowerCase();
-  if (normalized.includes('expired')) {
+  if (normalized.includes('expired') || message.includes('期限')) {
     return 'expired';
   }
 
-  if (normalized.includes('already') || normalized.includes('used')) {
+  if (normalized.includes('already') || normalized.includes('used') || message.includes('使用済') || message.includes('すでに')) {
     return 'alreadyAccepted';
   }
 
