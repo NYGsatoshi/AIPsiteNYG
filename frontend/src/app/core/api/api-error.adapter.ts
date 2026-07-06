@@ -7,6 +7,12 @@ interface ErrorEnvelope {
   readonly Code?: unknown;
   readonly message?: unknown;
   readonly Message?: unknown;
+  readonly title?: unknown;
+  readonly Title?: unknown;
+  readonly detail?: unknown;
+  readonly Detail?: unknown;
+  readonly errors?: unknown;
+  readonly Errors?: unknown;
   readonly target?: unknown;
   readonly Target?: unknown;
   readonly details?: unknown;
@@ -42,8 +48,11 @@ export function normalizeApiError(input: unknown, explicitStatus?: number): Fron
   const localErrorId = createLocalErrorId();
   const requestId = firstString(body.requestId, body.RequestId, body.traceId, body.TraceId);
   const code = firstString(body.code, body.Code) ?? statusCodeToCode(httpStatus);
+  const validationDetails = normalizeValidationErrors(body.errors ?? body.Errors);
   const message =
     firstString(body.message, body.Message) ??
+    firstString(body.detail, body.Detail) ??
+    firstString(body.title, body.Title) ??
     readLegacyErrorMessage(body.error) ??
     httpError?.message ??
     STATUS_MESSAGES[httpStatus] ??
@@ -53,7 +62,7 @@ export function normalizeApiError(input: unknown, explicitStatus?: number): Fron
     code,
     message,
     target: firstString(body.target, body.Target),
-    details: normalizeDetails(body.details ?? body.Details),
+    details: [...validationDetails, ...normalizeDetails(body.details ?? body.Details)],
     requestId,
     redactionApplied: firstBoolean(body.redactionApplied, body.RedactionApplied) ?? true,
     httpStatus,
@@ -138,6 +147,29 @@ function normalizeDetails(details: unknown): readonly FrontendApiErrorDetail[] {
       };
     })
     .filter((detail): detail is FrontendApiErrorDetail => detail !== null);
+}
+
+function normalizeValidationErrors(errors: unknown): readonly FrontendApiErrorDetail[] {
+  if (!errors || typeof errors !== 'object' || Array.isArray(errors)) {
+    return [];
+  }
+
+  return Object.entries(errors as Record<string, unknown>).flatMap(([target, messages]) => {
+    const normalizedMessages = Array.isArray(messages) ? messages : [messages];
+
+    return normalizedMessages
+      .map((message): FrontendApiErrorDetail | null => {
+        if (typeof message !== 'string' || message.trim().length === 0) {
+          return null;
+        }
+
+        return {
+          target,
+          message
+        };
+      })
+      .filter((detail): detail is FrontendApiErrorDetail => detail !== null);
+  });
 }
 
 function statusCodeToCode(status: number): string {

@@ -128,6 +128,39 @@ describe('auth session interceptor', () => {
     expect(capturedError?.httpStatus).toBe(403);
   });
 
+  it('retries 400 CSRF validation failures once with a refreshed token', () => {
+    let capturedError: FrontendApiError | null = null;
+
+    http.post('/api/admin/invites', { email: 'new-user@example.invalid', role: 3 }).subscribe({
+      error: (error: FrontendApiError) => {
+        capturedError = error;
+      }
+    });
+
+    httpMock.expectOne('/api/security/csrf-token').flush({
+      token: 'csrf-old',
+      headerName: 'X-CSRF-Token'
+    });
+
+    const firstMutation = httpMock.expectOne('/api/admin/invites');
+    expect(firstMutation.request.withCredentials).toBe(true);
+    expect(firstMutation.request.headers.get('X-CSRF-Token')).toBe('csrf-old');
+    firstMutation.flush({ title: 'CSRF token expired' }, { status: 400, statusText: 'Bad Request' });
+
+    httpMock.expectOne('/api/security/csrf-token').flush({
+      token: 'csrf-new',
+      headerName: 'X-CSRF-Token'
+    });
+
+    const retryMutation = httpMock.expectOne('/api/admin/invites');
+    expect(retryMutation.request.withCredentials).toBe(true);
+    expect(retryMutation.request.headers.get('X-CSRF-Token')).toBe('csrf-new');
+    retryMutation.flush({ title: 'CSRF token expired again' }, { status: 400, statusText: 'Bad Request' });
+
+    httpMock.expectNone('/api/security/csrf-token');
+    expect(capturedError?.httpStatus).toBe(400);
+  });
+
   it('clears session state on terminal 401 after current-user refresh fails', () => {
     let capturedError: FrontendApiError | null = null;
 

@@ -42,4 +42,27 @@ describe('api error adapter', () => {
     expect(error.code).toBe('InternalServerError');
     expect(error.requestId).toBe('trace-abc');
   });
+
+  it('preserves ProblemDetails validation errors as displayable details', () => {
+    const error = normalizeApiError(
+      new HttpErrorResponse({
+        status: 400,
+        error: {
+          title: 'One or more validation errors occurred.',
+          traceId: 'trace-validation',
+          errors: {
+            Role: ['The JSON value could not be converted to WorkspaceRole.'],
+            Email: ['The Email field is required.']
+          }
+        }
+      })
+    );
+
+    expect(error.message).toBe('One or more validation errors occurred.');
+    expect(error.requestId).toBe('trace-validation');
+    expect(error.details).toEqual([
+      { target: 'Role', message: 'The JSON value could not be converted to WorkspaceRole.' },
+      { target: 'Email', message: 'The Email field is required.' }
+    ]);
+  });
 });

@@ -43,7 +43,7 @@
         Role
         <select name="role" [ngModel]="role()" (ngModelChange)="role.set($event)" required>
           @for (roleOption of roleOptions; track roleOption) {
-            <option [value]="roleOption">{{ roleOption }}</option>
+            <option [ngValue]="roleOption.value">{{ roleOption.label }}</option>
           }
         </select>
       </label>

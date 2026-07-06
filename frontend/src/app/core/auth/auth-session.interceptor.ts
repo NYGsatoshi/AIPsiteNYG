@@ -74,7 +74,7 @@ function handleApiError(
     );
   }
 
-  if (normalized.httpStatus === 403 && isLikelyCsrfFailure(error, normalized.message)) {
+  if (isRetryableCsrfStatus(normalized.httpStatus) && isLikelyCsrfFailure(error, normalized.message)) {
     csrfTokens.clearToken();
 
     if (isUnsafeMethod(request.method) && !request.context.get(RETRIED_CSRF_FAILURE)) {
@@ -121,4 +121,8 @@ function isLikelyCsrfFailure(error: unknown, message: string): boolean {
   }
 
   return false;
+}
+
+function isRetryableCsrfStatus(status: number): boolean {
+  return status === 400 || status === 403 || status === 419;
 }
