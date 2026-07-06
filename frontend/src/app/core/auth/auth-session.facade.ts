@@ -137,6 +137,7 @@ export class AuthSessionFacade {
         ? http.get<CurrentUserResponseDto>('/api/auth/me', { withCredentials: true }).pipe(
             map((response) => mapCurrentUserResponse(response)),
             tap((user) => this.patchUser(user)),
+            switchMap(() => this.refreshCurrentTenant()),
             map(() => this.sessionState()),
             catchError((error: unknown) => {
               if (!isExpectedUnauthenticatedError(error)) {

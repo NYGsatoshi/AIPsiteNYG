@@ -97,6 +97,22 @@ const server = createServer(async (request, response) => {
     return;
   }
 
+  if (pathname === "/api/tenants/current") {
+    response.writeHead(200, { "content-type": "application/json; charset=utf-8" });
+    response.end(JSON.stringify({
+      tenantId: "mock-tenant",
+      tenantSlug: "mock",
+      isAvailable: true,
+      isPlatformScope: false,
+      displayName: "Mock Tenant",
+      status: "Active",
+      currentUserRole: "Admin",
+      appMode: "OnPremSingleTenant",
+      allowTenantSwitching: true
+    }));
+    return;
+  }
+
   if (pathname.startsWith("/api/")) {
     response.writeHead(404, { "content-type": "application/json; charset=utf-8" });
     response.end(JSON.stringify({ error: "Endpoint not found." }));

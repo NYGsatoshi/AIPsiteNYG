@@ -20,7 +20,8 @@ describe('authSessionGuard', () => {
 
   it('allows private routes only after validating the server session', async () => {
     const result = firstValueFrom(runGuard('/workspaces'));
-    const request = TestBed.inject(HttpTestingController).expectOne('/api/auth/me');
+    const httpMock = TestBed.inject(HttpTestingController);
+    const request = httpMock.expectOne('/api/auth/me');
 
     request.flush({
       userId: 'user-a',
@@ -28,6 +29,18 @@ describe('authSessionGuard', () => {
       email: 'user-a@example.invalid',
       systemRole: 'TenantUser',
       status: 'Active'
+    });
+
+    httpMock.expectOne('/api/tenants/current').flush({
+      tenantId: 'tenant-a',
+      tenantSlug: 'tenant-a',
+      isAvailable: true,
+      isPlatformScope: false,
+      displayName: 'Tenant A',
+      status: 'Active',
+      currentUserRole: 'Admin',
+      appMode: 'OnPremSingleTenant',
+      allowTenantSwitching: true
     });
 
     await expect(result).resolves.toBe(true);

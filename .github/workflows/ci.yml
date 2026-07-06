@@ -203,6 +203,7 @@ jobs:
           POSTGRES_DB: aip_portal
           POSTGRES_USER: aip_portal
           POSTGRES_PASSWORD: ci_dummy_password
+          DB_PASSWORD: ci_dummy_password
           LOCAL_ADMIN_PASSWORD: ci_dummy_local_admin_password
         run: |
           docker compose -f docker-compose.db.yml config --quiet
