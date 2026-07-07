@@ -21,7 +21,7 @@
     </section>
   } @else if (vm.status === 'error') {
     <section class="announcements-page__state" role="alert" data-testid="announcements-error">{{ vm.message }}</section>
-  } @else if (vm.status === 'permissionDenied' || vm.status === 'recordAccessDenied' || !hasReadPermission()) {
+  } @else if (vm.status === 'permissionDenied' || vm.status === 'recordAccessDenied') {
     <section class="announcements-page__state" data-testid="announcement-permission-denied">
       このお知らせを表示する権限がありません。
     </section>
@@ -59,6 +59,7 @@
             [announcement]="selectedAnnouncement()"
             [canEdit]="canEdit()"
             (editRequested)="showEditEditor()"
+            (markReadRequested)="markRead($event)"
           />
         }
       </div>

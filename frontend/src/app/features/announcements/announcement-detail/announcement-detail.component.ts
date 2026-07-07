@@ -15,6 +15,7 @@ export class AnnouncementDetailComponent {
   @Input() announcement: AnnouncementViewModel | null = null;
   @Input() canEdit = false;
   @Output() readonly editRequested = new EventEmitter<string>();
+  @Output() readonly markReadRequested = new EventEmitter<string>();
 
   readonly priorityLabels = ANNOUNCEMENT_PRIORITY_LABELS;
 }

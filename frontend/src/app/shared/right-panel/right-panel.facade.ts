@@ -36,6 +36,7 @@ interface PagedResponseDto<T> {
 
 interface NotificationDto {
   readonly id?: unknown;
+  readonly notificationType?: unknown;
   readonly title?: unknown;
   readonly body?: unknown;
   readonly relatedEntityType?: unknown;
@@ -46,6 +47,34 @@ interface NotificationDto {
 
 export function isSupportedNotificationTarget(target: NotificationTargetType): boolean {
   return SUPPORTED_TARGETS.has(target);
+}
+
+export function mapNotificationRoute(
+  target: Pick<RightPanelNotification['target'], 'type' | 'id' | 'route'>,
+  scope: RightPanelScope = EMPTY_RIGHT_PANEL_SCOPE,
+): string | undefined {
+  if (target.route && isKnownSafeRoute(target.route)) {
+    return target.route;
+  }
+
+  if (!target.id) {
+    return undefined;
+  }
+
+  switch (target.type) {
+    case 'announcement':
+      return `/announcements/${target.id}`;
+    case 'task':
+      return target.route && isTaskDetailRoute(target.route) ? target.route : undefined;
+    case 'project':
+      return '/projects';
+    case 'channelConversation':
+      return scope.workspaceId ? `/workspaces/${scope.workspaceId}/channels/${target.id}` : undefined;
+    case 'dmConversation':
+      return `/dm/${target.id}`;
+    default:
+      return undefined;
+  }
 }
 
 export function clampRightPanelText(value: string, maxLength: number): string {
@@ -81,7 +110,7 @@ export class RightPanelFacade {
   readonly viewModel = computed<RightPanelViewModel>(() => {
     const scope = this.scopeState();
     const notifications = this.notificationState().filter((notification) =>
-      this.inScope(notification.scope, scope),
+      this.inNotificationScope(notification.scope, scope),
     );
     const members = this.memberState().filter((member) => this.inScope(member.scope, scope));
 
@@ -136,7 +165,7 @@ export class RightPanelFacade {
 
   displayNotificationTarget(notificationId: string): boolean {
     const notification = this.notificationState().find((item) => item.id === notificationId);
-    if (!notification || !isSupportedNotificationTarget(notification.target.type)) {
+    if (!notification?.target.route) {
       return false;
     }
 
@@ -146,11 +175,19 @@ export class RightPanelFacade {
   }
 
   markNotificationRead(notificationId: string): void {
-    this.notificationState.update((notifications) =>
-      notifications.map((notification) =>
-        notification.id === notificationId ? { ...notification, read: true } : notification,
-      ),
-    );
+    if (this.mockState) {
+      this.confirmNotificationRead(notificationId);
+      return;
+    }
+
+    this.http
+      .patch(`/api/notifications/${notificationId}/read`, {}, { withCredentials: true })
+      .subscribe({
+        next: () => this.confirmNotificationRead(notificationId),
+        error: () => {
+          // Keep unread state unchanged unless the backend confirms persistence.
+        },
+      });
   }
 
   clearPanelState(): void {
@@ -183,18 +220,20 @@ export class RightPanelFacade {
   }
 
   private toNotification(item: NotificationDto): RightPanelNotification {
-    const targetType = notificationTargetType(item.relatedEntityType);
+    const targetType = notificationTargetType(item.relatedEntityType, item.notificationType);
+    const target = {
+      type: targetType,
+      id: stringValue(item.relatedEntityId),
+      label: stringValue(item.targetRoute) ?? targetType,
+      route: stringValue(item.targetRoute),
+    };
 
     return {
       id: stringValue(item.id) ?? '',
       scope: EMPTY_RIGHT_PANEL_SCOPE,
       title: stringValue(item.title) ?? 'Notification',
       body: stringValue(item.body) ?? '',
-      target: {
-        type: targetType,
-        id: stringValue(item.relatedEntityId),
-        label: stringValue(item.targetRoute) ?? targetType,
-      },
+      target,
       read: item.isRead === true,
     };
   }
@@ -202,11 +241,35 @@ export class RightPanelFacade {
   private normalizeNotifications(
     notifications: readonly RightPanelNotification[],
   ): readonly RightPanelNotification[] {
-    return notifications.map((notification) => ({
-      ...notification,
-      title: clampRightPanelText(notification.title, 80),
-      body: clampRightPanelText(notification.body, 160),
-    }));
+    return notifications.map((notification) => {
+      const target = {
+        ...notification.target,
+        route: mapNotificationRoute(notification.target, notification.scope),
+      };
+
+      return {
+        ...notification,
+        target,
+        title: clampRightPanelText(notification.title, 80),
+        body: clampRightPanelText(notification.body, 160),
+      };
+    });
+  }
+
+  private confirmNotificationRead(notificationId: string): void {
+    this.notificationState.update((notifications) =>
+      notifications.map((notification) =>
+        notification.id === notificationId ? { ...notification, read: true } : notification,
+      ),
+    );
+  }
+
+  private inNotificationScope(recordScope: RightPanelScope, activeScope: RightPanelScope): boolean {
+    if (!recordScope.workspaceId && !recordScope.projectId && !recordScope.conversationId) {
+      return true;
+    }
+
+    return this.inScope(recordScope, activeScope);
   }
 
   private inScope(recordScope: RightPanelScope, activeScope: RightPanelScope): boolean {
@@ -247,10 +310,17 @@ function stringValue(value: unknown): string | undefined {
   return typeof value === 'string' && value.length > 0 ? value : undefined;
 }
 
-function notificationTargetType(value: unknown): NotificationTargetType {
-  const normalized = String(value ?? '').toLowerCase();
+function notificationTargetType(entityType: unknown, notificationType?: unknown): NotificationTargetType {
+  const normalized = `${String(entityType ?? '')} ${String(notificationType ?? '')}`.toLowerCase();
   if (normalized.includes('announcement')) {
     return 'announcement';
+  }
+  if (
+    normalized.includes('directmessage') ||
+    normalized.includes('dmconversation') ||
+    normalized.split(/\s+/).includes('dm')
+  ) {
+    return 'dmConversation';
   }
   if (normalized.includes('conversation') || normalized.includes('channel')) {
     return 'channelConversation';
@@ -262,4 +332,18 @@ function notificationTargetType(value: unknown): NotificationTargetType {
     return 'task';
   }
   return 'unsupported';
+}
+
+function isKnownSafeRoute(route: string): boolean {
+  return (
+    /^\/announcements\/[^/]+$/.test(route) ||
+    route === '/projects' ||
+    isTaskDetailRoute(route) ||
+    /^\/workspaces\/[^/]+\/channels\/[^/]+$/.test(route) ||
+    /^\/dm\/[^/]+$/.test(route)
+  );
+}
+
+function isTaskDetailRoute(route: string): boolean {
+  return /^\/projects\/[^/]+\/tasks\/[^/]+$/.test(route);
 }

@@ -22,6 +22,8 @@ export type AnnouncementPageStatus = 'ready' | 'loading' | 'empty' | 'error' | '
 
 export type AnnouncementPublicationState = 'draft' | 'published';
 
+export type AnnouncementDetailState = 'notLoaded' | 'loading' | 'loaded' | 'unavailable' | 'error';
+
 export interface AnnouncementReadStateViewModel {
   readonly requiresReadConfirmation: boolean;
   readonly isRead: boolean;
@@ -37,6 +39,8 @@ export interface AnnouncementViewModel {
   readonly id: string;
   readonly title: string;
   readonly body: string;
+  readonly detailState: AnnouncementDetailState;
+  readonly detailMessage?: string;
   readonly priority: AnnouncementPriority;
   readonly audienceScope: AnnouncementAudienceScope;
   readonly publishedAtLabel: string;

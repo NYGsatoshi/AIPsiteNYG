@@ -1,8 +1,11 @@
 import { TestBed } from '@angular/core/testing';
+import { provideHttpClient } from '@angular/common/http';
+import { HttpTestingController, provideHttpClientTesting } from '@angular/common/http/testing';
+import { provideRouter } from '@angular/router';
 
 import { NotificationItemComponent } from './notification-item/notification-item.component';
 import { RightPanelComponent } from './right-panel/right-panel.component';
-import { AIP_RIGHT_PANEL_MOCK, RightPanelFacade } from './right-panel.facade';
+import { AIP_RIGHT_PANEL_MOCK, mapNotificationRoute, RightPanelFacade } from './right-panel.facade';
 import {
   DEFAULT_RIGHT_PANEL_SCOPE,
   OTHER_RIGHT_PANEL_SCOPE,
@@ -34,7 +37,7 @@ describe('RightPanelComponent', () => {
   > {
     await TestBed.configureTestingModule({
       imports: [RightPanelComponent],
-      providers: [{ provide: AIP_RIGHT_PANEL_MOCK, useValue: rightPanelMockState }],
+      providers: [provideRouter([]), { provide: AIP_RIGHT_PANEL_MOCK, useValue: rightPanelMockState }],
     }).compileComponents();
 
     const fixture = TestBed.createComponent(RightPanelComponent);
@@ -75,6 +78,7 @@ describe('RightPanelComponent', () => {
     await TestBed.configureTestingModule({
       imports: [RightPanelComponent],
       providers: [
+        provideRouter([]),
         {
           provide: AIP_RIGHT_PANEL_MOCK,
           useValue: {
@@ -100,9 +104,10 @@ describe('RightPanelComponent', () => {
     expect(text).not.toContain('@example.test');
   });
 
-  it('notification targets and mark-read actions are non-clickable in MVP0', async () => {
+  it('unsupported notification targets are not clickable', async () => {
     await TestBed.configureTestingModule({
       imports: [NotificationItemComponent],
+      providers: [provideRouter([])],
     }).compileComponents();
 
     const fixture = TestBed.createComponent(NotificationItemComponent);
@@ -114,13 +119,13 @@ describe('RightPanelComponent', () => {
 
     const element = fixture.nativeElement as HTMLElement;
     expect(element.querySelector('a')).toBeNull();
-    expect(element.querySelector('button')).toBeNull();
-    expect(element.querySelector('[data-testid="notification-target-unavailable"]')?.textContent).toContain('MVP0');
+    expect(element.querySelector('[data-testid="notification-target-unavailable"]')?.textContent).toContain('未対応');
   });
 
   it('notification body is not rendered as HTML', async () => {
     await TestBed.configureTestingModule({
       imports: [NotificationItemComponent],
+      providers: [provideRouter([])],
     }).compileComponents();
 
     const fixture = TestBed.createComponent(NotificationItemComponent);
@@ -138,7 +143,7 @@ describe('RightPanelComponent', () => {
   it('panel collapsed state stored in sessionStorage', async () => {
     await TestBed.configureTestingModule({
       imports: [RightPanelComponent],
-      providers: [{ provide: AIP_RIGHT_PANEL_MOCK, useValue: rightPanelMockState }],
+      providers: [provideRouter([]), { provide: AIP_RIGHT_PANEL_MOCK, useValue: rightPanelMockState }],
     }).compileComponents();
 
     const facade = TestBed.inject(RightPanelFacade);
@@ -152,7 +157,7 @@ describe('RightPanelComponent', () => {
   it('session clear removes panel state', async () => {
     await TestBed.configureTestingModule({
       imports: [RightPanelComponent],
-      providers: [{ provide: AIP_RIGHT_PANEL_MOCK, useValue: rightPanelMockState }],
+      providers: [provideRouter([]), { provide: AIP_RIGHT_PANEL_MOCK, useValue: rightPanelMockState }],
     }).compileComponents();
 
     const facade = TestBed.inject(RightPanelFacade);
@@ -175,5 +180,89 @@ describe('RightPanelComponent', () => {
     expect(element.querySelector('a')).toBeNull();
     expect(element.querySelector('.notification__mark')).toBeNull();
     expect(element.textContent).not.toContain('対象を表示');
+  });
+});
+
+describe('RightPanelFacade notifications', () => {
+  afterEach(() => {
+    TestBed.resetTestingModule();
+  });
+
+  it('maps only known valid notification targets to Angular routes', () => {
+    expect(mapNotificationRoute({ type: 'announcement', id: 'announcement-1' })).toBe(
+      '/announcements/announcement-1',
+    );
+    expect(
+      mapNotificationRoute(
+        { type: 'channelConversation', id: 'conversation-1' },
+        { workspaceId: 'workspace-1', projectId: '', conversationId: '' },
+      ),
+    ).toBe('/workspaces/workspace-1/channels/conversation-1');
+    expect(mapNotificationRoute({ type: 'dmConversation', id: 'conversation-2' })).toBe(
+      '/dm/conversation-2',
+    );
+    expect(
+      mapNotificationRoute({ type: 'task', id: 'task-1', route: '/tasks/task-1' }),
+    ).toBeUndefined();
+    expect(mapNotificationRoute({ type: 'unsupported', id: 'legacy-1' })).toBeUndefined();
+  });
+
+  it('does not hide API notifications solely because local scope is empty', () => {
+    TestBed.configureTestingModule({
+      providers: [provideHttpClient(), provideHttpClientTesting()],
+    });
+
+    const facade = TestBed.inject(RightPanelFacade);
+    const httpMock = TestBed.inject(HttpTestingController);
+    httpMock.expectOne('/api/notifications').flush({
+      items: [
+        {
+          id: 'notification-1',
+          title: 'Announcement',
+          body: 'Body',
+          relatedEntityType: 'Announcement',
+          relatedEntityId: 'announcement-1',
+          isRead: false,
+        },
+      ],
+    });
+
+    facade.setActiveScope(DEFAULT_RIGHT_PANEL_SCOPE);
+
+    expect(facade.viewModel().notifications.map((notification) => notification.id)).toEqual([
+      'notification-1',
+    ]);
+    expect(facade.viewModel().unreadCount).toBe(1);
+    httpMock.verify();
+  });
+
+  it('does not update unread count when mark-read fails', () => {
+    TestBed.configureTestingModule({
+      providers: [provideHttpClient(), provideHttpClientTesting()],
+    });
+
+    const facade = TestBed.inject(RightPanelFacade);
+    const httpMock = TestBed.inject(HttpTestingController);
+    httpMock.expectOne('/api/notifications').flush({
+      items: [
+        {
+          id: 'notification-1',
+          title: 'Announcement',
+          relatedEntityType: 'Announcement',
+          relatedEntityId: 'announcement-1',
+          isRead: false,
+        },
+      ],
+    });
+
+    expect(facade.viewModel().unreadCount).toBe(1);
+
+    facade.markNotificationRead('notification-1');
+    httpMock
+      .expectOne('/api/notifications/notification-1/read')
+      .flush({ error: 'Failed' }, { status: 500, statusText: 'Server Error' });
+
+    expect(facade.viewModel().unreadCount).toBe(1);
+    httpMock.verify();
   });
 });

@@ -32,7 +32,24 @@
       </div>
     </dl>
 
-    <p class="announcement-detail__body" data-testid="announcement-body-text">{{ announcement.body }}</p>
+    @if (announcement.detailState === 'loaded') {
+      <p class="announcement-detail__body" data-testid="announcement-body-text">{{ announcement.body }}</p>
+    } @else {
+      <p class="announcement-detail__body" data-testid="announcement-detail-message">
+        {{ announcement.detailMessage }}
+      </p>
+    }
+
+    @if (announcement.readState.requiresReadConfirmation && !announcement.readState.isRead) {
+      <button
+        type="button"
+        class="announcement-detail__edit"
+        data-testid="announcement-mark-read-action"
+        (click)="markReadRequested.emit(announcement.id)"
+      >
+        既読にする
+      </button>
+    }
 
     @if (announcement.attachment) {
       <p class="announcement-detail__attachment" data-testid="announcement-attachment-disabled">

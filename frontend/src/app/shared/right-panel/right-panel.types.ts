@@ -36,6 +36,7 @@ export interface RightPanelNotificationTarget {
   readonly type: NotificationTargetType;
   readonly id?: string;
   readonly label: string;
+  readonly route?: string;
 }
 
 export interface RightPanelNotification {

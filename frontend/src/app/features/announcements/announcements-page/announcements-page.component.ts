@@ -27,7 +27,7 @@ export class AnnouncementsPageComponent {
 
   readonly filteredAnnouncements = computed(() => this.filterAuthorizedAnnouncements(this.page().announcements, this.searchValue()));
   readonly selectedAnnouncement = computed(() => {
-    const selectedId = this.selectedAnnouncementId();
+    const selectedId = this.page().selectedAnnouncementId ?? this.selectedAnnouncementId();
     if (selectedId) {
       return this.filteredAnnouncements().find((announcement) => announcement.id === selectedId) ?? null;
     }
@@ -39,9 +39,20 @@ export class AnnouncementsPageComponent {
   readonly canCreate = computed(() => this.page().pageCapabilities.includes('createAnnouncement'));
   readonly canEdit = computed(() => this.page().pageCapabilities.includes('editAnnouncement'));
 
+  constructor() {
+    if (this.routeAnnouncementId) {
+      this.facade.selectAnnouncement(this.routeAnnouncementId);
+    }
+  }
+
   selectAnnouncement(announcementId: string): void {
     this.selectedAnnouncementId.set(announcementId);
     this.editorVisible.set(false);
+    this.facade.selectAnnouncement(announcementId);
+  }
+
+  markRead(announcementId: string): void {
+    this.facade.markAnnouncementRead(announcementId);
   }
 
   updateSearch(value: string): void {

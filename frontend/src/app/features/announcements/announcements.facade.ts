@@ -2,27 +2,23 @@ import { HttpClient } from '@angular/common/http';
 import { inject, Injectable, InjectionToken, signal } from '@angular/core';
 
 import {
-  AnnouncementPriority,
   AnnouncementViewModel,
   AnnouncementsPageViewModel,
 } from './announcements.types';
+import {
+  AnnouncementDetailDto,
+  AnnouncementListItemDto,
+  mapAnnouncementDetail,
+  mapAnnouncementListItem,
+  markAnnouncementDetailLoading,
+  markAnnouncementDetailUnavailable,
+  markAnnouncementReadConfirmed,
+  PagedResponseDto,
+} from './announcements.api';
 
 export const AIP_ANNOUNCEMENTS_PAGE_MOCK = new InjectionToken<AnnouncementsPageViewModel>(
   'AIP_ANNOUNCEMENTS_PAGE_MOCK',
 );
-
-interface PagedResponseDto<T> {
-  readonly items?: readonly T[];
-}
-
-interface AnnouncementListItemDto {
-  readonly id?: unknown;
-  readonly title?: unknown;
-  readonly priority?: unknown;
-  readonly isRead?: unknown;
-  readonly requiresReadConfirmation?: unknown;
-  readonly publishedAt?: unknown;
-}
 
 @Injectable({
   providedIn: 'root',
@@ -33,6 +29,7 @@ export class AnnouncementsFacade {
   private readonly pageState = signal<AnnouncementsPageViewModel>(
     this.mockPage ?? this.emptyPage('loading'),
   );
+  private readonly detailRequests = new Set<string>();
 
   readonly page = this.pageState.asReadonly();
 
@@ -50,15 +47,21 @@ export class AnnouncementsFacade {
       .subscribe({
         next: (response) => {
           const announcements = (response.items ?? []).map((announcement) =>
-            this.toAnnouncement(announcement),
+            mapAnnouncementListItem(announcement),
           );
+          const selectedAnnouncementId =
+            this.pageState().selectedAnnouncementId ?? announcements[0]?.id ?? null;
           this.pageState.set({
             ...this.emptyPage(announcements.length === 0 ? 'empty' : 'ready'),
             announcements,
-            selectedAnnouncementId: announcements[0]?.id ?? null,
+            selectedAnnouncementId,
+            pageCapabilities: announcements.length > 0 ? ['readAnnouncement'] : [],
             message:
               announcements.length === 0 ? 'No announcements were returned by the API.' : undefined,
           });
+          if (selectedAnnouncementId) {
+            this.selectAnnouncement(selectedAnnouncementId);
+          }
         },
         error: (error: { status?: number }) => {
           this.pageState.set({
@@ -74,6 +77,76 @@ export class AnnouncementsFacade {
       });
   }
 
+  selectAnnouncement(announcementId: string): void {
+    this.pageState.update((page) => ({ ...page, selectedAnnouncementId: announcementId }));
+    if (!announcementId || this.mockPage || this.detailRequests.has(announcementId)) {
+      return;
+    }
+
+    const current = this.findAnnouncement(announcementId);
+    if (current?.detailState === 'loaded') {
+      return;
+    }
+
+    this.detailRequests.add(announcementId);
+    if (current) {
+      this.replaceAnnouncement(markAnnouncementDetailLoading(current));
+    }
+
+    this.http
+      .get<AnnouncementDetailDto>(`/api/announcements/${announcementId}`, { withCredentials: true })
+      .subscribe({
+        next: (detail) => {
+          this.detailRequests.delete(announcementId);
+          this.replaceAnnouncement(mapAnnouncementDetail(detail));
+        },
+        error: (error: { status?: number }) => {
+          this.detailRequests.delete(announcementId);
+          const announcement = this.findAnnouncement(announcementId);
+          if (!announcement) {
+            return;
+          }
+
+          this.replaceAnnouncement(
+            markAnnouncementDetailUnavailable(
+              announcement,
+              error.status === 404
+                ? '詳細はMVP0では利用できません。'
+                : 'Announcement detail API request failed.',
+            ),
+          );
+        },
+      });
+  }
+
+  markAnnouncementRead(announcementId: string): void {
+    if (!announcementId) {
+      return;
+    }
+
+    if (this.mockPage) {
+      const announcement = this.findAnnouncement(announcementId);
+      if (announcement) {
+        this.replaceAnnouncement(markAnnouncementReadConfirmed(announcement, new Date().toLocaleString()));
+      }
+      return;
+    }
+
+    this.http
+      .post(`/api/announcements/${announcementId}/read`, {}, { withCredentials: true })
+      .subscribe({
+        next: () => {
+          const announcement = this.findAnnouncement(announcementId);
+          if (announcement) {
+            this.replaceAnnouncement(markAnnouncementReadConfirmed(announcement, new Date().toLocaleString()));
+          }
+        },
+        error: () => {
+          // Keep read state unchanged unless the backend confirms persistence.
+        },
+      });
+  }
+
   private emptyPage(status: AnnouncementsPageViewModel['status']): AnnouncementsPageViewModel {
     return {
       status,
@@ -84,48 +157,16 @@ export class AnnouncementsFacade {
     };
   }
 
-  private toAnnouncement(dto: AnnouncementListItemDto): AnnouncementViewModel {
-    const id = stringValue(dto.id) ?? '';
-    const isRead = dto.isRead === true;
-
-    return {
-      id,
-      title: stringValue(dto.title) ?? 'Untitled announcement',
-      body: 'Detail API has not been loaded for this list item.',
-      priority: announcementPriority(dto.priority),
-      audienceScope: 'allWorkspaceMembers',
-      publishedAtLabel: formatDate(dto.publishedAt),
-      publicationState: 'published',
-      readState: {
-        requiresReadConfirmation: dto.requiresReadConfirmation === true,
-        isRead,
-      },
-      capabilities: ['readAnnouncement'],
-      notificationTarget: 'announcementDetail',
-      attachment: {
-        mode: 'disabled',
-        label: 'Attachment API is not implemented for this screen.',
-      },
-    };
+  private findAnnouncement(announcementId: string): AnnouncementViewModel | undefined {
+    return this.pageState().announcements.find((announcement) => announcement.id === announcementId);
   }
-}
 
-function stringValue(value: unknown): string | undefined {
-  return typeof value === 'string' && value.length > 0 ? value : undefined;
-}
-
-function formatDate(value: unknown): string {
-  const raw = stringValue(value);
-  return raw ? new Date(raw).toLocaleString() : '';
-}
-
-function announcementPriority(value: unknown): AnnouncementPriority {
-  const normalized = String(value ?? '').toLowerCase();
-  if (normalized === '1' || normalized === 'important') {
-    return 'important';
+  private replaceAnnouncement(nextAnnouncement: AnnouncementViewModel): void {
+    this.pageState.update((page) => ({
+      ...page,
+      announcements: page.announcements.map((announcement) =>
+        announcement.id === nextAnnouncement.id ? nextAnnouncement : announcement,
+      ),
+    }));
   }
-  if (normalized === '2' || normalized === 'urgent') {
-    return 'urgent';
-  }
-  return 'normal';
 }
