@@ -142,19 +142,12 @@ describe('WorkspaceMembersPageComponent', () => {
     expect(query(fixture, '[data-testid="member-action-openMemberDetail"]')).not.toBeNull();
   });
 
-  it('opens confirmation and audit reason dialogs for destructive actions', async () => {
+  it('hides unbound admin and destructive member actions in MVP0', async () => {
     const fixture = await renderMembers();
 
-    query<HTMLButtonElement>(fixture, '[data-testid="member-action-disableMember"]')?.click();
-    fixture.detectChanges();
-    expect(textContent(fixture)).toContain('この操作には確認と監査理由が必要です。');
-
-    queryAll<HTMLButtonElement>(fixture, 'app-confirm-dialog button')
-      .find((button) => button.textContent?.includes('理由を入力'))
-      ?.click();
-    fixture.detectChanges();
-
-    expect(query(fixture, 'app-audit-reason-dialog textarea')).not.toBeNull();
+    expect(query(fixture, '[data-testid="member-action-changeRole"]')).toBeNull();
+    expect(query(fixture, '[data-testid="member-action-disableMember"]')).toBeNull();
+    expect(query(fixture, '[data-testid="member-action-openMemberDetail"]')).not.toBeNull();
   });
 
   it('client search filters only the provided authorized rows', async () => {

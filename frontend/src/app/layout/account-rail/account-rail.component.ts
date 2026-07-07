@@ -4,9 +4,9 @@ import { Component, Input } from '@angular/core';
   selector: 'app-account-rail',
   standalone: true,
   template: `
-    <aside class="account-rail" aria-label="アカウント">
+    <aside class="account-rail" aria-label="Account switcher">
       <div class="account-rail__brand" aria-hidden="true">A</div>
-      <div class="account-rail__users" aria-label="ユーザー">
+      <div class="account-rail__users" aria-label="Signed-in users">
         <span class="account-rail__avatar account-rail__avatar--active">{{ initials(displayName) }}</span>
         @for (user of supportingUsers; track user) {
           <span class="account-rail__avatar">{{ initials(user) }}</span>

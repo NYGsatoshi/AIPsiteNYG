@@ -58,6 +58,14 @@
   cursor: pointer;
 }
 
+.upload-drop-zone__button:disabled,
+.upload-drop-zone--disabled .upload-drop-zone__button {
+  border-color: #94a3b8;
+  background: #e2e8f0;
+  color: #475569;
+  cursor: not-allowed;
+}
+
 .upload-drop-zone__button input {
   position: absolute;
   width: 1px;

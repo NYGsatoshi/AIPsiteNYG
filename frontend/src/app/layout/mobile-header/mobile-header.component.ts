@@ -4,14 +4,14 @@ import { Component, EventEmitter, Input, Output } from '@angular/core';
   selector: 'app-mobile-header',
   standalone: true,
   template: `
-    <div class="mobile-header" role="region" aria-label="Mobile header">
+    <div class="mobile-header" role="region" aria-label="Mobile workspace controls">
       <button
         type="button"
         class="mobile-header__menu"
         data-testid="mobile-nav-toggle"
         [attr.aria-expanded]="drawerOpen"
         aria-controls="mobile-navigation"
-        aria-label="メニュー"
+        [attr.aria-label]="drawerOpen ? 'Close navigation menu' : 'Open navigation menu'"
         (click)="drawerToggle.emit()"
       >
         <span aria-hidden="true"></span>

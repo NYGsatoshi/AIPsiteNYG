@@ -1,4 +1,4 @@
-import { Component, EventEmitter, Input, Output } from '@angular/core';
+import { Component, Input } from '@angular/core';
 
 import { NotificationItemComponent } from '../notification-item/notification-item.component';
 import { RightPanelNotification } from '../right-panel.types';
@@ -15,8 +15,6 @@ import { RightPanelNotification } from '../right-panel.types';
           @for (notification of notifications; track notification.id) {
             <app-notification-item
               [notification]="notification"
-              (targetSelected)="targetSelected.emit($event)"
-              (markRead)="markRead.emit($event)"
             />
           }
         </div>
@@ -29,6 +27,4 @@ import { RightPanelNotification } from '../right-panel.types';
 })
 export class NotificationsTabComponent {
   @Input({ required: true }) notifications: readonly RightPanelNotification[] = [];
-  @Output() targetSelected = new EventEmitter<string>();
-  @Output() markRead = new EventEmitter<string>();
 }

@@ -23,6 +23,7 @@ export type FileQuotaState = 'available' | 'exceeded' | 'exceptionRequested' | '
 
 export interface FileUploadViewModel {
   readonly state: FileUploadState;
+  readonly canUpload?: boolean;
   readonly selectedFileName?: string;
   readonly progressPercent?: number;
   readonly message?: string;

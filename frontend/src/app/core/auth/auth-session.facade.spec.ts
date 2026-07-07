@@ -1,0 +1,95 @@
+import { Component } from '@angular/core';
+import { provideHttpClient } from '@angular/common/http';
+import { HttpTestingController, provideHttpClientTesting } from '@angular/common/http/testing';
+import { TestBed } from '@angular/core/testing';
+import { provideRouter, Router } from '@angular/router';
+
+import { ActiveWorkspaceFacade } from '../workspace/active-workspace.facade';
+import { AIP_AUTH_SESSION_MOCK, AuthSessionFacade, DEFAULT_AUTH_SESSION } from './auth-session.facade';
+import { CsrfTokenService } from './csrf-token.service';
+
+@Component({
+  standalone: true,
+  template: '',
+})
+class LoginRouteComponent {}
+
+describe('AuthSessionFacade logout', () => {
+  let authSession: AuthSessionFacade;
+  let activeWorkspace: ActiveWorkspaceFacade;
+  let csrfTokens: CsrfTokenService;
+  let httpMock: HttpTestingController;
+  let router: Router;
+
+  beforeEach(() => {
+    TestBed.configureTestingModule({
+      providers: [
+        provideHttpClient(),
+        provideHttpClientTesting(),
+        provideRouter([{ path: 'login', component: LoginRouteComponent }]),
+        { provide: AIP_AUTH_SESSION_MOCK, useValue: DEFAULT_AUTH_SESSION },
+      ],
+    });
+
+    authSession = TestBed.inject(AuthSessionFacade);
+    activeWorkspace = TestBed.inject(ActiveWorkspaceFacade);
+    csrfTokens = TestBed.inject(CsrfTokenService);
+    httpMock = TestBed.inject(HttpTestingController);
+    router = TestBed.inject(Router);
+  });
+
+  afterEach(() => {
+    httpMock.verify();
+    TestBed.resetTestingModule();
+  });
+
+  it('posts logout to the backend, clears scoped state and redirects to login on success', () => {
+    const navigateSpy = vi.spyOn(router, 'navigateByUrl').mockResolvedValue(true);
+    const emitted: string[] = [];
+
+    csrfTokens.ensureToken('mock-tenant').subscribe();
+    httpMock.expectOne('/api/security/csrf-token').flush({
+      token: 'csrf-before-logout',
+      headerName: 'X-CSRF-Token',
+    });
+
+    activeWorkspace.setActiveWorkspace({ id: 'workspace-a', label: 'Workspace A' });
+    authSession.logout().subscribe((snapshot) => emitted.push(snapshot.status));
+
+    const logoutRequest = httpMock.expectOne('/api/auth/logout');
+    expect(logoutRequest.request.method).toBe('POST');
+    expect(logoutRequest.request.withCredentials).toBe(true);
+    expect(logoutRequest.request.headers.get('X-CSRF-Token')).toBe('csrf-before-logout');
+    logoutRequest.flush({ status: 'OK' });
+
+    expect(emitted).toEqual(['anonymous']);
+    expect(authSession.session().isAuthenticated).toBe(false);
+    expect(activeWorkspace.activeWorkspace()).toBeNull();
+    expect(navigateSpy).toHaveBeenCalledWith('/login');
+
+    csrfTokens.ensureToken('mock-tenant').subscribe();
+    httpMock.expectOne('/api/security/csrf-token').flush({
+      token: 'csrf-after-logout',
+      headerName: 'X-CSRF-Token',
+    });
+  });
+
+  it('does not clear the active session when logout fails before terminal anonymous state', () => {
+    const navigateSpy = vi.spyOn(router, 'navigateByUrl').mockResolvedValue(true);
+    const errors: unknown[] = [];
+
+    authSession.logout().subscribe({ error: (error) => errors.push(error) });
+
+    httpMock.expectOne('/api/security/csrf-token').flush({
+      token: 'csrf-logout',
+      headerName: 'X-CSRF-Token',
+    });
+    httpMock
+      .expectOne('/api/auth/logout')
+      .flush({ error: 'Server error' }, { status: 500, statusText: 'Server Error' });
+
+    expect(errors.length).toBe(1);
+    expect(authSession.session().isAuthenticated).toBe(true);
+    expect(navigateSpy).not.toHaveBeenCalled();
+  });
+});

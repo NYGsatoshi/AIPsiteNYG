@@ -72,6 +72,20 @@ describe('AppShellComponent', () => {
     expect(fixture.componentInstance.pageSearch()).toBe('');
   });
 
+  it('shows logout and keeps global search focusable when search is not wired to the page', async () => {
+    await configure();
+
+    const fixture = TestBed.createComponent(AppShellComponent);
+    fixture.detectChanges();
+
+    const element = fixture.nativeElement as HTMLElement;
+    expect(element.querySelector('[data-testid="logout-action"]')).not.toBeNull();
+    expect(element.querySelector('a[href="#app-shell-main-content"]')).not.toBeNull();
+    expect(element.querySelector('main#app-shell-main-content')).not.toBeNull();
+    expect(element.querySelector<HTMLInputElement>('[data-testid="page-search"]')?.readOnly).toBe(true);
+    expect(element.querySelector<HTMLInputElement>('[data-testid="page-search"]')?.placeholder).toContain('MVP0');
+  });
+
   it('renders without backend calls', async () => {
     await configure();
     const fetchSpy = vi.spyOn(globalThis, 'fetch');

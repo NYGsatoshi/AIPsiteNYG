@@ -1,4 +1,5 @@
 import { Component, computed, inject, signal } from '@angular/core';
+import { finalize } from 'rxjs';
 
 import { AppEmptyStateComponent } from '../../../shared/empty-state/app-empty-state/app-empty-state.component';
 import { AppInlineLoadingComponent } from '../../../shared/loading/app-inline-loading/app-inline-loading.component';
@@ -30,10 +31,16 @@ export class AccountPageComponent {
 
   readonly page = computed(() => this.facade.getPage());
   readonly passwordResult = signal<PasswordChangeResult | null>(null);
+  readonly passwordPending = signal(false);
   readonly lastPasswordSubmit = signal<PasswordChangeSubmit | null>(null);
 
   changePassword(submit: PasswordChangeSubmit): void {
     this.lastPasswordSubmit.set(submit);
-    this.passwordResult.set(this.facade.changePassword(submit));
+    this.passwordResult.set(null);
+    this.passwordPending.set(true);
+    this.facade
+      .changePassword(submit)
+      .pipe(finalize(() => this.passwordPending.set(false)))
+      .subscribe((result) => this.passwordResult.set(result));
   }
 }

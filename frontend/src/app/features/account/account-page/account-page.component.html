@@ -20,7 +20,11 @@
         @if (accountPage.profile) {
           <app-account-profile-panel [profile]="accountPage.profile" />
         }
-        <app-password-panel [result]="passwordResult()" (passwordChange)="changePassword($event)" />
+        <app-password-panel
+          [result]="passwordResult()"
+          [pending]="passwordPending()"
+          (passwordChange)="changePassword($event)"
+        />
       </div>
       <aside class="account-page__aside">
         @if (accountPage.accountStatus) {

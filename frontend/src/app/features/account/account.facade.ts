@@ -1,5 +1,6 @@
 import { HttpClient } from '@angular/common/http';
 import { inject, Injectable, InjectionToken, signal } from '@angular/core';
+import { catchError, map, Observable, of } from 'rxjs';
 
 import {
   AccountMockScenario,
@@ -40,12 +41,12 @@ export class AccountFacade {
     return this.pageState();
   }
 
-  changePassword(submit: PasswordChangeSubmit): PasswordChangeResult {
+  changePassword(submit: PasswordChangeSubmit): Observable<PasswordChangeResult> {
     if (this.scenario) {
-      return this.scenario.passwordChangeResult;
+      return of(this.scenario.passwordChangeResult);
     }
 
-    this.http
+    return this.http
       .post(
         '/api/auth/change-password',
         {
@@ -54,9 +55,10 @@ export class AccountFacade {
         },
         { withCredentials: true },
       )
-      .subscribe({ error: () => undefined });
-
-    return 'success';
+      .pipe(
+        map(() => 'success' as const),
+        catchError(() => of('failure' as const)),
+      );
   }
 
   private loadAccount(): void {

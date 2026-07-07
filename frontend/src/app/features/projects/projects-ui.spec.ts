@@ -218,6 +218,15 @@ describe('TaskEditorComponent', () => {
     expect(query<HTMLInputElement>(fixture, '[data-testid="task-milestone-input"]')?.readOnly).toBe(true);
   });
 
+  it('shows task details as read-only until a backend save path is wired', async () => {
+    const fixture = await renderEditor();
+
+    expect(query(fixture, '[data-testid="task-editor-readonly-note"]')).not.toBeNull();
+    expect(query<HTMLInputElement>(fixture, '[data-testid="task-title-input"]')?.readOnly).toBe(true);
+    expect(query<HTMLTextAreaElement>(fixture, '[data-testid="task-description-input"]')?.readOnly).toBe(true);
+    expect(query<HTMLButtonElement>(fixture, '[data-testid="task-save-disabled"]')?.disabled).toBe(true);
+  });
+
   it('disables unsupported status transitions from allowedTransitions', async () => {
     const fixture = await renderEditor();
     const unsupported = query<HTMLOptionElement>(fixture, 'option[value="notStarted"]');

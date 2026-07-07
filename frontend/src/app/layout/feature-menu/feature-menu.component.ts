@@ -8,7 +8,7 @@ import { NavigationItem } from '../../shared/navigation/navigation.models';
   standalone: true,
   imports: [RouterLink, RouterLinkActive],
   template: `
-    <nav class="feature-menu" [class.feature-menu--compact]="compact" aria-label="機能">
+    <nav class="feature-menu" [class.feature-menu--compact]="compact" [attr.aria-label]="navigationAriaLabel">
       <div class="feature-menu__heading">
         <span>メニュー</span>
       </div>
@@ -31,5 +31,6 @@ import { NavigationItem } from '../../shared/navigation/navigation.models';
 export class FeatureMenuComponent {
   @Input() navigationItems: readonly NavigationItem[] = [];
   @Input() compact = false;
+  @Input() navigationAriaLabel = 'Primary navigation';
   @Output() itemSelected = new EventEmitter<void>();
 }

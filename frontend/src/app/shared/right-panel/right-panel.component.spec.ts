@@ -100,7 +100,7 @@ describe('RightPanelComponent', () => {
     expect(text).not.toContain('@example.test');
   });
 
-  it('unsupported notification has no link', async () => {
+  it('notification targets and mark-read actions are non-clickable in MVP0', async () => {
     await TestBed.configureTestingModule({
       imports: [NotificationItemComponent],
     }).compileComponents();
@@ -114,7 +114,8 @@ describe('RightPanelComponent', () => {
 
     const element = fixture.nativeElement as HTMLElement;
     expect(element.querySelector('a')).toBeNull();
-    expect(element.querySelector('button')?.textContent).toContain('既読にする');
+    expect(element.querySelector('button')).toBeNull();
+    expect(element.querySelector('[data-testid="notification-target-unavailable"]')?.textContent).toContain('MVP0');
   });
 
   it('notification body is not rendered as HTML', async () => {

@@ -1,4 +1,6 @@
 import { ComponentFixture, TestBed } from '@angular/core/testing';
+import { provideHttpClient } from '@angular/common/http';
+import { HttpTestingController, provideHttpClientTesting } from '@angular/common/http/testing';
 
 import { AIP_ACCOUNT_MOCK } from '../account.facade';
 import { ACCOUNT_MOCK_SCENARIOS } from '../account.mock';
@@ -16,6 +18,30 @@ const renderAccount = async (
   const fixture = TestBed.createComponent(AccountPageComponent);
   fixture.detectChanges();
   return fixture;
+};
+
+const renderLiveAccount = async (): Promise<{
+  fixture: ComponentFixture<AccountPageComponent>;
+  httpMock: HttpTestingController;
+}> => {
+  await TestBed.configureTestingModule({
+    imports: [AccountPageComponent],
+    providers: [provideHttpClient(), provideHttpClientTesting()]
+  }).compileComponents();
+
+  const fixture = TestBed.createComponent(AccountPageComponent);
+  fixture.detectChanges();
+
+  const httpMock = TestBed.inject(HttpTestingController);
+  httpMock.expectOne('/api/auth/me').flush({
+    displayName: 'Current User',
+    email: 'current@example.test',
+    systemRole: 'TenantUser',
+    status: 'Active'
+  });
+  fixture.detectChanges();
+
+  return { fixture, httpMock };
 };
 
 const textContent = (fixture: ComponentFixture<AccountPageComponent>): string =>
@@ -73,6 +99,56 @@ describe('AccountPageComponent', () => {
       newPassword: ' new password ',
       confirmNewPassword: ' new password '
     });
+  });
+
+  it('does not show password success or clear fields when the backend rejects the change', async () => {
+    const { fixture, httpMock } = await renderLiveAccount();
+
+    updateInput(fixture, '[data-testid="current-password"]', ' current password ');
+    updateInput(fixture, '[data-testid="new-password"]', ' new password ');
+    updateInput(fixture, '[data-testid="confirm-new-password"]', ' new password ');
+    query<HTMLButtonElement>(fixture, 'button[type="submit"]')?.click();
+    fixture.detectChanges();
+
+    expect(query(fixture, '[data-testid="password-change-pending"]')).not.toBeNull();
+    expect(query(fixture, '[data-testid="password-change-success"]')).toBeNull();
+
+    const request = httpMock.expectOne('/api/auth/change-password');
+    expect(request.request.method).toBe('POST');
+    expect(request.request.body).toEqual({
+      currentPassword: ' current password ',
+      newPassword: ' new password '
+    });
+    request.flush({ error: 'Current password is invalid.' }, { status: 400, statusText: 'Bad Request' });
+    fixture.detectChanges();
+
+    expect(query(fixture, '[data-testid="password-change-success"]')).toBeNull();
+    expect(query(fixture, '[data-testid="password-change-failure"]')).not.toBeNull();
+    expect(query<HTMLInputElement>(fixture, '[data-testid="current-password"]')?.value).toBe(' current password ');
+    expect(query<HTMLInputElement>(fixture, '[data-testid="new-password"]')?.value).toBe(' new password ');
+    expect(query<HTMLInputElement>(fixture, '[data-testid="confirm-new-password"]')?.value).toBe(' new password ');
+    httpMock.verify();
+  });
+
+  it('shows password success and clears fields only after backend success', async () => {
+    const { fixture, httpMock } = await renderLiveAccount();
+
+    updateInput(fixture, '[data-testid="current-password"]', 'current');
+    updateInput(fixture, '[data-testid="new-password"]', 'next');
+    updateInput(fixture, '[data-testid="confirm-new-password"]', 'next');
+    query<HTMLButtonElement>(fixture, 'button[type="submit"]')?.click();
+    fixture.detectChanges();
+
+    expect(query(fixture, '[data-testid="password-change-success"]')).toBeNull();
+
+    httpMock.expectOne('/api/auth/change-password').flush({ status: 'OK' });
+    fixture.detectChanges();
+
+    expect(query(fixture, '[data-testid="password-change-success"]')).not.toBeNull();
+    expect(query<HTMLInputElement>(fixture, '[data-testid="current-password"]')?.value).toBe('');
+    expect(query<HTMLInputElement>(fixture, '[data-testid="new-password"]')?.value).toBe('');
+    expect(query<HTMLInputElement>(fixture, '[data-testid="confirm-new-password"]')?.value).toBe('');
+    httpMock.verify();
   });
 
   it('blocks submit when confirm password does not match', async () => {

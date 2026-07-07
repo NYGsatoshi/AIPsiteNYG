@@ -55,10 +55,7 @@ export class ExportDiagnosticsPageComponent {
   }
 
   requestDiagnosticsExport(): void {
-    const newJob = this.facade.requestDiagnosticsJob();
-    this.requestedJobs.update((rows) => [newJob, ...rows]);
-    this.drawerReturnFocus.set(null);
-    this.selectedJobId.set(newJob.id);
+    this.requestedJobs.set([]);
   }
 
   closeDrawer(): void {

@@ -29,17 +29,20 @@ export class FilesPageComponent {
 
   acceptUpload(file: File): void {
     this.uploadOverride.set({
-      state: 'pending',
+      state: 'failed',
+      canUpload: false,
       selectedFileName: file.name,
-      message: 'アップロード待機中です。'
+      message: 'File upload is not available in MVP0.'
     });
   }
 
   rejectUpload(fileName: string): void {
     this.uploadOverride.set({
       state: 'tooLarge',
+      canUpload: false,
       selectedFileName: fileName,
-      message: '100 MBを超えるファイルはアップロードできません。'
+      message:
+        '100 MB\u3092\u8d85\u3048\u308b\u30d5\u30a1\u30a4\u30eb\u306f\u30a2\u30c3\u30d7\u30ed\u30fc\u30c9\u3067\u304d\u307e\u305b\u3093\u3002'
     });
   }
 }

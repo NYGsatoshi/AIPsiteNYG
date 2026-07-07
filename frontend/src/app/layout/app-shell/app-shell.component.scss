@@ -45,6 +45,29 @@
   overflow-x: hidden;
 }
 
+.app-shell__skip-link {
+  position: absolute;
+  top: var(--shell-space-3);
+  left: var(--shell-space-3);
+  z-index: 40;
+  transform: translateY(-160%);
+  border-radius: var(--shell-radius-md);
+  background: #ffffff;
+  color: #1e5d92;
+  font-weight: 700;
+  padding: var(--shell-space-2) var(--shell-space-3);
+  text-decoration: none;
+}
+
+.app-shell__skip-link:focus {
+  transform: translateY(0);
+}
+
+.app-shell__skip-link:focus-visible {
+  outline: var(--shell-focus-outline);
+  outline-offset: 2px;
+}
+
 .app-shell--right-expanded {
   grid-template-columns:
     var(--shell-account-rail-width)

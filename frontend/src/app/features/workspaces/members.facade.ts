@@ -179,7 +179,7 @@ export class WorkspaceMembersFacade {
       });
     }
 
-    return actions satisfies readonly WorkspaceMemberRowAction[];
+    return actions.filter((action) => action.id === 'openMemberDetail') satisfies readonly WorkspaceMemberRowAction[];
   }
 
   private toMockRecord(member: WorkspaceMemberDto, workspaceId: string): WorkspaceMemberMockRecord {

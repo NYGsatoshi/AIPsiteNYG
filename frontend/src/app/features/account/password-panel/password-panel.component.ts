@@ -1,4 +1,4 @@
-import { Component, EventEmitter, Input, Output } from '@angular/core';
+import { Component, EventEmitter, Input, OnChanges, Output, SimpleChanges } from '@angular/core';
 import { AbstractControl, FormBuilder, ReactiveFormsModule, ValidationErrors, ValidatorFn, Validators } from '@angular/forms';
 
 import { AppFieldErrorComponent } from '../../../shared/form/app-field-error/app-field-error.component';
@@ -11,8 +11,9 @@ import { PasswordChangeResult, PasswordChangeSubmit } from '../account.types';
   templateUrl: './password-panel.component.html',
   styleUrl: './password-panel.component.scss'
 })
-export class PasswordPanelComponent {
+export class PasswordPanelComponent implements OnChanges {
   @Input() result: PasswordChangeResult | null = null;
+  @Input() pending = false;
   @Output() readonly passwordChange = new EventEmitter<PasswordChangeSubmit>();
 
   readonly form = new FormBuilder().nonNullable.group(
@@ -47,7 +48,17 @@ export class PasswordPanelComponent {
     return this.form.hasError('passwordMismatch') ? ['新しいパスワードが一致しません。'] : [];
   }
 
+  ngOnChanges(changes: SimpleChanges): void {
+    if (changes['result']?.currentValue === 'success') {
+      this.form.reset();
+    }
+  }
+
   submit(): void {
+    if (this.pending) {
+      return;
+    }
+
     this.form.markAllAsTouched();
     if (this.form.invalid) {
       return;

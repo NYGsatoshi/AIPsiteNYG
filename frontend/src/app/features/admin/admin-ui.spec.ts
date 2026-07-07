@@ -222,17 +222,17 @@ describe('Admin audit and export mock UI', () => {
     const fixture = await renderExport(EXPORT_DIAGNOSTICS_SCENARIOS.notAllowed);
 
     expect(query(fixture, '[data-testid="export-request-action"]')).toBeNull();
-    expect(query(fixture, '[data-testid="export-request-not-allowed"]')).not.toBeNull();
+    expect(query<HTMLButtonElement>(fixture, '[data-testid="export-request-disabled"]')?.disabled).toBe(true);
   });
 
-  it('requests a mock diagnostics job only when capability is present', async () => {
+  it('does not request a local diagnostics job even when mock capability is present', async () => {
     const fixture = await renderExport(EXPORT_DIAGNOSTICS_SCENARIOS.allowed);
 
-    query<HTMLButtonElement>(fixture, '[data-testid="export-request-action"]')?.click();
+    query<HTMLButtonElement>(fixture, '[data-testid="export-request-disabled"]')?.click();
     fixture.detectChanges();
 
-    expect(textContent(fixture)).toContain('Pending');
-    expect(query(fixture, '[data-testid="export-job-detail-drawer"]')).not.toBeNull();
+    expect(query<HTMLButtonElement>(fixture, '[data-testid="export-request-disabled"]')?.disabled).toBe(true);
+    expect(textContent(fixture)).not.toContain('req-export-new');
   });
 
   it('does not expose Excel export API or visible-grid export actions', async () => {

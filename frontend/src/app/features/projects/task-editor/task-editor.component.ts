@@ -56,20 +56,30 @@ export const integerRangeValidator = (min: number, max: number): ValidatorFn => 
         <p class="task-editor__note" data-testid="status-transition-authoritative-note">
           {{ transitionNote.message }}
         </p>
+        <p class="task-editor__note" data-testid="task-editor-readonly-note">
+          Task editing is not available in MVP0. Values are read-only until a backend save path is wired.
+        </p>
 
         <label>
           <span>Title</span>
-          <input type="text" formControlName="title" data-testid="task-title-input" />
+          <input type="text" formControlName="title" data-testid="task-title-input" readonly />
         </label>
 
         <label>
           <span>Description</span>
-          <textarea formControlName="description" rows="4" data-testid="task-description-input"></textarea>
+          <textarea formControlName="description" rows="4" data-testid="task-description-input" readonly></textarea>
         </label>
 
         <label>
           <span>Status</span>
-          <select formControlName="status" data-testid="task-status-select">
+          <select
+            formControlName="status"
+            data-testid="task-status-select"
+            aria-disabled="true"
+            tabindex="-1"
+            (mousedown)="preventEdit($event)"
+            (keydown)="preventEdit($event)"
+          >
             @for (status of statuses; track status.value) {
               <option [value]="status.value" [disabled]="isUnsupportedTransition(status.value)">
                 {{ status.label }}
@@ -80,7 +90,14 @@ export const integerRangeValidator = (min: number, max: number): ValidatorFn => 
 
         <label>
           <span>Priority</span>
-          <select formControlName="priority" data-testid="task-priority-select">
+          <select
+            formControlName="priority"
+            data-testid="task-priority-select"
+            aria-disabled="true"
+            tabindex="-1"
+            (mousedown)="preventEdit($event)"
+            (keydown)="preventEdit($event)"
+          >
             @for (priority of priorities; track priority.value) {
               <option [value]="priority.value">{{ priority.label }}</option>
             }
@@ -89,22 +106,22 @@ export const integerRangeValidator = (min: number, max: number): ValidatorFn => 
 
         <label>
           <span>Due date</span>
-          <input type="date" formControlName="dueDate" data-testid="task-due-date-input" />
+          <input type="date" formControlName="dueDate" data-testid="task-due-date-input" readonly />
         </label>
 
         <label>
           <span>Assignee</span>
-          <input type="text" formControlName="assignee" data-testid="task-assignee-input" />
+          <input type="text" formControlName="assignee" data-testid="task-assignee-input" readonly />
         </label>
 
         <label>
           <span>Start date</span>
-          <input type="date" formControlName="startDate" data-testid="task-start-date-input" />
+          <input type="date" formControlName="startDate" data-testid="task-start-date-input" readonly />
         </label>
 
         <label>
           <span>Progress percent</span>
-          <input type="number" formControlName="progressPercent" data-testid="task-progress-input" />
+          <input type="number" formControlName="progressPercent" data-testid="task-progress-input" readonly />
           @if (form.controls.progressPercent.invalid && form.controls.progressPercent.touched) {
             <small data-testid="task-progress-error">Progress must be an integer from 0 to 100.</small>
           }
@@ -115,11 +132,15 @@ export const integerRangeValidator = (min: number, max: number): ValidatorFn => 
           <input
             type="text"
             formControlName="milestone"
-            [readonly]="!canEditMilestone"
-            [attr.aria-readonly]="!canEditMilestone"
+            readonly
+            aria-readonly="true"
             data-testid="task-milestone-input"
           />
         </label>
+
+        <button type="button" class="task-editor__save" data-testid="task-save-disabled" disabled>
+          Save not available in MVP0
+        </button>
       </form>
     }
   `,
@@ -155,8 +176,11 @@ export const integerRangeValidator = (min: number, max: number): ValidatorFn => 
         font: inherit;
       }
 
-      .task-editor input[readonly] {
+      .task-editor input[readonly],
+      .task-editor textarea[readonly],
+      .task-editor select[aria-disabled='true'] {
         background: #eef2f7;
+        color: #475569;
       }
 
       .task-editor small {
@@ -175,6 +199,18 @@ export const integerRangeValidator = (min: number, max: number): ValidatorFn => 
       .task-editor__recoverable p,
       .task-editor__note {
         margin: 0;
+      }
+
+      .task-editor__save {
+        justify-self: start;
+        min-height: 40px;
+        border: 1px solid #94a3b8;
+        border-radius: 6px;
+        background: #e2e8f0;
+        color: #475569;
+        font-weight: 700;
+        cursor: not-allowed;
+        padding: 0 14px;
       }
 
       @media (max-width: 720px) {
@@ -225,6 +261,10 @@ export class TaskEditorComponent implements OnChanges {
 
   get canEditMilestone(): boolean {
     return this.capabilities.includes('editMilestone');
+  }
+
+  preventEdit(event: Event): void {
+    event.preventDefault();
   }
 
   ngOnChanges(): void {

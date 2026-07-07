@@ -41,6 +41,19 @@ describe('FilesPageComponent', () => {
     expect(textContent(fixture)).toContain('oversized-video.mp4');
   });
 
+  it('disables accepted-size upload because backend upload is not wired in MVP0', async () => {
+    const fixture = await renderFilesPage(FILES_PAGE_SCENARIOS.default);
+    const dropZone = fixture.debugElement.query(By.directive(UploadDropZoneComponent))
+      .componentInstance as UploadDropZoneComponent;
+
+    dropZone.handleFiles([{ name: 'sample.pdf', size: 1024, type: 'application/pdf' } as File]);
+    fixture.detectChanges();
+
+    expect((fixture.nativeElement as HTMLElement).querySelector<HTMLButtonElement>('[data-testid="file-upload-disabled"]')?.disabled).toBe(true);
+    expect(textContent(fixture)).toContain('Upload not available in MVP0');
+    expect(textContent(fixture)).not.toContain('sample.pdf');
+  });
+
   it('disables download while scan is pending', async () => {
     const fixture = await renderFilesPage(FILES_PAGE_SCENARIOS.scanPending);
 

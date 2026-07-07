@@ -17,7 +17,8 @@ const LIVE_FILES_PAGE: FilesPageViewModel = {
   maxUploadBytes: FILE_UPLOAD_MAX_BYTES,
   upload: {
     state: 'idle',
-    message: 'Uploads use /api/files when submitted.',
+    canUpload: false,
+    message: 'File upload is not available in MVP0.',
   },
   quota: {
     state: 'available',

@@ -1,7 +1,7 @@
 import { HttpBackend, HttpClient, HttpErrorResponse } from '@angular/common/http';
 import { computed, inject, Injectable, InjectionToken, signal } from '@angular/core';
 import { Router } from '@angular/router';
-import { catchError, defer, finalize, map, Observable, of, switchMap, tap } from 'rxjs';
+import { catchError, defer, finalize, map, Observable, of, switchMap, tap, throwError } from 'rxjs';
 
 import { AppCapability } from '../../shared/navigation/navigation.models';
 import { TenantScopedStateFacade } from '../tenant/tenant-scoped-state.facade';
@@ -132,6 +132,36 @@ export class AuthSessionFacade {
 
   logoutLocally(): void {
     this.clearSessionState('anonymous');
+  }
+
+  logout(): Observable<AuthSessionSnapshot> {
+    const http = this.createBackendHttpClient();
+    if (!http) {
+      throw new Error('Auth logout endpoint is unavailable in this Angular context.');
+    }
+
+    return this.csrfTokens.ensureToken(this.csrfCacheKey()).pipe(
+      switchMap((csrfToken) =>
+        http.post(
+          '/api/auth/logout',
+          {},
+          {
+            withCredentials: true,
+            headers: {
+              [csrfToken.headerName]: csrfToken.token
+            }
+          }
+        )
+      ),
+      map(() => this.completeLogout()),
+      catchError((error: unknown) => {
+        if (error instanceof HttpErrorResponse && error.status === 401) {
+          return of(this.completeLogout());
+        }
+
+        return throwError(() => error);
+      })
+    );
   }
 
   bootstrap(): Observable<AuthSessionSnapshot> {
@@ -281,6 +311,12 @@ export class AuthSessionFacade {
         session.currentUser ? deriveCapabilities(session.currentUser, tenant) : []
       )
     );
+  }
+
+  private completeLogout(): AuthSessionSnapshot {
+    this.clearSessionState('anonymous');
+    void this.router?.navigateByUrl('/login');
+    return this.sessionState();
   }
 
   private createBackendHttpClient(): HttpClient | null {

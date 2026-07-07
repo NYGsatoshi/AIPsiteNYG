@@ -14,6 +14,10 @@ export class UploadDropZoneComponent {
   @Output() readonly uploadAccepted = new EventEmitter<File>();
   @Output() readonly uploadRejected = new EventEmitter<string>();
 
+  get canUpload(): boolean {
+    return this.upload.canUpload === true;
+  }
+
   onFileInputChange(event: Event): void {
     const input = event.target as HTMLInputElement;
     this.handleFiles(input.files);
@@ -36,6 +40,10 @@ export class UploadDropZoneComponent {
 
     if (file.size > this.maxUploadBytes) {
       this.uploadRejected.emit(file.name);
+      return;
+    }
+
+    if (!this.canUpload) {
       return;
     }
 

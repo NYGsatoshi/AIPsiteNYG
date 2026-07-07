@@ -126,8 +126,6 @@ const DEFAULT_RIGHT_PANEL_SCOPE: RightPanelScope = {
           >
             <app-notifications-tab
               [notifications]="vm.notifications"
-              (targetSelected)="displayNotificationTarget($event)"
-              (markRead)="facade.markNotificationRead($event)"
             />
           </div>
         } @else {
@@ -201,10 +199,6 @@ export class RightPanelComponent implements OnChanges {
 
   selectTab(tab: RightPanelTab): void {
     this.facade.setSelectedTab(tab);
-  }
-
-  displayNotificationTarget(notificationId: string): void {
-    this.facade.displayNotificationTarget(notificationId);
   }
 
   private resolveScope(): RightPanelScope {

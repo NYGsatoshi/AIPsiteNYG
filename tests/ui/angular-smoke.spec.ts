@@ -155,8 +155,8 @@ test.describe('MVP-A P0 Angular frontend smoke', () => {
     await page.goto('/app/workspaces');
 
     await pressTabUntilFocused(page, page.locator('a[href="/app/workspaces"]').first());
-    await pressTabUntilFocused(page, page.getByTestId('page-search'));
-    await pressTabUntilFocused(page, page.getByTestId('right-panel-toggle'));
+    await pressTabUntilFocused(page, page.getByRole('searchbox', { name: /page search/i }));
+    await pressTabUntilFocused(page, page.getByRole('button', { name: /details|close details/i }));
   });
 
   test('icon-only shell controls have accessible names', async ({ page }) => {

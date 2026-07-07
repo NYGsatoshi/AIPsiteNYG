@@ -1,20 +1,27 @@
 <section
   class="upload-drop-zone"
   [class]="'upload-drop-zone upload-drop-zone--' + upload.state"
+  [class.upload-drop-zone--disabled]="!canUpload"
   (drop)="onDrop($event)"
   (dragover)="onDragOver($event)"
   data-testid="upload-drop-zone"
 >
   <div class="upload-drop-zone__copy">
-    <p>アップロード</p>
-    <h2>添付ファイルを追加</h2>
-    <span>上限 {{ formatBytes(maxUploadBytes) }}。P0ではプレビューは作成しません。</span>
+    <p>Upload</p>
+    <h2>File upload</h2>
+    <span>Limit {{ formatBytes(maxUploadBytes) }}. Upload is not available in MVP0.</span>
   </div>
 
-  <label class="upload-drop-zone__button">
-    <span>ファイルを選択</span>
-    <input type="file" (change)="onFileInputChange($event)" data-testid="file-input" />
-  </label>
+  @if (canUpload) {
+    <label class="upload-drop-zone__button">
+      <span>Choose file</span>
+      <input type="file" (change)="onFileInputChange($event)" data-testid="file-input" />
+    </label>
+  } @else {
+    <button type="button" class="upload-drop-zone__button" data-testid="file-upload-disabled" disabled>
+      Upload not available in MVP0
+    </button>
+  }
 
   <div class="upload-drop-zone__state" role="status" data-testid="upload-state">
     @if (upload.selectedFileName) {

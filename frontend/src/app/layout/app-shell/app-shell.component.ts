@@ -14,6 +14,7 @@ import { takeUntilDestroyed } from '@angular/core/rxjs-interop';
 import { NavigationEnd, Router, RouterOutlet } from '@angular/router';
 import { filter } from 'rxjs';
 
+import { AuthSessionFacade } from '../../core/auth/auth-session.facade';
 import { RightPanelComponent } from '../../shared/right-panel/right-panel/right-panel.component';
 import { AccountRailComponent } from '../account-rail/account-rail.component';
 import { FeatureMenuComponent } from '../feature-menu/feature-menu.component';
@@ -39,12 +40,15 @@ import { AppShellFacade } from './app-shell.facade';
 export class AppShellComponent implements AfterViewChecked {
   private readonly destroyRef = inject(DestroyRef);
   private readonly router = inject(Router);
+  private readonly authSession = inject(AuthSessionFacade);
   readonly facade = inject(AppShellFacade);
   private readonly mobileDrawer = viewChild<ElementRef<HTMLElement>>('mobileDrawer');
 
   readonly viewModel = this.facade.viewModel;
   readonly mobileDrawerOpen = signal(false);
   readonly pageSearch = signal('');
+  readonly logoutPending = signal(false);
+  readonly logoutError = signal('');
   readonly rightPanelReturnFocus = signal<HTMLElement | null>(null);
   private mobileDrawerReturnFocus: HTMLElement | null = null;
   private mobileDrawerFocused = false;
@@ -69,6 +73,24 @@ export class AppShellComponent implements AfterViewChecked {
 
   setPageSearch(value: string): void {
     this.pageSearch.set(value);
+  }
+
+  logout(): void {
+    if (this.logoutPending()) {
+      return;
+    }
+
+    this.logoutError.set('');
+    this.logoutPending.set(true);
+    this.authSession.logout().subscribe({
+      next: () => {
+        this.logoutPending.set(false);
+      },
+      error: () => {
+        this.logoutPending.set(false);
+        this.logoutError.set('Logout failed. Try again.');
+      }
+    });
   }
 
   toggleMobileDrawer(): void {

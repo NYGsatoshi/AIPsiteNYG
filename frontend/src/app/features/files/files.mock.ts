@@ -80,7 +80,8 @@ const basePage = (overrides: Partial<FilesPageViewModel> = {}): FilesPageViewMod
   maxUploadBytes: FILE_UPLOAD_MAX_BYTES,
   upload: {
     state: 'idle',
-    message: 'アップロードするファイルを選択してください。'
+    canUpload: false,
+    message: 'File upload is not available in MVP0.'
   },
   quota: {
     state: 'available',
@@ -97,17 +98,16 @@ export const FILES_PAGE_SCENARIOS = {
   default: basePage(),
   uploadPending: basePage({
     upload: {
-      state: 'pending',
-      selectedFileName: 'new-attachment.pdf',
-      message: 'アップロード待機中です。'
+      state: 'idle',
+      canUpload: false,
+      message: 'File upload is not available in MVP0.'
     }
   }),
   uploadProgress: basePage({
     upload: {
-      state: 'progress',
-      selectedFileName: 'new-attachment.pdf',
-      progressPercent: 62,
-      message: 'アップロード中です。'
+      state: 'idle',
+      canUpload: false,
+      message: 'File upload is not available in MVP0.'
     }
   }),
   uploadFailed: basePage({
