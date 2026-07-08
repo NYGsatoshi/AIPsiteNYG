@@ -17,7 +17,8 @@ export const DEFAULT_PROJECTS: readonly ProjectMockRecord[] = [
     startDate: '2026-04-01',
     dueDate: '2026-08-30',
     group: 'Sample Group A',
-    authorized: true
+    authorized: true,
+    canCreateTask: true
   },
   {
     id: 'project-sample-beta',
@@ -27,7 +28,8 @@ export const DEFAULT_PROJECTS: readonly ProjectMockRecord[] = [
     startDate: '2026-05-10',
     dueDate: '2026-09-15',
     group: 'Sample Group B',
-    authorized: true
+    authorized: true,
+    canCreateTask: true
   },
   {
     id: 'project-hidden-denied',
@@ -37,7 +39,8 @@ export const DEFAULT_PROJECTS: readonly ProjectMockRecord[] = [
     startDate: '2026-03-01',
     dueDate: '2026-07-31',
     group: 'Hidden Group',
-    authorized: false
+    authorized: false,
+    canCreateTask: false
   }
 ];
 

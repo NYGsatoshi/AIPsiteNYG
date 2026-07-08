@@ -5,6 +5,7 @@ import { AppEmptyStateComponent } from '../../../shared/empty-state/app-empty-st
 import { AppInlineLoadingComponent } from '../../../shared/loading/app-inline-loading/app-inline-loading.component';
 import { AppPermissionDeniedComponent } from '../../../shared/permission/app-permission-denied/app-permission-denied.component';
 import { ProjectsFacade } from '../projects.facade';
+import { TaskEditorSaveRequest } from '../projects.types';
 import { TaskDependenciesReadonlyComponent } from '../task-dependencies-readonly/task-dependencies-readonly.component';
 import { TaskEditorComponent } from '../task-editor/task-editor.component';
 import { TaskProgressFieldComponent } from '../task-progress-field/task-progress-field.component';
@@ -36,4 +37,18 @@ export class TaskDetailPageComponent {
       this.route.snapshot.paramMap.get('taskId') ?? undefined
     )
   );
+  readonly mutationState = computed(() => this.facade.getTaskMutationState());
+
+  saveTask(request: TaskEditorSaveRequest): void {
+    const vm = this.page();
+    if (!vm.task) {
+      return;
+    }
+
+    this.facade.saveTask(vm.task.id, vm.task.projectId, request);
+  }
+
+  resetMutationState(): void {
+    this.facade.clearTaskMutationState();
+  }
 }

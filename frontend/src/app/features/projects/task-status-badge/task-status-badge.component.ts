@@ -31,6 +31,11 @@ import { TaskStatus } from '../projects.types';
         border-color: #6aa47a;
         background: #f0faf3;
       }
+
+      .task-status-badge[data-status='cancelled'] {
+        border-color: #a8b3cf;
+        background: #f1f5f9;
+      }
     `
   ]
 })

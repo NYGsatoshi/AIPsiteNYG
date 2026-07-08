@@ -11,7 +11,7 @@
   } @else if (vm.status === 'permissionDenied') {
     <app-permission-denied [title]="vm.message ?? 'Tasks are not available for this workspace.'" />
   } @else if (vm.status === 'empty' || vm.rows.length === 0) {
-    <app-empty-state title="No tasks" message="No authorized task records are assigned in this mock state." />
+    <app-empty-state title="No tasks" message="No tasks assigned to you were returned by the backend." />
   } @else {
     <app-task-table
       [rows]="vm.rows"

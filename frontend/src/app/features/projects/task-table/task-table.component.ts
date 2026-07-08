@@ -79,7 +79,7 @@ export class TaskTableComponent {
       headerName: 'Progress',
       minWidth: 120,
       flex: 0.7,
-      valueFormatter: (params) => `${params.value ?? 0}%`
+      valueFormatter: (params) => (params.value === null || params.value === undefined ? 'Not shown' : `${params.value}%`)
     },
     {
       field: 'milestone',
@@ -108,6 +108,7 @@ export class TaskTableComponent {
       button.className = 'app-grid-actions__button';
       button.dataset['gridAction'] = action.id;
       button.textContent = action.label;
+      button.disabled = action.disabled;
       button.setAttribute('aria-disabled', String(action.disabled));
       if (action.disabledReason) {
         button.title = action.disabledReason;

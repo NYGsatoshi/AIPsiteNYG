@@ -80,6 +80,39 @@ public sealed class ProjectServiceTests
     }
 
     [Fact]
+    public async Task TaskResponseProjectsMutationPermissionsAndRejectsUnauthorizedUpdate()
+    {
+        var fixture = ProjectFixture.Create();
+        var manager = fixture.AddUser();
+        var viewer = fixture.AddUser();
+        fixture.AddProjectMember(manager.Id, ProjectRole.Manager);
+        fixture.AddProjectMember(viewer.Id, ProjectRole.Viewer);
+        var task = fixture.AddTask("Permissioned task");
+
+        fixture.Current.UserIdValue = manager.Id;
+        var managerDetail = await fixture.Service.GetTaskAsync(task.Id);
+
+        Assert.True(managerDetail.IsSuccess);
+        Assert.True(managerDetail.Value!.UiPermissions.CanEdit);
+        Assert.True(managerDetail.Value.UiPermissions.CanAssign);
+        Assert.True(managerDetail.Value.UiPermissions.CanDelete);
+        Assert.False(managerDetail.Value.UiPermissions.CanChangeStatus);
+        Assert.Empty(managerDetail.Value.UiPermissions.AllowedTransitions);
+
+        fixture.Current.UserIdValue = viewer.Id;
+        var viewerDetail = await fixture.Service.GetTaskAsync(task.Id);
+        var visibleProjects = await fixture.Service.ListAsync(new ProjectListQuery());
+        var denied = await fixture.Service.UpdateTaskAsync(task.Id, new UpdateTaskItemRequest(null, "Rejected", null, null, null, null, null, null));
+
+        Assert.True(viewerDetail.IsSuccess);
+        Assert.False(viewerDetail.Value!.UiPermissions.CanEdit);
+        Assert.True(visibleProjects.Value!.Items.Single().UiPermissions.CanCreateTask);
+        Assert.False(denied.IsSuccess);
+        Assert.Equal("You are not allowed to update this task.", denied.Error);
+        Assert.Equal("Permissioned task", task.Title);
+    }
+
+    [Fact]
     public async Task TaskListSupportsPagingSearchAndFilters()
     {
         var fixture = ProjectFixture.Create();

@@ -8,7 +8,8 @@ public sealed record ProjectListQuery(bool Archived = false, string? Search = nu
     public int SafePageSize => PageSize < 1 ? 50 : Math.Min(PageSize, 100);
 }
 
-public sealed record ProjectResponse(Guid Id, Guid WorkspaceId, Guid GroupId, Guid OwnerUserId, string Title, string? Description, ProjectStatus Status, DateOnly? StartDate, DateOnly? EndDate, DateTimeOffset CreatedAt, DateTimeOffset? UpdatedAt);
+public sealed record ProjectResponse(Guid Id, Guid WorkspaceId, Guid GroupId, Guid OwnerUserId, string Title, string? Description, ProjectStatus Status, DateOnly? StartDate, DateOnly? EndDate, DateTimeOffset CreatedAt, DateTimeOffset? UpdatedAt, ProjectUiPermissionResponse UiPermissions);
+public sealed record ProjectUiPermissionResponse(bool CanCreateTask);
 public sealed record CreateProjectRequest(Guid WorkspaceId, Guid GroupId, string Title, string? Description, DateOnly? StartDate, DateOnly? EndDate);
 public sealed record UpdateProjectRequest(string? Title, string? Description, ProjectStatus? Status, DateOnly? StartDate, DateOnly? EndDate);
 public sealed record ProjectMemberResponse(Guid UserId, string DisplayName, string Email, ProjectRole Role, DateTimeOffset JoinedAt);
@@ -36,7 +37,8 @@ public sealed record TaskListQuery(
 public sealed record MilestoneResponse(Guid Id, Guid ProjectId, string Title, string? Description, DateOnly? DueDate, MilestoneStatus Status, int DisplayOrder, DateTimeOffset CreatedAt, DateTimeOffset? UpdatedAt);
 public sealed record CreateMilestoneRequest(string Title, string? Description, DateOnly? DueDate, int DisplayOrder);
 public sealed record UpdateMilestoneRequest(string? Title, string? Description, DateOnly? DueDate, MilestoneStatus? Status, int? DisplayOrder);
-public sealed record TaskItemResponse(Guid Id, Guid ProjectId, Guid? MilestoneId, string Title, string? Description, TaskItemStatus Status, TaskPriority Priority, DateOnly? StartDate, DateOnly? DueDate, int ProgressPercent, Guid CreatedByUserId, DateTimeOffset CreatedAt, DateTimeOffset? UpdatedAt);
+public sealed record TaskItemResponse(Guid Id, Guid ProjectId, Guid? MilestoneId, string Title, string? Description, TaskItemStatus Status, TaskPriority Priority, DateOnly? StartDate, DateOnly? DueDate, int ProgressPercent, Guid CreatedByUserId, DateTimeOffset CreatedAt, DateTimeOffset? UpdatedAt, TaskUiPermissionResponse UiPermissions);
+public sealed record TaskUiPermissionResponse(bool CanEdit, bool CanAssign, bool CanChangeStatus, bool CanDelete, IReadOnlyList<TaskItemStatus> AllowedTransitions, string? RowVersion);
 public sealed record CreateTaskItemRequest(Guid? MilestoneId, string Title, string? Description, TaskPriority Priority, DateOnly? StartDate, DateOnly? DueDate);
 public sealed record UpdateTaskItemRequest(Guid? MilestoneId, string? Title, string? Description, TaskItemStatus? Status, TaskPriority? Priority, DateOnly? StartDate, DateOnly? DueDate, int? ProgressPercent);
 public sealed record TaskAssignmentResponse(Guid Id, Guid TaskItemId, Guid UserId, string DisplayName, TaskAssignmentRole Role, decimal? EstimatedHours, decimal? ActualHours, DateTimeOffset AssignedAt, Guid AssignedByUserId);

@@ -4,12 +4,19 @@ export const PROJECTS_DEFAULT_PAGE_SIZE = 50;
 export const PROJECTS_MAXIMUM_PAGE_SIZE = 100;
 
 export type ProjectsPageStatus = 'ready' | 'loading' | 'empty' | 'permissionDenied' | 'error';
-export type ProjectStatus = 'planning' | 'active' | 'atRisk' | 'complete';
-export type TaskStatus = 'notStarted' | 'inProgress' | 'blocked' | 'review' | 'done';
+export type ProjectStatus = 'planning' | 'active' | 'review' | 'atRisk' | 'complete' | 'suspended' | 'archived';
+export type TaskStatus = 'notStarted' | 'inProgress' | 'blocked' | 'review' | 'done' | 'cancelled';
 export type TaskPriority = 'low' | 'medium' | 'high' | 'urgent';
 export type TaskRowActionId = 'openDetail' | 'edit' | 'assign' | 'changeStatus';
 export type TaskDetailState = 'ready' | 'rowVersionConflict' | 'invalidStateTransition';
 export type ProjectCapability = 'editTask' | 'assignTask' | 'changeTaskStatus' | 'editMilestone';
+
+export type TaskMutationState =
+  | { readonly status: 'idle' }
+  | { readonly status: 'submitting' }
+  | { readonly status: 'success' }
+  | { readonly status: 'failure'; readonly message: string; readonly requestId?: string }
+  | { readonly status: 'conflict'; readonly message: string; readonly serverVersion?: unknown };
 
 export interface BackendAuthoritativeTransitionNote {
   readonly owner: 'backendAuthoritativeDuringApiWiring';
@@ -37,6 +44,7 @@ export interface ProjectMockRecord {
   readonly dueDate: string;
   readonly group: string;
   readonly authorized: boolean;
+  readonly canCreateTask: boolean;
 }
 
 export interface TaskMockRecord {
@@ -51,7 +59,7 @@ export interface TaskMockRecord {
   readonly assignee: string;
   readonly startDate: string;
   readonly dueDate: string;
-  readonly progressPercent: number;
+  readonly progressPercent: number | null;
   readonly milestone: string;
   readonly dependencyIds: readonly string[];
   readonly allowedTransitions: readonly TaskStatus[];
@@ -71,8 +79,9 @@ export interface ProjectSummaryViewModel {
   readonly taskCounts: {
     readonly total: number;
     readonly done: number;
-    readonly blocked: number;
+      readonly blocked: number;
   };
+  readonly canCreateTask: boolean;
 }
 
 export interface TaskRowAction {
@@ -95,7 +104,7 @@ export interface TaskGridRow {
   readonly assignee: string;
   readonly startDate: string;
   readonly dueDate: string;
-  readonly progressPercent: number;
+  readonly progressPercent: number | null;
   readonly milestone: string;
   readonly allowedTransitions: readonly TaskStatus[];
   readonly rowActions: readonly TaskRowAction[];
@@ -140,6 +149,25 @@ export interface TaskDetailViewModel {
   readonly message?: string;
 }
 
+export interface TaskEditorSaveRequest {
+  readonly title: string;
+  readonly description: string;
+  readonly priority: TaskPriority;
+  readonly startDate: string;
+  readonly dueDate: string;
+  readonly progressPercent: number;
+  readonly status?: TaskStatus;
+}
+
+export interface CreateTaskFormRequest {
+  readonly projectId: string;
+  readonly title: string;
+  readonly description: string;
+  readonly priority: TaskPriority;
+  readonly startDate: string;
+  readonly dueDate: string;
+}
+
 export interface ProjectsScenario {
   readonly status: ProjectsPageStatus;
   readonly detailState?: TaskDetailState;
@@ -147,6 +175,9 @@ export interface ProjectsScenario {
   readonly subtitle: string;
   readonly projects: readonly ProjectMockRecord[];
   readonly tasks: readonly TaskMockRecord[];
+  readonly myTasks?: readonly TaskMockRecord[];
+  readonly myTasksStatus?: ProjectsPageStatus;
+  readonly myTasksMessage?: string;
   readonly currentUserAssignee: string;
   readonly mobile?: boolean;
   readonly message?: string;

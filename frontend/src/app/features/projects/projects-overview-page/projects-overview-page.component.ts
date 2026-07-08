@@ -1,4 +1,5 @@
 import { Component, computed, inject } from '@angular/core';
+import { FormControl, FormGroup, ReactiveFormsModule, Validators } from '@angular/forms';
 import { Router, RouterLink } from '@angular/router';
 
 import { AppDataGridActionEvent } from '../../../shared/grid/app-data-grid/app-data-grid.types';
@@ -7,7 +8,7 @@ import { AppInlineLoadingComponent } from '../../../shared/loading/app-inline-lo
 import { AppPermissionDeniedComponent } from '../../../shared/permission/app-permission-denied/app-permission-denied.component';
 import { ProjectsFacade } from '../projects.facade';
 import { ProjectSummaryPanelComponent } from '../project-summary-panel/project-summary-panel.component';
-import { TaskGridRow } from '../projects.types';
+import { CreateTaskFormRequest, ProjectSummaryViewModel, TaskGridRow, TaskPriority } from '../projects.types';
 import { TaskTableComponent } from '../task-table/task-table.component';
 
 @Component({
@@ -15,6 +16,7 @@ import { TaskTableComponent } from '../task-table/task-table.component';
   standalone: true,
   imports: [
     RouterLink,
+    ReactiveFormsModule,
     AppEmptyStateComponent,
     AppInlineLoadingComponent,
     AppPermissionDeniedComponent,
@@ -29,7 +31,23 @@ export class ProjectsOverviewPageComponent {
   private readonly router = inject(Router);
 
   readonly page = computed(() => this.facade.getProjectsOverview());
+  readonly createMutationState = computed(() => this.facade.getTaskCreateMutationState());
   actionMessage = '';
+  readonly createForm = new FormGroup({
+    projectId: new FormControl('', { nonNullable: true, validators: [Validators.required] }),
+    title: new FormControl('', { nonNullable: true, validators: [Validators.required] }),
+    description: new FormControl('', { nonNullable: true }),
+    priority: new FormControl<TaskPriority>('medium', { nonNullable: true }),
+    startDate: new FormControl('', { nonNullable: true }),
+    dueDate: new FormControl('', { nonNullable: true })
+  });
+
+  readonly priorities: readonly { value: TaskPriority; label: string }[] = [
+    { value: 'low', label: 'Low' },
+    { value: 'medium', label: 'Medium' },
+    { value: 'high', label: 'High' },
+    { value: 'urgent', label: 'Urgent' }
+  ];
 
   handleTaskAction(event: AppDataGridActionEvent<TaskGridRow>): void {
     if (event.actionId === 'openDetail') {
@@ -38,5 +56,23 @@ export class ProjectsOverviewPageComponent {
     }
 
     this.actionMessage = `${event.actionId}:${event.row.id}`;
+  }
+
+  canCreateInAnyProject(projects: readonly ProjectSummaryViewModel[]): boolean {
+    return projects.some((project) => project.canCreateTask);
+  }
+
+  submitCreateTask(): void {
+    this.createForm.markAllAsTouched();
+    if (this.createForm.invalid || this.createMutationState().status === 'submitting') {
+      return;
+    }
+
+    const request: CreateTaskFormRequest = this.createForm.getRawValue();
+    this.facade.createTask(request);
+  }
+
+  clearCreateState(): void {
+    this.facade.clearTaskCreateMutationState();
   }
 }

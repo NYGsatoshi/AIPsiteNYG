@@ -32,10 +32,10 @@ public sealed class ProjectService(
             .Where(project => query.Archived ? project.Status == ProjectStatus.Archived : project.Status is not ProjectStatus.Archived and not ProjectStatus.Deleted)
             .Where(project => !query.Status.HasValue || project.Status == query.Status.Value)
             .Where(project => MatchesSearch(project.Name, project.Description, query.Search))
-            .Select(ToProject)
             .ToList();
 
-        return Result<PagedResponse<ProjectResponse>>.Success(ToPagedResponse(filtered, query.SafePage, query.SafePageSize));
+        var responses = await Task.WhenAll(filtered.Select(project => ToProjectAsync(project, userId, cancellationToken)));
+        return Result<PagedResponse<ProjectResponse>>.Success(ToPagedResponse(responses.ToList(), query.SafePage, query.SafePageSize));
     }
 
     public async Task<Result<ProjectResponse>> CreateAsync(CreateProjectRequest request, CancellationToken cancellationToken = default)
@@ -86,7 +86,7 @@ public sealed class ProjectService(
         }, cancellationToken);
         await AuditAsync(userId, "ProjectCreated", "Project", project.Id, cancellationToken);
         await unitOfWork.SaveChangesAsync(cancellationToken);
-        return Result<ProjectResponse>.Success(ToProject(project));
+        return Result<ProjectResponse>.Success(await ToProjectAsync(project, userId, cancellationToken));
     }
 
     public async Task<Result<ProjectResponse>> GetAsync(Guid projectId, CancellationToken cancellationToken = default)
@@ -99,7 +99,7 @@ public sealed class ProjectService(
         var project = await projects.GetProjectAsync(projectId, cancellationToken);
         return project is null || project.DeletedAt.HasValue
             ? Result<ProjectResponse>.Failure("Project not found.")
-            : Result<ProjectResponse>.Success(ToProject(project));
+            : Result<ProjectResponse>.Success(await ToProjectAsync(project, userId, cancellationToken));
     }
 
     public async Task<Result<ProjectResponse>> UpdateAsync(Guid projectId, UpdateProjectRequest request, CancellationToken cancellationToken = default)
@@ -146,7 +146,7 @@ public sealed class ProjectService(
         project.DueDate = request.EndDate ?? project.DueDate;
         await AuditAsync(userId, project.Status == previousStatus ? "ProjectUpdated" : "ProjectStatusChanged", "Project", project.Id, cancellationToken);
         await unitOfWork.SaveChangesAsync(cancellationToken);
-        return Result<ProjectResponse>.Success(ToProject(project));
+        return Result<ProjectResponse>.Success(await ToProjectAsync(project, userId, cancellationToken));
     }
 
     public async Task<Result> ArchiveAsync(Guid projectId, CancellationToken cancellationToken = default)
@@ -420,9 +420,9 @@ public sealed class ProjectService(
             .Where(task => !query.Priority.HasValue || task.Priority == query.Priority.Value)
             .Where(task => !query.MilestoneId.HasValue || task.MilestoneId == query.MilestoneId.Value)
             .Where(task => taskIdsForAssignee is null || taskIdsForAssignee.Contains(task.Id))
-            .Select(ToTask)
             .ToList();
-        return Result<PagedResponse<TaskItemResponse>>.Success(ToPagedResponse(filtered, query.SafePage, query.SafePageSize));
+        var responses = await Task.WhenAll(filtered.Select(task => ToTaskAsync(task, userId, cancellationToken)));
+        return Result<PagedResponse<TaskItemResponse>>.Success(ToPagedResponse(responses.ToList(), query.SafePage, query.SafePageSize));
     }
 
     public async Task<Result<TaskItemResponse>> CreateTaskAsync(Guid projectId, CreateTaskItemRequest request, CancellationToken cancellationToken = default)
@@ -453,7 +453,7 @@ public sealed class ProjectService(
         await projects.AddTaskAsync(task, cancellationToken);
         await AuditAsync(userId, "TaskCreated", "TaskItem", task.Id, cancellationToken);
         await unitOfWork.SaveChangesAsync(cancellationToken);
-        return Result<TaskItemResponse>.Success(ToTask(task));
+        return Result<TaskItemResponse>.Success(await ToTaskAsync(task, userId, cancellationToken));
     }
 
     public async Task<Result<TaskItemResponse>> GetTaskAsync(Guid taskItemId, CancellationToken cancellationToken = default)
@@ -465,7 +465,7 @@ public sealed class ProjectService(
             return Result<TaskItemResponse>.Failure("Task not found.");
         }
 
-        return Result<TaskItemResponse>.Success(ToTask(task));
+        return Result<TaskItemResponse>.Success(await ToTaskAsync(task, userId, cancellationToken));
     }
 
     public async Task<Result<TaskItemResponse>> UpdateTaskAsync(Guid taskItemId, UpdateTaskItemRequest request, CancellationToken cancellationToken = default)
@@ -508,7 +508,7 @@ public sealed class ProjectService(
         await NotifyTaskChangesAsync(task, previousStatus, previousDueDate, cancellationToken);
         await AuditAsync(userId, "TaskUpdated", "TaskItem", task.Id, cancellationToken);
         await unitOfWork.SaveChangesAsync(cancellationToken);
-        return Result<TaskItemResponse>.Success(ToTask(task));
+        return Result<TaskItemResponse>.Success(await ToTaskAsync(task, userId, cancellationToken));
     }
 
     public async Task<Result> DeleteTaskAsync(Guid taskItemId, CancellationToken cancellationToken = default)
@@ -1058,9 +1058,21 @@ public sealed class ProjectService(
         return new PagedResponse<T>(items.Skip((page - 1) * pageSize).Take(pageSize).ToList(), page, pageSize, items.Count);
     }
 
-    private static ProjectResponse ToProject(Project project)
+    private async Task<ProjectResponse> ToProjectAsync(Project project, Guid userId, CancellationToken cancellationToken)
     {
-        return new ProjectResponse(project.Id, project.WorkspaceId, project.GroupId ?? Guid.Empty, project.OwnerUserId, project.Name, project.Description, project.Status, project.StartDate, project.DueDate, project.CreatedAt, project.UpdatedAt);
+        return new ProjectResponse(
+            project.Id,
+            project.WorkspaceId,
+            project.GroupId ?? Guid.Empty,
+            project.OwnerUserId,
+            project.Name,
+            project.Description,
+            project.Status,
+            project.StartDate,
+            project.DueDate,
+            project.CreatedAt,
+            project.UpdatedAt,
+            new ProjectUiPermissionResponse(await taskAuthorization.CanCreateTask(userId, project.Id, cancellationToken)));
     }
 
     private static ProjectMemberResponse ToProjectMember(ProjectMember member)
@@ -1073,9 +1085,31 @@ public sealed class ProjectService(
         return new MilestoneResponse(milestone.Id, milestone.ProjectId, milestone.Name, milestone.Description, milestone.DueDate, milestone.Status, milestone.SortOrder, milestone.CreatedAt, milestone.UpdatedAt);
     }
 
-    private static TaskItemResponse ToTask(TaskItem task)
+    private async Task<TaskItemResponse> ToTaskAsync(TaskItem task, Guid userId, CancellationToken cancellationToken)
     {
-        return new TaskItemResponse(task.Id, task.ProjectId, task.MilestoneId, task.Title, task.Description, task.Status, task.Priority, task.StartDate, task.DueDate, task.ProgressPercent, task.CreatedByUserId, task.CreatedAt, task.UpdatedAt);
+        var canEdit = await taskAuthorization.CanUpdateTask(userId, task.Id, cancellationToken);
+        var canAssign = await taskAuthorization.CanAssignTask(userId, task.Id, cancellationToken);
+        return new TaskItemResponse(
+            task.Id,
+            task.ProjectId,
+            task.MilestoneId,
+            task.Title,
+            task.Description,
+            task.Status,
+            task.Priority,
+            task.StartDate,
+            task.DueDate,
+            task.ProgressPercent,
+            task.CreatedByUserId,
+            task.CreatedAt,
+            task.UpdatedAt,
+            new TaskUiPermissionResponse(
+                canEdit,
+                canAssign,
+                false,
+                canEdit,
+                Array.Empty<TaskItemStatus>(),
+                null));
     }
 
     private static TaskAssignmentResponse ToAssignment(TaskAssignment assignment)

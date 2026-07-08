@@ -8,7 +8,7 @@
   } @else if (vm.status === 'permissionDenied') {
     <app-permission-denied [title]="vm.message ?? 'Task detail is not available for this workspace.'" />
   } @else if (!vm.task || !vm.editorTask || !vm.project) {
-    <app-empty-state title="Task not found" message="No authorized task detail is available in this mock state." />
+    <app-empty-state title="Task not found" message="No authorized task detail was returned by the backend." />
   } @else {
     <header class="task-detail-page__header">
       <div>
@@ -31,7 +31,7 @@
         <span>Due</span>
         <strong>{{ vm.task.dueDate }}</strong>
       </div>
-      <app-task-progress-field [value]="vm.task.progressPercent" />
+    <app-task-progress-field [value]="vm.task.progressPercent ?? 0" />
     </section>
 
     <app-task-editor
@@ -39,6 +39,9 @@
       [capabilities]="vm.capabilities"
       [state]="vm.detailState"
       [transitionNote]="vm.transitionNote"
+      [mutationState]="mutationState()"
+      (save)="saveTask($event)"
+      (cancel)="resetMutationState()"
     />
 
     <app-task-dependencies-readonly [dependencies]="vm.dependencies" />

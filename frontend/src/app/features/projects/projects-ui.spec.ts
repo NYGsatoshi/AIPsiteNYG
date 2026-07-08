@@ -191,6 +191,7 @@ describe('TaskEditorComponent', () => {
     fixture.componentRef.setInput('capabilities', detail.capabilities);
     fixture.componentRef.setInput('state', detail.detailState);
     fixture.componentRef.setInput('transitionNote', detail.transitionNote);
+    fixture.componentRef.setInput('mutationState', { status: 'idle' });
     fixture.detectChanges();
     return fixture;
   };
@@ -218,13 +219,27 @@ describe('TaskEditorComponent', () => {
     expect(query<HTMLInputElement>(fixture, '[data-testid="task-milestone-input"]')?.readOnly).toBe(true);
   });
 
-  it('shows task details as read-only until a backend save path is wired', async () => {
+  it('renders existing task detail in editable backend fields', async () => {
     const fixture = await renderEditor();
 
-    expect(query(fixture, '[data-testid="task-editor-readonly-note"]')).not.toBeNull();
-    expect(query<HTMLInputElement>(fixture, '[data-testid="task-title-input"]')?.readOnly).toBe(true);
-    expect(query<HTMLTextAreaElement>(fixture, '[data-testid="task-description-input"]')?.readOnly).toBe(true);
-    expect(query<HTMLButtonElement>(fixture, '[data-testid="task-save-disabled"]')?.disabled).toBe(true);
+    expect(query(fixture, '[data-testid="task-editor-readonly-note"]')).toBeNull();
+    expect(query<HTMLInputElement>(fixture, '[data-testid="task-title-input"]')?.value).toContain('Prepare sample kickoff');
+    expect(query<HTMLInputElement>(fixture, '[data-testid="task-title-input"]')?.readOnly).toBe(false);
+    expect(query<HTMLTextAreaElement>(fixture, '[data-testid="task-description-input"]')?.readOnly).toBe(false);
+    expect(query<HTMLButtonElement>(fixture, '[data-testid="task-save-button"]')?.disabled).toBe(false);
+  });
+
+  it('preserves user input when a save failure is shown', async () => {
+    const fixture = await renderEditor();
+    const title = query<HTMLInputElement>(fixture, '[data-testid="task-title-input"]');
+    title!.value = 'Changed but not persisted';
+    title!.dispatchEvent(new Event('input'));
+    fixture.componentRef.setInput('mutationState', { status: 'failure', message: 'Backend rejected save.' });
+    fixture.detectChanges();
+
+    expect(query(fixture, '[data-testid="task-save-error"]')).not.toBeNull();
+    expect(query(fixture, '[data-testid="task-save-success"]')).toBeNull();
+    expect(query<HTMLInputElement>(fixture, '[data-testid="task-title-input"]')?.value).toBe('Changed but not persisted');
   });
 
   it('disables unsupported status transitions from allowedTransitions', async () => {
@@ -241,6 +256,24 @@ describe('TaskEditorComponent', () => {
 
     expect(TASK_STATUS_BACKEND_AUTHORITATIVE_NOTE.owner).toBe('backendAuthoritativeDuringApiWiring');
     expect(textContent(fixture)).toContain('live API remains authoritative');
+  });
+
+  it('disables status control when backend permissions do not allow transitions', async () => {
+    const fixture = await renderEditor(PROJECTS_SCENARIOS.milestoneReadOnly);
+    const task = {
+      ...PROJECTS_SCENARIOS.default.tasks[0],
+      allowedTransitions: [],
+      capabilities: PROJECTS_SCENARIOS.default.tasks[0].capabilities.filter(
+        (capability) => capability !== 'changeTaskStatus'
+      )
+    };
+
+    fixture.componentRef.setInput('task', task);
+    fixture.componentRef.setInput('capabilities', task.capabilities);
+    fixture.detectChanges();
+
+    expect(query(fixture, '[data-testid="task-status-disabled-note"]')).not.toBeNull();
+    expect(query<HTMLSelectElement>(fixture, '[data-testid="task-status-select"]')?.getAttribute('aria-disabled')).toBe('true');
   });
 
   it('shows recoverable invalid transition and row version conflict states', async () => {

@@ -13,12 +13,15 @@
 
 .projects-page__header h1,
 .projects-page__header p,
+.projects-page__create h2,
+.projects-page__create p,
 .projects-page__tasks h2,
 .projects-page__tasks p {
   margin: 0;
 }
 
 .projects-page__header p,
+.projects-page__create p,
 .projects-page__tasks p {
   color: #536179;
 }
@@ -40,6 +43,74 @@
   gap: 0.75rem;
 }
 
+.projects-page__create {
+  display: grid;
+  gap: 0.75rem;
+  padding: 1rem;
+  border: 1px solid #d7deea;
+  border-radius: 8px;
+  background: #fff;
+}
+
+.projects-page__create form {
+  display: grid;
+  grid-template-columns: 1.2fr 1.5fr 0.8fr 1fr 1fr;
+  gap: 0.75rem;
+  align-items: end;
+}
+
+.projects-page__create label,
+.projects-page__create-description {
+  display: grid;
+  gap: 0.35rem;
+}
+
+.projects-page__create-description {
+  grid-column: 1 / -2;
+}
+
+.projects-page__create input,
+.projects-page__create select,
+.projects-page__create textarea {
+  width: 100%;
+  box-sizing: border-box;
+  border: 1px solid #b7c2d6;
+  border-radius: 6px;
+  padding: 0.55rem 0.65rem;
+  font: inherit;
+}
+
+.projects-page__create button {
+  min-height: 40px;
+  border: 1px solid #184b8f;
+  border-radius: 6px;
+  background: #184b8f;
+  color: #fff;
+  font-weight: 700;
+  padding: 0 0.9rem;
+}
+
+.projects-page__create button:disabled {
+  cursor: not-allowed;
+  opacity: 0.6;
+}
+
+.projects-page__create-error,
+.projects-page__create-success {
+  padding: 0.75rem;
+  border-radius: 6px;
+}
+
+.projects-page__create-error {
+  border: 1px solid #efb4b4;
+  background: #fff5f5;
+}
+
+.projects-page__create-success {
+  border: 1px solid #86bf91;
+  background: #f1fbf3;
+}
+
 @media (max-width: 720px) {
   .projects-page {
     padding: 1rem;
@@ -47,5 +118,13 @@
 
   .projects-page__header {
     display: grid;
+  }
+
+  .projects-page__create form {
+    grid-template-columns: 1fr;
+  }
+
+  .projects-page__create-description {
+    grid-column: auto;
   }
 }
