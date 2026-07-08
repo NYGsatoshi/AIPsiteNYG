@@ -6,6 +6,12 @@ public interface IFileObjectService
 {
     Task<Result<AttachmentResponse>> UploadAsync(AttachmentUploadInput input, CancellationToken cancellationToken = default);
 
+    Task<Result<PagedResponse<FileListItemResponse>>> ListFileObjectsAsync(
+        Guid workspaceId,
+        int page,
+        int pageSize,
+        CancellationToken cancellationToken = default);
+
     Task<Result<FileObjectResponse>> GetFileObjectAsync(Guid fileObjectId, CancellationToken cancellationToken = default);
 
     Task<Result<FileDownloadGrantResponse>> RequestFileObjectDownloadGrantAsync(

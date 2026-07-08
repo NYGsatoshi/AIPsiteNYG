@@ -19,6 +19,7 @@ export class FileRowComponent {
 
   canDownload(): boolean {
     return (
+      this.file.downloadState !== 'pending' &&
       this.file.scanStatus === 'allowed' &&
       this.file.downloadPolicy === 'available' &&
       this.file.capabilities.includes('download')
@@ -26,16 +27,20 @@ export class FileRowComponent {
   }
 
   downloadDisabledReason(): string | null {
+    if (this.file.downloadState === 'pending') {
+      return 'Download authorization is pending.';
+    }
+
     if (this.file.scanStatus === 'pending' || this.file.scanStatus === 'unavailable') {
-      return '安全確認が完了するまでダウンロードできません。';
+      return 'Download is disabled until scan state allows it.';
     }
 
     if (this.file.scanStatus === 'blocked') {
-      return '安全確認でブロックされたためダウンロードできません。';
+      return 'Download is blocked by file scan state.';
     }
 
     if (this.file.downloadPolicy === 'denied' || !this.file.capabilities.includes('download')) {
-      return 'このファイルをダウンロードする権限がありません。';
+      return 'You do not have permission to download this file.';
     }
 
     return null;

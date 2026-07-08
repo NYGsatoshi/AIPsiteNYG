@@ -2,199 +2,204 @@ import { FILE_UPLOAD_MAX_BYTES, FilesPageViewModel, FileViewModel } from './file
 
 export const DEFAULT_FILES: readonly FileViewModel[] = [
   {
-    id: 'file-row-001',
-    canonicalFileId: 'canonical-file-001',
+    id: 'attachment-001',
+    canonicalFileId: 'file-object-001',
     originalFileName: 'sanitized-project-note.pdf',
     contentType: 'application/pdf',
     sizeBytes: 2_440_192,
     scanStatus: 'allowed',
-    uploadedByDisplay: 'サンプル利用者A',
+    uploadedByDisplay: 'Fixture User',
     createdAtLabel: '2026-07-01 09:30',
     kind: 'pdf',
     downloadPolicy: 'available',
     capabilities: ['download'],
     internalStorageKey: 'tenant-a/private/raw/sanitized-project-note.pdf',
     internalPath: '/var/lib/aipsite/private/raw/sanitized-project-note.pdf',
-    rawScanMetadata: 'engine=mock;signature=private-debug-value'
+    rawScanMetadata: 'engine=mock;signature=private-debug-value',
   },
   {
-    id: 'file-row-002',
-    canonicalFileId: 'canonical-file-002',
+    id: 'attachment-002',
+    canonicalFileId: 'file-object-002',
     originalFileName: 'classroom-photo.png',
     contentType: 'image/png',
     sizeBytes: 814_320,
     scanStatus: 'pending',
-    uploadedByDisplay: 'サンプル利用者B',
+    uploadedByDisplay: 'Fixture User',
     createdAtLabel: '2026-07-01 10:12',
     kind: 'image',
     downloadPolicy: 'available',
-    capabilities: ['download']
+    capabilities: ['download'],
   },
   {
-    id: 'file-row-003',
-    canonicalFileId: 'canonical-file-003',
+    id: 'attachment-003',
+    canonicalFileId: 'file-object-003',
     originalFileName: 'blocked-archive.zip',
     contentType: 'application/zip',
     sizeBytes: 18_982_144,
     scanStatus: 'blocked',
-    uploadedByDisplay: 'サンプル利用者C',
+    uploadedByDisplay: 'Fixture User',
     createdAtLabel: '2026-07-01 10:40',
     kind: 'zip',
     downloadPolicy: 'adminOverrideRequired',
     capabilities: ['adminOverrideBlockedDownload'],
-    safeStatusLabel: '管理者の監査理由が必要です'
+    safeStatusLabel: 'Admin override requires a backend path.',
   },
   {
-    id: 'file-row-004',
+    id: 'attachment-004',
     canonicalFileId: null,
     originalFileName: 'pending-canonical-id.svg',
     contentType: 'image/svg+xml',
     sizeBytes: 44_220,
     scanStatus: 'allowed',
-    uploadedByDisplay: 'サンプル利用者D',
+    uploadedByDisplay: 'Fixture User',
     createdAtLabel: '2026-07-01 11:05',
     kind: 'svg',
     downloadPolicy: 'denied',
     capabilities: [],
-    safeStatusLabel: '正規ファイルIDの確定待ち'
+    safeStatusLabel: 'Canonical file ID is required.',
   },
   {
-    id: 'file-row-005',
-    canonicalFileId: 'canonical-file-005',
+    id: 'attachment-005',
+    canonicalFileId: 'file-object-005',
     originalFileName: 'lesson-recording.mp4',
     contentType: 'video/mp4',
     sizeBytes: 76_984_320,
     scanStatus: 'allowed',
-    uploadedByDisplay: 'サンプル利用者E',
+    uploadedByDisplay: 'Fixture User',
     createdAtLabel: '2026-07-01 11:28',
     kind: 'video',
     downloadPolicy: 'denied',
     capabilities: [],
-    safeStatusLabel: 'このファイルをダウンロードする権限がありません。'
-  }
+    safeStatusLabel: 'You do not have permission to download this file.',
+  },
 ];
 
 const basePage = (overrides: Partial<FilesPageViewModel> = {}): FilesPageViewModel => ({
-  title: 'ファイル',
-  subtitle: '添付とダウンロードのP0モック',
+  title: 'Files',
+  subtitle: 'Mock file states for stories and unit tests.',
   maxUploadBytes: FILE_UPLOAD_MAX_BYTES,
   upload: {
     state: 'idle',
-    canUpload: false,
-    message: 'File upload is not available in MVP0.'
+    canUpload: true,
+    message: 'Select a file to upload to the backend.',
   },
   quota: {
     state: 'available',
     usedBytes: 46 * 1024 * 1024,
     limitBytes: FILE_UPLOAD_MAX_BYTES,
-    message: '100 MBまでアップロードできます。'
+    message: 'Quota summary is not available in MVP0.',
   },
   recentFiles: DEFAULT_FILES,
   pickerFiles: DEFAULT_FILES,
-  ...overrides
+  ...overrides,
 });
 
 export const FILES_PAGE_SCENARIOS = {
   default: basePage(),
   uploadPending: basePage({
     upload: {
-      state: 'idle',
+      state: 'pending',
       canUpload: false,
-      message: 'File upload is not available in MVP0.'
-    }
+      selectedFileName: 'new-attachment.pdf',
+      message: 'Uploading file to backend.',
+    },
   }),
   uploadProgress: basePage({
     upload: {
-      state: 'idle',
+      state: 'progress',
       canUpload: false,
-      message: 'File upload is not available in MVP0.'
-    }
+      selectedFileName: 'new-attachment.pdf',
+      progressPercent: 40,
+      message: 'Uploading file to backend.',
+    },
   }),
   uploadFailed: basePage({
     upload: {
       state: 'failed',
+      canUpload: true,
       selectedFileName: 'new-attachment.pdf',
-      message: 'アップロードに失敗しました。'
-    }
+      message: 'Upload failed after backend rejection.',
+    },
   }),
   fileTooLarge: basePage({
     upload: {
       state: 'tooLarge',
+      canUpload: true,
       selectedFileName: 'oversized-video.mp4',
-      message: '100 MBを超えるファイルはアップロードできません。'
-    }
+      message: 'Files larger than 50 MB are rejected before upload.',
+    },
   }),
   scanPending: basePage({
-    recentFiles: [DEFAULT_FILES[1]]
+    recentFiles: [DEFAULT_FILES[1]],
   }),
   scanBlocked: basePage({
-    recentFiles: [DEFAULT_FILES[2]]
+    recentFiles: [DEFAULT_FILES[2]],
   }),
   scanAllowed: basePage({
-    recentFiles: [DEFAULT_FILES[0]]
+    recentFiles: [DEFAULT_FILES[0]],
   }),
   downloadDenied: basePage({
-    recentFiles: [DEFAULT_FILES[4]]
+    recentFiles: [DEFAULT_FILES[4]],
   }),
   noCanonicalFileIdYet: basePage({
     pickerFiles: [DEFAULT_FILES[3], DEFAULT_FILES[0]],
-    recentFiles: [DEFAULT_FILES[3]]
+    recentFiles: [DEFAULT_FILES[3]],
   }),
   quotaExceeded: basePage({
     upload: {
       state: 'quotaExceeded',
-      message: '保存容量を超過しています。'
+      message: 'Quota exceeded.',
     },
     quota: {
       state: 'exceeded',
-      usedBytes: 104 * 1024 * 1024,
+      usedBytes: 54 * 1024 * 1024,
       limitBytes: FILE_UPLOAD_MAX_BYTES,
-      message: '保存容量を超過しています。例外申請が必要です。'
-    }
+      message: 'Quota exceeded.',
+    },
   }),
   quotaExceptionRequested: basePage({
     upload: {
       state: 'quotaExceptionRequested',
-      message: '容量例外を申請済みです。'
+      message: 'Quota exception was requested.',
     },
     quota: {
       state: 'exceptionRequested',
-      usedBytes: 104 * 1024 * 1024,
+      usedBytes: 54 * 1024 * 1024,
       limitBytes: FILE_UPLOAD_MAX_BYTES,
-      message: '容量例外を申請済みです。'
-    }
+      message: 'Quota exception was requested.',
+    },
   }),
   quotaExceptionApproved: basePage({
     upload: {
       state: 'quotaExceptionApproved',
-      message: '容量例外が承認されました。'
+      message: 'Quota exception was approved.',
     },
     quota: {
       state: 'exceptionApproved',
-      usedBytes: 104 * 1024 * 1024,
+      usedBytes: 54 * 1024 * 1024,
       limitBytes: FILE_UPLOAD_MAX_BYTES,
-      message: '容量例外が承認されました。'
-    }
+      message: 'Quota exception was approved.',
+    },
   }),
   quotaExceptionRejected: basePage({
     upload: {
       state: 'quotaExceptionRejected',
-      message: '容量例外が却下されました。'
+      message: 'Quota exception was rejected.',
     },
     quota: {
       state: 'exceptionRejected',
-      usedBytes: 104 * 1024 * 1024,
+      usedBytes: 54 * 1024 * 1024,
       limitBytes: FILE_UPLOAD_MAX_BYTES,
-      message: '容量例外が却下されました。'
-    }
+      message: 'Quota exception was rejected.',
+    },
   }),
   adminOverrideRequired: basePage({
-    recentFiles: [DEFAULT_FILES[2]]
+    recentFiles: [DEFAULT_FILES[2]],
   }),
   previewDisabled: basePage({
-    recentFiles: [DEFAULT_FILES[0], DEFAULT_FILES[1], DEFAULT_FILES[2], DEFAULT_FILES[3], DEFAULT_FILES[4]]
+    recentFiles: [DEFAULT_FILES[0], DEFAULT_FILES[1], DEFAULT_FILES[2], DEFAULT_FILES[3], DEFAULT_FILES[4]],
   }),
   mobile: basePage({
-    recentFiles: [DEFAULT_FILES[0], DEFAULT_FILES[1], DEFAULT_FILES[4]]
-  })
+    recentFiles: [DEFAULT_FILES[0], DEFAULT_FILES[1], DEFAULT_FILES[4]],
+  }),
 } satisfies Record<string, FilesPageViewModel>;

@@ -93,6 +93,7 @@
 
 .upload-drop-zone--failed,
 .upload-drop-zone--tooLarge,
+.upload-drop-zone--invalidType,
 .upload-drop-zone--quotaExceeded,
 .upload-drop-zone--quotaExceptionRejected {
   border-color: #c2410c;
@@ -106,6 +107,7 @@
   background: #fff8e6;
 }
 
+.upload-drop-zone--succeeded,
 .upload-drop-zone--quotaExceptionApproved {
   border-color: #2f855a;
   background: #ecfdf3;

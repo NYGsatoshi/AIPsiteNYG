@@ -19,22 +19,26 @@
 
       <app-file-quota-state [quota]="vm.quota" />
 
-      <section class="files-page__panel" aria-label="最近のファイル">
+      <section class="files-page__panel" aria-label="Recent files">
         <div class="files-page__panel-header">
-          <p>最近のファイル</p>
-          <strong>ダウンロードは安全確認と権限で制御されます</strong>
+          <p>Recent files</p>
+          <strong>Downloads use backend grants and authorization.</strong>
         </div>
-        <app-recent-files-list [files]="vm.recentFiles" />
+        <app-recent-files-list [files]="vm.recentFiles" (downloadRequested)="downloadFile($event)" />
       </section>
     </div>
 
     <aside class="files-page__side">
-      <app-attachment-picker-dialog [files]="vm.pickerFiles" />
+      <app-attachment-picker-dialog
+        [files]="vm.pickerFiles"
+        [disabled]="true"
+        disabledMessage="Attachment picker is not available in MVP0."
+      />
       <section class="files-page__policy" data-testid="file-policy">
-        <strong>プレビューはP0では無効です。</strong>
-        <span>画像、PDF、動画、SVG、ZIPは添付のみです。SVGを画像として表示しません。</span>
-        <span>ストリーミング、CDN公開、公開動画リンクはありません。</span>
-        <span>UI非表示は認可ではありません。バックエンド認可が必須です。</span>
+        <strong>Preview is not available in MVP0.</strong>
+        <span>Images, SVG, PDF, ZIP extraction, video playback, and streaming are not rendered in this screen.</span>
+        <span>CDN links, public links, and external signed URL sharing are disabled.</span>
+        <span>Download requires backend authorization and a short-lived download grant.</span>
       </section>
     </aside>
   </div>

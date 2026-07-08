@@ -21,6 +21,7 @@ export class UploadDropZoneComponent {
   onFileInputChange(event: Event): void {
     const input = event.target as HTMLInputElement;
     this.handleFiles(input.files);
+    input.value = '';
   }
 
   onDrop(event: DragEvent): void {
@@ -35,6 +36,10 @@ export class UploadDropZoneComponent {
   handleFiles(files: FileList | readonly File[] | null): void {
     const file = files?.[0];
     if (!file) {
+      return;
+    }
+
+    if (this.upload.state === 'pending' || this.upload.state === 'progress') {
       return;
     }
 

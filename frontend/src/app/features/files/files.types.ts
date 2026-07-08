@@ -1,4 +1,4 @@
-export const FILE_UPLOAD_MAX_BYTES = 100 * 1024 * 1024;
+export const FILE_UPLOAD_MAX_BYTES = 50 * 1024 * 1024;
 
 export type FileKind = 'image' | 'pdf' | 'zip' | 'video' | 'svg' | 'document';
 
@@ -11,13 +11,17 @@ export type FileCapability = 'download' | 'requestQuotaException' | 'adminOverri
 export type FileUploadState =
   | 'idle'
   | 'pending'
+  | 'succeeded'
   | 'progress'
   | 'failed'
   | 'tooLarge'
+  | 'invalidType'
   | 'quotaExceeded'
   | 'quotaExceptionRequested'
   | 'quotaExceptionApproved'
   | 'quotaExceptionRejected';
+
+export type FileDownloadState = 'idle' | 'pending' | 'succeeded' | 'failed';
 
 export type FileQuotaState = 'available' | 'exceeded' | 'exceptionRequested' | 'exceptionApproved' | 'exceptionRejected';
 
@@ -48,6 +52,8 @@ export interface FileViewModel {
   readonly kind: FileKind;
   readonly downloadPolicy: FileDownloadPolicy;
   readonly capabilities: readonly FileCapability[];
+  readonly downloadState?: FileDownloadState;
+  readonly downloadMessage?: string;
   readonly safeStatusLabel?: string;
   readonly internalStorageKey?: string;
   readonly internalPath?: string;
@@ -65,8 +71,8 @@ export interface FilesPageViewModel {
 }
 
 export const FILE_SCAN_STATUS_LABELS: Record<FileScanStatus, string> = {
-  pending: '安全確認中です。',
-  allowed: '安全確認済み',
-  blocked: '安全確認でブロックされました',
-  unavailable: '安全確認を利用できません'
+  pending: 'Scan pending',
+  allowed: 'Allowed',
+  blocked: 'Blocked',
+  unavailable: 'Scan unavailable',
 };

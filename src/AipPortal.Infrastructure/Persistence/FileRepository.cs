@@ -1,3 +1,4 @@
+using AipPortal.Application.Common;
 using AipPortal.Application.Common.Interfaces;
 using AipPortal.Domain.Entities;
 using AipPortal.Domain.Enums;
@@ -10,6 +11,37 @@ public sealed class FileRepository(AppDbContext dbContext) : IFileRepository
     public Task<FileObject?> GetFileObjectAsync(Guid fileObjectId, CancellationToken cancellationToken = default)
     {
         return dbContext.FileObjects.FirstOrDefaultAsync(file => file.Id == fileObjectId, cancellationToken);
+    }
+
+    public async Task<PagedResponse<Attachment>> ListWorkspaceFileObjectsAsync(
+        Guid workspaceId,
+        int page,
+        int pageSize,
+        CancellationToken cancellationToken = default)
+    {
+        var query = dbContext.Attachments
+            .AsNoTracking()
+            .Include(attachment => attachment.FileObject)
+            .ThenInclude(file => file!.UploadedByUser)
+            .Include(attachment => attachment.UploadedByUser)
+            .Where(attachment =>
+                attachment.WorkspaceId == workspaceId &&
+                attachment.OwnerType == AttachmentOwnerType.Workspace &&
+                attachment.OwnerId == workspaceId &&
+                !attachment.DeletedAt.HasValue &&
+                attachment.FileObject != null &&
+                !attachment.FileObject.DeletedAt.HasValue &&
+                attachment.FileObject.Status != FileObjectStatus.Deleted);
+
+        var total = await query.CountAsync(cancellationToken);
+        var items = await query
+            .OrderByDescending(attachment => attachment.FileObject!.CreatedAt)
+            .ThenByDescending(attachment => attachment.CreatedAt)
+            .Skip((page - 1) * pageSize)
+            .Take(pageSize)
+            .ToListAsync(cancellationToken);
+
+        return new PagedResponse<Attachment>(items, page, pageSize, total);
     }
 
     public async Task AddFileObjectAsync(FileObject fileObject, CancellationToken cancellationToken = default)
@@ -40,6 +72,7 @@ public sealed class FileRepository(AppDbContext dbContext) : IFileRepository
     {
         return ownerType switch
         {
+            AttachmentOwnerType.Workspace => await ResolveWorkspaceAsync(ownerId, cancellationToken),
             AttachmentOwnerType.Message => await ResolveMessageAsync(ownerId, cancellationToken),
             AttachmentOwnerType.Post => await ResolvePostAsync(ownerId, cancellationToken),
             AttachmentOwnerType.TaskItem => await ResolveTaskAsync(ownerId, cancellationToken),
@@ -48,6 +81,15 @@ public sealed class FileRepository(AppDbContext dbContext) : IFileRepository
             AttachmentOwnerType.ActivityLog => await ResolveActivityLogAsync(ownerId, cancellationToken),
             _ => null
         };
+    }
+
+    private Task<FileOwnerContext?> ResolveWorkspaceAsync(Guid workspaceId, CancellationToken cancellationToken)
+    {
+        return dbContext.Workspaces
+            .AsNoTracking()
+            .Where(workspace => workspace.Id == workspaceId && workspace.Status == WorkspaceStatus.Active)
+            .Select(workspace => new FileOwnerContext(workspace.Id))
+            .FirstOrDefaultAsync(cancellationToken);
     }
 
     private Task<FileOwnerContext?> ResolveMessageAsync(Guid messageId, CancellationToken cancellationToken)

@@ -484,7 +484,8 @@ public enum AttachmentOwnerType
     TaskItem = 2,
     ArtifactVersion = 3,
     Comment = 4,
-    ActivityLog = 5
+    ActivityLog = 5,
+    Workspace = 6
 }
 
 public enum ArtifactType

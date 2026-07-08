@@ -1,3 +1,5 @@
+/// <reference types="node" />
+
 import { defineConfig, devices } from "@playwright/test";
 
 const port = Number(process.env.PLAYWRIGHT_PORT ?? 4173);
@@ -16,8 +18,6 @@ export default defineConfig({
   fullyParallel: true,
   forbidOnly: !!process.env.CI,
   retries: process.env.CI ? 2 : 0,
-  // Keep Angular smoke loads serial so local Windows Chromium does not starve
-  // bundle fetches under parallel mobile/desktop navigation.
   workers: 1,
   reporter: [
     ["list"],
@@ -33,7 +33,7 @@ export default defineConfig({
   webServer: process.env.PLAYWRIGHT_BASE_URL
     ? undefined
     : {
-        command: `node tests/ui/serve-static.mjs --port ${port}`,
+        command: `npm --prefix frontend run build && node tests/ui/serve-static.mjs --port ${port}`,
         url: `${baseURL}/health`,
         reuseExistingServer: !process.env.CI,
         timeout: 120_000,

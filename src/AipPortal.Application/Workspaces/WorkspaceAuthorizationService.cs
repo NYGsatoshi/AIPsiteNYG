@@ -30,6 +30,17 @@ public sealed class WorkspaceAuthorizationService(
         return member is { Status: MembershipStatus.Active } && member.Role.CanManage();
     }
 
+    public async Task<bool> CanContributeWorkspace(Guid userId, Guid workspaceId, CancellationToken cancellationToken = default)
+    {
+        if (await IsSystemAdmin(userId, cancellationToken))
+        {
+            return true;
+        }
+
+        var member = await workspaces.GetMemberAsync(workspaceId, userId, cancellationToken);
+        return member is { Status: MembershipStatus.Active } && member.Role.CanContribute();
+    }
+
     public async Task<bool> CanCreateWorkspace(Guid userId, CancellationToken cancellationToken = default)
     {
         var user = await users.GetByIdAsync(userId, cancellationToken);

@@ -9,7 +9,7 @@
   <div class="upload-drop-zone__copy">
     <p>Upload</p>
     <h2>File upload</h2>
-    <span>Limit {{ formatBytes(maxUploadBytes) }}. Upload is not available in MVP0.</span>
+    <span>Limit {{ formatBytes(maxUploadBytes) }}. Files are saved only after the backend accepts them.</span>
   </div>
 
   @if (canUpload) {
@@ -19,7 +19,7 @@
     </label>
   } @else {
     <button type="button" class="upload-drop-zone__button" data-testid="file-upload-disabled" disabled>
-      Upload not available in MVP0
+      {{ upload.state === 'pending' || upload.state === 'progress' ? 'Uploading' : 'Upload unavailable' }}
     </button>
   }
 

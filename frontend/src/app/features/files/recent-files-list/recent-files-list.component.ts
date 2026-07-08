@@ -1,4 +1,4 @@
-import { Component, Input } from '@angular/core';
+import { Component, EventEmitter, Input, Output } from '@angular/core';
 
 import { FileRowComponent } from '../file-row/file-row.component';
 import { FileViewModel } from '../files.types';
@@ -12,4 +12,5 @@ import { FileViewModel } from '../files.types';
 })
 export class RecentFilesListComponent {
   @Input({ required: true }) files: readonly FileViewModel[] = [];
+  @Output() readonly downloadRequested = new EventEmitter<string>();
 }

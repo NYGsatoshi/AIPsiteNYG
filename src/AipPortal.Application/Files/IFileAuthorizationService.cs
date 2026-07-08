@@ -7,6 +7,8 @@ public interface IFileAuthorizationService
 {
     Task<bool> CanUploadAttachment(Guid userId, AttachmentOwnerType ownerType, Guid ownerId, CancellationToken cancellationToken = default);
 
+    Task<bool> CanViewWorkspaceFiles(Guid userId, Guid workspaceId, CancellationToken cancellationToken = default);
+
     Task<bool> CanViewAttachment(Guid userId, Attachment attachment, CancellationToken cancellationToken = default);
 
     Task<bool> CanDownloadAttachment(Guid userId, Attachment attachment, CancellationToken cancellationToken = default);

@@ -12,11 +12,13 @@ import { FileViewModel } from '../files.types';
 })
 export class AttachmentPickerDialogComponent {
   @Input({ required: true }) files: readonly FileViewModel[] = [];
+  @Input() disabled = true;
+  @Input() disabledMessage = 'Attachment picker is not available in MVP0.';
 
   readonly selectedCanonicalFileIds = signal<readonly string[]>([]);
 
   toggleFile(file: FileViewModel, checked: boolean): void {
-    if (!file.canonicalFileId) {
+    if (this.disabled || !file.canonicalFileId) {
       return;
     }
 

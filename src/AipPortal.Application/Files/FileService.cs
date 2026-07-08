@@ -24,6 +24,7 @@ public sealed class FileService(
     , IFileObjectService
 {
     private static readonly TimeSpan FileDownloadGrantLifetime = TimeSpan.FromMinutes(10);
+    private const int MaxFileListPageSize = 100;
 
     public async Task<Result<AttachmentResponse>> UploadAsync(AttachmentUploadInput input, CancellationToken cancellationToken = default)
     {
@@ -85,7 +86,6 @@ public sealed class FileService(
             return Result<AttachmentResponse>.Failure(saved.Error!);
         }
 
-        await files.AddFileObjectAsync(fileObject, cancellationToken);
         var attachment = new Attachment
         {
             TenantId = currentTenant.TenantId,
@@ -106,17 +106,54 @@ public sealed class FileService(
             ScanStatus = FileScanStatus.Skipped
         };
 
-        await files.AddAttachmentAsync(attachment, cancellationToken);
-        await auditLogger.LogAsync(new AuditLogEntry(
-            userId,
-            "FileUploaded",
-            "FileObject",
-            fileObject.Id,
-            "File uploaded.",
-            WorkspaceId: owner.WorkspaceId,
-            ProjectId: owner.ProjectId), cancellationToken);
-        await unitOfWork.SaveChangesAsync(cancellationToken);
+        try
+        {
+            await files.AddFileObjectAsync(fileObject, cancellationToken);
+            await files.AddAttachmentAsync(attachment, cancellationToken);
+            await auditLogger.LogAsync(new AuditLogEntry(
+                userId,
+                "FileUploaded",
+                "FileObject",
+                fileObject.Id,
+                "File uploaded.",
+                WorkspaceId: owner.WorkspaceId,
+                ProjectId: owner.ProjectId), cancellationToken);
+            await unitOfWork.SaveChangesAsync(cancellationToken);
+        }
+        catch
+        {
+            await TryDeleteStoredFileAsync(fileObject.StorageKey, CancellationToken.None);
+            throw;
+        }
+
         return Result<AttachmentResponse>.Success(ToResponse(attachment));
+    }
+
+    public async Task<Result<PagedResponse<FileListItemResponse>>> ListFileObjectsAsync(
+        Guid workspaceId,
+        int page,
+        int pageSize,
+        CancellationToken cancellationToken = default)
+    {
+        if (workspaceId == Guid.Empty)
+        {
+            return Result<PagedResponse<FileListItemResponse>>.Failure("Workspace is required.");
+        }
+
+        if (!TryCurrentUser(out var userId) ||
+            !await authorization.CanViewWorkspaceFiles(userId, workspaceId, cancellationToken))
+        {
+            return Result<PagedResponse<FileListItemResponse>>.Failure("Workspace not found.");
+        }
+
+        var safePage = Math.Max(page, 1);
+        var safePageSize = Math.Clamp(pageSize, 1, MaxFileListPageSize);
+        var result = await files.ListWorkspaceFileObjectsAsync(workspaceId, safePage, safePageSize, cancellationToken);
+        return Result<PagedResponse<FileListItemResponse>>.Success(new PagedResponse<FileListItemResponse>(
+            result.Items.Select(ToFileListItemResponse).ToList(),
+            result.Page,
+            result.PageSize,
+            result.TotalCount));
     }
 
     public async Task<Result<AttachmentResponse>> GetAsync(Guid attachmentId, CancellationToken cancellationToken = default)
@@ -431,6 +468,18 @@ public sealed class FileService(
         await unitOfWork.SaveChangesAsync(cancellationToken);
     }
 
+    private async Task TryDeleteStoredFileAsync(string storageKey, CancellationToken cancellationToken)
+    {
+        try
+        {
+            await storage.DeleteAsync(storageKey, cancellationToken);
+        }
+        catch
+        {
+            // The original persistence/audit failure is the one callers need to see.
+        }
+    }
+
     private async Task<FileGrantDecision> ValidateAttachmentForGrantAsync(
         Guid userId,
         Attachment attachment,
@@ -717,5 +766,23 @@ public sealed class FileService(
             fileObject.CreatedAt,
             fileObject.UpdatedAt,
             fileObject.DeletedAt);
+    }
+
+    private static FileListItemResponse ToFileListItemResponse(Attachment attachment)
+    {
+        var fileObject = attachment.FileObject ?? throw new InvalidOperationException("Listed attachment must include a file object.");
+        return new FileListItemResponse(
+            attachment.Id,
+            fileObject.Id,
+            attachment.WorkspaceId,
+            fileObject.OriginalFileName,
+            fileObject.ContentType,
+            fileObject.SizeBytes,
+            fileObject.Status.ToString(),
+            attachment.ScanStatus.ToString(),
+            fileObject.UploadedByUserId,
+            fileObject.UploadedByUser?.DisplayName ?? attachment.UploadedByUser?.DisplayName,
+            fileObject.CreatedAt,
+            fileObject.DeletedAt ?? attachment.DeletedAt);
     }
 }

@@ -1,3 +1,4 @@
+using AipPortal.Application.Common;
 using AipPortal.Domain.Entities;
 using AipPortal.Domain.Enums;
 
@@ -13,6 +14,12 @@ public sealed record FileOwnerContext(
 public interface IFileRepository
 {
     Task<FileObject?> GetFileObjectAsync(Guid fileObjectId, CancellationToken cancellationToken = default);
+
+    Task<PagedResponse<Attachment>> ListWorkspaceFileObjectsAsync(
+        Guid workspaceId,
+        int page,
+        int pageSize,
+        CancellationToken cancellationToken = default);
 
     Task AddFileObjectAsync(FileObject fileObject, CancellationToken cancellationToken = default);
 

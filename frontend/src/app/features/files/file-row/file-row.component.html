@@ -5,7 +5,7 @@
       <app-file-scan-status-badge [status]="file.scanStatus" />
     </div>
 
-    <dl class="file-row__meta" aria-label="ファイル情報">
+    <dl class="file-row__meta" aria-label="File metadata">
       <div>
         <dt>contentType</dt>
         <dd data-testid="file-content-type">{{ file.contentType }}</dd>
@@ -15,7 +15,7 @@
         <dd>{{ formatBytes(file.sizeBytes) }}</dd>
       </div>
       <div>
-        <dt>uploadedByDisplay</dt>
+        <dt>uploadedBy</dt>
         <dd>{{ file.uploadedByDisplay }}</dd>
       </div>
       <div>
@@ -25,13 +25,15 @@
     </dl>
 
     <p class="file-row__preview-policy" role="status" data-testid="preview-disabled">
-      プレビューはP0では無効です。
+      Preview is not available in MVP0.
       @if (file.kind === 'zip') {
-        <span>ZIPの展開、プレビュー、索引化は行いません。</span>
+        <span>ZIP extraction and preview are disabled.</span>
       } @else if (file.kind === 'video') {
-        <span>動画の再生、ストリーミング、公開リンクはありません。</span>
+        <span>Video playback, streaming, and public video links are disabled.</span>
       } @else if (file.kind === 'svg') {
-        <span>SVGは画像として表示しません。</span>
+        <span>SVG is not rendered as an image.</span>
+      } @else if (file.kind === 'image') {
+        <span>Image rendering is disabled.</span>
       }
     </p>
   </div>
@@ -43,20 +45,23 @@
       (click)="requestDownload()"
       data-testid="download-action"
     >
-      ダウンロード
+      {{ file.downloadState === 'pending' ? 'Authorizing' : 'Download' }}
     </button>
     @if (downloadDisabledReason()) {
       <p class="file-row__safe-state" data-testid="download-disabled-reason">{{ downloadDisabledReason() }}</p>
+    }
+    @if (file.downloadMessage) {
+      <p class="file-row__safe-state" data-testid="download-state">{{ file.downloadMessage }}</p>
     }
   </div>
 
   @if (showAdminOverride()) {
     <section class="file-row__override" data-testid="admin-override-panel">
-      <strong>管理者オーバーライドが必要です</strong>
-      <p>高権限の明示的な許可と監査理由が必要です。ファイルは実行せず、プレビューもしません。</p>
+      <strong>Admin override is not wired for MVP0 downloads.</strong>
+      <p>Blocked files are not downloaded or previewed from this screen.</p>
       @if (file.capabilities.includes('adminOverrideBlockedDownload')) {
         <label>
-          <span>監査理由</span>
+          <span>Audit reason</span>
           <textarea
             [value]="auditReason()"
             (input)="updateAuditReason($any($event.target).value)"
@@ -65,14 +70,13 @@
         </label>
         <button
           type="button"
-          [disabled]="!canRequestAdminOverride()"
-          (click)="requestAdminOverride()"
+          [disabled]="true"
           data-testid="admin-override-action"
         >
-          理由付きで申請
+          Override disabled
         </button>
       } @else {
-        <p data-testid="admin-override-no-capability">高権限の許可がないため操作できません。</p>
+        <p data-testid="admin-override-no-capability">Override capability is not available.</p>
       }
     </section>
   }

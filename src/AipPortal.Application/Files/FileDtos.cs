@@ -38,6 +38,20 @@ public sealed record FileDownloadGrantResponse(
 
 public sealed record FileDownloadGrantTokenRequest(string Token);
 
+public sealed record FileListItemResponse(
+    Guid Id,
+    Guid FileObjectId,
+    Guid WorkspaceId,
+    string OriginalFileName,
+    string ContentType,
+    long SizeBytes,
+    string Status,
+    string? ScanStatus,
+    Guid UploadedByUserId,
+    string? UploadedByDisplayName,
+    DateTimeOffset CreatedAt,
+    DateTimeOffset? DeletedAt);
+
 public sealed record FileObjectResponse(
     Guid Id,
     Guid? WorkspaceId,

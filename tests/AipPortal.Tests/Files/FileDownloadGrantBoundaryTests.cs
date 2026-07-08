@@ -285,6 +285,7 @@ public sealed class FileDownloadGrantBoundaryTests
     {
         public Attachment Attachment { get; set; } = null!;
         public Task<FileObject?> GetFileObjectAsync(Guid fileObjectId, CancellationToken cancellationToken = default) => Task.FromResult(Attachment.FileObjectId == fileObjectId ? Attachment.FileObject : null);
+        public Task<PagedResponse<Attachment>> ListWorkspaceFileObjectsAsync(Guid workspaceId, int page, int pageSize, CancellationToken cancellationToken = default) => Task.FromResult(new PagedResponse<Attachment>([], page, pageSize, 0));
         public Task AddFileObjectAsync(FileObject fileObject, CancellationToken cancellationToken = default) => Task.CompletedTask;
         public Task<Attachment?> GetAttachmentAsync(Guid attachmentId, CancellationToken cancellationToken = default) => Task.FromResult(Attachment.Id == attachmentId ? Attachment : null);
         public Task<Attachment?> GetAttachmentByFileObjectAsync(Guid fileObjectId, CancellationToken cancellationToken = default) => Task.FromResult(Attachment.FileObjectId == fileObjectId ? Attachment : null);
@@ -303,6 +304,7 @@ public sealed class FileDownloadGrantBoundaryTests
     {
         public bool CanDownload { get; set; } = true;
         public Task<bool> CanUploadAttachment(Guid userId, AttachmentOwnerType ownerType, Guid ownerId, CancellationToken cancellationToken = default) => Task.FromResult(true);
+        public Task<bool> CanViewWorkspaceFiles(Guid userId, Guid workspaceId, CancellationToken cancellationToken = default) => Task.FromResult(CanDownload);
         public Task<bool> CanViewAttachment(Guid userId, Attachment attachment, CancellationToken cancellationToken = default) => Task.FromResult(CanDownload);
         public Task<bool> CanDownloadAttachment(Guid userId, Attachment attachment, CancellationToken cancellationToken = default) => Task.FromResult(CanDownload);
         public Task<bool> CanDeleteAttachment(Guid userId, Attachment attachment, CancellationToken cancellationToken = default) => Task.FromResult(CanDownload);

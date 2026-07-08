@@ -10,6 +10,16 @@ namespace AipPortal.Web.Controllers;
 [Authorize]
 public sealed class FilesController(IFileObjectService files) : ControllerBase
 {
+    [HttpGet("api/files")]
+    public async Task<IActionResult> List(
+        [FromQuery] Guid workspaceId,
+        [FromQuery] int page = 1,
+        [FromQuery] int pageSize = 20,
+        CancellationToken cancellationToken = default)
+    {
+        return ToActionResult(await files.ListFileObjectsAsync(workspaceId, page, pageSize, cancellationToken));
+    }
+
     [HttpPost("api/files")]
     [EnableRateLimiting("file-upload")]
     public async Task<IActionResult> Upload([FromForm] UploadAttachmentForm form, CancellationToken cancellationToken)

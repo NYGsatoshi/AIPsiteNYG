@@ -2,6 +2,7 @@ using AipPortal.Application.Channels;
 using AipPortal.Application.Common.Interfaces;
 using AipPortal.Application.Messaging;
 using AipPortal.Application.Projects;
+using AipPortal.Application.Workspaces;
 using AipPortal.Domain.Entities;
 using AipPortal.Domain.Enums;
 
@@ -11,7 +12,8 @@ public sealed class FileAuthorizationService(
     IFileRepository files,
     IProjectAuthorizationService projects,
     IConversationAuthorizationService conversations,
-    IChannelAuthorizationService channels) : IFileAuthorizationService
+    IChannelAuthorizationService channels,
+    IWorkspaceAuthorizationService workspaces) : IFileAuthorizationService
 {
     public async Task<bool> CanUploadAttachment(Guid userId, AttachmentOwnerType ownerType, Guid ownerId, CancellationToken cancellationToken = default)
     {
@@ -31,7 +33,17 @@ public sealed class FileAuthorizationService(
             return await conversations.CanSendMessage(userId, owner.ConversationId.Value, cancellationToken);
         }
 
-        return owner.ChannelId.HasValue && await channels.CanPostToChannel(userId, owner.ChannelId.Value, cancellationToken);
+        if (owner.ChannelId.HasValue)
+        {
+            return await channels.CanPostToChannel(userId, owner.ChannelId.Value, cancellationToken);
+        }
+
+        return await workspaces.CanContributeWorkspace(userId, owner.WorkspaceId, cancellationToken);
+    }
+
+    public Task<bool> CanViewWorkspaceFiles(Guid userId, Guid workspaceId, CancellationToken cancellationToken = default)
+    {
+        return workspaces.CanViewWorkspace(userId, workspaceId, cancellationToken);
     }
 
     public async Task<bool> CanViewAttachment(Guid userId, Attachment attachment, CancellationToken cancellationToken = default)
@@ -57,7 +69,12 @@ public sealed class FileAuthorizationService(
             return await conversations.CanViewConversation(userId, owner.ConversationId.Value, cancellationToken);
         }
 
-        return owner.ChannelId.HasValue && await channels.CanViewChannel(userId, owner.ChannelId.Value, cancellationToken);
+        if (owner.ChannelId.HasValue)
+        {
+            return await channels.CanViewChannel(userId, owner.ChannelId.Value, cancellationToken);
+        }
+
+        return await workspaces.CanViewWorkspace(userId, owner.WorkspaceId, cancellationToken);
     }
 
     public Task<bool> CanDownloadAttachment(Guid userId, Attachment attachment, CancellationToken cancellationToken = default)
