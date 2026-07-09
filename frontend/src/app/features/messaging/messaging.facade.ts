@@ -1,70 +1,50 @@
-import { HttpClient } from '@angular/common/http';
 import { computed, inject, Injectable, InjectionToken, signal } from '@angular/core';
 
+import { AuthSessionFacade } from '../../core/auth/auth-session.facade';
 import { DraftStorageService } from './draft-storage.service';
+import { MessagingApi } from './messaging.api';
 import {
-  MessageFailureCode,
-  MessagingCapability,
-  MessagingConversationListItem,
+  mapConversationListItem,
+  mapConversationPage,
+  mapMessage
+} from './messaging.mapper';
+import {
   MessagingDraftScope,
   MessagingMessageViewModel,
   MessagingPageStatus,
   MessagingPageViewModel,
-  MessagingRouteKind,
+  MessagingRouteKind
 } from './messaging.types';
 
 export const AIP_MESSAGING_PAGE_MOCK = new InjectionToken<MessagingPageViewModel>(
-  'AIP_MESSAGING_PAGE_MOCK',
+  'AIP_MESSAGING_PAGE_MOCK'
 );
-
-interface PagedResponseDto<T> {
-  readonly items?: readonly T[];
-}
-
-interface ConversationDto {
-  readonly id?: unknown;
-  readonly workspaceId?: unknown;
-  readonly type?: unknown;
-  readonly title?: unknown;
-  readonly lastMessage?: MessageDto | null;
-  readonly unreadCount?: unknown;
-  readonly updatedAt?: unknown;
-  readonly createdAt?: unknown;
-}
-
-interface ConversationDetailDto extends ConversationDto {
-  readonly isLocked?: unknown;
-  readonly members?: readonly ConversationMemberDto[];
-}
-
-interface ConversationMemberDto {
-  readonly canRead?: unknown;
-  readonly canPost?: unknown;
-  readonly removedAt?: unknown;
-}
-
-interface MessageDto {
-  readonly id?: unknown;
-  readonly authorDisplayName?: unknown;
-  readonly body?: unknown;
-  readonly createdAt?: unknown;
-  readonly isDeleted?: unknown;
-}
 
 @Injectable({ providedIn: 'root' })
 export class MessagingFacade {
-  private readonly http = inject(HttpClient);
+  private readonly api = inject(MessagingApi);
+  private readonly authSession = inject(AuthSessionFacade);
   private readonly draftStorage = inject(DraftStorageService);
   private readonly mockPage = inject(AIP_MESSAGING_PAGE_MOCK, { optional: true });
   private readonly initialPage = this.mockPage ?? emptyMessagingPage('channel', 'loading');
   private readonly pageState = signal<MessagingPageViewModel>(
-    this.withStoredDraft(this.initialPage),
+    this.withStoredDraft(this.initialPage)
   );
   private readonly loadedConversationId = signal<string | null>(
-    this.mockPage?.conversation.id ?? null,
+    this.mockPage?.conversation.id ?? null
   );
 
   readonly page = computed(() => this.withSortedMessages(this.pageState()));
+
+  loadConversationListPage(routeKind: MessagingRouteKind = 'channel'): void {
+    if (this.mockPage) {
+      return;
+    }
+
+    this.loadedConversationId.set(null);
+    this.pageState.set(emptyMessagingPage(routeKind, 'loading'));
+    this.loadConversationList(routeKind, true);
+  }
 
   loadConversation(conversationId: string | null, routeKind: MessagingRouteKind): void {
     if (this.mockPage) {
@@ -74,7 +54,7 @@ export class MessagingFacade {
     if (!conversationId) {
       this.loadedConversationId.set(null);
       this.pageState.set(
-        emptyMessagingPage(routeKind, 'empty', 'Conversation API route id is missing.'),
+        emptyMessagingPage(routeKind, 'empty', 'Conversation API route id is missing.')
       );
       return;
     }
@@ -85,23 +65,45 @@ export class MessagingFacade {
 
     this.loadedConversationId.set(conversationId);
     this.pageState.set(emptyMessagingPage(routeKind, 'loading'));
-    this.loadConversationList(routeKind);
-    this.http
-      .get<ConversationDetailDto>(`/api/conversations/${conversationId}`, { withCredentials: true })
-      .subscribe({
-        next: (conversation) => this.loadMessages(conversationId, conversation, routeKind),
-        error: (error: { status?: number }) => {
-          this.pageState.set(
-            emptyMessagingPage(
-              routeKind,
-              error.status === 401 || error.status === 403 ? 'permissionDenied' : 'empty',
-              error.status === 401 || error.status === 403
-                ? 'Authentication or conversation permission is required.'
-                : 'Conversation API request failed.',
-            ),
-          );
-        },
-      });
+    this.loadConversationList(routeKind, false);
+    this.api.getConversation(conversationId).subscribe({
+      next: (conversation) => {
+        this.api.listMessages(conversationId).subscribe({
+          next: (response) => {
+            const page = mapConversationPage(conversation, response.items ?? [], {
+              currentUserId: this.currentUserId(),
+              currentTenantId: this.currentTenantId(),
+              fallbackRouteKind: routeKind,
+              existingConversations: this.pageState().conversations
+            });
+            this.pageState.set(this.withStoredDraft(page));
+          },
+          error: () => {
+            const page = mapConversationPage(conversation, [], {
+              currentUserId: this.currentUserId(),
+              currentTenantId: this.currentTenantId(),
+              fallbackRouteKind: routeKind,
+              existingConversations: this.pageState().conversations
+            });
+            this.pageState.set({
+              ...this.withStoredDraft(page),
+              inlineError: 'Message API request failed.'
+            });
+          }
+        });
+      },
+      error: (error: { status?: number }) => {
+        this.pageState.set(
+          emptyMessagingPage(
+            routeKind,
+            error.status === 401 || error.status === 403 ? 'permissionDenied' : 'empty',
+            error.status === 401 || error.status === 403
+              ? 'Authentication or conversation permission is required.'
+              : 'Conversation API request failed.'
+          )
+        );
+      }
+    });
   }
 
   setDraft(value: string): void {
@@ -112,12 +114,20 @@ export class MessagingFacade {
 
   manualRefresh(): void {
     if (!this.mockPage) {
-      this.loadedConversationId.set(null);
-      this.loadConversation(this.pageState().conversation.id || null, this.pageState().routeKind);
+      const page = this.pageState();
+      if (page.conversation.id) {
+        this.loadedConversationId.set(null);
+        this.loadConversation(page.conversation.id, page.routeKind);
+      } else {
+        this.loadConversationListPage(page.routeKind);
+      }
       return;
     }
 
-    this.pageState.set({ ...this.pageState(), hasNewMessagesWhileReading: true });
+    this.pageState.update((page) => ({
+      ...page,
+      inlineError: 'Manual refresh requires the backend API.'
+    }));
   }
 
   acknowledgeNewMessages(): void {
@@ -127,22 +137,14 @@ export class MessagingFacade {
   loadOlder(): void {
     this.pageState.update((page) => ({
       ...page,
-      pagingWindow: {
-        ...page.pagingWindow,
-        beforeMessageId: page.messages[0]?.id,
-        preloadBefore: 30,
-      },
+      inlineError: 'Message paging is disabled for MVP0.'
     }));
   }
 
   loadNewer(): void {
     this.pageState.update((page) => ({
       ...page,
-      pagingWindow: {
-        ...page.pagingWindow,
-        afterMessageId: page.messages.at(-1)?.id,
-        preloadAfter: 30,
-      },
+      inlineError: 'Message paging is disabled for MVP0.'
     }));
   }
 
@@ -153,77 +155,70 @@ export class MessagingFacade {
       return;
     }
 
-    if (!this.mockPage) {
-      this.pageState.set({ ...page, sending: true });
-      this.http
-        .post<MessageDto>(
-          `/api/conversations/${page.conversation.id}/messages`,
-          { body },
-          { withCredentials: true },
-        )
-        .subscribe({
-          next: (message) => {
-            this.draftStorage.clearDraft(this.scopeFor(page));
-            this.pageState.update((current) => ({
-              ...current,
-              draft: '',
-              sending: false,
-              status: current.status === 'empty' ? 'ready' : current.status,
-              messages: [...current.messages, this.toMessage(message)],
-            }));
-          },
-          error: (error: { status?: number }) => {
-            this.pageState.update((current) => ({
-              ...current,
-              sending: false,
-              inlineError:
-                error.status === 401 || error.status === 403
-                  ? 'Authentication or posting permission is required.'
-                  : 'Message API request failed.',
-            }));
-          },
-        });
+    if (this.mockPage) {
+      this.pageState.update((current) => ({
+        ...current,
+        inlineError: 'Message sending requires the backend API.',
+        sendState: { status: 'failed', message: 'Message sending requires the backend API.' }
+      }));
       return;
     }
 
     const clientRequestId = `client-${Date.now()}`;
-    const localMessage: MessagingMessageViewModel = {
-      id: `local-${clientRequestId}`,
+    const pendingMessage: MessagingMessageViewModel = {
+      id: `pending-${clientRequestId}`,
       clientRequestId,
-      authorLabel: 'Current user',
+      authorLabel: this.currentUserDisplayName(),
       authorRoleLabel: 'member',
       isOwnMessage: true,
       body,
-      sentAtLabel: 'sent',
-      deliveryState: 'confirmed',
-      retryAllowed: false,
+      sentAtLabel: 'Sending',
+      deliveryState: 'sending',
+      retryAllowed: false
     };
 
-    this.draftStorage.clearDraft(this.scopeFor(page));
     this.pageState.set({
       ...page,
-      draft: '',
-      sending: false,
-      messages: [...page.messages, localMessage],
-      status: page.status === 'empty' ? 'ready' : page.status,
+      sending: true,
+      sendState: { status: 'sending', clientRequestId },
+      inlineError: undefined,
+      messages: [...page.messages, pendingMessage],
+      status: page.status === 'empty' ? 'ready' : page.status
+    });
+
+    this.api.sendMessage(page.conversation.id, body).subscribe({
+      next: (message) => {
+        const confirmedMessage = mapMessage(message, this.currentUserId());
+        this.draftStorage.clearDraft(this.scopeFor(page));
+        this.pageState.update((current) => ({
+          ...current,
+          draft: '',
+          sending: false,
+          sendState: { status: 'sent', messageId: confirmedMessage.id },
+          status: current.status === 'empty' ? 'ready' : current.status,
+          messages: current.messages.map((existing) =>
+            existing.id === pendingMessage.id ? confirmedMessage : existing
+          )
+        }));
+      },
+      error: (error: { status?: number }) => {
+        const message = sendFailureMessage(error.status);
+        this.pageState.update((current) => ({
+          ...current,
+          sending: false,
+          sendState: { status: 'failed', message },
+          inlineError: message,
+          messages: current.messages.filter((existing) => existing.id !== pendingMessage.id)
+        }));
+      }
     });
   }
 
-  retryMessage(messageId: string): void {
-    this.pageState.set({
-      ...this.pageState(),
-      messages: this.pageState().messages.map((message) =>
-        message.id === messageId && message.deliveryState === 'failed'
-          ? {
-              ...message,
-              deliveryState: 'confirmed',
-              safeFailureReason: undefined,
-              failureCode: undefined,
-              retryAllowed: false,
-            }
-          : message,
-      ),
-    });
+  retryMessage(_messageId: string): void {
+    this.pageState.update((page) => ({
+      ...page,
+      inlineError: 'Manual message retry is disabled for MVP0.'
+    }));
   }
 
   clearDraftsForSessionBoundary(): void {
@@ -231,149 +226,30 @@ export class MessagingFacade {
     this.pageState.update((page) => ({ ...page, draft: '' }));
   }
 
-  private loadConversationList(routeKind: MessagingRouteKind): void {
-    this.http
-      .get<PagedResponseDto<ConversationDto>>('/api/conversations', { withCredentials: true })
-      .subscribe({
-        next: (response) => {
-          const conversations = (response.items ?? []).map((conversation) =>
-            this.toConversationListItem(conversation),
-          );
-          this.pageState.update((page) => ({ ...page, conversations, routeKind }));
-        },
-        error: () => {
-          this.pageState.update((page) => ({ ...page, conversations: [] }));
-        },
-      });
-  }
-
-  private loadMessages(
-    conversationId: string,
-    conversation: ConversationDetailDto,
-    routeKind: MessagingRouteKind,
-  ): void {
-    this.http
-      .get<
-        PagedResponseDto<MessageDto>
-      >(`/api/conversations/${conversationId}/messages`, { withCredentials: true })
-      .subscribe({
-        next: (response) => {
-          const page = this.toPage(conversation, response.items ?? [], routeKind);
-          this.pageState.set(this.withStoredDraft(page));
-        },
-        error: () => {
-          const page = this.toPage(conversation, [], routeKind);
-          this.pageState.set({
-            ...this.withStoredDraft(page),
-            inlineError: 'Message API request failed.',
-          });
-        },
-      });
-  }
-
-  private toPage(
-    conversation: ConversationDetailDto,
-    messages: readonly MessageDto[],
-    routeKind: MessagingRouteKind,
-  ): MessagingPageViewModel {
-    const conversationId = stringValue(conversation.id) ?? '';
-    const workspaceId = stringValue(conversation.workspaceId);
-    const members = conversation.members ?? [];
-    const viewer = members.find((member) => member.canRead === true || member.canPost === true);
-    const viewerWasRemoved = viewer?.removedAt !== null && viewer?.removedAt !== undefined;
-    const viewerIsParticipant = viewer !== undefined && !viewerWasRemoved;
-    const canRead = viewer?.canRead === true;
-    const canPost = viewer?.canPost === true && conversation.isLocked !== true;
-    const capabilities: MessagingCapability[] = [];
-    if (canRead) {
-      capabilities.push('readBody', 'viewOwnReadMarker');
-    }
-    if (canPost) {
-      capabilities.push('postMessage');
-    }
-
-    return {
-      routeKind,
-      status: viewerIsParticipant
-        ? messages.length === 0
-          ? 'empty'
-          : 'ready'
-        : 'permissionDenied',
-      title:
-        stringValue(conversation.title) ?? (routeKind === 'dm' ? 'Direct message' : 'Conversation'),
-      conversation: {
-        id: conversationId,
-        kind: routeKind,
-        tenantId: '',
-        workspaceId,
-        title: stringValue(conversation.title) ?? 'Conversation',
-        subtitle: 'Live API data',
-        viewerIsParticipant,
-        viewerWasRemoved,
-        capabilities,
-        composerDisabledReason: canPost
-          ? undefined
-          : 'Posting is not available for this conversation.',
-        attachment: {
-          mode: 'disabled',
-          label: 'Attachment API is not wired for this composer.',
-        },
+  private loadConversationList(routeKind: MessagingRouteKind, listOnly: boolean): void {
+    this.api.listConversations().subscribe({
+      next: (response) => {
+        const conversations = (response.items ?? []).map((conversation) =>
+          mapConversationListItem(conversation)
+        );
+        this.pageState.update((page) => ({
+          ...page,
+          routeKind,
+          conversations,
+          status: listOnly ? 'empty' : page.status,
+          title: listOnly ? 'Messages' : page.title,
+          inlineError: undefined
+        }));
       },
-      conversations: this.pageState().conversations,
-      messages: messages.map((message) => this.toMessage(message)),
-      draft: '',
-      sending: false,
-      hasNewMessagesWhileReading: false,
-      readCursorBehavior: 'latestVisibleMessage',
-      pagingWindow: {
-        visibleMessageIds: messages.map((message) => stringValue(message.id) ?? ''),
-        preloadBefore: 0,
-        preloadAfter: 0,
-      },
-    };
-  }
-
-  private toConversationListItem(conversation: ConversationDto): MessagingConversationListItem {
-    const id = stringValue(conversation.id) ?? '';
-    const kind = routeKindFromApi(conversation.type);
-
-    return {
-      id,
-      kind,
-      title: stringValue(conversation.title) ?? (kind === 'dm' ? 'Direct message' : 'Conversation'),
-      route:
-        kind === 'dm'
-          ? `/dm/${id}`
-          : `/workspaces/${stringValue(conversation.workspaceId) ?? ''}/channels/${id}`,
-      lastActivityLabel: formatDate(conversation.updatedAt) || formatDate(conversation.createdAt),
-      safePreviewLabel: stringValue(conversation.lastMessage?.body) ?? '',
-      viewerIsParticipant: true,
-      unreadCount: numberValue(conversation.unreadCount),
-    };
-  }
-
-  private toMessage(message: MessageDto): MessagingMessageViewModel {
-    return {
-      id: stringValue(message.id) ?? `message-${Date.now()}`,
-      authorLabel: stringValue(message.authorDisplayName) ?? 'Unknown user',
-      authorRoleLabel: 'member',
-      isOwnMessage: false,
-      body: message.isDeleted === true ? '' : (stringValue(message.body) ?? ''),
-      sentAtLabel: formatDate(message.createdAt),
-      deliveryState: 'confirmed',
-      retryAllowed: false,
-    };
-  }
-
-  private withStoredDraft(page: MessagingPageViewModel): MessagingPageViewModel {
-    return { ...page, draft: this.draftStorage.readDraft(this.scopeFor(page)) || page.draft };
-  }
-
-  private withSortedMessages(page: MessagingPageViewModel): MessagingPageViewModel {
-    return {
-      ...page,
-      messages: [...page.messages],
-    };
+      error: () => {
+        this.pageState.update((page) => ({
+          ...page,
+          conversations: [],
+          status: listOnly ? 'empty' : page.status,
+          inlineError: 'Conversation list API request failed.'
+        }));
+      }
+    });
   }
 
   private canPost(page: MessagingPageViewModel): boolean {
@@ -388,19 +264,38 @@ export class MessagingFacade {
     return {
       tenantId: page.conversation.tenantId,
       workspaceId: page.conversation.workspaceId,
-      conversationId: page.conversation.id,
+      conversationId: page.conversation.id
     };
   }
 
-  private safeFailureReason(_code: MessageFailureCode): string {
-    return 'Message delivery failed.';
+  private withStoredDraft(page: MessagingPageViewModel): MessagingPageViewModel {
+    return { ...page, draft: this.draftStorage.readDraft(this.scopeFor(page)) || page.draft };
+  }
+
+  private withSortedMessages(page: MessagingPageViewModel): MessagingPageViewModel {
+    return {
+      ...page,
+      messages: [...page.messages]
+    };
+  }
+
+  private currentUserId(): string {
+    return this.authSession.currentUser()?.userId ?? '';
+  }
+
+  private currentUserDisplayName(): string {
+    return this.authSession.currentUser()?.displayName || 'You';
+  }
+
+  private currentTenantId(): string {
+    return this.authSession.currentTenant()?.tenantId ?? '';
   }
 }
 
 function emptyMessagingPage(
   routeKind: MessagingRouteKind,
   status: MessagingPageStatus,
-  inlineError?: string,
+  inlineError?: string
 ): MessagingPageViewModel {
   return {
     routeKind,
@@ -418,38 +313,27 @@ function emptyMessagingPage(
       composerDisabledReason: 'Conversation API data is not loaded.',
       attachment: {
         mode: 'disabled',
-        label: 'Attachment API is not wired for this composer.',
-      },
+        label: 'Attachments are disabled for MVP0 messaging.'
+      }
     },
     conversations: [],
     messages: [],
     draft: '',
     sending: false,
+    sendState: { status: 'idle' },
     hasNewMessagesWhileReading: false,
     inlineError,
     readCursorBehavior: 'conversationOpenFallback',
     pagingWindow: {
       visibleMessageIds: [],
       preloadBefore: 0,
-      preloadAfter: 0,
-    },
+      preloadAfter: 0
+    }
   };
 }
 
-function stringValue(value: unknown): string | undefined {
-  return typeof value === 'string' && value.length > 0 ? value : undefined;
-}
-
-function numberValue(value: unknown): number | undefined {
-  return typeof value === 'number' && Number.isFinite(value) ? value : undefined;
-}
-
-function formatDate(value: unknown): string {
-  const raw = stringValue(value);
-  return raw ? new Date(raw).toLocaleString() : '';
-}
-
-function routeKindFromApi(value: unknown): MessagingRouteKind {
-  const normalized = String(value ?? '').toLowerCase();
-  return normalized.includes('direct') ? 'dm' : 'channel';
+function sendFailureMessage(status: number | undefined): string {
+  return status === 401 || status === 403
+    ? 'Authentication or posting permission is required.'
+    : 'Message API request failed.';
 }

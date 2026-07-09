@@ -1,0 +1,40 @@
+:host {
+  display: block;
+  min-width: 0;
+}
+
+.messages-page {
+  display: grid;
+  gap: 18px;
+  padding: 24px;
+}
+
+.messages-page__header {
+  display: grid;
+  gap: 4px;
+}
+
+.messages-page__eyebrow {
+  margin: 0;
+  color: #526173;
+  font-size: 0.78rem;
+  font-weight: 800;
+  text-transform: uppercase;
+}
+
+.messages-page__header h1 {
+  margin: 0;
+  color: #17202a;
+  font-size: 1.6rem;
+}
+
+.messages-page__error,
+.messages-page__empty {
+  margin: 0;
+  color: #526173;
+  font-weight: 700;
+}
+
+.messages-page__error {
+  color: #9f2d20;
+}

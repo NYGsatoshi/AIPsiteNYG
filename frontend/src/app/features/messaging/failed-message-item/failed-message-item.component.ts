@@ -16,16 +16,13 @@ import { MessagingMessageViewModel } from '../messaging.types';
       </header>
       <p class="failed-message__body" data-testid="failed-message-body">{{ message.body }}</p>
       <p class="failed-message__reason" data-testid="safe-failure-reason">
-        {{ message.safeFailureReason ?? '送信できませんでした。' }}
+        {{ message.safeFailureReason ?? 'Message was not sent.' }}
       </p>
-      <button
-        type="button"
-        data-testid="retry-failed-message"
-        [disabled]="!message.retryAllowed"
-        (click)="retry.emit(message.id)"
-      >
-        再試行
-      </button>
+      @if (message.retryAllowed) {
+        <button type="button" data-testid="retry-failed-message" (click)="retry.emit(message.id)">
+          Retry
+        </button>
+      }
     </article>
   `,
   styleUrl: './failed-message-item.component.scss'

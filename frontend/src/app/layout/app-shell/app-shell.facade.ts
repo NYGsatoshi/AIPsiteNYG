@@ -29,6 +29,11 @@ export const DEFAULT_NAVIGATION_ITEMS: readonly NavigationItem[] = [
     requiredCapability: 'workspace:view'
   },
   {
+    id: 'messages',
+    label: 'Messages',
+    route: '/messages'
+  },
+  {
     id: 'announcements',
     label: 'Announcements',
     route: '/announcements',

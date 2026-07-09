@@ -43,6 +43,13 @@ export const routes: Routes = [
         redirectTo: 'workspaces'
       },
       {
+        path: 'messages',
+        loadComponent: () =>
+          import('./features/messaging/messages-page/messages-page.component').then(
+            (m) => m.MessagesPageComponent
+          )
+      },
+      {
         path: 'workspaces/:workspaceId/channels/:conversationId',
         loadComponent: () =>
           import('./features/messaging/channel-messaging-page/channel-messaging-page.component').then(

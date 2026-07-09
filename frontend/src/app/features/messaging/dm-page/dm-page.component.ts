@@ -1,4 +1,5 @@
 import { Component, computed, inject } from '@angular/core';
+import { takeUntilDestroyed } from '@angular/core/rxjs-interop';
 import { ActivatedRoute } from '@angular/router';
 
 import { MessageComposerComponent } from '../message-composer/message-composer.component';
@@ -18,7 +19,9 @@ export class DmPageComponent {
   readonly page = this.facade.page;
 
   constructor() {
-    this.facade.loadConversation(this.route.snapshot.paramMap.get('conversationId'), 'dm');
+    this.route.paramMap.pipe(takeUntilDestroyed()).subscribe((paramMap) => {
+      this.facade.loadConversation(paramMap.get('conversationId'), 'dm');
+    });
   }
 
   readonly canReadBody = computed(

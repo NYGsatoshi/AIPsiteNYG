@@ -1,4 +1,5 @@
 import { Component, computed, inject } from '@angular/core';
+import { takeUntilDestroyed } from '@angular/core/rxjs-interop';
 import { ActivatedRoute } from '@angular/router';
 
 import { ConversationListComponent } from '../conversation-list/conversation-list.component';
@@ -25,7 +26,9 @@ export class ChannelMessagingPageComponent {
   readonly page = this.facade.page;
 
   constructor() {
-    this.facade.loadConversation(this.route.snapshot.paramMap.get('conversationId'), 'channel');
+    this.route.paramMap.pipe(takeUntilDestroyed()).subscribe((paramMap) => {
+      this.facade.loadConversation(paramMap.get('conversationId'), 'channel');
+    });
   }
 
   readonly canReadBody = computed(

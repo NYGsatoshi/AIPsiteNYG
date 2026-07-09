@@ -6,7 +6,11 @@ import { MessagingMessageViewModel } from '../messaging.types';
   selector: 'app-message-item',
   standalone: true,
   template: `
-    <article class="message" data-testid="confirmed-message" [class.message--own]="message.isOwnMessage">
+    <article
+      class="message"
+      [attr.data-testid]="message.deliveryState === 'confirmed' ? 'confirmed-message' : 'pending-message'"
+      [class.message--own]="message.isOwnMessage"
+    >
       <header class="message__meta">
         <span class="message__author">{{ message.authorLabel }}</span>
         <span class="message__role">{{ message.authorRoleLabel }}</span>

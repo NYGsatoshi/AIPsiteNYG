@@ -48,7 +48,7 @@ const failedMessage: MessagingMessageViewModel = {
   deliveryState: 'failed',
   failureCode: 'network',
   safeFailureReason: '送信できませんでした。接続を確認して再試行してください。',
-  retryAllowed: true
+  retryAllowed: false
 };
 
 const baseConversation = {
@@ -60,7 +60,7 @@ const baseConversation = {
   subtitle: '手動更新で確認する会話',
   viewerIsParticipant: true,
   viewerWasRemoved: false,
-  capabilities: ['readBody', 'postMessage', 'retryMessage', 'viewOwnReadMarker'] as const,
+  capabilities: ['readBody', 'postMessage', 'viewOwnReadMarker'] as const,
   attachment: {
     mode: 'disabled' as const,
     label: '添付はcanonical file ID境界が完了するまで利用できません'
@@ -107,6 +107,7 @@ export const DEFAULT_CHANNEL_MESSAGING_PAGE: MessagingPageViewModel = {
   messages: confirmedMessages,
   draft: '',
   sending: false,
+  sendState: { status: 'idle' },
   hasNewMessagesWhileReading: false,
   readCursorBehavior: 'latestVisibleMessage',
   pagingWindow: {

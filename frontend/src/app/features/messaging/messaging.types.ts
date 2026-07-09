@@ -20,6 +20,12 @@ export type MessageDeliveryState = 'confirmed' | 'sending' | 'failed';
 
 export type MessageFailureCode = 'network' | 'permissionDenied' | 'sessionExpired' | 'validation';
 
+export type MessageSendState =
+  | { readonly status: 'idle' }
+  | { readonly status: 'sending'; readonly clientRequestId?: string }
+  | { readonly status: 'sent'; readonly messageId: string }
+  | { readonly status: 'failed'; readonly message: string; readonly requestId?: string };
+
 export interface MessagingDraftScope {
   readonly tenantId: string;
   readonly workspaceId?: string;
@@ -94,6 +100,7 @@ export interface MessagingPageViewModel {
   readonly messages: readonly MessagingMessageViewModel[];
   readonly draft: string;
   readonly sending: boolean;
+  readonly sendState: MessageSendState;
   readonly hasNewMessagesWhileReading: boolean;
   readonly inlineError?: string;
   readonly readCursorBehavior: 'latestVisibleMessage' | 'conversationOpenFallback';
