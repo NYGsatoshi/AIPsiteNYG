@@ -1,6 +1,6 @@
 import { applicationConfig, type Meta, type StoryObj } from '@storybook/angular';
 
-import { DEFAULT_ACTIVE_WORKSPACE } from '../../core/workspace/active-workspace.facade';
+import type { WorkspaceSummary } from '../../core/workspace/active-workspace.facade';
 import { RightPanelComponent } from './right-panel/right-panel.component';
 import { AIP_RIGHT_PANEL_MOCK } from './right-panel.facade';
 import {
@@ -15,6 +15,12 @@ const unsupportedNotification = RIGHT_PANEL_NOTIFICATIONS.find(
   (notification) => notification.id === 'notification-unsupported'
 ) as RightPanelNotification;
 
+const STORY_ACTIVE_WORKSPACE: WorkspaceSummary = {
+  id: 'fictional-workspace-1',
+  label: 'Sample Workspace Alpha',
+  description: 'Storybook workspace mock'
+};
+
 const longNotification: RightPanelNotification = {
   ...unsupportedNotification,
   id: 'notification-long-text',
@@ -28,7 +34,7 @@ const meta: Meta<RightPanelComponent> = {
   title: 'Shared/RightPanel',
   component: RightPanelComponent,
   args: {
-    workspace: DEFAULT_ACTIVE_WORKSPACE,
+    workspace: STORY_ACTIVE_WORKSPACE,
     activeScope: DEFAULT_RIGHT_PANEL_SCOPE,
     mode: 'expanded',
     selectedTab: 'notifications',

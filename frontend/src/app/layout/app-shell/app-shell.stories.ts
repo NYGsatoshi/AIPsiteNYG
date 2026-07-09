@@ -8,7 +8,7 @@ import {
 import { PagePlaceholderComponent } from '../../core/routing/page-placeholder.component';
 import {
   AIP_ACTIVE_WORKSPACE_MOCK,
-  DEFAULT_ACTIVE_WORKSPACE
+  type WorkspaceSummary
 } from '../../core/workspace/active-workspace.facade';
 import { AIP_APP_SHELL_MOCK } from './app-shell.facade';
 import { AppShellComponent } from './app-shell.component';
@@ -45,6 +45,12 @@ const storyRoutes = [
     data: { title: '監査', summary: '未実装' }
   }
 ];
+
+const STORY_ACTIVE_WORKSPACE: WorkspaceSummary = {
+  id: 'fictional-workspace-1',
+  label: 'Sample Workspace Alpha',
+  description: 'Storybook workspace mock'
+};
 
 const meta: Meta<AppShellComponent> = {
   title: 'Shell/AppShell',
@@ -150,7 +156,7 @@ export const LongWorkspaceName: Story = {
         {
           provide: AIP_ACTIVE_WORKSPACE_MOCK,
           useValue: {
-            ...DEFAULT_ACTIVE_WORKSPACE,
+            ...STORY_ACTIVE_WORKSPACE,
             label: '架空制作ワークスペース長文検証一号二号'
           }
         }
