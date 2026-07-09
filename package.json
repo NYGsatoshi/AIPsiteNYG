@@ -8,7 +8,8 @@
     "test": "npm run test:ui",
     "test:ui": "npm run test:ui:angular",
     "test:ui:angular": "node tests/ui/run-angular-playwright.mjs",
-    "test:ui:angular:docker": "docker compose -f docker-compose.playwright.yml run --build --rm angular-playwright"
+    "test:ui:angular:docker": "docker compose -f docker-compose.playwright.yml run --build --rm angular-playwright",
+    "test:ui:angular:docker:update-snapshots": "docker compose -f docker-compose.playwright.yml run --build --rm angular-playwright bash -lc \"npm ci && npm --prefix frontend ci && npm --prefix frontend run build && npm run test:ui:angular -- --update-snapshots\""
   },
   "devDependencies": {
     "@axe-core/playwright": "^4.10.2",
