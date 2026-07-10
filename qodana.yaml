@@ -1,4 +1,4 @@
-﻿#-------------------------------------------------------------------------------#
+#-------------------------------------------------------------------------------#
 #               Qodana analysis is configured by qodana.yaml file               #
 #             https://www.jetbrains.com/help/qodana/qodana-yaml.html            #
 #-------------------------------------------------------------------------------#
@@ -6,99 +6,55 @@
 #              WARNING: Do not store sensitive information in this file,        #
 #               as its contents will be included in the Qodana report.          #
 #################################################################################
-version: "1.0"
-#Specify IDE code to run analysis without container (Applied in CI/CD pipeline)
-ide: QDNET
-#Specify inspection profile for code analysis
-profile:
-  name: qodana.starter
-include:
-  - name: UseAwaitUsing
-  - name: AsyncMethodWithoutAwait
-  - name: ConvertIfStatementToReturnStatement
-  - name: ConvertIfStatementToConditionalTernaryExpression
-  - name: ConvertIfStatementToNullCoalescingAssignment
-  - name: ConvertIfStatementToSwitchStatement
-  - name: InvertIf
-  - name: UseNameOfInsteadOfToString
-  - name: HeapView.BoxingAllocation
-  - name: HeapView.PossibleBoxingAllocation
-  - name: HeapView.ClosureAllocation
-  - name: HeapView.DelegateAllocation
-  - name: ForeachCanBePartlyConvertedToQueryUsingAnotherGetEnumerator
-  - name: ForeachCanBeConvertedToQueryUsingAnotherGetEnumerator
-  - name: SimplifyLinqExpressionUseAll
-  - name: MergeIntoLogicalPattern
-  - name: MergeIntoPattern
-  - name: HeapView.ObjectAllocation
-  - name: HeapView.ObjectAllocation.Evident
-  - name: HeapView.ObjectAllocation.Possible
-  - name: UseRawString
-  - name: CA1869
-  - name: CA1866
-  - name: CA1865
-  - name: ASP0018
-  - name: CA1826
-  - name: CA1822
-  - name: CA1861
-  - name: CA1859
-  - name: UseUtf8StringLiteral
-  - name: RouteTemplates.ActionRoutePrefixCanBeExtractedToControllerRoute
-  - name: ClassNeverInstantiated.Global
-  - name: UseCollectionExpression
-  - name: PropertyCanBeMadeInitOnly.Global
-  - name: MethodHasAsyncOverloadWithCancellation
-  - name: UnusedMethodReturnValue.Global
-  - name: MemberCanBePrivate.Global
-  - name: MemberCanBePrivate.Local
-  - name: MemberCanBeMadeStatic.Local
-  - name: ConvertClosureToMethodGroup
-  - name: UseVerbatimString
-  - name: RouteTemplates.RouteParameterIsNotPassedToMethod
-  - name: LoopCanBeConvertedToQuery
-  - name: ConvertToConstant.Local
-  - name: ChangeFieldTypeToSystemThreadingLock
-  - name: InlineTemporaryVariable
-  - name: UseObjectOrCollectionInitializer
-  - name: ConvertToExtensionBlock
-  - name: UnusedType.Global
-  - name: UnusedMemberInSuper.Global
-  - name: UnusedMember.Global
-  - name: SimplifyConditionalTernaryExpression
-  - name: AutoPropertyCanBeMadeGetOnly.Global
-  - name: MergeIntoNegatedPattern
-  - name: UnusedParameter.Global
-  - name: SeparateLocalFunctionsWithJumpStatement
-  - name: SuggestVarOrType_Elsewhere
-  - name: DuplicatedSequentialIfBodies
-  - name: MergeSequentialChecks
-exclude:
-  - name: All
-    paths:
-      - src
-      - tests
 
-#Enable inspections
-#include:
-#  - name: <SomeEnabledInspectionId>
-#Disable inspections
-#exclude:
-#  - name: <SomeDisabledInspectionId>
-#    paths:
-#      - <path/where/not/run/inspection>
-#Execute shell command before Qodana execution (Applied in CI/CD pipeline)
-#bootstrap: sh ./prepare-qodana.sh
-#Install IDE plugins before Qodana execution (Applied in CI/CD pipeline)
-#plugins:
-#  - id: <plugin.id> #(plugin id can be found at https://plugins.jetbrains.com)
-# Quality gate. Will fail the CI/CD pipeline if any condition is not met
-# severityThresholds - configures maximum thresholds for different problem severities
-# testCoverageThresholds - configures minimum code coverage on a whole project and newly added code
-# Code Coverage is available in Ultimate and Ultimate Plus plans
-#failureConditions:
-#  severityThresholds:
-#    any: 15
-#    critical: 5
-#  testCoverageThresholds:
-#    fresh: 70
-#    total: 50
+version: "1.0"
+
+# The workflow selects qodana-dotnet when QODANA_TOKEN is available and the
+# token-optional qodana-cdnet Community linter otherwise.
+dotnet:
+  solution: AipPortal.slnx
+
+# Restore dependencies before analysis so framework and library symbols resolve.
+# qodana-cdnet does not contain the frontend inspection engine and may not ship
+# Node.js, so npm restoration is performed only when npm is available.
+bootstrap: |+
+  set -eu
+
+  SDK_VERSION="$(awk -F'"' '/"version"[[:space:]]*:/ { print $4; exit }' global.json)"
+  if [ -z "$SDK_VERSION" ]; then
+    echo "Unable to read sdk.version from global.json" >&2
+    exit 1
+  fi
+
+  if ! dotnet --list-sdks 2>/dev/null | awk '{ print $1 }' | grep -Fxq "$SDK_VERSION"; then
+    echo "Installing .NET SDK $SDK_VERSION required by global.json"
+    curl -fsSL https://dot.net/v1/dotnet-install.sh -o /tmp/dotnet-install.sh
+    sudo bash /tmp/dotnet-install.sh --version "$SDK_VERSION" --install-dir /usr/share/dotnet --no-path
+  fi
+
+  echo "Selected .NET SDK: $(dotnet --version)"
+  dotnet msbuild -version
+  dotnet restore AipPortal.slnx --nologo
+
+  if command -v npm >/dev/null 2>&1; then
+    npm ci --no-audit --no-fund
+    npm --prefix frontend ci --no-audit --no-fund
+  else
+    echo "npm is unavailable in this linter image; frontend dependency restoration is skipped."
+  fi
+
+# Enable every inspection registered by the selected linter, including those
+# disabled by its recommended profile. Inapplicable inspections produce no issue.
+profile:
+  base:
+    name: qodana.recommended
+  groups:
+    - groupId: AipPortalAllRegisteredInspections
+      groups:
+        - ALL
+  inspections:
+    - group: AipPortalAllRegisteredInspections
+      enabled: true
+
+# qodana.recommended follows .gitignore. Source and test directories are
+# intentionally not excluded because the full repository must be inspected.
