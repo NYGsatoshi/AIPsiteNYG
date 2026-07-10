@@ -12,53 +12,55 @@ on:
     branches:
       - main
 
+concurrency:
+  group: qodana-${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+
 jobs:
   qodana:
     runs-on: ubuntu-latest
+    timeout-minutes: 120
     permissions:
       contents: read
       pull-requests: write
       checks: write
     env:
-      # Paid qodana-dotnet requires this project token. An unset secret resolves
-      # to an empty string and activates the Community fallback below.
       QODANA_TOKEN: ${{ secrets.QODANA_TOKEN }}
+
     steps:
       - uses: actions/checkout@v4
         with:
           ref: ${{ github.event.pull_request.head.sha || github.sha }}
           fetch-depth: 0
 
-      # qodana-dotnet supports native mode and uses the runner SDK/MSBuild.
-      - name: Set up .NET SDK for native Qodana
-        if: ${{ env.QODANA_TOKEN != '' }}
+      - name: Set up .NET SDK
         uses: actions/setup-dotnet@v4
         with:
           global-json-file: global.json
 
-      - name: Qodana Scan (Ultimate)
-        if: ${{ env.QODANA_TOKEN != '' }}
-        uses: JetBrains/qodana-action@v2026.1
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
         with:
-          args: |
-            --linter qodana-dotnet
-            --within-docker false
-          pr-mode: false
-          use-caches: true
-          post-pr-comment: true
-          use-annotations: true
-          upload-result: true
-          push-fixes: none
+          node-version: "24"
+          cache: npm
+          cache-dependency-path: |
+            package-lock.json
+            frontend/package-lock.json
 
-      # qodana-cdnet is shipped only as an EAP Docker image. The privileged
-      # variant lets qodana.yaml install the exact SDK pinned by global.json.
-      - name: Qodana Scan (Community fallback)
-        if: ${{ env.QODANA_TOKEN == '' }}
+      # Full C#/ASP.NET and frontend framework coverage requires qodana-dotnet.
+      # Do not silently downgrade to qodana-cdnet, which cannot inspect the
+      # JavaScript/TypeScript/Angular part of this repository.
+      - name: Require Qodana Ultimate token
+        shell: bash
+        run: |
+          if [[ -z "${QODANA_TOKEN}" ]]; then
+            echo "::error::QODANA_TOKEN is required for full qodana-dotnet inspection coverage."
+            exit 1
+          fi
+
+      - name: Qodana Scan
         uses: JetBrains/qodana-action@v2026.1
         with:
-          args: |
-            --image jetbrains/qodana-cdnet:2026.1-eap-privileged
-            --solution AipPortal.slnx
           pr-mode: false
           use-caches: true
           post-pr-comment: true
