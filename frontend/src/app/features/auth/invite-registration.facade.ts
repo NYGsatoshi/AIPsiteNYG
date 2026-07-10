@@ -1,16 +1,17 @@
 import { HttpClient, HttpErrorResponse } from '@angular/common/http';
 import { inject, Injectable, InjectionToken, signal } from '@angular/core';
-import { catchError, map, Observable, of } from 'rxjs';
+import { catchError, map, Observable, of, switchMap } from 'rxjs';
 
+import { AuthSessionFacade, AuthSessionSnapshot } from '../../core/auth/auth-session.facade';
 import {
   InviteBootstrapAction,
   InviteRegistrationScenario,
   InviteRegistrationSubmitModel,
-  InviteRegistrationViewModel,
+  InviteRegistrationViewModel
 } from './invite-registration.types';
 
 export const AIP_INVITE_REGISTRATION_SCENARIO = new InjectionToken<InviteRegistrationScenario>(
-  'AIP_INVITE_REGISTRATION_SCENARIO',
+  'AIP_INVITE_REGISTRATION_SCENARIO'
 );
 
 interface InviteValidationDto {
@@ -23,10 +24,11 @@ interface InviteValidationDto {
 }
 
 @Injectable({
-  providedIn: 'root',
+  providedIn: 'root'
 })
 export class InviteRegistrationFacade {
   private readonly http = inject(HttpClient, { optional: true });
+  private readonly authSession = inject(AuthSessionFacade, { optional: true });
   private readonly scenario = inject(AIP_INVITE_REGISTRATION_SCENARIO, { optional: true });
   private readonly submittedModelState = signal<InviteRegistrationSubmitModel | null>(null);
   private readonly bootstrapActionState = signal<readonly InviteBootstrapAction[]>([]);
@@ -39,9 +41,9 @@ export class InviteRegistrationFacade {
       return of({
         status: 'missing',
         email: null,
-        message: '招待リンクが無効です。管理者から送られた招待URLを開いてください。',
+        message: 'This invite link is incomplete. Ask for a new invite URL.',
         submitDisabled: true,
-        bootstrapActions: [],
+        bootstrapActions: []
       });
     }
 
@@ -53,16 +55,16 @@ export class InviteRegistrationFacade {
       return of({
         status: 'invalid',
         email: null,
-        message: '招待リンクを確認できません。時間をおいてもう一度開いてください。',
+        message: 'Invite validation is unavailable in this Angular context.',
         submitDisabled: true,
-        bootstrapActions: [],
+        bootstrapActions: []
       });
     }
 
     return this.http
       .get<InviteValidationDto>('/api/invites/validate', {
         params: { token },
-        withCredentials: true,
+        withCredentials: true
       })
       .pipe(
         map((response) => toValidState(response)),
@@ -72,19 +74,20 @@ export class InviteRegistrationFacade {
 
   register(model: InviteRegistrationSubmitModel): Observable<InviteRegistrationViewModel> {
     this.submittedModelState.set(model);
+
     if (this.scenario) {
       this.bootstrapActionState.set(this.scenario.submitResult.bootstrapActions);
       return of(this.scenario.submitResult);
     }
 
-    if (!this.http) {
+    if (!this.http || !this.authSession) {
       this.bootstrapActionState.set([]);
       return of({
         status: 'registrationFailure',
         email: model.email,
-        message: '登録APIに接続できません。時間をおいてもう一度送信してください。',
+        message: 'Invite acceptance is unavailable in this Angular context.',
         submitDisabled: true,
-        bootstrapActions: [],
+        bootstrapActions: []
       });
     }
 
@@ -94,38 +97,27 @@ export class InviteRegistrationFacade {
         {
           token: model.token,
           displayName: model.displayName,
-          password: model.password,
+          password: model.password
         },
         { withCredentials: true }
       )
       .pipe(
-        map(() => {
-          const bootstrapActions: readonly InviteBootstrapAction[] = [
-            'clearAnonymousState',
-            'fetchCurrentUser',
-            'fetchCurrentTenant',
-            'fetchNavigation',
-            'fetchCsrfToken',
-            'navigateTargetWorkspace',
-          ];
-          this.bootstrapActionState.set(bootstrapActions);
-          return {
-            status: 'registrationSuccessAutoSession',
-            email: model.email,
-            message: null,
-            submitDisabled: true,
-            bootstrapActions,
-          } satisfies InviteRegistrationViewModel;
-        }),
+        switchMap(() =>
+          this.authSession.bootstrap().pipe(
+            map((snapshot) => toPostAcceptState(model.email, snapshot, this.bootstrapActionState))
+          )
+        ),
         catchError((error: HttpErrorResponse) => {
           this.bootstrapActionState.set([]);
           return of({
             status: 'registrationFailure',
             email: model.email,
             requestId: requestIdFrom(error),
-            message: errorMessageFrom(error) || '登録できませんでした。入力内容と招待リンクを確認してください。',
+            message:
+              errorMessageFrom(error) ??
+              'Invite acceptance failed. Confirm the invite status and try again.',
             submitDisabled: false,
-            bootstrapActions: [],
+            bootstrapActions: []
           } satisfies InviteRegistrationViewModel);
         })
       );
@@ -137,9 +129,9 @@ function toValidState(response: InviteValidationDto): InviteRegistrationViewMode
     return {
       status: 'invalid',
       email: null,
-      message: '招待リンクが無効です。管理者から送られた招待URLを開いてください。',
+      message: 'This invite is not valid. Ask for a new invite URL.',
       submitDisabled: true,
-      bootstrapActions: [],
+      bootstrapActions: []
     };
   }
 
@@ -152,29 +144,85 @@ function toValidState(response: InviteValidationDto): InviteRegistrationViewMode
     expiresAt: stringValue(response.expiresAt),
     message: null,
     submitDisabled: false,
-    bootstrapActions: [],
+    bootstrapActions: []
   };
 }
 
 function toInvalidState(error: HttpErrorResponse): InviteRegistrationViewModel {
-  const message = errorMessageFrom(error) || '招待リンクが無効です。管理者から送られた招待URLを開いてください。';
+  const message = errorMessageFrom(error) ?? 'This invite is not valid. Ask for a new invite URL.';
+
   return {
     status: inviteStatusFromMessage(message),
     email: null,
     requestId: requestIdFrom(error),
     message,
     submitDisabled: true,
-    bootstrapActions: [],
+    bootstrapActions: []
+  };
+}
+
+function toPostAcceptState(
+  email: string,
+  snapshot: AuthSessionSnapshot,
+  bootstrapActionState: { set(value: readonly InviteBootstrapAction[]): void }
+): InviteRegistrationViewModel {
+  const bootstrapActions: readonly InviteBootstrapAction[] = [
+    'clearAnonymousState',
+    'fetchCurrentUser',
+    'fetchCurrentTenant',
+    'fetchNavigation',
+    'fetchCsrfToken',
+    'navigateTargetWorkspace'
+  ];
+
+  const hasWorkspaceAccess = (snapshot.currentUser?.workspaces.length ?? 0) > 0;
+  if (snapshot.isAuthenticated && hasWorkspaceAccess) {
+    bootstrapActionState.set(bootstrapActions);
+    return {
+      status: 'registrationSuccessAutoSession',
+      email,
+      message: 'Invite accepted. Redirecting to workspaces.',
+      submitDisabled: true,
+      targetWorkspacePath: '/workspaces',
+      bootstrapActions
+    };
+  }
+
+  if (snapshot.isAuthenticated) {
+    bootstrapActionState.set([]);
+    return {
+      status: 'registrationFailure',
+      email,
+      message: 'Invite was accepted, but workspace access could not be verified.',
+      submitDisabled: true,
+      bootstrapActions: []
+    };
+  }
+
+  const loginActions: readonly InviteBootstrapAction[] = ['clearAnonymousState', 'navigateLogin'];
+  bootstrapActionState.set(loginActions);
+
+  return {
+    status: 'registrationSuccessLoginRequired',
+    email,
+    message: 'Invite accepted, but sign-in could not be confirmed. Sign in to continue.',
+    submitDisabled: true,
+    bootstrapActions: loginActions
   };
 }
 
 function inviteStatusFromMessage(message: string): InviteRegistrationViewModel['status'] {
   const normalized = message.toLowerCase();
-  if (normalized.includes('expired') || message.includes('期限')) {
+
+  if (normalized.includes('revoked')) {
+    return 'revoked';
+  }
+
+  if (normalized.includes('expired')) {
     return 'expired';
   }
 
-  if (normalized.includes('already') || normalized.includes('used') || message.includes('使用済') || message.includes('すでに')) {
+  if (normalized.includes('already') || normalized.includes('used')) {
     return 'alreadyAccepted';
   }
 

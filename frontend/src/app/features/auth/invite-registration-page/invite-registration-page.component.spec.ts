@@ -2,12 +2,13 @@ import { provideHttpClient, withInterceptors } from '@angular/common/http';
 import { HttpTestingController, provideHttpClientTesting } from '@angular/common/http/testing';
 import { ComponentFixture, TestBed } from '@angular/core/testing';
 import { By } from '@angular/platform-browser';
-import { ActivatedRoute, convertToParamMap } from '@angular/router';
+import { ActivatedRoute, Router, convertToParamMap, provideRouter } from '@angular/router';
+import { vi } from 'vitest';
 
 import { routes } from '../../../app.routes';
 import {
   AIP_AUTH_SESSION_MOCK,
-  DEFAULT_AUTH_SESSION
+  ANONYMOUS_AUTH_SESSION
 } from '../../../core/auth/auth-session.facade';
 import { authSessionInterceptor } from '../../../core/auth/auth-session.interceptor';
 import { AIP_INVITE_REGISTRATION_SCENARIO, InviteRegistrationFacade } from '../invite-registration.facade';
@@ -29,6 +30,7 @@ const renderPage = async (
   await TestBed.configureTestingModule({
     imports: [InviteRegistrationPageComponent],
     providers: [
+      provideRouter(routes),
       { provide: AIP_INVITE_REGISTRATION_SCENARIO, useValue: scenario },
       { provide: ActivatedRoute, useValue: routeWithToken(token) }
     ]
@@ -45,11 +47,12 @@ const renderPageWithApi = async (
   await TestBed.configureTestingModule({
     imports: [InviteRegistrationPageComponent],
     providers: [
+      provideRouter(routes),
       provideHttpClient(withInterceptors([authSessionInterceptor])),
       provideHttpClientTesting(),
       {
         provide: AIP_AUTH_SESSION_MOCK,
-        useValue: DEFAULT_AUTH_SESSION
+        useValue: ANONYMOUS_AUTH_SESSION
       },
       { provide: ActivatedRoute, useValue: routeWithToken(token) }
     ]
@@ -76,7 +79,7 @@ describe('InviteRegistrationPageComponent', () => {
   it('shows a safe unusable-link state when the token is absent', async () => {
     const fixture = await renderPage(INVITE_REGISTRATION_SCENARIOS.defaultValid, null);
 
-    expect(textContent(fixture)).toContain('招待リンクが無効です。管理者から送られた招待URLを開いてください。');
+    expect(textContent(fixture)).toContain('This invite link is incomplete. Ask for a new invite URL.');
     expect((fixture.nativeElement as HTMLElement).querySelector('[data-testid="invite-registration-form"]')).toBeNull();
   });
 
@@ -122,19 +125,66 @@ describe('InviteRegistrationPageComponent', () => {
     httpMock.expectOne('/api/invites/validate?token=bad-token').flush(
       {
         title: 'Invite validation failed.',
-        detail: '招待リンクが無効です。管理者から送られた招待URLを開いてください。'
+        detail: 'Invite is invalid.'
       },
       { status: 400, statusText: 'Bad Request' }
     );
     fixture.detectChanges();
 
-    expect(textContent(fixture)).toContain('招待リンクが無効です。管理者から送られた招待URLを開いてください。');
+    const panel = (fixture.nativeElement as HTMLElement).querySelector('[data-testid="invite-token-state-panel"]');
+    expect(panel?.getAttribute('data-status')).toBe('invalid');
+    expect(textContent(fixture)).toContain('Invite is invalid.');
     expect((fixture.nativeElement as HTMLElement).querySelector('[data-testid="invite-registration-form"]')).toBeNull();
     httpMock.verify();
   });
 
-  it('accepts a valid invite with CSRF and without sending email from the form payload', async () => {
+  it('shows distinct expired, revoked, and already-used token states', async () => {
+    const expired = await renderPageWithApi('expired-token');
+    expired.httpMock.expectOne('/api/invites/validate?token=expired-token').flush(
+      { detail: 'Invite has expired.' },
+      { status: 400, statusText: 'Bad Request' }
+    );
+    expired.fixture.detectChanges();
+    expect(
+      (expired.fixture.nativeElement as HTMLElement)
+        .querySelector('[data-testid="invite-token-state-panel"]')
+        ?.getAttribute('data-status')
+    ).toBe('expired');
+    expired.httpMock.verify();
+
+    TestBed.resetTestingModule();
+    const revoked = await renderPageWithApi('revoked-token');
+    revoked.httpMock.expectOne('/api/invites/validate?token=revoked-token').flush(
+      { detail: 'Invite was revoked.' },
+      { status: 400, statusText: 'Bad Request' }
+    );
+    revoked.fixture.detectChanges();
+    expect(
+      (revoked.fixture.nativeElement as HTMLElement)
+        .querySelector('[data-testid="invite-token-state-panel"]')
+        ?.getAttribute('data-status')
+    ).toBe('revoked');
+    revoked.httpMock.verify();
+
+    TestBed.resetTestingModule();
+    const used = await renderPageWithApi('used-token');
+    used.httpMock.expectOne('/api/invites/validate?token=used-token').flush(
+      { detail: 'Invite has already been used.' },
+      { status: 400, statusText: 'Bad Request' }
+    );
+    used.fixture.detectChanges();
+    expect(
+      (used.fixture.nativeElement as HTMLElement)
+        .querySelector('[data-testid="invite-token-state-panel"]')
+        ?.getAttribute('data-status')
+    ).toBe('alreadyAccepted');
+    used.httpMock.verify();
+  });
+
+  it('accepts a valid invite, bootstraps the authenticated session, and navigates to workspaces', async () => {
     const { fixture, httpMock } = await renderPageWithApi('safe-api-token');
+    const router = TestBed.inject(Router);
+    const navigateSpy = vi.spyOn(router, 'navigateByUrl').mockResolvedValue(true);
 
     httpMock.expectOne('/api/invites/validate?token=safe-api-token').flush({
       valid: true,
@@ -167,10 +217,91 @@ describe('InviteRegistrationPageComponent', () => {
       displayName: 'New User',
       password: 'Password123'
     });
-    acceptRequest.flush({ userId: 'user-a', displayName: 'New User', email: 'new-user@example.invalid' });
+    acceptRequest.flush({ ok: true });
+
+    httpMock.expectOne('/api/auth/me').flush({
+      userId: 'user-a',
+      displayName: 'New User',
+      email: 'new-user@example.invalid',
+      systemRole: 'User',
+      status: 'Active',
+      capabilities: ['workspace:view'],
+      currentWorkspace: {
+        id: 'workspace-a',
+        name: 'Workspace A'
+      },
+      workspaces: [
+        {
+          id: 'workspace-a',
+          name: 'Workspace A'
+        }
+      ]
+    });
+    httpMock.expectOne('/api/tenants/current').flush({
+      tenantId: 'tenant-a',
+      tenantSlug: 'tenant-a',
+      isAvailable: true,
+      isPlatformScope: false,
+      displayName: 'Tenant A',
+      status: 'Active',
+      currentUserRole: 'Member',
+      appMode: 'SaaS',
+      allowTenantSwitching: true
+    });
     fixture.detectChanges();
 
-    expect(textContent(fixture)).toContain('登録が完了しました。');
+    expect(navigateSpy).toHaveBeenCalledWith('/workspaces');
+    expect(TestBed.inject(InviteRegistrationFacade).bootstrapActions()).toEqual([
+      'clearAnonymousState',
+      'fetchCurrentUser',
+      'fetchCurrentTenant',
+      'fetchNavigation',
+      'fetchCsrfToken',
+      'navigateTargetWorkspace'
+    ]);
+    httpMock.verify();
+  });
+
+  it('does not create fake signed-in UI when invite acceptance fails', async () => {
+    const { fixture, httpMock } = await renderPageWithApi('safe-api-token');
+    const router = TestBed.inject(Router);
+    const navigateSpy = vi.spyOn(router, 'navigateByUrl').mockResolvedValue(true);
+
+    httpMock.expectOne('/api/invites/validate?token=safe-api-token').flush({
+      valid: true,
+      email: 'new-user@example.invalid',
+      role: 'Member',
+      tenantName: 'AIP Portal',
+      workspaceName: 'Default Workspace',
+      expiresAt: '2026-07-13T00:00:00Z'
+    });
+    fixture.detectChanges();
+
+    const form = getForm(fixture);
+    form.form.setValue({
+      displayName: 'New User',
+      password: 'Password123',
+      confirmPassword: 'Password123'
+    });
+    form.submit();
+
+    httpMock.expectOne('/api/security/csrf-token').flush({
+      token: 'csrf-register',
+      headerName: 'X-CSRF-Token'
+    });
+
+    httpMock.expectOne('/api/invites/accept').flush(
+      {
+        detail: 'Invite was revoked.'
+      },
+      { status: 400, statusText: 'Bad Request' }
+    );
+    fixture.detectChanges();
+
+    expect(textContent(fixture)).toContain('Invite was revoked.');
+    expect(navigateSpy).not.toHaveBeenCalled();
+    expect(TestBed.inject(InviteRegistrationFacade).bootstrapActions()).toEqual([]);
+    httpMock.expectNone('/api/auth/me');
     httpMock.verify();
   });
 
@@ -203,7 +334,7 @@ describe('InviteRegistrationPageComponent', () => {
     fixture.detectChanges();
 
     expect(TestBed.inject(InviteRegistrationFacade).submittedModel()).toBeNull();
-    expect(textContent(fixture)).toContain('パスワードが一致しません。');
+    expect(textContent(fixture)).toContain('Passwords must match.');
   });
 
   it('does not render registration submit in legacy backend transaction gated state', async () => {
@@ -211,10 +342,10 @@ describe('InviteRegistrationPageComponent', () => {
 
     const submit = (fixture.nativeElement as HTMLElement).querySelector<HTMLButtonElement>('[data-testid="invite-submit"]');
     expect(submit).toBeNull();
-    expect(textContent(fixture)).toContain('この招待登録は現在準備中です。');
+    expect(textContent(fixture)).toContain('This invite flow is blocked by an older backend contract.');
   });
 
-  it('does not reveal target tenant or workspace details in invalid and expired states', async () => {
+  it('does not reveal target tenant or workspace details in invalid, expired, or revoked states', async () => {
     const invalid = await renderPage(INVITE_REGISTRATION_SCENARIOS.invalidToken);
     expect(textContent(invalid)).not.toContain('Mock Tenant');
     expect(textContent(invalid)).not.toContain('Mock Workspace');
@@ -223,29 +354,11 @@ describe('InviteRegistrationPageComponent', () => {
     const expired = await renderPage(INVITE_REGISTRATION_SCENARIOS.expiredToken);
     expect(textContent(expired)).not.toContain('Mock Tenant');
     expect(textContent(expired)).not.toContain('Mock Workspace');
-  });
 
-  it('records the anonymous/session bootstrap sequence after successful registration', async () => {
-    const fixture = await renderPage();
-    const form = getForm(fixture);
-
-    form.form.setValue({
-      displayName: 'Mock Invitee',
-      password: 'mock-password',
-      confirmPassword: 'mock-password'
-    });
-    form.submit();
-    fixture.detectChanges();
-
-    expect(TestBed.inject(InviteRegistrationFacade).bootstrapActions()).toEqual([
-      'clearAnonymousState',
-      'fetchCurrentUser',
-      'fetchCurrentTenant',
-      'fetchNavigation',
-      'fetchCsrfToken',
-      'navigateTargetWorkspace'
-    ]);
-    expect(textContent(fixture)).toContain('登録が完了しました。ワークスペースを準備しています。');
+    TestBed.resetTestingModule();
+    const revoked = await renderPage(INVITE_REGISTRATION_SCENARIOS.revokedToken);
+    expect(textContent(revoked)).not.toContain('Mock Tenant');
+    expect(textContent(revoked)).not.toContain('Mock Workspace');
   });
 
   it('keeps mobile layout free of hidden alternate actions', async () => {

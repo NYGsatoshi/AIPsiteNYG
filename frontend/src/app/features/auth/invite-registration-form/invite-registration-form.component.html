@@ -1,11 +1,11 @@
 <form class="invite-registration-form" [formGroup]="form" (ngSubmit)="submit()" data-testid="invite-registration-form">
   <label class="invite-registration-form__field">
-    <span>メールアドレス</span>
+    <span>Email address</span>
     <input type="email" [value]="email" readonly aria-readonly="true" autocomplete="username" data-testid="invite-email" />
   </label>
 
   <label class="invite-registration-form__field">
-    <span>表示名</span>
+    <span>Display name</span>
     <input
       type="text"
       formControlName="displayName"
@@ -17,7 +17,7 @@
   </label>
 
   <label class="invite-registration-form__field">
-    <span>パスワード</span>
+    <span>Password</span>
     <input
       type="password"
       formControlName="password"
@@ -29,7 +29,7 @@
   </label>
 
   <label class="invite-registration-form__field">
-    <span>パスワード確認</span>
+    <span>Confirm password</span>
     <input
       type="password"
       formControlName="confirmPassword"
@@ -41,6 +41,6 @@
   </label>
 
   <button class="invite-registration-form__submit" type="submit" [disabled]="!canSubmit" data-testid="invite-submit">
-    登録
+    Accept invite
   </button>
 </form>

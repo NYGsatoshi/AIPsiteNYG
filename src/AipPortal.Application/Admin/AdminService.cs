@@ -473,9 +473,15 @@ public sealed class AdminService(
             return Result<(Invite Invite, string RawToken)>.Failure("A valid email address is required.");
         }
 
-        if (await adminRepository.GetWorkspaceAsync(workspaceId, cancellationToken) is null)
+        var workspace = await adminRepository.GetWorkspaceAsync(workspaceId, cancellationToken);
+        if (workspace is null)
         {
             return Result<(Invite Invite, string RawToken)>.Failure("Workspace not found.");
+        }
+
+        if (workspace.TenantId == Guid.Empty)
+        {
+            return Result<(Invite Invite, string RawToken)>.Failure("Workspace tenant context is missing.");
         }
 
         var expiration = expiresAt ?? clock.UtcNow.AddDays(7);
@@ -487,6 +493,7 @@ public sealed class AdminService(
         var rawToken = GenerateToken();
         var invite = new Invite
         {
+            TenantId = workspace.TenantId,
             WorkspaceId = workspaceId,
             Email = email.Trim(),
             NormalizedEmail = NormalizeEmail(email),

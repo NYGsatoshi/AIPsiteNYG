@@ -148,15 +148,13 @@ export class InviteAdminPageComponent {
 
     this.http
       .post<InviteDto>('/api/admin/invites', body)
-      .pipe(
-        finalize(() => this.submitting.set(false))
-      )
+      .pipe(finalize(() => this.submitting.set(false)))
       .subscribe({
         next: (invite) => {
           const created = toCreatedInviteDetails(invite, body.email);
           this.email.set('');
           this.createdInvite.set(created);
-          this.createdNotice.set(`${created.email} の招待URLを作成しました。このリンクを相手に送ってください。`);
+          this.createdNotice.set(`Invite created for ${created.email}. Copy or send the URL below.`);
           this.loadInvites();
         },
         error: (error: unknown) => {
@@ -176,23 +174,21 @@ export class InviteAdminPageComponent {
     }
 
     void navigator.clipboard.writeText(inviteUrl).then(
-      () => this.createdNotice.set('招待URLをコピーしました。このリンクを相手に送ってください。'),
+      () => this.createdNotice.set('Invite URL copied. Send it manually to the invitee.'),
       () => this.message.set('Copy failed. Select and copy the invite URL.')
     );
   }
 
   private loadInvites(): void {
-    this.http
-      .get<PagedResponseDto<InviteDto>>('/api/admin/invites', { withCredentials: true })
-      .subscribe({
-        next: (response) => this.invites.set((response.items ?? []).map(toInviteRow)),
-        error: (error: { status?: number }) => {
-          if (error.status === 401 || error.status === 403) {
-            this.status.set('permissionDenied');
-            this.message.set('Admin access is required.');
-          }
+    this.http.get<PagedResponseDto<InviteDto>>('/api/admin/invites', { withCredentials: true }).subscribe({
+      next: (response) => this.invites.set((response.items ?? []).map(toInviteRow)),
+      error: (error: { status?: number }) => {
+        if (error.status === 401 || error.status === 403) {
+          this.status.set('permissionDenied');
+          this.message.set('Admin access is required.');
         }
-      });
+      }
+    });
   }
 
   private toExpiresAtIso(): string | null {
@@ -208,14 +204,23 @@ export class InviteAdminPageComponent {
       return details || error.message || 'Invite failed.';
     }
 
-    const httpError = error as { error?: any; status?: number; message?: string };
+    const httpError = error as {
+      error?: {
+        detail?: unknown;
+        title?: unknown;
+        errors?: Record<string, unknown>;
+        error?: unknown;
+      };
+      status?: number;
+      message?: string;
+    };
 
     if (httpError.error?.detail) {
-      return httpError.error.detail;
+      return String(httpError.error.detail);
     }
 
     if (httpError.error?.title) {
-      return httpError.error.title;
+      return String(httpError.error.title);
     }
 
     if (httpError.error?.errors) {
@@ -273,9 +278,7 @@ function formatDate(value: unknown): string {
 
 function workspaceRoleLabel(value: unknown): string {
   if (typeof value === 'number') {
-    return (
-      Object.entries(WORKSPACE_ROLE).find(([, roleValue]) => roleValue === value)?.[0] ?? value.toString()
-    );
+    return Object.entries(WORKSPACE_ROLE).find(([, roleValue]) => roleValue === value)?.[0] ?? value.toString();
   }
 
   return stringValue(value);

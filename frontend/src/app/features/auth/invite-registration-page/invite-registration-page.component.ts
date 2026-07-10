@@ -1,5 +1,6 @@
 import { Component, computed, inject, signal } from '@angular/core';
-import { ActivatedRoute } from '@angular/router';
+import { ActivatedRoute, Router } from '@angular/router';
+import { take } from 'rxjs';
 
 import { InviteRegistrationFacade } from '../invite-registration.facade';
 import { InviteRegistrationFormSubmit, InviteRegistrationViewModel } from '../invite-registration.types';
@@ -15,17 +16,19 @@ import { InviteTokenStatePanelComponent } from '../invite-token-state-panel/invi
 })
 export class InviteRegistrationPageComponent {
   private readonly route = inject(ActivatedRoute);
+  private readonly router = inject(Router);
   private readonly facade = inject(InviteRegistrationFacade);
   private readonly inviteToken = this.route.snapshot.queryParamMap.get('token');
   private readonly state = signal<InviteRegistrationViewModel>(initialState(this.inviteToken));
 
   readonly viewState = this.state.asReadonly();
-  readonly canShowForm = computed(() =>
-    ['valid', 'registrationFailure'].includes(this.state().status)
-  );
+  readonly canShowForm = computed(() => ['valid', 'registrationFailure'].includes(this.state().status));
 
   constructor() {
-    this.facade.validateToken(this.inviteToken).subscribe((state) => this.state.set(state));
+    this.facade
+      .validateToken(this.inviteToken)
+      .pipe(take(1))
+      .subscribe((state) => this.state.set(state));
   }
 
   submitRegistration(model: InviteRegistrationFormSubmit): void {
@@ -42,7 +45,13 @@ export class InviteRegistrationPageComponent {
         displayName: model.displayName,
         password: model.password
       })
-      .subscribe((state) => this.state.set(state));
+      .pipe(take(1))
+      .subscribe((state) => {
+        this.state.set(state);
+        if (state.status === 'registrationSuccessAutoSession') {
+          void this.router.navigateByUrl(state.targetWorkspacePath ?? '/workspaces');
+        }
+      });
   }
 }
 
@@ -58,7 +67,7 @@ function initialState(token: string | null): InviteRegistrationViewModel {
     : {
         status: 'missing',
         email: null,
-        message: '招待リンクが無効です。管理者から送られた招待URLを開いてください。',
+        message: 'This invite link is incomplete. Ask for a new invite URL.',
         submitDisabled: true,
         bootstrapActions: []
       };
