@@ -34,7 +34,7 @@ jobs:
         if: ${{ env.QODANA_TOKEN != '' }}
         uses: actions/setup-dotnet@v4
         with:
-          dotnet-version: 10.0.x
+          global-json-file: global.json
 
       - name: Qodana Scan (Ultimate)
         if: ${{ env.QODANA_TOKEN != '' }}
@@ -51,7 +51,7 @@ jobs:
           push-fixes: none
 
       # qodana-cdnet is shipped only as an EAP Docker image. The privileged
-      # variant lets qodana.yaml install the .NET SDK when the image lacks it.
+      # variant lets qodana.yaml install the exact SDK pinned by global.json.
       - name: Qodana Scan (Community fallback)
         if: ${{ env.QODANA_TOKEN == '' }}
         uses: JetBrains/qodana-action@v2026.1
