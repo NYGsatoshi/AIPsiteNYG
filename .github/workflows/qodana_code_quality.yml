@@ -12,31 +12,58 @@ on:
     branches:
       - main
 
+concurrency:
+  group: qodana-${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+
 jobs:
   qodana:
     runs-on: ubuntu-latest
+    timeout-minutes: 120
     permissions:
       contents: read
       pull-requests: write
       checks: write
     env:
-      # Paid qodana-dotnet requires this project token. An unset secret resolves
-      # to an empty string and activates the Community fallback below.
       QODANA_TOKEN: ${{ secrets.QODANA_TOKEN }}
+
     steps:
       - uses: actions/checkout@v4
         with:
           ref: ${{ github.event.pull_request.head.sha || github.sha }}
           fetch-depth: 0
 
-      # qodana-dotnet supports native mode and uses the runner SDK/MSBuild.
-      - name: Set up .NET SDK for native Qodana
+      # Native qodana-dotnet uses the runner toolchain. The Community fallback is
+      # containerized and prepares its .NET SDK through qodana.yaml instead.
+      - name: Set up .NET SDK
         if: ${{ env.QODANA_TOKEN != '' }}
         uses: actions/setup-dotnet@v4
         with:
           global-json-file: global.json
 
-      - name: Qodana Scan (Ultimate)
+      - name: Set up Node.js
+        if: ${{ env.QODANA_TOKEN != '' }}
+        uses: actions/setup-node@v4
+        with:
+          node-version: "24"
+          cache: npm
+          cache-dependency-path: |
+            package-lock.json
+            frontend/package-lock.json
+
+      - name: Report Community fallback
+        if: ${{ env.QODANA_TOKEN == '' }}
+        shell: bash
+        run: |
+          echo "::warning::QODANA_TOKEN is not configured. Running qodana-cdnet Community for C#/.NET only; JavaScript, TypeScript and Angular Qodana inspections require qodana-dotnet and an Ultimate or Ultimate Plus token."
+          {
+            echo "### Qodana Community fallback"
+            echo
+            echo "QODANA_TOKEN is not configured, so this run uses qodana-cdnet."
+            echo "C#/.NET inspections run, but JavaScript, TypeScript and Angular Qodana inspections are unavailable until the secret is added."
+          } >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Qodana Scan (Ultimate full-stack)
         if: ${{ env.QODANA_TOKEN != '' }}
         uses: JetBrains/qodana-action@v2026.1
         with:
@@ -50,9 +77,7 @@ jobs:
           upload-result: true
           push-fixes: none
 
-      # qodana-cdnet is shipped only as an EAP Docker image. The privileged
-      # variant lets qodana.yaml install the exact SDK pinned by global.json.
-      - name: Qodana Scan (Community fallback)
+      - name: Qodana Scan (Community .NET fallback)
         if: ${{ env.QODANA_TOKEN == '' }}
         uses: JetBrains/qodana-action@v2026.1
         with:
@@ -63,5 +88,5 @@ jobs:
           use-caches: true
           post-pr-comment: true
           use-annotations: true
-          upload-result: true
+          upload-result: false
           push-fixes: none
