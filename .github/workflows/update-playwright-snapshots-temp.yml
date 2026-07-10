@@ -6,12 +6,18 @@ on:
       - fix/playwright-messages-snapshots
     paths:
       - .github/workflows/update-playwright-snapshots-temp.yml
+  pull_request:
+    branches:
+      - main
+    paths:
+      - .github/workflows/update-playwright-snapshots-temp.yml
 
 permissions:
   contents: write
 
 jobs:
   refresh:
+    if: github.event_name == 'push' || github.head_ref == 'fix/playwright-messages-snapshots'
     runs-on: ubuntu-latest
     steps:
       - name: Checkout snapshot branch
