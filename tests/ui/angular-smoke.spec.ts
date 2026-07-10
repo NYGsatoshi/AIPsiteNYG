@@ -28,7 +28,6 @@ test.describe('MVP-A P0 Angular frontend smoke', () => {
     await expect(page.locator('app-shell router-outlet')).toBeAttached();
 
     await expectHealthyAngularPage(page);
-
     await expectNoAccessibilityViolations(page);
   });
 
@@ -45,9 +44,8 @@ test.describe('MVP-A P0 Angular frontend smoke', () => {
   test('renders the workspace route in the Angular shell', async ({ page }) => {
     await page.goto('/app/workspaces');
 
-    await expect(page.getByTestId('app-shell')).toBeVisible();
+    await waitForWorkspaceShellReady(page);
     await expect(page.locator('a[href="/app/workspaces"]').first()).toBeAttached();
-    await expect(page.getByTestId('workspace-dashboard')).toBeVisible();
     await expectHealthyAngularPage(page);
   });
 
@@ -97,16 +95,17 @@ test.describe('MVP-A P0 Angular frontend smoke', () => {
     await page.setViewportSize({ width: 390, height: 844 });
     await page.goto('/app/workspaces');
 
-    await expect(page.getByTestId('mobile-header')).toBeVisible();
+    await waitForWorkspaceShellReady(page, { mobile: true });
     await expect(page.getByTestId('account-rail')).toBeHidden();
 
     const mobileNavigation = page.getByTestId('mobile-navigation');
+    const toggle = page.getByTestId('mobile-nav-toggle');
     await expect(mobileNavigation).toHaveAttribute('aria-hidden', 'true');
-    await expect(page.getByTestId('mobile-nav-toggle')).toHaveAttribute('aria-expanded', 'false');
+    await expect(toggle).toHaveAttribute('aria-expanded', 'false');
 
-    await page.getByTestId('mobile-nav-toggle').click();
+    await toggle.click();
     await expect(mobileNavigation).toHaveAttribute('aria-hidden', 'false');
-    await expect(page.getByTestId('mobile-nav-toggle')).toHaveAttribute('aria-expanded', 'true');
+    await expect(toggle).toHaveAttribute('aria-expanded', 'true');
     await expect(mobileNavigation.locator('a[href="/app/workspaces"]')).toBeVisible();
 
     for (const legacyRoute of ['/dashboard', '/messages', '/tenant-admin', '/platform-admin']) {
@@ -120,6 +119,7 @@ test.describe('MVP-A P0 Angular frontend smoke', () => {
     await page.setViewportSize({ width: 320, height: 700 });
     await page.goto('/app/workspaces');
 
+    await waitForWorkspaceShellReady(page, { mobile: true });
     const toggle = page.getByTestId('mobile-nav-toggle');
     await toggle.click();
 
@@ -137,6 +137,7 @@ test.describe('MVP-A P0 Angular frontend smoke', () => {
     await page.setViewportSize({ width: 390, height: 844 });
     await page.goto('/app/workspaces');
 
+    await waitForWorkspaceShellReady(page, { mobile: true });
     const trigger = page.getByTestId('right-panel-toggle');
     await trigger.click();
 
@@ -154,6 +155,7 @@ test.describe('MVP-A P0 Angular frontend smoke', () => {
     await page.setViewportSize({ width: 1280, height: 900 });
     await page.goto('/app/workspaces');
 
+    await waitForWorkspaceShellReady(page);
     await pressTabUntilFocused(page, page.locator('a[href="/app/workspaces"]').first());
     await pressTabUntilFocused(page, page.getByRole('searchbox', { name: /page search/i }));
     await pressTabUntilFocused(page, page.getByRole('button', { name: /details|close details/i }));
@@ -163,8 +165,10 @@ test.describe('MVP-A P0 Angular frontend smoke', () => {
     await page.setViewportSize({ width: 390, height: 844 });
     await page.goto('/app/workspaces');
 
-    await expect(page.getByTestId('mobile-nav-toggle')).toHaveAccessibleName(/menu|メニュー/i);
+    await waitForWorkspaceShellReady(page, { mobile: true });
+    await expect(page.getByTestId('mobile-nav-toggle')).toHaveAccessibleName(/menu|\u30e1\u30cb\u30e5\u30fc/i);
     await page.getByTestId('right-panel-toggle').click();
+    await expect(page.getByTestId('right-panel-close')).toBeVisible();
     await expect(page.getByTestId('right-panel-close')).toHaveAccessibleName(/close right panel/i);
   });
 
@@ -195,7 +199,7 @@ test.describe('MVP-A P0 Angular frontend smoke', () => {
     if (testInfo.project.name === 'chromium-desktop') {
       await page.setViewportSize({ width: 1280, height: 900 });
       await page.goto('/app/workspaces');
-      await expect(page.getByTestId('workspace-dashboard')).toBeVisible();
+      await waitForWorkspaceShellReady(page);
       await expectStableScreenshot(page, testInfo, 'desktop-shell-workspaces.png');
       return;
     }
@@ -203,10 +207,9 @@ test.describe('MVP-A P0 Angular frontend smoke', () => {
     if (testInfo.project.name === 'chromium-mobile') {
       await page.setViewportSize({ width: 390, height: 844 });
       await page.goto('/app/workspaces');
-      await expect(page.getByTestId('mobile-header')).toBeVisible();
+      await waitForWorkspaceShellReady(page, { mobile: true });
       await page.getByTestId('mobile-nav-toggle').click();
       await expect(page.getByTestId('mobile-navigation')).toHaveAttribute('aria-hidden', 'false');
-      await expect(page.getByTestId('workspace-dashboard')).toBeVisible();
       await expectStableScreenshot(page, testInfo, 'mobile-shell-workspaces-drawer.png', { fullPage: false });
       return;
     }
@@ -222,6 +225,20 @@ async function expectHealthyAngularPage(page: Page) {
   await expect(body).not.toContainText(/NG0\d+/);
   await expect(body).not.toContainText('TypeError');
   await expect(page.locator('app-root')).toBeAttached();
+}
+
+async function waitForWorkspaceShellReady(
+  page: Page,
+  options: { mobile?: boolean } = {}
+) {
+  await expect(page.getByTestId('app-shell')).toBeVisible();
+  await expect(page.getByTestId('shell-body')).toBeVisible();
+  await expect(page.getByTestId('workspace-dashboard')).toBeVisible();
+
+  if (options.mobile) {
+    await expect(page.getByTestId('mobile-header')).toBeVisible();
+    await expect(page.getByTestId('mobile-nav-toggle')).toBeVisible();
+  }
 }
 
 async function pressTabUntilFocused(
