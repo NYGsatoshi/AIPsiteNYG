@@ -1,10 +1,8 @@
 import { Component, EventEmitter, Input, Output } from '@angular/core';
-import { FormsModule } from '@angular/forms';
 
 @Component({
   selector: 'app-message-composer',
   standalone: true,
-  imports: [FormsModule],
   template: `
     <form class="composer" data-testid="message-composer" (submit)="submit($event)">
       <label>
@@ -13,9 +11,8 @@ import { FormsModule } from '@angular/forms';
           rows="3"
           data-testid="message-draft"
           [disabled]="disabled || sending"
-          [ngModel]="draft"
-          name="messageDraft"
-          (ngModelChange)="draftChange.emit($event)"
+          [value]="draft"
+          (input)="onDraftInput($event)"
           placeholder="本文を入力"
         ></textarea>
       </label>
@@ -40,6 +37,10 @@ export class MessageComposerComponent {
   @Input() attachmentDisabledLabel = '添付はまだ利用できません';
   @Output() readonly draftChange = new EventEmitter<string>();
   @Output() readonly send = new EventEmitter<void>();
+
+  onDraftInput(event: Event): void {
+    this.draftChange.emit((event.target as HTMLTextAreaElement | null)?.value ?? '');
+  }
 
   submit(event: Event): void {
     event.preventDefault();
