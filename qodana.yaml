@@ -6,17 +6,16 @@
 #              WARNING: Do not store sensitive information in this file,        #
 #               as its contents will be included in the Qodana report.          #
 #################################################################################
-version: "1.0"
 
-# The workflow selects qodana-dotnet or qodana-cdnet depending on whether a
-# QODANA_TOKEN is available. Keep the linter out of this file so both modes can
-# share the same inspection configuration.
+version: "1.0"
+linter: qodana-dotnet
+withinDocker: false
+
 dotnet:
   solution: AipPortal.slnx
 
-# The repository pins an exact SDK feature band in global.json. Qodana Community
-# images can contain a different .NET 10 feature band, which is not sufficient
-# for MSBuild toolset discovery. Install the exact pinned SDK only when absent.
+# Restore every dependency before analysis so Rider/Qodana can resolve framework
+# and library symbols instead of falling back to syntax-only inspection.
 bootstrap: |+
   set -eu
 
@@ -29,99 +28,31 @@ bootstrap: |+
   if ! dotnet --list-sdks 2>/dev/null | awk '{ print $1 }' | grep -Fxq "$SDK_VERSION"; then
     echo "Installing .NET SDK $SDK_VERSION required by global.json"
     curl -fsSL https://dot.net/v1/dotnet-install.sh -o /tmp/dotnet-install.sh
-    sudo bash /tmp/dotnet-install.sh \
-      --version "$SDK_VERSION" \
-      --install-dir /usr/share/dotnet \
-      --no-path
+    sudo bash /tmp/dotnet-install.sh --version "$SDK_VERSION" --install-dir /usr/share/dotnet --no-path
   fi
 
   echo "Selected .NET SDK: $(dotnet --version)"
   dotnet msbuild -version
   dotnet restore AipPortal.slnx --nologo
-#ここからが一時変更
+
+  npm ci --no-audit --no-fund
+  npm --prefix frontend ci --no-audit --no-fund
+
+# qodana.recommended registers Rider's supported language/framework inspection
+# set. Enabling ALL also activates inspections that are disabled by default,
+# including information-level, global, framework, database, build and dependency
+# inspections. Inspections that are not applicable to files in this repository
+# simply produce no findings.
 profile:
-  name: qodana.recommended
-   inspections:
-    # C# と ASP.NET 関連のインスペクションをすべてON
-    - group: "category:C#"
-      enabled: true
-    - group: "category:ASP.NET route templates"
-      enabled: true
-    
-    # Angular, TS/JS, HTML 関連のインスペクションをすべてON
-    - group: "category:Angular"
-      enabled: true
-    - group: "category:JavaScript and TypeScript"
-      enabled: true
-    - group: "category:HTML"
+  base:
+    name: qodana.recommended
+  groups:
+    - groupId: AipPortalAllRegisteredInspections
+      groups:
+        - ALL
+  inspections:
+    - group: AipPortalAllRegisteredInspections
       enabled: true
 
-    # Docker 関連のインスペクションをすべてON
-    - group: "category:Docker"
-      enabled: true
-    - group: "category:Docker-compose"
-      enabled: true
-#ここまでが一時変更
-include:
-  - name: UseAwaitUsing
-  - name: AsyncMethodWithoutAwait
-  - name: ConvertIfStatementToReturnStatement
-  - name: ConvertIfStatementToConditionalTernaryExpression
-  - name: ConvertIfStatementToNullCoalescingAssignment
-  - name: ConvertIfStatementToSwitchStatement
-  - name: InvertIf
-  - name: UseNameOfInsteadOfToString
-  - name: HeapView.BoxingAllocation
-  - name: HeapView.PossibleBoxingAllocation
-  - name: HeapView.ClosureAllocation
-  - name: HeapView.DelegateAllocation
-  - name: ForeachCanBePartlyConvertedToQueryUsingAnotherGetEnumerator
-  - name: ForeachCanBeConvertedToQueryUsingAnotherGetEnumerator
-  - name: SimplifyLinqExpressionUseAll
-  - name: MergeIntoLogicalPattern
-  - name: MergeIntoPattern
-  - name: HeapView.ObjectAllocation
-  - name: HeapView.ObjectAllocation.Evident
-  - name: HeapView.ObjectAllocation.Possible
-  - name: UseRawString
-  - name: CA1869
-  - name: CA1866
-  - name: CA1865
-  - name: ASP0018
-  - name: CA1826
-  - name: CA1822
-  - name: CA1861
-  - name: CA1859
-  - name: UseUtf8StringLiteral
-  - name: RouteTemplates.ActionRoutePrefixCanBeExtractedToControllerRoute
-  - name: ClassNeverInstantiated.Global
-  - name: UseCollectionExpression
-  - name: PropertyCanBeMadeInitOnly.Global
-  - name: MethodHasAsyncOverloadWithCancellation
-  - name: UnusedMethodReturnValue.Global
-  - name: MemberCanBePrivate.Global
-  - name: MemberCanBePrivate.Local
-  - name: MemberCanBeMadeStatic.Local
-  - name: ConvertClosureToMethodGroup
-  - name: UseVerbatimString
-  - name: RouteTemplates.RouteParameterIsNotPassedToMethod
-  - name: LoopCanBeConvertedToQuery
-  - name: ConvertToConstant.Local
-  - name: ChangeFieldTypeToSystemThreadingLock
-  - name: InlineTemporaryVariable
-  - name: UseObjectOrCollectionInitializer
-  - name: ConvertToExtensionBlock
-  - name: UnusedType.Global
-  - name: UnusedMemberInSuper.Global
-  - name: UnusedMember.Global
-  - name: SimplifyConditionalTernaryExpression
-  - name: AutoPropertyCanBeMadeGetOnly.Global
-  - name: MergeIntoNegatedPattern
-  - name: UnusedParameter.Global
-  - name: SeparateLocalFunctionsWithJumpStatement
-  - name: SuggestVarOrType_Elsewhere
-  - name: DuplicatedSequentialIfBodies
-  - name: MergeSequentialChecks
-
-# qodana.starter follows .gitignore automatically. Do not exclude src/ or tests/:
-# those directories contain the code this workflow is intended to inspect.
+# qodana.recommended follows .gitignore. Source and test directories are
+# intentionally not excluded because the full repository must be inspected.
