@@ -14,17 +14,30 @@ version: "1.0"
 dotnet:
   solution: AipPortal.slnx
 
-# qodana-cdnet 2026.1 is an EAP Docker linter. Some image revisions contain the
-# .NET runtime but no discoverable SDK/MSBuild toolset. Install .NET 10 into the
-# documented container SDK location only when it is missing. The privileged
-# image provides passwordless sudo; native qodana-dotnet already has the SDK.
+# The repository pins an exact SDK feature band in global.json. Qodana Community
+# images can contain a different .NET 10 feature band, which is not sufficient
+# for MSBuild toolset discovery. Install the exact pinned SDK only when absent.
 bootstrap: |+
   set -eu
-  if ! dotnet --list-sdks 2>/dev/null | grep -q '^10\.'; then
-    curl -fsSL https://dot.net/v1/dotnet-install.sh -o /tmp/dotnet-install.sh
-    sudo bash /tmp/dotnet-install.sh --channel 10.0 --install-dir /usr/share/dotnet
+
+  SDK_VERSION="$(awk -F'"' '/"version"[[:space:]]*:/ { print $4; exit }' global.json)"
+  if [ -z "$SDK_VERSION" ]; then
+    echo "Unable to read sdk.version from global.json" >&2
+    exit 1
   fi
-  dotnet --info
+
+  if ! dotnet --list-sdks 2>/dev/null | awk '{ print $1 }' | grep -Fxq "$SDK_VERSION"; then
+    echo "Installing .NET SDK $SDK_VERSION required by global.json"
+    curl -fsSL https://dot.net/v1/dotnet-install.sh -o /tmp/dotnet-install.sh
+    sudo bash /tmp/dotnet-install.sh \
+      --version "$SDK_VERSION" \
+      --install-dir /usr/share/dotnet \
+      --no-path
+  fi
+
+  echo "Selected .NET SDK: $(dotnet --version)"
+  dotnet msbuild -version
+  dotnet restore AipPortal.slnx --nologo
 
 profile:
   name: qodana.starter
