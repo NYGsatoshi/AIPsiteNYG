@@ -14,6 +14,18 @@ version: "1.0"
 dotnet:
   solution: AipPortal.slnx
 
+# qodana-cdnet 2026.1 is an EAP Docker linter. Some image revisions contain the
+# .NET runtime but no discoverable SDK/MSBuild toolset. Install .NET 10 into the
+# documented container SDK location only when it is missing. The privileged
+# image provides passwordless sudo; native qodana-dotnet already has the SDK.
+bootstrap: |+
+  set -eu
+  if ! dotnet --list-sdks 2>/dev/null | grep -q '^10\.'; then
+    curl -fsSL https://dot.net/v1/dotnet-install.sh -o /tmp/dotnet-install.sh
+    sudo bash /tmp/dotnet-install.sh --channel 10.0 --install-dir /usr/share/dotnet
+  fi
+  dotnet --info
+
 profile:
   name: qodana.starter
 
