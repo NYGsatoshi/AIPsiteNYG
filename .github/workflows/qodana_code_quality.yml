@@ -33,12 +33,16 @@ jobs:
           ref: ${{ github.event.pull_request.head.sha || github.sha }}
           fetch-depth: 0
 
+      # Native qodana-dotnet uses the runner toolchain. The Community fallback is
+      # containerized and prepares its .NET SDK through qodana.yaml instead.
       - name: Set up .NET SDK
+        if: ${{ env.QODANA_TOKEN != '' }}
         uses: actions/setup-dotnet@v4
         with:
           global-json-file: global.json
 
       - name: Set up Node.js
+        if: ${{ env.QODANA_TOKEN != '' }}
         uses: actions/setup-node@v4
         with:
           node-version: "24"
@@ -47,23 +51,42 @@ jobs:
             package-lock.json
             frontend/package-lock.json
 
-      # Full C#/ASP.NET and frontend framework coverage requires qodana-dotnet.
-      # Do not silently downgrade to qodana-cdnet, which cannot inspect the
-      # JavaScript/TypeScript/Angular part of this repository.
-      - name: Require Qodana Ultimate token
+      - name: Report Community fallback
+        if: ${{ env.QODANA_TOKEN == '' }}
         shell: bash
         run: |
-          if [[ -z "${QODANA_TOKEN}" ]]; then
-            echo "::error::QODANA_TOKEN is required for full qodana-dotnet inspection coverage."
-            exit 1
-          fi
+          echo "::warning::QODANA_TOKEN is not configured. Running qodana-cdnet Community for C#/.NET only; JavaScript, TypeScript and Angular Qodana inspections require qodana-dotnet and an Ultimate or Ultimate Plus token."
+          {
+            echo "### Qodana Community fallback"
+            echo
+            echo "QODANA_TOKEN is not configured, so this run uses qodana-cdnet."
+            echo "C#/.NET inspections run, but JavaScript, TypeScript and Angular Qodana inspections are unavailable until the secret is added."
+          } >> "$GITHUB_STEP_SUMMARY"
 
-      - name: Qodana Scan
+      - name: Qodana Scan (Ultimate full-stack)
+        if: ${{ env.QODANA_TOKEN != '' }}
         uses: JetBrains/qodana-action@v2026.1
         with:
+          args: |
+            --linter qodana-dotnet
+            --within-docker false
           pr-mode: false
           use-caches: true
           post-pr-comment: true
           use-annotations: true
           upload-result: true
+          push-fixes: none
+
+      - name: Qodana Scan (Community .NET fallback)
+        if: ${{ env.QODANA_TOKEN == '' }}
+        uses: JetBrains/qodana-action@v2026.1
+        with:
+          args: |
+            --image jetbrains/qodana-cdnet:2026.1-eap-privileged
+            --solution AipPortal.slnx
+          pr-mode: false
+          use-caches: true
+          post-pr-comment: true
+          use-annotations: true
+          upload-result: false
           push-fixes: none
