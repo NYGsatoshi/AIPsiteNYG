@@ -29,10 +29,9 @@ jobs:
           ref: ${{ github.event.pull_request.head.sha || github.sha }}
           fetch-depth: 0
 
-      # Native Qodana execution uses the runner's SDK/MSBuild installation.
-      # The qodana-cdnet container does not currently provide a usable MSBuild
-      # toolset for this .NET 10 solution.
-      - name: Set up .NET SDK
+      # qodana-dotnet supports native mode and uses the runner SDK/MSBuild.
+      - name: Set up .NET SDK for native Qodana
+        if: ${{ env.QODANA_TOKEN != '' }}
         uses: actions/setup-dotnet@v4
         with:
           dotnet-version: 10.0.x
@@ -51,13 +50,14 @@ jobs:
           upload-result: true
           push-fixes: none
 
+      # qodana-cdnet is shipped only as an EAP Docker image. The privileged
+      # variant lets qodana.yaml install the .NET SDK when the image lacks it.
       - name: Qodana Scan (Community fallback)
         if: ${{ env.QODANA_TOKEN == '' }}
         uses: JetBrains/qodana-action@v2026.1
         with:
           args: |
-            --linter qodana-cdnet
-            --within-docker false
+            --image jetbrains/qodana-cdnet:2026.1-eap-privileged
             --solution AipPortal.slnx
           pr-mode: false
           use-caches: true
