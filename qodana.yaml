@@ -8,14 +8,15 @@
 #################################################################################
 
 version: "1.0"
-linter: qodana-dotnet
-withinDocker: false
 
+# The workflow selects qodana-dotnet when QODANA_TOKEN is available and the
+# token-optional qodana-cdnet Community linter otherwise.
 dotnet:
   solution: AipPortal.slnx
 
-# Restore every dependency before analysis so Rider/Qodana can resolve framework
-# and library symbols instead of falling back to syntax-only inspection.
+# Restore dependencies before analysis so framework and library symbols resolve.
+# qodana-cdnet does not contain the frontend inspection engine and may not ship
+# Node.js, so npm restoration is performed only when npm is available.
 bootstrap: |+
   set -eu
 
@@ -35,14 +36,15 @@ bootstrap: |+
   dotnet msbuild -version
   dotnet restore AipPortal.slnx --nologo
 
-  npm ci --no-audit --no-fund
-  npm --prefix frontend ci --no-audit --no-fund
+  if command -v npm >/dev/null 2>&1; then
+    npm ci --no-audit --no-fund
+    npm --prefix frontend ci --no-audit --no-fund
+  else
+    echo "npm is unavailable in this linter image; frontend dependency restoration is skipped."
+  fi
 
-# qodana.recommended registers Rider's supported language/framework inspection
-# set. Enabling ALL also activates inspections that are disabled by default,
-# including information-level, global, framework, database, build and dependency
-# inspections. Inspections that are not applicable to files in this repository
-# simply produce no findings.
+# Enable every inspection registered by the selected linter, including those
+# disabled by its recommended profile. Inapplicable inspections produce no issue.
 profile:
   base:
     name: qodana.recommended
