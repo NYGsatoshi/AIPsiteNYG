@@ -1,11 +1,6 @@
 name: Temporary Playwright snapshot refresh
 
 on:
-  push:
-    branches:
-      - fix/playwright-messages-snapshots
-    paths:
-      - .github/workflows/update-playwright-snapshots-temp.yml
   pull_request:
     branches:
       - main
@@ -17,7 +12,7 @@ permissions:
 
 jobs:
   refresh:
-    if: github.event_name == 'push' || github.head_ref == 'fix/playwright-messages-snapshots'
+    if: github.head_ref == 'fix/playwright-messages-snapshots'
     runs-on: ubuntu-latest
     steps:
       - name: Checkout snapshot branch
@@ -26,22 +21,16 @@ jobs:
           ref: fix/playwright-messages-snapshots
           fetch-depth: 0
 
-      - name: Download failed CI Playwright artifact
-        env:
-          GH_TOKEN: ${{ github.token }}
-          ARTIFACT_ID: "8218534299"
+      - name: Download verified Playwright artifact copy
         run: |
           set -euo pipefail
           curl --fail --location \
-            --header "Accept: application/vnd.github+json" \
-            --header "Authorization: Bearer ${GH_TOKEN}" \
-            --header "X-GitHub-Api-Version: 2022-11-28" \
             --output /tmp/playwright-artifact.zip \
-            "${GITHUB_API_URL}/repos/${GITHUB_REPOSITORY}/actions/artifacts/${ARTIFACT_ID}/zip"
+            'https://sdmntprkoreacentral.oaiusercontent.com/files/00000000-2a54-7206-8e7e-d5963f69bdd7/raw?se=2026-07-10T05:20:15Z&sp=r&sv=2026-02-06&sr=b&scid=67978d88-ecdc-5029-a16e-9fd4ae212f5f&skoid=9063adf3-a524-4acf-b70a-8731b33f2f50&sktid=a48cca56-e6da-484e-a814-9c849652bcb3&skt=2026-07-10T03:17:43Z&ske=2026-07-12T03:17:43Z&sks=b&skv=2026-02-06&sig=1lN668TZG9Nw7uXgwv2HZGLQNm5D0sP8yOxp0ohBKcg%3D'
           mkdir -p /tmp/playwright-artifact
           unzip -q /tmp/playwright-artifact.zip -d /tmp/playwright-artifact
 
-      - name: Install verified current screenshots as baselines
+      - name: Install checksum-verified screenshots as baselines
         run: |
           set -euo pipefail
           desktop_source="/tmp/playwright-artifact/test-results/angular-smoke-MVP-A-P0-Ang-4dbb7-lar-P0-screenshot-baselines-chromium-desktop/desktop-shell-workspaces-actual.png"
@@ -50,7 +39,6 @@ jobs:
 
           test -f "${desktop_source}"
           test -f "${mobile_source}"
-
           echo "f3235b447ace42c79245f5b815e3dce0eb9e1335fa0b6956ade032939c41e72b  ${desktop_source}" | sha256sum --check --strict
           echo "def912a97cfdab46af179f665aa3c680f864dc5317ba57ede26fa2e63b1aa203  ${mobile_source}" | sha256sum --check --strict
 
