@@ -1,4 +1,4 @@
-﻿#-------------------------------------------------------------------------------#
+#-------------------------------------------------------------------------------#
 #               Qodana analysis is configured by qodana.yaml file               #
 #             https://www.jetbrains.com/help/qodana/qodana-yaml.html            #
 #-------------------------------------------------------------------------------#
@@ -7,11 +7,41 @@
 #               as its contents will be included in the Qodana report.          #
 #################################################################################
 version: "1.0"
-#Specify IDE code to run analysis without container (Applied in CI/CD pipeline)
-ide: QDNET
-#Specify inspection profile for code analysis
+
+# The workflow selects qodana-dotnet or qodana-cdnet depending on whether a
+# QODANA_TOKEN is available. Keep the linter out of this file so both modes can
+# share the same inspection configuration.
+dotnet:
+  solution: AipPortal.slnx
+
+# The repository pins an exact SDK feature band in global.json. Qodana Community
+# images can contain a different .NET 10 feature band, which is not sufficient
+# for MSBuild toolset discovery. Install the exact pinned SDK only when absent.
+bootstrap: |+
+  set -eu
+
+  SDK_VERSION="$(awk -F'"' '/"version"[[:space:]]*:/ { print $4; exit }' global.json)"
+  if [ -z "$SDK_VERSION" ]; then
+    echo "Unable to read sdk.version from global.json" >&2
+    exit 1
+  fi
+
+  if ! dotnet --list-sdks 2>/dev/null | awk '{ print $1 }' | grep -Fxq "$SDK_VERSION"; then
+    echo "Installing .NET SDK $SDK_VERSION required by global.json"
+    curl -fsSL https://dot.net/v1/dotnet-install.sh -o /tmp/dotnet-install.sh
+    sudo bash /tmp/dotnet-install.sh \
+      --version "$SDK_VERSION" \
+      --install-dir /usr/share/dotnet \
+      --no-path
+  fi
+
+  echo "Selected .NET SDK: $(dotnet --version)"
+  dotnet msbuild -version
+  dotnet restore AipPortal.slnx --nologo
+
 profile:
   name: qodana.starter
+
 include:
   - name: UseAwaitUsing
   - name: AsyncMethodWithoutAwait
@@ -72,33 +102,6 @@ include:
   - name: SuggestVarOrType_Elsewhere
   - name: DuplicatedSequentialIfBodies
   - name: MergeSequentialChecks
-exclude:
-  - name: All
-    paths:
-      - src
-      - tests
 
-#Enable inspections
-#include:
-#  - name: <SomeEnabledInspectionId>
-#Disable inspections
-#exclude:
-#  - name: <SomeDisabledInspectionId>
-#    paths:
-#      - <path/where/not/run/inspection>
-#Execute shell command before Qodana execution (Applied in CI/CD pipeline)
-#bootstrap: sh ./prepare-qodana.sh
-#Install IDE plugins before Qodana execution (Applied in CI/CD pipeline)
-#plugins:
-#  - id: <plugin.id> #(plugin id can be found at https://plugins.jetbrains.com)
-# Quality gate. Will fail the CI/CD pipeline if any condition is not met
-# severityThresholds - configures maximum thresholds for different problem severities
-# testCoverageThresholds - configures minimum code coverage on a whole project and newly added code
-# Code Coverage is available in Ultimate and Ultimate Plus plans
-#failureConditions:
-#  severityThresholds:
-#    any: 15
-#    critical: 5
-#  testCoverageThresholds:
-#    fresh: 70
-#    total: 50
+# qodana.starter follows .gitignore automatically. Do not exclude src/ or tests/:
+# those directories contain the code this workflow is intended to inspect.

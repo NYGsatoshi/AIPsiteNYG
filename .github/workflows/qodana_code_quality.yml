@@ -1,9 +1,10 @@
-﻿#-------------------------------------------------------------------------------#
+#-------------------------------------------------------------------------------#
 #        Discover additional configuration options in our documentation         #
 #               https://www.jetbrains.com/help/qodana/github.html               #
 #-------------------------------------------------------------------------------#
 
 name: Qodana
+
 on:
   workflow_dispatch:
   pull_request:
@@ -15,25 +16,52 @@ jobs:
   qodana:
     runs-on: ubuntu-latest
     permissions:
-      contents: write
+      contents: read
       pull-requests: write
       checks: write
+    env:
+      # Paid qodana-dotnet requires this project token. An unset secret resolves
+      # to an empty string and activates the Community fallback below.
+      QODANA_TOKEN: ${{ secrets.QODANA_TOKEN }}
     steps:
       - uses: actions/checkout@v4
         with:
-          ref: ${{ github.event.pull_request.head.sha }}
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
           fetch-depth: 0
-      - name: 'Qodana Scan'
-        uses: JetBrains/qodana-action@v2026.1
-        env:
-          QODANA_TOKEN: ${{ secrets.QODANA_TOKEN }}
+
+      # qodana-dotnet supports native mode and uses the runner SDK/MSBuild.
+      - name: Set up .NET SDK for native Qodana
+        if: ${{ env.QODANA_TOKEN != '' }}
+        uses: actions/setup-dotnet@v4
         with:
-          # When pr-mode is set to true, Qodana analyzes only the files that have been changed
+          global-json-file: global.json
+
+      - name: Qodana Scan (Ultimate)
+        if: ${{ env.QODANA_TOKEN != '' }}
+        uses: JetBrains/qodana-action@v2026.1
+        with:
+          args: |
+            --linter qodana-dotnet
+            --within-docker false
           pr-mode: false
           use-caches: true
           post-pr-comment: true
           use-annotations: true
-          # Upload Qodana results (SARIF, other artifacts, logs) as an artifact to the job
-          upload-result: false
-          # quick-fixes available in Ultimate and Ultimate Plus plans
-          push-fixes: 'none'
+          upload-result: true
+          push-fixes: none
+
+      # qodana-cdnet is shipped only as an EAP Docker image. The privileged
+      # variant lets qodana.yaml install the exact SDK pinned by global.json.
+      - name: Qodana Scan (Community fallback)
+        if: ${{ env.QODANA_TOKEN == '' }}
+        uses: JetBrains/qodana-action@v2026.1
+        with:
+          args: |
+            --image jetbrains/qodana-cdnet:2026.1-eap-privileged
+            --solution AipPortal.slnx
+          pr-mode: false
+          use-caches: true
+          post-pr-comment: true
+          use-annotations: true
+          upload-result: true
+          push-fixes: none
