@@ -2,37 +2,95 @@
 #               Qodana analysis is configured by qodana.yaml file               #
 #             https://www.jetbrains.com/help/qodana/qodana-yaml.html            #
 #-------------------------------------------------------------------------------#
-
 #################################################################################
 #              WARNING: Do not store sensitive information in this file,        #
 #               as its contents will be included in the Qodana report.          #
 #################################################################################
 version: "1.0"
-
 #Specify IDE code to run analysis without container (Applied in CI/CD pipeline)
 ide: QDNET
-
 #Specify inspection profile for code analysis
 profile:
   name: qodana.starter
+include:
+  - name: UseAwaitUsing
+  - name: AsyncMethodWithoutAwait
+  - name: ConvertIfStatementToReturnStatement
+  - name: ConvertIfStatementToConditionalTernaryExpression
+  - name: ConvertIfStatementToNullCoalescingAssignment
+  - name: ConvertIfStatementToSwitchStatement
+  - name: InvertIf
+  - name: UseNameOfInsteadOfToString
+  - name: HeapView.BoxingAllocation
+  - name: HeapView.PossibleBoxingAllocation
+  - name: HeapView.ClosureAllocation
+  - name: HeapView.DelegateAllocation
+  - name: ForeachCanBePartlyConvertedToQueryUsingAnotherGetEnumerator
+  - name: ForeachCanBeConvertedToQueryUsingAnotherGetEnumerator
+  - name: SimplifyLinqExpressionUseAll
+  - name: MergeIntoLogicalPattern
+  - name: MergeIntoPattern
+  - name: HeapView.ObjectAllocation
+  - name: HeapView.ObjectAllocation.Evident
+  - name: HeapView.ObjectAllocation.Possible
+  - name: UseRawString
+  - name: CA1869
+  - name: CA1866
+  - name: CA1865
+  - name: ASP0018
+  - name: CA1826
+  - name: CA1822
+  - name: CA1861
+  - name: CA1859
+  - name: UseUtf8StringLiteral
+  - name: RouteTemplates.ActionRoutePrefixCanBeExtractedToControllerRoute
+  - name: ClassNeverInstantiated.Global
+  - name: UseCollectionExpression
+  - name: PropertyCanBeMadeInitOnly.Global
+  - name: MethodHasAsyncOverloadWithCancellation
+  - name: UnusedMethodReturnValue.Global
+  - name: MemberCanBePrivate.Global
+  - name: MemberCanBePrivate.Local
+  - name: MemberCanBeMadeStatic.Local
+  - name: ConvertClosureToMethodGroup
+  - name: UseVerbatimString
+  - name: RouteTemplates.RouteParameterIsNotPassedToMethod
+  - name: LoopCanBeConvertedToQuery
+  - name: ConvertToConstant.Local
+  - name: ChangeFieldTypeToSystemThreadingLock
+  - name: InlineTemporaryVariable
+  - name: UseObjectOrCollectionInitializer
+  - name: ConvertToExtensionBlock
+  - name: UnusedType.Global
+  - name: UnusedMemberInSuper.Global
+  - name: UnusedMember.Global
+  - name: SimplifyConditionalTernaryExpression
+  - name: AutoPropertyCanBeMadeGetOnly.Global
+  - name: MergeIntoNegatedPattern
+  - name: UnusedParameter.Global
+  - name: SeparateLocalFunctionsWithJumpStatement
+  - name: SuggestVarOrType_Elsewhere
+  - name: DuplicatedSequentialIfBodies
+  - name: MergeSequentialChecks
+exclude:
+  - name: All
+    paths:
+      - src
+      - tests
 
 #Enable inspections
 #include:
 #  - name: <SomeEnabledInspectionId>
-
 #Disable inspections
 #exclude:
 #  - name: <SomeDisabledInspectionId>
 #    paths:
 #      - <path/where/not/run/inspection>
-
 #Execute shell command before Qodana execution (Applied in CI/CD pipeline)
 #bootstrap: sh ./prepare-qodana.sh
-
 #Install IDE plugins before Qodana execution (Applied in CI/CD pipeline)
 #plugins:
 #  - id: <plugin.id> #(plugin id can be found at https://plugins.jetbrains.com)
-
 # Quality gate. Will fail the CI/CD pipeline if any condition is not met
 # severityThresholds - configures maximum thresholds for different problem severities
 # testCoverageThresholds - configures minimum code coverage on a whole project and newly added code
