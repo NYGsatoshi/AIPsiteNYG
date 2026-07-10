@@ -1,9 +1,10 @@
-﻿#-------------------------------------------------------------------------------#
+#-------------------------------------------------------------------------------#
 #        Discover additional configuration options in our documentation         #
 #               https://www.jetbrains.com/help/qodana/github.html               #
 #-------------------------------------------------------------------------------#
 
 name: Qodana
+
 on:
   workflow_dispatch:
   pull_request:
@@ -15,25 +16,42 @@ jobs:
   qodana:
     runs-on: ubuntu-latest
     permissions:
-      contents: write
+      contents: read
       pull-requests: write
       checks: write
+    env:
+      # Paid qodana-dotnet requires this project token. An unset secret resolves
+      # to an empty string and activates the Community fallback below.
+      QODANA_TOKEN: ${{ secrets.QODANA_TOKEN }}
     steps:
       - uses: actions/checkout@v4
         with:
-          ref: ${{ github.event.pull_request.head.sha }}
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
           fetch-depth: 0
-      - name: 'Qodana Scan'
+
+      - name: Qodana Scan (Ultimate)
+        if: ${{ env.QODANA_TOKEN != '' }}
         uses: JetBrains/qodana-action@v2026.1
-        env:
-          QODANA_TOKEN: ${{ secrets.QODANA_TOKEN }}
         with:
-          # When pr-mode is set to true, Qodana analyzes only the files that have been changed
+          args: |
+            --linter qodana-dotnet
+            --within-docker false
           pr-mode: false
           use-caches: true
           post-pr-comment: true
           use-annotations: true
-          # Upload Qodana results (SARIF, other artifacts, logs) as an artifact to the job
-          upload-result: false
-          # quick-fixes available in Ultimate and Ultimate Plus plans
-          push-fixes: 'none'
+          upload-result: true
+          push-fixes: none
+
+      - name: Qodana Scan (Community fallback)
+        if: ${{ env.QODANA_TOKEN == '' }}
+        uses: JetBrains/qodana-action@v2026.1
+        with:
+          args: |
+            --linter qodana-cdnet
+          pr-mode: false
+          use-caches: true
+          post-pr-comment: true
+          use-annotations: true
+          upload-result: true
+          push-fixes: none
