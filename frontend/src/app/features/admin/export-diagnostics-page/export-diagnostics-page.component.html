@@ -6,36 +6,15 @@
       <p class="admin-page__eyebrow">{{ page.subtitle }}</p>
       <h1>{{ page.title }}</h1>
     </div>
-    <app-export-request-button
-      [canRequest]="page.canRequestDiagnosticsExport"
-      (request)="requestDiagnosticsExport()"
-    />
   </header>
 
   <p class="admin-page__policy" data-testid="export-authorization-note">
-    Export requests and downloads remain server-side reauthorized during API wiring. No arbitrary visible-grid export is
-    enabled by default.
+    Export diagnostics are not implemented for MVP0. This route does not create requests, show local job history, or
+    expose downloads.
   </p>
 
-  @if (page.status === 'loading') {
-    <app-inline-loading label="Loading export diagnostics" />
-  } @else if (page.status === 'permissionDenied') {
-    <app-permission-denied [title]="page.message ?? 'Export diagnostics are unavailable.'" />
-  } @else if (page.status === 'empty' || page.rows.length === 0) {
-    <app-empty-state title="No export jobs" message="No mock export diagnostics jobs are available." />
-  } @else {
-    <div class="admin-page__layout">
-      <app-data-grid
-        ariaLabel="Export diagnostics jobs"
-        rowIdField="id"
-        [rows]="page.rows"
-        [columns]="page.columns"
-        [defaultPageSize]="page.pageSize.defaultPageSize"
-        [maximumPageSize]="page.pageSize.maximumPageSize"
-        (actionInvoked)="handleGridAction($event)"
-      />
-
-      <app-export-job-detail-drawer [job]="selectedJob()" [returnFocusTo]="drawerReturnFocus()" (close)="closeDrawer()" />
-    </div>
-  }
+  <app-empty-state
+    title="Not available in MVP0"
+    [message]="page.message ?? 'Export diagnostics are disabled for this release.'"
+  />
 </section>

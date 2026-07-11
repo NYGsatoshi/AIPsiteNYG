@@ -103,6 +103,111 @@ public sealed class DbAuditQueryService(
         return Result<PagedResponse<AuditLogListItemResponse>>.Success(new PagedResponse<AuditLogListItemResponse>(items, page, pageSize, total));
     }
 
+    public async Task<Result<PagedResponse<AuditGridRowResponse>>> ListAuditGridAsync(AuditLogQuery query, CancellationToken cancellationToken = default)
+    {
+        if (!currentUser.IsAuthenticated || !currentUser.UserId.HasValue)
+        {
+            return Result<PagedResponse<AuditGridRowResponse>>.Failure("Authentication is required.");
+        }
+
+        var userId = currentUser.UserId.Value;
+        var isSystemAdmin = currentUser.SystemRole is SystemRole.SystemAdmin or SystemRole.PlatformAdmin;
+        var isTenantAdmin = currentTenant.IsAvailable &&
+            await IsTenantAdminAsync(userId, currentTenant.TenantId, cancellationToken);
+        if (!isSystemAdmin && !isTenantAdmin)
+        {
+            return Result<PagedResponse<AuditGridRowResponse>>.Failure("You are not allowed to view audit logs.");
+        }
+
+        var page = Math.Max(1, query.Page);
+        var pageSize = Math.Clamp(query.PageSize, 1, MaxPageSize);
+        var source = dbContext.AuditLogs.AsNoTracking();
+
+        if (!isSystemAdmin && currentTenant.IsAvailable)
+        {
+            source = source.Where(log => log.TenantId == currentTenant.TenantId);
+        }
+
+        if (!string.IsNullOrWhiteSpace(query.Action))
+        {
+            source = source.Where(log => log.Action == query.Action);
+        }
+
+        if (!string.IsNullOrWhiteSpace(query.EntityType))
+        {
+            source = source.Where(log => log.EntityType == query.EntityType);
+        }
+
+        if (query.ActorUserId.HasValue)
+        {
+            source = source.Where(log => log.ActorUserId == query.ActorUserId);
+        }
+
+        if (query.WorkspaceId.HasValue)
+        {
+            source = source.Where(log => log.WorkspaceId == query.WorkspaceId);
+        }
+
+        if (query.GroupId.HasValue)
+        {
+            source = source.Where(log => log.GroupId == query.GroupId);
+        }
+
+        if (query.ProjectId.HasValue)
+        {
+            source = source.Where(log => log.ProjectId == query.ProjectId);
+        }
+
+        if (query.FromDate.HasValue)
+        {
+            source = source.Where(log => log.CreatedAt >= query.FromDate.Value);
+        }
+
+        if (query.ToDate.HasValue)
+        {
+            source = source.Where(log => log.CreatedAt <= query.ToDate.Value);
+        }
+
+        var total = await source.CountAsync(cancellationToken);
+        var records = await source
+            .OrderByDescending(log => log.CreatedAt)
+            .Skip((page - 1) * pageSize)
+            .Take(pageSize)
+            .Select(log => new
+            {
+                log.Id,
+                log.CreatedAt,
+                log.Action,
+                ActorDisplayName = log.ActorUser == null ? null : log.ActorUser.DisplayName,
+                log.EntityType,
+                WorkspaceLabel = log.Workspace == null ? null : log.Workspace.Name,
+                log.WorkspaceId,
+                log.Summary,
+                log.CorrelationId
+            })
+            .ToListAsync(cancellationToken);
+
+        var items = records
+            .Select(log =>
+            {
+                var result = ClassifyResult(log.Action);
+                return new AuditGridRowResponse(
+                    log.Id,
+                    log.CreatedAt,
+                    log.Action,
+                    string.IsNullOrWhiteSpace(log.ActorDisplayName) ? "Unknown actor" : log.ActorDisplayName,
+                    log.EntityType,
+                    log.WorkspaceLabel ?? log.WorkspaceId?.ToString("D"),
+                    ClassifySeverity(log.Action, result),
+                    result,
+                    string.IsNullOrWhiteSpace(log.Summary) ? log.Action : log.Summary,
+                    log.CorrelationId);
+            })
+            .ToList();
+
+        return Result<PagedResponse<AuditGridRowResponse>>.Success(new PagedResponse<AuditGridRowResponse>(items, page, pageSize, total));
+    }
+
     public async Task<Result<PagedResponse<SecurityEventListItemResponse>>> ListSecurityEventsAsync(SecurityEventQuery query, CancellationToken cancellationToken = default)
     {
         if (!currentUser.IsAuthenticated || !currentUser.UserId.HasValue)
@@ -187,5 +292,40 @@ public sealed class DbAuditQueryService(
             Status: TenantUserStatus.Active,
             Role: TenantUserRole.Owner or TenantUserRole.Admin
         };
+    }
+
+    private static string ClassifyResult(string action)
+    {
+        if (ContainsAny(action, "denied", "unauthorized", "forbidden", "rejected"))
+        {
+            return "denied";
+        }
+
+        if (ContainsAny(action, "failed", "failure", "error", "exception", "lockout"))
+        {
+            return "failed";
+        }
+
+        return "success";
+    }
+
+    private static string ClassifySeverity(string action, string result)
+    {
+        if (ContainsAny(action, "critical", "failed", "lockout", "suspicious", "infected", "quarantine"))
+        {
+            return "critical";
+        }
+
+        if (result == "denied" || ContainsAny(action, "failure", "warning", "rejected", "rate", "revoked", "expired", "blocked"))
+        {
+            return "warning";
+        }
+
+        return "info";
+    }
+
+    private static bool ContainsAny(string value, params string[] needles)
+    {
+        return needles.Any(needle => value.Contains(needle, StringComparison.OrdinalIgnoreCase));
     }
 }

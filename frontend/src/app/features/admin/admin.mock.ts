@@ -86,36 +86,7 @@ const longAuditRecord: AuditMockRecord = {
     'This long operational summary is intentionally verbose so the grid can prove wrapping without exposing payload content, restricted values, diagnostics, or raw metadata.'
 };
 
-const exportDetails: readonly RedactedDetailLine[] = [
-  { label: 'Scope owner', value: 'Sample Workspace Alpha', state: 'shown' },
-  { label: 'Artifact location', value: 'Suppressed until server reauthorization', state: 'suppressed' },
-  { label: 'Sensitive values', value: 'Redacted', state: 'redacted' }
-];
-
-export const DEFAULT_EXPORT_JOBS: readonly ExportJobMockRecord[] = [
-  {
-    id: 'export-job-001',
-    createdAt: '2026-07-02 09:10',
-    jobType: 'ExportDiagnostics',
-    status: 'succeeded',
-    requestedBy: 'Sample Admin A',
-    scope: 'Sample Workspace Alpha',
-    result: 'available',
-    requestId: 'req-export-001',
-    redactedDetails: exportDetails
-  },
-  {
-    id: 'export-job-002',
-    createdAt: '2026-07-02 09:30',
-    jobType: 'ExportDiagnostics',
-    status: 'running',
-    requestedBy: 'Sample Operator C',
-    scope: 'Sample Workspace Beta',
-    result: 'notReady',
-    requestId: 'req-export-002',
-    redactedDetails: exportDetails
-  }
-];
+export const DEFAULT_EXPORT_JOBS: readonly ExportJobMockRecord[] = [];
 
 export const AUDIT_LOG_SCENARIOS = {
   default: {
@@ -166,56 +137,43 @@ export const AUDIT_LOG_SCENARIOS = {
 
 export const EXPORT_DIAGNOSTICS_SCENARIOS = {
   default: {
-    status: 'ready',
-    title: 'Export diagnostics',
-    subtitle: 'Mock server-owned export job queue',
+    status: 'empty',
+    title: 'Export diagnostics not available in MVP0',
+    subtitle: 'Disabled for MVP0',
     exportJobs: DEFAULT_EXPORT_JOBS,
-    canRequestDiagnosticsExport: true
+    canRequestDiagnosticsExport: false,
+    message: 'Export diagnostics are not implemented for MVP0. Requests, job history, and downloads are disabled.'
   },
   allowed: {
-    status: 'ready',
-    title: 'Export diagnostics',
-    subtitle: 'Mock server-owned export job queue',
+    status: 'empty',
+    title: 'Export diagnostics not available in MVP0',
+    subtitle: 'Disabled for MVP0',
     exportJobs: DEFAULT_EXPORT_JOBS,
-    canRequestDiagnosticsExport: true
+    canRequestDiagnosticsExport: false,
+    message: 'Export diagnostics are not implemented for MVP0. Requests, job history, and downloads are disabled.'
   },
   notAllowed: {
-    status: 'ready',
-    title: 'Export diagnostics',
-    subtitle: 'Mock server-owned export job queue',
+    status: 'empty',
+    title: 'Export diagnostics not available in MVP0',
+    subtitle: 'Disabled for MVP0',
     exportJobs: DEFAULT_EXPORT_JOBS,
-    canRequestDiagnosticsExport: false
+    canRequestDiagnosticsExport: false,
+    message: 'Export diagnostics are not implemented for MVP0. Requests, job history, and downloads are disabled.'
   },
   pending: {
-    status: 'ready',
-    title: 'Export diagnostics',
-    subtitle: 'Mock server-owned export job queue',
-    exportJobs: [
-      {
-        ...DEFAULT_EXPORT_JOBS[0],
-        id: 'export-job-pending',
-        status: 'pending',
-        result: 'notReady',
-        requestId: 'req-export-pending'
-      }
-    ],
-    canRequestDiagnosticsExport: true,
-    initialSelectedJobId: 'export-job-pending'
+    status: 'empty',
+    title: 'Export diagnostics not available in MVP0',
+    subtitle: 'Disabled for MVP0',
+    exportJobs: DEFAULT_EXPORT_JOBS,
+    canRequestDiagnosticsExport: false,
+    message: 'Export diagnostics are not implemented for MVP0. Requests, job history, and downloads are disabled.'
   },
   failed: {
-    status: 'ready',
-    title: 'Export diagnostics',
-    subtitle: 'Mock server-owned export job queue',
-    exportJobs: [
-      {
-        ...DEFAULT_EXPORT_JOBS[0],
-        id: 'export-job-failed',
-        status: 'failed',
-        result: 'failed',
-        requestId: 'req-export-failed'
-      }
-    ],
-    canRequestDiagnosticsExport: true,
-    initialSelectedJobId: 'export-job-failed'
+    status: 'empty',
+    title: 'Export diagnostics not available in MVP0',
+    subtitle: 'Disabled for MVP0',
+    exportJobs: DEFAULT_EXPORT_JOBS,
+    canRequestDiagnosticsExport: false,
+    message: 'Export diagnostics are not implemented for MVP0. Requests, job history, and downloads are disabled.'
   }
 } satisfies Record<string, ExportDiagnosticsScenario>;
