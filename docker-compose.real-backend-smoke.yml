@@ -1,0 +1,112 @@
+# Test-only real-backend browser smoke stack.
+# It runs PostgreSQL, applies EF migrations, starts the ASP.NET Core image that
+# serves the built Angular app, then executes Playwright against that real host.
+# Invoke with an explicit project name, for example:
+# docker compose -p aipsite-real-backend-smoke -f docker-compose.real-backend-smoke.yml config
+
+services:
+  postgres:
+    image: postgres:18-alpine
+    environment:
+      POSTGRES_DB: aip_portal_smoke
+      POSTGRES_USER: aip_portal_smoke
+      POSTGRES_PASSWORD: aip_portal_smoke_password
+    volumes:
+      - real_backend_smoke_pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U aip_portal_smoke -d aip_portal_smoke"]
+      interval: 5s
+      timeout: 5s
+      retries: 20
+      start_period: 5s
+
+  migrate:
+    image: mcr.microsoft.com/dotnet/sdk:10.0
+    working_dir: /src
+    restart: "no"
+    volumes:
+      - ./:/src
+      - real_backend_smoke_nuget:/root/.nuget/packages
+    environment:
+      ASPNETCORE_ENVIRONMENT: Test
+      ConnectionStrings__DefaultConnection: Host=postgres;Port=5432;Database=aip_portal_smoke;Username=aip_portal_smoke;Password=aip_portal_smoke_password
+      NUGET_PACKAGES: /root/.nuget/packages
+      Tenancy__SeedOnStartup: "false"
+    depends_on:
+      postgres:
+        condition: service_healthy
+    command: >
+      bash -lc "mkdir -p /src/src/AipPortal.Web/wwwroot &&
+      dotnet tool restore &&
+      dotnet restore src/AipPortal.Web/AipPortal.Web.csproj /p:RestoreFallbackFolders= &&
+      dotnet ef database update --project src/AipPortal.Infrastructure --startup-project src/AipPortal.Web"
+
+  app:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    environment:
+      ASPNETCORE_ENVIRONMENT: Test
+      ASPNETCORE_URLS: http://0.0.0.0:8080
+      ConnectionStrings__DefaultConnection: Host=postgres;Port=5432;Database=aip_portal_smoke;Username=aip_portal_smoke;Password=aip_portal_smoke_password
+      DataProtection__KeysPath: /app/data/protection-keys
+      Tenancy__AppMode: OnPremSingleTenant
+      Tenancy__DefaultTenantSlug: default
+      Tenancy__TenantResolutionStrategy: ConfigDefault
+      Tenancy__AllowTenantSwitching: "false"
+      Tenancy__SeedOnStartup: "true"
+      UiShell__SeedOnStartup: "true"
+      FileStorage__Provider: LocalFileSystem
+      FileStorage__RootPath: /app/storage/uploads
+      Security__CookieSecurePolicy: SameAsRequest
+      Security__RequireHttps: "false"
+      Security__EnableHsts: "false"
+      Security__EnableCsrfProtection: "true"
+      Security__EnableRateLimiting: "false"
+      # Test-only deterministic synthetic seed:
+      # e2e-user@example.test, Browser Smoke Workspace, Browser smoke announcement,
+      # Browser Smoke Project, and Browser smoke task.
+      AIP_BROWSER_SMOKE_SEED_ENABLED: "true"
+      AIP_BROWSER_SMOKE_EMAIL: ${AIP_BROWSER_SMOKE_EMAIL:-e2e-user@example.test}
+      AIP_BROWSER_SMOKE_PASSWORD: ${AIP_BROWSER_SMOKE_PASSWORD:-E2eSmoke!23456}
+    volumes:
+      - real_backend_smoke_uploads:/app/storage/uploads
+      - real_backend_smoke_data_protection:/app/data/protection-keys
+    depends_on:
+      postgres:
+        condition: service_healthy
+      migrate:
+        condition: service_completed_successfully
+    healthcheck:
+      test: ["CMD-SHELL", "curl --fail --silent --show-error http://localhost:8080/health/ready >/dev/null"]
+      interval: 5s
+      timeout: 5s
+      retries: 24
+      start_period: 20s
+
+  real-backend-playwright:
+    build:
+      context: .
+      dockerfile: Dockerfile.playwright
+    working_dir: /work
+    environment:
+      CI: "true"
+      PLAYWRIGHT_BASE_URL: http://app:8080
+      AIP_BROWSER_SMOKE_EMAIL: ${AIP_BROWSER_SMOKE_EMAIL:-e2e-user@example.test}
+      AIP_BROWSER_SMOKE_PASSWORD: ${AIP_BROWSER_SMOKE_PASSWORD:-E2eSmoke!23456}
+    volumes:
+      - .:/work
+      - real_backend_smoke_node_modules:/work/node_modules
+    depends_on:
+      app:
+        condition: service_healthy
+    command: >
+      bash -lc "npm ci &&
+      node tests/ui/run-real-backend-playwright.mjs"
+
+volumes:
+  real_backend_smoke_pgdata:
+  real_backend_smoke_nuget:
+  real_backend_smoke_uploads:
+  real_backend_smoke_data_protection:
+  real_backend_smoke_node_modules:

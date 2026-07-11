@@ -1,0 +1,36 @@
+name: Real Backend Browser Smoke
+
+on:
+  workflow_dispatch:
+
+jobs:
+  real-backend-browser-smoke:
+    runs-on: ubuntu-latest
+    timeout-minutes: 35
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: "24"
+          cache: npm
+          cache-dependency-path: package-lock.json
+
+      - name: Install smoke runner dependencies
+        run: npm ci
+
+      - name: Run real-backend browser smoke
+        run: npm run test:ui:real-backend:compose
+
+      - name: Upload Playwright artifacts
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: real-backend-browser-smoke-artifacts
+          path: |
+            playwright-report/
+            test-results/
+          if-no-files-found: ignore
