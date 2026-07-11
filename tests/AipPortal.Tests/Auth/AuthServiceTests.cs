@@ -93,6 +93,50 @@ public sealed class AuthServiceTests
     }
 
     [Fact]
+    public async Task ExpiredInviteValidationReturnsDistinctExpiredError()
+    {
+        var fixture = AuthFixture.Create();
+        fixture.AddInvite("invite-token", "student@example.com", expiresAt: fixture.Clock.UtcNow.AddMinutes(-1));
+
+        var result = await fixture.Service.ValidateInviteAsync("invite-token");
+
+        Assert.False(result.IsSuccess);
+        Assert.Equal("Invite has expired.", result.Error);
+    }
+
+    [Fact]
+    public async Task RevokedInviteValidationReturnsDistinctRevokedError()
+    {
+        var fixture = AuthFixture.Create();
+        fixture.AddInvite(
+            "invite-token",
+            "student@example.com",
+            expiresAt: fixture.Clock.UtcNow.AddDays(1),
+            revokedAt: fixture.Clock.UtcNow);
+
+        var result = await fixture.Service.ValidateInviteAsync("invite-token");
+
+        Assert.False(result.IsSuccess);
+        Assert.Equal("Invite was revoked.", result.Error);
+    }
+
+    [Fact]
+    public async Task UsedInviteValidationReturnsDistinctUsedError()
+    {
+        var fixture = AuthFixture.Create();
+        fixture.AddInvite(
+            "invite-token",
+            "student@example.com",
+            expiresAt: fixture.Clock.UtcNow.AddDays(1),
+            acceptedAt: fixture.Clock.UtcNow);
+
+        var result = await fixture.Service.ValidateInviteAsync("invite-token");
+
+        Assert.False(result.IsSuccess);
+        Assert.Equal("Invite has already been used.", result.Error);
+    }
+
+    [Fact]
     public async Task AcceptInviteCreatesUserMembershipsSessionAndMarksInviteUsed()
     {
         var fixture = AuthFixture.Create();
@@ -110,6 +154,8 @@ public sealed class AuthServiceTests
         Assert.Contains(fixture.TenantUsers, membership => membership.TenantId == invite.TenantId && membership.UserId == user.Id && membership.Status == TenantUserStatus.Active);
         Assert.Contains(fixture.WorkspaceMembers, membership => membership.WorkspaceId == invite.WorkspaceId && membership.UserId == user.Id && membership.Status == MembershipStatus.Active);
         Assert.Single(fixture.Sessions);
+        Assert.Equal(invite.WorkspaceId, result.Value!.CurrentWorkspace?.Id);
+        Assert.Contains(result.Value.Workspaces, workspace => workspace.Id == invite.WorkspaceId);
     }
 
     [Fact]
@@ -292,7 +338,7 @@ public sealed class AuthServiceTests
                 new FakeUserRepository(Users),
                 new FakeInviteRepository(Invites),
                 new FakeTenantRepository(Tenants, TenantUsers),
-                new FakeWorkspaceRepository(WorkspaceMembers),
+                new FakeWorkspaceRepository(Workspaces, WorkspaceMembers),
                 new FakeSessionRepository(Sessions),
                 new FakeUserSessionService(),
                 PasswordHasher,
@@ -307,6 +353,7 @@ public sealed class AuthServiceTests
         public Dictionary<Guid, User> Users { get; } = [];
         public Dictionary<string, Invite> Invites { get; } = [];
         public Dictionary<Guid, Tenant> Tenants { get; } = [];
+        public Dictionary<Guid, Workspace> Workspaces { get; } = [];
         public List<TenantUser> TenantUsers { get; } = [];
         public List<WorkspaceMember> WorkspaceMembers { get; } = [];
         public List<Session> Sessions { get; } = [];
@@ -349,10 +396,20 @@ public sealed class AuthServiceTests
                 Status = TenantStatus.Active
             };
             Tenants[tenant.Id] = tenant;
+            var workspace = new Workspace
+            {
+                TenantId = tenant.Id,
+                Name = "Default Workspace",
+                Slug = "default-workspace",
+                Status = WorkspaceStatus.Active,
+                CreatedByUserId = Guid.NewGuid()
+            };
+            var workspaceId = workspace.Id;
+            Workspaces[workspaceId] = workspace;
             var invite = new Invite
             {
                 TenantId = tenant.Id,
-                WorkspaceId = Guid.NewGuid(),
+                WorkspaceId = workspaceId,
                 Email = email,
                 NormalizedEmail = email.ToUpperInvariant(),
                 TokenHash = TokenHasher.HashToken(token),
@@ -522,16 +579,29 @@ public sealed class AuthServiceTests
         }
     }
 
-    private sealed class FakeWorkspaceRepository(List<WorkspaceMember> members) : IWorkspaceRepository
+    private sealed class FakeWorkspaceRepository(
+        Dictionary<Guid, Workspace> workspaces,
+        List<WorkspaceMember> members) : IWorkspaceRepository
     {
         public Task<IReadOnlyList<Workspace>> ListForUserAsync(Guid userId, bool includeAll, CancellationToken cancellationToken = default)
         {
-            return Task.FromResult<IReadOnlyList<Workspace>>([]);
+            var workspaceIds = members
+                .Where(item => item.UserId == userId && item.Status == MembershipStatus.Active)
+                .Select(item => item.WorkspaceId)
+                .Distinct()
+                .ToHashSet();
+
+            var items = workspaces.Values
+                .Where(workspace => includeAll || workspaceIds.Contains(workspace.Id))
+                .ToList();
+
+            return Task.FromResult<IReadOnlyList<Workspace>>(items);
         }
 
         public Task<Workspace?> GetByIdAsync(Guid workspaceId, CancellationToken cancellationToken = default)
         {
-            return Task.FromResult<Workspace?>(new Workspace { Name = "Default Workspace", CreatedByUserId = Guid.NewGuid() });
+            workspaces.TryGetValue(workspaceId, out var workspace);
+            return Task.FromResult(workspace);
         }
 
         public Task<WorkspaceMember?> GetMemberAsync(Guid workspaceId, Guid userId, CancellationToken cancellationToken = default)

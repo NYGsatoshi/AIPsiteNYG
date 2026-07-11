@@ -27,12 +27,12 @@ export class InviteRegistrationFormComponent {
 
   get displayNameMessages(): readonly string[] {
     const control = this.form.controls.displayName;
-    return control.touched && control.hasError('required') ? ['表示名を入力してください。'] : [];
+    return control.touched && control.hasError('required') ? ['Display name is required.'] : [];
   }
 
   get passwordMessages(): readonly string[] {
     const control = this.form.controls.password;
-    return control.touched && control.hasError('required') ? ['パスワードを入力してください。'] : [];
+    return control.touched && control.hasError('required') ? ['Password is required.'] : [];
   }
 
   get confirmPasswordMessages(): readonly string[] {
@@ -42,10 +42,10 @@ export class InviteRegistrationFormComponent {
     }
 
     if (control.hasError('required')) {
-      return ['パスワード確認を入力してください。'];
+      return ['Confirm your password.'];
     }
 
-    return this.form.hasError('passwordMismatch') ? ['パスワードが一致しません。'] : [];
+    return this.form.hasError('passwordMismatch') ? ['Passwords must match.'] : [];
   }
 
   get canSubmit(): boolean {

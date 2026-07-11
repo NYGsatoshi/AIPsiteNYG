@@ -8,6 +8,7 @@ services:
     working_dir: /work
     environment:
       CI: "true"
+      PLAYWRIGHT_SKIP_BUILD: "1"
     volumes:
       - .:/work
       - playwright-root-node-modules:/work/node_modules

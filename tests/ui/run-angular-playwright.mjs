@@ -1,21 +1,28 @@
 import { spawn } from 'node:child_process';
+import { stat } from 'node:fs/promises';
 import { fileURLToPath } from 'node:url';
+import path from 'node:path';
 
 const port = Number(process.env.PLAYWRIGHT_PORT ?? 4173);
 const baseURL = process.env.PLAYWRIGHT_BASE_URL ?? `http://127.0.0.1:${port}`;
+const shouldSkipBuild = process.env.PLAYWRIGHT_SKIP_BUILD === '1';
+const distRoot = path.resolve(process.env.PLAYWRIGHT_STATIC_ROOT ?? path.join(process.cwd(), 'frontend/dist/aipportal-web'));
+const distIndexPath = path.join(distRoot, 'index.html');
 const serverPath = fileURLToPath(new URL('./serve-static.mjs', import.meta.url));
 const playwrightCli = fileURLToPath(new URL('../../node_modules/@playwright/test/cli.js', import.meta.url));
 const playwrightArgs = process.argv.slice(2);
-
-const server = spawn(process.execPath, [serverPath, '--port', String(port)], {
-  cwd: process.cwd(),
-  env: { ...process.env, PLAYWRIGHT_PORT: String(port) },
-  stdio: ['ignore', 'inherit', 'inherit']
-});
+let server = null;
 
 let exitCode = 1;
 
 try {
+  await ensureAngularBuild();
+  server = spawn(process.execPath, [serverPath, '--port', String(port)], {
+    cwd: process.cwd(),
+    env: { ...process.env, PLAYWRIGHT_PORT: String(port) },
+    stdio: ['ignore', 'inherit', 'inherit']
+  });
+
   await waitForHealth(`${baseURL}/health`);
 
   exitCode = await runPlaywright();
@@ -42,7 +49,7 @@ async function waitForHealth(url) {
   let lastError;
 
   while (Date.now() < deadline) {
-    if (server.exitCode !== null) {
+    if (server?.exitCode !== null) {
       throw new Error(`Angular Playwright static server exited with code ${server.exitCode}.`);
     }
 
@@ -61,9 +68,52 @@ async function waitForHealth(url) {
   throw new Error(`Timed out waiting for ${url}.${lastError ? ` Last error: ${lastError}` : ''}`);
 }
 
+async function ensureAngularBuild() {
+  if (!shouldSkipBuild) {
+    const buildExitCode = await runBuildCommand();
+    if (buildExitCode !== 0) {
+      throw new Error(`Angular build failed with exit code ${buildExitCode}.`);
+    }
+  }
+
+  try {
+    const stats = await stat(distIndexPath);
+    if (!stats.isFile()) {
+      throw new Error('Angular build output index.html was not created.');
+    }
+  } catch (error) {
+    throw new Error(
+      shouldSkipBuild
+        ? `PLAYWRIGHT_SKIP_BUILD=1 was set, but ${distIndexPath} is missing.`
+        : `Angular build completed without producing ${distIndexPath}.`,
+      { cause: error }
+    );
+  }
+}
+
+function runBuildCommand() {
+  if (process.platform === 'win32') {
+    return runCommand(process.env.ComSpec ?? 'cmd.exe', ['/d', '/s', '/c', 'npm --prefix frontend run build']);
+  }
+
+  return runCommand('npm', ['--prefix', 'frontend', 'run', 'build']);
+}
+
+function runCommand(command, args) {
+  return new Promise((resolve) => {
+    const child = spawn(command, args, {
+      cwd: process.cwd(),
+      env: { ...process.env },
+      stdio: 'inherit'
+    });
+
+    child.on('exit', (code) => resolve(code ?? 1));
+  });
+}
+
 function stopServer() {
   return new Promise((resolve) => {
-    if (server.exitCode !== null) {
+    if (!server || server.exitCode !== null) {
       resolve();
       return;
     }

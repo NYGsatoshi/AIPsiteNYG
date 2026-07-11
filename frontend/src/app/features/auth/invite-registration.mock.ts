@@ -36,6 +36,12 @@ export const INVITE_REGISTRATION_STATES: Record<string, InviteRegistrationViewMo
     submitDisabled: true,
     bootstrapActions: []
   },
+  revoked: {
+    status: 'revoked',
+    email: null,
+    submitDisabled: true,
+    bootstrapActions: []
+  },
   alreadyAccepted: {
     status: 'alreadyAccepted',
     email: null,
@@ -52,7 +58,7 @@ export const INVITE_REGISTRATION_STATES: Record<string, InviteRegistrationViewMo
     status: 'registrationSuccessAutoSession',
     email: INVITE_REGISTRATION_SAFE_EMAIL,
     submitDisabled: true,
-    targetWorkspacePath: '/app/workspaces',
+    targetWorkspacePath: '/workspaces',
     bootstrapActions: [
       'clearAnonymousState',
       'fetchCurrentUser',
@@ -97,6 +103,10 @@ export const INVITE_REGISTRATION_SCENARIOS = {
   expiredToken: {
     initialState: INVITE_REGISTRATION_STATES['expired'],
     submitResult: INVITE_REGISTRATION_STATES['expired']
+  },
+  revokedToken: {
+    initialState: INVITE_REGISTRATION_STATES['revoked'],
+    submitResult: INVITE_REGISTRATION_STATES['revoked']
   },
   alreadyAccepted: {
     initialState: INVITE_REGISTRATION_STATES['alreadyAccepted'],

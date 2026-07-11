@@ -8,68 +8,73 @@
     @case ('valid') {
       <dl class="invite-token-state__details" data-testid="invite-details">
         <div>
-          <dt>メール</dt>
+          <dt>Email</dt>
           <dd>{{ state.email }}</dd>
         </div>
         @if (state.role) {
           <div>
-            <dt>ロール</dt>
+            <dt>Role</dt>
             <dd>{{ state.role }}</dd>
           </div>
         }
         @if (state.tenantName) {
           <div>
-            <dt>テナント</dt>
+            <dt>Tenant</dt>
             <dd>{{ state.tenantName }}</dd>
           </div>
         }
         @if (state.workspaceName) {
           <div>
-            <dt>ワークスペース</dt>
+            <dt>Workspace</dt>
             <dd>{{ state.workspaceName }}</dd>
           </div>
         }
         @if (state.expiresAt) {
           <div>
-            <dt>有効期限</dt>
+            <dt>Expires</dt>
             <dd>{{ state.expiresAt }}</dd>
           </div>
         }
       </dl>
     }
     @case ('validating') {
-      <p role="status">招待リンクを確認しています。</p>
+      <p role="status">Checking invite.</p>
     }
     @case ('missing') {
       <p data-testid="safe-unusable-link">
-        {{ state.message ?? '招待リンクが無効です。管理者から送られた招待URLを開いてください。' }}
+        {{ state.message ?? 'This invite link is incomplete. Ask for a new invite URL.' }}
       </p>
     }
     @case ('invalid') {
       <p data-testid="safe-unusable-link">
-        {{ state.message ?? '招待リンクが無効です。管理者から送られた招待URLを開いてください。' }}
+        {{ state.message ?? 'This invite is not valid. Ask for a new invite URL.' }}
       </p>
     }
     @case ('expired') {
       <p data-testid="safe-unusable-link">
-        {{ state.message ?? '招待リンクの有効期限が切れています。管理者に新しい招待URLを依頼してください。' }}
+        {{ state.message ?? 'This invite has expired. Ask for a new invite URL.' }}
+      </p>
+    }
+    @case ('revoked') {
+      <p data-testid="safe-unusable-link">
+        {{ state.message ?? 'This invite was revoked. Ask for a new invite URL.' }}
       </p>
     }
     @case ('alreadyAccepted') {
-      <p>{{ state.message ?? 'この招待リンクはすでに使用済みです。ログインしてください。' }}</p>
+      <p>{{ state.message ?? 'This invite has already been used. Sign in to continue.' }}</p>
     }
     @case ('backendTransactionGated') {
-      <p>この招待登録は現在準備中です。</p>
+      <p>This invite flow is blocked by an older backend contract.</p>
     }
     @case ('registrationSuccessAutoSession') {
-      <p role="status">登録が完了しました。ワークスペースを準備しています。</p>
+      <p role="status">{{ state.message ?? 'Invite accepted. Redirecting to workspaces.' }}</p>
     }
     @case ('registrationSuccessLoginRequired') {
-      <p role="status">登録が完了しました。ログインしてください。</p>
+      <p role="status">{{ state.message ?? 'Invite accepted. Sign in to continue.' }}</p>
     }
     @case ('registrationFailure') {
       <p role="alert">
-        {{ state.message ?? '登録できませんでした。入力内容と招待リンクを確認してください。' }}
+        {{ state.message ?? 'Invite acceptance failed. Confirm the invite status and try again.' }}
       </p>
       @if (state.requestId) {
         <p class="invite-token-state__request" data-testid="invite-request-id">Request ID: {{ state.requestId }}</p>

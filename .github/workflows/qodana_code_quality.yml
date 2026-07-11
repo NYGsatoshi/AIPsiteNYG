@@ -1,9 +1,10 @@
-﻿#-------------------------------------------------------------------------------#
+#-------------------------------------------------------------------------------#
 #        Discover additional configuration options in our documentation         #
 #               https://www.jetbrains.com/help/qodana/github.html               #
 #-------------------------------------------------------------------------------#
 
 name: Qodana
+
 on:
   workflow_dispatch:
   pull_request:
@@ -11,29 +12,81 @@ on:
     branches:
       - main
 
+concurrency:
+  group: qodana-${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+
 jobs:
   qodana:
     runs-on: ubuntu-latest
+    timeout-minutes: 120
     permissions:
-      contents: write
+      contents: read
       pull-requests: write
       checks: write
+    env:
+      QODANA_TOKEN: ${{ secrets.QODANA_TOKEN }}
+
     steps:
       - uses: actions/checkout@v4
         with:
-          ref: ${{ github.event.pull_request.head.sha }}
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
           fetch-depth: 0
-      - name: 'Qodana Scan'
-        uses: JetBrains/qodana-action@v2026.1
-        env:
-          QODANA_TOKEN: ${{ secrets.QODANA_TOKEN }}
+
+      # Native qodana-dotnet uses the runner toolchain. The Community fallback is
+      # containerized and prepares its .NET SDK through qodana.yaml instead.
+      - name: Set up .NET SDK
+        if: ${{ env.QODANA_TOKEN != '' }}
+        uses: actions/setup-dotnet@v4
         with:
-          # When pr-mode is set to true, Qodana analyzes only the files that have been changed
+          global-json-file: global.json
+
+      - name: Set up Node.js
+        if: ${{ env.QODANA_TOKEN != '' }}
+        uses: actions/setup-node@v4
+        with:
+          node-version: "24"
+          cache: npm
+          cache-dependency-path: |
+            package-lock.json
+            frontend/package-lock.json
+
+      - name: Report Community fallback
+        if: ${{ env.QODANA_TOKEN == '' }}
+        shell: bash
+        run: |
+          echo "::warning::QODANA_TOKEN is not configured. Running qodana-cdnet Community for C#/.NET only; JavaScript, TypeScript and Angular Qodana inspections require qodana-dotnet and an Ultimate or Ultimate Plus token."
+          {
+            echo "### Qodana Community fallback"
+            echo
+            echo "QODANA_TOKEN is not configured, so this run uses qodana-cdnet."
+            echo "C#/.NET inspections run, but JavaScript, TypeScript and Angular Qodana inspections are unavailable until the secret is added."
+          } >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Qodana Scan (Ultimate full-stack)
+        if: ${{ env.QODANA_TOKEN != '' }}
+        uses: JetBrains/qodana-action@v2026.1
+        with:
+          args: |
+            --linter qodana-dotnet
+            --within-docker false
           pr-mode: false
           use-caches: true
           post-pr-comment: true
           use-annotations: true
-          # Upload Qodana results (SARIF, other artifacts, logs) as an artifact to the job
+          upload-result: true
+          push-fixes: none
+
+      - name: Qodana Scan (Community .NET fallback)
+        if: ${{ env.QODANA_TOKEN == '' }}
+        uses: JetBrains/qodana-action@v2026.1
+        with:
+          args: |
+            --image jetbrains/qodana-cdnet:2026.1-eap-privileged
+            --solution AipPortal.slnx
+          pr-mode: false
+          use-caches: true
+          post-pr-comment: true
+          use-annotations: true
           upload-result: false
-          # quick-fixes available in Ultimate and Ultimate Plus plans
-          push-fixes: 'none'
+          push-fixes: none

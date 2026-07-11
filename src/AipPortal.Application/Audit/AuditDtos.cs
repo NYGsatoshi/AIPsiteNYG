@@ -29,6 +29,18 @@ public sealed record AuditLogListItemResponse(
     string? CorrelationId,
     DateTimeOffset CreatedAt);
 
+public sealed record AuditGridRowResponse(
+    Guid Id,
+    DateTimeOffset CreatedAt,
+    string Action,
+    string ActorDisplayName,
+    string TargetType,
+    string? WorkspaceLabel,
+    string Severity,
+    string Result,
+    string Summary,
+    string? RequestId);
+
 public sealed record SecurityEventQuery(
     SecurityEventType? EventType = null,
     SecurityEventSeverity? Severity = null,

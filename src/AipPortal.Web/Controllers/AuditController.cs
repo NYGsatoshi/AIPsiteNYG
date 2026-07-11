@@ -27,6 +27,12 @@ public sealed class AuditController(IAuditQueryService audit) : ControllerBase
         return ToActionResult(await audit.ListAuditLogsAsync(query, cancellationToken));
     }
 
+    [HttpGet("api/admin/audit-grid")]
+    public async Task<IActionResult> AdminAuditGrid([FromQuery] AuditLogQuery query, CancellationToken cancellationToken)
+    {
+        return ToActionResult(await audit.ListAuditGridAsync(query, cancellationToken));
+    }
+
     [HttpGet("api/security-events")]
     public async Task<IActionResult> SecurityEvents([FromQuery] SecurityEventQuery query, CancellationToken cancellationToken)
     {

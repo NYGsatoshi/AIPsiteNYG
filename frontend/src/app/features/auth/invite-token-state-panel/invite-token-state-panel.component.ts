@@ -12,7 +12,8 @@ export class InviteTokenStatePanelComponent {
   @Input({ required: true }) state!: InviteRegistrationViewModel;
 
   get isBlockingState(): boolean {
-    return ['missing', 'invalid', 'expired', 'alreadyAccepted', 'backendTransactionGated'].includes(this.state.status);
+    return ['missing', 'invalid', 'expired', 'revoked', 'alreadyAccepted', 'backendTransactionGated'].includes(
+      this.state.status
+    );
   }
 }
-

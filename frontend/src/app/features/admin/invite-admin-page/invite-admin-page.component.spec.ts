@@ -3,10 +3,7 @@ import { HttpTestingController, provideHttpClientTesting } from '@angular/common
 import { ComponentFixture, TestBed } from '@angular/core/testing';
 import { provideRouter } from '@angular/router';
 
-import {
-  AIP_AUTH_SESSION_MOCK,
-  DEFAULT_AUTH_SESSION
-} from '../../../core/auth/auth-session.facade';
+import { AIP_AUTH_SESSION_MOCK, DEFAULT_AUTH_SESSION } from '../../../core/auth/auth-session.facade';
 import { authSessionInterceptor } from '../../../core/auth/auth-session.interceptor';
 import { InviteAdminPageComponent } from './invite-admin-page.component';
 
@@ -85,7 +82,9 @@ describe('InviteAdminPageComponent', () => {
     expect((fixture.nativeElement as HTMLElement).textContent).toContain(
       'https://portal.example.test/app/register/invite?token=safe-token'
     );
-    expect((fixture.nativeElement as HTMLElement).textContent).toContain('このリンクを相手に送ってください。');
+    expect((fixture.nativeElement as HTMLElement).textContent).toContain(
+      'Email delivery is not implemented. Send this link manually.'
+    );
   });
 
   it('shows ProblemDetails validation errors instead of a generic invite failure', () => {
@@ -114,6 +113,27 @@ describe('InviteAdminPageComponent', () => {
     expect((fixture.nativeElement as HTMLElement).textContent).toContain(
       'Role: The JSON value could not be converted to WorkspaceRole.'
     );
+  });
+
+  it('shows manual copy fallback when clipboard support is unavailable', () => {
+    component.createdInvite.set({
+      email: 'new-user@example.invalid',
+      role: 'Member',
+      inviteUrl: 'https://portal.example.test/app/register/invite?token=safe-token',
+      expiresAt: '7/13/2026, 12:00:00 AM'
+    });
+
+    component.copyInviteUrl();
+
+    expect(component.message()).toBe('Copy is not available in this browser. Select and copy the invite URL.');
+  });
+
+  it('keeps revoke and resend controls hidden when the UI does not implement them', () => {
+    fixture.detectChanges();
+
+    const text = (fixture.nativeElement as HTMLElement).textContent ?? '';
+    expect(text).not.toContain('Revoke');
+    expect(text).not.toContain('Resend');
   });
 
   function flushInitialLoad(): void {

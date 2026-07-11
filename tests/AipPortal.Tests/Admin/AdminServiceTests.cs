@@ -54,6 +54,41 @@ public sealed class AdminServiceTests
         Assert.NotEqual(result.Value!.InviteToken, storedInvite.TokenHash);
         Assert.Equal(new Sha256TokenHasher().HashToken(result.Value.InviteToken!), storedInvite.TokenHash);
         Assert.Equal(fixture.Clock.UtcNow.AddDays(7), storedInvite.ExpiresAt);
+        Assert.Equal(fixture.Repository.WorkspaceTenantId, storedInvite.TenantId);
+    }
+
+    [Fact]
+    public async Task CreateInviteFailsWhenWorkspaceTenantContextIsMissing()
+    {
+        var fixture = AdminFixture.Create(SystemRole.SystemAdmin);
+        fixture.Repository.WorkspaceTenantId = Guid.Empty;
+
+        var result = await fixture.Service.CreateInviteAsync(new CreateInviteRequest(
+            Guid.NewGuid(),
+            "new-user@example.com",
+            WorkspaceRole.Member,
+            null));
+
+        Assert.False(result.IsSuccess);
+        Assert.Equal("Workspace tenant context is missing.", result.Error);
+        Assert.Empty(fixture.Repository.Invites);
+    }
+
+    [Fact]
+    public async Task CreateInviteFailsWhenWorkspaceDoesNotExist()
+    {
+        var fixture = AdminFixture.Create(SystemRole.SystemAdmin);
+        fixture.Repository.WorkspaceExists = false;
+
+        var result = await fixture.Service.CreateInviteAsync(new CreateInviteRequest(
+            Guid.NewGuid(),
+            "new-user@example.com",
+            WorkspaceRole.Member,
+            null));
+
+        Assert.False(result.IsSuccess);
+        Assert.Equal("Workspace not found.", result.Error);
+        Assert.Empty(fixture.Repository.Invites);
     }
 
     [Fact]
@@ -123,6 +158,8 @@ public sealed class AdminServiceTests
         public Dictionary<Guid, User> Users { get; } = [];
         public List<SystemSetting> Settings { get; } = [];
         public List<Invite> Invites { get; } = [];
+        public bool WorkspaceExists { get; set; } = true;
+        public Guid WorkspaceTenantId { get; set; } = Guid.Parse("11111111-1111-1111-1111-111111111111");
 
         public Task<PagedResponse<AdminUserListItemResponse>> ListUsersAsync(int page, int pageSize, CancellationToken cancellationToken = default)
         {
@@ -170,7 +207,19 @@ public sealed class AdminServiceTests
             return Task.FromResult(Invites.FirstOrDefault(invite => invite.Id == inviteId));
         }
 
-        public Task<Workspace?> GetWorkspaceAsync(Guid workspaceId, CancellationToken cancellationToken = default) => Task.FromResult<Workspace?>(new Workspace { CreatedByUserId = Guid.NewGuid() });
+        public Task<Workspace?> GetWorkspaceAsync(Guid workspaceId, CancellationToken cancellationToken = default)
+        {
+            if (!WorkspaceExists)
+            {
+                return Task.FromResult<Workspace?>(null);
+            }
+
+            return Task.FromResult<Workspace?>(new Workspace
+            {
+                TenantId = WorkspaceTenantId,
+                CreatedByUserId = Guid.NewGuid()
+            });
+        }
 
         public Task<Group?> GetGroupAsync(Guid groupId, CancellationToken cancellationToken = default) => Task.FromResult<Group?>(null);
 

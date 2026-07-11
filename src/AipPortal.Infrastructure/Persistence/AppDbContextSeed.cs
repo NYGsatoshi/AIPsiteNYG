@@ -114,6 +114,265 @@ public static class AppDbContextSeed
             cancellationToken);
     }
 
+    public static async Task SeedBrowserSmokeAsync(
+        AppDbContext dbContext,
+        IPasswordHasher passwordHasher,
+        Guid tenantId,
+        string email,
+        string password,
+        CancellationToken cancellationToken = default)
+    {
+        ArgumentException.ThrowIfNullOrWhiteSpace(email);
+        ArgumentException.ThrowIfNullOrWhiteSpace(password);
+
+        const string workspaceSlug = "browser-smoke-workspace";
+        const string projectSlug = "browser-smoke-project";
+        const string announcementTitle = "Browser smoke announcement";
+        const string taskTitle = "Browser smoke task";
+
+        var now = DateTimeOffset.UtcNow;
+        var normalizedEmail = email.Trim().ToUpperInvariant();
+        var user = await dbContext.Users.FirstOrDefaultAsync(candidate => candidate.NormalizedEmail == normalizedEmail, cancellationToken);
+        if (user is null)
+        {
+            user = new User
+            {
+                DisplayName = "Automated Browser Smoke User",
+                Email = email.Trim(),
+                NormalizedEmail = normalizedEmail,
+                PasswordHash = passwordHasher.HashPassword(password),
+                SystemRole = SystemRole.User,
+                Status = UserStatus.Active
+            };
+            await dbContext.Users.AddAsync(user, cancellationToken);
+            await dbContext.SaveChangesAsync(cancellationToken);
+        }
+        else
+        {
+            user.DisplayName = "Automated Browser Smoke User";
+            user.Email = email.Trim();
+            user.NormalizedEmail = normalizedEmail;
+            user.SystemRole = SystemRole.User;
+            user.Status = UserStatus.Active;
+            user.FailedLoginAttempts = 0;
+            user.LockoutEndAt = null;
+            if (user.IsDeleted)
+            {
+                user.Restore();
+            }
+
+            if (!passwordHasher.VerifyPassword(user.PasswordHash, password))
+            {
+                user.PasswordHash = passwordHasher.HashPassword(password);
+            }
+        }
+
+        var tenantUser = await dbContext.TenantUsers
+            .FirstOrDefaultAsync(candidate => candidate.TenantId == tenantId && candidate.UserId == user.Id, cancellationToken);
+        if (tenantUser is null)
+        {
+            tenantUser = new TenantUser
+            {
+                TenantId = tenantId,
+                UserId = user.Id,
+                Role = TenantUserRole.Member,
+                Status = TenantUserStatus.Active,
+                JoinedAt = now
+            };
+            await dbContext.TenantUsers.AddAsync(tenantUser, cancellationToken);
+        }
+        else
+        {
+            tenantUser.Role = TenantUserRole.Member;
+            tenantUser.Status = TenantUserStatus.Active;
+            if (tenantUser.JoinedAt == default)
+            {
+                tenantUser.JoinedAt = now;
+            }
+        }
+
+        var workspace = await dbContext.Workspaces
+            .FirstOrDefaultAsync(candidate => candidate.TenantId == tenantId && candidate.Slug == workspaceSlug, cancellationToken);
+        if (workspace is null)
+        {
+            workspace = new Workspace
+            {
+                TenantId = tenantId,
+                Name = "Browser Smoke Workspace",
+                Slug = workspaceSlug,
+                Description = "Synthetic workspace for automated browser smoke tests.",
+                Status = WorkspaceStatus.Active,
+                CreatedByUserId = user.Id
+            };
+            await dbContext.Workspaces.AddAsync(workspace, cancellationToken);
+            await dbContext.SaveChangesAsync(cancellationToken);
+        }
+        else
+        {
+            workspace.Name = "Browser Smoke Workspace";
+            workspace.Description = "Synthetic workspace for automated browser smoke tests.";
+            workspace.Status = WorkspaceStatus.Active;
+            workspace.CreatedByUserId = user.Id;
+            if (workspace.IsDeleted)
+            {
+                workspace.Restore();
+            }
+        }
+
+        var workspaceMember = await dbContext.WorkspaceMembers.FirstOrDefaultAsync(
+            candidate => candidate.TenantId == tenantId && candidate.WorkspaceId == workspace.Id && candidate.UserId == user.Id,
+            cancellationToken);
+        if (workspaceMember is null)
+        {
+            await dbContext.WorkspaceMembers.AddAsync(new WorkspaceMember
+            {
+                TenantId = tenantId,
+                WorkspaceId = workspace.Id,
+                UserId = user.Id,
+                Role = WorkspaceRole.Owner,
+                Status = MembershipStatus.Active,
+                JoinedAt = now
+            }, cancellationToken);
+        }
+        else
+        {
+            workspaceMember.Role = WorkspaceRole.Owner;
+            workspaceMember.Status = MembershipStatus.Active;
+            workspaceMember.JoinedAt ??= now;
+        }
+
+        var announcement = await dbContext.Announcements.FirstOrDefaultAsync(
+            candidate => candidate.TenantId == tenantId && candidate.WorkspaceId == workspace.Id && candidate.Title == announcementTitle,
+            cancellationToken);
+        if (announcement is null)
+        {
+            announcement = new Announcement
+            {
+                TenantId = tenantId,
+                WorkspaceId = workspace.Id,
+                AuthorUserId = user.Id,
+                Title = announcementTitle,
+                Body = "Synthetic announcement body for the real-backend browser smoke test.",
+                Priority = AnnouncementPriority.Important,
+                IsPinned = true,
+                RequiresReadConfirmation = false,
+                PublishedAt = now.AddMinutes(-5)
+            };
+            await dbContext.Announcements.AddAsync(announcement, cancellationToken);
+        }
+        else
+        {
+            announcement.AuthorUserId = user.Id;
+            announcement.Body = "Synthetic announcement body for the real-backend browser smoke test.";
+            announcement.Priority = AnnouncementPriority.Important;
+            announcement.IsPinned = true;
+            announcement.RequiresReadConfirmation = false;
+            announcement.PublishedAt = now.AddMinutes(-5);
+            announcement.ExpiresAt = null;
+            if (announcement.IsDeleted)
+            {
+                announcement.Restore();
+            }
+        }
+
+        var project = await dbContext.Projects.FirstOrDefaultAsync(
+            candidate => candidate.TenantId == tenantId && candidate.WorkspaceId == workspace.Id && candidate.Slug == projectSlug,
+            cancellationToken);
+        if (project is null)
+        {
+            project = new Project
+            {
+                TenantId = tenantId,
+                WorkspaceId = workspace.Id,
+                OwnerUserId = user.Id,
+                CreatedByUserId = user.Id,
+                Name = "Browser Smoke Project",
+                Slug = projectSlug,
+                Description = "Synthetic project for the real-backend browser smoke test.",
+                Status = ProjectStatus.Active,
+                StartDate = DateOnly.FromDateTime(now.UtcDateTime.Date),
+                DueDate = DateOnly.FromDateTime(now.UtcDateTime.Date.AddDays(14))
+            };
+            await dbContext.Projects.AddAsync(project, cancellationToken);
+            await dbContext.SaveChangesAsync(cancellationToken);
+        }
+        else
+        {
+            project.OwnerUserId = user.Id;
+            project.CreatedByUserId = user.Id;
+            project.Name = "Browser Smoke Project";
+            project.Description = "Synthetic project for the real-backend browser smoke test.";
+            project.Status = ProjectStatus.Active;
+            project.StartDate = DateOnly.FromDateTime(now.UtcDateTime.Date);
+            project.DueDate = DateOnly.FromDateTime(now.UtcDateTime.Date.AddDays(14));
+            if (project.IsDeleted)
+            {
+                project.Restore();
+            }
+        }
+
+        var projectMember = await dbContext.ProjectMembers.FirstOrDefaultAsync(
+            candidate => candidate.TenantId == tenantId && candidate.ProjectId == project.Id && candidate.UserId == user.Id,
+            cancellationToken);
+        if (projectMember is null)
+        {
+            await dbContext.ProjectMembers.AddAsync(new ProjectMember
+            {
+                TenantId = tenantId,
+                ProjectId = project.Id,
+                UserId = user.Id,
+                Role = ProjectRole.Owner,
+                JoinedAt = now
+            }, cancellationToken);
+        }
+        else
+        {
+            projectMember.Role = ProjectRole.Owner;
+            if (projectMember.JoinedAt == default)
+            {
+                projectMember.JoinedAt = now;
+            }
+        }
+
+        var task = await dbContext.TaskItems.FirstOrDefaultAsync(
+            candidate => candidate.TenantId == tenantId && candidate.ProjectId == project.Id && candidate.Title == taskTitle,
+            cancellationToken);
+        if (task is null)
+        {
+            await dbContext.TaskItems.AddAsync(new TaskItem
+            {
+                TenantId = tenantId,
+                ProjectId = project.Id,
+                Title = taskTitle,
+                Description = "Synthetic task detail for the real-backend browser smoke test.",
+                Status = TaskItemStatus.NotStarted,
+                Priority = TaskPriority.Normal,
+                StartDate = project.StartDate,
+                DueDate = project.DueDate,
+                ProgressPercent = 10,
+                SortOrder = 1,
+                CreatedByUserId = user.Id
+            }, cancellationToken);
+        }
+        else
+        {
+            task.Description = "Synthetic task detail for the real-backend browser smoke test.";
+            task.Status = TaskItemStatus.NotStarted;
+            task.Priority = TaskPriority.Normal;
+            task.StartDate = project.StartDate;
+            task.DueDate = project.DueDate;
+            task.ProgressPercent = 10;
+            task.SortOrder = 1;
+            task.CreatedByUserId = user.Id;
+            if (task.IsDeleted)
+            {
+                task.Restore();
+            }
+        }
+
+        await dbContext.SaveChangesAsync(cancellationToken);
+    }
+
     public static async Task EnsureBootstrapAdminAsync(
         AppDbContext dbContext,
         IPasswordHasher passwordHasher,

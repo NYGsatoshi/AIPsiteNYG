@@ -4,6 +4,7 @@ export type InviteTokenStatus =
   | 'valid'
   | 'invalid'
   | 'expired'
+  | 'revoked'
   | 'alreadyAccepted'
   | 'backendTransactionGated'
   | 'registrationSuccessAutoSession'
