@@ -101,12 +101,16 @@ app.UseMiddleware<SecurityHeadersMiddleware>();
 
 var tenancyOptions = app.Services.GetRequiredService<TenancyOptions>();
 var seedAdminEnabled = builder.Configuration.GetValue<bool>("AIP_SEED_ADMIN_ENABLED");
+var browserSmokeSeedEnabled =
+    builder.Configuration.GetValue<bool>("BrowserSmokeSeed:Enabled") ||
+    builder.Configuration.GetValue<bool>("AIP_BROWSER_SMOKE_SEED_ENABLED");
 var bootstrapAdminEmail =
     builder.Configuration["AIP_BOOTSTRAP_ADMIN_EMAIL"] ??
     builder.Configuration["BootstrapAdmin:Email"];
 if (tenancyOptions.SeedOnStartup ||
     tenancyOptions.AppMode == AppMode.OnPremSingleTenant ||
     builder.Configuration.GetValue<bool>("UiShell:SeedOnStartup") ||
+    browserSmokeSeedEnabled ||
     seedAdminEnabled ||
     !string.IsNullOrWhiteSpace(bootstrapAdminEmail))
 {
@@ -167,6 +171,28 @@ if (tenancyOptions.SeedOnStartup ||
     if (builder.Configuration.GetValue<bool>("UiShell:SeedOnStartup"))
     {
         await AppDbContextSeed.SeedUiShellAsync(dbContext, defaultTenant.Id);
+    }
+
+    if (browserSmokeSeedEnabled)
+    {
+        var smokeEmail =
+            builder.Configuration["BrowserSmokeSeed:Email"] ??
+            builder.Configuration["AIP_BROWSER_SMOKE_EMAIL"];
+        var smokePassword =
+            builder.Configuration["BrowserSmokeSeed:Password"] ??
+            builder.Configuration["AIP_BROWSER_SMOKE_PASSWORD"];
+        if (string.IsNullOrWhiteSpace(smokeEmail) || string.IsNullOrWhiteSpace(smokePassword))
+        {
+            throw new InvalidOperationException(
+                "Browser smoke seed is enabled but BrowserSmokeSeed:Email or BrowserSmokeSeed:Password is missing.");
+        }
+
+        await AppDbContextSeed.SeedBrowserSmokeAsync(
+            dbContext,
+            scope.ServiceProvider.GetRequiredService<IPasswordHasher>(),
+            defaultTenant.Id,
+            smokeEmail,
+            smokePassword);
     }
 }
 

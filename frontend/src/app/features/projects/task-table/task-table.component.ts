@@ -107,6 +107,7 @@ export class TaskTableComponent {
       button.type = 'button';
       button.className = 'app-grid-actions__button';
       button.dataset['gridAction'] = action.id;
+      button.dataset['testid'] = `task-action-${action.id}`;
       button.textContent = action.label;
       button.disabled = action.disabled;
       button.setAttribute('aria-disabled', String(action.disabled));

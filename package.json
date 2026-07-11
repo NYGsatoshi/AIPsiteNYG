@@ -9,7 +9,9 @@
     "test:ui": "node tests/ui/run-angular-playwright.mjs",
     "test:ui:angular": "node tests/ui/run-angular-playwright.mjs",
     "test:ui:angular:docker": "docker compose -f docker-compose.playwright.yml run --build --rm angular-playwright",
-    "test:ui:angular:docker:update-snapshots": "docker compose -f docker-compose.playwright.yml run --build --rm angular-playwright bash -lc \"npm ci && npm --prefix frontend ci && npm --prefix frontend run build && npm run test:ui:angular -- --update-snapshots\""
+    "test:ui:angular:docker:update-snapshots": "docker compose -f docker-compose.playwright.yml run --build --rm angular-playwright bash -lc \"npm ci && npm --prefix frontend ci && npm --prefix frontend run build && npm run test:ui:angular -- --update-snapshots\"",
+    "test:ui:real-backend": "node tests/ui/run-real-backend-smoke-compose.mjs",
+    "test:ui:real-backend:compose": "node tests/ui/run-real-backend-smoke-compose.mjs"
   },
   "devDependencies": {
     "@axe-core/playwright": "^4.10.2",
