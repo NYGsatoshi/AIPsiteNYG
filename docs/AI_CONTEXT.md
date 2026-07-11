@@ -34,7 +34,9 @@ Do not infer that an entity, configuration property, controller route, or archiv
 - Cookie authentication: `src/AipPortal.Web/Program.cs`.
 - Angular browser UI source: `frontend/`; hosted build artifacts are copied to `src/AipPortal.Web/wwwroot/`.
 - xUnit tests: `tests/AipPortal.Tests/`.
-- Playwright and axe UI tests: `tests/ui/`, using mocked API responses.
+- Playwright and axe UI tests: `tests/ui/`, with static Angular/mock coverage
+  plus an isolated Compose-backed MVP0 real-backend smoke for cookie, CSRF, and
+  seeded workflow compatibility.
 - Docker and Docker Compose: `Dockerfile`, `docker-compose*.yml`.
 
 ## Architecture

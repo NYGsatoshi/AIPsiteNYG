@@ -1,7 +1,7 @@
 import { expect, type Page, type Response as PlaywrightResponse, test } from '@playwright/test';
 
-const smokeEmail = process.env.AIP_BROWSER_SMOKE_EMAIL ?? 'e2e-user@example.test';
-const smokePassword = process.env.AIP_BROWSER_SMOKE_PASSWORD ?? 'E2eSmoke!23456';
+const smokeEmail = process.env.AIP_BROWSER_SMOKE_EMAIL ?? '';
+const smokePassword = process.env.AIP_BROWSER_SMOKE_PASSWORD ?? '';
 
 const smokeWorkspaceName = 'Browser Smoke Workspace';
 const smokeAnnouncementTitle = 'Browser smoke announcement';
@@ -10,6 +10,21 @@ const smokeTaskTitle = 'Browser smoke task';
 
 test.describe('MVP0 real backend browser smoke', () => {
   test.setTimeout(120_000);
+
+  test.beforeAll(() => {
+    if (process.env.AIP_REAL_BACKEND_SMOKE !== '1') {
+      throw new Error('This real-backend smoke requires AIP_REAL_BACKEND_SMOKE=1. Use `npm run test:ui:real-backend`; do not run it against the static Angular mock server.');
+    }
+
+    const baseURL = process.env.PLAYWRIGHT_BASE_URL;
+    if (!baseURL || /^(?:http:\/\/)?(?:127\.0\.0\.1|localhost):4173(?:\/|$)/i.test(baseURL)) {
+      throw new Error('The real-backend smoke requires a non-static PLAYWRIGHT_BASE_URL. Use `npm run test:ui:real-backend`, which runs Playwright inside Compose at http://app:8080.');
+    }
+
+    if (!smokeEmail || !smokeEmail.toLowerCase().endsWith('@example.test') || !smokePassword) {
+      throw new Error('The real-backend smoke requires defined synthetic @example.test seed credentials. Use `npm run test:ui:real-backend`.');
+    }
+  });
 
   test.beforeEach(async ({}, testInfo) => {
     test.skip(

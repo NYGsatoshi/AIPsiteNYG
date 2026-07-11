@@ -23,7 +23,7 @@ jobs:
         run: npm ci
 
       - name: Run real-backend browser smoke
-        run: npm run test:ui:real-backend:compose
+        run: npm run test:ui:real-backend
 
       - name: Upload Playwright artifacts
         if: always()

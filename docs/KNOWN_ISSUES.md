@@ -364,10 +364,14 @@ Status after the MVP-A P0 Angular migration: obsolete as active frontend defects
 
 ### KI-009: Playwright does not test the real backend
 
-- Status: known test limitation.
-- Evidence: static server plus route interception in `tests/ui/`.
-- Impact: DTO, authentication, CSRF, and route mismatches can pass UI tests.
-- Suggested issue: **Add a small end-to-end Playwright profile against the ASP.NET Core test host**.
+- Status: partially resolved for MVP0 smoke coverage.
+- Evidence: `tests/ui/real-backend-smoke.spec.ts` runs through the isolated
+  `docker-compose.real-backend-smoke.yml` stack against ASP.NET Core, PostgreSQL,
+  cookie auth, and CSRF using synthetic seeded data. The regular Angular suite
+  remains static and mocked by design.
+- Remaining impact: the MVP0 smoke is intentionally narrow and does not replace
+  broad frontend/backend contract, authorization, or PostgreSQL regression
+  coverage.
 
 ### KI-010: API error contract is inconsistent
 

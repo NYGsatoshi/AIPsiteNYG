@@ -6,7 +6,7 @@ Last verified: 2026-06-18.
 
 - .NET 10 SDK.
 - PostgreSQL supported by the current Npgsql package, either host-native or through `docker-compose.db.yml`.
-- Node.js 24 for the Angular workspace and CI-equivalent UI test workflow.
+- Node.js 24.15+ for the Angular workspace and CI-equivalent UI test workflow.
 - Docker/Compose for the recommended PostgreSQL-only mode, optional full-container development, and Linux Playwright parity.
 
 The repository pins `dotnet-ef` 10.0.8 in both `dotnet-tools.json` and `.config/dotnet-tools.json`.
@@ -142,12 +142,19 @@ See [README.dev-env.md](../README.dev-env.md) for the lightweight mode, the opti
 - an explicit initial administrator when `AIP_SEED_ADMIN_ENABLED=true`;
 - a development-only local administrator when `LocalAdmin:SeedOnStartup=true` in Development;
 - optional UI-shell modules, panels, commands, and radial profiles.
+- deterministic synthetic browser-smoke data only when
+  `AIP_BROWSER_SMOKE_SEED_ENABLED=true`, including a test user, workspace,
+  announcement, project, task, and required memberships.
+- deterministic synthetic browser-smoke data only when
+  `AIP_BROWSER_SMOKE_SEED_ENABLED=true`, including a test user, workspace,
+  announcement, project, task, and required memberships.
 
 The administrator seed uses the existing password hasher and creates or updates a platform administrator with owner membership in the default tenant. `AIP_SEED_ADMIN_USERNAME` is stored as the display name because the current user model uses email for login and has no username column.
 
 The legacy `LocalAdmin:*` compatibility path is separate from the explicit `AIP_SEED_ADMIN_*` bootstrap. Keep `LOCAL_ADMIN_SEED_ON_STARTUP=false` unless you intentionally want that development-only behavior.
 
-It does not create workspaces, groups, channels, projects, demo data, or invite links.
+Without the explicit browser-smoke flag, it does not create workspaces, groups,
+channels, projects, demo data, or invite links.
 
 Do not document seeded demo users unless code is added.
 
@@ -176,7 +183,23 @@ npx playwright install chromium
 npm run test:ui
 ```
 
-The UI suite serves `wwwroot` directly and mocks APIs. It does not run the ASP.NET Core backend.
+`npm run test:ui` is the static Angular suite: it serves the Angular build and
+mocks APIs. It does not run the ASP.NET Core backend.
+
+Run the isolated real-backend browser smoke:
+
+```powershell
+npm.cmd run test:ui:real-backend
+```
+
+This starts PostgreSQL, EF Core migrations, ASP.NET Core with the hosted
+production Angular build, deterministic synthetic seed data, and Playwright in
+one isolated Compose project. It uses `http://app:8080` within that network.
+For a manual run against an already-started backend, set
+`AIP_REAL_BACKEND_SMOKE=1`, `PLAYWRIGHT_BASE_URL`,
+`AIP_BROWSER_SMOKE_EMAIL`, and `AIP_BROWSER_SMOKE_PASSWORD`, then run
+`node tests/ui/run-real-backend-playwright.mjs`. Local `dotnet run` normally
+uses port 5098; the Compose app uses port 8080.
 
 See `docs/TESTING.md`.
 

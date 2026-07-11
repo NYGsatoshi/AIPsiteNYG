@@ -1,78 +1,71 @@
 import { spawn } from 'node:child_process';
+import {
+  getComposeProjectName,
+  normalizeExitCode,
+  redactSecrets,
+  selectComposeInvocation
+} from './real-backend-smoke-compose-helpers.mjs';
 
 const composeFile = 'docker-compose.real-backend-smoke.yml';
-const projectName =
-  process.env.REAL_BACKEND_SMOKE_COMPOSE_PROJECT_NAME ??
-  composeProjectName([
-    'aipsite-real-backend-smoke',
-    process.env.GITHUB_RUN_ID,
-    process.env.GITHUB_RUN_ATTEMPT,
-    process.pid
-  ]);
+const projectName = getComposeProjectName(process.env, process.pid);
 const composeEnv = { ...process.env, COMPOSE_PROJECT_NAME: projectName };
-const composeCommand = process.platform === 'win32' ? 'docker-compose' : 'docker';
-const composePrefix =
-  process.platform === 'win32'
-    ? ['-p', projectName, '-f', composeFile]
-    : ['compose', '-p', projectName, '-f', composeFile];
 
-let exitCode = 1;
+let composeInvocation;
+let cleanupPromise;
+let signalReceived = false;
 
-try {
-  exitCode = (await runCompose(['config', '--quiet'], { capture: true, redact: true })).exitCode;
+process.once('SIGINT', () => void handleSignal('SIGINT', 130));
+process.once('SIGTERM', () => void handleSignal('SIGTERM', 143));
 
-  if (exitCode === 0) {
-    exitCode = (await runCompose(['up', '--build', '--detach', 'postgres', 'app'])).exitCode;
+process.exitCode = await main();
+
+async function main() {
+  let exitCode = 1;
+
+  try {
+    composeInvocation = await selectComposeInvocation(isCommandAvailable);
+    console.log(`Using ${composeInvocation.command} ${composeInvocation.prefix.join(' ')} with isolated project ${projectName}.`);
+
+    exitCode = (await runCompose(['-p', projectName, '-f', composeFile, 'config', '--quiet'], { capture: true, redact: true })).exitCode;
+    if (exitCode === 0) {
+      exitCode = (await runCompose(['-p', projectName, '-f', composeFile, 'up', '--build', '--detach', 'postgres', 'app'])).exitCode;
+    }
+
+    if (exitCode === 0) {
+      await waitForHealthy('postgres');
+      await waitForMigration();
+      await waitForHealthy('app');
+
+      exitCode = (await runCompose(['-p', projectName, '-f', composeFile, 'run', '--build', 'real-backend-playwright'])).exitCode;
+    }
+  } catch (error) {
+    console.error(error instanceof Error ? error.message : error);
+    exitCode = 1;
+  } finally {
+    if (exitCode !== 0) {
+      await collectFailureEvidence();
+    }
+
+    await cleanupOnce();
   }
 
-  if (exitCode === 0) {
-    await waitForHealthy('postgres');
-    await waitForHealthy('app');
-    exitCode = (await runCompose(['run', '--build', '--rm', 'real-backend-playwright'])).exitCode;
-  }
-
-  if (exitCode !== 0) {
-    await collectFailureEvidence();
-  }
-} catch (error) {
-  console.error(error);
-  exitCode = 1;
-  await collectFailureEvidence();
-} finally {
-  await runCompose(['down', '--volumes', '--remove-orphans'], { allowFailure: true });
+  return exitCode;
 }
 
-process.exit(exitCode);
-
-function composeProjectName(parts) {
-  return parts
-    .filter((part) => part !== undefined && part !== null && String(part).length > 0)
-    .join('-')
-    .toLowerCase()
-    .replace(/[^a-z0-9_-]/g, '-')
-    .replace(/^[^a-z0-9]+/, 'a')
-    .slice(0, 63);
+async function isCommandAvailable(command, args) {
+  const result = await runCommand(command, args, { allowFailure: true, capture: true, silent: true });
+  return result.exitCode === 0;
 }
 
 async function waitForHealthy(service) {
   const deadline = Date.now() + 240_000;
-  let lastState = 'unknown';
+  let lastState = 'not created';
 
   while (Date.now() < deadline) {
-    const idResult = await runCompose(['ps', '-q', service], { allowFailure: true, capture: true, silent: true });
-    const containerId = idResult.output.trim();
-
-    if (containerId.length > 0) {
-      const stateResult = await runDocker(
-        [
-          'inspect',
-          '--format',
-          '{{.State.Status}} {{if .State.Health}}{{.State.Health.Status}}{{else}}none{{end}} {{.State.ExitCode}}',
-          containerId
-        ],
-        { allowFailure: true, capture: true, silent: true }
-      );
-      lastState = stateResult.output.trim() || lastState;
+    const containerId = await getServiceContainerId(service);
+    if (containerId) {
+      const state = await inspectContainerState(containerId);
+      lastState = state || lastState;
       const [status, health, exitCodeText] = lastState.split(/\s+/);
 
       if (status === 'running' && health === 'healthy') {
@@ -89,10 +82,59 @@ async function waitForHealthy(service) {
       }
     }
 
-    await new Promise((resolve) => setTimeout(resolve, 1_000));
+    await delay(1_000);
   }
 
   throw new Error(`Timed out waiting for ${service} to become healthy. Last state: ${lastState}`);
+}
+
+async function waitForMigration() {
+  const deadline = Date.now() + 240_000;
+  let lastState = 'not created';
+
+  while (Date.now() < deadline) {
+    const containerId = await getServiceContainerId('migrate');
+    if (containerId) {
+      const state = await inspectContainerState(containerId);
+      lastState = state || lastState;
+      const [status, , exitCodeText] = lastState.split(/\s+/);
+      const migrationExitCode = Number(exitCodeText);
+
+      if (status === 'exited' && migrationExitCode === 0) {
+        return;
+      }
+
+      if ((status === 'exited' || status === 'dead') && Number.isFinite(migrationExitCode)) {
+        throw new Error(`migrate container failed before the app could start: ${lastState}`);
+      }
+    }
+
+    await delay(1_000);
+  }
+
+  throw new Error(`Timed out waiting for migrate to complete successfully. Last state: ${lastState}`);
+}
+
+async function getServiceContainerId(service) {
+  const result = await runCompose(['-p', projectName, '-f', composeFile, 'ps', '--all', '-q', service], {
+    allowFailure: true,
+    capture: true,
+    silent: true
+  });
+  return result.output.trim().split(/\s+/)[0] || '';
+}
+
+async function inspectContainerState(containerId) {
+  const result = await runDocker(
+    [
+      'inspect',
+      '--format',
+      '{{.State.Status}} {{if .State.Health}}{{.State.Health.Status}}{{else}}none{{end}} {{.State.ExitCode}}',
+      containerId
+    ],
+    { allowFailure: true, capture: true, silent: true }
+  );
+  return result.output.trim();
 }
 
 function runDocker(args, options = {}) {
@@ -100,19 +142,39 @@ function runDocker(args, options = {}) {
 }
 
 function runCompose(args, options = {}) {
-  return runCommand(composeCommand, [...composePrefix, ...args], options);
+  if (!composeInvocation) {
+    return Promise.resolve({ exitCode: 1, output: 'Docker Compose command was not selected.' });
+  }
+
+  return runCommand(composeInvocation.command, [...composeInvocation.prefix, ...args], options);
 }
 
 function runCommand(command, args, options = {}) {
-  return new Promise((resolve, reject) => {
+  return new Promise((resolve) => {
+    let settled = false;
+    let stdout = '';
+    let stderr = '';
+    let spawnError;
     const child = spawn(command, args, {
       cwd: process.cwd(),
       env: composeEnv,
       stdio: options.capture ? ['ignore', 'pipe', 'pipe'] : 'inherit'
     });
 
-    let stdout = '';
-    let stderr = '';
+    const finish = (code) => {
+      if (settled) {
+        return;
+      }
+
+      settled = true;
+      const output = `${stdout}${stderr}${spawnError ? `${spawnError.message}\n` : ''}`;
+      if (options.capture && output.length > 0 && !options.silent) {
+        process.stdout.write(options.redact ? redactSecrets(output) : output);
+      }
+
+      resolve({ exitCode: normalizeExitCode(code), output });
+    };
+
     if (options.capture) {
       child.stdout?.on('data', (chunk) => {
         stdout += chunk;
@@ -122,45 +184,56 @@ function runCommand(command, args, options = {}) {
       });
     }
 
-    child.on('error', (error) => {
-      if (options.allowFailure) {
-        resolve({ exitCode: 1, output: `${stdout}${stderr}` });
-        return;
-      }
-
-      reject(error);
+    child.once('error', (error) => {
+      spawnError = error;
+      finish(127);
     });
-    child.on('exit', (code) => {
-      const exit = code ?? 1;
-      const output = `${stdout}${stderr}`;
-
-      if (options.capture && output.length > 0 && !options.silent) {
-        process.stdout.write(options.redact ? redactSecrets(output) : output);
-      }
-
-      if (exit !== 0 && !options.allowFailure) {
-        resolve({ exitCode: exit, output });
-        return;
-      }
-
-      resolve({ exitCode: exit, output });
-    });
+    child.once('close', (code) => finish(code));
   });
 }
 
 async function collectFailureEvidence() {
-  await runCompose(['ps'], { allowFailure: true });
-  await runCompose(['logs', '--no-color', '--tail', '200', 'postgres', 'migrate', 'app', 'real-backend-playwright'], {
-    allowFailure: true,
-    capture: true,
-    redact: true
-  });
+  if (!composeInvocation) {
+    return;
+  }
+
+  console.error('Collecting real-backend smoke failure evidence (secrets redacted).');
+  await runCompose(['-p', projectName, '-f', composeFile, 'ps', '--all'], { allowFailure: true, capture: true, redact: true });
+  for (const service of ['postgres', 'migrate', 'app', 'real-backend-playwright']) {
+    await runCompose(['-p', projectName, '-f', composeFile, 'logs', '--no-color', '--tail', '300', service], {
+      allowFailure: true,
+      capture: true,
+      redact: true
+    });
+  }
 }
 
-function redactSecrets(output) {
-  return output
-    .replace(/(POSTGRES_PASSWORD:\s*)[^\r\n]+/gi, '$1[redacted]')
-    .replace(/(AIP_BROWSER_SMOKE_PASSWORD:\s*)[^\r\n]+/gi, '$1[redacted]')
-    .replace(/(AIP_[A-Z0-9_]*PASSWORD:\s*)[^\r\n]+/gi, '$1[redacted]')
-    .replace(/(Password=)[^;\s\r\n]+/gi, '$1[redacted]');
+function cleanupOnce() {
+  if (cleanupPromise) {
+    return cleanupPromise;
+  }
+
+  cleanupPromise = composeInvocation
+    ? runCompose(['-p', projectName, '-f', composeFile, 'down', '--volumes', '--remove-orphans'], {
+        allowFailure: true,
+        capture: true,
+        redact: true
+      })
+    : Promise.resolve();
+  return cleanupPromise;
+}
+
+async function handleSignal(signal, exitCode) {
+  if (signalReceived) {
+    return;
+  }
+
+  signalReceived = true;
+  console.error(`Received ${signal}; cleaning up real-backend smoke containers.`);
+  await cleanupOnce();
+  process.exit(exitCode);
+}
+
+function delay(milliseconds) {
+  return new Promise((resolve) => setTimeout(resolve, milliseconds));
 }

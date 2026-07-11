@@ -91,6 +91,7 @@ services:
     working_dir: /work
     environment:
       CI: "true"
+      AIP_REAL_BACKEND_SMOKE: "1"
       PLAYWRIGHT_BASE_URL: http://app:8080
       AIP_BROWSER_SMOKE_EMAIL: ${AIP_BROWSER_SMOKE_EMAIL:-e2e-user@example.test}
       AIP_BROWSER_SMOKE_PASSWORD: ${AIP_BROWSER_SMOKE_PASSWORD:-E2eSmoke!23456}

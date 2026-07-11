@@ -11,6 +11,7 @@ const distIndexPath = path.join(distRoot, 'index.html');
 const serverPath = fileURLToPath(new URL('./serve-static.mjs', import.meta.url));
 const playwrightCli = fileURLToPath(new URL('../../node_modules/@playwright/test/cli.js', import.meta.url));
 const playwrightArgs = process.argv.slice(2);
+const staticSuiteFiles = ['tests/ui/angular-smoke.spec.ts', 'tests/ui/app.spec.ts'];
 let server = null;
 
 let exitCode = 1;
@@ -34,7 +35,7 @@ process.exit(exitCode);
 
 function runPlaywright() {
   return new Promise((resolve) => {
-    const child = spawn(process.execPath, [playwrightCli, 'test', ...playwrightArgs], {
+    const child = spawn(process.execPath, [playwrightCli, 'test', ...staticSuiteFiles, ...playwrightArgs], {
       cwd: process.cwd(),
       env: { ...process.env, PLAYWRIGHT_BASE_URL: baseURL },
       stdio: 'inherit'

@@ -109,6 +109,64 @@ They do **not** verify:
 - controller routes or authorization;
 - PostgreSQL behavior.
 
+### Static Angular Playwright suite
+
+Run the frontend/static suite with:
+
+```powershell
+npm.cmd run test:ui:angular
+```
+
+`npm test`, `npm run test:ui`, and `npm run test:ui:angular` all run only
+`angular-smoke.spec.ts` and `app.spec.ts` against the static Angular test
+server. Their API responses are mocked. They intentionally do not discover or
+execute `real-backend-smoke.spec.ts`.
+
+### MVP0 real-backend browser smoke
+
+Run the self-contained real-host smoke with:
+
+```powershell
+npm.cmd run test:ui:real-backend
+```
+
+The runner validates Compose, starts an isolated PostgreSQL volume, applies EF
+Core migrations, builds and starts the ASP.NET Core image with the production
+Angular build, enables deterministic synthetic seed data, waits for
+`/health/ready`, and runs Playwright inside the Compose network against
+`http://app:8080`. It preserves traces, screenshots, videos, HTML reports, and
+the smoke error-context attachment on the host when the run fails. Containers,
+networks, and the isolated test volumes are removed afterwards.
+
+The runner prefers `docker compose` on Windows, Linux, and macOS, and falls
+back to legacy `docker-compose` only when necessary. Do not point this suite at
+the static server on port 4173.
+
+For an already-running real backend only, direct execution requires the marker,
+URL, and synthetic credentials explicitly:
+
+```powershell
+$env:AIP_REAL_BACKEND_SMOKE = "1"
+$env:PLAYWRIGHT_BASE_URL = "http://127.0.0.1:8080"
+$env:AIP_BROWSER_SMOKE_EMAIL = "e2e-user@example.test"
+$env:AIP_BROWSER_SMOKE_PASSWORD = "E2eSmoke!23456"
+
+node tests/ui/run-real-backend-playwright.mjs
+```
+
+The normal `dotnet run` launch profile uses port 5098; the Compose application
+uses internal port 8080. Direct execution does not start ASP.NET Core for you.
+
+### Node DEP0205 note
+
+Historical static-suite evidence shows `[DEP0205] module.register()` only after
+Playwright starts its workers. It is not emitted by the installed Playwright
+CLI version command, and no project source calls `module.register()`; it is
+therefore inferred to be a Playwright worker loader or transitive dependency,
+not an API/backend failure. Leave the warning visible and do not suppress it
+globally. Capture a deprecation trace under the supported Node version before
+changing a direct dependency.
+
 ## CI
 
 `.github/workflows/ci.yml`:
@@ -159,6 +217,12 @@ npm --prefix frontend run build
 npm run test:ui
 ```
 
+Runner helper tests:
+
+```bash
+npm run test:ui:real-backend:runner
+```
+
 Linux screenshot parity:
 
 ```bash
@@ -174,6 +238,7 @@ Compose syntax:
 docker compose -f docker-compose.db.yml config --quiet
 docker compose -f docker-compose.dev.yml config --quiet
 docker compose -f docker-compose.playwright.yml config --quiet
+docker compose -p aipsite-real-backend-smoke-config -f docker-compose.real-backend-smoke.yml config --quiet
 DB_PASSWORD=validation_only docker compose config --quiet
 docker compose -f docker-compose.local.yml config --quiet
 DB_PASSWORD=validation_only docker compose -f docker-compose.onprem.yml config --quiet
