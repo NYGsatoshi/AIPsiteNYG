@@ -1,4 +1,6 @@
 import { Component, EventEmitter, Input, Output } from '@angular/core';
+import { provideHttpClient } from '@angular/common/http';
+import { HttpTestingController, provideHttpClientTesting } from '@angular/common/http/testing';
 import { ComponentFixture, TestBed } from '@angular/core/testing';
 
 import {
@@ -8,6 +10,7 @@ import {
 } from '../../shared/grid/app-data-grid/app-data-grid.types';
 import { AppDataGridComponent } from '../../shared/grid/app-data-grid/app-data-grid.component';
 import { routes } from '../../app.routes';
+import { DEFAULT_NAVIGATION_ITEMS } from '../../layout/app-shell/app-shell.facade';
 import { AdminFacade, AIP_ADMIN_AUDIT_MOCK, AIP_EXPORT_DIAGNOSTICS_MOCK } from './admin.facade';
 import {
   AUDIT_LOG_SCENARIOS,
@@ -134,13 +137,11 @@ const renderExport = async (
 ) => {
   await TestBed.configureTestingModule({
     imports: [ExportDiagnosticsPageComponent],
-    providers: [{ provide: AIP_EXPORT_DIAGNOSTICS_MOCK, useValue: scenario }]
-  })
-    .overrideComponent(ExportDiagnosticsPageComponent, {
-      remove: { imports: [AppDataGridComponent] },
-      add: { imports: [StubExportDataGridComponent] }
-    })
-    .compileComponents();
+    providers: [
+      { provide: AIP_ADMIN_AUDIT_MOCK, useValue: AUDIT_LOG_SCENARIOS.empty },
+      { provide: AIP_EXPORT_DIAGNOSTICS_MOCK, useValue: scenario }
+    ]
+  }).compileComponents();
 
   const fixture = TestBed.createComponent(ExportDiagnosticsPageComponent);
   fixture.detectChanges();
@@ -158,13 +159,15 @@ describe('Admin audit and export mock UI', () => {
     expect(childPaths).toContain('admin/export-diagnostics');
   });
 
-  it('route pages do not directly use AgGridAngular and do use the shared wrapper', () => {
-    const auditDependencies = dependencyNames(AuditLogPageComponent);
-    const exportDependencies = dependencyNames(ExportDiagnosticsPageComponent);
+  it('does not include export diagnostics in MVP0 navigation', () => {
+    expect(DEFAULT_NAVIGATION_ITEMS.map((item) => item.route)).not.toContain('/admin/export-diagnostics');
+  });
 
-    expect([...auditDependencies, ...exportDependencies]).not.toContain('AgGridAngular');
+  it('audit route page does not directly use AgGridAngular and does use the shared wrapper', () => {
+    const auditDependencies = dependencyNames(AuditLogPageComponent);
+
+    expect(auditDependencies).not.toContain('AgGridAngular');
     expect(auditDependencies.some((name) => name.includes('AppDataGridComponent'))).toBe(true);
-    expect(exportDependencies.some((name) => name.includes('AppDataGridComponent'))).toBe(true);
   });
 
   it('keeps ag-grid-enterprise absent from admin component dependencies', () => {
@@ -218,21 +221,71 @@ describe('Admin audit and export mock UI', () => {
     expect(page.typedFieldNote.metadataParsing).toBe('prohibited');
   });
 
-  it('hides export request button without explicit mock capability', async () => {
+  it('maps live audit grid result and severity from backend typed fields', () => {
+    TestBed.configureTestingModule({
+      providers: [provideHttpClient(), provideHttpClientTesting()]
+    });
+    const facade = TestBed.inject(AdminFacade);
+    const httpMock = TestBed.inject(HttpTestingController);
+
+    httpMock.expectOne('/api/admin/audit-grid').flush({
+      items: [
+        {
+          id: 'audit-live-success',
+          createdAt: '2026-07-02T09:14:00Z',
+          action: 'workspace.member.view',
+          actorDisplayName: 'Live Admin',
+          targetType: 'WorkspaceMember',
+          workspaceLabel: 'Live Workspace',
+          severity: 'info',
+          result: 'success',
+          summary: 'Member list opened.',
+          requestId: 'req-live-success'
+        },
+        {
+          id: 'audit-live-denied',
+          createdAt: '2026-07-02T09:22:00Z',
+          action: 'file.download.denied',
+          actorDisplayName: 'Live Teacher',
+          targetType: 'File',
+          workspaceLabel: 'Live Workspace',
+          severity: 'warning',
+          result: 'denied',
+          summary: 'Download blocked.',
+          requestId: 'req-live-denied'
+        },
+        {
+          id: 'audit-live-failed',
+          createdAt: '2026-07-02T09:35:00Z',
+          action: 'export.request.failed',
+          actorDisplayName: 'Live Operator',
+          targetType: 'ExportJob',
+          workspaceLabel: null,
+          severity: 'critical',
+          result: 'failed',
+          summary: 'Export failed.',
+          requestId: null
+        }
+      ]
+    });
+
+    const rows = facade.getAuditLog().rows;
+
+    expect(rows.map((row) => row.result)).toEqual(['success', 'denied', 'failed']);
+    expect(rows.map((row) => row.severity)).toEqual(['info', 'warning', 'critical']);
+    expect(rows[2].workspace).toBe('');
+    httpMock.verify();
+  });
+
+  it('shows export diagnostics as unavailable without a request button or local rows', async () => {
     const fixture = await renderExport(EXPORT_DIAGNOSTICS_SCENARIOS.notAllowed);
 
     expect(query(fixture, '[data-testid="export-request-action"]')).toBeNull();
-    expect(query<HTMLButtonElement>(fixture, '[data-testid="export-request-disabled"]')?.disabled).toBe(true);
-  });
-
-  it('does not request a local diagnostics job even when mock capability is present', async () => {
-    const fixture = await renderExport(EXPORT_DIAGNOSTICS_SCENARIOS.allowed);
-
-    query<HTMLButtonElement>(fixture, '[data-testid="export-request-disabled"]')?.click();
-    fixture.detectChanges();
-
-    expect(query<HTMLButtonElement>(fixture, '[data-testid="export-request-disabled"]')?.disabled).toBe(true);
-    expect(textContent(fixture)).not.toContain('req-export-new');
+    expect(query(fixture, '[data-testid="export-request-disabled"]')).toBeNull();
+    expect(query(fixture, '[data-testid="app-data-grid"]')).toBeNull();
+    expect(queryAll(fixture, '[data-testid="export-row"]').length).toBe(0);
+    expect(textContent(fixture)).toContain('Not available in MVP0');
+    expect(textContent(fixture)).not.toContain('req-export');
   });
 
   it('does not expose Excel export API or visible-grid export actions', async () => {

@@ -57,14 +57,16 @@ interface PagedResponseDto<T> {
 }
 
 interface AuditLogDto {
-  readonly id?: unknown;
-  readonly createdAt?: unknown;
-  readonly action?: unknown;
-  readonly actorDisplayName?: unknown;
-  readonly entityType?: unknown;
-  readonly workspaceId?: unknown;
-  readonly summary?: unknown;
-  readonly correlationId?: unknown;
+  readonly id: string;
+  readonly createdAt: string;
+  readonly action: string;
+  readonly actorDisplayName: string;
+  readonly targetType: string;
+  readonly workspaceLabel?: string | null;
+  readonly severity: AuditSeverity;
+  readonly result: AuditResult;
+  readonly summary: string;
+  readonly requestId?: string | null;
 }
 
 @Injectable({
@@ -97,49 +99,9 @@ export class AdminFacade {
     return this.exportState();
   }
 
-  requestDiagnosticsJob(): ExportJobGridRow {
-    if (!this.exportScenario) {
-      return {
-        id: `export-job-unavailable-${Date.now()}`,
-        createdAt: new Date().toISOString(),
-        jobType: 'ExportDiagnostics',
-        status: 'failed',
-        statusLabel: statusLabels.failed,
-        requestedBy: 'Current user',
-        scope: 'Current authorized scope',
-        result: 'failed',
-        resultLabel: exportResultLabels.failed,
-        requestId: 'api-not-implemented',
-        redactedDetails: [
-          { label: 'Status', value: 'Export diagnostics API is not implemented.', state: 'shown' },
-        ],
-      };
-    }
-
-    return this.toExportJobGridRow({
-      id: `export-job-requested-${Date.now()}`,
-      createdAt: '2026-07-02 10:00',
-      jobType: 'ExportDiagnostics',
-      status: 'pending',
-      requestedBy: 'Current Mock Admin',
-      scope: 'Current authorized scope',
-      result: 'notReady',
-      requestId: 'req-export-new',
-      redactedDetails: [
-        { label: 'Scope owner', value: 'Current authorized scope', state: 'shown' },
-        {
-          label: 'Artifact location',
-          value: 'Suppressed until server reauthorization',
-          state: 'suppressed',
-        },
-        { label: 'Sensitive values', value: 'Redacted', state: 'redacted' },
-      ],
-    });
-  }
-
   private loadAuditLog(): void {
     this.http
-      .get<PagedResponseDto<AuditLogDto>>('/api/audit-logs', { withCredentials: true })
+      .get<PagedResponseDto<AuditLogDto>>('/api/admin/audit-grid', { withCredentials: true })
       .subscribe({
         next: (response) => {
           const rows = (response.items ?? []).map((record) =>
@@ -218,8 +180,8 @@ export class AdminFacade {
   private emptyExportDiagnostics(): ExportDiagnosticsViewModel {
     return {
       status: 'empty',
-      title: 'Export diagnostics',
-      subtitle: 'Export diagnostics API is not implemented.',
+      title: 'Export diagnostics not available in MVP0',
+      subtitle: 'Disabled for MVP0',
       rows: [],
       columns: [],
       pageSize: {
@@ -228,7 +190,7 @@ export class AdminFacade {
       },
       canRequestDiagnosticsExport: false,
       authorizationNote: EXPORT_AUTHORIZATION_NOTE,
-      message: 'Export diagnostics API is not implemented.',
+      message: 'Export diagnostics are not implemented for MVP0. Requests, job history, and downloads are disabled.',
     };
   }
 
@@ -268,16 +230,16 @@ export class AdminFacade {
 
   private toAuditRecord(record: AuditLogDto): AuditMockRecord {
     return {
-      id: stringValue(record.id) ?? '',
+      id: record.id,
       createdAt: formatDate(record.createdAt),
-      action: stringValue(record.action) ?? '',
-      actorDisplay: stringValue(record.actorDisplayName) ?? 'Unknown actor',
-      targetType: stringValue(record.entityType) ?? '',
-      workspace: stringValue(record.workspaceId) ?? '',
-      severity: 'info',
-      result: 'success',
-      summary: stringValue(record.summary) ?? stringValue(record.action) ?? 'Audit event',
-      requestId: stringValue(record.correlationId) ?? '',
+      action: record.action,
+      actorDisplay: record.actorDisplayName,
+      targetType: record.targetType,
+      workspace: record.workspaceLabel ?? '',
+      severity: record.severity,
+      result: record.result,
+      summary: record.summary,
+      requestId: record.requestId ?? '',
       redactedDetails: [],
       rawMetadataProbeNeverRender: '',
     };

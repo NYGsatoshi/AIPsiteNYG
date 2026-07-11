@@ -257,6 +257,62 @@ public sealed class TenantIsolationSecurityTests
         Assert.Equal("TenantA audit", item.Action);
     }
 
+    [Fact]
+    public async Task TenantAdminAuditGridProjectsBackendOwnedResultAndSeverity()
+    {
+        var (dbContext, currentTenant, data) = await CreateSeededContextAsync();
+        currentTenant.SetTenant(data.TenantA.Id, data.TenantA.Slug);
+        var now = DateTimeOffset.UtcNow;
+        dbContext.AuditLogs.AddRange(
+            new AuditLog
+            {
+                TenantId = data.TenantA.Id,
+                ActorUserId = data.TenantAAdmin.Id,
+                Action = "workspace.member.view",
+                EntityType = "WorkspaceMember",
+                WorkspaceId = data.WorkspaceA.Id,
+                Summary = "Member list opened.",
+                CorrelationId = "req-success",
+                CreatedAt = now.AddMinutes(1)
+            },
+            new AuditLog
+            {
+                TenantId = data.TenantA.Id,
+                ActorUserId = data.TenantAAdmin.Id,
+                Action = "file.download.denied",
+                EntityType = "File",
+                WorkspaceId = data.WorkspaceA.Id,
+                Summary = "Download blocked.",
+                CorrelationId = "req-denied",
+                CreatedAt = now.AddMinutes(2)
+            },
+            new AuditLog
+            {
+                TenantId = data.TenantA.Id,
+                ActorUserId = data.TenantAAdmin.Id,
+                Action = "export.request.failed",
+                EntityType = "ExportJob",
+                WorkspaceId = data.WorkspaceA.Id,
+                Summary = "Export failed.",
+                CorrelationId = "req-failed",
+                CreatedAt = now.AddMinutes(3)
+            });
+        await dbContext.SaveChangesAsync();
+        var service = CreateAuditQueryService(dbContext, currentTenant, data.TenantAAdmin);
+
+        var result = await service.ListAuditGridAsync(new AuditLogQuery(Page: 1, PageSize: 20));
+
+        Assert.True(result.IsSuccess);
+        var rows = result.Value!.Items.ToDictionary(item => item.Action);
+        Assert.Equal("success", rows["workspace.member.view"].Result);
+        Assert.Equal("info", rows["workspace.member.view"].Severity);
+        Assert.Equal("denied", rows["file.download.denied"].Result);
+        Assert.Equal("warning", rows["file.download.denied"].Severity);
+        Assert.Equal("failed", rows["export.request.failed"].Result);
+        Assert.Equal("critical", rows["export.request.failed"].Severity);
+        Assert.Equal(data.WorkspaceA.Name, rows["workspace.member.view"].WorkspaceLabel);
+    }
+
  [Fact]
 public async Task WorkspaceAdminCannotReadAuditLogsForTheirWorkspace()
 {
@@ -297,9 +353,12 @@ public async Task WorkspaceAdminCannotReadAuditLogsForTheirWorkspace()
     var service = CreateAuditQueryService(dbContext, currentTenant, workspaceAdmin);
 
     var result = await service.ListAuditLogsAsync(new AuditLogQuery(WorkspaceId: data.WorkspaceA.Id));
+    var gridResult = await service.ListAuditGridAsync(new AuditLogQuery(WorkspaceId: data.WorkspaceA.Id));
 
     Assert.False(result.IsSuccess);
     Assert.Equal("You are not allowed to view audit logs.", result.Error);
+    Assert.False(gridResult.IsSuccess);
+    Assert.Equal("You are not allowed to view audit logs.", gridResult.Error);
 }  
     [Fact]
     public async Task TenantAdminAuditQueryWithOtherTenantWorkspaceReturnsNoLogs()
@@ -357,9 +416,12 @@ public async Task WorkspaceAdminCannotReadAuditLogsForTheirWorkspace()
         var service = CreateAuditQueryService(dbContext, currentTenant, data.TenantAMember);
 
         var result = await service.ListAuditLogsAsync(new AuditLogQuery(WorkspaceId: data.WorkspaceA.Id));
+        var gridResult = await service.ListAuditGridAsync(new AuditLogQuery(WorkspaceId: data.WorkspaceA.Id));
 
         Assert.False(result.IsSuccess);
         Assert.Equal("You are not allowed to view audit logs.", result.Error);
+        Assert.False(gridResult.IsSuccess);
+        Assert.Equal("You are not allowed to view audit logs.", gridResult.Error);
     }
 
     [Fact]
