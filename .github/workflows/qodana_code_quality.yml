@@ -26,6 +26,8 @@ jobs:
       checks: write
     env:
       QODANA_TOKEN: ${{ secrets.QODANA_TOKEN }}
+      DOTNET_CLI_TELEMETRY_OPTOUT: "1"
+      DOTNET_NOLOGO: "1"
 
     steps:
       - uses: actions/checkout@v4
@@ -33,16 +35,12 @@ jobs:
           ref: ${{ github.event.pull_request.head.sha || github.sha }}
           fetch-depth: 0
 
-      # Native qodana-dotnet uses the runner toolchain. The Community fallback is
-      # containerized and prepares its .NET SDK through qodana.yaml instead.
       - name: Set up .NET SDK
-        if: ${{ env.QODANA_TOKEN != '' }}
         uses: actions/setup-dotnet@v4
         with:
           global-json-file: global.json
 
       - name: Set up Node.js
-        if: ${{ env.QODANA_TOKEN != '' }}
         uses: actions/setup-node@v4
         with:
           node-version: "24"
@@ -50,6 +48,12 @@ jobs:
           cache-dependency-path: |
             package-lock.json
             frontend/package-lock.json
+
+      - name: Set up npm
+        run: |
+          npm install -g npm@11.17.0
+          node --version
+          npm --version
 
       - name: Report Community fallback
         if: ${{ env.QODANA_TOKEN == '' }}
@@ -66,11 +70,15 @@ jobs:
       - name: Qodana Scan (Ultimate full-stack)
         if: ${{ env.QODANA_TOKEN != '' }}
         uses: JetBrains/qodana-action@v2026.1
+        env:
+          QODANA_FRONTEND_REQUIRED: "true"
         with:
           args: |
             --linter qodana-dotnet
             --within-docker false
+            --solution AipPortal.slnx
           pr-mode: false
+          results-dir: ${{ runner.temp }}/qodana/results
           use-caches: true
           post-pr-comment: true
           use-annotations: true
@@ -80,13 +88,31 @@ jobs:
       - name: Qodana Scan (Community .NET fallback)
         if: ${{ env.QODANA_TOKEN == '' }}
         uses: JetBrains/qodana-action@v2026.1
+        env:
+          QODANA_FRONTEND_REQUIRED: "false"
         with:
           args: |
             --image jetbrains/qodana-cdnet:2026.1-eap-privileged
             --solution AipPortal.slnx
+            --configuration Release
           pr-mode: false
+          results-dir: ${{ runner.temp }}/qodana/results
           use-caches: true
           post-pr-comment: true
           use-annotations: true
-          upload-result: false
+          upload-result: true
           push-fixes: none
+
+      - name: Guard Qodana project model
+        if: always()
+        env:
+          QODANA_PROJECT_MODEL_SUMMARY_PATH: ${{ runner.temp }}/qodana/project-model-summary.json
+        run: node scripts/quality/check-qodana-project-model.mjs "${{ runner.temp }}/qodana/results/qodana.sarif.json"
+
+      - name: Upload Qodana project-model summary
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: qodana-project-model-summary
+          path: ${{ runner.temp }}/qodana/project-model-summary.json
+          if-no-files-found: ignore
