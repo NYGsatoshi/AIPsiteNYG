@@ -1,4 +1,4 @@
-# Test-only real-backend browser smoke stack.
+﻿# Test-only real-backend browser smoke stack.
 # It runs PostgreSQL, applies EF migrations, starts the ASP.NET Core image that
 # serves the built Angular app, then executes Playwright against that real host.
 # Invoke with an explicit project name, for example:
@@ -12,7 +12,7 @@ services:
       POSTGRES_USER: aip_portal_smoke
       POSTGRES_PASSWORD: aip_portal_smoke_password
     volumes:
-      - real_backend_smoke_pgdata:/var/lib/postgresql/data
+      - real_backend_smoke_pgdata:/var/lib/postgresql
     healthcheck:
       test: ["CMD-SHELL", "pg_isready -U aip_portal_smoke -d aip_portal_smoke"]
       interval: 5s
@@ -111,3 +111,4 @@ volumes:
   real_backend_smoke_uploads:
   real_backend_smoke_data_protection:
   real_backend_smoke_node_modules:
+
