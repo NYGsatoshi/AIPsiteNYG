@@ -1,60 +1,51 @@
-#-------------------------------------------------------------------------------#
-#               Qodana analysis is configured by qodana.yaml file               #
-#             https://www.jetbrains.com/help/qodana/qodana-yaml.html            #
-#-------------------------------------------------------------------------------#
-#################################################################################
-#              WARNING: Do not store sensitive information in this file,        #
-#               as its contents will be included in the Qodana report.          #
-#################################################################################
-
 version: "1.0"
 
-# The workflow selects qodana-dotnet when QODANA_TOKEN is available and the
-# token-optional qodana-cdnet Community linter otherwise.
-dotnet:
-  solution: AipPortal.slnx
-
-# Restore dependencies before analysis so framework and library symbols resolve.
-# qodana-cdnet does not contain the frontend inspection engine and may not ship
-# Node.js, so npm restoration is performed only when npm is available.
-bootstrap: |+
-  set -eu
-
-  SDK_VERSION="$(awk -F'"' '/"version"[[:space:]]*:/ { print $4; exit }' global.json)"
-  if [ -z "$SDK_VERSION" ]; then
-    echo "Unable to read sdk.version from global.json" >&2
-    exit 1
-  fi
-
-  if ! dotnet --list-sdks 2>/dev/null | awk '{ print $1 }' | grep -Fxq "$SDK_VERSION"; then
-    echo "Installing .NET SDK $SDK_VERSION required by global.json"
-    curl -fsSL https://dot.net/v1/dotnet-install.sh -o /tmp/dotnet-install.sh
-    sudo bash /tmp/dotnet-install.sh --version "$SDK_VERSION" --install-dir /usr/share/dotnet --no-path
-  fi
-
-  echo "Selected .NET SDK: $(dotnet --version)"
-  dotnet msbuild -version
-  dotnet restore AipPortal.slnx --nologo
-
-  if command -v npm >/dev/null 2>&1; then
-    npm ci --no-audit --no-fund
-    npm --prefix frontend ci --no-audit --no-fund
-  else
-    echo "npm is unavailable in this linter image; frontend dependency restoration is skipped."
-  fi
-
-# Enable every inspection registered by the selected linter, including those
-# disabled by its recommended profile. Inapplicable inspections produce no issue.
+# Keep the profile on the documented recommended baseline. Do not enable every
+# registered inspection group here; that makes Qodana inspect generated/build
+# artifacts and produces noisy project-model cascades.
 profile:
-  base:
-    name: qodana.recommended
-  groups:
-    - groupId: AipPortalAllRegisteredInspections
-      groups:
-        - ALL
-  inspections:
-    - group: AipPortalAllRegisteredInspections
-      enabled: true
+  name: qodana.recommended
 
-# qodana.recommended follows .gitignore. Source and test directories are
-# intentionally not excluded because the full repository must be inspected.
+# Runs inside the Qodana execution environment. The GitHub workflow also passes
+# --solution AipPortal.slnx because that is the documented .NET solution
+# selection mechanism for the Qodana CLI/action.
+bootstrap: bash scripts/quality/qodana-bootstrap.sh
+
+exclude:
+  - name: All
+    paths:
+      - "bin"
+      - "obj"
+      - "node_modules"
+      - "dist"
+      - ".angular"
+      - ".tmp"
+      - ".qodana"
+      - "**/bin/**"
+      - "**/obj/**"
+      - "**/node_modules/**"
+      - "**/dist/**"
+      - "**/.angular/**"
+      - "**/coverage/**"
+      - "**/TestResults/**"
+      - "**/test-results/**"
+      - "**/playwright-report/**"
+      - "**/.playwright/**"
+      - "**/.qodana/**"
+      - "**/storybook-static/**"
+      - "src/AipPortal.Application/bin"
+      - "src/AipPortal.Application/obj"
+      - "src/AipPortal.Domain/bin"
+      - "src/AipPortal.Domain/obj"
+      - "src/AipPortal.Infrastructure/bin"
+      - "src/AipPortal.Infrastructure/obj"
+      - "src/AipPortal.Web/bin"
+      - "src/AipPortal.Web/obj"
+      - "tests/AipPortal.Tests/bin"
+      - "tests/AipPortal.Tests/obj"
+      - "frontend/node_modules"
+      - "frontend/dist"
+      - "frontend/.angular"
+      - "src/AipPortal.Web/wwwroot"
+      - "src/AipPortal.Web/data"
+      - "aipsite-frontend"
