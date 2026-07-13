@@ -34,12 +34,15 @@ public sealed class ConversationService(
             var read = await messaging.GetReadStateAsync(conversation.Id, userId, cancellationToken);
             var unread = await messaging.CountUnreadMessagesAsync(conversation.Id, userId, read?.LastReadAt, cancellationToken);
             var member = await messaging.GetMemberAsync(conversation.Id, userId, cancellationToken);
+            IReadOnlyList<ConversationMember> members = conversation.Type == ConversationType.DirectMessage
+                ? await messaging.ListMembersAsync(conversation.Id, cancellationToken)
+                : [];
             result.Add(new ConversationListItemResponse(
                 conversation.Id,
                 conversation.WorkspaceId,
                 conversation.ProjectId,
                 conversation.Type,
-                conversation.Title,
+                ConversationTitleFor(conversation, members, userId),
                 conversation.ParentConversationId,
                 conversation.RootConversationId,
                 last is null ? null : ToMessage(last),
@@ -50,6 +53,55 @@ public sealed class ConversationService(
                 conversation.UpdatedAt));
         }
         return Result<PagedResponse<ConversationListItemResponse>>.Success(new PagedResponse<ConversationListItemResponse>(result, conversations.Page, conversations.PageSize, conversations.TotalCount));
+    }
+
+    public async Task<Result<IReadOnlyList<ConversationRecipientResponse>>> ListRecipientsAsync(string? query, CancellationToken cancellationToken = default)
+    {
+        if (!TryCurrentUser(out var userId))
+        {
+            return Result<IReadOnlyList<ConversationRecipientResponse>>.Failure("Authentication is required.");
+        }
+
+        var recipients = await messaging.SearchDirectRecipientsAsync(userId, query, 20, cancellationToken);
+        return Result<IReadOnlyList<ConversationRecipientResponse>>.Success(
+            recipients
+                .Select(user => new ConversationRecipientResponse(user.Id, user.DisplayName))
+                .ToList());
+    }
+
+    public async Task<Result<ConversationDetailResponse>> CreateDirectAsync(CreateDirectConversationRequest request, CancellationToken cancellationToken = default)
+    {
+        if (!TryCurrentUser(out var userId))
+        {
+            return Result<ConversationDetailResponse>.Failure("Authentication is required.");
+        }
+
+        if (request.RecipientUserId == Guid.Empty || request.RecipientUserId == userId)
+        {
+            return Result<ConversationDetailResponse>.Failure("Recipient user is not allowed.");
+        }
+
+        var existing = await messaging.FindDirectForUsersAsync(userId, request.RecipientUserId, cancellationToken);
+        if (existing is not null)
+        {
+            return Result<ConversationDetailResponse>.Success(await ToDetailAsync(existing, cancellationToken, userId));
+        }
+
+        var sharedWorkspace = await messaging.FindSharedActiveWorkspaceAsync(userId, request.RecipientUserId, cancellationToken);
+        var recipient = await users.GetByIdAsync(request.RecipientUserId, cancellationToken);
+        if (recipient is null ||
+            recipient.DeletedAt.HasValue ||
+            recipient.Status != UserStatus.Active ||
+            sharedWorkspace is null)
+        {
+            return Result<ConversationDetailResponse>.Failure("Recipient user not found.");
+        }
+
+        return await CreateAsync(new CreateConversationRequest(
+            ConversationType.DirectMessage,
+            null,
+            [request.RecipientUserId],
+            sharedWorkspace.Id), cancellationToken);
     }
 
     public async Task<Result<ConversationDetailResponse>> CreateAsync(CreateConversationRequest request, CancellationToken cancellationToken = default)
@@ -105,7 +157,7 @@ public sealed class ConversationService(
         {
             if (memberIds.Count != 2) return Result<ConversationDetailResponse>.Failure("Direct conversations require exactly two members.");
             var existing = await messaging.FindDirectAsync(request.WorkspaceId.Value, memberIds[0], memberIds[1], cancellationToken);
-            if (existing is not null) return Result<ConversationDetailResponse>.Success(await ToDetailAsync(existing, cancellationToken));
+            if (existing is not null) return Result<ConversationDetailResponse>.Success(await ToDetailAsync(existing, cancellationToken, userId));
         }
 
         foreach (var memberId in memberIds)
@@ -138,7 +190,7 @@ public sealed class ConversationService(
         }
         await AuditAsync(userId, "ConversationCreated", conversation.Id, cancellationToken);
         await unitOfWork.SaveChangesAsync(cancellationToken);
-        return Result<ConversationDetailResponse>.Success(await ToDetailAsync(conversation, cancellationToken));
+        return Result<ConversationDetailResponse>.Success(await ToDetailAsync(conversation, cancellationToken, userId));
     }
 
     public async Task<Result<ConversationDetailResponse>> GetAsync(Guid conversationId, CancellationToken cancellationToken = default)
@@ -150,7 +202,7 @@ public sealed class ConversationService(
         }
 
         var conversation = await messaging.GetConversationAsync(conversationId, cancellationToken);
-        return conversation is null ? Result<ConversationDetailResponse>.Failure("Conversation not found.") : Result<ConversationDetailResponse>.Success(await ToDetailAsync(conversation, cancellationToken));
+        return conversation is null ? Result<ConversationDetailResponse>.Failure("Conversation not found.") : Result<ConversationDetailResponse>.Success(await ToDetailAsync(conversation, cancellationToken, userId));
     }
 
     public async Task<Result<ConversationDetailResponse>> UpdateAsync(Guid conversationId, UpdateConversationRequest request, CancellationToken cancellationToken = default)
@@ -755,19 +807,42 @@ public sealed class ConversationService(
         return Result.Failure(error);
     }
 
-    private async Task<ConversationDetailResponse> ToDetailAsync(Conversation conversation, CancellationToken cancellationToken) => new(
-        conversation.Id,
-        conversation.WorkspaceId,
-        conversation.ProjectId,
-        conversation.Type,
-        conversation.Title,
-        conversation.ParentConversationId,
-        conversation.RootConversationId,
-        conversation.IsArchived,
-        conversation.IsLocked,
-        (await messaging.ListMembersAsync(conversation.Id, cancellationToken)).Select(ToMember).ToList(),
-        conversation.CreatedAt,
-        conversation.UpdatedAt);
+    private async Task<ConversationDetailResponse> ToDetailAsync(Conversation conversation, CancellationToken cancellationToken, Guid? viewerUserId = null)
+    {
+        var members = await messaging.ListMembersAsync(conversation.Id, cancellationToken);
+        return new ConversationDetailResponse(
+            conversation.Id,
+            conversation.WorkspaceId,
+            conversation.ProjectId,
+            conversation.Type,
+            ConversationTitleFor(conversation, members, viewerUserId),
+            conversation.ParentConversationId,
+            conversation.RootConversationId,
+            conversation.IsArchived,
+            conversation.IsLocked,
+            members.Select(ToMember).ToList(),
+            conversation.CreatedAt,
+            conversation.UpdatedAt);
+    }
+
+    private static string? ConversationTitleFor(Conversation conversation, IReadOnlyList<ConversationMember> members, Guid? viewerUserId)
+    {
+        if (conversation.Type != ConversationType.DirectMessage)
+        {
+            return conversation.Title;
+        }
+
+        if (!string.IsNullOrWhiteSpace(conversation.Title))
+        {
+            return conversation.Title;
+        }
+
+        return members
+            .Where(member => member.UserId != viewerUserId && IsActiveParticipant(member))
+            .Select(member => member.User?.DisplayName)
+            .FirstOrDefault(displayName => !string.IsNullOrWhiteSpace(displayName))
+            ?? "Direct message";
+    }
 
     private async Task<ParticipantStateResponse> ToParticipantStateAsync(ConversationMember member, Guid actorUserId, CancellationToken cancellationToken)
     {

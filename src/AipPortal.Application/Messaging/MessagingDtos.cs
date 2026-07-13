@@ -40,6 +40,10 @@ public sealed record CreateConversationRequest(
     Guid? ProjectId = null,
     Guid? ParentConversationId = null);
 
+public sealed record CreateDirectConversationRequest(Guid RecipientUserId);
+
+public sealed record ConversationRecipientResponse(Guid UserId, string DisplayName);
+
 public sealed record ConversationListQuery(int Page = 1, int PageSize = 20)
 {
     public int SafePage => Page < 1 ? 1 : Page;

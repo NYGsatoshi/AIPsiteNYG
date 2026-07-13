@@ -1,6 +1,7 @@
 using AipPortal.Application.Common;
 using AipPortal.Application.Common.Interfaces;
 using AipPortal.Domain.Entities;
+using AipPortal.Domain.Enums;
 using Microsoft.EntityFrameworkCore;
 
 namespace AipPortal.Infrastructure.Persistence;
@@ -30,6 +31,42 @@ public sealed class MessagingRepository(AppDbContext dbContext) : IMessagingRepo
         return new PagedResponse<Conversation>(items, page, pageSize, total);
     }
 
+    public async Task<IReadOnlyList<User>> SearchDirectRecipientsAsync(Guid userId, string? query, int limit, CancellationToken cancellationToken = default)
+    {
+        var normalizedQuery = query?.Trim();
+        if (string.IsNullOrWhiteSpace(normalizedQuery))
+        {
+            return [];
+        }
+
+        var normalizedLowerQuery = normalizedQuery.ToLowerInvariant();
+        return await dbContext.Users
+            .AsNoTracking()
+            .Where(user =>
+                user.Id != userId &&
+                user.Status == UserStatus.Active &&
+                user.DeletedAt == null &&
+                (user.DisplayName.ToLower().Contains(normalizedLowerQuery) ||
+                    user.Email.ToLower().Contains(normalizedLowerQuery)) &&
+                dbContext.TenantUsers.Any(tenantUser =>
+                    tenantUser.UserId == user.Id &&
+                    tenantUser.Status == TenantUserStatus.Active) &&
+                dbContext.WorkspaceMembers.Any(member =>
+                    member.UserId == user.Id &&
+                    member.Status == MembershipStatus.Active &&
+                    member.Workspace != null &&
+                    member.Workspace.Status == WorkspaceStatus.Active &&
+                    member.Workspace.DeletedAt == null &&
+                    dbContext.WorkspaceMembers.Any(currentMember =>
+                        currentMember.WorkspaceId == member.WorkspaceId &&
+                        currentMember.UserId == userId &&
+                        currentMember.Status == MembershipStatus.Active)))
+            .OrderBy(user => user.DisplayName)
+            .ThenBy(user => user.Id)
+            .Take(Math.Clamp(limit, 1, 25))
+            .ToListAsync(cancellationToken);
+    }
+
     public Task<Conversation?> GetConversationAsync(Guid conversationId, CancellationToken cancellationToken = default)
     {
         return dbContext.Conversations.FirstOrDefaultAsync(c => c.Id == conversationId, cancellationToken);
@@ -43,6 +80,30 @@ public sealed class MessagingRepository(AppDbContext dbContext) : IMessagingRepo
                 c.Members.Any(m => m.UserId == userAId && m.LeftAt == null && m.RemovedAt == null && m.CanRead) &&
                 c.Members.Any(m => m.UserId == userBId && m.LeftAt == null && m.RemovedAt == null && m.CanRead),
                 cancellationToken);
+    }
+
+    public Task<Conversation?> FindDirectForUsersAsync(Guid userAId, Guid userBId, CancellationToken cancellationToken = default)
+    {
+        return dbContext.Conversations
+            .Where(c => c.Type == ConversationType.DirectMessage && c.Members.Count == 2)
+            .OrderBy(c => c.CreatedAt)
+            .FirstOrDefaultAsync(c =>
+                c.Members.Any(m => m.UserId == userAId && m.LeftAt == null && m.RemovedAt == null && m.CanRead) &&
+                c.Members.Any(m => m.UserId == userBId && m.LeftAt == null && m.RemovedAt == null && m.CanRead),
+                cancellationToken);
+    }
+
+    public Task<Workspace?> FindSharedActiveWorkspaceAsync(Guid userAId, Guid userBId, CancellationToken cancellationToken = default)
+    {
+        return dbContext.Workspaces
+            .AsNoTracking()
+            .Where(workspace =>
+                workspace.Status == WorkspaceStatus.Active &&
+                workspace.DeletedAt == null &&
+                workspace.Members.Any(member => member.UserId == userAId && member.Status == MembershipStatus.Active) &&
+                workspace.Members.Any(member => member.UserId == userBId && member.Status == MembershipStatus.Active))
+            .OrderBy(workspace => workspace.Name)
+            .FirstOrDefaultAsync(cancellationToken);
     }
 
     public Task<ConversationMember?> GetMemberAsync(Guid conversationId, Guid userId, CancellationToken cancellationToken = default)

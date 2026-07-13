@@ -1,7 +1,7 @@
 import { provideHttpClient } from '@angular/common/http';
 import { HttpTestingController, provideHttpClientTesting } from '@angular/common/http/testing';
 import { ComponentFixture, TestBed } from '@angular/core/testing';
-import { ActivatedRoute, convertToParamMap, provideRouter } from '@angular/router';
+import { ActivatedRoute, convertToParamMap, provideRouter, Router } from '@angular/router';
 import { of } from 'rxjs';
 
 import {
@@ -132,6 +132,113 @@ describe('Messaging MVP0 backend wiring', () => {
     expect(root.querySelector('a[href="/workspaces/workspace-a/channels/conversation-a"]')).not.toBeNull();
     expect(root.querySelector('a[href="/dm/dm-a"]')).not.toBeNull();
     expect(root.textContent).toContain('General');
+  });
+
+  it('renders an empty state with a new message button when no conversations exist', async () => {
+    const httpMock = await configureHttpTest([MessagesPageComponent]);
+    const fixture = TestBed.createComponent(MessagesPageComponent);
+
+    httpMock.expectOne('/api/conversations').flush({ items: [] });
+    fixture.detectChanges();
+    const root = fixture.nativeElement as HTMLElement;
+
+    expect(root.querySelector('[data-testid="messages-list-empty"]')?.textContent).toContain('まだ会話はありません');
+    expect(root.querySelector('[data-testid="new-message-button"]')).not.toBeNull();
+  });
+
+  it('opens the new message dialog and creates a direct conversation from a selected recipient', async () => {
+    const httpMock = await configureHttpTest([MessagesPageComponent]);
+    const router = TestBed.inject(Router);
+    const navigateSpy = vi.spyOn(router, 'navigateByUrl').mockResolvedValue(true);
+    const fixture = TestBed.createComponent(MessagesPageComponent);
+
+    httpMock.expectOne('/api/conversations').flush({ items: [] });
+    fixture.detectChanges();
+
+    const root = fixture.nativeElement as HTMLElement;
+    root.querySelector<HTMLButtonElement>('[data-testid="new-message-button"]')?.click();
+    fixture.detectChanges();
+    expect(root.querySelector('[data-testid="new-message-dialog"]')).not.toBeNull();
+
+    const input = root.querySelector<HTMLInputElement>('[data-testid="recipient-search"]');
+    input!.value = 'Staff';
+    input!.dispatchEvent(new Event('input'));
+
+    const searchRequest = httpMock.expectOne('/api/conversations/recipients?query=Staff');
+    expect(searchRequest.request.withCredentials).toBe(true);
+    searchRequest.flush([{ userId: 'user-staff', displayName: 'Staff User' }]);
+    fixture.detectChanges();
+
+    root.querySelector<HTMLButtonElement>('[data-testid="recipient-option"]')?.click();
+    fixture.detectChanges();
+    root.querySelector<HTMLButtonElement>('[data-testid="create-conversation-submit"]')?.click();
+
+    const createRequest = httpMock.expectOne('/api/conversations/direct');
+    expect(createRequest.request.withCredentials).toBe(true);
+    expect(createRequest.request.body).toEqual({ recipientUserId: 'user-staff' });
+    createRequest.flush({
+      id: 'dm-created',
+      workspaceId: 'workspace-a',
+      type: 'DirectMessage',
+      title: 'Staff User',
+      isLocked: false,
+      isArchived: false,
+      members: [],
+      createdAt: '2026-07-09T00:00:00Z'
+    });
+
+    expect(navigateSpy).toHaveBeenCalledWith('/dm/dm-created');
+  });
+
+  it('keeps the dialog open and shows an error when direct conversation creation fails', async () => {
+    const httpMock = await configureHttpTest([MessagesPageComponent]);
+    const router = TestBed.inject(Router);
+    const navigateSpy = vi.spyOn(router, 'navigateByUrl').mockResolvedValue(true);
+    const fixture = TestBed.createComponent(MessagesPageComponent);
+
+    httpMock.expectOne('/api/conversations').flush({ items: [] });
+    fixture.detectChanges();
+    const root = fixture.nativeElement as HTMLElement;
+
+    root.querySelector<HTMLButtonElement>('[data-testid="new-message-button"]')?.click();
+    fixture.detectChanges();
+    const input = root.querySelector<HTMLInputElement>('[data-testid="recipient-search"]');
+    input!.value = 'Staff';
+    input!.dispatchEvent(new Event('input'));
+    httpMock.expectOne('/api/conversations/recipients?query=Staff').flush([
+      { userId: 'user-staff', displayName: 'Staff User' }
+    ]);
+    fixture.detectChanges();
+    root.querySelector<HTMLButtonElement>('[data-testid="recipient-option"]')?.click();
+    fixture.detectChanges();
+    root.querySelector<HTMLButtonElement>('[data-testid="create-conversation-submit"]')?.click();
+
+    httpMock.expectOne('/api/conversations/direct').flush(
+      { error: 'failed' },
+      { status: 500, statusText: 'Server Error' }
+    );
+    fixture.detectChanges();
+
+    expect(root.querySelector('[data-testid="new-message-dialog"]')).not.toBeNull();
+    expect(root.querySelector('[data-testid="create-conversation-error"]')?.textContent).toContain(
+      '会話を作成できませんでした'
+    );
+    expect(navigateSpy).not.toHaveBeenCalled();
+  });
+
+  it('does not display conversation list API failure as an empty state', async () => {
+    const httpMock = await configureHttpTest([MessagesPageComponent]);
+    const fixture = TestBed.createComponent(MessagesPageComponent);
+
+    httpMock.expectOne('/api/conversations').flush(
+      { error: 'failed' },
+      { status: 500, statusText: 'Server Error' }
+    );
+    fixture.detectChanges();
+    const root = fixture.nativeElement as HTMLElement;
+
+    expect(root.querySelector('[data-testid="messages-list-failed"]')).not.toBeNull();
+    expect(root.querySelector('[data-testid="messages-list-empty"]')).toBeNull();
   });
 
   it('opens an existing conversation and renders backend messages', async () => {

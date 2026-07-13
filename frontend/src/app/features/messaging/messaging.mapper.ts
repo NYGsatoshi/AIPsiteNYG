@@ -56,13 +56,13 @@ export function mapConversationPage(
   return {
     routeKind,
     status,
-    title: titleFor(conversation, routeKind),
+    title: titleFor(conversation, routeKind, context.currentUserId),
     conversation: {
       id: conversationId,
       kind: routeKind,
       tenantId: context.currentTenantId,
       workspaceId,
-      title: titleFor(conversation, routeKind),
+      title: titleFor(conversation, routeKind, context.currentUserId),
       subtitle: 'Live API data',
       viewerIsParticipant,
       viewerWasRemoved: viewerWasRemoved || viewerLeft,
@@ -135,8 +135,22 @@ export function routeKindFromApi(value: unknown): MessagingRouteKind | null {
   return normalized.includes('direct') ? 'dm' : 'channel';
 }
 
-function titleFor(conversation: ConversationDto, routeKind: MessagingRouteKind): string {
-  return stringValue(conversation.title) ?? (routeKind === 'dm' ? 'Direct message' : 'Conversation');
+function titleFor(conversation: ConversationDto, routeKind: MessagingRouteKind, currentUserId?: string): string {
+  const title = stringValue(conversation.title);
+  if (title) {
+    return title;
+  }
+
+  const members = (conversation as { members?: readonly { userId?: unknown; displayName?: unknown }[] }).members ?? [];
+  if (routeKind === 'dm' && members.length > 0) {
+    const recipient = members.find((member) => stringValue(member.userId) !== currentUserId);
+    const displayName = stringValue(recipient?.displayName);
+    if (displayName) {
+      return displayName;
+    }
+  }
+
+  return routeKind === 'dm' ? 'Direct message' : 'Conversation';
 }
 
 function stringValue(value: unknown): string | undefined {

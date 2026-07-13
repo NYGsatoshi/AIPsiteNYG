@@ -73,6 +73,11 @@ export interface MessageDto {
   readonly isDeleted?: unknown;
 }
 
+export interface ConversationRecipientDto {
+  readonly userId?: unknown;
+  readonly displayName?: unknown;
+}
+
 @Injectable({ providedIn: 'root' })
 export class MessagingApi {
   private readonly http = inject(HttpClient);
@@ -81,6 +86,21 @@ export class MessagingApi {
     return this.http.get<PagedResponseDto<ConversationDto>>('/api/conversations', {
       withCredentials: true
     });
+  }
+
+  searchRecipients(query: string): Observable<readonly ConversationRecipientDto[]> {
+    return this.http.get<readonly ConversationRecipientDto[]>('/api/conversations/recipients', {
+      params: { query },
+      withCredentials: true
+    });
+  }
+
+  createDirectConversation(recipientUserId: string): Observable<ConversationDetailDto> {
+    return this.http.post<ConversationDetailDto>(
+      '/api/conversations/direct',
+      { recipientUserId },
+      { withCredentials: true }
+    );
   }
 
   getConversation(conversationId: string): Observable<ConversationDetailDto> {

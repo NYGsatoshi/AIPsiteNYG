@@ -11,8 +11,14 @@ public sealed class ConversationsController(IConversationService conversations) 
     [HttpGet("api/conversations")]
     public async Task<IActionResult> List([FromQuery] ConversationListQuery query, CancellationToken cancellationToken) => ToActionResult(await conversations.ListAsync(query, cancellationToken));
 
+    [HttpGet("api/conversations/recipients")]
+    public async Task<IActionResult> Recipients([FromQuery] string? query, CancellationToken cancellationToken) => ToActionResult(await conversations.ListRecipientsAsync(query, cancellationToken));
+
     [HttpPost("api/conversations")]
     public async Task<IActionResult> Create(CreateConversationRequest request, CancellationToken cancellationToken) => ToActionResult(await conversations.CreateAsync(request, cancellationToken));
+
+    [HttpPost("api/conversations/direct")]
+    public async Task<IActionResult> CreateDirect(CreateDirectConversationRequest request, CancellationToken cancellationToken) => ToActionResult(await conversations.CreateDirectAsync(request, cancellationToken));
 
     [HttpGet("api/conversations/{conversationId:guid}")]
     public async Task<IActionResult> Get(Guid conversationId, CancellationToken cancellationToken) => ToActionResult(await conversations.GetAsync(conversationId, cancellationToken));

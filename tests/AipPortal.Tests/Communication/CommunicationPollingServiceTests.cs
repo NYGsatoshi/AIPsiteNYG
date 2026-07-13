@@ -298,6 +298,11 @@ public sealed class CommunicationPollingServiceTests
             return Task.FromResult(new PagedResponse<Conversation>(items, page, pageSize, query.Count));
         }
 
+        public Task<IReadOnlyList<User>> SearchDirectRecipientsAsync(Guid userId, string? query, int limit, CancellationToken cancellationToken = default)
+        {
+            return Task.FromResult<IReadOnlyList<User>>([]);
+        }
+
         public Task<Conversation?> GetConversationAsync(Guid conversationId, CancellationToken cancellationToken = default)
         {
             return Task.FromResult(Conversations.FirstOrDefault(conversation => conversation.Id == conversationId));
@@ -306,6 +311,16 @@ public sealed class CommunicationPollingServiceTests
         public Task<Conversation?> FindDirectAsync(Guid workspaceId, Guid userAId, Guid userBId, CancellationToken cancellationToken = default)
         {
             return Task.FromResult<Conversation?>(null);
+        }
+
+        public Task<Conversation?> FindDirectForUsersAsync(Guid userAId, Guid userBId, CancellationToken cancellationToken = default)
+        {
+            return Task.FromResult<Conversation?>(null);
+        }
+
+        public Task<Workspace?> FindSharedActiveWorkspaceAsync(Guid userAId, Guid userBId, CancellationToken cancellationToken = default)
+        {
+            return Task.FromResult<Workspace?>(null);
         }
 
         public Task<ConversationMember?> GetMemberAsync(Guid conversationId, Guid userId, CancellationToken cancellationToken = default)

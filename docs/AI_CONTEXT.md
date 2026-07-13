@@ -69,7 +69,7 @@ Project references enforce a conventional dependency direction. See `docs/ARCHIT
 | Database tenant feature flags and quotas | Partially implemented | File uploads, exports, integrations, and UI shell use them; broad module gating is incomplete |
 | `Features:*` appsettings switches | Documentation mismatch | Bound in DI but not used to gate controllers/services |
 | Workspaces/groups/channels/posts | Backend implemented; browser UI planned/partial | REST layers exist; routes render placeholders |
-| Messaging | Partially implemented | REST and polling UI exist; conversation persistence and attachment ownership have critical backend defects documented in `BACKEND_LOGIC_AUDIT.md` |
+| Messaging | Partially implemented | REST, polling UI, direct-message recipient search, direct conversation creation, and browser send/read persistence exist; realtime, read receipts, group conversations, and safe attachment ownership remain incomplete |
 | Announcements | Partially implemented | REST and UI exist; scoped visibility and frontend role/user-ID behavior have confirmed defects |
 | Projects/tasks/milestones/assignments/comments/Gantt data | Partially implemented | Broad API and project UI exist; search authorization, assignee filtering, notification targets, and task-list deduplication need patches |
 | Events/attendance/calendar | Backend implemented; browser UI planned | Controller/service/repository/tests exist; calendar route is a placeholder outside dashboard summary |
