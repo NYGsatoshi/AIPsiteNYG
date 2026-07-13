@@ -46,6 +46,12 @@ export const DEFAULT_NAVIGATION_ITEMS: readonly NavigationItem[] = [
     requiredCapability: 'projects:view'
   },
   {
+    id: 'my-tasks',
+    label: 'My Tasks',
+    route: '/tasks',
+    requiredCapability: 'projects:view'
+  },
+  {
     id: 'files',
     label: 'Files',
     route: '/files',

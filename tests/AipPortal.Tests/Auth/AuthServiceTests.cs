@@ -308,6 +308,25 @@ public sealed class AuthServiceTests
     }
 
     [Fact]
+    public async Task NormalUserLoginReceivesProjectNavigationCapabilitiesWithoutAdminGrants()
+    {
+        var fixture = AuthFixture.Create();
+        fixture.AddUser("student@example.com", "Password123", UserStatus.Active);
+
+        var result = await fixture.Service.LoginAsync(new LoginRequest("student@example.com", "Password123"));
+
+        Assert.True(result.IsSuccess);
+        Assert.NotNull(result.Value);
+        Assert.Contains("workspace:view", result.Value.Capabilities);
+        Assert.Contains("announcements:view", result.Value.Capabilities);
+        Assert.Contains("projects:view", result.Value.Capabilities);
+        Assert.Contains("files:view", result.Value.Capabilities);
+        Assert.Contains("account:view", result.Value.Capabilities);
+        Assert.DoesNotContain("admin:access", result.Value.Capabilities);
+        Assert.DoesNotContain("invite:create", result.Value.Capabilities);
+    }
+
+    [Fact]
     public async Task ExpiredLockoutIsClearedBeforePasswordVerification()
     {
         var fixture = AuthFixture.Create(new AuthSecurityOptions

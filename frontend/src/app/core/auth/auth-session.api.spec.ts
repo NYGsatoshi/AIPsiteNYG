@@ -12,7 +12,7 @@ describe('auth session API adapters', () => {
       email: 'self@example.test',
       systemRole: 2,
       status: 1,
-      capabilities: ['workspace:view', 123, 'invite:create']
+      capabilities: ['workspace:view', 'projects:view', 123, 'invite:create']
     });
 
     expect(user).toEqual({
@@ -21,7 +21,7 @@ describe('auth session API adapters', () => {
       email: 'self@example.test',
       systemRole: '2',
       status: '1',
-      capabilities: ['workspace:view', 'invite:create'],
+      capabilities: ['workspace:view', 'projects:view', 'invite:create'],
       currentWorkspace: null,
       workspaces: []
     });

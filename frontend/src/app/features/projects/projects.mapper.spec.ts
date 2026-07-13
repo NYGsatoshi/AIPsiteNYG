@@ -68,4 +68,27 @@ describe('projects mapper', () => {
     expect(myTask.assignee).toBe('Assigned to you');
     expect(myTask.progressPercent).toBeNull();
   });
+
+  it('rejects missing required identifiers instead of fabricating IDs', () => {
+    expect(() => mapProjectDtoToRecord({ title: 'Missing ID', status: 1 })).toThrow(/project\.id/);
+    expect(() =>
+      mapTaskDtoToRecord(
+        {
+          id: 'task-1',
+          title: 'Missing project ID',
+          status: 1,
+          priority: 1
+        },
+        []
+      )
+    ).toThrow(/task\.projectId/);
+    expect(() =>
+      mapMyTaskDtoToRecord({
+        projectId: 'project-1',
+        title: 'Missing task ID',
+        status: 1,
+        priority: 1
+      })
+    ).toThrow(/myTask\.taskId/);
+  });
 });

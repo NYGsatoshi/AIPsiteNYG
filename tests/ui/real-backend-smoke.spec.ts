@@ -102,12 +102,15 @@ async function loginAndVerifySession(page: Page, evidence: SmokeEvidence) {
 
   await expect(page).toHaveURL(/\/app\/workspaces$/);
   await expect(page.getByTestId('app-shell')).toBeVisible();
+  await expect(page.getByTestId('nav-projects').first()).toBeVisible();
+  await expect(page.getByTestId('nav-my-tasks').first()).toBeVisible();
 
   await recordFetchJson(page, evidence, 'auth-me', '/api/auth/me', {
     validate: (body) =>
       hasStringValue(body, 'userId', evidence.userId ?? '') &&
       hasStringValue(body, 'email', smokeEmail) &&
-      Array.isArray((body as Record<string, unknown>).workspaces)
+      Array.isArray((body as Record<string, unknown>).workspaces) &&
+      hasCapability(body, 'projects:view')
   });
 }
 
@@ -282,6 +285,56 @@ async function openProjectTaskDetail(page: Page, evidence: SmokeEvidence) {
       hasStringValue(body, 'title', smokeTaskTitle) &&
       hasStringValue(body, 'projectId', evidence.projectId ?? '')
   });
+
+  await openMyTasksFromNavigation(page, evidence);
+}
+
+async function openMyTasksFromNavigation(page: Page, evidence: SmokeEvidence) {
+  let blockedProjectListRequests = 0;
+  await page.route('**/api/projects', async (route) => {
+    blockedProjectListRequests += 1;
+    await route.fulfill({
+      status: 500,
+      contentType: 'application/json',
+      body: JSON.stringify({ message: 'Project list intentionally blocked during My Tasks independence probe.' })
+    });
+  });
+
+  const [myTasksResponse] = await Promise.all([
+    waitForApiResponse(page, 'GET', '/api/me/tasks'),
+    page.getByTestId('nav-my-tasks').first().click()
+  ]);
+  await expect(page).toHaveURL(/\/app\/tasks$/);
+  await expect(page.getByTestId('my-tasks-page')).toBeVisible();
+  await expect(page.getByTestId('projects-load-error')).toHaveCount(0);
+
+  const myTasksBody = await recordOkJson(myTasksResponse, evidence, 'my-tasks-list-ui-request', (body) =>
+    isPagedResponse(body) &&
+    body.items.some((item: unknown) =>
+      hasStringValue(item, 'taskId', evidence.taskId ?? '') &&
+      hasStringValue(item, 'projectId', evidence.projectId ?? '') &&
+      hasStringValue(item, 'projectTitle', smokeProjectTitle) &&
+      hasStringValue(item, 'title', smokeTaskTitle)
+    )
+  );
+  const assignedTask = myTasksBody.items.find((item: Record<string, unknown>) => item.title === smokeTaskTitle);
+  expect(assignedTask, 'seeded assigned My Tasks row').toBeTruthy();
+  expect(blockedProjectListRequests, 'My Tasks must not request /api/projects while loading').toBe(0);
+  evidence.steps.push({
+    name: 'my-tasks-independent-from-project-list',
+    method: 'GET',
+    path: '/api/projects',
+    status: blockedProjectListRequests
+  });
+
+  const taskRow = page.locator('[role="row"]').filter({ hasText: smokeTaskTitle }).first();
+  await expect(taskRow).toBeVisible();
+  await taskRow.getByTestId('task-action-openDetail').click();
+  await expect(page).toHaveURL(new RegExp(`/app/projects/${evidence.projectId}/tasks/${evidence.taskId}$`));
+  await expect(page.getByTestId('task-detail-page')).toBeVisible();
+  await expect(page.getByRole('heading', { name: smokeTaskTitle })).toBeVisible();
+
+  await page.unroute('**/api/projects');
 }
 
 async function submitInvalidPasswordChange(page: Page, evidence: SmokeEvidence) {
@@ -490,6 +543,15 @@ function hasString(body: unknown, key: string): body is Record<string, unknown> 
 
 function hasStringValue(body: unknown, key: string, expected: string): boolean {
   return hasString(body, key) && (body as Record<string, unknown>)[key] === expected;
+}
+
+function hasCapability(body: unknown, capability: string): boolean {
+  return (
+    typeof body === 'object' &&
+    body !== null &&
+    Array.isArray((body as Record<string, unknown>).capabilities) &&
+    (body as Record<string, unknown>).capabilities.includes(capability)
+  );
 }
 
 function parseJson(text: string): any {

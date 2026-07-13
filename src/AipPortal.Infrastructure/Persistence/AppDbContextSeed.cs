@@ -417,7 +417,7 @@ public static class AppDbContextSeed
             cancellationToken);
         if (task is null)
         {
-            await dbContext.TaskItems.AddAsync(new TaskItem
+            task = new TaskItem
             {
                 TenantId = tenantId,
                 ProjectId = project.Id,
@@ -430,7 +430,8 @@ public static class AppDbContextSeed
                 ProgressPercent = 10,
                 SortOrder = 1,
                 CreatedByUserId = user.Id
-            }, cancellationToken);
+            };
+            await dbContext.TaskItems.AddAsync(task, cancellationToken);
         }
         else
         {
@@ -446,6 +447,31 @@ public static class AppDbContextSeed
             {
                 task.Restore();
             }
+        }
+
+        var taskAssignment = await dbContext.TaskAssignments.FirstOrDefaultAsync(
+            candidate =>
+                candidate.TenantId == tenantId &&
+                candidate.TaskItemId == task.Id &&
+                candidate.UserId == user.Id &&
+                candidate.Role == TaskAssignmentRole.Assignee,
+            cancellationToken);
+        if (taskAssignment is null)
+        {
+            await dbContext.TaskAssignments.AddAsync(new TaskAssignment
+            {
+                TenantId = tenantId,
+                TaskItemId = task.Id,
+                UserId = user.Id,
+                Role = TaskAssignmentRole.Assignee,
+                AssignedByUserId = user.Id,
+                AssignedAt = now
+            }, cancellationToken);
+        }
+        else
+        {
+            taskAssignment.AssignedByUserId = user.Id;
+            taskAssignment.AssignedAt = taskAssignment.AssignedAt == default ? now : taskAssignment.AssignedAt;
         }
 
         await dbContext.SaveChangesAsync(cancellationToken);

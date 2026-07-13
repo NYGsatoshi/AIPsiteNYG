@@ -12,7 +12,7 @@ export function mapProjectDtoToRecord(project: ProjectDto): ProjectMockRecord {
   const status = mapProjectStatus(project.status);
 
   return {
-    id: stringValue(project.id) ?? '',
+    id: requiredString(project.id, 'project.id'),
     name: stringValue(project.title) ?? 'Untitled project',
     status,
     statusLabel: projectStatusLabel(status),
@@ -26,15 +26,15 @@ export function mapProjectDtoToRecord(project: ProjectDto): ProjectMockRecord {
 
 export function mapTaskDtoToRecord(
   task: TaskDto,
-  projects: readonly ProjectMockRecord[]
+  _projects: readonly ProjectMockRecord[]
 ): TaskMockRecord {
   const status = mapTaskStatus(task.status);
   const priority = mapTaskPriority(task.priority);
-  const projectId = stringValue(task.projectId) ?? projects[0]?.id ?? '';
+  const projectId = requiredString(task.projectId, 'task.projectId');
   const allowedTransitions = taskStatusArray(task.uiPermissions?.allowedTransitions);
 
   return {
-    id: stringValue(task.id) ?? '',
+    id: requiredString(task.id, 'task.id'),
     projectId,
     title: stringValue(task.title) ?? 'Untitled task',
     description: stringValue(task.description) ?? '',
@@ -60,8 +60,8 @@ export function mapMyTaskDtoToRecord(task: MyTaskDto): TaskMockRecord {
   const priority = mapTaskPriority(task.priority);
 
   return {
-    id: stringValue(task.taskId) ?? '',
-    projectId: stringValue(task.projectId) ?? '',
+    id: requiredString(task.taskId, 'myTask.taskId'),
+    projectId: requiredString(task.projectId, 'myTask.projectId'),
     title: stringValue(task.title) ?? 'Untitled task',
     description: '',
     status,
@@ -204,6 +204,15 @@ function taskStatusArray(value: unknown): readonly TaskStatus[] {
 
 function stringValue(value: unknown): string | undefined {
   return typeof value === 'string' && value.length > 0 ? value : undefined;
+}
+
+function requiredString(value: unknown, fieldName: string): string {
+  const text = stringValue(value);
+  if (text) {
+    return text;
+  }
+
+  throw new Error(`Projects API response did not include ${fieldName}.`);
 }
 
 function numberValue(value: unknown): number | undefined {

@@ -39,6 +39,13 @@ export class TaskDetailPageComponent {
   );
   readonly mutationState = computed(() => this.facade.getTaskMutationState());
 
+  constructor() {
+    this.facade.ensureTaskDetail(
+      this.route.snapshot.paramMap.get('projectId') ?? undefined,
+      this.route.snapshot.paramMap.get('taskId') ?? undefined
+    );
+  }
+
   saveTask(request: TaskEditorSaveRequest): void {
     const vm = this.page();
     if (!vm.task) {

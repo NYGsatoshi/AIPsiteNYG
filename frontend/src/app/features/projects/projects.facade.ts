@@ -1,18 +1,13 @@
 import { HttpClient, HttpErrorResponse } from '@angular/common/http';
 import { inject, Injectable, InjectionToken, signal } from '@angular/core';
 import { forkJoin, Observable, of } from 'rxjs';
-import { catchError, map, switchMap } from 'rxjs/operators';
+import { map, switchMap } from 'rxjs/operators';
 
+import { normalizeApiError } from '../../core/api/api-error.adapter';
+import { FrontendApiError } from '../../core/api/api-error.model';
+import { MyTasksFacade } from './my-tasks.facade';
+import { PagedResponseDto, ProjectDto, TaskDto, toCreateTaskRequestDto, toUpdateTaskRequestDto } from './projects.api';
 import {
-  MyTaskDto,
-  PagedResponseDto,
-  ProjectDto,
-  TaskDto,
-  toCreateTaskRequestDto,
-  toUpdateTaskRequestDto
-} from './projects.api';
-import {
-  mapMyTaskDtoToRecord,
   mapProjectDtoToRecord,
   mapTaskDtoToRecord,
   taskStatusLabel
@@ -41,9 +36,6 @@ export const AIP_PROJECTS_MOCK = new InjectionToken<ProjectsScenario>('AIP_PROJE
 interface ProjectsLoadResult {
   readonly projects: readonly ProjectMockRecord[];
   readonly tasks: readonly TaskMockRecord[];
-  readonly myTasks: readonly TaskMockRecord[];
-  readonly myTasksStatus: ProjectsPageStatus;
-  readonly myTasksMessage?: string;
 }
 
 interface ErrorBody {
@@ -58,6 +50,7 @@ interface ErrorBody {
 })
 export class ProjectsFacade {
   private readonly http = inject(HttpClient);
+  private readonly myTasksFacade = inject(MyTasksFacade);
   private readonly scenario = inject(AIP_PROJECTS_MOCK, { optional: true });
   private readonly liveState = signal<ProjectsScenario>(
     this.scenario ?? this.emptyScenario('loading')
@@ -89,7 +82,8 @@ export class ProjectsFacade {
       rows,
       columns: [],
       pageSize: this.pageSize,
-      message: scenario.message
+      message: scenario.message,
+      error: scenario.error
     };
   }
 
@@ -132,19 +126,15 @@ export class ProjectsFacade {
       };
     }
 
-    const task = this.authorizedTasks().find(
-      (candidate) => candidate.projectId === projectId && candidate.id === taskId
+    const task = scenario.tasks.find(
+      (candidate) => candidate.authorized && candidate.projectId === projectId && candidate.id === taskId
     );
-    if (!task && scenario.status !== 'loading' && projectId && taskId) {
-      this.loadTaskDetail(taskId);
-    }
     const project = task
       ? this.authorizedProjects().find((candidate) => candidate.id === task.projectId)
       : undefined;
 
     return {
-      status:
-        task && project ? scenario.status : scenario.status === 'loading' ? 'loading' : 'empty',
+      status: task ? 'ready' : scenario.status === 'ready' ? 'empty' : scenario.status,
       detailState: scenario.detailState ?? 'ready',
       project: project ? this.toProjectSummary(project) : undefined,
       task: task ? this.toTaskRow(task) : undefined,
@@ -154,6 +144,19 @@ export class ProjectsFacade {
       transitionNote: TASK_STATUS_BACKEND_AUTHORITATIVE_NOTE,
       message: scenario.message
     };
+  }
+
+  ensureTaskDetail(projectId?: string, taskId?: string): void {
+    if (!projectId || !taskId) {
+      return;
+    }
+
+    const taskExists = this.liveState().tasks.some(
+      (candidate) => candidate.projectId === projectId && candidate.id === taskId
+    );
+    if (!taskExists) {
+      this.loadTaskDetail(taskId);
+    }
   }
 
   getTaskMutationState(): TaskMutationState {
@@ -172,6 +175,14 @@ export class ProjectsFacade {
     this.taskCreateMutationState.set({ status: 'idle' });
   }
 
+  retryProjects(): void {
+    if (this.scenario) {
+      return;
+    }
+
+    this.loadProjects();
+  }
+
   saveTask(taskId: string, projectId: string, request: TaskEditorSaveRequest): void {
     if (this.scenario || this.taskMutationState().status === 'submitting') {
       return;
@@ -186,16 +197,15 @@ export class ProjectsFacade {
         switchMap(() =>
           forkJoin({
             task: this.fetchTask(taskId),
-            projectTasks: this.fetchProjectTasks(projectId),
-            myTasks: this.fetchMyTasks()
+            projectTasks: this.fetchProjectTasks(projectId)
           })
         )
       )
       .subscribe({
-        next: ({ task, projectTasks, myTasks }) => {
+        next: ({ task, projectTasks }) => {
           this.replaceProjectTasks(projectId, projectTasks);
           this.replaceTask(task);
-          this.replaceMyTasks(myTasks.items, myTasks.status, myTasks.message);
+          this.myTasksFacade.refreshIfLoaded();
           this.taskMutationState.set({ status: 'success' });
         },
         error: (error: unknown) => {
@@ -217,15 +227,14 @@ export class ProjectsFacade {
       .pipe(
         switchMap(() =>
           forkJoin({
-            projectTasks: this.fetchProjectTasks(request.projectId),
-            myTasks: this.fetchMyTasks()
+            projectTasks: this.fetchProjectTasks(request.projectId)
           })
         )
       )
       .subscribe({
-        next: ({ projectTasks, myTasks }) => {
+        next: ({ projectTasks }) => {
           this.replaceProjectTasks(request.projectId, projectTasks);
-          this.replaceMyTasks(myTasks.items, myTasks.status, myTasks.message);
+          this.myTasksFacade.refreshIfLoaded();
           this.taskCreateMutationState.set({ status: 'success' });
         },
         error: (error: unknown) => {
@@ -239,31 +248,23 @@ export class ProjectsFacade {
   }
 
   private loadProjects(): void {
+    this.liveState.set(this.emptyScenario('loading'));
     this.fetchProjectList()
       .pipe(
         switchMap((projects) => {
           if (projects.length === 0) {
             return of({
               projects,
-              tasks: [],
-              myTasks: [],
-              myTasksStatus: 'empty' as const,
-              myTasksMessage: 'No assigned tasks were returned by the API.'
+              tasks: []
             } satisfies ProjectsLoadResult);
           }
 
           return forkJoin({
-            taskPages: forkJoin(
-              projects.map((project) => this.fetchProjectTasks(project.id).pipe(catchError(() => of([]))))
-            ),
-            myTasks: this.fetchMyTasks()
+            taskPages: forkJoin(projects.map((project) => this.fetchProjectTasks(project.id)))
           }).pipe(
-            map(({ taskPages, myTasks }) => ({
+            map(({ taskPages }) => ({
               projects,
-              tasks: taskPages.flat(),
-              myTasks: myTasks.items,
-              myTasksStatus: myTasks.status,
-              myTasksMessage: myTasks.message
+              tasks: taskPages.flat()
             }))
           );
         })
@@ -283,19 +284,19 @@ export class ProjectsFacade {
             subtitle: 'Live API data',
             projects: result.projects,
             tasks: result.tasks,
-            myTasks: result.myTasks,
-            myTasksStatus: result.myTasksStatus,
-            myTasksMessage: result.myTasksMessage,
+            myTasks: [],
             currentUserAssignee: ''
           });
         },
-        error: (error: { status?: number }) => {
+        error: (error: unknown) => {
+          const normalized = normalizeApiError(error);
           this.liveState.set(
             this.emptyScenario(
-              error.status === 401 || error.status === 403 ? 'permissionDenied' : 'error',
-              error.status === 401 || error.status === 403
+              normalized.httpStatus === 401 || normalized.httpStatus === 403 ? 'permissionDenied' : 'error',
+              normalized.httpStatus === 401 || normalized.httpStatus === 403
                 ? 'Authentication or project permission is required.'
-                : 'Project API request failed.'
+                : 'Projects could not be loaded. Try again.',
+              normalized
             )
           );
         }
@@ -343,36 +344,7 @@ export class ProjectsFacade {
     });
   }
 
-  private fetchMyTasks(): Observable<{
-    readonly items: readonly TaskMockRecord[];
-    readonly status: ProjectsPageStatus;
-    readonly message?: string;
-  }> {
-    return this.http
-      .get<PagedResponseDto<MyTaskDto>>('/api/me/tasks', { withCredentials: true })
-      .pipe(
-        map((response) => ({
-          items: (response.items ?? []).map((task) => mapMyTaskDtoToRecord(task)),
-          status: 'ready' as const
-        })),
-        catchError((error: { status?: number }) =>
-          of({
-            items: [],
-            status: error.status === 401 || error.status === 403 ? 'permissionDenied' : 'error',
-            message:
-              error.status === 401 || error.status === 403
-                ? 'Authentication or task assignment permission is required.'
-                : 'My Tasks API request failed.'
-          } satisfies {
-            readonly items: readonly TaskMockRecord[];
-            readonly status: ProjectsPageStatus;
-            readonly message?: string;
-          })
-        )
-      );
-  }
-
-  private emptyScenario(status: ProjectsPageStatus, message?: string): ProjectsScenario {
+  private emptyScenario(status: ProjectsPageStatus, message?: string, error?: FrontendApiError): ProjectsScenario {
     return {
       status,
       title: 'Projects',
@@ -381,7 +353,8 @@ export class ProjectsFacade {
       tasks: [],
       myTasks: [],
       currentUserAssignee: '',
-      message
+      message,
+      ...(error ? { error } : {})
     };
   }
 
@@ -398,7 +371,8 @@ export class ProjectsFacade {
       rows: [],
       columns: [],
       pageSize: this.pageSize,
-      message
+      message,
+      error: scenario.error
     };
   }
 
@@ -555,18 +529,6 @@ export class ProjectsFacade {
     });
   }
 
-  private replaceMyTasks(
-    myTasks: readonly TaskMockRecord[],
-    status: ProjectsPageStatus,
-    message?: string
-  ): void {
-    this.liveState.update((state) => ({
-      ...state,
-      myTasks,
-      myTasksStatus: status,
-      myTasksMessage: message
-    }));
-  }
 }
 
 function toFailureState(error: unknown, fallback: string): TaskMutationState {

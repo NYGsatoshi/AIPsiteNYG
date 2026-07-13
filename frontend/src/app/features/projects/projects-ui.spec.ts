@@ -2,7 +2,9 @@ import { Component, EventEmitter, Input, Output } from '@angular/core';
 import { ComponentFixture, TestBed } from '@angular/core/testing';
 import { ActivatedRoute, convertToParamMap, provideRouter } from '@angular/router';
 
+import { FrontendApiError } from '../../core/api/api-error.model';
 import { AppDataGridActionEvent } from '../../shared/grid/app-data-grid/app-data-grid.types';
+import { AIP_MY_TASKS_MOCK } from './my-tasks.facade';
 import { AIP_PROJECTS_MOCK, ProjectsFacade } from './projects.facade';
 import {
   PROJECTS_PRIMARY_PROJECT_ID,
@@ -11,7 +13,12 @@ import {
   PROJECTS_UNAUTHORIZED_PROJECT_NAME,
   PROJECTS_UNAUTHORIZED_TASK_TITLE
 } from './projects.mock';
-import { PROJECTS_MAXIMUM_PAGE_SIZE, TASK_STATUS_BACKEND_AUTHORITATIVE_NOTE, TaskGridRow } from './projects.types';
+import {
+  PROJECTS_MAXIMUM_PAGE_SIZE,
+  ProjectsScenario,
+  TASK_STATUS_BACKEND_AUTHORITATIVE_NOTE,
+  TaskGridRow
+} from './projects.types';
 import { MyTasksPageComponent } from './my-tasks-page/my-tasks-page.component';
 import { ProjectsOverviewPageComponent } from './projects-overview-page/projects-overview-page.component';
 import { TaskDependenciesReadonlyComponent } from './task-dependencies-readonly/task-dependencies-readonly.component';
@@ -70,6 +77,16 @@ const routeStub = {
 
 const textContent = <T>(fixture: ComponentFixture<T>): string => (fixture.nativeElement as HTMLElement).textContent ?? '';
 
+const normalizedError = (localErrorId: string): FrontendApiError => ({
+  code: 'Http500',
+  message: 'Server failure',
+  details: [],
+  requestId: 'trace-visible',
+  redactionApplied: true,
+  httpStatus: 500,
+  localErrorId
+});
+
 const query = <T extends HTMLElement, C = unknown>(fixture: ComponentFixture<C>, selector: string): T | null =>
   (fixture.nativeElement as HTMLElement).querySelector<T>(selector);
 
@@ -77,7 +94,7 @@ const queryAll = <T extends HTMLElement, C = unknown>(fixture: ComponentFixture<
   Array.from((fixture.nativeElement as HTMLElement).querySelectorAll<T>(selector));
 
 const renderProjectsOverview = async (
-  scenario: (typeof PROJECTS_SCENARIOS)[keyof typeof PROJECTS_SCENARIOS] = PROJECTS_SCENARIOS.default
+  scenario: ProjectsScenario = PROJECTS_SCENARIOS.default
 ) => {
   await TestBed.configureTestingModule({
     imports: [ProjectsOverviewPageComponent],
@@ -95,11 +112,11 @@ const renderProjectsOverview = async (
 };
 
 const renderMyTasks = async (
-  scenario: (typeof PROJECTS_SCENARIOS)[keyof typeof PROJECTS_SCENARIOS] = PROJECTS_SCENARIOS.default
+  scenario: ProjectsScenario = PROJECTS_SCENARIOS.default
 ) => {
   await TestBed.configureTestingModule({
     imports: [MyTasksPageComponent],
-    providers: [provideRouter([]), { provide: AIP_PROJECTS_MOCK, useValue: scenario }]
+    providers: [provideRouter([]), { provide: AIP_MY_TASKS_MOCK, useValue: scenario }]
   })
     .overrideComponent(MyTasksPageComponent, {
       remove: { imports: [TaskTableComponent] },
@@ -146,6 +163,35 @@ describe('Projects and tasks mock UI', () => {
     expect(query(fixture, '[data-testid="stub-page-size"]')?.textContent).toContain('50/100');
   });
 
+  it('renders Project load failures as retryable errors instead of empty states', async () => {
+    const fixture = await renderProjectsOverview({
+      ...PROJECTS_SCENARIOS.default,
+      status: 'error',
+      projects: [],
+      tasks: [],
+      message: 'Projects could not be loaded. Try again.',
+      error: normalizedError('local-projects-error')
+    } satisfies ProjectsScenario);
+
+    expect(query(fixture, '[data-testid="projects-load-error"]')).not.toBeNull();
+    expect(query(fixture, '[data-testid="projects-retry"]')).not.toBeNull();
+    expect(textContent(fixture)).not.toContain('No projects');
+  });
+
+  it('renders My Tasks failures as retryable errors instead of empty states', async () => {
+    const fixture = await renderMyTasks({
+      ...PROJECTS_SCENARIOS.default,
+      myTasksStatus: 'error',
+      myTasks: [],
+      myTasksMessage: 'My Tasks could not be loaded. Try again.',
+      myTasksError: normalizedError('local-my-tasks-error')
+    } satisfies ProjectsScenario);
+
+    expect(query(fixture, '[data-testid="my-tasks-load-error"]')).not.toBeNull();
+    expect(query(fixture, '[data-testid="my-tasks-retry"]')).not.toBeNull();
+    expect(textContent(fixture)).not.toContain('No tasks');
+  });
+
   it('does not render unauthorized project or task names in denied state', async () => {
     const fixture = await renderProjectsOverview(PROJECTS_SCENARIOS.permissionDenied);
     const text = textContent(fixture);
@@ -177,7 +223,7 @@ describe('TaskEditorComponent', () => {
   afterEach(() => TestBed.resetTestingModule());
 
   const renderEditor = async (
-    scenario: (typeof PROJECTS_SCENARIOS)[keyof typeof PROJECTS_SCENARIOS] = PROJECTS_SCENARIOS.default
+    scenario: ProjectsScenario = PROJECTS_SCENARIOS.default
   ) => {
     await TestBed.configureTestingModule({
       imports: [TaskEditorComponent],

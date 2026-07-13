@@ -193,21 +193,24 @@ public sealed class PlanningRepository(AppDbContext dbContext) : IPlanningReposi
 
         var page = query.SafePage;
         var pageSize = query.SafePageSize;
-        var total = await source.CountAsync(cancellationToken);
-        var items = await source
-            .OrderBy(assignment => assignment.TaskItem!.DueDate ?? DateOnly.MaxValue)
-            .ThenBy(assignment => assignment.TaskItem!.Title)
+        var taskIds = source.Select(assignment => assignment.TaskItemId).Distinct();
+        var total = await taskIds.CountAsync(cancellationToken);
+        var items = await dbContext.TaskItems
+            .AsNoTracking()
+            .Where(task => taskIds.Contains(task.Id))
+            .OrderBy(task => task.DueDate ?? DateOnly.MaxValue)
+            .ThenBy(task => task.Title)
             .Skip((page - 1) * pageSize)
             .Take(pageSize)
-            .Select(assignment => new
+            .Select(task => new
             {
-                assignment.TaskItem!.Id,
-                assignment.TaskItem.ProjectId,
-                ProjectTitle = assignment.TaskItem.Project!.Name,
-                assignment.TaskItem.Title,
-                assignment.TaskItem.DueDate,
-                assignment.TaskItem.Status,
-                assignment.TaskItem.Priority
+                task.Id,
+                task.ProjectId,
+                ProjectTitle = task.Project!.Name,
+                task.Title,
+                task.DueDate,
+                task.Status,
+                task.Priority
             })
             .ToListAsync(cancellationToken);
 

@@ -33,17 +33,6 @@ const editableTaskDto: TaskDto = {
   }
 };
 
-const assignedTaskDto = {
-  taskId: 'task-2',
-  projectId: 'project-1',
-  projectTitle: 'Backend Project',
-  title: 'Assigned Backend Task',
-  dueDate: '2026-07-21',
-  status: 0,
-  priority: 1,
-  isOverdue: false
-};
-
 describe('ProjectsFacade live API mutations', () => {
   let facade: ProjectsFacade;
   let httpMock: HttpTestingController;
@@ -61,21 +50,20 @@ describe('ProjectsFacade live API mutations', () => {
     TestBed.resetTestingModule();
   });
 
-  it('loads project tasks and my tasks from backend endpoints', () => {
+  it('loads project tasks without requiring My Tasks endpoint', () => {
     flushInitialLoad();
 
     const projectRows = facade.getProjectsOverview().rows;
-    const myTaskRows = facade.getMyTasks().rows;
 
     expect(projectRows.map((row) => row.id)).toEqual(['task-1']);
-    expect(myTaskRows.map((row) => row.id)).toEqual(['task-2']);
-    expect(myTaskRows[0].progressPercent).toBeNull();
+    httpMock.expectNone('/api/me/tasks');
   });
 
   it('fetches task detail by id when the task is not present in the project list page', () => {
     flushInitialLoad([]);
 
     expect(facade.getTaskDetail('project-1', 'task-1').status).toBe('empty');
+    facade.ensureTaskDetail('project-1', 'task-1');
 
     httpMock.expectOne('/api/tasks/task-1').flush(editableTaskDto);
 
@@ -109,7 +97,6 @@ describe('ProjectsFacade live API mutations', () => {
     httpMock.expectOne('/api/projects/project-1/tasks').flush({
       items: [{ ...editableTaskDto, id: 'task-created', title: 'Created Task' }]
     });
-    httpMock.expectOne('/api/me/tasks').flush({ items: [] });
 
     expect(facade.getTaskCreateMutationState().status).toBe('success');
     expect(facade.getProjectsOverview().rows.map((row) => row.title)).toEqual(['Created Task']);
@@ -147,7 +134,6 @@ describe('ProjectsFacade live API mutations', () => {
     httpMock.expectOne('/api/projects/project-1/tasks').flush({
       items: [{ ...editableTaskDto, title: 'Saved Task', progressPercent: 65 }]
     });
-    httpMock.expectOne('/api/me/tasks').flush({ items: [assignedTaskDto] });
 
     expect(facade.getTaskMutationState().status).toBe('success');
     expect(facade.getTaskDetail('project-1', 'task-1').editorTask?.title).toBe('Saved Task');
@@ -179,9 +165,60 @@ describe('ProjectsFacade live API mutations', () => {
     expect(facade.getTaskDetail('project-1', 'task-1').editorTask?.title).toBe('Backend Task');
   });
 
+  it('shows a Project error state and retries without rendering an empty success state', () => {
+    httpMock
+      .expectOne('/api/projects')
+      .flush({ message: 'server failed', traceId: 'trace-projects' }, { status: 500, statusText: 'Server Error' });
+
+    expect(facade.getProjectsOverview().status).toBe('error');
+    expect(facade.getProjectsOverview().projects).toEqual([]);
+    expect(facade.getProjectsOverview().error?.requestId).toBe('trace-projects');
+
+    facade.retryProjects();
+    flushInitialLoad();
+
+    expect(facade.getProjectsOverview().status).toBe('ready');
+    expect(facade.getProjectsOverview().projects.map((project) => project.id)).toEqual(['project-1']);
+  });
+
+  it('shows a Project error state when a project task list request fails', () => {
+    httpMock.expectOne('/api/projects').flush({ items: [projectDto] });
+    httpMock
+      .expectOne('/api/projects/project-1/tasks')
+      .flush({ message: 'Task list failed', traceId: 'trace-tasks' }, { status: 500, statusText: 'Server Error' });
+
+    const page = facade.getProjectsOverview();
+    expect(page.status).toBe('error');
+    expect(page.rows).toEqual([]);
+    expect(page.error?.requestId).toBe('trace-tasks');
+  });
+
+  it('does not report task creation success after backend mutation failure', () => {
+    flushInitialLoad();
+
+    facade.createTask({
+      projectId: 'project-1',
+      title: 'Rejected Task',
+      description: '',
+      priority: 'medium',
+      startDate: '',
+      dueDate: ''
+    });
+
+    httpMock
+      .expectOne('/api/projects/project-1/tasks')
+      .flush({ message: 'Create rejected.', traceId: 'trace-create' }, { status: 500, statusText: 'Server Error' });
+
+    expect(facade.getTaskCreateMutationState()).toEqual({
+      status: 'failure',
+      message: 'Create rejected.',
+      requestId: 'trace-create'
+    });
+    expect(facade.getProjectsOverview().rows.map((row) => row.id)).toEqual(['task-1']);
+  });
+
   function flushInitialLoad(projectTasks: readonly TaskDto[] = [editableTaskDto]): void {
     httpMock.expectOne('/api/projects').flush({ items: [projectDto] });
     httpMock.expectOne('/api/projects/project-1/tasks').flush({ items: projectTasks });
-    httpMock.expectOne('/api/me/tasks').flush({ items: [assignedTaskDto] });
   }
 });

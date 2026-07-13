@@ -150,6 +150,18 @@ The Dockerfile uses a separate Node.js stage and copies
 `frontend/dist/aipportal-web` into `src/AipPortal.Web/wwwroot` before
 `dotnet publish`.
 
+To verify a production image contains the current Angular Projects and My Tasks
+bundle, rebuild the image and inspect the served client bundle from the running
+container rather than relying on a local `dist` directory:
+
+```bash
+docker compose build app
+docker compose up -d app
+curl -fsS http://localhost:${AIP_PORTAL_PORT:-8080}/app/projects | grep -q '<app-root'
+curl -fsS http://localhost:${AIP_PORTAL_PORT:-8080}/app/tasks | grep -q '<app-root'
+docker compose exec app sh -lc "grep -R \"My Tasks\" /app/wwwroot/browser /app/wwwroot 2>/dev/null | head"
+```
+
 Angular fallback is limited to safe user-facing GET routes after the Angular
 build marker is present. `/api/*` returns backend API 404 behavior and never
 serves Angular `index.html`. Backend-owned routes remain outside Angular

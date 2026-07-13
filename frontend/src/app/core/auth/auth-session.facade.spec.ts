@@ -5,7 +5,7 @@ import { TestBed } from '@angular/core/testing';
 import { provideRouter, Router } from '@angular/router';
 
 import { ActiveWorkspaceFacade } from '../workspace/active-workspace.facade';
-import { AIP_AUTH_SESSION_MOCK, AuthSessionFacade, DEFAULT_AUTH_SESSION } from './auth-session.facade';
+import { AIP_AUTH_SESSION_MOCK, AuthSessionFacade, AuthSessionSnapshot, DEFAULT_AUTH_SESSION } from './auth-session.facade';
 import { CsrfTokenService } from './csrf-token.service';
 
 @Component({
@@ -91,5 +91,43 @@ describe('AuthSessionFacade logout', () => {
     expect(errors.length).toBe(1);
     expect(authSession.session().isAuthenticated).toBe(true);
     expect(navigateSpy).not.toHaveBeenCalled();
+  });
+
+  it('retains normal-user capabilities from the backend without adding admin grants', () => {
+    const snapshots: AuthSessionSnapshot[] = [];
+
+    authSession.bootstrap().subscribe((snapshot) => snapshots.push(snapshot));
+
+    httpMock.expectOne('/api/auth/me').flush({
+      userId: 'user-normal',
+      displayName: 'Normal User',
+      email: 'normal@example.test',
+      systemRole: 'User',
+      status: 'Active',
+      capabilities: ['workspace:view', 'announcements:view', 'projects:view', 'files:view', 'account:view'],
+      currentWorkspace: null,
+      workspaces: []
+    });
+    httpMock.expectOne('/api/tenants/current').flush({
+      tenantId: 'tenant-1',
+      tenantSlug: 'default',
+      isAvailable: true,
+      isPlatformScope: false,
+      displayName: 'Default',
+      status: 'Active',
+      currentUserRole: 'Member',
+      appMode: 'OnPremSingleTenant',
+      allowTenantSwitching: false
+    });
+
+    expect(snapshots.at(-1)?.capabilities).toEqual([
+      'workspace:view',
+      'announcements:view',
+      'projects:view',
+      'files:view',
+      'account:view'
+    ]);
+    expect(snapshots.at(-1)?.capabilities).not.toContain('admin:access');
+    expect(snapshots.at(-1)?.capabilities).not.toContain('invite:create');
   });
 });

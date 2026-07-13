@@ -18,6 +18,7 @@ import { NavigationItem } from '../../shared/navigation/navigation.models';
           routerLinkActive="feature-menu__item--active"
           [routerLinkActiveOptions]="{ exact: true }"
           [routerLink]="item.route"
+          [attr.data-testid]="'nav-' + item.id"
           (click)="itemSelected.emit()"
         >
           <span class="feature-menu__marker" aria-hidden="true"></span>

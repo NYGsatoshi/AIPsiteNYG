@@ -7,12 +7,12 @@
     <app-inline-loading label="Loading task" />
   } @else if (vm.status === 'permissionDenied') {
     <app-permission-denied [title]="vm.message ?? 'Task detail is not available for this workspace.'" />
-  } @else if (!vm.task || !vm.editorTask || !vm.project) {
+  } @else if (!vm.task || !vm.editorTask) {
     <app-empty-state title="Task not found" message="No authorized task detail was returned by the backend." />
   } @else {
     <header class="task-detail-page__header">
       <div>
-        <p>{{ vm.project.name }} / {{ vm.project.group }}</p>
+        <p>{{ vm.project ? vm.project.name + ' / ' + vm.project.group : vm.task.project }}</p>
         <h1>{{ vm.task.title }}</h1>
       </div>
       <app-task-status-badge [status]="vm.task.status" [label]="vm.task.statusLabel" />

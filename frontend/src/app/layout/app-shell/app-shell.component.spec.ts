@@ -21,7 +21,8 @@ describe('AppShellComponent', () => {
       providers: [
         provideRouter([
           { path: 'workspaces', component: TestRouteComponent },
-          { path: 'projects', component: TestRouteComponent }
+          { path: 'projects', component: TestRouteComponent },
+          { path: 'tasks', component: TestRouteComponent }
         ]),
         {
           provide: AIP_AUTH_SESSION_MOCK,
@@ -34,18 +35,31 @@ describe('AppShellComponent', () => {
     }).compileComponents();
   }
 
-  it('hides navigation item when capability is absent', async () => {
-    await configure(['workspace:view', 'projects:view', 'files:view', 'account:view']);
+  it('shows Projects and My Tasks to normal users with projects:view', async () => {
+    await configure(['workspace:view', 'announcements:view', 'projects:view', 'files:view', 'account:view']);
 
     const fixture = TestBed.createComponent(AppShellComponent);
     fixture.detectChanges();
 
     const element = fixture.nativeElement as HTMLElement;
     expect(element.querySelector('a[href="/projects"]')).toBeTruthy();
+    expect(element.querySelector('[data-testid="nav-my-tasks"]')).toBeTruthy();
+    expect(element.querySelector('a[href="/tasks"]')).toBeTruthy();
     expect(element.querySelector('a[href="/admin/audit"]')).toBeNull();
   });
 
-  it('does not expose hidden routes in mobile navigation', async () => {
+  it('hides Projects and My Tasks when projects:view is absent', async () => {
+    await configure(['workspace:view', 'files:view', 'account:view']);
+
+    const fixture = TestBed.createComponent(AppShellComponent);
+    fixture.detectChanges();
+
+    const element = fixture.nativeElement as HTMLElement;
+    expect(element.querySelector('a[href="/projects"]')).toBeNull();
+    expect(element.querySelector('a[href="/tasks"]')).toBeNull();
+  });
+
+  it('exposes My Tasks in mobile navigation with the same filtering', async () => {
     await configure(['workspace:view', 'projects:view']);
 
     const fixture = TestBed.createComponent(AppShellComponent);
@@ -56,6 +70,8 @@ describe('AppShellComponent', () => {
     const mobileDrawer = element.querySelector('.app-shell__mobile-drawer');
 
     expect(mobileDrawer?.querySelector('a[href="/projects"]')).toBeTruthy();
+    expect(mobileDrawer?.querySelector('[data-testid="nav-my-tasks"]')).toBeTruthy();
+    expect(mobileDrawer?.querySelector('a[href="/tasks"]')).toBeTruthy();
     expect(mobileDrawer?.querySelector('a[href="/admin/audit"]')).toBeNull();
   });
 
