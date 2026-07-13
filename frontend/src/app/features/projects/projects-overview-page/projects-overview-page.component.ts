@@ -4,6 +4,7 @@ import { Router, RouterLink } from '@angular/router';
 
 import { AppDataGridActionEvent } from '../../../shared/grid/app-data-grid/app-data-grid.types';
 import { AppEmptyStateComponent } from '../../../shared/empty-state/app-empty-state/app-empty-state.component';
+import { AppErrorBannerComponent } from '../../../shared/error/app-error-banner/app-error-banner.component';
 import { AppInlineLoadingComponent } from '../../../shared/loading/app-inline-loading/app-inline-loading.component';
 import { AppPermissionDeniedComponent } from '../../../shared/permission/app-permission-denied/app-permission-denied.component';
 import { ProjectsFacade } from '../projects.facade';
@@ -18,6 +19,7 @@ import { TaskTableComponent } from '../task-table/task-table.component';
     RouterLink,
     ReactiveFormsModule,
     AppEmptyStateComponent,
+    AppErrorBannerComponent,
     AppInlineLoadingComponent,
     AppPermissionDeniedComponent,
     ProjectSummaryPanelComponent,
@@ -74,5 +76,9 @@ export class ProjectsOverviewPageComponent {
 
   clearCreateState(): void {
     this.facade.clearTaskCreateMutationState();
+  }
+
+  retry(): void {
+    this.facade.retryProjects();
   }
 }

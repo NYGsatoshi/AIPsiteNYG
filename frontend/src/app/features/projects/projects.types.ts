@@ -1,4 +1,5 @@
 import { AppDataGridColumnDef } from '../../shared/grid/app-data-grid/app-data-grid.types';
+import { FrontendApiError } from '../../core/api/api-error.model';
 
 export const PROJECTS_DEFAULT_PAGE_SIZE = 50;
 export const PROJECTS_MAXIMUM_PAGE_SIZE = 100;
@@ -122,6 +123,7 @@ export interface ProjectsOverviewViewModel {
     readonly maximumPageSize: number;
   };
   readonly message?: string;
+  readonly error?: FrontendApiError;
 }
 
 export interface MyTasksViewModel {
@@ -135,6 +137,7 @@ export interface MyTasksViewModel {
     readonly maximumPageSize: number;
   };
   readonly message?: string;
+  readonly error?: FrontendApiError;
 }
 
 export interface TaskDetailViewModel {
@@ -178,7 +181,9 @@ export interface ProjectsScenario {
   readonly myTasks?: readonly TaskMockRecord[];
   readonly myTasksStatus?: ProjectsPageStatus;
   readonly myTasksMessage?: string;
+  readonly myTasksError?: FrontendApiError;
   readonly currentUserAssignee: string;
   readonly mobile?: boolean;
   readonly message?: string;
+  readonly error?: FrontendApiError;
 }

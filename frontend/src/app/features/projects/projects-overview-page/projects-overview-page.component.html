@@ -13,6 +13,15 @@
     <app-inline-loading label="Loading projects" />
   } @else if (vm.status === 'permissionDenied') {
     <app-permission-denied [title]="vm.message ?? 'Projects are not available for this workspace.'" />
+  } @else if (vm.status === 'error') {
+    <section data-testid="projects-load-error">
+      @if (vm.error) {
+        <app-error-banner [error]="vm.error" title="Projects could not be loaded" />
+      } @else {
+        <p role="alert">{{ vm.message ?? 'Projects could not be loaded. Try again.' }}</p>
+      }
+      <button type="button" data-testid="projects-retry" (click)="retry()">Retry</button>
+    </section>
   } @else if (vm.status === 'empty' || vm.projects.length === 0) {
     <app-empty-state title="No projects" message="No authorized project records were returned by the API." />
   } @else {

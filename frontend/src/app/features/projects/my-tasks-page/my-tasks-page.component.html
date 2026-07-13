@@ -10,6 +10,15 @@
     <app-inline-loading label="Loading tasks" />
   } @else if (vm.status === 'permissionDenied') {
     <app-permission-denied [title]="vm.message ?? 'Tasks are not available for this workspace.'" />
+  } @else if (vm.status === 'error') {
+    <section data-testid="my-tasks-load-error">
+      @if (vm.error) {
+        <app-error-banner [error]="vm.error" title="My Tasks could not be loaded" />
+      } @else {
+        <p role="alert">{{ vm.message ?? 'My Tasks could not be loaded. Try again.' }}</p>
+      }
+      <button type="button" data-testid="my-tasks-retry" (click)="retry()">Retry</button>
+    </section>
   } @else if (vm.status === 'empty' || vm.rows.length === 0) {
     <app-empty-state title="No tasks" message="No tasks assigned to you were returned by the backend." />
   } @else {
