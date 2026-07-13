@@ -12,7 +12,7 @@ The highest-severity confirmed findings are:
 
 - **BE-001, critical:** scoped group/private-channel announcements can be disclosed to active workspace members because visibility predicates are not mutually exclusive.
 - **BE-002, critical:** search authorization is broader than normal project/comment authorization and can expose restricted project-derived content.
-- **BE-003, critical:** conversation creation writes `WorkspaceId = Guid.Empty` despite a required workspace foreign key.
+- **BE-003, resolved for direct-message MVP:** direct conversation creation now derives an active shared workspace server-side instead of writing `WorkspaceId = Guid.Empty`; broader PostgreSQL coverage for all conversation creation modes is still recommended.
 - **BE-004, critical:** message attachment requests trust client storage metadata and create records without required workspace/file-object relationships.
 - **BE-005, high:** post update/delete/pin operations mutate entities loaded with `AsNoTracking`, so successful responses may not correspond to persisted changes.
 - **BE-006, high:** assignee task filtering launches parallel EF operations on one scoped `DbContext`.

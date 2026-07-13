@@ -241,11 +241,15 @@ export class MessagingFacade {
           inlineError: undefined
         }));
       },
-      error: () => {
+      error: (error: { status?: number }) => {
         this.pageState.update((page) => ({
           ...page,
           conversations: [],
-          status: listOnly ? 'empty' : page.status,
+          status: listOnly
+            ? error.status === 401 || error.status === 403
+              ? 'permissionDenied'
+              : 'manualRefreshError'
+            : page.status,
           inlineError: 'Conversation list API request failed.'
         }));
       }

@@ -351,6 +351,77 @@ public sealed class HttpTenantIsolationTests
     }
 
     [Fact]
+    public async Task DirectConversationMvpCanSearchCreateReuseSendAndPersistWithinTenant()
+    {
+        await using var app = await HttpTenantIsolationTestApp.CreateAsync();
+        var data = app.Data;
+
+        var recipients = await app.SendAsync(data.TenantAOwner, data.TenantA.Slug, "/api/conversations/recipients?query=Staff");
+        var recipientsBody = await recipients.Content.ReadAsStringAsync();
+
+        Assert.Equal(HttpStatusCode.OK, recipients.StatusCode);
+        Assert.Contains(data.TenantAStaff.DisplayName, recipientsBody, StringComparison.Ordinal);
+        Assert.DoesNotContain(data.TenantAStaff.Email, recipientsBody, StringComparison.OrdinalIgnoreCase);
+        Assert.DoesNotContain(data.TenantBMember.DisplayName, recipientsBody, StringComparison.Ordinal);
+
+        using var createContent = JsonContent($$"""{"recipientUserId":"{{data.TenantAStaff.Id:D}}"}""");
+        var createResponse = await app.SendAsync(data.TenantAOwner, data.TenantA.Slug, "/api/conversations/direct", HttpMethod.Post, createContent);
+        var createBody = await createResponse.Content.ReadAsStringAsync();
+        var conversationId = ReadResponseId(createBody);
+
+        Assert.Equal(HttpStatusCode.OK, createResponse.StatusCode);
+        Assert.Contains(data.TenantAStaff.DisplayName, createBody, StringComparison.Ordinal);
+
+        var storedConversation = await app.GetConversationAsync(data.TenantA.Id, data.TenantA.Slug, conversationId);
+        Assert.NotNull(storedConversation);
+        Assert.Equal(ConversationType.DirectMessage, storedConversation.Type);
+        Assert.Equal(data.WorkspaceA.Id, storedConversation.WorkspaceId);
+        Assert.Equal(
+            new[] { data.TenantAOwner.Id, data.TenantAStaff.Id }.Order().ToArray(),
+            storedConversation.Members.Select(member => member.UserId).Order().ToArray());
+
+        using var duplicateContent = JsonContent($$"""{"recipientUserId":"{{data.TenantAStaff.Id:D}}"}""");
+        var duplicateResponse = await app.SendAsync(data.TenantAOwner, data.TenantA.Slug, "/api/conversations/direct", HttpMethod.Post, duplicateContent);
+        var duplicateBody = await duplicateResponse.Content.ReadAsStringAsync();
+
+        Assert.Equal(HttpStatusCode.OK, duplicateResponse.StatusCode);
+        Assert.Equal(conversationId, ReadResponseId(duplicateBody));
+
+        using var messageContent = JsonContent("""{"body":"MVP direct message persisted","attachments":[]}""");
+        var messageResponse = await app.SendAsync(data.TenantAOwner, data.TenantA.Slug, $"/api/conversations/{conversationId}/messages", HttpMethod.Post, messageContent);
+        var messageBody = await messageResponse.Content.ReadAsStringAsync();
+        var messageId = ReadResponseId(messageBody);
+
+        Assert.Equal(HttpStatusCode.OK, messageResponse.StatusCode);
+        Assert.Contains("MVP direct message persisted", messageBody, StringComparison.Ordinal);
+
+        var storedMessage = await app.GetMessageAsync(data.TenantA.Id, data.TenantA.Slug, messageId);
+        Assert.NotNull(storedMessage);
+        Assert.Equal(conversationId, storedMessage.ConversationId);
+        Assert.Equal(data.TenantAOwner.Id, storedMessage.AuthorUserId);
+        Assert.Equal("MVP direct message persisted", storedMessage.Body);
+    }
+
+    [Fact]
+    public async Task DirectConversationMvpRejectsSelfAndCrossTenantRecipients()
+    {
+        await using var app = await HttpTenantIsolationTestApp.CreateAsync();
+        var data = app.Data;
+
+        using var selfContent = JsonContent($$"""{"recipientUserId":"{{data.TenantAOwner.Id:D}}"}""");
+        var selfResponse = await app.SendAsync(data.TenantAOwner, data.TenantA.Slug, "/api/conversations/direct", HttpMethod.Post, selfContent);
+        Assert.Equal(HttpStatusCode.BadRequest, selfResponse.StatusCode);
+
+        using var crossTenantContent = JsonContent($$"""{"recipientUserId":"{{data.TenantBMember.Id:D}}"}""");
+        var crossTenantResponse = await app.SendAsync(data.TenantAOwner, data.TenantA.Slug, "/api/conversations/direct", HttpMethod.Post, crossTenantContent);
+        var crossTenantBody = await crossTenantResponse.Content.ReadAsStringAsync();
+
+        Assert.Equal(HttpStatusCode.BadRequest, crossTenantResponse.StatusCode);
+        Assert.DoesNotContain(data.TenantBMember.DisplayName, crossTenantBody, StringComparison.Ordinal);
+        Assert.DoesNotContain(data.TenantBMember.Email, crossTenantBody, StringComparison.OrdinalIgnoreCase);
+    }
+
+    [Fact]
     public async Task ConversationThreadCreationInheritsParentScopeAndMembers()
     {
         await using var app = await HttpTenantIsolationTestApp.CreateAsync();

@@ -129,6 +129,8 @@ public static class AppDbContextSeed
         const string projectSlug = "browser-smoke-project";
         const string announcementTitle = "Browser smoke announcement";
         const string taskTitle = "Browser smoke task";
+        const string recipientEmail = "browser-smoke-recipient@example.test";
+        const string recipientDisplayName = "Browser Smoke Recipient";
 
         var now = DateTimeOffset.UtcNow;
         var normalizedEmail = email.Trim().ToUpperInvariant();
@@ -167,6 +169,37 @@ public static class AppDbContextSeed
             }
         }
 
+        var normalizedRecipientEmail = recipientEmail.ToUpperInvariant();
+        var recipient = await dbContext.Users.FirstOrDefaultAsync(candidate => candidate.NormalizedEmail == normalizedRecipientEmail, cancellationToken);
+        if (recipient is null)
+        {
+            recipient = new User
+            {
+                DisplayName = recipientDisplayName,
+                Email = recipientEmail,
+                NormalizedEmail = normalizedRecipientEmail,
+                PasswordHash = passwordHasher.HashPassword($"{password}:recipient"),
+                SystemRole = SystemRole.User,
+                Status = UserStatus.Active
+            };
+            await dbContext.Users.AddAsync(recipient, cancellationToken);
+            await dbContext.SaveChangesAsync(cancellationToken);
+        }
+        else
+        {
+            recipient.DisplayName = recipientDisplayName;
+            recipient.Email = recipientEmail;
+            recipient.NormalizedEmail = normalizedRecipientEmail;
+            recipient.SystemRole = SystemRole.User;
+            recipient.Status = UserStatus.Active;
+            recipient.FailedLoginAttempts = 0;
+            recipient.LockoutEndAt = null;
+            if (recipient.IsDeleted)
+            {
+                recipient.Restore();
+            }
+        }
+
         var tenantUser = await dbContext.TenantUsers
             .FirstOrDefaultAsync(candidate => candidate.TenantId == tenantId && candidate.UserId == user.Id, cancellationToken);
         if (tenantUser is null)
@@ -188,6 +221,29 @@ public static class AppDbContextSeed
             if (tenantUser.JoinedAt == default)
             {
                 tenantUser.JoinedAt = now;
+            }
+        }
+
+        var recipientTenantUser = await dbContext.TenantUsers
+            .FirstOrDefaultAsync(candidate => candidate.TenantId == tenantId && candidate.UserId == recipient.Id, cancellationToken);
+        if (recipientTenantUser is null)
+        {
+            await dbContext.TenantUsers.AddAsync(new TenantUser
+            {
+                TenantId = tenantId,
+                UserId = recipient.Id,
+                Role = TenantUserRole.Member,
+                Status = TenantUserStatus.Active,
+                JoinedAt = now
+            }, cancellationToken);
+        }
+        else
+        {
+            recipientTenantUser.Role = TenantUserRole.Member;
+            recipientTenantUser.Status = TenantUserStatus.Active;
+            if (recipientTenantUser.JoinedAt == default)
+            {
+                recipientTenantUser.JoinedAt = now;
             }
         }
 
@@ -239,6 +295,28 @@ public static class AppDbContextSeed
             workspaceMember.Role = WorkspaceRole.Owner;
             workspaceMember.Status = MembershipStatus.Active;
             workspaceMember.JoinedAt ??= now;
+        }
+
+        var recipientWorkspaceMember = await dbContext.WorkspaceMembers.FirstOrDefaultAsync(
+            candidate => candidate.TenantId == tenantId && candidate.WorkspaceId == workspace.Id && candidate.UserId == recipient.Id,
+            cancellationToken);
+        if (recipientWorkspaceMember is null)
+        {
+            await dbContext.WorkspaceMembers.AddAsync(new WorkspaceMember
+            {
+                TenantId = tenantId,
+                WorkspaceId = workspace.Id,
+                UserId = recipient.Id,
+                Role = WorkspaceRole.Member,
+                Status = MembershipStatus.Active,
+                JoinedAt = now
+            }, cancellationToken);
+        }
+        else
+        {
+            recipientWorkspaceMember.Role = WorkspaceRole.Member;
+            recipientWorkspaceMember.Status = MembershipStatus.Active;
+            recipientWorkspaceMember.JoinedAt ??= now;
         }
 
         var announcement = await dbContext.Announcements.FirstOrDefaultAsync(

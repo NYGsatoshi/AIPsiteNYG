@@ -7,6 +7,7 @@ const smokeWorkspaceName = 'Browser Smoke Workspace';
 const smokeAnnouncementTitle = 'Browser smoke announcement';
 const smokeProjectTitle = 'Browser Smoke Project';
 const smokeTaskTitle = 'Browser smoke task';
+const smokeRecipientName = 'Browser Smoke Recipient';
 
 test.describe('MVP0 real backend browser smoke', () => {
   test.setTimeout(120_000);
@@ -55,6 +56,7 @@ test.describe('MVP0 real backend browser smoke', () => {
       await loginAndVerifySession(page, evidence);
       await assertCsrfRejectsMissingToken(page, evidence);
       await openWorkspaces(page, evidence);
+      await createDirectMessageAndVerifyPersistence(page, evidence);
       await openAnnouncementDetail(page, evidence);
       await openProjectTaskDetail(page, evidence);
       await submitInvalidPasswordChange(page, evidence);
@@ -136,6 +138,73 @@ async function assertCsrfRejectsMissingToken(page: Page, evidence: SmokeEvidence
   });
   expect(probe.status, 'unsafe request without CSRF token must be rejected before application validation').toBe(403);
   expect(probe.text, 'CSRF rejection body').toContain('CSRF');
+}
+
+async function createDirectMessageAndVerifyPersistence(page: Page, evidence: SmokeEvidence) {
+  await page.getByRole('link', { name: 'Messages' }).first().click();
+  await expect(page).toHaveURL(/\/app\/messages$/);
+  await expect(page.getByTestId('messages-page')).toBeVisible();
+  await expect(page.getByTestId('new-message-button')).toBeVisible();
+
+  await page.getByTestId('new-message-button').click();
+  await expect(page.getByTestId('new-message-dialog')).toBeVisible();
+
+  const [recipientsResponse] = await Promise.all([
+    waitForApiResponse(page, 'GET', '/api/conversations/recipients'),
+    page.getByTestId('recipient-search').fill('Recipient')
+  ]);
+  const recipientsBody = await recordOkJson(recipientsResponse, evidence, 'message-recipients', (body) =>
+    Array.isArray(body) && body.some((item: unknown) => hasStringValue(item, 'displayName', smokeRecipientName))
+  );
+  const recipient = recipientsBody.find((item: Record<string, unknown>) => item.displayName === smokeRecipientName);
+  expect(recipient, 'seeded message recipient').toBeTruthy();
+
+  await expect(page.getByTestId('recipient-option').filter({ hasText: smokeRecipientName })).toBeVisible();
+  await page.getByTestId('recipient-option').filter({ hasText: smokeRecipientName }).click();
+
+  const [createResponse] = await Promise.all([
+    waitForApiResponse(page, 'POST', '/api/conversations/direct'),
+    page.getByTestId('create-conversation-submit').click()
+  ]);
+  const createBody = await recordOkJson(createResponse, evidence, 'message-conversation-create', (body) =>
+    hasString(body, 'id') &&
+    hasStringValue(body, 'title', smokeRecipientName) &&
+    hasStringValue(body, 'type', 'DirectMessage')
+  );
+  evidence.conversationId = String(createBody.id);
+
+  await expect(page).toHaveURL(new RegExp(`/app/dm/${evidence.conversationId}$`));
+  await expect(page.getByTestId('dm-page')).toBeVisible();
+  await expect(page.getByRole('heading', { name: smokeRecipientName })).toBeVisible();
+
+  const messageBody = `Real backend DM ${Date.now()}`;
+  evidence.messageBody = messageBody;
+  await page.getByTestId('message-draft').fill(messageBody);
+
+  const [messageResponse] = await Promise.all([
+    waitForApiResponse(page, 'POST', `/api/conversations/${evidence.conversationId}/messages`),
+    page.getByTestId('send-message').click()
+  ]);
+  const messageResponseBody = await recordOkJson(messageResponse, evidence, 'message-send', (body) =>
+    hasString(body, 'id') &&
+    hasStringValue(body, 'conversationId', evidence.conversationId ?? '') &&
+    hasStringValue(body, 'body', messageBody)
+  );
+  evidence.messageId = String(messageResponseBody.id);
+
+  await expect(page.getByTestId('confirmed-message').filter({ hasText: messageBody })).toBeVisible();
+  await page.reload();
+  await expect(page.getByTestId('dm-page')).toBeVisible();
+  await expect(page.getByTestId('confirmed-message').filter({ hasText: messageBody })).toBeVisible();
+
+  await recordFetchJson(page, evidence, 'message-list-after-reload', `/api/conversations/${evidence.conversationId}/messages`, {
+    validate: (body) =>
+      isPagedResponse(body) &&
+      body.items.some((item: unknown) =>
+        hasStringValue(item, 'id', evidence.messageId ?? '') &&
+        hasStringValue(item, 'body', messageBody)
+      )
+  });
 }
 
 async function openWorkspaces(page: Page, evidence: SmokeEvidence) {
@@ -439,6 +508,9 @@ interface SmokeEvidence {
   baseURL: string;
   email: string;
   userId?: string;
+  conversationId?: string;
+  messageId?: string;
+  messageBody?: string;
   announcementId?: string;
   projectId?: string;
   taskId?: string;
