@@ -1,51 +1,131 @@
+#-------------------------------------------------------------------------------#
+#               Qodana analysis is configured by qodana.yaml file               #
+#             https://www.jetbrains.com/help/qodana/qodana-yaml.html            #
+#-------------------------------------------------------------------------------#
+#################################################################################
+#              WARNING: Do not store sensitive information in this file,        #
+#               as its contents will be included in the Qodana report.          #
+#################################################################################
 version: "1.0"
-
-# Keep the profile on the documented recommended baseline. Do not enable every
-# registered inspection group here; that makes Qodana inspect generated/build
-# artifacts and produces noisy project-model cascades.
+#Specify IDE code to run analysis without container (Applied in CI/CD pipeline)
+ide: QDNET
+#Specify inspection profile for code analysis
 profile:
-  name: qodana.recommended
+  name: qodana.starter
+include:
+  - name: UseAwaitUsing
+  - name: AsyncMethodWithoutAwait
+  - name: ConvertIfStatementToReturnStatement
+  - name: ConvertIfStatementToConditionalTernaryExpression
+  - name: ConvertIfStatementToNullCoalescingAssignment
+  - name: ConvertIfStatementToSwitchStatement
+  - name: InvertIf
+  - name: UseNameOfInsteadOfToString
+  - name: HeapView.BoxingAllocation
+  - name: HeapView.PossibleBoxingAllocation
+  - name: HeapView.ClosureAllocation
+  - name: HeapView.DelegateAllocation
+  - name: ForeachCanBePartlyConvertedToQueryUsingAnotherGetEnumerator
+  - name: ForeachCanBeConvertedToQueryUsingAnotherGetEnumerator
+  - name: SimplifyLinqExpressionUseAll
+  - name: MergeIntoLogicalPattern
+  - name: MergeIntoPattern
+  - name: HeapView.ObjectAllocation
+  - name: HeapView.ObjectAllocation.Evident
+  - name: HeapView.ObjectAllocation.Possible
+  - name: UseRawString
+  - name: CA1869
+  - name: CA1866
+  - name: CA1865
+  - name: ASP0018
+  - name: CA1826
+  - name: CA1822
+  - name: CA1861
+  - name: CA1859
+  - name: UseUtf8StringLiteral
+  - name: RouteTemplates.ActionRoutePrefixCanBeExtractedToControllerRoute
+  - name: ClassNeverInstantiated.Global
+  - name: UseCollectionExpression
+  - name: PropertyCanBeMadeInitOnly.Global
+  - name: MethodHasAsyncOverloadWithCancellation
+  - name: UnusedMethodReturnValue.Global
+  - name: MemberCanBePrivate.Global
+  - name: MemberCanBePrivate.Local
+  - name: MemberCanBeMadeStatic.Local
+  - name: ConvertClosureToMethodGroup
+  - name: UseVerbatimString
+  - name: RouteTemplates.RouteParameterIsNotPassedToMethod
+  - name: LoopCanBeConvertedToQuery
+  - name: ConvertToConstant.Local
+  - name: ChangeFieldTypeToSystemThreadingLock
+  - name: InlineTemporaryVariable
+  - name: UseObjectOrCollectionInitializer
+  - name: ConvertToExtensionBlock
+  - name: UnusedType.Global
+  - name: UnusedMemberInSuper.Global
+  - name: UnusedMember.Global
+  - name: SimplifyConditionalTernaryExpression
+  - name: AutoPropertyCanBeMadeGetOnly.Global
+  - name: MergeIntoNegatedPattern
+  - name: UnusedParameter.Global
+  - name: SeparateLocalFunctionsWithJumpStatement
+  - name: SuggestVarOrType_Elsewhere
+  - name: DuplicatedSequentialIfBodies
+  - name: MergeSequentialChecks
+  - name: CSharpWarnings__CA2254
+  - name: RedundantIfElseBlock
+  - name: RedundantTypeArgumentsInsideNameof
+  - name: RedundantExplicitParamsArrayCreation
+  - name: RedundantEnumCaseLabelForDefaultSection
+  - name: RawStringCanBeSimplified
+  - name: RedundantEmptyObjectCreationArgumentList
+  - name: RedundantCollectionInitializerElementBraces
+  - name: RedundantAttributeParentheses
+  - name: EmptyRegion
+  - name: RedundantDeclarationSemicolon
+  - name: RedundantConfigureAwait
+  - name: RedundantQueryOrderByAscendingKeyword
+  - name: RedundantReadonlyModifier
+  - name: RedundantAttributeUsageProperty
+  - name: RedundantPatternParentheses
+  - name: RedundantPropertyPatternClause
+  - name: RedundantLambdaSignatureParentheses
+  - name: RedundantTypeDeclarationBody
+  - name: RedundantFixedPointerDeclaration
+  - name: RedundantFixedPointerDeclaration
+  - name: RedundantVerbatimPrefix
+  - name: RedundantVerbatimStringPrefix
+  - name: RedundantDiscardDesignation
+  - name: RedundantRangeBound
+  - name: RedundantAlwaysMatchSubpattern
+  - name: RedundantStringInterpolation
+  - name: RedundantImmediateDelegateInvocation
+  - name: RedundantToStringCallForValueType
+  - name: DoubleNegationOperator
+  - name: RedundantArrayCreationExpression
 
-# Runs inside the Qodana execution environment. The GitHub workflow also passes
-# --solution AipPortal.slnx because that is the documented .NET solution
-# selection mechanism for the Qodana CLI/action.
-bootstrap: bash scripts/quality/qodana-bootstrap.sh
+#Enable inspections
+#include:
+#  - name: <SomeEnabledInspectionId>
+#Disable inspections
+#exclude:
+#  - name: <SomeDisabledInspectionId>
+#    paths:
+#      - <path/where/not/run/inspection>
+#Execute shell command before Qodana execution (Applied in CI/CD pipeline)
+#bootstrap: sh ./prepare-qodana.sh
+#Install IDE plugins before Qodana execution (Applied in CI/CD pipeline)
+#plugins:
+#  - id: <plugin.id> #(plugin id can be found at https://plugins.jetbrains.com)
+# Quality gate. Will fail the CI/CD pipeline if any condition is not met
+# severityThresholds - configures maximum thresholds for different problem severities
+# testCoverageThresholds - configures minimum code coverage on a whole project and newly added code
+# Code Coverage is available in Ultimate and Ultimate Plus plans
+#failureConditions:
+#  severityThresholds:
+#    any: 15
+#    critical: 5
+#  testCoverageThresholds:
+#    fresh: 70
+#    total: 50
 
-exclude:
-  - name: All
-    paths:
-      - "bin"
-      - "obj"
-      - "node_modules"
-      - "dist"
-      - ".angular"
-      - ".tmp"
-      - ".qodana"
-      - "**/bin/**"
-      - "**/obj/**"
-      - "**/node_modules/**"
-      - "**/dist/**"
-      - "**/.angular/**"
-      - "**/coverage/**"
-      - "**/TestResults/**"
-      - "**/test-results/**"
-      - "**/playwright-report/**"
-      - "**/.playwright/**"
-      - "**/.qodana/**"
-      - "**/storybook-static/**"
-      - "src/AipPortal.Application/bin"
-      - "src/AipPortal.Application/obj"
-      - "src/AipPortal.Domain/bin"
-      - "src/AipPortal.Domain/obj"
-      - "src/AipPortal.Infrastructure/bin"
-      - "src/AipPortal.Infrastructure/obj"
-      - "src/AipPortal.Web/bin"
-      - "src/AipPortal.Web/obj"
-      - "tests/AipPortal.Tests/bin"
-      - "tests/AipPortal.Tests/obj"
-      - "frontend/node_modules"
-      - "frontend/dist"
-      - "frontend/.angular"
-      - "src/AipPortal.Web/wwwroot"
-      - "src/AipPortal.Web/data"
-      - "aipsite-frontend"
