@@ -1,0 +1,26 @@
+{
+  "name": "@aipsite/frontend-inspections",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module",
+  "engines": {
+    "node": ">=24"
+  },
+  "devDependencies": {
+    "@eslint/js": "10.0.1",
+    "@microsoft/eslint-formatter-sarif": "3.1.0",
+    "angular-eslint": "21.4.0",
+    "eslint": "10.7.0",
+    "postcss-scss": "4.0.9",
+    "stylelint": "17.14.0",
+    "stylelint-config-standard-scss": "17.0.0",
+    "typescript": "5.9.3",
+    "typescript-eslint": "8.64.0",
+    "globals": "17.7.0"
+  },
+  "scripts": {
+    "lint": "node run.mjs",
+    "lint:enforce": "node run.mjs --enforce",
+    "lint:verbose": "node run.mjs --verbose"
+  }
+}
