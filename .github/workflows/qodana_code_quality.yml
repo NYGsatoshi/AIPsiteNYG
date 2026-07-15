@@ -1,36 +1,37 @@
-#-------------------------------------------------------------------------------#
-#        Discover additional configuration options in our documentation         #
-#               https://www.jetbrains.com/help/qodana/github.html               #
-#-------------------------------------------------------------------------------#
-
-name: Qodana
+name: Code Quality
 
 on:
   workflow_dispatch:
   pull_request:
+    branches:
+      - main
   push:
     branches:
       - main
 
 concurrency:
-  group: qodana-${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
+  group: code-quality-${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
   cancel-in-progress: true
 
+permissions:
+  contents: read
+  pull-requests: write
+  checks: write
+
 jobs:
-  qodana:
+  qodana-dotnet-community:
+    name: Qodana Community / .NET
     runs-on: ubuntu-latest
     timeout-minutes: 120
-    permissions:
-      contents: read
-      pull-requests: write
-      checks: write
+
     env:
-      QODANA_TOKEN: ${{ secrets.QODANA_TOKEN }}
       DOTNET_CLI_TELEMETRY_OPTOUT: "1"
       DOTNET_NOLOGO: "1"
+      QODANA_FRONTEND_REQUIRED: "false"
 
     steps:
-      - uses: actions/checkout@v4
+      - name: Checkout repository
+        uses: actions/checkout@v4
         with:
           ref: ${{ github.event.pull_request.head.sha || github.sha }}
           fetch-depth: 0
@@ -40,56 +41,8 @@ jobs:
         with:
           global-json-file: global.json
 
-      - name: Set up Node.js
-        uses: actions/setup-node@v4
-        with:
-          node-version: "24"
-          cache: npm
-          cache-dependency-path: |
-            package-lock.json
-            frontend/package-lock.json
-
-      - name: Set up npm
-        run: |
-          npm install -g npm@11.17.0
-          node --version
-          npm --version
-
-      - name: Report Community fallback
-        if: ${{ env.QODANA_TOKEN == '' }}
-        shell: bash
-        run: |
-          echo "::warning::QODANA_TOKEN is not configured. Running qodana-cdnet Community for C#/.NET only; JavaScript, TypeScript and Angular Qodana inspections require qodana-dotnet and an Ultimate or Ultimate Plus token."
-          {
-            echo "### Qodana Community fallback"
-            echo
-            echo "QODANA_TOKEN is not configured, so this run uses qodana-cdnet."
-            echo "C#/.NET inspections run, but JavaScript, TypeScript and Angular Qodana inspections are unavailable until the secret is added."
-          } >> "$GITHUB_STEP_SUMMARY"
-
-      - name: Qodana Scan (Ultimate full-stack)
-        if: ${{ env.QODANA_TOKEN != '' }}
+      - name: Run Qodana Community for .NET
         uses: JetBrains/qodana-action@v2026.1
-        env:
-          QODANA_FRONTEND_REQUIRED: "true"
-        with:
-          args: |
-            --linter qodana-dotnet
-            --within-docker false
-            --solution AipPortal.slnx
-          pr-mode: false
-          results-dir: ${{ runner.temp }}/qodana/results
-          use-caches: true
-          post-pr-comment: true
-          use-annotations: true
-          upload-result: true
-          push-fixes: none
-
-      - name: Qodana Scan (Community .NET fallback)
-        if: ${{ env.QODANA_TOKEN == '' }}
-        uses: JetBrains/qodana-action@v2026.1
-        env:
-          QODANA_FRONTEND_REQUIRED: "false"
         with:
           args: |
             --image jetbrains/qodana-cdnet:2026.1-eap-privileged
@@ -107,7 +60,15 @@ jobs:
         if: always()
         env:
           QODANA_PROJECT_MODEL_SUMMARY_PATH: ${{ runner.temp }}/qodana/project-model-summary.json
-        run: node scripts/quality/check-qodana-project-model.mjs "${{ runner.temp }}/qodana/results/qodana.sarif.json"
+        shell: bash
+        run: |
+          sarif="${{ runner.temp }}/qodana/results/qodana.sarif.json"
+          if [[ ! -f "$sarif" ]]; then
+            echo "::warning::Qodana SARIF was not produced; skipping the secondary project-model guard."
+            exit 0
+          fi
+
+          node scripts/quality/check-qodana-project-model.mjs "$sarif"
 
       - name: Upload Qodana project-model summary
         if: always()
@@ -116,3 +77,54 @@ jobs:
           name: qodana-project-model-summary
           path: ${{ runner.temp }}/qodana/project-model-summary.json
           if-no-files-found: ignore
+
+  frontend-quality:
+    name: Angular / TypeScript / JavaScript / HTML / SCSS / CSS
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+
+    defaults:
+      run:
+        working-directory: frontend
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: "24"
+          cache: npm
+          cache-dependency-path: frontend/package-lock.json
+
+      - name: Set up npm
+        run: npm install --global npm@11.17.0
+
+      - name: Install frontend dependencies
+        run: npm ci --no-audit --no-fund
+
+      - name: Validate JavaScript syntax
+        shell: bash
+        run: |
+          while IFS= read -r -d '' file; do
+            node --check "$file"
+          done < <(
+            find . -type f \
+              \( -name '*.js' -o -name '*.mjs' -o -name '*.cjs' \) \
+              -not -path './node_modules/*' \
+              -not -path './dist/*' \
+              -not -path './.angular/*' \
+              -print0
+          )
+
+      - name: Validate TypeScript types
+        run: npx tsc --noEmit --project tsconfig.app.json
+
+      - name: Validate Angular templates and styles
+        run: npm run build
+
+      - name: Run Angular unit tests
+        run: npm test

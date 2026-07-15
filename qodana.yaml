@@ -1,14 +1,14 @@
 version: "1.0"
 
-# Keep the profile on the documented recommended baseline. Do not enable every
-# registered inspection group here; that makes Qodana inspect generated/build
-# artifacts and produces noisy project-model cascades.
+# Qodana Community for .NET analyzes C#, ASP.NET Core and the .NET solution.
+linter: qodana-cdnet
+
 profile:
   name: qodana.recommended
 
-# Runs inside the Qodana execution environment. The GitHub workflow also passes
-# --solution AipPortal.slnx because that is the documented .NET solution
-# selection mechanism for the Qodana CLI/action.
+# Qodana invokes bootstrap commands with /bin/sh by default. Delegate to the
+# repository's Bash bootstrap so pipefail and the existing project-model setup
+# behave consistently in local and GitHub Actions runs.
 bootstrap: bash scripts/quality/qodana-bootstrap.sh
 
 exclude:
