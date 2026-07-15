@@ -1,67 +1,51 @@
 version: "1.0"
 
-# Qodana Community for .NET
+# Qodana Community for .NET analyzes C#, ASP.NET Core and the .NET solution.
 linter: qodana-cdnet
 
 profile:
   name: qodana.recommended
 
-dotnet:
-  solution: AipPortal.slnx
-  configuration: Release
-
-# Qodana実行前に.NETの依存関係とプロジェクトモデルを構築する
-bootstrap: |
-  set -Eeuo pipefail
-
-  echo "=== .NET SDK ==="
-  dotnet --info
-  dotnet --list-sdks
-
-  echo "=== Restore ==="
-  dotnet restore AipPortal.slnx --verbosity normal
-
-  echo "=== Build ==="
-  dotnet build AipPortal.slnx \
-    --configuration Release \
-    --no-restore
+# Qodana invokes bootstrap commands with /bin/sh by default. Delegate to the
+# repository's Bash bootstrap so pipefail and the existing project-model setup
+# behave consistently in local and GitHub Actions runs.
+bootstrap: bash scripts/quality/qodana-bootstrap.sh
 
 exclude:
   - name: All
     paths:
-      # .NET generated files
       - "bin"
       - "obj"
+      - "node_modules"
+      - "dist"
+      - ".angular"
+      - ".tmp"
+      - ".qodana"
       - "**/bin/**"
       - "**/obj/**"
-
-      # Node dependencies and generated frontend output
-      - "node_modules"
       - "**/node_modules/**"
-      - "dist"
       - "**/dist/**"
-      - ".angular"
       - "**/.angular/**"
-      - "**/storybook-static/**"
-
-      # Test output
       - "**/coverage/**"
       - "**/TestResults/**"
       - "**/test-results/**"
       - "**/playwright-report/**"
       - "**/.playwright/**"
-
-      # Qodana output
-      - ".qodana"
       - "**/.qodana/**"
-      - ".tmp"
-      - "**/.tmp/**"
-
-      # ASP.NET CoreにコピーされたAngularビルド成果物
-      - "src/AipPortal.Web/wwwroot/**"
-
-      # Runtime data
-      - "src/AipPortal.Web/data/**"
-
-      # 使用していない旧Angularプロジェクト
-      - "aipsite-frontend/**"
+      - "**/storybook-static/**"
+      - "src/AipPortal.Application/bin"
+      - "src/AipPortal.Application/obj"
+      - "src/AipPortal.Domain/bin"
+      - "src/AipPortal.Domain/obj"
+      - "src/AipPortal.Infrastructure/bin"
+      - "src/AipPortal.Infrastructure/obj"
+      - "src/AipPortal.Web/bin"
+      - "src/AipPortal.Web/obj"
+      - "tests/AipPortal.Tests/bin"
+      - "tests/AipPortal.Tests/obj"
+      - "frontend/node_modules"
+      - "frontend/dist"
+      - "frontend/.angular"
+      - "src/AipPortal.Web/wwwroot"
+      - "src/AipPortal.Web/data"
+      - "aipsite-frontend"
