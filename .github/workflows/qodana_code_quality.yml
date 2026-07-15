@@ -124,7 +124,8 @@ jobs:
           retention-days: 14
 
       - name: Validate TypeScript types
-        run: npm --prefix frontend exec -- tsc --noEmit --project tsconfig.app.json
+        working-directory: frontend
+        run: ./node_modules/.bin/tsc --noEmit --project tsconfig.app.json
 
       - name: Validate Angular templates and styles
         run: npm --prefix frontend run build
