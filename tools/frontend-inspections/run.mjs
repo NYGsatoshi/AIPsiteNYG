@@ -34,7 +34,23 @@ if (verbose && stylishOutput) {
 }
 await writeFile(path.join(artifactsRoot, 'eslint.sarif'), sarifFormatter(eslintResults), 'utf8');
 
-const eslintFatalCount = eslintResults.reduce((sum, result) => sum + result.fatalErrorCount, 0);
+const eslintFatalErrors = eslintResults.flatMap((result) =>
+  result.messages
+    .filter((message) => message.fatal)
+    .map((message) => ({
+      filePath: result.filePath,
+      line: message.line,
+      column: message.column,
+      message: message.message
+    }))
+);
+await writeFile(
+  path.join(artifactsRoot, 'fatal-errors.json'),
+  JSON.stringify(eslintFatalErrors, null, 2),
+  'utf8'
+);
+
+const eslintFatalCount = eslintFatalErrors.length;
 const eslintFindingCount = eslintResults.reduce(
   (sum, result) => sum + result.errorCount + result.warningCount,
   0
