@@ -3,12 +3,18 @@ version: "1.0"
 # Qodana Community for .NET analyzes C#, ASP.NET Core and the .NET solution.
 linter: qodana-cdnet
 
+# Enable every inspection registered by the Community .NET linter. Generated,
+# dependency and runtime paths remain excluded below so the full profile stays
+# focused on first-party source and tests.
 profile:
-  name: qodana.recommended
+  base:
+    name: qodana.recommended
+  inspections:
+    - group: "ALL"
+      enabled: true
 
-# Qodana invokes bootstrap commands with /bin/sh by default. Delegate to the
-# repository's Bash bootstrap so pipefail and the existing project-model setup
-# behave consistently in local and GitHub Actions runs.
+# Delegate to Bash because the bootstrap uses pipefail and prepares the complete
+# .NET project model before inspections start.
 bootstrap: bash scripts/quality/qodana-bootstrap.sh
 
 exclude:
@@ -21,6 +27,7 @@ exclude:
       - ".angular"
       - ".tmp"
       - ".qodana"
+      - "artifacts"
       - "**/bin/**"
       - "**/obj/**"
       - "**/node_modules/**"
@@ -33,6 +40,7 @@ exclude:
       - "**/.playwright/**"
       - "**/.qodana/**"
       - "**/storybook-static/**"
+      - "**/artifacts/**"
       - "src/AipPortal.Application/bin"
       - "src/AipPortal.Application/obj"
       - "src/AipPortal.Domain/bin"
