@@ -17,5 +17,6 @@ playwright-report/
 .tmp/
 data/
 src/AipPortal.Web/data/
+artifacts/frontend-inspections/
 .env
 local.env
