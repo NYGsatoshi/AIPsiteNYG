@@ -7,6 +7,7 @@
   display: grid;
   gap: 18px;
   padding: 24px;
+  color: var(--aip-color-text-primary);
 }
 
 .messages-page__header {
@@ -18,7 +19,7 @@
 
 .messages-page__eyebrow {
   margin: 0;
-  color: #526173;
+  color: var(--aip-color-text-muted);
   font-size: 0.78rem;
   font-weight: 800;
   text-transform: uppercase;
@@ -26,29 +27,33 @@
 
 .messages-page__header h1 {
   margin: 0;
-  color: #17202a;
+  color: var(--aip-color-text-primary);
   font-size: 1.6rem;
 }
 
 .messages-page__error,
 .messages-page__empty {
   margin: 0;
-  color: #526173;
+  color: var(--aip-color-text-secondary);
   font-weight: 700;
 }
 
 .messages-page__error {
-  color: #9f2d20;
+  color: var(--aip-color-danger);
 }
 
 .messages-page__primary {
-  border: 0;
+  border: 1px solid var(--aip-color-action-primary);
   border-radius: 999px;
-  background: #245bdb;
-  color: #fff;
+  background: var(--aip-color-action-primary);
+  color: var(--aip-color-text-inverse);
   cursor: pointer;
   font-weight: 800;
   padding: 10px 16px;
+}
+
+.messages-page__primary:hover:not(:disabled) {
+  background: var(--aip-color-action-primary-hover);
 }
 
 .messages-page__primary:disabled,
@@ -59,16 +64,17 @@
 
 .messages-page__state,
 .messages-page__hint {
-  border: 1px solid #d7deea;
+  border: 1px solid var(--aip-color-border-default);
   border-radius: 18px;
   display: grid;
   gap: 10px;
+  background: var(--aip-color-bg-surface);
   padding: 18px;
 }
 
 .messages-page__state h2,
 .messages-page__hint h2 {
-  color: #17202a;
+  color: var(--aip-color-text-primary);
   font-size: 1.05rem;
   margin: 0;
 }
@@ -76,13 +82,13 @@
 .messages-page__state p,
 .messages-page__hint p,
 .messages-page__muted {
-  color: #526173;
+  color: var(--aip-color-text-secondary);
   margin: 0;
 }
 
 .messages-page__overlay {
   align-items: center;
-  background: rgb(11 18 32 / 45%);
+  background: var(--aip-color-overlay);
   display: flex;
   inset: 0;
   justify-content: center;
@@ -92,9 +98,11 @@
 }
 
 .messages-page__dialog {
-  background: #fff;
+  background: var(--aip-color-bg-elevated);
+  color: var(--aip-color-text-primary);
+  border: 1px solid var(--aip-color-border-default);
   border-radius: 20px;
-  box-shadow: 0 24px 60px rgb(15 23 42 / 25%);
+  box-shadow: var(--aip-shadow-floating);
   display: grid;
   gap: 16px;
   max-width: 520px;
@@ -116,35 +124,44 @@
 
 .messages-page__dialog-header button,
 .messages-page__dialog-actions button {
-  border: 1px solid #c9d3e3;
+  border: 1px solid var(--aip-color-border-default);
   border-radius: 999px;
-  background: #fff;
+  background: var(--aip-color-bg-control);
+  color: var(--aip-color-text-primary);
   cursor: pointer;
   font-weight: 800;
   padding: 8px 12px;
 }
 
+.messages-page__dialog-header button:hover,
+.messages-page__dialog-actions button:hover:not(:disabled) {
+  background: var(--aip-color-bg-hover);
+}
+
 .messages-page__dialog-actions .messages-page__primary {
-  background: #245bdb;
-  border-color: #245bdb;
-  color: #fff;
+  background: var(--aip-color-action-primary);
+  border-color: var(--aip-color-action-primary);
+  color: var(--aip-color-text-inverse);
 }
 
 .messages-page__field {
   display: grid;
   gap: 8px;
+  color: var(--aip-color-text-secondary);
   font-weight: 800;
 }
 
 .messages-page__field input {
-  border: 1px solid #c9d3e3;
+  border: 1px solid var(--aip-color-border-default);
   border-radius: 12px;
+  background: var(--aip-color-bg-control);
+  color: var(--aip-color-text-primary);
   font: inherit;
   padding: 10px 12px;
 }
 
 .messages-page__recipients {
-  border: 1px solid #d7deea;
+  border: 1px solid var(--aip-color-border-default);
   border-radius: 14px;
   display: grid;
   max-height: 240px;
@@ -152,19 +169,22 @@
 }
 
 .messages-page__recipient {
-  background: #fff;
+  background: var(--aip-color-bg-surface);
+  color: var(--aip-color-text-primary);
   border: 0;
-  border-bottom: 1px solid #edf1f7;
+  border-bottom: 1px solid var(--aip-color-border-default);
   cursor: pointer;
   font: inherit;
   padding: 12px;
   text-align: left;
 }
 
+.messages-page__recipient:hover,
 .messages-page__recipient--selected,
 .messages-page__recipient:focus-visible {
-  background: #edf4ff;
-  outline: 2px solid #245bdb;
+  background: var(--aip-color-bg-selected);
+  color: var(--aip-color-action-primary);
+  outline: 2px solid var(--aip-color-focus);
   outline-offset: -2px;
 }
 
