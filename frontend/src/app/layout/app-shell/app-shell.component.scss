@@ -1,45 +1,20 @@
 :host {
-  --shell-topbar-height: 64px;
-  --shell-account-rail-width: 64px;
-  --shell-feature-menu-width: 216px;
-  --shell-right-panel-expanded-width: 280px;
-  --shell-right-panel-collapsed-width: 56px;
-  --shell-drawer-width: min(280px, calc(100vw - 24px));
-  --shell-right-drawer-width: min(360px, 100vw);
-  --shell-touch-target: var(--aip-touch-target, 44px);
-  --shell-focus-outline: var(--aip-focus-outline, 3px solid #1d4ed8);
-  --shell-mobile-header-height: 56px;
-  --shell-space-1: 4px;
-  --shell-space-2: 8px;
-  --shell-space-3: 12px;
-  --shell-space-4: 16px;
-  --shell-space-5: 24px;
-  --shell-radius-sm: 4px;
-  --shell-radius-md: 6px;
-  --shell-radius-lg: 8px;
-  --shell-border-color: #d9e0e8;
-
   display: block;
   min-width: 0;
   min-height: 100dvh;
-  color: #17202a;
-  background: #f4f6f8;
-  font-family:
-    "Segoe UI",
-    "Yu Gothic",
-    "Hiragino Kaku Gothic ProN",
-    Meiryo,
-    sans-serif;
+  color: var(--aip-color-text-primary);
+  background: var(--aip-color-bg-canvas);
+  font-family: var(--aip-font-family);
 }
 
 .app-shell {
   position: relative;
   display: grid;
   grid-template-columns:
-    var(--shell-account-rail-width)
-    var(--shell-feature-menu-width)
+    var(--aip-shell-account-rail-width)
+    var(--aip-shell-feature-menu-width)
     minmax(0, 1fr)
-    var(--shell-right-panel-collapsed-width);
+    var(--aip-shell-right-panel-collapsed-width);
   min-width: 0;
   min-height: 100dvh;
   overflow-x: hidden;
@@ -47,15 +22,15 @@
 
 .app-shell__skip-link {
   position: absolute;
-  top: var(--shell-space-3);
-  left: var(--shell-space-3);
-  z-index: 40;
+  top: var(--aip-space-3);
+  left: var(--aip-space-3);
+  z-index: var(--aip-z-popover);
   transform: translateY(-160%);
-  border-radius: var(--shell-radius-md);
-  background: #ffffff;
-  color: #1e5d92;
+  border-radius: var(--aip-radius-md);
+  background: var(--aip-color-bg-elevated);
+  color: var(--aip-color-action-primary);
   font-weight: 700;
-  padding: var(--shell-space-2) var(--shell-space-3);
+  padding: var(--aip-space-2) var(--aip-space-3);
   text-decoration: none;
 }
 
@@ -64,16 +39,16 @@
 }
 
 .app-shell__skip-link:focus-visible {
-  outline: var(--shell-focus-outline);
-  outline-offset: 2px;
+  outline: var(--aip-focus-outline);
+  outline-offset: var(--aip-focus-offset);
 }
 
 .app-shell--right-expanded {
   grid-template-columns:
-    var(--shell-account-rail-width)
-    var(--shell-feature-menu-width)
+    var(--aip-shell-account-rail-width)
+    var(--aip-shell-feature-menu-width)
     minmax(0, 1fr)
-    var(--shell-right-panel-expanded-width);
+    var(--aip-shell-right-panel-expanded-width);
 }
 
 .app-shell__mobile-header,
@@ -97,7 +72,7 @@
 
 .app-shell__main {
   min-width: 0;
-  padding: var(--shell-space-5);
+  padding: var(--aip-space-5);
   overflow: auto;
   overflow-wrap: anywhere;
 }
@@ -124,24 +99,24 @@
   }
 
   .app-shell__body {
-    min-height: calc(100dvh - var(--shell-mobile-header-height));
+    min-height: calc(100dvh - var(--aip-shell-mobile-header-height));
   }
 
   .app-shell__main {
-    padding: var(--shell-space-3);
+    padding: var(--aip-space-3);
   }
 
   .app-shell__mobile-drawer {
     position: fixed;
-    inset: var(--shell-mobile-header-height) auto 0 0;
-    z-index: 20;
+    inset: var(--aip-shell-mobile-header-height) auto 0 0;
+    z-index: var(--aip-z-drawer);
     display: block;
-    width: var(--shell-drawer-width);
+    width: var(--aip-shell-drawer-width);
     max-width: 100vw;
-    border-right: 1px solid var(--shell-border-color);
-    background: #ffffff;
+    border-right: 1px solid var(--aip-color-border-default);
+    background: var(--aip-color-bg-surface);
     transform: translateX(-100%);
-    transition: transform 160ms ease;
+    transition: transform var(--aip-duration-normal) var(--aip-ease-standard);
   }
 
   .app-shell__mobile-drawer:focus {
@@ -149,7 +124,7 @@
   }
 
   .app-shell__mobile-drawer:focus-visible {
-    outline: var(--shell-focus-outline);
+    outline: var(--aip-focus-outline);
     outline-offset: -3px;
   }
 
@@ -159,9 +134,9 @@
 
   .app-shell__scrim {
     position: fixed;
-    inset: var(--shell-mobile-header-height) 0 0;
-    z-index: 10;
-    background: rgb(23 32 42 / 36%);
+    inset: var(--aip-shell-mobile-header-height) 0 0;
+    z-index: var(--aip-z-scrim);
+    background: var(--aip-color-overlay);
   }
 
   .app-shell--drawer-open .app-shell__scrim {
@@ -171,6 +146,6 @@
 
 @media (max-width: 360px) {
   .app-shell__main {
-    padding: var(--shell-space-2);
+    padding: var(--aip-space-2);
   }
 }
