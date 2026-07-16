@@ -7,10 +7,11 @@
   display: grid;
   gap: 14px;
   min-width: 0;
-  border: 1px solid #d4dce6;
+  border: 1px solid var(--aip-color-border-default);
   border-radius: 8px;
   padding: 18px;
-  background: #ffffff;
+  background: var(--aip-color-bg-surface);
+  color: var(--aip-color-text-primary);
 }
 
 .announcement-editor header {
@@ -24,13 +25,13 @@
 }
 
 .announcement-editor p {
-  color: #526173;
+  color: var(--aip-color-text-secondary);
   font-size: 0.84rem;
   font-weight: 900;
 }
 
 .announcement-editor h2 {
-  color: #17202a;
+  color: var(--aip-color-text-primary);
   font-size: 1.18rem;
   line-height: 1.25;
 }
@@ -39,7 +40,7 @@
   display: grid;
   gap: 6px;
   min-width: 0;
-  color: #334155;
+  color: var(--aip-color-text-secondary);
   font-weight: 900;
 }
 
@@ -48,10 +49,11 @@
 .announcement-editor select {
   min-width: 0;
   width: 100%;
-  border: 1px solid #9aa8b8;
+  border: 1px solid var(--aip-color-border-default);
   border-radius: 6px;
   padding: 10px 12px;
-  color: #17202a;
+  background: var(--aip-color-bg-control);
+  color: var(--aip-color-text-primary);
   font: inherit;
   font-weight: 400;
 }
@@ -87,18 +89,26 @@
 
 .announcement-editor__actions button {
   min-height: 38px;
-  border: 1px solid #2458a6;
+  border: 1px solid var(--aip-color-action-primary);
   border-radius: 6px;
   padding: 0 12px;
-  background: #ffffff;
-  color: #2458a6;
+  background: var(--aip-color-bg-elevated);
+  color: var(--aip-color-action-primary);
   font: inherit;
   font-weight: 800;
 }
 
+.announcement-editor__actions button:hover {
+  background: var(--aip-color-bg-selected);
+}
+
 .announcement-editor__actions .announcement-editor__primary {
-  background: #2458a6;
-  color: #ffffff;
+  background: var(--aip-color-action-primary);
+  color: var(--aip-color-text-inverse);
+}
+
+.announcement-editor__actions .announcement-editor__primary:hover {
+  background: var(--aip-color-action-primary-hover);
 }
 
 @media (max-width: 620px) {
