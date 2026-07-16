@@ -9,10 +9,11 @@
   gap: 14px;
   align-items: center;
   min-width: 0;
-  border: 1px dashed #8ea0b5;
+  border: 1px dashed var(--aip-color-border-strong);
   border-radius: 8px;
   padding: 16px;
-  background: #f8fafc;
+  background: var(--aip-color-bg-surface-subtle);
+  color: var(--aip-color-text-primary);
 }
 
 .upload-drop-zone__copy {
@@ -26,20 +27,20 @@
 }
 
 .upload-drop-zone__copy p {
-  color: #526173;
+  color: var(--aip-color-text-secondary);
   font-size: 0.78rem;
   font-weight: 900;
 }
 
 .upload-drop-zone__copy h2 {
-  color: #17202a;
+  color: var(--aip-color-text-primary);
   font-size: 1.08rem;
   line-height: 1.25;
 }
 
 .upload-drop-zone__copy span,
 .upload-drop-zone__state {
-  color: #526173;
+  color: var(--aip-color-text-secondary);
   font-size: 0.88rem;
   font-weight: 700;
 }
@@ -49,20 +50,24 @@
   align-items: center;
   justify-content: center;
   min-height: 40px;
-  border: 1px solid #2458a6;
+  border: 1px solid var(--aip-color-action-primary);
   border-radius: 6px;
   padding: 0 14px;
-  background: #2458a6;
-  color: #ffffff;
+  background: var(--aip-color-action-primary);
+  color: var(--aip-color-text-inverse);
   font-weight: 900;
   cursor: pointer;
 }
 
+.upload-drop-zone__button:hover:not(:disabled) {
+  background: var(--aip-color-action-primary-hover);
+}
+
 .upload-drop-zone__button:disabled,
 .upload-drop-zone--disabled .upload-drop-zone__button {
-  border-color: #94a3b8;
-  background: #e2e8f0;
-  color: #475569;
+  border-color: var(--aip-color-border-default);
+  background: var(--aip-color-bg-surface-subtle);
+  color: var(--aip-color-text-muted);
   cursor: not-allowed;
 }
 
@@ -82,7 +87,7 @@
 }
 
 .upload-drop-zone__state strong {
-  color: #17202a;
+  color: var(--aip-color-text-primary);
   overflow-wrap: anywhere;
 }
 
@@ -96,21 +101,21 @@
 .upload-drop-zone--invalidType,
 .upload-drop-zone--quotaExceeded,
 .upload-drop-zone--quotaExceptionRejected {
-  border-color: #c2410c;
-  background: #fff7ed;
+  border-color: var(--aip-color-danger);
+  background: var(--aip-color-danger-subtle);
 }
 
 .upload-drop-zone--pending,
 .upload-drop-zone--progress,
 .upload-drop-zone--quotaExceptionRequested {
-  border-color: #b7791f;
-  background: #fff8e6;
+  border-color: var(--aip-color-warning);
+  background: var(--aip-color-warning-subtle);
 }
 
 .upload-drop-zone--succeeded,
 .upload-drop-zone--quotaExceptionApproved {
-  border-color: #2f855a;
-  background: #ecfdf3;
+  border-color: var(--aip-color-success);
+  background: var(--aip-color-success-subtle);
 }
 
 @media (max-width: 640px) {
