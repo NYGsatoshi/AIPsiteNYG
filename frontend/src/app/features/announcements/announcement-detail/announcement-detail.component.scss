@@ -7,14 +7,15 @@
   display: grid;
   gap: 16px;
   min-width: 0;
-  border: 1px solid #d4dce6;
+  border: 1px solid var(--aip-color-border-default);
   border-radius: 8px;
   padding: 18px;
-  background: #ffffff;
+  background: var(--aip-color-bg-surface);
+  color: var(--aip-color-text-primary);
 }
 
 .announcement-detail--empty {
-  color: #526173;
+  color: var(--aip-color-text-secondary);
   font-weight: 800;
 }
 
@@ -31,13 +32,13 @@ h2 {
 }
 
 .announcement-detail__state {
-  color: #526173;
+  color: var(--aip-color-text-secondary);
   font-size: 0.84rem;
   font-weight: 900;
 }
 
 h2 {
-  color: #17202a;
+  color: var(--aip-color-text-primary);
   font-size: 1.35rem;
   line-height: 1.25;
   overflow-wrap: anywhere;
@@ -46,14 +47,18 @@ h2 {
 .announcement-detail__edit {
   flex: 0 0 auto;
   min-height: 36px;
-  border: 1px solid #2458a6;
+  border: 1px solid var(--aip-color-action-primary);
   border-radius: 6px;
   padding: 0 12px;
-  background: #ffffff;
-  color: #2458a6;
+  background: var(--aip-color-bg-elevated);
+  color: var(--aip-color-action-primary);
   font: inherit;
   font-weight: 800;
   cursor: pointer;
+}
+
+.announcement-detail__edit:hover {
+  background: var(--aip-color-bg-selected);
 }
 
 .announcement-detail__meta {
@@ -70,21 +75,21 @@ h2 {
 }
 
 .announcement-detail__meta dt {
-  color: #526173;
+  color: var(--aip-color-text-secondary);
   font-size: 0.8rem;
   font-weight: 900;
 }
 
 .announcement-detail__meta dd {
   margin: 0;
-  color: #17202a;
+  color: var(--aip-color-text-primary);
   font-weight: 800;
   overflow-wrap: anywhere;
 }
 
 .announcement-detail__body {
   margin: 0;
-  color: #243244;
+  color: var(--aip-color-text-primary);
   line-height: 1.75;
   white-space: pre-wrap;
   overflow-wrap: anywhere;
@@ -92,11 +97,11 @@ h2 {
 
 .announcement-detail__attachment {
   margin: 0;
-  border: 1px dashed #9aa8b8;
+  border: 1px dashed var(--aip-color-border-strong);
   border-radius: 8px;
   padding: 10px 12px;
-  background: #f8fafc;
-  color: #526173;
+  background: var(--aip-color-bg-surface-subtle);
+  color: var(--aip-color-text-secondary);
   font-weight: 800;
 }
 
