@@ -50,6 +50,44 @@
   min-width: 0;
 }
 
+.admin-page__retry {
+  justify-self: start;
+  border: 1px solid var(--aip-color-border-default);
+  border-radius: var(--aip-radius-md);
+  background: var(--aip-color-bg-elevated);
+  color: var(--aip-color-text-primary);
+  min-height: var(--aip-control-height);
+  padding: 0.4rem 0.75rem;
+}
+
+.admin-page__mobile-list {
+  display: none;
+  gap: var(--aip-component-gap);
+  list-style: decimal;
+  margin: 0;
+  padding: 0 0 0 var(--aip-space-5);
+}
+
+.admin-page__mobile-item {
+  display: grid;
+  gap: var(--aip-space-3);
+  border: 1px solid var(--aip-color-border-default);
+  border-radius: var(--aip-radius-lg);
+  background: var(--aip-color-bg-surface);
+  padding: var(--aip-space-4);
+}
+
+.admin-page__mobile-item h2,
+.admin-page__mobile-item p,
+.admin-page__mobile-item dl,
+.admin-page__mobile-item dd { margin: 0; }
+.admin-page__mobile-item dl,
+.admin-page__mobile-item dl div { display: grid; }
+.admin-page__mobile-item dl { gap: var(--aip-space-2); }
+.admin-page__mobile-item dl div { gap: var(--aip-space-1); }
+.admin-page__mobile-item dt { color: var(--aip-color-text-muted); font-size: var(--aip-font-size-xs); font-weight: 700; }
+.admin-page__mobile-item button { min-height: var(--aip-touch-target); }
+
 :host ::ng-deep .admin-grid-link {
   border: 0;
   background: transparent;
@@ -83,4 +121,7 @@
   .admin-page__layout {
     grid-template-columns: 1fr;
   }
+
+  .admin-page__desktop-grid { display: none; }
+  .admin-page__mobile-list { display: grid; }
 }

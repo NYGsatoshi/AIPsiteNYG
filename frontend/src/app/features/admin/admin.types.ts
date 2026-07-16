@@ -3,7 +3,7 @@ import { AppDataGridColumnDef } from '../../shared/grid/app-data-grid/app-data-g
 export const ADMIN_DEFAULT_PAGE_SIZE = 50;
 export const ADMIN_MAXIMUM_PAGE_SIZE = 100;
 
-export type AdminPageStatus = 'ready' | 'loading' | 'empty' | 'permissionDenied';
+export type AdminPageStatus = 'ready' | 'loading' | 'empty' | 'error' | 'permissionDenied';
 export type AuditSeverity = 'info' | 'warning' | 'critical';
 export type AuditResult = 'success' | 'denied' | 'failed';
 export type ExportJobStatus = 'pending' | 'running' | 'succeeded' | 'failed';

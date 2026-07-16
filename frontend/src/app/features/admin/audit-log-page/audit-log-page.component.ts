@@ -45,6 +45,14 @@ export class AuditLogPageComponent {
     }
   }
 
+  openMobileDetail(row: AuditGridRow, trigger: HTMLElement): void {
+    this.handleGridAction({ actionId: 'openAuditDetail', row, trigger });
+  }
+
+  retry(): void {
+    this.facade.reloadAuditLog();
+  }
+
   closeDrawer(): void {
     this.selectedAuditId.set(null);
     const target = this.drawerReturnFocus();

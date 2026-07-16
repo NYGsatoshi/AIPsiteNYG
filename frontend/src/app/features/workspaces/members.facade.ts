@@ -69,8 +69,12 @@ export class WorkspaceMembersFacade {
     };
   }
 
-  private loadMembers(workspaceId: string): void {
-    if (this.livePages()[workspaceId]?.status === 'loading') {
+  reload(workspaceId: string): void {
+    this.loadMembers(workspaceId, true);
+  }
+
+  private loadMembers(workspaceId: string, force = false): void {
+    if (!force && this.livePages()[workspaceId]?.status === 'loading') {
       return;
     }
 

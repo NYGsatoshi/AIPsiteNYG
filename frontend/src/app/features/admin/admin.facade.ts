@@ -95,6 +95,12 @@ export class AdminFacade {
     return this.auditState();
   }
 
+  reloadAuditLog(): void {
+    if (!this.auditScenario) {
+      this.loadAuditLog();
+    }
+  }
+
   getExportDiagnostics(): ExportDiagnosticsViewModel {
     return this.exportState();
   }
@@ -116,7 +122,7 @@ export class AdminFacade {
         error: (error: { status?: number }) => {
           this.auditState.set({
             ...this.emptyAudit(
-              error.status === 401 || error.status === 403 ? 'permissionDenied' : 'empty',
+              error.status === 401 || error.status === 403 ? 'permissionDenied' : 'error',
             ),
             message:
               error.status === 401 || error.status === 403

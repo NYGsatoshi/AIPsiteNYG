@@ -56,7 +56,15 @@ export class AppDataGridComponent<TData extends object> {
   };
 
   get columnDefs(): ColDef<TData>[] {
-    return [...this.columns] as unknown as ColDef<TData>[];
+    return this.columns.map((column) => ({
+      ...column,
+      valueGetter: column.valueGetter
+        ? (params) => column.valueGetter?.({ data: params.data })
+        : undefined,
+      valueFormatter: column.valueFormatter
+        ? (params) => column.valueFormatter?.({ data: params.data, value: params.value })
+        : undefined
+    })) as unknown as ColDef<TData>[];
   }
 
   get rowData(): TData[] {

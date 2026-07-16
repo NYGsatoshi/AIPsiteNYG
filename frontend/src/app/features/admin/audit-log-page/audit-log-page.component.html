@@ -16,19 +16,43 @@
     <app-inline-loading label="Loading audit log" />
   } @else if (page.status === 'permissionDenied') {
     <app-permission-denied [title]="page.message ?? 'Audit log access is unavailable.'" />
+  } @else if (page.status === 'error') {
+    <app-empty-state title="Audit log could not be loaded" [message]="page.message ?? 'Try again.'" />
+    <button type="button" class="admin-page__retry" data-testid="audit-log-retry" (click)="retry()">Retry</button>
   } @else if (page.status === 'empty' || page.rows.length === 0) {
     <app-empty-state title="No audit entries" message="No mock audit entries are available." />
   } @else {
     <div class="admin-page__layout">
-      <app-data-grid
+      <div class="admin-page__desktop-grid">
+        <app-data-grid
         ariaLabel="Admin audit log"
         rowIdField="id"
         [rows]="page.rows"
         [columns]="page.columns"
         [defaultPageSize]="page.pageSize.defaultPageSize"
         [maximumPageSize]="page.pageSize.maximumPageSize"
-        (actionInvoked)="handleGridAction($event)"
-      />
+          (actionInvoked)="handleGridAction($event)"
+        />
+      </div>
+
+      <ol class="admin-page__mobile-list" aria-label="Admin audit log" data-testid="audit-log-mobile-list">
+        @for (row of page.rows; track row.id) {
+          <li class="admin-page__mobile-item" data-testid="audit-log-mobile-item">
+            <h2>{{ row.action }}</h2>
+            <dl>
+              <div><dt>Created</dt><dd>{{ row.createdAt }}</dd></div>
+              <div><dt>Actor</dt><dd>{{ row.actorDisplay }}</dd></div>
+              <div><dt>Target</dt><dd>{{ row.targetType }}</dd></div>
+              <div><dt>Workspace</dt><dd>{{ row.workspace }}</dd></div>
+              <div><dt>Severity</dt><dd>{{ row.severityLabel }}</dd></div>
+              <div><dt>Result</dt><dd>{{ row.resultLabel }}</dd></div>
+              <div><dt>Request ID</dt><dd>{{ row.requestId }}</dd></div>
+            </dl>
+            <p>{{ row.summary }}</p>
+            <button type="button" data-testid="open-audit-mobile-detail" (click)="openMobileDetail(row, $any($event.currentTarget))">Open detail</button>
+          </li>
+        }
+      </ol>
 
       <app-audit-detail-drawer [audit]="selectedAudit()" [returnFocusTo]="drawerReturnFocus()" (close)="closeDrawer()" />
     </div>

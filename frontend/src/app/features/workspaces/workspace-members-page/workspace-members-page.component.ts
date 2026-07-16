@@ -56,6 +56,14 @@ export class WorkspaceMembersPageComponent {
     this.lastAuditReason.set(null);
   }
 
+  handleMobileAction(actionId: string, row: WorkspaceMemberGridRow, trigger: HTMLElement): void {
+    this.handleGridAction({ actionId, row, trigger });
+  }
+
+  retry(): void {
+    this.facade.reload(this.workspaceId);
+  }
+
   closeConfirm(): void {
     this.confirmAction.set(null);
   }

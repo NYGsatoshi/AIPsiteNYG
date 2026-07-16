@@ -12,6 +12,7 @@
     <app-inline-loading label="メンバーを読み込み中" />
   } @else if (page.status === 'error') {
     <app-empty-state title="読み込めませんでした" [message]="page.message ?? 'メンバー一覧を読み込めませんでした。'" />
+    <button type="button" class="workspace-members__retry" data-testid="workspace-members-retry" (click)="retry()">Retry</button>
   } @else if (page.status === 'permissionDenied') {
     <app-permission-denied [title]="page.message ?? 'このワークスペースのメンバーを表示する権限がありません。'" />
   } @else {
@@ -30,7 +31,8 @@
     }
 
     @if (filteredRows().length > 0) {
-      <app-data-grid
+      <div class="workspace-members__desktop-grid">
+        <app-data-grid
         ariaLabel="ワークスペースメンバー"
         rowIdField="id"
         [rows]="filteredRows()"
@@ -38,7 +40,31 @@
         [defaultPageSize]="page.pageSize.defaultPageSize"
         [maximumPageSize]="page.pageSize.maximumPageSize"
         (actionInvoked)="handleGridAction($event)"
-      />
+        />
+      </div>
+
+      <ul class="workspace-members__mobile-list" aria-label="Workspace members" data-testid="workspace-members-mobile-list">
+        @for (row of filteredRows(); track row.id) {
+          <li class="workspace-members__mobile-card" data-testid="workspace-member-mobile-card">
+            <h2>{{ row.displayName }}</h2>
+            <dl>
+              <div><dt>Role</dt><dd>{{ row.roleLabel }}</dd></div>
+              <div><dt>Group / project</dt><dd>{{ row.groupProjectLabel }}</dd></div>
+              <div><dt>Status</dt><dd>{{ row.accountStatusLabel }}</dd></div>
+              <div><dt>Joined</dt><dd>{{ row.joinedAtLabel }}</dd></div>
+            </dl>
+            @for (action of row.rowActions; track action.id) {
+              <button
+                type="button"
+                [disabled]="action.disabled"
+                [attr.title]="action.disabledReason ?? null"
+                [attr.data-testid]="'member-mobile-action-' + action.id"
+                (click)="handleMobileAction(action.id, row, $any($event.currentTarget))"
+              >{{ action.label }}</button>
+            }
+          </li>
+        }
+      </ul>
     } @else {
       <app-empty-state title="メンバーはありません" message="表示できるメンバーはありません。" />
     }

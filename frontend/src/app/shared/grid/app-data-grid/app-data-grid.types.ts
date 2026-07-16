@@ -1,6 +1,3 @@
-import { Type } from '@angular/core';
-import { ColDef, ValueFormatterParams, ValueGetterParams } from 'ag-grid-community';
-
 export const APP_DATA_GRID_DEFAULT_PAGE_SIZE = 50;
 export const APP_DATA_GRID_MAXIMUM_PAGE_SIZE = 100;
 
@@ -8,6 +5,16 @@ export interface AppDataGridActionEvent<TData> {
   readonly actionId: string;
   readonly row: TData;
   readonly trigger?: HTMLElement;
+}
+
+/**
+ * AIPsite-owned input supplied to column formatters and value readers.  This
+ * deliberately has no vendor event or row-node shape: adapters map it to
+ * their own callback model at the boundary.
+ */
+export interface AppDataGridCellValueContext<TData> {
+  readonly data?: TData;
+  readonly value?: unknown;
 }
 
 export interface AppDataGridColumnDef<TData> {
@@ -18,13 +25,14 @@ export interface AppDataGridColumnDef<TData> {
   readonly maxWidth?: number;
   readonly flex?: number;
   readonly sortable?: boolean;
-  readonly filter?: boolean | 'agTextColumnFilter';
+  readonly filter?: boolean | 'text';
   readonly wrapText?: boolean;
   readonly autoHeight?: boolean;
   readonly cellClass?: string | string[];
-  readonly valueGetter?: (params: ValueGetterParams<TData>) => unknown;
-  readonly valueFormatter?: (params: ValueFormatterParams<TData>) => string;
-  readonly cellRenderer?: Type<unknown> | ColDef<TData>['cellRenderer'];
+  readonly valueGetter?: (params: AppDataGridCellValueContext<TData>) => unknown;
+  readonly valueFormatter?: (params: AppDataGridCellValueContext<TData>) => string;
+  /** Adapter-owned renderer token or callback. Feature code never imports a vendor renderer type. */
+  readonly cellRenderer?: unknown;
 }
 
 export const clampAppDataGridPageSize = (
