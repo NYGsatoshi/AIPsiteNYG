@@ -14,17 +14,23 @@
   --ag-font-size: 0.875rem;
   --ag-border-radius: 8px;
   --ag-wrapper-border-radius: 8px;
-  --ag-header-background-color: #f8fafc;
-  --ag-foreground-color: #0f172a;
-  --ag-secondary-foreground-color: #475569;
-  --ag-border-color: #dbe3ef;
-  --ag-row-hover-color: #f1f5f9;
-  --ag-selected-row-background-color: #e0f2fe;
+  --ag-background-color: var(--aip-color-bg-surface);
+  --ag-header-background-color: var(--aip-color-bg-surface-subtle);
+  --ag-foreground-color: var(--aip-color-text-primary);
+  --ag-secondary-foreground-color: var(--aip-color-text-secondary);
+  --ag-border-color: var(--aip-color-border-default);
+  --ag-row-border-color: var(--aip-color-border-default);
+  --ag-row-hover-color: var(--aip-color-bg-hover);
+  --ag-selected-row-background-color: var(--aip-color-bg-selected);
+  --ag-input-background-color: var(--aip-color-bg-control);
+  --ag-input-border-color: var(--aip-color-border-default);
+  --ag-input-focus-border-color: var(--aip-color-focus);
+  --ag-modal-overlay-background-color: var(--aip-color-overlay);
 }
 
 .app-data-grid__page-limit {
   margin: 0;
-  color: #64748b;
+  color: var(--aip-color-text-muted);
   font-size: 0.75rem;
   justify-self: end;
 }
@@ -38,10 +44,10 @@
 }
 
 :host ::ng-deep .app-grid-actions__button {
-  border: 1px solid #cbd5e1;
+  border: 1px solid var(--aip-color-border-default);
   border-radius: 6px;
-  background: #ffffff;
-  color: #0f172a;
+  background: var(--aip-color-bg-elevated);
+  color: var(--aip-color-text-primary);
   cursor: pointer;
   font: inherit;
   font-size: 0.8125rem;
@@ -52,15 +58,20 @@
   white-space: nowrap;
 }
 
+:host ::ng-deep .app-grid-actions__button:hover:not([aria-disabled='true']) {
+  background: var(--aip-color-bg-hover);
+  color: var(--aip-color-action-primary);
+}
+
 :host ::ng-deep .app-grid-actions__button:focus-visible,
 :host ::ng-deep .ag-root-wrapper :focus-visible {
-  outline: var(--shell-focus-outline, 3px solid #1d4ed8);
-  outline-offset: 2px;
+  outline: var(--aip-focus-outline);
+  outline-offset: var(--aip-focus-offset);
 }
 
 :host ::ng-deep .app-grid-actions__button--danger {
-  border-color: #fecaca;
-  color: #991b1b;
+  border-color: var(--aip-color-danger);
+  color: var(--aip-color-danger);
 }
 
 :host ::ng-deep .app-grid-actions__button[aria-disabled='true'] {
@@ -69,6 +80,6 @@
 }
 
 :host ::ng-deep .app-grid-actions__empty {
-  color: #64748b;
+  color: var(--aip-color-text-muted);
   font-size: 0.8125rem;
 }
