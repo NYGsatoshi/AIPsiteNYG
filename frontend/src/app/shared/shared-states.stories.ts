@@ -89,6 +89,14 @@ type Story = StoryObj;
 
 export const Default: Story = {};
 
+export const LightTheme: Story = {
+  decorators: [(story) => ({ template: '<div data-aip-theme="light">' + story().template + '</div>', props: story().props })]
+};
+
+export const FocusVisible: Story = {
+  render: () => ({ template: '<main style="padding:1rem"><app-empty-state actionLabel="Focused action" /></main>' })
+};
+
 export const Loading: Story = {
   render: () => ({
     template: `

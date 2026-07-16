@@ -12,11 +12,11 @@ import { Component, Input } from '@angular/core';
   styles: [
     `
       .safe-state {
-        border: 1px solid #fde68a;
-        border-radius: 8px;
-        background: #fffbeb;
+        border: 1px solid var(--aip-color-warning);
+        border-radius: var(--aip-radius-lg);
+        background: var(--aip-color-bg-surface-subtle);
         padding: 1rem;
-        color: #78350f;
+        color: var(--aip-color-text-primary);
       }
 
       h2,

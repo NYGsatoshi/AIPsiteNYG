@@ -1,9 +1,16 @@
+@use './styles/aip-primitives';
+@use './styles/aip-theme-dark';
+@use './styles/aip-theme-light';
+@use './styles/aip-semantic-tokens';
+@use './styles/aip-component-tokens';
+@use './styles/aip-density';
+@use './styles/aip-motion';
+@use './styles/aip-overlays';
 @import 'ag-grid-community/styles/ag-grid.css';
 @import 'ag-grid-community/styles/ag-theme-quartz.css';
 
 :root {
-  --aip-focus-outline: 3px solid #1d4ed8;
-  --aip-touch-target: 44px;
+  color-scheme: dark light;
 }
 
 *,
@@ -16,6 +23,9 @@ html,
 body {
   min-width: 320px;
   margin: 0;
+  background: var(--aip-color-bg-canvas);
+  color: var(--aip-color-text-primary);
+  font-family: var(--aip-font-family);
 }
 
 button,
@@ -32,7 +42,7 @@ select:focus-visible,
 textarea:focus-visible,
 [tabindex]:focus-visible {
   outline: var(--aip-focus-outline);
-  outline-offset: 2px;
+  outline-offset: var(--aip-focus-offset);
 }
 
 p,
