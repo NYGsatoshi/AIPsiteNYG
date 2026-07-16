@@ -2,7 +2,7 @@
   position: fixed;
   right: max(16px, env(safe-area-inset-right));
   bottom: max(16px, env(safe-area-inset-bottom));
-  z-index: var(--aip-z-popover, 100);
+  z-index: var(--aip-z-sticky, 10);
 }
 
 .theme-toggle {
