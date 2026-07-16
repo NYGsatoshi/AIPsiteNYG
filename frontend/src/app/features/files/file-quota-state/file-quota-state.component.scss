@@ -9,11 +9,11 @@
   justify-content: space-between;
   gap: 12px;
   min-width: 0;
-  border: 1px solid #cbd5e1;
+  border: 1px solid var(--aip-color-border-default);
   border-radius: 8px;
   padding: 12px;
-  background: #ffffff;
-  color: #334155;
+  background: var(--aip-color-bg-surface);
+  color: var(--aip-color-text-primary);
 }
 
 .quota p,
@@ -22,7 +22,7 @@
 }
 
 .quota p {
-  color: #526173;
+  color: var(--aip-color-text-secondary);
   font-size: 0.78rem;
   font-weight: 900;
 }
@@ -34,25 +34,25 @@
 
 .quota span {
   flex: 0 0 auto;
-  color: #526173;
+  color: var(--aip-color-text-secondary);
   font-size: 0.86rem;
   font-weight: 900;
 }
 
 .quota--exceeded,
 .quota--exceptionRejected {
-  border-color: #c2410c;
-  background: #fff7ed;
+  border-color: var(--aip-color-danger);
+  background: var(--aip-color-danger-subtle);
 }
 
 .quota--exceptionRequested {
-  border-color: #b7791f;
-  background: #fff8e6;
+  border-color: var(--aip-color-warning);
+  background: var(--aip-color-warning-subtle);
 }
 
 .quota--exceptionApproved {
-  border-color: #2f855a;
-  background: #ecfdf3;
+  border-color: var(--aip-color-success);
+  background: var(--aip-color-success-subtle);
 }
 
 @media (max-width: 640px) {
