@@ -4,10 +4,12 @@ import { AipThemeService } from './aip-theme.service';
 
 describe('AipThemeService', () => {
   const originalMatchMedia = window.matchMedia;
+
   beforeEach(() => {
     localStorage.clear();
     document.documentElement.removeAttribute('data-aip-theme');
     document.documentElement.removeAttribute('data-aip-density');
+    document.documentElement.style.removeProperty('color-scheme');
     TestBed.configureTestingModule({});
   });
 
@@ -26,6 +28,7 @@ describe('AipThemeService', () => {
     const service = TestBed.inject(AipThemeService);
     expect(service.theme()).toBe('dark');
     expect(document.documentElement.dataset['aipTheme']).toBe('dark');
+    expect(document.documentElement.style.colorScheme).toBe('dark');
   });
 
   it('uses OS light preference before an explicit choice', () => {
@@ -45,13 +48,17 @@ describe('AipThemeService', () => {
     expect(TestBed.inject(AipThemeService).theme()).toBe('light');
   });
 
-  it('switches theme and density without navigation', () => {
+  it('switches and persists the theme without navigation', () => {
     setMedia(true);
     const service = TestBed.inject(AipThemeService);
     const path = location.pathname;
-    service.setTheme('light');
-    expect(localStorage.getItem('aipsite.ui.theme.v1')).toBe('light');
-    expect(document.documentElement.dataset['aipTheme']).toBe('light');
+
+    service.toggleTheme();
+
+    expect(service.theme()).toBe('dark');
+    expect(localStorage.getItem('aipsite.ui.theme.v1')).toBe('dark');
+    expect(document.documentElement.dataset['aipTheme']).toBe('dark');
+    expect(document.documentElement.style.colorScheme).toBe('dark');
     expect(service.density()).toBe('comfortable');
     expect(location.pathname).toBe(path);
   });
