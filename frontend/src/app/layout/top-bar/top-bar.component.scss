@@ -10,8 +10,9 @@
   gap: var(--shell-space-3, 12px);
   min-width: 0;
   height: var(--shell-topbar-height, 64px);
-  border-bottom: 1px solid var(--shell-border-color, #d9e0e8);
-  background: #ffffff;
+  border-bottom: 1px solid var(--aip-color-border-default);
+  background: var(--aip-color-bg-shell);
+  color: var(--aip-color-text-primary);
   padding: 0 var(--shell-space-4, 16px);
 }
 
@@ -28,14 +29,14 @@
 
 .top-bar__label,
 .top-bar__search span {
-  color: #647181;
+  color: var(--aip-color-text-muted);
   font-size: 0.75rem;
   font-weight: 700;
 }
 
 .top-bar__workspace strong {
   overflow: hidden;
-  color: #17202a;
+  color: var(--aip-color-text-primary);
   text-overflow: ellipsis;
   white-space: nowrap;
 }
@@ -62,8 +63,10 @@
   width: 100%;
   min-width: 0;
   min-height: var(--shell-touch-target, 44px);
-  border: 1px solid var(--shell-border-color, #d9e0e8);
+  border: 1px solid var(--aip-color-border-default);
   border-radius: var(--shell-radius-md, 6px);
+  background: var(--aip-color-bg-control);
+  color: var(--aip-color-text-primary);
   padding: 8px 10px;
 }
 
@@ -75,31 +78,36 @@
 }
 
 .top-bar__status {
-  color: #8a4a12;
+  color: var(--aip-color-warning);
   font-size: 0.8125rem;
   font-weight: 700;
 }
 
 .top-bar__status--error {
-  color: #b42318;
+  color: var(--aip-color-danger);
 }
 
 .top-bar__logout-button,
 .top-bar__panel-button {
   min-height: var(--shell-touch-target, 44px);
   min-width: var(--shell-touch-target, 44px);
-  border: 1px solid #8aa6bf;
+  border: 1px solid var(--aip-color-border-strong);
   border-radius: var(--shell-radius-md, 6px);
-  background: #ffffff;
-  color: #1e5d92;
+  background: var(--aip-color-bg-elevated);
+  color: var(--aip-color-action-primary);
   font-weight: 700;
   cursor: pointer;
   padding: 0 var(--shell-space-3, 12px);
 }
 
+.top-bar__logout-button:hover,
+.top-bar__panel-button:hover {
+  background: var(--aip-color-bg-selected);
+}
+
 .top-bar__logout-button {
-  border-color: #b42318;
-  color: #b42318;
+  border-color: var(--aip-color-danger);
+  color: var(--aip-color-danger);
 }
 
 .top-bar__logout-button:disabled,
@@ -111,8 +119,8 @@
 .top-bar__logout-button:focus-visible,
 .top-bar__panel-button:focus-visible,
 .top-bar__search input:focus-visible {
-  outline: var(--shell-focus-outline, 3px solid #1d4ed8);
-  outline-offset: 2px;
+  outline: var(--aip-focus-outline);
+  outline-offset: var(--aip-focus-offset);
 }
 
 @media (max-width: 860px) {

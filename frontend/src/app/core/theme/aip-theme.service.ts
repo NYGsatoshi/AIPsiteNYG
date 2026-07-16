@@ -26,6 +26,10 @@ export class AipThemeService {
     this.apply();
   }
 
+  toggleTheme(): void {
+    this.setTheme(this.themeValue() === 'dark' ? 'light' : 'dark');
+  }
+
   refreshDensity(): void {
     this.densityValue.set(this.initialDensity());
     this.apply();
@@ -43,8 +47,10 @@ export class AipThemeService {
 
   private apply(): void {
     const root = this.document.documentElement;
-    root.dataset['aipTheme'] = this.themeValue();
+    const theme = this.themeValue();
+    root.dataset['aipTheme'] = theme;
     root.dataset['aipDensity'] = this.densityValue();
+    root.style.colorScheme = theme;
   }
 
   private readStoredTheme(): AipTheme | null {

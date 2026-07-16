@@ -16,15 +16,21 @@ a {
   align-items: center;
   justify-content: center;
   min-height: 36px;
-  border: 1px solid #b9c4d0;
+  border: 1px solid var(--aip-color-border-default);
   border-radius: 6px;
   padding: 0 12px;
-  background: #ffffff;
-  color: #243447;
+  background: var(--aip-color-bg-elevated);
+  color: var(--aip-color-text-primary);
   font: inherit;
   font-weight: 700;
   cursor: pointer;
   text-decoration: none;
+}
+
+button:hover:not(:disabled),
+a:hover {
+  background: var(--aip-color-bg-hover);
+  color: var(--aip-color-action-primary);
 }
 
 button:disabled {
@@ -33,9 +39,14 @@ button:disabled {
 }
 
 .workspace-actions__primary {
-  border-color: #2458a6;
-  background: #2458a6;
-  color: #ffffff;
+  border-color: var(--aip-color-action-primary);
+  background: var(--aip-color-action-primary);
+  color: var(--aip-color-text-inverse);
+}
+
+.workspace-actions__primary:hover:not(:disabled) {
+  background: var(--aip-color-action-primary-hover);
+  color: var(--aip-color-text-inverse);
 }
 
 @media (max-width: 480px) {

@@ -6,17 +6,17 @@
   display: grid;
   gap: 8px;
   max-width: 760px;
-  border: 1px solid #d4dde8;
+  border: 1px solid var(--aip-color-border-default);
   border-radius: 8px;
   padding: 12px 14px;
-  background: #ffffff;
-  color: #17202a;
+  background: var(--aip-color-bg-surface);
+  color: var(--aip-color-text-primary);
 }
 
 .message--own {
   margin-left: auto;
-  border-color: #8bb8df;
-  background: #f4fbff;
+  border-color: var(--aip-color-action-primary);
+  background: var(--aip-color-bg-selected);
 }
 
 .message__meta {
@@ -24,21 +24,21 @@
   flex-wrap: wrap;
   gap: 8px;
   align-items: center;
-  color: #526173;
+  color: var(--aip-color-text-secondary);
   font-size: 0.84rem;
   font-weight: 700;
 }
 
 .message__author {
-  color: #17202a;
+  color: var(--aip-color-text-primary);
   font-weight: 900;
 }
 
 .message__role {
-  border: 1px solid #c9d5e2;
+  border: 1px solid var(--aip-color-border-default);
   border-radius: 999px;
   padding: 2px 7px;
-  background: #f8fafc;
+  background: var(--aip-color-bg-surface-subtle);
 }
 
 .message__body {
@@ -50,7 +50,7 @@
 
 .message__read {
   margin: 0;
-  color: #526173;
+  color: var(--aip-color-text-secondary);
   font-size: 0.82rem;
   font-weight: 700;
 }

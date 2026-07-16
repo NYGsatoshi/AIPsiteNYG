@@ -1,7 +1,8 @@
 .account-card {
-  border: 1px solid #d8dee8;
+  border: 1px solid var(--aip-color-border-default);
   border-radius: 8px;
-  background: #ffffff;
+  background: var(--aip-color-bg-surface);
+  color: var(--aip-color-text-primary);
   padding: 20px;
 }
 
@@ -13,13 +14,13 @@
 
 .account-card__header h2 {
   margin: 0;
-  color: #172033;
+  color: var(--aip-color-text-primary);
   font-size: 1.25rem;
 }
 
 .account-card__eyebrow {
   margin: 0;
-  color: #526070;
+  color: var(--aip-color-text-secondary);
   font-size: 0.85rem;
   font-weight: 700;
 }
@@ -37,13 +38,13 @@
 }
 
 .account-profile dt {
-  color: #526070;
+  color: var(--aip-color-text-secondary);
   font-weight: 700;
 }
 
 .account-profile dd {
   margin: 0;
-  color: #172033;
+  color: var(--aip-color-text-primary);
   overflow-wrap: anywhere;
 }
 

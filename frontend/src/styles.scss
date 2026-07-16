@@ -9,8 +9,12 @@
 @import 'ag-grid-community/styles/ag-grid.css';
 @import 'ag-grid-community/styles/ag-theme-quartz.css';
 
-:root {
-  color-scheme: dark light;
+:root[data-aip-theme='dark'] {
+  color-scheme: dark;
+}
+
+:root[data-aip-theme='light'] {
+  color-scheme: light;
 }
 
 *,
@@ -22,10 +26,15 @@
 html,
 body {
   min-width: 320px;
+  min-height: 100%;
   margin: 0;
   background: var(--aip-color-bg-canvas);
   color: var(--aip-color-text-primary);
   font-family: var(--aip-font-family);
+}
+
+body {
+  min-height: 100dvh;
 }
 
 button,
@@ -33,6 +42,39 @@ input,
 select,
 textarea {
   font: inherit;
+}
+
+input,
+select,
+textarea {
+  border-color: var(--aip-color-border-default);
+  background-color: var(--aip-color-bg-control);
+  color: var(--aip-color-text-primary);
+}
+
+input::placeholder,
+textarea::placeholder {
+  color: var(--aip-color-text-muted);
+  opacity: 1;
+}
+
+button {
+  color: inherit;
+}
+
+button:disabled,
+input:disabled,
+select:disabled,
+textarea:disabled {
+  color: var(--aip-color-text-muted);
+}
+
+hr {
+  border-color: var(--aip-color-border-default);
+}
+
+a {
+  color: var(--aip-color-action-primary);
 }
 
 a:focus-visible,

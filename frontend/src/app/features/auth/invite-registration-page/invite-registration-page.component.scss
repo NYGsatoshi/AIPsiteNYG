@@ -2,7 +2,8 @@
   min-height: 100dvh;
   display: grid;
   place-items: center;
-  background: #eef2f7;
+  background: var(--aip-color-bg-canvas);
+  color: var(--aip-color-text-primary);
   padding: 2rem 1rem;
 }
 
@@ -10,11 +11,11 @@
   width: min(100%, 30rem);
   display: grid;
   gap: 1.25rem;
-  border: 1px solid #dbe3ec;
+  border: 1px solid var(--aip-color-border-default);
   border-radius: 8px;
-  background: #ffffff;
+  background: var(--aip-color-bg-surface);
   padding: 1.5rem;
-  box-shadow: 0 18px 40px rgba(15, 23, 42, 0.08);
+  box-shadow: var(--aip-shadow-floating);
 }
 
 .invite-registration-page__header {
@@ -28,13 +29,13 @@
 }
 
 .invite-registration-page__header p {
-  color: #475569;
+  color: var(--aip-color-text-secondary);
   font-size: 0.9rem;
   font-weight: 700;
 }
 
 .invite-registration-page__header h1 {
-  color: #0f172a;
+  color: var(--aip-color-text-primary);
   font-size: 1.75rem;
 }
 

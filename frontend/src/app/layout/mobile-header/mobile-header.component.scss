@@ -9,8 +9,9 @@
   align-items: center;
   gap: var(--shell-space-3, 12px);
   height: var(--shell-mobile-header-height, 56px);
-  border-bottom: 1px solid var(--shell-border-color, #d9e0e8);
-  background: #ffffff;
+  border-bottom: 1px solid var(--aip-color-border-default);
+  background: var(--aip-color-bg-shell);
+  color: var(--aip-color-text-primary);
   padding: 0 var(--shell-space-3, 12px);
 }
 
@@ -19,22 +20,27 @@
   width: 40px;
   height: 40px;
   place-items: center;
-  border: 1px solid var(--shell-border-color, #d9e0e8);
+  border: 1px solid var(--aip-color-border-default);
   border-radius: var(--shell-radius-md, 6px);
-  background: #ffffff;
+  background: var(--aip-color-bg-elevated);
+  color: var(--aip-color-text-primary);
   cursor: pointer;
+}
+
+.mobile-header__menu:hover {
+  background: var(--aip-color-bg-selected);
 }
 
 .mobile-header__menu span {
   width: 18px;
   height: 2px;
   border-radius: 2px;
-  background: #263542;
+  background: currentColor;
 }
 
 .mobile-header__title {
   min-width: 0;
-  color: #17202a;
+  color: var(--aip-color-text-primary);
   font-weight: 700;
   overflow: hidden;
   text-overflow: ellipsis;

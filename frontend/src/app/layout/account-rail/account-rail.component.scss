@@ -9,10 +9,10 @@
   justify-items: center;
   gap: var(--shell-space-4, 16px);
   height: 100%;
-  border-right: 1px solid var(--shell-border-color, #d9e0e8);
-  background: #1e2a36;
+  border-right: 1px solid var(--aip-color-border-default);
+  background: var(--aip-color-bg-rail);
   padding: var(--shell-space-3, 12px) var(--shell-space-2, 8px);
-  color: #ffffff;
+  color: var(--aip-color-text-rail);
 }
 
 .account-rail__brand,
@@ -37,12 +37,14 @@
 }
 
 .account-rail__avatar {
-  border: 1px solid rgb(255 255 255 / 18%);
-  background: rgb(255 255 255 / 10%);
-  color: #f5f8fb;
+  border: 1px solid var(--aip-color-border-default);
+  background: var(--aip-color-bg-rail-item);
+  color: var(--aip-color-text-rail);
   font-size: 0.875rem;
 }
 
 .account-rail__avatar--active {
-  background: #4d8ac8;
+  border-color: var(--aip-color-action-primary);
+  background: var(--aip-color-bg-rail-active);
+  color: var(--aip-color-action-primary);
 }

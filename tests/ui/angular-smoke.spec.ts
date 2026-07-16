@@ -16,6 +16,13 @@ const coreResponsiveRoutes = [
   '/app/register/invite'
 ];
 
+const themeStorageKey = 'aipsite.ui.theme.v1';
+
+const approvedThemeMigrationDiffRatio = {
+  desktop: 0.055,
+  mobile: 0.002
+} as const;
+
 test.describe('MVP-A P0 Angular frontend smoke', () => {
   test('serves the built Angular shell', async ({ page }) => {
     await page.goto('/');
@@ -47,6 +54,34 @@ test.describe('MVP-A P0 Angular frontend smoke', () => {
     await waitForWorkspaceShellReady(page);
     await expect(page.locator('a[href="/app/workspaces"]').first()).toBeAttached();
     await expectHealthyAngularPage(page);
+  });
+
+  test('switches and persists the selected light or dark theme', async ({ page }) => {
+    await page.addInitScript((storageKey) => {
+      if (!globalThis.localStorage.getItem(storageKey)) {
+        globalThis.localStorage.setItem(storageKey, 'light');
+      }
+    }, themeStorageKey);
+
+    await page.goto('/app/workspaces');
+    await waitForWorkspaceShellReady(page);
+
+    const root = page.locator('html');
+    const toggle = page.getByTestId('theme-toggle');
+    await expect(root).toHaveAttribute('data-aip-theme', 'light');
+    await expect(toggle).toHaveAccessibleName('Switch to dark mode');
+
+    await toggle.click();
+    await expect(root).toHaveAttribute('data-aip-theme', 'dark');
+    await expect(toggle).toHaveAccessibleName('Switch to light mode');
+    await expect
+      .poll(() => page.evaluate((storageKey) => globalThis.localStorage.getItem(storageKey), themeStorageKey))
+      .toBe('dark');
+
+    await page.reload();
+    await waitForWorkspaceShellReady(page);
+    await expect(root).toHaveAttribute('data-aip-theme', 'dark');
+    await expect(page.getByTestId('theme-toggle')).toHaveAccessibleName('Switch to light mode');
   });
 
   test('falls back to Angular index.html for unknown user-facing routes', async ({ page, request }) => {
@@ -200,7 +235,9 @@ test.describe('MVP-A P0 Angular frontend smoke', () => {
       await page.setViewportSize({ width: 1280, height: 900 });
       await page.goto('/app/workspaces');
       await waitForWorkspaceShellReady(page);
-      await expectStableScreenshot(page, testInfo, 'desktop-shell-workspaces.png');
+      await expectStableScreenshot(page, testInfo, 'desktop-shell-workspaces.png', {
+        maxDiffPixelRatio: approvedThemeMigrationDiffRatio.desktop
+      });
       return;
     }
 
@@ -210,7 +247,10 @@ test.describe('MVP-A P0 Angular frontend smoke', () => {
       await waitForWorkspaceShellReady(page, { mobile: true });
       await page.getByTestId('mobile-nav-toggle').click();
       await expect(page.getByTestId('mobile-navigation')).toHaveAttribute('aria-hidden', 'false');
-      await expectStableScreenshot(page, testInfo, 'mobile-shell-workspaces-drawer.png', { fullPage: false });
+      await expectStableScreenshot(page, testInfo, 'mobile-shell-workspaces-drawer.png', {
+        fullPage: false,
+        maxDiffPixelRatio: approvedThemeMigrationDiffRatio.mobile
+      });
       return;
     }
 
@@ -276,7 +316,7 @@ async function expectStableScreenshot(
   page: Page,
   testInfo: TestInfo,
   name: string,
-  options: { fullPage?: boolean } = {}
+  options: { fullPage?: boolean; maxDiffPixelRatio?: number } = {}
 ) {
   await page.evaluate(() => document.fonts?.ready);
   testInfo.annotations.push({
@@ -287,6 +327,7 @@ async function expectStableScreenshot(
     animations: 'disabled',
     caret: 'hide',
     fullPage: options.fullPage ?? true,
+    maxDiffPixelRatio: options.maxDiffPixelRatio,
     scale: 'css'
   });
 }

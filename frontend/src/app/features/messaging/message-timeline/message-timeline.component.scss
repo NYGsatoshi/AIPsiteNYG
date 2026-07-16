@@ -17,24 +17,29 @@
 
 .timeline__actions button {
   min-height: 34px;
-  border: 1px solid #9aa8b8;
+  border: 1px solid var(--aip-color-border-default);
   border-radius: 6px;
   padding: 0 10px;
-  background: #ffffff;
-  color: #334155;
+  background: var(--aip-color-bg-control);
+  color: var(--aip-color-text-secondary);
   font: inherit;
   font-size: 0.86rem;
   font-weight: 800;
   cursor: pointer;
 }
 
+.timeline__actions button:hover {
+  background: var(--aip-color-bg-hover);
+  color: var(--aip-color-action-primary);
+}
+
 .timeline__error {
   margin: 0;
-  border: 1px solid #d27b59;
+  border: 1px solid var(--aip-color-danger);
   border-radius: 6px;
   padding: 10px 12px;
-  background: #fff7f2;
-  color: #8a3d19;
+  background: var(--aip-color-danger-subtle);
+  color: var(--aip-color-danger);
   font-weight: 800;
 }
 
@@ -48,10 +53,10 @@
 .timeline__empty {
   display: grid;
   gap: 6px;
-  border: 1px solid #d4dde8;
+  border: 1px solid var(--aip-color-border-default);
   border-radius: 8px;
   padding: 20px;
-  background: #f8fafc;
+  background: var(--aip-color-bg-surface-subtle);
   text-align: center;
 }
 
@@ -61,11 +66,11 @@
 }
 
 .timeline__empty h2 {
-  color: #17202a;
+  color: var(--aip-color-text-primary);
   font-size: 1.08rem;
 }
 
 .timeline__empty p {
-  color: #526173;
+  color: var(--aip-color-text-secondary);
   font-weight: 700;
 }

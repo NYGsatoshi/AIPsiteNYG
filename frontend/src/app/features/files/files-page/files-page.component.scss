@@ -9,6 +9,7 @@
   max-width: 1180px;
   min-width: 0;
   margin: 0 auto;
+  color: var(--aip-color-text-primary);
 }
 
 .files-page__header {
@@ -25,13 +26,13 @@
 }
 
 .files-page__header p {
-  color: #526173;
+  color: var(--aip-color-text-secondary);
   font-size: 0.86rem;
   font-weight: 900;
 }
 
 .files-page__header h1 {
-  color: #17202a;
+  color: var(--aip-color-text-primary);
   font-size: 1.7rem;
   line-height: 1.2;
   overflow-wrap: anywhere;
@@ -71,13 +72,13 @@
 }
 
 .files-page__panel-header p {
-  color: #17202a;
+  color: var(--aip-color-text-primary);
   font-size: 1.08rem;
   font-weight: 900;
 }
 
 .files-page__panel-header strong {
-  color: #526173;
+  color: var(--aip-color-text-secondary);
   font-size: 0.84rem;
   overflow-wrap: anywhere;
 }
@@ -85,17 +86,17 @@
 .files-page__policy {
   display: grid;
   gap: 6px;
-  border: 1px solid #d4dce6;
+  border: 1px solid var(--aip-color-border-default);
   border-radius: 8px;
   padding: 14px;
-  background: #f8fafc;
-  color: #526173;
+  background: var(--aip-color-bg-surface-subtle);
+  color: var(--aip-color-text-secondary);
   font-size: 0.86rem;
   font-weight: 800;
 }
 
 .files-page__policy strong {
-  color: #17202a;
+  color: var(--aip-color-text-primary);
 }
 
 .files-page__policy span,

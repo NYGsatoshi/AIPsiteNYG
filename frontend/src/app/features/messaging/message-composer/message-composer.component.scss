@@ -5,15 +5,15 @@
 .composer {
   display: grid;
   gap: 10px;
-  border-top: 1px solid #d4dde8;
+  border-top: 1px solid var(--aip-color-border-default);
   padding-top: 12px;
-  background: #ffffff;
+  background: var(--aip-color-bg-surface);
 }
 
 label {
   display: grid;
   gap: 6px;
-  color: #334155;
+  color: var(--aip-color-text-secondary);
   font-weight: 900;
 }
 
@@ -21,16 +21,18 @@ textarea {
   width: 100%;
   min-width: 0;
   resize: vertical;
-  border: 1px solid #9aa8b8;
+  border: 1px solid var(--aip-color-border-default);
   border-radius: 8px;
+  background: var(--aip-color-bg-control);
+  color: var(--aip-color-text-primary);
   padding: 10px 12px;
   font: inherit;
   line-height: 1.5;
 }
 
 textarea:disabled {
-  background: #eef2f7;
-  color: #526173;
+  background: var(--aip-color-bg-surface-subtle);
+  color: var(--aip-color-text-muted);
 }
 
 .composer__footer {
@@ -44,30 +46,34 @@ textarea:disabled {
 .composer__attachment,
 .composer__disabled {
   margin: 0;
-  color: #526173;
+  color: var(--aip-color-text-secondary);
   font-size: 0.84rem;
   font-weight: 800;
 }
 
 .composer__disabled {
-  color: #8a3d19;
+  color: var(--aip-color-warning);
 }
 
 button {
   min-height: 40px;
-  border: 1px solid #2458a6;
+  border: 1px solid var(--aip-color-action-primary);
   border-radius: 6px;
   padding: 0 16px;
-  background: #2458a6;
-  color: #ffffff;
+  background: var(--aip-color-action-primary);
+  color: var(--aip-color-text-inverse);
   font: inherit;
   font-weight: 900;
   cursor: pointer;
 }
 
+button:hover:not(:disabled) {
+  background: var(--aip-color-action-primary-hover);
+}
+
 button:disabled {
-  border-color: #b6c1ce;
-  background: #d7dee8;
-  color: #526173;
+  border-color: var(--aip-color-border-default);
+  background: var(--aip-color-bg-surface-subtle);
+  color: var(--aip-color-text-muted);
   cursor: not-allowed;
 }
