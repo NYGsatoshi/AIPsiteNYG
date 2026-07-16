@@ -9,6 +9,7 @@
   min-width: 0;
   max-width: 1180px;
   margin: 0 auto;
+  color: var(--aip-color-text-primary);
 }
 
 .workspace-dashboard__header {
@@ -25,13 +26,13 @@ h1 {
 }
 
 .workspace-dashboard__eyebrow {
-  color: #526173;
+  color: var(--aip-color-text-secondary);
   font-size: 0.86rem;
   font-weight: 800;
 }
 
 h1 {
-  color: #17202a;
+  color: var(--aip-color-text-primary);
   font-size: 1.7rem;
   line-height: 1.2;
 }
@@ -39,23 +40,27 @@ h1 {
 .workspace-dashboard__create {
   flex: 0 0 auto;
   min-height: 40px;
-  border: 1px solid #2458a6;
+  border: 1px solid var(--aip-color-action-primary);
   border-radius: 6px;
   padding: 0 14px;
-  background: #2458a6;
-  color: #ffffff;
+  background: var(--aip-color-action-primary);
+  color: var(--aip-color-text-inverse);
   font: inherit;
   font-weight: 800;
   cursor: pointer;
 }
 
+.workspace-dashboard__create:hover {
+  background: var(--aip-color-action-primary-hover);
+}
+
 .workspace-dashboard__notice {
   margin: 0;
-  border: 1px solid #f3c370;
+  border: 1px solid var(--aip-color-warning);
   border-radius: 6px;
   padding: 10px 12px;
-  background: #fff8ea;
-  color: #70420f;
+  background: var(--aip-color-warning-subtle);
+  color: var(--aip-color-warning);
   font-weight: 700;
 }
 
@@ -63,15 +68,17 @@ h1 {
   display: grid;
   gap: 6px;
   max-width: 360px;
-  color: #334155;
+  color: var(--aip-color-text-secondary);
   font-weight: 800;
 }
 
 .workspace-dashboard__search input {
   min-width: 0;
   width: 100%;
-  border: 1px solid #9aa8b8;
+  border: 1px solid var(--aip-color-border-default);
   border-radius: 6px;
+  background: var(--aip-color-bg-control);
+  color: var(--aip-color-text-primary);
   padding: 10px 12px;
   font: inherit;
   font-weight: 400;
@@ -87,7 +94,12 @@ h1 {
   display: block;
   min-height: 210px;
   border-radius: 8px;
-  background: linear-gradient(90deg, #eef2f7 0%, #f8fafc 50%, #eef2f7 100%);
+  background: linear-gradient(
+    90deg,
+    var(--aip-color-bg-surface-subtle) 0%,
+    var(--aip-color-bg-elevated) 50%,
+    var(--aip-color-bg-surface-subtle) 100%
+  );
   background-size: 240% 100%;
   animation: workspace-loading 1.2s ease-in-out infinite;
 }
