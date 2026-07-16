@@ -17,12 +17,12 @@ import { Component, EventEmitter, Input, Output } from '@angular/core';
       .empty-state {
         display: grid;
         justify-items: start;
-        gap: 0.75rem;
-        border: 1px dashed #cbd5e1;
-        border-radius: 8px;
-        background: #f8fafc;
-        padding: 1.25rem;
-        color: #334155;
+        gap: var(--aip-component-gap);
+        border: 1px dashed var(--aip-color-border-default);
+        border-radius: var(--aip-radius-lg);
+        background: var(--aip-color-bg-surface-subtle);
+        padding: var(--aip-space-5);
+        color: var(--aip-color-text-secondary);
       }
 
       h2,
@@ -35,11 +35,12 @@ import { Component, EventEmitter, Input, Output } from '@angular/core';
       }
 
       button {
-        border: 1px solid #2563eb;
-        border-radius: 6px;
-        background: #2563eb;
-        padding: 0.5rem 0.75rem;
-        color: white;
+        min-height: var(--aip-touch-target);
+        border: 1px solid var(--aip-color-action-primary);
+        border-radius: var(--aip-radius-md);
+        background: var(--aip-color-action-primary);
+        padding: var(--aip-space-2) var(--aip-space-3);
+        color: var(--aip-color-text-inverse);
         font-weight: 700;
       }
     `
