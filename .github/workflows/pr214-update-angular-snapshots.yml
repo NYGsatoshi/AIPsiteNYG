@@ -1,16 +1,16 @@
 name: PR214 Update Angular Snapshots
 
 on:
-  push:
+  pull_request:
     branches:
-      - frontend/v0.4-pr01-design-system-foundation
+      - main
 
 permissions:
   contents: write
 
 jobs:
   update-snapshots:
-    if: github.actor != 'github-actions[bot]'
+    if: github.head_ref == 'frontend/v0.4-pr01-design-system-foundation' && github.actor != 'github-actions[bot]'
     runs-on: ubuntu-latest
     timeout-minutes: 30
     steps:
