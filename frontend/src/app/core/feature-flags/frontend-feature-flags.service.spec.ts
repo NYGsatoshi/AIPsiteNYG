@@ -12,4 +12,17 @@ describe('FrontendFeatureFlagsService', () => {
     expect(flags.designSystemV04Enabled()).toBe(false);
     expect(document.documentElement.dataset['aipDesignSystem']).toBe('legacy');
   });
+
+  it('keeps Syncfusion implementations disabled until their independent rollout flags are enabled', () => {
+    TestBed.configureTestingModule({});
+    const flags = TestBed.inject(FrontendFeatureFlagsService);
+
+    expect(flags.syncfusionGridEnabled()).toBe(false);
+    expect(flags.syncfusionUploaderEnabled()).toBe(false);
+
+    flags.setForTesting({ 'frontend.syncfusionGrid': true });
+
+    expect(flags.syncfusionGridEnabled()).toBe(true);
+    expect(flags.syncfusionUploaderEnabled()).toBe(false);
+  });
 });

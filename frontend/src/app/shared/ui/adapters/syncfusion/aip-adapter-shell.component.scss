@@ -1,0 +1,40 @@
+.aip-adapter-shell {
+  display: grid;
+  gap: var(--aip-component-gap);
+  min-block-size: var(--aip-grid-row-height);
+  padding: var(--aip-space-3);
+  border: 1px solid var(--aip-color-border-default);
+  border-radius: var(--aip-radius-md);
+  background: var(--aip-color-bg-surface);
+  color: var(--aip-color-text-primary);
+  transition: background-color var(--aip-duration-normal) var(--aip-ease-standard);
+}
+
+.aip-adapter-shell:focus-within {
+  outline: var(--aip-focus-outline);
+  outline-offset: var(--aip-focus-offset);
+}
+
+.aip-adapter-shell__label {
+  font-weight: 600;
+}
+
+.aip-adapter-shell__state {
+  color: var(--aip-color-text-secondary);
+  text-transform: capitalize;
+}
+
+.aip-adapter-shell[data-aip-state='error'],
+.aip-adapter-shell[data-aip-state='permission-denied'] {
+  border-color: var(--aip-color-danger);
+}
+
+.aip-adapter-shell[data-aip-state='degraded'],
+.aip-adapter-shell[data-aip-state='conflict'] {
+  border-style: dashed;
+  border-color: var(--aip-color-warning);
+}
+
+.aip-adapter-shell[data-aip-presentation='narrow'] {
+  min-block-size: var(--aip-list-row-min-height);
+}
