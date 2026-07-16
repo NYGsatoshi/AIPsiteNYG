@@ -26,12 +26,12 @@ jobs:
       - name: Commit generated baselines
         shell: bash
         run: |
-          git add tests/ui/__angular_snapshots__/angular-smoke.spec.ts/*.png
+          git add tests/ui/__angular_snapshots__/linux/angular-smoke.spec.ts/*.png
           if git diff --cached --quiet; then
             echo "Snapshot baselines are already current."
             exit 0
           fi
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          git commit -m "test(ui): update v0.4 screenshot baselines"
+          git commit -m "test(ui): update v0.4 Linux screenshot baselines"
           git push origin HEAD:frontend/v0.4-pr01-design-system-foundation
