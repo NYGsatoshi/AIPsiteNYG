@@ -6,7 +6,7 @@ on:
       - main
 
 permissions:
-  contents: read
+  contents: write
 
 jobs:
   regenerate-frontend-lock:
@@ -14,9 +14,10 @@ jobs:
     timeout-minutes: 20
 
     steps:
-      - name: Checkout repository
+      - name: Checkout PR branch
         uses: actions/checkout@v4
         with:
+          ref: ${{ github.event.pull_request.head.ref }}
           fetch-depth: 0
 
       - name: Set up Node.js
@@ -36,6 +37,19 @@ jobs:
 
       - name: Validate regenerated lockfile
         run: npm --prefix frontend ci --ignore-scripts --no-audit --no-fund
+
+      - name: Commit regenerated lockfile
+        shell: bash
+        run: |
+          if git diff --quiet -- frontend/package-lock.json; then
+            echo "Frontend lockfile is already normalized."
+            exit 0
+          fi
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add frontend/package-lock.json
+          git commit -m "fix(frontend): regenerate lockfile on Linux"
+          git push origin HEAD:${{ github.event.pull_request.head.ref }}
 
       - name: Upload regenerated lockfile
         uses: actions/upload-artifact@v4
