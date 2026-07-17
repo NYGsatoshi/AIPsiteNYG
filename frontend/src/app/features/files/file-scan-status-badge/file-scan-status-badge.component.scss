@@ -7,11 +7,11 @@
   display: inline-flex;
   align-items: center;
   min-height: 24px;
-  border: 1px solid #9aa8b8;
+  border: 1px solid var(--aip-color-border-strong);
   border-radius: 999px;
   padding: 2px 9px;
-  background: #f8fafc;
-  color: #334155;
+  background: var(--aip-color-bg-surface-subtle);
+  color: var(--aip-color-text-secondary);
   font-size: 0.78rem;
   font-weight: 900;
   line-height: 1.2;
@@ -19,20 +19,20 @@
 }
 
 .scan-badge--allowed {
-  border-color: #2f855a;
-  background: #ecfdf3;
-  color: #166534;
+  border-color: var(--aip-color-success);
+  background: var(--aip-color-success-subtle);
+  color: var(--aip-color-success);
 }
 
 .scan-badge--pending,
 .scan-badge--unavailable {
-  border-color: #b7791f;
-  background: #fff8e6;
-  color: #7c4a03;
+  border-color: var(--aip-color-warning);
+  background: var(--aip-color-warning-subtle);
+  color: var(--aip-color-warning);
 }
 
 .scan-badge--blocked {
-  border-color: #c2410c;
-  background: #fff1eb;
-  color: #9a3412;
+  border-color: var(--aip-color-danger);
+  background: var(--aip-color-danger-subtle);
+  color: var(--aip-color-danger);
 }

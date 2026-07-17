@@ -3,6 +3,7 @@
   gap: 1rem;
   min-width: 0;
   padding: 1.25rem;
+  color: var(--aip-color-text-primary);
   overflow-wrap: anywhere;
 }
 
@@ -16,7 +17,7 @@
 .admin-page__eyebrow,
 .admin-page__policy {
   margin: 0;
-  color: #475569;
+  color: var(--aip-color-text-secondary);
 }
 
 .admin-page__eyebrow {
@@ -27,14 +28,14 @@
 
 .admin-page h1 {
   margin: 0.25rem 0 0;
-  color: #0f172a;
+  color: var(--aip-color-text-primary);
   font-size: 1.6rem;
 }
 
 .admin-page__policy {
   max-width: 72rem;
-  border-left: 4px solid #2563eb;
-  background: #f8fafc;
+  border-left: 4px solid var(--aip-color-action-primary);
+  background: var(--aip-color-bg-surface-subtle);
   padding: 0.75rem 1rem;
 }
 
@@ -53,7 +54,7 @@
 :host ::ng-deep .admin-grid-link {
   border: 0;
   background: transparent;
-  color: #1d4ed8;
+  color: var(--aip-color-action-primary);
   cursor: pointer;
   font: inherit;
   padding: 0;
@@ -61,17 +62,22 @@
   overflow-wrap: anywhere;
 }
 
+:host ::ng-deep .admin-grid-link:hover {
+  color: var(--aip-color-action-primary-hover);
+}
+
 :host ::ng-deep .admin-grid-link:focus-visible {
-  outline: var(--shell-focus-outline, 3px solid #1d4ed8);
-  outline-offset: 2px;
+  outline: var(--aip-focus-outline);
+  outline-offset: var(--aip-focus-offset);
 }
 
 :host ::ng-deep .admin-grid-badge {
   display: inline-flex;
-  border: 1px solid #cbd5e1;
+  border: 1px solid var(--aip-color-border-default);
   border-radius: 999px;
   padding: 0.125rem 0.5rem;
-  background: #f8fafc;
+  background: var(--aip-color-bg-surface-subtle);
+  color: var(--aip-color-text-primary);
   font-weight: 700;
 }
 
