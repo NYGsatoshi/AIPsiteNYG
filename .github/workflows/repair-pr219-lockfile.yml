@@ -13,7 +13,7 @@ permissions:
 
 jobs:
   repair:
-    if: github.event_name == 'push' || github.event.pull_request.number == 219
+    if: github.actor != 'github-actions[bot]' && (github.event_name == 'push' || github.event.pull_request.number == 219)
     runs-on: ubuntu-24.04
     steps:
       - name: Checkout PR branch
@@ -38,29 +38,6 @@ jobs:
           npm --prefix frontend install --package-lock-only --include=optional --ignore-scripts --no-audit --no-fund
           npm --prefix frontend ci --include=optional --no-audit --no-fund
 
-      - name: Pin npm in primary CI and Docker build
-        shell: bash
-        run: |
-          python - <<'PY'
-          from pathlib import Path
-
-          dockerfile = Path("Dockerfile")
-          docker_text = dockerfile.read_text(encoding="utf-8")
-          docker_old = "COPY frontend/package*.json ./\nRUN npm ci"
-          docker_new = "COPY frontend/package*.json ./\nRUN npm install --global npm@11.17.0\nRUN npm ci"
-          if docker_old not in docker_text and docker_new not in docker_text:
-              raise SystemExit("Dockerfile npm install anchor not found")
-          dockerfile.write_text(docker_text.replace(docker_old, docker_new, 1), encoding="utf-8")
-
-          ci = Path(".github/workflows/ci.yml")
-          ci_text = ci.read_text(encoding="utf-8")
-          ci_old = "            frontend/package-lock.json\n\n      - name: Restore"
-          ci_new = "            frontend/package-lock.json\n\n      - name: Set up npm\n        run: npm install --global npm@11.17.0\n\n      - name: Restore"
-          if ci_old not in ci_text and ci_new not in ci_text:
-              raise SystemExit("CI npm setup anchor not found")
-          ci.write_text(ci_text.replace(ci_old, ci_new, 1), encoding="utf-8")
-          PY
-
       - name: Verify lockfile remains stable
         shell: bash
         run: |
@@ -75,8 +52,11 @@ jobs:
           set -euo pipefail
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          git rm .github/workflows/repair-pr219-lockfile.yml
-          git add Dockerfile .github/workflows/ci.yml frontend/package-lock.json
+          git add frontend/package-lock.json
           git diff --cached --check
+          if git diff --cached --quiet; then
+            echo "Lockfile was already stable; nothing to commit."
+            exit 0
+          fi
           git commit -m "fix(frontend): regenerate portable npm lockfile"
           git push origin HEAD:frontend/v0.4-pr04-input-dialog-uploader-files
