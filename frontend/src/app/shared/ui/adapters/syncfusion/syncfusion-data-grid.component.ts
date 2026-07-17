@@ -6,7 +6,6 @@ import {
   SelectionService,
   SortService
 } from '@syncfusion/ej2-angular-grids';
-import '@syncfusion/ej2-grids/styles/material.css';
 
 import {
   APP_DATA_GRID_DEFAULT_PAGE_SIZE,
