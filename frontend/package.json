@@ -56,4 +56,10 @@
     "typescript": "5.9.3",
     "vitest": "4.1.9"
   }
+  {
+  "scripts": {
+    "syncfusion:activate": "node scripts/require-syncfusion-license.mjs && npx syncfusion-license activate",
+    "build:licensed": "npm run syncfusion:activate && npm run build"
+  }
+}
 }
