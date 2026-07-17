@@ -112,7 +112,11 @@ jobs:
         run: npm --prefix tools/frontend-inspections install --ignore-scripts --no-audit --no-fund
 
       - name: Run complete frontend inspection inventory
-        run: npm run lint:frontend
+        shell: bash
+        run: |
+          mkdir -p artifacts/frontend-inspections
+          printf '{"status":"inspection-started","workflow":"code-quality"}\n' > artifacts/frontend-inspections/ci-manifest.json
+          npm run lint:frontend
 
       - name: Upload frontend inspection reports
         if: always()
