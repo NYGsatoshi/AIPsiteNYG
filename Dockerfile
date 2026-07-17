@@ -3,6 +3,7 @@
 FROM node:24 AS frontend-build
 WORKDIR /src/frontend
 COPY frontend/package*.json ./
+RUN npm install --global npm@11.17.0
 RUN npm ci
 COPY frontend/ ./
 RUN --mount=type=secret,id=syncfusion_license \
