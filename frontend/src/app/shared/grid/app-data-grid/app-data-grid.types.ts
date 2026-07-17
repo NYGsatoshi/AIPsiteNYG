@@ -8,7 +8,7 @@ export interface AppDataGridActionEvent<TData> {
 }
 
 export type AppDataGridSelectionMode = 'none' | 'single' | 'multiple';
-export type AppDataGridMigrationTarget = 'workspace-members' | 'admin-audit-log';
+export type AppDataGridMigrationTarget = 'workspace-members' | 'admin-audit-log' | 'files' | 'admin-invites';
 
 export interface AppDataGridPageChange {
   readonly page: number;

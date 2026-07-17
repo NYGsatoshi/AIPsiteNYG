@@ -7,6 +7,10 @@ import { FrontendApiError } from '../../../core/api/api-error.model';
 import { AppEmptyStateComponent } from '../../../shared/empty-state/app-empty-state/app-empty-state.component';
 import { AppInlineLoadingComponent } from '../../../shared/loading/app-inline-loading/app-inline-loading.component';
 import { AppPermissionDeniedComponent } from '../../../shared/permission/app-permission-denied/app-permission-denied.component';
+import { AppDataGridComponent } from '../../../shared/grid/app-data-grid/app-data-grid.component';
+import { AppDataGridColumnDef } from '../../../shared/grid/app-data-grid/app-data-grid.types';
+import { AipDateTimePickerComponent } from '../../../shared/ui/aip-date-time-picker/aip-date-time-picker.component';
+import { AipDialogComponent } from '../../../shared/ui/aip-dialog/aip-dialog.component';
 
 type InvitePageStatus = 'loading' | 'ready' | 'empty' | 'permissionDenied' | 'error';
 type WorkspaceRoleName = 'Owner' | 'Admin' | 'Adviser' | 'Member' | 'ReadOnly';
@@ -70,7 +74,7 @@ const WORKSPACE_ROLE: Record<WorkspaceRoleName, WorkspaceRoleValue> = {
 @Component({
   selector: 'app-invite-admin-page',
   standalone: true,
-  imports: [FormsModule, AppEmptyStateComponent, AppInlineLoadingComponent, AppPermissionDeniedComponent],
+  imports: [FormsModule, AipDateTimePickerComponent, AipDialogComponent, AppDataGridComponent, AppEmptyStateComponent, AppInlineLoadingComponent, AppPermissionDeniedComponent],
   templateUrl: './invite-admin-page.component.html',
   styleUrl: './invite-admin-page.component.scss'
 })
@@ -88,6 +92,18 @@ export class InviteAdminPageComponent {
   readonly submitting = signal(false);
   readonly createdNotice = signal<string | null>(null);
   readonly createdInvite = signal<CreatedInviteDetails | null>(null);
+  readonly createDialogOpen = signal(false);
+  readonly revokeDialogOpen = signal(false);
+  readonly revokeTarget = signal<InviteRow | null>(null);
+  readonly bulkEmails = signal('');
+  readonly revoking = signal(false);
+  readonly inviteColumns: readonly AppDataGridColumnDef<InviteRow>[] = [
+    { field: 'email', headerName: 'Email', flex: 2 },
+    { field: 'role', headerName: 'Role' },
+    { field: 'status', headerName: 'Status' },
+    { field: 'expiresAt', headerName: 'Expires', flex: 1 },
+    { headerName: 'Actions', actions: (row) => [{ id: 'revoke', label: 'Revoke', row, destructive: true, disabled: row.status !== 'Pending', disabledReason: row.status === 'Pending' ? undefined : 'Only pending invites can be revoked.' }] },
+  ];
 
   readonly canSubmit = computed(
     () =>
@@ -155,6 +171,7 @@ export class InviteAdminPageComponent {
           this.email.set('');
           this.createdInvite.set(created);
           this.createdNotice.set(`Invite created for ${created.email}. Copy or send the URL below.`);
+          this.createDialogOpen.set(false);
           this.loadInvites();
         },
         error: (error: unknown) => {
@@ -165,6 +182,30 @@ export class InviteAdminPageComponent {
         }
       });
   }
+
+  createBulkInvites(): void {
+    const emails = this.bulkEmails().split(/[\n,;]/u).map((email) => email.trim()).filter(Boolean);
+    if (!this.canSubmit() || emails.length === 0) { this.message.set('Enter at least one email address.'); return; }
+    this.submitting.set(true);
+    this.http.post<readonly InviteDto[]>('/api/admin/invites/bulk', { workspaceId: this.selectedWorkspaceId(), emails, role: this.role(), expiresAt: this.toExpiresAtIso() }, { withCredentials: true })
+      .pipe(finalize(() => this.submitting.set(false))).subscribe({
+        next: (invites) => { this.bulkEmails.set(''); this.createdNotice.set(`${invites.length} invites created. Each URL is available only in the authorized one-time response.`); this.createDialogOpen.set(false); this.loadInvites(); },
+        error: (error: unknown) => this.message.set(this.formatInviteError(error)),
+      });
+  }
+
+  requestRevoke(row: InviteRow): void { this.revokeTarget.set(row); this.revokeDialogOpen.set(true); }
+  revokeInvite(): void {
+    const target = this.revokeTarget();
+    if (!target?.id || this.revoking()) { return; }
+    this.revoking.set(true);
+    this.http.post(`/api/admin/invites/${target.id}/revoke`, {}, { withCredentials: true }).pipe(finalize(() => this.revoking.set(false))).subscribe({
+      next: () => { this.revokeDialogOpen.set(false); this.revokeTarget.set(null); this.createdNotice.set('Invite revoked.'); this.loadInvites(); },
+      error: (error: unknown) => this.message.set(this.formatInviteError(error)),
+    });
+  }
+
+  handleGridAction(event: { actionId: string; row: InviteRow }): void { if (event.actionId === 'revoke') { this.requestRevoke(event.row); } }
 
   copyInviteUrl(): void {
     const inviteUrl = this.createdInvite()?.inviteUrl;

@@ -33,8 +33,12 @@ export interface AipDataGridContract<TRow> extends AipAdapterShellContract {
 
 export interface AipDialogContract extends AipAdapterShellContract {
   readonly title: string;
+  readonly description?: string;
+  readonly confirmLabel?: string;
+  readonly cancelLabel?: string;
   readonly closeOnEscape: boolean;
   readonly destructive: boolean;
+  readonly busy?: boolean;
 }
 
 export interface AipFileUploadItem {
@@ -46,6 +50,8 @@ export interface AipFileUploadItem {
 export interface AipFileUploaderContract extends AipAdapterShellContract {
   readonly files: readonly AipFileUploadItem[];
   readonly multiple: boolean;
+  /** Client policy is intentionally absent: the backend owns file validation. */
+  readonly disabled?: boolean;
 }
 
 export interface AipDateTimePickerContract extends AipAdapterShellContract {

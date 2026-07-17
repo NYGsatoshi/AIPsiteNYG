@@ -37,6 +37,8 @@
     "@ngrx/entity": "21.1.1",
     "@ngrx/store": "21.1.1",
     "@syncfusion/ej2-angular-grids": "34.1.31",
+    "@syncfusion/ej2-angular-inputs": "34.1.30",
+    "@syncfusion/ej2-angular-popups": "34.1.29",
     "ag-grid-angular": "36.0.0",
     "ag-grid-community": "36.0.0",
     "rxjs": "7.8.2",

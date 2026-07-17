@@ -9,7 +9,7 @@ import { FileRowComponent } from '../file-row/file-row.component';
 import { AIP_FILES_PAGE_MOCK } from '../files.facade';
 import { DEFAULT_FILES, FILES_PAGE_SCENARIOS } from '../files.mock';
 import { FilesPageViewModel } from '../files.types';
-import { UploadDropZoneComponent } from '../upload-drop-zone/upload-drop-zone.component';
+import { AipFileUploaderComponent } from '../../../shared/ui/adapters/syncfusion/aip-file-uploader.component';
 import { FilesPageComponent } from './files-page.component';
 
 const WORKSPACE_ID = '11111111-1111-1111-1111-111111111111';
@@ -87,10 +87,10 @@ describe('FilesPageComponent', () => {
 
   it('uploads a valid file only through the backend and reloads recent files after success', async () => {
     const { fixture, http } = await renderLiveFilesPage([]);
-    const dropZone = fixture.debugElement.query(By.directive(UploadDropZoneComponent))
-      .componentInstance as UploadDropZoneComponent;
+    const dropZone = fixture.debugElement.query(By.directive(AipFileUploaderComponent))
+      .componentInstance as AipFileUploaderComponent;
 
-    dropZone.handleFiles([new File(['hello'], 'note.txt', { type: 'text/plain' })]);
+    dropZone.filesSelected.emit([new File(['hello'], 'note.txt', { type: 'text/plain' })]);
     fixture.detectChanges();
 
     const upload = http.expectOne((request) => request.url === '/api/files' && request.method === 'POST');
@@ -111,10 +111,10 @@ describe('FilesPageComponent', () => {
 
   it('keeps retry state when backend upload fails', async () => {
     const { fixture, http } = await renderLiveFilesPage([]);
-    const dropZone = fixture.debugElement.query(By.directive(UploadDropZoneComponent))
-      .componentInstance as UploadDropZoneComponent;
+    const dropZone = fixture.debugElement.query(By.directive(AipFileUploaderComponent))
+      .componentInstance as AipFileUploaderComponent;
 
-    dropZone.handleFiles([new File(['hello'], 'note.txt', { type: 'text/plain' })]);
+    dropZone.filesSelected.emit([new File(['hello'], 'note.txt', { type: 'text/plain' })]);
     fixture.detectChanges();
 
     const upload = http.expectOne((request) => request.url === '/api/files' && request.method === 'POST');
@@ -127,30 +127,32 @@ describe('FilesPageComponent', () => {
     http.expectNone((request) => request.url === '/api/files' && request.method === 'GET');
   });
 
-  it('rejects oversize files before upload', async () => {
+  it('submits oversize files to the backend policy rather than inventing a client limit', async () => {
     const { fixture, http } = await renderLiveFilesPage([]);
-    const dropZone = fixture.debugElement.query(By.directive(UploadDropZoneComponent))
-      .componentInstance as UploadDropZoneComponent;
+    const dropZone = fixture.debugElement.query(By.directive(AipFileUploaderComponent))
+      .componentInstance as AipFileUploaderComponent;
 
-    dropZone.handleFiles([{ name: 'oversized-video.mp4', size: 51 * 1024 * 1024, type: 'video/mp4' } as File]);
+    dropZone.filesSelected.emit([{ name: 'oversized-video.mp4', size: 51 * 1024 * 1024, type: 'video/mp4' } as File]);
     fixture.detectChanges();
 
-    expect(textContent(fixture)).toContain('Files larger than 50 MB are rejected before upload.');
-    expect(textContent(fixture)).toContain('oversized-video.mp4');
-    http.expectNone((request) => request.url === '/api/files' && request.method === 'POST');
+    const upload = http.expectOne((request) => request.url === '/api/files' && request.method === 'POST');
+    upload.flush({ error: 'File exceeds the configured upload limit.' }, { status: 400, statusText: 'Bad Request' });
+    fixture.detectChanges();
+    expect(textContent(fixture)).toContain('File exceeds the configured upload limit.');
   });
 
-  it('rejects invalid file types before upload', async () => {
+  it('submits file types to the backend policy rather than duplicating its allowlist', async () => {
     const { fixture, http } = await renderLiveFilesPage([]);
-    const dropZone = fixture.debugElement.query(By.directive(UploadDropZoneComponent))
-      .componentInstance as UploadDropZoneComponent;
+    const dropZone = fixture.debugElement.query(By.directive(AipFileUploaderComponent))
+      .componentInstance as AipFileUploaderComponent;
 
-    dropZone.handleFiles([new File(['bad'], 'run.exe', { type: 'application/x-msdownload' })]);
+    dropZone.filesSelected.emit([new File(['bad'], 'run.exe', { type: 'application/x-msdownload' })]);
     fixture.detectChanges();
 
-    expect(textContent(fixture)).toContain('This file type is not allowed for MVP0 upload.');
-    expect(textContent(fixture)).toContain('run.exe');
-    http.expectNone((request) => request.url === '/api/files' && request.method === 'POST');
+    const upload = http.expectOne((request) => request.url === '/api/files' && request.method === 'POST');
+    upload.flush({ error: 'File extension is not allowed.' }, { status: 400, statusText: 'Bad Request' });
+    fixture.detectChanges();
+    expect(textContent(fixture)).toContain('File extension is not allowed.');
   });
 
   it('downloads through backend grant issuance and grant download', async () => {

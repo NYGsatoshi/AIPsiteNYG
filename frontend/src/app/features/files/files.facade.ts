@@ -1,5 +1,6 @@
-import { HttpClient, HttpResponse } from '@angular/common/http';
+import { HttpClient, HttpEventType, HttpResponse } from '@angular/common/http';
 import { effect, Injectable, InjectionToken, inject, signal, untracked } from '@angular/core';
+import { Subscription } from 'rxjs';
 
 import { normalizeApiError } from '../../core/api/api-error.adapter';
 import { ActiveWorkspaceFacade } from '../../core/workspace/active-workspace.facade';
@@ -7,13 +8,11 @@ import {
   AttachmentUploadResponseDto,
   FileDownloadGrantDto,
   FileListItemDto,
-  isAllowedUploadFile,
   mapFileListItem,
   PagedResponseDto,
   safeFileNameFromHeader,
-  uploadFileTypeMessage,
 } from './files.api';
-import { FILE_UPLOAD_MAX_BYTES, FilesPageViewModel, FileUploadViewModel, FileViewModel } from './files.types';
+import { FilesPageViewModel, FileUploadQueueItem, FileUploadViewModel, FileViewModel } from './files.types';
 
 export const AIP_FILES_PAGE_MOCK = new InjectionToken<FilesPageViewModel>('AIP_FILES_PAGE_MOCK');
 
@@ -24,6 +23,7 @@ export class FilesFacade {
   private readonly mockPage = inject(AIP_FILES_PAGE_MOCK, { optional: true });
   private readonly pageState = signal<FilesPageViewModel>(this.mockPage ?? this.emptyPage('Loading files from backend.'));
   private readonly loadingWorkspaceIds = new Set<string>();
+  private readonly pendingUploads = new Map<string, { file: File; subscription: Subscription }>();
 
   readonly page = this.pageState.asReadonly();
 
@@ -41,6 +41,10 @@ export class FilesFacade {
     }
   }
 
+  uploadFiles(files: readonly File[]): void {
+    for (const file of files) { this.uploadFile(file); }
+  }
+
   uploadFile(file: File): void {
     const workspaceId = this.activeWorkspace.activeWorkspace()?.id;
     const currentUpload = this.pageState().upload;
@@ -48,11 +52,9 @@ export class FilesFacade {
       return;
     }
 
-    const validation = this.validateFile(file);
-    if (validation) {
-      this.setUpload(validation);
-      return;
-    }
+    if (!file.name || file.size <= 0) { this.setUpload({ state: 'failed', canUpload: true, selectedFileName: file.name, message: 'Select a non-empty file.' }); return; }
+    const clientRequestId = crypto.randomUUID();
+    this.updateQueue({ clientRequestId, fileName: file.name, state: 'pending' });
 
     this.setUpload({
       state: 'pending',
@@ -66,10 +68,16 @@ export class FilesFacade {
     formData.append('OwnerId', workspaceId);
     formData.append('File', file);
 
-    this.http
-      .post<AttachmentUploadResponseDto>('/api/files', formData, { withCredentials: true })
+    const subscription = this.http
+      .post<AttachmentUploadResponseDto>('/api/files', formData, { withCredentials: true, observe: 'events', reportProgress: true })
       .subscribe({
-        next: (response) => {
+        next: (event) => {
+          if (event.type === HttpEventType.Sent) { this.updateQueue({ clientRequestId, fileName: file.name, state: 'uploading' }); return; }
+          if (event.type === HttpEventType.UploadProgress) { this.setUpload({ state: 'progress', canUpload: false, selectedFileName: file.name, progressPercent: event.total ? Math.round(event.loaded / event.total * 100) : undefined, message: 'Uploading file to backend.' }); return; }
+          if (event.type !== HttpEventType.Response) { return; }
+          const response = event.body ?? {};
+          this.pendingUploads.delete(clientRequestId);
+          this.updateQueue({ clientRequestId, fileName: stringValue(response.originalFileName) ?? file.name, state: 'succeeded' });
           this.setUpload({
             state: 'succeeded',
             canUpload: true,
@@ -80,7 +88,9 @@ export class FilesFacade {
           this.loadFiles(workspaceId);
         },
         error: (error: unknown) => {
+          this.pendingUploads.delete(clientRequestId);
           const normalized = normalizeApiError(error);
+          this.updateQueue({ clientRequestId, fileName: file.name, state: 'failed', message: normalized.message });
           this.setUpload({
             state: 'failed',
             canUpload: true,
@@ -89,15 +99,21 @@ export class FilesFacade {
           });
         },
       });
+    this.pendingUploads.set(clientRequestId, { file, subscription });
   }
 
-  rejectOversize(fileName: string): void {
-    this.setUpload({
-      state: 'tooLarge',
-      canUpload: this.canUploadNow(),
-      selectedFileName: fileName,
-      message: `Files larger than ${this.formatBytes(FILE_UPLOAD_MAX_BYTES)} are rejected before upload.`,
-    });
+  cancelUpload(clientRequestId: string): void {
+    const pending = this.pendingUploads.get(clientRequestId);
+    if (!pending) { return; }
+    pending.subscription.unsubscribe();
+    this.pendingUploads.delete(clientRequestId);
+    this.updateQueue({ clientRequestId, fileName: pending.file.name, state: 'cancelled' });
+    this.setUpload({ state: 'cancelled', canUpload: this.canUploadNow(), selectedFileName: pending.file.name, message: 'Upload cancelled locally.' });
+  }
+
+  retryUpload(clientRequestId: string): void {
+    const item = this.pendingUploads.get(clientRequestId);
+    if (item) { this.uploadFile(item.file); }
   }
 
   downloadFile(fileObjectId: string): void {
@@ -152,6 +168,7 @@ export class FilesFacade {
           this.pageState.set({
             ...this.emptyPage(files.length === 0 ? 'No files returned by backend.' : 'Files are loaded from backend.'),
             upload: currentUpload,
+            uploadQueue: this.pageState().uploadQueue,
             recentFiles: files,
             pickerFiles: files,
           });
@@ -162,6 +179,7 @@ export class FilesFacade {
           this.pageState.set({
             ...this.emptyPage(normalized.message),
             upload: { ...currentUpload, canUpload: true },
+            uploadQueue: this.pageState().uploadQueue,
           });
         },
       });
@@ -223,37 +241,6 @@ export class FilesFacade {
     URL.revokeObjectURL(objectUrl);
   }
 
-  private validateFile(file: File): FileUploadViewModel | null {
-    if (file.size <= 0) {
-      return {
-        state: 'failed',
-        canUpload: true,
-        selectedFileName: file.name,
-        message: 'Empty files are not allowed.',
-      };
-    }
-
-    if (file.size > FILE_UPLOAD_MAX_BYTES) {
-      return {
-        state: 'tooLarge',
-        canUpload: true,
-        selectedFileName: file.name,
-        message: `Files larger than ${this.formatBytes(FILE_UPLOAD_MAX_BYTES)} are rejected before upload.`,
-      };
-    }
-
-    if (!isAllowedUploadFile(file)) {
-      return {
-        state: 'invalidType',
-        canUpload: true,
-        selectedFileName: file.name,
-        message: uploadFileTypeMessage(file),
-      };
-    }
-
-    return null;
-  }
-
   private setUpload(upload: FileUploadViewModel): void {
     this.pageState.update((page) => ({ ...page, upload }));
   }
@@ -273,6 +260,10 @@ export class FilesFacade {
     });
   }
 
+  private updateQueue(item: FileUploadQueueItem): void {
+    this.pageState.update((page) => ({ ...page, uploadQueue: [...page.uploadQueue.filter((queued) => queued.clientRequestId !== item.clientRequestId), item] }));
+  }
+
   private findFile(fileObjectId: string): FileViewModel | undefined {
     return this.pageState().recentFiles.find((file) => file.canonicalFileId === fileObjectId);
   }
@@ -281,16 +272,16 @@ export class FilesFacade {
     return {
       title: 'Files',
       subtitle,
-      maxUploadBytes: FILE_UPLOAD_MAX_BYTES,
       upload: {
         state: 'idle',
         canUpload,
         message: canUpload ? 'Select a file to upload to the backend.' : 'Workspace context is required before upload.',
       },
+      uploadQueue: [],
       quota: {
         state: 'available',
         usedBytes: 0,
-        limitBytes: FILE_UPLOAD_MAX_BYTES,
+        limitBytes: 0,
         message: 'Quota summary is not available in MVP0.',
       },
       recentFiles: [],
@@ -302,9 +293,6 @@ export class FilesFacade {
     return this.pageState().upload.state !== 'pending' && this.activeWorkspace.activeWorkspace()?.id !== undefined;
   }
 
-  private formatBytes(bytes: number): string {
-    return `${Math.round(bytes / 1024 / 1024)} MB`;
-  }
 }
 
 function stringValue(value: unknown): string | undefined {

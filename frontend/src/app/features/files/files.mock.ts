@@ -77,12 +77,12 @@ export const DEFAULT_FILES: readonly FileViewModel[] = [
 const basePage = (overrides: Partial<FilesPageViewModel> = {}): FilesPageViewModel => ({
   title: 'Files',
   subtitle: 'Mock file states for stories and unit tests.',
-  maxUploadBytes: FILE_UPLOAD_MAX_BYTES,
   upload: {
     state: 'idle',
     canUpload: true,
     message: 'Select a file to upload to the backend.',
   },
+  uploadQueue: [],
   quota: {
     state: 'available',
     usedBytes: 46 * 1024 * 1024,

@@ -94,6 +94,8 @@
   font-size: 0.86rem;
   font-weight: 800;
 }
+.files-page__upload-status{margin:0;color:var(--aip-color-text-secondary)}
+.files-page__mobile-list{display:none}
 
 .files-page__policy strong {
   color: var(--aip-color-text-primary);
@@ -116,4 +118,6 @@
     display: grid;
     align-items: start;
   }
+  .files-page__desktop-grid{display:none}
+  .files-page__mobile-list{display:block}
 }

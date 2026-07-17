@@ -10,12 +10,18 @@
 
   <div class="files-page__grid">
     <div class="files-page__main">
-      <app-upload-drop-zone
-        [upload]="vm.upload"
-        [maxUploadBytes]="vm.maxUploadBytes"
-        (uploadAccepted)="acceptUpload($event)"
-        (uploadRejected)="rejectUpload($event)"
+      <app-aip-file-uploader
+        ariaLabel="Upload files"
+        [items]="vm.uploadQueue"
+        [multiple]="true"
+        [disabled]="vm.upload.canUpload === false"
+        [syncfusionEnabled]="syncfusionUploaderEnabled()"
+        (filesSelected)="acceptUpload($event)"
+        (cancel)="cancelUpload($event)"
+        (retry)="retryUpload($event)"
       />
+
+      @if (vm.upload.message) { <p class="files-page__upload-status" role="status" aria-live="polite">{{ vm.upload.message }}</p> }
 
       <app-file-quota-state [quota]="vm.quota" />
 
@@ -24,7 +30,10 @@
           <p>Recent files</p>
           <strong>Downloads use backend grants and authorization.</strong>
         </div>
-        <app-recent-files-list [files]="vm.recentFiles" (downloadRequested)="downloadFile($event)" />
+        <div class="files-page__desktop-grid">
+          <app-data-grid ariaLabel="Files" migrationTarget="files" [rows]="vm.recentFiles" [columns]="columns" (actionInvoked)="handleGridAction($event)" />
+        </div>
+        <div class="files-page__mobile-list"><app-recent-files-list [files]="vm.recentFiles" (downloadRequested)="downloadFile($event)" /></div>
       </section>
     </div>
 
