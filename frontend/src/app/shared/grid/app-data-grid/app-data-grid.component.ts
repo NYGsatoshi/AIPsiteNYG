@@ -46,6 +46,7 @@ export class AppDataGridComponent<TData extends object> {
     autoHeaderHeight: true
   };
   readonly gridOptions: GridOptions<TData> = {
+    theme: 'legacy',
     rowModelType: 'clientSide',
     domLayout: 'autoHeight',
     suppressContextMenu: true,
