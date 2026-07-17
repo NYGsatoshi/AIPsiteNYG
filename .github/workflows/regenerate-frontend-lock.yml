@@ -1,0 +1,46 @@
+name: Regenerate Frontend Lockfile
+
+on:
+  pull_request:
+    branches:
+      - main
+
+permissions:
+  contents: read
+
+jobs:
+  regenerate-frontend-lock:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: "24"
+
+      - name: Set up npm
+        run: npm install --global npm@11.17.0
+
+      - name: Restore last known-good frontend lockfile
+        shell: bash
+        run: git show 7df0eeda6fe3f97fdc18c34ddb38cf889f7ad683:frontend/package-lock.json > frontend/package-lock.json
+
+      - name: Regenerate lockfile for current package manifest
+        run: npm --prefix frontend install --package-lock-only --ignore-scripts --no-audit --no-fund
+
+      - name: Validate regenerated lockfile
+        run: npm --prefix frontend ci --ignore-scripts --no-audit --no-fund
+
+      - name: Upload regenerated lockfile
+        uses: actions/upload-artifact@v4
+        with:
+          name: regenerated-frontend-package-lock
+          path: frontend/package-lock.json
+          if-no-files-found: error
+          retention-days: 1
