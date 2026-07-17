@@ -73,9 +73,32 @@ jobs:
         working-directory: frontend
         run: npm run build
 
+      - name: Validate licensed frontend build when Syncfusion is installed
+        working-directory: frontend
+        env:
+          SYNCFUSION_LICENSE: ${{ secrets.SYNCFUSION_LICENSE }}
+        shell: bash
+        run: |
+          if [ ! -x node_modules/.bin/syncfusion-license ]; then
+            echo "Syncfusion packages are not installed; skipping licensed build."
+            exit 0
+          fi
+          test -n "${SYNCFUSION_LICENSE:-}" || {
+            echo "SYNCFUSION_LICENSE is not configured." >&2
+            exit 1
+          }
+          npm run build:licensed
+
       - name: Angular unit tests
         working-directory: frontend
         run: npm run test
+
+      - name: Validate frontend architecture and Syncfusion license safeguards
+        working-directory: frontend
+        run: |
+          npm run check:architecture
+          npm run test:architecture
+          npm run test:syncfusion-license
 
       - name: Angular Storybook build
         working-directory: frontend
@@ -218,7 +241,29 @@ jobs:
         run: printf 'Trivy image scan did not run.\n' > trivy-image-report.txt
 
       - name: Build Docker image
-        run: docker build --pull --tag "$IMAGE_NAME" .
+        env:
+          SYNCFUSION_LICENSE: ${{ secrets.SYNCFUSION_LICENSE }}
+        shell: bash
+        run: |
+          if [ -n "${SYNCFUSION_LICENSE:-}" ]; then
+            license_file="$(mktemp)"
+            trap 'rm -f "$license_file"' EXIT
+            chmod 600 "$license_file"
+            printf '%s' "$SYNCFUSION_LICENSE" > "$license_file"
+            docker build --pull --secret id=syncfusion_license,src="$license_file" --tag "$IMAGE_NAME" .
+          else
+            docker build --pull --tag "$IMAGE_NAME" .
+          fi
+
+      - name: Verify runtime image excludes Syncfusion license material
+        shell: bash
+        run: |
+          docker run --rm --entrypoint sh "$IMAGE_NAME" -c '
+            test ! -e /run/secrets &&
+            test ! -e /app/.env &&
+            ! env | grep -q "^SYNCFUSION_LICENSE=" &&
+            ! find /app -type f \( -name ".env" -o -name ".env.*" -o -name "syncfusion-license.txt" \) -print -quit | grep -q .
+          '
 
       - name: Scan Docker image with Trivy
         run: |

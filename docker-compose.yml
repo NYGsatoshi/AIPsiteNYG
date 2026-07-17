@@ -3,6 +3,8 @@ services:
     build:
       context: .
       dockerfile: Dockerfile
+      secrets:
+        - syncfusion_license
     restart: unless-stopped
     environment:
       ASPNETCORE_ENVIRONMENT: ${ASPNETCORE_ENVIRONMENT:-Development}
@@ -95,3 +97,7 @@ volumes:
   aip_uploads:
   aip_data_protection:
   aip_nuget:
+
+secrets:
+  syncfusion_license:
+    environment: SYNCFUSION_LICENSE

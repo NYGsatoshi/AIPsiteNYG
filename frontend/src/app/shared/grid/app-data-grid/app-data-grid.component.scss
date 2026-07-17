@@ -35,6 +35,14 @@
   justify-self: end;
 }
 
+.app-data-grid__adapter-error {
+  margin: 0;
+  border: 1px solid var(--aip-color-danger);
+  border-radius: var(--aip-radius-md);
+  color: var(--aip-color-danger);
+  padding: var(--aip-space-3);
+}
+
 :host ::ng-deep .app-grid-actions {
   align-items: center;
   display: flex;

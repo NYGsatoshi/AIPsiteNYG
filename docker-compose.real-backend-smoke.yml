@@ -45,6 +45,8 @@ services:
     build:
       context: .
       dockerfile: Dockerfile
+      secrets:
+        - syncfusion_license
     environment:
       ASPNETCORE_ENVIRONMENT: Test
       ASPNETCORE_URLS: http://0.0.0.0:8080
@@ -111,4 +113,8 @@ volumes:
   real_backend_smoke_uploads:
   real_backend_smoke_data_protection:
   real_backend_smoke_node_modules:
+
+secrets:
+  syncfusion_license:
+    environment: SYNCFUSION_LICENSE
 

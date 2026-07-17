@@ -56,6 +56,14 @@ export class WorkspaceMembersPageComponent {
     this.lastAuditReason.set(null);
   }
 
+  handleMobileAction(actionId: string, row: WorkspaceMemberGridRow, trigger: HTMLElement): void {
+    this.handleGridAction({ actionId, row, trigger });
+  }
+
+  retry(): void {
+    this.facade.reload(this.workspaceId);
+  }
+
   closeConfirm(): void {
     this.confirmAction.set(null);
   }
@@ -136,6 +144,7 @@ export class WorkspaceMembersPageComponent {
       flex: 1.2,
       sortable: false,
       filter: false,
+      actions: (row) => row.rowActions.map((action) => ({ ...action, row })),
       cellRenderer: (params: { data?: WorkspaceMemberGridRow }) => this.renderActions(params.data?.rowActions ?? [])
     }
   ];

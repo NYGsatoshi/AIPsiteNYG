@@ -23,7 +23,15 @@ jobs:
         run: npm ci
 
       - name: Run real-backend browser smoke
-        run: npm run test:ui:real-backend
+        env:
+          SYNCFUSION_LICENSE: ${{ secrets.SYNCFUSION_LICENSE }}
+        shell: bash
+        run: |
+          test -n "${SYNCFUSION_LICENSE:-}" || {
+            echo "SYNCFUSION_LICENSE is not configured." >&2
+            exit 1
+          }
+          npm run test:ui:real-backend
 
       - name: Upload Playwright artifacts
         if: always()

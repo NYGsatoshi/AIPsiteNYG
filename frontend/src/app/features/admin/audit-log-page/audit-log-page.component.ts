@@ -45,6 +45,14 @@ export class AuditLogPageComponent {
     }
   }
 
+  openMobileDetail(row: AuditGridRow, trigger: HTMLElement): void {
+    this.handleGridAction({ actionId: 'openAuditDetail', row, trigger });
+  }
+
+  retry(): void {
+    this.facade.reloadAuditLog();
+  }
+
   closeDrawer(): void {
     this.selectedAuditId.set(null);
     const target = this.drawerReturnFocus();
@@ -91,6 +99,7 @@ export class AuditLogPageComponent {
       sortable: false,
       wrapText: true,
       autoHeight: true,
+      actions: (row) => [{ id: 'openAuditDetail', label: row.summary, row }],
       cellRenderer: (params: { data?: AuditGridRow }) => this.renderDetailButton(params.data)
     },
     { field: 'requestId', headerName: 'requestId', minWidth: 160, flex: 0.9, sortable: true, wrapText: true }

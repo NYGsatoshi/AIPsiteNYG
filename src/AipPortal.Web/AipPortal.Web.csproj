@@ -28,7 +28,7 @@
           Condition="'$(BuildAngularFrontendOnPublish)' == 'true'">
     <Message Importance="high" Text="Building Angular frontend from $(FrontendProjectDirectory)" />
     <Exec WorkingDirectory="$(FrontendProjectDirectory)" Command="npm ci" />
-    <Exec WorkingDirectory="$(FrontendProjectDirectory)" Command="npm run build:hosted" />
+    <Exec WorkingDirectory="$(FrontendProjectDirectory)" Command="npm run build:hosted:licensed" />
   </Target>
 
 </Project>

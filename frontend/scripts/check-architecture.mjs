@@ -7,7 +7,10 @@ const allowedPaths = ['/shared/ui/adapters/syncfusion/', '/shared/vendor/syncfus
 
 export function findDisallowedSyncfusionImports(sources) {
   return sources
-    .filter(({ path, source }) => SYNCFUSION_IMPORT_PATTERN.test(source) && !allowedPaths.some((allowedPath) => path.includes(allowedPath)))
+    .filter(({ path, source }) => {
+      const normalizedPath = path.replaceAll('\\', '/');
+      return SYNCFUSION_IMPORT_PATTERN.test(source) && !allowedPaths.some((allowedPath) => normalizedPath.includes(allowedPath));
+    })
     .map(({ path }) => path);
 }
 

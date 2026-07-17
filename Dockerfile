@@ -1,9 +1,24 @@
+# syntax=docker/dockerfile:1.7
+
 FROM node:24 AS frontend-build
 WORKDIR /src/frontend
 COPY frontend/package*.json ./
 RUN npm ci
 COPY frontend/ ./
-RUN npm run build
+RUN --mount=type=secret,id=syncfusion_license \
+    set -eu; \
+    if [ -x node_modules/.bin/syncfusion-license ]; then \
+      test -s /run/secrets/syncfusion_license || { echo "SYNCFUSION_LICENSE is not configured." >&2; exit 1; }; \
+      export SYNCFUSION_LICENSE="$(cat /run/secrets/syncfusion_license)"; \
+      npm run syncfusion:activate; \
+    else \
+      echo "Syncfusion packages are not installed; skipping license activation."; \
+    fi; \
+    npm run build; \
+    if [ -n "${SYNCFUSION_LICENSE:-}" ]; then \
+      ! grep -R -F -q -- "$SYNCFUSION_LICENSE" dist || { echo "Syncfusion license material was found in frontend build output." >&2; exit 1; }; \
+      unset SYNCFUSION_LICENSE; \
+    fi
 
 FROM mcr.microsoft.com/dotnet/sdk:10.0 AS build
 WORKDIR /src

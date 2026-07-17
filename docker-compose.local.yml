@@ -39,6 +39,8 @@ services:
     build:
       context: .
       dockerfile: Dockerfile
+      secrets:
+        - syncfusion_license
     environment:
       ASPNETCORE_ENVIRONMENT: Development
       ConnectionStrings__DefaultConnection: Host=postgres;Port=5432;Database=${POSTGRES_DB:-aip_portal};Username=${POSTGRES_USER:-aip_portal};Password=${POSTGRES_PASSWORD:-aip_portal_password}
@@ -84,3 +86,7 @@ volumes:
   aip_local_pgdata:
   aip_local_uploads:
   aip_local_nuget:
+
+secrets:
+  syncfusion_license:
+    environment: SYNCFUSION_LICENSE

@@ -76,6 +76,24 @@ npm ci
 npm run start
 ```
 
+## Syncfusion licensed builds
+
+The default `npm run build` does not activate Syncfusion and remains suitable
+for the current fallback-only frontend. Before building an artifact that
+contains approved Syncfusion components, put the vendor-issued value in the
+Git-ignored `.env` (or set it as an OS environment variable), then export it
+only for the build command and run:
+
+```powershell
+Set-Location frontend
+npm run build:licensed
+```
+
+`npm run build:licensed` fails before the Angular build when
+`SYNCFUSION_LICENSE` is missing, empty, or whitespace-only. It does not print
+the value. See [the Syncfusion license runbook](SYNCFUSION_LICENSE_RUNBOOK.md)
+for safe PowerShell, POSIX shell, and Compose procedures.
+
 `frontend/proxy.conf.json` targets the backend at `http://localhost:5098`,
 which matches `src/AipPortal.Web/Properties/launchSettings.json`.
 
@@ -102,7 +120,9 @@ that marker, ASP.NET Core does not use `wwwroot/index.html` as the user-facing
 fallback.
 
 To have `dotnet publish` run the Angular build on a machine with Node.js
-available:
+available, configure `SYNCFUSION_LICENSE` in the invoking environment first.
+The publish target uses `build:hosted:licensed` and fails closed when it is
+missing:
 
 ```bash
 dotnet publish src/AipPortal.Web/AipPortal.Web.csproj -c Release -p:BuildAngularFrontendOnPublish=true

@@ -140,7 +140,8 @@ cd ..
 dotnet run --project src/AipPortal.Web
 ```
 
-Publish build with Node.js available:
+Publish build with Node.js available (with `SYNCFUSION_LICENSE` configured in
+the invoking environment):
 
 ```bash
 dotnet publish src/AipPortal.Web/AipPortal.Web.csproj -c Release -p:BuildAngularFrontendOnPublish=true
@@ -149,6 +150,16 @@ dotnet publish src/AipPortal.Web/AipPortal.Web.csproj -c Release -p:BuildAngular
 The Dockerfile uses a separate Node.js stage and copies
 `frontend/dist/aipportal-web` into `src/AipPortal.Web/wwwroot` before
 `dotnet publish`.
+
+### Syncfusion license activation
+
+The release Docker build requires `SYNCFUSION_LICENSE` as a BuildKit secret.
+The value is mounted only while the frontend build stage runs
+`npm run syncfusion:activate`; it is not a Docker `ARG`, image `ENV`, runtime
+container environment variable, or browser configuration value. The supported
+Compose profiles map the secret from the Git-ignored `.env` file. See
+[the Syncfusion license runbook](SYNCFUSION_LICENSE_RUNBOOK.md) before a
+licensed release build.
 
 To verify a production image contains the current Angular Projects and My Tasks
 bundle, rebuild the image and inspect the served client bundle from the running
