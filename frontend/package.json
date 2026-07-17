@@ -5,7 +5,7 @@
     "ng": "ng",
     "start": "ng serve --proxy-config proxy.conf.json",
     "build": "ng build --configuration production",
-    "syncfusion:activate": "node scripts/require-syncfusion-license.mjs && npx syncfusion-license activate",
+    "syncfusion:activate": "node scripts/require-syncfusion-license.mjs && syncfusion-license activate",
     "build:licensed": "npm run syncfusion:activate && npm run build",
     "build:hosted": "npm run build && node scripts/copy-hosted-output.mjs",
     "build:hosted:licensed": "npm run syncfusion:activate && npm run build:hosted",
