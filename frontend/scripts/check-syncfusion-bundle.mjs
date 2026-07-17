@@ -18,4 +18,17 @@ for (const script of initialScripts) {
 }
 
 const bundleFiles = await readdir(outputRoot);
-console.log(`Verified ${initialScripts.length} initial chunks; ${bundleFiles.filter((file) => file.endsWith('.js')).length} JavaScript bundles inspected.`);
+const lazyScripts = bundleFiles.filter((file) => file.endsWith('.js') && !initialScripts.includes(file));
+const syncfusionChunk = await Promise.any(lazyScripts.map(async (file) => {
+  const contents = await readFile(join(outputRoot, file), 'utf8');
+  if (contents.includes('ejs-grid')) {
+    return file;
+  }
+  throw new Error('not the Syncfusion grid chunk');
+})).catch(() => null);
+
+if (!syncfusionChunk) {
+  throw new Error('Bundle analysis could not identify the lazy Syncfusion grid chunk.');
+}
+
+console.log(`Verified ${initialScripts.length} initial chunks and lazy Syncfusion grid chunk ${syncfusionChunk}; ${bundleFiles.filter((file) => file.endsWith('.js')).length} JavaScript bundles inspected.`);

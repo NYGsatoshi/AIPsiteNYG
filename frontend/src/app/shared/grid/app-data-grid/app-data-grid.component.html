@@ -1,18 +1,25 @@
 <section class="app-data-grid" [attr.aria-label]="ariaLabel" data-testid="app-data-grid">
-  <ag-grid-angular
-    class="ag-theme-quartz app-data-grid__grid"
-    [attr.aria-label]="ariaLabel"
-    [modules]="modules"
-    [gridOptions]="gridOptions"
-    [columnDefs]="columnDefs"
-    [defaultColDef]="defaultColDef"
-    [rowData]="rowData"
-    [loading]="loading"
-    [pagination]="true"
-    [paginationPageSize]="boundedPageSize"
-    [paginationPageSizeSelector]="pageSizeOptions"
-    [getRowId]="getRowId"
-    (cellClicked)="handleCellClicked($event)"
-  />
+  @if (syncfusionRequested()) {
+    @if (syncfusionLoadError(); as loadError) {
+      <p class="app-data-grid__adapter-error" role="alert" data-testid="app-data-grid-adapter-error">{{ loadError }}</p>
+    }
+    <ng-container #syncfusionHost />
+  } @else {
+    <ag-grid-angular
+      class="ag-theme-quartz app-data-grid__grid"
+      [attr.aria-label]="ariaLabel"
+      [modules]="modules"
+      [gridOptions]="gridOptions"
+      [columnDefs]="columnDefs"
+      [defaultColDef]="defaultColDef"
+      [rowData]="rowData"
+      [loading]="loading"
+      [pagination]="true"
+      [paginationPageSize]="boundedPageSize"
+      [paginationPageSizeSelector]="pageSizeOptions"
+      [getRowId]="getRowId"
+      (cellClicked)="handleCellClicked($event)"
+    />
+  }
   <p class="app-data-grid__page-limit" data-testid="app-data-grid-page-limit">max {{ maximumPageSizeLabel }}</p>
 </section>

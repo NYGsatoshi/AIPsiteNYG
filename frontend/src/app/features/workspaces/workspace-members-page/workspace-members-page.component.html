@@ -35,6 +35,7 @@
         <app-data-grid
         ariaLabel="ワークスペースメンバー"
         rowIdField="id"
+        migrationTarget="workspace-members"
         [rows]="filteredRows()"
         [columns]="page.columns"
         [defaultPageSize]="page.pageSize.defaultPageSize"

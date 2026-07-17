@@ -1,4 +1,19 @@
-import { Component, EventEmitter, Input, Output } from '@angular/core';
+import {
+  AfterViewInit,
+  Component,
+  ComponentRef,
+  EventEmitter,
+  Input,
+  OnChanges,
+  OnDestroy,
+  OnInit,
+  Output,
+  SimpleChanges,
+  ViewChild,
+  ViewContainerRef,
+  inject,
+  signal
+} from '@angular/core';
 import { AgGridAngular } from 'ag-grid-angular';
 import {
   AllCommunityModule,
@@ -9,13 +24,21 @@ import {
   ModuleRegistry
 } from 'ag-grid-community';
 
+import { FrontendFeatureFlagsService } from '../../../core/feature-flags/frontend-feature-flags.service';
 import {
   APP_DATA_GRID_DEFAULT_PAGE_SIZE,
   APP_DATA_GRID_MAXIMUM_PAGE_SIZE,
   AppDataGridActionEvent,
   AppDataGridColumnDef,
+  AppDataGridFilterChange,
+  AppDataGridMigrationTarget,
+  AppDataGridPageChange,
+  AppDataGridSelectionChange,
+  AppDataGridSelectionMode,
+  AppDataGridSortChange,
   clampAppDataGridPageSize
 } from './app-data-grid.types';
+import type { SyncfusionDataGridComponent } from '../../ui/adapters/syncfusion/syncfusion-data-grid.component';
 
 ModuleRegistry.registerModules([AllCommunityModule]);
 
@@ -26,15 +49,35 @@ ModuleRegistry.registerModules([AllCommunityModule]);
   templateUrl: './app-data-grid.component.html',
   styleUrl: './app-data-grid.component.scss'
 })
-export class AppDataGridComponent<TData extends object> {
+export class AppDataGridComponent<TData extends object> implements OnInit, AfterViewInit, OnChanges, OnDestroy {
+  private readonly flags = inject(FrontendFeatureFlagsService);
+  @ViewChild('syncfusionHost', { read: ViewContainerRef }) private syncfusionHost?: ViewContainerRef;
+
   @Input() rows: readonly TData[] = [];
   @Input() columns: readonly AppDataGridColumnDef<TData>[] = [];
   @Input() loading = false;
   @Input() defaultPageSize = APP_DATA_GRID_DEFAULT_PAGE_SIZE;
   @Input() maximumPageSize = APP_DATA_GRID_MAXIMUM_PAGE_SIZE;
   @Input() rowIdField: keyof TData & string = 'id' as keyof TData & string;
-  @Input() ariaLabel = 'データグリッド';
+  @Input() ariaLabel = 'Data grid';
+  /** Target-limited internal migration switch; feature code remains vendor-neutral. */
+  @Input() migrationTarget?: AppDataGridMigrationTarget;
+  @Input() selectionMode: AppDataGridSelectionMode = 'none';
+  @Input() page = 1;
+  @Input() error: string | null = null;
+  @Input() emptyState: string | null = null;
+  @Input() permissionDenied = false;
   @Output() actionInvoked = new EventEmitter<AppDataGridActionEvent<TData>>();
+  @Output() rowActivated = new EventEmitter<TData>();
+  @Output() selectionChanged = new EventEmitter<AppDataGridSelectionChange<TData>>();
+  @Output() pageChanged = new EventEmitter<AppDataGridPageChange>();
+  @Output() sortChanged = new EventEmitter<AppDataGridSortChange>();
+  @Output() filterChanged = new EventEmitter<AppDataGridFilterChange>();
+
+  readonly syncfusionRequested = signal(false);
+  readonly syncfusionLoadError = signal<string | null>(null);
+  private syncfusionComponent?: ComponentRef<SyncfusionDataGridComponent<TData>>;
+  private viewReady = false;
 
   readonly modules: Module[] = [AllCommunityModule];
   readonly defaultColDef: ColDef<TData> = {
@@ -87,6 +130,27 @@ export class AppDataGridComponent<TData extends object> {
 
   getRowId = (params: { data: TData }): string => String(params.data[this.rowIdField]);
 
+  ngOnInit(): void {
+    this.syncfusionRequested.set(
+      this.migrationTarget !== undefined && this.flags.syncfusionGridEnabled()
+    );
+  }
+
+  ngAfterViewInit(): void {
+    this.viewReady = true;
+    if (this.syncfusionRequested()) {
+      void this.loadSyncfusionAdapter();
+    }
+  }
+
+  ngOnChanges(_: SimpleChanges): void {
+    this.updateSyncfusionInputs();
+  }
+
+  ngOnDestroy(): void {
+    this.syncfusionComponent?.destroy();
+  }
+
   handleCellClicked(event: CellClickedEvent<TData>): void {
     const target = event.event?.target;
     if (!(target instanceof HTMLElement) || !event.data) {
@@ -100,5 +164,51 @@ export class AppDataGridComponent<TData extends object> {
     }
 
     this.actionInvoked.emit({ actionId, row: event.data, trigger: actionTarget });
+  }
+
+  private async loadSyncfusionAdapter(): Promise<void> {
+    if (!this.viewReady || this.syncfusionComponent || !this.syncfusionHost) {
+      return;
+    }
+
+    try {
+      const { SyncfusionDataGridComponent } = await import('../../ui/adapters/syncfusion/syncfusion-data-grid.component');
+      if (!this.syncfusionHost) {
+        return;
+      }
+
+      const component = this.syncfusionHost.createComponent(SyncfusionDataGridComponent) as unknown as ComponentRef<SyncfusionDataGridComponent<TData>>;
+      this.syncfusionComponent = component;
+      this.syncfusionComponent.instance.actionInvoked.subscribe((event) => this.actionInvoked.emit(event));
+      this.syncfusionComponent.instance.rowActivated.subscribe((row) => this.rowActivated.emit(row));
+      this.syncfusionComponent.instance.selectionChanged.subscribe((event) => this.selectionChanged.emit(event));
+      this.syncfusionComponent.instance.pageChanged.subscribe((event) => this.pageChanged.emit(event));
+      this.syncfusionComponent.instance.sortChanged.subscribe((event) => this.sortChanged.emit(event));
+      this.syncfusionComponent.instance.filterChanged.subscribe((event) => this.filterChanged.emit(event));
+      this.updateSyncfusionInputs();
+    } catch {
+      // A flagged vendor adapter must never silently become the AG Grid fallback.
+      this.syncfusionLoadError.set('The data grid could not be loaded. Disable the rollout flag to use the retained fallback.');
+    }
+  }
+
+  private updateSyncfusionInputs(): void {
+    const component = this.syncfusionComponent;
+    if (!component) {
+      return;
+    }
+
+    component.setInput('rows', this.rows);
+    component.setInput('columns', this.columns);
+    component.setInput('loading', this.loading);
+    component.setInput('defaultPageSize', this.defaultPageSize);
+    component.setInput('maximumPageSize', this.maximumPageSize);
+    component.setInput('rowIdField', this.rowIdField);
+    component.setInput('ariaLabel', this.ariaLabel);
+    component.setInput('selectionMode', this.selectionMode);
+    component.setInput('page', this.page);
+    component.setInput('error', this.error);
+    component.setInput('emptyState', this.emptyState);
+    component.setInput('permissionDenied', this.permissionDenied);
   }
 }

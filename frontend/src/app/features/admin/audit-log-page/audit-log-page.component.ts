@@ -99,6 +99,7 @@ export class AuditLogPageComponent {
       sortable: false,
       wrapText: true,
       autoHeight: true,
+      actions: (row) => [{ id: 'openAuditDetail', label: row.summary, row }],
       cellRenderer: (params: { data?: AuditGridRow }) => this.renderDetailButton(params.data)
     },
     { field: 'requestId', headerName: 'requestId', minWidth: 160, flex: 0.9, sortable: true, wrapText: true }
