@@ -31,12 +31,13 @@ jobs:
 
       - name: Capture TypeScript diagnostics
         id: tsc
+        working-directory: frontend
         shell: bash
         run: |
           set +e
-          npm --prefix frontend exec -- tsc --noEmit --project tsconfig.app.json > pr219-typescript.log 2>&1
+          ./node_modules/.bin/tsc --noEmit --project tsconfig.app.json > ../pr219-typescript.log 2>&1
           status=$?
-          cat pr219-typescript.log
+          cat ../pr219-typescript.log
           echo "status=$status" >> "$GITHUB_OUTPUT"
           exit 0
 
