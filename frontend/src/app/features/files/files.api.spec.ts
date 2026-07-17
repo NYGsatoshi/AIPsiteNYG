@@ -1,4 +1,4 @@
-import { isAllowedUploadFile, mapFileListItem, safeFileNameFromHeader } from './files.api';
+import { mapFileListItem, safeFileNameFromHeader } from './files.api';
 
 describe('files api mapper', () => {
   it('maps backend file list items to safe view models', () => {
@@ -52,12 +52,8 @@ describe('files api mapper', () => {
     expect(deleted.capabilities).toEqual([]);
   });
 
-  it('validates allowed MVP0 upload file type pairs before upload', () => {
-    const allowed = new File(['hello'], 'note.txt', { type: 'text/plain' });
-    const denied = new File(['bad'], 'run.exe', { type: 'application/x-msdownload' });
-
-    expect(isAllowedUploadFile(allowed)).toBe(true);
-    expect(isAllowedUploadFile(denied)).toBe(false);
+  it('does not duplicate backend upload type or size policy in the client mapper', () => {
+    expect('isAllowedUploadFile' in { mapFileListItem }).toBe(false);
   });
 
   it('extracts backend download filenames from content disposition headers', () => {

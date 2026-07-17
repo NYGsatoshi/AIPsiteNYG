@@ -70,42 +70,6 @@ export function safeFileNameFromHeader(headerValue: string | null, fallback: str
   return filenameMatch?.[1]?.trim() || fallback;
 }
 
-export function isAllowedUploadFile(file: File): boolean {
-  const extension = extensionOf(file.name);
-  return ALLOWED_UPLOAD_EXTENSIONS.has(extension) && ALLOWED_UPLOAD_CONTENT_TYPES.has(file.type);
-}
-
-export function uploadFileTypeMessage(file: File): string {
-  const extension = extensionOf(file.name) || '(none)';
-  const contentType = file.type || '(empty)';
-  return `This file type is not allowed for MVP0 upload. Extension: ${extension}; content type: ${contentType}.`;
-}
-
-export const ALLOWED_UPLOAD_EXTENSIONS = new Set([
-  '.pdf',
-  '.docx',
-  '.xlsx',
-  '.pptx',
-  '.png',
-  '.jpg',
-  '.jpeg',
-  '.zip',
-  '.txt',
-  '.md',
-]);
-
-export const ALLOWED_UPLOAD_CONTENT_TYPES = new Set([
-  'application/pdf',
-  'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
-  'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
-  'application/vnd.openxmlformats-officedocument.presentationml.presentation',
-  'image/png',
-  'image/jpeg',
-  'application/zip',
-  'text/plain',
-  'text/markdown',
-]);
-
 function toScanStatus(scanStatus: unknown, status: unknown): FileScanStatus {
   const normalizedScan = String(scanStatus ?? '').toLowerCase();
   if (normalizedScan === 'pending') {

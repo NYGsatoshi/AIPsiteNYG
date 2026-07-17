@@ -1,5 +1,3 @@
-export const FILE_UPLOAD_MAX_BYTES = 50 * 1024 * 1024;
-
 export type FileKind = 'image' | 'pdf' | 'zip' | 'video' | 'svg' | 'document';
 
 export type FileScanStatus = 'pending' | 'allowed' | 'blocked' | 'unavailable';
@@ -14,6 +12,7 @@ export type FileUploadState =
   | 'succeeded'
   | 'progress'
   | 'failed'
+  | 'cancelled'
   | 'tooLarge'
   | 'invalidType'
   | 'quotaExceeded'
@@ -30,6 +29,13 @@ export interface FileUploadViewModel {
   readonly canUpload?: boolean;
   readonly selectedFileName?: string;
   readonly progressPercent?: number;
+  readonly message?: string;
+}
+
+export interface FileUploadQueueItem {
+  readonly clientRequestId: string;
+  readonly fileName: string;
+  readonly state: 'pending' | 'uploading' | 'succeeded' | 'failed' | 'cancelled';
   readonly message?: string;
 }
 
@@ -63,8 +69,8 @@ export interface FileViewModel {
 export interface FilesPageViewModel {
   readonly title: string;
   readonly subtitle: string;
-  readonly maxUploadBytes: number;
   readonly upload: FileUploadViewModel;
+  readonly uploadQueue: readonly FileUploadQueueItem[];
   readonly quota: FileQuotaViewModel;
   readonly recentFiles: readonly FileViewModel[];
   readonly pickerFiles: readonly FileViewModel[];
@@ -76,3 +82,5 @@ export const FILE_SCAN_STATUS_LABELS: Record<FileScanStatus, string> = {
   blocked: 'Blocked',
   unavailable: 'Scan unavailable',
 };
+/** Legacy story fixture only; live upload validation is backend-authoritative. */
+export const FILE_UPLOAD_MAX_BYTES = 50 * 1024 * 1024;
