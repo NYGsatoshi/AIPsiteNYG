@@ -5,14 +5,20 @@ WORKDIR /src/frontend
 COPY frontend/package*.json ./
 RUN npm ci
 COPY frontend/ ./
-RUN --mount=type=secret,id=syncfusion_license,required=true \
+RUN --mount=type=secret,id=syncfusion_license \
     set -eu; \
-    export SYNCFUSION_LICENSE="$(cat /run/secrets/syncfusion_license)"; \
-    test -n "$SYNCFUSION_LICENSE" || { echo "SYNCFUSION_LICENSE is not configured." >&2; exit 1; }; \
-    npm run syncfusion:activate; \
+    if [ -x node_modules/.bin/syncfusion-license ]; then \
+      test -s /run/secrets/syncfusion_license || { echo "SYNCFUSION_LICENSE is not configured." >&2; exit 1; }; \
+      export SYNCFUSION_LICENSE="$(cat /run/secrets/syncfusion_license)"; \
+      npm run syncfusion:activate; \
+    else \
+      echo "Syncfusion packages are not installed; skipping license activation."; \
+    fi; \
     npm run build; \
-    ! grep -R -F -q -- "$SYNCFUSION_LICENSE" dist || { echo "Syncfusion license material was found in frontend build output." >&2; exit 1; }; \
-    unset SYNCFUSION_LICENSE
+    if [ -n "${SYNCFUSION_LICENSE:-}" ]; then \
+      ! grep -R -F -q -- "$SYNCFUSION_LICENSE" dist || { echo "Syncfusion license material was found in frontend build output." >&2; exit 1; }; \
+      unset SYNCFUSION_LICENSE; \
+    fi
 
 FROM mcr.microsoft.com/dotnet/sdk:10.0 AS build
 WORKDIR /src
