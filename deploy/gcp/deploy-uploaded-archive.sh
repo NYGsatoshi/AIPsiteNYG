@@ -67,21 +67,31 @@ LOCAL_ADMIN_SEED_ON_STARTUP=true
 LOCAL_ADMIN_EMAIL=admin@example.com
 LOCAL_ADMIN_PASSWORD=${LOCAL_ADMIN_PASSWORD_VALUE}
 LOCAL_ADMIN_DISPLAY_NAME=Local Admin
+SYNCFUSION_LICENSE=
 EOF_ENV
   chmod 600 .env
   echo "Generated LOCAL_ADMIN_EMAIL=admin@example.com"
   echo "Generated LOCAL_ADMIN_PASSWORD=${LOCAL_ADMIN_PASSWORD_VALUE}"
   echo "Store this password now. It is saved only in ${APP_DIR}/.env on the VM."
+  echo "Set SYNCFUSION_LICENSE in ${APP_DIR}/.env before building the application."
 else
   echo ".env already exists; leaving secrets unchanged."
 fi
+
+set -a
+. "${APP_DIR}/.env"
+set +a
+test -n "${SYNCFUSION_LICENSE:-}" || {
+  echo "SYNCFUSION_LICENSE is not configured." >&2
+  exit 1
+}
 
 run_compose config --quiet
 run_compose build app
 run_compose up -d postgres
 wait_for_postgres
 run_compose run --rm migrate
-run_compose up -d --build app
+run_compose up -d app
 run_compose ps
 run_compose logs --tail=100 app
 

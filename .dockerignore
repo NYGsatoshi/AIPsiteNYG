@@ -3,6 +3,8 @@
 .git/
 .config/
 .nuget/
+.env
+.env.*
 storage/
 data/
 tests/**/TestResults/

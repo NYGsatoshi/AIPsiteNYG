@@ -21,8 +21,8 @@ test('allows Syncfusion imports only in approved adapter locations', () => {
       source: "import { UploaderComponent } from '@syncfusion/ej2-angular-inputs';"
     },
     {
-      path: '/repo/frontend/src/app/shared/vendor/syncfusion/license.ts',
-      source: "import { registerLicense } from '@syncfusion/ej2-base';"
+      path: '/repo/frontend/src/app/shared/ui/adapters/syncfusion/syncfusion-uploader.adapter.ts',
+      source: "import { UploaderComponent } from '@syncfusion/ej2-angular-inputs';"
     }
   ]);
 

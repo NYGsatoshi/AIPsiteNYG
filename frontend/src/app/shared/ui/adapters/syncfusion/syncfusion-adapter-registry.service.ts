@@ -2,7 +2,6 @@ import { Injectable, InjectionToken, inject } from '@angular/core';
 
 import { FrontendFeatureFlagsService } from '../../../../core/feature-flags/frontend-feature-flags.service';
 import { AipComplexAdapterName } from '../../contracts/aip-complex-adapter.contracts';
-import { AipSyncfusionLicenseBootstrapService } from './syncfusion-license-bootstrap.service';
 
 export type AipAdapterImplementation = 'fallback' | 'syncfusion';
 
@@ -25,10 +24,9 @@ export const AIP_COMPLEX_ADAPTER_FACTORY = new InjectionToken<AipComplexAdapterF
 export class AipSyncfusionAdapterRegistry {
   private readonly factory = inject(AIP_COMPLEX_ADAPTER_FACTORY);
   private readonly flags = inject(FrontendFeatureFlagsService);
-  private readonly license = inject(AipSyncfusionLicenseBootstrapService);
 
   async resolve(adapter: AipComplexAdapterName): Promise<AipAdapterImplementation> {
-    if (!this.isRolledOut(adapter) || !this.license.bootstrap().canActivate) {
+    if (!this.isRolledOut(adapter)) {
       return 'fallback';
     }
 

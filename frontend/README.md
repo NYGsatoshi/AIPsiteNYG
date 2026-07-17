@@ -42,6 +42,14 @@ npm run build
 npm run test -- --watch=false
 ```
 
+For an artifact that includes approved Syncfusion components, first configure
+`SYNCFUSION_LICENSE` outside source control, then use `npm run build:licensed`.
+This invokes the Syncfusion License CLI before the normal production build and
+fails closed when the variable is missing. Do not add a key to Angular
+environments, browser bootstrap code, or JSON configuration. The repository
+runbook describes the supported local, CI, and Docker flows:
+[`docs/SYNCFUSION_LICENSE_RUNBOOK.md`](../docs/SYNCFUSION_LICENSE_RUNBOOK.md).
+
 `npm run build` writes browser artifacts to `frontend/dist/aipportal-web`.
 The build includes `angular-app.marker`, which ASP.NET Core requires before it
 will serve `index.html` as the Angular fallback.

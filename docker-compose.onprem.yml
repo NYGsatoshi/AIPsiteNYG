@@ -3,6 +3,8 @@ services:
     build:
       context: .
       dockerfile: Dockerfile
+      secrets:
+        - syncfusion_license
     environment:
       ASPNETCORE_ENVIRONMENT: Production
       ConnectionStrings__DefaultConnection: Host=${DB_HOST:-db};Port=5432;Database=${DB_NAME:-aip_portal};Username=${DB_USER:-aip_portal};Password=${DB_PASSWORD:?set DB_PASSWORD}
@@ -61,3 +63,7 @@ volumes:
   aip_onprem_pgdata:
   aip_onprem_uploads:
   aip_onprem_data_protection:
+
+secrets:
+  syncfusion_license:
+    environment: SYNCFUSION_LICENSE

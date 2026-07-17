@@ -19,4 +19,6 @@ data/
 src/AipPortal.Web/data/
 artifacts/frontend-inspections/
 .env
+.env.*
+!.env.example
 local.env
