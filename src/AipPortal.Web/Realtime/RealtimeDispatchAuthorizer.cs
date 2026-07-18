@@ -4,6 +4,7 @@ using AipPortal.Application.Messaging;
 using AipPortal.Application.Projects;
 using AipPortal.Application.Realtime;
 using AipPortal.Application.Workspaces;
+using AipPortal.Application.Files;
 
 namespace AipPortal.Web.Realtime;
 
@@ -11,9 +12,11 @@ public sealed class RealtimeDispatchAuthorizer(
     IUserSessionService sessions,
     IWorkspaceAuthorizationService workspaces,
     IConversationAuthorizationService conversations,
-    IProjectAuthorizationService projects) : IRealtimeDispatchAuthorizer
+    IProjectAuthorizationService projects,
+    IFileRepository files,
+    IFileAuthorizationService fileAuthorization) : IRealtimeDispatchAuthorizer
 {
-    public async Task<bool> CanReceiveAsync(HubSubscription subscription, RealtimeSubscriptionType targetType, Guid targetResourceId, CancellationToken cancellationToken = default)
+    public async Task<bool> CanReceiveAsync(HubSubscription subscription, RealtimeSubscriptionType targetType, Guid targetResourceId, DurableEventEnvelope envelope, CancellationToken cancellationToken = default)
     {
         if (subscription.SubscriptionType != targetType || subscription.ResourceId != targetResourceId)
         {
@@ -26,7 +29,7 @@ public sealed class RealtimeDispatchAuthorizer(
             return false;
         }
 
-        return targetType switch
+        var targetAllowed = targetType switch
         {
             RealtimeSubscriptionType.User => subscription.UserId == targetResourceId,
             RealtimeSubscriptionType.Tenant => subscription.TenantId == targetResourceId,
@@ -35,10 +38,30 @@ public sealed class RealtimeDispatchAuthorizer(
             RealtimeSubscriptionType.Project => await projects.CanViewProject(subscription.UserId, targetResourceId, cancellationToken),
             _ => false
         };
+        if (!targetAllowed)
+        {
+            return false;
+        }
+
+        // A workspace subscription is only a delivery optimization. Project
+        // and file invalidations must still satisfy the resource's HTTP
+        // authorization at the time a delayed Outbox event is dispatched.
+        if (envelope.EventType == "Projects.ProjectChanged.v1" && targetType == RealtimeSubscriptionType.Workspace)
+        {
+            return await projects.CanViewProject(subscription.UserId, envelope.AggregateId, cancellationToken);
+        }
+
+        if (envelope.EventType == "Files.FileChanged.v1")
+        {
+            var attachment = await files.GetAttachmentByFileObjectAsync(envelope.AggregateId, cancellationToken);
+            return attachment is not null && await fileAuthorization.CanViewAttachment(subscription.UserId, attachment, cancellationToken);
+        }
+
+        return true;
     }
 }
 
 public interface IRealtimeDispatchAuthorizer
 {
-    Task<bool> CanReceiveAsync(HubSubscription subscription, RealtimeSubscriptionType targetType, Guid targetResourceId, CancellationToken cancellationToken = default);
+    Task<bool> CanReceiveAsync(HubSubscription subscription, RealtimeSubscriptionType targetType, Guid targetResourceId, DurableEventEnvelope envelope, CancellationToken cancellationToken = default);
 }

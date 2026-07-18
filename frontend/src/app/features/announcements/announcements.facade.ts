@@ -1,5 +1,7 @@
 import { HttpClient } from '@angular/common/http';
 import { inject, Injectable, InjectionToken, signal } from '@angular/core';
+import { RealtimeFacade } from '../../core/realtime/realtime.facade';
+import { DurableRealtimeEvent } from '../../core/realtime/realtime.models';
 
 import {
   AnnouncementViewModel,
@@ -25,18 +27,26 @@ export const AIP_ANNOUNCEMENTS_PAGE_MOCK = new InjectionToken<AnnouncementsPageV
 })
 export class AnnouncementsFacade {
   private readonly http = inject(HttpClient);
+  private readonly realtime = inject(RealtimeFacade);
   private readonly mockPage = inject(AIP_ANNOUNCEMENTS_PAGE_MOCK, { optional: true });
   private readonly pageState = signal<AnnouncementsPageViewModel>(
     this.mockPage ?? this.emptyPage('loading'),
   );
   private readonly detailRequests = new Set<string>();
+  private editorActive = false;
+  private refreshTimer: ReturnType<typeof setTimeout> | null = null;
 
   readonly page = this.pageState.asReadonly();
 
   constructor() {
+    this.realtime.durableEvents$.subscribe((event) => this.handleRealtimeEvent(event));
     if (!this.mockPage) {
       this.loadAnnouncements();
     }
+  }
+
+  setEditorActive(active: boolean): void {
+    this.editorActive = active;
   }
 
   private loadAnnouncements(): void {
@@ -75,6 +85,28 @@ export class AnnouncementsFacade {
           });
         },
       });
+  }
+
+  private handleRealtimeEvent(event: DurableRealtimeEvent): void {
+    if (this.mockPage || event.eventType !== 'Announcements.AnnouncementChanged.v1') {
+      return;
+    }
+
+    if (this.editorActive) {
+      this.pageState.update((page) => ({
+        ...page,
+        message: 'An announcement changed elsewhere. Your draft was preserved; reload before publishing.'
+      }));
+      return;
+    }
+
+    if (this.refreshTimer !== null) {
+      return;
+    }
+    this.refreshTimer = setTimeout(() => {
+      this.refreshTimer = null;
+      this.loadAnnouncements();
+    }, 100);
   }
 
   selectAnnouncement(announcementId: string): void {

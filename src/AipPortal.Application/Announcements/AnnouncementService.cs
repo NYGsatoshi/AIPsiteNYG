@@ -3,6 +3,7 @@ using AipPortal.Application.Common;
 using AipPortal.Application.Common.Interfaces;
 using AipPortal.Application.Groups;
 using AipPortal.Application.Workspaces;
+using AipPortal.Application.Realtime;
 using AipPortal.Domain.Entities;
 using AipPortal.Domain.Enums;
 
@@ -21,6 +22,7 @@ public sealed class AnnouncementService(
     IClock clock,
     IAuditLogger auditLogger,
     INotificationService notifications,
+    IBusinessInvalidationPublisher invalidations,
     IUnitOfWork unitOfWork) : IAnnouncementService
 {
     private const int MaxPageSize = 100;
@@ -86,6 +88,8 @@ public sealed class AnnouncementService(
             await auditLogger.LogUserActionAsync(userId, "AnnouncementPinned", "Announcement", announcement.Id, "Announcement pinned.", cancellationToken: cancellationToken);
         }
 
+        await PublishInvalidationAsync(announcement, userId, "created", cancellationToken);
+
         await unitOfWork.SaveChangesAsync(cancellationToken);
         return Result<AnnouncementDetailResponse>.Success(ToDetail(announcement, false));
     }
@@ -147,6 +151,8 @@ public sealed class AnnouncementService(
             await auditLogger.LogUserActionAsync(userId, announcement.IsPinned ? "AnnouncementPinned" : "AnnouncementUnpinned", "Announcement", announcement.Id, cancellationToken: cancellationToken);
         }
 
+        await PublishInvalidationAsync(announcement, userId, "updated", cancellationToken);
+
         await unitOfWork.SaveChangesAsync(cancellationToken);
         return Result<AnnouncementDetailResponse>.Success(ToDetail(announcement, await announcements.HasReadAsync(announcementId, userId, cancellationToken)));
     }
@@ -164,8 +170,12 @@ public sealed class AnnouncementService(
             return Result.Failure("You are not allowed to delete this announcement.");
         }
 
+        // Resolve before deletion while the authoritative audience can still
+        // be evaluated. The emitted payload contains only an opaque ID.
+        var audience = await announcements.ListTargetUsersAsync(announcement, cancellationToken);
         announcement.MarkDeleted(clock.UtcNow);
         await auditLogger.LogUserActionAsync(userId, "AnnouncementDeleted", "Announcement", announcement.Id, "Announcement deleted.", cancellationToken: cancellationToken);
+        await invalidations.AnnouncementChangedAsync(announcement, userId, "deleted", audience.Select(target => target.UserId), cancellationToken);
         await unitOfWork.SaveChangesAsync(cancellationToken);
         return Result.Success();
     }
@@ -198,6 +208,7 @@ public sealed class AnnouncementService(
                 ReadAt = clock.UtcNow
             }, cancellationToken);
             await auditLogger.LogUserActionAsync(userId, "AnnouncementMarkedRead", "Announcement", announcementId, "Announcement marked read.", cancellationToken: cancellationToken);
+            await invalidations.AnnouncementChangedAsync(announcement, userId, "readStateChanged", [userId], cancellationToken);
             await unitOfWork.SaveChangesAsync(cancellationToken);
         }
 
@@ -256,6 +267,7 @@ public sealed class AnnouncementService(
             actorUserId,
             cancellationToken);
         await auditLogger.LogUserActionAsync(actorUserId, "AnnouncementUnreadReminderResent", "Announcement", announcement.Id, "Unread announcement reminder resent.", cancellationToken: cancellationToken);
+        await invalidations.AnnouncementChangedAsync(announcement, actorUserId, "resent", status.Value!.UnreadUsers.Select(user => user.UserId), cancellationToken);
         await unitOfWork.SaveChangesAsync(cancellationToken);
         return Result.Success();
     }
@@ -390,6 +402,12 @@ public sealed class AnnouncementService(
     {
         userId = currentUser.UserId ?? Guid.Empty;
         return currentUser.IsAuthenticated && currentUser.UserId.HasValue;
+    }
+
+    private async Task PublishInvalidationAsync(Announcement announcement, Guid actorUserId, string change, CancellationToken cancellationToken)
+    {
+        var audience = await announcements.ListTargetUsersAsync(announcement, cancellationToken);
+        await invalidations.AnnouncementChangedAsync(announcement, actorUserId, change, audience.Select(target => target.UserId), cancellationToken);
     }
 
     private static AnnouncementListItemResponse ToListItem(Announcement announcement, bool isRead)

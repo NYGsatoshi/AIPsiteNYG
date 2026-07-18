@@ -3,6 +3,7 @@ using System.Text.Json;
 using AipPortal.Application.Common;
 using AipPortal.Application.Common.Interfaces;
 using AipPortal.Application.Files;
+using AipPortal.Application.Realtime;
 using AipPortal.Domain.Entities;
 using AipPortal.Domain.Enums;
 using AipPortal.Infrastructure.Security;
@@ -241,6 +242,7 @@ public sealed class FileDownloadGrantBoundaryTests
                 Clock,
                 Audit,
                 new Sha256TokenHasher(),
+                new NoopInvalidations(),
                 new FakeUnitOfWork());
         }
 
@@ -279,6 +281,14 @@ public sealed class FileDownloadGrantBoundaryTests
         public FakeCurrentUser CurrentUser { get; }
         public FakeCurrentTenant CurrentTenant { get; }
         public FileService Service { get; }
+    }
+
+    private sealed class NoopInvalidations : IBusinessInvalidationPublisher
+    {
+        public Task TaskChangedAsync(TaskItem task, Guid actorUserId, string change, IEnumerable<string>? changedFields = null, IEnumerable<Guid>? affectedUserIds = null, CancellationToken cancellationToken = default) => Task.CompletedTask;
+        public Task ProjectChangedAsync(Project project, Guid actorUserId, string change, CancellationToken cancellationToken = default) => Task.CompletedTask;
+        public Task AnnouncementChangedAsync(Announcement announcement, Guid actorUserId, string change, IEnumerable<Guid> audienceUserIds, CancellationToken cancellationToken = default) => Task.CompletedTask;
+        public Task FileChangedAsync(FileObject fileObject, Attachment attachment, Guid actorUserId, string change, CancellationToken cancellationToken = default) => Task.CompletedTask;
     }
 
     private sealed class FakeFileRepository : IFileRepository

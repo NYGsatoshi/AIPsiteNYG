@@ -1,6 +1,7 @@
 using AipPortal.Application.Common.Interfaces;
 using AipPortal.Application.Groups;
 using AipPortal.Application.Projects;
+using AipPortal.Application.Realtime;
 using AipPortal.Application.Workspaces;
 using AipPortal.Domain.Entities;
 using AipPortal.Domain.Enums;
@@ -424,6 +425,8 @@ public sealed class ProjectServiceTests
                 Clock,
                 Audit,
                 Notifications,
+                new NoopInvalidations(),
+                new NoopAuthorizationChanges(),
                 UnitOfWork);
         }
 
@@ -523,6 +526,19 @@ public sealed class ProjectServiceTests
             Projects.Milestones[milestone.Id] = milestone;
             return milestone;
         }
+    }
+
+    private sealed class NoopInvalidations : IBusinessInvalidationPublisher
+    {
+        public Task TaskChangedAsync(TaskItem task, Guid actorUserId, string change, IEnumerable<string>? changedFields = null, IEnumerable<Guid>? affectedUserIds = null, CancellationToken cancellationToken = default) => Task.CompletedTask;
+        public Task ProjectChangedAsync(Project project, Guid actorUserId, string change, CancellationToken cancellationToken = default) => Task.CompletedTask;
+        public Task AnnouncementChangedAsync(Announcement announcement, Guid actorUserId, string change, IEnumerable<Guid> audienceUserIds, CancellationToken cancellationToken = default) => Task.CompletedTask;
+        public Task FileChangedAsync(FileObject fileObject, Attachment attachment, Guid actorUserId, string change, CancellationToken cancellationToken = default) => Task.CompletedTask;
+    }
+
+    private sealed class NoopAuthorizationChanges : IAuthorizationStateChangePublisher
+    {
+        public Task PublishAsync(Guid tenantId, Guid affectedUserId, string scopeType, Guid? scopeId, string change, CancellationToken cancellationToken = default) => Task.CompletedTask;
     }
 
     private sealed class FakeProjects : IProjectRepository

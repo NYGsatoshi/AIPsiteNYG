@@ -1,4 +1,4 @@
-import { Component, computed, inject, signal } from '@angular/core';
+import { Component, computed, inject, OnDestroy, signal } from '@angular/core';
 import { FormsModule } from '@angular/forms';
 import { ActivatedRoute } from '@angular/router';
 
@@ -15,7 +15,7 @@ import { AnnouncementViewModel } from '../announcements.types';
   templateUrl: './announcements-page.component.html',
   styleUrl: './announcements-page.component.scss'
 })
-export class AnnouncementsPageComponent {
+export class AnnouncementsPageComponent implements OnDestroy {
   private readonly facade = inject(AnnouncementsFacade);
   private readonly route = inject(ActivatedRoute);
   private readonly routeAnnouncementId = this.route.snapshot.paramMap.get('announcementId');
@@ -48,6 +48,7 @@ export class AnnouncementsPageComponent {
   selectAnnouncement(announcementId: string): void {
     this.selectedAnnouncementId.set(announcementId);
     this.editorVisible.set(false);
+    this.facade.setEditorActive(false);
     this.facade.selectAnnouncement(announcementId);
   }
 
@@ -62,13 +63,19 @@ export class AnnouncementsPageComponent {
   showCreateEditor(): void {
     if (this.canCreate()) {
       this.editorVisible.set(true);
+      this.facade.setEditorActive(true);
     }
   }
 
   showEditEditor(): void {
     if (this.canEdit()) {
       this.editorVisible.set(true);
+      this.facade.setEditorActive(true);
     }
+  }
+
+  ngOnDestroy(): void {
+    this.facade.setEditorActive(false);
   }
 
   private filterAuthorizedAnnouncements(

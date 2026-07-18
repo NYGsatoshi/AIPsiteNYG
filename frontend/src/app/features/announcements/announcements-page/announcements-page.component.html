@@ -13,6 +13,9 @@
       </button>
     }
   </header>
+  @if (vm.message && vm.status === 'ready') {
+    <p class="announcements-page__state" role="status">{{ vm.message }}</p>
+  }
 
   @if (vm.status === 'loading') {
     <section class="announcements-page__loading" aria-label="読み込み中" data-testid="announcements-loading">
