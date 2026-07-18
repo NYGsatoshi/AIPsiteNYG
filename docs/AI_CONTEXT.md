@@ -69,7 +69,7 @@ Project references enforce a conventional dependency direction. See `docs/ARCHIT
 | Database tenant feature flags and quotas | Partially implemented | File uploads, exports, integrations, and UI shell use them; broad module gating is incomplete |
 | `Features:*` appsettings switches | Documentation mismatch | Bound in DI but not used to gate controllers/services |
 | Workspaces/groups/channels/posts | Backend implemented; browser UI planned/partial | REST layers exist; routes render placeholders |
-| Messaging | Partially implemented | REST, polling UI, direct-message recipient search, direct conversation creation, and browser send/read persistence exist; realtime, read receipts, group conversations, and safe attachment ownership remain incomplete |
+| Messaging | Partially implemented | REST, direct-message recipient search, direct conversation creation, browser send/read persistence, and PR07 durable realtime message/unread events with Angular reconciliation exist; safe attachment ownership and production PostgreSQL verification remain incomplete |
 | Announcements | Partially implemented | REST and UI exist; scoped visibility and frontend role/user-ID behavior have confirmed defects |
 | Projects/tasks/milestones/assignments/comments/Gantt data | Partially implemented | Broad API and project UI exist; search authorization, assignee filtering, notification targets, and task-list deduplication need patches |
 | Events/attendance/calendar | Backend implemented; browser UI planned | Controller/service/repository/tests exist; calendar route is a placeholder outside dashboard summary |
@@ -82,7 +82,7 @@ Project references enforce a conventional dependency direction. See `docs/ARCHIT
 | API token records and validator | Foundation only | No request authentication handler, tenant binding, or scope middleware |
 | Webhook records and validation | Foundation only | “Test” validates configuration and sends no outbound request |
 | UI shell data model | Foundation only | Modules/panels/layouts/commands/radial-menu APIs exist; radial UI control is disabled |
-| SignalR and transactional Outbox | Transport foundation implemented | Authenticated `/hubs/app`, server-authorized subscriptions, durable Outbox persistence, dispatcher retry/dead-letter/retention, diagnostics, and an Angular vendor-isolated transport/reconnect/catch-up framework exist; `realtime.signalR` defaults off, and feature mutations/facade integrations remain deferred to the follow-on realtime PRs |
+| SignalR and transactional Outbox | Messaging integration implemented | Authenticated `/hubs/app`, server-authorized subscriptions, durable Outbox persistence, dispatcher retry/dead-letter/retention, diagnostics, and Angular reconnect/catch-up exist; PR07 adds messaging create/update/delete/unread event production and reconciliation behind `realtime.signalR`, while other feature integrations remain deferred |
 | Billing/payments, SSO/MFA, background jobs | Planned | No implementation found |
 
 ## Status groups

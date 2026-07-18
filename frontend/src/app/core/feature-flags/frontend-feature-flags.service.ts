@@ -6,6 +6,7 @@ export interface FrontendRuntimeFlags {
   readonly 'frontend.syncfusionGrid'?: boolean;
   readonly 'frontend.syncfusionUploader'?: boolean;
   readonly 'realtime.signalR'?: boolean;
+  readonly 'realtime.optimisticMessaging'?: boolean;
 }
 
 declare global {
@@ -25,6 +26,7 @@ export class FrontendFeatureFlagsService {
   readonly syncfusionGridEnabled = computed(() => this.values()['frontend.syncfusionGrid'] ?? false);
   readonly syncfusionUploaderEnabled = computed(() => this.values()['frontend.syncfusionUploader'] ?? false);
   readonly realtimeSignalREnabled = computed(() => this.values()['realtime.signalR'] ?? false);
+  readonly optimisticMessagingEnabled = computed(() => this.values()['realtime.optimisticMessaging'] ?? true);
 
   constructor() {
     this.applyDesignSystemMarker();

@@ -116,6 +116,9 @@ export function mapMessage(message: MessageDto, currentUserId: string): Messagin
     authorRoleLabel: 'member',
     isOwnMessage: stringValue(message.authorUserId) === currentUserId,
     body: message.isDeleted === true ? '' : (stringValue(message.body) ?? ''),
+    createdAt: stringValue(message.createdAt),
+    version: numberValue(message.version),
+    clientRequestId: stringValue(message.clientRequestId),
     sentAtLabel: formatDate(message.createdAt),
     deliveryState: 'confirmed',
     retryAllowed: false

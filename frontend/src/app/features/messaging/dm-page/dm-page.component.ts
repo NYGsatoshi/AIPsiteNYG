@@ -5,6 +5,7 @@ import { ActivatedRoute } from '@angular/router';
 import { MessageComposerComponent } from '../message-composer/message-composer.component';
 import { MessageTimelineComponent } from '../message-timeline/message-timeline.component';
 import { MessagingFacade } from '../messaging.facade';
+import { RealtimeFacade } from '../../../core/realtime/realtime.facade';
 
 @Component({
   selector: 'app-dm-page',
@@ -15,6 +16,7 @@ import { MessagingFacade } from '../messaging.facade';
 })
 export class DmPageComponent {
   readonly facade = inject(MessagingFacade);
+  readonly realtime = inject(RealtimeFacade);
   private readonly route = inject(ActivatedRoute);
   readonly page = this.facade.page;
 

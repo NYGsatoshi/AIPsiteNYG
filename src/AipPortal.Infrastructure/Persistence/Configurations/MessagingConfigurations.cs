@@ -123,6 +123,7 @@ public sealed class MessageConfiguration : IEntityTypeConfiguration<Message>
         builder.ConfigureSoftDeletableEntity();
 
         builder.Property(message => message.Body).HasMaxLength(12000).IsRequired();
+        builder.Property(message => message.Version).IsRequired().HasDefaultValue(1L);
 
         builder.HasIndex(message => message.WorkspaceId);
         builder.HasIndex(message => message.ConversationId);
@@ -131,6 +132,9 @@ public sealed class MessageConfiguration : IEntityTypeConfiguration<Message>
         builder.HasIndex(message => new { message.ConversationId, message.CreatedAt });
         builder.HasIndex(message => new { message.TenantId, message.WorkspaceId, message.CreatedAt });
         builder.HasIndex(message => new { message.TenantId, message.ConversationId, message.CreatedAt });
+        builder.HasIndex(message => new { message.TenantId, message.ConversationId, message.AuthorUserId, message.ClientRequestId })
+            .IsUnique()
+            .HasFilter("\"ClientRequestId\" IS NOT NULL");
 
         builder
             .HasOne(message => message.Workspace)
@@ -185,6 +189,8 @@ public sealed class ReadStateConfiguration : IEntityTypeConfiguration<ReadState>
 
         builder.Property(readState => readState.ScopeType).HasEnumStringConversion().IsRequired();
         builder.Property(readState => readState.LastReadAt).IsRequired();
+        builder.Property(readState => readState.LastReadSequence).IsRequired().HasDefaultValue(0L);
+        builder.Property(readState => readState.StateVersion).IsRequired().HasDefaultValue(0L);
 
         builder.HasIndex(readState => new { readState.TenantId, readState.UserId, readState.ScopeType, readState.ScopeId }).IsUnique();
         builder.HasIndex(readState => new { readState.TenantId, readState.UserId, readState.ConversationId }).IsUnique();

@@ -1,7 +1,9 @@
 using AipPortal.Application.Common;
 using AipPortal.Application.Common.Interfaces;
+using AipPortal.Application.Realtime;
 using AipPortal.Domain.Entities;
 using AipPortal.Domain.Enums;
+using System.Text.Json;
 
 namespace AipPortal.Application.Messaging;
 
@@ -17,6 +19,8 @@ public sealed class ConversationService(
     ICommunicationSafetyGuard safetyGuard,
     IAuditLogger auditLogger,
     INotificationService notifications,
+    ITransactionalOutbox outbox,
+    ICurrentTenant currentTenant,
     IUnitOfWork unitOfWork) : IConversationService
 {
     private const long MaxAttachmentBytes = 25 * 1024 * 1024;
@@ -319,6 +323,15 @@ public sealed class ConversationService(
         var attachments = request.Attachments ?? [];
         var conversation = await messaging.GetConversationAsync(conversationId, cancellationToken);
         if (conversation is null) return Result<MessageResponse>.Failure("Conversation not found.");
+
+        if (request.ClientRequestId.HasValue)
+        {
+            var existing = await messaging.FindMessageByClientRequestIdAsync(conversationId, userId, request.ClientRequestId.Value, cancellationToken);
+            if (existing is not null)
+            {
+                return Result<MessageResponse>.Success(ToMessage(existing));
+            }
+        }
         var normalizedBody = request.Body?.Trim() ?? string.Empty;
         if (!IsSupportedMvpType(conversation.Type))
         {
@@ -370,7 +383,16 @@ public sealed class ConversationService(
             var extension = Path.GetExtension(attachment.FileName).ToLowerInvariant();
             if (attachment.FileSize <= 0 || attachment.FileSize > MaxAttachmentBytes || !AllowedExtensions.Contains(extension)) return Result<MessageResponse>.Failure("Attachment is not allowed.");
         }
-        var message = new Message { WorkspaceId = conversation.WorkspaceId, ConversationId = conversationId, AuthorUserId = userId, Body = normalizedBody };
+        var message = new Message
+        {
+            WorkspaceId = conversation.WorkspaceId,
+            ConversationId = conversationId,
+            AuthorUserId = userId,
+            Body = normalizedBody,
+            ClientRequestId = request.ClientRequestId,
+            Version = 1,
+            CreatedAt = clock.UtcNow
+        };
         await messaging.AddMessageAsync(message, cancellationToken);
         foreach (var item in attachments)
         {
@@ -384,8 +406,13 @@ public sealed class ConversationService(
             await notifications.NotifyAsync(member.UserId, "New direct message", "You have a new message.", "Message", message.Id, cancellationToken);
         }
         await LogCommunicationAuditAsync(userId, "communication.message_posted", "Message", message.Id, conversation, message.Id, conversation.Type == ConversationType.Thread ? conversation.Id : null, "allow", "posted", cancellationToken);
-        await unitOfWork.SaveChangesAsync(cancellationToken);
         message.AuthorUser = await users.GetByIdAsync(userId, cancellationToken);
+        var createdEvent = await EnqueueMessageCreatedAsync(conversation, message, userId, cancellationToken);
+        if (!createdEvent.IsSuccess)
+        {
+            return Result<MessageResponse>.Failure(createdEvent.Error!);
+        }
+        await unitOfWork.SaveChangesAsync(cancellationToken);
         return Result<MessageResponse>.Success(ToMessage(message));
     }
 
@@ -405,7 +432,13 @@ public sealed class ConversationService(
         if (conversation is null) return Result<MessageResponse>.Failure("Message not found.");
         message.Body = normalizedBody;
         message.EditedAt = clock.UtcNow;
+        message.Version++;
         await LogCommunicationAuditAsync(userId, "communication.message_edited", "Message", message.Id, conversation, message.Id, conversation.Type == ConversationType.Thread ? conversation.Id : null, "allow", "author", cancellationToken);
+        var updatedEvent = await EnqueueMessageUpdatedAsync(conversation, message, userId, cancellationToken);
+        if (!updatedEvent.IsSuccess)
+        {
+            return Result<MessageResponse>.Failure(updatedEvent.Error!);
+        }
         await unitOfWork.SaveChangesAsync(cancellationToken);
         return Result<MessageResponse>.Success(ToMessage(message));
     }
@@ -424,7 +457,13 @@ public sealed class ConversationService(
         var reasonCode = message.AuthorUserId == userId ? "author_delete" : "moderation_delete";
         message.MarkDeleted(clock.UtcNow, userId, reasonCode);
         message.Body = string.Empty;
+        message.Version++;
         await LogCommunicationAuditAsync(userId, "communication.message_deleted", "Message", message.Id, conversation, message.Id, conversation.Type == ConversationType.Thread ? conversation.Id : null, "allow", reasonCode, cancellationToken);
+        var deletedEvent = await EnqueueMessageDeletedAsync(conversation, message, userId, cancellationToken);
+        if (!deletedEvent.IsSuccess)
+        {
+            return Result.Failure(deletedEvent.Error!);
+        }
         await unitOfWork.SaveChangesAsync(cancellationToken);
         return Result.Success();
     }
@@ -498,16 +537,35 @@ public sealed class ConversationService(
         var state = await messaging.GetReadStateAsync(conversationId, userId, cancellationToken);
         if (state is null)
         {
-            state = new ReadState { UserId = userId, ScopeType = ReadScopeType.Conversation, ScopeId = conversationId, ConversationId = conversationId };
+            state = new ReadState { UserId = userId, ScopeType = ReadScopeType.Conversation, ScopeId = conversationId, ConversationId = conversationId, LastReadAt = clock.UtcNow };
             await messaging.AddReadStateAsync(state, cancellationToken);
         }
-        state.LastReadMessageId = request.LastReadMessageId;
-        state.LastReadItemId = request.LastReadMessageId;
-        state.LastReadAt = clock.UtcNow;
-        member!.LastReadMessageId = request.LastReadMessageId;
-        member.LastReadAt = state.LastReadAt;
-        member.UnreadCursorMessageId = null;
+        var cursorMessage = request.LastReadMessageId.HasValue
+            ? await messaging.GetMessageAsync(request.LastReadMessageId.Value, cancellationToken)
+            : null;
+        var proposedSequence = cursorMessage?.CreatedAt.UtcTicks ?? state.LastReadSequence;
+        var advanced = proposedSequence > state.LastReadSequence;
+        if (advanced)
+        {
+            state.LastReadMessageId = request.LastReadMessageId;
+            state.LastReadItemId = request.LastReadMessageId;
+            state.LastReadAt = clock.UtcNow;
+            state.LastReadSequence = proposedSequence;
+            state.StateVersion++;
+            member!.LastReadMessageId = request.LastReadMessageId;
+            member.LastReadAt = state.LastReadAt;
+            member.UnreadCursorMessageId = null;
+        }
         await AuditParticipantStateAsync(userId, "mark_read", conversationId, "allow", "self_state_only", cancellationToken);
+        if (advanced)
+        {
+            var unread = await messaging.CountUnreadMessagesAsync(conversationId, userId, state.LastReadAt, cancellationToken);
+            var unreadEvent = await EnqueueUnreadChangedAsync(conversationId, userId, state, unread, cancellationToken);
+            if (!unreadEvent.IsSuccess)
+            {
+                return Result.Failure(unreadEvent.Error!);
+            }
+        }
         await unitOfWork.SaveChangesAsync(cancellationToken);
         return Result.Success();
     }
@@ -553,18 +611,30 @@ public sealed class ConversationService(
         member!.LastOpenedAt = request.LastOpenedAt ?? now;
         if (request.LastReadMessageId.HasValue)
         {
-            member.LastReadMessageId = request.LastReadMessageId;
-            member.LastReadAt = now;
             var state = await messaging.GetReadStateAsync(conversationId, userId, cancellationToken);
             if (state is null)
             {
-                state = new ReadState { UserId = userId, ScopeType = ReadScopeType.Conversation, ScopeId = conversationId, ConversationId = conversationId };
+                state = new ReadState { UserId = userId, ScopeType = ReadScopeType.Conversation, ScopeId = conversationId, ConversationId = conversationId, LastReadAt = now };
                 await messaging.AddReadStateAsync(state, cancellationToken);
             }
-
-            state.LastReadMessageId = request.LastReadMessageId;
-            state.LastReadItemId = request.LastReadMessageId;
-            state.LastReadAt = now;
+            var cursorMessage = await messaging.GetMessageAsync(request.LastReadMessageId.Value, cancellationToken);
+            var proposedSequence = cursorMessage?.CreatedAt.UtcTicks ?? state.LastReadSequence;
+            if (proposedSequence > state.LastReadSequence)
+            {
+                member.LastReadMessageId = request.LastReadMessageId;
+                member.LastReadAt = now;
+                state.LastReadMessageId = request.LastReadMessageId;
+                state.LastReadItemId = request.LastReadMessageId;
+                state.LastReadAt = now;
+                state.LastReadSequence = proposedSequence;
+                state.StateVersion++;
+                var unread = await messaging.CountUnreadMessagesAsync(conversationId, userId, state.LastReadAt, cancellationToken);
+                var unreadEvent = await EnqueueUnreadChangedAsync(conversationId, userId, state, unread, cancellationToken);
+                if (!unreadEvent.IsSuccess)
+                {
+                    return Result<ParticipantStateResponse>.Failure(unreadEvent.Error!);
+                }
+            }
         }
 
         if (request.UnreadCursorMessageId.HasValue)
@@ -970,5 +1040,55 @@ public sealed class ConversationService(
         member.JoinedAt,
         member.LeftAt,
         member.RemovedAt);
-    private static MessageResponse ToMessage(Message message) => new(message.Id, message.WorkspaceId, message.ConversationId, message.AuthorUserId, message.AuthorUser?.DisplayName ?? string.Empty, message.DeletedAt.HasValue ? string.Empty : message.Body, message.Attachments.Select(a => new AttachmentResponse(a.AttachmentId, a.Attachment?.FileName ?? string.Empty, a.Attachment?.ContentType ?? string.Empty, a.Attachment?.SizeBytes ?? 0)).ToList(), message.CreatedAt, message.UpdatedAt, message.EditedAt, message.DeletedAt.HasValue);
+    private static MessageResponse ToMessage(Message message) => new(message.Id, message.WorkspaceId, message.ConversationId, message.AuthorUserId, message.AuthorUser?.DisplayName ?? string.Empty, message.DeletedAt.HasValue ? string.Empty : message.Body, message.Attachments.Select(a => new AttachmentResponse(a.AttachmentId, a.Attachment?.FileName ?? string.Empty, a.Attachment?.ContentType ?? string.Empty, a.Attachment?.SizeBytes ?? 0)).ToList(), message.CreatedAt, message.UpdatedAt, message.EditedAt, message.DeletedAt.HasValue, message.ClientRequestId, message.Version);
+
+    private Task<Result<Guid>> EnqueueMessageCreatedAsync(Conversation conversation, Message message, Guid actorUserId, CancellationToken cancellationToken)
+    {
+        var payload = JsonSerializer.SerializeToElement(new
+        {
+            message = new
+            {
+                id = message.Id,
+                conversationId = message.ConversationId,
+                sender = new { userId = message.AuthorUserId, displayName = message.AuthorUser?.DisplayName ?? string.Empty, status = "active" },
+                body = message.Body,
+                createdAt = message.CreatedAt,
+                updatedAt = message.UpdatedAt,
+                version = message.Version,
+                clientRequestId = message.ClientRequestId,
+                attachmentSummaries = Array.Empty<object>()
+            }
+        });
+        return EnqueueMessagingEventAsync("Messaging.MessageCreated.v1", "Message", message.Id, message.Version, actorUserId, message.ClientRequestId?.ToString(), payload, [new RealtimeRoutingTarget(RealtimeSubscriptionType.Conversation, conversation.Id)], cancellationToken);
+    }
+
+    private Task<Result<Guid>> EnqueueMessageUpdatedAsync(Conversation conversation, Message message, Guid actorUserId, CancellationToken cancellationToken)
+    {
+        var payload = JsonSerializer.SerializeToElement(new { conversationId = conversation.Id, messageId = message.Id, messageVersion = message.Version, updatedAt = message.EditedAt, body = message.Body, attachmentSummaries = Array.Empty<object>(), requiresRefetch = false });
+        return EnqueueMessagingEventAsync("Messaging.MessageUpdated.v1", "Message", message.Id, message.Version, actorUserId, null, payload, [new RealtimeRoutingTarget(RealtimeSubscriptionType.Conversation, conversation.Id)], cancellationToken);
+    }
+
+    private Task<Result<Guid>> EnqueueMessageDeletedAsync(Conversation conversation, Message message, Guid actorUserId, CancellationToken cancellationToken)
+    {
+        var payload = JsonSerializer.SerializeToElement(new { conversationId = conversation.Id, messageId = message.Id, messageVersion = message.Version, deletedAt = message.DeletedAt, deletionMode = "tombstone", displayText = (string?)null });
+        return EnqueueMessagingEventAsync("Messaging.MessageDeleted.v1", "Message", message.Id, message.Version, actorUserId, null, payload, [new RealtimeRoutingTarget(RealtimeSubscriptionType.Conversation, conversation.Id)], cancellationToken);
+    }
+
+    private Task<Result<Guid>> EnqueueUnreadChangedAsync(Guid conversationId, Guid userId, ReadState state, int unreadCount, CancellationToken cancellationToken)
+    {
+        var payload = JsonSerializer.SerializeToElement(new { conversationId, userId, lastReadSequence = state.LastReadSequence, unreadCount, stateVersion = state.StateVersion, updatedAt = state.LastReadAt });
+        return EnqueueMessagingEventAsync("Messaging.ConversationUnreadChanged.v1", "ConversationReadState", state.Id, state.StateVersion, userId, null, payload, [new RealtimeRoutingTarget(RealtimeSubscriptionType.User, userId)], cancellationToken);
+    }
+
+    private Task<Result<Guid>> EnqueueMessagingEventAsync(string eventType, string aggregateType, Guid aggregateId, long aggregateVersion, Guid actorUserId, string? causationId, JsonElement payload, IReadOnlyCollection<RealtimeRoutingTarget> routingTargets, CancellationToken cancellationToken)
+    {
+        var tenantId = conversationTenantId();
+        if (tenantId == Guid.Empty)
+        {
+            return Task.FromResult(Result<Guid>.Failure("A matching active tenant context is required."));
+        }
+        return outbox.EnqueueAsync(new DurableEventEnvelope(Guid.NewGuid(), eventType, RealtimeEventCatalog.PayloadSchemaVersion1, clock.UtcNow, tenantId, aggregateType, aggregateId, aggregateVersion, new RealtimeActor("User", actorUserId), null, causationId, payload), routingTargets, cancellationToken);
+    }
+
+    private Guid conversationTenantId() => currentTenant.IsAvailable && !currentTenant.IsPlatformScope ? currentTenant.TenantId : Guid.Empty;
 }

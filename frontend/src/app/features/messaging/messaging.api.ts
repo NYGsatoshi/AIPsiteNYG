@@ -71,6 +71,8 @@ export interface MessageDto {
   readonly updatedAt?: unknown;
   readonly editedAt?: unknown;
   readonly isDeleted?: unknown;
+  readonly clientRequestId?: unknown;
+  readonly version?: unknown;
 }
 
 export interface ConversationRecipientDto {
@@ -109,16 +111,17 @@ export class MessagingApi {
     });
   }
 
-  listMessages(conversationId: string): Observable<PagedResponseDto<MessageDto>> {
+  listMessages(conversationId: string, before?: string): Observable<PagedResponseDto<MessageDto>> {
     return this.http.get<PagedResponseDto<MessageDto>>(`/api/conversations/${conversationId}/messages`, {
+      params: before ? { before } : undefined,
       withCredentials: true
     });
   }
 
-  sendMessage(conversationId: string, body: string): Observable<MessageDto> {
+  sendMessage(conversationId: string, body: string, clientRequestId?: string): Observable<MessageDto> {
     return this.http.post<MessageDto>(
       `/api/conversations/${conversationId}/messages`,
-      { body },
+      { body, clientRequestId },
       { withCredentials: true }
     );
   }

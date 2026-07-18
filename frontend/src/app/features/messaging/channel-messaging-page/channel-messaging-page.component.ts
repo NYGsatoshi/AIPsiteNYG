@@ -6,6 +6,7 @@ import { ConversationListComponent } from '../conversation-list/conversation-lis
 import { MessageComposerComponent } from '../message-composer/message-composer.component';
 import { MessageTimelineComponent } from '../message-timeline/message-timeline.component';
 import { MessagingFacade } from '../messaging.facade';
+import { RealtimeFacade } from '../../../core/realtime/realtime.facade';
 import { ThreadPreviewComponent } from '../thread-preview/thread-preview.component';
 
 @Component({
@@ -22,6 +23,7 @@ import { ThreadPreviewComponent } from '../thread-preview/thread-preview.compone
 })
 export class ChannelMessagingPageComponent {
   readonly facade = inject(MessagingFacade);
+  readonly realtime = inject(RealtimeFacade);
   private readonly route = inject(ActivatedRoute);
   readonly page = this.facade.page;
 

@@ -409,6 +409,8 @@ public sealed class AuthSecurityHttpTests
             services.AddScoped<IPlanningRepository, PlanningRepository>();
             services.AddScoped<IUiShellRepository, UiShellRepository>();
             services.AddScoped<IAnnouncementRepository, AnnouncementRepository>();
+            services.AddScoped<AipPortal.Application.Realtime.IOutboxEventRepository, OutboxEventRepository>();
+            services.AddScoped<AipPortal.Application.Realtime.ITransactionalOutbox, AipPortal.Application.Realtime.TransactionalOutbox>();
             services.AddScoped<IUnitOfWork, EfUnitOfWork>();
             services.AddScoped<IFileUploadPolicy, ConfiguredFileUploadPolicy>();
             services.AddScoped<IFileStorageService, LocalFileStorageService>();
