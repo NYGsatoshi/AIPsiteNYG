@@ -2,6 +2,7 @@ using AipPortal.Application.Auth;
 using AipPortal.Application.Common;
 using AipPortal.Application.Common.Interfaces;
 using AipPortal.Application.Common.Tenancy;
+using AipPortal.Application.Realtime;
 using AipPortal.Domain.Entities;
 using AipPortal.Domain.Enums;
 
@@ -15,7 +16,8 @@ public sealed class TenantService(
     IAuditLogger auditLogger,
     IUnitOfWork unitOfWork,
     IUserSessionService userSessions,
-    TenancyOptions options) : ITenantService
+    TenancyOptions options,
+    IAuthorizationStateChangePublisher? authorizationChanges = null) : ITenantService
 {
     public async Task<Result<IReadOnlyList<TenantResponse>>> ListPlatformTenantsAsync(CancellationToken cancellationToken = default)
     {
@@ -296,6 +298,7 @@ public sealed class TenantService(
                 ["targetUserId"] = tenantUser.UserId,
                 ["role"] = tenantUser.Role.ToString()
             }), cancellationToken);
+        await PublishAuthorizationChangeAsync(tenantUser.UserId, "granted", cancellationToken);
         await unitOfWork.SaveChangesAsync(cancellationToken);
         tenantUser.User = user;
         return Result<TenantUserResponse>.Success(ToTenantUserResponse(tenantUser));
@@ -355,6 +358,14 @@ public sealed class TenantService(
             await userSessions.RevokeUserSessionsAsync(userId, currentUser.UserId, "TenantMembershipChanged", cancellationToken: cancellationToken);
         }
 
+        if (tenantUser.Role != previousRole || tenantUser.Status != previousStatus)
+        {
+            await PublishAuthorizationChangeAsync(
+                userId,
+                tenantUser.Status == TenantUserStatus.Active ? "membershipChanged" : "suspended",
+                cancellationToken);
+        }
+
         await unitOfWork.SaveChangesAsync(cancellationToken);
         return Result<TenantUserResponse>.Success(ToTenantUserResponse(tenantUser));
     }
@@ -381,6 +392,7 @@ public sealed class TenantService(
             "Tenant user removed.",
             Metadata: new Dictionary<string, object?> { ["targetUserId"] = tenantUser.UserId }), cancellationToken);
         await userSessions.RevokeUserSessionsAsync(userId, currentUser.UserId, "TenantMembershipRemoved", cancellationToken: cancellationToken);
+        await PublishAuthorizationChangeAsync(userId, "revoked", cancellationToken);
         await unitOfWork.SaveChangesAsync(cancellationToken);
         return Result.Success();
     }
@@ -445,6 +457,12 @@ public sealed class TenantService(
 
         userId = Guid.Empty;
         return false;
+    }
+
+    private Task PublishAuthorizationChangeAsync(Guid userId, string change, CancellationToken cancellationToken)
+    {
+        return authorizationChanges?.PublishAsync(currentTenant.TenantId, userId, "tenant", currentTenant.TenantId, change, cancellationToken)
+            ?? Task.CompletedTask;
     }
 
     private static TenantResponse ToTenantResponse(Tenant tenant)

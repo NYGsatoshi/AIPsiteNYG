@@ -39,6 +39,7 @@ public sealed class AppDbContext(
     public DbSet<MessageAttachment> MessageAttachments => Set<MessageAttachment>();
     public DbSet<ReadState> ReadStates => Set<ReadState>();
     public DbSet<Notification> Notifications => Set<Notification>();
+    public DbSet<NotificationUserState> NotificationUserStates => Set<NotificationUserState>();
     public DbSet<Announcement> Announcements => Set<Announcement>();
     public DbSet<AnnouncementRead> AnnouncementReads => Set<AnnouncementRead>();
     public DbSet<ActivityEvent> ActivityEvents => Set<ActivityEvent>();

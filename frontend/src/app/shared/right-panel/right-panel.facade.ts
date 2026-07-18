@@ -1,5 +1,9 @@
 import { HttpClient } from '@angular/common/http';
 import { computed, Injectable, InjectionToken, inject, signal } from '@angular/core';
+import { Subscription } from 'rxjs';
+
+import { DurableRealtimeEvent } from '../../core/realtime/realtime.models';
+import { RealtimeFacade } from '../../core/realtime/realtime.facade';
 
 import {
   NotificationTargetType,
@@ -43,6 +47,7 @@ interface NotificationDto {
   readonly relatedEntityId?: unknown;
   readonly isRead?: unknown;
   readonly targetRoute?: unknown;
+  readonly stateVersion?: unknown;
 }
 
 export function isSupportedNotificationTarget(target: NotificationTargetType): boolean {
@@ -84,6 +89,7 @@ export function clampRightPanelText(value: string, maxLength: number): string {
 @Injectable({ providedIn: 'root' })
 export class RightPanelFacade {
   private readonly http = inject(HttpClient);
+  private readonly realtime = inject(RealtimeFacade);
   private readonly mockState = inject(AIP_RIGHT_PANEL_MOCK, { optional: true });
   private readonly modeState = signal<RightPanelMode>(
     this.mockState?.mode ?? this.readStoredMode(),
@@ -102,6 +108,8 @@ export class RightPanelFacade {
   );
   private readonly memberState = signal<readonly RightPanelMember[]>(this.mockState?.members ?? []);
   private readonly selectedNotificationIdState = signal<string | null>(null);
+  private notificationStateVersion = 0;
+  private readonly realtimeEvents: Subscription;
 
   readonly mode = this.modeState.asReadonly();
   readonly selectedTab = this.selectedTabState.asReadonly();
@@ -127,6 +135,8 @@ export class RightPanelFacade {
   });
 
   constructor() {
+    this.realtimeEvents = this.realtime.durableEvents$.subscribe((event) => this.applyRealtimeEvent(event));
+    this.realtime.registerCatchUp('right-panel-notifications', () => this.refreshNotifications());
     if (!this.mockState) {
       this.loadNotifications();
     }
@@ -197,6 +207,8 @@ export class RightPanelFacade {
     this.permissionState.set(this.mockState?.permission ?? 'granted');
     this.scopeState.set(this.mockState?.activeScope ?? EMPTY_RIGHT_PANEL_SCOPE);
     this.selectedNotificationIdState.set(null);
+    this.notificationStateVersion = 0;
+    this.notificationState.set([]);
   }
 
   private loadNotifications(): void {
@@ -208,6 +220,10 @@ export class RightPanelFacade {
             this.normalizeNotifications(
               (response.items ?? []).map((item) => this.toNotification(item)),
             ),
+          );
+          this.notificationStateVersion = Math.max(
+            this.notificationStateVersion,
+            ...this.notificationState().map((notification) => notification.stateVersion ?? 0),
           );
         },
         error: (error: { status?: number }) => {
@@ -235,6 +251,7 @@ export class RightPanelFacade {
       body: stringValue(item.body) ?? '',
       target,
       read: item.isRead === true,
+      stateVersion: numericValue(item.stateVersion),
     };
   }
 
@@ -262,6 +279,99 @@ export class RightPanelFacade {
         notification.id === notificationId ? { ...notification, read: true } : notification,
       ),
     );
+  }
+
+  private applyRealtimeEvent(event: DurableRealtimeEvent): void {
+    if (event.eventType === 'Security.AuthorizationStateChanged.v1') {
+      this.clearProtectedNotificationState();
+      return;
+    }
+
+    if (event.eventType === 'Notifications.NotificationCreated.v1') {
+      this.applyNotificationCreated(event);
+      return;
+    }
+
+    if (event.eventType === 'Notifications.NotificationReadStateChanged.v1') {
+      this.applyNotificationReadState(event);
+    }
+  }
+
+  private applyNotificationCreated(event: DurableRealtimeEvent): void {
+    const payload = event.payload;
+    const notification = payload['notification'];
+    const stateVersion = numericValue(payload['stateVersion']) ?? numericValue(recordValue(notification)['version']) ?? event.aggregateVersion ?? 0;
+    if (!notification || stateVersion <= this.notificationStateVersion) {
+      return;
+    }
+
+    const mapped = this.toNotification(recordValue(notification));
+    if (!mapped.id) {
+      this.refreshNotifications();
+      return;
+    }
+
+    const uncertainOrdering = this.notificationStateVersion > 0 && stateVersion > this.notificationStateVersion + 1;
+    this.notificationState.update((items) => [
+      { ...mapped, stateVersion },
+      ...items.filter((item) => item.id !== mapped.id),
+    ]);
+    this.notificationStateVersion = stateVersion;
+    if (uncertainOrdering) {
+      this.refreshNotifications();
+    }
+  }
+
+  private applyNotificationReadState(event: DurableRealtimeEvent): void {
+    const payload = event.payload;
+    const stateVersion = numericValue(payload['stateVersion']) ?? event.aggregateVersion ?? 0;
+    if (stateVersion <= this.notificationStateVersion) {
+      return;
+    }
+
+    const notificationId = stringValue(payload['notificationId']);
+    const change = stringValue(payload['change']);
+    const uncertainOrdering = this.notificationStateVersion > 0 && stateVersion > this.notificationStateVersion + 1;
+    this.notificationState.update((items) => {
+      if (change === 'deleted' && notificationId) {
+        return items.filter((item) => item.id !== notificationId);
+      }
+      if (change === 'allRead') {
+        return items.map((item) => ({ ...item, read: true, stateVersion }));
+      }
+      if (change === 'read' && notificationId) {
+        return items.map((item) => item.id === notificationId ? { ...item, read: true, stateVersion } : item);
+      }
+      return items;
+    });
+    this.notificationStateVersion = stateVersion;
+    if (uncertainOrdering || !change) {
+      this.refreshNotifications();
+    }
+  }
+
+  private clearProtectedNotificationState(): void {
+    this.notificationStateVersion = 0;
+    this.selectedNotificationIdState.set(null);
+    this.notificationState.set([]);
+    if (!this.mockState) {
+      this.refreshNotifications();
+    }
+  }
+
+  private refreshNotifications(): Promise<void> {
+    return new Promise((resolve) => {
+      this.http
+        .get<PagedResponseDto<NotificationDto>>('/api/notifications', { withCredentials: true })
+        .subscribe({
+          next: (response) => {
+            this.notificationState.set(this.normalizeNotifications((response.items ?? []).map((item) => this.toNotification(item))));
+            this.notificationStateVersion = Math.max(...this.notificationState().map((item) => item.stateVersion ?? 0), 0);
+            resolve();
+          },
+          error: () => resolve(),
+        });
+    });
   }
 
   private inNotificationScope(recordScope: RightPanelScope, activeScope: RightPanelScope): boolean {
@@ -308,6 +418,14 @@ export class RightPanelFacade {
 
 function stringValue(value: unknown): string | undefined {
   return typeof value === 'string' && value.length > 0 ? value : undefined;
+}
+
+function numericValue(value: unknown): number | undefined {
+  return typeof value === 'number' && Number.isSafeInteger(value) && value >= 0 ? value : undefined;
+}
+
+function recordValue(value: unknown): Record<string, unknown> {
+  return value && typeof value === 'object' && !Array.isArray(value) ? value as Record<string, unknown> : {};
 }
 
 function notificationTargetType(entityType: unknown, notificationType?: unknown): NotificationTargetType {

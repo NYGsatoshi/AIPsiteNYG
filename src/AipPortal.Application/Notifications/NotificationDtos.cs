@@ -15,6 +15,7 @@ public sealed record NotificationListItemResponse(
     bool IsRead,
     DateTimeOffset CreatedAt,
     DateTimeOffset? ReadAt,
-    string? TargetRoute);
+    string? TargetRoute,
+    long StateVersion = 0);
 
-public sealed record NotificationUnreadCountResponse(int UnreadCount);
+public sealed record NotificationUnreadCountResponse(int UnreadCount, long StateVersion = 0);

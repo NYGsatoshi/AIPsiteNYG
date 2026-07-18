@@ -1,13 +1,18 @@
 using AipPortal.Application.Common;
 using AipPortal.Application.Common.Interfaces;
 using AipPortal.Application.Notifications;
+using AipPortal.Application.Realtime;
 using AipPortal.Domain.Entities;
 using AipPortal.Domain.Enums;
 using Microsoft.EntityFrameworkCore;
 
 namespace AipPortal.Infrastructure.Persistence;
 
-public sealed class DbNotificationService(AppDbContext dbContext, IClock clock) : INotificationService
+public sealed class DbNotificationService(
+    AppDbContext dbContext,
+    IClock clock,
+    ICurrentTenant currentTenant,
+    ITransactionalOutbox? outbox = null) : INotificationService
 {
     public async Task<Guid> CreateAsync(
         Guid userId,
@@ -35,6 +40,9 @@ public sealed class DbNotificationService(AppDbContext dbContext, IClock clock) 
             return existing.Id;
         }
 
+        var now = clock.UtcNow;
+        var state = await GetOrCreateUserStateAsync(userId, now, cancellationToken);
+        var stateVersion = AdvanceState(state, now);
         var notification = new Notification
         {
             UserId = userId,
@@ -43,10 +51,12 @@ public sealed class DbNotificationService(AppDbContext dbContext, IClock clock) 
             Body = string.IsNullOrWhiteSpace(body) ? null : body.Trim(),
             RelatedEntityType = string.IsNullOrWhiteSpace(relatedEntityType) ? null : relatedEntityType.Trim(),
             RelatedEntityId = relatedEntityId,
-            CreatedAt = clock.UtcNow
+            CreatedAt = now,
+            StateVersion = stateVersion
         };
 
         await dbContext.Notifications.AddAsync(notification, cancellationToken);
+        await EnqueueCreatedAsync(notification, stateVersion, cancellationToken);
         return notification.Id;
     }
 
@@ -83,8 +93,12 @@ public sealed class DbNotificationService(AppDbContext dbContext, IClock clock) 
 
         if (!notification.IsRead)
         {
+            var now = clock.UtcNow;
+            var stateVersion = AdvanceState(await GetOrCreateUserStateAsync(userId, now, cancellationToken), now);
             notification.IsRead = true;
-            notification.ReadAt = clock.UtcNow;
+            notification.ReadAt = now;
+            notification.StateVersion = stateVersion;
+            await EnqueueReadStateChangeAsync(userId, notification.Id, "read", stateVersion, now, cancellationToken);
         }
 
         return true;
@@ -96,11 +110,21 @@ public sealed class DbNotificationService(AppDbContext dbContext, IClock clock) 
             .Where(notification => notification.UserId == userId && !notification.IsRead && notification.DeletedAt == null)
             .ToListAsync(cancellationToken);
 
+        if (unread.Count == 0)
+        {
+            return 0;
+        }
+
+        var now = clock.UtcNow;
+        var stateVersion = AdvanceState(await GetOrCreateUserStateAsync(userId, now, cancellationToken), now);
         foreach (var notification in unread)
         {
             notification.IsRead = true;
-            notification.ReadAt = clock.UtcNow;
+            notification.ReadAt = now;
+            notification.StateVersion = stateVersion;
         }
+
+        await EnqueueReadStateChangeAsync(userId, null, "allRead", stateVersion, now, cancellationToken);
 
         return unread.Count;
     }
@@ -134,7 +158,8 @@ public sealed class DbNotificationService(AppDbContext dbContext, IClock clock) 
                 notification.IsRead,
                 notification.CreatedAt,
                 notification.ReadAt,
-                BuildTargetRoute(notification.RelatedEntityType, notification.RelatedEntityId)))
+                BuildTargetRoute(notification.RelatedEntityType, notification.RelatedEntityId),
+                notification.StateVersion))
             .ToListAsync(cancellationToken);
 
         return new PagedResponse<NotificationListItemResponse>(items, page, pageSize, total);
@@ -152,7 +177,10 @@ public sealed class DbNotificationService(AppDbContext dbContext, IClock clock) 
             return false;
         }
 
+        var stateVersion = AdvanceState(await GetOrCreateUserStateAsync(userId, deletedAt, cancellationToken), deletedAt);
         notification.DeletedAt = deletedAt;
+        notification.StateVersion = stateVersion;
+        await EnqueueReadStateChangeAsync(userId, notification.Id, "deleted", stateVersion, deletedAt, cancellationToken);
         return true;
     }
 
@@ -213,5 +241,88 @@ public sealed class DbNotificationService(AppDbContext dbContext, IClock clock) 
             "Post" => $"/posts/{relatedEntityId}",
             _ => null
         };
+    }
+
+    private async Task<NotificationUserState> GetOrCreateUserStateAsync(Guid userId, DateTimeOffset now, CancellationToken cancellationToken)
+    {
+        var state = await dbContext.NotificationUserStates.SingleOrDefaultAsync(item => item.UserId == userId, cancellationToken);
+        if (state is not null)
+        {
+            return state;
+        }
+
+        state = new NotificationUserState
+        {
+            TenantId = currentTenant.TenantId,
+            UserId = userId,
+            Version = 0,
+            UpdatedAt = now
+        };
+        await dbContext.NotificationUserStates.AddAsync(state, cancellationToken);
+        return state;
+    }
+
+    private static long AdvanceState(NotificationUserState state, DateTimeOffset now)
+    {
+        state.Version = checked(state.Version + 1);
+        state.UpdatedAt = now;
+        return state.Version;
+    }
+
+    private async Task EnqueueCreatedAsync(Notification notification, long stateVersion, CancellationToken cancellationToken)
+    {
+        if (outbox is null || !currentTenant.IsAvailable)
+        {
+            return;
+        }
+
+        var unreadCount = await GetUnreadCountAsync(notification.UserId, cancellationToken) + 1;
+        var payload = System.Text.Json.JsonSerializer.SerializeToElement(new
+        {
+            notification = new
+            {
+                id = notification.Id,
+                type = notification.NotificationType.ToString(),
+                title = notification.Title,
+                body = notification.Body,
+                createdAt = notification.CreatedAt,
+                isRead = false,
+                target = new
+                {
+                    targetType = notification.RelatedEntityType,
+                    targetId = notification.RelatedEntityId,
+                    route = BuildTargetRoute(notification.RelatedEntityType, notification.RelatedEntityId)
+                },
+                version = notification.StateVersion
+            },
+            unreadCount,
+            stateVersion
+        });
+        await EnqueueAsync("Notifications.NotificationCreated.v1", notification.Id, notification.StateVersion, notification.CreatedAt, payload, notification.UserId, cancellationToken);
+    }
+
+    private async Task EnqueueReadStateChangeAsync(Guid userId, Guid? notificationId, string change, long stateVersion, DateTimeOffset updatedAt, CancellationToken cancellationToken)
+    {
+        if (outbox is null || !currentTenant.IsAvailable)
+        {
+            return;
+        }
+
+        var unreadCount = await GetUnreadCountAsync(userId, cancellationToken);
+        var payload = System.Text.Json.JsonSerializer.SerializeToElement(new { notificationId, change, unreadCount, stateVersion, updatedAt });
+        await EnqueueAsync("Notifications.NotificationReadStateChanged.v1", notificationId ?? userId, stateVersion, updatedAt, payload, userId, cancellationToken);
+    }
+
+    private async Task EnqueueAsync(string eventType, Guid aggregateId, long aggregateVersion, DateTimeOffset occurredAt, System.Text.Json.JsonElement payload, Guid recipientUserId, CancellationToken cancellationToken)
+    {
+        var result = await outbox!.EnqueueAsync(
+            new DurableEventEnvelope(Guid.NewGuid(), eventType, RealtimeEventCatalog.PayloadSchemaVersion1, occurredAt, currentTenant.TenantId,
+                "Notification", aggregateId, aggregateVersion, RealtimeActor.System(), null, null, payload),
+            [new RealtimeRoutingTarget(RealtimeSubscriptionType.User, recipientUserId)],
+            cancellationToken);
+        if (!result.IsSuccess)
+        {
+            throw new InvalidOperationException("Notification realtime event could not be persisted.");
+        }
     }
 }

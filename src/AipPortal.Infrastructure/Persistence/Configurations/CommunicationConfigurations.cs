@@ -89,6 +89,7 @@ public sealed class NotificationConfiguration : IEntityTypeConfiguration<Notific
         builder.Property(notification => notification.Body).HasMaxLength(2000);
         builder.Property(notification => notification.RelatedEntityType).HasMaxLength(80);
         builder.Property(notification => notification.CreatedAt).IsRequired();
+        builder.Property(notification => notification.StateVersion).IsRequired();
 
         builder.HasIndex(notification => notification.UserId);
         builder.HasIndex(notification => notification.CreatedAt);
@@ -102,6 +103,25 @@ public sealed class NotificationConfiguration : IEntityTypeConfiguration<Notific
             .HasOne(notification => notification.User)
             .WithMany()
             .HasForeignKey(notification => notification.UserId)
+            .OnDelete(DeleteBehavior.Restrict);
+    }
+}
+
+public sealed class NotificationUserStateConfiguration : IEntityTypeConfiguration<NotificationUserState>
+{
+    public void Configure(EntityTypeBuilder<NotificationUserState> builder)
+    {
+        builder.ToTable("notification_user_states");
+        builder.ConfigureEntity();
+
+        builder.Property(state => state.Version).IsRequired();
+        builder.Property(state => state.UpdatedAt).IsRequired();
+        builder.HasIndex(state => new { state.TenantId, state.UserId }).IsUnique();
+
+        builder
+            .HasOne(state => state.User)
+            .WithMany()
+            .HasForeignKey(state => state.UserId)
             .OnDelete(DeleteBehavior.Restrict);
     }
 }

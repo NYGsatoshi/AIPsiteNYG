@@ -220,6 +220,9 @@ export class RealtimeFacade {
     }
 
     this.events.next(event);
+    if (event.eventType === 'Security.AuthorizationStateChanged.v1') {
+      this.clearForAuthorizationLoss();
+    }
   }
 
   private isDuplicate(eventId: string): boolean {

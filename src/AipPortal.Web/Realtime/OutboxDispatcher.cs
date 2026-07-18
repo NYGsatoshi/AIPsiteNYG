@@ -127,18 +127,33 @@ public sealed class OutboxDispatcher(
     {
         var authorizer = serviceProvider.GetRequiredService<IRealtimeDispatchAuthorizer>();
         var deliveredConnectionIds = new HashSet<string>(StringComparer.Ordinal);
+        var authorizationInvalidation = envelope.EventType == "Security.AuthorizationStateChanged.v1";
         foreach (var target in routingTargets)
         {
             foreach (var subscription in subscriptions.GetForTarget(eventItem.TenantId, target.SubscriptionType, target.ResourceId))
             {
                 if (deliveredConnectionIds.Contains(subscription.ConnectionId) ||
-                    !await authorizer.CanReceiveAsync(subscription, target.SubscriptionType, target.ResourceId, cancellationToken))
+                    (!authorizationInvalidation && !await authorizer.CanReceiveAsync(subscription, target.SubscriptionType, target.ResourceId, cancellationToken)))
                 {
                     continue;
                 }
 
                 deliveredConnectionIds.Add(subscription.ConnectionId);
                 await hubContext.Clients.Client(subscription.ConnectionId).SendAsync("DurableEvent", envelope, cancellationToken);
+            }
+        }
+
+        // Account/membership invalidation is metadata-only. It is intentionally
+        // sent before removing the old groups, so a revoked browser can clear
+        // protected state; subsequent protected delivery must reauthorize.
+        if (authorizationInvalidation)
+        {
+            foreach (var target in routingTargets.Where(target => target.SubscriptionType == RealtimeSubscriptionType.User))
+            {
+                foreach (var subscription in subscriptions.RemoveForUser(eventItem.TenantId, target.ResourceId))
+                {
+                    await hubContext.Groups.RemoveFromGroupAsync(subscription.ConnectionId, subscription.CanonicalGroupName, cancellationToken);
+                }
             }
         }
 
