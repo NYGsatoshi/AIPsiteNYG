@@ -9,17 +9,18 @@ SYNCFUSION_LICENSE -> npm run syncfusion:activate -> Syncfusion License CLI -> n
 ```
 
 `syncfusion:activate` first checks that `SYNCFUSION_LICENSE` contains a
-non-whitespace value, then runs `npx syncfusion-license activate`. A failed or
+non-whitespace value, then runs the installed `syncfusion-license activate`
+CLI. A failed or
 missing activation stops the licensed build. Angular startup, `environment.*`,
 dependency injection, browser globals, JSON files, and runtime containers do
 not receive the license value.
 
-No Syncfusion CLI dependency is added independently: the current frontend has
-no approved Syncfusion package because package adoption remains blocked pending
-license-basis confirmation, while Syncfusion's documented activation command is
-the `npx` invocation above. When a pinned Syncfusion package family is approved
-and added, verify the CLI compatibility with that pinned version and repeat the
-licensed CI/Docker evidence before release.
+No Syncfusion CLI dependency is added independently. The pinned EJ2 package
+family supplies the CLI through `@syncfusion/ej2-base`; `npm ci` must create
+`node_modules/.bin/syncfusion-license`, and release builds fail closed when it
+is absent. When updating the pinned Syncfusion package family, verify CLI and
+license compatibility and repeat the licensed CI/Docker evidence before
+release.
 
 The current fallback-only `npm run build` remains intentionally unlicensed so
 existing Angular tests and local fallback development do not require a vendor
@@ -87,10 +88,11 @@ temporary file, upload it as an artifact, or include the value in PR text.
 ## Docker and Compose
 
 The root Dockerfile declares Dockerfile syntax 1.7 and uses a required
-`syncfusion_license` BuildKit secret in the frontend build stage. It reads the
-secret only into the command environment that invokes the CLI, unsets it
-after the Angular build command, rejects a build output containing the raw
-secret without printing it, and never declares it with `ARG` or `ENV`.
+`syncfusion_license` BuildKit secret in the frontend build stage. It removes
+CR/LF line endings while reading the mounted file, reads the result only into
+the command environment that invokes `npm run build:licensed`, unsets it after
+the Angular build command, rejects a build output containing the raw secret
+without printing it, and never declares it with `ARG` or `ENV`.
 The final runtime image receives only the published ASP.NET Core output; it
 does not receive `/run/secrets`, `.env`, frontend `node_modules`, or a
 `SYNCFUSION_LICENSE` runtime variable.
@@ -111,7 +113,31 @@ Compose reads the value from the invoking environment (including its
 Git-ignored `.env` file) and exposes it to BuildKit only. It is not passed to
 the application service environment.
 
+The Sakura VPS profile at `deploy/sakura/docker-compose.yml` instead uses a
+file-backed Compose secret. Its default source is the owner-only file
+`/srv/aipsite/app/secrets/syncfusion-license.txt`; `SYNCFUSION_LICENSE_FILE`
+may select another protected path. The tracked `.gitignore` and
+`.dockerignore` both exclude the secret paths, so the file is supplied through
+BuildKit's secret channel and never through the build context.
+
 ## Deployment
+
+### Sakura VPS
+
+The Sakura VPS uses the tracked `deploy/sakura/docker-compose.yml` and
+`deploy/sakura/deploy.sh`. The script requires a clean Git worktree and
+owner-only deployment environment and license files, validates Compose, builds
+the `web` image with the file-backed BuildKit secret, runs migrations, starts
+the existing Compose project, and waits for readiness. If the primary checkout
+has local changes or an unresolved merge, create a separate clean Git worktree
+and set `AIPSITE_SOURCE_DIR` to it; never reset or stash operator changes just
+to deploy.
+
+The license file may contain a final LF or CRLF. The Dockerfile strips only
+those line-ending bytes in the secret mount and does not rewrite the source
+file.
+
+### GCP scripts
 
 The checked-in GCP deployment scripts use `${APP_DIR}/.env`, whose default is
 `/opt/aipsite/.env`; operators may set `APP_DIR=/srv/aipsite` to use

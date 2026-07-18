@@ -79,10 +79,10 @@ jobs:
           SYNCFUSION_LICENSE: ${{ secrets.SYNCFUSION_LICENSE }}
         shell: bash
         run: |
-          if [ ! -x node_modules/.bin/syncfusion-license ]; then
-            echo "Syncfusion packages are not installed; skipping licensed build."
-            exit 0
-          fi
+          test -x node_modules/.bin/syncfusion-license || {
+            echo "Syncfusion License CLI is not installed." >&2
+            exit 1
+          }
           test -n "${SYNCFUSION_LICENSE:-}" || {
             echo "SYNCFUSION_LICENSE is not configured." >&2
             exit 1
@@ -236,6 +236,7 @@ jobs:
           docker compose config --quiet
           docker compose -f docker-compose.local.yml config --quiet
           docker compose -f docker-compose.onprem.yml config --quiet
+          docker compose -p deploy -f deploy/sakura/docker-compose.yml config --quiet
 
       - name: Initialize Trivy image scan report
         run: printf 'Trivy image scan did not run.\n' > trivy-image-report.txt
@@ -245,15 +246,15 @@ jobs:
           SYNCFUSION_LICENSE: ${{ secrets.SYNCFUSION_LICENSE }}
         shell: bash
         run: |
-          if [ -n "${SYNCFUSION_LICENSE:-}" ]; then
-            license_file="$(mktemp)"
-            trap 'rm -f "$license_file"' EXIT
-            chmod 600 "$license_file"
-            printf '%s' "$SYNCFUSION_LICENSE" > "$license_file"
-            docker build --pull --secret id=syncfusion_license,src="$license_file" --tag "$IMAGE_NAME" .
-          else
-            docker build --pull --tag "$IMAGE_NAME" .
-          fi
+          test -n "${SYNCFUSION_LICENSE:-}" || {
+            echo "SYNCFUSION_LICENSE is not configured." >&2
+            exit 1
+          }
+          license_file="$(mktemp)"
+          trap 'rm -f "$license_file"' EXIT
+          chmod 600 "$license_file"
+          printf '%s' "$SYNCFUSION_LICENSE" > "$license_file"
+          docker build --pull --secret id=syncfusion_license,src="$license_file" --tag "$IMAGE_NAME" .
 
       - name: Verify runtime image excludes Syncfusion license material
         shell: bash

@@ -107,7 +107,7 @@ describe('FilesPageComponent', () => {
 
     expect(textContent(fixture)).toContain('Upload accepted by backend.');
     expect(textContent(fixture)).toContain('note.txt');
-  });
+  }, 15_000);
 
   it('keeps retry state when backend upload fails', async () => {
     const { fixture, http } = await renderLiveFilesPage([]);

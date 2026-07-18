@@ -4,22 +4,17 @@ FROM node:24 AS frontend-build
 WORKDIR /src/frontend
 COPY frontend/package*.json ./
 RUN npm install --global npm@11.17.0
-RUN npm ci
+RUN npm ci --no-audit --no-fund
 COPY frontend/ ./
-RUN --mount=type=secret,id=syncfusion_license \
+RUN --mount=type=secret,id=syncfusion_license,required=true \
     set -eu; \
-    if [ -x node_modules/.bin/syncfusion-license ]; then \
-      test -s /run/secrets/syncfusion_license || { echo "SYNCFUSION_LICENSE is not configured." >&2; exit 1; }; \
-      export SYNCFUSION_LICENSE="$(cat /run/secrets/syncfusion_license)"; \
-      npm run syncfusion:activate; \
-    else \
-      echo "Syncfusion packages are not installed; skipping license activation."; \
-    fi; \
-    npm run build; \
-    if [ -n "${SYNCFUSION_LICENSE:-}" ]; then \
-      ! grep -R -F -q -- "$SYNCFUSION_LICENSE" dist || { echo "Syncfusion license material was found in frontend build output." >&2; exit 1; }; \
-      unset SYNCFUSION_LICENSE; \
-    fi
+    test -x node_modules/.bin/syncfusion-license || { echo "Syncfusion License CLI is not installed." >&2; exit 1; }; \
+    SYNCFUSION_LICENSE="$(tr -d '\r\n' < /run/secrets/syncfusion_license)"; \
+    test -n "$SYNCFUSION_LICENSE" || { echo "SYNCFUSION_LICENSE is not configured." >&2; exit 1; }; \
+    export SYNCFUSION_LICENSE; \
+    npm run build:licensed; \
+    ! grep -R -F -q -- "$SYNCFUSION_LICENSE" dist || { echo "Syncfusion license material was found in frontend build output." >&2; exit 1; }; \
+    unset SYNCFUSION_LICENSE
 
 FROM mcr.microsoft.com/dotnet/sdk:10.0 AS build
 WORKDIR /src
