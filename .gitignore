@@ -22,3 +22,7 @@ artifacts/frontend-inspections/
 .env.*
 !.env.example
 local.env
+secrets/
+syncfusion-license.txt
+**/syncfusion-license.txt
+**/syncfusion_license.txt

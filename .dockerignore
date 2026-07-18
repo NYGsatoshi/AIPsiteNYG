@@ -1,10 +1,15 @@
 **/bin/
 **/obj/
+.git
 .git/
 .config/
 .nuget/
 .env
 .env.*
+secrets/
+syncfusion-license.txt
+**/syncfusion-license.txt
+**/syncfusion_license.txt
 storage/
 data/
 tests/**/TestResults/

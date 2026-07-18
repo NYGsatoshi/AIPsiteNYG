@@ -1,0 +1,142 @@
+services:
+  web:
+    build:
+      context: ${AIPSITE_SOURCE_DIR:-../..}
+      dockerfile: Dockerfile
+      secrets:
+        - source: syncfusion_license
+          target: syncfusion_license
+    image: deploy-web
+    container_name: aipsite-web
+    restart: unless-stopped
+    environment:
+      ASPNETCORE_ENVIRONMENT: ${ASPNETCORE_ENVIRONMENT:-Production}
+      ASPNETCORE_URLS: http://0.0.0.0:8080
+      ConnectionStrings__DefaultConnection: Host=${DB_HOST:-db};Port=5432;Database=${DB_NAME:-aipsite};Username=${DB_USER:-aipsite_user};Password=${DB_PASSWORD:?set DB_PASSWORD}
+      DataProtection__KeysPath: /app/data/protection-keys
+      Tenancy__AppMode: ${TENANCY_APP_MODE:-OnPremSingleTenant}
+      Tenancy__DefaultTenantSlug: ${TENANCY_DEFAULT_TENANT_SLUG:-default}
+      Tenancy__TenantResolutionStrategy: ${TENANCY_RESOLUTION_STRATEGY:-ConfigDefault}
+      Tenancy__AllowTenantSwitching: ${TENANCY_ALLOW_SWITCHING:-false}
+      Tenancy__SeedOnStartup: "true"
+      FileStorage__Provider: LocalFileSystem
+      FileStorage__RootPath: /app/storage/uploads
+      FileStorage__MaxFileSizeBytes: ${FILE_STORAGE_MAX_FILE_SIZE_BYTES:-26214400}
+      Security__CookieSecurePolicy: ${SECURITY_COOKIE_SECURE_POLICY:-Always}
+      Security__RequireHttps: ${SECURITY_REQUIRE_HTTPS:-true}
+      Security__EnableHsts: ${SECURITY_ENABLE_HSTS:-true}
+      ReverseProxy__TrustForwardedHeaders: "true"
+      Platform__PlatformAdminSetupMode: ${PLATFORM_ADMIN_SETUP_MODE:-false}
+      LocalAdmin__SeedOnStartup: ${LOCAL_ADMIN_SEED_ON_STARTUP:-true}
+      LocalAdmin__Email: ${LOCAL_ADMIN_EMAIL:-admin@example.com}
+      LocalAdmin__Password: ${LOCAL_ADMIN_PASSWORD:?set LOCAL_ADMIN_PASSWORD}
+      LocalAdmin__DisplayName: ${LOCAL_ADMIN_DISPLAY_NAME:-Local Admin}
+      AIP_SEED_ADMIN_ENABLED: ${AIP_SEED_ADMIN_ENABLED:-false}
+      AIP_SEED_ADMIN_EMAIL: ${AIP_SEED_ADMIN_EMAIL:-}
+      AIP_SEED_ADMIN_USERNAME: ${AIP_SEED_ADMIN_USERNAME:-}
+      AIP_SEED_ADMIN_PASSWORD: ${AIP_SEED_ADMIN_PASSWORD:-}
+    expose:
+      - "8080"
+    volumes:
+      - aip_uploads:/app/storage/uploads
+      - aip_data_protection:/app/data/protection-keys
+    healthcheck:
+      test: ["CMD-SHELL", "curl --fail --silent --show-error -H 'X-Forwarded-Proto: https' -H 'X-Forwarded-Host: localhost' http://localhost:8080/health/ready >/dev/null"]
+      interval: 10s
+      timeout: 5s
+      retries: 12
+      start_period: 30s
+    depends_on:
+      postgres:
+        condition: service_healthy
+      migrate:
+        condition: service_completed_successfully
+    networks:
+      aipsite_internal:
+        aliases:
+          - web
+          - aipsite-web
+
+  caddy:
+    image: caddy:2-alpine
+    container_name: aipsite-caddy
+    restart: unless-stopped
+    ports:
+      - "${HTTP_PORT:-80}:80"
+      - "127.0.0.1:5000:80"
+      - "${HTTPS_PORT:-443}:443"
+    volumes:
+      - ${AIPSITE_CADDYFILE:-./Caddyfile}:/etc/caddy/Caddyfile:ro
+      - caddy_data:/data
+      - caddy_config:/config
+    depends_on:
+      web:
+        condition: service_healthy
+    networks:
+      aipsite_internal:
+        aliases:
+          - caddy
+          - aipsite-caddy
+
+  migrate:
+    image: mcr.microsoft.com/dotnet/sdk:10.0
+    working_dir: /src
+    restart: "no"
+    volumes:
+      - ${AIPSITE_SOURCE_DIR:-../..}:/src
+      - aip_nuget:/root/.nuget/packages
+    environment:
+      ASPNETCORE_ENVIRONMENT: ${ASPNETCORE_ENVIRONMENT:-Production}
+      ConnectionStrings__DefaultConnection: Host=${DB_HOST:-db};Port=5432;Database=${DB_NAME:-aipsite};Username=${DB_USER:-aipsite_user};Password=${DB_PASSWORD:?set DB_PASSWORD}
+      NUGET_PACKAGES: /root/.nuget/packages
+      Tenancy__SeedOnStartup: "false"
+    depends_on:
+      postgres:
+        condition: service_healthy
+    networks:
+      aipsite_internal:
+        aliases:
+          - migrate
+    command: >
+      bash -lc "mkdir -p /src/src/AipPortal.Web/wwwroot &&
+      dotnet tool restore &&
+      dotnet restore src/AipPortal.Web/AipPortal.Web.csproj /p:RestoreFallbackFolders= &&
+      dotnet ef database update --project src/AipPortal.Infrastructure --startup-project src/AipPortal.Web"
+
+  postgres:
+    image: postgres:18-alpine
+    container_name: aipsite-db
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: ${DB_NAME:-aipsite}
+      POSTGRES_USER: ${DB_USER:-aipsite_user}
+      POSTGRES_PASSWORD: ${DB_PASSWORD:?set DB_PASSWORD}
+    networks:
+      aipsite_internal:
+        aliases:
+          - db
+          - postgres
+          - aipsite-db
+    volumes:
+      - aip_pgdata:/var/lib/postgresql
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${DB_USER:-aipsite_user} -d ${DB_NAME:-aipsite}"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+networks:
+  aipsite_internal:
+    driver: bridge
+
+volumes:
+  aip_pgdata:
+  aip_uploads:
+  aip_data_protection:
+  aip_nuget:
+  caddy_data:
+  caddy_config:
+
+secrets:
+  syncfusion_license:
+    file: ${SYNCFUSION_LICENSE_FILE:-/srv/aipsite/app/secrets/syncfusion-license.txt}

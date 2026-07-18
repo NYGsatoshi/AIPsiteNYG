@@ -12,6 +12,7 @@ This document describes what the repository currently supports. It is not a prod
 | `docker-compose.local.yml` | Partially implemented | Migrates and can opt in to initial administrator seed |
 | `docker-compose.yml` | Partially implemented | Migrates and can opt in to initial administrator seed |
 | `docker-compose.onprem.yml` | Incomplete | Does not run migrations and expects production HTTPS behavior without including a reverse proxy |
+| `deploy/sakura/docker-compose.yml` | Implemented for the current Sakura VPS topology | Requires owner-only external environment and Syncfusion license files |
 | Broad public SaaS | Not ready | Object storage, bootstrap, API-token auth, recovery evidence, and deployment hardening are incomplete |
 
 ## Container files
@@ -51,6 +52,18 @@ This document describes what the repository currently supports. It is not a prod
 - `Tenancy:SeedOnStartup=true`, but seeding cannot work against a fresh database before the schema exists.
 - Production HTTPS redirect and secure-cookie settings are enabled.
 - No reverse-proxy/TLS service is included.
+
+### `deploy/sakura/docker-compose.yml`
+
+- Builds from an explicit clean source worktree and preserves the existing
+  `deploy` Compose project and named volumes.
+- Supplies `/srv/aipsite/app/secrets/syncfusion-license.txt` as the
+  `syncfusion_license` BuildKit secret only during the frontend build.
+- Runs migrations before recreating the web service.
+- Uses Caddy for the public route and checks ASP.NET Core readiness with the
+  trusted forwarded-protocol headers used by that topology.
+- Is deployed through `deploy/sakura/deploy.sh`, which rejects dirty source
+  worktrees and group/other-readable secret or environment files.
 
 For a fresh on-prem deployment, apply migrations before starting the app.
 
@@ -160,6 +173,11 @@ container environment variable, or browser configuration value. The supported
 Compose profiles map the secret from the Git-ignored `.env` file. See
 [the Syncfusion license runbook](SYNCFUSION_LICENSE_RUNBOOK.md) before a
 licensed release build.
+
+On the Sakura VPS, the secret source is a protected file rather than a raw
+Compose environment value. Use `deploy/sakura/deploy.sh`; do not copy the
+license file into the repository, frontend directory, Docker build context, or
+runtime service environment.
 
 To verify a production image contains the current Angular Projects and My Tasks
 bundle, rebuild the image and inspect the served client bundle from the running

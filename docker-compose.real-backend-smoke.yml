@@ -1,4 +1,4 @@
-﻿# Test-only real-backend browser smoke stack.
+# Test-only real-backend browser smoke stack.
 # It runs PostgreSQL, applies EF migrations, starts the ASP.NET Core image that
 # serves the built Angular app, then executes Playwright against that real host.
 # Invoke with an explicit project name, for example:
