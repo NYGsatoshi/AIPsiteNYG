@@ -44,6 +44,7 @@ public static class DependencyInjection
         services.AddScoped<IAuthService, AuthService>();
         services.AddScoped<IUserSessionService, UserSessionService>();
         services.AddScoped<IAuthorizationStateChangePublisher, AuthorizationStateChangePublisher>();
+        services.AddScoped<IBusinessInvalidationPublisher, BusinessInvalidationPublisher>();
         services.AddScoped<IAdminService, AdminService>();
         services.AddScoped<IWorkspaceAuthorizationService, WorkspaceAuthorizationService>();
         services.AddScoped<IGroupAuthorizationService, GroupAuthorizationService>();

@@ -1,5 +1,6 @@
 using AipPortal.Application.Common;
 using AipPortal.Application.Common.Interfaces;
+using AipPortal.Application.Realtime;
 using AipPortal.Domain.Entities;
 using AipPortal.Domain.Enums;
 
@@ -17,6 +18,8 @@ public sealed class ProjectService(
     IClock clock,
     IAuditLogger auditLogger,
     INotificationService notifications,
+    IBusinessInvalidationPublisher invalidations,
+    IAuthorizationStateChangePublisher authorizationChanges,
     IUnitOfWork unitOfWork) : IProjectService
 {
     public async Task<Result<PagedResponse<ProjectResponse>>> ListAsync(ProjectListQuery query, CancellationToken cancellationToken = default)
@@ -85,6 +88,7 @@ public sealed class ProjectService(
             JoinedAt = clock.UtcNow
         }, cancellationToken);
         await AuditAsync(userId, "ProjectCreated", "Project", project.Id, cancellationToken);
+        await invalidations.ProjectChangedAsync(project, userId, "created", cancellationToken);
         await unitOfWork.SaveChangesAsync(cancellationToken);
         return Result<ProjectResponse>.Success(await ToProjectAsync(project, userId, cancellationToken));
     }
@@ -145,6 +149,7 @@ public sealed class ProjectService(
         project.StartDate = request.StartDate ?? project.StartDate;
         project.DueDate = request.EndDate ?? project.DueDate;
         await AuditAsync(userId, project.Status == previousStatus ? "ProjectUpdated" : "ProjectStatusChanged", "Project", project.Id, cancellationToken);
+        await invalidations.ProjectChangedAsync(project, userId, "updated", cancellationToken);
         await unitOfWork.SaveChangesAsync(cancellationToken);
         return Result<ProjectResponse>.Success(await ToProjectAsync(project, userId, cancellationToken));
     }
@@ -164,6 +169,7 @@ public sealed class ProjectService(
 
         project.Status = ProjectStatus.Archived;
         await AuditAsync(userId, "ProjectArchived", "Project", project.Id, cancellationToken);
+        await invalidations.ProjectChangedAsync(project, userId, "archived", cancellationToken);
         await unitOfWork.SaveChangesAsync(cancellationToken);
         return Result.Success();
     }
@@ -188,6 +194,7 @@ public sealed class ProjectService(
         }
 
         await AuditAsync(userId, "ProjectRestored", "Project", project.Id, cancellationToken);
+        await invalidations.ProjectChangedAsync(project, userId, "restored", cancellationToken);
         await unitOfWork.SaveChangesAsync(cancellationToken);
         return Result.Success();
     }
@@ -239,6 +246,8 @@ public sealed class ProjectService(
 
         await projects.AddMemberAsync(member, cancellationToken);
         await AuditAsync(actorUserId, "ProjectMemberAdded", "Project", projectId, cancellationToken);
+        await invalidations.ProjectChangedAsync(project, actorUserId, "memberChanged", cancellationToken);
+        await authorizationChanges.PublishAsync(project.TenantId, request.UserId, "project", project.Id, "membershipChanged", cancellationToken);
         await unitOfWork.SaveChangesAsync(cancellationToken);
         return Result<ProjectMemberResponse>.Success(ToProjectMember(member));
     }
@@ -258,6 +267,12 @@ public sealed class ProjectService(
 
         member.Role = request.Role;
         await AuditAsync(actorUserId, "ProjectMemberUpdated", "Project", projectId, cancellationToken);
+        var project = await projects.GetProjectAsync(projectId, cancellationToken);
+        if (project is not null)
+        {
+            await invalidations.ProjectChangedAsync(project, actorUserId, "memberChanged", cancellationToken);
+            await authorizationChanges.PublishAsync(project.TenantId, userId, "project", project.Id, "membershipChanged", cancellationToken);
+        }
         await unitOfWork.SaveChangesAsync(cancellationToken);
         return Result<ProjectMemberResponse>.Success(ToProjectMember(member));
     }
@@ -277,6 +292,12 @@ public sealed class ProjectService(
 
         projects.RemoveMember(member);
         await AuditAsync(actorUserId, "ProjectMemberRemoved", "Project", projectId, cancellationToken);
+        var project = await projects.GetProjectAsync(projectId, cancellationToken);
+        if (project is not null)
+        {
+            await invalidations.ProjectChangedAsync(project, actorUserId, "memberChanged", cancellationToken);
+            await authorizationChanges.PublishAsync(project.TenantId, userId, "project", project.Id, "revoked", cancellationToken);
+        }
         await unitOfWork.SaveChangesAsync(cancellationToken);
         return Result.Success();
     }
@@ -452,6 +473,7 @@ public sealed class ProjectService(
 
         await projects.AddTaskAsync(task, cancellationToken);
         await AuditAsync(userId, "TaskCreated", "TaskItem", task.Id, cancellationToken);
+        await invalidations.TaskChangedAsync(task, userId, "created", cancellationToken: cancellationToken);
         await unitOfWork.SaveChangesAsync(cancellationToken);
         return Result<TaskItemResponse>.Success(await ToTaskAsync(task, userId, cancellationToken));
     }
@@ -507,6 +529,9 @@ public sealed class ProjectService(
 
         await NotifyTaskChangesAsync(task, previousStatus, previousDueDate, cancellationToken);
         await AuditAsync(userId, "TaskUpdated", "TaskItem", task.Id, cancellationToken);
+        var changedFields = ChangedTaskFields(request, previousStatus);
+        var affectedUsers = (await projects.ListAssignmentsAsync(task.Id, cancellationToken)).Select(assignment => assignment.UserId);
+        await invalidations.TaskChangedAsync(task, userId, previousStatus == task.Status ? "updated" : "statusChanged", changedFields, affectedUsers, cancellationToken);
         await unitOfWork.SaveChangesAsync(cancellationToken);
         return Result<TaskItemResponse>.Success(await ToTaskAsync(task, userId, cancellationToken));
     }
@@ -526,6 +551,8 @@ public sealed class ProjectService(
 
         task.MarkDeleted(clock.UtcNow);
         await AuditAsync(userId, "TaskArchived", "TaskItem", task.Id, cancellationToken);
+        var deletedTaskUsers = (await projects.ListAssignmentsAsync(task.Id, cancellationToken)).Select(assignment => assignment.UserId);
+        await invalidations.TaskChangedAsync(task, userId, "deleted", affectedUserIds: deletedTaskUsers, cancellationToken: cancellationToken);
         await unitOfWork.SaveChangesAsync(cancellationToken);
         return Result.Success();
     }
@@ -587,6 +614,8 @@ public sealed class ProjectService(
         await projects.AddAssignmentAsync(assignment, cancellationToken);
         await notifications.NotifyAsync(request.UserId, "Task assigned", task.Title, "TaskItem", task.Id, cancellationToken);
         await AuditAsync(actorUserId, "TaskAssigned", "TaskItem", task.Id, cancellationToken);
+        var assignmentUsers = (await projects.ListAssignmentsAsync(task.Id, cancellationToken)).Select(item => item.UserId).Append(request.UserId);
+        await invalidations.TaskChangedAsync(task, actorUserId, "assignmentChanged", ["assignments"], assignmentUsers, cancellationToken);
         await unitOfWork.SaveChangesAsync(cancellationToken);
         return Result<TaskAssignmentResponse>.Success(ToAssignment(assignment));
     }
@@ -620,6 +649,7 @@ public sealed class ProjectService(
         assignment.ActualHours = request.ActualHours;
         await notifications.NotifyAsync(assignment.UserId, "Task assignment updated", assignment.TaskItem.Title, "TaskItem", assignment.TaskItemId, cancellationToken);
         await AuditAsync(userId, "TaskAssignmentUpdated", "TaskItem", assignment.TaskItemId, cancellationToken);
+        await invalidations.TaskChangedAsync(assignment.TaskItem, userId, "assignmentChanged", ["assignments"], [assignment.UserId], cancellationToken);
         await unitOfWork.SaveChangesAsync(cancellationToken);
         return Result<TaskAssignmentResponse>.Success(ToAssignment(assignment));
     }
@@ -640,6 +670,10 @@ public sealed class ProjectService(
         projects.RemoveAssignment(assignment);
         await notifications.NotifyAsync(assignment.UserId, "Task assignment removed", assignment.TaskItem?.Title, "TaskItem", assignment.TaskItemId, cancellationToken);
         await AuditAsync(userId, "TaskAssignmentRemoved", "TaskItem", assignment.TaskItemId, cancellationToken);
+        if (assignment.TaskItem is not null)
+        {
+            await invalidations.TaskChangedAsync(assignment.TaskItem, userId, "assignmentChanged", ["assignments"], [assignment.UserId], cancellationToken);
+        }
         await unitOfWork.SaveChangesAsync(cancellationToken);
         return Result.Success();
     }
@@ -1026,6 +1060,20 @@ public sealed class ProjectService(
             ProjectStatus.Archived => false,
             _ => false
         };
+    }
+
+    private static IReadOnlyList<string> ChangedTaskFields(UpdateTaskItemRequest request, TaskItemStatus previousStatus)
+    {
+        var fields = new List<string>();
+        if (request.Title is not null) fields.Add("title");
+        if (request.Description is not null) fields.Add("description");
+        if (request.MilestoneId.HasValue) fields.Add("milestoneId");
+        if (request.Priority.HasValue) fields.Add("priority");
+        if (request.StartDate.HasValue) fields.Add("startDate");
+        if (request.DueDate.HasValue) fields.Add("dueDate");
+        if (request.ProgressPercent.HasValue) fields.Add("progressPercent");
+        if (request.Status.HasValue && request.Status != previousStatus) fields.Add("status");
+        return fields;
     }
 
     private static string SummaryFor(string action) => action switch

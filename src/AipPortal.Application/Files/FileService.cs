@@ -2,6 +2,7 @@ using AipPortal.Application.Common;
 using AipPortal.Application.Common.Interfaces;
 using AipPortal.Domain.Entities;
 using AipPortal.Domain.Enums;
+using AipPortal.Application.Realtime;
 using System.Security.Cryptography;
 using System.Text;
 
@@ -20,6 +21,7 @@ public sealed class FileService(
     IClock clock,
     IAuditLogger auditLogger,
     ITokenHasher tokenHasher,
+    IBusinessInvalidationPublisher invalidations,
     IUnitOfWork unitOfWork) : IFileService
     , IFileObjectService
 {
@@ -118,6 +120,7 @@ public sealed class FileService(
                 "File uploaded.",
                 WorkspaceId: owner.WorkspaceId,
                 ProjectId: owner.ProjectId), cancellationToken);
+            await invalidations.FileChangedAsync(fileObject, attachment, userId, "uploaded", cancellationToken);
             await unitOfWork.SaveChangesAsync(cancellationToken);
         }
         catch
@@ -453,6 +456,10 @@ public sealed class FileService(
         attachment.MarkDeleted(clock.UtcNow);
         attachment.FileObject?.MarkDeleted(clock.UtcNow, userId, reason);
         await auditLogger.LogAsync(new AuditLogEntry(userId, "FileDeleted", "FileObject", attachment.FileObjectId, "File soft-deleted.", WorkspaceId: attachment.WorkspaceId, ProjectId: attachment.FileObject?.ProjectId), cancellationToken);
+        if (attachment.FileObject is not null)
+        {
+            await invalidations.FileChangedAsync(attachment.FileObject, attachment, userId, "deleted", cancellationToken);
+        }
         await unitOfWork.SaveChangesAsync(cancellationToken);
         return Result.Success();
     }

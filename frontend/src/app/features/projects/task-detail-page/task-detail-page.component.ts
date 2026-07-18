@@ -1,4 +1,4 @@
-import { Component, computed, inject } from '@angular/core';
+import { Component, computed, inject, OnDestroy } from '@angular/core';
 import { ActivatedRoute, RouterLink } from '@angular/router';
 
 import { AppEmptyStateComponent } from '../../../shared/empty-state/app-empty-state/app-empty-state.component';
@@ -27,7 +27,7 @@ import { TaskStatusBadgeComponent } from '../task-status-badge/task-status-badge
   templateUrl: './task-detail-page.component.html',
   styleUrl: './task-detail-page.component.scss'
 })
-export class TaskDetailPageComponent {
+export class TaskDetailPageComponent implements OnDestroy {
   private readonly facade = inject(ProjectsFacade);
   private readonly route = inject(ActivatedRoute);
 
@@ -44,6 +44,10 @@ export class TaskDetailPageComponent {
       this.route.snapshot.paramMap.get('projectId') ?? undefined,
       this.route.snapshot.paramMap.get('taskId') ?? undefined
     );
+  }
+
+  ngOnDestroy(): void {
+    this.facade.releaseTaskDetail();
   }
 
   saveTask(request: TaskEditorSaveRequest): void {

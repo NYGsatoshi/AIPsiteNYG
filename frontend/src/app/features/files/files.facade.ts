@@ -4,6 +4,8 @@ import { Subscription } from 'rxjs';
 
 import { normalizeApiError } from '../../core/api/api-error.adapter';
 import { ActiveWorkspaceFacade } from '../../core/workspace/active-workspace.facade';
+import { RealtimeFacade } from '../../core/realtime/realtime.facade';
+import { DurableRealtimeEvent } from '../../core/realtime/realtime.models';
 import {
   AttachmentUploadResponseDto,
   FileDownloadGrantDto,
@@ -20,14 +22,18 @@ export const AIP_FILES_PAGE_MOCK = new InjectionToken<FilesPageViewModel>('AIP_F
 export class FilesFacade {
   private readonly http = inject(HttpClient);
   private readonly activeWorkspace = inject(ActiveWorkspaceFacade);
+  private readonly realtime = inject(RealtimeFacade);
   private readonly mockPage = inject(AIP_FILES_PAGE_MOCK, { optional: true });
   private readonly pageState = signal<FilesPageViewModel>(this.mockPage ?? this.emptyPage('Loading files from backend.'));
   private readonly loadingWorkspaceIds = new Set<string>();
   private readonly pendingUploads = new Map<string, { file: File; subscription: Subscription }>();
+  private refreshAfterMutation = false;
+  private refreshTimer: ReturnType<typeof setTimeout> | null = null;
 
   readonly page = this.pageState.asReadonly();
 
   constructor() {
+    this.realtime.durableEvents$.subscribe((event) => this.handleRealtimeEvent(event));
     if (!this.mockPage) {
       effect(() => {
         const workspace = this.activeWorkspace.activeWorkspace();
@@ -86,6 +92,7 @@ export class FilesFacade {
           });
           this.loadingWorkspaceIds.delete(workspaceId);
           this.loadFiles(workspaceId);
+          this.reconcileAfterMutation(workspaceId);
         },
         error: (error: unknown) => {
           this.pendingUploads.delete(clientRequestId);
@@ -97,6 +104,7 @@ export class FilesFacade {
             selectedFileName: file.name,
             message: normalized.message,
           });
+          this.reconcileAfterMutation(workspaceId);
         },
       });
     this.pendingUploads.set(clientRequestId, { file, subscription });
@@ -258,6 +266,38 @@ export class FilesFacade {
         ),
       };
     });
+  }
+
+  private handleRealtimeEvent(event: DurableRealtimeEvent): void {
+    if (this.mockPage || event.eventType !== 'Files.FileChanged.v1') {
+      return;
+    }
+    const workspaceId = this.activeWorkspace.activeWorkspace()?.id;
+    if (!workspaceId) {
+      return;
+    }
+    if (this.pendingUploads.size > 0) {
+      this.refreshAfterMutation = true;
+      return;
+    }
+    this.queueRefresh(workspaceId);
+  }
+
+  private reconcileAfterMutation(workspaceId: string): void {
+    if (this.pendingUploads.size === 0 && this.refreshAfterMutation) {
+      this.refreshAfterMutation = false;
+      this.queueRefresh(workspaceId);
+    }
+  }
+
+  private queueRefresh(workspaceId: string): void {
+    if (this.refreshTimer !== null) {
+      return;
+    }
+    this.refreshTimer = setTimeout(() => {
+      this.refreshTimer = null;
+      this.loadFiles(workspaceId);
+    }, 100);
   }
 
   private updateQueue(item: FileUploadQueueItem): void {

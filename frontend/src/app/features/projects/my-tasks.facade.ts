@@ -4,6 +4,8 @@ import { catchError, map, Observable, of } from 'rxjs';
 
 import { normalizeApiError } from '../../core/api/api-error.adapter';
 import { FrontendApiError } from '../../core/api/api-error.model';
+import { RealtimeFacade } from '../../core/realtime/realtime.facade';
+import { DurableRealtimeEvent } from '../../core/realtime/realtime.models';
 import { MyTaskDto, PagedResponseDto } from './projects.api';
 import { mapMyTaskDtoToRecord } from './projects.mapper';
 import {
@@ -31,9 +33,15 @@ interface MyTasksState {
 })
 export class MyTasksFacade {
   private readonly http = inject(HttpClient);
+  private readonly realtime = inject(RealtimeFacade);
   private readonly scenario = inject(AIP_MY_TASKS_MOCK, { optional: true });
   private readonly state = signal<MyTasksState>(this.initialState());
   private hasRequested = false;
+  private refreshTimer: ReturnType<typeof setTimeout> | null = null;
+
+  constructor() {
+    this.realtime.durableEvents$.subscribe((event) => this.handleRealtimeEvent(event));
+  }
 
   load(): void {
     if (this.scenario || this.hasRequested) {
@@ -80,6 +88,19 @@ export class MyTasksFacade {
   private requestMyTasks(): void {
     this.state.set({ status: 'loading', tasks: [] });
     this.fetchMyTasks().subscribe((nextState) => this.state.set(nextState));
+  }
+
+  private handleRealtimeEvent(event: DurableRealtimeEvent): void {
+    if (this.scenario || !this.hasRequested || event.eventType !== 'Projects.TaskChanged.v1') {
+      return;
+    }
+    if (this.refreshTimer !== null) {
+      return;
+    }
+    this.refreshTimer = setTimeout(() => {
+      this.refreshTimer = null;
+      this.requestMyTasks();
+    }, 100);
   }
 
   private fetchMyTasks(): Observable<MyTasksState> {

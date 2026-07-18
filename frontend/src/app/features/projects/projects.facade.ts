@@ -6,6 +6,8 @@ import { map, switchMap } from 'rxjs/operators';
 import { normalizeApiError } from '../../core/api/api-error.adapter';
 import { FrontendApiError } from '../../core/api/api-error.model';
 import { MyTasksFacade } from './my-tasks.facade';
+import { RealtimeFacade } from '../../core/realtime/realtime.facade';
+import { DurableRealtimeEvent } from '../../core/realtime/realtime.models';
 import { PagedResponseDto, ProjectDto, TaskDto, toCreateTaskRequestDto, toUpdateTaskRequestDto } from './projects.api';
 import {
   mapProjectDtoToRecord,
@@ -51,6 +53,7 @@ interface ErrorBody {
 export class ProjectsFacade {
   private readonly http = inject(HttpClient);
   private readonly myTasksFacade = inject(MyTasksFacade);
+  private readonly realtime = inject(RealtimeFacade);
   private readonly scenario = inject(AIP_PROJECTS_MOCK, { optional: true });
   private readonly liveState = signal<ProjectsScenario>(
     this.scenario ?? this.emptyScenario('loading')
@@ -58,8 +61,12 @@ export class ProjectsFacade {
   private readonly taskMutationState = signal<TaskMutationState>({ status: 'idle' });
   private readonly taskCreateMutationState = signal<TaskMutationState>({ status: 'idle' });
   private readonly taskDetailRequests = new Set<string>();
+  private activeTaskId: string | null = null;
+  private activeProjectSubscription: (() => void) | null = null;
+  private refreshTimer: ReturnType<typeof setTimeout> | null = null;
 
   constructor() {
+    this.realtime.durableEvents$.subscribe((event) => this.handleRealtimeEvent(event));
     if (!this.scenario) {
       this.loadProjects();
     }
@@ -151,12 +158,21 @@ export class ProjectsFacade {
       return;
     }
 
+    this.activeTaskId = taskId;
+    this.activeProjectSubscription?.();
+    this.activeProjectSubscription = this.realtime.registerSubscription('projects-active-task', { subscriptionType: 'project', resourceId: projectId });
     const taskExists = this.liveState().tasks.some(
       (candidate) => candidate.projectId === projectId && candidate.id === taskId
     );
     if (!taskExists) {
       this.loadTaskDetail(taskId);
     }
+  }
+
+  releaseTaskDetail(): void {
+    this.activeTaskId = null;
+    this.activeProjectSubscription?.();
+    this.activeProjectSubscription = null;
   }
 
   getTaskMutationState(): TaskMutationState {
@@ -301,6 +317,35 @@ export class ProjectsFacade {
           );
         }
       });
+  }
+
+  private handleRealtimeEvent(event: DurableRealtimeEvent): void {
+    if (this.scenario || (event.eventType !== 'Projects.TaskChanged.v1' && event.eventType !== 'Projects.ProjectChanged.v1')) {
+      return;
+    }
+
+    if (event.eventType === 'Projects.TaskChanged.v1' && this.activeTaskId === event.aggregateId) {
+      this.taskMutationState.set({
+        status: 'conflict',
+        message: 'This task changed elsewhere. Your editor was preserved; reload before saving again.',
+        serverVersion: event.aggregateVersion
+      });
+      return;
+    }
+
+    this.queueRealtimeRefresh();
+  }
+
+  private queueRealtimeRefresh(): void {
+    if (this.refreshTimer !== null) {
+      return;
+    }
+
+    this.refreshTimer = setTimeout(() => {
+      this.refreshTimer = null;
+      this.loadProjects();
+      this.myTasksFacade.refreshIfLoaded();
+    }, 100);
   }
 
   private fetchProjectList(): Observable<readonly ProjectMockRecord[]> {
