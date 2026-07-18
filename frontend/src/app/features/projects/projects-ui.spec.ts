@@ -155,12 +155,12 @@ describe('Projects and tasks mock UI', () => {
     expect(dependencyNames(TaskTableComponent).some((name) => name.includes('AppDataGridComponent'))).toBe(true);
   });
 
-  it('renders projects and task rows with bounded page size', async () => {
+  it('keeps project discovery separate from task creation and detail', async () => {
     const fixture = await renderProjectsOverview();
 
     expect(query(fixture, '[data-testid="project-summary-card"]')).not.toBeNull();
-    expect(queryAll(fixture, '[data-testid="task-row"]').length).toBeGreaterThan(0);
-    expect(query(fixture, '[data-testid="stub-page-size"]')?.textContent).toContain('50/100');
+    expect(query(fixture, '[data-testid="task-create-form"]')).toBeNull();
+    expect(query(fixture, '[data-testid="stub-task-table"]')).toBeNull();
   });
 
   it('renders Project load failures as retryable errors instead of empty states', async () => {
@@ -210,12 +210,22 @@ describe('Projects and tasks mock UI', () => {
     expect(PROJECTS_MAXIMUM_PAGE_SIZE).toBe(100);
   });
 
-  it('mobile layout does not expose hidden task actions', async () => {
+  it('uses a semantic task list as the narrow/touch primary workflow', async () => {
     const fixture = await renderMyTasks(PROJECTS_SCENARIOS.mobile);
 
-    expect(query(fixture, '[data-testid="task-action-openDetail"]')).not.toBeNull();
-    expect(query(fixture, '[data-testid="task-action-assign"]')).toBeNull();
-    expect(query(fixture, '[data-testid="task-action-changeStatus"]')).toBeNull();
+    expect(query(fixture, '[data-testid="my-tasks-semantic-list"]')).not.toBeNull();
+    expect(query(fixture, '[data-testid="my-tasks-kanban"]')).toBeNull();
+  });
+
+  it('switches My Tasks to the optional Kanban projection without changing its rows', async () => {
+    const fixture = await renderMyTasks();
+    const component = fixture.componentInstance;
+
+    component.setProjection('kanban');
+    fixture.detectChanges();
+
+    expect(query(fixture, '[data-testid="my-tasks-kanban"]')).not.toBeNull();
+    expect(textContent(fixture)).toContain(PROJECTS_SCENARIOS.default.tasks[0].title);
   });
 });
 

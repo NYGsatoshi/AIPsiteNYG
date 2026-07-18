@@ -38,3 +38,28 @@
 .aip-adapter-shell[data-aip-presentation='narrow'] {
   min-block-size: var(--aip-list-row-min-height);
 }
+
+.aip-kanban {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(14rem, 1fr));
+  gap: var(--aip-space-3);
+}
+
+.aip-kanban__column {
+  min-width: 0;
+  padding: var(--aip-space-3);
+  border: 1px solid var(--aip-color-border-default);
+  border-radius: var(--aip-radius-lg);
+  background: var(--aip-color-bg-surface-subtle);
+}
+
+.aip-kanban__column h3 { margin: 0 0 var(--aip-space-2); }
+.aip-kanban__column ul, .aip-gantt ul, .aip-gantt ol { display: grid; gap: var(--aip-space-2); margin: 0; padding: 0; list-style: none; }
+.aip-kanban__column li, .aip-gantt li { display: grid; gap: var(--aip-space-1); padding: var(--aip-space-2); border: 1px solid var(--aip-color-border-default); border-radius: var(--aip-radius-md); background: var(--aip-color-bg-surface); }
+.aip-kanban__column select { min-height: var(--aip-control-height); }
+.aip-gantt { display: grid; gap: var(--aip-space-3); }
+
+@media (max-width: 600px) {
+  .aip-kanban { grid-template-columns: 1fr; }
+  .aip-kanban__column { padding: var(--aip-space-2); }
+}
