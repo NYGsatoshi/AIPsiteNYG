@@ -42,6 +42,9 @@
       (logoutRequested)="logout()"
       (rightPanelToggle)="toggleRightPanelFromTopBar($event)"
     />
+    @if (realtime.isEnabled()) {
+      <app-realtime-connection-indicator [state]="realtime.connectionState()" />
+    }
     <main id="app-shell-main-content" class="app-shell__main" aria-label="Main content" tabindex="-1">
       <router-outlet />
     </main>

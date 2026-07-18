@@ -54,6 +54,7 @@ test.describe('MVP0 real backend browser smoke', () => {
 
     try {
       await loginAndVerifySession(page, evidence);
+      await verifyRealtimeTransportReconnect(page, evidence);
       await assertCsrfRejectsMissingToken(page, evidence);
       await openWorkspaces(page, evidence);
       await createDirectMessageAndVerifyPersistence(page, evidence);
@@ -75,9 +76,26 @@ test.describe('MVP0 real backend browser smoke', () => {
       });
     }
   });
+
+  test('keeps authenticated HTTP requests available when the Hub cannot connect', async ({ page }, testInfo) => {
+    await page.addInitScript(() => {
+      window.__AIP_FEATURE_FLAGS__ = { 'realtime.signalR': true };
+    });
+    await page.route('**/hubs/app/**', (route) => route.abort());
+    const evidence: SmokeEvidence = { baseURL: String(testInfo.project.use.baseURL ?? ''), email: smokeEmail, steps: [], pageErrors: [], consoleErrors: [], failedApiResponses: [] };
+
+    await loginAndVerifySession(page, evidence);
+    await expect(page.getByTestId('realtime-connection-state')).toContainText('Realtime updates are delayed');
+    await recordFetchJson(page, evidence, 'degraded-http-auth-status', '/api/auth/status', {
+      validate: (body) => body && typeof body === 'object' && (body as Record<string, unknown>).isAuthenticated === true
+    });
+  });
 });
 
 async function loginAndVerifySession(page: Page, evidence: SmokeEvidence) {
+  await page.addInitScript(() => {
+    window.__AIP_FEATURE_FLAGS__ = { 'realtime.signalR': true };
+  });
   await page.goto('/app/login');
   await expect(page.getByTestId('login-page')).toBeVisible();
   await recordFetchJson(page, evidence, 'csrf-token', '/api/security/csrf-token', {
@@ -112,6 +130,19 @@ async function loginAndVerifySession(page: Page, evidence: SmokeEvidence) {
       Array.isArray((body as Record<string, unknown>).workspaces) &&
       hasCapability(body, 'projects:view')
   });
+}
+
+async function verifyRealtimeTransportReconnect(page: Page, evidence: SmokeEvidence) {
+  const indicator = page.getByTestId('realtime-connection-state');
+  await expect(indicator).toContainText('Realtime updates connected.', { timeout: 30_000 });
+
+  await page.context().setOffline(true);
+  await expect(indicator).toContainText('Offline.', { timeout: 10_000 });
+  evidence.steps.push({ name: 'realtime-forced-disconnect', status: 0 });
+
+  await page.context().setOffline(false);
+  await expect(indicator).toContainText('Realtime updates connected.', { timeout: 30_000 });
+  evidence.steps.push({ name: 'realtime-reconnected-and-reauthorized', status: 200 });
 }
 
 async function assertCsrfRejectsMissingToken(page: Page, evidence: SmokeEvidence) {
