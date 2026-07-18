@@ -6,6 +6,9 @@ services:
       secrets:
         - source: syncfusion_license
           target: syncfusion_license
+    secrets:
+  　　syncfusion_license:
+    　　file: /srv/aipsite/app/secrets/syncfusion-license.txt
     restart: unless-stopped
     environment:
       ASPNETCORE_ENVIRONMENT: ${ASPNETCORE_ENVIRONMENT:-Development}
