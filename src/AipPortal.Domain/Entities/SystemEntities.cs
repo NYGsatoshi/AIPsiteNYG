@@ -3,6 +3,41 @@ using AipPortal.Domain.Enums;
 
 namespace AipPortal.Domain.Entities;
 
+public sealed class OutboxEvent : AuditableEntity, ITenantEntity
+{
+    public OutboxEvent(Guid id)
+    {
+        if (id == Guid.Empty)
+        {
+            throw new ArgumentException("Outbox event identity is required.", nameof(id));
+        }
+
+        Id = id;
+    }
+
+    public Guid TenantId { get; set; }
+    public string EventType { get; set; } = string.Empty;
+    public int PayloadSchemaVersion { get; set; }
+    public string AggregateType { get; set; } = string.Empty;
+    public Guid AggregateId { get; set; }
+    public long? AggregateVersion { get; set; }
+    public DateTimeOffset OccurredAt { get; set; }
+    public string PayloadJson { get; set; } = string.Empty;
+    public string RoutingJson { get; set; } = string.Empty;
+    public string? CorrelationId { get; set; }
+    public string? CausationId { get; set; }
+    public OutboxEventStatus Status { get; set; } = OutboxEventStatus.Pending;
+    public int AttemptCount { get; set; }
+    public DateTimeOffset? NextAttemptAt { get; set; }
+    public DateTimeOffset? LockedAt { get; set; }
+    public string? LockOwner { get; set; }
+    public Guid? LockToken { get; set; }
+    public DateTimeOffset? DeliveredAt { get; set; }
+    public string? LastErrorCode { get; set; }
+    public string? LastErrorSummary { get; set; }
+    public DateTimeOffset? DeadLetteredAt { get; set; }
+}
+
 public sealed class Attachment : SoftDeletableEntity, ITenantEntity
 {
     public Guid TenantId { get; set; }

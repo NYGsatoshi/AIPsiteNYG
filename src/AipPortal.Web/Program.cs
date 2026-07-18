@@ -11,6 +11,7 @@ using AipPortal.Web.Extensions;
 using AipPortal.Web.Middleware;
 using AipPortal.Web.Models;
 using AipPortal.Web.Security;
+using AipPortal.Web.Realtime;
 using Microsoft.AspNetCore.Authentication.Cookies;
 using Microsoft.AspNetCore.DataProtection;
 using Microsoft.AspNetCore.HttpOverrides;
@@ -49,6 +50,14 @@ builder.Services
     });
 
 builder.Services.AddAuthorization();
+builder.Services.AddSignalR();
+builder.Services.Configure<RealtimeOptions>(builder.Configuration.GetSection("Realtime"));
+builder.Services.AddSingleton<HubSubscriptionRegistry>();
+builder.Services.AddSingleton<RealtimeDiagnostics>();
+builder.Services.AddSingleton<IRealtimeConnectionInvalidator, RealtimeConnectionInvalidator>();
+builder.Services.AddScoped<IHubSubscriptionAuthorizer, HubSubscriptionAuthorizer>();
+builder.Services.AddScoped<IRealtimeDispatchAuthorizer, RealtimeDispatchAuthorizer>();
+builder.Services.AddHostedService<OutboxDispatcher>();
 builder.Services.AddRateLimiter(options =>
 {
     options.RejectionStatusCode = StatusCodes.Status429TooManyRequests;
@@ -244,12 +253,47 @@ if (securityOptions.EnableCsrfProtection)
 app.UseAuthorization();
 
 app.MapControllers();
+app.MapHub<AppHub>("/hubs/app");
 
 app.MapGet("/", () => Results.Redirect($"{AngularSpaFallback.AppRequestPath}/", permanent: false));
 
 app.MapGet("/health", () => Results.Redirect("/health/ready", permanent: false));
 
 app.MapGet("/health/live", () => Results.Ok(new { status = "OK" }));
+
+app.MapGet("/health/realtime", async (
+    AipPortal.Application.Realtime.IOutboxEventRepository outbox,
+    ICurrentTenantAccessor currentTenant,
+    RealtimeDiagnostics diagnostics,
+    IOptions<RealtimeOptions> realtimeOptions,
+    CancellationToken cancellationToken) =>
+{
+    currentTenant.SetPlatformScope();
+    var configured = realtimeOptions.Value;
+    var state = await outbox.GetDiagnosticsAsync(
+        DateTimeOffset.UtcNow.AddSeconds(-Math.Max(1, configured.ProcessingLockSeconds)),
+        cancellationToken);
+    var counters = diagnostics.Snapshot();
+    return Results.Ok(new
+    {
+        status = "OK",
+        backlog = new
+        {
+            pending = state.PendingCount,
+            retryScheduled = state.RetryScheduledCount,
+            deadLetter = state.DeadLetterCount,
+            oldestPendingAt = state.OldestPendingAt,
+            staleProcessing = state.StaleProcessingCount
+        },
+        dispatcher = new
+        {
+            dispatchSuccess = counters.DispatchSuccessCount,
+            dispatchFailure = counters.DispatchFailureCount,
+            failures = counters.DispatcherFailureCount
+        },
+        subscriptions = new { denials = counters.SubscriptionDenialCount }
+    });
+});
 
 app.MapGet("/favicon.ico", () => Results.NoContent());
 

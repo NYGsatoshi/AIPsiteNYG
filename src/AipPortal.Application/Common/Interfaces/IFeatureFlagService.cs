@@ -18,6 +18,9 @@ public static class FeatureKeys
     public const string AuditLogViewer = nameof(AuditLogViewer);
     public const string RadialMenu = nameof(RadialMenu);
     public const string DockingLayout = nameof(DockingLayout);
+    public const string RealtimeSignalR = "realtime.signalR";
+    public const string TransactionalOutbox = "communication.transactional_outbox.enabled";
+    public const string AuthorizedRealtimeGroups = "communication.authorized_groups.required";
 
     public static readonly IReadOnlyList<string> All =
     [
@@ -34,8 +37,22 @@ public static class FeatureKeys
         CustomBranding,
         AuditLogViewer,
         RadialMenu,
-        DockingLayout
+        DockingLayout,
+        RealtimeSignalR,
+        TransactionalOutbox,
+        AuthorizedRealtimeGroups
     ];
+
+    public static string Normalize(string featureKey)
+    {
+        return featureKey.Trim() switch
+        {
+            "RealtimeSignalR" or "realtime.signalr" => RealtimeSignalR,
+            "TransactionalOutbox" or "communication.transactionalOutbox.enabled" => TransactionalOutbox,
+            "AuthorizedRealtimeGroups" or "communication.authorizedGroups.required" => AuthorizedRealtimeGroups,
+            _ => featureKey.Trim()
+        };
+    }
 }
 
 public interface IFeatureFlagService

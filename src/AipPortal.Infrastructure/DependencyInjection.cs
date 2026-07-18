@@ -3,6 +3,7 @@ using AipPortal.Infrastructure.Files;
 using AipPortal.Infrastructure.Audit;
 using AipPortal.Infrastructure.Persistence;
 using AipPortal.Infrastructure.Security;
+using AipPortal.Application.Realtime;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
@@ -44,6 +45,9 @@ public static class DependencyInjection
         services.AddScoped<IPlanningRepository, PlanningRepository>();
         services.AddScoped<IUiShellRepository, UiShellRepository>();
         services.AddScoped<IAnnouncementRepository, AnnouncementRepository>();
+        services.AddScoped<AipPortal.Application.Realtime.IOutboxEventRepository, OutboxEventRepository>();
+        services.AddScoped<ITransactionalOutbox, TransactionalOutbox>();
+        services.AddScoped<IOutboxReplayService, OutboxReplayService>();
         services.AddScoped<IUnitOfWork, EfUnitOfWork>();
         services.Configure<FileStorageOptions>(options =>
         {

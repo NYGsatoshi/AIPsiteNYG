@@ -51,9 +51,14 @@ public sealed class DbSessionCookieAuthenticationEvents(
     private static bool RequiresActiveTenantMembership(HttpContext context)
     {
         var path = context.Request.Path;
-        if (!path.StartsWithSegments("/api"))
+        if (!path.StartsWithSegments("/api") && !path.StartsWithSegments("/hubs"))
         {
             return false;
+        }
+
+        if (path.StartsWithSegments("/hubs"))
+        {
+            return true;
         }
 
         return !path.StartsWithSegments("/api/auth") &&

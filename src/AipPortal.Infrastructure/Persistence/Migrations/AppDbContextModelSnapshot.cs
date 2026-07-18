@@ -1084,9 +1084,6 @@ namespace AipPortal.Infrastructure.Persistence.Migrations
                     b.Property<DateTimeOffset>("CreatedAt")
                         .HasColumnType("timestamp with time zone");
 
-                    b.Property<DateTimeOffset>("JoinedAt")
-                        .HasColumnType("timestamp with time zone");
-
                     b.Property<bool>("IsArchived")
                         .ValueGeneratedOnAdd()
                         .HasColumnType("boolean")
@@ -1096,6 +1093,9 @@ namespace AipPortal.Infrastructure.Persistence.Migrations
                         .ValueGeneratedOnAdd()
                         .HasColumnType("boolean")
                         .HasDefaultValue(false);
+
+                    b.Property<DateTimeOffset>("JoinedAt")
+                        .HasColumnType("timestamp with time zone");
 
                     b.Property<DateTimeOffset?>("LastOpenedAt")
                         .HasColumnType("timestamp with time zone");
@@ -1123,11 +1123,11 @@ namespace AipPortal.Infrastructure.Persistence.Migrations
                     b.Property<Guid>("TenantId")
                         .HasColumnType("uuid");
 
-                    b.Property<DateTimeOffset?>("UpdatedAt")
-                        .HasColumnType("timestamp with time zone");
-
                     b.Property<Guid?>("UnreadCursorMessageId")
                         .HasColumnType("uuid");
+
+                    b.Property<DateTimeOffset?>("UpdatedAt")
+                        .HasColumnType("timestamp with time zone");
 
                     b.Property<Guid>("UserId")
                         .HasColumnType("uuid");
@@ -2480,6 +2480,131 @@ namespace AipPortal.Infrastructure.Persistence.Migrations
                     b.HasIndex("TenantId", "UserId", "IsRead", "CreatedAt");
 
                     b.ToTable("notifications", (string)null);
+                });
+
+            modelBuilder.Entity("AipPortal.Domain.Entities.OutboxEvent", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("uuid");
+
+                    b.Property<Guid>("AggregateId")
+                        .HasColumnType("uuid");
+
+                    b.Property<string>("AggregateType")
+                        .IsRequired()
+                        .HasMaxLength(100)
+                        .HasColumnType("character varying(100)");
+
+                    b.Property<long?>("AggregateVersion")
+                        .HasColumnType("bigint");
+
+                    b.Property<int>("AttemptCount")
+                        .HasColumnType("integer");
+
+                    b.Property<string>("CausationId")
+                        .HasMaxLength(200)
+                        .HasColumnType("character varying(200)");
+
+                    b.Property<string>("CorrelationId")
+                        .HasMaxLength(200)
+                        .HasColumnType("character varying(200)");
+
+                    b.Property<DateTimeOffset>("CreatedAt")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<DateTimeOffset?>("DeadLetteredAt")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<DateTimeOffset?>("DeliveredAt")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<string>("EventType")
+                        .IsRequired()
+                        .HasMaxLength(160)
+                        .HasColumnType("character varying(160)");
+
+                    b.Property<string>("LastErrorCode")
+                        .HasMaxLength(100)
+                        .HasColumnType("character varying(100)");
+
+                    b.Property<string>("LastErrorSummary")
+                        .HasMaxLength(1000)
+                        .HasColumnType("character varying(1000)");
+
+                    b.Property<string>("LockOwner")
+                        .HasMaxLength(160)
+                        .HasColumnType("character varying(160)");
+
+                    b.Property<Guid?>("LockToken")
+                        .HasColumnType("uuid");
+
+                    b.Property<DateTimeOffset?>("LockedAt")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<DateTimeOffset?>("NextAttemptAt")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<DateTimeOffset>("OccurredAt")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<string>("PayloadJson")
+                        .IsRequired()
+                        .HasMaxLength(65536)
+                        .HasColumnType("jsonb");
+
+                    b.Property<int>("PayloadSchemaVersion")
+                        .HasColumnType("integer");
+
+                    b.Property<string>("RoutingJson")
+                        .IsRequired()
+                        .HasMaxLength(8192)
+                        .HasColumnType("jsonb");
+
+                    b.Property<string>("Status")
+                        .IsRequired()
+                        .HasMaxLength(40)
+                        .HasColumnType("character varying(40)");
+
+                    b.Property<Guid>("TenantId")
+                        .HasColumnType("uuid");
+
+                    b.Property<DateTimeOffset?>("UpdatedAt")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("CreatedAt");
+
+                    b.HasIndex("DeadLetteredAt")
+                        .HasFilter("\"Status\" = 'DeadLetter'");
+
+                    b.HasIndex("DeliveredAt")
+                        .HasFilter("\"Status\" = 'Delivered'");
+
+                    b.HasIndex("LockedAt")
+                        .HasFilter("\"Status\" = 'Processing'");
+
+                    b.HasIndex("TenantId");
+
+                    b.HasIndex("AggregateType", "AggregateId", "AggregateVersion");
+
+                    b.HasIndex("Status", "NextAttemptAt", "CreatedAt");
+
+                    b.HasIndex("TenantId", "Status", "CreatedAt");
+
+                    b.ToTable("outbox_events", null, t =>
+                        {
+                            t.HasCheckConstraint("CK_outbox_events_attempt_count", "\"AttemptCount\" >= 0");
+
+                            t.HasCheckConstraint("CK_outbox_events_dead_lettered_at", "\"Status\" <> 'DeadLetter' OR \"DeadLetteredAt\" IS NOT NULL");
+
+                            t.HasCheckConstraint("CK_outbox_events_delivered_at", "\"Status\" <> 'Delivered' OR \"DeliveredAt\" IS NOT NULL");
+
+                            t.HasCheckConstraint("CK_outbox_events_lock_fields", "(\"LockedAt\" IS NULL AND \"LockOwner\" IS NULL AND \"LockToken\" IS NULL) OR (\"LockedAt\" IS NOT NULL AND \"LockOwner\" IS NOT NULL AND \"LockToken\" IS NOT NULL)");
+
+                            t.HasCheckConstraint("CK_outbox_events_payload_schema_version", "\"PayloadSchemaVersion\" > 0");
+                        });
                 });
 
             modelBuilder.Entity("AipPortal.Domain.Entities.PanelDefinition", b =>
@@ -4492,15 +4617,15 @@ namespace AipPortal.Infrastructure.Persistence.Migrations
                         .HasForeignKey("LastReadMessageId")
                         .OnDelete(DeleteBehavior.SetNull);
 
-                    b.HasOne("AipPortal.Domain.Entities.Message", "UnreadCursorMessage")
-                        .WithMany()
-                        .HasForeignKey("UnreadCursorMessageId")
-                        .OnDelete(DeleteBehavior.SetNull);
-
                     b.HasOne("AipPortal.Domain.Entities.User", "RemovedByUser")
                         .WithMany()
                         .HasForeignKey("RemovedByUserId")
                         .OnDelete(DeleteBehavior.Restrict);
+
+                    b.HasOne("AipPortal.Domain.Entities.Message", "UnreadCursorMessage")
+                        .WithMany()
+                        .HasForeignKey("UnreadCursorMessageId")
+                        .OnDelete(DeleteBehavior.SetNull);
 
                     b.HasOne("AipPortal.Domain.Entities.User", "User")
                         .WithMany()

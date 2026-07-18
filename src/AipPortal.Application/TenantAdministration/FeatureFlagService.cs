@@ -16,7 +16,7 @@ public sealed class FeatureFlagService(
         }
 
         var enabled = await GetEnabledFeaturesAsync(currentTenant.TenantId, cancellationToken);
-        return enabled.Contains(featureKey, StringComparer.OrdinalIgnoreCase);
+        return enabled.Contains(FeatureKeys.Normalize(featureKey), StringComparer.OrdinalIgnoreCase);
     }
 
     public async Task<Result> RequireEnabledAsync(string featureKey, CancellationToken cancellationToken = default)
@@ -55,7 +55,7 @@ public sealed class FeatureFlagService(
         {
             var values = JsonSerializer.Deserialize<string[]>(json);
             return values is { Length: > 0 }
-                ? values.ToHashSet(StringComparer.OrdinalIgnoreCase)
+                ? values.Select(FeatureKeys.Normalize).ToHashSet(StringComparer.OrdinalIgnoreCase)
                 : new HashSet<string>(StringComparer.OrdinalIgnoreCase);
         }
         catch (JsonException)
@@ -81,13 +81,14 @@ public sealed class FeatureFlagService(
 
             foreach (var (key, isEnabled) in overrides)
             {
+                var normalizedKey = FeatureKeys.Normalize(key);
                 if (isEnabled)
                 {
-                    enabled.Add(key);
+                    enabled.Add(normalizedKey);
                 }
                 else
                 {
-                    enabled.Remove(key);
+                    enabled.Remove(normalizedKey);
                 }
             }
         }
