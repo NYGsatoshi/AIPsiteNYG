@@ -4,7 +4,8 @@ services:
       context: .
       dockerfile: Dockerfile
       secrets:
-        - syncfusion_license
+        - source: syncfusion_license
+          target: syncfusion_license
     restart: unless-stopped
     environment:
       ASPNETCORE_ENVIRONMENT: ${ASPNETCORE_ENVIRONMENT:-Development}
