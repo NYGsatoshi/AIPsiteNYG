@@ -1,6 +1,7 @@
 import assert from 'node:assert/strict';
 import { spawnSync } from 'node:child_process';
-import { dirname, join } from 'node:path';
+import { readdir, readFile } from 'node:fs/promises';
+import { dirname, join, resolve } from 'node:path';
 import test from 'node:test';
 import { fileURLToPath } from 'node:url';
 
@@ -8,6 +9,15 @@ const scriptPath = join(
   dirname(fileURLToPath(import.meta.url)),
   'require-syncfusion-license.mjs'
 );
+const repositoryRoot = resolve(dirname(scriptPath), '..', '..');
+
+async function typescriptFiles(directory) {
+  const entries = await readdir(directory, { withFileTypes: true });
+  return (await Promise.all(entries.map((entry) => {
+    const path = join(directory, entry.name);
+    return entry.isDirectory() ? typescriptFiles(path) : path.endsWith('.ts') ? [path] : [];
+  }))).flat();
+}
 
 function runLicenseCheck(value, includeVariable = true) {
   const env = { ...process.env };
@@ -48,4 +58,16 @@ test('accepts a non-empty license without printing it', () => {
   assert.equal(result.stderr, '');
   assert.equal(result.stdout.includes(license), false);
   assert.equal(result.stderr.includes(license), false);
+});
+
+test('keeps runtime license registration out of active and legacy browser sources', async () => {
+  for (const sourceRoot of [
+    join(repositoryRoot, 'frontend', 'src'),
+    join(repositoryRoot, 'aipsite-frontend', 'src')
+  ]) {
+    for (const path of await typescriptFiles(sourceRoot)) {
+      const source = await readFile(path, 'utf8');
+      assert.doesNotMatch(source, /\bregisterLicense\s*\(/u, `${path} must not register a license in browser code`);
+    }
+  }
 });
