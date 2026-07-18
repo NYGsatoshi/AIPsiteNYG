@@ -24,99 +24,11 @@
     </section>
   } @else if (vm.status === 'empty' || vm.projects.length === 0) {
     <app-empty-state title="No projects" message="No authorized project records were returned by the API." />
+  } @else if (designSystemV04Enabled()) {
+    <app-project-summary-panel [projects]="vm.projects" />
+    <p class="projects-page__discovery-note">Choose a project to view its authorized overview, tasks, schedule, workload, and members.</p>
   } @else {
     <app-project-summary-panel [projects]="vm.projects" />
-
-    <section class="projects-page__create" data-testid="task-create-form">
-      <div>
-        <h2>Create task</h2>
-        @if (canCreateInAnyProject(vm.projects)) {
-          <p>Creates a task through the selected project backend API.</p>
-        } @else {
-          <p data-testid="task-create-disabled-reason">
-            Task creation is disabled because the backend did not grant create permission on any visible project.
-          </p>
-        }
-      </div>
-
-      @if (createMutationState().status === 'failure') {
-        <p class="projects-page__create-error" role="alert" data-testid="task-create-error">
-          {{ createMutationState().message }}
-        </p>
-      }
-
-      @if (createMutationState().status === 'success') {
-        <p class="projects-page__create-success" data-testid="task-create-success">Task created.</p>
-      }
-
-      <form [formGroup]="createForm" (ngSubmit)="submitCreateTask()">
-        <label>
-          <span>Project</span>
-          <select formControlName="projectId" data-testid="task-create-project-select">
-            <option value="">Select project</option>
-            @for (project of vm.projects; track project.id) {
-              <option [value]="project.id" [disabled]="!project.canCreateTask">
-                {{ project.name }}
-              </option>
-            }
-          </select>
-        </label>
-
-        <label>
-          <span>Title</span>
-          <input type="text" formControlName="title" data-testid="task-create-title-input" />
-        </label>
-
-        <label>
-          <span>Priority</span>
-          <select formControlName="priority" data-testid="task-create-priority-select">
-            @for (priority of priorities; track priority.value) {
-              <option [value]="priority.value">{{ priority.label }}</option>
-            }
-          </select>
-        </label>
-
-        <label>
-          <span>Start date</span>
-          <input type="date" formControlName="startDate" data-testid="task-create-start-date-input" />
-        </label>
-
-        <label>
-          <span>Due date</span>
-          <input type="date" formControlName="dueDate" data-testid="task-create-due-date-input" />
-        </label>
-
-        <label class="projects-page__create-description">
-          <span>Description</span>
-          <textarea formControlName="description" rows="3" data-testid="task-create-description-input"></textarea>
-        </label>
-
-        <button
-          type="submit"
-          data-testid="task-create-submit"
-          [disabled]="createForm.invalid || createMutationState().status === 'submitting' || !canCreateInAnyProject(vm.projects)"
-        >
-          {{ createMutationState().status === 'submitting' ? 'Creating...' : 'Create task' }}
-        </button>
-      </form>
-    </section>
-
-    <section class="projects-page__tasks">
-      <div>
-        <h2>Project tasks</h2>
-        <p>Rows are loaded from project task APIs scoped by backend authorization.</p>
-      </div>
-
-      @if (vm.rows.length > 0) {
-        <app-task-table
-          [rows]="vm.rows"
-          [defaultPageSize]="vm.pageSize.defaultPageSize"
-          [maximumPageSize]="vm.pageSize.maximumPageSize"
-          (actionInvoked)="handleTaskAction($event)"
-        />
-      } @else {
-        <app-empty-state title="No tasks" message="No authorized task records were returned by the API." />
-      }
-    </section>
+    <p data-testid="projects-legacy-rollback">The previous project overview remains available while this screen rebuild is rolled back.</p>
   }
 </section>

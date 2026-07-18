@@ -1,18 +1,20 @@
 import { Component, Input } from '@angular/core';
+import { RouterLink } from '@angular/router';
 
 import { ProjectSummaryViewModel } from '../projects.types';
 
 @Component({
   selector: 'app-project-summary-panel',
   standalone: true,
+  imports: [RouterLink],
   template: `
     <section class="project-summary-panel" data-testid="project-summary-panel">
       @for (project of projects; track project.id) {
         <article class="project-summary-panel__item" data-testid="project-summary-card">
-          <div>
+          <a [routerLink]="['/projects', project.id]" [attr.aria-label]="'Open ' + project.name">
             <h2>{{ project.name }}</h2>
             <p>{{ project.group }}</p>
-          </div>
+          </a>
           <dl>
             <div>
               <dt>Status</dt>
@@ -61,6 +63,8 @@ import { ProjectSummaryViewModel } from '../projects.types';
       .project-summary-panel h2 {
         font-size: 1.05rem;
       }
+
+      .project-summary-panel a { color: inherit; text-decoration: none; }
 
       .project-summary-panel p,
       .project-summary-panel dt {

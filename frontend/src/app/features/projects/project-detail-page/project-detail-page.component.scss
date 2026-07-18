@@ -1,0 +1,7 @@
+.project-detail-page { display: grid; gap: var(--aip-space-4); }
+.project-detail-page header p { margin: 0; color: var(--aip-color-text-secondary); }
+.project-detail-page h1, .project-detail-page h2 { margin: 0; }
+.project-detail-page__tabs { display: flex; flex-wrap: wrap; gap: var(--aip-space-2); }
+.project-detail-page__tabs button[aria-selected='true'] { background: var(--aip-color-bg-selected); color: var(--aip-color-text-primary); }
+.project-detail-page__records { display: grid; gap: var(--aip-space-2); margin: 0; padding: 0; list-style: none; }
+.project-detail-page__records li { display: grid; gap: var(--aip-space-1); padding: var(--aip-space-3); border: 1px solid var(--aip-color-border-default); border-radius: var(--aip-radius-md); }

@@ -21,12 +21,20 @@
     </section>
   } @else if (vm.status === 'empty' || vm.rows.length === 0) {
     <app-empty-state title="No tasks" message="No tasks assigned to you were returned by the backend." />
+  } @else if (!designSystemV04Enabled()) {
+    <app-task-table [rows]="vm.rows" [defaultPageSize]="vm.pageSize.defaultPageSize" [maximumPageSize]="vm.pageSize.maximumPageSize" (actionInvoked)="handleTaskAction($event)" />
   } @else {
-    <app-task-table
-      [rows]="vm.rows"
-      [defaultPageSize]="vm.pageSize.defaultPageSize"
-      [maximumPageSize]="vm.pageSize.maximumPageSize"
-      (actionInvoked)="handleTaskAction($event)"
-    />
+    <fieldset class="my-tasks-page__views" aria-label="Task view">
+      <legend>View</legend>
+      <button type="button" [attr.aria-pressed]="projection() === 'list'" (click)="setProjection('list')">List</button>
+      <button type="button" [attr.aria-pressed]="projection() === 'kanban'" (click)="setProjection('kanban')">Kanban</button>
+    </fieldset>
+    @if (projection() === 'list') {
+      <ul class="my-tasks-page__list" data-testid="my-tasks-semantic-list">
+        @for (row of vm.rows; track row.id) { <li><button type="button" (click)="handleTaskAction({ actionId: 'openDetail', row })"><strong>{{ row.title }}</strong><span>{{ row.project }} · {{ row.statusLabel }} · {{ row.priorityLabel }}</span></button></li> }
+      </ul>
+    } @else {
+      <aip-kanban [contract]="kanbanContract(vm.rows)" data-testid="my-tasks-kanban" />
+    }
   }
 </section>

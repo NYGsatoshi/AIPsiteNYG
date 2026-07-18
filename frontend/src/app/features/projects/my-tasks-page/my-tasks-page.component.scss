@@ -5,6 +5,11 @@
   color: var(--aip-color-text-primary);
 }
 
+.my-tasks-page__views { display: flex; gap: var(--aip-space-2); margin: 0 0 var(--aip-space-3); padding: 0; border: 0; }
+.my-tasks-page__views legend { position: absolute; inline-size: 1px; block-size: 1px; overflow: hidden; clip: rect(0 0 0 0); }
+.my-tasks-page__list { display: grid; gap: var(--aip-space-2); margin: 0; padding: 0; list-style: none; }
+.my-tasks-page__list button { display: grid; width: 100%; gap: var(--aip-space-1); text-align: start; }
+
 .my-tasks-page header {
   display: grid;
   gap: 0.25rem;

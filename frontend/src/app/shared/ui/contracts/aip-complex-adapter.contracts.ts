@@ -63,13 +63,39 @@ export interface AipDateTimePickerContract extends AipAdapterShellContract {
 export interface AipKanbanContract<TItem> extends AipAdapterShellContract {
   readonly items: readonly TItem[];
   readonly itemIdentity: (item: TItem) => string;
-  readonly allowedTransitions: readonly string[];
+  readonly columns: readonly AipKanbanColumn[];
+  readonly itemTitle: (item: TItem) => string;
+  readonly itemStatus: (item: TItem) => string;
+  readonly itemDescription?: (item: TItem) => string;
+  /** Command proposals are enabled only when the backend exposes permission. */
+  readonly canRequestTransition: (item: TItem, targetStatus: string) => boolean;
+}
+
+export interface AipKanbanColumn {
+  readonly id: string;
+  readonly label: string;
+}
+
+export interface AipKanbanTransitionRequest<TItem> {
+  readonly item: TItem;
+  readonly targetStatus: string;
+  readonly source: 'drag' | 'keyboard';
 }
 
 export interface AipGanttContract<TTask> extends AipAdapterShellContract {
   readonly tasks: readonly TTask[];
+  readonly taskIdentity: (task: TTask) => string;
+  readonly taskLabel: (task: TTask) => string;
+  readonly milestones: readonly AipGanttMilestone[];
   readonly timezone: string;
   readonly readOnly: boolean;
+}
+
+export interface AipGanttMilestone {
+  readonly id: string;
+  readonly title: string;
+  readonly dueDate: string | null;
+  readonly status: string;
 }
 
 export interface AipTreeGridContract<TItem> extends AipAdapterShellContract {
