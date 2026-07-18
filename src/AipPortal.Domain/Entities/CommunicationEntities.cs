@@ -49,6 +49,22 @@ public sealed class Notification : Entity, ITenantEntity
     public DateTimeOffset? ReadAt { get; set; }
     public DateTimeOffset CreatedAt { get; set; }
     public DateTimeOffset? DeletedAt { get; set; }
+    public long StateVersion { get; set; }
+
+    public User? User { get; set; }
+}
+
+/// <summary>
+/// Monotonic, recipient-private ordering token for notification state changes.
+/// It is deliberately separate from a notification row so all-read and delete
+/// operations can be reconciled safely across the user's tabs and devices.
+/// </summary>
+public sealed class NotificationUserState : Entity, ITenantEntity
+{
+    public Guid TenantId { get; set; }
+    public Guid UserId { get; set; }
+    public long Version { get; set; }
+    public DateTimeOffset UpdatedAt { get; set; }
 
     public User? User { get; set; }
 }

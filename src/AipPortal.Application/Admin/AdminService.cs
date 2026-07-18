@@ -3,6 +3,7 @@ using System.Security.Cryptography;
 using AipPortal.Application.Auth;
 using AipPortal.Application.Common;
 using AipPortal.Application.Common.Interfaces;
+using AipPortal.Application.Realtime;
 using AipPortal.Domain.Entities;
 using AipPortal.Domain.Enums;
 
@@ -15,7 +16,9 @@ public sealed class AdminService(
     ICurrentUser currentUser,
     IClock clock,
     IUserSessionService userSessions,
-    IUnitOfWork unitOfWork) : IAdminService
+    IUnitOfWork unitOfWork,
+    ICurrentTenant? currentTenant = null,
+    IAuthorizationStateChangePublisher? authorizationChanges = null) : IAdminService
 {
     private const int DefaultPageSize = 50;
     private const int MaxPageSize = 200;
@@ -209,6 +212,7 @@ public sealed class AdminService(
                 ["newRole"] = user.SystemRole.ToString()
             }), cancellationToken);
         await userSessions.RevokeUserSessionsAsync(user.Id, currentUser.UserId, "SystemRoleChanged", cancellationToken: cancellationToken);
+        await PublishAccountAuthorizationChangeAsync(user.Id, "membershipChanged", cancellationToken);
         await unitOfWork.SaveChangesAsync(cancellationToken);
         return Result<AdminUserDetailResponse>.Success(ToUserDetail(user));
     }
@@ -526,6 +530,8 @@ public sealed class AdminService(
             await userSessions.RevokeUserSessionsAsync(user.Id, currentUser.UserId, action, cancellationToken: cancellationToken);
         }
 
+        await PublishAccountAuthorizationChangeAsync(user.Id, status == UserStatus.Active ? "activated" : "suspended", cancellationToken);
+
         await unitOfWork.SaveChangesAsync(cancellationToken);
         return Result.Success();
     }
@@ -544,6 +550,16 @@ public sealed class AdminService(
     private Task AuditAsync(string action, string entityType, Guid? entityId, string? summary, CancellationToken cancellationToken)
     {
         return auditLogger.LogAsync(new AuditLogEntry(currentUser.UserId, action, entityType, entityId, summary), cancellationToken);
+    }
+
+    private Task PublishAccountAuthorizationChangeAsync(Guid userId, string change, CancellationToken cancellationToken)
+    {
+        if (currentTenant is null || !currentTenant.IsAvailable || authorizationChanges is null)
+        {
+            return Task.CompletedTask;
+        }
+
+        return authorizationChanges.PublishAsync(currentTenant.TenantId, userId, "account", null, change, cancellationToken);
     }
 
     private static AdminUserDetailResponse ToUserDetail(User user)

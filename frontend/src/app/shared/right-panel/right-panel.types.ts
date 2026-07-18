@@ -46,6 +46,7 @@ export interface RightPanelNotification {
   readonly body: string;
   readonly target: RightPanelNotificationTarget;
   readonly read: boolean;
+  readonly stateVersion?: number;
 }
 
 export interface RightPanelViewModel {

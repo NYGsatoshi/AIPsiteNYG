@@ -1,5 +1,6 @@
 using AipPortal.Application.Common;
 using AipPortal.Application.Common.Interfaces;
+using AipPortal.Application.Realtime;
 using AipPortal.Domain.Entities;
 using AipPortal.Domain.Enums;
 
@@ -12,7 +13,9 @@ public sealed class WorkspaceService(
     ICurrentUser currentUser,
     IClock clock,
     IAuditLogger auditLogger,
-    IUnitOfWork unitOfWork) : IWorkspaceService
+    IUnitOfWork unitOfWork,
+    ICurrentTenant? currentTenant = null,
+    IAuthorizationStateChangePublisher? authorizationChanges = null) : IWorkspaceService
 {
     public async Task<Result<IReadOnlyList<WorkspaceListItemResponse>>> ListAsync(CancellationToken cancellationToken = default)
     {
@@ -202,6 +205,7 @@ public sealed class WorkspaceService(
 
         await workspaces.AddMemberAsync(member, cancellationToken);
         await AuditAsync(actorUserId, "WorkspaceMemberAdded", workspaceId, cancellationToken);
+        await PublishAuthorizationChangeAsync(member.UserId, workspaceId, "granted", cancellationToken);
         await unitOfWork.SaveChangesAsync(cancellationToken);
         return Result<WorkspaceMemberResponse>.Success(ToMember(member));
     }
@@ -222,6 +226,7 @@ public sealed class WorkspaceService(
         member.Role = request.Role;
         member.Status = request.Status ?? member.Status;
         await AuditAsync(actorUserId, "WorkspaceMemberRoleChanged", workspaceId, cancellationToken);
+        await PublishAuthorizationChangeAsync(member.UserId, workspaceId, member.Status == MembershipStatus.Active ? "membershipChanged" : "suspended", cancellationToken);
         await unitOfWork.SaveChangesAsync(cancellationToken);
         return Result<WorkspaceMemberResponse>.Success(ToMember(member));
     }
@@ -241,6 +246,7 @@ public sealed class WorkspaceService(
 
         member.Status = MembershipStatus.Suspended;
         await AuditAsync(actorUserId, "WorkspaceMemberRemoved", workspaceId, cancellationToken);
+        await PublishAuthorizationChangeAsync(userId, workspaceId, "revoked", cancellationToken);
         await unitOfWork.SaveChangesAsync(cancellationToken);
         return Result.Success();
     }
@@ -254,6 +260,22 @@ public sealed class WorkspaceService(
     private Task AuditAsync(Guid actorUserId, string action, Guid targetId, CancellationToken cancellationToken)
     {
         return auditLogger.LogAsync(new AuditLogEntry(actorUserId, action, "Workspace", targetId), cancellationToken);
+    }
+
+    private Task PublishAuthorizationChangeAsync(Guid userId, Guid workspaceId, string change, CancellationToken cancellationToken)
+    {
+        if (currentTenant is null || !currentTenant.IsAvailable || authorizationChanges is null)
+        {
+            return Task.CompletedTask;
+        }
+
+        return authorizationChanges.PublishAsync(
+            currentTenant.TenantId,
+            userId,
+            "workspace",
+            workspaceId,
+            change,
+            cancellationToken) ?? Task.CompletedTask;
     }
 
     private static WorkspaceListItemResponse ToListItem(Workspace workspace)

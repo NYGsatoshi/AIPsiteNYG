@@ -15,6 +15,7 @@ using AipPortal.Application.Messaging;
 using AipPortal.Application.Notifications;
 using AipPortal.Application.Planning;
 using AipPortal.Application.Projects;
+using AipPortal.Application.Realtime;
 using AipPortal.Application.Search;
 using AipPortal.Application.StudentRecords;
 using AipPortal.Application.Tenancy;
@@ -42,6 +43,7 @@ public static class DependencyInjection
         services.AddScoped<ITenantAdministrationService, TenantAdministrationService>();
         services.AddScoped<IAuthService, AuthService>();
         services.AddScoped<IUserSessionService, UserSessionService>();
+        services.AddScoped<IAuthorizationStateChangePublisher, AuthorizationStateChangePublisher>();
         services.AddScoped<IAdminService, AdminService>();
         services.AddScoped<IWorkspaceAuthorizationService, WorkspaceAuthorizationService>();
         services.AddScoped<IGroupAuthorizationService, GroupAuthorizationService>();
