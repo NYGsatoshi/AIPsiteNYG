@@ -82,7 +82,8 @@ Project references enforce a conventional dependency direction. See `docs/ARCHIT
 | API token records and validator | Foundation only | No request authentication handler, tenant binding, or scope middleware |
 | Webhook records and validation | Foundation only | “Test” validates configuration and sends no outbound request |
 | UI shell data model | Foundation only | Modules/panels/layouts/commands/radial-menu APIs exist; radial UI control is disabled |
-| Billing/payments, SSO/MFA, realtime, background jobs | Planned | No implementation found |
+| SignalR and transactional Outbox | Foundation implemented | Authenticated `/hubs/app`, server-authorized subscriptions, durable Outbox persistence, dispatcher retry/dead-letter/retention, and diagnostics exist; feature mutations do not yet emit realtime events and Angular transport is not implemented |
+| Billing/payments, SSO/MFA, background jobs | Planned | No implementation found |
 
 ## Status groups
 

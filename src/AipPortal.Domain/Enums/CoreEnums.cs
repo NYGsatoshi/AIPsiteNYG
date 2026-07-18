@@ -304,6 +304,16 @@ public enum SecurityEventSeverity
     Critical = 2
 }
 
+public enum OutboxEventStatus
+{
+    Pending = 0,
+    Processing = 1,
+    Delivered = 2,
+    RetryScheduled = 3,
+    DeadLetter = 4,
+    Cancelled = 5
+}
+
 public enum ProjectStatus
 {
     Planning = 0,

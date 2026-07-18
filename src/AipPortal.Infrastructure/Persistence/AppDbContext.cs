@@ -65,6 +65,7 @@ public sealed class AppDbContext(
     public DbSet<FileScanResult> FileScanResults => Set<FileScanResult>();
     public DbSet<AuditLog> AuditLogs => Set<AuditLog>();
     public DbSet<SecurityEvent> SecurityEvents => Set<SecurityEvent>();
+    public DbSet<OutboxEvent> OutboxEvents => Set<OutboxEvent>();
     public DbSet<SystemSetting> SystemSettings => Set<SystemSetting>();
     public DbSet<FeatureModule> FeatureModules => Set<FeatureModule>();
     public DbSet<PanelDefinition> PanelDefinitions => Set<PanelDefinition>();
