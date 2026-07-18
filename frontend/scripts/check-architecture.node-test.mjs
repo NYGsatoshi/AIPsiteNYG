@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
 
-import { findDisallowedSyncfusionImports } from './check-architecture.mjs';
+import { findDisallowedSignalrImports, findDisallowedSyncfusionImports } from './check-architecture.mjs';
 
 test('rejects direct Syncfusion imports from a feature path', () => {
   const offenders = findDisallowedSyncfusionImports([
@@ -27,4 +27,19 @@ test('allows Syncfusion imports only in approved adapter locations', () => {
   ]);
 
   assert.deepEqual(offenders, []);
+});
+
+test('rejects direct SignalR imports outside the realtime transport adapter', () => {
+  const offenders = findDisallowedSignalrImports([
+    {
+      path: '/repo/frontend/src/app/features/messaging/messaging.facade.ts',
+      source: "import { HubConnectionBuilder } from '@microsoft/signalr';"
+    },
+    {
+      path: '/repo/frontend/src/app/core/realtime/signalr-realtime.transport.ts',
+      source: "import { HubConnectionBuilder } from '@microsoft/signalr';"
+    }
+  ]);
+
+  assert.deepEqual(offenders, ['/repo/frontend/src/app/features/messaging/messaging.facade.ts']);
 });

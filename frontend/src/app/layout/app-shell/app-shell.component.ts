@@ -15,6 +15,8 @@ import { NavigationEnd, Router, RouterOutlet } from '@angular/router';
 import { filter } from 'rxjs';
 
 import { AuthSessionFacade } from '../../core/auth/auth-session.facade';
+import { RealtimeConnectionIndicatorComponent } from '../../core/realtime/realtime-connection-indicator.component';
+import { RealtimeFacade } from '../../core/realtime/realtime.facade';
 import { RightPanelComponent } from '../../shared/right-panel/right-panel/right-panel.component';
 import { AccountRailComponent } from '../account-rail/account-rail.component';
 import { FeatureMenuComponent } from '../feature-menu/feature-menu.component';
@@ -30,6 +32,7 @@ import { AppShellFacade } from './app-shell.facade';
     A11yModule,
     FeatureMenuComponent,
     MobileHeaderComponent,
+    RealtimeConnectionIndicatorComponent,
     RightPanelComponent,
     RouterOutlet,
     TopBarComponent
@@ -41,6 +44,7 @@ export class AppShellComponent implements AfterViewChecked {
   private readonly destroyRef = inject(DestroyRef);
   private readonly router = inject(Router);
   private readonly authSession = inject(AuthSessionFacade);
+  readonly realtime = inject(RealtimeFacade);
   readonly facade = inject(AppShellFacade);
   private readonly mobileDrawer = viewChild<ElementRef<HTMLElement>>('mobileDrawer');
 

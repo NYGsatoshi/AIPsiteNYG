@@ -99,8 +99,10 @@ jobs:
             frontend/package-lock.json
             tools/frontend-inspections/package.json
 
-      - name: Set up npm
-        run: npm install --global npm@11.17.0
+      - name: Report Node toolchain
+        run: |
+          node --version
+          npm --version
 
       - name: Install repository test dependencies
         run: npm ci --no-audit --no-fund
