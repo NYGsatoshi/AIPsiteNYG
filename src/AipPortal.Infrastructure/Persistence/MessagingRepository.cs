@@ -146,6 +146,19 @@ public sealed class MessagingRepository(AppDbContext dbContext) : IMessagingRepo
         return dbContext.Messages.Include(m => m.AuthorUser).Include(m => m.Attachments).ThenInclude(a => a.Attachment).FirstOrDefaultAsync(m => m.Id == messageId, cancellationToken);
     }
 
+    public Task<Message?> FindMessageByClientRequestIdAsync(Guid conversationId, Guid authorUserId, Guid clientRequestId, CancellationToken cancellationToken = default)
+    {
+        return dbContext.Messages
+            .Include(m => m.AuthorUser)
+            .Include(m => m.Attachments)
+            .ThenInclude(a => a.Attachment)
+            .FirstOrDefaultAsync(m =>
+                m.ConversationId == conversationId &&
+                m.AuthorUserId == authorUserId &&
+                m.ClientRequestId == clientRequestId,
+                cancellationToken);
+    }
+
     public Task<ReadState?> GetReadStateAsync(Guid conversationId, Guid userId, CancellationToken cancellationToken = default)
     {
         return dbContext.ReadStates.FirstOrDefaultAsync(r => r.ConversationId == conversationId && r.UserId == userId, cancellationToken);

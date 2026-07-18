@@ -300,7 +300,8 @@ describe('Messaging MVP0 backend wiring', () => {
 
     const sendRequest = httpMock.expectOne('/api/conversations/conversation-a/messages');
     expect(sendRequest.request.withCredentials).toBe(true);
-    expect(sendRequest.request.body).toEqual({ body: 'Backend-bound message' });
+    expect(sendRequest.request.body).toMatchObject({ body: 'Backend-bound message' });
+    expect(sendRequest.request.body.clientRequestId).toMatch(/^[0-9a-f-]{36}$/i);
     sendRequest.flush({
       id: 'message-created',
       workspaceId: 'workspace-a',

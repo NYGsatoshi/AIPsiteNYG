@@ -357,6 +357,14 @@ public sealed class CommunicationPollingServiceTests
             return Task.FromResult(Messages.FirstOrDefault(message => message.Id == messageId));
         }
 
+        public Task<Message?> FindMessageByClientRequestIdAsync(Guid conversationId, Guid authorUserId, Guid clientRequestId, CancellationToken cancellationToken = default)
+        {
+            return Task.FromResult(Messages.FirstOrDefault(message =>
+                message.ConversationId == conversationId &&
+                message.AuthorUserId == authorUserId &&
+                message.ClientRequestId == clientRequestId));
+        }
+
         public Task<ReadState?> GetReadStateAsync(Guid conversationId, Guid userId, CancellationToken cancellationToken = default)
         {
             return Task.FromResult<ReadState?>(null);

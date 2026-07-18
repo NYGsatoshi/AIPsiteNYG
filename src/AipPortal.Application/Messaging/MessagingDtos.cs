@@ -76,9 +76,9 @@ public sealed record AttachmentMetadataRequest(string FileName, string StoredFil
 
 public sealed record AttachmentResponse(Guid Id, string FileName, string ContentType, long FileSize);
 
-public sealed record MessageResponse(Guid Id, Guid WorkspaceId, Guid ConversationId, Guid AuthorUserId, string AuthorDisplayName, string Body, IReadOnlyList<AttachmentResponse> Attachments, DateTimeOffset CreatedAt, DateTimeOffset? UpdatedAt, DateTimeOffset? EditedAt, bool IsDeleted);
+public sealed record MessageResponse(Guid Id, Guid WorkspaceId, Guid ConversationId, Guid AuthorUserId, string AuthorDisplayName, string Body, IReadOnlyList<AttachmentResponse> Attachments, DateTimeOffset CreatedAt, DateTimeOffset? UpdatedAt, DateTimeOffset? EditedAt, bool IsDeleted, Guid? ClientRequestId = null, long Version = 1);
 
-public sealed record SendMessageRequest(string? Body, IReadOnlyList<AttachmentMetadataRequest>? Attachments = null);
+public sealed record SendMessageRequest(string? Body, IReadOnlyList<AttachmentMetadataRequest>? Attachments = null, Guid? ClientRequestId = null);
 
 public sealed record UpdateMessageRequest(string Body);
 

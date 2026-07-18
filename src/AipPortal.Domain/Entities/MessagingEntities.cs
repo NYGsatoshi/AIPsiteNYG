@@ -60,6 +60,10 @@ public sealed class Message : SoftDeletableEntity, ITenantEntity
     public Guid WorkspaceId { get; set; }
     public Guid ConversationId { get; set; }
     public Guid AuthorUserId { get; set; }
+    /// <summary>Client-generated idempotency key, scoped to the sender and conversation.</summary>
+    public Guid? ClientRequestId { get; set; }
+    /// <summary>Monotonic entity version used to reject stale realtime events.</summary>
+    public long Version { get; set; } = 1;
     public string Body { get; set; } = string.Empty;
     public DateTimeOffset? EditedAt { get; set; }
 
@@ -78,6 +82,10 @@ public sealed class ReadState : AuditableEntity, ITenantEntity
     public Guid? LastReadItemId { get; set; }
     public Guid? ConversationId { get; set; }
     public Guid? LastReadMessageId { get; set; }
+    /// <summary>Server-derived ordering token for the current user's monotonic read cursor.</summary>
+    public long LastReadSequence { get; set; }
+    /// <summary>Monotonic state version for same-user cross-device reconciliation.</summary>
+    public long StateVersion { get; set; }
     public DateTimeOffset LastReadAt { get; set; }
 
     public User? User { get; set; }

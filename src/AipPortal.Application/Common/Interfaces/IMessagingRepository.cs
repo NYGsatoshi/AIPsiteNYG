@@ -16,6 +16,7 @@ public interface IMessagingRepository
     Task<PagedResponse<Message>> ListMessagesAsync(Guid conversationId, int limit, DateTimeOffset? before, CancellationToken cancellationToken = default);
     Task<int> CountUnreadMessagesAsync(Guid conversationId, Guid userId, DateTimeOffset? lastReadAt, CancellationToken cancellationToken = default);
     Task<Message?> GetMessageAsync(Guid messageId, CancellationToken cancellationToken = default);
+    Task<Message?> FindMessageByClientRequestIdAsync(Guid conversationId, Guid authorUserId, Guid clientRequestId, CancellationToken cancellationToken = default);
     Task<ReadState?> GetReadStateAsync(Guid conversationId, Guid userId, CancellationToken cancellationToken = default);
     Task AddConversationAsync(Conversation conversation, CancellationToken cancellationToken = default);
     Task AddMemberAsync(ConversationMember member, CancellationToken cancellationToken = default);

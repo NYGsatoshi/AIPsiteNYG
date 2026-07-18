@@ -1,6 +1,9 @@
 @let vm = page();
 
 <section class="messaging-page" data-testid="channel-messaging-page">
+  @if (realtime.connectionState() === 'Degraded') {
+    <p class="messaging-page__realtime-notice" role="status">Realtime updates are delayed. Sending and refresh remain available.</p>
+  }
   <header class="messaging-page__header">
     <div>
       <p class="messaging-page__eyebrow">チャンネル</p>

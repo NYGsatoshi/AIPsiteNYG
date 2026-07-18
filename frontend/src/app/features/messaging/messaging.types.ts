@@ -69,6 +69,8 @@ export interface MessagingMessageViewModel {
   readonly authorRoleLabel: string;
   readonly isOwnMessage: boolean;
   readonly body: string;
+  readonly createdAt?: string;
+  readonly version?: number;
   readonly sentAtLabel: string;
   readonly deliveryState: MessageDeliveryState;
   readonly failureCode?: MessageFailureCode;
@@ -106,4 +108,5 @@ export interface MessagingPageViewModel {
   readonly readCursorBehavior: 'latestVisibleMessage' | 'conversationOpenFallback';
   readonly pagingWindow: MessagingPagingWindow;
   readonly mockSendFailure?: MessageFailureCode;
+  readonly realtimeDegraded?: boolean;
 }
