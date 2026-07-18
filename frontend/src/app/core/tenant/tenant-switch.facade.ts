@@ -7,6 +7,7 @@ import { CsrfTokenService } from '../auth/csrf-token.service';
 import { ActiveWorkspaceFacade } from '../workspace/active-workspace.facade';
 import { RightPanelFacade } from '../../shared/right-panel/right-panel.facade';
 import { TenantScopedStateFacade } from './tenant-scoped-state.facade';
+import { RealtimeFacade } from '../realtime/realtime.facade';
 
 @Injectable({ providedIn: 'root' })
 export class TenantSwitchFacade {
@@ -16,6 +17,7 @@ export class TenantSwitchFacade {
   private readonly rightPanel = inject(RightPanelFacade);
   private readonly tenantScopedState = inject(TenantScopedStateFacade);
   private readonly csrfTokens = inject(CsrfTokenService);
+  private readonly realtime = inject(RealtimeFacade);
 
   switchTenant(tenantId: string): Observable<AuthCurrentTenant | null> {
     this.clearTenantScopedState();
@@ -27,6 +29,7 @@ export class TenantSwitchFacade {
   }
 
   clearTenantScopedState(): void {
+    this.realtime.clearForTenantBoundary();
     this.activeWorkspace.clearWorkspace();
     this.rightPanel.clearPanelState();
     this.tenantScopedState.clearTenantScopedState();
