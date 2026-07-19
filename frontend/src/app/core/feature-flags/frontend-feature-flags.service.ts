@@ -5,6 +5,7 @@ export interface FrontendRuntimeFlags {
   readonly 'frontend.designSystemV04'?: boolean;
   readonly 'frontend.syncfusionGrid'?: boolean;
   readonly 'frontend.syncfusionUploader'?: boolean;
+  readonly 'tasks.myTasksV1'?: boolean;
   readonly 'realtime.signalR'?: boolean;
   readonly 'realtime.optimisticMessaging'?: boolean;
 }
@@ -25,6 +26,7 @@ export class FrontendFeatureFlagsService {
   // implementation; they never grant a product capability.
   readonly syncfusionGridEnabled = computed(() => this.values()['frontend.syncfusionGrid'] ?? false);
   readonly syncfusionUploaderEnabled = computed(() => this.values()['frontend.syncfusionUploader'] ?? false);
+  readonly myTasksV1Enabled = computed(() => this.values()['tasks.myTasksV1'] ?? true);
   readonly realtimeSignalREnabled = computed(() => this.values()['realtime.signalR'] ?? false);
   readonly optimisticMessagingEnabled = computed(() => this.values()['realtime.optimisticMessaging'] ?? true);
 

@@ -111,6 +111,45 @@ export interface TaskGridRow {
   readonly rowActions: readonly TaskRowAction[];
 }
 
+export type MyTasksTab = 'assigned' | 'participating' | 'reviews' | 'created' | 'watching' | 'teamQueue' | 'completed';
+export type MyTasksScope = 'currentWorkspace' | 'allWorkspaces';
+export type MyTasksUrgencyGroup = 'overdue' | 'today' | 'next7Days' | 'later' | 'noDeadline';
+
+export interface MyTasksLiveTask {
+  readonly taskId: string;
+  readonly tenantId: string;
+  readonly workspaceId: string;
+  readonly workspaceTitle: string;
+  readonly projectId: string;
+  readonly projectTitle: string;
+  readonly title: string;
+  readonly workflowStageId: string | null;
+  readonly workflowStageName: string;
+  readonly status: TaskStatus;
+  readonly priority: TaskPriority;
+  readonly isBlocked: boolean;
+  readonly plannedEndDate: string;
+  readonly deadlineAt: string;
+  readonly progressPercent: number;
+  readonly timeGroup: MyTasksUrgencyGroup;
+  readonly isOverdue: boolean;
+  readonly version: string;
+  readonly primaryAssignee: string;
+  readonly targetGroup: string;
+  readonly reviewer: string;
+  readonly labels: readonly string[];
+  readonly checklistCompletedCount: number;
+  readonly checklistTotalCount: number;
+  readonly canClaim: boolean;
+  readonly canChangeStage: boolean;
+  readonly warnings: readonly string[];
+}
+
+export interface MyTasksCount {
+  readonly key: MyTasksTab | MyTasksUrgencyGroup;
+  readonly count: number;
+}
+
 export interface ProjectsOverviewViewModel {
   readonly status: ProjectsPageStatus;
   readonly title: string;
@@ -138,6 +177,13 @@ export interface MyTasksViewModel {
   };
   readonly message?: string;
   readonly error?: FrontendApiError;
+  readonly tasks: readonly MyTasksLiveTask[];
+  readonly selectedTab: MyTasksTab;
+  readonly scope: MyTasksScope;
+  readonly workspaceId: string | null;
+  readonly counts: readonly MyTasksCount[];
+  readonly totalCount: number;
+  readonly realtimeDegraded: boolean;
 }
 
 export interface TaskDetailViewModel {

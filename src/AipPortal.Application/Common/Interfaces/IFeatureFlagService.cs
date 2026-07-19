@@ -22,6 +22,7 @@ public static class FeatureKeys
     public const string TransactionalOutbox = "communication.transactional_outbox.enabled";
     public const string AuthorizedRealtimeGroups = "communication.authorized_groups.required";
     public const string TasksDomainV1 = "tasks.domainV1";
+    public const string MyTasksV1 = "tasks.myTasksV1";
 
     public static readonly IReadOnlyList<string> All =
     [
@@ -42,7 +43,8 @@ public static class FeatureKeys
         RealtimeSignalR,
         TransactionalOutbox,
         AuthorizedRealtimeGroups,
-        TasksDomainV1
+        TasksDomainV1,
+        MyTasksV1
     ];
 
     public static string Normalize(string featureKey)

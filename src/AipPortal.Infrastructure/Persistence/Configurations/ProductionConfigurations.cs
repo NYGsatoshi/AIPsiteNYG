@@ -141,6 +141,13 @@ public sealed class TaskItemConfiguration : IEntityTypeConfiguration<TaskItem>
         builder.HasIndex(task => new { task.ProjectId, task.PlannedEndDate });
         builder.HasIndex(task => new { task.ProjectId, task.DeadlineAt });
         builder.HasIndex(task => new { task.ProjectId, task.IsBlocked });
+        // My Tasks starts from a tenant/workspace-scoped Task set and then applies
+        // relationship predicates.  These indexes keep the paged projection from
+        // falling back to a tenant-wide Task scan for the common active views.
+        builder.HasIndex(task => new { task.TenantId, task.WorkspaceId, task.IsBlocked, task.Priority, task.DeadlineAt });
+        builder.HasIndex(task => new { task.TenantId, task.WorkspaceId, task.PrimaryAssigneeUserId });
+        builder.HasIndex(task => new { task.TenantId, task.WorkspaceId, task.ReviewerUserId });
+        builder.HasIndex(task => new { task.TenantId, task.WorkspaceId, task.CreatedByUserId });
         builder.HasAlternateKey(task => new { task.Id, task.ProjectId });
         builder.ToTable(table =>
         {
@@ -320,6 +327,7 @@ public sealed class WorkItemCollaboratorConfiguration : IEntityTypeConfiguration
         builder.Property(collaborator => collaborator.AddedAt).IsRequired();
         builder.HasIndex(collaborator => new { collaborator.TenantId, collaborator.TaskItemId, collaborator.UserId }).IsUnique();
         builder.HasIndex(collaborator => collaborator.UserId);
+        builder.HasIndex(collaborator => new { collaborator.TenantId, collaborator.UserId, collaborator.TaskItemId });
         builder.HasOne(collaborator => collaborator.TaskItem)
             .WithMany(task => task.Collaborators)
             .HasForeignKey(collaborator => collaborator.TaskItemId)
@@ -381,6 +389,7 @@ public sealed class WorkItemWatchStateConfiguration : IEntityTypeConfiguration<W
         builder.ToTable("work_item_watch_states"); builder.ConfigureEntity();
         builder.Property(x => x.AutomaticSources).HasConversion<int>();
         builder.HasIndex(x => new { x.TenantId, x.TaskItemId, x.UserId }).IsUnique();
+        builder.HasIndex(x => new { x.TenantId, x.UserId, x.IsWatching, x.TaskItemId });
         builder.HasOne(x => x.TaskItem).WithMany(x => x.WatchStates).HasForeignKey(x => x.TaskItemId).OnDelete(DeleteBehavior.Restrict);
         builder.HasOne(x => x.User).WithMany().HasForeignKey(x => x.UserId).OnDelete(DeleteBehavior.Restrict);
     }

@@ -1,40 +1,38 @@
 @let vm = page();
 
 <section class="my-tasks-page" data-testid="my-tasks-page">
-  <header>
-    <p>{{ vm.subtitle }}</p>
-    <h1>{{ vm.title }}</h1>
-  </header>
-
+  <header><p>{{ vm.subtitle }}</p><h1>{{ vm.title }}</h1></header>
   @if (vm.status === 'loading') {
     <app-inline-loading label="Loading tasks" />
   } @else if (vm.status === 'permissionDenied') {
     <app-permission-denied [title]="vm.message ?? 'Tasks are not available for this workspace.'" />
   } @else if (vm.status === 'error') {
-    <section data-testid="my-tasks-load-error">
-      @if (vm.error) {
-        <app-error-banner [error]="vm.error" title="My Tasks could not be loaded" />
-      } @else {
-        <p role="alert">{{ vm.message ?? 'My Tasks could not be loaded. Try again.' }}</p>
-      }
-      <button type="button" data-testid="my-tasks-retry" (click)="retry()">Retry</button>
-    </section>
-  } @else if (vm.status === 'empty' || vm.rows.length === 0) {
-    <app-empty-state title="No tasks" message="No tasks assigned to you were returned by the backend." />
-  } @else if (!designSystemV04Enabled()) {
+    <section data-testid="my-tasks-load-error">@if (vm.error) { <app-error-banner [error]="vm.error" title="My Tasks could not be loaded" /> } @else { <p role="alert">{{ vm.message }}</p> } <button type="button" data-testid="my-tasks-retry" (click)="retry()">Retry</button></section>
+  } @else if (!myTasksV1Enabled()) {
     <app-task-table [rows]="vm.rows" [defaultPageSize]="vm.pageSize.defaultPageSize" [maximumPageSize]="vm.pageSize.maximumPageSize" (actionInvoked)="handleTaskAction($event)" />
   } @else {
-    <fieldset class="my-tasks-page__views" aria-label="Task view">
-      <legend>View</legend>
-      <button type="button" [attr.aria-pressed]="projection() === 'list'" (click)="setProjection('list')">List</button>
-      <button type="button" [attr.aria-pressed]="projection() === 'kanban'" (click)="setProjection('kanban')">Kanban</button>
+    <fieldset class="my-tasks-page__views" aria-label="My Tasks relationship view"><legend>Relationship view</legend>
+      @for (tab of tabs; track tab.id) { <button type="button" [attr.aria-pressed]="vm.selectedTab === tab.id" (click)="setTab(tab.id)">{{ tab.label }} ({{ count(vm, tab.id) }})</button> }
     </fieldset>
-    @if (projection() === 'list') {
-      <ul class="my-tasks-page__list" data-testid="my-tasks-semantic-list">
-        @for (row of vm.rows; track row.id) { <li><button type="button" (click)="handleTaskAction({ actionId: 'openDetail', row })"><strong>{{ row.title }}</strong><span>{{ row.project }} · {{ row.statusLabel }} · {{ row.priorityLabel }}</span></button></li> }
-      </ul>
+    <fieldset class="my-tasks-page__views" aria-label="Workspace scope"><legend>Workspace scope</legend>
+      <button type="button" [attr.aria-pressed]="vm.scope === 'currentWorkspace'" (click)="setScope('currentWorkspace')">Current Workspace</button>
+      <button type="button" [attr.aria-pressed]="vm.scope === 'allWorkspaces'" (click)="setScope('allWorkspaces')">All Workspaces</button>
+    </fieldset>
+    <p class="my-tasks-page__canonical-note">List is the canonical My Tasks projection. Kanban remains unavailable until PR05.</p>
+    @if (vm.status === 'empty' || vm.tasks.length === 0) {
+      <app-empty-state title="No tasks" [message]="vm.message ?? 'No tasks match this relationship view and scope.'" />
+    } @else if (!designSystemV04Enabled()) {
+      <app-task-table [rows]="vm.rows" [defaultPageSize]="vm.pageSize.defaultPageSize" [maximumPageSize]="vm.pageSize.maximumPageSize" (actionInvoked)="handleTaskAction($event)" />
     } @else {
-      <aip-kanban [contract]="kanbanContract(vm.rows)" data-testid="my-tasks-kanban" />
+      @for (group of groups; track group.id) {
+        @if (tasksForGroup(vm, group.id).length > 0) {
+          <section class="my-tasks-page__group" [attr.aria-label]="group.label"><h2>{{ group.label }}</h2><ul class="my-tasks-page__list" data-testid="my-tasks-semantic-list">
+            @for (task of tasksForGroup(vm, group.id); track task.taskId) {
+              <li><button type="button" (click)="handleTaskAction({ actionId: 'openDetail', row: { id: task.taskId, projectId: task.projectId, title: task.title, project: task.projectTitle, status: task.status, statusLabel: task.workflowStageName, priority: task.priority, priorityLabel: task.priority, assignee: task.primaryAssignee, startDate: '', dueDate: task.deadlineAt || task.plannedEndDate, progressPercent: task.progressPercent, milestone: '', allowedTransitions: [], rowActions: [] } })"><strong>{{ task.title }}</strong><span>{{ task.projectTitle }} · {{ task.workflowStageName }} · {{ task.priority }}</span>@if (vm.scope === 'allWorkspaces') { <span>{{ task.workspaceTitle }}</span> } @if (task.isBlocked) { <span>Blocked</span> }</button></li>
+            }
+          </ul></section>
+        }
+      }
     }
   }
 </section>

@@ -104,7 +104,8 @@ export class ProjectsFacade {
         rows: [],
         columns: [],
         pageSize: this.pageSize,
-        message: scenario.message
+        message: scenario.message,
+        tasks: [], selectedTab: 'assigned', scope: 'currentWorkspace', workspaceId: null, counts: [], totalCount: 0, realtimeDegraded: false
       };
     }
 
@@ -114,9 +115,10 @@ export class ProjectsFacade {
       title: 'My tasks',
       subtitle: 'Tasks assigned to the signed-in user',
       rows: myTasksStatus === 'ready' ? this.authorizedMyTasks().map((task) => this.toTaskRow(task)) : [],
-      columns: [],
-      pageSize: this.pageSize,
-      message: scenario.myTasksMessage ?? scenario.message
+        columns: [],
+        pageSize: this.pageSize,
+        message: scenario.myTasksMessage ?? scenario.message,
+        tasks: [], selectedTab: 'assigned', scope: 'currentWorkspace', workspaceId: null, counts: [], totalCount: 0, realtimeDegraded: false
     };
   }
 

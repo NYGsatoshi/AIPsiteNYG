@@ -51,13 +51,59 @@ export interface TaskDto {
 
 export interface MyTaskDto {
   readonly taskId?: unknown;
+  /** @deprecated PR04 consumers use stageCategory and plannedEndDate. */
+  readonly dueDate?: unknown;
+  /** @deprecated PR04 consumers use stageCategory. */
+  readonly status?: unknown;
+  readonly tenantId?: unknown;
+  readonly workspaceId?: unknown;
+  readonly workspaceTitle?: unknown;
   readonly projectId?: unknown;
   readonly projectTitle?: unknown;
+  readonly kind?: unknown;
+  readonly parentTaskId?: unknown;
   readonly title?: unknown;
-  readonly dueDate?: unknown;
-  readonly status?: unknown;
+  readonly workflowStageId?: unknown;
+  readonly workflowStageName?: unknown;
+  readonly stageCategory?: unknown;
   readonly priority?: unknown;
+  readonly isBlocked?: unknown;
+  readonly plannedStartDate?: unknown;
+  readonly plannedEndDate?: unknown;
+  readonly deadlineAt?: unknown;
+  readonly progressPercent?: unknown;
+  readonly progressIsDerived?: unknown;
+  readonly primaryAssignee?: { readonly userId?: unknown; readonly displayName?: unknown } | null;
+  readonly targetGroup?: { readonly groupId?: unknown; readonly name?: unknown } | null;
+  readonly reviewer?: { readonly userId?: unknown; readonly displayName?: unknown } | null;
+  readonly labels?: readonly { readonly labelId?: unknown; readonly name?: unknown }[];
+  readonly checklistCompletedCount?: unknown;
+  readonly checklistTotalCount?: unknown;
+  readonly relationships?: Record<string, unknown> | null;
+  readonly timeGroup?: unknown;
   readonly isOverdue?: unknown;
+  readonly version?: unknown;
+  readonly quickEditPermissions?: Record<string, unknown> | null;
+  readonly warnings?: readonly unknown[];
+}
+
+export interface MyTasksProjectionPageDto {
+  readonly items?: readonly MyTaskDto[];
+  readonly page?: unknown;
+  readonly pageSize?: unknown;
+  readonly totalCount?: unknown;
+  readonly view?: unknown;
+  readonly scope?: unknown;
+  readonly workspaceId?: unknown;
+  readonly availableWorkspaceCount?: unknown;
+}
+
+export interface MyTasksCountsDto {
+  readonly scope?: unknown;
+  readonly workspaceId?: unknown;
+  readonly availableWorkspaceCount?: unknown;
+  readonly views?: readonly { readonly view?: unknown; readonly count?: unknown }[];
+  readonly timeGroups?: readonly { readonly timeGroup?: unknown; readonly count?: unknown }[];
 }
 
 export interface CreateTaskRequestDto {
