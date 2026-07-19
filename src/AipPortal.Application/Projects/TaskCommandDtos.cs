@@ -11,6 +11,8 @@ public sealed record TaskReviewRequest(long ExpectedVersion, string? Reason = nu
 public sealed record TaskClaimRequest(long ExpectedVersion);
 public sealed record TaskRestoreRequest(long ExpectedVersion);
 public sealed record TaskDeleteRequest(long ExpectedVersion);
+public sealed record TaskWatchStateResponse(bool IsWatching, bool IsExplicitOptOut, string[] AutomaticSources, long Version);
+public sealed record TaskWatchRequest(long ExpectedVersion);
 
 public sealed record TaskPersonSummary(Guid UserId, string DisplayName);
 public sealed record TaskRelationshipsResponse(

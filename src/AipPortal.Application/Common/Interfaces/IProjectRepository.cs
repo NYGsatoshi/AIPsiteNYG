@@ -25,6 +25,8 @@ public interface IProjectRepository
     Task<bool> DependencyExistsAsync(Guid predecessorTaskId, Guid successorTaskId, CancellationToken cancellationToken = default);
     Task<IReadOnlyList<Comment>> ListCommentsAsync(CommentTargetType targetType, Guid targetId, CancellationToken cancellationToken = default);
     Task<Comment?> GetCommentAsync(Guid commentId, CancellationToken cancellationToken = default);
+    Task<WorkItemWatchState?> GetWatchStateAsync(Guid taskItemId, Guid userId, CancellationToken cancellationToken = default) => Task.FromResult<WorkItemWatchState?>(null);
+    Task<IReadOnlyList<WorkItemWatchState>> ListWatchStatesAsync(Guid taskItemId, CancellationToken cancellationToken = default) => Task.FromResult<IReadOnlyList<WorkItemWatchState>>([]);
     Task AddProjectAsync(Project project, CancellationToken cancellationToken = default);
     Task AddMemberAsync(ProjectMember member, CancellationToken cancellationToken = default);
     Task AddMilestoneAsync(Milestone milestone, CancellationToken cancellationToken = default);
@@ -33,6 +35,7 @@ public interface IProjectRepository
     Task AddAssignmentAsync(TaskAssignment assignment, CancellationToken cancellationToken = default);
     Task AddDependencyAsync(TaskDependency dependency, CancellationToken cancellationToken = default);
     Task AddCommentAsync(Comment comment, CancellationToken cancellationToken = default);
+    Task AddWatchStateAsync(WorkItemWatchState watchState, CancellationToken cancellationToken = default) => Task.CompletedTask;
     void RemoveMember(ProjectMember member);
     void RemoveAssignment(TaskAssignment assignment);
     void RemoveDependency(TaskDependency dependency);

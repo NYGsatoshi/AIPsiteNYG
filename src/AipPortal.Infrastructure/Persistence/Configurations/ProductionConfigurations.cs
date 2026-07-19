@@ -350,6 +350,64 @@ public sealed class TaskMigrationInventoryConfiguration : IEntityTypeConfigurati
     }
 }
 
+public sealed class TaskChecklistItemConfiguration : IEntityTypeConfiguration<TaskChecklistItem>
+{
+    public void Configure(EntityTypeBuilder<TaskChecklistItem> builder)
+    {
+        builder.ToTable("task_checklist_items"); builder.ConfigureEntity();
+        builder.Property(x => x.Text).HasMaxLength(1000).IsRequired();
+        builder.HasIndex(x => new { x.TenantId, x.TaskItemId, x.SortKey });
+        builder.HasOne(x => x.TaskItem).WithMany(x => x.ChecklistItems).HasForeignKey(x => x.TaskItemId).OnDelete(DeleteBehavior.Restrict);
+        builder.HasOne(x => x.CompletedByUser).WithMany().HasForeignKey(x => x.CompletedByUserId).OnDelete(DeleteBehavior.SetNull);
+    }
+}
+
+public sealed class TaskCommentConfiguration : IEntityTypeConfiguration<TaskComment>
+{
+    public void Configure(EntityTypeBuilder<TaskComment> builder)
+    {
+        builder.ToTable("task_comments"); builder.ConfigureSoftDeletableEntity();
+        builder.Property(x => x.BodyPlainText).HasMaxLength(12000).IsRequired();
+        builder.HasIndex(x => new { x.TenantId, x.TaskItemId, x.CreatedAt });
+        builder.HasOne(x => x.TaskItem).WithMany(x => x.TaskComments).HasForeignKey(x => x.TaskItemId).OnDelete(DeleteBehavior.Restrict);
+        builder.HasOne(x => x.AuthorUser).WithMany().HasForeignKey(x => x.AuthorUserId).OnDelete(DeleteBehavior.Restrict);
+    }
+}
+
+public sealed class WorkItemWatchStateConfiguration : IEntityTypeConfiguration<WorkItemWatchState>
+{
+    public void Configure(EntityTypeBuilder<WorkItemWatchState> builder)
+    {
+        builder.ToTable("work_item_watch_states"); builder.ConfigureEntity();
+        builder.Property(x => x.AutomaticSources).HasConversion<int>();
+        builder.HasIndex(x => new { x.TenantId, x.TaskItemId, x.UserId }).IsUnique();
+        builder.HasOne(x => x.TaskItem).WithMany(x => x.WatchStates).HasForeignKey(x => x.TaskItemId).OnDelete(DeleteBehavior.Restrict);
+        builder.HasOne(x => x.User).WithMany().HasForeignKey(x => x.UserId).OnDelete(DeleteBehavior.Restrict);
+    }
+}
+
+public sealed class ProjectTaskLabelConfiguration : IEntityTypeConfiguration<ProjectTaskLabel>
+{
+    public void Configure(EntityTypeBuilder<ProjectTaskLabel> builder)
+    {
+        builder.ToTable("project_task_labels"); builder.ConfigureEntity();
+        builder.Property(x => x.Name).HasMaxLength(120).IsRequired(); builder.Property(x => x.Description).HasMaxLength(1000);
+        builder.HasIndex(x => new { x.TenantId, x.ProjectId, x.Name }).IsUnique();
+        builder.HasOne(x => x.Project).WithMany().HasForeignKey(x => x.ProjectId).OnDelete(DeleteBehavior.Restrict);
+    }
+}
+
+public sealed class WorkItemLabelConfiguration : IEntityTypeConfiguration<WorkItemLabel>
+{
+    public void Configure(EntityTypeBuilder<WorkItemLabel> builder)
+    {
+        builder.ToTable("work_item_labels"); builder.ConfigureEntity();
+        builder.HasIndex(x => new { x.TenantId, x.TaskItemId, x.LabelId }).IsUnique();
+        builder.HasOne(x => x.TaskItem).WithMany(x => x.Labels).HasForeignKey(x => x.TaskItemId).OnDelete(DeleteBehavior.Restrict);
+        builder.HasOne(x => x.Label).WithMany().HasForeignKey(x => x.LabelId).OnDelete(DeleteBehavior.Restrict);
+    }
+}
+
 public sealed class ActivityLogConfiguration : IEntityTypeConfiguration<ActivityLog>
 {
     public void Configure(EntityTypeBuilder<ActivityLog> builder)

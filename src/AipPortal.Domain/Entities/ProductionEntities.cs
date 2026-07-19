@@ -105,6 +105,79 @@ public sealed class TaskItem : SoftDeletableEntity, ITenantEntity
     public ICollection<TaskDependency> PredecessorDependencies { get; } = new List<TaskDependency>();
     public ICollection<TaskDependency> SuccessorDependencies { get; } = new List<TaskDependency>();
     public ICollection<WorkItemCollaborator> Collaborators { get; } = new List<WorkItemCollaborator>();
+    public ICollection<TaskChecklistItem> ChecklistItems { get; } = new List<TaskChecklistItem>();
+    public ICollection<TaskComment> TaskComments { get; } = new List<TaskComment>();
+    public ICollection<WorkItemWatchState> WatchStates { get; } = new List<WorkItemWatchState>();
+    public ICollection<WorkItemLabel> Labels { get; } = new List<WorkItemLabel>();
+}
+
+public sealed class TaskChecklistItem : Entity, ITenantEntity
+{
+    public Guid TenantId { get; set; }
+    public Guid TaskItemId { get; set; }
+    public string Text { get; set; } = string.Empty;
+    public bool IsCompleted { get; set; }
+    public DateTimeOffset? CompletedAt { get; set; }
+    public Guid? CompletedByUserId { get; set; }
+    public long SortKey { get; set; }
+    public long VersionNo { get; set; } = 1;
+    public TaskItem? TaskItem { get; set; }
+    public User? CompletedByUser { get; set; }
+}
+
+public sealed class TaskComment : SoftDeletableEntity, ITenantEntity
+{
+    public Guid TenantId { get; set; }
+    public Guid WorkspaceId { get; set; }
+    public Guid ProjectId { get; set; }
+    public Guid TaskItemId { get; set; }
+    public Guid AuthorUserId { get; set; }
+    public string BodyPlainText { get; set; } = string.Empty;
+    public bool IsImportant { get; set; }
+    public long VersionNo { get; set; } = 1;
+    public TaskItem? TaskItem { get; set; }
+    public User? AuthorUser { get; set; }
+}
+
+[Flags]
+public enum WorkItemWatchAutomaticSource { None = 0, Creator = 1, PrimaryAssignee = 2, Collaborator = 4, Reviewer = 8 }
+
+public sealed class WorkItemWatchState : Entity, ITenantEntity
+{
+    public Guid TenantId { get; set; }
+    public Guid TaskItemId { get; set; }
+    public Guid UserId { get; set; }
+    public WorkItemWatchAutomaticSource AutomaticSources { get; set; }
+    public bool IsExplicitOptOut { get; set; }
+    public bool IsWatching { get; set; }
+    public DateTimeOffset UpdatedAt { get; set; }
+    public long VersionNo { get; set; } = 1;
+    public TaskItem? TaskItem { get; set; }
+    public User? User { get; set; }
+}
+
+public sealed class ProjectTaskLabel : Entity, ITenantEntity
+{
+    public Guid TenantId { get; set; }
+    public Guid WorkspaceId { get; set; }
+    public Guid ProjectId { get; set; }
+    public string Name { get; set; } = string.Empty;
+    public string? Description { get; set; }
+    public long SortKey { get; set; }
+    public bool IsArchived { get; set; }
+    public long VersionNo { get; set; } = 1;
+    public Project? Project { get; set; }
+}
+
+public sealed class WorkItemLabel : Entity, ITenantEntity
+{
+    public Guid TenantId { get; set; }
+    public Guid TaskItemId { get; set; }
+    public Guid LabelId { get; set; }
+    public DateTimeOffset AddedAt { get; set; }
+    public Guid AddedByUserId { get; set; }
+    public TaskItem? TaskItem { get; set; }
+    public ProjectTaskLabel? Label { get; set; }
 }
 
 public sealed class TaskWorkflowDefinition : Entity, ITenantEntity

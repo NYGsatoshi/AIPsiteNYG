@@ -481,6 +481,14 @@ public sealed class ProjectService(
         };
 
         await projects.AddTaskAsync(task, cancellationToken);
+        await projects.AddWatchStateAsync(new WorkItemWatchState
+        {
+            TaskItemId = task.Id,
+            UserId = userId,
+            AutomaticSources = WorkItemWatchAutomaticSource.Creator,
+            IsWatching = true,
+            UpdatedAt = clock.UtcNow
+        }, cancellationToken);
         await AuditAsync(userId, "TaskCreated", "TaskItem", task.Id, cancellationToken);
         await invalidations.TaskChangedAsync(task, userId, "created", cancellationToken: cancellationToken);
         await unitOfWork.SaveChangesAsync(cancellationToken);

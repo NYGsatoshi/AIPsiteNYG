@@ -209,6 +209,30 @@ public sealed class TaskCommandService(
         return await CommitAsync(task, "TaskDeleted", "deleted", cancellationToken);
     }
 
+    public async Task<Result<TaskWatchStateResponse>> GetWatchStateAsync(Guid taskId, CancellationToken cancellationToken = default)
+    {
+        var result = await AuthorizedTaskAsync(taskId, false, cancellationToken: cancellationToken);
+        if (result.Error is not null) return Fail<TaskWatchStateResponse>(result.Error.Value.Code, result.Error.Value.Message);
+        var state = await projects.GetWatchStateAsync(taskId, Actor(), cancellationToken);
+        return Result<TaskWatchStateResponse>.Success(ToWatchResponse(state));
+    }
+
+    public Task<Result<TaskWatchStateResponse>> WatchAsync(Guid taskId, TaskWatchRequest request, CancellationToken cancellationToken = default) => SetWatchAsync(taskId, request, true, cancellationToken);
+    public Task<Result<TaskWatchStateResponse>> UnwatchAsync(Guid taskId, TaskWatchRequest request, CancellationToken cancellationToken = default) => SetWatchAsync(taskId, request, false, cancellationToken);
+
+    private async Task<Result<TaskWatchStateResponse>> SetWatchAsync(Guid taskId, TaskWatchRequest request, bool watch, CancellationToken cancellationToken)
+    {
+        var result = await AuthorizedTaskAsync(taskId, false, cancellationToken: cancellationToken);
+        if (result.Error is not null) return Fail<TaskWatchStateResponse>(result.Error.Value.Code, result.Error.Value.Message);
+        var task = result.Value!; if (EnsureVersion(task, request.ExpectedVersion) is not null) return Fail<TaskWatchStateResponse>("TASK_STALE_VERSION", "Task has changed. Refetch and retry.");
+        var state = await projects.GetWatchStateAsync(taskId, Actor(), cancellationToken);
+        if (state is null) { state = new WorkItemWatchState { TaskItemId = taskId, UserId = Actor(), UpdatedAt = clock.UtcNow }; await projects.AddWatchStateAsync(state, cancellationToken); }
+        state.IsExplicitOptOut = !watch; state.IsWatching = watch; state.UpdatedAt = clock.UtcNow; state.VersionNo++;
+        await audit.LogAsync(new AuditLogEntry(Actor(), watch ? "TaskWatchEnabled" : "TaskWatchOptOut", "TaskItem", taskId, "Task watch preference changed.", WorkspaceId: task.WorkspaceId, ProjectId: task.ProjectId), cancellationToken);
+        await unitOfWork.SaveChangesAsync(cancellationToken);
+        return Result<TaskWatchStateResponse>.Success(ToWatchResponse(state));
+    }
+
     private async Task<Result<TaskCommandResponse>> ResolveReviewAsync(Guid taskId, TaskReviewRequest request, TaskReviewStatus outcome, CancellationToken cancellationToken)
     {
         var result = await AuthorizedTaskAsync(taskId, true, false, false, cancellationToken: cancellationToken, requireReview: true);
@@ -241,6 +265,7 @@ public sealed class TaskCommandService(
     private async Task<Result<TaskCommandResponse>> CommitAsync(TaskItem task, string action, string change, CancellationToken cancellationToken, bool overrideApplied = false, string? reason = null)
     {
         var actor = Actor();
+        await ReconcileAutomaticWatchAsync(task, cancellationToken);
         // Relationship-only commands also advance the aggregate token.  Set it before
         // queuing the transactional invalidation so its version matches the committed row.
         task.VersionNo++;
@@ -248,6 +273,30 @@ public sealed class TaskCommandService(
         await invalidations.TaskChangedAsync(task, actor, change, affectedUserIds: RelatedUsers(task), cancellationToken: cancellationToken);
         await unitOfWork.SaveChangesAsync(cancellationToken);
         return Result<TaskCommandResponse>.Success(new TaskCommandResponse(await ToResponseAsync(task, actor, cancellationToken), [], overrideApplied));
+    }
+
+    private async Task ReconcileAutomaticWatchAsync(TaskItem task, CancellationToken cancellationToken)
+    {
+        var collaborators = await projects.ListCollaboratorsAsync(task.Id, cancellationToken);
+        var sources = new Dictionary<Guid, WorkItemWatchAutomaticSource> { [task.CreatedByUserId] = WorkItemWatchAutomaticSource.Creator };
+        void Add(Guid? userId, WorkItemWatchAutomaticSource source) { if (userId.HasValue) sources[userId.Value] = sources.GetValueOrDefault(userId.Value) | source; }
+        Add(task.PrimaryAssigneeUserId, WorkItemWatchAutomaticSource.PrimaryAssignee);
+        Add(task.ReviewerUserId, WorkItemWatchAutomaticSource.Reviewer);
+        foreach (var collaborator in collaborators) Add(collaborator.UserId, WorkItemWatchAutomaticSource.Collaborator);
+        var states = (await projects.ListWatchStatesAsync(task.Id, cancellationToken)).ToDictionary(x => x.UserId);
+        foreach (var userId in states.Keys.Union(sources.Keys).ToList())
+        {
+            if (!states.TryGetValue(userId, out var state))
+            {
+                state = new WorkItemWatchState { TaskItemId = task.Id, UserId = userId, UpdatedAt = clock.UtcNow };
+                await projects.AddWatchStateAsync(state, cancellationToken);
+            }
+            var automaticSources = sources.GetValueOrDefault(userId);
+            if (state.AutomaticSources == automaticSources) continue;
+            state.AutomaticSources = automaticSources;
+            if (!state.IsExplicitOptOut && automaticSources != WorkItemWatchAutomaticSource.None) state.IsWatching = true;
+            state.UpdatedAt = clock.UtcNow; state.VersionNo++;
+        }
     }
 
     private async Task<CanonicalTaskResponse> ToResponseAsync(TaskItem task, Guid actor, CancellationToken cancellationToken)
@@ -282,4 +331,5 @@ public sealed class TaskCommandService(
     private Guid Actor() => TryActor(out var actor) ? actor : Guid.Empty;
     private static IEnumerable<Guid> RelatedUsers(TaskItem task) => new[] { task.CreatedByUserId, task.PrimaryAssigneeUserId ?? Guid.Empty, task.ReviewerUserId ?? Guid.Empty }.Where(id => id != Guid.Empty);
     private static Result<T> Fail<T>(string code, string message) => Result<T>.Failure($"{code}|{message}");
+    private static TaskWatchStateResponse ToWatchResponse(WorkItemWatchState? state) => new(state?.IsWatching ?? false, state?.IsExplicitOptOut ?? false, state is null ? [] : Enum.GetValues<WorkItemWatchAutomaticSource>().Where(x => x != WorkItemWatchAutomaticSource.None && state.AutomaticSources.HasFlag(x)).Select(x => x.ToString()).ToArray(), state?.VersionNo ?? 0);
 }

@@ -121,6 +121,15 @@ public sealed class ProjectsController(IProjectService projects, ITaskCommandSer
     [HttpPost("api/tasks/{taskItemId:guid}/claim")]
     public async Task<IActionResult> Claim(Guid taskItemId, TaskClaimRequest request, CancellationToken cancellationToken) => ToTaskActionResult(await taskCommands.ClaimAsync(taskItemId, request, cancellationToken));
 
+    [HttpGet("api/tasks/{taskItemId:guid}/watch-state")]
+    public async Task<IActionResult> GetWatchState(Guid taskItemId, CancellationToken cancellationToken) => ToTaskActionResult(await taskCommands.GetWatchStateAsync(taskItemId, cancellationToken));
+
+    [HttpPut("api/tasks/{taskItemId:guid}/watch")]
+    public async Task<IActionResult> Watch(Guid taskItemId, TaskWatchRequest request, CancellationToken cancellationToken) => ToTaskActionResult(await taskCommands.WatchAsync(taskItemId, request, cancellationToken));
+
+    [HttpDelete("api/tasks/{taskItemId:guid}/watch")]
+    public async Task<IActionResult> Unwatch(Guid taskItemId, [FromQuery] long expectedVersion, CancellationToken cancellationToken) => ToTaskActionResult(await taskCommands.UnwatchAsync(taskItemId, new TaskWatchRequest(expectedVersion), cancellationToken));
+
     [HttpGet("api/tasks/{taskItemId:guid}/assignments")]
     public async Task<IActionResult> ListAssignments(Guid taskItemId, CancellationToken cancellationToken) => ToActionResult(await projects.ListAssignmentsAsync(taskItemId, cancellationToken));
 
