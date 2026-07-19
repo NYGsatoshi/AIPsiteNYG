@@ -1,4 +1,4 @@
-﻿using System;
+using System;
 using Microsoft.EntityFrameworkCore.Migrations;
 
 #nullable disable
@@ -411,8 +411,9 @@ namespace AipPortal.Infrastructure.Persistence.Migrations
                     "PlannedStartDate" = task."StartDate", "PlannedEndDate" = task."DueDate",
                     "SortKey" = ranked.sort_key, "VersionNo" = 1
                 FROM projects AS project
-                JOIN (SELECT "Id", ROW_NUMBER() OVER (PARTITION BY "ProjectId" ORDER BY "SortOrder", "CreatedAt", "Id") * 1000 AS sort_key FROM task_items) AS ranked ON ranked."Id" = task."Id"
-                WHERE project."Id" = task."ProjectId";
+                CROSS JOIN (SELECT "Id", ROW_NUMBER() OVER (PARTITION BY "ProjectId" ORDER BY "SortOrder", "CreatedAt", "Id") * 1000 AS sort_key FROM task_items) AS ranked
+                WHERE project."Id" = task."ProjectId"
+                  AND ranked."Id" = task."Id";
 
                 INSERT INTO task_workflow_definitions ("Id", "TenantId", "WorkspaceId", "ProjectId", "Name", "ReviewEnforcementEnabled", "VersionNo")
                 SELECT gen_random_uuid(), project."TenantId", project."WorkspaceId", project."Id", 'Default', TRUE, 1 FROM projects AS project;
