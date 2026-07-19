@@ -378,6 +378,14 @@ public enum TaskStageCategory
     Cancelled = 5
 }
 
+public enum TaskReviewStatus
+{
+    None = 0,
+    Submitted = 1,
+    Accepted = 2,
+    Returned = 3
+}
+
 public enum TaskAssignmentRole
 {
     Owner = 0,

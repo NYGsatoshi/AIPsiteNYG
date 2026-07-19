@@ -45,12 +45,13 @@ export function normalizeApiError(input: unknown, explicitStatus?: number): Fron
   const httpError = input instanceof HttpErrorResponse ? input : null;
   const httpStatus = explicitStatus ?? httpError?.status ?? 0;
   const body = readErrorBody(httpError?.error ?? input);
+  const nested = body.error && typeof body.error === 'object' ? readErrorBody(body.error) : {};
   const localErrorId = createLocalErrorId();
   const requestId = firstString(body.requestId, body.RequestId, body.traceId, body.TraceId);
-  const code = firstString(body.code, body.Code) ?? statusCodeToCode(httpStatus);
+  const code = firstString(body.code, body.Code, nested.code, nested.Code) ?? statusCodeToCode(httpStatus);
   const validationDetails = normalizeValidationErrors(body.errors ?? body.Errors);
   const message =
-    firstString(body.message, body.Message) ??
+    firstString(body.message, body.Message, nested.message, nested.Message) ??
     firstString(body.detail, body.Detail) ??
     firstString(body.title, body.Title) ??
     readLegacyErrorMessage(body.error) ??

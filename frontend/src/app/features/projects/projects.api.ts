@@ -27,6 +27,7 @@ export interface TaskUiPermissionDto {
   readonly canDelete?: unknown;
   readonly allowedTransitions?: unknown;
   readonly rowVersion?: unknown;
+  readonly canUpdate?: unknown;
 }
 
 export interface TaskDto {
@@ -36,11 +37,16 @@ export interface TaskDto {
   readonly title?: unknown;
   readonly description?: unknown;
   readonly status?: unknown;
+  readonly stageCategory?: unknown;
+  readonly isBlocked?: unknown;
   readonly priority?: unknown;
   readonly startDate?: unknown;
   readonly dueDate?: unknown;
+  readonly plannedStartDate?: unknown;
+  readonly plannedEndDate?: unknown;
   readonly progressPercent?: unknown;
   readonly uiPermissions?: TaskUiPermissionDto | null;
+  readonly version?: unknown;
 }
 
 export interface MyTaskDto {

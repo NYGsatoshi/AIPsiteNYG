@@ -713,6 +713,13 @@ public sealed class ProjectService(
             return Result<TaskDependencyResponse>.Failure("You are not allowed to update this task.");
         }
 
+        if (request.DependencyType != TaskDependencyType.FinishToStart)
+        {
+            await AuditAsync(userId, "TaskDependencyRejected", "TaskItem", taskItemId, cancellationToken);
+            await unitOfWork.SaveChangesAsync(cancellationToken);
+            return Result<TaskDependencyResponse>.Failure("TASK_DEPENDENCY_TYPE_DEFERRED|Only Finish-to-Start dependencies can be authored.");
+        }
+
         if (successor.Id == predecessor.Id)
         {
             return Result<TaskDependencyResponse>.Failure("A task cannot depend on itself.");

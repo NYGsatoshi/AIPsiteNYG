@@ -79,6 +79,21 @@ public sealed class TaskV1PersistenceTests
         Assert.Contains(FeatureKeys.TasksDomainV1, FeatureKeys.All);
     }
 
+    [Fact]
+    public async Task TaskReviewOutcomeIsPersistedWithTheTaskAggregate()
+    {
+        var (context, _, workspace, user) = await CreateGraphAsync();
+        var project = new Project { WorkspaceId = workspace.Id, OwnerUserId = user.Id, CreatedByUserId = user.Id, Name = "Review", Slug = "review" };
+        context.Projects.Add(project);
+        var task = new TaskItem { WorkspaceId = workspace.Id, ProjectId = project.Id, Title = "Review me", CreatedByUserId = user.Id, ReviewStatus = TaskReviewStatus.Submitted, ReviewSubmittedAt = DateTimeOffset.UtcNow };
+        context.TaskItems.Add(task);
+        await context.SaveChangesAsync();
+
+        var persisted = await context.TaskItems.SingleAsync(item => item.Id == task.Id);
+        Assert.Equal(TaskReviewStatus.Submitted, persisted.ReviewStatus);
+        Assert.NotNull(persisted.ReviewSubmittedAt);
+    }
+
     private static async Task<(AppDbContext Context, Tenant Tenant, Workspace Workspace, User User)> CreateGraphAsync()
     {
         var currentTenant = new CurrentTenantService();

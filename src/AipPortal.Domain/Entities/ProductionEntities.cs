@@ -81,6 +81,11 @@ public sealed class TaskItem : SoftDeletableEntity, ITenantEntity
     public int? EstimatedEffortMinutes { get; set; }
     public DateTimeOffset? CancelledAt { get; set; }
     public string? CancellationReason { get; set; }
+    public TaskReviewStatus ReviewStatus { get; set; }
+    public DateTimeOffset? ReviewSubmittedAt { get; set; }
+    public DateTimeOffset? ReviewResolvedAt { get; set; }
+    public Guid? ReviewResolvedByUserId { get; set; }
+    public string? ReviewReturnReason { get; set; }
     public long SortKey { get; set; }
     public long VersionNo { get; set; } = 1;
     public int ProgressPercent { get; set; }

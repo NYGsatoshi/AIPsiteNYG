@@ -62,10 +62,25 @@ public sealed class ProjectAuthorizationService(
     public async Task<bool> CanUpdateTask(Guid userId, Guid taskItemId, CancellationToken cancellationToken = default)
     {
         var task = await projects.GetTaskAsync(taskItemId, cancellationToken);
+        if (task is null || task.DeletedAt.HasValue || !await CanViewProject(userId, task.ProjectId, cancellationToken)) return false;
+        return await CanManageProject(userId, task.ProjectId, cancellationToken) || task.CreatedByUserId == userId || task.PrimaryAssigneeUserId == userId;
+    }
+
+    public async Task<bool> CanAssignTask(Guid userId, Guid taskItemId, CancellationToken cancellationToken = default)
+    {
+        var task = await projects.GetTaskAsync(taskItemId, cancellationToken);
         return task is not null && await CanManageProject(userId, task.ProjectId, cancellationToken);
     }
 
-    public Task<bool> CanAssignTask(Guid userId, Guid taskItemId, CancellationToken cancellationToken = default) => CanUpdateTask(userId, taskItemId, cancellationToken);
+    public Task<bool> CanDeleteTask(Guid userId, Guid taskItemId, CancellationToken cancellationToken = default) => CanAssignTask(userId, taskItemId, cancellationToken);
+
+    public async Task<bool> CanReviewTask(Guid userId, Guid taskItemId, CancellationToken cancellationToken = default)
+    {
+        var task = await projects.GetTaskAsync(taskItemId, cancellationToken);
+        return task is not null && (task.ReviewerUserId == userId || await CanManageProject(userId, task.ProjectId, cancellationToken));
+    }
+
+    public Task<bool> CanOverrideTaskReview(Guid userId, Guid taskItemId, CancellationToken cancellationToken = default) => CanAssignTask(userId, taskItemId, cancellationToken);
 
     public async Task<bool> CanCommentOnTarget(Guid userId, CommentTargetType targetType, Guid targetId, CancellationToken cancellationToken = default)
     {
