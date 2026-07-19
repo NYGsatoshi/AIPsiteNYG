@@ -4,6 +4,7 @@ import {
   ProjectMockRecord,
   ProjectStatus,
   TaskMockRecord,
+  MyTasksLiveTask,
   TaskPriority,
   TaskStatus
 } from './projects.types';
@@ -78,6 +79,43 @@ export function mapMyTaskDtoToRecord(task: MyTaskDto): TaskMockRecord {
     capabilities: [],
     authorized: true,
     rowVersion: ''
+  };
+}
+
+/** Maps only the PR04 canonical projection.  Legacy TaskMockRecord is never used for live My Tasks state. */
+export function mapMyTaskDtoToProjection(task: MyTaskDto): MyTasksLiveTask {
+  const stage = mapTaskStatus(task.stageCategory);
+  const priority = mapTaskPriority(task.priority);
+  const timeGroup = mapTimeGroup(task.timeGroup);
+  const permissions = task.quickEditPermissions;
+  return {
+    taskId: requiredString(task.taskId, 'myTask.taskId'),
+    tenantId: requiredString(task.tenantId, 'myTask.tenantId'),
+    workspaceId: requiredString(task.workspaceId, 'myTask.workspaceId'),
+    workspaceTitle: requiredString(task.workspaceTitle, 'myTask.workspaceTitle'),
+    projectId: requiredString(task.projectId, 'myTask.projectId'),
+    projectTitle: requiredString(task.projectTitle, 'myTask.projectTitle'),
+    title: requiredString(task.title, 'myTask.title'),
+    workflowStageId: stringValue(task.workflowStageId) ?? null,
+    workflowStageName: stringValue(task.workflowStageName) ?? taskStatusLabel(stage),
+    status: stage,
+    priority,
+    isBlocked: task.isBlocked === true,
+    plannedEndDate: stringValue(task.plannedEndDate) ?? '',
+    deadlineAt: stringValue(task.deadlineAt) ?? '',
+    progressPercent: numberValue(task.progressPercent) ?? 0,
+    timeGroup,
+    isOverdue: task.isOverdue === true,
+    version: requiredVersion(task.version),
+    primaryAssignee: personName(task.primaryAssignee),
+    targetGroup: groupName(task.targetGroup),
+    reviewer: personName(task.reviewer),
+    labels: Array.isArray(task.labels) ? task.labels.map((label) => stringValue(label.name)).filter((name): name is string => !!name) : [],
+    checklistCompletedCount: numberValue(task.checklistCompletedCount) ?? 0,
+    checklistTotalCount: numberValue(task.checklistTotalCount) ?? 0,
+    canClaim: permissions?.['canClaim'] === true,
+    canChangeStage: permissions?.['canChangeStage'] === true,
+    warnings: Array.isArray(task.warnings) ? task.warnings.filter((warning): warning is string => typeof warning === 'string') : []
   };
 }
 
@@ -221,4 +259,28 @@ function numberValue(value: unknown): number | undefined {
 
 function enumText(value: unknown): string {
   return String(value ?? '').toLowerCase();
+}
+
+function requiredVersion(value: unknown): string {
+  if (typeof value === 'string' && value.length > 0) return value;
+  if (typeof value === 'number' && Number.isFinite(value)) return String(value);
+  throw new Error('Projects API response did not include myTask.version.');
+}
+
+function mapTimeGroup(value: unknown): MyTasksLiveTask['timeGroup'] {
+  switch (enumText(value)) {
+    case 'overdue': return 'overdue';
+    case 'today': return 'today';
+    case 'next7days': return 'next7Days';
+    case 'later': return 'later';
+    default: return 'noDeadline';
+  }
+}
+
+function personName(value: MyTaskDto['primaryAssignee']): string {
+  return value && stringValue(value.displayName) ? stringValue(value.displayName)! : 'Unassigned';
+}
+
+function groupName(value: MyTaskDto['targetGroup']): string {
+  return value && stringValue(value.name) ? stringValue(value.name)! : '';
 }

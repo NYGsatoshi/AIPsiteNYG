@@ -217,15 +217,10 @@ describe('Projects and tasks mock UI', () => {
     expect(query(fixture, '[data-testid="my-tasks-kanban"]')).toBeNull();
   });
 
-  it('switches My Tasks to the optional Kanban projection without changing its rows', async () => {
+  it('keeps Kanban unavailable until the canonical Board projection is delivered', async () => {
     const fixture = await renderMyTasks();
-    const component = fixture.componentInstance;
-
-    component.setProjection('kanban');
-    fixture.detectChanges();
-
-    expect(query(fixture, '[data-testid="my-tasks-kanban"]')).not.toBeNull();
-    expect(textContent(fixture)).toContain(PROJECTS_SCENARIOS.default.tasks[0].title);
+    expect(query(fixture, '[data-testid="my-tasks-kanban"]')).toBeNull();
+    expect(textContent(fixture)).toContain('Kanban remains unavailable until PR05');
   });
 });
 

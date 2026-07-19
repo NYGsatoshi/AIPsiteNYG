@@ -50,11 +50,49 @@ public sealed record DashboardArtifactResponse(Guid Id, string Title, ArtifactTy
 
 public sealed record ProjectMemberSummaryResponse(Guid UserId, string DisplayName, ProjectRole Role);
 
+public enum MyTasksRelationshipView
+{
+    Assigned,
+    Participating,
+    Reviews,
+    Created,
+    Watching,
+    TeamQueue,
+    Completed
+}
+
+public enum MyTasksScope
+{
+    CurrentWorkspace,
+    AllWorkspaces
+}
+
+public enum MyTasksTimeGroup
+{
+    Overdue,
+    Today,
+    Next7Days,
+    Later,
+    NoDeadline
+}
+
+/// <summary>
+/// The canonical, user-relative My Tasks query. Status, dueBefore and onlyOverdue
+/// are temporary compatibility aliases; callers should use stageCategory and timeGroup.
+/// </summary>
 public sealed record MyTasksQuery(
-    TaskItemStatus? Status,
-    DateOnly? DueBefore,
-    Guid? ProjectId,
-    bool OnlyOverdue,
+    MyTasksRelationshipView View = MyTasksRelationshipView.Assigned,
+    MyTasksScope Scope = MyTasksScope.CurrentWorkspace,
+    Guid? WorkspaceId = null,
+    Guid? ProjectId = null,
+    TaskStageCategory? StageCategory = null,
+    TaskPriority? Priority = null,
+    bool? Blocked = null,
+    MyTasksTimeGroup? TimeGroup = null,
+    string? Search = null,
+    TaskItemStatus? Status = null,
+    DateOnly? DueBefore = null,
+    bool OnlyOverdue = false,
     int Page = 1,
     int PageSize = 50)
 {
@@ -62,6 +100,79 @@ public sealed record MyTasksQuery(
 
     public int SafePageSize => Math.Clamp(PageSize, 1, 100);
 }
+
+public sealed record MyTaskPersonSummary(Guid UserId, string DisplayName);
+public sealed record MyTaskGroupSummary(Guid GroupId, string Name);
+public sealed record MyTaskLabelSummary(Guid LabelId, string Name);
+public sealed record MyTaskRelationshipFlags(
+    bool IsPrimaryAssignee,
+    bool IsCollaborator,
+    bool IsReviewer,
+    bool IsCreator,
+    bool IsWatching,
+    bool IsTeamQueueEligible);
+public sealed record MyTaskQuickEditPermissions(
+    bool CanChangeStage,
+    bool CanUpdateProgress,
+    bool CanUpdatePriority,
+    bool CanUpdatePlannedEnd,
+    bool CanUpdateDeadline,
+    bool CanUpdateBlockedState,
+    bool CanUpdateChecklist,
+    bool CanUpdateLabels,
+    bool CanClaim);
+
+public sealed record MyTaskProjectionResponse(
+    Guid TaskId,
+    Guid TenantId,
+    Guid WorkspaceId,
+    string WorkspaceTitle,
+    Guid ProjectId,
+    string ProjectTitle,
+    WorkItemKind Kind,
+    Guid? ParentTaskId,
+    string Title,
+    Guid? WorkflowStageId,
+    string WorkflowStageName,
+    TaskStageCategory StageCategory,
+    TaskPriority Priority,
+    bool IsBlocked,
+    DateOnly? PlannedStartDate,
+    DateOnly? PlannedEndDate,
+    DateTimeOffset? DeadlineAt,
+    int ProgressPercent,
+    bool ProgressIsDerived,
+    MyTaskPersonSummary? PrimaryAssignee,
+    MyTaskGroupSummary? TargetGroup,
+    MyTaskPersonSummary? Reviewer,
+    IReadOnlyList<MyTaskLabelSummary> Labels,
+    int ChecklistCompletedCount,
+    int ChecklistTotalCount,
+    MyTaskRelationshipFlags Relationships,
+    MyTasksTimeGroup TimeGroup,
+    bool IsOverdue,
+    long Version,
+    MyTaskQuickEditPermissions QuickEditPermissions,
+    IReadOnlyList<string> Warnings);
+
+public sealed record MyTasksProjectionPage(
+    IReadOnlyList<MyTaskProjectionResponse> Items,
+    int Page,
+    int PageSize,
+    int TotalCount,
+    MyTasksRelationshipView View,
+    MyTasksScope Scope,
+    Guid? WorkspaceId,
+    int AvailableWorkspaceCount);
+
+public sealed record MyTasksViewCount(MyTasksRelationshipView View, int Count);
+public sealed record MyTasksTimeGroupCount(MyTasksTimeGroup TimeGroup, int Count);
+public sealed record MyTasksCountsResponse(
+    MyTasksScope Scope,
+    Guid? WorkspaceId,
+    int AvailableWorkspaceCount,
+    IReadOnlyList<MyTasksViewCount> Views,
+    IReadOnlyList<MyTasksTimeGroupCount> TimeGroups);
 
 public sealed record MyTaskListItemResponse(
     Guid TaskId,

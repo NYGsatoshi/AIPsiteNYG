@@ -17,16 +17,15 @@ public sealed class PlanningController(IPlanningService planning) : ControllerBa
 
     [HttpGet("api/me/tasks")]
     public async Task<IActionResult> MyTasks(
-        [FromQuery] TaskItemStatus? status,
-        [FromQuery] DateOnly? dueBefore,
-        [FromQuery] Guid? projectId,
-        [FromQuery] bool onlyOverdue,
-        [FromQuery] int page = 1,
-        [FromQuery] int pageSize = 50,
+        [FromQuery] MyTasksQuery query,
         CancellationToken cancellationToken = default)
     {
-        return ToActionResult(await planning.ListMyTasksAsync(new MyTasksQuery(status, dueBefore, projectId, onlyOverdue, page, pageSize), cancellationToken));
+        return ToActionResult(await planning.ListMyTasksAsync(query, cancellationToken));
     }
+
+    [HttpGet("api/me/tasks/counts")]
+    public async Task<IActionResult> MyTaskCounts([FromQuery] MyTasksQuery query, CancellationToken cancellationToken = default) =>
+        ToActionResult(await planning.GetMyTaskCountsAsync(query, cancellationToken));
 
     [HttpGet("api/projects/{projectId:guid}/workload")]
     public async Task<IActionResult> Workload(Guid projectId, CancellationToken cancellationToken) => ToActionResult(await planning.GetWorkloadAsync(projectId, cancellationToken));

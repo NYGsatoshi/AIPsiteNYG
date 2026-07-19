@@ -36,19 +36,46 @@ public sealed class PlanningService(
             : Result<ProjectDashboardResponse>.Success(response);
     }
 
-    public async Task<Result<PagedResponse<MyTaskListItemResponse>>> ListMyTasksAsync(MyTasksQuery query, CancellationToken cancellationToken = default)
+    public async Task<Result<MyTasksProjectionPage>> ListMyTasksAsync(MyTasksQuery query, CancellationToken cancellationToken = default)
     {
         if (!TryCurrentUser(out var userId))
         {
-            return Result<PagedResponse<MyTaskListItemResponse>>.Failure("Authentication is required.");
+            return Result<MyTasksProjectionPage>.Failure("Authentication is required.");
         }
 
         if (query.ProjectId.HasValue && !await projectAuthorization.CanViewProject(userId, query.ProjectId.Value, cancellationToken))
         {
-            return Result<PagedResponse<MyTaskListItemResponse>>.Failure("Project not found.");
+            return Result<MyTasksProjectionPage>.Failure("Project not found.");
         }
 
-        return Result<PagedResponse<MyTaskListItemResponse>>.Success(await planning.ListMyTasksAsync(userId, query, Today, cancellationToken));
+        var scoped = await ResolveScopeAsync(userId, query, cancellationToken);
+        if (scoped is null)
+        {
+            return Result<MyTasksProjectionPage>.Failure("An authorized active workspace is required for the current Workspace scope.");
+        }
+
+        return Result<MyTasksProjectionPage>.Success(await planning.ListMyTasksAsync(userId, scoped, clock.UtcNow, cancellationToken));
+    }
+
+    public async Task<Result<MyTasksCountsResponse>> GetMyTaskCountsAsync(MyTasksQuery query, CancellationToken cancellationToken = default)
+    {
+        if (!TryCurrentUser(out var userId))
+        {
+            return Result<MyTasksCountsResponse>.Failure("Authentication is required.");
+        }
+
+        if (query.ProjectId.HasValue && !await projectAuthorization.CanViewProject(userId, query.ProjectId.Value, cancellationToken))
+        {
+            return Result<MyTasksCountsResponse>.Failure("Project not found.");
+        }
+
+        var scoped = await ResolveScopeAsync(userId, query, cancellationToken);
+        if (scoped is null)
+        {
+            return Result<MyTasksCountsResponse>.Failure("An authorized active workspace is required for the current Workspace scope.");
+        }
+
+        return Result<MyTasksCountsResponse>.Success(await planning.GetMyTaskCountsAsync(userId, scoped, clock.UtcNow, cancellationToken));
     }
 
     public async Task<Result<ProjectWorkloadResponse>> GetWorkloadAsync(Guid projectId, CancellationToken cancellationToken = default)
@@ -65,6 +92,27 @@ public sealed class PlanningService(
     }
 
     private DateOnly Today => DateOnly.FromDateTime(clock.UtcNow.UtcDateTime);
+
+    private async Task<MyTasksQuery?> ResolveScopeAsync(Guid userId, MyTasksQuery query, CancellationToken cancellationToken)
+    {
+        var accessibleWorkspaceIds = await planning.ListAccessibleWorkspaceIdsAsync(userId, cancellationToken);
+        if (query.Scope == MyTasksScope.AllWorkspaces)
+        {
+            return query with { WorkspaceId = null };
+        }
+
+        if (query.WorkspaceId.HasValue)
+        {
+            return accessibleWorkspaceIds.Contains(query.WorkspaceId.Value) ? query : null;
+        }
+
+        // There is no ambient, server-owned active-workspace value in the legacy session.
+        // Selecting the sole accessible workspace is safe; multiple workspaces require the
+        // client to send its explicit active Workspace selection rather than guessing.
+        return accessibleWorkspaceIds.Count == 1
+            ? query with { WorkspaceId = accessibleWorkspaceIds[0] }
+            : null;
+    }
 
     private bool TryCurrentUser(out Guid userId)
     {
