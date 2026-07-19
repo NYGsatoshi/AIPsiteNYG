@@ -66,8 +66,11 @@ public sealed class ProjectRepository(AppDbContext dbContext) : IProjectReposito
     {
         return await dbContext.TaskItems
             .AsNoTracking()
+            .Include(task => task.WorkflowStage)
+            .Include(task => task.Collaborators)
             .Where(task => task.ProjectId == projectId)
-            .OrderBy(task => task.SortOrder)
+            .OrderBy(task => task.SortKey)
+            .ThenBy(task => task.SortOrder)
             .ThenBy(task => task.DueDate)
             .ThenBy(task => task.Title)
             .ToListAsync(cancellationToken);
@@ -75,7 +78,10 @@ public sealed class ProjectRepository(AppDbContext dbContext) : IProjectReposito
 
     public Task<TaskItem?> GetTaskAsync(Guid taskItemId, CancellationToken cancellationToken = default)
     {
-        return dbContext.TaskItems.FirstOrDefaultAsync(task => task.Id == taskItemId, cancellationToken);
+        return dbContext.TaskItems
+            .Include(task => task.WorkflowStage)
+            .Include(task => task.Collaborators)
+            .FirstOrDefaultAsync(task => task.Id == taskItemId, cancellationToken);
     }
 
     public async Task<IReadOnlyList<TaskAssignment>> ListAssignmentsAsync(Guid taskItemId, CancellationToken cancellationToken = default)

@@ -20,8 +20,10 @@ public sealed class ProjectService(
     INotificationService notifications,
     IBusinessInvalidationPublisher invalidations,
     IAuthorizationStateChangePublisher authorizationChanges,
-    IUnitOfWork unitOfWork) : IProjectService
+    IUnitOfWork unitOfWork,
+    IFeatureFlagService? featureFlags = null) : IProjectService
 {
+    private Task<bool>? taskDomainV1Enabled;
     public async Task<Result<PagedResponse<ProjectResponse>>> ListAsync(ProjectListQuery query, CancellationToken cancellationToken = default)
     {
         if (!TryCurrentUser(out var userId))
@@ -459,9 +461,16 @@ public sealed class ProjectService(
             return Result<TaskItemResponse>.Failure(validation.Error!);
         }
 
+        var project = await projects.GetProjectAsync(projectId, cancellationToken);
+        if (project is null)
+        {
+            return Result<TaskItemResponse>.Failure("Project not found.");
+        }
+
         var task = new TaskItem
         {
             ProjectId = projectId,
+            WorkspaceId = project.WorkspaceId,
             MilestoneId = request.MilestoneId,
             Title = request.Title.Trim(),
             Description = request.Description?.Trim(),
@@ -1157,7 +1166,20 @@ public sealed class ProjectService(
                 false,
                 canEdit,
                 Array.Empty<TaskItemStatus>(),
-                null));
+                await GetTaskDomainV1RowVersionAsync(task, cancellationToken)));
+    }
+
+    private async Task<string?> GetTaskDomainV1RowVersionAsync(TaskItem task, CancellationToken cancellationToken)
+    {
+        if (featureFlags is null)
+        {
+            return null;
+        }
+
+        taskDomainV1Enabled ??= featureFlags.IsEnabledAsync(FeatureKeys.TasksDomainV1, cancellationToken);
+        return await taskDomainV1Enabled
+            ? task.VersionNo.ToString(System.Globalization.CultureInfo.InvariantCulture)
+            : null;
     }
 
     private static TaskAssignmentResponse ToAssignment(TaskAssignment assignment)

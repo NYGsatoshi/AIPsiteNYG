@@ -113,6 +113,10 @@ public sealed class TaskItemConfiguration : IEntityTypeConfiguration<TaskItem>
         builder.Property(task => task.Description).HasMaxLength(8000);
         builder.Property(task => task.Status).HasEnumStringConversion().IsRequired();
         builder.Property(task => task.Priority).HasEnumStringConversion().IsRequired();
+        builder.Property(task => task.Kind).HasEnumStringConversion().IsRequired();
+        builder.Property(task => task.BlockedReason).HasMaxLength(500);
+        builder.Property(task => task.CancellationReason).HasMaxLength(1000);
+        builder.Property(task => task.VersionNo).IsConcurrencyToken().HasDefaultValue(1L);
 
         builder.HasIndex(task => task.ProjectId);
         builder.HasIndex(task => task.MilestoneId);
@@ -124,11 +128,59 @@ public sealed class TaskItemConfiguration : IEntityTypeConfiguration<TaskItem>
         builder.HasIndex(task => new { task.ProjectId, task.SortOrder });
         builder.HasIndex(task => new { task.TenantId, task.ProjectId, task.Status });
         builder.HasIndex(task => new { task.TenantId, task.DueDate });
+        builder.HasIndex(task => new { task.ProjectId, task.WorkflowStageId, task.SortKey });
+        builder.HasIndex(task => new { task.TenantId, task.WorkspaceId, task.ProjectId });
+        builder.HasIndex(task => task.PrimaryAssigneeUserId);
+        builder.HasIndex(task => task.ReviewerUserId);
+        builder.HasIndex(task => task.TargetGroupId);
+        builder.HasIndex(task => task.ParentTaskItemId);
+        builder.HasIndex(task => new { task.ProjectId, task.PlannedEndDate });
+        builder.HasIndex(task => new { task.ProjectId, task.DeadlineAt });
+        builder.HasIndex(task => new { task.ProjectId, task.IsBlocked });
+        builder.HasAlternateKey(task => new { task.Id, task.ProjectId });
+        builder.ToTable(table =>
+        {
+            table.HasCheckConstraint("CK_task_items_reviewer_not_primary", "\"ReviewerUserId\" IS NULL OR \"PrimaryAssigneeUserId\" IS NULL OR \"ReviewerUserId\" <> \"PrimaryAssigneeUserId\"");
+            table.HasCheckConstraint("CK_task_items_planned_dates", "\"PlannedEndDate\" IS NULL OR \"PlannedStartDate\" IS NULL OR \"PlannedEndDate\" >= \"PlannedStartDate\"");
+            table.HasCheckConstraint("CK_task_items_effort", "\"EstimatedEffortMinutes\" IS NULL OR \"EstimatedEffortMinutes\" >= 0");
+        });
 
         builder
             .HasOne(task => task.Project)
             .WithMany(project => project.Tasks)
             .HasForeignKey(task => task.ProjectId)
+            .OnDelete(DeleteBehavior.Restrict);
+
+        builder
+            .HasOne(task => task.ParentTaskItem)
+            .WithMany(task => task.ChildTaskItems)
+            .HasForeignKey(task => new { task.ParentTaskItemId, task.ProjectId })
+            .HasPrincipalKey(task => new { task.Id, task.ProjectId })
+            .OnDelete(DeleteBehavior.Restrict);
+
+        builder
+            .HasOne(task => task.WorkflowStage)
+            .WithMany()
+            .HasForeignKey(task => new { task.WorkflowStageId, task.ProjectId })
+            .HasPrincipalKey(stage => new { stage.Id, stage.ProjectId })
+            .OnDelete(DeleteBehavior.Restrict);
+
+        builder
+            .HasOne(task => task.TargetGroup)
+            .WithMany()
+            .HasForeignKey(task => task.TargetGroupId)
+            .OnDelete(DeleteBehavior.Restrict);
+
+        builder
+            .HasOne(task => task.PrimaryAssigneeUser)
+            .WithMany()
+            .HasForeignKey(task => task.PrimaryAssigneeUserId)
+            .OnDelete(DeleteBehavior.Restrict);
+
+        builder
+            .HasOne(task => task.ReviewerUser)
+            .WithMany()
+            .HasForeignKey(task => task.ReviewerUserId)
             .OnDelete(DeleteBehavior.Restrict);
 
         builder
@@ -194,6 +246,8 @@ public sealed class TaskDependencyConfiguration : IEntityTypeConfiguration<TaskD
 
         builder.HasIndex(dependency => dependency.ProjectId);
         builder.HasIndex(dependency => new { dependency.TenantId, dependency.PredecessorTaskItemId, dependency.SuccessorTaskItemId }).IsUnique();
+        builder.HasIndex(dependency => new { dependency.ProjectId, dependency.PredecessorTaskItemId });
+        builder.HasIndex(dependency => new { dependency.ProjectId, dependency.SuccessorTaskItemId });
 
         builder
             .HasOne(dependency => dependency.Project)
@@ -212,6 +266,83 @@ public sealed class TaskDependencyConfiguration : IEntityTypeConfiguration<TaskD
             .WithMany(task => task.PredecessorDependencies)
             .HasForeignKey(dependency => dependency.SuccessorTaskItemId)
             .OnDelete(DeleteBehavior.Restrict);
+    }
+}
+
+public sealed class TaskWorkflowDefinitionConfiguration : IEntityTypeConfiguration<TaskWorkflowDefinition>
+{
+    public void Configure(EntityTypeBuilder<TaskWorkflowDefinition> builder)
+    {
+        builder.ToTable("task_workflow_definitions");
+        builder.ConfigureEntity();
+        builder.Property(definition => definition.Name).HasMaxLength(120).IsRequired();
+        builder.Property(definition => definition.VersionNo).IsConcurrencyToken().HasDefaultValue(1L);
+        builder.HasIndex(definition => definition.ProjectId).IsUnique();
+        builder.HasIndex(definition => new { definition.TenantId, definition.WorkspaceId, definition.ProjectId });
+        builder.HasAlternateKey(definition => new { definition.Id, definition.ProjectId });
+        builder.HasOne(definition => definition.Project)
+            .WithMany(project => project.TaskWorkflowDefinitions)
+            .HasForeignKey(definition => definition.ProjectId)
+            .OnDelete(DeleteBehavior.Restrict);
+    }
+}
+
+public sealed class TaskWorkflowStageConfiguration : IEntityTypeConfiguration<TaskWorkflowStage>
+{
+    public void Configure(EntityTypeBuilder<TaskWorkflowStage> builder)
+    {
+        builder.ToTable("task_workflow_stages");
+        builder.ConfigureEntity();
+        builder.Property(stage => stage.Name).HasMaxLength(120).IsRequired();
+        builder.Property(stage => stage.InternalCategory).HasEnumStringConversion().IsRequired();
+        builder.Property(stage => stage.VersionNo).IsConcurrencyToken().HasDefaultValue(1L);
+        builder.HasIndex(stage => new { stage.DefinitionId, stage.SortKey }).IsUnique();
+        builder.HasIndex(stage => new { stage.ProjectId, stage.InternalCategory });
+        builder.HasAlternateKey(stage => new { stage.Id, stage.ProjectId });
+        builder.ToTable(table => table.HasCheckConstraint("CK_task_workflow_stages_wip", "\"WipWarningLimit\" IS NULL OR \"WipWarningLimit\" > 0"));
+        builder.HasOne(stage => stage.Definition)
+            .WithMany(definition => definition.Stages)
+            .HasForeignKey(stage => stage.DefinitionId)
+            .OnDelete(DeleteBehavior.Restrict);
+    }
+}
+
+public sealed class WorkItemCollaboratorConfiguration : IEntityTypeConfiguration<WorkItemCollaborator>
+{
+    public void Configure(EntityTypeBuilder<WorkItemCollaborator> builder)
+    {
+        builder.ToTable("task_item_collaborators");
+        builder.ConfigureEntity();
+        builder.Property(collaborator => collaborator.AddedAt).IsRequired();
+        builder.HasIndex(collaborator => new { collaborator.TenantId, collaborator.TaskItemId, collaborator.UserId }).IsUnique();
+        builder.HasIndex(collaborator => collaborator.UserId);
+        builder.HasOne(collaborator => collaborator.TaskItem)
+            .WithMany(task => task.Collaborators)
+            .HasForeignKey(collaborator => collaborator.TaskItemId)
+            .OnDelete(DeleteBehavior.Restrict);
+        builder.HasOne(collaborator => collaborator.User)
+            .WithMany()
+            .HasForeignKey(collaborator => collaborator.UserId)
+            .OnDelete(DeleteBehavior.Restrict);
+        builder.HasOne(collaborator => collaborator.AddedByUser)
+            .WithMany()
+            .HasForeignKey(collaborator => collaborator.AddedByUserId)
+            .OnDelete(DeleteBehavior.Restrict);
+    }
+}
+
+public sealed class TaskMigrationInventoryConfiguration : IEntityTypeConfiguration<TaskMigrationInventory>
+{
+    public void Configure(EntityTypeBuilder<TaskMigrationInventory> builder)
+    {
+        builder.ToTable("task_migration_inventory");
+        builder.ConfigureEntity();
+        builder.Property(item => item.FindingCode).HasMaxLength(100).IsRequired();
+        builder.Property(item => item.Details).HasMaxLength(1000).IsRequired();
+        builder.Property(item => item.CreatedAt).IsRequired();
+        builder.HasIndex(item => new { item.TenantId, item.FindingCode });
+        builder.HasIndex(item => item.TaskItemId);
+        builder.HasIndex(item => item.ProjectId);
     }
 }
 

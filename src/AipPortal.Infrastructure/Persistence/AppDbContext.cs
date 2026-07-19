@@ -53,6 +53,10 @@ public sealed class AppDbContext(
     public DbSet<ProjectMember> ProjectMembers => Set<ProjectMember>();
     public DbSet<Milestone> Milestones => Set<Milestone>();
     public DbSet<TaskItem> TaskItems => Set<TaskItem>();
+    public DbSet<TaskWorkflowDefinition> TaskWorkflowDefinitions => Set<TaskWorkflowDefinition>();
+    public DbSet<TaskWorkflowStage> TaskWorkflowStages => Set<TaskWorkflowStage>();
+    public DbSet<WorkItemCollaborator> WorkItemCollaborators => Set<WorkItemCollaborator>();
+    public DbSet<TaskMigrationInventory> TaskMigrationInventories => Set<TaskMigrationInventory>();
     public DbSet<TaskDependency> TaskDependencies => Set<TaskDependency>();
     public DbSet<TaskAssignment> TaskAssignments => Set<TaskAssignment>();
     public DbSet<ActivityLog> ActivityLogs => Set<ActivityLog>();
@@ -79,6 +83,8 @@ public sealed class AppDbContext(
     {
         StampAuditableEntities();
         var hasNormalTenantWrite = ApplyTenantRules();
+        EnsureDefaultTaskWorkflows();
+        IncrementTaskAggregateVersions();
         if (hasNormalTenantWrite)
         {
             await EnsureCurrentTenantCanWriteAsync(cancellationToken);
@@ -91,6 +97,8 @@ public sealed class AppDbContext(
     {
         StampAuditableEntities();
         var hasNormalTenantWrite = ApplyTenantRules();
+        EnsureDefaultTaskWorkflows();
+        IncrementTaskAggregateVersions();
         if (hasNormalTenantWrite)
         {
             EnsureCurrentTenantCanWrite();
@@ -165,6 +173,73 @@ public sealed class AppDbContext(
         }
 
         return hasNormalTenantWrite;
+    }
+
+    private void EnsureDefaultTaskWorkflows()
+    {
+        foreach (var project in ChangeTracker.Entries<Project>()
+                     .Where(entry => entry.State == EntityState.Added)
+                     .Select(entry => entry.Entity)
+                     .ToList())
+        {
+            if (ChangeTracker.Entries<TaskWorkflowDefinition>().Any(entry =>
+                    entry.State != EntityState.Deleted && entry.Entity.ProjectId == project.Id))
+            {
+                continue;
+            }
+
+            var definition = new TaskWorkflowDefinition
+            {
+                TenantId = project.TenantId,
+                WorkspaceId = project.WorkspaceId,
+                ProjectId = project.Id,
+                Name = "Default",
+                ReviewEnforcementEnabled = true
+            };
+            TaskWorkflowDefinitions.Add(definition);
+
+            var stages = new (string Name, TaskStageCategory Category, bool Initial, bool Terminal)[]
+            {
+                ("Backlog", TaskStageCategory.Backlog, true, false),
+                ("Todo", TaskStageCategory.Todo, false, false),
+                ("In Progress", TaskStageCategory.InProgress, false, false),
+                ("Review", TaskStageCategory.Review, false, false),
+                ("Done", TaskStageCategory.Done, false, true),
+                ("Cancelled", TaskStageCategory.Cancelled, false, true)
+            };
+
+            for (var index = 0; index < stages.Length; index++)
+            {
+                var stage = stages[index];
+                TaskWorkflowStages.Add(new TaskWorkflowStage
+                {
+                    TenantId = project.TenantId,
+                    WorkspaceId = project.WorkspaceId,
+                    ProjectId = project.Id,
+                    DefinitionId = definition.Id,
+                    Name = stage.Name,
+                    InternalCategory = stage.Category,
+                    SortKey = (index + 1) * 1000L,
+                    IsInitialStage = stage.Initial,
+                    IsTerminalStage = stage.Terminal
+                });
+            }
+        }
+    }
+
+    private void IncrementTaskAggregateVersions()
+    {
+        foreach (var entry in ChangeTracker.Entries<TaskItem>())
+        {
+            if (entry.State == EntityState.Added && entry.Entity.VersionNo <= 0)
+            {
+                entry.Entity.VersionNo = 1;
+            }
+            else if (entry.State == EntityState.Modified && !entry.Property(task => task.VersionNo).IsModified)
+            {
+                entry.Entity.VersionNo = entry.OriginalValues.GetValue<long>(nameof(TaskItem.VersionNo)) + 1;
+            }
+        }
     }
 
     private async Task EnsureCurrentTenantCanWriteAsync(CancellationToken cancellationToken)

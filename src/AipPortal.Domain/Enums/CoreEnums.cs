@@ -355,9 +355,27 @@ public enum TaskItemStatus
 public enum TaskPriority
 {
     Low = 0,
-    Normal = 1,
+    Medium = 1,
     High = 2,
     Critical = 3
+}
+
+// These values are persisted as strings. Do not add aliases: the API and migration
+// compatibility paths must be able to distinguish every persisted value unambiguously.
+public enum WorkItemKind
+{
+    Task = 0,
+    Milestone = 1
+}
+
+public enum TaskStageCategory
+{
+    Backlog = 0,
+    Todo = 1,
+    InProgress = 2,
+    Review = 3,
+    Done = 4,
+    Cancelled = 5
 }
 
 public enum TaskAssignmentRole

@@ -424,7 +424,7 @@ public static class AppDbContextSeed
                 Title = taskTitle,
                 Description = "Synthetic task detail for the real-backend browser smoke test.",
                 Status = TaskItemStatus.NotStarted,
-                Priority = TaskPriority.Normal,
+                Priority = TaskPriority.Medium,
                 StartDate = project.StartDate,
                 DueDate = project.DueDate,
                 ProgressPercent = 10,
@@ -437,7 +437,7 @@ public static class AppDbContextSeed
         {
             task.Description = "Synthetic task detail for the real-backend browser smoke test.";
             task.Status = TaskItemStatus.NotStarted;
-            task.Priority = TaskPriority.Normal;
+            task.Priority = TaskPriority.Medium;
             task.StartDate = project.StartDate;
             task.DueDate = project.DueDate;
             task.ProgressPercent = 10;
