@@ -186,7 +186,7 @@ public sealed class PostgreSqlIntegrationTests
         var group = new Group { TenantId = tenant.Id, WorkspaceId = workspace.Id, Name = $"{prefix} SeCuReSearchNeedle Group", Slug = $"{prefix.ToLowerInvariant()}-grp-{runId}", Description = $"{prefix} group", CreatedByUserId = user.Id, CreatedAt = now };
         var channel = new Channel { TenantId = tenant.Id, WorkspaceId = workspace.Id, GroupId = group.Id, Name = $"{prefix} SeCuReSearchNeedle Channel", Slug = $"{prefix.ToLowerInvariant()}-chn-{runId}", Description = $"{prefix} channel", CreatedByUserId = user.Id, Type = ChannelType.Public, Status = ChannelStatus.Active, CreatedAt = now };
         var project = new Project { TenantId = tenant.Id, WorkspaceId = workspace.Id, GroupId = group.Id, Name = $"{prefix} SeCuReSearchNeedle Project", Slug = $"{prefix.ToLowerInvariant()}-prj-{runId}", Description = $"{prefix} project", OwnerUserId = user.Id, CreatedByUserId = user.Id, Status = ProjectStatus.Active, CreatedAt = now };
-        var task = new TaskItem { TenantId = tenant.Id, ProjectId = project.Id, Title = $"{prefix} SeCuReSearchNeedle Task", Description = $"{prefix} task", CreatedByUserId = user.Id, Status = TaskItemStatus.NotStarted, CreatedAt = now };
+        var task = new TaskItem { TenantId = tenant.Id, WorkspaceId = workspace.Id, ProjectId = project.Id, Title = $"{prefix} SeCuReSearchNeedle Task", Description = $"{prefix} task", CreatedByUserId = user.Id, Status = TaskItemStatus.NotStarted, CreatedAt = now };
         var artifact = new Artifact { TenantId = tenant.Id, ProjectId = project.Id, TaskItemId = task.Id, Name = $"{prefix} SeCuReSearchNeedle Artifact", Description = $"{prefix} artifact", CreatedByUserId = user.Id, ArtifactType = ArtifactType.Other, Status = ArtifactStatus.Draft, CreatedAt = now };
         var conversation = new Conversation { TenantId = tenant.Id, WorkspaceId = workspace.Id, Title = $"{prefix} conversation", CreatedByUserId = user.Id, Type = ConversationType.DirectMessage, CreatedAt = now };
         var post = new Post { TenantId = tenant.Id, ChannelId = channel.Id, AuthorUserId = user.Id, Body = $"{prefix} SeCuReSearchNeedle post body", CreatedAt = now };
@@ -235,5 +235,4 @@ public sealed class PostgreSqlIntegrationTests
         public SystemRole? SystemRole => user.SystemRole;
         public bool IsAuthenticated => true;
     }
-
 }
