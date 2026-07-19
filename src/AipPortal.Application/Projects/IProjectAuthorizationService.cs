@@ -14,6 +14,9 @@ public interface ITaskAuthorizationService
     Task<bool> CanCreateTask(Guid userId, Guid projectId, CancellationToken cancellationToken = default);
     Task<bool> CanUpdateTask(Guid userId, Guid taskItemId, CancellationToken cancellationToken = default);
     Task<bool> CanAssignTask(Guid userId, Guid taskItemId, CancellationToken cancellationToken = default);
+    Task<bool> CanDeleteTask(Guid userId, Guid taskItemId, CancellationToken cancellationToken = default);
+    Task<bool> CanReviewTask(Guid userId, Guid taskItemId, CancellationToken cancellationToken = default);
+    Task<bool> CanOverrideTaskReview(Guid userId, Guid taskItemId, CancellationToken cancellationToken = default);
 }
 
 public interface ICommentAuthorizationService

@@ -84,6 +84,18 @@ public sealed class ProjectRepository(AppDbContext dbContext) : IProjectReposito
             .FirstOrDefaultAsync(task => task.Id == taskItemId, cancellationToken);
     }
 
+    public Task<TaskWorkflowDefinition?> GetWorkflowDefinitionAsync(Guid projectId, CancellationToken cancellationToken = default) =>
+        dbContext.TaskWorkflowDefinitions.FirstOrDefaultAsync(definition => definition.ProjectId == projectId, cancellationToken);
+
+    public Task<TaskWorkflowStage?> GetWorkflowStageAsync(Guid workflowStageId, CancellationToken cancellationToken = default) =>
+        dbContext.TaskWorkflowStages.FirstOrDefaultAsync(stage => stage.Id == workflowStageId, cancellationToken);
+
+    public async Task<IReadOnlyList<TaskWorkflowStage>> ListWorkflowStagesAsync(Guid projectId, CancellationToken cancellationToken = default) =>
+        await dbContext.TaskWorkflowStages.AsNoTracking().Where(stage => stage.ProjectId == projectId).OrderBy(stage => stage.SortKey).ToListAsync(cancellationToken);
+
+    public async Task<IReadOnlyList<WorkItemCollaborator>> ListCollaboratorsAsync(Guid taskItemId, CancellationToken cancellationToken = default) =>
+        await dbContext.WorkItemCollaborators.AsNoTracking().Include(item => item.User).Where(item => item.TaskItemId == taskItemId).OrderBy(item => item.User!.DisplayName).ToListAsync(cancellationToken);
+
     public async Task<IReadOnlyList<TaskAssignment>> ListAssignmentsAsync(Guid taskItemId, CancellationToken cancellationToken = default)
     {
         return await dbContext.TaskAssignments
@@ -167,6 +179,9 @@ public sealed class ProjectRepository(AppDbContext dbContext) : IProjectReposito
         await dbContext.TaskItems.AddAsync(task, cancellationToken);
     }
 
+    public async Task AddCollaboratorAsync(WorkItemCollaborator collaborator, CancellationToken cancellationToken = default) =>
+        await dbContext.WorkItemCollaborators.AddAsync(collaborator, cancellationToken);
+
     public async Task AddAssignmentAsync(TaskAssignment assignment, CancellationToken cancellationToken = default)
     {
         await dbContext.TaskAssignments.AddAsync(assignment, cancellationToken);
@@ -196,4 +211,6 @@ public sealed class ProjectRepository(AppDbContext dbContext) : IProjectReposito
     {
         dbContext.TaskDependencies.Remove(dependency);
     }
+
+    public void RemoveCollaborator(WorkItemCollaborator collaborator) => dbContext.WorkItemCollaborators.Remove(collaborator);
 }

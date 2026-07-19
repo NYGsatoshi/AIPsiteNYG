@@ -73,6 +73,7 @@ public static class DependencyInjection
         services.AddScoped<IIntegrationService>(provider => provider.GetRequiredService<IntegrationService>());
         services.AddScoped<IApiTokenValidator>(provider => provider.GetRequiredService<IntegrationService>());
         services.AddScoped<IProjectService, ProjectService>();
+        services.AddScoped<ITaskCommandService, TaskCommandService>();
         services.AddScoped<IEventService, EventService>();
         services.AddScoped<IFormService, FormService>();
         services.AddScoped<IFileService, FileService>();

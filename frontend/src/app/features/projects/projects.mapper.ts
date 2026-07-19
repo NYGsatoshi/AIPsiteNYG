@@ -28,7 +28,7 @@ export function mapTaskDtoToRecord(
   task: TaskDto,
   _projects: readonly ProjectMockRecord[]
 ): TaskMockRecord {
-  const status = mapTaskStatus(task.status);
+  const status = task.isBlocked === true ? 'blocked' : mapTaskStatus(task.stageCategory ?? task.status);
   const priority = mapTaskPriority(task.priority);
   const projectId = requiredString(task.projectId, 'task.projectId');
   const allowedTransitions = taskStatusArray(task.uiPermissions?.allowedTransitions);
@@ -43,15 +43,15 @@ export function mapTaskDtoToRecord(
     priority,
     priorityLabel: taskPriorityLabel(priority),
     assignee: 'Assignment not shown by API',
-    startDate: stringValue(task.startDate) ?? '',
-    dueDate: stringValue(task.dueDate) ?? '',
+    startDate: stringValue(task.plannedStartDate) ?? stringValue(task.startDate) ?? '',
+    dueDate: stringValue(task.plannedEndDate) ?? stringValue(task.dueDate) ?? '',
     progressPercent: numberValue(task.progressPercent) ?? 0,
     milestone: stringValue(task.milestoneId) ?? '',
     dependencyIds: [],
     allowedTransitions,
     capabilities: taskCapabilities(task.uiPermissions, allowedTransitions),
     authorized: true,
-    rowVersion: stringValue(task.uiPermissions?.rowVersion) ?? ''
+    rowVersion: stringValue(task.uiPermissions?.rowVersion) ?? stringValue(task.version) ?? ''
   };
 }
 
@@ -181,7 +181,7 @@ function taskCapabilities(
   allowedTransitions: readonly TaskStatus[]
 ): readonly ProjectCapability[] {
   const capabilities: ProjectCapability[] = [];
-  if (uiPermissions?.canEdit === true) {
+  if (uiPermissions?.canEdit === true || uiPermissions?.canUpdate === true) {
     capabilities.push('editTask');
   }
   if (uiPermissions?.canAssign === true) {

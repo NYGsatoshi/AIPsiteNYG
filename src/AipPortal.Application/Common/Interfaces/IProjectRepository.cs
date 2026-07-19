@@ -13,6 +13,10 @@ public interface IProjectRepository
     Task<Milestone?> GetMilestoneAsync(Guid milestoneId, CancellationToken cancellationToken = default);
     Task<IReadOnlyList<TaskItem>> ListTasksAsync(Guid projectId, CancellationToken cancellationToken = default);
     Task<TaskItem?> GetTaskAsync(Guid taskItemId, CancellationToken cancellationToken = default);
+    Task<TaskWorkflowDefinition?> GetWorkflowDefinitionAsync(Guid projectId, CancellationToken cancellationToken = default) => Task.FromResult<TaskWorkflowDefinition?>(null);
+    Task<TaskWorkflowStage?> GetWorkflowStageAsync(Guid workflowStageId, CancellationToken cancellationToken = default) => Task.FromResult<TaskWorkflowStage?>(null);
+    Task<IReadOnlyList<TaskWorkflowStage>> ListWorkflowStagesAsync(Guid projectId, CancellationToken cancellationToken = default) => Task.FromResult<IReadOnlyList<TaskWorkflowStage>>([]);
+    Task<IReadOnlyList<WorkItemCollaborator>> ListCollaboratorsAsync(Guid taskItemId, CancellationToken cancellationToken = default) => Task.FromResult<IReadOnlyList<WorkItemCollaborator>>([]);
     Task<IReadOnlyList<TaskAssignment>> ListAssignmentsAsync(Guid taskItemId, CancellationToken cancellationToken = default);
     Task<TaskAssignment?> GetAssignmentAsync(Guid assignmentId, CancellationToken cancellationToken = default);
     Task<IReadOnlyList<TaskDependency>> ListDependenciesAsync(Guid taskItemId, CancellationToken cancellationToken = default);
@@ -25,10 +29,12 @@ public interface IProjectRepository
     Task AddMemberAsync(ProjectMember member, CancellationToken cancellationToken = default);
     Task AddMilestoneAsync(Milestone milestone, CancellationToken cancellationToken = default);
     Task AddTaskAsync(TaskItem task, CancellationToken cancellationToken = default);
+    Task AddCollaboratorAsync(WorkItemCollaborator collaborator, CancellationToken cancellationToken = default) => Task.CompletedTask;
     Task AddAssignmentAsync(TaskAssignment assignment, CancellationToken cancellationToken = default);
     Task AddDependencyAsync(TaskDependency dependency, CancellationToken cancellationToken = default);
     Task AddCommentAsync(Comment comment, CancellationToken cancellationToken = default);
     void RemoveMember(ProjectMember member);
     void RemoveAssignment(TaskAssignment assignment);
     void RemoveDependency(TaskDependency dependency);
+    void RemoveCollaborator(WorkItemCollaborator collaborator) { }
 }

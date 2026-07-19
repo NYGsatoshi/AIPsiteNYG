@@ -1,4 +1,5 @@
 using AipPortal.Domain.Entities;
+using AipPortal.Domain.Enums;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore.Metadata.Builders;
 
@@ -116,6 +117,8 @@ public sealed class TaskItemConfiguration : IEntityTypeConfiguration<TaskItem>
         builder.Property(task => task.Kind).HasEnumStringConversion().IsRequired();
         builder.Property(task => task.BlockedReason).HasMaxLength(500);
         builder.Property(task => task.CancellationReason).HasMaxLength(1000);
+        builder.Property(task => task.ReviewStatus).HasEnumStringConversion().HasDefaultValue(TaskReviewStatus.None).IsRequired();
+        builder.Property(task => task.ReviewReturnReason).HasMaxLength(1000);
         builder.Property(task => task.VersionNo).IsConcurrencyToken().HasDefaultValue(1L);
 
         builder.HasIndex(task => task.ProjectId);
@@ -134,6 +137,7 @@ public sealed class TaskItemConfiguration : IEntityTypeConfiguration<TaskItem>
         builder.HasIndex(task => task.ReviewerUserId);
         builder.HasIndex(task => task.TargetGroupId);
         builder.HasIndex(task => task.ParentTaskItemId);
+        builder.HasIndex(task => new { task.ProjectId, task.TargetGroupId, task.PrimaryAssigneeUserId, task.WorkflowStageId });
         builder.HasIndex(task => new { task.ProjectId, task.PlannedEndDate });
         builder.HasIndex(task => new { task.ProjectId, task.DeadlineAt });
         builder.HasIndex(task => new { task.ProjectId, task.IsBlocked });

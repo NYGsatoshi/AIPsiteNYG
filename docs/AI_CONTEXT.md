@@ -71,7 +71,7 @@ Project references enforce a conventional dependency direction. See `docs/ARCHIT
 | Workspaces/groups/channels/posts | Backend implemented; browser UI planned/partial | REST layers exist; routes render placeholders |
 | Messaging | Partially implemented | REST, direct-message recipient search, direct conversation creation, browser send/read persistence, and PR07 durable realtime message/unread events with Angular reconciliation exist; safe attachment ownership and production PostgreSQL verification remain incomplete |
 | Announcements | Partially implemented | REST and UI exist; scoped visibility and frontend role/user-ID behavior have confirmed defects |
-| Projects/tasks/milestones/assignments/comments/Gantt data | Partially implemented | Broad API and project UI exist; search authorization, assignee filtering, notification targets, and task-list deduplication need patches |
+| Projects/tasks/milestones/assignments/comments/Gantt data | Partially implemented | PR02 adds versioned Task workflow, relationship, review, Claim, and FS-authoring command routes; browser projections and several legacy compatibility routes remain incomplete. See `docs/TASK_V1_PR02.md`. |
 | Events/attendance/calendar | Backend implemented; browser UI planned | Controller/service/repository/tests exist; calendar route is a placeholder outside dashboard summary |
 | Forms/surveys | Backend implemented; browser UI planned | Controller/service/repository/tests exist; `/forms` is a placeholder |
 | Notifications | Implemented with polling UI | Database-backed; no realtime push |
