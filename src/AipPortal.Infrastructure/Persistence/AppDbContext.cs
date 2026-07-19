@@ -57,6 +57,11 @@ public sealed class AppDbContext(
     public DbSet<TaskWorkflowStage> TaskWorkflowStages => Set<TaskWorkflowStage>();
     public DbSet<WorkItemCollaborator> WorkItemCollaborators => Set<WorkItemCollaborator>();
     public DbSet<TaskMigrationInventory> TaskMigrationInventories => Set<TaskMigrationInventory>();
+    public DbSet<TaskChecklistItem> TaskChecklistItems => Set<TaskChecklistItem>();
+    public DbSet<TaskComment> TaskComments => Set<TaskComment>();
+    public DbSet<WorkItemWatchState> WorkItemWatchStates => Set<WorkItemWatchState>();
+    public DbSet<ProjectTaskLabel> ProjectTaskLabels => Set<ProjectTaskLabel>();
+    public DbSet<WorkItemLabel> WorkItemLabels => Set<WorkItemLabel>();
     public DbSet<TaskDependency> TaskDependencies => Set<TaskDependency>();
     public DbSet<TaskAssignment> TaskAssignments => Set<TaskAssignment>();
     public DbSet<ActivityLog> ActivityLogs => Set<ActivityLog>();

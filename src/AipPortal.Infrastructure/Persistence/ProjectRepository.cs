@@ -179,6 +179,11 @@ public sealed class ProjectRepository(AppDbContext dbContext) : IProjectReposito
         await dbContext.TaskItems.AddAsync(task, cancellationToken);
     }
 
+    public Task<WorkItemWatchState?> GetWatchStateAsync(Guid taskItemId, Guid userId, CancellationToken cancellationToken = default) =>
+        dbContext.WorkItemWatchStates.FirstOrDefaultAsync(x => x.TaskItemId == taskItemId && x.UserId == userId, cancellationToken);
+    public async Task<IReadOnlyList<WorkItemWatchState>> ListWatchStatesAsync(Guid taskItemId, CancellationToken cancellationToken = default) =>
+        await dbContext.WorkItemWatchStates.Where(x => x.TaskItemId == taskItemId).ToListAsync(cancellationToken);
+
     public async Task AddCollaboratorAsync(WorkItemCollaborator collaborator, CancellationToken cancellationToken = default) =>
         await dbContext.WorkItemCollaborators.AddAsync(collaborator, cancellationToken);
 
@@ -211,6 +216,9 @@ public sealed class ProjectRepository(AppDbContext dbContext) : IProjectReposito
     {
         dbContext.TaskDependencies.Remove(dependency);
     }
+
+    public async Task AddWatchStateAsync(WorkItemWatchState watchState, CancellationToken cancellationToken = default) =>
+        await dbContext.WorkItemWatchStates.AddAsync(watchState, cancellationToken);
 
     public void RemoveCollaborator(WorkItemCollaborator collaborator) => dbContext.WorkItemCollaborators.Remove(collaborator);
 }
