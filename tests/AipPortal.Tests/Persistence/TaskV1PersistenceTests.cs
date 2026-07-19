@@ -1,0 +1,106 @@
+using AipPortal.Application.Common.Tenancy;
+using AipPortal.Application.Common.Interfaces;
+using AipPortal.Domain.Entities;
+using AipPortal.Domain.Enums;
+using AipPortal.Infrastructure.Persistence;
+using Microsoft.EntityFrameworkCore;
+
+namespace AipPortal.Tests.Persistence;
+
+public sealed class TaskV1PersistenceTests
+{
+    [Fact]
+    public async Task CreatingProjectCreatesDeterministicDefaultWorkflow()
+    {
+        var (context, tenant, workspace, user) = await CreateGraphAsync();
+        var project = new Project
+        {
+            WorkspaceId = workspace.Id,
+            OwnerUserId = user.Id,
+            CreatedByUserId = user.Id,
+            Name = "Task v1 project",
+            Slug = "task-v1-project"
+        };
+
+        context.Projects.Add(project);
+        await context.SaveChangesAsync();
+
+        var definition = await context.TaskWorkflowDefinitions.SingleAsync(item => item.ProjectId == project.Id);
+        var stages = await context.TaskWorkflowStages.Where(item => item.DefinitionId == definition.Id).OrderBy(item => item.SortKey).ToListAsync();
+        Assert.True(definition.ReviewEnforcementEnabled);
+        Assert.Equal(
+            [TaskStageCategory.Backlog, TaskStageCategory.Todo, TaskStageCategory.InProgress, TaskStageCategory.Review, TaskStageCategory.Done, TaskStageCategory.Cancelled],
+            stages.Select(item => item.InternalCategory));
+        Assert.Single(stages, item => item.IsInitialStage);
+        Assert.Equal(2, stages.Count(item => item.IsTerminalStage));
+    }
+
+    [Fact]
+    public async Task TaskVersionIsIncrementedAndDetectsConcurrentWriter()
+    {
+        var databaseName = Guid.NewGuid().ToString("N");
+        var currentTenant = new CurrentTenantService();
+        var options = new DbContextOptionsBuilder<AppDbContext>().UseInMemoryDatabase(databaseName).Options;
+        await using var seed = new AppDbContext(options, currentTenant);
+        var (tenant, workspace, user) = await SeedGraphAsync(seed, currentTenant);
+        var project = new Project { WorkspaceId = workspace.Id, OwnerUserId = user.Id, CreatedByUserId = user.Id, Name = "Concurrency", Slug = "concurrency" };
+        seed.Projects.Add(project);
+        await seed.SaveChangesAsync();
+        var task = new TaskItem { WorkspaceId = workspace.Id, ProjectId = project.Id, Title = "Versioned", CreatedByUserId = user.Id, Priority = TaskPriority.Medium };
+        seed.TaskItems.Add(task);
+        await seed.SaveChangesAsync();
+
+        var tenantA = new CurrentTenantService();
+        tenantA.SetTenant(tenant.Id, tenant.Slug);
+        var tenantB = new CurrentTenantService();
+        tenantB.SetTenant(tenant.Id, tenant.Slug);
+        await using var writerA = new AppDbContext(options, tenantA);
+        await using var writerB = new AppDbContext(options, tenantB);
+        var taskA = await writerA.TaskItems.SingleAsync();
+        var taskB = await writerB.TaskItems.SingleAsync();
+
+        taskA.Title = "Writer A";
+        await writerA.SaveChangesAsync();
+        Assert.Equal(2, taskA.VersionNo);
+
+        taskB.Title = "Writer B";
+        await Assert.ThrowsAsync<DbUpdateConcurrencyException>(() => writerB.SaveChangesAsync());
+    }
+
+    [Fact]
+    public void CanonicalPriorityHasNoNormalAlias()
+    {
+        Assert.Equal([TaskPriority.Low, TaskPriority.Medium, TaskPriority.High, TaskPriority.Critical], Enum.GetValues<TaskPriority>());
+    }
+
+    [Fact]
+    public void DomainV1FeatureUsesTheCentralizedFeatureKeyRegistry()
+    {
+        Assert.Contains(FeatureKeys.TasksDomainV1, FeatureKeys.All);
+    }
+
+    private static async Task<(AppDbContext Context, Tenant Tenant, Workspace Workspace, User User)> CreateGraphAsync()
+    {
+        var currentTenant = new CurrentTenantService();
+        var context = new AppDbContext(new DbContextOptionsBuilder<AppDbContext>().UseInMemoryDatabase(Guid.NewGuid().ToString("N")).Options, currentTenant);
+        var (_, workspace, user) = await SeedGraphAsync(context, currentTenant);
+        var tenant = await context.Tenants.SingleAsync();
+        return (context, tenant, workspace, user);
+    }
+
+    private static async Task<(Tenant Tenant, Workspace Workspace, User User)> SeedGraphAsync(AppDbContext context, CurrentTenantService currentTenant)
+    {
+        currentTenant.SetPlatformScope();
+        var tenant = new Tenant { Name = "Task v1 tenant", DisplayName = "Task v1 tenant", Slug = $"task-v1-{Guid.NewGuid():N}" };
+        var user = new User { DisplayName = "Task v1 user", Email = $"task-v1-{Guid.NewGuid():N}@example.test", NormalizedEmail = $"TASK-V1-{Guid.NewGuid():N}@EXAMPLE.TEST", PasswordHash = "hash" };
+        context.Tenants.Add(tenant);
+        context.Users.Add(user);
+        await context.SaveChangesAsync();
+
+        currentTenant.SetTenant(tenant.Id, tenant.Slug);
+        var workspace = new Workspace { Name = "Task v1 workspace", Slug = $"task-v1-{Guid.NewGuid():N}", CreatedByUserId = user.Id };
+        context.Workspaces.Add(workspace);
+        await context.SaveChangesAsync();
+        return (tenant, workspace, user);
+    }
+}
