@@ -8,6 +8,8 @@ namespace AipPortal.Web.Controllers;
 [Authorize]
 public sealed class AuditController(IAuditQueryService audit) : ControllerBase
 {
+    private const int AdminAuditGridDefaultPageSize = 100;
+
     [HttpGet("api/audit-logs")]
     public async Task<IActionResult> AuditLogs([FromQuery] AuditLogQuery query, CancellationToken cancellationToken)
     {
@@ -30,7 +32,13 @@ public sealed class AuditController(IAuditQueryService audit) : ControllerBase
     [HttpGet("api/admin/audit-grid")]
     public async Task<IActionResult> AdminAuditGrid([FromQuery] AuditLogQuery query, CancellationToken cancellationToken)
     {
-        return ToActionResult(await audit.ListAuditGridAsync(query, cancellationToken));
+        // The admin grid paginates client-side and offers 50/100 rows per page.
+        // Load its complete supported window when the caller omits PageSize.
+        var effectiveQuery = Request.Query.ContainsKey(nameof(AuditLogQuery.PageSize))
+            ? query
+            : query with { PageSize = AdminAuditGridDefaultPageSize };
+
+        return ToActionResult(await audit.ListAuditGridAsync(effectiveQuery, cancellationToken));
     }
 
     [HttpGet("api/security-events")]
