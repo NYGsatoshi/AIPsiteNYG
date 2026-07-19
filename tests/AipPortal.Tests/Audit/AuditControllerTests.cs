@@ -17,9 +17,9 @@ public sealed class AuditControllerTests
         var result = await controller.AdminAuditGrid(new AuditLogQuery(), CancellationToken.None);
 
         Assert.IsType<OkObjectResult>(result);
-        Assert.NotNull(audit.LastGridQuery);
-        Assert.Equal(100, audit.LastGridQuery.PageSize);
-        Assert.Equal(1, audit.LastGridQuery.Page);
+        var capturedQuery = Assert.IsType<AuditLogQuery>(audit.LastGridQuery);
+        Assert.Equal(100, capturedQuery.PageSize);
+        Assert.Equal(1, capturedQuery.Page);
     }
 
     [Fact]
@@ -33,9 +33,9 @@ public sealed class AuditControllerTests
             CancellationToken.None);
 
         Assert.IsType<OkObjectResult>(result);
-        Assert.NotNull(audit.LastGridQuery);
-        Assert.Equal(50, audit.LastGridQuery.PageSize);
-        Assert.Equal(2, audit.LastGridQuery.Page);
+        var capturedQuery = Assert.IsType<AuditLogQuery>(audit.LastGridQuery);
+        Assert.Equal(50, capturedQuery.PageSize);
+        Assert.Equal(2, capturedQuery.Page);
     }
 
     private static AuditController CreateController(
