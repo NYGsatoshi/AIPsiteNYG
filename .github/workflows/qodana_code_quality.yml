@@ -25,6 +25,7 @@ jobs:
     timeout-minutes: 120
 
     env:
+      DOTNET_INSTALL_DIR: ${{ runner.temp }}/dotnet
       DOTNET_CLI_TELEMETRY_OPTOUT: "1"
       DOTNET_NOLOGO: "1"
       QODANA_FRONTEND_REQUIRED: "false"
