@@ -30,6 +30,16 @@ jobs:
       POSTGRES_TEST_CONNECTION_STRING: Host=localhost;Port=5432;Database=aip_portal_ci;Username=aip_portal_ci;Password=aip_portal_ci_password
 
     steps:
+      - name: Repair previous Docker artifact ownership
+        shell: bash
+        run: |
+          uid="$(id -u)"
+          gid="$(id -g)"
+          docker run --rm \
+            -v "$GITHUB_WORKSPACE:/workspace" \
+            alpine:3.21 \
+            sh -c "chown -R ${uid}:${gid} /workspace/playwright-report /workspace/test-results 2>/dev/null || true"
+
       - name: Checkout
         uses: actions/checkout@v4
 
@@ -107,7 +117,21 @@ jobs:
         run: npm run build-storybook
 
       - name: Angular Playwright smoke
-        run: npm run test:ui:angular:docker
+        shell: bash
+        run: |
+          set +e
+          npm run test:ui:angular:docker
+          test_status=$?
+          set -e
+
+          uid="$(id -u)"
+          gid="$(id -g)"
+          docker run --rm \
+            -v "$GITHUB_WORKSPACE:/workspace" \
+            alpine:3.21 \
+            sh -c "chown -R ${uid}:${gid} /workspace/playwright-report /workspace/test-results 2>/dev/null || true"
+
+          exit "$test_status"
 
       - name: Upload Playwright artifacts
         if: failure()
