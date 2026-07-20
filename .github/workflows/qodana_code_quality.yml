@@ -30,7 +30,7 @@ jobs:
       QODANA_FRONTEND_REQUIRED: "false"
 
     steps:
-      - name: Repair previous Docker artifact ownership
+      - name: Repair previous Docker workspace ownership
         shell: bash
         run: |
           uid="$(id -u)"
@@ -38,7 +38,7 @@ jobs:
           docker run --rm \
             -v "$GITHUB_WORKSPACE:/workspace" \
             alpine:3.21 \
-            sh -c "chown -R ${uid}:${gid} /workspace/playwright-report /workspace/test-results 2>/dev/null || true"
+            sh -c "chown -R ${uid}:${gid} /workspace"
 
       - name: Checkout repository
         uses: actions/checkout@v4
@@ -67,6 +67,17 @@ jobs:
           use-annotations: true
           upload-result: true
           push-fixes: none
+
+      - name: Repair Qodana workspace ownership
+        if: always()
+        shell: bash
+        run: |
+          uid="$(id -u)"
+          gid="$(id -g)"
+          docker run --rm \
+            -v "$GITHUB_WORKSPACE:/workspace" \
+            alpine:3.21 \
+            sh -c "chown -R ${uid}:${gid} /workspace"
 
       - name: Guard Qodana project model
         if: always()
