@@ -30,6 +30,16 @@ jobs:
       QODANA_FRONTEND_REQUIRED: "false"
 
     steps:
+      - name: Repair previous Docker artifact ownership
+        shell: bash
+        run: |
+          uid="$(id -u)"
+          gid="$(id -g)"
+          docker run --rm \
+            -v "$GITHUB_WORKSPACE:/workspace" \
+            alpine:3.21 \
+            sh -c "chown -R ${uid}:${gid} /workspace/playwright-report /workspace/test-results 2>/dev/null || true"
+
       - name: Checkout repository
         uses: actions/checkout@v4
         with:
