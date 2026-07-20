@@ -7,7 +7,7 @@ on:
 
 jobs:
   build-test:
-    runs-on: local-host
+    runs-on: self-hosted
 
     services:
       postgres:
