@@ -16,20 +16,10 @@ concurrency:
 jobs:
   fix:
     if: github.head_ref == 'security/npm-compatible-audit-fixes'
-    runs-on: self-hosted
+    runs-on: ubuntu-latest
     timeout-minutes: 120
 
     steps:
-      - name: Repair previous Docker workspace ownership
-        shell: bash
-        run: |
-          uid="$(id -u)"
-          gid="$(id -g)"
-          docker run --rm \
-            -v "$GITHUB_WORKSPACE:/workspace" \
-            alpine:3.21 \
-            sh -c "chown -R ${uid}:${gid} /workspace"
-
       - name: Checkout fix branch
         uses: actions/checkout@v4
         with:
