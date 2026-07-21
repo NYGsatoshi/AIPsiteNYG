@@ -1,0 +1,105 @@
+version: 2
+
+updates:
+  - package-ecosystem: npm
+    directories:
+      - /
+      - /frontend
+      - /aipsite-frontend
+      - /tools/frontend-inspections
+    schedule:
+      interval: weekly
+      day: monday
+      time: "03:00"
+      timezone: Asia/Tokyo
+    open-pull-requests-limit: 20
+    groups:
+      npm-security-updates:
+        applies-to: security-updates
+        patterns:
+          - "*"
+      npm-compatible-version-updates:
+        applies-to: version-updates
+        patterns:
+          - "*"
+        update-types:
+          - patch
+          - minor
+    commit-message:
+      prefix: "chore(deps)"
+
+  - package-ecosystem: nuget
+    directories:
+      - /src/AipPortal.Web
+      - /src/AipPortal.Application
+      - /src/AipPortal.Infrastructure
+      - /tests/AipPortal.Tests
+    schedule:
+      interval: weekly
+      day: monday
+      time: "03:15"
+      timezone: Asia/Tokyo
+    open-pull-requests-limit: 20
+    groups:
+      nuget-security-updates:
+        applies-to: security-updates
+        patterns:
+          - "*"
+      nuget-compatible-version-updates:
+        applies-to: version-updates
+        patterns:
+          - "*"
+        update-types:
+          - patch
+          - minor
+    commit-message:
+      prefix: "chore(deps)"
+
+  - package-ecosystem: github-actions
+    directory: /
+    schedule:
+      interval: weekly
+      day: monday
+      time: "03:30"
+      timezone: Asia/Tokyo
+    open-pull-requests-limit: 10
+    groups:
+      github-actions-updates:
+        patterns:
+          - "*"
+    commit-message:
+      prefix: "chore(actions)"
+
+  - package-ecosystem: docker
+    directories:
+      - /
+      - /deploy/sakura
+    schedule:
+      interval: weekly
+      day: monday
+      time: "03:45"
+      timezone: Asia/Tokyo
+    open-pull-requests-limit: 10
+    groups:
+      docker-image-updates:
+        patterns:
+          - "*"
+    commit-message:
+      prefix: "chore(docker)"
+
+  - package-ecosystem: docker-compose
+    directories:
+      - /
+      - /deploy/sakura
+    schedule:
+      interval: weekly
+      day: monday
+      time: "04:00"
+      timezone: Asia/Tokyo
+    open-pull-requests-limit: 10
+    groups:
+      docker-compose-image-updates:
+        patterns:
+          - "*"
+    commit-message:
+      prefix: "chore(compose)"
