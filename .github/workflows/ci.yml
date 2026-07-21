@@ -17,7 +17,7 @@ jobs:
           POSTGRES_USER: aip_portal_ci
           POSTGRES_PASSWORD: aip_portal_ci_password
         ports:
-          - 5432:5432
+          - 5432/tcp
         options: >-
           --health-cmd "pg_isready -U aip_portal_ci -d aip_portal_ci"
           --health-interval 10s
@@ -26,10 +26,18 @@ jobs:
 
     env:
       ASPNETCORE_ENVIRONMENT: Test
-      ConnectionStrings__DefaultConnection: Host=localhost;Port=5432;Database=aip_portal_ci;Username=aip_portal_ci;Password=aip_portal_ci_password
-      POSTGRES_TEST_CONNECTION_STRING: Host=localhost;Port=5432;Database=aip_portal_ci;Username=aip_portal_ci;Password=aip_portal_ci_password
 
     steps:
+      - name: Configure PostgreSQL connection
+        shell: bash
+        run: |
+          postgres_port='${{ job.services.postgres.ports[5432] }}'
+          test -n "$postgres_port"
+          {
+            echo "ConnectionStrings__DefaultConnection=Host=localhost;Port=${postgres_port};Database=aip_portal_ci;Username=aip_portal_ci;Password=aip_portal_ci_password"
+            echo "POSTGRES_TEST_CONNECTION_STRING=Host=localhost;Port=${postgres_port};Database=aip_portal_ci;Username=aip_portal_ci;Password=aip_portal_ci_password"
+          } >> "$GITHUB_ENV"
+
       - name: Repair previous Docker workspace ownership
         shell: bash
         run: |
@@ -111,7 +119,7 @@ jobs:
         with:
           name: build-test-dotnet-restore-log
           path: artifacts/ci/build-test-dotnet-restore.log
-          if-no-files-found: error
+          if-no-files-found: warn
 
       - name: Build
         run: '"$DOTNET_CMD" build AipPortal.slnx --configuration Release --no-restore'
@@ -196,7 +204,14 @@ jobs:
 
       - name: PostgreSQL logs on failure
         if: failure()
-        run: docker logs ${{ job.services.postgres.id }}
+        shell: bash
+        run: |
+          postgres_id='${{ job.services.postgres.id }}'
+          if [ -n "$postgres_id" ]; then
+            docker logs "$postgres_id"
+          else
+            echo "PostgreSQL service container ID is unavailable."
+          fi
 
   security-scan:
     runs-on: self-hosted
