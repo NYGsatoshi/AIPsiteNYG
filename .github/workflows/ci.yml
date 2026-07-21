@@ -59,8 +59,38 @@ jobs:
             package-lock.json
             frontend/package-lock.json
 
+      - name: Configure isolated .NET paths
+        shell: bash
+        run: |
+          mkdir -p \
+            "$RUNNER_TEMP/dotnet-home" \
+            "$RUNNER_TEMP/nuget/packages" \
+            "$RUNNER_TEMP/nuget/http-cache" \
+            "$RUNNER_TEMP/nuget/scratch"
+          {
+            echo "DOTNET_CLI_HOME=$RUNNER_TEMP/dotnet-home"
+            echo "NUGET_PACKAGES=$RUNNER_TEMP/nuget/packages"
+            echo "NUGET_HTTP_CACHE_PATH=$RUNNER_TEMP/nuget/http-cache"
+            echo "NUGET_SCRATCH=$RUNNER_TEMP/nuget/scratch"
+          } >> "$GITHUB_ENV"
+
       - name: Restore
-        run: dotnet restore AipPortal.slnx
+        shell: bash
+        run: |
+          set -o pipefail
+          dotnet --info
+          dotnet restore AipPortal.slnx \
+            --disable-parallel \
+            --verbosity normal \
+            2>&1 | tee "$RUNNER_TEMP/build-test-dotnet-restore.log"
+
+      - name: Upload build restore log
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: build-test-dotnet-restore-log
+          path: ${{ runner.temp }}/build-test-dotnet-restore.log
+          if-no-files-found: warn
 
       - name: Build
         run: dotnet build AipPortal.slnx --configuration Release --no-restore
@@ -206,8 +236,38 @@ jobs:
         with:
           global-json-file: global.json
 
+      - name: Configure isolated .NET paths
+        shell: bash
+        run: |
+          mkdir -p \
+            "$RUNNER_TEMP/dotnet-home" \
+            "$RUNNER_TEMP/nuget/packages" \
+            "$RUNNER_TEMP/nuget/http-cache" \
+            "$RUNNER_TEMP/nuget/scratch"
+          {
+            echo "DOTNET_CLI_HOME=$RUNNER_TEMP/dotnet-home"
+            echo "NUGET_PACKAGES=$RUNNER_TEMP/nuget/packages"
+            echo "NUGET_HTTP_CACHE_PATH=$RUNNER_TEMP/nuget/http-cache"
+            echo "NUGET_SCRATCH=$RUNNER_TEMP/nuget/scratch"
+          } >> "$GITHUB_ENV"
+
       - name: Restore
-        run: dotnet restore AipPortal.slnx
+        shell: bash
+        run: |
+          set -o pipefail
+          dotnet --info
+          dotnet restore AipPortal.slnx \
+            --disable-parallel \
+            --verbosity normal \
+            2>&1 | tee "$RUNNER_TEMP/security-dotnet-restore.log"
+
+      - name: Upload security restore log
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: security-dotnet-restore-log
+          path: ${{ runner.temp }}/security-dotnet-restore.log
+          if-no-files-found: warn
 
       - name: Check .NET vulnerable packages
         run: |
