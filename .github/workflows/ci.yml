@@ -48,7 +48,7 @@ jobs:
           DOTNET_INSTALL_DIR: ${{ runner.temp }}/dotnet
         uses: actions/setup-dotnet@v4
         with:
-          dotnet-version: "10.0.x"
+          global-json-file: global.json
 
       - name: Setup Node.js
         uses: actions/setup-node@v4
@@ -148,7 +148,7 @@ jobs:
         run: docker logs ${{ job.services.postgres.id }}
 
   security-scan:
-    runs-on: ubuntu-latest
+    runs-on: self-hosted
     permissions:
       contents: read
     env:
@@ -156,6 +156,16 @@ jobs:
       POSTGRES_PASSWORD: ci_only_compose_config_password
 
     steps:
+      - name: Repair previous Docker workspace ownership
+        shell: bash
+        run: |
+          uid="$(id -u)"
+          gid="$(id -g)"
+          docker run --rm \
+            -v "$GITHUB_WORKSPACE:/workspace" \
+            alpine:3.21 \
+            sh -c "chown -R ${uid}:${gid} /workspace"
+
       - name: Checkout
         uses: actions/checkout@v4
         with:
@@ -190,9 +200,11 @@ jobs:
           if-no-files-found: error
 
       - name: Setup .NET
+        env:
+          DOTNET_INSTALL_DIR: ${{ runner.temp }}/dotnet
         uses: actions/setup-dotnet@v4
         with:
-          dotnet-version: "10.0.x"
+          global-json-file: global.json
 
       - name: Restore
         run: dotnet restore AipPortal.slnx
@@ -322,3 +334,14 @@ jobs:
           name: trivy-image-scan-report
           path: trivy-image-report.txt
           if-no-files-found: warn
+
+      - name: Repair security workspace ownership
+        if: always()
+        shell: bash
+        run: |
+          uid="$(id -u)"
+          gid="$(id -g)"
+          docker run --rm \
+            -v "$GITHUB_WORKSPACE:/workspace" \
+            alpine:3.21 \
+            sh -c "chown -R ${uid}:${gid} /workspace"
