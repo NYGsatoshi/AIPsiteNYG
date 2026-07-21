@@ -1,0 +1,89 @@
+name: Apply compatible npm audit fixes
+
+on:
+  push:
+    branches:
+      - security/npm-compatible-audit-fixes
+
+permissions:
+  contents: write
+
+concurrency:
+  group: npm-compatible-audit-fixes
+  cancel-in-progress: false
+
+jobs:
+  fix:
+    runs-on: self-hosted
+    timeout-minutes: 120
+
+    steps:
+      - name: Repair previous Docker workspace ownership
+        shell: bash
+        run: |
+          uid="$(id -u)"
+          gid="$(id -g)"
+          docker run --rm \
+            -v "$GITHUB_WORKSPACE:/workspace" \
+            alpine:3.21 \
+            sh -c "chown -R ${uid}:${gid} /workspace"
+
+      - name: Checkout fix branch
+        uses: actions/checkout@v4
+        with:
+          ref: security/npm-compatible-audit-fixes
+          fetch-depth: 0
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: "24"
+          cache: npm
+          cache-dependency-path: |
+            **/package-lock.json
+
+      - name: Apply compatible lockfile security fixes
+        shell: bash
+        run: |
+          set -uo pipefail
+          mapfile -d '' lockfiles < <(
+            find . -name package-lock.json \
+              -not -path '*/node_modules/*' \
+              -print0 | sort -z
+          )
+
+          if [ "${#lockfiles[@]}" -eq 0 ]; then
+            echo "No package-lock.json files found." >&2
+            exit 1
+          fi
+
+          for lockfile in "${lockfiles[@]}"; do
+            package_dir="$(dirname "$lockfile")"
+            relative_dir="${package_dir#./}"
+            if [ "$relative_dir" = "." ] || [ -z "$relative_dir" ]; then
+              relative_dir="root"
+            fi
+
+            echo "::group::npm audit fix: $relative_dir"
+            set +e
+            npm --prefix "$package_dir" audit fix \
+              --package-lock-only \
+              --ignore-scripts \
+              --no-fund
+            status=$?
+            set -e
+            echo "npm audit fix exit status: $status"
+            echo "::endgroup::"
+          done
+
+      - name: Commit generated dependency updates
+        shell: bash
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+
+          git rm .github/workflows/npm-compatible-audit-fix-once.yml
+          git add -A
+          git status --short
+          git commit -m "chore(deps): apply compatible npm security fixes"
+          git push origin HEAD:security/npm-compatible-audit-fixes
