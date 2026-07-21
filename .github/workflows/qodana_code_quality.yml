@@ -79,6 +79,12 @@ jobs:
             alpine:3.21 \
             sh -c "chown -R ${uid}:${gid} /workspace"
 
+      - name: Set up Node.js for project-model guard
+        if: always()
+        uses: actions/setup-node@v4
+        with:
+          node-version: "24"
+
       - name: Guard Qodana project model
         if: always()
         env:
