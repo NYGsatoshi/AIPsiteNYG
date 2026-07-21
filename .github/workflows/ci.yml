@@ -25,19 +25,54 @@ jobs:
           --health-retries 5
 
     env:
-      DOTNET_INSTALL_DIR: ${{ runner.temp }}/dotnet
       ASPNETCORE_ENVIRONMENT: Test
       ConnectionStrings__DefaultConnection: Host=localhost;Port=5432;Database=aip_portal_ci;Username=aip_portal_ci;Password=aip_portal_ci_password
       POSTGRES_TEST_CONNECTION_STRING: Host=localhost;Port=5432;Database=aip_portal_ci;Username=aip_portal_ci;Password=aip_portal_ci_password
 
     steps:
+      - name: Repair previous Docker workspace ownership
+        shell: bash
+        run: |
+          uid="$(id -u)"
+          gid="$(id -g)"
+          docker run --rm \
+            -v "$GITHUB_WORKSPACE:/workspace" \
+            alpine:3.21 \
+            sh -c "chown -R ${uid}:${gid} /workspace"
+
       - name: Checkout
         uses: actions/checkout@v4
+
+      - name: Configure .NET environment
+        shell: bash
+        run: |
+          install_dir="$HOME/.dotnet-ci"
+          job_temp="$RUNNER_TEMP/dotnet-${GITHUB_JOB}"
+          mkdir -p \
+            "$install_dir" \
+            "$job_temp/home" \
+            "$job_temp/nuget/packages" \
+            "$job_temp/nuget/http-cache" \
+            "$job_temp/nuget/scratch" \
+            "$GITHUB_WORKSPACE/artifacts/ci"
+          {
+            echo "DOTNET_INSTALL_DIR=$install_dir"
+            echo "DOTNET_CMD=$install_dir/dotnet"
+            echo "DOTNET_ROOT=$install_dir"
+            echo "DOTNET_CLI_HOME=$job_temp/home"
+            echo "DOTNET_CLI_TELEMETRY_OPTOUT=1"
+            echo "DOTNET_NOLOGO=1"
+            echo "DOTNET_MULTILEVEL_LOOKUP=0"
+            echo "NUGET_PACKAGES=$job_temp/nuget/packages"
+            echo "NUGET_HTTP_CACHE_PATH=$job_temp/nuget/http-cache"
+            echo "NUGET_SCRATCH=$job_temp/nuget/scratch"
+          } >> "$GITHUB_ENV"
+          echo "$install_dir" >> "$GITHUB_PATH"
 
       - name: Setup .NET
         uses: actions/setup-dotnet@v4
         with:
-          dotnet-version: "10.0.x"
+          global-json-file: global.json
 
       - name: Setup Node.js
         uses: actions/setup-node@v4
@@ -49,19 +84,46 @@ jobs:
             frontend/package-lock.json
 
       - name: Restore
-        run: dotnet restore AipPortal.slnx
+        shell: bash
+        run: |
+          log="$GITHUB_WORKSPACE/artifacts/ci/build-test-dotnet-restore.log"
+          : > "$log"
+          set +e
+          {
+            echo "DOTNET_INSTALL_DIR=$DOTNET_INSTALL_DIR"
+            echo "DOTNET_CMD=$DOTNET_CMD"
+            echo "PATH=$PATH"
+            command -v dotnet || true
+            ls -la "$DOTNET_INSTALL_DIR" || true
+            test -x "$DOTNET_CMD"
+            "$DOTNET_CMD" --info
+            "$DOTNET_CMD" restore AipPortal.slnx \
+              --disable-parallel \
+              --verbosity normal
+          } 2>&1 | tee "$log"
+          restore_status=${PIPESTATUS[0]}
+          set -e
+          exit "$restore_status"
+
+      - name: Upload build restore log
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: build-test-dotnet-restore-log
+          path: artifacts/ci/build-test-dotnet-restore.log
+          if-no-files-found: error
 
       - name: Build
-        run: dotnet build AipPortal.slnx --configuration Release --no-restore
+        run: '"$DOTNET_CMD" build AipPortal.slnx --configuration Release --no-restore'
 
       - name: Restore .NET tools
-        run: dotnet tool restore
+        run: '"$DOTNET_CMD" tool restore'
 
       - name: Apply PostgreSQL migrations
-        run: dotnet ef database update --project src/AipPortal.Infrastructure --startup-project src/AipPortal.Web --configuration Release
+        run: '"$DOTNET_CMD" ef database update --project src/AipPortal.Infrastructure --startup-project src/AipPortal.Web --configuration Release'
 
       - name: Test
-        run: dotnet test AipPortal.slnx --configuration Release --no-build --verbosity normal
+        run: '"$DOTNET_CMD" test AipPortal.slnx --configuration Release --no-build --verbosity normal'
 
       - name: Install repo Playwright dependencies
         run: npm ci
@@ -106,7 +168,21 @@ jobs:
         run: npm run build-storybook
 
       - name: Angular Playwright smoke
-        run: npm run test:ui:angular:docker
+        shell: bash
+        run: |
+          set +e
+          npm run test:ui:angular:docker
+          test_status=$?
+          set -e
+
+          uid="$(id -u)"
+          gid="$(id -g)"
+          docker run --rm \
+            -v "$GITHUB_WORKSPACE:/workspace" \
+            alpine:3.21 \
+            sh -c "chown -R ${uid}:${gid} /workspace"
+
+          exit "$test_status"
 
       - name: Upload Playwright artifacts
         if: failure()
@@ -123,13 +199,24 @@ jobs:
         run: docker logs ${{ job.services.postgres.id }}
 
   security-scan:
-    runs-on: ubuntu-latest
+    runs-on: self-hosted
     permissions:
       contents: read
     env:
       IMAGE_NAME: aipsite-nyg-ci:${{ github.sha }}
       POSTGRES_PASSWORD: ci_only_compose_config_password
+
     steps:
+      - name: Repair previous Docker workspace ownership
+        shell: bash
+        run: |
+          uid="$(id -u)"
+          gid="$(id -g)"
+          docker run --rm \
+            -v "$GITHUB_WORKSPACE:/workspace" \
+            alpine:3.21 \
+            sh -c "chown -R ${uid}:${gid} /workspace"
+
       - name: Checkout
         uses: actions/checkout@v4
         with:
@@ -163,19 +250,72 @@ jobs:
           path: gitleaks-report.json
           if-no-files-found: error
 
+      - name: Configure .NET environment
+        shell: bash
+        run: |
+          install_dir="$HOME/.dotnet-ci"
+          job_temp="$RUNNER_TEMP/dotnet-${GITHUB_JOB}"
+          mkdir -p \
+            "$install_dir" \
+            "$job_temp/home" \
+            "$job_temp/nuget/packages" \
+            "$job_temp/nuget/http-cache" \
+            "$job_temp/nuget/scratch" \
+            "$GITHUB_WORKSPACE/artifacts/ci"
+          {
+            echo "DOTNET_INSTALL_DIR=$install_dir"
+            echo "DOTNET_CMD=$install_dir/dotnet"
+            echo "DOTNET_ROOT=$install_dir"
+            echo "DOTNET_CLI_HOME=$job_temp/home"
+            echo "DOTNET_CLI_TELEMETRY_OPTOUT=1"
+            echo "DOTNET_NOLOGO=1"
+            echo "DOTNET_MULTILEVEL_LOOKUP=0"
+            echo "NUGET_PACKAGES=$job_temp/nuget/packages"
+            echo "NUGET_HTTP_CACHE_PATH=$job_temp/nuget/http-cache"
+            echo "NUGET_SCRATCH=$job_temp/nuget/scratch"
+          } >> "$GITHUB_ENV"
+          echo "$install_dir" >> "$GITHUB_PATH"
+
       - name: Setup .NET
         uses: actions/setup-dotnet@v4
         with:
-          dotnet-version: "10.0.x"
+          global-json-file: global.json
 
       - name: Restore
-        run: dotnet restore AipPortal.slnx
+        shell: bash
+        run: |
+          log="$GITHUB_WORKSPACE/artifacts/ci/security-dotnet-restore.log"
+          : > "$log"
+          set +e
+          {
+            echo "DOTNET_INSTALL_DIR=$DOTNET_INSTALL_DIR"
+            echo "DOTNET_CMD=$DOTNET_CMD"
+            echo "PATH=$PATH"
+            command -v dotnet || true
+            ls -la "$DOTNET_INSTALL_DIR" || true
+            test -x "$DOTNET_CMD"
+            "$DOTNET_CMD" --info
+            "$DOTNET_CMD" restore AipPortal.slnx \
+              --disable-parallel \
+              --verbosity normal
+          } 2>&1 | tee "$log"
+          restore_status=${PIPESTATUS[0]}
+          set -e
+          exit "$restore_status"
+
+      - name: Upload security restore log
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: security-dotnet-restore-log
+          path: artifacts/ci/security-dotnet-restore.log
+          if-no-files-found: error
 
       - name: Check .NET vulnerable packages
         run: |
           printf 'Vulnerable package scan started but did not complete.\n' > dotnet-vulnerable-packages.txt
           set +e
-          dotnet list AipPortal.slnx package --vulnerable --include-transitive > dotnet-vulnerable-packages.txt 2>&1
+          "$DOTNET_CMD" list AipPortal.slnx package --vulnerable --include-transitive > dotnet-vulnerable-packages.txt 2>&1
           vulnerable_status=$?
           set -e
           if [ ! -s dotnet-vulnerable-packages.txt ]; then
@@ -195,7 +335,7 @@ jobs:
         run: |
           printf 'Deprecated package scan started but did not complete.\n' > dotnet-deprecated-packages.txt
           set +e
-          dotnet list AipPortal.slnx package --deprecated > dotnet-deprecated-packages.txt 2>&1
+          "$DOTNET_CMD" list AipPortal.slnx package --deprecated > dotnet-deprecated-packages.txt 2>&1
           deprecated_status=$?
           set -e
           if [ ! -s dotnet-deprecated-packages.txt ]; then
@@ -296,3 +436,14 @@ jobs:
           name: trivy-image-scan-report
           path: trivy-image-report.txt
           if-no-files-found: warn
+
+      - name: Repair security workspace ownership
+        if: always()
+        shell: bash
+        run: |
+          uid="$(id -u)"
+          gid="$(id -g)"
+          docker run --rm \
+            -v "$GITHUB_WORKSPACE:/workspace" \
+            alpine:3.21 \
+            sh -c "chown -R ${uid}:${gid} /workspace"
