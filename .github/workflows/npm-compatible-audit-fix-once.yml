@@ -1,4 +1,4 @@
-name: Generate compatible npm security fixes
+name: Apply compatible npm security fixes
 
 on:
   pull_request:
@@ -6,19 +6,30 @@ on:
     branches: [main]
 
 permissions:
-  contents: read
+  contents: write
 
 jobs:
   generate:
     if: github.head_ref == 'security/npm-compatible-audit-fixes'
-    runs-on: ubuntu-latest
+    runs-on: self-hosted
     timeout-minutes: 120
 
     steps:
+      - name: Repair previous Docker workspace ownership
+        shell: bash
+        run: |
+          uid="$(id -u)"
+          gid="$(id -g)"
+          docker run --rm \
+            -v "$GITHUB_WORKSPACE:/workspace" \
+            alpine:3.21 \
+            sh -c "chown -R ${uid}:${gid} /workspace"
+
       - name: Checkout fix branch
         uses: actions/checkout@v4
         with:
           ref: security/npm-compatible-audit-fixes
+          fetch-depth: 0
 
       - name: Setup Node.js
         uses: actions/setup-node@v4
@@ -77,11 +88,25 @@ jobs:
               > "artifacts/npm-audit-fixed/${report_name}.json" || true
           done < <(find . -name package-lock.json -not -path '*/node_modules/*' -print0 | sort -z)
 
-      - name: Upload generated lockfiles and audit reports
+      - name: Commit generated dependency updates
+        shell: bash
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+
+          git rm .github/workflows/npm-compatible-audit-fix-once.yml
+          git add package.json package-lock.json \
+            frontend/package.json frontend/package-lock.json \
+            aipsite-frontend/package.json aipsite-frontend/package-lock.json \
+            tools/frontend-inspections/package.json tools/frontend-inspections/package-lock.json
+          git status --short
+          git commit -m "chore(deps): apply compatible npm security fixes"
+          git push origin HEAD:security/npm-compatible-audit-fixes
+
+      - name: Upload generated audit reports
+        if: always()
         uses: actions/upload-artifact@v4
         with:
-          name: npm-compatible-security-fixes
-          path: |
-            **/package-lock.json
-            artifacts/npm-audit-fixed/*.json
-          if-no-files-found: error
+          name: npm-compatible-security-audit
+          path: artifacts/npm-audit-fixed/*.json
+          if-no-files-found: warn
