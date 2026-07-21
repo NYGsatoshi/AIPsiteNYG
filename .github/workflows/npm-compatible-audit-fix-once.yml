@@ -1,5 +1,6 @@
 name: Apply compatible npm audit fixes
 
+# One-time generator. The workflow deletes itself after committing dependency updates.
 on:
   push:
     branches:
