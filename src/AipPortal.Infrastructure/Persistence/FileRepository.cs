@@ -68,6 +68,11 @@ public sealed class FileRepository(AppDbContext dbContext) : IFileRepository
         await dbContext.Attachments.AddAsync(attachment, cancellationToken);
     }
 
+    public async Task<IReadOnlyList<Attachment>> ListTaskAttachmentsAsync(Guid taskItemId, CancellationToken cancellationToken = default) =>
+        await dbContext.Attachments.Include(x => x.FileObject).Where(x => x.OwnerType == AttachmentOwnerType.TaskItem && x.OwnerId == taskItemId && !x.DeletedAt.HasValue).OrderBy(x => x.CreatedAt).ToListAsync(cancellationToken);
+
+    public void RemoveAttachment(Attachment attachment) => dbContext.Attachments.Remove(attachment);
+
     public async Task<FileOwnerContext?> ResolveOwnerAsync(AttachmentOwnerType ownerType, Guid ownerId, CancellationToken cancellationToken = default)
     {
         return ownerType switch
