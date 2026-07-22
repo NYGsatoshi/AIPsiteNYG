@@ -9,13 +9,14 @@ services:
     environment:
       CI: "true"
       PLAYWRIGHT_SKIP_BUILD: "1"
+      NPM_CI_ATTEMPTS: "2"
     volumes:
       - .:/work
       - playwright-root-node-modules:/work/node_modules
       - playwright-frontend-node-modules:/work/frontend/node_modules
     command: >
-      bash -lc "npm ci &&
-      npm --prefix frontend ci &&
+      bash -lc "bash scripts/ci/npm-ci-retry.sh . &&
+      bash scripts/ci/npm-ci-retry.sh frontend &&
       npm --prefix frontend run build &&
       npm run test:ui:angular"
 
