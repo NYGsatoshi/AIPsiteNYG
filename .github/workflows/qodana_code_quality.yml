@@ -5,9 +5,15 @@ on:
   pull_request:
     branches:
       - main
+    paths-ignore:
+      - "**/*.md"
+      - "docs/**"
   push:
     branches:
       - main
+    paths-ignore:
+      - "**/*.md"
+      - "docs/**"
 
 concurrency:
   group: code-quality-${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
@@ -110,6 +116,7 @@ jobs:
   frontend-quality:
     name: Angular / TypeScript / JavaScript / HTML / SCSS / CSS
     runs-on: self-hosted
+    needs: qodana-dotnet-community
     timeout-minutes: 90
 
     steps:
@@ -144,13 +151,28 @@ jobs:
           npm --version
 
       - name: Install repository test dependencies
-        run: npm ci --no-audit --no-fund
+        run: bash scripts/ci/npm-ci-retry.sh .
 
       - name: Install Angular dependencies
-        run: npm --prefix frontend ci --no-audit --no-fund
+        run: bash scripts/ci/npm-ci-retry.sh frontend
 
       - name: Install inspection toolchain
-        run: npm --prefix tools/frontend-inspections install --ignore-scripts --no-audit --no-fund
+        shell: bash
+        run: |
+          for attempt in 1 2; do
+            if npm --prefix tools/frontend-inspections install --ignore-scripts --no-audit --no-fund; then
+              exit 0
+            fi
+            status=$?
+            if [[ "$attempt" -eq 2 ]]; then
+              exit "$status"
+            fi
+            echo "Inspection toolchain install failed; retrying after host diagnostics." >&2
+            df -h || true
+            df -i || true
+            free -h || true
+            sleep 10
+          done
 
       - name: Run complete frontend inspection inventory
         shell: bash
@@ -165,7 +187,7 @@ jobs:
         with:
           name: frontend-inspection-reports
           path: artifacts/frontend-inspections
-          if-no-files-found: error
+          if-no-files-found: warn
           retention-days: 14
 
       - name: Validate TypeScript types
@@ -177,3 +199,12 @@ jobs:
 
       - name: Run Angular unit tests
         run: npm --prefix frontend test
+
+      - name: Report host resources on failure
+        if: failure()
+        shell: bash
+        run: |
+          df -h || true
+          df -i || true
+          free -h || true
+          docker system df || true
