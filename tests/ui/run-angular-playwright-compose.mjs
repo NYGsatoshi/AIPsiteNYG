@@ -18,6 +18,14 @@ function runDocker(args) {
   });
 }
 
+function ensureDockerVolume(name) {
+  const result = runDocker(['volume', 'create', name]);
+  if (result.error || result.signal || (result.status ?? 1) !== 0) {
+    console.error(`Failed to create persistent Docker cache volume: ${name}`);
+    process.exit(result.status ?? 1);
+  }
+}
+
 const requestedProjectName =
   process.env.COMPOSE_PROJECT_NAME ||
   [
@@ -28,9 +36,24 @@ const requestedProjectName =
   ].join('-');
 
 const projectName = sanitizeProjectName(requestedProjectName);
+const npmCacheVolume = sanitizeProjectName(
+  process.env.PLAYWRIGHT_NPM_CACHE_VOLUME || 'aipsite-playwright-npm-cache-node24-v1',
+);
+const angularCacheVolume = sanitizeProjectName(
+  process.env.PLAYWRIGHT_ANGULAR_CACHE_VOLUME || 'aipsite-playwright-angular-cache-node24-v1',
+);
+
+process.env.PLAYWRIGHT_NPM_CACHE_VOLUME = npmCacheVolume;
+process.env.PLAYWRIGHT_ANGULAR_CACHE_VOLUME = angularCacheVolume;
+
+ensureDockerVolume(npmCacheVolume);
+ensureDockerVolume(angularCacheVolume);
+
 const composeArgs = ['compose', '-p', projectName, '-f', 'docker-compose.playwright.yml'];
 
 console.log(`Using Docker Compose project: ${projectName}`);
+console.log(`Using persistent npm cache volume: ${npmCacheVolume}`);
+console.log(`Using persistent Angular cache volume: ${angularCacheVolume}`);
 
 const testResult = runDocker([
   ...composeArgs,

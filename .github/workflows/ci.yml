@@ -62,16 +62,15 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v4
 
-      - name: Configure .NET environment
+      - name: Configure persistent .NET caches
         shell: bash
         run: |
+          bash scripts/ci/configure-persistent-caches.sh
           install_dir="$HOME/.dotnet-ci"
           job_temp="$RUNNER_TEMP/dotnet-${GITHUB_JOB}-${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}"
           mkdir -p \
             "$install_dir" \
             "$job_temp/home" \
-            "$job_temp/nuget/packages" \
-            "$job_temp/nuget/http-cache" \
             "$job_temp/nuget/scratch" \
             "$GITHUB_WORKSPACE/artifacts/ci" \
             "$GITHUB_WORKSPACE/artifacts/test-results"
@@ -83,8 +82,7 @@ jobs:
             echo "DOTNET_CLI_TELEMETRY_OPTOUT=1"
             echo "DOTNET_NOLOGO=1"
             echo "DOTNET_MULTILEVEL_LOOKUP=0"
-            echo "NUGET_PACKAGES=$job_temp/nuget/packages"
-            echo "NUGET_HTTP_CACHE_PATH=$job_temp/nuget/http-cache"
+            echo "DOTNET_CLI_WORKLOAD_UPDATE_NOTIFY_DISABLE=1"
             echo "NUGET_SCRATCH=$job_temp/nuget/scratch"
           } >> "$GITHUB_ENV"
           echo "$install_dir" >> "$GITHUB_PATH"
@@ -98,20 +96,10 @@ jobs:
         shell: bash
         run: |
           log="$GITHUB_WORKSPACE/artifacts/ci/build-test-dotnet-restore.log"
-          : > "$log"
           set +e
-          {
-            echo "DOTNET_INSTALL_DIR=$DOTNET_INSTALL_DIR"
-            echo "DOTNET_CMD=$DOTNET_CMD"
-            echo "PATH=$PATH"
-            command -v dotnet || true
-            ls -la "$DOTNET_INSTALL_DIR" || true
-            test -x "$DOTNET_CMD"
-            "$DOTNET_CMD" --info
-            "$DOTNET_CMD" restore AipPortal.slnx \
-              --disable-parallel \
-              --verbosity normal
-          } 2>&1 | tee "$log"
+          "$DOTNET_CMD" restore AipPortal.slnx \
+            --disable-parallel \
+            --verbosity normal 2>&1 | tee "$log"
           restore_status=${PIPESTATUS[0]}
           set -e
           exit "$restore_status"
@@ -152,10 +140,11 @@ jobs:
           path: artifacts/test-results
           if-no-files-found: warn
 
-      - name: Report backend host resources on failure
+      - name: Report backend cache and host resources on failure
         if: failure()
         shell: bash
         run: |
+          du -sh "$HOME/.nuget/packages" "$HOME/.cache/aipsite-ci" 2>/dev/null || true
           df -h || true
           df -i || true
           free -h || true
@@ -181,6 +170,8 @@ jobs:
     env:
       IMAGE_NAME: aipsite-nyg-ci:${{ github.sha }}-${{ github.run_id }}-${{ github.run_attempt }}
       POSTGRES_PASSWORD: ci_only_compose_config_password
+      DOCKER_BUILDKIT: "1"
+      BUILDKIT_PROGRESS: plain
 
     steps:
       - name: Repair previous Docker workspace ownership
@@ -198,11 +189,13 @@ jobs:
         with:
           fetch-depth: 0
 
-      - name: Initialize .NET dependency scan reports
+      - name: Initialize security reports
+        shell: bash
         run: |
           mkdir -p artifacts/ci
           printf 'Vulnerable package scan did not run.\n' > dotnet-vulnerable-packages.txt
           printf 'Deprecated package scan did not run.\n' > dotnet-deprecated-packages.txt
+          printf 'Trivy image scan did not run.\n' > trivy-image-report.txt
 
       - name: Scan repository secrets with Gitleaks
         shell: bash
@@ -213,13 +206,11 @@ jobs:
             zricethezav/gitleaks:v8.24.3 \
             detect --no-git --source /repo --redact --verbose \
             --report-format json --report-path /repo/gitleaks-report.json
-          gitleaks_status=$?
+          status=$?
           set -e
-          if [[ ! -f gitleaks-report.json ]]; then
-            printf '[]\n' > gitleaks-report.json
-          fi
+          [[ -f gitleaks-report.json ]] || printf '[]\n' > gitleaks-report.json
           cat gitleaks-report.json
-          exit "$gitleaks_status"
+          exit "$status"
 
       - name: Upload Gitleaks secret scan report
         if: always()
@@ -229,18 +220,16 @@ jobs:
           path: gitleaks-report.json
           if-no-files-found: error
 
-      - name: Configure .NET environment
+      - name: Configure persistent .NET caches
         shell: bash
         run: |
+          bash scripts/ci/configure-persistent-caches.sh
           install_dir="$HOME/.dotnet-ci"
           job_temp="$RUNNER_TEMP/dotnet-${GITHUB_JOB}-${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}"
           mkdir -p \
             "$install_dir" \
             "$job_temp/home" \
-            "$job_temp/nuget/packages" \
-            "$job_temp/nuget/http-cache" \
-            "$job_temp/nuget/scratch" \
-            "$GITHUB_WORKSPACE/artifacts/ci"
+            "$job_temp/nuget/scratch"
           {
             echo "DOTNET_INSTALL_DIR=$install_dir"
             echo "DOTNET_CMD=$install_dir/dotnet"
@@ -249,8 +238,7 @@ jobs:
             echo "DOTNET_CLI_TELEMETRY_OPTOUT=1"
             echo "DOTNET_NOLOGO=1"
             echo "DOTNET_MULTILEVEL_LOOKUP=0"
-            echo "NUGET_PACKAGES=$job_temp/nuget/packages"
-            echo "NUGET_HTTP_CACHE_PATH=$job_temp/nuget/http-cache"
+            echo "DOTNET_CLI_WORKLOAD_UPDATE_NOTIFY_DISABLE=1"
             echo "NUGET_SCRATCH=$job_temp/nuget/scratch"
           } >> "$GITHUB_ENV"
           echo "$install_dir" >> "$GITHUB_PATH"
@@ -264,20 +252,10 @@ jobs:
         shell: bash
         run: |
           log="$GITHUB_WORKSPACE/artifacts/ci/security-dotnet-restore.log"
-          : > "$log"
           set +e
-          {
-            echo "DOTNET_INSTALL_DIR=$DOTNET_INSTALL_DIR"
-            echo "DOTNET_CMD=$DOTNET_CMD"
-            echo "PATH=$PATH"
-            command -v dotnet || true
-            ls -la "$DOTNET_INSTALL_DIR" || true
-            test -x "$DOTNET_CMD"
-            "$DOTNET_CMD" --info
-            "$DOTNET_CMD" restore AipPortal.slnx \
-              --disable-parallel \
-              --verbosity normal
-          } 2>&1 | tee "$log"
+          "$DOTNET_CMD" restore AipPortal.slnx \
+            --disable-parallel \
+            --verbosity normal 2>&1 | tee "$log"
           restore_status=${PIPESTATUS[0]}
           set -e
           exit "$restore_status"
@@ -293,44 +271,25 @@ jobs:
       - name: Check .NET vulnerable packages
         shell: bash
         run: |
-          printf 'Vulnerable package scan started but did not complete.\n' > dotnet-vulnerable-packages.txt
           set +e
           "$DOTNET_CMD" list AipPortal.slnx package --vulnerable --include-transitive > dotnet-vulnerable-packages.txt 2>&1
-          vulnerable_status=$?
+          status=$?
           set -e
-          if [[ ! -s dotnet-vulnerable-packages.txt ]]; then
-            echo "dotnet vulnerable package report was not generated." > dotnet-vulnerable-packages.txt
-          fi
           cat dotnet-vulnerable-packages.txt
           if grep -q "has the following vulnerable packages" dotnet-vulnerable-packages.txt; then
-            echo "Vulnerable .NET packages were detected. Review dotnet-vulnerable-packages.txt."
             exit 1
           fi
-          if [[ "$vulnerable_status" -ne 0 ]]; then
-            echo "dotnet vulnerable package scan failed."
-            exit "$vulnerable_status"
-          fi
+          exit "$status"
 
       - name: Report .NET deprecated packages
         shell: bash
         run: |
-          printf 'Deprecated package scan started but did not complete.\n' > dotnet-deprecated-packages.txt
           set +e
           "$DOTNET_CMD" list AipPortal.slnx package --deprecated > dotnet-deprecated-packages.txt 2>&1
-          deprecated_status=$?
+          status=$?
           set -e
-          if [[ ! -s dotnet-deprecated-packages.txt ]]; then
-            echo "dotnet deprecated package report was not generated." > dotnet-deprecated-packages.txt
-          fi
           cat dotnet-deprecated-packages.txt
-          if grep -q "has the following deprecated packages" dotnet-deprecated-packages.txt; then
-            echo "Deprecated .NET packages were detected. Review dotnet-deprecated-packages.txt."
-            echo "Deprecated packages are report-only for the initial security baseline."
-          fi
-          if [[ "$deprecated_status" -ne 0 ]]; then
-            echo "dotnet deprecated package scan failed."
-            exit "$deprecated_status"
-          fi
+          exit "$status"
 
       - name: Upload .NET dependency scan reports
         if: always()
@@ -359,10 +318,7 @@ jobs:
           docker compose -f docker-compose.onprem.yml config --quiet
           docker compose -p deploy -f deploy/sakura/docker-compose.yml config --quiet
 
-      - name: Initialize Trivy image scan report
-        run: printf 'Trivy image scan did not run.\n' > trivy-image-report.txt
-
-      - name: Build Docker image
+      - name: Build Docker image with persistent BuildKit caches
         env:
           SYNCFUSION_LICENSE: ${{ secrets.SYNCFUSION_LICENSE }}
         shell: bash
@@ -386,17 +342,12 @@ jobs:
               .
             status=$?
             set -e
-
             if [[ "$status" -eq 0 ]]; then
               exit 0
             fi
             if [[ "$attempt" -eq 2 ]]; then
               exit "$status"
             fi
-            echo "Docker build failed with exit code ${status}; retrying after host diagnostics." >&2
-            df -h || true
-            df -i || true
-            free -h || true
             docker system df || true
             sleep 15
           done
@@ -414,7 +365,6 @@ jobs:
       - name: Scan Docker image with Trivy
         shell: bash
         run: |
-          printf 'Trivy image scan started but did not complete.\n' > trivy-image-report.txt
           set +e
           docker run --rm \
             -v /var/run/docker.sock:/var/run/docker.sock \
@@ -424,17 +374,10 @@ jobs:
             --severity HIGH,CRITICAL --ignore-unfixed \
             --format table --output /repo/trivy-image-report.txt \
             "$IMAGE_NAME"
-          trivy_status=$?
+          status=$?
           set -e
-          if [[ ! -s trivy-image-report.txt ]]; then
-            echo "No Trivy report was generated." > trivy-image-report.txt
-          fi
           cat trivy-image-report.txt
-          if [[ "$trivy_status" -ne 0 ]]; then
-            echo "Trivy scan command failed; failing CI because the image scan did not complete."
-            exit "$trivy_status"
-          fi
-          echo "Trivy HIGH/CRITICAL findings are report-only for the initial security baseline."
+          exit "$status"
 
       - name: Upload Trivy image scan report
         if: always()
@@ -449,10 +392,11 @@ jobs:
         shell: bash
         run: docker image rm --force "$IMAGE_NAME" || true
 
-      - name: Report security host resources on failure
+      - name: Report security cache and host resources on failure
         if: failure()
         shell: bash
         run: |
+          du -sh "$HOME/.nuget/packages" "$HOME/.cache/aipsite-ci" 2>/dev/null || true
           df -h || true
           df -i || true
           free -h || true
@@ -497,10 +441,12 @@ jobs:
         uses: actions/setup-node@v4
         with:
           node-version: "24"
-          cache: npm
-          cache-dependency-path: |
-            package-lock.json
-            frontend/package-lock.json
+
+      - name: Configure persistent npm and Angular caches
+        env:
+          CI_ENABLE_ANGULAR_CACHE: "1"
+        shell: bash
+        run: bash scripts/ci/configure-persistent-caches.sh
 
       - name: Install repo Playwright dependencies
         run: bash scripts/ci/npm-ci-retry.sh .
@@ -518,14 +464,8 @@ jobs:
           SYNCFUSION_LICENSE: ${{ secrets.SYNCFUSION_LICENSE }}
         shell: bash
         run: |
-          test -x node_modules/.bin/syncfusion-license || {
-            echo "Syncfusion License CLI is not installed." >&2
-            exit 1
-          }
-          test -n "${SYNCFUSION_LICENSE:-}" || {
-            echo "SYNCFUSION_LICENSE is not configured." >&2
-            exit 1
-          }
+          test -x node_modules/.bin/syncfusion-license
+          test -n "${SYNCFUSION_LICENSE:-}"
           npm run build:licensed
 
       - name: Angular unit tests
@@ -557,10 +497,11 @@ jobs:
             test-results/
           if-no-files-found: ignore
 
-      - name: Report frontend host resources on failure
+      - name: Report frontend cache and host resources on failure
         if: failure()
         shell: bash
         run: |
+          du -sh "$HOME/.npm" "$HOME/.cache/aipsite-ci" 2>/dev/null || true
           df -h || true
           df -i || true
           free -h || true

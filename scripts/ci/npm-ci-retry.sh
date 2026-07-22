@@ -22,7 +22,7 @@ for ((attempt = 1; attempt <= attempts; attempt++)); do
   set +e
   (
     cd "$working_directory"
-    npm ci --no-audit --no-fund "$@"
+    npm ci --prefer-offline --no-audit --no-fund "$@"
   )
   status=$?
   set -e

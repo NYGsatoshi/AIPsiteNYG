@@ -3,10 +3,13 @@
 FROM node:24 AS frontend-build
 WORKDIR /src/frontend
 COPY frontend/package*.json ./
-RUN npm install --global npm@11.17.0
-RUN npm ci --no-audit --no-fund
+RUN --mount=type=cache,id=aipsite-docker-npm,target=/root/.npm,sharing=locked \
+    npm install --global npm@11.17.0
+RUN --mount=type=cache,id=aipsite-docker-npm,target=/root/.npm,sharing=locked \
+    npm ci --prefer-offline --no-audit --no-fund
 COPY frontend/ ./
 RUN --mount=type=secret,id=syncfusion_license,required=true \
+    --mount=type=cache,id=aipsite-docker-angular,target=/src/frontend/.angular/cache,sharing=locked \
     set -eu; \
     test -x node_modules/.bin/syncfusion-license || { echo "Syncfusion License CLI is not installed." >&2; exit 1; }; \
     SYNCFUSION_LICENSE="$(tr -d '\r\n' < /run/secrets/syncfusion_license)"; \
@@ -24,12 +27,14 @@ COPY src/AipPortal.Domain/AipPortal.Domain.csproj src/AipPortal.Domain/
 COPY src/AipPortal.Application/AipPortal.Application.csproj src/AipPortal.Application/
 COPY src/AipPortal.Infrastructure/AipPortal.Infrastructure.csproj src/AipPortal.Infrastructure/
 COPY src/AipPortal.Web/AipPortal.Web.csproj src/AipPortal.Web/
-RUN dotnet restore src/AipPortal.Web/AipPortal.Web.csproj
+RUN --mount=type=cache,id=aipsite-docker-nuget,target=/root/.nuget/packages,sharing=locked \
+    dotnet restore src/AipPortal.Web/AipPortal.Web.csproj
 
 COPY . .
 RUN rm -rf src/AipPortal.Web/wwwroot/*
 COPY --from=frontend-build /src/frontend/dist/aipportal-web/ src/AipPortal.Web/wwwroot/
-RUN dotnet publish src/AipPortal.Web/AipPortal.Web.csproj -c Release -o /app/publish --no-restore
+RUN --mount=type=cache,id=aipsite-docker-nuget,target=/root/.nuget/packages,sharing=locked \
+    dotnet publish src/AipPortal.Web/AipPortal.Web.csproj -c Release -o /app/publish --no-restore
 
 FROM mcr.microsoft.com/dotnet/aspnet:10.0 AS runtime
 WORKDIR /app
