@@ -23,7 +23,7 @@ if [[ -n "${GITHUB_ENV:-}" ]]; then
   } >> "$GITHUB_ENV"
 fi
 
-if [[ -d frontend && -f frontend/package-lock.json && -f frontend/angular.json ]]; then
+if [[ "${CI_ENABLE_ANGULAR_CACHE:-0}" == "1" && -d frontend && -f frontend/package-lock.json && -f frontend/angular.json ]]; then
   angular_key="$({
     sha256sum frontend/package-lock.json
     sha256sum frontend/angular.json
