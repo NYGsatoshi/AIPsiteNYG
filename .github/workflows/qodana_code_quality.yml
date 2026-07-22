@@ -52,9 +52,11 @@ jobs:
           ref: ${{ github.event.pull_request.head.sha || github.sha }}
           fetch-depth: 0
 
+      - name: Configure persistent .NET caches
+        shell: bash
+        run: bash scripts/ci/configure-persistent-caches.sh
+
       - name: Set up .NET SDK
-        env:
-          DOTNET_INSTALL_DIR: ${{ runner.temp }}/dotnet
         uses: actions/setup-dotnet@v4
         with:
           global-json-file: global.json
@@ -102,7 +104,6 @@ jobs:
             echo "::warning::Qodana SARIF was not produced; skipping the secondary project-model guard."
             exit 0
           fi
-
           node scripts/quality/check-qodana-project-model.mjs "$sarif"
 
       - name: Upload Qodana project-model summary
@@ -142,11 +143,12 @@ jobs:
         uses: actions/setup-node@v4
         with:
           node-version: "24"
-          cache: npm
-          cache-dependency-path: |
-            package-lock.json
-            frontend/package-lock.json
-            tools/frontend-inspections/package.json
+
+      - name: Configure persistent npm and Angular caches
+        env:
+          CI_ENABLE_ANGULAR_CACHE: "1"
+        shell: bash
+        run: bash scripts/ci/configure-persistent-caches.sh
 
       - name: Report Node toolchain
         run: |
@@ -164,17 +166,15 @@ jobs:
         run: |
           for attempt in 1 2; do
             set +e
-            npm --prefix tools/frontend-inspections install --ignore-scripts --no-audit --no-fund
+            npm --prefix tools/frontend-inspections install --prefer-offline --ignore-scripts --no-audit --no-fund
             status=$?
             set -e
-
             if [[ "$status" -eq 0 ]]; then
               exit 0
             fi
             if [[ "$attempt" -eq 2 ]]; then
               exit "$status"
             fi
-            echo "Inspection toolchain install failed with exit code ${status}; retrying after host diagnostics." >&2
             df -h || true
             df -i || true
             free -h || true
@@ -207,10 +207,11 @@ jobs:
       - name: Run Angular unit tests
         run: npm --prefix frontend test
 
-      - name: Report host resources on failure
+      - name: Report cache and host resources on failure
         if: failure()
         shell: bash
         run: |
+          du -sh "$HOME/.npm" "$HOME/.nuget/packages" "$HOME/.cache/aipsite-ci" 2>/dev/null || true
           df -h || true
           df -i || true
           free -h || true
