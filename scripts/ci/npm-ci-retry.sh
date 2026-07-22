@@ -19,14 +19,18 @@ fi
 for ((attempt = 1; attempt <= attempts; attempt++)); do
   echo "npm ci attempt ${attempt}/${attempts} in ${working_directory}"
 
-  if (
+  set +e
+  (
     cd "$working_directory"
     npm ci --no-audit --no-fund "$@"
-  ); then
+  )
+  status=$?
+  set -e
+
+  if (( status == 0 )); then
     exit 0
   fi
 
-  status=$?
   if (( attempt == attempts )); then
     echo "npm ci failed after ${attempts} attempt(s)." >&2
     exit "$status"
