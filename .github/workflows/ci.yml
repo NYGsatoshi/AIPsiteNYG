@@ -377,19 +377,23 @@ jobs:
           printf '%s' "$SYNCFUSION_LICENSE" > "$license_file"
 
           for attempt in 1 2; do
-            if docker build \
+            set +e
+            docker build \
               --pull \
               --progress=plain \
               --secret id=syncfusion_license,src="$license_file" \
               --tag "$IMAGE_NAME" \
-              .; then
+              .
+            status=$?
+            set -e
+
+            if [[ "$status" -eq 0 ]]; then
               exit 0
             fi
-            status=$?
             if [[ "$attempt" -eq 2 ]]; then
               exit "$status"
             fi
-            echo "Docker build failed; retrying after host diagnostics." >&2
+            echo "Docker build failed with exit code ${status}; retrying after host diagnostics." >&2
             df -h || true
             df -i || true
             free -h || true
