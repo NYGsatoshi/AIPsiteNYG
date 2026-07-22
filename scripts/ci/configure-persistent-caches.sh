@@ -2,11 +2,13 @@
 set -Eeuo pipefail
 
 cache_root="${AIPSITE_CI_CACHE_ROOT:-$HOME/.cache/aipsite-ci}"
+dotnet_install_dir="${DOTNET_INSTALL_DIR:-$HOME/.dotnet-ci}"
 nuget_packages="$HOME/.nuget/packages"
 nuget_http_cache="$cache_root/nuget/http-cache"
 angular_cache_root="$cache_root/angular"
 
 mkdir -p \
+  "$dotnet_install_dir" \
   "$nuget_packages" \
   "$nuget_http_cache" \
   "$angular_cache_root"
@@ -14,6 +16,8 @@ mkdir -p \
 if [[ -n "${GITHUB_ENV:-}" ]]; then
   {
     echo "AIPSITE_CI_CACHE_ROOT=$cache_root"
+    echo "DOTNET_INSTALL_DIR=$dotnet_install_dir"
+    echo "DOTNET_ROOT=$dotnet_install_dir"
     echo "NUGET_PACKAGES=$nuget_packages"
     echo "NUGET_HTTP_CACHE_PATH=$nuget_http_cache"
     echo "NUGET_XMLDOC_MODE=skip"
@@ -21,6 +25,10 @@ if [[ -n "${GITHUB_ENV:-}" ]]; then
     echo "npm_config_audit=false"
     echo "npm_config_fund=false"
   } >> "$GITHUB_ENV"
+fi
+
+if [[ -n "${GITHUB_PATH:-}" ]]; then
+  echo "$dotnet_install_dir" >> "$GITHUB_PATH"
 fi
 
 if [[ "${CI_ENABLE_ANGULAR_CACHE:-0}" == "1" && -d frontend && -f frontend/package-lock.json && -f frontend/angular.json ]]; then
@@ -46,6 +54,7 @@ if [[ "${CI_ENABLE_ANGULAR_CACHE:-0}" == "1" && -d frontend && -f frontend/packa
 fi
 
 printf 'Persistent CI cache root: %s\n' "$cache_root"
+printf '.NET SDK install cache: %s\n' "$dotnet_install_dir"
 printf 'NuGet packages cache: %s\n' "$nuget_packages"
 printf 'NuGet HTTP cache: %s\n' "$nuget_http_cache"
 if [[ -L frontend/.angular/cache ]]; then
