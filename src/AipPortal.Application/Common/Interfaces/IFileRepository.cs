@@ -29,5 +29,9 @@ public interface IFileRepository
 
     Task AddAttachmentAsync(Attachment attachment, CancellationToken cancellationToken = default);
 
+    Task<IReadOnlyList<Attachment>> ListTaskAttachmentsAsync(Guid taskItemId, CancellationToken cancellationToken = default) => Task.FromResult<IReadOnlyList<Attachment>>([]);
+
+    void RemoveAttachment(Attachment attachment) { }
+
     Task<FileOwnerContext?> ResolveOwnerAsync(AttachmentOwnerType ownerType, Guid ownerId, CancellationToken cancellationToken = default);
 }

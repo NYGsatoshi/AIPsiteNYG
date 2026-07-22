@@ -55,7 +55,8 @@ public sealed record CanonicalTaskResponse(
     long Version,
     TaskCommandPermissions UiPermissions,
     IReadOnlyList<TaskStageCategory> AllowedTransitions,
-    TaskReviewStatus ReviewStatus);
+    TaskReviewStatus ReviewStatus,
+    TaskSubresourceSummary? Subresources = null);
 
 public sealed record TaskCommandPermissions(bool CanUpdate, bool CanAssign, bool CanDelete, bool CanReview, bool CanOverrideReview, bool CanClaim);
 public sealed record TaskCommandResponse(CanonicalTaskResponse Task, IReadOnlyList<string> Warnings, bool OverrideApplied = false);

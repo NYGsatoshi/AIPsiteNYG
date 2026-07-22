@@ -184,6 +184,20 @@ public sealed class ProjectRepository(AppDbContext dbContext) : IProjectReposito
     public async Task<IReadOnlyList<WorkItemWatchState>> ListWatchStatesAsync(Guid taskItemId, CancellationToken cancellationToken = default) =>
         await dbContext.WorkItemWatchStates.Where(x => x.TaskItemId == taskItemId).ToListAsync(cancellationToken);
 
+    public async Task<IReadOnlyList<TaskChecklistItem>> ListChecklistAsync(Guid taskItemId, CancellationToken cancellationToken = default) =>
+        await dbContext.TaskChecklistItems.Where(x => x.TaskItemId == taskItemId).OrderBy(x => x.SortKey).ThenBy(x => x.Id).ToListAsync(cancellationToken);
+    public Task<TaskChecklistItem?> GetChecklistItemAsync(Guid itemId, CancellationToken cancellationToken = default) => dbContext.TaskChecklistItems.FirstOrDefaultAsync(x => x.Id == itemId, cancellationToken);
+    public async Task<IReadOnlyList<TaskComment>> ListTaskCommentsAsync(Guid taskItemId, int skip, int take, CancellationToken cancellationToken = default) =>
+        await dbContext.TaskComments.Include(x => x.AuthorUser).Where(x => x.TaskItemId == taskItemId).OrderBy(x => x.CreatedAt).ThenBy(x => x.Id).Skip(skip).Take(take).ToListAsync(cancellationToken);
+    public Task<int> CountTaskCommentsAsync(Guid taskItemId, CancellationToken cancellationToken = default) => dbContext.TaskComments.CountAsync(x => x.TaskItemId == taskItemId, cancellationToken);
+    public Task<TaskComment?> GetTaskCommentAsync(Guid commentId, CancellationToken cancellationToken = default) => dbContext.TaskComments.Include(x => x.TaskItem).FirstOrDefaultAsync(x => x.Id == commentId, cancellationToken);
+    public async Task<IReadOnlyList<ProjectTaskLabel>> ListTaskLabelsAsync(Guid projectId, bool includeArchived, CancellationToken cancellationToken = default) =>
+        await dbContext.ProjectTaskLabels.Where(x => x.ProjectId == projectId && (includeArchived || !x.IsArchived)).OrderBy(x => x.SortKey).ThenBy(x => x.Name).ToListAsync(cancellationToken);
+    public Task<ProjectTaskLabel?> GetTaskLabelAsync(Guid labelId, CancellationToken cancellationToken = default) => dbContext.ProjectTaskLabels.FirstOrDefaultAsync(x => x.Id == labelId, cancellationToken);
+    public async Task<IReadOnlyList<WorkItemLabel>> ListWorkItemLabelsAsync(Guid taskItemId, CancellationToken cancellationToken = default) =>
+        await dbContext.WorkItemLabels.Include(x => x.Label).Where(x => x.TaskItemId == taskItemId).ToListAsync(cancellationToken);
+    public Task<WorkItemLabel?> GetWorkItemLabelAsync(Guid associationId, CancellationToken cancellationToken = default) => dbContext.WorkItemLabels.FirstOrDefaultAsync(x => x.Id == associationId, cancellationToken);
+
     public async Task AddCollaboratorAsync(WorkItemCollaborator collaborator, CancellationToken cancellationToken = default) =>
         await dbContext.WorkItemCollaborators.AddAsync(collaborator, cancellationToken);
 
@@ -219,6 +233,12 @@ public sealed class ProjectRepository(AppDbContext dbContext) : IProjectReposito
 
     public async Task AddWatchStateAsync(WorkItemWatchState watchState, CancellationToken cancellationToken = default) =>
         await dbContext.WorkItemWatchStates.AddAsync(watchState, cancellationToken);
+    public async Task AddChecklistItemAsync(TaskChecklistItem item, CancellationToken cancellationToken = default) => await dbContext.TaskChecklistItems.AddAsync(item, cancellationToken);
+    public async Task AddTaskCommentAsync(TaskComment comment, CancellationToken cancellationToken = default) => await dbContext.TaskComments.AddAsync(comment, cancellationToken);
+    public async Task AddTaskLabelAsync(ProjectTaskLabel label, CancellationToken cancellationToken = default) => await dbContext.ProjectTaskLabels.AddAsync(label, cancellationToken);
+    public async Task AddWorkItemLabelAsync(WorkItemLabel association, CancellationToken cancellationToken = default) => await dbContext.WorkItemLabels.AddAsync(association, cancellationToken);
 
     public void RemoveCollaborator(WorkItemCollaborator collaborator) => dbContext.WorkItemCollaborators.Remove(collaborator);
+    public void RemoveChecklistItem(TaskChecklistItem item) => dbContext.TaskChecklistItems.Remove(item);
+    public void RemoveWorkItemLabel(WorkItemLabel association) => dbContext.WorkItemLabels.Remove(association);
 }
