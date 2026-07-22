@@ -163,14 +163,18 @@ jobs:
         shell: bash
         run: |
           for attempt in 1 2; do
-            if npm --prefix tools/frontend-inspections install --ignore-scripts --no-audit --no-fund; then
+            set +e
+            npm --prefix tools/frontend-inspections install --ignore-scripts --no-audit --no-fund
+            status=$?
+            set -e
+
+            if [[ "$status" -eq 0 ]]; then
               exit 0
             fi
-            status=$?
             if [[ "$attempt" -eq 2 ]]; then
               exit "$status"
             fi
-            echo "Inspection toolchain install failed; retrying after host diagnostics." >&2
+            echo "Inspection toolchain install failed with exit code ${status}; retrying after host diagnostics." >&2
             df -h || true
             df -i || true
             free -h || true
