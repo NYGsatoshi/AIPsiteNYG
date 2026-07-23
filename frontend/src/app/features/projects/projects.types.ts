@@ -204,6 +204,8 @@ export interface TaskDetailAggregateViewModel {
   readonly taskVersion: string;
   readonly checklist: readonly TaskChecklistViewModel[];
   readonly labels: readonly TaskLabelViewModel[];
+  /** Project definitions are distinct from the labels already applied to this task. */
+  readonly labelDefinitions: readonly TaskLabelViewModel[];
   readonly subtasks: TaskPageViewModel<TaskSubtaskViewModel>;
   readonly comments: TaskPageViewModel<TaskCommentViewModel>;
   readonly files: TaskPageViewModel<TaskFileAssociationViewModel>;

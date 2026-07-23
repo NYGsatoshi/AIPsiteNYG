@@ -8,7 +8,7 @@ import { FrontendApiError } from '../../core/api/api-error.model';
 import { MyTasksFacade } from './my-tasks.facade';
 import { RealtimeFacade } from '../../core/realtime/realtime.facade';
 import { DurableRealtimeEvent } from '../../core/realtime/realtime.models';
-import { CanonicalTaskDetailDto, PagedResponseDto, ProjectDto, TaskDto, toCreateTaskRequestDto, toUpdateTaskRequestDto } from './projects.api';
+import { CanonicalTaskDetailDto, PagedResponseDto, ProjectDto, TaskDto, TaskLabelDto, toCreateTaskRequestDto, toUpdateTaskRequestDto } from './projects.api';
 import {
   mapProjectDtoToRecord,
   mapTaskDtoToRecord,
@@ -62,7 +62,10 @@ export class ProjectsFacade {
   private readonly taskMutationState = signal<TaskMutationState>({ status: 'idle' });
   private readonly taskCreateMutationState = signal<TaskMutationState>({ status: 'idle' });
   private readonly taskDetailRequests = new Set<string>();
+  /** A monotonically increasing request id prevents an old route response from winning. */
+  private readonly taskDetailRequestIds = new Map<string, number>();
   private readonly taskDetails = signal<Record<string, CanonicalTaskDetailDto>>({});
+  private readonly projectLabelDefinitions = signal<Record<string, readonly TaskLabelDto[]>>({});
   private activeTaskId: string | null = null;
   private activeProjectSubscription: (() => void) | null = null;
   private refreshTimer: ReturnType<typeof setTimeout> | null = null;
@@ -168,13 +171,15 @@ export class ProjectsFacade {
       return;
     }
 
+    if (this.activeTaskId && this.activeTaskId !== taskId) {
+      // Detail aggregates are protected resource data. Do not leave an old
+      // task aggregate available while a new route is resolving.
+      this.taskDetails.set({});
+    }
     this.activeTaskId = taskId;
     this.activeProjectSubscription?.();
     this.activeProjectSubscription = this.realtime.registerSubscription('projects-active-task', { subscriptionType: 'project', resourceId: projectId });
-    const taskExists = this.liveState().tasks.some(
-      (candidate) => candidate.projectId === projectId && candidate.id === taskId
-    );
-    if (!taskExists) {
+    if (!this.taskDetails()[taskId]) {
       this.loadTaskDetail(taskId);
     }
   }
@@ -183,6 +188,7 @@ export class ProjectsFacade {
     this.activeTaskId = null;
     this.activeProjectSubscription?.();
     this.activeProjectSubscription = null;
+    this.taskDetails.set({});
   }
 
   getTaskMutationState(): TaskMutationState {
@@ -201,14 +207,32 @@ export class ProjectsFacade {
     this.taskCreateMutationState.set({ status: 'idle' });
   }
 
+  loadProjectLabelDefinitions(projectId: string): void {
+    if (this.scenario || !projectId) return;
+    this.http.get<readonly TaskLabelDto[]>(`/api/projects/${projectId}/task-labels?includeArchived=true`, { withCredentials: true })
+      .subscribe({ next: labels => this.projectLabelDefinitions.update(current => ({ ...current, [projectId]: labels })) });
+  }
+
+  createProjectLabel(taskId: string, projectId: string, name: string): void {
+    const trimmed = name.trim();
+    if (!trimmed) return;
+    this.runDetailCommand(taskId, this.http.post(`/api/projects/${projectId}/task-labels`, { name: trimmed, description: null }, { withCredentials: true }), () => this.loadProjectLabelDefinitions(projectId));
+  }
+
+  setProjectLabelArchived(taskId: string, projectId: string, labelId: string, expectedVersion: string, archived: boolean): void {
+    const action = archived ? 'archive' : 'restore';
+    this.runDetailCommand(taskId, this.http.post(`/api/projects/${projectId}/task-labels/${labelId}/${action}?expectedVersion=${encodeURIComponent(expectedVersion)}`, {}, { withCredentials: true }), () => this.loadProjectLabelDefinitions(projectId));
+  }
+
   retryTaskDetail(taskId: string): void { this.loadTaskDetail(taskId); }
 
-  createChecklist(taskId: string, text: string): void { this.runDetailCommand(taskId, this.http.post(`/api/tasks/${taskId}/checklist`, { text }, { withCredentials: true })); }
+  createSubtask(taskId: string, title: string, onSuccess?: () => void): void { const trimmed = title.trim(); if (trimmed) this.runDetailCommand(taskId, this.http.post(`/api/tasks/${taskId}/subtasks`, { title: trimmed, description: null, priority: 1 }, { withCredentials: true }), onSuccess); }
+  createChecklist(taskId: string, text: string, onSuccess?: () => void): void { this.runDetailCommand(taskId, this.http.post(`/api/tasks/${taskId}/checklist`, { text }, { withCredentials: true }), onSuccess); }
   updateChecklist(taskId: string, itemId: string, text: string, isCompleted: boolean, expectedVersion: string): void { this.runDetailCommand(taskId, this.http.patch(`/api/tasks/${taskId}/checklist/${itemId}`, { text, isCompleted, expectedVersion: Number(expectedVersion) }, { withCredentials: true })); }
   deleteChecklist(taskId: string, itemId: string, expectedVersion: string): void { this.runDetailCommand(taskId, this.http.delete(`/api/tasks/${taskId}/checklist/${itemId}?expectedVersion=${encodeURIComponent(expectedVersion)}`, { withCredentials: true })); }
   reorderChecklist(taskId: string, orderedItemIds: readonly string[], expectedTaskVersion: string): void { this.runDetailCommand(taskId, this.http.put(`/api/tasks/${taskId}/checklist/order`, { orderedItemIds, expectedTaskVersion: Number(expectedTaskVersion) }, { withCredentials: true })); }
-  createComment(taskId: string, bodyPlainText: string, isImportant: boolean): void { this.runDetailCommand(taskId, this.http.post(`/api/tasks/${taskId}/comments`, { bodyPlainText, isImportant }, { withCredentials: true })); }
-  updateComment(taskId: string, commentId: string, bodyPlainText: string, isImportant: boolean, expectedVersion: string): void { this.runDetailCommand(taskId, this.http.patch(`/api/task-comments/${commentId}`, { bodyPlainText, isImportant, expectedVersion: Number(expectedVersion) }, { withCredentials: true })); }
+  createComment(taskId: string, bodyPlainText: string, isImportant: boolean, onSuccess?: () => void): void { this.runDetailCommand(taskId, this.http.post(`/api/tasks/${taskId}/comments`, { bodyPlainText, isImportant }, { withCredentials: true }), onSuccess); }
+  updateComment(taskId: string, commentId: string, bodyPlainText: string, isImportant: boolean, expectedVersion: string, onSuccess?: () => void): void { this.runDetailCommand(taskId, this.http.patch(`/api/task-comments/${commentId}`, { bodyPlainText, isImportant, expectedVersion: Number(expectedVersion) }, { withCredentials: true }), onSuccess); }
   deleteComment(taskId: string, commentId: string, expectedVersion: string): void { this.runDetailCommand(taskId, this.http.delete(`/api/task-comments/${commentId}?expectedVersion=${encodeURIComponent(expectedVersion)}`, { withCredentials: true })); }
   applyLabel(taskId: string, labelId: string): void { this.runDetailCommand(taskId, this.http.put(`/api/tasks/${taskId}/labels/${labelId}`, {}, { withCredentials: true })); }
   removeLabel(taskId: string, labelId: string): void { this.runDetailCommand(taskId, this.http.delete(`/api/tasks/${taskId}/labels/${labelId}`, { withCredentials: true })); }
@@ -347,7 +371,17 @@ export class ProjectsFacade {
   }
 
   private handleRealtimeEvent(event: DurableRealtimeEvent): void {
-    if (this.scenario || (event.eventType !== 'Projects.TaskChanged.v1' && event.eventType !== 'Projects.ProjectChanged.v1')) {
+    if (this.scenario) {
+      return;
+    }
+
+    if (event.eventType === 'Security.AuthorizationStateChanged.v1') {
+      this.taskDetails.set({});
+      this.taskMutationState.set({ status: 'idle' });
+      return;
+    }
+
+    if (event.eventType !== 'Projects.TaskChanged.v1' && event.eventType !== 'Projects.ProjectChanged.v1') {
       return;
     }
 
@@ -400,28 +434,39 @@ export class ProjectsFacade {
   }
 
   private loadTaskDetail(taskId: string): void {
-    if (this.scenario || this.taskDetailRequests.has(taskId)) {
+    if (this.scenario) {
       return;
     }
 
+    const requestId = (this.taskDetailRequestIds.get(taskId) ?? 0) + 1;
+    this.taskDetailRequestIds.set(taskId, requestId);
     this.taskDetailRequests.add(taskId);
     this.fetchTask(taskId).subscribe({
       next: (response) => {
+        if (this.taskDetailRequestIds.get(taskId) !== requestId || (this.activeTaskId !== null && this.activeTaskId !== taskId)) {
+          return;
+        }
         this.taskDetailRequests.delete(taskId);
         this.taskDetails.update((details) => ({ ...details, [taskId]: response.detail }));
         this.replaceTask(response.task);
       },
       error: () => {
+        if (this.taskDetailRequestIds.get(taskId) !== requestId) {
+          return;
+        }
         this.taskDetailRequests.delete(taskId);
+        if (this.activeTaskId === taskId) {
+          this.taskDetails.set({});
+        }
       }
     });
   }
 
-  private runDetailCommand(taskId: string, request: Observable<unknown>): void {
+  private runDetailCommand(taskId: string, request: Observable<unknown>, onSuccess?: () => void): void {
     if (this.scenario || this.taskMutationState().status === 'submitting') return;
     this.taskMutationState.set({ status: 'submitting' });
     request.pipe(switchMap(() => this.fetchTask(taskId))).subscribe({
-      next: (response) => { this.taskDetails.update((details) => ({ ...details, [taskId]: response.detail })); this.replaceTask(response.task); this.taskMutationState.set({ status: 'success' }); },
+      next: (response) => { this.taskDetails.update((details) => ({ ...details, [taskId]: response.detail })); this.replaceTask(response.task); this.taskMutationState.set({ status: 'success' }); onSuccess?.(); },
       error: (error: unknown) => { this.taskMutationState.set(toFailureState(error, 'Task detail command failed.')); this.loadTaskDetail(taskId); }
     });
   }
@@ -445,6 +490,7 @@ export class ProjectsFacade {
       taskVersion: version(detail.task?.version),
       checklist: (detail.checklist ?? []).map((item) => ({ id: text(item.id), text: text(item.text), isCompleted: boolean(item.isCompleted), completedAt: nullableText(item.completedAt), completedByUserId: nullableText(item.completedByUserId), sortKey: version(item.sortKey), version: version(item.version) })),
       labels: (detail.labels ?? []).map((item) => ({ id: text(item.id), name: text(item.name), description: nullableText(item.description), sortKey: version(item.sortKey), isArchived: boolean(item.isArchived), version: version(item.version) })),
+      labelDefinitions: (this.projectLabelDefinitions()[text(detail.task?.projectId)] ?? []).map((item) => ({ id: text(item.id), name: text(item.name), description: nullableText(item.description), sortKey: version(item.sortKey), isArchived: boolean(item.isArchived), version: version(item.version) })),
       subtasks: page(detail.subtasks, (detail.subtasks?.items ?? []).map((item) => ({ id: text(item.id), parentTaskId: text(item.parentTaskId), title: text(item.title), workflowStageId: nullableText(item.workflowStageId), stage: text(item.workflowStageName), stageCategory: text(item.stageCategory), priority: text(item.priority), progressPercent: number(item.progressPercent), primaryAssignee: nullableText(item.primaryAssignee?.displayName), plannedEndDate: nullableText(item.plannedEndDate), deadlineAt: nullableText(item.deadlineAt), isOverdue: boolean(item.isOverdue), version: version(item.version) }))),
       comments: page(detail.comments, (detail.comments?.items ?? []).map((item) => ({ id: text(item.id), taskId: text(item.taskId), author: nullableText(item.author?.displayName), body: nullableText(item.bodyPlainText), isImportant: boolean(item.isImportant), mentions: (item.mentions ?? []).map(mention => `@${text(mention.displayName)}`).filter(Boolean), createdAt: nullableText(item.createdAt), updatedAt: nullableText(item.updatedAt), deletedAt: nullableText(item.deletedAt), version: version(item.version), canEdit: boolean(item.canEdit), canDelete: boolean(item.canDelete), canMarkImportant: boolean(item.canMarkImportant) }))),
       files: page(detail.files, (detail.files?.items ?? []).map((item) => ({ id: text(item.id), fileObjectId: text(item.fileObjectId), fileName: text(item.fileName), contentType: text(item.contentType), sizeBytes: number(item.sizeBytes), scanStatus: text(item.scanStatus), createdAt: nullableText(item.createdAt), accessState: text(item.accessState), canOpen: boolean(item.canOpen), canRequestDownloadGrant: boolean(item.canRequestDownloadGrant), downloadGrantRequired: boolean(item.downloadGrantRequired), restrictionCode: nullableText(item.restrictionCode) }))),
