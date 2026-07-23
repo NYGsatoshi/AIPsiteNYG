@@ -8,7 +8,7 @@ import { FrontendApiError } from '../../core/api/api-error.model';
 import { MyTasksFacade } from './my-tasks.facade';
 import { RealtimeFacade } from '../../core/realtime/realtime.facade';
 import { DurableRealtimeEvent } from '../../core/realtime/realtime.models';
-import { PagedResponseDto, ProjectDto, TaskDto, toCreateTaskRequestDto, toUpdateTaskRequestDto } from './projects.api';
+import { CanonicalTaskDetailDto, PagedResponseDto, ProjectDto, TaskDto, toCreateTaskRequestDto, toUpdateTaskRequestDto } from './projects.api';
 import {
   mapProjectDtoToRecord,
   mapTaskDtoToRecord,
@@ -25,6 +25,7 @@ import {
   ProjectsScenario,
   MyTasksViewModel,
   TASK_STATUS_BACKEND_AUTHORITATIVE_NOTE,
+  TaskDetailAggregateViewModel,
   TaskDetailViewModel,
   TaskEditorSaveRequest,
   TaskGridRow,
@@ -61,6 +62,7 @@ export class ProjectsFacade {
   private readonly taskMutationState = signal<TaskMutationState>({ status: 'idle' });
   private readonly taskCreateMutationState = signal<TaskMutationState>({ status: 'idle' });
   private readonly taskDetailRequests = new Set<string>();
+  private readonly taskDetails = signal<Record<string, CanonicalTaskDetailDto>>({});
   private activeTaskId: string | null = null;
   private activeProjectSubscription: (() => void) | null = null;
   private refreshTimer: ReturnType<typeof setTimeout> | null = null;
@@ -142,6 +144,7 @@ export class ProjectsFacade {
       ? this.authorizedProjects().find((candidate) => candidate.id === task.projectId)
       : undefined;
 
+    const detail = taskId ? this.taskDetails()[taskId] : undefined;
     return {
       status: task ? 'ready' : scenario.status === 'ready' ? 'empty' : scenario.status,
       detailState: scenario.detailState ?? 'ready',
@@ -151,6 +154,7 @@ export class ProjectsFacade {
       dependencies: task ? this.toDependencies(task) : [],
       capabilities: task?.capabilities ?? [],
       transitionNote: TASK_STATUS_BACKEND_AUTHORITATIVE_NOTE,
+      detail: detail && task ? this.mapDetail(detail) : undefined,
       message: scenario.message
     };
   }
@@ -222,7 +226,8 @@ export class ProjectsFacade {
       .subscribe({
         next: ({ task, projectTasks }) => {
           this.replaceProjectTasks(projectId, projectTasks);
-          this.replaceTask(task);
+          this.taskDetails.update((details) => ({ ...details, [taskId]: task.detail }));
+          this.replaceTask(task.task);
           this.myTasksFacade.refreshIfLoaded();
           this.taskMutationState.set({ status: 'success' });
         },
@@ -368,10 +373,10 @@ export class ProjectsFacade {
       );
   }
 
-  private fetchTask(taskId: string): Observable<TaskMockRecord> {
+  private fetchTask(taskId: string): Observable<{ readonly task: TaskMockRecord; readonly detail: CanonicalTaskDetailDto }> {
     return this.http
-      .get<TaskDto>(`/api/tasks/${taskId}`, { withCredentials: true })
-      .pipe(map((task) => mapTaskDtoToRecord(task, this.authorizedProjects())));
+      .get<CanonicalTaskDetailDto>(`/api/tasks/${taskId}`, { withCredentials: true })
+      .pipe(map((detail) => ({ task: mapTaskDtoToRecord((detail.task ?? detail) as TaskDto, this.authorizedProjects()), detail })));
   }
 
   private loadTaskDetail(taskId: string): void {
@@ -381,14 +386,36 @@ export class ProjectsFacade {
 
     this.taskDetailRequests.add(taskId);
     this.fetchTask(taskId).subscribe({
-      next: (task) => {
+      next: (response) => {
         this.taskDetailRequests.delete(taskId);
-        this.replaceTask(task);
+        this.taskDetails.update((details) => ({ ...details, [taskId]: response.detail }));
+        this.replaceTask(response.task);
       },
       error: () => {
         this.taskDetailRequests.delete(taskId);
       }
     });
+  }
+
+  private mapDetail(detail: CanonicalTaskDetailDto): TaskDetailAggregateViewModel {
+    const boolean = (value: unknown) => value === true;
+    const text = (value: unknown) => typeof value === 'string' ? value : '';
+    const id = (value: unknown) => text(value);
+    return {
+      permissions: {
+        canCreateSubtask: boolean(detail.permissions?.canCreateSubtask), canCreateChecklistItem: boolean(detail.permissions?.canCreateChecklistItem),
+        canUpdateChecklistItems: boolean(detail.permissions?.canUpdateChecklistItems), canDeleteChecklistItems: boolean(detail.permissions?.canDeleteChecklistItems),
+        canReorderChecklist: boolean(detail.permissions?.canReorderChecklist), canCreateComment: boolean(detail.permissions?.canCreateComment),
+        canMarkCommentImportant: boolean(detail.permissions?.canMarkCommentImportant), canApplyLabels: boolean(detail.permissions?.canApplyLabels),
+        canManageLabelDefinitions: boolean(detail.permissions?.canManageLabelDefinitions), canAssociateFiles: boolean(detail.permissions?.canAssociateFiles),
+        canRemoveFiles: boolean(detail.permissions?.canRemoveFiles), canChangeWatch: boolean(detail.permissions?.canChangeWatch)
+      },
+      checklist: (detail.checklist ?? []).map((item) => ({ id: id(item.id), text: text(item.text), isCompleted: boolean(item.isCompleted) })),
+      labels: (detail.labels ?? []).map((item) => ({ id: id(item.id), name: text(item.name), isArchived: boolean(item.isArchived) })),
+      subtasks: (detail.subtasks?.items ?? []).map((item) => ({ id: id(item.id), title: text(item.title), stage: text(item.workflowStageName), progressPercent: typeof item.progressPercent === 'number' ? item.progressPercent : 0 })),
+      comments: (detail.comments?.items ?? []).map((item) => ({ id: id(item.id), body: text(item.bodyPlainText), isImportant: boolean(item.isImportant) })),
+      files: (detail.files?.items ?? []).map((item) => ({ id: id(item.id), fileName: text(item.fileName), accessState: text(item.accessState), ...(text(item.restrictionCode) ? { restrictionCode: text(item.restrictionCode) } : {}) }))
+    };
   }
 
   private emptyScenario(status: ProjectsPageStatus, message?: string, error?: FrontendApiError): ProjectsScenario {

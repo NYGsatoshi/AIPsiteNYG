@@ -45,5 +45,13 @@
     />
 
     <app-task-dependencies-readonly [dependencies]="vm.dependencies" />
+
+    @if (vm.detail; as detail) {
+      <section aria-label="Task checklist"><h2>Checklist</h2><p>{{ detail.checklist.length }} items</p></section>
+      <section aria-label="Task labels"><h2>Labels</h2><p>{{ detail.labels.length }} labels</p></section>
+      <section aria-label="Task subtasks"><h2>Subtasks</h2><p>{{ detail.subtasks.length }} subtasks</p></section>
+      <section aria-label="Task comments"><h2>Comments</h2><p>{{ detail.comments.length }} comments</p></section>
+      <section aria-label="Task files"><h2>Files</h2><p>{{ detail.files.length }} files</p></section>
+    }
   }
 </section>

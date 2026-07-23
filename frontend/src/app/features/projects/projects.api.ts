@@ -49,6 +49,40 @@ export interface TaskDto {
   readonly version?: unknown;
 }
 
+/** The detail endpoint deliberately wraps compact task command state in a bounded aggregate. */
+export interface CanonicalTaskDetailDto {
+  readonly task?: TaskDto | null;
+  readonly relationships?: Record<string, unknown> | null;
+  readonly permissions?: TaskDetailPermissionsDto | null;
+  readonly checklist?: readonly TaskChecklistDto[];
+  readonly labels?: readonly TaskLabelDto[];
+  readonly watchState?: Record<string, unknown> | null;
+  readonly subtasks?: PagedResponseDto<TaskSubtaskDto> | null;
+  readonly comments?: PagedResponseDto<TaskCommentDto> | null;
+  readonly files?: PagedResponseDto<TaskFileAssociationDto> | null;
+}
+
+export interface TaskDetailPermissionsDto {
+  readonly canCreateSubtask?: unknown;
+  readonly canCreateChecklistItem?: unknown;
+  readonly canUpdateChecklistItems?: unknown;
+  readonly canDeleteChecklistItems?: unknown;
+  readonly canReorderChecklist?: unknown;
+  readonly canCreateComment?: unknown;
+  readonly canMarkCommentImportant?: unknown;
+  readonly canApplyLabels?: unknown;
+  readonly canManageLabelDefinitions?: unknown;
+  readonly canAssociateFiles?: unknown;
+  readonly canRemoveFiles?: unknown;
+  readonly canChangeWatch?: unknown;
+}
+
+export interface TaskChecklistDto { readonly id?: unknown; readonly text?: unknown; readonly isCompleted?: unknown; readonly version?: unknown; }
+export interface TaskLabelDto { readonly id?: unknown; readonly name?: unknown; readonly isArchived?: unknown; }
+export interface TaskSubtaskDto { readonly id?: unknown; readonly parentTaskId?: unknown; readonly title?: unknown; readonly workflowStageName?: unknown; readonly stageCategory?: unknown; readonly priority?: unknown; readonly progressPercent?: unknown; readonly version?: unknown; }
+export interface TaskCommentDto { readonly id?: unknown; readonly bodyPlainText?: unknown; readonly isImportant?: unknown; readonly canMarkImportant?: unknown; }
+export interface TaskFileAssociationDto { readonly id?: unknown; readonly fileName?: unknown; readonly accessState?: unknown; readonly canOpen?: unknown; readonly canRequestDownloadGrant?: unknown; readonly restrictionCode?: unknown; }
+
 export interface MyTaskDto {
   readonly taskId?: unknown;
   /** @deprecated PR04 consumers use stageCategory and plannedEndDate. */

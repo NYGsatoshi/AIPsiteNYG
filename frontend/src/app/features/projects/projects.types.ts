@@ -195,7 +195,17 @@ export interface TaskDetailViewModel {
   readonly dependencies: readonly TaskDependencyViewModel[];
   readonly capabilities: readonly ProjectCapability[];
   readonly transitionNote: BackendAuthoritativeTransitionNote;
+  readonly detail?: TaskDetailAggregateViewModel;
   readonly message?: string;
+}
+
+export interface TaskDetailAggregateViewModel {
+  readonly permissions: Readonly<Record<string, boolean>>;
+  readonly checklist: readonly { readonly id: string; readonly text: string; readonly isCompleted: boolean }[];
+  readonly labels: readonly { readonly id: string; readonly name: string; readonly isArchived: boolean }[];
+  readonly subtasks: readonly { readonly id: string; readonly title: string; readonly stage: string; readonly progressPercent: number }[];
+  readonly comments: readonly { readonly id: string; readonly body: string; readonly isImportant: boolean }[];
+  readonly files: readonly { readonly id: string; readonly fileName: string; readonly accessState: string; readonly restrictionCode?: string }[];
 }
 
 export interface TaskEditorSaveRequest {

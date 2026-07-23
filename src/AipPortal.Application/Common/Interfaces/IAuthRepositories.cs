@@ -8,6 +8,8 @@ public interface IUserRepository
 
     Task<User?> GetByNormalizedEmailAsync(string normalizedEmail, CancellationToken cancellationToken = default);
 
+    Task<IReadOnlyList<User>> SearchActiveAsync(string query, int take, CancellationToken cancellationToken = default) => Task.FromResult<IReadOnlyList<User>>([]);
+
     Task AddAsync(User user, CancellationToken cancellationToken = default);
 }
 
