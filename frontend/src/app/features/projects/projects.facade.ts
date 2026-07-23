@@ -8,7 +8,7 @@ import { FrontendApiError } from '../../core/api/api-error.model';
 import { MyTasksFacade } from './my-tasks.facade';
 import { RealtimeFacade } from '../../core/realtime/realtime.facade';
 import { DurableRealtimeEvent } from '../../core/realtime/realtime.models';
-import { PagedResponseDto, ProjectDto, TaskDto, toCreateTaskRequestDto, toUpdateTaskRequestDto } from './projects.api';
+import { CanonicalTaskDetailDto, PagedResponseDto, ProjectDto, TaskDto, toCreateTaskRequestDto, toUpdateTaskRequestDto } from './projects.api';
 import {
   mapProjectDtoToRecord,
   mapTaskDtoToRecord,
@@ -25,6 +25,7 @@ import {
   ProjectsScenario,
   MyTasksViewModel,
   TASK_STATUS_BACKEND_AUTHORITATIVE_NOTE,
+  TaskDetailAggregateViewModel,
   TaskDetailViewModel,
   TaskEditorSaveRequest,
   TaskGridRow,
@@ -61,6 +62,7 @@ export class ProjectsFacade {
   private readonly taskMutationState = signal<TaskMutationState>({ status: 'idle' });
   private readonly taskCreateMutationState = signal<TaskMutationState>({ status: 'idle' });
   private readonly taskDetailRequests = new Set<string>();
+  private readonly taskDetails = signal<Record<string, CanonicalTaskDetailDto>>({});
   private activeTaskId: string | null = null;
   private activeProjectSubscription: (() => void) | null = null;
   private refreshTimer: ReturnType<typeof setTimeout> | null = null;
@@ -142,6 +144,11 @@ export class ProjectsFacade {
       ? this.authorizedProjects().find((candidate) => candidate.id === task.projectId)
       : undefined;
 
+    const detail = taskId ? this.taskDetails()[taskId] : undefined;
+    const loadedProjectId = typeof detail?.task?.projectId === 'string' ? detail.task.projectId : undefined;
+    if (detail && loadedProjectId && loadedProjectId !== projectId) {
+      return { status: 'empty', detailState: 'ready', dependencies: [], capabilities: [], transitionNote: TASK_STATUS_BACKEND_AUTHORITATIVE_NOTE, message: 'TASK_DETAIL_PROJECT_MISMATCH' };
+    }
     return {
       status: task ? 'ready' : scenario.status === 'ready' ? 'empty' : scenario.status,
       detailState: scenario.detailState ?? 'ready',
@@ -151,6 +158,7 @@ export class ProjectsFacade {
       dependencies: task ? this.toDependencies(task) : [],
       capabilities: task?.capabilities ?? [],
       transitionNote: TASK_STATUS_BACKEND_AUTHORITATIVE_NOTE,
+      detail: detail && task ? this.mapDetail(detail) : undefined,
       message: scenario.message
     };
   }
@@ -193,6 +201,22 @@ export class ProjectsFacade {
     this.taskCreateMutationState.set({ status: 'idle' });
   }
 
+  retryTaskDetail(taskId: string): void { this.loadTaskDetail(taskId); }
+
+  createChecklist(taskId: string, text: string): void { this.runDetailCommand(taskId, this.http.post(`/api/tasks/${taskId}/checklist`, { text }, { withCredentials: true })); }
+  updateChecklist(taskId: string, itemId: string, text: string, isCompleted: boolean, expectedVersion: string): void { this.runDetailCommand(taskId, this.http.patch(`/api/tasks/${taskId}/checklist/${itemId}`, { text, isCompleted, expectedVersion: Number(expectedVersion) }, { withCredentials: true })); }
+  deleteChecklist(taskId: string, itemId: string, expectedVersion: string): void { this.runDetailCommand(taskId, this.http.delete(`/api/tasks/${taskId}/checklist/${itemId}?expectedVersion=${encodeURIComponent(expectedVersion)}`, { withCredentials: true })); }
+  reorderChecklist(taskId: string, orderedItemIds: readonly string[], expectedTaskVersion: string): void { this.runDetailCommand(taskId, this.http.put(`/api/tasks/${taskId}/checklist/order`, { orderedItemIds, expectedTaskVersion: Number(expectedTaskVersion) }, { withCredentials: true })); }
+  createComment(taskId: string, bodyPlainText: string, isImportant: boolean): void { this.runDetailCommand(taskId, this.http.post(`/api/tasks/${taskId}/comments`, { bodyPlainText, isImportant }, { withCredentials: true })); }
+  updateComment(taskId: string, commentId: string, bodyPlainText: string, isImportant: boolean, expectedVersion: string): void { this.runDetailCommand(taskId, this.http.patch(`/api/task-comments/${commentId}`, { bodyPlainText, isImportant, expectedVersion: Number(expectedVersion) }, { withCredentials: true })); }
+  deleteComment(taskId: string, commentId: string, expectedVersion: string): void { this.runDetailCommand(taskId, this.http.delete(`/api/task-comments/${commentId}?expectedVersion=${encodeURIComponent(expectedVersion)}`, { withCredentials: true })); }
+  applyLabel(taskId: string, labelId: string): void { this.runDetailCommand(taskId, this.http.put(`/api/tasks/${taskId}/labels/${labelId}`, {}, { withCredentials: true })); }
+  removeLabel(taskId: string, labelId: string): void { this.runDetailCommand(taskId, this.http.delete(`/api/tasks/${taskId}/labels/${labelId}`, { withCredentials: true })); }
+  setWatch(taskId: string, watching: boolean, expectedVersion: string): void { this.runDetailCommand(taskId, watching ? this.http.put(`/api/tasks/${taskId}/watch`, { expectedVersion: Number(expectedVersion) }, { withCredentials: true }) : this.http.delete(`/api/tasks/${taskId}/watch?expectedVersion=${encodeURIComponent(expectedVersion)}`, { withCredentials: true })); }
+  associateFile(taskId: string, attachmentId: string, expectedVersion: string): void { this.runDetailCommand(taskId, this.http.post(`/api/tasks/${taskId}/files`, { attachmentId, expectedVersion: Number(expectedVersion) }, { withCredentials: true })); }
+  removeFile(taskId: string, associationId: string, expectedVersion: string): void { this.runDetailCommand(taskId, this.http.delete(`/api/tasks/${taskId}/files/${associationId}?expectedVersion=${encodeURIComponent(expectedVersion)}`, { withCredentials: true })); }
+  requestFileGrant(taskId: string, fileObjectId: string): void { this.runDetailCommand(taskId, this.http.post(`/api/files/${fileObjectId}/download-grants`, { purpose: 'task-detail' }, { withCredentials: true })); }
+
   retryProjects(): void {
     if (this.scenario) {
       return;
@@ -222,7 +246,8 @@ export class ProjectsFacade {
       .subscribe({
         next: ({ task, projectTasks }) => {
           this.replaceProjectTasks(projectId, projectTasks);
-          this.replaceTask(task);
+          this.taskDetails.update((details) => ({ ...details, [taskId]: task.detail }));
+          this.replaceTask(task.task);
           this.myTasksFacade.refreshIfLoaded();
           this.taskMutationState.set({ status: 'success' });
         },
@@ -368,10 +393,10 @@ export class ProjectsFacade {
       );
   }
 
-  private fetchTask(taskId: string): Observable<TaskMockRecord> {
+  private fetchTask(taskId: string): Observable<{ readonly task: TaskMockRecord; readonly detail: CanonicalTaskDetailDto }> {
     return this.http
-      .get<TaskDto>(`/api/tasks/${taskId}`, { withCredentials: true })
-      .pipe(map((task) => mapTaskDtoToRecord(task, this.authorizedProjects())));
+      .get<CanonicalTaskDetailDto>(`/api/tasks/${taskId}`, { withCredentials: true })
+      .pipe(map((detail) => ({ task: mapTaskDtoToRecord((detail.task ?? detail) as TaskDto, this.authorizedProjects()), detail })));
   }
 
   private loadTaskDetail(taskId: string): void {
@@ -381,14 +406,50 @@ export class ProjectsFacade {
 
     this.taskDetailRequests.add(taskId);
     this.fetchTask(taskId).subscribe({
-      next: (task) => {
+      next: (response) => {
         this.taskDetailRequests.delete(taskId);
-        this.replaceTask(task);
+        this.taskDetails.update((details) => ({ ...details, [taskId]: response.detail }));
+        this.replaceTask(response.task);
       },
       error: () => {
         this.taskDetailRequests.delete(taskId);
       }
     });
+  }
+
+  private runDetailCommand(taskId: string, request: Observable<unknown>): void {
+    if (this.scenario || this.taskMutationState().status === 'submitting') return;
+    this.taskMutationState.set({ status: 'submitting' });
+    request.pipe(switchMap(() => this.fetchTask(taskId))).subscribe({
+      next: (response) => { this.taskDetails.update((details) => ({ ...details, [taskId]: response.detail })); this.replaceTask(response.task); this.taskMutationState.set({ status: 'success' }); },
+      error: (error: unknown) => { this.taskMutationState.set(toFailureState(error, 'Task detail command failed.')); this.loadTaskDetail(taskId); }
+    });
+  }
+
+  private mapDetail(detail: CanonicalTaskDetailDto): TaskDetailAggregateViewModel {
+    const boolean = (value: unknown) => value === true;
+    const text = (value: unknown) => typeof value === 'string' ? value : '';
+    const nullableText = (value: unknown) => typeof value === 'string' && value.length > 0 ? value : null;
+    const number = (value: unknown) => typeof value === 'number' && Number.isFinite(value) ? value : 0;
+    const version = (value: unknown) => typeof value === 'string' || typeof value === 'number' ? String(value) : '0';
+    const page = <TSource, TView>(source: PagedResponseDto<TSource> | null | undefined, items: readonly TView[]) => ({ items, page: number(source?.page) || 1, pageSize: number(source?.pageSize) || items.length, totalCount: number(source?.totalCount), hasMore: boolean(source?.hasMore) });
+    return {
+      permissions: {
+        canCreateSubtask: boolean(detail.permissions?.canCreateSubtask), canCreateChecklistItem: boolean(detail.permissions?.canCreateChecklistItem),
+        canUpdateChecklistItems: boolean(detail.permissions?.canUpdateChecklistItems), canDeleteChecklistItems: boolean(detail.permissions?.canDeleteChecklistItems),
+        canReorderChecklist: boolean(detail.permissions?.canReorderChecklist), canCreateComment: boolean(detail.permissions?.canCreateComment),
+        canMarkCommentImportant: boolean(detail.permissions?.canMarkCommentImportant), canApplyLabels: boolean(detail.permissions?.canApplyLabels),
+        canManageLabelDefinitions: boolean(detail.permissions?.canManageLabelDefinitions), canAssociateFiles: boolean(detail.permissions?.canAssociateFiles),
+        canRemoveFiles: boolean(detail.permissions?.canRemoveFiles), canChangeWatch: boolean(detail.permissions?.canChangeWatch)
+      },
+      taskVersion: version(detail.task?.version),
+      checklist: (detail.checklist ?? []).map((item) => ({ id: text(item.id), text: text(item.text), isCompleted: boolean(item.isCompleted), completedAt: nullableText(item.completedAt), completedByUserId: nullableText(item.completedByUserId), sortKey: version(item.sortKey), version: version(item.version) })),
+      labels: (detail.labels ?? []).map((item) => ({ id: text(item.id), name: text(item.name), description: nullableText(item.description), sortKey: version(item.sortKey), isArchived: boolean(item.isArchived), version: version(item.version) })),
+      subtasks: page(detail.subtasks, (detail.subtasks?.items ?? []).map((item) => ({ id: text(item.id), parentTaskId: text(item.parentTaskId), title: text(item.title), workflowStageId: nullableText(item.workflowStageId), stage: text(item.workflowStageName), stageCategory: text(item.stageCategory), priority: text(item.priority), progressPercent: number(item.progressPercent), primaryAssignee: nullableText(item.primaryAssignee?.displayName), plannedEndDate: nullableText(item.plannedEndDate), deadlineAt: nullableText(item.deadlineAt), isOverdue: boolean(item.isOverdue), version: version(item.version) }))),
+      comments: page(detail.comments, (detail.comments?.items ?? []).map((item) => ({ id: text(item.id), taskId: text(item.taskId), author: nullableText(item.author?.displayName), body: nullableText(item.bodyPlainText), isImportant: boolean(item.isImportant), mentions: (item.mentions ?? []).map(mention => `@${text(mention.displayName)}`).filter(Boolean), createdAt: nullableText(item.createdAt), updatedAt: nullableText(item.updatedAt), deletedAt: nullableText(item.deletedAt), version: version(item.version), canEdit: boolean(item.canEdit), canDelete: boolean(item.canDelete), canMarkImportant: boolean(item.canMarkImportant) }))),
+      files: page(detail.files, (detail.files?.items ?? []).map((item) => ({ id: text(item.id), fileObjectId: text(item.fileObjectId), fileName: text(item.fileName), contentType: text(item.contentType), sizeBytes: number(item.sizeBytes), scanStatus: text(item.scanStatus), createdAt: nullableText(item.createdAt), accessState: text(item.accessState), canOpen: boolean(item.canOpen), canRequestDownloadGrant: boolean(item.canRequestDownloadGrant), downloadGrantRequired: boolean(item.downloadGrantRequired), restrictionCode: nullableText(item.restrictionCode) }))),
+      watchState: { isWatching: boolean(detail.watchState?.isWatching), isExplicitOptOut: boolean(detail.watchState?.isExplicitOptOut), automaticSources: (detail.watchState?.automaticSources ?? []).filter((source): source is string => typeof source === 'string'), version: version(detail.watchState?.version) }
+    };
   }
 
   private emptyScenario(status: ProjectsPageStatus, message?: string, error?: FrontendApiError): ProjectsScenario {

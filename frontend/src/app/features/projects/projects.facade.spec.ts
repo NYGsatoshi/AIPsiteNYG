@@ -70,6 +70,19 @@ describe('ProjectsFacade live API mutations', () => {
     expect(facade.getTaskDetail('project-1', 'task-1').editorTask?.title).toBe('Backend Task');
   });
 
+  it('does not render cached task content when the route project context mismatches the loaded task', () => {
+    flushInitialLoad([]);
+    facade.ensureTaskDetail('wrong-project', 'task-1');
+
+    httpMock.expectOne('/api/tasks/task-1').flush({ task: editableTaskDto, checklist: [], labels: [], subtasks: { items: [] }, comments: { items: [] }, files: { items: [] } });
+
+    const page = facade.getTaskDetail('wrong-project', 'task-1');
+    expect(page.status).toBe('empty');
+    expect(page.task).toBeUndefined();
+    expect(page.editorTask).toBeUndefined();
+    expect(page.message).toBe('TASK_DETAIL_PROJECT_MISMATCH');
+  });
+
   it('creates a task through the backend and refreshes project and my-task rows after success', () => {
     flushInitialLoad();
 

@@ -195,8 +195,29 @@ export interface TaskDetailViewModel {
   readonly dependencies: readonly TaskDependencyViewModel[];
   readonly capabilities: readonly ProjectCapability[];
   readonly transitionNote: BackendAuthoritativeTransitionNote;
+  readonly detail?: TaskDetailAggregateViewModel;
   readonly message?: string;
 }
+
+export interface TaskDetailAggregateViewModel {
+  readonly permissions: TaskDetailPermissionsViewModel;
+  readonly taskVersion: string;
+  readonly checklist: readonly TaskChecklistViewModel[];
+  readonly labels: readonly TaskLabelViewModel[];
+  readonly subtasks: TaskPageViewModel<TaskSubtaskViewModel>;
+  readonly comments: TaskPageViewModel<TaskCommentViewModel>;
+  readonly files: TaskPageViewModel<TaskFileAssociationViewModel>;
+  readonly watchState: TaskWatchStateViewModel;
+}
+
+export interface TaskDetailPermissionsViewModel { readonly canCreateSubtask: boolean; readonly canCreateChecklistItem: boolean; readonly canUpdateChecklistItems: boolean; readonly canDeleteChecklistItems: boolean; readonly canReorderChecklist: boolean; readonly canCreateComment: boolean; readonly canMarkCommentImportant: boolean; readonly canApplyLabels: boolean; readonly canManageLabelDefinitions: boolean; readonly canAssociateFiles: boolean; readonly canRemoveFiles: boolean; readonly canChangeWatch: boolean; }
+export interface TaskPageViewModel<T> { readonly items: readonly T[]; readonly page: number; readonly pageSize: number; readonly totalCount: number; readonly hasMore: boolean; }
+export interface TaskChecklistViewModel { readonly id: string; readonly text: string; readonly isCompleted: boolean; readonly completedAt: string | null; readonly completedByUserId: string | null; readonly sortKey: string; readonly version: string; }
+export interface TaskLabelViewModel { readonly id: string; readonly name: string; readonly description: string | null; readonly sortKey: string; readonly isArchived: boolean; readonly version: string; }
+export interface TaskSubtaskViewModel { readonly id: string; readonly parentTaskId: string; readonly title: string; readonly workflowStageId: string | null; readonly stage: string; readonly stageCategory: string; readonly priority: string; readonly progressPercent: number; readonly primaryAssignee: string | null; readonly plannedEndDate: string | null; readonly deadlineAt: string | null; readonly isOverdue: boolean; readonly version: string; }
+export interface TaskCommentViewModel { readonly id: string; readonly taskId: string; readonly author: string | null; readonly body: string | null; readonly isImportant: boolean; readonly mentions: readonly string[]; readonly createdAt: string | null; readonly updatedAt: string | null; readonly deletedAt: string | null; readonly version: string; readonly canEdit: boolean; readonly canDelete: boolean; readonly canMarkImportant: boolean; }
+export interface TaskFileAssociationViewModel { readonly id: string; readonly fileObjectId: string; readonly fileName: string; readonly contentType: string; readonly sizeBytes: number; readonly scanStatus: string; readonly createdAt: string | null; readonly accessState: string; readonly canOpen: boolean; readonly canRequestDownloadGrant: boolean; readonly downloadGrantRequired: boolean; readonly restrictionCode: string | null; }
+export interface TaskWatchStateViewModel { readonly isWatching: boolean; readonly isExplicitOptOut: boolean; readonly automaticSources: readonly string[]; readonly version: string; }
 
 export interface TaskEditorSaveRequest {
   readonly title: string;
