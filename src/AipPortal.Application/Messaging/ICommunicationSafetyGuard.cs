@@ -13,9 +13,9 @@ public sealed record CommunicationSafetyScope(
     Guid WorkspaceId,
     Guid ConversationId);
 
-public sealed record CommunicationSafetyDecision(bool IsAllowed, string ReasonCode)
+public sealed record CommunicationSafetyDecision(bool IsAllowed, string ReasonCode, int? RetryAfterSeconds = null)
 {
     public static CommunicationSafetyDecision Allow() => new(true, "allow");
-    public static CommunicationSafetyDecision Deny(string reasonCode) => new(false, reasonCode);
+    public static CommunicationSafetyDecision Deny(string reasonCode, int? retryAfterSeconds = null) => new(false, reasonCode, retryAfterSeconds);
 }
 

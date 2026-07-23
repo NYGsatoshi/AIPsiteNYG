@@ -5,6 +5,7 @@ export interface PagedResponseDto<T> {
   readonly page?: unknown;
   readonly pageSize?: unknown;
   readonly totalCount?: unknown;
+  readonly hasMore?: unknown;
 }
 
 export interface ProjectUiPermissionDto {
@@ -48,6 +49,47 @@ export interface TaskDto {
   readonly uiPermissions?: TaskUiPermissionDto | null;
   readonly version?: unknown;
 }
+
+/** The detail endpoint deliberately wraps compact task command state in a bounded aggregate. */
+export interface CanonicalTaskDetailDto {
+  readonly task?: TaskDto | null;
+  readonly relationships?: TaskRelationshipsDto | null;
+  readonly permissions?: TaskDetailPermissionsDto | null;
+  readonly checklist?: readonly TaskChecklistDto[];
+  readonly labels?: readonly TaskLabelDto[];
+  readonly watchState?: TaskWatchStateDto | null;
+  readonly subtasks?: PagedResponseDto<TaskSubtaskDto> | null;
+  readonly comments?: PagedResponseDto<TaskCommentDto> | null;
+  readonly files?: PagedResponseDto<TaskFileAssociationDto> | null;
+}
+
+export interface TaskDetailPermissionsDto {
+  readonly canCreateSubtask?: unknown;
+  readonly canCreateChecklistItem?: unknown;
+  readonly canUpdateChecklistItems?: unknown;
+  readonly canDeleteChecklistItems?: unknown;
+  readonly canReorderChecklist?: unknown;
+  readonly canCreateComment?: unknown;
+  readonly canMarkCommentImportant?: unknown;
+  readonly canApplyLabels?: unknown;
+  readonly canManageLabelDefinitions?: unknown;
+  readonly canAssociateFiles?: unknown;
+  readonly canRemoveFiles?: unknown;
+  readonly canChangeWatch?: unknown;
+}
+
+export interface TaskPersonSummaryDto { readonly userId?: unknown; readonly displayName?: unknown; }
+export interface TaskRelationshipsDto { readonly primaryAssignee?: TaskPersonSummaryDto | null; readonly targetGroupId?: unknown; readonly collaborators?: readonly TaskPersonSummaryDto[]; readonly reviewer?: TaskPersonSummaryDto | null; readonly version?: unknown; }
+export interface TaskWatchStateDto { readonly isWatching?: unknown; readonly isExplicitOptOut?: unknown; readonly automaticSources?: readonly unknown[]; readonly version?: unknown; }
+export interface TaskChecklistDto { readonly id?: unknown; readonly text?: unknown; readonly isCompleted?: unknown; readonly completedAt?: unknown; readonly completedByUserId?: unknown; readonly sortKey?: unknown; readonly version?: unknown; }
+export interface TaskLabelDto { readonly id?: unknown; readonly name?: unknown; readonly description?: unknown; readonly sortKey?: unknown; readonly isArchived?: unknown; readonly version?: unknown; }
+export interface TaskSubtaskDto { readonly id?: unknown; readonly parentTaskId?: unknown; readonly title?: unknown; readonly workflowStageId?: unknown; readonly workflowStageName?: unknown; readonly stageCategory?: unknown; readonly priority?: unknown; readonly progressPercent?: unknown; readonly primaryAssignee?: TaskPersonSummaryDto | null; readonly plannedEndDate?: unknown; readonly deadlineAt?: unknown; readonly isOverdue?: unknown; readonly version?: unknown; }
+export interface TaskCommentMentionDto { readonly userId?: unknown; readonly displayName?: unknown; }
+export interface TaskCommentDto { readonly id?: unknown; readonly taskId?: unknown; readonly author?: TaskPersonSummaryDto | null; readonly bodyPlainText?: unknown; readonly isImportant?: unknown; readonly mentions?: readonly TaskCommentMentionDto[]; readonly createdAt?: unknown; readonly updatedAt?: unknown; readonly deletedAt?: unknown; readonly version?: unknown; readonly canEdit?: unknown; readonly canDelete?: unknown; readonly canMarkImportant?: unknown; }
+export interface TaskFileAssociationDto { readonly id?: unknown; readonly fileObjectId?: unknown; readonly fileName?: unknown; readonly contentType?: unknown; readonly sizeBytes?: unknown; readonly scanStatus?: unknown; readonly createdAt?: unknown; readonly accessState?: unknown; readonly canOpen?: unknown; readonly canRequestDownloadGrant?: unknown; readonly downloadGrantRequired?: unknown; readonly restrictionCode?: unknown; }
+export interface TaskMentionCandidateDto { readonly userId?: unknown; readonly displayName?: unknown; }
+export interface ReorderTaskChecklistRequestDto { readonly orderedItemIds: readonly string[]; readonly expectedTaskVersion: string | number; }
+export interface TaskChecklistOrderResponseDto { readonly items?: readonly TaskChecklistDto[]; readonly taskVersion?: unknown; }
 
 export interface MyTaskDto {
   readonly taskId?: unknown;

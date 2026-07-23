@@ -1,5 +1,6 @@
 using AipPortal.Application.Common.Interfaces;
 using AipPortal.Domain.Entities;
+using AipPortal.Domain.Enums;
 using Microsoft.EntityFrameworkCore;
 
 namespace AipPortal.Infrastructure.Persistence;
@@ -14,6 +15,20 @@ public sealed class UserRepository(AppDbContext dbContext) : IUserRepository
     public Task<User?> GetByNormalizedEmailAsync(string normalizedEmail, CancellationToken cancellationToken = default)
     {
         return dbContext.Users.FirstOrDefaultAsync(user => user.NormalizedEmail == normalizedEmail, cancellationToken);
+    }
+
+    public async Task<IReadOnlyList<User>> SearchActiveAsync(string query, int take, CancellationToken cancellationToken = default)
+    {
+        var normalized = query.Trim().ToUpperInvariant();
+        return await dbContext.Users.AsNoTracking()
+            .Where(user => user.DeletedAt == null && user.Status == UserStatus.Active && user.DisplayName.ToUpper().Contains(normalized))
+            .OrderBy(user => user.DisplayName).ThenBy(user => user.Id).Take(take).ToListAsync(cancellationToken);
+    }
+
+    public async Task<IReadOnlyList<User>> GetActiveByIdsAsync(IReadOnlyCollection<Guid> ids, CancellationToken cancellationToken = default)
+    {
+        if (ids.Count == 0) return [];
+        return await dbContext.Users.AsNoTracking().Where(user => ids.Contains(user.Id) && user.DeletedAt == null && user.Status == UserStatus.Active).ToListAsync(cancellationToken);
     }
 
     public async Task AddAsync(User user, CancellationToken cancellationToken = default)

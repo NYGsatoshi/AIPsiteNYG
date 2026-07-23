@@ -60,3 +60,27 @@ public sealed record CanonicalTaskResponse(
 
 public sealed record TaskCommandPermissions(bool CanUpdate, bool CanAssign, bool CanDelete, bool CanReview, bool CanOverrideReview, bool CanClaim);
 public sealed record TaskCommandResponse(CanonicalTaskResponse Task, IReadOnlyList<string> Warnings, bool OverrideApplied = false);
+public sealed record TaskDetailPermissions(
+    bool CanCreateSubtask,
+    bool CanCreateChecklistItem,
+    bool CanUpdateChecklistItems,
+    bool CanDeleteChecklistItems,
+    bool CanReorderChecklist,
+    bool CanCreateComment,
+    bool CanMarkCommentImportant,
+    bool CanApplyLabels,
+    bool CanManageLabelDefinitions,
+    bool CanAssociateFiles,
+    bool CanRemoveFiles,
+    bool CanChangeWatch);
+
+public sealed record CanonicalTaskDetailResponse(
+    CanonicalTaskResponse Task,
+    TaskRelationshipsResponse Relationships,
+    TaskDetailPermissions Permissions,
+    IReadOnlyList<TaskChecklistResponse> Checklist,
+    IReadOnlyList<ProjectTaskLabelResponse> Labels,
+    TaskWatchStateResponse WatchState,
+    TaskSubtaskPage Subtasks,
+    TaskCommentPage Comments,
+    TaskFileAssociationPage Files);

@@ -13,10 +13,14 @@ public sealed class InMemoryCommunicationSafetyGuard(CommunicationSafetyOptions 
     {
         lock (gate)
         {
-            if (IsLimited($"post:user:{scope.TenantId:N}:{scope.WorkspaceId:N}:{scope.ActorUserId:N}", options.MaxPostsPerMinutePerUser, TimeSpan.FromMinutes(1), now) ||
-                IsLimited($"post:conversation:{scope.TenantId:N}:{scope.WorkspaceId:N}:{scope.ConversationId:N}", options.MaxPostsPerMinutePerConversation, TimeSpan.FromMinutes(1), now))
+            if (TryLimit($"post:user:{scope.TenantId:N}:{scope.WorkspaceId:N}:{scope.ActorUserId:N}", options.MaxPostsPerMinutePerUser, TimeSpan.FromMinutes(1), now, out var userRetryAfter))
             {
-                return CommunicationSafetyDecision.Deny("rate_limited");
+                return CommunicationSafetyDecision.Deny("rate_limited", userRetryAfter);
+            }
+
+            if (TryLimit($"post:conversation:{scope.TenantId:N}:{scope.WorkspaceId:N}:{scope.ConversationId:N}", options.MaxPostsPerMinutePerConversation, TimeSpan.FromMinutes(1), now, out var conversationRetryAfter))
+            {
+                return CommunicationSafetyDecision.Deny("rate_limited", conversationRetryAfter);
             }
 
             if (!string.IsNullOrEmpty(normalizedBody))
@@ -40,9 +44,8 @@ public sealed class InMemoryCommunicationSafetyGuard(CommunicationSafetyOptions 
     {
         lock (gate)
         {
-            return IsLimited($"thread:user:{scope.TenantId:N}:{scope.WorkspaceId:N}:{scope.ActorUserId:N}", options.MaxThreadCreatesPerMinutePerUser, TimeSpan.FromMinutes(1), now)
-                ? CommunicationSafetyDecision.Deny("rate_limited")
-                : CommunicationSafetyDecision.Allow();
+            var limited = TryLimit($"thread:user:{scope.TenantId:N}:{scope.WorkspaceId:N}:{scope.ActorUserId:N}", options.MaxThreadCreatesPerMinutePerUser, TimeSpan.FromMinutes(1), now, out var retryAfter);
+            return limited ? CommunicationSafetyDecision.Deny("rate_limited", retryAfter) : CommunicationSafetyDecision.Allow();
         }
     }
 
@@ -50,14 +53,14 @@ public sealed class InMemoryCommunicationSafetyGuard(CommunicationSafetyOptions 
     {
         lock (gate)
         {
-            return IsLimited($"report:user:{scope.TenantId:N}:{scope.WorkspaceId:N}:{scope.ActorUserId:N}", options.MaxReportsPerHourPerUser, TimeSpan.FromHours(1), now)
-                ? CommunicationSafetyDecision.Deny("rate_limited")
-                : CommunicationSafetyDecision.Allow();
+            var limited = TryLimit($"report:user:{scope.TenantId:N}:{scope.WorkspaceId:N}:{scope.ActorUserId:N}", options.MaxReportsPerHourPerUser, TimeSpan.FromHours(1), now, out var retryAfter);
+            return limited ? CommunicationSafetyDecision.Deny("rate_limited", retryAfter) : CommunicationSafetyDecision.Allow();
         }
     }
 
-    private bool IsLimited(string key, int limit, TimeSpan window, DateTimeOffset now)
+    private bool TryLimit(string key, int limit, TimeSpan window, DateTimeOffset now, out int retryAfterSeconds)
     {
+        retryAfterSeconds = 0;
         var boundedLimit = Math.Max(1, limit);
         if (!windows.TryGetValue(key, out var queue))
         {
@@ -72,6 +75,7 @@ public sealed class InMemoryCommunicationSafetyGuard(CommunicationSafetyOptions 
 
         if (queue.Count >= boundedLimit)
         {
+            retryAfterSeconds = Math.Max(1, (int)Math.Ceiling((queue.Peek() + window - now).TotalSeconds));
             return true;
         }
 

@@ -43,6 +43,23 @@
   background: #fff;
 }
 
+.task-detail-page__section {
+  display: grid;
+  gap: .75rem;
+  padding: 1rem;
+  border: 1px solid #d7deea;
+  border-radius: .5rem;
+  background: #fff;
+}
+
+.task-detail-page__section h2,
+.task-detail-page__section p { margin: 0; }
+.task-detail-page__section ul { display: grid; gap: .5rem; margin: 0; padding-left: 1.25rem; }
+.task-detail-page__section li { display: flex; flex-wrap: wrap; align-items: center; gap: .4rem; }
+.task-detail-page__section button, .task-detail-page__section input { min-height: 2.25rem; }
+.task-detail-page__completed { text-decoration: line-through; color: #536179; }
+.task-detail-page__command-error { padding: .75rem; border: 1px solid #ad1a1a; color: #8a1212; background: #fff5f5; }
+
 @media (max-width: 720px) {
   .task-detail-page {
     padding: 1rem;
