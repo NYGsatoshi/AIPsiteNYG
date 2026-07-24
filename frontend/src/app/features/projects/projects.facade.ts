@@ -1,7 +1,7 @@
 import { HttpClient, HttpErrorResponse } from '@angular/common/http';
 import { inject, Injectable, InjectionToken, signal } from '@angular/core';
 import { forkJoin, Observable, of, Subscription } from 'rxjs';
-import { finalize, map, switchMap } from 'rxjs/operators';
+import { catchError, finalize, map, switchMap } from 'rxjs/operators';
 
 import { normalizeApiError } from '../../core/api/api-error.adapter';
 import { FrontendApiError } from '../../core/api/api-error.model';
@@ -270,21 +270,22 @@ export class ProjectsFacade {
   loadMoreComments(taskId: string): void { this.loadNextPage(taskId, 'comments'); }
   loadMoreFiles(taskId: string): void { this.loadNextPage(taskId, 'files'); }
   retrySection(taskId: string, section: TaskDetailSection): void {
-    if (section === 'detail') this.loadTaskDetail(taskId);
+    const failed = this.getDetailSectionState(section);
+    if (section === 'detail' || failed.retryKind === 'aggregate') this.loadTaskDetail(taskId);
     else if (section === 'labels') {
       const projectId = this.taskDetails()[taskId]?.task?.projectId;
       if (typeof projectId === 'string') this.loadProjectLabelDefinitions(projectId, true);
-    } else if (section === 'subtasks' || section === 'comments' || section === 'files') this.loadNextPage(taskId, section, true);
+    } else if (section === 'subtasks' || section === 'comments' || section === 'files') this.loadNextPage(taskId, section, failed.failedPage);
     else this.loadTaskDetail(taskId);
   }
 
-  createSubtask(taskId: string, title: string, onSuccess?: () => void): void { const trimmed = title.trim(); if (trimmed) this.runDetailCommand(taskId, 'subtasks', this.http.post(`/api/tasks/${taskId}/subtasks`, { title: trimmed, description: null, priority: 1 }, { withCredentials: true }), onSuccess); }
-  createChecklist(taskId: string, text: string, onSuccess?: () => void): void { this.runDetailCommand(taskId, 'checklist', this.http.post(`/api/tasks/${taskId}/checklist`, { text }, { withCredentials: true }), onSuccess); }
-  updateChecklist(taskId: string, itemId: string, text: string, isCompleted: boolean, expectedVersion: string, onSuccess?: () => void): void { this.runDetailCommand(taskId, 'checklist', this.http.patch(`/api/tasks/${taskId}/checklist/${itemId}`, { text, isCompleted, expectedVersion: Number(expectedVersion) }, { withCredentials: true }), onSuccess); }
+  createSubtask(taskId: string, title: string, onSuccess?: () => void): void { const trimmed = title.trim(); if (trimmed && trimmed.length <= 300) this.runDetailCommand(taskId, 'subtasks', this.http.post(`/api/tasks/${taskId}/subtasks`, { title: trimmed, description: null, priority: 1 }, { withCredentials: true }), onSuccess); }
+  createChecklist(taskId: string, text: string, onSuccess?: () => void): void { const trimmed = text.trim(); if (trimmed && trimmed.length <= 1000) this.runDetailCommand(taskId, 'checklist', this.http.post(`/api/tasks/${taskId}/checklist`, { text: trimmed }, { withCredentials: true }), onSuccess); }
+  updateChecklist(taskId: string, itemId: string, text: string, isCompleted: boolean, expectedVersion: string, onSuccess?: () => void): void { const trimmed = text.trim(); if (trimmed && trimmed.length <= 1000) this.runDetailCommand(taskId, 'checklist', this.http.patch(`/api/tasks/${taskId}/checklist/${itemId}`, { text: trimmed, isCompleted, expectedVersion: Number(expectedVersion) }, { withCredentials: true }), onSuccess); }
   deleteChecklist(taskId: string, itemId: string, expectedVersion: string): void { this.runDetailCommand(taskId, 'checklist', this.http.delete(`/api/tasks/${taskId}/checklist/${itemId}?expectedVersion=${encodeURIComponent(expectedVersion)}`, { withCredentials: true })); }
   reorderChecklist(taskId: string, orderedItemIds: readonly string[], expectedTaskVersion: string): void { this.runDetailCommand(taskId, 'checklist', this.http.put(`/api/tasks/${taskId}/checklist/order`, { orderedItemIds, expectedTaskVersion: Number(expectedTaskVersion) }, { withCredentials: true })); }
-  createComment(taskId: string, bodyPlainText: string, isImportant: boolean, onSuccess?: () => void): void { this.runDetailCommand(taskId, 'comments', this.http.post(`/api/tasks/${taskId}/comments`, { bodyPlainText, isImportant }, { withCredentials: true }), onSuccess); }
-  updateComment(taskId: string, commentId: string, bodyPlainText: string, isImportant: boolean, expectedVersion: string, onSuccess?: () => void): void { this.runDetailCommand(taskId, 'comments', this.http.patch(`/api/task-comments/${commentId}`, { bodyPlainText, isImportant, expectedVersion: Number(expectedVersion) }, { withCredentials: true }), onSuccess); }
+  createComment(taskId: string, bodyPlainText: string, isImportant: boolean, onSuccess?: () => void): void { const body = bodyPlainText.trim(); if (body && body.length <= 12000) this.runDetailCommand(taskId, 'comments', this.http.post(`/api/tasks/${taskId}/comments`, { bodyPlainText: body, isImportant }, { withCredentials: true }), onSuccess); }
+  updateComment(taskId: string, commentId: string, bodyPlainText: string, isImportant: boolean, expectedVersion: string, onSuccess?: () => void): void { const body = bodyPlainText.trim(); if (body && body.length <= 12000) this.runDetailCommand(taskId, 'comments', this.http.patch(`/api/task-comments/${commentId}`, { bodyPlainText: body, isImportant, expectedVersion: Number(expectedVersion) }, { withCredentials: true }), onSuccess); }
   deleteComment(taskId: string, commentId: string, expectedVersion: string): void { this.runDetailCommand(taskId, 'comments', this.http.delete(`/api/task-comments/${commentId}?expectedVersion=${encodeURIComponent(expectedVersion)}`, { withCredentials: true })); }
   applyLabel(taskId: string, labelId: string, onSuccess?: () => void): void { this.runDetailCommand(taskId, 'labels', this.http.put(`/api/tasks/${taskId}/labels/${labelId}`, {}, { withCredentials: true }), onSuccess); }
   removeLabel(taskId: string, labelId: string): void { this.runDetailCommand(taskId, 'labels', this.http.delete(`/api/tasks/${taskId}/labels/${labelId}`, { withCredentials: true })); }
@@ -565,14 +566,24 @@ export class ProjectsFacade {
     const generation = this.detailGeneration;
     this.setSectionState(section, { status: 'submitting' });
     this.taskMutationState.set({ status: 'submitting' });
-    const operation = request.pipe(switchMap(() => this.fetchTask(taskId))).subscribe({
-      next: (response) => {
+    const operation = request.pipe(
+      switchMap(() => this.fetchTask(taskId).pipe(
+        map(response => ({ response })),
+        catchError(reloadError => of({ reloadError }))
+      ))
+    ).subscribe({
+      next: result => {
         if (!this.isAuthorizationCurrent(authorizationGeneration) || !this.isActive(taskId, generation)) return;
-        this.taskDetails.update((details) => ({ ...details, [taskId]: response.detail }));
-        this.replaceTask(response.task);
+        if ('reloadError' in result) {
+          const reloadFailure = toSectionFailure(result.reloadError, 'Saved successfully, but the latest task detail could not be loaded.');
+          this.setSectionState(section, { ...reloadFailure, status: reloadFailure.status === 'permissionDenied' ? 'permissionDenied' : 'error', message: `Saved successfully, but the latest task detail could not be loaded. ${reloadFailure.message ?? ''}`.trim(), retryKind: 'aggregate' });
+          this.taskMutationState.set({ status: 'success' });
+          return;
+        }
+        this.taskDetails.update((details) => ({ ...details, [taskId]: result.response.detail }));
+        this.replaceTask(result.response.task);
         this.setSectionState(section, { status: 'success' });
         this.taskMutationState.set({ status: 'success' });
-        const projectId = response.detail.task?.projectId;
         onSuccess?.();
       },
       error: (error: unknown) => {
@@ -590,17 +601,17 @@ export class ProjectsFacade {
     this.trackDetailMutation(operation);
   }
 
-  private loadNextPage(taskId: string, section: 'subtasks' | 'comments' | 'files', retry = false): void {
+  private loadNextPage(taskId: string, section: 'subtasks' | 'comments' | 'files', retryPage?: number): void {
     const detail = this.taskDetails()[taskId];
     if (!detail || !this.isActive(taskId, this.detailGeneration)) return;
     const current = detail[section];
     const currentPage = typeof current?.page === 'number' ? current.page : 1;
     const pageSize = typeof current?.pageSize === 'number' && current.pageSize > 0 ? current.pageSize : section === 'subtasks' ? 50 : 20;
-    if (!retry && current?.hasMore !== true) return;
+    if (!retryPage && current?.hasMore !== true) return;
     if (this.pageRequests.has(section)) return;
     const generation = this.detailGeneration;
     const authorizationGeneration = this.authorizationGeneration;
-    const page = retry ? currentPage + 1 : currentPage + 1;
+    const page = retryPage ?? currentPage + 1;
     const endpoint = `/api/tasks/${taskId}/${section}?page=${page}&pageSize=${pageSize}`;
     this.setSectionState(section, { status: 'loading' });
     const request = this.http.get<PagedResponseDto<unknown>>(endpoint, { withCredentials: true }).pipe(finalize(() => {
@@ -620,7 +631,7 @@ export class ProjectsFacade {
       },
       error: error => {
         if (!this.isAuthorizationCurrent(authorizationGeneration) || !this.isActive(taskId, generation)) return;
-        const failure = toSectionFailure(error, `More ${section} could not be loaded.`);
+        const failure = { ...toSectionFailure(error, `More ${section} could not be loaded.`), retryKind: 'page' as const, failedPage: page };
         if (failure.status === 'permissionDenied') { this.reauthorizeActiveState(); return; }
         this.setSectionState(section, failure);
       }
@@ -888,21 +899,18 @@ export class ProjectsFacade {
 }
 
 function toFailureState(error: unknown, fallback: string): TaskMutationState {
-  if (error instanceof HttpErrorResponse) {
-    const body = error.error as ErrorBody | undefined;
-    const message =
-      stringValue(body?.message) ?? stringValue(body?.error) ?? error.message ?? fallback;
-    const requestId = stringValue(body?.traceId) ?? stringValue(body?.requestId);
-    return { status: 'failure', message, requestId };
-  }
-
-  return { status: 'failure', message: fallback };
+  const normalized = normalizeApiError(error);
+  const stale = normalized.code === 'TASK_STALE_VERSION' || normalized.details.some(detail => detail.code === 'TASK_STALE_VERSION');
+  if (normalized.httpStatus === 409 || stale) return { status: 'conflict', message: normalized.message || fallback, requestId: normalized.requestId };
+  if (normalized.httpStatus === 400 || normalized.httpStatus === 422) return { status: 'validation', message: normalized.message || fallback, requestId: normalized.requestId };
+  if (normalized.httpStatus === 429) return { status: 'rateLimited', message: normalized.message || fallback, requestId: normalized.requestId };
+  return { status: 'failure', message: normalized.message || fallback, requestId: normalized.requestId };
 }
 
 function toSectionFailure(error: unknown, fallback: string): TaskDetailSectionState {
   const normalized = normalizeApiError(error);
-  if (normalized.httpStatus === 401 || normalized.httpStatus === 403) return { status: 'permissionDenied', message: 'Permission was denied. Protected task data was removed.', retryable: true, requestId: normalized.requestId };
-  if (normalized.httpStatus === 409) return { status: 'conflict', message: normalized.message || fallback, retryable: true, requestId: normalized.requestId };
+  if (normalized.httpStatus === 401 || normalized.httpStatus === 403) return { status: 'permissionDenied', message: 'Permission was denied. Protected task data was removed.', retryable: true, retryKind: 'authorization', requestId: normalized.requestId };
+  if (normalized.httpStatus === 409 || normalized.code === 'TASK_STALE_VERSION') return { status: 'conflict', message: normalized.message || fallback, retryable: true, retryKind: 'aggregate', requestId: normalized.requestId };
   return { status: 'error', message: normalized.message || fallback, retryable: true, requestId: normalized.requestId };
 }
 

@@ -17,7 +17,9 @@ export type TaskMutationState =
   | { readonly status: 'submitting' }
   | { readonly status: 'success' }
   | { readonly status: 'failure'; readonly message: string; readonly requestId?: string }
-  | { readonly status: 'conflict'; readonly message: string; readonly serverVersion?: unknown };
+  | { readonly status: 'conflict'; readonly message: string; readonly serverVersion?: unknown; readonly requestId?: string }
+  | { readonly status: 'validation'; readonly message: string; readonly requestId?: string }
+  | { readonly status: 'rateLimited'; readonly message: string; readonly requestId?: string };
 
 /** State is deliberately scoped: an unrelated Task section must never disable another one. */
 export type TaskDetailSection = 'detail' | 'subtasks' | 'checklist' | 'comments' | 'labels' | 'watch' | 'files';
@@ -27,6 +29,9 @@ export interface TaskDetailSectionState {
   readonly message?: string;
   readonly requestId?: string;
   readonly retryable?: boolean;
+  /** Keeps a failed page retry separate from an authoritative aggregate reload. */
+  readonly retryKind?: 'page' | 'aggregate' | 'authorization';
+  readonly failedPage?: number;
 }
 
 export interface BackendAuthoritativeTransitionNote {

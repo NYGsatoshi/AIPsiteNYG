@@ -245,11 +245,34 @@ describe('ProjectsFacade live API mutations', () => {
     );
 
     expect(facade.getTaskMutationState()).toEqual({
-      status: 'failure',
+      status: 'validation',
       message: 'You are not allowed to update this task.',
       requestId: 'trace-123'
     });
     expect(facade.getTaskDetail('project-1', 'task-1').editorTask?.title).toBe('Backend Task');
+  });
+
+  it('maps both HTTP 409 and TASK_STALE_VERSION to a preserved task-save conflict', () => {
+    flushInitialLoad();
+    facade.saveTask('task-1', 'project-1', { title: 'Edited', description: '', priority: 'medium', startDate: '', dueDate: '', progressPercent: 1 });
+    httpMock.expectOne('/api/tasks/task-1').flush({ code: 'TASK_STALE_VERSION', message: 'Task changed.', traceId: 'stale-1' }, { status: 409, statusText: 'Conflict' });
+
+    expect(facade.getTaskMutationState()).toEqual({ status: 'conflict', message: 'Task changed.', requestId: 'stale-1' });
+    expect(facade.getTaskDetail('project-1', 'task-1').editorTask?.title).toBe('Backend Task');
+  });
+
+  it('retries the same failed comments page without duplicating existing comments', () => {
+    flushInitialLoad();
+    facade.ensureTaskDetail('project-1', 'task-1');
+    httpMock.expectOne('/api/tasks/task-1').flush({ task: editableTaskDto, checklist: [], labels: [], subtasks: { items: [] }, comments: { items: [{ id: 'comment-1', bodyPlainText: 'first' }], page: 1, pageSize: 20, totalCount: 2, hasMore: true }, files: { items: [] } });
+
+    facade.loadMoreComments('task-1');
+    httpMock.expectOne('/api/tasks/task-1/comments?page=2&pageSize=20').flush({ message: 'temporary', traceId: 'comments-2' }, { status: 500, statusText: 'Server Error' });
+    expect(facade.getDetailSectionState('comments')).toMatchObject({ status: 'error', retryKind: 'page', failedPage: 2 });
+
+    facade.retrySection('task-1', 'comments');
+    httpMock.expectOne('/api/tasks/task-1/comments?page=2&pageSize=20').flush({ items: [{ id: 'comment-1', bodyPlainText: 'first' }, { id: 'comment-2', bodyPlainText: 'second' }], page: 2, pageSize: 20, totalCount: 2, hasMore: false });
+    expect(facade.getTaskDetail('project-1', 'task-1').detail?.comments.items.map(item => item.id)).toEqual(['comment-1', 'comment-2']);
   });
 
   it('shows a Project error state and retries without rendering an empty success state', () => {

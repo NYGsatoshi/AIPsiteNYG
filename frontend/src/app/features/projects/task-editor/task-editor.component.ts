@@ -1,4 +1,5 @@
-import { Component, EventEmitter, Input, OnChanges, Output, SimpleChanges } from '@angular/core';
+import { Component, EventEmitter, Input, OnChanges, OnDestroy, OnInit, Output, SimpleChanges } from '@angular/core';
+import { Subscription } from 'rxjs';
 import {
   AbstractControl,
   FormControl,
@@ -71,6 +72,19 @@ export const integerRangeValidator = (min: number, max: number): ValidatorFn => 
               <small>Request ID: {{ mutationState.requestId }}</small>
             }
           </section>
+        }
+
+        @if (mutationState.status === 'conflict') {
+          <section class="task-editor__recoverable" role="alert" data-testid="task-save-conflict">
+            <strong>Task changed elsewhere</strong>
+            <span>{{ mutationState.message }}</span>
+            @if (mutationState.requestId) { <small>Request ID: {{ mutationState.requestId }}</small> }
+            <button type="button" (click)="cancel.emit()">Reload before saving</button>
+          </section>
+        }
+
+        @if (mutationState.status === 'validation' || mutationState.status === 'rateLimited') {
+          <section class="task-editor__error" role="alert"><strong>{{ mutationState.status === 'validation' ? 'Check the task fields' : 'Please wait before retrying' }}</strong><span>{{ mutationState.message }}</span></section>
         }
 
         @if (mutationState.status === 'success') {
@@ -356,7 +370,7 @@ export const integerRangeValidator = (min: number, max: number): ValidatorFn => 
     `
   ]
 })
-export class TaskEditorComponent implements OnChanges {
+export class TaskEditorComponent implements OnChanges, OnInit, OnDestroy {
   @Input() task: TaskMockRecord | undefined;
   @Input() capabilities: readonly ProjectCapability[] = [];
   @Input() state: TaskDetailState = 'ready';
@@ -364,6 +378,9 @@ export class TaskEditorComponent implements OnChanges {
   @Input() mutationState: TaskMutationState = { status: 'idle' };
   @Output() save = new EventEmitter<TaskEditorSaveRequest>();
   @Output() cancel = new EventEmitter<void>();
+  /** Exposes unsaved form state without leaking the editor implementation to its parent. */
+  @Output() dirtyChange = new EventEmitter<boolean>();
+  private formChanges: Subscription | null = null;
 
   readonly statuses: readonly { value: TaskStatus; label: string }[] = [
     { value: 'notStarted', label: 'Not started' },
@@ -423,6 +440,12 @@ export class TaskEditorComponent implements OnChanges {
     }
   }
 
+  ngOnInit(): void {
+    this.formChanges = this.form.valueChanges.subscribe(() => this.emitDirty());
+  }
+
+  ngOnDestroy(): void { this.formChanges?.unsubscribe(); this.dirtyChange.emit(false); }
+
   submit(): void {
     this.form.markAllAsTouched();
     if (!this.canSubmit) {
@@ -459,6 +482,7 @@ export class TaskEditorComponent implements OnChanges {
     });
     this.form.markAsPristine();
     this.form.markAsUntouched();
+    this.emitDirty();
   }
 
   preventWhenDisabled(event: Event, enabled: boolean): void {
@@ -486,4 +510,6 @@ export class TaskEditorComponent implements OnChanges {
   private hasUnsupportedDateClear(original: string | undefined, next: string): boolean {
     return (original?.length ?? 0) > 0 && next.trim().length === 0;
   }
+
+  private emitDirty(): void { this.dirtyChange.emit(this.form.dirty && !this.isSubmitting); }
 }

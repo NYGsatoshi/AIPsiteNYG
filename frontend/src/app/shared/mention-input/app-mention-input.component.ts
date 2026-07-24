@@ -16,7 +16,7 @@ let mentionInputInstance = 0;
 @Component({
   selector: 'app-mention-input', standalone: true,
   template: `<label [for]="textareaId">Comment</label>
-  <textarea #editor [id]="textareaId" [value]="displayValue()" (input)="onInput($event)" (keydown)="onKeydown($event)" (click)="onCaretChange($event)" (keyup)="onCaretChange($event)"
+  <textarea #editor [id]="textareaId" [value]="displayValue()" [attr.maxlength]="maxLength ?? null" (input)="onInput($event)" (keydown)="onKeydown($event)" (click)="onCaretChange($event)" (keyup)="onCaretChange($event)"
     [attr.aria-describedby]="statusId" aria-autocomplete="list" [attr.aria-expanded]="candidates().length > 0"
     [attr.aria-controls]="listboxId" [attr.aria-activedescendant]="activeOptionId()"></textarea>
   @if (candidates().length) { <ul [id]="listboxId" role="listbox" aria-label="Mention candidates">
@@ -29,6 +29,7 @@ export class AppMentionInputComponent implements OnChanges {
   @Input({ required: true }) taskId = '';
   @Input() value = '';
   @Input() inputId?: string;
+  @Input() maxLength: number | null = 12000;
   @Input() knownMentions: readonly { userId: string; displayName: string }[] = [];
   @Output() valueChange = new EventEmitter<string>();
   @ViewChild('editor') private editor?: ElementRef<HTMLTextAreaElement>;

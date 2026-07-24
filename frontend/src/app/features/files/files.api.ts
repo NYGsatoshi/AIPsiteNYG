@@ -2,6 +2,10 @@ import { FileKind, FileScanStatus, FileViewModel } from './files.types';
 
 export interface PagedResponseDto<T> {
   readonly items?: readonly T[];
+  readonly page?: unknown;
+  readonly pageSize?: unknown;
+  readonly totalCount?: unknown;
+  readonly hasMore?: unknown;
 }
 
 export interface FileListItemDto {
