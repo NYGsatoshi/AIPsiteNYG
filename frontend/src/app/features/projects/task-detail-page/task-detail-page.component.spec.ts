@@ -24,7 +24,7 @@ describe('TaskDetailPageComponent local edit state', () => {
         { provide: ActivatedRoute, useValue: { paramMap: params.asObservable() } },
         { provide: ProjectsFacade, useValue: {
           getTaskDetail: () => ({ status: 'empty', detailState: 'ready', detailSectionState: sections.detail, dependencies: [], capabilities: [], transitionNote: { owner: 'backendAuthoritativeDuringApiWiring', message: '' } }),
-          getTaskMutationState: () => ({ status: 'idle' }), getDetailSectionState: (section: keyof typeof sections) => sections[section],
+          getTaskMutationState: () => ({ status: 'idle' }), getTaskConflictReloadState: () => 'idle', getDetailSectionState: (section: keyof typeof sections) => sections[section],
           setDetailEditing, ensureTaskDetail: vi.fn(), releaseTaskDetail: vi.fn(), clearTaskMutationState: vi.fn(), reloadTaskAfterConflict
         } },
         { provide: FilesFacade, useValue: { pickerStateForTask: signal({ status: 'idle', workspaceId: null, files: [], page: 1, pageSize: 20, totalCount: 0, hasMore: false }), clearPickerFiles: vi.fn(), cancelAttachmentDownloads: vi.fn(), loadPickerFilesForWorkspace: vi.fn(), loadMorePickerFiles: vi.fn(), retryPickerFiles: vi.fn() } }

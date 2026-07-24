@@ -228,6 +228,14 @@ export const PROJECTS_SCENARIOS = {
     currentUserAssignee: 'Sample Member 01',
     taskMutationState: { status: 'conflict', message: 'The task changed on the server. Reload before saving.', requestId: 'story-task-conflict' }
   },
+  taskConflictReloadLoading: {
+    status: 'ready', title: 'Task detail', subtitle: 'Task conflict reload in progress', projects: DEFAULT_PROJECTS, tasks: DEFAULT_TASKS, currentUserAssignee: 'Sample Member 01',
+    taskMutationState: { status: 'conflict', message: 'The task changed on the server. Reload before saving.', requestId: 'story-task-conflict' }, taskConflictReloadState: 'loading'
+  },
+  taskConflictReloadError: {
+    status: 'ready', title: 'Task detail', subtitle: 'Task conflict reload failed', projects: DEFAULT_PROJECTS, tasks: DEFAULT_TASKS, currentUserAssignee: 'Sample Member 01',
+    taskMutationState: { status: 'conflict', message: 'The task changed on the server. Reload before saving.', requestId: 'story-task-conflict' }, taskConflictReloadState: 'error'
+  },
   invalidStateTransition: {
     status: 'ready',
     detailState: 'invalidStateTransition',

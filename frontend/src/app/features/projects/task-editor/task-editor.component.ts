@@ -14,6 +14,7 @@ import {
   BackendAuthoritativeTransitionNote,
   ProjectCapability,
   TASK_STATUS_BACKEND_AUTHORITATIVE_NOTE,
+  TaskConflictReloadState,
   TaskDetailState,
   TaskEditorSaveRequest,
   TaskMockRecord,
@@ -79,7 +80,8 @@ export const integerRangeValidator = (min: number, max: number): ValidatorFn => 
             <strong>Task changed elsewhere</strong>
             <span>{{ mutationState.message }}</span>
             @if (mutationState.requestId) { <small>Request ID: {{ mutationState.requestId }}</small> }
-            <button type="button" data-testid="task-conflict-reload-button" (click)="reloadRequested.emit()">Reload before saving</button>
+            @if (conflictReloadState === 'error') { <span data-testid="task-conflict-reload-error">Reload failed. Your changes are still here; try again.</span> }
+            <button type="button" data-testid="task-conflict-reload-button" [disabled]="conflictReloadState === 'loading'" (click)="reloadRequested.emit()">{{ conflictReloadState === 'loading' ? 'Reloading...' : 'Reload before saving' }}</button>
           </section>
         }
 
@@ -130,23 +132,7 @@ export const integerRangeValidator = (min: number, max: number): ValidatorFn => 
           ></textarea>
         </label>
 
-        <label>
-          <span>Status</span>
-          <select
-            formControlName="status"
-            data-testid="task-status-select"
-            [attr.aria-disabled]="!canChangeStatus || isSubmitting"
-            [attr.tabindex]="canChangeStatus && !isSubmitting ? null : -1"
-            (mousedown)="preventWhenDisabled($event, canChangeStatus)"
-            (keydown)="preventWhenDisabled($event, canChangeStatus)"
-          >
-            @for (status of statuses; track status.value) {
-              <option [value]="status.value" [disabled]="isUnsupportedTransition(status.value)">
-                {{ status.label }}
-              </option>
-            }
-          </select>
-        </label>
+        <label><span>Status</span><input formControlName="status" data-testid="task-status-readonly" readonly aria-readonly="true" /></label>
 
         <label>
           <span>Priority</span>
@@ -376,6 +362,9 @@ export class TaskEditorComponent implements OnChanges, OnInit, OnDestroy {
   @Input() state: TaskDetailState = 'ready';
   @Input() transitionNote: BackendAuthoritativeTransitionNote = TASK_STATUS_BACKEND_AUTHORITATIVE_NOTE;
   @Input() mutationState: TaskMutationState = { status: 'idle' };
+  /** Canonical aggregate version supplied by Task Detail, not the project-list row. */
+  @Input() expectedVersion = '';
+  @Input() conflictReloadState: TaskConflictReloadState = 'idle';
   @Output() save = new EventEmitter<TaskEditorSaveRequest>();
   @Output() cancel = new EventEmitter<void>();
   /** Reloading after a stale version must fetch the server-authoritative task. */
@@ -432,7 +421,10 @@ export class TaskEditorComponent implements OnChanges, OnInit, OnDestroy {
       !this.isSubmitting &&
       this.form.valid &&
       !this.hasUnsupportedStartDateClear() &&
-      !this.hasUnsupportedDueDateClear()
+      !this.hasUnsupportedDueDateClear() &&
+      this.mutationState.status !== 'conflict' &&
+      this.conflictReloadState !== 'loading' &&
+      this.hasValidExpectedVersion()
     );
   }
 
@@ -462,7 +454,7 @@ export class TaskEditorComponent implements OnChanges, OnInit, OnDestroy {
       startDate: value.startDate,
       dueDate: value.dueDate,
       progressPercent: value.progressPercent,
-      ...(this.canChangeStatus ? { status: value.status } : {})
+      expectedVersion: this.expectedVersion
     });
   }
 
@@ -511,6 +503,11 @@ export class TaskEditorComponent implements OnChanges, OnInit, OnDestroy {
 
   private hasUnsupportedDateClear(original: string | undefined, next: string): boolean {
     return (original?.length ?? 0) > 0 && next.trim().length === 0;
+  }
+
+  private hasValidExpectedVersion(): boolean {
+    const version = Number(this.expectedVersion);
+    return Number.isSafeInteger(version) && version > 0;
   }
 
   private emitDirty(): void { this.dirtyChange.emit(this.form.dirty && !this.isSubmitting); }

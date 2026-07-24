@@ -1,8 +1,10 @@
 # Task v1 PR02 command boundary
 
 `ITaskCommandService` is the authoritative HTTP command boundary for Task
-workflow transitions, blocked state, assignment relationships, review, and
-Team Queue Claim.  The legacy project/task assignment and dependency routes
+ordinary-detail updates, workflow transitions, blocked state, assignment relationships, review, and
+Team Queue Claim. `PATCH /api/tasks/{taskId}` now uses the detail-update command
+with a required `expectedVersion`; it does not carry legacy status changes.
+The legacy project/task assignment and dependency routes
 remain compatibility surfaces; new Task command routes use a required
 `expectedVersion` and return the canonical task error envelope.
 

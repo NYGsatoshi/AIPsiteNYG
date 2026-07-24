@@ -27,6 +27,35 @@ public sealed class TaskCommandService(
         return Result<CanonicalTaskResponse>.Success(await ToResponseAsync(task, actor, cancellationToken));
     }
 
+    public async Task<Result<CanonicalTaskResponse>> UpdateDetailsAsync(Guid taskId, TaskUpdateDetailsRequest request, CancellationToken cancellationToken = default)
+    {
+        var taskResult = await AuthorizedTaskAsync(taskId, true, cancellationToken: cancellationToken);
+        if (taskResult.Error is not null) return Fail<CanonicalTaskResponse>(taskResult.Error.Value.Code, taskResult.Error.Value.Message);
+        var task = taskResult.Value!;
+        if (request.ExpectedVersion <= 0) return Fail<CanonicalTaskResponse>("TASK_INVALID_EXPECTED_VERSION", "Expected version must be a positive integer.");
+        var stale = EnsureVersion(task, request.ExpectedVersion); if (stale is not null) return Fail<CanonicalTaskResponse>(stale.Value.Code, stale.Value.Message);
+
+        var title = request.Title?.Trim();
+        if (string.IsNullOrWhiteSpace(title) || title.Length > 240) return Fail<CanonicalTaskResponse>("TASK_INVALID_TITLE", "Task title must be between 1 and 240 characters.");
+        var description = request.Description?.Trim();
+        if (description?.Length > 8000) return Fail<CanonicalTaskResponse>("TASK_INVALID_DESCRIPTION", "Task description must be 8000 characters or fewer.");
+        if (!request.Priority.HasValue || !Enum.IsDefined(request.Priority.Value)) return Fail<CanonicalTaskResponse>("TASK_INVALID_PRIORITY", "Task priority is invalid.");
+        if (!request.ProgressPercent.HasValue || request.ProgressPercent is < 0 or > 100) return Fail<CanonicalTaskResponse>("TASK_INVALID_PROGRESS", "Task progress must be between 0 and 100.");
+        if (request.PlannedStartDate.HasValue && request.PlannedEndDate.HasValue && request.PlannedStartDate.Value > request.PlannedEndDate.Value)
+            return Fail<CanonicalTaskResponse>("TASK_INVALID_DATE_RANGE", "Planned start date must not be after planned end date.");
+
+        task.Title = title;
+        task.Description = string.IsNullOrWhiteSpace(description) ? null : description;
+        task.Priority = request.Priority.Value;
+        // Keep the legacy date columns synchronized while this compatibility model remains in use.
+        task.PlannedStartDate = task.StartDate = request.PlannedStartDate;
+        task.PlannedEndDate = task.DueDate = request.PlannedEndDate;
+        task.ProgressPercent = request.ProgressPercent.Value;
+
+        var committed = await CommitAsync(task, "TaskDetailsUpdated", "updated", cancellationToken);
+        return Result<CanonicalTaskResponse>.Success(committed.Value!.Task);
+    }
+
     public async Task<Result<TaskRelationshipsResponse>> GetRelationshipsAsync(Guid taskId, CancellationToken cancellationToken = default)
     {
         var task = await AuthorizedTaskAsync(taskId, false, cancellationToken: cancellationToken);

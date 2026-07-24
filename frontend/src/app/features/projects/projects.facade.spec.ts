@@ -135,7 +135,7 @@ describe('ProjectsFacade live API mutations', () => {
     flushInitialLoad();
     facade.ensureTaskDetail('project-1', 'task-1');
     httpMock.expectOne('/api/tasks/task-1').flush({ task: editableTaskDto, checklist: [], labels: [], subtasks: { items: [] }, comments: { items: [] }, files: { items: [] } });
-    facade.saveTask('task-1', 'project-1', { title: 'A edit', description: '', priority: 'medium', startDate: '', dueDate: '', progressPercent: 1 });
+    facade.saveTask('task-1', 'project-1', { title: 'A edit', description: '', priority: 'medium', startDate: '', dueDate: '', progressPercent: 1, expectedVersion: '1' });
     const save = httpMock.expectOne('/api/tasks/task-1');
 
     facade.ensureTaskDetail('project-1', 'task-2');
@@ -198,7 +198,8 @@ describe('ProjectsFacade live API mutations', () => {
       priority: 'urgent',
       startDate: '2026-07-03',
       dueDate: '2026-07-22',
-      progressPercent: 65
+      progressPercent: 65,
+      expectedVersion: '1'
     });
 
     const save = httpMock.expectOne('/api/tasks/task-1');
@@ -209,7 +210,8 @@ describe('ProjectsFacade live API mutations', () => {
       priority: 3,
       startDate: '2026-07-03',
       dueDate: '2026-07-22',
-      progressPercent: 65
+      progressPercent: 65,
+      expectedVersion: 1
     });
     save.flush({ ...editableTaskDto, title: 'Saved Task', progressPercent: 65 });
 
@@ -236,7 +238,8 @@ describe('ProjectsFacade live API mutations', () => {
       priority: 'medium',
       startDate: '2026-07-02',
       dueDate: '2026-07-20',
-      progressPercent: 45
+      progressPercent: 45,
+      expectedVersion: '1'
     });
 
     httpMock.expectOne('/api/tasks/task-1').flush(
@@ -254,7 +257,7 @@ describe('ProjectsFacade live API mutations', () => {
 
   it('maps both HTTP 409 and TASK_STALE_VERSION to a preserved task-save conflict', () => {
     flushInitialLoad();
-    facade.saveTask('task-1', 'project-1', { title: 'Edited', description: '', priority: 'medium', startDate: '', dueDate: '', progressPercent: 1 });
+    facade.saveTask('task-1', 'project-1', { title: 'Edited', description: '', priority: 'medium', startDate: '', dueDate: '', progressPercent: 1, expectedVersion: '1' });
     httpMock.expectOne('/api/tasks/task-1').flush({ code: 'TASK_STALE_VERSION', message: 'Task changed.', traceId: 'stale-1' }, { status: 409, statusText: 'Conflict' });
 
     expect(facade.getTaskMutationState()).toEqual({ status: 'conflict', message: 'Task changed.', requestId: 'stale-1' });
@@ -265,7 +268,7 @@ describe('ProjectsFacade live API mutations', () => {
     flushInitialLoad();
     facade.ensureTaskDetail('project-1', 'task-1');
     httpMock.expectOne('/api/tasks/task-1').flush({ task: editableTaskDto, checklist: [], labels: [], subtasks: { items: [] }, comments: { items: [] }, files: { items: [] } });
-    facade.saveTask('task-1', 'project-1', { title: 'Edited', description: '', priority: 'medium', startDate: '', dueDate: '', progressPercent: 1 });
+    facade.saveTask('task-1', 'project-1', { title: 'Edited', description: '', priority: 'medium', startDate: '', dueDate: '', progressPercent: 1, expectedVersion: '1' });
     httpMock.expectOne('/api/tasks/task-1').flush({ error: { code: 'TASK_STALE_VERSION', message: 'Stale' } }, { status: 409, statusText: 'Conflict' });
 
     facade.reloadTaskAfterConflict('task-1');
@@ -285,7 +288,7 @@ describe('ProjectsFacade live API mutations', () => {
     flushInitialLoad();
     facade.ensureTaskDetail('project-1', 'task-1');
     httpMock.expectOne('/api/tasks/task-1').flush({ task: editableTaskDto, checklist: [], labels: [], subtasks: { items: [] }, comments: { items: [] }, files: { items: [] } });
-    facade.saveTask('task-1', 'project-1', { title: 'Edited', description: '', priority: 'medium', startDate: '', dueDate: '', progressPercent: 1 });
+    facade.saveTask('task-1', 'project-1', { title: 'Edited', description: '', priority: 'medium', startDate: '', dueDate: '', progressPercent: 1, expectedVersion: '1' });
     httpMock.expectOne('/api/tasks/task-1').flush({}, { status: 403, statusText: 'Forbidden' });
 
     expect(facade.getTaskDetail('project-1', 'task-1').detail).toBeUndefined();
@@ -328,6 +331,30 @@ describe('ProjectsFacade live API mutations', () => {
     mutation.flush({});
     httpMock.expectOne('/api/tasks/task-1').flush({ task: editableTaskDto, permissions: { canApplyLabels: true }, checklist: [], labels: [{ id: 'label-1', name: 'Label' }], subtasks: { items: [] }, comments: { items: [] }, files: { items: [] } });
     expect(facade.getDetailSectionState('labels').status).toBe('ready');
+  });
+
+  it('keeps a comment conflict and the editor state when an unrelated watch mutation succeeds', () => {
+    flushInitialLoad();
+    facade.ensureTaskDetail('project-1', 'task-1');
+    const aggregate = { task: editableTaskDto, checklist: [], labels: [], subtasks: { items: [] }, comments: { items: [{ id: 'comment-1', bodyPlainText: 'first' }] }, files: { items: [] } };
+    httpMock.expectOne('/api/tasks/task-1').flush(aggregate);
+    facade.updateComment('task-1', 'comment-1', 'changed', false, '1');
+    httpMock.expectOne('/api/task-comments/comment-1').flush({ error: { code: 'TASK_STALE_VERSION' } }, { status: 409, statusText: 'Conflict' });
+
+    facade.setWatch('task-1', true, '1');
+    expect(facade.getTaskMutationState().status).toBe('idle');
+    httpMock.expectOne('/api/tasks/task-1/watch').flush({});
+    httpMock.expectOne('/api/tasks/task-1').flush(aggregate);
+
+    expect(facade.getDetailSectionState('comments').status).toBe('conflict');
+    expect(facade.getTaskMutationState().status).toBe('idle');
+  });
+
+  it('rejects an invalid expected version without issuing a PATCH', () => {
+    flushInitialLoad();
+    facade.saveTask('task-1', 'project-1', { title: 'Edited', description: '', priority: 'medium', startDate: '', dueDate: '', progressPercent: 1, expectedVersion: 'invalid' });
+    httpMock.expectNone('/api/tasks/task-1');
+    expect(facade.getTaskMutationState().status).toBe('validation');
   });
 
   it('clears checklist, file, and label conflicts only after their authoritative aggregate reloads', () => {

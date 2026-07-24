@@ -21,6 +21,8 @@ export type TaskMutationState =
   | { readonly status: 'validation'; readonly message: string; readonly requestId?: string }
   | { readonly status: 'rateLimited'; readonly message: string; readonly requestId?: string };
 
+export type TaskConflictReloadState = 'idle' | 'loading' | 'error';
+
 /** State is deliberately scoped: an unrelated Task section must never disable another one. */
 export type TaskDetailSection = 'detail' | 'subtasks' | 'checklist' | 'comments' | 'labels' | 'watch' | 'files';
 export type TaskDetailSectionStatus = 'idle' | 'loading' | 'ready' | 'empty' | 'submitting' | 'success' | 'error' | 'permissionDenied' | 'conflict';
@@ -252,7 +254,7 @@ export interface TaskEditorSaveRequest {
   readonly startDate: string;
   readonly dueDate: string;
   readonly progressPercent: number;
-  readonly status?: TaskStatus;
+  readonly expectedVersion: string;
 }
 
 export interface CreateTaskFormRequest {
@@ -269,6 +271,8 @@ export interface ProjectsScenario {
   readonly detailState?: TaskDetailState;
   /** Story-only editor state; this does not model an API response. */
   readonly taskMutationState?: TaskMutationState;
+  /** Story-only UI state; it is not an API response. */
+  readonly taskConflictReloadState?: TaskConflictReloadState;
   readonly title: string;
   readonly subtitle: string;
   readonly projects: readonly ProjectMockRecord[];

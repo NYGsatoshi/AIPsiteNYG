@@ -50,6 +50,7 @@ export class TaskDetailPageComponent implements OnDestroy {
     )
   );
   readonly mutationState = computed(() => this.facade.getTaskMutationState());
+  readonly conflictReloadState = computed(() => this.facade.getTaskConflictReloadState());
   private readonly sectionStateSignals: Record<TaskDetailSection, Signal<TaskDetailSectionState>> = {
     detail: computed(() => this.facade.getDetailSectionState('detail')),
     subtasks: computed(() => this.facade.getDetailSectionState('subtasks')),

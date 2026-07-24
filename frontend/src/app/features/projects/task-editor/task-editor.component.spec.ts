@@ -13,6 +13,7 @@ describe('TaskEditorComponent conflict recovery outputs', () => {
     component = fixture.componentInstance;
     component.task = { id: 'task-1', projectId: 'project-1', title: 'Current', description: '', status: 'notStarted', statusLabel: 'Not started', priority: 'medium', priorityLabel: 'Medium', assignee: '', startDate: '', dueDate: '', progressPercent: 0, milestone: '', allowedTransitions: [], authorized: true, capabilities: ['editTask'], dependencyIds: [], rowVersion: '1' };
     component.capabilities = ['editTask'];
+    component.expectedVersion = '1';
   });
 
   it('emits reloadRequested, not cancel, from the 409 reload button', () => {
@@ -40,5 +41,27 @@ describe('TaskEditorComponent conflict recovery outputs', () => {
 
     expect(cancel).toHaveBeenCalledTimes(1);
     expect(reload).not.toHaveBeenCalled();
+  });
+
+  it('keeps the draft mounted while conflict reload is in progress or has failed', () => {
+    component.mutationState = { status: 'conflict', message: 'Stale.' };
+    component.conflictReloadState = 'loading';
+    fixture.detectChanges();
+    component.form.controls.title.setValue('Local draft');
+    component.conflictReloadState = 'error';
+    fixture.detectChanges();
+
+    expect((fixture.nativeElement.querySelector('[data-testid="task-title-input"]') as HTMLInputElement).value).toBe('Local draft');
+    expect(fixture.nativeElement.querySelector('[data-testid="task-conflict-reload-error"]')).not.toBeNull();
+  });
+
+  it('does not emit a save when the canonical expected version is invalid', () => {
+    const save = vi.fn();
+    component.save.subscribe(save);
+    component.expectedVersion = 'not-a-version';
+    fixture.detectChanges();
+
+    (fixture.nativeElement.querySelector('[data-testid="task-save-button"]') as HTMLButtonElement).click();
+    expect(save).not.toHaveBeenCalled();
   });
 });

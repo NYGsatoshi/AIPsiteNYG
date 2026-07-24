@@ -68,7 +68,7 @@ public sealed class ProjectsController(IProjectService projects, ITaskCommandSer
     public async Task<IActionResult> GetTask(Guid taskItemId, CancellationToken cancellationToken) => ToTaskActionResult(await taskSubresources.GetDetailAsync(taskItemId, cancellationToken));
 
     [HttpPatch("api/tasks/{taskItemId:guid}")]
-    public async Task<IActionResult> UpdateTask(Guid taskItemId, UpdateTaskItemRequest request, CancellationToken cancellationToken) => ToActionResult(await projects.UpdateTaskAsync(taskItemId, request, cancellationToken));
+    public async Task<IActionResult> UpdateTask(Guid taskItemId, TaskUpdateDetailsRequest request, CancellationToken cancellationToken) => ToTaskActionResult(await taskCommands.UpdateDetailsAsync(taskItemId, request, cancellationToken));
 
     [HttpDelete("api/tasks/{taskItemId:guid}")]
     public async Task<IActionResult> DeleteTask(Guid taskItemId, [FromQuery] long expectedVersion, CancellationToken cancellationToken) => ToTaskActionResult(await taskCommands.DeleteAsync(taskItemId, new TaskDeleteRequest(expectedVersion), cancellationToken));

@@ -33,6 +33,7 @@ import {
   TaskGridRow,
   TaskDetailSection,
   TaskDetailSectionState,
+  TaskConflictReloadState,
   TaskMockRecord,
   TaskMutationState,
   TaskRowAction
@@ -64,6 +65,7 @@ export class ProjectsFacade {
     this.scenario ?? this.emptyScenario('loading')
   );
   private readonly taskMutationState = signal<TaskMutationState>({ status: 'idle' });
+  private readonly taskConflictReloadState = signal<TaskConflictReloadState>('idle');
   private readonly taskCreateMutationState = signal<TaskMutationState>({ status: 'idle' });
   private readonly sectionStates = signal<Record<TaskDetailSection, TaskDetailSectionState>>(this.emptySectionStates());
   /** A single generation invalidates every protected response on navigation or authorization change. */
@@ -210,12 +212,15 @@ export class ProjectsFacade {
     return this.scenario?.taskMutationState ?? this.taskMutationState();
   }
 
+  getTaskConflictReloadState(): TaskConflictReloadState { return this.scenario?.taskConflictReloadState ?? this.taskConflictReloadState(); }
+
   getTaskCreateMutationState(): TaskMutationState {
     return this.taskCreateMutationState();
   }
 
   clearTaskMutationState(): void {
-    this.taskMutationState.set({ status: 'idle' });
+    // A stale-version conflict has only one recovery path: an authoritative reload.
+    if (this.taskMutationState().status !== 'conflict') this.taskMutationState.set({ status: 'idle' });
   }
 
   clearTaskCreateMutationState(): void {
@@ -279,7 +284,8 @@ export class ProjectsFacade {
   reloadTaskAfterConflict(taskId: string): void {
     if (this.scenario || this.taskConflictReloadInProgress || this.taskMutationState().status !== 'conflict' || !this.isActive(taskId, this.detailGeneration)) return;
     this.taskConflictReloadInProgress = true;
-    this.loadTaskDetail(taskId, undefined, true);
+    this.taskConflictReloadState.set('loading');
+    this.loadTaskDetail(taskId, { kind: 'taskBodyReload' });
   }
 
   loadMoreSubtasks(taskId: string): void { this.loadNextPage(taskId, 'subtasks'); }
@@ -287,7 +293,7 @@ export class ProjectsFacade {
   loadMoreFiles(taskId: string): void { this.loadNextPage(taskId, 'files'); }
   retrySection(taskId: string, section: TaskDetailSection): void {
     const failed = this.getDetailSectionState(section);
-    if (section === 'detail' || failed.retryKind === 'aggregate') this.loadTaskDetail(taskId, section);
+    if (section === 'detail' || failed.retryKind === 'aggregate') this.loadTaskDetail(taskId, { kind: 'sectionRecovery', section });
     else if (section === 'labels') {
       const projectId = this.taskDetails()[taskId]?.task?.projectId;
       if (typeof projectId === 'string') this.loadProjectLabelDefinitions(projectId, true);
@@ -319,6 +325,11 @@ export class ProjectsFacade {
 
   saveTask(taskId: string, projectId: string, request: TaskEditorSaveRequest): void {
     if (this.scenario || this.taskMutationState().status === 'submitting') {
+      return;
+    }
+    const expectedVersion = Number(request.expectedVersion);
+    if (!Number.isSafeInteger(expectedVersion) || expectedVersion <= 0) {
+      this.taskMutationState.set({ status: 'validation', message: 'The latest task version is unavailable. Reload before saving.' });
       return;
     }
 
@@ -477,7 +488,7 @@ export class ProjectsFacade {
 
     if (event.eventType === 'Projects.TaskChanged.v1' && this.activeTaskId === event.aggregateId) {
       if (this.isDetailEditing()) {
-        this.setSectionState('detail', { status: 'conflict', message: 'This task changed elsewhere. Your editor was preserved; reload before saving again.', requestId: event.eventId });
+        this.taskMutationState.set({ status: 'conflict', message: 'This task changed elsewhere. Your editor was preserved; reload before saving again.', requestId: event.eventId });
       } else {
         this.loadTaskDetail(event.aggregateId);
       }
@@ -528,7 +539,7 @@ export class ProjectsFacade {
       .pipe(map((detail) => ({ task: mapTaskDtoToRecord((detail.task ?? detail) as TaskDto, this.authorizedProjects()), detail })));
   }
 
-  private loadTaskDetail(taskId: string, recoverySection?: TaskDetailSection, clearTaskMutationOnSuccess = false): void {
+  private loadTaskDetail(taskId: string, scope: AggregateApplyScope = { kind: 'initialLoad' }): void {
     if (this.scenario) {
       return;
     }
@@ -537,7 +548,8 @@ export class ProjectsFacade {
     this.detailRequest?.unsubscribe();
     const authorizationGeneration = this.authorizationGeneration;
     const generation = this.detailGeneration;
-    this.setSectionState('detail', { status: 'loading' });
+    if (scope.kind === 'initialLoad') this.setSectionState('detail', { status: 'loading' });
+    if (scope.kind === 'sectionRecovery') this.setSectionState(scope.section, { status: 'loading', retryKind: 'aggregate' });
     this.detailRequest = this.fetchTask(taskId).pipe(finalize(() => {
       if (this.isActive(taskId, generation)) this.detailRequest = null;
     })).subscribe({
@@ -545,8 +557,11 @@ export class ProjectsFacade {
         if (!this.isAuthorizationCurrent(authorizationGeneration) || !this.isActive(taskId, generation)) return;
         this.taskDetails.update((details) => ({ ...details, [taskId]: response.detail }));
         this.replaceTask(response.task);
-        this.applyAggregateSectionStates(response.detail, recoverySection);
-        if (clearTaskMutationOnSuccess) this.taskMutationState.set({ status: 'idle' });
+        this.applyAggregateSectionStates(response.detail, scope);
+        if (scope.kind === 'taskBodyReload') {
+          this.taskMutationState.set({ status: 'idle' });
+          this.taskConflictReloadState.set('idle');
+        }
         this.taskConflictReloadInProgress = false;
         const projectId = response.detail.task?.projectId;
         const permissions = response.detail.permissions;
@@ -560,9 +575,14 @@ export class ProjectsFacade {
           this.reauthorizeActiveState();
           return;
         }
+        if (scope.kind === 'taskBodyReload') {
+          // The editor remains mounted, with its local FormGroup intact, until an authoritative reload succeeds.
+          this.taskConflictReloadState.set('error');
+          return;
+        }
         const failure = toSectionFailure(error, 'Task detail could not be loaded.');
         this.setSectionState('detail', failure);
-        if (recoverySection && recoverySection !== 'detail') this.setSectionState(recoverySection, failure);
+        if (scope.kind === 'sectionRecovery' && scope.section !== 'detail') this.setSectionState(scope.section, failure);
       }
     });
   }
@@ -595,7 +615,6 @@ export class ProjectsFacade {
     const authorizationGeneration = this.authorizationGeneration;
     const generation = this.detailGeneration;
     this.setSectionState(section, { status: 'submitting' });
-    this.taskMutationState.set({ status: 'submitting' });
     const operation = request.pipe(
       switchMap(() => this.fetchTask(taskId).pipe(
         map(response => ({ response })),
@@ -612,13 +631,11 @@ export class ProjectsFacade {
           }
           const reloadFailure = toSectionFailure(result.reloadError, 'Saved successfully, but the latest task detail could not be loaded.');
           this.setSectionState(section, { ...reloadFailure, status: reloadFailure.status === 'permissionDenied' ? 'permissionDenied' : 'error', message: `Saved successfully, but the latest task detail could not be loaded. ${reloadFailure.message ?? ''}`.trim(), retryKind: 'aggregate' });
-          this.taskMutationState.set({ status: 'success' });
           return;
         }
         this.taskDetails.update((details) => ({ ...details, [taskId]: result.response.detail }));
         this.replaceTask(result.response.task);
-        this.applyAggregateSectionStates(result.response.detail, section);
-        this.taskMutationState.set({ status: 'success' });
+        this.applyAggregateSectionStates(result.response.detail, { kind: 'sectionMutation', section });
         onSuccess?.();
       },
       error: (error: unknown) => {
@@ -629,7 +646,6 @@ export class ProjectsFacade {
           return;
         }
         const state = toFailureState(error, 'Task detail command failed.');
-        this.taskMutationState.set(state);
         this.setSectionState(section, toSectionFailure(error, state.status === 'failure' || state.status === 'conflict' ? state.message : 'Task detail command failed.'));
       }
     });
@@ -685,6 +701,7 @@ export class ProjectsFacade {
     this.detailMutations.forEach(request => request.unsubscribe());
     this.detailMutations.clear();
     this.taskConflictReloadInProgress = false;
+    this.taskConflictReloadState.set('idle');
     this.taskDetails.set({});
     this.projectLabelDefinitions.set({});
     this.labelDefinitionStates.set({});
@@ -713,8 +730,8 @@ export class ProjectsFacade {
     this.labelDefinitionStates.update(current => ({ ...current, [projectId]: state }));
   }
 
-  /** An aggregate response is authoritative for task sections, not label-definition query state. */
-  private applyAggregateSectionStates(detail: CanonicalTaskDetailDto, forceSection?: TaskDetailSection): void {
+  /** An aggregate response never clears an unrelated section's error/conflict/retry evidence. */
+  private applyAggregateSectionStates(detail: CanonicalTaskDetailDto, scope: AggregateApplyScope): void {
     const itemState = (items: readonly unknown[] | undefined): TaskDetailSectionState => ({ status: items?.length ? 'ready' : 'empty' });
     const next: Partial<Record<TaskDetailSection, TaskDetailSectionState>> = {
       detail: { status: 'ready' },
@@ -728,7 +745,21 @@ export class ProjectsFacade {
     this.sectionStates.update(current => {
       const updated = { ...current };
       for (const [section, state] of Object.entries(next) as [TaskDetailSection, TaskDetailSectionState][]) {
-        if (section === forceSection || current[section].status !== 'submitting') updated[section] = state;
+        if (scope.kind === 'initialLoad') {
+          updated[section] = state;
+          continue;
+        }
+        if (section === 'detail') {
+          updated[section] = state;
+          continue;
+        }
+        if ((scope.kind === 'sectionMutation' || scope.kind === 'sectionRecovery') && section === scope.section) {
+          updated[section] = state;
+          continue;
+        }
+        if (scope.kind === 'realtimeRefresh' && !['conflict', 'error', 'permissionDenied', 'submitting'].includes(current[section].status) && current[section].retryKind !== 'page') {
+          updated[section] = state;
+        }
       }
       return updated;
     });
@@ -962,6 +993,13 @@ function toFailureState(error: unknown, fallback: string): TaskMutationState {
   if (normalized.httpStatus === 429) return { status: 'rateLimited', message: normalized.message || fallback, requestId: normalized.requestId };
   return { status: 'failure', message: normalized.message || fallback, requestId: normalized.requestId };
 }
+
+type AggregateApplyScope =
+  | { readonly kind: 'initialLoad' }
+  | { readonly kind: 'taskBodyReload' }
+  | { readonly kind: 'sectionMutation'; readonly section: TaskDetailSection }
+  | { readonly kind: 'sectionRecovery'; readonly section: TaskDetailSection }
+  | { readonly kind: 'realtimeRefresh' };
 
 function toSectionFailure(error: unknown, fallback: string): TaskDetailSectionState {
   const normalized = normalizeApiError(error);

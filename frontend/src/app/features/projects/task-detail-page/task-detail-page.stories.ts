@@ -56,6 +56,10 @@ export const RowVersionConflict: Story = withScenario('rowVersionConflict');
 /** Task editor's 409 recovery affordance; it is distinct from ordinary cancel. */
 export const TaskSaveConflict: Story = withScenario('taskSaveConflict');
 
+export const TaskConflictReloadLoading: Story = withScenario('taskConflictReloadLoading');
+
+export const TaskConflictReloadError: Story = withScenario('taskConflictReloadError');
+
 export const InvalidStateTransition: Story = withScenario('invalidStateTransition');
 
 export const MilestoneReadOnly: Story = withScenario('milestoneReadOnly');

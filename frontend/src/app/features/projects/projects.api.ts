@@ -1,4 +1,4 @@
-import { TaskPriority, TaskStatus } from './projects.types';
+import { TaskPriority } from './projects.types';
 
 export interface PagedResponseDto<T> {
   readonly items?: readonly T[];
@@ -165,7 +165,7 @@ export interface UpdateTaskRequestDto {
   readonly startDate?: string | null;
   readonly dueDate?: string | null;
   readonly progressPercent: number;
-  readonly status?: number;
+  readonly expectedVersion: number;
 }
 
 const taskPriorityApiValues: Record<TaskPriority, number> = {
@@ -173,15 +173,6 @@ const taskPriorityApiValues: Record<TaskPriority, number> = {
   medium: 1,
   high: 2,
   urgent: 3
-};
-
-const taskStatusApiValues: Record<TaskStatus, number> = {
-  notStarted: 0,
-  inProgress: 1,
-  review: 2,
-  blocked: 3,
-  done: 4,
-  cancelled: 5
 };
 
 export function toCreateTaskRequestDto(input: {
@@ -208,7 +199,7 @@ export function toUpdateTaskRequestDto(input: {
   readonly startDate: string;
   readonly dueDate: string;
   readonly progressPercent: number;
-  readonly status?: TaskStatus;
+  readonly expectedVersion: string;
 }): UpdateTaskRequestDto {
   return {
     title: input.title.trim(),
@@ -217,7 +208,7 @@ export function toUpdateTaskRequestDto(input: {
     startDate: nullableDate(input.startDate),
     dueDate: nullableDate(input.dueDate),
     progressPercent: input.progressPercent,
-    ...(input.status ? { status: taskStatusApiValues[input.status] } : {})
+    expectedVersion: Number(input.expectedVersion)
   };
 }
 
