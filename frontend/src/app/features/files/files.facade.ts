@@ -1,6 +1,6 @@
 import { HttpClient, HttpEventType, HttpResponse } from '@angular/common/http';
 import { effect, Injectable, InjectionToken, inject, signal, untracked } from '@angular/core';
-import { Subscription } from 'rxjs';
+import { finalize, Subscription } from 'rxjs';
 
 import { normalizeApiError } from '../../core/api/api-error.adapter';
 import { ActiveWorkspaceFacade } from '../../core/workspace/active-workspace.facade';
@@ -22,6 +22,7 @@ export interface AttachmentDownloadContext {
   /** Prevent an obsolete Task route from receiving a completion callback. */
   readonly isCurrent?: () => boolean;
   readonly onState?: (state: FileDownloadState, message: string) => void;
+  readonly onPermissionDenied?: () => void;
 }
 
 @Injectable({ providedIn: 'root' })
@@ -31,12 +32,19 @@ export class FilesFacade {
   private readonly realtime = inject(RealtimeFacade);
   private readonly mockPage = inject(AIP_FILES_PAGE_MOCK, { optional: true });
   private readonly pageState = signal<FilesPageViewModel>(this.mockPage ?? this.emptyPage('Loading files from backend.'));
+  /** Task detail owns this independent query; it must never alter Files-page workspace state. */
+  private readonly pickerFilesState = signal<readonly FileViewModel[]>([]);
+  private pickerWorkspaceId: string | null = null;
+  private pickerGeneration = 0;
+  private pickerRequest: Subscription | null = null;
+  private readonly attachmentDownloads = new Map<string, Subscription>();
   private readonly loadingWorkspaceIds = new Set<string>();
   private readonly pendingUploads = new Map<string, { file: File; subscription: Subscription }>();
   private refreshAfterMutation = false;
   private refreshTimer: ReturnType<typeof setTimeout> | null = null;
 
   readonly page = this.pageState.asReadonly();
+  readonly pickerFiles = this.pickerFilesState.asReadonly();
 
   constructor() {
     this.realtime.durableEvents$.subscribe((event) => this.handleRealtimeEvent(event));
@@ -163,29 +171,73 @@ export class FilesFacade {
       });
   }
 
-  /** Uses the Attachment grant boundary; this intentionally does not depend on Files-page state. */
-  downloadAttachment(attachmentId: string, fallbackFileName: string, context: AttachmentDownloadContext = {}): void {
-    if (!attachmentId || this.mockPage) return;
+  loadPickerFilesForWorkspace(workspaceId: string): void {
+    if (!workspaceId || this.mockPage) { this.clearPickerFiles(); return; }
+    if (this.pickerWorkspaceId === workspaceId && (this.pickerRequest || this.pickerFilesState().length > 0)) return;
+    this.pickerGeneration++;
+    const generation = this.pickerGeneration;
+    this.pickerWorkspaceId = workspaceId;
+    this.pickerRequest?.unsubscribe();
+    this.pickerFilesState.set([]);
+    this.pickerRequest = this.http.get<PagedResponseDto<FileListItemDto>>('/api/files', {
+      params: { workspaceId, page: 1, pageSize: 20 }, withCredentials: true
+    }).pipe(finalize(() => {
+      if (generation === this.pickerGeneration) this.pickerRequest = null;
+    })).subscribe({
+      next: response => {
+        if (generation !== this.pickerGeneration || this.pickerWorkspaceId !== workspaceId) return;
+        this.pickerFilesState.set((response.items ?? []).map(mapFileListItem).filter(file => file.id.length > 0));
+      },
+      error: () => {
+        if (generation === this.pickerGeneration) this.pickerFilesState.set([]);
+      }
+    });
+  }
+
+  clearPickerFiles(): void {
+    this.pickerGeneration++;
+    this.pickerRequest?.unsubscribe();
+    this.pickerRequest = null;
+    this.pickerWorkspaceId = null;
+    this.pickerFilesState.set([]);
+  }
+
+  /** Uses the canonical attachment grant boundary; grant tokens never enter signal state. */
+  downloadAttachment(attachmentId: string, fallbackFileName: string, context: AttachmentDownloadContext = {}): Subscription | null {
+    if (!attachmentId || this.mockPage || this.attachmentDownloads.has(attachmentId)) return null;
+    const operation = new Subscription();
+    this.attachmentDownloads.set(attachmentId, operation);
     const report = (state: FileDownloadState, message: string) => {
       if (context.isCurrent?.() !== false) context.onState?.(state, message);
     };
+    const denied = () => { if (context.isCurrent?.() !== false) context.onPermissionDenied?.(); };
     report('pending', 'Authorizing download.');
-    this.http.post<FileDownloadGrantDto>(`/api/attachments/${attachmentId}/download-grants`, { purpose: 'task-detail-download' }, { withCredentials: true }).subscribe({
+    const grantRequest = this.http.post<FileDownloadGrantDto>(`/api/attachments/${attachmentId}/download-grants`, { purpose: 'task-detail-download' }, { withCredentials: true }).subscribe({
       next: grant => {
         const grantId = stringValue(grant.fileDownloadGrantId);
         const token = stringValue(grant.token);
-        if (!grantId || !token) { report('failed', 'Download grant response was incomplete.'); return; }
-        this.http.post(`/api/attachment-download-grants/${grantId}/download`, { token }, { observe: 'response', responseType: 'blob', withCredentials: true }).subscribe({
+        if (!grantId || !token) { report('failed', 'Download grant response was incomplete.'); operation.unsubscribe(); return; }
+        const downloadRequest = this.http.post(`/api/attachment-download-grants/${grantId}/download`, { token }, { observe: 'response', responseType: 'blob', withCredentials: true }).subscribe({
           next: response => {
             if (context.isCurrent?.() === false) return;
             this.saveBlob(response, safeFileNameFromHeader(response.headers.get('content-disposition'), fallbackFileName));
             report('succeeded', 'Download started.');
+            operation.unsubscribe();
           },
-          error: error => { const normalized = normalizeApiError(error); report('failed', normalized.httpStatus === 403 ? 'Download denied.' : normalized.message); }
+          error: error => { const normalized = normalizeApiError(error); if (normalized.httpStatus === 401 || normalized.httpStatus === 403) denied(); report('failed', normalized.httpStatus === 403 ? 'Download denied.' : normalized.message); operation.unsubscribe(); }
         });
+        operation.add(downloadRequest);
       },
-      error: error => { const normalized = normalizeApiError(error); report('failed', normalized.httpStatus === 403 ? 'Download denied.' : normalized.message); }
+      error: error => { const normalized = normalizeApiError(error); if (normalized.httpStatus === 401 || normalized.httpStatus === 403) denied(); report('failed', normalized.httpStatus === 403 ? 'Download denied.' : normalized.message); operation.unsubscribe(); }
     });
+    operation.add(grantRequest);
+    operation.add(() => this.attachmentDownloads.delete(attachmentId));
+    return operation;
+  }
+
+  cancelAttachmentDownloads(): void {
+    this.attachmentDownloads.forEach(request => request.unsubscribe());
+    this.attachmentDownloads.clear();
   }
 
   private loadFiles(workspaceId: string): void {

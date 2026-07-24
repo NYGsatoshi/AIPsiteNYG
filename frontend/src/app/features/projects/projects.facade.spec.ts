@@ -119,6 +119,44 @@ describe('ProjectsFacade live API mutations', () => {
     expect(facade.getTaskDetail('project-1', 'task-1').detail?.labelDefinitions.map((label) => label.name)).toEqual(['Urgent']);
   });
 
+  it('drops an obsolete project response after authorization changes and reloads the active task only after reauthorization', () => {
+    const firstProjects = httpMock.expectOne('/api/projects');
+    (facade as unknown as { handleRealtimeEvent(event: unknown): void }).handleRealtimeEvent(realtimeEvent('Security.AuthorizationStateChanged.v1'));
+    const currentProjects = httpMock.expectOne('/api/projects');
+
+    expect(firstProjects.cancelled).toBe(true);
+    currentProjects.flush({ items: [projectDto] });
+    httpMock.expectOne('/api/projects/project-1/tasks').flush({ items: [editableTaskDto] });
+
+    expect(facade.getProjectsOverview().rows.map(row => row.id)).toEqual(['task-1']);
+  });
+
+  it('does not apply an obsolete save after Task A is replaced by Task B', () => {
+    flushInitialLoad();
+    facade.ensureTaskDetail('project-1', 'task-1');
+    httpMock.expectOne('/api/tasks/task-1').flush({ task: editableTaskDto, checklist: [], labels: [], subtasks: { items: [] }, comments: { items: [] }, files: { items: [] } });
+    facade.saveTask('task-1', 'project-1', { title: 'A edit', description: '', priority: 'medium', startDate: '', dueDate: '', progressPercent: 1 });
+    const save = httpMock.expectOne('/api/tasks/task-1');
+
+    facade.ensureTaskDetail('project-1', 'task-2');
+
+    expect(save.cancelled).toBe(true);
+    httpMock.expectOne('/api/tasks/task-2').flush({ task: { ...editableTaskDto, id: 'task-2', title: 'Task B' }, checklist: [], labels: [], subtasks: { items: [] }, comments: { items: [] }, files: { items: [] } });
+    expect(facade.getTaskMutationState().status).toBe('idle');
+    expect(facade.getTaskDetail('project-1', 'task-2').editorTask?.title).toBe('Task B');
+  });
+
+  it('exposes a retryable aggregate detail error instead of leaving the page in loading', () => {
+    flushInitialLoad([]);
+    facade.ensureTaskDetail('project-1', 'task-1');
+    httpMock.expectOne('/api/tasks/task-1').flush({ message: 'temporary failure', traceId: 'detail-500' }, { status: 500, statusText: 'Server Error' });
+
+    expect(facade.getTaskDetail('project-1', 'task-1').detailSectionState).toMatchObject({ status: 'error', requestId: 'detail-500' });
+    facade.retryTaskDetail('task-1');
+    httpMock.expectOne('/api/tasks/task-1').flush({ task: editableTaskDto, checklist: [], labels: [], subtasks: { items: [] }, comments: { items: [] }, files: { items: [] } });
+    expect(facade.getTaskDetail('project-1', 'task-1').detailSectionState.status).toBe('ready');
+  });
+
   it('creates a task through the backend and refreshes project and my-task rows after success', () => {
     flushInitialLoad();
 
@@ -269,5 +307,9 @@ describe('ProjectsFacade live API mutations', () => {
   function flushInitialLoad(projectTasks: readonly TaskDto[] = [editableTaskDto]): void {
     httpMock.expectOne('/api/projects').flush({ items: [projectDto] });
     httpMock.expectOne('/api/projects/project-1/tasks').flush({ items: projectTasks });
+  }
+
+  function realtimeEvent(eventType: 'Security.AuthorizationStateChanged.v1') {
+    return { eventId: 'event-1', eventType, payloadSchemaVersion: 1, occurredAt: '2026-07-24T00:00:00Z', tenantId: 'tenant-1', aggregateType: 'Security', aggregateId: 'security-1', aggregateVersion: null, actor: { actorType: 'System', actorId: null }, correlationId: null, causationId: null, payload: {} };
   }
 });

@@ -206,10 +206,13 @@ export interface TaskDetailViewModel {
   readonly capabilities: readonly ProjectCapability[];
   readonly transitionNote: BackendAuthoritativeTransitionNote;
   readonly detail?: TaskDetailAggregateViewModel;
+  /** Aggregate transport state; task-row state alone must never mask its failure. */
+  readonly detailSectionState: TaskDetailSectionState;
   readonly message?: string;
 }
 
 export interface TaskDetailAggregateViewModel {
+  readonly workspaceId: string | null;
   readonly permissions: TaskDetailPermissionsViewModel;
   readonly taskVersion: string;
   readonly checklist: readonly TaskChecklistViewModel[];

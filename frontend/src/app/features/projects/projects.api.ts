@@ -33,6 +33,7 @@ export interface TaskUiPermissionDto {
 
 export interface TaskDto {
   readonly id?: unknown;
+  readonly workspaceId?: unknown;
   readonly projectId?: unknown;
   readonly milestoneId?: unknown;
   readonly title?: unknown;

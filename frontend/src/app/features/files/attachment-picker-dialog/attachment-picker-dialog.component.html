@@ -1,14 +1,17 @@
 <section class="attachment-picker" aria-label="Attachment picker" data-testid="attachment-picker">
   <header>
     <p>Attachment picker</p>
-    <h2>{{ disabledMessage }}</h2>
+    <h2>Choose one clean, authorized file</h2>
   </header>
 
   <div class="attachment-picker__list">
     @for (file of files; track file.id) {
       <label class="attachment-picker__row" data-testid="attachment-picker-row">
         <input
-          type="checkbox"
+          type="radio"
+          name="attachment-picker-selection"
+          [checked]="selectedAttachmentId === file.id"
+          [attr.aria-checked]="selectedAttachmentId === file.id"
           [disabled]="disabled || !file.id || file.scanStatus !== 'allowed'"
           (change)="toggleFile(file, $any($event.target).checked)"
           data-testid="attachment-picker-checkbox"
@@ -24,7 +27,5 @@
     }
   </div>
 
-  <p class="attachment-picker__selection" data-testid="selected-canonical-file-ids">
-    Selected: {{ selectedCanonicalFileIds().join(', ') || 'none' }}
-  </p>
+  <p class="attachment-picker__selection" data-testid="selected-attachment">{{ selectedAttachmentId ? 'A file is selected.' : 'No file selected.' }}</p>
 </section>

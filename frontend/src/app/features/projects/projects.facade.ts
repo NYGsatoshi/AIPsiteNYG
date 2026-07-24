@@ -65,14 +65,19 @@ export class ProjectsFacade {
   private readonly taskCreateMutationState = signal<TaskMutationState>({ status: 'idle' });
   private readonly sectionStates = signal<Record<TaskDetailSection, TaskDetailSectionState>>(this.emptySectionStates());
   /** A single generation invalidates every protected response on navigation or authorization change. */
+  /** Changes when a permission boundary changes. Never accept a prior authorization response. */
+  private authorizationGeneration = 0;
   private detailGeneration = 0;
+  private projectsRequest: Subscription | null = null;
   private detailRequest: Subscription | null = null;
   private readonly pageRequests = new Map<TaskDetailSection, Subscription>();
   private labelRequest: Subscription | null = null;
+  private readonly detailMutations = new Set<Subscription>();
   private readonly taskDetails = signal<Record<string, CanonicalTaskDetailDto>>({});
   private readonly projectLabelDefinitions = signal<Record<string, readonly TaskLabelDto[]>>({});
   private readonly labelDefinitionStates = signal<Record<string, TaskDetailSectionState>>({});
   private activeTaskId: string | null = null;
+  private activeProjectId: string | null = null;
   private activeProjectSubscription: (() => void) | null = null;
   private refreshTimer: ReturnType<typeof setTimeout> | null = null;
 
@@ -135,10 +140,12 @@ export class ProjectsFacade {
 
   getTaskDetail(projectId?: string, taskId?: string): TaskDetailViewModel {
     const scenario = this.liveState();
+    const aggregateState = this.getDetailSectionState('detail');
     if (scenario.status === 'permissionDenied') {
       return {
         status: 'permissionDenied',
         detailState: 'ready',
+        detailSectionState: aggregateState,
         dependencies: [],
         capabilities: [],
         transitionNote: TASK_STATUS_BACKEND_AUTHORITATIVE_NOTE,
@@ -156,11 +163,12 @@ export class ProjectsFacade {
     const detail = taskId ? this.taskDetails()[taskId] : undefined;
     const loadedProjectId = typeof detail?.task?.projectId === 'string' ? detail.task.projectId : undefined;
     if (detail && loadedProjectId && loadedProjectId !== projectId) {
-      return { status: 'empty', detailState: 'ready', dependencies: [], capabilities: [], transitionNote: TASK_STATUS_BACKEND_AUTHORITATIVE_NOTE, message: 'TASK_DETAIL_PROJECT_MISMATCH' };
+      return { status: 'empty', detailState: 'ready', detailSectionState: aggregateState, dependencies: [], capabilities: [], transitionNote: TASK_STATUS_BACKEND_AUTHORITATIVE_NOTE, message: 'TASK_DETAIL_PROJECT_MISMATCH' };
     }
     return {
       status: task ? 'ready' : scenario.status === 'ready' ? 'empty' : scenario.status,
       detailState: scenario.detailState ?? 'ready',
+      detailSectionState: aggregateState,
       project: project ? this.toProjectSummary(project) : undefined,
       task: task ? this.toTaskRow(task) : undefined,
       editorTask: task,
@@ -168,7 +176,7 @@ export class ProjectsFacade {
       capabilities: task?.capabilities ?? [],
       transitionNote: TASK_STATUS_BACKEND_AUTHORITATIVE_NOTE,
       detail: detail && task ? this.mapDetail(detail) : undefined,
-      message: scenario.message
+      message: aggregateState.message ?? scenario.message
     };
   }
 
@@ -177,8 +185,9 @@ export class ProjectsFacade {
       return;
     }
 
-    if (this.activeTaskId !== taskId) this.clearProtectedTaskState();
+    if (this.activeTaskId !== taskId || this.activeProjectId !== projectId) this.clearProtectedTaskState();
     this.activeTaskId = taskId;
+    this.activeProjectId = projectId;
     this.activeProjectSubscription?.();
     this.activeProjectSubscription = this.realtime.registerSubscription('projects-active-task', { subscriptionType: 'project', resourceId: projectId });
     if (!this.taskDetails()[taskId]) {
@@ -189,6 +198,7 @@ export class ProjectsFacade {
   releaseTaskDetail(): void {
     this.clearProtectedTaskState();
     this.activeTaskId = null;
+    this.activeProjectId = null;
     this.activeProjectSubscription?.();
     this.activeProjectSubscription = null;
   }
@@ -213,10 +223,10 @@ export class ProjectsFacade {
     return this.sectionStates()[section];
   }
 
-  loadProjectLabelDefinitions(projectId: string, force = false): void {
+  loadProjectLabelDefinitions(projectId: string, force = false, onReady?: () => void): void {
     const taskId = this.activeTaskId;
     if (this.scenario || !projectId || !taskId || !this.isActive(taskId, this.detailGeneration)) return;
-    if (!force && this.projectLabelDefinitions()[projectId]) return;
+    if (!force && this.projectLabelDefinitions()[projectId] && this.labelDefinitionStates()[projectId]?.status === 'ready') { onReady?.(); return; }
     this.labelRequest?.unsubscribe();
     const generation = this.detailGeneration;
     this.setLabelDefinitionState(projectId, { status: 'loading' });
@@ -227,11 +237,11 @@ export class ProjectsFacade {
           if (!this.isActive(taskId, generation)) return;
           this.projectLabelDefinitions.update(current => ({ ...current, [projectId]: labels }));
           this.setLabelDefinitionState(projectId, { status: labels.length ? 'ready' : 'empty' });
+          onReady?.();
         },
         error: error => {
           if (!this.isActive(taskId, generation)) return;
           const failure = toSectionFailure(error, 'Label definitions could not be loaded.');
-          this.projectLabelDefinitions.update(current => ({ ...current, [projectId]: [] }));
           this.setLabelDefinitionState(projectId, failure);
         }
       });
@@ -240,13 +250,13 @@ export class ProjectsFacade {
   createProjectLabel(taskId: string, projectId: string, name: string, onSuccess?: () => void): void {
     const trimmed = name.trim();
     if (!trimmed) return;
-    this.runDetailCommand(taskId, 'labels', this.http.post(`/api/projects/${projectId}/task-labels`, { name: trimmed, description: null }, { withCredentials: true }), () => { this.loadProjectLabelDefinitions(projectId, true); onSuccess?.(); });
+    this.runDetailCommand(taskId, 'labels', this.http.post(`/api/projects/${projectId}/task-labels`, { name: trimmed, description: null }, { withCredentials: true }), () => this.loadProjectLabelDefinitions(projectId, true, onSuccess));
   }
 
   updateProjectLabel(taskId: string, projectId: string, labelId: string, name: string, description: string, sortKey: string, expectedVersion: string, onSuccess?: () => void): void {
     const trimmed = name.trim();
     if (!trimmed) return;
-    this.runDetailCommand(taskId, 'labels', this.http.patch(`/api/projects/${projectId}/task-labels/${labelId}`, { name: trimmed, description: description.trim() || null, sortKey: Number(sortKey), expectedVersion: Number(expectedVersion) }, { withCredentials: true }), () => { this.loadProjectLabelDefinitions(projectId, true); onSuccess?.(); });
+    this.runDetailCommand(taskId, 'labels', this.http.patch(`/api/projects/${projectId}/task-labels/${labelId}`, { name: trimmed, description: description.trim() || null, sortKey: Number(sortKey), expectedVersion: Number(expectedVersion) }, { withCredentials: true }), () => this.loadProjectLabelDefinitions(projectId, true, onSuccess));
   }
 
   setProjectLabelArchived(taskId: string, projectId: string, labelId: string, expectedVersion: string, archived: boolean): void {
@@ -265,6 +275,7 @@ export class ProjectsFacade {
       const projectId = this.taskDetails()[taskId]?.task?.projectId;
       if (typeof projectId === 'string') this.loadProjectLabelDefinitions(projectId, true);
     } else if (section === 'subtasks' || section === 'comments' || section === 'files') this.loadNextPage(taskId, section, true);
+    else this.loadTaskDetail(taskId);
   }
 
   createSubtask(taskId: string, title: string, onSuccess?: () => void): void { const trimmed = title.trim(); if (trimmed) this.runDetailCommand(taskId, 'subtasks', this.http.post(`/api/tasks/${taskId}/subtasks`, { title: trimmed, description: null, priority: 1 }, { withCredentials: true }), onSuccess); }
@@ -294,8 +305,12 @@ export class ProjectsFacade {
       return;
     }
 
+    const authorizationGeneration = this.authorizationGeneration;
+    const detailGeneration = this.detailGeneration;
+    const isCurrent = () => this.isAuthorizationCurrent(authorizationGeneration) &&
+      (this.activeTaskId === null || this.isActive(taskId, detailGeneration));
     this.taskMutationState.set({ status: 'submitting' });
-    this.http
+    const operation = this.http
       .patch<TaskDto>(`/api/tasks/${taskId}`, toUpdateTaskRequestDto(request), {
         withCredentials: true
       })
@@ -309,6 +324,7 @@ export class ProjectsFacade {
       )
       .subscribe({
         next: ({ task, projectTasks }) => {
+          if (!isCurrent()) return;
           this.replaceProjectTasks(projectId, projectTasks);
           this.taskDetails.update((details) => ({ ...details, [taskId]: task.detail }));
           this.replaceTask(task.task);
@@ -316,9 +332,11 @@ export class ProjectsFacade {
           this.taskMutationState.set({ status: 'success' });
         },
         error: (error: unknown) => {
+          if (!isCurrent()) return;
           this.taskMutationState.set(toFailureState(error, 'Task save failed.'));
         }
       });
+    this.trackDetailMutation(operation);
   }
 
   createTask(request: CreateTaskFormRequest): void {
@@ -326,8 +344,9 @@ export class ProjectsFacade {
       return;
     }
 
+    const authorizationGeneration = this.authorizationGeneration;
     this.taskCreateMutationState.set({ status: 'submitting' });
-    this.http
+    const operation = this.http
       .post<TaskDto>(`/api/projects/${request.projectId}/tasks`, toCreateTaskRequestDto(request), {
         withCredentials: true
       })
@@ -340,23 +359,28 @@ export class ProjectsFacade {
       )
       .subscribe({
         next: ({ projectTasks }) => {
+          if (!this.isAuthorizationCurrent(authorizationGeneration)) return;
           this.replaceProjectTasks(request.projectId, projectTasks);
           this.myTasksFacade.refreshIfLoaded();
           this.taskCreateMutationState.set({ status: 'success' });
         },
         error: (error: unknown) => {
+          if (!this.isAuthorizationCurrent(authorizationGeneration)) return;
           this.taskCreateMutationState.set(toFailureState(error, 'Task create failed.'));
         }
       });
+    this.trackDetailMutation(operation);
   }
 
   getStatusLabel(status: TaskGridRow['status']): string {
     return taskStatusLabel(status);
   }
 
-  private loadProjects(): void {
+  private loadProjects(afterAuthorized?: () => void): void {
+    const generation = this.authorizationGeneration;
+    this.projectsRequest?.unsubscribe();
     this.liveState.set(this.emptyScenario('loading'));
-    this.fetchProjectList()
+    this.projectsRequest = this.fetchProjectList()
       .pipe(
         switchMap((projects) => {
           if (projects.length === 0) {
@@ -367,7 +391,7 @@ export class ProjectsFacade {
           }
 
           return forkJoin({
-            taskPages: forkJoin(projects.map((project) => this.fetchProjectTasks(project.id)))
+            taskPages: forkJoin(projects.map((project) => this.fetchProjectTasks(project.id, projects)))
           }).pipe(
             map(({ taskPages }) => ({
               projects,
@@ -378,6 +402,7 @@ export class ProjectsFacade {
       )
       .subscribe({
         next: (result) => {
+          if (!this.isAuthorizationCurrent(generation)) return;
           if (result.projects.length === 0) {
             this.liveState.set(
               this.emptyScenario('empty', 'No authorized projects were returned by the API.')
@@ -394,8 +419,10 @@ export class ProjectsFacade {
             myTasks: [],
             currentUserAssignee: ''
           });
+          afterAuthorized?.();
         },
         error: (error: unknown) => {
+          if (!this.isAuthorizationCurrent(generation)) return;
           const normalized = normalizeApiError(error);
           this.liveState.set(
             this.emptyScenario(
@@ -416,11 +443,7 @@ export class ProjectsFacade {
     }
 
     if (event.eventType === 'Security.AuthorizationStateChanged.v1') {
-      // Drop first, then any future HTTP request must prove current authorization.
-      this.clearProtectedTaskState();
-      this.liveState.set(this.emptyScenario('loading'));
-      this.loadProjects();
-      this.myTasksFacade.refreshIfLoaded();
+      this.reauthorizeActiveState();
       return;
     }
 
@@ -431,7 +454,16 @@ export class ProjectsFacade {
     }
 
     if (event.eventType === 'Projects.TaskChanged.v1' && this.activeTaskId === event.aggregateId) {
-      this.setSectionState('detail', { status: 'conflict', message: 'This task changed elsewhere. Your editor was preserved; reload before saving again.', requestId: event.eventId });
+      if (this.isDetailEditing()) {
+        this.setSectionState('detail', { status: 'conflict', message: 'This task changed elsewhere. Your editor was preserved; reload before saving again.', requestId: event.eventId });
+      } else {
+        this.loadTaskDetail(event.aggregateId);
+      }
+      return;
+    }
+
+    if (event.eventType === 'Files.FileChanged.v1' && this.activeTaskId) {
+      this.loadTaskDetail(this.activeTaskId);
       return;
     }
 
@@ -456,14 +488,14 @@ export class ProjectsFacade {
       .pipe(map((response) => (response.items ?? []).map((project) => mapProjectDtoToRecord(project))));
   }
 
-  private fetchProjectTasks(projectId: string): Observable<readonly TaskMockRecord[]> {
+  private fetchProjectTasks(projectId: string, projects = this.authorizedProjects()): Observable<readonly TaskMockRecord[]> {
     return this.http
       .get<PagedResponseDto<TaskDto>>(`/api/projects/${projectId}/tasks`, {
         withCredentials: true
       })
       .pipe(
         map((response) =>
-          (response.items ?? []).map((task) => mapTaskDtoToRecord(task, this.authorizedProjects()))
+          (response.items ?? []).map((task) => mapTaskDtoToRecord(task, projects))
         )
       );
   }
@@ -481,13 +513,14 @@ export class ProjectsFacade {
 
     if (this.activeTaskId !== taskId) return;
     this.detailRequest?.unsubscribe();
+    const authorizationGeneration = this.authorizationGeneration;
     const generation = this.detailGeneration;
     this.setSectionState('detail', { status: 'loading' });
     this.detailRequest = this.fetchTask(taskId).pipe(finalize(() => {
       if (this.isActive(taskId, generation)) this.detailRequest = null;
     })).subscribe({
       next: (response) => {
-        if (!this.isActive(taskId, generation)) return;
+        if (!this.isAuthorizationCurrent(authorizationGeneration) || !this.isActive(taskId, generation)) return;
         this.taskDetails.update((details) => ({ ...details, [taskId]: response.detail }));
         this.replaceTask(response.task);
         this.setSectionState('detail', { status: 'ready' });
@@ -496,36 +529,65 @@ export class ProjectsFacade {
         if (typeof projectId === 'string' && (permissions?.canApplyLabels === true || permissions?.canManageLabelDefinitions === true)) this.loadProjectLabelDefinitions(projectId);
       },
       error: (error: unknown) => {
-        if (!this.isActive(taskId, generation)) return;
+        if (!this.isAuthorizationCurrent(authorizationGeneration) || !this.isActive(taskId, generation)) return;
         this.taskDetails.set({});
         this.setSectionState('detail', toSectionFailure(error, 'Task detail could not be loaded.'));
       }
     });
   }
 
+  /** Components may report unsaved local edits so realtime never silently overwrites them. */
+  private detailEditing = false;
+  setDetailEditing(editing: boolean): void { this.detailEditing = editing; }
+  private isDetailEditing(): boolean { return this.detailEditing || this.taskMutationState().status === 'submitting'; }
+
+  private reauthorizeActiveState(): void {
+    const activeTaskId = this.activeTaskId;
+    const activeProjectId = this.activeProjectId;
+    this.authorizationGeneration++;
+    // Drop protected state before issuing the first reauthorization request.
+    this.clearProtectedTaskState();
+    this.liveState.set(this.emptyScenario('loading'));
+    this.loadProjects(() => {
+      if (!activeTaskId || !activeProjectId || this.activeTaskId !== activeTaskId || this.activeProjectId !== activeProjectId) return;
+      const visible = this.liveState().tasks.some(task => task.id === activeTaskId && task.projectId === activeProjectId && task.authorized);
+      if (!visible) {
+        this.setSectionState('detail', { status: 'permissionDenied', message: 'Task detail is no longer available with your current permission.' });
+        return;
+      }
+      this.loadTaskDetail(activeTaskId);
+    });
+  }
+
   private runDetailCommand(taskId: string, section: TaskDetailSection, request: Observable<unknown>, onSuccess?: () => void): void {
     if (this.scenario || !this.isActive(taskId, this.detailGeneration) || this.sectionStates()[section].status === 'submitting') return;
+    const authorizationGeneration = this.authorizationGeneration;
     const generation = this.detailGeneration;
     this.setSectionState(section, { status: 'submitting' });
     this.taskMutationState.set({ status: 'submitting' });
-    request.pipe(switchMap(() => this.fetchTask(taskId))).subscribe({
+    const operation = request.pipe(switchMap(() => this.fetchTask(taskId))).subscribe({
       next: (response) => {
-        if (!this.isActive(taskId, generation)) return;
+        if (!this.isAuthorizationCurrent(authorizationGeneration) || !this.isActive(taskId, generation)) return;
         this.taskDetails.update((details) => ({ ...details, [taskId]: response.detail }));
         this.replaceTask(response.task);
         this.setSectionState(section, { status: 'success' });
         this.taskMutationState.set({ status: 'success' });
         const projectId = response.detail.task?.projectId;
-        if (section === 'labels' && typeof projectId === 'string') this.loadProjectLabelDefinitions(projectId, true);
         onSuccess?.();
       },
       error: (error: unknown) => {
-        if (!this.isActive(taskId, generation)) return;
+        if (!this.isAuthorizationCurrent(authorizationGeneration) || !this.isActive(taskId, generation)) return;
+        const normalized = normalizeApiError(error);
+        if (normalized.httpStatus === 401 || normalized.httpStatus === 403) {
+          this.reauthorizeActiveState();
+          return;
+        }
         const state = toFailureState(error, 'Task detail command failed.');
         this.taskMutationState.set(state);
         this.setSectionState(section, toSectionFailure(error, state.status === 'failure' || state.status === 'conflict' ? state.message : 'Task detail command failed.'));
       }
     });
+    this.trackDetailMutation(operation);
   }
 
   private loadNextPage(taskId: string, section: 'subtasks' | 'comments' | 'files', retry = false): void {
@@ -537,6 +599,7 @@ export class ProjectsFacade {
     if (!retry && current?.hasMore !== true) return;
     if (this.pageRequests.has(section)) return;
     const generation = this.detailGeneration;
+    const authorizationGeneration = this.authorizationGeneration;
     const page = retry ? currentPage + 1 : currentPage + 1;
     const endpoint = `/api/tasks/${taskId}/${section}?page=${page}&pageSize=${pageSize}`;
     this.setSectionState(section, { status: 'loading' });
@@ -544,7 +607,7 @@ export class ProjectsFacade {
       if (this.isActive(taskId, generation)) this.pageRequests.delete(section);
     })).subscribe({
       next: response => {
-        if (!this.isActive(taskId, generation)) return;
+        if (!this.isAuthorizationCurrent(authorizationGeneration) || !this.isActive(taskId, generation)) return;
         const existing = current?.items ?? [];
         const incoming = (response.items ?? []) as typeof existing;
         const seen = new Set(existing.map(item => typeof (item as { id?: unknown }).id === 'string' ? (item as { id: string }).id : ''));
@@ -556,9 +619,9 @@ export class ProjectsFacade {
         this.setSectionState(section, { status: items.length ? 'ready' : 'empty' });
       },
       error: error => {
-        if (!this.isActive(taskId, generation)) return;
+        if (!this.isAuthorizationCurrent(authorizationGeneration) || !this.isActive(taskId, generation)) return;
         const failure = toSectionFailure(error, `More ${section} could not be loaded.`);
-        if (failure.status === 'permissionDenied') this.taskDetails.update(details => ({ ...details, [taskId]: { ...details[taskId], [section]: { items: [], page: 1, pageSize, totalCount: 0, hasMore: false } } }));
+        if (failure.status === 'permissionDenied') { this.reauthorizeActiveState(); return; }
         this.setSectionState(section, failure);
       }
     });
@@ -573,15 +636,26 @@ export class ProjectsFacade {
     this.labelRequest = null;
     this.pageRequests.forEach(request => request.unsubscribe());
     this.pageRequests.clear();
+    this.detailMutations.forEach(request => request.unsubscribe());
+    this.detailMutations.clear();
     this.taskDetails.set({});
     this.projectLabelDefinitions.set({});
     this.labelDefinitionStates.set({});
     this.sectionStates.set(this.emptySectionStates());
     this.taskMutationState.set({ status: 'idle' });
+    this.taskCreateMutationState.set({ status: 'idle' });
+    this.detailEditing = false;
   }
 
   private isActive(taskId: string, generation: number): boolean {
     return this.activeTaskId === taskId && this.detailGeneration === generation;
+  }
+
+  private isAuthorizationCurrent(generation: number): boolean { return this.authorizationGeneration === generation; }
+
+  private trackDetailMutation(request: Subscription): void {
+    this.detailMutations.add(request);
+    request.add(() => this.detailMutations.delete(request));
   }
 
   private setSectionState(section: TaskDetailSection, state: TaskDetailSectionState): void {
@@ -605,6 +679,7 @@ export class ProjectsFacade {
     const version = (value: unknown) => typeof value === 'string' || typeof value === 'number' ? String(value) : '0';
     const page = <TSource, TView>(source: PagedResponseDto<TSource> | null | undefined, items: readonly TView[]) => ({ items, page: number(source?.page) || 1, pageSize: number(source?.pageSize) || items.length, totalCount: number(source?.totalCount), hasMore: boolean(source?.hasMore) });
     return {
+      workspaceId: nullableText(detail.task?.workspaceId),
       permissions: {
         canCreateSubtask: boolean(detail.permissions?.canCreateSubtask), canCreateChecklistItem: boolean(detail.permissions?.canCreateChecklistItem),
         canUpdateChecklistItems: boolean(detail.permissions?.canUpdateChecklistItems), canDeleteChecklistItems: boolean(detail.permissions?.canDeleteChecklistItems),

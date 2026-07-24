@@ -1,23 +1,22 @@
 import { HttpClient } from '@angular/common/http';
-import { Component, DestroyRef, EventEmitter, Input, OnChanges, Output, inject, signal } from '@angular/core';
+import { Component, DestroyRef, ElementRef, EventEmitter, Input, OnChanges, Output, ViewChild, inject, signal } from '@angular/core';
 import { takeUntilDestroyed } from '@angular/core/rxjs-interop';
-import { catchError, debounceTime, distinctUntilChanged, switchMap } from 'rxjs/operators';
-import { Subject, of } from 'rxjs';
+import { catchError, debounceTime, switchMap } from 'rxjs/operators';
+import { Observable, of, Subject } from 'rxjs';
 
 import { TaskMentionCandidateDto } from '../../features/projects/projects.api';
 
 interface MentionToken { readonly userId: string; readonly displayName: string; readonly start: number; readonly end: number; }
+interface MentionRange { readonly start: number; readonly end: number; readonly selectionStart: number; readonly selectionEnd: number; readonly taskId: string; readonly generation: number; }
+type SearchResult = { readonly kind: 'ready'; readonly candidates: readonly TaskMentionCandidateDto[]; readonly range: MentionRange } | { readonly kind: 'error'; readonly status: number; readonly range: MentionRange };
 
 let mentionInputInstance = 0;
 
-/**
- * AIPsite-owned token editor. The textarea contains friendly display text while
- * the emitted value always re-encodes selected people as @{canonical-guid}.
- */
+/** Friendly display text is reconciled to canonical @{GUID} tokens at explicit token spans. */
 @Component({
   selector: 'app-mention-input', standalone: true,
   template: `<label [for]="textareaId">Comment</label>
-  <textarea #editor [id]="textareaId" [value]="displayValue()" (input)="onInput($event)" (keydown)="onKeydown($event)"
+  <textarea #editor [id]="textareaId" [value]="displayValue()" (input)="onInput($event)" (keydown)="onKeydown($event)" (click)="onCaretChange($event)" (keyup)="onCaretChange($event)"
     [attr.aria-describedby]="statusId" aria-autocomplete="list" [attr.aria-expanded]="candidates().length > 0"
     [attr.aria-controls]="listboxId" [attr.aria-activedescendant]="activeOptionId()"></textarea>
   @if (candidates().length) { <ul [id]="listboxId" role="listbox" aria-label="Mention candidates">
@@ -32,12 +31,16 @@ export class AppMentionInputComponent implements OnChanges {
   @Input() inputId?: string;
   @Input() knownMentions: readonly { userId: string; displayName: string }[] = [];
   @Output() valueChange = new EventEmitter<string>();
+  @ViewChild('editor') private editor?: ElementRef<HTMLTextAreaElement>;
   private readonly http = inject(HttpClient);
   private readonly destroyRef = inject(DestroyRef);
-  private readonly query = new Subject<string>();
+  private readonly query = new Subject<MentionRange | null>();
   private readonly instance = ++mentionInputInstance;
   private tokens: readonly MentionToken[] = [];
   private lastCanonical = '';
+  private lastTaskId = '';
+  private taskGeneration = 0;
+  private queryRange: MentionRange | null = null;
   readonly candidates = signal<readonly { userId: string; displayName: string }[]>([]);
   readonly selectedIndex = signal(0);
   readonly status = signal('');
@@ -48,81 +51,99 @@ export class AppMentionInputComponent implements OnChanges {
   get statusId(): string { return `${this.textareaId}-status`; }
 
   constructor() {
-    this.query.pipe(debounceTime(200), distinctUntilChanged(), switchMap(text => {
-      if (!text) { this.status.set(''); return of([] as readonly TaskMentionCandidateDto[]); }
-      this.status.set('Loading mention candidates…');
-      return this.http.get<readonly TaskMentionCandidateDto[]>(`/api/tasks/${this.taskId}/mention-candidates?query=${encodeURIComponent(text)}&limit=10`, { withCredentials: true }).pipe(catchError((error: unknown) => {
-        this.status.set((error as { status?: number })?.status === 403 ? 'Mention search is not permitted.' : 'Mention search failed.');
-        return of([] as readonly TaskMentionCandidateDto[]);
-      }));
-    }), takeUntilDestroyed(this.destroyRef)).subscribe(results => {
-      const candidates = results.map(result => ({ userId: typeof result.userId === 'string' ? result.userId : '', displayName: typeof result.displayName === 'string' ? result.displayName : '' })).filter(result => result.userId && result.displayName);
+    this.query.pipe(debounceTime(200), switchMap(range => this.search(range)), takeUntilDestroyed(this.destroyRef)).subscribe(result => {
+      if (!result || !this.isRangeCurrent(result.range)) return;
+      if (result.kind === 'error') {
+        this.candidates.set([]);
+        this.status.set(result.status === 403 ? 'Mention search is not permitted.' : result.status === 429 ? 'Mention search is temporarily rate limited. Retry shortly.' : 'Mention search failed.');
+        return;
+      }
+      const candidates = result.candidates.map(candidate => ({ userId: typeof candidate.userId === 'string' ? candidate.userId : '', displayName: typeof candidate.displayName === 'string' ? candidate.displayName : '' })).filter(candidate => candidate.userId && candidate.displayName);
       this.candidates.set(candidates); this.selectedIndex.set(0);
       this.status.set(candidates.length ? `${candidates.length} mention candidates available.` : 'No mention candidates found.');
     });
   }
 
   ngOnChanges(): void {
-    if (this.value === this.lastCanonical) return;
+    if (this.value === this.lastCanonical && this.taskId === this.lastTaskId) return;
+    this.taskGeneration++;
+    this.closeCandidates('');
     const names = new Map(this.knownMentions.map(mention => [mention.userId, mention.displayName]));
     const tokens: MentionToken[] = [];
     const pattern = /@\{(?<id>[0-9a-fA-F-]{36})\}/g;
     let display = ''; let canonicalCursor = 0; let match: RegExpExecArray | null;
     while ((match = pattern.exec(this.value)) !== null) {
       display += this.value.slice(canonicalCursor, match.index);
-      const userId = match.groups?.['id'] ?? '';
-      const displayName = names.get(userId) ?? 'Mention';
-      const text = `@${displayName}`;
+      const userId = match.groups?.['id'] ?? ''; const displayName = names.get(userId) ?? 'Mention'; const text = `@${displayName}`;
       tokens.push({ userId, displayName, start: display.length, end: display.length + text.length });
       display += text; canonicalCursor = match.index + match[0].length;
     }
-    display += this.value.slice(canonicalCursor);
-    this.tokens = tokens;
-    this.displayValue.set(display); this.lastCanonical = this.value;
+    this.tokens = tokens; this.displayValue.set(display + this.value.slice(canonicalCursor)); this.lastCanonical = this.value; this.lastTaskId = this.taskId;
   }
 
   onInput(event: Event): void {
-    const textarea = event.target as HTMLTextAreaElement;
-    const next = textarea.value;
-    this.tokens = this.retainTokens(this.displayValue(), next);
-    this.displayValue.set(next);
-    this.emitCanonical();
-    const beforeCursor = next.slice(0, textarea.selectionStart ?? next.length);
-    const match = /@([\p{L}\p{N} .'-]*)$/u.exec(beforeCursor);
-    this.query.next(match?.[1]?.trim() ?? '');
+    const textarea = event.target as HTMLTextAreaElement; const next = textarea.value;
+    this.tokens = this.reconcileTokenSpans(this.displayValue(), next); this.displayValue.set(next); this.emitCanonical(); this.openQueryFor(textarea);
   }
 
-  activeOptionId(): string | null { return this.candidates().length ? this.optionId(this.selectedIndex()) : null; }
-  optionId(index: number): string { return `${this.textareaId}-mention-${index}`; }
+  onCaretChange(event: Event): void {
+    const textarea = event.target as HTMLTextAreaElement;
+    if (this.queryRange && (textarea.selectionStart !== this.queryRange.selectionStart || textarea.selectionEnd !== this.queryRange.selectionEnd)) this.closeCandidates('Mention suggestions closed because the caret moved.');
+  }
+
   onKeydown(event: KeyboardEvent): void {
     if (!this.candidates().length) return;
     if (event.key === 'ArrowDown') { event.preventDefault(); this.selectedIndex.update(index => Math.min(index + 1, this.candidates().length - 1)); }
     else if (event.key === 'ArrowUp') { event.preventDefault(); this.selectedIndex.update(index => Math.max(index - 1, 0)); }
     else if (event.key === 'Enter') { event.preventDefault(); this.select(this.candidates()[this.selectedIndex()]); }
-    else if (event.key === 'Escape') { event.preventDefault(); this.candidates.set([]); this.status.set('Mention suggestions closed.'); }
+    else if (event.key === 'Escape') { event.preventDefault(); this.closeCandidates('Mention suggestions closed.'); }
   }
 
   select(candidate: { userId: string; displayName: string }): void {
-    const value = this.displayValue();
-    const match = /@([\p{L}\p{N} .'-]*)$/u.exec(value);
-    if (!candidate || !match || match.index === undefined) return;
-    const start = match.index; const text = `@${candidate.displayName}`;
-    const next = `${value.slice(0, start)}${text}${value.slice(start + match[0].length)}`;
-    const delta = text.length - match[0].length;
-    this.tokens = [...this.tokens.filter(token => token.end <= start || token.start >= start + match[0].length).map(token => token.start >= start ? { ...token, start: token.start + delta, end: token.end + delta } : token), { userId: candidate.userId, displayName: candidate.displayName, start, end: start + text.length }].sort((a, b) => a.start - b.start);
-    this.displayValue.set(next); this.emitCanonical(); this.candidates.set([]); this.status.set(`Mentioned @${candidate.displayName}.`);
+    const range = this.queryRange; const textarea = this.editor?.nativeElement;
+    if (!candidate || !range || !textarea || !this.isRangeCurrent(range)) return;
+    const value = this.displayValue(); const replacement = `@${candidate.displayName}`; const next = `${value.slice(0, range.start)}${replacement}${value.slice(range.end)}`;
+    const delta = replacement.length - (range.end - range.start);
+    this.tokens = [...this.tokens.filter(token => token.end <= range.start || token.start >= range.end).map(token => token.start >= range.end ? { ...token, start: token.start + delta, end: token.end + delta } : token), { userId: candidate.userId, displayName: candidate.displayName, start: range.start, end: range.start + replacement.length }].sort((a, b) => a.start - b.start);
+    this.displayValue.set(next); this.emitCanonical(); this.closeCandidates(`Mentioned @${candidate.displayName}.`);
+    const caret = range.start + replacement.length;
+    queueMicrotask(() => { textarea.focus(); textarea.setSelectionRange(caret, caret); });
   }
 
-  private retainTokens(previous: string, next: string): readonly MentionToken[] {
+  activeOptionId(): string | null { return this.candidates().length ? this.optionId(this.selectedIndex()) : null; }
+  optionId(index: number): string { return `${this.textareaId}-mention-${index}`; }
+
+  private search(range: MentionRange | null): Observable<SearchResult | null> {
+    if (!range) return of(null);
+    this.status.set('Loading mention candidates…');
+    const query = encodeURIComponent(this.displayValue().slice(range.start + 1, range.end).trim());
+    return this.http.get<readonly TaskMentionCandidateDto[]>(`/api/tasks/${range.taskId}/mention-candidates?query=${query}&limit=10`, { withCredentials: true }).pipe(
+      switchMap(candidates => of({ kind: 'ready', candidates, range } as const)),
+      catchError((error: { status?: number }) => of({ kind: 'error', status: error.status ?? 0, range } as const))
+    );
+  }
+
+  private openQueryFor(textarea: HTMLTextAreaElement): void {
+    const start = textarea.selectionStart; const end = textarea.selectionEnd;
+    if (start !== end) { this.closeCandidates(''); return; }
+    const match = /@([\p{L}\p{N} .'-]*)$/u.exec(textarea.value.slice(0, end));
+    if (!match || match.index === undefined) { this.closeCandidates(''); return; }
+    const range: MentionRange = { start: match.index, end, selectionStart: start, selectionEnd: end, taskId: this.taskId, generation: this.taskGeneration };
+    this.queryRange = range; this.query.next(range);
+  }
+
+  private reconcileTokenSpans(previous: string, next: string): readonly MentionToken[] {
     let prefix = 0; while (prefix < previous.length && prefix < next.length && previous[prefix] === next[prefix]) prefix++;
     let suffix = 0; while (suffix < previous.length - prefix && suffix < next.length - prefix && previous[previous.length - 1 - suffix] === next[next.length - 1 - suffix]) suffix++;
-    const oldEnd = previous.length - suffix; const newEnd = next.length - suffix; const delta = newEnd - oldEnd;
-    return this.tokens.flatMap(token => token.end <= prefix ? [token] : token.start >= oldEnd ? [{ ...token, start: token.start + delta, end: token.end + delta }] : []);
+    const oldChangedEnd = previous.length - suffix; const shift = next.length - previous.length;
+    return this.tokens.flatMap(token => {
+      if (token.end <= prefix && next.slice(token.start, token.end) === previous.slice(token.start, token.end)) return [token];
+      if (token.start >= oldChangedEnd) { const shifted = { ...token, start: token.start + shift, end: token.end + shift }; return next.slice(shifted.start, shifted.end) === previous.slice(token.start, token.end) ? [shifted] : []; }
+      return [];
+    });
   }
 
-  private emitCanonical(): void {
-    const display = this.displayValue(); let cursor = 0; let canonical = '';
-    for (const token of this.tokens) { canonical += display.slice(cursor, token.start) + `@{${token.userId}}`; cursor = token.end; }
-    canonical += display.slice(cursor); this.lastCanonical = canonical; this.valueChange.emit(canonical);
-  }
+  private emitCanonical(): void { const display = this.displayValue(); let cursor = 0; let canonical = ''; for (const token of this.tokens) { canonical += display.slice(cursor, token.start) + `@{${token.userId}}`; cursor = token.end; } canonical += display.slice(cursor); this.lastCanonical = canonical; this.valueChange.emit(canonical); }
+  private isRangeCurrent(range: MentionRange): boolean { const textarea = this.editor?.nativeElement; return range.taskId === this.taskId && range.generation === this.taskGeneration && this.queryRange === range && !!textarea && textarea.selectionStart === range.selectionStart && textarea.selectionEnd === range.selectionEnd; }
+  private closeCandidates(message: string): void { this.queryRange = null; this.candidates.set([]); if (message) this.status.set(message); }
 }
