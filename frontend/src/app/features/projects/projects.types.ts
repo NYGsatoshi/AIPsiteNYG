@@ -19,6 +19,16 @@ export type TaskMutationState =
   | { readonly status: 'failure'; readonly message: string; readonly requestId?: string }
   | { readonly status: 'conflict'; readonly message: string; readonly serverVersion?: unknown };
 
+/** State is deliberately scoped: an unrelated Task section must never disable another one. */
+export type TaskDetailSection = 'detail' | 'subtasks' | 'checklist' | 'comments' | 'labels' | 'watch' | 'files';
+export type TaskDetailSectionStatus = 'idle' | 'loading' | 'ready' | 'empty' | 'submitting' | 'success' | 'error' | 'permissionDenied' | 'conflict';
+export interface TaskDetailSectionState {
+  readonly status: TaskDetailSectionStatus;
+  readonly message?: string;
+  readonly requestId?: string;
+  readonly retryable?: boolean;
+}
+
 export interface BackendAuthoritativeTransitionNote {
   readonly owner: 'backendAuthoritativeDuringApiWiring';
   readonly message: string;
@@ -206,6 +216,7 @@ export interface TaskDetailAggregateViewModel {
   readonly labels: readonly TaskLabelViewModel[];
   /** Project definitions are distinct from the labels already applied to this task. */
   readonly labelDefinitions: readonly TaskLabelViewModel[];
+  readonly labelDefinitionsState: TaskDetailSectionState;
   readonly subtasks: TaskPageViewModel<TaskSubtaskViewModel>;
   readonly comments: TaskPageViewModel<TaskCommentViewModel>;
   readonly files: TaskPageViewModel<TaskFileAssociationViewModel>;
@@ -217,7 +228,9 @@ export interface TaskPageViewModel<T> { readonly items: readonly T[]; readonly p
 export interface TaskChecklistViewModel { readonly id: string; readonly text: string; readonly isCompleted: boolean; readonly completedAt: string | null; readonly completedByUserId: string | null; readonly sortKey: string; readonly version: string; }
 export interface TaskLabelViewModel { readonly id: string; readonly name: string; readonly description: string | null; readonly sortKey: string; readonly isArchived: boolean; readonly version: string; }
 export interface TaskSubtaskViewModel { readonly id: string; readonly parentTaskId: string; readonly title: string; readonly workflowStageId: string | null; readonly stage: string; readonly stageCategory: string; readonly priority: string; readonly progressPercent: number; readonly primaryAssignee: string | null; readonly plannedEndDate: string | null; readonly deadlineAt: string | null; readonly isOverdue: boolean; readonly version: string; }
-export interface TaskCommentViewModel { readonly id: string; readonly taskId: string; readonly author: string | null; readonly body: string | null; readonly isImportant: boolean; readonly mentions: readonly string[]; readonly createdAt: string | null; readonly updatedAt: string | null; readonly deletedAt: string | null; readonly version: string; readonly canEdit: boolean; readonly canDelete: boolean; readonly canMarkImportant: boolean; }
+export interface TaskCommentMentionViewModel { readonly userId: string; readonly displayName: string; }
+export interface TaskCommentViewModel { readonly id: string; readonly taskId: string; readonly author: string | null; readonly body: string | null; readonly isImportant: boolean; readonly mentions: readonly TaskCommentMentionViewModel[]; readonly createdAt: string | null; readonly updatedAt: string | null; readonly deletedAt: string | null; readonly version: string; readonly canEdit: boolean; readonly canDelete: boolean; readonly canMarkImportant: boolean; }
+/** id is the canonical Attachment ID for the Task association. */
 export interface TaskFileAssociationViewModel { readonly id: string; readonly fileObjectId: string; readonly fileName: string; readonly contentType: string; readonly sizeBytes: number; readonly scanStatus: string; readonly createdAt: string | null; readonly accessState: string; readonly canOpen: boolean; readonly canRequestDownloadGrant: boolean; readonly downloadGrantRequired: boolean; readonly restrictionCode: string | null; }
 export interface TaskWatchStateViewModel { readonly isWatching: boolean; readonly isExplicitOptOut: boolean; readonly automaticSources: readonly string[]; readonly version: string; }
 

@@ -83,6 +83,42 @@ describe('ProjectsFacade live API mutations', () => {
     expect(page.message).toBe('TASK_DETAIL_PROJECT_MISMATCH');
   });
 
+  it('cancels and discards an in-flight detail request after leaving the page', () => {
+    flushInitialLoad([]);
+    facade.ensureTaskDetail('project-1', 'task-1');
+    const request = httpMock.expectOne('/api/tasks/task-1');
+
+    facade.releaseTaskDetail();
+
+    expect(request.cancelled).toBe(true);
+    expect(facade.getTaskDetail('project-1', 'task-1').detail).toBeUndefined();
+  });
+
+  it('cancels Task A before Task B becomes active and never retains A detail', () => {
+    flushInitialLoad([]);
+    facade.ensureTaskDetail('project-1', 'task-1');
+    const taskA = httpMock.expectOne('/api/tasks/task-1');
+    facade.ensureTaskDetail('project-1', 'task-2');
+    const taskB = httpMock.expectOne('/api/tasks/task-2');
+
+    expect(taskA.cancelled).toBe(true);
+    taskB.flush({ task: { ...editableTaskDto, id: 'task-2', title: 'Task B' }, checklist: [], labels: [], subtasks: { items: [] }, comments: { items: [] }, files: { items: [] } });
+
+    expect(facade.getTaskDetail('project-1', 'task-1').detail).toBeUndefined();
+    expect(facade.getTaskDetail('project-1', 'task-2').editorTask?.title).toBe('Task B');
+  });
+
+  it('loads project label definitions as soon as detail permissions allow labels', () => {
+    flushInitialLoad([]);
+    facade.ensureTaskDetail('project-1', 'task-1');
+    httpMock.expectOne('/api/tasks/task-1').flush({ task: editableTaskDto, permissions: { canApplyLabels: true }, checklist: [], labels: [], subtasks: { items: [] }, comments: { items: [] }, files: { items: [] } });
+
+    const labels = httpMock.expectOne('/api/projects/project-1/task-labels?includeArchived=true');
+    labels.flush([{ id: 'label-1', name: 'Urgent', sortKey: 1024, isArchived: false, version: 1 }]);
+
+    expect(facade.getTaskDetail('project-1', 'task-1').detail?.labelDefinitions.map((label) => label.name)).toEqual(['Urgent']);
+  });
+
   it('creates a task through the backend and refreshes project and my-task rows after success', () => {
     flushInitialLoad();
 

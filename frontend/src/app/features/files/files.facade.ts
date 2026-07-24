@@ -14,9 +14,15 @@ import {
   PagedResponseDto,
   safeFileNameFromHeader,
 } from './files.api';
-import { FilesPageViewModel, FileUploadQueueItem, FileUploadViewModel, FileViewModel } from './files.types';
+import { FileDownloadState, FilesPageViewModel, FileUploadQueueItem, FileUploadViewModel, FileViewModel } from './files.types';
 
 export const AIP_FILES_PAGE_MOCK = new InjectionToken<FilesPageViewModel>('AIP_FILES_PAGE_MOCK');
+
+export interface AttachmentDownloadContext {
+  /** Prevent an obsolete Task route from receiving a completion callback. */
+  readonly isCurrent?: () => boolean;
+  readonly onState?: (state: FileDownloadState, message: string) => void;
+}
 
 @Injectable({ providedIn: 'root' })
 export class FilesFacade {
@@ -155,6 +161,31 @@ export class FilesFacade {
           });
         },
       });
+  }
+
+  /** Uses the Attachment grant boundary; this intentionally does not depend on Files-page state. */
+  downloadAttachment(attachmentId: string, fallbackFileName: string, context: AttachmentDownloadContext = {}): void {
+    if (!attachmentId || this.mockPage) return;
+    const report = (state: FileDownloadState, message: string) => {
+      if (context.isCurrent?.() !== false) context.onState?.(state, message);
+    };
+    report('pending', 'Authorizing download.');
+    this.http.post<FileDownloadGrantDto>(`/api/attachments/${attachmentId}/download-grants`, { purpose: 'task-detail-download' }, { withCredentials: true }).subscribe({
+      next: grant => {
+        const grantId = stringValue(grant.fileDownloadGrantId);
+        const token = stringValue(grant.token);
+        if (!grantId || !token) { report('failed', 'Download grant response was incomplete.'); return; }
+        this.http.post(`/api/attachment-download-grants/${grantId}/download`, { token }, { observe: 'response', responseType: 'blob', withCredentials: true }).subscribe({
+          next: response => {
+            if (context.isCurrent?.() === false) return;
+            this.saveBlob(response, safeFileNameFromHeader(response.headers.get('content-disposition'), fallbackFileName));
+            report('succeeded', 'Download started.');
+          },
+          error: error => { const normalized = normalizeApiError(error); report('failed', normalized.httpStatus === 403 ? 'Download denied.' : normalized.message); }
+        });
+      },
+      error: error => { const normalized = normalizeApiError(error); report('failed', normalized.httpStatus === 403 ? 'Download denied.' : normalized.message); }
+    });
   }
 
   private loadFiles(workspaceId: string): void {
