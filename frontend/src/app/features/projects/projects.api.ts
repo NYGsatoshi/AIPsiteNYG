@@ -162,8 +162,8 @@ export interface UpdateTaskRequestDto {
   readonly title: string;
   readonly description: string;
   readonly priority: number;
-  readonly startDate?: string | null;
-  readonly dueDate?: string | null;
+  readonly plannedStartDate: string | null;
+  readonly plannedEndDate: string | null;
   readonly progressPercent: number;
   readonly expectedVersion: number;
 }
@@ -205,8 +205,8 @@ export function toUpdateTaskRequestDto(input: {
     title: input.title.trim(),
     description: input.description.trim(),
     priority: taskPriorityApiValues[input.priority],
-    startDate: nullableDate(input.startDate),
-    dueDate: nullableDate(input.dueDate),
+    plannedStartDate: nullableDate(input.startDate),
+    plannedEndDate: nullableDate(input.dueDate),
     progressPercent: input.progressPercent,
     expectedVersion: Number(input.expectedVersion)
   };

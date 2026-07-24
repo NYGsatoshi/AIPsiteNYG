@@ -196,8 +196,8 @@ describe('ProjectsFacade live API mutations', () => {
       title: 'Saved Task',
       description: 'Saved detail',
       priority: 'urgent',
-      startDate: '2026-07-03',
-      dueDate: '2026-07-22',
+      plannedStartDate: '2026-07-03',
+      plannedEndDate: '2026-07-22',
       progressPercent: 65,
       expectedVersion: '1'
     });
