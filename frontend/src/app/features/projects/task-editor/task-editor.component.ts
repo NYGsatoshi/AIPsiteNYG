@@ -53,7 +53,7 @@ export const integerRangeValidator = (min: number, max: number): ValidatorFn => 
           <section class="task-editor__recoverable" data-testid="row-version-conflict">
             <h2>Row version conflict</h2>
             <p>The task changed on the server. Reload before saving again.</p>
-            <button type="button" (click)="cancel.emit()">Reload form</button>
+            <button type="button" (click)="reloadRequested.emit()">Reload form</button>
           </section>
         }
 
@@ -79,7 +79,7 @@ export const integerRangeValidator = (min: number, max: number): ValidatorFn => 
             <strong>Task changed elsewhere</strong>
             <span>{{ mutationState.message }}</span>
             @if (mutationState.requestId) { <small>Request ID: {{ mutationState.requestId }}</small> }
-            <button type="button" (click)="cancel.emit()">Reload before saving</button>
+            <button type="button" data-testid="task-conflict-reload-button" (click)="reloadRequested.emit()">Reload before saving</button>
           </section>
         }
 
@@ -378,6 +378,8 @@ export class TaskEditorComponent implements OnChanges, OnInit, OnDestroy {
   @Input() mutationState: TaskMutationState = { status: 'idle' };
   @Output() save = new EventEmitter<TaskEditorSaveRequest>();
   @Output() cancel = new EventEmitter<void>();
+  /** Reloading after a stale version must fetch the server-authoritative task. */
+  @Output() reloadRequested = new EventEmitter<void>();
   /** Exposes unsaved form state without leaking the editor implementation to its parent. */
   @Output() dirtyChange = new EventEmitter<boolean>();
   private formChanges: Subscription | null = null;

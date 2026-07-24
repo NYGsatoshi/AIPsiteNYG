@@ -7,7 +7,7 @@ import { AppEmptyStateComponent } from '../../../shared/empty-state/app-empty-st
 import { AppInlineLoadingComponent } from '../../../shared/loading/app-inline-loading/app-inline-loading.component';
 import { AppPermissionDeniedComponent } from '../../../shared/permission/app-permission-denied/app-permission-denied.component';
 import { ProjectsFacade } from '../projects.facade';
-import { TaskDetailSection, TaskDetailSectionState, TaskEditorSaveRequest } from '../projects.types';
+import { TASK_LABEL_DESCRIPTION_MAX_LENGTH, TASK_LABEL_NAME_MAX_LENGTH, TaskDetailSection, TaskDetailSectionState, TaskEditorSaveRequest } from '../projects.types';
 import { TaskDependenciesReadonlyComponent } from '../task-dependencies-readonly/task-dependencies-readonly.component';
 import { TaskEditorComponent } from '../task-editor/task-editor.component';
 import { TaskProgressFieldComponent } from '../task-progress-field/task-progress-field.component';
@@ -67,6 +67,8 @@ export class TaskDetailPageComponent implements OnDestroy {
   readonly editingCommentId = signal<string | null>(null);
   readonly editingCommentBody = signal('');
   readonly editingCommentImportant = signal(false);
+  private readonly originalCommentBody = signal('');
+  private readonly originalCommentImportant = signal(false);
   readonly editingChecklistId = signal<string | null>(null);
   readonly editingChecklistText = signal('');
   private readonly originalChecklistText = signal('');
@@ -83,6 +85,8 @@ export class TaskDetailPageComponent implements OnDestroy {
   readonly fileDownloadMessage = signal('');
   readonly subtaskTitle = signal('');
   readonly taskEditorDirty = signal(false);
+  readonly labelNameMaxLength = TASK_LABEL_NAME_MAX_LENGTH;
+  readonly labelDescriptionMaxLength = TASK_LABEL_DESCRIPTION_MAX_LENGTH;
   /** One local source of truth for realtime protection; focus alone never makes this true. */
   readonly detailEditing = computed(() =>
     this.taskEditorDirty() ||
@@ -90,7 +94,7 @@ export class TaskDetailPageComponent implements OnDestroy {
     this.checklistText().trim().length > 0 ||
     (this.editingChecklistId() !== null && this.editingChecklistText().trim() !== this.originalChecklistText().trim()) ||
     this.commentBody().trim().length > 0 ||
-    (this.editingCommentId() !== null && this.editingCommentBody().trim().length > 0) ||
+    (this.editingCommentId() !== null && (this.editingCommentBody().trim() !== this.originalCommentBody().trim() || this.editingCommentImportant() !== this.originalCommentImportant())) ||
     this.selectedLabelId().length > 0 || this.newLabelName().trim().length > 0 ||
     (this.editingLabelId() !== null && (this.editingLabelName().trim() !== this.originalLabelName().trim() || this.editingLabelDescription().trim() !== this.originalLabelDescription().trim() || this.editingLabelSortKey() !== this.originalLabelSortKey())) ||
     this.selectedAttachmentId().length > 0 ||
@@ -137,6 +141,11 @@ export class TaskDetailPageComponent implements OnDestroy {
     this.facade.clearTaskMutationState();
   }
 
+  reloadTaskAfterConflict(): void {
+    const taskId = this.taskId();
+    if (taskId) this.facade.reloadTaskAfterConflict(taskId);
+  }
+
   retry(): void { const taskId = this.taskId(); if (taskId) this.facade.retryTaskDetail(taskId); }
   retrySection(section: TaskDetailSection): void { const taskId = this.taskId(); if (taskId) this.facade.retrySection(taskId, section); }
   loadMore(section: 'subtasks' | 'comments' | 'files'): void { const taskId = this.taskId(); if (!taskId) return; if (section === 'subtasks') this.facade.loadMoreSubtasks(taskId); else if (section === 'comments') this.facade.loadMoreComments(taskId); else this.facade.loadMoreFiles(taskId); }
@@ -149,8 +158,8 @@ export class TaskDetailPageComponent implements OnDestroy {
   deleteChecklist(item: { id: string; version: string }): void { const vm = this.page(); if (vm.task) this.facade.deleteChecklist(vm.task.id, item.id, item.version); }
   moveChecklist(itemId: string, direction: -1 | 1): void { const vm = this.page(); if (!vm.task || !vm.detail) return; const ids = vm.detail.checklist.map(item => item.id); const from = ids.indexOf(itemId); const to = from + direction; if (from < 0 || to < 0 || to >= ids.length) return; [ids[from], ids[to]] = [ids[to], ids[from]]; this.facade.reorderChecklist(vm.task.id, ids, vm.detail.taskVersion); }
   postComment(): void { const vm = this.page(); const body = this.commentBody().trim(); if (vm.task && body && body.length <= 12000 && vm.detail?.permissions.canCreateComment) { this.facade.createComment(vm.task.id, body, this.commentImportant(), () => { this.commentBody.set(''); this.commentImportant.set(false); }); } }
-  editComment(comment: { id: string; body: string | null; isImportant: boolean }): void { if (comment.body !== null) { this.editingCommentId.set(comment.id); this.editingCommentBody.set(comment.body); this.editingCommentImportant.set(comment.isImportant); } }
-  cancelEditComment(): void { this.editingCommentId.set(null); this.editingCommentBody.set(''); this.editingCommentImportant.set(false); }
+  editComment(comment: { id: string; body: string | null; isImportant: boolean }): void { if (comment.body !== null) { this.editingCommentId.set(comment.id); this.editingCommentBody.set(comment.body); this.editingCommentImportant.set(comment.isImportant); this.originalCommentBody.set(comment.body); this.originalCommentImportant.set(comment.isImportant); } }
+  cancelEditComment(): void { this.editingCommentId.set(null); this.editingCommentBody.set(''); this.editingCommentImportant.set(false); this.originalCommentBody.set(''); this.originalCommentImportant.set(false); }
   saveComment(comment: { id: string; version: string }): void { const vm = this.page(); const body = this.editingCommentBody().trim(); if (vm.task && body && body.length <= 12000) this.facade.updateComment(vm.task.id, comment.id, body, this.editingCommentImportant(), comment.version, () => this.cancelEditComment()); }
   toggleImportant(comment: { id: string; body: string | null; isImportant: boolean; version: string }): void { const vm = this.page(); if (vm.task && comment.body !== null) this.facade.updateComment(vm.task.id, comment.id, comment.body, !comment.isImportant, comment.version); }
   deleteComment(comment: { id: string; version: string }): void { const vm = this.page(); if (vm.task) this.facade.deleteComment(vm.task.id, comment.id, comment.version); }
@@ -158,10 +167,10 @@ export class TaskDetailPageComponent implements OnDestroy {
   removeLabel(labelId: string): void { const vm = this.page(); if (vm.task) this.facade.removeLabel(vm.task.id, labelId); }
   applyLabel(): void { const vm = this.page(); const labelId = this.selectedLabelId(); if (vm.task && labelId && vm.detail?.permissions.canApplyLabels) this.facade.applyLabel(vm.task.id, labelId, () => this.selectedLabelId.set('')); }
   refreshLabelDefinitions(): void { const vm = this.page(); if (vm.task) this.facade.loadProjectLabelDefinitions(vm.task.projectId, true); }
-  createLabel(): void { const vm = this.page(); if (vm.task && this.newLabelName().trim().length <= 200 && vm.detail?.permissions.canManageLabelDefinitions) this.facade.createProjectLabel(vm.task.id, vm.task.projectId, this.newLabelName(), () => this.newLabelName.set('')); }
+  createLabel(): void { const vm = this.page(); if (vm.task && this.newLabelName().trim().length > 0 && this.newLabelName().trim().length <= TASK_LABEL_NAME_MAX_LENGTH && vm.detail?.permissions.canManageLabelDefinitions) this.facade.createProjectLabel(vm.task.id, vm.task.projectId, this.newLabelName(), () => this.newLabelName.set('')); }
   editLabel(label: { id: string; name: string; description: string | null; sortKey: string }): void { this.editingLabelId.set(label.id); this.editingLabelName.set(label.name); this.editingLabelDescription.set(label.description ?? ''); this.editingLabelSortKey.set(label.sortKey); this.originalLabelName.set(label.name); this.originalLabelDescription.set(label.description ?? ''); this.originalLabelSortKey.set(label.sortKey); }
   cancelEditLabel(): void { this.editingLabelId.set(null); this.editingLabelName.set(''); this.editingLabelDescription.set(''); this.editingLabelSortKey.set(''); this.originalLabelName.set(''); this.originalLabelDescription.set(''); this.originalLabelSortKey.set(''); }
-  saveLabel(label: { id: string; version: string }): void { const vm = this.page(); const sortKey = Number(this.editingLabelSortKey()); if (vm.task && this.editingLabelName().trim() && this.editingLabelName().trim().length <= 200 && this.editingLabelDescription().length <= 2000 && Number.isSafeInteger(sortKey) && sortKey >= 0) this.facade.updateProjectLabel(vm.task.id, vm.task.projectId, label.id, this.editingLabelName(), this.editingLabelDescription(), this.editingLabelSortKey(), label.version, () => this.cancelEditLabel()); }
+  saveLabel(label: { id: string; version: string }): void { const vm = this.page(); const sortKey = Number(this.editingLabelSortKey()); if (vm.task && this.editingLabelName().trim() && this.editingLabelName().trim().length <= TASK_LABEL_NAME_MAX_LENGTH && this.editingLabelDescription().trim().length <= TASK_LABEL_DESCRIPTION_MAX_LENGTH && Number.isSafeInteger(sortKey) && sortKey >= 0) this.facade.updateProjectLabel(vm.task.id, vm.task.projectId, label.id, this.editingLabelName(), this.editingLabelDescription(), this.editingLabelSortKey(), label.version, () => this.cancelEditLabel()); }
   setLabelArchived(label: { id: string; version: string }, archived: boolean): void { const vm = this.page(); if (vm.task) this.facade.setProjectLabelArchived(vm.task.id, vm.task.projectId, label.id, label.version, archived); }
   checklistCompletedCount(): number { return this.page().detail?.checklist.filter((item) => item.isCompleted).length ?? 0; }
   isAppliedLabel(): boolean { const detail = this.page().detail; return !!detail?.labels.some((label) => label.id === this.selectedLabelId()); }
@@ -174,7 +183,7 @@ export class TaskDetailPageComponent implements OnDestroy {
 
   private resetLocalTaskDraftState(): void {
     this.subtaskTitle.set(''); this.checklistText.set(''); this.editingChecklistId.set(null); this.editingChecklistText.set(''); this.originalChecklistText.set(''); this.taskEditorDirty.set(false);
-    this.commentBody.set(''); this.commentImportant.set(false); this.editingCommentId.set(null); this.editingCommentBody.set(''); this.editingCommentImportant.set(false);
+    this.commentBody.set(''); this.commentImportant.set(false); this.cancelEditComment();
     this.selectedLabelId.set(''); this.newLabelName.set(''); this.cancelEditLabel(); this.selectedAttachmentId.set(''); this.fileDownloadMessage.set('');
     this.files.cancelAttachmentDownloads(); this.files.clearPickerFiles(); this.facade.setDetailEditing(false);
   }

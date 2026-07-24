@@ -53,8 +53,14 @@ export const TaskEditorDefault: Story = {};
 
 export const RowVersionConflict: Story = withScenario('rowVersionConflict');
 
+/** Task editor's 409 recovery affordance; it is distinct from ordinary cancel. */
+export const TaskSaveConflict: Story = withScenario('taskSaveConflict');
+
 export const InvalidStateTransition: Story = withScenario('invalidStateTransition');
 
 export const MilestoneReadOnly: Story = withScenario('milestoneReadOnly');
 
 export const DependenciesDisplayOnly: Story = withScenario('dependenciesDisplayOnly');
+
+/** Protected content is omitted when current project/task visibility is revoked. */
+export const PermissionRevoked: Story = withScenario('permissionDenied');

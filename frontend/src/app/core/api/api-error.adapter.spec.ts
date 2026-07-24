@@ -65,4 +65,11 @@ describe('api error adapter', () => {
       { target: 'Email', message: 'The Email field is required.' }
     ]);
   });
+
+  it('normalizes stale-version codes from top-level, nested, HTTP-only, and details envelopes', () => {
+    expect(normalizeApiError(new HttpErrorResponse({ status: 409, error: { code: 'TASK_STALE_VERSION' } })).code).toBe('TASK_STALE_VERSION');
+    expect(normalizeApiError(new HttpErrorResponse({ status: 409, error: { error: { code: 'TASK_STALE_VERSION', message: 'Stale' } } })).code).toBe('TASK_STALE_VERSION');
+    expect(normalizeApiError(new HttpErrorResponse({ status: 409, error: {} })).code).toBe('Http409');
+    expect(normalizeApiError(new HttpErrorResponse({ status: 409, error: { details: [{ code: 'TASK_STALE_VERSION' }] } })).details).toContainEqual({ code: 'TASK_STALE_VERSION', message: 'TASK_STALE_VERSION', target: undefined });
+  });
 });

@@ -261,6 +261,108 @@ describe('ProjectsFacade live API mutations', () => {
     expect(facade.getTaskDetail('project-1', 'task-1').editorTask?.title).toBe('Backend Task');
   });
 
+  it('reloads the authoritative task after an explicit save-conflict recovery and keeps conflict on reload failure', () => {
+    flushInitialLoad();
+    facade.ensureTaskDetail('project-1', 'task-1');
+    httpMock.expectOne('/api/tasks/task-1').flush({ task: editableTaskDto, checklist: [], labels: [], subtasks: { items: [] }, comments: { items: [] }, files: { items: [] } });
+    facade.saveTask('task-1', 'project-1', { title: 'Edited', description: '', priority: 'medium', startDate: '', dueDate: '', progressPercent: 1 });
+    httpMock.expectOne('/api/tasks/task-1').flush({ error: { code: 'TASK_STALE_VERSION', message: 'Stale' } }, { status: 409, statusText: 'Conflict' });
+
+    facade.reloadTaskAfterConflict('task-1');
+    const reload = httpMock.expectOne('/api/tasks/task-1');
+    facade.reloadTaskAfterConflict('task-1');
+    httpMock.expectNone('/api/tasks/task-1');
+    reload.flush({ message: 'temporary' }, { status: 500, statusText: 'Server Error' });
+    expect(facade.getTaskMutationState().status).toBe('conflict');
+
+    facade.reloadTaskAfterConflict('task-1');
+    httpMock.expectOne('/api/tasks/task-1').flush({ task: { ...editableTaskDto, title: 'Authoritative' }, checklist: [], labels: [], subtasks: { items: [] }, comments: { items: [] }, files: { items: [] } });
+    expect(facade.getTaskMutationState().status).toBe('idle');
+    expect(facade.getTaskDetail('project-1', 'task-1').editorTask?.title).toBe('Authoritative');
+  });
+
+  it('reauthorizes and removes protected detail when task save is forbidden', () => {
+    flushInitialLoad();
+    facade.ensureTaskDetail('project-1', 'task-1');
+    httpMock.expectOne('/api/tasks/task-1').flush({ task: editableTaskDto, checklist: [], labels: [], subtasks: { items: [] }, comments: { items: [] }, files: { items: [] } });
+    facade.saveTask('task-1', 'project-1', { title: 'Edited', description: '', priority: 'medium', startDate: '', dueDate: '', progressPercent: 1 });
+    httpMock.expectOne('/api/tasks/task-1').flush({}, { status: 403, statusText: 'Forbidden' });
+
+    expect(facade.getTaskDetail('project-1', 'task-1').detail).toBeUndefined();
+    httpMock.expectOne('/api/projects').flush({ items: [] });
+    expect(facade.getTaskDetail('project-1', 'task-1').status).toBe('empty');
+  });
+
+  it('reauthorizes when a successful detail mutation cannot reload protected detail', () => {
+    flushInitialLoad();
+    facade.ensureTaskDetail('project-1', 'task-1');
+    httpMock.expectOne('/api/tasks/task-1').flush({ task: editableTaskDto, checklist: [], labels: [], subtasks: { items: [] }, comments: { items: [] }, files: { items: [] } });
+    facade.setWatch('task-1', true, '1');
+    httpMock.expectOne('/api/tasks/task-1/watch').flush({});
+    httpMock.expectOne('/api/tasks/task-1').flush({}, { status: 403, statusText: 'Forbidden' });
+    expect(facade.getTaskDetail('project-1', 'task-1').detail).toBeUndefined();
+    httpMock.expectOne('/api/projects').flush({ items: [] });
+  });
+
+  it('clears a comment conflict after aggregate reload, while a page retry stays a page request', () => {
+    flushInitialLoad();
+    facade.ensureTaskDetail('project-1', 'task-1');
+    httpMock.expectOne('/api/tasks/task-1').flush({ task: editableTaskDto, checklist: [], labels: [], subtasks: { items: [] }, comments: { items: [{ id: 'comment-1', bodyPlainText: 'first' }] }, files: { items: [] } });
+    facade.updateComment('task-1', 'comment-1', 'changed', false, '1');
+    httpMock.expectOne('/api/task-comments/comment-1').flush({ code: 'TASK_STALE_VERSION' }, { status: 409, statusText: 'Conflict' });
+    expect(facade.getDetailSectionState('comments').status).toBe('conflict');
+    facade.retrySection('task-1', 'comments');
+    httpMock.expectOne('/api/tasks/task-1').flush({ task: editableTaskDto, checklist: [], labels: [], subtasks: { items: [] }, comments: { items: [{ id: 'comment-1', bodyPlainText: 'latest' }] }, files: { items: [] } });
+    expect(facade.getDetailSectionState('comments').status).toBe('ready');
+  });
+
+  it('does not let a label-definition GET overwrite a submitting label mutation', () => {
+    flushInitialLoad([]);
+    facade.ensureTaskDetail('project-1', 'task-1');
+    httpMock.expectOne('/api/tasks/task-1').flush({ task: editableTaskDto, permissions: { canApplyLabels: true }, checklist: [], labels: [], subtasks: { items: [] }, comments: { items: [] }, files: { items: [] } });
+    const definitions = httpMock.expectOne('/api/projects/project-1/task-labels?includeArchived=true');
+    facade.applyLabel('task-1', 'label-1');
+    const mutation = httpMock.expectOne('/api/tasks/task-1/labels/label-1');
+    definitions.flush([{ id: 'label-1', name: 'Label', sortKey: 1, isArchived: false, version: 1 }]);
+    expect(facade.getDetailSectionState('labels').status).toBe('submitting');
+    mutation.flush({});
+    httpMock.expectOne('/api/tasks/task-1').flush({ task: editableTaskDto, permissions: { canApplyLabels: true }, checklist: [], labels: [{ id: 'label-1', name: 'Label' }], subtasks: { items: [] }, comments: { items: [] }, files: { items: [] } });
+    expect(facade.getDetailSectionState('labels').status).toBe('ready');
+  });
+
+  it('clears checklist, file, and label conflicts only after their authoritative aggregate reloads', () => {
+    flushInitialLoad();
+    facade.ensureTaskDetail('project-1', 'task-1');
+    const aggregate = { task: editableTaskDto, checklist: [{ id: 'check-1', text: 'one', isCompleted: false, version: 1 }], labels: [{ id: 'label-1', name: 'Label' }], subtasks: { items: [] }, comments: { items: [] }, files: { items: [{ id: 'file-1', fileName: 'one.txt' }] } };
+    httpMock.expectOne('/api/tasks/task-1').flush(aggregate);
+
+    facade.updateChecklist('task-1', 'check-1', 'next', false, '1');
+    httpMock.expectOne('/api/tasks/task-1/checklist/check-1').flush({ code: 'TASK_STALE_VERSION' }, { status: 409, statusText: 'Conflict' });
+    facade.retrySection('task-1', 'checklist');
+    httpMock.expectOne('/api/tasks/task-1').flush(aggregate);
+    expect(facade.getDetailSectionState('checklist').status).toBe('ready');
+
+    facade.associateFile('task-1', 'file-2', '1');
+    httpMock.expectOne('/api/tasks/task-1/files').flush({ code: 'TASK_STALE_VERSION' }, { status: 409, statusText: 'Conflict' });
+    facade.retrySection('task-1', 'files');
+    httpMock.expectOne('/api/tasks/task-1').flush(aggregate);
+    expect(facade.getDetailSectionState('files').status).toBe('ready');
+
+    facade.applyLabel('task-1', 'label-1');
+    httpMock.expectOne('/api/tasks/task-1/labels/label-1').flush({ code: 'TASK_STALE_VERSION' }, { status: 409, statusText: 'Conflict' });
+    facade.retrySection('task-1', 'labels');
+    httpMock.expectOne('/api/tasks/task-1').flush(aggregate);
+    expect(facade.getDetailSectionState('labels').status).toBe('ready');
+  });
+
+  it('does not send label create or update requests beyond backend-trimmed limits', () => {
+    flushInitialLoad();
+    facade.createProjectLabel('task-1', 'project-1', 'n'.repeat(121));
+    facade.updateProjectLabel('task-1', 'project-1', 'label-1', 'n'.repeat(121), '', '1', '1');
+    facade.updateProjectLabel('task-1', 'project-1', 'label-1', 'valid', 'd'.repeat(1001), '1', '1');
+    httpMock.expectNone(request => request.url.includes('/task-labels'));
+  });
+
   it('retries the same failed comments page without duplicating existing comments', () => {
     flushInitialLoad();
     facade.ensureTaskDetail('project-1', 'task-1');

@@ -219,6 +219,15 @@ export const PROJECTS_SCENARIOS = {
     tasks: DEFAULT_TASKS,
     currentUserAssignee: 'Sample Member 01'
   },
+  taskSaveConflict: {
+    status: 'ready',
+    title: 'Task detail',
+    subtitle: 'Task save conflict',
+    projects: DEFAULT_PROJECTS,
+    tasks: DEFAULT_TASKS,
+    currentUserAssignee: 'Sample Member 01',
+    taskMutationState: { status: 'conflict', message: 'The task changed on the server. Reload before saving.', requestId: 'story-task-conflict' }
+  },
   invalidStateTransition: {
     status: 'ready',
     detailState: 'invalidStateTransition',

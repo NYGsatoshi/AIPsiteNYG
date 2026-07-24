@@ -232,6 +232,9 @@ export interface TaskDetailAggregateViewModel {
 }
 
 export interface TaskDetailPermissionsViewModel { readonly canCreateSubtask: boolean; readonly canCreateChecklistItem: boolean; readonly canUpdateChecklistItems: boolean; readonly canDeleteChecklistItems: boolean; readonly canReorderChecklist: boolean; readonly canCreateComment: boolean; readonly canMarkCommentImportant: boolean; readonly canApplyLabels: boolean; readonly canManageLabelDefinitions: boolean; readonly canAssociateFiles: boolean; readonly canRemoveFiles: boolean; readonly canChangeWatch: boolean; }
+/** Mirrors ProjectTaskLabel validation in the backend TaskSubresourceService. */
+export const TASK_LABEL_NAME_MAX_LENGTH = 120;
+export const TASK_LABEL_DESCRIPTION_MAX_LENGTH = 1000;
 export interface TaskPageViewModel<T> { readonly items: readonly T[]; readonly page: number; readonly pageSize: number; readonly totalCount: number; readonly hasMore: boolean; }
 export interface TaskChecklistViewModel { readonly id: string; readonly text: string; readonly isCompleted: boolean; readonly completedAt: string | null; readonly completedByUserId: string | null; readonly sortKey: string; readonly version: string; }
 export interface TaskLabelViewModel { readonly id: string; readonly name: string; readonly description: string | null; readonly sortKey: string; readonly isArchived: boolean; readonly version: string; }
@@ -264,6 +267,8 @@ export interface CreateTaskFormRequest {
 export interface ProjectsScenario {
   readonly status: ProjectsPageStatus;
   readonly detailState?: TaskDetailState;
+  /** Story-only editor state; this does not model an API response. */
+  readonly taskMutationState?: TaskMutationState;
   readonly title: string;
   readonly subtitle: string;
   readonly projects: readonly ProjectMockRecord[];

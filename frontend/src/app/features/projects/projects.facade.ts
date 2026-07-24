@@ -27,6 +27,8 @@ import {
   TASK_STATUS_BACKEND_AUTHORITATIVE_NOTE,
   TaskDetailAggregateViewModel,
   TaskDetailViewModel,
+  TASK_LABEL_DESCRIPTION_MAX_LENGTH,
+  TASK_LABEL_NAME_MAX_LENGTH,
   TaskEditorSaveRequest,
   TaskGridRow,
   TaskDetailSection,
@@ -72,6 +74,7 @@ export class ProjectsFacade {
   private detailRequest: Subscription | null = null;
   private readonly pageRequests = new Map<TaskDetailSection, Subscription>();
   private labelRequest: Subscription | null = null;
+  private taskConflictReloadInProgress = false;
   private readonly detailMutations = new Set<Subscription>();
   private readonly taskDetails = signal<Record<string, CanonicalTaskDetailDto>>({});
   private readonly projectLabelDefinitions = signal<Record<string, readonly TaskLabelDto[]>>({});
@@ -204,7 +207,7 @@ export class ProjectsFacade {
   }
 
   getTaskMutationState(): TaskMutationState {
-    return this.taskMutationState();
+    return this.scenario?.taskMutationState ?? this.taskMutationState();
   }
 
   getTaskCreateMutationState(): TaskMutationState {
@@ -233,30 +236,36 @@ export class ProjectsFacade {
     this.labelRequest = this.http.get<readonly TaskLabelDto[]>(`/api/projects/${projectId}/task-labels?includeArchived=true`, { withCredentials: true })
       .pipe(finalize(() => { if (this.isActive(taskId, generation)) this.labelRequest = null; }))
       .subscribe({
-        next: labels => {
+      next: labels => {
           if (!this.isActive(taskId, generation)) return;
           this.projectLabelDefinitions.update(current => ({ ...current, [projectId]: labels }));
           this.setLabelDefinitionState(projectId, { status: labels.length ? 'ready' : 'empty' });
           onReady?.();
         },
-        error: error => {
-          if (!this.isActive(taskId, generation)) return;
-          const failure = toSectionFailure(error, 'Label definitions could not be loaded.');
-          this.setLabelDefinitionState(projectId, failure);
+      error: error => {
+        if (!this.isActive(taskId, generation)) return;
+        const normalized = normalizeApiError(error);
+        if ((normalized.httpStatus === 401 || normalized.httpStatus === 403) && !isLabelDefinitionOnlyPermissionDenied(normalized.code)) {
+          this.reauthorizeActiveState();
+          return;
+        }
+        const failure = toSectionFailure(error, 'Label definitions could not be loaded.');
+        this.setLabelDefinitionState(projectId, failure);
         }
       });
   }
 
   createProjectLabel(taskId: string, projectId: string, name: string, onSuccess?: () => void): void {
     const trimmed = name.trim();
-    if (!trimmed) return;
+    if (!trimmed || trimmed.length > TASK_LABEL_NAME_MAX_LENGTH) return;
     this.runDetailCommand(taskId, 'labels', this.http.post(`/api/projects/${projectId}/task-labels`, { name: trimmed, description: null }, { withCredentials: true }), () => this.loadProjectLabelDefinitions(projectId, true, onSuccess));
   }
 
   updateProjectLabel(taskId: string, projectId: string, labelId: string, name: string, description: string, sortKey: string, expectedVersion: string, onSuccess?: () => void): void {
     const trimmed = name.trim();
-    if (!trimmed) return;
-    this.runDetailCommand(taskId, 'labels', this.http.patch(`/api/projects/${projectId}/task-labels/${labelId}`, { name: trimmed, description: description.trim() || null, sortKey: Number(sortKey), expectedVersion: Number(expectedVersion) }, { withCredentials: true }), () => this.loadProjectLabelDefinitions(projectId, true, onSuccess));
+    const trimmedDescription = description.trim();
+    if (!trimmed || trimmed.length > TASK_LABEL_NAME_MAX_LENGTH || trimmedDescription.length > TASK_LABEL_DESCRIPTION_MAX_LENGTH) return;
+    this.runDetailCommand(taskId, 'labels', this.http.patch(`/api/projects/${projectId}/task-labels/${labelId}`, { name: trimmed, description: trimmedDescription || null, sortKey: Number(sortKey), expectedVersion: Number(expectedVersion) }, { withCredentials: true }), () => this.loadProjectLabelDefinitions(projectId, true, onSuccess));
   }
 
   setProjectLabelArchived(taskId: string, projectId: string, labelId: string, expectedVersion: string, archived: boolean): void {
@@ -266,12 +275,19 @@ export class ProjectsFacade {
 
   retryTaskDetail(taskId: string): void { this.loadTaskDetail(taskId); }
 
+  /** Reload a stale editor only after an explicit user request; cancel never reaches this path. */
+  reloadTaskAfterConflict(taskId: string): void {
+    if (this.scenario || this.taskConflictReloadInProgress || this.taskMutationState().status !== 'conflict' || !this.isActive(taskId, this.detailGeneration)) return;
+    this.taskConflictReloadInProgress = true;
+    this.loadTaskDetail(taskId, undefined, true);
+  }
+
   loadMoreSubtasks(taskId: string): void { this.loadNextPage(taskId, 'subtasks'); }
   loadMoreComments(taskId: string): void { this.loadNextPage(taskId, 'comments'); }
   loadMoreFiles(taskId: string): void { this.loadNextPage(taskId, 'files'); }
   retrySection(taskId: string, section: TaskDetailSection): void {
     const failed = this.getDetailSectionState(section);
-    if (section === 'detail' || failed.retryKind === 'aggregate') this.loadTaskDetail(taskId);
+    if (section === 'detail' || failed.retryKind === 'aggregate') this.loadTaskDetail(taskId, section);
     else if (section === 'labels') {
       const projectId = this.taskDetails()[taskId]?.task?.projectId;
       if (typeof projectId === 'string') this.loadProjectLabelDefinitions(projectId, true);
@@ -334,6 +350,11 @@ export class ProjectsFacade {
         },
         error: (error: unknown) => {
           if (!isCurrent()) return;
+          const normalized = normalizeApiError(error);
+          if (normalized.httpStatus === 401 || normalized.httpStatus === 403) {
+            this.reauthorizeActiveState();
+            return;
+          }
           this.taskMutationState.set(toFailureState(error, 'Task save failed.'));
         }
       });
@@ -507,7 +528,7 @@ export class ProjectsFacade {
       .pipe(map((detail) => ({ task: mapTaskDtoToRecord((detail.task ?? detail) as TaskDto, this.authorizedProjects()), detail })));
   }
 
-  private loadTaskDetail(taskId: string): void {
+  private loadTaskDetail(taskId: string, recoverySection?: TaskDetailSection, clearTaskMutationOnSuccess = false): void {
     if (this.scenario) {
       return;
     }
@@ -524,15 +545,24 @@ export class ProjectsFacade {
         if (!this.isAuthorizationCurrent(authorizationGeneration) || !this.isActive(taskId, generation)) return;
         this.taskDetails.update((details) => ({ ...details, [taskId]: response.detail }));
         this.replaceTask(response.task);
-        this.setSectionState('detail', { status: 'ready' });
+        this.applyAggregateSectionStates(response.detail, recoverySection);
+        if (clearTaskMutationOnSuccess) this.taskMutationState.set({ status: 'idle' });
+        this.taskConflictReloadInProgress = false;
         const projectId = response.detail.task?.projectId;
         const permissions = response.detail.permissions;
         if (typeof projectId === 'string' && (permissions?.canApplyLabels === true || permissions?.canManageLabelDefinitions === true)) this.loadProjectLabelDefinitions(projectId);
       },
       error: (error: unknown) => {
         if (!this.isAuthorizationCurrent(authorizationGeneration) || !this.isActive(taskId, generation)) return;
-        this.taskDetails.set({});
-        this.setSectionState('detail', toSectionFailure(error, 'Task detail could not be loaded.'));
+        this.taskConflictReloadInProgress = false;
+        const normalized = normalizeApiError(error);
+        if (normalized.httpStatus === 401 || normalized.httpStatus === 403) {
+          this.reauthorizeActiveState();
+          return;
+        }
+        const failure = toSectionFailure(error, 'Task detail could not be loaded.');
+        this.setSectionState('detail', failure);
+        if (recoverySection && recoverySection !== 'detail') this.setSectionState(recoverySection, failure);
       }
     });
   }
@@ -575,6 +605,11 @@ export class ProjectsFacade {
       next: result => {
         if (!this.isAuthorizationCurrent(authorizationGeneration) || !this.isActive(taskId, generation)) return;
         if ('reloadError' in result) {
+          const normalized = normalizeApiError(result.reloadError);
+          if (normalized.httpStatus === 401 || normalized.httpStatus === 403) {
+            this.reauthorizeActiveState();
+            return;
+          }
           const reloadFailure = toSectionFailure(result.reloadError, 'Saved successfully, but the latest task detail could not be loaded.');
           this.setSectionState(section, { ...reloadFailure, status: reloadFailure.status === 'permissionDenied' ? 'permissionDenied' : 'error', message: `Saved successfully, but the latest task detail could not be loaded. ${reloadFailure.message ?? ''}`.trim(), retryKind: 'aggregate' });
           this.taskMutationState.set({ status: 'success' });
@@ -582,7 +617,7 @@ export class ProjectsFacade {
         }
         this.taskDetails.update((details) => ({ ...details, [taskId]: result.response.detail }));
         this.replaceTask(result.response.task);
-        this.setSectionState(section, { status: 'success' });
+        this.applyAggregateSectionStates(result.response.detail, section);
         this.taskMutationState.set({ status: 'success' });
         onSuccess?.();
       },
@@ -649,6 +684,7 @@ export class ProjectsFacade {
     this.pageRequests.clear();
     this.detailMutations.forEach(request => request.unsubscribe());
     this.detailMutations.clear();
+    this.taskConflictReloadInProgress = false;
     this.taskDetails.set({});
     this.projectLabelDefinitions.set({});
     this.labelDefinitionStates.set({});
@@ -675,7 +711,27 @@ export class ProjectsFacade {
 
   private setLabelDefinitionState(projectId: string, state: TaskDetailSectionState): void {
     this.labelDefinitionStates.update(current => ({ ...current, [projectId]: state }));
-    this.setSectionState('labels', state);
+  }
+
+  /** An aggregate response is authoritative for task sections, not label-definition query state. */
+  private applyAggregateSectionStates(detail: CanonicalTaskDetailDto, forceSection?: TaskDetailSection): void {
+    const itemState = (items: readonly unknown[] | undefined): TaskDetailSectionState => ({ status: items?.length ? 'ready' : 'empty' });
+    const next: Partial<Record<TaskDetailSection, TaskDetailSectionState>> = {
+      detail: { status: 'ready' },
+      subtasks: itemState(detail.subtasks?.items),
+      checklist: itemState(detail.checklist),
+      comments: itemState(detail.comments?.items),
+      labels: itemState(detail.labels),
+      watch: { status: 'ready' },
+      files: itemState(detail.files?.items)
+    };
+    this.sectionStates.update(current => {
+      const updated = { ...current };
+      for (const [section, state] of Object.entries(next) as [TaskDetailSection, TaskDetailSectionState][]) {
+        if (section === forceSection || current[section].status !== 'submitting') updated[section] = state;
+      }
+      return updated;
+    });
   }
 
   private emptySectionStates(): Record<TaskDetailSection, TaskDetailSectionState> {
@@ -912,6 +968,11 @@ function toSectionFailure(error: unknown, fallback: string): TaskDetailSectionSt
   if (normalized.httpStatus === 401 || normalized.httpStatus === 403) return { status: 'permissionDenied', message: 'Permission was denied. Protected task data was removed.', retryable: true, retryKind: 'authorization', requestId: normalized.requestId };
   if (normalized.httpStatus === 409 || normalized.code === 'TASK_STALE_VERSION') return { status: 'conflict', message: normalized.message || fallback, retryable: true, retryKind: 'aggregate', requestId: normalized.requestId };
   return { status: 'error', message: normalized.message || fallback, retryable: true, requestId: normalized.requestId };
+}
+
+/** The label list endpoint can deny definition management without revoking task visibility. */
+function isLabelDefinitionOnlyPermissionDenied(code: string): boolean {
+  return code === 'TASK_LABEL_FORBIDDEN' || code === 'TASK_LABEL_DEFINITION_FORBIDDEN';
 }
 
 function stringValue(value: unknown): string | undefined {

@@ -47,7 +47,7 @@ export function normalizeApiError(input: unknown, explicitStatus?: number): Fron
   const body = readErrorBody(httpError?.error ?? input);
   const nested = body.error && typeof body.error === 'object' ? readErrorBody(body.error) : {};
   const localErrorId = createLocalErrorId();
-  const requestId = firstString(body.requestId, body.RequestId, body.traceId, body.TraceId);
+  const requestId = firstString(body.requestId, body.RequestId, body.traceId, body.TraceId, nested.requestId, nested.RequestId, nested.traceId, nested.TraceId);
   const code = firstString(body.code, body.Code, nested.code, nested.Code) ?? statusCodeToCode(httpStatus);
   const validationDetails = normalizeValidationErrors(body.errors ?? body.Errors);
   const message =
@@ -136,13 +136,14 @@ function normalizeDetails(details: unknown): readonly FrontendApiErrorDetail[] {
       }
 
       const envelope = detail as ErrorEnvelope;
-      const message = firstString(envelope.message, envelope.Message) ?? firstString(envelope.error);
+      const code = firstString(envelope.code, envelope.Code);
+      const message = firstString(envelope.message, envelope.Message) ?? firstString(envelope.error) ?? code;
       if (!message) {
         return null;
       }
 
       return {
-        code: firstString(envelope.code, envelope.Code),
+        code,
         message,
         target: firstString(envelope.target, envelope.Target)
       };
