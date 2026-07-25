@@ -10,6 +10,9 @@ public readonly record struct OptionalString(bool IsSpecified, string? Value)
     public static implicit operator OptionalString(string? value) => new(true, value);
 }
 
+/// <summary>Distinguishes an omitted JSON number from an explicitly supplied null.</summary>
+public readonly record struct OptionalInt64(bool IsSpecified, long? Value);
+
 public sealed class OptionalStringJsonConverter : JsonConverter<OptionalString>
 {
     public override bool HandleNull => true;
@@ -32,7 +35,7 @@ public sealed record UpdateTaskCommentRequest(string? BodyPlainText, bool? IsImp
 public sealed record ProjectTaskLabelResponse(Guid Id, string Name, string? Description, long SortKey, bool IsArchived, long Version);
 public sealed record CreateProjectTaskLabelRequest(string Name, string? Description, long? SortKey = null);
 [JsonConverter(typeof(UpdateProjectTaskLabelRequestJsonConverter))]
-public sealed record UpdateProjectTaskLabelRequest(string? Name, OptionalString Description, long? SortKey, long ExpectedVersion);
+public sealed record UpdateProjectTaskLabelRequest(OptionalString Name, OptionalString Description, OptionalInt64 SortKey, long? ExpectedVersion);
 
 /// <summary>
 /// Constructor binding collapses JSON null and a missing value for value-object
@@ -46,26 +49,52 @@ public sealed class UpdateProjectTaskLabelRequestJsonConverter : JsonConverter<U
         var root = document.RootElement;
         if (root.ValueKind != JsonValueKind.Object) throw new JsonException("A label patch object is required.");
 
-        var name = root.TryGetProperty("name", out var nameProperty) && nameProperty.ValueKind != JsonValueKind.Null ? nameProperty.GetString() : null;
-        var description = root.TryGetProperty("description", out var descriptionProperty)
-            ? new OptionalString(true, descriptionProperty.ValueKind == JsonValueKind.Null ? null : descriptionProperty.GetString())
+        var name = root.TryGetProperty("name", out var nameProperty)
+            ? new OptionalString(true, ReadStringOrNull(nameProperty, "name"))
             : default;
-        long? sortKey = root.TryGetProperty("sortKey", out var sortKeyProperty) && sortKeyProperty.ValueKind != JsonValueKind.Null ? sortKeyProperty.GetInt64() : null;
-        var expectedVersion = root.TryGetProperty("expectedVersion", out var versionProperty) && versionProperty.ValueKind != JsonValueKind.Null ? versionProperty.GetInt64() : 0;
+        var description = root.TryGetProperty("description", out var descriptionProperty)
+            ? new OptionalString(true, ReadStringOrNull(descriptionProperty, "description"))
+            : default;
+        var sortKey = root.TryGetProperty("sortKey", out var sortKeyProperty)
+            ? new OptionalInt64(true, ReadInt64OrNull(sortKeyProperty, "sortKey"))
+            : default;
+        var expectedVersion = root.TryGetProperty("expectedVersion", out var versionProperty) ? ReadInt64OrNull(versionProperty, "expectedVersion") : null;
         return new UpdateProjectTaskLabelRequest(name, description, sortKey, expectedVersion);
     }
 
     public override void Write(Utf8JsonWriter writer, UpdateProjectTaskLabelRequest value, JsonSerializerOptions options)
     {
         writer.WriteStartObject();
-        if (value.Name is null) writer.WriteNull("name"); else writer.WriteString("name", value.Name);
+        if (value.Name.IsSpecified)
+        {
+            if (value.Name.Value is null) writer.WriteNull("name"); else writer.WriteString("name", value.Name.Value);
+        }
         if (value.Description.IsSpecified)
         {
             if (value.Description.Value is null) writer.WriteNull("description"); else writer.WriteString("description", value.Description.Value);
         }
-        if (value.SortKey.HasValue) writer.WriteNumber("sortKey", value.SortKey.Value); else writer.WriteNull("sortKey");
-        writer.WriteNumber("expectedVersion", value.ExpectedVersion);
+        if (value.SortKey.IsSpecified)
+        {
+            if (value.SortKey.Value.HasValue) writer.WriteNumber("sortKey", value.SortKey.Value.Value); else writer.WriteNull("sortKey");
+        }
+        if (value.ExpectedVersion.HasValue) writer.WriteNumber("expectedVersion", value.ExpectedVersion.Value);
         writer.WriteEndObject();
+    }
+
+    private static string? ReadStringOrNull(JsonElement property, string name) => property.ValueKind switch
+    {
+        JsonValueKind.Null => null,
+        JsonValueKind.String => property.GetString(),
+        _ => throw new JsonException($"'{name}' must be a string or null.")
+    };
+
+    private static long? ReadInt64OrNull(JsonElement property, string name)
+    {
+        if (property.ValueKind == JsonValueKind.Null)
+            return null;
+        if (property.ValueKind != JsonValueKind.Number || !property.TryGetInt64(out var value))
+            throw new JsonException($"'{name}' must be an integer or null.");
+        return value;
     }
 }
 public sealed record TaskLabelAssociationRequest(long ExpectedVersion);

@@ -80,7 +80,7 @@ public sealed class TaskSubresourceService(
         var subtask = new TaskItem { WorkspaceId = parent.WorkspaceId, ProjectId = parent.ProjectId, ParentTaskItemId = parent.Id, Kind = AipPortal.Domain.Enums.WorkItemKind.Task, Title = title, Description = NullableText(request.Description, 12000), Priority = request.Priority, CreatedByUserId = Actor(), SortKey = siblings.Count == 0 ? 1024 : siblings.Max(x => x.SortKey) + 1024 };
         await projects.AddTaskAsync(subtask, ct);
         await projects.AddWatchStateAsync(TaskWatchStateInitializer.ForCreator(subtask, Actor(), clock.UtcNow), ct);
-        if (!await CommitAsync(parent, "TaskSubtaskCreated", "subtasksChanged", new Dictionary<string, object?> { ["subtaskId"] = subtask.Id }, ct)) return Fail<TaskSubtaskResponse>("TASK_STALE_VERSION", "Task has changed. Refetch and retry.");
+        if (!await CommitSubtaskCreationAsync(parent, subtask, ct)) return Fail<TaskSubtaskResponse>("TASK_STALE_VERSION", "Task has changed. Refetch and retry.");
         return Result<TaskSubtaskResponse>.Success(await ToSubtaskAsync(subtask, ct));
     }
     public async Task<Result<IReadOnlyList<TaskChecklistResponse>>> ListChecklistAsync(Guid taskId, CancellationToken ct = default)
@@ -191,10 +191,11 @@ public sealed class TaskSubresourceService(
     {
         var project = await ManagedProjectAsync(projectId, ct); var label = await ManagedLabelAsync(projectId, labelId, ct);
         if (project is null || label is null) return Fail<ProjectTaskLabelResponse>("TASK_LABEL_FORBIDDEN", "Label operation is not authorized.");
-        if (label.VersionNo != request.ExpectedVersion) return Fail<ProjectTaskLabelResponse>("TASK_STALE_VERSION", "Label has changed. Refetch and retry.");
-        if (request.Name is not null)
+        if (!request.ExpectedVersion.HasValue || request.ExpectedVersion.Value <= 0) return Fail<ProjectTaskLabelResponse>("TASK_INVALID_EXPECTED_VERSION", "Expected version is required and must be a positive integer.");
+        if (label.VersionNo != request.ExpectedVersion.Value) return Fail<ProjectTaskLabelResponse>("TASK_STALE_VERSION", "Label has changed. Refetch and retry.");
+        if (request.Name.IsSpecified)
         {
-            var name = Text(request.Name, 120); if (name is null) return Fail<ProjectTaskLabelResponse>("VALIDATION_FAILED", "Label name is required.");
+            var name = Text(request.Name.Value, 120); if (name is null) return Fail<ProjectTaskLabelResponse>("VALIDATION_FAILED", "Label name is required.");
             if ((await projects.ListTaskLabelsAsync(projectId, true, ct)).Any(x => x.Id != label.Id && string.Equals(x.Name.Trim(), name, StringComparison.OrdinalIgnoreCase))) return Fail<ProjectTaskLabelResponse>("TASK_LABEL_DUPLICATE", "A label with that name already exists.");
             label.Name = name;
         }
@@ -204,7 +205,11 @@ public sealed class TaskSubresourceService(
                 return Fail<ProjectTaskLabelResponse>("VALIDATION_FAILED", "Label description must be 1000 characters or fewer.");
             label.Description = NullableText(request.Description.Value, 1000);
         }
-        if (request.SortKey.HasValue) label.SortKey = request.SortKey.Value;
+        if (request.SortKey.IsSpecified)
+        {
+            if (!request.SortKey.Value.HasValue || request.SortKey.Value.Value < 0) return Fail<ProjectTaskLabelResponse>("VALIDATION_FAILED", "Label sort key must be a non-negative integer.");
+            label.SortKey = request.SortKey.Value.Value;
+        }
         label.VersionNo++;
         return await CommitLabelDefinitionAsync(project, label, "TaskLabelUpdated", "taskLabelsChanged", ct) ? Result<ProjectTaskLabelResponse>.Success(ToLabel(label)) : Fail<ProjectTaskLabelResponse>("TASK_STALE_VERSION", "Label has changed. Refetch and retry.");
     }
@@ -231,7 +236,40 @@ public sealed class TaskSubresourceService(
         await invalidations.ProjectChangedAsync(project, Actor(), change, ct);
         return await taskUnitOfWork.SaveTaskCommandAsync(ct) == TaskCommandSaveResult.Saved;
     }
-    private async Task<bool> CommitAsync(TaskItem task,string action,string change,IReadOnlyDictionary<string,object?>? metadata,CancellationToken ct){task.VersionNo++;await audit.LogAsync(new AuditLogEntry(Actor(),action,"TaskItem",task.Id,WorkspaceId:task.WorkspaceId,ProjectId:task.ProjectId,Metadata:metadata),ct);await invalidations.TaskChangedAsync(task,Actor(),change,cancellationToken:ct);return await taskUnitOfWork.SaveTaskCommandAsync(ct) == TaskCommandSaveResult.Saved;}
+    private async Task<bool> CommitAsync(TaskItem task,string action,string change,IReadOnlyDictionary<string,object?>? metadata,CancellationToken ct)
+    {
+        task.VersionNo++;
+        await audit.LogAsync(new AuditLogEntry(Actor(),action,"TaskItem",task.Id,WorkspaceId:task.WorkspaceId,ProjectId:task.ProjectId,Metadata:metadata),ct);
+        await invalidations.TaskChangedAsync(task,Actor(),change,cancellationToken:ct);
+        await AdvanceParentForChildMutationAsync(task, action, ct);
+        return await taskUnitOfWork.SaveTaskCommandAsync(ct) == TaskCommandSaveResult.Saved;
+    }
+
+    private async Task<bool> CommitSubtaskCreationAsync(TaskItem parent, TaskItem child, CancellationToken ct)
+    {
+        await audit.LogAsync(new AuditLogEntry(Actor(), "TaskCreated", "TaskItem", child.Id,
+            WorkspaceId: child.WorkspaceId, ProjectId: child.ProjectId,
+            Metadata: new Dictionary<string, object?> { ["parentTaskId"] = parent.Id, ["initialVersion"] = child.VersionNo }), ct);
+        await invalidations.TaskChangedAsync(child, Actor(), "created", affectedUserIds: [Actor()], cancellationToken: ct);
+        await AdvanceParentForChildMutationAsync(child, "TaskCreated", ct);
+        return await taskUnitOfWork.SaveTaskCommandAsync(ct) == TaskCommandSaveResult.Saved;
+    }
+
+    private async Task AdvanceParentForChildMutationAsync(TaskItem child, string childAction, CancellationToken ct)
+    {
+        if (!child.ParentTaskItemId.HasValue)
+            return;
+
+        var parent = await projects.GetTaskAsync(child.ParentTaskItemId.Value, ct);
+        if (parent is null || parent.DeletedAt.HasValue)
+            return;
+
+        parent.VersionNo++;
+        await audit.LogAsync(new AuditLogEntry(Actor(), "TaskSubtasksChanged", "TaskItem", parent.Id,
+            WorkspaceId: parent.WorkspaceId, ProjectId: parent.ProjectId,
+            Metadata: new Dictionary<string, object?> { ["childTaskId"] = child.Id, ["childAction"] = childAction, ["versionBefore"] = parent.VersionNo - 1 }), ct);
+        await invalidations.TaskChangedAsync(parent, Actor(), "subtasksChanged", cancellationToken: ct);
+    }
     private Guid Actor()=>currentUser.IsAuthenticated?currentUser.UserId??Guid.Empty:Guid.Empty; private static string? Text(string? s,int max)=>string.IsNullOrWhiteSpace(s)||s.Trim().Length>max?null:s.Trim();private static string? NullableText(string? s,int max)=>string.IsNullOrWhiteSpace(s)?null:s.Trim().Length>max?null:s.Trim();
     private static TaskChecklistResponse ToChecklist(TaskChecklistItem x)=>new(x.Id,x.Text,x.IsCompleted,x.CompletedAt,x.CompletedByUserId,x.SortKey,x.VersionNo); private static ProjectTaskLabelResponse ToLabel(ProjectTaskLabel x)=>new(x.Id,x.Name,x.Description,x.SortKey,x.IsArchived,x.VersionNo);
     private async Task<TaskSubtaskResponse> ToSubtaskAsync(TaskItem x, CancellationToken ct)

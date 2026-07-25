@@ -21,7 +21,8 @@ public sealed class ProjectService(
     IBusinessInvalidationPublisher invalidations,
     IAuthorizationStateChangePublisher authorizationChanges,
     IUnitOfWork unitOfWork,
-    IFeatureFlagService? featureFlags = null) : IProjectService
+    IFeatureFlagService? featureFlags = null,
+    ITaskWorkspaceTimeZoneResolver? timeZones = null) : IProjectService
 {
     private Task<bool>? taskDomainV1Enabled;
     public async Task<Result<PagedResponse<ProjectResponse>>> ListAsync(ProjectListQuery query, CancellationToken cancellationToken = default)
@@ -428,13 +429,17 @@ public sealed class ProjectService(
         }
 
         var tasks = await projects.ListTasksAsync(projectId, cancellationToken);
-        HashSet<Guid>? taskIdsForAssignee = query.AssignedUserId.HasValue
-            ? (await Task.WhenAll(tasks.Select(async task => new
-            {
-                task.Id,
-                IsAssigned = (await projects.ListAssignmentsAsync(task.Id, cancellationToken)).Any(assignment => assignment.UserId == query.AssignedUserId.Value)
-            }))).Where(item => item.IsAssigned).Select(item => item.Id).ToHashSet()
-            : null;
+        // Do not run concurrent operations over the scoped DbContext.  This
+        // compatibility filter is intentionally sequential until it is moved
+        // to the repository's SQL projection.
+        HashSet<Guid>? taskIdsForAssignee = null;
+        if (query.AssignedUserId.HasValue)
+        {
+            taskIdsForAssignee = [];
+            foreach (var task in tasks)
+                if ((await projects.ListAssignmentsAsync(task.Id, cancellationToken)).Any(assignment => assignment.UserId == query.AssignedUserId.Value))
+                    taskIdsForAssignee.Add(task.Id);
+        }
 
         var filtered = tasks
             .Where(task => !task.DeletedAt.HasValue)
@@ -444,8 +449,15 @@ public sealed class ProjectService(
             .Where(task => !query.MilestoneId.HasValue || task.MilestoneId == query.MilestoneId.Value)
             .Where(task => taskIdsForAssignee is null || taskIdsForAssignee.Contains(task.Id))
             .ToList();
-        var responses = await Task.WhenAll(filtered.Select(task => ToTaskAsync(task, userId, cancellationToken)));
-        return Result<PagedResponse<TaskItemResponse>>.Success(ToPagedResponse(responses.ToList(), query.SafePage, query.SafePageSize));
+        var derivedValues = tasks.ToDictionary(task => task.Id, task => ParentTaskDerivedValuesCalculator.Calculate(task, tasks, CategoryOf));
+        var workspaceId = tasks.FirstOrDefault()?.WorkspaceId;
+        var timeZone = workspaceId.HasValue && timeZones is not null
+            ? await timeZones.ResolveAsync(tasks[0].TenantId, workspaceId.Value, cancellationToken)
+            : TimeZoneInfo.Utc;
+        var responses = new List<TaskItemResponse>(filtered.Count);
+        foreach (var task in filtered)
+            responses.Add(await ToTaskAsync(task, userId, cancellationToken, derivedValues[task.Id], timeZone));
+        return Result<PagedResponse<TaskItemResponse>>.Success(ToPagedResponse(responses, query.SafePage, query.SafePageSize));
     }
 
     public async Task<Result<TaskItemResponse>> CreateTaskAsync(Guid projectId, CreateTaskItemRequest request, CancellationToken cancellationToken = default)
@@ -477,6 +489,8 @@ public sealed class ProjectService(
             Priority = request.Priority,
             StartDate = request.StartDate,
             DueDate = request.DueDate,
+            PlannedStartDate = request.StartDate,
+            PlannedEndDate = request.DueDate,
             CreatedByUserId = userId
         };
 
@@ -1150,10 +1164,16 @@ public sealed class ProjectService(
         return new MilestoneResponse(milestone.Id, milestone.ProjectId, milestone.Name, milestone.Description, milestone.DueDate, milestone.Status, milestone.SortOrder, milestone.CreatedAt, milestone.UpdatedAt);
     }
 
-    private async Task<TaskItemResponse> ToTaskAsync(TaskItem task, Guid userId, CancellationToken cancellationToken)
+    private async Task<TaskItemResponse> ToTaskAsync(TaskItem task, Guid userId, CancellationToken cancellationToken, ParentTaskDerivedValues? derivedOverride = null, TimeZoneInfo? timeZoneOverride = null)
     {
         var canEdit = await taskAuthorization.CanUpdateTask(userId, task.Id, cancellationToken);
         var canAssign = await taskAuthorization.CanAssignTask(userId, task.Id, cancellationToken);
+        var derived = derivedOverride;
+        if (derived is null)
+            derived = ParentTaskDerivedValuesCalculator.Calculate(task, await projects.ListTasksAsync(task.ProjectId, cancellationToken), CategoryOf);
+        var timeZone = timeZoneOverride ?? (timeZones is null
+            ? TimeZoneInfo.Utc
+            : await timeZones.ResolveAsync(task.TenantId, task.WorkspaceId, cancellationToken));
         return new TaskItemResponse(
             task.Id,
             task.ProjectId,
@@ -1162,9 +1182,9 @@ public sealed class ProjectService(
             task.Description,
             task.Status,
             task.Priority,
-            task.StartDate,
-            task.DueDate,
-            task.ProgressPercent,
+            derived.PlannedStartDate,
+            derived.PlannedEndDate,
+            derived.ProgressPercent,
             task.CreatedByUserId,
             task.CreatedAt,
             task.UpdatedAt,
@@ -1174,8 +1194,22 @@ public sealed class ProjectService(
                 false,
                 canEdit,
                 Array.Empty<TaskItemStatus>(),
-                await GetTaskDomainV1RowVersionAsync(task, cancellationToken)));
+                await GetTaskDomainV1RowVersionAsync(task, cancellationToken)),
+            derived.PlannedStartDate,
+            derived.PlannedEndDate,
+            derived.IsDerived,
+            TaskDeadlineCalculator.IsOverdue(task, CategoryOf(task), timeZone, clock.UtcNow, derived.PlannedEndDate),
+            task.VersionNo);
     }
+
+    private static TaskStageCategory CategoryOf(TaskItem task) => task.WorkflowStage?.InternalCategory ?? task.Status switch
+    {
+        TaskItemStatus.InProgress => TaskStageCategory.InProgress,
+        TaskItemStatus.WaitingReview => TaskStageCategory.Review,
+        TaskItemStatus.Completed => TaskStageCategory.Done,
+        TaskItemStatus.Cancelled => TaskStageCategory.Cancelled,
+        _ => TaskStageCategory.Todo
+    };
 
     private async Task<string?> GetTaskDomainV1RowVersionAsync(TaskItem task, CancellationToken cancellationToken)
     {

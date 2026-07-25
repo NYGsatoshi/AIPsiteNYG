@@ -328,15 +328,41 @@ public sealed class TaskCommandService(
         task.VersionNo++;
         await audit.LogAsync(new AuditLogEntry(actor, action, "TaskItem", task.Id, action, WorkspaceId: task.WorkspaceId, ProjectId: task.ProjectId, Metadata: new Dictionary<string, object?> { ["versionBefore"] = task.VersionNo - 1, ["reasonProvided"] = !string.IsNullOrWhiteSpace(reason) }), cancellationToken);
         await invalidations.TaskChangedAsync(task, actor, change, affectedUserIds: RelatedUsers(task), cancellationToken: cancellationToken);
-        if (task.ParentTaskItemId.HasValue)
-        {
-            var parent = await projects.GetTaskAsync(task.ParentTaskItemId.Value, cancellationToken);
-            if (parent is not null && !parent.DeletedAt.HasValue)
-                await invalidations.TaskChangedAsync(parent, actor, "subtasksChanged", cancellationToken: cancellationToken);
-        }
+        await AdvanceParentForChildMutationAsync(task, actor, action, cancellationToken);
         if (await unitOfWork.SaveTaskCommandAsync(cancellationToken) == TaskCommandSaveResult.ConcurrencyConflict)
             return Fail<TaskCommandResponse>("TASK_STALE_VERSION", "Task has changed. Refetch and retry.");
         return Result<TaskCommandResponse>.Success(new TaskCommandResponse(await ToResponseAsync(task, actor, cancellationToken), [], overrideApplied));
+    }
+
+    /// <summary>
+    /// A direct child is part of its parent's canonical detail response (derived
+    /// fields and the subtask summary/page).  Keep the parent aggregate token,
+    /// audit trail, and invalidation in the same save boundary as the child.
+    /// </summary>
+    private async Task AdvanceParentForChildMutationAsync(TaskItem child, Guid actor, string childAction, CancellationToken cancellationToken)
+    {
+        if (!child.ParentTaskItemId.HasValue)
+            return;
+
+        var parent = await projects.GetTaskAsync(child.ParentTaskItemId.Value, cancellationToken);
+        if (parent is null || parent.DeletedAt.HasValue)
+            return;
+
+        parent.VersionNo++;
+        await audit.LogAsync(new AuditLogEntry(
+            actor,
+            "TaskSubtasksChanged",
+            "TaskItem",
+            parent.Id,
+            WorkspaceId: parent.WorkspaceId,
+            ProjectId: parent.ProjectId,
+            Metadata: new Dictionary<string, object?>
+            {
+                ["childTaskId"] = child.Id,
+                ["childAction"] = childAction,
+                ["versionBefore"] = parent.VersionNo - 1
+            }), cancellationToken);
+        await invalidations.TaskChangedAsync(parent, actor, "subtasksChanged", cancellationToken: cancellationToken);
     }
 
     private async Task ReconcileAutomaticWatchAsync(TaskItem task, CancellationToken cancellationToken)
