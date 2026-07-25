@@ -76,24 +76,29 @@ WITH automatic_sources AS (
     WHERE "UserId" IS NOT NULL
     GROUP BY "TenantId", "TaskItemId", "UserId"
 )
-UPDATE work_item_watch_states state
-SET "AutomaticSources" = COALESCE(combined_sources."AutomaticSources", 0),
+UPDATE work_item_watch_states AS state
+SET "AutomaticSources" = 0,
     "IsWatching" = CASE
         WHEN state."IsExplicitOptOut" THEN false
-        WHEN state."IsWatching" THEN true
-        WHEN COALESCE(combined_sources."AutomaticSources", 0) <> 0 THEN true
-        ELSE false
+        ELSE state."IsWatching"
     END,
     "UpdatedAt" = CURRENT_TIMESTAMP,
     "VersionNo" = state."VersionNo" + 1
-FROM task_items task
-LEFT JOIN combined_sources ON combined_sources."TenantId" = state."TenantId"
-    AND combined_sources."TaskItemId" = state."TaskItemId"
-    AND combined_sources."UserId" = state."UserId"
-WHERE state."TaskItemId" = task."Id"
-  AND state."TenantId" = task."TenantId"
-  AND task."DeletedAt" IS NULL
-  AND state."AutomaticSources" IS DISTINCT FROM COALESCE(combined_sources."AutomaticSources", 0);
+WHERE state."AutomaticSources" IS DISTINCT FROM 0
+  AND EXISTS (
+      SELECT 1
+      FROM task_items AS task
+      WHERE task."Id" = state."TaskItemId"
+        AND task."TenantId" = state."TenantId"
+        AND task."DeletedAt" IS NULL
+  )
+  AND NOT EXISTS (
+      SELECT 1
+      FROM combined_sources AS source
+      WHERE source."TenantId" = state."TenantId"
+        AND source."TaskItemId" = state."TaskItemId"
+        AND source."UserId" = state."UserId"
+  );
 """);
     }
 
