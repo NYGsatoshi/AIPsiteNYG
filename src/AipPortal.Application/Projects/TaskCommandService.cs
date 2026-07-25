@@ -50,9 +50,9 @@ public sealed class TaskCommandService(
         var derived = ParentTaskDerivedValuesCalculator.Calculate(task, projectTasks, CategoryOf);
         if (derived.IsDerived && (request.ProgressPercent != derived.ProgressPercent || request.PlannedStartDate != derived.PlannedStartDate || request.PlannedEndDate != derived.PlannedEndDate))
             return Fail<CanonicalTaskResponse>("TASK_PROGRESS_DERIVED", "Parent task progress and planned dates are derived from its children.");
-        if (category == TaskStageCategory.Done && request.ProgressPercent.Value != 100)
+        if (!derived.IsDerived && category == TaskStageCategory.Done && request.ProgressPercent.Value != 100)
             return Fail<CanonicalTaskResponse>("TASK_INVALID_PROGRESS", "Completed tasks must remain at 100 percent progress.");
-        if (category == TaskStageCategory.Cancelled && request.ProgressPercent.Value != task.ProgressPercent)
+        if (!derived.IsDerived && category == TaskStageCategory.Cancelled && request.ProgressPercent.Value != task.ProgressPercent)
             return Fail<CanonicalTaskResponse>("TASK_INVALID_PROGRESS", "Cancelled task progress cannot be changed.");
         task.Title = title;
         task.Description = string.IsNullOrWhiteSpace(description) ? null : description;

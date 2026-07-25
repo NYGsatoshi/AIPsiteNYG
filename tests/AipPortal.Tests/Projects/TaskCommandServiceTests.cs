@@ -65,6 +65,149 @@ public sealed class TaskCommandServiceTests
     }
 
     [Fact]
+    public async Task DoneDerivedParentAcceptsOrdinaryEditsUsingAuthoritativeDerivedValues()
+    {
+        var fixture = Fixture.Create();
+        var parent = fixture.AddTask("parent", progress: 100);
+        parent.Status = TaskItemStatus.Completed;
+        parent.PlannedStartDate = new DateOnly(2026, 7, 1);
+        parent.PlannedEndDate = new DateOnly(2026, 7, 2);
+        var child = fixture.AddTask("child", parent.Id, progress: 100);
+        child.Status = TaskItemStatus.Cancelled;
+        child.PlannedStartDate = new DateOnly(2026, 7, 4);
+        child.PlannedEndDate = new DateOnly(2026, 7, 8);
+
+        var result = await fixture.Service.UpdateDetailsAsync(parent.Id, new TaskUpdateDetailsRequest(
+            "renamed", "updated description", TaskPriority.High, child.PlannedStartDate, child.PlannedEndDate, 0, parent.VersionNo));
+
+        Assert.True(result.IsSuccess);
+        Assert.Equal("renamed", parent.Title);
+        Assert.Equal("updated description", parent.Description);
+        Assert.Equal(TaskPriority.High, parent.Priority);
+        Assert.Equal(100, parent.ProgressPercent);
+        Assert.Equal(new DateOnly(2026, 7, 1), parent.PlannedStartDate);
+        Assert.Equal(new DateOnly(2026, 7, 2), parent.PlannedEndDate);
+        Assert.Equal(0, result.Value!.ProgressPercent);
+        Assert.True(result.Value.ProgressIsDerived);
+        Assert.Equal(child.PlannedStartDate, result.Value.PlannedStartDate);
+        Assert.Equal(child.PlannedEndDate, result.Value.PlannedEndDate);
+        Assert.Equal(2, parent.VersionNo);
+        Assert.Equal(1, fixture.UnitOfWork.SaveCount);
+        Assert.Contains(fixture.Audit.Entries, entry => entry.EntityId == parent.Id && entry.Action == "TaskDetailsUpdated");
+        Assert.Contains(fixture.Invalidations.TaskChanges, change => change.TaskId == parent.Id && change.Change == "updated");
+    }
+
+    [Fact]
+    public async Task CancelledDerivedParentAcceptsOrdinaryEditsUsingAuthoritativeDerivedValues()
+    {
+        var fixture = Fixture.Create();
+        var parent = fixture.AddTask("parent", progress: 73);
+        parent.Status = TaskItemStatus.Cancelled;
+        parent.PlannedStartDate = new DateOnly(2026, 7, 1);
+        parent.PlannedEndDate = new DateOnly(2026, 7, 2);
+        var child = fixture.AddTask("child", parent.Id, progress: 100);
+        child.Status = TaskItemStatus.Cancelled;
+        child.PlannedStartDate = new DateOnly(2026, 7, 4);
+        child.PlannedEndDate = new DateOnly(2026, 7, 8);
+
+        var result = await fixture.Service.UpdateDetailsAsync(parent.Id, new TaskUpdateDetailsRequest(
+            "renamed", "updated description", TaskPriority.High, child.PlannedStartDate, child.PlannedEndDate, 0, parent.VersionNo));
+
+        Assert.True(result.IsSuccess);
+        Assert.Equal("renamed", parent.Title);
+        Assert.Equal("updated description", parent.Description);
+        Assert.Equal(TaskPriority.High, parent.Priority);
+        Assert.Equal(73, parent.ProgressPercent);
+        Assert.Equal(new DateOnly(2026, 7, 1), parent.PlannedStartDate);
+        Assert.Equal(new DateOnly(2026, 7, 2), parent.PlannedEndDate);
+        Assert.Equal(0, result.Value!.ProgressPercent);
+        Assert.True(result.Value.ProgressIsDerived);
+        Assert.Equal(child.PlannedStartDate, result.Value.PlannedStartDate);
+        Assert.Equal(child.PlannedEndDate, result.Value.PlannedEndDate);
+        Assert.Equal(2, parent.VersionNo);
+        Assert.Equal(1, fixture.UnitOfWork.SaveCount);
+    }
+
+    [Theory]
+    [InlineData(TaskItemStatus.Completed)]
+    [InlineData(TaskItemStatus.Cancelled)]
+    public async Task TerminalDerivedParentRejectsNonAuthoritativeDerivedFieldChangesWithoutSideEffects(TaskItemStatus parentStatus)
+    {
+        var fixture = Fixture.Create();
+        var parent = fixture.AddTask("parent", progress: 100);
+        parent.Status = parentStatus;
+        var child = fixture.AddTask("child", parent.Id, progress: 100);
+        child.Status = TaskItemStatus.Cancelled;
+        child.PlannedStartDate = new DateOnly(2026, 7, 4);
+        child.PlannedEndDate = new DateOnly(2026, 7, 8);
+
+        var result = await fixture.Service.UpdateDetailsAsync(parent.Id, new TaskUpdateDetailsRequest(
+            "renamed", "updated description", TaskPriority.High, child.PlannedStartDate, child.PlannedEndDate, 1, parent.VersionNo));
+
+        Assert.False(result.IsSuccess);
+        Assert.StartsWith("TASK_PROGRESS_DERIVED|", result.Error);
+        Assert.Equal("parent", parent.Title);
+        Assert.Null(parent.Description);
+        Assert.Equal(TaskPriority.Medium, parent.Priority);
+        Assert.Equal(1, parent.VersionNo);
+        Assert.Empty(fixture.Audit.Entries);
+        Assert.Empty(fixture.Invalidations.TaskChanges);
+        Assert.Equal(0, fixture.UnitOfWork.SaveCount);
+    }
+
+    [Fact]
+    public async Task LeafDoneRequiresOneHundredProgressButAllowsOrdinaryEditsAtOneHundred()
+    {
+        var fixture = Fixture.Create();
+        var task = fixture.AddTask("task", progress: 100);
+        task.Status = TaskItemStatus.Completed;
+
+        var rejected = await fixture.Service.UpdateDetailsAsync(task.Id, new TaskUpdateDetailsRequest(
+            "renamed", "updated description", TaskPriority.High, null, null, 99, task.VersionNo));
+
+        Assert.False(rejected.IsSuccess);
+        Assert.StartsWith("TASK_INVALID_PROGRESS|", rejected.Error);
+        Assert.Equal("task", task.Title);
+        Assert.Equal(1, task.VersionNo);
+        Assert.Empty(fixture.Audit.Entries);
+        Assert.Empty(fixture.Invalidations.TaskChanges);
+        Assert.Equal(0, fixture.UnitOfWork.SaveCount);
+
+        var accepted = await fixture.Service.UpdateDetailsAsync(task.Id, new TaskUpdateDetailsRequest(
+            "renamed", "updated description", TaskPriority.High, null, null, 100, task.VersionNo));
+
+        Assert.True(accepted.IsSuccess);
+        Assert.Equal("renamed", task.Title);
+        Assert.Equal(2, task.VersionNo);
+    }
+
+    [Fact]
+    public async Task LeafCancelledRejectsProgressChangesButAllowsOrdinaryEditsAtSavedProgress()
+    {
+        var fixture = Fixture.Create();
+        var task = fixture.AddTask("task", progress: 37);
+        task.Status = TaskItemStatus.Cancelled;
+
+        var rejected = await fixture.Service.UpdateDetailsAsync(task.Id, new TaskUpdateDetailsRequest(
+            "renamed", "updated description", TaskPriority.High, null, null, 38, task.VersionNo));
+
+        Assert.False(rejected.IsSuccess);
+        Assert.StartsWith("TASK_INVALID_PROGRESS|", rejected.Error);
+        Assert.Equal("task", task.Title);
+        Assert.Equal(1, task.VersionNo);
+        Assert.Empty(fixture.Audit.Entries);
+        Assert.Empty(fixture.Invalidations.TaskChanges);
+        Assert.Equal(0, fixture.UnitOfWork.SaveCount);
+
+        var accepted = await fixture.Service.UpdateDetailsAsync(task.Id, new TaskUpdateDetailsRequest(
+            "renamed", "updated description", TaskPriority.High, null, null, 37, task.VersionNo));
+
+        Assert.True(accepted.IsSuccess);
+        Assert.Equal("renamed", task.Title);
+        Assert.Equal(2, task.VersionNo);
+    }
+
+    [Fact]
     public async Task SaveConflictDoesNotReturnSuccessAndUnrelatedRootIsUnchanged()
     {
         var fixture = Fixture.Create();
