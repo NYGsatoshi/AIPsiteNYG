@@ -61,6 +61,12 @@ jobs:
         with:
           global-json-file: global.json
 
+      - name: Reset Qodana result directory
+        shell: bash
+        run: |
+          rm -rf "${{ runner.temp }}/qodana/results"
+          mkdir -p "${{ runner.temp }}/qodana/results"
+
       - name: Run all registered Qodana Community inspections
         uses: JetBrains/qodana-action@v2026.1
         with:
@@ -70,7 +76,7 @@ jobs:
             --configuration Release
           pr-mode: false
           results-dir: ${{ runner.temp }}/qodana/results
-          use-caches: true
+          use-caches: false
           post-pr-comment: true
           use-annotations: true
           upload-result: true
