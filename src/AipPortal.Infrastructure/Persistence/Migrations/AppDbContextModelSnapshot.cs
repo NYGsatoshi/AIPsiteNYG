@@ -4766,6 +4766,10 @@ namespace AipPortal.Infrastructure.Persistence.Migrations
                         .HasMaxLength(40)
                         .HasColumnType("character varying(40)");
 
+                    b.Property<string>("TimeZone")
+                        .HasMaxLength(80)
+                        .HasColumnType("character varying(80)");
+
                     b.Property<Guid>("TenantId")
                         .HasColumnType("uuid");
 

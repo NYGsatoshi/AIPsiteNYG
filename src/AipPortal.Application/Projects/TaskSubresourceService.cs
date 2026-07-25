@@ -12,7 +12,7 @@ namespace AipPortal.Application.Projects;
 /// <summary>Canonical Task checklist, comment, and label command boundary.  It deliberately stores only metadata in audit events.</summary>
 public sealed class TaskSubresourceService(
     IProjectRepository projects, IUserRepository users, IProjectAuthorizationService projectAuthorization, ITaskAuthorizationService taskAuthorization, ICommentAuthorizationService commentAuthorization, IFileRepository files, IFileAuthorizationService fileAuthorization, ITaskCommandService taskCommands, ICommunicationSafetyGuard safetyGuard,
-    ICurrentUser currentUser, IClock clock, IAuditLogger audit, IBusinessInvalidationPublisher invalidations, IUnitOfWork unitOfWork, ITaskCommandUnitOfWork taskUnitOfWork) : ITaskSubresourceService
+    ICurrentUser currentUser, IClock clock, IAuditLogger audit, IBusinessInvalidationPublisher invalidations, ITaskCommandUnitOfWork taskUnitOfWork, ITaskWorkspaceTimeZoneResolver timeZones) : ITaskSubresourceService
 {
     public async Task<Result<CanonicalTaskDetailResponse>> GetDetailAsync(Guid taskId, CancellationToken ct = default)
     {
@@ -78,7 +78,9 @@ public sealed class TaskSubresourceService(
         var title = Text(request.Title, 300); if (title is null) return Fail<TaskSubtaskResponse>("VALIDATION_FAILED", "Subtask title is required.");
         var siblings = (await projects.ListTasksAsync(parent.ProjectId, ct)).Where(x => x.ParentTaskItemId == parent.Id).ToList();
         var subtask = new TaskItem { WorkspaceId = parent.WorkspaceId, ProjectId = parent.ProjectId, ParentTaskItemId = parent.Id, Kind = AipPortal.Domain.Enums.WorkItemKind.Task, Title = title, Description = NullableText(request.Description, 12000), Priority = request.Priority, CreatedByUserId = Actor(), SortKey = siblings.Count == 0 ? 1024 : siblings.Max(x => x.SortKey) + 1024 };
-        await projects.AddTaskAsync(subtask, ct); if (!await CommitAsync(parent, "TaskSubtaskCreated", "subtasksChanged", new Dictionary<string, object?> { ["subtaskId"] = subtask.Id }, ct)) return Fail<TaskSubtaskResponse>("TASK_STALE_VERSION", "Task has changed. Refetch and retry.");
+        await projects.AddTaskAsync(subtask, ct);
+        await projects.AddWatchStateAsync(TaskWatchStateInitializer.ForCreator(subtask, Actor(), clock.UtcNow), ct);
+        if (!await CommitAsync(parent, "TaskSubtaskCreated", "subtasksChanged", new Dictionary<string, object?> { ["subtaskId"] = subtask.Id }, ct)) return Fail<TaskSubtaskResponse>("TASK_STALE_VERSION", "Task has changed. Refetch and retry.");
         return Result<TaskSubtaskResponse>.Success(await ToSubtaskAsync(subtask, ct));
     }
     public async Task<Result<IReadOnlyList<TaskChecklistResponse>>> ListChecklistAsync(Guid taskId, CancellationToken ct = default)
@@ -196,7 +198,14 @@ public sealed class TaskSubresourceService(
             if ((await projects.ListTaskLabelsAsync(projectId, true, ct)).Any(x => x.Id != label.Id && string.Equals(x.Name.Trim(), name, StringComparison.OrdinalIgnoreCase))) return Fail<ProjectTaskLabelResponse>("TASK_LABEL_DUPLICATE", "A label with that name already exists.");
             label.Name = name;
         }
-        if (request.Description is not null) label.Description = NullableText(request.Description, 1000); if (request.SortKey.HasValue) label.SortKey = request.SortKey.Value; label.VersionNo++;
+        if (request.Description.IsSpecified)
+        {
+            if (request.Description.Value is not null && request.Description.Value.Trim().Length > 1000)
+                return Fail<ProjectTaskLabelResponse>("VALIDATION_FAILED", "Label description must be 1000 characters or fewer.");
+            label.Description = NullableText(request.Description.Value, 1000);
+        }
+        if (request.SortKey.HasValue) label.SortKey = request.SortKey.Value;
+        label.VersionNo++;
         return await CommitLabelDefinitionAsync(project, label, "TaskLabelUpdated", "taskLabelsChanged", ct) ? Result<ProjectTaskLabelResponse>.Success(ToLabel(label)) : Fail<ProjectTaskLabelResponse>("TASK_STALE_VERSION", "Label has changed. Refetch and retry.");
     }
     public async Task<Result<ProjectTaskLabelResponse>> SetLabelArchiveAsync(Guid projectId, Guid labelId, long expectedVersion, bool archived, CancellationToken ct = default)
@@ -229,9 +238,10 @@ public sealed class TaskSubresourceService(
     {
         var assignee = x.PrimaryAssigneeUserId.HasValue ? await users.GetByIdAsync(x.PrimaryAssigneeUserId.Value, ct) : null;
         var stage = x.WorkflowStage ?? (x.WorkflowStageId.HasValue ? await projects.GetWorkflowStageAsync(x.WorkflowStageId.Value, ct) : null);
-        var plannedEnd = x.PlannedEndDate;
-        var overdueAt = x.DeadlineAt ?? (plannedEnd.HasValue ? new DateTimeOffset(plannedEnd.Value.ToDateTime(TimeOnly.MaxValue), TimeSpan.Zero) : null);
-        var overdue = overdueAt.HasValue && overdueAt.Value < clock.UtcNow && stage?.InternalCategory is not (TaskStageCategory.Done or TaskStageCategory.Cancelled);
+        var plannedEnd = x.PlannedEndDate ?? x.DueDate;
+        var timeZone = await timeZones.ResolveAsync(x.TenantId, x.WorkspaceId, ct);
+        var category = stage?.InternalCategory ?? (x.Status == TaskItemStatus.Completed ? TaskStageCategory.Done : x.Status == TaskItemStatus.Cancelled ? TaskStageCategory.Cancelled : TaskStageCategory.Todo);
+        var overdue = TaskDeadlineCalculator.IsOverdue(x, category, timeZone, clock.UtcNow, plannedEnd);
         return new(x.Id, x.ParentTaskItemId ?? Guid.Empty, x.Title, x.WorkflowStageId, stage?.Name ?? string.Empty, (stage?.InternalCategory ?? TaskStageCategory.Todo).ToString(), x.Priority.ToString(), x.ProgressPercent, assignee is null ? null : new TaskPersonSummary(assignee.Id, assignee.DisplayName), plannedEnd, x.DeadlineAt, overdue, x.VersionNo);
     }
     private async Task<TaskFileAssociationResponse> ToFileAsync(Attachment x, CancellationToken ct)

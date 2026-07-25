@@ -1,4 +1,25 @@
+using System.Text.Json;
+using System.Text.Json.Serialization;
+
 namespace AipPortal.Application.Projects;
+
+/// <summary>Distinguishes an omitted PATCH member from an explicitly supplied JSON null.</summary>
+[JsonConverter(typeof(OptionalStringJsonConverter))]
+public readonly record struct OptionalString(bool IsSpecified, string? Value)
+{
+    public static implicit operator OptionalString(string? value) => new(true, value);
+}
+
+public sealed class OptionalStringJsonConverter : JsonConverter<OptionalString>
+{
+    public override bool HandleNull => true;
+    public override OptionalString Read(ref Utf8JsonReader reader, Type typeToConvert, JsonSerializerOptions options) =>
+        reader.TokenType == JsonTokenType.Null ? new(true, null) : new(true, reader.GetString());
+    public override void Write(Utf8JsonWriter writer, OptionalString value, JsonSerializerOptions options)
+    {
+        if (value.Value is null) writer.WriteNullValue(); else writer.WriteStringValue(value.Value);
+    }
+}
 
 public sealed record TaskChecklistResponse(Guid Id, string Text, bool IsCompleted, DateTimeOffset? CompletedAt, Guid? CompletedByUserId, long SortKey, long Version);
 public sealed record CreateTaskChecklistRequest(string Text);
@@ -10,7 +31,43 @@ public sealed record CreateTaskCommentRequest(string BodyPlainText, bool IsImpor
 public sealed record UpdateTaskCommentRequest(string? BodyPlainText, bool? IsImportant, long ExpectedVersion);
 public sealed record ProjectTaskLabelResponse(Guid Id, string Name, string? Description, long SortKey, bool IsArchived, long Version);
 public sealed record CreateProjectTaskLabelRequest(string Name, string? Description, long? SortKey = null);
-public sealed record UpdateProjectTaskLabelRequest(string? Name, string? Description, long? SortKey, long ExpectedVersion);
+[JsonConverter(typeof(UpdateProjectTaskLabelRequestJsonConverter))]
+public sealed record UpdateProjectTaskLabelRequest(string? Name, OptionalString Description, long? SortKey, long ExpectedVersion);
+
+/// <summary>
+/// Constructor binding collapses JSON null and a missing value for value-object
+/// parameters.  This converter keeps PATCH presence explicit for description.
+/// </summary>
+public sealed class UpdateProjectTaskLabelRequestJsonConverter : JsonConverter<UpdateProjectTaskLabelRequest>
+{
+    public override UpdateProjectTaskLabelRequest Read(ref Utf8JsonReader reader, Type typeToConvert, JsonSerializerOptions options)
+    {
+        using var document = JsonDocument.ParseValue(ref reader);
+        var root = document.RootElement;
+        if (root.ValueKind != JsonValueKind.Object) throw new JsonException("A label patch object is required.");
+
+        var name = root.TryGetProperty("name", out var nameProperty) && nameProperty.ValueKind != JsonValueKind.Null ? nameProperty.GetString() : null;
+        var description = root.TryGetProperty("description", out var descriptionProperty)
+            ? new OptionalString(true, descriptionProperty.ValueKind == JsonValueKind.Null ? null : descriptionProperty.GetString())
+            : default;
+        long? sortKey = root.TryGetProperty("sortKey", out var sortKeyProperty) && sortKeyProperty.ValueKind != JsonValueKind.Null ? sortKeyProperty.GetInt64() : null;
+        var expectedVersion = root.TryGetProperty("expectedVersion", out var versionProperty) && versionProperty.ValueKind != JsonValueKind.Null ? versionProperty.GetInt64() : 0;
+        return new UpdateProjectTaskLabelRequest(name, description, sortKey, expectedVersion);
+    }
+
+    public override void Write(Utf8JsonWriter writer, UpdateProjectTaskLabelRequest value, JsonSerializerOptions options)
+    {
+        writer.WriteStartObject();
+        if (value.Name is null) writer.WriteNull("name"); else writer.WriteString("name", value.Name);
+        if (value.Description.IsSpecified)
+        {
+            if (value.Description.Value is null) writer.WriteNull("description"); else writer.WriteString("description", value.Description.Value);
+        }
+        if (value.SortKey.HasValue) writer.WriteNumber("sortKey", value.SortKey.Value); else writer.WriteNull("sortKey");
+        writer.WriteNumber("expectedVersion", value.ExpectedVersion);
+        writer.WriteEndObject();
+    }
+}
 public sealed record TaskLabelAssociationRequest(long ExpectedVersion);
 public sealed record TaskSubresourceSummary(int ChecklistCompletedCount, int ChecklistTotalCount, int CommentCount, int LabelCount, int SubtaskCount);
 public sealed record TaskSubtaskResponse(Guid Id, Guid ParentTaskId, string Title, Guid? WorkflowStageId, string WorkflowStageName, string StageCategory, string Priority, int ProgressPercent, TaskPersonSummary? PrimaryAssignee, DateOnly? PlannedEndDate, DateTimeOffset? DeadlineAt, bool IsOverdue, long Version);
