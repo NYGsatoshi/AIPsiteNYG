@@ -1,17 +1,17 @@
-name: Temporary EF Snapshot Sync
+name: Temporary EF Snapshot Export
 
 on:
-  push:
-    branches:
-      - task/v1-pr03c-task-detail-ui
+  pull_request:
     paths:
       - ".github/workflows/snapshot-sync-temp.yml"
+      - "src/AipPortal.Infrastructure/Persistence/Configurations/ProductionConfigurations.cs"
+      - "src/AipPortal.Infrastructure/Persistence/Migrations/20260725050000_TaskV1WatchAndLabelConcurrency.cs"
 
 permissions:
-  contents: write
+  contents: read
 
 jobs:
-  sync-snapshot:
+  export-snapshot:
     runs-on: self-hosted
     timeout-minutes: 30
     steps:
@@ -25,10 +25,9 @@ jobs:
             alpine:3.21 \
             sh -c "chown -R ${uid}:${gid} /workspace"
 
-      - name: Checkout branch
+      - name: Checkout PR head
         uses: actions/checkout@v4
         with:
-          ref: task/v1-pr03c-task-detail-ui
           fetch-depth: 0
 
       - name: Configure persistent .NET caches
@@ -61,7 +60,7 @@ jobs:
           "$DOTNET_CMD" restore AipPortal.slnx --disable-parallel
           "$DOTNET_CMD" tool restore
 
-      - name: Generate snapshot only
+      - name: Generate model snapshot
         shell: bash
         run: |
           "$DOTNET_CMD" ef migrations add __SnapshotSync \
@@ -71,10 +70,13 @@ jobs:
             --output-dir Persistence/Migrations
           find src/AipPortal.Infrastructure/Persistence/Migrations \
             -maxdepth 1 -type f -name '*__SnapshotSync*.cs' -delete
-          git add src/AipPortal.Infrastructure/Persistence/Migrations/AppDbContextModelSnapshot.cs
-          git diff --cached --check
-          git diff --cached --quiet && { echo "Snapshot already synchronized."; exit 0; }
-          git config user.name "github-actions[bot]"
-          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          git commit -m "fix(ci): sync EF model snapshot"
-          git push origin HEAD:task/v1-pr03c-task-detail-ui
+          git diff --check
+          test -f src/AipPortal.Infrastructure/Persistence/Migrations/AppDbContextModelSnapshot.cs
+
+      - name: Upload generated snapshot
+        uses: actions/upload-artifact@v4
+        with:
+          name: ef-model-snapshot
+          path: src/AipPortal.Infrastructure/Persistence/Migrations/AppDbContextModelSnapshot.cs
+          if-no-files-found: error
+          retention-days: 1
