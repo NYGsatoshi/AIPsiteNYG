@@ -376,12 +376,21 @@ describe('ProjectsFacade live API mutations', () => {
   it('does not create a Task-body conflict while a subresource mutation is submitting', () => {
     flushInitialLoad();
     facade.ensureTaskDetail('project-1', 'task-1');
-    httpMock.expectOne('/api/tasks/task-1').flush({ task: editableTaskDto, checklist: [], labels: [], subtasks: { items: [] }, comments: { items: [] }, files: { items: [] } });
+    const aggregate = { task: editableTaskDto, checklist: [], labels: [], subtasks: { items: [] }, comments: { items: [] }, files: { items: [] } };
+    httpMock.expectOne('/api/tasks/task-1').flush(aggregate);
     facade.setWatch('task-1', true, '1');
     (facade as unknown as { handleRealtimeEvent(event: unknown): void }).handleRealtimeEvent({ eventId: 'self-task-change', eventType: 'Projects.TaskChanged.v1', aggregateId: 'task-1' });
     expect(facade.getTaskMutationState().status).toBe('idle');
+
+    // The current realtime contract has no reliable self-event identity, so the
+    // conservative realtime refresh and the mutation-authoritative refresh may
+    // both be in flight. Account for both without treating either as a conflict.
+    const realtimeRefresh = httpMock.expectOne('/api/tasks/task-1');
     httpMock.expectOne('/api/tasks/task-1/watch').flush({});
-    httpMock.expectOne('/api/tasks/task-1').flush({ task: editableTaskDto, checklist: [], labels: [], subtasks: { items: [] }, comments: { items: [] }, files: { items: [] } });
+    const mutationRefresh = httpMock.expectOne('/api/tasks/task-1');
+    realtimeRefresh.flush(aggregate);
+    mutationRefresh.flush(aggregate);
+    expect(facade.getTaskMutationState().status).toBe('idle');
   });
 
   it('rejects an invalid expected version without issuing a PATCH', () => {
