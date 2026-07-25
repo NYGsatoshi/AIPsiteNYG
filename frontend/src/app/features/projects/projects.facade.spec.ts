@@ -255,6 +255,17 @@ describe('ProjectsFacade live API mutations', () => {
     expect(facade.getTaskDetail('project-1', 'task-1').editorTask?.title).toBe('Backend Task');
   });
 
+  it('reports a successful save with a failed authoritative reload separately from a PATCH failure', () => {
+    flushInitialLoad();
+    facade.saveTask('task-1', 'project-1', { title: 'Saved', description: '', priority: 'medium', startDate: '', dueDate: '', progressPercent: 30, expectedVersion: '1' });
+    httpMock.expectOne('/api/tasks/task-1').flush({ ...editableTaskDto, title: 'Saved' });
+    const taskReload = httpMock.expectOne('/api/tasks/task-1');
+    const listReload = httpMock.expectOne('/api/projects/project-1/tasks');
+    taskReload.flush({ message: 'detail unavailable', traceId: 'after-save-500' }, { status: 500, statusText: 'Server Error' });
+    expect(listReload.cancelled).toBe(true);
+    expect(facade.getTaskMutationState()).toEqual({ status: 'savedButRefreshFailed', message: 'detail unavailable', requestId: 'after-save-500' });
+  });
+
   it('maps both HTTP 409 and TASK_STALE_VERSION to a preserved task-save conflict', () => {
     flushInitialLoad();
     facade.saveTask('task-1', 'project-1', { title: 'Edited', description: '', priority: 'medium', startDate: '', dueDate: '', progressPercent: 1, expectedVersion: '1' });
@@ -348,6 +359,29 @@ describe('ProjectsFacade live API mutations', () => {
 
     expect(facade.getDetailSectionState('comments').status).toBe('conflict');
     expect(facade.getTaskMutationState().status).toBe('idle');
+  });
+
+  it('keeps previously loaded comment pages when a Watch mutation returns an aggregate first page', () => {
+    flushInitialLoad();
+    facade.ensureTaskDetail('project-1', 'task-1');
+    httpMock.expectOne('/api/tasks/task-1').flush({ task: editableTaskDto, checklist: [], labels: [], subtasks: { items: [] }, comments: { items: [{ id: 'comment-1', bodyPlainText: 'one' }], page: 1, pageSize: 20, totalCount: 2, hasMore: true }, files: { items: [] } });
+    facade.loadMoreComments('task-1');
+    httpMock.expectOne('/api/tasks/task-1/comments?page=2&pageSize=20').flush({ items: [{ id: 'comment-2', bodyPlainText: 'two' }], page: 2, pageSize: 20, totalCount: 2, hasMore: false });
+    facade.setWatch('task-1', true, '1');
+    httpMock.expectOne('/api/tasks/task-1/watch').flush({});
+    httpMock.expectOne('/api/tasks/task-1').flush({ task: editableTaskDto, checklist: [], labels: [], subtasks: { items: [] }, comments: { items: [{ id: 'comment-1', bodyPlainText: 'one updated' }], page: 1, pageSize: 20, totalCount: 2, hasMore: true }, files: { items: [] } });
+    expect(facade.getTaskDetail('project-1', 'task-1').detail?.comments.items.map(item => item.id)).toEqual(['comment-1', 'comment-2']);
+  });
+
+  it('does not create a Task-body conflict while a subresource mutation is submitting', () => {
+    flushInitialLoad();
+    facade.ensureTaskDetail('project-1', 'task-1');
+    httpMock.expectOne('/api/tasks/task-1').flush({ task: editableTaskDto, checklist: [], labels: [], subtasks: { items: [] }, comments: { items: [] }, files: { items: [] } });
+    facade.setWatch('task-1', true, '1');
+    (facade as unknown as { handleRealtimeEvent(event: unknown): void }).handleRealtimeEvent({ eventId: 'self-task-change', eventType: 'Projects.TaskChanged.v1', aggregateId: 'task-1' });
+    expect(facade.getTaskMutationState().status).toBe('idle');
+    httpMock.expectOne('/api/tasks/task-1/watch').flush({});
+    httpMock.expectOne('/api/tasks/task-1').flush({ task: editableTaskDto, checklist: [], labels: [], subtasks: { items: [] }, comments: { items: [] }, files: { items: [] } });
   });
 
   it('rejects an invalid expected version without issuing a PATCH', () => {

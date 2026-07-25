@@ -75,6 +75,15 @@ export const integerRangeValidator = (min: number, max: number): ValidatorFn => 
           </section>
         }
 
+        @if (mutationState.status === 'savedButRefreshFailed') {
+          <section class="task-editor__recoverable" role="alert" data-testid="task-saved-refresh-failed">
+            <strong>Task was saved, but the latest data could not be loaded.</strong>
+            <span>Reload before editing again. {{ mutationState.message }}</span>
+            @if (mutationState.requestId) { <small>Request ID: {{ mutationState.requestId }}</small> }
+            <button type="button" data-testid="task-saved-refresh-reload-button" (click)="reloadRequested.emit()">Reload latest task</button>
+          </section>
+        }
+
         @if (mutationState.status === 'conflict') {
           <section class="task-editor__recoverable" role="alert" data-testid="task-save-conflict">
             <strong>Task changed elsewhere</strong>
@@ -115,7 +124,7 @@ export const integerRangeValidator = (min: number, max: number): ValidatorFn => 
             type="text"
             formControlName="title"
             data-testid="task-title-input"
-            [readonly]="!canEdit || isSubmitting"
+            [readonly]="!canEdit || editingLocked"
           />
           @if (form.controls.title.invalid && form.controls.title.touched) {
             <small data-testid="task-title-error">Task title is required.</small>
@@ -128,7 +137,7 @@ export const integerRangeValidator = (min: number, max: number): ValidatorFn => 
             formControlName="description"
             rows="4"
             data-testid="task-description-input"
-            [readonly]="!canEdit || isSubmitting"
+            [readonly]="!canEdit || editingLocked"
           ></textarea>
         </label>
 
@@ -139,8 +148,8 @@ export const integerRangeValidator = (min: number, max: number): ValidatorFn => 
           <select
             formControlName="priority"
             data-testid="task-priority-select"
-            [attr.aria-disabled]="!canEdit || isSubmitting"
-            [attr.tabindex]="canEdit && !isSubmitting ? null : -1"
+            [attr.aria-disabled]="!canEdit || editingLocked"
+            [attr.tabindex]="canEdit && !editingLocked ? null : -1"
             (mousedown)="preventWhenDisabled($event, canEdit)"
             (keydown)="preventWhenDisabled($event, canEdit)"
           >
@@ -156,7 +165,7 @@ export const integerRangeValidator = (min: number, max: number): ValidatorFn => 
             type="date"
             formControlName="dueDate"
             data-testid="task-due-date-input"
-            [readonly]="!canEdit || isSubmitting"
+            [readonly]="!canEdit || editingLocked"
           />
           @if (hasUnsupportedDueDateClear()) {
             <small data-testid="task-due-date-clear-error">Existing due dates can be replaced but not cleared in MVP0.</small>
@@ -180,7 +189,8 @@ export const integerRangeValidator = (min: number, max: number): ValidatorFn => 
             type="date"
             formControlName="startDate"
             data-testid="task-start-date-input"
-            [readonly]="!canEdit || isSubmitting"
+            [readonly]="!canEdit || editingLocked || task.progressIsDerived"
+            [attr.aria-readonly]="task.progressIsDerived ? 'true' : null"
           />
           @if (hasUnsupportedStartDateClear()) {
             <small data-testid="task-start-date-clear-error">Existing start dates can be replaced but not cleared in MVP0.</small>
@@ -224,7 +234,7 @@ export const integerRangeValidator = (min: number, max: number): ValidatorFn => 
             type="button"
             class="task-editor__cancel"
             data-testid="task-cancel-button"
-            [disabled]="isSubmitting"
+            [disabled]="editingLocked"
             (click)="resetForm(); cancel.emit()"
           >
             Cancel
@@ -412,13 +422,16 @@ export class TaskEditorComponent implements OnChanges, OnInit, OnDestroy {
   }
 
   get isSubmitting(): boolean {
-    return this.mutationState.status === 'submitting';
+    return this.mutationState.status === 'submitting' || this.mutationState.status === 'refreshingAfterSave';
   }
+
+  get editingLocked(): boolean { return this.isSubmitting || this.mutationState.status === 'savedButRefreshFailed'; }
 
   get canSubmit(): boolean {
     return (
       this.canEdit &&
       !this.isSubmitting &&
+      this.mutationState.status !== 'savedButRefreshFailed' &&
       this.form.valid &&
       !this.hasUnsupportedStartDateClear() &&
       !this.hasUnsupportedDueDateClear() &&
@@ -480,7 +493,7 @@ export class TaskEditorComponent implements OnChanges, OnInit, OnDestroy {
   }
 
   preventWhenDisabled(event: Event, enabled: boolean): void {
-    if (!enabled || this.isSubmitting) {
+    if (!enabled || this.editingLocked) {
       event.preventDefault();
     }
   }

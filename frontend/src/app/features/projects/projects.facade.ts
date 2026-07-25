@@ -282,7 +282,8 @@ export class ProjectsFacade {
 
   /** Reload a stale editor only after an explicit user request; cancel never reaches this path. */
   reloadTaskAfterConflict(taskId: string): void {
-    if (this.scenario || this.taskConflictReloadInProgress || this.taskMutationState().status !== 'conflict' || !this.isActive(taskId, this.detailGeneration)) return;
+    const status = this.taskMutationState().status;
+    if (this.scenario || this.taskConflictReloadInProgress || (status !== 'conflict' && status !== 'savedButRefreshFailed') || !this.isActive(taskId, this.detailGeneration)) return;
     this.taskConflictReloadInProgress = true;
     this.taskConflictReloadState.set('loading');
     this.loadTaskDetail(taskId, { kind: 'taskBodyReload' });
@@ -338,37 +339,44 @@ export class ProjectsFacade {
     const isCurrent = () => this.isAuthorizationCurrent(authorizationGeneration) &&
       (this.activeTaskId === null || this.isActive(taskId, detailGeneration));
     this.taskMutationState.set({ status: 'submitting' });
-    const operation = this.http
-      .patch<TaskDto>(`/api/tasks/${taskId}`, toUpdateTaskRequestDto(request), {
-        withCredentials: true
-      })
-      .pipe(
-        switchMap(() =>
-          forkJoin({
-            task: this.fetchTask(taskId),
-            projectTasks: this.fetchProjectTasks(projectId)
-          })
-        )
-      )
-      .subscribe({
-        next: ({ task, projectTasks }) => {
-          if (!isCurrent()) return;
-          this.replaceProjectTasks(projectId, projectTasks);
-          this.taskDetails.update((details) => ({ ...details, [taskId]: task.detail }));
-          this.replaceTask(task.task);
-          this.myTasksFacade.refreshIfLoaded();
-          this.taskMutationState.set({ status: 'success' });
-        },
-        error: (error: unknown) => {
-          if (!isCurrent()) return;
-          const normalized = normalizeApiError(error);
-          if (normalized.httpStatus === 401 || normalized.httpStatus === 403) {
-            this.reauthorizeActiveState();
-            return;
+    const operation = this.http.patch<TaskDto>(`/api/tasks/${taskId}`, toUpdateTaskRequestDto(request), {
+      withCredentials: true
+    }).subscribe({
+      next: () => {
+        if (!isCurrent()) return;
+        // PATCH has succeeded. A following GET error must not be reported as a save error.
+        this.taskMutationState.set({ status: 'refreshingAfterSave' });
+        const refresh = forkJoin({ task: this.fetchTask(taskId), projectTasks: this.fetchProjectTasks(projectId) }).subscribe({
+          next: ({ task, projectTasks }) => {
+            if (!isCurrent()) return;
+            this.replaceProjectTasks(projectId, projectTasks);
+            this.applyAggregate(taskId, task.detail, { kind: 'taskBodyReload' });
+            this.replaceTask(task.task);
+            this.myTasksFacade.refreshIfLoaded();
+            this.taskMutationState.set({ status: 'success' });
+          },
+          error: (error: unknown) => {
+            if (!isCurrent()) return;
+            const normalized = normalizeApiError(error);
+            if (normalized.httpStatus === 401 || normalized.httpStatus === 403) {
+              this.reauthorizeActiveState();
+              return;
+            }
+            this.taskMutationState.set({ status: 'savedButRefreshFailed', message: normalized.message || 'Reload before editing again.', requestId: normalized.requestId });
           }
-          this.taskMutationState.set(toFailureState(error, 'Task save failed.'));
+        });
+        this.trackDetailMutation(refresh);
+      },
+      error: (error: unknown) => {
+        if (!isCurrent()) return;
+        const normalized = normalizeApiError(error);
+        if (normalized.httpStatus === 401 || normalized.httpStatus === 403) {
+          this.reauthorizeActiveState();
+          return;
         }
-      });
+        this.taskMutationState.set(toFailureState(error, 'Task save failed.'));
+      }
+    });
     this.trackDetailMutation(operation);
   }
 
@@ -487,16 +495,16 @@ export class ProjectsFacade {
     }
 
     if (event.eventType === 'Projects.TaskChanged.v1' && this.activeTaskId === event.aggregateId) {
-      if (this.isDetailEditing()) {
+      if (this.isTaskBodyEditing()) {
         this.taskMutationState.set({ status: 'conflict', message: 'This task changed elsewhere. Your editor was preserved; reload before saving again.', requestId: event.eventId });
       } else {
-        this.loadTaskDetail(event.aggregateId);
+        this.loadTaskDetail(event.aggregateId, { kind: 'realtimeRefresh' });
       }
       return;
     }
 
     if (event.eventType === 'Files.FileChanged.v1' && this.activeTaskId) {
-      this.loadTaskDetail(this.activeTaskId);
+      this.loadTaskDetail(this.activeTaskId, { kind: 'realtimeRefresh' });
       return;
     }
 
@@ -555,11 +563,10 @@ export class ProjectsFacade {
     })).subscribe({
       next: (response) => {
         if (!this.isAuthorizationCurrent(authorizationGeneration) || !this.isActive(taskId, generation)) return;
-        this.taskDetails.update((details) => ({ ...details, [taskId]: response.detail }));
+        this.applyAggregate(taskId, response.detail, scope);
         this.replaceTask(response.task);
-        this.applyAggregateSectionStates(response.detail, scope);
         if (scope.kind === 'taskBodyReload') {
-          this.taskMutationState.set({ status: 'idle' });
+          this.taskMutationState.set({ status: this.taskMutationState().status === 'savedButRefreshFailed' ? 'success' : 'idle' });
           this.taskConflictReloadState.set('idle');
         }
         this.taskConflictReloadInProgress = false;
@@ -587,10 +594,15 @@ export class ProjectsFacade {
     });
   }
 
-  /** Components may report unsaved local edits so realtime never silently overwrites them. */
+  /** Any section draft protects that section's data from an automatic aggregate overwrite. */
   private detailEditing = false;
+  /** Only an unsaved Task-body draft may create a Task-body conflict banner. */
+  private taskBodyEditing = false;
   setDetailEditing(editing: boolean): void { this.detailEditing = editing; }
-  private isDetailEditing(): boolean { return this.detailEditing || this.taskMutationState().status === 'submitting'; }
+  setTaskBodyEditing(editing: boolean): void { this.taskBodyEditing = editing; }
+  private isTaskBodyEditing(): boolean {
+    return this.taskBodyEditing || this.taskMutationState().status === 'submitting' || this.taskMutationState().status === 'refreshingAfterSave';
+  }
 
   private reauthorizeActiveState(): void {
     const activeTaskId = this.activeTaskId;
@@ -633,9 +645,8 @@ export class ProjectsFacade {
           this.setSectionState(section, { ...reloadFailure, status: reloadFailure.status === 'permissionDenied' ? 'permissionDenied' : 'error', message: `Saved successfully, but the latest task detail could not be loaded. ${reloadFailure.message ?? ''}`.trim(), retryKind: 'aggregate' });
           return;
         }
-        this.taskDetails.update((details) => ({ ...details, [taskId]: result.response.detail }));
+        this.applyAggregate(taskId, result.response.detail, { kind: 'sectionMutation', section });
         this.replaceTask(result.response.task);
-        this.applyAggregateSectionStates(result.response.detail, { kind: 'sectionMutation', section });
         onSuccess?.();
       },
       error: (error: unknown) => {
@@ -730,6 +741,40 @@ export class ProjectsFacade {
     this.labelDefinitionStates.update(current => ({ ...current, [projectId]: state }));
   }
 
+  /**
+   * Applies aggregate data, pagination and section state under one scope rule.
+   * A response containing only page one must never erase an already loaded page two.
+   */
+  private applyAggregate(taskId: string, incoming: CanonicalTaskDetailDto, scope: AggregateApplyScope): void {
+    const current = this.taskDetails()[taskId];
+    const states = this.sectionStates();
+    const preserve = (section: Exclude<TaskDetailSection, 'detail'>): boolean => {
+      if (!current || scope.kind === 'initialLoad') return false;
+      if (scope.kind === 'taskBodyReload') return true;
+      if (scope.kind === 'sectionMutation' || scope.kind === 'sectionRecovery') return section !== scope.section;
+      return this.detailEditing || isProtectedSectionState(states[section]);
+    };
+
+    const detail = !current || scope.kind === 'initialLoad'
+      ? incoming
+      : {
+          ...current,
+          ...incoming,
+          task: incoming.task ?? current.task,
+          relationships: incoming.relationships ?? current.relationships,
+          permissions: incoming.permissions ?? current.permissions,
+          checklist: preserve('checklist') ? current.checklist : (incoming.checklist ?? current.checklist),
+          labels: preserve('labels') ? current.labels : (incoming.labels ?? current.labels),
+          watchState: preserve('watch') ? current.watchState : (incoming.watchState ?? current.watchState),
+          subtasks: preservePagedSection(current.subtasks, incoming.subtasks, preserve('subtasks')),
+          comments: preservePagedSection(current.comments, incoming.comments, preserve('comments')),
+          files: preservePagedSection(current.files, incoming.files, preserve('files'))
+        };
+
+    this.taskDetails.update(details => ({ ...details, [taskId]: detail }));
+    this.applyAggregateSectionStates(detail, scope);
+  }
+
   /** An aggregate response never clears an unrelated section's error/conflict/retry evidence. */
   private applyAggregateSectionStates(detail: CanonicalTaskDetailDto, scope: AggregateApplyScope): void {
     const itemState = (items: readonly unknown[] | undefined): TaskDetailSectionState => ({ status: items?.length ? 'ready' : 'empty' });
@@ -757,7 +802,7 @@ export class ProjectsFacade {
           updated[section] = state;
           continue;
         }
-        if (scope.kind === 'realtimeRefresh' && !['conflict', 'error', 'permissionDenied', 'submitting'].includes(current[section].status) && current[section].retryKind !== 'page') {
+        if (scope.kind === 'realtimeRefresh' && !this.detailEditing && !isProtectedSectionState(current[section])) {
           updated[section] = state;
         }
       }
@@ -1000,6 +1045,27 @@ type AggregateApplyScope =
   | { readonly kind: 'sectionMutation'; readonly section: TaskDetailSection }
   | { readonly kind: 'sectionRecovery'; readonly section: TaskDetailSection }
   | { readonly kind: 'realtimeRefresh' };
+
+function isProtectedSectionState(state: TaskDetailSectionState): boolean {
+  return ['conflict', 'error', 'permissionDenied', 'submitting'].includes(state.status) || state.retryKind === 'page';
+}
+
+/** Keep a previously loaded aggregate page intact when this scope does not own it. */
+function preservePagedSection<T>(
+  current: PagedResponseDto<T> | null | undefined,
+  incoming: PagedResponseDto<T> | null | undefined,
+  preserve: boolean
+): PagedResponseDto<T> | null | undefined {
+  if (preserve && current) return current;
+  if (!incoming) return current;
+  if (!current) return incoming;
+  const items = incoming.items ?? current.items ?? [];
+  const uniqueItems = items.filter((item, index, all) => {
+    const id = typeof (item as { id?: unknown }).id === 'string' ? (item as { id: string }).id : null;
+    return !id || all.findIndex(candidate => (candidate as { id?: unknown }).id === id) === index;
+  });
+  return { ...incoming, items: uniqueItems, page: incoming.page ?? current.page, pageSize: incoming.pageSize ?? current.pageSize, totalCount: incoming.totalCount ?? uniqueItems.length, hasMore: incoming.hasMore ?? current.hasMore };
+}
 
 function toSectionFailure(error: unknown, fallback: string): TaskDetailSectionState {
   const normalized = normalizeApiError(error);

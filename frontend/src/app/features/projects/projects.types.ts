@@ -15,7 +15,9 @@ export type ProjectCapability = 'editTask' | 'assignTask' | 'changeTaskStatus' |
 export type TaskMutationState =
   | { readonly status: 'idle' }
   | { readonly status: 'submitting' }
+  | { readonly status: 'refreshingAfterSave' }
   | { readonly status: 'success' }
+  | { readonly status: 'savedButRefreshFailed'; readonly message: string; readonly requestId?: string }
   | { readonly status: 'failure'; readonly message: string; readonly requestId?: string }
   | { readonly status: 'conflict'; readonly message: string; readonly serverVersion?: unknown; readonly requestId?: string }
   | { readonly status: 'validation'; readonly message: string; readonly requestId?: string }
@@ -77,7 +79,8 @@ export interface TaskMockRecord {
   readonly assignee: string;
   readonly startDate: string;
   readonly dueDate: string;
-  readonly progressPercent: number | null;
+    readonly progressPercent: number | null;
+    readonly progressIsDerived?: boolean;
   readonly milestone: string;
   readonly dependencyIds: readonly string[];
   readonly allowedTransitions: readonly TaskStatus[];

@@ -110,6 +110,9 @@ export class TaskDetailPageComponent implements OnDestroy {
       else this.files.clearPickerFiles();
     });
     effect(() => this.facade.setDetailEditing(this.detailEditing()));
+    // Test/story doubles from before the Task-body/subresource split may not expose
+    // this additive facade method yet.
+    effect(() => (this.facade as unknown as { setTaskBodyEditing?: (editing: boolean) => void }).setTaskBodyEditing?.(this.taskEditorDirty()));
     this.routeSubscription = this.route.paramMap.subscribe((params) => {
       const projectId = params.get('projectId') ?? undefined;
       const taskId = params.get('taskId') ?? undefined;

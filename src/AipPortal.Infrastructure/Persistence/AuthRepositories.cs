@@ -91,10 +91,26 @@ public sealed class SessionRepository(AppDbContext dbContext) : ISessionReposito
     }
 }
 
-public sealed class EfUnitOfWork(AppDbContext dbContext) : IUnitOfWork
+public sealed class EfUnitOfWork(AppDbContext dbContext) : IUnitOfWork, ITaskCommandUnitOfWork
 {
     public Task<int> SaveChangesAsync(CancellationToken cancellationToken = default)
     {
         return dbContext.SaveChangesAsync(cancellationToken);
+    }
+
+    public async Task<TaskCommandSaveResult> SaveTaskCommandAsync(CancellationToken cancellationToken = default)
+    {
+        try
+        {
+            await dbContext.SaveChangesAsync(cancellationToken);
+            return TaskCommandSaveResult.Saved;
+        }
+        catch (DbUpdateConcurrencyException)
+        {
+            // A failed EF save leaves original values and Added audit/outbox rows tracked.
+            // This context is request-scoped, but clearing also makes a same-request retry safe.
+            dbContext.ChangeTracker.Clear();
+            return TaskCommandSaveResult.ConcurrencyConflict;
+        }
     }
 }

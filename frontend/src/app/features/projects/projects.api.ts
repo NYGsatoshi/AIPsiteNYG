@@ -47,6 +47,7 @@ export interface TaskDto {
   readonly plannedStartDate?: unknown;
   readonly plannedEndDate?: unknown;
   readonly progressPercent?: unknown;
+  readonly progressIsDerived?: unknown;
   readonly uiPermissions?: TaskUiPermissionDto | null;
   readonly version?: unknown;
 }

@@ -60,6 +60,9 @@ export const TaskConflictReloadLoading: Story = withScenario('taskConflictReload
 
 export const TaskConflictReloadError: Story = withScenario('taskConflictReloadError');
 
+/** UI scenario state, not an API DTO: PATCH succeeded but the required reload did not. */
+export const TaskSavedButRefreshFailed: Story = withScenario('taskSavedButRefreshFailed');
+
 export const InvalidStateTransition: Story = withScenario('invalidStateTransition');
 
 export const MilestoneReadOnly: Story = withScenario('milestoneReadOnly');

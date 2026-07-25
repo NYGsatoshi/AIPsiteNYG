@@ -236,6 +236,10 @@ export const PROJECTS_SCENARIOS = {
     status: 'ready', title: 'Task detail', subtitle: 'Task conflict reload failed', projects: DEFAULT_PROJECTS, tasks: DEFAULT_TASKS, currentUserAssignee: 'Sample Member 01',
     taskMutationState: { status: 'conflict', message: 'The task changed on the server. Reload before saving.', requestId: 'story-task-conflict' }, taskConflictReloadState: 'error'
   },
+  taskSavedButRefreshFailed: {
+    status: 'ready', title: 'Task detail', subtitle: 'Task saved but latest data unavailable', projects: DEFAULT_PROJECTS, tasks: DEFAULT_TASKS, currentUserAssignee: 'Sample Member 01',
+    taskMutationState: { status: 'savedButRefreshFailed', message: 'The latest task detail request failed.', requestId: 'story-after-save-refresh' }
+  },
   invalidStateTransition: {
     status: 'ready',
     detailState: 'invalidStateTransition',

@@ -35,3 +35,19 @@ public interface IUnitOfWork
 {
     Task<int> SaveChangesAsync(CancellationToken cancellationToken = default);
 }
+
+/// <summary>
+/// Task commands use this narrowly-scoped persistence boundary so an EF optimistic
+/// concurrency failure can be classified without assigning Task error codes to
+/// unrelated aggregates.
+/// </summary>
+public interface ITaskCommandUnitOfWork : IUnitOfWork
+{
+    Task<TaskCommandSaveResult> SaveTaskCommandAsync(CancellationToken cancellationToken = default);
+}
+
+public enum TaskCommandSaveResult
+{
+    Saved,
+    ConcurrencyConflict
+}
