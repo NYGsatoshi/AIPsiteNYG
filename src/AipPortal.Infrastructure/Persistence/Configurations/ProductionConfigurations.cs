@@ -388,6 +388,7 @@ public sealed class WorkItemWatchStateConfiguration : IEntityTypeConfiguration<W
     {
         builder.ToTable("work_item_watch_states"); builder.ConfigureEntity();
         builder.Property(x => x.AutomaticSources).HasConversion<int>();
+        builder.Property(x => x.VersionNo).IsConcurrencyToken().HasDefaultValue(1L);
         builder.HasIndex(x => new { x.TenantId, x.TaskItemId, x.UserId }).IsUnique();
         builder.HasIndex(x => new { x.TenantId, x.UserId, x.IsWatching, x.TaskItemId });
         builder.HasOne(x => x.TaskItem).WithMany(x => x.WatchStates).HasForeignKey(x => x.TaskItemId).OnDelete(DeleteBehavior.Restrict);
@@ -401,6 +402,7 @@ public sealed class ProjectTaskLabelConfiguration : IEntityTypeConfiguration<Pro
     {
         builder.ToTable("project_task_labels"); builder.ConfigureEntity();
         builder.Property(x => x.Name).HasMaxLength(120).IsRequired(); builder.Property(x => x.Description).HasMaxLength(1000);
+        builder.Property(x => x.VersionNo).IsConcurrencyToken().HasDefaultValue(1L);
         builder.HasIndex(x => new { x.TenantId, x.ProjectId, x.Name }).IsUnique();
         builder.HasOne(x => x.Project).WithMany().HasForeignKey(x => x.ProjectId).OnDelete(DeleteBehavior.Restrict);
     }

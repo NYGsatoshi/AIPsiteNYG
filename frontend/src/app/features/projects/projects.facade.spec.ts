@@ -335,8 +335,9 @@ describe('ProjectsFacade live API mutations', () => {
     facade.ensureTaskDetail('project-1', 'task-1');
     httpMock.expectOne('/api/tasks/task-1').flush({ task: editableTaskDto, permissions: { canApplyLabels: true }, checklist: [], labels: [], subtasks: { items: [] }, comments: { items: [] }, files: { items: [] } });
     const definitions = httpMock.expectOne('/api/projects/project-1/task-labels?includeArchived=true');
-    facade.applyLabel('task-1', 'label-1');
+    facade.applyLabel('task-1', 'label-1', '1');
     const mutation = httpMock.expectOne('/api/tasks/task-1/labels/label-1');
+    expect(mutation.request.body).toEqual({ expectedVersion: 1 });
     definitions.flush([{ id: 'label-1', name: 'Label', sortKey: 1, isArchived: false, version: 1 }]);
     expect(facade.getDetailSectionState('labels').status).toBe('submitting');
     mutation.flush({});
@@ -418,7 +419,7 @@ describe('ProjectsFacade live API mutations', () => {
     httpMock.expectOne('/api/tasks/task-1').flush(aggregate);
     expect(facade.getDetailSectionState('files').status).toBe('ready');
 
-    facade.applyLabel('task-1', 'label-1');
+    facade.applyLabel('task-1', 'label-1', '1');
     httpMock.expectOne('/api/tasks/task-1/labels/label-1').flush({ code: 'TASK_STALE_VERSION' }, { status: 409, statusText: 'Conflict' });
     facade.retrySection('task-1', 'labels');
     httpMock.expectOne('/api/tasks/task-1').flush(aggregate);

@@ -45,8 +45,9 @@ public sealed class TaskCommandService(
             return Fail<CanonicalTaskResponse>("TASK_INVALID_DATE_RANGE", "Planned start date must not be after planned end date.");
 
         var category = CategoryOf(task);
-        if ((await projects.ListTasksAsync(task.ProjectId, cancellationToken)).Any(item => item.ParentTaskItemId == task.Id && !item.DeletedAt.HasValue))
-            return Fail<CanonicalTaskResponse>("TASK_PROGRESS_DERIVED", "Parent task progress is derived from its children.");
+        var hasActiveChildren = (await projects.ListTasksAsync(task.ProjectId, cancellationToken)).Any(item => item.ParentTaskItemId == task.Id && !item.DeletedAt.HasValue);
+        if (hasActiveChildren && (request.ProgressPercent != task.ProgressPercent || request.PlannedStartDate != task.PlannedStartDate || request.PlannedEndDate != task.PlannedEndDate))
+            return Fail<CanonicalTaskResponse>("TASK_PROGRESS_DERIVED", "Parent task progress and planned dates are derived from its children.");
         if (category == TaskStageCategory.Done && request.ProgressPercent.Value != 100)
             return Fail<CanonicalTaskResponse>("TASK_INVALID_PROGRESS", "Completed tasks must remain at 100 percent progress.");
         if (category == TaskStageCategory.Cancelled && request.ProgressPercent.Value != task.ProgressPercent)
@@ -54,10 +55,14 @@ public sealed class TaskCommandService(
         task.Title = title;
         task.Description = string.IsNullOrWhiteSpace(description) ? null : description;
         task.Priority = request.Priority.Value;
-        // Keep the legacy date columns synchronized while this compatibility model remains in use.
-        task.PlannedStartDate = task.StartDate = request.PlannedStartDate;
-        task.PlannedEndDate = task.DueDate = request.PlannedEndDate;
-        task.ProgressPercent = request.ProgressPercent.Value;
+        // Parent planning fields are derived, but ordinary body fields remain editable.
+        if (!hasActiveChildren)
+        {
+            // Keep the legacy date columns synchronized while this compatibility model remains in use.
+            task.PlannedStartDate = task.StartDate = request.PlannedStartDate;
+            task.PlannedEndDate = task.DueDate = request.PlannedEndDate;
+            task.ProgressPercent = request.ProgressPercent.Value;
+        }
 
         var committed = await CommitAsync(task, "TaskDetailsUpdated", "updated", cancellationToken);
         return committed.IsSuccess
@@ -262,11 +267,22 @@ public sealed class TaskCommandService(
     {
         var result = await AuthorizedTaskAsync(taskId, false, cancellationToken: cancellationToken);
         if (result.Error is not null) return Fail<TaskWatchStateResponse>(result.Error.Value.Code, result.Error.Value.Message);
-        var task = result.Value!; if (EnsureVersion(task, request.ExpectedVersion) is not null) return Fail<TaskWatchStateResponse>("TASK_STALE_VERSION", "Task has changed. Refetch and retry.");
+        var task = result.Value!;
+        if (request.ExpectedVersion < 0) return Fail<TaskWatchStateResponse>("TASK_INVALID_EXPECTED_VERSION", "Expected watch state version must not be negative.");
         var state = await projects.GetWatchStateAsync(taskId, Actor(), cancellationToken);
-        if (state is null) { state = new WorkItemWatchState { TaskItemId = taskId, UserId = Actor(), UpdatedAt = clock.UtcNow }; await projects.AddWatchStateAsync(state, cancellationToken); }
-        state.IsExplicitOptOut = !watch; state.IsWatching = watch; state.UpdatedAt = clock.UtcNow; state.VersionNo++;
+        var created = false;
+        if (state is null)
+        {
+            if (request.ExpectedVersion != 0) return Fail<TaskWatchStateResponse>("TASK_STALE_VERSION", "Watch state has changed. Refetch and retry.");
+            state = new WorkItemWatchState { TaskItemId = taskId, UserId = Actor(), UpdatedAt = clock.UtcNow, VersionNo = 1 };
+            await projects.AddWatchStateAsync(state, cancellationToken);
+            created = true;
+        }
+        else if (state.VersionNo != request.ExpectedVersion) return Fail<TaskWatchStateResponse>("TASK_STALE_VERSION", "Watch state has changed. Refetch and retry.");
+        state.IsExplicitOptOut = !watch; state.IsWatching = watch; state.UpdatedAt = clock.UtcNow;
+        if (!created) state.VersionNo++;
         await audit.LogAsync(new AuditLogEntry(Actor(), watch ? "TaskWatchEnabled" : "TaskWatchOptOut", "TaskItem", taskId, "Task watch preference changed.", WorkspaceId: task.WorkspaceId, ProjectId: task.ProjectId), cancellationToken);
+        await invalidations.TaskChangedAsync(task, Actor(), "watchChanged", affectedUserIds: [Actor()], cancellationToken: cancellationToken);
         if (await unitOfWork.SaveTaskCommandAsync(cancellationToken) == TaskCommandSaveResult.ConcurrencyConflict)
             return Fail<TaskWatchStateResponse>("TASK_STALE_VERSION", "Task has changed. Refetch and retry.");
         return Result<TaskWatchStateResponse>.Success(ToWatchResponse(state));
@@ -328,8 +344,10 @@ public sealed class TaskCommandService(
         {
             if (!states.TryGetValue(userId, out var state))
             {
-                state = new WorkItemWatchState { TaskItemId = task.Id, UserId = userId, UpdatedAt = clock.UtcNow };
+                var initialSources = sources.GetValueOrDefault(userId);
+                state = new WorkItemWatchState { TaskItemId = task.Id, UserId = userId, AutomaticSources = initialSources, IsWatching = initialSources != WorkItemWatchAutomaticSource.None, UpdatedAt = clock.UtcNow, VersionNo = 1 };
                 await projects.AddWatchStateAsync(state, cancellationToken);
+                continue;
             }
             var automaticSources = sources.GetValueOrDefault(userId);
             if (state.AutomaticSources == automaticSources) continue;

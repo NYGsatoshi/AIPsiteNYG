@@ -118,6 +118,10 @@ export const integerRangeValidator = (min: number, max: number): ValidatorFn => 
           </p>
         }
 
+        @if (task.progressIsDerived) {
+          <p class="task-editor__note" data-testid="task-derived-fields-note">Progress and planned dates are calculated from direct subtasks.</p>
+        }
+
         <label>
           <span>Title</span>
           <input
@@ -165,7 +169,8 @@ export const integerRangeValidator = (min: number, max: number): ValidatorFn => 
             type="date"
             formControlName="dueDate"
             data-testid="task-due-date-input"
-            [readonly]="!canEdit || editingLocked"
+            [readonly]="!canEdit || editingLocked || task.progressIsDerived"
+            [attr.aria-readonly]="task.progressIsDerived ? 'true' : null"
           />
           @if (hasUnsupportedDueDateClear()) {
             <small data-testid="task-due-date-clear-error">Existing due dates can be replaced but not cleared in MVP0.</small>
@@ -203,7 +208,8 @@ export const integerRangeValidator = (min: number, max: number): ValidatorFn => 
             type="number"
             formControlName="progressPercent"
             data-testid="task-progress-input"
-            [readonly]="!canEdit || isSubmitting"
+            [readonly]="!canEdit || editingLocked || task.progressIsDerived"
+            [attr.aria-readonly]="task.progressIsDerived ? 'true' : null"
           />
           @if (form.controls.progressPercent.invalid && form.controls.progressPercent.touched) {
             <small data-testid="task-progress-error">Progress must be an integer from 0 to 100.</small>

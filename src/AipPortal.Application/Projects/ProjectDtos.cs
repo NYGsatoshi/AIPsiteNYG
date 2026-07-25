@@ -48,4 +48,4 @@ public sealed record TaskDependencyResponse(Guid Id, Guid PredecessorTaskId, Gui
 public sealed record AddTaskDependencyRequest(Guid PredecessorTaskId, TaskDependencyType DependencyType);
 public sealed record CommentResponse(Guid Id, CommentTargetType TargetType, Guid TargetId, Guid AuthorUserId, string Body, DateTimeOffset CreatedAt, DateTimeOffset? UpdatedAt);
 public sealed record CreateCommentRequest(CommentTargetType TargetType, Guid TargetId, string Body);
-public sealed record UpdateCommentRequest(string Body);
+public sealed record UpdateCommentRequest(string Body, long? ExpectedVersion = null);

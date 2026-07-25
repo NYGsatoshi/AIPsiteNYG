@@ -11,6 +11,7 @@ public sealed record UpdateTaskCommentRequest(string? BodyPlainText, bool? IsImp
 public sealed record ProjectTaskLabelResponse(Guid Id, string Name, string? Description, long SortKey, bool IsArchived, long Version);
 public sealed record CreateProjectTaskLabelRequest(string Name, string? Description, long? SortKey = null);
 public sealed record UpdateProjectTaskLabelRequest(string? Name, string? Description, long? SortKey, long ExpectedVersion);
+public sealed record TaskLabelAssociationRequest(long ExpectedVersion);
 public sealed record TaskSubresourceSummary(int ChecklistCompletedCount, int ChecklistTotalCount, int CommentCount, int LabelCount, int SubtaskCount);
 public sealed record TaskSubtaskResponse(Guid Id, Guid ParentTaskId, string Title, Guid? WorkflowStageId, string WorkflowStageName, string StageCategory, string Priority, int ProgressPercent, TaskPersonSummary? PrimaryAssignee, DateOnly? PlannedEndDate, DateTimeOffset? DeadlineAt, bool IsOverdue, long Version);
 public sealed record TaskSubtaskPage(IReadOnlyList<TaskSubtaskResponse> Items, int Page, int PageSize, int TotalCount, bool HasMore);

@@ -16,6 +16,7 @@ public interface ITaskSubresourceService
     Task<Result> DeleteChecklistAsync(Guid taskId, Guid itemId, long expectedVersion, CancellationToken cancellationToken = default);
     Task<Result<TaskChecklistOrderResponse>> ReorderChecklistAsync(Guid taskId, ReorderTaskChecklistRequest request, CancellationToken cancellationToken = default);
     Task<Result<TaskCommentPage>> ListCommentsAsync(Guid taskId, int page, int pageSize, CancellationToken cancellationToken = default);
+    Task<Result<TaskCommentResponse?>> GetCommentForCompatibilityAsync(Guid commentId, CancellationToken cancellationToken = default);
     Task<Result<TaskCommentResponse>> CreateCommentAsync(Guid taskId, CreateTaskCommentRequest request, CancellationToken cancellationToken = default);
     Task<Result<TaskCommentResponse>> UpdateCommentAsync(Guid commentId, UpdateTaskCommentRequest request, CancellationToken cancellationToken = default);
     Task<Result> DeleteCommentAsync(Guid commentId, long expectedVersion, CancellationToken cancellationToken = default);
@@ -24,7 +25,7 @@ public interface ITaskSubresourceService
     Task<Result<ProjectTaskLabelResponse>> CreateLabelAsync(Guid projectId, CreateProjectTaskLabelRequest request, CancellationToken cancellationToken = default);
     Task<Result<ProjectTaskLabelResponse>> UpdateLabelAsync(Guid projectId, Guid labelId, UpdateProjectTaskLabelRequest request, CancellationToken cancellationToken = default);
     Task<Result<ProjectTaskLabelResponse>> SetLabelArchiveAsync(Guid projectId, Guid labelId, long expectedVersion, bool archived, CancellationToken cancellationToken = default);
-    Task<Result> ApplyLabelAsync(Guid taskId, Guid labelId, CancellationToken cancellationToken = default);
-    Task<Result> RemoveLabelAsync(Guid taskId, Guid labelId, CancellationToken cancellationToken = default);
+    Task<Result> ApplyLabelAsync(Guid taskId, Guid labelId, TaskLabelAssociationRequest request, CancellationToken cancellationToken = default);
+    Task<Result> RemoveLabelAsync(Guid taskId, Guid labelId, long expectedVersion, CancellationToken cancellationToken = default);
     Task<TaskSubresourceSummary> GetSummaryAsync(Guid taskId, CancellationToken cancellationToken = default);
 }

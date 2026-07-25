@@ -2,6 +2,7 @@ using AipPortal.Application.Common.Interfaces;
 using AipPortal.Domain.Entities;
 using AipPortal.Domain.Enums;
 using Microsoft.EntityFrameworkCore;
+using Npgsql;
 
 namespace AipPortal.Infrastructure.Persistence;
 
@@ -109,6 +110,13 @@ public sealed class EfUnitOfWork(AppDbContext dbContext) : IUnitOfWork, ITaskCom
         {
             // A failed EF save leaves original values and Added audit/outbox rows tracked.
             // This context is request-scoped, but clearing also makes a same-request retry safe.
+            dbContext.ChangeTracker.Clear();
+            return TaskCommandSaveResult.ConcurrencyConflict;
+        }
+        catch (DbUpdateException exception) when (exception.InnerException is PostgresException { SqlState: PostgresErrorCodes.UniqueViolation })
+        {
+            // A concurrent create can race a unique Task subresource constraint.
+            // Nothing from the attempted command, audit, or outbox may remain tracked.
             dbContext.ChangeTracker.Clear();
             return TaskCommandSaveResult.ConcurrencyConflict;
         }

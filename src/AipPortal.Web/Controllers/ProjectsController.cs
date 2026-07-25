@@ -175,9 +175,9 @@ public sealed class ProjectsController(IProjectService projects, ITaskCommandSer
     [HttpPost("api/projects/{projectId:guid}/task-labels/{labelId:guid}/restore")]
     public async Task<IActionResult> RestoreTaskLabel(Guid projectId, Guid labelId, [FromQuery] long expectedVersion, CancellationToken cancellationToken) => ToTaskActionResult(await taskSubresources.SetLabelArchiveAsync(projectId, labelId, expectedVersion, false, cancellationToken));
     [HttpPut("api/tasks/{taskItemId:guid}/labels/{labelId:guid}")]
-    public async Task<IActionResult> ApplyTaskLabel(Guid taskItemId, Guid labelId, CancellationToken cancellationToken) => ToTaskActionResult(await taskSubresources.ApplyLabelAsync(taskItemId, labelId, cancellationToken));
+    public async Task<IActionResult> ApplyTaskLabel(Guid taskItemId, Guid labelId, TaskLabelAssociationRequest request, CancellationToken cancellationToken) => ToTaskActionResult(await taskSubresources.ApplyLabelAsync(taskItemId, labelId, request, cancellationToken));
     [HttpDelete("api/tasks/{taskItemId:guid}/labels/{labelId:guid}")]
-    public async Task<IActionResult> RemoveTaskLabel(Guid taskItemId, Guid labelId, CancellationToken cancellationToken) => ToTaskActionResult(await taskSubresources.RemoveLabelAsync(taskItemId, labelId, cancellationToken));
+    public async Task<IActionResult> RemoveTaskLabel(Guid taskItemId, Guid labelId, [FromQuery] long expectedVersion, CancellationToken cancellationToken) => ToTaskActionResult(await taskSubresources.RemoveLabelAsync(taskItemId, labelId, expectedVersion, cancellationToken));
 
     [HttpGet("api/tasks/{taskItemId:guid}/assignments")]
     public async Task<IActionResult> ListAssignments(Guid taskItemId, CancellationToken cancellationToken) => ToActionResult(await projects.ListAssignmentsAsync(taskItemId, cancellationToken));
@@ -201,16 +201,42 @@ public sealed class ProjectsController(IProjectService projects, ITaskCommandSer
     public async Task<IActionResult> DeleteDependency(Guid dependencyId, CancellationToken cancellationToken) => OkOrBad(await projects.DeleteDependencyAsync(dependencyId, cancellationToken));
 
     [HttpGet("api/comments")]
-    public async Task<IActionResult> ListComments([FromQuery] CommentTargetType targetType, [FromQuery] Guid targetId, [FromQuery] ProjectChildListQuery query, CancellationToken cancellationToken) => ToActionResult(await projects.ListCommentsAsync(targetType, targetId, query, cancellationToken));
+    public async Task<IActionResult> ListComments([FromQuery] CommentTargetType targetType, [FromQuery] Guid targetId, [FromQuery] ProjectChildListQuery query, CancellationToken cancellationToken)
+    {
+        if (targetType != CommentTargetType.TaskItem) return ToActionResult(await projects.ListCommentsAsync(targetType, targetId, query, cancellationToken));
+        var result = await taskSubresources.ListCommentsAsync(targetId, query.SafePage, query.SafePageSize, cancellationToken);
+        if (!result.IsSuccess) return ToTaskActionResult(result);
+        var page = result.Value!;
+        var items = page.Items.Where(item => item.BodyPlainText is not null).Select(ToLegacyComment).ToList();
+        return Ok(new AipPortal.Application.Common.PagedResponse<CommentResponse>(items, page.Page, page.PageSize, page.TotalCount));
+    }
 
     [HttpPost("api/comments")]
-    public async Task<IActionResult> AddComment(CreateCommentRequest request, CancellationToken cancellationToken) => ToActionResult(await projects.AddCommentAsync(request, cancellationToken));
+    public async Task<IActionResult> AddComment(CreateCommentRequest request, CancellationToken cancellationToken)
+    {
+        if (request.TargetType != CommentTargetType.TaskItem) return ToActionResult(await projects.AddCommentAsync(request, cancellationToken));
+        var result = await taskSubresources.CreateCommentAsync(request.TargetId, new CreateTaskCommentRequest(request.Body), cancellationToken);
+        return result.IsSuccess ? Ok(ToLegacyComment(result.Value!)) : ToTaskActionResult(result);
+    }
 
     [HttpPatch("api/comments/{commentId:guid}")]
-    public async Task<IActionResult> UpdateComment(Guid commentId, UpdateCommentRequest request, CancellationToken cancellationToken) => ToActionResult(await projects.UpdateCommentAsync(commentId, request, cancellationToken));
+    public async Task<IActionResult> UpdateComment(Guid commentId, UpdateCommentRequest request, CancellationToken cancellationToken)
+    {
+        var compatibility = await taskSubresources.GetCommentForCompatibilityAsync(commentId, cancellationToken);
+        if (!compatibility.IsSuccess) return ToTaskActionResult(compatibility);
+        if (compatibility.Value is null) return ToActionResult(await projects.UpdateCommentAsync(commentId, request, cancellationToken));
+        var result = await taskSubresources.UpdateCommentAsync(commentId, new UpdateTaskCommentRequest(request.Body, null, request.ExpectedVersion ?? compatibility.Value.Version), cancellationToken);
+        return result.IsSuccess ? Ok(ToLegacyComment(result.Value!)) : ToTaskActionResult(result);
+    }
 
     [HttpDelete("api/comments/{commentId:guid}")]
-    public async Task<IActionResult> DeleteComment(Guid commentId, CancellationToken cancellationToken) => OkOrBad(await projects.DeleteCommentAsync(commentId, cancellationToken));
+    public async Task<IActionResult> DeleteComment(Guid commentId, [FromQuery] long? expectedVersion, CancellationToken cancellationToken)
+    {
+        var compatibility = await taskSubresources.GetCommentForCompatibilityAsync(commentId, cancellationToken);
+        if (!compatibility.IsSuccess) return ToTaskActionResult(compatibility);
+        if (compatibility.Value is null) return OkOrBad(await projects.DeleteCommentAsync(commentId, cancellationToken));
+        return ToTaskActionResult(await taskSubresources.DeleteCommentAsync(commentId, expectedVersion ?? compatibility.Value.Version, cancellationToken));
+    }
 
     private IActionResult OkOrBad(AipPortal.Application.Common.Result result) => result.IsSuccess ? Ok(new { status = "OK" }) : BadRequest(ToErrorResponse(result.Error));
     private IActionResult ToActionResult<T>(AipPortal.Application.Common.Result<T> result) => result.IsSuccess ? Ok(result.Value) : BadRequest(ToErrorResponse(result.Error));
@@ -223,7 +249,7 @@ public sealed class ProjectsController(IProjectService projects, ITaskCommandSer
         var status = code switch
         {
             "TASK_NOT_FOUND" => StatusCodes.Status404NotFound,
-            "TASK_FORBIDDEN" or "TASK_CLAIM_GROUP_MEMBERSHIP_REQUIRED" or "TASK_COMMENT_FORBIDDEN" or "TASK_LABEL_FORBIDDEN" => StatusCodes.Status403Forbidden,
+            "TASK_FORBIDDEN" or "TASK_CLAIM_GROUP_MEMBERSHIP_REQUIRED" or "TASK_COMMENT_FORBIDDEN" or "TASK_LABEL_FORBIDDEN" or "TASK_FILE_ASSOCIATION_FORBIDDEN" => StatusCodes.Status403Forbidden,
             "TASK_STALE_VERSION" or "TASK_ALREADY_ASSIGNED" => StatusCodes.Status409Conflict,
             "TASK_COMMENT_RATE_LIMITED" => StatusCodes.Status429TooManyRequests,
             "TASK_TRANSITION_GUARD_FAILED" or "TASK_ASSIGNEE_REQUIRED" or "TASK_REVIEW_REQUIRED" or "TASK_BLOCK_REASON_REQUIRED" or "TASK_CANCEL_REASON_REQUIRED" => StatusCodes.Status422UnprocessableEntity,
@@ -260,4 +286,5 @@ public sealed class ProjectsController(IProjectService projects, ITaskCommandSer
         return StatusCode(status, new { requestId = HttpContext.TraceIdentifier, error = new { code, message = parts.Length == 2 ? parts[1] : "The request could not be completed.", target = (string?)null, details = Array.Empty<object>(), redactionApplied = false } });
     }
     private ErrorResponse ToErrorResponse(string? message) => new("BadRequest", message ?? "The request could not be completed.", HttpContext.TraceIdentifier);
+    private static CommentResponse ToLegacyComment(TaskCommentResponse comment) => new(comment.Id, CommentTargetType.TaskItem, comment.TaskId, comment.Author?.UserId ?? Guid.Empty, comment.BodyPlainText ?? string.Empty, comment.CreatedAt, comment.UpdatedAt);
 }

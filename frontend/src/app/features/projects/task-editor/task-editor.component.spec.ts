@@ -64,4 +64,15 @@ describe('TaskEditorComponent conflict recovery outputs', () => {
     (fixture.nativeElement.querySelector('[data-testid="task-save-button"]') as HTMLButtonElement).click();
     expect(save).not.toHaveBeenCalled();
   });
+
+  it('keeps parent-derived progress and planned dates read-only while ordinary fields remain editable', () => {
+    component.task = { ...component.task!, progressIsDerived: true };
+    fixture.detectChanges();
+
+    expect((fixture.nativeElement.querySelector('[data-testid="task-progress-input"]') as HTMLInputElement).readOnly).toBe(true);
+    expect((fixture.nativeElement.querySelector('[data-testid="task-start-date-input"]') as HTMLInputElement).readOnly).toBe(true);
+    expect((fixture.nativeElement.querySelector('[data-testid="task-due-date-input"]') as HTMLInputElement).readOnly).toBe(true);
+    expect((fixture.nativeElement.querySelector('[data-testid="task-title-input"]') as HTMLInputElement).readOnly).toBe(false);
+    expect(fixture.nativeElement.querySelector('[data-testid="task-derived-fields-note"]')).not.toBeNull();
+  });
 });
