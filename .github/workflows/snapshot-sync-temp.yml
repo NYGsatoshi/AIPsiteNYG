@@ -28,6 +28,7 @@ jobs:
       - name: Checkout PR head
         uses: actions/checkout@v4
         with:
+          ref: ${{ github.event.pull_request.head.sha }}
           fetch-depth: 0
 
       - name: Configure persistent .NET caches
@@ -36,7 +37,7 @@ jobs:
           bash scripts/ci/configure-persistent-caches.sh
           install_dir="$HOME/.dotnet-ci"
           job_temp="$RUNNER_TEMP/dotnet-snapshot-${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}"
-          mkdir -p "$install_dir" "$job_temp/home" "$job_temp/nuget/scratch"
+          mkdir -p "$install_dir" "$job_temp/home" "$job_temp/nuget/scratch" "$GITHUB_WORKSPACE/artifacts/snapshot-sync"
           {
             echo "DOTNET_INSTALL_DIR=$install_dir"
             echo "DOTNET_CMD=$install_dir/dotnet"
@@ -61,22 +62,33 @@ jobs:
           "$DOTNET_CMD" tool restore
 
       - name: Generate model snapshot
+        id: generate
         shell: bash
         run: |
+          log="$GITHUB_WORKSPACE/artifacts/snapshot-sync/generate.log"
+          set +e
           "$DOTNET_CMD" ef migrations add __SnapshotSync \
             --project src/AipPortal.Infrastructure \
             --startup-project src/AipPortal.Web \
             --configuration Release \
-            --output-dir Persistence/Migrations
-          find src/AipPortal.Infrastructure/Persistence/Migrations \
-            -maxdepth 1 -type f -name '*__SnapshotSync*.cs' -delete
-          git diff --check
-          test -f src/AipPortal.Infrastructure/Persistence/Migrations/AppDbContextModelSnapshot.cs
+            --output-dir Persistence/Migrations 2>&1 | tee "$log"
+          status=${PIPESTATUS[0]}
+          set -e
+          echo "$status" > "$GITHUB_WORKSPACE/artifacts/snapshot-sync/status.txt"
+          if [[ "$status" -eq 0 ]]; then
+            find src/AipPortal.Infrastructure/Persistence/Migrations \
+              -maxdepth 1 -type f -name '*__SnapshotSync*.cs' -delete
+            git diff --check
+            cp src/AipPortal.Infrastructure/Persistence/Migrations/AppDbContextModelSnapshot.cs \
+              "$GITHUB_WORKSPACE/artifacts/snapshot-sync/AppDbContextModelSnapshot.cs"
+          fi
+          exit "$status"
 
-      - name: Upload generated snapshot
+      - name: Upload snapshot diagnostics
+        if: always()
         uses: actions/upload-artifact@v4
         with:
           name: ef-model-snapshot
-          path: src/AipPortal.Infrastructure/Persistence/Migrations/AppDbContextModelSnapshot.cs
+          path: artifacts/snapshot-sync
           if-no-files-found: error
           retention-days: 1
