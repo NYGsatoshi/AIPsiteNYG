@@ -17,7 +17,7 @@ namespace AipPortal.Infrastructure.Persistence.Migrations
         {
 #pragma warning disable 612, 618
             modelBuilder
-                .HasAnnotation("ProductVersion", "10.0.8")
+                .HasAnnotation("ProductVersion", "10.0.10")
                 .HasAnnotation("Relational:MaxIdentifierLength", 63);
 
             NpgsqlModelBuilderExtensions.UseIdentityByDefaultColumns(modelBuilder);
@@ -3085,7 +3085,10 @@ namespace AipPortal.Infrastructure.Persistence.Migrations
                         .HasColumnType("uuid");
 
                     b.Property<long>("VersionNo")
-                        .HasColumnType("bigint");
+                        .IsConcurrencyToken()
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("bigint")
+                        .HasDefaultValue(1L);
 
                     b.Property<Guid>("WorkspaceId")
                         .HasColumnType("uuid");
@@ -4697,7 +4700,10 @@ namespace AipPortal.Infrastructure.Persistence.Migrations
                         .HasColumnType("uuid");
 
                     b.Property<long>("VersionNo")
-                        .HasColumnType("bigint");
+                        .IsConcurrencyToken()
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("bigint")
+                        .HasDefaultValue(1L);
 
                     b.HasKey("Id");
 
