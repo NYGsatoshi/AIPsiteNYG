@@ -34,6 +34,7 @@ jobs:
       DOTNET_CLI_TELEMETRY_OPTOUT: "1"
       DOTNET_NOLOGO: "1"
       QODANA_FRONTEND_REQUIRED: "false"
+      QODANA_RESULTS_DIR: ${{ runner.temp }}/qodana/results-${{ github.run_id }}-${{ github.run_attempt }}
 
     steps:
       - name: Repair previous Docker workspace ownership
@@ -61,12 +62,6 @@ jobs:
         with:
           global-json-file: global.json
 
-      - name: Reset Qodana result directory
-        shell: bash
-        run: |
-          rm -rf "${{ runner.temp }}/qodana/results"
-          mkdir -p "${{ runner.temp }}/qodana/results"
-
       - name: Run all registered Qodana Community inspections
         uses: JetBrains/qodana-action@v2026.1
         with:
@@ -75,7 +70,7 @@ jobs:
             --solution AipPortal.slnx
             --configuration Release
           pr-mode: false
-          results-dir: ${{ runner.temp }}/qodana/results
+          results-dir: ${{ env.QODANA_RESULTS_DIR }}
           use-caches: false
           post-pr-comment: true
           use-annotations: true
@@ -105,7 +100,7 @@ jobs:
           QODANA_PROJECT_MODEL_SUMMARY_PATH: ${{ runner.temp }}/qodana/project-model-summary.json
         shell: bash
         run: |
-          sarif="${{ runner.temp }}/qodana/results/qodana.sarif.json"
+          sarif="${QODANA_RESULTS_DIR}/qodana.sarif.json"
           if [[ ! -f "$sarif" ]]; then
             echo "::warning::Qodana SARIF was not produced; skipping the secondary project-model guard."
             exit 0
