@@ -49,5 +49,6 @@ public interface ITaskCommandUnitOfWork : IUnitOfWork
 public enum TaskCommandSaveResult
 {
     Saved,
-    ConcurrencyConflict
+    ConcurrencyConflict,
+    UniqueConflict
 }

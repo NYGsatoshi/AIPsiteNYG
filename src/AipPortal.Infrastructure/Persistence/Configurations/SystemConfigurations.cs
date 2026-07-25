@@ -22,6 +22,12 @@ public sealed class AttachmentConfiguration : IEntityTypeConfiguration<Attachmen
         builder.Property(attachment => attachment.ScanStatus).HasEnumStringConversion().IsRequired();
 
         builder.HasIndex(attachment => attachment.FileObjectId);
+        // A Task may reference a canonical file only once.  Restrict the uniqueness
+        // boundary to active Task associations so legacy/message attachments retain
+        // their existing semantics and soft-deleted links can be recreated.
+        builder.HasIndex(attachment => new { attachment.OwnerType, attachment.OwnerId, attachment.FileObjectId })
+            .HasFilter("\"OwnerType\" = 'TaskItem' AND \"DeletedAt\" IS NULL")
+            .IsUnique();
         builder.HasIndex(attachment => attachment.WorkspaceId);
         builder.HasIndex(attachment => new { attachment.OwnerType, attachment.OwnerId });
         builder.HasIndex(attachment => attachment.OwnerUserId);

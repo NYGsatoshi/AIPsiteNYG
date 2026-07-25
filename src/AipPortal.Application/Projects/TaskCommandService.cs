@@ -285,7 +285,7 @@ public sealed class TaskCommandService(
         if (!created) state.VersionNo++;
         await audit.LogAsync(new AuditLogEntry(Actor(), watch ? "TaskWatchEnabled" : "TaskWatchOptOut", "TaskItem", taskId, "Task watch preference changed.", WorkspaceId: task.WorkspaceId, ProjectId: task.ProjectId), cancellationToken);
         await invalidations.TaskChangedAsync(task, Actor(), "watchChanged", affectedUserIds: [Actor()], cancellationToken: cancellationToken);
-        if (await unitOfWork.SaveTaskCommandAsync(cancellationToken) == TaskCommandSaveResult.ConcurrencyConflict)
+        if (await unitOfWork.SaveTaskCommandAsync(cancellationToken) != TaskCommandSaveResult.Saved)
             return Fail<TaskWatchStateResponse>("TASK_STALE_VERSION", "Task has changed. Refetch and retry.");
         return Result<TaskWatchStateResponse>.Success(ToWatchResponse(state));
     }
@@ -329,7 +329,7 @@ public sealed class TaskCommandService(
         await audit.LogAsync(new AuditLogEntry(actor, action, "TaskItem", task.Id, action, WorkspaceId: task.WorkspaceId, ProjectId: task.ProjectId, Metadata: new Dictionary<string, object?> { ["versionBefore"] = task.VersionNo - 1, ["reasonProvided"] = !string.IsNullOrWhiteSpace(reason) }), cancellationToken);
         await invalidations.TaskChangedAsync(task, actor, change, affectedUserIds: RelatedUsers(task), cancellationToken: cancellationToken);
         await AdvanceParentForChildMutationAsync(task, actor, action, cancellationToken);
-        if (await unitOfWork.SaveTaskCommandAsync(cancellationToken) == TaskCommandSaveResult.ConcurrencyConflict)
+        if (await unitOfWork.SaveTaskCommandAsync(cancellationToken) != TaskCommandSaveResult.Saved)
             return Fail<TaskCommandResponse>("TASK_STALE_VERSION", "Task has changed. Refetch and retry.");
         return Result<TaskCommandResponse>.Success(new TaskCommandResponse(await ToResponseAsync(task, actor, cancellationToken), [], overrideApplied));
     }

@@ -118,7 +118,7 @@ public sealed class EfUnitOfWork(AppDbContext dbContext) : IUnitOfWork, ITaskCom
             // A concurrent create can race a unique Task subresource constraint.
             // Nothing from the attempted command, audit, or outbox may remain tracked.
             dbContext.ChangeTracker.Clear();
-            return TaskCommandSaveResult.ConcurrencyConflict;
+            return TaskCommandSaveResult.UniqueConflict;
         }
     }
 }

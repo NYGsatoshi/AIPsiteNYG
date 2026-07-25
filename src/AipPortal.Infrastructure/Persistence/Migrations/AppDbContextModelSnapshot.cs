@@ -613,6 +613,10 @@ namespace AipPortal.Infrastructure.Persistence.Migrations
 
                     b.HasIndex("FileObjectId");
 
+                    b.HasIndex("OwnerType", "OwnerId", "FileObjectId")
+                        .IsUnique()
+                        .HasFilter("\"OwnerType\" = 'TaskItem' AND \"DeletedAt\" IS NULL");
+
                     b.HasIndex("OwnerUserId");
 
                     b.HasIndex("ScanStatus");
