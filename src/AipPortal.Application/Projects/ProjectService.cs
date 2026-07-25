@@ -449,7 +449,15 @@ public sealed class ProjectService(
             .Where(task => !query.MilestoneId.HasValue || task.MilestoneId == query.MilestoneId.Value)
             .Where(task => taskIdsForAssignee is null || taskIdsForAssignee.Contains(task.Id))
             .ToList();
-        var derivedValues = tasks.ToDictionary(task => task.Id, task => ParentTaskDerivedValuesCalculator.Calculate(task, tasks, CategoryOf));
+        // Build each direct-child collection once.  Passing the complete Project
+        // set to every row makes parent derivation quadratic for large lists.
+        var childrenByParent = tasks
+            .Where(task => task.ParentTaskItemId.HasValue)
+            .GroupBy(task => task.ParentTaskItemId!.Value)
+            .ToDictionary(group => group.Key, group => (IEnumerable<TaskItem>)group.ToArray());
+        var derivedValues = tasks.ToDictionary(
+            task => task.Id,
+            task => ParentTaskDerivedValuesCalculator.Calculate(task, childrenByParent.GetValueOrDefault(task.Id, []), CategoryOf));
         var workspaceId = tasks.FirstOrDefault()?.WorkspaceId;
         var timeZone = workspaceId.HasValue && timeZones is not null
             ? await timeZones.ResolveAsync(tasks[0].TenantId, workspaceId.Value, cancellationToken)

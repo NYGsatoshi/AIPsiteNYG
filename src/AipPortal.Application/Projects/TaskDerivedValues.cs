@@ -24,7 +24,6 @@ public static class ParentTaskDerivedValuesCalculator
         var children = projectTasks
             .Where(task => task.ParentTaskItemId == parent.Id)
             .Where(task => !task.DeletedAt.HasValue)
-            .Where(task => categoryOf(task) != TaskStageCategory.Cancelled)
             .ToArray();
 
         if (children.Length == 0)
@@ -33,13 +32,22 @@ public static class ParentTaskDerivedValuesCalculator
                 parent.PlannedEndDate ?? parent.DueDate, parent.ProgressPercent);
         }
 
+        // A direct child makes the parent derived even when it is Cancelled.  A
+        // cancellation only removes the child from progress aggregation; it
+        // must never make the parent editable again while the child exists.
         var starts = children.Select(task => task.PlannedStartDate ?? task.StartDate).Where(date => date.HasValue).Select(date => date!.Value).ToArray();
         var ends = children.Select(task => task.PlannedEndDate ?? task.DueDate).Where(date => date.HasValue).Select(date => date!.Value).ToArray();
-        var estimates = children.Select(task => task.EstimatedEffortMinutes).ToArray();
+        var progressChildren = children.Where(task => categoryOf(task) != TaskStageCategory.Cancelled).ToArray();
+        if (progressChildren.Length == 0)
+        {
+            return new ParentTaskDerivedValues(true, starts.Length == 0 ? null : starts.Min(), ends.Length == 0 ? null : ends.Max(), 0);
+        }
+
+        var estimates = progressChildren.Select(task => task.EstimatedEffortMinutes).ToArray();
         var useWeightedProgress = estimates.All(estimate => estimate is > 0);
         var progress = useWeightedProgress
-            ? (int)Math.Round(children.Sum(task => task.ProgressPercent * (decimal)task.EstimatedEffortMinutes!.Value) / estimates.Sum(estimate => (decimal)estimate!.Value), MidpointRounding.AwayFromZero)
-            : (int)Math.Round(children.Average(task => task.ProgressPercent), MidpointRounding.AwayFromZero);
+            ? (int)Math.Round(progressChildren.Sum(task => task.ProgressPercent * (decimal)task.EstimatedEffortMinutes!.Value) / estimates.Sum(estimate => (decimal)estimate!.Value), MidpointRounding.AwayFromZero)
+            : (int)Math.Round(progressChildren.Average(task => task.ProgressPercent), MidpointRounding.AwayFromZero);
 
         return new ParentTaskDerivedValues(
             true,
@@ -84,9 +92,8 @@ public interface ITaskWorkspaceTimeZoneResolver
 }
 
 /// <summary>
-/// Workspace-specific timezone settings are not yet persisted by this schema.
-/// Until they are, TenantSettings is the established workspace-effective
-/// fallback, with UTC for absent or invalid values.
+/// Resolves the workspace-local planning timezone, using the owning tenant's
+/// setting only when the Workspace candidate is absent or invalid.
 /// </summary>
 public sealed class TaskWorkspaceTimeZoneResolver(
     AipPortal.Application.Common.Interfaces.IWorkspaceRepository workspaces,
@@ -95,16 +102,22 @@ public sealed class TaskWorkspaceTimeZoneResolver(
     public async Task<TimeZoneInfo> ResolveAsync(Guid tenantId, Guid workspaceId, CancellationToken cancellationToken = default)
     {
         var workspace = await workspaces.GetByIdAsync(workspaceId, cancellationToken);
-        var zoneId = workspace?.TenantId == tenantId ? workspace.TimeZone : null;
-        zoneId ??= (await tenantPlans.GetTenantSettingsAsync(tenantId, cancellationToken))?.TimeZone;
-        if (!string.IsNullOrWhiteSpace(zoneId))
-        {
-            try { return TimeZoneInfo.FindSystemTimeZoneById(zoneId); }
-            catch (TimeZoneNotFoundException) { }
-            catch (InvalidTimeZoneException) { }
-        }
+        var workspaceZone = workspace?.TenantId == tenantId ? TryResolve(workspace.TimeZone) : null;
+        if (workspaceZone is not null)
+            return workspaceZone;
 
-        return TimeZoneInfo.Utc;
+        var tenantZone = TryResolve((await tenantPlans.GetTenantSettingsAsync(tenantId, cancellationToken))?.TimeZone);
+        return tenantZone ?? TimeZoneInfo.Utc;
+    }
+
+    private static TimeZoneInfo? TryResolve(string? zoneId)
+    {
+        if (string.IsNullOrWhiteSpace(zoneId))
+            return null;
+
+        try { return TimeZoneInfo.FindSystemTimeZoneById(zoneId.Trim()); }
+        catch (TimeZoneNotFoundException) { return null; }
+        catch (InvalidTimeZoneException) { return null; }
     }
 }
 

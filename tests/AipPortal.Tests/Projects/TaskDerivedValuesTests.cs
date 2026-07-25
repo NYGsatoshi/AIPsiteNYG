@@ -7,7 +7,7 @@ namespace AipPortal.Tests.Projects;
 public sealed class TaskDerivedValuesTests
 {
     [Fact]
-    public void ParentWithoutActiveChildrenUsesItsOwnValues()
+    public void ParentWithoutChildrenUsesItsOwnValues()
     {
         var parent = Task("parent", progress: 17, start: new DateOnly(2026, 7, 1), end: new DateOnly(2026, 7, 2));
 
@@ -52,16 +52,18 @@ public sealed class TaskDerivedValuesTests
     }
 
     [Fact]
-    public void AllCancelledChildrenDoNotDeriveParentValues()
+    public void AllCancelledChildrenRemainDerivedWithoutUsingSavedParentProgress()
     {
-        var parent = Task("parent", progress: 37);
-        var cancelled = Task("cancelled", parent.Id, progress: 100);
+        var parent = Task("parent", progress: 37, start: new DateOnly(2026, 7, 1), end: new DateOnly(2026, 7, 2));
+        var cancelled = Task("cancelled", parent.Id, progress: 100, start: new DateOnly(2026, 7, 4), end: new DateOnly(2026, 7, 8));
         cancelled.Status = TaskItemStatus.Cancelled;
 
         var actual = ParentTaskDerivedValuesCalculator.Calculate(parent, [cancelled], Category);
 
-        Assert.False(actual.IsDerived);
-        Assert.Equal(37, actual.ProgressPercent);
+        Assert.True(actual.IsDerived);
+        Assert.Equal(0, actual.ProgressPercent);
+        Assert.Equal(new DateOnly(2026, 7, 4), actual.PlannedStartDate);
+        Assert.Equal(new DateOnly(2026, 7, 8), actual.PlannedEndDate);
     }
 
     [Fact]
@@ -77,6 +79,41 @@ public sealed class TaskDerivedValuesTests
         Assert.Null(actual.PlannedStartDate);
         Assert.Null(actual.PlannedEndDate);
         Assert.Equal(16, actual.ProgressPercent); // 15.5, away from zero
+    }
+
+    [Fact]
+    public void DeletedChildrenDoNotDeriveAndCancelledChildrenDoNotContributeProgress()
+    {
+        var parent = Task("parent", progress: 37);
+        var active = Task("active", parent.Id, progress: 20, effort: 10);
+        var cancelled = Task("cancelled", parent.Id, progress: 100, effort: 10);
+        cancelled.Status = TaskItemStatus.Cancelled;
+        var deleted = Task("deleted", parent.Id, progress: 100, effort: 10);
+        deleted.MarkDeleted(DateTimeOffset.UtcNow);
+
+        var mixed = ParentTaskDerivedValuesCalculator.Calculate(parent, [active, cancelled, deleted], Category);
+        var onlyDeleted = ParentTaskDerivedValuesCalculator.Calculate(parent, [deleted], Category);
+
+        Assert.True(mixed.IsDerived);
+        Assert.Equal(20, mixed.ProgressPercent);
+        Assert.False(onlyDeleted.IsDerived);
+        Assert.Equal(37, onlyDeleted.ProgressPercent);
+    }
+
+    [Fact]
+    public void ReopenedCancelledChildIsIncludedInProgressAgain()
+    {
+        var parent = Task("parent");
+        var active = Task("active", parent.Id, progress: 20, effort: 10);
+        var cancelled = Task("cancelled", parent.Id, progress: 80, effort: 10);
+        cancelled.Status = TaskItemStatus.Cancelled;
+
+        var whileCancelled = ParentTaskDerivedValuesCalculator.Calculate(parent, [active, cancelled], Category);
+        cancelled.Status = TaskItemStatus.InProgress;
+        var reopened = ParentTaskDerivedValuesCalculator.Calculate(parent, [active, cancelled], Category);
+
+        Assert.Equal(20, whileCancelled.ProgressPercent);
+        Assert.Equal(50, reopened.ProgressPercent);
     }
 
     [Fact]
