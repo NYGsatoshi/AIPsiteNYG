@@ -80,6 +80,118 @@ public sealed class TaskCommandServiceTests
         Assert.Equal(1, unrelated.VersionNo);
     }
 
+    [Fact]
+    public async Task SubtaskCreationComposesChildCreatorWatchAndParentChangeInOneSave()
+    {
+        var fixture = Fixture.Create();
+        var parent = fixture.AddTask("parent");
+
+        var result = await fixture.Subresources.CreateSubtaskAsync(
+            parent.Id,
+            new CreateTaskSubtaskRequest("child", "description", TaskPriority.High));
+
+        Assert.True(result.IsSuccess);
+        var child = Assert.Single(fixture.Projects.Tasks.Values, task => task.ParentTaskItemId == parent.Id);
+        Assert.Equal(parent.Id, child.ParentTaskItemId);
+        var watch = Assert.Single(fixture.Projects.Watches);
+        Assert.Equal(child.Id, watch.TaskItemId);
+        Assert.Equal(fixture.Actor, watch.UserId);
+        Assert.Equal(WorkItemWatchAutomaticSource.Creator, watch.AutomaticSources);
+        Assert.True(watch.IsWatching);
+        Assert.Contains(fixture.Audit.Entries, entry => entry.EntityId == child.Id && entry.Action == "TaskCreated");
+        Assert.Contains(fixture.Audit.Entries, entry => entry.EntityId == parent.Id && entry.Action == "TaskSubtasksChanged");
+        Assert.Contains(fixture.Invalidations.TaskChanges, change => change.TaskId == child.Id && change.Change == "created");
+        Assert.Contains(fixture.Invalidations.TaskChanges, change => change.TaskId == parent.Id && change.Change == "subtasksChanged");
+        Assert.Equal(2, parent.VersionNo);
+        Assert.Equal(1, fixture.UnitOfWork.SaveCount);
+    }
+
+    [Fact]
+    public async Task LabelPatchValidatesExpectedVersionBeforeQueuingSideEffectsAndPreservesPatchSemantics()
+    {
+        var fixture = Fixture.Create();
+        var label = new ProjectTaskLabel
+        {
+            ProjectId = fixture.Project.Id,
+            WorkspaceId = fixture.Project.WorkspaceId,
+            Name = "Label",
+            Description = "existing",
+            VersionNo = 1
+        };
+        fixture.Projects.Labels[label.Id] = label;
+
+        foreach (var invalidVersion in new long?[] { null, 0, -1 })
+        {
+            var invalid = await fixture.Subresources.UpdateLabelAsync(
+                fixture.Project.Id,
+                label.Id,
+                new UpdateProjectTaskLabelRequest(default, default, default, invalidVersion));
+
+            Assert.False(invalid.IsSuccess);
+            Assert.StartsWith("TASK_INVALID_EXPECTED_VERSION|", invalid.Error);
+        }
+
+        var stale = await fixture.Subresources.UpdateLabelAsync(
+            fixture.Project.Id,
+            label.Id,
+            new UpdateProjectTaskLabelRequest(default, default, default, 2));
+
+        Assert.False(stale.IsSuccess);
+        Assert.StartsWith("TASK_STALE_VERSION|", stale.Error);
+        Assert.Equal("existing", label.Description);
+        Assert.Empty(fixture.Audit.Entries);
+        Assert.Empty(fixture.Invalidations.TaskChanges);
+        Assert.Empty(fixture.Invalidations.ProjectChanges);
+        Assert.Equal(0, fixture.UnitOfWork.SaveCount);
+
+        var omitted = await fixture.Subresources.UpdateLabelAsync(
+            fixture.Project.Id,
+            label.Id,
+            new UpdateProjectTaskLabelRequest(default, default, default, 1));
+        Assert.True(omitted.IsSuccess);
+        Assert.Equal("existing", label.Description);
+
+        var trimmed = await fixture.Subresources.UpdateLabelAsync(
+            fixture.Project.Id,
+            label.Id,
+            new UpdateProjectTaskLabelRequest(default, new OptionalString(true, "  updated  "), default, 2));
+        Assert.True(trimmed.IsSuccess);
+        Assert.Equal("updated", label.Description);
+
+        var clearedByEmptyString = await fixture.Subresources.UpdateLabelAsync(
+            fixture.Project.Id,
+            label.Id,
+            new UpdateProjectTaskLabelRequest(default, new OptionalString(true, string.Empty), default, 3));
+        Assert.True(clearedByEmptyString.IsSuccess);
+        Assert.Null(label.Description);
+
+        var setAgain = await fixture.Subresources.UpdateLabelAsync(
+            fixture.Project.Id,
+            label.Id,
+            new UpdateProjectTaskLabelRequest(default, new OptionalString(true, "again"), default, 4));
+        Assert.True(setAgain.IsSuccess);
+
+        var clearedByNull = await fixture.Subresources.UpdateLabelAsync(
+            fixture.Project.Id,
+            label.Id,
+            new UpdateProjectTaskLabelRequest(default, new OptionalString(true, null), default, 5));
+        Assert.True(clearedByNull.IsSuccess);
+        Assert.Null(label.Description);
+
+        var setBeforeWhitespaceClear = await fixture.Subresources.UpdateLabelAsync(
+            fixture.Project.Id,
+            label.Id,
+            new UpdateProjectTaskLabelRequest(default, new OptionalString(true, "again"), default, 6));
+        Assert.True(setBeforeWhitespaceClear.IsSuccess);
+
+        var clearedByWhitespace = await fixture.Subresources.UpdateLabelAsync(
+            fixture.Project.Id,
+            label.Id,
+            new UpdateProjectTaskLabelRequest(default, new OptionalString(true, " "), default, 7));
+        Assert.True(clearedByWhitespace.IsSuccess);
+        Assert.Null(label.Description);
+    }
+
     private sealed class Fixture
     {
         private Fixture()
@@ -88,6 +200,7 @@ public sealed class TaskCommandServiceTests
             Project = new Project { WorkspaceId = Guid.NewGuid(), Name = "Project", Slug = "project", OwnerUserId = Actor, CreatedByUserId = Actor };
             Projects.ProjectItems[Project.Id] = Project;
             Service = new TaskCommandService(Projects, new FakeGroups(), Users, new AllowedProjectAuthorization(), new AllowedTaskAuthorization(), new FakeCurrentUser(Actor), new FixedClock(), Audit, Invalidations, UnitOfWork, new UtcTimeZoneResolver());
+            Subresources = CreateSubresources();
         }
 
         public Guid Actor { get; }
@@ -98,6 +211,7 @@ public sealed class TaskCommandServiceTests
         public FakeInvalidations Invalidations { get; } = new();
         public FakeTaskUnitOfWork UnitOfWork { get; } = new();
         public TaskCommandService Service { get; }
+        public TaskSubresourceService Subresources { get; }
         public static Fixture Create() => new();
         public TaskItem AddTask(string title, Guid? parentId = null, int progress = 0)
         {
@@ -105,6 +219,23 @@ public sealed class TaskCommandServiceTests
             Projects.Tasks[item.Id] = item;
             return item;
         }
+
+        private TaskSubresourceService CreateSubresources() => new(
+            Projects,
+            null!,
+            new AllowedProjectAuthorization(),
+            new AllowedTaskAuthorization(),
+            null!,
+            null!,
+            null!,
+            null!,
+            null!,
+            new FakeCurrentUser(Actor),
+            new FixedClock(),
+            Audit,
+            Invalidations,
+            UnitOfWork,
+            new UtcTimeZoneResolver());
     }
 
     private sealed class FakeProjects : IProjectRepository
@@ -112,6 +243,8 @@ public sealed class TaskCommandServiceTests
         public Dictionary<Guid, Project> ProjectItems { get; } = [];
         public Dictionary<Guid, TaskItem> Tasks { get; } = [];
         public Dictionary<Guid, TaskWorkflowStage> Stages { get; } = [];
+        public Dictionary<Guid, ProjectTaskLabel> Labels { get; } = [];
+        public List<WorkItemWatchState> Watches { get; } = [];
         public Task<IReadOnlyList<Project>> ListVisibleAsync(Guid userId, CancellationToken cancellationToken = default) => Task.FromResult<IReadOnlyList<Project>>(ProjectItems.Values.ToArray());
         public Task<Project?> GetProjectAsync(Guid projectId, CancellationToken cancellationToken = default) => Task.FromResult(ProjectItems.GetValueOrDefault(projectId));
         public Task<ProjectMember?> GetMemberAsync(Guid projectId, Guid userId, CancellationToken cancellationToken = default) => Task.FromResult<ProjectMember?>(new ProjectMember { ProjectId = projectId, UserId = userId });
@@ -130,6 +263,11 @@ public sealed class TaskCommandServiceTests
         public Task<bool> DependencyExistsAsync(Guid predecessorTaskId, Guid successorTaskId, CancellationToken cancellationToken = default) => Task.FromResult(false);
         public Task<IReadOnlyList<Comment>> ListCommentsAsync(CommentTargetType targetType, Guid targetId, CancellationToken cancellationToken = default) => Task.FromResult<IReadOnlyList<Comment>>([]);
         public Task<Comment?> GetCommentAsync(Guid commentId, CancellationToken cancellationToken = default) => Task.FromResult<Comment?>(null);
+        public Task<IReadOnlyList<ProjectTaskLabel>> ListTaskLabelsAsync(Guid projectId, bool includeArchived, CancellationToken cancellationToken = default) => Task.FromResult<IReadOnlyList<ProjectTaskLabel>>(Labels.Values.Where(label => label.ProjectId == projectId && (includeArchived || !label.IsArchived)).ToArray());
+        public Task<ProjectTaskLabel?> GetTaskLabelAsync(Guid labelId, CancellationToken cancellationToken = default) => Task.FromResult(Labels.GetValueOrDefault(labelId));
+        public Task AddTaskLabelAsync(ProjectTaskLabel label, CancellationToken cancellationToken = default) { Labels[label.Id] = label; return Task.CompletedTask; }
+        public Task AddWatchStateAsync(WorkItemWatchState watchState, CancellationToken cancellationToken = default) { Watches.Add(watchState); return Task.CompletedTask; }
+        public Task<IReadOnlyList<WorkItemWatchState>> ListWatchStatesAsync(Guid taskItemId, CancellationToken cancellationToken = default) => Task.FromResult<IReadOnlyList<WorkItemWatchState>>(Watches.Where(watch => watch.TaskItemId == taskItemId).ToArray());
         public Task AddProjectAsync(Project project, CancellationToken cancellationToken = default) => Task.CompletedTask;
         public Task AddMemberAsync(ProjectMember member, CancellationToken cancellationToken = default) => Task.CompletedTask;
         public Task AddMilestoneAsync(Milestone milestone, CancellationToken cancellationToken = default) => Task.CompletedTask;
@@ -187,8 +325,9 @@ public sealed class TaskCommandServiceTests
     private sealed class FakeInvalidations : IBusinessInvalidationPublisher
     {
         public List<(Guid TaskId, string Change)> TaskChanges { get; } = [];
+        public List<(Guid ProjectId, string Change)> ProjectChanges { get; } = [];
         public Task TaskChangedAsync(TaskItem task, Guid actorUserId, string change, IEnumerable<string>? changedFields = null, IEnumerable<Guid>? affectedUserIds = null, CancellationToken cancellationToken = default) { TaskChanges.Add((task.Id, change)); return Task.CompletedTask; }
-        public Task ProjectChangedAsync(Project project, Guid actorUserId, string change, CancellationToken cancellationToken = default) => Task.CompletedTask;
+        public Task ProjectChangedAsync(Project project, Guid actorUserId, string change, CancellationToken cancellationToken = default) { ProjectChanges.Add((project.Id, change)); return Task.CompletedTask; }
         public Task AnnouncementChangedAsync(Announcement announcement, Guid actorUserId, string change, IEnumerable<Guid> audienceUserIds, CancellationToken cancellationToken = default) => Task.CompletedTask;
         public Task FileChangedAsync(FileObject fileObject, Attachment attachment, Guid actorUserId, string change, CancellationToken cancellationToken = default) => Task.CompletedTask;
     }
