@@ -14,9 +14,28 @@ jobs:
   export-snapshot:
     runs-on: self-hosted
     timeout-minutes: 30
-    env:
-      ConnectionStrings__DefaultConnection: Host=localhost;Port=5432;Database=aip_portal_snapshot;Username=aip_portal_snapshot;Password=aip_portal_snapshot
+    services:
+      postgres:
+        image: postgres:18-alpine
+        env:
+          POSTGRES_DB: aip_portal_snapshot
+          POSTGRES_USER: aip_portal_snapshot
+          POSTGRES_PASSWORD: aip_portal_snapshot
+        ports:
+          - 5432/tcp
+        options: >-
+          --health-cmd "pg_isready -U aip_portal_snapshot -d aip_portal_snapshot"
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
     steps:
+      - name: Configure PostgreSQL connection
+        shell: bash
+        run: |
+          postgres_port='${{ job.services.postgres.ports[5432] }}'
+          test -n "$postgres_port"
+          echo "ConnectionStrings__DefaultConnection=Host=localhost;Port=${postgres_port};Database=aip_portal_snapshot;Username=aip_portal_snapshot;Password=aip_portal_snapshot" >> "$GITHUB_ENV"
+
       - name: Repair previous Docker workspace ownership
         shell: bash
         run: |
