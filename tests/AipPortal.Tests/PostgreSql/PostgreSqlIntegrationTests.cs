@@ -10,7 +10,7 @@ namespace AipPortal.Tests.PostgreSql;
 
 public sealed class PostgreSqlIntegrationTests
 {
-    [Fact]
+    [PostgreSqlFact]
     [Trait("Category", "PostgreSQLIntegration")]
     public async Task MigrationsAndTenantScopedRepositoriesWorkAgainstPostgreSql()
     {
@@ -105,7 +105,7 @@ public sealed class PostgreSqlIntegrationTests
         Assert.DoesNotContain(tenantBProjects, project => project.Name == "PostgreSQL Project A");
     }
 
-    [Fact]
+    [PostgreSqlFact]
     [Trait("Category", "PostgreSQLIntegration")]
     public async Task TenantScopedSearchIsolationWorksAgainstPostgreSql()
     {

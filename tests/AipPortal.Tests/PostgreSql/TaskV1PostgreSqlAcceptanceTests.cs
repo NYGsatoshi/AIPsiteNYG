@@ -18,7 +18,7 @@ namespace AipPortal.Tests.PostgreSql;
 [Collection("PostgreSqlTaskV1")]
 public sealed class TaskV1PostgreSqlAcceptanceTests
 {
-    [Fact]
+    [PostgreSqlFact]
     [Trait("Category", "PostgreSQLIntegration")]
     public async Task ConcurrentTaskWritesPersistOnlyTheWinnerAndClearTheLoser()
     {
@@ -56,7 +56,7 @@ public sealed class TaskV1PostgreSqlAcceptanceTests
         Assert.Equal(2, await final.OutboxEvents.CountAsync(evt => evt.AggregateId == graph.Task.Id));
     }
 
-    [Fact]
+    [PostgreSqlFact]
     [Trait("Category", "PostgreSQLIntegration")]
     public async Task ConcurrentTaskFileAssociationLeavesOneActiveLinkAndNoLosingSideEffects()
     {
@@ -82,7 +82,7 @@ public sealed class TaskV1PostgreSqlAcceptanceTests
         Assert.Single(await verify.OutboxEvents.Where(evt => evt.AggregateId == graph.Task.Id && evt.EventType == "Projects.TaskChanged.v1").ToListAsync());
     }
 
-    [Fact]
+    [PostgreSqlFact]
     [Trait("Category", "PostgreSQLIntegration")]
     public async Task WatchUniqueConstraintAllowsOnlyOneIndependentWriterAndClearsLoser()
     {
@@ -102,7 +102,7 @@ public sealed class TaskV1PostgreSqlAcceptanceTests
         Assert.Equal(1, await verify.WorkItemWatchStates.CountAsync(state => state.TaskItemId == graph.Task.Id && state.UserId == graph.User.Id));
     }
 
-    [Fact]
+    [PostgreSqlFact]
     [Trait("Category", "PostgreSQLIntegration")]
     public async Task NormalizedLabelUniqueConstraintRejectsCaseAndWhitespaceVariantsWithoutLoserEffects()
     {

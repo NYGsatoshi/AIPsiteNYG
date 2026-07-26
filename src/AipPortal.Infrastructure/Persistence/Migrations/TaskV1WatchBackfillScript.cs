@@ -31,18 +31,22 @@ ON CONFLICT ("TenantId", "TaskItemId", "UserId") DO UPDATE
 SET "AutomaticSources" = EXCLUDED."AutomaticSources",
     "IsWatching" = CASE
         WHEN work_item_watch_states."IsExplicitOptOut" THEN false
-        WHEN work_item_watch_states."IsWatching" THEN true
-        WHEN EXCLUDED."AutomaticSources" <> 0 THEN true
-        ELSE false
+        ELSE true
     END,
     "UpdatedAt" = CASE
-        WHEN work_item_watch_states."AutomaticSources" IS DISTINCT FROM EXCLUDED."AutomaticSources" THEN CURRENT_TIMESTAMP
+        WHEN work_item_watch_states."AutomaticSources" IS DISTINCT FROM EXCLUDED."AutomaticSources"
+          OR work_item_watch_states."IsWatching" IS DISTINCT FROM CASE WHEN work_item_watch_states."IsExplicitOptOut" THEN false ELSE true END
+        THEN CURRENT_TIMESTAMP
         ELSE work_item_watch_states."UpdatedAt"
     END,
     "VersionNo" = CASE
-        WHEN work_item_watch_states."AutomaticSources" IS DISTINCT FROM EXCLUDED."AutomaticSources" THEN work_item_watch_states."VersionNo" + 1
+        WHEN work_item_watch_states."AutomaticSources" IS DISTINCT FROM EXCLUDED."AutomaticSources"
+          OR work_item_watch_states."IsWatching" IS DISTINCT FROM CASE WHEN work_item_watch_states."IsExplicitOptOut" THEN false ELSE true END
+        THEN work_item_watch_states."VersionNo" + 1
         ELSE work_item_watch_states."VersionNo"
-    END;
+    END
+WHERE work_item_watch_states."AutomaticSources" IS DISTINCT FROM EXCLUDED."AutomaticSources"
+   OR work_item_watch_states."IsWatching" IS DISTINCT FROM CASE WHEN work_item_watch_states."IsExplicitOptOut" THEN false ELSE true END;
 
 WITH automatic_sources AS (
     SELECT t."TenantId", t."Id" AS "TaskItemId", t."CreatedByUserId" AS "UserId", 1 AS "Source"
@@ -69,8 +73,9 @@ SET "AutomaticSources" = 0,
     "IsWatching" = CASE WHEN state."IsExplicitOptOut" THEN false ELSE state."IsWatching" END,
     "UpdatedAt" = CURRENT_TIMESTAMP,
     "VersionNo" = state."VersionNo" + 1
-WHERE state."AutomaticSources" IS DISTINCT FROM 0
-  AND EXISTS (SELECT 1 FROM task_items AS task WHERE task."Id" = state."TaskItemId" AND task."TenantId" = state."TenantId" AND task."DeletedAt" IS NULL)
-  AND NOT EXISTS (SELECT 1 FROM combined_sources AS source WHERE source."TenantId" = state."TenantId" AND source."TaskItemId" = state."TaskItemId" AND source."UserId" = state."UserId");
+WHERE EXISTS (SELECT 1 FROM task_items AS task WHERE task."Id" = state."TaskItemId" AND task."TenantId" = state."TenantId" AND task."DeletedAt" IS NULL)
+  AND NOT EXISTS (SELECT 1 FROM combined_sources AS source WHERE source."TenantId" = state."TenantId" AND source."TaskItemId" = state."TaskItemId" AND source."UserId" = state."UserId")
+  AND (state."AutomaticSources" IS DISTINCT FROM 0
+       OR (state."IsExplicitOptOut" AND state."IsWatching"));
 """;
 }

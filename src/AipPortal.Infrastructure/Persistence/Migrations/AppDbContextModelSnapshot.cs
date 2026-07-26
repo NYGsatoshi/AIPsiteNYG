@@ -2773,13 +2773,6 @@ namespace AipPortal.Infrastructure.Persistence.Migrations
                         .HasMaxLength(120)
                         .HasColumnType("character varying(120)");
 
-                    b.Property<string>("NormalizedName")
-                        .ValueGeneratedOnAddOrUpdate()
-                        .IsRequired()
-                        .HasMaxLength(120)
-                        .HasColumnType("character varying(120)")
-                        .HasComputedColumnSql("lower(btrim(\"Name\"))", true);
-
                     b.Property<decimal?>("PriceMonthly")
                         .HasPrecision(12, 2)
                         .HasColumnType("numeric(12,2)");
@@ -3085,6 +3078,13 @@ namespace AipPortal.Infrastructure.Persistence.Migrations
                         .IsRequired()
                         .HasMaxLength(120)
                         .HasColumnType("character varying(120)");
+
+                    b.Property<string>("NormalizedName")
+                        .ValueGeneratedOnAddOrUpdate()
+                        .IsRequired()
+                        .HasMaxLength(120)
+                        .HasColumnType("character varying(120)")
+                        .HasComputedColumnSql("lower(btrim(\"Name\"))", true);
 
                     b.Property<Guid>("ProjectId")
                         .HasColumnType("uuid");

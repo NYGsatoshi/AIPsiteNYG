@@ -381,12 +381,11 @@ Status after the MVP-A P0 Angular migration: obsolete as active frontend defects
 - Expanded evidence: backend audit `BE-012` documents inconsistent success codes, error categories, and controller-local mappings.
 - Suggested issue: **Standardize API problem/error responses and status mapping**.
 
-### KI-011: PostgreSQL tests silently pass when not configured
+### KI-011: PostgreSQL execution requires live-environment evidence
 
-- Status: confirmed test issue.
-- Evidence: tests return when `POSTGRES_TEST_CONNECTION_STRING` is absent.
-- Impact: local “all green” results may not execute PostgreSQL assertions.
-- Suggested issue: **Make PostgreSQL tests explicitly skip or fail when the category is requested without configuration**.
+- Status: implementation safeguard added; execution evidence remains environment-dependent.
+- Evidence: `PostgreSqlFactAttribute` explicitly skips locally without `POSTGRES_TEST_CONNECTION_STRING`, while `PostgreSqlTestEnvironment.RequireConnectionString()` fails when `CI=true` or `GITHUB_ACTIONS=true` and it is absent.
+- Impact: unconfigured tests no longer become false passes, but a green local non-PostgreSQL run is still not PostgreSQL evidence.
 
 ### KI-012: Tenant export is not backup or restore
 
