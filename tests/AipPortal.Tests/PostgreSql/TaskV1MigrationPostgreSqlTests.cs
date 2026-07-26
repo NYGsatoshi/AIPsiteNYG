@@ -9,6 +9,7 @@ namespace AipPortal.Tests.PostgreSql;
 
 /// <summary>Fresh-database migration contract checks. Upgrade scenarios use raw SQL only and live beside this suite.</summary>
 [Collection("PostgreSqlTaskV1")]
+[Trait("Scope", "TaskV1Prompt2C")]
 public sealed class TaskV1MigrationPostgreSqlTests
 {
     [PostgreSqlFact]
@@ -25,6 +26,7 @@ public sealed class TaskV1MigrationPostgreSqlTests
             Assert.False(context.Database.HasPendingModelChanges());
             Assert.True(await ScalarAsync<bool>(testConnectionString, "SELECT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name = 'workspaces' AND column_name = 'TimeZone');"));
             Assert.True(await ScalarAsync<bool>(testConnectionString, "SELECT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name = 'work_item_watch_states' AND column_name = 'IsManualWatch');"));
+            Assert.True(await ScalarAsync<bool>(testConnectionString, "SELECT EXISTS (SELECT 1 FROM pg_constraint WHERE conname = 'CK_work_item_watch_states_manual_opt_out_exclusive');"));
             Assert.True(await ScalarAsync<bool>(testConnectionString, "SELECT EXISTS (SELECT 1 FROM pg_attrdef d JOIN pg_class c ON c.oid = d.adrelid JOIN pg_attribute a ON a.attrelid = c.oid AND a.attnum = d.adnum WHERE c.relname = 'work_item_watch_states' AND a.attname = 'VersionNo' AND pg_get_expr(d.adbin, d.adrelid) = '1');"));
             Assert.True(await ScalarAsync<bool>(testConnectionString, "SELECT EXISTS (SELECT 1 FROM pg_attrdef d JOIN pg_class c ON c.oid = d.adrelid JOIN pg_attribute a ON a.attrelid = c.oid AND a.attnum = d.adnum WHERE c.relname = 'project_task_labels' AND a.attname = 'VersionNo' AND pg_get_expr(d.adbin, d.adrelid) = '1');"));
             Assert.True(await ScalarAsync<bool>(testConnectionString, "SELECT EXISTS (SELECT 1 FROM pg_indexes WHERE tablename = 'attachments' AND indexname = 'IX_attachments_OwnerType_OwnerId_FileObjectId_active_task');"));

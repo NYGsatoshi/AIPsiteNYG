@@ -3,6 +3,7 @@ using AipPortal.Infrastructure.Persistence.Migrations;
 namespace AipPortal.Tests.PostgreSql;
 
 [Collection("PostgreSqlTaskV1")]
+[Trait("Scope", "TaskV1Prompt2C")]
 public sealed class TaskV1WatchBackfillPostgreSqlTests
 {
     private const string PreviousMigration = "20260722230000_MigrateLegacyTaskComments";
@@ -132,10 +133,66 @@ WHERE "Id" = @automaticOnly OR "Id" = @manual OR "Id" = @optOut OR "Id" = @delet
         });
     }
 
+    [PostgreSqlFact]
+    [Trait("Category", "PostgreSQLIntegration")]
+    public async Task ExclusivityMigrationRepairsContradictionsAndDatabaseRejectsNewContradictions()
+    {
+        var connectionString = PostgreSqlTestEnvironment.RequireConnectionString();
+        await PostgreSqlMigrationTestDatabase.WithTemporaryDatabaseAsync(connectionString, async database =>
+        {
+            await PostgreSqlMigrationTestDatabase.MigrateAsync(database, ManualIntentMigration);
+            var active = await TaskV1MigrationRawSqlSeed.CreateGraphAsync(database, "watch-exclusive-active");
+            var deleted = await TaskV1MigrationRawSqlSeed.CreateGraphAsync(database, "watch-exclusive-deleted", deletedTask: true);
+            var contradictory = Guid.NewGuid();
+            var manual = Guid.NewGuid();
+            var automatic = Guid.NewGuid();
+            var optOut = Guid.NewGuid();
+            var constraintUser = Guid.NewGuid();
+            var deletedContradiction = Guid.NewGuid();
+            foreach (var user in new[] { contradictory, manual, automatic, optOut, constraintUser })
+                await TaskV1MigrationRawSqlSeed.AddUserAsync(database, active, user, $"watch-exclusive-{user:N}");
+
+            await PostgreSqlMigrationTestDatabase.ExecuteAsync(database, """
+INSERT INTO work_item_watch_states ("Id", "TenantId", "TaskItemId", "UserId", "AutomaticSources", "IsManualWatch", "IsExplicitOptOut", "IsWatching", "UpdatedAt", "VersionNo") VALUES
+(@contradictory, @tenantId, @taskId, @contradictory, 0, true, true, true, CURRENT_TIMESTAMP, 1),
+(@manual, @tenantId, @taskId, @manual, 0, true, false, false, CURRENT_TIMESTAMP, 1),
+(@automatic, @tenantId, @taskId, @automatic, 1, false, false, false, CURRENT_TIMESTAMP, 1),
+(@optOut, @tenantId, @taskId, @optOut, 1, false, true, true, CURRENT_TIMESTAMP, 1),
+(@deleted, @deletedTenantId, @deletedTaskId, @deletedUser, 0, true, true, true, CURRENT_TIMESTAMP, 1);
+""", ("contradictory", contradictory), ("manual", manual), ("automatic", automatic), ("optOut", optOut), ("deleted", deletedContradiction),
+                ("tenantId", active.TenantId), ("taskId", active.TaskId), ("deletedTenantId", deleted.TenantId), ("deletedTaskId", deleted.TaskId), ("deletedUser", deleted.UserId));
+
+            await PostgreSqlMigrationTestDatabase.MigrateAsync(database);
+            Assert.Equal((false, true, false), await ReadIntentAsync(database, contradictory));
+            Assert.Equal((true, false, true), await ReadIntentAsync(database, manual));
+            Assert.Equal((false, false, true), await ReadIntentAsync(database, automatic));
+            Assert.Equal((false, true, false), await ReadIntentAsync(database, optOut));
+            // A deleted Task is excluded from normal reconciliation, but a
+            // contradictory row must still be repaired before the global DB
+            // invariant can be installed.
+            Assert.Equal((false, true, false), await ReadIntentAsync(database, deletedContradiction));
+
+            var exception = await Assert.ThrowsAsync<Npgsql.PostgresException>(() => PostgreSqlMigrationTestDatabase.ExecuteAsync(database, """
+INSERT INTO work_item_watch_states ("Id", "TenantId", "TaskItemId", "UserId", "AutomaticSources", "IsManualWatch", "IsExplicitOptOut", "IsWatching", "UpdatedAt", "VersionNo")
+VALUES (@id, @tenantId, @taskId, @userId, 0, true, true, true, CURRENT_TIMESTAMP, 1);
+""", ("id", Guid.NewGuid()), ("tenantId", active.TenantId), ("taskId", active.TaskId), ("userId", constraintUser)));
+            Assert.Equal("CK_work_item_watch_states_manual_opt_out_exclusive", exception.ConstraintName);
+        });
+    }
+
     private static Task<List<WatchRow>> ReadRowsAsync(string connectionString, Guid taskId) => PostgreSqlMigrationTestDatabase.QueryAsync(connectionString, """
-SELECT "Id", "UserId", "AutomaticSources", "IsExplicitOptOut", "IsWatching", "VersionNo", "UpdatedAt"
-FROM work_item_watch_states WHERE "TaskItemId" = @taskId;
-""", row => new WatchRow(row.GetGuid(0), row.GetGuid(1), (row.GetInt32(2), row.GetBoolean(3), row.GetBoolean(4), row.GetInt64(5)), row.GetFieldValue<DateTimeOffset>(6)), ("taskId", taskId));
+    SELECT "Id", "UserId", "AutomaticSources", "IsExplicitOptOut", "IsWatching", "VersionNo", "UpdatedAt"
+    FROM work_item_watch_states WHERE "TaskItemId" = @taskId;
+    """, row => new WatchRow(row.GetGuid(0), row.GetGuid(1), (row.GetInt32(2), row.GetBoolean(3), row.GetBoolean(4), row.GetInt64(5)), row.GetFieldValue<DateTimeOffset>(6)), ("taskId", taskId));
+
+    private static async Task<(bool Manual, bool OptOut, bool Watching)> ReadIntentAsync(string connectionString, Guid id)
+    {
+        var rows = await PostgreSqlMigrationTestDatabase.QueryAsync(connectionString, """
+SELECT "IsManualWatch", "IsExplicitOptOut", "IsWatching"
+FROM work_item_watch_states WHERE "Id" = @id;
+""", row => (row.GetBoolean(0), row.GetBoolean(1), row.GetBoolean(2)), ("id", id));
+        return Assert.Single(rows);
+    }
 
     private sealed record WatchRow(Guid Id, Guid UserId, (int AutomaticSources, bool OptOut, bool Watching, long Version) State, DateTimeOffset UpdatedAt);
 }

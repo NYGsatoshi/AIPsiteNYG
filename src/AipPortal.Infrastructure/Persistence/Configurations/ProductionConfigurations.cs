@@ -386,7 +386,11 @@ public sealed class WorkItemWatchStateConfiguration : IEntityTypeConfiguration<W
 {
     public void Configure(EntityTypeBuilder<WorkItemWatchState> builder)
     {
-        builder.ToTable("work_item_watch_states"); builder.ConfigureEntity();
+        builder.ToTable("work_item_watch_states", table =>
+            table.HasCheckConstraint(
+                "CK_work_item_watch_states_manual_opt_out_exclusive",
+                "NOT (\"IsManualWatch\" AND \"IsExplicitOptOut\")"));
+        builder.ConfigureEntity();
         builder.Property(x => x.AutomaticSources).HasConversion<int>();
         builder.Property(x => x.IsManualWatch).HasDefaultValue(false);
         builder.Property(x => x.VersionNo).IsConcurrencyToken().HasDefaultValue(1L);

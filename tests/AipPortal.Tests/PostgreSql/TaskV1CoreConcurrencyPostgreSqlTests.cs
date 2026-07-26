@@ -23,6 +23,7 @@ namespace AipPortal.Tests.PostgreSql;
 /// and EfUnitOfWork.
 /// </summary>
 [Collection("PostgreSqlTaskV1")]
+[Trait("Scope", "TaskV1Prompt2C")]
 public sealed class TaskV1CoreConcurrencyPostgreSqlTests
 {
     private static readonly JsonSerializerOptions RealtimeJsonOptions = new(JsonSerializerDefaults.Web);

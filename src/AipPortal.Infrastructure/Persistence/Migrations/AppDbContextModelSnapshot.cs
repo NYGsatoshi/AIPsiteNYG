@@ -4734,7 +4734,10 @@ namespace AipPortal.Infrastructure.Persistence.Migrations
 
                     b.HasIndex("TenantId", "UserId", "IsWatching", "TaskItemId");
 
-                    b.ToTable("work_item_watch_states", (string)null);
+                    b.ToTable("work_item_watch_states", (string)null, t =>
+                        {
+                            t.HasCheckConstraint("CK_work_item_watch_states_manual_opt_out_exclusive", "NOT (\"IsManualWatch\" AND \"IsExplicitOptOut\")");
+                        });
                 });
 
             modelBuilder.Entity("AipPortal.Domain.Entities.Workspace", b =>

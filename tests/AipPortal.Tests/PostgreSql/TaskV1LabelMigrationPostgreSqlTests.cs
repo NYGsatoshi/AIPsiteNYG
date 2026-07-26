@@ -3,6 +3,7 @@ using Npgsql;
 namespace AipPortal.Tests.PostgreSql;
 
 [Collection("PostgreSqlTaskV1")]
+[Trait("Scope", "TaskV1Prompt2C")]
 public sealed class TaskV1LabelMigrationPostgreSqlTests
 {
     private const string PreviousMigration = "20260725070000_EnforceUniqueActiveTaskFileAssociations";

@@ -1,6 +1,7 @@
 namespace AipPortal.Tests.PostgreSql;
 
 [Collection("PostgreSqlTaskV1")]
+[Trait("Scope", "TaskV1Prompt2C")]
 public sealed class TaskV1FileAssociationMigrationPostgreSqlTests
 {
     private const string PreviousMigration = "20260725060000_AddWorkspaceTimeZone";
