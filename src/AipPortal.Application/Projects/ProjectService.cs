@@ -655,8 +655,11 @@ public sealed class ProjectService(
         await AuditAsync(actorUserId, "TaskAssigned", "TaskItem", task.Id, cancellationToken);
         var assignmentUsers = (await projects.ListAssignmentsAsync(task.Id, cancellationToken)).Select(item => item.UserId).Append(request.UserId);
         await invalidations.TaskChangedAsync(task, actorUserId, "assignmentChanged", ["assignments"], assignmentUsers, cancellationToken);
-        if (await taskUnitOfWork.SaveTaskCommandAsync(cancellationToken) != TaskCommandSaveResult.Saved)
-            return TaskConflict<TaskAssignmentResponse>();
+        var save = await taskUnitOfWork.SaveTaskCommandAsync(cancellationToken);
+        if (save != TaskCommandSaveResult.Saved)
+            return save == TaskCommandSaveResult.UniqueConflict
+                ? AssignmentConflict<TaskAssignmentResponse>()
+                : TaskConflict<TaskAssignmentResponse>();
         return Result<TaskAssignmentResponse>.Success(ToAssignment(assignment));
     }
 
@@ -691,8 +694,11 @@ public sealed class ProjectService(
         assignment.TaskItem.VersionNo++;
         await AuditAsync(userId, "TaskAssignmentUpdated", "TaskItem", assignment.TaskItemId, cancellationToken);
         await invalidations.TaskChangedAsync(assignment.TaskItem, userId, "assignmentChanged", ["assignments"], [assignment.UserId], cancellationToken);
-        if (await taskUnitOfWork.SaveTaskCommandAsync(cancellationToken) != TaskCommandSaveResult.Saved)
-            return TaskConflict<TaskAssignmentResponse>();
+        var save = await taskUnitOfWork.SaveTaskCommandAsync(cancellationToken);
+        if (save != TaskCommandSaveResult.Saved)
+            return save == TaskCommandSaveResult.UniqueConflict
+                ? AssignmentConflict<TaskAssignmentResponse>()
+                : TaskConflict<TaskAssignmentResponse>();
         return Result<TaskAssignmentResponse>.Success(ToAssignment(assignment));
     }
 
@@ -1256,6 +1262,9 @@ public sealed class ProjectService(
 
     private static Result<T> TaskConflict<T>() =>
         Result<T>.Failure(new ApplicationErrorDetail("TASK_STALE_VERSION", "Task has changed. Refetch and retry."));
+
+    private static Result<T> AssignmentConflict<T>() =>
+        Result<T>.Failure(new ApplicationErrorDetail("TASK_ALREADY_ASSIGNED", "User already has this assignment role."));
 
     private static TaskDependencyResponse ToDependency(TaskDependency dependency)
     {
