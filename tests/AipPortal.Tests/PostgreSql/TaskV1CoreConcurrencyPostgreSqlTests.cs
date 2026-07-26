@@ -679,6 +679,109 @@ public sealed class TaskV1CoreConcurrencyPostgreSqlTests
 
     [PostgreSqlFact]
     [Trait("Category", "PostgreSQLIntegration")]
+    public async Task LabelDefinition_UpdateRaceCommitsOnlyTheWinnerAndAuthoritativeRetryAdvancesOnce()
+    {
+        await using var harness = await ServiceHarness.CreateAsync();
+        ProjectTaskLabelResponse label;
+        await using (var setup = harness.CreateScope())
+        {
+            var created = await setup.Subresources.CreateLabelAsync(harness.Graph.Project.Id, new CreateProjectTaskLabelRequest("Release", "original"));
+            Assert.True(created.IsSuccess);
+            label = created.Value!;
+        }
+
+        await using var first = harness.CreateScope();
+        await using var second = harness.CreateScope();
+        harness.Race.Arm();
+        var results = await Task.WhenAll(
+            ExecuteAsync(first, () => first.Subresources.UpdateLabelAsync(harness.Graph.Project.Id, label.Id, new UpdateProjectTaskLabelRequest("Release A", default, default, label.Version))),
+            ExecuteAsync(second, () => second.Subresources.UpdateLabelAsync(harness.Graph.Project.Id, label.Id, new UpdateProjectTaskLabelRequest(default, "Release B description", default, label.Version))));
+
+        Assert.Equal(1, results.Count(value => value.Result.IsSuccess));
+        Assert.Equal(2, harness.Race.SaveCallCount);
+        Assert.Single(results, value => value.Scope.SaveRecorder.LastSaveOutcome?.Result == TaskCommandSaveResult.Saved);
+        var loser = Assert.Single(results, value => !value.Result.IsSuccess);
+        Assert.Equal("TASK_STALE_VERSION", Code(loser.Result.Error));
+        Assert.Equal(TaskCommandSaveResult.ConcurrencyConflict, loser.Scope.SaveRecorder.LastSaveOutcome?.Result);
+        Assert.Empty(loser.Scope.Db.ChangeTracker.Entries());
+
+        await using (var verify = harness.CreateScope())
+        {
+            var persisted = await verify.Db.ProjectTaskLabels.SingleAsync(value => value.Id == label.Id);
+            var winner = results.Single(value => value.Result.IsSuccess).Result.Value!;
+            Assert.Equal(winner.Name, persisted.Name);
+            Assert.Equal(winner.Description, persisted.Description);
+            Assert.Equal(label.Version + 1, persisted.VersionNo);
+            Assert.Single(await verify.Db.AuditLogs.Where(value => value.Action == "TaskLabelUpdated").ToListAsync());
+            Assert.Equal(2, await verify.Db.OutboxEvents.CountAsync(value => value.AggregateId == harness.Graph.Project.Id && value.EventType == "Projects.ProjectChanged.v1"));
+        }
+
+        await using var retry = harness.CreateScope();
+        var current = (await retry.Subresources.ListLabelsAsync(harness.Graph.Project.Id, true)).Value!.Single(value => value.Id == label.Id);
+        var retried = await retry.Subresources.UpdateLabelAsync(harness.Graph.Project.Id, label.Id, new UpdateProjectTaskLabelRequest(default, "retry", default, current.Version));
+        Assert.True(retried.IsSuccess);
+        Assert.Equal(current.Version + 1, retried.Value!.Version);
+    }
+
+    [PostgreSqlFact]
+    [Trait("Category", "PostgreSQLIntegration")]
+    public async Task LabelDefinition_RenameDuplicateIsSideEffectFreeAndClearsRequestTracking()
+    {
+        await using var harness = await ServiceHarness.CreateAsync();
+        ProjectTaskLabelResponse release;
+        ProjectTaskLabelResponse candidate;
+        await using (var setup = harness.CreateScope())
+        {
+            release = (await setup.Subresources.CreateLabelAsync(harness.Graph.Project.Id, new CreateProjectTaskLabelRequest("Release", null))).Value!;
+            candidate = (await setup.Subresources.CreateLabelAsync(harness.Graph.Project.Id, new CreateProjectTaskLabelRequest("Candidate", null))).Value!;
+        }
+
+        await using var command = harness.CreateScope();
+        var auditBefore = await command.Db.AuditLogs.CountAsync();
+        var outboxBefore = await command.Db.OutboxEvents.CountAsync();
+        var result = await command.Subresources.UpdateLabelAsync(harness.Graph.Project.Id, candidate.Id, new UpdateProjectTaskLabelRequest(" release ", default, default, candidate.Version));
+
+        Assert.Equal("TASK_LABEL_DUPLICATE", Code(result.Error));
+        Assert.Equal(0, command.SaveRecorder.SaveTaskCommandCallCount);
+        Assert.Equal(1, command.SaveRecorder.ClearTrackingCallCount);
+        Assert.Empty(command.Db.ChangeTracker.Entries());
+        await using var verify = harness.CreateScope();
+        var persisted = await verify.Db.ProjectTaskLabels.SingleAsync(value => value.Id == candidate.Id);
+        Assert.Equal("Candidate", persisted.Name);
+        Assert.Equal(candidate.Version, persisted.VersionNo);
+        Assert.Equal(auditBefore, await verify.Db.AuditLogs.CountAsync());
+        Assert.Equal(outboxBefore, await verify.Db.OutboxEvents.CountAsync());
+        Assert.Equal("Release", (await verify.Db.ProjectTaskLabels.SingleAsync(value => value.Id == release.Id)).Name);
+    }
+
+    [PostgreSqlFact]
+    [Trait("Category", "PostgreSQLIntegration")]
+    public async Task LabelDefinition_DescriptionPatchDistinguishesOmittedNullAndString()
+    {
+        await using var harness = await ServiceHarness.CreateAsync();
+        ProjectTaskLabelResponse label;
+        await using (var setup = harness.CreateScope())
+        {
+            label = (await setup.Subresources.CreateLabelAsync(harness.Graph.Project.Id, new CreateProjectTaskLabelRequest("Release", "original"))).Value!;
+            var omitted = await setup.Subresources.UpdateLabelAsync(harness.Graph.Project.Id, label.Id, new UpdateProjectTaskLabelRequest(default, default, default, label.Version));
+            Assert.True(omitted.IsSuccess);
+            Assert.Equal("original", omitted.Value!.Description);
+            var cleared = await setup.Subresources.UpdateLabelAsync(harness.Graph.Project.Id, label.Id, new UpdateProjectTaskLabelRequest(default, new OptionalString(true, null), default, omitted.Value.Version));
+            Assert.True(cleared.IsSuccess);
+            Assert.Null(cleared.Value!.Description);
+            var set = await setup.Subresources.UpdateLabelAsync(harness.Graph.Project.Id, label.Id, new UpdateProjectTaskLabelRequest(default, "  revised  ", default, cleared.Value.Version));
+            Assert.True(set.IsSuccess);
+            Assert.Equal("revised", set.Value!.Description);
+        }
+
+        await using var verify = harness.CreateScope();
+        var persisted = await verify.Db.ProjectTaskLabels.SingleAsync(value => value.Id == label.Id);
+        Assert.Equal("revised", persisted.Description);
+        Assert.Equal(label.Version + 3, persisted.VersionNo);
+    }
+
+    [PostgreSqlFact]
+    [Trait("Category", "PostgreSQLIntegration")]
     public async Task ApplyLabelRaceReturnsCanonicalAssociationForBothServiceRequests()
     {
         await using var harness = await ServiceHarness.CreateAsync();
@@ -700,9 +803,12 @@ public sealed class TaskV1CoreConcurrencyPostgreSqlTests
             ExecuteAsync(second, () => second.Subresources.ApplyLabelAsync(harness.Graph.Task.Id, label.Id, new TaskLabelAssociationRequest(expected))));
 
         Assert.All(results, value => Assert.True(value.Result.IsSuccess));
-        // One request recovered from the winner's authoritative row; it must
-        // not leave its original request DbContext tracking recovery entities.
-        Assert.Contains(results, value => !value.Scope.Db.ChangeTracker.Entries().Any());
+        Assert.Equal(2, harness.Race.SaveCallCount);
+        Assert.Single(results, value => value.Scope.SaveRecorder.LastSaveOutcome?.Result == TaskCommandSaveResult.Saved);
+        var recovery = Assert.Single(results, value => value.Scope.SaveRecorder.LastSaveOutcome?.Result is TaskCommandSaveResult.ConcurrencyConflict or TaskCommandSaveResult.UniqueConflict);
+        Assert.True(recovery.Scope.SaveRecorder.RecoveryPathEntered);
+        Assert.True(recovery.Scope.SaveRecorder.ClearTrackingCallCount >= 1);
+        Assert.Empty(recovery.Scope.Db.ChangeTracker.Entries());
         await using var verify = harness.CreateScope();
         Assert.Single(await verify.Db.WorkItemLabels.Where(value => value.TaskItemId == harness.Graph.Task.Id && value.LabelId == label.Id).ToListAsync());
         Assert.Equal(expected + 1, await verify.Db.TaskItems.Where(value => value.Id == harness.Graph.Task.Id).Select(value => value.VersionNo).SingleAsync());
@@ -730,8 +836,14 @@ public sealed class TaskV1CoreConcurrencyPostgreSqlTests
             ExecuteAsync(second, () => second.Commands.WatchAsync(harness.Graph.Task.Id, new TaskWatchRequest(0))));
 
         Assert.Equal(1, results.Count(value => value.Result.IsSuccess));
+        Assert.Equal(2, harness.Race.SaveCallCount);
+        Assert.Single(results, value => value.Scope.SaveRecorder.LastSaveOutcome?.Result == TaskCommandSaveResult.Saved);
         var loser = results.Single(value => !value.Result.IsSuccess);
         Assert.Equal("TASK_STALE_VERSION", Code(loser.Result.Error));
+        Assert.Equal(TaskCommandSaveResult.UniqueConflict, loser.Scope.SaveRecorder.LastSaveOutcome?.Result);
+        Assert.Equal(TaskCommandConstraintNames.WorkItemWatchStateIdentity, loser.Scope.SaveRecorder.LastSaveOutcome?.ConstraintName);
+        Assert.True(loser.Scope.SaveRecorder.RecoveryPathEntered);
+        Assert.True(loser.Scope.SaveRecorder.ClearTrackingCallCount >= 1);
         Assert.Empty(loser.Scope.Db.ChangeTracker.Entries());
         await using var verify = harness.CreateScope();
         Assert.Single(await verify.Db.WorkItemWatchStates.Where(value => value.TaskItemId == harness.Graph.Task.Id && value.UserId == harness.Graph.User.Id).ToListAsync());
@@ -799,7 +911,12 @@ public sealed class TaskV1CoreConcurrencyPostgreSqlTests
             ExecuteAsync(second, () => second.Subresources.AssociateFileAsync(harness.Graph.Task.Id, new CreateTaskFileAssociationRequest(harness.Graph.SourceAttachment.Id, expected))));
 
         Assert.All(results, value => Assert.True(value.Result.IsSuccess));
-        Assert.Contains(results, value => !value.Scope.Db.ChangeTracker.Entries().Any());
+        Assert.Equal(2, harness.Race.SaveCallCount);
+        Assert.Single(results, value => value.Scope.SaveRecorder.LastSaveOutcome?.Result == TaskCommandSaveResult.Saved);
+        var associateRecovery = Assert.Single(results, value => value.Scope.SaveRecorder.LastSaveOutcome?.Result is TaskCommandSaveResult.ConcurrencyConflict or TaskCommandSaveResult.UniqueConflict);
+        Assert.True(associateRecovery.Scope.SaveRecorder.RecoveryPathEntered);
+        Assert.True(associateRecovery.Scope.SaveRecorder.ClearTrackingCallCount >= 1);
+        Assert.Empty(associateRecovery.Scope.Db.ChangeTracker.Entries());
         var associationId = Assert.Single(results.Select(value => value.Result.Value!.Id).Distinct());
         await using (var verify = harness.CreateScope())
         {
@@ -818,7 +935,12 @@ public sealed class TaskV1CoreConcurrencyPostgreSqlTests
             ExecuteAsync(removeFirst, () => removeFirst.Subresources.RemoveFileAsync(harness.Graph.Task.Id, associationId, removeVersion)),
             ExecuteAsync(removeSecond, () => removeSecond.Subresources.RemoveFileAsync(harness.Graph.Task.Id, associationId, removeVersion)));
         Assert.All(removals, value => Assert.True(value.Result.IsSuccess));
-        Assert.Contains(removals, value => !value.Scope.Db.ChangeTracker.Entries().Any());
+        Assert.Equal(2, harness.Race.SaveCallCount);
+        Assert.Single(removals, value => value.Scope.SaveRecorder.LastSaveOutcome?.Result == TaskCommandSaveResult.Saved);
+        var removeRecovery = Assert.Single(removals, value => value.Scope.SaveRecorder.LastSaveOutcome?.Result == TaskCommandSaveResult.ConcurrencyConflict);
+        Assert.True(removeRecovery.Scope.SaveRecorder.RecoveryPathEntered);
+        Assert.True(removeRecovery.Scope.SaveRecorder.ClearTrackingCallCount >= 1);
+        Assert.Empty(removeRecovery.Scope.Db.ChangeTracker.Entries());
 
         await using (var remove = harness.CreateScope())
         {
@@ -1168,7 +1290,8 @@ public sealed class TaskV1CoreConcurrencyPostgreSqlTests
             services.AddDbContext<AppDbContext>(options => options.UseNpgsql(connectionString));
             services.AddScoped<CurrentTenantService>();
             services.AddScoped<ICurrentTenant>(serviceProvider => serviceProvider.GetRequiredService<CurrentTenantService>());
-            services.AddScoped<ICurrentUser>(_ => new TestCurrentUser(graph.User.Id));
+            services.AddScoped<TestCurrentUser>();
+            services.AddScoped<ICurrentUser>(serviceProvider => serviceProvider.GetRequiredService<TestCurrentUser>());
             services.AddScoped<IClock, FixedClock>();
             services.AddScoped<IProjectRepository, ProjectRepository>();
             services.AddScoped<IUserRepository, UserRepository>();
@@ -1187,8 +1310,9 @@ public sealed class TaskV1CoreConcurrencyPostgreSqlTests
             services.AddScoped<IAuditLogger, DbAuditLogger>();
             services.AddScoped<EfUnitOfWork>();
             services.AddScoped<IUnitOfWork>(serviceProvider => serviceProvider.GetRequiredService<EfUnitOfWork>());
-            services.AddScoped<ITaskCommandUnitOfWork>(serviceProvider => new CoordinatedTaskCommandUnitOfWork(
-                serviceProvider.GetRequiredService<EfUnitOfWork>(), race));
+            services.AddScoped<RequestSaveOutcomeRecorder>();
+            services.AddScoped<ITaskCommandUnitOfWork>(serviceProvider => new RecordingTaskCommandUnitOfWork(
+                serviceProvider.GetRequiredService<EfUnitOfWork>(), race, serviceProvider.GetRequiredService<RequestSaveOutcomeRecorder>()));
             services.AddScoped<IWorkspaceAuthorizationService, WorkspaceAuthorizationService>();
             services.AddScoped<IGroupAuthorizationService, GroupAuthorizationService>();
             services.AddScoped<ProjectAuthorizationService>();
@@ -1204,11 +1328,12 @@ public sealed class TaskV1CoreConcurrencyPostgreSqlTests
             return new ServiceHarness(services.BuildServiceProvider(new ServiceProviderOptions { ValidateScopes = true }), connectionString, graph, race);
         }
 
-        public RequestScope CreateScope()
+        public RequestScope CreateScope(Guid? actorUserId = null)
         {
             var scope = provider.CreateAsyncScope();
             scope.ServiceProvider.GetRequiredService<CurrentTenantService>().SetTenant(Graph.Tenant.Id, Graph.Tenant.Slug);
-            return new RequestScope(scope, scope.ServiceProvider.GetRequiredService<AppDbContext>(), scope.ServiceProvider.GetRequiredService<ITaskCommandService>(), scope.ServiceProvider.GetRequiredService<ITaskSubresourceService>(), scope.ServiceProvider.GetRequiredService<IProjectService>());
+            scope.ServiceProvider.GetRequiredService<TestCurrentUser>().SetUser(actorUserId ?? Graph.User.Id);
+            return new RequestScope(scope, scope.ServiceProvider.GetRequiredService<AppDbContext>(), scope.ServiceProvider.GetRequiredService<ITaskCommandService>(), scope.ServiceProvider.GetRequiredService<ITaskSubresourceService>(), scope.ServiceProvider.GetRequiredService<IProjectService>(), scope.ServiceProvider.GetRequiredService<RequestSaveOutcomeRecorder>());
         }
 
         public async ValueTask DisposeAsync()
@@ -1277,13 +1402,15 @@ public sealed class TaskV1CoreConcurrencyPostgreSqlTests
         TaskWorkflowStage DoneStage,
         TaskWorkflowStage CancelledStage);
 
-    private sealed record RequestScope(AsyncServiceScope Scope, AppDbContext Db, ITaskCommandService Commands, ITaskSubresourceService Subresources, IProjectService Compatibility) : IAsyncDisposable
+    private sealed record RequestScope(AsyncServiceScope Scope, AppDbContext Db, ITaskCommandService Commands, ITaskSubresourceService Subresources, IProjectService Compatibility, RequestSaveOutcomeRecorder SaveRecorder) : IAsyncDisposable
     {
         public ValueTask DisposeAsync() => Scope.DisposeAsync();
     }
 
-    private sealed class TestCurrentUser(Guid userId) : ICurrentUser
+    private sealed class TestCurrentUser : ICurrentUser
     {
+        private Guid userId;
+        public void SetUser(Guid value) => userId = value;
         public Guid? UserId => userId;
         public Guid? SessionId => null;
         public string? Email => "task-concurrency@example.test";
@@ -1325,6 +1452,9 @@ public sealed class TaskV1CoreConcurrencyPostgreSqlTests
         private readonly object gate = new();
         private TaskCompletionSource? release;
         private int remaining;
+        private int saveCallCount;
+
+        public int SaveCallCount => Volatile.Read(ref saveCallCount);
 
         public void Arm()
         {
@@ -1334,12 +1464,14 @@ public sealed class TaskV1CoreConcurrencyPostgreSqlTests
                     throw new InvalidOperationException("The previous save race has not completed.");
 
                 remaining = 2;
+                saveCallCount = 0;
                 release = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
             }
         }
 
         public async Task WaitBeforeSaveAsync(CancellationToken cancellationToken)
         {
+            Interlocked.Increment(ref saveCallCount);
             Task? wait = null;
             lock (gate)
             {
@@ -1371,16 +1503,38 @@ public sealed class TaskV1CoreConcurrencyPostgreSqlTests
         }
     }
 
-    private sealed class CoordinatedTaskCommandUnitOfWork(EfUnitOfWork inner, SaveRaceCoordinator coordinator) : ITaskCommandUnitOfWork
+    private sealed class RequestSaveOutcomeRecorder
+    {
+        public int SaveTaskCommandCallCount { get; private set; }
+        public TaskCommandSaveOutcome? LastSaveOutcome { get; private set; }
+        public int ClearTrackingCallCount { get; private set; }
+        public bool RecoveryPathEntered => LastSaveOutcome is { Result: not TaskCommandSaveResult.Saved } || ClearTrackingCallCount > 0;
+
+        public void RecordSave(TaskCommandSaveOutcome outcome)
+        {
+            SaveTaskCommandCallCount++;
+            LastSaveOutcome = outcome;
+        }
+
+        public void RecordClear() => ClearTrackingCallCount++;
+    }
+
+    private sealed class RecordingTaskCommandUnitOfWork(EfUnitOfWork inner, SaveRaceCoordinator coordinator, RequestSaveOutcomeRecorder recorder) : ITaskCommandUnitOfWork
     {
         public Task<int> SaveChangesAsync(CancellationToken cancellationToken = default) => inner.SaveChangesAsync(cancellationToken);
 
-        public void ClearTaskCommandTracking() => inner.ClearTaskCommandTracking();
+        public void ClearTaskCommandTracking()
+        {
+            recorder.RecordClear();
+            inner.ClearTaskCommandTracking();
+        }
 
         public async Task<TaskCommandSaveOutcome> SaveTaskCommandAsync(CancellationToken cancellationToken = default)
         {
             await coordinator.WaitBeforeSaveAsync(cancellationToken);
-            return await inner.SaveTaskCommandAsync(cancellationToken);
+            var outcome = await inner.SaveTaskCommandAsync(cancellationToken);
+            recorder.RecordSave(outcome);
+            return outcome;
         }
     }
 }

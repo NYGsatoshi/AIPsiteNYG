@@ -258,7 +258,14 @@ public sealed class TaskSubresourceService(
         if (request.Name.IsSpecified)
         {
             var name = Text(request.Name.Value, 120); if (name is null) return Fail<ProjectTaskLabelResponse>("VALIDATION_FAILED", "Label name is required.");
-            if ((await projects.ListTaskLabelsAsync(projectId, true, ct)).Any(x => x.Id != label.Id && string.Equals(x.Name.Trim(), name, StringComparison.OrdinalIgnoreCase))) return Fail<ProjectTaskLabelResponse>("TASK_LABEL_DUPLICATE", "A label with that name already exists.");
+            if ((await projects.ListTaskLabelsAsync(projectId, true, ct)).Any(x => x.Id != label.Id && string.Equals(x.Name.Trim(), name, StringComparison.OrdinalIgnoreCase)))
+            {
+                // This is a command-owned duplicate detected before SaveChanges.
+                // Clear the request context just as the durable unique-conflict
+                // path does, so callers never retain a failed label mutation.
+                taskUnitOfWork.ClearTaskCommandTracking();
+                return Fail<ProjectTaskLabelResponse>("TASK_LABEL_DUPLICATE", "A label with that name already exists.");
+            }
             label.Name = name;
         }
         if (request.Description.IsSpecified)
