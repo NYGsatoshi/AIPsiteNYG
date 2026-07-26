@@ -64,6 +64,10 @@ INSERT INTO work_item_watch_states ("Id", "TenantId", "TaskItemId", "UserId", "A
             Assert.Equal((0, false, false, 6L), rows.Single(row => row.Id == manualOffId).State);
             Assert.Equal((0, true, false, 5L), rows.Single(row => row.Id == manualOptOutId).State);
             Assert.Equal((0, false, false, 10L), rows.Single(row => row.Id == staleId).State);
+            Assert.True(await PostgreSqlMigrationTestDatabase.ScalarAsync<bool>(database, "SELECT \"IsManualWatch\" FROM work_item_watch_states WHERE \"Id\" = @id;", ("id", manualOnId)));
+            Assert.False(await PostgreSqlMigrationTestDatabase.ScalarAsync<bool>(database, "SELECT \"IsManualWatch\" FROM work_item_watch_states WHERE \"Id\" = @id;", ("id", manualOffId)));
+            Assert.False(await PostgreSqlMigrationTestDatabase.ScalarAsync<bool>(database, "SELECT \"IsManualWatch\" FROM work_item_watch_states WHERE \"Id\" = @id;", ("id", multiId)));
+            Assert.False(await PostgreSqlMigrationTestDatabase.ScalarAsync<bool>(database, "SELECT \"IsManualWatch\" FROM work_item_watch_states WHERE \"Id\" = @id;", ("id", manualOptOutId)));
             Assert.All(rows.Where(row => row.Id != manualOnId && row.Id != manualOffId), row => Assert.NotEqual(old, row.UpdatedAt));
             Assert.Equal(old, rows.Single(row => row.Id == manualOnId).UpdatedAt);
             Assert.Equal(old, rows.Single(row => row.Id == manualOffId).UpdatedAt);

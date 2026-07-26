@@ -148,6 +148,8 @@ public sealed class WorkItemWatchState : Entity, ITenantEntity
     public Guid TaskItemId { get; set; }
     public Guid UserId { get; set; }
     public WorkItemWatchAutomaticSource AutomaticSources { get; set; }
+    /// <summary>Durable user intent, distinct from relationship-derived watching.</summary>
+    public bool IsManualWatch { get; set; }
     public bool IsExplicitOptOut { get; set; }
     public bool IsWatching { get; set; }
     public DateTimeOffset UpdatedAt { get; set; }

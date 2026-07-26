@@ -31,3 +31,10 @@ The PR02 migration adds durable review-outcome metadata on `task_items` and
 defaults existing rows to `None`; it adds the command query index for project,
 group, assignee, and workflow stage.  Task changes are audited and enqueue the
 existing transactional invalidation before the unit of work commits.
+
+Task V1 Watch state persists manual intent separately from automatic Creator,
+PrimaryAssignee, Collaborator, and Reviewer sources. Its canonical value is
+`IsManualWatch || (!IsExplicitOptOut && AutomaticSources != None)`. Relationship
+commands reconcile against their effective in-request relationship set, and
+Task/File removal soft-deletes only the association Attachment, never its
+FileObject.

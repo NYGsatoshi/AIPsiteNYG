@@ -388,6 +388,7 @@ public sealed class WorkItemWatchStateConfiguration : IEntityTypeConfiguration<W
     {
         builder.ToTable("work_item_watch_states"); builder.ConfigureEntity();
         builder.Property(x => x.AutomaticSources).HasConversion<int>();
+        builder.Property(x => x.IsManualWatch).HasDefaultValue(false);
         builder.Property(x => x.VersionNo).IsConcurrencyToken().HasDefaultValue(1L);
         builder.HasIndex(x => new { x.TenantId, x.TaskItemId, x.UserId }).IsUnique();
         builder.HasIndex(x => new { x.TenantId, x.UserId, x.IsWatching, x.TaskItemId });

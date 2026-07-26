@@ -128,8 +128,25 @@ public static class TaskWatchStateInitializer
         TaskItemId = task.Id,
         UserId = creatorUserId,
         AutomaticSources = WorkItemWatchAutomaticSource.Creator,
-        IsWatching = true,
+        IsWatching = TaskWatchStateRules.IsWatching(false, false, WorkItemWatchAutomaticSource.Creator),
         UpdatedAt = now,
         VersionNo = 1
     };
+}
+
+/// <summary>One canonical state machine for private watch intent and relationship sources.</summary>
+public static class TaskWatchStateRules
+{
+    public static bool IsWatching(bool isManualWatch, bool isExplicitOptOut, WorkItemWatchAutomaticSource automaticSources) =>
+        isManualWatch || (!isExplicitOptOut && automaticSources != WorkItemWatchAutomaticSource.None);
+
+    public static bool Normalize(WorkItemWatchState state)
+    {
+        var isWatching = IsWatching(state.IsManualWatch, state.IsExplicitOptOut, state.AutomaticSources);
+        if (state.IsWatching == isWatching)
+            return false;
+
+        state.IsWatching = isWatching;
+        return true;
+    }
 }

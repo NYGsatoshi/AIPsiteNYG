@@ -10,6 +10,24 @@ namespace AipPortal.Tests.Projects;
 public sealed class TaskCommandServiceTests
 {
     [Fact]
+    public async Task CollaboratorCommandsReconcileAgainstTheirEffectiveRelationshipSet()
+    {
+        var fixture = Fixture.Create();
+        var task = fixture.AddTask("relationships");
+        var collaborator = Guid.NewGuid();
+
+        Assert.True((await fixture.Service.AddCollaboratorAsync(task.Id, new TaskCollaboratorRequest(collaborator, task.VersionNo))).IsSuccess);
+        var added = fixture.Projects.Watches.Single(state => state.UserId == collaborator);
+        Assert.Equal(WorkItemWatchAutomaticSource.Collaborator, added.AutomaticSources);
+        Assert.True(added.IsWatching);
+
+        Assert.True((await fixture.Service.RemoveCollaboratorAsync(task.Id, collaborator, task.VersionNo)).IsSuccess);
+        var removed = fixture.Projects.Watches.Single(state => state.UserId == collaborator);
+        Assert.Equal(WorkItemWatchAutomaticSource.None, removed.AutomaticSources);
+        Assert.False(removed.IsWatching);
+    }
+
+    [Fact]
     public async Task ChildProgressMutationAdvancesParentAndQueuesBothObservableChanges()
     {
         var fixture = Fixture.Create();
@@ -453,6 +471,7 @@ public sealed class TaskCommandServiceTests
         public Dictionary<Guid, TaskWorkflowStage> Stages { get; } = [];
         public Dictionary<Guid, ProjectTaskLabel> Labels { get; } = [];
         public List<WorkItemWatchState> Watches { get; } = [];
+        public List<WorkItemCollaborator> Collaborators { get; } = [];
         public Task<IReadOnlyList<Project>> ListVisibleAsync(Guid userId, CancellationToken cancellationToken = default) => Task.FromResult<IReadOnlyList<Project>>(ProjectItems.Values.ToArray());
         public Task<Project?> GetProjectAsync(Guid projectId, CancellationToken cancellationToken = default) => Task.FromResult(ProjectItems.GetValueOrDefault(projectId));
         public Task<ProjectMember?> GetMemberAsync(Guid projectId, Guid userId, CancellationToken cancellationToken = default) => Task.FromResult<ProjectMember?>(new ProjectMember { ProjectId = projectId, UserId = userId });
@@ -463,6 +482,7 @@ public sealed class TaskCommandServiceTests
         public Task<TaskItem?> GetTaskAsync(Guid taskItemId, CancellationToken cancellationToken = default) => Task.FromResult(Tasks.GetValueOrDefault(taskItemId));
         public Task<TaskWorkflowStage?> GetWorkflowStageAsync(Guid workflowStageId, CancellationToken cancellationToken = default) => Task.FromResult(Stages.GetValueOrDefault(workflowStageId));
         public Task<IReadOnlyList<TaskWorkflowStage>> ListWorkflowStagesAsync(Guid projectId, CancellationToken cancellationToken = default) => Task.FromResult<IReadOnlyList<TaskWorkflowStage>>(Stages.Values.Where(stage => stage.ProjectId == projectId).ToArray());
+        public Task<IReadOnlyList<WorkItemCollaborator>> ListCollaboratorsAsync(Guid taskItemId, CancellationToken cancellationToken = default) => Task.FromResult<IReadOnlyList<WorkItemCollaborator>>(Collaborators.Where(item => item.TaskItemId == taskItemId).ToArray());
         public Task<IReadOnlyList<TaskAssignment>> ListAssignmentsAsync(Guid taskItemId, CancellationToken cancellationToken = default) => Task.FromResult<IReadOnlyList<TaskAssignment>>([]);
         public Task<TaskAssignment?> GetAssignmentAsync(Guid assignmentId, CancellationToken cancellationToken = default) => Task.FromResult<TaskAssignment?>(null);
         public Task<IReadOnlyList<TaskDependency>> ListDependenciesAsync(Guid taskItemId, CancellationToken cancellationToken = default) => Task.FromResult<IReadOnlyList<TaskDependency>>([]);
@@ -480,12 +500,14 @@ public sealed class TaskCommandServiceTests
         public Task AddMemberAsync(ProjectMember member, CancellationToken cancellationToken = default) => Task.CompletedTask;
         public Task AddMilestoneAsync(Milestone milestone, CancellationToken cancellationToken = default) => Task.CompletedTask;
         public Task AddTaskAsync(TaskItem task, CancellationToken cancellationToken = default) { Tasks[task.Id] = task; return Task.CompletedTask; }
+        public Task AddCollaboratorAsync(WorkItemCollaborator collaborator, CancellationToken cancellationToken = default) { Collaborators.Add(collaborator); return Task.CompletedTask; }
         public Task AddAssignmentAsync(TaskAssignment assignment, CancellationToken cancellationToken = default) => Task.CompletedTask;
         public Task AddDependencyAsync(TaskDependency dependency, CancellationToken cancellationToken = default) => Task.CompletedTask;
         public Task AddCommentAsync(Comment comment, CancellationToken cancellationToken = default) => Task.CompletedTask;
         public void RemoveMember(ProjectMember member) { }
         public void RemoveAssignment(TaskAssignment assignment) { }
         public void RemoveDependency(TaskDependency dependency) { }
+        public void RemoveCollaborator(WorkItemCollaborator collaborator) => Collaborators.Remove(collaborator);
     }
 
     private sealed class FakeGroups : IGroupRepository

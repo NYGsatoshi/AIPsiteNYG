@@ -4695,6 +4695,11 @@ namespace AipPortal.Infrastructure.Persistence.Migrations
                     b.Property<bool>("IsExplicitOptOut")
                         .HasColumnType("boolean");
 
+                    b.Property<bool>("IsManualWatch")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("boolean")
+                        .HasDefaultValue(false);
+
                     b.Property<bool>("IsWatching")
                         .HasColumnType("boolean");
 

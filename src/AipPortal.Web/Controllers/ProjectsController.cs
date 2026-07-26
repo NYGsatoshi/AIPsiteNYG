@@ -272,7 +272,7 @@ public sealed class ProjectsController(IProjectService projects, ITaskCommandSer
         if (result.IsSuccess) return Ok(new { status = "OK" });
         var parts = (result.Error ?? "TASK_TRANSITION_GUARD_FAILED|The request could not be completed.").Split('|', 2);
         var code = parts[0];
-        var status = code is "TASK_STALE_VERSION" ? StatusCodes.Status409Conflict : code is "TASK_COMMENT_RATE_LIMITED" ? StatusCodes.Status429TooManyRequests : code is "TASK_FORBIDDEN" or "TASK_LABEL_FORBIDDEN" or "TASK_COMMENT_FORBIDDEN" ? StatusCodes.Status403Forbidden : StatusCodes.Status400BadRequest;
+        var status = code is "TASK_STALE_VERSION" or "TASK_CONFLICT" ? StatusCodes.Status409Conflict : code is "TASK_COMMENT_RATE_LIMITED" ? StatusCodes.Status429TooManyRequests : code is "TASK_FORBIDDEN" or "TASK_LABEL_FORBIDDEN" or "TASK_COMMENT_FORBIDDEN" or "TASK_FILE_ASSOCIATION_FORBIDDEN" ? StatusCodes.Status403Forbidden : StatusCodes.Status400BadRequest;
         if (code == "TASK_COMMENT_RATE_LIMITED")
         {
             var retryAfterSeconds = Math.Max(1, result.ErrorDetail?.RetryAfterSeconds ?? 1);

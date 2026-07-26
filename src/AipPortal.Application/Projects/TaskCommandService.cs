@@ -190,8 +190,11 @@ public sealed class TaskCommandService(
         var task = result.Value!;
         var stale = EnsureVersion(task, request.ExpectedVersion); if (stale is not null) return Fail<TaskCommandResponse>(stale.Value.Code, stale.Value.Message);
         if (!await IsProjectMemberAsync(task.ProjectId, request.UserId, cancellationToken)) return Fail<TaskCommandResponse>("TASK_FORBIDDEN", "Collaborator must be a current project member.");
-        if (!(await projects.ListCollaboratorsAsync(task.Id, cancellationToken)).Any(item => item.UserId == request.UserId)) await projects.AddCollaboratorAsync(new WorkItemCollaborator { TaskItemId = task.Id, UserId = request.UserId, AddedByUserId = Actor(), AddedAt = clock.UtcNow }, cancellationToken);
-        return await CommitAsync(task, "TaskCollaboratorAdded", "assignmentChanged", cancellationToken);
+        var collaborators = await projects.ListCollaboratorsAsync(task.Id, cancellationToken);
+        if (!collaborators.Any(item => item.UserId == request.UserId))
+            await projects.AddCollaboratorAsync(new WorkItemCollaborator { TaskItemId = task.Id, UserId = request.UserId, AddedByUserId = Actor(), AddedAt = clock.UtcNow }, cancellationToken);
+        return await CommitAsync(task, "TaskCollaboratorAdded", "assignmentChanged", cancellationToken,
+            effectiveCollaboratorUserIds: collaborators.Select(item => item.UserId).Append(request.UserId).Distinct().ToArray());
     }
 
     public async Task<Result<TaskCommandResponse>> RemoveCollaboratorAsync(Guid taskId, Guid collaboratorUserId, long expectedVersion, CancellationToken cancellationToken = default)
@@ -200,9 +203,11 @@ public sealed class TaskCommandService(
         if (result.Error is not null) return Fail<TaskCommandResponse>(result.Error.Value.Code, result.Error.Value.Message);
         var task = result.Value!;
         var stale = EnsureVersion(task, expectedVersion); if (stale is not null) return Fail<TaskCommandResponse>(stale.Value.Code, stale.Value.Message);
-        var collaborator = (await projects.ListCollaboratorsAsync(task.Id, cancellationToken)).FirstOrDefault(item => item.UserId == collaboratorUserId);
+        var collaborators = await projects.ListCollaboratorsAsync(task.Id, cancellationToken);
+        var collaborator = collaborators.FirstOrDefault(item => item.UserId == collaboratorUserId);
         if (collaborator is not null) projects.RemoveCollaborator(collaborator);
-        return await CommitAsync(task, "TaskCollaboratorRemoved", "assignmentChanged", cancellationToken);
+        return await CommitAsync(task, "TaskCollaboratorRemoved", "assignmentChanged", cancellationToken,
+            effectiveCollaboratorUserIds: collaborators.Where(item => item.UserId != collaboratorUserId).Select(item => item.UserId).Distinct().ToArray());
     }
 
     public async Task<Result<TaskCommandResponse>> SetReviewerAsync(Guid taskId, TaskRelationshipUserRequest request, CancellationToken cancellationToken = default)
@@ -298,20 +303,47 @@ public sealed class TaskCommandService(
         if (state is null)
         {
             if (request.ExpectedVersion != 0) return Fail<TaskWatchStateResponse>("TASK_STALE_VERSION", "Watch state has changed. Refetch and retry.");
-            state = new WorkItemWatchState { TaskItemId = taskId, UserId = Actor(), UpdatedAt = clock.UtcNow, VersionNo = 1 };
+            state = new WorkItemWatchState
+            {
+                TaskItemId = taskId,
+                UserId = Actor(),
+                AutomaticSources = await AutomaticSourcesForAsync(task, Actor(), null, cancellationToken),
+                UpdatedAt = clock.UtcNow,
+                VersionNo = 1
+            };
             await projects.AddWatchStateAsync(state, cancellationToken);
             created = true;
         }
         else if (state.VersionNo != request.ExpectedVersion) return Fail<TaskWatchStateResponse>("TASK_STALE_VERSION", "Watch state has changed. Refetch and retry.");
-        state.IsExplicitOptOut = !watch; state.IsWatching = watch; state.UpdatedAt = clock.UtcNow;
+        var previousManualWatch = state.IsManualWatch;
+        var previousOptOut = state.IsExplicitOptOut;
+        var previousWatching = state.IsWatching;
+        state.IsManualWatch = watch;
+        state.IsExplicitOptOut = !watch;
+        TaskWatchStateRules.Normalize(state);
+        var changed = created || previousManualWatch != state.IsManualWatch || previousOptOut != state.IsExplicitOptOut || previousWatching != state.IsWatching;
+        if (!changed)
+            return Result<TaskWatchStateResponse>.Success(ToWatchResponse(state));
+
+        state.UpdatedAt = clock.UtcNow;
         if (!created) state.VersionNo++;
         // A watch preference changes the canonical Task projection. Advance the
         // aggregate token before queuing its durable invalidation.
         task.VersionNo++;
         await audit.LogAsync(new AuditLogEntry(Actor(), watch ? "TaskWatchEnabled" : "TaskWatchOptOut", "TaskItem", taskId, "Task watch preference changed.", WorkspaceId: task.WorkspaceId, ProjectId: task.ProjectId), cancellationToken);
         await invalidations.TaskChangedAsync(task, Actor(), "watchChanged", affectedUserIds: [Actor()], cancellationToken: cancellationToken);
-        if (await unitOfWork.SaveTaskCommandAsync(cancellationToken) != TaskCommandSaveResult.Saved)
-            return Fail<TaskWatchStateResponse>("TASK_STALE_VERSION", "Task has changed. Refetch and retry.");
+        var save = await unitOfWork.SaveTaskCommandAsync(cancellationToken);
+        if (!save.IsSaved)
+        {
+            if (save.Result == TaskCommandSaveResult.UniqueConflict &&
+                string.Equals(save.ConstraintName, TaskCommandConstraintNames.WorkItemWatchStateIdentity, StringComparison.Ordinal))
+            {
+                var current = await AuthorizedTaskAsync(taskId, false, cancellationToken: cancellationToken);
+                if (current.Error is null && await projects.GetWatchStateAsync(taskId, Actor(), cancellationToken) is not null)
+                    return Fail<TaskWatchStateResponse>("TASK_STALE_VERSION", "Watch state has changed. Refetch and retry.");
+            }
+            return Fail<TaskWatchStateResponse>(save.Result == TaskCommandSaveResult.UniqueConflict ? "TASK_CONFLICT" : "TASK_STALE_VERSION", "Task has changed. Refetch and retry.");
+        }
         return Result<TaskWatchStateResponse>.Success(ToWatchResponse(state));
     }
 
@@ -344,10 +376,10 @@ public sealed class TaskCommandService(
         return allowed ? (task, null) : (null, ("TASK_FORBIDDEN", "Task operation is not authorized."));
     }
 
-    private async Task<Result<TaskCommandResponse>> CommitAsync(TaskItem task, string action, string change, CancellationToken cancellationToken, bool overrideApplied = false, string? reason = null)
+    private async Task<Result<TaskCommandResponse>> CommitAsync(TaskItem task, string action, string change, CancellationToken cancellationToken, bool overrideApplied = false, string? reason = null, IReadOnlyCollection<Guid>? effectiveCollaboratorUserIds = null)
     {
         var actor = Actor();
-        await ReconcileAutomaticWatchAsync(task, cancellationToken);
+        await ReconcileAutomaticWatchAsync(task, effectiveCollaboratorUserIds, cancellationToken);
         // Relationship-only commands also advance the aggregate token.  Set it before
         // queuing the transactional invalidation so its version matches the committed row.
         task.VersionNo++;
@@ -390,30 +422,47 @@ public sealed class TaskCommandService(
         await invalidations.TaskChangedAsync(parent, actor, "subtasksChanged", cancellationToken: cancellationToken);
     }
 
-    private async Task ReconcileAutomaticWatchAsync(TaskItem task, CancellationToken cancellationToken)
+    private async Task ReconcileAutomaticWatchAsync(TaskItem task, IReadOnlyCollection<Guid>? effectiveCollaboratorUserIds, CancellationToken cancellationToken)
     {
-        var collaborators = await projects.ListCollaboratorsAsync(task.Id, cancellationToken);
-        var sources = new Dictionary<Guid, WorkItemWatchAutomaticSource> { [task.CreatedByUserId] = WorkItemWatchAutomaticSource.Creator };
-        void Add(Guid? userId, WorkItemWatchAutomaticSource source) { if (userId.HasValue) sources[userId.Value] = sources.GetValueOrDefault(userId.Value) | source; }
-        Add(task.PrimaryAssigneeUserId, WorkItemWatchAutomaticSource.PrimaryAssignee);
-        Add(task.ReviewerUserId, WorkItemWatchAutomaticSource.Reviewer);
-        foreach (var collaborator in collaborators) Add(collaborator.UserId, WorkItemWatchAutomaticSource.Collaborator);
+        var collaboratorIds = effectiveCollaboratorUserIds ?? (await projects.ListCollaboratorsAsync(task.Id, cancellationToken)).Select(item => item.UserId).ToArray();
+        var sources = AutomaticSourcesFor(task, collaboratorIds);
         var states = (await projects.ListWatchStatesAsync(task.Id, cancellationToken)).ToDictionary(x => x.UserId);
         foreach (var userId in states.Keys.Union(sources.Keys).ToList())
         {
             if (!states.TryGetValue(userId, out var state))
             {
                 var initialSources = sources.GetValueOrDefault(userId);
-                state = new WorkItemWatchState { TaskItemId = task.Id, UserId = userId, AutomaticSources = initialSources, IsWatching = initialSources != WorkItemWatchAutomaticSource.None, UpdatedAt = clock.UtcNow, VersionNo = 1 };
+                state = new WorkItemWatchState { TaskItemId = task.Id, UserId = userId, AutomaticSources = initialSources, IsWatching = TaskWatchStateRules.IsWatching(false, false, initialSources), UpdatedAt = clock.UtcNow, VersionNo = 1 };
                 await projects.AddWatchStateAsync(state, cancellationToken);
                 continue;
             }
             var automaticSources = sources.GetValueOrDefault(userId);
-            if (state.AutomaticSources == automaticSources) continue;
+            if (state.AutomaticSources == automaticSources && TaskWatchStateRules.IsWatching(state.IsManualWatch, state.IsExplicitOptOut, automaticSources) == state.IsWatching) continue;
             state.AutomaticSources = automaticSources;
-            if (!state.IsExplicitOptOut && automaticSources != WorkItemWatchAutomaticSource.None) state.IsWatching = true;
+            TaskWatchStateRules.Normalize(state);
             state.UpdatedAt = clock.UtcNow; state.VersionNo++;
         }
+    }
+
+    private async Task<WorkItemWatchAutomaticSource> AutomaticSourcesForAsync(TaskItem task, Guid userId, IReadOnlyCollection<Guid>? effectiveCollaboratorUserIds, CancellationToken cancellationToken)
+    {
+        var collaborators = effectiveCollaboratorUserIds ?? (await projects.ListCollaboratorsAsync(task.Id, cancellationToken)).Select(item => item.UserId).ToArray();
+        return AutomaticSourcesFor(task, collaborators).GetValueOrDefault(userId);
+    }
+
+    private static Dictionary<Guid, WorkItemWatchAutomaticSource> AutomaticSourcesFor(TaskItem task, IEnumerable<Guid> collaboratorIds)
+    {
+        var sources = new Dictionary<Guid, WorkItemWatchAutomaticSource> { [task.CreatedByUserId] = WorkItemWatchAutomaticSource.Creator };
+        void Add(Guid? userId, WorkItemWatchAutomaticSource source)
+        {
+            if (userId.HasValue)
+                sources[userId.Value] = sources.GetValueOrDefault(userId.Value) | source;
+        }
+        Add(task.PrimaryAssigneeUserId, WorkItemWatchAutomaticSource.PrimaryAssignee);
+        Add(task.ReviewerUserId, WorkItemWatchAutomaticSource.Reviewer);
+        foreach (var collaboratorId in collaboratorIds)
+            Add(collaboratorId, WorkItemWatchAutomaticSource.Collaborator);
+        return sources;
     }
 
     private async Task<CanonicalTaskResponse> ToResponseAsync(TaskItem task, Guid actor, CancellationToken cancellationToken)

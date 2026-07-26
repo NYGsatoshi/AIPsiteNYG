@@ -49,8 +49,8 @@ public sealed class TaskSubresourceService(
     }
     public async Task<Result<TaskFileAssociationResponse>> AssociateFileAsync(Guid taskId, CreateTaskFileAssociationRequest request, CancellationToken ct = default)
     {
-        var task = await EditableTaskAsync(taskId, ct); if (task is null) return Fail<TaskFileAssociationResponse>("TASK_FILE_ASSOCIATION_FORBIDDEN", "Task operation is not authorized.");
-        if (task.VersionNo != request.ExpectedVersion) return Fail<TaskFileAssociationResponse>("TASK_STALE_VERSION", "Task has changed. Refetch and retry.");
+        var task = await EditableTaskAsync(taskId, ct);
+        if (task is null) return Fail<TaskFileAssociationResponse>("TASK_FILE_ASSOCIATION_FORBIDDEN", "Task operation is not authorized.");
         var source = await files.GetAttachmentAsync(request.AttachmentId, ct);
         if (source?.FileObject is null || source.DeletedAt.HasValue || source.FileObject.DeletedAt.HasValue ||
             !await fileAuthorization.CanViewAttachment(Actor(), source, ct) || source.WorkspaceId != task.WorkspaceId ||
@@ -59,23 +59,46 @@ public sealed class TaskSubresourceService(
         if (source.FileObject.Status == AipPortal.Domain.Enums.FileObjectStatus.Quarantined) return Fail<TaskFileAssociationResponse>("TASK_FILE_QUARANTINED", "File is quarantined.");
         if (source.FileObject.Status != AipPortal.Domain.Enums.FileObjectStatus.Active) return Fail<TaskFileAssociationResponse>("TASK_FILE_ASSOCIATION_FORBIDDEN", "File is not available for this task.");
         if (source.ScanStatus != AipPortal.Domain.Enums.FileScanStatus.Clean) return Fail<TaskFileAssociationResponse>("TASK_FILE_SCAN_NOT_READY", "File scan is not ready.");
-        var duplicate = (await files.ListTaskAttachmentsAsync(taskId, ct)).FirstOrDefault(x => x.FileObjectId == source.FileObjectId); if (duplicate is not null) return Result<TaskFileAssociationResponse>.Success(await ToFileAsync(duplicate, ct));
+        var duplicate = (await files.ListTaskAttachmentsAsync(taskId, ct)).FirstOrDefault(x => x.FileObjectId == source.FileObjectId);
+        if (duplicate is not null) return Result<TaskFileAssociationResponse>.Success(await ToFileAsync(duplicate, ct));
+        if (task.VersionNo != request.ExpectedVersion) return Fail<TaskFileAssociationResponse>("TASK_STALE_VERSION", "Task has changed. Refetch and retry.");
         var association = new Attachment { FileObjectId = source.FileObjectId, WorkspaceId = task.WorkspaceId, OwnerType = AipPortal.Domain.Enums.AttachmentOwnerType.TaskItem, OwnerId = taskId, OwnerUserId = Actor(), UploadedByUserId = source.UploadedByUserId, FileName = source.FileName, StoredFileName = source.StoredFileName, FilePath = source.FilePath, ContentType = source.ContentType, Extension = source.Extension, SizeBytes = source.SizeBytes, StorageProvider = source.StorageProvider, StorageKey = source.StorageKey, ScanStatus = source.ScanStatus };
         await files.AddAttachmentAsync(association, ct);
         var save = await CommitAsync(task, "TaskFileAssociated", "filesChanged", new Dictionary<string, object?> { ["fileObjectId"] = source.FileObjectId }, ct);
-        if (save != TaskCommandSaveResult.Saved && await EditableTaskAsync(taskId, ct) is not null)
+        if (save.IsSaved)
         {
-            // Save failures clear the request's tracked graph. Reauthorize before
-            // resolving the canonical row: either unique or optimistic conflicts
-            // can be the observable result of two identical PUT requests.
+            var persisted = (await files.ListTaskAttachmentsAsync(taskId, ct)).First(x => x.FileObjectId == source.FileObjectId);
+            return Result<TaskFileAssociationResponse>.Success(await ToFileAsync(persisted, ct));
+        }
+
+        // Save failures clear the tracked aggregate. Reauthorize before returning
+        // a canonical association, then accept only the Task/File unique identity.
+        if ((save.Result == TaskCommandSaveResult.ConcurrencyConflict ||
+             (save.Result == TaskCommandSaveResult.UniqueConflict && IsTaskFileIdentityConflict(save))) &&
+            await EditableTaskAsync(taskId, ct) is not null)
+        {
             var existing = (await files.ListTaskAttachmentsAsync(taskId, ct)).FirstOrDefault(x => x.FileObjectId == source.FileObjectId);
             if (existing is not null) return Result<TaskFileAssociationResponse>.Success(await ToFileAsync(existing, ct));
         }
-        if (save != TaskCommandSaveResult.Saved) return Fail<TaskFileAssociationResponse>("TASK_STALE_VERSION", "Task has changed. Refetch and retry.");
-        return Result<TaskFileAssociationResponse>.Success(await ToFileAsync(association, ct));
+        return Fail<TaskFileAssociationResponse>(save.Result == TaskCommandSaveResult.UniqueConflict ? "TASK_CONFLICT" : "TASK_STALE_VERSION", "Task has changed. Refetch and retry.");
     }
     public async Task<Result> RemoveFileAsync(Guid taskId, Guid associationId, long expectedVersion, CancellationToken ct = default)
-    { var task = await EditableTaskAsync(taskId, ct); var attachment = await files.GetAttachmentAsync(associationId, ct); if (task is null || attachment is null || attachment.OwnerType != AipPortal.Domain.Enums.AttachmentOwnerType.TaskItem || attachment.OwnerId != taskId) return Fail("TASK_FILE_ASSOCIATION_NOT_FOUND", "Task file association not found."); if (task.VersionNo != expectedVersion) return Fail("TASK_STALE_VERSION", "Task has changed. Refetch and retry."); files.RemoveAttachment(attachment); if (await CommitAsync(task, "TaskFileAssociationRemoved", "filesChanged", new Dictionary<string, object?> { ["fileObjectId"] = attachment.FileObjectId }, ct) != TaskCommandSaveResult.Saved) return Fail("TASK_STALE_VERSION", "Task has changed. Refetch and retry."); return Result.Success(); }
+    {
+        var task = await EditableTaskAsync(taskId, ct);
+        if (task is null) return Fail("TASK_FILE_ASSOCIATION_NOT_FOUND", "Task file association not found.");
+        var attachment = await files.GetAttachmentAsync(associationId, ct);
+        if (attachment is null) return Result.Success();
+        if (attachment.OwnerType != AipPortal.Domain.Enums.AttachmentOwnerType.TaskItem || attachment.OwnerId != taskId)
+            return Fail("TASK_FILE_ASSOCIATION_NOT_FOUND", "Task file association not found.");
+        if (task.VersionNo != expectedVersion) return Fail("TASK_STALE_VERSION", "Task has changed. Refetch and retry.");
+
+        attachment.MarkDeleted(clock.UtcNow, Actor(), "Removed from task.");
+        var save = await CommitAsync(task, "TaskFileAssociationRemoved", "filesChanged", new Dictionary<string, object?> { ["fileObjectId"] = attachment.FileObjectId }, ct);
+        if (save.IsSaved) return Result.Success();
+        if (save.Result == TaskCommandSaveResult.ConcurrencyConflict && await EditableTaskAsync(taskId, ct) is not null && await files.GetAttachmentAsync(associationId, ct) is null)
+            return Result.Success();
+        return Fail(save.Result == TaskCommandSaveResult.UniqueConflict ? "TASK_CONFLICT" : "TASK_STALE_VERSION", "Task has changed. Refetch and retry.");
+    }
     public async Task<Result<TaskSubtaskPage>> ListSubtasksAsync(Guid taskId, int page = 1, int pageSize = 50, CancellationToken ct = default)
     {
         var task = await VisibleTaskAsync(taskId, ct); if (task is null) return Fail<TaskSubtaskPage>("TASK_NOT_FOUND", "Task not found.");
@@ -199,11 +222,11 @@ public sealed class TaskSubresourceService(
         var label = new ProjectTaskLabel { WorkspaceId = project.WorkspaceId, ProjectId = projectId, Name = name, Description = NullableText(request.Description, 1000), SortKey = request.SortKey ?? (labels.Count == 0 ? 1024 : labels.Max(x => x.SortKey) + 1024), VersionNo = 1 };
         await projects.AddTaskLabelAsync(label, ct);
         var save = await CommitLabelDefinitionAsync(project, label, "TaskLabelCreated", "taskLabelsChanged", ct);
-        return save == TaskCommandSaveResult.Saved
+        return save.IsSaved
             ? Result<ProjectTaskLabelResponse>.Success(ToLabel(label))
             : IsLabelNameConflict(save)
                 ? Fail<ProjectTaskLabelResponse>("TASK_LABEL_DUPLICATE", "A label with that name already exists.")
-                : Fail<ProjectTaskLabelResponse>("TASK_STALE_VERSION", "Label has changed. Refetch and retry.");
+                : Fail<ProjectTaskLabelResponse>(save.Result == TaskCommandSaveResult.UniqueConflict ? "TASK_CONFLICT" : "TASK_STALE_VERSION", "Label has changed. Refetch and retry.");
     }
     public async Task<Result<ProjectTaskLabelResponse>> UpdateLabelAsync(Guid projectId, Guid labelId, UpdateProjectTaskLabelRequest request, CancellationToken ct = default)
     {
@@ -230,14 +253,47 @@ public sealed class TaskSubresourceService(
         }
         label.VersionNo++;
         var save = await CommitLabelDefinitionAsync(project, label, "TaskLabelUpdated", "taskLabelsChanged", ct);
-        return save == TaskCommandSaveResult.Saved ? Result<ProjectTaskLabelResponse>.Success(ToLabel(label)) : IsLabelNameConflict(save) ? Fail<ProjectTaskLabelResponse>("TASK_LABEL_DUPLICATE", "A label with that name already exists.") : Fail<ProjectTaskLabelResponse>("TASK_STALE_VERSION", "Label has changed. Refetch and retry.");
+        return save.IsSaved ? Result<ProjectTaskLabelResponse>.Success(ToLabel(label)) : IsLabelNameConflict(save) ? Fail<ProjectTaskLabelResponse>("TASK_LABEL_DUPLICATE", "A label with that name already exists.") : Fail<ProjectTaskLabelResponse>(save.Result == TaskCommandSaveResult.UniqueConflict ? "TASK_CONFLICT" : "TASK_STALE_VERSION", "Label has changed. Refetch and retry.");
     }
     public async Task<Result<ProjectTaskLabelResponse>> SetLabelArchiveAsync(Guid projectId, Guid labelId, long expectedVersion, bool archived, CancellationToken ct = default)
-    { var project=await ManagedProjectAsync(projectId,ct); var label=await ManagedLabelAsync(projectId,labelId,ct); if(project is null||label is null)return Fail<ProjectTaskLabelResponse>("TASK_LABEL_FORBIDDEN","Label operation is not authorized."); if(label.VersionNo!=expectedVersion)return Fail<ProjectTaskLabelResponse>("TASK_STALE_VERSION","Label has changed. Refetch and retry."); label.IsArchived=archived;label.VersionNo++;return await CommitLabelDefinitionAsync(project,label,archived?"TaskLabelArchived":"TaskLabelRestored","taskLabelsChanged",ct)==TaskCommandSaveResult.Saved?Result<ProjectTaskLabelResponse>.Success(ToLabel(label)):Fail<ProjectTaskLabelResponse>("TASK_STALE_VERSION","Label has changed. Refetch and retry."); }
+    { var project=await ManagedProjectAsync(projectId,ct); var label=await ManagedLabelAsync(projectId,labelId,ct); if(project is null||label is null)return Fail<ProjectTaskLabelResponse>("TASK_LABEL_FORBIDDEN","Label operation is not authorized."); if(label.VersionNo!=expectedVersion)return Fail<ProjectTaskLabelResponse>("TASK_STALE_VERSION","Label has changed. Refetch and retry."); label.IsArchived=archived;label.VersionNo++;var save=await CommitLabelDefinitionAsync(project,label,archived?"TaskLabelArchived":"TaskLabelRestored","taskLabelsChanged",ct);return save.IsSaved?Result<ProjectTaskLabelResponse>.Success(ToLabel(label)):Fail<ProjectTaskLabelResponse>(save.Result==TaskCommandSaveResult.UniqueConflict?"TASK_CONFLICT":"TASK_STALE_VERSION","Label has changed. Refetch and retry."); }
     public async Task<Result> ApplyLabelAsync(Guid taskId, Guid labelId, TaskLabelAssociationRequest request, CancellationToken ct = default)
-    { var task=await EditableTaskAsync(taskId,ct); var label=await projects.GetTaskLabelAsync(labelId,ct); if(task is null||label is null)return Fail("TASK_LABEL_NOT_FOUND","Label not found."); if(task.VersionNo!=request.ExpectedVersion)return Fail("TASK_STALE_VERSION","Task has changed. Refetch and retry."); if(label.ProjectId!=task.ProjectId)return Fail("TASK_LABEL_PROJECT_MISMATCH","Label is not available for this task.");if(label.IsArchived)return Fail("TASK_LABEL_ARCHIVED","Archived labels cannot be applied.");if(!(await projects.ListWorkItemLabelsAsync(taskId,ct)).Any(x=>x.LabelId==labelId)){await projects.AddWorkItemLabelAsync(new WorkItemLabel{TaskItemId=taskId,LabelId=labelId,AddedAt=clock.UtcNow,AddedByUserId=Actor()},ct);var save=await CommitAsync(task,"TaskLabelApplied","labelsChanged",new Dictionary<string, object?>{["labelId"]=labelId},ct);if(save!=TaskCommandSaveResult.Saved&&await EditableTaskAsync(taskId,ct) is not null&&(await projects.ListWorkItemLabelsAsync(taskId,ct)).Any(x=>x.LabelId==labelId))return Result.Success();if(save!=TaskCommandSaveResult.Saved)return Fail("TASK_STALE_VERSION","Task has changed. Refetch and retry.");}return Result.Success(); }
+    {
+        var task = await EditableTaskAsync(taskId, ct);
+        if (task is null) return Fail("TASK_LABEL_NOT_FOUND", "Label not found.");
+        var label = await projects.GetTaskLabelAsync(labelId, ct);
+        if (label is null) return Fail("TASK_LABEL_NOT_FOUND", "Label not found.");
+        if (label.ProjectId != task.ProjectId) return Fail("TASK_LABEL_PROJECT_MISMATCH", "Label is not available for this task.");
+        if (label.IsArchived) return Fail("TASK_LABEL_ARCHIVED", "Archived labels cannot be applied.");
+        if ((await projects.ListWorkItemLabelsAsync(taskId, ct)).Any(x => x.LabelId == labelId)) return Result.Success();
+        if (task.VersionNo != request.ExpectedVersion) return Fail("TASK_STALE_VERSION", "Task has changed. Refetch and retry.");
+
+        await projects.AddWorkItemLabelAsync(new WorkItemLabel { TaskItemId = taskId, LabelId = labelId, AddedAt = clock.UtcNow, AddedByUserId = Actor() }, ct);
+        var save = await CommitAsync(task, "TaskLabelApplied", "labelsChanged", new Dictionary<string, object?> { ["labelId"] = labelId }, ct);
+        if (save.IsSaved) return Result.Success();
+        if ((save.Result == TaskCommandSaveResult.ConcurrencyConflict ||
+             (save.Result == TaskCommandSaveResult.UniqueConflict && IsTaskLabelIdentityConflict(save))) &&
+            await EditableTaskAsync(taskId, ct) is not null &&
+            (await projects.ListWorkItemLabelsAsync(taskId, ct)).Any(x => x.LabelId == labelId))
+            return Result.Success();
+        return Fail(save.Result == TaskCommandSaveResult.UniqueConflict ? "TASK_CONFLICT" : "TASK_STALE_VERSION", "Task has changed. Refetch and retry.");
+    }
     public async Task<Result> RemoveLabelAsync(Guid taskId, Guid labelId, long expectedVersion, CancellationToken ct = default)
-    { var task=await EditableTaskAsync(taskId,ct); if(task is null)return Fail("TASK_LABEL_FORBIDDEN","Task operation is not authorized.");if(task.VersionNo!=expectedVersion)return Fail("TASK_STALE_VERSION","Task has changed. Refetch and retry.");var association=(await projects.ListWorkItemLabelsAsync(taskId,ct)).FirstOrDefault(x=>x.LabelId==labelId);if(association is not null){projects.RemoveWorkItemLabel(association);if(await CommitAsync(task,"TaskLabelRemoved","labelsChanged",new Dictionary<string, object?>{["labelId"]=labelId},ct)!=TaskCommandSaveResult.Saved)return Fail("TASK_STALE_VERSION","Task has changed. Refetch and retry.");}return Result.Success(); }
+    {
+        var task = await EditableTaskAsync(taskId, ct);
+        if (task is null) return Fail("TASK_LABEL_FORBIDDEN", "Task operation is not authorized.");
+        var association = (await projects.ListWorkItemLabelsAsync(taskId, ct)).FirstOrDefault(x => x.LabelId == labelId);
+        if (association is null) return Result.Success();
+        if (task.VersionNo != expectedVersion) return Fail("TASK_STALE_VERSION", "Task has changed. Refetch and retry.");
+
+        projects.RemoveWorkItemLabel(association);
+        var save = await CommitAsync(task, "TaskLabelRemoved", "labelsChanged", new Dictionary<string, object?> { ["labelId"] = labelId }, ct);
+        if (save.IsSaved) return Result.Success();
+        if (save.Result == TaskCommandSaveResult.ConcurrencyConflict && await EditableTaskAsync(taskId, ct) is not null &&
+            !(await projects.ListWorkItemLabelsAsync(taskId, ct)).Any(x => x.LabelId == labelId))
+            return Result.Success();
+        return Fail(save.Result == TaskCommandSaveResult.UniqueConflict ? "TASK_CONFLICT" : "TASK_STALE_VERSION", "Task has changed. Refetch and retry.");
+    }
     public async Task<TaskSubresourceSummary> GetSummaryAsync(Guid taskId, CancellationToken ct = default) { var checklist=await projects.ListChecklistAsync(taskId,ct);return new(checklist.Count(x=>x.IsCompleted),checklist.Count,await projects.CountTaskCommentsAsync(taskId,ct),(await projects.ListWorkItemLabelsAsync(taskId,ct)).Count,(await projects.ListTasksAsync((await projects.GetTaskAsync(taskId,ct))?.ProjectId??Guid.Empty,ct)).Count(x=>x.ParentTaskItemId==taskId)); }
     private async Task<TaskItem?> VisibleTaskAsync(Guid taskId,CancellationToken ct){var task=await projects.GetTaskAsync(taskId,ct);return task is not null&&!task.DeletedAt.HasValue&&await projectAuthorization.CanViewProject(Actor(),task.ProjectId,ct)?task:null;}
     private async Task<TaskItem?> EditableTaskAsync(Guid taskId,CancellationToken ct){var task=await VisibleTaskAsync(taskId,ct);return task is not null&&await taskAuthorization.CanUpdateTask(Actor(),taskId,ct)?task:null;}
@@ -265,7 +321,13 @@ public sealed class TaskSubresourceService(
     }
     private static bool IsLabelNameConflict(TaskCommandSaveOutcome save) =>
         save.Result == TaskCommandSaveResult.UniqueConflict &&
-        string.Equals(save.ConstraintName, "IX_project_task_labels_TenantId_ProjectId_NormalizedName", StringComparison.Ordinal);
+        string.Equals(save.ConstraintName, TaskCommandConstraintNames.ProjectTaskLabelNormalizedName, StringComparison.Ordinal);
+    private static bool IsTaskLabelIdentityConflict(TaskCommandSaveOutcome save) =>
+        save.Result == TaskCommandSaveResult.UniqueConflict &&
+        string.Equals(save.ConstraintName, TaskCommandConstraintNames.WorkItemLabelIdentity, StringComparison.Ordinal);
+    private static bool IsTaskFileIdentityConflict(TaskCommandSaveOutcome save) =>
+        save.Result == TaskCommandSaveResult.UniqueConflict &&
+        string.Equals(save.ConstraintName, TaskCommandConstraintNames.ActiveTaskAttachmentIdentity, StringComparison.Ordinal);
 
     private async Task<bool> CommitSubtaskCreationAsync(TaskItem parent, TaskItem child, CancellationToken ct)
     {
