@@ -99,9 +99,24 @@ public sealed class TaskCommandService(
         var now = clock.UtcNow;
         if (stage.InternalCategory is TaskStageCategory.InProgress or TaskStageCategory.Review && !task.ActualStartAt.HasValue) task.ActualStartAt = now;
         if (stage.InternalCategory == TaskStageCategory.Done) { task.ProgressPercent = 100; task.CompletedAt = now; task.CancelledAt = null; task.CancellationReason = null; }
-        if (previous == TaskStageCategory.Done && stage.InternalCategory != TaskStageCategory.Done) task.CompletedAt = null;
+        if (previous == TaskStageCategory.Done && stage.InternalCategory != TaskStageCategory.Done)
+        {
+            // Reopening to a backlog/todo stage starts a new completion cycle.  Do
+            // not retain a terminal 100% value, otherwise parent derived progress
+            // also continues to report the child as complete.
+            task.CompletedAt = null;
+            if (stage.InternalCategory is TaskStageCategory.Backlog or TaskStageCategory.Todo)
+                task.ProgressPercent = 0;
+        }
+        if (previous == TaskStageCategory.Cancelled && stage.InternalCategory is TaskStageCategory.Backlog or TaskStageCategory.Todo)
+        {
+            task.CancelledAt = null;
+            task.CancellationReason = null;
+        }
         if (stage.InternalCategory == TaskStageCategory.Cancelled) { task.CancelledAt = now; task.CancellationReason = request.Reason!.Trim(); }
-        return await CommitAsync(task, "TaskTransitioned", previous == TaskStageCategory.Done ? "reopened" : "stageChanged", cancellationToken);
+        var reopened = previous is TaskStageCategory.Done or TaskStageCategory.Cancelled
+            && stage.InternalCategory is TaskStageCategory.Backlog or TaskStageCategory.Todo;
+        return await CommitAsync(task, "TaskTransitioned", reopened ? "reopened" : "stageChanged", cancellationToken);
     }
 
     public async Task<Result<TaskCommandResponse>> SetBlockedStateAsync(Guid taskId, TaskBlockedStateRequest request, CancellationToken cancellationToken = default)
@@ -283,6 +298,9 @@ public sealed class TaskCommandService(
         else if (state.VersionNo != request.ExpectedVersion) return Fail<TaskWatchStateResponse>("TASK_STALE_VERSION", "Watch state has changed. Refetch and retry.");
         state.IsExplicitOptOut = !watch; state.IsWatching = watch; state.UpdatedAt = clock.UtcNow;
         if (!created) state.VersionNo++;
+        // A watch preference changes the canonical Task projection. Advance the
+        // aggregate token before queuing its durable invalidation.
+        task.VersionNo++;
         await audit.LogAsync(new AuditLogEntry(Actor(), watch ? "TaskWatchEnabled" : "TaskWatchOptOut", "TaskItem", taskId, "Task watch preference changed.", WorkspaceId: task.WorkspaceId, ProjectId: task.ProjectId), cancellationToken);
         await invalidations.TaskChangedAsync(task, Actor(), "watchChanged", affectedUserIds: [Actor()], cancellationToken: cancellationToken);
         if (await unitOfWork.SaveTaskCommandAsync(cancellationToken) != TaskCommandSaveResult.Saved)

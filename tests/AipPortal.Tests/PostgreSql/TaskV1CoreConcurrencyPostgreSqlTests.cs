@@ -12,6 +12,7 @@ using AipPortal.Infrastructure.Audit;
 using AipPortal.Infrastructure.Persistence;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.DependencyInjection;
+using System.Text.Json;
 
 namespace AipPortal.Tests.PostgreSql;
 
@@ -113,24 +114,33 @@ public sealed class TaskV1CoreConcurrencyPostgreSqlTests
         await using (var createA = harness.CreateScope())
         await using (var createB = harness.CreateScope())
         {
+            var before = await SnapshotAsync(harness);
             harness.Race.Arm();
             var creates = await Task.WhenAll(
-                createA.Subresources.CreateChecklistAsync(harness.Graph.Task.Id, new CreateTaskChecklistRequest("racing a")),
-                createB.Subresources.CreateChecklistAsync(harness.Graph.Task.Id, new CreateTaskChecklistRequest("racing b")));
-            Assert.Equal(1, creates.Count(result => result.IsSuccess));
-            Assert.Equal("TASK_STALE_VERSION", Code(creates.Single(result => !result.IsSuccess).Error));
+                ExecuteAsync(createA, () => createA.Subresources.CreateChecklistAsync(harness.Graph.Task.Id, new CreateTaskChecklistRequest("racing a"))),
+                ExecuteAsync(createB, () => createB.Subresources.CreateChecklistAsync(harness.Graph.Task.Id, new CreateTaskChecklistRequest("racing b"))));
+            Assert.Equal(1, creates.Count(result => result.Result.IsSuccess));
+            var loser = creates.Single(result => !result.Result.IsSuccess);
+            Assert.Equal("TASK_STALE_VERSION", Code(loser.Result.Error));
+            Assert.Empty(loser.Scope.Db.ChangeTracker.Entries());
+            await using var verify = harness.CreateScope();
+            Assert.Equal(3, await verify.Db.TaskChecklistItems.CountAsync(value => value.TaskItemId == harness.Graph.Task.Id));
+            await AssertDeltaAsync(verify.Db, before, harness.Graph.Task.Id, "TaskChecklistCreated", 1, 1);
         }
 
         await using (var updateA = harness.CreateScope())
         await using (var updateB = harness.CreateScope())
         {
+            var before = await SnapshotAsync(harness);
             harness.Race.Arm();
             var updates = await Task.WhenAll(
-                updateA.Subresources.UpdateChecklistAsync(harness.Graph.Task.Id, firstItem.Id, new UpdateTaskChecklistRequest("completed", true, firstItem.Version)),
-                updateB.Subresources.UpdateChecklistAsync(harness.Graph.Task.Id, firstItem.Id, new UpdateTaskChecklistRequest("other", false, firstItem.Version)));
-            Assert.Equal(1, updates.Count(result => result.IsSuccess));
-            var winner = updates.Single(result => result.IsSuccess).Value!;
-            Assert.Equal("TASK_STALE_VERSION", Code(updates.Single(result => !result.IsSuccess).Error));
+                ExecuteAsync(updateA, () => updateA.Subresources.UpdateChecklistAsync(harness.Graph.Task.Id, firstItem.Id, new UpdateTaskChecklistRequest("completed", true, firstItem.Version))),
+                ExecuteAsync(updateB, () => updateB.Subresources.UpdateChecklistAsync(harness.Graph.Task.Id, firstItem.Id, new UpdateTaskChecklistRequest("other", false, firstItem.Version))));
+            Assert.Equal(1, updates.Count(result => result.Result.IsSuccess));
+            var winner = updates.Single(result => result.Result.IsSuccess).Result.Value!;
+            var loser = updates.Single(result => !result.Result.IsSuccess);
+            Assert.Equal("TASK_STALE_VERSION", Code(loser.Result.Error));
+            Assert.Empty(loser.Scope.Db.ChangeTracker.Entries());
             await using var verify = harness.CreateScope();
             var item = await verify.Db.TaskChecklistItems.SingleAsync(value => value.Id == firstItem.Id);
             Assert.Equal(winner.Text, item.Text);
@@ -138,6 +148,7 @@ public sealed class TaskV1CoreConcurrencyPostgreSqlTests
             Assert.Equal(winner.IsCompleted ? harness.Graph.User.Id : null, item.CompletedByUserId);
             Assert.Equal(winner.IsCompleted, item.CompletedAt.HasValue);
             Assert.Equal(2, item.VersionNo);
+            await AssertDeltaAsync(verify.Db, before, harness.Graph.Task.Id, "TaskChecklistUpdated", 1, 1);
         }
 
         await using (var reorderA = harness.CreateScope())
@@ -145,14 +156,22 @@ public sealed class TaskV1CoreConcurrencyPostgreSqlTests
         {
             var current = await ChecklistAsync(harness);
             var ids = current.Items.Select(item => item.Id).ToArray();
+            var before = await SnapshotAsync(harness);
             harness.Race.Arm();
             var reorders = await Task.WhenAll(
-                reorderA.Subresources.ReorderChecklistAsync(harness.Graph.Task.Id, new ReorderTaskChecklistRequest(ids.Reverse().ToArray(), current.TaskVersion)),
-                reorderB.Subresources.ReorderChecklistAsync(harness.Graph.Task.Id, new ReorderTaskChecklistRequest(ids, current.TaskVersion)));
-            Assert.Equal(1, reorders.Count(result => result.IsSuccess));
-            var winner = reorders.Single(result => result.IsSuccess).Value!;
-            Assert.Equal("TASK_STALE_VERSION", Code(reorders.Single(result => !result.IsSuccess).Error));
+                ExecuteAsync(reorderA, () => reorderA.Subresources.ReorderChecklistAsync(harness.Graph.Task.Id, new ReorderTaskChecklistRequest(ids.Reverse().ToArray(), current.TaskVersion))),
+                ExecuteAsync(reorderB, () => reorderB.Subresources.ReorderChecklistAsync(harness.Graph.Task.Id, new ReorderTaskChecklistRequest(ids, current.TaskVersion))));
+            Assert.Equal(1, reorders.Count(result => result.Result.IsSuccess));
+            var winner = reorders.Single(result => result.Result.IsSuccess).Result.Value!;
+            var loser = reorders.Single(result => !result.Result.IsSuccess);
+            Assert.Equal("TASK_STALE_VERSION", Code(loser.Result.Error));
+            Assert.Empty(loser.Scope.Db.ChangeTracker.Entries());
             Assert.Equal(winner.Items.Select(item => item.Id), (await ChecklistAsync(harness)).Items.Select(item => item.Id));
+            await using var verify = harness.CreateScope();
+            var expectedSortKeys = winner.Items.Select((item, index) => (item.Id, SortKey: (index + 1) * 1024L)).ToDictionary(value => value.Id, value => value.SortKey);
+            var persisted = await verify.Db.TaskChecklistItems.Where(value => value.TaskItemId == harness.Graph.Task.Id).ToListAsync();
+            Assert.All(persisted, item => Assert.Equal(expectedSortKeys[item.Id], item.SortKey));
+            await AssertDeltaAsync(verify.Db, before, harness.Graph.Task.Id, "TaskChecklistReordered", 1, 1);
         }
 
         await using (var delete = harness.CreateScope())
@@ -164,8 +183,6 @@ public sealed class TaskV1CoreConcurrencyPostgreSqlTests
 
         await using var final = harness.CreateScope();
         Assert.DoesNotContain(await final.Db.TaskChecklistItems.ToListAsync(), item => item.Id == secondItem.Id);
-        var checklistActions = new[] { "TaskChecklistCreated", "TaskChecklistUpdated", "TaskChecklistDeleted", "TaskChecklistReordered" };
-        Assert.Equal(await final.Db.AuditLogs.CountAsync(log => checklistActions.Contains(log.Action)), await final.Db.OutboxEvents.CountAsync(evt => evt.EventType == "Projects.TaskChanged.v1"));
     }
 
     [PostgreSqlFact]
@@ -205,6 +222,93 @@ public sealed class TaskV1CoreConcurrencyPostgreSqlTests
         Assert.Null(reopened.CompletedByUserId);
         Assert.Equal(item.Version + 2, reopened.VersionNo);
         await AssertDeltaAsync(verify.Db, before, harness.Graph.Task.Id, "TaskChecklistUpdated", 2, 2);
+    }
+
+    [PostgreSqlFact]
+    [Trait("Category", "PostgreSQLIntegration")]
+    public async Task CompatibilityTaskAndAssignmentMutationsKeepCommittedTaskAndEventVersionsAligned()
+    {
+        await using var harness = await ServiceHarness.CreateAsync();
+        var taskId = harness.Graph.UnrelatedTask.Id;
+
+        await using (var update = harness.CreateScope())
+        {
+            var before = await SnapshotAsync(update.Db, taskId);
+            var result = await update.Compatibility.UpdateTaskAsync(taskId, new UpdateTaskItemRequest(null, "compatibility update", null, null, null, null, null, null));
+            Assert.True(result.IsSuccess);
+            await using var verify = harness.CreateScope();
+            await AssertTaskMutationSequenceAsync(verify.Db, before, taskId, ["TaskUpdated"]);
+        }
+
+        TaskAssignmentResponse assignment;
+        await using (var add = harness.CreateScope())
+        {
+            var before = await SnapshotAsync(add.Db, taskId);
+            var result = await add.Compatibility.AddAssignmentAsync(taskId, new AddTaskAssignmentRequest(harness.Graph.MentionUser.Id, TaskAssignmentRole.Assignee, 2));
+            Assert.True(result.IsSuccess);
+            assignment = result.Value!;
+            await using var verify = harness.CreateScope();
+            await AssertTaskMutationSequenceAsync(verify.Db, before, taskId, ["TaskAssigned"]);
+        }
+
+        await using (var update = harness.CreateScope())
+        {
+            var before = await SnapshotAsync(update.Db, taskId);
+            var result = await update.Compatibility.UpdateAssignmentAsync(assignment.Id, new UpdateTaskAssignmentRequest(TaskAssignmentRole.Reviewer, 3, 1));
+            Assert.True(result.IsSuccess);
+            await using var verify = harness.CreateScope();
+            await AssertTaskMutationSequenceAsync(verify.Db, before, taskId, ["TaskAssignmentUpdated"]);
+        }
+
+        await using (var delete = harness.CreateScope())
+        {
+            var before = await SnapshotAsync(delete.Db, taskId);
+            Assert.True((await delete.Compatibility.DeleteAssignmentAsync(assignment.Id)).IsSuccess);
+            await using var verify = harness.CreateScope();
+            Assert.Null(await verify.Db.TaskAssignments.SingleOrDefaultAsync(value => value.Id == assignment.Id));
+            await AssertTaskMutationSequenceAsync(verify.Db, before, taskId, ["TaskAssignmentRemoved"]);
+        }
+
+        await using (var delete = harness.CreateScope())
+        {
+            var before = await SnapshotAsync(delete.Db, harness.Graph.Task.Id);
+            Assert.True((await delete.Compatibility.DeleteTaskAsync(harness.Graph.Task.Id)).IsSuccess);
+            await using var verify = harness.CreateScope();
+            Assert.NotNull((await verify.Db.TaskItems.SingleAsync(value => value.Id == harness.Graph.Task.Id)).DeletedAt);
+            await AssertTaskMutationSequenceAsync(verify.Db, before, harness.Graph.Task.Id, ["TaskArchived"]);
+        }
+    }
+
+    [PostgreSqlFact]
+    [Trait("Category", "PostgreSQLIntegration")]
+    public async Task CompatibilityAssignmentRaceCommitsOnlyOneWriterAndAllowsRetry()
+    {
+        await using var harness = await ServiceHarness.CreateAsync();
+        var taskId = harness.Graph.Task.Id;
+        var before = await SnapshotAsync(harness);
+        await using var first = harness.CreateScope();
+        await using var second = harness.CreateScope();
+        harness.Race.Arm();
+        var results = await Task.WhenAll(
+            ExecuteAsync(first, () => first.Compatibility.AddAssignmentAsync(taskId, new AddTaskAssignmentRequest(harness.Graph.MentionUser.Id, TaskAssignmentRole.Owner, 1))),
+            ExecuteAsync(second, () => second.Compatibility.AddAssignmentAsync(taskId, new AddTaskAssignmentRequest(harness.Graph.MentionUser.Id, TaskAssignmentRole.Support, 1))));
+
+        Assert.Equal(1, results.Count(value => value.Result.IsSuccess));
+        var loser = results.Single(value => !value.Result.IsSuccess);
+        Assert.Equal("TASK_STALE_VERSION", Code(loser.Result.Error));
+        Assert.Empty(loser.Scope.Db.ChangeTracker.Entries());
+
+        await using (var verify = harness.CreateScope())
+        {
+            Assert.Single(await verify.Db.TaskAssignments.Where(value => value.TaskItemId == taskId).ToListAsync());
+            await AssertTaskMutationSequenceAsync(verify.Db, before, taskId, ["TaskAssigned"]);
+        }
+
+        var winnerRole = results.Single(value => value.Result.IsSuccess).Result.Value!.Role;
+        var retryRole = winnerRole == TaskAssignmentRole.Owner ? TaskAssignmentRole.Support : TaskAssignmentRole.Owner;
+        await using var retry = harness.CreateScope();
+        var retried = await retry.Compatibility.AddAssignmentAsync(taskId, new AddTaskAssignmentRequest(harness.Graph.MentionUser.Id, retryRole, 1));
+        Assert.True(retried.IsSuccess);
     }
 
     [PostgreSqlFact]
@@ -271,11 +375,13 @@ public sealed class TaskV1CoreConcurrencyPostgreSqlTests
         await using var second = harness.CreateScope();
         harness.Race.Arm();
         var results = await Task.WhenAll(
-            first.Commands.UpdateDetailsAsync(child.Id, Details(child.Title, child.Version, TaskPriority.Medium, 25, new DateOnly(2026, 7, 27), new DateOnly(2026, 7, 28))),
-            second.Commands.UpdateDetailsAsync(child.Id, Details(child.Title, child.Version, TaskPriority.Medium, 75, new DateOnly(2026, 7, 29), new DateOnly(2026, 7, 30))));
+            ExecuteAsync(first, () => first.Commands.UpdateDetailsAsync(child.Id, Details(child.Title, child.Version, TaskPriority.Medium, 25, new DateOnly(2026, 7, 27), new DateOnly(2026, 7, 28)))),
+            ExecuteAsync(second, () => second.Commands.UpdateDetailsAsync(child.Id, Details(child.Title, child.Version, TaskPriority.Medium, 75, new DateOnly(2026, 7, 29), new DateOnly(2026, 7, 30)))));
 
-        Assert.Equal(1, results.Count(result => result.IsSuccess));
-        Assert.Equal("TASK_STALE_VERSION", Code(results.Single(result => !result.IsSuccess).Error));
+        Assert.Equal(1, results.Count(result => result.Result.IsSuccess));
+        var loser = results.Single(result => !result.Result.IsSuccess);
+        Assert.Equal("TASK_STALE_VERSION", Code(loser.Result.Error));
+        Assert.Empty(loser.Scope.Db.ChangeTracker.Entries());
 
         await using var verify = harness.CreateScope();
         var persistedChild = await verify.Db.TaskItems.SingleAsync(item => item.Id == child.Id);
@@ -290,6 +396,20 @@ public sealed class TaskV1CoreConcurrencyPostgreSqlTests
         Assert.Equal(persistedChild.ProgressPercent, detail.ProgressPercent);
         Assert.Equal(persistedChild.PlannedStartDate, detail.PlannedStartDate);
         Assert.Equal(persistedChild.PlannedEndDate, detail.PlannedEndDate);
+
+        await using var retry = harness.CreateScope();
+        var authoritative = (await retry.Commands.GetAsync(child.Id)).Value!;
+        var retried = await retry.Commands.UpdateDetailsAsync(child.Id, Details(child.Title, authoritative.Version, TaskPriority.Medium, 60, new DateOnly(2026, 8, 1), new DateOnly(2026, 8, 2)));
+        Assert.True(retried.IsSuccess);
+        await using var afterRetry = harness.CreateScope();
+        var retriedChild = await afterRetry.Db.TaskItems.SingleAsync(item => item.Id == child.Id);
+        var retriedParent = await afterRetry.Db.TaskItems.SingleAsync(item => item.Id == harness.Graph.Task.Id);
+        Assert.Equal(3, retriedChild.VersionNo);
+        Assert.Equal(4, retriedParent.VersionNo);
+        Assert.Equal(60, retriedChild.ProgressPercent);
+        Assert.Equal(60, (await afterRetry.Commands.GetAsync(retriedParent.Id)).Value!.ProgressPercent);
+        Assert.Single(await afterRetry.Db.OutboxEvents.Where(value => value.AggregateId == retriedChild.Id && value.AggregateVersion == retriedChild.VersionNo).ToListAsync());
+        Assert.Single(await afterRetry.Db.OutboxEvents.Where(value => value.AggregateId == retriedParent.Id && value.AggregateVersion == retriedParent.VersionNo).ToListAsync());
     }
 
     [PostgreSqlFact]
@@ -380,6 +500,8 @@ public sealed class TaskV1CoreConcurrencyPostgreSqlTests
     {
         await using var harness = await ServiceHarness.CreateAsync();
         var created = await CreateCommentAsync(harness, "sensitive @mention text");
+        var before = await SnapshotAsync(harness);
+        CommentRaceOperation winner;
 
         await using (var update = harness.CreateScope())
         await using (var delete = harness.CreateScope())
@@ -389,6 +511,7 @@ public sealed class TaskV1CoreConcurrencyPostgreSqlTests
             var deleteTask = ExecuteCommentDeleteAsync(delete, () => delete.Subresources.DeleteCommentAsync(created.Id, created.Version));
             var results = await Task.WhenAll(updateTask, deleteTask);
             Assert.Equal(1, results.Count(result => result.IsSuccess));
+            winner = results.Single(result => result.IsSuccess).Operation;
             var loser = results.Single(result => !result.IsSuccess);
             Assert.Equal("TASK_STALE_VERSION", Code(loser.Error));
             Assert.Empty(loser.Scope.Db.ChangeTracker.Entries());
@@ -397,8 +520,20 @@ public sealed class TaskV1CoreConcurrencyPostgreSqlTests
         await using (var verify = harness.CreateScope())
         {
             var row = await verify.Db.TaskComments.SingleAsync(comment => comment.Id == created.Id);
-            Assert.True(row.DeletedAt.HasValue || row.BodyPlainText == "winner body");
             Assert.Equal(2, row.VersionNo);
+            if (winner == CommentRaceOperation.Update)
+            {
+                Assert.Null(row.DeletedAt);
+                Assert.Null(row.DeletedByUserId);
+                Assert.Equal("winner body", row.BodyPlainText);
+                await AssertDeltaAsync(verify.Db, before, harness.Graph.Task.Id, "TaskCommentUpdated", 1, 1);
+            }
+            else
+            {
+                Assert.NotNull(row.DeletedAt);
+                Assert.Equal(harness.Graph.User.Id, row.DeletedByUserId);
+                await AssertDeltaAsync(verify.Db, before, harness.Graph.Task.Id, "TaskCommentDeleted", 1, 1);
+            }
             var commentActions = new[] { "TaskCommentCreated", "TaskCommentUpdated", "TaskCommentDeleted" };
             var audit = await verify.Db.AuditLogs.Where(log => log.EntityId == harness.Graph.Task.Id && commentActions.Contains(log.Action)).ToListAsync();
             Assert.All(audit, log => Assert.DoesNotContain("sensitive", $"{log.Summary} {log.MetadataJson}", StringComparison.OrdinalIgnoreCase));
@@ -408,6 +543,10 @@ public sealed class TaskV1CoreConcurrencyPostgreSqlTests
         await using var compatibility = harness.CreateScope();
         var canonical = await compatibility.Subresources.GetCommentForCompatibilityAsync(created.Id);
         Assert.True(canonical.IsSuccess);
+        if (winner == CommentRaceOperation.Update)
+            Assert.Equal("winner body", canonical.Value!.BodyPlainText);
+        else
+            Assert.Null(canonical.Value!.BodyPlainText);
         Assert.Equal(0, await compatibility.Db.Comments.CountAsync(comment => comment.TargetType == CommentTargetType.TaskItem && comment.TargetId == harness.Graph.Task.Id));
     }
 
@@ -496,20 +635,20 @@ public sealed class TaskV1CoreConcurrencyPostgreSqlTests
         Func<Task<AipPortal.Application.Common.Result>> command) =>
         (scope, await command());
 
-    private static async Task<(RequestScope Scope, bool IsSuccess, string? Error)> ExecuteCommentUpdateAsync(
+    private static async Task<(CommentRaceOperation Operation, RequestScope Scope, bool IsSuccess, string? Error)> ExecuteCommentUpdateAsync(
         RequestScope scope,
         Func<Task<AipPortal.Application.Common.Result<TaskCommentResponse>>> command)
     {
         var result = await command();
-        return (scope, result.IsSuccess, result.Error);
+        return (CommentRaceOperation.Update, scope, result.IsSuccess, result.Error);
     }
 
-    private static async Task<(RequestScope Scope, bool IsSuccess, string? Error)> ExecuteCommentDeleteAsync(
+    private static async Task<(CommentRaceOperation Operation, RequestScope Scope, bool IsSuccess, string? Error)> ExecuteCommentDeleteAsync(
         RequestScope scope,
         Func<Task<AipPortal.Application.Common.Result>> command)
     {
         var result = await command();
-        return (scope, result.IsSuccess, result.Error);
+        return (CommentRaceOperation.Delete, scope, result.IsSuccess, result.Error);
     }
 
     private static async Task<(RequestScope Scope, bool IsSuccess, string? Error)> ExecuteChecklistUpdateAsync(
@@ -540,11 +679,18 @@ public sealed class TaskV1CoreConcurrencyPostgreSqlTests
     private static async Task<SideEffectSnapshot> SnapshotAsync(ServiceHarness harness)
     {
         await using var scope = harness.CreateScope();
-        var task = await scope.Db.TaskItems.SingleAsync(value => value.Id == harness.Graph.Task.Id);
+        return await SnapshotAsync(scope.Db, harness.Graph.Task.Id);
+    }
+
+    private static async Task<SideEffectSnapshot> SnapshotAsync(AppDbContext db, Guid taskId)
+    {
+        var task = await db.TaskItems.SingleAsync(value => value.Id == taskId);
+        var audit = await db.AuditLogs.Where(value => value.EntityId == taskId).ToListAsync();
         return new SideEffectSnapshot(
             task.VersionNo,
-            await scope.Db.AuditLogs.CountAsync(value => value.EntityId == task.Id),
-            await scope.Db.OutboxEvents.CountAsync(value => value.AggregateId == task.Id));
+            audit.Count,
+            await db.OutboxEvents.CountAsync(value => value.AggregateId == taskId),
+            audit.GroupBy(value => value.Action).ToDictionary(group => group.Key, group => group.Count()));
     }
 
     private static async Task<TaskSubtaskResponse> CreateSubtaskAsync(ServiceHarness harness, string title)
@@ -618,24 +764,47 @@ public sealed class TaskV1CoreConcurrencyPostgreSqlTests
         int auditDelta,
         int outboxDelta)
     {
+        Assert.Equal(auditDelta, outboxDelta);
+        await AssertTaskMutationSequenceAsync(db, before, taskId, Enumerable.Repeat(action, auditDelta).ToArray());
+    }
+
+    private static async Task AssertTaskMutationSequenceAsync(
+        AppDbContext db,
+        SideEffectSnapshot before,
+        Guid taskId,
+        IReadOnlyList<string> expectedAuditActions)
+    {
         var task = await db.TaskItems.SingleAsync(value => value.Id == taskId);
-        var audit = await db.AuditLogs.Where(value => value.EntityId == taskId && value.Action == action).ToListAsync();
-        var outbox = await db.OutboxEvents.Where(value => value.AggregateId == taskId && value.EventType == "Projects.TaskChanged.v1").ToListAsync();
-        Assert.Equal(before.AuditCount + auditDelta, await db.AuditLogs.CountAsync(value => value.EntityId == taskId));
-        Assert.Equal(before.OutboxCount + outboxDelta, await db.OutboxEvents.CountAsync(value => value.AggregateId == taskId));
-        Assert.Equal(auditDelta, audit.Count(value => value.EntityId == taskId));
-        Assert.Equal(outboxDelta, outbox.Count(value => value.AggregateVersion == task.VersionNo));
-        Assert.All(outbox.Where(value => value.AggregateVersion == task.VersionNo), value =>
+        Assert.Equal(before.TaskVersion + expectedAuditActions.Count, task.VersionNo);
+
+        var audit = await db.AuditLogs.Where(value => value.EntityId == taskId).ToListAsync();
+        Assert.Equal(before.AuditCount + expectedAuditActions.Count, audit.Count);
+        foreach (var expected in expectedAuditActions.GroupBy(value => value))
+            Assert.Equal(before.AuditActionCounts.GetValueOrDefault(expected.Key) + expected.Count(), audit.Count(value => value.Action == expected.Key));
+
+        var outbox = await db.OutboxEvents
+            .Where(value => value.AggregateId == taskId && value.EventType == "Projects.TaskChanged.v1")
+            .ToListAsync();
+        Assert.Equal(before.OutboxCount + expectedAuditActions.Count, outbox.Count);
+        var newEvents = outbox.Where(value => value.AggregateVersion > before.TaskVersion).OrderBy(value => value.AggregateVersion).ToList();
+        Assert.Equal(expectedAuditActions.Count, newEvents.Count);
+        Assert.Equal(Enumerable.Range(1, expectedAuditActions.Count).Select(offset => before.TaskVersion + offset), newEvents.Select(value => value.AggregateVersion!.Value));
+        foreach (var value in newEvents)
         {
             Assert.Equal("Task", value.AggregateType);
             Assert.Equal(taskId, value.AggregateId);
             Assert.Equal("Projects.TaskChanged.v1", value.EventType);
-        });
+            using var payload = JsonDocument.Parse(value.PayloadJson);
+            Assert.True(payload.RootElement.TryGetProperty("taskVersion", out var payloadVersion));
+            Assert.Equal(value.AggregateVersion!.Value, payloadVersion.GetInt64());
+        }
     }
 
     private static string? Code(string? error) => error?.Split('|', 2)[0];
 
-    private sealed record SideEffectSnapshot(long TaskVersion, int AuditCount, int OutboxCount);
+    private enum CommentRaceOperation { Update, Delete }
+
+    private sealed record SideEffectSnapshot(long TaskVersion, int AuditCount, int OutboxCount, IReadOnlyDictionary<string, int> AuditActionCounts);
 
     private static async Task<TaskChecklistResponse> CreateChecklistAsync(ServiceHarness harness, string text)
     {
@@ -697,6 +866,8 @@ public sealed class TaskV1CoreConcurrencyPostgreSqlTests
             services.AddScoped<IOutboxEventRepository, OutboxEventRepository>();
             services.AddScoped<ITransactionalOutbox, TransactionalOutbox>();
             services.AddScoped<IBusinessInvalidationPublisher, BusinessInvalidationPublisher>();
+            services.AddScoped<INotificationService, NoopNotificationService>();
+            services.AddScoped<IAuthorizationStateChangePublisher, NoopAuthorizationStateChangePublisher>();
             services.AddScoped<IAuditLogger, DbAuditLogger>();
             services.AddScoped<EfUnitOfWork>();
             services.AddScoped<IUnitOfWork>(serviceProvider => serviceProvider.GetRequiredService<EfUnitOfWork>());
@@ -713,6 +884,7 @@ public sealed class TaskV1CoreConcurrencyPostgreSqlTests
             services.AddScoped<ITaskWorkspaceTimeZoneResolver, UtcTimeZoneResolver>();
             services.AddScoped<ITaskCommandService, TaskCommandService>();
             services.AddScoped<ITaskSubresourceService, TaskSubresourceService>();
+            services.AddScoped<IProjectService, ProjectService>();
             return new ServiceHarness(services.BuildServiceProvider(new ServiceProviderOptions { ValidateScopes = true }), connectionString, graph, race);
         }
 
@@ -720,7 +892,7 @@ public sealed class TaskV1CoreConcurrencyPostgreSqlTests
         {
             var scope = provider.CreateAsyncScope();
             scope.ServiceProvider.GetRequiredService<CurrentTenantService>().SetTenant(Graph.Tenant.Id, Graph.Tenant.Slug);
-            return new RequestScope(scope, scope.ServiceProvider.GetRequiredService<AppDbContext>(), scope.ServiceProvider.GetRequiredService<ITaskCommandService>(), scope.ServiceProvider.GetRequiredService<ITaskSubresourceService>());
+            return new RequestScope(scope, scope.ServiceProvider.GetRequiredService<AppDbContext>(), scope.ServiceProvider.GetRequiredService<ITaskCommandService>(), scope.ServiceProvider.GetRequiredService<ITaskSubresourceService>(), scope.ServiceProvider.GetRequiredService<IProjectService>());
         }
 
         public async ValueTask DisposeAsync()
@@ -782,7 +954,7 @@ public sealed class TaskV1CoreConcurrencyPostgreSqlTests
         TaskWorkflowStage DoneStage,
         TaskWorkflowStage CancelledStage);
 
-    private sealed record RequestScope(AsyncServiceScope Scope, AppDbContext Db, ITaskCommandService Commands, ITaskSubresourceService Subresources) : IAsyncDisposable
+    private sealed record RequestScope(AsyncServiceScope Scope, AppDbContext Db, ITaskCommandService Commands, ITaskSubresourceService Subresources, IProjectService Compatibility) : IAsyncDisposable
     {
         public ValueTask DisposeAsync() => Scope.DisposeAsync();
     }
@@ -814,6 +986,16 @@ public sealed class TaskV1CoreConcurrencyPostgreSqlTests
     private sealed class FixedClock : IClock
     {
         public DateTimeOffset UtcNow => new(2026, 7, 26, 0, 0, 0, TimeSpan.Zero);
+    }
+
+    private sealed class NoopNotificationService : INotificationService
+    {
+        public Task NotifyAsync(Guid recipientUserId, string title, string? body, string sourceType, Guid sourceId, CancellationToken cancellationToken = default) => Task.CompletedTask;
+    }
+
+    private sealed class NoopAuthorizationStateChangePublisher : IAuthorizationStateChangePublisher
+    {
+        public Task PublishAsync(Guid tenantId, Guid affectedUserId, string scopeType, Guid? scopeId, string change, CancellationToken cancellationToken = default) => Task.CompletedTask;
     }
 
     private sealed class SaveRaceCoordinator : IDisposable

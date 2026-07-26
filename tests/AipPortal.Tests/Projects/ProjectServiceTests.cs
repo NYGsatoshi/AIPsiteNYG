@@ -78,6 +78,7 @@ public sealed class ProjectServiceTests
         Assert.Equal(TaskItemStatus.InProgress, updated.Value!.Status);
         Assert.Equal(TaskPriority.Critical, updated.Value.Priority);
         Assert.Equal(35, updated.Value.ProgressPercent);
+        Assert.Equal(2, fixture.Projects.Tasks[created.Value.Id].VersionNo);
     }
 
     [Fact]
@@ -155,6 +156,7 @@ public sealed class ProjectServiceTests
         Assert.Equal(TaskAssignmentRole.Assignee, updated.Value!.Role);
         Assert.Equal(3, updated.Value.EstimatedHours);
         Assert.Equal(1, updated.Value.ActualHours);
+        Assert.Equal(4, task.VersionNo);
         Assert.Contains(fixture.Audit.Entries, entry => entry.Action == "TaskAssignmentUpdated" && entry.EntityId == task.Id);
     }
 
@@ -469,7 +471,8 @@ public sealed class ProjectServiceTests
                 Notifications,
                 new NoopInvalidations(),
                 new NoopAuthorizationChanges(),
-                UnitOfWork);
+                UnitOfWork,
+                new NoopTaskCommandUnitOfWork());
             Commands = new TaskCommandService(
                 Projects,
                 Groups,

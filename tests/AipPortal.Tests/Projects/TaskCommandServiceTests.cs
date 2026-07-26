@@ -48,6 +48,47 @@ public sealed class TaskCommandServiceTests
     }
 
     [Fact]
+    public async Task ReopenFromDoneClearsCompletionAndResetsTodoProgress()
+    {
+        var fixture = Fixture.Create();
+        var task = fixture.AddTask("reopen", progress: 0);
+        var done = new TaskWorkflowStage { ProjectId = fixture.Project.Id, Name = "Done", InternalCategory = TaskStageCategory.Done };
+        var todo = new TaskWorkflowStage { ProjectId = fixture.Project.Id, Name = "Todo", InternalCategory = TaskStageCategory.Todo };
+        fixture.Projects.Stages[done.Id] = done;
+        fixture.Projects.Stages[todo.Id] = todo;
+
+        Assert.True((await fixture.Service.TransitionAsync(task.Id, new TaskTransitionRequest(done.Id, task.VersionNo))).IsSuccess);
+        var reopened = await fixture.Service.TransitionAsync(task.Id, new TaskTransitionRequest(todo.Id, task.VersionNo));
+
+        Assert.True(reopened.IsSuccess);
+        Assert.Equal(TaskItemStatus.NotStarted, task.Status);
+        Assert.Equal(0, task.ProgressPercent);
+        Assert.Null(task.CompletedAt);
+        Assert.Equal(3, task.VersionNo);
+        Assert.Contains(fixture.Invalidations.TaskChanges, change => change.TaskId == task.Id && change.Change == "reopened");
+    }
+
+    [Fact]
+    public async Task ReopenFromCancelledClearsCancellationMetadataWithoutChangingProgress()
+    {
+        var fixture = Fixture.Create();
+        var task = fixture.AddTask("reopen", progress: 35);
+        var cancelled = new TaskWorkflowStage { ProjectId = fixture.Project.Id, Name = "Cancelled", InternalCategory = TaskStageCategory.Cancelled };
+        var backlog = new TaskWorkflowStage { ProjectId = fixture.Project.Id, Name = "Backlog", InternalCategory = TaskStageCategory.Backlog };
+        fixture.Projects.Stages[cancelled.Id] = cancelled;
+        fixture.Projects.Stages[backlog.Id] = backlog;
+
+        Assert.True((await fixture.Service.TransitionAsync(task.Id, new TaskTransitionRequest(cancelled.Id, task.VersionNo, "deferred"))).IsSuccess);
+        var reopened = await fixture.Service.TransitionAsync(task.Id, new TaskTransitionRequest(backlog.Id, task.VersionNo));
+
+        Assert.True(reopened.IsSuccess);
+        Assert.Equal(35, task.ProgressPercent);
+        Assert.Null(task.CancelledAt);
+        Assert.Null(task.CancellationReason);
+        Assert.Contains(fixture.Invalidations.TaskChanges, change => change.TaskId == task.Id && change.Change == "reopened");
+    }
+
+    [Fact]
     public async Task AllCancelledChildrenStillRejectDirectParentDerivedFieldChangesButAllowTitleUpdate()
     {
         var fixture = Fixture.Create();
