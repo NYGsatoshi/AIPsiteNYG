@@ -402,8 +402,11 @@ public sealed class ProjectTaskLabelConfiguration : IEntityTypeConfiguration<Pro
     {
         builder.ToTable("project_task_labels"); builder.ConfigureEntity();
         builder.Property(x => x.Name).HasMaxLength(120).IsRequired(); builder.Property(x => x.Description).HasMaxLength(1000);
+        builder.Property(x => x.NormalizedName)
+            .HasMaxLength(120)
+            .HasComputedColumnSql("lower(btrim(\"Name\"))", stored: true);
         builder.Property(x => x.VersionNo).IsConcurrencyToken().HasDefaultValue(1L);
-        builder.HasIndex(x => new { x.TenantId, x.ProjectId, x.Name }).IsUnique();
+        builder.HasIndex(x => new { x.TenantId, x.ProjectId, x.NormalizedName }).IsUnique();
         builder.HasOne(x => x.Project).WithMany().HasForeignKey(x => x.ProjectId).OnDelete(DeleteBehavior.Restrict);
     }
 }

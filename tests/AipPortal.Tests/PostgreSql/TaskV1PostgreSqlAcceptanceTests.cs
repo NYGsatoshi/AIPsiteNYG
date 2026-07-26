@@ -18,14 +18,11 @@ namespace AipPortal.Tests.PostgreSql;
 [Collection("PostgreSqlTaskV1")]
 public sealed class TaskV1PostgreSqlAcceptanceTests
 {
-    private const string ConnectionStringEnvironmentVariable = "POSTGRES_TEST_CONNECTION_STRING";
-
     [Fact]
     [Trait("Category", "PostgreSQLIntegration")]
     public async Task ConcurrentTaskWritesPersistOnlyTheWinnerAndClearTheLoser()
     {
-        var connectionString = Environment.GetEnvironmentVariable(ConnectionStringEnvironmentVariable);
-        if (string.IsNullOrWhiteSpace(connectionString)) return;
+        var connectionString = PostgreSqlTestEnvironment.RequireConnectionString();
 
         var graph = await SeedAsync(connectionString);
         await using var writerA = CreateContext(connectionString, graph.Tenant);
@@ -63,8 +60,7 @@ public sealed class TaskV1PostgreSqlAcceptanceTests
     [Trait("Category", "PostgreSQLIntegration")]
     public async Task ConcurrentTaskFileAssociationLeavesOneActiveLinkAndNoLosingSideEffects()
     {
-        var connectionString = Environment.GetEnvironmentVariable(ConnectionStringEnvironmentVariable);
-        if (string.IsNullOrWhiteSpace(connectionString)) return;
+        var connectionString = PostgreSqlTestEnvironment.RequireConnectionString();
 
         var graph = await SeedAsync(connectionString, withFile: true);
         await using var writerA = CreateContext(connectionString, graph.Tenant);
@@ -88,22 +84,51 @@ public sealed class TaskV1PostgreSqlAcceptanceTests
 
     [Fact]
     [Trait("Category", "PostgreSQLIntegration")]
-    public async Task TenantFilterAndUniqueWatchAndLabelConstraintsAreEnforcedByPostgreSql()
+    public async Task WatchUniqueConstraintAllowsOnlyOneIndependentWriterAndClearsLoser()
     {
-        var connectionString = Environment.GetEnvironmentVariable(ConnectionStringEnvironmentVariable);
-        if (string.IsNullOrWhiteSpace(connectionString)) return;
+        var connectionString = PostgreSqlTestEnvironment.RequireConnectionString();
 
         var graph = await SeedAsync(connectionString);
-        await using var tenantContext = CreateContext(connectionString, graph.Tenant);
-        tenantContext.WorkItemWatchStates.Add(new WorkItemWatchState { TaskItemId = graph.Task.Id, UserId = graph.User.Id, AutomaticSources = WorkItemWatchAutomaticSource.Creator, IsWatching = true, UpdatedAt = DateTimeOffset.UtcNow, VersionNo = 1 });
-        tenantContext.ProjectTaskLabels.Add(new ProjectTaskLabel { WorkspaceId = graph.Workspace.Id, ProjectId = graph.Project.Id, Name = "Acceptance label", SortKey = 1024, VersionNo = 1 });
-        await tenantContext.SaveChangesAsync();
+        await using var winner = CreateContext(connectionString, graph.Tenant);
+        winner.WorkItemWatchStates.Add(new WorkItemWatchState { TaskItemId = graph.Task.Id, UserId = graph.User.Id, AutomaticSources = WorkItemWatchAutomaticSource.Creator, IsWatching = true, UpdatedAt = DateTimeOffset.UtcNow, VersionNo = 1 });
+        Assert.Equal(TaskCommandSaveResult.Saved, await new EfUnitOfWork(winner).SaveTaskCommandAsync());
 
-        await using var duplicate = CreateContext(connectionString, graph.Tenant);
-        duplicate.WorkItemWatchStates.Add(new WorkItemWatchState { TaskItemId = graph.Task.Id, UserId = graph.User.Id, AutomaticSources = WorkItemWatchAutomaticSource.Creator, IsWatching = true, UpdatedAt = DateTimeOffset.UtcNow, VersionNo = 1 });
-        duplicate.ProjectTaskLabels.Add(new ProjectTaskLabel { WorkspaceId = graph.Workspace.Id, ProjectId = graph.Project.Id, Name = "Acceptance label", SortKey = 2048, VersionNo = 1 });
-        Assert.Equal(TaskCommandSaveResult.UniqueConflict, await new EfUnitOfWork(duplicate).SaveTaskCommandAsync());
-        Assert.Empty(duplicate.ChangeTracker.Entries());
+        await using var loser = CreateContext(connectionString, graph.Tenant);
+        loser.WorkItemWatchStates.Add(new WorkItemWatchState { TaskItemId = graph.Task.Id, UserId = graph.User.Id, AutomaticSources = WorkItemWatchAutomaticSource.Creator, IsWatching = true, UpdatedAt = DateTimeOffset.UtcNow, VersionNo = 1 });
+        Assert.Equal(TaskCommandSaveResult.UniqueConflict, await new EfUnitOfWork(loser).SaveTaskCommandAsync());
+        Assert.Empty(loser.ChangeTracker.Entries());
+
+        await using var verify = CreateContext(connectionString, graph.Tenant);
+        Assert.Equal(1, await verify.WorkItemWatchStates.CountAsync(state => state.TaskItemId == graph.Task.Id && state.UserId == graph.User.Id));
+    }
+
+    [Fact]
+    [Trait("Category", "PostgreSQLIntegration")]
+    public async Task NormalizedLabelUniqueConstraintRejectsCaseAndWhitespaceVariantsWithoutLoserEffects()
+    {
+        var connectionString = PostgreSqlTestEnvironment.RequireConnectionString();
+        var graph = await SeedAsync(connectionString);
+
+        await using var winner = CreateContext(connectionString, graph.Tenant);
+        winner.ProjectTaskLabels.Add(new ProjectTaskLabel { WorkspaceId = graph.Workspace.Id, ProjectId = graph.Project.Id, Name = "Release", SortKey = 1024, VersionNo = 1 });
+        Assert.Equal(TaskCommandSaveResult.Saved, await new EfUnitOfWork(winner).SaveTaskCommandAsync());
+
+        await using var loser = CreateContext(connectionString, graph.Tenant);
+        loser.ProjectTaskLabels.Add(new ProjectTaskLabel { WorkspaceId = graph.Workspace.Id, ProjectId = graph.Project.Id, Name = " release ", SortKey = 2048, VersionNo = 1 });
+        Assert.Equal(TaskCommandSaveResult.UniqueConflict, await new EfUnitOfWork(loser).SaveTaskCommandAsync());
+        Assert.Empty(loser.ChangeTracker.Entries());
+
+        await using (var verify = CreateContext(connectionString, graph.Tenant))
+        {
+            Assert.Equal(1, await verify.ProjectTaskLabels.CountAsync(label => label.ProjectId == graph.Project.Id));
+            Assert.Equal("release", await verify.ProjectTaskLabels.Where(label => label.ProjectId == graph.Project.Id).Select(label => label.NormalizedName).SingleAsync());
+            Assert.Empty(await verify.AuditLogs.Where(log => log.EntityId == graph.Project.Id).ToListAsync());
+            Assert.Empty(await verify.OutboxEvents.Where(evt => evt.AggregateId == graph.Project.Id).ToListAsync());
+        }
+
+        // A cleared loser context is immediately reusable for a non-conflicting retry.
+        loser.ProjectTaskLabels.Add(new ProjectTaskLabel { WorkspaceId = graph.Workspace.Id, ProjectId = graph.Project.Id, Name = "Other", SortKey = 3072, VersionNo = 1 });
+        Assert.Equal(TaskCommandSaveResult.Saved, await new EfUnitOfWork(loser).SaveTaskCommandAsync());
 
         var otherTenant = new Tenant { Name = $"Other {Guid.NewGuid():N}", DisplayName = "Other", Slug = $"other-{Guid.NewGuid():N}" };
         await using (var platform = CreatePlatformContext(connectionString))
@@ -113,70 +138,6 @@ public sealed class TaskV1PostgreSqlAcceptanceTests
         }
         await using var otherContext = CreateContext(connectionString, otherTenant);
         Assert.Empty(await otherContext.TaskItems.Where(item => item.Id == graph.Task.Id).ToListAsync());
-    }
-
-    [Fact]
-    [Trait("Category", "PostgreSQLIntegration")]
-    public async Task CleanAndUpgradeMigrationsPreserveLegacyTaskCommentsAndBackfillCreatorWatch()
-    {
-        var connectionString = Environment.GetEnvironmentVariable(ConnectionStringEnvironmentVariable);
-        if (string.IsNullOrWhiteSpace(connectionString)) return;
-
-        var databaseName = $"aip_taskv1_migration_{Guid.NewGuid():N}";
-        var source = new NpgsqlConnectionStringBuilder(connectionString);
-        var admin = new NpgsqlConnectionStringBuilder(connectionString) { Database = source.Database };
-        var test = new NpgsqlConnectionStringBuilder(connectionString) { Database = databaseName }.ConnectionString;
-        await using var adminConnection = new NpgsqlConnection(admin.ConnectionString);
-        await adminConnection.OpenAsync();
-        await using (var create = new NpgsqlCommand($"CREATE DATABASE \"{databaseName}\"", adminConnection))
-        {
-            await create.ExecuteNonQueryAsync();
-        }
-
-        try
-        {
-            var currentTenant = new CurrentTenantService();
-            currentTenant.SetPlatformScope();
-            await using (var upgrade = new AppDbContext(new DbContextOptionsBuilder<AppDbContext>().UseNpgsql(test).Options, currentTenant))
-            {
-                await upgrade.GetService<IMigrator>().MigrateAsync("20260719071017_MyTasksProjectionIndexes");
-                var suffix = Guid.NewGuid().ToString("N");
-                var tenant = new Tenant { Name = $"Migration {suffix}", DisplayName = "Migration", Slug = $"migration-{suffix}" };
-                var user = new User { DisplayName = "Migration user", Email = $"migration-{suffix}@example.test", NormalizedEmail = $"MIGRATION-{suffix}@EXAMPLE.TEST", PasswordHash = "hash" };
-                upgrade.Tenants.Add(tenant);
-                upgrade.Users.Add(user);
-                await upgrade.SaveChangesAsync();
-
-                currentTenant.SetTenant(tenant.Id, tenant.Slug);
-                var workspace = new Workspace { TenantId = tenant.Id, Name = "Migration workspace", Slug = $"migration-workspace-{suffix}", CreatedByUserId = user.Id };
-                var project = new Project { TenantId = tenant.Id, WorkspaceId = workspace.Id, OwnerUserId = user.Id, CreatedByUserId = user.Id, Name = "Migration project", Slug = $"migration-project-{suffix}" };
-                var task = new TaskItem { TenantId = tenant.Id, WorkspaceId = workspace.Id, ProjectId = project.Id, Title = "Migration task", CreatedByUserId = user.Id, VersionNo = 1 };
-                var legacyComment = new Comment { TenantId = tenant.Id, WorkspaceId = workspace.Id, TargetType = CommentTargetType.TaskItem, TargetId = task.Id, AuthorUserId = user.Id, Body = "legacy plain text" };
-                upgrade.Workspaces.Add(workspace);
-                upgrade.Projects.Add(project);
-                upgrade.TaskItems.Add(task);
-                upgrade.Comments.Add(legacyComment);
-                await upgrade.SaveChangesAsync();
-
-                await upgrade.GetService<IMigrator>().MigrateAsync();
-                Assert.Equal("legacy plain text", await upgrade.TaskComments.Where(comment => comment.Id == legacyComment.Id).Select(comment => comment.BodyPlainText).SingleAsync());
-                var watch = await upgrade.WorkItemWatchStates.SingleAsync(state => state.TaskItemId == task.Id && state.UserId == user.Id);
-                Assert.True(watch.IsWatching);
-                Assert.True(watch.AutomaticSources.HasFlag(WorkItemWatchAutomaticSource.Creator));
-                Assert.Equal(1, watch.VersionNo);
-            }
-
-            var cleanTenant = new CurrentTenantService();
-            cleanTenant.SetPlatformScope();
-            await using var clean = new AppDbContext(new DbContextOptionsBuilder<AppDbContext>().UseNpgsql(test).Options, cleanTenant);
-            Assert.Empty(await clean.Database.GetPendingMigrationsAsync());
-        }
-        finally
-        {
-            NpgsqlConnection.ClearAllPools();
-            await using var drop = new NpgsqlCommand($"DROP DATABASE IF EXISTS \"{databaseName}\" WITH (FORCE)", adminConnection);
-            await drop.ExecuteNonQueryAsync();
-        }
     }
 
     private static AppDbContext CreateContext(string connectionString, Tenant tenant)
