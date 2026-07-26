@@ -243,11 +243,16 @@ public sealed class TaskSubresourceService(
         var label = new ProjectTaskLabel { WorkspaceId = project.WorkspaceId, ProjectId = projectId, Name = name, Description = NullableText(request.Description, 1000), SortKey = request.SortKey ?? (labels.Count == 0 ? 1024 : labels.Max(x => x.SortKey) + 1024), VersionNo = 1 };
         await projects.AddTaskLabelAsync(label, ct);
         var save = await CommitLabelDefinitionAsync(project, label, "TaskLabelCreated", "taskLabelsChanged", ct);
-        return save.IsSaved
-            ? Result<ProjectTaskLabelResponse>.Success(ToLabel(label))
-            : IsLabelNameConflict(save)
-                ? Fail<ProjectTaskLabelResponse>("TASK_LABEL_DUPLICATE", "A label with that name already exists.")
-                : Fail<ProjectTaskLabelResponse>(save.Result == TaskCommandSaveResult.UniqueConflict ? "TASK_CONFLICT" : "TASK_STALE_VERSION", "Label has changed. Refetch and retry.");
+        if (save.IsSaved)
+            return Result<ProjectTaskLabelResponse>.Success(ToLabel(label));
+
+        // The audit/outbox and label insert share SaveTaskCommandAsync.  If the
+        // transaction loses, clear the request scope before returning so a
+        // caller cannot accidentally reuse speculative tracked state.
+        taskUnitOfWork.ClearTaskCommandTracking();
+        return IsLabelNameConflict(save)
+            ? Fail<ProjectTaskLabelResponse>("TASK_LABEL_DUPLICATE", "A label with that name already exists.")
+            : Fail<ProjectTaskLabelResponse>(save.Result == TaskCommandSaveResult.UniqueConflict ? "TASK_CONFLICT" : "TASK_STALE_VERSION", "Label has changed. Refetch and retry.");
     }
     public async Task<Result<ProjectTaskLabelResponse>> UpdateLabelAsync(Guid projectId, Guid labelId, UpdateProjectTaskLabelRequest request, CancellationToken ct = default)
     {
@@ -281,10 +286,32 @@ public sealed class TaskSubresourceService(
         }
         label.VersionNo++;
         var save = await CommitLabelDefinitionAsync(project, label, "TaskLabelUpdated", "taskLabelsChanged", ct);
-        return save.IsSaved ? Result<ProjectTaskLabelResponse>.Success(ToLabel(label)) : IsLabelNameConflict(save) ? Fail<ProjectTaskLabelResponse>("TASK_LABEL_DUPLICATE", "A label with that name already exists.") : Fail<ProjectTaskLabelResponse>(save.Result == TaskCommandSaveResult.UniqueConflict ? "TASK_CONFLICT" : "TASK_STALE_VERSION", "Label has changed. Refetch and retry.");
+        if (save.IsSaved)
+            return Result<ProjectTaskLabelResponse>.Success(ToLabel(label));
+
+        taskUnitOfWork.ClearTaskCommandTracking();
+        return IsLabelNameConflict(save)
+            ? Fail<ProjectTaskLabelResponse>("TASK_LABEL_DUPLICATE", "A label with that name already exists.")
+            : Fail<ProjectTaskLabelResponse>(save.Result == TaskCommandSaveResult.UniqueConflict ? "TASK_CONFLICT" : "TASK_STALE_VERSION", "Label has changed. Refetch and retry.");
     }
     public async Task<Result<ProjectTaskLabelResponse>> SetLabelArchiveAsync(Guid projectId, Guid labelId, long expectedVersion, bool archived, CancellationToken ct = default)
-    { var project=await ManagedProjectAsync(projectId,ct); var label=await ManagedLabelAsync(projectId,labelId,ct); if(project is null||label is null)return Fail<ProjectTaskLabelResponse>("TASK_LABEL_FORBIDDEN","Label operation is not authorized."); if(label.VersionNo!=expectedVersion)return Fail<ProjectTaskLabelResponse>("TASK_STALE_VERSION","Label has changed. Refetch and retry."); label.IsArchived=archived;label.VersionNo++;var save=await CommitLabelDefinitionAsync(project,label,archived?"TaskLabelArchived":"TaskLabelRestored","taskLabelsChanged",ct);return save.IsSaved?Result<ProjectTaskLabelResponse>.Success(ToLabel(label)):Fail<ProjectTaskLabelResponse>(save.Result==TaskCommandSaveResult.UniqueConflict?"TASK_CONFLICT":"TASK_STALE_VERSION","Label has changed. Refetch and retry."); }
+    {
+        var project = await ManagedProjectAsync(projectId, ct);
+        var label = await ManagedLabelAsync(projectId, labelId, ct);
+        if (project is null || label is null)
+            return Fail<ProjectTaskLabelResponse>("TASK_LABEL_FORBIDDEN", "Label operation is not authorized.");
+        if (label.VersionNo != expectedVersion)
+            return Fail<ProjectTaskLabelResponse>("TASK_STALE_VERSION", "Label has changed. Refetch and retry.");
+
+        label.IsArchived = archived;
+        label.VersionNo++;
+        var save = await CommitLabelDefinitionAsync(project, label, archived ? "TaskLabelArchived" : "TaskLabelRestored", "taskLabelsChanged", ct);
+        if (save.IsSaved)
+            return Result<ProjectTaskLabelResponse>.Success(ToLabel(label));
+
+        taskUnitOfWork.ClearTaskCommandTracking();
+        return Fail<ProjectTaskLabelResponse>(save.Result == TaskCommandSaveResult.UniqueConflict ? "TASK_CONFLICT" : "TASK_STALE_VERSION", "Label has changed. Refetch and retry.");
+    }
     public async Task<Result> ApplyLabelAsync(Guid taskId, Guid labelId, TaskLabelAssociationRequest request, CancellationToken ct = default)
     {
         var task = await EditableTaskAsync(taskId, ct);

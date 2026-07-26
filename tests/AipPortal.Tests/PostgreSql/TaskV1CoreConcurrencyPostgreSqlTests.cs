@@ -23,7 +23,6 @@ namespace AipPortal.Tests.PostgreSql;
 /// and EfUnitOfWork.
 /// </summary>
 [Collection("PostgreSqlTaskV1")]
-[Trait("Scope", "TaskV1Prompt2C")]
 public sealed class TaskV1CoreConcurrencyPostgreSqlTests
 {
     private static readonly JsonSerializerOptions RealtimeJsonOptions = new(JsonSerializerDefaults.Web);
@@ -649,6 +648,7 @@ public sealed class TaskV1CoreConcurrencyPostgreSqlTests
 
     [PostgreSqlFact]
     [Trait("Category", "PostgreSQLIntegration")]
+    [Trait("Scope", "TaskV1Prompt2C")]
     public async Task LabelDefinition_CreateRaceMapsOnlyTheNormalizedNameConstraintToDuplicate()
     {
         await using var harness = await ServiceHarness.CreateAsync();
@@ -679,6 +679,7 @@ public sealed class TaskV1CoreConcurrencyPostgreSqlTests
 
     [PostgreSqlFact]
     [Trait("Category", "PostgreSQLIntegration")]
+    [Trait("Scope", "TaskV1Prompt2C")]
     public async Task LabelDefinition_UpdateRaceCommitsOnlyTheWinnerAndAuthoritativeRetryAdvancesOnce()
     {
         await using var harness = await ServiceHarness.CreateAsync();
@@ -725,6 +726,23 @@ public sealed class TaskV1CoreConcurrencyPostgreSqlTests
 
     [PostgreSqlFact]
     [Trait("Category", "PostgreSQLIntegration")]
+    [Trait("Scope", "TaskV1Prompt2C")]
+    public async Task LabelDefinition_ArchiveUpdateRaceCommitsOnlyTheWinnerAndClearsTheLoser()
+    {
+        await AssertLabelArchiveUpdateRaceAsync(archivedInitially: false, archiveCommand: true);
+    }
+
+    [PostgreSqlFact]
+    [Trait("Category", "PostgreSQLIntegration")]
+    [Trait("Scope", "TaskV1Prompt2C")]
+    public async Task LabelDefinition_RestoreUpdateRaceCommitsOnlyTheWinnerAndClearsTheLoser()
+    {
+        await AssertLabelArchiveUpdateRaceAsync(archivedInitially: true, archiveCommand: false);
+    }
+
+    [PostgreSqlFact]
+    [Trait("Category", "PostgreSQLIntegration")]
+    [Trait("Scope", "TaskV1Prompt2C")]
     public async Task LabelDefinition_RenameDuplicateIsSideEffectFreeAndClearsRequestTracking()
     {
         await using var harness = await ServiceHarness.CreateAsync();
@@ -756,6 +774,7 @@ public sealed class TaskV1CoreConcurrencyPostgreSqlTests
 
     [PostgreSqlFact]
     [Trait("Category", "PostgreSQLIntegration")]
+    [Trait("Scope", "TaskV1Prompt2C")]
     public async Task LabelDefinition_DescriptionPatchDistinguishesOmittedNullAndString()
     {
         await using var harness = await ServiceHarness.CreateAsync();
@@ -782,6 +801,7 @@ public sealed class TaskV1CoreConcurrencyPostgreSqlTests
 
     [PostgreSqlFact]
     [Trait("Category", "PostgreSQLIntegration")]
+    [Trait("Scope", "TaskV1Prompt2C")]
     public async Task ApplyLabelRaceReturnsCanonicalAssociationForBothServiceRequests()
     {
         await using var harness = await ServiceHarness.CreateAsync();
@@ -818,6 +838,7 @@ public sealed class TaskV1CoreConcurrencyPostgreSqlTests
 
     [PostgreSqlFact]
     [Trait("Category", "PostgreSQLIntegration")]
+    [Trait("Scope", "TaskV1Prompt2C")]
     public async Task WatchMissingStateRaceHasOneMutationAndNoLeakedSideEffects()
     {
         await using var harness = await ServiceHarness.CreateAsync();
@@ -853,6 +874,7 @@ public sealed class TaskV1CoreConcurrencyPostgreSqlTests
 
     [PostgreSqlFact]
     [Trait("Category", "PostgreSQLIntegration")]
+    [Trait("Scope", "TaskV1Prompt2C")]
     public async Task WatchOptOutSurvivesAutomaticSourceReconciliationUntilManualRewatch()
     {
         await using var harness = await ServiceHarness.CreateAsync();
@@ -897,6 +919,7 @@ public sealed class TaskV1CoreConcurrencyPostgreSqlTests
 
     [PostgreSqlFact]
     [Trait("Category", "PostgreSQLIntegration")]
+    [Trait("Scope", "TaskV1Prompt2C")]
     public async Task FileAssociationRaceReturnsTheCanonicalRowAndRemoveDoesNotDeleteTheFile()
     {
         await using var harness = await ServiceHarness.CreateAsync();
@@ -978,9 +1001,10 @@ public sealed class TaskV1CoreConcurrencyPostgreSqlTests
 
     [PostgreSqlFact]
     [Trait("Category", "PostgreSQLIntegration")]
+    [Trait("Scope", "TaskV1Prompt2C")]
     public async Task FileAssociationRejectsNonCleanSourcesWithoutChangingTheTask()
     {
-        foreach (var state in new[] { FileScanStatus.Pending, FileScanStatus.Infected, FileScanStatus.Failed })
+        foreach (var state in Enum.GetValues<FileScanStatus>().Where(value => value != FileScanStatus.Clean))
         {
             await using var harness = await ServiceHarness.CreateAsync();
             await using (var setup = harness.CreateScope())
@@ -1002,6 +1026,7 @@ public sealed class TaskV1CoreConcurrencyPostgreSqlTests
 
     [PostgreSqlFact]
     [Trait("Category", "PostgreSQLIntegration")]
+    [Trait("Scope", "TaskV1Prompt2C")]
     public async Task FileAssociationRejectsQuarantinedAndDeletedFileObjectsWithoutChangingTheTask()
     {
         foreach (var status in new[] { FileObjectStatus.Quarantined, FileObjectStatus.Archived })
@@ -1190,6 +1215,55 @@ public sealed class TaskV1CoreConcurrencyPostgreSqlTests
     {
         Assert.Equal(auditDelta, outboxDelta);
         await AssertTaskMutationSequenceAsync(db, before, taskId, Enumerable.Repeat(action, auditDelta).ToArray());
+    }
+
+    private static async Task AssertLabelArchiveUpdateRaceAsync(bool archivedInitially, bool archiveCommand)
+    {
+        await using var harness = await ServiceHarness.CreateAsync();
+        ProjectTaskLabelResponse label;
+        await using (var setup = harness.CreateScope())
+        {
+            label = (await setup.Subresources.CreateLabelAsync(harness.Graph.Project.Id, new CreateProjectTaskLabelRequest("Release", "original"))).Value!;
+            if (archivedInitially)
+                label = (await setup.Subresources.SetLabelArchiveAsync(harness.Graph.Project.Id, label.Id, label.Version, true)).Value!;
+        }
+
+        await using var first = harness.CreateScope();
+        await using var second = harness.CreateScope();
+        harness.Race.Arm();
+        var results = await Task.WhenAll(
+            ExecuteAsync(first, () => first.Subresources.SetLabelArchiveAsync(harness.Graph.Project.Id, label.Id, label.Version, archiveCommand)),
+            ExecuteAsync(second, () => second.Subresources.UpdateLabelAsync(harness.Graph.Project.Id, label.Id, new UpdateProjectTaskLabelRequest("Updated", default, default, label.Version))));
+
+        var winner = Assert.Single(results, result => result.Result.IsSuccess);
+        var loser = Assert.Single(results, result => !result.Result.IsSuccess);
+        Assert.Equal(2, harness.Race.SaveCallCount);
+        Assert.Equal(TaskCommandSaveResult.Saved, winner.Scope.SaveRecorder.LastSaveOutcome?.Result);
+        Assert.Equal(TaskCommandSaveResult.ConcurrencyConflict, loser.Scope.SaveRecorder.LastSaveOutcome?.Result);
+        Assert.Equal("TASK_STALE_VERSION", Code(loser.Result.Error));
+        Assert.Equal(1, loser.Scope.SaveRecorder.ClearTrackingCallCount);
+        Assert.Empty(loser.Scope.Db.ChangeTracker.Entries());
+
+        await using (var verify = harness.CreateScope())
+        {
+            var persisted = await verify.Db.ProjectTaskLabels.SingleAsync(value => value.Id == label.Id);
+            Assert.Equal(label.Version + 1, persisted.VersionNo);
+            if (winner.Result.Value is ProjectTaskLabelResponse archiveWinner && archiveWinner.IsArchived == archiveCommand)
+                Assert.Equal(archiveCommand, persisted.IsArchived);
+            else
+                Assert.Equal("Updated", persisted.Name);
+
+            var archiveWon = winner.Result.Value!.IsArchived == archiveCommand;
+            Assert.Single(await verify.Db.AuditLogs.Where(value => value.Action == (archiveWon ? (archiveCommand ? "TaskLabelArchived" : "TaskLabelRestored") : "TaskLabelUpdated")).ToListAsync());
+            Assert.Equal(archivedInitially ? 3 : 2, await verify.Db.AuditLogs.CountAsync(value => value.EntityId == label.Id));
+            Assert.Equal(archivedInitially ? 3 : 2, await verify.Db.OutboxEvents.CountAsync(value => value.AggregateId == harness.Graph.Project.Id && value.EventType == "Projects.ProjectChanged.v1"));
+        }
+
+        await using var retry = harness.CreateScope();
+        var current = (await retry.Subresources.ListLabelsAsync(harness.Graph.Project.Id, true)).Value!.Single(value => value.Id == label.Id);
+        var retried = await retry.Subresources.UpdateLabelAsync(harness.Graph.Project.Id, label.Id, new UpdateProjectTaskLabelRequest(default, "retry", default, current.Version));
+        Assert.True(retried.IsSuccess);
+        Assert.Equal(current.Version + 1, retried.Value!.Version);
     }
 
     private static async Task AssertTaskMutationSequenceAsync(
