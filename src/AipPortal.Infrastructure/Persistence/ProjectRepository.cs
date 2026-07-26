@@ -276,7 +276,14 @@ public sealed class ProjectRepository(AppDbContext dbContext) : IProjectReposito
     public async Task AddTaskLabelAsync(ProjectTaskLabel label, CancellationToken cancellationToken = default) => await dbContext.ProjectTaskLabels.AddAsync(label, cancellationToken);
     public async Task AddWorkItemLabelAsync(WorkItemLabel association, CancellationToken cancellationToken = default) => await dbContext.WorkItemLabels.AddAsync(association, cancellationToken);
 
-    public void RemoveCollaborator(WorkItemCollaborator collaborator) => dbContext.WorkItemCollaborators.Remove(collaborator);
+    public void RemoveCollaborator(WorkItemCollaborator collaborator)
+    {
+        // Command services may have loaded the same association while composing a
+        // task projection. Prefer the request context's tracked instance over the
+        // no-tracking query result used for relationship reads.
+        var tracked = dbContext.WorkItemCollaborators.Local.FirstOrDefault(item => item.Id == collaborator.Id);
+        dbContext.WorkItemCollaborators.Remove(tracked ?? collaborator);
+    }
     public void RemoveChecklistItem(TaskChecklistItem item) => dbContext.TaskChecklistItems.Remove(item);
     public void RemoveWorkItemLabel(WorkItemLabel association) => dbContext.WorkItemLabels.Remove(association);
 }
