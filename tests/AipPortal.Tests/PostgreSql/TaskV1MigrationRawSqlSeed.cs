@@ -34,11 +34,13 @@ VALUES (@taskId, @tenantId, @workspaceId, @projectId, 'Migration task', 'Todo', 
         return new Graph(tenantId, userId, workspaceId, projectId, taskId);
     }
 
-    public static Task AddUserAsync(string connectionString, Guid userId, string suffix)
+    public static Task AddUserAsync(string connectionString, Graph graph, Guid userId, string suffix)
         => PostgreSqlMigrationTestDatabase.ExecuteAsync(connectionString, """
 INSERT INTO users ("Id", "DisplayName", "Email", "NormalizedEmail", "PasswordHash", "Status", "SystemRole", "FailedLoginAttempts", "CreatedAt")
 VALUES (@id, @displayName, @email, @normalizedEmail, 'hash', 'Active', 'User', 0, @now);
-""", ("id", userId), ("displayName", suffix), ("email", $"{suffix}@example.test"), ("normalizedEmail", $"{suffix}@EXAMPLE.TEST"), ("now", new DateTimeOffset(2026, 7, 26, 0, 0, 0, TimeSpan.Zero)));
+INSERT INTO tenant_users ("Id", "TenantId", "UserId", "Role", "Status", "JoinedAt", "CreatedAt")
+VALUES (@tenantUserId, @tenantId, @id, 'Member', 'Active', @now, @now);
+""", ("id", userId), ("tenantUserId", Guid.NewGuid()), ("tenantId", graph.TenantId), ("displayName", suffix), ("email", $"{suffix}@example.test"), ("normalizedEmail", $"{suffix}@EXAMPLE.TEST"), ("now", new DateTimeOffset(2026, 7, 26, 0, 0, 0, TimeSpan.Zero)));
 
     public static Task AddCollaboratorAsync(string connectionString, Graph graph, Guid userId)
         => PostgreSqlMigrationTestDatabase.ExecuteAsync(connectionString, """

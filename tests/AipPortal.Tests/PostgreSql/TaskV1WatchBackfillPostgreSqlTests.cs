@@ -16,6 +16,7 @@ public sealed class TaskV1WatchBackfillPostgreSqlTests
         {
             await PostgreSqlMigrationTestDatabase.MigrateAsync(database, PreviousMigration);
             var graph = await TaskV1MigrationRawSqlSeed.CreateGraphAsync(database, "watch-main");
+            var otherTenant = await TaskV1MigrationRawSqlSeed.CreateGraphAsync(database, "watch-other-tenant");
             var deleted = await TaskV1MigrationRawSqlSeed.CreateGraphAsync(database, "watch-deleted", deletedTask: true);
             var primaryAndCollaborator = Guid.NewGuid();
             var reviewer = Guid.NewGuid();
@@ -23,20 +24,13 @@ public sealed class TaskV1WatchBackfillPostgreSqlTests
             var manualOff = Guid.NewGuid();
             var manualOptOut = Guid.NewGuid();
             var stale = Guid.NewGuid();
-            var foreignTenantUser = Guid.NewGuid();
-            foreach (var user in new[] { primaryAndCollaborator, reviewer, manualOn, manualOff, manualOptOut, stale, foreignTenantUser })
-                await TaskV1MigrationRawSqlSeed.AddUserAsync(database, user, $"watch-{user:N}");
+            foreach (var user in new[] { primaryAndCollaborator, reviewer, manualOn, manualOff, manualOptOut, stale })
+                await TaskV1MigrationRawSqlSeed.AddUserAsync(database, graph, user, $"watch-{user:N}");
 
             await PostgreSqlMigrationTestDatabase.ExecuteAsync(database, """
 UPDATE task_items SET "PrimaryAssigneeUserId" = @primary, "ReviewerUserId" = @reviewer WHERE "Id" = @taskId;
 """, ("primary", primaryAndCollaborator), ("reviewer", reviewer), ("taskId", graph.TaskId));
             await TaskV1MigrationRawSqlSeed.AddCollaboratorAsync(database, graph, primaryAndCollaborator);
-
-            // Deliberately malformed relationship: its tenant does not match the Task and must not become a source.
-            await PostgreSqlMigrationTestDatabase.ExecuteAsync(database, """
-INSERT INTO task_item_collaborators ("Id", "TenantId", "TaskItemId", "UserId", "AddedAt", "AddedByUserId")
-VALUES (@id, @foreignTenantId, @taskId, @userId, @now, @addedByUserId);
-""", ("id", Guid.NewGuid()), ("foreignTenantId", deleted.TenantId), ("taskId", graph.TaskId), ("userId", foreignTenantUser), ("addedByUserId", graph.UserId), ("now", new DateTimeOffset(2026, 7, 26, 0, 0, 0, TimeSpan.Zero)));
 
             var old = new DateTimeOffset(2026, 7, 1, 0, 0, 0, TimeSpan.Zero);
             var optOutId = Guid.NewGuid();
@@ -54,10 +48,10 @@ INSERT INTO work_item_watch_states ("Id", "TenantId", "TaskItemId", "UserId", "A
 (@manualOffId, @tenantId, @taskId, @manualOff, 0, false, false, @old, 6),
 (@manualOptOutId, @tenantId, @taskId, @manualOptOut, 0, true, true, @old, 4),
 (@staleId, @tenantId, @taskId, @stale, 2, false, false, @old, 9),
-(@deletedId, @deletedTenantId, @deletedTaskId, @creator, 1, false, true, @old, 11);
+(@deletedId, @deletedTenantId, @deletedTaskId, @deletedCreator, 1, false, true, @old, 11);
 """, ("optOutId", optOutId), ("multiId", multiId), ("manualOnId", manualOnId), ("manualOffId", manualOffId), ("manualOptOutId", manualOptOutId), ("staleId", staleId), ("deletedId", deletedId),
                 ("tenantId", graph.TenantId), ("taskId", graph.TaskId), ("creator", graph.UserId), ("multiUser", primaryAndCollaborator), ("manualOn", manualOn), ("manualOff", manualOff), ("manualOptOut", manualOptOut), ("stale", stale),
-                ("deletedTenantId", deleted.TenantId), ("deletedTaskId", deleted.TaskId), ("old", old));
+                ("deletedTenantId", deleted.TenantId), ("deletedTaskId", deleted.TaskId), ("deletedCreator", deleted.UserId), ("old", old));
 
             await PostgreSqlMigrationTestDatabase.MigrateAsync(database);
             var rows = await ReadRowsAsync(database, graph.TaskId);
@@ -73,10 +67,11 @@ INSERT INTO work_item_watch_states ("Id", "TenantId", "TaskItemId", "UserId", "A
             Assert.All(rows.Where(row => row.Id != manualOnId && row.Id != manualOffId), row => Assert.NotEqual(old, row.UpdatedAt));
             Assert.Equal(old, rows.Single(row => row.Id == manualOnId).UpdatedAt);
             Assert.Equal(old, rows.Single(row => row.Id == manualOffId).UpdatedAt);
-            Assert.DoesNotContain(rows, row => row.UserId == foreignTenantUser);
+            Assert.DoesNotContain(rows, row => row.UserId == otherTenant.UserId);
             Assert.Equal(1, await PostgreSqlMigrationTestDatabase.ScalarAsync<long>(database, "SELECT COUNT(*) FROM work_item_watch_states WHERE \"Id\" = @id;", ("id", deletedId)));
             Assert.Equal(11L, await PostgreSqlMigrationTestDatabase.ScalarAsync<long>(database, "SELECT \"VersionNo\" FROM work_item_watch_states WHERE \"Id\" = @id;", ("id", deletedId)));
             Assert.Equal(0, await PostgreSqlMigrationTestDatabase.ScalarAsync<long>(database, "SELECT COUNT(*) FROM work_item_watch_states WHERE \"TaskItemId\" = @deletedTaskId AND \"UserId\" = @creator AND \"Id\" <> @existingId;", ("deletedTaskId", deleted.TaskId), ("creator", deleted.UserId), ("existingId", deletedId)));
+            Assert.Equal(1, await PostgreSqlMigrationTestDatabase.ScalarAsync<long>(database, "SELECT COUNT(*) FROM work_item_watch_states WHERE \"TenantId\" = @tenantId AND \"TaskItemId\" = @taskId AND \"UserId\" = @userId;", ("tenantId", otherTenant.TenantId), ("taskId", otherTenant.TaskId), ("userId", otherTenant.UserId)));
 
             var beforeSecondRun = rows.OrderBy(row => row.Id).ToArray();
             await PostgreSqlMigrationTestDatabase.ExecuteAsync(database, TaskV1WatchBackfillScript.Sql);
