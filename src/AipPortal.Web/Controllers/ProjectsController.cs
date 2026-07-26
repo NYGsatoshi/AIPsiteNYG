@@ -250,7 +250,7 @@ public sealed class ProjectsController(IProjectService projects, ITaskCommandSer
         {
             "TASK_NOT_FOUND" => StatusCodes.Status404NotFound,
             "TASK_FORBIDDEN" or "TASK_CLAIM_GROUP_MEMBERSHIP_REQUIRED" or "TASK_COMMENT_FORBIDDEN" or "TASK_LABEL_FORBIDDEN" or "TASK_FILE_ASSOCIATION_FORBIDDEN" => StatusCodes.Status403Forbidden,
-            "TASK_STALE_VERSION" or "TASK_ALREADY_ASSIGNED" => StatusCodes.Status409Conflict,
+            "TASK_STALE_VERSION" or "TASK_ALREADY_ASSIGNED" or "TASK_CONFLICT" => StatusCodes.Status409Conflict,
             "TASK_COMMENT_RATE_LIMITED" => StatusCodes.Status429TooManyRequests,
             "TASK_TRANSITION_GUARD_FAILED" or "TASK_ASSIGNEE_REQUIRED" or "TASK_REVIEW_REQUIRED" or "TASK_BLOCK_REASON_REQUIRED" or "TASK_CANCEL_REASON_REQUIRED" => StatusCodes.Status422UnprocessableEntity,
             _ => StatusCodes.Status400BadRequest

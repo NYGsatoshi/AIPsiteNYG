@@ -20,6 +20,13 @@ Blocked remains independent from stage.  A version mismatch returns
 `TASK_STALE_VERSION`.  Non-Finish-to-Start dependency authoring is rejected as
 `TASK_DEPENDENCY_TYPE_DEFERRED` while existing rows remain readable.
 
+Terminal Tasks may only reopen directly to Backlog or Todo.  Reopening clears
+terminal metadata and resets progress to zero; direct Done/Cancelled-to-active
+transitions are rejected with `TASK_TRANSITION_GUARD_FAILED`.  Task command
+saves preserve a PostgreSQL unique-constraint name, so only the TaskAssignment
+identity index maps to `TASK_ALREADY_ASSIGNED`; other unique conflicts map to
+the general `TASK_CONFLICT` code.
+
 The PR02 migration adds durable review-outcome metadata on `task_items` and
 defaults existing rows to `None`; it adds the command query index for project,
 group, assignee, and workflow stage.  Task changes are audited and enqueue the

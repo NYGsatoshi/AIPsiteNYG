@@ -25,6 +25,8 @@ namespace AipPortal.Tests.PostgreSql;
 [Collection("PostgreSqlTaskV1")]
 public sealed class TaskV1CoreConcurrencyPostgreSqlTests
 {
+    private static readonly JsonSerializerOptions RealtimeJsonOptions = new(JsonSerializerDefaults.Web);
+
     [PostgreSqlFact]
     [Trait("Category", "PostgreSQLIntegration")]
     public async Task UpdateDetails_OneServiceWriterWins_LoserIsCleanAndCanRetry()
@@ -309,6 +311,34 @@ public sealed class TaskV1CoreConcurrencyPostgreSqlTests
         await using var retry = harness.CreateScope();
         var retried = await retry.Compatibility.AddAssignmentAsync(taskId, new AddTaskAssignmentRequest(harness.Graph.MentionUser.Id, retryRole, 1));
         Assert.True(retried.IsSuccess);
+    }
+
+    [PostgreSqlFact]
+    [Trait("Category", "PostgreSQLIntegration")]
+    public async Task AssignmentRaceWithRealNotificationsCommitsWinnerSideEffectsOnly()
+    {
+        await using var harness = await ServiceHarness.CreateAsync(useRealNotifications: true);
+        var taskId = harness.Graph.Task.Id;
+        var before = await SnapshotAsync(harness);
+        await using var first = harness.CreateScope();
+        await using var second = harness.CreateScope();
+        harness.Race.Arm();
+        var results = await Task.WhenAll(
+            ExecuteAsync(first, () => first.Compatibility.AddAssignmentAsync(taskId, new AddTaskAssignmentRequest(harness.Graph.MentionUser.Id, TaskAssignmentRole.Owner, 1))),
+            ExecuteAsync(second, () => second.Compatibility.AddAssignmentAsync(taskId, new AddTaskAssignmentRequest(harness.Graph.MentionUser.Id, TaskAssignmentRole.Support, 1))));
+
+        Assert.Equal(1, results.Count(value => value.Result.IsSuccess));
+        var loser = results.Single(value => !value.Result.IsSuccess);
+        Assert.Equal("TASK_STALE_VERSION", Code(loser.Result.Error));
+        Assert.Empty(loser.Scope.Db.ChangeTracker.Entries());
+
+        await using var verify = harness.CreateScope();
+        Assert.Single(await verify.Db.TaskAssignments.Where(value => value.TaskItemId == taskId).ToListAsync());
+        await AssertTaskMutationSequenceAsync(verify.Db, before, taskId, ["TaskAssigned"]);
+        Assert.Single(await verify.Db.Notifications.Where(value => value.UserId == harness.Graph.MentionUser.Id && value.RelatedEntityId == taskId).ToListAsync());
+        var state = await verify.Db.NotificationUserStates.SingleAsync(value => value.UserId == harness.Graph.MentionUser.Id);
+        Assert.Equal(1, state.Version);
+        Assert.Single(await verify.Db.OutboxEvents.Where(value => value.EventType == "Notifications.NotificationCreated.v1" && value.AggregateId != taskId).ToListAsync());
     }
 
     [PostgreSqlFact]
@@ -794,8 +824,19 @@ public sealed class TaskV1CoreConcurrencyPostgreSqlTests
             Assert.Equal("Task", value.AggregateType);
             Assert.Equal(taskId, value.AggregateId);
             Assert.Equal("Projects.TaskChanged.v1", value.EventType);
-            using var payload = JsonDocument.Parse(value.PayloadJson);
-            Assert.True(payload.RootElement.TryGetProperty("taskVersion", out var payloadVersion));
+            var envelope = JsonSerializer.Deserialize<DurableEventEnvelope>(value.PayloadJson, RealtimeJsonOptions);
+            Assert.NotNull(envelope);
+            Assert.Equal(1, envelope.PayloadSchemaVersion);
+            Assert.Equal(value.TenantId, envelope.TenantId);
+            Assert.Equal(value.EventType, envelope.EventType);
+            Assert.Equal(value.AggregateType, envelope.AggregateType);
+            Assert.Equal(value.AggregateId, envelope.AggregateId);
+            Assert.Equal(value.AggregateVersion, envelope.AggregateVersion);
+            Assert.True(envelope.Payload.TryGetProperty("taskId", out var payloadTaskId));
+            Assert.Equal(taskId, payloadTaskId.GetGuid());
+            Assert.True(envelope.Payload.TryGetProperty("requiresRefetch", out var requiresRefetch));
+            Assert.True(requiresRefetch.GetBoolean());
+            Assert.True(envelope.Payload.TryGetProperty("taskVersion", out var payloadVersion));
             Assert.Equal(value.AggregateVersion!.Value, payloadVersion.GetInt64());
         }
     }
@@ -846,7 +887,7 @@ public sealed class TaskV1CoreConcurrencyPostgreSqlTests
         public Graph Graph { get; }
         public SaveRaceCoordinator Race { get; }
 
-        public static async Task<ServiceHarness> CreateAsync()
+        public static async Task<ServiceHarness> CreateAsync(bool useRealNotifications = false)
         {
             var connectionString = PostgreSqlTestEnvironment.RequireConnectionString();
             var graph = await SeedAsync(connectionString);
@@ -866,7 +907,10 @@ public sealed class TaskV1CoreConcurrencyPostgreSqlTests
             services.AddScoped<IOutboxEventRepository, OutboxEventRepository>();
             services.AddScoped<ITransactionalOutbox, TransactionalOutbox>();
             services.AddScoped<IBusinessInvalidationPublisher, BusinessInvalidationPublisher>();
-            services.AddScoped<INotificationService, NoopNotificationService>();
+            if (useRealNotifications)
+                services.AddScoped<INotificationService, DbNotificationService>();
+            else
+                services.AddScoped<INotificationService, NoopNotificationService>();
             services.AddScoped<IAuthorizationStateChangePublisher, NoopAuthorizationStateChangePublisher>();
             services.AddScoped<IAuditLogger, DbAuditLogger>();
             services.AddScoped<EfUnitOfWork>();
@@ -930,6 +974,7 @@ public sealed class TaskV1CoreConcurrencyPostgreSqlTests
                 new WorkspaceMember { TenantId = tenant.Id, WorkspaceId = workspace.Id, UserId = mentionUser.Id, Role = WorkspaceRole.Member, Status = MembershipStatus.Active, JoinedAt = DateTimeOffset.UtcNow },
                 new ProjectMember { TenantId = tenant.Id, ProjectId = project.Id, UserId = user.Id, Role = ProjectRole.Owner, JoinedAt = DateTimeOffset.UtcNow },
                 new ProjectMember { TenantId = tenant.Id, ProjectId = project.Id, UserId = mentionUser.Id, Role = ProjectRole.Contributor, JoinedAt = DateTimeOffset.UtcNow },
+                new NotificationUserState { TenantId = tenant.Id, UserId = mentionUser.Id, Version = 0, UpdatedAt = DateTimeOffset.UtcNow },
                 TaskWatchStateInitializer.ForCreator(task, user.Id, new DateTimeOffset(2026, 7, 26, 0, 0, 0, TimeSpan.Zero)));
             await db.SaveChangesAsync();
             return new Graph(tenant, user, mentionUser, task, unrelated, todo, inProgress, done, cancelled);
@@ -1053,7 +1098,7 @@ public sealed class TaskV1CoreConcurrencyPostgreSqlTests
     {
         public Task<int> SaveChangesAsync(CancellationToken cancellationToken = default) => inner.SaveChangesAsync(cancellationToken);
 
-        public async Task<TaskCommandSaveResult> SaveTaskCommandAsync(CancellationToken cancellationToken = default)
+        public async Task<TaskCommandSaveOutcome> SaveTaskCommandAsync(CancellationToken cancellationToken = default)
         {
             await coordinator.WaitBeforeSaveAsync(cancellationToken);
             return await inner.SaveTaskCommandAsync(cancellationToken);

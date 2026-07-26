@@ -241,13 +241,13 @@ public sealed class TaskSubresourceService(
         var ids = MentionIds(body);
         return (await projects.GetEligibleMentionUsersAsync(task.ProjectId, ids, ct)).Select(user => user.Id).ToHashSet().SetEquals(ids);
     }
-    private async Task<TaskCommandSaveResult> CommitLabelDefinitionAsync(Project project, ProjectTaskLabel label, string action, string change, CancellationToken ct)
+    private async Task<TaskCommandSaveOutcome> CommitLabelDefinitionAsync(Project project, ProjectTaskLabel label, string action, string change, CancellationToken ct)
     {
         await audit.LogAsync(action, "ProjectTaskLabel", label.Id, metadata: new Dictionary<string, object?> { ["projectId"] = project.Id, ["labelVersion"] = label.VersionNo }, cancellationToken: ct);
         await invalidations.ProjectChangedAsync(project, Actor(), change, ct);
         return await taskUnitOfWork.SaveTaskCommandAsync(ct);
     }
-    private async Task<TaskCommandSaveResult> CommitAsync(TaskItem task,string action,string change,IReadOnlyDictionary<string,object?>? metadata,CancellationToken ct)
+    private async Task<TaskCommandSaveOutcome> CommitAsync(TaskItem task,string action,string change,IReadOnlyDictionary<string,object?>? metadata,CancellationToken ct)
     {
         task.VersionNo++;
         await audit.LogAsync(new AuditLogEntry(Actor(),action,"TaskItem",task.Id,WorkspaceId:task.WorkspaceId,ProjectId:task.ProjectId,Metadata:metadata),ct);

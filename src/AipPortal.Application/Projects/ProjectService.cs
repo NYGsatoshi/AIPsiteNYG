@@ -657,8 +657,10 @@ public sealed class ProjectService(
         await invalidations.TaskChangedAsync(task, actorUserId, "assignmentChanged", ["assignments"], assignmentUsers, cancellationToken);
         var save = await taskUnitOfWork.SaveTaskCommandAsync(cancellationToken);
         if (save != TaskCommandSaveResult.Saved)
-            return save == TaskCommandSaveResult.UniqueConflict
-                ? AssignmentConflict<TaskAssignmentResponse>()
+            return save.Result == TaskCommandSaveResult.UniqueConflict
+                ? (IsAssignmentIdentityConstraint(save.ConstraintName)
+                    ? AssignmentConflict<TaskAssignmentResponse>()
+                    : GeneralTaskConflict<TaskAssignmentResponse>())
                 : TaskConflict<TaskAssignmentResponse>();
         return Result<TaskAssignmentResponse>.Success(ToAssignment(assignment));
     }
@@ -696,8 +698,10 @@ public sealed class ProjectService(
         await invalidations.TaskChangedAsync(assignment.TaskItem, userId, "assignmentChanged", ["assignments"], [assignment.UserId], cancellationToken);
         var save = await taskUnitOfWork.SaveTaskCommandAsync(cancellationToken);
         if (save != TaskCommandSaveResult.Saved)
-            return save == TaskCommandSaveResult.UniqueConflict
-                ? AssignmentConflict<TaskAssignmentResponse>()
+            return save.Result == TaskCommandSaveResult.UniqueConflict
+                ? (IsAssignmentIdentityConstraint(save.ConstraintName)
+                    ? AssignmentConflict<TaskAssignmentResponse>()
+                    : GeneralTaskConflict<TaskAssignmentResponse>())
                 : TaskConflict<TaskAssignmentResponse>();
         return Result<TaskAssignmentResponse>.Success(ToAssignment(assignment));
     }
@@ -1265,6 +1269,15 @@ public sealed class ProjectService(
 
     private static Result<T> AssignmentConflict<T>() =>
         Result<T>.Failure(new ApplicationErrorDetail("TASK_ALREADY_ASSIGNED", "User already has this assignment role."));
+
+    private static Result<T> GeneralTaskConflict<T>() =>
+        Result<T>.Failure(new ApplicationErrorDetail("TASK_CONFLICT", "The task could not be updated. Refetch and retry."));
+
+    // This is the generated PostgreSQL index name for the unique TaskAssignment
+    // identity configured in TaskAssignmentConfiguration.  Do not map other
+    // database unique constraints to the assignment-specific error.
+    private static bool IsAssignmentIdentityConstraint(string? constraintName) =>
+        string.Equals(constraintName, "IX_task_assignments_TenantId_TaskItemId_UserId_Role", StringComparison.Ordinal);
 
     private static TaskDependencyResponse ToDependency(TaskDependency dependency)
     {

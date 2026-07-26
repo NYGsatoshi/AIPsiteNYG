@@ -43,7 +43,7 @@ public interface IUnitOfWork
 /// </summary>
 public interface ITaskCommandUnitOfWork : IUnitOfWork
 {
-    Task<TaskCommandSaveResult> SaveTaskCommandAsync(CancellationToken cancellationToken = default);
+    Task<TaskCommandSaveOutcome> SaveTaskCommandAsync(CancellationToken cancellationToken = default);
 }
 
 public enum TaskCommandSaveResult
@@ -51,4 +51,22 @@ public enum TaskCommandSaveResult
     Saved,
     ConcurrencyConflict,
     UniqueConflict
+}
+
+/// <summary>
+/// The Task command persistence result.  PostgreSQL supplies the violated
+/// constraint for unique conflicts so callers can apply only the domain mapping
+/// that owns that constraint.
+/// </summary>
+public sealed record TaskCommandSaveOutcome(TaskCommandSaveResult Result, string? ConstraintName = null)
+{
+    public bool IsSaved => Result == TaskCommandSaveResult.Saved;
+
+    public static implicit operator TaskCommandSaveOutcome(TaskCommandSaveResult result) => new(result);
+
+    public static bool operator ==(TaskCommandSaveOutcome? outcome, TaskCommandSaveResult result) =>
+        outcome?.Result == result;
+
+    public static bool operator !=(TaskCommandSaveOutcome? outcome, TaskCommandSaveResult result) =>
+        outcome?.Result != result;
 }

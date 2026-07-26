@@ -160,6 +160,27 @@ public sealed class ProjectServiceTests
         Assert.Contains(fixture.Audit.Entries, entry => entry.Action == "TaskAssignmentUpdated" && entry.EntityId == task.Id);
     }
 
+    [Theory]
+    [InlineData("IX_task_assignments_TenantId_TaskItemId_UserId_Role", "TASK_ALREADY_ASSIGNED")]
+    [InlineData("IX_notification_user_states_TenantId_UserId", "TASK_CONFLICT")]
+    public async Task AssignmentUniqueConflictUsesOnlyTheAssignmentIdentityConstraint(string constraintName, string expectedCode)
+    {
+        var fixture = ProjectFixture.Create();
+        var manager = fixture.AddUser();
+        var assignee = fixture.AddUser();
+        fixture.Current.UserIdValue = manager.Id;
+        fixture.AddProjectMember(manager.Id, ProjectRole.Manager);
+        fixture.AddProjectMember(assignee.Id, ProjectRole.Contributor);
+        fixture.CommandUnitOfWork.Outcome = new TaskCommandSaveOutcome(TaskCommandSaveResult.UniqueConflict, constraintName);
+
+        var result = await fixture.Service.AddAssignmentAsync(
+            fixture.AddTask("constraint classification").Id,
+            new AddTaskAssignmentRequest(assignee.Id, TaskAssignmentRole.Assignee, 1));
+
+        Assert.False(result.IsSuccess);
+        Assert.StartsWith(expectedCode + "|", result.Error);
+    }
+
     [Fact]
     public async Task TaskCannotDependOnItself()
     {
@@ -472,7 +493,7 @@ public sealed class ProjectServiceTests
                 new NoopInvalidations(),
                 new NoopAuthorizationChanges(),
                 UnitOfWork,
-                new NoopTaskCommandUnitOfWork());
+                CommandUnitOfWork);
             Commands = new TaskCommandService(
                 Projects,
                 Groups,
@@ -483,7 +504,7 @@ public sealed class ProjectServiceTests
                 Clock,
                 Audit,
                 new NoopInvalidations(),
-                new NoopTaskCommandUnitOfWork(),
+                new FakeTaskCommandUnitOfWork(),
                 new UtcTimeZoneResolver());
         }
 
@@ -496,6 +517,7 @@ public sealed class ProjectServiceTests
         public FakeAuditLogger Audit { get; } = new();
         public FakeNotifications Notifications { get; } = new();
         public FakeUnitOfWork UnitOfWork { get; } = new();
+        public FakeTaskCommandUnitOfWork CommandUnitOfWork { get; } = new();
         public WorkspaceAuthorizationService WorkspaceAuthorization { get; }
         public GroupAuthorizationService GroupAuthorization { get; }
         public ProjectAuthorizationService ProjectAuthorization { get; }
@@ -599,10 +621,11 @@ public sealed class ProjectServiceTests
         public Task PublishAsync(Guid tenantId, Guid affectedUserId, string scopeType, Guid? scopeId, string change, CancellationToken cancellationToken = default) => Task.CompletedTask;
     }
 
-    private sealed class NoopTaskCommandUnitOfWork : ITaskCommandUnitOfWork
+    private sealed class FakeTaskCommandUnitOfWork : ITaskCommandUnitOfWork
     {
+        public TaskCommandSaveOutcome Outcome { get; set; } = new(TaskCommandSaveResult.Saved);
         public Task<int> SaveChangesAsync(CancellationToken cancellationToken = default) => Task.FromResult(1);
-        public Task<TaskCommandSaveResult> SaveTaskCommandAsync(CancellationToken cancellationToken = default) => Task.FromResult(TaskCommandSaveResult.Saved);
+        public Task<TaskCommandSaveOutcome> SaveTaskCommandAsync(CancellationToken cancellationToken = default) => Task.FromResult(Outcome);
     }
 
     private sealed class UtcTimeZoneResolver : ITaskWorkspaceTimeZoneResolver

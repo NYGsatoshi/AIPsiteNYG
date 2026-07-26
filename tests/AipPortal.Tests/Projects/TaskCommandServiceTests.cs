@@ -69,7 +69,7 @@ public sealed class TaskCommandServiceTests
     }
 
     [Fact]
-    public async Task ReopenFromCancelledClearsCancellationMetadataWithoutChangingProgress()
+    public async Task ReopenFromCancelledClearsTerminalMetadataAndResetsBacklogProgress()
     {
         var fixture = Fixture.Create();
         var task = fixture.AddTask("reopen", progress: 35);
@@ -82,10 +82,34 @@ public sealed class TaskCommandServiceTests
         var reopened = await fixture.Service.TransitionAsync(task.Id, new TaskTransitionRequest(backlog.Id, task.VersionNo));
 
         Assert.True(reopened.IsSuccess);
-        Assert.Equal(35, task.ProgressPercent);
+        Assert.Equal(0, task.ProgressPercent);
         Assert.Null(task.CancelledAt);
         Assert.Null(task.CancellationReason);
         Assert.Contains(fixture.Invalidations.TaskChanges, change => change.TaskId == task.Id && change.Change == "reopened");
+    }
+
+    [Fact]
+    public async Task TerminalTaskCannotTransitionDirectlyToActiveWork()
+    {
+        var fixture = Fixture.Create();
+        var task = fixture.AddTask("terminal", progress: 0);
+        var done = new TaskWorkflowStage { ProjectId = fixture.Project.Id, Name = "Done", InternalCategory = TaskStageCategory.Done };
+        var inProgress = new TaskWorkflowStage { ProjectId = fixture.Project.Id, Name = "In progress", InternalCategory = TaskStageCategory.InProgress };
+        fixture.Projects.Stages[done.Id] = done;
+        fixture.Projects.Stages[inProgress.Id] = inProgress;
+
+        Assert.True((await fixture.Service.TransitionAsync(task.Id, new TaskTransitionRequest(done.Id, task.VersionNo))).IsSuccess);
+        var version = task.VersionNo;
+        var result = await fixture.Service.TransitionAsync(task.Id, new TaskTransitionRequest(inProgress.Id, version));
+
+        Assert.False(result.IsSuccess);
+        Assert.StartsWith("TASK_TRANSITION_GUARD_FAILED|", result.Error);
+        Assert.Equal(version, task.VersionNo);
+        Assert.Equal(TaskItemStatus.Completed, task.Status);
+        Assert.Equal(100, task.ProgressPercent);
+        Assert.Equal(1, fixture.UnitOfWork.SaveCount);
+        Assert.Single(fixture.Audit.Entries);
+        Assert.Single(fixture.Invalidations.TaskChanges);
     }
 
     [Fact]
@@ -505,7 +529,7 @@ public sealed class TaskCommandServiceTests
     private sealed class FixedClock : IClock { public DateTimeOffset UtcNow => new(2026, 7, 25, 0, 0, 0, TimeSpan.Zero); }
     private sealed class UtcTimeZoneResolver : ITaskWorkspaceTimeZoneResolver { public Task<TimeZoneInfo> ResolveAsync(Guid tenantId, Guid workspaceId, CancellationToken cancellationToken = default) => Task.FromResult(TimeZoneInfo.Utc); }
     private sealed class FakeAudit : IAuditLogger { public List<AuditLogEntry> Entries { get; } = []; public Task LogAsync(AuditLogEntry entry, CancellationToken cancellationToken = default) { Entries.Add(entry); return Task.CompletedTask; } }
-    private sealed class FakeTaskUnitOfWork : ITaskCommandUnitOfWork { public int SaveCount { get; private set; } public TaskCommandSaveResult Result { get; set; } = TaskCommandSaveResult.Saved; public Task<int> SaveChangesAsync(CancellationToken cancellationToken = default) => Task.FromResult(1); public Task<TaskCommandSaveResult> SaveTaskCommandAsync(CancellationToken cancellationToken = default) { SaveCount++; return Task.FromResult(Result); } }
+    private sealed class FakeTaskUnitOfWork : ITaskCommandUnitOfWork { public int SaveCount { get; private set; } public TaskCommandSaveResult Result { get; set; } = TaskCommandSaveResult.Saved; public Task<int> SaveChangesAsync(CancellationToken cancellationToken = default) => Task.FromResult(1); public Task<TaskCommandSaveOutcome> SaveTaskCommandAsync(CancellationToken cancellationToken = default) { SaveCount++; return Task.FromResult<TaskCommandSaveOutcome>(Result); } }
     private sealed class FakeInvalidations : IBusinessInvalidationPublisher
     {
         public List<(Guid TaskId, string Change)> TaskChanges { get; } = [];

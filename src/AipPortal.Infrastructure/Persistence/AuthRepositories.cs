@@ -99,7 +99,7 @@ public sealed class EfUnitOfWork(AppDbContext dbContext) : IUnitOfWork, ITaskCom
         return dbContext.SaveChangesAsync(cancellationToken);
     }
 
-    public async Task<TaskCommandSaveResult> SaveTaskCommandAsync(CancellationToken cancellationToken = default)
+    public async Task<TaskCommandSaveOutcome> SaveTaskCommandAsync(CancellationToken cancellationToken = default)
     {
         try
         {
@@ -113,12 +113,15 @@ public sealed class EfUnitOfWork(AppDbContext dbContext) : IUnitOfWork, ITaskCom
             dbContext.ChangeTracker.Clear();
             return TaskCommandSaveResult.ConcurrencyConflict;
         }
-        catch (DbUpdateException exception) when (exception.InnerException is PostgresException { SqlState: PostgresErrorCodes.UniqueViolation })
+        catch (DbUpdateException exception) when (exception.InnerException is PostgresException
+            {
+                SqlState: PostgresErrorCodes.UniqueViolation
+            } postgres)
         {
             // A concurrent create can race a unique Task subresource constraint.
             // Nothing from the attempted command, audit, or outbox may remain tracked.
             dbContext.ChangeTracker.Clear();
-            return TaskCommandSaveResult.UniqueConflict;
+            return new TaskCommandSaveOutcome(TaskCommandSaveResult.UniqueConflict, postgres.ConstraintName);
         }
     }
 }

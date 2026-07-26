@@ -72,8 +72,8 @@ public sealed class TaskV1PostgreSqlAcceptanceTests
         QueueTaskFileAssociation(writerA, taskA, graph, "winner");
         QueueTaskFileAssociation(writerB, taskB, graph, "loser");
 
-        Assert.Equal(TaskCommandSaveResult.Saved, await new EfUnitOfWork(writerA).SaveTaskCommandAsync());
-        Assert.Equal(TaskCommandSaveResult.UniqueConflict, await new EfUnitOfWork(writerB).SaveTaskCommandAsync());
+        Assert.Equal(TaskCommandSaveResult.Saved, (await new EfUnitOfWork(writerA).SaveTaskCommandAsync()).Result);
+        Assert.Equal(TaskCommandSaveResult.UniqueConflict, (await new EfUnitOfWork(writerB).SaveTaskCommandAsync()).Result);
         Assert.Empty(writerB.ChangeTracker.Entries());
 
         await using var verify = CreateContext(connectionString, graph.Tenant);
@@ -91,11 +91,11 @@ public sealed class TaskV1PostgreSqlAcceptanceTests
         var graph = await SeedAsync(connectionString);
         await using var winner = CreateContext(connectionString, graph.Tenant);
         winner.WorkItemWatchStates.Add(new WorkItemWatchState { TaskItemId = graph.Task.Id, UserId = graph.User.Id, AutomaticSources = WorkItemWatchAutomaticSource.Creator, IsWatching = true, UpdatedAt = DateTimeOffset.UtcNow, VersionNo = 1 });
-        Assert.Equal(TaskCommandSaveResult.Saved, await new EfUnitOfWork(winner).SaveTaskCommandAsync());
+        Assert.Equal(TaskCommandSaveResult.Saved, (await new EfUnitOfWork(winner).SaveTaskCommandAsync()).Result);
 
         await using var loser = CreateContext(connectionString, graph.Tenant);
         loser.WorkItemWatchStates.Add(new WorkItemWatchState { TaskItemId = graph.Task.Id, UserId = graph.User.Id, AutomaticSources = WorkItemWatchAutomaticSource.Creator, IsWatching = true, UpdatedAt = DateTimeOffset.UtcNow, VersionNo = 1 });
-        Assert.Equal(TaskCommandSaveResult.UniqueConflict, await new EfUnitOfWork(loser).SaveTaskCommandAsync());
+        Assert.Equal(TaskCommandSaveResult.UniqueConflict, (await new EfUnitOfWork(loser).SaveTaskCommandAsync()).Result);
         Assert.Empty(loser.ChangeTracker.Entries());
 
         await using var verify = CreateContext(connectionString, graph.Tenant);
@@ -111,11 +111,11 @@ public sealed class TaskV1PostgreSqlAcceptanceTests
 
         await using var winner = CreateContext(connectionString, graph.Tenant);
         winner.ProjectTaskLabels.Add(new ProjectTaskLabel { WorkspaceId = graph.Workspace.Id, ProjectId = graph.Project.Id, Name = "Release", SortKey = 1024, VersionNo = 1 });
-        Assert.Equal(TaskCommandSaveResult.Saved, await new EfUnitOfWork(winner).SaveTaskCommandAsync());
+        Assert.Equal(TaskCommandSaveResult.Saved, (await new EfUnitOfWork(winner).SaveTaskCommandAsync()).Result);
 
         await using var loser = CreateContext(connectionString, graph.Tenant);
         loser.ProjectTaskLabels.Add(new ProjectTaskLabel { WorkspaceId = graph.Workspace.Id, ProjectId = graph.Project.Id, Name = " release ", SortKey = 2048, VersionNo = 1 });
-        Assert.Equal(TaskCommandSaveResult.UniqueConflict, await new EfUnitOfWork(loser).SaveTaskCommandAsync());
+        Assert.Equal(TaskCommandSaveResult.UniqueConflict, (await new EfUnitOfWork(loser).SaveTaskCommandAsync()).Result);
         Assert.Empty(loser.ChangeTracker.Entries());
 
         await using (var verify = CreateContext(connectionString, graph.Tenant))
@@ -128,7 +128,7 @@ public sealed class TaskV1PostgreSqlAcceptanceTests
 
         // A cleared loser context is immediately reusable for a non-conflicting retry.
         loser.ProjectTaskLabels.Add(new ProjectTaskLabel { WorkspaceId = graph.Workspace.Id, ProjectId = graph.Project.Id, Name = "Other", SortKey = 3072, VersionNo = 1 });
-        Assert.Equal(TaskCommandSaveResult.Saved, await new EfUnitOfWork(loser).SaveTaskCommandAsync());
+        Assert.Equal(TaskCommandSaveResult.Saved, (await new EfUnitOfWork(loser).SaveTaskCommandAsync()).Result);
 
         var otherTenant = new Tenant { Name = $"Other {Guid.NewGuid():N}", DisplayName = "Other", Slug = $"other-{Guid.NewGuid():N}" };
         await using (var platform = CreatePlatformContext(connectionString))
