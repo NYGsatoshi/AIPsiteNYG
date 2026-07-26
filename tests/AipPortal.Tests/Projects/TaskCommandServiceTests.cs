@@ -307,6 +307,24 @@ public sealed class TaskCommandServiceTests
     }
 
     [Fact]
+    public async Task CommitAsyncMapsOnlyTheWatchIdentityConstraintToStaleAndKeepsOtherUniqueConflictsGeneric()
+    {
+        var fixture = Fixture.Create();
+        var task = fixture.AddTask("constraint mapping");
+        fixture.UnitOfWork.Outcome = new TaskCommandSaveOutcome(TaskCommandSaveResult.UniqueConflict, "IX_unrelated_task_command_constraint");
+
+        var unknown = await fixture.Service.UpdateDetailsAsync(task.Id, new TaskUpdateDetailsRequest("constraint mapping", null, TaskPriority.Medium, null, null, 0, task.VersionNo));
+        Assert.False(unknown.IsSuccess);
+        Assert.StartsWith("TASK_CONFLICT|", unknown.Error);
+
+        var retry = fixture.AddTask("watch identity");
+        fixture.UnitOfWork.Outcome = new TaskCommandSaveOutcome(TaskCommandSaveResult.UniqueConflict, TaskCommandConstraintNames.WorkItemWatchStateIdentity);
+        var known = await fixture.Service.UpdateDetailsAsync(retry.Id, new TaskUpdateDetailsRequest("watch identity", null, TaskPriority.Medium, null, null, 0, retry.VersionNo));
+        Assert.False(known.IsSuccess);
+        Assert.StartsWith("TASK_STALE_VERSION|", known.Error);
+    }
+
+    [Fact]
     public async Task SubtaskCreationComposesChildCreatorWatchAndParentChangeInOneSave()
     {
         var fixture = Fixture.Create();
@@ -551,7 +569,18 @@ public sealed class TaskCommandServiceTests
     private sealed class FixedClock : IClock { public DateTimeOffset UtcNow => new(2026, 7, 25, 0, 0, 0, TimeSpan.Zero); }
     private sealed class UtcTimeZoneResolver : ITaskWorkspaceTimeZoneResolver { public Task<TimeZoneInfo> ResolveAsync(Guid tenantId, Guid workspaceId, CancellationToken cancellationToken = default) => Task.FromResult(TimeZoneInfo.Utc); }
     private sealed class FakeAudit : IAuditLogger { public List<AuditLogEntry> Entries { get; } = []; public Task LogAsync(AuditLogEntry entry, CancellationToken cancellationToken = default) { Entries.Add(entry); return Task.CompletedTask; } }
-    private sealed class FakeTaskUnitOfWork : ITaskCommandUnitOfWork { public int SaveCount { get; private set; } public TaskCommandSaveResult Result { get; set; } = TaskCommandSaveResult.Saved; public Task<int> SaveChangesAsync(CancellationToken cancellationToken = default) => Task.FromResult(1); public Task<TaskCommandSaveOutcome> SaveTaskCommandAsync(CancellationToken cancellationToken = default) { SaveCount++; return Task.FromResult<TaskCommandSaveOutcome>(Result); } }
+    private sealed class FakeTaskUnitOfWork : ITaskCommandUnitOfWork
+    {
+        public int SaveCount { get; private set; }
+        public TaskCommandSaveResult Result { get; set; } = TaskCommandSaveResult.Saved;
+        public TaskCommandSaveOutcome? Outcome { get; set; }
+        public Task<int> SaveChangesAsync(CancellationToken cancellationToken = default) => Task.FromResult(1);
+        public Task<TaskCommandSaveOutcome> SaveTaskCommandAsync(CancellationToken cancellationToken = default)
+        {
+            SaveCount++;
+            return Task.FromResult(Outcome ?? new TaskCommandSaveOutcome(Result));
+        }
+    }
     private sealed class FakeInvalidations : IBusinessInvalidationPublisher
     {
         public List<(Guid TaskId, string Change)> TaskChanges { get; } = [];

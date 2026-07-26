@@ -699,6 +699,9 @@ public sealed class TaskV1CoreConcurrencyPostgreSqlTests
             ExecuteAsync(second, () => second.Subresources.ApplyLabelAsync(harness.Graph.Task.Id, label.Id, new TaskLabelAssociationRequest(expected))));
 
         Assert.All(results, value => Assert.True(value.Result.IsSuccess));
+        // One request recovered from the winner's authoritative row; it must
+        // not leave its original request DbContext tracking recovery entities.
+        Assert.Contains(results, value => !value.Scope.Db.ChangeTracker.Entries().Any());
         await using var verify = harness.CreateScope();
         Assert.Single(await verify.Db.WorkItemLabels.Where(value => value.TaskItemId == harness.Graph.Task.Id && value.LabelId == label.Id).ToListAsync());
         Assert.Equal(expected + 1, await verify.Db.TaskItems.Where(value => value.Id == harness.Graph.Task.Id).Select(value => value.VersionNo).SingleAsync());
@@ -795,6 +798,7 @@ public sealed class TaskV1CoreConcurrencyPostgreSqlTests
             ExecuteAsync(second, () => second.Subresources.AssociateFileAsync(harness.Graph.Task.Id, new CreateTaskFileAssociationRequest(harness.Graph.SourceAttachment.Id, expected))));
 
         Assert.All(results, value => Assert.True(value.Result.IsSuccess));
+        Assert.Contains(results, value => !value.Scope.Db.ChangeTracker.Entries().Any());
         var associationId = Assert.Single(results.Select(value => value.Result.Value!.Id).Distinct());
         await using (var verify = harness.CreateScope())
         {
@@ -804,21 +808,49 @@ public sealed class TaskV1CoreConcurrencyPostgreSqlTests
             Assert.Single(await verify.Db.OutboxEvents.Where(value => value.AggregateId == harness.Graph.Task.Id && value.EventType == "Projects.TaskChanged.v1").ToListAsync());
         }
 
+        await using var removeFirst = harness.CreateScope();
+        await using var removeSecond = harness.CreateScope();
+        var removeVersion = (await removeFirst.Commands.GetAsync(harness.Graph.Task.Id)).Value!.Version;
+        Assert.Equal(removeVersion, (await removeSecond.Commands.GetAsync(harness.Graph.Task.Id)).Value!.Version);
+        harness.Race.Arm();
+        var removals = await Task.WhenAll(
+            ExecuteAsync(removeFirst, () => removeFirst.Subresources.RemoveFileAsync(harness.Graph.Task.Id, associationId, removeVersion)),
+            ExecuteAsync(removeSecond, () => removeSecond.Subresources.RemoveFileAsync(harness.Graph.Task.Id, associationId, removeVersion)));
+        Assert.All(removals, value => Assert.True(value.Result.IsSuccess));
+        Assert.Contains(removals, value => !value.Scope.Db.ChangeTracker.Entries().Any());
+
         await using (var remove = harness.CreateScope())
         {
-            var version = (await remove.Commands.GetAsync(harness.Graph.Task.Id)).Value!.Version;
-            Assert.True((await remove.Subresources.RemoveFileAsync(harness.Graph.Task.Id, associationId, version)).IsSuccess);
+            var versionAfterDelete = (await remove.Commands.GetAsync(harness.Graph.Task.Id)).Value!.Version;
+            var auditCount = await remove.Db.AuditLogs.CountAsync(value => value.EntityId == harness.Graph.Task.Id && value.Action == "TaskFileAssociationRemoved");
+            var outboxCount = await remove.Db.OutboxEvents.CountAsync(value => value.AggregateId == harness.Graph.Task.Id && value.EventType == "Projects.TaskChanged.v1");
+            Assert.Equal(removeVersion + 1, versionAfterDelete);
+            Assert.Equal(1, auditCount);
+            // The association winner already emitted one Task event; the
+            // remove-race winner adds exactly one more.
+            Assert.Equal(2, outboxCount);
+            Assert.True((await remove.Subresources.RemoveFileAsync(harness.Graph.Task.Id, associationId, removeVersion)).IsSuccess);
+            Assert.Equal(versionAfterDelete, (await remove.Commands.GetAsync(harness.Graph.Task.Id)).Value!.Version);
+            Assert.Equal(auditCount, await remove.Db.AuditLogs.CountAsync(value => value.EntityId == harness.Graph.Task.Id && value.Action == "TaskFileAssociationRemoved"));
+            Assert.Equal(outboxCount, await remove.Db.OutboxEvents.CountAsync(value => value.AggregateId == harness.Graph.Task.Id && value.EventType == "Projects.TaskChanged.v1"));
         }
 
         await using (var verify = harness.CreateScope())
         {
-            Assert.Null(await verify.Db.Attachments.SingleOrDefaultAsync(value => value.Id == associationId));
+            var tombstone = await verify.Db.Attachments.SingleAsync(value => value.Id == associationId);
+            Assert.NotNull(tombstone.DeletedAt);
+            Assert.Equal(harness.Graph.User.Id, tombstone.DeletedByUserId);
+            Assert.Equal("Removed from task.", tombstone.DeleteReason);
+            Assert.Equal(0, await verify.Db.Attachments.CountAsync(value => value.OwnerType == AttachmentOwnerType.TaskItem && value.OwnerId == harness.Graph.Task.Id && !value.DeletedAt.HasValue));
             Assert.NotNull(await verify.Db.FileObjects.SingleOrDefaultAsync(value => value.Id == harness.Graph.SourceAttachment.FileObjectId));
         }
 
         await using var retry = harness.CreateScope();
         var retryVersion = (await retry.Commands.GetAsync(harness.Graph.Task.Id)).Value!.Version;
         Assert.True((await retry.Subresources.AssociateFileAsync(harness.Graph.Task.Id, new CreateTaskFileAssociationRequest(harness.Graph.SourceAttachment.Id, retryVersion))).IsSuccess);
+        await using var reattached = harness.CreateScope();
+        Assert.True(await reattached.Db.Attachments.CountAsync(value => value.OwnerType == AttachmentOwnerType.TaskItem && value.OwnerId == harness.Graph.Task.Id && value.FileObjectId == harness.Graph.SourceAttachment.FileObjectId && value.DeletedAt.HasValue) >= 1);
+        Assert.Equal(1, await reattached.Db.Attachments.CountAsync(value => value.OwnerType == AttachmentOwnerType.TaskItem && value.OwnerId == harness.Graph.Task.Id && value.FileObjectId == harness.Graph.SourceAttachment.FileObjectId && !value.DeletedAt.HasValue));
     }
 
     [PostgreSqlFact]
@@ -1341,6 +1373,8 @@ public sealed class TaskV1CoreConcurrencyPostgreSqlTests
     private sealed class CoordinatedTaskCommandUnitOfWork(EfUnitOfWork inner, SaveRaceCoordinator coordinator) : ITaskCommandUnitOfWork
     {
         public Task<int> SaveChangesAsync(CancellationToken cancellationToken = default) => inner.SaveChangesAsync(cancellationToken);
+
+        public void ClearTaskCommandTracking() => inner.ClearTaskCommandTracking();
 
         public async Task<TaskCommandSaveOutcome> SaveTaskCommandAsync(CancellationToken cancellationToken = default)
         {

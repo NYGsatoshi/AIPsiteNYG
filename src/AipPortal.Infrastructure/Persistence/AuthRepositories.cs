@@ -94,6 +94,8 @@ public sealed class SessionRepository(AppDbContext dbContext) : ISessionReposito
 
 public sealed class EfUnitOfWork(AppDbContext dbContext) : IUnitOfWork, ITaskCommandUnitOfWork
 {
+    public void ClearTaskCommandTracking() => dbContext.ChangeTracker.Clear();
+
     public Task<int> SaveChangesAsync(CancellationToken cancellationToken = default)
     {
         return dbContext.SaveChangesAsync(cancellationToken);
@@ -110,7 +112,7 @@ public sealed class EfUnitOfWork(AppDbContext dbContext) : IUnitOfWork, ITaskCom
         {
             // A failed EF save leaves original values and Added audit/outbox rows tracked.
             // This context is request-scoped, but clearing also makes a same-request retry safe.
-            dbContext.ChangeTracker.Clear();
+            ClearTaskCommandTracking();
             return TaskCommandSaveResult.ConcurrencyConflict;
         }
         catch (DbUpdateException exception) when (exception.InnerException is PostgresException
@@ -120,7 +122,7 @@ public sealed class EfUnitOfWork(AppDbContext dbContext) : IUnitOfWork, ITaskCom
         {
             // A concurrent create can race a unique Task subresource constraint.
             // Nothing from the attempted command, audit, or outbox may remain tracked.
-            dbContext.ChangeTracker.Clear();
+            ClearTaskCommandTracking();
             return new TaskCommandSaveOutcome(TaskCommandSaveResult.UniqueConflict, postgres.ConstraintName);
         }
     }

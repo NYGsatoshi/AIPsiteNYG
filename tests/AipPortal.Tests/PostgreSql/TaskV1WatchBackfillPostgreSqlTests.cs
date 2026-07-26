@@ -6,6 +6,7 @@ namespace AipPortal.Tests.PostgreSql;
 public sealed class TaskV1WatchBackfillPostgreSqlTests
 {
     private const string PreviousMigration = "20260722230000_MigrateLegacyTaskComments";
+    private const string ManualIntentMigration = "20260726130000_AddManualWatchIntent";
 
     [PostgreSqlFact]
     [Trait("Category", "PostgreSQLIntegration")]
@@ -81,6 +82,53 @@ INSERT INTO work_item_watch_states ("Id", "TenantId", "TaskItemId", "UserId", "A
             await PostgreSqlMigrationTestDatabase.ExecuteAsync(database, TaskV1WatchBackfillScript.Sql);
             var afterSecondRun = (await ReadRowsAsync(database, graph.TaskId)).OrderBy(row => row.Id).ToArray();
             Assert.Equal(beforeSecondRun, afterSecondRun);
+        });
+    }
+
+    [PostgreSqlFact]
+    [Trait("Category", "PostgreSQLIntegration")]
+    public async Task PostManualNormalizationUsesTheCanonicalFormulaWithoutTouchingDeletedTasks()
+    {
+        var connectionString = PostgreSqlTestEnvironment.RequireConnectionString();
+        await PostgreSqlMigrationTestDatabase.WithTemporaryDatabaseAsync(connectionString, async database =>
+        {
+            await PostgreSqlMigrationTestDatabase.MigrateAsync(database, ManualIntentMigration);
+            var active = await TaskV1MigrationRawSqlSeed.CreateGraphAsync(database, "watch-normalization-active");
+            var deleted = await TaskV1MigrationRawSqlSeed.CreateGraphAsync(database, "watch-normalization-deleted", deletedTask: true);
+            var automaticOnly = Guid.NewGuid();
+            var manual = Guid.NewGuid();
+            var optOut = Guid.NewGuid();
+            var deletedState = Guid.NewGuid();
+            await TaskV1MigrationRawSqlSeed.AddUserAsync(database, active, automaticOnly, "watch-normalization-auto");
+            await TaskV1MigrationRawSqlSeed.AddUserAsync(database, active, manual, "watch-normalization-manual");
+            await TaskV1MigrationRawSqlSeed.AddUserAsync(database, active, optOut, "watch-normalization-optout");
+
+            await PostgreSqlMigrationTestDatabase.ExecuteAsync(database, """
+INSERT INTO work_item_watch_states ("Id", "TenantId", "TaskItemId", "UserId", "AutomaticSources", "IsManualWatch", "IsExplicitOptOut", "IsWatching", "UpdatedAt", "VersionNo") VALUES
+(@automaticOnly, @tenantId, @taskId, @autoUser, 0, false, false, true, CURRENT_TIMESTAMP, 7),
+(@manual, @tenantId, @taskId, @manualUser, 0, true, false, false, CURRENT_TIMESTAMP, 4),
+(@optOut, @tenantId, @taskId, @optOutUser, 1, false, true, true, CURRENT_TIMESTAMP, 3),
+(@deletedState, @deletedTenantId, @deletedTaskId, @deletedUser, 0, false, false, true, CURRENT_TIMESTAMP, 11);
+""", ("automaticOnly", automaticOnly), ("manual", manual), ("optOut", optOut), ("deletedState", deletedState),
+                ("tenantId", active.TenantId), ("taskId", active.TaskId), ("autoUser", automaticOnly), ("manualUser", manual), ("optOutUser", optOut),
+                ("deletedTenantId", deleted.TenantId), ("deletedTaskId", deleted.TaskId), ("deletedUser", deleted.UserId));
+
+            await PostgreSqlMigrationTestDatabase.MigrateAsync(database);
+            Assert.False(await PostgreSqlMigrationTestDatabase.ScalarAsync<bool>(database, "SELECT \"IsWatching\" FROM work_item_watch_states WHERE \"Id\" = @id;", ("id", automaticOnly)));
+            Assert.True(await PostgreSqlMigrationTestDatabase.ScalarAsync<bool>(database, "SELECT \"IsWatching\" FROM work_item_watch_states WHERE \"Id\" = @id;", ("id", manual)));
+            Assert.False(await PostgreSqlMigrationTestDatabase.ScalarAsync<bool>(database, "SELECT \"IsWatching\" FROM work_item_watch_states WHERE \"Id\" = @id;", ("id", optOut)));
+            Assert.True(await PostgreSqlMigrationTestDatabase.ScalarAsync<bool>(database, "SELECT \"IsWatching\" FROM work_item_watch_states WHERE \"Id\" = @id;", ("id", deletedState)));
+
+            var versions = await PostgreSqlMigrationTestDatabase.QueryAsync(database, """
+SELECT "Id", "VersionNo" FROM work_item_watch_states
+WHERE "Id" = @automaticOnly OR "Id" = @manual OR "Id" = @optOut OR "Id" = @deletedState ORDER BY "Id";
+""", row => (row.GetGuid(0), row.GetInt64(1)), ("automaticOnly", automaticOnly), ("manual", manual), ("optOut", optOut), ("deletedState", deletedState));
+            await PostgreSqlMigrationTestDatabase.MigrateAsync(database);
+            var repeatedVersions = await PostgreSqlMigrationTestDatabase.QueryAsync(database, """
+SELECT "Id", "VersionNo" FROM work_item_watch_states
+WHERE "Id" = @automaticOnly OR "Id" = @manual OR "Id" = @optOut OR "Id" = @deletedState ORDER BY "Id";
+""", row => (row.GetGuid(0), row.GetInt64(1)), ("automaticOnly", automaticOnly), ("manual", manual), ("optOut", optOut), ("deletedState", deletedState));
+            Assert.Equal(versions, repeatedVersions);
         });
     }
 

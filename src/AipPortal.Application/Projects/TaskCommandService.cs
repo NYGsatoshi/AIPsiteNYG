@@ -69,7 +69,7 @@ public sealed class TaskCommandService(
         var committed = await CommitAsync(task, "TaskDetailsUpdated", "updated", cancellationToken);
         return committed.IsSuccess
             ? Result<CanonicalTaskResponse>.Success(committed.Value!.Task)
-            : Fail<CanonicalTaskResponse>("TASK_STALE_VERSION", "Task has changed. Refetch and retry.");
+            : Result<CanonicalTaskResponse>.Failure(committed.Error!);
     }
 
     public async Task<Result<TaskRelationshipsResponse>> GetRelationshipsAsync(Guid taskId, CancellationToken cancellationToken = default)
@@ -335,14 +335,24 @@ public sealed class TaskCommandService(
         var save = await unitOfWork.SaveTaskCommandAsync(cancellationToken);
         if (!save.IsSaved)
         {
-            if (save.Result == TaskCommandSaveResult.UniqueConflict &&
-                string.Equals(save.ConstraintName, TaskCommandConstraintNames.WorkItemWatchStateIdentity, StringComparison.Ordinal))
+            try
             {
-                var current = await AuthorizedTaskAsync(taskId, false, cancellationToken: cancellationToken);
-                if (current.Error is null && await projects.GetWatchStateAsync(taskId, Actor(), cancellationToken) is not null)
-                    return Fail<TaskWatchStateResponse>("TASK_STALE_VERSION", "Watch state has changed. Refetch and retry.");
+                if (save.Result == TaskCommandSaveResult.UniqueConflict &&
+                    string.Equals(save.ConstraintName, TaskCommandConstraintNames.WorkItemWatchStateIdentity, StringComparison.Ordinal))
+                {
+                    // SaveTaskCommandAsync cleared the attempted mutation.  Recheck
+                    // both visibility and the canonical row before classifying the
+                    // watch-identity race, then clear these recovery reads below.
+                    var current = await AuthorizedTaskAsync(taskId, false, cancellationToken: cancellationToken);
+                    if (current.Error is null && await projects.GetWatchStateAsync(taskId, Actor(), cancellationToken) is not null)
+                        return Fail<TaskWatchStateResponse>("TASK_STALE_VERSION", "Watch state has changed. Refetch and retry.");
+                }
+                return Fail<TaskWatchStateResponse>(save.Result == TaskCommandSaveResult.UniqueConflict ? "TASK_CONFLICT" : "TASK_STALE_VERSION", "Task has changed. Refetch and retry.");
             }
-            return Fail<TaskWatchStateResponse>(save.Result == TaskCommandSaveResult.UniqueConflict ? "TASK_CONFLICT" : "TASK_STALE_VERSION", "Task has changed. Refetch and retry.");
+            finally
+            {
+                unitOfWork.ClearTaskCommandTracking();
+            }
         }
         return Result<TaskWatchStateResponse>.Success(ToWatchResponse(state));
     }
@@ -386,8 +396,32 @@ public sealed class TaskCommandService(
         await audit.LogAsync(new AuditLogEntry(actor, action, "TaskItem", task.Id, action, WorkspaceId: task.WorkspaceId, ProjectId: task.ProjectId, Metadata: new Dictionary<string, object?> { ["versionBefore"] = task.VersionNo - 1, ["reasonProvided"] = !string.IsNullOrWhiteSpace(reason) }), cancellationToken);
         await invalidations.TaskChangedAsync(task, actor, change, affectedUserIds: RelatedUsers(task), cancellationToken: cancellationToken);
         await AdvanceParentForChildMutationAsync(task, actor, action, cancellationToken);
-        if (await unitOfWork.SaveTaskCommandAsync(cancellationToken) != TaskCommandSaveResult.Saved)
-            return Fail<TaskCommandResponse>("TASK_STALE_VERSION", "Task has changed. Refetch and retry.");
+        var save = await unitOfWork.SaveTaskCommandAsync(cancellationToken);
+        if (!save.IsSaved)
+        {
+            try
+            {
+                if (save.Result == TaskCommandSaveResult.ConcurrencyConflict)
+                    return Fail<TaskCommandResponse>("TASK_STALE_VERSION", "Task has changed. Refetch and retry.");
+
+                if (string.Equals(save.ConstraintName, TaskCommandConstraintNames.WorkItemWatchStateIdentity, StringComparison.Ordinal))
+                {
+                    // Automatic-source reconciliation shares this save boundary.
+                    // Only its own identity constraint has a Task-specific
+                    // classification, and only after fresh authorization.
+                    var current = await AuthorizedTaskAsync(task.Id, true, cancellationToken: cancellationToken);
+                    if (current.Error is not null)
+                        return Fail<TaskCommandResponse>(current.Error.Value.Code, current.Error.Value.Message);
+                    return Fail<TaskCommandResponse>("TASK_STALE_VERSION", "Task has changed. Refetch and retry.");
+                }
+
+                return Fail<TaskCommandResponse>("TASK_CONFLICT", "Task command conflicts with current data.");
+            }
+            finally
+            {
+                unitOfWork.ClearTaskCommandTracking();
+            }
+        }
         return Result<TaskCommandResponse>.Success(new TaskCommandResponse(await ToResponseAsync(task, actor, cancellationToken), [], overrideApplied));
     }
 

@@ -44,6 +44,13 @@ public interface IUnitOfWork
 public interface ITaskCommandUnitOfWork : IUnitOfWork
 {
     Task<TaskCommandSaveOutcome> SaveTaskCommandAsync(CancellationToken cancellationToken = default);
+
+    /// <summary>
+    /// Clears entities loaded while recovering from a failed task-command save.
+    /// Recovery must reauthorize against authoritative data, but must not leave
+    /// that data tracked in the losing request scope.
+    /// </summary>
+    void ClearTaskCommandTracking() { }
 }
 
 public enum TaskCommandSaveResult
