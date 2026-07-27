@@ -25,6 +25,7 @@ public sealed class TaskV1MigrationPostgreSqlTests
 
             Assert.Empty(await context.Database.GetPendingMigrationsAsync());
             Assert.False(context.Database.HasPendingModelChanges());
+            Assert.True(await ScalarAsync<bool>(testConnectionString, "SELECT EXISTS (SELECT 1 FROM information_schema.tables WHERE table_name = 'tenant_settings');"));
             Assert.True(await ScalarAsync<bool>(testConnectionString, "SELECT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name = 'workspaces' AND column_name = 'TimeZone');"));
             Assert.True(await ScalarAsync<bool>(testConnectionString, "SELECT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name = 'work_item_watch_states' AND column_name = 'IsManualWatch');"));
             Assert.True(await ScalarAsync<bool>(testConnectionString, "SELECT EXISTS (SELECT 1 FROM pg_constraint WHERE conname = 'CK_work_item_watch_states_manual_opt_out_exclusive');"));
