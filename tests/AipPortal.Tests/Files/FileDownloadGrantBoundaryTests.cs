@@ -14,6 +14,7 @@ namespace AipPortal.Tests.Files;
 public sealed class FileDownloadGrantBoundaryTests
 {
     [Fact]
+    [Trait("Scope", "TaskV1PR03C")]
     public async Task FileDownloadGrantCanBeCreatedOnlyForAuthorizedActor()
     {
         var fixture = new Fixture();
@@ -43,6 +44,7 @@ public sealed class FileDownloadGrantBoundaryTests
     }
 
     [Fact]
+    [Trait("Scope", "TaskV1PR03C")]
     public async Task FileDownloadGrantDownloadRequiresCurrentAuthorization()
     {
         var fixture = new Fixture();
@@ -59,6 +61,7 @@ public sealed class FileDownloadGrantBoundaryTests
     }
 
     [Fact]
+    [Trait("Scope", "TaskV1PR03C")]
     public async Task TaskFileOpenReauthorizesAndDoesNotTreatDetailStateAsACapability()
     {
         var fixture = new Fixture();

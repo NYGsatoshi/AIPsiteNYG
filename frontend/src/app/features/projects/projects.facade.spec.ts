@@ -119,6 +119,32 @@ describe('ProjectsFacade live API mutations', () => {
     expect(facade.getTaskDetail('project-1', 'task-1').detail?.labelDefinitions.map((label) => label.name)).toEqual(['Urgent']);
   });
 
+  it('retains canonical Task, relationship, permission, and pagination fields in the Task detail view model', () => {
+    flushInitialLoad([]);
+    facade.ensureTaskDetail('project-1', 'task-1');
+    httpMock.expectOne('/api/tasks/task-1').flush({
+      task: {
+        ...editableTaskDto, tenantId: 'tenant-1', workspaceId: 'workspace-1', kind: 0, parentTaskId: null,
+        workflowStageId: 'stage-1', workflowStageName: 'In progress', stageCategory: 1, priority: 'Medium',
+        reviewStatus: 0, version: 7, progressIsDerived: true,
+        subresources: { checklistCompletedCount: 1, checklistTotalCount: 2, commentCount: 3, labelCount: 4, subtaskCount: 5 },
+        primaryAssignee: { userId: 'user-1', displayName: 'Canonical assignee' }
+      },
+      relationships: { primaryAssignee: { userId: 'user-1', displayName: 'Canonical assignee' }, targetGroupId: 'group-1', collaborators: [{ userId: 'user-2', displayName: 'Collaborator' }], reviewer: { userId: 'user-3', displayName: 'Reviewer' }, version: 8 },
+      permissions: { canCreateSubtask: true, canCreateChecklistItem: true, canUpdateChecklistItems: true, canDeleteChecklistItems: true, canReorderChecklist: true, canCreateComment: true, canMarkCommentImportant: true, canApplyLabels: true, canManageLabelDefinitions: true, canAssociateFiles: true, canRemoveFiles: true, canChangeWatch: true },
+      checklist: [], labels: [], watchState: { isWatching: false, isExplicitOptOut: false, automaticSources: [], version: 1 },
+      subtasks: { items: [], page: 1, pageSize: 50, totalCount: 0, hasMore: false }, comments: { items: [], page: 1, pageSize: 20, totalCount: 0, hasMore: false }, files: { items: [], page: 1, pageSize: 20, totalCount: 0, hasMore: false }
+    });
+    httpMock.expectOne('/api/projects/project-1/task-labels?includeArchived=true').flush([]);
+
+    const detail = facade.getTaskDetail('project-1', 'task-1').detail!;
+    expect(detail.canonicalTask).toMatchObject({ tenantId: 'tenant-1', workspaceId: 'workspace-1', projectId: 'project-1', workflowStageName: 'In progress', stageCategory: 1, priority: 'Medium', progressIsDerived: true, version: '7', subtaskCount: 5 });
+    expect(detail.relationships).toMatchObject({ primaryAssignee: 'Canonical assignee', targetGroupId: 'group-1', reviewer: 'Reviewer', version: '8' });
+    expect(detail.relationships.collaborators).toEqual([{ userId: 'user-2', displayName: 'Collaborator' }]);
+    expect(detail.permissions.canChangeWatch).toBe(true);
+    expect(detail.subtasks).toMatchObject({ page: 1, pageSize: 50, totalCount: 0, hasMore: false });
+  });
+
   it('drops an obsolete project response after authorization changes and reloads the active task only after reauthorization', () => {
     const firstProjects = httpMock.expectOne('/api/projects');
     (facade as unknown as { handleRealtimeEvent(event: unknown): void }).handleRealtimeEvent(realtimeEvent('Security.AuthorizationStateChanged.v1'));

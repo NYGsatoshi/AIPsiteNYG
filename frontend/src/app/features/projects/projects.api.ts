@@ -33,21 +33,40 @@ export interface TaskUiPermissionDto {
 
 export interface TaskDto {
   readonly id?: unknown;
+  readonly tenantId?: unknown;
   readonly workspaceId?: unknown;
   readonly projectId?: unknown;
+  readonly kind?: unknown;
+  readonly parentTaskId?: unknown;
   readonly milestoneId?: unknown;
   readonly title?: unknown;
   readonly description?: unknown;
+  readonly workflowStageId?: unknown;
+  readonly workflowStageName?: unknown;
   readonly status?: unknown;
   readonly stageCategory?: unknown;
   readonly isBlocked?: unknown;
+  readonly blockedReason?: unknown;
   readonly priority?: unknown;
   readonly startDate?: unknown;
   readonly dueDate?: unknown;
   readonly plannedStartDate?: unknown;
   readonly plannedEndDate?: unknown;
+  readonly deadlineAt?: unknown;
+  readonly actualStartAt?: unknown;
+  readonly completedAt?: unknown;
   readonly progressPercent?: unknown;
   readonly progressIsDerived?: unknown;
+  readonly estimatedEffortMinutes?: unknown;
+  readonly primaryAssignee?: TaskPersonSummaryDto | null;
+  readonly targetGroupId?: unknown;
+  readonly collaboratorCount?: unknown;
+  readonly reviewer?: TaskPersonSummaryDto | null;
+  readonly isOverdue?: unknown;
+  readonly dependencyWarnings?: readonly unknown[];
+  readonly allowedTransitions?: readonly unknown[];
+  readonly reviewStatus?: unknown;
+  readonly subresources?: TaskSubresourceSummaryDto | null;
   readonly uiPermissions?: TaskUiPermissionDto | null;
   readonly version?: unknown;
 }
@@ -82,6 +101,7 @@ export interface TaskDetailPermissionsDto {
 
 export interface TaskPersonSummaryDto { readonly userId?: unknown; readonly displayName?: unknown; }
 export interface TaskRelationshipsDto { readonly primaryAssignee?: TaskPersonSummaryDto | null; readonly targetGroupId?: unknown; readonly collaborators?: readonly TaskPersonSummaryDto[]; readonly reviewer?: TaskPersonSummaryDto | null; readonly version?: unknown; }
+export interface TaskSubresourceSummaryDto { readonly checklistCompletedCount?: unknown; readonly checklistTotalCount?: unknown; readonly commentCount?: unknown; readonly labelCount?: unknown; readonly subtaskCount?: unknown; }
 export interface TaskWatchStateDto { readonly isWatching?: unknown; readonly isExplicitOptOut?: unknown; readonly automaticSources?: readonly unknown[]; readonly version?: unknown; }
 export interface TaskChecklistDto { readonly id?: unknown; readonly text?: unknown; readonly isCompleted?: unknown; readonly completedAt?: unknown; readonly completedByUserId?: unknown; readonly sortKey?: unknown; readonly version?: unknown; }
 export interface TaskLabelDto { readonly id?: unknown; readonly name?: unknown; readonly description?: unknown; readonly sortKey?: unknown; readonly isArchived?: unknown; readonly version?: unknown; }

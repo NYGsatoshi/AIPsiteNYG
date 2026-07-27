@@ -8,6 +8,7 @@ public sealed class TaskV1FileAssociationMigrationPostgreSqlTests
 
     [PostgreSqlFact]
     [Trait("Category", "PostgreSQLIntegration")]
+    [Trait("Scope", "TaskV1PR03C")]
     public async Task TaskFileMigrationTombstonesOnlyLaterActiveDuplicatesAndLeavesPartialIndexReusable()
     {
         var connectionString = PostgreSqlTestEnvironment.RequireConnectionString();

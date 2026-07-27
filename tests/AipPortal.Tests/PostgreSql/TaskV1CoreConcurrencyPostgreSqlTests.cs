@@ -71,6 +71,7 @@ public sealed class TaskV1CoreConcurrencyPostgreSqlTests
 
     [PostgreSqlFact]
     [Trait("Category", "PostgreSQLIntegration")]
+    [Trait("Scope", "TaskV1PR03C")]
     public async Task CreateSubtask_ParentConflictRollsBackLoserChildWatchAuditAndOutbox()
     {
         await using var harness = await ServiceHarness.CreateAsync();
@@ -108,6 +109,7 @@ public sealed class TaskV1CoreConcurrencyPostgreSqlTests
 
     [PostgreSqlFact]
     [Trait("Category", "PostgreSQLIntegration")]
+    [Trait("Scope", "TaskV1PR03C")]
     public async Task Checklist_CreateUpdateDeleteAndReorder_AreAggregateAtomic()
     {
         await using var harness = await ServiceHarness.CreateAsync();
@@ -190,6 +192,7 @@ public sealed class TaskV1CoreConcurrencyPostgreSqlTests
 
     [PostgreSqlFact]
     [Trait("Category", "PostgreSQLIntegration")]
+    [Trait("Scope", "TaskV1PR03C")]
     public async Task Checklist_CompleteAndReopen_SetAndClearMetadata()
     {
         await using var harness = await ServiceHarness.CreateAsync();
@@ -344,6 +347,7 @@ public sealed class TaskV1CoreConcurrencyPostgreSqlTests
 
     [PostgreSqlFact]
     [Trait("Category", "PostgreSQLIntegration")]
+    [Trait("Scope", "TaskV1PR03C")]
     public async Task Checklist_UpdateVsDelete_OneAtomicWinner()
     {
         await using var harness = await ServiceHarness.CreateAsync();
@@ -373,6 +377,7 @@ public sealed class TaskV1CoreConcurrencyPostgreSqlTests
 
     [PostgreSqlFact]
     [Trait("Category", "PostgreSQLIntegration")]
+    [Trait("Scope", "TaskV1PR03C")]
     public async Task Checklist_DeleteVsDelete_OneAtomicWinner()
     {
         await using var harness = await ServiceHarness.CreateAsync();
@@ -527,6 +532,7 @@ public sealed class TaskV1CoreConcurrencyPostgreSqlTests
 
     [PostgreSqlFact]
     [Trait("Category", "PostgreSQLIntegration")]
+    [Trait("Scope", "TaskV1PR03C")]
     public async Task Comment_UpdateDeleteAndLegacyAdapterRemainAtomicAndPrivate()
     {
         await using var harness = await ServiceHarness.CreateAsync();
@@ -583,6 +589,7 @@ public sealed class TaskV1CoreConcurrencyPostgreSqlTests
 
     [PostgreSqlFact]
     [Trait("Category", "PostgreSQLIntegration")]
+    [Trait("Scope", "TaskV1PR03C")]
     public async Task Comment_UpdateVsUpdate_OneWinnerCanAuthoritativelyRetry()
     {
         await using var harness = await ServiceHarness.CreateAsync();
@@ -616,6 +623,7 @@ public sealed class TaskV1CoreConcurrencyPostgreSqlTests
 
     [PostgreSqlFact]
     [Trait("Category", "PostgreSQLIntegration")]
+    [Trait("Scope", "TaskV1PR03C")]
     public async Task Comment_DeleteVsDelete_OneTombstoneWinnerAndNoAuditBody()
     {
         await using var harness = await ServiceHarness.CreateAsync();
@@ -803,6 +811,7 @@ public sealed class TaskV1CoreConcurrencyPostgreSqlTests
     [PostgreSqlFact]
     [Trait("Category", "PostgreSQLIntegration")]
     [Trait("Scope", "TaskV1Prompt2C")]
+    [Trait("Scope", "TaskV1PR03C")]
     public async Task ApplyLabelRaceReturnsCanonicalAssociationForBothServiceRequests()
     {
         await using var harness = await ServiceHarness.CreateAsync();
@@ -876,6 +885,7 @@ public sealed class TaskV1CoreConcurrencyPostgreSqlTests
     [PostgreSqlFact]
     [Trait("Category", "PostgreSQLIntegration")]
     [Trait("Scope", "TaskV1Prompt2C")]
+    [Trait("Scope", "TaskV1PR03C")]
     public async Task WatchOptOutSurvivesAutomaticSourceReconciliationUntilManualRewatch()
     {
         await using var harness = await ServiceHarness.CreateAsync();
@@ -921,6 +931,7 @@ public sealed class TaskV1CoreConcurrencyPostgreSqlTests
     [PostgreSqlFact]
     [Trait("Category", "PostgreSQLIntegration")]
     [Trait("Scope", "TaskV1Prompt2C")]
+    [Trait("Scope", "TaskV1PR03C")]
     public async Task FileAssociationRaceReturnsTheCanonicalRowAndRemoveDoesNotDeleteTheFile()
     {
         await using var harness = await ServiceHarness.CreateAsync();
@@ -1119,6 +1130,7 @@ public sealed class TaskV1CoreConcurrencyPostgreSqlTests
     [PostgreSqlFact]
     [Trait("Category", "PostgreSQLIntegration")]
     [Trait("Scope", "TaskV1Prompt2C")]
+    [Trait("Scope", "TaskV1PR03C")]
     public async Task LabelScopeIsolationRejectsOtherProjectAndOtherTenantWithoutSideEffects()
     {
         await using var harness = await ServiceHarness.CreateAsync();

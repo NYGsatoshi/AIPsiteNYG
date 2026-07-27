@@ -51,6 +51,7 @@ public sealed class TaskSubresourceService(
     {
         var task = await EditableTaskAsync(taskId, ct);
         if (task is null) return Fail<TaskFileAssociationResponse>("TASK_FILE_ASSOCIATION_FORBIDDEN", "Task operation is not authorized.");
+        if (request.ExpectedVersion <= 0) return Fail<TaskFileAssociationResponse>("TASK_INVALID_EXPECTED_VERSION", "Expected version must be a positive integer.");
         var source = await files.GetAttachmentAsync(request.AttachmentId, ct);
         if (source?.FileObject is null || source.DeletedAt.HasValue || source.FileObject.DeletedAt.HasValue ||
             !await fileAuthorization.CanViewAttachment(Actor(), source, ct) || source.WorkspaceId != task.WorkspaceId ||
@@ -95,6 +96,7 @@ public sealed class TaskSubresourceService(
     {
         var task = await EditableTaskAsync(taskId, ct);
         if (task is null) return Fail("TASK_FILE_ASSOCIATION_NOT_FOUND", "Task file association not found.");
+        if (expectedVersion <= 0) return Fail("TASK_INVALID_EXPECTED_VERSION", "Expected version must be a positive integer.");
         var attachment = await files.GetAttachmentAsync(associationId, ct);
         if (attachment is null) return Result.Success();
         if (attachment.OwnerType != AipPortal.Domain.Enums.AttachmentOwnerType.TaskItem || attachment.OwnerId != taskId)
@@ -161,6 +163,7 @@ public sealed class TaskSubresourceService(
     {
         var task = await EditableTaskAsync(taskId, ct); var item = await projects.GetChecklistItemAsync(itemId, ct);
         if (task is null || item is null || item.TaskItemId != taskId) return Fail<TaskChecklistResponse>("TASK_CHECKLIST_ITEM_NOT_FOUND", "Checklist item not found.");
+        if (request.ExpectedVersion <= 0) return Fail<TaskChecklistResponse>("TASK_INVALID_EXPECTED_VERSION", "Expected version must be a positive integer.");
         if (item.VersionNo != request.ExpectedVersion) return Fail<TaskChecklistResponse>("TASK_STALE_VERSION", "Checklist item has changed. Refetch and retry.");
         if (request.Text is not null) { var text = Text(request.Text, 1000); if (text is null) return Fail<TaskChecklistResponse>("VALIDATION_FAILED", "Checklist text is required."); item.Text = text; }
         if (request.IsCompleted.HasValue && request.IsCompleted.Value != item.IsCompleted) { item.IsCompleted = request.IsCompleted.Value; item.CompletedAt = item.IsCompleted ? clock.UtcNow : null; item.CompletedByUserId = item.IsCompleted ? Actor() : null; }
@@ -170,12 +173,14 @@ public sealed class TaskSubresourceService(
     {
         var task = await EditableTaskAsync(taskId, ct); var item = await projects.GetChecklistItemAsync(itemId, ct);
         if (task is null || item is null || item.TaskItemId != taskId) return Fail("TASK_CHECKLIST_ITEM_NOT_FOUND", "Checklist item not found.");
+        if (expectedVersion <= 0) return Fail("TASK_INVALID_EXPECTED_VERSION", "Expected version must be a positive integer.");
         if (item.VersionNo != expectedVersion) return Fail("TASK_STALE_VERSION", "Checklist item has changed. Refetch and retry."); projects.RemoveChecklistItem(item); if (await CommitAsync(task, "TaskChecklistDeleted", "checklistChanged", null, ct) != TaskCommandSaveResult.Saved) return Fail("TASK_STALE_VERSION", "Task has changed. Refetch and retry."); return Result.Success();
     }
     public async Task<Result<TaskChecklistOrderResponse>> ReorderChecklistAsync(Guid taskId, ReorderTaskChecklistRequest request, CancellationToken ct = default)
     {
         var task = await EditableTaskAsync(taskId, ct);
         if (task is null) return Fail<TaskChecklistOrderResponse>("TASK_FORBIDDEN", "Task operation is not authorized.");
+        if (request.ExpectedTaskVersion <= 0) return Fail<TaskChecklistOrderResponse>("TASK_INVALID_EXPECTED_VERSION", "Expected task version must be a positive integer.");
         if (task.VersionNo != request.ExpectedTaskVersion) return Fail<TaskChecklistOrderResponse>("TASK_STALE_VERSION", "Task has changed. Refetch and retry.");
         var items = await projects.ListChecklistAsync(taskId, ct);
         var orderedIds = request.OrderedItemIds ?? [];
@@ -216,6 +221,7 @@ public sealed class TaskSubresourceService(
     public async Task<Result<TaskCommentResponse>> UpdateCommentAsync(Guid commentId, UpdateTaskCommentRequest request, CancellationToken ct = default)
     {
         var comment = await projects.GetTaskCommentAsync(commentId, ct); if (comment?.TaskItem is null || !await CanEditCommentAsync(comment, ct)) return Fail<TaskCommentResponse>("TASK_COMMENT_FORBIDDEN", "Comment operation is not authorized.");
+        if (request.ExpectedVersion <= 0) return Fail<TaskCommentResponse>("TASK_INVALID_EXPECTED_VERSION", "Expected version must be a positive integer.");
         if (comment.VersionNo != request.ExpectedVersion) return Fail<TaskCommentResponse>("TASK_STALE_VERSION", "Comment has changed. Refetch and retry.");
         if (request.BodyPlainText is not null) { var body = Text(request.BodyPlainText, 12000); if (body is null) return Fail<TaskCommentResponse>("VALIDATION_FAILED", "Comment body is required."); var safety = safetyGuard.CheckMessagePost(new CommunicationSafetyScope(Actor(), comment.TaskItem.TenantId, comment.TaskItem.WorkspaceId, comment.TaskItem.Id), body, clock.UtcNow); if (!safety.IsAllowed) return safety.ReasonCode == "duplicate_post" ? Fail<TaskCommentResponse>("TASK_COMMENT_DUPLICATE", "Comment submission was rejected by the communication safety policy.") : Result<TaskCommentResponse>.Failure(new ApplicationErrorDetail("TASK_COMMENT_RATE_LIMITED", "Comment submission was rejected by the communication safety policy.", Math.Max(1, safety.RetryAfterSeconds ?? 1))); if (!await MentionsAreEligibleAsync(body, comment.TaskItem, ct)) return Fail<TaskCommentResponse>("TASK_MENTION_NOT_ELIGIBLE", "One or more mentions are not available for this task."); comment.BodyPlainText = body; }
         if (request.IsImportant.HasValue) comment.IsImportant = request.IsImportant.Value; comment.UpdatedAt = clock.UtcNow; comment.VersionNo++;
@@ -224,6 +230,7 @@ public sealed class TaskSubresourceService(
     public async Task<Result> DeleteCommentAsync(Guid commentId, long expectedVersion, CancellationToken ct = default)
     {
         var comment = await projects.GetTaskCommentAsync(commentId, ct); if (comment?.TaskItem is null || !await CanEditCommentAsync(comment, ct)) return Fail("TASK_COMMENT_FORBIDDEN", "Comment operation is not authorized.");
+        if (expectedVersion <= 0) return Fail("TASK_INVALID_EXPECTED_VERSION", "Expected version must be a positive integer.");
         if (comment.VersionNo != expectedVersion) return Fail("TASK_STALE_VERSION", "Comment has changed. Refetch and retry."); comment.MarkDeleted(clock.UtcNow, Actor()); comment.VersionNo++;
         if (await CommitAsync(comment.TaskItem, "TaskCommentDeleted", "commentChanged", null, ct) != TaskCommandSaveResult.Saved) return Fail("TASK_STALE_VERSION", "Task has changed. Refetch and retry."); return Result.Success();
     }
@@ -302,6 +309,8 @@ public sealed class TaskSubresourceService(
         var label = await ManagedLabelAsync(projectId, labelId, ct);
         if (project is null || label is null)
             return Fail<ProjectTaskLabelResponse>("TASK_LABEL_FORBIDDEN", "Label operation is not authorized.");
+        if (expectedVersion <= 0)
+            return Fail<ProjectTaskLabelResponse>("TASK_INVALID_EXPECTED_VERSION", "Expected version must be a positive integer.");
         if (label.VersionNo != expectedVersion)
             return Fail<ProjectTaskLabelResponse>("TASK_STALE_VERSION", "Label has changed. Refetch and retry.");
 
@@ -322,6 +331,7 @@ public sealed class TaskSubresourceService(
         if (label is null) return Fail("TASK_LABEL_NOT_FOUND", "Label not found.");
         if (label.ProjectId != task.ProjectId) return Fail("TASK_LABEL_PROJECT_MISMATCH", "Label is not available for this task.");
         if (label.IsArchived) return Fail("TASK_LABEL_ARCHIVED", "Archived labels cannot be applied.");
+        if (request.ExpectedVersion <= 0) return Fail("TASK_INVALID_EXPECTED_VERSION", "Expected version must be a positive integer.");
         if ((await projects.ListWorkItemLabelsAsync(taskId, ct)).Any(x => x.LabelId == labelId)) return Result.Success();
         if (task.VersionNo != request.ExpectedVersion) return Fail("TASK_STALE_VERSION", "Task has changed. Refetch and retry.");
 
@@ -346,6 +356,7 @@ public sealed class TaskSubresourceService(
     {
         var task = await EditableTaskAsync(taskId, ct);
         if (task is null) return Fail("TASK_LABEL_FORBIDDEN", "Task operation is not authorized.");
+        if (expectedVersion <= 0) return Fail("TASK_INVALID_EXPECTED_VERSION", "Expected version must be a positive integer.");
         var association = (await projects.ListWorkItemLabelsAsync(taskId, ct)).FirstOrDefault(x => x.LabelId == labelId);
         if (association is null) return Result.Success();
         if (task.VersionNo != expectedVersion) return Fail("TASK_STALE_VERSION", "Task has changed. Refetch and retry.");
@@ -442,7 +453,7 @@ public sealed class TaskSubresourceService(
         var file = x.FileObject;
         if (file is null || file.DeletedAt.HasValue || file.Status == FileObjectStatus.Deleted) return new(x.Id, x.FileObjectId, x.FileName, x.ContentType, x.SizeBytes, x.ScanStatus.ToString(), x.CreatedAt, "Missing", false, false, true, "FILE_MISSING");
         if (file.Status == FileObjectStatus.Quarantined || x.ScanStatus == FileScanStatus.Infected) return new(x.Id, x.FileObjectId, x.FileName, x.ContentType, x.SizeBytes, x.ScanStatus.ToString(), x.CreatedAt, "Quarantined", false, false, true, "QUARANTINED");
-        if (file.Status == FileObjectStatus.Archived) return new(x.Id, x.FileObjectId, x.FileName, x.ContentType, x.SizeBytes, x.ScanStatus.ToString(), x.CreatedAt, "Archived", false, false, true, "FILE_ARCHIVED");
+        if (file.Status == FileObjectStatus.Archived) return new(x.Id, x.FileObjectId, x.FileName, x.ContentType, x.SizeBytes, x.ScanStatus.ToString(), x.CreatedAt, "Missing", false, false, true, "FILE_ARCHIVED");
         if (file.Status != FileObjectStatus.Active) return new(x.Id, x.FileObjectId, x.FileName, x.ContentType, x.SizeBytes, x.ScanStatus.ToString(), x.CreatedAt, "Missing", false, false, true, "FILE_MISSING");
         if (x.ScanStatus != FileScanStatus.Clean) return new(x.Id, x.FileObjectId, x.FileName, x.ContentType, x.SizeBytes, x.ScanStatus.ToString(), x.CreatedAt, "ScanPending", false, false, true, "SCAN_PENDING");
         var canOpen = await fileAuthorization.CanViewAttachment(Actor(), x, ct);

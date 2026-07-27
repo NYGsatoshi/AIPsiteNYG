@@ -822,6 +822,24 @@ export class ProjectsFacade {
     const version = (value: unknown) => typeof value === 'string' || typeof value === 'number' ? String(value) : '0';
     const page = <TSource, TView>(source: PagedResponseDto<TSource> | null | undefined, items: readonly TView[]) => ({ items, page: number(source?.page) || 1, pageSize: number(source?.pageSize) || items.length, totalCount: number(source?.totalCount), hasMore: boolean(source?.hasMore) });
     return {
+      canonicalTask: {
+        id: text(detail.task?.id), tenantId: nullableText(detail.task?.tenantId), workspaceId: nullableText(detail.task?.workspaceId), projectId: text(detail.task?.projectId),
+        kind: typeof detail.task?.kind === 'string' || typeof detail.task?.kind === 'number' ? detail.task.kind : null,
+        parentTaskId: nullableText(detail.task?.parentTaskId), title: text(detail.task?.title), description: nullableText(detail.task?.description),
+        workflowStageId: nullableText(detail.task?.workflowStageId), workflowStageName: text(detail.task?.workflowStageName),
+        stageCategory: typeof detail.task?.stageCategory === 'string' || typeof detail.task?.stageCategory === 'number' ? detail.task.stageCategory : null,
+        priority: text(detail.task?.priority), plannedStartDate: nullableText(detail.task?.plannedStartDate), plannedEndDate: nullableText(detail.task?.plannedEndDate),
+        deadlineAt: nullableText(detail.task?.deadlineAt), progressPercent: number(detail.task?.progressPercent), progressIsDerived: boolean(detail.task?.progressIsDerived),
+        reviewStatus: typeof detail.task?.reviewStatus === 'string' || typeof detail.task?.reviewStatus === 'number' ? detail.task.reviewStatus : null,
+        version: version(detail.task?.version), checklistCompletedCount: number(detail.task?.subresources?.checklistCompletedCount),
+        checklistTotalCount: number(detail.task?.subresources?.checklistTotalCount), commentCount: number(detail.task?.subresources?.commentCount),
+        labelCount: number(detail.task?.subresources?.labelCount), subtaskCount: number(detail.task?.subresources?.subtaskCount)
+      },
+      relationships: {
+        primaryAssignee: nullableText(detail.relationships?.primaryAssignee?.displayName), targetGroupId: nullableText(detail.relationships?.targetGroupId),
+        collaborators: (detail.relationships?.collaborators ?? []).map(person => ({ userId: text(person.userId), displayName: text(person.displayName) })).filter(person => person.userId && person.displayName),
+        reviewer: nullableText(detail.relationships?.reviewer?.displayName), version: version(detail.relationships?.version)
+      },
       workspaceId: nullableText(detail.task?.workspaceId),
       permissions: {
         canCreateSubtask: boolean(detail.permissions?.canCreateSubtask), canCreateChecklistItem: boolean(detail.permissions?.canCreateChecklistItem),

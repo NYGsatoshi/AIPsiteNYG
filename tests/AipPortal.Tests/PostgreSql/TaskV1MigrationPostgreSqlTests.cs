@@ -14,6 +14,7 @@ public sealed class TaskV1MigrationPostgreSqlTests
 {
     [PostgreSqlFact]
     [Trait("Category", "PostgreSQLIntegration")]
+    [Trait("Scope", "TaskV1PR03C")]
     public async Task CleanDatabaseMigratesToLatestWithTaskV1DatabaseContracts()
     {
         var connectionString = PostgreSqlTestEnvironment.RequireConnectionString();

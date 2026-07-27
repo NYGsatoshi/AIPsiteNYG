@@ -222,6 +222,10 @@ export interface TaskDetailViewModel {
 }
 
 export interface TaskDetailAggregateViewModel {
+  /** Bounded canonical Task fields retained separately from the legacy grid row. */
+  readonly canonicalTask: TaskCanonicalDetailViewModel;
+  /** The relationship aggregate is distinct from the Task's summary fields. */
+  readonly relationships: TaskRelationshipsViewModel;
   readonly workspaceId: string | null;
   readonly permissions: TaskDetailPermissionsViewModel;
   readonly taskVersion: string;
@@ -258,6 +262,41 @@ export interface TaskEditorSaveRequest {
   readonly dueDate: string;
   readonly progressPercent: number;
   readonly expectedVersion: string;
+}
+
+export interface TaskCanonicalDetailViewModel {
+  readonly id: string;
+  readonly tenantId: string | null;
+  readonly workspaceId: string | null;
+  readonly projectId: string;
+  readonly kind: string | number | null;
+  readonly parentTaskId: string | null;
+  readonly title: string;
+  readonly description: string | null;
+  readonly workflowStageId: string | null;
+  readonly workflowStageName: string;
+  readonly stageCategory: string | number | null;
+  readonly priority: string;
+  readonly plannedStartDate: string | null;
+  readonly plannedEndDate: string | null;
+  readonly deadlineAt: string | null;
+  readonly progressPercent: number;
+  readonly progressIsDerived: boolean;
+  readonly reviewStatus: string | number | null;
+  readonly version: string;
+  readonly checklistCompletedCount: number;
+  readonly checklistTotalCount: number;
+  readonly commentCount: number;
+  readonly labelCount: number;
+  readonly subtaskCount: number;
+}
+
+export interface TaskRelationshipsViewModel {
+  readonly primaryAssignee: string | null;
+  readonly targetGroupId: string | null;
+  readonly collaborators: readonly { readonly userId: string; readonly displayName: string }[];
+  readonly reviewer: string | null;
+  readonly version: string;
 }
 
 export interface CreateTaskFormRequest {

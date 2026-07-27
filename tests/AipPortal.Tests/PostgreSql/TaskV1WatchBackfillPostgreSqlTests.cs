@@ -11,6 +11,7 @@ public sealed class TaskV1WatchBackfillPostgreSqlTests
 
     [PostgreSqlFact]
     [Trait("Category", "PostgreSQLIntegration")]
+    [Trait("Scope", "TaskV1PR03C")]
     public async Task BackfillCombinesAllSourcesHonorsPreferencesAndIsIdempotent()
     {
         var connectionString = PostgreSqlTestEnvironment.RequireConnectionString();
@@ -88,6 +89,7 @@ INSERT INTO work_item_watch_states ("Id", "TenantId", "TaskItemId", "UserId", "A
 
     [PostgreSqlFact]
     [Trait("Category", "PostgreSQLIntegration")]
+    [Trait("Scope", "TaskV1PR03C")]
     public async Task PostManualNormalizationUsesTheCanonicalFormulaWithoutTouchingDeletedTasks()
     {
         var connectionString = PostgreSqlTestEnvironment.RequireConnectionString();
@@ -135,6 +137,7 @@ WHERE "Id" = @automaticOnly OR "Id" = @manual OR "Id" = @optOut OR "Id" = @delet
 
     [PostgreSqlFact]
     [Trait("Category", "PostgreSQLIntegration")]
+    [Trait("Scope", "TaskV1PR03C")]
     public async Task ExclusivityMigrationRepairsContradictionsAndDatabaseRejectsNewContradictions()
     {
         var connectionString = PostgreSqlTestEnvironment.RequireConnectionString();

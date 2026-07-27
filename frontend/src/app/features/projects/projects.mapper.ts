@@ -43,7 +43,7 @@ export function mapTaskDtoToRecord(
     statusLabel: taskStatusLabel(status),
     priority,
     priorityLabel: taskPriorityLabel(priority),
-    assignee: 'Assignment not shown by API',
+    assignee: stringValue(task.primaryAssignee?.displayName) ?? 'Unassigned',
     startDate: stringValue(task.plannedStartDate) ?? stringValue(task.startDate) ?? '',
     dueDate: stringValue(task.plannedEndDate) ?? stringValue(task.dueDate) ?? '',
     progressPercent: numberValue(task.progressPercent) ?? 0,
@@ -53,7 +53,7 @@ export function mapTaskDtoToRecord(
     allowedTransitions,
     capabilities: taskCapabilities(task.uiPermissions, allowedTransitions),
     authorized: true,
-    rowVersion: stringValue(task.uiPermissions?.rowVersion) ?? stringValue(task.version) ?? ''
+    rowVersion: versionValue(task.uiPermissions?.rowVersion) ?? versionValue(task.version) ?? ''
   };
 }
 
@@ -244,6 +244,14 @@ function taskStatusArray(value: unknown): readonly TaskStatus[] {
 
 function stringValue(value: unknown): string | undefined {
   return typeof value === 'string' && value.length > 0 ? value : undefined;
+}
+
+function versionValue(value: unknown): string | undefined {
+  return typeof value === 'string' && value.length > 0
+    ? value
+    : typeof value === 'number' && Number.isSafeInteger(value) && value >= 0
+      ? String(value)
+      : undefined;
 }
 
 function requiredString(value: unknown, fieldName: string): string {

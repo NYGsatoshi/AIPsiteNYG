@@ -28,6 +28,7 @@ namespace AipPortal.Tests.PostgreSql;
 public sealed class TaskV1FileOpenDownloadReauthorizationPostgreSqlTests
 {
     [PostgreSqlFact]
+    [Trait("Scope", "TaskV1PR03C")]
     public async Task ActiveCleanTaskAssociationCanOpenIssueAndUseAGrant()
     {
         await using var fixture = await Fixture.CreateAsync();
@@ -45,6 +46,7 @@ public sealed class TaskV1FileOpenDownloadReauthorizationPostgreSqlTests
     }
 
     [PostgreSqlFact]
+    [Trait("Scope", "TaskV1PR03C")]
     public async Task MembershipLossDeniesOpenGrantIssueAndGrantUseBeforeStorageRead()
     {
         await using var fixture = await Fixture.CreateAsync();
@@ -68,6 +70,7 @@ public sealed class TaskV1FileOpenDownloadReauthorizationPostgreSqlTests
     }
 
     [PostgreSqlFact]
+    [Trait("Scope", "TaskV1PR03C")]
     public async Task AssociationFileStateAndScopeChangesInvalidateExistingGrantWithoutReadingStorage()
     {
         foreach (var change in new Func<Fixture, Task>[]

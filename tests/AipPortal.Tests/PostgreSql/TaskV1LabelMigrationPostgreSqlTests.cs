@@ -10,6 +10,7 @@ public sealed class TaskV1LabelMigrationPostgreSqlTests
 
     [PostgreSqlFact]
     [Trait("Category", "PostgreSQLIntegration")]
+    [Trait("Scope", "TaskV1PR03C")]
     public async Task NormalizedNameMigrationDeterministicallyConsolidatesDefinitionsAndAssociations()
     {
         var connectionString = PostgreSqlTestEnvironment.RequireConnectionString();
