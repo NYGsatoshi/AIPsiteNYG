@@ -37,6 +37,12 @@ test.describe('MVP0 real backend browser smoke', () => {
   });
 
   test('exercises mandatory authenticated MVP0 flows through ASP.NET Core backend', async ({ page }, testInfo) => {
+    // The synthetic smoke tenant has the server-side realtime capability, while
+    // this client-side rollout flag remains opt-in outside the smoke harness.
+    // This enables a real Hub connection; it does not stub or intercept it.
+    await page.addInitScript(() => {
+      window.__AIP_FEATURE_FLAGS__ = { 'realtime.signalR': true };
+    });
     const evidence: SmokeEvidence = {
       baseURL: String(testInfo.project.use.baseURL ?? ''),
       email: smokeEmail,
@@ -428,7 +434,11 @@ async function openPr03cTaskDetail(page: Page, evidence: SmokeEvidence) {
   const task = tasksBody.items.find((item: Record<string, unknown>) => item.title === smokeTaskTitle);
   expect(task, 'PR03C seeded task').toBeTruthy();
   evidence.taskId = String(task!.id);
-  evidence.workspaceId = String((task as Record<string, unknown>).workspaceId);
+
+  const detail = await recordFetchJson(page, evidence, 'pr03c-task-detail-contract', `/api/tasks/${evidence.taskId}`, {
+    validate: (body) => isPr03cTaskDetail(body, evidence.taskId ?? '', evidence.projectId ?? '')
+  });
+  evidence.workspaceId = String((detail as Record<string, any>).task.workspaceId);
   expect(evidence.workspaceId, 'task workspaceId is part of the canonical Task DTO').toMatch(/^[0-9a-f-]{36}$/i);
 
   await page.goto(`/app/projects/${evidence.projectId}/tasks/${evidence.taskId}`);
