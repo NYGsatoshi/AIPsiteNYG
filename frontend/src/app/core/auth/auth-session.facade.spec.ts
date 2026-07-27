@@ -93,6 +93,26 @@ describe('AuthSessionFacade logout', () => {
     expect(navigateSpy).not.toHaveBeenCalled();
   });
 
+  it('discards the anonymous CSRF token after login so authenticated mutations obtain a new token', () => {
+    csrfTokens.ensureToken('mock-tenant').subscribe();
+    httpMock.expectOne('/api/security/csrf-token').flush({ token: 'csrf-anonymous', headerName: 'X-CSRF-Token' });
+
+    authSession.login('member@example.test', 'correct-password').subscribe();
+    const loginRequest = httpMock.expectOne('/api/auth/login');
+    expect(loginRequest.request.headers.get('X-CSRF-Token')).toBe('csrf-anonymous');
+    loginRequest.flush({
+      userId: 'user-1', displayName: 'Member', email: 'member@example.test', systemRole: 'User', status: 'Active',
+      capabilities: ['projects:view'], currentWorkspace: null, workspaces: []
+    });
+    httpMock.expectOne('/api/tenants/current').flush({
+      tenantId: 'tenant-1', tenantSlug: 'default', isAvailable: true, isPlatformScope: false,
+      displayName: 'Default', status: 'Active', currentUserRole: 'Member', appMode: 'OnPremSingleTenant', allowTenantSwitching: false
+    });
+
+    csrfTokens.ensureToken('tenant-1').subscribe();
+    httpMock.expectOne('/api/security/csrf-token').flush({ token: 'csrf-authenticated', headerName: 'X-CSRF-Token' });
+  });
+
   it('retains normal-user capabilities from the backend without adding admin grants', () => {
     const snapshots: AuthSessionSnapshot[] = [];
 
