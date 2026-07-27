@@ -1016,19 +1016,14 @@ public sealed class TaskV1CoreConcurrencyPostgreSqlTests
             }
 
             await using var command = harness.CreateScope();
-            var before = (await command.Commands.GetAsync(harness.Graph.Task.Id)).Value!.Version;
-            var result = await command.Subresources.AssociateFileAsync(harness.Graph.Task.Id, new CreateTaskFileAssociationRequest(harness.Graph.SourceAttachment.Id, before));
-            Assert.Equal("TASK_FILE_SCAN_NOT_READY", Code(result.Error));
-            await using var verify = harness.CreateScope();
-            Assert.Equal(before, await verify.Db.TaskItems.Where(value => value.Id == harness.Graph.Task.Id).Select(value => value.VersionNo).SingleAsync());
-            Assert.Empty(await verify.Db.Attachments.Where(value => value.OwnerType == AttachmentOwnerType.TaskItem && value.OwnerId == harness.Graph.Task.Id).ToListAsync());
+            await AssertFileAssociationRejectedAsync(harness, command, harness.Graph.SourceAttachment.Id, "TASK_FILE_SCAN_NOT_READY");
         }
     }
 
     [PostgreSqlFact]
     [Trait("Category", "PostgreSQLIntegration")]
     [Trait("Scope", "TaskV1Prompt2C")]
-    public async Task FileAssociationRejectsQuarantinedAndDeletedFileObjectsWithoutChangingTheTask()
+    public async Task FileAssociationRejectsInactiveFileObjectsWithoutChangingTheTask()
     {
         foreach (var status in new[] { FileObjectStatus.Quarantined, FileObjectStatus.Archived })
         {
@@ -1041,11 +1036,21 @@ public sealed class TaskV1CoreConcurrencyPostgreSqlTests
             }
 
             await using var command = harness.CreateScope();
-            var before = (await command.Commands.GetAsync(harness.Graph.Task.Id)).Value!.Version;
-            var result = await command.Subresources.AssociateFileAsync(harness.Graph.Task.Id, new CreateTaskFileAssociationRequest(harness.Graph.SourceAttachment.Id, before));
-            Assert.False(result.IsSuccess);
-            await using var verify = harness.CreateScope();
-            Assert.Equal(before, await verify.Db.TaskItems.Where(value => value.Id == harness.Graph.Task.Id).Select(value => value.VersionNo).SingleAsync());
+            await AssertFileAssociationRejectedAsync(harness, command, harness.Graph.SourceAttachment.Id,
+                status == FileObjectStatus.Quarantined ? "TASK_FILE_QUARANTINED" : "TASK_FILE_ASSOCIATION_FORBIDDEN");
+        }
+
+        await using (var inconsistentDeletedHarness = await ServiceHarness.CreateAsync())
+        {
+            await using (var setup = inconsistentDeletedHarness.CreateScope())
+            {
+                var file = await setup.Db.FileObjects.SingleAsync(value => value.Id == inconsistentDeletedHarness.Graph.SourceAttachment.FileObjectId);
+                file.Status = FileObjectStatus.Deleted;
+                await setup.Db.SaveChangesAsync();
+            }
+
+            await using var command = inconsistentDeletedHarness.CreateScope();
+            await AssertFileAssociationRejectedAsync(inconsistentDeletedHarness, command, inconsistentDeletedHarness.Graph.SourceAttachment.Id, "TASK_FILE_ASSOCIATION_FORBIDDEN");
         }
 
         await using (var deletedHarness = await ServiceHarness.CreateAsync())
@@ -1058,11 +1063,7 @@ public sealed class TaskV1CoreConcurrencyPostgreSqlTests
             }
 
             await using var command = deletedHarness.CreateScope();
-            var before = (await command.Commands.GetAsync(deletedHarness.Graph.Task.Id)).Value!.Version;
-            var result = await command.Subresources.AssociateFileAsync(deletedHarness.Graph.Task.Id, new CreateTaskFileAssociationRequest(deletedHarness.Graph.SourceAttachment.Id, before));
-            Assert.Equal("TASK_FILE_ASSOCIATION_FORBIDDEN", Code(result.Error));
-            await using var verify = deletedHarness.CreateScope();
-            Assert.Equal(before, await verify.Db.TaskItems.Where(value => value.Id == deletedHarness.Graph.Task.Id).Select(value => value.VersionNo).SingleAsync());
+            await AssertFileAssociationRejectedAsync(deletedHarness, command, deletedHarness.Graph.SourceAttachment.Id, "TASK_FILE_ASSOCIATION_FORBIDDEN");
         }
     }
 
@@ -1368,18 +1369,48 @@ public sealed class TaskV1CoreConcurrencyPostgreSqlTests
         Assert.Equal(expected, (await remove.Commands.GetAsync(harness.Graph.Task.Id)).Value!.Version);
         var before = await SnapshotAsync(apply.Db, harness.Graph.Task.Id);
 
-        var results = await Task.WhenAll(
-            ExecuteAsync(apply, () => apply.Subresources.ApplyLabelAsync(harness.Graph.Task.Id, label.Id, new TaskLabelAssociationRequest(expected))),
-            ExecuteAsync(remove, () => remove.Subresources.RemoveLabelAsync(harness.Graph.Task.Id, label.Id, expected)));
-
-        Assert.True(results[1].Result.IsSuccess);
-        Assert.True(results[0].Result.IsSuccess || Code(results[0].Result.Error) == "TASK_STALE_VERSION");
-        Assert.Single(results, value => value.Scope.SaveRecorder.LastSaveOutcome?.Result == TaskCommandSaveResult.Saved);
-        Assert.Equal(1, results.Sum(value => value.Scope.SaveRecorder.SaveTaskCommandCallCount));
+        harness.Race.ArmSingleWriterHold();
+        var removeTask = remove.Subresources.RemoveLabelAsync(harness.Graph.Task.Id, label.Id, expected);
+        await harness.Race.WaitForSingleWriterArrivalAsync();
+        var applyResult = await apply.Subresources.ApplyLabelAsync(harness.Graph.Task.Id, label.Id, new TaskLabelAssociationRequest(expected));
+        Assert.True(applyResult.IsSuccess);
+        Assert.Equal(0, apply.SaveRecorder.SaveTaskCommandCallCount);
+        harness.Race.ReleaseSingleWriter();
+        Assert.True((await removeTask).IsSuccess);
+        Assert.Equal(1, remove.SaveRecorder.SaveTaskCommandCallCount);
 
         await using var verify = harness.CreateScope();
         Assert.Empty(await verify.Db.WorkItemLabels.Where(value => value.TaskItemId == harness.Graph.Task.Id && value.LabelId == label.Id).ToListAsync());
         await AssertTaskMutationSequenceAsync(verify.Db, before, harness.Graph.Task.Id, ["TaskLabelRemoved"]);
+        Assert.Equal("unrelated", await verify.Db.TaskItems.Where(value => value.Id == harness.Graph.UnrelatedTask.Id).Select(value => value.Title).SingleAsync());
+    }
+
+    [PostgreSqlFact]
+    [Trait("Category", "PostgreSQLIntegration")]
+    [Trait("Scope", "TaskV1Prompt2C")]
+    public async Task LabelApplyRemoveOverlapCommitsOnlyTheActualApplyWhenAssociationIsAbsent()
+    {
+        await using var harness = await ServiceHarness.CreateAsync();
+        await using var setup = harness.CreateScope();
+        var label = (await setup.Subresources.CreateLabelAsync(harness.Graph.Project.Id, new CreateProjectTaskLabelRequest("Release", null))).Value!;
+        var expected = (await setup.Commands.GetAsync(harness.Graph.Task.Id)).Value!.Version;
+        var before = await SnapshotAsync(setup.Db, harness.Graph.Task.Id);
+        await using var apply = harness.CreateScope();
+        await using var remove = harness.CreateScope();
+
+        harness.Race.ArmSingleWriterHold();
+        var applyTask = apply.Subresources.ApplyLabelAsync(harness.Graph.Task.Id, label.Id, new TaskLabelAssociationRequest(expected));
+        await harness.Race.WaitForSingleWriterArrivalAsync();
+        var removeResult = await remove.Subresources.RemoveLabelAsync(harness.Graph.Task.Id, label.Id, expected);
+        Assert.True(removeResult.IsSuccess);
+        Assert.Equal(0, remove.SaveRecorder.SaveTaskCommandCallCount);
+        harness.Race.ReleaseSingleWriter();
+        Assert.True((await applyTask).IsSuccess);
+        Assert.Equal(1, apply.SaveRecorder.SaveTaskCommandCallCount);
+
+        await using var verify = harness.CreateScope();
+        Assert.Single(await verify.Db.WorkItemLabels.Where(value => value.TaskItemId == harness.Graph.Task.Id && value.LabelId == label.Id).ToListAsync());
+        await AssertTaskMutationSequenceAsync(verify.Db, before, harness.Graph.Task.Id, ["TaskLabelApplied"]);
     }
 
     [PostgreSqlFact]
@@ -1401,21 +1432,47 @@ public sealed class TaskV1CoreConcurrencyPostgreSqlTests
         Assert.Equal(expected, (await remove.Commands.GetAsync(harness.Graph.Task.Id)).Value!.Version);
         var before = await SnapshotAsync(associate.Db, harness.Graph.Task.Id);
 
-        var associateTask = associate.Subresources.AssociateFileAsync(harness.Graph.Task.Id, new CreateTaskFileAssociationRequest(harness.Graph.SourceAttachment.Id, expected));
+        harness.Race.ArmSingleWriterHold();
         var removeTask = remove.Subresources.RemoveFileAsync(harness.Graph.Task.Id, associationId, expected);
-        await Task.WhenAll(associateTask, removeTask);
-        var associateResult = await associateTask;
-        var removeResult = await removeTask;
-
-        Assert.True(removeResult.IsSuccess);
-        Assert.True(associateResult.IsSuccess || Code(associateResult.Error) == "TASK_STALE_VERSION");
-        Assert.Single(new[] { associate, remove }, value => value.SaveRecorder.LastSaveOutcome?.Result == TaskCommandSaveResult.Saved);
-        Assert.Equal(1, associate.SaveRecorder.SaveTaskCommandCallCount + remove.SaveRecorder.SaveTaskCommandCallCount);
+        await harness.Race.WaitForSingleWriterArrivalAsync();
+        var associateResult = await associate.Subresources.AssociateFileAsync(harness.Graph.Task.Id, new CreateTaskFileAssociationRequest(harness.Graph.SourceAttachment.Id, expected));
+        Assert.True(associateResult.IsSuccess);
+        Assert.Equal(0, associate.SaveRecorder.SaveTaskCommandCallCount);
+        harness.Race.ReleaseSingleWriter();
+        Assert.True((await removeTask).IsSuccess);
+        Assert.Equal(1, remove.SaveRecorder.SaveTaskCommandCallCount);
 
         await using var verify = harness.CreateScope();
         Assert.Empty(await verify.Db.Attachments.Where(value => value.Id == associationId && !value.DeletedAt.HasValue).ToListAsync());
         Assert.NotNull(await verify.Db.FileObjects.SingleOrDefaultAsync(value => value.Id == harness.Graph.SourceAttachment.FileObjectId));
         await AssertTaskMutationSequenceAsync(verify.Db, before, harness.Graph.Task.Id, ["TaskFileAssociationRemoved"]);
+    }
+
+    [PostgreSqlFact]
+    [Trait("Category", "PostgreSQLIntegration")]
+    [Trait("Scope", "TaskV1Prompt2C")]
+    public async Task TaskFileAssociateRemoveOverlapCommitsOnlyTheActualAssociateWhenAssociationIsAbsent()
+    {
+        await using var harness = await ServiceHarness.CreateAsync();
+        await using var apply = harness.CreateScope();
+        await using var remove = harness.CreateScope();
+        var expected = (await apply.Commands.GetAsync(harness.Graph.Task.Id)).Value!.Version;
+        var before = await SnapshotAsync(apply.Db, harness.Graph.Task.Id);
+
+        harness.Race.ArmSingleWriterHold();
+        var associateTask = apply.Subresources.AssociateFileAsync(harness.Graph.Task.Id, new CreateTaskFileAssociationRequest(harness.Graph.SourceAttachment.Id, expected));
+        await harness.Race.WaitForSingleWriterArrivalAsync();
+        var removeResult = await remove.Subresources.RemoveFileAsync(harness.Graph.Task.Id, Guid.NewGuid(), expected);
+        Assert.True(removeResult.IsSuccess);
+        Assert.Equal(0, remove.SaveRecorder.SaveTaskCommandCallCount);
+        harness.Race.ReleaseSingleWriter();
+        Assert.True((await associateTask).IsSuccess);
+        Assert.Equal(1, apply.SaveRecorder.SaveTaskCommandCallCount);
+
+        await using var verify = harness.CreateScope();
+        Assert.Single(await verify.Db.Attachments.Where(value => value.OwnerType == AttachmentOwnerType.TaskItem && value.OwnerId == harness.Graph.Task.Id && !value.DeletedAt.HasValue).ToListAsync());
+        Assert.NotNull(await verify.Db.FileObjects.SingleOrDefaultAsync(value => value.Id == harness.Graph.SourceAttachment.FileObjectId));
+        await AssertTaskMutationSequenceAsync(verify.Db, before, harness.Graph.Task.Id, ["TaskFileAssociated"]);
     }
 
     [PostgreSqlFact]
@@ -1464,6 +1521,111 @@ public sealed class TaskV1CoreConcurrencyPostgreSqlTests
     [PostgreSqlFact]
     [Trait("Category", "PostgreSQLIntegration")]
     [Trait("Scope", "TaskV1Prompt2C")]
+    public async Task PrimaryAssigneeClearWithoutReviewerRemovesAutomaticSourceAndCommitsOneEvent()
+    {
+        await using var harness = await ServiceHarness.CreateAsync();
+        var groupId = await CreateTargetGroupAsync(harness, "assignee-clear");
+        await using var command = harness.CreateScope();
+        var version = (await command.Commands.GetAsync(harness.Graph.Task.Id)).Value!.Version;
+        Assert.True((await command.Commands.SetTargetGroupAsync(harness.Graph.Task.Id, new TaskTargetGroupRequest(groupId, version))).IsSuccess);
+        version = (await command.Commands.GetAsync(harness.Graph.Task.Id)).Value!.Version;
+        Assert.True((await command.Commands.SetAssigneeAsync(harness.Graph.Task.Id, new TaskRelationshipUserRequest(harness.Graph.MentionUser.Id, version))).IsSuccess);
+        Assert.Null((await command.Commands.GetAsync(harness.Graph.Task.Id)).Value!.Reviewer);
+        var creatorWatchBefore = await harness.GetWatchStateAsync(harness.Graph.Task.Id, harness.Graph.User.Id);
+        var before = await SnapshotAsync(command.Db, harness.Graph.Task.Id);
+
+        version = (await command.Commands.GetAsync(harness.Graph.Task.Id)).Value!.Version;
+        var result = await command.Commands.SetAssigneeAsync(harness.Graph.Task.Id, new TaskRelationshipUserRequest(null, version));
+        Assert.True(result.IsSuccess);
+        Assert.Null(result.Value!.Task.PrimaryAssignee);
+
+        await using var verify = harness.CreateScope();
+        var task = await verify.Db.TaskItems.SingleAsync(value => value.Id == harness.Graph.Task.Id);
+        Assert.Null(task.PrimaryAssigneeUserId);
+        var assigneeWatch = await harness.GetWatchStateAsync(harness.Graph.Task.Id, harness.Graph.MentionUser.Id);
+        Assert.False(assigneeWatch.AutomaticSources.HasFlag(WorkItemWatchAutomaticSource.PrimaryAssignee));
+        Assert.False(assigneeWatch.IsWatching);
+        var creatorWatchAfter = await harness.GetWatchStateAsync(harness.Graph.Task.Id, harness.Graph.User.Id);
+        Assert.Equal(creatorWatchBefore.IsManualWatch, creatorWatchAfter.IsManualWatch);
+        Assert.Equal(creatorWatchBefore.AutomaticSources, creatorWatchAfter.AutomaticSources);
+        await AssertTaskMutationSequenceAsync(verify.Db, before, harness.Graph.Task.Id, ["TaskAssigneeChanged"]);
+    }
+
+    [PostgreSqlFact]
+    [Trait("Category", "PostgreSQLIntegration")]
+    [Trait("Scope", "TaskV1Prompt2C")]
+    public async Task AutomaticWatchSourceAddAndRemoveMutationsKeepOutboxEnvelopeVersionsAligned()
+    {
+        await using var harness = await ServiceHarness.CreateAsync();
+        var groupId = await CreateTargetGroupAsync(harness, "automatic-envelope");
+        await using var command = harness.CreateScope();
+        var version = (await command.Commands.GetAsync(harness.Graph.Task.Id)).Value!.Version;
+        Assert.True((await command.Commands.SetTargetGroupAsync(harness.Graph.Task.Id, new TaskTargetGroupRequest(groupId, version))).IsSuccess);
+        var before = await SnapshotAsync(command.Db, harness.Graph.Task.Id);
+
+        version = (await command.Commands.GetAsync(harness.Graph.Task.Id)).Value!.Version;
+        Assert.True((await command.Commands.SetAssigneeAsync(harness.Graph.Task.Id, new TaskRelationshipUserRequest(harness.Graph.MentionUser.Id, version))).IsSuccess);
+        version = (await command.Commands.GetAsync(harness.Graph.Task.Id)).Value!.Version;
+        Assert.True((await command.Commands.SetAssigneeAsync(harness.Graph.Task.Id, new TaskRelationshipUserRequest(null, version))).IsSuccess);
+        version = (await command.Commands.GetAsync(harness.Graph.Task.Id)).Value!.Version;
+        Assert.True((await command.Commands.AddCollaboratorAsync(harness.Graph.Task.Id, new TaskCollaboratorRequest(harness.Graph.CollaboratorUser.Id, version))).IsSuccess);
+        version = (await command.Commands.GetAsync(harness.Graph.Task.Id)).Value!.Version;
+        Assert.True((await command.Commands.RemoveCollaboratorAsync(harness.Graph.Task.Id, harness.Graph.CollaboratorUser.Id, version)).IsSuccess);
+        version = (await command.Commands.GetAsync(harness.Graph.Task.Id)).Value!.Version;
+        Assert.True((await command.Commands.SetReviewerAsync(harness.Graph.Task.Id, new TaskRelationshipUserRequest(harness.Graph.ReviewerUser.Id, version))).IsSuccess);
+        version = (await command.Commands.GetAsync(harness.Graph.Task.Id)).Value!.Version;
+        Assert.True((await command.Commands.SetReviewerAsync(harness.Graph.Task.Id, new TaskRelationshipUserRequest(null, version))).IsSuccess);
+
+        await using var verify = harness.CreateScope();
+        await AssertTaskMutationSequenceAsync(verify.Db, before, harness.Graph.Task.Id,
+        [
+            "TaskAssigneeChanged", "TaskAssigneeChanged", "TaskCollaboratorAdded",
+            "TaskCollaboratorRemoved", "TaskReviewerChanged", "TaskReviewerChanged"
+        ]);
+        Assert.False((await harness.GetWatchStateAsync(harness.Graph.Task.Id, harness.Graph.MentionUser.Id)).IsWatching);
+        Assert.False((await harness.GetWatchStateAsync(harness.Graph.Task.Id, harness.Graph.CollaboratorUser.Id)).IsWatching);
+        Assert.False((await harness.GetWatchStateAsync(harness.Graph.Task.Id, harness.Graph.ReviewerUser.Id)).IsWatching);
+    }
+
+    [PostgreSqlFact]
+    [Trait("Category", "PostgreSQLIntegration")]
+    [Trait("Scope", "TaskV1Prompt2C")]
+    public async Task FileAssociationRejectsCanonicalFileObjectWorkspaceMismatch()
+    {
+        await using var harness = await ServiceHarness.CreateAsync();
+        Guid attachmentId;
+        await using (var setup = harness.CreateScope())
+        {
+            var otherWorkspace = new Workspace
+            {
+                TenantId = harness.Graph.Tenant.Id,
+                Name = "Canonical file workspace mismatch",
+                Slug = $"canonical-file-mismatch-{Guid.NewGuid():N}",
+                CreatedByUserId = harness.Graph.User.Id
+            };
+            var file = new FileObject
+            {
+                TenantId = harness.Graph.Tenant.Id,
+                WorkspaceId = otherWorkspace.Id,
+                UploadedByUserId = harness.Graph.User.Id,
+                OriginalFileName = "mismatch.txt",
+                StorageKey = $"test/{Guid.NewGuid():N}",
+                ContentType = "text/plain",
+                SizeBytes = 1,
+                Status = FileObjectStatus.Active
+            };
+            var attachment = SourceAttachment(harness.Graph.Tenant.Id, harness.Graph.Workspace.Id, harness.Graph.User.Id, file, "mismatch.txt");
+            setup.Db.AddRange(otherWorkspace, file, attachment);
+            await setup.Db.SaveChangesAsync();
+            attachmentId = attachment.Id;
+        }
+
+        await AssertFileAssociationRejectedAsync(harness, attachmentId, "TASK_FILE_ASSOCIATION_FORBIDDEN");
+    }
+
+    [PostgreSqlFact]
+    [Trait("Category", "PostgreSQLIntegration")]
+    [Trait("Scope", "TaskV1Prompt2C")]
     public async Task FileScopeAndDeletedSourceRejectionsUseRealAuthorizationWithoutSideEffects()
     {
         await using var harness = await ServiceHarness.CreateAsync();
@@ -1495,6 +1657,24 @@ public sealed class TaskV1CoreConcurrencyPostgreSqlTests
         await AssertFileAssociationRejectedAsync(harness, harness.Graph.SourceAttachment.Id, "TASK_FILE_ASSOCIATION_FORBIDDEN");
     }
 
+    private static async Task<Guid> CreateTargetGroupAsync(ServiceHarness harness, string purpose)
+    {
+        await using var setup = harness.CreateScope();
+        var group = new Group
+        {
+            TenantId = harness.Graph.Tenant.Id,
+            WorkspaceId = harness.Graph.Workspace.Id,
+            Name = $"Target group {purpose}",
+            Slug = $"target-group-{purpose}-{Guid.NewGuid():N}",
+            GroupType = GroupType.Other,
+            Status = GroupStatus.Active,
+            CreatedByUserId = harness.Graph.User.Id
+        };
+        setup.Db.Groups.Add(group);
+        await setup.Db.SaveChangesAsync();
+        return group.Id;
+    }
+
     private static Attachment SourceAttachment(Guid tenantId, Guid workspaceId, Guid userId, FileObject file, string fileName) => new()
     {
         TenantId = tenantId,
@@ -1519,6 +1699,12 @@ public sealed class TaskV1CoreConcurrencyPostgreSqlTests
     private static async Task AssertFileAssociationRejectedAsync(ServiceHarness harness, Guid attachmentId, string code)
     {
         await using var command = harness.CreateScope();
+        await AssertFileAssociationRejectedAsync(harness, command, attachmentId, code);
+    }
+
+    private static async Task AssertFileAssociationRejectedAsync(ServiceHarness harness, RequestScope command, Guid attachmentId, string code)
+    {
+        var sourceBefore = await harness.SnapshotAttachmentAsync(attachmentId);
         var before = await SnapshotAsync(command.Db, harness.Graph.Task.Id);
         var version = (await command.Commands.GetAsync(harness.Graph.Task.Id)).Value!.Version;
         var result = await command.Subresources.AssociateFileAsync(harness.Graph.Task.Id, new CreateTaskFileAssociationRequest(attachmentId, version));
@@ -1526,6 +1712,8 @@ public sealed class TaskV1CoreConcurrencyPostgreSqlTests
         Assert.Equal(0, command.SaveRecorder.SaveTaskCommandCallCount);
         await using var verify = harness.CreateScope();
         await AssertTaskMutationSequenceAsync(verify.Db, before, harness.Graph.Task.Id, []);
+        Assert.Empty(await verify.Db.Attachments.Where(value => value.OwnerType == AttachmentOwnerType.TaskItem && value.OwnerId == harness.Graph.Task.Id && !value.DeletedAt.HasValue).ToListAsync());
+        Assert.Equal(sourceBefore, await harness.SnapshotAttachmentAsync(attachmentId));
     }
 
     private static TaskUpdateDetailsRequest Details(
@@ -1778,6 +1966,16 @@ public sealed class TaskV1CoreConcurrencyPostgreSqlTests
 
     private sealed record SideEffectSnapshot(long TaskVersion, int AuditCount, int OutboxCount, IReadOnlyDictionary<string, int> AuditActionCounts);
 
+    private sealed record AttachmentSnapshot(
+        Guid FileObjectId,
+        Guid WorkspaceId,
+        FileScanStatus ScanStatus,
+        DateTimeOffset? DeletedAt,
+        FileObjectStatus FileStatus,
+        DateTimeOffset? FileDeletedAt,
+        Guid? FileWorkspaceId,
+        Guid? FileProjectId);
+
     private static async Task<TaskChecklistResponse> CreateChecklistAsync(ServiceHarness harness, string text)
     {
         await using var scope = harness.CreateScope();
@@ -1888,6 +2086,25 @@ public sealed class TaskV1CoreConcurrencyPostgreSqlTests
         {
             await using var scope = CreateScope(userId);
             return await scope.Db.WorkItemWatchStates.AsNoTracking().SingleAsync(value => value.TaskItemId == taskId && value.UserId == userId);
+        }
+
+        public async Task<AttachmentSnapshot> SnapshotAttachmentAsync(Guid attachmentId)
+        {
+            await using var db = CreatePlatformContext(connectionString);
+            var attachment = await db.Attachments
+                .AsNoTracking()
+                .Include(value => value.FileObject)
+                .SingleAsync(value => value.Id == attachmentId);
+            var file = Assert.IsType<FileObject>(attachment.FileObject);
+            return new AttachmentSnapshot(
+                attachment.FileObjectId,
+                attachment.WorkspaceId,
+                attachment.ScanStatus,
+                attachment.DeletedAt,
+                file.Status,
+                file.DeletedAt,
+                file.WorkspaceId,
+                file.ProjectId);
         }
 
         public async Task<Guid> SeedOtherTenantLabelAsync()
@@ -2099,6 +2316,9 @@ public sealed class TaskV1CoreConcurrencyPostgreSqlTests
     {
         private readonly object gate = new();
         private TaskCompletionSource? release;
+        private TaskCompletionSource? singleWriterArrival;
+        private TaskCompletionSource? singleWriterRelease;
+        private bool singleWriterHoldArmed;
         private int remaining;
         private int saveCallCount;
 
@@ -2117,24 +2337,72 @@ public sealed class TaskV1CoreConcurrencyPostgreSqlTests
             }
         }
 
+        public void ArmSingleWriterHold()
+        {
+            lock (gate)
+            {
+                if (remaining != 0 || singleWriterHoldArmed || singleWriterRelease is not null)
+                    throw new InvalidOperationException("The previous save coordination has not completed.");
+
+                saveCallCount = 0;
+                singleWriterHoldArmed = true;
+                singleWriterArrival = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+                singleWriterRelease = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+            }
+        }
+
+        public async Task WaitForSingleWriterArrivalAsync(CancellationToken cancellationToken = default)
+        {
+            Task arrival;
+            lock (gate)
+            {
+                arrival = singleWriterArrival?.Task
+                    ?? throw new InvalidOperationException("A single-writer hold has not been armed.");
+            }
+
+            await arrival.WaitAsync(TimeSpan.FromSeconds(15), cancellationToken);
+        }
+
+        public void ReleaseSingleWriter()
+        {
+            lock (gate)
+            {
+                if (singleWriterRelease is null)
+                    throw new InvalidOperationException("A single-writer hold is not awaiting release.");
+
+                singleWriterRelease.TrySetResult();
+                singleWriterRelease = null;
+                singleWriterArrival = null;
+            }
+        }
+
         public async Task WaitBeforeSaveAsync(CancellationToken cancellationToken)
         {
             Interlocked.Increment(ref saveCallCount);
             Task? wait = null;
             lock (gate)
             {
-                if (remaining == 0)
-                    return;
-
-                remaining--;
-                if (remaining == 0)
+                if (singleWriterHoldArmed)
                 {
-                    release!.TrySetResult();
-                    release = null;
-                    return;
+                    singleWriterHoldArmed = false;
+                    singleWriterArrival!.TrySetResult();
+                    wait = singleWriterRelease!.Task;
                 }
+                else
+                {
+                    if (remaining == 0)
+                        return;
 
-                wait = release!.Task;
+                    remaining--;
+                    if (remaining == 0)
+                    {
+                        release!.TrySetResult();
+                        release = null;
+                        return;
+                    }
+
+                    wait = release!.Task;
+                }
             }
 
             await wait.WaitAsync(TimeSpan.FromSeconds(15), cancellationToken);
@@ -2145,7 +2413,12 @@ public sealed class TaskV1CoreConcurrencyPostgreSqlTests
             lock (gate)
             {
                 release?.TrySetCanceled();
+                singleWriterArrival?.TrySetCanceled();
+                singleWriterRelease?.TrySetCanceled();
                 release = null;
+                singleWriterArrival = null;
+                singleWriterRelease = null;
+                singleWriterHoldArmed = false;
                 remaining = 0;
             }
         }

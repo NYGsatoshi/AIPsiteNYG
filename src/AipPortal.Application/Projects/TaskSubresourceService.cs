@@ -54,7 +54,9 @@ public sealed class TaskSubresourceService(
         var source = await files.GetAttachmentAsync(request.AttachmentId, ct);
         if (source?.FileObject is null || source.DeletedAt.HasValue || source.FileObject.DeletedAt.HasValue ||
             !await fileAuthorization.CanViewAttachment(Actor(), source, ct) || source.WorkspaceId != task.WorkspaceId ||
-            source.FileObject.TenantId != task.TenantId || (source.FileObject.ProjectId.HasValue && source.FileObject.ProjectId != task.ProjectId))
+            source.FileObject.TenantId != task.TenantId ||
+            (source.FileObject.WorkspaceId.HasValue && source.FileObject.WorkspaceId != task.WorkspaceId) ||
+            (source.FileObject.ProjectId.HasValue && source.FileObject.ProjectId != task.ProjectId))
             return Fail<TaskFileAssociationResponse>("TASK_FILE_ASSOCIATION_FORBIDDEN", "File is not available for this task.");
         if (source.FileObject.Status == AipPortal.Domain.Enums.FileObjectStatus.Quarantined) return Fail<TaskFileAssociationResponse>("TASK_FILE_QUARANTINED", "File is quarantined.");
         if (source.FileObject.Status != AipPortal.Domain.Enums.FileObjectStatus.Active) return Fail<TaskFileAssociationResponse>("TASK_FILE_ASSOCIATION_FORBIDDEN", "File is not available for this task.");

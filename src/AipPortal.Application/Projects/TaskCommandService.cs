@@ -162,7 +162,8 @@ public sealed class TaskCommandService(
         var stale = EnsureVersion(task, request.ExpectedVersion); if (stale is not null) return Fail<TaskCommandResponse>(stale.Value.Code, stale.Value.Message);
         if (!request.UserId.HasValue && CategoryOf(task) is TaskStageCategory.InProgress or TaskStageCategory.Review) return Fail<TaskCommandResponse>("TASK_ASSIGNEE_REQUIRED", "Active work cannot be unassigned.");
         if (request.UserId.HasValue && !await IsProjectMemberAsync(task.ProjectId, request.UserId.Value, cancellationToken)) return Fail<TaskCommandResponse>("TASK_FORBIDDEN", "The assignee must be a current project member.");
-        if (request.UserId == task.ReviewerUserId) return Fail<TaskCommandResponse>("TASK_REVIEWER_MUST_DIFFER", "Reviewer and primary assignee must differ.");
+        if (request.UserId.HasValue && request.UserId == task.ReviewerUserId)
+            return Fail<TaskCommandResponse>("TASK_REVIEWER_MUST_DIFFER", "Reviewer and primary assignee must differ.");
         task.PrimaryAssigneeUserId = request.UserId;
         return await CommitAsync(task, "TaskAssigneeChanged", "assignmentChanged", cancellationToken);
     }
