@@ -1351,6 +1351,119 @@ public sealed class TaskV1CoreConcurrencyPostgreSqlTests
     [PostgreSqlFact]
     [Trait("Category", "PostgreSQLIntegration")]
     [Trait("Scope", "TaskV1Prompt2C")]
+    public async Task LabelApplyRemoveOverlapCommitsOnlyTheActualRemove()
+    {
+        await using var harness = await ServiceHarness.CreateAsync();
+        ProjectTaskLabelResponse label;
+        await using (var setup = harness.CreateScope())
+        {
+            label = (await setup.Subresources.CreateLabelAsync(harness.Graph.Project.Id, new CreateProjectTaskLabelRequest("Release", null))).Value!;
+            var version = (await setup.Commands.GetAsync(harness.Graph.Task.Id)).Value!.Version;
+            Assert.True((await setup.Subresources.ApplyLabelAsync(harness.Graph.Task.Id, label.Id, new TaskLabelAssociationRequest(version))).IsSuccess);
+        }
+
+        await using var apply = harness.CreateScope();
+        await using var remove = harness.CreateScope();
+        var expected = (await apply.Commands.GetAsync(harness.Graph.Task.Id)).Value!.Version;
+        Assert.Equal(expected, (await remove.Commands.GetAsync(harness.Graph.Task.Id)).Value!.Version);
+        var before = await SnapshotAsync(apply.Db, harness.Graph.Task.Id);
+
+        var results = await Task.WhenAll(
+            ExecuteAsync(apply, () => apply.Subresources.ApplyLabelAsync(harness.Graph.Task.Id, label.Id, new TaskLabelAssociationRequest(expected))),
+            ExecuteAsync(remove, () => remove.Subresources.RemoveLabelAsync(harness.Graph.Task.Id, label.Id, expected)));
+
+        Assert.True(results[1].Result.IsSuccess);
+        Assert.True(results[0].Result.IsSuccess || Code(results[0].Result.Error) == "TASK_STALE_VERSION");
+        Assert.Single(results, value => value.Scope.SaveRecorder.LastSaveOutcome?.Result == TaskCommandSaveResult.Saved);
+        Assert.Equal(1, results.Sum(value => value.Scope.SaveRecorder.SaveTaskCommandCallCount));
+
+        await using var verify = harness.CreateScope();
+        Assert.Empty(await verify.Db.WorkItemLabels.Where(value => value.TaskItemId == harness.Graph.Task.Id && value.LabelId == label.Id).ToListAsync());
+        await AssertTaskMutationSequenceAsync(verify.Db, before, harness.Graph.Task.Id, ["TaskLabelRemoved"]);
+    }
+
+    [PostgreSqlFact]
+    [Trait("Category", "PostgreSQLIntegration")]
+    [Trait("Scope", "TaskV1Prompt2C")]
+    public async Task TaskFileAssociateRemoveOverlapCommitsOnlyTheActualRemoveAndKeepsTheFile()
+    {
+        await using var harness = await ServiceHarness.CreateAsync();
+        Guid associationId;
+        await using (var setup = harness.CreateScope())
+        {
+            var version = (await setup.Commands.GetAsync(harness.Graph.Task.Id)).Value!.Version;
+            associationId = (await setup.Subresources.AssociateFileAsync(harness.Graph.Task.Id, new CreateTaskFileAssociationRequest(harness.Graph.SourceAttachment.Id, version))).Value!.Id;
+        }
+
+        await using var associate = harness.CreateScope();
+        await using var remove = harness.CreateScope();
+        var expected = (await associate.Commands.GetAsync(harness.Graph.Task.Id)).Value!.Version;
+        Assert.Equal(expected, (await remove.Commands.GetAsync(harness.Graph.Task.Id)).Value!.Version);
+        var before = await SnapshotAsync(associate.Db, harness.Graph.Task.Id);
+
+        var associateTask = associate.Subresources.AssociateFileAsync(harness.Graph.Task.Id, new CreateTaskFileAssociationRequest(harness.Graph.SourceAttachment.Id, expected));
+        var removeTask = remove.Subresources.RemoveFileAsync(harness.Graph.Task.Id, associationId, expected);
+        await Task.WhenAll(associateTask, removeTask);
+        var associateResult = await associateTask;
+        var removeResult = await removeTask;
+
+        Assert.True(removeResult.IsSuccess);
+        Assert.True(associateResult.IsSuccess || Code(associateResult.Error) == "TASK_STALE_VERSION");
+        Assert.Single(new[] { associate, remove }, value => value.SaveRecorder.LastSaveOutcome?.Result == TaskCommandSaveResult.Saved);
+        Assert.Equal(1, associate.SaveRecorder.SaveTaskCommandCallCount + remove.SaveRecorder.SaveTaskCommandCallCount);
+
+        await using var verify = harness.CreateScope();
+        Assert.Empty(await verify.Db.Attachments.Where(value => value.Id == associationId && !value.DeletedAt.HasValue).ToListAsync());
+        Assert.NotNull(await verify.Db.FileObjects.SingleOrDefaultAsync(value => value.Id == harness.Graph.SourceAttachment.FileObjectId));
+        await AssertTaskMutationSequenceAsync(verify.Db, before, harness.Graph.Task.Id, ["TaskFileAssociationRemoved"]);
+    }
+
+    [PostgreSqlFact]
+    [Trait("Category", "PostgreSQLIntegration")]
+    [Trait("Scope", "TaskV1Prompt2C")]
+    public async Task Prompt2CRepresentativeTaskMutationsKeepOutboxEnvelopeVersionsAligned()
+    {
+        await using var harness = await ServiceHarness.CreateAsync();
+        ProjectTaskLabelResponse label;
+        await using var command = harness.CreateScope();
+        label = (await command.Subresources.CreateLabelAsync(harness.Graph.Project.Id, new CreateProjectTaskLabelRequest("Release", null))).Value!;
+        var before = await SnapshotAsync(command.Db, harness.Graph.Task.Id);
+
+        var version = (await command.Commands.GetAsync(harness.Graph.Task.Id)).Value!.Version;
+        Assert.True((await command.Subresources.ApplyLabelAsync(harness.Graph.Task.Id, label.Id, new TaskLabelAssociationRequest(version))).IsSuccess);
+        version = (await command.Commands.GetAsync(harness.Graph.Task.Id)).Value!.Version;
+        Assert.True((await command.Subresources.RemoveLabelAsync(harness.Graph.Task.Id, label.Id, version)).IsSuccess);
+
+        var watch = (await command.Commands.GetWatchStateAsync(harness.Graph.Task.Id)).Value!;
+        Assert.True((await command.Commands.WatchAsync(harness.Graph.Task.Id, new TaskWatchRequest(watch.Version))).IsSuccess);
+        watch = (await command.Commands.GetWatchStateAsync(harness.Graph.Task.Id)).Value!;
+        Assert.True((await command.Commands.UnwatchAsync(harness.Graph.Task.Id, new TaskWatchRequest(watch.Version))).IsSuccess);
+
+        version = (await command.Commands.GetAsync(harness.Graph.Task.Id)).Value!.Version;
+        Assert.True((await command.Commands.SetAssigneeAsync(harness.Graph.Task.Id, new TaskRelationshipUserRequest(harness.Graph.MentionUser.Id, version))).IsSuccess);
+        version = (await command.Commands.GetAsync(harness.Graph.Task.Id)).Value!.Version;
+        Assert.True((await command.Commands.AddCollaboratorAsync(harness.Graph.Task.Id, new TaskCollaboratorRequest(harness.Graph.CollaboratorUser.Id, version))).IsSuccess);
+        version = (await command.Commands.GetAsync(harness.Graph.Task.Id)).Value!.Version;
+        Assert.True((await command.Commands.SetReviewerAsync(harness.Graph.Task.Id, new TaskRelationshipUserRequest(harness.Graph.ReviewerUser.Id, version))).IsSuccess);
+
+        version = (await command.Commands.GetAsync(harness.Graph.Task.Id)).Value!.Version;
+        var association = await command.Subresources.AssociateFileAsync(harness.Graph.Task.Id, new CreateTaskFileAssociationRequest(harness.Graph.SourceAttachment.Id, version));
+        Assert.True(association.IsSuccess);
+        version = (await command.Commands.GetAsync(harness.Graph.Task.Id)).Value!.Version;
+        Assert.True((await command.Subresources.RemoveFileAsync(harness.Graph.Task.Id, association.Value!.Id, version)).IsSuccess);
+
+        await using var verify = harness.CreateScope();
+        await AssertTaskMutationSequenceAsync(verify.Db, before, harness.Graph.Task.Id,
+        [
+            "TaskLabelApplied", "TaskLabelRemoved", "TaskWatchEnabled", "TaskWatchOptOut",
+            "TaskAssigneeChanged", "TaskCollaboratorAdded", "TaskReviewerChanged",
+            "TaskFileAssociated", "TaskFileAssociationRemoved"
+        ]);
+    }
+
+    [PostgreSqlFact]
+    [Trait("Category", "PostgreSQLIntegration")]
+    [Trait("Scope", "TaskV1Prompt2C")]
     public async Task FileScopeAndDeletedSourceRejectionsUseRealAuthorizationWithoutSideEffects()
     {
         await using var harness = await ServiceHarness.CreateAsync();
