@@ -1,7 +1,8 @@
 import { Injectable } from '@angular/core';
 import { HubConnection, HubConnectionBuilder, LogLevel } from '@microsoft/signalr';
-import { Subject } from 'rxjs';
+import { firstValueFrom, Subject } from 'rxjs';
 
+import { CsrfTokenService } from '../auth/csrf-token.service';
 import { RealtimeSubscriptionRequest, RealtimeSubscriptionResult } from './realtime.models';
 import { RealtimeTransport, RealtimeTransportStatus } from './realtime-transport';
 
@@ -15,12 +16,14 @@ export class SignalrRealtimeTransport implements RealtimeTransport {
   private readonly statuses = new Subject<RealtimeTransportStatus>();
   private connection: HubConnection | null = null;
 
+  constructor(private readonly csrfTokens: CsrfTokenService) {}
+
   readonly durableEvents$ = this.durableEvents.asObservable();
   readonly authorizationInvalidations$ = this.authorizationInvalidations.asObservable();
   readonly statuses$ = this.statuses.asObservable();
 
   async start(): Promise<void> {
-    const connection = this.connection ?? this.createConnection();
+    const connection = this.connection ?? await this.createConnection();
     if (connection.state === 'Connected' || connection.state === 'Connecting' || connection.state === 'Reconnecting') {
       return;
     }
@@ -47,9 +50,15 @@ export class SignalrRealtimeTransport implements RealtimeTransport {
     return this.invokeSubscription('unsubscribe', request);
   }
 
-  private createConnection(): HubConnection {
+  private async createConnection(): Promise<HubConnection> {
+    // SignalR negotiate is a POST. It must use the same antiforgery contract as
+    // every other unsafe same-origin request; cookies alone are insufficient.
+    const csrfToken = await firstValueFrom(this.csrfTokens.ensureToken());
     const connection = new HubConnectionBuilder()
-      .withUrl('/hubs/app', { withCredentials: true })
+      .withUrl('/hubs/app', {
+        withCredentials: true,
+        headers: { [csrfToken.headerName]: csrfToken.token }
+      })
       .withAutomaticReconnect(RECONNECT_DELAYS_MS)
       .configureLogging(LogLevel.Warning)
       .build();
