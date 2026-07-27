@@ -1,5 +1,6 @@
 using AipPortal.Application.Common.Interfaces;
 using AipPortal.Application.Common.Tenancy;
+using AipPortal.Application.Channels;
 using AipPortal.Application.Files;
 using AipPortal.Application.Messaging;
 using AipPortal.Application.Projects;
@@ -1065,6 +1066,355 @@ public sealed class TaskV1CoreConcurrencyPostgreSqlTests
         }
     }
 
+    [PostgreSqlFact]
+    [Trait("Category", "PostgreSQLIntegration")]
+    [Trait("Scope", "TaskV1Prompt2C")]
+    public async Task LabelAssociationSequentialCommandsAreIdempotentAndArchiveDoesNotRewriteExistingAssociations()
+    {
+        await using var harness = await ServiceHarness.CreateAsync();
+        ProjectTaskLabelResponse label;
+        await using (var setup = harness.CreateScope())
+        {
+            label = (await setup.Subresources.CreateLabelAsync(harness.Graph.Project.Id, new CreateProjectTaskLabelRequest("Release", null))).Value!;
+        }
+
+        await using (var apply = harness.CreateScope())
+        {
+            var version = (await apply.Commands.GetAsync(harness.Graph.Task.Id)).Value!.Version;
+            Assert.True((await apply.Subresources.ApplyLabelAsync(harness.Graph.Task.Id, label.Id, new TaskLabelAssociationRequest(version))).IsSuccess);
+            var afterApply = await SnapshotAsync(apply.Db, harness.Graph.Task.Id);
+            Assert.True((await apply.Subresources.ApplyLabelAsync(harness.Graph.Task.Id, label.Id, new TaskLabelAssociationRequest(version))).IsSuccess);
+            Assert.Equal(1, apply.SaveRecorder.SaveTaskCommandCallCount);
+            await using var verify = harness.CreateScope();
+            await AssertTaskMutationSequenceAsync(verify.Db, afterApply, harness.Graph.Task.Id, []);
+        }
+
+        await using (var archive = harness.CreateScope())
+        {
+            var before = await SnapshotAsync(archive.Db, harness.Graph.Task.Id);
+            var currentLabel = (await archive.Subresources.ListLabelsAsync(harness.Graph.Project.Id, true)).Value!.Single(value => value.Id == label.Id);
+            Assert.True((await archive.Subresources.SetLabelArchiveAsync(harness.Graph.Project.Id, label.Id, currentLabel.Version, true)).IsSuccess);
+            Assert.Single(await archive.Db.WorkItemLabels.Where(value => value.TaskItemId == harness.Graph.Task.Id && value.LabelId == label.Id).ToListAsync());
+            await using var verify = harness.CreateScope();
+            await AssertTaskMutationSequenceAsync(verify.Db, before, harness.Graph.Task.Id, []);
+            Assert.Contains((await verify.Subresources.GetDetailAsync(harness.Graph.Task.Id)).Value!.Labels, value => value.Id == label.Id && value.IsArchived);
+            var otherVersion = (await verify.Commands.GetAsync(harness.Graph.UnrelatedTask.Id)).Value!.Version;
+            var rejected = await verify.Subresources.ApplyLabelAsync(harness.Graph.UnrelatedTask.Id, label.Id, new TaskLabelAssociationRequest(otherVersion));
+            Assert.Equal("TASK_LABEL_ARCHIVED", Code(rejected.Error));
+        }
+
+        await using (var remove = harness.CreateScope())
+        {
+            var version = (await remove.Commands.GetAsync(harness.Graph.Task.Id)).Value!.Version;
+            Assert.True((await remove.Subresources.RemoveLabelAsync(harness.Graph.Task.Id, label.Id, version)).IsSuccess);
+            var afterRemove = await SnapshotAsync(remove.Db, harness.Graph.Task.Id);
+            Assert.True((await remove.Subresources.RemoveLabelAsync(harness.Graph.Task.Id, label.Id, version)).IsSuccess);
+            Assert.Equal(1, remove.SaveRecorder.SaveTaskCommandCallCount);
+            await using var verify = harness.CreateScope();
+            await AssertTaskMutationSequenceAsync(verify.Db, afterRemove, harness.Graph.Task.Id, []);
+        }
+    }
+
+    [PostgreSqlFact]
+    [Trait("Category", "PostgreSQLIntegration")]
+    [Trait("Scope", "TaskV1Prompt2C")]
+    public async Task LabelScopeIsolationRejectsOtherProjectAndOtherTenantWithoutSideEffects()
+    {
+        await using var harness = await ServiceHarness.CreateAsync();
+        ProjectTaskLabelResponse otherProjectLabel;
+        await using (var setup = harness.CreateScope())
+        {
+            otherProjectLabel = (await setup.Subresources.CreateLabelAsync(harness.Graph.OtherProject.Id, new CreateProjectTaskLabelRequest("Other project", "secret label description"))).Value!;
+        }
+        var otherTenantLabelId = await harness.SeedOtherTenantLabelAsync();
+
+        await using var command = harness.CreateScope();
+        var before = await SnapshotAsync(command.Db, harness.Graph.Task.Id);
+        var version = (await command.Commands.GetAsync(harness.Graph.Task.Id)).Value!.Version;
+        var projectMismatch = await command.Subresources.ApplyLabelAsync(harness.Graph.Task.Id, otherProjectLabel.Id, new TaskLabelAssociationRequest(version));
+        var tenantMismatch = await command.Subresources.ApplyLabelAsync(harness.Graph.Task.Id, otherTenantLabelId, new TaskLabelAssociationRequest(version));
+        Assert.Equal("TASK_LABEL_PROJECT_MISMATCH", Code(projectMismatch.Error));
+        Assert.Equal("TASK_LABEL_NOT_FOUND", Code(tenantMismatch.Error));
+        Assert.DoesNotContain("secret", projectMismatch.Error!, StringComparison.OrdinalIgnoreCase);
+        await using var verify = harness.CreateScope();
+        await AssertTaskMutationSequenceAsync(verify.Db, before, harness.Graph.Task.Id, []);
+        Assert.Empty(await verify.Db.WorkItemLabels.Where(value => value.TaskItemId == harness.Graph.Task.Id).ToListAsync());
+    }
+
+    [PostgreSqlFact]
+    [Trait("Category", "PostgreSQLIntegration")]
+    [Trait("Scope", "TaskV1Prompt2C")]
+    public async Task WatchSourcesNoOpsAndPrivacyAreActorSpecific()
+    {
+        await using var harness = await ServiceHarness.CreateAsync();
+        await using (var creator = harness.CreateScope())
+        {
+            var state = (await creator.Commands.GetWatchStateAsync(harness.Graph.Task.Id)).Value!;
+            Assert.True(state.IsWatching);
+            Assert.False((await creator.Db.WorkItemWatchStates.SingleAsync(value => value.TaskItemId == harness.Graph.Task.Id && value.UserId == harness.Graph.User.Id)).IsManualWatch);
+            Assert.False(state.IsExplicitOptOut);
+            Assert.Contains(nameof(WorkItemWatchAutomaticSource.Creator), state.AutomaticSources);
+        }
+
+        await using (var owner = harness.CreateScope())
+        {
+            var version = (await owner.Commands.GetAsync(harness.Graph.Task.Id)).Value!.Version;
+            Assert.True((await owner.Commands.SetAssigneeAsync(harness.Graph.Task.Id, new TaskRelationshipUserRequest(harness.Graph.MentionUser.Id, version))).IsSuccess);
+            version = (await owner.Commands.GetAsync(harness.Graph.Task.Id)).Value!.Version;
+            Assert.True((await owner.Commands.AddCollaboratorAsync(harness.Graph.Task.Id, new TaskCollaboratorRequest(harness.Graph.CollaboratorUser.Id, version))).IsSuccess);
+            version = (await owner.Commands.GetAsync(harness.Graph.Task.Id)).Value!.Version;
+            Assert.True((await owner.Commands.SetReviewerAsync(harness.Graph.Task.Id, new TaskRelationshipUserRequest(harness.Graph.ReviewerUser.Id, version))).IsSuccess);
+        }
+        await using (var assignee = harness.CreateScope(harness.Graph.MentionUser.Id))
+            Assert.Contains(nameof(WorkItemWatchAutomaticSource.PrimaryAssignee), (await assignee.Commands.GetWatchStateAsync(harness.Graph.Task.Id)).Value!.AutomaticSources);
+        await using (var collaborator = harness.CreateScope(harness.Graph.CollaboratorUser.Id))
+            Assert.Contains(nameof(WorkItemWatchAutomaticSource.Collaborator), (await collaborator.Commands.GetWatchStateAsync(harness.Graph.Task.Id)).Value!.AutomaticSources);
+        await using (var reviewer = harness.CreateScope(harness.Graph.ReviewerUser.Id))
+            Assert.Contains(nameof(WorkItemWatchAutomaticSource.Reviewer), (await reviewer.Commands.GetWatchStateAsync(harness.Graph.Task.Id)).Value!.AutomaticSources);
+
+        // Removing each relationship independently clears only its own source;
+        // the command and reconciliation remain one Task save boundary.
+        Guid fallbackGroupId;
+        await using (var setup = harness.CreateScope())
+        {
+            var group = new Group
+            {
+                TenantId = harness.Graph.Tenant.Id,
+                WorkspaceId = harness.Graph.Workspace.Id,
+                Name = "Assignee fallback",
+                Slug = $"assignee-fallback-{Guid.NewGuid():N}",
+                GroupType = GroupType.Other,
+                Status = GroupStatus.Active,
+                CreatedByUserId = harness.Graph.User.Id
+            };
+            setup.Db.Groups.Add(group);
+            await setup.Db.SaveChangesAsync();
+            fallbackGroupId = group.Id;
+        }
+        await using (var owner = harness.CreateScope())
+        {
+            var version = (await owner.Commands.GetAsync(harness.Graph.Task.Id)).Value!.Version;
+            Assert.True((await owner.Commands.SetTargetGroupAsync(harness.Graph.Task.Id, new TaskTargetGroupRequest(fallbackGroupId, version))).IsSuccess);
+            version = (await owner.Commands.GetAsync(harness.Graph.Task.Id)).Value!.Version;
+            Assert.True((await owner.Commands.SetAssigneeAsync(harness.Graph.Task.Id, new TaskRelationshipUserRequest(null, version))).IsSuccess);
+            version = (await owner.Commands.GetAsync(harness.Graph.Task.Id)).Value!.Version;
+            Assert.True((await owner.Commands.RemoveCollaboratorAsync(harness.Graph.Task.Id, harness.Graph.CollaboratorUser.Id, version)).IsSuccess);
+            version = (await owner.Commands.GetAsync(harness.Graph.Task.Id)).Value!.Version;
+            Assert.True((await owner.Commands.SetReviewerAsync(harness.Graph.Task.Id, new TaskRelationshipUserRequest(null, version))).IsSuccess);
+            version = (await owner.Commands.GetAsync(harness.Graph.Task.Id)).Value!.Version;
+            Assert.True((await owner.Commands.AddCollaboratorAsync(harness.Graph.Task.Id, new TaskCollaboratorRequest(harness.Graph.User.Id, version))).IsSuccess);
+            version = (await owner.Commands.GetAsync(harness.Graph.Task.Id)).Value!.Version;
+            Assert.True((await owner.Commands.RemoveCollaboratorAsync(harness.Graph.Task.Id, harness.Graph.User.Id, version)).IsSuccess);
+        }
+        await using (var assignee = harness.CreateScope(harness.Graph.MentionUser.Id))
+        {
+            var state = (await assignee.Commands.GetWatchStateAsync(harness.Graph.Task.Id)).Value!;
+            Assert.DoesNotContain(nameof(WorkItemWatchAutomaticSource.PrimaryAssignee), state.AutomaticSources);
+            Assert.False(state.IsWatching);
+        }
+        await using (var collaborator = harness.CreateScope(harness.Graph.CollaboratorUser.Id))
+        {
+            var state = (await collaborator.Commands.GetWatchStateAsync(harness.Graph.Task.Id)).Value!;
+            Assert.DoesNotContain(nameof(WorkItemWatchAutomaticSource.Collaborator), state.AutomaticSources);
+            Assert.False(state.IsWatching);
+        }
+        await using (var reviewer = harness.CreateScope(harness.Graph.ReviewerUser.Id))
+        {
+            var state = (await reviewer.Commands.GetWatchStateAsync(harness.Graph.Task.Id)).Value!;
+            Assert.DoesNotContain(nameof(WorkItemWatchAutomaticSource.Reviewer), state.AutomaticSources);
+            Assert.False(state.IsWatching);
+        }
+        await using (var creator = harness.CreateScope())
+        {
+            var state = (await creator.Commands.GetWatchStateAsync(harness.Graph.Task.Id)).Value!;
+            Assert.Contains(nameof(WorkItemWatchAutomaticSource.Creator), state.AutomaticSources);
+            Assert.DoesNotContain(nameof(WorkItemWatchAutomaticSource.Collaborator), state.AutomaticSources);
+            Assert.True(state.IsWatching);
+        }
+
+        await using (var owner = harness.CreateScope())
+        {
+            var version = (await owner.Commands.GetAsync(harness.Graph.Task.Id)).Value!.Version;
+            Assert.True((await owner.Commands.AddCollaboratorAsync(harness.Graph.Task.Id, new TaskCollaboratorRequest(harness.Graph.OptOutUser.Id, version))).IsSuccess);
+        }
+        await using (var optOut = harness.CreateScope(harness.Graph.OptOutUser.Id))
+        {
+            var state = (await optOut.Commands.GetWatchStateAsync(harness.Graph.Task.Id)).Value!;
+            Assert.True((await optOut.Commands.UnwatchAsync(harness.Graph.Task.Id, new TaskWatchRequest(state.Version))).IsSuccess);
+        }
+        await using (var owner = harness.CreateScope())
+        {
+            var version = (await owner.Commands.GetAsync(harness.Graph.Task.Id)).Value!.Version;
+            Assert.True((await owner.Commands.RemoveCollaboratorAsync(harness.Graph.Task.Id, harness.Graph.OptOutUser.Id, version)).IsSuccess);
+            version = (await owner.Commands.GetAsync(harness.Graph.Task.Id)).Value!.Version;
+            Assert.True((await owner.Commands.AddCollaboratorAsync(harness.Graph.Task.Id, new TaskCollaboratorRequest(harness.Graph.OptOutUser.Id, version))).IsSuccess);
+        }
+        await using (var optOut = harness.CreateScope(harness.Graph.OptOutUser.Id))
+        {
+            var state = (await optOut.Commands.GetWatchStateAsync(harness.Graph.Task.Id)).Value!;
+            Assert.True(state.IsExplicitOptOut);
+            Assert.False(state.IsWatching);
+            Assert.Contains(nameof(WorkItemWatchAutomaticSource.Collaborator), state.AutomaticSources);
+        }
+
+        await using (var manual = harness.CreateScope(harness.Graph.ManualWatchUser.Id))
+        {
+            var first = await manual.Commands.WatchAsync(harness.Graph.Task.Id, new TaskWatchRequest(0));
+            Assert.True(first.IsSuccess);
+            var firstState = first.Value!;
+            Assert.True((await manual.Db.WorkItemWatchStates.SingleAsync(value => value.TaskItemId == harness.Graph.Task.Id && value.UserId == harness.Graph.ManualWatchUser.Id)).IsManualWatch);
+            var repeated = await manual.Commands.WatchAsync(harness.Graph.Task.Id, new TaskWatchRequest(firstState.Version));
+            Assert.True(repeated.IsSuccess);
+            Assert.Equal(firstState.Version, repeated.Value!.Version);
+            Assert.Equal(1, manual.SaveRecorder.SaveTaskCommandCallCount);
+        }
+        await using (var optOut = harness.CreateScope(harness.Graph.OptOutUser.Id))
+        {
+            var current = (await optOut.Commands.GetWatchStateAsync(harness.Graph.Task.Id)).Value!;
+            var first = await optOut.Commands.UnwatchAsync(harness.Graph.Task.Id, new TaskWatchRequest(current.Version));
+            Assert.True(first.IsSuccess);
+            var repeated = await optOut.Commands.UnwatchAsync(harness.Graph.Task.Id, new TaskWatchRequest(first.Value!.Version));
+            Assert.True(repeated.IsSuccess);
+            Assert.True(repeated.Value!.IsExplicitOptOut);
+            Assert.Equal(0, optOut.SaveRecorder.SaveTaskCommandCallCount);
+        }
+        await using (var creator = harness.CreateScope())
+        {
+            var detail = (await creator.Subresources.GetDetailAsync(harness.Graph.Task.Id)).Value!;
+            var own = (await creator.Commands.GetWatchStateAsync(harness.Graph.Task.Id)).Value!;
+            Assert.Equal(own.IsExplicitOptOut, detail.WatchState.IsExplicitOptOut);
+            Assert.NotEqual((await harness.GetWatchStateAsync(harness.Graph.Task.Id, harness.Graph.OptOutUser.Id)).IsExplicitOptOut, detail.WatchState.IsExplicitOptOut);
+        }
+    }
+
+    [PostgreSqlFact]
+    [Trait("Category", "PostgreSQLIntegration")]
+    [Trait("Scope", "TaskV1Prompt2C")]
+    public async Task WatchAndUnwatchRaceCommitsOneWinnerAndClearsTheLoser()
+    {
+        await using var harness = await ServiceHarness.CreateAsync();
+        await using var first = harness.CreateScope();
+        await using var second = harness.CreateScope();
+        var expected = (await first.Commands.GetWatchStateAsync(harness.Graph.Task.Id)).Value!.Version;
+        Assert.Equal(expected, (await second.Commands.GetWatchStateAsync(harness.Graph.Task.Id)).Value!.Version);
+        var before = await SnapshotAsync(first.Db, harness.Graph.Task.Id);
+        harness.Race.Arm();
+        var results = await Task.WhenAll(
+            ExecuteAsync(first, () => first.Commands.WatchAsync(harness.Graph.Task.Id, new TaskWatchRequest(expected))),
+            ExecuteAsync(second, () => second.Commands.UnwatchAsync(harness.Graph.Task.Id, new TaskWatchRequest(expected))));
+
+        Assert.Equal(1, results.Count(value => value.Result.IsSuccess));
+        Assert.Single(results, value => value.Scope.SaveRecorder.LastSaveOutcome?.Result == TaskCommandSaveResult.Saved);
+        var loser = Assert.Single(results, value => !value.Result.IsSuccess);
+        Assert.Equal("TASK_STALE_VERSION", Code(loser.Result.Error));
+        Assert.Equal(TaskCommandSaveResult.ConcurrencyConflict, loser.Scope.SaveRecorder.LastSaveOutcome?.Result);
+        Assert.True(loser.Scope.SaveRecorder.ClearTrackingCallCount >= 1);
+        Assert.Empty(loser.Scope.Db.ChangeTracker.Entries());
+        await using var verify = harness.CreateScope();
+        await AssertTaskMutationSequenceAsync(verify.Db, before, harness.Graph.Task.Id, [results.Single(value => value.Result.IsSuccess).Result.Value!.IsExplicitOptOut ? "TaskWatchOptOut" : "TaskWatchEnabled"]);
+        var final = (await verify.Commands.GetWatchStateAsync(harness.Graph.Task.Id)).Value!;
+        Assert.Equal(results.Single(value => value.Result.IsSuccess).Result.Value!.IsExplicitOptOut, final.IsExplicitOptOut);
+    }
+
+    [PostgreSqlFact]
+    [Trait("Category", "PostgreSQLIntegration")]
+    [Trait("Scope", "TaskV1Prompt2C")]
+    public async Task LabelRemoveRaceProducesOneMutationAndAnIdempotentRecovery()
+    {
+        await using var harness = await ServiceHarness.CreateAsync();
+        ProjectTaskLabelResponse label;
+        await using (var setup = harness.CreateScope())
+        {
+            label = (await setup.Subresources.CreateLabelAsync(harness.Graph.Project.Id, new CreateProjectTaskLabelRequest("Release", null))).Value!;
+            var version = (await setup.Commands.GetAsync(harness.Graph.Task.Id)).Value!.Version;
+            Assert.True((await setup.Subresources.ApplyLabelAsync(harness.Graph.Task.Id, label.Id, new TaskLabelAssociationRequest(version))).IsSuccess);
+        }
+        await using var first = harness.CreateScope();
+        await using var second = harness.CreateScope();
+        var expected = (await first.Commands.GetAsync(harness.Graph.Task.Id)).Value!.Version;
+        var before = await SnapshotAsync(first.Db, harness.Graph.Task.Id);
+        harness.Race.Arm();
+        var results = await Task.WhenAll(
+            ExecuteAsync(first, () => first.Subresources.RemoveLabelAsync(harness.Graph.Task.Id, label.Id, expected)),
+            ExecuteAsync(second, () => second.Subresources.RemoveLabelAsync(harness.Graph.Task.Id, label.Id, expected)));
+        Assert.All(results, value => Assert.True(value.Result.IsSuccess));
+        Assert.Single(results, value => value.Scope.SaveRecorder.LastSaveOutcome?.Result == TaskCommandSaveResult.Saved);
+        var recovery = Assert.Single(results, value => value.Scope.SaveRecorder.LastSaveOutcome?.Result == TaskCommandSaveResult.ConcurrencyConflict);
+        Assert.True(recovery.Scope.SaveRecorder.RecoveryPathEntered);
+        Assert.True(recovery.Scope.SaveRecorder.ClearTrackingCallCount >= 1);
+        Assert.Empty(recovery.Scope.Db.ChangeTracker.Entries());
+        await using var verify = harness.CreateScope();
+        Assert.Empty(await verify.Db.WorkItemLabels.Where(value => value.TaskItemId == harness.Graph.Task.Id && value.LabelId == label.Id).ToListAsync());
+        await AssertTaskMutationSequenceAsync(verify.Db, before, harness.Graph.Task.Id, ["TaskLabelRemoved"]);
+    }
+
+    [PostgreSqlFact]
+    [Trait("Category", "PostgreSQLIntegration")]
+    [Trait("Scope", "TaskV1Prompt2C")]
+    public async Task FileScopeAndDeletedSourceRejectionsUseRealAuthorizationWithoutSideEffects()
+    {
+        await using var harness = await ServiceHarness.CreateAsync();
+        Guid otherProjectAttachmentId;
+        Guid otherWorkspaceAttachmentId;
+        await using (var setup = harness.CreateScope())
+        {
+            var otherProjectFile = new FileObject { TenantId = harness.Graph.Tenant.Id, WorkspaceId = harness.Graph.Workspace.Id, ProjectId = harness.Graph.OtherProject.Id, UploadedByUserId = harness.Graph.User.Id, OriginalFileName = "project-b.txt", StorageKey = $"test/{Guid.NewGuid():N}", ContentType = "text/plain", SizeBytes = 1, Status = FileObjectStatus.Active };
+            var otherProjectAttachment = SourceAttachment(harness.Graph.Tenant.Id, harness.Graph.Workspace.Id, harness.Graph.User.Id, otherProjectFile, "project-b.txt");
+            var otherWorkspace = new Workspace { TenantId = harness.Graph.Tenant.Id, Name = "Isolated workspace", Slug = $"isolated-workspace-{Guid.NewGuid():N}", CreatedByUserId = harness.Graph.OtherWorkspaceUser.Id };
+            var otherWorkspaceFile = new FileObject { TenantId = harness.Graph.Tenant.Id, WorkspaceId = otherWorkspace.Id, UploadedByUserId = harness.Graph.OtherWorkspaceUser.Id, OriginalFileName = "workspace-b.txt", StorageKey = $"test/{Guid.NewGuid():N}", ContentType = "text/plain", SizeBytes = 1, Status = FileObjectStatus.Active };
+            var otherWorkspaceAttachment = SourceAttachment(harness.Graph.Tenant.Id, otherWorkspace.Id, harness.Graph.OtherWorkspaceUser.Id, otherWorkspaceFile, "workspace-b.txt");
+            setup.Db.AddRange(otherProjectFile, otherProjectAttachment, otherWorkspace, otherWorkspaceFile, otherWorkspaceAttachment);
+            await setup.Db.SaveChangesAsync();
+            otherProjectAttachmentId = otherProjectAttachment.Id;
+            otherWorkspaceAttachmentId = otherWorkspaceAttachment.Id;
+        }
+        var otherTenantAttachmentId = await harness.SeedOtherTenantAttachmentAsync();
+        await AssertFileAssociationRejectedAsync(harness, otherProjectAttachmentId, "TASK_FILE_ASSOCIATION_FORBIDDEN");
+        await AssertFileAssociationRejectedAsync(harness, otherWorkspaceAttachmentId, "TASK_FILE_ASSOCIATION_FORBIDDEN");
+        await AssertFileAssociationRejectedAsync(harness, otherTenantAttachmentId, "TASK_FILE_ASSOCIATION_FORBIDDEN");
+
+        await using (var deleted = harness.CreateScope())
+        {
+            var source = await deleted.Db.Attachments.SingleAsync(value => value.Id == harness.Graph.SourceAttachment.Id);
+            source.MarkDeleted(DateTimeOffset.UtcNow, harness.Graph.User.Id, "Source removed");
+            await deleted.Db.SaveChangesAsync();
+        }
+        await AssertFileAssociationRejectedAsync(harness, harness.Graph.SourceAttachment.Id, "TASK_FILE_ASSOCIATION_FORBIDDEN");
+    }
+
+    private static Attachment SourceAttachment(Guid tenantId, Guid workspaceId, Guid userId, FileObject file, string fileName) => new()
+    {
+        TenantId = tenantId,
+        FileObjectId = file.Id,
+        FileObject = file,
+        WorkspaceId = workspaceId,
+        OwnerType = AttachmentOwnerType.Workspace,
+        OwnerId = workspaceId,
+        OwnerUserId = userId,
+        UploadedByUserId = userId,
+        FileName = fileName,
+        StoredFileName = fileName,
+        FilePath = fileName,
+        ContentType = "text/plain",
+        Extension = ".txt",
+        SizeBytes = 1,
+        StorageProvider = "test",
+        StorageKey = file.StorageKey,
+        ScanStatus = FileScanStatus.Clean
+    };
+
+    private static async Task AssertFileAssociationRejectedAsync(ServiceHarness harness, Guid attachmentId, string code)
+    {
+        await using var command = harness.CreateScope();
+        var before = await SnapshotAsync(command.Db, harness.Graph.Task.Id);
+        var version = (await command.Commands.GetAsync(harness.Graph.Task.Id)).Value!.Version;
+        var result = await command.Subresources.AssociateFileAsync(harness.Graph.Task.Id, new CreateTaskFileAssociationRequest(attachmentId, version));
+        Assert.Equal(code, Code(result.Error));
+        Assert.Equal(0, command.SaveRecorder.SaveTaskCommandCallCount);
+        await using var verify = harness.CreateScope();
+        await AssertTaskMutationSequenceAsync(verify.Db, before, harness.Graph.Task.Id, []);
+    }
+
     private static TaskUpdateDetailsRequest Details(
         string title,
         long expectedVersion,
@@ -1371,8 +1721,9 @@ public sealed class TaskV1CoreConcurrencyPostgreSqlTests
             services.AddScoped<IUserRepository, UserRepository>();
             services.AddScoped<IWorkspaceRepository, WorkspaceRepository>();
             services.AddScoped<IGroupRepository, GroupRepository>();
+            services.AddScoped<IChannelRepository, ChannelRepository>();
+            services.AddScoped<IMessagingRepository, MessagingRepository>();
             services.AddScoped<IFileRepository, FileRepository>();
-            services.AddScoped<IFileAuthorizationService, AllowingFileAuthorizationService>();
             services.AddScoped<IOutboxEventRepository, OutboxEventRepository>();
             services.AddScoped<ITransactionalOutbox, TransactionalOutbox>();
             services.AddScoped<IBusinessInvalidationPublisher, BusinessInvalidationPublisher>();
@@ -1389,10 +1740,17 @@ public sealed class TaskV1CoreConcurrencyPostgreSqlTests
                 serviceProvider.GetRequiredService<EfUnitOfWork>(), race, serviceProvider.GetRequiredService<RequestSaveOutcomeRecorder>()));
             services.AddScoped<IWorkspaceAuthorizationService, WorkspaceAuthorizationService>();
             services.AddScoped<IGroupAuthorizationService, GroupAuthorizationService>();
+            services.AddScoped<IChannelAuthorizationService, ChannelAuthorizationService>();
             services.AddScoped<ProjectAuthorizationService>();
             services.AddScoped<IProjectAuthorizationService>(serviceProvider => serviceProvider.GetRequiredService<ProjectAuthorizationService>());
             services.AddScoped<ITaskAuthorizationService>(serviceProvider => serviceProvider.GetRequiredService<ProjectAuthorizationService>());
             services.AddScoped<ICommentAuthorizationService>(serviceProvider => serviceProvider.GetRequiredService<ProjectAuthorizationService>());
+            services.AddScoped<IConversationAuthorizationService, ConversationAuthorizationService>();
+            // Scope-isolation tests must execute the production authorization
+            // graph.  The task's source attachment is workspace-owned, so this
+            // exercises WorkspaceAuthorizationService rather than a permissive
+            // test double.
+            services.AddScoped<IFileAuthorizationService, FileAuthorizationService>();
             services.AddSingleton(new CommunicationSafetyOptions());
             services.AddSingleton<ICommunicationSafetyGuard, InMemoryCommunicationSafetyGuard>();
             services.AddScoped<ITaskWorkspaceTimeZoneResolver, UtcTimeZoneResolver>();
@@ -1402,12 +1760,82 @@ public sealed class TaskV1CoreConcurrencyPostgreSqlTests
             return new ServiceHarness(services.BuildServiceProvider(new ServiceProviderOptions { ValidateScopes = true }), connectionString, graph, race);
         }
 
-        public RequestScope CreateScope(Guid? actorUserId = null)
+        /// <summary>Creates a real request scope.  Tenant selection is always
+        /// explicit so cross-tenant acceptance cases cannot accidentally run
+        /// through the platform scope used only for seeding.</summary>
+        public RequestScope CreateScope(Guid? actorUserId = null, Guid? tenantId = null, string? tenantSlug = null)
         {
             var scope = provider.CreateAsyncScope();
-            scope.ServiceProvider.GetRequiredService<CurrentTenantService>().SetTenant(Graph.Tenant.Id, Graph.Tenant.Slug);
+            scope.ServiceProvider.GetRequiredService<CurrentTenantService>().SetTenant(tenantId ?? Graph.Tenant.Id, tenantSlug ?? Graph.Tenant.Slug);
             scope.ServiceProvider.GetRequiredService<TestCurrentUser>().SetUser(actorUserId ?? Graph.User.Id);
             return new RequestScope(scope, scope.ServiceProvider.GetRequiredService<AppDbContext>(), scope.ServiceProvider.GetRequiredService<ITaskCommandService>(), scope.ServiceProvider.GetRequiredService<ITaskSubresourceService>(), scope.ServiceProvider.GetRequiredService<IProjectService>(), scope.ServiceProvider.GetRequiredService<RequestSaveOutcomeRecorder>());
+        }
+
+        public async Task<WorkItemWatchState> GetWatchStateAsync(Guid taskId, Guid userId)
+        {
+            await using var scope = CreateScope(userId);
+            return await scope.Db.WorkItemWatchStates.AsNoTracking().SingleAsync(value => value.TaskItemId == taskId && value.UserId == userId);
+        }
+
+        public async Task<Guid> SeedOtherTenantLabelAsync()
+        {
+            await using var db = CreatePlatformContext(connectionString);
+            var workspace = new Workspace
+            {
+                TenantId = Graph.OtherTenant.Id,
+                Name = "Other tenant workspace",
+                Slug = $"other-tenant-label-workspace-{Guid.NewGuid():N}",
+                CreatedByUserId = Graph.OtherTenantUser.Id
+            };
+            var project = new Project
+            {
+                TenantId = Graph.OtherTenant.Id,
+                WorkspaceId = workspace.Id,
+                OwnerUserId = Graph.OtherTenantUser.Id,
+                CreatedByUserId = Graph.OtherTenantUser.Id,
+                Name = "Other tenant project",
+                Slug = $"other-tenant-label-project-{Guid.NewGuid():N}"
+            };
+            var label = new ProjectTaskLabel
+            {
+                TenantId = Graph.OtherTenant.Id,
+                WorkspaceId = workspace.Id,
+                ProjectId = project.Id,
+                Name = "Tenant secret label",
+                Description = "Must not be disclosed",
+                SortKey = 1024,
+                VersionNo = 1
+            };
+            db.AddRange(workspace, project, label);
+            await db.SaveChangesAsync();
+            return label.Id;
+        }
+
+        public async Task<Guid> SeedOtherTenantAttachmentAsync()
+        {
+            await using var db = CreatePlatformContext(connectionString);
+            var workspace = new Workspace
+            {
+                TenantId = Graph.OtherTenant.Id,
+                Name = "Other tenant file workspace",
+                Slug = $"other-tenant-file-workspace-{Guid.NewGuid():N}",
+                CreatedByUserId = Graph.OtherTenantUser.Id
+            };
+            var file = new FileObject
+            {
+                TenantId = Graph.OtherTenant.Id,
+                WorkspaceId = workspace.Id,
+                UploadedByUserId = Graph.OtherTenantUser.Id,
+                OriginalFileName = "tenant-secret.txt",
+                StorageKey = $"other-tenant/{Guid.NewGuid():N}",
+                ContentType = "text/plain",
+                SizeBytes = 1,
+                Status = FileObjectStatus.Active
+            };
+            var attachment = SourceAttachment(Graph.OtherTenant.Id, workspace.Id, Graph.OtherTenantUser.Id, file, "tenant-secret.txt");
+            db.AddRange(workspace, file, attachment);
+            await db.SaveChangesAsync();
+            return attachment.Id;
         }
 
         public async ValueTask DisposeAsync()
@@ -1421,9 +1849,17 @@ public sealed class TaskV1CoreConcurrencyPostgreSqlTests
             var suffix = Guid.NewGuid().ToString("N");
             await using var platform = CreatePlatformContext(connectionString);
             var tenant = new Tenant { Name = $"Task concurrency {suffix}", DisplayName = "Task concurrency", Slug = $"task-concurrency-{suffix}" };
-            var user = new User { DisplayName = "Task concurrency user", Email = $"task-concurrency-{suffix}@example.test", NormalizedEmail = $"TASK-CONCURRENCY-{suffix}@EXAMPLE.TEST", PasswordHash = "hash", Status = UserStatus.Active };
-            var mentionUser = new User { DisplayName = "Mentionable user", Email = $"task-concurrency-mention-{suffix}@example.test", NormalizedEmail = $"TASK-CONCURRENCY-MENTION-{suffix}@EXAMPLE.TEST", PasswordHash = "hash", Status = UserStatus.Active };
-            platform.AddRange(tenant, user, mentionUser);
+            var user = UserFor("creator", suffix);
+            var mentionUser = UserFor("primary", suffix);
+            var collaboratorUser = UserFor("collaborator", suffix);
+            var reviewerUser = UserFor("reviewer", suffix);
+            var manualWatchUser = UserFor("manual-watch", suffix);
+            var optOutUser = UserFor("opt-out", suffix);
+            var sameProjectUnrelatedUser = UserFor("same-project-unrelated", suffix);
+            var otherWorkspaceUser = UserFor("other-workspace", suffix);
+            var otherTenantUser = UserFor("other-tenant", suffix);
+            var otherTenant = new Tenant { Name = $"Other tenant {suffix}", DisplayName = "Other tenant", Slug = $"other-task-concurrency-{suffix}" };
+            platform.AddRange(tenant, otherTenant, user, mentionUser, collaboratorUser, reviewerUser, manualWatchUser, optOutUser, sameProjectUnrelatedUser, otherWorkspaceUser, otherTenantUser);
             await platform.SaveChangesAsync();
 
             var currentTenant = new CurrentTenantService();
@@ -1431,6 +1867,7 @@ public sealed class TaskV1CoreConcurrencyPostgreSqlTests
             await using var db = new AppDbContext(new DbContextOptionsBuilder<AppDbContext>().UseNpgsql(connectionString).Options, currentTenant);
             var workspace = new Workspace { TenantId = tenant.Id, Name = "Task concurrency workspace", Slug = $"task-concurrency-ws-{suffix}", CreatedByUserId = user.Id };
             var project = new Project { TenantId = tenant.Id, WorkspaceId = workspace.Id, OwnerUserId = user.Id, CreatedByUserId = user.Id, Name = "Task concurrency project", Slug = $"task-concurrency-project-{suffix}" };
+            var otherProject = new Project { TenantId = tenant.Id, WorkspaceId = workspace.Id, OwnerUserId = user.Id, CreatedByUserId = user.Id, Name = "Other task concurrency project", Slug = $"other-task-concurrency-project-{suffix}" };
             var workflow = new TaskWorkflowDefinition { TenantId = tenant.Id, WorkspaceId = workspace.Id, ProjectId = project.Id, Name = "Task concurrency workflow", ReviewEnforcementEnabled = false };
             var todo = new TaskWorkflowStage { TenantId = tenant.Id, WorkspaceId = workspace.Id, ProjectId = project.Id, DefinitionId = workflow.Id, Name = "Todo", InternalCategory = TaskStageCategory.Todo, SortKey = 1024, IsInitialStage = true };
             var inProgress = new TaskWorkflowStage { TenantId = tenant.Id, WorkspaceId = workspace.Id, ProjectId = project.Id, DefinitionId = workflow.Id, Name = "In progress", InternalCategory = TaskStageCategory.InProgress, SortKey = 2048 };
@@ -1440,19 +1877,43 @@ public sealed class TaskV1CoreConcurrencyPostgreSqlTests
             var unrelated = new TaskItem { TenantId = tenant.Id, WorkspaceId = workspace.Id, ProjectId = project.Id, Title = "unrelated", CreatedByUserId = user.Id, VersionNo = 1 };
             var file = new FileObject { TenantId = tenant.Id, WorkspaceId = workspace.Id, ProjectId = project.Id, UploadedByUserId = user.Id, OriginalFileName = "source.txt", StorageKey = $"task-concurrency/{suffix}", ContentType = "text/plain", SizeBytes = 1, Status = FileObjectStatus.Active };
             var sourceAttachment = new Attachment { TenantId = tenant.Id, FileObjectId = file.Id, WorkspaceId = workspace.Id, OwnerType = AttachmentOwnerType.Workspace, OwnerId = workspace.Id, OwnerUserId = user.Id, UploadedByUserId = user.Id, FileName = "source.txt", StoredFileName = "source.txt", FilePath = "source.txt", ContentType = "text/plain", Extension = ".txt", SizeBytes = 1, StorageProvider = "test", StorageKey = $"task-concurrency/{suffix}", ScanStatus = FileScanStatus.Clean };
-            db.AddRange(workspace, project, workflow, todo, inProgress, done, cancelled, task, unrelated,
+            db.AddRange(workspace, project, otherProject, workflow, todo, inProgress, done, cancelled, task, unrelated,
                 file, sourceAttachment,
                 new TenantUser { TenantId = tenant.Id, UserId = user.Id, Role = TenantUserRole.Member, Status = TenantUserStatus.Active, JoinedAt = DateTimeOffset.UtcNow },
                 new TenantUser { TenantId = tenant.Id, UserId = mentionUser.Id, Role = TenantUserRole.Member, Status = TenantUserStatus.Active, JoinedAt = DateTimeOffset.UtcNow },
+                new TenantUser { TenantId = tenant.Id, UserId = collaboratorUser.Id, Role = TenantUserRole.Member, Status = TenantUserStatus.Active, JoinedAt = DateTimeOffset.UtcNow },
+                new TenantUser { TenantId = tenant.Id, UserId = reviewerUser.Id, Role = TenantUserRole.Member, Status = TenantUserStatus.Active, JoinedAt = DateTimeOffset.UtcNow },
+                new TenantUser { TenantId = tenant.Id, UserId = manualWatchUser.Id, Role = TenantUserRole.Member, Status = TenantUserStatus.Active, JoinedAt = DateTimeOffset.UtcNow },
+                new TenantUser { TenantId = tenant.Id, UserId = optOutUser.Id, Role = TenantUserRole.Member, Status = TenantUserStatus.Active, JoinedAt = DateTimeOffset.UtcNow },
+                new TenantUser { TenantId = tenant.Id, UserId = sameProjectUnrelatedUser.Id, Role = TenantUserRole.Member, Status = TenantUserStatus.Active, JoinedAt = DateTimeOffset.UtcNow },
                 new WorkspaceMember { TenantId = tenant.Id, WorkspaceId = workspace.Id, UserId = user.Id, Role = WorkspaceRole.Owner, Status = MembershipStatus.Active, JoinedAt = DateTimeOffset.UtcNow },
                 new WorkspaceMember { TenantId = tenant.Id, WorkspaceId = workspace.Id, UserId = mentionUser.Id, Role = WorkspaceRole.Member, Status = MembershipStatus.Active, JoinedAt = DateTimeOffset.UtcNow },
+                new WorkspaceMember { TenantId = tenant.Id, WorkspaceId = workspace.Id, UserId = collaboratorUser.Id, Role = WorkspaceRole.Member, Status = MembershipStatus.Active, JoinedAt = DateTimeOffset.UtcNow },
+                new WorkspaceMember { TenantId = tenant.Id, WorkspaceId = workspace.Id, UserId = reviewerUser.Id, Role = WorkspaceRole.Member, Status = MembershipStatus.Active, JoinedAt = DateTimeOffset.UtcNow },
+                new WorkspaceMember { TenantId = tenant.Id, WorkspaceId = workspace.Id, UserId = manualWatchUser.Id, Role = WorkspaceRole.Member, Status = MembershipStatus.Active, JoinedAt = DateTimeOffset.UtcNow },
+                new WorkspaceMember { TenantId = tenant.Id, WorkspaceId = workspace.Id, UserId = optOutUser.Id, Role = WorkspaceRole.Member, Status = MembershipStatus.Active, JoinedAt = DateTimeOffset.UtcNow },
+                new WorkspaceMember { TenantId = tenant.Id, WorkspaceId = workspace.Id, UserId = sameProjectUnrelatedUser.Id, Role = WorkspaceRole.Member, Status = MembershipStatus.Active, JoinedAt = DateTimeOffset.UtcNow },
                 new ProjectMember { TenantId = tenant.Id, ProjectId = project.Id, UserId = user.Id, Role = ProjectRole.Owner, JoinedAt = DateTimeOffset.UtcNow },
                 new ProjectMember { TenantId = tenant.Id, ProjectId = project.Id, UserId = mentionUser.Id, Role = ProjectRole.Contributor, JoinedAt = DateTimeOffset.UtcNow },
+                new ProjectMember { TenantId = tenant.Id, ProjectId = project.Id, UserId = collaboratorUser.Id, Role = ProjectRole.Contributor, JoinedAt = DateTimeOffset.UtcNow },
+                new ProjectMember { TenantId = tenant.Id, ProjectId = project.Id, UserId = reviewerUser.Id, Role = ProjectRole.Contributor, JoinedAt = DateTimeOffset.UtcNow },
+                new ProjectMember { TenantId = tenant.Id, ProjectId = project.Id, UserId = manualWatchUser.Id, Role = ProjectRole.Contributor, JoinedAt = DateTimeOffset.UtcNow },
+                new ProjectMember { TenantId = tenant.Id, ProjectId = project.Id, UserId = optOutUser.Id, Role = ProjectRole.Contributor, JoinedAt = DateTimeOffset.UtcNow },
+                new ProjectMember { TenantId = tenant.Id, ProjectId = project.Id, UserId = sameProjectUnrelatedUser.Id, Role = ProjectRole.Contributor, JoinedAt = DateTimeOffset.UtcNow },
                 new NotificationUserState { TenantId = tenant.Id, UserId = mentionUser.Id, Version = 0, UpdatedAt = DateTimeOffset.UtcNow },
                 TaskWatchStateInitializer.ForCreator(task, user.Id, new DateTimeOffset(2026, 7, 26, 0, 0, 0, TimeSpan.Zero)));
             await db.SaveChangesAsync();
-            return new Graph(tenant, workspace, project, user, mentionUser, task, unrelated, sourceAttachment, todo, inProgress, done, cancelled);
+            return new Graph(tenant, otherTenant, workspace, project, otherProject, user, mentionUser, collaboratorUser, reviewerUser, manualWatchUser, optOutUser, sameProjectUnrelatedUser, otherWorkspaceUser, otherTenantUser, task, unrelated, sourceAttachment, todo, inProgress, done, cancelled);
         }
+
+        private static User UserFor(string role, string suffix) => new()
+        {
+            DisplayName = $"Task {role}",
+            Email = $"task-concurrency-{role}-{suffix}@example.test",
+            NormalizedEmail = $"TASK-CONCURRENCY-{role}-{suffix}@EXAMPLE.TEST",
+            PasswordHash = "hash",
+            Status = UserStatus.Active
+        };
 
         private static AppDbContext CreatePlatformContext(string connectionString)
         {
@@ -1464,10 +1925,19 @@ public sealed class TaskV1CoreConcurrencyPostgreSqlTests
 
     private sealed record Graph(
         Tenant Tenant,
+        Tenant OtherTenant,
         Workspace Workspace,
         Project Project,
+        Project OtherProject,
         User User,
         User MentionUser,
+        User CollaboratorUser,
+        User ReviewerUser,
+        User ManualWatchUser,
+        User OptOutUser,
+        User SameProjectUnrelatedUser,
+        User OtherWorkspaceUser,
+        User OtherTenantUser,
         TaskItem Task,
         TaskItem UnrelatedTask,
         Attachment SourceAttachment,
@@ -1495,15 +1965,6 @@ public sealed class TaskV1CoreConcurrencyPostgreSqlTests
     private sealed class UtcTimeZoneResolver : ITaskWorkspaceTimeZoneResolver
     {
         public Task<TimeZoneInfo> ResolveAsync(Guid tenantId, Guid workspaceId, CancellationToken cancellationToken = default) => Task.FromResult(TimeZoneInfo.Utc);
-    }
-
-    private sealed class AllowingFileAuthorizationService : IFileAuthorizationService
-    {
-        public Task<bool> CanUploadAttachment(Guid userId, AttachmentOwnerType ownerType, Guid ownerId, CancellationToken cancellationToken = default) => Task.FromResult(true);
-        public Task<bool> CanViewWorkspaceFiles(Guid userId, Guid workspaceId, CancellationToken cancellationToken = default) => Task.FromResult(true);
-        public Task<bool> CanViewAttachment(Guid userId, Attachment attachment, CancellationToken cancellationToken = default) => Task.FromResult(true);
-        public Task<bool> CanDownloadAttachment(Guid userId, Attachment attachment, CancellationToken cancellationToken = default) => Task.FromResult(true);
-        public Task<bool> CanDeleteAttachment(Guid userId, Attachment attachment, CancellationToken cancellationToken = default) => Task.FromResult(true);
     }
 
     private sealed class FixedClock : IClock
