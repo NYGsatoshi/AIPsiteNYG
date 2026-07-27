@@ -13,13 +13,22 @@ public sealed class ProjectAuthorizationService(
 {
     public async Task<bool> CanViewProject(Guid userId, Guid projectId, CancellationToken cancellationToken = default)
     {
-        var member = await projects.GetMemberAsync(projectId, userId, cancellationToken);
-        if (member is not null) return true;
         var project = await projects.GetProjectAsync(projectId, cancellationToken);
         if (project is null || project.DeletedAt.HasValue || project.Status == ProjectStatus.Archived)
         {
             return false;
         }
+
+        // A ProjectMember row must never outlive the actor's current workspace
+        // access.  File grants and Task detail open actions rely on this check
+        // when reauthorizing a Task/File association.
+        if (!await workspaces.CanViewWorkspace(userId, project.WorkspaceId, cancellationToken))
+        {
+            return false;
+        }
+
+        var member = await projects.GetMemberAsync(projectId, userId, cancellationToken);
+        if (member is not null) return true;
 
         if (!project.GroupId.HasValue)
         {
@@ -34,6 +43,7 @@ public sealed class ProjectAuthorizationService(
     {
         var project = await projects.GetProjectAsync(projectId, cancellationToken);
         if (project is null) return false;
+        if (!await workspaces.CanViewWorkspace(userId, project.WorkspaceId, cancellationToken)) return false;
         if (await workspaces.CanManageWorkspace(userId, project.WorkspaceId, cancellationToken)) return true;
         if (project.GroupId.HasValue && await groups.CanManageGroup(userId, project.GroupId.Value, cancellationToken)) return true;
         var member = await projects.GetMemberAsync(projectId, userId, cancellationToken);

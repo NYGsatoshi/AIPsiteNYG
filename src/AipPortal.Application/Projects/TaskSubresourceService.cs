@@ -442,6 +442,8 @@ public sealed class TaskSubresourceService(
         var file = x.FileObject;
         if (file is null || file.DeletedAt.HasValue || file.Status == FileObjectStatus.Deleted) return new(x.Id, x.FileObjectId, x.FileName, x.ContentType, x.SizeBytes, x.ScanStatus.ToString(), x.CreatedAt, "Missing", false, false, true, "FILE_MISSING");
         if (file.Status == FileObjectStatus.Quarantined || x.ScanStatus == FileScanStatus.Infected) return new(x.Id, x.FileObjectId, x.FileName, x.ContentType, x.SizeBytes, x.ScanStatus.ToString(), x.CreatedAt, "Quarantined", false, false, true, "QUARANTINED");
+        if (file.Status == FileObjectStatus.Archived) return new(x.Id, x.FileObjectId, x.FileName, x.ContentType, x.SizeBytes, x.ScanStatus.ToString(), x.CreatedAt, "Archived", false, false, true, "FILE_ARCHIVED");
+        if (file.Status != FileObjectStatus.Active) return new(x.Id, x.FileObjectId, x.FileName, x.ContentType, x.SizeBytes, x.ScanStatus.ToString(), x.CreatedAt, "Missing", false, false, true, "FILE_MISSING");
         if (x.ScanStatus != FileScanStatus.Clean) return new(x.Id, x.FileObjectId, x.FileName, x.ContentType, x.SizeBytes, x.ScanStatus.ToString(), x.CreatedAt, "ScanPending", false, false, true, "SCAN_PENDING");
         var canOpen = await fileAuthorization.CanViewAttachment(Actor(), x, ct);
         var canRequestDownloadGrant = await fileAuthorization.CanDownloadAttachment(Actor(), x, ct);

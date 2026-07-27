@@ -10,6 +10,7 @@ using AipPortal.Infrastructure.Security;
 
 namespace AipPortal.Tests.Files;
 
+[Trait("Scope", "TaskV1Prompt2D")]
 public sealed class FileDownloadGrantBoundaryTests
 {
     [Fact]
@@ -53,6 +54,55 @@ public sealed class FileDownloadGrantBoundaryTests
         Assert.False(result.IsSuccess);
         AssertAuditContainsReason(fixture, "current_authorization_failed");
         Assert.Contains(fixture.Audit.Entries, entry => entry.Action == "file_download.reauthorization_failed");
+        Assert.Contains(fixture.Audit.Entries, entry => entry.Action == "file_download.grant_use_denied");
+        Assert.Equal(0, fixture.Storage.OpenReadCount);
+    }
+
+    [Fact]
+    public async Task TaskFileOpenReauthorizesAndDoesNotTreatDetailStateAsACapability()
+    {
+        var fixture = new Fixture();
+        fixture.Authorization.CanDownload = false;
+
+        var result = await fixture.Service.GetAsync(fixture.Attachment.Id);
+
+        Assert.False(result.IsSuccess);
+        Assert.Equal(0, fixture.Storage.OpenReadCount);
+        Assert.Contains(fixture.Audit.Entries, entry => entry.Action == "file_download.metadata_open_denied");
+        AssertAuditContainsReason(fixture, "current_authorization_failed");
+    }
+
+    [Theory]
+    [InlineData(FileScanStatus.Pending)]
+    [InlineData(FileScanStatus.Infected)]
+    [InlineData(FileScanStatus.Failed)]
+    [InlineData(FileScanStatus.Skipped)]
+    public async Task TaskFileGrantRequiresCleanScan(FileScanStatus scanStatus)
+    {
+        var fixture = new Fixture { Attachment = { ScanStatus = scanStatus } };
+
+        var result = await fixture.Service.RequestDownloadGrantAsync(fixture.Attachment.Id, new FileDownloadGrantRequest());
+
+        Assert.False(result.IsSuccess);
+        Assert.Empty(fixture.Grants.Grants);
+        Assert.Equal(0, fixture.Storage.OpenReadCount);
+        AssertAuditContainsReason(fixture, "task_file_not_available");
+    }
+
+    [Theory]
+    [InlineData(FileObjectStatus.Quarantined)]
+    [InlineData(FileObjectStatus.Archived)]
+    [InlineData(FileObjectStatus.Deleted)]
+    public async Task CurrentFileObjectStateInvalidatesExistingTaskGrant(FileObjectStatus status)
+    {
+        var fixture = new Fixture();
+        var grant = await CreateGrantAsync(fixture);
+        fixture.FileObject.Status = status;
+
+        var result = await fixture.Service.DownloadWithGrantAsync(grant.FileDownloadGrantId, grant.Token);
+
+        Assert.False(result.IsSuccess);
+        Assert.Equal(0, fixture.Storage.OpenReadCount);
         Assert.Contains(fixture.Audit.Entries, entry => entry.Action == "file_download.grant_use_denied");
     }
 
@@ -138,12 +188,12 @@ public sealed class FileDownloadGrantBoundaryTests
     {
         var staleFixture = new Fixture();
         var staleGrant = await CreateGrantAsync(staleFixture);
-        staleFixture.Attachment.ScanStatus = FileScanStatus.Clean;
+        staleFixture.Attachment.FileObject!.WorkspaceId = Guid.NewGuid();
 
         var stale = await staleFixture.Service.DownloadWithGrantAsync(staleGrant.FileDownloadGrantId, staleGrant.Token);
 
         Assert.False(stale.IsSuccess);
-        AssertAuditContainsReason(staleFixture, "policy_changed");
+        AssertAuditContainsReason(staleFixture, "scope_mismatch");
 
         var classificationFixture = new Fixture();
         var classificationGrant = await CreateGrantAsync(classificationFixture);
@@ -269,7 +319,7 @@ public sealed class FileDownloadGrantBoundaryTests
             Extension = ".txt",
             SizeBytes = 12,
             StorageProvider = "Local",
-            ScanStatus = FileScanStatus.Skipped
+            ScanStatus = FileScanStatus.Clean
         };
 
         public FakeFileRepository Files { get; } = new();
@@ -322,8 +372,13 @@ public sealed class FileDownloadGrantBoundaryTests
 
     private sealed class FakeStorage : IFileStorageService
     {
+        public int OpenReadCount { get; private set; }
         public Task<Result> SaveAsync(string storageKey, Stream stream, string contentType, CancellationToken cancellationToken = default) => Task.FromResult(Result.Success());
-        public Task<Stream> OpenReadAsync(string storageKey, CancellationToken cancellationToken = default) => Task.FromResult<Stream>(new MemoryStream(Encoding.UTF8.GetBytes("file content")));
+        public Task<Stream> OpenReadAsync(string storageKey, CancellationToken cancellationToken = default)
+        {
+            OpenReadCount++;
+            return Task.FromResult<Stream>(new MemoryStream(Encoding.UTF8.GetBytes("file content")));
+        }
         public Task DeleteAsync(string storageKey, CancellationToken cancellationToken = default) => Task.CompletedTask;
         public Task<bool> ExistsAsync(string storageKey, CancellationToken cancellationToken = default) => Task.FromResult(true);
         public Task<string?> CreateSignedReadUrlAsync(string storageKey, TimeSpan expiresIn, CancellationToken cancellationToken = default) => Task.FromResult<string?>("https://storage.example.test/signed");

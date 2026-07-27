@@ -38,3 +38,16 @@ PrimaryAssignee, Collaborator, and Reviewer sources. Its canonical value is
 commands reconcile against their effective in-request relationship set, and
 Task/File removal soft-deletes only the association Attachment, never its
 FileObject.
+
+## Task/File open and download-grant boundary
+
+Task detail file state is display-only. Opening a Task/File association and
+issuing or using its canonical `FileDownloadGrant` each re-check the current
+actor, tenant, active workspace access, Task owner scope, active association,
+and FileObject tenant/workspace/project scope. Task associations require an
+active, non-deleted FileObject and a `Clean` attachment scan result. A grant is
+short-lived, actor/tenant/scope-bound, and uses a persisted token hash only.
+After a membership, association, scan, or file-state change, the request is
+denied before any storage read. Audit metadata records only safe identifiers,
+operation, decision, and bounded reason codes; it excludes grant tokens,
+token hashes, storage keys, paths, and policy-stamp values.

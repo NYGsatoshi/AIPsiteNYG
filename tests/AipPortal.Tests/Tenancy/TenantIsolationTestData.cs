@@ -342,7 +342,7 @@ internal sealed class TenantIsolationTestData
         Extension = ".txt",
         SizeBytes = 10,
         StorageProvider = "Test",
-        ScanStatus = FileScanStatus.Skipped
+        ScanStatus = FileScanStatus.Clean
     };
 
     private static Conversation NewConversation(Guid tenantId, Guid workspaceId, string title, Guid userId) => new()
