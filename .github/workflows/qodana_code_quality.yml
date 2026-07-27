@@ -61,6 +61,14 @@ jobs:
         with:
           global-json-file: global.json
 
+      - name: Remove exited Qodana runner containers
+        shell: bash
+        run: |
+          exited_qodana_containers="$(docker ps -aq --filter status=exited --filter 'name=^/qodana-cli-')"
+          if [[ -n "$exited_qodana_containers" ]]; then
+            docker rm $exited_qodana_containers
+          fi
+
       - name: Run all registered Qodana Community inspections
         uses: JetBrains/qodana-action@v2026.1
         with:
