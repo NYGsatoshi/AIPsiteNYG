@@ -185,11 +185,14 @@ test.describe('MVP0 real backend browser smoke', () => {
 });
 
 async function loginAndVerifySession(page: Page, evidence: SmokeEvidence) {
-  await page.goto('/app/login');
-  await page.evaluate(() => {
+  // The synthetic smoke tenant has the server-side realtime capability, while
+  // this client-side rollout remains opt-in outside this harness. Playwright
+  // executes the init script before application bootstrap; it does not mock or
+  // intercept the Hub or any API.
+  await page.addInitScript(() => {
     window.__AIP_FEATURE_FLAGS__ = { 'realtime.signalR': true };
   });
-  await page.reload();
+  await page.goto('/app/login');
   await expect(page.getByTestId('login-page')).toBeVisible();
   await recordFetchJson(page, evidence, 'csrf-token', '/api/security/csrf-token', {
     sensitive: true,
@@ -691,9 +694,16 @@ function expectUnexpectedApiFailures(evidence: SmokeEvidence) {
 
 function expectUnexpectedConsoleErrors(evidence: SmokeEvidence) {
   const unexpected = evidence.consoleErrors.filter((message) =>
-    !message.includes('404') && !message.includes('Failed to load resource: the server responded with a status of 400')
+    !message.includes('404') &&
+    !message.includes('Failed to load resource: the server responded with a status of 400') &&
+    !isSmokeHarnessCspWarning(message)
   );
   expect(unexpected, 'unexpected browser console errors').toEqual([]);
+}
+
+function isSmokeHarnessCspWarning(message: string): boolean {
+  return message.includes("Executing inline script violates the following Content Security Policy directive 'script-src 'self''") &&
+    message.includes('sha256-xInfC1hJksNGbtNF+s0t/pdk2L8Y/9N7b8QC5IaMlg4=');
 }
 
 function isExpectedFailure(failure: SmokeFailedApiResponse): boolean {
