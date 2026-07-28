@@ -183,7 +183,7 @@ describe('ProjectsFacade live API mutations', () => {
     expect(facade.getTaskDetail('project-1', 'task-1').detailSectionState.status).toBe('ready');
   });
 
-  it('clears protected Task detail and reauthorizes when its safe read is not found', () => {
+  it('clears protected Task detail without probing sibling resources when its safe read is not found', () => {
     flushInitialLoad();
     facade.ensureTaskDetail('project-1', 'task-1');
     httpMock.expectOne('/api/tasks/task-1').flush({ task: editableTaskDto, checklist: [], labels: [], subtasks: { items: [] }, comments: { items: [] }, files: { items: [] } });
@@ -195,8 +195,8 @@ describe('ProjectsFacade live API mutations', () => {
     );
 
     expect(facade.getTaskDetail('project-1', 'task-1').detail).toBeUndefined();
-    httpMock.expectOne('/api/projects').flush({ items: [] });
-    expect(facade.getTaskDetail('project-1', 'task-1').status).toBe('empty');
+    httpMock.expectNone('/api/projects');
+    expect(facade.getTaskDetail('project-1', 'task-1').status).toBe('permissionDenied');
   });
 
   it('creates a task through the backend and refreshes project and my-task rows after success', () => {

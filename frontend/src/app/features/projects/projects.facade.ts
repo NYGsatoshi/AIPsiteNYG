@@ -1,5 +1,6 @@
 import { HttpClient, HttpErrorResponse } from '@angular/common/http';
 import { inject, Injectable, InjectionToken, signal } from '@angular/core';
+import { Router } from '@angular/router';
 import { forkJoin, Observable, of, Subscription } from 'rxjs';
 import { catchError, finalize, map, switchMap } from 'rxjs/operators';
 
@@ -60,6 +61,7 @@ export class ProjectsFacade {
   private readonly http = inject(HttpClient);
   private readonly myTasksFacade = inject(MyTasksFacade);
   private readonly realtime = inject(RealtimeFacade);
+  private readonly router = inject(Router, { optional: true });
   private readonly scenario = inject(AIP_PROJECTS_MOCK, { optional: true });
   private readonly liveState = signal<ProjectsScenario>(
     this.scenario ?? this.emptyScenario('loading')
@@ -88,7 +90,10 @@ export class ProjectsFacade {
 
   constructor() {
     this.realtime.durableEvents$.subscribe((event) => this.handleRealtimeEvent(event));
-    if (!this.scenario) {
+    // The Task route fetches one protected aggregate itself. Starting the broad
+    // overview inventory during that route can race a post-revocation safe 404
+    // and probe stale project/File resources.
+    if (!this.scenario && !this.router?.url.includes('/tasks/')) {
       this.loadProjects();
     }
   }
@@ -158,14 +163,17 @@ export class ProjectsFacade {
       };
     }
 
+    const detail = taskId ? this.taskDetails()[taskId] : undefined;
+    const aggregateTask = detail && detail.task
+      ? mapTaskDtoToRecord(detail.task as TaskDto, this.authorizedProjects())
+      : undefined;
     const task = scenario.tasks.find(
       (candidate) => candidate.authorized && candidate.projectId === projectId && candidate.id === taskId
-    );
+    ) ?? (aggregateTask?.projectId === projectId ? aggregateTask : undefined);
     const project = task
       ? this.authorizedProjects().find((candidate) => candidate.id === task.projectId)
       : undefined;
 
-    const detail = taskId ? this.taskDetails()[taskId] : undefined;
     const loadedProjectId = typeof detail?.task?.projectId === 'string' ? detail.task.projectId : undefined;
     if (detail && loadedProjectId && loadedProjectId !== projectId) {
       return { status: 'empty', detailState: 'ready', detailSectionState: aggregateState, dependencies: [], capabilities: [], transitionNote: TASK_STATUS_BACKEND_AUTHORITATIVE_NOTE, message: 'TASK_DETAIL_PROJECT_MISMATCH' };
@@ -374,8 +382,12 @@ export class ProjectsFacade {
         // access. An active detail receiving that response must discard every
         // protected projection before any dependent UI (including the File
         // picker) can issue another scoped request.
-        if (normalized.httpStatus === 401 || normalized.httpStatus === 403 || normalized.httpStatus === 404) {
+        if (normalized.httpStatus === 401 || normalized.httpStatus === 403) {
           this.reauthorizeActiveState();
+          return;
+        }
+        if (normalized.httpStatus === 404) {
+          this.denyTaskDetail();
           return;
         }
         this.taskMutationState.set(toFailureState(error, 'Task save failed.'));
@@ -586,8 +598,12 @@ export class ProjectsFacade {
         // safe 404 used for an unavailable Task. Treat it as an authorization
         // boundary: clear the cached aggregate before any dependent picker can
         // request workspace-scoped data with stale state.
-        if (normalized.httpStatus === 401 || normalized.httpStatus === 403 || normalized.httpStatus === 404) {
+        if (normalized.httpStatus === 401 || normalized.httpStatus === 403) {
           this.reauthorizeActiveState();
+          return;
+        }
+        if (normalized.httpStatus === 404) {
+          this.denyTaskDetail();
           return;
         }
         if (scope.kind === 'taskBodyReload') {
@@ -628,6 +644,11 @@ export class ProjectsFacade {
       }
       this.loadTaskDetail(activeTaskId);
     });
+  }
+
+  private denyTaskDetail(): void {
+    this.clearProtectedTaskState();
+    this.liveState.set(this.emptyScenario('permissionDenied', 'Task detail is no longer available with your current permission.'));
   }
 
   private runDetailCommand(taskId: string, section: TaskDetailSection, request: Observable<unknown>, onSuccess?: () => void): void {

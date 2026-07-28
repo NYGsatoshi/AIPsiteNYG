@@ -21,6 +21,11 @@ jobs:
 
       - name: Checkout
         uses: actions/checkout@v4
+        with:
+          # workflow_dispatch must test the commit selected by its ref, never
+          # a residual self-hosted runner checkout.
+          ref: ${{ github.sha }}
+          clean: true
 
       - name: Setup Node.js
         uses: actions/setup-node@v4
