@@ -409,7 +409,7 @@ async function openProjectTaskDetail(page: Page, evidence: SmokeEvidence) {
   await projectCard.getByRole('link', { name: `Open ${smokeProjectTitle}` }).click();
   await expect(page).toHaveURL(new RegExp(`/app/projects/${evidence.projectId}$`));
   await expect(page.getByTestId('project-detail-page')).toBeVisible();
-  await page.getByRole('tab', { name: 'Task list' }).click();
+  await page.getByRole('tab', { name: 'List', exact: true }).click();
 
   const taskRow = page.locator('[role="row"]').filter({ hasText: smokeTaskTitle }).first();
   await expect(taskRow).toBeVisible();
