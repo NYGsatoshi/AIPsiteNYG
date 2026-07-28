@@ -370,7 +370,11 @@ export class ProjectsFacade {
       error: (error: unknown) => {
         if (!isCurrent()) return;
         const normalized = normalizeApiError(error);
-        if (normalized.httpStatus === 401 || normalized.httpStatus === 403) {
+        // Task reads deliberately use a safe 404 for revoked or cross-scope
+        // access. An active detail receiving that response must discard every
+        // protected projection before any dependent UI (including the File
+        // picker) can issue another scoped request.
+        if (normalized.httpStatus === 401 || normalized.httpStatus === 403 || normalized.httpStatus === 404) {
           this.reauthorizeActiveState();
           return;
         }
@@ -578,7 +582,11 @@ export class ProjectsFacade {
         if (!this.isAuthorizationCurrent(authorizationGeneration) || !this.isActive(taskId, generation)) return;
         this.taskConflictReloadInProgress = false;
         const normalized = normalizeApiError(error);
-        if (normalized.httpStatus === 401 || normalized.httpStatus === 403) {
+        // A revoked membership is intentionally surfaced by the API as the same
+        // safe 404 used for an unavailable Task. Treat it as an authorization
+        // boundary: clear the cached aggregate before any dependent picker can
+        // request workspace-scoped data with stale state.
+        if (normalized.httpStatus === 401 || normalized.httpStatus === 403 || normalized.httpStatus === 404) {
           this.reauthorizeActiveState();
           return;
         }

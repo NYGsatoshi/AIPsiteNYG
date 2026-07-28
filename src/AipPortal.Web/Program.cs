@@ -241,6 +241,10 @@ app.UseStaticFiles(new StaticFileOptions
 });
 
 app.UseMiddleware<TenantResolutionMiddleware>();
+// SignalR upgrades its same-origin transport to WebSockets. Register the
+// WebSocket middleware before authentication and endpoint execution so the
+// Hub can establish the upgrade after a successful negotiate request.
+app.UseWebSockets();
 if (securityOptions.EnableRateLimiting)
 {
     app.UseRateLimiter();
