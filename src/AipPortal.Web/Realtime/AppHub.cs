@@ -15,7 +15,7 @@ public sealed class AppHub(
 {
     public override async Task OnConnectedAsync()
     {
-        if (await authorizer.ValidateConnectionAsync(Context.ConnectionAborted) is null)
+        if (await authorizer.ValidateConnectionAsync(Context.User, Context.ConnectionAborted) is null)
         {
             logger.LogWarning("Realtime connection denied: {Reason}", "ConnectionAuthenticationDenied");
             diagnostics.RecordSubscriptionDenial();
@@ -51,7 +51,7 @@ public sealed class AppHub(
             return Denied("RateLimited");
         }
 
-        var context = await authorizer.ValidateConnectionAsync(Context.ConnectionAborted);
+        var context = await authorizer.ValidateConnectionAsync(Context.User, Context.ConnectionAborted);
         if (context is null)
         {
             Context.Abort();
