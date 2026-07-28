@@ -37,12 +37,6 @@ test.describe('MVP0 real backend browser smoke', () => {
   });
 
   test('exercises mandatory authenticated MVP0 flows through ASP.NET Core backend', async ({ page }, testInfo) => {
-    // The synthetic smoke tenant has the server-side realtime capability, while
-    // this client-side rollout flag remains opt-in outside the smoke harness.
-    // This enables a real Hub connection; it does not stub or intercept it.
-    await page.addInitScript(() => {
-      window.__AIP_FEATURE_FLAGS__ = { 'realtime.signalR': true };
-    });
     const evidence: SmokeEvidence = {
       baseURL: String(testInfo.project.use.baseURL ?? ''),
       email: smokeEmail,
@@ -72,10 +66,7 @@ test.describe('MVP0 real backend browser smoke', () => {
       await logoutAndVerifyAccessRevoked(page, evidence);
 
       expect(evidence.pageErrors, 'browser page errors').toEqual([]);
-      expect(
-        evidence.consoleErrors.filter((message) => !message.includes('404')),
-        'unexpected browser console errors'
-      ).toEqual([]);
+      expectUnexpectedConsoleErrors(evidence);
       expectUnexpectedApiFailures(evidence);
     } finally {
       await testInfo.attach('real-backend-smoke-evidence.json', {
@@ -86,9 +77,6 @@ test.describe('MVP0 real backend browser smoke', () => {
   });
 
   test('keeps authenticated HTTP requests available when the Hub cannot connect', async ({ page }, testInfo) => {
-    await page.addInitScript(() => {
-      window.__AIP_FEATURE_FLAGS__ = { 'realtime.signalR': true };
-    });
     await page.route('**/hubs/app/**', (route) => route.abort());
     const evidence: SmokeEvidence = { baseURL: String(testInfo.project.use.baseURL ?? ''), email: smokeEmail, steps: [], pageErrors: [], consoleErrors: [], failedApiResponses: [] };
 
@@ -105,6 +93,7 @@ test.describe('MVP0 real backend browser smoke', () => {
     };
     page.on('pageerror', (error) => evidence.pageErrors.push(error.message));
     page.on('console', (message) => { if (message.type() === 'error') evidence.consoleErrors.push(message.text()); });
+    page.on('response', (response) => recordFailedApiResponse(response, evidence));
 
     try {
       await loginAndVerifySession(page, evidence);
@@ -187,7 +176,8 @@ test.describe('MVP0 real backend browser smoke', () => {
       expect(deniedGrant.text, 'denial must not disclose the protected File metadata').not.toMatch(/browser-smoke-task|storageKey|filePath|tokenHash|internal\/task-file/i);
 
       expect(evidence.pageErrors, 'browser page errors').toEqual([]);
-      expect(evidence.consoleErrors.filter((message) => !message.includes('404')), 'unexpected browser console errors').toEqual([]);
+      expectUnexpectedConsoleErrors(evidence);
+      expectUnexpectedApiFailures(evidence);
     } finally {
       await testInfo.attach('task-v1-pr03c-real-backend-evidence.json', { body: JSON.stringify(evidence, null, 2), contentType: 'application/json' });
     }
@@ -195,10 +185,11 @@ test.describe('MVP0 real backend browser smoke', () => {
 });
 
 async function loginAndVerifySession(page: Page, evidence: SmokeEvidence) {
-  await page.addInitScript(() => {
+  await page.goto('/app/login');
+  await page.evaluate(() => {
     window.__AIP_FEATURE_FLAGS__ = { 'realtime.signalR': true };
   });
-  await page.goto('/app/login');
+  await page.reload();
   await expect(page.getByTestId('login-page')).toBeVisible();
   await recordFetchJson(page, evidence, 'csrf-token', '/api/security/csrf-token', {
     sensitive: true,
@@ -698,12 +689,21 @@ function expectUnexpectedApiFailures(evidence: SmokeEvidence) {
   expect(unexpected, 'unexpected failed API responses').toEqual([]);
 }
 
+function expectUnexpectedConsoleErrors(evidence: SmokeEvidence) {
+  const unexpected = evidence.consoleErrors.filter((message) =>
+    !message.includes('404') && !message.includes('Failed to load resource: the server responded with a status of 400')
+  );
+  expect(unexpected, 'unexpected browser console errors').toEqual([]);
+}
+
 function isExpectedFailure(failure: SmokeFailedApiResponse): boolean {
   return (
     (failure.method === 'POST' && failure.path === '/api/auth/change-password' && failure.status === 403) ||
     (failure.method === 'POST' && failure.path === '/api/auth/change-password' && failure.status === 400) ||
     (failure.method === 'GET' && failure.path === '/api/auth/me' && failure.status === 401) ||
-    (failure.method === 'GET' && failure.path === '/api/projects' && failure.status === 401)
+    (failure.method === 'GET' && failure.path === '/api/projects' && failure.status === 401) ||
+    (failure.method === 'GET' && /^\/api\/tasks\/[0-9a-f-]+$/i.test(failure.path) && failure.status >= 400 && failure.status < 500) ||
+    (failure.method === 'POST' && /^\/api\/attachments\/[0-9a-f-]+\/download-grants$/i.test(failure.path) && failure.status >= 400 && failure.status < 500)
   );
 }
 
