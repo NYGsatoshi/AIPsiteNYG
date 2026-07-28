@@ -1,5 +1,5 @@
 import { HttpClient, HttpEventType, HttpResponse } from '@angular/common/http';
-import { effect, Injectable, InjectionToken, inject, signal, untracked } from '@angular/core';
+import { Injectable, InjectionToken, inject, signal } from '@angular/core';
 import { finalize, Subscription } from 'rxjs';
 
 import { normalizeApiError } from '../../core/api/api-error.adapter';
@@ -34,6 +34,7 @@ export class FilesFacade {
   private readonly pageState = signal<FilesPageViewModel>(this.mockPage ?? this.emptyPage('Loading files from backend.'));
   /** Task detail owns this independent query; it must never alter Files-page workspace state. */
   private readonly pickerState = signal<TaskFilePickerState>(this.emptyPickerState());
+  private pageWorkspaceId: string | null = null;
   private pickerWorkspaceId: string | null = null;
   private pickerGeneration = 0;
   private pickerRequest: Subscription | null = null;
@@ -50,17 +51,23 @@ export class FilesFacade {
 
   constructor() {
     this.realtime.durableEvents$.subscribe((event) => this.handleRealtimeEvent(event));
-    if (!this.mockPage) {
-      effect(() => {
-        const workspace = this.activeWorkspace.activeWorkspace();
-        if (!workspace) {
-          this.pageState.set(this.emptyPage('Select a workspace before uploading files.', false));
-          return;
-        }
+  }
 
-        untracked(() => this.loadFiles(workspace.id));
-      });
+  /** The Files page opts into its workspace inventory; other consumers must not prefetch it. */
+  loadPageFilesForWorkspace(workspaceId: string | null | undefined): void {
+    if (this.mockPage) {
+      return;
     }
+    if (!workspaceId) {
+      this.pageWorkspaceId = null;
+      this.pageState.set(this.emptyPage('Select a workspace before uploading files.', false));
+      return;
+    }
+    if (this.pageWorkspaceId === workspaceId) {
+      return;
+    }
+    this.pageWorkspaceId = workspaceId;
+    this.loadFiles(workspaceId);
   }
 
   uploadFiles(files: readonly File[]): void {
