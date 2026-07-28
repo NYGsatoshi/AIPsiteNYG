@@ -794,7 +794,20 @@ function expectUnexpectedApiFailures(evidence: SmokeEvidence) {
 }
 
 function expectUnexpectedConsoleErrors(evidence: SmokeEvidence) {
-  const unexpected = evidence.consoleErrors.filter((message) => !message.includes('404'));
+  const expectedNetworkFailures = new Map<number, number>();
+  for (const failure of evidence.failedApiResponses.filter(isExpectedFailure)) {
+    expectedNetworkFailures.set(failure.status, (expectedNetworkFailures.get(failure.status) ?? 0) + 1);
+  }
+
+  const unexpected = evidence.consoleErrors.filter((message) => {
+    const match = /Failed to load resource:.*status of (\d{3})/i.exec(message);
+    if (!match) return true;
+    const status = Number(match[1]);
+    const remaining = expectedNetworkFailures.get(status) ?? 0;
+    if (remaining === 0) return true;
+    expectedNetworkFailures.set(status, remaining - 1);
+    return false;
+  });
   expect(unexpected, 'unexpected browser console errors').toEqual([]);
 }
 
