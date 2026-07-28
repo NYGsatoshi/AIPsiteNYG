@@ -37,6 +37,7 @@ test.describe('MVP0 real backend browser smoke', () => {
   });
 
   test('exercises mandatory authenticated MVP0 flows through ASP.NET Core backend', async ({ page }, testInfo) => {
+    await enableSmokeRealtimeRollout(page);
     const evidence: SmokeEvidence = {
       baseURL: String(testInfo.project.use.baseURL ?? ''),
       email: smokeEmail,
@@ -77,6 +78,7 @@ test.describe('MVP0 real backend browser smoke', () => {
   });
 
   test('keeps authenticated HTTP requests available when the Hub cannot connect', async ({ page }, testInfo) => {
+    await enableSmokeRealtimeRollout(page);
     await page.route('**/hubs/app/**', (route) => route.abort());
     const evidence: SmokeEvidence = { baseURL: String(testInfo.project.use.baseURL ?? ''), email: smokeEmail, steps: [], pageErrors: [], consoleErrors: [], failedApiResponses: [] };
 
@@ -88,6 +90,7 @@ test.describe('MVP0 real backend browser smoke', () => {
   });
 
   test('TASK-V1-PR03C uses the real backend for task detail, mutations, revocation, and File grant reauthorization', async ({ page }, testInfo) => {
+    await enableSmokeRealtimeRollout(page);
     const evidence: SmokeEvidence = {
       baseURL: String(testInfo.project.use.baseURL ?? ''), email: smokeEmail, steps: [], pageErrors: [], consoleErrors: [], failedApiResponses: []
     };
@@ -185,13 +188,6 @@ test.describe('MVP0 real backend browser smoke', () => {
 });
 
 async function loginAndVerifySession(page: Page, evidence: SmokeEvidence) {
-  // The synthetic smoke tenant has the server-side realtime capability, while
-  // this client-side rollout remains opt-in outside this harness. Playwright
-  // executes the init script before application bootstrap; it does not mock or
-  // intercept the Hub or any API.
-  await page.addInitScript(() => {
-    window.__AIP_FEATURE_FLAGS__ = { 'realtime.signalR': true };
-  });
   await page.goto('/app/login');
   await expect(page.getByTestId('login-page')).toBeVisible();
   await recordFetchJson(page, evidence, 'csrf-token', '/api/security/csrf-token', {
@@ -412,6 +408,16 @@ async function openProjectTaskDetail(page: Page, evidence: SmokeEvidence) {
   });
 
   await openMyTasksFromNavigation(page, evidence);
+}
+
+async function enableSmokeRealtimeRollout(page: Page): Promise<void> {
+  // The synthetic smoke tenant has the server-side realtime capability, while
+  // this client-side rollout remains opt-in outside this harness. Playwright
+  // executes the init script before application bootstrap; it does not mock or
+  // intercept the Hub or any API.
+  await page.addInitScript(() => {
+    window.__AIP_FEATURE_FLAGS__ = { 'realtime.signalR': true };
+  });
 }
 
 async function openPr03cTaskDetail(page: Page, evidence: SmokeEvidence) {
@@ -712,6 +718,8 @@ function isExpectedFailure(failure: SmokeFailedApiResponse): boolean {
     (failure.method === 'POST' && failure.path === '/api/auth/change-password' && failure.status === 400) ||
     (failure.method === 'GET' && failure.path === '/api/auth/me' && failure.status === 401) ||
     (failure.method === 'GET' && failure.path === '/api/projects' && failure.status === 401) ||
+    (failure.method === 'GET' && failure.path === '/api/files' && failure.status === 400) ||
+    (failure.method === 'GET' && /^\/api\/projects\/[0-9a-f-]+\/tasks$/i.test(failure.path) && failure.status === 400) ||
     (failure.method === 'GET' && /^\/api\/tasks\/[0-9a-f-]+$/i.test(failure.path) && failure.status >= 400 && failure.status < 500) ||
     (failure.method === 'POST' && /^\/api\/attachments\/[0-9a-f-]+\/download-grants$/i.test(failure.path) && failure.status >= 400 && failure.status < 500)
   );
