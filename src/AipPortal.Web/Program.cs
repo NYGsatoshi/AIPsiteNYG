@@ -18,6 +18,7 @@ using Microsoft.AspNetCore.HttpOverrides;
 using Microsoft.AspNetCore.RateLimiting;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Options;
+using System.Text.Json;
 
 var builder = WebApplication.CreateBuilder(args);
 
@@ -253,6 +254,21 @@ if (securityOptions.EnableCsrfProtection)
 app.UseAuthorization();
 
 app.MapControllers();
+
+// Runtime flags are loaded as a same-origin external script so the Angular
+// bootstrap remains compatible with the production CSP (script-src 'self').
+app.MapGet("/api/ui/runtime-config.js", async (
+    IFeatureFlagService featureFlags,
+    CancellationToken cancellationToken) =>
+{
+    var flags = new Dictionary<string, bool>(StringComparer.Ordinal)
+    {
+        ["realtime.signalR"] = await featureFlags.IsEnabledAsync("realtime.signalR", cancellationToken)
+    };
+    return Results.Text(
+        $"window.__AIP_FEATURE_FLAGS__ = {JsonSerializer.Serialize(flags)};",
+        "text/javascript; charset=utf-8");
+});
 app.MapHub<AppHub>("/hubs/app");
 
 app.MapGet("/", () => Results.Redirect($"{AngularSpaFallback.AppRequestPath}/", permanent: false));

@@ -37,7 +37,6 @@ test.describe('MVP0 real backend browser smoke', () => {
   });
 
   test('exercises mandatory authenticated MVP0 flows through ASP.NET Core backend', async ({ page }, testInfo) => {
-    await enableSmokeRealtimeRollout(page);
     const evidence: SmokeEvidence = {
       baseURL: String(testInfo.project.use.baseURL ?? ''),
       email: smokeEmail,
@@ -56,7 +55,10 @@ test.describe('MVP0 real backend browser smoke', () => {
     page.on('response', (response) => recordFailedApiResponse(response, evidence));
 
     try {
+      const hubNegotiate = page.waitForRequest((request) => new URL(request.url()).pathname === '/hubs/app/negotiate');
       await loginAndVerifySession(page, evidence);
+      await verifyRealtimeRuntimeConfig(page, evidence);
+      await hubNegotiate;
       await verifyRealtimeTransportReconnect(page, evidence);
       await assertCsrfRejectsMissingToken(page, evidence);
       await openWorkspaces(page, evidence);
@@ -78,7 +80,6 @@ test.describe('MVP0 real backend browser smoke', () => {
   });
 
   test('keeps authenticated HTTP requests available when the Hub cannot connect', async ({ page }, testInfo) => {
-    await enableSmokeRealtimeRollout(page);
     await page.route('**/hubs/app/**', (route) => route.abort());
     const evidence: SmokeEvidence = { baseURL: String(testInfo.project.use.baseURL ?? ''), email: smokeEmail, steps: [], pageErrors: [], consoleErrors: [], failedApiResponses: [] };
 
@@ -90,7 +91,6 @@ test.describe('MVP0 real backend browser smoke', () => {
   });
 
   test('TASK-V1-PR03C uses the real backend for task detail, mutations, revocation, and File grant reauthorization', async ({ page }, testInfo) => {
-    await enableSmokeRealtimeRollout(page);
     const evidence: SmokeEvidence = {
       baseURL: String(testInfo.project.use.baseURL ?? ''), email: smokeEmail, steps: [], pageErrors: [], consoleErrors: [], failedApiResponses: []
     };
@@ -173,9 +173,15 @@ test.describe('MVP0 real backend browser smoke', () => {
       await expect(page.getByText(smokeTaskFileName, { exact: true })).toHaveCount(0);
       await expect(page.locator('#task-comment-body')).toHaveCount(0);
 
+      const deniedTask = await fetchFromPage(page, `/api/tasks/${taskId}`);
+      evidence.steps.push({ name: 'pr03c-task-denied-after-revocation', method: 'GET', path: `/api/tasks/${taskId}`, status: deniedTask.status, bodyPreview: preview(deniedTask.text) });
+      expect(deniedTask.status, 'revoked actor must receive the canonical task safe-not-found response').toBe(404);
+      expectCanonicalDenial(deniedTask.text, 'TASK_NOT_FOUND');
+
       const deniedGrant = await requestWithCsrf(page, 'POST', `/api/attachments/${attachmentId}/download-grants`, { purpose: 'pr03c-after-revocation' });
       evidence.steps.push({ name: 'pr03c-file-grant-denied-after-revocation', method: 'POST', path: `/api/attachments/${attachmentId}/download-grants`, status: deniedGrant.status, bodyPreview: preview(deniedGrant.text) });
-      expect(deniedGrant.status, 'revoked actor must not receive a new grant').toBeGreaterThanOrEqual(400);
+      expect(deniedGrant.status, 'revoked actor must receive the canonical grant safe-not-found response').toBe(404);
+      expectCanonicalDenial(deniedGrant.text, 'FILE_DOWNLOAD_GRANT_NOT_FOUND');
       expect(deniedGrant.text, 'denial must not disclose the protected File metadata').not.toMatch(/browser-smoke-task|storageKey|filePath|tokenHash|internal\/task-file/i);
 
       expect(evidence.pageErrors, 'browser page errors').toEqual([]);
@@ -408,16 +414,6 @@ async function openProjectTaskDetail(page: Page, evidence: SmokeEvidence) {
   });
 
   await openMyTasksFromNavigation(page, evidence);
-}
-
-async function enableSmokeRealtimeRollout(page: Page): Promise<void> {
-  // The synthetic smoke tenant has the server-side realtime capability, while
-  // this client-side rollout remains opt-in outside this harness. Playwright
-  // executes the init script before application bootstrap; it does not mock or
-  // intercept the Hub or any API.
-  await page.addInitScript(() => {
-    window.__AIP_FEATURE_FLAGS__ = { 'realtime.signalR': true };
-  });
 }
 
 async function openPr03cTaskDetail(page: Page, evidence: SmokeEvidence) {
@@ -699,17 +695,8 @@ function expectUnexpectedApiFailures(evidence: SmokeEvidence) {
 }
 
 function expectUnexpectedConsoleErrors(evidence: SmokeEvidence) {
-  const unexpected = evidence.consoleErrors.filter((message) =>
-    !message.includes('404') &&
-    !message.includes('Failed to load resource: the server responded with a status of 400') &&
-    !isSmokeHarnessCspWarning(message)
-  );
+  const unexpected = evidence.consoleErrors.filter((message) => !message.includes('404'));
   expect(unexpected, 'unexpected browser console errors').toEqual([]);
-}
-
-function isSmokeHarnessCspWarning(message: string): boolean {
-  return message.includes("Executing inline script violates the following Content Security Policy directive 'script-src 'self''") &&
-    message.includes('sha256-xInfC1hJksNGbtNF+s0t/pdk2L8Y/9N7b8QC5IaMlg4=');
 }
 
 function isExpectedFailure(failure: SmokeFailedApiResponse): boolean {
@@ -718,11 +705,22 @@ function isExpectedFailure(failure: SmokeFailedApiResponse): boolean {
     (failure.method === 'POST' && failure.path === '/api/auth/change-password' && failure.status === 400) ||
     (failure.method === 'GET' && failure.path === '/api/auth/me' && failure.status === 401) ||
     (failure.method === 'GET' && failure.path === '/api/projects' && failure.status === 401) ||
-    (failure.method === 'GET' && failure.path === '/api/files' && failure.status === 400) ||
-    (failure.method === 'GET' && /^\/api\/projects\/[0-9a-f-]+\/tasks$/i.test(failure.path) && failure.status === 400) ||
-    (failure.method === 'GET' && /^\/api\/tasks\/[0-9a-f-]+$/i.test(failure.path) && failure.status >= 400 && failure.status < 500) ||
-    (failure.method === 'POST' && /^\/api\/attachments\/[0-9a-f-]+\/download-grants$/i.test(failure.path) && failure.status >= 400 && failure.status < 500)
+    (failure.method === 'GET' && /^\/api\/tasks\/[0-9a-f-]+$/i.test(failure.path) && failure.status === 404) ||
+    (failure.method === 'POST' && /^\/api\/attachments\/[0-9a-f-]+\/download-grants$/i.test(failure.path) && failure.status === 404)
   );
+}
+
+async function verifyRealtimeRuntimeConfig(page: Page, evidence: SmokeEvidence): Promise<void> {
+  const enabled = await page.evaluate(() => window.__AIP_FEATURE_FLAGS__?.['realtime.signalR'] === true);
+  evidence.steps.push({ name: 'realtime-runtime-config-enabled', method: 'GET', path: '/api/ui/runtime-config.js', status: enabled ? 200 : 500 });
+  expect(enabled, 'same-origin runtime configuration must enable the realtime rollout').toBe(true);
+}
+
+function expectCanonicalDenial(text: string, expectedCode: string): void {
+  const body = parseJson(text) as Record<string, any>;
+  expect(typeof body.requestId, 'safe denial requestId').toBe('string');
+  expect(body.error?.code, 'safe denial error code').toBe(expectedCode);
+  expect(text, 'safe denial must not expose protected metadata').not.toMatch(/browser-smoke-task|browser smoke label|storageKey|filePath|tokenHash|policy stamp|internal\//i);
 }
 
 function isPagedResponse(body: unknown): body is { items: Record<string, unknown>[] } {

@@ -1115,6 +1115,24 @@ public sealed class TaskV1CoreConcurrencyPostgreSqlTests
             Assert.Equal("TASK_LABEL_ARCHIVED", Code(rejected.Error));
         }
 
+        await using (var duplicate = harness.CreateScope())
+        {
+            var before = await SnapshotAsync(duplicate.Db, harness.Graph.Task.Id);
+            var currentVersion = (await duplicate.Commands.GetAsync(harness.Graph.Task.Id)).Value!.Version;
+            var staleVersion = Math.Max(1, currentVersion - 1);
+
+            // Archived labels remain visible through the existing association.
+            // Both duplicate PUT forms are no-ops: no task version, audit,
+            // outbox, or task-command save may be produced.
+            Assert.True((await duplicate.Subresources.ApplyLabelAsync(harness.Graph.Task.Id, label.Id, new TaskLabelAssociationRequest(currentVersion))).IsSuccess);
+            Assert.True((await duplicate.Subresources.ApplyLabelAsync(harness.Graph.Task.Id, label.Id, new TaskLabelAssociationRequest(staleVersion))).IsSuccess);
+            Assert.Equal(0, duplicate.SaveRecorder.SaveTaskCommandCallCount);
+
+            await using var verify = harness.CreateScope();
+            await AssertTaskMutationSequenceAsync(verify.Db, before, harness.Graph.Task.Id, []);
+            Assert.Single(await verify.Db.WorkItemLabels.Where(value => value.TaskItemId == harness.Graph.Task.Id && value.LabelId == label.Id).ToListAsync());
+        }
+
         await using (var remove = harness.CreateScope())
         {
             var version = (await remove.Commands.GetAsync(harness.Graph.Task.Id)).Value!.Version;

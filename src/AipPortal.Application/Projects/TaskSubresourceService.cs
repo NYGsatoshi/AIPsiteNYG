@@ -330,9 +330,12 @@ public sealed class TaskSubresourceService(
         var label = await projects.GetTaskLabelAsync(labelId, ct);
         if (label is null) return Fail("TASK_LABEL_NOT_FOUND", "Label not found.");
         if (label.ProjectId != task.ProjectId) return Fail("TASK_LABEL_PROJECT_MISMATCH", "Label is not available for this task.");
+        // An existing association is an idempotent success, even if its label
+        // was archived after the original PUT. Scope and authorization checks
+        // above deliberately precede this lookup.
+        if ((await projects.ListWorkItemLabelsAsync(taskId, ct)).Any(x => x.LabelId == labelId)) return Result.Success();
         if (label.IsArchived) return Fail("TASK_LABEL_ARCHIVED", "Archived labels cannot be applied.");
         if (request.ExpectedVersion <= 0) return Fail("TASK_INVALID_EXPECTED_VERSION", "Expected version must be a positive integer.");
-        if ((await projects.ListWorkItemLabelsAsync(taskId, ct)).Any(x => x.LabelId == labelId)) return Result.Success();
         if (task.VersionNo != request.ExpectedVersion) return Fail("TASK_STALE_VERSION", "Task has changed. Refetch and retry.");
 
         await projects.AddWorkItemLabelAsync(new WorkItemLabel { TaskItemId = taskId, LabelId = labelId, AddedAt = clock.UtcNow, AddedByUserId = Actor() }, ct);
