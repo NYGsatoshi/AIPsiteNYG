@@ -459,6 +459,7 @@ public static class AppDbContextSeed
                 DueDate = project.DueDate,
                 ProgressPercent = 10,
                 SortOrder = 1,
+                PrimaryAssigneeUserId = user.Id,
                 CreatedByUserId = user.Id
             };
             await dbContext.TaskItems.AddAsync(task, cancellationToken);
@@ -473,6 +474,7 @@ public static class AppDbContextSeed
             task.DueDate = project.DueDate;
             task.ProgressPercent = 10;
             task.SortOrder = 1;
+            task.PrimaryAssigneeUserId = user.Id;
             task.CreatedByUserId = user.Id;
             if (task.IsDeleted)
             {

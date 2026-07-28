@@ -740,12 +740,22 @@ async function fetchJsonFromPage(page: Page, path: string): Promise<{ status: nu
 }
 
 async function fetchBinaryFromPage(page: Page, path: string): Promise<{ status: number; text: string }> {
-  const result = await fetchFromPage(page, path);
-  return { status: result.status, text: result.text };
+  const response = await page.context().request.get(new URL(path, page.url()).href);
+  return { status: response.status(), text: await response.text() };
 }
 
 async function requestBinaryWithCsrf(page: Page, path: string, body: unknown): Promise<{ status: number; text: string }> {
-  return requestWithCsrf(page, 'POST', path, body);
+  const csrf = await page.evaluate(async () => {
+    const response = await fetch('/api/security/csrf-token', { credentials: 'include' });
+    return response.json() as Promise<{ token?: string; headerName?: string }>;
+  });
+  expect(csrf.token, 'binary request CSRF token').toBeTruthy();
+  expect(csrf.headerName, 'binary request CSRF header name').toBeTruthy();
+  const response = await page.context().request.post(new URL(path, page.url()).href, {
+    data: body,
+    headers: { [csrf.headerName!]: csrf.token! }
+  });
+  return { status: response.status(), text: await response.text() };
 }
 
 /** Acquires the anti-forgery token in the browser and never serializes it into evidence. */
