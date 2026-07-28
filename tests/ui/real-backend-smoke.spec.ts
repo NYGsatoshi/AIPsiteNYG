@@ -402,6 +402,15 @@ async function openProjectTaskDetail(page: Page, evidence: SmokeEvidence) {
   expect(task, 'seeded task record').toBeTruthy();
   evidence.taskId = String(task!.id);
 
+  // The projects overview intentionally lists project summaries only. Follow
+  // the real project navigation and select its Task list before asserting a
+  // task-grid row; the API assertion above remains the direct list contract.
+  const projectCard = page.getByTestId('project-summary-card').filter({ hasText: smokeProjectTitle }).first();
+  await projectCard.getByRole('link', { name: `Open ${smokeProjectTitle}` }).click();
+  await expect(page).toHaveURL(new RegExp(`/app/projects/${evidence.projectId}$`));
+  await expect(page.getByTestId('project-detail-page')).toBeVisible();
+  await page.getByRole('tab', { name: 'Task list' }).click();
+
   const taskRow = page.locator('[role="row"]').filter({ hasText: smokeTaskTitle }).first();
   await expect(taskRow).toBeVisible();
   await taskRow.getByTestId('task-action-openDetail').click();
