@@ -550,9 +550,9 @@ async function openMyTasksFromNavigation(page: Page, evidence: SmokeEvidence) {
     status: projectListRequests
   });
 
-  const taskRow = page.locator('[role="row"]').filter({ hasText: smokeTaskTitle }).first();
-  await expect(taskRow).toBeVisible();
-  await clickTaskOpenDetail(page, taskRow);
+  const taskButton = page.getByRole('button', { name: /^Browser smoke task(?:\s|$)/ }).first();
+  await expect(taskButton).toBeVisible();
+  await taskButton.click();
   await expect(page).toHaveURL(new RegExp(`/app/projects/${evidence.projectId}/tasks/${evidence.taskId}$`));
   await expect(page.getByTestId('task-detail-page')).toBeVisible();
   await expect(page.getByRole('heading', { name: smokeTaskTitle })).toBeVisible();
