@@ -12,7 +12,13 @@ public sealed class SecurityHeadersMiddleware(RequestDelegate next)
         // SignalR upgrades same-origin connections to ws/wss. Explicit schemes
         // keep the rollout CSP-compatible in browsers that do not infer them
         // from 'self'.
-        headers.TryAdd("Content-Security-Policy", "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data: https:; font-src 'self' data:; connect-src 'self' https: ws: wss:; base-uri 'self'; frame-ancestors 'none'; object-src 'none'; form-action 'self'");
+        var requestHost = context.Request.Host.ToUriComponent();
+        var websocketSources = string.IsNullOrWhiteSpace(requestHost)
+            ? string.Empty
+            : $" ws://{requestHost} wss://{requestHost}";
+        headers.TryAdd(
+            "Content-Security-Policy",
+            $"default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data: https:; font-src 'self' data:; connect-src 'self' https:{websocketSources}; base-uri 'self'; frame-ancestors 'none'; object-src 'none'; form-action 'self'");
 
         await next(context);
     }

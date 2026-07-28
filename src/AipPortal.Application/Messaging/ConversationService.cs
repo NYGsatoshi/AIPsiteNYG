@@ -680,7 +680,7 @@ public sealed class ConversationService(
         return Result<ConversationDetailResponse>.Success(await ToDetailAsync(conversation, cancellationToken));
     }
 
-    private bool TryCurrentUser(out Guid userId) { userId = currentUser.UserId ?? Guid.Empty; return currentUser is { IsAuthenticated: true, UserId: not null }; }
+    private bool TryCurrentUser(out Guid userId) { userId = currentUser.UserId ?? Guid.Empty; return currentUser.IsAuthenticated && currentUser.UserId.HasValue; }
     private static bool IsSupportedMvpType(ConversationType type) => type is ConversationType.DirectMessage or ConversationType.ProjectChannel or ConversationType.Thread;
 
     private async Task<Result<ConversationDetailResponse>> CreateThreadAsync(CreateConversationRequest request, Guid userId, CancellationToken cancellationToken)
@@ -691,7 +691,7 @@ public sealed class ConversationService(
         }
 
         var parent = await messaging.GetConversationAsync(request.ParentConversationId.Value, cancellationToken);
-        if (parent is null || parent is { Type: ConversationType.Thread, ParentConversationId: null })
+        if (parent is null || parent.Type == ConversationType.Thread && parent.ParentConversationId is null)
         {
             return Result<ConversationDetailResponse>.Failure("Parent conversation not found.");
         }
@@ -1090,5 +1090,5 @@ public sealed class ConversationService(
         return outbox.EnqueueAsync(new DurableEventEnvelope(Guid.NewGuid(), eventType, RealtimeEventCatalog.PayloadSchemaVersion1, clock.UtcNow, tenantId, aggregateType, aggregateId, aggregateVersion, new RealtimeActor("User", actorUserId), null, causationId, payload), routingTargets, cancellationToken);
     }
 
-    private Guid conversationTenantId() => currentTenant is { IsAvailable: true, IsPlatformScope: false } ? currentTenant.TenantId : Guid.Empty;
+    private Guid conversationTenantId() => currentTenant.IsAvailable && !currentTenant.IsPlatformScope ? currentTenant.TenantId : Guid.Empty;
 }

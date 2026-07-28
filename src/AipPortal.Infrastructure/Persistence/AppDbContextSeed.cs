@@ -3,6 +3,7 @@ using AipPortal.Domain.Enums;
 using AipPortal.Application.Common.Interfaces;
 using AipPortal.Application.Common.Tenancy;
 using Microsoft.EntityFrameworkCore;
+using System.Text;
 
 namespace AipPortal.Infrastructure.Persistence;
 
@@ -117,6 +118,7 @@ public static class AppDbContextSeed
     public static async Task SeedBrowserSmokeAsync(
         AppDbContext dbContext,
         IPasswordHasher passwordHasher,
+        IFileStorageService fileStorage,
         Guid tenantId,
         string email,
         string password,
@@ -133,6 +135,8 @@ public static class AppDbContextSeed
         const string recipientDisplayName = "Browser Smoke Recipient";
         const string taskLabelName = "Browser smoke label";
         const string taskFileName = "browser-smoke-task.txt";
+        const string taskFileContents = "Synthetic PR03C browser smoke file.\n";
+        var taskFileBytes = Encoding.UTF8.GetBytes(taskFileContents);
 
         var now = DateTimeOffset.UtcNow;
         var normalizedEmail = email.Trim().ToUpperInvariant();
@@ -529,7 +533,7 @@ public static class AppDbContextSeed
                 OriginalFileName = taskFileName,
                 StorageKey = $"browser-smoke/{tenantId:D}/{project.Id:D}/{taskFileName}",
                 ContentType = "text/plain",
-                SizeBytes = 32,
+                SizeBytes = taskFileBytes.LongLength,
                 Classification = DataClassification.Private,
                 Status = FileObjectStatus.Active
             };
@@ -541,6 +545,8 @@ public static class AppDbContextSeed
             taskFile.ProjectId = project.Id;
             taskFile.WorkspaceId = workspace.Id;
             taskFile.UploadedByUserId = user.Id;
+            taskFile.ContentType = "text/plain";
+            taskFile.SizeBytes = taskFileBytes.LongLength;
         }
 
         var taskAttachment = await dbContext.Attachments.FirstOrDefaultAsync(
@@ -562,7 +568,7 @@ public static class AppDbContextSeed
                 FilePath = "browser-smoke/internal/task-file",
                 ContentType = "text/plain",
                 Extension = ".txt",
-                SizeBytes = 32,
+                SizeBytes = taskFileBytes.LongLength,
                 StorageProvider = "browser-smoke",
                 StorageKey = taskFile.StorageKey,
                 ScanStatus = FileScanStatus.Clean
@@ -575,6 +581,13 @@ public static class AppDbContextSeed
             taskAttachment.OwnerId = task.Id;
             taskAttachment.WorkspaceId = workspace.Id;
             taskAttachment.FileName = taskFileName;
+            taskAttachment.StoredFileName = taskFileName;
+            taskAttachment.FilePath = "browser-smoke/internal/task-file";
+            taskAttachment.ContentType = "text/plain";
+            taskAttachment.Extension = ".txt";
+            taskAttachment.SizeBytes = taskFileBytes.LongLength;
+            taskAttachment.StorageProvider = "browser-smoke";
+            taskAttachment.StorageKey = taskFile.StorageKey;
             if (taskAttachment.IsDeleted)
             {
                 taskAttachment.Restore();
@@ -607,6 +620,17 @@ public static class AppDbContextSeed
         }
 
         await dbContext.SaveChangesAsync(cancellationToken);
+
+        await using var taskFileStream = new MemoryStream(taskFileBytes, writable: false);
+        var storageResult = await fileStorage.SaveAsync(
+            taskFile.StorageKey,
+            taskFileStream,
+            taskFile.ContentType,
+            cancellationToken);
+        if (!storageResult.IsSuccess)
+        {
+            throw new InvalidOperationException("Browser smoke synthetic file could not be stored.");
+        }
     }
 
     public static async Task EnsureBootstrapAdminAsync(

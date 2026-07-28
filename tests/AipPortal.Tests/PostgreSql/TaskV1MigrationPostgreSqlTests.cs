@@ -12,6 +12,10 @@ namespace AipPortal.Tests.PostgreSql;
 [Trait("Scope", "TaskV1Prompt2C")]
 public sealed class TaskV1MigrationPostgreSqlTests
 {
+    private const string Pr03cBaseMigration = "20260722230000_MigrateLegacyTaskComments";
+    private const string BeforeTenantTableRepairMigration = "20260726150000_EnforceManualWatchOptOutExclusivity";
+    private const string TenantTableRepairMigration = "20260728010000_CreateMissingTenantSettingsTable";
+
     [PostgreSqlFact]
     [Trait("Category", "PostgreSQLIntegration")]
     [Trait("Scope", "TaskV1PR03C")]
@@ -45,6 +49,122 @@ public sealed class TaskV1MigrationPostgreSqlTests
             Assert.True(context.Model.FindEntityType(typeof(AipPortal.Domain.Entities.ProjectTaskLabel))!.FindProperty(nameof(AipPortal.Domain.Entities.ProjectTaskLabel.VersionNo))!.IsConcurrencyToken);
         });
     }
+
+    [PostgreSqlFact]
+    [Trait("Category", "PostgreSQLIntegration")]
+    [Trait("Scope", "TaskV1PR03C")]
+    public async Task Pr03cBaseSchemaUpgradesToLatestWithAllHistoricallyMissingTables()
+    {
+        var connectionString = PostgreSqlTestEnvironment.RequireConnectionString();
+        await WithTemporaryDatabaseAsync(connectionString, async testConnectionString =>
+        {
+            await PostgreSqlMigrationTestDatabase.MigrateAsync(testConnectionString, Pr03cBaseMigration);
+            await AssertHistoricalTablesAsync(testConnectionString, expected: false);
+
+            await PostgreSqlMigrationTestDatabase.MigrateAsync(testConnectionString);
+
+            await AssertHistoricalTablesAsync(testConnectionString, expected: true);
+            await AssertLatestMigrationStateAsync(testConnectionString);
+        });
+    }
+
+    [PostgreSqlFact]
+    [Trait("Category", "PostgreSQLIntegration")]
+    [Trait("Scope", "TaskV1PR03C")]
+    public async Task TenantTableRepairSchemaUpgradesThroughTheFollowingPlatformTableRepair()
+    {
+        var connectionString = PostgreSqlTestEnvironment.RequireConnectionString();
+        await WithTemporaryDatabaseAsync(connectionString, async testConnectionString =>
+        {
+            await PostgreSqlMigrationTestDatabase.MigrateAsync(testConnectionString, TenantTableRepairMigration);
+            Assert.True(await TableExistsAsync(testConnectionString, "tenant_settings"));
+            Assert.False(await TableExistsAsync(testConnectionString, "api_tokens"));
+
+            await PostgreSqlMigrationTestDatabase.MigrateAsync(testConnectionString);
+
+            await AssertHistoricalTablesAsync(testConnectionString, expected: true);
+            await AssertLatestMigrationStateAsync(testConnectionString);
+        });
+    }
+
+    [PostgreSqlFact]
+    [Trait("Category", "PostgreSQLIntegration")]
+    [Trait("Scope", "TaskV1PR03C")]
+    public async Task RepairMigrationsPreservePreExistingTablesAndDataAcrossRollbackAndReapply()
+    {
+        var connectionString = PostgreSqlTestEnvironment.RequireConnectionString();
+        await WithTemporaryDatabaseAsync(connectionString, async testConnectionString =>
+        {
+            await PostgreSqlMigrationTestDatabase.MigrateAsync(testConnectionString);
+            var graph = await TaskV1MigrationRawSqlSeed.CreateGraphAsync(testConnectionString, "repair-reapply");
+            var usageRecordId = Guid.NewGuid();
+            await PostgreSqlMigrationTestDatabase.ExecuteAsync(
+                testConnectionString,
+                """
+                INSERT INTO usage_records (
+                    "Id", "TenantId", "Date", "ActiveUserCount", "TotalUserCount",
+                    "ProjectCount", "TaskCount", "FileCount", "StorageUsedBytes",
+                    "ApiRequestCount", "CreatedAt")
+                VALUES (
+                    @id, @tenantId, DATE '2026-07-28', 1, 1, 1, 1, 0, 0, 1,
+                    TIMESTAMPTZ '2026-07-28T00:00:00Z');
+                """,
+                ("id", usageRecordId),
+                ("tenantId", graph.TenantId));
+
+            await PostgreSqlMigrationTestDatabase.MigrateAsync(
+                testConnectionString,
+                BeforeTenantTableRepairMigration);
+            await AssertHistoricalTablesAsync(testConnectionString, expected: true);
+            Assert.Equal(
+                1,
+                await PostgreSqlMigrationTestDatabase.ScalarAsync<long>(
+                    testConnectionString,
+                    "SELECT COUNT(*) FROM usage_records WHERE \"Id\" = @id;",
+                    ("id", usageRecordId)));
+
+            await PostgreSqlMigrationTestDatabase.MigrateAsync(testConnectionString);
+
+            await AssertHistoricalTablesAsync(testConnectionString, expected: true);
+            Assert.Equal(
+                1,
+                await PostgreSqlMigrationTestDatabase.ScalarAsync<long>(
+                    testConnectionString,
+                    "SELECT COUNT(*) FROM usage_records WHERE \"Id\" = @id;",
+                    ("id", usageRecordId)));
+            await AssertLatestMigrationStateAsync(testConnectionString);
+        });
+    }
+
+    private static async Task AssertLatestMigrationStateAsync(string connectionString)
+    {
+        await using var context = PostgreSqlMigrationTestDatabase.CreatePlatformContext(connectionString);
+        Assert.Empty(await context.Database.GetPendingMigrationsAsync());
+        Assert.False(context.Database.HasPendingModelChanges());
+    }
+
+    private static async Task AssertHistoricalTablesAsync(string connectionString, bool expected)
+    {
+        foreach (var tableName in new[]
+                 {
+                     "tenant_settings",
+                     "api_tokens",
+                     "export_jobs",
+                     "integration_accounts",
+                     "subscriptions",
+                     "usage_records",
+                     "webhook_endpoints"
+                 })
+        {
+            Assert.Equal(expected, await TableExistsAsync(connectionString, tableName));
+        }
+    }
+
+    private static Task<bool> TableExistsAsync(string connectionString, string tableName) =>
+        PostgreSqlMigrationTestDatabase.ScalarAsync<bool>(
+            connectionString,
+            "SELECT to_regclass(current_schema() || '.' || @tableName) IS NOT NULL;",
+            ("tableName", tableName));
 
     private static async Task<T> ScalarAsync<T>(string connectionString, string sql)
     {

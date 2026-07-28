@@ -200,6 +200,7 @@ if (tenancyOptions.SeedOnStartup ||
         await AppDbContextSeed.SeedBrowserSmokeAsync(
             dbContext,
             scope.ServiceProvider.GetRequiredService<IPasswordHasher>(),
+            scope.ServiceProvider.GetRequiredService<IFileStorageService>(),
             defaultTenant.Id,
             smokeEmail,
             smokePassword);

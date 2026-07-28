@@ -1,4 +1,4 @@
-import { expect, type Page, type Response as PlaywrightResponse, test } from '@playwright/test';
+import { expect, type Locator, type Page, type Response as PlaywrightResponse, test } from '@playwright/test';
 
 const smokeEmail = process.env.AIP_BROWSER_SMOKE_EMAIL ?? '';
 const smokePassword = process.env.AIP_BROWSER_SMOKE_PASSWORD ?? '';
@@ -80,7 +80,17 @@ test.describe('MVP0 real backend browser smoke', () => {
   });
 
   test('keeps authenticated HTTP requests available when the Hub cannot connect', async ({ page }, testInfo) => {
-    await page.route('**/hubs/app/**', (route) => route.abort());
+    await page.addInitScript(() => {
+      const nativeFetch = window.fetch.bind(window);
+      window.fetch = (input: RequestInfo | URL, init?: RequestInit) => {
+        const url = typeof input === 'string' ? input : input instanceof URL ? input.href : input.url;
+        if (new URL(url, window.location.href).pathname.startsWith('/hubs/app')) {
+          return Promise.reject(new TypeError('Synthetic Hub unavailability'));
+        }
+
+        return nativeFetch(input, init);
+      };
+    });
     const evidence: SmokeEvidence = { baseURL: String(testInfo.project.use.baseURL ?? ''), email: smokeEmail, steps: [], pageErrors: [], consoleErrors: [], failedApiResponses: [] };
 
     await loginAndVerifySession(page, evidence);
@@ -128,6 +138,34 @@ test.describe('MVP0 real backend browser smoke', () => {
       const grant = await requestWithCsrf(page, 'POST', `/api/attachments/${attachmentId}/download-grants`, { purpose: 'pr03c-acceptance' });
       evidence.steps.push({ name: 'pr03c-file-grant-before-revocation', method: 'POST', path: `/api/attachments/${attachmentId}/download-grants`, status: grant.status, bodyPreview: '[redacted]' });
       expect(grant.status, 'authorized actor receives a fresh Attachment download grant').toBe(200);
+      const grantBody = parseJson(grant.text) as Record<string, unknown>;
+      const grantId = String(grantBody.fileDownloadGrantId ?? '');
+      const grantToken = String(grantBody.token ?? '');
+      expect(grantId, 'download grant id').toMatch(/^[0-9a-f-]{36}$/i);
+      expect(grantToken, 'download grant token').not.toBe('');
+      const browserStorage = await page.evaluate(() => JSON.stringify({
+        local: { ...localStorage },
+        session: { ...sessionStorage }
+      }));
+      expect(browserStorage, 'download grant token must remain ephemeral').not.toContain(grantToken);
+
+      const directOpen = await fetchBinaryFromPage(page, `/api/attachments/${attachmentId}/download`);
+      evidence.steps.push({ name: 'pr03c-file-open-before-revocation', method: 'GET', path: `/api/attachments/${attachmentId}/download`, status: directOpen.status });
+      expect(directOpen.status, 'authorized actor can open the physical synthetic Attachment').toBe(200);
+      expect(directOpen.text, 'authorized direct open returns the seeded bytes').toBe('Synthetic PR03C browser smoke file.\n');
+
+      const grantedDownload = await requestBinaryWithCsrf(page, `/api/attachment-download-grants/${grantId}/download`, { token: grantToken });
+      evidence.steps.push({ name: 'pr03c-file-grant-download-before-revocation', method: 'POST', path: `/api/attachment-download-grants/${grantId}/download`, status: grantedDownload.status });
+      expect(grantedDownload.status, 'fresh grant downloads the physical synthetic Attachment').toBe(200);
+      expect(grantedDownload.text, 'authorized grant returns the seeded bytes').toBe('Synthetic PR03C browser smoke file.\n');
+
+      const retainedGrant = await requestWithCsrf(page, 'POST', `/api/attachments/${attachmentId}/download-grants`, { purpose: 'pr03c-revocation-probe' });
+      expect(retainedGrant.status, 'revocation probe receives a fresh one-time grant').toBe(200);
+      const retainedGrantBody = parseJson(retainedGrant.text) as Record<string, unknown>;
+      const retainedGrantId = String(retainedGrantBody.fileDownloadGrantId ?? '');
+      const retainedGrantToken = String(retainedGrantBody.token ?? '');
+      expect(retainedGrantId, 'retained download grant id').toMatch(/^[0-9a-f-]{36}$/i);
+      expect(retainedGrantToken, 'retained download grant token').not.toBe('');
 
       const checklistText = `PR03C checklist ${Date.now()}`;
       const checklistResponse = waitForApiResponse(page, 'POST', `/api/tasks/${taskId}/checklist`);
@@ -178,11 +216,37 @@ test.describe('MVP0 real backend browser smoke', () => {
       expect(deniedTask.status, 'revoked actor must receive the canonical task safe-not-found response').toBe(404);
       expectCanonicalDenial(deniedTask.text, 'TASK_NOT_FOUND');
 
+      const revokedMyTasks = await fetchJsonFromPage(page, '/api/me/tasks?view=assigned&scope=allWorkspaces');
+      evidence.steps.push({ name: 'pr03c-my-tasks-cleared-after-revocation', method: 'GET', path: '/api/me/tasks', status: revokedMyTasks.status });
+      expect(revokedMyTasks.status, 'My Tasks remains safely queryable after membership revocation').toBe(200);
+      expect(revokedMyTasks.body?.items, 'revoked Workspace rows must disappear from My Tasks').toEqual([]);
+      expect(revokedMyTasks.body?.totalCount, 'revoked Workspace rows must not contribute to My Tasks total').toBe(0);
+      expect(revokedMyTasks.body?.availableWorkspaceCount, 'revoked Workspace must not remain available').toBe(0);
+
+      const revokedMyTaskCounts = await fetchJsonFromPage(page, '/api/me/tasks/counts?scope=allWorkspaces');
+      evidence.steps.push({ name: 'pr03c-my-task-counts-cleared-after-revocation', method: 'GET', path: '/api/me/tasks/counts', status: revokedMyTaskCounts.status });
+      expect(revokedMyTaskCounts.status, 'My Tasks counts remain safely queryable after membership revocation').toBe(200);
+      expect(revokedMyTaskCounts.body?.availableWorkspaceCount, 'revoked Workspace must not remain in count scope').toBe(0);
+      expect(
+        (revokedMyTaskCounts.body?.views ?? []).every((view: Record<string, unknown>) => view.count === 0),
+        'revoked Workspace rows must not contribute to any relationship count'
+      ).toBe(true);
+
       const deniedGrant = await requestWithCsrf(page, 'POST', `/api/attachments/${attachmentId}/download-grants`, { purpose: 'pr03c-after-revocation' });
       evidence.steps.push({ name: 'pr03c-file-grant-denied-after-revocation', method: 'POST', path: `/api/attachments/${attachmentId}/download-grants`, status: deniedGrant.status, bodyPreview: preview(deniedGrant.text) });
       expect(deniedGrant.status, 'revoked actor must receive the canonical grant safe-not-found response').toBe(404);
       expectCanonicalDenial(deniedGrant.text, 'FILE_DOWNLOAD_GRANT_NOT_FOUND');
       expect(deniedGrant.text, 'denial must not disclose the protected File metadata').not.toMatch(/browser-smoke-task|storageKey|filePath|tokenHash|internal\/task-file/i);
+
+      const deniedOpen = await fetchBinaryFromPage(page, `/api/attachments/${attachmentId}/download`);
+      evidence.steps.push({ name: 'pr03c-file-open-denied-after-revocation', method: 'GET', path: `/api/attachments/${attachmentId}/download`, status: deniedOpen.status });
+      expect(deniedOpen.status, 'revoked actor cannot open the physical Attachment').toBe(400);
+      expect(deniedOpen.text, 'revoked direct open must not return the seeded bytes').not.toContain('Synthetic PR03C browser smoke file.');
+
+      const deniedRetainedGrant = await requestBinaryWithCsrf(page, `/api/attachment-download-grants/${retainedGrantId}/download`, { token: retainedGrantToken });
+      evidence.steps.push({ name: 'pr03c-retained-grant-denied-after-revocation', method: 'POST', path: `/api/attachment-download-grants/${retainedGrantId}/download`, status: deniedRetainedGrant.status });
+      expect(deniedRetainedGrant.status, 'membership revocation invalidates a previously issued unused grant').toBe(400);
+      expect(deniedRetainedGrant.text, 'revoked retained grant must not return the seeded bytes').not.toContain('Synthetic PR03C browser smoke file.');
 
       expect(evidence.pageErrors, 'browser page errors').toEqual([]);
       expectUnexpectedConsoleErrors(evidence);
@@ -413,7 +477,7 @@ async function openProjectTaskDetail(page: Page, evidence: SmokeEvidence) {
 
   const taskRow = page.locator('[role="row"]').filter({ hasText: smokeTaskTitle }).first();
   await expect(taskRow).toBeVisible();
-  await taskRow.getByTestId('task-action-openDetail').click();
+  await clickTaskOpenDetail(page, taskRow);
 
   await expect(page.getByTestId('task-detail-page')).toBeVisible();
   await expect(page.getByRole('heading', { name: smokeTaskTitle })).toBeVisible();
@@ -452,14 +516,11 @@ async function openPr03cTaskDetail(page: Page, evidence: SmokeEvidence) {
 }
 
 async function openMyTasksFromNavigation(page: Page, evidence: SmokeEvidence) {
-  let blockedProjectListRequests = 0;
-  await page.route('**/api/projects', async (route) => {
-    blockedProjectListRequests += 1;
-    await route.fulfill({
-      status: 500,
-      contentType: 'application/json',
-      body: JSON.stringify({ message: 'Project list intentionally blocked during My Tasks independence probe.' })
-    });
+  let projectListRequests = 0;
+  page.on('request', (request) => {
+    if (request.method() === 'GET' && new URL(request.url()).pathname === '/api/projects') {
+      projectListRequests += 1;
+    }
   });
 
   const [myTasksResponse] = await Promise.all([
@@ -481,22 +542,32 @@ async function openMyTasksFromNavigation(page: Page, evidence: SmokeEvidence) {
   );
   const assignedTask = myTasksBody.items.find((item: Record<string, unknown>) => item.title === smokeTaskTitle);
   expect(assignedTask, 'seeded assigned My Tasks row').toBeTruthy();
-  expect(blockedProjectListRequests, 'My Tasks must not request /api/projects while loading').toBe(0);
+  expect(projectListRequests, 'My Tasks must not request /api/projects while loading').toBe(0);
   evidence.steps.push({
     name: 'my-tasks-independent-from-project-list',
     method: 'GET',
     path: '/api/projects',
-    status: blockedProjectListRequests
+    status: projectListRequests
   });
 
   const taskRow = page.locator('[role="row"]').filter({ hasText: smokeTaskTitle }).first();
   await expect(taskRow).toBeVisible();
-  await taskRow.getByTestId('task-action-openDetail').click();
+  await clickTaskOpenDetail(page, taskRow);
   await expect(page).toHaveURL(new RegExp(`/app/projects/${evidence.projectId}/tasks/${evidence.taskId}$`));
   await expect(page.getByTestId('task-detail-page')).toBeVisible();
   await expect(page.getByRole('heading', { name: smokeTaskTitle })).toBeVisible();
+}
 
-  await page.unroute('**/api/projects');
+async function clickTaskOpenDetail(page: Page, taskRow: Locator): Promise<void> {
+  const action = taskRow.getByTestId('task-action-openDetail');
+  if (!(await action.isVisible())) {
+    await page.locator('.ag-body-horizontal-scroll-viewport').evaluate((viewport) => {
+      viewport.scrollLeft = viewport.scrollWidth;
+    });
+  }
+
+  await expect(action).toBeVisible();
+  await action.click();
 }
 
 async function submitInvalidPasswordChange(page: Page, evidence: SmokeEvidence) {
@@ -668,6 +739,15 @@ async function fetchJsonFromPage(page: Page, path: string): Promise<{ status: nu
   };
 }
 
+async function fetchBinaryFromPage(page: Page, path: string): Promise<{ status: number; text: string }> {
+  const result = await fetchFromPage(page, path);
+  return { status: result.status, text: result.text };
+}
+
+async function requestBinaryWithCsrf(page: Page, path: string, body: unknown): Promise<{ status: number; text: string }> {
+  return requestWithCsrf(page, 'POST', path, body);
+}
+
 /** Acquires the anti-forgery token in the browser and never serializes it into evidence. */
 async function requestWithCsrf(page: Page, method: 'POST' | 'DELETE', path: string, body?: unknown): Promise<{ status: number; text: string }> {
   return page.evaluate(async ({ method, path, body }) => {
@@ -715,7 +795,9 @@ function isExpectedFailure(failure: SmokeFailedApiResponse): boolean {
     (failure.method === 'GET' && failure.path === '/api/auth/me' && failure.status === 401) ||
     (failure.method === 'GET' && failure.path === '/api/projects' && failure.status === 401) ||
     (failure.method === 'GET' && /^\/api\/tasks\/[0-9a-f-]+$/i.test(failure.path) && failure.status === 404) ||
-    (failure.method === 'POST' && /^\/api\/attachments\/[0-9a-f-]+\/download-grants$/i.test(failure.path) && failure.status === 404)
+    (failure.method === 'POST' && /^\/api\/attachments\/[0-9a-f-]+\/download-grants$/i.test(failure.path) && failure.status === 404) ||
+    (failure.method === 'GET' && /^\/api\/attachments\/[0-9a-f-]+\/download$/i.test(failure.path) && failure.status === 400) ||
+    (failure.method === 'POST' && /^\/api\/attachment-download-grants\/[0-9a-f-]+\/download$/i.test(failure.path) && failure.status === 400)
   );
 }
 

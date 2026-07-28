@@ -14,227 +14,333 @@ public sealed class CreateMissingTenantPlatformTables : Migration
 {
     protected override void Up(MigrationBuilder migrationBuilder)
     {
-        migrationBuilder.CreateTable(
-            name: "api_tokens",
-            columns: table => new
-            {
-                Id = table.Column<Guid>(type: "uuid", nullable: false),
-                TenantId = table.Column<Guid>(type: "uuid", nullable: false),
-                Name = table.Column<string>(type: "character varying(160)", maxLength: 160, nullable: false),
-                TokenHash = table.Column<string>(type: "character varying(128)", maxLength: 128, nullable: false),
-                ScopesJson = table.Column<string>(type: "character varying(4000)", maxLength: 4000, nullable: false),
-                ExpiresAt = table.Column<DateTimeOffset>(type: "timestamp with time zone", nullable: true),
-                CreatedByUserId = table.Column<Guid>(type: "uuid", nullable: false),
-                LastUsedAt = table.Column<DateTimeOffset>(type: "timestamp with time zone", nullable: true),
-                RevokedAt = table.Column<DateTimeOffset>(type: "timestamp with time zone", nullable: true),
-                CreatedAt = table.Column<DateTimeOffset>(type: "timestamp with time zone", nullable: false),
-                UpdatedAt = table.Column<DateTimeOffset>(type: "timestamp with time zone", nullable: true)
-            },
-            constraints: table =>
-            {
-                table.PrimaryKey("PK_api_tokens", x => x.Id);
-                table.ForeignKey(
-                    name: "FK_api_tokens_users_CreatedByUserId",
-                    column: x => x.CreatedByUserId,
-                    principalTable: "users",
-                    principalColumn: "Id",
-                    onDelete: ReferentialAction.Restrict);
-            });
+        migrationBuilder.Sql(
+            """
+            CREATE TABLE IF NOT EXISTS api_tokens (
+                "Id" uuid NOT NULL,
+                "TenantId" uuid NOT NULL,
+                "Name" character varying(160) NOT NULL,
+                "TokenHash" character varying(128) NOT NULL,
+                "ScopesJson" character varying(4000) NOT NULL,
+                "ExpiresAt" timestamp with time zone NULL,
+                "CreatedByUserId" uuid NOT NULL,
+                "LastUsedAt" timestamp with time zone NULL,
+                "RevokedAt" timestamp with time zone NULL,
+                "CreatedAt" timestamp with time zone NOT NULL,
+                "UpdatedAt" timestamp with time zone NULL
+            );
 
-        migrationBuilder.CreateTable(
-            name: "export_jobs",
-            columns: table => new
-            {
-                Id = table.Column<Guid>(type: "uuid", nullable: false),
-                TenantId = table.Column<Guid>(type: "uuid", nullable: false),
-                RequestedByUserId = table.Column<Guid>(type: "uuid", nullable: false),
-                Status = table.Column<string>(type: "character varying(40)", maxLength: 40, nullable: false),
-                ExportType = table.Column<string>(type: "character varying(40)", maxLength: 40, nullable: false),
-                FileObjectId = table.Column<Guid>(type: "uuid", nullable: true),
-                CompletedAt = table.Column<DateTimeOffset>(type: "timestamp with time zone", nullable: true),
-                ErrorMessage = table.Column<string>(type: "character varying(2000)", maxLength: 2000, nullable: true),
-                CreatedAt = table.Column<DateTimeOffset>(type: "timestamp with time zone", nullable: false),
-                UpdatedAt = table.Column<DateTimeOffset>(type: "timestamp with time zone", nullable: true)
-            },
-            constraints: table =>
-            {
-                table.PrimaryKey("PK_export_jobs", x => x.Id);
-                table.ForeignKey(
-                    name: "FK_export_jobs_file_objects_FileObjectId",
-                    column: x => x.FileObjectId,
-                    principalTable: "file_objects",
-                    principalColumn: "Id",
-                    onDelete: ReferentialAction.SetNull);
-                table.ForeignKey(
-                    name: "FK_export_jobs_users_RequestedByUserId",
-                    column: x => x.RequestedByUserId,
-                    principalTable: "users",
-                    principalColumn: "Id",
-                    onDelete: ReferentialAction.Restrict);
-            });
+            CREATE TABLE IF NOT EXISTS export_jobs (
+                "Id" uuid NOT NULL,
+                "TenantId" uuid NOT NULL,
+                "RequestedByUserId" uuid NOT NULL,
+                "Status" character varying(40) NOT NULL,
+                "ExportType" character varying(40) NOT NULL,
+                "FileObjectId" uuid NULL,
+                "CompletedAt" timestamp with time zone NULL,
+                "ErrorMessage" character varying(2000) NULL,
+                "CreatedAt" timestamp with time zone NOT NULL,
+                "UpdatedAt" timestamp with time zone NULL
+            );
 
-        migrationBuilder.CreateTable(
-            name: "integration_accounts",
-            columns: table => new
-            {
-                Id = table.Column<Guid>(type: "uuid", nullable: false),
-                TenantId = table.Column<Guid>(type: "uuid", nullable: false),
-                Provider = table.Column<string>(type: "character varying(40)", maxLength: 40, nullable: false),
-                DisplayName = table.Column<string>(type: "character varying(160)", maxLength: 160, nullable: false),
-                Status = table.Column<string>(type: "character varying(40)", maxLength: 40, nullable: false),
-                SettingsJson = table.Column<string>(type: "character varying(12000)", maxLength: 12000, nullable: false),
-                CreatedByUserId = table.Column<Guid>(type: "uuid", nullable: false),
-                CreatedAt = table.Column<DateTimeOffset>(type: "timestamp with time zone", nullable: false),
-                UpdatedAt = table.Column<DateTimeOffset>(type: "timestamp with time zone", nullable: true),
-                DeletedAt = table.Column<DateTimeOffset>(type: "timestamp with time zone", nullable: true),
-                DeletedByUserId = table.Column<Guid>(type: "uuid", nullable: true),
-                DeleteReason = table.Column<string>(type: "character varying(500)", maxLength: 500, nullable: true)
-            },
-            constraints: table =>
-            {
-                table.PrimaryKey("PK_integration_accounts", x => x.Id);
-                table.ForeignKey(
-                    name: "FK_integration_accounts_users_CreatedByUserId",
-                    column: x => x.CreatedByUserId,
-                    principalTable: "users",
-                    principalColumn: "Id",
-                    onDelete: ReferentialAction.Restrict);
-            });
+            CREATE TABLE IF NOT EXISTS integration_accounts (
+                "Id" uuid NOT NULL,
+                "TenantId" uuid NOT NULL,
+                "Provider" character varying(40) NOT NULL,
+                "DisplayName" character varying(160) NOT NULL,
+                "Status" character varying(40) NOT NULL,
+                "SettingsJson" character varying(12000) NOT NULL,
+                "CreatedByUserId" uuid NOT NULL,
+                "CreatedAt" timestamp with time zone NOT NULL,
+                "UpdatedAt" timestamp with time zone NULL,
+                "DeletedAt" timestamp with time zone NULL,
+                "DeletedByUserId" uuid NULL,
+                "DeleteReason" character varying(500) NULL
+            );
 
-        migrationBuilder.CreateTable(
-            name: "subscriptions",
-            columns: table => new
-            {
-                Id = table.Column<Guid>(type: "uuid", nullable: false),
-                TenantId = table.Column<Guid>(type: "uuid", nullable: false),
-                PlanId = table.Column<Guid>(type: "uuid", nullable: false),
-                Status = table.Column<string>(type: "character varying(40)", maxLength: 40, nullable: false),
-                StartedAt = table.Column<DateTimeOffset>(type: "timestamp with time zone", nullable: false),
-                EndsAt = table.Column<DateTimeOffset>(type: "timestamp with time zone", nullable: true),
-                TrialEndsAt = table.Column<DateTimeOffset>(type: "timestamp with time zone", nullable: true),
-                CreatedAt = table.Column<DateTimeOffset>(type: "timestamp with time zone", nullable: false),
-                UpdatedAt = table.Column<DateTimeOffset>(type: "timestamp with time zone", nullable: true)
-            },
-            constraints: table =>
-            {
-                table.PrimaryKey("PK_subscriptions", x => x.Id);
-                table.ForeignKey(
-                    name: "FK_subscriptions_plans_PlanId",
-                    column: x => x.PlanId,
-                    principalTable: "plans",
-                    principalColumn: "Id",
-                    onDelete: ReferentialAction.Restrict);
-                table.ForeignKey(
-                    name: "FK_subscriptions_tenants_TenantId",
-                    column: x => x.TenantId,
-                    principalTable: "tenants",
-                    principalColumn: "Id",
-                    onDelete: ReferentialAction.Restrict);
-            });
+            CREATE TABLE IF NOT EXISTS subscriptions (
+                "Id" uuid NOT NULL,
+                "TenantId" uuid NOT NULL,
+                "PlanId" uuid NOT NULL,
+                "Status" character varying(40) NOT NULL,
+                "StartedAt" timestamp with time zone NOT NULL,
+                "EndsAt" timestamp with time zone NULL,
+                "TrialEndsAt" timestamp with time zone NULL,
+                "CreatedAt" timestamp with time zone NOT NULL,
+                "UpdatedAt" timestamp with time zone NULL
+            );
 
-        migrationBuilder.CreateTable(
-            name: "usage_records",
-            columns: table => new
-            {
-                Id = table.Column<Guid>(type: "uuid", nullable: false),
-                TenantId = table.Column<Guid>(type: "uuid", nullable: false),
-                Date = table.Column<DateOnly>(type: "date", nullable: false),
-                ActiveUserCount = table.Column<int>(type: "integer", nullable: false),
-                TotalUserCount = table.Column<int>(type: "integer", nullable: false),
-                ProjectCount = table.Column<int>(type: "integer", nullable: false),
-                TaskCount = table.Column<int>(type: "integer", nullable: false),
-                FileCount = table.Column<int>(type: "integer", nullable: false),
-                StorageUsedBytes = table.Column<long>(type: "bigint", nullable: false),
-                ApiRequestCount = table.Column<int>(type: "integer", nullable: false),
-                CreatedAt = table.Column<DateTimeOffset>(type: "timestamp with time zone", nullable: false)
-            },
-            constraints: table =>
-            {
-                table.PrimaryKey("PK_usage_records", x => x.Id);
-                table.ForeignKey(
-                    name: "FK_usage_records_tenants_TenantId",
-                    column: x => x.TenantId,
-                    principalTable: "tenants",
-                    principalColumn: "Id",
-                    onDelete: ReferentialAction.Restrict);
-            });
+            CREATE TABLE IF NOT EXISTS usage_records (
+                "Id" uuid NOT NULL,
+                "TenantId" uuid NOT NULL,
+                "Date" date NOT NULL,
+                "ActiveUserCount" integer NOT NULL,
+                "TotalUserCount" integer NOT NULL,
+                "ProjectCount" integer NOT NULL,
+                "TaskCount" integer NOT NULL,
+                "FileCount" integer NOT NULL,
+                "StorageUsedBytes" bigint NOT NULL,
+                "ApiRequestCount" integer NOT NULL,
+                "CreatedAt" timestamp with time zone NOT NULL
+            );
 
-        migrationBuilder.CreateTable(
-            name: "webhook_endpoints",
-            columns: table => new
-            {
-                Id = table.Column<Guid>(type: "uuid", nullable: false),
-                TenantId = table.Column<Guid>(type: "uuid", nullable: false),
-                Name = table.Column<string>(type: "character varying(160)", maxLength: 160, nullable: false),
-                Url = table.Column<string>(type: "character varying(2000)", maxLength: 2000, nullable: false),
-                SecretHash = table.Column<string>(type: "character varying(128)", maxLength: 128, nullable: true),
-                EnabledEventsJson = table.Column<string>(type: "character varying(12000)", maxLength: 12000, nullable: false),
-                Status = table.Column<string>(type: "character varying(40)", maxLength: 40, nullable: false),
-                CreatedByUserId = table.Column<Guid>(type: "uuid", nullable: false),
-                CreatedAt = table.Column<DateTimeOffset>(type: "timestamp with time zone", nullable: false),
-                UpdatedAt = table.Column<DateTimeOffset>(type: "timestamp with time zone", nullable: true),
-                DeletedAt = table.Column<DateTimeOffset>(type: "timestamp with time zone", nullable: true),
-                DeletedByUserId = table.Column<Guid>(type: "uuid", nullable: true),
-                DeleteReason = table.Column<string>(type: "character varying(500)", maxLength: 500, nullable: true)
-            },
-            constraints: table =>
-            {
-                table.PrimaryKey("PK_webhook_endpoints", x => x.Id);
-                table.ForeignKey(
-                    name: "FK_webhook_endpoints_users_CreatedByUserId",
-                    column: x => x.CreatedByUserId,
-                    principalTable: "users",
-                    principalColumn: "Id",
-                    onDelete: ReferentialAction.Restrict);
-            });
+            CREATE TABLE IF NOT EXISTS webhook_endpoints (
+                "Id" uuid NOT NULL,
+                "TenantId" uuid NOT NULL,
+                "Name" character varying(160) NOT NULL,
+                "Url" character varying(2000) NOT NULL,
+                "SecretHash" character varying(128) NULL,
+                "EnabledEventsJson" character varying(12000) NOT NULL,
+                "Status" character varying(40) NOT NULL,
+                "CreatedByUserId" uuid NOT NULL,
+                "CreatedAt" timestamp with time zone NOT NULL,
+                "UpdatedAt" timestamp with time zone NULL,
+                "DeletedAt" timestamp with time zone NULL,
+                "DeletedByUserId" uuid NULL,
+                "DeleteReason" character varying(500) NULL
+            );
+            """);
 
-        migrationBuilder.CreateIndex(name: "IX_api_tokens_CreatedAt", table: "api_tokens", column: "CreatedAt");
-        migrationBuilder.CreateIndex(name: "IX_api_tokens_CreatedByUserId", table: "api_tokens", column: "CreatedByUserId");
-        migrationBuilder.CreateIndex(name: "IX_api_tokens_ExpiresAt", table: "api_tokens", column: "ExpiresAt");
-        migrationBuilder.CreateIndex(name: "IX_api_tokens_RevokedAt", table: "api_tokens", column: "RevokedAt");
-        migrationBuilder.CreateIndex(name: "IX_api_tokens_TenantId", table: "api_tokens", column: "TenantId");
-        migrationBuilder.CreateIndex(name: "IX_api_tokens_TokenHash", table: "api_tokens", column: "TokenHash", unique: true);
-        migrationBuilder.CreateIndex(name: "IX_api_tokens_TenantId_Name", table: "api_tokens", columns: new[] { "TenantId", "Name" });
+        HistoricalTableMigrationGuard.ValidateShape(
+            migrationBuilder,
+            "api_tokens",
+            ("Id", "uuid", false, null),
+            ("TenantId", "uuid", false, null),
+            ("Name", "character varying", false, 160),
+            ("TokenHash", "character varying", false, 128),
+            ("ScopesJson", "character varying", false, 4000),
+            ("ExpiresAt", "timestamp with time zone", true, null),
+            ("CreatedByUserId", "uuid", false, null),
+            ("LastUsedAt", "timestamp with time zone", true, null),
+            ("RevokedAt", "timestamp with time zone", true, null),
+            ("CreatedAt", "timestamp with time zone", false, null),
+            ("UpdatedAt", "timestamp with time zone", true, null));
 
-        migrationBuilder.CreateIndex(name: "IX_export_jobs_CreatedAt", table: "export_jobs", column: "CreatedAt");
-        migrationBuilder.CreateIndex(name: "IX_export_jobs_FileObjectId", table: "export_jobs", column: "FileObjectId");
-        migrationBuilder.CreateIndex(name: "IX_export_jobs_RequestedByUserId", table: "export_jobs", column: "RequestedByUserId");
-        migrationBuilder.CreateIndex(name: "IX_export_jobs_Status", table: "export_jobs", column: "Status");
-        migrationBuilder.CreateIndex(name: "IX_export_jobs_TenantId", table: "export_jobs", column: "TenantId");
+        HistoricalTableMigrationGuard.ValidateShape(
+            migrationBuilder,
+            "export_jobs",
+            ("Id", "uuid", false, null),
+            ("TenantId", "uuid", false, null),
+            ("RequestedByUserId", "uuid", false, null),
+            ("Status", "character varying", false, 40),
+            ("ExportType", "character varying", false, 40),
+            ("FileObjectId", "uuid", true, null),
+            ("CompletedAt", "timestamp with time zone", true, null),
+            ("ErrorMessage", "character varying", true, 2000),
+            ("CreatedAt", "timestamp with time zone", false, null),
+            ("UpdatedAt", "timestamp with time zone", true, null));
 
-        migrationBuilder.CreateIndex(name: "IX_integration_accounts_CreatedAt", table: "integration_accounts", column: "CreatedAt");
-        migrationBuilder.CreateIndex(name: "IX_integration_accounts_CreatedByUserId", table: "integration_accounts", column: "CreatedByUserId");
-        migrationBuilder.CreateIndex(name: "IX_integration_accounts_DeletedAt", table: "integration_accounts", column: "DeletedAt");
-        migrationBuilder.CreateIndex(name: "IX_integration_accounts_DeletedByUserId", table: "integration_accounts", column: "DeletedByUserId");
-        migrationBuilder.CreateIndex(name: "IX_integration_accounts_Provider", table: "integration_accounts", column: "Provider");
-        migrationBuilder.CreateIndex(name: "IX_integration_accounts_Status", table: "integration_accounts", column: "Status");
-        migrationBuilder.CreateIndex(name: "IX_integration_accounts_TenantId", table: "integration_accounts", column: "TenantId");
-        migrationBuilder.CreateIndex(name: "IX_integration_accounts_TenantId_Provider_DisplayName", table: "integration_accounts", columns: new[] { "TenantId", "Provider", "DisplayName" });
+        HistoricalTableMigrationGuard.ValidateShape(
+            migrationBuilder,
+            "integration_accounts",
+            ("Id", "uuid", false, null),
+            ("TenantId", "uuid", false, null),
+            ("Provider", "character varying", false, 40),
+            ("DisplayName", "character varying", false, 160),
+            ("Status", "character varying", false, 40),
+            ("SettingsJson", "character varying", false, 12000),
+            ("CreatedByUserId", "uuid", false, null),
+            ("CreatedAt", "timestamp with time zone", false, null),
+            ("UpdatedAt", "timestamp with time zone", true, null),
+            ("DeletedAt", "timestamp with time zone", true, null),
+            ("DeletedByUserId", "uuid", true, null),
+            ("DeleteReason", "character varying", true, 500));
 
-        migrationBuilder.CreateIndex(name: "IX_subscriptions_CreatedAt", table: "subscriptions", column: "CreatedAt");
-        migrationBuilder.CreateIndex(name: "IX_subscriptions_PlanId", table: "subscriptions", column: "PlanId");
-        migrationBuilder.CreateIndex(name: "IX_subscriptions_TenantId", table: "subscriptions", column: "TenantId");
-        migrationBuilder.CreateIndex(name: "IX_subscriptions_TenantId_Status", table: "subscriptions", columns: new[] { "TenantId", "Status" });
+        HistoricalTableMigrationGuard.ValidateShape(
+            migrationBuilder,
+            "subscriptions",
+            ("Id", "uuid", false, null),
+            ("TenantId", "uuid", false, null),
+            ("PlanId", "uuid", false, null),
+            ("Status", "character varying", false, 40),
+            ("StartedAt", "timestamp with time zone", false, null),
+            ("EndsAt", "timestamp with time zone", true, null),
+            ("TrialEndsAt", "timestamp with time zone", true, null),
+            ("CreatedAt", "timestamp with time zone", false, null),
+            ("UpdatedAt", "timestamp with time zone", true, null));
 
-        migrationBuilder.CreateIndex(name: "IX_usage_records_TenantId", table: "usage_records", column: "TenantId");
-        migrationBuilder.CreateIndex(name: "IX_usage_records_TenantId_Date", table: "usage_records", columns: new[] { "TenantId", "Date" }, unique: true);
+        HistoricalTableMigrationGuard.ValidateShape(
+            migrationBuilder,
+            "usage_records",
+            ("Id", "uuid", false, null),
+            ("TenantId", "uuid", false, null),
+            ("Date", "date", false, null),
+            ("ActiveUserCount", "integer", false, null),
+            ("TotalUserCount", "integer", false, null),
+            ("ProjectCount", "integer", false, null),
+            ("TaskCount", "integer", false, null),
+            ("FileCount", "integer", false, null),
+            ("StorageUsedBytes", "bigint", false, null),
+            ("ApiRequestCount", "integer", false, null),
+            ("CreatedAt", "timestamp with time zone", false, null));
 
-        migrationBuilder.CreateIndex(name: "IX_webhook_endpoints_CreatedAt", table: "webhook_endpoints", column: "CreatedAt");
-        migrationBuilder.CreateIndex(name: "IX_webhook_endpoints_CreatedByUserId", table: "webhook_endpoints", column: "CreatedByUserId");
-        migrationBuilder.CreateIndex(name: "IX_webhook_endpoints_DeletedAt", table: "webhook_endpoints", column: "DeletedAt");
-        migrationBuilder.CreateIndex(name: "IX_webhook_endpoints_DeletedByUserId", table: "webhook_endpoints", column: "DeletedByUserId");
-        migrationBuilder.CreateIndex(name: "IX_webhook_endpoints_Status", table: "webhook_endpoints", column: "Status");
-        migrationBuilder.CreateIndex(name: "IX_webhook_endpoints_TenantId", table: "webhook_endpoints", column: "TenantId");
-        migrationBuilder.CreateIndex(name: "IX_webhook_endpoints_TenantId_Name", table: "webhook_endpoints", columns: new[] { "TenantId", "Name" });
+        HistoricalTableMigrationGuard.ValidateShape(
+            migrationBuilder,
+            "webhook_endpoints",
+            ("Id", "uuid", false, null),
+            ("TenantId", "uuid", false, null),
+            ("Name", "character varying", false, 160),
+            ("Url", "character varying", false, 2000),
+            ("SecretHash", "character varying", true, 128),
+            ("EnabledEventsJson", "character varying", false, 12000),
+            ("Status", "character varying", false, 40),
+            ("CreatedByUserId", "uuid", false, null),
+            ("CreatedAt", "timestamp with time zone", false, null),
+            ("UpdatedAt", "timestamp with time zone", true, null),
+            ("DeletedAt", "timestamp with time zone", true, null),
+            ("DeletedByUserId", "uuid", true, null),
+            ("DeleteReason", "character varying", true, 500));
+
+        migrationBuilder.Sql(
+            """
+            DO $migration$
+            BEGIN
+                IF NOT EXISTS (
+                    SELECT 1 FROM pg_constraint
+                    WHERE conname = 'PK_api_tokens' AND conrelid = 'api_tokens'::regclass
+                ) THEN
+                    ALTER TABLE api_tokens ADD CONSTRAINT "PK_api_tokens" PRIMARY KEY ("Id");
+                END IF;
+                IF NOT EXISTS (
+                    SELECT 1 FROM pg_constraint
+                    WHERE conname = 'FK_api_tokens_users_CreatedByUserId' AND conrelid = 'api_tokens'::regclass
+                ) THEN
+                    ALTER TABLE api_tokens ADD CONSTRAINT "FK_api_tokens_users_CreatedByUserId"
+                        FOREIGN KEY ("CreatedByUserId") REFERENCES users ("Id") ON DELETE RESTRICT;
+                END IF;
+
+                IF NOT EXISTS (
+                    SELECT 1 FROM pg_constraint
+                    WHERE conname = 'PK_export_jobs' AND conrelid = 'export_jobs'::regclass
+                ) THEN
+                    ALTER TABLE export_jobs ADD CONSTRAINT "PK_export_jobs" PRIMARY KEY ("Id");
+                END IF;
+                IF NOT EXISTS (
+                    SELECT 1 FROM pg_constraint
+                    WHERE conname = 'FK_export_jobs_file_objects_FileObjectId' AND conrelid = 'export_jobs'::regclass
+                ) THEN
+                    ALTER TABLE export_jobs ADD CONSTRAINT "FK_export_jobs_file_objects_FileObjectId"
+                        FOREIGN KEY ("FileObjectId") REFERENCES file_objects ("Id") ON DELETE SET NULL;
+                END IF;
+                IF NOT EXISTS (
+                    SELECT 1 FROM pg_constraint
+                    WHERE conname = 'FK_export_jobs_users_RequestedByUserId' AND conrelid = 'export_jobs'::regclass
+                ) THEN
+                    ALTER TABLE export_jobs ADD CONSTRAINT "FK_export_jobs_users_RequestedByUserId"
+                        FOREIGN KEY ("RequestedByUserId") REFERENCES users ("Id") ON DELETE RESTRICT;
+                END IF;
+
+                IF NOT EXISTS (
+                    SELECT 1 FROM pg_constraint
+                    WHERE conname = 'PK_integration_accounts' AND conrelid = 'integration_accounts'::regclass
+                ) THEN
+                    ALTER TABLE integration_accounts ADD CONSTRAINT "PK_integration_accounts" PRIMARY KEY ("Id");
+                END IF;
+                IF NOT EXISTS (
+                    SELECT 1 FROM pg_constraint
+                    WHERE conname = 'FK_integration_accounts_users_CreatedByUserId' AND conrelid = 'integration_accounts'::regclass
+                ) THEN
+                    ALTER TABLE integration_accounts ADD CONSTRAINT "FK_integration_accounts_users_CreatedByUserId"
+                        FOREIGN KEY ("CreatedByUserId") REFERENCES users ("Id") ON DELETE RESTRICT;
+                END IF;
+
+                IF NOT EXISTS (
+                    SELECT 1 FROM pg_constraint
+                    WHERE conname = 'PK_subscriptions' AND conrelid = 'subscriptions'::regclass
+                ) THEN
+                    ALTER TABLE subscriptions ADD CONSTRAINT "PK_subscriptions" PRIMARY KEY ("Id");
+                END IF;
+                IF NOT EXISTS (
+                    SELECT 1 FROM pg_constraint
+                    WHERE conname = 'FK_subscriptions_plans_PlanId' AND conrelid = 'subscriptions'::regclass
+                ) THEN
+                    ALTER TABLE subscriptions ADD CONSTRAINT "FK_subscriptions_plans_PlanId"
+                        FOREIGN KEY ("PlanId") REFERENCES plans ("Id") ON DELETE RESTRICT;
+                END IF;
+                IF NOT EXISTS (
+                    SELECT 1 FROM pg_constraint
+                    WHERE conname = 'FK_subscriptions_tenants_TenantId' AND conrelid = 'subscriptions'::regclass
+                ) THEN
+                    ALTER TABLE subscriptions ADD CONSTRAINT "FK_subscriptions_tenants_TenantId"
+                        FOREIGN KEY ("TenantId") REFERENCES tenants ("Id") ON DELETE RESTRICT;
+                END IF;
+
+                IF NOT EXISTS (
+                    SELECT 1 FROM pg_constraint
+                    WHERE conname = 'PK_usage_records' AND conrelid = 'usage_records'::regclass
+                ) THEN
+                    ALTER TABLE usage_records ADD CONSTRAINT "PK_usage_records" PRIMARY KEY ("Id");
+                END IF;
+                IF NOT EXISTS (
+                    SELECT 1 FROM pg_constraint
+                    WHERE conname = 'FK_usage_records_tenants_TenantId' AND conrelid = 'usage_records'::regclass
+                ) THEN
+                    ALTER TABLE usage_records ADD CONSTRAINT "FK_usage_records_tenants_TenantId"
+                        FOREIGN KEY ("TenantId") REFERENCES tenants ("Id") ON DELETE RESTRICT;
+                END IF;
+
+                IF NOT EXISTS (
+                    SELECT 1 FROM pg_constraint
+                    WHERE conname = 'PK_webhook_endpoints' AND conrelid = 'webhook_endpoints'::regclass
+                ) THEN
+                    ALTER TABLE webhook_endpoints ADD CONSTRAINT "PK_webhook_endpoints" PRIMARY KEY ("Id");
+                END IF;
+                IF NOT EXISTS (
+                    SELECT 1 FROM pg_constraint
+                    WHERE conname = 'FK_webhook_endpoints_users_CreatedByUserId' AND conrelid = 'webhook_endpoints'::regclass
+                ) THEN
+                    ALTER TABLE webhook_endpoints ADD CONSTRAINT "FK_webhook_endpoints_users_CreatedByUserId"
+                        FOREIGN KEY ("CreatedByUserId") REFERENCES users ("Id") ON DELETE RESTRICT;
+                END IF;
+            END
+            $migration$;
+
+            CREATE INDEX IF NOT EXISTS "IX_api_tokens_CreatedAt" ON api_tokens ("CreatedAt");
+            CREATE INDEX IF NOT EXISTS "IX_api_tokens_CreatedByUserId" ON api_tokens ("CreatedByUserId");
+            CREATE INDEX IF NOT EXISTS "IX_api_tokens_ExpiresAt" ON api_tokens ("ExpiresAt");
+            CREATE INDEX IF NOT EXISTS "IX_api_tokens_RevokedAt" ON api_tokens ("RevokedAt");
+            CREATE INDEX IF NOT EXISTS "IX_api_tokens_TenantId" ON api_tokens ("TenantId");
+            CREATE UNIQUE INDEX IF NOT EXISTS "IX_api_tokens_TokenHash" ON api_tokens ("TokenHash");
+            CREATE INDEX IF NOT EXISTS "IX_api_tokens_TenantId_Name" ON api_tokens ("TenantId", "Name");
+
+            CREATE INDEX IF NOT EXISTS "IX_export_jobs_CreatedAt" ON export_jobs ("CreatedAt");
+            CREATE INDEX IF NOT EXISTS "IX_export_jobs_FileObjectId" ON export_jobs ("FileObjectId");
+            CREATE INDEX IF NOT EXISTS "IX_export_jobs_RequestedByUserId" ON export_jobs ("RequestedByUserId");
+            CREATE INDEX IF NOT EXISTS "IX_export_jobs_Status" ON export_jobs ("Status");
+            CREATE INDEX IF NOT EXISTS "IX_export_jobs_TenantId" ON export_jobs ("TenantId");
+
+            CREATE INDEX IF NOT EXISTS "IX_integration_accounts_CreatedAt" ON integration_accounts ("CreatedAt");
+            CREATE INDEX IF NOT EXISTS "IX_integration_accounts_CreatedByUserId" ON integration_accounts ("CreatedByUserId");
+            CREATE INDEX IF NOT EXISTS "IX_integration_accounts_DeletedAt" ON integration_accounts ("DeletedAt");
+            CREATE INDEX IF NOT EXISTS "IX_integration_accounts_DeletedByUserId" ON integration_accounts ("DeletedByUserId");
+            CREATE INDEX IF NOT EXISTS "IX_integration_accounts_Provider" ON integration_accounts ("Provider");
+            CREATE INDEX IF NOT EXISTS "IX_integration_accounts_Status" ON integration_accounts ("Status");
+            CREATE INDEX IF NOT EXISTS "IX_integration_accounts_TenantId" ON integration_accounts ("TenantId");
+            CREATE INDEX IF NOT EXISTS "IX_integration_accounts_TenantId_Provider_DisplayName"
+                ON integration_accounts ("TenantId", "Provider", "DisplayName");
+
+            CREATE INDEX IF NOT EXISTS "IX_subscriptions_CreatedAt" ON subscriptions ("CreatedAt");
+            CREATE INDEX IF NOT EXISTS "IX_subscriptions_PlanId" ON subscriptions ("PlanId");
+            CREATE INDEX IF NOT EXISTS "IX_subscriptions_TenantId" ON subscriptions ("TenantId");
+            CREATE INDEX IF NOT EXISTS "IX_subscriptions_TenantId_Status" ON subscriptions ("TenantId", "Status");
+
+            CREATE INDEX IF NOT EXISTS "IX_usage_records_TenantId" ON usage_records ("TenantId");
+            CREATE UNIQUE INDEX IF NOT EXISTS "IX_usage_records_TenantId_Date" ON usage_records ("TenantId", "Date");
+
+            CREATE INDEX IF NOT EXISTS "IX_webhook_endpoints_CreatedAt" ON webhook_endpoints ("CreatedAt");
+            CREATE INDEX IF NOT EXISTS "IX_webhook_endpoints_CreatedByUserId" ON webhook_endpoints ("CreatedByUserId");
+            CREATE INDEX IF NOT EXISTS "IX_webhook_endpoints_DeletedAt" ON webhook_endpoints ("DeletedAt");
+            CREATE INDEX IF NOT EXISTS "IX_webhook_endpoints_DeletedByUserId" ON webhook_endpoints ("DeletedByUserId");
+            CREATE INDEX IF NOT EXISTS "IX_webhook_endpoints_Status" ON webhook_endpoints ("Status");
+            CREATE INDEX IF NOT EXISTS "IX_webhook_endpoints_TenantId" ON webhook_endpoints ("TenantId");
+            CREATE INDEX IF NOT EXISTS "IX_webhook_endpoints_TenantId_Name" ON webhook_endpoints ("TenantId", "Name");
+            """);
     }
 
     protected override void Down(MigrationBuilder migrationBuilder)
     {
-        migrationBuilder.DropTable(name: "api_tokens");
-        migrationBuilder.DropTable(name: "export_jobs");
-        migrationBuilder.DropTable(name: "integration_accounts");
-        migrationBuilder.DropTable(name: "subscriptions");
-        migrationBuilder.DropTable(name: "usage_records");
-        migrationBuilder.DropTable(name: "webhook_endpoints");
+        // These tables are represented in every earlier model snapshot and may
+        // have been created out-of-band to compensate for the chain omission.
+        // Preserve them and their data; reapplying Up is idempotent.
     }
 }
