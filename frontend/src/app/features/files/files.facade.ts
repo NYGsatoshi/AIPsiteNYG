@@ -1,6 +1,6 @@
 import { HttpClient, HttpEventType, HttpResponse } from '@angular/common/http';
-import { effect, Injectable, InjectionToken, inject, signal, untracked } from '@angular/core';
-import { Subscription } from 'rxjs';
+import { Injectable, InjectionToken, inject, signal } from '@angular/core';
+import { finalize, Subscription } from 'rxjs';
 
 import { normalizeApiError } from '../../core/api/api-error.adapter';
 import { ActiveWorkspaceFacade } from '../../core/workspace/active-workspace.facade';
@@ -14,9 +14,16 @@ import {
   PagedResponseDto,
   safeFileNameFromHeader,
 } from './files.api';
-import { FilesPageViewModel, FileUploadQueueItem, FileUploadViewModel, FileViewModel } from './files.types';
+import { FileDownloadState, FilesPageViewModel, FileUploadQueueItem, FileUploadViewModel, FileViewModel, TaskFilePickerState } from './files.types';
 
 export const AIP_FILES_PAGE_MOCK = new InjectionToken<FilesPageViewModel>('AIP_FILES_PAGE_MOCK');
+
+export interface AttachmentDownloadContext {
+  /** Prevent an obsolete Task route from receiving a completion callback. */
+  readonly isCurrent?: () => boolean;
+  readonly onState?: (state: FileDownloadState, message: string) => void;
+  readonly onPermissionDenied?: () => void;
+}
 
 @Injectable({ providedIn: 'root' })
 export class FilesFacade {
@@ -25,26 +32,42 @@ export class FilesFacade {
   private readonly realtime = inject(RealtimeFacade);
   private readonly mockPage = inject(AIP_FILES_PAGE_MOCK, { optional: true });
   private readonly pageState = signal<FilesPageViewModel>(this.mockPage ?? this.emptyPage('Loading files from backend.'));
+  /** Task detail owns this independent query; it must never alter Files-page workspace state. */
+  private readonly pickerState = signal<TaskFilePickerState>(this.emptyPickerState());
+  private pageWorkspaceId: string | null = null;
+  private pickerWorkspaceId: string | null = null;
+  private pickerGeneration = 0;
+  private pickerRequest: Subscription | null = null;
+  private readonly attachmentDownloads = new Map<string, Subscription>();
   private readonly loadingWorkspaceIds = new Set<string>();
   private readonly pendingUploads = new Map<string, { file: File; subscription: Subscription }>();
   private refreshAfterMutation = false;
   private refreshTimer: ReturnType<typeof setTimeout> | null = null;
 
   readonly page = this.pageState.asReadonly();
+  readonly pickerStateForTask = this.pickerState.asReadonly();
+  /** Compatibility projection for existing consumers; Task detail must consume pickerStateForTask. */
+  readonly pickerFiles = () => this.pickerState().files;
 
   constructor() {
     this.realtime.durableEvents$.subscribe((event) => this.handleRealtimeEvent(event));
-    if (!this.mockPage) {
-      effect(() => {
-        const workspace = this.activeWorkspace.activeWorkspace();
-        if (!workspace) {
-          this.pageState.set(this.emptyPage('Select a workspace before uploading files.', false));
-          return;
-        }
+  }
 
-        untracked(() => this.loadFiles(workspace.id));
-      });
+  /** The Files page opts into its workspace inventory; other consumers must not prefetch it. */
+  loadPageFilesForWorkspace(workspaceId: string | null | undefined): void {
+    if (this.mockPage) {
+      return;
     }
+    if (!workspaceId) {
+      this.pageWorkspaceId = null;
+      this.pageState.set(this.emptyPage('Select a workspace before uploading files.', false));
+      return;
+    }
+    if (this.pageWorkspaceId === workspaceId) {
+      return;
+    }
+    this.pageWorkspaceId = workspaceId;
+    this.loadFiles(workspaceId);
   }
 
   uploadFiles(files: readonly File[]): void {
@@ -155,6 +178,99 @@ export class FilesFacade {
           });
         },
       });
+  }
+
+  loadPickerFilesForWorkspace(workspaceId: string): void {
+    if (!workspaceId || this.mockPage) { this.clearPickerFiles(); return; }
+    if (this.pickerWorkspaceId === workspaceId && (this.pickerRequest || this.pickerState().status !== 'idle')) return;
+    this.pickerGeneration++;
+    const generation = this.pickerGeneration;
+    this.pickerWorkspaceId = workspaceId;
+    this.pickerRequest?.unsubscribe();
+    this.pickerState.set({ ...this.emptyPickerState(workspaceId), status: 'loading' });
+    this.loadPickerPage(workspaceId, 1, generation, true);
+  }
+
+  loadMorePickerFiles(): void {
+    const state = this.pickerState();
+    if (!state.workspaceId || !state.hasMore || this.pickerRequest) return;
+    this.loadPickerPage(state.workspaceId, state.page + 1, this.pickerGeneration, false);
+  }
+
+  retryPickerFiles(): void {
+    const state = this.pickerState();
+    if (!state.workspaceId || this.pickerRequest) return;
+    this.loadPickerPage(state.workspaceId, state.failedPage ?? 1, this.pickerGeneration, (state.failedPage ?? 1) === 1);
+  }
+
+  clearPickerFiles(): void {
+    this.pickerGeneration++;
+    this.pickerRequest?.unsubscribe();
+    this.pickerRequest = null;
+    this.pickerWorkspaceId = null;
+    this.pickerState.set(this.emptyPickerState());
+  }
+
+  private loadPickerPage(workspaceId: string, page: number, generation: number, replace: boolean): void {
+    const before = this.pickerState();
+    this.pickerRequest = this.http.get<PagedResponseDto<FileListItemDto>>('/api/files', {
+      params: { workspaceId, page, pageSize: before.pageSize || 20 }, withCredentials: true
+    }).pipe(finalize(() => {
+      if (generation === this.pickerGeneration) this.pickerRequest = null;
+    })).subscribe({
+      next: response => {
+        if (generation !== this.pickerGeneration || this.pickerWorkspaceId !== workspaceId) return;
+        const incoming = (response.items ?? []).map(mapFileListItem).filter(file => file.id.length > 0);
+        const existing = replace ? [] : this.pickerState().files;
+        const ids = new Set(existing.map(file => file.id));
+        const files = [...existing, ...incoming.filter(file => !ids.has(file.id) && (ids.add(file.id), true))];
+        this.pickerState.set({ status: files.length ? 'ready' : 'empty', workspaceId, files, page: numberValue(response.page) || page, pageSize: numberValue(response.pageSize) || before.pageSize || 20, totalCount: numberValue(response.totalCount) || files.length, hasMore: response.hasMore === true });
+      },
+      error: error => {
+        if (generation !== this.pickerGeneration || this.pickerWorkspaceId !== workspaceId) return;
+        const normalized = normalizeApiError(error);
+        const current = this.pickerState();
+        this.pickerState.set({ ...current, workspaceId, status: normalized.httpStatus === 401 || normalized.httpStatus === 403 ? 'permissionDenied' : 'error', message: normalized.message, requestId: normalized.requestId, failedPage: page });
+      }
+    });
+  }
+
+  /** Uses the canonical attachment grant boundary; grant tokens never enter signal state. */
+  downloadAttachment(attachmentId: string, fallbackFileName: string, context: AttachmentDownloadContext = {}): Subscription | null {
+    if (!attachmentId || this.mockPage || this.attachmentDownloads.has(attachmentId)) return null;
+    const operation = new Subscription();
+    this.attachmentDownloads.set(attachmentId, operation);
+    const report = (state: FileDownloadState, message: string) => {
+      if (context.isCurrent?.() !== false) context.onState?.(state, message);
+    };
+    const denied = () => { if (context.isCurrent?.() !== false) context.onPermissionDenied?.(); };
+    report('pending', 'Authorizing download.');
+    const grantRequest = this.http.post<FileDownloadGrantDto>(`/api/attachments/${attachmentId}/download-grants`, { purpose: 'task-detail-download' }, { withCredentials: true }).subscribe({
+      next: grant => {
+        const grantId = stringValue(grant.fileDownloadGrantId);
+        const token = stringValue(grant.token);
+        if (!grantId || !token) { report('failed', 'Download grant response was incomplete.'); operation.unsubscribe(); return; }
+        const downloadRequest = this.http.post(`/api/attachment-download-grants/${grantId}/download`, { token }, { observe: 'response', responseType: 'blob', withCredentials: true }).subscribe({
+          next: response => {
+            if (context.isCurrent?.() === false) return;
+            this.saveBlob(response, safeFileNameFromHeader(response.headers.get('content-disposition'), fallbackFileName));
+            report('succeeded', 'Download started.');
+            operation.unsubscribe();
+          },
+          error: error => { const normalized = normalizeApiError(error); if (normalized.httpStatus === 401 || normalized.httpStatus === 403) denied(); report('failed', normalized.httpStatus === 403 ? 'Download denied.' : normalized.message); operation.unsubscribe(); }
+        });
+        operation.add(downloadRequest);
+      },
+      error: error => { const normalized = normalizeApiError(error); if (normalized.httpStatus === 401 || normalized.httpStatus === 403) denied(); report('failed', normalized.httpStatus === 403 ? 'Download denied.' : normalized.message); operation.unsubscribe(); }
+    });
+    operation.add(grantRequest);
+    operation.add(() => this.attachmentDownloads.delete(attachmentId));
+    return operation;
+  }
+
+  cancelAttachmentDownloads(): void {
+    this.attachmentDownloads.forEach(request => request.unsubscribe());
+    this.attachmentDownloads.clear();
   }
 
   private loadFiles(workspaceId: string): void {
@@ -333,7 +449,13 @@ export class FilesFacade {
     return this.pageState().upload.state !== 'pending' && this.activeWorkspace.activeWorkspace()?.id !== undefined;
   }
 
+  private emptyPickerState(workspaceId: string | null = null): TaskFilePickerState {
+    return { status: 'idle', workspaceId, files: [], page: 1, pageSize: 20, totalCount: 0, hasMore: false };
+  }
+
 }
+
+function numberValue(value: unknown): number | undefined { return typeof value === 'number' && Number.isFinite(value) ? value : undefined; }
 
 function stringValue(value: unknown): string | undefined {
   return typeof value === 'string' && value.length > 0 ? value : undefined;

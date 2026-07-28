@@ -22,6 +22,7 @@ using Microsoft.AspNetCore.Hosting;
 using Microsoft.AspNetCore.Hosting.Server;
 using Microsoft.AspNetCore.Hosting.Server.Features;
 using Microsoft.AspNetCore.Http;
+using Microsoft.AspNetCore.Routing;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
@@ -823,6 +824,111 @@ public sealed class HttpTenantIsolationTests
         Assert.Equal(HttpStatusCode.Unauthorized, response.StatusCode);
     }
 
+    [Fact]
+    [Trait("Scope", "TaskV1PR03C")]
+    public async Task TaskDetailHttpContractUsesCanonicalRoutesSafeErrorsAndBoundedAggregate()
+    {
+        await using var app = await HttpTenantIsolationTestApp.CreateAsync();
+        var data = app.Data;
+        var expectedRoutes = new[]
+        {
+            "GET api/tasks/{taskItemId:guid}", "PATCH api/tasks/{taskItemId:guid}",
+            "GET api/tasks/{taskItemId:guid}/subtasks", "POST api/tasks/{taskItemId:guid}/subtasks",
+            "GET api/tasks/{taskItemId:guid}/checklist", "POST api/tasks/{taskItemId:guid}/checklist",
+            "PATCH api/tasks/{taskItemId:guid}/checklist/{itemId:guid}", "DELETE api/tasks/{taskItemId:guid}/checklist/{itemId:guid}", "PUT api/tasks/{taskItemId:guid}/checklist/order",
+            "GET api/tasks/{taskItemId:guid}/comments", "POST api/tasks/{taskItemId:guid}/comments",
+            "PATCH api/task-comments/{commentId:guid}", "DELETE api/task-comments/{commentId:guid}",
+            "GET api/tasks/{taskItemId:guid}/mention-candidates",
+            "GET api/projects/{projectId:guid}/task-labels", "POST api/projects/{projectId:guid}/task-labels", "PATCH api/projects/{projectId:guid}/task-labels/{labelId:guid}",
+            "POST api/projects/{projectId:guid}/task-labels/{labelId:guid}/archive", "POST api/projects/{projectId:guid}/task-labels/{labelId:guid}/restore",
+            "PUT api/tasks/{taskItemId:guid}/labels/{labelId:guid}", "DELETE api/tasks/{taskItemId:guid}/labels/{labelId:guid}",
+            "GET api/tasks/{taskItemId:guid}/watch-state", "PUT api/tasks/{taskItemId:guid}/watch", "DELETE api/tasks/{taskItemId:guid}/watch",
+            "GET api/tasks/{taskItemId:guid}/files", "POST api/tasks/{taskItemId:guid}/files", "DELETE api/tasks/{taskItemId:guid}/files/{associationId:guid}",
+            "POST api/attachments/{attachmentId:guid}/download-grants", "POST api/attachment-download-grants/{fileDownloadGrantId:guid}/download"
+        };
+        var routes = app.GetHttpRoutes();
+        Assert.All(expectedRoutes, route => Assert.Contains(route, routes));
+
+        using (var unauthenticated = new HttpRequestMessage(HttpMethod.Get, $"/api/tasks/{data.TaskA.Id:D}"))
+        {
+            unauthenticated.Headers.TryAddWithoutValidation("X-Tenant-Slug", data.TenantA.Slug);
+            var response = await app.Client.SendAsync(unauthenticated);
+            Assert.Equal(HttpStatusCode.Unauthorized, response.StatusCode);
+        }
+
+        var detailResponse = await app.SendAsync(data.TenantAOwner, data.TenantA.Slug, $"/api/tasks/{data.TaskA.Id:D}");
+        var detailJson = await detailResponse.Content.ReadAsStringAsync();
+        Assert.Equal(HttpStatusCode.OK, detailResponse.StatusCode);
+        Assert.DoesNotContain("storageKey", detailJson, StringComparison.OrdinalIgnoreCase);
+        Assert.DoesNotContain("filePath", detailJson, StringComparison.OrdinalIgnoreCase);
+        Assert.DoesNotContain("tokenHash", detailJson, StringComparison.OrdinalIgnoreCase);
+        Assert.DoesNotContain("signedUrl", detailJson, StringComparison.OrdinalIgnoreCase);
+
+        using var detail = JsonDocument.Parse(detailJson);
+        var root = detail.RootElement;
+        AssertDetailAggregateShape(root, data);
+        var taskVersion = root.GetProperty("task").GetProperty("version").GetInt64();
+        Assert.True(taskVersion > 0);
+
+        using (var invalidUpdate = JsonContent("""{"title":"TaskA","description":null,"priority":1,"plannedStartDate":null,"plannedEndDate":null,"progressPercent":0}"""))
+        {
+            var response = await app.SendAsync(data.TenantAOwner, data.TenantA.Slug, $"/api/tasks/{data.TaskA.Id:D}", HttpMethod.Patch, invalidUpdate);
+            await AssertTaskErrorAsync(response, HttpStatusCode.BadRequest, "TASK_INVALID_EXPECTED_VERSION");
+        }
+
+        using (var invalidChecklistOrder = JsonContent("""{"orderedItemIds":[],"expectedTaskVersion":0}"""))
+        {
+            var response = await app.SendAsync(data.TenantAOwner, data.TenantA.Slug, $"/api/tasks/{data.TaskA.Id:D}/checklist/order", HttpMethod.Put, invalidChecklistOrder);
+            await AssertTaskErrorAsync(response, HttpStatusCode.BadRequest, "TASK_INVALID_EXPECTED_VERSION");
+        }
+
+        using (var invalidFileAssociation = JsonContent("""{"attachmentId":"00000000-0000-0000-0000-000000000001","expectedVersion":-1}"""))
+        {
+            var response = await app.SendAsync(data.TenantAOwner, data.TenantA.Slug, $"/api/tasks/{data.TaskA.Id:D}/files", HttpMethod.Post, invalidFileAssociation);
+            await AssertTaskErrorAsync(response, HttpStatusCode.BadRequest, "TASK_INVALID_EXPECTED_VERSION");
+        }
+
+        using (var staleUpdate = JsonContent("""{"title":"TaskA","description":null,"priority":1,"plannedStartDate":null,"plannedEndDate":null,"progressPercent":0,"expectedVersion":99999}"""))
+        {
+            var response = await app.SendAsync(data.TenantAOwner, data.TenantA.Slug, $"/api/tasks/{data.TaskA.Id:D}", HttpMethod.Patch, staleUpdate);
+            await AssertTaskErrorAsync(response, HttpStatusCode.Conflict, "TASK_STALE_VERSION");
+        }
+
+        using (var deniedUpdate = JsonContent($$"""{"title":"TaskA","description":null,"priority":1,"plannedStartDate":null,"plannedEndDate":null,"progressPercent":0,"expectedVersion":{{taskVersion}}}"""))
+        {
+            var response = await app.SendAsync(data.TenantAMember, data.TenantA.Slug, $"/api/tasks/{data.TaskA.Id:D}", HttpMethod.Patch, deniedUpdate);
+            var body = await response.Content.ReadAsStringAsync();
+            Assert.Equal(HttpStatusCode.Forbidden, response.StatusCode);
+            Assert.DoesNotContain(data.TaskA.Title, body, StringComparison.Ordinal);
+        }
+
+        var crossTenant = await app.SendAsync(data.CrossTenantUser, data.TenantA.Slug, $"/api/tasks/{data.TaskB.Id:D}");
+        var crossTenantBody = await crossTenant.Content.ReadAsStringAsync();
+        Assert.Equal(HttpStatusCode.NotFound, crossTenant.StatusCode);
+        Assert.DoesNotContain(data.TaskB.Title, crossTenantBody, StringComparison.Ordinal);
+        Assert.DoesNotContain(data.FileB.StorageKey, crossTenantBody, StringComparison.Ordinal);
+
+        for (var index = 0; index < 3; index++)
+        {
+            using var comment = JsonContent($$"""{"bodyPlainText":"contract-rate-{{index}}","isImportant":false}""");
+            var response = await app.SendAsync(data.TenantAOwner, data.TenantA.Slug, $"/api/tasks/{data.TaskA.Id:D}/comments", HttpMethod.Post, comment);
+            Assert.Equal(HttpStatusCode.OK, response.StatusCode);
+        }
+
+        using (var rateLimitedComment = JsonContent("""{"bodyPlainText":"contract-rate-limited","isImportant":false}"""))
+        {
+            var response = await app.SendAsync(data.TenantAOwner, data.TenantA.Slug, $"/api/tasks/{data.TaskA.Id:D}/comments", HttpMethod.Post, rateLimitedComment);
+            var body = await response.Content.ReadAsStringAsync();
+            Assert.Equal((HttpStatusCode)429, response.StatusCode);
+            Assert.True(response.Headers.TryGetValues("Retry-After", out var retryAfter));
+            Assert.True(int.TryParse(Assert.Single(retryAfter), out var retryAfterSeconds) && retryAfterSeconds > 0);
+            using var problem = JsonDocument.Parse(body);
+            Assert.Equal("TASK_COMMENT_RATE_LIMITED", problem.RootElement.GetProperty("code").GetString());
+            Assert.True(problem.RootElement.GetProperty("retryAfterSeconds").GetInt32() > 0);
+            Assert.DoesNotContain("StackTrace", body, StringComparison.OrdinalIgnoreCase);
+        }
+    }
+
     private static async Task AssertOkContainsOnlyAsync(
         HttpTenantIsolationTestApp app,
         User user,
@@ -854,6 +960,43 @@ public sealed class HttpTenantIsolationTests
     }
 
     private static StringContent JsonContent(string json) => new(json, Encoding.UTF8, "application/json");
+
+    private static void AssertDetailAggregateShape(JsonElement root, TenantIsolationTestData data)
+    {
+        var task = root.GetProperty("task");
+        foreach (var field in new[] { "id", "tenantId", "workspaceId", "projectId", "kind", "parentTaskId", "title", "description", "workflowStageId", "workflowStageName", "stageCategory", "priority", "plannedStartDate", "plannedEndDate", "deadlineAt", "progressPercent", "progressIsDerived", "version", "reviewStatus", "subresources" })
+            Assert.True(task.TryGetProperty(field, out _), $"Missing canonical task field '{field}'.");
+        Assert.Equal(data.TaskA.Id, task.GetProperty("id").GetGuid());
+        Assert.Equal(data.TenantA.Id, task.GetProperty("tenantId").GetGuid());
+        Assert.Equal(data.ProjectA.Id, task.GetProperty("projectId").GetGuid());
+        Assert.Equal(JsonValueKind.String, task.GetProperty("priority").ValueKind);
+        Assert.Equal(JsonValueKind.Number, task.GetProperty("stageCategory").ValueKind);
+        Assert.Equal(JsonValueKind.Number, task.GetProperty("reviewStatus").ValueKind);
+
+        foreach (var field in new[] { "relationships", "permissions", "checklist", "labels", "watchState", "subtasks", "comments", "files" })
+            Assert.True(root.TryGetProperty(field, out _), $"Missing task detail aggregate field '{field}'.");
+        foreach (var field in new[] { "canCreateSubtask", "canCreateChecklistItem", "canUpdateChecklistItems", "canDeleteChecklistItems", "canReorderChecklist", "canCreateComment", "canMarkCommentImportant", "canApplyLabels", "canManageLabelDefinitions", "canAssociateFiles", "canRemoveFiles", "canChangeWatch" })
+            Assert.True(root.GetProperty("permissions").TryGetProperty(field, out _), $"Missing task detail permission '{field}'.");
+        foreach (var pageName in new[] { "subtasks", "comments", "files" })
+        {
+            var page = root.GetProperty(pageName);
+            foreach (var field in new[] { "items", "page", "pageSize", "totalCount", "hasMore" })
+                Assert.True(page.TryGetProperty(field, out _), $"Missing {pageName} page field '{field}'.");
+        }
+        Assert.Equal(50, root.GetProperty("subtasks").GetProperty("pageSize").GetInt32());
+        Assert.Equal(20, root.GetProperty("comments").GetProperty("pageSize").GetInt32());
+        Assert.Equal(20, root.GetProperty("files").GetProperty("pageSize").GetInt32());
+        Assert.Equal(JsonValueKind.Array, root.GetProperty("watchState").GetProperty("automaticSources").ValueKind);
+    }
+
+    private static async Task AssertTaskErrorAsync(HttpResponseMessage response, HttpStatusCode status, string code)
+    {
+        var body = await response.Content.ReadAsStringAsync();
+        Assert.Equal(status, response.StatusCode);
+        using var document = JsonDocument.Parse(body);
+        Assert.Equal(code, document.RootElement.GetProperty("error").GetProperty("code").GetString());
+        Assert.True(document.RootElement.TryGetProperty("requestId", out _));
+    }
 
     private static Guid ReadResponseId(string json)
     {
@@ -981,6 +1124,13 @@ public sealed class HttpTenantIsolationTests
             request.Content = content;
             return Client.SendAsync(request);
         }
+
+        public IReadOnlySet<string> GetHttpRoutes() => App.Services.GetServices<EndpointDataSource>()
+            .SelectMany(source => source.Endpoints)
+            .OfType<RouteEndpoint>()
+            .SelectMany(endpoint => (endpoint.Metadata.GetMetadata<HttpMethodMetadata>()?.HttpMethods ?? [])
+                .Select(method => $"{method} {endpoint.RoutePattern.RawText}"))
+            .ToHashSet(StringComparer.OrdinalIgnoreCase);
 
         public async Task<IReadOnlyList<AuditLog>> ListAuditLogsAsync(Guid tenantId, string tenantSlug)
         {

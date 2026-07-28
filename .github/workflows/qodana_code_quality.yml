@@ -29,6 +29,11 @@ jobs:
     name: Qodana Community / .NET
     runs-on: self-hosted
     timeout-minutes: 120
+    # The Qodana CLI creates deterministic Docker names on this shared runner.
+    # Serialize all repository scans so a prior run cannot collide with this scan.
+    concurrency:
+      group: aipsite-self-hosted-qodana
+      cancel-in-progress: false
 
     env:
       DOTNET_CLI_TELEMETRY_OPTOUT: "1"
@@ -61,7 +66,20 @@ jobs:
         with:
           global-json-file: global.json
 
-      - name: Run all registered Qodana Community inspections
+      - name: Remove orphaned Qodana runner containers
+        shell: bash
+        run: |
+          # This job is globally serialized above. Any matching container at
+          # this point is an orphan from an interrupted prior scan.
+          orphaned_qodana_containers="$(docker ps -aq --filter 'name=^/qodana-cli-')"
+          if [[ -n "$orphaned_qodana_containers" ]]; then
+            docker rm -f $orphaned_qodana_containers
+          fi
+
+      - name: Record complete Qodana inspection inventory
+        # This non-gating inventory makes existing findings reviewable. The
+        # following PR-mode scan is the deterministic blocking gate.
+        continue-on-error: true
         uses: JetBrains/qodana-action@v2026.1
         with:
           args: |
@@ -69,8 +87,43 @@ jobs:
             --solution AipPortal.slnx
             --configuration Release
           pr-mode: false
-          results-dir: ${{ runner.temp }}/qodana/results
-          use-caches: true
+          results-dir: ${{ runner.temp }}/qodana/full-results-${{ github.run_id }}-${{ github.run_attempt }}
+          use-caches: false
+          post-pr-comment: false
+          use-annotations: false
+          upload-result: false
+          push-fixes: none
+
+      - name: Upload complete Qodana inspection inventory
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: qodana-full-inventory
+          path: ${{ runner.temp }}/qodana/full-results-${{ github.run_id }}-${{ github.run_attempt }}
+          if-no-files-found: warn
+
+      - name: Remove Qodana inventory container before the PR gate
+        if: always()
+        shell: bash
+        run: |
+          inventory_containers="$(docker ps -aq --filter 'name=^/qodana-cli-')"
+          if [[ -n "$inventory_containers" ]]; then
+            docker rm -f $inventory_containers
+          fi
+
+      - name: Gate PR-introduced Qodana findings
+        if: always()
+        uses: JetBrains/qodana-action@v2026.1
+        with:
+          args: |
+            --image jetbrains/qodana-cdnet:2026.1-eap-privileged
+            --solution AipPortal.slnx
+            --configuration Release
+          # fetch-depth: 0 plus PR mode compares this head to its GitHub base;
+          # runner cache is never used as a baseline.
+          pr-mode: true
+          results-dir: ${{ runner.temp }}/qodana/results-${{ github.run_id }}-${{ github.run_attempt }}
+          use-caches: false
           post-pr-comment: true
           use-annotations: true
           upload-result: true
@@ -99,7 +152,7 @@ jobs:
           QODANA_PROJECT_MODEL_SUMMARY_PATH: ${{ runner.temp }}/qodana/project-model-summary.json
         shell: bash
         run: |
-          sarif="${{ runner.temp }}/qodana/results/qodana.sarif.json"
+          sarif="${RUNNER_TEMP}/qodana/results-${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}/qodana.sarif.json"
           if [[ ! -f "$sarif" ]]; then
             echo "::warning::Qodana SARIF was not produced; skipping the secondary project-model guard."
             exit 0
@@ -118,6 +171,7 @@ jobs:
     name: Angular / TypeScript / JavaScript / HTML / SCSS / CSS
     runs-on: self-hosted
     needs: qodana-dotnet-community
+    if: ${{ always() }}
     timeout-minutes: 90
     concurrency:
       group: aipsite-self-hosted-frontend-heavy

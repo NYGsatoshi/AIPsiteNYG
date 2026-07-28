@@ -78,6 +78,7 @@ public sealed class ProjectServiceTests
         Assert.Equal(TaskItemStatus.InProgress, updated.Value!.Status);
         Assert.Equal(TaskPriority.Critical, updated.Value.Priority);
         Assert.Equal(35, updated.Value.ProgressPercent);
+        Assert.Equal(2, fixture.Projects.Tasks[created.Value.Id].VersionNo);
     }
 
     [Fact]
@@ -155,7 +156,29 @@ public sealed class ProjectServiceTests
         Assert.Equal(TaskAssignmentRole.Assignee, updated.Value!.Role);
         Assert.Equal(3, updated.Value.EstimatedHours);
         Assert.Equal(1, updated.Value.ActualHours);
+        Assert.Equal(4, task.VersionNo);
         Assert.Contains(fixture.Audit.Entries, entry => entry.Action == "TaskAssignmentUpdated" && entry.EntityId == task.Id);
+    }
+
+    [Theory]
+    [InlineData("IX_task_assignments_TenantId_TaskItemId_UserId_Role", "TASK_ALREADY_ASSIGNED")]
+    [InlineData("IX_notification_user_states_TenantId_UserId", "TASK_CONFLICT")]
+    public async Task AssignmentUniqueConflictUsesOnlyTheAssignmentIdentityConstraint(string constraintName, string expectedCode)
+    {
+        var fixture = ProjectFixture.Create();
+        var manager = fixture.AddUser();
+        var assignee = fixture.AddUser();
+        fixture.Current.UserIdValue = manager.Id;
+        fixture.AddProjectMember(manager.Id, ProjectRole.Manager);
+        fixture.AddProjectMember(assignee.Id, ProjectRole.Contributor);
+        fixture.CommandUnitOfWork.Outcome = new TaskCommandSaveOutcome(TaskCommandSaveResult.UniqueConflict, constraintName);
+
+        var result = await fixture.Service.AddAssignmentAsync(
+            fixture.AddTask("constraint classification").Id,
+            new AddTaskAssignmentRequest(assignee.Id, TaskAssignmentRole.Assignee, 1));
+
+        Assert.False(result.IsSuccess);
+        Assert.StartsWith(expectedCode + "|", result.Error);
     }
 
     [Fact]
@@ -406,6 +429,48 @@ public sealed class ProjectServiceTests
         Assert.Equal(MilestoneStatus.NotStarted, milestone.Status);
     }
 
+    [Fact]
+    public async Task ProjectListAndCanonicalTaskDetailAgreeForParentDerivedValues()
+    {
+        var fixture = ProjectFixture.Create();
+        var actor = fixture.AddUser();
+        fixture.Current.UserIdValue = actor.Id;
+        fixture.AddProjectMember(actor.Id, ProjectRole.Manager);
+        var parent = fixture.AddTask("parent");
+        parent.WorkspaceId = fixture.Workspace.Id;
+        parent.TenantId = Guid.NewGuid();
+        parent.VersionNo = 7;
+        var active = fixture.AddTask("active");
+        active.ParentTaskItemId = parent.Id;
+        active.WorkspaceId = parent.WorkspaceId;
+        active.TenantId = parent.TenantId;
+        active.PlannedStartDate = new DateOnly(2026, 7, 2);
+        active.PlannedEndDate = new DateOnly(2026, 7, 4);
+        active.ProgressPercent = 20;
+        var cancelled = fixture.AddTask("cancelled");
+        cancelled.ParentTaskItemId = parent.Id;
+        cancelled.WorkspaceId = parent.WorkspaceId;
+        cancelled.TenantId = parent.TenantId;
+        cancelled.PlannedStartDate = new DateOnly(2026, 7, 1);
+        cancelled.PlannedEndDate = new DateOnly(2026, 7, 8);
+        cancelled.ProgressPercent = 100;
+        cancelled.Status = TaskItemStatus.Cancelled;
+
+        var listed = await fixture.Service.ListTasksAsync(fixture.Project.Id, new TaskListQuery());
+        var detail = await fixture.Commands.GetAsync(parent.Id);
+
+        Assert.True(listed.IsSuccess);
+        Assert.True(detail.IsSuccess);
+        var row = Assert.Single(listed.Value!.Items, item => item.Id == parent.Id);
+        var canonical = detail.Value!;
+        Assert.Equal(row.PlannedStartDate, canonical.PlannedStartDate);
+        Assert.Equal(row.PlannedEndDate, canonical.PlannedEndDate);
+        Assert.Equal(row.ProgressPercent, canonical.ProgressPercent);
+        Assert.Equal(row.ProgressIsDerived, canonical.ProgressIsDerived);
+        Assert.Equal(row.IsOverdue, canonical.IsOverdue);
+        Assert.Equal(row.Version, canonical.Version);
+    }
+
     private sealed class ProjectFixture
     {
         private ProjectFixture()
@@ -427,7 +492,20 @@ public sealed class ProjectServiceTests
                 Notifications,
                 new NoopInvalidations(),
                 new NoopAuthorizationChanges(),
-                UnitOfWork);
+                UnitOfWork,
+                CommandUnitOfWork);
+            Commands = new TaskCommandService(
+                Projects,
+                Groups,
+                Users,
+                ProjectAuthorization,
+                ProjectAuthorization,
+                Current,
+                Clock,
+                Audit,
+                new NoopInvalidations(),
+                new FakeTaskCommandUnitOfWork(),
+                new UtcTimeZoneResolver());
         }
 
         public FakeUsers Users { get; } = new();
@@ -439,10 +517,12 @@ public sealed class ProjectServiceTests
         public FakeAuditLogger Audit { get; } = new();
         public FakeNotifications Notifications { get; } = new();
         public FakeUnitOfWork UnitOfWork { get; } = new();
+        public FakeTaskCommandUnitOfWork CommandUnitOfWork { get; } = new();
         public WorkspaceAuthorizationService WorkspaceAuthorization { get; }
         public GroupAuthorizationService GroupAuthorization { get; }
         public ProjectAuthorizationService ProjectAuthorization { get; }
         public ProjectService Service { get; }
+        public TaskCommandService Commands { get; }
         public Workspace Workspace { get; } = new() { Name = "Workspace", Slug = "workspace", CreatedByUserId = Guid.NewGuid(), Status = WorkspaceStatus.Active };
         public Project Project { get; } = new() { Name = "Launch", Slug = "launch", WorkspaceId = Guid.Empty, OwnerUserId = Guid.NewGuid(), CreatedByUserId = Guid.NewGuid(), Status = ProjectStatus.Active };
         public List<TaskDependency> Dependencies => Projects.Dependencies;
@@ -539,6 +619,18 @@ public sealed class ProjectServiceTests
     private sealed class NoopAuthorizationChanges : IAuthorizationStateChangePublisher
     {
         public Task PublishAsync(Guid tenantId, Guid affectedUserId, string scopeType, Guid? scopeId, string change, CancellationToken cancellationToken = default) => Task.CompletedTask;
+    }
+
+    private sealed class FakeTaskCommandUnitOfWork : ITaskCommandUnitOfWork
+    {
+        public TaskCommandSaveOutcome Outcome { get; set; } = new(TaskCommandSaveResult.Saved);
+        public Task<int> SaveChangesAsync(CancellationToken cancellationToken = default) => Task.FromResult(1);
+        public Task<TaskCommandSaveOutcome> SaveTaskCommandAsync(CancellationToken cancellationToken = default) => Task.FromResult(Outcome);
+    }
+
+    private sealed class UtcTimeZoneResolver : ITaskWorkspaceTimeZoneResolver
+    {
+        public Task<TimeZoneInfo> ResolveAsync(Guid tenantId, Guid workspaceId, CancellationToken cancellationToken = default) => Task.FromResult(TimeZoneInfo.Utc);
     }
 
     private sealed class FakeProjects : IProjectRepository

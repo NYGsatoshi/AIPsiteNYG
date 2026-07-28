@@ -87,7 +87,10 @@ Most service fixtures use fakes or EF Core InMemory.
 
 The tests require `POSTGRES_TEST_CONNECTION_STRING`.
 
-Current behavior when the variable is absent is an early `return`, not an explicit skip or failure.
+PostgreSQL tests use `PostgreSqlFactAttribute` plus `PostgreSqlTestEnvironment.RequireConnectionString()`.
+When the variable is absent locally, they are explicitly reported as skipped at discovery;
+when `CI=true` or `GITHUB_ACTIONS=true`, the missing variable is a test failure. This
+prevents an unconfigured PostgreSQL suite from being reported as a pass.
 
 ### Browser UI tests
 

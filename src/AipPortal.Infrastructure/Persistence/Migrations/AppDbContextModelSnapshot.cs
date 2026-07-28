@@ -17,7 +17,7 @@ namespace AipPortal.Infrastructure.Persistence.Migrations
         {
 #pragma warning disable 612, 618
             modelBuilder
-                .HasAnnotation("ProductVersion", "10.0.8")
+                .HasAnnotation("ProductVersion", "10.0.10")
                 .HasAnnotation("Relational:MaxIdentifierLength", 63);
 
             NpgsqlModelBuilderExtensions.UseIdentityByDefaultColumns(modelBuilder);
@@ -612,6 +612,10 @@ namespace AipPortal.Infrastructure.Persistence.Migrations
                     b.HasIndex("Extension");
 
                     b.HasIndex("FileObjectId");
+
+                    b.HasIndex("OwnerType", "OwnerId", "FileObjectId")
+                        .IsUnique()
+                        .HasFilter("\"OwnerType\" = 'TaskItem' AND \"DeletedAt\" IS NULL");
 
                     b.HasIndex("OwnerUserId");
 
@@ -3075,6 +3079,13 @@ namespace AipPortal.Infrastructure.Persistence.Migrations
                         .HasMaxLength(120)
                         .HasColumnType("character varying(120)");
 
+                    b.Property<string>("NormalizedName")
+                        .ValueGeneratedOnAddOrUpdate()
+                        .IsRequired()
+                        .HasMaxLength(120)
+                        .HasColumnType("character varying(120)")
+                        .HasComputedColumnSql("lower(btrim(\"Name\"))", true);
+
                     b.Property<Guid>("ProjectId")
                         .HasColumnType("uuid");
 
@@ -3085,7 +3096,10 @@ namespace AipPortal.Infrastructure.Persistence.Migrations
                         .HasColumnType("uuid");
 
                     b.Property<long>("VersionNo")
-                        .HasColumnType("bigint");
+                        .IsConcurrencyToken()
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("bigint")
+                        .HasDefaultValue(1L);
 
                     b.Property<Guid>("WorkspaceId")
                         .HasColumnType("uuid");
@@ -3096,7 +3110,7 @@ namespace AipPortal.Infrastructure.Persistence.Migrations
 
                     b.HasIndex("TenantId");
 
-                    b.HasIndex("TenantId", "ProjectId", "Name")
+                    b.HasIndex("TenantId", "ProjectId", "NormalizedName")
                         .IsUnique();
 
                     b.ToTable("project_task_labels", (string)null);
@@ -4681,6 +4695,11 @@ namespace AipPortal.Infrastructure.Persistence.Migrations
                     b.Property<bool>("IsExplicitOptOut")
                         .HasColumnType("boolean");
 
+                    b.Property<bool>("IsManualWatch")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("boolean")
+                        .HasDefaultValue(false);
+
                     b.Property<bool>("IsWatching")
                         .HasColumnType("boolean");
 
@@ -4697,7 +4716,10 @@ namespace AipPortal.Infrastructure.Persistence.Migrations
                         .HasColumnType("uuid");
 
                     b.Property<long>("VersionNo")
-                        .HasColumnType("bigint");
+                        .IsConcurrencyToken()
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("bigint")
+                        .HasDefaultValue(1L);
 
                     b.HasKey("Id");
 
@@ -4712,7 +4734,10 @@ namespace AipPortal.Infrastructure.Persistence.Migrations
 
                     b.HasIndex("TenantId", "UserId", "IsWatching", "TaskItemId");
 
-                    b.ToTable("work_item_watch_states", (string)null);
+                    b.ToTable("work_item_watch_states", (string)null, t =>
+                        {
+                            t.HasCheckConstraint("CK_work_item_watch_states_manual_opt_out_exclusive", "NOT (\"IsManualWatch\" AND \"IsExplicitOptOut\")");
+                        });
                 });
 
             modelBuilder.Entity("AipPortal.Domain.Entities.Workspace", b =>
@@ -4759,6 +4784,10 @@ namespace AipPortal.Infrastructure.Persistence.Migrations
                         .IsRequired()
                         .HasMaxLength(40)
                         .HasColumnType("character varying(40)");
+
+                    b.Property<string>("TimeZone")
+                        .HasMaxLength(80)
+                        .HasColumnType("character varying(80)");
 
                     b.Property<Guid>("TenantId")
                         .HasColumnType("uuid");

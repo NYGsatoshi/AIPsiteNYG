@@ -148,6 +148,8 @@ public sealed class WorkItemWatchState : Entity, ITenantEntity
     public Guid TaskItemId { get; set; }
     public Guid UserId { get; set; }
     public WorkItemWatchAutomaticSource AutomaticSources { get; set; }
+    /// <summary>Durable user intent, distinct from relationship-derived watching.</summary>
+    public bool IsManualWatch { get; set; }
     public bool IsExplicitOptOut { get; set; }
     public bool IsWatching { get; set; }
     public DateTimeOffset UpdatedAt { get; set; }
@@ -162,6 +164,8 @@ public sealed class ProjectTaskLabel : Entity, ITenantEntity
     public Guid WorkspaceId { get; set; }
     public Guid ProjectId { get; set; }
     public string Name { get; set; } = string.Empty;
+    /// <summary>Database-computed trim/case-insensitive identity for <see cref="Name"/>.</summary>
+    public string NormalizedName { get; private set; } = string.Empty;
     public string? Description { get; set; }
     public long SortKey { get; set; }
     public bool IsArchived { get; set; }

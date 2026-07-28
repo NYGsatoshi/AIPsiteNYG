@@ -1,4 +1,5 @@
 using AipPortal.Application.Realtime;
+using AipPortal.Application.Common.Interfaces;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.SignalR;
 using Microsoft.Extensions.Options;
@@ -11,11 +12,13 @@ public sealed class AppHub(
     HubSubscriptionRegistry registry,
     RealtimeDiagnostics diagnostics,
     IOptions<RealtimeOptions> options,
+    ICurrentTenantAccessor currentTenant,
     ILogger<AppHub> logger) : Hub
 {
     public override async Task OnConnectedAsync()
     {
-        if (await authorizer.ValidateConnectionAsync(Context.ConnectionAborted) is null)
+        if (!InitializeTenantFromConnection() ||
+            await authorizer.ValidateConnectionAsync(Context.User, Context.ConnectionAborted) is null)
         {
             logger.LogWarning("Realtime connection denied: {Reason}", "ConnectionAuthenticationDenied");
             diagnostics.RecordSubscriptionDenial();
@@ -51,7 +54,13 @@ public sealed class AppHub(
             return Denied("RateLimited");
         }
 
-        var context = await authorizer.ValidateConnectionAsync(Context.ConnectionAborted);
+        if (!InitializeTenantFromConnection())
+        {
+            Context.Abort();
+            return Denied("ConnectionInvalid");
+        }
+
+        var context = await authorizer.ValidateConnectionAsync(Context.User, Context.ConnectionAborted);
         if (context is null)
         {
             Context.Abort();
@@ -103,6 +112,23 @@ public sealed class AppHub(
         diagnostics.RecordSubscriptionDenial();
         logger.LogWarning("Realtime subscription denied: {ReasonCode}", code);
         return new HubSubscriptionResult(false, code);
+    }
+
+    private bool InitializeTenantFromConnection()
+    {
+        // The middleware establishes the tenant in the HTTP connection scope,
+        // whereas SignalR creates a Hub scope for invocations. Copy only the
+        // already-resolved, same-connection tenant into that scope; never infer
+        // a tenant from a hub method argument or a client-provided value.
+        var requestTenant = Context.GetHttpContext()?.RequestServices.GetService<ICurrentTenant>();
+        if (requestTenant?.IsAvailable != true || requestTenant.TenantSlug is null)
+        {
+            currentTenant.Clear();
+            return false;
+        }
+
+        currentTenant.SetTenant(requestTenant.TenantId, requestTenant.TenantSlug);
+        return true;
     }
 
     internal static string CanonicalGroupName(RealtimeSubscriptionType subscriptionType, Guid resourceId) => subscriptionType switch

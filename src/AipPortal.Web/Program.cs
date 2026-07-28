@@ -18,6 +18,7 @@ using Microsoft.AspNetCore.HttpOverrides;
 using Microsoft.AspNetCore.RateLimiting;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Options;
+using System.Text.Json;
 
 var builder = WebApplication.CreateBuilder(args);
 
@@ -199,6 +200,7 @@ if (tenancyOptions.SeedOnStartup ||
         await AppDbContextSeed.SeedBrowserSmokeAsync(
             dbContext,
             scope.ServiceProvider.GetRequiredService<IPasswordHasher>(),
+            scope.ServiceProvider.GetRequiredService<IFileStorageService>(),
             defaultTenant.Id,
             smokeEmail,
             smokePassword);
@@ -240,6 +242,10 @@ app.UseStaticFiles(new StaticFileOptions
 });
 
 app.UseMiddleware<TenantResolutionMiddleware>();
+// SignalR upgrades its same-origin transport to WebSockets. Register the
+// WebSocket middleware before authentication and endpoint execution so the
+// Hub can establish the upgrade after a successful negotiate request.
+app.UseWebSockets();
 if (securityOptions.EnableRateLimiting)
 {
     app.UseRateLimiter();
@@ -253,6 +259,21 @@ if (securityOptions.EnableCsrfProtection)
 app.UseAuthorization();
 
 app.MapControllers();
+
+// Runtime flags are loaded as a same-origin external script so the Angular
+// bootstrap remains compatible with the production CSP (script-src 'self').
+app.MapGet("/api/ui/runtime-config.js", async (
+    IFeatureFlagService featureFlags,
+    CancellationToken cancellationToken) =>
+{
+    var flags = new Dictionary<string, bool>(StringComparer.Ordinal)
+    {
+        ["realtime.signalR"] = await featureFlags.IsEnabledAsync("realtime.signalR", cancellationToken)
+    };
+    return Results.Text(
+        $"window.__AIP_FEATURE_FLAGS__ = {JsonSerializer.Serialize(flags)};",
+        "text/javascript; charset=utf-8");
+});
 app.MapHub<AppHub>("/hubs/app");
 
 app.MapGet("/", () => Results.Redirect($"{AngularSpaFallback.AppRequestPath}/", permanent: false));

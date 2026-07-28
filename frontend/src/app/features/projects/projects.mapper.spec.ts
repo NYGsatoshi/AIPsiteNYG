@@ -47,6 +47,16 @@ describe('projects mapper', () => {
     expect(stringTask.capabilities).not.toContain('changeTaskStatus');
   });
 
+  it('retains the canonical Task primary assignee rather than substituting a placeholder', () => {
+    const task = mapTaskDtoToRecord({
+      id: 'task-1', projectId: 'project-1', title: 'Detailed task', stageCategory: 1, priority: 'Medium',
+      primaryAssignee: { userId: 'user-1', displayName: 'Canonical assignee' }, version: 7
+    }, [mapProjectDtoToRecord({ id: 'project-1', title: 'Project', status: 'Active' })]);
+
+    expect(task.assignee).toBe('Canonical assignee');
+    expect(task.rowVersion).toBe('7');
+  });
+
   it('maps project create permission and my-task rows without fake progress', () => {
     const project = mapProjectDtoToRecord({
       id: 'project-1',

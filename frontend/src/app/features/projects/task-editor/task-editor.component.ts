@@ -1,4 +1,5 @@
-import { Component, EventEmitter, Input, OnChanges, Output, SimpleChanges } from '@angular/core';
+import { Component, EventEmitter, Input, OnChanges, OnDestroy, OnInit, Output, SimpleChanges } from '@angular/core';
+import { Subscription } from 'rxjs';
 import {
   AbstractControl,
   FormControl,
@@ -13,6 +14,7 @@ import {
   BackendAuthoritativeTransitionNote,
   ProjectCapability,
   TASK_STATUS_BACKEND_AUTHORITATIVE_NOTE,
+  TaskConflictReloadState,
   TaskDetailState,
   TaskEditorSaveRequest,
   TaskMockRecord,
@@ -52,7 +54,7 @@ export const integerRangeValidator = (min: number, max: number): ValidatorFn => 
           <section class="task-editor__recoverable" data-testid="row-version-conflict">
             <h2>Row version conflict</h2>
             <p>The task changed on the server. Reload before saving again.</p>
-            <button type="button" (click)="cancel.emit()">Reload form</button>
+            <button type="button" (click)="reloadRequested.emit()">Reload form</button>
           </section>
         }
 
@@ -71,6 +73,29 @@ export const integerRangeValidator = (min: number, max: number): ValidatorFn => 
               <small>Request ID: {{ mutationState.requestId }}</small>
             }
           </section>
+        }
+
+        @if (mutationState.status === 'savedButRefreshFailed') {
+          <section class="task-editor__recoverable" role="alert" data-testid="task-saved-refresh-failed">
+            <strong>Task was saved, but the latest data could not be loaded.</strong>
+            <span>Reload before editing again. {{ mutationState.message }}</span>
+            @if (mutationState.requestId) { <small>Request ID: {{ mutationState.requestId }}</small> }
+            <button type="button" data-testid="task-saved-refresh-reload-button" (click)="reloadRequested.emit()">Reload latest task</button>
+          </section>
+        }
+
+        @if (mutationState.status === 'conflict') {
+          <section class="task-editor__recoverable" role="alert" data-testid="task-save-conflict">
+            <strong>Task changed elsewhere</strong>
+            <span>{{ mutationState.message }}</span>
+            @if (mutationState.requestId) { <small>Request ID: {{ mutationState.requestId }}</small> }
+            @if (conflictReloadState === 'error') { <span data-testid="task-conflict-reload-error">Reload failed. Your changes are still here; try again.</span> }
+            <button type="button" data-testid="task-conflict-reload-button" [disabled]="conflictReloadState === 'loading'" (click)="reloadRequested.emit()">{{ conflictReloadState === 'loading' ? 'Reloading...' : 'Reload before saving' }}</button>
+          </section>
+        }
+
+        @if (mutationState.status === 'validation' || mutationState.status === 'rateLimited') {
+          <section class="task-editor__error" role="alert"><strong>{{ mutationState.status === 'validation' ? 'Check the task fields' : 'Please wait before retrying' }}</strong><span>{{ mutationState.message }}</span></section>
         }
 
         @if (mutationState.status === 'success') {
@@ -93,13 +118,17 @@ export const integerRangeValidator = (min: number, max: number): ValidatorFn => 
           </p>
         }
 
+        @if (task.progressIsDerived) {
+          <p class="task-editor__note" data-testid="task-derived-fields-note">Progress and planned dates are calculated from direct subtasks.</p>
+        }
+
         <label>
           <span>Title</span>
           <input
             type="text"
             formControlName="title"
             data-testid="task-title-input"
-            [readonly]="!canEdit || isSubmitting"
+            [readonly]="!canEdit || editingLocked"
           />
           @if (form.controls.title.invalid && form.controls.title.touched) {
             <small data-testid="task-title-error">Task title is required.</small>
@@ -112,35 +141,19 @@ export const integerRangeValidator = (min: number, max: number): ValidatorFn => 
             formControlName="description"
             rows="4"
             data-testid="task-description-input"
-            [readonly]="!canEdit || isSubmitting"
+            [readonly]="!canEdit || editingLocked"
           ></textarea>
         </label>
 
-        <label>
-          <span>Status</span>
-          <select
-            formControlName="status"
-            data-testid="task-status-select"
-            [attr.aria-disabled]="!canChangeStatus || isSubmitting"
-            [attr.tabindex]="canChangeStatus && !isSubmitting ? null : -1"
-            (mousedown)="preventWhenDisabled($event, canChangeStatus)"
-            (keydown)="preventWhenDisabled($event, canChangeStatus)"
-          >
-            @for (status of statuses; track status.value) {
-              <option [value]="status.value" [disabled]="isUnsupportedTransition(status.value)">
-                {{ status.label }}
-              </option>
-            }
-          </select>
-        </label>
+        <label><span>Status</span><input formControlName="status" data-testid="task-status-readonly" readonly aria-readonly="true" /></label>
 
         <label>
           <span>Priority</span>
           <select
             formControlName="priority"
             data-testid="task-priority-select"
-            [attr.aria-disabled]="!canEdit || isSubmitting"
-            [attr.tabindex]="canEdit && !isSubmitting ? null : -1"
+            [attr.aria-disabled]="!canEdit || editingLocked"
+            [attr.tabindex]="canEdit && !editingLocked ? null : -1"
             (mousedown)="preventWhenDisabled($event, canEdit)"
             (keydown)="preventWhenDisabled($event, canEdit)"
           >
@@ -156,7 +169,8 @@ export const integerRangeValidator = (min: number, max: number): ValidatorFn => 
             type="date"
             formControlName="dueDate"
             data-testid="task-due-date-input"
-            [readonly]="!canEdit || isSubmitting"
+            [readonly]="!canEdit || editingLocked || task.progressIsDerived"
+            [attr.aria-readonly]="task.progressIsDerived ? 'true' : null"
           />
           @if (hasUnsupportedDueDateClear()) {
             <small data-testid="task-due-date-clear-error">Existing due dates can be replaced but not cleared in MVP0.</small>
@@ -180,7 +194,8 @@ export const integerRangeValidator = (min: number, max: number): ValidatorFn => 
             type="date"
             formControlName="startDate"
             data-testid="task-start-date-input"
-            [readonly]="!canEdit || isSubmitting"
+            [readonly]="!canEdit || editingLocked || task.progressIsDerived"
+            [attr.aria-readonly]="task.progressIsDerived ? 'true' : null"
           />
           @if (hasUnsupportedStartDateClear()) {
             <small data-testid="task-start-date-clear-error">Existing start dates can be replaced but not cleared in MVP0.</small>
@@ -193,7 +208,8 @@ export const integerRangeValidator = (min: number, max: number): ValidatorFn => 
             type="number"
             formControlName="progressPercent"
             data-testid="task-progress-input"
-            [readonly]="!canEdit || isSubmitting"
+            [readonly]="!canEdit || editingLocked || task.progressIsDerived"
+            [attr.aria-readonly]="task.progressIsDerived ? 'true' : null"
           />
           @if (form.controls.progressPercent.invalid && form.controls.progressPercent.touched) {
             <small data-testid="task-progress-error">Progress must be an integer from 0 to 100.</small>
@@ -224,7 +240,7 @@ export const integerRangeValidator = (min: number, max: number): ValidatorFn => 
             type="button"
             class="task-editor__cancel"
             data-testid="task-cancel-button"
-            [disabled]="isSubmitting"
+            [disabled]="editingLocked"
             (click)="resetForm(); cancel.emit()"
           >
             Cancel
@@ -356,14 +372,22 @@ export const integerRangeValidator = (min: number, max: number): ValidatorFn => 
     `
   ]
 })
-export class TaskEditorComponent implements OnChanges {
+export class TaskEditorComponent implements OnChanges, OnInit, OnDestroy {
   @Input() task: TaskMockRecord | undefined;
   @Input() capabilities: readonly ProjectCapability[] = [];
   @Input() state: TaskDetailState = 'ready';
   @Input() transitionNote: BackendAuthoritativeTransitionNote = TASK_STATUS_BACKEND_AUTHORITATIVE_NOTE;
   @Input() mutationState: TaskMutationState = { status: 'idle' };
+  /** Canonical aggregate version supplied by Task Detail, not the project-list row. */
+  @Input() expectedVersion = '';
+  @Input() conflictReloadState: TaskConflictReloadState = 'idle';
   @Output() save = new EventEmitter<TaskEditorSaveRequest>();
   @Output() cancel = new EventEmitter<void>();
+  /** Reloading after a stale version must fetch the server-authoritative task. */
+  @Output() reloadRequested = new EventEmitter<void>();
+  /** Exposes unsaved form state without leaking the editor implementation to its parent. */
+  @Output() dirtyChange = new EventEmitter<boolean>();
+  private formChanges: Subscription | null = null;
 
   readonly statuses: readonly { value: TaskStatus; label: string }[] = [
     { value: 'notStarted', label: 'Not started' },
@@ -404,16 +428,22 @@ export class TaskEditorComponent implements OnChanges {
   }
 
   get isSubmitting(): boolean {
-    return this.mutationState.status === 'submitting';
+    return this.mutationState.status === 'submitting' || this.mutationState.status === 'refreshingAfterSave';
   }
+
+  get editingLocked(): boolean { return this.isSubmitting || this.mutationState.status === 'savedButRefreshFailed'; }
 
   get canSubmit(): boolean {
     return (
       this.canEdit &&
       !this.isSubmitting &&
+      this.mutationState.status !== 'savedButRefreshFailed' &&
       this.form.valid &&
       !this.hasUnsupportedStartDateClear() &&
-      !this.hasUnsupportedDueDateClear()
+      !this.hasUnsupportedDueDateClear() &&
+      this.mutationState.status !== 'conflict' &&
+      this.conflictReloadState !== 'loading' &&
+      this.hasValidExpectedVersion()
     );
   }
 
@@ -422,6 +452,12 @@ export class TaskEditorComponent implements OnChanges {
       this.resetForm();
     }
   }
+
+  ngOnInit(): void {
+    this.formChanges = this.form.valueChanges.subscribe(() => this.emitDirty());
+  }
+
+  ngOnDestroy(): void { this.formChanges?.unsubscribe(); this.dirtyChange.emit(false); }
 
   submit(): void {
     this.form.markAllAsTouched();
@@ -437,7 +473,7 @@ export class TaskEditorComponent implements OnChanges {
       startDate: value.startDate,
       dueDate: value.dueDate,
       progressPercent: value.progressPercent,
-      ...(this.canChangeStatus ? { status: value.status } : {})
+      expectedVersion: this.expectedVersion
     });
   }
 
@@ -459,10 +495,11 @@ export class TaskEditorComponent implements OnChanges {
     });
     this.form.markAsPristine();
     this.form.markAsUntouched();
+    this.emitDirty();
   }
 
   preventWhenDisabled(event: Event, enabled: boolean): void {
-    if (!enabled || this.isSubmitting) {
+    if (!enabled || this.editingLocked) {
       event.preventDefault();
     }
   }
@@ -486,4 +523,11 @@ export class TaskEditorComponent implements OnChanges {
   private hasUnsupportedDateClear(original: string | undefined, next: string): boolean {
     return (original?.length ?? 0) > 0 && next.trim().length === 0;
   }
+
+  private hasValidExpectedVersion(): boolean {
+    const version = Number(this.expectedVersion);
+    return Number.isSafeInteger(version) && version > 0;
+  }
+
+  private emitDirty(): void { this.dirtyChange.emit(this.form.dirty && !this.isSubmitting); }
 }

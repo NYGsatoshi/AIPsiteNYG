@@ -1,4 +1,4 @@
-import { Component, Input, signal } from '@angular/core';
+import { Component, EventEmitter, Input, Output } from '@angular/core';
 
 import { FileScanStatusBadgeComponent } from '../file-scan-status-badge/file-scan-status-badge.component';
 import { FileViewModel } from '../files.types';
@@ -12,22 +12,17 @@ import { FileViewModel } from '../files.types';
 })
 export class AttachmentPickerDialogComponent {
   @Input({ required: true }) files: readonly FileViewModel[] = [];
+  @Input() selectedAttachmentId: string | null = null;
   @Input() disabled = true;
   @Input() disabledMessage = 'Attachment picker is not available in MVP0.';
 
-  readonly selectedCanonicalFileIds = signal<readonly string[]>([]);
+  @Output() selectionChange = new EventEmitter<string | null>();
 
   toggleFile(file: FileViewModel, checked: boolean): void {
-    if (this.disabled || !file.canonicalFileId) {
+    if (this.disabled || !file.id || file.scanStatus !== 'allowed') {
       return;
     }
 
-    const current = this.selectedCanonicalFileIds();
-    if (checked) {
-      this.selectedCanonicalFileIds.set([...new Set([...current, file.canonicalFileId])]);
-      return;
-    }
-
-    this.selectedCanonicalFileIds.set(current.filter((fileId) => fileId !== file.canonicalFileId));
+    this.selectionChange.emit(checked ? file.id : null);
   }
 }

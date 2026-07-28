@@ -35,3 +35,45 @@ public interface IUnitOfWork
 {
     Task<int> SaveChangesAsync(CancellationToken cancellationToken = default);
 }
+
+/// <summary>
+/// Task commands use this narrowly-scoped persistence boundary so an EF optimistic
+/// concurrency failure can be classified without assigning Task error codes to
+/// unrelated aggregates.
+/// </summary>
+public interface ITaskCommandUnitOfWork : IUnitOfWork
+{
+    Task<TaskCommandSaveOutcome> SaveTaskCommandAsync(CancellationToken cancellationToken = default);
+
+    /// <summary>
+    /// Clears entities loaded while recovering from a failed task-command save.
+    /// Recovery must reauthorize against authoritative data, but must not leave
+    /// that data tracked in the losing request scope.
+    /// </summary>
+    void ClearTaskCommandTracking() { }
+}
+
+public enum TaskCommandSaveResult
+{
+    Saved,
+    ConcurrencyConflict,
+    UniqueConflict
+}
+
+/// <summary>
+/// The Task command persistence result.  PostgreSQL supplies the violated
+/// constraint for unique conflicts so callers can apply only the domain mapping
+/// that owns that constraint.
+/// </summary>
+public sealed record TaskCommandSaveOutcome(TaskCommandSaveResult Result, string? ConstraintName = null)
+{
+    public bool IsSaved => Result == TaskCommandSaveResult.Saved;
+
+    public static implicit operator TaskCommandSaveOutcome(TaskCommandSaveResult result) => new(result);
+
+    public static bool operator ==(TaskCommandSaveOutcome? outcome, TaskCommandSaveResult result) =>
+        outcome?.Result == result;
+
+    public static bool operator !=(TaskCommandSaveOutcome? outcome, TaskCommandSaveResult result) =>
+        outcome?.Result != result;
+}

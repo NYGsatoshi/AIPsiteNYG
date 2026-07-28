@@ -1,4 +1,4 @@
-import { expect, type Page, type Response as PlaywrightResponse, test } from '@playwright/test';
+import { expect, type Locator, type Page, type Response as PlaywrightResponse, test } from '@playwright/test';
 
 const smokeEmail = process.env.AIP_BROWSER_SMOKE_EMAIL ?? '';
 const smokePassword = process.env.AIP_BROWSER_SMOKE_PASSWORD ?? '';
@@ -8,6 +8,8 @@ const smokeAnnouncementTitle = 'Browser smoke announcement';
 const smokeProjectTitle = 'Browser Smoke Project';
 const smokeTaskTitle = 'Browser smoke task';
 const smokeRecipientName = 'Browser Smoke Recipient';
+const smokeTaskLabelName = 'Browser smoke label';
+const smokeTaskFileName = 'browser-smoke-task.txt';
 
 test.describe('MVP0 real backend browser smoke', () => {
   test.setTimeout(120_000);
@@ -53,7 +55,10 @@ test.describe('MVP0 real backend browser smoke', () => {
     page.on('response', (response) => recordFailedApiResponse(response, evidence));
 
     try {
+      const hubNegotiate = page.waitForRequest((request) => new URL(request.url()).pathname === '/hubs/app/negotiate');
       await loginAndVerifySession(page, evidence);
+      await verifyRealtimeRuntimeConfig(page, evidence);
+      await hubNegotiate;
       await verifyRealtimeTransportReconnect(page, evidence);
       await assertCsrfRejectsMissingToken(page, evidence);
       await openWorkspaces(page, evidence);
@@ -64,10 +69,7 @@ test.describe('MVP0 real backend browser smoke', () => {
       await logoutAndVerifyAccessRevoked(page, evidence);
 
       expect(evidence.pageErrors, 'browser page errors').toEqual([]);
-      expect(
-        evidence.consoleErrors.filter((message) => !message.includes('404')),
-        'unexpected browser console errors'
-      ).toEqual([]);
+      expectUnexpectedConsoleErrors(evidence);
       expectUnexpectedApiFailures(evidence);
     } finally {
       await testInfo.attach('real-backend-smoke-evidence.json', {
@@ -79,9 +81,16 @@ test.describe('MVP0 real backend browser smoke', () => {
 
   test('keeps authenticated HTTP requests available when the Hub cannot connect', async ({ page }, testInfo) => {
     await page.addInitScript(() => {
-      window.__AIP_FEATURE_FLAGS__ = { 'realtime.signalR': true };
+      const nativeFetch = window.fetch.bind(window);
+      window.fetch = (input: RequestInfo | URL, init?: RequestInit) => {
+        const url = typeof input === 'string' ? input : input instanceof URL ? input.href : input.url;
+        if (new URL(url, window.location.href).pathname.startsWith('/hubs/app')) {
+          return Promise.reject(new TypeError('Synthetic Hub unavailability'));
+        }
+
+        return nativeFetch(input, init);
+      };
     });
-    await page.route('**/hubs/app/**', (route) => route.abort());
     const evidence: SmokeEvidence = { baseURL: String(testInfo.project.use.baseURL ?? ''), email: smokeEmail, steps: [], pageErrors: [], consoleErrors: [], failedApiResponses: [] };
 
     await loginAndVerifySession(page, evidence);
@@ -90,12 +99,165 @@ test.describe('MVP0 real backend browser smoke', () => {
       validate: (body) => body && typeof body === 'object' && (body as Record<string, unknown>).isAuthenticated === true
     });
   });
+
+  test('TASK-V1-PR03C uses the real backend for task detail, mutations, revocation, and File grant reauthorization', async ({ page }, testInfo) => {
+    const evidence: SmokeEvidence = {
+      baseURL: String(testInfo.project.use.baseURL ?? ''), email: smokeEmail, steps: [], pageErrors: [], consoleErrors: [], failedApiResponses: []
+    };
+    page.on('pageerror', (error) => evidence.pageErrors.push(error.message));
+    page.on('console', (message) => { if (message.type() === 'error') evidence.consoleErrors.push(message.text()); });
+    page.on('response', (response) => recordFailedApiResponse(response, evidence));
+
+    try {
+      await loginAndVerifySession(page, evidence);
+      await openPr03cTaskDetail(page, evidence);
+      const taskId = evidence.taskId!;
+      const projectId = evidence.projectId!;
+      const workspaceId = evidence.workspaceId!;
+      const userId = evidence.userId!;
+
+      const detail = await recordFetchJson(page, evidence, 'pr03c-task-detail-aggregate', `/api/tasks/${taskId}`, {
+        validate: (body) => isPr03cTaskDetail(body, taskId, projectId)
+      });
+      const detailRecord = detail as Record<string, any>;
+      const attachmentId = String(detailRecord.files.items[0].id);
+      expect(JSON.stringify(detail), 'task detail must not disclose storage or grant secrets').not.toMatch(/storageKey|filePath|tokenHash|signedUrl|internal\/task-file/i);
+
+      await expect(page.getByTestId('task-detail-version')).not.toHaveText('0');
+      await expect(page.getByRole('heading', { name: 'Subtasks' })).toBeVisible();
+      await expect(page.getByRole('heading', { name: 'Checklist' })).toBeVisible();
+      await expect(page.getByRole('heading', { name: 'Comments' })).toBeVisible();
+      await expect(page.getByRole('heading', { name: 'Labels' })).toBeVisible();
+      await expect(page.getByRole('heading', { name: 'Watch' })).toBeVisible();
+      await expect(page.getByRole('heading', { name: 'Files' })).toBeVisible();
+      await expect(page.getByText(smokeTaskLabelName, { exact: true }).first()).toBeVisible();
+      await expect(page.getByText('Not watching', { exact: true })).toBeVisible();
+      await expect(page.getByText(smokeTaskFileName, { exact: true })).toBeVisible();
+      await expect(page.getByText('Access: Available', { exact: true })).toBeVisible();
+
+      const grant = await requestWithCsrf(page, 'POST', `/api/attachments/${attachmentId}/download-grants`, { purpose: 'pr03c-acceptance' });
+      evidence.steps.push({ name: 'pr03c-file-grant-before-revocation', method: 'POST', path: `/api/attachments/${attachmentId}/download-grants`, status: grant.status, bodyPreview: '[redacted]' });
+      expect(grant.status, 'authorized actor receives a fresh Attachment download grant').toBe(200);
+      const grantBody = parseJson(grant.text) as Record<string, unknown>;
+      const grantId = String(grantBody.fileDownloadGrantId ?? '');
+      const grantToken = String(grantBody.token ?? '');
+      expect(grantId, 'download grant id').toMatch(/^[0-9a-f-]{36}$/i);
+      expect(grantToken, 'download grant token').not.toBe('');
+      const browserStorage = await page.evaluate(() => JSON.stringify({
+        local: { ...localStorage },
+        session: { ...sessionStorage }
+      }));
+      expect(browserStorage, 'download grant token must remain ephemeral').not.toContain(grantToken);
+
+      const directOpen = await fetchBinaryFromPage(page, `/api/attachments/${attachmentId}/download`);
+      evidence.steps.push({ name: 'pr03c-file-open-before-revocation', method: 'GET', path: `/api/attachments/${attachmentId}/download`, status: directOpen.status });
+      expect(directOpen.status, 'authorized actor can open the physical synthetic Attachment').toBe(200);
+      expect(directOpen.text, 'authorized direct open returns the seeded bytes').toBe('Synthetic PR03C browser smoke file.\n');
+
+      const grantedDownload = await requestBinaryWithCsrf(page, `/api/attachment-download-grants/${grantId}/download`, { token: grantToken });
+      evidence.steps.push({ name: 'pr03c-file-grant-download-before-revocation', method: 'POST', path: `/api/attachment-download-grants/${grantId}/download`, status: grantedDownload.status });
+      expect(grantedDownload.status, 'fresh grant downloads the physical synthetic Attachment').toBe(200);
+      expect(grantedDownload.text, 'authorized grant returns the seeded bytes').toBe('Synthetic PR03C browser smoke file.\n');
+
+      const retainedGrant = await requestWithCsrf(page, 'POST', `/api/attachments/${attachmentId}/download-grants`, { purpose: 'pr03c-revocation-probe' });
+      expect(retainedGrant.status, 'revocation probe receives a fresh one-time grant').toBe(200);
+      const retainedGrantBody = parseJson(retainedGrant.text) as Record<string, unknown>;
+      const retainedGrantId = String(retainedGrantBody.fileDownloadGrantId ?? '');
+      const retainedGrantToken = String(retainedGrantBody.token ?? '');
+      expect(retainedGrantId, 'retained download grant id').toMatch(/^[0-9a-f-]{36}$/i);
+      expect(retainedGrantToken, 'retained download grant token').not.toBe('');
+
+      const checklistText = `PR03C checklist ${Date.now()}`;
+      const checklistResponse = waitForApiResponse(page, 'POST', `/api/tasks/${taskId}/checklist`);
+      await page.locator('#checklist-text').fill(checklistText);
+      await page.getByRole('button', { name: 'Add checklist item' }).click();
+      await recordOkJson(await checklistResponse, evidence, 'pr03c-checklist-create', (body) => hasString(body, 'id') && hasStringValue(body, 'text', checklistText));
+      await expect(page.getByText(checklistText, { exact: true })).toBeVisible();
+      const checklistSection = page.locator('section[aria-labelledby="checklist-heading"]');
+      const checklistDelete = waitForApiResponse(page, 'DELETE', new RegExp(`/api/tasks/${taskId}/checklist/`));
+      await checklistSection.getByRole('button', { name: 'Delete' }).click();
+      await recordOkJson(await checklistDelete, evidence, 'pr03c-checklist-delete', (body) => body && typeof body === 'object');
+      await expect(page.getByText(checklistText, { exact: true })).toHaveCount(0);
+
+      const mentionResponse = waitForApiResponse(page, 'GET', new RegExp(`/api/tasks/${taskId}/mention-candidates$`));
+      await page.locator('#task-comment-body').fill('@Browser');
+      await recordOkJson(await mentionResponse, evidence, 'pr03c-mention-candidates', (body) => Array.isArray(body) && body.some((candidate: unknown) => hasStringValue(candidate, 'displayName', smokeRecipientName)));
+      await page.getByRole('button', { name: `@${smokeRecipientName}` }).click();
+      const commentResponse = waitForApiResponse(page, 'POST', `/api/tasks/${taskId}/comments`);
+      await page.getByRole('button', { name: 'Post comment' }).click();
+      const comment = await recordOkJson(await commentResponse, evidence, 'pr03c-comment-create', (body) => hasString(body, 'id') && Array.isArray((body as Record<string, unknown>).mentions));
+      const commentId = String((comment as Record<string, unknown>).id);
+      await expect(page.getByText(`@${smokeRecipientName}`, { exact: true })).toBeVisible();
+      const commentDelete = waitForApiResponse(page, 'DELETE', `/api/task-comments/${commentId}`);
+      await page.locator('section[aria-labelledby="comments-heading"]').getByRole('button', { name: 'Delete' }).click();
+      await recordOkJson(await commentDelete, evidence, 'pr03c-comment-delete', (body) => body && typeof body === 'object');
+
+      const mismatchProjectId = '00000000-0000-0000-0000-000000000001';
+      await page.goto(`/app/projects/${mismatchProjectId}/tasks/${taskId}`);
+      await expect(page.getByText('Task not found', { exact: true })).toBeVisible();
+      await expect(page.getByRole('heading', { name: smokeTaskTitle })).toHaveCount(0);
+      await expect(page.getByText(smokeTaskLabelName, { exact: true })).toHaveCount(0);
+      await expect(page.getByText(smokeTaskFileName, { exact: true })).toHaveCount(0);
+
+      await page.goto(`/app/projects/${projectId}/tasks/${taskId}`);
+      await expect(page.getByRole('heading', { name: smokeTaskTitle })).toBeVisible();
+      const removeMembership = await requestWithCsrf(page, 'DELETE', `/api/workspaces/${workspaceId}/members/${userId}`);
+      evidence.steps.push({ name: 'pr03c-workspace-membership-revoked', method: 'DELETE', path: `/api/workspaces/${workspaceId}/members/${userId}`, status: removeMembership.status });
+      expect(removeMembership.status, 'test setup revokes active Workspace access through the real backend').toBe(200);
+
+      await page.reload();
+      await expect(page.getByRole('heading', { name: smokeTaskTitle })).toHaveCount(0);
+      await expect(page.getByText(smokeTaskLabelName, { exact: true })).toHaveCount(0);
+      await expect(page.getByText(smokeTaskFileName, { exact: true })).toHaveCount(0);
+      await expect(page.locator('#task-comment-body')).toHaveCount(0);
+
+      const deniedTask = await fetchFromPage(page, `/api/tasks/${taskId}`);
+      evidence.steps.push({ name: 'pr03c-task-denied-after-revocation', method: 'GET', path: `/api/tasks/${taskId}`, status: deniedTask.status, bodyPreview: preview(deniedTask.text) });
+      expect(deniedTask.status, 'revoked actor must receive the canonical task safe-not-found response').toBe(404);
+      expectCanonicalDenial(deniedTask.text, 'TASK_NOT_FOUND');
+
+      const revokedMyTasks = await fetchJsonFromPage(page, '/api/me/tasks?view=assigned&scope=allWorkspaces');
+      evidence.steps.push({ name: 'pr03c-my-tasks-cleared-after-revocation', method: 'GET', path: '/api/me/tasks', status: revokedMyTasks.status });
+      expect(revokedMyTasks.status, 'My Tasks remains safely queryable after membership revocation').toBe(200);
+      expect(revokedMyTasks.body?.items, 'revoked Workspace rows must disappear from My Tasks').toEqual([]);
+      expect(revokedMyTasks.body?.totalCount, 'revoked Workspace rows must not contribute to My Tasks total').toBe(0);
+      expect(revokedMyTasks.body?.availableWorkspaceCount, 'revoked Workspace must not remain available').toBe(0);
+
+      const revokedMyTaskCounts = await fetchJsonFromPage(page, '/api/me/tasks/counts?scope=allWorkspaces');
+      evidence.steps.push({ name: 'pr03c-my-task-counts-cleared-after-revocation', method: 'GET', path: '/api/me/tasks/counts', status: revokedMyTaskCounts.status });
+      expect(revokedMyTaskCounts.status, 'My Tasks counts remain safely queryable after membership revocation').toBe(200);
+      expect(revokedMyTaskCounts.body?.availableWorkspaceCount, 'revoked Workspace must not remain in count scope').toBe(0);
+      expect(
+        (revokedMyTaskCounts.body?.views ?? []).every((view: Record<string, unknown>) => view.count === 0),
+        'revoked Workspace rows must not contribute to any relationship count'
+      ).toBe(true);
+
+      const deniedGrant = await requestWithCsrf(page, 'POST', `/api/attachments/${attachmentId}/download-grants`, { purpose: 'pr03c-after-revocation' });
+      evidence.steps.push({ name: 'pr03c-file-grant-denied-after-revocation', method: 'POST', path: `/api/attachments/${attachmentId}/download-grants`, status: deniedGrant.status, bodyPreview: preview(deniedGrant.text) });
+      expect(deniedGrant.status, 'revoked actor must receive the canonical grant safe-not-found response').toBe(404);
+      expectCanonicalDenial(deniedGrant.text, 'FILE_DOWNLOAD_GRANT_NOT_FOUND');
+      expect(deniedGrant.text, 'denial must not disclose the protected File metadata').not.toMatch(/browser-smoke-task|storageKey|filePath|tokenHash|internal\/task-file/i);
+
+      const deniedOpen = await fetchBinaryFromPage(page, `/api/attachments/${attachmentId}/download`);
+      evidence.steps.push({ name: 'pr03c-file-open-denied-after-revocation', method: 'GET', path: `/api/attachments/${attachmentId}/download`, status: deniedOpen.status });
+      expect(deniedOpen.status, 'revoked actor cannot open the physical Attachment').toBe(400);
+      expect(deniedOpen.text, 'revoked direct open must not return the seeded bytes').not.toContain('Synthetic PR03C browser smoke file.');
+
+      const deniedRetainedGrant = await requestBinaryWithCsrf(page, `/api/attachment-download-grants/${retainedGrantId}/download`, { token: retainedGrantToken });
+      evidence.steps.push({ name: 'pr03c-retained-grant-denied-after-revocation', method: 'POST', path: `/api/attachment-download-grants/${retainedGrantId}/download`, status: deniedRetainedGrant.status });
+      expect(deniedRetainedGrant.status, 'membership revocation invalidates a previously issued unused grant').toBe(400);
+      expect(deniedRetainedGrant.text, 'revoked retained grant must not return the seeded bytes').not.toContain('Synthetic PR03C browser smoke file.');
+
+      expect(evidence.pageErrors, 'browser page errors').toEqual([]);
+      expectUnexpectedConsoleErrors(evidence);
+      expectUnexpectedApiFailures(evidence);
+    } finally {
+      await testInfo.attach('task-v1-pr03c-real-backend-evidence.json', { body: JSON.stringify(evidence, null, 2), contentType: 'application/json' });
+    }
+  });
 });
 
 async function loginAndVerifySession(page: Page, evidence: SmokeEvidence) {
-  await page.addInitScript(() => {
-    window.__AIP_FEATURE_FLAGS__ = { 'realtime.signalR': true };
-  });
   await page.goto('/app/login');
   await expect(page.getByTestId('login-page')).toBeVisible();
   await recordFetchJson(page, evidence, 'csrf-token', '/api/security/csrf-token', {
@@ -304,31 +466,61 @@ async function openProjectTaskDetail(page: Page, evidence: SmokeEvidence) {
   expect(task, 'seeded task record').toBeTruthy();
   evidence.taskId = String(task!.id);
 
+  // The projects overview intentionally lists project summaries only. Follow
+  // the real project navigation and select its Task list before asserting a
+  // task-grid row; the API assertion above remains the direct list contract.
+  const projectCard = page.getByTestId('project-summary-card').filter({ hasText: smokeProjectTitle }).first();
+  await projectCard.getByRole('link', { name: `Open ${smokeProjectTitle}` }).click();
+  await expect(page).toHaveURL(new RegExp(`/app/projects/${evidence.projectId}$`));
+  await expect(page.getByTestId('project-detail-page')).toBeVisible();
+  await page.getByRole('tab', { name: 'List', exact: true }).click();
+
   const taskRow = page.locator('[role="row"]').filter({ hasText: smokeTaskTitle }).first();
   await expect(taskRow).toBeVisible();
-  await taskRow.getByTestId('task-action-openDetail').click();
+  await clickTaskOpenDetail(page, taskRow);
 
   await expect(page.getByTestId('task-detail-page')).toBeVisible();
   await expect(page.getByRole('heading', { name: smokeTaskTitle })).toBeVisible();
   await recordFetchJson(page, evidence, 'task-detail', `/api/tasks/${evidence.taskId}`, {
     validate: (body) =>
-      hasStringValue(body, 'id', evidence.taskId ?? '') &&
-      hasStringValue(body, 'title', smokeTaskTitle) &&
-      hasStringValue(body, 'projectId', evidence.projectId ?? '')
+      isPr03cTaskDetail(body, evidence.taskId ?? '', evidence.projectId ?? '')
   });
 
   await openMyTasksFromNavigation(page, evidence);
 }
 
+async function openPr03cTaskDetail(page: Page, evidence: SmokeEvidence) {
+  const projectsBody = await recordFetchJson(page, evidence, 'pr03c-projects-list', '/api/projects', {
+    validate: (body) => isPagedResponse(body) && body.items.some((item: unknown) => hasStringValue(item, 'title', smokeProjectTitle))
+  });
+  const project = projectsBody.items.find((item: Record<string, unknown>) => item.title === smokeProjectTitle);
+  expect(project, 'PR03C seeded project').toBeTruthy();
+  evidence.projectId = String(project!.id);
+
+  const tasksBody = await recordFetchJson(page, evidence, 'pr03c-project-tasks', `/api/projects/${evidence.projectId}/tasks`, {
+    validate: (body) => isPagedResponse(body) && body.items.some((item: unknown) => hasStringValue(item, 'title', smokeTaskTitle))
+  });
+  const task = tasksBody.items.find((item: Record<string, unknown>) => item.title === smokeTaskTitle);
+  expect(task, 'PR03C seeded task').toBeTruthy();
+  evidence.taskId = String(task!.id);
+
+  const detail = await recordFetchJson(page, evidence, 'pr03c-task-detail-contract', `/api/tasks/${evidence.taskId}`, {
+    validate: (body) => isPr03cTaskDetail(body, evidence.taskId ?? '', evidence.projectId ?? '')
+  });
+  evidence.workspaceId = String((detail as Record<string, any>).task.workspaceId);
+  expect(evidence.workspaceId, 'task workspaceId is part of the canonical Task DTO').toMatch(/^[0-9a-f-]{36}$/i);
+
+  await page.goto(`/app/projects/${evidence.projectId}/tasks/${evidence.taskId}`);
+  await expect(page.getByTestId('task-detail-page')).toBeVisible();
+  await expect(page.getByRole('heading', { name: smokeTaskTitle })).toBeVisible();
+}
+
 async function openMyTasksFromNavigation(page: Page, evidence: SmokeEvidence) {
-  let blockedProjectListRequests = 0;
-  await page.route('**/api/projects', async (route) => {
-    blockedProjectListRequests += 1;
-    await route.fulfill({
-      status: 500,
-      contentType: 'application/json',
-      body: JSON.stringify({ message: 'Project list intentionally blocked during My Tasks independence probe.' })
-    });
+  let projectListRequests = 0;
+  page.on('request', (request) => {
+    if (request.method() === 'GET' && new URL(request.url()).pathname === '/api/projects') {
+      projectListRequests += 1;
+    }
   });
 
   const [myTasksResponse] = await Promise.all([
@@ -350,22 +542,32 @@ async function openMyTasksFromNavigation(page: Page, evidence: SmokeEvidence) {
   );
   const assignedTask = myTasksBody.items.find((item: Record<string, unknown>) => item.title === smokeTaskTitle);
   expect(assignedTask, 'seeded assigned My Tasks row').toBeTruthy();
-  expect(blockedProjectListRequests, 'My Tasks must not request /api/projects while loading').toBe(0);
+  expect(projectListRequests, 'My Tasks must not request /api/projects while loading').toBe(0);
   evidence.steps.push({
     name: 'my-tasks-independent-from-project-list',
     method: 'GET',
     path: '/api/projects',
-    status: blockedProjectListRequests
+    status: projectListRequests
   });
 
-  const taskRow = page.locator('[role="row"]').filter({ hasText: smokeTaskTitle }).first();
-  await expect(taskRow).toBeVisible();
-  await taskRow.getByTestId('task-action-openDetail').click();
+  const taskButton = page.getByRole('button', { name: /^Browser smoke task(?:\s|$)/ }).first();
+  await expect(taskButton).toBeVisible();
+  await taskButton.click();
   await expect(page).toHaveURL(new RegExp(`/app/projects/${evidence.projectId}/tasks/${evidence.taskId}$`));
   await expect(page.getByTestId('task-detail-page')).toBeVisible();
   await expect(page.getByRole('heading', { name: smokeTaskTitle })).toBeVisible();
+}
 
-  await page.unroute('**/api/projects');
+async function clickTaskOpenDetail(page: Page, taskRow: Locator): Promise<void> {
+  const action = taskRow.getByTestId('task-action-openDetail');
+  if (!(await action.isVisible())) {
+    await page.locator('.ag-body-horizontal-scroll-viewport').evaluate((viewport) => {
+      viewport.scrollLeft = viewport.scrollWidth;
+    });
+  }
+
+  await expect(action).toBeVisible();
+  await action.click();
 }
 
 async function submitInvalidPasswordChange(page: Page, evidence: SmokeEvidence) {
@@ -537,6 +739,42 @@ async function fetchJsonFromPage(page: Page, path: string): Promise<{ status: nu
   };
 }
 
+async function fetchBinaryFromPage(page: Page, path: string): Promise<{ status: number; text: string }> {
+  const response = await page.context().request.get(new URL(path, page.url()).href);
+  return { status: response.status(), text: await response.text() };
+}
+
+async function requestBinaryWithCsrf(page: Page, path: string, body: unknown): Promise<{ status: number; text: string }> {
+  const csrf = await page.evaluate(async () => {
+    const response = await fetch('/api/security/csrf-token', { credentials: 'include' });
+    return response.json() as Promise<{ token?: string; headerName?: string }>;
+  });
+  expect(csrf.token, 'binary request CSRF token').toBeTruthy();
+  expect(csrf.headerName, 'binary request CSRF header name').toBeTruthy();
+  const response = await page.context().request.post(new URL(path, page.url()).href, {
+    data: body,
+    headers: { [csrf.headerName!]: csrf.token! }
+  });
+  return { status: response.status(), text: await response.text() };
+}
+
+/** Acquires the anti-forgery token in the browser and never serializes it into evidence. */
+async function requestWithCsrf(page: Page, method: 'POST' | 'DELETE', path: string, body?: unknown): Promise<{ status: number; text: string }> {
+  return page.evaluate(async ({ method, path, body }) => {
+    const csrfResponse = await fetch('/api/security/csrf-token', { credentials: 'include' });
+    const csrf = await csrfResponse.json() as { token?: string; headerName?: string };
+    const headers: Record<string, string> = { 'Content-Type': 'application/json' };
+    if (csrf.token && csrf.headerName) headers[csrf.headerName] = csrf.token;
+    const response = await fetch(path, {
+      method,
+      credentials: 'include',
+      headers,
+      ...(body === undefined ? {} : { body: JSON.stringify(body) })
+    });
+    return { status: response.status, text: await response.text() };
+  }, { method, path, body });
+}
+
 function recordFailedApiResponse(response: PlaywrightResponse, evidence: SmokeEvidence) {
   const url = new URL(response.url());
   if (!url.pathname.startsWith('/api/') || response.status() < 400) {
@@ -555,17 +793,76 @@ function expectUnexpectedApiFailures(evidence: SmokeEvidence) {
   expect(unexpected, 'unexpected failed API responses').toEqual([]);
 }
 
+function expectUnexpectedConsoleErrors(evidence: SmokeEvidence) {
+  const expectedNetworkFailures = new Map<number, number>();
+  for (const failure of evidence.failedApiResponses.filter(isExpectedFailure)) {
+    expectedNetworkFailures.set(failure.status, (expectedNetworkFailures.get(failure.status) ?? 0) + 1);
+  }
+
+  const unexpected = evidence.consoleErrors.filter((message) => {
+    const match = /Failed to load resource:.*status of (\d{3})/i.exec(message);
+    if (!match) return true;
+    const status = Number(match[1]);
+    const remaining = expectedNetworkFailures.get(status) ?? 0;
+    if (remaining === 0) return true;
+    expectedNetworkFailures.set(status, remaining - 1);
+    return false;
+  });
+  expect(unexpected, 'unexpected browser console errors').toEqual([]);
+}
+
 function isExpectedFailure(failure: SmokeFailedApiResponse): boolean {
   return (
     (failure.method === 'POST' && failure.path === '/api/auth/change-password' && failure.status === 403) ||
     (failure.method === 'POST' && failure.path === '/api/auth/change-password' && failure.status === 400) ||
     (failure.method === 'GET' && failure.path === '/api/auth/me' && failure.status === 401) ||
-    (failure.method === 'GET' && failure.path === '/api/projects' && failure.status === 401)
+    (failure.method === 'GET' && failure.path === '/api/projects' && failure.status === 401) ||
+    (failure.method === 'GET' && /^\/api\/tasks\/[0-9a-f-]+$/i.test(failure.path) && failure.status === 404) ||
+    (failure.method === 'POST' && /^\/api\/attachments\/[0-9a-f-]+\/download-grants$/i.test(failure.path) && failure.status === 404) ||
+    (failure.method === 'GET' && /^\/api\/attachments\/[0-9a-f-]+\/download$/i.test(failure.path) && failure.status === 400) ||
+    (failure.method === 'POST' && /^\/api\/attachment-download-grants\/[0-9a-f-]+\/download$/i.test(failure.path) && failure.status === 400)
   );
+}
+
+async function verifyRealtimeRuntimeConfig(page: Page, evidence: SmokeEvidence): Promise<void> {
+  const enabled = await page.evaluate(() => window.__AIP_FEATURE_FLAGS__?.['realtime.signalR'] === true);
+  evidence.steps.push({ name: 'realtime-runtime-config-enabled', method: 'GET', path: '/api/ui/runtime-config.js', status: enabled ? 200 : 500 });
+  expect(enabled, 'same-origin runtime configuration must enable the realtime rollout').toBe(true);
+}
+
+function expectCanonicalDenial(text: string, expectedCode: string): void {
+  const body = parseJson(text) as Record<string, any>;
+  expect(typeof body.requestId, 'safe denial requestId').toBe('string');
+  expect(body.error?.code, 'safe denial error code').toBe(expectedCode);
+  expect(text, 'safe denial must not expose protected metadata').not.toMatch(/browser-smoke-task|browser smoke label|storageKey|filePath|tokenHash|policy stamp|internal\//i);
 }
 
 function isPagedResponse(body: unknown): body is { items: Record<string, unknown>[] } {
   return typeof body === 'object' && body !== null && Array.isArray((body as Record<string, unknown>).items);
+}
+
+function isPr03cTaskDetail(body: unknown, taskId: string, projectId: string): boolean {
+  if (typeof body !== 'object' || body === null) return false;
+  const detail = body as Record<string, any>;
+  const task = detail.task;
+  return hasStringValue(task, 'id', taskId) &&
+    hasStringValue(task, 'projectId', projectId) &&
+    hasStringValue(task, 'title', smokeTaskTitle) &&
+    hasString(task, 'workspaceId') &&
+    typeof task.version === 'number' &&
+    typeof task.priority === 'string' &&
+    typeof task.stageCategory === 'number' &&
+    typeof task.reviewStatus === 'number' &&
+    detail.relationships && typeof detail.relationships === 'object' &&
+    detail.permissions && typeof detail.permissions === 'object' &&
+    Array.isArray(detail.checklist) && Array.isArray(detail.labels) &&
+    detail.watchState && typeof detail.watchState === 'object' &&
+    isPagedResponse(detail.subtasks) && isPagedResponse(detail.comments) && isPagedResponse(detail.files) &&
+    detail.files.items.length > 0 &&
+    hasStringValue(detail.files.items[0], 'fileName', smokeTaskFileName) &&
+    typeof detail.files.items[0].scanStatus === 'string' &&
+    typeof detail.files.items[0].canOpen === 'boolean' &&
+    typeof detail.files.items[0].canRequestDownloadGrant === 'boolean';
 }
 
 function hasString(body: unknown, key: string): body is Record<string, unknown> {
@@ -607,6 +904,7 @@ interface SmokeEvidence {
   announcementId?: string;
   projectId?: string;
   taskId?: string;
+  workspaceId?: string;
   steps: SmokeEvidenceStep[];
   pageErrors: string[];
   consoleErrors: string[];

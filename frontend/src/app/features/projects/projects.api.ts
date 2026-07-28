@@ -1,4 +1,4 @@
-import { TaskPriority, TaskStatus } from './projects.types';
+import { TaskPriority } from './projects.types';
 
 export interface PagedResponseDto<T> {
   readonly items?: readonly T[];
@@ -33,19 +33,40 @@ export interface TaskUiPermissionDto {
 
 export interface TaskDto {
   readonly id?: unknown;
+  readonly tenantId?: unknown;
+  readonly workspaceId?: unknown;
   readonly projectId?: unknown;
+  readonly kind?: unknown;
+  readonly parentTaskId?: unknown;
   readonly milestoneId?: unknown;
   readonly title?: unknown;
   readonly description?: unknown;
+  readonly workflowStageId?: unknown;
+  readonly workflowStageName?: unknown;
   readonly status?: unknown;
   readonly stageCategory?: unknown;
   readonly isBlocked?: unknown;
+  readonly blockedReason?: unknown;
   readonly priority?: unknown;
   readonly startDate?: unknown;
   readonly dueDate?: unknown;
   readonly plannedStartDate?: unknown;
   readonly plannedEndDate?: unknown;
+  readonly deadlineAt?: unknown;
+  readonly actualStartAt?: unknown;
+  readonly completedAt?: unknown;
   readonly progressPercent?: unknown;
+  readonly progressIsDerived?: unknown;
+  readonly estimatedEffortMinutes?: unknown;
+  readonly primaryAssignee?: TaskPersonSummaryDto | null;
+  readonly targetGroupId?: unknown;
+  readonly collaboratorCount?: unknown;
+  readonly reviewer?: TaskPersonSummaryDto | null;
+  readonly isOverdue?: unknown;
+  readonly dependencyWarnings?: readonly unknown[];
+  readonly allowedTransitions?: readonly unknown[];
+  readonly reviewStatus?: unknown;
+  readonly subresources?: TaskSubresourceSummaryDto | null;
   readonly uiPermissions?: TaskUiPermissionDto | null;
   readonly version?: unknown;
 }
@@ -80,6 +101,7 @@ export interface TaskDetailPermissionsDto {
 
 export interface TaskPersonSummaryDto { readonly userId?: unknown; readonly displayName?: unknown; }
 export interface TaskRelationshipsDto { readonly primaryAssignee?: TaskPersonSummaryDto | null; readonly targetGroupId?: unknown; readonly collaborators?: readonly TaskPersonSummaryDto[]; readonly reviewer?: TaskPersonSummaryDto | null; readonly version?: unknown; }
+export interface TaskSubresourceSummaryDto { readonly checklistCompletedCount?: unknown; readonly checklistTotalCount?: unknown; readonly commentCount?: unknown; readonly labelCount?: unknown; readonly subtaskCount?: unknown; }
 export interface TaskWatchStateDto { readonly isWatching?: unknown; readonly isExplicitOptOut?: unknown; readonly automaticSources?: readonly unknown[]; readonly version?: unknown; }
 export interface TaskChecklistDto { readonly id?: unknown; readonly text?: unknown; readonly isCompleted?: unknown; readonly completedAt?: unknown; readonly completedByUserId?: unknown; readonly sortKey?: unknown; readonly version?: unknown; }
 export interface TaskLabelDto { readonly id?: unknown; readonly name?: unknown; readonly description?: unknown; readonly sortKey?: unknown; readonly isArchived?: unknown; readonly version?: unknown; }
@@ -161,10 +183,10 @@ export interface UpdateTaskRequestDto {
   readonly title: string;
   readonly description: string;
   readonly priority: number;
-  readonly startDate?: string | null;
-  readonly dueDate?: string | null;
+  readonly plannedStartDate: string | null;
+  readonly plannedEndDate: string | null;
   readonly progressPercent: number;
-  readonly status?: number;
+  readonly expectedVersion: number;
 }
 
 const taskPriorityApiValues: Record<TaskPriority, number> = {
@@ -172,15 +194,6 @@ const taskPriorityApiValues: Record<TaskPriority, number> = {
   medium: 1,
   high: 2,
   urgent: 3
-};
-
-const taskStatusApiValues: Record<TaskStatus, number> = {
-  notStarted: 0,
-  inProgress: 1,
-  review: 2,
-  blocked: 3,
-  done: 4,
-  cancelled: 5
 };
 
 export function toCreateTaskRequestDto(input: {
@@ -207,16 +220,16 @@ export function toUpdateTaskRequestDto(input: {
   readonly startDate: string;
   readonly dueDate: string;
   readonly progressPercent: number;
-  readonly status?: TaskStatus;
+  readonly expectedVersion: string;
 }): UpdateTaskRequestDto {
   return {
     title: input.title.trim(),
     description: input.description.trim(),
     priority: taskPriorityApiValues[input.priority],
-    startDate: nullableDate(input.startDate),
-    dueDate: nullableDate(input.dueDate),
+    plannedStartDate: nullableDate(input.startDate),
+    plannedEndDate: nullableDate(input.dueDate),
     progressPercent: input.progressPercent,
-    ...(input.status ? { status: taskStatusApiValues[input.status] } : {})
+    expectedVersion: Number(input.expectedVersion)
   };
 }
 

@@ -73,8 +73,15 @@ public static class DependencyInjection
         services.AddScoped<IIntegrationService>(provider => provider.GetRequiredService<IntegrationService>());
         services.AddScoped<IApiTokenValidator>(provider => provider.GetRequiredService<IntegrationService>());
         services.AddScoped<IProjectService, ProjectService>();
+        // Minimal hosts may register only IUnitOfWork after AddApplication. Reuse that
+        // same scoped instance when it also supports the Task-specific save contract.
+        // Full Infrastructure registration supplies a later explicit binding and wins.
+        services.AddScoped<ITaskCommandUnitOfWork>(provider =>
+            provider.GetRequiredService<IUnitOfWork>() as ITaskCommandUnitOfWork
+            ?? throw new InvalidOperationException("IUnitOfWork must implement ITaskCommandUnitOfWork for Task commands."));
         services.AddScoped<ITaskCommandService, TaskCommandService>();
         services.AddScoped<ITaskSubresourceService, TaskSubresourceService>();
+        services.AddScoped<ITaskWorkspaceTimeZoneResolver, TaskWorkspaceTimeZoneResolver>();
         services.AddScoped<IEventService, EventService>();
         services.AddScoped<IFormService, FormService>();
         services.AddScoped<IFileService, FileService>();

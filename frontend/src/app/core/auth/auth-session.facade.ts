@@ -209,7 +209,13 @@ export class AuthSessionFacade {
         )
       ),
       map((response) => mapCurrentUserResponse(response)),
-      tap((user) => this.patchUser(user)),
+      tap((user) => {
+        // Antiforgery tokens issued before login are bound to the anonymous
+        // principal. Discard that cache before any authenticated unsafe call
+        // (including SignalR negotiate) obtains its token.
+        this.csrfTokens.clearToken();
+        this.patchUser(user);
+      }),
       switchMap(() => this.refreshCurrentTenant()),
       map(() => this.sessionState())
     );

@@ -1,15 +1,18 @@
 <section class="attachment-picker" aria-label="Attachment picker" data-testid="attachment-picker">
   <header>
     <p>Attachment picker</p>
-    <h2>{{ disabledMessage }}</h2>
+    <h2>Choose one clean, authorized file</h2>
   </header>
 
   <div class="attachment-picker__list">
     @for (file of files; track file.id) {
       <label class="attachment-picker__row" data-testid="attachment-picker-row">
         <input
-          type="checkbox"
-          [disabled]="disabled || !file.canonicalFileId"
+          type="radio"
+          name="attachment-picker-selection"
+          [checked]="selectedAttachmentId === file.id"
+          [attr.aria-checked]="selectedAttachmentId === file.id"
+          [disabled]="disabled || !file.id || file.scanStatus !== 'allowed'"
           (change)="toggleFile(file, $any($event.target).checked)"
           data-testid="attachment-picker-checkbox"
         />
@@ -17,14 +20,12 @@
         <app-file-scan-status-badge [status]="file.scanStatus" />
         @if (disabled) {
           <span class="attachment-picker__note" data-testid="attachment-picker-disabled">{{ disabledMessage }}</span>
-        } @else if (!file.canonicalFileId) {
-          <span class="attachment-picker__note" data-testid="non-canonical-disabled">Canonical file ID is required.</span>
+        } @else if (file.scanStatus !== 'allowed') {
+          <span class="attachment-picker__note" data-testid="non-canonical-disabled">Only files with a clean scan can be associated.</span>
         }
       </label>
     }
   </div>
 
-  <p class="attachment-picker__selection" data-testid="selected-canonical-file-ids">
-    Selected: {{ selectedCanonicalFileIds().join(', ') || 'none' }}
-  </p>
+  <p class="attachment-picker__selection" data-testid="selected-attachment">{{ selectedAttachmentId ? 'A file is selected.' : 'No file selected.' }}</p>
 </section>

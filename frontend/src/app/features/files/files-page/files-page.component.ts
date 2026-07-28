@@ -1,6 +1,7 @@
-import { Component, inject } from '@angular/core';
+import { Component, effect, inject } from '@angular/core';
 
 import { FrontendFeatureFlagsService } from '../../../core/feature-flags/frontend-feature-flags.service';
+import { ActiveWorkspaceFacade } from '../../../core/workspace/active-workspace.facade';
 import { AppDataGridComponent } from '../../../shared/grid/app-data-grid/app-data-grid.component';
 import { AppDataGridColumnDef } from '../../../shared/grid/app-data-grid/app-data-grid.types';
 import { AipFileUploaderComponent } from '../../../shared/ui/adapters/syncfusion/aip-file-uploader.component';
@@ -20,6 +21,7 @@ import { FileViewModel } from '../files.types';
 export class FilesPageComponent {
   private readonly facade = inject(FilesFacade);
   private readonly flags = inject(FrontendFeatureFlagsService);
+  private readonly activeWorkspace = inject(ActiveWorkspaceFacade);
 
   readonly page = this.facade.page;
   readonly syncfusionUploaderEnabled = this.flags.syncfusionUploaderEnabled;
@@ -31,6 +33,15 @@ export class FilesPageComponent {
     { field: 'createdAtLabel', headerName: 'Created', flex: 1 },
     { headerName: 'Actions', actions: (row) => [{ id: 'download', label: row.downloadState === 'pending' ? 'Authorizing' : 'Download', row, disabled: row.downloadPolicy !== 'available' || row.scanStatus !== 'allowed' || row.downloadState === 'pending', disabledReason: row.downloadMessage }] },
   ];
+
+  constructor() {
+    effect(() => {
+      const pageFacade = this.facade as FilesFacade & {
+        loadPageFilesForWorkspace?: (workspaceId: string | undefined) => void;
+      };
+      pageFacade.loadPageFilesForWorkspace?.call(pageFacade, this.activeWorkspace.activeWorkspace()?.id);
+    });
+  }
 
   acceptUpload(files: readonly File[]): void {
     this.facade.uploadFiles(files);

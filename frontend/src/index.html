@@ -6,18 +6,9 @@
   <base href="/">
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <link rel="icon" type="image/x-icon" href="favicon.ico">
-  <script>
-    (() => {
-      try {
-        const stored = localStorage.getItem('aipsite.ui.theme.v1');
-        const theme = stored === 'dark' || stored === 'light'
-          ? stored
-          : matchMedia('(prefers-color-scheme: light)').matches ? 'light' : 'dark';
-        document.documentElement.dataset.aipTheme = theme;
-        document.documentElement.dataset.aipDensity = matchMedia('(max-width: 860px), (pointer: coarse)').matches ? 'comfortable' : 'compact';
-      } catch { /* Dark default remains in markup. */ }
-    })();
-  </script>
+  <!-- Same-origin runtime flags are emitted by ASP.NET Core before Angular bootstraps. -->
+  <script src="/api/ui/runtime-config.js"></script>
+  <script src="aip-ui-preferences.js"></script>
 </head>
 <body>
   <app-root></app-root>

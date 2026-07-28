@@ -48,7 +48,9 @@ public static class DependencyInjection
         services.AddScoped<AipPortal.Application.Realtime.IOutboxEventRepository, OutboxEventRepository>();
         services.AddScoped<ITransactionalOutbox, TransactionalOutbox>();
         services.AddScoped<IOutboxReplayService, OutboxReplayService>();
-        services.AddScoped<IUnitOfWork, EfUnitOfWork>();
+        services.AddScoped<EfUnitOfWork>();
+        services.AddScoped<IUnitOfWork>(serviceProvider => serviceProvider.GetRequiredService<EfUnitOfWork>());
+        services.AddScoped<ITaskCommandUnitOfWork>(serviceProvider => serviceProvider.GetRequiredService<EfUnitOfWork>());
         services.Configure<FileStorageOptions>(options =>
         {
             var section = configuration.GetSection("FileStorage");

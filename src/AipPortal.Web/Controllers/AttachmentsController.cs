@@ -47,10 +47,29 @@ public sealed class AttachmentsController(IFileService files) : ControllerBase
         [FromBody] FileDownloadGrantRequest? request,
         CancellationToken cancellationToken)
     {
-        return ToActionResult(await files.RequestDownloadGrantAsync(
+        var result = await files.RequestDownloadGrantAsync(
             attachmentId,
             request ?? new FileDownloadGrantRequest(),
-            cancellationToken));
+            cancellationToken);
+        if (result.IsSuccess)
+        {
+            return Ok(result.Value);
+        }
+
+        // Grant issuance uses the same safe not-found shape for missing and
+        // no-longer-authorized attachments.
+        return NotFound(new
+        {
+            requestId = HttpContext.TraceIdentifier,
+            error = new
+            {
+                code = "FILE_DOWNLOAD_GRANT_NOT_FOUND",
+                message = "Attachment not found.",
+                target = (string?)null,
+                details = Array.Empty<object>(),
+                redactionApplied = true
+            }
+        });
     }
 
     [HttpPost("api/attachment-download-grants/{fileDownloadGrantId:guid}/download")]

@@ -243,6 +243,7 @@ describe('TaskEditorComponent', () => {
     fixture.componentRef.setInput('state', detail.detailState);
     fixture.componentRef.setInput('transitionNote', detail.transitionNote);
     fixture.componentRef.setInput('mutationState', { status: 'idle' });
+    fixture.componentRef.setInput('expectedVersion', '1');
     fixture.detectChanges();
     return fixture;
   };
@@ -293,13 +294,9 @@ describe('TaskEditorComponent', () => {
     expect(query<HTMLInputElement>(fixture, '[data-testid="task-title-input"]')?.value).toBe('Changed but not persisted');
   });
 
-  it('disables unsupported status transitions from allowedTransitions', async () => {
+  it('keeps status read-only so ordinary saves cannot invoke a workflow transition', async () => {
     const fixture = await renderEditor();
-    const unsupported = query<HTMLOptionElement>(fixture, 'option[value="notStarted"]');
-    const supported = query<HTMLOptionElement>(fixture, 'option[value="review"]');
-
-    expect(unsupported?.disabled).toBe(true);
-    expect(supported?.disabled).toBe(false);
+    expect(query<HTMLInputElement>(fixture, '[data-testid="task-status-readonly"]')?.readOnly).toBe(true);
   });
 
   it('keeps status transitions backend-authoritative by design', async () => {
@@ -309,7 +306,7 @@ describe('TaskEditorComponent', () => {
     expect(textContent(fixture)).toContain('live API remains authoritative');
   });
 
-  it('disables status control when backend permissions do not allow transitions', async () => {
+  it('keeps status read-only when backend permissions do not allow transitions', async () => {
     const fixture = await renderEditor(PROJECTS_SCENARIOS.milestoneReadOnly);
     const task = {
       ...PROJECTS_SCENARIOS.default.tasks[0],
@@ -324,7 +321,7 @@ describe('TaskEditorComponent', () => {
     fixture.detectChanges();
 
     expect(query(fixture, '[data-testid="task-status-disabled-note"]')).not.toBeNull();
-    expect(query<HTMLSelectElement>(fixture, '[data-testid="task-status-select"]')?.getAttribute('aria-disabled')).toBe('true');
+    expect(query<HTMLInputElement>(fixture, '[data-testid="task-status-readonly"]')?.readOnly).toBe(true);
   });
 
   it('shows recoverable invalid transition and row version conflict states', async () => {
