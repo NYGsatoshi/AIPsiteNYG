@@ -1,0 +1,118 @@
+name: Documentation CI
+
+on:
+  workflow_dispatch:
+  pull_request:
+    branches: ["main"]
+    paths:
+      - "**/*.md"
+      - "docs/**"
+      - ".github/workflows/documentation_ci.yml"
+  push:
+    branches: ["main"]
+    paths:
+      - "**/*.md"
+      - "docs/**"
+      - ".github/workflows/documentation_ci.yml"
+
+concurrency:
+  group: documentation-ci-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+jobs:
+  documentation:
+    name: Documentation
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Collect changed documentation files
+        shell: bash
+        env:
+          EVENT_NAME: ${{ github.event_name }}
+          BEFORE_SHA: ${{ github.event.before }}
+          PR_BASE_SHA: ${{ github.event.pull_request.base.sha }}
+        run: |
+          set -euo pipefail
+
+          zero_sha="0000000000000000000000000000000000000000"
+          base_sha=""
+
+          if [[ "$EVENT_NAME" == "pull_request" ]]; then
+            base_sha="$PR_BASE_SHA"
+          elif [[ "$EVENT_NAME" == "push" && -n "$BEFORE_SHA" && "$BEFORE_SHA" != "$zero_sha" ]]; then
+            base_sha="$BEFORE_SHA"
+          fi
+
+          if [[ -n "$base_sha" ]]; then
+            git diff --name-only --diff-filter=ACMR "$base_sha" "$GITHUB_SHA" -- \
+              '*.md' \
+              'docs/**' \
+              '.github/workflows/documentation_ci.yml'
+          else
+            git ls-files \
+              '*.md' \
+              'docs/**' \
+              '.github/workflows/documentation_ci.yml'
+          fi | sort -u > "$RUNNER_TEMP/documentation-files.txt"
+
+          echo "Documentation files selected for validation:"
+          cat "$RUNNER_TEMP/documentation-files.txt"
+
+      - name: Validate documentation encoding and conflict markers
+        shell: bash
+        run: |
+          python3 - <<'PY'
+          from pathlib import Path
+          import os
+          import sys
+
+          file_list = Path(os.environ["RUNNER_TEMP"]) / "documentation-files.txt"
+          errors: list[str] = []
+          checked = 0
+
+          for raw_path in file_list.read_text(encoding="utf-8").splitlines():
+              path = Path(raw_path)
+              if not path.is_file():
+                  continue
+
+              checked += 1
+              data = path.read_bytes()
+
+              if b"\x00" in data:
+                  errors.append(f"{path}: contains a NUL byte")
+                  continue
+
+              try:
+                  text = data.decode("utf-8-sig")
+              except UnicodeDecodeError as exc:
+                  errors.append(f"{path}: invalid UTF-8 ({exc})")
+                  continue
+
+              for line_number, line in enumerate(text.splitlines(), start=1):
+                  stripped = line.lstrip()
+                  if (
+                      stripped.startswith("<<<<<<< ")
+                      or stripped == "======="
+                      or stripped.startswith(">>>>>>> ")
+                  ):
+                      errors.append(
+                          f"{path}:{line_number}: unresolved merge-conflict marker"
+                      )
+
+          if errors:
+              print("Documentation validation failed:", file=sys.stderr)
+              for error in errors:
+                  print(f"- {error}", file=sys.stderr)
+              raise SystemExit(1)
+
+          print(f"Documentation validation passed for {checked} file(s).")
+          PY
