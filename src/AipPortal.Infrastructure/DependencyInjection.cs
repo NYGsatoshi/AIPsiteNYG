@@ -3,6 +3,7 @@ using AipPortal.Infrastructure.Files;
 using AipPortal.Infrastructure.Audit;
 using AipPortal.Infrastructure.Persistence;
 using AipPortal.Infrastructure.Security;
+using AipPortal.Application.Projects;
 using AipPortal.Application.Realtime;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Configuration;
@@ -35,6 +36,7 @@ public static class DependencyInjection
         services.AddScoped<IMessagingRepository, MessagingRepository>();
         services.AddScoped<IProjectRepository, ProjectRepository>();
         services.AddScoped<IProjectKanbanRepository, ProjectKanbanRepository>();
+        services.AddScoped<IProjectKanbanService, ProjectKanbanService>();
         services.AddScoped<IEventRepository, EventRepository>();
         services.AddScoped<IStudentRecordRepository, StudentRecordRepository>();
         services.AddScoped<IStudentRecordExportGrantRepository, StudentRecordExportGrantRepository>();

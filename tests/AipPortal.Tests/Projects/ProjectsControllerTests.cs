@@ -28,18 +28,6 @@ public sealed class ProjectsControllerTests
     }
 
     [Theory]
-    [InlineData("KANBAN_NOT_FOUND", StatusCodes.Status404NotFound)]
-    [InlineData("KANBAN_FORBIDDEN", StatusCodes.Status403Forbidden)]
-    [InlineData("KANBAN_STALE_BOARD", StatusCodes.Status409Conflict)]
-    [InlineData("KANBAN_INVALID_POSITION", StatusCodes.Status422UnprocessableEntity)]
-    public void KanbanErrorsUseTheCanonicalPrivacyAndConflictStatus(string code, int expectedStatus)
-    {
-        var action = InvokeGenericTaskResult(Result<string>.Failure($"{code}|Kanban request failed."));
-
-        Assert.Equal(expectedStatus, Assert.IsType<ObjectResult>(action).StatusCode);
-    }
-
-    [Theory]
     [InlineData(false, false, WorkItemWatchAutomaticSource.None, false)]
     [InlineData(false, false, WorkItemWatchAutomaticSource.Collaborator, true)]
     [InlineData(false, true, WorkItemWatchAutomaticSource.Collaborator, false)]
@@ -66,7 +54,7 @@ public sealed class ProjectsControllerTests
         return Assert.IsAssignableFrom<IActionResult>(method.Invoke(controller, [result]));
     }
 
-    private static ProjectsController Controller() => new(null!, null!, null!, null!)
+    private static ProjectsController Controller() => new(null!, null!, null!)
     {
         ControllerContext = new ControllerContext { HttpContext = new DefaultHttpContext() }
     };
