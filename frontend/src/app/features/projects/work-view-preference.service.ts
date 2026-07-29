@@ -17,11 +17,14 @@ export class WorkViewPreferenceService {
 
   loadMyTasksProjection(): MyTasksProjection {
     const value = this.read('my-tasks');
-    return value === 'kanban' ? 'kanban' : 'list';
+    // PR04 owns a cross-Project List only. A stale pre-canonical Kanban value
+    // must never select an unsupported projection or block /tasks.
+    if (value === 'kanban') this.write('my-tasks', 'list');
+    return 'list';
   }
 
   saveMyTasksProjection(projection: MyTasksProjection): void {
-    this.write('my-tasks', projection);
+    this.write('my-tasks', projection === 'kanban' ? 'list' : projection);
   }
 
   private read(screenId: string): string | null {

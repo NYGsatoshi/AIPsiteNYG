@@ -1,4 +1,4 @@
-import { ChangeDetectionStrategy, Component, Directive, EventEmitter, Input, Output } from '@angular/core';
+import { AfterViewChecked, ChangeDetectionStrategy, Component, Directive, ElementRef, EventEmitter, Input, Output, inject } from '@angular/core';
 
 import {
   AipAdapterPresentation,
@@ -9,7 +9,7 @@ import {
   AipFileUploaderContract,
   AipGanttContract,
   AipKanbanContract,
-  AipKanbanTransitionRequest,
+  AipKanbanMoveRequest,
   AipSchedulerContract,
   AipTreeGridContract
 } from '../../contracts/aip-complex-adapter.contracts';
@@ -36,29 +36,178 @@ export class AipDateTimePickerComponent extends AipAdapterShellInput { @Input({ 
 @Component({
   selector: 'aip-kanban', standalone: true, imports: [AipAdapterShellComponent],
   template: `<aip-adapter-shell adapter="kanban" [ariaLabel]="contract.ariaLabel" [presentation]="presentation" [state]="state" label="Kanban">
+    <p class="aip-kanban__feedback" aria-live="polite" role="status">{{ contract.feedback }}</p>
     <div class="aip-kanban" [class.aip-kanban--narrow]="presentation === 'narrow'" data-testid="aip-kanban-board">
-      @for (column of contract.columns; track column.id) { <section class="aip-kanban__column" [attr.aria-label]="column.label" (dragover)="allowDrop($event)" (drop)="drop(column.id, $event)">
-        <h3>{{ column.label }}</h3><ul>
-          @for (item of itemsFor(column.id); track contract.itemIdentity(item)) { <li [draggable]="canDrag(item)" (dragstart)="startDrag(item)"><strong>{{ contract.itemTitle(item) }}</strong>
-            @if (contract.itemDescription) { <span>{{ contract.itemDescription(item) }}</span> }
-            <select [value]="contract.itemStatus(item)" [attr.aria-label]="'Move ' + contract.itemTitle(item)" (change)="requestKeyboardMove(item, $any($event.target).value)">
-              @for (target of contract.columns; track target.id) { <option [value]="target.id" [disabled]="target.id !== contract.itemStatus(item) && !contract.canRequestTransition(item, target.id)">{{ target.label }}</option> }
-            </select></li> }
-        </ul></section> }
+      @for (column of contract.columns; track column.id) {
+        <section class="aip-kanban__column" [attr.aria-label]="column.label + ', ' + column.cardCount + ' cards'" (dragover)="allowDrop($event)" (drop)="dropAtEnd(column.id, $event)">
+          <header><h3>{{ column.label }}</h3><span>{{ column.cardCount }} cards</span></header>
+          @if (column.hasWipWarning) {
+            <p class="aip-kanban__warning" role="status">Warning: WIP limit {{ column.wipWarningLimit }} exceeded.</p>
+          }
+          @let columnItems = itemsFor(column.id);
+          <ul>
+            @for (item of columnItems; track contract.itemIdentity(item); let itemIndex = $index) {
+              @if (startsSwimlane(columnItems, itemIndex)) {
+                <li class="aip-kanban__swimlane" role="presentation"><h4>{{ swimlaneLabel(item) }}</h4></li>
+              }
+              <li
+                class="aip-kanban__card"
+                tabindex="0"
+                [attr.data-kanban-card-id]="contract.itemIdentity(item)"
+                [attr.aria-label]="contract.itemTitle(item) + ', current stage ' + column.label"
+                [class.aip-kanban__card--busy]="contract.busyItemId === contract.itemIdentity(item)"
+                [draggable]="canDrag(item)"
+                (dragstart)="startDrag(item)"
+                (dragend)="endDrag()"
+                (dragover)="allowDrop($event)"
+                (drop)="dropBefore(item, column.id, $event)">
+                @if (contract.itemKindLabel) { <span class="aip-kanban__kind">{{ contract.itemKindLabel(item) }}</span> }
+                <strong>{{ contract.itemTitle(item) }}</strong>
+                @if (contract.itemDescription) { <span>{{ contract.itemDescription(item) }}</span> }
+                @if (contract.itemMetadata) {
+                  <ul class="aip-kanban__metadata" aria-label="Task indicators">
+                    @for (metadata of contract.itemMetadata(item); track metadata) { <li>{{ metadata }}</li> }
+                  </ul>
+                }
+                <div class="aip-kanban__actions">
+                  @if (contract.canOpenItem(item)) { <button type="button" (click)="activate(item)">Open details</button> }
+                  @if (contract.canMoveItem(item) && contract.busyItemId !== contract.itemIdentity(item)) {
+                    <button type="button" [attr.aria-expanded]="movingItemId === contract.itemIdentity(item)" (click)="openMove(item)">Move</button>
+                  }
+                  @if (contract.busyItemId === contract.itemIdentity(item)) { <span role="status">Saving move…</span> }
+                </div>
+                @if (movingItemId === contract.itemIdentity(item)) {
+                  <form class="aip-kanban__move" (submit)="submitMove(item, $event)" (keydown.escape)="cancelMove(item, $event)">
+                    <p>Current stage: <strong>{{ column.label }}</strong></p>
+                    <label>Target stage
+                      <select [value]="moveTargetStatus" (change)="changeTarget($any($event.target).value)">
+                        @for (target of contract.columns; track target.id) {
+                          <option [value]="target.id" [disabled]="!contract.canRequestTransition(item, target.id)">{{ target.label }}</option>
+                        }
+                      </select>
+                    </label>
+                    <label>Position
+                      <select [value]="movePosition" (change)="movePosition = $any($event.target).value">
+                        <option value="end">End of stage</option>
+                        <option value="start">Start of stage</option>
+                        @for (neighbor of positionItems(item); track contract.itemIdentity(neighbor)) {
+                          <option [value]="'before:' + contract.itemIdentity(neighbor)">Before {{ contract.itemTitle(neighbor) }}</option>
+                        }
+                      </select>
+                    </label>
+                    @if (targetRequiresReason()) {
+                      <label>Reason<textarea maxlength="1000" [value]="moveReason" (input)="moveReason = $any($event.target).value"></textarea></label>
+                    }
+                    <div><button type="submit" [disabled]="targetRequiresReason() && !moveReason.trim()">Apply move</button><button type="button" (click)="cancelMove(item)">Cancel</button></div>
+                  </form>
+                }
+              </li>
+            }
+          </ul>
+        </section>
+      }
     </div></aip-adapter-shell>`,
   styleUrl: './aip-adapter-shell.component.scss', changeDetection: ChangeDetectionStrategy.OnPush
 })
-export class AipKanbanComponent extends AipAdapterShellInput {
+export class AipKanbanComponent extends AipAdapterShellInput implements AfterViewChecked {
+  private readonly host: ElementRef<HTMLElement> = inject(ElementRef);
   @Input({ required: true }) contract!: AipKanbanContract<object>;
-  @Output() readonly transitionRequested = new EventEmitter<AipKanbanTransitionRequest<object>>();
+  @Output() readonly moveRequested = new EventEmitter<AipKanbanMoveRequest<object>>();
+  @Output() readonly itemActivated = new EventEmitter<object>();
+  @Output() readonly interactionActiveChange = new EventEmitter<boolean>();
   private draggedItem: object | null = null;
-  itemsFor(status: string): readonly object[] { return this.contract.items.filter((item) => this.contract.itemStatus(item) === status); }
-  canDrag(item: object): boolean { return this.contract.columns.some((column) => this.contract.canRequestTransition(item, column.id)); }
-  startDrag(item: object): void { this.draggedItem = item; }
+  movingItemId: string | null = null;
+  moveTargetStatus = '';
+  movePosition = 'end';
+  moveReason = '';
+  private restoredFocusId: string | null = null;
+
+  itemsFor(status: string): readonly object[] {
+    return [...this.contract.items
+      .filter((item) => this.contract.itemStatus(item) === status)]
+      .sort((left, right) => {
+        const leftLane = this.contract.itemSwimlane?.(left);
+        const rightLane = this.contract.itemSwimlane?.(right);
+        const laneOrder = leftLane && rightLane
+          ? leftLane.label.localeCompare(rightLane.label) || leftLane.key.localeCompare(rightLane.key)
+          : 0;
+        return laneOrder || this.contract.itemOrder(left) - this.contract.itemOrder(right) || this.contract.itemIdentity(left).localeCompare(this.contract.itemIdentity(right));
+      });
+  }
+  startsSwimlane(items: readonly object[], index: number): boolean {
+    if (!this.contract.itemSwimlane) return false;
+    if (index === 0) return true;
+    return this.contract.itemSwimlane(items[index]).key !== this.contract.itemSwimlane(items[index - 1]).key;
+  }
+  swimlaneLabel(item: object): string { return this.contract.itemSwimlane?.(item).label ?? ''; }
+  canDrag(item: object): boolean { return this.contract.canMoveItem(item) && !this.contract.busyItemId; }
+  startDrag(item: object): void { this.draggedItem = item; this.interactionActiveChange.emit(true); }
+  endDrag(): void { this.draggedItem = null; this.interactionActiveChange.emit(false); }
   allowDrop(event: DragEvent): void { event.preventDefault(); }
-  drop(status: string, event: DragEvent): void { event.preventDefault(); if (this.draggedItem) this.emit(this.draggedItem, status, 'drag'); this.draggedItem = null; }
-  requestKeyboardMove(item: object, status: string): void { this.emit(item, status, 'keyboard'); }
-  private emit(item: object, status: string, source: 'drag' | 'keyboard'): void { if (status !== this.contract.itemStatus(item) && this.contract.canRequestTransition(item, status)) this.transitionRequested.emit({ item, targetStatus: status, source }); }
+  dropAtEnd(status: string, event: DragEvent): void {
+    event.preventDefault();
+    event.stopPropagation();
+    if (this.draggedItem && this.contract.canRequestTransition(this.draggedItem, status)) {
+      const items = this.itemsFor(status).filter((item) => this.contract.itemIdentity(item) !== this.contract.itemIdentity(this.draggedItem!));
+      this.emit(this.draggedItem, status, null, items.length ? this.contract.itemIdentity(items.at(-1)!) : null, null, 'drag');
+    }
+    this.endDrag();
+  }
+  dropBefore(neighbor: object, status: string, event: DragEvent): void {
+    event.preventDefault();
+    event.stopPropagation();
+    if (this.draggedItem && this.contract.itemIdentity(this.draggedItem) !== this.contract.itemIdentity(neighbor) && this.contract.canRequestTransition(this.draggedItem, status)) {
+      this.emit(this.draggedItem, status, this.contract.itemIdentity(neighbor), null, null, 'drag');
+    }
+    this.endDrag();
+  }
+  activate(item: object): void { if (this.contract.canOpenItem(item)) this.itemActivated.emit(item); }
+  openMove(item: object): void {
+    this.movingItemId = this.contract.itemIdentity(item);
+    this.moveTargetStatus = this.contract.itemStatus(item);
+    this.movePosition = 'end';
+    this.moveReason = '';
+    this.interactionActiveChange.emit(true);
+  }
+  changeTarget(status: string): void { this.moveTargetStatus = status; this.movePosition = 'end'; this.moveReason = ''; }
+  positionItems(item: object): readonly object[] { return this.itemsFor(this.moveTargetStatus).filter((candidate) => this.contract.itemIdentity(candidate) !== this.contract.itemIdentity(item)); }
+  targetRequiresReason(): boolean { return this.contract.columns.find((column) => column.id === this.moveTargetStatus)?.requiresReason === true; }
+  submitMove(item: object, event: Event): void {
+    event.preventDefault();
+    if (!this.contract.canRequestTransition(item, this.moveTargetStatus)) return;
+    const candidates = this.positionItems(item);
+    const before = this.movePosition.startsWith('before:') ? this.movePosition.slice('before:'.length) : this.movePosition === 'start' ? (candidates[0] ? this.contract.itemIdentity(candidates[0]) : null) : null;
+    const after = this.movePosition === 'end' && candidates.length ? this.contract.itemIdentity(candidates.at(-1)!) : null;
+    this.emit(item, this.moveTargetStatus, before, after, this.moveReason.trim() || null, 'keyboard');
+    this.closeMove();
+  }
+  cancelMove(item: object, event?: Event): void {
+    event?.preventDefault();
+    event?.stopPropagation();
+    this.restoredFocusId = null;
+    const id = this.contract.itemIdentity(item);
+    this.closeMove();
+    queueMicrotask(() => this.focus(id));
+  }
+  ngAfterViewChecked(): void {
+    const focusId = this.contract.focusItemId ?? null;
+    if (!focusId) {
+      this.restoredFocusId = null;
+      return;
+    }
+    if (this.restoredFocusId === focusId) return;
+    this.restoredFocusId = focusId;
+    queueMicrotask(() => this.focus(focusId));
+  }
+  private closeMove(): void { this.movingItemId = null; this.interactionActiveChange.emit(false); }
+  private emit(item: object, status: string, before: string | null, after: string | null, reason: string | null, source: 'drag' | 'keyboard'): void {
+    this.moveRequested.emit({ item, targetStatus: status, targetBeforeItemId: before, targetAfterItemId: after, reason, source });
+  }
+  private focus(itemId: string): void {
+    const card = Array.from(this.host.nativeElement.querySelectorAll<HTMLElement>('[data-kanban-card-id]'))
+      .find((element) => element.dataset['kanbanCardId'] === itemId);
+    card?.focus();
+  }
 }
 
 @Component({

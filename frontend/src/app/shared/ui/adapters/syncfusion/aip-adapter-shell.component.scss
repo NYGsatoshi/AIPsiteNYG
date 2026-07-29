@@ -53,10 +53,23 @@
   background: var(--aip-color-bg-surface-subtle);
 }
 
+.aip-kanban__column > header { display: flex; align-items: baseline; justify-content: space-between; gap: var(--aip-space-2); }
 .aip-kanban__column h3 { margin: 0 0 var(--aip-space-2); }
 .aip-kanban__column ul, .aip-gantt ul, .aip-gantt ol { display: grid; gap: var(--aip-space-2); margin: 0; padding: 0; list-style: none; }
 .aip-kanban__column li, .aip-gantt li { display: grid; gap: var(--aip-space-1); padding: var(--aip-space-2); border: 1px solid var(--aip-color-border-default); border-radius: var(--aip-radius-md); background: var(--aip-color-bg-surface); }
 .aip-kanban__column select { min-height: var(--aip-control-height); }
+.aip-kanban__card:focus-visible { outline: var(--aip-focus-outline); outline-offset: var(--aip-focus-offset); }
+.aip-kanban__card--busy { opacity: .72; }
+.aip-kanban__kind { font-size: var(--aip-font-size-xs); font-weight: 700; text-transform: uppercase; }
+.aip-kanban__metadata { display: flex !important; flex-wrap: wrap; }
+.aip-kanban__metadata li { padding: 0 var(--aip-space-1); font-size: var(--aip-font-size-xs); }
+.aip-kanban__column li.aip-kanban__swimlane { padding: var(--aip-space-1) 0; border: 0; background: transparent; }
+.aip-kanban__swimlane h4 { margin: 0; font-size: var(--aip-font-size-sm); }
+.aip-kanban__actions, .aip-kanban__move > div { display: flex; flex-wrap: wrap; gap: var(--aip-space-2); }
+.aip-kanban__move { display: grid; gap: var(--aip-space-2); padding-top: var(--aip-space-2); border-top: 1px solid var(--aip-color-border-default); }
+.aip-kanban__move label { display: grid; gap: var(--aip-space-1); }
+.aip-kanban__warning { color: var(--aip-color-warning-text, var(--aip-color-text-primary)); font-weight: 600; }
+.aip-kanban__feedback:empty { display: none; }
 .aip-gantt { display: grid; gap: var(--aip-space-3); }
 
 @media (max-width: 600px) {
