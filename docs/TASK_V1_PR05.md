@@ -134,4 +134,3 @@ preference is normalized to `list`.
 - Messaging, Conversation, Channel, or Post production changes
 - package, lockfile, Angular configuration, route, AppShell, global style, CI,
   or legacy `wwwroot` changes
-

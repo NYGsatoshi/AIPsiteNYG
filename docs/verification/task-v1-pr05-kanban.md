@@ -70,4 +70,3 @@ state and returns Project Detail to the maintained Task List.
 - Project feature code uses AIPsite-owned models and adapter contracts.
 - No package, lockfile, Angular config, route, AppShell, global style, CI,
   Workspace, Messaging, Gantt command, or legacy `wwwroot` file is changed.
-
