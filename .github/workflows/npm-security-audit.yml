@@ -1,0 +1,125 @@
+name: npm Security Audit
+
+on:
+  pull_request:
+  push:
+    branches: ["main"]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  audit:
+    runs-on: self-hosted
+
+    steps:
+      - name: Repair previous Docker workspace ownership
+        shell: bash
+        run: |
+          uid="$(id -u)"
+          gid="$(id -g)"
+          docker run --rm \
+            -v "$GITHUB_WORKSPACE:/workspace" \
+            alpine:3.21 \
+            sh -c "chown -R ${uid}:${gid} /workspace"
+
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: "24"
+          cache: npm
+          cache-dependency-path: |
+            **/package-lock.json
+
+      - name: Audit npm dependency trees
+        id: audit
+        shell: bash
+        run: |
+          set -uo pipefail
+          report_dir="$GITHUB_WORKSPACE/artifacts/npm-audit"
+          mkdir -p "$report_dir"
+
+          mapfile -d '' lockfiles < <(
+            find . -name package-lock.json \
+              -not -path '*/node_modules/*' \
+              -print0 | sort -z
+          )
+
+          if [ "${#lockfiles[@]}" -eq 0 ]; then
+            echo "No package-lock.json files found." >&2
+            exit 1
+          fi
+
+          audit_failed=0
+          for lockfile in "${lockfiles[@]}"; do
+            package_dir="$(dirname "$lockfile")"
+            relative_dir="${package_dir#./}"
+            if [ "$relative_dir" = "." ] || [ -z "$relative_dir" ]; then
+              relative_dir="root"
+            fi
+            report_name="$(printf '%s' "$relative_dir" | tr '/ ' '__')"
+            report_path="$report_dir/${report_name}.json"
+
+            echo "::group::npm audit: $relative_dir"
+            set +e
+            npm --prefix "$package_dir" audit --package-lock-only --json > "$report_path"
+            status=$?
+            set -e
+
+            node - "$relative_dir" "$report_path" <<'NODE'
+          const fs = require('node:fs');
+          const [scope, reportPath] = process.argv.slice(2);
+          const report = JSON.parse(fs.readFileSync(reportPath, 'utf8'));
+          const counts = report.metadata?.vulnerabilities ?? {};
+          console.log(`scope=${scope}`);
+          console.log(`counts=${JSON.stringify(counts)}`);
+
+          for (const [name, entry] of Object.entries(report.vulnerabilities ?? {})) {
+            const via = (entry.via ?? [])
+              .map(item => typeof item === 'string' ? item : `${item.source ?? 'advisory'}:${item.title ?? item.url ?? 'unknown'}`)
+              .join(', ');
+            const fix = entry.fixAvailable === true
+              ? 'available'
+              : entry.fixAvailable === false
+                ? 'unavailable'
+                : JSON.stringify(entry.fixAvailable);
+            console.log(`${entry.severity}\t${name}\trange=${entry.range}\tfix=${fix}\tvia=${via}`);
+          }
+          NODE
+
+            if [ "$status" -ne 0 ]; then
+              audit_failed=1
+            fi
+            echo "::endgroup::"
+          done
+
+          echo "vulnerabilities_found=$audit_failed" >> "$GITHUB_OUTPUT"
+
+      - name: Upload npm audit reports
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: npm-audit-reports
+          path: artifacts/npm-audit/*.json
+          if-no-files-found: error
+
+      - name: Report audit result
+        if: steps.audit.outputs.vulnerabilities_found == '1'
+        run: |
+          echo "npm audit found vulnerable dependency trees."
+          echo "This baseline workflow is report-only while remediation PRs are prepared."
+
+      - name: Repair workspace ownership
+        if: always()
+        shell: bash
+        run: |
+          uid="$(id -u)"
+          gid="$(id -g)"
+          docker run --rm \
+            -v "$GITHUB_WORKSPACE:/workspace" \
+            alpine:3.21 \
+            sh -c "chown -R ${uid}:${gid} /workspace"
