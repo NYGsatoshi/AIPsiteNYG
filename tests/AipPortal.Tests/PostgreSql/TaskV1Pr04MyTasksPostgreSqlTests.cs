@@ -134,6 +134,9 @@ public sealed class TaskV1Pr04MyTasksPostgreSqlTests
         Assert.Equal(0, afterRevocation.TotalCount);
         Assert.All(countsAfterRevocation.Views, item => Assert.Equal(0, item.Count));
         Assert.All(countsAfterRevocation.TimeGroups, item => Assert.Equal(0, item.Count));
+        var sessionWorkspaces = await new WorkspaceRepository(db).ListForUserAsync(graph.Actor.Id, includeAll: false);
+        Assert.DoesNotContain(sessionWorkspaces, item => item.Id == graph.Workspace.Id);
+        Assert.Contains(sessionWorkspaces, item => item.Id == graph.SecondWorkspace.Id);
 
         using var cancelled = new CancellationTokenSource();
         cancelled.Cancel();
@@ -509,7 +512,7 @@ public sealed class TaskV1Pr04MyTasksPostgreSqlTests
         await db.SaveChangesAsync();
 
         return new Graph(
-            tenant, actor, workspace, shared, review, effectiveAutomaticWatch, manualWatch, optedOutWatch,
+            tenant, actor, workspace, secondWorkspace, shared, review, effectiveAutomaticWatch, manualWatch, optedOutWatch,
             queue, inProgressQueue, completed, hidden, archived, inactiveWorkspaceTask,
             secondWorkspaceTask, parent, criticalBlocked, high, medium, low, justOverdue, exactNow,
             todayEnd, tomorrow, daySeven, dayEight, noDeadline);
@@ -659,6 +662,7 @@ public sealed class TaskV1Pr04MyTasksPostgreSqlTests
         Tenant Tenant,
         User Actor,
         Workspace Workspace,
+        Workspace SecondWorkspace,
         TaskItem Shared,
         TaskItem Review,
         TaskItem EffectiveAutomaticWatch,

@@ -288,7 +288,13 @@ test.describe('MVP0 real backend browser smoke', () => {
       await page.getByTestId('my-tasks-workspace-select').selectOption(secondWorkspaceId);
       await recordOkJson(await secondBeforeRevocation, evidence, 'pr04-revocation-visible-before', (body) =>
         isPagedResponse(body) && body.items.some((item: unknown) => hasStringValue(item, 'title', 'PR04 second workspace assigned')));
-      const authorizationRefresh = waitForApiResponse(page, 'GET', '/api/me/tasks');
+      await expect(page.getByTestId('realtime-connection-state')).toContainText('Realtime updates connected.');
+      const authorizationRefresh = page.waitForResponse((response) => {
+        const url = new URL(response.url());
+        return response.request().method() === 'GET' &&
+          url.pathname === '/api/me/tasks' &&
+          url.searchParams.get('workspaceId') === primaryWorkspaceId;
+      });
       const revokeSecond = await requestWithCsrf(page, 'DELETE', `/api/workspaces/${secondWorkspaceId}/members/${evidence.userId}`);
       evidence.steps.push({
         name: 'pr04-second-workspace-membership-revoked',
@@ -297,8 +303,11 @@ test.describe('MVP0 real backend browser smoke', () => {
         status: revokeSecond.status
       });
       expect(revokeSecond.status).toBe(200);
-      expect((await authorizationRefresh).status(), 'authorization-state refresh reauthorizes the selected Workspace').toBe(403);
+      await recordOkJson(await authorizationRefresh, evidence, 'pr04-authorization-state-refresh', (body) =>
+        isPagedResponse(body) &&
+        !body.items.some((item: unknown) => hasStringValue(item, 'title', 'PR04 second workspace assigned')));
       await expect(page.getByText('PR04 second workspace assigned', { exact: true })).toHaveCount(0);
+      await expect(page.getByTestId('my-tasks-workspace-select').locator(`option[value="${secondWorkspaceId}"]`)).toHaveCount(0);
 
       const afterRevocation = await recordFetchJson(
         page,

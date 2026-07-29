@@ -1,6 +1,7 @@
 using AipPortal.Application.Common;
 using AipPortal.Application.Common.Interfaces;
 using AipPortal.Domain.Entities;
+using AipPortal.Domain.Enums;
 using Microsoft.EntityFrameworkCore;
 
 namespace AipPortal.Infrastructure.Persistence;
@@ -12,7 +13,9 @@ public sealed class WorkspaceRepository(AppDbContext dbContext) : IWorkspaceRepo
         var query = dbContext.Workspaces.AsNoTracking();
         if (!includeAll)
         {
-            query = query.Where(workspace => workspace.Members.Any(member => member.UserId == userId));
+            query = query.Where(workspace => workspace.Members.Any(member =>
+                member.UserId == userId &&
+                member.Status == MembershipStatus.Active));
         }
 
         return await query.OrderBy(workspace => workspace.Name).ToListAsync(cancellationToken);

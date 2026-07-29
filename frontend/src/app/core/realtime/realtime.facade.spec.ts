@@ -7,7 +7,9 @@ import { DurableRealtimeEvent, RealtimeSubscriptionRequest, RealtimeSubscription
 import { AIP_REALTIME_TRANSPORT, RealtimeTransport, RealtimeTransportStatus } from './realtime-transport';
 import { RealtimeFacade } from './realtime.facade';
 
-const TENANT_ID = '11111111-1111-4111-8111-111111111111';
+// The deterministic default Tenant is a canonical, non-empty .NET Guid but
+// intentionally does not encode RFC UUID version/variant bits.
+const TENANT_ID = '11111111-1111-1111-1111-111111111111';
 const RESOURCE_ID = '22222222-2222-4222-8222-222222222222';
 
 class FakeRealtimeTransport implements RealtimeTransport {

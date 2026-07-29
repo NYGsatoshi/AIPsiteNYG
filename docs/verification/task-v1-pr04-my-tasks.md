@@ -69,13 +69,22 @@
 - active/deleted Workspace state was not included in the projection predicate
 - Project filter preauthorization did not use the exact My Tasks visibility rule
 - counts used thirteen separate count queries instead of two set-based queries
+- Session Workspace discovery retained suspended memberships, so an
+  authorization-state refresh could reselect a revoked Workspace
+- The durable realtime validator required RFC UUID version/variant bits even
+  though the backend contract and deterministic Tenant IDs use canonical,
+  non-empty .NET GUIDs
+- Project list DTO authorization checks were run concurrently over the same
+  scoped EF Core `DbContext`
 
 ### Unverified until hosted gates complete
 
 - The real-backend Compose scenario cannot start locally because the required
   `SYNCFUSION_LICENSE` Docker secret is not present. It failed before application
-  build/start or any browser test. The same scenario is required on the protected
-  hosted runner, where the repository secret is configured.
+  build/start or any browser test. A local equivalent using the published
+  ASP.NET Core application, built Angular, PostgreSQL 18.4, cookie auth, CSRF,
+  and real SignalR passed all four real-backend tests; the canonical Compose
+  scenario is still required on the protected hosted runner.
 - Final-head CI, Code Quality, Real Backend Browser Smoke, and review-thread state
   are recorded after the draft PR is pushed.
 
@@ -163,6 +172,7 @@ skips, which are not PR04 acceptance tests.
 
 - `Scope=TaskV1PR04` run 1: 7 passed, 0 failed, 0 skipped
 - `Scope=TaskV1PR04` run 2: 7 passed, 0 failed, 0 skipped
+- Post-hosted-fix diagnostic `Scope=TaskV1PR04`: 8 passed, 0 failed, 0 skipped
 - `Scope=TaskV1PR03C`: 29 passed, 0 failed, 0 skipped
 - `Scope=TaskV1Prompt2C`: 35 passed, 0 failed, 0 skipped
 - `Scope=TaskV1Prompt2D`: 19 passed, 0 failed, 0 skipped
@@ -175,6 +185,8 @@ skips, which are not PR04 acceptance tests.
 - Mock Angular Playwright: 52 passed, 0 failed; 2 obsolete legacy-static tests skipped
 - Real-backend Compose: environment-blocked before tests because
   `SYNCFUSION_LICENSE` is absent locally
+- Local published real-backend diagnostic after hosted fixes: 4 passed,
+  0 failed, 0 skipped (mandatory MVP0, Hub degraded, PR04, and PR03C)
 
 ## Realtime, concurrency, and protected changes
 
@@ -193,11 +205,17 @@ skips, which are not PR04 acceptance tests.
 
 ## Hosted gate and verdict
 
-- Draft PR: pending
-- CI: pending
-- Code Quality: pending
-- Real Backend Browser Smoke: pending
-- Unresolved review threads: pending
+- Draft PR: `#254`, open and unmerged
+- Prior candidate CI: run `30419612749`, success
+- Prior candidate Code Quality: run `30419612722`, success
+- Prior candidate Real Backend Browser Smoke: run `30423352968`, failed
+  because Project list authorization used concurrent operations on one scoped
+  `DbContext` and the valid deterministic Tenant GUID was rejected before the
+  authorization-state event reached the facade
+- The two hosted failures are covered by deterministic unit/PostgreSQL tests
+  and the four-test local real-backend diagnostic; final-candidate hosted gates
+  remain pending
+- Unresolved review threads: 0 at the prior candidate head
 - Current verdict: `PR04 acceptance: Incomplete`
 - Current merge verdict: `PR04 Merge: No-Go`
 - PR05: `No-Go`

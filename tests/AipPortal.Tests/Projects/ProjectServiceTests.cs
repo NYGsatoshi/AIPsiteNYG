@@ -290,6 +290,44 @@ public sealed class ProjectServiceTests
         Assert.Equal(secondProject.Id, Assert.Single(result.Value.Items).Id);
     }
 
+    [Fact]
+    [Trait("Scope", "TaskV1PR04")]
+    public async Task ProjectListSerializesTaskPermissionQueries()
+    {
+        var fixture = ProjectFixture.Create();
+        var member = fixture.AddUser();
+        fixture.Current.UserIdValue = member.Id;
+        fixture.AddProjectMember(member.Id, ProjectRole.Viewer);
+        var secondProject = new Project
+        {
+            WorkspaceId = fixture.Workspace.Id,
+            OwnerUserId = member.Id,
+            CreatedByUserId = member.Id,
+            Name = "Second project",
+            Slug = "second-project",
+            Status = ProjectStatus.Active
+        };
+        fixture.Projects.ProjectItems[secondProject.Id] = secondProject;
+        fixture.Projects.Members.Add(new ProjectMember
+        {
+            ProjectId = secondProject.Id,
+            UserId = member.Id,
+            User = member,
+            Role = ProjectRole.Viewer,
+            JoinedAt = fixture.Clock.UtcNow
+        });
+        fixture.Projects.BlockMemberLookups = true;
+
+        var resultTask = fixture.Service.ListAsync(new ProjectListQuery());
+        await fixture.Projects.FirstMemberLookupEntered.WaitAsync(TimeSpan.FromSeconds(1));
+        fixture.Projects.ReleaseMemberLookups();
+        var result = await resultTask.WaitAsync(TimeSpan.FromSeconds(1));
+
+        Assert.True(result.IsSuccess);
+        Assert.Equal(2, result.Value!.TotalCount);
+        Assert.Equal(1, fixture.Projects.MaxConcurrentMemberLookups);
+    }
+
 
     [Fact]
     public async Task CreateRequiresGroup()
@@ -642,10 +680,41 @@ public sealed class ProjectServiceTests
         public List<TaskAssignment> Assignments { get; } = [];
         public List<TaskDependency> Dependencies { get; } = [];
         public List<Comment> Comments { get; } = [];
+        private readonly object memberLookupSync = new();
+        private readonly TaskCompletionSource firstMemberLookupEntered = new(TaskCreationOptions.RunContinuationsAsynchronously);
+        private readonly TaskCompletionSource releaseMemberLookups = new(TaskCreationOptions.RunContinuationsAsynchronously);
+        private int activeMemberLookups;
+        public bool BlockMemberLookups { get; set; }
+        public Task FirstMemberLookupEntered => firstMemberLookupEntered.Task;
+        public int MaxConcurrentMemberLookups { get; private set; }
+        public void ReleaseMemberLookups() => releaseMemberLookups.TrySetResult();
 
         public Task<IReadOnlyList<Project>> ListVisibleAsync(Guid userId, CancellationToken cancellationToken = default) => Task.FromResult<IReadOnlyList<Project>>(ProjectItems.Values.Where(project => Members.Any(member => member.ProjectId == project.Id && member.UserId == userId)).ToList());
         public Task<Project?> GetProjectAsync(Guid projectId, CancellationToken cancellationToken = default) => Task.FromResult(ProjectItems.GetValueOrDefault(projectId));
-        public Task<ProjectMember?> GetMemberAsync(Guid projectId, Guid userId, CancellationToken cancellationToken = default) => Task.FromResult(Members.FirstOrDefault(member => member.ProjectId == projectId && member.UserId == userId));
+        public async Task<ProjectMember?> GetMemberAsync(Guid projectId, Guid userId, CancellationToken cancellationToken = default)
+        {
+            if (!BlockMemberLookups)
+            {
+                return Members.FirstOrDefault(member => member.ProjectId == projectId && member.UserId == userId);
+            }
+
+            var active = Interlocked.Increment(ref activeMemberLookups);
+            lock (memberLookupSync)
+            {
+                MaxConcurrentMemberLookups = Math.Max(MaxConcurrentMemberLookups, active);
+            }
+
+            firstMemberLookupEntered.TrySetResult();
+            try
+            {
+                await releaseMemberLookups.Task.WaitAsync(cancellationToken);
+                return Members.FirstOrDefault(member => member.ProjectId == projectId && member.UserId == userId);
+            }
+            finally
+            {
+                Interlocked.Decrement(ref activeMemberLookups);
+            }
+        }
         public Task<IReadOnlyList<ProjectMember>> ListMembersAsync(Guid projectId, CancellationToken cancellationToken = default) => Task.FromResult<IReadOnlyList<ProjectMember>>(Members.Where(member => member.ProjectId == projectId).ToList());
         public Task<IReadOnlyList<Milestone>> ListMilestonesAsync(Guid projectId, CancellationToken cancellationToken = default) => Task.FromResult<IReadOnlyList<Milestone>>(Milestones.Values.Where(milestone => milestone.ProjectId == projectId).OrderBy(milestone => milestone.SortOrder).ThenBy(milestone => milestone.DueDate).ToList());
         public Task<Milestone?> GetMilestoneAsync(Guid milestoneId, CancellationToken cancellationToken = default) => Task.FromResult(Milestones.GetValueOrDefault(milestoneId));
