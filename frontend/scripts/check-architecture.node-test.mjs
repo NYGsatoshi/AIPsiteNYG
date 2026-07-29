@@ -47,6 +47,10 @@ test('rejects direct SignalR imports outside the realtime transport adapter', ()
 test('rejects AG Grid Enterprise from every frontend boundary', () => {
   assert.deepEqual(findAgGridEnterpriseImports([
     { path: '/repo/frontend/src/app/features/projects/project-board.ts', source: "import 'ag-grid-enterprise';" },
+    { path: '/repo/frontend/src/app/features/projects/project-grid.ts', source: "const grid = import('ag-grid-enterprise/charts');" },
     { path: '/repo/frontend/src/app/shared/grid/community.ts', source: "import { GridApi } from 'ag-grid-community';" }
-  ]), ['/repo/frontend/src/app/features/projects/project-board.ts']);
+  ]), [
+    '/repo/frontend/src/app/features/projects/project-board.ts',
+    '/repo/frontend/src/app/features/projects/project-grid.ts'
+  ]);
 });

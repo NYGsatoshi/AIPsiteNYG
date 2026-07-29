@@ -4,7 +4,7 @@ import { fileURLToPath } from 'node:url';
 
 export const SYNCFUSION_IMPORT_PATTERN = /@syncfusion\/ej2-[\w-]+/u;
 export const SIGNALR_IMPORT_PATTERN = /@microsoft\/signalr/u;
-export const AG_GRID_ENTERPRISE_PATTERN = /(?:from\s+['"]ag-grid-enterprise['"]|require\(['"]ag-grid-enterprise['"]\))/u;
+export const AG_GRID_ENTERPRISE_PATTERN = /['"](?:@ag-grid-enterprise\/[\w./-]+|ag-grid-enterprise(?:\/[\w./-]+)?)['"]/u;
 const allowedPaths = ['/shared/ui/adapters/syncfusion/', '/shared/vendor/syncfusion/'];
 const allowedSignalrPaths = ['/core/realtime/signalr-realtime.transport.ts'];
 
