@@ -10,6 +10,7 @@ using Microsoft.EntityFrameworkCore;
 
 namespace AipPortal.Tests.Projects;
 
+[Trait("Scope", "TaskV1PR05")]
 public sealed class ProjectKanbanServiceTests
 {
     [Fact]
