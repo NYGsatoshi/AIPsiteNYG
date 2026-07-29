@@ -1,6 +1,7 @@
 import { DurableRealtimeEvent, REALTIME_EVENT_TYPES, RealtimeActor, RealtimeEventType } from './realtime.models';
 
-const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/iu;
+const GUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/iu;
+const EMPTY_GUID = '00000000-0000-0000-0000-000000000000';
 
 /** Validates only the approved durable envelope before a Facade can observe it. */
 export function validateDurableRealtimeEvent(value: unknown, expectedTenantId: string): DurableRealtimeEvent | null {
@@ -20,10 +21,10 @@ export function validateDurableRealtimeEvent(value: unknown, expectedTenantId: s
   if (
     !eventType ||
     !REALTIME_EVENT_TYPES.has(eventType) ||
-    !UUID.test(eventId) ||
-    !UUID.test(tenantId) ||
+    !isNonEmptyGuid(eventId) ||
+    !isNonEmptyGuid(tenantId) ||
     tenantId !== expectedTenantId ||
-    !UUID.test(aggregateId) ||
+    !isNonEmptyGuid(aggregateId) ||
     !aggregateType ||
     !Number.isInteger(schemaVersion) ||
     schemaVersion !== 1 ||
@@ -64,9 +65,13 @@ function toActor(value: unknown): RealtimeActor | null {
   const actorId = value['actorId'];
   return actorId === null || actorId === undefined
     ? { actorType: value['actorType'], actorId: null }
-    : typeof actorId === 'string' && UUID.test(actorId)
+    : typeof actorId === 'string' && isNonEmptyGuid(actorId)
       ? { actorType: value['actorType'], actorId }
       : null;
+}
+
+function isNonEmptyGuid(value: string | null): value is string {
+  return value !== null && value.toLowerCase() !== EMPTY_GUID && GUID.test(value);
 }
 
 function isRecord(value: unknown): value is Record<string, unknown> {

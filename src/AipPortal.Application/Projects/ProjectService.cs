@@ -41,8 +41,13 @@ public sealed class ProjectService(
             .Where(project => MatchesSearch(project.Name, project.Description, query.Search))
             .ToList();
 
-        var responses = await Task.WhenAll(filtered.Select(project => ToProjectAsync(project, userId, cancellationToken)));
-        return Result<PagedResponse<ProjectResponse>>.Success(ToPagedResponse(responses.ToList(), query.SafePage, query.SafePageSize));
+        var responses = new List<ProjectResponse>(filtered.Count);
+        foreach (var project in filtered)
+        {
+            responses.Add(await ToProjectAsync(project, userId, cancellationToken));
+        }
+
+        return Result<PagedResponse<ProjectResponse>>.Success(ToPagedResponse(responses, query.SafePage, query.SafePageSize));
     }
 
     public async Task<Result<ProjectResponse>> CreateAsync(CreateProjectRequest request, CancellationToken cancellationToken = default)

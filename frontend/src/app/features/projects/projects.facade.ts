@@ -131,7 +131,10 @@ export class ProjectsFacade {
         columns: [],
         pageSize: this.pageSize,
         message: scenario.message,
-        tasks: [], selectedTab: 'assigned', scope: 'currentWorkspace', workspaceId: null, counts: [], totalCount: 0, realtimeDegraded: false
+        tasks: [], selectedTab: 'assigned', scope: 'currentWorkspace', workspaceId: null, workspaceOptions: [], counts: [], totalCount: 0,
+        page: 1, selectedPageSize: PROJECTS_DEFAULT_PAGE_SIZE, lastPage: 1,
+        filters: { projectId: '', stageCategory: '', priority: '', blocked: '', search: '', timeGroup: null },
+        realtimeDegraded: false
       };
     }
 
@@ -144,7 +147,10 @@ export class ProjectsFacade {
         columns: [],
         pageSize: this.pageSize,
         message: scenario.myTasksMessage ?? scenario.message,
-        tasks: [], selectedTab: 'assigned', scope: 'currentWorkspace', workspaceId: null, counts: [], totalCount: 0, realtimeDegraded: false
+        tasks: [], selectedTab: 'assigned', scope: 'currentWorkspace', workspaceId: null, workspaceOptions: [], counts: [], totalCount: 0,
+        page: 1, selectedPageSize: PROJECTS_DEFAULT_PAGE_SIZE, lastPage: 1,
+        filters: { projectId: '', stageCategory: '', priority: '', blocked: '', search: '', timeGroup: null },
+        realtimeDegraded: false
     };
   }
 

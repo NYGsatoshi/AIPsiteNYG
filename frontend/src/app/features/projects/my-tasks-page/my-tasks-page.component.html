@@ -1,7 +1,13 @@
 @let vm = page();
 
 <section class="my-tasks-page" data-testid="my-tasks-page">
-  <header><p>{{ vm.subtitle }}</p><h1>{{ vm.title }}</h1></header>
+  <header>
+    <div><p>{{ vm.subtitle }}</p><h1>{{ vm.title }}</h1></div>
+    <button type="button" data-testid="my-tasks-refresh" (click)="refresh()">Refresh</button>
+  </header>
+  @if (vm.realtimeDegraded) {
+    <p class="my-tasks-page__degraded" role="status">Live updates are unavailable. HTTP filters and manual refresh remain available.</p>
+  }
   @if (vm.status === 'loading') {
     <app-inline-loading label="Loading tasks" />
   } @else if (vm.status === 'permissionDenied') {
@@ -12,12 +18,50 @@
     <app-task-table [rows]="vm.rows" [defaultPageSize]="vm.pageSize.defaultPageSize" [maximumPageSize]="vm.pageSize.maximumPageSize" (actionInvoked)="handleTaskAction($event)" />
   } @else {
     <fieldset class="my-tasks-page__views" aria-label="My Tasks relationship view"><legend>Relationship view</legend>
-      @for (tab of tabs; track tab.id) { <button type="button" [attr.aria-pressed]="vm.selectedTab === tab.id" (click)="setTab(tab.id)">{{ tab.label }} ({{ count(vm, tab.id) }})</button> }
+      <div role="tablist" aria-label="My Tasks relationship view">
+        @for (tab of tabs; track tab.id; let tabIndex = $index) {
+          <button type="button" role="tab" [attr.aria-selected]="vm.selectedTab === tab.id" [attr.tabindex]="vm.selectedTab === tab.id ? 0 : -1" (keydown)="handleTabKeydown($event, tabIndex)" (click)="setTab(tab.id)">{{ tab.label }} ({{ count(vm, tab.id) }})</button>
+        }
+      </div>
     </fieldset>
     <fieldset class="my-tasks-page__views" aria-label="Workspace scope"><legend>Workspace scope</legend>
       <button type="button" [attr.aria-pressed]="vm.scope === 'currentWorkspace'" (click)="setScope('currentWorkspace')">Current Workspace</button>
       <button type="button" [attr.aria-pressed]="vm.scope === 'allWorkspaces'" (click)="setScope('allWorkspaces')">All Workspaces</button>
+      @if (vm.scope === 'currentWorkspace' && vm.workspaceOptions.length > 1) {
+        <label>Active Workspace
+          <select data-testid="my-tasks-workspace-select" [value]="vm.workspaceId ?? ''" (change)="setWorkspace($any($event.target).value)">
+            @for (workspace of vm.workspaceOptions; track workspace.id) {
+              <option [value]="workspace.id">{{ workspace.label }}</option>
+            }
+          </select>
+        </label>
+      }
     </fieldset>
+    <section class="my-tasks-page__filters" aria-label="My Tasks filters">
+      <label>Search<input type="search" data-testid="my-tasks-search" [value]="vm.filters.search" (input)="setSearchFilter($any($event.target).value)" /></label>
+      <label>Project ID<input type="text" data-testid="my-tasks-project-filter" [value]="vm.filters.projectId" (change)="setProjectFilter($any($event.target).value)" /></label>
+      <label>Stage
+        <select data-testid="my-tasks-stage-filter" [value]="vm.filters.stageCategory" (change)="setStageCategoryFilter($any($event.target).value)">
+          <option value="">All stages</option><option value="backlog">Backlog</option><option value="todo">Todo</option><option value="inProgress">In progress</option><option value="review">Review</option><option value="done">Done</option><option value="cancelled">Cancelled</option>
+        </select>
+      </label>
+      <label>Priority
+        <select data-testid="my-tasks-priority-filter" [value]="vm.filters.priority" (change)="setPriorityFilter($any($event.target).value)">
+          <option value="">All priorities</option><option value="critical">Critical</option><option value="high">High</option><option value="medium">Medium</option><option value="low">Low</option>
+        </select>
+      </label>
+      <label>Blocked
+        <select data-testid="my-tasks-blocked-filter" [value]="vm.filters.blocked" (change)="setBlockedFilter($any($event.target).value)">
+          <option value="">Any</option><option value="true">Blocked</option><option value="false">Not blocked</option>
+        </select>
+      </label>
+      <label>Urgency
+        <select data-testid="my-tasks-urgency-filter" [value]="vm.filters.timeGroup ?? ''" (change)="setTimeGroupFilter($any($event.target).value)">
+          <option value="">All urgency groups</option>
+          @for (group of groups; track group.id) { <option [value]="group.id">{{ group.label }} ({{ count(vm, group.id) }})</option> }
+        </select>
+      </label>
+    </section>
     <p class="my-tasks-page__canonical-note">List is the canonical My Tasks projection. Kanban remains unavailable until PR05.</p>
     @if (vm.status === 'empty' || vm.tasks.length === 0) {
       <app-empty-state title="No tasks" [message]="vm.message ?? 'No tasks match this relationship view and scope.'" />
@@ -34,5 +78,15 @@
         }
       }
     }
+    <nav class="my-tasks-page__paging" aria-label="My Tasks pages">
+      <button type="button" data-testid="my-tasks-previous-page" [disabled]="vm.page <= 1" (click)="previousPage()">Previous</button>
+      <span aria-live="polite">Page {{ vm.page }} of {{ vm.lastPage }} · {{ vm.totalCount }} tasks</span>
+      <button type="button" data-testid="my-tasks-next-page" [disabled]="vm.page >= vm.lastPage" (click)="nextPage()">Next</button>
+      <label>Page size
+        <select data-testid="my-tasks-page-size" [value]="vm.selectedPageSize" (change)="setPageSize($any($event.target).value)">
+          <option value="10">10</option><option value="25">25</option><option value="50">50</option><option value="100">100</option>
+        </select>
+      </label>
+    </nav>
   }
 </section>
