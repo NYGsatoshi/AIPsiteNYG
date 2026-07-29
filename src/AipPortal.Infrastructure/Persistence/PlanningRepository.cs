@@ -167,7 +167,12 @@ public sealed class PlanningRepository(AppDbContext dbContext) : IPlanningReposi
         var total = await source.CountAsync(cancellationToken);
         var rows = await source
             .OrderByDescending(task => task.IsBlocked)
-            .ThenByDescending(task => task.Priority)
+            // Priority is persisted as text. Use an explicit rank so PostgreSQL
+            // does not apply lexicographic ordering to the enum converter.
+            .ThenByDescending(task =>
+                task.Priority == TaskPriority.Critical ? 3 :
+                task.Priority == TaskPriority.High ? 2 :
+                task.Priority == TaskPriority.Medium ? 1 : 0)
             .ThenBy(task => task.DeadlineAt ?? DateTimeOffset.MaxValue)
             .ThenBy(task => task.PlannedEndDate ?? DateOnly.MaxValue)
             .ThenByDescending(task => task.UpdatedAt ?? task.CreatedAt)
@@ -205,12 +210,17 @@ public sealed class PlanningRepository(AppDbContext dbContext) : IPlanningReposi
                 task.CreatedByUserId,
                 task.VersionNo,
                 dbContext.WorkItemCollaborators.Any(collaborator => collaborator.TaskItemId == task.Id && collaborator.UserId == userId),
-                dbContext.WorkItemWatchStates.Any(watch => watch.TaskItemId == task.Id && watch.UserId == userId && watch.IsWatching && !watch.IsExplicitOptOut),
+                dbContext.WorkItemWatchStates.Any(watch =>
+                    watch.TaskItemId == task.Id &&
+                    watch.UserId == userId &&
+                    (watch.IsManualWatch ||
+                     (!watch.IsExplicitOptOut && watch.AutomaticSources != WorkItemWatchAutomaticSource.None))),
                 dbContext.GroupMembers.Any(member => member.GroupId == task.TargetGroupId && member.UserId == userId),
+                dbContext.ProjectMembers.Any(member => member.ProjectId == task.ProjectId && member.UserId == userId),
                 dbContext.ProjectMembers.Any(member => member.ProjectId == task.ProjectId && member.UserId == userId && (member.Role == ProjectRole.Owner || member.Role == ProjectRole.Manager)),
                 task.ChecklistItems.Count(item => item.IsCompleted),
                 task.ChecklistItems.Count,
-                task.ChildTaskItems.Any(),
+                task.ChildTaskItems.Any(child => !child.DeletedAt.HasValue),
                 task.UpdatedAt ?? task.CreatedAt))
             .ToListAsync(cancellationToken);
 
@@ -231,21 +241,31 @@ public sealed class PlanningRepository(AppDbContext dbContext) : IPlanningReposi
     public async Task<MyTasksCountsResponse> GetMyTaskCountsAsync(Guid userId, MyTasksQuery query, DateTimeOffset now, CancellationToken cancellationToken = default)
     {
         var visible = VisibleTasksFor(userId);
-        var views = new List<MyTasksViewCount>();
-        foreach (var view in Enum.GetValues<MyTasksRelationshipView>())
-        {
-            var count = await ApplyMyTasksFilters(visible, userId, query with { View = view, TimeGroup = null }, now, includeView: true)
-                .CountAsync(cancellationToken);
-            views.Add(new MyTasksViewCount(view, count));
-        }
+        var viewValues = Enum.GetValues<MyTasksRelationshipView>();
+        var viewQuery = viewValues
+            .Select(view => CountForView(visible, userId, query, view, now))
+            .Aggregate((combined, next) => combined.Concat(next));
+        var returnedViews = await viewQuery.ToListAsync(cancellationToken);
+        var views = viewValues
+            .Select(view =>
+            {
+                var count = returnedViews.FirstOrDefault(item => item.View == view);
+                return new MyTasksViewCount(view, count?.Count ?? 0);
+            })
+            .ToList();
 
-        var timeGroups = new List<MyTasksTimeGroupCount>();
-        foreach (var group in Enum.GetValues<MyTasksTimeGroup>())
-        {
-            var count = await ApplyMyTasksFilters(visible, userId, query with { TimeGroup = group }, now, includeView: true)
-                .CountAsync(cancellationToken);
-            timeGroups.Add(new MyTasksTimeGroupCount(group, count));
-        }
+        var timeGroupValues = Enum.GetValues<MyTasksTimeGroup>();
+        var timeGroupQuery = timeGroupValues
+            .Select(group => CountForTimeGroup(visible, userId, query, group, now))
+            .Aggregate((combined, next) => combined.Concat(next));
+        var returnedTimeGroups = await timeGroupQuery.ToListAsync(cancellationToken);
+        var timeGroups = timeGroupValues
+            .Select(group =>
+            {
+                var count = returnedTimeGroups.FirstOrDefault(item => item.TimeGroup == group);
+                return new MyTasksTimeGroupCount(group, count?.Count ?? 0);
+            })
+            .ToList();
 
         return new MyTasksCountsResponse(
             query.Scope,
@@ -255,8 +275,55 @@ public sealed class PlanningRepository(AppDbContext dbContext) : IPlanningReposi
             timeGroups);
     }
 
+    private IQueryable<ViewCountRow> CountForView(
+        IQueryable<TaskItem> visible,
+        Guid userId,
+        MyTasksQuery query,
+        MyTasksRelationshipView view,
+        DateTimeOffset now) =>
+        ApplyMyTasksFilters(visible, userId, query with { View = view }, now, includeView: true)
+            .GroupBy(_ => 1)
+            .Select(group => new ViewCountRow { View = view, Count = group.Count() });
+
+    private IQueryable<TimeGroupCountRow> CountForTimeGroup(
+        IQueryable<TaskItem> visible,
+        Guid userId,
+        MyTasksQuery query,
+        MyTasksTimeGroup timeGroup,
+        DateTimeOffset now) =>
+        ApplyMyTasksFilters(visible, userId, query with { TimeGroup = timeGroup }, now, includeView: true)
+            .GroupBy(_ => 1)
+            .Select(group => new TimeGroupCountRow { TimeGroup = timeGroup, Count = group.Count() });
+
     public async Task<IReadOnlyList<Guid>> ListAccessibleWorkspaceIdsAsync(Guid userId, CancellationToken cancellationToken = default) =>
         await AccessibleWorkspacesFor(userId).Select(workspace => workspace.Id).ToListAsync(cancellationToken);
+
+    public Task<bool> CanViewMyTasksProjectAsync(
+        Guid userId,
+        Guid projectId,
+        CancellationToken cancellationToken = default) =>
+        dbContext.Projects
+            .AsNoTracking()
+            .AnyAsync(project =>
+                project.Id == projectId &&
+                !project.DeletedAt.HasValue &&
+                project.Status != ProjectStatus.Archived &&
+                !project.Workspace!.DeletedAt.HasValue &&
+                project.Workspace.Status == WorkspaceStatus.Active &&
+                dbContext.WorkspaceMembers.Any(member =>
+                    member.WorkspaceId == project.WorkspaceId &&
+                    member.UserId == userId &&
+                    member.Status == MembershipStatus.Active) &&
+                (project.OwnerUserId == userId ||
+                 dbContext.ProjectMembers.Any(member => member.ProjectId == project.Id && member.UserId == userId) ||
+                 (!project.GroupId.HasValue ||
+                  dbContext.GroupMembers.Any(member => member.GroupId == project.GroupId && member.UserId == userId) ||
+                  dbContext.WorkspaceMembers.Any(member =>
+                      member.WorkspaceId == project.WorkspaceId &&
+                      member.UserId == userId &&
+                      member.Status == MembershipStatus.Active &&
+                      (member.Role == WorkspaceRole.Owner || member.Role == WorkspaceRole.Admin || member.Role == WorkspaceRole.Adviser)))),
+                cancellationToken);
 
     private IQueryable<Workspace> AccessibleWorkspacesFor(Guid userId) =>
         dbContext.Workspaces
@@ -276,6 +343,8 @@ public sealed class PlanningRepository(AppDbContext dbContext) : IPlanningReposi
                 !task.DeletedAt.HasValue &&
                 !task.Project!.DeletedAt.HasValue &&
                 task.Project.Status != ProjectStatus.Archived &&
+                !task.Project.Workspace!.DeletedAt.HasValue &&
+                task.Project.Workspace.Status == WorkspaceStatus.Active &&
                 dbContext.WorkspaceMembers.Any(member =>
                     member.WorkspaceId == task.WorkspaceId &&
                     member.UserId == userId &&
@@ -376,17 +445,29 @@ public sealed class PlanningRepository(AppDbContext dbContext) : IPlanningReposi
         MyTasksRelationshipView.Participating => source.Where(task => dbContext.WorkItemCollaborators.Any(item => item.TaskItemId == task.Id && item.UserId == userId)),
         MyTasksRelationshipView.Reviews => source.Where(task => task.ReviewerUserId == userId),
         MyTasksRelationshipView.Created => source.Where(task => task.CreatedByUserId == userId),
-        MyTasksRelationshipView.Watching => source.Where(task => dbContext.WorkItemWatchStates.Any(item => item.TaskItemId == task.Id && item.UserId == userId && item.IsWatching && !item.IsExplicitOptOut)),
+        MyTasksRelationshipView.Watching => source.Where(task => dbContext.WorkItemWatchStates.Any(item =>
+            item.TaskItemId == task.Id &&
+            item.UserId == userId &&
+            (item.IsManualWatch ||
+             (!item.IsExplicitOptOut && item.AutomaticSources != WorkItemWatchAutomaticSource.None)))),
         MyTasksRelationshipView.TeamQueue => source.Where(task =>
             task.PrimaryAssigneeUserId == null &&
             task.TargetGroupId.HasValue &&
-            dbContext.GroupMembers.Any(member => member.GroupId == task.TargetGroupId && member.UserId == userId)),
+            dbContext.GroupMembers.Any(member => member.GroupId == task.TargetGroupId && member.UserId == userId) &&
+            (task.WorkflowStage == null
+                ? task.Status == TaskItemStatus.NotStarted || task.Status == TaskItemStatus.Blocked
+                : task.WorkflowStage.InternalCategory == TaskStageCategory.Backlog ||
+                  task.WorkflowStage.InternalCategory == TaskStageCategory.Todo)),
         MyTasksRelationshipView.Completed => source.Where(task =>
             task.PrimaryAssigneeUserId == userId ||
             task.CreatedByUserId == userId ||
             task.ReviewerUserId == userId ||
             dbContext.WorkItemCollaborators.Any(item => item.TaskItemId == task.Id && item.UserId == userId) ||
-            dbContext.WorkItemWatchStates.Any(item => item.TaskItemId == task.Id && item.UserId == userId && item.IsWatching && !item.IsExplicitOptOut)),
+            dbContext.WorkItemWatchStates.Any(item =>
+                item.TaskItemId == task.Id &&
+                item.UserId == userId &&
+                (item.IsManualWatch ||
+                 (!item.IsExplicitOptOut && item.AutomaticSources != WorkItemWatchAutomaticSource.None)))),
         _ => source
     };
 
@@ -405,7 +486,7 @@ public sealed class PlanningRepository(AppDbContext dbContext) : IPlanningReposi
                 task.DeadlineAt.HasValue ? task.DeadlineAt.Value < now : task.PlannedEndDate.HasValue && task.PlannedEndDate.Value < today),
             MyTasksTimeGroup.Today => source.Where(task =>
                 task.DeadlineAt.HasValue
-                    ? task.DeadlineAt.Value >= todayStart && task.DeadlineAt.Value < tomorrowStart
+                    ? task.DeadlineAt.Value >= now && task.DeadlineAt.Value < tomorrowStart
                     : task.PlannedEndDate.HasValue && task.PlannedEndDate.Value == today),
             MyTasksTimeGroup.Next7Days => source.Where(task =>
                 task.DeadlineAt.HasValue
@@ -428,7 +509,17 @@ public sealed class PlanningRepository(AppDbContext dbContext) : IPlanningReposi
         var isTeamQueueEligible = row.TargetGroupId.HasValue && row.PrimaryAssigneeUserId is null && row.IsCurrentGroupMember &&
             category is TaskStageCategory.Backlog or TaskStageCategory.Todo;
         var canEdit = row.ProjectOwnerUserId == row.CurrentUserId || row.CreatedByUserId == row.CurrentUserId || row.PrimaryAssigneeUserId == row.CurrentUserId || row.IsProjectManager;
-        var permissions = new MyTaskQuickEditPermissions(canEdit, canEdit, canEdit, canEdit, canEdit, canEdit, canEdit, canEdit, isTeamQueueEligible);
+        var canEditDerivedFields = canEdit && !row.HasChildren;
+        var permissions = new MyTaskQuickEditPermissions(
+            canEdit,
+            canEditDerivedFields,
+            canEdit,
+            canEditDerivedFields,
+            false,
+            canEdit,
+            canEdit,
+            canEdit,
+            isTeamQueueEligible && row.IsProjectMember);
         return new MyTaskProjectionResponse(
             row.TaskId, row.TenantId, row.WorkspaceId, row.WorkspaceTitle, row.ProjectId, row.ProjectTitle, row.Kind, row.ParentTaskId,
             row.Title, row.WorkflowStageId, row.WorkflowStageName ?? category.ToString(), category, row.Priority, row.IsBlocked,
@@ -456,8 +547,10 @@ public sealed class PlanningRepository(AppDbContext dbContext) : IPlanningReposi
         {
             var today = DateOnly.FromDateTime(now.UtcDateTime);
             if (deadlineAt.Value < now) return MyTasksTimeGroup.Overdue;
-            if (deadlineAt.Value.UtcDateTime.Date == now.UtcDateTime.Date) return MyTasksTimeGroup.Today;
-            return deadlineAt.Value < now.AddDays(8) ? MyTasksTimeGroup.Next7Days : MyTasksTimeGroup.Later;
+            var tomorrowStart = new DateTimeOffset(today.AddDays(1).ToDateTime(TimeOnly.MinValue, DateTimeKind.Utc));
+            if (deadlineAt.Value < tomorrowStart) return MyTasksTimeGroup.Today;
+            var nextWeekStart = new DateTimeOffset(today.AddDays(8).ToDateTime(TimeOnly.MinValue, DateTimeKind.Utc));
+            return deadlineAt.Value < nextWeekStart ? MyTasksTimeGroup.Next7Days : MyTasksTimeGroup.Later;
         }
         if (!plannedEndDate.HasValue) return MyTasksTimeGroup.NoDeadline;
         var day = DateOnly.FromDateTime(now.UtcDateTime);
@@ -466,13 +559,25 @@ public sealed class PlanningRepository(AppDbContext dbContext) : IPlanningReposi
         return plannedEndDate.Value < day.AddDays(8) ? MyTasksTimeGroup.Next7Days : MyTasksTimeGroup.Later;
     }
 
+    private sealed class ViewCountRow
+    {
+        public MyTasksRelationshipView View { get; init; }
+        public int Count { get; init; }
+    }
+
+    private sealed class TimeGroupCountRow
+    {
+        public MyTasksTimeGroup TimeGroup { get; init; }
+        public int Count { get; init; }
+    }
+
     private sealed record MyTaskRow(
         Guid TaskId, Guid CurrentUserId, Guid TenantId, Guid WorkspaceId, Guid ProjectId, string WorkspaceTitle, string ProjectTitle, Guid ProjectOwnerUserId,
         WorkItemKind Kind, Guid? ParentTaskId, string Title, Guid? WorkflowStageId, string? WorkflowStageName, TaskStageCategory? StageCategory,
         TaskItemStatus Status, TaskPriority Priority, bool IsBlocked, DateOnly? PlannedStartDate, DateOnly? PlannedEndDate, DateTimeOffset? DeadlineAt,
         int ProgressPercent, Guid? PrimaryAssigneeUserId, string? PrimaryAssigneeName, Guid? TargetGroupId, string? TargetGroupName,
         Guid? ReviewerUserId, string? ReviewerName, Guid CreatedByUserId, long Version, bool IsCollaborator, bool IsWatching,
-        bool IsCurrentGroupMember, bool IsProjectManager, int ChecklistCompletedCount, int ChecklistTotalCount, bool HasChildren, DateTimeOffset UpdatedAt);
+        bool IsCurrentGroupMember, bool IsProjectMember, bool IsProjectManager, int ChecklistCompletedCount, int ChecklistTotalCount, bool HasChildren, DateTimeOffset UpdatedAt);
 
     public async Task<ProjectWorkloadResponse?> GetWorkloadAsync(Guid projectId, DateOnly today, CancellationToken cancellationToken = default)
     {

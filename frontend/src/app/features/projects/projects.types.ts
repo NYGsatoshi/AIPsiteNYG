@@ -134,6 +134,18 @@ export interface TaskGridRow {
 export type MyTasksTab = 'assigned' | 'participating' | 'reviews' | 'created' | 'watching' | 'teamQueue' | 'completed';
 export type MyTasksScope = 'currentWorkspace' | 'allWorkspaces';
 export type MyTasksUrgencyGroup = 'overdue' | 'today' | 'next7Days' | 'later' | 'noDeadline';
+export type MyTasksStageCategoryFilter = '' | 'backlog' | 'todo' | 'inProgress' | 'review' | 'done' | 'cancelled';
+export type MyTasksPriorityFilter = '' | 'low' | 'medium' | 'high' | 'critical';
+export type MyTasksBlockedFilter = '' | 'true' | 'false';
+
+export interface MyTasksFilters {
+  readonly projectId: string;
+  readonly stageCategory: MyTasksStageCategoryFilter;
+  readonly priority: MyTasksPriorityFilter;
+  readonly blocked: MyTasksBlockedFilter;
+  readonly search: string;
+  readonly timeGroup: MyTasksUrgencyGroup | null;
+}
 
 export interface MyTasksLiveTask {
   readonly taskId: string;
@@ -201,8 +213,13 @@ export interface MyTasksViewModel {
   readonly selectedTab: MyTasksTab;
   readonly scope: MyTasksScope;
   readonly workspaceId: string | null;
+  readonly workspaceOptions: readonly { readonly id: string; readonly label: string }[];
   readonly counts: readonly MyTasksCount[];
   readonly totalCount: number;
+  readonly page: number;
+  readonly selectedPageSize: number;
+  readonly lastPage: number;
+  readonly filters: MyTasksFilters;
   readonly realtimeDegraded: boolean;
 }
 

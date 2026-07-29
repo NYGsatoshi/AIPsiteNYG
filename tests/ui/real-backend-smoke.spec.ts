@@ -98,6 +98,239 @@ test.describe('MVP0 real backend browser smoke', () => {
     await recordFetchJson(page, evidence, 'degraded-http-auth-status', '/api/auth/status', {
       validate: (body) => body && typeof body === 'object' && (body as Record<string, unknown>).isAuthenticated === true
     });
+
+    const myTasksResponse = waitForApiResponse(page, 'GET', '/api/me/tasks');
+    await page.getByTestId('nav-my-tasks').first().click();
+    await recordOkJson(await myTasksResponse, evidence, 'degraded-my-tasks-http-list', (body) => isPagedResponse(body));
+    const refreshResponse = waitForApiResponse(page, 'GET', '/api/me/tasks');
+    await page.getByTestId('my-tasks-refresh').click();
+    await recordOkJson(await refreshResponse, evidence, 'degraded-my-tasks-manual-refresh', (body) => isPagedResponse(body));
+  });
+
+  test('TASK-V1-PR04 exercises canonical My Tasks scopes, relationships, filters, paging, and UI against PostgreSQL', async ({ page }, testInfo) => {
+    const evidence: SmokeEvidence = {
+      baseURL: String(testInfo.project.use.baseURL ?? ''), email: smokeEmail, steps: [], pageErrors: [], consoleErrors: [], failedApiResponses: []
+    };
+    page.on('pageerror', (error) => evidence.pageErrors.push(error.message));
+    page.on('console', (message) => { if (message.type() === 'error') evidence.consoleErrors.push(message.text()); });
+    page.on('response', (response) => recordFailedApiResponse(response, evidence));
+
+    try {
+      await loginAndVerifySession(page, evidence);
+      const workspaces = await recordFetchJson(page, evidence, 'pr04-workspaces', '/api/workspaces', {
+        validate: (body) => Array.isArray(body) &&
+          body.some((item: unknown) => hasStringValue(item, 'name', smokeWorkspaceName)) &&
+          body.some((item: unknown) => hasStringValue(item, 'name', 'Browser Smoke Workspace Two'))
+      }) as Record<string, unknown>[];
+      const primaryWorkspace = workspaces.find((item) => item.name === smokeWorkspaceName)!;
+      const secondWorkspace = workspaces.find((item) => item.name === 'Browser Smoke Workspace Two')!;
+      const primaryWorkspaceId = String(primaryWorkspace.id);
+      const secondWorkspaceId = String(secondWorkspace.id);
+      evidence.workspaceId = primaryWorkspaceId;
+
+      const omitted = await fetchJsonFromPage(page, '/api/me/tasks?view=assigned');
+      evidence.steps.push({ name: 'pr04-multiple-workspace-requires-explicit-id', method: 'GET', path: '/api/me/tasks', status: omitted.status });
+      expect(omitted.status).toBe(400);
+      expect(omitted.body?.error?.code).toBe('MY_TASKS_INVALID_WORKSPACE_SCOPE');
+
+      const currentPath = `/api/me/tasks?view=assigned&workspaceId=${primaryWorkspaceId}&page=1&pageSize=100`;
+      const current = await recordFetchJson(page, evidence, 'pr04-current-workspace', currentPath, {
+        validate: (body) => isPagedResponse(body) &&
+          body.workspaceId === primaryWorkspaceId &&
+          body.items.some((item: unknown) => hasStringValue(item, 'title', smokeTaskTitle)) &&
+          !body.items.some((item: unknown) => hasStringValue(item, 'title', 'PR04 second workspace assigned'))
+      }) as Record<string, any>;
+      expect(new Set(current.items.map((item: Record<string, unknown>) => item.taskId)).size).toBe(current.items.length);
+
+      const allPath = '/api/me/tasks?view=assigned&scope=allWorkspaces&page=1&pageSize=100';
+      const all = await recordFetchJson(page, evidence, 'pr04-all-workspaces', allPath, {
+        validate: (body) => isPagedResponse(body) &&
+          body.availableWorkspaceCount === 2 &&
+          body.items.some((item: unknown) => hasStringValue(item, 'title', smokeTaskTitle)) &&
+          body.items.some((item: unknown) => hasStringValue(item, 'title', 'PR04 second workspace assigned'))
+      }) as Record<string, any>;
+      expect(all.items.every((item: Record<string, unknown>) => typeof item.workspaceTitle === 'string' && item.workspaceTitle.length > 0)).toBe(true);
+
+      const expectedByView: Record<string, string> = {
+        assigned: smokeTaskTitle,
+        participating: 'PR04 participating task',
+        reviews: 'PR04 review task',
+        created: 'PR04 created task',
+        watching: 'PR04 watching task',
+        teamQueue: 'PR04 team queue task',
+        completed: 'PR04 completed task'
+      };
+      for (const [view, title] of Object.entries(expectedByView)) {
+        const body = await recordFetchJson(
+          page,
+          evidence,
+          `pr04-view-${view}`,
+          `/api/me/tasks?view=${view}&workspaceId=${primaryWorkspaceId}&page=1&pageSize=100`,
+          {
+            validate: (value) => isPagedResponse(value) &&
+              value.items.some((item: unknown) => hasStringValue(item, 'title', title))
+          }
+        ) as Record<string, any>;
+        expect(new Set(body.items.map((item: Record<string, unknown>) => item.taskId)).size, `${view} contains no duplicate Task`).toBe(body.items.length);
+      }
+
+      const filteredPath = `/api/me/tasks?view=assigned&workspaceId=${primaryWorkspaceId}&projectId=${current.items[0].projectId}&stageCategory=todo&priority=critical&blocked=true&search=${encodeURIComponent('PR04 critical blocked match')}&timeGroup=today&page=1&pageSize=10`;
+      const filtered = await recordFetchJson(page, evidence, 'pr04-filter-combination', filteredPath, {
+        validate: (body) => isPagedResponse(body) &&
+          body.totalCount === 1 &&
+          body.items.length === 1 &&
+          hasStringValue(body.items[0], 'title', 'PR04 critical blocked match')
+      }) as Record<string, any>;
+      expect(filtered.items[0].timeGroup).toBe('Today');
+
+      const firstPage = await recordFetchJson(
+        page,
+        evidence,
+        'pr04-page-1',
+        `/api/me/tasks?view=assigned&workspaceId=${primaryWorkspaceId}&page=1&pageSize=10`,
+        { validate: (body) => isPagedResponse(body) && body.page === 1 && body.pageSize === 10 && body.totalCount > 10 }
+      ) as Record<string, any>;
+      const secondPage = await recordFetchJson(
+        page,
+        evidence,
+        'pr04-page-2',
+        `/api/me/tasks?view=assigned&workspaceId=${primaryWorkspaceId}&page=2&pageSize=10`,
+        { validate: (body) => isPagedResponse(body) && body.page === 2 && body.pageSize === 10 }
+      ) as Record<string, any>;
+      const firstPageIds = new Set(firstPage.items.map((item: Record<string, unknown>) => item.taskId));
+      expect(secondPage.items.some((item: Record<string, unknown>) => firstPageIds.has(item.taskId))).toBe(false);
+
+      const counts = await recordFetchJson(
+        page,
+        evidence,
+        'pr04-row-count-consistency',
+        `/api/me/tasks/counts?view=assigned&workspaceId=${primaryWorkspaceId}`,
+        {
+          validate: (body) => body && typeof body === 'object' &&
+            Array.isArray((body as Record<string, unknown>).views) &&
+            Array.isArray((body as Record<string, unknown>).timeGroups)
+        }
+      ) as Record<string, any>;
+      expect(counts.views.find((item: Record<string, unknown>) => item.view === 'Assigned')?.count).toBe(current.totalCount);
+
+      const initialUiRequest = waitForApiResponse(page, 'GET', '/api/me/tasks');
+      await page.goto('/app/tasks');
+      const initialUiResponse = await initialUiRequest;
+      expect(new URL(initialUiResponse.url()).searchParams.get('workspaceId')).toBe(primaryWorkspaceId);
+      await expect(page.getByTestId('my-tasks-workspace-select')).toHaveValue(primaryWorkspaceId);
+      await expect(page.getByRole('tab')).toHaveCount(7);
+      await expect(page.getByRole('tab', { name: /^Assigned to Me/ })).toHaveAttribute('aria-selected', 'true');
+
+      const participatingResponse = waitForApiResponse(page, 'GET', '/api/me/tasks');
+      await page.getByRole('tab', { name: /^Assigned to Me/ }).press('ArrowRight');
+      await recordOkJson(await participatingResponse, evidence, 'pr04-keyboard-tab-participating', (body) =>
+        isPagedResponse(body) && body.items.some((item: unknown) => hasStringValue(item, 'title', 'PR04 participating task')));
+      await expect(page.getByRole('tab', { name: /^Participating/ })).toHaveAttribute('aria-selected', 'true');
+
+      const assignedResponse = waitForApiResponse(page, 'GET', '/api/me/tasks');
+      await page.getByRole('tab', { name: /^Assigned to Me/ }).click();
+      await recordOkJson(await assignedResponse, evidence, 'pr04-ui-assigned', (body) => isPagedResponse(body));
+
+      const secondWorkspaceResponse = waitForApiResponse(page, 'GET', '/api/me/tasks');
+      await page.getByTestId('my-tasks-workspace-select').selectOption(secondWorkspaceId);
+      const secondWorkspaceList = await recordOkJson(await secondWorkspaceResponse, evidence, 'pr04-ui-workspace-switch', (body) =>
+        isPagedResponse(body) && body.items.some((item: unknown) => hasStringValue(item, 'title', 'PR04 second workspace assigned')));
+      expect(secondWorkspaceList.page).toBe(1);
+      await expect(page.getByText('PR04 second workspace assigned', { exact: true })).toBeVisible();
+
+      const primaryWorkspaceResponse = waitForApiResponse(page, 'GET', '/api/me/tasks');
+      await page.getByTestId('my-tasks-workspace-select').selectOption(primaryWorkspaceId);
+      await recordOkJson(await primaryWorkspaceResponse, evidence, 'pr04-ui-workspace-switch-back', (body) =>
+        isPagedResponse(body) && body.items.some((item: unknown) => hasStringValue(item, 'title', smokeTaskTitle)));
+
+      const searchResponse = waitForApiResponse(page, 'GET', '/api/me/tasks');
+      await page.getByTestId('my-tasks-search').fill('PR04 critical blocked match');
+      await recordOkJson(await searchResponse, evidence, 'pr04-ui-search-debounce', (body) =>
+        isPagedResponse(body) && body.totalCount === 1);
+      await expect(page.getByText('PR04 critical blocked match', { exact: true })).toBeVisible();
+
+      const priorityResponse = waitForApiResponse(page, 'GET', '/api/me/tasks');
+      await page.getByTestId('my-tasks-priority-filter').selectOption('critical');
+      await recordOkJson(await priorityResponse, evidence, 'pr04-ui-priority-filter', (body) =>
+        isPagedResponse(body) && body.totalCount === 1);
+      const blockedResponse = waitForApiResponse(page, 'GET', '/api/me/tasks');
+      await page.getByTestId('my-tasks-blocked-filter').selectOption('true');
+      await recordOkJson(await blockedResponse, evidence, 'pr04-ui-blocked-filter', (body) =>
+        isPagedResponse(body) && body.totalCount === 1);
+      const stageResponse = waitForApiResponse(page, 'GET', '/api/me/tasks');
+      await page.getByTestId('my-tasks-stage-filter').selectOption('todo');
+      await recordOkJson(await stageResponse, evidence, 'pr04-ui-stage-filter', (body) =>
+        isPagedResponse(body) && body.totalCount === 1);
+      const urgencyResponse = waitForApiResponse(page, 'GET', '/api/me/tasks');
+      await page.getByTestId('my-tasks-urgency-filter').selectOption('today');
+      await recordOkJson(await urgencyResponse, evidence, 'pr04-ui-urgency-filter', (body) =>
+        isPagedResponse(body) && body.totalCount === 1);
+      const projectResponse = waitForApiResponse(page, 'GET', '/api/me/tasks');
+      await page.getByTestId('my-tasks-project-filter').fill(String(current.items[0].projectId));
+      await page.getByTestId('my-tasks-project-filter').press('Tab');
+      await recordOkJson(await projectResponse, evidence, 'pr04-ui-project-filter', (body) =>
+        isPagedResponse(body) && body.totalCount === 1);
+
+      await page.reload();
+      await expect(page.getByTestId('my-tasks-page-size')).toBeVisible();
+      const pageSizeResponse = waitForApiResponse(page, 'GET', '/api/me/tasks');
+      await page.getByTestId('my-tasks-page-size').selectOption('10');
+      await recordOkJson(await pageSizeResponse, evidence, 'pr04-ui-page-size', (body) =>
+        isPagedResponse(body) && body.page === 1 && body.pageSize === 10 && body.totalCount > 10);
+      const nextResponse = waitForApiResponse(page, 'GET', '/api/me/tasks');
+      await page.getByTestId('my-tasks-next-page').click();
+      await recordOkJson(await nextResponse, evidence, 'pr04-ui-next-page', (body) => isPagedResponse(body) && body.page === 2);
+      const previousResponse = waitForApiResponse(page, 'GET', '/api/me/tasks');
+      await page.getByTestId('my-tasks-previous-page').click();
+      await recordOkJson(await previousResponse, evidence, 'pr04-ui-previous-page', (body) => isPagedResponse(body) && body.page === 1);
+
+      const secondBeforeRevocation = waitForApiResponse(page, 'GET', '/api/me/tasks');
+      await page.getByTestId('my-tasks-workspace-select').selectOption(secondWorkspaceId);
+      await recordOkJson(await secondBeforeRevocation, evidence, 'pr04-revocation-visible-before', (body) =>
+        isPagedResponse(body) && body.items.some((item: unknown) => hasStringValue(item, 'title', 'PR04 second workspace assigned')));
+      const authorizationRefresh = waitForApiResponse(page, 'GET', '/api/me/tasks');
+      const revokeSecond = await requestWithCsrf(page, 'DELETE', `/api/workspaces/${secondWorkspaceId}/members/${evidence.userId}`);
+      evidence.steps.push({
+        name: 'pr04-second-workspace-membership-revoked',
+        method: 'DELETE',
+        path: `/api/workspaces/${secondWorkspaceId}/members/${evidence.userId}`,
+        status: revokeSecond.status
+      });
+      expect(revokeSecond.status).toBe(200);
+      expect((await authorizationRefresh).status(), 'authorization-state refresh reauthorizes the selected Workspace').toBe(403);
+      await expect(page.getByText('PR04 second workspace assigned', { exact: true })).toHaveCount(0);
+
+      const afterRevocation = await recordFetchJson(
+        page,
+        evidence,
+        'pr04-revocation-all-workspaces-row-clear',
+        '/api/me/tasks?view=assigned&scope=allWorkspaces&page=1&pageSize=100',
+        {
+          validate: (body) => isPagedResponse(body) &&
+            body.availableWorkspaceCount === 1 &&
+            !body.items.some((item: unknown) => hasStringValue(item, 'title', 'PR04 second workspace assigned'))
+        }
+      ) as Record<string, any>;
+      const countsAfterRevocation = await recordFetchJson(
+        page,
+        evidence,
+        'pr04-revocation-count-clear',
+        '/api/me/tasks/counts?view=assigned&scope=allWorkspaces',
+        {
+          validate: (body) => body && typeof body === 'object' &&
+            body.availableWorkspaceCount === 1 &&
+            Array.isArray(body.views)
+        }
+      ) as Record<string, any>;
+      expect(countsAfterRevocation.views.find((item: Record<string, unknown>) => item.view === 'Assigned')?.count)
+        .toBe(afterRevocation.totalCount);
+
+      expect(evidence.pageErrors, 'browser page errors').toEqual([]);
+      expectUnexpectedConsoleErrors(evidence);
+      expectUnexpectedApiFailures(evidence);
+    } finally {
+      await testInfo.attach('task-v1-pr04-real-backend-evidence.json', { body: JSON.stringify(evidence, null, 2), contentType: 'application/json' });
+    }
   });
 
   test('TASK-V1-PR03C uses the real backend for task detail, mutations, revocation, and File grant reauthorization', async ({ page }, testInfo) => {
@@ -817,6 +1050,9 @@ function isExpectedFailure(failure: SmokeFailedApiResponse): boolean {
     (failure.method === 'POST' && failure.path === '/api/auth/change-password' && failure.status === 400) ||
     (failure.method === 'GET' && failure.path === '/api/auth/me' && failure.status === 401) ||
     (failure.method === 'GET' && failure.path === '/api/projects' && failure.status === 401) ||
+    (failure.method === 'GET' && failure.path === '/api/me/tasks' && failure.status === 400) ||
+    (failure.method === 'GET' && failure.path === '/api/me/tasks' && failure.status === 403) ||
+    (failure.method === 'GET' && failure.path === '/api/me/tasks/counts' && failure.status === 403) ||
     (failure.method === 'GET' && /^\/api\/tasks\/[0-9a-f-]+$/i.test(failure.path) && failure.status === 404) ||
     (failure.method === 'POST' && /^\/api\/attachments\/[0-9a-f-]+\/download-grants$/i.test(failure.path) && failure.status === 404) ||
     (failure.method === 'GET' && /^\/api\/attachments\/[0-9a-f-]+\/download$/i.test(failure.path) && failure.status === 400) ||

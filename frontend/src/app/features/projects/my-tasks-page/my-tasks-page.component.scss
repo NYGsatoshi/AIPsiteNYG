@@ -6,12 +6,20 @@
 }
 
 .my-tasks-page__views { display: flex; gap: var(--aip-space-2); margin: 0 0 var(--aip-space-3); padding: 0; border: 0; }
+.my-tasks-page__views > div { display: flex; flex-wrap: wrap; gap: var(--aip-space-2); }
 .my-tasks-page__views legend { position: absolute; inline-size: 1px; block-size: 1px; overflow: hidden; clip: rect(0 0 0 0); }
 .my-tasks-page__list { display: grid; gap: var(--aip-space-2); margin: 0; padding: 0; list-style: none; }
 .my-tasks-page__list button { display: grid; width: 100%; gap: var(--aip-space-1); text-align: start; }
+.my-tasks-page__filters { display: grid; grid-template-columns: repeat(auto-fit, minmax(10rem, 1fr)); gap: var(--aip-space-3); }
+.my-tasks-page__filters label { display: grid; gap: var(--aip-space-1); }
+.my-tasks-page__paging { display: flex; flex-wrap: wrap; align-items: center; gap: var(--aip-space-3); }
+.my-tasks-page__paging label { display: flex; align-items: center; gap: var(--aip-space-2); }
+.my-tasks-page__degraded { padding: var(--aip-space-2); border: 1px solid var(--aip-color-border); border-radius: var(--aip-radius-sm); }
 
 .my-tasks-page header {
-  display: grid;
+  display: flex;
+  align-items: start;
+  justify-content: space-between;
   gap: 0.25rem;
 }
 

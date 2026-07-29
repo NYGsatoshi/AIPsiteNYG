@@ -825,6 +825,139 @@ public sealed class HttpTenantIsolationTests
     }
 
     [Fact]
+    [Trait("Scope", "TaskV1PR04")]
+    public async Task MyTasksHttpContractUsesExplicitWorkspaceScopeSafeErrorsAndRevocation()
+    {
+        await using var app = await HttpTenantIsolationTestApp.CreateAsync();
+        var data = app.Data;
+
+        using (var unauthenticated = new HttpRequestMessage(HttpMethod.Get, "/api/me/tasks?view=Created"))
+        {
+            unauthenticated.Headers.TryAddWithoutValidation("X-Tenant-Slug", data.TenantA.Slug);
+            Assert.Equal(HttpStatusCode.Unauthorized, (await app.Client.SendAsync(unauthenticated)).StatusCode);
+        }
+
+        var sole = await app.SendAsync(data.TenantAOwner, data.TenantA.Slug, "/api/me/tasks?view=Created");
+        Assert.Equal(HttpStatusCode.OK, sole.StatusCode);
+        using (var document = JsonDocument.Parse(await sole.Content.ReadAsStringAsync()))
+        {
+            Assert.Equal(1, document.RootElement.GetProperty("totalCount").GetInt32());
+            Assert.Equal(data.WorkspaceA.Id, document.RootElement.GetProperty("workspaceId").GetGuid());
+            Assert.Equal("Created", document.RootElement.GetProperty("view").GetString());
+            Assert.Equal("CurrentWorkspace", document.RootElement.GetProperty("scope").GetString());
+            var item = Assert.Single(document.RootElement.GetProperty("items").EnumerateArray());
+            Assert.Equal(data.TaskA.Id, item.GetProperty("taskId").GetGuid());
+            Assert.Equal(JsonValueKind.String, item.GetProperty("kind").ValueKind);
+            Assert.Equal(JsonValueKind.String, item.GetProperty("stageCategory").ValueKind);
+            Assert.Equal(JsonValueKind.String, item.GetProperty("priority").ValueKind);
+        }
+
+        var soleCounts = await app.SendAsync(data.TenantAOwner, data.TenantA.Slug, "/api/me/tasks/counts?view=Created");
+        Assert.Equal(HttpStatusCode.OK, soleCounts.StatusCode);
+        using (var document = JsonDocument.Parse(await soleCounts.Content.ReadAsStringAsync()))
+        {
+            Assert.Equal(data.WorkspaceA.Id, document.RootElement.GetProperty("workspaceId").GetGuid());
+            Assert.Equal(
+                1,
+                document.RootElement.GetProperty("views").EnumerateArray()
+                    .Single(item => item.GetProperty("view").GetString() == "Created")
+                    .GetProperty("count").GetInt32());
+        }
+
+        await AssertSafeModelBindingErrorAsync(
+            await app.SendAsync(data.TenantAOwner, data.TenantA.Slug, "/api/me/tasks?view=999"),
+            HttpStatusCode.BadRequest);
+        await AssertMyTasksErrorAsync(
+            await app.SendAsync(data.CrossTenantUser, data.TenantA.Slug, $"/api/me/tasks?view=Created&projectId={data.ProjectB.Id:D}"),
+            HttpStatusCode.NotFound,
+            "MY_TASKS_PROJECT_NOT_FOUND");
+        await AssertMyTasksErrorAsync(
+            await app.SendAsync(data.CrossTenantUser, data.TenantA.Slug, $"/api/me/tasks?view=Created&workspaceId={data.WorkspaceB.Id:D}"),
+            HttpStatusCode.Forbidden,
+            "MY_TASKS_WORKSPACE_FORBIDDEN");
+
+        var projectScopedPath = $"/api/me/tasks?view=Assigned&workspaceId={data.WorkspaceA.Id:D}&projectId={data.ProjectA.Id:D}";
+        foreach (var visibleUser in new[] { data.TenantAOwner, data.TenantAAdmin, data.TenantAStaff, data.TenantAMember })
+        {
+            Assert.Equal(
+                HttpStatusCode.OK,
+                (await app.SendAsync(visibleUser, data.TenantA.Slug, projectScopedPath)).StatusCode);
+        }
+
+        await app.AddGroupMemberAsync(
+            data.TenantA.Id,
+            data.TenantA.Slug,
+            data.GroupA.Id,
+            data.TenantAGuest.Id);
+        Assert.Equal(
+            HttpStatusCode.OK,
+            (await app.SendAsync(data.TenantAGuest, data.TenantA.Slug, projectScopedPath)).StatusCode);
+
+        await app.AddWorkspaceAsync(data.TenantA.Id, data.TenantA.Slug, data.TenantAOwner.Id);
+        await AssertMyTasksErrorAsync(
+            await app.SendAsync(data.TenantAOwner, data.TenantA.Slug, "/api/me/tasks?view=Created"),
+            HttpStatusCode.BadRequest,
+            "MY_TASKS_INVALID_WORKSPACE_SCOPE");
+
+        var explicitWorkspace = await app.SendAsync(
+            data.TenantAOwner,
+            data.TenantA.Slug,
+            $"/api/me/tasks?view=Created&workspaceId={data.WorkspaceA.Id:D}");
+        Assert.Equal(HttpStatusCode.OK, explicitWorkspace.StatusCode);
+
+        var allWorkspaces = await app.SendAsync(
+            data.TenantAOwner,
+            data.TenantA.Slug,
+            "/api/me/tasks?view=Created&scope=AllWorkspaces");
+        Assert.Equal(HttpStatusCode.OK, allWorkspaces.StatusCode);
+        using (var document = JsonDocument.Parse(await allWorkspaces.Content.ReadAsStringAsync()))
+        {
+            Assert.Equal(1, document.RootElement.GetProperty("totalCount").GetInt32());
+            Assert.Equal(2, document.RootElement.GetProperty("availableWorkspaceCount").GetInt32());
+        }
+
+        await app.SetWorkspaceMembershipStatusAsync(
+            data.TenantA.Id,
+            data.TenantA.Slug,
+            data.WorkspaceA.Id,
+            data.TenantAOwner.Id,
+            MembershipStatus.Suspended);
+
+        var afterRevocation = await app.SendAsync(
+            data.TenantAOwner,
+            data.TenantA.Slug,
+            "/api/me/tasks?view=Created&scope=AllWorkspaces");
+        Assert.Equal(HttpStatusCode.OK, afterRevocation.StatusCode);
+        using (var document = JsonDocument.Parse(await afterRevocation.Content.ReadAsStringAsync()))
+        {
+            Assert.Equal(0, document.RootElement.GetProperty("totalCount").GetInt32());
+            Assert.Empty(document.RootElement.GetProperty("items").EnumerateArray());
+        }
+
+        var countsAfterRevocation = await app.SendAsync(
+            data.TenantAOwner,
+            data.TenantA.Slug,
+            "/api/me/tasks/counts?view=Created&scope=AllWorkspaces");
+        Assert.Equal(HttpStatusCode.OK, countsAfterRevocation.StatusCode);
+        using (var document = JsonDocument.Parse(await countsAfterRevocation.Content.ReadAsStringAsync()))
+        {
+            Assert.Equal(
+                0,
+                document.RootElement.GetProperty("views").EnumerateArray()
+                    .Single(item => item.GetProperty("view").GetString() == "Created")
+                    .GetProperty("count").GetInt32());
+        }
+
+        await AssertMyTasksErrorAsync(
+            await app.SendAsync(
+                data.TenantAOwner,
+                data.TenantA.Slug,
+                $"/api/me/tasks?view=Created&workspaceId={data.WorkspaceA.Id:D}"),
+            HttpStatusCode.Forbidden,
+            "MY_TASKS_WORKSPACE_FORBIDDEN");
+    }
+
+    [Fact]
     [Trait("Scope", "TaskV1PR03C")]
     public async Task TaskDetailHttpContractUsesCanonicalRoutesSafeErrorsAndBoundedAggregate()
     {
@@ -996,6 +1129,26 @@ public sealed class HttpTenantIsolationTests
         using var document = JsonDocument.Parse(body);
         Assert.Equal(code, document.RootElement.GetProperty("error").GetProperty("code").GetString());
         Assert.True(document.RootElement.TryGetProperty("requestId", out _));
+    }
+
+    private static async Task AssertMyTasksErrorAsync(HttpResponseMessage response, HttpStatusCode status, string code)
+    {
+        var body = await response.Content.ReadAsStringAsync();
+        Assert.Equal(status, response.StatusCode);
+        using var document = JsonDocument.Parse(body);
+        Assert.Equal(code, document.RootElement.GetProperty("error").GetProperty("code").GetString());
+        Assert.True(document.RootElement.TryGetProperty("requestId", out _));
+        Assert.DoesNotContain("StackTrace", body, StringComparison.OrdinalIgnoreCase);
+    }
+
+    private static async Task AssertSafeModelBindingErrorAsync(HttpResponseMessage response, HttpStatusCode status)
+    {
+        var body = await response.Content.ReadAsStringAsync();
+        Assert.Equal(status, response.StatusCode);
+        using var document = JsonDocument.Parse(body);
+        Assert.Equal((int)status, document.RootElement.GetProperty("status").GetInt32());
+        Assert.True(document.RootElement.TryGetProperty("traceId", out _));
+        Assert.DoesNotContain("StackTrace", body, StringComparison.OrdinalIgnoreCase);
     }
 
     private static Guid ReadResponseId(string json)
@@ -1190,6 +1343,43 @@ public sealed class HttpTenantIsolationTests
             });
             await dbContext.SaveChangesAsync();
             return workspace.Id;
+        }
+
+        public async Task SetWorkspaceMembershipStatusAsync(
+            Guid tenantId,
+            string tenantSlug,
+            Guid workspaceId,
+            Guid userId,
+            MembershipStatus status)
+        {
+            await using var scope = App.Services.CreateAsyncScope();
+            var currentTenant = scope.ServiceProvider.GetRequiredService<CurrentTenantService>();
+            currentTenant.SetTenant(tenantId, tenantSlug);
+            var dbContext = scope.ServiceProvider.GetRequiredService<AppDbContext>();
+            var member = await dbContext.WorkspaceMembers
+                .FirstAsync(item => item.WorkspaceId == workspaceId && item.UserId == userId);
+            member.Status = status;
+            await dbContext.SaveChangesAsync();
+        }
+
+        public async Task AddGroupMemberAsync(Guid tenantId, string tenantSlug, Guid groupId, Guid userId)
+        {
+            await using var scope = App.Services.CreateAsyncScope();
+            var currentTenant = scope.ServiceProvider.GetRequiredService<CurrentTenantService>();
+            currentTenant.SetTenant(tenantId, tenantSlug);
+            var dbContext = scope.ServiceProvider.GetRequiredService<AppDbContext>();
+            if (!await dbContext.GroupMembers.AnyAsync(item => item.GroupId == groupId && item.UserId == userId))
+            {
+                dbContext.GroupMembers.Add(new GroupMember
+                {
+                    TenantId = tenantId,
+                    GroupId = groupId,
+                    UserId = userId,
+                    Role = GroupRole.Member,
+                    JoinedAt = DateTimeOffset.UtcNow
+                });
+                await dbContext.SaveChangesAsync();
+            }
         }
 
         public async Task UpdateConversationMemberAsync(Guid tenantId, string tenantSlug, Guid conversationId, Guid userId, Action<ConversationMember> update)
