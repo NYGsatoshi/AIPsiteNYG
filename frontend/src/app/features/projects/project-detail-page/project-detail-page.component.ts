@@ -22,13 +22,7 @@ import { ProjectDetailFacade, ProjectDetailTab, ProjectKanbanStatus } from '../p
 import { TaskGridRow } from '../projects.types';
 import { TaskTableComponent } from '../task-table/task-table.component';
 
-@Component({
-  selector: 'app-project-detail-page',
-  standalone: true,
-  imports: [AppEmptyStateComponent, AppErrorBannerComponent, AppInlineLoadingComponent, AppPermissionDeniedComponent, AipKanbanComponent, AipGanttComponent, TaskTableComponent],
-  templateUrl: './project-detail-page.component.html',
-  styleUrl: './project-detail-page.component.scss'
-})
+@Component({ selector: 'app-project-detail-page', standalone: true, imports: [AppEmptyStateComponent, AppErrorBannerComponent, AppInlineLoadingComponent, AppPermissionDeniedComponent, AipKanbanComponent, AipGanttComponent, TaskTableComponent], templateUrl: './project-detail-page.component.html', styleUrl: './project-detail-page.component.scss' })
 export class ProjectDetailPageComponent implements OnDestroy {
   private readonly route = inject(ActivatedRoute);
   private readonly router = inject(Router);
@@ -38,14 +32,7 @@ export class ProjectDetailPageComponent implements OnDestroy {
   readonly configOpen = signal(false);
   readonly configColumns = signal<readonly ProjectKanbanColumn[]>([]);
   readonly configSwimlane = signal<ProjectKanbanSwimlane>('none');
-  readonly tabs: readonly { id: ProjectDetailTab; label: string }[] = [
-    { id: 'overview', label: 'Overview' },
-    { id: 'tasks', label: 'Tasks' },
-    { id: 'list', label: 'List' },
-    { id: 'schedule', label: 'Schedule' },
-    { id: 'workload', label: 'Workload' },
-    { id: 'members', label: 'Members' }
-  ];
+  readonly tabs: readonly { id: ProjectDetailTab; label: string }[] = [{ id: 'overview', label: 'Overview' }, { id: 'tasks', label: 'Tasks' }, { id: 'list', label: 'List' }, { id: 'schedule', label: 'Schedule' }, { id: 'workload', label: 'Workload' }, { id: 'members', label: 'Members' }];
   readonly swimlanes: readonly { value: ProjectKanbanSwimlane; label: string }[] = [
     { value: 'none', label: 'None' },
     { value: 'primaryAssignee', label: 'Primary assignee' },
@@ -54,10 +41,7 @@ export class ProjectDetailPageComponent implements OnDestroy {
     { value: 'parentTask', label: 'Parent task' }
   ];
 
-  constructor() {
-    const projectId = this.route.snapshot.paramMap.get('projectId');
-    if (projectId) this.facade.load(projectId);
-  }
+  constructor() { const projectId = this.route.snapshot.paramMap.get('projectId'); if (projectId) this.facade.load(projectId); }
 
   ngOnDestroy(): void { this.facade.release(); }
   openTask(row: TaskGridRow): void { void this.router.navigate(['/projects', row.projectId, 'tasks', row.id]); }
