@@ -16,6 +16,10 @@ the draft pull request because committing this document assigns that SHA.
 
 The local acceptance set covers:
 
+- A non-mock hosted ASP.NET Core and PostgreSQL journey through the real
+  controller routes, cookie authentication, Tenant resolution, Project
+  authorization, CSRF middleware, EF persistence, optimistic concurrency,
+  audit, transactional Outbox, and HTTP reload.
 - Application authorization, privacy, Task/board concurrency, transition
   guards, WIP warnings, stable reorder/rebalance, audit, and atomic rollback.
 - PostgreSQL 18 empty migration, upgrade from the PR04 migration, additive
@@ -76,3 +80,28 @@ state and returns Project Detail to the maintained Task List.
 - Project feature code uses AIPsite-owned models and adapter contracts.
 - No package, lockfile, Angular config, route, AppShell, global style, CI,
   Workspace, Messaging, Gantt command, or legacy `wwwroot` file is changed.
+
+## Acceptance remediation
+
+The PR05 acceptance remediation adds three focused corrections:
+
+- A pointer drop into a reason-required Stage opens the shared move form and
+  does not emit a command or begin optimistic state until a reason is
+  submitted. Escape and Cancel restore focus without issuing a command.
+- Keyboard `End of stage` and pointer column-end drops both emit the canonical
+  empty neighbor pair. The backend resolves that pair against the complete
+  persisted Stage, so a bounded or truncated snapshot cannot change its
+  meaning.
+- `TaskV1Pr05KanbanHostedHttpTests` exercises snapshot, configuration, and
+  movement through HTTP and a temporary migrated PostgreSQL database. It
+  covers safe non-disclosure, membership revocation, CSRF, Manager/member
+  authorization, Task and board version conflicts, canonical ordering,
+  cancellation-reason persistence, audit and Outbox rows, reload, and forced
+  Outbox-save failures that prove business data and side effects roll back
+  together.
+
+Mocked Playwright remains frontend interaction and state-transition evidence.
+The hosted ASP.NET Core and PostgreSQL tests are the non-mock route, security,
+persistence, concurrency, audit, and Outbox evidence. Real-backend Playwright
+is reported separately and is not counted as passing when its environment or
+Syncfusion license is unavailable.
