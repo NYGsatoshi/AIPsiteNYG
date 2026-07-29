@@ -22,15 +22,15 @@
   "private": true,
   "packageManager": "npm@11.17.0",
   "dependencies": {
-    "@angular/animations": "21.2.17",
+    "@angular/animations": "21.2.18",
     "@angular/cdk": "21.2.14",
-    "@angular/common": "21.2.17",
-    "@angular/compiler": "21.2.17",
-    "@angular/core": "21.2.17",
-    "@angular/forms": "21.2.17",
-    "@angular/platform-browser": "21.2.17",
-    "@angular/platform-browser-dynamic": "21.2.17",
-    "@angular/router": "21.2.17",
+    "@angular/common": "21.2.18",
+    "@angular/compiler": "21.2.18",
+    "@angular/core": "21.2.18",
+    "@angular/forms": "21.2.18",
+    "@angular/platform-browser": "21.2.18",
+    "@angular/platform-browser-dynamic": "21.2.18",
+    "@angular/router": "21.2.18",
     "@lucide/angular": "1.22.0",
     "@microsoft/signalr": "10.0.0",
     "@ngrx/component-store": "21.1.1",
@@ -47,17 +47,17 @@
     "zone.js": "0.16.0"
   },
   "devDependencies": {
-    "@angular-devkit/build-angular": "21.2.17",
-    "@angular/build": "21.2.17",
-    "@angular/cli": "21.2.17",
-    "@angular/compiler-cli": "21.2.17",
-    "@storybook/angular": "10.4.6",
+    "@angular-devkit/build-angular": "21.2.19",
+    "@angular/build": "21.2.19",
+    "@angular/cli": "21.2.19",
+    "@angular/compiler-cli": "21.2.18",
+    "@storybook/angular": "10.5.3",
     "@types/node": "24.13.2",
     "axe-core": "4.12.1",
     "jsdom": "28.0.0",
     "prettier": "3.8.1",
-    "storybook": "10.4.6",
+    "storybook": "10.5.3",
     "typescript": "5.9.3",
-    "vitest": "4.1.9"
+    "vitest": "4.1.10"
   }
 }
