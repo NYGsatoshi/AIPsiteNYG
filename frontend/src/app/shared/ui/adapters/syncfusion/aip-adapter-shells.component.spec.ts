@@ -67,6 +67,134 @@ describe('AIPsite complex adapter shells', () => {
     });
   });
 
+  it('opens the reason-required move form for a Cancelled drop and emits the preserved drag intent only after a reason is entered', async () => {
+    await TestBed.configureTestingModule({ imports: [AipKanbanComponent] }).compileComponents();
+    const fixture = TestBed.createComponent(AipKanbanComponent);
+    const moving = { id: 'task-1', stage: 'stage-todo', order: 1000, canMove: true };
+    const cancelledNeighbor = { id: 'task-cancelled', stage: 'stage-cancelled', order: 2000, canMove: true };
+    fixture.componentInstance.contract = { ...kanbanContract(), items: [moving, cancelledNeighbor] };
+    const moves: AipKanbanMoveRequest<object>[] = [];
+    const interactionStates: boolean[] = [];
+    fixture.componentInstance.moveRequested.subscribe((value) => moves.push(value));
+    fixture.componentInstance.interactionActiveChange.subscribe((value) => interactionStates.push(value));
+    fixture.detectChanges();
+
+    const host = fixture.nativeElement as HTMLElement;
+    host.querySelector<HTMLElement>('[data-kanban-card-id="task-1"]')!
+      .dispatchEvent(new Event('dragstart', { bubbles: true }));
+    host.querySelector<HTMLElement>('[data-kanban-card-id="task-cancelled"]')!
+      .dispatchEvent(dropEvent());
+    fixture.detectChanges();
+
+    const form = host.querySelector<HTMLFormElement>('.aip-kanban__move')!;
+    const selects = form.querySelectorAll<HTMLSelectElement>('select');
+    const reason = form.querySelector<HTMLTextAreaElement>('textarea')!;
+    const apply = Array.from(form.querySelectorAll<HTMLButtonElement>('button'))
+      .find((button) => button.textContent?.trim() === 'Apply move')!;
+    expect(moves).toEqual([]);
+    expect(fixture.componentInstance.movingItemId).toBe('task-1');
+    expect(selects[0].value).toBe('stage-cancelled');
+    expect(selects[1].value).toBe('before:task-cancelled');
+    expect(reason.required).toBe(true);
+    expect(reason.value).toBe('');
+    expect(apply.disabled).toBe(true);
+    expect(interactionStates.at(-1)).toBe(true);
+
+    form.dispatchEvent(new Event('submit', { bubbles: true, cancelable: true }));
+    expect(moves).toEqual([]);
+    expect(fixture.componentInstance.movingItemId).toBe('task-1');
+    expect(interactionStates.at(-1)).toBe(true);
+
+    reason.value = '  Superseded by the approved approach.  ';
+    reason.dispatchEvent(new Event('input', { bubbles: true }));
+    fixture.detectChanges();
+    expect(apply.disabled).toBe(false);
+    form.dispatchEvent(new Event('submit', { bubbles: true, cancelable: true }));
+
+    expect(moves).toHaveLength(1);
+    expect(moves[0]).toMatchObject({
+      item: moving,
+      targetStatus: 'stage-cancelled',
+      targetBeforeItemId: 'task-cancelled',
+      targetAfterItemId: null,
+      reason: 'Superseded by the approved approach.',
+      source: 'drag'
+    });
+    expect(interactionStates.at(-1)).toBe(false);
+  });
+
+  it('keeps a reason-required drag active until Escape or Cancel and restores focus without emitting a command', async () => {
+    await TestBed.configureTestingModule({ imports: [AipKanbanComponent] }).compileComponents();
+    const fixture = TestBed.createComponent(AipKanbanComponent);
+    fixture.componentInstance.contract = kanbanContract();
+    const moves: AipKanbanMoveRequest<object>[] = [];
+    const interactionStates: boolean[] = [];
+    fixture.componentInstance.moveRequested.subscribe((value) => moves.push(value));
+    fixture.componentInstance.interactionActiveChange.subscribe((value) => interactionStates.push(value));
+    fixture.detectChanges();
+
+    const host = fixture.nativeElement as HTMLElement;
+    const card = host.querySelector<HTMLElement>('[data-kanban-card-id="task-1"]')!;
+    const cancelledColumn = Array.from(host.querySelectorAll<HTMLElement>('.aip-kanban__column'))
+      .find((column) => column.querySelector('h3')?.textContent?.trim() === 'Cancelled')!;
+    card.dispatchEvent(new Event('dragstart', { bubbles: true }));
+    cancelledColumn.dispatchEvent(dropEvent());
+    card.dispatchEvent(new Event('dragend', { bubbles: true }));
+    fixture.detectChanges();
+    expect(interactionStates.at(-1)).toBe(true);
+
+    host.querySelector<HTMLFormElement>('.aip-kanban__move')!
+      .dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true, cancelable: true }));
+    fixture.detectChanges();
+    await Promise.resolve();
+
+    expect(moves).toEqual([]);
+    expect(host.querySelector('.aip-kanban__move')).toBeNull();
+    expect(document.activeElement).toBe(card);
+    expect(interactionStates.at(-1)).toBe(false);
+
+    card.dispatchEvent(new Event('dragstart', { bubbles: true }));
+    cancelledColumn.dispatchEvent(dropEvent());
+    fixture.detectChanges();
+    Array.from(host.querySelectorAll<HTMLButtonElement>('.aip-kanban__move button'))
+      .find((button) => button.textContent?.trim() === 'Cancel')!.click();
+    fixture.detectChanges();
+    await Promise.resolve();
+
+    expect(moves).toEqual([]);
+    expect(host.querySelector('.aip-kanban__move')).toBeNull();
+    expect(document.activeElement).toBe(card);
+    expect(interactionStates.at(-1)).toBe(false);
+  });
+
+  it('emits a reason-free pointer drop directly with the canonical end-of-Stage intent', async () => {
+    await TestBed.configureTestingModule({ imports: [AipKanbanComponent] }).compileComponents();
+    const fixture = TestBed.createComponent(AipKanbanComponent);
+    fixture.componentInstance.contract = kanbanContract();
+    let move: AipKanbanMoveRequest<object> | undefined;
+    fixture.componentInstance.moveRequested.subscribe((value) => move = value);
+    fixture.detectChanges();
+
+    const moving = fixture.componentInstance.contract.items[0];
+    const host = fixture.nativeElement as HTMLElement;
+    const card = host.querySelector<HTMLElement>('[data-kanban-card-id="task-1"]')!;
+    const doneColumn = Array.from(host.querySelectorAll<HTMLElement>('.aip-kanban__column'))
+      .find((column) => column.querySelector('h3')?.textContent?.trim() === 'Done')!;
+    card.dispatchEvent(new Event('dragstart', { bubbles: true }));
+    doneColumn.dispatchEvent(dropEvent());
+    fixture.detectChanges();
+
+    expect(move).toMatchObject({
+      item: moving,
+      targetStatus: 'stage-done',
+      targetBeforeItemId: null,
+      targetAfterItemId: null,
+      reason: null,
+      source: 'drag'
+    });
+    expect((fixture.nativeElement as HTMLElement).querySelector('.aip-kanban__move')).toBeNull();
+  });
+
   it('restores logical card focus and renders narrow grouped columns without exposing a vendor element', async () => {
     await TestBed.configureTestingModule({ imports: [AipKanbanComponent] }).compileComponents();
     const fixture = TestBed.createComponent(AipKanbanComponent);
@@ -108,15 +236,18 @@ describe('AIPsite complex adapter shells', () => {
     expect(Array.from(host.querySelectorAll('button')).some((button) => button.textContent?.trim() === 'Move')).toBe(false);
   });
 
-  it('uses Stage rank rather than swimlane label order for neighbor intents', async () => {
+  it('uses canonical Stage rank for start and before while End stays null/null for a truncated presentation', async () => {
     await TestBed.configureTestingModule({ imports: [AipKanbanComponent] }).compileComponents();
     const fixture = TestBed.createComponent(AipKanbanComponent);
-    const moving = { id: 'task-1', stage: 'stage-todo', order: 1000, lane: 'Moving' };
-    const rankFirst = { id: 'task-2', stage: 'stage-done', order: 1000, lane: 'Zulu' };
-    const rankSecond = { id: 'task-3', stage: 'stage-done', order: 2000, lane: 'Alpha' };
+    const moving = { id: 'task-1', stage: 'stage-todo', order: 1000, lane: 'Moving', canMove: true };
+    const rankFirst = { id: 'task-2', stage: 'stage-done', order: 1000, lane: 'Zulu', canMove: true };
+    const rankSecond = { id: 'task-3', stage: 'stage-done', order: 2000, lane: 'Alpha', canMove: true };
+    const base = kanbanContract();
     fixture.componentInstance.contract = {
-      ...kanbanContract(),
+      ...base,
       items: [moving, rankFirst, rankSecond],
+      columns: base.columns.map((column) =>
+        column.id === 'stage-done' ? { ...column, cardCount: 500 } : column),
       itemIdentity: (item) => String((item as typeof moving).id),
       itemStatus: (item) => String((item as typeof moving).stage),
       itemOrder: (item) => Number((item as typeof moving).order),
@@ -125,10 +256,41 @@ describe('AIPsite complex adapter shells', () => {
         return { key: lane, label: lane };
       }
     };
-    fixture.componentInstance.moveTargetStatus = 'stage-done';
+    const moves: AipKanbanMoveRequest<object>[] = [];
+    fixture.componentInstance.moveRequested.subscribe((value) => moves.push(value));
+    fixture.detectChanges();
 
-    expect(fixture.componentInstance.positionItems(moving).map((item) => (item as typeof moving).id))
-      .toEqual(['task-2', 'task-3']);
+    fixture.componentInstance.openMove(moving);
+    fixture.componentInstance.changeTarget('stage-done');
+    fixture.componentInstance.movePosition = 'end';
+    fixture.componentInstance.submitMove(moving, submitEvent());
+
+    fixture.componentInstance.openMove(moving);
+    fixture.componentInstance.changeTarget('stage-done');
+    fixture.componentInstance.movePosition = 'start';
+    fixture.componentInstance.submitMove(moving, submitEvent());
+
+    fixture.componentInstance.openMove(moving);
+    fixture.componentInstance.changeTarget('stage-done');
+    fixture.componentInstance.movePosition = 'before:task-3';
+    fixture.componentInstance.submitMove(moving, submitEvent());
+
+    expect(moves).toHaveLength(3);
+    expect(moves[0]).toMatchObject({
+      targetBeforeItemId: null,
+      targetAfterItemId: null,
+      source: 'keyboard'
+    });
+    expect(moves[1]).toMatchObject({
+      targetBeforeItemId: 'task-2',
+      targetAfterItemId: null,
+      source: 'keyboard'
+    });
+    expect(moves[2]).toMatchObject({
+      targetBeforeItemId: 'task-3',
+      targetAfterItemId: null,
+      source: 'keyboard'
+    });
   });
 });
 
@@ -152,7 +314,16 @@ function kanbanContract(): AipKanbanContract<object> {
     canRequestTransition: () => true,
     columns: [
       { id: 'stage-todo', label: 'Todo', category: 'todo', cardCount: 1, wipWarningLimit: null, hasWipWarning: false },
-      { id: 'stage-done', label: 'Done', category: 'done', cardCount: 0, wipWarningLimit: null, hasWipWarning: false }
+      { id: 'stage-done', label: 'Done', category: 'done', cardCount: 0, wipWarningLimit: null, hasWipWarning: false },
+      { id: 'stage-cancelled', label: 'Cancelled', category: 'cancelled', cardCount: 0, wipWarningLimit: null, hasWipWarning: false, requiresReason: true }
     ]
   };
+}
+
+function dropEvent(): DragEvent {
+  return new Event('drop', { bubbles: true, cancelable: true }) as DragEvent;
+}
+
+function submitEvent(): Event {
+  return new Event('submit', { bubbles: true, cancelable: true });
 }

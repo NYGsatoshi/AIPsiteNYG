@@ -308,6 +308,44 @@ test.describe('MVP-A P0 Angular frontend smoke', () => {
     expect(api.moveBodies).toHaveLength(3);
   });
 
+  test('collects a cancellation reason before a pointer drag submits the canonical move', async ({ page }, testInfo) => {
+    test.skip(testInfo.project.name !== 'chromium-desktop', 'Pointer drag remediation is covered by the desktop browser project.');
+    const api = await installProjectKanbanApi(page);
+    await page.setViewportSize({ width: 1280, height: 900 });
+    await page.goto('/app/projects/static-project-kanban');
+
+    const card = page.locator('[data-kanban-card-id="static-task-kanban"]');
+    const todoColumn = page.locator('.aip-kanban__column')
+      .filter({ has: page.getByRole('heading', { name: 'Todo', exact: true }) });
+    const cancelledColumn = page.locator('.aip-kanban__column')
+      .filter({ has: page.getByRole('heading', { name: 'Cancelled', exact: true }) });
+
+    await card.dragTo(cancelledColumn);
+
+    await expect(todoColumn.locator('[data-kanban-card-id="static-task-kanban"]')).toBeVisible();
+    await expect(cancelledColumn.locator('[data-kanban-card-id="static-task-kanban"]')).toHaveCount(0);
+    await expect(card.getByLabel('Target stage')).toHaveValue('stage-cancelled');
+    await expect(card.getByLabel('Position')).toHaveValue('end');
+    const applyMove = card.getByRole('button', { name: 'Apply move' });
+    await expect(applyMove).toBeDisabled();
+    expect(api.moveBodies).toHaveLength(0);
+
+    await card.getByLabel('Reason').fill('Cancelled after stakeholder review.');
+    await expect(applyMove).toBeEnabled();
+    await applyMove.click();
+
+    await expect(cancelledColumn.locator('[data-kanban-card-id="static-task-kanban"]')).toBeVisible();
+    await expect(page.getByText('Move saved.', { exact: true })).toBeVisible();
+    expect(api.moveBodies).toHaveLength(1);
+    expect(api.moveBodies[0]).toMatchObject({
+      targetWorkflowStageId: 'stage-cancelled',
+      targetBeforeTaskId: null,
+      targetAfterTaskId: null,
+      reason: 'Cancelled after stakeholder review.'
+    });
+    expect(api.csrfHeaders).toEqual(['csrf-kanban']);
+  });
+
   test('keeps the maintained Project Task List when tasks.kanbanV1 is disabled', async ({ page }) => {
     await page.addInitScript(() => {
       (window as Window & { __AIP_FEATURE_FLAGS__?: Record<string, boolean> }).__AIP_FEATURE_FLAGS__ = {
@@ -457,10 +495,11 @@ async function installProjectKanbanApi(
 
     if (path === '/api/tasks/static-task-kanban/kanban-move' && method === 'POST') {
       moveCount += 1;
-      moveBodies.push(request.postDataJSON() as Record<string, unknown>);
+      const moveBody = request.postDataJSON() as Record<string, unknown>;
+      moveBodies.push(moveBody);
       csrfHeaders.push(request.headers()['x-csrf-token'] ?? '');
       if (moveCount === 1) {
-        authoritativeSnapshot = projectKanbanSnapshot('stage-done', 8, 4);
+        authoritativeSnapshot = projectKanbanSnapshot(projectKanbanStageId(moveBody['targetWorkflowStageId']), 8, 4);
         await route.fulfill({
           status: 200,
           contentType: 'application/json',
@@ -492,8 +531,12 @@ async function installProjectKanbanApi(
   };
 }
 
-function projectKanbanSnapshot(stageId: 'stage-todo' | 'stage-done', boardVersion: number, taskVersion: number) {
+type ProjectKanbanStageId = 'stage-todo' | 'stage-done' | 'stage-cancelled';
+
+function projectKanbanSnapshot(stageId: ProjectKanbanStageId, boardVersion: number, taskVersion: number) {
   const inTodo = stageId === 'stage-todo';
+  const inDone = stageId === 'stage-done';
+  const inCancelled = stageId === 'stage-cancelled';
   return {
     board: {
       projectId: 'static-project-kanban',
@@ -529,7 +572,17 @@ function projectKanbanSnapshot(stageId: 'stage-todo' | 'stage-done', boardVersio
         category: 4,
         displayOrder: 2000,
         wipWarningLimit: null,
-        currentAuthorizedCardCount: inTodo ? 0 : 1,
+        currentAuthorizedCardCount: inDone ? 1 : 0,
+        hasWipWarning: false,
+        uiPermissions: { canConfigure: true }
+      },
+      {
+        workflowStageId: 'stage-cancelled',
+        displayName: 'Cancelled',
+        category: 5,
+        displayOrder: 3000,
+        wipWarningLimit: null,
+        currentAuthorizedCardCount: inCancelled ? 1 : 0,
         hasWipWarning: false,
         uiPermissions: { canConfigure: true }
       }
@@ -560,10 +613,15 @@ function projectKanbanSnapshot(stageId: 'stage-todo' | 'stage-done', boardVersio
       uiPermissions: {
         canOpen: true,
         canMove: true,
-        allowedTargetWorkflowStageIds: ['stage-todo', 'stage-done']
+        allowedTargetWorkflowStageIds: ['stage-todo', 'stage-done', 'stage-cancelled']
       }
     }]
   };
+}
+
+function projectKanbanStageId(value: unknown): ProjectKanbanStageId {
+  if (value === 'stage-todo' || value === 'stage-done' || value === 'stage-cancelled') return value;
+  throw new Error(`Unexpected mocked Kanban target Stage: ${String(value)}`);
 }
 
 async function expectHealthyAngularPage(page: Page) {

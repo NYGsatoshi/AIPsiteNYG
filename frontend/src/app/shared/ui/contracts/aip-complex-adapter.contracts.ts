@@ -94,6 +94,7 @@ export interface AipKanbanColumn {
 export interface AipKanbanMoveRequest<TItem> {
   readonly item: TItem;
   readonly targetStatus: string;
+  /** A null before/after pair is the canonical end-of-Stage intent. */
   readonly targetBeforeItemId: string | null;
   readonly targetAfterItemId: string | null;
   readonly reason: string | null;
