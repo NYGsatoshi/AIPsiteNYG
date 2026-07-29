@@ -21,7 +21,9 @@ public sealed class ProjectService(
     IBusinessInvalidationPublisher invalidations,
     IAuthorizationStateChangePublisher authorizationChanges,
     IUnitOfWork unitOfWork,
-    IFeatureFlagService? featureFlags = null) : IProjectService
+    ITaskCommandUnitOfWork taskUnitOfWork,
+    IFeatureFlagService? featureFlags = null,
+    ITaskWorkspaceTimeZoneResolver? timeZones = null) : IProjectService
 {
     private Task<bool>? taskDomainV1Enabled;
     public async Task<Result<PagedResponse<ProjectResponse>>> ListAsync(ProjectListQuery query, CancellationToken cancellationToken = default)
@@ -39,8 +41,13 @@ public sealed class ProjectService(
             .Where(project => MatchesSearch(project.Name, project.Description, query.Search))
             .ToList();
 
-        var responses = await Task.WhenAll(filtered.Select(project => ToProjectAsync(project, userId, cancellationToken)));
-        return Result<PagedResponse<ProjectResponse>>.Success(ToPagedResponse(responses.ToList(), query.SafePage, query.SafePageSize));
+        var responses = new List<ProjectResponse>(filtered.Count);
+        foreach (var project in filtered)
+        {
+            responses.Add(await ToProjectAsync(project, userId, cancellationToken));
+        }
+
+        return Result<PagedResponse<ProjectResponse>>.Success(ToPagedResponse(responses, query.SafePage, query.SafePageSize));
     }
 
     public async Task<Result<ProjectResponse>> CreateAsync(CreateProjectRequest request, CancellationToken cancellationToken = default)
@@ -428,13 +435,17 @@ public sealed class ProjectService(
         }
 
         var tasks = await projects.ListTasksAsync(projectId, cancellationToken);
-        HashSet<Guid>? taskIdsForAssignee = query.AssignedUserId.HasValue
-            ? (await Task.WhenAll(tasks.Select(async task => new
-            {
-                task.Id,
-                IsAssigned = (await projects.ListAssignmentsAsync(task.Id, cancellationToken)).Any(assignment => assignment.UserId == query.AssignedUserId.Value)
-            }))).Where(item => item.IsAssigned).Select(item => item.Id).ToHashSet()
-            : null;
+        // Do not run concurrent operations over the scoped DbContext.  This
+        // compatibility filter is intentionally sequential until it is moved
+        // to the repository's SQL projection.
+        HashSet<Guid>? taskIdsForAssignee = null;
+        if (query.AssignedUserId.HasValue)
+        {
+            taskIdsForAssignee = [];
+            foreach (var task in tasks)
+                if ((await projects.ListAssignmentsAsync(task.Id, cancellationToken)).Any(assignment => assignment.UserId == query.AssignedUserId.Value))
+                    taskIdsForAssignee.Add(task.Id);
+        }
 
         var filtered = tasks
             .Where(task => !task.DeletedAt.HasValue)
@@ -444,8 +455,23 @@ public sealed class ProjectService(
             .Where(task => !query.MilestoneId.HasValue || task.MilestoneId == query.MilestoneId.Value)
             .Where(task => taskIdsForAssignee is null || taskIdsForAssignee.Contains(task.Id))
             .ToList();
-        var responses = await Task.WhenAll(filtered.Select(task => ToTaskAsync(task, userId, cancellationToken)));
-        return Result<PagedResponse<TaskItemResponse>>.Success(ToPagedResponse(responses.ToList(), query.SafePage, query.SafePageSize));
+        // Build each direct-child collection once.  Passing the complete Project
+        // set to every row makes parent derivation quadratic for large lists.
+        var childrenByParent = tasks
+            .Where(task => task.ParentTaskItemId.HasValue)
+            .GroupBy(task => task.ParentTaskItemId!.Value)
+            .ToDictionary(group => group.Key, group => (IEnumerable<TaskItem>)group.ToArray());
+        var derivedValues = tasks.ToDictionary(
+            task => task.Id,
+            task => ParentTaskDerivedValuesCalculator.Calculate(task, childrenByParent.GetValueOrDefault(task.Id, []), CategoryOf));
+        var workspaceId = tasks.FirstOrDefault()?.WorkspaceId;
+        var timeZone = workspaceId.HasValue && timeZones is not null
+            ? await timeZones.ResolveAsync(tasks[0].TenantId, workspaceId.Value, cancellationToken)
+            : TimeZoneInfo.Utc;
+        var responses = new List<TaskItemResponse>(filtered.Count);
+        foreach (var task in filtered)
+            responses.Add(await ToTaskAsync(task, userId, cancellationToken, derivedValues[task.Id], timeZone));
+        return Result<PagedResponse<TaskItemResponse>>.Success(ToPagedResponse(responses, query.SafePage, query.SafePageSize));
     }
 
     public async Task<Result<TaskItemResponse>> CreateTaskAsync(Guid projectId, CreateTaskItemRequest request, CancellationToken cancellationToken = default)
@@ -477,21 +503,17 @@ public sealed class ProjectService(
             Priority = request.Priority,
             StartDate = request.StartDate,
             DueDate = request.DueDate,
+            PlannedStartDate = request.StartDate,
+            PlannedEndDate = request.DueDate,
             CreatedByUserId = userId
         };
 
         await projects.AddTaskAsync(task, cancellationToken);
-        await projects.AddWatchStateAsync(new WorkItemWatchState
-        {
-            TaskItemId = task.Id,
-            UserId = userId,
-            AutomaticSources = WorkItemWatchAutomaticSource.Creator,
-            IsWatching = true,
-            UpdatedAt = clock.UtcNow
-        }, cancellationToken);
+        await projects.AddWatchStateAsync(TaskWatchStateInitializer.ForCreator(task, userId, clock.UtcNow), cancellationToken);
         await AuditAsync(userId, "TaskCreated", "TaskItem", task.Id, cancellationToken);
         await invalidations.TaskChangedAsync(task, userId, "created", cancellationToken: cancellationToken);
-        await unitOfWork.SaveChangesAsync(cancellationToken);
+        if (await taskUnitOfWork.SaveTaskCommandAsync(cancellationToken) != TaskCommandSaveResult.Saved)
+            return TaskConflict<TaskItemResponse>();
         return Result<TaskItemResponse>.Success(await ToTaskAsync(task, userId, cancellationToken));
     }
 
@@ -545,11 +567,13 @@ public sealed class ProjectService(
         task.ProgressPercent = task.Status == TaskItemStatus.Completed ? 100 : progress;
 
         await NotifyTaskChangesAsync(task, previousStatus, previousDueDate, cancellationToken);
+        task.VersionNo++;
         await AuditAsync(userId, "TaskUpdated", "TaskItem", task.Id, cancellationToken);
         var changedFields = ChangedTaskFields(request, previousStatus);
         var affectedUsers = (await projects.ListAssignmentsAsync(task.Id, cancellationToken)).Select(assignment => assignment.UserId);
         await invalidations.TaskChangedAsync(task, userId, previousStatus == task.Status ? "updated" : "statusChanged", changedFields, affectedUsers, cancellationToken);
-        await unitOfWork.SaveChangesAsync(cancellationToken);
+        if (await taskUnitOfWork.SaveTaskCommandAsync(cancellationToken) != TaskCommandSaveResult.Saved)
+            return TaskConflict<TaskItemResponse>();
         return Result<TaskItemResponse>.Success(await ToTaskAsync(task, userId, cancellationToken));
     }
 
@@ -567,10 +591,12 @@ public sealed class ProjectService(
         }
 
         task.MarkDeleted(clock.UtcNow);
+        task.VersionNo++;
         await AuditAsync(userId, "TaskArchived", "TaskItem", task.Id, cancellationToken);
         var deletedTaskUsers = (await projects.ListAssignmentsAsync(task.Id, cancellationToken)).Select(assignment => assignment.UserId);
         await invalidations.TaskChangedAsync(task, userId, "deleted", affectedUserIds: deletedTaskUsers, cancellationToken: cancellationToken);
-        await unitOfWork.SaveChangesAsync(cancellationToken);
+        if (await taskUnitOfWork.SaveTaskCommandAsync(cancellationToken) != TaskCommandSaveResult.Saved)
+            return TaskConflict();
         return Result.Success();
     }
 
@@ -630,10 +656,17 @@ public sealed class ProjectService(
 
         await projects.AddAssignmentAsync(assignment, cancellationToken);
         await notifications.NotifyAsync(request.UserId, "Task assigned", task.Title, "TaskItem", task.Id, cancellationToken);
+        task.VersionNo++;
         await AuditAsync(actorUserId, "TaskAssigned", "TaskItem", task.Id, cancellationToken);
         var assignmentUsers = (await projects.ListAssignmentsAsync(task.Id, cancellationToken)).Select(item => item.UserId).Append(request.UserId);
         await invalidations.TaskChangedAsync(task, actorUserId, "assignmentChanged", ["assignments"], assignmentUsers, cancellationToken);
-        await unitOfWork.SaveChangesAsync(cancellationToken);
+        var save = await taskUnitOfWork.SaveTaskCommandAsync(cancellationToken);
+        if (save != TaskCommandSaveResult.Saved)
+            return save.Result == TaskCommandSaveResult.UniqueConflict
+                ? (IsAssignmentIdentityConstraint(save.ConstraintName)
+                    ? AssignmentConflict<TaskAssignmentResponse>()
+                    : GeneralTaskConflict<TaskAssignmentResponse>())
+                : TaskConflict<TaskAssignmentResponse>();
         return Result<TaskAssignmentResponse>.Success(ToAssignment(assignment));
     }
 
@@ -665,9 +698,16 @@ public sealed class ProjectService(
         assignment.EstimatedHours = request.EstimatedHours;
         assignment.ActualHours = request.ActualHours;
         await notifications.NotifyAsync(assignment.UserId, "Task assignment updated", assignment.TaskItem.Title, "TaskItem", assignment.TaskItemId, cancellationToken);
+        assignment.TaskItem.VersionNo++;
         await AuditAsync(userId, "TaskAssignmentUpdated", "TaskItem", assignment.TaskItemId, cancellationToken);
         await invalidations.TaskChangedAsync(assignment.TaskItem, userId, "assignmentChanged", ["assignments"], [assignment.UserId], cancellationToken);
-        await unitOfWork.SaveChangesAsync(cancellationToken);
+        var save = await taskUnitOfWork.SaveTaskCommandAsync(cancellationToken);
+        if (save != TaskCommandSaveResult.Saved)
+            return save.Result == TaskCommandSaveResult.UniqueConflict
+                ? (IsAssignmentIdentityConstraint(save.ConstraintName)
+                    ? AssignmentConflict<TaskAssignmentResponse>()
+                    : GeneralTaskConflict<TaskAssignmentResponse>())
+                : TaskConflict<TaskAssignmentResponse>();
         return Result<TaskAssignmentResponse>.Success(ToAssignment(assignment));
     }
 
@@ -684,14 +724,18 @@ public sealed class ProjectService(
             return Result.Failure("You are not allowed to assign this task.");
         }
 
+        var task = assignment.TaskItem;
+        if (task is null)
+        {
+            return Result.Failure("Task not found.");
+        }
         projects.RemoveAssignment(assignment);
         await notifications.NotifyAsync(assignment.UserId, "Task assignment removed", assignment.TaskItem?.Title, "TaskItem", assignment.TaskItemId, cancellationToken);
+        task.VersionNo++;
         await AuditAsync(userId, "TaskAssignmentRemoved", "TaskItem", assignment.TaskItemId, cancellationToken);
-        if (assignment.TaskItem is not null)
-        {
-            await invalidations.TaskChangedAsync(assignment.TaskItem, userId, "assignmentChanged", ["assignments"], [assignment.UserId], cancellationToken);
-        }
-        await unitOfWork.SaveChangesAsync(cancellationToken);
+        await invalidations.TaskChangedAsync(task, userId, "assignmentChanged", ["assignments"], [assignment.UserId], cancellationToken);
+        if (await taskUnitOfWork.SaveTaskCommandAsync(cancellationToken) != TaskCommandSaveResult.Saved)
+            return TaskConflict();
         return Result.Success();
     }
 
@@ -1157,10 +1201,16 @@ public sealed class ProjectService(
         return new MilestoneResponse(milestone.Id, milestone.ProjectId, milestone.Name, milestone.Description, milestone.DueDate, milestone.Status, milestone.SortOrder, milestone.CreatedAt, milestone.UpdatedAt);
     }
 
-    private async Task<TaskItemResponse> ToTaskAsync(TaskItem task, Guid userId, CancellationToken cancellationToken)
+    private async Task<TaskItemResponse> ToTaskAsync(TaskItem task, Guid userId, CancellationToken cancellationToken, ParentTaskDerivedValues? derivedOverride = null, TimeZoneInfo? timeZoneOverride = null)
     {
         var canEdit = await taskAuthorization.CanUpdateTask(userId, task.Id, cancellationToken);
         var canAssign = await taskAuthorization.CanAssignTask(userId, task.Id, cancellationToken);
+        var derived = derivedOverride;
+        if (derived is null)
+            derived = ParentTaskDerivedValuesCalculator.Calculate(task, await projects.ListTasksAsync(task.ProjectId, cancellationToken), CategoryOf);
+        var timeZone = timeZoneOverride ?? (timeZones is null
+            ? TimeZoneInfo.Utc
+            : await timeZones.ResolveAsync(task.TenantId, task.WorkspaceId, cancellationToken));
         return new TaskItemResponse(
             task.Id,
             task.ProjectId,
@@ -1169,9 +1219,9 @@ public sealed class ProjectService(
             task.Description,
             task.Status,
             task.Priority,
-            task.StartDate,
-            task.DueDate,
-            task.ProgressPercent,
+            derived.PlannedStartDate,
+            derived.PlannedEndDate,
+            derived.ProgressPercent,
             task.CreatedByUserId,
             task.CreatedAt,
             task.UpdatedAt,
@@ -1181,8 +1231,22 @@ public sealed class ProjectService(
                 false,
                 canEdit,
                 Array.Empty<TaskItemStatus>(),
-                await GetTaskDomainV1RowVersionAsync(task, cancellationToken)));
+                await GetTaskDomainV1RowVersionAsync(task, cancellationToken)),
+            derived.PlannedStartDate,
+            derived.PlannedEndDate,
+            derived.IsDerived,
+            TaskDeadlineCalculator.IsOverdue(task, CategoryOf(task), timeZone, clock.UtcNow, derived.PlannedEndDate),
+            task.VersionNo);
     }
+
+    private static TaskStageCategory CategoryOf(TaskItem task) => task.WorkflowStage?.InternalCategory ?? task.Status switch
+    {
+        TaskItemStatus.InProgress => TaskStageCategory.InProgress,
+        TaskItemStatus.WaitingReview => TaskStageCategory.Review,
+        TaskItemStatus.Completed => TaskStageCategory.Done,
+        TaskItemStatus.Cancelled => TaskStageCategory.Cancelled,
+        _ => TaskStageCategory.Todo
+    };
 
     private async Task<string?> GetTaskDomainV1RowVersionAsync(TaskItem task, CancellationToken cancellationToken)
     {
@@ -1201,6 +1265,24 @@ public sealed class ProjectService(
     {
         return new TaskAssignmentResponse(assignment.Id, assignment.TaskItemId, assignment.UserId, assignment.User?.DisplayName ?? string.Empty, assignment.Role, assignment.EstimatedHours, assignment.ActualHours, assignment.AssignedAt, assignment.AssignedByUserId);
     }
+
+    private static Result TaskConflict() =>
+        Result.Failure(new ApplicationErrorDetail("TASK_STALE_VERSION", "Task has changed. Refetch and retry."));
+
+    private static Result<T> TaskConflict<T>() =>
+        Result<T>.Failure(new ApplicationErrorDetail("TASK_STALE_VERSION", "Task has changed. Refetch and retry."));
+
+    private static Result<T> AssignmentConflict<T>() =>
+        Result<T>.Failure(new ApplicationErrorDetail("TASK_ALREADY_ASSIGNED", "User already has this assignment role."));
+
+    private static Result<T> GeneralTaskConflict<T>() =>
+        Result<T>.Failure(new ApplicationErrorDetail("TASK_CONFLICT", "The task could not be updated. Refetch and retry."));
+
+    // This is the generated PostgreSQL index name for the unique TaskAssignment
+    // identity configured in TaskAssignmentConfiguration.  Do not map other
+    // database unique constraints to the assignment-specific error.
+    private static bool IsAssignmentIdentityConstraint(string? constraintName) =>
+        string.Equals(constraintName, "IX_task_assignments_TenantId_TaskItemId_UserId_Role", StringComparison.Ordinal);
 
     private static TaskDependencyResponse ToDependency(TaskDependency dependency)
     {

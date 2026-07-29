@@ -68,6 +68,20 @@ public sealed class FileRepository(AppDbContext dbContext) : IFileRepository
         await dbContext.Attachments.AddAsync(attachment, cancellationToken);
     }
 
+    public async Task<IReadOnlyList<Attachment>> ListTaskAttachmentsAsync(Guid taskItemId, CancellationToken cancellationToken = default) =>
+        await dbContext.Attachments.Include(x => x.FileObject).Where(x => x.OwnerType == AttachmentOwnerType.TaskItem && x.OwnerId == taskItemId && !x.DeletedAt.HasValue).OrderBy(x => x.CreatedAt).ToListAsync(cancellationToken);
+
+    public async Task<PagedResponse<Attachment>> ListTaskAttachmentsPageAsync(Guid taskItemId, int page, int pageSize, CancellationToken cancellationToken = default)
+    {
+        var query = dbContext.Attachments.Include(x => x.FileObject)
+            .Where(x => x.OwnerType == AttachmentOwnerType.TaskItem && x.OwnerId == taskItemId && !x.DeletedAt.HasValue);
+        var total = await query.CountAsync(cancellationToken);
+        var items = await query.OrderBy(x => x.CreatedAt).ThenBy(x => x.Id).Skip((page - 1) * pageSize).Take(pageSize).ToListAsync(cancellationToken);
+        return new PagedResponse<Attachment>(items, page, pageSize, total);
+    }
+
+    public void RemoveAttachment(Attachment attachment) => dbContext.Attachments.Remove(attachment);
+
     public async Task<FileOwnerContext?> ResolveOwnerAsync(AttachmentOwnerType ownerType, Guid ownerId, CancellationToken cancellationToken = default)
     {
         return ownerType switch

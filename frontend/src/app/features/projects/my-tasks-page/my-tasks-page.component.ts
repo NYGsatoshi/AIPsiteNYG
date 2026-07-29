@@ -8,7 +8,16 @@ import { AppInlineLoadingComponent } from '../../../shared/loading/app-inline-lo
 import { AppPermissionDeniedComponent } from '../../../shared/permission/app-permission-denied/app-permission-denied.component';
 import { FrontendFeatureFlagsService } from '../../../core/feature-flags/frontend-feature-flags.service';
 import { MyTasksFacade } from '../my-tasks.facade';
-import { MyTasksScope, MyTasksTab, MyTasksUrgencyGroup, MyTasksViewModel, TaskGridRow } from '../projects.types';
+import {
+  MyTasksBlockedFilter,
+  MyTasksPriorityFilter,
+  MyTasksScope,
+  MyTasksStageCategoryFilter,
+  MyTasksTab,
+  MyTasksUrgencyGroup,
+  MyTasksViewModel,
+  TaskGridRow
+} from '../projects.types';
 import { TaskTableComponent } from '../task-table/task-table.component';
 
 @Component({
@@ -33,9 +42,34 @@ export class MyTasksPageComponent {
 
   constructor() { this.facade.load(); }
   retry(): void { this.facade.retry(); }
+  refresh(): void { this.facade.refresh(); }
   setTab(tab: MyTasksTab): void { this.facade.setTab(tab); }
-  setScope(scope: MyTasksScope): void { this.facade.setScope(scope, this.page().workspaceId); }
+  setScope(scope: MyTasksScope): void { this.facade.setScope(scope); }
+  setWorkspace(workspaceId: string): void { this.facade.setWorkspace(workspaceId); }
+  setProjectFilter(value: string): void { this.facade.setProjectFilter(value); }
+  setStageCategoryFilter(value: string): void { this.facade.setStageCategoryFilter(value as MyTasksStageCategoryFilter); }
+  setPriorityFilter(value: string): void { this.facade.setPriorityFilter(value as MyTasksPriorityFilter); }
+  setBlockedFilter(value: string): void { this.facade.setBlockedFilter(value as MyTasksBlockedFilter); }
+  setTimeGroupFilter(value: string): void { this.facade.setTimeGroupFilter(value ? value as MyTasksUrgencyGroup : null); }
+  setSearchFilter(value: string): void { this.facade.setSearchFilter(value); }
+  previousPage(): void { this.facade.previousPage(); }
+  nextPage(): void { this.facade.nextPage(); }
+  setPageSize(value: string): void { this.facade.setPageSize(Number(value)); }
   count(vm: MyTasksViewModel, key: string): number { return vm.counts.find((item) => item.key === key)?.count ?? 0; }
   tasksForGroup(vm: MyTasksViewModel, group: MyTasksUrgencyGroup) { return vm.tasks.filter((task) => task.timeGroup === group); }
+  handleTabKeydown(event: KeyboardEvent, index: number): void {
+    const keyTargets: Record<string, number> = {
+      ArrowLeft: (index - 1 + this.tabs.length) % this.tabs.length,
+      ArrowRight: (index + 1) % this.tabs.length,
+      Home: 0,
+      End: this.tabs.length - 1
+    };
+    const targetIndex = keyTargets[event.key];
+    if (targetIndex === undefined) return;
+    event.preventDefault();
+    this.setTab(this.tabs[targetIndex].id);
+    const tabElements = (event.currentTarget as HTMLElement).parentElement?.querySelectorAll<HTMLElement>('[role="tab"]');
+    tabElements?.[targetIndex]?.focus();
+  }
   handleTaskAction(event: AppDataGridActionEvent<TaskGridRow>): void { if (event.actionId === 'openDetail') void this.router.navigate(['/projects', event.row.projectId, 'tasks', event.row.id]); }
 }

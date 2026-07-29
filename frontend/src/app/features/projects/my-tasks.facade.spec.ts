@@ -2,6 +2,7 @@ import { provideHttpClient } from '@angular/common/http';
 import { HttpTestingController, provideHttpClientTesting } from '@angular/common/http/testing';
 import { TestBed } from '@angular/core/testing';
 
+import { ActiveWorkspaceFacade } from '../../core/workspace/active-workspace.facade';
 import { MyTasksFacade } from './my-tasks.facade';
 
 const task = {
@@ -15,9 +16,12 @@ const task = {
 describe('MyTasksFacade', () => {
   let facade: MyTasksFacade;
   let httpMock: HttpTestingController;
+  let activeWorkspace: ActiveWorkspaceFacade;
 
   beforeEach(() => {
     TestBed.configureTestingModule({ providers: [provideHttpClient(), provideHttpClientTesting()] });
+    activeWorkspace = TestBed.inject(ActiveWorkspaceFacade);
+    activeWorkspace.setActiveWorkspace({ id: 'workspace-1', label: 'Workspace one' });
     facade = TestBed.inject(MyTasksFacade);
     httpMock = TestBed.inject(HttpTestingController);
   });
@@ -52,12 +56,87 @@ describe('MyTasksFacade', () => {
     expect(facade.getMyTasks().status).toBe('error');
   });
 
+  it('does not issue the current-workspace request until an explicit active workspace is available', () => {
+    activeWorkspace.clearWorkspace();
+    TestBed.flushEffects();
+    facade.load();
+    httpMock.expectNone('/api/me/tasks');
+    httpMock.expectNone('/api/me/tasks/counts');
+
+    activeWorkspace.setActiveWorkspace({ id: 'workspace-explicit', label: 'Explicit workspace' });
+    TestBed.flushEffects();
+    const requests = httpMock.match((request) => request.url === '/api/me/tasks' || request.url === '/api/me/tasks/counts');
+    expect(requests).toHaveLength(2);
+    expect(requests.every((request) => request.request.params.get('workspaceId') === 'workspace-explicit')).toBe(true);
+    requests[0].flush({ items: [], page: 1, pageSize: 50, totalCount: 0 });
+    requests[1].flush({ views: [], timeGroups: [] });
+  });
+
+  it('maps filters and server paging into canonical query parameters and resets the page', () => {
+    facade.load();
+    flush({ items: [], page: 1, pageSize: 50, totalCount: 60 }, { views: [], timeGroups: [] });
+
+    facade.nextPage();
+    let requests = httpMock.match((request) => request.url === '/api/me/tasks' || request.url === '/api/me/tasks/counts');
+    expect(requests[0].request.params.get('page')).toBe('2');
+    requests[0].flush({ items: [], page: 2, pageSize: 50, totalCount: 60 });
+    requests[1].flush({ views: [], timeGroups: [] });
+
+    facade.setPriorityFilter('critical');
+    requests = httpMock.match((request) => request.url === '/api/me/tasks' || request.url === '/api/me/tasks/counts');
+    expect(requests[0].request.params.get('page')).toBe('1');
+    expect(requests[0].request.params.get('priority')).toBe('critical');
+    requests[0].flush({ items: [], page: 1, pageSize: 50, totalCount: 0 });
+    requests[1].flush({ views: [], timeGroups: [] });
+  });
+
+  it('clears and cancels the prior workspace request before loading the newly selected workspace', () => {
+    facade.load();
+    const prior = httpMock.match((request) => request.url === '/api/me/tasks' || request.url === '/api/me/tasks/counts');
+
+    facade.setWorkspace('workspace-2');
+
+    expect(prior.every((request) => request.cancelled)).toBe(true);
+    expect(facade.getMyTasks().tasks).toEqual([]);
+    expect(facade.getMyTasks().counts).toEqual([]);
+    expect(facade.getMyTasks().page).toBe(1);
+    const current = httpMock.match((request) => request.url === '/api/me/tasks' || request.url === '/api/me/tasks/counts');
+    expect(current).toHaveLength(2);
+    expect(current.every((request) => request.request.params.get('workspaceId') === 'workspace-2')).toBe(true);
+    current.find((request) => request.request.url === '/api/me/tasks')!
+      .flush({ items: [], page: 1, pageSize: 50, totalCount: 0 });
+    current.find((request) => request.request.url === '/api/me/tasks/counts')!
+      .flush({ views: [], timeGroups: [] });
+  });
+
+  it('clears protected rows and counts before an authorization-state refetch', () => {
+    vi.useFakeTimers();
+    facade.load();
+    flush({ items: [task], page: 1, pageSize: 50, totalCount: 1 }, { views: [{ view: 'Assigned', count: 1 }], timeGroups: [] });
+
+    (facade as unknown as { handleRealtimeEvent(event: unknown): void }).handleRealtimeEvent({
+      eventType: 'Security.AuthorizationStateChanged.v1'
+    });
+
+    expect(facade.getMyTasks().tasks).toEqual([]);
+    expect(facade.getMyTasks().counts).toEqual([]);
+    expect(facade.getMyTasks().totalCount).toBe(0);
+
+    vi.advanceTimersByTime(150);
+    const requests = httpMock.match((request) => request.url === '/api/me/tasks' || request.url === '/api/me/tasks/counts');
+    expect(requests).toHaveLength(2);
+    requests[0].flush({ items: [], page: 1, pageSize: 50, totalCount: 0 });
+    requests[1].flush({ views: [], timeGroups: [] });
+    vi.useRealTimers();
+  });
+
   function flush(page: unknown, counts: unknown): void {
     const requests = httpMock.match((request) => request.url === '/api/me/tasks' || request.url === '/api/me/tasks/counts');
     expect(requests).toHaveLength(2);
     const taskRequest = requests.find((request) => request.request.url === '/api/me/tasks')!;
     expect(taskRequest.request.params.get('view')).toBe('assigned');
     expect(taskRequest.request.params.get('scope')).toBe('currentWorkspace');
+    expect(taskRequest.request.params.get('workspaceId')).toBe('workspace-1');
     taskRequest.flush(page);
     requests.find((request) => request.request.url === '/api/me/tasks/counts')!.flush(counts);
   }

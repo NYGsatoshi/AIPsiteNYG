@@ -141,7 +141,7 @@ Details and suggested issue titles are in `docs/KNOWN_ISSUES.md` and `docs/BACKE
 
 The 2026-06-18 local audit observed 123 passing .NET tests. This result needs qualification:
 
-- The two PostgreSQL tests return immediately when `POSTGRES_TEST_CONNECTION_STRING` is absent, and xUnit reports them as passed rather than skipped.
+- PostgreSQL integration tests are explicitly skipped locally when `POSTGRES_TEST_CONNECTION_STRING` is absent and fail under CI when it is absent; a passing CI run still supplies the required execution evidence.
 - HTTP tests use Kestrel but mostly EF Core InMemory.
 - Root Playwright legacy static-SPA specs are obsolete after the Angular migration; future Playwright coverage should target Angular build output or a hosted Angular app.
 - CI supplies PostgreSQL and runs migrations before `dotnet test`.

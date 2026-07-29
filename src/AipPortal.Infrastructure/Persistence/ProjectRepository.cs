@@ -1,3 +1,4 @@
+using AipPortal.Application.Common;
 using AipPortal.Application.Common.Interfaces;
 using AipPortal.Domain.Entities;
 using AipPortal.Domain.Enums;
@@ -74,6 +75,18 @@ public sealed class ProjectRepository(AppDbContext dbContext) : IProjectReposito
             .ThenBy(task => task.DueDate)
             .ThenBy(task => task.Title)
             .ToListAsync(cancellationToken);
+    }
+
+    public async Task<PagedResponse<TaskItem>> ListDirectSubtasksPageAsync(Guid projectId, Guid parentTaskItemId, int page, int pageSize, CancellationToken cancellationToken = default)
+    {
+        var query = dbContext.TaskItems
+            .Include(task => task.WorkflowStage)
+            .Include(task => task.PrimaryAssigneeUser)
+            .Where(task => task.ProjectId == projectId && task.ParentTaskItemId == parentTaskItemId && !task.DeletedAt.HasValue);
+        var total = await query.CountAsync(cancellationToken);
+        var items = await query.OrderBy(task => task.SortKey).ThenBy(task => task.Id)
+            .Skip((page - 1) * pageSize).Take(pageSize).ToListAsync(cancellationToken);
+        return new PagedResponse<TaskItem>(items, page, pageSize, total);
     }
 
     public Task<TaskItem?> GetTaskAsync(Guid taskItemId, CancellationToken cancellationToken = default)
@@ -184,6 +197,45 @@ public sealed class ProjectRepository(AppDbContext dbContext) : IProjectReposito
     public async Task<IReadOnlyList<WorkItemWatchState>> ListWatchStatesAsync(Guid taskItemId, CancellationToken cancellationToken = default) =>
         await dbContext.WorkItemWatchStates.Where(x => x.TaskItemId == taskItemId).ToListAsync(cancellationToken);
 
+    public async Task<IReadOnlyList<TaskChecklistItem>> ListChecklistAsync(Guid taskItemId, CancellationToken cancellationToken = default) =>
+        await dbContext.TaskChecklistItems.Where(x => x.TaskItemId == taskItemId).OrderBy(x => x.SortKey).ThenBy(x => x.Id).ToListAsync(cancellationToken);
+    public Task<TaskChecklistItem?> GetChecklistItemAsync(Guid itemId, CancellationToken cancellationToken = default) => dbContext.TaskChecklistItems.FirstOrDefaultAsync(x => x.Id == itemId, cancellationToken);
+    public async Task<IReadOnlyList<TaskComment>> ListTaskCommentsAsync(Guid taskItemId, int skip, int take, CancellationToken cancellationToken = default) =>
+        await dbContext.TaskComments.Include(x => x.AuthorUser).Where(x => x.TaskItemId == taskItemId).OrderBy(x => x.CreatedAt).ThenBy(x => x.Id).Skip(skip).Take(take).ToListAsync(cancellationToken);
+    public Task<int> CountTaskCommentsAsync(Guid taskItemId, CancellationToken cancellationToken = default) => dbContext.TaskComments.CountAsync(x => x.TaskItemId == taskItemId, cancellationToken);
+    public Task<TaskComment?> GetTaskCommentAsync(Guid commentId, CancellationToken cancellationToken = default) => dbContext.TaskComments.Include(x => x.TaskItem).FirstOrDefaultAsync(x => x.Id == commentId, cancellationToken);
+    public async Task<IReadOnlyList<ProjectTaskLabel>> ListTaskLabelsAsync(Guid projectId, bool includeArchived, CancellationToken cancellationToken = default) =>
+        await dbContext.ProjectTaskLabels.Where(x => x.ProjectId == projectId && (includeArchived || !x.IsArchived)).OrderBy(x => x.SortKey).ThenBy(x => x.Name).ToListAsync(cancellationToken);
+    public Task<ProjectTaskLabel?> GetTaskLabelAsync(Guid labelId, CancellationToken cancellationToken = default) => dbContext.ProjectTaskLabels.FirstOrDefaultAsync(x => x.Id == labelId, cancellationToken);
+    public async Task<IReadOnlyList<WorkItemLabel>> ListWorkItemLabelsAsync(Guid taskItemId, CancellationToken cancellationToken = default) =>
+        await dbContext.WorkItemLabels.Include(x => x.Label).Where(x => x.TaskItemId == taskItemId).ToListAsync(cancellationToken);
+    public async Task<IReadOnlyList<User>> SearchMentionCandidatesAsync(Guid projectId, string query, int take, CancellationToken cancellationToken = default)
+    {
+        var project = await dbContext.Projects.AsNoTracking().FirstOrDefaultAsync(item => item.Id == projectId && !item.DeletedAt.HasValue && item.Status != ProjectStatus.Archived, cancellationToken);
+        if (project is null) return [];
+        var normalized = query.Trim().ToUpperInvariant();
+        var candidates = dbContext.Users.AsNoTracking().Where(user => user.DeletedAt == null && user.Status == UserStatus.Active && user.DisplayName.ToUpper().Contains(normalized));
+        candidates = project.GroupId.HasValue
+            ? candidates.Where(user => dbContext.ProjectMembers.Any(member => member.ProjectId == projectId && member.UserId == user.Id) ||
+                                       dbContext.GroupMembers.Any(member => member.GroupId == project.GroupId.Value && member.UserId == user.Id) ||
+                                       dbContext.WorkspaceMembers.Any(member => member.WorkspaceId == project.WorkspaceId && member.UserId == user.Id && member.Status == MembershipStatus.Active && (member.Role == WorkspaceRole.Owner || member.Role == WorkspaceRole.Admin)))
+            : candidates.Where(user => dbContext.ProjectMembers.Any(member => member.ProjectId == projectId && member.UserId == user.Id) ||
+                                       dbContext.WorkspaceMembers.Any(member => member.WorkspaceId == project.WorkspaceId && member.UserId == user.Id && member.Status == MembershipStatus.Active));
+        return await candidates.OrderBy(user => user.DisplayName.ToUpper()).ThenBy(user => user.Id).Take(take).ToListAsync(cancellationToken);
+    }
+    public async Task<IReadOnlyList<User>> GetEligibleMentionUsersAsync(Guid projectId, IReadOnlyCollection<Guid> userIds, CancellationToken cancellationToken = default)
+    {
+        if (userIds.Count == 0) return [];
+        var project = await dbContext.Projects.AsNoTracking().FirstOrDefaultAsync(item => item.Id == projectId && !item.DeletedAt.HasValue && item.Status != ProjectStatus.Archived, cancellationToken);
+        if (project is null) return [];
+        var candidates = dbContext.Users.AsNoTracking().Where(user => userIds.Contains(user.Id) && user.DeletedAt == null && user.Status == UserStatus.Active);
+        candidates = project.GroupId.HasValue
+            ? candidates.Where(user => dbContext.ProjectMembers.Any(member => member.ProjectId == projectId && member.UserId == user.Id) || dbContext.GroupMembers.Any(member => member.GroupId == project.GroupId.Value && member.UserId == user.Id) || dbContext.WorkspaceMembers.Any(member => member.WorkspaceId == project.WorkspaceId && member.UserId == user.Id && member.Status == MembershipStatus.Active && (member.Role == WorkspaceRole.Owner || member.Role == WorkspaceRole.Admin)))
+            : candidates.Where(user => dbContext.ProjectMembers.Any(member => member.ProjectId == projectId && member.UserId == user.Id) || dbContext.WorkspaceMembers.Any(member => member.WorkspaceId == project.WorkspaceId && member.UserId == user.Id && member.Status == MembershipStatus.Active));
+        return await candidates.ToListAsync(cancellationToken);
+    }
+    public Task<WorkItemLabel?> GetWorkItemLabelAsync(Guid associationId, CancellationToken cancellationToken = default) => dbContext.WorkItemLabels.FirstOrDefaultAsync(x => x.Id == associationId, cancellationToken);
+
     public async Task AddCollaboratorAsync(WorkItemCollaborator collaborator, CancellationToken cancellationToken = default) =>
         await dbContext.WorkItemCollaborators.AddAsync(collaborator, cancellationToken);
 
@@ -219,6 +271,19 @@ public sealed class ProjectRepository(AppDbContext dbContext) : IProjectReposito
 
     public async Task AddWatchStateAsync(WorkItemWatchState watchState, CancellationToken cancellationToken = default) =>
         await dbContext.WorkItemWatchStates.AddAsync(watchState, cancellationToken);
+    public async Task AddChecklistItemAsync(TaskChecklistItem item, CancellationToken cancellationToken = default) => await dbContext.TaskChecklistItems.AddAsync(item, cancellationToken);
+    public async Task AddTaskCommentAsync(TaskComment comment, CancellationToken cancellationToken = default) => await dbContext.TaskComments.AddAsync(comment, cancellationToken);
+    public async Task AddTaskLabelAsync(ProjectTaskLabel label, CancellationToken cancellationToken = default) => await dbContext.ProjectTaskLabels.AddAsync(label, cancellationToken);
+    public async Task AddWorkItemLabelAsync(WorkItemLabel association, CancellationToken cancellationToken = default) => await dbContext.WorkItemLabels.AddAsync(association, cancellationToken);
 
-    public void RemoveCollaborator(WorkItemCollaborator collaborator) => dbContext.WorkItemCollaborators.Remove(collaborator);
+    public void RemoveCollaborator(WorkItemCollaborator collaborator)
+    {
+        // Command services may have loaded the same association while composing a
+        // task projection. Prefer the request context's tracked instance over the
+        // no-tracking query result used for relationship reads.
+        var tracked = dbContext.WorkItemCollaborators.Local.FirstOrDefault(item => item.Id == collaborator.Id);
+        dbContext.WorkItemCollaborators.Remove(tracked ?? collaborator);
+    }
+    public void RemoveChecklistItem(TaskChecklistItem item) => dbContext.TaskChecklistItems.Remove(item);
+    public void RemoveWorkItemLabel(WorkItemLabel association) => dbContext.WorkItemLabels.Remove(association);
 }

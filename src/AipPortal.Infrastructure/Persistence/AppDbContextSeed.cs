@@ -3,6 +3,7 @@ using AipPortal.Domain.Enums;
 using AipPortal.Application.Common.Interfaces;
 using AipPortal.Application.Common.Tenancy;
 using Microsoft.EntityFrameworkCore;
+using System.Text;
 
 namespace AipPortal.Infrastructure.Persistence;
 
@@ -117,6 +118,7 @@ public static class AppDbContextSeed
     public static async Task SeedBrowserSmokeAsync(
         AppDbContext dbContext,
         IPasswordHasher passwordHasher,
+        IFileStorageService fileStorage,
         Guid tenantId,
         string email,
         string password,
@@ -131,6 +133,10 @@ public static class AppDbContextSeed
         const string taskTitle = "Browser smoke task";
         const string recipientEmail = "browser-smoke-recipient@example.test";
         const string recipientDisplayName = "Browser Smoke Recipient";
+        const string taskLabelName = "Browser smoke label";
+        const string taskFileName = "browser-smoke-task.txt";
+        const string taskFileContents = "Synthetic PR03C browser smoke file.\n";
+        var taskFileBytes = Encoding.UTF8.GetBytes(taskFileContents);
 
         var now = DateTimeOffset.UtcNow;
         var normalizedEmail = email.Trim().ToUpperInvariant();
@@ -412,6 +418,29 @@ public static class AppDbContextSeed
             }
         }
 
+        var recipientProjectMember = await dbContext.ProjectMembers.FirstOrDefaultAsync(
+            candidate => candidate.TenantId == tenantId && candidate.ProjectId == project.Id && candidate.UserId == recipient.Id,
+            cancellationToken);
+        if (recipientProjectMember is null)
+        {
+            await dbContext.ProjectMembers.AddAsync(new ProjectMember
+            {
+                TenantId = tenantId,
+                ProjectId = project.Id,
+                UserId = recipient.Id,
+                Role = ProjectRole.Contributor,
+                JoinedAt = now
+            }, cancellationToken);
+        }
+        else
+        {
+            recipientProjectMember.Role = ProjectRole.Contributor;
+            if (recipientProjectMember.JoinedAt == default)
+            {
+                recipientProjectMember.JoinedAt = now;
+            }
+        }
+
         var task = await dbContext.TaskItems.FirstOrDefaultAsync(
             candidate => candidate.TenantId == tenantId && candidate.ProjectId == project.Id && candidate.Title == taskTitle,
             cancellationToken);
@@ -420,6 +449,7 @@ public static class AppDbContextSeed
             task = new TaskItem
             {
                 TenantId = tenantId,
+                WorkspaceId = workspace.Id,
                 ProjectId = project.Id,
                 Title = taskTitle,
                 Description = "Synthetic task detail for the real-backend browser smoke test.",
@@ -429,12 +459,14 @@ public static class AppDbContextSeed
                 DueDate = project.DueDate,
                 ProgressPercent = 10,
                 SortOrder = 1,
+                PrimaryAssigneeUserId = user.Id,
                 CreatedByUserId = user.Id
             };
             await dbContext.TaskItems.AddAsync(task, cancellationToken);
         }
         else
         {
+            task.WorkspaceId = workspace.Id;
             task.Description = "Synthetic task detail for the real-backend browser smoke test.";
             task.Status = TaskItemStatus.NotStarted;
             task.Priority = TaskPriority.Medium;
@@ -442,10 +474,125 @@ public static class AppDbContextSeed
             task.DueDate = project.DueDate;
             task.ProgressPercent = 10;
             task.SortOrder = 1;
+            task.PrimaryAssigneeUserId = user.Id;
             task.CreatedByUserId = user.Id;
             if (task.IsDeleted)
             {
                 task.Restore();
+            }
+        }
+
+        var taskLabel = await dbContext.ProjectTaskLabels.FirstOrDefaultAsync(
+            candidate => candidate.TenantId == tenantId && candidate.ProjectId == project.Id && candidate.Name == taskLabelName,
+            cancellationToken);
+        if (taskLabel is null)
+        {
+            taskLabel = new ProjectTaskLabel
+            {
+                TenantId = tenantId,
+                WorkspaceId = workspace.Id,
+                ProjectId = project.Id,
+                Name = taskLabelName,
+                Description = "Synthetic label for the real-backend task detail acceptance.",
+                SortKey = 1024,
+                VersionNo = 1
+            };
+            await dbContext.ProjectTaskLabels.AddAsync(taskLabel, cancellationToken);
+        }
+        else
+        {
+            taskLabel.WorkspaceId = workspace.Id;
+            taskLabel.Description = "Synthetic label for the real-backend task detail acceptance.";
+            taskLabel.IsArchived = false;
+        }
+
+        var taskWorkItemLabel = await dbContext.WorkItemLabels.FirstOrDefaultAsync(
+            candidate => candidate.TenantId == tenantId && candidate.TaskItemId == task.Id && candidate.LabelId == taskLabel.Id,
+            cancellationToken);
+        if (taskWorkItemLabel is null)
+        {
+            await dbContext.WorkItemLabels.AddAsync(new WorkItemLabel
+            {
+                TenantId = tenantId,
+                TaskItemId = task.Id,
+                LabelId = taskLabel.Id,
+                AddedAt = now,
+                AddedByUserId = user.Id
+            }, cancellationToken);
+        }
+
+        var taskFile = await dbContext.FileObjects.FirstOrDefaultAsync(
+            candidate => candidate.TenantId == tenantId && candidate.WorkspaceId == workspace.Id && candidate.ProjectId == project.Id && candidate.OriginalFileName == taskFileName,
+            cancellationToken);
+        if (taskFile is null)
+        {
+            taskFile = new FileObject
+            {
+                TenantId = tenantId,
+                WorkspaceId = workspace.Id,
+                ProjectId = project.Id,
+                UploadedByUserId = user.Id,
+                OriginalFileName = taskFileName,
+                StorageKey = $"browser-smoke/{tenantId:D}/{project.Id:D}/{taskFileName}",
+                ContentType = "text/plain",
+                SizeBytes = taskFileBytes.LongLength,
+                Classification = DataClassification.Private,
+                Status = FileObjectStatus.Active
+            };
+            await dbContext.FileObjects.AddAsync(taskFile, cancellationToken);
+        }
+        else
+        {
+            taskFile.Status = FileObjectStatus.Active;
+            taskFile.ProjectId = project.Id;
+            taskFile.WorkspaceId = workspace.Id;
+            taskFile.UploadedByUserId = user.Id;
+            taskFile.ContentType = "text/plain";
+            taskFile.SizeBytes = taskFileBytes.LongLength;
+        }
+
+        var taskAttachment = await dbContext.Attachments.FirstOrDefaultAsync(
+            candidate => candidate.TenantId == tenantId && candidate.OwnerType == AttachmentOwnerType.TaskItem && candidate.OwnerId == task.Id && candidate.FileObjectId == taskFile.Id,
+            cancellationToken);
+        if (taskAttachment is null)
+        {
+            await dbContext.Attachments.AddAsync(new Attachment
+            {
+                TenantId = tenantId,
+                FileObjectId = taskFile.Id,
+                WorkspaceId = workspace.Id,
+                OwnerType = AttachmentOwnerType.TaskItem,
+                OwnerId = task.Id,
+                OwnerUserId = user.Id,
+                UploadedByUserId = user.Id,
+                FileName = taskFileName,
+                StoredFileName = taskFileName,
+                FilePath = "browser-smoke/internal/task-file",
+                ContentType = "text/plain",
+                Extension = ".txt",
+                SizeBytes = taskFileBytes.LongLength,
+                StorageProvider = "browser-smoke",
+                StorageKey = taskFile.StorageKey,
+                ScanStatus = FileScanStatus.Clean
+            }, cancellationToken);
+        }
+        else
+        {
+            taskAttachment.ScanStatus = FileScanStatus.Clean;
+            taskAttachment.OwnerType = AttachmentOwnerType.TaskItem;
+            taskAttachment.OwnerId = task.Id;
+            taskAttachment.WorkspaceId = workspace.Id;
+            taskAttachment.FileName = taskFileName;
+            taskAttachment.StoredFileName = taskFileName;
+            taskAttachment.FilePath = "browser-smoke/internal/task-file";
+            taskAttachment.ContentType = "text/plain";
+            taskAttachment.Extension = ".txt";
+            taskAttachment.SizeBytes = taskFileBytes.LongLength;
+            taskAttachment.StorageProvider = "browser-smoke";
+            taskAttachment.StorageKey = taskFile.StorageKey;
+            if (taskAttachment.IsDeleted)
+            {
+                taskAttachment.Restore();
             }
         }
 
@@ -474,7 +621,337 @@ public static class AppDbContextSeed
             taskAssignment.AssignedAt = taskAssignment.AssignedAt == default ? now : taskAssignment.AssignedAt;
         }
 
+        await SeedBrowserSmokeMyTasksPr04Async(
+            dbContext,
+            tenantId,
+            user,
+            recipient,
+            workspace,
+            project,
+            task,
+            now,
+            cancellationToken);
+
         await dbContext.SaveChangesAsync(cancellationToken);
+
+        await using var taskFileStream = new MemoryStream(taskFileBytes, writable: false);
+        var storageResult = await fileStorage.SaveAsync(
+            taskFile.StorageKey,
+            taskFileStream,
+            taskFile.ContentType,
+            cancellationToken);
+        if (!storageResult.IsSuccess)
+        {
+            throw new InvalidOperationException("Browser smoke synthetic file could not be stored.");
+        }
+    }
+
+    private static async Task SeedBrowserSmokeMyTasksPr04Async(
+        AppDbContext dbContext,
+        Guid tenantId,
+        User user,
+        User recipient,
+        Workspace workspace,
+        Project project,
+        TaskItem assignedTask,
+        DateTimeOffset now,
+        CancellationToken cancellationToken)
+    {
+        const string groupSlug = "browser-smoke-pr04-queue";
+        var group = await dbContext.Groups.FirstOrDefaultAsync(
+            candidate => candidate.TenantId == tenantId && candidate.WorkspaceId == workspace.Id && candidate.Slug == groupSlug,
+            cancellationToken);
+        if (group is null)
+        {
+            group = new Group
+            {
+                TenantId = tenantId,
+                WorkspaceId = workspace.Id,
+                Name = "Browser Smoke PR04 Queue",
+                Slug = groupSlug,
+                CreatedByUserId = user.Id,
+                Status = GroupStatus.Active
+            };
+            await dbContext.Groups.AddAsync(group, cancellationToken);
+        }
+        else
+        {
+            group.Status = GroupStatus.Active;
+            if (group.IsDeleted)
+            {
+                group.Restore();
+            }
+        }
+
+        var groupMember = await dbContext.GroupMembers.FirstOrDefaultAsync(
+            candidate => candidate.TenantId == tenantId && candidate.GroupId == group.Id && candidate.UserId == user.Id,
+            cancellationToken);
+        if (groupMember is null)
+        {
+            await dbContext.GroupMembers.AddAsync(new GroupMember
+            {
+                TenantId = tenantId,
+                GroupId = group.Id,
+                UserId = user.Id,
+                Role = GroupRole.Member,
+                JoinedAt = now
+            }, cancellationToken);
+        }
+
+        var workflow = await dbContext.TaskWorkflowDefinitions.FirstOrDefaultAsync(
+            candidate => candidate.TenantId == tenantId && candidate.ProjectId == project.Id,
+            cancellationToken);
+        if (workflow is null)
+        {
+            workflow = new TaskWorkflowDefinition
+            {
+                TenantId = tenantId,
+                WorkspaceId = workspace.Id,
+                ProjectId = project.Id,
+                Name = "Browser Smoke PR04 Workflow",
+                ReviewEnforcementEnabled = false
+            };
+            await dbContext.TaskWorkflowDefinitions.AddAsync(workflow, cancellationToken);
+        }
+
+        async Task<TaskWorkflowStage> StageAsync(string name, TaskStageCategory category, long sortKey, bool initial, bool terminal)
+        {
+            var stage = await dbContext.TaskWorkflowStages.FirstOrDefaultAsync(
+                candidate =>
+                    candidate.TenantId == tenantId &&
+                    candidate.ProjectId == project.Id &&
+                    candidate.InternalCategory == category,
+                cancellationToken);
+            if (stage is null)
+            {
+                stage = new TaskWorkflowStage
+                {
+                    TenantId = tenantId,
+                    WorkspaceId = workspace.Id,
+                    ProjectId = project.Id,
+                    DefinitionId = workflow.Id,
+                    Name = name,
+                    InternalCategory = category,
+                    SortKey = sortKey,
+                    IsInitialStage = initial,
+                    IsTerminalStage = terminal
+                };
+                await dbContext.TaskWorkflowStages.AddAsync(stage, cancellationToken);
+            }
+
+            return stage;
+        }
+
+        var todo = await StageAsync("Todo", TaskStageCategory.Todo, 1024, true, false);
+        var done = await StageAsync("Done", TaskStageCategory.Done, 2048, false, true);
+        assignedTask.WorkflowStageId = todo.Id;
+        assignedTask.PlannedEndDate = assignedTask.DueDate;
+
+        async Task<TaskItem> TaskAsync(string title)
+        {
+            var task = await dbContext.TaskItems.FirstOrDefaultAsync(
+                candidate => candidate.TenantId == tenantId && candidate.ProjectId == project.Id && candidate.Title == title,
+                cancellationToken);
+            if (task is null)
+            {
+                task = new TaskItem
+                {
+                    TenantId = tenantId,
+                    WorkspaceId = workspace.Id,
+                    ProjectId = project.Id,
+                    Title = title,
+                    CreatedByUserId = recipient.Id
+                };
+                await dbContext.TaskItems.AddAsync(task, cancellationToken);
+            }
+            else if (task.IsDeleted)
+            {
+                task.Restore();
+            }
+
+            task.WorkspaceId = workspace.Id;
+            task.WorkflowStageId = todo.Id;
+            task.Status = TaskItemStatus.NotStarted;
+            task.Priority = TaskPriority.Medium;
+            task.IsBlocked = false;
+            task.PrimaryAssigneeUserId = recipient.Id;
+            task.ReviewerUserId = null;
+            task.TargetGroupId = null;
+            task.CompletedAt = null;
+            task.ProgressPercent = 0;
+            task.DeadlineAt = null;
+            task.PlannedEndDate = null;
+            task.DueDate = null;
+            return task;
+        }
+
+        var participating = await TaskAsync("PR04 participating task");
+        var collaborator = await dbContext.WorkItemCollaborators.FirstOrDefaultAsync(
+            candidate => candidate.TenantId == tenantId && candidate.TaskItemId == participating.Id && candidate.UserId == user.Id,
+            cancellationToken);
+        if (collaborator is null)
+        {
+            await dbContext.WorkItemCollaborators.AddAsync(new WorkItemCollaborator
+            {
+                TenantId = tenantId,
+                TaskItemId = participating.Id,
+                UserId = user.Id,
+                AddedByUserId = user.Id,
+                AddedAt = now
+            }, cancellationToken);
+        }
+
+        var review = await TaskAsync("PR04 review task");
+        review.ReviewerUserId = user.Id;
+
+        var created = await TaskAsync("PR04 created task");
+        created.CreatedByUserId = user.Id;
+
+        var watching = await TaskAsync("PR04 watching task");
+        var watch = await dbContext.WorkItemWatchStates.FirstOrDefaultAsync(
+            candidate => candidate.TenantId == tenantId && candidate.TaskItemId == watching.Id && candidate.UserId == user.Id,
+            cancellationToken);
+        if (watch is null)
+        {
+            watch = new WorkItemWatchState
+            {
+                TenantId = tenantId,
+                TaskItemId = watching.Id,
+                UserId = user.Id
+            };
+            await dbContext.WorkItemWatchStates.AddAsync(watch, cancellationToken);
+        }
+        watch.AutomaticSources = WorkItemWatchAutomaticSource.Creator;
+        watch.IsManualWatch = false;
+        watch.IsExplicitOptOut = false;
+        watch.IsWatching = false;
+        watch.UpdatedAt = now;
+
+        var queue = await TaskAsync("PR04 team queue task");
+        queue.PrimaryAssigneeUserId = null;
+        queue.TargetGroupId = group.Id;
+
+        var completed = await TaskAsync("PR04 completed task");
+        completed.PrimaryAssigneeUserId = user.Id;
+        completed.WorkflowStageId = done.Id;
+        completed.Status = TaskItemStatus.Completed;
+        completed.ProgressPercent = 100;
+        completed.CompletedAt = now.AddMinutes(-1);
+
+        var filtered = await TaskAsync("PR04 critical blocked match");
+        filtered.PrimaryAssigneeUserId = user.Id;
+        filtered.Priority = TaskPriority.Critical;
+        filtered.IsBlocked = true;
+        filtered.PlannedEndDate = DateOnly.FromDateTime(now.UtcDateTime);
+        filtered.DueDate = filtered.PlannedEndDate;
+
+        for (var index = 1; index <= 12; index++)
+        {
+            var paged = await TaskAsync($"PR04 paging assigned {index:00}");
+            paged.PrimaryAssigneeUserId = user.Id;
+            paged.Priority = TaskPriority.Low;
+        }
+
+        const string secondWorkspaceSlug = "browser-smoke-workspace-secondary";
+        var secondWorkspace = await dbContext.Workspaces.FirstOrDefaultAsync(
+            candidate => candidate.TenantId == tenantId && candidate.Slug == secondWorkspaceSlug,
+            cancellationToken);
+        if (secondWorkspace is null)
+        {
+            secondWorkspace = new Workspace
+            {
+                TenantId = tenantId,
+                Name = "Browser Smoke Workspace Two",
+                Slug = secondWorkspaceSlug,
+                Description = "Synthetic second Workspace for PR04 acceptance.",
+                Status = WorkspaceStatus.Active,
+                CreatedByUserId = user.Id
+            };
+            await dbContext.Workspaces.AddAsync(secondWorkspace, cancellationToken);
+        }
+        else
+        {
+            secondWorkspace.Status = WorkspaceStatus.Active;
+            if (secondWorkspace.IsDeleted)
+            {
+                secondWorkspace.Restore();
+            }
+        }
+
+        var secondMember = await dbContext.WorkspaceMembers.FirstOrDefaultAsync(
+            candidate => candidate.TenantId == tenantId && candidate.WorkspaceId == secondWorkspace.Id && candidate.UserId == user.Id,
+            cancellationToken);
+        if (secondMember is null)
+        {
+            await dbContext.WorkspaceMembers.AddAsync(new WorkspaceMember
+            {
+                TenantId = tenantId,
+                WorkspaceId = secondWorkspace.Id,
+                UserId = user.Id,
+                Role = WorkspaceRole.Owner,
+                Status = MembershipStatus.Active,
+                JoinedAt = now
+            }, cancellationToken);
+        }
+        else
+        {
+            secondMember.Role = WorkspaceRole.Owner;
+            secondMember.Status = MembershipStatus.Active;
+        }
+
+        const string secondProjectSlug = "browser-smoke-pr04-second-project";
+        var secondProject = await dbContext.Projects.FirstOrDefaultAsync(
+            candidate => candidate.TenantId == tenantId && candidate.Slug == secondProjectSlug,
+            cancellationToken);
+        if (secondProject is null)
+        {
+            secondProject = new Project
+            {
+                TenantId = tenantId,
+                WorkspaceId = secondWorkspace.Id,
+                OwnerUserId = user.Id,
+                CreatedByUserId = user.Id,
+                Name = "Browser Smoke PR04 Second Project",
+                Slug = secondProjectSlug,
+                Status = ProjectStatus.Active
+            };
+            await dbContext.Projects.AddAsync(secondProject, cancellationToken);
+        }
+
+        var secondProjectMember = await dbContext.ProjectMembers.FirstOrDefaultAsync(
+            candidate => candidate.TenantId == tenantId && candidate.ProjectId == secondProject.Id && candidate.UserId == user.Id,
+            cancellationToken);
+        if (secondProjectMember is null)
+        {
+            await dbContext.ProjectMembers.AddAsync(new ProjectMember
+            {
+                TenantId = tenantId,
+                ProjectId = secondProject.Id,
+                UserId = user.Id,
+                Role = ProjectRole.Owner,
+                JoinedAt = now
+            }, cancellationToken);
+        }
+
+        const string secondTaskTitle = "PR04 second workspace assigned";
+        var secondTask = await dbContext.TaskItems.FirstOrDefaultAsync(
+            candidate => candidate.TenantId == tenantId && candidate.ProjectId == secondProject.Id && candidate.Title == secondTaskTitle,
+            cancellationToken);
+        if (secondTask is null)
+        {
+            secondTask = new TaskItem
+            {
+                TenantId = tenantId,
+                WorkspaceId = secondWorkspace.Id,
+                ProjectId = secondProject.Id,
+                Title = secondTaskTitle,
+                CreatedByUserId = user.Id
+            };
+            await dbContext.TaskItems.AddAsync(secondTask, cancellationToken);
+        }
+        secondTask.PrimaryAssigneeUserId = user.Id;
+        secondTask.Status = TaskItemStatus.NotStarted;
+        secondTask.Priority = TaskPriority.Medium;
     }
 
     public static async Task EnsureBootstrapAdminAsync(

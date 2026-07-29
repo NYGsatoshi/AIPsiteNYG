@@ -27,6 +27,7 @@ public sealed class FileService(
 {
     private static readonly TimeSpan FileDownloadGrantLifetime = TimeSpan.FromMinutes(10);
     private const int MaxFileListPageSize = 100;
+    private const int MaxGrantPurposeLength = 200;
 
     public async Task<Result<AttachmentResponse>> UploadAsync(AttachmentUploadInput input, CancellationToken cancellationToken = default)
     {
@@ -167,9 +168,12 @@ public sealed class FileService(
             return Result<AttachmentResponse>.Failure("Attachment not found.");
         }
 
-        if (!await authorization.CanViewAttachment(userId, attachment, cancellationToken))
+        // A detail/list response is not a capability.  In particular, Task/File
+        // associations must be checked again when the association is opened.
+        var decision = await ValidateAttachmentForGrantAsync(userId, attachment, existingGrant: null, cancellationToken);
+        if (!decision.IsAllowed)
         {
-            await LogDeniedFileAccessAsync(userId, "AttachmentMetadataDenied", attachment, cancellationToken);
+            await LogFileOpenDeniedAsync(userId, attachment, decision.DenialReason, cancellationToken);
             return Result<AttachmentResponse>.Failure("Attachment not found.");
         }
 
@@ -216,7 +220,7 @@ public sealed class FileService(
             AllowedOperation = "download",
             TokenHash = tokenHasher.HashToken(token),
             PolicyStamp = ComputeFilePolicyStamp(userId, attachment),
-            Purpose = string.IsNullOrWhiteSpace(request.Purpose) ? null : request.Purpose.Trim(),
+            Purpose = NormalizeGrantPurpose(request.Purpose),
             ExpiresAt = clock.UtcNow.Add(FileDownloadGrantLifetime)
         };
 
@@ -475,6 +479,32 @@ public sealed class FileService(
         await unitOfWork.SaveChangesAsync(cancellationToken);
     }
 
+    private async Task LogFileOpenDeniedAsync(
+        Guid userId,
+        Attachment attachment,
+        string reason,
+        CancellationToken cancellationToken)
+    {
+        var metadata = FileGrantDenialMetadata(userId, attachment, null, reason, "open");
+        await auditLogger.LogSecurityAsync(
+            "AccessDenied",
+            "File metadata open denied.",
+            metadata,
+            SecurityEventSeverity.Warning,
+            cancellationToken);
+        await auditLogger.LogAsync(new AuditLogEntry(
+            userId,
+            "file_download.metadata_open_denied",
+            "FileObject",
+            attachment.FileObjectId,
+            "File metadata open denied.",
+            WorkspaceId: attachment.WorkspaceId,
+            ProjectId: attachment.FileObject?.ProjectId,
+            Metadata: metadata,
+            TenantId: currentTenant.IsAvailable ? currentTenant.TenantId : attachment.TenantId), cancellationToken);
+        await unitOfWork.SaveChangesAsync(cancellationToken);
+    }
+
     private async Task TryDeleteStoredFileAsync(string storageKey, CancellationToken cancellationToken)
     {
         try
@@ -541,6 +571,25 @@ public sealed class FileService(
             return FileGrantDecision.Deny("scope_mismatch");
         }
 
+        // The attachment is a reference to an owner scope; it is not an
+        // authorization capability in its own right.  Re-resolve that owner
+        // for every open, grant issue, and grant use so a removed Task or a
+        // changed Task/File relationship cannot be used to read bytes.
+        var owner = await files.ResolveOwnerAsync(attachment.OwnerType.Value, attachment.OwnerId.Value, cancellationToken);
+        if (owner is null ||
+            owner.WorkspaceId != attachment.WorkspaceId ||
+            (attachment.FileObject.WorkspaceId.HasValue && attachment.FileObject.WorkspaceId != owner.WorkspaceId) ||
+            (attachment.FileObject.ProjectId.HasValue && attachment.FileObject.ProjectId != owner.ProjectId))
+        {
+            return FileGrantDecision.Deny("scope_mismatch");
+        }
+
+        if (attachment.OwnerType == AttachmentOwnerType.TaskItem &&
+            (!owner.ProjectId.HasValue || attachment.ScanStatus != FileScanStatus.Clean))
+        {
+            return FileGrantDecision.Deny("task_file_not_available");
+        }
+
         if (attachment.FileObject.Status == FileObjectStatus.Archived)
         {
             return FileGrantDecision.Deny("target_archived");
@@ -550,6 +599,11 @@ public sealed class FileService(
             attachment.ScanStatus is FileScanStatus.Pending or FileScanStatus.Infected or FileScanStatus.Failed)
         {
             return FileGrantDecision.Deny("target_quarantined");
+        }
+
+        if (attachment.FileObject.Status != FileObjectStatus.Active)
+        {
+            return FileGrantDecision.Deny("target_not_active");
         }
 
         if (!attachment.FileObject.Classification.HasValue)
@@ -670,8 +724,6 @@ public sealed class FileService(
             ["decision"] = "deny",
             ["decisionReason"] = reason,
             ["grantId"] = grant?.Id,
-            ["policyVersion"] = grant?.PolicyStamp,
-            ["accessStamp"] = grant?.PolicyStamp,
             ["operationType"] = operationType
         };
     }
@@ -696,8 +748,6 @@ public sealed class FileService(
             ["decision"] = decision,
             ["decisionReason"] = reason,
             ["grantId"] = grant.Id,
-            ["policyVersion"] = grant.PolicyStamp,
-            ["accessStamp"] = grant.PolicyStamp,
             ["expiresAt"] = grant.ExpiresAt,
             ["operationType"] = operationType
         };
@@ -713,6 +763,9 @@ public sealed class FileService(
             attachment.Id,
             attachment.OwnerType?.ToString() ?? "none",
             attachment.OwnerId?.ToString("D") ?? "none",
+            attachment.FileObject?.TenantId.ToString("D") ?? "missing",
+            attachment.FileObject?.WorkspaceId?.ToString("D") ?? "none",
+            attachment.FileObject?.ProjectId?.ToString("D") ?? "none",
             attachment.FileObject?.Classification?.ToString() ?? "missing",
             attachment.FileObject?.Status.ToString() ?? "missing",
             attachment.ScanStatus.ToString());
@@ -736,6 +789,17 @@ public sealed class FileService(
     private static string CreateOpaqueToken()
     {
         return Convert.ToBase64String(RandomNumberGenerator.GetBytes(32));
+    }
+
+    private static string? NormalizeGrantPurpose(string? purpose)
+    {
+        if (string.IsNullOrWhiteSpace(purpose))
+        {
+            return null;
+        }
+
+        var normalized = purpose.Trim();
+        return normalized.Length <= MaxGrantPurposeLength ? normalized : normalized[..MaxGrantPurposeLength];
     }
 
     private sealed record FileGrantDecision(bool IsAllowed, string DenialReason)

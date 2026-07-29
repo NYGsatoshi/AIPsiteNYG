@@ -10,6 +10,8 @@ public sealed class Workspace : SoftDeletableEntity, ITenantEntity
     public string Slug { get; set; } = string.Empty;
     public string? Description { get; set; }
     public string? Icon { get; set; }
+    /// <summary>IANA or platform timezone ID. Null inherits the tenant fallback.</summary>
+    public string? TimeZone { get; set; }
     public WorkspaceStatus Status { get; set; } = WorkspaceStatus.Active;
     public Guid CreatedByUserId { get; set; }
 

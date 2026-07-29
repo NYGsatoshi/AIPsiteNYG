@@ -12,6 +12,8 @@ public interface IPlanningRepository
 
     Task<MyTasksCountsResponse> GetMyTaskCountsAsync(Guid userId, MyTasksQuery query, DateTimeOffset now, CancellationToken cancellationToken = default);
 
+    Task<bool> CanViewMyTasksProjectAsync(Guid userId, Guid projectId, CancellationToken cancellationToken = default);
+
     Task<IReadOnlyList<Guid>> ListAccessibleWorkspaceIdsAsync(Guid userId, CancellationToken cancellationToken = default);
 
     Task<ProjectWorkloadResponse?> GetWorkloadAsync(Guid projectId, DateOnly today, CancellationToken cancellationToken = default);

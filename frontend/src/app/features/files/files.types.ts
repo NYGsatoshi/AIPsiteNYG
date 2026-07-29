@@ -66,6 +66,20 @@ export interface FileViewModel {
   readonly rawScanMetadata?: string;
 }
 
+/** Query state owned by the Task-detail attachment picker, never by the Files page. */
+export interface TaskFilePickerState {
+  readonly status: 'idle' | 'loading' | 'ready' | 'empty' | 'permissionDenied' | 'error';
+  readonly workspaceId: string | null;
+  readonly files: readonly FileViewModel[];
+  readonly message?: string;
+  readonly requestId?: string;
+  readonly page: number;
+  readonly pageSize: number;
+  readonly totalCount: number;
+  readonly hasMore: boolean;
+  readonly failedPage?: number;
+}
+
 export interface FilesPageViewModel {
   readonly title: string;
   readonly subtitle: string;

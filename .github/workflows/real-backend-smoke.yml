@@ -7,10 +7,28 @@ jobs:
   real-backend-browser-smoke:
     runs-on: self-hosted
     timeout-minutes: 35
+    concurrency:
+      group: aipsite-self-hosted-frontend-heavy
+      cancel-in-progress: false
 
     steps:
+      - name: Repair previous Docker workspace ownership
+        shell: bash
+        run: |
+          uid="$(id -u)"
+          gid="$(id -g)"
+          docker run --rm \
+            -v "$GITHUB_WORKSPACE:/workspace" \
+            alpine:3.21 \
+            sh -c "chown -R ${uid}:${gid} /workspace"
+
       - name: Checkout
         uses: actions/checkout@v4
+        with:
+          # workflow_dispatch must test the commit selected by its ref, never
+          # a residual self-hosted runner checkout.
+          ref: ${{ github.sha }}
+          clean: true
 
       - name: Setup Node.js
         uses: actions/setup-node@v4

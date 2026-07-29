@@ -1,4 +1,5 @@
 using AipPortal.Domain.Enums;
+using System.Text.Json.Serialization;
 
 namespace AipPortal.Application.Planning;
 
@@ -50,6 +51,7 @@ public sealed record DashboardArtifactResponse(Guid Id, string Title, ArtifactTy
 
 public sealed record ProjectMemberSummaryResponse(Guid UserId, string DisplayName, ProjectRole Role);
 
+[JsonConverter(typeof(JsonStringEnumConverter))]
 public enum MyTasksRelationshipView
 {
     Assigned,
@@ -61,12 +63,14 @@ public enum MyTasksRelationshipView
     Completed
 }
 
+[JsonConverter(typeof(JsonStringEnumConverter))]
 public enum MyTasksScope
 {
     CurrentWorkspace,
     AllWorkspaces
 }
 
+[JsonConverter(typeof(JsonStringEnumConverter))]
 public enum MyTasksTimeGroup
 {
     Overdue,
@@ -129,13 +133,13 @@ public sealed record MyTaskProjectionResponse(
     string WorkspaceTitle,
     Guid ProjectId,
     string ProjectTitle,
-    WorkItemKind Kind,
+    [property: JsonConverter(typeof(JsonStringEnumConverter))] WorkItemKind Kind,
     Guid? ParentTaskId,
     string Title,
     Guid? WorkflowStageId,
     string WorkflowStageName,
-    TaskStageCategory StageCategory,
-    TaskPriority Priority,
+    [property: JsonConverter(typeof(JsonStringEnumConverter))] TaskStageCategory StageCategory,
+    [property: JsonConverter(typeof(JsonStringEnumConverter))] TaskPriority Priority,
     bool IsBlocked,
     DateOnly? PlannedStartDate,
     DateOnly? PlannedEndDate,

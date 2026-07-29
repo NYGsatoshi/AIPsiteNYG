@@ -24,7 +24,10 @@ public sealed class BusinessInvalidationPublisher(
 {
     public Task TaskChangedAsync(TaskItem task, Guid actorUserId, string change, IEnumerable<string>? changedFields = null, IEnumerable<Guid>? affectedUserIds = null, CancellationToken cancellationToken = default)
     {
-        var version = VersionToken();
+        // TaskItem owns a persisted optimistic-concurrency token.  The durable
+        // event must carry that aggregate version, not a process-local clock
+        // token, so consumers can compare it with the authoritative reload.
+        var version = task.VersionNo;
         var targets = new List<RealtimeRoutingTarget> { new(RealtimeSubscriptionType.Project, task.ProjectId) };
         targets.AddRange((affectedUserIds ?? []).Where(id => id != Guid.Empty).Distinct().Select(id => new RealtimeRoutingTarget(RealtimeSubscriptionType.User, id)));
         return EnqueueAsync("Projects.TaskChanged.v1", "Task", task.Id, actorUserId, new

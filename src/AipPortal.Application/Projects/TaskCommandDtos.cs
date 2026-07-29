@@ -3,6 +3,15 @@ using AipPortal.Domain.Enums;
 namespace AipPortal.Application.Projects;
 
 public sealed record TaskTransitionRequest(Guid WorkflowStageId, long ExpectedVersion, string? Reason = null);
+/// <summary>Ordinary Task-body fields only. Workflow state changes use the transition command.</summary>
+public sealed record TaskUpdateDetailsRequest(
+    string? Title,
+    string? Description,
+    TaskPriority? Priority,
+    DateOnly? PlannedStartDate,
+    DateOnly? PlannedEndDate,
+    int? ProgressPercent,
+    long ExpectedVersion);
 public sealed record TaskBlockedStateRequest(bool IsBlocked, string? Reason, long ExpectedVersion);
 public sealed record TaskRelationshipUserRequest(Guid? UserId, long ExpectedVersion);
 public sealed record TaskTargetGroupRequest(Guid? GroupId, long ExpectedVersion);
@@ -55,7 +64,32 @@ public sealed record CanonicalTaskResponse(
     long Version,
     TaskCommandPermissions UiPermissions,
     IReadOnlyList<TaskStageCategory> AllowedTransitions,
-    TaskReviewStatus ReviewStatus);
+    TaskReviewStatus ReviewStatus,
+    TaskSubresourceSummary? Subresources = null);
 
 public sealed record TaskCommandPermissions(bool CanUpdate, bool CanAssign, bool CanDelete, bool CanReview, bool CanOverrideReview, bool CanClaim);
 public sealed record TaskCommandResponse(CanonicalTaskResponse Task, IReadOnlyList<string> Warnings, bool OverrideApplied = false);
+public sealed record TaskDetailPermissions(
+    bool CanCreateSubtask,
+    bool CanCreateChecklistItem,
+    bool CanUpdateChecklistItems,
+    bool CanDeleteChecklistItems,
+    bool CanReorderChecklist,
+    bool CanCreateComment,
+    bool CanMarkCommentImportant,
+    bool CanApplyLabels,
+    bool CanManageLabelDefinitions,
+    bool CanAssociateFiles,
+    bool CanRemoveFiles,
+    bool CanChangeWatch);
+
+public sealed record CanonicalTaskDetailResponse(
+    CanonicalTaskResponse Task,
+    TaskRelationshipsResponse Relationships,
+    TaskDetailPermissions Permissions,
+    IReadOnlyList<TaskChecklistResponse> Checklist,
+    IReadOnlyList<ProjectTaskLabelResponse> Labels,
+    TaskWatchStateResponse WatchState,
+    TaskSubtaskPage Subtasks,
+    TaskCommentPage Comments,
+    TaskFileAssociationPage Files);

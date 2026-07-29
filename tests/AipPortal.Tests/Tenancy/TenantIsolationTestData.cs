@@ -69,8 +69,8 @@ internal sealed class TenantIsolationTestData
         var groupB = NewGroup(tenantB.Id, workspaceB.Id, "GroupB", "group-b", tenantBOwner.Id);
         var projectA = NewProject(tenantA.Id, workspaceA.Id, groupA.Id, "ProjectA", "project-a", tenantAOwner.Id);
         var projectB = NewProject(tenantB.Id, workspaceB.Id, groupB.Id, "ProjectB", "project-b", tenantBOwner.Id);
-        var taskA = NewTask(tenantA.Id, projectA.Id, "TaskA", tenantAOwner.Id);
-        var taskB = NewTask(tenantB.Id, projectB.Id, "TaskB", tenantBOwner.Id);
+        var taskA = NewTask(tenantA.Id, workspaceA.Id, projectA.Id, "TaskA", tenantAOwner.Id);
+        var taskB = NewTask(tenantB.Id, workspaceB.Id, projectB.Id, "TaskB", tenantBOwner.Id);
         var fileA = NewFile(tenantA.Id, workspaceA.Id, projectA.Id, tenantAOwner.Id);
         var fileB = NewFile(tenantB.Id, workspaceB.Id, projectB.Id, tenantBOwner.Id);
         var conversationA = NewConversation(tenantA.Id, workspaceA.Id, "ConversationA", tenantAOwner.Id);
@@ -298,9 +298,10 @@ internal sealed class TenantIsolationTestData
         JoinedAt = DateTimeOffset.UtcNow
     };
 
-    private static TaskItem NewTask(Guid tenantId, Guid projectId, string title, Guid userId) => new()
+    private static TaskItem NewTask(Guid tenantId, Guid workspaceId, Guid projectId, string title, Guid userId) => new()
     {
         TenantId = tenantId,
+        WorkspaceId = workspaceId,
         ProjectId = projectId,
         Title = title,
         CreatedByUserId = userId,
@@ -342,7 +343,7 @@ internal sealed class TenantIsolationTestData
         Extension = ".txt",
         SizeBytes = 10,
         StorageProvider = "Test",
-        ScanStatus = FileScanStatus.Skipped
+        ScanStatus = FileScanStatus.Clean
     };
 
     private static Conversation NewConversation(Guid tenantId, Guid workspaceId, string title, Guid userId) => new()

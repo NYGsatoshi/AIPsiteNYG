@@ -1,3 +1,4 @@
+using System.Security.Claims;
 using AipPortal.Application.Auth;
 using AipPortal.Application.Common.Interfaces;
 using AipPortal.Application.Messaging;
@@ -9,24 +10,28 @@ namespace AipPortal.Web.Realtime;
 
 public sealed class HubSubscriptionAuthorizer(
     IUserSessionService sessions,
-    ICurrentUser currentUser,
     ICurrentTenant currentTenant,
     IFeatureFlagService featureFlags,
     IWorkspaceAuthorizationService workspaces,
     IConversationAuthorizationService conversations,
     IProjectAuthorizationService projects) : IHubSubscriptionAuthorizer
 {
-    public async Task<HubAuthorizationContext?> ValidateConnectionAsync(CancellationToken cancellationToken = default)
+    public async Task<HubAuthorizationContext?> ValidateConnectionAsync(ClaimsPrincipal? principal, CancellationToken cancellationToken = default)
     {
-        if (!currentTenant.IsAvailable || !currentUser.IsAuthenticated || !currentUser.UserId.HasValue || !currentUser.SessionId.HasValue ||
+        // SignalR owns the connection lifetime. Read its authenticated principal
+        // directly rather than relying on IHttpContextAccessor from a scoped
+        // dependency, which may no longer point at the negotiate HTTP request.
+        var userId = TryGetGuid(principal, ClaimTypes.NameIdentifier);
+        var sessionId = TryGetGuid(principal, "session_id");
+        if (!currentTenant.IsAvailable || principal?.Identity?.IsAuthenticated != true || !userId.HasValue || !sessionId.HasValue ||
             !await featureFlags.IsEnabledAsync(FeatureKeys.RealtimeSignalR, cancellationToken))
         {
             return null;
         }
 
-        var session = await sessions.ValidateSessionAsync(currentUser.UserId.Value, currentUser.SessionId.Value, currentTenant.TenantId, true, cancellationToken);
+        var session = await sessions.ValidateSessionAsync(userId.Value, sessionId.Value, currentTenant.TenantId, true, cancellationToken);
         return session.IsValid
-            ? new HubAuthorizationContext(currentUser.UserId.Value, currentUser.SessionId.Value, currentTenant.TenantId)
+            ? new HubAuthorizationContext(userId.Value, sessionId.Value, currentTenant.TenantId)
             : null;
     }
 
@@ -54,12 +59,17 @@ public sealed class HubSubscriptionAuthorizer(
             _ => false
         };
     }
+
+    private static Guid? TryGetGuid(ClaimsPrincipal? principal, string claimType)
+    {
+        return Guid.TryParse(principal?.FindFirstValue(claimType), out var value) ? value : null;
+    }
 }
 
 public sealed record HubAuthorizationContext(Guid UserId, Guid SessionId, Guid TenantId);
 
 public interface IHubSubscriptionAuthorizer
 {
-    Task<HubAuthorizationContext?> ValidateConnectionAsync(CancellationToken cancellationToken = default);
+    Task<HubAuthorizationContext?> ValidateConnectionAsync(ClaimsPrincipal? principal, CancellationToken cancellationToken = default);
     Task<bool> CanSubscribeAsync(HubAuthorizationContext context, RealtimeSubscriptionType subscriptionType, Guid resourceId, CancellationToken cancellationToken = default);
 }

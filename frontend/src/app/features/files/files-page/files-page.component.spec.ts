@@ -251,7 +251,7 @@ describe('FilesPageComponent', () => {
     fixture.detectChanges();
 
     expect(textContent(fixture)).toContain('Attachment picker is not available in MVP0.');
-    expect(textContent(fixture)).toContain('Selected: none');
+    expect(textContent(fixture)).toContain('No file selected.');
   });
 
   it('keeps admin override disabled even when a reason is entered', async () => {

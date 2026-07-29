@@ -29,5 +29,10 @@ public interface IFileRepository
 
     Task AddAttachmentAsync(Attachment attachment, CancellationToken cancellationToken = default);
 
+    Task<IReadOnlyList<Attachment>> ListTaskAttachmentsAsync(Guid taskItemId, CancellationToken cancellationToken = default) => Task.FromResult<IReadOnlyList<Attachment>>([]);
+    Task<PagedResponse<Attachment>> ListTaskAttachmentsPageAsync(Guid taskItemId, int page, int pageSize, CancellationToken cancellationToken = default) => Task.FromResult(new PagedResponse<Attachment>([], page, pageSize, 0));
+
+    void RemoveAttachment(Attachment attachment) { }
+
     Task<FileOwnerContext?> ResolveOwnerAsync(AttachmentOwnerType ownerType, Guid ownerId, CancellationToken cancellationToken = default);
 }

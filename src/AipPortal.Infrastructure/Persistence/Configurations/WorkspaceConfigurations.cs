@@ -15,6 +15,7 @@ public sealed class WorkspaceConfiguration : IEntityTypeConfiguration<Workspace>
         builder.Property(workspace => workspace.Slug).HasMaxLength(120).IsRequired();
         builder.Property(workspace => workspace.Description).HasMaxLength(2000);
         builder.Property(workspace => workspace.Icon).HasMaxLength(120);
+        builder.Property(workspace => workspace.TimeZone).HasMaxLength(80);
         builder.Property(workspace => workspace.Status).HasEnumStringConversion().IsRequired();
 
         builder.HasIndex(workspace => new { workspace.TenantId, workspace.Slug }).IsUnique();

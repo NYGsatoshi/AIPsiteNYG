@@ -1,3 +1,4 @@
+using AipPortal.Application.Common;
 using AipPortal.Domain.Entities;
 using AipPortal.Domain.Enums;
 
@@ -12,6 +13,7 @@ public interface IProjectRepository
     Task<IReadOnlyList<Milestone>> ListMilestonesAsync(Guid projectId, CancellationToken cancellationToken = default);
     Task<Milestone?> GetMilestoneAsync(Guid milestoneId, CancellationToken cancellationToken = default);
     Task<IReadOnlyList<TaskItem>> ListTasksAsync(Guid projectId, CancellationToken cancellationToken = default);
+    Task<PagedResponse<TaskItem>> ListDirectSubtasksPageAsync(Guid projectId, Guid parentTaskItemId, int page, int pageSize, CancellationToken cancellationToken = default) => Task.FromResult(new PagedResponse<TaskItem>([], page, pageSize, 0));
     Task<TaskItem?> GetTaskAsync(Guid taskItemId, CancellationToken cancellationToken = default);
     Task<TaskWorkflowDefinition?> GetWorkflowDefinitionAsync(Guid projectId, CancellationToken cancellationToken = default) => Task.FromResult<TaskWorkflowDefinition?>(null);
     Task<TaskWorkflowStage?> GetWorkflowStageAsync(Guid workflowStageId, CancellationToken cancellationToken = default) => Task.FromResult<TaskWorkflowStage?>(null);
@@ -27,6 +29,17 @@ public interface IProjectRepository
     Task<Comment?> GetCommentAsync(Guid commentId, CancellationToken cancellationToken = default);
     Task<WorkItemWatchState?> GetWatchStateAsync(Guid taskItemId, Guid userId, CancellationToken cancellationToken = default) => Task.FromResult<WorkItemWatchState?>(null);
     Task<IReadOnlyList<WorkItemWatchState>> ListWatchStatesAsync(Guid taskItemId, CancellationToken cancellationToken = default) => Task.FromResult<IReadOnlyList<WorkItemWatchState>>([]);
+    Task<IReadOnlyList<TaskChecklistItem>> ListChecklistAsync(Guid taskItemId, CancellationToken cancellationToken = default) => Task.FromResult<IReadOnlyList<TaskChecklistItem>>([]);
+    Task<TaskChecklistItem?> GetChecklistItemAsync(Guid itemId, CancellationToken cancellationToken = default) => Task.FromResult<TaskChecklistItem?>(null);
+    Task<IReadOnlyList<TaskComment>> ListTaskCommentsAsync(Guid taskItemId, int skip, int take, CancellationToken cancellationToken = default) => Task.FromResult<IReadOnlyList<TaskComment>>([]);
+    Task<int> CountTaskCommentsAsync(Guid taskItemId, CancellationToken cancellationToken = default) => Task.FromResult(0);
+    Task<TaskComment?> GetTaskCommentAsync(Guid commentId, CancellationToken cancellationToken = default) => Task.FromResult<TaskComment?>(null);
+    Task<IReadOnlyList<ProjectTaskLabel>> ListTaskLabelsAsync(Guid projectId, bool includeArchived, CancellationToken cancellationToken = default) => Task.FromResult<IReadOnlyList<ProjectTaskLabel>>([]);
+    Task<ProjectTaskLabel?> GetTaskLabelAsync(Guid labelId, CancellationToken cancellationToken = default) => Task.FromResult<ProjectTaskLabel?>(null);
+    Task<IReadOnlyList<WorkItemLabel>> ListWorkItemLabelsAsync(Guid taskItemId, CancellationToken cancellationToken = default) => Task.FromResult<IReadOnlyList<WorkItemLabel>>([]);
+    Task<IReadOnlyList<User>> SearchMentionCandidatesAsync(Guid projectId, string query, int take, CancellationToken cancellationToken = default) => Task.FromResult<IReadOnlyList<User>>([]);
+    Task<IReadOnlyList<User>> GetEligibleMentionUsersAsync(Guid projectId, IReadOnlyCollection<Guid> userIds, CancellationToken cancellationToken = default) => Task.FromResult<IReadOnlyList<User>>([]);
+    Task<WorkItemLabel?> GetWorkItemLabelAsync(Guid associationId, CancellationToken cancellationToken = default) => Task.FromResult<WorkItemLabel?>(null);
     Task AddProjectAsync(Project project, CancellationToken cancellationToken = default);
     Task AddMemberAsync(ProjectMember member, CancellationToken cancellationToken = default);
     Task AddMilestoneAsync(Milestone milestone, CancellationToken cancellationToken = default);
@@ -36,8 +49,14 @@ public interface IProjectRepository
     Task AddDependencyAsync(TaskDependency dependency, CancellationToken cancellationToken = default);
     Task AddCommentAsync(Comment comment, CancellationToken cancellationToken = default);
     Task AddWatchStateAsync(WorkItemWatchState watchState, CancellationToken cancellationToken = default) => Task.CompletedTask;
+    Task AddChecklistItemAsync(TaskChecklistItem item, CancellationToken cancellationToken = default) => Task.CompletedTask;
+    Task AddTaskCommentAsync(TaskComment comment, CancellationToken cancellationToken = default) => Task.CompletedTask;
+    Task AddTaskLabelAsync(ProjectTaskLabel label, CancellationToken cancellationToken = default) => Task.CompletedTask;
+    Task AddWorkItemLabelAsync(WorkItemLabel association, CancellationToken cancellationToken = default) => Task.CompletedTask;
     void RemoveMember(ProjectMember member);
     void RemoveAssignment(TaskAssignment assignment);
     void RemoveDependency(TaskDependency dependency);
     void RemoveCollaborator(WorkItemCollaborator collaborator) { }
+    void RemoveChecklistItem(TaskChecklistItem item) { }
+    void RemoveWorkItemLabel(WorkItemLabel association) { }
 }

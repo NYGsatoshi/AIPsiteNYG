@@ -1,4 +1,4 @@
-import { expect, type Page, type Response as PlaywrightResponse, test } from '@playwright/test';
+import { expect, type Locator, type Page, type Response as PlaywrightResponse, test } from '@playwright/test';
 
 const smokeEmail = process.env.AIP_BROWSER_SMOKE_EMAIL ?? '';
 const smokePassword = process.env.AIP_BROWSER_SMOKE_PASSWORD ?? '';
@@ -8,6 +8,8 @@ const smokeAnnouncementTitle = 'Browser smoke announcement';
 const smokeProjectTitle = 'Browser Smoke Project';
 const smokeTaskTitle = 'Browser smoke task';
 const smokeRecipientName = 'Browser Smoke Recipient';
+const smokeTaskLabelName = 'Browser smoke label';
+const smokeTaskFileName = 'browser-smoke-task.txt';
 
 test.describe('MVP0 real backend browser smoke', () => {
   test.setTimeout(120_000);
@@ -53,7 +55,10 @@ test.describe('MVP0 real backend browser smoke', () => {
     page.on('response', (response) => recordFailedApiResponse(response, evidence));
 
     try {
+      const hubNegotiate = page.waitForRequest((request) => new URL(request.url()).pathname === '/hubs/app/negotiate');
       await loginAndVerifySession(page, evidence);
+      await verifyRealtimeRuntimeConfig(page, evidence);
+      await hubNegotiate;
       await verifyRealtimeTransportReconnect(page, evidence);
       await assertCsrfRejectsMissingToken(page, evidence);
       await openWorkspaces(page, evidence);
@@ -64,10 +69,7 @@ test.describe('MVP0 real backend browser smoke', () => {
       await logoutAndVerifyAccessRevoked(page, evidence);
 
       expect(evidence.pageErrors, 'browser page errors').toEqual([]);
-      expect(
-        evidence.consoleErrors.filter((message) => !message.includes('404')),
-        'unexpected browser console errors'
-      ).toEqual([]);
+      expectUnexpectedConsoleErrors(evidence);
       expectUnexpectedApiFailures(evidence);
     } finally {
       await testInfo.attach('real-backend-smoke-evidence.json', {
@@ -79,9 +81,16 @@ test.describe('MVP0 real backend browser smoke', () => {
 
   test('keeps authenticated HTTP requests available when the Hub cannot connect', async ({ page }, testInfo) => {
     await page.addInitScript(() => {
-      window.__AIP_FEATURE_FLAGS__ = { 'realtime.signalR': true };
+      const nativeFetch = window.fetch.bind(window);
+      window.fetch = (input: RequestInfo | URL, init?: RequestInit) => {
+        const url = typeof input === 'string' ? input : input instanceof URL ? input.href : input.url;
+        if (new URL(url, window.location.href).pathname.startsWith('/hubs/app')) {
+          return Promise.reject(new TypeError('Synthetic Hub unavailability'));
+        }
+
+        return nativeFetch(input, init);
+      };
     });
-    await page.route('**/hubs/app/**', (route) => route.abort());
     const evidence: SmokeEvidence = { baseURL: String(testInfo.project.use.baseURL ?? ''), email: smokeEmail, steps: [], pageErrors: [], consoleErrors: [], failedApiResponses: [] };
 
     await loginAndVerifySession(page, evidence);
@@ -89,13 +98,408 @@ test.describe('MVP0 real backend browser smoke', () => {
     await recordFetchJson(page, evidence, 'degraded-http-auth-status', '/api/auth/status', {
       validate: (body) => body && typeof body === 'object' && (body as Record<string, unknown>).isAuthenticated === true
     });
+
+    const myTasksResponse = waitForApiResponse(page, 'GET', '/api/me/tasks');
+    await page.getByTestId('nav-my-tasks').first().click();
+    await recordOkJson(await myTasksResponse, evidence, 'degraded-my-tasks-http-list', (body) => isPagedResponse(body));
+    const refreshResponse = waitForApiResponse(page, 'GET', '/api/me/tasks');
+    await page.getByTestId('my-tasks-refresh').click();
+    await recordOkJson(await refreshResponse, evidence, 'degraded-my-tasks-manual-refresh', (body) => isPagedResponse(body));
+  });
+
+  test('TASK-V1-PR04 exercises canonical My Tasks scopes, relationships, filters, paging, and UI against PostgreSQL', async ({ page }, testInfo) => {
+    const evidence: SmokeEvidence = {
+      baseURL: String(testInfo.project.use.baseURL ?? ''), email: smokeEmail, steps: [], pageErrors: [], consoleErrors: [], failedApiResponses: []
+    };
+    page.on('pageerror', (error) => evidence.pageErrors.push(error.message));
+    page.on('console', (message) => { if (message.type() === 'error') evidence.consoleErrors.push(message.text()); });
+    page.on('response', (response) => recordFailedApiResponse(response, evidence));
+
+    try {
+      await loginAndVerifySession(page, evidence);
+      const workspaces = await recordFetchJson(page, evidence, 'pr04-workspaces', '/api/workspaces', {
+        validate: (body) => Array.isArray(body) &&
+          body.some((item: unknown) => hasStringValue(item, 'name', smokeWorkspaceName)) &&
+          body.some((item: unknown) => hasStringValue(item, 'name', 'Browser Smoke Workspace Two'))
+      }) as Record<string, unknown>[];
+      const primaryWorkspace = workspaces.find((item) => item.name === smokeWorkspaceName)!;
+      const secondWorkspace = workspaces.find((item) => item.name === 'Browser Smoke Workspace Two')!;
+      const primaryWorkspaceId = String(primaryWorkspace.id);
+      const secondWorkspaceId = String(secondWorkspace.id);
+      evidence.workspaceId = primaryWorkspaceId;
+
+      const omitted = await fetchJsonFromPage(page, '/api/me/tasks?view=assigned');
+      evidence.steps.push({ name: 'pr04-multiple-workspace-requires-explicit-id', method: 'GET', path: '/api/me/tasks', status: omitted.status });
+      expect(omitted.status).toBe(400);
+      expect(omitted.body?.error?.code).toBe('MY_TASKS_INVALID_WORKSPACE_SCOPE');
+
+      const currentPath = `/api/me/tasks?view=assigned&workspaceId=${primaryWorkspaceId}&page=1&pageSize=100`;
+      const current = await recordFetchJson(page, evidence, 'pr04-current-workspace', currentPath, {
+        validate: (body) => isPagedResponse(body) &&
+          body.workspaceId === primaryWorkspaceId &&
+          body.items.some((item: unknown) => hasStringValue(item, 'title', smokeTaskTitle)) &&
+          !body.items.some((item: unknown) => hasStringValue(item, 'title', 'PR04 second workspace assigned'))
+      }) as Record<string, any>;
+      expect(new Set(current.items.map((item: Record<string, unknown>) => item.taskId)).size).toBe(current.items.length);
+
+      const allPath = '/api/me/tasks?view=assigned&scope=allWorkspaces&page=1&pageSize=100';
+      const all = await recordFetchJson(page, evidence, 'pr04-all-workspaces', allPath, {
+        validate: (body) => isPagedResponse(body) &&
+          body.availableWorkspaceCount === 2 &&
+          body.items.some((item: unknown) => hasStringValue(item, 'title', smokeTaskTitle)) &&
+          body.items.some((item: unknown) => hasStringValue(item, 'title', 'PR04 second workspace assigned'))
+      }) as Record<string, any>;
+      expect(all.items.every((item: Record<string, unknown>) => typeof item.workspaceTitle === 'string' && item.workspaceTitle.length > 0)).toBe(true);
+
+      const expectedByView: Record<string, string> = {
+        assigned: smokeTaskTitle,
+        participating: 'PR04 participating task',
+        reviews: 'PR04 review task',
+        created: 'PR04 created task',
+        watching: 'PR04 watching task',
+        teamQueue: 'PR04 team queue task',
+        completed: 'PR04 completed task'
+      };
+      for (const [view, title] of Object.entries(expectedByView)) {
+        const body = await recordFetchJson(
+          page,
+          evidence,
+          `pr04-view-${view}`,
+          `/api/me/tasks?view=${view}&workspaceId=${primaryWorkspaceId}&page=1&pageSize=100`,
+          {
+            validate: (value) => isPagedResponse(value) &&
+              value.items.some((item: unknown) => hasStringValue(item, 'title', title))
+          }
+        ) as Record<string, any>;
+        expect(new Set(body.items.map((item: Record<string, unknown>) => item.taskId)).size, `${view} contains no duplicate Task`).toBe(body.items.length);
+      }
+
+      const filteredPath = `/api/me/tasks?view=assigned&workspaceId=${primaryWorkspaceId}&projectId=${current.items[0].projectId}&stageCategory=todo&priority=critical&blocked=true&search=${encodeURIComponent('PR04 critical blocked match')}&timeGroup=today&page=1&pageSize=10`;
+      const filtered = await recordFetchJson(page, evidence, 'pr04-filter-combination', filteredPath, {
+        validate: (body) => isPagedResponse(body) &&
+          body.totalCount === 1 &&
+          body.items.length === 1 &&
+          hasStringValue(body.items[0], 'title', 'PR04 critical blocked match')
+      }) as Record<string, any>;
+      expect(filtered.items[0].timeGroup).toBe('Today');
+
+      const firstPage = await recordFetchJson(
+        page,
+        evidence,
+        'pr04-page-1',
+        `/api/me/tasks?view=assigned&workspaceId=${primaryWorkspaceId}&page=1&pageSize=10`,
+        { validate: (body) => isPagedResponse(body) && body.page === 1 && body.pageSize === 10 && body.totalCount > 10 }
+      ) as Record<string, any>;
+      const secondPage = await recordFetchJson(
+        page,
+        evidence,
+        'pr04-page-2',
+        `/api/me/tasks?view=assigned&workspaceId=${primaryWorkspaceId}&page=2&pageSize=10`,
+        { validate: (body) => isPagedResponse(body) && body.page === 2 && body.pageSize === 10 }
+      ) as Record<string, any>;
+      const firstPageIds = new Set(firstPage.items.map((item: Record<string, unknown>) => item.taskId));
+      expect(secondPage.items.some((item: Record<string, unknown>) => firstPageIds.has(item.taskId))).toBe(false);
+
+      const counts = await recordFetchJson(
+        page,
+        evidence,
+        'pr04-row-count-consistency',
+        `/api/me/tasks/counts?view=assigned&workspaceId=${primaryWorkspaceId}`,
+        {
+          validate: (body) => body && typeof body === 'object' &&
+            Array.isArray((body as Record<string, unknown>).views) &&
+            Array.isArray((body as Record<string, unknown>).timeGroups)
+        }
+      ) as Record<string, any>;
+      expect(counts.views.find((item: Record<string, unknown>) => item.view === 'Assigned')?.count).toBe(current.totalCount);
+
+      const initialUiRequest = waitForApiResponse(page, 'GET', '/api/me/tasks');
+      await page.goto('/app/tasks');
+      const initialUiResponse = await initialUiRequest;
+      expect(new URL(initialUiResponse.url()).searchParams.get('workspaceId')).toBe(primaryWorkspaceId);
+      await expect(page.getByTestId('my-tasks-workspace-select')).toHaveValue(primaryWorkspaceId);
+      await expect(page.getByRole('tab')).toHaveCount(7);
+      await expect(page.getByRole('tab', { name: /^Assigned to Me/ })).toHaveAttribute('aria-selected', 'true');
+
+      const participatingResponse = waitForApiResponse(page, 'GET', '/api/me/tasks');
+      await page.getByRole('tab', { name: /^Assigned to Me/ }).press('ArrowRight');
+      await recordOkJson(await participatingResponse, evidence, 'pr04-keyboard-tab-participating', (body) =>
+        isPagedResponse(body) && body.items.some((item: unknown) => hasStringValue(item, 'title', 'PR04 participating task')));
+      await expect(page.getByRole('tab', { name: /^Participating/ })).toHaveAttribute('aria-selected', 'true');
+
+      const assignedResponse = waitForApiResponse(page, 'GET', '/api/me/tasks');
+      await page.getByRole('tab', { name: /^Assigned to Me/ }).click();
+      await recordOkJson(await assignedResponse, evidence, 'pr04-ui-assigned', (body) => isPagedResponse(body));
+
+      const secondWorkspaceResponse = waitForApiResponse(page, 'GET', '/api/me/tasks');
+      await page.getByTestId('my-tasks-workspace-select').selectOption(secondWorkspaceId);
+      const secondWorkspaceList = await recordOkJson(await secondWorkspaceResponse, evidence, 'pr04-ui-workspace-switch', (body) =>
+        isPagedResponse(body) && body.items.some((item: unknown) => hasStringValue(item, 'title', 'PR04 second workspace assigned')));
+      expect(secondWorkspaceList.page).toBe(1);
+      await expect(page.getByText('PR04 second workspace assigned', { exact: true })).toBeVisible();
+
+      const primaryWorkspaceResponse = waitForApiResponse(page, 'GET', '/api/me/tasks');
+      await page.getByTestId('my-tasks-workspace-select').selectOption(primaryWorkspaceId);
+      await recordOkJson(await primaryWorkspaceResponse, evidence, 'pr04-ui-workspace-switch-back', (body) =>
+        isPagedResponse(body) && body.items.some((item: unknown) => hasStringValue(item, 'title', smokeTaskTitle)));
+
+      const searchResponse = waitForApiResponse(page, 'GET', '/api/me/tasks');
+      await page.getByTestId('my-tasks-search').fill('PR04 critical blocked match');
+      await recordOkJson(await searchResponse, evidence, 'pr04-ui-search-debounce', (body) =>
+        isPagedResponse(body) && body.totalCount === 1);
+      await expect(page.getByText('PR04 critical blocked match', { exact: true })).toBeVisible();
+
+      const priorityResponse = waitForApiResponse(page, 'GET', '/api/me/tasks');
+      await page.getByTestId('my-tasks-priority-filter').selectOption('critical');
+      await recordOkJson(await priorityResponse, evidence, 'pr04-ui-priority-filter', (body) =>
+        isPagedResponse(body) && body.totalCount === 1);
+      const blockedResponse = waitForApiResponse(page, 'GET', '/api/me/tasks');
+      await page.getByTestId('my-tasks-blocked-filter').selectOption('true');
+      await recordOkJson(await blockedResponse, evidence, 'pr04-ui-blocked-filter', (body) =>
+        isPagedResponse(body) && body.totalCount === 1);
+      const stageResponse = waitForApiResponse(page, 'GET', '/api/me/tasks');
+      await page.getByTestId('my-tasks-stage-filter').selectOption('todo');
+      await recordOkJson(await stageResponse, evidence, 'pr04-ui-stage-filter', (body) =>
+        isPagedResponse(body) && body.totalCount === 1);
+      const urgencyResponse = waitForApiResponse(page, 'GET', '/api/me/tasks');
+      await page.getByTestId('my-tasks-urgency-filter').selectOption('today');
+      await recordOkJson(await urgencyResponse, evidence, 'pr04-ui-urgency-filter', (body) =>
+        isPagedResponse(body) && body.totalCount === 1);
+      const projectResponse = waitForApiResponse(page, 'GET', '/api/me/tasks');
+      await page.getByTestId('my-tasks-project-filter').fill(String(current.items[0].projectId));
+      await page.getByTestId('my-tasks-project-filter').press('Tab');
+      await recordOkJson(await projectResponse, evidence, 'pr04-ui-project-filter', (body) =>
+        isPagedResponse(body) && body.totalCount === 1);
+
+      await page.reload();
+      await expect(page.getByTestId('my-tasks-page-size')).toBeVisible();
+      const pageSizeResponse = waitForApiResponse(page, 'GET', '/api/me/tasks');
+      await page.getByTestId('my-tasks-page-size').selectOption('10');
+      await recordOkJson(await pageSizeResponse, evidence, 'pr04-ui-page-size', (body) =>
+        isPagedResponse(body) && body.page === 1 && body.pageSize === 10 && body.totalCount > 10);
+      const nextResponse = waitForApiResponse(page, 'GET', '/api/me/tasks');
+      await page.getByTestId('my-tasks-next-page').click();
+      await recordOkJson(await nextResponse, evidence, 'pr04-ui-next-page', (body) => isPagedResponse(body) && body.page === 2);
+      const previousResponse = waitForApiResponse(page, 'GET', '/api/me/tasks');
+      await page.getByTestId('my-tasks-previous-page').click();
+      await recordOkJson(await previousResponse, evidence, 'pr04-ui-previous-page', (body) => isPagedResponse(body) && body.page === 1);
+
+      const secondBeforeRevocation = waitForApiResponse(page, 'GET', '/api/me/tasks');
+      await page.getByTestId('my-tasks-workspace-select').selectOption(secondWorkspaceId);
+      await recordOkJson(await secondBeforeRevocation, evidence, 'pr04-revocation-visible-before', (body) =>
+        isPagedResponse(body) && body.items.some((item: unknown) => hasStringValue(item, 'title', 'PR04 second workspace assigned')));
+      await expect(page.getByTestId('realtime-connection-state')).toContainText('Realtime updates connected.');
+      const authorizationRefresh = page.waitForResponse((response) => {
+        const url = new URL(response.url());
+        return response.request().method() === 'GET' &&
+          url.pathname === '/api/me/tasks' &&
+          url.searchParams.get('workspaceId') === primaryWorkspaceId;
+      });
+      const revokeSecond = await requestWithCsrf(page, 'DELETE', `/api/workspaces/${secondWorkspaceId}/members/${evidence.userId}`);
+      evidence.steps.push({
+        name: 'pr04-second-workspace-membership-revoked',
+        method: 'DELETE',
+        path: `/api/workspaces/${secondWorkspaceId}/members/${evidence.userId}`,
+        status: revokeSecond.status
+      });
+      expect(revokeSecond.status).toBe(200);
+      await recordOkJson(await authorizationRefresh, evidence, 'pr04-authorization-state-refresh', (body) =>
+        isPagedResponse(body) &&
+        !body.items.some((item: unknown) => hasStringValue(item, 'title', 'PR04 second workspace assigned')));
+      await expect(page.getByText('PR04 second workspace assigned', { exact: true })).toHaveCount(0);
+      await expect(page.getByTestId('my-tasks-workspace-select').locator(`option[value="${secondWorkspaceId}"]`)).toHaveCount(0);
+
+      const afterRevocation = await recordFetchJson(
+        page,
+        evidence,
+        'pr04-revocation-all-workspaces-row-clear',
+        '/api/me/tasks?view=assigned&scope=allWorkspaces&page=1&pageSize=100',
+        {
+          validate: (body) => isPagedResponse(body) &&
+            body.availableWorkspaceCount === 1 &&
+            !body.items.some((item: unknown) => hasStringValue(item, 'title', 'PR04 second workspace assigned'))
+        }
+      ) as Record<string, any>;
+      const countsAfterRevocation = await recordFetchJson(
+        page,
+        evidence,
+        'pr04-revocation-count-clear',
+        '/api/me/tasks/counts?view=assigned&scope=allWorkspaces',
+        {
+          validate: (body) => body && typeof body === 'object' &&
+            body.availableWorkspaceCount === 1 &&
+            Array.isArray(body.views)
+        }
+      ) as Record<string, any>;
+      expect(countsAfterRevocation.views.find((item: Record<string, unknown>) => item.view === 'Assigned')?.count)
+        .toBe(afterRevocation.totalCount);
+
+      expect(evidence.pageErrors, 'browser page errors').toEqual([]);
+      expectUnexpectedConsoleErrors(evidence);
+      expectUnexpectedApiFailures(evidence);
+    } finally {
+      await testInfo.attach('task-v1-pr04-real-backend-evidence.json', { body: JSON.stringify(evidence, null, 2), contentType: 'application/json' });
+    }
+  });
+
+  test('TASK-V1-PR03C uses the real backend for task detail, mutations, revocation, and File grant reauthorization', async ({ page }, testInfo) => {
+    const evidence: SmokeEvidence = {
+      baseURL: String(testInfo.project.use.baseURL ?? ''), email: smokeEmail, steps: [], pageErrors: [], consoleErrors: [], failedApiResponses: []
+    };
+    page.on('pageerror', (error) => evidence.pageErrors.push(error.message));
+    page.on('console', (message) => { if (message.type() === 'error') evidence.consoleErrors.push(message.text()); });
+    page.on('response', (response) => recordFailedApiResponse(response, evidence));
+
+    try {
+      await loginAndVerifySession(page, evidence);
+      await openPr03cTaskDetail(page, evidence);
+      const taskId = evidence.taskId!;
+      const projectId = evidence.projectId!;
+      const workspaceId = evidence.workspaceId!;
+      const userId = evidence.userId!;
+
+      const detail = await recordFetchJson(page, evidence, 'pr03c-task-detail-aggregate', `/api/tasks/${taskId}`, {
+        validate: (body) => isPr03cTaskDetail(body, taskId, projectId)
+      });
+      const detailRecord = detail as Record<string, any>;
+      const attachmentId = String(detailRecord.files.items[0].id);
+      expect(JSON.stringify(detail), 'task detail must not disclose storage or grant secrets').not.toMatch(/storageKey|filePath|tokenHash|signedUrl|internal\/task-file/i);
+
+      await expect(page.getByTestId('task-detail-version')).not.toHaveText('0');
+      await expect(page.getByRole('heading', { name: 'Subtasks' })).toBeVisible();
+      await expect(page.getByRole('heading', { name: 'Checklist' })).toBeVisible();
+      await expect(page.getByRole('heading', { name: 'Comments' })).toBeVisible();
+      await expect(page.getByRole('heading', { name: 'Labels' })).toBeVisible();
+      await expect(page.getByRole('heading', { name: 'Watch' })).toBeVisible();
+      await expect(page.getByRole('heading', { name: 'Files' })).toBeVisible();
+      await expect(page.getByText(smokeTaskLabelName, { exact: true }).first()).toBeVisible();
+      await expect(page.getByText('Not watching', { exact: true })).toBeVisible();
+      await expect(page.getByText(smokeTaskFileName, { exact: true })).toBeVisible();
+      await expect(page.getByText('Access: Available', { exact: true })).toBeVisible();
+
+      const grant = await requestWithCsrf(page, 'POST', `/api/attachments/${attachmentId}/download-grants`, { purpose: 'pr03c-acceptance' });
+      evidence.steps.push({ name: 'pr03c-file-grant-before-revocation', method: 'POST', path: `/api/attachments/${attachmentId}/download-grants`, status: grant.status, bodyPreview: '[redacted]' });
+      expect(grant.status, 'authorized actor receives a fresh Attachment download grant').toBe(200);
+      const grantBody = parseJson(grant.text) as Record<string, unknown>;
+      const grantId = String(grantBody.fileDownloadGrantId ?? '');
+      const grantToken = String(grantBody.token ?? '');
+      expect(grantId, 'download grant id').toMatch(/^[0-9a-f-]{36}$/i);
+      expect(grantToken, 'download grant token').not.toBe('');
+      const browserStorage = await page.evaluate(() => JSON.stringify({
+        local: { ...localStorage },
+        session: { ...sessionStorage }
+      }));
+      expect(browserStorage, 'download grant token must remain ephemeral').not.toContain(grantToken);
+
+      const directOpen = await fetchBinaryFromPage(page, `/api/attachments/${attachmentId}/download`);
+      evidence.steps.push({ name: 'pr03c-file-open-before-revocation', method: 'GET', path: `/api/attachments/${attachmentId}/download`, status: directOpen.status });
+      expect(directOpen.status, 'authorized actor can open the physical synthetic Attachment').toBe(200);
+      expect(directOpen.text, 'authorized direct open returns the seeded bytes').toBe('Synthetic PR03C browser smoke file.\n');
+
+      const grantedDownload = await requestBinaryWithCsrf(page, `/api/attachment-download-grants/${grantId}/download`, { token: grantToken });
+      evidence.steps.push({ name: 'pr03c-file-grant-download-before-revocation', method: 'POST', path: `/api/attachment-download-grants/${grantId}/download`, status: grantedDownload.status });
+      expect(grantedDownload.status, 'fresh grant downloads the physical synthetic Attachment').toBe(200);
+      expect(grantedDownload.text, 'authorized grant returns the seeded bytes').toBe('Synthetic PR03C browser smoke file.\n');
+
+      const retainedGrant = await requestWithCsrf(page, 'POST', `/api/attachments/${attachmentId}/download-grants`, { purpose: 'pr03c-revocation-probe' });
+      expect(retainedGrant.status, 'revocation probe receives a fresh one-time grant').toBe(200);
+      const retainedGrantBody = parseJson(retainedGrant.text) as Record<string, unknown>;
+      const retainedGrantId = String(retainedGrantBody.fileDownloadGrantId ?? '');
+      const retainedGrantToken = String(retainedGrantBody.token ?? '');
+      expect(retainedGrantId, 'retained download grant id').toMatch(/^[0-9a-f-]{36}$/i);
+      expect(retainedGrantToken, 'retained download grant token').not.toBe('');
+
+      const checklistText = `PR03C checklist ${Date.now()}`;
+      const checklistResponse = waitForApiResponse(page, 'POST', `/api/tasks/${taskId}/checklist`);
+      await page.locator('#checklist-text').fill(checklistText);
+      await page.getByRole('button', { name: 'Add checklist item' }).click();
+      await recordOkJson(await checklistResponse, evidence, 'pr03c-checklist-create', (body) => hasString(body, 'id') && hasStringValue(body, 'text', checklistText));
+      await expect(page.getByText(checklistText, { exact: true })).toBeVisible();
+      const checklistSection = page.locator('section[aria-labelledby="checklist-heading"]');
+      const checklistDelete = waitForApiResponse(page, 'DELETE', new RegExp(`/api/tasks/${taskId}/checklist/`));
+      await checklistSection.getByRole('button', { name: 'Delete' }).click();
+      await recordOkJson(await checklistDelete, evidence, 'pr03c-checklist-delete', (body) => body && typeof body === 'object');
+      await expect(page.getByText(checklistText, { exact: true })).toHaveCount(0);
+
+      const mentionResponse = waitForApiResponse(page, 'GET', new RegExp(`/api/tasks/${taskId}/mention-candidates$`));
+      await page.locator('#task-comment-body').fill('@Browser');
+      await recordOkJson(await mentionResponse, evidence, 'pr03c-mention-candidates', (body) => Array.isArray(body) && body.some((candidate: unknown) => hasStringValue(candidate, 'displayName', smokeRecipientName)));
+      await page.getByRole('button', { name: `@${smokeRecipientName}` }).click();
+      const commentResponse = waitForApiResponse(page, 'POST', `/api/tasks/${taskId}/comments`);
+      await page.getByRole('button', { name: 'Post comment' }).click();
+      const comment = await recordOkJson(await commentResponse, evidence, 'pr03c-comment-create', (body) => hasString(body, 'id') && Array.isArray((body as Record<string, unknown>).mentions));
+      const commentId = String((comment as Record<string, unknown>).id);
+      await expect(page.getByText(`@${smokeRecipientName}`, { exact: true })).toBeVisible();
+      const commentDelete = waitForApiResponse(page, 'DELETE', `/api/task-comments/${commentId}`);
+      await page.locator('section[aria-labelledby="comments-heading"]').getByRole('button', { name: 'Delete' }).click();
+      await recordOkJson(await commentDelete, evidence, 'pr03c-comment-delete', (body) => body && typeof body === 'object');
+
+      const mismatchProjectId = '00000000-0000-0000-0000-000000000001';
+      await page.goto(`/app/projects/${mismatchProjectId}/tasks/${taskId}`);
+      await expect(page.getByText('Task not found', { exact: true })).toBeVisible();
+      await expect(page.getByRole('heading', { name: smokeTaskTitle })).toHaveCount(0);
+      await expect(page.getByText(smokeTaskLabelName, { exact: true })).toHaveCount(0);
+      await expect(page.getByText(smokeTaskFileName, { exact: true })).toHaveCount(0);
+
+      await page.goto(`/app/projects/${projectId}/tasks/${taskId}`);
+      await expect(page.getByRole('heading', { name: smokeTaskTitle })).toBeVisible();
+      const removeMembership = await requestWithCsrf(page, 'DELETE', `/api/workspaces/${workspaceId}/members/${userId}`);
+      evidence.steps.push({ name: 'pr03c-workspace-membership-revoked', method: 'DELETE', path: `/api/workspaces/${workspaceId}/members/${userId}`, status: removeMembership.status });
+      expect(removeMembership.status, 'test setup revokes active Workspace access through the real backend').toBe(200);
+
+      await page.reload();
+      await expect(page.getByRole('heading', { name: smokeTaskTitle })).toHaveCount(0);
+      await expect(page.getByText(smokeTaskLabelName, { exact: true })).toHaveCount(0);
+      await expect(page.getByText(smokeTaskFileName, { exact: true })).toHaveCount(0);
+      await expect(page.locator('#task-comment-body')).toHaveCount(0);
+
+      const deniedTask = await fetchFromPage(page, `/api/tasks/${taskId}`);
+      evidence.steps.push({ name: 'pr03c-task-denied-after-revocation', method: 'GET', path: `/api/tasks/${taskId}`, status: deniedTask.status, bodyPreview: preview(deniedTask.text) });
+      expect(deniedTask.status, 'revoked actor must receive the canonical task safe-not-found response').toBe(404);
+      expectCanonicalDenial(deniedTask.text, 'TASK_NOT_FOUND');
+
+      const revokedMyTasks = await fetchJsonFromPage(page, '/api/me/tasks?view=assigned&scope=allWorkspaces');
+      evidence.steps.push({ name: 'pr03c-my-tasks-cleared-after-revocation', method: 'GET', path: '/api/me/tasks', status: revokedMyTasks.status });
+      expect(revokedMyTasks.status, 'My Tasks remains safely queryable after membership revocation').toBe(200);
+      expect(revokedMyTasks.body?.items, 'revoked Workspace rows must disappear from My Tasks').toEqual([]);
+      expect(revokedMyTasks.body?.totalCount, 'revoked Workspace rows must not contribute to My Tasks total').toBe(0);
+      expect(revokedMyTasks.body?.availableWorkspaceCount, 'revoked Workspace must not remain available').toBe(0);
+
+      const revokedMyTaskCounts = await fetchJsonFromPage(page, '/api/me/tasks/counts?scope=allWorkspaces');
+      evidence.steps.push({ name: 'pr03c-my-task-counts-cleared-after-revocation', method: 'GET', path: '/api/me/tasks/counts', status: revokedMyTaskCounts.status });
+      expect(revokedMyTaskCounts.status, 'My Tasks counts remain safely queryable after membership revocation').toBe(200);
+      expect(revokedMyTaskCounts.body?.availableWorkspaceCount, 'revoked Workspace must not remain in count scope').toBe(0);
+      expect(
+        (revokedMyTaskCounts.body?.views ?? []).every((view: Record<string, unknown>) => view.count === 0),
+        'revoked Workspace rows must not contribute to any relationship count'
+      ).toBe(true);
+
+      const deniedGrant = await requestWithCsrf(page, 'POST', `/api/attachments/${attachmentId}/download-grants`, { purpose: 'pr03c-after-revocation' });
+      evidence.steps.push({ name: 'pr03c-file-grant-denied-after-revocation', method: 'POST', path: `/api/attachments/${attachmentId}/download-grants`, status: deniedGrant.status, bodyPreview: preview(deniedGrant.text) });
+      expect(deniedGrant.status, 'revoked actor must receive the canonical grant safe-not-found response').toBe(404);
+      expectCanonicalDenial(deniedGrant.text, 'FILE_DOWNLOAD_GRANT_NOT_FOUND');
+      expect(deniedGrant.text, 'denial must not disclose the protected File metadata').not.toMatch(/browser-smoke-task|storageKey|filePath|tokenHash|internal\/task-file/i);
+
+      const deniedOpen = await fetchBinaryFromPage(page, `/api/attachments/${attachmentId}/download`);
+      evidence.steps.push({ name: 'pr03c-file-open-denied-after-revocation', method: 'GET', path: `/api/attachments/${attachmentId}/download`, status: deniedOpen.status });
+      expect(deniedOpen.status, 'revoked actor cannot open the physical Attachment').toBe(400);
+      expect(deniedOpen.text, 'revoked direct open must not return the seeded bytes').not.toContain('Synthetic PR03C browser smoke file.');
+
+      const deniedRetainedGrant = await requestBinaryWithCsrf(page, `/api/attachment-download-grants/${retainedGrantId}/download`, { token: retainedGrantToken });
+      evidence.steps.push({ name: 'pr03c-retained-grant-denied-after-revocation', method: 'POST', path: `/api/attachment-download-grants/${retainedGrantId}/download`, status: deniedRetainedGrant.status });
+      expect(deniedRetainedGrant.status, 'membership revocation invalidates a previously issued unused grant').toBe(400);
+      expect(deniedRetainedGrant.text, 'revoked retained grant must not return the seeded bytes').not.toContain('Synthetic PR03C browser smoke file.');
+
+      expect(evidence.pageErrors, 'browser page errors').toEqual([]);
+      expectUnexpectedConsoleErrors(evidence);
+      expectUnexpectedApiFailures(evidence);
+    } finally {
+      await testInfo.attach('task-v1-pr03c-real-backend-evidence.json', { body: JSON.stringify(evidence, null, 2), contentType: 'application/json' });
+    }
   });
 });
 
 async function loginAndVerifySession(page: Page, evidence: SmokeEvidence) {
-  await page.addInitScript(() => {
-    window.__AIP_FEATURE_FLAGS__ = { 'realtime.signalR': true };
-  });
   await page.goto('/app/login');
   await expect(page.getByTestId('login-page')).toBeVisible();
   await recordFetchJson(page, evidence, 'csrf-token', '/api/security/csrf-token', {
@@ -304,31 +708,61 @@ async function openProjectTaskDetail(page: Page, evidence: SmokeEvidence) {
   expect(task, 'seeded task record').toBeTruthy();
   evidence.taskId = String(task!.id);
 
+  // The projects overview intentionally lists project summaries only. Follow
+  // the real project navigation and select its Task list before asserting a
+  // task-grid row; the API assertion above remains the direct list contract.
+  const projectCard = page.getByTestId('project-summary-card').filter({ hasText: smokeProjectTitle }).first();
+  await projectCard.getByRole('link', { name: `Open ${smokeProjectTitle}` }).click();
+  await expect(page).toHaveURL(new RegExp(`/app/projects/${evidence.projectId}$`));
+  await expect(page.getByTestId('project-detail-page')).toBeVisible();
+  await page.getByRole('tab', { name: 'List', exact: true }).click();
+
   const taskRow = page.locator('[role="row"]').filter({ hasText: smokeTaskTitle }).first();
   await expect(taskRow).toBeVisible();
-  await taskRow.getByTestId('task-action-openDetail').click();
+  await clickTaskOpenDetail(page, taskRow);
 
   await expect(page.getByTestId('task-detail-page')).toBeVisible();
   await expect(page.getByRole('heading', { name: smokeTaskTitle })).toBeVisible();
   await recordFetchJson(page, evidence, 'task-detail', `/api/tasks/${evidence.taskId}`, {
     validate: (body) =>
-      hasStringValue(body, 'id', evidence.taskId ?? '') &&
-      hasStringValue(body, 'title', smokeTaskTitle) &&
-      hasStringValue(body, 'projectId', evidence.projectId ?? '')
+      isPr03cTaskDetail(body, evidence.taskId ?? '', evidence.projectId ?? '')
   });
 
   await openMyTasksFromNavigation(page, evidence);
 }
 
+async function openPr03cTaskDetail(page: Page, evidence: SmokeEvidence) {
+  const projectsBody = await recordFetchJson(page, evidence, 'pr03c-projects-list', '/api/projects', {
+    validate: (body) => isPagedResponse(body) && body.items.some((item: unknown) => hasStringValue(item, 'title', smokeProjectTitle))
+  });
+  const project = projectsBody.items.find((item: Record<string, unknown>) => item.title === smokeProjectTitle);
+  expect(project, 'PR03C seeded project').toBeTruthy();
+  evidence.projectId = String(project!.id);
+
+  const tasksBody = await recordFetchJson(page, evidence, 'pr03c-project-tasks', `/api/projects/${evidence.projectId}/tasks`, {
+    validate: (body) => isPagedResponse(body) && body.items.some((item: unknown) => hasStringValue(item, 'title', smokeTaskTitle))
+  });
+  const task = tasksBody.items.find((item: Record<string, unknown>) => item.title === smokeTaskTitle);
+  expect(task, 'PR03C seeded task').toBeTruthy();
+  evidence.taskId = String(task!.id);
+
+  const detail = await recordFetchJson(page, evidence, 'pr03c-task-detail-contract', `/api/tasks/${evidence.taskId}`, {
+    validate: (body) => isPr03cTaskDetail(body, evidence.taskId ?? '', evidence.projectId ?? '')
+  });
+  evidence.workspaceId = String((detail as Record<string, any>).task.workspaceId);
+  expect(evidence.workspaceId, 'task workspaceId is part of the canonical Task DTO').toMatch(/^[0-9a-f-]{36}$/i);
+
+  await page.goto(`/app/projects/${evidence.projectId}/tasks/${evidence.taskId}`);
+  await expect(page.getByTestId('task-detail-page')).toBeVisible();
+  await expect(page.getByRole('heading', { name: smokeTaskTitle })).toBeVisible();
+}
+
 async function openMyTasksFromNavigation(page: Page, evidence: SmokeEvidence) {
-  let blockedProjectListRequests = 0;
-  await page.route('**/api/projects', async (route) => {
-    blockedProjectListRequests += 1;
-    await route.fulfill({
-      status: 500,
-      contentType: 'application/json',
-      body: JSON.stringify({ message: 'Project list intentionally blocked during My Tasks independence probe.' })
-    });
+  let projectListRequests = 0;
+  page.on('request', (request) => {
+    if (request.method() === 'GET' && new URL(request.url()).pathname === '/api/projects') {
+      projectListRequests += 1;
+    }
   });
 
   const [myTasksResponse] = await Promise.all([
@@ -350,22 +784,32 @@ async function openMyTasksFromNavigation(page: Page, evidence: SmokeEvidence) {
   );
   const assignedTask = myTasksBody.items.find((item: Record<string, unknown>) => item.title === smokeTaskTitle);
   expect(assignedTask, 'seeded assigned My Tasks row').toBeTruthy();
-  expect(blockedProjectListRequests, 'My Tasks must not request /api/projects while loading').toBe(0);
+  expect(projectListRequests, 'My Tasks must not request /api/projects while loading').toBe(0);
   evidence.steps.push({
     name: 'my-tasks-independent-from-project-list',
     method: 'GET',
     path: '/api/projects',
-    status: blockedProjectListRequests
+    status: projectListRequests
   });
 
-  const taskRow = page.locator('[role="row"]').filter({ hasText: smokeTaskTitle }).first();
-  await expect(taskRow).toBeVisible();
-  await taskRow.getByTestId('task-action-openDetail').click();
+  const taskButton = page.getByRole('button', { name: /^Browser smoke task(?:\s|$)/ }).first();
+  await expect(taskButton).toBeVisible();
+  await taskButton.click();
   await expect(page).toHaveURL(new RegExp(`/app/projects/${evidence.projectId}/tasks/${evidence.taskId}$`));
   await expect(page.getByTestId('task-detail-page')).toBeVisible();
   await expect(page.getByRole('heading', { name: smokeTaskTitle })).toBeVisible();
+}
 
-  await page.unroute('**/api/projects');
+async function clickTaskOpenDetail(page: Page, taskRow: Locator): Promise<void> {
+  const action = taskRow.getByTestId('task-action-openDetail');
+  if (!(await action.isVisible())) {
+    await page.locator('.ag-body-horizontal-scroll-viewport').evaluate((viewport) => {
+      viewport.scrollLeft = viewport.scrollWidth;
+    });
+  }
+
+  await expect(action).toBeVisible();
+  await action.click();
 }
 
 async function submitInvalidPasswordChange(page: Page, evidence: SmokeEvidence) {
@@ -537,6 +981,42 @@ async function fetchJsonFromPage(page: Page, path: string): Promise<{ status: nu
   };
 }
 
+async function fetchBinaryFromPage(page: Page, path: string): Promise<{ status: number; text: string }> {
+  const response = await page.context().request.get(new URL(path, page.url()).href);
+  return { status: response.status(), text: await response.text() };
+}
+
+async function requestBinaryWithCsrf(page: Page, path: string, body: unknown): Promise<{ status: number; text: string }> {
+  const csrf = await page.evaluate(async () => {
+    const response = await fetch('/api/security/csrf-token', { credentials: 'include' });
+    return response.json() as Promise<{ token?: string; headerName?: string }>;
+  });
+  expect(csrf.token, 'binary request CSRF token').toBeTruthy();
+  expect(csrf.headerName, 'binary request CSRF header name').toBeTruthy();
+  const response = await page.context().request.post(new URL(path, page.url()).href, {
+    data: body,
+    headers: { [csrf.headerName!]: csrf.token! }
+  });
+  return { status: response.status(), text: await response.text() };
+}
+
+/** Acquires the anti-forgery token in the browser and never serializes it into evidence. */
+async function requestWithCsrf(page: Page, method: 'POST' | 'DELETE', path: string, body?: unknown): Promise<{ status: number; text: string }> {
+  return page.evaluate(async ({ method, path, body }) => {
+    const csrfResponse = await fetch('/api/security/csrf-token', { credentials: 'include' });
+    const csrf = await csrfResponse.json() as { token?: string; headerName?: string };
+    const headers: Record<string, string> = { 'Content-Type': 'application/json' };
+    if (csrf.token && csrf.headerName) headers[csrf.headerName] = csrf.token;
+    const response = await fetch(path, {
+      method,
+      credentials: 'include',
+      headers,
+      ...(body === undefined ? {} : { body: JSON.stringify(body) })
+    });
+    return { status: response.status, text: await response.text() };
+  }, { method, path, body });
+}
+
 function recordFailedApiResponse(response: PlaywrightResponse, evidence: SmokeEvidence) {
   const url = new URL(response.url());
   if (!url.pathname.startsWith('/api/') || response.status() < 400) {
@@ -555,17 +1035,79 @@ function expectUnexpectedApiFailures(evidence: SmokeEvidence) {
   expect(unexpected, 'unexpected failed API responses').toEqual([]);
 }
 
+function expectUnexpectedConsoleErrors(evidence: SmokeEvidence) {
+  const expectedNetworkFailures = new Map<number, number>();
+  for (const failure of evidence.failedApiResponses.filter(isExpectedFailure)) {
+    expectedNetworkFailures.set(failure.status, (expectedNetworkFailures.get(failure.status) ?? 0) + 1);
+  }
+
+  const unexpected = evidence.consoleErrors.filter((message) => {
+    const match = /Failed to load resource:.*status of (\d{3})/i.exec(message);
+    if (!match) return true;
+    const status = Number(match[1]);
+    const remaining = expectedNetworkFailures.get(status) ?? 0;
+    if (remaining === 0) return true;
+    expectedNetworkFailures.set(status, remaining - 1);
+    return false;
+  });
+  expect(unexpected, 'unexpected browser console errors').toEqual([]);
+}
+
 function isExpectedFailure(failure: SmokeFailedApiResponse): boolean {
   return (
     (failure.method === 'POST' && failure.path === '/api/auth/change-password' && failure.status === 403) ||
     (failure.method === 'POST' && failure.path === '/api/auth/change-password' && failure.status === 400) ||
     (failure.method === 'GET' && failure.path === '/api/auth/me' && failure.status === 401) ||
-    (failure.method === 'GET' && failure.path === '/api/projects' && failure.status === 401)
+    (failure.method === 'GET' && failure.path === '/api/projects' && failure.status === 401) ||
+    (failure.method === 'GET' && failure.path === '/api/me/tasks' && failure.status === 400) ||
+    (failure.method === 'GET' && failure.path === '/api/me/tasks' && failure.status === 403) ||
+    (failure.method === 'GET' && failure.path === '/api/me/tasks/counts' && failure.status === 403) ||
+    (failure.method === 'GET' && /^\/api\/tasks\/[0-9a-f-]+$/i.test(failure.path) && failure.status === 404) ||
+    (failure.method === 'POST' && /^\/api\/attachments\/[0-9a-f-]+\/download-grants$/i.test(failure.path) && failure.status === 404) ||
+    (failure.method === 'GET' && /^\/api\/attachments\/[0-9a-f-]+\/download$/i.test(failure.path) && failure.status === 400) ||
+    (failure.method === 'POST' && /^\/api\/attachment-download-grants\/[0-9a-f-]+\/download$/i.test(failure.path) && failure.status === 400)
   );
+}
+
+async function verifyRealtimeRuntimeConfig(page: Page, evidence: SmokeEvidence): Promise<void> {
+  const enabled = await page.evaluate(() => window.__AIP_FEATURE_FLAGS__?.['realtime.signalR'] === true);
+  evidence.steps.push({ name: 'realtime-runtime-config-enabled', method: 'GET', path: '/api/ui/runtime-config.js', status: enabled ? 200 : 500 });
+  expect(enabled, 'same-origin runtime configuration must enable the realtime rollout').toBe(true);
+}
+
+function expectCanonicalDenial(text: string, expectedCode: string): void {
+  const body = parseJson(text) as Record<string, any>;
+  expect(typeof body.requestId, 'safe denial requestId').toBe('string');
+  expect(body.error?.code, 'safe denial error code').toBe(expectedCode);
+  expect(text, 'safe denial must not expose protected metadata').not.toMatch(/browser-smoke-task|browser smoke label|storageKey|filePath|tokenHash|policy stamp|internal\//i);
 }
 
 function isPagedResponse(body: unknown): body is { items: Record<string, unknown>[] } {
   return typeof body === 'object' && body !== null && Array.isArray((body as Record<string, unknown>).items);
+}
+
+function isPr03cTaskDetail(body: unknown, taskId: string, projectId: string): boolean {
+  if (typeof body !== 'object' || body === null) return false;
+  const detail = body as Record<string, any>;
+  const task = detail.task;
+  return hasStringValue(task, 'id', taskId) &&
+    hasStringValue(task, 'projectId', projectId) &&
+    hasStringValue(task, 'title', smokeTaskTitle) &&
+    hasString(task, 'workspaceId') &&
+    typeof task.version === 'number' &&
+    typeof task.priority === 'string' &&
+    typeof task.stageCategory === 'number' &&
+    typeof task.reviewStatus === 'number' &&
+    detail.relationships && typeof detail.relationships === 'object' &&
+    detail.permissions && typeof detail.permissions === 'object' &&
+    Array.isArray(detail.checklist) && Array.isArray(detail.labels) &&
+    detail.watchState && typeof detail.watchState === 'object' &&
+    isPagedResponse(detail.subtasks) && isPagedResponse(detail.comments) && isPagedResponse(detail.files) &&
+    detail.files.items.length > 0 &&
+    hasStringValue(detail.files.items[0], 'fileName', smokeTaskFileName) &&
+    typeof detail.files.items[0].scanStatus === 'string' &&
+    typeof detail.files.items[0].canOpen === 'boolean' &&
+    typeof detail.files.items[0].canRequestDownloadGrant === 'boolean';
 }
 
 function hasString(body: unknown, key: string): body is Record<string, unknown> {
@@ -607,6 +1149,7 @@ interface SmokeEvidence {
   announcementId?: string;
   projectId?: string;
   taskId?: string;
+  workspaceId?: string;
   steps: SmokeEvidenceStep[];
   pageErrors: string[];
   consoleErrors: string[];

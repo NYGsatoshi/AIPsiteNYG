@@ -10,17 +10,11 @@ namespace AipPortal.Tests.PostgreSql;
 
 public sealed class PostgreSqlIntegrationTests
 {
-    private const string ConnectionStringEnvironmentVariable = "POSTGRES_TEST_CONNECTION_STRING";
-
-    [Fact]
+    [PostgreSqlFact]
     [Trait("Category", "PostgreSQLIntegration")]
     public async Task MigrationsAndTenantScopedRepositoriesWorkAgainstPostgreSql()
     {
-        var connectionString = Environment.GetEnvironmentVariable(ConnectionStringEnvironmentVariable);
-        if (string.IsNullOrWhiteSpace(connectionString))
-        {
-            return;
-        }
+        var connectionString = PostgreSqlTestEnvironment.RequireConnectionString();
 
         var options = new DbContextOptionsBuilder<AppDbContext>()
             .UseNpgsql(connectionString)
@@ -111,15 +105,11 @@ public sealed class PostgreSqlIntegrationTests
         Assert.DoesNotContain(tenantBProjects, project => project.Name == "PostgreSQL Project A");
     }
 
-    [Fact]
+    [PostgreSqlFact]
     [Trait("Category", "PostgreSQLIntegration")]
     public async Task TenantScopedSearchIsolationWorksAgainstPostgreSql()
     {
-        var connectionString = Environment.GetEnvironmentVariable(ConnectionStringEnvironmentVariable);
-        if (string.IsNullOrWhiteSpace(connectionString))
-        {
-            return;
-        }
+        var connectionString = PostgreSqlTestEnvironment.RequireConnectionString();
 
         var options = new DbContextOptionsBuilder<AppDbContext>()
             .UseNpgsql(connectionString)

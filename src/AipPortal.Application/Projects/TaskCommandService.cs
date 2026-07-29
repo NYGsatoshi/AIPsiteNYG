@@ -17,7 +17,8 @@ public sealed class TaskCommandService(
     IClock clock,
     IAuditLogger audit,
     IBusinessInvalidationPublisher invalidations,
-    IUnitOfWork unitOfWork) : ITaskCommandService
+    ITaskCommandUnitOfWork unitOfWork,
+    ITaskWorkspaceTimeZoneResolver timeZones) : ITaskCommandService
 {
     public async Task<Result<CanonicalTaskResponse>> GetAsync(Guid taskId, CancellationToken cancellationToken = default)
     {
@@ -25,6 +26,50 @@ public sealed class TaskCommandService(
         if (!TryActor(out var actor) || task is null || task.DeletedAt.HasValue || !await projectAuthorization.CanViewProject(actor, task.ProjectId, cancellationToken))
             return Fail<CanonicalTaskResponse>("TASK_NOT_FOUND", "Task not found.");
         return Result<CanonicalTaskResponse>.Success(await ToResponseAsync(task, actor, cancellationToken));
+    }
+
+    public async Task<Result<CanonicalTaskResponse>> UpdateDetailsAsync(Guid taskId, TaskUpdateDetailsRequest request, CancellationToken cancellationToken = default)
+    {
+        var taskResult = await AuthorizedTaskAsync(taskId, true, cancellationToken: cancellationToken);
+        if (taskResult.Error is not null) return Fail<CanonicalTaskResponse>(taskResult.Error.Value.Code, taskResult.Error.Value.Message);
+        var task = taskResult.Value!;
+        if (request.ExpectedVersion <= 0) return Fail<CanonicalTaskResponse>("TASK_INVALID_EXPECTED_VERSION", "Expected version must be a positive integer.");
+        var stale = EnsureVersion(task, request.ExpectedVersion); if (stale is not null) return Fail<CanonicalTaskResponse>(stale.Value.Code, stale.Value.Message);
+
+        var title = request.Title?.Trim();
+        if (string.IsNullOrWhiteSpace(title) || title.Length > 240) return Fail<CanonicalTaskResponse>("TASK_INVALID_TITLE", "Task title must be between 1 and 240 characters.");
+        var description = request.Description?.Trim();
+        if (description?.Length > 8000) return Fail<CanonicalTaskResponse>("TASK_INVALID_DESCRIPTION", "Task description must be 8000 characters or fewer.");
+        if (!request.Priority.HasValue || !Enum.IsDefined(request.Priority.Value)) return Fail<CanonicalTaskResponse>("TASK_INVALID_PRIORITY", "Task priority is invalid.");
+        if (!request.ProgressPercent.HasValue || request.ProgressPercent is < 0 or > 100) return Fail<CanonicalTaskResponse>("TASK_INVALID_PROGRESS", "Task progress must be between 0 and 100.");
+        if (request.PlannedStartDate.HasValue && request.PlannedEndDate.HasValue && request.PlannedStartDate.Value > request.PlannedEndDate.Value)
+            return Fail<CanonicalTaskResponse>("TASK_INVALID_DATE_RANGE", "Planned start date must not be after planned end date.");
+
+        var category = CategoryOf(task);
+        var projectTasks = await projects.ListTasksAsync(task.ProjectId, cancellationToken);
+        var derived = ParentTaskDerivedValuesCalculator.Calculate(task, projectTasks, CategoryOf);
+        if (derived.IsDerived && (request.ProgressPercent != derived.ProgressPercent || request.PlannedStartDate != derived.PlannedStartDate || request.PlannedEndDate != derived.PlannedEndDate))
+            return Fail<CanonicalTaskResponse>("TASK_PROGRESS_DERIVED", "Parent task progress and planned dates are derived from its children.");
+        if (!derived.IsDerived && category == TaskStageCategory.Done && request.ProgressPercent.Value != 100)
+            return Fail<CanonicalTaskResponse>("TASK_INVALID_PROGRESS", "Completed tasks must remain at 100 percent progress.");
+        if (!derived.IsDerived && category == TaskStageCategory.Cancelled && request.ProgressPercent.Value != task.ProgressPercent)
+            return Fail<CanonicalTaskResponse>("TASK_INVALID_PROGRESS", "Cancelled task progress cannot be changed.");
+        task.Title = title;
+        task.Description = string.IsNullOrWhiteSpace(description) ? null : description;
+        task.Priority = request.Priority.Value;
+        // Parent planning fields are derived, but ordinary body fields remain editable.
+        if (!derived.IsDerived)
+        {
+            // Keep the legacy date columns synchronized while this compatibility model remains in use.
+            task.PlannedStartDate = task.StartDate = request.PlannedStartDate;
+            task.PlannedEndDate = task.DueDate = request.PlannedEndDate;
+            task.ProgressPercent = request.ProgressPercent.Value;
+        }
+
+        var committed = await CommitAsync(task, "TaskDetailsUpdated", "updated", cancellationToken);
+        return committed.IsSuccess
+            ? Result<CanonicalTaskResponse>.Success(committed.Value!.Task)
+            : Result<CanonicalTaskResponse>.Failure(committed.Error!);
     }
 
     public async Task<Result<TaskRelationshipsResponse>> GetRelationshipsAsync(Guid taskId, CancellationToken cancellationToken = default)
@@ -43,20 +88,42 @@ public sealed class TaskCommandService(
         var stale = EnsureVersion(task, request.ExpectedVersion); if (stale is not null) return Fail<TaskCommandResponse>(stale.Value.Code, stale.Value.Message);
         var stage = await projects.GetWorkflowStageAsync(request.WorkflowStageId, cancellationToken);
         if (stage is null || stage.ProjectId != task.ProjectId) return Fail<TaskCommandResponse>("TASK_INVALID_STAGE", "Workflow stage is not available for this task.");
+        var previous = CategoryOf(task);
+        if (previous is TaskStageCategory.Done or TaskStageCategory.Cancelled &&
+            stage.InternalCategory is not (TaskStageCategory.Backlog or TaskStageCategory.Todo))
+        {
+            return Fail<TaskCommandResponse>("TASK_TRANSITION_GUARD_FAILED", "Reopen a terminal task to Backlog or Todo before moving it to active work.");
+        }
         if (stage.InternalCategory == TaskStageCategory.InProgress && !task.PrimaryAssigneeUserId.HasValue) return Fail<TaskCommandResponse>("TASK_ASSIGNEE_REQUIRED", "A primary assignee is required before active work.");
         if (stage.InternalCategory == TaskStageCategory.Done && await ReviewRequiredAsync(task, cancellationToken)) return Fail<TaskCommandResponse>("TASK_REVIEW_REQUIRED", "An accepted review is required before completion.");
         if (stage.InternalCategory == TaskStageCategory.Cancelled && !IsBounded(request.Reason)) return Fail<TaskCommandResponse>("TASK_CANCEL_REASON_REQUIRED", "A cancellation reason is required.");
         if (stage.InternalCategory == TaskStageCategory.Done && (await projects.ListTasksAsync(task.ProjectId, cancellationToken)).Any(child => child.ParentTaskItemId == task.Id && !child.DeletedAt.HasValue && CategoryOf(child) != TaskStageCategory.Done && CategoryOf(child) != TaskStageCategory.Cancelled)) return Fail<TaskCommandResponse>("TASK_TRANSITION_GUARD_FAILED", "A parent task with incomplete children cannot be completed.");
 
-        var previous = CategoryOf(task);
         task.WorkflowStageId = stage.Id;
         task.Status = LegacyStatus(stage.InternalCategory);
         var now = clock.UtcNow;
         if (stage.InternalCategory is TaskStageCategory.InProgress or TaskStageCategory.Review && !task.ActualStartAt.HasValue) task.ActualStartAt = now;
         if (stage.InternalCategory == TaskStageCategory.Done) { task.ProgressPercent = 100; task.CompletedAt = now; task.CancelledAt = null; task.CancellationReason = null; }
-        if (previous == TaskStageCategory.Done && stage.InternalCategory != TaskStageCategory.Done) task.CompletedAt = null;
+        if (previous == TaskStageCategory.Done && stage.InternalCategory != TaskStageCategory.Done)
+        {
+            // Reopening to a backlog/todo stage starts a new completion cycle.  Do
+            // not retain a terminal 100% value, otherwise parent derived progress
+            // also continues to report the child as complete.
+            task.CompletedAt = null;
+            if (stage.InternalCategory is TaskStageCategory.Backlog or TaskStageCategory.Todo)
+                task.ProgressPercent = 0;
+        }
+        if (previous == TaskStageCategory.Cancelled && stage.InternalCategory is TaskStageCategory.Backlog or TaskStageCategory.Todo)
+        {
+            task.CancelledAt = null;
+            task.CancellationReason = null;
+            task.CompletedAt = null;
+            task.ProgressPercent = 0;
+        }
         if (stage.InternalCategory == TaskStageCategory.Cancelled) { task.CancelledAt = now; task.CancellationReason = request.Reason!.Trim(); }
-        return await CommitAsync(task, "TaskTransitioned", previous == TaskStageCategory.Done ? "reopened" : "stageChanged", cancellationToken);
+        var reopened = previous is TaskStageCategory.Done or TaskStageCategory.Cancelled
+            && stage.InternalCategory is TaskStageCategory.Backlog or TaskStageCategory.Todo;
+        return await CommitAsync(task, "TaskTransitioned", reopened ? "reopened" : "stageChanged", cancellationToken);
     }
 
     public async Task<Result<TaskCommandResponse>> SetBlockedStateAsync(Guid taskId, TaskBlockedStateRequest request, CancellationToken cancellationToken = default)
@@ -95,7 +162,8 @@ public sealed class TaskCommandService(
         var stale = EnsureVersion(task, request.ExpectedVersion); if (stale is not null) return Fail<TaskCommandResponse>(stale.Value.Code, stale.Value.Message);
         if (!request.UserId.HasValue && CategoryOf(task) is TaskStageCategory.InProgress or TaskStageCategory.Review) return Fail<TaskCommandResponse>("TASK_ASSIGNEE_REQUIRED", "Active work cannot be unassigned.");
         if (request.UserId.HasValue && !await IsProjectMemberAsync(task.ProjectId, request.UserId.Value, cancellationToken)) return Fail<TaskCommandResponse>("TASK_FORBIDDEN", "The assignee must be a current project member.");
-        if (request.UserId == task.ReviewerUserId) return Fail<TaskCommandResponse>("TASK_REVIEWER_MUST_DIFFER", "Reviewer and primary assignee must differ.");
+        if (request.UserId.HasValue && request.UserId == task.ReviewerUserId)
+            return Fail<TaskCommandResponse>("TASK_REVIEWER_MUST_DIFFER", "Reviewer and primary assignee must differ.");
         task.PrimaryAssigneeUserId = request.UserId;
         return await CommitAsync(task, "TaskAssigneeChanged", "assignmentChanged", cancellationToken);
     }
@@ -123,8 +191,11 @@ public sealed class TaskCommandService(
         var task = result.Value!;
         var stale = EnsureVersion(task, request.ExpectedVersion); if (stale is not null) return Fail<TaskCommandResponse>(stale.Value.Code, stale.Value.Message);
         if (!await IsProjectMemberAsync(task.ProjectId, request.UserId, cancellationToken)) return Fail<TaskCommandResponse>("TASK_FORBIDDEN", "Collaborator must be a current project member.");
-        if (!(await projects.ListCollaboratorsAsync(task.Id, cancellationToken)).Any(item => item.UserId == request.UserId)) await projects.AddCollaboratorAsync(new WorkItemCollaborator { TaskItemId = task.Id, UserId = request.UserId, AddedByUserId = Actor(), AddedAt = clock.UtcNow }, cancellationToken);
-        return await CommitAsync(task, "TaskCollaboratorAdded", "assignmentChanged", cancellationToken);
+        var collaborators = await projects.ListCollaboratorsAsync(task.Id, cancellationToken);
+        if (!collaborators.Any(item => item.UserId == request.UserId))
+            await projects.AddCollaboratorAsync(new WorkItemCollaborator { TaskItemId = task.Id, UserId = request.UserId, AddedByUserId = Actor(), AddedAt = clock.UtcNow }, cancellationToken);
+        return await CommitAsync(task, "TaskCollaboratorAdded", "assignmentChanged", cancellationToken,
+            effectiveCollaboratorUserIds: collaborators.Select(item => item.UserId).Append(request.UserId).Distinct().ToArray());
     }
 
     public async Task<Result<TaskCommandResponse>> RemoveCollaboratorAsync(Guid taskId, Guid collaboratorUserId, long expectedVersion, CancellationToken cancellationToken = default)
@@ -133,9 +204,11 @@ public sealed class TaskCommandService(
         if (result.Error is not null) return Fail<TaskCommandResponse>(result.Error.Value.Code, result.Error.Value.Message);
         var task = result.Value!;
         var stale = EnsureVersion(task, expectedVersion); if (stale is not null) return Fail<TaskCommandResponse>(stale.Value.Code, stale.Value.Message);
-        var collaborator = (await projects.ListCollaboratorsAsync(task.Id, cancellationToken)).FirstOrDefault(item => item.UserId == collaboratorUserId);
+        var collaborators = await projects.ListCollaboratorsAsync(task.Id, cancellationToken);
+        var collaborator = collaborators.FirstOrDefault(item => item.UserId == collaboratorUserId);
         if (collaborator is not null) projects.RemoveCollaborator(collaborator);
-        return await CommitAsync(task, "TaskCollaboratorRemoved", "assignmentChanged", cancellationToken);
+        return await CommitAsync(task, "TaskCollaboratorRemoved", "assignmentChanged", cancellationToken,
+            effectiveCollaboratorUserIds: collaborators.Where(item => item.UserId != collaboratorUserId).Select(item => item.UserId).Distinct().ToArray());
     }
 
     public async Task<Result<TaskCommandResponse>> SetReviewerAsync(Guid taskId, TaskRelationshipUserRequest request, CancellationToken cancellationToken = default)
@@ -144,7 +217,9 @@ public sealed class TaskCommandService(
         if (result.Error is not null) return Fail<TaskCommandResponse>(result.Error.Value.Code, result.Error.Value.Message);
         var task = result.Value!;
         var stale = EnsureVersion(task, request.ExpectedVersion); if (stale is not null) return Fail<TaskCommandResponse>(stale.Value.Code, stale.Value.Message);
-        if (request.UserId == task.PrimaryAssigneeUserId) return Fail<TaskCommandResponse>("TASK_REVIEWER_MUST_DIFFER", "Reviewer and primary assignee must differ.");
+        // Clearing a reviewer is valid when the task has no assignee.  Only a
+        // concrete requested reviewer may violate the distinct-user invariant.
+        if (request.UserId.HasValue && request.UserId == task.PrimaryAssigneeUserId) return Fail<TaskCommandResponse>("TASK_REVIEWER_MUST_DIFFER", "Reviewer and primary assignee must differ.");
         if (request.UserId.HasValue && !await IsProjectMemberAsync(task.ProjectId, request.UserId.Value, cancellationToken)) return Fail<TaskCommandResponse>("TASK_FORBIDDEN", "Reviewer must be a current project member.");
         task.ReviewerUserId = request.UserId;
         if (!request.UserId.HasValue) task.ReviewStatus = TaskReviewStatus.None;
@@ -224,12 +299,64 @@ public sealed class TaskCommandService(
     {
         var result = await AuthorizedTaskAsync(taskId, false, cancellationToken: cancellationToken);
         if (result.Error is not null) return Fail<TaskWatchStateResponse>(result.Error.Value.Code, result.Error.Value.Message);
-        var task = result.Value!; if (EnsureVersion(task, request.ExpectedVersion) is not null) return Fail<TaskWatchStateResponse>("TASK_STALE_VERSION", "Task has changed. Refetch and retry.");
+        var task = result.Value!;
+        if (request.ExpectedVersion < 0) return Fail<TaskWatchStateResponse>("TASK_INVALID_EXPECTED_VERSION", "Expected watch state version must not be negative.");
         var state = await projects.GetWatchStateAsync(taskId, Actor(), cancellationToken);
-        if (state is null) { state = new WorkItemWatchState { TaskItemId = taskId, UserId = Actor(), UpdatedAt = clock.UtcNow }; await projects.AddWatchStateAsync(state, cancellationToken); }
-        state.IsExplicitOptOut = !watch; state.IsWatching = watch; state.UpdatedAt = clock.UtcNow; state.VersionNo++;
+        var created = false;
+        if (state is null)
+        {
+            if (request.ExpectedVersion != 0) return Fail<TaskWatchStateResponse>("TASK_STALE_VERSION", "Watch state has changed. Refetch and retry.");
+            state = new WorkItemWatchState
+            {
+                TaskItemId = taskId,
+                UserId = Actor(),
+                AutomaticSources = await AutomaticSourcesForAsync(task, Actor(), null, cancellationToken),
+                UpdatedAt = clock.UtcNow,
+                VersionNo = 1
+            };
+            await projects.AddWatchStateAsync(state, cancellationToken);
+            created = true;
+        }
+        else if (state.VersionNo != request.ExpectedVersion) return Fail<TaskWatchStateResponse>("TASK_STALE_VERSION", "Watch state has changed. Refetch and retry.");
+        var previousManualWatch = state.IsManualWatch;
+        var previousOptOut = state.IsExplicitOptOut;
+        var previousWatching = state.IsWatching;
+        state.IsManualWatch = watch;
+        state.IsExplicitOptOut = !watch;
+        TaskWatchStateRules.Normalize(state);
+        var changed = created || previousManualWatch != state.IsManualWatch || previousOptOut != state.IsExplicitOptOut || previousWatching != state.IsWatching;
+        if (!changed)
+            return Result<TaskWatchStateResponse>.Success(ToWatchResponse(state));
+
+        state.UpdatedAt = clock.UtcNow;
+        if (!created) state.VersionNo++;
+        // A watch preference changes the canonical Task projection. Advance the
+        // aggregate token before queuing its durable invalidation.
+        task.VersionNo++;
         await audit.LogAsync(new AuditLogEntry(Actor(), watch ? "TaskWatchEnabled" : "TaskWatchOptOut", "TaskItem", taskId, "Task watch preference changed.", WorkspaceId: task.WorkspaceId, ProjectId: task.ProjectId), cancellationToken);
-        await unitOfWork.SaveChangesAsync(cancellationToken);
+        await invalidations.TaskChangedAsync(task, Actor(), "watchChanged", affectedUserIds: [Actor()], cancellationToken: cancellationToken);
+        var save = await unitOfWork.SaveTaskCommandAsync(cancellationToken);
+        if (!save.IsSaved)
+        {
+            try
+            {
+                if (save.Result == TaskCommandSaveResult.UniqueConflict &&
+                    string.Equals(save.ConstraintName, TaskCommandConstraintNames.WorkItemWatchStateIdentity, StringComparison.Ordinal))
+                {
+                    // SaveTaskCommandAsync cleared the attempted mutation.  Recheck
+                    // both visibility and the canonical row before classifying the
+                    // watch-identity race, then clear these recovery reads below.
+                    var current = await AuthorizedTaskAsync(taskId, false, cancellationToken: cancellationToken);
+                    if (current.Error is null && await projects.GetWatchStateAsync(taskId, Actor(), cancellationToken) is not null)
+                        return Fail<TaskWatchStateResponse>("TASK_STALE_VERSION", "Watch state has changed. Refetch and retry.");
+                }
+                return Fail<TaskWatchStateResponse>(save.Result == TaskCommandSaveResult.UniqueConflict ? "TASK_CONFLICT" : "TASK_STALE_VERSION", "Task has changed. Refetch and retry.");
+            }
+            finally
+            {
+                unitOfWork.ClearTaskCommandTracking();
+            }
+        }
         return Result<TaskWatchStateResponse>.Success(ToWatchResponse(state));
     }
 
@@ -262,41 +389,117 @@ public sealed class TaskCommandService(
         return allowed ? (task, null) : (null, ("TASK_FORBIDDEN", "Task operation is not authorized."));
     }
 
-    private async Task<Result<TaskCommandResponse>> CommitAsync(TaskItem task, string action, string change, CancellationToken cancellationToken, bool overrideApplied = false, string? reason = null)
+    private async Task<Result<TaskCommandResponse>> CommitAsync(TaskItem task, string action, string change, CancellationToken cancellationToken, bool overrideApplied = false, string? reason = null, IReadOnlyCollection<Guid>? effectiveCollaboratorUserIds = null)
     {
         var actor = Actor();
-        await ReconcileAutomaticWatchAsync(task, cancellationToken);
+        await ReconcileAutomaticWatchAsync(task, effectiveCollaboratorUserIds, cancellationToken);
         // Relationship-only commands also advance the aggregate token.  Set it before
         // queuing the transactional invalidation so its version matches the committed row.
         task.VersionNo++;
         await audit.LogAsync(new AuditLogEntry(actor, action, "TaskItem", task.Id, action, WorkspaceId: task.WorkspaceId, ProjectId: task.ProjectId, Metadata: new Dictionary<string, object?> { ["versionBefore"] = task.VersionNo - 1, ["reasonProvided"] = !string.IsNullOrWhiteSpace(reason) }), cancellationToken);
         await invalidations.TaskChangedAsync(task, actor, change, affectedUserIds: RelatedUsers(task), cancellationToken: cancellationToken);
-        await unitOfWork.SaveChangesAsync(cancellationToken);
+        await AdvanceParentForChildMutationAsync(task, actor, action, cancellationToken);
+        var save = await unitOfWork.SaveTaskCommandAsync(cancellationToken);
+        if (!save.IsSaved)
+        {
+            try
+            {
+                if (save.Result == TaskCommandSaveResult.ConcurrencyConflict)
+                    return Fail<TaskCommandResponse>("TASK_STALE_VERSION", "Task has changed. Refetch and retry.");
+
+                if (string.Equals(save.ConstraintName, TaskCommandConstraintNames.WorkItemWatchStateIdentity, StringComparison.Ordinal))
+                {
+                    // Automatic-source reconciliation shares this save boundary.
+                    // Only its own identity constraint has a Task-specific
+                    // classification, and only after fresh authorization.
+                    var current = await AuthorizedTaskAsync(task.Id, true, cancellationToken: cancellationToken);
+                    if (current.Error is not null)
+                        return Fail<TaskCommandResponse>(current.Error.Value.Code, current.Error.Value.Message);
+                    return Fail<TaskCommandResponse>("TASK_STALE_VERSION", "Task has changed. Refetch and retry.");
+                }
+
+                return Fail<TaskCommandResponse>("TASK_CONFLICT", "Task command conflicts with current data.");
+            }
+            finally
+            {
+                unitOfWork.ClearTaskCommandTracking();
+            }
+        }
         return Result<TaskCommandResponse>.Success(new TaskCommandResponse(await ToResponseAsync(task, actor, cancellationToken), [], overrideApplied));
     }
 
-    private async Task ReconcileAutomaticWatchAsync(TaskItem task, CancellationToken cancellationToken)
+    /// <summary>
+    /// A direct child is part of its parent's canonical detail response (derived
+    /// fields and the subtask summary/page).  Keep the parent aggregate token,
+    /// audit trail, and invalidation in the same save boundary as the child.
+    /// </summary>
+    private async Task AdvanceParentForChildMutationAsync(TaskItem child, Guid actor, string childAction, CancellationToken cancellationToken)
     {
-        var collaborators = await projects.ListCollaboratorsAsync(task.Id, cancellationToken);
-        var sources = new Dictionary<Guid, WorkItemWatchAutomaticSource> { [task.CreatedByUserId] = WorkItemWatchAutomaticSource.Creator };
-        void Add(Guid? userId, WorkItemWatchAutomaticSource source) { if (userId.HasValue) sources[userId.Value] = sources.GetValueOrDefault(userId.Value) | source; }
-        Add(task.PrimaryAssigneeUserId, WorkItemWatchAutomaticSource.PrimaryAssignee);
-        Add(task.ReviewerUserId, WorkItemWatchAutomaticSource.Reviewer);
-        foreach (var collaborator in collaborators) Add(collaborator.UserId, WorkItemWatchAutomaticSource.Collaborator);
+        if (!child.ParentTaskItemId.HasValue)
+            return;
+
+        var parent = await projects.GetTaskAsync(child.ParentTaskItemId.Value, cancellationToken);
+        if (parent is null || parent.DeletedAt.HasValue)
+            return;
+
+        parent.VersionNo++;
+        await audit.LogAsync(new AuditLogEntry(
+            actor,
+            "TaskSubtasksChanged",
+            "TaskItem",
+            parent.Id,
+            WorkspaceId: parent.WorkspaceId,
+            ProjectId: parent.ProjectId,
+            Metadata: new Dictionary<string, object?>
+            {
+                ["childTaskId"] = child.Id,
+                ["childAction"] = childAction,
+                ["versionBefore"] = parent.VersionNo - 1
+            }), cancellationToken);
+        await invalidations.TaskChangedAsync(parent, actor, "subtasksChanged", cancellationToken: cancellationToken);
+    }
+
+    private async Task ReconcileAutomaticWatchAsync(TaskItem task, IReadOnlyCollection<Guid>? effectiveCollaboratorUserIds, CancellationToken cancellationToken)
+    {
+        var collaboratorIds = effectiveCollaboratorUserIds ?? (await projects.ListCollaboratorsAsync(task.Id, cancellationToken)).Select(item => item.UserId).ToArray();
+        var sources = AutomaticSourcesFor(task, collaboratorIds);
         var states = (await projects.ListWatchStatesAsync(task.Id, cancellationToken)).ToDictionary(x => x.UserId);
         foreach (var userId in states.Keys.Union(sources.Keys).ToList())
         {
             if (!states.TryGetValue(userId, out var state))
             {
-                state = new WorkItemWatchState { TaskItemId = task.Id, UserId = userId, UpdatedAt = clock.UtcNow };
+                var initialSources = sources.GetValueOrDefault(userId);
+                state = new WorkItemWatchState { TaskItemId = task.Id, UserId = userId, AutomaticSources = initialSources, IsWatching = TaskWatchStateRules.IsWatching(false, false, initialSources), UpdatedAt = clock.UtcNow, VersionNo = 1 };
                 await projects.AddWatchStateAsync(state, cancellationToken);
+                continue;
             }
             var automaticSources = sources.GetValueOrDefault(userId);
-            if (state.AutomaticSources == automaticSources) continue;
+            if (state.AutomaticSources == automaticSources && TaskWatchStateRules.IsWatching(state.IsManualWatch, state.IsExplicitOptOut, automaticSources) == state.IsWatching) continue;
             state.AutomaticSources = automaticSources;
-            if (!state.IsExplicitOptOut && automaticSources != WorkItemWatchAutomaticSource.None) state.IsWatching = true;
+            TaskWatchStateRules.Normalize(state);
             state.UpdatedAt = clock.UtcNow; state.VersionNo++;
         }
+    }
+
+    private async Task<WorkItemWatchAutomaticSource> AutomaticSourcesForAsync(TaskItem task, Guid userId, IReadOnlyCollection<Guid>? effectiveCollaboratorUserIds, CancellationToken cancellationToken)
+    {
+        var collaborators = effectiveCollaboratorUserIds ?? (await projects.ListCollaboratorsAsync(task.Id, cancellationToken)).Select(item => item.UserId).ToArray();
+        return AutomaticSourcesFor(task, collaborators).GetValueOrDefault(userId);
+    }
+
+    private static Dictionary<Guid, WorkItemWatchAutomaticSource> AutomaticSourcesFor(TaskItem task, IEnumerable<Guid> collaboratorIds)
+    {
+        var sources = new Dictionary<Guid, WorkItemWatchAutomaticSource> { [task.CreatedByUserId] = WorkItemWatchAutomaticSource.Creator };
+        void Add(Guid? userId, WorkItemWatchAutomaticSource source)
+        {
+            if (userId.HasValue)
+                sources[userId.Value] = sources.GetValueOrDefault(userId.Value) | source;
+        }
+        Add(task.PrimaryAssigneeUserId, WorkItemWatchAutomaticSource.PrimaryAssignee);
+        Add(task.ReviewerUserId, WorkItemWatchAutomaticSource.Reviewer);
+        foreach (var collaboratorId in collaboratorIds)
+            Add(collaboratorId, WorkItemWatchAutomaticSource.Collaborator);
+        return sources;
     }
 
     private async Task<CanonicalTaskResponse> ToResponseAsync(TaskItem task, Guid actor, CancellationToken cancellationToken)
@@ -307,9 +510,16 @@ public sealed class TaskCommandService(
         var canAssign = await taskAuthorization.CanAssignTask(actor, task.Id, cancellationToken);
         var canReview = await taskAuthorization.CanReviewTask(actor, task.Id, cancellationToken);
         var categories = (await projects.ListWorkflowStagesAsync(task.ProjectId, cancellationToken)).Select(item => item.InternalCategory).Distinct().ToList();
-        var now = DateOnly.FromDateTime(clock.UtcNow.UtcDateTime);
-        var end = task.PlannedEndDate ?? task.DueDate;
-        return new CanonicalTaskResponse(task.Id, task.TenantId, task.WorkspaceId, task.ProjectId, task.Kind, task.ParentTaskItemId, task.MilestoneId, task.Title, task.Description, task.WorkflowStageId, stage?.Name ?? CategoryOf(task).ToString(), stage?.InternalCategory ?? CategoryOf(task), task.Priority.ToString(), task.IsBlocked, canUpdate || canAssign ? task.BlockedReason : null, task.PlannedStartDate ?? task.StartDate, end, task.DeadlineAt, task.ActualStartAt, task.CompletedAt, task.ProgressPercent, task.ChildTaskItems.Count > 0, task.EstimatedEffortMinutes, relationships.PrimaryAssignee, task.TargetGroupId, relationships.Collaborators.Count, relationships.Reviewer, end.HasValue && end.Value < now && CategoryOf(task) is not (TaskStageCategory.Done or TaskStageCategory.Cancelled), [], task.VersionNo, new TaskCommandPermissions(canUpdate, canAssign, await taskAuthorization.CanDeleteTask(actor, task.Id, cancellationToken), canReview, await taskAuthorization.CanOverrideTaskReview(actor, task.Id, cancellationToken), !task.PrimaryAssigneeUserId.HasValue && task.TargetGroupId.HasValue), categories, task.ReviewStatus);
+        var projectTasks = await projects.ListTasksAsync(task.ProjectId, cancellationToken);
+        var derived = ParentTaskDerivedValuesCalculator.Calculate(task, projectTasks, CategoryOf);
+        var start = derived.PlannedStartDate;
+        var end = derived.PlannedEndDate;
+        var progress = derived.ProgressPercent;
+        var timeZone = await timeZones.ResolveAsync(task.TenantId, task.WorkspaceId, cancellationToken);
+        var checklist = await projects.ListChecklistAsync(task.Id, cancellationToken);
+        var labels = await projects.ListWorkItemLabelsAsync(task.Id, cancellationToken);
+        var subresources = new TaskSubresourceSummary(checklist.Count(x => x.IsCompleted), checklist.Count, await projects.CountTaskCommentsAsync(task.Id, cancellationToken), labels.Count, projectTasks.Count(child => child.ParentTaskItemId == task.Id && !child.DeletedAt.HasValue));
+        return new CanonicalTaskResponse(task.Id, task.TenantId, task.WorkspaceId, task.ProjectId, task.Kind, task.ParentTaskItemId, task.MilestoneId, task.Title, task.Description, task.WorkflowStageId, stage?.Name ?? CategoryOf(task).ToString(), stage?.InternalCategory ?? CategoryOf(task), task.Priority.ToString(), task.IsBlocked, canUpdate || canAssign ? task.BlockedReason : null, start, end, task.DeadlineAt, task.ActualStartAt, task.CompletedAt, progress, derived.IsDerived, task.EstimatedEffortMinutes, relationships.PrimaryAssignee, task.TargetGroupId, relationships.Collaborators.Count, relationships.Reviewer, TaskDeadlineCalculator.IsOverdue(task, CategoryOf(task), timeZone, clock.UtcNow, end), [], task.VersionNo, new TaskCommandPermissions(canUpdate, canAssign, await taskAuthorization.CanDeleteTask(actor, task.Id, cancellationToken), canReview, await taskAuthorization.CanOverrideTaskReview(actor, task.Id, cancellationToken), !task.PrimaryAssigneeUserId.HasValue && task.TargetGroupId.HasValue), categories, task.ReviewStatus, subresources);
     }
 
     private async Task<TaskRelationshipsResponse> RelationshipsAsync(TaskItem task, CancellationToken cancellationToken)

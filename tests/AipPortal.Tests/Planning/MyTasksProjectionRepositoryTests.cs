@@ -10,6 +10,7 @@ namespace AipPortal.Tests.Planning;
 public sealed class MyTasksProjectionRepositoryTests
 {
     [Fact]
+    [Trait("Scope", "TaskV1PR04")]
     public async Task RelationshipViewsAreDistinctAndTheSameTaskMayAppearInMoreThanOneView()
     {
         var graph = await CreateGraphAsync();
@@ -18,7 +19,7 @@ public sealed class MyTasksProjectionRepositoryTests
         // collaborator relationship for the same-row overlap assertion instead.
         shared.ReviewerUserId = graph.OtherUser.Id;
         graph.Context.WorkItemCollaborators.Add(new WorkItemCollaborator { TaskItemId = shared.Id, UserId = graph.User.Id, AddedByUserId = graph.User.Id, AddedAt = DateTimeOffset.UtcNow });
-        graph.Context.WorkItemWatchStates.Add(new WorkItemWatchState { TaskItemId = shared.Id, UserId = graph.User.Id, IsWatching = true, UpdatedAt = DateTimeOffset.UtcNow });
+        graph.Context.WorkItemWatchStates.Add(new WorkItemWatchState { TaskItemId = shared.Id, UserId = graph.User.Id, IsManualWatch = true, IsWatching = true, UpdatedAt = DateTimeOffset.UtcNow });
 
         var review = graph.NewTask("Review", reviewer: graph.User.Id);
         var created = graph.NewTask("Created");
@@ -44,6 +45,7 @@ public sealed class MyTasksProjectionRepositoryTests
     }
 
     [Fact]
+    [Trait("Scope", "TaskV1PR04")]
     public async Task CurrentWorkspaceDoesNotMixWorkspacesButExplicitAllWorkspacesDoes()
     {
         var graph = await CreateGraphAsync();
@@ -69,6 +71,7 @@ public sealed class MyTasksProjectionRepositoryTests
     }
 
     [Fact]
+    [Trait("Scope", "TaskV1PR04")]
     public async Task CountsUseTheSameRelationshipAndScopePredicatesAsRows()
     {
         var graph = await CreateGraphAsync();
