@@ -8,7 +8,11 @@ namespace AipPortal.Web.Controllers;
 
 [ApiController]
 [Authorize]
-public sealed class ProjectsController(IProjectService projects, ITaskCommandService taskCommands, ITaskSubresourceService taskSubresources) : ControllerBase
+public sealed class ProjectsController(
+    IProjectService projects,
+    ITaskCommandService taskCommands,
+    ITaskSubresourceService taskSubresources,
+    IProjectKanbanService projectKanban) : ControllerBase
 {
     [HttpGet("api/projects")]
     public async Task<IActionResult> List([FromQuery] ProjectListQuery query, CancellationToken cancellationToken) => ToActionResult(await projects.ListAsync(query, cancellationToken));
@@ -61,6 +65,14 @@ public sealed class ProjectsController(IProjectService projects, ITaskCommandSer
     [HttpGet("api/projects/{projectId:guid}/tasks")]
     public async Task<IActionResult> ListTasks(Guid projectId, [FromQuery] TaskListQuery query, CancellationToken cancellationToken) => ToActionResult(await projects.ListTasksAsync(projectId, query, cancellationToken));
 
+    [HttpGet("api/projects/{projectId:guid}/kanban")]
+    public async Task<IActionResult> GetKanban(Guid projectId, [FromQuery] ProjectKanbanQuery query, CancellationToken cancellationToken) =>
+        ToTaskActionResult(await projectKanban.GetAsync(projectId, query, cancellationToken));
+
+    [HttpPut("api/projects/{projectId:guid}/kanban/config")]
+    public async Task<IActionResult> UpdateKanbanConfig(Guid projectId, UpdateProjectKanbanConfigRequest request, CancellationToken cancellationToken) =>
+        ToTaskActionResult(await projectKanban.UpdateConfigAsync(projectId, request, cancellationToken));
+
     [HttpPost("api/projects/{projectId:guid}/tasks")]
     public async Task<IActionResult> CreateTask(Guid projectId, CreateTaskItemRequest request, CancellationToken cancellationToken) => ToActionResult(await projects.CreateTaskAsync(projectId, request, cancellationToken));
 
@@ -78,6 +90,10 @@ public sealed class ProjectsController(IProjectService projects, ITaskCommandSer
 
     [HttpPost("api/tasks/{taskItemId:guid}/transition")]
     public async Task<IActionResult> TransitionTask(Guid taskItemId, TaskTransitionRequest request, CancellationToken cancellationToken) => ToTaskActionResult(await taskCommands.TransitionAsync(taskItemId, request, cancellationToken));
+
+    [HttpPost("api/tasks/{taskItemId:guid}/kanban-move")]
+    public async Task<IActionResult> MoveTaskOnKanban(Guid taskItemId, MoveTaskOnKanbanRequest request, CancellationToken cancellationToken) =>
+        ToTaskActionResult(await projectKanban.MoveAsync(taskItemId, request, cancellationToken));
 
     [HttpPut("api/tasks/{taskItemId:guid}/blocked-state")]
     public async Task<IActionResult> SetBlockedState(Guid taskItemId, TaskBlockedStateRequest request, CancellationToken cancellationToken) => ToTaskActionResult(await taskCommands.SetBlockedStateAsync(taskItemId, request, cancellationToken));
@@ -248,11 +264,11 @@ public sealed class ProjectsController(IProjectService projects, ITaskCommandSer
         var message = parts.Length == 2 ? parts[1] : "The request could not be completed.";
         var status = code switch
         {
-            "TASK_NOT_FOUND" or "TASK_CHECKLIST_ITEM_NOT_FOUND" or "TASK_FILE_ASSOCIATION_NOT_FOUND" or "TASK_LABEL_NOT_FOUND" => StatusCodes.Status404NotFound,
-            "TASK_FORBIDDEN" or "TASK_CLAIM_GROUP_MEMBERSHIP_REQUIRED" or "TASK_COMMENT_FORBIDDEN" or "TASK_LABEL_FORBIDDEN" or "TASK_FILE_ASSOCIATION_FORBIDDEN" => StatusCodes.Status403Forbidden,
-            "TASK_STALE_VERSION" or "TASK_ALREADY_ASSIGNED" or "TASK_CONFLICT" => StatusCodes.Status409Conflict,
+            "TASK_NOT_FOUND" or "TASK_CHECKLIST_ITEM_NOT_FOUND" or "TASK_FILE_ASSOCIATION_NOT_FOUND" or "TASK_LABEL_NOT_FOUND" or "KANBAN_NOT_FOUND" => StatusCodes.Status404NotFound,
+            "TASK_FORBIDDEN" or "TASK_CLAIM_GROUP_MEMBERSHIP_REQUIRED" or "TASK_COMMENT_FORBIDDEN" or "TASK_LABEL_FORBIDDEN" or "TASK_FILE_ASSOCIATION_FORBIDDEN" or "KANBAN_FORBIDDEN" => StatusCodes.Status403Forbidden,
+            "TASK_STALE_VERSION" or "TASK_ALREADY_ASSIGNED" or "TASK_CONFLICT" or "KANBAN_STALE_BOARD" or "KANBAN_CONFLICT" or "KANBAN_CONFIG_CONFLICT" => StatusCodes.Status409Conflict,
             "TASK_COMMENT_RATE_LIMITED" => StatusCodes.Status429TooManyRequests,
-            "TASK_TRANSITION_GUARD_FAILED" or "TASK_ASSIGNEE_REQUIRED" or "TASK_REVIEW_REQUIRED" or "TASK_BLOCK_REASON_REQUIRED" or "TASK_CANCEL_REASON_REQUIRED" => StatusCodes.Status422UnprocessableEntity,
+            "TASK_TRANSITION_GUARD_FAILED" or "TASK_ASSIGNEE_REQUIRED" or "TASK_REVIEW_REQUIRED" or "TASK_BLOCK_REASON_REQUIRED" or "TASK_CANCEL_REASON_REQUIRED" or "KANBAN_INVALID_POSITION" or "KANBAN_PROJECT_READ_ONLY" or "KANBAN_BOARD_TOO_LARGE" => StatusCodes.Status422UnprocessableEntity,
             _ => StatusCodes.Status400BadRequest
         };
         if (code == "TASK_COMMENT_RATE_LIMITED")
