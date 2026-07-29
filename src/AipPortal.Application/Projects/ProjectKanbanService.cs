@@ -57,6 +57,8 @@ public sealed class ProjectKanbanService(
 
         var requestedColumns = request.Columns ?? [];
         var stages = definition.Stages.OrderBy(stage => stage.SortKey).ThenBy(stage => stage.Id).ToList();
+        if (stages.Count == 0)
+            return Fail<ProjectKanbanCommandResponse>("KANBAN_NOT_CONFIGURED", "The Project board has no Workflow Stages.");
         if (requestedColumns.Count != stages.Count ||
             requestedColumns.Select(item => item.WorkflowStageId).Distinct().Count() != stages.Count ||
             stages.Any(stage => requestedColumns.All(item => item.WorkflowStageId != stage.Id)))
@@ -174,7 +176,8 @@ public sealed class ProjectKanbanService(
             targetStage.Id,
             MaximumRebalanceCards + 1,
             cancellationToken)).ToList();
-        if (targetTasks.Count > MaximumRebalanceCards)
+        var targetCardCount = targetTasks.Count + (targetTasks.Any(item => item.Id == task.Id) ? 0 : 1);
+        if (targetCardCount > MaximumRebalanceCards)
             return Fail<ProjectKanbanCommandResponse>("KANBAN_BOARD_TOO_LARGE", "This Stage is too large for a bounded reorder.");
         var originalTargetRanks = targetTasks.ToDictionary(item => item.Id, item => item.SortKey);
 

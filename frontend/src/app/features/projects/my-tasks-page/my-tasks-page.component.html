@@ -62,7 +62,7 @@
         </select>
       </label>
     </section>
-    <p class="my-tasks-page__canonical-note">List is the canonical My Tasks projection. Kanban remains unavailable until PR05.</p>
+    <p class="my-tasks-page__canonical-note">List is the canonical cross-Project My Tasks projection. Project Kanban is available from Project Detail.</p>
     @if (vm.status === 'empty' || vm.tasks.length === 0) {
       <app-empty-state title="No tasks" [message]="vm.message ?? 'No tasks match this relationship view and scope.'" />
     } @else if (!designSystemV04Enabled()) {

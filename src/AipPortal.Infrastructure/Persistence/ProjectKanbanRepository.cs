@@ -128,10 +128,14 @@ public sealed class ProjectKanbanRepository(AppDbContext dbContext) : IProjectKa
                 ChildCount = group.Count(),
                 CompletedChildCount = group.Count(child =>
                     child.WorkflowStage != null
-                        ? child.WorkflowStage.InternalCategory == TaskStageCategory.Done ||
-                          child.WorkflowStage.InternalCategory == TaskStageCategory.Cancelled
-                        : child.Status == TaskItemStatus.Completed ||
-                          child.Status == TaskItemStatus.Cancelled),
+                        ? child.WorkflowStage.InternalCategory == TaskStageCategory.Done
+                        : child.Status == TaskItemStatus.Completed),
+                IncompleteChildCount = group.Count(child =>
+                    child.WorkflowStage != null
+                        ? child.WorkflowStage.InternalCategory != TaskStageCategory.Done &&
+                          child.WorkflowStage.InternalCategory != TaskStageCategory.Cancelled
+                        : child.Status != TaskItemStatus.Completed &&
+                          child.Status != TaskItemStatus.Cancelled),
                 PlannedStartDate = group.Min(child => child.PlannedStartDate ?? child.StartDate),
                 PlannedEndDate = group.Max(child => child.PlannedEndDate ?? child.DueDate),
                 ProgressChildCount = group.Count(child =>
@@ -185,7 +189,7 @@ public sealed class ProjectKanbanRepository(AppDbContext dbContext) : IProjectKa
             {
                 ChildCount = aggregate.ChildCount,
                 CompletedChildCount = aggregate.CompletedChildCount,
-                IncompleteChildCount = aggregate.ChildCount - aggregate.CompletedChildCount,
+                IncompleteChildCount = aggregate.IncompleteChildCount,
                 ProgressPercent = progress,
                 PlannedStartDate = aggregate.PlannedStartDate,
                 PlannedEndDate = aggregate.PlannedEndDate

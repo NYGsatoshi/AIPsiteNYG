@@ -148,8 +148,9 @@ export class AipKanbanComponent extends AipAdapterShellInput implements AfterVie
     event.preventDefault();
     event.stopPropagation();
     if (this.draggedItem && this.contract.canRequestTransition(this.draggedItem, status)) {
-      const items = this.itemsFor(status).filter((item) => this.contract.itemIdentity(item) !== this.contract.itemIdentity(this.draggedItem!));
-      this.emit(this.draggedItem, status, null, items.length ? this.contract.itemIdentity(items.at(-1)!) : null, null, 'drag');
+      // An empty neighbor pair is the canonical "end of Stage" intent. It
+      // remains correct when a swimlane changes visual grouping order.
+      this.emit(this.draggedItem, status, null, null, null, 'drag');
     }
     this.endDrag();
   }
@@ -170,7 +171,17 @@ export class AipKanbanComponent extends AipAdapterShellInput implements AfterVie
     this.interactionActiveChange.emit(true);
   }
   changeTarget(status: string): void { this.moveTargetStatus = status; this.movePosition = 'end'; this.moveReason = ''; }
-  positionItems(item: object): readonly object[] { return this.itemsFor(this.moveTargetStatus).filter((candidate) => this.contract.itemIdentity(candidate) !== this.contract.itemIdentity(item)); }
+  positionItems(item: object): readonly object[] {
+    // Ordering is Stage-wide even when swimlanes group the presentation.
+    // Neighbor intents therefore use canonical rank order, not lane label order.
+    return [...this.contract.items
+      .filter((candidate) =>
+        this.contract.itemStatus(candidate) === this.moveTargetStatus &&
+        this.contract.itemIdentity(candidate) !== this.contract.itemIdentity(item))]
+      .sort((left, right) =>
+        this.contract.itemOrder(left) - this.contract.itemOrder(right) ||
+        this.contract.itemIdentity(left).localeCompare(this.contract.itemIdentity(right)));
+  }
   targetRequiresReason(): boolean { return this.contract.columns.find((column) => column.id === this.moveTargetStatus)?.requiresReason === true; }
   submitMove(item: object, event: Event): void {
     event.preventDefault();

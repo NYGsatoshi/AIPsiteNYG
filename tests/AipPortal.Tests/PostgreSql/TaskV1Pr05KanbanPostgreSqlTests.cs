@@ -24,6 +24,8 @@ public sealed class TaskV1Pr05KanbanPostgreSqlTests
         {
             await PostgreSqlMigrationTestDatabase.MigrateAsync(emptyDatabase);
             Assert.True(await ColumnExistsAsync(emptyDatabase));
+            Assert.True(await IndexExistsAsync(emptyDatabase, "IX_task_items_ProjectId_WorkflowStageId_SortKey"));
+            Assert.True(await IndexExistsAsync(emptyDatabase, "IX_task_workflow_stages_DefinitionId_SortKey"));
             await using var context = PostgreSqlMigrationTestDatabase.CreatePlatformContext(emptyDatabase);
             Assert.Empty(await context.Database.GetPendingMigrationsAsync());
             Assert.False(context.Database.HasPendingModelChanges());
@@ -99,6 +101,90 @@ public sealed class TaskV1Pr05KanbanPostgreSqlTests
         });
     }
 
+    [PostgreSqlFact]
+    [Trait("Category", "PostgreSQLIntegration")]
+    [Trait("Scope", "TaskV1PR05")]
+    public async Task ConcurrentMoveTokensConflictAndRollBackTaskAndBoardAtomically()
+    {
+        var connectionString = PostgreSqlTestEnvironment.RequireConnectionString();
+        await PostgreSqlMigrationTestDatabase.WithTemporaryDatabaseAsync(connectionString, async database =>
+        {
+            await PostgreSqlMigrationTestDatabase.MigrateAsync(database);
+            var graph = await SeedBoardAsync(database);
+            await using var first = CreateTenantContext(database, graph.Tenant);
+            await using var second = CreateTenantContext(database, graph.Tenant);
+            var taskId = await first.TaskItems.OrderBy(task => task.SortKey).Select(task => task.Id).FirstAsync();
+
+            var firstTask = await first.TaskItems.SingleAsync(task => task.Id == taskId);
+            var firstBoard = await first.TaskWorkflowDefinitions.SingleAsync(definition => definition.ProjectId == graph.Project.Id);
+            var secondTask = await second.TaskItems.SingleAsync(task => task.Id == taskId);
+            var secondBoard = await second.TaskWorkflowDefinitions.SingleAsync(definition => definition.ProjectId == graph.Project.Id);
+
+            firstTask.SortKey = 1500;
+            firstTask.VersionNo++;
+            firstBoard.VersionNo++;
+            await first.SaveChangesAsync();
+
+            secondTask.SortKey = 1750;
+            secondTask.VersionNo++;
+            secondBoard.VersionNo++;
+            await Assert.ThrowsAsync<DbUpdateConcurrencyException>(() => second.SaveChangesAsync());
+
+            await using var verification = CreateTenantContext(database, graph.Tenant);
+            var persistedTask = await verification.TaskItems.AsNoTracking().SingleAsync(task => task.Id == taskId);
+            var persistedBoard = await verification.TaskWorkflowDefinitions.AsNoTracking()
+                .SingleAsync(definition => definition.ProjectId == graph.Project.Id);
+            Assert.Equal(1500, persistedTask.SortKey);
+            Assert.Equal(2, persistedTask.VersionNo);
+            Assert.Equal(2, persistedBoard.VersionNo);
+        });
+    }
+
+    [PostgreSqlFact]
+    [Trait("Category", "PostgreSQLIntegration")]
+    [Trait("Scope", "TaskV1PR05")]
+    public async Task ConcurrentConfigTokensConflictAndRollBackStageAndBoardAtomically()
+    {
+        var connectionString = PostgreSqlTestEnvironment.RequireConnectionString();
+        await PostgreSqlMigrationTestDatabase.WithTemporaryDatabaseAsync(connectionString, async database =>
+        {
+            await PostgreSqlMigrationTestDatabase.MigrateAsync(database);
+            var graph = await SeedBoardAsync(database);
+            await using var first = CreateTenantContext(database, graph.Tenant);
+            await using var second = CreateTenantContext(database, graph.Tenant);
+            var stageId = await first.TaskWorkflowStages
+                .Where(stage => stage.ProjectId == graph.Project.Id && stage.InternalCategory == TaskStageCategory.Todo)
+                .Select(stage => stage.Id)
+                .SingleAsync();
+
+            var firstStage = await first.TaskWorkflowStages.SingleAsync(stage => stage.Id == stageId);
+            var firstBoard = await first.TaskWorkflowDefinitions.SingleAsync(definition => definition.ProjectId == graph.Project.Id);
+            var secondStage = await second.TaskWorkflowStages.SingleAsync(stage => stage.Id == stageId);
+            var secondBoard = await second.TaskWorkflowDefinitions.SingleAsync(definition => definition.ProjectId == graph.Project.Id);
+
+            firstStage.WipWarningLimit = 2;
+            firstStage.VersionNo++;
+            firstBoard.KanbanDefaultSwimlane = ProjectKanbanSwimlane.Priority;
+            firstBoard.VersionNo++;
+            await first.SaveChangesAsync();
+
+            secondStage.WipWarningLimit = 3;
+            secondStage.VersionNo++;
+            secondBoard.KanbanDefaultSwimlane = ProjectKanbanSwimlane.ParentTask;
+            secondBoard.VersionNo++;
+            await Assert.ThrowsAsync<DbUpdateConcurrencyException>(() => second.SaveChangesAsync());
+
+            await using var verification = CreateTenantContext(database, graph.Tenant);
+            var persistedStage = await verification.TaskWorkflowStages.AsNoTracking().SingleAsync(stage => stage.Id == stageId);
+            var persistedBoard = await verification.TaskWorkflowDefinitions.AsNoTracking()
+                .SingleAsync(definition => definition.ProjectId == graph.Project.Id);
+            Assert.Equal(2, persistedStage.WipWarningLimit);
+            Assert.Equal(2, persistedStage.VersionNo);
+            Assert.Equal(ProjectKanbanSwimlane.Priority, persistedBoard.KanbanDefaultSwimlane);
+            Assert.Equal(2, persistedBoard.VersionNo);
+        });
+    }
+
     private static async Task<bool> ColumnExistsAsync(string connectionString) =>
         await PostgreSqlMigrationTestDatabase.ScalarAsync<bool>(
             connectionString,
@@ -110,6 +196,18 @@ public sealed class TaskV1Pr05KanbanPostgreSqlTests
                   AND table_name = 'task_workflow_definitions'
                   AND column_name = 'KanbanDefaultSwimlane');
             """);
+
+    private static Task<bool> IndexExistsAsync(string connectionString, string indexName) =>
+        PostgreSqlMigrationTestDatabase.ScalarAsync<bool>(
+            connectionString,
+            """
+            SELECT EXISTS (
+                SELECT 1
+                FROM pg_indexes
+                WHERE schemaname = 'public'
+                  AND indexname = @indexName);
+            """,
+            ("indexName", indexName));
 
     private static async Task<(Guid DefinitionId, Guid ProjectId)> SeedExistingDefinitionAsync(string connectionString)
     {
@@ -192,12 +290,15 @@ public sealed class TaskV1Pr05KanbanPostgreSqlTests
         VersionNo = 1
     };
 
-    private static AppDbContext CreateTenantContext(string connectionString, Tenant tenant, IInterceptor interceptor)
+    private static AppDbContext CreateTenantContext(string connectionString, Tenant tenant, params IInterceptor[] interceptors)
     {
         var scope = new CurrentTenantService();
         scope.SetTenant(tenant.Id, tenant.Slug);
+        var options = new DbContextOptionsBuilder<AppDbContext>().UseNpgsql(connectionString);
+        if (interceptors.Length > 0)
+            options.AddInterceptors(interceptors);
         return new AppDbContext(
-            new DbContextOptionsBuilder<AppDbContext>().UseNpgsql(connectionString).AddInterceptors(interceptor).Options,
+            options.Options,
             scope);
     }
 

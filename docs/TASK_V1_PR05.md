@@ -89,6 +89,11 @@ The existing Project Detail Tasks tab loads the canonical board endpoint when
 shown on the same route. The flag changes presentation only and is never sent
 to an authorization decision.
 
+Move responses replace optimistic Task state with the authoritative command
+snapshot. When that response uses board-default query presentation, the client
+immediately refetches the selected swimlane and completed-Task window so those
+query-only choices do not silently reset.
+
 The AIPsite-owned `AipKanban` contract carries columns, cards, ordering intents,
 permissions, warnings, state, keyboard actions, focus restoration, and
 swimlane metadata. Project feature state contains no vendor record, event,
@@ -101,8 +106,10 @@ change is part of PR05.
 Realtime invalidations are version-aware refetch triggers. An active drag,
 keyboard menu, or configuration interaction queues reconciliation. Reconnect
 catch-up occurs after centralized reauthorization and also waits for an active
-interaction to close. Authorization invalidation clears protected board state
-before HTTP revalidation.
+interaction to close. Authorization invalidation advances a local authorization
+epoch, clears protected board state before HTTP revalidation, and prevents an
+older load, move, configuration, or refresh response from restoring revoked
+data.
 
 My Tasks remains the PR04 cross-Project List. A stored legacy `kanban`
 preference is normalized to `list`.
@@ -115,13 +122,13 @@ preference is normalized to `list`.
 | Recent Done and older filter | repository cutoff/query | snapshot service tests |
 | Parent/leaf canonical summaries | batched direct-child aggregate | derivation, deleted-parent, and component tests |
 | Manager configuration | versioned config command | permission, full-Stage-set, WIP, audit, and conflict tests |
-| Stable move/reorder | midpoint rank plus bounded rebalance | repeated move, before/after, reload, and conflict tests |
+| Stable move/reorder | midpoint rank plus bounded rebalance | repeated move, before/after, reload, PostgreSQL atomic concurrency, and conflict tests |
 | Canonical transition guards | shared `TaskTransitionEngine` | assignee, Review, Done, reopen, Cancelled, and parent tests |
 | Isolation and non-leakage | global Tenant filter plus Project authorization and generic neighbor errors | Tenant, revoked access, deleted parent, and cross-Project neighbor tests |
-| Authoritative optimistic UI | Project Detail facade | success, denial rollback, conflict refetch, and queued-invalidation tests |
+| Authoritative optimistic UI | Project Detail facade | success, denial rollback, conflict refetch, queued invalidation, and authorization-epoch race tests |
 | Keyboard and focus | AIPsite Kanban adapter | move, Escape, focus restoration, and denied-action tests |
 | Narrow/touch alternative | grouped vertical adapter layout | component and desktop/mobile Playwright tests |
-| My Tasks List-only | preference normalization | preference and flag-fallback tests |
+| My Tasks List-only | preference normalization and current explanatory copy | preference, UI, and flag-fallback tests |
 | Vendor/package boundary | AIPsite contracts and architecture checks | direct-import, bundle, package/config diff checks |
 | Additive migration | one default-swimlane column | empty, PR04-upgrade, down, and pending-model tests |
 

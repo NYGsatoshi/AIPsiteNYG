@@ -107,6 +107,29 @@ describe('AIPsite complex adapter shells', () => {
     fixture.detectChanges();
     expect(Array.from(host.querySelectorAll('button')).some((button) => button.textContent?.trim() === 'Move')).toBe(false);
   });
+
+  it('uses Stage rank rather than swimlane label order for neighbor intents', async () => {
+    await TestBed.configureTestingModule({ imports: [AipKanbanComponent] }).compileComponents();
+    const fixture = TestBed.createComponent(AipKanbanComponent);
+    const moving = { id: 'task-1', stage: 'stage-todo', order: 1000, lane: 'Moving' };
+    const rankFirst = { id: 'task-2', stage: 'stage-done', order: 1000, lane: 'Zulu' };
+    const rankSecond = { id: 'task-3', stage: 'stage-done', order: 2000, lane: 'Alpha' };
+    fixture.componentInstance.contract = {
+      ...kanbanContract(),
+      items: [moving, rankFirst, rankSecond],
+      itemIdentity: (item) => String((item as typeof moving).id),
+      itemStatus: (item) => String((item as typeof moving).stage),
+      itemOrder: (item) => Number((item as typeof moving).order),
+      itemSwimlane: (item) => {
+        const lane = String((item as typeof moving).lane);
+        return { key: lane, label: lane };
+      }
+    };
+    fixture.componentInstance.moveTargetStatus = 'stage-done';
+
+    expect(fixture.componentInstance.positionItems(moving).map((item) => (item as typeof moving).id))
+      .toEqual(['task-2', 'task-3']);
+  });
 });
 
 function kanbanContract(): AipKanbanContract<object> {

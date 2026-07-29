@@ -76,7 +76,9 @@ export class ProjectDetailFacade {
   private refreshPending = false;
   private interactionActive = false;
   private moveInFlight = false;
+  private loadGeneration = 0;
   private kanbanRequestGeneration = 0;
+  private authorizationGeneration = 0;
   private selectedSwimlane: ProjectKanbanSwimlane | null = null;
   private includeOlderCompleted = false;
 
@@ -96,6 +98,8 @@ export class ProjectDetailFacade {
   }
 
   load(projectId: string): void {
+    const loadGeneration = ++this.loadGeneration;
+    const authorizationGeneration = this.authorizationGeneration;
     this.projectId = projectId;
     this.selectedSwimlane = null;
     this.includeOlderCompleted = false;
@@ -117,7 +121,12 @@ export class ProjectDetailFacade {
       })),
       map((response) => this.ready(response.project, response.tasks.items ?? [], response.kanban, response.gantt, response.workload, response.members)),
       catchError((error: unknown) => of(this.failure(error)))
-    ).subscribe((view) => this.state.set(view));
+    ).subscribe((view) => {
+      if (this.projectId === projectId &&
+          this.loadGeneration === loadGeneration &&
+          this.authorizationGeneration === authorizationGeneration)
+        this.state.set(view);
+    });
   }
 
   retryKanban(): void { this.refreshKanban(true); }
@@ -136,6 +145,10 @@ export class ProjectDetailFacade {
       return;
 
     this.moveInFlight = true;
+    const projectId = this.projectId;
+    const authorizationGeneration = this.authorizationGeneration;
+    const presentationSwimlane = this.selectedSwimlane ?? snapshot.selectedSwimlane;
+    const presentationIncludesOlderCompleted = this.includeOlderCompleted;
     const rollbackSnapshot = snapshot;
     const optimistic = this.optimisticMove(snapshot, authoritativeCard, intent.targetStatus, intent.targetBeforeItemId, intent.targetAfterItemId);
     this.state.set({
@@ -167,10 +180,22 @@ export class ProjectDetailFacade {
       .subscribe((result) => {
         this.moveInFlight = false;
         const latest = this.state();
+        if (this.projectId !== projectId || this.authorizationGeneration !== authorizationGeneration) {
+          if (latest.kanban.reconciliationQueued) this.refreshKanban(true);
+          return;
+        }
         if (result.kind === 'success') {
           const warning = result.value.warnings.find((item) => item.code === 'KANBAN_WIP_LIMIT_EXCEEDED');
-          this.selectedSwimlane = result.value.snapshot.selectedSwimlane;
-          this.includeOlderCompleted = result.value.snapshot.includesOlderCompleted;
+          const feedback = warning ? `Move saved. ${warning.message}` : 'Move saved.';
+          const presentationRefetchRequired =
+            result.value.snapshot.selectedSwimlane !== presentationSwimlane ||
+            result.value.snapshot.includesOlderCompleted !== presentationIncludesOlderCompleted;
+          this.selectedSwimlane = presentationRefetchRequired
+            ? presentationSwimlane
+            : result.value.snapshot.selectedSwimlane;
+          this.includeOlderCompleted = presentationRefetchRequired
+            ? presentationIncludesOlderCompleted
+            : result.value.snapshot.includesOlderCompleted;
           this.state.set({
             ...latest,
             kanban: {
@@ -178,12 +203,13 @@ export class ProjectDetailFacade {
               snapshot: result.value.snapshot,
               busyTaskId: null,
               focusTaskId: result.value.focusTaskId ?? authoritativeCard.taskId,
-              feedback: warning ? `Move saved. ${warning.message}` : 'Move saved.',
+              feedback,
               realtimeDegraded: latest.kanban.realtimeDegraded,
               reconciliationQueued: false
             }
           });
-          if (latest.kanban.reconciliationQueued) this.refreshKanban(true);
+          if (latest.kanban.reconciliationQueued || presentationRefetchRequired)
+            this.refreshKanban(true, feedback);
           return;
         }
 
@@ -227,6 +253,8 @@ export class ProjectDetailFacade {
     const current = this.state();
     const snapshot = current.kanban.snapshot;
     if (!snapshot?.canConfigure || current.kanban.busyTaskId) return;
+    const projectId = this.projectId;
+    const authorizationGeneration = this.authorizationGeneration;
     const request: UpdateProjectKanbanConfigRequestDto = {
       expectedBoardVersion: snapshot.boardVersion,
       defaultSwimlane: swimlaneApiValue(defaultSwimlane),
@@ -244,6 +272,8 @@ export class ProjectDetailFacade {
       )
       .subscribe((result) => {
         const latest = this.state();
+        if (this.projectId !== projectId || this.authorizationGeneration !== authorizationGeneration)
+          return;
         if (result.kind === 'success') {
           this.selectedSwimlane = result.value.snapshot.selectedSwimlane;
           this.state.set({
@@ -286,6 +316,7 @@ export class ProjectDetailFacade {
   release(): void {
     this.releaseRealtime();
     this.projectId = null;
+    this.loadGeneration++;
     this.kanbanRequestGeneration++;
   }
 
@@ -324,6 +355,7 @@ export class ProjectDetailFacade {
     }
 
     const generation = ++this.kanbanRequestGeneration;
+    const authorizationGeneration = this.authorizationGeneration;
     const current = this.state();
     this.state.set({
       ...current,
@@ -342,7 +374,9 @@ export class ProjectDetailFacade {
         catchError((error: unknown) => of({ kind: 'error' as const, error }))
       )
       .subscribe((result) => {
-        if (generation !== this.kanbanRequestGeneration) return;
+        if (generation !== this.kanbanRequestGeneration ||
+            authorizationGeneration !== this.authorizationGeneration)
+          return;
         const latest = this.state();
         if (result.kind === 'success') {
           this.selectedSwimlane = result.value.selectedSwimlane;
@@ -372,7 +406,12 @@ export class ProjectDetailFacade {
       return;
 
     if (event.eventType === 'Security.AuthorizationStateChanged.v1') {
+      this.authorizationGeneration++;
+      this.loadGeneration++;
+      this.kanbanRequestGeneration++;
       const current = this.state();
+      const restartInitialLoad = current.status === 'loading';
+      const authorizationGeneration = this.authorizationGeneration;
       this.state.set({
         ...current,
         kanban: {
@@ -380,6 +419,16 @@ export class ProjectDetailFacade {
           feedback: 'Authorization changed. Protected board data was cleared before revalidation.'
         }
       });
+      if (restartInitialLoad) {
+        const projectId = this.projectId;
+        queueMicrotask(() => {
+          if (projectId &&
+              this.projectId === projectId &&
+              this.authorizationGeneration === authorizationGeneration)
+            this.load(projectId);
+        });
+        return;
+      }
     } else if (event.eventType === 'Projects.TaskChanged.v1') {
       const card = this.state().kanban.snapshot?.cards.find((item) => item.taskId === text(event.payload['taskId']));
       const eventVersion = number(event.payload['taskVersion']);

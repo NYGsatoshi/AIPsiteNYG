@@ -93,6 +93,52 @@ describe('ProjectDetailFacade canonical Kanban', () => {
     expect(facade.view().kanban.focusTaskId).toBe('task-1');
   });
 
+  it('refetches the selected query-only presentation after an authoritative move response uses board defaults', () => {
+    flushLoad();
+    facade.setIncludeOlderCompleted(true);
+    http.expectOne((request) =>
+      request.url === '/api/projects/project-1/kanban' &&
+      request.params.get('swimlane') === '4' &&
+      request.params.get('includeOlderCompleted') === 'true')
+      .flush(snapshotDto({
+        board: { ...snapshotDto().board!, selectedSwimlane: 4, includesOlderCompleted: true }
+      }));
+
+    facade.moveTask(moveIntent(facade.view().kanban.snapshot!.cards[0], 'stage-done'));
+    http.expectOne('/api/tasks/task-1/kanban-move').flush({
+      snapshot: snapshotDto({
+        board: {
+          ...snapshotDto().board!,
+          version: 8,
+          selectedSwimlane: 0,
+          includesOlderCompleted: false
+        },
+        cards: [{ ...snapshotDto().cards![0], workflowStageId: 'stage-done', version: 4 }]
+      }),
+      focusTaskId: 'task-1',
+      warnings: []
+    });
+
+    const presentationRefresh = http.expectOne((request) =>
+      request.url === '/api/projects/project-1/kanban' &&
+      request.params.get('swimlane') === '4' &&
+      request.params.get('includeOlderCompleted') === 'true');
+    presentationRefresh.flush(snapshotDto({
+      board: {
+        ...snapshotDto().board!,
+        version: 8,
+        selectedSwimlane: 4,
+        includesOlderCompleted: true
+      },
+      cards: [{ ...snapshotDto().cards![0], workflowStageId: 'stage-done', version: 4 }]
+    }));
+
+    expect(facade.view().kanban.snapshot?.selectedSwimlane).toBe('parentTask');
+    expect(facade.view().kanban.snapshot?.includesOlderCompleted).toBe(true);
+    expect(facade.view().kanban.feedback).toBe('Move saved.');
+    expect(facade.view().kanban.focusTaskId).toBe('task-1');
+  });
+
   it('rolls a denied move back without hiding the still-authorized board', () => {
     flushLoad();
     const before = facade.view().kanban.snapshot;
@@ -197,6 +243,60 @@ describe('ProjectDetailFacade canonical Kanban', () => {
       { error: { code: 'KANBAN_NOT_FOUND', message: 'Not found.' } },
       { status: 404, statusText: 'Not Found' });
     expect(facade.view().kanban.status).toBe('notFound');
+  });
+
+  it('does not reapply an in-flight move response after authorization is revoked', () => {
+    flushLoad();
+    facade.moveTask(moveIntent(facade.view().kanban.snapshot!.cards[0], 'stage-done'));
+    const move = http.expectOne('/api/tasks/task-1/kanban-move');
+
+    events.next({ ...realtimeEvent(8), eventType: 'Security.AuthorizationStateChanged.v1', payload: {} });
+    expect(facade.view().kanban.snapshot).toBeNull();
+
+    move.flush({
+      snapshot: snapshotDto({
+        board: { ...snapshotDto().board!, version: 8 },
+        cards: [{ ...snapshotDto().cards![0], workflowStageId: 'stage-done', version: 4 }]
+      }),
+      focusTaskId: 'task-1',
+      warnings: []
+    });
+
+    const revalidation = http.expectOne((request) => request.url === '/api/projects/project-1/kanban');
+    expect(facade.view().kanban.snapshot).toBeNull();
+    revalidation.flush(
+      { error: { code: 'KANBAN_NOT_FOUND', message: 'Not found.' } },
+      { status: 404, statusText: 'Not Found' });
+    expect(facade.view().kanban.status).toBe('notFound');
+    expect(facade.view().kanban.snapshot).toBeNull();
+  });
+
+  it('restarts an initial Project load after authorization changes and discards the old response', async () => {
+    facade.load('project-1');
+    http.expectOne('/api/projects/project-1').flush({
+      id: 'project-1',
+      title: 'Project',
+      status: 1,
+      startDate: null,
+      endDate: null,
+      uiPermissions: { canCreateTask: true }
+    });
+
+    events.next({ ...realtimeEvent(8), eventType: 'Security.AuthorizationStateChanged.v1', payload: {} });
+    expect(facade.view().kanban.snapshot).toBeNull();
+    await Promise.resolve();
+    http.expectOne('/api/projects/project-1').flush(
+      { error: { code: 'PROJECT_NOT_FOUND', message: 'Not found.' } },
+      { status: 404, statusText: 'Not Found' });
+
+    http.expectOne('/api/projects/project-1/tasks').flush({ items: [] });
+    http.expectOne('/api/projects/project-1/kanban').flush(snapshotDto());
+    http.expectOne('/api/projects/project-1/gantt').flush({ milestones: [], tasks: [] });
+    http.expectOne('/api/projects/project-1/workload').flush({ members: [] });
+    http.expectOne('/api/projects/project-1/members').flush([]);
+
+    expect(facade.view().status).toBe('error');
+    expect(facade.view().kanban.snapshot).toBeNull();
   });
 
   it('uses the maintained List and does not request Kanban when the presentation flag is disabled', () => {

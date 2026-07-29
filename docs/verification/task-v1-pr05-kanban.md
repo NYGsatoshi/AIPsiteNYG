@@ -19,12 +19,13 @@ The local acceptance set covers:
 - Application authorization, privacy, Task/board concurrency, transition
   guards, WIP warnings, stable reorder/rebalance, audit, and atomic rollback.
 - PostgreSQL 18 empty migration, upgrade from the PR04 migration, additive
-  down migration, pending-model check, bounded projection, stable reload, and
-  fixed six-statement query shape.
+  down migration, pending-model check, expected Kanban indexes, bounded
+  projection, stable reload, fixed six-statement query shape, and atomic
+  Task/board and Stage/board concurrency rollback.
 - Angular DTO mapping, Project Detail state, optimistic move, denial rollback,
   conflict refetch, queued realtime reconciliation, reconnect catch-up,
-  authorization clearing, configuration, feature fallback, and stale My Tasks
-  preference normalization.
+  authorization clearing, authorization-epoch response discard, configuration,
+  feature fallback, and stale My Tasks preference normalization.
 - Adapter keyboard movement, Escape/cancel, logical focus restoration,
   permission-hidden actions, swimlanes, WIP text, and narrow presentation.
 - Desktop and mobile Chromium flows for pointer move, keyboard move, conflict,
@@ -37,6 +38,11 @@ Mocked Angular Playwright proves browser behavior against the public wire
 shape; it does not replace controller/ASP.NET Core integration evidence.
 PostgreSQL tests use real EF migrations and Npgsql but do not represent
 production data volume.
+
+The pinned Linux screenshot command and real-backend browser stack remain
+environment-dependent. Exact final-head results and any environmental blockers
+are recorded in the draft pull request without converting them into passing
+evidence.
 
 ## Migration evidence
 

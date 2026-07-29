@@ -146,7 +146,7 @@ public sealed class ProjectKanbanServiceTests
         Assert.True(parentCard.IsParentSummary);
         Assert.False(parentCard.IsLeaf);
         Assert.Equal(3, parentCard.ChildCount);
-        Assert.Equal(1, parentCard.CompletedChildCount);
+        Assert.Equal(0, parentCard.CompletedChildCount);
         Assert.Equal(50, parentCard.ProgressPercent);
         Assert.Equal(new DateOnly(2026, 6, 15), parentCard.PlannedStartDate);
         Assert.Equal(new DateOnly(2026, 8, 15), parentCard.PlannedEndDate);
