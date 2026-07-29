@@ -14,13 +14,13 @@ describe('WorkViewPreferenceService', () => {
   beforeEach(() => localStorage.clear());
   afterEach(() => TestBed.resetTestingModule());
 
-  it('stores My Tasks projection by tenant, user, screen, and preference version', () => {
+  it('normalizes a stale My Tasks Kanban preference to the canonical List', () => {
     TestBed.configureTestingModule({ providers: [{ provide: AIP_AUTH_SESSION_MOCK, useValue: session('tenant-a', 'user-a') }] });
     const first = TestBed.inject(WorkViewPreferenceService);
     first.saveMyTasksProjection('kanban');
 
-    expect(first.loadMyTasksProjection()).toBe('kanban');
-    expect(localStorage.getItem('aipsite.work-view.v1.tenant-a.user-a.my-tasks')).toBe('kanban');
+    expect(first.loadMyTasksProjection()).toBe('list');
+    expect(localStorage.getItem('aipsite.work-view.v1.tenant-a.user-a.my-tasks')).toBe('list');
   });
 
   it('does not expose one user or tenant preference to another', () => {

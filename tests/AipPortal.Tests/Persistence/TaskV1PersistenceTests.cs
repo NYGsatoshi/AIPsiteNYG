@@ -28,6 +28,7 @@ public sealed class TaskV1PersistenceTests
         var definition = await context.TaskWorkflowDefinitions.SingleAsync(item => item.ProjectId == project.Id);
         var stages = await context.TaskWorkflowStages.Where(item => item.DefinitionId == definition.Id).OrderBy(item => item.SortKey).ToListAsync();
         Assert.True(definition.ReviewEnforcementEnabled);
+        Assert.Equal(ProjectKanbanSwimlane.None, definition.KanbanDefaultSwimlane);
         Assert.Equal(
             [TaskStageCategory.Backlog, TaskStageCategory.Todo, TaskStageCategory.InProgress, TaskStageCategory.Review, TaskStageCategory.Done, TaskStageCategory.Cancelled],
             stages.Select(item => item.InternalCategory));
@@ -77,6 +78,24 @@ public sealed class TaskV1PersistenceTests
     public void DomainV1FeatureUsesTheCentralizedFeatureKeyRegistry()
     {
         Assert.Contains(FeatureKeys.TasksDomainV1, FeatureKeys.All);
+        Assert.Contains(FeatureKeys.KanbanV1, FeatureKeys.All);
+    }
+
+    [Fact]
+    public async Task KanbanUsesCanonicalTaskRankIndexAndWorkflowConcurrencyTokens()
+    {
+        var (context, _, _, _) = await CreateGraphAsync();
+        var taskType = context.Model.FindEntityType(typeof(TaskItem))!;
+        var definitionType = context.Model.FindEntityType(typeof(TaskWorkflowDefinition))!;
+        var stageType = context.Model.FindEntityType(typeof(TaskWorkflowStage))!;
+
+        Assert.Contains(taskType.GetIndexes(), index =>
+            index.Properties.Select(property => property.Name)
+                .SequenceEqual([nameof(TaskItem.ProjectId), nameof(TaskItem.WorkflowStageId), nameof(TaskItem.SortKey)]));
+        Assert.True(taskType.FindProperty(nameof(TaskItem.VersionNo))!.IsConcurrencyToken);
+        Assert.True(definitionType.FindProperty(nameof(TaskWorkflowDefinition.VersionNo))!.IsConcurrencyToken);
+        Assert.True(stageType.FindProperty(nameof(TaskWorkflowStage.VersionNo))!.IsConcurrencyToken);
+        Assert.Equal(40, definitionType.FindProperty(nameof(TaskWorkflowDefinition.KanbanDefaultSwimlane))!.GetMaxLength());
     }
 
     [Fact]

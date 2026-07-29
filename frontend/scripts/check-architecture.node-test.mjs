@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
 
-import { findDisallowedSignalrImports, findDisallowedSyncfusionImports } from './check-architecture.mjs';
+import { findAgGridEnterpriseImports, findDisallowedSignalrImports, findDisallowedSyncfusionImports } from './check-architecture.mjs';
 
 test('rejects direct Syncfusion imports from a feature path', () => {
   const offenders = findDisallowedSyncfusionImports([
@@ -42,4 +42,11 @@ test('rejects direct SignalR imports outside the realtime transport adapter', ()
   ]);
 
   assert.deepEqual(offenders, ['/repo/frontend/src/app/features/messaging/messaging.facade.ts']);
+});
+
+test('rejects AG Grid Enterprise from every frontend boundary', () => {
+  assert.deepEqual(findAgGridEnterpriseImports([
+    { path: '/repo/frontend/src/app/features/projects/project-board.ts', source: "import 'ag-grid-enterprise';" },
+    { path: '/repo/frontend/src/app/shared/grid/community.ts', source: "import { GridApi } from 'ag-grid-community';" }
+  ]), ['/repo/frontend/src/app/features/projects/project-board.ts']);
 });

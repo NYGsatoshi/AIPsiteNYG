@@ -69,6 +69,9 @@ public sealed class ProjectServiceTests
         Assert.Equal(TaskPriority.High, created.Value.Priority);
         Assert.Equal(TaskItemStatus.NotStarted, created.Value.Status);
         Assert.Equal(0, created.Value.ProgressPercent);
+        var createdEntity = fixture.Projects.Tasks[created.Value.Id];
+        Assert.Equal(fixture.Projects.Stages.Values.Single().Id, createdEntity.WorkflowStageId);
+        Assert.Equal(1000, createdEntity.SortKey);
 
         var membership = fixture.Projects.Members.Single(member => member.ProjectId == fixture.Project.Id && member.UserId == contributor.Id);
         membership.Role = ProjectRole.Manager;
@@ -571,6 +574,16 @@ public sealed class ProjectServiceTests
             fixture.Project.WorkspaceId = fixture.Workspace.Id;
             fixture.Workspaces.Items[fixture.Workspace.Id] = fixture.Workspace;
             fixture.Projects.ProjectItems[fixture.Project.Id] = fixture.Project;
+            var initialStage = new TaskWorkflowStage
+            {
+                ProjectId = fixture.Project.Id,
+                WorkspaceId = fixture.Project.WorkspaceId,
+                Name = "Backlog",
+                InternalCategory = TaskStageCategory.Backlog,
+                IsInitialStage = true,
+                SortKey = 1000
+            };
+            fixture.Projects.Stages[initialStage.Id] = initialStage;
             return fixture;
         }
 
@@ -677,6 +690,7 @@ public sealed class ProjectServiceTests
         public List<ProjectMember> Members { get; } = [];
         public Dictionary<Guid, Milestone> Milestones { get; } = [];
         public Dictionary<Guid, TaskItem> Tasks { get; } = [];
+        public Dictionary<Guid, TaskWorkflowStage> Stages { get; } = [];
         public List<TaskAssignment> Assignments { get; } = [];
         public List<TaskDependency> Dependencies { get; } = [];
         public List<Comment> Comments { get; } = [];
@@ -720,6 +734,8 @@ public sealed class ProjectServiceTests
         public Task<Milestone?> GetMilestoneAsync(Guid milestoneId, CancellationToken cancellationToken = default) => Task.FromResult(Milestones.GetValueOrDefault(milestoneId));
         public Task<IReadOnlyList<TaskItem>> ListTasksAsync(Guid projectId, CancellationToken cancellationToken = default) => Task.FromResult<IReadOnlyList<TaskItem>>(Tasks.Values.Where(task => task.ProjectId == projectId).ToList());
         public Task<TaskItem?> GetTaskAsync(Guid taskItemId, CancellationToken cancellationToken = default) => Task.FromResult(Tasks.GetValueOrDefault(taskItemId));
+        public Task<TaskWorkflowStage?> GetWorkflowStageAsync(Guid workflowStageId, CancellationToken cancellationToken = default) => Task.FromResult(Stages.GetValueOrDefault(workflowStageId));
+        public Task<IReadOnlyList<TaskWorkflowStage>> ListWorkflowStagesAsync(Guid projectId, CancellationToken cancellationToken = default) => Task.FromResult<IReadOnlyList<TaskWorkflowStage>>(Stages.Values.Where(stage => stage.ProjectId == projectId).ToList());
         public Task<IReadOnlyList<TaskAssignment>> ListAssignmentsAsync(Guid taskItemId, CancellationToken cancellationToken = default) => Task.FromResult<IReadOnlyList<TaskAssignment>>(Assignments.Where(assignment => assignment.TaskItemId == taskItemId).ToList());
         public Task<TaskAssignment?> GetAssignmentAsync(Guid assignmentId, CancellationToken cancellationToken = default)
         {

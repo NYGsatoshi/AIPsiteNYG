@@ -337,6 +337,8 @@ public sealed class TaskCommandServiceTests
         Assert.True(result.IsSuccess);
         var child = Assert.Single(fixture.Projects.Tasks.Values, task => task.ParentTaskItemId == parent.Id);
         Assert.Equal(parent.Id, child.ParentTaskItemId);
+        Assert.Equal(fixture.Projects.Stages.Values.Single(stage => stage.IsInitialStage).Id, child.WorkflowStageId);
+        Assert.Equal(1000, child.SortKey);
         var watch = Assert.Single(fixture.Projects.Watches);
         Assert.Equal(child.Id, watch.TaskItemId);
         Assert.Equal(fixture.Actor, watch.UserId);
@@ -443,6 +445,16 @@ public sealed class TaskCommandServiceTests
             Actor = Guid.NewGuid();
             Project = new Project { WorkspaceId = Guid.NewGuid(), Name = "Project", Slug = "project", OwnerUserId = Actor, CreatedByUserId = Actor };
             Projects.ProjectItems[Project.Id] = Project;
+            var initialStage = new TaskWorkflowStage
+            {
+                ProjectId = Project.Id,
+                WorkspaceId = Project.WorkspaceId,
+                Name = "Backlog",
+                InternalCategory = TaskStageCategory.Backlog,
+                IsInitialStage = true,
+                SortKey = 1000
+            };
+            Projects.Stages[initialStage.Id] = initialStage;
             Service = new TaskCommandService(Projects, new FakeGroups(), Users, new AllowedProjectAuthorization(), new AllowedTaskAuthorization(), new FakeCurrentUser(Actor), new FixedClock(), Audit, Invalidations, UnitOfWork, new UtcTimeZoneResolver());
             Subresources = CreateSubresources();
         }
