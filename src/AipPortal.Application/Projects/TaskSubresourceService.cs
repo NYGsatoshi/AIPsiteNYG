@@ -139,8 +139,9 @@ public sealed class TaskSubresourceService(
         if (!await taskAuthorization.CanCreateTask(Actor(), parent.ProjectId, ct)) return Fail<TaskSubtaskResponse>("TASK_FORBIDDEN", "Task operation is not authorized.");
         if (parent.ParentTaskItemId.HasValue) return Fail<TaskSubtaskResponse>("TASK_PARENT_DEPTH_EXCEEDED", "A subtask cannot have children.");
         var title = Text(request.Title, 300); if (title is null) return Fail<TaskSubtaskResponse>("VALIDATION_FAILED", "Subtask title is required.");
-        var siblings = (await projects.ListTasksAsync(parent.ProjectId, ct)).Where(x => x.ParentTaskItemId == parent.Id).ToList();
-        var subtask = new TaskItem { WorkspaceId = parent.WorkspaceId, ProjectId = parent.ProjectId, ParentTaskItemId = parent.Id, Kind = AipPortal.Domain.Enums.WorkItemKind.Task, Title = title, Description = NullableText(request.Description, 12000), Priority = request.Priority, CreatedByUserId = Actor(), SortKey = siblings.Count == 0 ? 1024 : siblings.Max(x => x.SortKey) + 1024 };
+        var subtask = new TaskItem { WorkspaceId = parent.WorkspaceId, ProjectId = parent.ProjectId, ParentTaskItemId = parent.Id, Kind = AipPortal.Domain.Enums.WorkItemKind.Task, Title = title, Description = NullableText(request.Description, 12000), Priority = request.Priority, CreatedByUserId = Actor() };
+        var placement = await TaskInitialPlacement.ApplyAsync(projects, subtask, ct);
+        if (!placement.IsSuccess) return Result<TaskSubtaskResponse>.Failure(placement.Error!);
         await projects.AddTaskAsync(subtask, ct);
         await projects.AddWatchStateAsync(TaskWatchStateInitializer.ForCreator(subtask, Actor(), clock.UtcNow), ct);
         if (!await CommitSubtaskCreationAsync(parent, subtask, ct)) return Fail<TaskSubtaskResponse>("TASK_STALE_VERSION", "Task has changed. Refetch and retry.");

@@ -80,6 +80,7 @@ public static class DependencyInjection
             provider.GetRequiredService<IUnitOfWork>() as ITaskCommandUnitOfWork
             ?? throw new InvalidOperationException("IUnitOfWork must implement ITaskCommandUnitOfWork for Task commands."));
         services.AddScoped<ITaskCommandService, TaskCommandService>();
+        services.AddScoped<IProjectKanbanService, ProjectKanbanService>();
         services.AddScoped<ITaskSubresourceService, TaskSubresourceService>();
         services.AddScoped<ITaskWorkspaceTimeZoneResolver, TaskWorkspaceTimeZoneResolver>();
         services.AddScoped<IEventService, EventService>();

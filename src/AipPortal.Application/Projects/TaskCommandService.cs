@@ -86,44 +86,10 @@ public sealed class TaskCommandService(
         if (taskResult.Error is not null) return Fail<TaskCommandResponse>(taskResult.Error.Value.Code, taskResult.Error.Value.Message);
         var task = taskResult.Value!;
         var stale = EnsureVersion(task, request.ExpectedVersion); if (stale is not null) return Fail<TaskCommandResponse>(stale.Value.Code, stale.Value.Message);
-        var stage = await projects.GetWorkflowStageAsync(request.WorkflowStageId, cancellationToken);
-        if (stage is null || stage.ProjectId != task.ProjectId) return Fail<TaskCommandResponse>("TASK_INVALID_STAGE", "Workflow stage is not available for this task.");
-        var previous = CategoryOf(task);
-        if (previous is TaskStageCategory.Done or TaskStageCategory.Cancelled &&
-            stage.InternalCategory is not (TaskStageCategory.Backlog or TaskStageCategory.Todo))
-        {
-            return Fail<TaskCommandResponse>("TASK_TRANSITION_GUARD_FAILED", "Reopen a terminal task to Backlog or Todo before moving it to active work.");
-        }
-        if (stage.InternalCategory == TaskStageCategory.InProgress && !task.PrimaryAssigneeUserId.HasValue) return Fail<TaskCommandResponse>("TASK_ASSIGNEE_REQUIRED", "A primary assignee is required before active work.");
-        if (stage.InternalCategory == TaskStageCategory.Done && await ReviewRequiredAsync(task, cancellationToken)) return Fail<TaskCommandResponse>("TASK_REVIEW_REQUIRED", "An accepted review is required before completion.");
-        if (stage.InternalCategory == TaskStageCategory.Cancelled && !IsBounded(request.Reason)) return Fail<TaskCommandResponse>("TASK_CANCEL_REASON_REQUIRED", "A cancellation reason is required.");
-        if (stage.InternalCategory == TaskStageCategory.Done && (await projects.ListTasksAsync(task.ProjectId, cancellationToken)).Any(child => child.ParentTaskItemId == task.Id && !child.DeletedAt.HasValue && CategoryOf(child) != TaskStageCategory.Done && CategoryOf(child) != TaskStageCategory.Cancelled)) return Fail<TaskCommandResponse>("TASK_TRANSITION_GUARD_FAILED", "A parent task with incomplete children cannot be completed.");
-
-        task.WorkflowStageId = stage.Id;
-        task.Status = LegacyStatus(stage.InternalCategory);
-        var now = clock.UtcNow;
-        if (stage.InternalCategory is TaskStageCategory.InProgress or TaskStageCategory.Review && !task.ActualStartAt.HasValue) task.ActualStartAt = now;
-        if (stage.InternalCategory == TaskStageCategory.Done) { task.ProgressPercent = 100; task.CompletedAt = now; task.CancelledAt = null; task.CancellationReason = null; }
-        if (previous == TaskStageCategory.Done && stage.InternalCategory != TaskStageCategory.Done)
-        {
-            // Reopening to a backlog/todo stage starts a new completion cycle.  Do
-            // not retain a terminal 100% value, otherwise parent derived progress
-            // also continues to report the child as complete.
-            task.CompletedAt = null;
-            if (stage.InternalCategory is TaskStageCategory.Backlog or TaskStageCategory.Todo)
-                task.ProgressPercent = 0;
-        }
-        if (previous == TaskStageCategory.Cancelled && stage.InternalCategory is TaskStageCategory.Backlog or TaskStageCategory.Todo)
-        {
-            task.CancelledAt = null;
-            task.CancellationReason = null;
-            task.CompletedAt = null;
-            task.ProgressPercent = 0;
-        }
-        if (stage.InternalCategory == TaskStageCategory.Cancelled) { task.CancelledAt = now; task.CancellationReason = request.Reason!.Trim(); }
-        var reopened = previous is TaskStageCategory.Done or TaskStageCategory.Cancelled
-            && stage.InternalCategory is TaskStageCategory.Backlog or TaskStageCategory.Todo;
-        return await CommitAsync(task, "TaskTransitioned", reopened ? "reopened" : "stageChanged", cancellationToken);
+        var transition = await TaskTransitionEngine.ApplyAsync(projects, clock, task, request.WorkflowStageId, request.Reason, cancellationToken);
+        if (!transition.IsSuccess)
+            return Result<TaskCommandResponse>.Failure(transition.Error!);
+        return await CommitAsync(task, "TaskTransitioned", transition.Value!.Reopened ? "reopened" : "stageChanged", cancellationToken);
     }
 
     public async Task<Result<TaskCommandResponse>> SetBlockedStateAsync(Guid taskId, TaskBlockedStateRequest request, CancellationToken cancellationToken = default)

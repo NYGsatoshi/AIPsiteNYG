@@ -508,6 +508,11 @@ public sealed class ProjectService(
             CreatedByUserId = userId
         };
 
+        var placement = await TaskInitialPlacement.ApplyAsync(projects, task, cancellationToken);
+        if (!placement.IsSuccess)
+        {
+            return Result<TaskItemResponse>.Failure(placement.Error!);
+        }
         await projects.AddTaskAsync(task, cancellationToken);
         await projects.AddWatchStateAsync(TaskWatchStateInitializer.ForCreator(task, userId, clock.UtcNow), cancellationToken);
         await AuditAsync(userId, "TaskCreated", "TaskItem", task.Id, cancellationToken);

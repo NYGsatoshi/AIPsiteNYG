@@ -18,6 +18,18 @@ public interface IProjectRepository
     Task<TaskWorkflowDefinition?> GetWorkflowDefinitionAsync(Guid projectId, CancellationToken cancellationToken = default) => Task.FromResult<TaskWorkflowDefinition?>(null);
     Task<TaskWorkflowStage?> GetWorkflowStageAsync(Guid workflowStageId, CancellationToken cancellationToken = default) => Task.FromResult<TaskWorkflowStage?>(null);
     Task<IReadOnlyList<TaskWorkflowStage>> ListWorkflowStagesAsync(Guid projectId, CancellationToken cancellationToken = default) => Task.FromResult<IReadOnlyList<TaskWorkflowStage>>([]);
+    async Task<TaskWorkflowStage?> GetInitialWorkflowStageAsync(Guid projectId, CancellationToken cancellationToken = default) =>
+        (await ListWorkflowStagesAsync(projectId, cancellationToken))
+            .Where(stage => stage.IsInitialStage || stage.InternalCategory is TaskStageCategory.Backlog or TaskStageCategory.Todo)
+            .OrderByDescending(stage => stage.IsInitialStage)
+            .ThenBy(stage => stage.SortKey)
+            .ThenBy(stage => stage.Id)
+            .FirstOrDefault();
+    async Task<long?> GetMaximumTaskSortKeyAsync(Guid projectId, Guid workflowStageId, CancellationToken cancellationToken = default) =>
+        (await ListTasksAsync(projectId, cancellationToken))
+            .Where(task => task.WorkflowStageId == workflowStageId && !task.DeletedAt.HasValue)
+            .Select(task => (long?)task.SortKey)
+            .Max();
     Task<IReadOnlyList<WorkItemCollaborator>> ListCollaboratorsAsync(Guid taskItemId, CancellationToken cancellationToken = default) => Task.FromResult<IReadOnlyList<WorkItemCollaborator>>([]);
     Task<IReadOnlyList<TaskAssignment>> ListAssignmentsAsync(Guid taskItemId, CancellationToken cancellationToken = default);
     Task<TaskAssignment?> GetAssignmentAsync(Guid assignmentId, CancellationToken cancellationToken = default);

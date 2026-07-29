@@ -105,6 +105,21 @@ public sealed class ProjectRepository(AppDbContext dbContext) : IProjectReposito
 
     public async Task<IReadOnlyList<TaskWorkflowStage>> ListWorkflowStagesAsync(Guid projectId, CancellationToken cancellationToken = default) =>
         await dbContext.TaskWorkflowStages.AsNoTracking().Where(stage => stage.ProjectId == projectId).OrderBy(stage => stage.SortKey).ToListAsync(cancellationToken);
+    public Task<TaskWorkflowStage?> GetInitialWorkflowStageAsync(Guid projectId, CancellationToken cancellationToken = default) =>
+        dbContext.TaskWorkflowStages
+            .Where(stage =>
+                stage.ProjectId == projectId &&
+                (stage.IsInitialStage ||
+                 stage.InternalCategory == TaskStageCategory.Backlog ||
+                 stage.InternalCategory == TaskStageCategory.Todo))
+            .OrderByDescending(stage => stage.IsInitialStage)
+            .ThenBy(stage => stage.SortKey)
+            .ThenBy(stage => stage.Id)
+            .FirstOrDefaultAsync(cancellationToken);
+    public Task<long?> GetMaximumTaskSortKeyAsync(Guid projectId, Guid workflowStageId, CancellationToken cancellationToken = default) =>
+        dbContext.TaskItems
+            .Where(task => task.ProjectId == projectId && task.WorkflowStageId == workflowStageId && !task.DeletedAt.HasValue)
+            .MaxAsync(task => (long?)task.SortKey, cancellationToken);
 
     public async Task<IReadOnlyList<WorkItemCollaborator>> ListCollaboratorsAsync(Guid taskItemId, CancellationToken cancellationToken = default) =>
         await dbContext.WorkItemCollaborators.AsNoTracking().Include(item => item.User).Where(item => item.TaskItemId == taskItemId).OrderBy(item => item.User!.DisplayName).ToListAsync(cancellationToken);
