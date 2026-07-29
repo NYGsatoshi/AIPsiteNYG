@@ -4,7 +4,8 @@
 
 - Main start SHA: `2d2d410fdbdbd13cbf47b0a0b97df4e27fa86563`
 - Branch: `task/v1-pr04-my-tasks-acceptance`
-- Final branch HEAD: pending until the acceptance commit is created
+- Final branch HEAD: the commit containing this evidence document; the exact
+  SHA is recorded in the draft PR and final handoff
 - Main push CI: run `30410498290`, success, head `2d2d410fdbdbd13cbf47b0a0b97df4e27fa86563`
 - Main push Code Quality: run `30410498299`, success, head `2d2d410fdbdbd13cbf47b0a0b97df4e27fa86563`
 - Canonical repository source: `docs/TASK_V1_PR04.md`
@@ -160,11 +161,13 @@
 All counts below exclude the two intentionally obsolete legacy-static Playwright
 skips, which are not PR04 acceptance tests.
 
-- `Scope=TaskV1PR04` provisional focused run: 7 passed, 0 failed, 0 skipped
-- Combined `Scope=TaskV1PR03C|TaskV1Prompt2C|TaskV1Prompt2D`: 64 passed,
-  0 failed, 0 skipped
-- `Category=PostgreSQLIntegration`: 63 passed, 0 failed, 0 skipped
-- Full backend: 403 passed, 0 failed, 0 skipped
+- `Scope=TaskV1PR04` run 1: 7 passed, 0 failed, 0 skipped
+- `Scope=TaskV1PR04` run 2: 7 passed, 0 failed, 0 skipped
+- `Scope=TaskV1PR03C`: 29 passed, 0 failed, 0 skipped
+- `Scope=TaskV1Prompt2C`: 35 passed, 0 failed, 0 skipped
+- `Scope=TaskV1Prompt2D`: 19 passed, 0 failed, 0 skipped
+- `Category=PostgreSQLIntegration`: 66 passed, 0 failed, 0 skipped
+- Full backend: 407 passed, 0 failed, 0 skipped
 - Angular unit: 242 passed, 0 failed
 - Angular production build: passed; pre-existing non-blocking size warnings remain
 - Frontend architecture check: passed
