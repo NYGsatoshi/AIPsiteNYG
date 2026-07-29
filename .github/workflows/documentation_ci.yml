@@ -25,14 +25,25 @@ permissions:
 jobs:
   documentation:
     name: Documentation
-    runs-on: ubuntu-latest
+    runs-on: self-hosted
     timeout-minutes: 10
 
     steps:
+      - name: Repair previous Docker workspace ownership
+        shell: bash
+        run: |
+          uid="$(id -u)"
+          gid="$(id -g)"
+          docker run --rm \
+            -v "$GITHUB_WORKSPACE:/workspace" \
+            alpine:3.21 \
+            sh -c "chown -R ${uid}:${gid} /workspace"
+
       - name: Checkout
         uses: actions/checkout@v4
         with:
           fetch-depth: 0
+          clean: true
 
       - name: Collect changed documentation files
         shell: bash
