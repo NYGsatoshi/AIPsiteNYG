@@ -2,7 +2,7 @@
 
 This is the primary entry point for future Codex work on AIPsiteNYG.
 
-Last repository audit: **2026-06-19**.
+Last repository audit: **2026-07-30**.
 
 ## Documentation authority
 
@@ -71,7 +71,7 @@ Project references enforce a conventional dependency direction. See `docs/ARCHIT
 | Workspaces/groups/channels/posts | Backend implemented; browser UI planned/partial | REST layers exist; routes render placeholders |
 | Messaging | Partially implemented | REST, direct-message recipient search, direct conversation creation, browser send/read persistence, and PR07 durable realtime message/unread events with Angular reconciliation exist; safe attachment ownership and production PostgreSQL verification remain incomplete |
 | Announcements | Partially implemented | REST and UI exist; scoped visibility and frontend role/user-ID behavior have confirmed defects |
-| Projects/tasks/milestones/assignments/comments/Gantt data | Partially implemented | PR02 adds versioned Task workflow, relationship, review, Claim, and FS-authoring command routes. PR05 adds the canonical Project Kanban snapshot/config/move flow over those Tasks, including Project Detail rollback/accessibility and List fallback. Gantt writes and several legacy compatibility routes remain incomplete. See `docs/TASK_V1_PR02.md` and `docs/TASK_V1_PR05.md`. |
+| Projects/tasks/milestones/assignments/comments/Gantt data | Partially implemented; PR06 working tree needs final verification | PR02 adds versioned Task workflow, relationship, review, Claim, and FS-authoring command routes. PR05 adds the canonical Project Kanban snapshot/config/move flow. PR06 upgrades the existing Project Detail Schedule tab and Gantt route with a bounded scheduled/unscheduled projection, manual schedule/progress/FS dependency commands, canonical Task-only parent derivation and terminal parent/child guards, optimistic concurrency, explicit conflict Retry/Discard, structured warnings, accessible/mobile alternatives, lazy vendor isolation, and authoritative realtime refetch. Exact final-HEAD hosted/real-browser/review evidence and the numeric graph-limit owner decision remain pending. See `docs/TASK_V1_PR02.md`, `docs/TASK_V1_PR05.md`, and `docs/TASK_V1_PR06.md`. |
 | Events/attendance/calendar | Backend implemented; browser UI planned | Controller/service/repository/tests exist; calendar route is a placeholder outside dashboard summary |
 | Forms/surveys | Backend implemented; browser UI planned | Controller/service/repository/tests exist; `/forms` is a placeholder |
 | Notifications | Implemented with polling UI | Database-backed; no realtime push |
@@ -82,7 +82,7 @@ Project references enforce a conventional dependency direction. See `docs/ARCHIT
 | API token records and validator | Foundation only | No request authentication handler, tenant binding, or scope middleware |
 | Webhook records and validation | Foundation only | “Test” validates configuration and sends no outbound request |
 | UI shell data model | Foundation only | Modules/panels/layouts/commands/radial-menu APIs exist; radial UI control is disabled |
-| SignalR and transactional Outbox | Messaging and Project Kanban integration implemented | Authenticated `/hubs/app`, server-authorized subscriptions, durable Outbox persistence, dispatcher retry/dead-letter/retention, diagnostics, and Angular reconnect/catch-up exist. PR07 adds messaging create/update/delete/unread reconciliation; PR05 uses committed Task/Project invalidations for version-aware authoritative Kanban refetch. Other feature integrations remain deferred. |
+| SignalR and transactional Outbox | Messaging, Project Kanban, and PR06 Schedule integration implemented; final PR06 verification pending | Authenticated `/hubs/app`, server-authorized subscriptions, durable Outbox persistence, dispatcher retry/dead-letter/retention, diagnostics, and Angular reconnect/catch-up exist. PR07 adds messaging create/update/delete/unread reconciliation; PR05 uses committed Task/Project invalidations for Kanban. PR06 transactionally queues Task/Project schedule invalidations and treats them as version hints for authoritative Gantt HTTP refetch, including active-edit queuing, reconnect, degraded HTTP behavior, and synchronous protected Kanban/Gantt clear plus generation invalidation when Project subscription reauthorization is denied. |
 | Billing/payments, SSO/MFA, background jobs | Planned | No implementation found |
 
 ## Status groups
@@ -107,7 +107,7 @@ Project references enforce a conventional dependency direction. See `docs/ARCHIT
 
 ### Planned
 
-- Password reset delivery, object storage, API token authentication, outbound webhooks, background jobs, tenant restore, SSO/MFA, realtime features, billing, advanced planning, and full docking/radial UI.
+- Password reset delivery, object storage, API token authentication, outbound webhooks, background jobs, tenant restore, SSO/MFA, billing, automatic/advanced planning, and full docking/radial UI.
 
 ### Deprecated
 
@@ -131,8 +131,12 @@ Project references enforce a conventional dependency direction. See `docs/ARCHIT
 - `docker-compose.onprem.yml` does not apply EF migrations.
 - Production reverse-proxy support is incomplete because forwarded-header middleware is not configured.
 - Angular browser UI coverage is materially smaller than backend API coverage.
-- Playwright tests mock API contracts and do not prove frontend/backend compatibility.
-- API errors are not standardized despite `docs/API_CONTRACTS.md` describing a shared shape.
+- The regular Playwright suite mocks API contracts and does not prove
+  frontend/backend compatibility. PR06 adds a real-backend scenario, but its
+  licensed exact-final-HEAD hosted evidence is still pending.
+- API errors are not standardized repository-wide despite
+  `docs/API_CONTRACTS.md` describing a shared shape. PR06 aligns only its Gantt
+  snapshot/command/dependency routes with a narrow safe envelope.
 - Critical backend logic defects affect scoped announcements, search authorization, conversation persistence, and message attachments.
 
 Details and suggested issue titles are in `docs/KNOWN_ISSUES.md` and `docs/BACKEND_LOGIC_AUDIT.md`.
@@ -145,6 +149,59 @@ The 2026-06-18 local audit observed 123 passing .NET tests. This result needs qu
 - HTTP tests use Kestrel but mostly EF Core InMemory.
 - Root Playwright legacy static-SPA specs are obsolete after the Angular migration; future Playwright coverage should target Angular build output or a hosted Angular app.
 - CI supplies PostgreSQL and runs migrations before `dotnet test`.
+
+TASK-V1-PR06 working-tree evidence on 2026-07-30 is newer but is not yet
+final-HEAD acceptance evidence:
+
+- Draft PR #259 is open. Its code-bearing HEAD is
+  `ab9a260dd4517d34a2500d5e76369ba241b504ee`; the documentation HEAD and exact
+  final-HEAD Gates remain pending.
+- Restore succeeded with every project up to date; the Release build passed at
+  the code-bearing HEAD with 0 warnings and 0 errors.
+- `Scope=TaskV1PR06` passed 45/45 with PostgreSQL 18.4 supplied, with 0 failed
+  and 0 skipped.
+- `Scope=TaskV1PR05` passed 25/25 and `Scope=TaskV1PR04` passed 8/8, each with
+  0 failed and 0 skipped. The full backend suite passed 485/485 at the
+  code-bearing HEAD with 0 failed and 0 skipped.
+- EF reported no pending model changes.
+- `npm ci` succeeded. npm audit reported 18 known vulnerabilities: 3 low,
+  7 moderate, 8 high, and 0 critical.
+- The full Angular suite passed 318/318, the production build succeeded,
+  architecture checks passed including 4/4 Node tests, Syncfusion license
+  policy tests passed 4/4, and bundle analysis succeeded. Gantt remained a
+  lazy approximately 5.42 MB chunk; the initial bundle was 950.01 kB with a
+  budget warning.
+- Mocked Playwright passed 63 tests with 3 pre-existing explicitly expected
+  skips; the PR06 desktop/mobile subset passed 4/4 with no skips. These results
+  still do not establish real backend compatibility.
+- The exact local Storybook command exhausted the 2 GB Node heap and is not a
+  pass; the same source built successfully with
+  `NODE_OPTIONS=--max-old-space-size=4096`.
+- The repository projection is measured at seven commands and the authorized
+  real Kestrel/PostgreSQL snapshot at exactly 24 commands total, including
+  tenant, cookie/session authorization, membership, timezone, and projection
+  queries. Exact SQL is emitted in xUnit evidence; bounded/no-N+1 and
+  cancellation behavior are asserted.
+- Focused backend coverage includes Task-kind-only direct-child derivation,
+  terminal-parent subtask rejection, terminal-child reopen guard, parent Done
+  requiring terminal children and derived progress 100, and rejection of an
+  all-cancelled child set. Review override, restore, and delete preserve those
+  terminal hierarchy guards.
+- Additional PostgreSQL coverage verifies the post-count read race, canonical
+  parent-derived dependency warnings, active bounded dependency filters,
+  metadata-safe rejection auditing, compatibility Milestone version/date/409
+  behavior, and shared Project-revision protection against a concurrent Task
+  delete/dependency add race.
+- Reviewer reconciliation reports 0 residual material PR06 findings; exact
+  final-HEAD hosted/Qodana/GitHub review evidence remains pending.
+- Local real-backend execution is not countable without
+  `SYNCFUSION_LICENSE`; exact-final-HEAD hosted execution remains required.
+
+The PR06 snapshot and command paths use a provisional limit of 500 items,
+counted consistently as canonical Task-kind WorkItems plus canonical
+Milestones, and 2,000 dependencies, with typed rejection and no truncation.
+The canonical specification does not define those numbers or overflow
+semantics, so this remains `DECISION REQUIRED`.
 
 Read `docs/TESTING.md` before using “tests pass” as evidence.
 
@@ -167,6 +224,9 @@ Then add:
 - Test changes or verification claims: `docs/TESTING.md`
 - Detailed entity fields: `docs/DATA_MODEL.md`
 - API conventions: `docs/API_CONTRACTS.md`
+- Canonical Gantt implementation/evidence:
+  `docs/TASK_V1_PR06.md` and
+  `docs/verification/task-v1-pr06-gantt.md`
 - Operations and recovery: `docs/OPERATIONS.md`
 - Intended future scope: `docs/ROADMAP.md`
 

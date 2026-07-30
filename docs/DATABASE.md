@@ -1,6 +1,6 @@
 # Database
 
-Last implementation audit: 2026-06-18.
+Last implementation audit: 2026-07-30.
 
 ## Technology
 
@@ -25,10 +25,10 @@ Use these in order:
 
 ## Migration history
 
-There are thirteen migration classes as of 2026-06-18, from:
+There are forty timestamped EF migration classes as of 2026-07-30, from:
 
 - `20260606135558_InitialCreate`
-- through `20260610154740_AuthSessionSecurityHardening`
+- through `20260730120626_AddCanonicalGanttVersions`
 
 Migration files live in `src/AipPortal.Infrastructure/Persistence/Migrations/`.
 
@@ -90,6 +90,101 @@ No vendor board or card table exists. The board query uses the current
 Tenant filter, Project scope, existing Stage/Task indexes, bounded card
 projection, and one batched direct-child aggregate for canonical parent
 summary values.
+
+### TASK-V1-PR06 Canonical Project Gantt
+
+Migration `20260730120626_AddCanonicalGanttVersions` adds:
+
+- non-null `Project.VersionNo bigint`, default 1; and
+- non-null `Milestone.VersionNo bigint`, default 1.
+
+Both are EF optimistic concurrency tokens. Canonical Tasks and Workflow
+Definitions already had version tokens; PR06 does not add another Task or
+dependency version store.
+
+The migration performs no Task progress or other domain-data update. Its
+additive Down path removes only the two new version columns and preserves
+existing Project, Milestone, Task, and dependency rows.
+
+PR06 continues to reuse canonical persistence:
+
+- `TaskItem.PlannedStartDate` and `TaskItem.PlannedEndDate` remain authoritative
+  day-precision Task planning values. Maintained legacy `StartDate`/`DueDate`
+  columns are synchronized for the flag-disabled compatibility view.
+- `TaskItem.ProgressPercent`, Workflow Stage, Blocked state, hierarchy,
+  priority, and primary-assignee relationship remain shared with List, My
+  Tasks, and Kanban.
+- Parent dates and progress are derived only from direct, non-deleted canonical
+  Task-kind children and are never stored in a Gantt-owned parent row.
+- Compatibility `Milestone.DueDate` is its zero-duration date. The nullable
+  legacy column is retained; PR06 commands require a date and the snapshot
+  warns on pre-existing null rows.
+- `TaskDependency` remains the only dependency persistence. PR06 authors
+  same-Project Finish-to-Start edges only and retains legacy non-FS rows as
+  read-only warning inventory. Bounded dependency reads filter both ends to
+  active same-Project canonical Task rows.
+- `DeadlineAt` remains a separate UTC timestamp and is not updated by Gantt
+  schedule commands.
+- AuditLog and transactional Outbox rows share the same EF command save as
+  schedule, progress, Milestone, and dependency mutations.
+
+Terminal parent/child behavior is an Application invariant, not new schema:
+Done/Cancelled parents reject new subtasks until reopened, terminal children
+cannot reopen under a terminal parent, and parent Done requires terminal direct
+Task children plus derived progress 100. All-cancelled children derive progress
+0 and therefore cannot complete the parent as Done. Review override completion
+uses that same guard; restore and delete of a child under a terminal parent are
+also rejected until the parent is reopened.
+
+Task lifecycle and dependency mutations that can change the visible Project
+graph advance the shared `Project.VersionNo` in the same transaction. That
+aggregate revision makes a concurrent Task-delete/dependency-add race fail as
+an optimistic concurrency conflict. PostgreSQL regression coverage verifies
+that no stale dependency edge is committed. Visible dependency rejections are
+audited with metadata-safe reason codes and do not persist hidden-neighbor
+metadata.
+
+No Gantt-specific schedule, progress, calendar, vendor Task, or dependency
+table was added. No PR06 index was added: the projection uses the existing
+Tenant/Project/task/dependency relationships and bounds the graph before row
+materialization.
+
+The repository snapshot projection performs seven measured, deterministic,
+set-based SQL commands:
+
+1. Project identity/version;
+2. Task count;
+3. Milestone count;
+4. Workflow version;
+5. bounded Tasks with reference joins for Stage and primary assignee;
+6. bounded Milestones; and
+7. bounded same-Project dependencies.
+
+This seven-command count is intentionally scoped to
+`PlanningRepository.GetGanttAsync`. The authorized real Kestrel/PostgreSQL
+snapshot is separately measured and asserted at exactly 24 commands total:
+tenant resolution, cookie/session authorization, membership and timezone
+lookups, plus the seven projection commands. The bounded query shape has no
+row-per-item N+1 path. An item-overflow response stops after the two counts plus
+Project lookup and does not load Task rows or the dependency graph. The
+repository also rechecks the combined Task/Milestone row count after the
+bounded reads, closing the PostgreSQL READ COMMITTED insert race between the
+initial counts and materialization.
+The provisional item bound counts 500 canonical Task-kind WorkItems plus canonical
+Milestones, consistently across snapshot, schedule, progress, and dependency
+paths; the dependency bound is 2,000. Their canonical owner decision remains
+open. Overflow is rejected and never silently truncated.
+
+Focused PostgreSQL 18.4 integration evidence applies the migration to an empty
+database, upgrades the PR05 migration, migrates down additively, reports no
+pending migrations/model changes, captures exact SQL and emits it in xUnit
+evidence, asserts the seven-command repository projection and 24-command
+authorized HTTP total, deterministic order/limits, cancellation, and no N+1 or
+unbounded graph load. It also exercises the post-read count race, Project and
+Milestone concurrency, and the Project-revision Task-delete/dependency-add
+race. The fixture is intentionally small, so no `EXPLAIN` claim or index-plan
+claim is made. Exact final-HEAD and hosted evidence remains in
+`docs/verification/task-v1-pr06-gantt.md`.
 
 ### System and UI shell
 
