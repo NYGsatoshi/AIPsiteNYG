@@ -399,15 +399,18 @@ public sealed class ProjectKanbanServiceTests
         Assert.Empty(fixture.Invalidations.ProjectChanges);
     }
 
-    [Fact]
-    public async Task SaveConflictClearsAttemptedStageOrderAndBoardVersionWithoutPartialPersistence()
+    [Theory]
+    [InlineData(TaskCommandSaveResult.ConcurrencyConflict)]
+    [InlineData(TaskCommandSaveResult.UniqueConflict)]
+    public async Task SaveConflictClearsAttemptedStageOrderAndBoardVersionWithoutPartialPersistence(
+        TaskCommandSaveResult saveResult)
     {
         await using var fixture = await Fixture.CreateAsync();
         var todo = fixture.Stage(TaskStageCategory.Todo);
         var active = fixture.Stage(TaskStageCategory.InProgress);
         var task = await fixture.AddTaskAsync("Concurrent", todo, 1000, assignee: fixture.Actor);
         var board = await fixture.DefinitionAsync();
-        var service = fixture.ServiceWith(new FailingUnitOfWork(fixture.Context));
+        var service = fixture.ServiceWith(new FailingUnitOfWork(fixture.Context, saveResult));
 
         var result = await service.MoveAsync(task.Id, new(active.Id, null, null, task.VersionNo, board.VersionNo));
 
@@ -589,13 +592,15 @@ public sealed class ProjectKanbanServiceTests
         public Task AnnouncementChangedAsync(Announcement announcement, Guid actorUserId, string change, IEnumerable<Guid> audienceUserIds, CancellationToken cancellationToken = default) => Task.CompletedTask;
         public Task FileChangedAsync(FileObject fileObject, Attachment attachment, Guid actorUserId, string change, CancellationToken cancellationToken = default) => Task.CompletedTask;
     }
-    private sealed class FailingUnitOfWork(AppDbContext context) : ITaskCommandUnitOfWork
+    private sealed class FailingUnitOfWork(
+        AppDbContext context,
+        TaskCommandSaveResult saveResult) : ITaskCommandUnitOfWork
     {
         public Task<int> SaveChangesAsync(CancellationToken cancellationToken = default) => Task.FromResult(0);
         public Task<TaskCommandSaveOutcome> SaveTaskCommandAsync(CancellationToken cancellationToken = default)
         {
             context.ChangeTracker.Clear();
-            return Task.FromResult(new TaskCommandSaveOutcome(TaskCommandSaveResult.ConcurrencyConflict));
+            return Task.FromResult(new TaskCommandSaveOutcome(saveResult));
         }
         public void ClearTaskCommandTracking() => context.ChangeTracker.Clear();
     }

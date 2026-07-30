@@ -291,7 +291,7 @@ public sealed class ProjectKanbanService(
         {
             unitOfWork.ClearTaskCommandTracking();
             return Fail<ProjectKanbanCommandResponse>(
-                save.Result == TaskCommandSaveResult.ConcurrencyConflict ? "KANBAN_CONFLICT" : "KANBAN_CONFLICT",
+                "KANBAN_CONFLICT",
                 "The Task or Project board changed. Refetch and retry.");
         }
 

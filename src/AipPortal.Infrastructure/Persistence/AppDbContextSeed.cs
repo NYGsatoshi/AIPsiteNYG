@@ -136,6 +136,7 @@ public static class AppDbContextSeed
         const string taskLabelName = "Browser smoke label";
         const string taskFileName = "browser-smoke-task.txt";
         const string taskFileContents = "Synthetic PR03C browser smoke file.\n";
+        const string pr05ManagerEmail = "browser-smoke-pr05-manager@example.test";
         var taskFileBytes = Encoding.UTF8.GetBytes(taskFileContents);
 
         var now = DateTimeOffset.UtcNow;
@@ -206,6 +207,43 @@ public static class AppDbContextSeed
             }
         }
 
+        var normalizedPr05ManagerEmail = pr05ManagerEmail.ToUpperInvariant();
+        var pr05Manager = await dbContext.Users.FirstOrDefaultAsync(
+            candidate => candidate.NormalizedEmail == normalizedPr05ManagerEmail,
+            cancellationToken);
+        if (pr05Manager is null)
+        {
+            pr05Manager = new User
+            {
+                DisplayName = "PR05 Browser Manager",
+                Email = pr05ManagerEmail,
+                NormalizedEmail = normalizedPr05ManagerEmail,
+                PasswordHash = passwordHasher.HashPassword(password),
+                SystemRole = SystemRole.User,
+                Status = UserStatus.Active
+            };
+            await dbContext.Users.AddAsync(pr05Manager, cancellationToken);
+        }
+        else
+        {
+            pr05Manager.DisplayName = "PR05 Browser Manager";
+            pr05Manager.Email = pr05ManagerEmail;
+            pr05Manager.NormalizedEmail = normalizedPr05ManagerEmail;
+            pr05Manager.SystemRole = SystemRole.User;
+            pr05Manager.Status = UserStatus.Active;
+            pr05Manager.FailedLoginAttempts = 0;
+            pr05Manager.LockoutEndAt = null;
+            if (pr05Manager.IsDeleted)
+            {
+                pr05Manager.Restore();
+            }
+
+            if (!passwordHasher.VerifyPassword(pr05Manager.PasswordHash, password))
+            {
+                pr05Manager.PasswordHash = passwordHasher.HashPassword(password);
+            }
+        }
+
         var tenantUser = await dbContext.TenantUsers
             .FirstOrDefaultAsync(candidate => candidate.TenantId == tenantId && candidate.UserId == user.Id, cancellationToken);
         if (tenantUser is null)
@@ -250,6 +288,31 @@ public static class AppDbContextSeed
             if (recipientTenantUser.JoinedAt == default)
             {
                 recipientTenantUser.JoinedAt = now;
+            }
+        }
+
+        var pr05ManagerTenantUser = await dbContext.TenantUsers
+            .FirstOrDefaultAsync(
+                candidate => candidate.TenantId == tenantId && candidate.UserId == pr05Manager.Id,
+                cancellationToken);
+        if (pr05ManagerTenantUser is null)
+        {
+            await dbContext.TenantUsers.AddAsync(new TenantUser
+            {
+                TenantId = tenantId,
+                UserId = pr05Manager.Id,
+                Role = TenantUserRole.Member,
+                Status = TenantUserStatus.Active,
+                JoinedAt = now
+            }, cancellationToken);
+        }
+        else
+        {
+            pr05ManagerTenantUser.Role = TenantUserRole.Member;
+            pr05ManagerTenantUser.Status = TenantUserStatus.Active;
+            if (pr05ManagerTenantUser.JoinedAt == default)
+            {
+                pr05ManagerTenantUser.JoinedAt = now;
             }
         }
 
@@ -632,6 +695,16 @@ public static class AppDbContextSeed
             now,
             cancellationToken);
 
+        await SeedBrowserSmokeKanbanPr05Async(
+            dbContext,
+            tenantId,
+            user,
+            pr05Manager,
+            recipient,
+            workspace,
+            now,
+            cancellationToken);
+
         await dbContext.SaveChangesAsync(cancellationToken);
 
         await using var taskFileStream = new MemoryStream(taskFileBytes, writable: false);
@@ -952,6 +1025,285 @@ public static class AppDbContextSeed
         secondTask.PrimaryAssigneeUserId = user.Id;
         secondTask.Status = TaskItemStatus.NotStarted;
         secondTask.Priority = TaskPriority.Medium;
+    }
+
+    private static async Task SeedBrowserSmokeKanbanPr05Async(
+        AppDbContext dbContext,
+        Guid tenantId,
+        User owner,
+        User manager,
+        User recipient,
+        Workspace workspace,
+        DateTimeOffset now,
+        CancellationToken cancellationToken)
+    {
+        const string groupSlug = "browser-smoke-pr04-queue";
+        const string projectSlug = "browser-smoke-pr05-kanban";
+
+        var group = dbContext.Groups.Local.FirstOrDefault(
+            candidate =>
+                candidate.TenantId == tenantId &&
+                candidate.WorkspaceId == workspace.Id &&
+                candidate.Slug == groupSlug)
+            ?? await dbContext.Groups.SingleAsync(
+                candidate =>
+                    candidate.TenantId == tenantId &&
+                    candidate.WorkspaceId == workspace.Id &&
+                    candidate.Slug == groupSlug,
+                cancellationToken);
+
+        var managerGroupMember = dbContext.GroupMembers.Local.FirstOrDefault(
+            candidate =>
+                candidate.TenantId == tenantId &&
+                candidate.GroupId == group.Id &&
+                candidate.UserId == manager.Id)
+            ?? await dbContext.GroupMembers.FirstOrDefaultAsync(
+                candidate =>
+                    candidate.TenantId == tenantId &&
+                    candidate.GroupId == group.Id &&
+                    candidate.UserId == manager.Id,
+                cancellationToken);
+        if (managerGroupMember is not null)
+        {
+            dbContext.GroupMembers.Remove(managerGroupMember);
+        }
+
+        var managerWorkspaceMember = await dbContext.WorkspaceMembers.FirstOrDefaultAsync(
+            candidate =>
+                candidate.TenantId == tenantId &&
+                candidate.WorkspaceId == workspace.Id &&
+                candidate.UserId == manager.Id,
+            cancellationToken);
+        if (managerWorkspaceMember is null)
+        {
+            await dbContext.WorkspaceMembers.AddAsync(new WorkspaceMember
+            {
+                TenantId = tenantId,
+                WorkspaceId = workspace.Id,
+                UserId = manager.Id,
+                Role = WorkspaceRole.Member,
+                Status = MembershipStatus.Active,
+                JoinedAt = now
+            }, cancellationToken);
+        }
+        else
+        {
+            managerWorkspaceMember.Role = WorkspaceRole.Member;
+            managerWorkspaceMember.Status = MembershipStatus.Active;
+            managerWorkspaceMember.JoinedAt ??= now;
+        }
+
+        var project = await dbContext.Projects.FirstOrDefaultAsync(
+            candidate =>
+                candidate.TenantId == tenantId &&
+                candidate.WorkspaceId == workspace.Id &&
+                candidate.Slug == projectSlug,
+            cancellationToken);
+        if (project is null)
+        {
+            project = new Project
+            {
+                TenantId = tenantId,
+                WorkspaceId = workspace.Id,
+                GroupId = group.Id,
+                OwnerUserId = owner.Id,
+                CreatedByUserId = owner.Id,
+                Name = "PR05 Browser Acceptance Project",
+                Slug = projectSlug,
+                Description = "Synthetic Project Kanban data for PR05 real-backend browser acceptance.",
+                Status = ProjectStatus.Active,
+                StartDate = DateOnly.FromDateTime(now.UtcDateTime.Date),
+                DueDate = DateOnly.FromDateTime(now.UtcDateTime.Date.AddDays(14))
+            };
+            await dbContext.Projects.AddAsync(project, cancellationToken);
+        }
+        else
+        {
+            project.GroupId = group.Id;
+            project.OwnerUserId = owner.Id;
+            project.CreatedByUserId = owner.Id;
+            project.Name = "PR05 Browser Acceptance Project";
+            project.Description = "Synthetic Project Kanban data for PR05 real-backend browser acceptance.";
+            project.Status = ProjectStatus.Active;
+            project.StartDate = DateOnly.FromDateTime(now.UtcDateTime.Date);
+            project.DueDate = DateOnly.FromDateTime(now.UtcDateTime.Date.AddDays(14));
+            if (project.IsDeleted)
+            {
+                project.Restore();
+            }
+        }
+
+        async Task ProjectMemberAsync(User user, ProjectRole role)
+        {
+            var member = await dbContext.ProjectMembers.FirstOrDefaultAsync(
+                candidate =>
+                    candidate.TenantId == tenantId &&
+                    candidate.ProjectId == project.Id &&
+                    candidate.UserId == user.Id,
+                cancellationToken);
+            if (member is null)
+            {
+                await dbContext.ProjectMembers.AddAsync(new ProjectMember
+                {
+                    TenantId = tenantId,
+                    ProjectId = project.Id,
+                    UserId = user.Id,
+                    Role = role,
+                    JoinedAt = now
+                }, cancellationToken);
+                return;
+            }
+
+            member.Role = role;
+            if (member.JoinedAt == default)
+            {
+                member.JoinedAt = now;
+            }
+        }
+
+        await ProjectMemberAsync(owner, ProjectRole.Owner);
+        await ProjectMemberAsync(manager, ProjectRole.Manager);
+        await ProjectMemberAsync(recipient, ProjectRole.Contributor);
+
+        var workflow = await dbContext.TaskWorkflowDefinitions.FirstOrDefaultAsync(
+            candidate => candidate.TenantId == tenantId && candidate.ProjectId == project.Id,
+            cancellationToken);
+        if (workflow is null)
+        {
+            workflow = new TaskWorkflowDefinition
+            {
+                TenantId = tenantId,
+                WorkspaceId = workspace.Id,
+                ProjectId = project.Id,
+                Name = "PR05 Browser Acceptance Workflow",
+                ReviewEnforcementEnabled = false,
+                KanbanDefaultSwimlane = ProjectKanbanSwimlane.None,
+                VersionNo = 1
+            };
+            await dbContext.TaskWorkflowDefinitions.AddAsync(workflow, cancellationToken);
+        }
+        else
+        {
+            workflow.WorkspaceId = workspace.Id;
+            workflow.Name = "PR05 Browser Acceptance Workflow";
+            workflow.ReviewEnforcementEnabled = false;
+            workflow.KanbanDefaultSwimlane = ProjectKanbanSwimlane.None;
+            workflow.VersionNo = 1;
+        }
+
+        async Task<TaskWorkflowStage> StageAsync(
+            string name,
+            TaskStageCategory category,
+            long sortKey,
+            bool initial,
+            bool terminal,
+            int? wipWarningLimit)
+        {
+            var stage = await dbContext.TaskWorkflowStages.FirstOrDefaultAsync(
+                candidate =>
+                    candidate.TenantId == tenantId &&
+                    candidate.ProjectId == project.Id &&
+                    candidate.InternalCategory == category,
+                cancellationToken);
+            if (stage is null)
+            {
+                stage = new TaskWorkflowStage
+                {
+                    TenantId = tenantId,
+                    WorkspaceId = workspace.Id,
+                    ProjectId = project.Id,
+                    DefinitionId = workflow.Id,
+                    Name = name,
+                    InternalCategory = category,
+                    SortKey = sortKey,
+                    WipWarningLimit = wipWarningLimit,
+                    IsInitialStage = initial,
+                    IsTerminalStage = terminal,
+                    VersionNo = 1
+                };
+                await dbContext.TaskWorkflowStages.AddAsync(stage, cancellationToken);
+            }
+            else
+            {
+                stage.WorkspaceId = workspace.Id;
+                stage.DefinitionId = workflow.Id;
+                stage.Name = name;
+                stage.SortKey = sortKey;
+                stage.WipWarningLimit = wipWarningLimit;
+                stage.IsInitialStage = initial;
+                stage.IsTerminalStage = terminal;
+                stage.VersionNo = 1;
+            }
+
+            return stage;
+        }
+
+        var todo = await StageAsync("Todo", TaskStageCategory.Todo, 1000, true, false, 4);
+        await StageAsync("Done", TaskStageCategory.Done, 2000, false, true, null);
+        await StageAsync("Cancelled", TaskStageCategory.Cancelled, 3000, false, true, null);
+
+        async Task TaskAsync(string title, long sortKey)
+        {
+            var task = await dbContext.TaskItems.FirstOrDefaultAsync(
+                candidate =>
+                    candidate.TenantId == tenantId &&
+                    candidate.ProjectId == project.Id &&
+                    candidate.Title == title,
+                cancellationToken);
+            if (task is null)
+            {
+                task = new TaskItem
+                {
+                    TenantId = tenantId,
+                    WorkspaceId = workspace.Id,
+                    ProjectId = project.Id,
+                    Title = title,
+                    CreatedByUserId = manager.Id
+                };
+                await dbContext.TaskItems.AddAsync(task, cancellationToken);
+            }
+            else if (task.IsDeleted)
+            {
+                task.Restore();
+            }
+
+            task.WorkspaceId = workspace.Id;
+            task.WorkflowStageId = todo.Id;
+            task.Kind = WorkItemKind.Task;
+            task.Description = $"Synthetic {title} for PR05 real-backend browser acceptance.";
+            task.Status = TaskItemStatus.NotStarted;
+            task.Priority = TaskPriority.Medium;
+            task.IsBlocked = false;
+            task.BlockedReason = null;
+            task.TargetGroupId = null;
+            task.PrimaryAssigneeUserId = manager.Id;
+            task.ReviewerUserId = null;
+            task.StartDate = project.StartDate;
+            task.DueDate = project.DueDate;
+            task.PlannedStartDate = null;
+            task.PlannedEndDate = null;
+            task.DeadlineAt = null;
+            task.ActualStartAt = null;
+            task.CompletedAt = null;
+            task.CancelledAt = null;
+            task.CancellationReason = null;
+            task.ReviewStatus = TaskReviewStatus.None;
+            task.ReviewSubmittedAt = null;
+            task.ReviewResolvedAt = null;
+            task.ReviewResolvedByUserId = null;
+            task.ReviewReturnReason = null;
+            task.SortKey = sortKey;
+            task.VersionNo = 1;
+            task.ProgressPercent = 0;
+            task.SortOrder = checked((int)(sortKey / 1000));
+            task.CreatedByUserId = manager.Id;
+        }
+
+        await TaskAsync("PR05 real move card", 1000);
+        await TaskAsync("PR05 stable reorder card", 2000);
+        await TaskAsync("PR05 stable neighbor card", 3000);
+        await TaskAsync("PR05 cancellation card", 4000);
+        await TaskAsync("PR05 stale conflict card", 5000);
     }
 
     public static async Task EnsureBootstrapAdminAsync(

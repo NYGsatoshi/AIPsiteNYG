@@ -12,6 +12,7 @@ public sealed class ProjectKanbanControllerTests
     [InlineData("KANBAN_NOT_FOUND", StatusCodes.Status404NotFound)]
     [InlineData("KANBAN_FORBIDDEN", StatusCodes.Status403Forbidden)]
     [InlineData("KANBAN_STALE_BOARD", StatusCodes.Status409Conflict)]
+    [InlineData("KANBAN_CONFLICT", StatusCodes.Status409Conflict)]
     [InlineData("KANBAN_INVALID_POSITION", StatusCodes.Status422UnprocessableEntity)]
     [InlineData("TASK_BLOCK_REASON_REQUIRED", StatusCodes.Status422UnprocessableEntity)]
     public void ErrorsUseTheCanonicalPrivacyAndConflictStatus(string code, int expectedStatus)
