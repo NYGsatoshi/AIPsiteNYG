@@ -1,5 +1,6 @@
 import { Component } from '@angular/core';
 import { TestBed } from '@angular/core/testing';
+import { vi } from 'vitest';
 
 import { AipKanbanContract, AipKanbanMoveRequest } from '../../contracts/aip-complex-adapter.contracts';
 import { AipDataGridComponent, AipKanbanComponent } from './aip-adapter-shells.components';
@@ -210,6 +211,53 @@ describe('AIPsite complex adapter shells', () => {
     expect(card?.tabIndex).toBe(0);
     expect(document.activeElement).toBe(card);
     expect(board?.querySelector('ejs-kanban')).toBeNull();
+  });
+
+  it('reapplies logical card focus when an authoritative snapshot replaces the focused items', async () => {
+    await TestBed.configureTestingModule({ imports: [AipKanbanComponent] }).compileComponents();
+    const fixture = TestBed.createComponent(AipKanbanComponent);
+    const initial = kanbanContract();
+    fixture.componentRef.setInput('contract', { ...initial, focusItemId: 'task-1' });
+    fixture.detectChanges();
+    await Promise.resolve();
+
+    const host = fixture.nativeElement as HTMLElement;
+    const initialCard = host.querySelector<HTMLElement>('[data-kanban-card-id="task-1"]')!;
+    expect(document.activeElement).toBe(initialCard);
+    const focus = vi.spyOn(initialCard, 'focus');
+
+    fixture.componentRef.setInput('contract', { ...initial, feedback: 'Same snapshot.', focusItemId: 'task-1' });
+    fixture.detectChanges();
+    await Promise.resolve();
+    expect(focus).not.toHaveBeenCalled();
+
+    fixture.componentRef.setInput('contract', {
+      ...initial,
+      items: initial.items.map((item) => ({ ...item, order: 2000 })),
+      focusItemId: 'task-1'
+    });
+    fixture.detectChanges();
+    await Promise.resolve();
+    expect(focus).toHaveBeenCalledTimes(1);
+    expect(document.activeElement).toBe(initialCard);
+
+    const unrelatedControl = document.createElement('button');
+    document.body.append(unrelatedControl);
+    unrelatedControl.focus();
+    expect(document.activeElement).toBe(unrelatedControl);
+    focus.mockClear();
+
+    fixture.componentRef.setInput('contract', {
+      ...initial,
+      items: initial.items.map((item) => ({ ...item, order: 3000 })),
+      focusItemId: 'task-1'
+    });
+    fixture.detectChanges();
+    await Promise.resolve();
+
+    expect(focus).not.toHaveBeenCalled();
+    expect(document.activeElement).toBe(unrelatedControl);
+    unrelatedControl.remove();
   });
 
   it('cancels the keyboard move with Escape, restores focus, and hides denied move actions', async () => {

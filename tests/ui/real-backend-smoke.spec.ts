@@ -1083,6 +1083,26 @@ test.describe('MVP0 real backend browser smoke', () => {
       await expect(page.getByText(smokeTaskFileName, { exact: true })).toHaveCount(0);
       await expect(page.locator('#task-comment-body')).toHaveCount(0);
 
+      const revokedProjects = await fetchJsonFromPage(page, '/api/projects?page=1&pageSize=100');
+      evidence.steps.push({
+        name: 'pr03c-project-list-cleared-after-workspace-revocation',
+        method: 'GET',
+        path: '/api/projects',
+        status: revokedProjects.status
+      });
+      expect(revokedProjects.status, 'Project list remains safely queryable after Workspace revocation').toBe(200);
+      expect(isPagedResponse(revokedProjects.body), 'revoked Project list keeps the canonical page shape').toBe(true);
+      expect(
+        revokedProjects.body.items.some((item: Record<string, unknown>) => item.workspaceId === workspaceId),
+        'ProjectMember rows must not outlive active access to their Workspace'
+      ).toBe(false);
+      expect(
+        revokedProjects.body.items.some((item: Record<string, unknown>) => item.id === projectId),
+        'the revoked Project must not remain visible'
+      ).toBe(false);
+      expect(JSON.stringify(revokedProjects.body), 'revoked Project list must not disclose protected Project metadata')
+        .not.toMatch(/Browser Smoke Project|PR05 Browser Acceptance Project/i);
+
       const deniedTask = await fetchFromPage(page, `/api/tasks/${taskId}`);
       evidence.steps.push({ name: 'pr03c-task-denied-after-revocation', method: 'GET', path: `/api/tasks/${taskId}`, status: deniedTask.status, bodyPreview: preview(deniedTask.text) });
       expect(deniedTask.status, 'revoked actor must receive the canonical task safe-not-found response').toBe(404);

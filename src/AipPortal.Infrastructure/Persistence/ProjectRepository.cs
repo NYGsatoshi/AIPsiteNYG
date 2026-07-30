@@ -13,15 +13,19 @@ public sealed class ProjectRepository(AppDbContext dbContext) : IProjectReposito
         return await dbContext.Projects
             .AsNoTracking()
             .Where(project =>
-                project.Members.Any(member => member.UserId == userId) ||
                 dbContext.WorkspaceMembers.Any(member =>
                     member.WorkspaceId == project.WorkspaceId &&
                     member.UserId == userId &&
-                    member.Status == MembershipStatus.Active &&
-                    (member.Role == WorkspaceRole.Owner || member.Role == WorkspaceRole.Admin)) ||
-                (project.GroupId.HasValue && dbContext.GroupMembers.Any(member =>
-                    member.GroupId == project.GroupId.Value &&
-                    member.UserId == userId)))
+                    member.Status == MembershipStatus.Active) &&
+                (project.Members.Any(member => member.UserId == userId) ||
+                 dbContext.WorkspaceMembers.Any(member =>
+                     member.WorkspaceId == project.WorkspaceId &&
+                     member.UserId == userId &&
+                     member.Status == MembershipStatus.Active &&
+                     (member.Role == WorkspaceRole.Owner || member.Role == WorkspaceRole.Admin)) ||
+                 (project.GroupId.HasValue && dbContext.GroupMembers.Any(member =>
+                     member.GroupId == project.GroupId.Value &&
+                     member.UserId == userId))))
             .OrderBy(project => project.Name)
             .ToListAsync(cancellationToken);
     }

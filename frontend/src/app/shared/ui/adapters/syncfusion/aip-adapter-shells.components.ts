@@ -1,4 +1,4 @@
-import { AfterViewChecked, ChangeDetectionStrategy, Component, Directive, ElementRef, EventEmitter, Input, Output, inject } from '@angular/core';
+import { AfterViewChecked, ChangeDetectionStrategy, Component, Directive, ElementRef, EventEmitter, Input, OnChanges, Output, SimpleChanges, inject } from '@angular/core';
 
 import {
   AipAdapterPresentation,
@@ -109,7 +109,7 @@ export class AipDateTimePickerComponent extends AipAdapterShellInput { @Input({ 
     </div></aip-adapter-shell>`,
   styleUrl: './aip-adapter-shell.component.scss', changeDetection: ChangeDetectionStrategy.OnPush
 })
-export class AipKanbanComponent extends AipAdapterShellInput implements AfterViewChecked {
+export class AipKanbanComponent extends AipAdapterShellInput implements AfterViewChecked, OnChanges {
   private readonly host: ElementRef<HTMLElement> = inject(ElementRef);
   @Input({ required: true }) contract!: AipKanbanContract<object>;
   @Output() readonly moveRequested = new EventEmitter<AipKanbanMoveRequest<object>>();
@@ -122,6 +122,8 @@ export class AipKanbanComponent extends AipAdapterShellInput implements AfterVie
   moveReason = '';
   private moveSource: 'drag' | 'keyboard' = 'keyboard';
   private restoredFocusId: string | null = null;
+  private restoredFocusElement: HTMLElement | null = null;
+  private restoreFocusAfterItemsChange = false;
 
   itemsFor(status: string): readonly object[] {
     return [...this.contract.items
@@ -209,19 +211,40 @@ export class AipKanbanComponent extends AipAdapterShellInput implements AfterVie
     event?.preventDefault();
     event?.stopPropagation();
     this.restoredFocusId = null;
+    this.restoredFocusElement = null;
+    this.restoreFocusAfterItemsChange = false;
     const id = this.contract.itemIdentity(item);
     this.closeMove();
     queueMicrotask(() => this.focus(id));
+  }
+  ngOnChanges(changes: SimpleChanges): void {
+    const change = changes['contract'];
+    const previous = change?.previousValue as AipKanbanContract<object> | undefined;
+    const current = change?.currentValue as AipKanbanContract<object> | undefined;
+    const focusId = current?.focusItemId ?? null;
+    this.restoreFocusAfterItemsChange = Boolean(
+      previous &&
+      current &&
+      focusId &&
+      previous.focusItemId === focusId &&
+      previous.items !== current.items &&
+      this.restoredFocusId === focusId &&
+      this.restoredFocusElement &&
+      this.restoredFocusElement.ownerDocument.activeElement === this.restoredFocusElement
+    );
   }
   ngAfterViewChecked(): void {
     const focusId = this.contract.focusItemId ?? null;
     if (!focusId) {
       this.restoredFocusId = null;
+      this.restoredFocusElement = null;
+      this.restoreFocusAfterItemsChange = false;
       return;
     }
-    if (this.restoredFocusId === focusId) return;
+    if (this.restoredFocusId === focusId && !this.restoreFocusAfterItemsChange) return;
     this.restoredFocusId = focusId;
-    queueMicrotask(() => this.focus(focusId));
+    this.restoreFocusAfterItemsChange = false;
+    queueMicrotask(() => this.restoredFocusElement = this.focus(focusId));
   }
   private beginMove(item: object, status: string, position: string, source: 'drag' | 'keyboard'): void {
     this.movingItemId = this.contract.itemIdentity(item);
@@ -242,10 +265,11 @@ export class AipKanbanComponent extends AipAdapterShellInput implements AfterVie
   private emit(item: object, status: string, before: string | null, after: string | null, reason: string | null, source: 'drag' | 'keyboard'): void {
     this.moveRequested.emit({ item, targetStatus: status, targetBeforeItemId: before, targetAfterItemId: after, reason, source });
   }
-  private focus(itemId: string): void {
+  private focus(itemId: string): HTMLElement | null {
     const card = Array.from(this.host.nativeElement.querySelectorAll<HTMLElement>('[data-kanban-card-id]'))
       .find((element) => element.dataset['kanbanCardId'] === itemId);
     card?.focus();
+    return card ?? null;
   }
 }
 
