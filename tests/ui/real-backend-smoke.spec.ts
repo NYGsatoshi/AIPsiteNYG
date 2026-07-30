@@ -1501,8 +1501,8 @@ test.describe('MVP0 real backend browser smoke', () => {
       const conflictAfter = pr06GanttItem(snapshot, pr06TaskTitles.conflict);
       expect(conflictAfter.plannedStartDate).toBe('2031-04-01');
       expect(conflictAfter.plannedEndDate).toBe('2031-04-02');
-      await expect(page.getByRole('alert')
-        .filter({ hasText: /Conflict reconciled from authoritative schedule data/ })).toBeVisible();
+      await expect(page.getByRole('status')
+        .filter({ hasText: /The edit intent is preserved against the authoritative schedule/ })).toBeVisible();
       await expect(page.getByRole('button', { name: /Retry preserved edit against the latest version/ })).toBeVisible();
       await expectLogicalPr06GanttFocus(pr06GanttItemLocator(page, conflictAfter.taskId));
       const optimisticDateTransitions = await page.evaluate(() => {
