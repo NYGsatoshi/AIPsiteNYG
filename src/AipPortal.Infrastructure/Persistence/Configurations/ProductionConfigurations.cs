@@ -287,6 +287,7 @@ public sealed class TaskWorkflowDefinitionConfiguration : IEntityTypeConfigurati
         builder.ToTable("task_workflow_definitions");
         builder.ConfigureEntity();
         builder.Property(definition => definition.Name).HasMaxLength(120).IsRequired();
+        builder.Property(definition => definition.KanbanDefaultSwimlane).HasEnumStringConversion().HasDefaultValue(ProjectKanbanSwimlane.None).IsRequired();
         builder.Property(definition => definition.VersionNo).IsConcurrencyToken().HasDefaultValue(1L);
         builder.HasIndex(definition => definition.ProjectId).IsUnique();
         builder.HasIndex(definition => new { definition.TenantId, definition.WorkspaceId, definition.ProjectId });

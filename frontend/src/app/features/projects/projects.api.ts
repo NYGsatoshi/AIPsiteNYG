@@ -113,6 +113,102 @@ export interface TaskMentionCandidateDto { readonly userId?: unknown; readonly d
 export interface ReorderTaskChecklistRequestDto { readonly orderedItemIds: readonly string[]; readonly expectedTaskVersion: string | number; }
 export interface TaskChecklistOrderResponseDto { readonly items?: readonly TaskChecklistDto[]; readonly taskVersion?: unknown; }
 
+export interface ProjectKanbanWarningDto {
+  readonly code?: unknown;
+  readonly message?: unknown;
+  readonly workflowStageId?: unknown;
+  readonly currentCount?: unknown;
+  readonly limit?: unknown;
+}
+
+export interface ProjectKanbanBoardDto {
+  readonly projectId?: unknown;
+  readonly version?: unknown;
+  readonly timeZone?: unknown;
+  readonly defaultSwimlane?: unknown;
+  readonly selectedSwimlane?: unknown;
+  readonly supportedSwimlanes?: readonly unknown[];
+  readonly supportedFilters?: readonly unknown[];
+  readonly includesOlderCompleted?: unknown;
+  readonly doneWindowDays?: unknown;
+  readonly totalAuthorizedCardCount?: unknown;
+  readonly isTruncated?: unknown;
+  readonly uiPermissions?: { readonly canConfigure?: unknown } | null;
+  readonly warnings?: readonly ProjectKanbanWarningDto[];
+}
+
+export interface ProjectKanbanColumnDto {
+  readonly workflowStageId?: unknown;
+  readonly displayName?: unknown;
+  readonly category?: unknown;
+  readonly displayOrder?: unknown;
+  readonly wipWarningLimit?: unknown;
+  readonly currentAuthorizedCardCount?: unknown;
+  readonly hasWipWarning?: unknown;
+  readonly uiPermissions?: { readonly canConfigure?: unknown } | null;
+}
+
+export interface ProjectKanbanCardDto {
+  readonly taskId?: unknown;
+  readonly summary?: unknown;
+  readonly workflowStageId?: unknown;
+  readonly boardOrder?: unknown;
+  readonly parentTaskId?: unknown;
+  readonly parentSummary?: unknown;
+  readonly isParentSummary?: unknown;
+  readonly isLeaf?: unknown;
+  readonly completedChildCount?: unknown;
+  readonly childCount?: unknown;
+  readonly progressPercent?: unknown;
+  readonly plannedStartDate?: unknown;
+  readonly plannedEndDate?: unknown;
+  readonly primaryAssigneeUserId?: unknown;
+  readonly primaryAssigneeLabel?: unknown;
+  readonly targetGroupId?: unknown;
+  readonly targetGroupLabel?: unknown;
+  readonly priority?: unknown;
+  readonly isBlocked?: unknown;
+  readonly version?: unknown;
+  readonly swimlaneKey?: unknown;
+  readonly swimlaneLabel?: unknown;
+  readonly uiPermissions?: {
+    readonly canOpen?: unknown;
+    readonly canMove?: unknown;
+    readonly allowedTargetWorkflowStageIds?: readonly unknown[];
+  } | null;
+}
+
+export interface ProjectKanbanSnapshotDto {
+  readonly board?: ProjectKanbanBoardDto | null;
+  readonly columns?: readonly ProjectKanbanColumnDto[];
+  readonly cards?: readonly ProjectKanbanCardDto[];
+}
+
+export interface ProjectKanbanCommandResponseDto {
+  readonly snapshot?: ProjectKanbanSnapshotDto | null;
+  readonly focusTaskId?: unknown;
+  readonly warnings?: readonly ProjectKanbanWarningDto[];
+}
+
+export interface MoveTaskOnKanbanRequestDto {
+  readonly targetWorkflowStageId: string;
+  readonly targetBeforeTaskId: string | null;
+  readonly targetAfterTaskId: string | null;
+  readonly expectedTaskVersion: number;
+  readonly expectedBoardVersion: number;
+  readonly reason: string | null;
+}
+
+export interface UpdateProjectKanbanConfigRequestDto {
+  readonly expectedBoardVersion: number;
+  readonly defaultSwimlane: number;
+  readonly columns: readonly {
+    readonly workflowStageId: string;
+    readonly displayOrder: number;
+    readonly wipWarningLimit: number | null;
+  }[];
+}
+
 export interface MyTaskDto {
   readonly taskId?: unknown;
   /** @deprecated PR04 consumers use stageCategory and plannedEndDate. */

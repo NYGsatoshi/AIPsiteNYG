@@ -191,6 +191,7 @@ public sealed class TaskWorkflowDefinition : Entity, ITenantEntity
     public Guid ProjectId { get; set; }
     public string Name { get; set; } = "Default";
     public bool ReviewEnforcementEnabled { get; set; } = true;
+    public ProjectKanbanSwimlane KanbanDefaultSwimlane { get; set; }
     public long VersionNo { get; set; } = 1;
 
     public Project? Project { get; set; }

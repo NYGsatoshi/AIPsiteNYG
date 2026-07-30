@@ -230,6 +230,149 @@ test.describe('MVP-A P0 Angular frontend smoke', () => {
     await expectHealthyAngularPage(page);
   });
 
+  test('uses the canonical Project Kanban for pointer, keyboard, conflict, rollback, and narrow flows', async ({ page }, testInfo) => {
+    const api = await installProjectKanbanApi(page);
+    if (testInfo.project.name === 'chromium-mobile') {
+      await page.setViewportSize({ width: 390, height: 844 });
+    } else {
+      await page.setViewportSize({ width: 1280, height: 900 });
+    }
+
+    await page.goto('/app/projects/static-project-kanban');
+
+    await expect(page.getByTestId('project-detail-page')).toBeVisible();
+    await expect(page.getByTestId('aip-kanban-board')).toBeVisible();
+    await expect(page.getByText('Warning: WIP limit 1 exceeded.')).toBeVisible();
+    await expect(page.getByText('Parent summary task')).toBeVisible();
+    await expect(page.getByText('Derived progress: 50%')).toBeVisible();
+    await expect(page.getByText('Derived dates: 2026-07-01 to 2026-07-31')).toBeVisible();
+    await expect(page.getByText('Priority: High')).toBeVisible();
+    await expect(page.getByText('Blocked', { exact: true })).toBeVisible();
+    await expect(page.getByText(/Done shows 30 recent days/)).toBeVisible();
+
+    const columns = page.locator('.aip-kanban__column');
+    if (testInfo.project.name === 'chromium-mobile') {
+      const todoBox = await columns.nth(0).boundingBox();
+      const doneBox = await columns.nth(1).boundingBox();
+      expect(todoBox).not.toBeNull();
+      expect(doneBox).not.toBeNull();
+      expect(doneBox!.y).toBeGreaterThan(todoBox!.y + todoBox!.height - 1);
+      await expectNoDocumentHorizontalOverflow(page);
+    }
+
+    let card = page.locator('[data-kanban-card-id="static-task-kanban"]');
+    const doneColumn = columns.filter({ has: page.getByRole('heading', { name: 'Done', exact: true }) });
+    if (testInfo.project.name === 'chromium-desktop') {
+      await card.dragTo(doneColumn);
+    } else {
+      await card.getByRole('button', { name: 'Move', exact: true }).click();
+      await card.getByLabel('Target stage').selectOption('stage-done');
+      await card.getByRole('button', { name: 'Apply move' }).click();
+    }
+
+    await expect(doneColumn.locator('[data-kanban-card-id="static-task-kanban"]')).toBeVisible();
+    await expect(page.getByText('Move saved.', { exact: true })).toBeVisible();
+    expect(api.moveBodies).toHaveLength(1);
+    expect(api.moveBodies[0]).toMatchObject({
+      targetWorkflowStageId: 'stage-done',
+      expectedTaskVersion: 3,
+      expectedBoardVersion: 7
+    });
+    expect(api.csrfHeaders).toEqual(['csrf-kanban']);
+
+    card = doneColumn.locator('[data-kanban-card-id="static-task-kanban"]');
+    await card.getByRole('button', { name: 'Move', exact: true }).click();
+    await card.getByLabel('Target stage').selectOption('stage-todo');
+    await card.getByRole('button', { name: 'Apply move' }).click();
+
+    await expect(
+      page.getByRole('region', { name: 'Canonical Project Task Kanban' })
+        .getByRole('status')
+        .filter({ hasText: 'Conflict resolved from the authoritative Project board.' })
+    ).toBeVisible();
+    card = doneColumn.locator('[data-kanban-card-id="static-task-kanban"]');
+    await expect(card).toBeVisible();
+    await expect(card).toBeFocused();
+
+    await card.getByRole('button', { name: 'Move', exact: true }).click();
+    await card.getByLabel('Target stage').selectOption('stage-todo');
+    await card.getByRole('button', { name: 'Apply move' }).click();
+
+    await expect(page.getByRole('alert')).toContainText('Move denied and rolled back.');
+    await expect(doneColumn.locator('[data-kanban-card-id="static-task-kanban"]')).toBeVisible();
+    expect(api.moveBodies).toHaveLength(3);
+    expect(api.csrfHeaders).toEqual(['csrf-kanban', 'csrf-kanban', 'csrf-kanban']);
+
+    await doneColumn.getByRole('button', { name: 'Open details' }).click();
+    await expect(page).toHaveURL(/\/app\/projects\/static-project-kanban\/tasks\/static-task-kanban$/);
+    expect(api.moveBodies).toHaveLength(3);
+  });
+
+  test('collects a cancellation reason before a pointer drag submits the canonical move', async ({ page }, testInfo) => {
+    test.skip(testInfo.project.name !== 'chromium-desktop', 'Pointer drag remediation is covered by the desktop browser project.');
+    const api = await installProjectKanbanApi(page);
+    await page.setViewportSize({ width: 1280, height: 900 });
+    await page.goto('/app/projects/static-project-kanban');
+
+    const card = page.locator('[data-kanban-card-id="static-task-kanban"]');
+    const todoColumn = page.locator('.aip-kanban__column')
+      .filter({ has: page.getByRole('heading', { name: 'Todo', exact: true }) });
+    const cancelledColumn = page.locator('.aip-kanban__column')
+      .filter({ has: page.getByRole('heading', { name: 'Cancelled', exact: true }) });
+
+    await card.dragTo(cancelledColumn);
+
+    await expect(todoColumn.locator('[data-kanban-card-id="static-task-kanban"]')).toBeVisible();
+    await expect(cancelledColumn.locator('[data-kanban-card-id="static-task-kanban"]')).toHaveCount(0);
+    await expect(card.getByLabel('Target stage')).toHaveValue('stage-cancelled');
+    await expect(card.getByLabel('Position')).toHaveValue('end');
+    const applyMove = card.getByRole('button', { name: 'Apply move' });
+    await expect(applyMove).toBeDisabled();
+    expect(api.moveBodies).toHaveLength(0);
+
+    await card.getByLabel('Reason').fill('Cancelled after stakeholder review.');
+    await expect(applyMove).toBeEnabled();
+    await applyMove.click();
+
+    await expect(cancelledColumn.locator('[data-kanban-card-id="static-task-kanban"]')).toBeVisible();
+    await expect(page.getByText('Move saved.', { exact: true })).toBeVisible();
+    expect(api.moveBodies).toHaveLength(1);
+    expect(api.moveBodies[0]).toMatchObject({
+      targetWorkflowStageId: 'stage-cancelled',
+      targetBeforeTaskId: null,
+      targetAfterTaskId: null,
+      reason: 'Cancelled after stakeholder review.'
+    });
+    expect(api.csrfHeaders).toEqual(['csrf-kanban']);
+  });
+
+  test('keeps the maintained Project Task List when tasks.kanbanV1 is disabled', async ({ page }) => {
+    await page.addInitScript(() => {
+      (window as Window & { __AIP_FEATURE_FLAGS__?: Record<string, boolean> }).__AIP_FEATURE_FLAGS__ = {
+        'tasks.kanbanV1': false
+      };
+    });
+    const api = await installProjectKanbanApi(page);
+
+    await page.goto('/app/projects/static-project-kanban');
+
+    await expect(page.getByText('Project Kanban is disabled. The maintained Task List remains available.')).toBeVisible();
+    await expect(page.getByText('Canonical card')).toBeVisible();
+    await expect(page.locator('aip-kanban')).toHaveCount(0);
+    expect(api.kanbanGetCount()).toBe(0);
+  });
+
+  test('does not render protected Kanban data after an authorization denial', async ({ page }) => {
+    const api = await installProjectKanbanApi(page, { denySnapshot: true });
+
+    await page.goto('/app/projects/static-project-kanban');
+
+    await expect(page.getByText('Project Kanban is not available.')).toBeVisible();
+    await expect(page.locator('[data-kanban-card-id]')).toHaveCount(0);
+    await expect(page.locator('body')).not.toContainText('restricted-board-secret');
+    expect(api.kanbanGetCount()).toBe(1);
+  });
+
   test('matches approved Angular P0 screenshot baselines', async ({ page }, testInfo) => {
     if (testInfo.project.name === 'chromium-desktop') {
       await page.setViewportSize({ width: 1280, height: 900 });
@@ -257,6 +400,229 @@ test.describe('MVP-A P0 Angular frontend smoke', () => {
     throw new Error(`Unexpected Playwright project for Angular screenshots: ${testInfo.project.name}`);
   });
 });
+
+async function installProjectKanbanApi(
+  page: Page,
+  options: { denySnapshot?: boolean } = {}
+) {
+  let kanbanGets = 0;
+  let moveCount = 0;
+  const moveBodies: Record<string, unknown>[] = [];
+  const csrfHeaders: string[] = [];
+  let authoritativeSnapshot = projectKanbanSnapshot('stage-todo', 7, 3);
+
+  await page.route('**/api/**', async (route) => {
+    const request = route.request();
+    const url = new URL(request.url());
+    const path = url.pathname;
+    const method = request.method();
+
+    if (path === '/api/security/csrf-token' && method === 'GET') {
+      await route.fulfill({
+        status: 200,
+        contentType: 'application/json',
+        body: JSON.stringify({ token: 'csrf-kanban', headerName: 'X-CSRF-Token' })
+      });
+      return;
+    }
+
+    if (path === '/api/projects/static-project-kanban' && method === 'GET') {
+      await route.fulfill({
+        status: 200,
+        contentType: 'application/json',
+        body: JSON.stringify({
+          id: 'static-project-kanban',
+          title: 'Canonical Project',
+          status: 'Active',
+          startDate: '2026-07-01',
+          endDate: '2026-08-31',
+          uiPermissions: { canCreateTask: true }
+        })
+      });
+      return;
+    }
+
+    if (path === '/api/projects/static-project-kanban/tasks' && method === 'GET') {
+      await route.fulfill({
+        status: 200,
+        contentType: 'application/json',
+        body: JSON.stringify({
+          items: [{
+            id: 'static-task-kanban',
+            projectId: 'static-project-kanban',
+            title: 'Canonical card',
+            status: 'Todo',
+            stageCategory: 'Todo',
+            priority: 'High',
+            isBlocked: true,
+            primaryAssignee: { userId: 'user-1', displayName: 'Ada' },
+            version: 3,
+            uiPermissions: { canUpdate: true, rowVersion: '3' }
+          }],
+          totalCount: 1,
+          hasMore: false
+        })
+      });
+      return;
+    }
+
+    if (path === '/api/projects/static-project-kanban/kanban' && method === 'GET') {
+      kanbanGets += 1;
+      if (options.denySnapshot) {
+        await route.fulfill({
+          status: 403,
+          contentType: 'application/problem+json',
+          body: JSON.stringify({ title: 'Forbidden', status: 403, detail: 'Project Kanban is not available.' })
+        });
+      } else {
+        await route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify(authoritativeSnapshot) });
+      }
+      return;
+    }
+
+    if (path === '/api/projects/static-project-kanban/gantt' && method === 'GET') {
+      await route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify({ milestones: [], tasks: [] }) });
+      return;
+    }
+    if (path === '/api/projects/static-project-kanban/workload' && method === 'GET') {
+      await route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify({ members: [] }) });
+      return;
+    }
+    if (path === '/api/projects/static-project-kanban/members' && method === 'GET') {
+      await route.fulfill({ status: 200, contentType: 'application/json', body: '[]' });
+      return;
+    }
+
+    if (path === '/api/tasks/static-task-kanban/kanban-move' && method === 'POST') {
+      moveCount += 1;
+      const moveBody = request.postDataJSON() as Record<string, unknown>;
+      moveBodies.push(moveBody);
+      csrfHeaders.push(request.headers()['x-csrf-token'] ?? '');
+      if (moveCount === 1) {
+        authoritativeSnapshot = projectKanbanSnapshot(projectKanbanStageId(moveBody['targetWorkflowStageId']), 8, 4);
+        await route.fulfill({
+          status: 200,
+          contentType: 'application/json',
+          body: JSON.stringify({ snapshot: authoritativeSnapshot, focusTaskId: 'static-task-kanban', warnings: [] })
+        });
+      } else if (moveCount === 2) {
+        await route.fulfill({
+          status: 409,
+          contentType: 'application/problem+json',
+          body: JSON.stringify({ title: 'Conflict', status: 409, detail: 'The board version is stale.', code: 'KANBAN_CONFLICT' })
+        });
+      } else {
+        await route.fulfill({
+          status: 403,
+          contentType: 'application/problem+json',
+          body: JSON.stringify({ title: 'Forbidden', status: 403, detail: 'Move not allowed.', code: 'KANBAN_FORBIDDEN' })
+        });
+      }
+      return;
+    }
+
+    await route.fallback();
+  });
+
+  return {
+    moveBodies,
+    csrfHeaders,
+    kanbanGetCount: () => kanbanGets
+  };
+}
+
+type ProjectKanbanStageId = 'stage-todo' | 'stage-done' | 'stage-cancelled';
+
+function projectKanbanSnapshot(stageId: ProjectKanbanStageId, boardVersion: number, taskVersion: number) {
+  const inTodo = stageId === 'stage-todo';
+  const inDone = stageId === 'stage-done';
+  const inCancelled = stageId === 'stage-cancelled';
+  return {
+    board: {
+      projectId: 'static-project-kanban',
+      version: boardVersion,
+      timeZone: 'UTC',
+      defaultSwimlane: 0,
+      selectedSwimlane: 0,
+      supportedSwimlanes: [0, 1, 2, 3, 4],
+      supportedFilters: ['includeOlderCompleted'],
+      includesOlderCompleted: false,
+      doneWindowDays: 30,
+      totalAuthorizedCardCount: 1,
+      isTruncated: false,
+      uiPermissions: { canConfigure: true },
+      warnings: inTodo
+        ? [{ code: 'KANBAN_WIP_LIMIT_EXCEEDED', message: 'Todo exceeds its warning limit.', workflowStageId: 'stage-todo', currentCount: 2, limit: 1 }]
+        : []
+    },
+    columns: [
+      {
+        workflowStageId: 'stage-todo',
+        displayName: 'Todo',
+        category: 1,
+        displayOrder: 1000,
+        wipWarningLimit: 1,
+        currentAuthorizedCardCount: inTodo ? 2 : 1,
+        hasWipWarning: inTodo,
+        uiPermissions: { canConfigure: true }
+      },
+      {
+        workflowStageId: 'stage-done',
+        displayName: 'Done',
+        category: 4,
+        displayOrder: 2000,
+        wipWarningLimit: null,
+        currentAuthorizedCardCount: inDone ? 1 : 0,
+        hasWipWarning: false,
+        uiPermissions: { canConfigure: true }
+      },
+      {
+        workflowStageId: 'stage-cancelled',
+        displayName: 'Cancelled',
+        category: 5,
+        displayOrder: 3000,
+        wipWarningLimit: null,
+        currentAuthorizedCardCount: inCancelled ? 1 : 0,
+        hasWipWarning: false,
+        uiPermissions: { canConfigure: true }
+      }
+    ],
+    cards: [{
+      taskId: 'static-task-kanban',
+      summary: 'Canonical card',
+      workflowStageId: stageId,
+      boardOrder: 1000,
+      parentTaskId: null,
+      parentSummary: null,
+      isParentSummary: true,
+      isLeaf: false,
+      completedChildCount: 1,
+      childCount: 2,
+      progressPercent: 50,
+      plannedStartDate: '2026-07-01',
+      plannedEndDate: '2026-07-31',
+      primaryAssigneeUserId: 'user-1',
+      primaryAssigneeLabel: 'Ada',
+      targetGroupId: null,
+      targetGroupLabel: 'Ungrouped',
+      priority: 2,
+      isBlocked: true,
+      version: taskVersion,
+      swimlaneKey: 'all',
+      swimlaneLabel: 'All tasks',
+      uiPermissions: {
+        canOpen: true,
+        canMove: true,
+        allowedTargetWorkflowStageIds: ['stage-todo', 'stage-done', 'stage-cancelled']
+      }
+    }]
+  };
+}
+
+function projectKanbanStageId(value: unknown): ProjectKanbanStageId {
+  if (value === 'stage-todo' || value === 'stage-done' || value === 'stage-cancelled') return value;
+  throw new Error(`Unexpected mocked Kanban target Stage: ${String(value)}`);
+}
 
 async function expectHealthyAngularPage(page: Page) {
   const body = page.locator('body');

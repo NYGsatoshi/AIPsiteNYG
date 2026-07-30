@@ -81,6 +81,27 @@ List APIs should define:
 
 Never return unbounded tables to the browser UI.
 
+## Project Kanban
+
+TASK-V1-PR05 defines one vendor-neutral board over canonical Project Tasks:
+
+- `GET /api/projects/{projectId}/kanban`
+- `PUT /api/projects/{projectId}/kanban/config`
+- `POST /api/tasks/{taskId}/kanban-move`
+
+The snapshot is Project-authorized, excludes deleted records, defaults Done to
+the most recent 30 days, and is bounded to at most 500 cards. Filters and
+swimlanes are presentation constraints, never authorization. WIP limits
+produce structured warnings rather than command denial.
+
+Configuration and moves require current persisted versions. A move supplies
+canonical Stage and neighboring Task IDs; unknown and cross-Project neighbors
+return the same safe error. The HTTP response or a subsequent conflict refetch
+is authoritative. Realtime events carry invalidation metadata only.
+
+See `docs/TASK_V1_PR05.md` for ordering, transition, rollback, and permission
+details.
+
 ## Uploads
 
 Upload endpoints must:

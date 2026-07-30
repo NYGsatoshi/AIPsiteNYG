@@ -71,7 +71,7 @@ Project references enforce a conventional dependency direction. See `docs/ARCHIT
 | Workspaces/groups/channels/posts | Backend implemented; browser UI planned/partial | REST layers exist; routes render placeholders |
 | Messaging | Partially implemented | REST, direct-message recipient search, direct conversation creation, browser send/read persistence, and PR07 durable realtime message/unread events with Angular reconciliation exist; safe attachment ownership and production PostgreSQL verification remain incomplete |
 | Announcements | Partially implemented | REST and UI exist; scoped visibility and frontend role/user-ID behavior have confirmed defects |
-| Projects/tasks/milestones/assignments/comments/Gantt data | Partially implemented | PR02 adds versioned Task workflow, relationship, review, Claim, and FS-authoring command routes; browser projections and several legacy compatibility routes remain incomplete. See `docs/TASK_V1_PR02.md`. |
+| Projects/tasks/milestones/assignments/comments/Gantt data | Partially implemented | PR02 adds versioned Task workflow, relationship, review, Claim, and FS-authoring command routes. PR05 adds the canonical Project Kanban snapshot/config/move flow over those Tasks, including Project Detail rollback/accessibility and List fallback. Gantt writes and several legacy compatibility routes remain incomplete. See `docs/TASK_V1_PR02.md` and `docs/TASK_V1_PR05.md`. |
 | Events/attendance/calendar | Backend implemented; browser UI planned | Controller/service/repository/tests exist; calendar route is a placeholder outside dashboard summary |
 | Forms/surveys | Backend implemented; browser UI planned | Controller/service/repository/tests exist; `/forms` is a placeholder |
 | Notifications | Implemented with polling UI | Database-backed; no realtime push |
@@ -82,7 +82,7 @@ Project references enforce a conventional dependency direction. See `docs/ARCHIT
 | API token records and validator | Foundation only | No request authentication handler, tenant binding, or scope middleware |
 | Webhook records and validation | Foundation only | “Test” validates configuration and sends no outbound request |
 | UI shell data model | Foundation only | Modules/panels/layouts/commands/radial-menu APIs exist; radial UI control is disabled |
-| SignalR and transactional Outbox | Messaging integration implemented | Authenticated `/hubs/app`, server-authorized subscriptions, durable Outbox persistence, dispatcher retry/dead-letter/retention, diagnostics, and Angular reconnect/catch-up exist; PR07 adds messaging create/update/delete/unread event production and reconciliation behind `realtime.signalR`, while other feature integrations remain deferred |
+| SignalR and transactional Outbox | Messaging and Project Kanban integration implemented | Authenticated `/hubs/app`, server-authorized subscriptions, durable Outbox persistence, dispatcher retry/dead-letter/retention, diagnostics, and Angular reconnect/catch-up exist. PR07 adds messaging create/update/delete/unread reconciliation; PR05 uses committed Task/Project invalidations for version-aware authoritative Kanban refetch. Other feature integrations remain deferred. |
 | Billing/payments, SSO/MFA, background jobs | Planned | No implementation found |
 
 ## Status groups

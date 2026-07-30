@@ -12,6 +12,7 @@ public sealed class PostgreSqlIntegrationTests
 {
     [PostgreSqlFact]
     [Trait("Category", "PostgreSQLIntegration")]
+    [Trait("Scope", "TaskV1PR05")]
     public async Task MigrationsAndTenantScopedRepositoriesWorkAgainstPostgreSql()
     {
         var connectionString = PostgreSqlTestEnvironment.RequireConnectionString();
@@ -56,13 +57,21 @@ public sealed class PostgreSqlIntegrationTests
             Status = MembershipStatus.Active,
             JoinedAt = DateTimeOffset.UtcNow
         });
-        await dbContext.Projects.AddAsync(new Project
+        var projectA = new Project
         {
             WorkspaceId = workspaceA.Id,
             OwnerUserId = user.Id,
             CreatedByUserId = user.Id,
             Name = "PostgreSQL Project A",
             Slug = $"pg-project-a-{runId}"
+        };
+        await dbContext.Projects.AddAsync(projectA);
+        await dbContext.ProjectMembers.AddAsync(new ProjectMember
+        {
+            ProjectId = projectA.Id,
+            UserId = user.Id,
+            Role = ProjectRole.Owner,
+            JoinedAt = DateTimeOffset.UtcNow
         });
         await dbContext.SaveChangesAsync();
 
@@ -98,6 +107,15 @@ public sealed class PostgreSqlIntegrationTests
         var tenantAProjects = await repository.ListVisibleAsync(user.Id);
         Assert.Contains(tenantAProjects, project => project.Name == "PostgreSQL Project A");
         Assert.DoesNotContain(tenantAProjects, project => project.Name == "PostgreSQL Project B");
+
+        var workspaceMemberA = await dbContext.WorkspaceMembers.SingleAsync(member =>
+            member.WorkspaceId == workspaceA.Id && member.UserId == user.Id);
+        workspaceMemberA.Status = MembershipStatus.Suspended;
+        await dbContext.SaveChangesAsync();
+        dbContext.ChangeTracker.Clear();
+
+        var revokedTenantAProjects = await repository.ListVisibleAsync(user.Id);
+        Assert.DoesNotContain(revokedTenantAProjects, project => project.Name == "PostgreSQL Project A");
 
         currentTenant.SetTenant(tenantB.Id, tenantB.Slug);
         var tenantBProjects = await repository.ListVisibleAsync(user.Id);

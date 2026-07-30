@@ -4055,6 +4055,13 @@ namespace AipPortal.Infrastructure.Persistence.Migrations
                         .ValueGeneratedOnAdd()
                         .HasColumnType("uuid");
 
+                    b.Property<string>("KanbanDefaultSwimlane")
+                        .IsRequired()
+                        .ValueGeneratedOnAdd()
+                        .HasMaxLength(40)
+                        .HasColumnType("character varying(40)")
+                        .HasDefaultValue("None");
+
                     b.Property<string>("Name")
                         .IsRequired()
                         .HasMaxLength(120)

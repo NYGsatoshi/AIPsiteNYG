@@ -69,6 +69,7 @@ services:
       # e2e-user@example.test, Browser Smoke Workspace, Browser smoke announcement,
       # Browser Smoke Project, and Browser smoke task.
       AIP_BROWSER_SMOKE_SEED_ENABLED: "true"
+      AIP_BROWSER_SMOKE_RESPONSE_GATE_ENABLED: "true"
       AIP_BROWSER_SMOKE_EMAIL: ${AIP_BROWSER_SMOKE_EMAIL:-e2e-user@example.test}
       AIP_BROWSER_SMOKE_PASSWORD: ${AIP_BROWSER_SMOKE_PASSWORD:-E2eSmoke!23456}
     volumes:

@@ -4,7 +4,12 @@ import { fileURLToPath } from 'node:url';
 
 const outputRoot = fileURLToPath(new URL('../dist/aipportal-web/', import.meta.url));
 const index = await readFile(join(outputRoot, 'index.html'), 'utf8');
-const initialScripts = [...index.matchAll(/src="([^"?]+\.js)"/gu)].map((match) => match[1]);
+// Same-origin runtime configuration is an HTTP endpoint, not a generated
+// bundle file. Keep it out of filesystem inspection while retaining every
+// Angular script emitted into index.html.
+const initialScripts = [...index.matchAll(/src="([^"?]+\.js)"/gu)]
+  .map((match) => match[1])
+  .filter((script) => !script.startsWith('/api/'));
 
 if (initialScripts.length === 0) {
   throw new Error('Bundle analysis could not identify initial JavaScript chunks.');

@@ -25,4 +25,13 @@ describe('FrontendFeatureFlagsService', () => {
     expect(flags.syncfusionGridEnabled()).toBe(true);
     expect(flags.syncfusionUploaderEnabled()).toBe(false);
   });
+
+  it('uses tasks.kanbanV1 only as a reversible presentation rollout', () => {
+    TestBed.configureTestingModule({});
+    const flags = TestBed.inject(FrontendFeatureFlagsService);
+
+    expect(flags.kanbanV1Enabled()).toBe(true);
+    flags.setForTesting({ 'tasks.kanbanV1': false });
+    expect(flags.kanbanV1Enabled()).toBe(false);
+  });
 });

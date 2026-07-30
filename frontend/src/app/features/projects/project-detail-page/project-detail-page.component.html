@@ -8,7 +8,84 @@
     <header><p>{{ vm.project.statusLabel }}</p><h1>{{ vm.project.name }}</h1><p>{{ vm.project.startDate || 'No start date' }} – {{ vm.project.dueDate || 'No due date' }}</p></header>
     <nav class="project-detail-page__tabs" aria-label="Project views" role="tablist">@for (item of tabs; track item.id) { <button type="button" role="tab" [attr.aria-selected]="tab() === item.id" (click)="tab.set(item.id)">{{ item.label }}</button> }</nav>
     @if (tab() === 'overview') { <section><h2>Overview</h2><dl><dt>Total tasks</dt><dd>{{ vm.project.taskCounts.total }}</dd><dt>Completed</dt><dd>{{ vm.project.taskCounts.done }}</dd><dt>Blocked</dt><dd>{{ vm.project.taskCounts.blocked }}</dd></dl></section> }
-    @if (tab() === 'tasks') { <section><h2>Tasks</h2><p>Task movement is unavailable until the backend supplies a permitted transition contract.</p><aip-kanban [contract]="kanban(vm.tasks)" (transitionRequested)="openTask($event.item)" /></section> }
+    @if (tab() === 'tasks') {
+      <section class="project-detail-page__kanban">
+        <header><div><h2>Tasks</h2><p>One authoritative Project board. Done shows {{ vm.kanban.snapshot?.doneWindowDays ?? 30 }} recent days unless older completed Tasks are included.</p></div></header>
+        @if (vm.kanban.status === 'disabled') {
+          <p role="status">{{ vm.kanban.feedback }}</p>
+          <app-task-table [rows]="vm.tasks" [defaultPageSize]="50" [maximumPageSize]="100" (actionInvoked)="openTask($event.row)" />
+        } @else if (vm.kanban.status === 'loading' && !vm.kanban.snapshot) {
+          <app-inline-loading label="Loading Project Kanban" />
+        } @else if (vm.kanban.status === 'permissionDenied') {
+          <app-permission-denied title="Project Kanban is not available." />
+        } @else if (vm.kanban.status === 'notFound') {
+          <app-empty-state title="Project board not found" message="The Project or its board is no longer available." />
+        } @else if (vm.kanban.status === 'error' && !vm.kanban.snapshot) {
+          @if (vm.kanban.error) { <app-error-banner [error]="vm.kanban.error" title="Project Kanban could not be loaded" /> }
+          <button type="button" (click)="retryKanban()">Retry board</button>
+        } @else if (vm.kanban.snapshot; as board) {
+          @if (vm.kanban.realtimeDegraded) {
+            <p class="project-detail-page__degraded" role="status">Live reconciliation is disconnected. HTTP moves and manual refresh remain authoritative.</p>
+          }
+          @if (vm.kanban.status === 'conflict' || vm.kanban.status === 'rollback') {
+            <p class="project-detail-page__board-alert" role="alert">{{ vm.kanban.feedback }}</p>
+            <button type="button" (click)="retryKanban()">Refetch authoritative board</button>
+          }
+          @if (vm.kanban.reconciliationQueued) {
+            <p role="status">A live update is queued until the active board operation ends.</p>
+          }
+          <section class="project-detail-page__board-controls" aria-label="Board presentation">
+            <label>Swimlane
+              <select [value]="board.selectedSwimlane" (change)="setSwimlane($any($event.target).value)">
+                @for (lane of swimlanes; track lane.value) {
+                  <option [value]="lane.value" [disabled]="!board.supportedSwimlanes.includes(lane.value)">{{ lane.label }}</option>
+                }
+              </select>
+            </label>
+            <label><input type="checkbox" [checked]="board.includesOlderCompleted" (change)="setIncludeOlderCompleted($any($event.target).checked)" /> Include older completed Tasks</label>
+            <button type="button" (click)="retryKanban()">Refresh</button>
+            @if (board.canConfigure) { <button type="button" (click)="openConfiguration(board)">Configure board</button> }
+          </section>
+          @if (configOpen()) {
+            <form class="project-detail-page__config" (submit)="$event.preventDefault(); saveConfiguration()" (keydown.escape)="cancelConfiguration()">
+              <h3>Board configuration</h3>
+              <p>Columns remain the existing Workflow Stages. WIP limits are warnings only.</p>
+              <label>Default swimlane
+                <select [value]="configSwimlane()" (change)="configSwimlane.set($any($event.target).value)">
+                  @for (lane of swimlanes; track lane.value) { <option [value]="lane.value">{{ lane.label }}</option> }
+                </select>
+              </label>
+              <ol>
+                @for (column of configColumns(); track column.workflowStageId; let index = $index) {
+                  <li>
+                    <strong>{{ column.displayName }} ({{ column.category }})</strong>
+                    <label>Warning-only WIP limit<input type="number" min="1" max="9999" [value]="column.wipWarningLimit ?? ''" (input)="setWipLimit(column.workflowStageId, $any($event.target).value)" /></label>
+                    <button type="button" [disabled]="index === 0" (click)="moveConfigColumn(index, -1)">Move column earlier</button>
+                    <button type="button" [disabled]="index === configColumns().length - 1" (click)="moveConfigColumn(index, 1)">Move column later</button>
+                  </li>
+                }
+              </ol>
+              <div><button type="submit">Save configuration</button><button type="button" (click)="cancelConfiguration()">Cancel</button></div>
+            </form>
+          }
+          @if (board.warnings.length) {
+            <ul class="project-detail-page__warnings" aria-label="Board warnings">
+              @for (warning of board.warnings; track warning.code + (warning.workflowStageId ?? 'board')) { <li>{{ warning.message }}</li> }
+            </ul>
+          }
+          @if (vm.kanban.status === 'empty') {
+            <p role="status">No authorized Tasks match the current Project board filters.</p>
+          }
+          <p class="project-detail-page__narrow-note">On narrow and touch layouts, columns become a grouped vertical list; the same Move action and backend command are used.</p>
+          <aip-kanban
+            [contract]="kanban(board, vm.kanban.status, vm.kanban.feedback, vm.kanban.busyTaskId, vm.kanban.focusTaskId)"
+            [state]="kanbanState(vm.kanban.status)"
+            (moveRequested)="requestKanbanMove($event)"
+            (itemActivated)="openKanbanItem($event, board.projectId)"
+            (interactionActiveChange)="setKanbanInteractionActive($event)" />
+        }
+      </section>
+    }
     @if (tab() === 'list') { <section><h2>Task list</h2><app-task-table [rows]="vm.tasks" [defaultPageSize]="50" [maximumPageSize]="100" (actionInvoked)="openTask($event.row)" /></section> }
     @if (tab() === 'schedule') { <section><h2>Schedule</h2>@if (vm.schedule.tasks.length || vm.schedule.milestones.length) { <aip-gantt [contract]="gantt()" /> } @else { <app-empty-state title="No schedule data" message="No authorized schedule data was returned for this project." /> }</section> }
     @if (tab() === 'workload') { <section><h2>Workload</h2>@if (vm.workload.length) { <ul class="project-detail-page__records">@for (item of vm.workload; track item.userId) { <li><strong>{{ item.displayName }}</strong><span>{{ item.projectRole }} · {{ item.assignedTaskCount }} assigned · {{ item.overdueTaskCount }} overdue · {{ item.estimatedHours }} estimated hours · {{ item.actualHours }} actual hours</span></li> }</ul> } @else { <app-empty-state title="No workload data" message="No authorized workload projection was returned." /> }</section> }

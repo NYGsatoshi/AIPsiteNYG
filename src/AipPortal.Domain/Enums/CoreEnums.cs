@@ -378,6 +378,15 @@ public enum TaskStageCategory
     Cancelled = 5
 }
 
+public enum ProjectKanbanSwimlane
+{
+    None = 0,
+    PrimaryAssignee = 1,
+    TargetGroup = 2,
+    Priority = 3,
+    ParentTask = 4
+}
+
 public enum TaskReviewStatus
 {
     None = 0,

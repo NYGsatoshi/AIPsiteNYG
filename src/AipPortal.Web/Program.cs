@@ -12,6 +12,7 @@ using AipPortal.Web.Middleware;
 using AipPortal.Web.Models;
 using AipPortal.Web.Security;
 using AipPortal.Web.Realtime;
+using AipPortal.Web.Testing;
 using Microsoft.AspNetCore.Authentication.Cookies;
 using Microsoft.AspNetCore.DataProtection;
 using Microsoft.AspNetCore.HttpOverrides;
@@ -21,11 +22,22 @@ using Microsoft.Extensions.Options;
 using System.Text.Json;
 
 var builder = WebApplication.CreateBuilder(args);
+var browserSmokeSeedEnabled =
+    builder.Configuration.GetValue<bool>("BrowserSmokeSeed:Enabled") ||
+    builder.Configuration.GetValue<bool>("AIP_BROWSER_SMOKE_SEED_ENABLED");
+var browserSmokeResponseGateEnabled =
+    builder.Environment.IsEnvironment("Test") &&
+    browserSmokeSeedEnabled &&
+    builder.Configuration.GetValue<bool>("AIP_BROWSER_SMOKE_RESPONSE_GATE_ENABLED");
 
 builder.Services
     .AddApplication()
     .AddInfrastructure(builder.Configuration)
     .AddWebServices(builder.Configuration);
+if (browserSmokeResponseGateEnabled)
+{
+    builder.Services.AddSingleton<BrowserSmokeResponseGateRegistry>();
+}
 
 var dataProtectionKeysPath = builder.Configuration["DataProtection:KeysPath"];
 if (!string.IsNullOrWhiteSpace(dataProtectionKeysPath))
@@ -111,9 +123,6 @@ app.UseMiddleware<SecurityHeadersMiddleware>();
 
 var tenancyOptions = app.Services.GetRequiredService<TenancyOptions>();
 var seedAdminEnabled = builder.Configuration.GetValue<bool>("AIP_SEED_ADMIN_ENABLED");
-var browserSmokeSeedEnabled =
-    builder.Configuration.GetValue<bool>("BrowserSmokeSeed:Enabled") ||
-    builder.Configuration.GetValue<bool>("AIP_BROWSER_SMOKE_SEED_ENABLED");
 var bootstrapAdminEmail =
     builder.Configuration["AIP_BOOTSTRAP_ADMIN_EMAIL"] ??
     builder.Configuration["BootstrapAdmin:Email"];
@@ -257,8 +266,20 @@ if (securityOptions.EnableCsrfProtection)
     app.UseMiddleware<CsrfProtectionMiddleware>();
 }
 app.UseAuthorization();
+if (browserSmokeResponseGateEnabled)
+{
+    app.UseMiddleware<BrowserSmokeResponseGateMiddleware>();
+}
 
 app.MapControllers();
+if (browserSmokeResponseGateEnabled)
+{
+    var responseGates = app.MapGroup("/internal/browser-smoke/response-gates")
+        .RequireAuthorization();
+    responseGates.MapPost("/{gateId}/arm", ArmBrowserSmokeResponseGate);
+    responseGates.MapGet("/{gateId}", GetBrowserSmokeResponseGate);
+    responseGates.MapPost("/{gateId}/release", ReleaseBrowserSmokeResponseGate);
+}
 
 // Runtime flags are loaded as a same-origin external script so the Angular
 // bootstrap remains compatible with the production CSP (script-src 'self').
@@ -268,7 +289,8 @@ app.MapGet("/api/ui/runtime-config.js", async (
 {
     var flags = new Dictionary<string, bool>(StringComparer.Ordinal)
     {
-        ["realtime.signalR"] = await featureFlags.IsEnabledAsync("realtime.signalR", cancellationToken)
+        ["realtime.signalR"] = await featureFlags.IsEnabledAsync(FeatureKeys.RealtimeSignalR, cancellationToken),
+        ["tasks.kanbanV1"] = await featureFlags.IsEnabledAsync(FeatureKeys.KanbanV1, cancellationToken)
     };
     return Results.Text(
         $"window.__AIP_FEATURE_FLAGS__ = {JsonSerializer.Serialize(flags)};",
@@ -340,6 +362,68 @@ app.MapGet("/health/ready", async (
 app.MapFallback(context => AngularSpaFallback.HandleAsync(context, webRootPath));
 
 app.Run();
+
+static IResult ArmBrowserSmokeResponseGate(
+    string gateId,
+    BrowserSmokeResponseGateArmRequest request,
+    BrowserSmokeResponseGateRegistry registry,
+    ICurrentUser currentUser)
+{
+    if (!TryGetSyntheticBrowserSmokeActor(currentUser, out var actorUserId) ||
+        !Guid.TryParseExact(gateId, "N", out var parsedGateId))
+    {
+        return Results.NotFound();
+    }
+
+    if (!BrowserSmokeResponseGateRegistry.IsAllowedTarget(request.Method, request.Path))
+    {
+        return Results.BadRequest(new { error = "Invalid response gate target." });
+    }
+
+    return registry.TryArm(parsedGateId, actorUserId, request.Method, request.Path)
+        ? Results.Ok(new { state = "armed" })
+        : Results.Conflict(new { error = "A response gate is already active." });
+}
+
+static IResult GetBrowserSmokeResponseGate(
+    string gateId,
+    BrowserSmokeResponseGateRegistry registry,
+    ICurrentUser currentUser)
+{
+    if (!TryGetSyntheticBrowserSmokeActor(currentUser, out var actorUserId) ||
+        !Guid.TryParseExact(gateId, "N", out var parsedGateId))
+    {
+        return Results.NotFound();
+    }
+
+    var snapshot = registry.GetSnapshot(parsedGateId, actorUserId);
+    return snapshot is null
+        ? Results.NotFound()
+        : Results.Ok(snapshot);
+}
+
+static IResult ReleaseBrowserSmokeResponseGate(
+    string gateId,
+    BrowserSmokeResponseGateRegistry registry,
+    ICurrentUser currentUser)
+{
+    if (!TryGetSyntheticBrowserSmokeActor(currentUser, out var actorUserId) ||
+        !Guid.TryParseExact(gateId, "N", out var parsedGateId) ||
+        !registry.TryRelease(parsedGateId, actorUserId))
+    {
+        return Results.NotFound();
+    }
+
+    return Results.Ok(new { state = "released" });
+}
+
+static bool TryGetSyntheticBrowserSmokeActor(ICurrentUser currentUser, out Guid actorUserId)
+{
+    actorUserId = currentUser.UserId ?? Guid.Empty;
+    return currentUser.IsAuthenticated &&
+           actorUserId != Guid.Empty &&
+           currentUser.Email?.EndsWith("@example.test", StringComparison.OrdinalIgnoreCase) == true;
+}
 
 static async Task<bool> IsDatabaseReadyAsync(AppDbContext dbContext, CancellationToken cancellationToken)
 {

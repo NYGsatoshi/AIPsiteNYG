@@ -217,10 +217,11 @@ describe('Projects and tasks mock UI', () => {
     expect(query(fixture, '[data-testid="my-tasks-kanban"]')).toBeNull();
   });
 
-  it('keeps Kanban unavailable until the canonical Board projection is delivered', async () => {
+  it('keeps My Tasks List-only after canonical Project Kanban is delivered', async () => {
     const fixture = await renderMyTasks();
     expect(query(fixture, '[data-testid="my-tasks-kanban"]')).toBeNull();
-    expect(textContent(fixture)).toContain('Kanban remains unavailable until PR05');
+    expect(textContent(fixture)).toContain('List is the canonical cross-Project My Tasks projection');
+    expect(textContent(fixture)).toContain('Project Kanban is available from Project Detail');
   });
 });
 

@@ -66,9 +66,30 @@ The application does not auto-migrate. `/health/ready` fails when pending migrat
 
 - Project, ProjectMember, Milestone
 - TaskItem, TaskDependency, TaskAssignment
+- TaskWorkflowDefinition and TaskWorkflowStage, including one Project Kanban
+  display default and warning-only Stage WIP limits
 - ActivityLog, Comment, Feedback
 - Artifact, ArtifactVersion
 - FileObject, Attachment, FileScanResult
+
+### TASK-V1-PR05 Project Kanban
+
+Migration `20260729140506_AddProjectKanbanDefaultSwimlane` adds the
+non-null, string-converted `KanbanDefaultSwimlane` property to
+`task_workflow_definitions`, defaulting existing definitions to `None`.
+
+Kanban reuses canonical persistence:
+
+- `TaskWorkflowStage.SortKey` is column display order.
+- `TaskWorkflowStage.WipWarningLimit` is warning-only configuration.
+- `TaskItem.WorkflowStageId` is card Stage.
+- `TaskItem.SortKey` is stable card order.
+- Task and Workflow Definition versions remain optimistic concurrency tokens.
+
+No vendor board or card table exists. The board query uses the current
+Tenant filter, Project scope, existing Stage/Task indexes, bounded card
+projection, and one batched direct-child aggregate for canonical parent
+summary values.
 
 ### System and UI shell
 

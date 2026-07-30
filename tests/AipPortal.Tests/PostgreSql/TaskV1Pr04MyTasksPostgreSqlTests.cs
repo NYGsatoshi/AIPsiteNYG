@@ -167,7 +167,8 @@ public sealed class TaskV1Pr04MyTasksPostgreSqlTests
     [PostgreSqlFact]
     [Trait("Category", "PostgreSQLIntegration")]
     [Trait("Scope", "TaskV1PR04")]
-    public async Task BrowserSmokeSeedIsIdempotentAndCoversCanonicalViewsAcrossTwoWorkspaces()
+    [Trait("Scope", "TaskV1PR05")]
+    public async Task BrowserSmokeSeedIsIdempotentAndCoversCanonicalViewsAcrossTwoWorkspacesAndPr05Kanban()
     {
         var connectionString = PostgreSqlTestEnvironment.RequireConnectionString();
         var suffix = Guid.NewGuid().ToString("N");
@@ -231,6 +232,48 @@ public sealed class TaskV1Pr04MyTasksPostgreSqlTests
             query with { Scope = MyTasksScope.AllWorkspaces, WorkspaceId = null },
             Now);
         Assert.Contains(all.Items, item => item.Title == "PR04 second workspace assigned");
+
+        var pr05Manager = await db.Users.SingleAsync(
+            user => user.Email == "browser-smoke-pr05-manager@example.test");
+        var pr05Project = await db.Projects.SingleAsync(
+            project => project.TenantId == tenant.Id && project.Slug == "browser-smoke-pr05-kanban");
+        var pr05Group = await db.Groups.SingleAsync(
+            group => group.TenantId == tenant.Id && group.Slug == "browser-smoke-pr04-queue");
+        Assert.Equal(primary.Id, pr05Project.WorkspaceId);
+        Assert.Equal(pr05Group.Id, pr05Project.GroupId);
+        Assert.Equal(
+            ProjectRole.Manager,
+            (await db.ProjectMembers.SingleAsync(
+                member => member.ProjectId == pr05Project.Id && member.UserId == pr05Manager.Id)).Role);
+        Assert.False(await db.GroupMembers.AnyAsync(
+            member => member.GroupId == pr05Group.Id && member.UserId == pr05Manager.Id));
+
+        var pr05Workflow = await db.TaskWorkflowDefinitions.SingleAsync(
+            definition => definition.ProjectId == pr05Project.Id);
+        var pr05Stages = await db.TaskWorkflowStages
+            .Where(stage => stage.ProjectId == pr05Project.Id)
+            .OrderBy(stage => stage.SortKey)
+            .ToListAsync();
+        Assert.Equal(
+            [TaskStageCategory.Todo, TaskStageCategory.Done, TaskStageCategory.Cancelled],
+            pr05Stages.Select(stage => stage.InternalCategory));
+        Assert.Equal(4, pr05Stages[0].WipWarningLimit);
+        var pr05Tasks = await db.TaskItems
+            .Where(task => task.ProjectId == pr05Project.Id)
+            .OrderBy(task => task.SortKey)
+            .ToListAsync();
+        Assert.Equal(5, pr05Tasks.Count);
+        Assert.All(pr05Tasks, task => Assert.Equal(pr05Stages[0].Id, task.WorkflowStageId));
+        Assert.Equal(
+            [
+                "PR05 real move card",
+                "PR05 stable reorder card",
+                "PR05 stable neighbor card",
+                "PR05 cancellation card",
+                "PR05 stale conflict card"
+            ],
+            pr05Tasks.Select(task => task.Title));
+        Assert.Equal(1, pr05Workflow.VersionNo);
         Assert.True(storage.SaveCount >= 2);
     }
 
