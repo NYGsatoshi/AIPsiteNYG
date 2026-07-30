@@ -1118,8 +1118,9 @@ test.describe('MVP0 real backend browser smoke', () => {
       await expect(pr06GanttItemLocator(page, initialItems.parent.taskId)).toContainText('Derived parent Task');
       await expect(pr06GanttItemLocator(page, initialItems.parent.taskId)
         .getByRole('button', { name: /Edit dates|Edit progress|Move to unscheduled/ })).toHaveCount(0);
-      await expect(page.getByText(/DEPENDENCY_VIOLATION/)).toBeVisible();
-      await expect(page.getByText(/LEGACY_DEPENDENCY_TYPE/)).toBeVisible();
+      const scheduleWarnings = page.getByRole('region', { name: 'Schedule warnings', exact: true });
+      await expect(scheduleWarnings).toContainText('DEPENDENCY_VIOLATION');
+      await expect(scheduleWarnings).toContainText('LEGACY_DEPENDENCY_TYPE');
 
       const scheduleDetailBefore = await recordFetchJson(
         page,
