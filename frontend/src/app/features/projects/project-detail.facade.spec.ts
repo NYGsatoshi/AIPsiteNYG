@@ -858,6 +858,49 @@ describe('ProjectDetailFacade canonical Kanban', () => {
     expect(facade.view().schedule.status).toBe('error');
   });
 
+  it('discards an older authoritative Gantt GET after authorization revalidation denies access', async () => {
+    flushLoad();
+    facade.retrySchedule();
+    const staleAuthorizedRefresh = http.expectOne('/api/projects/project-1/gantt');
+
+    events.next({ ...realtimeEvent(8), eventType: 'Security.AuthorizationStateChanged.v1', payload: {} });
+    expect(facade.view().schedule.snapshot).toBeNull();
+
+    await Promise.resolve();
+    http.expectOne((request) => request.url === '/api/projects/project-1/kanban').flush(
+      { error: { code: 'KANBAN_NOT_FOUND', message: 'Not found.' } },
+      { status: 404, statusText: 'Not Found' });
+    http.expectOne('/api/projects/project-1/gantt').flush(
+      { error: { code: 'GANTT_PROJECT_NOT_FOUND', message: 'Not found.' } },
+      { status: 404, statusText: 'Not Found' });
+    expect(facade.view().schedule.snapshot).toBeNull();
+
+    staleAuthorizedRefresh.flush(ganttSnapshotDto());
+    expect(facade.view().schedule.snapshot).toBeNull();
+    expect(facade.view().schedule.status).toBe('error');
+    http.expectNone('/api/projects/project-1/gantt');
+  });
+
+  it('accepts current read-only Gantt state after authorization changes while discarding an older editable GET', async () => {
+    flushLoad();
+    facade.retrySchedule();
+    const staleEditableRefresh = http.expectOne('/api/projects/project-1/gantt');
+
+    events.next({ ...realtimeEvent(8), eventType: 'Security.AuthorizationStateChanged.v1', payload: {} });
+    expect(facade.view().schedule.snapshot).toBeNull();
+
+    await Promise.resolve();
+    http.expectOne((request) => request.url === '/api/projects/project-1/kanban').flush(snapshotDto());
+    http.expectOne('/api/projects/project-1/gantt').flush(viewerGanttSnapshotDto());
+    expect(facade.view().schedule.snapshot?.permissions.canEditSchedule).toBe(false);
+    expect(facade.view().schedule.snapshot?.scheduledItems[0].scheduleEditPermissions.canEditSchedule).toBe(false);
+
+    staleEditableRefresh.flush(ganttSnapshotDto());
+    expect(facade.view().schedule.snapshot?.permissions.canEditSchedule).toBe(false);
+    expect(facade.view().schedule.snapshot?.scheduledItems[0].scheduleEditPermissions.canEditSchedule).toBe(false);
+    http.expectNone('/api/projects/project-1/gantt');
+  });
+
   it('does not reapply in-flight command responses after authorization is revoked', async () => {
     flushLoad();
     facade.moveTask(moveIntent(facade.view().kanban.snapshot!.cards[0], 'stage-done'));

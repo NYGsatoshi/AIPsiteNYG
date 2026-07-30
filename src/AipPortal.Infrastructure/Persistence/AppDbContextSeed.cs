@@ -1324,8 +1324,21 @@ public static class AppDbContextSeed
         DateTimeOffset now,
         CancellationToken cancellationToken)
     {
+        const string groupSlug = "browser-smoke-pr04-queue";
         const string projectSlug = "browser-smoke-pr06-gantt";
         var today = DateOnly.FromDateTime(now.UtcDateTime.Date);
+
+        var group = dbContext.Groups.Local.FirstOrDefault(
+            candidate =>
+                candidate.TenantId == tenantId &&
+                candidate.WorkspaceId == workspace.Id &&
+                candidate.Slug == groupSlug)
+            ?? await dbContext.Groups.SingleAsync(
+                candidate =>
+                    candidate.TenantId == tenantId &&
+                    candidate.WorkspaceId == workspace.Id &&
+                    candidate.Slug == groupSlug,
+                cancellationToken);
 
         var managerWorkspaceMember = dbContext.WorkspaceMembers.Local.FirstOrDefault(
             candidate =>
@@ -1369,6 +1382,7 @@ public static class AppDbContextSeed
             {
                 TenantId = tenantId,
                 WorkspaceId = workspace.Id,
+                GroupId = group.Id,
                 OwnerUserId = owner.Id,
                 CreatedByUserId = owner.Id,
                 Name = "PR06 Browser Acceptance Project",
@@ -1383,6 +1397,7 @@ public static class AppDbContextSeed
         }
         else
         {
+            project.GroupId = group.Id;
             project.OwnerUserId = owner.Id;
             project.CreatedByUserId = owner.Id;
             project.Name = "PR06 Browser Acceptance Project";

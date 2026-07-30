@@ -1027,6 +1027,10 @@ test.describe('MVP0 real backend browser smoke', () => {
       evidence.workspaceId = String(project.workspaceId);
       expect(evidence.projectId, 'synthetic PR06 Project id').toMatch(/^[0-9a-f-]{36}$/i);
       expect(evidence.workspaceId, 'synthetic PR06 Workspace id').toMatch(/^[0-9a-f-]{36}$/i);
+      expect(
+        String(project.groupId),
+        'the PR06 revocation fixture is group-scoped so removing Project membership revokes view access'
+      ).toMatch(/^(?!00000000-0000-0000-0000-000000000000$)[0-9a-f-]{36}$/i);
 
       const members = await recordFetchJson(
         page,
