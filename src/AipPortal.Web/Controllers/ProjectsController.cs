@@ -70,6 +70,16 @@ public sealed class ProjectsController(IProjectService projects, ITaskCommandSer
     [HttpPatch("api/tasks/{taskItemId:guid}")]
     public async Task<IActionResult> UpdateTask(Guid taskItemId, TaskUpdateDetailsRequest request, CancellationToken cancellationToken) => ToTaskActionResult(await taskCommands.UpdateDetailsAsync(taskItemId, request, cancellationToken));
 
+    [AllowAnonymous]
+    [HttpPatch("api/tasks/{taskItemId:guid}/schedule")]
+    public async Task<IActionResult> UpdateTaskSchedule(Guid taskItemId, TaskScheduleUpdateRequest request, CancellationToken cancellationToken) =>
+        ToGanttCommandActionResult(await taskCommands.UpdateScheduleAsync(taskItemId, request, cancellationToken));
+
+    [AllowAnonymous]
+    [HttpPatch("api/tasks/{taskItemId:guid}/progress")]
+    public async Task<IActionResult> UpdateTaskProgress(Guid taskItemId, TaskProgressUpdateRequest request, CancellationToken cancellationToken) =>
+        ToGanttCommandActionResult(await taskCommands.UpdateProgressAsync(taskItemId, request, cancellationToken));
+
     [HttpDelete("api/tasks/{taskItemId:guid}")]
     public async Task<IActionResult> DeleteTask(Guid taskItemId, [FromQuery] long expectedVersion, CancellationToken cancellationToken) => ToTaskActionResult(await taskCommands.DeleteAsync(taskItemId, new TaskDeleteRequest(expectedVersion), cancellationToken));
 
@@ -191,14 +201,24 @@ public sealed class ProjectsController(IProjectService projects, ITaskCommandSer
     [HttpDelete("api/tasks/{taskItemId:guid}/assignments/{assignmentId:guid}")]
     public async Task<IActionResult> DeleteAssignment(Guid assignmentId, CancellationToken cancellationToken) => OkOrBad(await projects.DeleteAssignmentAsync(assignmentId, cancellationToken));
 
+    [AllowAnonymous]
     [HttpGet("api/tasks/{taskItemId:guid}/dependencies")]
-    public async Task<IActionResult> ListDependencies(Guid taskItemId, CancellationToken cancellationToken) => ToActionResult(await projects.ListDependenciesAsync(taskItemId, cancellationToken));
+    public async Task<IActionResult> ListDependencies(Guid taskItemId, CancellationToken cancellationToken) =>
+        ToDependencyActionResult(await projects.ListDependenciesAsync(taskItemId, cancellationToken));
 
+    [AllowAnonymous]
     [HttpPost("api/tasks/{taskItemId:guid}/dependencies")]
-    public async Task<IActionResult> AddDependency(Guid taskItemId, AddTaskDependencyRequest request, CancellationToken cancellationToken) => ToActionResult(await projects.AddDependencyAsync(taskItemId, request, cancellationToken));
+    public async Task<IActionResult> AddDependency(Guid taskItemId, AddTaskDependencyRequest request, CancellationToken cancellationToken) =>
+        ToDependencyActionResult(await projects.AddDependencyAsync(taskItemId, request, cancellationToken));
 
+    [AllowAnonymous]
     [HttpDelete("api/tasks/{taskItemId:guid}/dependencies/{dependencyId:guid}")]
-    public async Task<IActionResult> DeleteDependency(Guid dependencyId, CancellationToken cancellationToken) => OkOrBad(await projects.DeleteDependencyAsync(dependencyId, cancellationToken));
+    public async Task<IActionResult> DeleteDependency(
+        Guid taskItemId,
+        Guid dependencyId,
+        [FromQuery] long expectedVersion,
+        CancellationToken cancellationToken) =>
+        ToDependencyActionResult(await projects.DeleteDependencyAsync(taskItemId, dependencyId, expectedVersion, cancellationToken));
 
     [HttpGet("api/comments")]
     public async Task<IActionResult> ListComments([FromQuery] CommentTargetType targetType, [FromQuery] Guid targetId, [FromQuery] ProjectChildListQuery query, CancellationToken cancellationToken)
@@ -238,8 +258,58 @@ public sealed class ProjectsController(IProjectService projects, ITaskCommandSer
         return ToTaskActionResult(await taskSubresources.DeleteCommentAsync(commentId, expectedVersion ?? compatibility.Value.Version, cancellationToken));
     }
 
-    private IActionResult OkOrBad(AipPortal.Application.Common.Result result) => result.IsSuccess ? Ok(new { status = "OK" }) : BadRequest(ToErrorResponse(result.Error));
-    private IActionResult ToActionResult<T>(AipPortal.Application.Common.Result<T> result) => result.IsSuccess ? Ok(result.Value) : BadRequest(ToErrorResponse(result.Error));
+    private IActionResult OkOrBad(AipPortal.Application.Common.Result result)
+    {
+        if (result.IsSuccess)
+            return Ok(new { status = "OK" });
+        if (result.ErrorDetail?.Code == "PROJECT_CONFLICT")
+            return ProjectConflict(result.ErrorDetail);
+        if (result.ErrorDetail?.Code is "MILESTONE_STALE_VERSION" or "MILESTONE_CONFLICT")
+            return MilestoneConflict(result.ErrorDetail);
+        return BadRequest(ToErrorResponse(result.Error));
+    }
+
+    private IActionResult ToActionResult<T>(AipPortal.Application.Common.Result<T> result)
+    {
+        if (result.IsSuccess)
+            return Ok(result.Value);
+        if (result.ErrorDetail?.Code == "PROJECT_CONFLICT")
+            return ProjectConflict(result.ErrorDetail);
+        if (result.ErrorDetail?.Code is "MILESTONE_STALE_VERSION" or "MILESTONE_CONFLICT")
+            return MilestoneConflict(result.ErrorDetail);
+        return BadRequest(ToErrorResponse(result.Error));
+    }
+
+    private IActionResult ProjectConflict(
+        AipPortal.Application.Common.ApplicationErrorDetail detail) =>
+        StatusCode(StatusCodes.Status409Conflict, new
+        {
+            requestId = HttpContext.TraceIdentifier,
+            error = new
+            {
+                code = detail.Code,
+                message = detail.Message,
+                target = "project",
+                details = Array.Empty<object>(),
+                redactionApplied = false
+            }
+        });
+
+    private IActionResult MilestoneConflict(
+        AipPortal.Application.Common.ApplicationErrorDetail detail) =>
+        StatusCode(StatusCodes.Status409Conflict, new
+        {
+            requestId = HttpContext.TraceIdentifier,
+            error = new
+            {
+                code = detail.Code,
+                message = detail.Message,
+                target = "milestone",
+                details = Array.Empty<object>(),
+                redactionApplied = false
+            }
+        });
+
     private IActionResult ToTaskActionResult<T>(AipPortal.Application.Common.Result<T> result)
     {
         if (result.IsSuccess) return Ok(result.Value);
@@ -285,6 +355,88 @@ public sealed class ProjectsController(IProjectService projects, ITaskCommandSer
         }
         return StatusCode(status, new { requestId = HttpContext.TraceIdentifier, error = new { code, message = parts.Length == 2 ? parts[1] : "The request could not be completed.", target = (string?)null, details = Array.Empty<object>(), redactionApplied = false } });
     }
+
+    private IActionResult ToGanttCommandActionResult<T>(AipPortal.Application.Common.Result<T> result)
+    {
+        if (result.IsSuccess)
+        {
+            return Ok(result.Value);
+        }
+
+        var parts = (result.Error ?? "GANTT_REQUEST_FAILED|The request could not be completed.").Split('|', 2);
+        var code = result.ErrorDetail?.Code ?? parts[0];
+        var message = result.ErrorDetail?.Message ?? (parts.Length == 2 ? parts[1] : "The request could not be completed.");
+        var status = code switch
+        {
+            "GANTT_AUTHENTICATION_REQUIRED" => StatusCodes.Status401Unauthorized,
+            "GANTT_FORBIDDEN" => StatusCodes.Status403Forbidden,
+            "GANTT_WORK_ITEM_NOT_FOUND" => StatusCodes.Status404NotFound,
+            "GANTT_STALE_VERSION" or "GANTT_CONFLICT" => StatusCodes.Status409Conflict,
+            _ => StatusCodes.Status400BadRequest
+        };
+        return StatusCode(status, new
+        {
+            requestId = HttpContext.TraceIdentifier,
+            error = new
+            {
+                code,
+                message,
+                target = code switch
+                {
+                    "GANTT_INVALID_DATE_RANGE" => "plannedEndDate",
+                    "GANTT_INVALID_PROGRESS" => "progressPercent",
+                    "MILESTONE_DATE_REQUIRED" => "milestoneDate",
+                    _ => null
+                },
+                details = Array.Empty<object>(),
+                redactionApplied = code == "GANTT_WORK_ITEM_NOT_FOUND"
+            }
+        });
+    }
+
+    private IActionResult ToDependencyActionResult<T>(AipPortal.Application.Common.Result<T> result)
+    {
+        if (result.IsSuccess)
+            return Ok(result.Value);
+        return DependencyError(result.Error, result.ErrorDetail);
+    }
+
+    private IActionResult ToDependencyActionResult(AipPortal.Application.Common.Result result)
+    {
+        if (result.IsSuccess)
+            return Ok(new { status = "OK" });
+        return DependencyError(result.Error, result.ErrorDetail);
+    }
+
+    private IActionResult DependencyError(
+        string? rawError,
+        AipPortal.Application.Common.ApplicationErrorDetail? detail)
+    {
+        var parts = (rawError ?? "TASK_DEPENDENCY_REQUEST_FAILED|The request could not be completed.").Split('|', 2);
+        var code = detail?.Code ?? parts[0];
+        var message = detail?.Message ?? (parts.Length == 2 ? parts[1] : "The request could not be completed.");
+        var status = code switch
+        {
+            "TASK_DEPENDENCY_AUTHENTICATION_REQUIRED" => StatusCodes.Status401Unauthorized,
+            "TASK_DEPENDENCY_FORBIDDEN" => StatusCodes.Status403Forbidden,
+            "TASK_DEPENDENCY_NOT_FOUND" => StatusCodes.Status404NotFound,
+            "TASK_STALE_VERSION" or "TASK_DEPENDENCY_CONFLICT" => StatusCodes.Status409Conflict,
+            _ => StatusCodes.Status400BadRequest
+        };
+        return StatusCode(status, new
+        {
+            requestId = HttpContext.TraceIdentifier,
+            error = new
+            {
+                code,
+                message,
+                target = code == "TASK_DEPENDENCY_INVALID_EXPECTED_VERSION" ? "expectedVersion" : "dependency",
+                details = Array.Empty<object>(),
+                redactionApplied = code == "TASK_DEPENDENCY_NOT_FOUND"
+            }
+        });
+    }
+
     private ErrorResponse ToErrorResponse(string? message) => new("BadRequest", message ?? "The request could not be completed.", HttpContext.TraceIdentifier);
     private static CommentResponse ToLegacyComment(TaskCommentResponse comment) => new(comment.Id, CommentTargetType.TaskItem, comment.TaskId, comment.Author?.UserId ?? Guid.Empty, comment.BodyPlainText ?? string.Empty, comment.CreatedAt, comment.UpdatedAt);
 }

@@ -6,16 +6,22 @@ namespace AipPortal.Tests.Web;
 public sealed class BrowserSmokeResponseGateTests
 {
     [Fact]
-    public void TargetValidationAllowsOnlyCanonicalProjectKanbanGets()
+    public void TargetValidationAllowsOnlyCanonicalProjectKanbanAndGanttGets()
     {
         var projectId = Guid.NewGuid();
 
         Assert.True(BrowserSmokeResponseGateRegistry.IsAllowedTarget(
             HttpMethods.Get,
             $"/api/projects/{projectId}/kanban"));
+        Assert.True(BrowserSmokeResponseGateRegistry.IsAllowedTarget(
+            HttpMethods.Get,
+            $"/api/projects/{projectId}/gantt"));
         Assert.False(BrowserSmokeResponseGateRegistry.IsAllowedTarget(
             HttpMethods.Post,
             $"/api/projects/{projectId}/kanban"));
+        Assert.False(BrowserSmokeResponseGateRegistry.IsAllowedTarget(
+            HttpMethods.Patch,
+            $"/api/projects/{projectId}/gantt"));
         Assert.False(BrowserSmokeResponseGateRegistry.IsAllowedTarget(
             HttpMethods.Get,
             $"/api/projects/{projectId}/kanban/config"));

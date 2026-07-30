@@ -6,6 +6,9 @@
 .project-detail-page__records { display: grid; gap: var(--aip-space-2); margin: 0; padding: 0; list-style: none; }
 .project-detail-page__records li { display: grid; gap: var(--aip-space-1); padding: var(--aip-space-3); border: 1px solid var(--aip-color-border-default); border-radius: var(--aip-radius-md); }
 .project-detail-page__kanban { display: grid; gap: var(--aip-space-3); }
+.project-detail-page__schedule { display: grid; gap: var(--aip-space-3); min-width: 0; }
+.project-detail-page__schedule-header { display: flex; flex-wrap: wrap; align-items: end; justify-content: space-between; gap: var(--aip-space-3); }
+.project-detail-page__schedule-header > div { display: grid; gap: var(--aip-space-1); }
 .project-detail-page__board-controls { display: flex; flex-wrap: wrap; align-items: end; gap: var(--aip-space-3); }
 .project-detail-page__board-controls label { display: grid; gap: var(--aip-space-1); }
 .project-detail-page__config { display: grid; gap: var(--aip-space-3); padding: var(--aip-space-3); border: 1px solid var(--aip-color-border-default); border-radius: var(--aip-radius-md); }
@@ -15,5 +18,11 @@
 .project-detail-page__config > div { display: flex; gap: var(--aip-space-2); }
 .project-detail-page__warnings,
 .project-detail-page__board-alert,
+.project-detail-page__schedule-alert,
 .project-detail-page__degraded { padding: var(--aip-space-2); border: 1px solid var(--aip-color-warning); border-radius: var(--aip-radius-md); }
 .project-detail-page__narrow-note { color: var(--aip-color-text-secondary); }
+
+@media (max-width: 40rem) {
+  .project-detail-page__schedule-header { align-items: stretch; }
+  .project-detail-page__schedule-header button { width: 100%; }
+}

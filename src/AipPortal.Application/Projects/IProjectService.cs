@@ -31,7 +31,7 @@ public interface IProjectService
     Task<Result> DeleteAssignmentAsync(Guid assignmentId, CancellationToken cancellationToken = default);
     Task<Result<IReadOnlyList<TaskDependencyResponse>>> ListDependenciesAsync(Guid taskItemId, CancellationToken cancellationToken = default);
     Task<Result<TaskDependencyResponse>> AddDependencyAsync(Guid taskItemId, AddTaskDependencyRequest request, CancellationToken cancellationToken = default);
-    Task<Result> DeleteDependencyAsync(Guid dependencyId, CancellationToken cancellationToken = default);
+    Task<Result> DeleteDependencyAsync(Guid taskItemId, Guid dependencyId, long expectedVersion, CancellationToken cancellationToken = default);
     Task<Result<PagedResponse<CommentResponse>>> ListCommentsAsync(CommentTargetType targetType, Guid targetId, ProjectChildListQuery query, CancellationToken cancellationToken = default);
     Task<Result<CommentResponse>> AddCommentAsync(CreateCommentRequest request, CancellationToken cancellationToken = default);
     Task<Result<CommentResponse>> UpdateCommentAsync(Guid commentId, UpdateCommentRequest request, CancellationToken cancellationToken = default);

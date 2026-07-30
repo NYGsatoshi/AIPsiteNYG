@@ -31,6 +31,31 @@
               {
                 "glob": "**/*",
                 "input": "public"
+              },
+              {
+                "glob": "material.css",
+                "input": "node_modules/@syncfusion/ej2-base/styles",
+                "output": "assets/vendor/syncfusion/base"
+              },
+              {
+                "glob": "material.css",
+                "input": "node_modules/@syncfusion/ej2-treegrid/styles",
+                "output": "assets/vendor/syncfusion/treegrid"
+              },
+              {
+                "glob": "material.css",
+                "input": "node_modules/@syncfusion/ej2-layouts/styles",
+                "output": "assets/vendor/syncfusion/layouts"
+              },
+              {
+                "glob": "material.css",
+                "input": "node_modules/@syncfusion/ej2-popups/styles",
+                "output": "assets/vendor/syncfusion/popups"
+              },
+              {
+                "glob": "material.css",
+                "input": "node_modules/@syncfusion/ej2-gantt/styles",
+                "output": "assets/vendor/syncfusion/gantt"
               }
             ],
             "styles": [
@@ -100,6 +125,31 @@
               {
                 "glob": "**/*",
                 "input": "public"
+              },
+              {
+                "glob": "material.css",
+                "input": "node_modules/@syncfusion/ej2-base/styles",
+                "output": "assets/vendor/syncfusion/base"
+              },
+              {
+                "glob": "material.css",
+                "input": "node_modules/@syncfusion/ej2-treegrid/styles",
+                "output": "assets/vendor/syncfusion/treegrid"
+              },
+              {
+                "glob": "material.css",
+                "input": "node_modules/@syncfusion/ej2-layouts/styles",
+                "output": "assets/vendor/syncfusion/layouts"
+              },
+              {
+                "glob": "material.css",
+                "input": "node_modules/@syncfusion/ej2-popups/styles",
+                "output": "assets/vendor/syncfusion/popups"
+              },
+              {
+                "glob": "material.css",
+                "input": "node_modules/@syncfusion/ej2-gantt/styles",
+                "output": "assets/vendor/syncfusion/gantt"
               }
             ],
             "styles": [

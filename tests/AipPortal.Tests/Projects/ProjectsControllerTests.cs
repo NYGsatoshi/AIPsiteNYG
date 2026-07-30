@@ -1,4 +1,5 @@
 using System.Reflection;
+using System.Text.Json;
 using AipPortal.Application.Common;
 using AipPortal.Application.Projects;
 using AipPortal.Domain.Entities;
@@ -25,6 +26,65 @@ public sealed class ProjectsControllerTests
         var action = InvokeTaskResult(Result.Failure("TASK_CONFLICT|Conflict"));
 
         Assert.Equal(StatusCodes.Status409Conflict, Assert.IsType<ObjectResult>(action).StatusCode);
+    }
+
+    [Fact]
+    [Trait("Scope", "TaskV1PR06")]
+    public void ProjectRevisionConflictMapsToSafeHttp409Envelope()
+    {
+        var detail = new ApplicationErrorDetail(
+            "PROJECT_CONFLICT",
+            "Project state has changed. Refetch and retry.");
+        var controller = Controller();
+        var genericMethod = typeof(ProjectsController)
+            .GetMethods(BindingFlags.Instance | BindingFlags.NonPublic)
+            .Single(candidate => candidate.Name == "ToActionResult" && candidate.IsGenericMethod)
+            .MakeGenericMethod(typeof(string));
+        var genericAction = Assert.IsType<ObjectResult>(
+            genericMethod.Invoke(controller, [Result<string>.Failure(detail)]));
+        var nonGenericMethod = typeof(ProjectsController)
+            .GetMethods(BindingFlags.Instance | BindingFlags.NonPublic)
+            .Single(candidate => candidate.Name == "OkOrBad");
+        var nonGenericAction = Assert.IsType<ObjectResult>(
+            nonGenericMethod.Invoke(controller, [Result.Failure(detail)]));
+
+        Assert.Equal(StatusCodes.Status409Conflict, genericAction.StatusCode);
+        Assert.Equal(StatusCodes.Status409Conflict, nonGenericAction.StatusCode);
+        using var envelope = JsonDocument.Parse(JsonSerializer.Serialize(genericAction.Value));
+        Assert.Equal(
+            "PROJECT_CONFLICT",
+            envelope.RootElement.GetProperty("error").GetProperty("code").GetString());
+        Assert.Equal(
+            "project",
+            envelope.RootElement.GetProperty("error").GetProperty("target").GetString());
+    }
+
+    [Fact]
+    [Trait("Scope", "TaskV1PR06")]
+    public void MilestoneRevisionConflictMapsToSafeHttp409Envelope()
+    {
+        var detail = new ApplicationErrorDetail(
+            "MILESTONE_STALE_VERSION",
+            "Milestone has changed. Refetch and retry.");
+        var controller = Controller();
+        var genericMethod = typeof(ProjectsController)
+            .GetMethods(BindingFlags.Instance | BindingFlags.NonPublic)
+            .Single(candidate => candidate.Name == "ToActionResult" && candidate.IsGenericMethod)
+            .MakeGenericMethod(typeof(string));
+
+        var action = Assert.IsType<ObjectResult>(
+            genericMethod.Invoke(controller, [Result<string>.Failure(detail)]));
+
+        Assert.Equal(StatusCodes.Status409Conflict, action.StatusCode);
+        using var envelope = JsonDocument.Parse(JsonSerializer.Serialize(action.Value));
+        Assert.Equal(
+            "MILESTONE_STALE_VERSION",
+            envelope.RootElement.GetProperty("error").GetProperty("code").GetString());
+        Assert.Equal(
+            "milestone",
+            envelope.RootElement.GetProperty("error").GetProperty("target").GetString());
+        Assert.False(
+            envelope.RootElement.GetProperty("error").GetProperty("redactionApplied").GetBoolean());
     }
 
     [Theory]

@@ -43,7 +43,11 @@ public sealed class BusinessInvalidationPublisher(
 
     public Task ProjectChangedAsync(Project project, Guid actorUserId, string change, CancellationToken cancellationToken = default)
     {
-        var version = VersionToken();
+        // Project owns the persisted revision used by its bounded projections.
+        // Advance it before queuing the event so the durable hint and the
+        // authoritative HTTP snapshot use exactly the same ordering token.
+        project.VersionNo = Math.Max(1L, checked(project.VersionNo + 1L));
+        var version = project.VersionNo;
         return EnqueueAsync("Projects.ProjectChanged.v1", "Project", project.Id, actorUserId, new
         {
             workspaceId = project.WorkspaceId,

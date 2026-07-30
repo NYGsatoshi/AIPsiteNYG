@@ -8,8 +8,10 @@ namespace AipPortal.Web.Controllers;
 [Authorize]
 public sealed class PlanningController(IPlanningService planning) : ControllerBase
 {
+    [AllowAnonymous]
     [HttpGet("api/projects/{projectId:guid}/gantt")]
-    public async Task<IActionResult> Gantt(Guid projectId, CancellationToken cancellationToken) => ToActionResult(await planning.GetGanttAsync(projectId, cancellationToken));
+    public async Task<IActionResult> Gantt(Guid projectId, CancellationToken cancellationToken) =>
+        ToGanttActionResult(await planning.GetGanttAsync(projectId, cancellationToken));
 
     [HttpGet("api/projects/{projectId:guid}/dashboard")]
     public async Task<IActionResult> Dashboard(Guid projectId, CancellationToken cancellationToken) => ToActionResult(await planning.GetDashboardAsync(projectId, cancellationToken));
@@ -32,6 +34,39 @@ public sealed class PlanningController(IPlanningService planning) : ControllerBa
     private IActionResult ToActionResult<T>(AipPortal.Application.Common.Result<T> result)
     {
         return result.IsSuccess ? Ok(result.Value) : BadRequest(new { error = result.Error });
+    }
+
+    private IActionResult ToGanttActionResult<T>(AipPortal.Application.Common.Result<T> result)
+    {
+        if (result.IsSuccess)
+        {
+            return Ok(result.Value);
+        }
+
+        var detail = result.ErrorDetail;
+        var code = detail?.Code ?? "GANTT_REQUEST_FAILED";
+        var message = detail?.Message ?? "The request could not be completed.";
+        var status = code switch
+        {
+            "GANTT_AUTHENTICATION_REQUIRED" => StatusCodes.Status401Unauthorized,
+            "GANTT_FORBIDDEN" => StatusCodes.Status403Forbidden,
+            "GANTT_PROJECT_NOT_FOUND" => StatusCodes.Status404NotFound,
+            "GANTT_STALE_VERSION" => StatusCodes.Status409Conflict,
+            _ => StatusCodes.Status400BadRequest
+        };
+        var redactionApplied = code == "GANTT_PROJECT_NOT_FOUND";
+        return StatusCode(status, new
+        {
+            requestId = HttpContext.TraceIdentifier,
+            error = new
+            {
+                code,
+                message,
+                target = code.Contains("LIMIT", StringComparison.Ordinal) ? "projectId" : null,
+                details = Array.Empty<object>(),
+                redactionApplied
+            }
+        });
     }
 
     private IActionResult ToMyTasksActionResult<T>(AipPortal.Application.Common.Result<T> result)

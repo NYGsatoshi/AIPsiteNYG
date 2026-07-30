@@ -14,7 +14,9 @@ public sealed class ProjectAuthorizationService(
     public async Task<bool> CanViewProject(Guid userId, Guid projectId, CancellationToken cancellationToken = default)
     {
         var project = await projects.GetProjectAsync(projectId, cancellationToken);
-        if (project is null || project.DeletedAt.HasValue || project.Status == ProjectStatus.Archived)
+        if (project is null ||
+            project.DeletedAt.HasValue ||
+            project.Status is ProjectStatus.Archived or ProjectStatus.Deleted)
         {
             return false;
         }

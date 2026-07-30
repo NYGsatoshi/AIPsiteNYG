@@ -1,4 +1,5 @@
 using AipPortal.Domain.Enums;
+using AipPortal.Application.Planning;
 
 namespace AipPortal.Application.Projects;
 
@@ -22,6 +23,32 @@ public sealed record TaskRestoreRequest(long ExpectedVersion);
 public sealed record TaskDeleteRequest(long ExpectedVersion);
 public sealed record TaskWatchStateResponse(bool IsWatching, bool IsExplicitOptOut, string[] AutomaticSources, long Version);
 public sealed record TaskWatchRequest(long ExpectedVersion);
+
+/// <summary>
+/// Gantt scheduling owns only day-precision planned dates. MilestoneDate is
+/// applicable only to the compatibility Milestone aggregate.
+/// </summary>
+[System.Text.Json.Serialization.JsonUnmappedMemberHandling(
+    System.Text.Json.Serialization.JsonUnmappedMemberHandling.Disallow)]
+public sealed record TaskScheduleUpdateRequest(
+    [property: System.Text.Json.Serialization.JsonRequired] DateOnly? PlannedStartDate,
+    [property: System.Text.Json.Serialization.JsonRequired] DateOnly? PlannedEndDate,
+    DateOnly? MilestoneDate,
+    long ExpectedVersion);
+
+[System.Text.Json.Serialization.JsonUnmappedMemberHandling(
+    System.Text.Json.Serialization.JsonUnmappedMemberHandling.Disallow)]
+public sealed record TaskProgressUpdateRequest(int? ProgressPercent, long ExpectedVersion);
+
+public sealed record GanttEditCommandResponse(
+    Guid TaskId,
+    [property: System.Text.Json.Serialization.JsonConverter(typeof(System.Text.Json.Serialization.JsonStringEnumConverter))] WorkItemKind Kind,
+    DateOnly? PlannedStartDate,
+    DateOnly? PlannedEndDate,
+    DateOnly? MilestoneDate,
+    int ProgressPercent,
+    long Version,
+    IReadOnlyList<GanttWarningResponse> Warnings);
 
 public sealed record TaskPersonSummary(Guid UserId, string DisplayName);
 public sealed record TaskRelationshipsResponse(

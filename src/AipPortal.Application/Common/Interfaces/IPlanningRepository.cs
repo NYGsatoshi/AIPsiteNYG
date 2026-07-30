@@ -4,7 +4,14 @@ namespace AipPortal.Application.Common.Interfaces;
 
 public interface IPlanningRepository
 {
-    Task<ProjectGanttResponse?> GetGanttAsync(Guid projectId, DateOnly today, CancellationToken cancellationToken = default);
+    Task<GanttSnapshotReadResult> GetGanttAsync(
+        Guid projectId,
+        Guid actorUserId,
+        bool canManageProject,
+        bool canContributeToOwnedTasks,
+        string workspaceTimeZone,
+        int maximumItems,
+        CancellationToken cancellationToken = default);
 
     Task<ProjectDashboardResponse?> GetDashboardAsync(Guid projectId, DateOnly today, CancellationToken cancellationToken = default);
 

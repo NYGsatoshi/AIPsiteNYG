@@ -6,6 +6,8 @@ public interface ITaskCommandService
 {
     Task<Result<CanonicalTaskResponse>> GetAsync(Guid taskId, CancellationToken cancellationToken = default);
     Task<Result<CanonicalTaskResponse>> UpdateDetailsAsync(Guid taskId, TaskUpdateDetailsRequest request, CancellationToken cancellationToken = default);
+    Task<Result<GanttEditCommandResponse>> UpdateScheduleAsync(Guid taskId, TaskScheduleUpdateRequest request, CancellationToken cancellationToken = default);
+    Task<Result<GanttEditCommandResponse>> UpdateProgressAsync(Guid taskId, TaskProgressUpdateRequest request, CancellationToken cancellationToken = default);
     Task<Result<TaskRelationshipsResponse>> GetRelationshipsAsync(Guid taskId, CancellationToken cancellationToken = default);
     Task<Result<TaskCommandResponse>> TransitionAsync(Guid taskId, TaskTransitionRequest request, CancellationToken cancellationToken = default);
     Task<Result<TaskCommandResponse>> CancelAsync(Guid taskId, TaskReviewRequest request, CancellationToken cancellationToken = default);

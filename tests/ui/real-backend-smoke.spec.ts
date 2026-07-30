@@ -24,6 +24,17 @@ const pr05TaskTitles = {
   cancellation: 'PR05 cancellation card',
   conflict: 'PR05 stale conflict card'
 } as const;
+const pr06ProjectTitle = 'PR06 Browser Acceptance Project';
+const pr06ProjectSlug = 'browser-smoke-pr06-gantt';
+const pr06TaskTitles = {
+  parent: 'PR06 derived parent',
+  schedule: 'PR06 schedule task',
+  predecessor: 'PR06 predecessor task',
+  unscheduled: 'PR06 unscheduled task',
+  conflict: 'PR06 conflict task',
+  successor: 'PR06 dependency successor'
+} as const;
+const pr06MilestoneTitle = 'PR06 release milestone';
 
 test.describe('MVP0 real backend browser smoke', () => {
   test.setTimeout(120_000);
@@ -972,6 +983,760 @@ test.describe('MVP0 real backend browser smoke', () => {
     }
   });
 
+  test('TASK-V1-PR06 exercises canonical Gantt commands, rollback, degradation, and revocation through PostgreSQL', async ({ page, browser }, testInfo) => {
+    const evidence: Pr06GanttEvidence = {
+      baseURL: String(testInfo.project.use.baseURL ?? ''),
+      email: pr05ManagerEmail,
+      steps: [],
+      pageErrors: [],
+      consoleErrors: [],
+      failedApiResponses: [],
+      seed: {
+        projectSlug: pr06ProjectSlug,
+        projectTitle: pr06ProjectTitle,
+        taskTitles: Object.values(pr06TaskTitles),
+        milestoneTitle: pr06MilestoneTitle
+      },
+      apiInterception: 'none',
+      hubTransportFaultInjection: 'A separate authenticated browser context rejects only /hubs/app transport; all /api HTTP remains real.',
+      commands: []
+    };
+    let ownerContext: Awaited<ReturnType<typeof browser.newContext>> | null = null;
+    let degradedContext: Awaited<ReturnType<typeof browser.newContext>> | null = null;
+
+    page.on('pageerror', (error) => evidence.pageErrors.push(error.message));
+    page.on('console', (message) => { if (message.type() === 'error') evidence.consoleErrors.push(message.text()); });
+    page.on('response', (response) => recordFailedApiResponse(response, evidence));
+
+    try {
+      await loginAndVerifySession(page, evidence, { email: pr05ManagerEmail, password: smokePassword });
+      await expect(page.getByTestId('realtime-connection-state')).toContainText('Realtime updates connected.', { timeout: 30_000 });
+
+      const featureEnabled = await page.evaluate(() =>
+        (window as Window & { __AIP_FEATURE_FLAGS__?: Record<string, boolean> })
+          .__AIP_FEATURE_FLAGS__?.['tasks.ganttV1'] === true);
+      evidence.featureFlagEnabled = featureEnabled;
+      expect(featureEnabled, 'the hosted runtime config enables the PR06 Schedule presentation').toBe(true);
+
+      const projects = await recordFetchJson(page, evidence, 'pr06-projects', '/api/projects?page=1&pageSize=100', {
+        validate: (body) => isPagedResponse(body) &&
+          body.items.some((item: unknown) => hasStringValue(item, 'title', pr06ProjectTitle))
+      }) as Record<string, any>;
+      const project = projects.items.find((item: Record<string, unknown>) => item.title === pr06ProjectTitle)!;
+      evidence.projectId = String(project.id);
+      evidence.workspaceId = String(project.workspaceId);
+      expect(evidence.projectId, 'synthetic PR06 Project id').toMatch(/^[0-9a-f-]{36}$/i);
+      expect(evidence.workspaceId, 'synthetic PR06 Workspace id').toMatch(/^[0-9a-f-]{36}$/i);
+
+      const members = await recordFetchJson(
+        page,
+        evidence,
+        'pr06-project-members',
+        `/api/projects/${evidence.projectId}/members`,
+        {
+          validate: (body) => Array.isArray(body) &&
+            body.some((member: unknown) => hasStringValue(member, 'email', pr05ManagerEmail)) &&
+            body.some((member: unknown) => hasStringValue(member, 'email', smokeEmail))
+        }
+      ) as Record<string, any>[];
+      const managerMember = members.find((member) => member.email === pr05ManagerEmail)!;
+      const ownerMember = members.find((member) => member.email === smokeEmail)!;
+      expect(String(managerMember.userId)).toBe(evidence.userId);
+      expect(String(ownerMember.userId)).not.toBe(evidence.userId);
+
+      const ganttPath = `/api/projects/${evidence.projectId}/gantt`;
+      const initialSnapshotResponse = waitForApiResponse(page, 'GET', ganttPath);
+      await page.goto(`/app/projects/${evidence.projectId}`);
+      let snapshot = await recordOkJson(
+        await initialSnapshotResponse,
+        evidence,
+        'pr06-initial-gantt-snapshot',
+        isPr06GanttSnapshot
+      ) as Pr06GanttSnapshotDto;
+
+      const initialItems = Object.fromEntries(
+        Object.entries(pr06TaskTitles).map(([key, title]) => [key, pr06GanttItem(snapshot, title)])
+      ) as Record<keyof typeof pr06TaskTitles, Pr06GanttItemDto>;
+      const milestone = pr06GanttItem(snapshot, pr06MilestoneTitle);
+      const allInitialIds = [
+        ...snapshot.scheduledItems,
+        ...snapshot.unscheduledItems,
+        ...snapshot.milestones
+      ].map((item) => item.taskId);
+      expect(new Set(allInitialIds).size, 'snapshot must not duplicate canonical WorkItems').toBe(allInitialIds.length);
+      expect(snapshot.totalItems).toBe(allInitialIds.length);
+      expect(snapshot.totalItems).toBeLessThanOrEqual(snapshot.maximumItems);
+      expect(snapshot.calendar.timeZone, 'the server returns an actual Workspace timezone identifier').toBeTruthy();
+      expect(snapshot.calendar.holidaysAvailable).toBe(false);
+      expect(snapshot.calendar.limitations.length).toBeGreaterThan(0);
+      expect(snapshot.permissions).toMatchObject({
+        canEditSchedule: true,
+        canEditProgress: true,
+        canManageDependencies: true,
+        canClearSchedule: true,
+        canOpen: true
+      });
+      expect(initialItems.parent.progressIsDerived).toBe(true);
+      expect(initialItems.parent.warnings.some((warning) => warning.code === 'PARENT_DERIVED')).toBe(true);
+      expect(initialItems.parent.scheduleEditPermissions).toMatchObject({
+        canEditSchedule: false,
+        canEditProgress: false,
+        canClearSchedule: false
+      });
+      expect(initialItems.unscheduled.warnings.some((warning) => warning.code === 'UNSCHEDULED')).toBe(true);
+      expect(milestone.kind).toBe('Milestone');
+      expect(milestone.milestoneDate).toBeTruthy();
+      expect(milestone.plannedStartDate).toBeNull();
+      expect(milestone.plannedEndDate).toBeNull();
+      expect(snapshot.dependencies.some((dependency) =>
+        dependency.type === 'FinishToStart' && dependency.editable)).toBe(true);
+      expect(snapshot.dependencies.some((dependency) =>
+        dependency.type !== 'FinishToStart' &&
+        dependency.editable === false &&
+        dependency.warnings.some((warning) => warning.code === 'LEGACY_DEPENDENCY_TYPE'))).toBe(true);
+      expect(snapshot.warnings.some((warning) => warning.code === 'DEPENDENCY_VIOLATION')).toBe(true);
+
+      const canonicalTasks = await recordFetchJson(
+        page,
+        evidence,
+        'pr06-shared-canonical-task-list',
+        `/api/projects/${evidence.projectId}/tasks?page=1&pageSize=100`,
+        {
+          validate: (body) => isPagedResponse(body) &&
+            Object.values(pr06TaskTitles).every((title) =>
+              body.items.some((item: unknown) => hasStringValue(item, 'title', title)))
+        }
+      ) as Record<string, any>;
+      const canonicalTaskIds = new Set(canonicalTasks.items.map((item: Record<string, unknown>) => String(item.id)));
+      expect(Object.values(initialItems).every((item) => canonicalTaskIds.has(item.taskId)),
+        'Gantt Task rows use the same canonical TaskItem ids as Project List').toBe(true);
+
+      await page.getByRole('tab', { name: 'Schedule', exact: true }).click();
+      await expect(page.getByTestId('project-schedule')).toBeVisible();
+      await expect(page.getByTestId('aip-gantt-projection')).toBeVisible();
+      await expect(page.getByText(`Workspace timezone:`)).toContainText(snapshot.calendar.timeZone);
+      await expect(pr06GanttItemLocator(page, initialItems.parent.taskId)).toContainText('Derived parent Task');
+      await expect(pr06GanttItemLocator(page, initialItems.parent.taskId)
+        .getByRole('button', { name: /Edit dates|Edit progress|Move to unscheduled/ })).toHaveCount(0);
+      await expect(page.getByText(/DEPENDENCY_VIOLATION/)).toBeVisible();
+      await expect(page.getByText(/LEGACY_DEPENDENCY_TYPE/)).toBeVisible();
+
+      const scheduleDetailBefore = await recordFetchJson(
+        page,
+        evidence,
+        'pr06-schedule-task-before',
+        `/api/tasks/${initialItems.schedule.taskId}`,
+        { validate: (body) => taskDetailVersion(body) === initialItems.schedule.version && taskDeadlineAt(body) !== null }
+      ) as Record<string, any>;
+      const deadlineAtBefore = taskDeadlineAt(scheduleDetailBefore);
+      const predecessorDatesBefore = {
+        plannedStartDate: initialItems.predecessor.plannedStartDate,
+        plannedEndDate: initialItems.predecessor.plannedEndDate
+      };
+
+      let scheduleLocator = pr06GanttItemLocator(page, initialItems.schedule.taskId);
+      await scheduleLocator.getByRole('button', { name: 'Edit dates', exact: true }).click();
+      await page.getByLabel('Planned start').fill('2031-03-01');
+      await page.getByLabel('Planned end').fill('2031-03-05');
+      const scheduleCommandResponse = waitForApiResponse(page, 'PATCH', `/api/tasks/${initialItems.schedule.taskId}/schedule`);
+      const scheduleRefetchResponse = waitForSuccessfulApiResponse(page, 'GET', ganttPath);
+      await page.getByRole('button', { name: 'Apply schedule', exact: true }).click();
+      const scheduleCommand = await recordPr06Command(
+        await scheduleCommandResponse,
+        evidence,
+        'manual-schedule-update',
+        200
+      );
+      expect(scheduleCommand.request).toMatchObject({
+        plannedStartDate: '2031-03-01',
+        plannedEndDate: '2031-03-05',
+        milestoneDate: null,
+        expectedVersion: initialItems.schedule.version
+      });
+      snapshot = await recordOkJson(
+        await scheduleRefetchResponse,
+        evidence,
+        'pr06-schedule-update-authoritative-refetch',
+        isPr06GanttSnapshot
+      ) as Pr06GanttSnapshotDto;
+      let scheduleTask = pr06GanttItem(snapshot, pr06TaskTitles.schedule);
+      expect(scheduleTask.plannedStartDate).toBe('2031-03-01');
+      expect(scheduleTask.plannedEndDate).toBe('2031-03-05');
+      expect(scheduleTask.version).toBeGreaterThan(initialItems.schedule.version);
+      const predecessorAfterSchedule = pr06GanttItem(snapshot, pr06TaskTitles.predecessor);
+      expect({
+        plannedStartDate: predecessorAfterSchedule.plannedStartDate,
+        plannedEndDate: predecessorAfterSchedule.plannedEndDate
+      }, 'manual schedule edits do not cascade to dependency neighbors').toEqual(predecessorDatesBefore);
+      await expect(pr06GanttItemLocator(page, scheduleTask.taskId)).toContainText('2031-03-01 to 2031-03-05');
+      await expectLogicalPr06GanttFocus(pr06GanttItemLocator(page, scheduleTask.taskId));
+
+      const scheduleDetailAfter = await recordFetchJson(
+        page,
+        evidence,
+        'pr06-schedule-task-after',
+        `/api/tasks/${scheduleTask.taskId}`,
+        {
+          validate: (body) =>
+            taskDetailVersion(body) === scheduleTask.version &&
+            taskDeadlineAt(body) === deadlineAtBefore
+        }
+      );
+      expect(taskDeadlineAt(scheduleDetailAfter), 'Gantt movement must not change DeadlineAt').toBe(deadlineAtBefore);
+
+      const milestoneBefore = pr06GanttItem(snapshot, pr06MilestoneTitle);
+      await pr06GanttItemLocator(page, milestoneBefore.taskId)
+        .getByRole('button', { name: 'Edit Milestone date', exact: true }).click();
+      await page.getByRole('dialog', { name: 'Edit Milestone date' })
+        .locator('input[name="milestoneDate"]')
+        .fill('2031-03-20');
+      const milestoneCommandResponse = waitForApiResponse(page, 'PATCH', `/api/tasks/${milestoneBefore.taskId}/schedule`);
+      const milestoneRefetchResponse = waitForSuccessfulApiResponse(page, 'GET', ganttPath);
+      await page.getByRole('button', { name: 'Apply schedule', exact: true }).click();
+      const milestoneCommand = await recordPr06Command(
+        await milestoneCommandResponse,
+        evidence,
+        'manual-milestone-date-update',
+        200
+      );
+      expect(milestoneCommand.request).toMatchObject({
+        plannedStartDate: null,
+        plannedEndDate: null,
+        milestoneDate: '2031-03-20',
+        expectedVersion: milestoneBefore.version
+      });
+      snapshot = await recordOkJson(
+        await milestoneRefetchResponse,
+        evidence,
+        'pr06-milestone-authoritative-refetch',
+        isPr06GanttSnapshot
+      ) as Pr06GanttSnapshotDto;
+      const milestoneAfter = pr06GanttItem(snapshot, pr06MilestoneTitle);
+      expect(milestoneAfter.milestoneDate).toBe('2031-03-20');
+      expect(milestoneAfter.plannedStartDate).toBeNull();
+      expect(milestoneAfter.plannedEndDate).toBeNull();
+
+      let progressTask = pr06GanttItem(snapshot, pr06TaskTitles.predecessor);
+      await pr06GanttItemLocator(page, progressTask.taskId)
+        .getByRole('button', { name: 'Edit progress', exact: true }).click();
+      await page.getByLabel('Progress percent').fill('35');
+      const progressCommandResponse = waitForApiResponse(page, 'PATCH', `/api/tasks/${progressTask.taskId}/progress`);
+      const progressRefetchResponse = waitForSuccessfulApiResponse(page, 'GET', ganttPath);
+      await page.getByRole('button', { name: 'Apply progress', exact: true }).click();
+      const progressCommand = await recordPr06Command(
+        await progressCommandResponse,
+        evidence,
+        'manual-leaf-progress-update',
+        200
+      );
+      expect(progressCommand.request).toMatchObject({
+        progressPercent: 35,
+        expectedVersion: progressTask.version
+      });
+      snapshot = await recordOkJson(
+        await progressRefetchResponse,
+        evidence,
+        'pr06-progress-authoritative-refetch',
+        isPr06GanttSnapshot
+      ) as Pr06GanttSnapshotDto;
+      progressTask = pr06GanttItem(snapshot, pr06TaskTitles.predecessor);
+      expect(progressTask.progressPercent).toBe(35);
+      await expect(pr06GanttItemLocator(page, progressTask.taskId)).toContainText('35%');
+
+      let successor = pr06GanttItem(snapshot, pr06TaskTitles.successor);
+      const dependencyPredecessor = pr06GanttItem(snapshot, pr06TaskTitles.predecessor);
+      await pr06GanttItemLocator(page, successor.taskId)
+        .getByRole('button', { name: 'Add FS predecessor', exact: true }).click();
+      await page.getByLabel('Finish-to-Start predecessor').selectOption(dependencyPredecessor.taskId);
+      const dependencyAddResponse = waitForApiResponse(page, 'POST', `/api/tasks/${successor.taskId}/dependencies`);
+      const dependencyAddRefetch = waitForSuccessfulApiResponse(page, 'GET', ganttPath);
+      await page.getByRole('button', { name: 'Add dependency', exact: true }).click();
+      const dependencyAdd = await recordPr06Command(
+        await dependencyAddResponse,
+        evidence,
+        'fs-dependency-add',
+        200
+      );
+      expect(dependencyAdd.request).toMatchObject({
+        predecessorTaskId: dependencyPredecessor.taskId,
+        dependencyType: 'FinishToStart',
+        expectedVersion: successor.version
+      });
+      snapshot = await recordOkJson(
+        await dependencyAddRefetch,
+        evidence,
+        'pr06-dependency-add-authoritative-refetch',
+        isPr06GanttSnapshot
+      ) as Pr06GanttSnapshotDto;
+      const addedDependency = snapshot.dependencies.find((dependency) =>
+        dependency.predecessorTaskId === dependencyPredecessor.taskId &&
+        dependency.successorTaskId === successor.taskId);
+      expect(addedDependency, 'the real FS dependency appears in the authoritative snapshot').toBeTruthy();
+      expect(addedDependency!.type).toBe('FinishToStart');
+      expect(addedDependency!.editable).toBe(true);
+      await expect(page.locator(`[data-gantt-dependency-id="${addedDependency!.dependencyId}"]`)).toBeVisible();
+
+      successor = pr06GanttItem(snapshot, pr06TaskTitles.successor);
+      const dependencyLocator = page.locator(`[data-gantt-dependency-id="${addedDependency!.dependencyId}"]`);
+      await dependencyLocator.getByRole('button', { name: 'Remove FS dependency', exact: true }).click();
+      const dependencyDeleteResponse = waitForApiResponse(
+        page,
+        'DELETE',
+        `/api/tasks/${successor.taskId}/dependencies/${addedDependency!.dependencyId}`
+      );
+      const dependencyDeleteRefetch = waitForSuccessfulApiResponse(page, 'GET', ganttPath);
+      await page.getByRole('button', { name: 'Remove dependency', exact: true }).click();
+      const dependencyDelete = await recordPr06Command(
+        await dependencyDeleteResponse,
+        evidence,
+        'fs-dependency-remove',
+        200
+      );
+      expect(new URL(dependencyDelete.response.url()).searchParams.get('expectedVersion'))
+        .toBe(String(successor.version));
+      snapshot = await recordOkJson(
+        await dependencyDeleteRefetch,
+        evidence,
+        'pr06-dependency-remove-authoritative-refetch',
+        isPr06GanttSnapshot
+      ) as Pr06GanttSnapshotDto;
+      expect(snapshot.dependencies.some((dependency) => dependency.dependencyId === addedDependency!.dependencyId)).toBe(false);
+      await expect(page.locator(`[data-gantt-dependency-id="${addedDependency!.dependencyId}"]`)).toHaveCount(0);
+
+      scheduleTask = pr06GanttItem(snapshot, pr06TaskTitles.schedule);
+      scheduleLocator = pr06GanttItemLocator(page, scheduleTask.taskId);
+      await scheduleLocator.getByRole('button', { name: 'Move to unscheduled', exact: true }).click();
+      const clearCommandResponse = waitForApiResponse(page, 'PATCH', `/api/tasks/${scheduleTask.taskId}/schedule`);
+      const clearRefetchResponse = waitForSuccessfulApiResponse(page, 'GET', ganttPath);
+      await page.getByRole('button', { name: 'Clear schedule', exact: true }).click();
+      const clearCommand = await recordPr06Command(
+        await clearCommandResponse,
+        evidence,
+        'manual-schedule-clear',
+        200
+      );
+      expect(clearCommand.request).toMatchObject({
+        plannedStartDate: null,
+        plannedEndDate: null,
+        milestoneDate: null,
+        expectedVersion: scheduleTask.version
+      });
+      snapshot = await recordOkJson(
+        await clearRefetchResponse,
+        evidence,
+        'pr06-schedule-clear-authoritative-refetch',
+        isPr06GanttSnapshot
+      ) as Pr06GanttSnapshotDto;
+      scheduleTask = pr06GanttItem(snapshot, pr06TaskTitles.schedule);
+      expect(snapshot.unscheduledItems.some((item) => item.taskId === scheduleTask.taskId)).toBe(true);
+      expect(scheduleTask.warnings.some((warning) => warning.code === 'UNSCHEDULED')).toBe(true);
+      await expect(page.getByRole('heading', { name: 'Unscheduled work', exact: true })
+        .locator('..')
+        .locator(`[data-gantt-item-id="${scheduleTask.taskId}"]`)).toBeVisible();
+
+      degradedContext = await browser.newContext({ baseURL: evidence.baseURL });
+      await degradedContext.addInitScript(() => {
+        const nativeFetch = window.fetch.bind(window);
+        window.fetch = (input: RequestInfo | URL, init?: RequestInit) => {
+          const url = typeof input === 'string' ? input : input instanceof URL ? input.href : input.url;
+          if (new URL(url, window.location.href).pathname.startsWith('/hubs/app')) {
+            return Promise.reject(new TypeError('Synthetic PR06 Hub unavailability'));
+          }
+          return nativeFetch(input, init);
+        };
+      });
+      const degradedPage = await degradedContext.newPage();
+      const degradedEvidence: SmokeEvidence = {
+        baseURL: evidence.baseURL,
+        email: pr05ManagerEmail,
+        steps: [],
+        pageErrors: [],
+        consoleErrors: [],
+        failedApiResponses: []
+      };
+      await loginAndVerifySession(degradedPage, degradedEvidence, { email: pr05ManagerEmail, password: smokePassword });
+      await expect(degradedPage.getByTestId('realtime-connection-state')).toContainText('Realtime updates are delayed');
+      const degradedSnapshotResponse = waitForApiResponse(degradedPage, 'GET', ganttPath);
+      await degradedPage.goto(`/app/projects/${evidence.projectId}`);
+      const degradedSnapshot = await recordOkJson(
+        await degradedSnapshotResponse,
+        degradedEvidence,
+        'pr06-degraded-gantt-snapshot',
+        isPr06GanttSnapshot
+      ) as Pr06GanttSnapshotDto;
+      await degradedPage.getByRole('tab', { name: 'Schedule', exact: true }).click();
+      await expect(degradedPage.getByText(/HTTP edits and manual refresh remain authoritative/)).toBeVisible();
+      const degradedSuccessor = pr06GanttItem(degradedSnapshot, pr06TaskTitles.successor);
+      await pr06GanttItemLocator(degradedPage, degradedSuccessor.taskId)
+        .getByRole('button', { name: 'Edit progress', exact: true }).click();
+      await degradedPage.getByLabel('Progress percent').fill('15');
+      const degradedProgressResponse = waitForApiResponse(
+        degradedPage,
+        'PATCH',
+        `/api/tasks/${degradedSuccessor.taskId}/progress`
+      );
+      const degradedProgressRefetch = waitForSuccessfulApiResponse(degradedPage, 'GET', ganttPath);
+      await degradedPage.getByRole('button', { name: 'Apply progress', exact: true }).click();
+      const degradedProgress = await recordPr06Command(
+        await degradedProgressResponse,
+        evidence,
+        'signalr-degraded-http-progress',
+        200
+      );
+      expect(degradedProgress.request).toMatchObject({
+        progressPercent: 15,
+        expectedVersion: degradedSuccessor.version
+      });
+      const degradedAuthoritative = await recordOkJson(
+        await degradedProgressRefetch,
+        degradedEvidence,
+        'pr06-degraded-progress-authoritative-refetch',
+        isPr06GanttSnapshot
+      ) as Pr06GanttSnapshotDto;
+      expect(pr06GanttItem(degradedAuthoritative, pr06TaskTitles.successor).progressPercent).toBe(15);
+      const degradedManualRefresh = waitForSuccessfulApiResponse(degradedPage, 'GET', ganttPath);
+      await degradedPage.getByRole('button', { name: 'Refresh schedule', exact: true }).click();
+      await recordOkJson(
+        await degradedManualRefresh,
+        degradedEvidence,
+        'pr06-degraded-manual-http-refresh',
+        isPr06GanttSnapshot
+      );
+      evidence.degradedHttp = {
+        connectionState: 'delayed',
+        commandStatus: degradedProgress.response.status(),
+        manualRefreshStatus: 200,
+        apiInterception: 'none'
+      };
+      await degradedContext.close();
+      degradedContext = null;
+
+      const mainRefreshAfterDegraded = waitForSuccessfulApiResponse(page, 'GET', ganttPath);
+      await page.getByRole('button', { name: 'Refresh schedule', exact: true }).click();
+      snapshot = await recordOkJson(
+        await mainRefreshAfterDegraded,
+        evidence,
+        'pr06-main-refresh-after-degraded-command',
+        isPr06GanttSnapshot
+      ) as Pr06GanttSnapshotDto;
+      expect(pr06GanttItem(snapshot, pr06TaskTitles.successor).progressPercent).toBe(15);
+
+      // Keep the semantic edit dialog open while a separate real command
+      // advances the same Task version. The UI then sends the stale version,
+      // renders its optimistic dates, receives a real 409, rolls back, and
+      // refetches the authoritative dates while preserving the user intent.
+      const conflictBefore = pr06GanttItem(snapshot, pr06TaskTitles.conflict);
+      const conflictLocator = pr06GanttItemLocator(page, conflictBefore.taskId);
+      await conflictLocator.getByRole('button', { name: 'Edit dates', exact: true }).click();
+      await page.getByLabel('Planned start').fill('2031-05-01');
+      await page.getByLabel('Planned end').fill('2031-05-02');
+      const concurrentConflict = await requestWithCsrf(
+        page,
+        'PATCH',
+        `/api/tasks/${conflictBefore.taskId}/schedule`,
+        {
+          plannedStartDate: '2031-04-01',
+          plannedEndDate: '2031-04-02',
+          milestoneDate: null,
+          expectedVersion: conflictBefore.version
+        }
+      );
+      expect(concurrentConflict.status, concurrentConflict.text).toBe(200);
+      expect(concurrentConflict.csrfHeaderPresent).toBe(true);
+      const concurrentConflictBody = parseJson(concurrentConflict.text);
+      expect(concurrentConflictBody.version).toBeGreaterThan(conflictBefore.version);
+      evidence.commands.push({
+        name: 'concurrent-real-schedule-update',
+        method: 'PATCH',
+        path: `/api/tasks/${conflictBefore.taskId}/schedule`,
+        status: concurrentConflict.status,
+        request: {
+          plannedStartDate: '2031-04-01',
+          plannedEndDate: '2031-04-02',
+          milestoneDate: null,
+          expectedVersion: conflictBefore.version
+        },
+        csrfHeaderPresent: concurrentConflict.csrfHeaderPresent
+      });
+      await expect(page.getByText(/authoritative refresh is queued until the active schedule interaction finishes/i))
+        .toBeVisible({ timeout: 30_000 });
+
+      await page.evaluate((taskId) => {
+        const state = { transitions: [] as string[], observer: null as MutationObserver | null };
+        const record = () => {
+          const text = document.querySelector(`[data-gantt-item-id="${taskId}"]`)?.textContent ?? '';
+          const dates = /(\d{4}-\d{2}-\d{2}) to (\d{4}-\d{2}-\d{2})/.exec(text);
+          const value = dates ? `${dates[1]} to ${dates[2]}` : '';
+          if (value && state.transitions.at(-1) !== value) state.transitions.push(value);
+        };
+        record();
+        state.observer = new MutationObserver(record);
+        state.observer.observe(document.body, { childList: true, subtree: true, characterData: true });
+        (window as Window & { __pr06ConflictObserver?: typeof state }).__pr06ConflictObserver = state;
+      }, conflictBefore.taskId);
+      const staleConflictResponse = waitForApiResponse(page, 'PATCH', `/api/tasks/${conflictBefore.taskId}/schedule`);
+      const conflictRefetchResponse = waitForSuccessfulApiResponse(page, 'GET', ganttPath);
+      await page.getByRole('button', { name: 'Apply schedule', exact: true }).click();
+      const staleConflict = await recordPr06Command(
+        await staleConflictResponse,
+        evidence,
+        'stale-schedule-conflict',
+        409
+      );
+      expect(staleConflict.request).toMatchObject({
+        plannedStartDate: '2031-05-01',
+        plannedEndDate: '2031-05-02',
+        milestoneDate: null,
+        expectedVersion: conflictBefore.version
+      });
+      expect(staleConflict.body.error?.code).toBe('GANTT_STALE_VERSION');
+      expect(staleConflict.text).not.toMatch(/tenantId|workspaceId|PR06 dependency successor|browser-smoke-pr06-gantt/i);
+      snapshot = await recordOkJson(
+        await conflictRefetchResponse,
+        evidence,
+        'pr06-conflict-authoritative-refetch',
+        isPr06GanttSnapshot
+      ) as Pr06GanttSnapshotDto;
+      const conflictAfter = pr06GanttItem(snapshot, pr06TaskTitles.conflict);
+      expect(conflictAfter.plannedStartDate).toBe('2031-04-01');
+      expect(conflictAfter.plannedEndDate).toBe('2031-04-02');
+      await expect(page.getByText(/Conflict reconciled from authoritative schedule data/)).toBeVisible();
+      await expect(page.getByRole('button', { name: /Retry preserved edit against the latest version/ })).toBeVisible();
+      await expectLogicalPr06GanttFocus(pr06GanttItemLocator(page, conflictAfter.taskId));
+      const optimisticDateTransitions = await page.evaluate(() => {
+        const state = (window as Window & {
+          __pr06ConflictObserver?: { transitions: string[]; observer: MutationObserver | null };
+        }).__pr06ConflictObserver;
+        state?.observer?.disconnect();
+        return state?.transitions ?? [];
+      });
+      const optimisticIndex = optimisticDateTransitions.indexOf('2031-05-01 to 2031-05-02');
+      expect(optimisticIndex, 'the stale command renders the optimistic dates before the backend responds').toBeGreaterThan(-1);
+      expect(optimisticDateTransitions.slice(optimisticIndex + 1),
+        'the real 409 rolls the schedule back to the authoritative concurrent dates')
+        .toContain('2031-04-01 to 2031-04-02');
+      evidence.staleConflict = {
+        taskId: conflictBefore.taskId,
+        staleVersion: conflictBefore.version,
+        concurrentVersion: Number(concurrentConflictBody.version),
+        code: staleConflict.body.error?.code,
+        status: staleConflict.response.status(),
+        authoritativeVersion: conflictAfter.version,
+        authoritativeDates: {
+          plannedStartDate: conflictAfter.plannedStartDate,
+          plannedEndDate: conflictAfter.plannedEndDate
+        },
+        optimisticDateTransitions,
+        intentPreserved: true,
+        focusRestored: true
+      };
+
+      const reloadSnapshotResponse = waitForSuccessfulApiResponse(page, 'GET', ganttPath);
+      await page.reload();
+      snapshot = await recordOkJson(
+        await reloadSnapshotResponse,
+        evidence,
+        'pr06-reload-persistence',
+        isPr06GanttSnapshot
+      ) as Pr06GanttSnapshotDto;
+      await page.getByRole('tab', { name: 'Schedule', exact: true }).click();
+      expect(snapshot.unscheduledItems.some((item) => item.title === pr06TaskTitles.schedule)).toBe(true);
+      expect(pr06GanttItem(snapshot, pr06TaskTitles.predecessor).progressPercent).toBe(35);
+      expect(pr06GanttItem(snapshot, pr06TaskTitles.successor).progressPercent).toBe(15);
+      expect(pr06GanttItem(snapshot, pr06MilestoneTitle).milestoneDate).toBe('2031-03-20');
+      expect(pr06GanttItem(snapshot, pr06TaskTitles.conflict).plannedStartDate).toBe('2031-04-01');
+      expect(snapshot.dependencies.some((dependency) => dependency.dependencyId === addedDependency!.dependencyId)).toBe(false);
+      evidence.reloadPersistence = {
+        scheduleTaskUnscheduled: true,
+        progressPercent: 35,
+        degradedProgressPercent: 15,
+        milestoneDate: '2031-03-20',
+        conflictDates: ['2031-04-01', '2031-04-02'],
+        removedDependencyAbsent: true
+      };
+
+      const protectedDataClear = page.evaluate((protectedTitles) =>
+        new Promise<'protected-data-cleared'>((resolve) => {
+          const isClear = () => {
+            const text = document.body.innerText;
+            return document.querySelectorAll('[data-gantt-item-id]').length === 0 &&
+              protectedTitles.every((title) => !text.includes(title));
+          };
+          if (isClear()) {
+            resolve('protected-data-cleared');
+            return;
+          }
+          const observer = new MutationObserver(() => {
+            if (!isClear()) return;
+            observer.disconnect();
+            resolve('protected-data-cleared');
+          });
+          observer.observe(document.body, { childList: true, subtree: true, characterData: true });
+        }), [...Object.values(pr06TaskTitles), pr06MilestoneTitle]);
+
+      ownerContext = await browser.newContext({ baseURL: evidence.baseURL });
+      const ownerPage = await ownerContext.newPage();
+      const ownerEvidence: SmokeEvidence = {
+        baseURL: evidence.baseURL,
+        email: smokeEmail,
+        steps: [],
+        pageErrors: [],
+        consoleErrors: [],
+        failedApiResponses: []
+      };
+      await loginAndVerifySession(ownerPage, ownerEvidence);
+      expect(ownerEvidence.userId, 'the revoking Owner is a distinct authenticated user').not.toBe(evidence.userId);
+      expect(ownerEvidence.userId).toBe(String(ownerMember.userId));
+
+      const responseGateId = randomUUID().replaceAll('-', '');
+      const gateArm = await requestWithCsrf(
+        page,
+        'POST',
+        `${pr05ResponseGatePath}/${responseGateId}/arm`,
+        { method: 'GET', path: ganttPath }
+      );
+      expect(gateArm.status, gateArm.text).toBe(200);
+      expect(gateArm.csrfHeaderPresent).toBe(true);
+      await page.context().addCookies([{
+        name: pr05ResponseGateCookieName,
+        value: responseGateId,
+        url: new URL('/', page.url()).href
+      }]);
+
+      const heldAuthorizedRefreshResponse = page.waitForResponse((response) =>
+        response.request().method() === 'GET' &&
+        new URL(response.url()).pathname === ganttPath &&
+        response.status() === 200 &&
+        response.headers()[pr05ResponseGateHeaderName] === responseGateId
+      );
+      const heldRefreshRequest = page.waitForRequest((request) =>
+        request.method() === 'GET' && new URL(request.url()).pathname === ganttPath);
+      await page.getByRole('button', { name: 'Refresh schedule', exact: true }).click();
+      await heldRefreshRequest;
+      await expect.poll(async () => {
+        const gate = await fetchJsonFromPage(page, `${pr05ResponseGatePath}/${responseGateId}`);
+        return gate.status === 200 ? gate.body : { state: `HTTP ${gate.status}`, statusCode: null };
+      }, {
+        message: 'the real authorized Gantt response reaches the one-shot response gate',
+        timeout: 10_000
+      }).toMatchObject({ state: 'waiting', statusCode: 200 });
+
+      const deniedRefreshResponse = page.waitForResponse((response) =>
+        response.request().method() === 'GET' &&
+        new URL(response.url()).pathname === ganttPath &&
+        response.status() === 404
+      );
+      const firstRevocationObservationPromise = Promise.race([
+        protectedDataClear,
+        deniedRefreshResponse.then(() => 'denial-response' as const)
+      ]);
+      const revoke = await requestWithCsrf(
+        ownerPage,
+        'DELETE',
+        `/api/projects/${evidence.projectId}/members/${evidence.userId}`
+      );
+      expect(revoke.status, revoke.text).toBe(200);
+      expect(revoke.csrfHeaderPresent).toBe(true);
+      const firstRevocationObservation = await firstRevocationObservationPromise;
+      expect(firstRevocationObservation,
+        'protected schedule DOM is cleared before the authoritative denial response is delivered')
+        .toBe('protected-data-cleared');
+      const deniedResponse = await deniedRefreshResponse;
+      const deniedText = await deniedResponse.text();
+      evidence.steps.push({
+        name: 'pr06-authorization-state-safe-gantt-denial',
+        method: 'GET',
+        path: new URL(deniedResponse.url()).pathname,
+        status: deniedResponse.status(),
+        bodyPreview: preview(deniedText)
+      });
+      expectCanonicalGanttDenial(deniedText, 'GANTT_PROJECT_NOT_FOUND');
+      await expect(page.locator('[data-gantt-item-id]')).toHaveCount(0);
+      await expect(page.locator('[data-gantt-dependency-id]')).toHaveCount(0);
+      for (const title of [...Object.values(pr06TaskTitles), pr06MilestoneTitle]) {
+        await expect(page.getByText(title, { exact: true })).toHaveCount(0);
+      }
+      await expect(page.locator('body')).not.toContainText(/DEPENDENCY_VIOLATION|LEGACY_DEPENDENCY_TYPE|PARENT_DERIVED/);
+
+      await page.evaluate((protectedTitles) => {
+        const state = { restored: false, observer: null as MutationObserver | null };
+        const observe = () => {
+          const text = document.body.innerText;
+          if (
+            document.querySelectorAll('[data-gantt-item-id]').length > 0 ||
+            protectedTitles.some((title) => text.includes(title))
+          ) {
+            state.restored = true;
+          }
+        };
+        state.observer = new MutationObserver(observe);
+        state.observer.observe(document.body, { childList: true, subtree: true, characterData: true });
+        (window as Window & { __pr06RevocationObserver?: typeof state }).__pr06RevocationObserver = state;
+        observe();
+      }, [...Object.values(pr06TaskTitles), pr06MilestoneTitle]);
+
+      const gateRelease = await requestWithCsrf(
+        page,
+        'POST',
+        `${pr05ResponseGatePath}/${responseGateId}/release`
+      );
+      expect(gateRelease.status, gateRelease.text).toBe(200);
+      const staleAuthorizedResponse = await heldAuthorizedRefreshResponse;
+      expect(staleAuthorizedResponse.status()).toBe(200);
+      expect(await staleAuthorizedResponse.finished()).toBeNull();
+      evidence.steps.push({
+        name: 'pr06-stale-authorized-gantt-response-after-revocation',
+        method: 'GET',
+        path: new URL(staleAuthorizedResponse.url()).pathname,
+        status: staleAuthorizedResponse.status()
+      });
+      await page.evaluate(() => new Promise<void>((resolve) =>
+        requestAnimationFrame(() => requestAnimationFrame(() => resolve()))));
+      const protectedDataRestoredByStaleResponse = await page.evaluate(() => {
+        const state = (window as Window & {
+          __pr06RevocationObserver?: { restored: boolean; observer: MutationObserver | null };
+        }).__pr06RevocationObserver;
+        state?.observer?.disconnect();
+        return state?.restored ?? true;
+      });
+      expect(protectedDataRestoredByStaleResponse,
+        'the held authorized Gantt 200 must not restore protected schedule data').toBe(false);
+      await expect(page.locator('[data-gantt-item-id]')).toHaveCount(0);
+
+      const subsequentDenial = await fetchFromPage(page, ganttPath);
+      evidence.steps.push({
+        name: 'pr06-subsequent-gantt-safe-denial',
+        method: 'GET',
+        path: ganttPath,
+        status: subsequentDenial.status,
+        bodyPreview: preview(subsequentDenial.text)
+      });
+      expect(subsequentDenial.status).toBe(404);
+      expectCanonicalGanttDenial(subsequentDenial.text, 'GANTT_PROJECT_NOT_FOUND');
+      evidence.authorizationRevocation = {
+        revokingActorUserId: ownerEvidence.userId!,
+        revokedUserId: evidence.userId!,
+        revokeStatus: revoke.status,
+        overlappingRefreshStatus: staleAuthorizedResponse.status(),
+        denialStatus: deniedResponse.status(),
+        subsequentDenialStatus: subsequentDenial.status,
+        protectedDataClearedBeforeRevalidation: firstRevocationObservation === 'protected-data-cleared',
+        protectedDataRestoredByStaleResponse
+      };
+
+      expect(evidence.pageErrors, 'browser page errors').toEqual([]);
+      expectUnexpectedConsoleErrors(evidence);
+      expectUnexpectedApiFailures(evidence);
+    } finally {
+      await degradedContext?.close();
+      await ownerContext?.close();
+      await testInfo.attach('task-v1-pr06-real-backend-evidence.json', {
+        body: JSON.stringify(evidence, null, 2),
+        contentType: 'application/json'
+      });
+    }
+  });
+
   test('TASK-V1-PR03C uses the real backend for task detail, mutations, revocation, and File grant reauthorization', async ({ page }, testInfo) => {
     const evidence: SmokeEvidence = {
       baseURL: String(testInfo.project.use.baseURL ?? ''), email: smokeEmail, steps: [], pageErrors: [], consoleErrors: [], failedApiResponses: []
@@ -1188,6 +1953,179 @@ async function loginAndVerifySession(
       Array.isArray((body as Record<string, unknown>).workspaces) &&
       hasCapability(body, 'projects:view')
   });
+}
+
+async function recordPr06Command(
+  response: PlaywrightResponse,
+  evidence: Pr06GanttEvidence,
+  name: string,
+  expectedStatus: 200 | 409
+): Promise<{
+  response: PlaywrightResponse;
+  request: Record<string, any>;
+  body: any;
+  text: string;
+}> {
+  const text = await response.text();
+  const body = parseJson(text);
+  const request = response.request().postData()
+    ? response.request().postDataJSON() as Record<string, any>
+    : {};
+  const headers = await response.request().allHeaders();
+  const csrfHeaderPresent = Object.entries(headers)
+    .some(([headerName, value]) => headerName.toLowerCase() === 'x-csrf-token' && value.length > 0);
+  const method = response.request().method();
+  const path = new URL(response.url()).pathname;
+
+  evidence.steps.push({
+    name: `pr06-${name}`,
+    method,
+    path,
+    status: response.status(),
+    bodyPreview: preview(text)
+  });
+  expect(response.status(), `${name} response ${response.status()}: ${text}`).toBe(expectedStatus);
+  expect(csrfHeaderPresent, `${name} uses the real Angular/browser CSRF token`).toBe(true);
+  if (expectedStatus === 200) {
+    const valid =
+      (method === 'PATCH' &&
+        typeof body?.taskId === 'string' &&
+        typeof body?.version === 'number' &&
+        Array.isArray(body?.warnings)) ||
+      (method === 'POST' &&
+        typeof body?.id === 'string' &&
+        typeof body?.predecessorTaskId === 'string' &&
+        typeof body?.successorTaskId === 'string' &&
+        body?.dependencyType === 'FinishToStart') ||
+      (method === 'DELETE' && body?.status === 'OK');
+    expect(valid, `${name} canonical command response: ${text}`).toBe(true);
+  } else {
+    expect(
+      body && typeof body === 'object' &&
+      typeof body.requestId === 'string' &&
+      body.error && typeof body.error === 'object' &&
+      typeof body.error.code === 'string' &&
+      Array.isArray(body.error.details),
+      `${name} safe conflict response: ${text}`
+    ).toBe(true);
+  }
+
+  evidence.commands.push({
+    name,
+    method,
+    path,
+    status: response.status(),
+    request,
+    csrfHeaderPresent
+  });
+  return { response, request, body, text };
+}
+
+function isPr06GanttSnapshot(body: unknown): body is Pr06GanttSnapshotDto {
+  if (!body || typeof body !== 'object') return false;
+  const snapshot = body as Record<string, any>;
+  const collections = [
+    snapshot.scheduledItems,
+    snapshot.unscheduledItems,
+    snapshot.milestones,
+    snapshot.dependencies,
+    snapshot.warnings
+  ];
+  if (
+    typeof snapshot.projectId !== 'string' ||
+    typeof snapshot.projectTitle !== 'string' ||
+    typeof snapshot.projectVersion !== 'number' ||
+    typeof snapshot.workflowVersion !== 'number' ||
+    !snapshot.calendar ||
+    typeof snapshot.calendar.timeZone !== 'string' ||
+    !Array.isArray(snapshot.calendar.workingDays) ||
+    typeof snapshot.calendar.holidaysAvailable !== 'boolean' ||
+    !Array.isArray(snapshot.calendar.limitations) ||
+    collections.some((collection) => !Array.isArray(collection)) ||
+    !snapshot.permissions ||
+    typeof snapshot.permissions.canEditSchedule !== 'boolean' ||
+    typeof snapshot.permissions.canEditProgress !== 'boolean' ||
+    typeof snapshot.permissions.canManageDependencies !== 'boolean' ||
+    typeof snapshot.permissions.canClearSchedule !== 'boolean' ||
+    typeof snapshot.permissions.canOpen !== 'boolean' ||
+    typeof snapshot.maximumItems !== 'number' ||
+    typeof snapshot.totalItems !== 'number'
+  ) {
+    return false;
+  }
+
+  const itemIsCanonical = (item: unknown) => {
+    if (!item || typeof item !== 'object') return false;
+    const value = item as Record<string, any>;
+    return typeof value.taskId === 'string' &&
+      (value.kind === 'Task' || value.kind === 'Milestone') &&
+      typeof value.title === 'string' &&
+      typeof value.progressPercent === 'number' &&
+      typeof value.progressIsDerived === 'boolean' &&
+      typeof value.version === 'number' &&
+      value.scheduleEditPermissions &&
+      typeof value.scheduleEditPermissions.canEditSchedule === 'boolean' &&
+      typeof value.scheduleEditPermissions.canEditProgress === 'boolean' &&
+      typeof value.scheduleEditPermissions.canManageDependencies === 'boolean' &&
+      typeof value.scheduleEditPermissions.canClearSchedule === 'boolean' &&
+      typeof value.scheduleEditPermissions.canOpen === 'boolean' &&
+      Array.isArray(value.warnings);
+  };
+  const dependencyIsCanonical = (dependency: unknown) => {
+    if (!dependency || typeof dependency !== 'object') return false;
+    const value = dependency as Record<string, any>;
+    return typeof value.dependencyId === 'string' &&
+      typeof value.predecessorTaskId === 'string' &&
+      typeof value.successorTaskId === 'string' &&
+      typeof value.type === 'string' &&
+      typeof value.editable === 'boolean' &&
+      typeof value.version === 'number' &&
+      Array.isArray(value.warnings);
+  };
+  return snapshot.scheduledItems.every(itemIsCanonical) &&
+    snapshot.unscheduledItems.every(itemIsCanonical) &&
+    snapshot.milestones.every(itemIsCanonical) &&
+    snapshot.dependencies.every(dependencyIsCanonical);
+}
+
+function pr06GanttItem(snapshot: Pr06GanttSnapshotDto, title: string): Pr06GanttItemDto {
+  const item = [...snapshot.scheduledItems, ...snapshot.unscheduledItems, ...snapshot.milestones]
+    .find((candidate) => candidate.title === title);
+  expect(item, `${title} is present in the real canonical Gantt response`).toBeTruthy();
+  return item!;
+}
+
+function pr06GanttItemLocator(page: Page, taskId: string): Locator {
+  return page.locator(`[data-gantt-item-id="${taskId}"]`);
+}
+
+async function expectLogicalPr06GanttFocus(item: Locator): Promise<void> {
+  await expect.poll(() => item.evaluate((element) =>
+    element === document.activeElement || element.contains(document.activeElement)
+  )).toBe(true);
+}
+
+function taskDetailVersion(body: unknown): number | null {
+  if (!body || typeof body !== 'object') return null;
+  const task = (body as Record<string, any>).task;
+  return task && typeof task.version === 'number' ? task.version : null;
+}
+
+function taskDeadlineAt(body: unknown): string | null {
+  if (!body || typeof body !== 'object') return null;
+  const task = (body as Record<string, any>).task;
+  return task && typeof task.deadlineAt === 'string' ? task.deadlineAt : null;
+}
+
+function expectCanonicalGanttDenial(text: string, expectedCode: string): void {
+  const body = parseJson(text) as Record<string, any>;
+  expect(typeof body.requestId, 'safe Gantt denial requestId').toBe('string');
+  expect(body.error?.code, 'safe Gantt denial code').toBe(expectedCode);
+  expect(body.error?.redactionApplied, 'safe Gantt denial redaction marker').toBe(true);
+  expect(Array.isArray(body.error?.details), 'safe Gantt denial details').toBe(true);
+  expect(text, 'safe Gantt denial must not expose protected schedule metadata').not.toMatch(
+    /tenantId|workspaceId|PR06 (?:derived|schedule|predecessor|unscheduled|conflict|dependency|release)|browser-smoke-pr06-gantt|DeadlineAt|SQL/i
+  );
 }
 
 async function recordPr05KanbanCommand(
@@ -1710,6 +2648,21 @@ function waitForApiResponse(page: Page, method: string, path: string | RegExp): 
   });
 }
 
+function waitForSuccessfulApiResponse(
+  page: Page,
+  method: string,
+  path: string | RegExp
+): Promise<PlaywrightResponse> {
+  return page.waitForResponse((response) => {
+    if (!response.ok() || response.request().method() !== method) {
+      return false;
+    }
+
+    const pathname = new URL(response.url()).pathname;
+    return typeof path === 'string' ? pathname === path : path.test(pathname);
+  });
+}
+
 async function recordOkJson(
   response: PlaywrightResponse,
   evidence: SmokeEvidence,
@@ -1822,7 +2775,7 @@ async function requestBinaryWithCsrf(page: Page, path: string, body: unknown): P
 /** Acquires the anti-forgery token in the browser and never serializes it into evidence. */
 async function requestWithCsrf(
   page: Page,
-  method: 'POST' | 'DELETE',
+  method: 'POST' | 'PATCH' | 'DELETE',
   path: string,
   body?: unknown
 ): Promise<{ status: number; text: string; csrfHeaderPresent: boolean }> {
@@ -1892,6 +2845,8 @@ function isExpectedFailure(failure: SmokeFailedApiResponse): boolean {
     (failure.method === 'GET' && failure.path === '/api/me/tasks/counts' && failure.status === 403) ||
     (failure.method === 'POST' && /^\/api\/tasks\/[0-9a-f-]+\/kanban-move$/i.test(failure.path) && failure.status === 409) ||
     (failure.method === 'GET' && /^\/api\/projects\/[0-9a-f-]+\/kanban$/i.test(failure.path) && failure.status === 404) ||
+    (failure.method === 'PATCH' && /^\/api\/tasks\/[0-9a-f-]+\/(?:schedule|progress)$/i.test(failure.path) && failure.status === 409) ||
+    (failure.method === 'GET' && /^\/api\/projects\/[0-9a-f-]+\/gantt$/i.test(failure.path) && failure.status === 404) ||
     (failure.method === 'GET' && /^\/api\/tasks\/[0-9a-f-]+$/i.test(failure.path) && failure.status === 404) ||
     (failure.method === 'POST' && /^\/api\/attachments\/[0-9a-f-]+\/download-grants$/i.test(failure.path) && failure.status === 404) ||
     (failure.method === 'GET' && /^\/api\/attachments\/[0-9a-f-]+\/download$/i.test(failure.path) && failure.status === 400) ||
@@ -1999,6 +2954,139 @@ interface SmokeFailedApiResponse {
   method: string;
   path: string;
   status: number;
+}
+
+interface Pr06GanttEvidence extends SmokeEvidence {
+  featureFlagEnabled?: boolean;
+  readonly seed: {
+    readonly projectSlug: string;
+    readonly projectTitle: string;
+    readonly taskTitles: readonly string[];
+    readonly milestoneTitle: string;
+  };
+  readonly apiInterception: 'none';
+  readonly hubTransportFaultInjection: string;
+  readonly commands: Pr06GanttCommandEvidence[];
+  degradedHttp?: {
+    connectionState: 'delayed';
+    commandStatus: number;
+    manualRefreshStatus: number;
+    apiInterception: 'none';
+  };
+  staleConflict?: {
+    taskId: string;
+    staleVersion: number;
+    concurrentVersion: number;
+    code: string | undefined;
+    status: number;
+    authoritativeVersion: number;
+    authoritativeDates: {
+      plannedStartDate: string | null;
+      plannedEndDate: string | null;
+    };
+    optimisticDateTransitions: string[];
+    intentPreserved: true;
+    focusRestored: true;
+  };
+  reloadPersistence?: {
+    scheduleTaskUnscheduled: true;
+    progressPercent: number;
+    degradedProgressPercent: number;
+    milestoneDate: string;
+    conflictDates: [string, string];
+    removedDependencyAbsent: true;
+  };
+  authorizationRevocation?: {
+    revokingActorUserId: string;
+    revokedUserId: string;
+    revokeStatus: number;
+    overlappingRefreshStatus: number;
+    denialStatus: number;
+    subsequentDenialStatus: number;
+    protectedDataClearedBeforeRevalidation: boolean;
+    protectedDataRestoredByStaleResponse: boolean;
+  };
+}
+
+interface Pr06GanttCommandEvidence {
+  name: string;
+  method: string;
+  path: string;
+  status: number;
+  request: Record<string, unknown>;
+  csrfHeaderPresent: boolean;
+}
+
+interface Pr06GanttWarningDto {
+  code: string;
+  message: string;
+  severity: 'Info' | 'Warning';
+  targetType: string;
+  targetId: string | null;
+  field: string | null;
+  blocking: false;
+}
+
+interface Pr06GanttPermissionsDto {
+  canEditSchedule: boolean;
+  canEditProgress: boolean;
+  canManageDependencies: boolean;
+  canClearSchedule: boolean;
+  canOpen: boolean;
+}
+
+interface Pr06GanttItemDto {
+  taskId: string;
+  kind: 'Task' | 'Milestone';
+  parentTaskId: string | null;
+  milestoneId: string | null;
+  title: string;
+  plannedStartDate: string | null;
+  plannedEndDate: string | null;
+  milestoneDate: string | null;
+  progressPercent: number;
+  progressIsDerived: boolean;
+  workflowStageId: string | null;
+  workflowStageName: string | null;
+  stageCategory: string;
+  priority: string;
+  isBlocked: boolean;
+  primaryAssignee: { userId: string; displayName: string } | null;
+  version: number;
+  scheduleEditPermissions: Pr06GanttPermissionsDto;
+  warnings: Pr06GanttWarningDto[];
+}
+
+interface Pr06GanttDependencyDto {
+  dependencyId: string;
+  predecessorTaskId: string;
+  successorTaskId: string;
+  type: 'FinishToStart' | 'StartToStart' | 'FinishToFinish' | 'StartToFinish';
+  editable: boolean;
+  version: number;
+  warnings: Pr06GanttWarningDto[];
+}
+
+interface Pr06GanttSnapshotDto {
+  projectId: string;
+  projectTitle: string;
+  projectVersion: number;
+  workflowVersion: number;
+  calendarVersion: number | null;
+  calendar: {
+    timeZone: string;
+    workingDays: string[];
+    holidaysAvailable: boolean;
+    limitations: string[];
+  };
+  scheduledItems: Pr06GanttItemDto[];
+  unscheduledItems: Pr06GanttItemDto[];
+  milestones: Pr06GanttItemDto[];
+  dependencies: Pr06GanttDependencyDto[];
+  warnings: Pr06GanttWarningDto[];
+  permissions: Pr06GanttPermissionsDto;
+  maximumItems: number;
+  totalItems: number;
 }
 
 interface Pr05KanbanEvidence extends SmokeEvidence {

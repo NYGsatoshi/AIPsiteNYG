@@ -1,6 +1,7 @@
 using AipPortal.Application.Common;
 using AipPortal.Application.Common.Interfaces;
 using AipPortal.Application.Planning;
+using AipPortal.Application.Projects;
 using AipPortal.Domain.Entities;
 using AipPortal.Domain.Enums;
 using Microsoft.EntityFrameworkCore;
@@ -9,85 +10,394 @@ namespace AipPortal.Infrastructure.Persistence;
 
 public sealed class PlanningRepository(AppDbContext dbContext) : IPlanningRepository
 {
-    public async Task<ProjectGanttResponse?> GetGanttAsync(Guid projectId, DateOnly today, CancellationToken cancellationToken = default)
+    private const int MaximumGanttDependencies = 2_000;
+
+    public async Task<GanttSnapshotReadResult> GetGanttAsync(
+        Guid projectId,
+        Guid actorUserId,
+        bool canManageProject,
+        bool canContributeToOwnedTasks,
+        string workspaceTimeZone,
+        int maximumItems,
+        CancellationToken cancellationToken = default)
     {
         var project = await dbContext.Projects
             .AsNoTracking()
-            .Where(project => project.Id == projectId && !project.DeletedAt.HasValue)
-            .Select(project => new { project.Id, project.Name, project.StartDate, project.DueDate })
+            .Where(project =>
+                project.Id == projectId &&
+                !project.DeletedAt.HasValue &&
+                project.Status != ProjectStatus.Archived &&
+                project.Status != ProjectStatus.Deleted)
+            .Select(project => new
+            {
+                project.Id,
+                project.Name,
+                project.VersionNo
+            })
             .FirstOrDefaultAsync(cancellationToken);
 
         if (project is null)
         {
-            return null;
+            return new GanttSnapshotReadResult(null, 0, false, false);
         }
+
+        var taskCount = await dbContext.TaskItems
+            .AsNoTracking()
+            .LongCountAsync(task =>
+                task.ProjectId == projectId &&
+                task.Kind == WorkItemKind.Task &&
+                !task.DeletedAt.HasValue,
+                cancellationToken);
+        var milestoneCount = await dbContext.Milestones
+            .AsNoTracking()
+            .LongCountAsync(milestone =>
+                milestone.ProjectId == projectId &&
+                !milestone.DeletedAt.HasValue,
+                cancellationToken);
+        var totalLong = taskCount + milestoneCount;
+        var totalItems = totalLong > int.MaxValue ? int.MaxValue : (int)totalLong;
+        if (totalLong > maximumItems)
+        {
+            return new GanttSnapshotReadResult(null, totalItems, true, false);
+        }
+
+        var workflowVersion = await dbContext.TaskWorkflowDefinitions
+            .AsNoTracking()
+            .Where(definition => definition.ProjectId == projectId)
+            .OrderBy(definition => definition.Id)
+            .Select(definition => (long?)definition.VersionNo)
+            .FirstOrDefaultAsync(cancellationToken) ?? 1L;
+
+        // The count gate above bounds this entity read. Reference Includes do not
+        // expand the graph and keep Stage/primary-assignee projection set based.
+        var tasks = await dbContext.TaskItems
+            .AsNoTracking()
+            .Include(task => task.WorkflowStage)
+            .Include(task => task.PrimaryAssigneeUser)
+            .Where(task =>
+                task.ProjectId == projectId &&
+                task.Kind == WorkItemKind.Task &&
+                !task.DeletedAt.HasValue)
+            .OrderBy(task => task.SortKey)
+            .ThenBy(task => task.Id)
+            .Take(maximumItems + 1)
+            .ToListAsync(cancellationToken);
 
         var milestones = await dbContext.Milestones
             .AsNoTracking()
             .Where(milestone => milestone.ProjectId == projectId && !milestone.DeletedAt.HasValue)
             .OrderBy(milestone => milestone.SortOrder)
-            .Select(milestone => new GanttMilestoneResponse(milestone.Id, milestone.Name, milestone.DueDate, milestone.Status))
+            .ThenBy(milestone => milestone.Id)
+            .Take(maximumItems + 1)
             .ToListAsync(cancellationToken);
 
-        var tasks = await dbContext.TaskItems
-            .AsNoTracking()
-            .Where(task => task.ProjectId == projectId && !task.DeletedAt.HasValue)
-            .OrderBy(task => task.SortOrder)
-            .ThenBy(task => task.DueDate)
-            .Select(task => new
-            {
-                task.Id,
-                task.Title,
-                task.MilestoneId,
-                task.StartDate,
-                task.DueDate,
-                task.ProgressPercent,
-                task.Status,
-                task.Priority
-            })
-            .ToListAsync(cancellationToken);
+        // The pre-read count is only an early gate. Under PostgreSQL's default
+        // READ COMMITTED isolation, inserts can become visible between statements,
+        // so enforce the combined bound again against the rows actually projected.
+        // This also keeps TotalItems aligned when rows are deleted between the
+        // initial count and the bounded reads.
+        totalItems = tasks.Count + milestones.Count;
+        if (totalItems > maximumItems)
+        {
+            return new GanttSnapshotReadResult(null, totalItems, true, false);
+        }
 
-        var taskIds = tasks.Select(task => task.Id).ToList();
-        var assignees = await dbContext.TaskAssignments
-            .AsNoTracking()
-            .Where(assignment => taskIds.Contains(assignment.TaskItemId))
-            .Select(assignment => new
-            {
-                assignment.TaskItemId,
-                Response = new GanttAssigneeResponse(assignment.UserId, assignment.User!.DisplayName, assignment.Role)
-            })
-            .ToListAsync(cancellationToken);
-
-        var assigneesByTask = assignees
-            .GroupBy(assignment => assignment.TaskItemId)
-            .ToDictionary(group => group.Key, group => group.Select(item => item.Response).ToList());
-
+        var taskIds = tasks.Select(task => task.Id).ToArray();
         var dependencies = await dbContext.TaskDependencies
             .AsNoTracking()
-            .Where(dependency => dependency.ProjectId == projectId)
-            .Select(dependency => new GanttDependencyResponse(dependency.Id, dependency.PredecessorTaskItemId, dependency.SuccessorTaskItemId, dependency.DependencyType))
+            .Where(dependency =>
+                dependency.ProjectId == projectId &&
+                taskIds.Contains(dependency.PredecessorTaskItemId) &&
+                taskIds.Contains(dependency.SuccessorTaskItemId))
+            .OrderBy(dependency => dependency.PredecessorTaskItemId)
+            .ThenBy(dependency => dependency.SuccessorTaskItemId)
+            .ThenBy(dependency => dependency.Id)
+            .Take(MaximumGanttDependencies + 1)
             .ToListAsync(cancellationToken);
 
-        return new ProjectGanttResponse(
+        if (dependencies.Count > MaximumGanttDependencies)
+        {
+            return new GanttSnapshotReadResult(null, totalItems, false, true);
+        }
+
+        var milestoneIds = milestones.Select(milestone => milestone.Id).ToHashSet();
+        var visibleTaskIds = taskIds.ToHashSet();
+        var taskWarnings = tasks.ToDictionary(task => task.Id, _ => new List<GanttWarningResponse>());
+        var computedTasks = tasks.ToDictionary(
+            task => task.Id,
+            task =>
+            {
+                var derived = ParentTaskDerivedValuesCalculator.Calculate(task, tasks, GanttCategoryOf);
+                var category = GanttCategoryOf(task);
+                var mayEditOwnTask =
+                    canContributeToOwnedTasks &&
+                    (task.CreatedByUserId == actorUserId || task.PrimaryAssigneeUserId == actorUserId);
+                var mayEditLeaf = !derived.IsDerived && (canManageProject || mayEditOwnTask);
+                var mayEditProgress =
+                    mayEditLeaf &&
+                    category is not TaskStageCategory.Done and not TaskStageCategory.Cancelled;
+                var permissions = new GanttPermissionsResponse(
+                    mayEditLeaf,
+                    mayEditProgress,
+                    canManageProject,
+                    mayEditLeaf,
+                    true);
+                var warnings = taskWarnings[task.Id];
+                if (derived.IsDerived)
+                {
+                    warnings.Add(Warning(
+                        "PARENT_DERIVED",
+                        "Parent schedule and progress are derived from direct children and cannot be edited directly.",
+                        GanttWarningSeverity.Info,
+                        "Task",
+                        task.Id,
+                        "plannedStartDate"));
+                }
+
+                if (!derived.PlannedStartDate.HasValue && !derived.PlannedEndDate.HasValue)
+                {
+                    warnings.Add(Warning(
+                        "UNSCHEDULED",
+                        "This Task has no planned dates and is listed as unscheduled.",
+                        GanttWarningSeverity.Info,
+                        "Task",
+                        task.Id,
+                        "plannedStartDate"));
+                }
+
+                if (!derived.PlannedEndDate.HasValue &&
+                    category is TaskStageCategory.InProgress or TaskStageCategory.Review)
+                {
+                    warnings.Add(Warning(
+                        "MISSING_ACTIVE_PLANNED_END",
+                        "Active work has no planned end date.",
+                        GanttWarningSeverity.Warning,
+                        "Task",
+                        task.Id,
+                        "plannedEndDate"));
+                }
+
+                return new GanttComputedTask(task, derived, category, permissions, warnings);
+            });
+
+        var dependencyResponses = new List<GanttDependencyResponse>(dependencies.Count);
+        foreach (var dependency in dependencies)
+        {
+            var warnings = new List<GanttWarningResponse>();
+            if (dependency.DependencyType != TaskDependencyType.FinishToStart)
+            {
+                warnings.Add(Warning(
+                    "LEGACY_DEPENDENCY_TYPE",
+                    "This legacy dependency type is read-only; new authoring supports Finish-to-Start only.",
+                    GanttWarningSeverity.Warning,
+                    "Dependency",
+                    dependency.Id,
+                    "type"));
+            }
+
+            var predecessor = computedTasks[dependency.PredecessorTaskItemId];
+            var successor = computedTasks[dependency.SuccessorTaskItemId];
+            if (dependency.DependencyType == TaskDependencyType.FinishToStart &&
+                predecessor.Derived.PlannedEndDate.HasValue &&
+                successor.Derived.PlannedStartDate.HasValue &&
+                predecessor.Derived.PlannedEndDate.Value > successor.Derived.PlannedStartDate.Value)
+            {
+                var violation = Warning(
+                    "DEPENDENCY_VIOLATION",
+                    "The predecessor is planned to finish after the successor starts. No dates were changed automatically.",
+                    GanttWarningSeverity.Warning,
+                    "Dependency",
+                    dependency.Id,
+                    "plannedStartDate");
+                warnings.Add(violation);
+                taskWarnings[successor.Task.Id].Add(violation with
+                {
+                    TargetType = "Task",
+                    TargetId = successor.Task.Id
+                });
+            }
+
+            dependencyResponses.Add(new GanttDependencyResponse(
+                dependency.Id,
+                dependency.PredecessorTaskItemId,
+                dependency.SuccessorTaskItemId,
+                dependency.DependencyType,
+                canManageProject && dependency.DependencyType == TaskDependencyType.FinishToStart,
+                successor.Task.VersionNo,
+                OrderedWarnings(warnings)));
+        }
+
+        var itemResponses = computedTasks.Values
+            .OrderBy(item => item.Task.SortKey)
+            .ThenBy(item => item.Task.Id)
+            .Select(item => ToGanttTask(item, visibleTaskIds, milestoneIds))
+            .ToList();
+        var scheduledItems = itemResponses
+            .Where(item => item.PlannedStartDate.HasValue || item.PlannedEndDate.HasValue)
+            .ToList();
+        var unscheduledItems = itemResponses
+            .Where(item => !item.PlannedStartDate.HasValue && !item.PlannedEndDate.HasValue)
+            .ToList();
+
+        var milestoneResponses = new List<GanttItemResponse>(milestones.Count);
+        foreach (var milestone in milestones)
+        {
+            var warnings = new List<GanttWarningResponse>();
+            if (!milestone.DueDate.HasValue)
+            {
+                warnings.Add(Warning(
+                    "MILESTONE_DATE_REQUIRED",
+                    "This legacy Milestone has no date. Set a date before updating its progress.",
+                    GanttWarningSeverity.Warning,
+                    "Milestone",
+                    milestone.Id,
+                    "milestoneDate"));
+            }
+
+            var category = milestone.Status switch
+            {
+                MilestoneStatus.InProgress => TaskStageCategory.InProgress,
+                MilestoneStatus.Completed => TaskStageCategory.Done,
+                MilestoneStatus.Cancelled => TaskStageCategory.Cancelled,
+                _ => TaskStageCategory.Todo
+            };
+            var permissions = new GanttPermissionsResponse(
+                canManageProject,
+                canManageProject &&
+                milestone.DueDate.HasValue &&
+                milestone.Status != MilestoneStatus.Cancelled,
+                false,
+                false,
+                false);
+            milestoneResponses.Add(new GanttItemResponse(
+                milestone.Id,
+                WorkItemKind.Milestone,
+                null,
+                null,
+                milestone.Name,
+                null,
+                null,
+                milestone.DueDate,
+                milestone.Status == MilestoneStatus.Completed ? 100 : 0,
+                false,
+                null,
+                milestone.Status.ToString(),
+                category,
+                TaskPriority.Medium,
+                false,
+                null,
+                milestone.VersionNo,
+                permissions,
+                OrderedWarnings(warnings)));
+        }
+
+        var allWarnings = itemResponses.SelectMany(item => item.Warnings)
+            .Concat(milestoneResponses.SelectMany(item => item.Warnings))
+            .Concat(dependencyResponses.SelectMany(dependency => dependency.Warnings))
+            .Distinct()
+            .OrderBy(warning => warning.Code, StringComparer.Ordinal)
+            .ThenBy(warning => warning.TargetId)
+            .ToList();
+        var topPermissions = new GanttPermissionsResponse(
+            canManageProject || canContributeToOwnedTasks,
+            canManageProject || canContributeToOwnedTasks,
+            canManageProject,
+            canManageProject || canContributeToOwnedTasks,
+            true);
+        var projectVersion = Math.Max(1L, project.VersionNo);
+        var calendar = new GanttCalendarResponse(
+            workspaceTimeZone,
+            [],
+            false,
+            [
+                "Workspace working-day configuration is not available in the canonical runtime.",
+                "Workspace holiday data is unavailable; no holidays were inferred."
+            ]);
+        var snapshot = new ProjectGanttResponse(
             project.Id,
             project.Name,
-            project.StartDate,
-            project.DueDate,
-            milestones,
-            tasks.Select(task => new GanttTaskResponse(
-                task.Id,
-                task.Title,
-                task.MilestoneId,
-                task.StartDate,
-                task.DueDate,
-                task.ProgressPercent,
-                task.Status,
-                task.Priority,
-                IsOverdue(task.DueDate, task.Status, today),
-                assigneesByTask.GetValueOrDefault(task.Id) ?? []))
-                .ToList(),
-            dependencies);
+            projectVersion,
+            workflowVersion,
+            null,
+            calendar,
+            scheduledItems,
+            unscheduledItems,
+            milestoneResponses,
+            dependencyResponses,
+            allWarnings,
+            topPermissions,
+            maximumItems,
+            totalItems);
+        return new GanttSnapshotReadResult(snapshot, totalItems, false, false);
     }
+
+    private static GanttItemResponse ToGanttTask(
+        GanttComputedTask computed,
+        IReadOnlySet<Guid> visibleTaskIds,
+        IReadOnlySet<Guid> visibleMilestoneIds)
+    {
+        var task = computed.Task;
+        return new GanttItemResponse(
+            task.Id,
+            WorkItemKind.Task,
+            task.ParentTaskItemId.HasValue && visibleTaskIds.Contains(task.ParentTaskItemId.Value)
+                ? task.ParentTaskItemId
+                : null,
+            task.MilestoneId.HasValue && visibleMilestoneIds.Contains(task.MilestoneId.Value)
+                ? task.MilestoneId
+                : null,
+            task.Title,
+            computed.Derived.PlannedStartDate,
+            computed.Derived.PlannedEndDate,
+            null,
+            computed.Derived.ProgressPercent,
+            computed.Derived.IsDerived,
+            task.WorkflowStageId,
+            task.WorkflowStage?.Name ?? computed.Category.ToString(),
+            task.WorkflowStage?.InternalCategory ?? computed.Category,
+            task.Priority,
+            task.IsBlocked,
+            task.PrimaryAssigneeUserId.HasValue
+                ? new GanttPersonSummary(
+                    task.PrimaryAssigneeUserId.Value,
+                    task.PrimaryAssigneeUser?.DisplayName ?? "Unknown")
+                : null,
+            task.VersionNo,
+            computed.Permissions,
+            OrderedWarnings(computed.Warnings));
+    }
+
+    private static GanttWarningResponse Warning(
+        string code,
+        string message,
+        GanttWarningSeverity severity,
+        string targetType,
+        Guid targetId,
+        string? field) =>
+        new(code, message, severity, targetType, targetId, field, false);
+
+    private static IReadOnlyList<GanttWarningResponse> OrderedWarnings(IEnumerable<GanttWarningResponse> warnings) =>
+        warnings
+            .OrderBy(warning => warning.Code, StringComparer.Ordinal)
+            .ThenBy(warning => warning.TargetId)
+            .ToList();
+
+    private static TaskStageCategory GanttCategoryOf(TaskItem task) =>
+        task.WorkflowStage?.InternalCategory ?? task.Status switch
+        {
+            TaskItemStatus.InProgress => TaskStageCategory.InProgress,
+            TaskItemStatus.WaitingReview => TaskStageCategory.Review,
+            TaskItemStatus.Completed => TaskStageCategory.Done,
+            TaskItemStatus.Cancelled => TaskStageCategory.Cancelled,
+            _ => TaskStageCategory.Todo
+        };
+
+    private sealed record GanttComputedTask(
+        TaskItem Task,
+        ParentTaskDerivedValues Derived,
+        TaskStageCategory Category,
+        GanttPermissionsResponse Permissions,
+        List<GanttWarningResponse> Warnings);
 
     public async Task<ProjectDashboardResponse?> GetDashboardAsync(Guid projectId, DateOnly today, CancellationToken cancellationToken = default)
     {

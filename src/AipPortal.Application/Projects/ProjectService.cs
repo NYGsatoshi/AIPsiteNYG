@@ -1,5 +1,6 @@
 using AipPortal.Application.Common;
 using AipPortal.Application.Common.Interfaces;
+using AipPortal.Application.Planning;
 using AipPortal.Application.Realtime;
 using AipPortal.Domain.Entities;
 using AipPortal.Domain.Enums;
@@ -25,6 +26,9 @@ public sealed class ProjectService(
     IFeatureFlagService? featureFlags = null,
     ITaskWorkspaceTimeZoneResolver? timeZones = null) : IProjectService
 {
+    private const int MaximumGanttItems = 500;
+    private const int MaximumGanttDependencies = 2_000;
+
     private Task<bool>? taskDomainV1Enabled;
     public async Task<Result<PagedResponse<ProjectResponse>>> ListAsync(ProjectListQuery query, CancellationToken cancellationToken = default)
     {
@@ -159,7 +163,8 @@ public sealed class ProjectService(
         project.DueDate = request.EndDate ?? project.DueDate;
         await AuditAsync(userId, project.Status == previousStatus ? "ProjectUpdated" : "ProjectStatusChanged", "Project", project.Id, cancellationToken);
         await invalidations.ProjectChangedAsync(project, userId, "updated", cancellationToken);
-        await unitOfWork.SaveChangesAsync(cancellationToken);
+        if (!await SaveProjectMutationAsync(cancellationToken))
+            return ProjectConflict<ProjectResponse>();
         return Result<ProjectResponse>.Success(await ToProjectAsync(project, userId, cancellationToken));
     }
 
@@ -179,7 +184,8 @@ public sealed class ProjectService(
         project.Status = ProjectStatus.Archived;
         await AuditAsync(userId, "ProjectArchived", "Project", project.Id, cancellationToken);
         await invalidations.ProjectChangedAsync(project, userId, "archived", cancellationToken);
-        await unitOfWork.SaveChangesAsync(cancellationToken);
+        if (!await SaveProjectMutationAsync(cancellationToken))
+            return ProjectConflict();
         return Result.Success();
     }
 
@@ -204,7 +210,8 @@ public sealed class ProjectService(
 
         await AuditAsync(userId, "ProjectRestored", "Project", project.Id, cancellationToken);
         await invalidations.ProjectChangedAsync(project, userId, "restored", cancellationToken);
-        await unitOfWork.SaveChangesAsync(cancellationToken);
+        if (!await SaveProjectMutationAsync(cancellationToken))
+            return ProjectConflict();
         return Result.Success();
     }
 
@@ -257,7 +264,8 @@ public sealed class ProjectService(
         await AuditAsync(actorUserId, "ProjectMemberAdded", "Project", projectId, cancellationToken);
         await invalidations.ProjectChangedAsync(project, actorUserId, "memberChanged", cancellationToken);
         await authorizationChanges.PublishAsync(project.TenantId, request.UserId, "project", project.Id, "membershipChanged", cancellationToken);
-        await unitOfWork.SaveChangesAsync(cancellationToken);
+        if (!await SaveProjectMutationAsync(cancellationToken))
+            return ProjectConflict<ProjectMemberResponse>();
         return Result<ProjectMemberResponse>.Success(ToProjectMember(member));
     }
 
@@ -282,7 +290,8 @@ public sealed class ProjectService(
             await invalidations.ProjectChangedAsync(project, actorUserId, "memberChanged", cancellationToken);
             await authorizationChanges.PublishAsync(project.TenantId, userId, "project", project.Id, "membershipChanged", cancellationToken);
         }
-        await unitOfWork.SaveChangesAsync(cancellationToken);
+        if (!await SaveProjectMutationAsync(cancellationToken))
+            return ProjectConflict<ProjectMemberResponse>();
         return Result<ProjectMemberResponse>.Success(ToProjectMember(member));
     }
 
@@ -307,7 +316,8 @@ public sealed class ProjectService(
             await invalidations.ProjectChangedAsync(project, actorUserId, "memberChanged", cancellationToken);
             await authorizationChanges.PublishAsync(project.TenantId, userId, "project", project.Id, "revoked", cancellationToken);
         }
-        await unitOfWork.SaveChangesAsync(cancellationToken);
+        if (!await SaveProjectMutationAsync(cancellationToken))
+            return ProjectConflict();
         return Result.Success();
     }
 
@@ -351,7 +361,15 @@ public sealed class ProjectService(
             return Result<MilestoneResponse>.Failure("Milestone title is required.");
         }
 
-        if (await projects.GetProjectAsync(projectId, cancellationToken) is null)
+        if (!request.DueDate.HasValue)
+        {
+            return Result<MilestoneResponse>.Failure("MILESTONE_DATE_REQUIRED|Milestone date is required.");
+        }
+
+        var project = await projects.GetProjectAsync(projectId, cancellationToken);
+        if (project is null ||
+            project.DeletedAt.HasValue ||
+            project.Status is ProjectStatus.Archived or ProjectStatus.Deleted)
         {
             return Result<MilestoneResponse>.Failure("Project not found.");
         }
@@ -362,12 +380,15 @@ public sealed class ProjectService(
             Name = request.Title.Trim(),
             Description = request.Description?.Trim(),
             DueDate = request.DueDate,
-            SortOrder = request.DisplayOrder
+            SortOrder = request.DisplayOrder,
+            VersionNo = 1
         };
 
         await projects.AddMilestoneAsync(milestone, cancellationToken);
         await AuditAsync(userId, "MilestoneCreated", "Milestone", milestone.Id, cancellationToken);
-        await unitOfWork.SaveChangesAsync(cancellationToken);
+        await invalidations.ProjectChangedAsync(project, userId, "milestoneChanged", cancellationToken);
+        if (!await SaveMilestoneMutationAsync(cancellationToken))
+            return Result<MilestoneResponse>.Failure("MILESTONE_CONFLICT|Milestone has changed. Refetch and retry.");
         return Result<MilestoneResponse>.Success(ToMilestone(milestone));
     }
 
@@ -382,6 +403,25 @@ public sealed class ProjectService(
         if (!TryCurrentUser(out var userId) || !await projectAuthorization.CanManageProject(userId, milestone.ProjectId, cancellationToken))
         {
             return Result<MilestoneResponse>.Failure("You are not allowed to manage this project.");
+        }
+        var project = await projects.GetProjectAsync(milestone.ProjectId, cancellationToken);
+        if (project is null ||
+            project.DeletedAt.HasValue ||
+            project.Status is ProjectStatus.Archived or ProjectStatus.Deleted)
+        {
+            return Result<MilestoneResponse>.Failure("Milestone not found.");
+        }
+        if (request.ExpectedVersion <= 0)
+        {
+            return Result<MilestoneResponse>.Failure(new ApplicationErrorDetail(
+                "MILESTONE_INVALID_EXPECTED_VERSION",
+                "Expected version must be a positive integer."));
+        }
+        if (milestone.VersionNo != request.ExpectedVersion)
+        {
+            return Result<MilestoneResponse>.Failure(new ApplicationErrorDetail(
+                "MILESTONE_STALE_VERSION",
+                "Milestone has changed. Refetch and retry."));
         }
 
         if (request.Title is not null)
@@ -399,12 +439,29 @@ public sealed class ProjectService(
             return Result<MilestoneResponse>.Failure("Milestone status must be NotStarted, InProgress, or Completed.");
         }
 
+        var finalDueDate = request.DueDate ?? milestone.DueDate;
+        var finalStatus = request.Status ?? milestone.Status;
+        if (!finalDueDate.HasValue &&
+            finalStatus is MilestoneStatus.InProgress or MilestoneStatus.Completed)
+        {
+            return Result<MilestoneResponse>.Failure(new ApplicationErrorDetail(
+                "MILESTONE_DATE_REQUIRED",
+                "Milestone date is required before progress can become active or completed."));
+        }
+
         milestone.Description = request.Description?.Trim() ?? milestone.Description;
-        milestone.DueDate = request.DueDate ?? milestone.DueDate;
-        milestone.Status = request.Status ?? milestone.Status;
+        milestone.DueDate = finalDueDate;
+        milestone.Status = finalStatus;
         milestone.SortOrder = request.DisplayOrder ?? milestone.SortOrder;
+        milestone.VersionNo++;
         await AuditAsync(userId, "MilestoneUpdated", "Milestone", milestone.Id, cancellationToken);
-        await unitOfWork.SaveChangesAsync(cancellationToken);
+        await invalidations.ProjectChangedAsync(project, userId, "milestoneChanged", cancellationToken);
+        if (!await SaveMilestoneMutationAsync(cancellationToken))
+        {
+            return Result<MilestoneResponse>.Failure(new ApplicationErrorDetail(
+                "MILESTONE_CONFLICT",
+                "Milestone has changed. Refetch and retry."));
+        }
         return Result<MilestoneResponse>.Success(ToMilestone(milestone));
     }
 
@@ -420,10 +477,20 @@ public sealed class ProjectService(
         {
             return Result.Failure("You are not allowed to manage this project.");
         }
+        var project = await projects.GetProjectAsync(milestone.ProjectId, cancellationToken);
+        if (project is null ||
+            project.DeletedAt.HasValue ||
+            project.Status is ProjectStatus.Archived or ProjectStatus.Deleted)
+        {
+            return Result.Failure("Milestone not found.");
+        }
 
         milestone.MarkDeleted(clock.UtcNow);
+        milestone.VersionNo++;
         await AuditAsync(userId, "MilestoneDeleted", "Milestone", milestone.Id, cancellationToken);
-        await unitOfWork.SaveChangesAsync(cancellationToken);
+        await invalidations.ProjectChangedAsync(project, userId, "milestoneChanged", cancellationToken);
+        if (!await SaveMilestoneMutationAsync(cancellationToken))
+            return Result.Failure("MILESTONE_CONFLICT|Milestone has changed. Refetch and retry.");
         return Result.Success();
     }
 
@@ -746,56 +813,195 @@ public sealed class ProjectService(
 
     public async Task<Result<IReadOnlyList<TaskDependencyResponse>>> ListDependenciesAsync(Guid taskItemId, CancellationToken cancellationToken = default)
     {
+        if (!TryCurrentUser(out var userId))
+            return DependencyFailure<IReadOnlyList<TaskDependencyResponse>>(
+                "TASK_DEPENDENCY_AUTHENTICATION_REQUIRED",
+                "Authentication is required.");
         var task = await projects.GetTaskAsync(taskItemId, cancellationToken);
-        if (task is null || !TryCurrentUser(out var userId) || !await projectAuthorization.CanViewProject(userId, task.ProjectId, cancellationToken))
+        var project = task is null ? null : await projects.GetProjectAsync(task.ProjectId, cancellationToken);
+        if (task is null ||
+            task.DeletedAt.HasValue ||
+            task.Kind != WorkItemKind.Task ||
+            project is null ||
+            project.DeletedAt.HasValue ||
+            project.Status is ProjectStatus.Archived or ProjectStatus.Deleted ||
+            !await projectAuthorization.CanViewProject(userId, task.ProjectId, cancellationToken))
         {
-            return Result<IReadOnlyList<TaskDependencyResponse>>.Failure("Task not found.");
+            return DependencyFailure<IReadOnlyList<TaskDependencyResponse>>(
+                "TASK_DEPENDENCY_NOT_FOUND",
+                "Task or dependency not found.");
         }
 
-        var dependencies = await projects.ListDependenciesAsync(taskItemId, cancellationToken);
-        return Result<IReadOnlyList<TaskDependencyResponse>>.Success(dependencies.Select(ToDependency).ToList());
+        if (await projects.CountGanttItemsBoundedAsync(
+                task.ProjectId,
+                MaximumGanttItems + 1,
+                cancellationToken) > MaximumGanttItems)
+        {
+            return DependencyFailure<IReadOnlyList<TaskDependencyResponse>>(
+                "GANTT_ITEM_LIMIT_EXCEEDED",
+                $"The Project schedule exceeds the supported limit of {MaximumGanttItems} work items.");
+        }
+        var dependencies = await projects.ListDependenciesBoundedAsync(
+            taskItemId,
+            MaximumGanttDependencies + 1,
+            cancellationToken);
+        if (dependencies.Count > MaximumGanttDependencies)
+            return DependencyFailure<IReadOnlyList<TaskDependencyResponse>>(
+                "TASK_DEPENDENCY_LIMIT_EXCEEDED",
+                "The Project dependency graph exceeds the supported schedule limit.");
+        var projectTasks = await projects.ListTasksBoundedAsync(
+            task.ProjectId,
+            MaximumGanttItems,
+            cancellationToken);
+        var tasksById = projectTasks
+            .Where(item => !item.DeletedAt.HasValue)
+            .ToDictionary(item => item.Id);
+        var canManage = await CanManageGanttDependenciesAsync(userId, project, cancellationToken);
+        var response = dependencies
+            .Where(dependency =>
+                dependency.ProjectId == project.Id &&
+                tasksById.ContainsKey(dependency.PredecessorTaskItemId) &&
+                tasksById.ContainsKey(dependency.SuccessorTaskItemId))
+            .OrderBy(dependency => dependency.PredecessorTaskItemId)
+            .ThenBy(dependency => dependency.SuccessorTaskItemId)
+            .ThenBy(dependency => dependency.Id)
+            .Select(dependency => ToDependency(
+                dependency,
+                tasksById[dependency.SuccessorTaskItemId].VersionNo,
+                canManage && dependency.DependencyType == TaskDependencyType.FinishToStart,
+                DependencyDateWarnings(dependency, projectTasks)))
+            .ToList();
+        return Result<IReadOnlyList<TaskDependencyResponse>>.Success(response);
     }
 
     public async Task<Result<TaskDependencyResponse>> AddDependencyAsync(Guid taskItemId, AddTaskDependencyRequest request, CancellationToken cancellationToken = default)
     {
+        if (!TryCurrentUser(out var userId))
+            return DependencyFailure<TaskDependencyResponse>(
+                "TASK_DEPENDENCY_AUTHENTICATION_REQUIRED",
+                "Authentication is required.");
         var successor = await projects.GetTaskAsync(taskItemId, cancellationToken);
-        var predecessor = await projects.GetTaskAsync(request.PredecessorTaskId, cancellationToken);
-        if (successor is null || predecessor is null)
+        var project = successor is null ? null : await projects.GetProjectAsync(successor.ProjectId, cancellationToken);
+        if (successor is null ||
+            successor.DeletedAt.HasValue ||
+            successor.Kind != WorkItemKind.Task ||
+            project is null ||
+            project.DeletedAt.HasValue ||
+            project.Status is ProjectStatus.Archived or ProjectStatus.Deleted ||
+            !await projectAuthorization.CanViewProject(userId, successor.ProjectId, cancellationToken))
         {
-            return Result<TaskDependencyResponse>.Failure("Task not found.");
+            return DependencyFailure<TaskDependencyResponse>(
+                "TASK_DEPENDENCY_NOT_FOUND",
+                "Task or dependency not found.");
         }
 
-        if (!TryCurrentUser(out var userId) || !await taskAuthorization.CanUpdateTask(userId, taskItemId, cancellationToken))
+        if (!await CanManageGanttDependenciesAsync(userId, project, cancellationToken))
         {
-            return Result<TaskDependencyResponse>.Failure("You are not allowed to update this task.");
+            return await RejectVisibleDependencyAsync<TaskDependencyResponse>(
+                userId,
+                successor,
+                "TASK_DEPENDENCY_FORBIDDEN",
+                "Dependency management is not authorized.",
+                cancellationToken);
         }
 
+        if (request.ExpectedVersion <= 0)
+            return await RejectVisibleDependencyAsync<TaskDependencyResponse>(
+                userId,
+                successor,
+                "TASK_DEPENDENCY_INVALID_EXPECTED_VERSION",
+                "Expected version must be a positive integer.",
+                cancellationToken);
+        if (successor.VersionNo != request.ExpectedVersion)
+            return await RejectVisibleDependencyAsync<TaskDependencyResponse>(
+                userId,
+                successor,
+                "TASK_STALE_VERSION",
+                "Task has changed. Refetch and retry.",
+                cancellationToken);
+        if (await projects.CountGanttItemsBoundedAsync(
+                successor.ProjectId,
+                MaximumGanttItems + 1,
+                cancellationToken) > MaximumGanttItems)
+        {
+            return await RejectVisibleDependencyAsync<TaskDependencyResponse>(
+                userId,
+                successor,
+                "GANTT_ITEM_LIMIT_EXCEEDED",
+                $"The Project schedule exceeds the supported limit of {MaximumGanttItems} work items.",
+                cancellationToken);
+        }
         if (request.DependencyType != TaskDependencyType.FinishToStart)
         {
-            await AuditAsync(userId, "TaskDependencyRejected", "TaskItem", taskItemId, cancellationToken);
-            await unitOfWork.SaveChangesAsync(cancellationToken);
-            return Result<TaskDependencyResponse>.Failure("TASK_DEPENDENCY_TYPE_DEFERRED|Only Finish-to-Start dependencies can be authored.");
+            return await RejectVisibleDependencyAsync<TaskDependencyResponse>(
+                userId,
+                successor,
+                "TASK_DEPENDENCY_TYPE_DEFERRED",
+                "Only Finish-to-Start dependencies can be authored.",
+                cancellationToken);
         }
 
-        if (successor.Id == predecessor.Id)
+        if (successor.Id == request.PredecessorTaskId)
         {
-            return Result<TaskDependencyResponse>.Failure("A task cannot depend on itself.");
+            return await RejectVisibleDependencyAsync<TaskDependencyResponse>(
+                userId,
+                successor,
+                "TASK_DEPENDENCY_SELF",
+                "A Task cannot depend on itself.",
+                cancellationToken);
         }
 
-        if (successor.ProjectId != predecessor.ProjectId)
+        // Resolve the neighbor only after the visible successor and management
+        // permission are established. Unknown, deleted, and cross-Project IDs
+        // intentionally share one redacted outcome.
+        var predecessor = await projects.GetTaskAsync(request.PredecessorTaskId, cancellationToken);
+        if (predecessor is null ||
+            predecessor.DeletedAt.HasValue ||
+            predecessor.Kind != WorkItemKind.Task ||
+            predecessor.ProjectId != successor.ProjectId)
         {
-            return Result<TaskDependencyResponse>.Failure("Dependent tasks must belong to the same project.");
+            return await RejectVisibleDependencyAsync<TaskDependencyResponse>(
+                userId,
+                successor,
+                "TASK_DEPENDENCY_NOT_FOUND",
+                "Task or dependency not found.",
+                cancellationToken);
         }
 
         if (await projects.DependencyExistsAsync(predecessor.Id, successor.Id, cancellationToken))
         {
-            return Result<TaskDependencyResponse>.Failure("Task dependency already exists.");
+            return await RejectVisibleDependencyAsync<TaskDependencyResponse>(
+                userId,
+                successor,
+                "TASK_DEPENDENCY_DUPLICATE",
+                "Task dependency already exists.",
+                cancellationToken);
         }
 
-        if (await WouldCreateCycleAsync(predecessor.Id, successor.Id, successor.ProjectId, cancellationToken))
+        var cycle = await WouldCreateCycleAsync(predecessor.Id, successor.Id, successor.ProjectId, cancellationToken);
+        if (cycle == DependencyCycleCheck.LimitExceeded)
         {
-            return Result<TaskDependencyResponse>.Failure("Task dependency would create a cycle.");
+            return await RejectVisibleDependencyAsync<TaskDependencyResponse>(
+                userId,
+                successor,
+                "TASK_DEPENDENCY_LIMIT_EXCEEDED",
+                "The Project dependency graph exceeds the supported schedule limit.",
+                cancellationToken);
         }
+        if (cycle == DependencyCycleCheck.Cycle)
+        {
+            return await RejectVisibleDependencyAsync<TaskDependencyResponse>(
+                userId,
+                successor,
+                "TASK_DEPENDENCY_CYCLE",
+                "Task dependency would create a cycle.",
+                cancellationToken);
+        }
+
+        var projectTasks = await projects.ListTasksBoundedAsync(
+            successor.ProjectId,
+            MaximumGanttItems,
+            cancellationToken);
 
         var dependency = new TaskDependency
         {
@@ -806,27 +1012,171 @@ public sealed class ProjectService(
         };
 
         await projects.AddDependencyAsync(dependency, cancellationToken);
-        await AuditAsync(userId, "TaskDependencyAdded", "TaskItem", successor.Id, cancellationToken);
-        await unitOfWork.SaveChangesAsync(cancellationToken);
-        return Result<TaskDependencyResponse>.Success(ToDependency(dependency));
+        successor.VersionNo++;
+        await auditLogger.LogAsync(new AuditLogEntry(
+            userId,
+            "TaskDependencyAdded",
+            "TaskDependency",
+            dependency.Id,
+            "Finish-to-Start dependency added.",
+            WorkspaceId: successor.WorkspaceId,
+            ProjectId: successor.ProjectId,
+            Metadata: new Dictionary<string, object?>
+            {
+                ["predecessorTaskId"] = predecessor.Id,
+                ["successorTaskId"] = successor.Id,
+                ["versionBefore"] = successor.VersionNo - 1
+            }), cancellationToken);
+        await invalidations.TaskChangedAsync(
+            successor,
+            userId,
+            "dependencyChanged",
+            ["dependencies"],
+            cancellationToken: cancellationToken);
+        await invalidations.ProjectChangedAsync(project, userId, "dependencyChanged", cancellationToken);
+        var save = await taskUnitOfWork.SaveTaskCommandAsync(cancellationToken);
+        if (!save.IsSaved)
+        {
+            var code = save.Result == TaskCommandSaveResult.ConcurrencyConflict
+                ? "TASK_STALE_VERSION"
+                : "TASK_DEPENDENCY_DUPLICATE";
+            var message = save.Result == TaskCommandSaveResult.ConcurrencyConflict
+                ? "Task has changed. Refetch and retry."
+                : "Task dependency already exists.";
+            taskUnitOfWork.ClearTaskCommandTracking();
+            return await RejectVisibleDependencyAsync<TaskDependencyResponse>(
+                userId,
+                successor,
+                code,
+                message,
+                cancellationToken);
+        }
+        return Result<TaskDependencyResponse>.Success(ToDependency(
+            dependency,
+            successor.VersionNo,
+            true,
+            DependencyDateWarnings(dependency, projectTasks)));
     }
 
-    public async Task<Result> DeleteDependencyAsync(Guid dependencyId, CancellationToken cancellationToken = default)
+    public async Task<Result> DeleteDependencyAsync(
+        Guid taskItemId,
+        Guid dependencyId,
+        long expectedVersion,
+        CancellationToken cancellationToken = default)
     {
-        var dependency = await projects.GetDependencyAsync(dependencyId, cancellationToken);
-        if (dependency is null)
+        if (!TryCurrentUser(out var userId))
+            return DependencyFailure(
+                "TASK_DEPENDENCY_AUTHENTICATION_REQUIRED",
+                "Authentication is required.");
+        var successor = await projects.GetTaskAsync(taskItemId, cancellationToken);
+        var project = successor is null ? null : await projects.GetProjectAsync(successor.ProjectId, cancellationToken);
+        if (successor is null ||
+            successor.DeletedAt.HasValue ||
+            successor.Kind != WorkItemKind.Task ||
+            project is null ||
+            project.DeletedAt.HasValue ||
+            project.Status is ProjectStatus.Archived or ProjectStatus.Deleted ||
+            !await projectAuthorization.CanViewProject(userId, successor.ProjectId, cancellationToken))
         {
-            return Result.Failure("Dependency not found.");
+            return DependencyFailure("TASK_DEPENDENCY_NOT_FOUND", "Task or dependency not found.");
         }
 
-        if (!TryCurrentUser(out var userId) || !await taskAuthorization.CanUpdateTask(userId, dependency.SuccessorTaskItemId, cancellationToken))
+        if (!await CanManageGanttDependenciesAsync(userId, project, cancellationToken))
         {
-            return Result.Failure("You are not allowed to update this task.");
+            return await RejectVisibleDependencyAsync(
+                userId,
+                successor,
+                "TASK_DEPENDENCY_FORBIDDEN",
+                "Dependency management is not authorized.",
+                cancellationToken);
+        }
+
+        if (expectedVersion <= 0)
+            return await RejectVisibleDependencyAsync(
+                userId,
+                successor,
+                "TASK_DEPENDENCY_INVALID_EXPECTED_VERSION",
+                "Expected version must be a positive integer.",
+                cancellationToken);
+        if (successor.VersionNo != expectedVersion)
+            return await RejectVisibleDependencyAsync(
+                userId,
+                successor,
+                "TASK_STALE_VERSION",
+                "Task has changed. Refetch and retry.",
+                cancellationToken);
+        if (await projects.CountGanttItemsBoundedAsync(
+                successor.ProjectId,
+                MaximumGanttItems + 1,
+                cancellationToken) > MaximumGanttItems)
+        {
+            return await RejectVisibleDependencyAsync(
+                userId,
+                successor,
+                "GANTT_ITEM_LIMIT_EXCEEDED",
+                $"The Project schedule exceeds the supported limit of {MaximumGanttItems} work items.",
+                cancellationToken);
+        }
+
+        var dependency = await projects.GetDependencyAsync(dependencyId, cancellationToken);
+        if (dependency is null ||
+            dependency.ProjectId != successor.ProjectId ||
+            dependency.SuccessorTaskItemId != successor.Id)
+        {
+            return await RejectVisibleDependencyAsync(
+                userId,
+                successor,
+                "TASK_DEPENDENCY_NOT_FOUND",
+                "Task or dependency not found.",
+                cancellationToken);
+        }
+        if (dependency.DependencyType != TaskDependencyType.FinishToStart)
+        {
+            return await RejectVisibleDependencyAsync(
+                userId,
+                successor,
+                "TASK_DEPENDENCY_LEGACY_READ_ONLY",
+                "Legacy non-Finish-to-Start dependencies are read-only.",
+                cancellationToken);
         }
 
         projects.RemoveDependency(dependency);
-        await AuditAsync(userId, "TaskDependencyRemoved", "TaskItem", dependency.SuccessorTaskItemId, cancellationToken);
-        await unitOfWork.SaveChangesAsync(cancellationToken);
+        successor.VersionNo++;
+        await auditLogger.LogAsync(new AuditLogEntry(
+            userId,
+            "TaskDependencyRemoved",
+            "TaskDependency",
+            dependency.Id,
+            "Finish-to-Start dependency removed.",
+            WorkspaceId: successor.WorkspaceId,
+            ProjectId: successor.ProjectId,
+            Metadata: new Dictionary<string, object?>
+            {
+                ["predecessorTaskId"] = dependency.PredecessorTaskItemId,
+                ["successorTaskId"] = dependency.SuccessorTaskItemId,
+                ["versionBefore"] = successor.VersionNo - 1
+            }), cancellationToken);
+        await invalidations.TaskChangedAsync(
+            successor,
+            userId,
+            "dependencyChanged",
+            ["dependencies"],
+            cancellationToken: cancellationToken);
+        await invalidations.ProjectChangedAsync(project, userId, "dependencyChanged", cancellationToken);
+        var save = await taskUnitOfWork.SaveTaskCommandAsync(cancellationToken);
+        if (!save.IsSaved)
+        {
+            var code = save.Result == TaskCommandSaveResult.ConcurrencyConflict
+                ? "TASK_STALE_VERSION"
+                : "TASK_DEPENDENCY_CONFLICT";
+            taskUnitOfWork.ClearTaskCommandTracking();
+            return await RejectVisibleDependencyAsync(
+                userId,
+                successor,
+                code,
+                "Task dependency has changed. Refetch and retry.",
+                cancellationToken);
+        }
         return Result.Success();
     }
 
@@ -994,9 +1344,18 @@ public sealed class ProjectService(
         return Result.Success();
     }
 
-    private async Task<bool> WouldCreateCycleAsync(Guid predecessorTaskId, Guid successorTaskId, Guid projectId, CancellationToken cancellationToken)
+    private async Task<DependencyCycleCheck> WouldCreateCycleAsync(
+        Guid predecessorTaskId,
+        Guid successorTaskId,
+        Guid projectId,
+        CancellationToken cancellationToken)
     {
-        var dependencies = await projects.ListProjectDependenciesAsync(projectId, cancellationToken);
+        var dependencies = await projects.ListProjectDependenciesBoundedAsync(
+            projectId,
+            MaximumGanttDependencies + 1,
+            cancellationToken);
+        if (dependencies.Count > MaximumGanttDependencies)
+            return DependencyCycleCheck.LimitExceeded;
         var edges = dependencies
             .GroupBy(dependency => dependency.PredecessorTaskItemId)
             .ToDictionary(group => group.Key, group => group.Select(dependency => dependency.SuccessorTaskItemId).ToList());
@@ -1020,7 +1379,7 @@ public sealed class ProjectService(
 
             if (current == predecessorTaskId)
             {
-                return true;
+                return DependencyCycleCheck.Cycle;
             }
 
             if (edges.TryGetValue(current, out var next))
@@ -1032,7 +1391,18 @@ public sealed class ProjectService(
             }
         }
 
-        return false;
+        return DependencyCycleCheck.None;
+    }
+
+    private async Task<bool> CanManageGanttDependenciesAsync(
+        Guid actorUserId,
+        Project project,
+        CancellationToken cancellationToken)
+    {
+        var workspaceMember = await workspaces.GetMemberAsync(project.WorkspaceId, actorUserId, cancellationToken);
+        if (workspaceMember is { Status: MembershipStatus.Active, Role: WorkspaceRole.ReadOnly })
+            return false;
+        return await projectAuthorization.CanManageProject(actorUserId, project.Id, cancellationToken);
     }
 
     private async Task NotifyTaskChangesAsync(TaskItem task, TaskItemStatus previousStatus, DateOnly? previousDueDate, CancellationToken cancellationToken)
@@ -1111,6 +1481,24 @@ public sealed class ProjectService(
     {
         userId = currentUser.UserId ?? Guid.Empty;
         return currentUser.IsAuthenticated && currentUser.UserId.HasValue;
+    }
+
+    private async Task<bool> SaveMilestoneMutationAsync(CancellationToken cancellationToken)
+    {
+        var save = await taskUnitOfWork.SaveTaskCommandAsync(cancellationToken);
+        if (save.IsSaved)
+            return true;
+        taskUnitOfWork.ClearTaskCommandTracking();
+        return false;
+    }
+
+    private async Task<bool> SaveProjectMutationAsync(CancellationToken cancellationToken)
+    {
+        var save = await taskUnitOfWork.SaveTaskCommandAsync(cancellationToken);
+        if (save.IsSaved)
+            return true;
+        taskUnitOfWork.ClearTaskCommandTracking();
+        return false;
     }
 
     private Task AuditAsync(Guid actorUserId, string action, string targetType, Guid targetId, CancellationToken cancellationToken)
@@ -1203,7 +1591,7 @@ public sealed class ProjectService(
 
     private static MilestoneResponse ToMilestone(Milestone milestone)
     {
-        return new MilestoneResponse(milestone.Id, milestone.ProjectId, milestone.Name, milestone.Description, milestone.DueDate, milestone.Status, milestone.SortOrder, milestone.CreatedAt, milestone.UpdatedAt);
+        return new MilestoneResponse(milestone.Id, milestone.ProjectId, milestone.Name, milestone.Description, milestone.DueDate, milestone.Status, milestone.SortOrder, milestone.CreatedAt, milestone.UpdatedAt, milestone.VersionNo);
     }
 
     private async Task<TaskItemResponse> ToTaskAsync(TaskItem task, Guid userId, CancellationToken cancellationToken, ParentTaskDerivedValues? derivedOverride = null, TimeZoneInfo? timeZoneOverride = null)
@@ -1283,15 +1671,156 @@ public sealed class ProjectService(
     private static Result<T> GeneralTaskConflict<T>() =>
         Result<T>.Failure(new ApplicationErrorDetail("TASK_CONFLICT", "The task could not be updated. Refetch and retry."));
 
+    private static Result ProjectConflict() =>
+        Result.Failure(new ApplicationErrorDetail(
+            "PROJECT_CONFLICT",
+            "Project state has changed. Refetch and retry."));
+
+    private static Result<T> ProjectConflict<T>() =>
+        Result<T>.Failure(new ApplicationErrorDetail(
+            "PROJECT_CONFLICT",
+            "Project state has changed. Refetch and retry."));
+
     // This is the generated PostgreSQL index name for the unique TaskAssignment
     // identity configured in TaskAssignmentConfiguration.  Do not map other
     // database unique constraints to the assignment-specific error.
     private static bool IsAssignmentIdentityConstraint(string? constraintName) =>
         string.Equals(constraintName, "IX_task_assignments_TenantId_TaskItemId_UserId_Role", StringComparison.Ordinal);
 
-    private static TaskDependencyResponse ToDependency(TaskDependency dependency)
+    private static TaskDependencyResponse ToDependency(
+        TaskDependency dependency,
+        long successorVersion,
+        bool editable,
+        IReadOnlyList<GanttWarningResponse>? additionalWarnings = null)
     {
-        return new TaskDependencyResponse(dependency.Id, dependency.PredecessorTaskItemId, dependency.SuccessorTaskItemId, dependency.DependencyType, dependency.CreatedAt);
+        var warnings = additionalWarnings?.ToList() ?? [];
+        if (dependency.DependencyType != TaskDependencyType.FinishToStart)
+        {
+            warnings.Add(new GanttWarningResponse(
+                    "LEGACY_DEPENDENCY_TYPE",
+                    "This legacy dependency type is read-only; new authoring supports Finish-to-Start only.",
+                    GanttWarningSeverity.Warning,
+                    "Dependency",
+                    dependency.Id,
+                    "type",
+                    false));
+        }
+        return new TaskDependencyResponse(
+            dependency.Id,
+            dependency.PredecessorTaskItemId,
+            dependency.SuccessorTaskItemId,
+            dependency.DependencyType,
+            dependency.CreatedAt,
+            successorVersion,
+            editable,
+            warnings
+                .Distinct()
+                .OrderBy(warning => warning.Code, StringComparer.Ordinal)
+                .ToList());
+    }
+
+    private static IReadOnlyList<GanttWarningResponse> DependencyDateWarnings(
+        TaskDependency dependency,
+        IReadOnlyList<TaskItem> projectTasks)
+    {
+        if (dependency.DependencyType != TaskDependencyType.FinishToStart)
+            return [];
+        var tasksById = projectTasks
+            .Where(task => !task.DeletedAt.HasValue)
+            .ToDictionary(task => task.Id);
+        if (!tasksById.TryGetValue(dependency.PredecessorTaskItemId, out var predecessor) ||
+            !tasksById.TryGetValue(dependency.SuccessorTaskItemId, out var successor))
+        {
+            return [];
+        }
+
+        var predecessorDates = ParentTaskDerivedValuesCalculator.Calculate(predecessor, projectTasks, CategoryOf);
+        var successorDates = ParentTaskDerivedValuesCalculator.Calculate(successor, projectTasks, CategoryOf);
+        if (!predecessorDates.PlannedEndDate.HasValue ||
+            !successorDates.PlannedStartDate.HasValue ||
+            predecessorDates.PlannedEndDate.Value <= successorDates.PlannedStartDate.Value)
+        {
+            return [];
+        }
+
+        return
+        [
+            new GanttWarningResponse(
+                "DEPENDENCY_VIOLATION",
+                "The predecessor is planned to finish after the successor starts. No dates were changed automatically.",
+                GanttWarningSeverity.Warning,
+                "Dependency",
+                dependency.Id,
+                "plannedStartDate",
+                false)
+        ];
+    }
+
+    private async Task<Result<T>> RejectVisibleDependencyAsync<T>(
+        Guid actorUserId,
+        TaskItem visibleSuccessor,
+        string reasonCode,
+        string message,
+        CancellationToken cancellationToken)
+    {
+        await LogDependencyRejectionAsync(
+            actorUserId,
+            visibleSuccessor,
+            reasonCode,
+            cancellationToken);
+        return DependencyFailure<T>(reasonCode, message);
+    }
+
+    private async Task<Result> RejectVisibleDependencyAsync(
+        Guid actorUserId,
+        TaskItem visibleSuccessor,
+        string reasonCode,
+        string message,
+        CancellationToken cancellationToken)
+    {
+        await LogDependencyRejectionAsync(
+            actorUserId,
+            visibleSuccessor,
+            reasonCode,
+            cancellationToken);
+        return DependencyFailure(reasonCode, message);
+    }
+
+    private async Task LogDependencyRejectionAsync(
+        Guid actorUserId,
+        TaskItem visibleSuccessor,
+        string reasonCode,
+        CancellationToken cancellationToken)
+    {
+        // Rejection audit deliberately omits the supplied predecessor/dependency
+        // identifier and every title. Unknown and cross-Project neighbors remain
+        // indistinguishable outside the authorized Project boundary.
+        await auditLogger.LogAsync(new AuditLogEntry(
+            actorUserId,
+            "TaskDependencyMutationRejected",
+            "TaskDependency",
+            null,
+            "Dependency mutation rejected.",
+            WorkspaceId: visibleSuccessor.WorkspaceId,
+            ProjectId: visibleSuccessor.ProjectId,
+            Metadata: new Dictionary<string, object?>
+            {
+                ["reasonCode"] = reasonCode
+            }), cancellationToken);
+        await unitOfWork.SaveChangesAsync(cancellationToken);
+    }
+
+    private static Result<T> DependencyFailure<T>(string code, string message) =>
+        Result<T>.Failure($"{code}|{message}");
+
+    private static Result DependencyFailure(string code, string message) =>
+        Result.Failure($"{code}|{message}");
+
+    private enum DependencyCycleCheck
+    {
+        None,
+        Cycle,
+        LimitExceeded
     }
 
     private static CommentResponse ToComment(Comment comment)

@@ -107,6 +107,65 @@ public sealed class TaskCommandServiceTests
     }
 
     [Fact]
+    [Trait("Scope", "TaskV1PR06")]
+    public async Task TerminalChildCannotReopenUntilItsParentIsReopened()
+    {
+        var fixture = Fixture.Create();
+        var parent = fixture.AddTask("parent", progress: 100);
+        parent.Status = TaskItemStatus.Completed;
+        var child = fixture.AddTask("child", parent.Id, progress: 100);
+        child.Status = TaskItemStatus.Completed;
+        var todo = new TaskWorkflowStage
+        {
+            ProjectId = fixture.Project.Id,
+            Name = "Todo",
+            InternalCategory = TaskStageCategory.Todo
+        };
+        fixture.Projects.Stages[todo.Id] = todo;
+
+        var result = await fixture.Service.TransitionAsync(
+            child.Id,
+            new TaskTransitionRequest(todo.Id, child.VersionNo));
+
+        Assert.StartsWith("TASK_TRANSITION_GUARD_FAILED|", result.Error);
+        Assert.Equal(TaskItemStatus.Completed, child.Status);
+        Assert.Equal(100, child.ProgressPercent);
+        Assert.Equal(0, fixture.UnitOfWork.SaveCount);
+    }
+
+    [Fact]
+    [Trait("Scope", "TaskV1PR06")]
+    public async Task ParentCompletionRequiresCanonicalDerivedProgressOfOneHundred()
+    {
+        var fixture = Fixture.Create();
+        var parent = fixture.AddTask("parent");
+        var cancelledChild = fixture.AddTask("cancelled", parent.Id, progress: 100);
+        cancelledChild.Status = TaskItemStatus.Cancelled;
+        var done = new TaskWorkflowStage
+        {
+            ProjectId = fixture.Project.Id,
+            Name = "Done",
+            InternalCategory = TaskStageCategory.Done
+        };
+        fixture.Projects.Stages[done.Id] = done;
+
+        var allCancelled = await fixture.Service.TransitionAsync(
+            parent.Id,
+            new TaskTransitionRequest(done.Id, parent.VersionNo));
+        var completedChild = fixture.AddTask("completed", parent.Id, progress: 100);
+        completedChild.Status = TaskItemStatus.Completed;
+        var derivedOneHundred = await fixture.Service.TransitionAsync(
+            parent.Id,
+            new TaskTransitionRequest(done.Id, parent.VersionNo));
+
+        Assert.StartsWith("TASK_TRANSITION_GUARD_FAILED|", allCancelled.Error);
+        Assert.True(derivedOneHundred.IsSuccess);
+        Assert.Equal(TaskItemStatus.Completed, parent.Status);
+        Assert.Equal(100, parent.ProgressPercent);
+        Assert.Equal(1, fixture.UnitOfWork.SaveCount);
+    }
+
+    [Fact]
     public async Task TerminalTaskCannotTransitionDirectlyToActiveWork()
     {
         var fixture = Fixture.Create();
@@ -438,6 +497,462 @@ public sealed class TaskCommandServiceTests
         Assert.Null(label.Description);
     }
 
+    [Fact]
+    [Trait("Scope", "TaskV1PR06")]
+    public async Task GanttScheduleCommandOwnsOnlyPlannedDatesAndQueuesAtomicInvalidations()
+    {
+        var fixture = Fixture.Create();
+        var task = fixture.AddTask("schedule");
+        task.DeadlineAt = new DateTimeOffset(2026, 9, 30, 12, 0, 0, TimeSpan.Zero);
+        var deadline = task.DeadlineAt;
+
+        var updated = await fixture.Service.UpdateScheduleAsync(
+            task.Id,
+            new TaskScheduleUpdateRequest(
+                new DateOnly(2026, 8, 1),
+                new DateOnly(2026, 8, 5),
+                null,
+                task.VersionNo));
+
+        Assert.True(updated.IsSuccess);
+        Assert.Equal(new DateOnly(2026, 8, 1), task.PlannedStartDate);
+        Assert.Equal(task.PlannedStartDate, task.StartDate);
+        Assert.Equal(new DateOnly(2026, 8, 5), task.PlannedEndDate);
+        Assert.Equal(task.PlannedEndDate, task.DueDate);
+        Assert.Equal(deadline, task.DeadlineAt);
+        Assert.Equal(2, task.VersionNo);
+        Assert.Contains(fixture.Audit.Entries, entry => entry.Action == "TaskScheduleUpdated");
+        Assert.Contains(fixture.Invalidations.TaskChanges, change => change.TaskId == task.Id && change.Change == "scheduleChanged");
+        Assert.Contains(fixture.Invalidations.ProjectChanges, change => change.ProjectId == fixture.Project.Id && change.Change == "scheduleChanged");
+
+        var cleared = await fixture.Service.UpdateScheduleAsync(
+            task.Id,
+            new TaskScheduleUpdateRequest(null, null, null, task.VersionNo));
+
+        Assert.True(cleared.IsSuccess);
+        Assert.Null(task.PlannedStartDate);
+        Assert.Null(task.PlannedEndDate);
+        Assert.Contains(cleared.Value!.Warnings, warning => warning.Code == "UNSCHEDULED" && !warning.Blocking);
+        Assert.Equal(deadline, task.DeadlineAt);
+    }
+
+    [Fact]
+    [Trait("Scope", "TaskV1PR06")]
+    public async Task ChildScheduleChangeReturnsWarningsForDependenciesOnDerivedParent()
+    {
+        var fixture = Fixture.Create();
+        var parent = fixture.AddTask("parent");
+        var child = fixture.AddTask("child", parent.Id);
+        child.PlannedStartDate = new DateOnly(2026, 8, 1);
+        child.PlannedEndDate = new DateOnly(2026, 8, 1);
+        var successor = fixture.AddTask("successor");
+        successor.PlannedStartDate = new DateOnly(2026, 8, 2);
+        successor.PlannedEndDate = new DateOnly(2026, 8, 4);
+        fixture.Projects.Dependencies.Add(new TaskDependency
+        {
+            ProjectId = fixture.Project.Id,
+            PredecessorTaskItemId = parent.Id,
+            SuccessorTaskItemId = successor.Id,
+            DependencyType = TaskDependencyType.FinishToStart
+        });
+
+        var result = await fixture.Service.UpdateScheduleAsync(
+            child.Id,
+            new TaskScheduleUpdateRequest(
+                new DateOnly(2026, 8, 1),
+                new DateOnly(2026, 8, 3),
+                null,
+                child.VersionNo));
+
+        Assert.True(result.IsSuccess);
+        Assert.Contains(
+            result.Value!.Warnings,
+            warning => warning.Code == "DEPENDENCY_VIOLATION" &&
+                       warning.TargetType == "Dependency" &&
+                       !warning.Blocking);
+        Assert.Equal(new DateOnly(2026, 8, 2), successor.PlannedStartDate);
+    }
+
+    [Fact]
+    [Trait("Scope", "TaskV1PR06")]
+    public async Task GanttCommandsRejectDerivedParentInvalidRangeAndStaleProgress()
+    {
+        var fixture = Fixture.Create();
+        var parent = fixture.AddTask("parent", progress: 25);
+        var child = fixture.AddTask("child", parent.Id, progress: 50);
+
+        var parentSchedule = await fixture.Service.UpdateScheduleAsync(
+            parent.Id,
+            new TaskScheduleUpdateRequest(new DateOnly(2026, 8, 2), new DateOnly(2026, 8, 3), null, parent.VersionNo));
+        var invalidRange = await fixture.Service.UpdateScheduleAsync(
+            child.Id,
+            new TaskScheduleUpdateRequest(new DateOnly(2026, 8, 4), new DateOnly(2026, 8, 3), null, child.VersionNo));
+        var missingProgress = await fixture.Service.UpdateProgressAsync(
+            child.Id,
+            new TaskProgressUpdateRequest(null, child.VersionNo));
+        var staleProgress = await fixture.Service.UpdateProgressAsync(
+            child.Id,
+            new TaskProgressUpdateRequest(75, 99));
+        var parentProgress = await fixture.Service.UpdateProgressAsync(
+            parent.Id,
+            new TaskProgressUpdateRequest(75, parent.VersionNo));
+
+        Assert.StartsWith("GANTT_PARENT_DERIVED|", parentSchedule.Error);
+        Assert.StartsWith("GANTT_INVALID_DATE_RANGE|", invalidRange.Error);
+        Assert.StartsWith("GANTT_INVALID_PROGRESS|", missingProgress.Error);
+        Assert.StartsWith("GANTT_STALE_VERSION|", staleProgress.Error);
+        Assert.StartsWith("GANTT_PARENT_DERIVED|", parentProgress.Error);
+        Assert.Equal(0, fixture.UnitOfWork.SaveCount);
+    }
+
+    [Fact]
+    [Trait("Scope", "TaskV1PR06")]
+    public async Task CompletedAndCancelledProgressNoOpsDoNotAdvanceVersionAuditOrOutbox()
+    {
+        var fixture = Fixture.Create();
+        var completed = fixture.AddTask("completed", progress: 100);
+        completed.Status = TaskItemStatus.Completed;
+        var cancelled = fixture.AddTask("cancelled", progress: 35);
+        cancelled.Status = TaskItemStatus.Cancelled;
+
+        var completedResult = await fixture.Service.UpdateProgressAsync(
+            completed.Id,
+            new TaskProgressUpdateRequest(100, completed.VersionNo));
+        var cancelledResult = await fixture.Service.UpdateProgressAsync(
+            cancelled.Id,
+            new TaskProgressUpdateRequest(35, cancelled.VersionNo));
+
+        Assert.True(completedResult.IsSuccess);
+        Assert.True(cancelledResult.IsSuccess);
+        Assert.Equal(1, completed.VersionNo);
+        Assert.Equal(1, cancelled.VersionNo);
+        Assert.Equal(0, fixture.UnitOfWork.SaveCount);
+        Assert.DoesNotContain(
+            fixture.Audit.Entries,
+            entry => entry.Action == "TaskProgressUpdated");
+        Assert.Empty(fixture.Invalidations.TaskChanges);
+        Assert.Empty(fixture.Invalidations.ProjectChanges);
+    }
+
+    [Fact]
+    [Trait("Scope", "TaskV1PR06")]
+    public async Task GanttMilestoneCommandsRequireDateAndAllowOnlyBinaryProgress()
+    {
+        var fixture = Fixture.Create();
+        var milestone = fixture.AddMilestone("release");
+
+        var missingDate = await fixture.Service.UpdateScheduleAsync(
+            milestone.Id,
+            new TaskScheduleUpdateRequest(null, null, null, milestone.VersionNo));
+        var scheduled = await fixture.Service.UpdateScheduleAsync(
+            milestone.Id,
+            new TaskScheduleUpdateRequest(null, null, new DateOnly(2026, 8, 20), milestone.VersionNo));
+        var invalidProgress = await fixture.Service.UpdateProgressAsync(
+            milestone.Id,
+            new TaskProgressUpdateRequest(50, milestone.VersionNo));
+        var completed = await fixture.Service.UpdateProgressAsync(
+            milestone.Id,
+            new TaskProgressUpdateRequest(100, milestone.VersionNo));
+
+        Assert.StartsWith("MILESTONE_DATE_REQUIRED|", missingDate.Error);
+        Assert.True(scheduled.IsSuccess);
+        Assert.StartsWith("GANTT_INVALID_PROGRESS|", invalidProgress.Error);
+        Assert.True(completed.IsSuccess);
+        Assert.Equal(MilestoneStatus.Completed, milestone.Status);
+        Assert.Equal(3, milestone.VersionNo);
+        Assert.Equal(2, fixture.UnitOfWork.SaveCount);
+        Assert.Equal(2, fixture.Invalidations.ProjectChanges.Count(change => change.ProjectId == fixture.Project.Id));
+    }
+
+    [Fact]
+    [Trait("Scope", "TaskV1PR06")]
+    public async Task FailedGanttSaveClearsCommandTracking()
+    {
+        var fixture = Fixture.Create();
+        var task = fixture.AddTask("rollback");
+        fixture.UnitOfWork.Result = TaskCommandSaveResult.ConcurrencyConflict;
+
+        var result = await fixture.Service.UpdateProgressAsync(
+            task.Id,
+            new TaskProgressUpdateRequest(30, task.VersionNo));
+
+        Assert.StartsWith("GANTT_STALE_VERSION|", result.Error);
+        Assert.Equal(1, fixture.UnitOfWork.ClearCount);
+    }
+
+    [Fact]
+    [Trait("Scope", "TaskV1PR06")]
+    public async Task GanttCommandsRejectCombinedTaskAndMilestoneOverflow()
+    {
+        var fixture = Fixture.Create();
+        var target = fixture.AddTask("target");
+        for (var index = 1; index < 500; index++)
+            fixture.AddTask($"task-{index}");
+        fixture.AddMilestone("milestone");
+
+        var result = await fixture.Service.UpdateScheduleAsync(
+            target.Id,
+            new TaskScheduleUpdateRequest(
+                new DateOnly(2026, 8, 1),
+                new DateOnly(2026, 8, 2),
+                null,
+                target.VersionNo));
+
+        Assert.StartsWith("GANTT_ITEM_LIMIT_EXCEEDED|", result.Error);
+        Assert.Null(target.PlannedStartDate);
+        Assert.Null(target.PlannedEndDate);
+        Assert.Equal(0, fixture.UnitOfWork.SaveCount);
+    }
+
+    [Fact]
+    [Trait("Scope", "TaskV1PR06")]
+    public async Task LegacyMilestoneKindTaskRowsDoNotAffectCanonicalTaskHierarchy()
+    {
+        var fixture = Fixture.Create();
+        var task = fixture.AddTask("canonical task");
+        var legacyMilestoneRow = fixture.AddTask("legacy milestone row", task.Id);
+        legacyMilestoneRow.Kind = WorkItemKind.Milestone;
+
+        var result = await fixture.Service.UpdateScheduleAsync(
+            task.Id,
+            new TaskScheduleUpdateRequest(
+                new DateOnly(2026, 8, 3),
+                new DateOnly(2026, 8, 4),
+                null,
+                task.VersionNo));
+
+        Assert.True(result.IsSuccess);
+        Assert.Equal(new DateOnly(2026, 8, 3), task.PlannedStartDate);
+        Assert.Equal(new DateOnly(2026, 8, 4), task.PlannedEndDate);
+        Assert.Equal(1, fixture.UnitOfWork.SaveCount);
+    }
+
+    [Theory]
+    [InlineData(TaskItemStatus.Completed)]
+    [InlineData(TaskItemStatus.Cancelled)]
+    [Trait("Scope", "TaskV1PR06")]
+    public async Task TerminalParentRejectsNewSubtasksUntilExplicitlyReopened(
+        TaskItemStatus status)
+    {
+        var fixture = Fixture.Create();
+        var parent = fixture.AddTask("terminal parent", progress: status == TaskItemStatus.Completed ? 100 : 0);
+        parent.Status = status;
+
+        var result = await fixture.Subresources.CreateSubtaskAsync(
+            parent.Id,
+            new CreateTaskSubtaskRequest("child", null, TaskPriority.Medium));
+
+        Assert.StartsWith("TASK_TRANSITION_GUARD_FAILED|", result.Error);
+        Assert.DoesNotContain(
+            fixture.Projects.Tasks.Values,
+            task => task.ParentTaskItemId == parent.Id);
+        Assert.Equal(0, fixture.UnitOfWork.SaveCount);
+    }
+
+    [Fact]
+    [Trait("Scope", "TaskV1PR06")]
+    public async Task ReviewOverrideUsesCanonicalDoneTransitionAndReturnsDoneStage()
+    {
+        var fixture = Fixture.Create();
+        var review = new TaskWorkflowStage
+        {
+            ProjectId = fixture.Project.Id,
+            Name = "Review",
+            InternalCategory = TaskStageCategory.Review
+        };
+        var done = new TaskWorkflowStage
+        {
+            ProjectId = fixture.Project.Id,
+            Name = "Done",
+            InternalCategory = TaskStageCategory.Done
+        };
+        fixture.Projects.Stages[review.Id] = review;
+        fixture.Projects.Stages[done.Id] = done;
+        var task = fixture.AddTask("reviewed");
+        task.Status = TaskItemStatus.WaitingReview;
+        task.WorkflowStageId = review.Id;
+        task.WorkflowStage = review;
+        task.ReviewStatus = TaskReviewStatus.Submitted;
+
+        var result = await fixture.Service.OverrideCompleteAsync(
+            task.Id,
+            new TaskReviewRequest(task.VersionNo, "Manager accepted the risk."));
+
+        Assert.True(result.IsSuccess);
+        Assert.True(result.Value!.OverrideApplied);
+        Assert.Equal(TaskItemStatus.Completed, task.Status);
+        Assert.Equal(done.Id, task.WorkflowStageId);
+        Assert.Same(done, task.WorkflowStage);
+        Assert.Equal(100, task.ProgressPercent);
+        Assert.NotNull(task.CompletedAt);
+        Assert.Equal(TaskStageCategory.Done, result.Value.Task.StageCategory);
+        Assert.Equal("Done", result.Value.Task.WorkflowStageName);
+        Assert.Equal(1, fixture.UnitOfWork.SaveCount);
+        Assert.Contains(
+            fixture.Audit.Entries,
+            entry => entry.EntityId == task.Id &&
+                     entry.Action == "TaskReviewOverrideCompleted");
+    }
+
+    [Fact]
+    [Trait("Scope", "TaskV1PR06")]
+    public async Task ReviewOverrideCannotCompleteParentWithIncompleteChild()
+    {
+        var fixture = Fixture.Create();
+        var review = new TaskWorkflowStage
+        {
+            ProjectId = fixture.Project.Id,
+            Name = "Review",
+            InternalCategory = TaskStageCategory.Review
+        };
+        var done = new TaskWorkflowStage
+        {
+            ProjectId = fixture.Project.Id,
+            Name = "Done",
+            InternalCategory = TaskStageCategory.Done
+        };
+        fixture.Projects.Stages[review.Id] = review;
+        fixture.Projects.Stages[done.Id] = done;
+        var parent = fixture.AddTask("parent");
+        parent.Status = TaskItemStatus.WaitingReview;
+        parent.WorkflowStageId = review.Id;
+        parent.WorkflowStage = review;
+        fixture.AddTask("incomplete child", parent.Id, progress: 50);
+
+        var result = await fixture.Service.OverrideCompleteAsync(
+            parent.Id,
+            new TaskReviewRequest(parent.VersionNo, "Manager override."));
+
+        Assert.StartsWith("TASK_TRANSITION_GUARD_FAILED|", result.Error);
+        Assert.Equal(TaskItemStatus.WaitingReview, parent.Status);
+        Assert.Equal(review.Id, parent.WorkflowStageId);
+        Assert.Equal(0, parent.ProgressPercent);
+        Assert.Equal(1, parent.VersionNo);
+        Assert.Equal(0, fixture.UnitOfWork.SaveCount);
+        Assert.Empty(fixture.Audit.Entries);
+        Assert.Empty(fixture.Invalidations.TaskChanges);
+    }
+
+    [Fact]
+    [Trait("Scope", "TaskV1PR06")]
+    public async Task ReviewOverrideCannotCompleteCancelledTaskWithoutReopen()
+    {
+        var fixture = Fixture.Create();
+        var cancelled = new TaskWorkflowStage
+        {
+            ProjectId = fixture.Project.Id,
+            Name = "Cancelled",
+            InternalCategory = TaskStageCategory.Cancelled
+        };
+        var done = new TaskWorkflowStage
+        {
+            ProjectId = fixture.Project.Id,
+            Name = "Done",
+            InternalCategory = TaskStageCategory.Done
+        };
+        fixture.Projects.Stages[cancelled.Id] = cancelled;
+        fixture.Projects.Stages[done.Id] = done;
+        var task = fixture.AddTask("cancelled", progress: 35);
+        task.Status = TaskItemStatus.Cancelled;
+        task.WorkflowStageId = cancelled.Id;
+        task.WorkflowStage = cancelled;
+        task.CancelledAt = new DateTimeOffset(2026, 7, 24, 0, 0, 0, TimeSpan.Zero);
+        task.CancellationReason = "Superseded";
+
+        var result = await fixture.Service.OverrideCompleteAsync(
+            task.Id,
+            new TaskReviewRequest(task.VersionNo, "Manager override."));
+
+        Assert.StartsWith("TASK_TRANSITION_GUARD_FAILED|", result.Error);
+        Assert.Equal(TaskItemStatus.Cancelled, task.Status);
+        Assert.Equal(cancelled.Id, task.WorkflowStageId);
+        Assert.Equal(35, task.ProgressPercent);
+        Assert.NotNull(task.CancelledAt);
+        Assert.Equal("Superseded", task.CancellationReason);
+        Assert.Equal(1, task.VersionNo);
+        Assert.Equal(0, fixture.UnitOfWork.SaveCount);
+        Assert.Empty(fixture.Audit.Entries);
+        Assert.Empty(fixture.Invalidations.TaskChanges);
+    }
+
+    [Theory]
+    [InlineData(TaskItemStatus.Completed)]
+    [InlineData(TaskItemStatus.Cancelled)]
+    [Trait("Scope", "TaskV1PR06")]
+    public async Task TerminalParentRejectsRestoringDeletedChildUntilReopened(
+        TaskItemStatus parentStatus)
+    {
+        var fixture = Fixture.Create();
+        var parent = fixture.AddTask(
+            "terminal parent",
+            progress: parentStatus == TaskItemStatus.Completed ? 100 : 0);
+        parent.Status = parentStatus;
+        var child = fixture.AddTask("deleted child", parent.Id, progress: 20);
+        child.MarkDeleted(new DateTimeOffset(2026, 7, 24, 0, 0, 0, TimeSpan.Zero));
+
+        var result = await fixture.Service.RestoreAsync(
+            child.Id,
+            new TaskRestoreRequest(child.VersionNo));
+
+        Assert.StartsWith("TASK_TRANSITION_GUARD_FAILED|", result.Error);
+        Assert.NotNull(child.DeletedAt);
+        Assert.Equal(1, child.VersionNo);
+        Assert.Equal(0, fixture.UnitOfWork.SaveCount);
+        Assert.Empty(fixture.Audit.Entries);
+        Assert.Empty(fixture.Invalidations.TaskChanges);
+    }
+
+    [Theory]
+    [InlineData(TaskItemStatus.Completed)]
+    [InlineData(TaskItemStatus.Cancelled)]
+    [Trait("Scope", "TaskV1PR06")]
+    public async Task TerminalParentRejectsDeletingChildUntilReopened(
+        TaskItemStatus parentStatus)
+    {
+        var fixture = Fixture.Create();
+        var parent = fixture.AddTask(
+            "terminal parent",
+            progress: parentStatus == TaskItemStatus.Completed ? 100 : 0);
+        parent.Status = parentStatus;
+        var child = fixture.AddTask("child", parent.Id, progress: 100);
+        child.Status = TaskItemStatus.Completed;
+        var cancelledSibling = fixture.AddTask("cancelled sibling", parent.Id, progress: 100);
+        cancelledSibling.Status = TaskItemStatus.Cancelled;
+
+        var result = await fixture.Service.DeleteAsync(
+            child.Id,
+            new TaskDeleteRequest(child.VersionNo));
+
+        Assert.StartsWith("TASK_TRANSITION_GUARD_FAILED|", result.Error);
+        Assert.Null(child.DeletedAt);
+        Assert.Equal(1, child.VersionNo);
+        Assert.Equal(0, fixture.UnitOfWork.SaveCount);
+        Assert.Empty(fixture.Audit.Entries);
+        Assert.Empty(fixture.Invalidations.TaskChanges);
+    }
+
+    [Fact]
+    [Trait("Scope", "TaskV1PR06")]
+    public async Task DeleteAndRestoreAdvanceTheSharedProjectGraphRevision()
+    {
+        var fixture = Fixture.Create();
+        var task = fixture.AddTask("lifecycle");
+
+        var deleted = await fixture.Service.DeleteAsync(
+            task.Id,
+            new TaskDeleteRequest(task.VersionNo));
+        var restored = await fixture.Service.RestoreAsync(
+            task.Id,
+            new TaskRestoreRequest(task.VersionNo));
+
+        Assert.True(deleted.IsSuccess);
+        Assert.True(restored.IsSuccess);
+        Assert.Equal(
+            ["deleted", "restored"],
+            fixture.Invalidations.ProjectChanges.Select(change => change.Change).ToArray());
+        Assert.Equal(2, fixture.UnitOfWork.SaveCount);
+    }
+
     private sealed class Fixture
     {
         private Fixture()
@@ -476,6 +991,18 @@ public sealed class TaskCommandServiceTests
             return item;
         }
 
+        public Milestone AddMilestone(string title)
+        {
+            var milestone = new Milestone
+            {
+                ProjectId = Project.Id,
+                Name = title,
+                VersionNo = 1
+            };
+            Projects.Milestones[milestone.Id] = milestone;
+            return milestone;
+        }
+
         private TaskSubresourceService CreateSubresources() => new(
             Projects,
             null!,
@@ -500,14 +1027,16 @@ public sealed class TaskCommandServiceTests
         public Dictionary<Guid, TaskItem> Tasks { get; } = [];
         public Dictionary<Guid, TaskWorkflowStage> Stages { get; } = [];
         public Dictionary<Guid, ProjectTaskLabel> Labels { get; } = [];
+        public Dictionary<Guid, Milestone> Milestones { get; } = [];
+        public List<TaskDependency> Dependencies { get; } = [];
         public List<WorkItemWatchState> Watches { get; } = [];
         public List<WorkItemCollaborator> Collaborators { get; } = [];
         public Task<IReadOnlyList<Project>> ListVisibleAsync(Guid userId, CancellationToken cancellationToken = default) => Task.FromResult<IReadOnlyList<Project>>(ProjectItems.Values.ToArray());
         public Task<Project?> GetProjectAsync(Guid projectId, CancellationToken cancellationToken = default) => Task.FromResult(ProjectItems.GetValueOrDefault(projectId));
         public Task<ProjectMember?> GetMemberAsync(Guid projectId, Guid userId, CancellationToken cancellationToken = default) => Task.FromResult<ProjectMember?>(new ProjectMember { ProjectId = projectId, UserId = userId });
         public Task<IReadOnlyList<ProjectMember>> ListMembersAsync(Guid projectId, CancellationToken cancellationToken = default) => Task.FromResult<IReadOnlyList<ProjectMember>>([]);
-        public Task<IReadOnlyList<Milestone>> ListMilestonesAsync(Guid projectId, CancellationToken cancellationToken = default) => Task.FromResult<IReadOnlyList<Milestone>>([]);
-        public Task<Milestone?> GetMilestoneAsync(Guid milestoneId, CancellationToken cancellationToken = default) => Task.FromResult<Milestone?>(null);
+        public Task<IReadOnlyList<Milestone>> ListMilestonesAsync(Guid projectId, CancellationToken cancellationToken = default) => Task.FromResult<IReadOnlyList<Milestone>>(Milestones.Values.Where(milestone => milestone.ProjectId == projectId).ToArray());
+        public Task<Milestone?> GetMilestoneAsync(Guid milestoneId, CancellationToken cancellationToken = default) => Task.FromResult(Milestones.GetValueOrDefault(milestoneId));
         public Task<IReadOnlyList<TaskItem>> ListTasksAsync(Guid projectId, CancellationToken cancellationToken = default) => Task.FromResult<IReadOnlyList<TaskItem>>(Tasks.Values.Where(task => task.ProjectId == projectId).ToArray());
         public Task<TaskItem?> GetTaskAsync(Guid taskItemId, CancellationToken cancellationToken = default) => Task.FromResult(Tasks.GetValueOrDefault(taskItemId));
         public Task<TaskWorkflowStage?> GetWorkflowStageAsync(Guid workflowStageId, CancellationToken cancellationToken = default) => Task.FromResult(Stages.GetValueOrDefault(workflowStageId));
@@ -515,10 +1044,10 @@ public sealed class TaskCommandServiceTests
         public Task<IReadOnlyList<WorkItemCollaborator>> ListCollaboratorsAsync(Guid taskItemId, CancellationToken cancellationToken = default) => Task.FromResult<IReadOnlyList<WorkItemCollaborator>>(Collaborators.Where(item => item.TaskItemId == taskItemId).ToArray());
         public Task<IReadOnlyList<TaskAssignment>> ListAssignmentsAsync(Guid taskItemId, CancellationToken cancellationToken = default) => Task.FromResult<IReadOnlyList<TaskAssignment>>([]);
         public Task<TaskAssignment?> GetAssignmentAsync(Guid assignmentId, CancellationToken cancellationToken = default) => Task.FromResult<TaskAssignment?>(null);
-        public Task<IReadOnlyList<TaskDependency>> ListDependenciesAsync(Guid taskItemId, CancellationToken cancellationToken = default) => Task.FromResult<IReadOnlyList<TaskDependency>>([]);
-        public Task<IReadOnlyList<TaskDependency>> ListProjectDependenciesAsync(Guid projectId, CancellationToken cancellationToken = default) => Task.FromResult<IReadOnlyList<TaskDependency>>([]);
-        public Task<TaskDependency?> GetDependencyAsync(Guid dependencyId, CancellationToken cancellationToken = default) => Task.FromResult<TaskDependency?>(null);
-        public Task<bool> DependencyExistsAsync(Guid predecessorTaskId, Guid successorTaskId, CancellationToken cancellationToken = default) => Task.FromResult(false);
+        public Task<IReadOnlyList<TaskDependency>> ListDependenciesAsync(Guid taskItemId, CancellationToken cancellationToken = default) => Task.FromResult<IReadOnlyList<TaskDependency>>(Dependencies.Where(dependency => dependency.PredecessorTaskItemId == taskItemId || dependency.SuccessorTaskItemId == taskItemId).ToArray());
+        public Task<IReadOnlyList<TaskDependency>> ListProjectDependenciesAsync(Guid projectId, CancellationToken cancellationToken = default) => Task.FromResult<IReadOnlyList<TaskDependency>>(Dependencies.Where(dependency => dependency.ProjectId == projectId).ToArray());
+        public Task<TaskDependency?> GetDependencyAsync(Guid dependencyId, CancellationToken cancellationToken = default) => Task.FromResult(Dependencies.SingleOrDefault(dependency => dependency.Id == dependencyId));
+        public Task<bool> DependencyExistsAsync(Guid predecessorTaskId, Guid successorTaskId, CancellationToken cancellationToken = default) => Task.FromResult(Dependencies.Any(dependency => dependency.PredecessorTaskItemId == predecessorTaskId && dependency.SuccessorTaskItemId == successorTaskId));
         public Task<IReadOnlyList<Comment>> ListCommentsAsync(CommentTargetType targetType, Guid targetId, CancellationToken cancellationToken = default) => Task.FromResult<IReadOnlyList<Comment>>([]);
         public Task<Comment?> GetCommentAsync(Guid commentId, CancellationToken cancellationToken = default) => Task.FromResult<Comment?>(null);
         public Task<IReadOnlyList<ProjectTaskLabel>> ListTaskLabelsAsync(Guid projectId, bool includeArchived, CancellationToken cancellationToken = default) => Task.FromResult<IReadOnlyList<ProjectTaskLabel>>(Labels.Values.Where(label => label.ProjectId == projectId && (includeArchived || !label.IsArchived)).ToArray());
@@ -532,11 +1061,11 @@ public sealed class TaskCommandServiceTests
         public Task AddTaskAsync(TaskItem task, CancellationToken cancellationToken = default) { Tasks[task.Id] = task; return Task.CompletedTask; }
         public Task AddCollaboratorAsync(WorkItemCollaborator collaborator, CancellationToken cancellationToken = default) { Collaborators.Add(collaborator); return Task.CompletedTask; }
         public Task AddAssignmentAsync(TaskAssignment assignment, CancellationToken cancellationToken = default) => Task.CompletedTask;
-        public Task AddDependencyAsync(TaskDependency dependency, CancellationToken cancellationToken = default) => Task.CompletedTask;
+        public Task AddDependencyAsync(TaskDependency dependency, CancellationToken cancellationToken = default) { Dependencies.Add(dependency); return Task.CompletedTask; }
         public Task AddCommentAsync(Comment comment, CancellationToken cancellationToken = default) => Task.CompletedTask;
         public void RemoveMember(ProjectMember member) { }
         public void RemoveAssignment(TaskAssignment assignment) { }
-        public void RemoveDependency(TaskDependency dependency) { }
+        public void RemoveDependency(TaskDependency dependency) => Dependencies.Remove(dependency);
         public void RemoveCollaborator(WorkItemCollaborator collaborator) => Collaborators.Remove(collaborator);
     }
 
@@ -584,6 +1113,7 @@ public sealed class TaskCommandServiceTests
     private sealed class FakeTaskUnitOfWork : ITaskCommandUnitOfWork
     {
         public int SaveCount { get; private set; }
+        public int ClearCount { get; private set; }
         public TaskCommandSaveResult Result { get; set; } = TaskCommandSaveResult.Saved;
         public TaskCommandSaveOutcome? Outcome { get; set; }
         public Task<int> SaveChangesAsync(CancellationToken cancellationToken = default) => Task.FromResult(1);
@@ -592,6 +1122,7 @@ public sealed class TaskCommandServiceTests
             SaveCount++;
             return Task.FromResult(Outcome ?? new TaskCommandSaveOutcome(Result));
         }
+        public void ClearTaskCommandTracking() => ClearCount++;
     }
     private sealed class FakeInvalidations : IBusinessInvalidationPublisher
     {

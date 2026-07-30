@@ -33,7 +33,8 @@ public sealed class BrowserSmokeResponseGateRegistry
                string.Equals(segments[0], "api", StringComparison.Ordinal) &&
                string.Equals(segments[1], "projects", StringComparison.Ordinal) &&
                Guid.TryParse(segments[2], out _) &&
-               string.Equals(segments[3], "kanban", StringComparison.Ordinal);
+               (string.Equals(segments[3], "kanban", StringComparison.Ordinal) ||
+                string.Equals(segments[3], "gantt", StringComparison.Ordinal));
     }
 
     public bool TryArm(Guid gateId, Guid ownerUserId, string method, string path)

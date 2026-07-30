@@ -72,4 +72,42 @@ describe('api error adapter', () => {
     expect(normalizeApiError(new HttpErrorResponse({ status: 409, error: {} })).code).toBe('Http409');
     expect(normalizeApiError(new HttpErrorResponse({ status: 409, error: { details: [{ code: 'TASK_STALE_VERSION' }] } })).details).toContainEqual({ code: 'TASK_STALE_VERSION', message: 'TASK_STALE_VERSION', target: undefined });
   });
+
+  it('preserves target, details, and redaction metadata from the nested safe error envelope', () => {
+    const error = normalizeApiError(
+      new HttpErrorResponse({
+        status: 409,
+        error: {
+          requestId: 'gantt-conflict-1',
+          error: {
+            code: 'TASK_STALE_VERSION',
+            message: 'The Task changed. Refetch the authoritative schedule.',
+            target: 'expectedVersion',
+            details: [
+              {
+                code: 'AUTHORITATIVE_REFETCH_REQUIRED',
+                message: 'Reload the Task before retrying.',
+                target: 'taskId'
+              }
+            ],
+            redactionApplied: false
+          }
+        }
+      })
+    );
+
+    expect(error).toMatchObject({
+      code: 'TASK_STALE_VERSION',
+      target: 'expectedVersion',
+      requestId: 'gantt-conflict-1',
+      redactionApplied: false
+    });
+    expect(error.details).toEqual([
+      {
+        code: 'AUTHORITATIVE_REFETCH_REQUIRED',
+        message: 'Reload the Task before retrying.',
+        target: 'taskId'
+      }
+    ]);
+  });
 });

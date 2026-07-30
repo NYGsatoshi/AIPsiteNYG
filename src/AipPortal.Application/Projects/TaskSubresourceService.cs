@@ -138,6 +138,8 @@ public sealed class TaskSubresourceService(
         if (parent is null) return Fail<TaskSubtaskResponse>("TASK_NOT_FOUND", "Task not found.");
         if (!await taskAuthorization.CanCreateTask(Actor(), parent.ProjectId, ct)) return Fail<TaskSubtaskResponse>("TASK_FORBIDDEN", "Task operation is not authorized.");
         if (parent.ParentTaskItemId.HasValue) return Fail<TaskSubtaskResponse>("TASK_PARENT_DEPTH_EXCEEDED", "A subtask cannot have children.");
+        if (TaskTransitionEngine.CategoryOf(parent) is TaskStageCategory.Done or TaskStageCategory.Cancelled)
+            return Fail<TaskSubtaskResponse>("TASK_TRANSITION_GUARD_FAILED", "Reopen the parent Task before adding a subtask.");
         var title = Text(request.Title, 300); if (title is null) return Fail<TaskSubtaskResponse>("VALIDATION_FAILED", "Subtask title is required.");
         var subtask = new TaskItem { WorkspaceId = parent.WorkspaceId, ProjectId = parent.ProjectId, ParentTaskItemId = parent.Id, Kind = AipPortal.Domain.Enums.WorkItemKind.Task, Title = title, Description = NullableText(request.Description, 12000), Priority = request.Priority, CreatedByUserId = Actor() };
         var placement = await TaskInitialPlacement.ApplyAsync(projects, subtask, ct);

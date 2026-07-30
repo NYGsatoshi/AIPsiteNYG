@@ -23,6 +23,10 @@ test('allows Syncfusion imports only in approved adapter locations', () => {
     {
       path: '/repo/frontend/src/app/shared/ui/adapters/syncfusion/syncfusion-uploader.adapter.ts',
       source: "import { UploaderComponent } from '@syncfusion/ej2-angular-inputs';"
+    },
+    {
+      path: '/repo/frontend/src/app/shared/ui/adapters/syncfusion/syncfusion-gantt.component.ts',
+      source: "import { GanttModule } from '@syncfusion/ej2-angular-gantt';"
     }
   ]);
 

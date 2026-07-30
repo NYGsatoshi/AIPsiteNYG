@@ -16,6 +16,7 @@ public sealed class ProjectConfiguration : IEntityTypeConfiguration<Project>
         builder.Property(project => project.Slug).HasMaxLength(140).IsRequired();
         builder.Property(project => project.Description).HasMaxLength(4000);
         builder.Property(project => project.Status).HasEnumStringConversion().IsRequired();
+        builder.Property(project => project.VersionNo).HasDefaultValue(1L).IsConcurrencyToken();
 
         builder.HasIndex(project => project.WorkspaceId);
         builder.HasIndex(project => project.GroupId);
@@ -90,6 +91,7 @@ public sealed class MilestoneConfiguration : IEntityTypeConfiguration<Milestone>
         builder.Property(milestone => milestone.Name).HasMaxLength(200).IsRequired();
         builder.Property(milestone => milestone.Description).HasMaxLength(4000);
         builder.Property(milestone => milestone.Status).HasEnumStringConversion().IsRequired();
+        builder.Property(milestone => milestone.VersionNo).IsConcurrencyToken().HasDefaultValue(1L);
 
         builder.HasIndex(milestone => milestone.ProjectId);
         builder.HasIndex(milestone => milestone.DueDate);
