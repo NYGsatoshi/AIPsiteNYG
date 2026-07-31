@@ -8,6 +8,13 @@ on:
       - frontend/package.json
       - aipsite-frontend/package.json
       - .github/workflows/npm-security-remediation-once.yml
+  pull_request:
+    branches:
+      - main
+    paths:
+      - frontend/package.json
+      - aipsite-frontend/package.json
+      - .github/workflows/npm-security-remediation-once.yml
 
 permissions:
   contents: write
