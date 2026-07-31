@@ -420,7 +420,7 @@ jobs:
       - security-scan
     timeout-minutes: 120
     concurrency:
-      group: aipsite-self-hosted-frontend-heavy
+      group: aipsite-self-hosted-frontend-heavy-v2
       cancel-in-progress: false
       queue: max
 
