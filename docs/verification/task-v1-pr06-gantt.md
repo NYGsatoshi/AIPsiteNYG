@@ -95,23 +95,26 @@ self-referential commit.
 | Field | Current value |
 | --- | --- |
 | Repository / PR / branch | `NYGsatoshi/AIPsiteNYG` / `#259` / `task/v1-pr06-gantt-adapter` |
-| Audit start PR HEAD | `e62f2e858fb6365c72c9578a564c12039dbf537d` |
-| Audit start main / actual latest main | `4cf5db2d91c46176277f8aec6902fc2dffea8c66` |
-| Main merge commit | `08056ee960875c18c32d15ff19bd41684c94e997` |
-| Merge method / conflicts | Normal `--no-ff` merge / none; no rebase, reset, force-push, or history rewrite |
-| Scope cleanup / code-bearing HEAD | `e8bdf47754ca38b6f4d1b3a31c945ae07432f06f` |
+| Audit start PR HEAD | `e9519724506010e643e72837ea83aa9801f33194` |
+| Audit start main / actual latest main | `33c35cbc873fcdc78b75663d195ca120e2c01520` |
+| Main merge commit | `1abce6c70d9f665b773d35f75d63c0d05a387cc8` |
+| Merge method / conflicts | Normal `--no-ff` merge / active frontend package manifest and lockfile; manually reconciled without unconditional ours/theirs |
+| Scope cleanup / code-bearing HEAD | Messaging cleanup remains `e8bdf47754ca38b6f4d1b3a31c945ae07432f06f`; latest-main code-bearing HEAD is `1abce6c70d9f665b773d35f75d63c0d05a387cc8` |
 | Messaging backup patch SHA-256 | `1099E128C2BBBE43D986C29427F82F2CBDB14371320FEC00E1B402DF628844DD` |
 | Messaging facade / test PR diff | None / none |
-| Ahead / behind before documentation commit | 25 / 0 |
+| Ahead / behind before documentation commit | 27 / 0 |
 | Draft / mergeable / merged | Yes / Yes / No |
 | Documentation-bearing final HEAD | Pending this ledger commit |
 
-Main integration retained CI heavy queue v2 and `queue: max`, manual-smoke and
-Qodana queue v2, Compodoc 2.0.0, lockfile version 3, latest-main security
-updates, and test tooling. There were no merge conflicts or unrelated package
-downgrades, registry churn, local path dependencies, or license material.
+Main integration retained Angular 21 and `@angular-devkit/architect`
+compatibility, CI heavy queue v2 and `queue: max`, manual-smoke and Qodana
+queue v2, Compodoc 2.0.0, Grid 34.1.33, ESLint 10.8.0, globals 17.8.0,
+lockfile version 3, latest-main security updates, and test tooling. The two
+package conflicts were reconciled by retaining PR06 Gantt 34.1.30 and main's
+Grid 34.1.33. No unrelated downgrade, registry churn, local path dependency,
+or license material was introduced.
 
-Exact code-bearing HEAD `e8bdf47754ca38b6f4d1b3a31c945ae07432f06f`
+Exact code-bearing HEAD `1abce6c70d9f665b773d35f75d63c0d05a387cc8`
 produced the following local evidence:
 
 - .NET restore and Release build passed with 0 warnings and 0 errors.
@@ -121,7 +124,11 @@ produced the following local evidence:
   additive Down coverage, migration list, and no pending model changes.
 - Backend PR06 49/49, PR05 25/25, PR04 8/8, and full backend 494/494 passed;
   failed 0 and skipped 0.
-- Root, active-frontend, and inactive-frontend `npm ci` passed. Angular passed
+- Root, active-frontend, and inactive-frontend `npm ci` passed. Actual
+  `origin/main` tracks no inspection-workspace lockfile, so the requested
+  `npm --prefix tools/frontend-inspections ci` cannot run; the repository's
+  documented no-lock install and full inventory succeeded after online
+  registry metadata resolved main's newly published packages. Angular passed
   323/323 in 42 files. Production build, architecture checks (4/4), Syncfusion
   license safeguards (4/4), bundle analysis, 4 GB Storybook, and mocked
   Playwright (63 passed, 3 pre-existing expected skips) succeeded.
@@ -133,8 +140,8 @@ produced the following local evidence:
   nested `@angular-devkit/core` 22.0.4 declares Node `^24.15.0`; the inactive
   install warning is recorded and the repository-specified Hosted Node 24
   toolchain remains the Acceptance Gate.
-- npm audit totals were root 0; active frontend 19 (3 low, 6 moderate, 10 high,
-  0 critical); inactive frontend 12 (0 low, 5 moderate, 7 high, 0 critical).
+- npm audit totals were root 0; active frontend 15 (3 low, 6 moderate, 6 high,
+  0 critical); inactive frontend 8 (0 low, 5 moderate, 3 high, 0 critical).
   Syncfusion-affected entries were 0 and no forced fix was run.
 
 Owner decision input is explicitly unresolved:
@@ -1073,15 +1080,14 @@ post-cache upload and is not a Gate pass.
 | Fresh Real Backend Browser Smoke | Run `30634069147`, job `91167131007` | Smoke step 6/6 passed with 30 PR06 steps, 0 failed/skipped; workflow overall cancelled during setup-node post-cache upload; not a pass |
 | Fresh Real Backend artifact | `8794673197` / `sha256:660fbe4b8eafc0f967f4fa9ae7915f47b0a01951f16b3634d15d986e665ba814` | Valid; high-confidence secret matches 0 |
 
-### Current code-bearing candidate gates
+### Historical pre-latest-main code-bearing candidate gates
 
 All results below target exact code-bearing candidate
-`2fc5910e772f427355529de6e500b093583872b6`. Local and Hosted technical gates
+`2fc5910e772f427355529de6e500b093583872b6`. Those local and Hosted technical gates
 are green for the required commands. Default 2 GB local Storybook remains a
 separately recorded OOM non-pass; the required 4 GB and Hosted Storybook builds
-succeeded. Acceptance remains Incomplete because the numeric cap decision and
-Messaging/PR07 scope contamination are unresolved and the documentation-bearing
-exact-final-HEAD reruns have not yet occurred.
+succeeded. This evidence predates latest-main merge `1abce6c` and is not final
+Acceptance evidence.
 
 | Gate | Run / job | Current status |
 | --- | --- | --- |
@@ -1096,6 +1102,28 @@ exact-final-HEAD reruns have not yet occurred.
 | npm Security Audit | Run `30637433551`, job `91178483146`; artifact `8795930038` / `sha256:6922cac2d777d057555d60ace3f6b24630f05d9ad85fb901543ba13cfa89103d` | Success; active frontend 19 (3 low, 6 moderate, 10 high, 0 critical), latest-main delta -1 moderate, Syncfusion/PR06 introduced 0 |
 | Real Backend Browser Smoke | Run `30639800642`, job `91186533535` | Success; JUnit 6/6, failed/errors/skipped 0, PR06 30 steps / 9 commands, API interception `none`, page errors 0 |
 | Real Backend artifact | `8797054160` / `sha256:75315d1f961c6865fa2f25debbb23754b158ca2b6ea8e4a9995843b95b9398b8` | Valid; downloaded artifact Gitleaks matches 0 |
+
+### Latest-main remediation code-bearing candidate gates
+
+All local results below target exact code-bearing candidate
+`1abce6c70d9f665b773d35f75d63c0d05a387cc8`. Hosted results for this commit
+are diagnostic only because the following documentation commit becomes the
+exact final HEAD.
+
+| Gate | Result |
+| --- | --- |
+| Main integration | Actual latest main `33c35cbc873fcdc78b75663d195ca120e2c01520`; normal merge `1abce6c`; ahead/behind 27/0 before documentation |
+| Scope | Messaging facade/test diff 0; PR07/PR08 contamination 0 |
+| Release build | Passed; 0 warnings, 0 errors |
+| PostgreSQL 18.4 | Empty apply through `20260730120626_AddCanonicalGanttVersions`; PR05 upgrade/data/VersionNo preservation and additive Down passed; pending model changes 0 |
+| Backend | PR06 49/49, PR05 25/25, PR04 8/8, full backend 494/494; 0 failed, 0 skipped |
+| Package install | Root, active frontend, and inactive frontend `npm ci` passed. The inspection workspace has no tracked lockfile, so its requested `npm ci` is unavailable; documented no-lock install and inventory succeeded. |
+| Angular/frontend | Angular 323/323 in 42 files; production build; architecture 4/4; license safeguards 4/4; bundle analysis passed |
+| Bundle | Initial 949.99 kB; Gantt 5.42 MB lazy chunk; absent from initial bundle |
+| Storybook | Default approximately 2 GB heap OOM, not a pass; 4 GB diagnostic build passed; exact-final Hosted Storybook required |
+| Playwright | 63 passed, 0 failed, 3 pre-existing expected skips, 0 unexpected skips |
+| npm audit | Root 0; active 15 (3 low, 6 moderate, 6 high, 0 critical); inactive 8 (0 low, 5 moderate, 3 high, 0 critical); Syncfusion affected 0 |
+| Qodana / Real Backend | Exact-final-HEAD reruns pending after documentation commit |
 
 ### Post-documentation exact final-HEAD gates
 
@@ -1116,9 +1144,9 @@ embed self-referential evidence.
 
 ### Qodana candidates and review
 
-The latest completed Qodana inventory below is exact for current code-bearing
-candidate `2fc5910e772f427355529de6e500b093583872b6`. The final
-documentation-bearing rerun remains Pending.
+The latest completed pre-latest-main Qodana inventory below is exact for
+historical candidate `2fc5910e772f427355529de6e500b093583872b6`. The final
+documentation-bearing rerun after merge `1abce6c` remains Pending.
 
 | Evidence | Status |
 | --- | --- |
@@ -1137,7 +1165,7 @@ documentation-bearing rerun remains Pending.
 | Latest frontend inspection artifact | ID `8796818315`; digest `sha256:24eb0f0a20de07ade99ad3ac18b9c7a52e4f396ed21f13a980315fead9ae2269` |
 | Earlier candidate artifacts | `69cc6f0`: full `8792582726`, report `8792772245`, model `8792773927`, frontend `8793187227`; `e0e87dd9`: full `8786059473`, report `8786235946`, model `8786237568`, frontend `8786394667`; `555379db`: full `8785339371`, report `8785489866`, model `8785495363`, frontend `8785544038`; retained as historical evidence |
 | Product-code-parent review threads | 0 unresolved at the exact `69cc6f0` check |
-| Current code-bearing-candidate review threads | 0 unresolved at exact `2fc5910` |
+| Latest-main code-bearing-candidate review threads | 0 unresolved at exact `1abce6c` |
 | Final unresolved review threads | Recheck Pending on the documentation-bearing final HEAD |
 | PR body synchronized | Pending |
 | Verification synchronized | Historical `555379db`/`e0e87dd9`/`69cc6f0`/`f2d3805` evidence and exact `2fc5910` local/Hosted/Real results are synchronized; documentation-bearing Hosted evidence remains Pending |
@@ -1216,8 +1244,11 @@ must not merge the pull request.
 
 Resolved during this remediation:
 
-- latest main `4cf5db2d91c46176277f8aec6902fc2dffea8c66` was incorporated by
-  normal merge `08056ee960875c18c32d15ff19bd41684c94e997`; behind is 0
+- actual latest main `33c35cbc873fcdc78b75663d195ca120e2c01520` was incorporated
+  by normal merge `1abce6c70d9f665b773d35f75d63c0d05a387cc8`; behind is 0
+- the active frontend package conflicts were manually reconciled with Gantt
+  34.1.30 and main's Grid 34.1.33 retained; Angular 21 architect compatibility,
+  Compodoc 2.0.0, ESLint 10.8.0, globals 17.8.0, and queue controls remain
 - Messaging facade and UI-test contamination was removed from the PR diff by
   forward cleanup `e8bdf47754ca38b6f4d1b3a31c945ae07432f06f`
 - code-bearing migration, backend, frontend, package, and mocked-browser local
@@ -1231,6 +1262,9 @@ Remaining blockers:
 - exact documentation-bearing final HEAD is not established until this commit
 - exact-final-HEAD Hosted Documentation CI, CI, Code Quality, npm Security
   Audit, licensed Real Backend, artifact/secret, and review checks are pending
+- actual `origin/main` has no tracked `tools/frontend-inspections` lockfile, so
+  the requested local `npm ci` for that workspace is unavailable; the
+  repository's documented no-lock install/inventory path succeeded
 - PR body synchronization is pending; Draft is intentionally retained
 
 Current Gate:

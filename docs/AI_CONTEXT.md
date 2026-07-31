@@ -71,7 +71,7 @@ Project references enforce a conventional dependency direction. See `docs/ARCHIT
 | Workspaces/groups/channels/posts | Backend implemented; browser UI planned/partial | REST layers exist; routes render placeholders |
 | Messaging | Partially implemented | REST, direct-message recipient search, direct conversation creation, browser send/read persistence, and durable realtime message/unread reconciliation exist. The two Messaging files accidentally committed to PR #259 by `9f7b8f3` were restored to actual `origin/main` by forward cleanup commit `e8bdf47`; PR #259 no longer contains their PR07-scope diff. Safe attachment ownership and production PostgreSQL verification remain incomplete. |
 | Announcements | Partially implemented | REST and UI exist; scoped visibility and frontend role/user-ID behavior have confirmed defects |
-| Projects/tasks/milestones/assignments/comments/Gantt data | Partially implemented; PR06 code-bearing candidate passed required local checks | PR02 adds versioned Task workflow, relationship, review, Claim, and FS-authoring command routes. PR05 adds the canonical Project Kanban snapshot/config/move flow. PR06 upgrades the existing Project Detail Schedule tab and Gantt route with a bounded scheduled/unscheduled projection, manual schedule/progress/FS dependency commands, canonical Task-only parent derivation and terminal parent/child guards, optimistic concurrency, explicit conflict Retry/Discard, structured warnings, accessible/mobile alternatives, lazy vendor isolation, and authoritative realtime refetch. Latest main `4cf5db2` was merged normally as `08056ee`, and the Messaging contamination was removed by `e8bdf47`, the exact code-bearing candidate. PostgreSQL 18.4, PR06 49/49, PR05 25/25, PR04 8/8, full backend 494/494, Angular 323/323, production/architecture/license/bundle checks, raised-heap Storybook, and mocked Playwright 63 passed with 3 expected skips succeeded at that head. Exact final-HEAD Hosted and licensed Real Backend reruns remain pending. The numeric graph-limit owner decision remains unresolved, so Acceptance remains Incomplete. See `docs/TASK_V1_PR02.md`, `docs/TASK_V1_PR05.md`, and `docs/TASK_V1_PR06.md`. |
+| Projects/tasks/milestones/assignments/comments/Gantt data | Partially implemented; PR06 latest-main code-bearing candidate passed required local checks | PR02 adds versioned Task workflow, relationship, review, Claim, and FS-authoring command routes. PR05 adds the canonical Project Kanban snapshot/config/move flow. PR06 upgrades the existing Project Detail Schedule tab and Gantt route with a bounded scheduled/unscheduled projection, manual schedule/progress/FS dependency commands, canonical Task-only parent derivation and terminal parent/child guards, optimistic concurrency, explicit conflict Retry/Discard, structured warnings, accessible/mobile alternatives, lazy vendor isolation, and authoritative realtime refetch. Actual latest main `33c35cbc` was merged normally as `1abce6c`, retaining the prior Messaging cleanup. PostgreSQL 18.4, PR06 49/49, PR05 25/25, PR04 8/8, full backend 494/494, Angular 323/323, production/architecture/license/bundle checks, raised-heap Storybook, and mocked Playwright 63 passed with 3 expected skips succeeded at that head. Exact final-HEAD Hosted and licensed Real Backend reruns remain pending. The numeric graph-limit owner decision remains unresolved, so Acceptance remains Incomplete. See `docs/TASK_V1_PR02.md`, `docs/TASK_V1_PR05.md`, and `docs/TASK_V1_PR06.md`. |
 | Events/attendance/calendar | Backend implemented; browser UI planned | Controller/service/repository/tests exist; calendar route is a placeholder outside dashboard summary |
 | Forms/surveys | Backend implemented; browser UI planned | Controller/service/repository/tests exist; `/forms` is a placeholder |
 | Notifications | Implemented with polling UI | Database-backed; no realtime push |
@@ -154,24 +154,28 @@ TASK-V1-PR06 final-remediation evidence on 2026-08-01 is not yet final-HEAD
 Acceptance evidence:
 
 - Draft PR #259 is open and mergeable. Actual latest main
-  `4cf5db2d91c46176277f8aec6902fc2dffea8c66` was incorporated without conflict
-  by normal merge commit `08056ee960875c18c32d15ff19bd41684c94e997`.
-  Main queue v2/`queue: max`, Qodana/manual-smoke queue v2, Compodoc 2.0.0,
-  lockfiles, and latest test tooling were retained.
+  `33c35cbc873fcdc78b75663d195ca120e2c01520` was incorporated by normal merge
+  commit `1abce6c70d9f665b773d35f75d63c0d05a387cc8`. The active frontend manifest
+  and lockfile conflicts were reconciled with Gantt 34.1.30 and main's Grid
+  34.1.33 retained. Main queue v2/`queue: max`, Qodana/manual-smoke queue v2,
+  Angular 21 architect compatibility, Compodoc 2.0.0, ESLint 10.8.0, globals
+  17.8.0, lockfile version 3, and latest test tooling were retained.
 - Commit `e8bdf47754ca38b6f4d1b3a31c945ae07432f06f` restored
   `messaging.facade.ts` and `messaging-ui.spec.ts` to actual `origin/main` by a
   forward commit. Both files are absent from `origin/main...HEAD`; the backup
   patch SHA-256 is
   `1099E128C2BBBE43D986C29427F82F2CBDB14371320FEC00E1B402DF628844DD`.
-  Ahead/behind is 25/0 before the final documentation commit.
-- Exact code-bearing candidate `e8bdf47754ca38b6f4d1b3a31c945ae07432f06f`
+  Ahead/behind is 27/0 before the final documentation commit.
+- Exact code-bearing candidate `1abce6c70d9f665b773d35f75d63c0d05a387cc8`
   passed .NET restore and Release build with 0 warnings/errors. PostgreSQL 18.4
   passed empty migration apply through
   `20260730120626_AddCanonicalGanttVersions`, PR05 upgrade/data-preservation/
   additive-down coverage, and pending-model check. PR06 was 49/49, PR05 25/25,
   PR04 8/8, and full backend 494/494, all with 0 failed/skipped.
 - The same code-bearing candidate passed root and active/inactive frontend
-  installs, Angular 323/323 in 42 files, production build, architecture 4/4,
+  `npm ci`. Actual `origin/main` tracks no inspection-workspace lockfile, so
+  its requested `npm ci` is unavailable; the documented no-lock install and
+  full inventory succeeded. Angular passed 323/323 in 42 files, with production build, architecture 4/4,
   Syncfusion license policy 4/4, lazy-bundle analysis, 4 GB Storybook, and
   mocked Playwright 63 passed with 3 pre-existing expected skips. Default
   Storybook failed with an approximately 2 GB JavaScript heap OOM and is not a
@@ -181,8 +185,8 @@ Acceptance evidence:
   Node `^24.15.0`; the inactive workspace install therefore emitted an engine
   warning. No downgrade was made; the repository-specified Hosted Node 24
   toolchain is the Acceptance Gate.
-- Local npm audit was root 0; active frontend 19 (3 low, 6 moderate, 10 high,
-  0 critical); inactive frontend 12 (0 low, 5 moderate, 7 high, 0 critical).
+- Local npm audit was root 0; active frontend 15 (3 low, 6 moderate, 6 high,
+  0 critical); inactive frontend 8 (0 low, 5 moderate, 3 high, 0 critical).
   No affected audit entry referenced Syncfusion, and no forced fix was run.
 - Documentation CI, CI, Code Quality, npm Security Audit, licensed Real Backend
   Browser Smoke, final artifact secret scan, and final review-thread check must

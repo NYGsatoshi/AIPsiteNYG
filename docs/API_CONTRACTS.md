@@ -176,7 +176,7 @@ string-enum `type`, `editable`, successor aggregate `version`, and warnings.
 Finish-to-Start is the only authorable type. Legacy non-FS rows can be returned
 as read-only inventory with `LEGACY_DEPENDENCY_TYPE`.
 
-The current working-tree safety limits are 500 items counted consistently as
+The current implementation safety limits are 500 items counted consistently as
 canonical Task-kind WorkItems plus canonical Milestones, and 2,000
 dependencies. The same item count gate applies to snapshot, schedule, progress,
 and dependency paths. Overflow returns `GANTT_ITEM_LIMIT_EXCEEDED` or
@@ -190,7 +190,8 @@ canonical owner decision recorded in
 `docs/verification/task-v1-pr06-gantt.md`.
 Owner input for the WorkItem/Milestone cap, dependency cap, and overflow
 behavior is currently `UNRESOLVED`; the values above describe implementation
-safeguards only and are not a formal numeric product contract.
+safeguards only, are not owner-approved, and are not a formal numeric product
+contract. `DECISION REQUIRED` remains open.
 
 ### Schedule and progress commands
 

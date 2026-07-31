@@ -4,37 +4,37 @@ TASK-V1-PR06 upgrades the existing Project Detail Schedule tab from its
 read-only compatibility projection to an authorized, versioned projection and
 manual-edit surface over canonical WorkItems.
 
-Status: implemented at exact code-bearing candidate
-`e8bdf47754ca38b6f4d1b3a31c945ae07432f06f`. Latest main `4cf5db2` was
-incorporated by normal merge `08056ee`; the two Messaging/PR07-scope files
-introduced by `9f7b8f3` were restored to actual `origin/main` by forward commit
-`e8bdf47` and are absent from the PR diff. Exact code-bearing local migration,
-backend, Angular, architecture, license, bundle, raised-heap Storybook, and
-mocked Playwright gates passed. Default-heap Storybook remains an explicitly
-recorded OOM non-pass. Every post-documentation exact-final-HEAD Hosted and
-licensed Real Backend Gate remains pending. The numeric cap/overflow owner
-decision is `UNRESOLVED`, so this document does not claim Acceptance. Detailed
-evidence belongs in
+Status: implemented at exact latest-main code-bearing candidate
+`1abce6c70d9f665b773d35f75d63c0d05a387cc8`. Actual latest main
+`33c35cbc873fcdc78b75663d195ca120e2c01520` was incorporated by normal merge
+commit `1abce6c`; the two Messaging/PR07-scope files introduced by `9f7b8f3`
+remain restored to actual `origin/main` and absent from the PR diff. Exact
+code-bearing local migration, backend, Angular, architecture, license, bundle,
+raised-heap Storybook, and mocked Playwright gates passed. Default-heap
+Storybook remains an explicitly recorded OOM non-pass. Every
+post-documentation exact-final-HEAD Hosted and licensed Real Backend Gate
+remains pending. The numeric cap/overflow owner decision is `UNRESOLVED`, so
+this document does not claim Acceptance. Detailed evidence belongs in
 [`docs/verification/task-v1-pr06-gantt.md`](verification/task-v1-pr06-gantt.md).
 
 ## Identity and authority
 
 - Branch: `task/v1-pr06-gantt-adapter`
 - Audit start PR HEAD:
-  `e62f2e858fb6365c72c9578a564c12039dbf537d`
+  `e9519724506010e643e72837ea83aa9801f33194`
 - Audit start main HEAD and actual latest main:
-  `4cf5db2d91c46176277f8aec6902fc2dffea8c66`
+  `33c35cbc873fcdc78b75663d195ca120e2c01520`
 - Latest incorporated main HEAD:
-  `4cf5db2d91c46176277f8aec6902fc2dffea8c66`
+  `33c35cbc873fcdc78b75663d195ca120e2c01520`
 - Current normal main merge commit:
-  `08056ee960875c18c32d15ff19bd41684c94e997`
+  `1abce6c70d9f665b773d35f75d63c0d05a387cc8`
 - Messaging scope cleanup commit:
   `e8bdf47754ca38b6f4d1b3a31c945ae07432f06f`
 - Code-bearing candidate HEAD:
-  `e8bdf47754ca38b6f4d1b3a31c945ae07432f06f`
+  `1abce6c70d9f665b773d35f75d63c0d05a387cc8`
 - Backup Messaging patch SHA-256:
   `1099E128C2BBBE43D986C29427F82F2CBDB14371320FEC00E1B402DF628844DD`
-- Ahead / behind: 25 / 0 before the final documentation commit
+- Ahead / behind: 27 / 0 before the final documentation commit
 - Draft PR: `#259`, open and mergeable
 - Final documentation HEAD: Pending
 - Canonical specification revision:
@@ -543,19 +543,23 @@ latest-main merge `08056ee` and scope cleanup `e8bdf47`.
 
 - Repository / PR / branch: `NYGsatoshi/AIPsiteNYG`, PR #259,
   `task/v1-pr06-gantt-adapter`
-- Audit start: PR HEAD `e62f2e858fb6365c72c9578a564c12039dbf537d`;
-  main `4cf5db2d91c46176277f8aec6902fc2dffea8c66`
-- Latest main: `4cf5db2d91c46176277f8aec6902fc2dffea8c66`, merged normally
-  without conflicts as `08056ee960875c18c32d15ff19bd41684c94e997`
-- Main integration retained CI heavy queue v2, `queue: max`, Qodana/manual
-  smoke queue v2, Compodoc 2.0.0, latest lockfiles, and test tooling
+- Audit start: PR HEAD `e9519724506010e643e72837ea83aa9801f33194`;
+  main `33c35cbc873fcdc78b75663d195ca120e2c01520`
+- Latest main: `33c35cbc873fcdc78b75663d195ca120e2c01520`, merged normally as
+  `1abce6c70d9f665b773d35f75d63c0d05a387cc8`; the only conflicts were the
+  active frontend package manifest and lockfile, resolved by retaining Gantt
+  34.1.30 and main's Grid 34.1.33
+- Main integration retained Angular 21/@angular-devkit architect compatibility,
+  CI heavy queue v2 and `queue: max`, Qodana/manual-smoke queue v2,
+  Compodoc 2.0.0, ESLint 10.8.0, globals 17.8.0, lockfile version 3, and
+  latest test tooling
 - Messaging cleanup: forward commit
   `e8bdf47754ca38b6f4d1b3a31c945ae07432f06f`; both prohibited Messaging
   files are absent from `origin/main...HEAD`
 - Backup patch SHA-256:
   `1099E128C2BBBE43D986C29427F82F2CBDB14371320FEC00E1B402DF628844DD`
 - Exact code-bearing HEAD:
-  `e8bdf47754ca38b6f4d1b3a31c945ae07432f06f`; ahead/behind 25/0 before
+  `1abce6c70d9f665b773d35f75d63c0d05a387cc8`; ahead/behind 27/0 before
   this documentation commit
 - Release build: passed, 0 warnings / 0 errors
 - PostgreSQL 18.4: empty migration apply, PR05 upgrade/data preservation,
@@ -563,7 +567,10 @@ latest-main merge `08056ee` and scope cleanup `e8bdf47`.
   migration `20260730120626_AddCanonicalGanttVersions`
 - Backend: PR06 49/49, PR05 25/25, PR04 8/8, full backend 494/494;
   failed 0, skipped 0
-- Frontend: root/active/inactive `npm ci` passed; Angular 323/323 in 42 files;
+- Frontend: root/active/inactive `npm ci` passed; the inspection workspace has
+  no tracked lockfile, so its requested `npm ci` was structurally unavailable;
+  the repository's no-lock install path and full inventory succeeded. Angular
+  323/323 in 42 files;
   production build, architecture 4/4, Syncfusion license safeguards 4/4,
   bundle analysis, 4 GB Storybook, and mocked Playwright 63 passed with 3
   pre-existing expected skips succeeded
@@ -574,8 +581,8 @@ latest-main merge `08056ee` and scope cleanup `e8bdf47`.
 - Toolchain: Node `v24.13.0`, npm `11.6.2`; Compodoc 2.0.0 executed, while
   its nested `@angular-devkit/core` 22.0.4 requires Node `^24.15.0`, so the
   repository Hosted Node 24 toolchain remains authoritative for that Gate
-- npm audit: root 0; active 19 (3 low, 6 moderate, 10 high, 0 critical);
-  inactive 12 (0 low, 5 moderate, 7 high, 0 critical); Syncfusion affected 0
+- npm audit: root 0; active 15 (3 low, 6 moderate, 6 high, 0 critical);
+  inactive 8 (0 low, 5 moderate, 3 high, 0 critical); Syncfusion affected 0
 - Numeric decision: WorkItem/Milestone cap `UNRESOLVED`; dependency cap
   `UNRESOLVED`; overflow behavior `UNRESOLVED`; the current 500 / 2,000 /
   typed HTTP 400 fail-closed behavior remains an implementation safeguard only

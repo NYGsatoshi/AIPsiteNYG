@@ -174,19 +174,23 @@ The provisional item bound counts 500 canonical Task-kind WorkItems plus canonic
 Milestones, consistently across snapshot, schedule, progress, and dependency
 paths; the dependency bound is 2,000. Their canonical owner decision remains
 open. Owner input for both bounds and overflow behavior is `UNRESOLVED`; these
-values are implementation safeguards, not a formally approved numeric
-contract. Overflow is currently rejected and never silently truncated.
+values are implementation safeguards only, are not owner-approved, and are
+not a formally approved numeric contract. `DECISION REQUIRED` remains open.
+Overflow is currently rejected and never silently truncated.
 
-Focused PostgreSQL 18.4 integration evidence applies the migration to an empty
-database, upgrades the PR05 migration, migrates down additively, reports no
-pending migrations/model changes, captures exact SQL and emits it in xUnit
-evidence, asserts the seven-command repository projection and 24-command
+Latest-main code-bearing candidate
+`1abce6c70d9f665b773d35f75d63c0d05a387cc8` repeated focused PostgreSQL 18.4
+integration evidence: it applied the migration to an empty database, upgraded
+the PR05 migration, migrated down additively, and reported no pending
+migrations/model changes. The focused tests captured exact SQL in xUnit
+evidence and asserted the seven-command repository projection and 24-command
 authorized HTTP total, deterministic order/limits, cancellation, and no N+1 or
-unbounded graph load. It also exercises the post-read count race, Project and
+unbounded graph load. They also exercised the post-read count race, Project and
 Milestone concurrency, and the Project-revision Task-delete/dependency-add
 race. The fixture is intentionally small, so no `EXPLAIN` claim or index-plan
-claim is made. Exact final-HEAD and hosted evidence remains in
-`docs/verification/task-v1-pr06-gantt.md`.
+claim is made. Evidence is recorded in
+`docs/verification/task-v1-pr06-gantt.md`; exact final-HEAD Hosted evidence is
+pending the documentation commit.
 
 ### System and UI shell
 
