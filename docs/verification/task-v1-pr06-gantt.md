@@ -25,9 +25,10 @@ This work stops after the PR06 Go/No-Go report. It does not include:
 
 Commit `9f7b8f3b3826ca7c4c1352cba253e3a2ea9827cc`, created while this remediation
 was in progress, committed pre-existing user-owned Messaging reconnect and
-authorization changes together with documentation. Those changes were not
-authored or modified by this remediation, but they are PR07-scope branch
-contamination and therefore a Merge blocker against the stopping point above.
+authorization changes together with documentation. Forward cleanup commit
+`e8bdf47754ca38b6f4d1b3a31c945ae07432f06f` restored both affected files to
+actual `origin/main`; neither file remains in the PR diff. No PR07 behavior was
+reimplemented in this PR.
 
 ## Start identity
 
@@ -53,11 +54,11 @@ contamination and therefore a Merge blocker against the stopping point above.
 The specification worktree was inspected at the revision above. It remained a
 reference source only and is not an intended PR06 change.
 
-## Final acceptance remediation identity
+## Historical pre-2026-08-01 remediation identity
 
-This table records the latest-main integration and exact code-bearing candidate
-used for final Acceptance remediation. It supplements rather than replaces the
-start identity and kickoff evidence above.
+This table preserves the earlier `2fc5910` candidate audit. It is historical
+and is not exact-final-HEAD evidence after the 2026-08-01 latest-main merge and
+Messaging scope cleanup.
 
 | Field | Actual value |
 | --- | --- |
@@ -83,6 +84,73 @@ The exact documentation-bearing commit cannot embed its own SHA or the run IDs
 created after that commit without creating another documentation HEAD. The
 post-documentation exact-HEAD SHA and run IDs will therefore be recorded in the
 PR body and final Acceptance report without changing the source tree again.
+
+## 2026-08-01 final Acceptance remediation
+
+This is the current identity and local evidence record. The documentation commit
+created from this ledger becomes the final HEAD; Hosted run IDs produced after
+that commit are recorded in the PR body and final report without another
+self-referential commit.
+
+| Field | Current value |
+| --- | --- |
+| Repository / PR / branch | `NYGsatoshi/AIPsiteNYG` / `#259` / `task/v1-pr06-gantt-adapter` |
+| Audit start PR HEAD | `e62f2e858fb6365c72c9578a564c12039dbf537d` |
+| Audit start main / actual latest main | `4cf5db2d91c46176277f8aec6902fc2dffea8c66` |
+| Main merge commit | `08056ee960875c18c32d15ff19bd41684c94e997` |
+| Merge method / conflicts | Normal `--no-ff` merge / none; no rebase, reset, force-push, or history rewrite |
+| Scope cleanup / code-bearing HEAD | `e8bdf47754ca38b6f4d1b3a31c945ae07432f06f` |
+| Messaging backup patch SHA-256 | `1099E128C2BBBE43D986C29427F82F2CBDB14371320FEC00E1B402DF628844DD` |
+| Messaging facade / test PR diff | None / none |
+| Ahead / behind before documentation commit | 25 / 0 |
+| Draft / mergeable / merged | Yes / Yes / No |
+| Documentation-bearing final HEAD | Pending this ledger commit |
+
+Main integration retained CI heavy queue v2 and `queue: max`, manual-smoke and
+Qodana queue v2, Compodoc 2.0.0, lockfile version 3, latest-main security
+updates, and test tooling. There were no merge conflicts or unrelated package
+downgrades, registry churn, local path dependencies, or license material.
+
+Exact code-bearing HEAD `e8bdf47754ca38b6f4d1b3a31c945ae07432f06f`
+produced the following local evidence:
+
+- .NET restore and Release build passed with 0 warnings and 0 errors.
+- PostgreSQL 18.4 passed empty apply through
+  `20260730120626_AddCanonicalGanttVersions`, PR05 upgrade with
+  Project/Milestone/Task/dependency preservation and VersionNo initialization,
+  additive Down coverage, migration list, and no pending model changes.
+- Backend PR06 49/49, PR05 25/25, PR04 8/8, and full backend 494/494 passed;
+  failed 0 and skipped 0.
+- Root, active-frontend, and inactive-frontend `npm ci` passed. Angular passed
+  323/323 in 42 files. Production build, architecture checks (4/4), Syncfusion
+  license safeguards (4/4), bundle analysis, 4 GB Storybook, and mocked
+  Playwright (63 passed, 3 pre-existing expected skips) succeeded.
+- Default-heap Storybook failed with an approximately 2 GB JavaScript heap OOM
+  and is not a pass. No timeout, retry, package downgrade, or test weakening was
+  used. The Gantt vendor chunk remained lazy at 5.42 MB; the initial bundle was
+  949.99 kB.
+- Local Node was `v24.13.0` with npm `11.6.2`. Compodoc 2.0.0 executed, but its
+  nested `@angular-devkit/core` 22.0.4 declares Node `^24.15.0`; the inactive
+  install warning is recorded and the repository-specified Hosted Node 24
+  toolchain remains the Acceptance Gate.
+- npm audit totals were root 0; active frontend 19 (3 low, 6 moderate, 10 high,
+  0 critical); inactive frontend 12 (0 low, 5 moderate, 7 high, 0 critical).
+  Syncfusion-affected entries were 0 and no forced fix was run.
+
+Owner decision input is explicitly unresolved:
+
+| Decision | Owner input | Current implementation safeguard |
+| --- | --- | --- |
+| WorkItem/Milestone cap | `UNRESOLVED` | 500 combined canonical items |
+| Dependency cap | `UNRESOLVED` | 2,000 active same-Project dependencies with active Task endpoints |
+| Overflow behavior | `UNRESOLVED` | typed HTTP 400, fail closed, no truncation, no partial graph |
+| Owner source | Current TASK-V1-PR06 final-remediation request | Canonical spec revision `20aa5a2e015ae8fb68e5ba2b257a416dfcad5c3f` supplies no numbers or overflow contract |
+| Resolved / DECISION REQUIRED | No / Yes | Safeguards are not formalized as the product contract |
+
+Exact-final-HEAD Documentation CI, CI, Code Quality, npm Security Audit,
+licensed Real Backend Browser Smoke, artifact secret scan, review-thread
+check, and PR-body synchronization remain pending until after this ledger is
+committed and pushed.
 
 ## Main post-PR05 Gate
 
@@ -1093,11 +1161,10 @@ Initial worktree state before this audit file was added:
   a read-only specification reference and not staged
 - `.tools/`: pre-existing protected untracked directory; not touched or staged
 - `frontend/src/app/features/messaging/messaging.facade.ts` and
-  `frontend/src/app/features/messaging/messaging-ui.spec.ts`: pre-existing
-  user-owned changes were committed by unrelated commit `9f7b8f3` together
-  with documentation. This remediation did not edit or revert them. Their
-  reconnect/authorization delta is outside PR06/within PR07 scope and blocks
-  Merge until the owner provides an authorized forward scope correction.
+  `frontend/src/app/features/messaging/messaging-ui.spec.ts`: unrelated
+  `9f7b8f3` changes were backed up, then restored to actual `origin/main` by
+  authorized forward cleanup `e8bdf47`. Both files are absent from the PR
+  diff; the local-only safety branch was not pushed.
 - `frontend/package.json`: the exact Syncfusion Angular Gantt dependency is an
   intended change for the vendor-isolated lazy adapter
 - `frontend/package-lock.json`: focused npm-major-compatible review passed.
@@ -1107,7 +1174,7 @@ Initial worktree state before this audit file was added:
   churn was introduced, and the lockfile contains no local path dependency or
   license material.
 
-## Current blockers and verdict
+## Historical pre-2026-08-01 blockers and verdict
 
 Remaining blockers:
 
@@ -1144,3 +1211,36 @@ Current Gate:
 This verdict must be replaced only by a final evidence-backed Go/No-Go report
 from the exact final PR06 HEAD. Even if every PR06 Gate later passes, this task
 must not merge the pull request.
+
+## Current blockers and verdict
+
+Resolved during this remediation:
+
+- latest main `4cf5db2d91c46176277f8aec6902fc2dffea8c66` was incorporated by
+  normal merge `08056ee960875c18c32d15ff19bd41684c94e997`; behind is 0
+- Messaging facade and UI-test contamination was removed from the PR diff by
+  forward cleanup `e8bdf47754ca38b6f4d1b3a31c945ae07432f06f`
+- code-bearing migration, backend, frontend, package, and mocked-browser local
+  Gates completed with 0 failures and 0 unexpected skips
+
+Remaining blockers:
+
+- DECISION REQUIRED: WorkItem/Milestone cap is `UNRESOLVED`
+- DECISION REQUIRED: dependency cap is `UNRESOLVED`
+- DECISION REQUIRED: overflow behavior is `UNRESOLVED`
+- exact documentation-bearing final HEAD is not established until this commit
+- exact-final-HEAD Hosted Documentation CI, CI, Code Quality, npm Security
+  Audit, licensed Real Backend, artifact/secret, and review checks are pending
+- PR body synchronization is pending; Draft is intentionally retained
+
+Current Gate:
+
+- TASK-V1-PR05: Complete
+- TASK-V1-PR06 acceptance: Incomplete
+- PR #259 Merge: No-Go
+- Merge performed: No
+- TASK-V1-PR07: No-Go pending PR259 merge and post-merge audit
+- PR08: No-Go
+
+The unresolved owner decision independently requires Incomplete / No-Go even
+if every technical Gate succeeds. This task does not merge PR #259.

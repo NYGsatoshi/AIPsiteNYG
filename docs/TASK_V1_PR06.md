@@ -5,55 +5,36 @@ read-only compatibility projection to an authorized, versioned projection and
 manual-edit surface over canonical WorkItems.
 
 Status: implemented at exact code-bearing candidate
-`2fc5910e772f427355529de6e500b093583872b6`. Product code at parent candidate
-`69cc6f0943cfc9d3e2dab358edceb0fad0a0fea6` incorporates latest main by a normal
-merge and retains patched `tar` 7.5.22 with a lock-only follow-up. That parent
-passed the full local suites plus Documentation CI, CI attempt 4, Code Quality
-attempt 3, and npm Security Audit, but its licensed Real Backend run found two
-deterministic evidence-harness mismatches. Historical `f2d3805` is a test-only
-remediation that validates the exact safe Project-detail denial and current
-authorization-clear status without broad failure suppression, timeout changes,
-or retries. Its ordinary Hosted gates succeeded, but its fresh Real Backend
-workflow ultimately timed out during an unnecessary setup-node cache upload
-after the 6/6 smoke step and artifact upload, so it is not a Gate pass. Commit
-`2fc5910` removes only that cache configuration. Exact `2fc5910` required
-local checks plus Hosted, Qodana, npm, and licensed Real Backend technical
-gates succeeded; default-heap local Storybook remains a separately recorded
-OOM non-pass while the required 4 GB and Hosted commands succeeded.
-Commit `9f7b8f3` also committed unrelated user-owned Messaging/PR07-scope
-changes to this branch; they were not modified by this remediation and remain
-a scope blocker. Every post-documentation exact-final-HEAD Gate remains
-pending. The numeric cap owner decision is unresolved, so this document does
-not claim acceptance. Detailed evidence belongs in
+`e8bdf47754ca38b6f4d1b3a31c945ae07432f06f`. Latest main `4cf5db2` was
+incorporated by normal merge `08056ee`; the two Messaging/PR07-scope files
+introduced by `9f7b8f3` were restored to actual `origin/main` by forward commit
+`e8bdf47` and are absent from the PR diff. Exact code-bearing local migration,
+backend, Angular, architecture, license, bundle, raised-heap Storybook, and
+mocked Playwright gates passed. Default-heap Storybook remains an explicitly
+recorded OOM non-pass. Every post-documentation exact-final-HEAD Hosted and
+licensed Real Backend Gate remains pending. The numeric cap/overflow owner
+decision is `UNRESOLVED`, so this document does not claim Acceptance. Detailed
+evidence belongs in
 [`docs/verification/task-v1-pr06-gantt.md`](verification/task-v1-pr06-gantt.md).
 
 ## Identity and authority
 
 - Branch: `task/v1-pr06-gantt-adapter`
-- Historical PR06 main start SHA:
-  `0a8a1f58b8365e9ffc54daafceca99864ae5f63f`
-- Final-remediation audit start PR HEAD:
-  `3cf2e1dc8c1c94ce475fb8f52f5461391f69cbd1`
-- Final-remediation audit start main HEAD:
-  `4c36baf95d1b9f80cab9b28c236bbaa1cb490346`
+- Audit start PR HEAD:
+  `e62f2e858fb6365c72c9578a564c12039dbf537d`
+- Audit start main HEAD and actual latest main:
+  `4cf5db2d91c46176277f8aec6902fc2dffea8c66`
 - Latest incorporated main HEAD:
-  `1739cfcc819174289d858cbacc255527f1ffa047`
-- Normal main merge commits:
-  `663b0f452093360b55d31d2c56b32cbeeb887a2f`,
-  `7838173a318c5819353007b88c2bec52896d48bf`, and
-  `555379db03d076627f04083a43eb07fe7ffa23bc`, followed by
-  `0b2d5fc1e99d441e278be1716b9fbb8baed96e90` for current latest main
+  `4cf5db2d91c46176277f8aec6902fc2dffea8c66`
+- Current normal main merge commit:
+  `08056ee960875c18c32d15ff19bd41684c94e997`
+- Messaging scope cleanup commit:
+  `e8bdf47754ca38b6f4d1b3a31c945ae07432f06f`
 - Code-bearing candidate HEAD:
-  `2fc5910e772f427355529de6e500b093583872b6`
-- Product-code/package parent candidate:
-  `69cc6f0943cfc9d3e2dab358edceb0fad0a0fea6`
-- Test-only Real Backend evidence remediation:
-  `f2d3805466b2a9bce3e2a7bf8392069330a1d6fd`
-- Unrelated Messaging/documentation commit:
-  `9f7b8f3b3826ca7c4c1352cba253e3a2ea9827cc`
-- Real Backend cache-remediation commit:
-  `2fc5910e772f427355529de6e500b093583872b6`
-- Ahead / behind: 22 / 0 before the final documentation commit
+  `e8bdf47754ca38b6f4d1b3a31c945ae07432f06f`
+- Backup Messaging patch SHA-256:
+  `1099E128C2BBBE43D986C29427F82F2CBDB14371320FEC00E1B402DF628844DD`
+- Ahead / behind: 25 / 0 before the final documentation commit
 - Draft PR: `#259`, open and mergeable
 - Final documentation HEAD: Pending
 - Canonical specification revision:
@@ -377,7 +358,11 @@ validates that exact method/path/status, its safe redacted body, and the current
 authorization-clear status. It neither treats arbitrary 400 responses as
 expected nor adds a retry or timeout.
 
-## Current status
+## Historical pre-2026-08-01 candidate status
+
+The entries in this section preserve the earlier `69cc6f0`, `f2d3805`, and
+`2fc5910` evidence ledger. They are not current final-remediation status after
+latest-main merge `08056ee` and scope cleanup `e8bdf47`.
 
 - Implementation: exact code-bearing candidate
   `2fc5910e772f427355529de6e500b093583872b6`; latest main
@@ -552,4 +537,53 @@ expected nor adds a retry or timeout.
 - TASK-V1-PR06 acceptance: Incomplete
 - PR #259 Merge: No-Go; merge performed: No
 - TASK-V1-PR07: No-Go pending PR06 merge and post-merge audit
+- PR08: No-Go
+
+## Current status
+
+- Repository / PR / branch: `NYGsatoshi/AIPsiteNYG`, PR #259,
+  `task/v1-pr06-gantt-adapter`
+- Audit start: PR HEAD `e62f2e858fb6365c72c9578a564c12039dbf537d`;
+  main `4cf5db2d91c46176277f8aec6902fc2dffea8c66`
+- Latest main: `4cf5db2d91c46176277f8aec6902fc2dffea8c66`, merged normally
+  without conflicts as `08056ee960875c18c32d15ff19bd41684c94e997`
+- Main integration retained CI heavy queue v2, `queue: max`, Qodana/manual
+  smoke queue v2, Compodoc 2.0.0, latest lockfiles, and test tooling
+- Messaging cleanup: forward commit
+  `e8bdf47754ca38b6f4d1b3a31c945ae07432f06f`; both prohibited Messaging
+  files are absent from `origin/main...HEAD`
+- Backup patch SHA-256:
+  `1099E128C2BBBE43D986C29427F82F2CBDB14371320FEC00E1B402DF628844DD`
+- Exact code-bearing HEAD:
+  `e8bdf47754ca38b6f4d1b3a31c945ae07432f06f`; ahead/behind 25/0 before
+  this documentation commit
+- Release build: passed, 0 warnings / 0 errors
+- PostgreSQL 18.4: empty migration apply, PR05 upgrade/data preservation,
+  additive Down, migration list, and pending-model check passed; latest
+  migration `20260730120626_AddCanonicalGanttVersions`
+- Backend: PR06 49/49, PR05 25/25, PR04 8/8, full backend 494/494;
+  failed 0, skipped 0
+- Frontend: root/active/inactive `npm ci` passed; Angular 323/323 in 42 files;
+  production build, architecture 4/4, Syncfusion license safeguards 4/4,
+  bundle analysis, 4 GB Storybook, and mocked Playwright 63 passed with 3
+  pre-existing expected skips succeeded
+- Default Storybook: failed with the local approximately 2 GB JavaScript heap
+  OOM and is not a pass; no timeout/retry change was made
+- Bundle: initial 949.99 kB; Syncfusion Gantt 5.42 MB lazy chunk and absent
+  from the initial bundle
+- Toolchain: Node `v24.13.0`, npm `11.6.2`; Compodoc 2.0.0 executed, while
+  its nested `@angular-devkit/core` 22.0.4 requires Node `^24.15.0`, so the
+  repository Hosted Node 24 toolchain remains authoritative for that Gate
+- npm audit: root 0; active 19 (3 low, 6 moderate, 10 high, 0 critical);
+  inactive 12 (0 low, 5 moderate, 7 high, 0 critical); Syncfusion affected 0
+- Numeric decision: WorkItem/Milestone cap `UNRESOLVED`; dependency cap
+  `UNRESOLVED`; overflow behavior `UNRESOLVED`; the current 500 / 2,000 /
+  typed HTTP 400 fail-closed behavior remains an implementation safeguard only
+- Final documentation HEAD, exact-head Documentation CI, CI, Code Quality,
+  npm Security Audit, licensed Real Backend Browser Smoke, artifact/secret
+  scan, final review-thread check, and PR body synchronization: Pending
+- Draft PR: retained; merge performed: No
+- TASK-V1-PR06 acceptance: Incomplete
+- PR #259 Merge: No-Go
+- TASK-V1-PR07: No-Go pending PR259 merge and post-merge audit
 - PR08: No-Go

@@ -188,6 +188,9 @@ rows across the three item collections; the Angular parser rejects a mismatch.
 These numeric values and overflow choice remain provisional pending the
 canonical owner decision recorded in
 `docs/verification/task-v1-pr06-gantt.md`.
+Owner input for the WorkItem/Milestone cap, dependency cap, and overflow
+behavior is currently `UNRESOLVED`; the values above describe implementation
+safeguards only and are not a formal numeric product contract.
 
 ### Schedule and progress commands
 

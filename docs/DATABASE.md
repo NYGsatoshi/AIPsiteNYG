@@ -173,7 +173,9 @@ initial counts and materialization.
 The provisional item bound counts 500 canonical Task-kind WorkItems plus canonical
 Milestones, consistently across snapshot, schedule, progress, and dependency
 paths; the dependency bound is 2,000. Their canonical owner decision remains
-open. Overflow is rejected and never silently truncated.
+open. Owner input for both bounds and overflow behavior is `UNRESOLVED`; these
+values are implementation safeguards, not a formally approved numeric
+contract. Overflow is currently rejected and never silently truncated.
 
 Focused PostgreSQL 18.4 integration evidence applies the migration to an empty
 database, upgrades the PR05 migration, migrates down additively, reports no
