@@ -31,7 +31,7 @@
     "@angular/cli": "21.2.19",
     "@angular/compiler-cli": "21.2.18",
     "@angular/platform-browser-dynamic": "21.2.18",
-    "@compodoc/compodoc": "^1.2.1",
+    "@compodoc/compodoc": "^2.0.0",
     "@storybook/addon-a11y": "^10.5.3",
     "@storybook/addon-docs": "^10.5.3",
     "@storybook/addon-onboarding": "^10.5.3",
