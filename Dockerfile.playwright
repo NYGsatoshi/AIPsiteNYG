@@ -1,5 +1,5 @@
-# package-lock.json resolves @playwright/test to 1.60.0, so use the matching Linux image tag here.
-FROM mcr.microsoft.com/playwright:v1.60.0-noble
+# package-lock.json resolves @playwright/test to 1.62.0, so use the matching Linux image tag here.
+FROM mcr.microsoft.com/playwright:v1.62.0-noble
 
 WORKDIR /work
 
