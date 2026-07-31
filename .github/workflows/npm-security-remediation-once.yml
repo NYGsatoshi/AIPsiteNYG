@@ -26,6 +26,7 @@ concurrency:
 jobs:
   update-lockfiles:
     runs-on: self-hosted
+    timeout-minutes: 20
     steps:
       - name: Repair previous Docker workspace ownership
         shell: bash
@@ -55,7 +56,7 @@ jobs:
       - name: Use repository npm version
         run: npm install --global npm@11.17.0
 
-      - name: Regenerate lockfiles and apply compatible audit fixes
+      - name: Regenerate lockfiles from reviewed manifests
         shell: bash
         run: |
           set -euo pipefail
@@ -67,18 +68,6 @@ jobs:
               --ignore-scripts \
               --no-audit \
               --no-fund
-
-            set +e
-            npm --prefix "$package_dir" audit fix \
-              --package-lock-only \
-              --ignore-scripts \
-              --no-fund
-            audit_fix_status=$?
-            set -e
-
-            if [ "$audit_fix_status" -ne 0 ]; then
-              echo "Compatible fixes were applied where possible; unresolved advisories remain in $package_dir."
-            fi
             echo "::endgroup::"
           done
 
