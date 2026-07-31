@@ -85,6 +85,47 @@ public sealed class ProjectServiceTests
     }
 
     [Fact]
+    [Trait("Scope", "TaskV1PR06")]
+    public async Task RevokedWorkspaceMemberCannotCreateTaskThroughRetainedProjectMembership()
+    {
+        var fixture = ProjectFixture.Create();
+        var contributor = fixture.AddUser();
+        fixture.Current.UserIdValue = contributor.Id;
+        fixture.AddProjectMember(contributor.Id, ProjectRole.Contributor);
+        fixture.Workspaces.Members.Single(member => member.UserId == contributor.Id).Status =
+            MembershipStatus.Suspended;
+
+        var result = await fixture.Service.CreateTaskAsync(
+            fixture.Project.Id,
+            new CreateTaskItemRequest(null, "Denied task", null, TaskPriority.Medium, null, null));
+
+        Assert.False(result.IsSuccess);
+        Assert.Equal("You are not allowed to create tasks.", result.Error);
+        Assert.Empty(fixture.Projects.Tasks);
+        Assert.Equal(0, fixture.CommandUnitOfWork.SaveCount);
+    }
+
+    [Fact]
+    [Trait("Scope", "TaskV1PR06")]
+    public async Task ArchivedProjectMemberCannotCreateTask()
+    {
+        var fixture = ProjectFixture.Create();
+        var contributor = fixture.AddUser();
+        fixture.Current.UserIdValue = contributor.Id;
+        fixture.AddProjectMember(contributor.Id, ProjectRole.Contributor);
+        fixture.Project.Status = ProjectStatus.Archived;
+
+        var result = await fixture.Service.CreateTaskAsync(
+            fixture.Project.Id,
+            new CreateTaskItemRequest(null, "Denied task", null, TaskPriority.Medium, null, null));
+
+        Assert.False(result.IsSuccess);
+        Assert.Equal("You are not allowed to create tasks.", result.Error);
+        Assert.Empty(fixture.Projects.Tasks);
+        Assert.Equal(0, fixture.CommandUnitOfWork.SaveCount);
+    }
+
+    [Fact]
     public async Task TaskResponseProjectsMutationPermissionsAndRejectsUnauthorizedUpdate()
     {
         var fixture = ProjectFixture.Create();

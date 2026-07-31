@@ -67,6 +67,11 @@ public sealed class ProjectAuthorizationService(
 
     public async Task<bool> CanCreateTask(Guid userId, Guid projectId, CancellationToken cancellationToken = default)
     {
+        if (!await CanViewProject(userId, projectId, cancellationToken))
+        {
+            return false;
+        }
+
         var member = await projects.GetMemberAsync(projectId, userId, cancellationToken);
         return member is not null || await CanManageProject(userId, projectId, cancellationToken);
     }

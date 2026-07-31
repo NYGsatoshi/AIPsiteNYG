@@ -555,7 +555,9 @@ public sealed class ProjectService(
         }
 
         var project = await projects.GetProjectAsync(projectId, cancellationToken);
-        if (project is null)
+        if (project is null ||
+            project.DeletedAt.HasValue ||
+            project.Status is ProjectStatus.Archived or ProjectStatus.Deleted)
         {
             return Result<TaskItemResponse>.Failure("Project not found.");
         }
