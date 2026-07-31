@@ -1,6 +1,6 @@
 # syntax=docker/dockerfile:1.7
 
-FROM node:24 AS frontend-build
+FROM node:25 AS frontend-build
 WORKDIR /src/frontend
 COPY frontend/package*.json ./
 RUN --mount=type=cache,id=aipsite-docker-npm,target=/root/.npm,sharing=locked \
