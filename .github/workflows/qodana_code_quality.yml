@@ -34,6 +34,7 @@ jobs:
     concurrency:
       group: aipsite-self-hosted-frontend-heavy
       cancel-in-progress: false
+      queue: max
 
     env:
       DOTNET_CLI_TELEMETRY_OPTOUT: "1"
@@ -176,6 +177,7 @@ jobs:
     concurrency:
       group: aipsite-self-hosted-frontend-heavy
       cancel-in-progress: false
+      queue: max
 
     steps:
       - name: Repair previous Docker workspace ownership
