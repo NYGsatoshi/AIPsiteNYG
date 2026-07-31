@@ -52,7 +52,7 @@ jobs:
             sh -c "chown -R ${uid}:${gid} /workspace"
 
       - name: Checkout repository
-        uses: actions/checkout@v4
+        uses: actions/checkout@v7
         with:
           ref: ${{ github.event.pull_request.head.sha || github.sha }}
           fetch-depth: 0
@@ -62,7 +62,7 @@ jobs:
         run: bash scripts/ci/configure-persistent-caches.sh
 
       - name: Set up .NET SDK
-        uses: actions/setup-dotnet@v4
+        uses: actions/setup-dotnet@v6
         with:
           global-json-file: global.json
 
@@ -80,7 +80,7 @@ jobs:
         # This non-gating inventory makes existing findings reviewable. The
         # following PR-mode scan is the deterministic blocking gate.
         continue-on-error: true
-        uses: JetBrains/qodana-action@v2026.1
+        uses: JetBrains/qodana-action@v2026.1.3
         with:
           args: |
             --image jetbrains/qodana-cdnet:2026.1-eap-privileged
@@ -96,7 +96,7 @@ jobs:
 
       - name: Upload complete Qodana inspection inventory
         if: always()
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: qodana-full-inventory
           path: ${{ runner.temp }}/qodana/full-results-${{ github.run_id }}-${{ github.run_attempt }}
@@ -113,7 +113,7 @@ jobs:
 
       - name: Gate PR-introduced Qodana findings
         if: always()
-        uses: JetBrains/qodana-action@v2026.1
+        uses: JetBrains/qodana-action@v2026.1.3
         with:
           args: |
             --image jetbrains/qodana-cdnet:2026.1-eap-privileged
@@ -142,7 +142,7 @@ jobs:
 
       - name: Set up Node.js for project-model guard
         if: always()
-        uses: actions/setup-node@v4
+        uses: actions/setup-node@v7
         with:
           node-version: "24"
 
@@ -161,7 +161,7 @@ jobs:
 
       - name: Upload Qodana project-model summary
         if: always()
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: qodana-project-model-summary
           path: ${{ runner.temp }}/qodana/project-model-summary.json
@@ -189,12 +189,12 @@ jobs:
             sh -c "chown -R ${uid}:${gid} /workspace"
 
       - name: Checkout repository
-        uses: actions/checkout@v4
+        uses: actions/checkout@v7
         with:
           ref: ${{ github.event.pull_request.head.sha || github.sha }}
 
       - name: Set up Node.js
-        uses: actions/setup-node@v4
+        uses: actions/setup-node@v7
         with:
           node-version: "24"
 
@@ -244,7 +244,7 @@ jobs:
 
       - name: Upload frontend inspection reports
         if: always()
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: frontend-inspection-reports
           path: artifacts/frontend-inspections

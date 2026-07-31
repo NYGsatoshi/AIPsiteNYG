@@ -60,7 +60,7 @@ jobs:
             sh -c "chown -R ${uid}:${gid} /workspace"
 
       - name: Checkout
-        uses: actions/checkout@v4
+        uses: actions/checkout@v7
 
       - name: Configure persistent .NET caches
         shell: bash
@@ -88,7 +88,7 @@ jobs:
           echo "$install_dir" >> "$GITHUB_PATH"
 
       - name: Setup .NET
-        uses: actions/setup-dotnet@v4
+        uses: actions/setup-dotnet@v6
         with:
           global-json-file: global.json
 
@@ -106,7 +106,7 @@ jobs:
 
       - name: Upload build restore log
         if: always()
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: build-test-dotnet-restore-log
           path: artifacts/ci/build-test-dotnet-restore.log
@@ -134,7 +134,7 @@ jobs:
 
       - name: Upload backend test results
         if: always()
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: backend-test-results
           path: artifacts/test-results
@@ -185,7 +185,7 @@ jobs:
             sh -c "chown -R ${uid}:${gid} /workspace"
 
       - name: Checkout
-        uses: actions/checkout@v4
+        uses: actions/checkout@v7
         with:
           fetch-depth: 0
 
@@ -214,7 +214,7 @@ jobs:
 
       - name: Upload Gitleaks secret scan report
         if: always()
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: gitleaks-secret-scan-report
           path: gitleaks-report.json
@@ -244,7 +244,7 @@ jobs:
           echo "$install_dir" >> "$GITHUB_PATH"
 
       - name: Setup .NET
-        uses: actions/setup-dotnet@v4
+        uses: actions/setup-dotnet@v6
         with:
           global-json-file: global.json
 
@@ -262,7 +262,7 @@ jobs:
 
       - name: Upload security restore log
         if: always()
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: security-dotnet-restore-log
           path: artifacts/ci/security-dotnet-restore.log
@@ -293,7 +293,7 @@ jobs:
 
       - name: Upload .NET dependency scan reports
         if: always()
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: dotnet-dependency-scan-reports
           path: |
@@ -381,7 +381,7 @@ jobs:
 
       - name: Upload Trivy image scan report
         if: always()
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: trivy-image-scan-report
           path: trivy-image-report.txt
@@ -435,10 +435,10 @@ jobs:
             sh -c "chown -R ${uid}:${gid} /workspace"
 
       - name: Checkout
-        uses: actions/checkout@v4
+        uses: actions/checkout@v7
 
       - name: Setup Node.js
-        uses: actions/setup-node@v4
+        uses: actions/setup-node@v7
         with:
           node-version: "24"
 
@@ -489,7 +489,7 @@ jobs:
 
       - name: Upload Playwright artifacts
         if: failure()
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: playwright-ui-test-artifacts
           path: |
