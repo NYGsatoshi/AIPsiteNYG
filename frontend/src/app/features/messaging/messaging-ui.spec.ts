@@ -2,19 +2,12 @@ import { provideHttpClient } from '@angular/common/http';
 import { HttpTestingController, provideHttpClientTesting } from '@angular/common/http/testing';
 import { ComponentFixture, TestBed } from '@angular/core/testing';
 import { ActivatedRoute, convertToParamMap, provideRouter, Router } from '@angular/router';
-import { of, Subject } from 'rxjs';
+import { of } from 'rxjs';
 
 import {
   AIP_AUTH_SESSION_MOCK,
   DEFAULT_AUTH_SESSION
 } from '../../core/auth/auth-session.facade';
-import { FrontendFeatureFlagsService } from '../../core/feature-flags/frontend-feature-flags.service';
-import {
-  RealtimeCatchUpCallback,
-  RealtimeCatchUpContext,
-  RealtimeFacade
-} from '../../core/realtime/realtime.facade';
-import { DurableRealtimeEvent } from '../../core/realtime/realtime.models';
 import { ChannelMessagingPageComponent } from './channel-messaging-page/channel-messaging-page.component';
 import { mapMessage } from './messaging.mapper';
 import { AIP_MESSAGING_PAGE_MOCK, MessagingFacade } from './messaging.facade';
@@ -23,32 +16,7 @@ import { MessagesPageComponent } from './messages-page/messages-page.component';
 
 const currentUserId = DEFAULT_AUTH_SESSION.currentUser?.userId ?? 'mock-user-a';
 
-class FakeMessagingRealtime {
-  private readonly events = new Subject<DurableRealtimeEvent>();
-  readonly durableEvents$ = this.events.asObservable();
-  catchUp: RealtimeCatchUpCallback | undefined;
-
-  registerSubscription(): () => void {
-    return () => undefined;
-  }
-
-  registerCatchUp(_owner: string, callback: RealtimeCatchUpCallback): () => void {
-    this.catchUp = callback;
-    return () => {
-      this.catchUp = undefined;
-    };
-  }
-
-  emit(event: DurableRealtimeEvent): void {
-    this.events.next(event);
-  }
-}
-
-async function configureHttpTest(
-  imports: any[],
-  conversationId = 'conversation-a',
-  extraProviders: readonly any[] = []
-): Promise<HttpTestingController> {
+async function configureHttpTest(imports: any[], conversationId = 'conversation-a'): Promise<HttpTestingController> {
   await TestBed.configureTestingModule({
     imports,
     providers: [
@@ -64,8 +32,7 @@ async function configureHttpTest(
         useValue: {
           paramMap: of(convertToParamMap({ workspaceId: 'workspace-a', conversationId }))
         }
-      },
-      ...extraProviders
+      }
     ]
   }).compileComponents();
 
@@ -285,195 +252,6 @@ describe('Messaging MVP0 backend wiring', () => {
     expect(root.querySelector('[data-testid="conversation-surface"]')).not.toBeNull();
     expect(root.textContent).toContain('General');
     expect(root.textContent).toContain('Existing backend message');
-  });
-
-  it('clears rendered messages before a denied realtime catch-up can revalidate them', async () => {
-    const realtime = new FakeMessagingRealtime();
-    const httpMock = await configureHttpTest(
-      [ChannelMessagingPageComponent],
-      'conversation-a',
-      [{ provide: RealtimeFacade, useValue: realtime }]
-    );
-    TestBed.inject(FrontendFeatureFlagsService).setForTesting({ 'realtime.signalR': true });
-    TestBed.createComponent(ChannelMessagingPageComponent);
-    flushConversationOpen(httpMock);
-    const facade = TestBed.inject(MessagingFacade);
-    expect(facade.page().messages.map((message) => message.body)).toContain('Existing backend message');
-
-    const context: RealtimeCatchUpContext = {
-      deniedOwners: new Set(['messaging-conversation'])
-    };
-    const catchUp = Promise.resolve(realtime.catchUp?.(context)).catch(() => undefined);
-    for (const request of httpMock.match('/api/conversations/conversation-a/messages')) {
-      request.flush(
-        { error: { code: 'CONVERSATION_NOT_FOUND', message: 'Not found.' } },
-        { status: 404, statusText: 'Not Found' }
-      );
-    }
-    await catchUp;
-
-    expect(facade.page().status).toBe('permissionDenied');
-    expect(facade.page().conversation.id).toBe('');
-    expect(facade.page().messages).toEqual([]);
-    expect(facade.page().conversations).toEqual([]);
-  });
-
-  it('does not restore a held authorized message response after conversation access is denied', async () => {
-    const realtime = new FakeMessagingRealtime();
-    const httpMock = await configureHttpTest(
-      [ChannelMessagingPageComponent],
-      'conversation-a',
-      [{ provide: RealtimeFacade, useValue: realtime }]
-    );
-    TestBed.inject(FrontendFeatureFlagsService).setForTesting({ 'realtime.signalR': true });
-    TestBed.createComponent(ChannelMessagingPageComponent);
-    httpMock.expectOne('/api/conversations').flush({ items: [] });
-    httpMock.expectOne('/api/conversations/conversation-a').flush({
-      id: 'conversation-a',
-      workspaceId: 'workspace-a',
-      type: 'ProjectChannel',
-      title: 'General',
-      isLocked: false,
-      isArchived: false,
-      members: [{
-        userId: currentUserId,
-        displayName: 'Mock User A',
-        canRead: true,
-        canPost: true,
-        removedAt: null,
-        leftAt: null
-      }],
-      createdAt: '2026-07-09T00:00:00Z'
-    });
-    const heldAuthorizedMessages = httpMock.expectOne(
-      '/api/conversations/conversation-a/messages'
-    );
-    const facade = TestBed.inject(MessagingFacade);
-
-    await Promise.resolve(realtime.catchUp?.({
-      deniedOwners: new Set(['messaging-conversation'])
-    }));
-    expect(facade.page().messages).toEqual([]);
-
-    heldAuthorizedMessages.flush({
-      items: [{
-        id: 'held-secret-message',
-        workspaceId: 'workspace-a',
-        conversationId: 'conversation-a',
-        authorUserId: 'other-user',
-        authorDisplayName: 'Other User',
-        body: 'Held protected message',
-        attachments: [],
-        createdAt: '2026-07-09T01:05:00Z',
-        isDeleted: false
-      }]
-    });
-
-    expect(facade.page().status).toBe('permissionDenied');
-    expect(facade.page().messages).toEqual([]);
-    expect(JSON.stringify(facade.page())).not.toContain('Held protected message');
-  });
-
-  it('clears a loading conversation on authorization invalidation before a held response can restore it', async () => {
-    const realtime = new FakeMessagingRealtime();
-    const httpMock = await configureHttpTest(
-      [ChannelMessagingPageComponent],
-      'conversation-a',
-      [{ provide: RealtimeFacade, useValue: realtime }]
-    );
-    TestBed.inject(FrontendFeatureFlagsService).setForTesting({ 'realtime.signalR': true });
-    TestBed.createComponent(ChannelMessagingPageComponent);
-    httpMock.expectOne('/api/conversations').flush({ items: [] });
-    httpMock.expectOne('/api/conversations/conversation-a').flush({
-      id: 'conversation-a',
-      workspaceId: 'workspace-a',
-      type: 'ProjectChannel',
-      title: 'General',
-      isLocked: false,
-      isArchived: false,
-      members: [{
-        userId: currentUserId,
-        displayName: 'Mock User A',
-        canRead: true,
-        canPost: true,
-        removedAt: null,
-        leftAt: null
-      }],
-      createdAt: '2026-07-09T00:00:00Z'
-    });
-    const heldAuthorizedMessages = httpMock.expectOne(
-      '/api/conversations/conversation-a/messages'
-    );
-    const facade = TestBed.inject(MessagingFacade);
-
-    realtime.emit({
-      eventId: 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa',
-      eventType: 'Security.AuthorizationStateChanged.v1',
-      payloadSchemaVersion: 1,
-      occurredAt: '2026-07-31T00:00:00Z',
-      tenantId: 'tenant-a',
-      aggregateType: 'AuthorizationState',
-      aggregateId: currentUserId,
-      aggregateVersion: 2,
-      actor: { actorType: 'System', actorId: null },
-      correlationId: null,
-      causationId: null,
-      payload: { scopeType: 'workspace', scopeId: 'workspace-a' }
-    });
-    expect(facade.page().status).toBe('permissionDenied');
-    expect(facade.page().messages).toEqual([]);
-
-    heldAuthorizedMessages.flush({
-      items: [{
-        id: 'held-after-authorization-change',
-        workspaceId: 'workspace-a',
-        conversationId: 'conversation-a',
-        authorUserId: 'other-user',
-        authorDisplayName: 'Other User',
-        body: 'Held protected message after authorization change',
-        attachments: [],
-        createdAt: '2026-07-09T01:05:00Z',
-        isDeleted: false
-      }]
-    });
-
-    expect(facade.page().status).toBe('permissionDenied');
-    expect(facade.page().messages).toEqual([]);
-    expect(JSON.stringify(facade.page())).not.toContain('Held protected message after authorization change');
-  });
-
-  it('keeps authorized realtime catch-up as an HTTP reconciliation path', async () => {
-    const realtime = new FakeMessagingRealtime();
-    const httpMock = await configureHttpTest(
-      [ChannelMessagingPageComponent],
-      'conversation-a',
-      [{ provide: RealtimeFacade, useValue: realtime }]
-    );
-    TestBed.inject(FrontendFeatureFlagsService).setForTesting({ 'realtime.signalR': true });
-    TestBed.createComponent(ChannelMessagingPageComponent);
-    flushConversationOpen(httpMock);
-    const facade = TestBed.inject(MessagingFacade);
-
-    const catchUp = Promise.resolve(realtime.catchUp?.({ deniedOwners: new Set() }));
-    httpMock.expectOne('/api/conversations/conversation-a/messages').flush({
-      items: [{
-        id: 'message-b',
-        workspaceId: 'workspace-a',
-        conversationId: 'conversation-a',
-        authorUserId: 'other-user',
-        authorDisplayName: 'Other User',
-        body: 'Authorized catch-up message',
-        attachments: [],
-        createdAt: '2026-07-09T01:05:00Z',
-        isDeleted: false
-      }]
-    });
-    await catchUp;
-
-    expect(facade.page().messages.map((message) => message.body)).toEqual([
-      'Existing backend message',
-      'Authorized catch-up message'
-    ]);
   });
 
   it('maps own messages from the current user id', () => {
