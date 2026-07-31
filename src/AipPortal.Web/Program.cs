@@ -22,11 +22,11 @@ using Microsoft.Extensions.Options;
 using System.Text.Json;
 
 var builder = WebApplication.CreateBuilder(args);
-var browserSmokeSeedEnabled =
+var browserSmokeSeedEnabled = BrowserSmokeTestBoundary.IsEnabled(
+    builder.Environment.EnvironmentName,
     builder.Configuration.GetValue<bool>("BrowserSmokeSeed:Enabled") ||
-    builder.Configuration.GetValue<bool>("AIP_BROWSER_SMOKE_SEED_ENABLED");
+    builder.Configuration.GetValue<bool>("AIP_BROWSER_SMOKE_SEED_ENABLED"));
 var browserSmokeResponseGateEnabled =
-    builder.Environment.IsEnvironment("Test") &&
     browserSmokeSeedEnabled &&
     builder.Configuration.GetValue<bool>("AIP_BROWSER_SMOKE_RESPONSE_GATE_ENABLED");
 

@@ -197,12 +197,19 @@ export class RealtimeFacade {
   }
 
   private async runCatchUps(context: RealtimeCatchUpContext): Promise<void> {
-    try {
-      // Registration order is the feature-defined authoritative reconciliation order.
-      for (const callback of this.catchUps.values()) {
+    let failed = false;
+    // Registration order is the feature-defined authoritative reconciliation order.
+    // Every callback must observe a denied owner even when an unrelated HTTP
+    // reconciliation fails first, so one feature cannot prevent another from
+    // clearing protected state.
+    for (const callback of [...this.catchUps.values()]) {
+      try {
         await callback(context);
+      } catch {
+        failed = true;
       }
-    } catch {
+    }
+    if (failed) {
       this.diagnosticsSubject.next({ code: 'CatchUpFailed' });
       throw new Error('Realtime catch-up could not complete.');
     }

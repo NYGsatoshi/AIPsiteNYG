@@ -162,12 +162,9 @@ See [README.dev-env.md](../README.dev-env.md) for the lightweight mode, the opti
 - an explicit initial administrator when `AIP_SEED_ADMIN_ENABLED=true`;
 - a development-only local administrator when `LocalAdmin:SeedOnStartup=true` in Development;
 - optional UI-shell modules, panels, commands, and radial profiles.
-- deterministic synthetic browser-smoke data only when
-  `AIP_BROWSER_SMOKE_SEED_ENABLED=true`, including a test user, workspace,
-  announcement, project, task, and required memberships.
-- deterministic synthetic browser-smoke data only when
-  `AIP_BROWSER_SMOKE_SEED_ENABLED=true`, including a test user, workspace,
-  announcement, project, task, and required memberships.
+- deterministic synthetic browser-smoke data only in the `Test` environment and
+  only when `AIP_BROWSER_SMOKE_SEED_ENABLED=true`, including a test user,
+  workspace, announcement, project, task, and required memberships.
 
 The administrator seed uses the existing password hasher and creates or updates a platform administrator with owner membership in the default tenant. `AIP_SEED_ADMIN_USERNAME` is stored as the display name because the current user model uses email for login and has no username column.
 

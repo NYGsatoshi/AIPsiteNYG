@@ -742,10 +742,14 @@ describe('ProjectDetailFacade canonical Kanban', () => {
   });
 
   it('clears protected projections before HTTP refetch when reconnect reauthorization is denied', () => {
-    flushLoad();
+    flushLoad(true, ganttSnapshotDto(), true);
 
     catchUp!({ deniedOwners: new Set(['project-detail']) });
 
+    expect(facade.view().project).toBeUndefined();
+    expect(facade.view().tasks).toEqual([]);
+    expect(facade.view().workload).toEqual([]);
+    expect(facade.view().members).toEqual([]);
     expect(facade.view().kanban.snapshot).toBeNull();
     expect(facade.view().schedule.snapshot).toBeNull();
     expect(facade.view().schedule.feedback).toContain('denied during reconnect');
@@ -801,14 +805,19 @@ describe('ProjectDetailFacade canonical Kanban', () => {
   });
 
   it('clears protected state before revalidating an authorization invalidation', async () => {
-    flushLoad();
+    flushLoad(true, ganttSnapshotDto(), true);
     facade.setScheduleInteractionActive(true);
 
     events.next({ ...realtimeEvent(8), eventType: 'Security.AuthorizationStateChanged.v1', payload: {} });
 
+    expect(facade.view().project).toBeUndefined();
+    expect(facade.view().tasks).toEqual([]);
+    expect(facade.view().workload).toEqual([]);
+    expect(facade.view().members).toEqual([]);
     expect(facade.view().kanban.snapshot).toBeNull();
     expect(facade.view().schedule.snapshot).toBeNull();
     await Promise.resolve();
+    flushDeniedProjectProjection();
     http.expectOne((request) => request.url === '/api/projects/project-1/kanban').flush(
       { error: { code: 'KANBAN_NOT_FOUND', message: 'Not found.' } },
       { status: 404, statusText: 'Not Found' });
@@ -846,6 +855,7 @@ describe('ProjectDetailFacade canonical Kanban', () => {
     });
 
     await Promise.resolve();
+    flushDeniedProjectProjection();
     http.expectOne((request) => request.url === '/api/projects/project-1/kanban').flush(
       { error: { code: 'KANBAN_NOT_FOUND', message: 'Not found.' } },
       { status: 404, statusText: 'Not Found' }
@@ -867,6 +877,7 @@ describe('ProjectDetailFacade canonical Kanban', () => {
     expect(facade.view().schedule.snapshot).toBeNull();
 
     await Promise.resolve();
+    flushDeniedProjectProjection();
     http.expectOne((request) => request.url === '/api/projects/project-1/kanban').flush(
       { error: { code: 'KANBAN_NOT_FOUND', message: 'Not found.' } },
       { status: 404, statusText: 'Not Found' });
@@ -890,6 +901,7 @@ describe('ProjectDetailFacade canonical Kanban', () => {
     expect(facade.view().schedule.snapshot).toBeNull();
 
     await Promise.resolve();
+    flushAuthorizedProjectProjections();
     http.expectOne((request) => request.url === '/api/projects/project-1/kanban').flush(snapshotDto());
     http.expectOne('/api/projects/project-1/gantt').flush(viewerGanttSnapshotDto());
     expect(facade.view().schedule.snapshot?.permissions.canEditSchedule).toBe(false);
@@ -920,6 +932,7 @@ describe('ProjectDetailFacade canonical Kanban', () => {
     });
 
     await Promise.resolve();
+    flushDeniedProjectProjection();
     const revalidation = http.expectOne((request) => request.url === '/api/projects/project-1/kanban');
     const scheduleRevalidation = http.expectOne('/api/projects/project-1/gantt');
     expect(facade.view().kanban.snapshot).toBeNull();
@@ -978,7 +991,11 @@ describe('ProjectDetailFacade canonical Kanban', () => {
     expect(facade.view().schedule.feedback).toContain('maintained read-only schedule list');
   });
 
-  function flushLoad(includeKanban = true, gantt = ganttSnapshotDto()): void {
+  function flushLoad(
+    includeKanban = true,
+    gantt = ganttSnapshotDto(),
+    includeProtectedRows = false
+  ): void {
     facade.load('project-1');
     http.expectOne('/api/projects/project-1').flush({
       id: 'project-1',
@@ -988,9 +1005,58 @@ describe('ProjectDetailFacade canonical Kanban', () => {
       endDate: null,
       uiPermissions: { canCreateTask: true }
     });
-    http.expectOne('/api/projects/project-1/tasks').flush({ items: [] });
+    http.expectOne('/api/projects/project-1/tasks').flush({
+      items: includeProtectedRows
+        ? [{
+            id: 'task-protected',
+            projectId: 'project-1',
+            title: 'Protected Task',
+            status: 0,
+            priority: 1,
+            progressPercent: 10,
+            version: 1
+          }]
+        : []
+    });
     if (includeKanban) http.expectOne('/api/projects/project-1/kanban').flush(snapshotDto());
     http.expectOne('/api/projects/project-1/gantt').flush(gantt);
+    http.expectOne('/api/projects/project-1/workload').flush({
+      members: includeProtectedRows
+        ? [{
+            userId: 'member-protected',
+            displayName: 'Protected Workload Member',
+            projectRole: 'Member',
+            assignedTaskCount: 1,
+            overdueTaskCount: 0,
+            estimatedHours: 2,
+            actualHours: 1
+          }]
+        : []
+    });
+    http.expectOne('/api/projects/project-1/members').flush(
+      includeProtectedRows
+        ? [{ userId: 'member-protected', displayName: 'Protected Member', role: 'Member' }]
+        : []
+    );
+  }
+
+  function flushDeniedProjectProjection(): void {
+    http.expectOne('/api/projects/project-1').flush(
+      { error: { code: 'PROJECT_NOT_FOUND', message: 'Not found.' } },
+      { status: 404, statusText: 'Not Found' }
+    );
+  }
+
+  function flushAuthorizedProjectProjections(): void {
+    http.expectOne('/api/projects/project-1').flush({
+      id: 'project-1',
+      title: 'Project',
+      status: 1,
+      startDate: null,
+      endDate: null,
+      uiPermissions: { canCreateTask: false }
+    });
+    http.expectOne('/api/projects/project-1/tasks').flush({ items: [] });
     http.expectOne('/api/projects/project-1/workload').flush({ members: [] });
     http.expectOne('/api/projects/project-1/members').flush([]);
   }

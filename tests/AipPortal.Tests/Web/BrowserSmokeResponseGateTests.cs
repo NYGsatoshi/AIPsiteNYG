@@ -5,6 +5,25 @@ namespace AipPortal.Tests.Web;
 
 public sealed class BrowserSmokeResponseGateTests
 {
+    [Theory]
+    [InlineData("Test", true)]
+    [InlineData("test", true)]
+    [InlineData("Development", false)]
+    [InlineData("Staging", false)]
+    [InlineData("Production", false)]
+    public void BrowserSmokeFeaturesAreRestrictedToTheTestEnvironment(
+        string environmentName,
+        bool expected)
+    {
+        Assert.Equal(expected, BrowserSmokeTestBoundary.IsEnabled(environmentName, requested: true));
+    }
+
+    [Fact]
+    public void BrowserSmokeFeaturesRemainDisabledWithoutExplicitOptIn()
+    {
+        Assert.False(BrowserSmokeTestBoundary.IsEnabled("Test", requested: false));
+    }
+
     [Fact]
     public void TargetValidationAllowsOnlyCanonicalProjectKanbanAndGanttGets()
     {

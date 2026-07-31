@@ -123,6 +123,32 @@ describe('RealtimeFacade', () => {
     expect(facade.connectionState()).toBe('Connected');
   });
 
+  it('notifies every denied owner even when an earlier catch-up fails', async () => {
+    const deniedOwners: string[][] = [];
+    const diagnostics: string[] = [];
+    facade.diagnostics$.subscribe((diagnostic) => diagnostics.push(diagnostic.code));
+    facade.registerSubscription('project-detail', {
+      subscriptionType: 'project',
+      resourceId: RESOURCE_ID
+    });
+    await enableAndAuthenticate();
+    facade.registerCatchUp('failing-feature', async () => {
+      throw new Error('HTTP catch-up failed.');
+    });
+    facade.registerCatchUp('project-detail', (context) => {
+      deniedOwners.push([...context.deniedOwners]);
+    });
+
+    transport.deniedSubscriptionType = 'project';
+    transport.statuses.next('reconnecting');
+    transport.statuses.next('reconnected');
+    await settle();
+    await settle();
+
+    expect(deniedOwners).toEqual([['project-detail']]);
+    expect(diagnostics).toContain('CatchUpFailed');
+  });
+
   it('does not send guessed group names and only maps approved logical targets to the transport', async () => {
     facade.registerSubscription('project-page', { subscriptionType: 'project', resourceId: RESOURCE_ID });
     await enableAndAuthenticate();

@@ -859,16 +859,16 @@ export class ProjectDetailFacade {
     this.scheduleRefreshInFlight = false;
     this.scheduleRefreshAfterFlight = false;
     this.scheduleRefreshAfterFlightFeedback = undefined;
-    const current = this.state();
     this.state.set({
-      ...current,
+      ...this.loading(),
+      status: 'permissionDenied',
+      message: 'Project access was denied during reconnect. Protected Project data was cleared.',
       kanban: {
         ...this.loadingKanban(),
         feedback: 'Project access was denied during reconnect. Protected board data was cleared.'
       },
       schedule: {
         ...this.loadingSchedule(),
-        canonicalEnabled: current.schedule.canonicalEnabled,
         feedback: 'Project access was denied during reconnect. Protected schedule data was cleared.'
       }
     });
@@ -1091,18 +1091,17 @@ export class ProjectDetailFacade {
       this.scheduleRefreshInFlight = false;
       this.scheduleRefreshAfterFlight = false;
       this.scheduleRefreshAfterFlightFeedback = undefined;
-      const current = this.state();
-      const restartInitialLoad = current.status === 'loading';
+      const restartInitialLoad = this.state().status === 'loading';
       const authorizationGeneration = this.authorizationGeneration;
       this.state.set({
-        ...current,
+        ...this.loading(),
+        message: 'Authorization changed. Protected Project data was cleared before revalidation.',
         kanban: {
           ...this.loadingKanban(),
           feedback: 'Authorization changed. Protected board data was cleared before revalidation.'
         },
         schedule: {
           ...this.loadingSchedule(),
-          canonicalEnabled: current.schedule.canonicalEnabled,
           feedback: 'Authorization changed. Protected schedule data was cleared before revalidation.'
         }
       });
@@ -1118,6 +1117,7 @@ export class ProjectDetailFacade {
         }
         this.releaseRealtime();
         this.registerRealtime(projectId);
+        this.refreshProjectProjections(projectId, authorizationGeneration);
         this.refreshKanban(true, 'Authorization revalidated from authoritative HTTP state.');
         this.refreshSchedule(true, 'Authorization revalidated from authoritative HTTP state.');
       });
@@ -1169,7 +1169,73 @@ export class ProjectDetailFacade {
     }
   }
 
+  private refreshProjectProjections(
+    projectId: string,
+    authorizationGeneration: number
+  ): void {
+    const loadGeneration = this.loadGeneration;
+    this.http.get<ProjectDto>(`/api/projects/${projectId}`, { withCredentials: true }).pipe(
+      switchMap((project) => forkJoin({
+        project: of(project),
+        tasks: this.http.get<PagedResponseDto<TaskDto>>(
+          `/api/projects/${projectId}/tasks`,
+          { withCredentials: true }
+        ),
+        workload: this.http.get<unknown>(
+          `/api/projects/${projectId}/workload`,
+          { withCredentials: true }
+        ),
+        members: this.http.get<unknown>(
+          `/api/projects/${projectId}/members`,
+          { withCredentials: true }
+        )
+      })),
+      map((response) => ({
+        kind: 'success' as const,
+        value: this.projectProjections(
+          response.project,
+          response.tasks.items ?? [],
+          response.workload,
+          response.members
+        )
+      })),
+      catchError((error: unknown) => of({ kind: 'error' as const, error }))
+    ).subscribe((result) => {
+      if (
+        this.projectId !== projectId ||
+        this.loadGeneration !== loadGeneration ||
+        this.authorizationGeneration !== authorizationGeneration
+      ) return;
+
+      if (result.kind === 'error') {
+        this.state.set(this.failure(result.error));
+        return;
+      }
+      const current = this.state();
+      this.state.set({
+        ...current,
+        ...result.value,
+        status: 'ready',
+        message: undefined
+      });
+    });
+  }
+
   private ready(projectDto: ProjectDto, taskDtos: readonly TaskDto[], kanban: KanbanLoadOutcome, gantt: ScheduleLoadOutcome, workload: unknown, members: unknown): ProjectDetailViewModel {
+    return {
+      status: 'ready',
+      ...this.projectProjections(projectDto, taskDtos, workload, members),
+      kanban: this.mapInitialKanban(kanban),
+      schedule: this.mapInitialSchedule(gantt)
+    };
+  }
+
+  private projectProjections(
+    projectDto: ProjectDto,
+    taskDtos: readonly TaskDto[],
+    workload: unknown,
+    members: unknown
+  ): Pick<ProjectDetailViewModel, 'project' | 'tasks' | 'workload' | 'members'> {
     const record = mapProjectDtoToRecord(projectDto);
     const project: ProjectSummaryViewModel = {
       id: record.id,
@@ -1188,11 +1254,8 @@ export class ProjectDetailFacade {
     };
     const rows = taskDtos.map((task) => this.toRow(mapTaskDtoToRecord(task, [record])));
     return {
-      status: 'ready',
       project,
       tasks: rows,
-      kanban: this.mapInitialKanban(kanban),
-      schedule: this.mapInitialSchedule(gantt),
       workload: this.workload(workload),
       members: this.members(members)
     };

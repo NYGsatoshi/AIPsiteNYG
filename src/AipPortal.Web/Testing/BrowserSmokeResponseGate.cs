@@ -3,6 +3,13 @@ using AipPortal.Application.Common.Interfaces;
 
 namespace AipPortal.Web.Testing;
 
+public static class BrowserSmokeTestBoundary
+{
+    public static bool IsEnabled(string environmentName, bool requested) =>
+        requested &&
+        string.Equals(environmentName, "Test", StringComparison.OrdinalIgnoreCase);
+}
+
 public sealed record BrowserSmokeResponseGateArmRequest(string Method, string Path);
 
 public sealed record BrowserSmokeResponseGateSnapshot(string State, int? StatusCode);
