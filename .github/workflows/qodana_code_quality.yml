@@ -32,7 +32,7 @@ jobs:
     # Serialize Qodana with frontend-heavy jobs on the shared self-hosted machine
     # to prevent resource contention and deterministic container-name collisions.
     concurrency:
-      group: aipsite-self-hosted-frontend-heavy
+      group: aipsite-self-hosted-frontend-heavy-v2
       cancel-in-progress: false
       queue: max
 
@@ -175,7 +175,7 @@ jobs:
     if: ${{ always() }}
     timeout-minutes: 90
     concurrency:
-      group: aipsite-self-hosted-frontend-heavy
+      group: aipsite-self-hosted-frontend-heavy-v2
       cancel-in-progress: false
       queue: max
 
