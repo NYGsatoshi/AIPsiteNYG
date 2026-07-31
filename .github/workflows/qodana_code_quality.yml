@@ -32,8 +32,9 @@ jobs:
     # Serialize Qodana with frontend-heavy jobs on the shared self-hosted machine
     # to prevent resource contention and deterministic container-name collisions.
     concurrency:
-      group: aipsite-self-hosted-frontend-heavy
+      group: aipsite-self-hosted-frontend-heavy-v2
       cancel-in-progress: false
+      queue: max
 
     env:
       DOTNET_CLI_TELEMETRY_OPTOUT: "1"
@@ -174,8 +175,9 @@ jobs:
     if: ${{ always() }}
     timeout-minutes: 90
     concurrency:
-      group: aipsite-self-hosted-frontend-heavy
+      group: aipsite-self-hosted-frontend-heavy-v2
       cancel-in-progress: false
+      queue: max
 
     steps:
       - name: Repair previous Docker workspace ownership
