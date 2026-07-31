@@ -1152,10 +1152,14 @@ test.describe('MVP0 real backend browser smoke', () => {
         !item.scheduleEditPermissions.canManageDependencies &&
         !item.scheduleEditPermissions.canClearSchedule
       ), 'viewer item permissions remain read-only').toBe(true);
+      expect(
+        viewerSnapshot.dependencies.every((dependency) => !dependency.editable),
+        'viewer dependency permissions remain read-only'
+      ).toBe(true);
       await viewerPage.getByRole('tab', { name: 'Schedule', exact: true }).click();
       await expect(viewerPage.getByText('Schedule is read-only for the current actor.')).toBeVisible();
       const viewerEditActions = viewerPage.getByRole('button', {
-        name: /^(Edit dates|Edit Milestone date|Edit progress|Move to unscheduled|Add FS predecessor)$/
+        name: /^(Edit dates|Edit Milestone date|Edit progress|Move to unscheduled|Add FS predecessor|Remove FS dependency)$/
       });
       await expect(viewerEditActions).toHaveCount(0);
       expect(viewerEvidence.pageErrors, 'viewer browser page errors').toEqual([]);
