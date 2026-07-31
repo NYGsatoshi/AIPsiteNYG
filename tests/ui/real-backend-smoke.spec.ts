@@ -859,6 +859,11 @@ test.describe('MVP0 real backend browser smoke', () => {
         new URL(response.url()).pathname === gatedKanbanPath &&
         response.status() === 404
       );
+      const projectDetailPath = `/api/projects/${evidence.projectId}`;
+      const deniedProjectDetailResponse = page.waitForResponse((response) =>
+        response.request().method() === 'GET' &&
+        new URL(response.url()).pathname === projectDetailPath
+      );
       const firstRevocationObservationPromise = Promise.race([
         protectedDataClear,
         deniedRefreshResponse.then(() => 'denial-response' as const)
@@ -884,7 +889,31 @@ test.describe('MVP0 real backend browser smoke', () => {
         bodyPreview: preview(deniedText)
       });
       expectCanonicalKanbanDenial(deniedText, 'KANBAN_NOT_FOUND');
-      await expect(page.getByText('Project board not found', { exact: true })).toBeVisible();
+      const deniedProjectResponse = await deniedProjectDetailResponse;
+      const deniedProjectText = await deniedProjectResponse.text();
+      const expectedProjectDetailDenial: SmokeFailedApiResponse = {
+        method: deniedProjectResponse.request().method(),
+        path: new URL(deniedProjectResponse.url()).pathname,
+        status: deniedProjectResponse.status()
+      };
+      evidence.steps.push({
+        name: 'pr05-project-detail-safe-denial-after-revocation',
+        method: expectedProjectDetailDenial.method,
+        path: expectedProjectDetailDenial.path,
+        status: expectedProjectDetailDenial.status,
+        bodyPreview: preview(deniedProjectText)
+      });
+      const deniedProjectBody = expectSafeProjectDetailDenial(deniedProjectText, [
+        evidence.projectId!, evidence.tenantId!, evidence.workspaceId!, pr05ProjectTitle,
+        ...Object.values(pr05TaskTitles)
+      ]);
+      expect(deniedProjectResponse.status(), 'revoked Project detail uses the established safe denial contract')
+        .toBe(400);
+      expect(evidence.failedApiResponses).toContainEqual(expectedProjectDetailDenial);
+      await expect(page.getByRole('status', {
+        name: 'Project access was denied during reconnect. Protected Project data was cleared.',
+        exact: true
+      })).toBeVisible();
       await expect(page.locator('[data-kanban-card-id]')).toHaveCount(0);
       await expect(page.locator('.aip-kanban__column')).toHaveCount(0);
       await expect(page.getByText('Warning: WIP limit 4 exceeded.', { exact: true })).toHaveCount(0);
@@ -962,6 +991,8 @@ test.describe('MVP0 real backend browser smoke', () => {
         revokeStatus: revoke.status,
         csrfHeaderPresent: revoke.csrfHeaderPresent,
         overlappingRefreshStatus: staleAuthorizedResponse.status(),
+        projectDetailDenialStatus: deniedProjectResponse.status(),
+        projectDetailDenialCode: String(deniedProjectBody.code),
         staleAuthorizedResponseUrl: staleAuthorizedResponse.url(),
         responseGateStatusCode: 200,
         denialUrl: deniedResponse.url(),
@@ -973,8 +1004,8 @@ test.describe('MVP0 real backend browser smoke', () => {
 
       expect(kanbanPostCount, 'real browser and direct concurrency Kanban POST count').toBe(5);
       expect(evidence.pageErrors, 'browser page errors').toEqual([]);
-      expectUnexpectedConsoleErrors(evidence);
-      expectUnexpectedApiFailures(evidence);
+      expectUnexpectedConsoleErrors(evidence, [expectedProjectDetailDenial]);
+      expectUnexpectedApiFailures(evidence, [expectedProjectDetailDenial]);
     } finally {
       await ownerContext?.close();
       await testInfo.attach('task-v1-pr05-real-backend-evidence.json', {
@@ -1743,6 +1774,11 @@ test.describe('MVP0 real backend browser smoke', () => {
         new URL(response.url()).pathname === ganttPath &&
         response.status() === 404
       );
+      const projectDetailPath = `/api/projects/${evidence.projectId}`;
+      const deniedProjectDetailResponse = page.waitForResponse((response) =>
+        response.request().method() === 'GET' &&
+        new URL(response.url()).pathname === projectDetailPath
+      );
       const firstRevocationObservationPromise = Promise.race([
         protectedDataClear,
         deniedRefreshResponse.then(() => 'denial-response' as const)
@@ -1768,6 +1804,27 @@ test.describe('MVP0 real backend browser smoke', () => {
         bodyPreview: preview(deniedText)
       });
       expectCanonicalGanttDenial(deniedText, 'GANTT_PROJECT_NOT_FOUND');
+      const deniedProjectResponse = await deniedProjectDetailResponse;
+      const deniedProjectText = await deniedProjectResponse.text();
+      const expectedProjectDetailDenial: SmokeFailedApiResponse = {
+        method: deniedProjectResponse.request().method(),
+        path: new URL(deniedProjectResponse.url()).pathname,
+        status: deniedProjectResponse.status()
+      };
+      evidence.steps.push({
+        name: 'pr06-project-detail-safe-denial-after-revocation',
+        method: expectedProjectDetailDenial.method,
+        path: expectedProjectDetailDenial.path,
+        status: expectedProjectDetailDenial.status,
+        bodyPreview: preview(deniedProjectText)
+      });
+      const deniedProjectBody = expectSafeProjectDetailDenial(deniedProjectText, [
+        evidence.projectId!, evidence.workspaceId!, pr06ProjectTitle,
+        ...Object.values(pr06TaskTitles), pr06MilestoneTitle
+      ]);
+      expect(deniedProjectResponse.status(), 'revoked Project detail uses the established safe denial contract')
+        .toBe(400);
+      expect(evidence.failedApiResponses).toContainEqual(expectedProjectDetailDenial);
       await expect(page.locator('[data-gantt-item-id]')).toHaveCount(0);
       await expect(page.locator('[data-gantt-dependency-id]')).toHaveCount(0);
       for (const title of [...Object.values(pr06TaskTitles), pr06MilestoneTitle]) {
@@ -1838,6 +1895,8 @@ test.describe('MVP0 real backend browser smoke', () => {
         revokedUserId: evidence.userId!,
         revokeStatus: revoke.status,
         overlappingRefreshStatus: staleAuthorizedResponse.status(),
+        projectDetailDenialStatus: deniedProjectResponse.status(),
+        projectDetailDenialCode: String(deniedProjectBody.code),
         denialStatus: deniedResponse.status(),
         subsequentDenialStatus: subsequentDenial.status,
         protectedDataClearedBeforeRevalidation: firstRevocationObservation === 'protected-data-cleared',
@@ -1848,8 +1907,8 @@ test.describe('MVP0 real backend browser smoke', () => {
       };
 
       expect(evidence.pageErrors, 'browser page errors').toEqual([]);
-      expectUnexpectedConsoleErrors(evidence);
-      expectUnexpectedApiFailures(evidence);
+      expectUnexpectedConsoleErrors(evidence, [expectedProjectDetailDenial]);
+      expectUnexpectedApiFailures(evidence, [expectedProjectDetailDenial]);
     } finally {
       await degradedContext?.close();
       await ownerContext?.close();
@@ -2935,14 +2994,38 @@ function recordFailedApiResponse(response: PlaywrightResponse, evidence: SmokeEv
   });
 }
 
-function expectUnexpectedApiFailures(evidence: SmokeEvidence) {
-  const unexpected = evidence.failedApiResponses.filter((failure) => !isExpectedFailure(failure));
+function expectUnexpectedApiFailures(
+  evidence: SmokeEvidence,
+  scenarioExpectedFailures: readonly SmokeFailedApiResponse[] = []
+) {
+  const remainingScenarioExpected = [...scenarioExpectedFailures];
+  const unexpected = evidence.failedApiResponses.filter((failure) => {
+    if (isExpectedFailure(failure)) return false;
+    const expectedIndex = remainingScenarioExpected.findIndex((expected) => sameFailure(failure, expected));
+    if (expectedIndex < 0) return true;
+    remainingScenarioExpected.splice(expectedIndex, 1);
+    return false;
+  });
   expect(unexpected, 'unexpected failed API responses').toEqual([]);
+  expect(remainingScenarioExpected, 'scenario-expected failed API responses were not observed').toEqual([]);
 }
 
-function expectUnexpectedConsoleErrors(evidence: SmokeEvidence) {
+function expectUnexpectedConsoleErrors(
+  evidence: SmokeEvidence,
+  scenarioExpectedFailures: readonly SmokeFailedApiResponse[] = []
+) {
   const expectedNetworkFailures = new Map<number, number>();
-  for (const failure of evidence.failedApiResponses.filter(isExpectedFailure)) {
+  const remainingScenarioExpected = [...scenarioExpectedFailures];
+  for (const failure of evidence.failedApiResponses) {
+    let expected = isExpectedFailure(failure);
+    if (!expected) {
+      const expectedIndex = remainingScenarioExpected.findIndex((candidate) => sameFailure(failure, candidate));
+      if (expectedIndex >= 0) {
+        remainingScenarioExpected.splice(expectedIndex, 1);
+        expected = true;
+      }
+    }
+    if (!expected) continue;
     expectedNetworkFailures.set(failure.status, (expectedNetworkFailures.get(failure.status) ?? 0) + 1);
   }
 
@@ -2956,6 +3039,23 @@ function expectUnexpectedConsoleErrors(evidence: SmokeEvidence) {
     return false;
   });
   expect(unexpected, 'unexpected browser console errors').toEqual([]);
+}
+
+function sameFailure(left: SmokeFailedApiResponse, right: SmokeFailedApiResponse): boolean {
+  return left.method === right.method && left.path === right.path && left.status === right.status;
+}
+
+function expectSafeProjectDetailDenial(
+  text: string,
+  protectedValues: readonly string[]
+): Record<string, unknown> {
+  const body = parseJson(text) as Record<string, unknown>;
+  expect(body).toMatchObject({ code: 'BadRequest', message: 'Project not found.' });
+  expect(typeof body.traceId, 'safe Project denial traceId').toBe('string');
+  for (const protectedValue of protectedValues) {
+    expect(text, 'safe Project denial must not expose protected Project data').not.toContain(protectedValue);
+  }
+  return body;
 }
 
 function expectOnlyExpectedPr06HubConsoleErrors(evidence: SmokeEvidence) {
@@ -3156,6 +3256,8 @@ interface Pr06GanttEvidence extends SmokeEvidence {
     revokedUserId: string;
     revokeStatus: number;
     overlappingRefreshStatus: number;
+    projectDetailDenialStatus: number;
+    projectDetailDenialCode: string;
     denialStatus: number;
     subsequentDenialStatus: number;
     protectedDataClearedBeforeRevalidation: boolean;
@@ -3312,6 +3414,8 @@ interface Pr05KanbanEvidence extends SmokeEvidence {
     revokeStatus: number;
     csrfHeaderPresent: boolean;
     overlappingRefreshStatus: number;
+    projectDetailDenialStatus: number;
+    projectDetailDenialCode: string;
     staleAuthorizedResponseUrl: string;
     responseGateStatusCode: number;
     denialUrl: string;
