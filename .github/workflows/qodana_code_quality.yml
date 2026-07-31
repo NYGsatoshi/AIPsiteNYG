@@ -220,7 +220,7 @@ jobs:
         run: |
           for attempt in 1 2; do
             set +e
-            npm --prefix tools/frontend-inspections install --prefer-offline --ignore-scripts --no-audit --no-fund
+            npm --prefix tools/frontend-inspections install --prefer-online --ignore-scripts --no-audit --no-fund
             status=$?
             set -e
             if [[ "$status" -eq 0 ]]; then
