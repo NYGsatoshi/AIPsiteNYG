@@ -55,12 +55,13 @@ jobs:
       - name: Use repository npm version
         run: npm install --global npm@11.17.0
 
-      - name: Refresh lockfiles and apply compatible audit fixes
+      - name: Regenerate lockfiles and apply compatible audit fixes
         shell: bash
         run: |
           set -euo pipefail
           for package_dir in frontend aipsite-frontend; do
-            echo "::group::Refresh $package_dir"
+            echo "::group::Regenerate $package_dir"
+            rm "$package_dir/package-lock.json"
             npm --prefix "$package_dir" install \
               --package-lock-only \
               --ignore-scripts \
