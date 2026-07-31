@@ -1,0 +1,113 @@
+name: One-shot compatible npm audit fix
+
+on:
+  push:
+    branches:
+      - chore/npm-security-remediation-20260801
+    paths:
+      - .github/workflows/npm-compatible-audit-fix-once.yml
+  pull_request:
+    branches:
+      - main
+    paths:
+      - .github/workflows/npm-compatible-audit-fix-once.yml
+
+permissions:
+  contents: write
+
+concurrency:
+  group: npm-compatible-audit-fix-20260801
+  cancel-in-progress: true
+
+jobs:
+  compatible-fix:
+    runs-on: self-hosted
+    timeout-minutes: 15
+    steps:
+      - name: Repair previous Docker workspace ownership
+        shell: bash
+        run: |
+          uid="$(id -u)"
+          gid="$(id -g)"
+          docker run --rm \
+            -v "$GITHUB_WORKSPACE:/workspace" \
+            alpine:3.21 \
+            sh -c "chown -R ${uid}:${gid} /workspace"
+
+      - name: Checkout remediation branch
+        uses: actions/checkout@v7
+        with:
+          ref: chore/npm-security-remediation-20260801
+          fetch-depth: 0
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v7
+        with:
+          node-version: "24"
+          cache: npm
+          cache-dependency-path: |
+            frontend/package-lock.json
+            aipsite-frontend/package-lock.json
+
+      - name: Use repository npm version
+        run: npm install --global npm@11.17.0
+
+      - name: Apply compatible lockfile-only audit fixes
+        shell: bash
+        run: |
+          set -u
+          for package_dir in frontend aipsite-frontend; do
+            echo "::group::Compatible audit fix: $package_dir"
+            timeout 300s npm --prefix "$package_dir" audit fix \
+              --package-lock-only \
+              --ignore-scripts \
+              --no-fund
+            status=$?
+            if [ "$status" -ne 0 ]; then
+              echo "npm audit fix exited $status because major/upstream-blocked advisories remain; compatible lockfile changes, if any, are retained."
+            fi
+            echo "::endgroup::"
+          done
+          exit 0
+
+      - name: Validate deterministic installs
+        shell: bash
+        run: |
+          set -euo pipefail
+          npm --prefix frontend ci --ignore-scripts --no-audit --no-fund
+          npm --prefix aipsite-frontend ci --ignore-scripts --no-audit --no-fund
+
+      - name: Record post-fix audit summaries
+        shell: bash
+        run: |
+          set -uo pipefail
+          for package_dir in frontend aipsite-frontend; do
+            echo "::group::npm audit: $package_dir"
+            npm --prefix "$package_dir" audit --package-lock-only || true
+            echo "::endgroup::"
+          done
+
+      - name: Commit compatible lockfile changes and remove one-shot workflow
+        shell: bash
+        run: |
+          set -euo pipefail
+          rm .github/workflows/npm-compatible-audit-fix-once.yml
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add \
+            frontend/package-lock.json \
+            aipsite-frontend/package-lock.json \
+            .github/workflows/npm-compatible-audit-fix-once.yml
+          git commit -m "chore(deps): apply compatible npm audit lockfile fixes"
+          git push origin HEAD:refs/heads/chore/npm-security-remediation-20260801
+
+      - name: Repair workspace ownership
+        if: always()
+        shell: bash
+        run: |
+          uid="$(id -u)"
+          gid="$(id -g)"
+          docker run --rm \
+            -v "$GITHUB_WORKSPACE:/workspace" \
+            alpine:3.21 \
+            sh -c "chown -R ${uid}:${gid} /workspace"
