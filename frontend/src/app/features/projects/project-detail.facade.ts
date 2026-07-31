@@ -116,6 +116,7 @@ export class ProjectDetailFacade {
   private moveInFlight = false;
   private scheduleInteractionActive = false;
   private scheduleCommandInFlight = false;
+  private scheduleCommandGeneration = 0;
   private loadGeneration = 0;
   private kanbanRequestGeneration = 0;
   private scheduleRequestGeneration = 0;
@@ -150,6 +151,8 @@ export class ProjectDetailFacade {
 
   load(projectId: string): void {
     const loadGeneration = ++this.loadGeneration;
+    this.scheduleCommandGeneration++;
+    this.scheduleCommandInFlight = false;
     const authorizationGeneration = this.authorizationGeneration;
     const initialKanbanRequestGeneration = ++this.kanbanRequestGeneration;
     const initialScheduleRequestGeneration = ++this.scheduleRequestGeneration;
@@ -279,7 +282,12 @@ export class ProjectDetailFacade {
       plannedEndDate: intent.plannedEndDate,
       milestoneDate: intent.milestoneDate
     });
-    this.beginScheduleCommand(current, optimisticSnapshot, intent.taskId, `Saving ${item.title} schedule...`);
+    const commandGeneration = this.beginScheduleCommand(
+      current,
+      optimisticSnapshot,
+      intent.taskId,
+      `Saving ${item.title} schedule...`
+    );
 
     const request: UpdateTaskScheduleRequestDto = {
       plannedStartDate: intent.plannedStartDate,
@@ -297,7 +305,15 @@ export class ProjectDetailFacade {
       map((dto) => ({ kind: 'success' as const, value: mapProjectGanttCommandResponse(dto) })),
       catchError((error: unknown) => of({ kind: 'error' as const, error }))
     ).subscribe((result) =>
-      this.completeTaskScheduleCommand(result, intent, rollbackSnapshot, projectId, authorizationGeneration, 'Schedule saved.'));
+      this.completeTaskScheduleCommand(
+        result,
+        intent,
+        rollbackSnapshot,
+        projectId,
+        authorizationGeneration,
+        commandGeneration,
+        'Schedule saved.'
+      ));
   }
 
   private updateProgress(intent: Extract<AipGanttEditIntent, { readonly kind: 'progress' }>): void {
@@ -312,7 +328,12 @@ export class ProjectDetailFacade {
       ...item,
       progressPercent: intent.progressPercent
     });
-    this.beginScheduleCommand(current, optimisticSnapshot, intent.taskId, `Saving ${item.title} progress...`);
+    const commandGeneration = this.beginScheduleCommand(
+      current,
+      optimisticSnapshot,
+      intent.taskId,
+      `Saving ${item.title} progress...`
+    );
 
     const request: UpdateTaskProgressRequestDto = {
       progressPercent: intent.progressPercent,
@@ -328,7 +349,15 @@ export class ProjectDetailFacade {
       map((dto) => ({ kind: 'success' as const, value: mapProjectGanttCommandResponse(dto) })),
       catchError((error: unknown) => of({ kind: 'error' as const, error }))
     ).subscribe((result) =>
-      this.completeTaskScheduleCommand(result, intent, rollbackSnapshot, projectId, authorizationGeneration, 'Progress saved.'));
+      this.completeTaskScheduleCommand(
+        result,
+        intent,
+        rollbackSnapshot,
+        projectId,
+        authorizationGeneration,
+        commandGeneration,
+        'Progress saved.'
+      ));
   }
 
   private addDependency(intent: Extract<AipGanttEditIntent, { readonly kind: 'addDependency' }>): void {
@@ -360,7 +389,7 @@ export class ProjectDetailFacade {
       ...snapshot,
       dependencies: [...snapshot.dependencies, pendingDependency]
     };
-    this.beginScheduleCommand(
+    const commandGeneration = this.beginScheduleCommand(
       current,
       optimisticSnapshot,
       successor.taskId,
@@ -391,11 +420,20 @@ export class ProjectDetailFacade {
           intent,
           rollbackSnapshot,
           projectId,
-          authorizationGeneration
+          authorizationGeneration,
+          commandGeneration
         );
         return;
       }
-      this.completeDependencyCommand(result, intent, rollbackSnapshot, projectId, authorizationGeneration, 'Dependency added.');
+      this.completeDependencyCommand(
+        result,
+        intent,
+        rollbackSnapshot,
+        projectId,
+        authorizationGeneration,
+        commandGeneration,
+        'Dependency added.'
+      );
     });
   }
 
@@ -415,7 +453,12 @@ export class ProjectDetailFacade {
       ...snapshot,
       dependencies: snapshot.dependencies.filter((item) => item.dependencyId !== dependency.dependencyId)
     };
-    this.beginScheduleCommand(current, optimisticSnapshot, successor.taskId, `Removing dependency for ${successor.title}...`);
+    const commandGeneration = this.beginScheduleCommand(
+      current,
+      optimisticSnapshot,
+      successor.taskId,
+      `Removing dependency for ${successor.title}...`
+    );
     const projectId = this.projectId;
     const authorizationGeneration = this.authorizationGeneration;
     const params = new HttpParams().set('expectedVersion', String(intent.expectedVersion));
@@ -426,7 +469,15 @@ export class ProjectDetailFacade {
       map((value) => ({ kind: 'success' as const, value })),
       catchError((error: unknown) => of({ kind: 'error' as const, error }))
     ).subscribe((result) =>
-      this.completeDependencyCommand(result, intent, rollbackSnapshot, projectId, authorizationGeneration, 'Dependency removed.'));
+      this.completeDependencyCommand(
+        result,
+        intent,
+        rollbackSnapshot,
+        projectId,
+        authorizationGeneration,
+        commandGeneration,
+        'Dependency removed.'
+      ));
   }
 
   private beginScheduleCommand(
@@ -434,8 +485,9 @@ export class ProjectDetailFacade {
     optimisticSnapshot: ProjectGanttSnapshot,
     busyItemId: string,
     feedback: string
-  ): void {
+  ): number {
     this.scheduleCommandInFlight = true;
+    const commandGeneration = ++this.scheduleCommandGeneration;
     this.state.set({
       ...current,
       schedule: {
@@ -449,6 +501,7 @@ export class ProjectDetailFacade {
         error: undefined
       }
     });
+    return commandGeneration;
   }
 
   private completeTaskScheduleCommand(
@@ -457,12 +510,22 @@ export class ProjectDetailFacade {
     rollbackSnapshot: ProjectGanttSnapshot,
     projectId: string | null,
     authorizationGeneration: number,
+    commandGeneration: number,
     successFeedback: string
   ): void {
-    if (this.projectId !== projectId || this.authorizationGeneration !== authorizationGeneration)
+    if (this.projectId !== projectId ||
+        this.authorizationGeneration !== authorizationGeneration ||
+        this.scheduleCommandGeneration !== commandGeneration)
       return;
     if (result.kind === 'error') {
-      this.completeScheduleFailure(result.error, intent, rollbackSnapshot, projectId, authorizationGeneration);
+      this.completeScheduleFailure(
+        result.error,
+        intent,
+        rollbackSnapshot,
+        projectId,
+        authorizationGeneration,
+        commandGeneration
+      );
       return;
     }
 
@@ -487,7 +550,8 @@ export class ProjectDetailFacade {
         intent,
         rollbackSnapshot,
         projectId,
-        authorizationGeneration
+        authorizationGeneration,
+        commandGeneration
       );
       return;
     }
@@ -531,12 +595,22 @@ export class ProjectDetailFacade {
     rollbackSnapshot: ProjectGanttSnapshot,
     projectId: string | null,
     authorizationGeneration: number,
+    commandGeneration: number,
     successFeedback: string
   ): void {
-    if (this.projectId !== projectId || this.authorizationGeneration !== authorizationGeneration)
+    if (this.projectId !== projectId ||
+        this.authorizationGeneration !== authorizationGeneration ||
+        this.scheduleCommandGeneration !== commandGeneration)
       return;
     if (result.kind === 'error') {
-      this.completeScheduleFailure(result.error, intent, rollbackSnapshot, projectId, authorizationGeneration);
+      this.completeScheduleFailure(
+        result.error,
+        intent,
+        rollbackSnapshot,
+        projectId,
+        authorizationGeneration,
+        commandGeneration
+      );
       return;
     }
     this.scheduleCommandInFlight = false;
@@ -561,9 +635,12 @@ export class ProjectDetailFacade {
     intent: AipGanttEditIntent,
     rollbackSnapshot: ProjectGanttSnapshot,
     projectId: string | null,
-    authorizationGeneration: number
+    authorizationGeneration: number,
+    commandGeneration: number
   ): void {
-    if (this.projectId !== projectId || this.authorizationGeneration !== authorizationGeneration)
+    if (this.projectId !== projectId ||
+        this.authorizationGeneration !== authorizationGeneration ||
+        this.scheduleCommandGeneration !== commandGeneration)
       return;
     this.scheduleCommandInFlight = false;
     const error = normalizeApiError(value);
@@ -817,6 +894,7 @@ export class ProjectDetailFacade {
     this.loadGeneration++;
     this.kanbanRequestGeneration++;
     this.scheduleRequestGeneration++;
+    this.scheduleCommandGeneration++;
     this.scheduleCommandInFlight = false;
     this.scheduleInteractionActive = false;
     this.scheduleRefreshInFlight = false;
@@ -852,6 +930,7 @@ export class ProjectDetailFacade {
     this.loadGeneration++;
     this.kanbanRequestGeneration++;
     this.scheduleRequestGeneration++;
+    this.scheduleCommandGeneration++;
     this.moveInFlight = false;
     this.interactionActive = false;
     this.scheduleCommandInFlight = false;
@@ -1086,6 +1165,7 @@ export class ProjectDetailFacade {
       this.loadGeneration++;
       this.kanbanRequestGeneration++;
       this.scheduleRequestGeneration++;
+      this.scheduleCommandGeneration++;
       this.scheduleCommandInFlight = false;
       this.scheduleInteractionActive = false;
       this.scheduleRefreshInFlight = false;

@@ -943,6 +943,75 @@ describe('ProjectDetailFacade canonical Kanban', () => {
     expect(facade.view().schedule.snapshot?.scheduledItems[0].version).toBe(4);
   });
 
+  it('does not let a command from an earlier same-Project load release the current command', () => {
+    flushLoad();
+    facade.applyGanttEdit({
+      kind: 'schedule',
+      taskId: 'task-1',
+      plannedStartDate: '2026-07-02',
+      plannedEndDate: '2026-07-11',
+      milestoneDate: null,
+      expectedVersion: 3,
+      source: 'form'
+    });
+    const oldCommand = http.expectOne('/api/tasks/task-1/schedule');
+
+    facade.release();
+    flushLoad();
+    facade.applyGanttEdit({
+      kind: 'schedule',
+      taskId: 'task-1',
+      plannedStartDate: '2026-07-03',
+      plannedEndDate: '2026-07-12',
+      milestoneDate: null,
+      expectedVersion: 3,
+      source: 'form'
+    });
+    const currentCommand = http.expectOne('/api/tasks/task-1/schedule');
+
+    oldCommand.flush({
+      taskId: 'task-1',
+      kind: 'Task',
+      plannedStartDate: '2026-07-02',
+      plannedEndDate: '2026-07-11',
+      milestoneDate: null,
+      progressPercent: 25,
+      version: 4,
+      warnings: []
+    });
+    expect(facade.view().schedule.snapshot?.scheduledItems[0].plannedStartDate).toBe('2026-07-03');
+
+    facade.applyGanttEdit({
+      kind: 'schedule',
+      taskId: 'task-1',
+      plannedStartDate: '2026-07-04',
+      plannedEndDate: '2026-07-13',
+      milestoneDate: null,
+      expectedVersion: 3,
+      source: 'form'
+    });
+    http.expectNone('/api/tasks/task-1/schedule');
+
+    currentCommand.flush({
+      taskId: 'task-1',
+      kind: 'Task',
+      plannedStartDate: '2026-07-03',
+      plannedEndDate: '2026-07-12',
+      milestoneDate: null,
+      progressPercent: 25,
+      version: 4,
+      warnings: []
+    });
+    http.expectOne('/api/projects/project-1/gantt').flush(
+      withGanttTask(ganttSnapshotDto(), 'task-1', {
+        plannedStartDate: '2026-07-03',
+        plannedEndDate: '2026-07-12',
+        version: 4
+      })
+    );
+    expect(facade.view().schedule.snapshot?.scheduledItems[0].version).toBe(4);
+  });
+
   it('discards an older authoritative Gantt GET after authorization revalidation denies access', async () => {
     flushLoad();
     facade.retrySchedule();
