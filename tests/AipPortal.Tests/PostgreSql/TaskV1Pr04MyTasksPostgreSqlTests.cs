@@ -256,9 +256,14 @@ public sealed class TaskV1Pr04MyTasksPostgreSqlTests
             project => project.TenantId == tenant.Id && project.Slug == "browser-smoke-pr06-gantt");
         var pr06ManagerMember = await db.ProjectMembers.SingleAsync(
             member => member.ProjectId == pr06Project.Id && member.UserId == pr05Manager.Id);
+        var pr06Viewer = await db.Users.SingleAsync(
+            user => user.Email == "browser-smoke-recipient@example.test");
+        var pr06ViewerMember = await db.ProjectMembers.SingleAsync(
+            member => member.ProjectId == pr06Project.Id && member.UserId == pr06Viewer.Id);
         Assert.Equal(primary.Id, pr06Project.WorkspaceId);
         Assert.Equal(pr05Group.Id, pr06Project.GroupId);
         Assert.Equal(ProjectRole.Manager, pr06ManagerMember.Role);
+        Assert.Equal(ProjectRole.Viewer, pr06ViewerMember.Role);
         Assert.False(await db.GroupMembers.AnyAsync(
             member => member.GroupId == pr05Group.Id && member.UserId == pr05Manager.Id));
 

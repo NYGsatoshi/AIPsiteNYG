@@ -12,6 +12,7 @@ const smokeRecipientName = 'Browser Smoke Recipient';
 const smokeTaskLabelName = 'Browser smoke label';
 const smokeTaskFileName = 'browser-smoke-task.txt';
 const pr05ManagerEmail = 'browser-smoke-pr05-manager@example.test';
+const pr06ViewerEmail = 'browser-smoke-recipient@example.test';
 const pr05ProjectTitle = 'PR05 Browser Acceptance Project';
 const pr05ProjectSlug = 'browser-smoke-pr05-kanban';
 const pr05ResponseGateCookieName = 'AipBrowserSmokeResponseGate';
@@ -1003,6 +1004,7 @@ test.describe('MVP0 real backend browser smoke', () => {
     };
     let ownerContext: Awaited<ReturnType<typeof browser.newContext>> | null = null;
     let degradedContext: Awaited<ReturnType<typeof browser.newContext>> | null = null;
+    let viewerContext: Awaited<ReturnType<typeof browser.newContext>> | null = null;
 
     page.on('pageerror', (error) => evidence.pageErrors.push(error.message));
     page.on('console', (message) => { if (message.type() === 'error') evidence.consoleErrors.push(message.text()); });
@@ -1040,12 +1042,15 @@ test.describe('MVP0 real backend browser smoke', () => {
         {
           validate: (body) => Array.isArray(body) &&
             body.some((member: unknown) => hasStringValue(member, 'email', pr05ManagerEmail)) &&
+            body.some((member: unknown) => hasStringValue(member, 'email', pr06ViewerEmail)) &&
             body.some((member: unknown) => hasStringValue(member, 'email', smokeEmail))
         }
       ) as Record<string, any>[];
       const managerMember = members.find((member) => member.email === pr05ManagerEmail)!;
+      const viewerMember = members.find((member) => member.email === pr06ViewerEmail)!;
       const ownerMember = members.find((member) => member.email === smokeEmail)!;
       expect(String(managerMember.userId)).toBe(evidence.userId);
+      expect(String(viewerMember.userId)).not.toBe(evidence.userId);
       expect(String(ownerMember.userId)).not.toBe(evidence.userId);
 
       const ganttPath = `/api/projects/${evidence.projectId}/gantt`;
@@ -1099,6 +1104,74 @@ test.describe('MVP0 real backend browser smoke', () => {
         dependency.editable === false &&
         dependency.warnings.some((warning) => warning.code === 'LEGACY_DEPENDENCY_TYPE'))).toBe(true);
       expect(snapshot.warnings.some((warning) => warning.code === 'DEPENDENCY_VIOLATION')).toBe(true);
+
+      viewerContext = await browser.newContext({ baseURL: evidence.baseURL });
+      const viewerPage = await viewerContext.newPage();
+      const viewerEvidence: SmokeEvidence = {
+        baseURL: evidence.baseURL,
+        email: pr06ViewerEmail,
+        steps: [],
+        pageErrors: [],
+        consoleErrors: [],
+        failedApiResponses: []
+      };
+      viewerPage.on('pageerror', (error) => viewerEvidence.pageErrors.push(error.message));
+      viewerPage.on('console', (message) => {
+        if (message.type() === 'error') viewerEvidence.consoleErrors.push(message.text());
+      });
+      viewerPage.on('response', (response) => recordFailedApiResponse(response, viewerEvidence));
+      await loginAndVerifySession(
+        viewerPage,
+        viewerEvidence,
+        { email: pr06ViewerEmail, password: `${smokePassword}:recipient` }
+      );
+      expect(viewerEvidence.userId).toBe(String(viewerMember.userId));
+      const viewerSnapshotPromise = waitForApiResponse(viewerPage, 'GET', ganttPath);
+      await viewerPage.goto(`/app/projects/${evidence.projectId}`);
+      const viewerSnapshotResponse = await viewerSnapshotPromise;
+      const viewerSnapshot = await recordOkJson(
+        viewerSnapshotResponse,
+        viewerEvidence,
+        'pr06-viewer-gantt-snapshot',
+        isPr06GanttSnapshot
+      ) as Pr06GanttSnapshotDto;
+      expect(viewerSnapshot.permissions).toMatchObject({
+        canEditSchedule: false,
+        canEditProgress: false,
+        canManageDependencies: false,
+        canClearSchedule: false,
+        canOpen: true
+      });
+      expect([
+        ...viewerSnapshot.scheduledItems,
+        ...viewerSnapshot.unscheduledItems,
+        ...viewerSnapshot.milestones
+      ].every((item) =>
+        !item.scheduleEditPermissions.canEditSchedule &&
+        !item.scheduleEditPermissions.canEditProgress &&
+        !item.scheduleEditPermissions.canManageDependencies &&
+        !item.scheduleEditPermissions.canClearSchedule
+      ), 'viewer item permissions remain read-only').toBe(true);
+      await viewerPage.getByRole('tab', { name: 'Schedule', exact: true }).click();
+      await expect(viewerPage.getByText('Schedule is read-only for the current actor.')).toBeVisible();
+      const viewerEditActions = viewerPage.getByRole('button', {
+        name: /^(Edit dates|Edit Milestone date|Edit progress|Move to unscheduled|Add FS predecessor)$/
+      });
+      await expect(viewerEditActions).toHaveCount(0);
+      expect(viewerEvidence.pageErrors, 'viewer browser page errors').toEqual([]);
+      expectUnexpectedConsoleErrors(viewerEvidence);
+      expectUnexpectedApiFailures(viewerEvidence);
+      evidence.viewerReadOnly = {
+        userId: viewerEvidence.userId!,
+        snapshotStatus: viewerSnapshotResponse.status(),
+        permissions: viewerSnapshot.permissions,
+        editActionCount: 0,
+        pageErrors: [...viewerEvidence.pageErrors],
+        consoleErrors: [...viewerEvidence.consoleErrors],
+        failedApiResponses: [...viewerEvidence.failedApiResponses]
+      };
+      await viewerContext.close();
+      viewerContext = null;
 
       const canonicalTasks = await recordFetchJson(
         page,
@@ -1249,6 +1322,10 @@ test.describe('MVP0 real backend browser smoke', () => {
       await expect(pr06GanttItemLocator(page, progressTask.taskId)).toContainText('35%');
 
       let successor = pr06GanttItem(snapshot, pr06TaskTitles.successor);
+      const successorDatesBeforeDependency = {
+        plannedStartDate: successor.plannedStartDate,
+        plannedEndDate: successor.plannedEndDate
+      };
       const dependencyPredecessor = pr06GanttItem(snapshot, pr06TaskTitles.predecessor);
       await pr06GanttItemLocator(page, successor.taskId)
         .getByRole('button', { name: 'Add FS predecessor', exact: true }).click();
@@ -1279,6 +1356,20 @@ test.describe('MVP0 real backend browser smoke', () => {
       expect(addedDependency, 'the real FS dependency appears in the authoritative snapshot').toBeTruthy();
       expect(addedDependency!.type).toBe('FinishToStart');
       expect(addedDependency!.editable).toBe(true);
+      const successorAfterDependency = pr06GanttItem(snapshot, pr06TaskTitles.successor);
+      const successorDatesAfterDependency = {
+        plannedStartDate: successorAfterDependency.plannedStartDate,
+        plannedEndDate: successorAfterDependency.plannedEndDate
+      };
+      expect(
+        successorDatesAfterDependency,
+        'adding an FS dependency must not automatically move the successor'
+      ).toEqual(successorDatesBeforeDependency);
+      evidence.dependencyNoCascade = {
+        successorTaskId: successor.taskId,
+        before: successorDatesBeforeDependency,
+        after: successorDatesAfterDependency
+      };
       await expect(page.locator(`[data-gantt-dependency-id="${addedDependency!.dependencyId}"]`)).toBeVisible();
 
       successor = pr06GanttItem(snapshot, pr06TaskTitles.successor);
@@ -1359,6 +1450,11 @@ test.describe('MVP0 real backend browser smoke', () => {
         consoleErrors: [],
         failedApiResponses: []
       };
+      degradedPage.on('pageerror', (error) => degradedEvidence.pageErrors.push(error.message));
+      degradedPage.on('console', (message) => {
+        if (message.type() === 'error') degradedEvidence.consoleErrors.push(message.text());
+      });
+      degradedPage.on('response', (response) => recordFailedApiResponse(response, degradedEvidence));
       await loginAndVerifySession(degradedPage, degradedEvidence, { email: pr05ManagerEmail, password: smokePassword });
       await expect(degradedPage.getByTestId('realtime-connection-state')).toContainText('Realtime updates are delayed');
       const degradedSnapshotResponse = waitForApiResponse(degradedPage, 'GET', ganttPath);
@@ -1407,11 +1503,17 @@ test.describe('MVP0 real backend browser smoke', () => {
         'pr06-degraded-manual-http-refresh',
         isPr06GanttSnapshot
       );
+      expect(degradedEvidence.pageErrors, 'SignalR-degraded browser page errors').toEqual([]);
+      expectOnlyExpectedPr06HubConsoleErrors(degradedEvidence);
+      expectUnexpectedApiFailures(degradedEvidence);
       evidence.degradedHttp = {
         connectionState: 'delayed',
         commandStatus: degradedProgress.response.status(),
         manualRefreshStatus: 200,
-        apiInterception: 'none'
+        apiInterception: 'none',
+        pageErrors: [...degradedEvidence.pageErrors],
+        consoleErrors: [...degradedEvidence.consoleErrors],
+        failedApiResponses: [...degradedEvidence.failedApiResponses]
       };
       await degradedContext.close();
       degradedContext = null;
@@ -1590,6 +1692,11 @@ test.describe('MVP0 real backend browser smoke', () => {
         consoleErrors: [],
         failedApiResponses: []
       };
+      ownerPage.on('pageerror', (error) => ownerEvidence.pageErrors.push(error.message));
+      ownerPage.on('console', (message) => {
+        if (message.type() === 'error') ownerEvidence.consoleErrors.push(message.text());
+      });
+      ownerPage.on('response', (response) => recordFailedApiResponse(response, ownerEvidence));
       await loginAndVerifySession(ownerPage, ownerEvidence);
       expect(ownerEvidence.userId, 'the revoking Owner is a distinct authenticated user').not.toBe(evidence.userId);
       expect(ownerEvidence.userId).toBe(String(ownerMember.userId));
@@ -1719,6 +1826,9 @@ test.describe('MVP0 real backend browser smoke', () => {
       });
       expect(subsequentDenial.status).toBe(404);
       expectCanonicalGanttDenial(subsequentDenial.text, 'GANTT_PROJECT_NOT_FOUND');
+      expect(ownerEvidence.pageErrors, 'revoking Owner browser page errors').toEqual([]);
+      expectUnexpectedConsoleErrors(ownerEvidence);
+      expectUnexpectedApiFailures(ownerEvidence);
       evidence.authorizationRevocation = {
         revokingActorUserId: ownerEvidence.userId!,
         revokedUserId: evidence.userId!,
@@ -1727,7 +1837,10 @@ test.describe('MVP0 real backend browser smoke', () => {
         denialStatus: deniedResponse.status(),
         subsequentDenialStatus: subsequentDenial.status,
         protectedDataClearedBeforeRevalidation: firstRevocationObservation === 'protected-data-cleared',
-        protectedDataRestoredByStaleResponse
+        protectedDataRestoredByStaleResponse,
+        revokingPageErrors: [...ownerEvidence.pageErrors],
+        revokingConsoleErrors: [...ownerEvidence.consoleErrors],
+        revokingFailedApiResponses: [...ownerEvidence.failedApiResponses]
       };
 
       expect(evidence.pageErrors, 'browser page errors').toEqual([]);
@@ -1736,6 +1849,7 @@ test.describe('MVP0 real backend browser smoke', () => {
     } finally {
       await degradedContext?.close();
       await ownerContext?.close();
+      await viewerContext?.close();
       await testInfo.attach('task-v1-pr06-real-backend-evidence.json', {
         body: JSON.stringify(evidence, null, 2),
         contentType: 'application/json'
@@ -2840,6 +2954,14 @@ function expectUnexpectedConsoleErrors(evidence: SmokeEvidence) {
   expect(unexpected, 'unexpected browser console errors').toEqual([]);
 }
 
+function expectOnlyExpectedPr06HubConsoleErrors(evidence: SmokeEvidence) {
+  const unexpected = evidence.consoleErrors.filter((message) =>
+    !/Synthetic PR06 Hub unavailability|Failed to complete negotiation with the server|Failed to start the connection/i
+      .test(message)
+  );
+  expect(unexpected, 'unexpected SignalR-degraded browser console errors').toEqual([]);
+}
+
 function isExpectedFailure(failure: SmokeFailedApiResponse): boolean {
   return (
     (failure.method === 'POST' && failure.path === '/api/auth/change-password' && failure.status === 403) ||
@@ -2973,11 +3095,34 @@ interface Pr06GanttEvidence extends SmokeEvidence {
   readonly apiInterception: 'none';
   readonly hubTransportFaultInjection: string;
   readonly commands: Pr06GanttCommandEvidence[];
+  viewerReadOnly?: {
+    userId: string;
+    snapshotStatus: number;
+    permissions: Pr06GanttPermissionsDto;
+    editActionCount: 0;
+    pageErrors: string[];
+    consoleErrors: string[];
+    failedApiResponses: SmokeFailedApiResponse[];
+  };
+  dependencyNoCascade?: {
+    successorTaskId: string;
+    before: {
+      plannedStartDate: string | null;
+      plannedEndDate: string | null;
+    };
+    after: {
+      plannedStartDate: string | null;
+      plannedEndDate: string | null;
+    };
+  };
   degradedHttp?: {
     connectionState: 'delayed';
     commandStatus: number;
     manualRefreshStatus: number;
     apiInterception: 'none';
+    pageErrors: string[];
+    consoleErrors: string[];
+    failedApiResponses: SmokeFailedApiResponse[];
   };
   staleConflict?: {
     taskId: string;
@@ -3011,6 +3156,9 @@ interface Pr06GanttEvidence extends SmokeEvidence {
     subsequentDenialStatus: number;
     protectedDataClearedBeforeRevalidation: boolean;
     protectedDataRestoredByStaleResponse: boolean;
+    revokingPageErrors: string[];
+    revokingConsoleErrors: string[];
+    revokingFailedApiResponses: SmokeFailedApiResponse[];
   };
 }
 

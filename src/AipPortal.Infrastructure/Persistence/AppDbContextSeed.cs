@@ -710,6 +710,7 @@ public static class AppDbContextSeed
             tenantId,
             user,
             pr05Manager,
+            recipient,
             workspace,
             now,
             cancellationToken);
@@ -1320,6 +1321,7 @@ public static class AppDbContextSeed
         Guid tenantId,
         User owner,
         User manager,
+        User viewer,
         Workspace workspace,
         DateTimeOffset now,
         CancellationToken cancellationToken)
@@ -1441,6 +1443,7 @@ public static class AppDbContextSeed
 
         await ProjectMemberAsync(owner, ProjectRole.Owner);
         await ProjectMemberAsync(manager, ProjectRole.Manager);
+        await ProjectMemberAsync(viewer, ProjectRole.Viewer);
 
         var workflow = await dbContext.TaskWorkflowDefinitions.FirstOrDefaultAsync(
             candidate => candidate.TenantId == tenantId && candidate.ProjectId == project.Id,
