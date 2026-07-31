@@ -9,7 +9,7 @@ The connected GitHub API used for this remediation does not expose the repositor
 - the main CI security scan for NuGet, Gitleaks, and Trivy;
 - the exact `package.json` and `package-lock.json` files on `main` and this branch.
 
-This report does not claim that Security-tab alert IDs or dismissal states were read directly.
+This report does not claim that Security-tab alert IDs, alert numbers, or dismissal states were read directly.
 
 ## Baseline on main
 
@@ -19,7 +19,7 @@ This report does not claim that Security-tab alert IDs or dismissal states were 
 | Active `frontend/` | 3 | 7 | 10 | 0 | 20 |
 | Inactive `aipsite-frontend/` | 0 | 5 | 7 | 0 | 12 |
 
-The npm totals include parent packages and transitive dependency paths. They are not 32 independent vulnerabilities.
+The npm totals include parent packages and transitive dependency paths. They are not 32 independent vulnerability records.
 
 Additional security scan results on main:
 
@@ -61,6 +61,34 @@ npm --prefix frontend ci --ignore-scripts --no-audit --no-fund
 npm --prefix aipsite-frontend ci --ignore-scripts --no-audit --no-fund
 ```
 
+## Result after validated remediation
+
+| Scope | Low | Moderate | High | Critical | Total | Reduction |
+| --- | ---: | ---: | ---: | ---: | ---: | ---: |
+| Root npm workspace | 0 | 0 | 0 | 0 | 0 | unchanged |
+| Active `frontend/` | 0 | 4 | 2 | 0 | 6 | 20 → 6 |
+| Inactive `aipsite-frontend/` | 0 | 4 | 2 | 0 | 6 | 12 → 6 |
+
+The same six dependency-tree entries remain in both Angular workspaces.
+
+## Residual-alert classification
+
+| Severity | Dependency-tree entry | Vulnerable range reported by npm audit | Required response |
+| --- | --- | --- | --- |
+| High | `postcss` | `<=8.5.17` | A patched 8.5.x version exists, but Angular 21.2.19 pins the dependency through `@angular-devkit/build-angular`. Test a reviewed transitive override in a separate PR, or take the Angular 22 migration after its compatibility plan is approved. |
+| High | `@angular-devkit/build-angular` | `<=22.1.0-rc.0` | Parent entry caused by `postcss` and `webpack-dev-server`. Do not treat this as a second independent exploit. npm proposes 22.1.2, which is a major framework migration and must not be auto-applied here. |
+| Moderate | `webpack-dev-server` | `<=5.2.5` | A compatible 5.2.6 patch is available. Apply through a separate lockfile/override PR and run Angular build, tests, Storybook, and local-dev-server checks. |
+| Moderate | `@hono/node-server` | `<2.0.5` | Transitive through the MCP SDK bundled by Angular CLI. Do not force a Hono major override independently; update the MCP SDK or Angular CLI through a tested follow-up PR. |
+| Moderate | `@modelcontextprotocol/sdk` | `1.25.0 - 1.29.0` | A fixed 1.30.x line exists. A transitive override is plausible but must be tested because Angular CLI owns this dependency. |
+| Moderate | `@angular/cli` | `20.3.14 - 20.3.32 || 21.0.5 - 22.1.2` | Parent entry caused by the MCP/Hono chain. npm's suggested downgrade to 21.0.4 is not an acceptable remediation. Test MCP 1.30.x under Angular CLI 21.2.19 or wait for an Angular 21 LTS patch that updates the chain. |
+
+### Exposure notes
+
+- These remaining packages are development/build tooling; they are not shipped as the ASP.NET Core runtime container's application dependencies.
+- The PostCSS advisory can affect builds that process attacker-controlled source maps. CI and local builds must not consume untrusted CSS/source-map inputs.
+- The webpack-dev-server advisories affect development-server endpoints. The dev server must remain bound to trusted/local interfaces and must not be exposed publicly.
+- The Hono advisory concerns static-file path handling on Windows inside a transitive CLI/MCP tool. It is still tracked; development-only placement is not a reason to dismiss it silently.
+
 ## Prohibited automatic fixes
 
 The following audit suggestions are not accepted automatically:
@@ -69,27 +97,25 @@ The following audit suggestions are not accepted automatically:
 - Angular 22 major migration inside this remediation PR
 - Angular CLI downgrade to 21.0.4
 - Storybook downgrade to 6.5.x
+- untested direct override of Hono 2.x
 
 These suggestions can change framework contracts or are audit-resolution artifacts rather than safe security patches.
 
-## Residual-alert classification
+## CI status and operational blocker
 
-The exact regenerated-lockfile audit is re-run by the normal `npm Security Audit` PR workflow. Any remaining entries must be classified as one of:
-
-1. fixable by a compatible direct or transitive update;
-2. upstream-blocked within Angular 21 / Storybook 10;
-3. requiring a separately reviewed major framework migration;
-4. development-only exposure with compensating controls and documented acceptance.
-
-No residual alert may be silently dismissed solely to obtain a green status.
+- Regenerated lockfiles passed deterministic `npm ci --ignore-scripts` validation for both workspaces.
+- The normal npm audit reproduced the 6-entry result above.
+- The self-hosted runner then remained occupied in the `actions/setup-node` post-job npm-cache operation. Later full CI jobs were queued or cancelled by newer commits before a complete build/test/Storybook/Playwright result was available.
+- Experimental overrides for PostCSS, webpack-dev-server, and the MCP SDK were intentionally removed because their lockfile and full-CI validation could not be completed while the runner was blocked.
 
 ## Merge gate
 
 Current recommendation: **No-Go / Draft** until all of the following are complete:
 
-- regenerated-lockfile npm audit reviewed;
-- active Angular build and unit tests pass;
+- active Angular production build passes;
+- Angular unit and architecture tests pass;
 - Storybook build passes;
 - Playwright checks pass;
-- backend/security CI passes;
-- any residual high-severity advisory has an explicit disposition.
+- backend and security CI pass on the final commit;
+- residual High advisories have either a tested follow-up fix or an explicit, time-bounded risk disposition;
+- the self-hosted runner cache-post-step issue is cleared so final CI evidence can be collected.
