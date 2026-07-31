@@ -31,23 +31,23 @@
     "@angular/platform-browser": "21.2.17",
     "@angular/platform-browser-dynamic": "21.2.17",
     "@angular/router": "21.2.17",
-    "@lucide/angular": "1.22.0",
+    "@lucide/angular": "1.27.0",
     "@microsoft/signalr": "10.0.0",
     "@ngrx/component-store": "21.1.1",
     "@ngrx/effects": "21.1.1",
     "@ngrx/entity": "21.1.1",
     "@ngrx/store": "21.1.1",
-    "@syncfusion/ej2-angular-grids": "34.1.31",
-    "@syncfusion/ej2-angular-inputs": "34.1.30",
+    "@syncfusion/ej2-angular-grids": "34.1.33",
+    "@syncfusion/ej2-angular-inputs": "34.1.32",
     "@syncfusion/ej2-angular-popups": "34.1.29",
-    "ag-grid-angular": "36.0.0",
-    "ag-grid-community": "36.0.0",
+    "ag-grid-angular": "36.0.2",
+    "ag-grid-community": "36.0.2",
     "rxjs": "7.8.2",
     "tslib": "2.8.1",
-    "zone.js": "0.16.0"
+    "zone.js": "0.16.2"
   },
   "devDependencies": {
-    "@angular-devkit/build-angular": "21.2.17",
+    "@angular-devkit/build-angular": "21.2.19",
     "@angular/build": "21.2.17",
     "@angular/cli": "21.2.17",
     "@angular/compiler-cli": "21.2.17",
@@ -55,9 +55,9 @@
     "@types/node": "24.13.2",
     "axe-core": "4.12.1",
     "jsdom": "28.0.0",
-    "prettier": "3.8.1",
+    "prettier": "3.9.6",
     "storybook": "10.5.5",
     "typescript": "5.9.3",
-    "vitest": "4.1.9"
+    "vitest": "4.1.10"
   }
 }
