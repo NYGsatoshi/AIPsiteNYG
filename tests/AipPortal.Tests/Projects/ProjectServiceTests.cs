@@ -295,6 +295,63 @@ public sealed class ProjectServiceTests
 
     [Fact]
     [Trait("Scope", "TaskV1PR06")]
+    public async Task DependencyAtCanonicalLimitRejectsTheNextEdgeWithoutMutation()
+    {
+        var fixture = ProjectFixture.Create();
+        var manager = fixture.AddUser();
+        fixture.Current.UserIdValue = manager.Id;
+        fixture.AddProjectMember(manager.Id, ProjectRole.Manager);
+        var tasks = Enumerable.Range(0, 64)
+            .Select(index => fixture.AddTask($"Task {index:D2}"))
+            .ToArray();
+        var predecessor = tasks[0];
+        var successor = tasks[^1];
+
+        for (var predecessorIndex = 0;
+             predecessorIndex < tasks.Length && fixture.Dependencies.Count < 2_000;
+             predecessorIndex++)
+        {
+            for (var successorIndex = predecessorIndex + 1;
+                 successorIndex < tasks.Length && fixture.Dependencies.Count < 2_000;
+                 successorIndex++)
+            {
+                if (predecessorIndex == 0 && successorIndex == tasks.Length - 1)
+                {
+                    continue;
+                }
+
+                fixture.Dependencies.Add(new TaskDependency
+                {
+                    ProjectId = fixture.Project.Id,
+                    PredecessorTaskItemId = tasks[predecessorIndex].Id,
+                    SuccessorTaskItemId = tasks[successorIndex].Id,
+                    DependencyType = TaskDependencyType.FinishToStart
+                });
+            }
+        }
+
+        Assert.Equal(2_000, fixture.Dependencies.Count);
+        var projectVersion = fixture.Project.VersionNo;
+        var result = await fixture.Service.AddDependencyAsync(
+            successor.Id,
+            new AddTaskDependencyRequest(
+                predecessor.Id,
+                TaskDependencyType.FinishToStart,
+                successor.VersionNo));
+
+        Assert.StartsWith("TASK_DEPENDENCY_LIMIT_EXCEEDED|", result.Error);
+        Assert.Equal(2_000, fixture.Dependencies.Count);
+        Assert.Equal(1, successor.VersionNo);
+        Assert.Equal(projectVersion, fixture.Project.VersionNo);
+        Assert.Equal(0, fixture.CommandUnitOfWork.SaveCount);
+        Assert.Contains(
+            fixture.Audit.Entries,
+            entry => entry.Action == "TaskDependencyMutationRejected" &&
+                Equals(entry.Metadata?["reasonCode"], "TASK_DEPENDENCY_LIMIT_EXCEEDED"));
+    }
+
+    [Fact]
+    [Trait("Scope", "TaskV1PR06")]
     public async Task UnknownAndDeletedDependencyNeighborsShareTheSafeNotFoundOutcome()
     {
         var fixture = ProjectFixture.Create();

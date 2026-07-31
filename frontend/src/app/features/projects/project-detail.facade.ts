@@ -459,15 +459,15 @@ export class ProjectDetailFacade {
     authorizationGeneration: number,
     successFeedback: string
   ): void {
-    this.scheduleCommandInFlight = false;
+    if (this.projectId !== projectId || this.authorizationGeneration !== authorizationGeneration)
+      return;
     if (result.kind === 'error') {
       this.completeScheduleFailure(result.error, intent, rollbackSnapshot, projectId, authorizationGeneration);
       return;
     }
 
+    this.scheduleCommandInFlight = false;
     const latest = this.state();
-    if (this.projectId !== projectId || this.authorizationGeneration !== authorizationGeneration)
-      return;
     const snapshot = latest.schedule.snapshot;
     const item = snapshot ? scheduleItem(snapshot, intent.taskId) : undefined;
     const validNoOpProgress =
@@ -533,14 +533,14 @@ export class ProjectDetailFacade {
     authorizationGeneration: number,
     successFeedback: string
   ): void {
-    this.scheduleCommandInFlight = false;
+    if (this.projectId !== projectId || this.authorizationGeneration !== authorizationGeneration)
+      return;
     if (result.kind === 'error') {
       this.completeScheduleFailure(result.error, intent, rollbackSnapshot, projectId, authorizationGeneration);
       return;
     }
+    this.scheduleCommandInFlight = false;
     const latest = this.state();
-    if (this.projectId !== projectId || this.authorizationGeneration !== authorizationGeneration)
-      return;
     this.state.set({
       ...latest,
       schedule: {
@@ -563,9 +563,9 @@ export class ProjectDetailFacade {
     projectId: string | null,
     authorizationGeneration: number
   ): void {
-    this.scheduleCommandInFlight = false;
     if (this.projectId !== projectId || this.authorizationGeneration !== authorizationGeneration)
       return;
+    this.scheduleCommandInFlight = false;
     const error = normalizeApiError(value);
     const latest = this.state();
     const focusItemId = intent.kind === 'addDependency' || intent.kind === 'removeDependency'

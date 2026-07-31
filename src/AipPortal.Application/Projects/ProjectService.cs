@@ -1356,7 +1356,7 @@ public sealed class ProjectService(
             projectId,
             MaximumGanttDependencies + 1,
             cancellationToken);
-        if (dependencies.Count > MaximumGanttDependencies)
+        if (dependencies.Count >= MaximumGanttDependencies)
             return DependencyCycleCheck.LimitExceeded;
         var edges = dependencies
             .GroupBy(dependency => dependency.PredecessorTaskItemId)
