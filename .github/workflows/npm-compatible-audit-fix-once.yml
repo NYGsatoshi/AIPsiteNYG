@@ -5,11 +5,15 @@ on:
     branches:
       - chore/npm-security-remediation-20260801
     paths:
+      - frontend/package.json
+      - aipsite-frontend/package.json
       - .github/workflows/npm-compatible-audit-fix-once.yml
   pull_request:
     branches:
       - main
     paths:
+      - frontend/package.json
+      - aipsite-frontend/package.json
       - .github/workflows/npm-compatible-audit-fix-once.yml
 
 permissions:
@@ -22,7 +26,7 @@ concurrency:
 jobs:
   compatible-fix:
     runs-on: self-hosted
-    timeout-minutes: 15
+    timeout-minutes: 20
     steps:
       - name: Repair previous Docker workspace ownership
         shell: bash
@@ -52,7 +56,21 @@ jobs:
       - name: Use repository npm version
         run: npm install --global npm@11.17.0
 
-      - name: Apply compatible lockfile-only audit fixes
+      - name: Refresh lockfiles for reviewed overrides
+        shell: bash
+        run: |
+          set -euo pipefail
+          for package_dir in frontend aipsite-frontend; do
+            echo "::group::Refresh $package_dir"
+            npm --prefix "$package_dir" install \
+              --package-lock-only \
+              --ignore-scripts \
+              --no-audit \
+              --no-fund
+            echo "::endgroup::"
+          done
+
+      - name: Apply remaining compatible lockfile-only audit fixes
         shell: bash
         run: |
           set -u
@@ -98,7 +116,7 @@ jobs:
             frontend/package-lock.json \
             aipsite-frontend/package-lock.json \
             .github/workflows/npm-compatible-audit-fix-once.yml
-          git commit -m "chore(deps): apply compatible npm audit lockfile fixes"
+          git commit -m "chore(deps): apply reviewed npm security overrides"
           git push origin HEAD:refs/heads/chore/npm-security-remediation-20260801
 
       - name: Repair workspace ownership
