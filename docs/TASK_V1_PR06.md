@@ -5,20 +5,26 @@ read-only compatibility projection to an authorized, versioned projection and
 manual-edit surface over canonical WorkItems.
 
 Status: implemented at exact code-bearing candidate
-`f2d3805466b2a9bce3e2a7bf8392069330a1d6fd`. Product code at parent candidate
+`2fc5910e772f427355529de6e500b093583872b6`. Product code at parent candidate
 `69cc6f0943cfc9d3e2dab358edceb0fad0a0fea6` incorporates latest main by a normal
 merge and retains patched `tar` 7.5.22 with a lock-only follow-up. That parent
 passed the full local suites plus Documentation CI, CI attempt 4, Code Quality
 attempt 3, and npm Security Audit, but its licensed Real Backend run found two
-deterministic evidence-harness mismatches. Current `f2d3805` is a test-only
+deterministic evidence-harness mismatches. Historical `f2d3805` is a test-only
 remediation that validates the exact safe Project-detail denial and current
 authorization-clear status without broad failure suppression, timeout changes,
-or retries. Its Documentation CI, CI, Code Quality, and npm Security Audit runs
-succeeded. A fresh licensed Real Backend run passed all six smoke scenarios and
-uploaded valid evidence, but its workflow remains in progress during post-job
-cleanup and is not yet a Gate pass. Every post-documentation exact-final-HEAD
-Gate also remains pending. The numeric cap owner decision is unresolved, so
-this document does not claim acceptance. Detailed evidence belongs in
+or retries. Its ordinary Hosted gates succeeded, but its fresh Real Backend
+workflow ultimately timed out during an unnecessary setup-node cache upload
+after the 6/6 smoke step and artifact upload, so it is not a Gate pass. Commit
+`2fc5910` removes only that cache configuration. Exact `2fc5910` required
+local checks plus Hosted, Qodana, npm, and licensed Real Backend technical
+gates succeeded; default-heap local Storybook remains a separately recorded
+OOM non-pass while the required 4 GB and Hosted commands succeeded.
+Commit `9f7b8f3` also committed unrelated user-owned Messaging/PR07-scope
+changes to this branch; they were not modified by this remediation and remain
+a scope blocker. Every post-documentation exact-final-HEAD Gate remains
+pending. The numeric cap owner decision is unresolved, so this document does
+not claim acceptance. Detailed evidence belongs in
 [`docs/verification/task-v1-pr06-gantt.md`](verification/task-v1-pr06-gantt.md).
 
 ## Identity and authority
@@ -38,12 +44,16 @@ this document does not claim acceptance. Detailed evidence belongs in
   `555379db03d076627f04083a43eb07fe7ffa23bc`, followed by
   `0b2d5fc1e99d441e278be1716b9fbb8baed96e90` for current latest main
 - Code-bearing candidate HEAD:
-  `f2d3805466b2a9bce3e2a7bf8392069330a1d6fd`
+  `2fc5910e772f427355529de6e500b093583872b6`
 - Product-code/package parent candidate:
   `69cc6f0943cfc9d3e2dab358edceb0fad0a0fea6`
 - Test-only Real Backend evidence remediation:
   `f2d3805466b2a9bce3e2a7bf8392069330a1d6fd`
-- Ahead / behind: 20 / 0 before the later documentation commit
+- Unrelated Messaging/documentation commit:
+  `9f7b8f3b3826ca7c4c1352cba253e3a2ea9827cc`
+- Real Backend cache-remediation commit:
+  `2fc5910e772f427355529de6e500b093583872b6`
+- Ahead / behind: 22 / 0 before the final documentation commit
 - Draft PR: `#259`, open and mergeable
 - Final documentation HEAD: Pending
 - Canonical specification revision:
@@ -333,7 +343,7 @@ skipped, and Angular quality job `91090268692` succeeded; the workflow is
 therefore not a pass.
 Parent candidate `555379db03d076627f04083a43eb07fe7ffa23bc` later passed the
 full local suites and Documentation CI, CI, Code Quality attempt 3, and npm
-Security Audit; Qodana found 0 material PR06 and 0 PR-introduced findings. Its
+Security Audit; Qodana found 0 material PR06 and 0 material PR-introduced findings. Its
 Real Backend run `30611459543` failed before login with six infrastructure
 errors after an internal HSTS 307 upgraded `http://app:8080` to unsupported
 `https://app:8080`. It executed 0 PR06 steps/commands and found 0
@@ -344,7 +354,7 @@ The focused-origin candidate
 `e0e87dd9b4933af8165e472cc02761db0ff3ab6e` passed Documentation CI
 `30612005927`, CI `30612006065` attempt 2, Code Quality `30612006010`, and npm
 Security Audit `30612006220`. Qodana again reported 0 error, 0 critical,
-0 material PR06, and 0 PR-introduced findings. Its Real Backend run
+0 material PR06, and 0 material PR-introduced findings. Its Real Backend run
 `30625754075`, job `91140507111`, was cancelled at step 0 and produced no
 executable evidence, so it is not a Real Backend pass. These results are also
 historical after latest-main merge `0b2d5fc` and lock-only fix `69cc6f0`.
@@ -354,7 +364,7 @@ Latest-main parent candidate
 `30626428426`, CI `30626428493` attempt 4, Code Quality `30626428491`
 attempt 3, and npm Security Audit `30626428487`. Qodana reported 2,260
 inventory findings (1,421 warning, 839 note, 0 error, 0 critical), 0 unresolved
-model findings/failures, 0 material PR06 findings, and 0 PR-introduced findings.
+model findings/failures, 0 material PR06 findings, and 0 material PR-introduced findings.
 Its Real Backend run `30630832231`, job `91156526050`, reached the PR05/PR06
 revocation paths but failed two evidence assertions: JUnit 6 total, 4 passed,
 2 failed, 0 errors, 0 skipped. The PR05 assertion expected obsolete board-not-found text
@@ -370,11 +380,12 @@ expected nor adds a retry or timeout.
 ## Current status
 
 - Implementation: exact code-bearing candidate
-  `f2d3805466b2a9bce3e2a7bf8392069330a1d6fd`; latest main
+  `2fc5910e772f427355529de6e500b093583872b6`; latest main
   `1739cfcc819174289d858cbacc255527f1ffa047` incorporated without conflict by
   normal merge `0b2d5fc1e99d441e278be1716b9fbb8baed96e90`, followed by lock-only `tar`
-  fix `69cc6f0` and test-only Real Backend evidence remediation `f2d3805`;
-  ahead/behind 20/0 before the later documentation commit
+  fix `69cc6f0`, test-only Real Backend evidence remediation `f2d3805`, and
+  Real Backend cache-remediation `2fc5910`; ahead/behind 22/0 before the final
+  documentation commit
 - HSTS-origin remediation inherited from `e0e87dd9`: the smoke host uses non-HSTS Compose alias
   `http://aip-backend:8080` with a fail-closed origin guard, focused test, and
   documentation. No timeout increase or retry was added. Runner helper tests
@@ -404,6 +415,11 @@ expected nor adds a retry or timeout.
 - Exact test-only candidate `f2d3805` PostgreSQL-enabled rerun: PR06 49/49,
   PR05 25/25, PR04 8/8, and full backend 494/494 passed with 0 failed and 0
   skipped. A preceding no-PostgreSQL run is not Acceptance evidence.
+- Exact current candidate `2fc5910` PostgreSQL-enabled rerun after explicit
+  empty-database migration apply: PR06 49/49, PR05 25/25, PR04 8/8, and full
+  backend 494/494 passed with 0 failed and 0 skipped. Release build was 0
+  warnings / 0 errors; the latest migration is
+  `20260730120626_AddCanonicalGanttVersions`, and pending model changes are 0.
 - Exact product-code parent `69cc6f0` package audit: latest main had
   active-frontend `tar` 7.5.19;
   lock-only commit `69cc6f0` restores 7.5.22 by changing only version,
@@ -439,7 +455,7 @@ expected nor adds a retry or timeout.
   Security Audit run `30612006220` / job `91096678735` all succeeded
 - Historical `e0e87dd9` Qodana triage: 2,260 inventory findings (1,421 warning, 839 note,
   0 error, 0 critical), short report 0, model unresolved/failures 0, material
-  PR06 findings 0, and PR-introduced findings 0. The remaining disposed
+  PR06 findings 0, and material PR-introduced findings 0. The remaining disposed
   closure/resource warnings are test-only; the multiple-enumeration,
   identical-ternary, and redundant-assignment findings are base findings, and
   `PlanningRepository` entries are non-material `Contains` notes.
@@ -464,7 +480,7 @@ expected nor adds a retry or timeout.
   succeeded; Qodana job `91149477336` and Angular quality job `91152690654`
   succeeded. Inventory was 2,260 findings (1,421 warning, 839 note, 0 error,
   0 critical), short report 0, model unresolved/failures 0, material PR06
-  findings 0, and PR-introduced findings 0.
+  findings 0, and material PR-introduced findings 0.
 - Exact product-code parent `69cc6f0` Real Backend: run `30630832231`, job
   `91156526050`, failed with JUnit 6 total, 4 passed, 2 failed, 0 errors,
   0 skipped.
@@ -488,8 +504,36 @@ expected nor adds a retry or timeout.
   failed/skipped, all 30 PR06 steps recorded, and 0 high-confidence secret
   matches. Artifact `8794673197` has digest
   `sha256:660fbe4b8eafc0f967f4fa9ae7915f47b0a01951f16b3634d15d986e665ba814`.
-  The workflow is still in progress during post-job cleanup, so this Gate
-  remains Pending until its overall conclusion is `success`.
+  The smoke step and artifact upload succeeded, but the workflow ultimately
+  timed out and was cancelled during setup-node post-cache upload. It remains
+  historical executable evidence, not a Gate pass.
+- Exact `2fc5910` local frontend: `npm --prefix frontend ci` passed; Angular 327/327 in 42 files,
+  production build, architecture 4/4, license safeguards 4/4, lazy-bundle
+  analysis, 4 GB Storybook, and mocked Playwright 63 passed plus 3 expected
+  skips succeeded. Default 2 GB Storybook OOMed and is not a pass. Initial
+  bundle was 949.99 kB / 177.69 kB transfer; Gantt remained lazy at 5.42 MB /
+  721.84 kB transfer.
+- Exact `2fc5910` Documentation CI `30637433566` / job `91178483260`, CI
+  `30637433590` / build-test `91178483276`, security-scan `91178483339`, and
+  frontend-test `91180641392`, Code Quality `30637433561` / Qodana
+  `91178484006` and Angular quality `91183270978`, and npm Security Audit
+  `30637433551` / job `91178483146` all succeeded. Hosted backend was 494/494,
+  Angular was 327/327, Storybook succeeded, and mocked Playwright was 63 passed
+  plus 3 expected skips. Qodana Critical/Error/material PR06/material PR-introduced were
+  0/0/0/0. Active frontend npm audit was 19 (3 low, 6 moderate, 10 high,
+  0 critical), Syncfusion/PR06 introduced 0.
+- Exact `2fc5910` Real Backend run `30639800642`, job `91186533535`, completed
+  success: JUnit 6/6, failed/errors/skipped 0, PR06 30 evidence steps and 9
+  commands, API interception `none`, real cookie/CSRF/ASP.NET Core/PostgreSQL,
+  schedule/progress/dependency/stale conflict/revocation/reload/degraded HTTP,
+  and page errors 0. Artifact `8797054160`, digest
+  `sha256:75315d1f961c6865fa2f25debbb23754b158ca2b6ea8e4a9995843b95b9398b8`;
+  artifact Gitleaks matches 0.
+- Scope contamination: commit `9f7b8f3` committed the pre-existing user-owned
+  Messaging facade/test changes (334 added lines) together with documentation.
+  The reconnect catch-up/authorization work is outside PR06/within prohibited
+  PR07 scope. This remediation preserves it unchanged and records it as a
+  Merge blocker rather than claiming it as PR06 work.
 - Package lock: focused review passed; lockfile version 3 and latest-main
   compatible dependency updates are retained. The intentional PR delta is the
   Syncfusion family plus the lock-only `tar` 7.5.19-to-7.5.22 security fix; no
@@ -502,7 +546,7 @@ expected nor adds a retry or timeout.
   not found in the PR body/comments, `Resolved: No`, `DECISION REQUIRED: Yes`
 - Post-documentation exact-final-HEAD Documentation CI, CI, Code Quality, npm
   Security Audit, and Real Backend reruns: Pending
-- Exact current `f2d3805` review check: 0 unresolved threads;
+- Exact current `2fc5910` review check: 0 unresolved threads;
   post-documentation final-HEAD review-thread recheck remains Pending
 - Draft PR: #259 open and mergeable; Draft remains enabled
 - TASK-V1-PR06 acceptance: Incomplete

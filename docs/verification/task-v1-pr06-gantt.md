@@ -23,6 +23,12 @@ This work stops after the PR06 Go/No-Go report. It does not include:
 - Critical Path, baseline comparison, resource leveling, or automatic
   workload balancing
 
+Commit `9f7b8f3b3826ca7c4c1352cba253e3a2ea9827cc`, created while this remediation
+was in progress, committed pre-existing user-owned Messaging reconnect and
+authorization changes together with documentation. Those changes were not
+authored or modified by this remediation, but they are PR07-scope branch
+contamination and therefore a Merge blocker against the stopping point above.
+
 ## Start identity
 
 | Field | Initial value |
@@ -61,11 +67,13 @@ start identity and kickoff evidence above.
 | Main merge commits | `663b0f452093360b55d31d2c56b32cbeeb887a2f`, `7838173a318c5819353007b88c2bec52896d48bf`, `555379db03d076627f04083a43eb07fe7ffa23bc`, and current merge `0b2d5fc1e99d441e278be1716b9fbb8baed96e90` |
 | Merge method | Normal `--no-ff` merge commits; no rebase, force-push, reset, or history rewrite |
 | Current main merge conflicts | None; package/lock and test-tooling changes were audited after the merge |
-| Code-bearing candidate HEAD | `f2d3805466b2a9bce3e2a7bf8392069330a1d6fd` |
+| Code-bearing candidate HEAD | `2fc5910e772f427355529de6e500b093583872b6` |
 | Product-code/package parent candidate | `69cc6f0943cfc9d3e2dab358edceb0fad0a0fea6` |
 | Test-only Real Backend evidence remediation | `f2d3805466b2a9bce3e2a7bf8392069330a1d6fd` |
+| Unrelated Messaging/documentation commit | `9f7b8f3b3826ca7c4c1352cba253e3a2ea9827cc` |
+| Real Backend cache-remediation commit | `2fc5910e772f427355529de6e500b093583872b6` |
 | Documentation-bearing final HEAD | Pending this ledger update |
-| Ahead / behind | 20 / 0 before the later documentation commit |
+| Ahead / behind | 22 / 0 before the final documentation commit |
 | Draft PR | Yes |
 | Mergeable | Yes |
 | Merged | No |
@@ -317,12 +325,14 @@ in the final evidence.
 ## Code-bearing candidate gap reconciliation
 
 This section classifies exact code-bearing candidate
-`f2d3805466b2a9bce3e2a7bf8392069330a1d6fd` after implementing the confirmed
+`2fc5910e772f427355529de6e500b093583872b6` after implementing the confirmed
 PR06 deltas, correcting the internal real-backend smoke origin, incorporating
 latest main, and retaining patched `tar` 7.5.22 with a lock-only follow-up. It
-also includes a test-only exact-safe-denial evidence remediation after the
-`69cc6f0` Real Backend candidate run. It does not replace the kickoff
-classifications above or claim final acceptance.
+also includes test-only exact-safe-denial evidence remediation `f2d3805` after
+the `69cc6f0` Real Backend candidate run and cache-only workflow remediation
+`2fc5910`. Unrelated `9f7b8f3` Messaging contamination is not classified as
+PR06 work. This section does not replace the kickoff classifications above or
+claim final acceptance.
 
 ### Complete in the code-bearing candidate
 
@@ -407,13 +417,16 @@ classifications above or claim final acceptance.
   at product-code parent `69cc6f0943cfc9d3e2dab358edceb0fad0a0fea6`.
   Documentation CI, CI attempt 4, Code Quality attempt 3, and npm Security
   Audit also succeeded at that exact head. Its Real Backend run reached the
-  PR05/PR06 revocation paths but failed two evidence assertions. Current
+  PR05/PR06 revocation paths but failed two evidence assertions. Historical
   test-only candidate `f2d3805` remediates those exact assertions. Its
   PostgreSQL-enabled local regressions and ordinary Hosted Documentation CI,
   CI, Code Quality, and npm Security Audit all passed. A fresh licensed Real
   Backend run completed 6/6 scenarios and uploaded valid secret-clean evidence;
-  its workflow conclusion remains Pending during post-job cleanup. The
-  documentation-bearing exact-final-HEAD evidence is still required.
+  its workflow ultimately timed out/cancelled during post-cache upload and is
+  not a pass. Current `2fc5910` repeated the required local/Hosted gates and
+  completed the licensed Real Backend workflow success. Default 2 GB local
+  Storybook remains a separately recorded non-pass. The documentation-bearing
+  exact-final-HEAD evidence is still required.
 - Storybook succeeds only with an explicitly increased 4 GB Node heap in the
   local environment. The default command exited 134 after exhausting its 2 GB
   heap and is not counted as passing. Exact product-code parent source passed with
@@ -422,9 +435,8 @@ classifications above or claim final acceptance.
 ### Missing
 
 - Owner approval of the canonical numeric graph limits and overflow behavior
-- Successful overall conclusion for current `f2d3805` Real Backend run
-  `30634069147`; its smoke step and artifact have passed, but the workflow is
-  still in progress
+- Authorized forward correction for unrelated Messaging/PR07-scope changes
+  committed by `9f7b8f3`
 - Final documentation HEAD
 - Licensed exact-final-HEAD real-backend browser evidence
 - Post-documentation exact-final-HEAD CI, Code Quality, Documentation CI, npm
@@ -440,25 +452,25 @@ classifications above or claim final acceptance.
 
 - Dark/light, density, and reduced-motion behavior beyond current unit/static
   browser assertions
-- Overall successful conclusion for the current `f2d3805` Real Backend
-  workflow after its already successful two-user
-  cookie/CSRF/revocation/reload/SignalR-degraded smoke step
 - Post-documentation Qodana results and final unresolved review-thread count
 - Every required Hosted Gate on the documentation-bearing exact final HEAD
 
 ### Out of scope
 
-The kickoff out-of-scope list above remains unchanged. No PR07, PR08,
+The intended kickoff out-of-scope list above remains unchanged. No PR08,
 automatic scheduling, cascading movement, Critical Path, baseline, resource
 leveling, cross-Project dependency, non-FS authoring, lag/lead, or Gantt-owned
-persistence was added.
+persistence was added by this remediation. However, unrelated commit `9f7b8f3`
+did add user-owned Messaging reconnect/authorization changes that fall within
+the prohibited PR07 realtime-finalization scope. They are explicitly not
+accepted as PR06 work and remain a branch-scope blocker.
 
 ## Detailed requirement matrix (historical main-start audit)
 
 This matrix records the classification against the original main-start seam.
 Its `Initial classification`, `Current-main evidence`, and requested PR06
 delta columns are historical audit evidence, not the status of code-bearing
-candidate `f2d3805466b2a9bce3e2a7bf8392069330a1d6fd`.
+candidate `2fc5910e772f427355529de6e500b093583872b6`.
 
 | Audit area | Initial classification | Current-main evidence | PR06 delta |
 | --- | --- | --- | --- |
@@ -533,10 +545,11 @@ canonical decision. Acceptance remains incomplete while the decision is open.
 ## Implemented contract ledger
 
 This section records source-audited behavior at current code-bearing candidate
-`f2d3805466b2a9bce3e2a7bf8392069330a1d6fd`. Exact product/migration evidence
+`2fc5910e772f427355529de6e500b093583872b6`. Exact product/migration evidence
 belongs to its product-code parent `69cc6f0`; the PostgreSQL-enabled PR06,
 PR05, PR04, and full backend suites were also rerun successfully at exact
-`f2d3805`. Historical and current evidence are separated below.
+`f2d3805` and current `2fc5910`. Historical and current evidence are separated
+below.
 
 ### Snapshot
 
@@ -696,9 +709,9 @@ final Acceptance fixes and latest-main integration.
 | `69b9a48f96d6d888c2c68c30a4b7fd708264304f` | Real Backend Browser Smoke `30607225084` | Cancelled; no executable final evidence |
 | `555379db03d076627f04083a43eb07fe7ffa23bc` | Documentation CI `30608340676`; CI `30608340662`; Code Quality `30608340670` attempt 3; npm Security Audit `30608340657` | All four workflows succeeded and Qodana triage found 0 material PR06 findings, but the later HSTS-origin remediation changed the code-bearing HEAD |
 | `555379db03d076627f04083a43eb07fe7ffa23bc` | Real Backend Browser Smoke run `30611459543`, job `91094951966`; artifact ID `8785696348`, digest `sha256:e5a102f3263a296f31ce2cf00853800d47d04d5b21a7816a69f32995031f092d` | Failed before login: JUnit 6 total, 0 passed, 0 assertion failures, 6 errors, 0 skipped. Trace confirmed internal HSTS 307 from `http://app:8080` to `https://app:8080`, followed by `ERR_SSL_PROTOCOL_ERROR`. PR06 steps/commands executed: 0; high-confidence secret matches: 0. |
-| `e0e87dd9b4933af8165e472cc02761db0ff3ab6e` | Documentation CI `30612005927`; CI `30612006065` attempt 2; Code Quality `30612006010`; npm Security Audit `30612006220` | All four workflows succeeded after the HSTS-origin fix. Qodana again found 0 error, 0 critical, 0 material PR06, and 0 PR-introduced findings. Latest-main merge `0b2d5fc` later changed the code-bearing HEAD. |
+| `e0e87dd9b4933af8165e472cc02761db0ff3ab6e` | Documentation CI `30612005927`; CI `30612006065` attempt 2; Code Quality `30612006010`; npm Security Audit `30612006220` | All four workflows succeeded after the HSTS-origin fix. Qodana again found 0 error, 0 critical, 0 material PR06, and 0 material PR-introduced findings. Latest-main merge `0b2d5fc` later changed the code-bearing HEAD. |
 | `e0e87dd9b4933af8165e472cc02761db0ff3ab6e` | Real Backend Browser Smoke run `30625754075`, job `91140507111` | Cancelled at step 0 with no setup steps or executable evidence; not a pass. |
-| `69cc6f0943cfc9d3e2dab358edceb0fad0a0fea6` | Documentation CI `30626428426`; CI `30626428493` attempt 4; Code Quality `30626428491` attempt 3; npm Security Audit `30626428487` | All four ordinary Hosted workflows succeeded at exact head after latest-main merge `0b2d5fc` and lock-only `tar` fix `69cc6f0`. Qodana found 0 error, 0 critical, 0 material PR06, and 0 PR-introduced findings. The later test-only Real Backend evidence remediation changed current HEAD. |
+| `69cc6f0943cfc9d3e2dab358edceb0fad0a0fea6` | Documentation CI `30626428426`; CI `30626428493` attempt 4; Code Quality `30626428491` attempt 3; npm Security Audit `30626428487` | All four ordinary Hosted workflows succeeded at exact head after latest-main merge `0b2d5fc` and lock-only `tar` fix `69cc6f0`. Qodana found 0 error, 0 critical, 0 material PR06, and 0 material PR-introduced findings. The later test-only Real Backend evidence remediation changed current HEAD. |
 | `69cc6f0943cfc9d3e2dab358edceb0fad0a0fea6` | Real Backend Browser Smoke run `30630832231`, job `91156526050`; artifact ID `8793522897`, digest `sha256:79841bfa974edfee464256d5415165f53a606eab760e9c2c2887aaa95115033c` | Failed: JUnit 6 total, 4 passed, 2 failed, 0 errors, 0 skipped. PR05 used a stale UI-text expectation after the protected projection had safely cleared; PR06 had not registered the exact safe Project-detail HTTP 400 denial for console reconciliation. High-confidence secret matches: 0. This is diagnostic candidate evidence, not a pass. |
 
 ### Code Quality candidate attempt history
@@ -718,16 +731,18 @@ artifacts are recorded below; none is evidence for later `69cc6f0` or
 The earlier full local-suite and Hosted entries below were executed at
 historical candidates `555379db03d076627f04083a43eb07fe7ffa23bc` and
 `e0e87dd9b4933af8165e472cc02761db0ff3ab6e`. Current code-bearing candidate
-`f2d3805466b2a9bce3e2a7bf8392069330a1d6fd` descends from latest-main and
-lock-only `tar` parent `69cc6f0943cfc9d3e2dab358edceb0fad0a0fea6` with one
-test-only Real Backend evidence remediation. Parent `69cc6f0` has exact local
+`2fc5910e772f427355529de6e500b093583872b6` descends from latest-main and
+lock-only `tar` parent `69cc6f0943cfc9d3e2dab358edceb0fad0a0fea6`, test-only
+Real Backend assertion remediation `f2d3805`, unrelated Messaging/documentation
+commit `9f7b8f3`, and the cache-only workflow remediation. Parent `69cc6f0` has exact local
 evidence plus successful Documentation CI, CI attempt 4, Code Quality attempt
 3, and npm Security Audit. Its Real Backend run is retained as a deterministic
-4-pass/2-fail diagnostic. Current `f2d3805` has exact PostgreSQL-enabled local
+4-pass/2-fail diagnostic. Historical `f2d3805` has exact PostgreSQL-enabled local
 regressions and successful Documentation CI, CI, Code Quality, and npm Security
 Audit evidence. Its fresh Real Backend smoke step passed 6/6 and produced a
-valid secret-clean artifact, but the workflow is still in progress during
-post-job cleanup and remains Pending until its overall conclusion is success.
+valid secret-clean artifact, but the workflow timed out/cancelled during
+post-cache upload and is not a pass. Current `2fc5910` repeated the local and
+ordinary Hosted gates and completed the licensed Real Backend workflow success.
 
 ### HSTS-origin remediation retained by the current candidate
 
@@ -741,7 +756,7 @@ post-job cleanup and remains Pending until its overall conclusion is success.
 | Node syntax check | Passed |
 | Compose config / alias | Passed; `aip-backend` alias is present and the composed configuration is valid |
 | Diff check | Passed |
-| Current code-bearing head | `f2d3805466b2a9bce3e2a7bf8392069330a1d6fd` retains the remediation unchanged |
+| Current code-bearing head | `2fc5910e772f427355529de6e500b093583872b6` retains the origin and assertion remediations; its only direct delta from `9f7b8f3` removes unnecessary Real workflow npm cache configuration |
 
 ### Toolchain and package integration
 
@@ -756,7 +771,9 @@ post-job cleanup and remains Pending until its overall conclusion is success.
 | Active frontend install | `npm --prefix frontend ci` succeeded at exact `69cc6f0` |
 | `tar` regression/fix | Latest main had active-frontend `tar` 7.5.19 after its compatible dependency update. Lock-only commit `69cc6f0` restores 7.5.22 by changing only version, resolved URL, and integrity. |
 | Package/lock audit | Lockfile version 3 retained; latest-main compatible dependency/test-tooling updates retained. Relative to main, intentional package-lock changes are the required Syncfusion family plus the `tar` 7.5.19-to-7.5.22 fix; no unrelated downgrade, local path, registry churn, or license material. |
-| Current `f2d3805` delta | Test-only `tests/ui/real-backend-smoke.spec.ts`; no production, package, lockfile, migration, Qodana-profile, or license change |
+| Historical `f2d3805` delta | Test-only `tests/ui/real-backend-smoke.spec.ts`; no production, package, lockfile, migration, Qodana-profile, or license change |
+| Unrelated `9f7b8f3` delta | The three documentation files plus user-owned `messaging.facade.ts` / `messaging-ui.spec.ts`; the Messaging reconnect/authorization work is outside PR06 and blocks Merge scope |
+| Current `2fc5910` delta | Only `.github/workflows/real-backend-smoke.yml`: removes setup-node `cache: npm` and `cache-dependency-path`; no timeout, retry, assertion, production, package, lockfile, migration, Qodana-profile, or license change |
 
 ### PostgreSQL (exact product-code parent `69cc6f0`)
 
@@ -778,7 +795,7 @@ Migration note: the Up migration adds only Project and Milestone `VersionNo`
 optimistic concurrency tokens. It does not update Task progress or any other
 domain data. Down removes only those columns and preserves existing rows.
 
-### Backend (exact product-code parent `69cc6f0` and test-only candidate `f2d3805`)
+### Backend (exact product-code parent `69cc6f0`, test-only `f2d3805`, and current `2fc5910`)
 
 | Check | Status |
 | --- | --- |
@@ -788,7 +805,8 @@ domain data. Down removes only those columns and preserves existing rows.
 | `Scope=TaskV1PR05` regression | 25/25 passed, 0 failed, 0 skipped |
 | `Scope=TaskV1PR04` regression | 8/8 passed, 0 failed, 0 skipped |
 | Exact `f2d3805` PostgreSQL rerun | PR06 49/49, PR05 25/25, PR04 8/8, and full backend 494/494 passed, all with 0 failed and 0 skipped. The preceding no-PostgreSQL run is not used for Acceptance. |
-| Full backend suite | 494/494 passed, 0 failed, 0 skipped at exact parent `69cc6f0943cfc9d3e2dab358edceb0fad0a0fea6`, exact test-only candidate `f2d3805466b2a9bce3e2a7bf8392069330a1d6fd`, and its Hosted CI run `30632549234` |
+| Exact `2fc5910` PostgreSQL rerun | Empty migration apply succeeded; PR06 49/49, PR05 25/25, PR04 8/8, and full backend 494/494 passed, all with 0 failed and 0 skipped. Release build: 0 warnings / 0 errors. |
+| Full backend suite | 494/494 passed, 0 failed, 0 skipped at exact parent `69cc6f0943cfc9d3e2dab358edceb0fad0a0fea6`, exact test-only candidate `f2d3805466b2a9bce3e2a7bf8392069330a1d6fd`, exact current candidate `2fc5910e772f427355529de6e500b093583872b6`, and Hosted CI runs `30632549234` / `30637433590` |
 | Unexpected skipped tests | 0 in every backend run above |
 
 The focused PR06 evidence covers the canonical bounded/duplicate-free
@@ -817,25 +835,26 @@ atomic rollback.
 | Storybook default | Failed with exit 134 after exhausting the available 2 GB Node heap; not counted as a pass |
 | Storybook 4 GB | Succeeded with `NODE_OPTIONS=--max-old-space-size=4096` |
 | Storybook Hosted product-code parent | Succeeded in CI run `30626428493` attempt 4, frontend job `91146858537`, at exact parent `69cc6f0943cfc9d3e2dab358edceb0fad0a0fea6` |
-| Storybook Hosted current candidate | Succeeded in exact `f2d3805` CI run `30632549234`, frontend job `91163476861`; Angular 323/323 and mocked Playwright 63 passed with 3 expected skips also succeeded |
+| Storybook Hosted historical `f2d3805` candidate | Succeeded in CI run `30632549234`, frontend job `91163476861`; Angular 323/323 and mocked Playwright 63 passed with 3 expected skips also succeeded |
+| Storybook Hosted current candidate | Succeeded in exact `2fc5910` CI run `30637433590`, frontend job `91180641392`; Angular 327/327 and mocked Playwright 63 passed with 3 expected skips also succeeded |
 | Mocked Playwright | 63 passed, 0 failed, 3 pre-existing explicitly expected skips. Focused PR06 Schedule desktop/mobile scenarios: 4/4 passed, 0 skipped. Browser response gate: 2/2 passed. |
-| Real-backend Playwright | Fresh exact `f2d3805` run `30634069147` completed all 6 scenarios, including 30 PR06 steps, with 0 failed/skipped. The workflow is still in progress during post-job cleanup, and the documentation-bearing exact-final-HEAD rerun remains Pending. |
+| Real-backend Playwright | Exact `2fc5910` run `30639800642`, job `91186533535`, completed workflow success: 6/6, 30 PR06 steps / 9 commands, 0 failed/errors/skipped, API interception `none`, page errors 0; documentation-bearing exact-final-HEAD rerun remains Pending. |
 
 Mocked Playwright proves Angular behavior only. It does not replace real
 ASP.NET Core/PostgreSQL/cookie/CSRF evidence.
 
-The hosted real-backend Gate must still prove, without API interception, two
+The code-bearing hosted real-backend Gate proved, without API interception, two
 real cookie-authenticated users, CSRF, canonical snapshot, schedule/progress/FS
 dependency mutations, stale 409/refetch, revoked membership, reload
-persistence, and SignalR-degraded HTTP fallback on the exact final PR HEAD. It
-must report 0 failed, 0 skipped, a valid artifact, and no secret exposure.
+persistence, and SignalR-degraded HTTP fallback. The same Gate must rerun after
+the documentation commit on the exact final PR HEAD.
 
-### npm Security Audit (exact current candidate `f2d3805`)
+### npm Security Audit (exact current candidate `2fc5910`)
 
 | Evidence | Status |
 | --- | --- |
-| Candidate run / job | Run `30632549183`, job `91162128341`, success |
-| Head SHA | `f2d3805466b2a9bce3e2a7bf8392069330a1d6fd` |
+| Candidate run / job | Run `30637433551`, job `91178483146`, success |
+| Head SHA | `2fc5910e772f427355529de6e500b093583872b6` |
 | Root total | 0 |
 | Active frontend total | 19: 3 low, 6 moderate, 10 high, 0 critical |
 | Inactive `aipsite-frontend` total | 12: 0 low, 5 moderate, 7 high, 0 critical; reported separately and not treated as the active UI |
@@ -851,9 +870,9 @@ must report 0 failed, 0 skipped, a valid artifact, and no secret exposure.
 
 | Behavior | Status |
 | --- | --- |
-| Stale-event rejection / duplicate coalescing | Implemented in the Schedule facade and covered by focused Angular tests; current exact `f2d3805` real smoke execution passed, with final workflow conclusion and documentation-bearing rerun pending |
+| Stale-event rejection / duplicate coalescing | Implemented in the Schedule facade and covered by focused Angular tests; exact `2fc5910` Real Backend workflow completed success, with only the documentation-bearing rerun pending |
 | Active-edit conflict | Queues authoritative reconciliation, preserves safe intent, refetches authoritative HTTP state, then exposes explicit Retry-against-latest and Discard actions; focused Angular and real-browser source assertions are present |
-| Reconnect reauthorization and refetch | Project subscription catch-up refetches the authoritative HTTP snapshot; exact `f2d3805` smoke execution passed the current revocation/refetch assertions, with final workflow conclusion and documentation-bearing rerun pending |
+| Reconnect reauthorization and refetch | Project subscription catch-up refetches the authoritative HTTP snapshot; exact `2fc5910` Real Backend workflow completed success for revocation/refetch, with only the documentation-bearing rerun pending |
 | Authorization-revocation clear | A denied Project subscription synchronously clears protected Kanban and Gantt state and increments authorization/load/request generations before refetch, preventing stale response restoration; focused tests passed |
 | SignalR-degraded HTTP/manual refresh | Degraded state retains HTTP edit and manual refresh behavior; focused/static browser tests passed |
 
@@ -864,11 +883,13 @@ The root-cause-bearing historical failure at parent candidate
 command. The next run at focused-origin candidate `e0e87dd9` was cancelled at
 step 0 and supplied no executable evidence. Latest-main parent `69cc6f0`
 retained the origin fix and executed all six browser scenarios, but two
-evidence assertions failed. Current test-only candidate `f2d3805` records the
+evidence assertions failed. Historical test-only candidate `f2d3805` records the
 exact safe Project-detail denial and current protected-state status. Its first
 rerun was cancelled before setup; a fresh run passed all executable smoke
-checks and uploaded valid evidence, but remains Pending until post-job cleanup
-finishes with an overall successful workflow conclusion.
+checks and uploaded valid evidence, but the workflow ultimately timed out and
+was cancelled during an unnecessary setup-node npm cache upload. Commit
+`2fc5910` removes only that cache configuration. Its exact rerun completed
+success, including post-job cleanup.
 
 | Evidence | Status |
 | --- | --- |
@@ -885,9 +906,12 @@ finishes with an overall successful workflow conclusion.
 | Latest diagnostic artifact | ID `8793522897`, name `real-backend-browser-smoke-artifacts`, digest `sha256:79841bfa974edfee464256d5415165f53a606eab760e9c2c2887aaa95115033c` |
 | Latest diagnostic secret-pattern matches | 0 high-confidence matches |
 | Test-only remediation | Commit `f2d3805466b2a9bce3e2a7bf8392069330a1d6fd` observes and validates the Project-detail denial as exact `GET` + Project path + HTTP 400, checks the safe `BadRequest` / `Project not found.` contract and protected-value redaction, and asserts the current authorization-clear status. Scenario-specific expected failures must be observed exactly once; arbitrary 400 responses remain failures. No retry or timeout was added. |
-| First current rerun / job / head | Run `30632559051`, job `91162166864`, exact `f2d3805466b2a9bce3e2a7bf8392069330a1d6fd`; infrastructure cancellation before setup, no artifact, not a pass |
-| Fresh current rerun / job / head | Run `30634069147`, job `91167131007`, exact `f2d3805466b2a9bce3e2a7bf8392069330a1d6fd`; smoke step passed, workflow still in progress during post-job cleanup |
-| Scenario count / passed / failed / skipped | 6 total, 6 passed, 0 failed, 0 skipped; PR06 recorded all 30 required evidence steps |
+| First `f2d3805` rerun / job / head | Run `30632559051`, job `91162166864`, exact `f2d3805466b2a9bce3e2a7bf8392069330a1d6fd`; infrastructure cancellation before setup, no artifact, not a pass |
+| Fresh `f2d3805` rerun / job / head | Run `30634069147`, job `91167131007`, exact `f2d3805466b2a9bce3e2a7bf8392069330a1d6fd`; smoke step and artifact upload passed, but workflow ultimately timed out/cancelled during setup-node post-cache upload; not a Gate pass |
+| Historical `f2d3805` artifact | ID `8794673197`, name `real-backend-browser-smoke-artifacts`, digest `sha256:660fbe4b8eafc0f967f4fa9ae7915f47b0a01951f16b3634d15d986e665ba814`; high-confidence secret matches 0 |
+| Current workflow remediation | Commit `2fc5910e772f427355529de6e500b093583872b6` removes only setup-node npm cache settings; it does not change timeout, retries, assertions, or scenarios |
+| Current run / job / head | Run `30639800642`, job `91186533535`, exact `2fc5910e772f427355529de6e500b093583872b6`; workflow and job completed `success` |
+| Scenario count / passed / failed / skipped | 6 total, 6 passed, 0 failed, 0 errors, 0 skipped; PR06 recorded all 30 required evidence steps and 9 commands |
 | API interception | `none`; the real Gantt API was not intercepted |
 | Cookie authentication / real CSRF | Passed with real cookie authentication and real CSRF |
 | Real ASP.NET Core / PostgreSQL | Passed against built Angular, real ASP.NET Core, and real PostgreSQL |
@@ -897,9 +921,9 @@ finishes with an overall successful workflow conclusion.
 | Membership revocation / stale-response fencing | Passed; protected state cleared before a held stale response and was not restored |
 | Reload persistence / degraded HTTP fallback | Passed; persisted edits survived reload and manual HTTP refresh worked with Hub unavailable |
 | Page errors | 0 |
-| Current artifact ID / name / digest | ID `8794673197`, name `real-backend-browser-smoke-artifacts`, digest `sha256:660fbe4b8eafc0f967f4fa9ae7915f47b0a01951f16b3634d15d986e665ba814` |
-| Current secret-pattern matches | 0 high-confidence matches |
-| Current Gate conclusion | Pending until workflow run `30634069147` finishes with overall `success`; a successful smoke step alone is not substituted for the workflow conclusion |
+| Current artifact ID / name / digest | ID `8797054160`, name `real-backend-browser-smoke-artifacts`, digest `sha256:75315d1f961c6865fa2f25debbb23754b158ca2b6ea8e4a9995843b95b9398b8` |
+| Current secret-pattern matches | 0; downloaded artifact scanned with CI-identical Gitleaks v8.24.3 `--no-git --redact` |
+| Current Gate conclusion | `success` at exact code-bearing head `2fc5910e772f427355529de6e500b093583872b6` |
 
 ### Historical full-gate candidate `555379db`
 
@@ -937,7 +961,7 @@ merge `0b2d5fc` later changed the code-bearing head.
 | `frontend-test` | Job `91138599518` | Success; Angular 323/323, Hosted Storybook success, mocked Playwright 63 passed with 3 expected skips |
 | npm Security Audit | Run `30612006220`, job `91096678735` | Success |
 | Code Quality | Run `30612006010` | Success |
-| Qodana Community / .NET | Job `91096678715` | Success; 2,260 findings, 0 error, 0 critical, 0 material PR06, 0 PR-introduced |
+| Qodana Community / .NET | Job `91096678715` | Success; 2,260 findings, 0 error, 0 critical, 0 material PR06, 0 material PR-introduced |
 | Angular quality | Job `91100159546` | Success |
 | Real Backend Browser Smoke | Run `30625754075`, job `91140507111` | Cancelled at step 0 with no executable evidence; not a pass |
 
@@ -959,14 +983,14 @@ historical; the final successful attempt is stated explicitly.
 | npm Security Audit | Run `30626428487`, job `91142659450` | Success at exact head; artifact `8791530869`, digest `sha256:531d8a91339eda02af574db4bdab1c054c04ece33fcc3c725f40d1c90736af46` |
 | Real Backend Browser Smoke | Run `30630832231`, job `91156526050` | Failure: 6 total, 4 passed, 2 failed, 0 skipped; diagnostic artifact `8793522897`, digest `sha256:79841bfa974edfee464256d5415165f53a606eab760e9c2c2887aaa95115033c`, secret matches 0 |
 
-### Current test-only remediation candidate gates
+### Historical test-only remediation candidate gates
 
-All runs below target exact current code-bearing candidate
+All runs below target historical test-only candidate
 `f2d3805466b2a9bce3e2a7bf8392069330a1d6fd`. The four ordinary Hosted workflows
 completed successfully. The first Real Backend run was cancelled before setup;
-its fresh replacement passed all executable smoke checks but is still in
-progress during post-job cleanup and remains Pending until its overall
-conclusion is success.
+its fresh replacement passed all executable smoke checks and uploaded a valid
+artifact, but the workflow ultimately timed out/cancelled during setup-node
+post-cache upload and is not a Gate pass.
 
 | Gate | Run | Current status |
 | --- | --- | --- |
@@ -978,8 +1002,32 @@ conclusion is success.
 | Code Quality artifacts | Full `8794078721` / `sha256:752afb3fad35c7a03e8f5de49e197f736fcdd3f82f3ccdbbb6007b0e8055d9cc`; report `8794203490` / `sha256:8a623a78a537b2fbeadbed544a0d36e54ad2e323999ba15bafeffaae3a2b4c27`; model `8794227440` / `sha256:248f5d3919c697a851fac19e13e5e498c2e543f02657a8d474a2824a5e4059a6`; frontend `8794475568` / `sha256:b5831329ac8db3b25ed674765a29e50a456b0a2173219dced29cddc1939e032f` | Valid exact-head artifacts |
 | npm Security Audit | Run `30632549183`, job `91162128341`; artifact `8793939576` / `sha256:f9f3fd372d7626dc9d7ce0d17fdd7405918302abcbdd047c182400fbbf1c03fe` | Success at exact head; active frontend 19 (3 low, 6 moderate, 10 high, 0 critical), PR06-introduced 0 |
 | First Real Backend Browser Smoke | Run `30632559051`, job `91162166864` | Cancelled before setup; no artifact; not a pass |
-| Fresh Real Backend Browser Smoke | Run `30634069147`, job `91167131007` | Smoke step 6/6 passed with 30 PR06 steps, 0 failed/skipped; workflow overall still in progress during post-job cleanup |
+| Fresh Real Backend Browser Smoke | Run `30634069147`, job `91167131007` | Smoke step 6/6 passed with 30 PR06 steps, 0 failed/skipped; workflow overall cancelled during setup-node post-cache upload; not a pass |
 | Fresh Real Backend artifact | `8794673197` / `sha256:660fbe4b8eafc0f967f4fa9ae7915f47b0a01951f16b3634d15d986e665ba814` | Valid; high-confidence secret matches 0 |
+
+### Current code-bearing candidate gates
+
+All results below target exact code-bearing candidate
+`2fc5910e772f427355529de6e500b093583872b6`. Local and Hosted technical gates
+are green for the required commands. Default 2 GB local Storybook remains a
+separately recorded OOM non-pass; the required 4 GB and Hosted Storybook builds
+succeeded. Acceptance remains Incomplete because the numeric cap decision and
+Messaging/PR07 scope contamination are unresolved and the documentation-bearing
+exact-final-HEAD reruns have not yet occurred.
+
+| Gate | Run / job | Current status |
+| --- | --- | --- |
+| Local PostgreSQL/backend | Ephemeral PostgreSQL 18; exact `2fc5910` | Empty migration apply succeeded; PR06 49/49, PR05 25/25, PR04 8/8, full 494/494; 0 failed/skipped; pending model changes 0 |
+| Local frontend | Exact `2fc5910` | `npm --prefix frontend ci`, Angular 327/327 in 42 files, production build, architecture 4/4, license safeguards 4/4, lazy bundle, 4 GB Storybook, and mocked Playwright 63 passed + 3 expected skips succeeded. Default 2 GB Storybook OOMed and is not a pass. |
+| Documentation CI | Run `30637433566`, job `91178483260` | Success at exact head |
+| CI | Run `30637433590`; build-test `91178483276`, security-scan `91178483339`, frontend-test `91180641392` | Success at exact head; backend 494/494, Angular 327/327, Hosted Storybook success, mocked Playwright 63 passed + 3 expected skips |
+| CI backend artifact | `8796172867` / `sha256:f43869b43b857f4330bb7f4f51723bba24ecd9d50c1c779fbe4ab0c0a97f26c8` | Valid |
+| CI security artifacts | Gitleaks `8795938446` / `sha256:4f8c7e403bfedffe7426717d2661cf0ba093a480434bebcfb8f92040bf180e6f`; dependency `8795949215` / `sha256:8c65be7523c5f4f104728be3a147fb126537e5620e3d41df41cf8b25e2c6d75f`; Trivy `8796019743` / `sha256:89d9a7388c7cca14beada8f896d93d4ce099c1d1bb1fef1ef5a1c6a71ed15f5a` | Valid; repository Gitleaks matches 0 |
+| Code Quality | Run `30637433561`; Qodana `91178484006`, Angular quality `91183270978` | Success; 2,260 findings (1,421 warning, 839 note, 0 error, 0 critical), short report 0, model unresolved/failures 0, material PR06 0, material PR-introduced 0; Angular 327/327 |
+| Code Quality artifacts | Full `8796327316` / `sha256:3e0c40fcf0caeb5bb8f8d8ad3c41b564a61502f8edc193a48912fc59d9b15c5d`; report `8796471351` / `sha256:cd4c4ab06552d7f5fab518f50f607bbfc00e4b4b0520e9f9e3caeca6c90bfbea`; model `8796506046` / `sha256:077bfe98533a2a8744740e0c112e6e9679a684fb76f79d2865689461ea2857c0`; frontend `8796818315` / `sha256:24eb0f0a20de07ade99ad3ac18b9c7a52e4f396ed21f13a980315fead9ae2269` | Valid |
+| npm Security Audit | Run `30637433551`, job `91178483146`; artifact `8795930038` / `sha256:6922cac2d777d057555d60ace3f6b24630f05d9ad85fb901543ba13cfa89103d` | Success; active frontend 19 (3 low, 6 moderate, 10 high, 0 critical), latest-main delta -1 moderate, Syncfusion/PR06 introduced 0 |
+| Real Backend Browser Smoke | Run `30639800642`, job `91186533535` | Success; JUnit 6/6, failed/errors/skipped 0, PR06 30 steps / 9 commands, API interception `none`, page errors 0 |
+| Real Backend artifact | `8797054160` / `sha256:75315d1f961c6865fa2f25debbb23754b158ca2b6ea8e4a9995843b95b9398b8` | Valid; downloaded artifact Gitleaks matches 0 |
 
 ### Post-documentation exact final-HEAD gates
 
@@ -1000,31 +1048,31 @@ embed self-referential evidence.
 
 ### Qodana candidates and review
 
-The latest completed Qodana inventory below is exact for current test-only
-candidate `f2d3805466b2a9bce3e2a7bf8392069330a1d6fd`. The final
+The latest completed Qodana inventory below is exact for current code-bearing
+candidate `2fc5910e772f427355529de6e500b093583872b6`. The final
 documentation-bearing rerun remains Pending.
 
 | Evidence | Status |
 | --- | --- |
-| Latest completed Code Quality candidate | Run `30632549238`, success at exact `f2d3805466b2a9bce3e2a7bf8392069330a1d6fd` |
-| Latest completed Qodana / Angular jobs | Qodana `91162129048` success; Angular quality `91164686596` success |
+| Latest completed Code Quality candidate | Run `30637433561`, success at exact `2fc5910e772f427355529de6e500b093583872b6` |
+| Latest completed Qodana / Angular jobs | Qodana `91178484006` success; Angular quality `91183270978` success |
 | Full inventory | 2,260 findings: 1,421 warning, 839 note, 0 error, 0 critical |
 | Qodana short report | 0 |
 | Model validation | 0 unresolved findings and 0 model failures |
 | Qodana Critical | 0 |
 | Qodana Error | 0 |
 | Material PR06 findings | 0 |
-| PR-introduced findings | 0 |
-| Latest full inventory artifact | ID `8794078721`; digest `sha256:752afb3fad35c7a03e8f5de49e197f736fcdd3f82f3ccdbbb6007b0e8055d9cc` |
-| Latest report artifact | ID `8794203490`; digest `sha256:8a623a78a537b2fbeadbed544a0d36e54ad2e323999ba15bafeffaae3a2b4c27` |
-| Latest model artifact | ID `8794227440`; digest `sha256:248f5d3919c697a851fac19e13e5e498c2e543f02657a8d474a2824a5e4059a6` |
-| Latest frontend inspection artifact | ID `8794475568`; digest `sha256:b5831329ac8db3b25ed674765a29e50a456b0a2173219dced29cddc1939e032f` |
+| Material PR-introduced findings | 0 |
+| Latest full inventory artifact | ID `8796327316`; digest `sha256:3e0c40fcf0caeb5bb8f8d8ad3c41b564a61502f8edc193a48912fc59d9b15c5d` |
+| Latest report artifact | ID `8796471351`; digest `sha256:cd4c4ab06552d7f5fab518f50f607bbfc00e4b4b0520e9f9e3caeca6c90bfbea` |
+| Latest model artifact | ID `8796506046`; digest `sha256:077bfe98533a2a8744740e0c112e6e9679a684fb76f79d2865689461ea2857c0` |
+| Latest frontend inspection artifact | ID `8796818315`; digest `sha256:24eb0f0a20de07ade99ad3ac18b9c7a52e4f396ed21f13a980315fead9ae2269` |
 | Earlier candidate artifacts | `69cc6f0`: full `8792582726`, report `8792772245`, model `8792773927`, frontend `8793187227`; `e0e87dd9`: full `8786059473`, report `8786235946`, model `8786237568`, frontend `8786394667`; `555379db`: full `8785339371`, report `8785489866`, model `8785495363`, frontend `8785544038`; retained as historical evidence |
 | Product-code-parent review threads | 0 unresolved at the exact `69cc6f0` check |
-| Current test-only-candidate review threads | 0 unresolved at exact `f2d3805` |
+| Current code-bearing-candidate review threads | 0 unresolved at exact `2fc5910` |
 | Final unresolved review threads | Recheck Pending on the documentation-bearing final HEAD |
 | PR body synchronized | Pending |
-| Verification synchronized | Historical `555379db`/`e0e87dd9`, exact `69cc6f0` local/Hosted/Real diagnostic evidence, current `f2d3805` local and successful ordinary Hosted results, and the fresh Real smoke result/artifact are synchronized; the Real workflow conclusion and documentation-bearing Hosted evidence remain Pending |
+| Verification synchronized | Historical `555379db`/`e0e87dd9`/`69cc6f0`/`f2d3805` evidence and exact `2fc5910` local/Hosted/Real results are synchronized; documentation-bearing Hosted evidence remains Pending |
 
 Artifact triage found no production disposed-context, authorization,
 transaction, concurrency, cancellation, or nullable-logic defect on PR06
@@ -1044,10 +1092,12 @@ Initial worktree state before this audit file was added:
 - `.aip-spec-source/`: pre-existing protected untracked directory; used only as
   a read-only specification reference and not staged
 - `.tools/`: pre-existing protected untracked directory; not touched or staged
-- `frontend/src/app/features/messaging/messaging.facade.ts`: unrelated
-  user-owned Messaging change; preserved unstaged
-- `frontend/src/app/features/messaging/messaging-ui.spec.ts`: unrelated
-  user-owned Messaging test change; preserved unstaged
+- `frontend/src/app/features/messaging/messaging.facade.ts` and
+  `frontend/src/app/features/messaging/messaging-ui.spec.ts`: pre-existing
+  user-owned changes were committed by unrelated commit `9f7b8f3` together
+  with documentation. This remediation did not edit or revert them. Their
+  reconnect/authorization delta is outside PR06/within PR07 scope and blocks
+  Merge until the owner provides an authorized forward scope correction.
 - `frontend/package.json`: the exact Syncfusion Angular Gantt dependency is an
   intended change for the vendor-isolated lazy adapter
 - `frontend/package-lock.json`: focused npm-major-compatible review passed.
@@ -1063,17 +1113,23 @@ Remaining blockers:
 
 - DECISION REQUIRED: numeric snapshot cap and overflow behavior
 - final documentation HEAD is not yet established; Draft PR #259 remains open
+- unrelated commit `9f7b8f3` contaminated the PR06 branch with user-owned
+  Messaging reconnect/authorization changes in prohibited PR07 scope; this
+  remediation was not authorized to discard them
 - product-code parent `69cc6f0` passed Documentation CI, CI attempt 4, Code
   Quality attempt 3, and npm Security Audit, but its licensed Real Backend run
   failed two deterministic evidence assertions and is not a pass
-- current test-only code-bearing `f2d3805` Documentation CI `30632549237`, CI
-  `30632549234`, Code Quality `30632549238`, and npm Security Audit
-  `30632549183` succeeded; fresh Real Backend `30634069147` passed its 6/6
-  smoke step and artifact/secret validation but remains Pending until the
-  workflow finishes post-job cleanup with overall `success`
+- historical `f2d3805` ordinary Hosted gates succeeded; fresh Real Backend
+  `30634069147` passed its 6/6 smoke step and artifact validation but the
+  workflow timed out/cancelled during setup-node post-cache upload, so it is
+  not a pass
+- current code-bearing `2fc5910` Documentation CI `30637433566`, CI
+  `30637433590`, Code Quality `30637433561`, npm Security Audit `30637433551`,
+  and Real Backend `30639800642` all succeeded at exact head; downloaded Real
+  artifact secret matches were 0
 - post-documentation exact-final-HEAD Documentation CI, CI, Code Quality, npm
   Security Audit, and Real Backend reruns are pending
-- the current `f2d3805` review check has 0 unresolved threads; final-HEAD review
+- the current `2fc5910` review check has 0 unresolved threads; final-HEAD review
   recheck plus PR-body synchronization are pending
 
 Current Gate:
