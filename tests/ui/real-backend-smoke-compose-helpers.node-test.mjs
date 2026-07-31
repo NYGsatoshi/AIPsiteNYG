@@ -3,6 +3,7 @@ import test from 'node:test';
 import {
   composeProjectName,
   composeV2Invocation,
+  isHstsPreloadedHttpUrl,
   isStaticAngularServerUrl,
   legacyComposeInvocation,
   normalizeExitCode,
@@ -69,7 +70,11 @@ test('redacts connection, browser, cookie, CSRF, authorization, and invite secre
 test('rejects the static Angular server URL and preserves child exit codes', () => {
   assert.equal(isStaticAngularServerUrl('http://127.0.0.1:4173'), true);
   assert.equal(isStaticAngularServerUrl('http://localhost:4173/app/login'), true);
-  assert.equal(isStaticAngularServerUrl('http://app:8080'), false);
+  assert.equal(isStaticAngularServerUrl('http://aip-backend:8080'), false);
+  assert.equal(isHstsPreloadedHttpUrl('http://app:8080'), true);
+  assert.equal(isHstsPreloadedHttpUrl('http://service.example.app:8080'), true);
+  assert.equal(isHstsPreloadedHttpUrl('https://service.example.app:8080'), false);
+  assert.equal(isHstsPreloadedHttpUrl('http://aip-backend:8080'), false);
   assert.equal(normalizeExitCode(37), 37);
   assert.equal(normalizeExitCode(null), 1);
 });

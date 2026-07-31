@@ -1,6 +1,9 @@
 import { spawn } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
-import { isStaticAngularServerUrl } from './real-backend-smoke-compose-helpers.mjs';
+import {
+  isHstsPreloadedHttpUrl,
+  isStaticAngularServerUrl
+} from './real-backend-smoke-compose-helpers.mjs';
 
 const playwrightCli = fileURLToPath(new URL('../../node_modules/@playwright/test/cli.js', import.meta.url));
 const userArgs = process.argv.slice(2);
@@ -30,7 +33,7 @@ function validateConfiguration(environment) {
   }
 
   if (!baseURL) {
-    throw new Error('PLAYWRIGHT_BASE_URL is required for the real-backend smoke. The Compose runner sets it to http://app:8080.');
+    throw new Error('PLAYWRIGHT_BASE_URL is required for the real-backend smoke. The Compose runner sets it to http://aip-backend:8080.');
   }
 
   try {
@@ -41,6 +44,10 @@ function validateConfiguration(environment) {
 
   if (isStaticAngularServerUrl(baseURL)) {
     throw new Error('PLAYWRIGHT_BASE_URL points to the static Angular server on port 4173. Use `npm run test:ui:real-backend` instead of the static runner.');
+  }
+
+  if (isHstsPreloadedHttpUrl(baseURL)) {
+    throw new Error('PLAYWRIGHT_BASE_URL uses an HTTP .app hostname that Chromium upgrades to HTTPS through HSTS. Use the Compose alias http://aip-backend:8080.');
   }
 
   if (!email) {

@@ -211,7 +211,8 @@ npm.cmd run test:ui:real-backend
 
 This starts PostgreSQL, EF Core migrations, ASP.NET Core with the hosted
 production Angular build, deterministic synthetic seed data, and Playwright in
-one isolated Compose project. It uses `http://app:8080` within that network.
+one isolated Compose project. It uses the non-HSTS Compose alias
+`http://aip-backend:8080` within that network.
 For a manual run against an already-started backend, set
 `AIP_REAL_BACKEND_SMOKE=1`, `PLAYWRIGHT_BASE_URL`,
 `AIP_BROWSER_SMOKE_EMAIL`, and `AIP_BROWSER_SMOKE_PASSWORD`, then run

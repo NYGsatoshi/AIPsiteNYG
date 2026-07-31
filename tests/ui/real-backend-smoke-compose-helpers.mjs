@@ -63,6 +63,16 @@ export function isStaticAngularServerUrl(value) {
   }
 }
 
+export function isHstsPreloadedHttpUrl(value) {
+  try {
+    const url = new URL(value);
+    const host = url.hostname.toLowerCase();
+    return url.protocol === 'http:' && (host === 'app' || host.endsWith('.app'));
+  } catch {
+    return false;
+  }
+}
+
 export function normalizeExitCode(code) {
   return Number.isInteger(code) && code >= 0 ? code : 1;
 }

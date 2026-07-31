@@ -137,7 +137,9 @@ The runner validates Compose, starts an isolated PostgreSQL volume, applies EF
 Core migrations, builds and starts the ASP.NET Core image with the production
 Angular build, enables deterministic synthetic seed data, waits for
 `/health/ready`, and runs Playwright inside the Compose network against
-`http://app:8080`. It preserves traces, screenshots, videos, HTML reports, and
+`http://aip-backend:8080`. The alias intentionally avoids the HSTS-preloaded
+`.app` hostname used by the Compose service name. It preserves traces,
+screenshots, videos, HTML reports, and
 the smoke error-context attachment on the host when the run fails. Containers,
 networks, and the isolated test volumes are removed afterwards.
 

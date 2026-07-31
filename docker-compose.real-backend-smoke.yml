@@ -47,6 +47,12 @@ services:
       dockerfile: Dockerfile
       secrets:
         - syncfusion_license
+    networks:
+      default:
+        aliases:
+          # Chromium treats the single-label hostname "app" as the HSTS
+          # preloaded .app TLD and upgrades HTTP navigation to HTTPS.
+          - aip-backend
     environment:
       ASPNETCORE_ENVIRONMENT: Test
       ASPNETCORE_URLS: http://0.0.0.0:8080
@@ -95,7 +101,7 @@ services:
     environment:
       CI: "true"
       AIP_REAL_BACKEND_SMOKE: "1"
-      PLAYWRIGHT_BASE_URL: http://app:8080
+      PLAYWRIGHT_BASE_URL: http://aip-backend:8080
       AIP_BROWSER_SMOKE_EMAIL: ${AIP_BROWSER_SMOKE_EMAIL:-e2e-user@example.test}
       AIP_BROWSER_SMOKE_PASSWORD: ${AIP_BROWSER_SMOKE_PASSWORD:-E2eSmoke!23456}
     volumes:
