@@ -4,18 +4,47 @@ TASK-V1-PR06 upgrades the existing Project Detail Schedule tab from its
 read-only compatibility projection to an authorized, versioned projection and
 manual-edit surface over canonical WorkItems.
 
-Status: implemented in the working tree and partially verified locally. The
-exact final-HEAD suites, hosted Gates, licensed real-backend browser scenario,
-Qodana triage, and review are still pending, so this document does not claim
-acceptance. Detailed evidence belongs in
+Status: implemented at exact code-bearing candidate
+`f2d3805466b2a9bce3e2a7bf8392069330a1d6fd`. Product code at parent candidate
+`69cc6f0943cfc9d3e2dab358edceb0fad0a0fea6` incorporates latest main by a normal
+merge and retains patched `tar` 7.5.22 with a lock-only follow-up. That parent
+passed the full local suites plus Documentation CI, CI attempt 4, Code Quality
+attempt 3, and npm Security Audit, but its licensed Real Backend run found two
+deterministic evidence-harness mismatches. Current `f2d3805` is a test-only
+remediation that validates the exact safe Project-detail denial and current
+authorization-clear status without broad failure suppression, timeout changes,
+or retries. Its Documentation CI, CI, Code Quality, and npm Security Audit runs
+succeeded. A fresh licensed Real Backend run passed all six smoke scenarios and
+uploaded valid evidence, but its workflow remains in progress during post-job
+cleanup and is not yet a Gate pass. Every post-documentation exact-final-HEAD
+Gate also remains pending. The numeric cap owner decision is unresolved, so
+this document does not claim acceptance. Detailed evidence belongs in
 [`docs/verification/task-v1-pr06-gantt.md`](verification/task-v1-pr06-gantt.md).
 
 ## Identity and authority
 
 - Branch: `task/v1-pr06-gantt-adapter`
-- Main start SHA: `0a8a1f58b8365e9ffc54daafceca99864ae5f63f`
-- Code-bearing HEAD: `ab9a260dd4517d34a2500d5e76369ba241b504ee`
-- Draft PR: `#259`
+- Historical PR06 main start SHA:
+  `0a8a1f58b8365e9ffc54daafceca99864ae5f63f`
+- Final-remediation audit start PR HEAD:
+  `3cf2e1dc8c1c94ce475fb8f52f5461391f69cbd1`
+- Final-remediation audit start main HEAD:
+  `4c36baf95d1b9f80cab9b28c236bbaa1cb490346`
+- Latest incorporated main HEAD:
+  `1739cfcc819174289d858cbacc255527f1ffa047`
+- Normal main merge commits:
+  `663b0f452093360b55d31d2c56b32cbeeb887a2f`,
+  `7838173a318c5819353007b88c2bec52896d48bf`, and
+  `555379db03d076627f04083a43eb07fe7ffa23bc`, followed by
+  `0b2d5fc1e99d441e278be1716b9fbb8baed96e90` for current latest main
+- Code-bearing candidate HEAD:
+  `f2d3805466b2a9bce3e2a7bf8392069330a1d6fd`
+- Product-code/package parent candidate:
+  `69cc6f0943cfc9d3e2dab358edceb0fad0a0fea6`
+- Test-only Real Backend evidence remediation:
+  `f2d3805466b2a9bce3e2a7bf8392069330a1d6fd`
+- Ahead / behind: 20 / 0 before the later documentation commit
+- Draft PR: `#259`, open and mergeable
 - Final documentation HEAD: Pending
 - Canonical specification revision:
   `20aa5a2e015ae8fb68e5ba2b257a416dfcad5c3f`
@@ -95,9 +124,10 @@ Projection rules:
   cancellation propagation.
 
 Because the canonical sources do not provide a numeric graph limit, the
-working-tree implementation uses an explicitly provisional maximum of 500
+code-bearing candidate uses an explicitly provisional maximum of 500
 items counted consistently as canonical Task-kind WorkItems plus canonical
-Milestones, and 2,000 dependencies. The same count gate applies to snapshot,
+Milestones, and 2,000 active dependencies whose endpoints are active
+same-Project canonical Tasks. The same count gate applies to snapshot,
 schedule, progress, and dependency operations. Overflow returns a typed HTTP
 400 error (`GANTT_ITEM_LIMIT_EXCEEDED` or
 `GANTT_DEPENDENCY_LIMIT_EXCEEDED`) before returning a partial graph. It never
@@ -273,49 +303,209 @@ WorkItem/Milestone/dependency graph size and whether overflow returns a typed
 error, explicit truncation metadata, or pagination.
 
 The provisional implementation uses 500 items counted as canonical Task-kind
-WorkItems plus canonical Milestones and 2,000 dependencies, applies that count
-consistently to snapshot and every PR06 command path, rejects overflow with a
-typed HTTP 400 response, and does not return a truncated snapshot. These values
-and semantics are implementation safety limits, not a canonical owner
-decision.
+WorkItems plus canonical Milestones and 2,000 active dependencies whose
+predecessor and successor are active same-Project canonical Task endpoints. It
+applies the bounds consistently to snapshot and every PR06 command path,
+rejects overflow with a typed HTTP 400 response, and does not return a
+truncated snapshot. These values and semantics are implementation safety
+limits, not a canonical owner decision.
+
+- Source: implementation safeguard; the canonical sources require only a
+  bounded snapshot and provide no numeric value or overflow contract
+- PR body/comments: no owner decision found
+- Resolved: No
+- DECISION REQUIRED: Yes
 
 This is the only independent specification omission identified at
 implementation start.
 
+## Historical candidate evidence
+
+The pre-remediation candidate
+`ab9a260dd4517d34a2500d5e76369ba241b504ee` passed PR06 45/45, PR05
+25/25, PR04 8/8, full backend 485/485, Angular 318/318, and mocked Playwright
+63 passed with 3 expected skips. Its npm audit reported 18 findings. It and
+the earlier Hosted candidates are retained in the detailed verification
+ledger, but none is final Acceptance evidence after latest-main integration.
+Code Quality attempt 1 was cancelled. In attempt 2, Qodana job `91089891268`
+failed after runner shutdown and produced no artifacts, the PR Gate was
+skipped, and Angular quality job `91090268692` succeeded; the workflow is
+therefore not a pass.
+Parent candidate `555379db03d076627f04083a43eb07fe7ffa23bc` later passed the
+full local suites and Documentation CI, CI, Code Quality attempt 3, and npm
+Security Audit; Qodana found 0 material PR06 and 0 PR-introduced findings. Its
+Real Backend run `30611459543` failed before login with six infrastructure
+errors after an internal HSTS 307 upgraded `http://app:8080` to unsupported
+`https://app:8080`. It executed 0 PR06 steps/commands and found 0
+high-confidence secret matches. These results are historical after the
+focused origin remediation.
+
+The focused-origin candidate
+`e0e87dd9b4933af8165e472cc02761db0ff3ab6e` passed Documentation CI
+`30612005927`, CI `30612006065` attempt 2, Code Quality `30612006010`, and npm
+Security Audit `30612006220`. Qodana again reported 0 error, 0 critical,
+0 material PR06, and 0 PR-introduced findings. Its Real Backend run
+`30625754075`, job `91140507111`, was cancelled at step 0 and produced no
+executable evidence, so it is not a Real Backend pass. These results are also
+historical after latest-main merge `0b2d5fc` and lock-only fix `69cc6f0`.
+
+Latest-main parent candidate
+`69cc6f0943cfc9d3e2dab358edceb0fad0a0fea6` passed Documentation CI
+`30626428426`, CI `30626428493` attempt 4, Code Quality `30626428491`
+attempt 3, and npm Security Audit `30626428487`. Qodana reported 2,260
+inventory findings (1,421 warning, 839 note, 0 error, 0 critical), 0 unresolved
+model findings/failures, 0 material PR06 findings, and 0 PR-introduced findings.
+Its Real Backend run `30630832231`, job `91156526050`, reached the PR05/PR06
+revocation paths but failed two evidence assertions: JUnit 6 total, 4 passed,
+2 failed, 0 errors, 0 skipped. The PR05 assertion expected obsolete board-not-found text
+after the UI had safely cleared protected state; the PR06 assertion had not
+registered the exact safe `GET /api/projects/{projectId}` HTTP 400 denial for
+console reconciliation. Artifact `8793522897` has digest
+`sha256:79841bfa974edfee464256d5415165f53a606eab760e9c2c2887aaa95115033c`,
+and high-confidence secret matches were 0. Test-only `f2d3805` now records and
+validates that exact method/path/status, its safe redacted body, and the current
+authorization-clear status. It neither treats arbitrary 400 responses as
+expected nor adds a retry or timeout.
+
 ## Current status
 
-- Implementation: Working-tree implementation complete; review and final Gate
-  stabilization remain
-- Restore: succeeded; all projects were up to date
-- Release build at code-bearing HEAD: Passed with 0 warnings and 0 errors
-- Backend focused PostgreSQL/HTTP/service/controller tests:
-  `Scope=TaskV1PR06` 45/45 passed, 0 failed, 0 skipped
-- PostgreSQL query evidence: seven commands for the bounded repository
+- Implementation: exact code-bearing candidate
+  `f2d3805466b2a9bce3e2a7bf8392069330a1d6fd`; latest main
+  `1739cfcc819174289d858cbacc255527f1ffa047` incorporated without conflict by
+  normal merge `0b2d5fc1e99d441e278be1716b9fbb8baed96e90`, followed by lock-only `tar`
+  fix `69cc6f0` and test-only Real Backend evidence remediation `f2d3805`;
+  ahead/behind 20/0 before the later documentation commit
+- HSTS-origin remediation inherited from `e0e87dd9`: the smoke host uses non-HSTS Compose alias
+  `http://aip-backend:8080` with a fail-closed origin guard, focused test, and
+  documentation. No timeout increase or retry was added. Runner helper tests
+  passed 6/6; Node syntax, Compose config/alias, and diff checks passed.
+- Toolchain: local Node `v24.13.0`, npm `11.6.2`, repository
+  active `frontend/package.json` `packageManager` `npm@11.17.0` on the same
+  major, and latest-main .NET test tooling `10.0.10`
+- Exact product-code parent `69cc6f0` root `npm ci`: passed
+- Exact product-code parent `69cc6f0` active-frontend
+  `npm --prefix frontend ci`: passed
+- Exact product-code parent `69cc6f0` Release build: passed
+- Exact product-code parent `69cc6f0` migration: PostgreSQL 18.4 empty apply,
+  PR05 upgrade, existing-data
+  preservation, additive down, and migration list passed; pending migrations
+  and pending model changes: none
+- Exact product-code parent `69cc6f0` backend focused
+  PostgreSQL/HTTP/service/controller tests:
+  `Scope=TaskV1PR06` 49/49 passed, 0 failed, 0 skipped
+- Exact product-code parent `69cc6f0` PostgreSQL query evidence: seven commands
+  for the bounded repository
   projection and exactly 24 commands for the authorized real HTTP snapshot;
   exact SQL is emitted in xUnit evidence, with no N+1/unbounded graph load
-- PR05 regression: 25/25 passed, 0 failed, 0 skipped; PR04 regression:
-  8/8 passed, 0 failed, 0 skipped
-- Full backend at code-bearing HEAD: 485/485 passed, 0 failed, 0 skipped
-- EF pending-model check: no pending model changes
-- Frontend install/audit: `npm ci` succeeded; audit reported 18 known
-  vulnerabilities (3 low, 7 moderate, 8 high, 0 critical)
-- Angular full suite: 318/318 passed; production build succeeded
-- Architecture: application check succeeded and architecture tests passed 4/4
-- Syncfusion license policy: 4/4 passed
-- Bundle analysis: succeeded; Gantt remained lazy at approximately 5.42 MB
-  and the initial bundle was 950.01 kB with its existing budget warning
-- Mocked Playwright: 63 passed, 0 failed, with 3 pre-existing explicitly
-  expected skips; PR06 Schedule desktop/mobile subset 4/4 passed with no skips
-- Real-backend browser: local run is not countable because
-  `SYNCFUSION_LICENSE` is unavailable; exact-HEAD hosted execution is required
-- Storybook: the exact local default command exhausted the available 2 GB Node
-  heap and is not counted as passing; the same source succeeded with
+- Exact product-code parent `69cc6f0` PR05 regression: 25/25 passed, 0 failed,
+  0 skipped; PR04 regression: 8/8 passed, 0 failed, 0 skipped
+- Exact product-code parent `69cc6f0` full backend: 494/494 passed, 0 failed,
+  0 skipped
+- Exact test-only candidate `f2d3805` PostgreSQL-enabled rerun: PR06 49/49,
+  PR05 25/25, PR04 8/8, and full backend 494/494 passed with 0 failed and 0
+  skipped. A preceding no-PostgreSQL run is not Acceptance evidence.
+- Exact product-code parent `69cc6f0` package audit: latest main had
+  active-frontend `tar` 7.5.19;
+  lock-only commit `69cc6f0` restores 7.5.22 by changing only version,
+  resolved URL, and integrity. Active-frontend audit is 19 findings (3 low,
+  6 moderate, 10 high, 0 critical) versus latest-main 20 (3 low, 7 moderate,
+  10 high, 0 critical); root audit is 0. No affected path contains Syncfusion,
+  so PR06-introduced findings are 0. The 19 active findings are 5 direct
+  (`@angular-devkit/build-angular`, `@angular/build`, `@angular/cli`,
+  `@angular/compiler-cli`, and `@storybook/angular`) and 14 transitive. All
+  report a `fixAvailable` path, but those paths include major or inconsistent
+  downgrade candidates; no forced fix is authorized.
+- Exact product-code parent `69cc6f0` Angular full suite: 42 files and 323/323
+  tests passed; production build
+  succeeded
+- Exact product-code parent `69cc6f0` architecture: application check succeeded
+  and Node architecture tests
+  passed 4/4
+- Exact product-code parent `69cc6f0` Syncfusion license policy: 4/4 passed
+- Exact product-code parent `69cc6f0` bundle analysis: succeeded; Gantt remained
+  lazy at approximately 5.42 MB
+  and the initial bundle was 949.99 kB with its existing budget warning
+- Exact product-code parent `69cc6f0` Storybook default: exit 134 after local
+  2 GB heap exhaustion, not a pass
+- Exact product-code parent `69cc6f0` Storybook 4 GB: passed with
   `NODE_OPTIONS=--max-old-space-size=4096`
-- Package lock: final npm 11.17 regeneration and focused diff review are
-  pending; no lockfile-scope claim is final yet
-- Reviewer residual material findings: 0; hosted Gates, Qodana, exact final-HEAD
-  evidence, and GitHub review-thread evidence remain Pending
-- Draft PR: #259 open
+- Exact product-code parent `69cc6f0` mocked Playwright: 63 passed, 0 failed,
+  with 3 pre-existing explicitly expected skips; PR06 Schedule desktop/mobile
+  subset 4/4 passed with no skips
+- Historical `e0e87dd9` Hosted evidence: Documentation CI run `30612005927` /
+  job `91096678127`, CI run `30612006065` attempt 2 / jobs `91138599652`,
+  `91138599781`, and `91138599518`, Code Quality run `30612006010` /
+  Qodana job `91096678715` / Angular quality job `91100159546`, and npm
+  Security Audit run `30612006220` / job `91096678735` all succeeded
+- Historical `e0e87dd9` Qodana triage: 2,260 inventory findings (1,421 warning, 839 note,
+  0 error, 0 critical), short report 0, model unresolved/failures 0, material
+  PR06 findings 0, and PR-introduced findings 0. The remaining disposed
+  closure/resource warnings are test-only; the multiple-enumeration,
+  identical-ternary, and redundant-assignment findings are base findings, and
+  `PlanningRepository` entries are non-material `Contains` notes.
+- Historical `e0e87dd9` Real Backend: run `30625754075`, job `91140507111`,
+  cancelled at step 0 with no executable evidence; not a pass
+- Earlier `555379db` Real Backend: run `30611459543`, job `91094951966`,
+  failed before login; JUnit 6 total, 0 passed, 0 assertion failures, 6 errors,
+  0 skipped. Artifact `8785696348` digest
+  `sha256:e5a102f3263a296f31ce2cf00853800d47d04d5b21a7816a69f32995031f092d`.
+- Exact product-code parent `69cc6f0` Documentation CI: run `30626428426`, job
+  `91142659554`, success
+- Exact product-code parent `69cc6f0` npm Security Audit: run `30626428487`,
+  job `91142659450`,
+  success; artifact `8791530869`, digest
+  `sha256:531d8a91339eda02af574db4bdab1c054c04ece33fcc3c725f40d1c90736af46`
+- Exact product-code parent `69cc6f0` CI: run `30626428493` attempt 4 succeeded;
+  build-test job `91146858583`, security-scan job `91146858952`, and
+  frontend-test job `91146858537` all succeeded. Hosted backend was 494/494;
+  Hosted frontend included Angular 323/323, production/license builds,
+  raised-heap Storybook, and mocked Playwright 63 passed with 3 expected skips.
+- Exact product-code parent `69cc6f0` Code Quality: run `30626428491` attempt 3
+  succeeded; Qodana job `91149477336` and Angular quality job `91152690654`
+  succeeded. Inventory was 2,260 findings (1,421 warning, 839 note, 0 error,
+  0 critical), short report 0, model unresolved/failures 0, material PR06
+  findings 0, and PR-introduced findings 0.
+- Exact product-code parent `69cc6f0` Real Backend: run `30630832231`, job
+  `91156526050`, failed with JUnit 6 total, 4 passed, 2 failed, 0 errors,
+  0 skipped.
+  Artifact `8793522897`, digest
+  `sha256:79841bfa974edfee464256d5415165f53a606eab760e9c2c2887aaa95115033c`;
+  high-confidence secret matches 0. The two deterministic evidence mismatches
+  are remediated by test-only `f2d3805` as described above.
+- Exact `f2d3805` Documentation CI `30632549237` / job `91162128837`, CI
+  `30632549234` / build-test `91162129484`, security-scan `91162129549`, and
+  frontend-test `91163476861`, Code Quality `30632549238` / Qodana
+  `91162129048` and Angular quality `91164686596`, and npm Security Audit
+  `30632549183` / job `91162128341` all succeeded. Hosted backend was 494/494;
+  Angular was 323/323, raised-heap Storybook succeeded, and mocked Playwright
+  was 63 passed with 3 expected skips. Qodana remained 2,260 findings (1,421
+  warning, 839 note, 0 error, 0 critical), short report 0, model
+  unresolved/failures 0, and material PR06 findings 0. npm remained 19 active
+  findings (3 low, 6 moderate, 10 high, 0 critical).
+- First exact `f2d3805` Real Backend run `30632559051`, job `91162166864`, was
+  cancelled before setup and produced no artifact. Fresh run `30634069147`,
+  job `91167131007`, completed the smoke step with 6/6 scenarios passed, 0
+  failed/skipped, all 30 PR06 steps recorded, and 0 high-confidence secret
+  matches. Artifact `8794673197` has digest
+  `sha256:660fbe4b8eafc0f967f4fa9ae7915f47b0a01951f16b3634d15d986e665ba814`.
+  The workflow is still in progress during post-job cleanup, so this Gate
+  remains Pending until its overall conclusion is `success`.
+- Package lock: focused review passed; lockfile version 3 and latest-main
+  compatible dependency updates are retained. The intentional PR delta is the
+  Syncfusion family plus the lock-only `tar` 7.5.19-to-7.5.22 security fix; no
+  unrelated downgrade, local path dependency, registry churn, or license
+  material was found
+- Numeric bounds: provisional 500 canonical Task-kind WorkItems plus
+  Milestones and 2,000 active dependencies with active same-Project canonical
+  Task endpoints, typed HTTP 400 and no truncation; source is an implementation
+  safeguard because canonical authority says only bounded; owner decision was
+  not found in the PR body/comments, `Resolved: No`, `DECISION REQUIRED: Yes`
+- Post-documentation exact-final-HEAD Documentation CI, CI, Code Quality, npm
+  Security Audit, and Real Backend reruns: Pending
+- Exact current `f2d3805` review check: 0 unresolved threads;
+  post-documentation final-HEAD review-thread recheck remains Pending
+- Draft PR: #259 open and mergeable; Draft remains enabled
 - TASK-V1-PR06 acceptance: Incomplete
-- PR06 Merge: No-Go; merge performed: No
-- TASK-V1-PR07 and PR08: No-Go
+- PR #259 Merge: No-Go; merge performed: No
+- TASK-V1-PR07: No-Go pending PR06 merge and post-merge audit
+- PR08: No-Go
