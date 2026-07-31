@@ -25,8 +25,18 @@ concurrency:
 
 jobs:
   update-lockfiles:
-    runs-on: ubuntu-latest
+    runs-on: self-hosted
     steps:
+      - name: Repair previous Docker workspace ownership
+        shell: bash
+        run: |
+          uid="$(id -u)"
+          gid="$(id -g)"
+          docker run --rm \
+            -v "$GITHUB_WORKSPACE:/workspace" \
+            alpine:3.21 \
+            sh -c "chown -R ${uid}:${gid} /workspace"
+
       - name: Checkout remediation branch
         uses: actions/checkout@v7
         with:
@@ -103,3 +113,14 @@ jobs:
             .github/workflows/npm-security-remediation-once.yml
           git commit -m "chore(deps): regenerate npm security lockfiles"
           git push origin HEAD:refs/heads/chore/npm-security-remediation-20260801
+
+      - name: Repair workspace ownership
+        if: always()
+        shell: bash
+        run: |
+          uid="$(id -u)"
+          gid="$(id -g)"
+          docker run --rm \
+            -v "$GITHUB_WORKSPACE:/workspace" \
+            alpine:3.21 \
+            sh -c "chown -R ${uid}:${gid} /workspace"
