@@ -18,9 +18,9 @@
     "lint:frontend:enforce": "npm --prefix tools/frontend-inspections run lint:enforce"
   },
   "devDependencies": {
-    "@axe-core/playwright": "^4.10.2",
+    "@axe-core/playwright": "^4.12.1",
     "@playwright/test": "^1.62.0",
-    "@types/node": "^26.1.0"
+    "@types/node": "^26.1.2"
   },
   "dependencies": {
     "rg": "^0.0.2"
