@@ -1,25 +1,108 @@
 # TASK-V1-PR07 sequential implementation plan
 
-Status: Proposed; implementation is blocked by `docs/decisions/task-v1-pr07-owner-decisions.md`.
+Status: Active and unblocked for PR07-A
 
 Implementation baseline audited: `491d17db3701b7fb26010db8c0590eac7d24bd78`
 
-Canonical specification audited: `6e8e5c3651adeedc7a2709124e9af0fd927d35b5`
+Audit-plan merge commit: `919762f707be94acc14320215256c0463d10bcbb`
+
+Original canonical specification audited: `6e8e5c3651adeedc7a2709124e9af0fd927d35b5`
+
+Canonical owner-decision resolution:
+
+- AIPsiteNYGspec PR: `NYGsatoshi/AIPsiteNYGspec#62`
+- Specification merge commit: `8b90c8897367606473515d17d3696e458b2ee7b5`
+- Resolved decisions: `PR07-OWNER-001` through `PR07-OWNER-003`
+- Implementation-repository decision record: `docs/decisions/task-v1-pr07-owner-decisions.md`
 
 ## Objective
 
-Implement the canonical Task in-app immediate notifications, Workspace deadline-digest preference and daily digest, transactional semantic Outbox events, authorized SignalR delivery/opening, and Angular reconciliation using the repository's existing Task, Notification, Outbox, realtime, Workspace-timezone, and shared frontend state owners.
+Implement canonical Task in-app immediate notifications, Workspace deadline-digest preferences and daily digests, transactional Outbox delivery, current-authorized SignalR delivery/opening, and Angular reconciliation using the repository's existing Task, Notification, Outbox, realtime, Workspace-timezone, and shared frontend state owners.
 
 Implementation uses one sequential lane:
 
 ```text
-owner/spec decisions
-        |
-        v
 PR07-A -> PR07-B -> PR07-C -> PR07-D -> PR07-E
 ```
 
-No two phases should be developed on simultaneous branches that edit overlapping Task, Notification, Outbox, realtime, Workspace settings, or Angular state.
+No two phases may be developed on simultaneous branches that edit overlapping Task, Notification, Outbox, realtime, Workspace settings, migrations, or Angular state. Each phase begins from current `main` after the preceding phase is merged and accepted.
+
+## Resolved canonical decisions
+
+### Mandatory Task-notification recipients
+
+| Event category | Mandatory recipients |
+| --- | --- |
+| Primary Assignee assigned | new Primary Assignee |
+| Primary Assignee removed | previous Primary Assignee captured before relationship mutation |
+| Reviewer assigned | new Reviewer |
+| Valid direct mention | each valid directly mentioned user |
+| Submitted for Review | current Reviewer |
+| Returned or rejected from Review | current Primary Assignee |
+| Task becomes Blocked | current Primary Assignee and current Reviewer |
+| Major hard-deadline change | current Primary Assignee and current Reviewer |
+| Important `TaskComment` | current Primary Assignee, current Reviewer, and current Collaborators |
+
+Rules:
+
+- mandatory recipients and Watch-derived recipients are evaluated independently;
+- explicit unwatch suppresses only Watch-derived activity;
+- actor self-notification is suppressed, including self-assignment and self-mention;
+- previous relationship recipients are captured inside the business transaction before removal/replacement;
+- overlapping relationships produce one visible Notification per recipient-specific logical event;
+- direct mention plus Important on the same TaskComment uses one `TaskCommentSignificant` recipient union;
+- current authorization is checked at intent creation, delayed/replayed dispatch, and target open;
+- ordinary comments without a valid direct mention and without Important MUST NOT notify all Task participants;
+- broad projection routing is not a mandatory Notification recipient policy.
+
+### Deadline-digest preference
+
+```text
+GET   /api/me/workspaces/{workspaceId}/task-notification-preferences
+PATCH /api/me/workspaces/{workspaceId}/task-notification-preferences
+```
+
+Contract:
+
+- `deadlineDigestLocalTime`: nullable local time without timezone;
+- allowed values: `00:00` through `23:45`, inclusive, at 15-minute granularity;
+- Workspace default: `08:00` local time;
+- null inherits the Workspace default;
+- `effectiveDeadlineDigestLocalTime` is non-null;
+- `workspaceTimeZoneId` is authoritative when deriving a due instant;
+- browser timezone and Project settings are not authoritative;
+- Project-specific digest time does not exist;
+- invalid format/minute/range returns HTTP 400 `TASK_NOTIFICATION_PREFERENCE_INVALID_LOCAL_TIME` with no rounding or mutation;
+- PATCH requires `expectedVersion`;
+- stale or omitted `expectedVersion` returns HTTP 409 `TASK_NOTIFICATION_PREFERENCE_VERSION_CONFLICT`, does not mutate the stored preference, and exposes only safe retry/version metadata;
+- GET and successful PATCH return stored value, effective value, Workspace timezone identity, body version, and optionally a matching ETag.
+
+### Digest generation versus Outbox delivery
+
+| Responsibility | Profile |
+| --- | --- |
+| Digest generation | separate `NotificationDispatchJob` digest ledger; at most 3 automatic attempts; terminal `Failed`; no separate digest dead-letter table; audited restart creates a new attempt |
+| Visible Notification | recipient-owned persistence/read/open lifecycle; no scheduler semantics |
+| Transactional Outbox delivery | dedicated claim/lease/retry/replay profile; at most 10 automatic attempts; terminal `DeadLetter`; capability-gated audited replay |
+
+The digest ledger owns schedule, candidate identity, idempotency, claim, generation attempts, and terminal generation state. It is never an Outbox scheduler. The Outbox is never digest candidate/idempotency state. After successful digest generation creates an authorized visible Notification, its realtime signal is delivered through the existing Transactional Outbox.
+
+### Canonical realtime event boundary
+
+PR07 uses only the current approved event families:
+
+```text
+Projects.TaskChanged.v1
+Projects.TaskAssignmentChanged.v1
+Projects.TaskWorkflowChanged.v1
+Projects.TaskCommentChanged.v1
+Projects.ProjectChanged.v1
+Notifications.NotificationCreated.v1
+Notifications.NotificationReadStateChanged.v1
+Security.AuthorizationStateChanged.v1
+```
+
+Do not create `TaskDeadlineDigestReady`, `TaskPreferenceChanged`, or unapproved per-category Task semantic-event families. A new event family requires a separate canonical catalog amendment with exact schema, routing, authorization, and acceptance.
 
 ## Scope boundary
 
@@ -28,403 +111,381 @@ Included:
 - immediate in-app Task notification policy;
 - server-authoritative `DeadlineAt` major-change classification;
 - per-user/per-Workspace digest preference and Workspace default;
-- Workspace-local daily digest builder/scheduler/idempotency;
-- PR07 semantic events through the existing transactional Outbox;
-- current-authorized user/Project/Workspace and, if required, Group SignalR routing;
-- authorized notification opening and existing Angular surface reconciliation;
-- PR07 health, metrics, runbook, PostgreSQL/HTTP/SignalR/Real Backend evidence.
+- Workspace-local daily digest generation, idempotency, bounded claiming, and DST behavior;
+- Notification logical identity and database-enforced dedupe;
+- transactional approved events through the existing Outbox;
+- current-authorized user/Project/Workspace routing and explicit Group-route non-use where not approved;
+- current-authorized notification opening;
+- Angular preference, notification, digest, and Task-view reconciliation through shared state owners;
+- health, metrics, runbook, PostgreSQL/HTTP/SignalR/Real Backend evidence.
 
 Excluded from every phase:
 
-- PR06B large-project Gantt pagination/virtualization and any change to the current 500/2,000 fail-closed limits;
+- PR06B large-project Gantt pagination/virtualization or changes to current 500/2,000 fail-closed limits;
 - PR08 integration/cutover work;
-- email/mobile push;
+- email or mobile push;
 - ordinary-comment notify-all;
-- Presence, Typing, calls, public Hub, separate feature sockets;
+- Presence, Typing, calls, public Hub, or separate feature sockets;
 - Project-specific digest time;
-- automatic schedule movement, recurring/personal Tasks, Calendar/Scheduler;
+- automatic schedule movement, recurring/personal Tasks, or Calendar/Scheduler;
 - Critical Path, Baseline, Resource Leveling, cross-Project dependencies/move;
 - Messaging message-body delivery or reuse of Messaging payloads as Task notifications;
-- broad admin UI, legal hold/discovery, broad notification export.
-
-## Required decision gate
-
-Before PR07-A begins, the canonical specification must record:
-
-1. exact mandatory recipients for the unresolved immediate categories;
-2. allowed digest local-time granularity/range;
-3. the generic BackgroundJob versus realtime Outbox/digest retry, lease, terminal-state, and replay boundary.
-
-The recipient and worker-profile answers affect later phases, but the granularity answer directly affects PR07-A's PATCH validation and UI contract. Keeping PR07-A whole is safer than landing an unused schema-only migration.
+- broad admin UI, legal hold/discovery, or broad notification export.
 
 ## PR07-A — Contract foundation, preferences, and dedupe primitives
 
+Status: GO
+
 ### Goal
 
-Land additive persistence and API contracts that later notification/digest producers can use without enabling any Task notification generation or scheduled dispatch.
+Land additive persistence and exact preference/dedupe contracts without enabling Task notification generation or scheduled digest processing.
 
 ### Included scope
 
-- Add a nullable bounded logical notification key to `Notification`.
-- Add a unique filtered database constraint on `(TenantId, UserId, LogicalKey)` for non-null keys.
-- Extend `INotificationService`/`DbNotificationService` with an explicit logical-key creation method that returns the existing row on a duplicate. Keep current legacy creation behavior for legacy callers until PR07-B normalizes them.
-- Add nullable Task deadline digest local time and an independent preference version to `WorkspaceMember`.
-- Add Workspace default Task deadline digest local time (`08:00`) and an independent settings version to `Workspace`.
-- Add application DTOs/use case and exact routes:
-  - `GET /api/me/workspaces/{workspaceId}/task-notification-preferences`
-  - `PATCH /api/me/workspaces/{workspaceId}/task-notification-preferences`
-- Return stored nullable value, effective inherited value, Workspace timezone identity, and version/ETag without exposing another member's state.
-- Validate current Tenant/active Workspace membership, the decided time granularity/range, and optimistic concurrency.
-- Add a central PR07 feature key such as `tasks.notificationsV1`, default disabled, through the existing feature registry only. The flag may gate production generation/scheduling but never bypass authorization, privacy, or dedupe.
-- Document the approved recipient/time/worker decisions in active API/operations documentation as applicable.
+- add a nullable bounded logical Notification key;
+- add a unique filtered PostgreSQL constraint on `(TenantId, UserId, LogicalKey)` for non-null keys;
+- extend `INotificationService` and `DbNotificationService` with a logical-key creation primitive that returns the existing authorized row on duplicate;
+- retain legacy creation behavior for legacy callers until PR07-B normalizes producers;
+- add nullable digest local time and an independent preference version to `WorkspaceMember`;
+- add Workspace default digest local time (`08:00`) and an independent settings version to `Workspace`;
+- implement the exact GET/PATCH current-user preference routes;
+- return stored nullable value, effective inherited value, Workspace timezone identity, version, and optional ETag;
+- enforce active Tenant/Workspace membership, privacy, quarter-hour validation, inheritance, and optimistic concurrency;
+- add one centralized rollout key such as `tasks.notificationsV1`, default disabled, through the existing feature registry;
+- update active API/operations documentation for the approved contracts.
 
 ### Explicit exclusions
 
-- no Task notification producers;
+- no Task notification producer;
 - no `DeadlineAt` mutation/classifier;
 - no digest ledger or worker;
-- no new semantic event emission;
-- no SignalR route change;
-- no Angular preference or notification behavior.
+- no semantic event emission;
+- no SignalR routing change;
+- no Angular preference/notification behavior.
 
 ### Expected components
 
-- Domain: `CommunicationEntities.cs`, `WorkspaceEntities.cs`.
-- Application: notification service contract, a focused Task notification-preference use case/DTOs, feature-key registry.
-- Infrastructure: `DbNotificationService`, `WorkspaceConfigurations`, communication configuration, repositories/DI.
-- Web: a thin preference controller or appropriately scoped current-user controller.
-- Tests: notification/preference unit, HTTP, migration, and conditional PostgreSQL tests.
+- Domain: `CommunicationEntities.cs`, `WorkspaceEntities.cs`;
+- Application: notification service contract, focused preference use case/DTOs, feature-key registry;
+- Infrastructure: `DbNotificationService`, Workspace/communication EF configurations, repositories/DI;
+- Web: thin current-user preference controller/use-case adapter;
+- Tests: unit, hosted HTTP, migration, and conditional PostgreSQL evidence.
 
 ### Migration impact
 
-One focused migration and snapshot update:
+One focused additive migration and snapshot update:
 
-- nullable Notification logical key plus unique filtered index;
+- nullable Notification logical key and filtered unique index;
 - WorkspaceMember preference/time/version fields;
-- Workspace default/time settings version with an `08:00` backfill/default.
+- Workspace default/time settings version with deterministic `08:00` backfill/default.
 
-No digest ledger yet. Existing rows remain valid and existing notification callers can leave the key null.
+No digest ledger is added in PR07-A. Existing rows remain valid and legacy notification callers may leave the key null.
 
-### API impact
+### Required tests
 
-Two additive current-user preference routes. PATCH uses a version/ETag and typed validation/conflict errors. No existing route changes.
-
-### Event/frontend impact
-
-No new production event and no frontend behavior. A preference-changed event constant may be reserved only if a compile-time catalog design requires it; it must not be emitted before its consumer/authorization exists.
-
-### Tests
-
-- fresh and upgrade migration, including existing duplicate legacy notifications;
-- concurrent same logical key creates/returns one visible row;
-- distinct event/version/category creates a distinct row;
-- soft-deleted logical row is not resurrected by retry;
-- current active member GET/PATCH, nullable inheritance, decided granularity boundaries;
-- another Workspace/Tenant/member ID denial with safe errors;
+- fresh and upgrade migration, including existing legacy duplicate rows;
+- concurrent same logical key creates/returns one visible Notification;
+- distinct recipient/event/version/category creates a distinct row;
+- soft-deleted logical row behavior is explicit and retry-safe;
+- GET/PATCH active-member success, null inheritance, `00:00`, `23:45`, and every invalid class;
+- omitted/stale expectedVersion returns the exact 409 contract without mutation;
+- another Workspace/Tenant/member denial with safe errors;
 - revoked/expired membership denial;
-- optimistic concurrency winner/loser and retry;
+- optimistic-concurrency winner/loser/retry;
 - general Workspace/member DTOs do not expose private preference fields.
 
-### Rollback/flag behavior
+### Completion gate
 
-The feature remains disabled. Code is backward-compatible with nullable columns. Rollback after preference writes loses user/default settings; it must be done only with the feature disabled and explicit data-loss acceptance.
+PR07-A completes only when fresh/upgrade migration and PostgreSQL uniqueness/concurrency evidence pass, the two preference routes match the canonical contract, the feature remains disabled, and no Task notification/digest is generated.
 
-### Dependency/completion gate
+## PR07-B — Immediate policy, hard-deadline classification, and transactional event production
 
-Depends on all owner/spec decisions, especially digest granularity. Complete only when migration upgrade/fresh-schema and PostgreSQL uniqueness/concurrency evidence pass and no Task notification is generated.
-
-## PR07-B — Immediate policy, hard-deadline classification, and Task event production
+Status: blocked until PR07-A merges and is accepted
 
 ### Goal
 
-Generate every immediate notification intent and safe Task semantic event inside the canonical business transaction, using the PR07-A logical key and the approved recipient matrix.
+Generate every immediate Notification intent and approved Task invalidation/event inside the canonical business transaction using PR07-A logical identity.
 
 ### Included scope
 
-- Add a central application recipient-policy service using current canonical Task relationships and authorization.
-- Integrate Primary Assignee assigned/removed, Reviewer assigned, direct mention, Blocked, Review submitted, Review returned/rejected, major hard-deadline, and Important TaskComment into `TaskCommandService`/`TaskSubresourceService`.
-- Capture pre-mutation recipients before relationship removal/change.
-- Keep mandatory categories independent from Watch; add Watch-derived general activity only if explicitly approved and feature-gated.
-- Apply actor suppression centrally.
-- Add versioned `DeadlineAt` mutation through the canonical Task update contract; do not add it to Gantt planning commands.
-- Implement `Added`, `Removed`, `ShiftAtLeast24Hours`, `CrossedUrgencyBoundary`, and `None` from persisted old/new values plus `TaskWorkspaceTimeZoneResolver`.
-- Return safe classification metadata and write safe AuditLog metadata only.
-- Register/produce the selected canonical semantic event families and retain `Projects.TaskChanged.v1` as the common broad invalidation where needed.
-- Normalize compatibility assignment paths to avoid double/wrong notifications and remove or guard legacy Task notify-all behavior.
-- Persist the notification intent row, user-state change, business semantic Outbox row, and notification signal Outbox row in the same database transaction as the Task mutation. The intent becomes visible and the Outbox becomes dispatchable only after that transaction commits; a failed save commits none of them.
+- add one central recipient-policy service implementing the exact mandatory matrix;
+- capture pre-mutation previous-assignee identity before removal/replacement;
+- resolve mandatory and Watch-derived recipients separately;
+- apply actor suppression and recipient/logical-event dedupe centrally;
+- integrate assignment/removal, Reviewer assignment, direct mention, Blocked, Review submit, Review return/rejection, major deadline, and Important TaskComment into canonical services;
+- remove or guard compatibility paths that can double-notify or notify all Task participants;
+- add versioned `DeadlineAt` mutation through the canonical Task update contract, not Gantt planning commands;
+- classify `Added`, `Removed`, `ShiftAtLeast24Hours`, `CrossedUrgencyBoundary`, and `None` from persisted old/new values in Workspace timezone;
+- persist business mutation, audit, Notification intent, approved business invalidation, and Notification signal Outbox rows atomically;
+- use only approved catalog event names and metadata-safe payloads.
 
 ### Explicit exclusions
 
-- no digest builder/worker;
+- no digest ledger/worker;
 - no notification-open endpoint;
 - no SignalR group/routing changes;
 - no Angular changes;
 - no email/push.
 
-### Expected components
+### Required tests
 
-- `TaskCommandService`, `TaskSubresourceService`, compatibility sections of `ProjectService`.
-- New focused application policy/classifier contracts and implementations.
-- Notification service logical-key API.
-- `RealtimeContracts` catalog, transactional payload validation, business publisher.
-- Task/notification unit and PostgreSQL/hosted HTTP tests.
-
-### Migration/API/event impact
-
-- Migration: none expected; measure existing DeadlineAt indexes before adding any.
-- API: additive `DeadlineAt` field in the canonical versioned Task detail mutation/response classification; exact existing error envelope retained.
-- Events: safe semantic Task families plus existing `Notifications.NotificationCreated.v1`. No comment text, review reason, Watch state, preference value, or restricted title in broad events.
-- Frontend: none; rollout flag remains disabled so current users do not receive half-integrated visible behavior.
-
-### Tests
-
-- every category and approved recipient set, including previous assignee;
-- actor skip and self-assignment/mention cases;
-- ordinary comments create no visible notification;
-- invalid/cross-scope mentions fail safely without identity/content disclosure;
-- Watch opt-out suppresses only Watch-derived activity;
-- each deadline boundary case from the audit;
-- same logical retry and concurrent writers produce one Notification;
+- every mandatory category and exact recipient set;
+- previous-assignee capture and replacement producing correct removal/assignment events;
+- actor skip, self-assignment, and self-mention;
+- mandatory-versus-Watch independence;
+- one visible Notification for overlapping relationships and retry;
+- ordinary comment no-notify-all;
+- direct mention/Important union and unauthorized mention non-disclosure;
+- every deadline major/non-major boundary in Workspace timezone;
 - stale version, authorization denial, audit failure, and database failure roll back Task/Notification/Outbox together;
-- compatibility and canonical routes cannot double notify;
-- payload/log assertions prove forbidden data absent.
+- compatibility and canonical routes cannot double-notify;
+- forbidden payload/log fields are absent.
 
-### Rollback/flag behavior
+### Completion gate
 
-Keep `tasks.notificationsV1` disabled until PR07-D completes open/routing/UI. Disabling stops new PR07 intents but does not delete existing Notification/Outbox rows. Consumers remain backward-compatible with generic TaskChanged.
+PR07-B completes only with PostgreSQL transaction/dedupe/isolation evidence, exact event-catalog compliance, and the rollout key still disabled.
 
-### Dependency/completion gate
+## PR07-C — Workspace deadline-digest ledger and worker
 
-Depends on PR07-A and approved recipient policy. Complete only with PostgreSQL transaction/dedupe/isolation evidence and exact event catalog documentation.
-
-## PR07-C — Workspace deadline digest worker and idempotency
+Status: blocked until PR07-A and PR07-B merge and are accepted
 
 ### Goal
 
-Build bounded, independently retryable daily user/Workspace digests without duplicating visible notifications or misusing the Outbox as a scheduler.
+Build bounded, independently retryable daily user/Workspace digests without duplicating visible Notifications or using the Outbox as a scheduler.
 
 ### Included scope
 
-- Add a digest delivery/claim ledger with unique user/Workspace/local-date/policy-version identity.
-- Add a bounded BackgroundService or the approved existing job abstraction after the worker-profile decision.
-- Select due user/Workspace rows in bounded pages, using Workspace-local time and a documented DST gap/fold policy.
-- Build current authorized Task groups for 3 days, 1 day, today, and overdue.
-- Recheck membership, Workspace/Project/Task visibility, deletion/archive, completion/cancellation, and current relationship relevance immediately before notification creation.
-- Create one generic visible digest Notification and transactional Outbox signal; do not embed the candidate Task list in the signal.
-- Isolate each user/Workspace unit of work, implement approved retry/terminal/restart semantics, and emit metadata-safe health/metrics.
-- Add operator documentation for due/running/succeeded/failed/terminal states.
+- add a separate digest ledger with unique user/Workspace/local-date/policy-version identity;
+- implement bounded due-row selection and atomic database-safe claiming;
+- use Workspace-local preference/default time and a documented DST gap/fold policy;
+- group eligible Tasks for 3 days, 1 day, today, and overdue;
+- recheck membership, Workspace/Project/Task visibility, lifecycle, completion/cancellation, and current relevance before creation;
+- isolate each user/Workspace unit so one failure does not poison the batch;
+- make at most 3 automatic generation attempts, then terminal ledger `Failed`;
+- provide audited operator restart as a new attempt, with no digest dead-letter table;
+- create one authorized visible digest Notification and `Notifications.NotificationCreated.v1` Outbox signal after successful generation;
+- keep complete candidate Task lists out of realtime payloads, ordinary logs, and ordinary audit metadata;
+- expose metadata-safe due/running/succeeded/failed/restart metrics and health.
 
-### Explicit exclusions
+### Migration impact
 
-- no email/mobile push;
-- no broad Task list in payload/log;
-- no Project-specific time;
-- no frontend display/open/preference control;
-- no reuse of `outbox_events` as job candidates.
+One focused migration for the digest ledger and due/claim indexes. Add a Task deadline query index only when PostgreSQL plan evidence demonstrates it is required.
 
-### Expected components
+### Required tests
 
-- New digest ledger entity/configuration/repository.
-- New application digest eligibility/builder service.
-- New Web hosted worker and options/diagnostics.
-- Existing Task queries/timezone resolver, Notification service, transactional Outbox.
-- Operations/configuration docs and focused tests.
-
-### Migration/API/event impact
-
-- Migration: new digest ledger and unique/due/claim indexes; add a Task deadline query index only if PostgreSQL plan evidence requires it.
-- API: no new route beyond PR07-A.
-- Event: `Notifications.TaskDeadlineDigestReady.v1` or the approved user refetch signal; no broad route.
-- Frontend: none; feature remains disabled.
-
-### Tests
-
-- four groups and exact local-date boundaries;
-- multiple Workspaces/timezones for one user;
-- DST nonexistent/repeated local time, timezone change, restart, and no double/permanent skip;
-- revoked/expired membership and deleted/archived/completed/cancelled/no-longer-related Task exclusion at claim/build/commit;
+- four digest groups and exact local-date boundaries;
+- one user in multiple Workspaces/timezones;
+- DST nonexistent/repeated local time and Workspace timezone change;
+- restart without double-send or permanent skip;
+- revoked/expired membership and deleted/archived/completed/cancelled/inaccessible Task exclusion;
 - bounded pages and one-user failure isolation;
-- concurrent workers/lease expiry/retry/terminal/restart per approved profile;
-- unique ledger and Notification key under retry;
+- concurrent workers, claim timeout/recovery, 3-attempt terminal Failed, and audited restart;
+- one visible Notification under ledger retry and Outbox replay;
 - safe metrics/logs and query-count/plan evidence.
 
-### Rollback/flag behavior
+### Completion gate
 
-Worker starts inert while the feature is disabled. To roll back after enablement: disable scheduling, let in-flight claims expire/finish, record terminal ledger state, and retain ledger/Notification/Outbox rows until the code no longer references them.
+PR07-C completes only with PostgreSQL concurrency, idempotency, retry, and DST evidence plus an operator-readable health state. The feature remains disabled.
 
-### Dependency/completion gate
+## PR07-D — Current-authorized delivery/opening and Angular reconciliation
 
-Depends on PR07-A, PR07-B's notification creation semantics, and `PR07-OWNER-003`. Complete only with PostgreSQL concurrency and DST evidence plus an operator-readable health state.
-
-## PR07-D — Authorized delivery/opening and Angular reconciliation
+Status: blocked until PR07-A through PR07-C merge and are accepted
 
 ### Goal
 
-Make delayed/replayed delivery and notification opening current-authorized, then expose the complete behavior through the existing Angular state owners and one shared realtime client.
+Make delayed/replayed delivery and notification opening current-authorized, then expose the behavior through existing Angular state owners and the single shared realtime client.
 
 ### Included scope
 
-- Extend `RealtimeDispatchAuthorizer` with event-specific Task/notification target resolution for user and Workspace routes.
-- Reduce NotificationCreated payload to safe refetch metadata; do not republish stored display content.
-- Make Workspace archive paths, including `WorkspaceService.ArchiveAsync` and `AdminService.ArchiveWorkspaceAsync`, publish/trigger the existing authorization-state invalidation for affected current members so protected client state clears promptly.
-- Add server-derived Group subscription/dispatch authorization only if the approved catalog actually routes a PR07 event by Group. Otherwise explicitly constrain PR07 to Project/user routes and test that no Group target is emitted.
-- Add a recipient-owned notification-open use case/endpoint that reauthorizes current target, returns an authorized current route or a uniform unavailable result, and preserves click-to-read semantics.
-- Handle active, deleted, archived, revoked, unsupported-move, unknown, and digest targets.
-- Extend existing `RealtimeFacade` event validators/stale guards; retain one connection.
-- Extend RightPanel for logical-key/event dedupe, digest display, open outcomes, safe unavailable state, and one HTTP-plus-event visible update.
-- Add Workspace-specific preference UI using PR07-A API.
-- Map semantic invalidations into the existing Task Detail, My Tasks, Project Detail, Kanban, and Gantt coalescing/edit-preservation flows.
-- Keep degraded indicator/manual HTTP refresh and clear protected preference/notification/Task projections before reauthorization.
+- extend `RealtimeDispatchAuthorizer` with event-specific Task/Notification target resolution;
+- reauthorize current Tenant/Workspace/Project/Task access immediately before delayed/retried/replayed delivery;
+- use recipient-only `user:{userId}` routing for visible Notifications;
+- treat Project/Workspace/Group/My Tasks routes as projection invalidation only, not mandatory recipient sources;
+- make Workspace archive paths trigger approved authorization-state invalidation for affected users;
+- add a recipient-owned notification-open use case/endpoint that reauthorizes the current target and returns an authorized route or uniform safe unavailable result;
+- handle active, deleted, archived, revoked, unsupported, unknown, and digest targets;
+- retain one `RealtimeFacade` connection and extend validators, stale guards, dedupe, reconnect, and catch-up;
+- add Workspace-specific preference UI using PR07-A APIs;
+- extend RightPanel for digest display, authorized open outcomes, safe unavailable state, and HTTP-plus-event dedupe;
+- map approved invalidations into Task Detail, My Tasks, Project Detail, Kanban, and Gantt coalescing/edit-preservation flows;
+- clear protected Task/preference/notification state before reauthorization after logout, Tenant switch, membership loss, or authorization invalidation.
 
 ### Explicit exclusions
 
-- no new socket client;
-- no direct SignalR group-name construction in Angular;
-- no PR06B Gantt pagination/virtualization;
-- no new digest scheduler behavior;
+- no separate socket client;
+- no Angular construction of SignalR group names;
+- no PR06B pagination/virtualization;
+- no new digest scheduling behavior;
 - no broad payload display fields.
 
-### Expected components
+### Required tests
 
-- Web realtime authorizer/Hub/registry only where required.
-- Notification application service/controller/open target resolver.
-- `frontend/src/app/core/realtime/*` and the existing RightPanel/Workspace/Project facades/components.
-- Backend Hub/dispatcher tests plus Angular unit/component tests.
+- intent creation followed by membership revoke/archive before dispatch/open;
+- Outbox retry/dead-letter/replay after access loss;
+- recipient-only Notification routing and explicit non-use of unapproved Group notification routing;
+- no protected payload through broad routes;
+- notification-open target matrix and read-state ordering;
+- HTTP response plus duplicate/replayed event creates one visible result;
+- stale versions, bounded coalescing, and multi-tab duplicate events;
+- reconnect reauthorization, catch-up, denial, and protected-state clearing;
+- open edits remain visible and are not silently overwritten;
+- accessible preference/digest UI across narrow/touch and light/dark states.
 
-### Migration/API/event/frontend impact
+### Completion gate
 
-- Migration: none expected.
-- API: one additive notification-open endpoint; PR07-A preference routes consumed.
-- Events: consumers/authorization for PR07-B/C events; no duplicate event families.
-- Frontend: user-visible notifications, digest/open behavior, preference UI, and reconciliation. Enablement remains controlled until PR07-E evidence passes.
-
-### Tests
-
-- delayed enqueue then membership revoke or Workspace archive before dispatch/open;
-- dead-letter/replay after revoke;
-- authorized user/project/workspace and Group-or-explicit-non-use routing;
-- no broad private/restricted payload fields;
-- notification open matrix and read-state behavior;
-- HTTP response plus duplicate/replayed event produces one visible change;
-- stale versions, bounded coalescing, multi-tab duplicate events;
-- reconnect reauthorization/catch-up/denial clearing;
-- active edits remain visible across Task/Kanban/Gantt;
-- accessible preference/digest UI, narrow/touch, dark/light.
-
-### Rollback/flag behavior
-
-With the flag disabled, HTTP notification lifecycle and manual refresh remain. Disabling realtime does not disable HTTP authorization or dedupe. Existing generic events remain supported through the deployment compatibility window.
-
-### Dependency/completion gate
-
-Depends on PR07-A-C. Complete only when real server routing authorization and all frontend state owners pass focused tests without separate sockets.
+PR07-D completes only when real server routing authorization, notification opening, and all frontend state owners pass focused tests without separate sockets. The rollout key remains disabled pending PR07-E.
 
 ## PR07-E — Operations, Real Backend acceptance, and integration evidence
 
+Status: blocked until PR07-A through PR07-D merge and are accepted
+
 ### Goal
 
-Close operational and end-to-end evidence before PR07 is eligible for enablement or PR08 entry.
+Close operational and end-to-end evidence before PR07 enablement or PR08 entry.
 
 ### Included scope
 
-- Extend health/metrics with Task event failures, logical-dedupe suppression, digest due/running/succeeded/failed/terminal counts, per-Workspace lag, invalid timezone/preference counts, and authorization suppression counts.
-- Add metadata-safe structured logging and alert thresholds.
-- Complete a safe Outbox/digest replay/restart runbook using existing operator conventions; no broad admin UI.
-- Add Real Backend two-user Task flows for assignment/review/mention/Important/Blocked/deadline, Watch independence, digest/open, revocation, duplicate/stale/replay, and disconnect/reconnect.
-- Run full relevant backend/frontend/UI validation, including authoritative Linux screenshots where baselines change.
-- Update active architecture/testing/operations/status documentation to match verified behavior.
+- extend health/metrics for Task event failures, logical-dedupe suppression, digest due/running/succeeded/failed/restart, Outbox pending/retry/dead-letter age/count, per-Workspace lag, invalid timezone/preference, and authorization suppression;
+- add metadata-safe structured logging and alert thresholds;
+- complete bounded Outbox replay and digest restart runbooks using existing operator conventions;
+- add Real Backend two-user flows for assignment/review/mention/Important/Blocked/deadline, Watch independence, digest/open, revocation, duplicate/stale/replay, and reconnect;
+- run full relevant backend/frontend/UI validation and authoritative Linux screenshots where approved baselines change;
+- update active architecture, testing, operations, and status documentation to verified behavior.
 
-### Explicit exclusions
+### Validation commands/evidence
 
-- no new product category or recipient policy;
-- no PR06B or PR08 cutover;
-- no email/push or broad admin dashboard.
-
-### Expected components
-
-- `Program.cs` health/metrics, realtime/digest diagnostics, safe logging.
-- `docs/OPERATIONS.md`, active architecture/testing/status docs.
-- `tests/AipPortal.Tests` hosted PostgreSQL/SignalR suites and `tests/ui` Real Backend flows.
-
-### Migration/API/event/frontend impact
-
-No planned schema or product API change. Any discovered contract defect returns to the owning earlier phase rather than being hidden in an observability PR. Frontend changes are test/diagnostic/accessibility fixes only.
-
-### Tests and completion gate
-
-- `dotnet test AipPortal.slnx` with explicit reporting of PostgreSQL environment;
+- `dotnet test AipPortal.slnx`, with explicit PostgreSQL environment reporting;
 - `npm --prefix frontend test`;
 - `npm --prefix frontend run build`;
 - focused Real Backend Compose flows;
-- `npm run test:ui:angular:docker` for authoritative screenshot parity if visual baselines change;
-- health/runbook failure and replay drills.
+- `npm run test:ui:angular:docker` when authoritative screenshot parity is relevant;
+- health, failed-generation restart, stale-lock, Outbox dead-letter, and replay drills.
 
-Complete only when all required evidence is source-linked, flags can be enabled without authorization/dedupe bypass, and no protected values appear in logs/events/errors.
+### Completion gate
+
+PR07-E completes only when all evidence is source-linked, flags can be safely enabled/disabled without authorization or dedupe bypass, and no protected values appear in payloads, logs, audit metadata, errors, screenshots, or reports.
+
+## Privacy and payload rules
+
+Broad events, ordinary logs, ordinary audit metadata, and non-authorized inspection surfaces MUST NOT contain:
+
+- TaskComment or Task description body;
+- review reason;
+- Watch source or explicit opt-out;
+- digest preference time;
+- complete digest Task list;
+- recipient relationship set;
+- restricted title/display fields;
+- attachment content, storage paths, grants, or tokens;
+- credentials or secrets;
+- stack traces, SQL, raw exceptions, or authorization internals.
+
+Recipient-specific presentation is allowed only after the required current-authorization checks and must fall back to a safe unavailable state.
 
 ## Migration strategy
 
 Use two additive, focused migrations:
 
-1. PR07-A: notification logical identity plus Workspace member/default preference state.
-2. PR07-C: digest delivery/claim ledger and only evidence-required query indexes.
+1. PR07-A: Notification logical identity plus Workspace member/default preference state.
+2. PR07-C: digest idempotency/claim ledger and only evidence-required query indexes.
 
-Do not combine either with unrelated schema cleanup. Validate fresh and upgrade schemas. Deployment order is migration, backward-compatible code with feature disabled, worker/consumer compatibility, then evidence-based enablement. Never roll back the database while enabled code or in-flight workers depend on the added columns/tables.
+Do not combine either migration with unrelated schema cleanup. Validate fresh and upgrade schemas. Deploy in this order:
+
+```text
+migration
+-> backward-compatible code with feature disabled
+-> worker/consumer compatibility
+-> PR07-E evidence
+-> explicit enablement decision
+```
+
+Never roll back the database while enabled code or in-flight workers depend on the added columns/tables.
 
 ## API strategy
 
-- Preserve existing notification list/read/delete routes.
-- Add only the two canonical preference routes, one authorized open endpoint, and a `DeadlineAt` field in the existing canonical versioned Task mutation contract.
-- Keep controllers thin and all current user/Tenant/Workspace/Task checks in application use cases.
-- Use the existing typed error envelope and safe 403/404 policy.
-- Do not return private preference state in general Workspace/member DTOs.
-- Do not return target details from a denied notification open.
+- preserve existing Notification list/read/delete routes;
+- add only the two canonical preference routes, one authorized open endpoint, and `DeadlineAt` in the existing canonical versioned Task mutation contract;
+- keep controllers thin and place current user/Tenant/Workspace/Task checks in application use cases;
+- use the existing typed error envelope and safe 403/404 behavior;
+- never expose private preference state through general Workspace/member DTOs;
+- never return protected target details from a denied/unavailable Notification open.
 
 ## Outbox and realtime strategy
 
-- Every Task notification/event intent is added before the same `SaveTaskCommandAsync` that commits the business mutation.
-- Digest ledger claims are not Outbox events. A built visible notification and its user signal use the existing Outbox.
-- Keep `Projects.TaskChanged.v1` as the stable broad invalidation and add distinct canonical semantic families only where their routing/consumer meaning differs.
-- Keep broad events metadata-only; user-specific Notification events become refetch signals.
-- Reauthorize current resource access at delayed dispatch/replay and HTTP open; delivery itself never authorizes HTTP access.
-- Retain at-least-once transport plus event-ID client dedupe and database-enforced visible-notification dedupe.
+- write Task Notification/event intents before the same transaction commit as the business mutation;
+- rolled-back business changes leave no dispatchable Outbox row or visible Notification;
+- retain at-least-once delivery and stable event-ID/client dedupe;
+- enforce visible-Notification dedupe in PostgreSQL through recipient-specific logical identity;
+- keep digest due/candidate state out of Outbox;
+- keep approved broad Task events metadata-only and use HTTP refetch as authoritative reconciliation;
+- use `Notifications.NotificationCreated.v1` for both immediate visible Notifications and successful digests;
+- reauthorize at creation, dispatch/replay, and open;
+- delivery never grants HTTP access.
 
 ## Frontend strategy
 
-- Keep `RealtimeFacade` as the only transport and catch-up owner.
-- Keep HTTP as authoritative for RightPanel, Task Detail, My Tasks, Project Detail, Kanban, and Gantt.
-- Extend current stale-version guards, refetch coalescing, authorization clearing, conflict preservation, degraded indicator, and manual refresh.
-- Store no preference only in browser state and construct no SignalR group names in features.
+- keep `RealtimeFacade` as the only transport, reconnect, and catch-up owner;
+- keep HTTP authoritative for RightPanel, Task Detail, My Tasks, Project Detail, Kanban, and Gantt;
+- extend existing stale-version guards, refetch coalescing, edit preservation, authorization clearing, degraded indicator, and manual refresh;
+- do not store the preference only in browser state;
+- do not construct SignalR group names in feature code;
+- do not expose hidden routes, Task titles, comment bodies, or notification targets after authorization loss.
 
 ## Feature flags and rollout
 
-Add at most one centralized Task-notification rollout key through the existing registry. Default it off through PR07-A-D. Existing `realtime.signalR` and `communication.transactional_outbox.enabled` continue to govern their infrastructure, but neither is authorization or dedupe. PR07-E may recommend enablement; actual PR08 integration/cutover remains separate.
+Add at most one centralized Task-notification rollout key through the existing registry. Default it off through PR07-A, PR07-B, PR07-C, and PR07-D. Existing `realtime.signalR` and `communication.transactional_outbox.enabled` continue to govern their infrastructure but never replace authorization, privacy, or dedupe.
+
+PR07-E may recommend enablement. Actual integration/cutover remains PR08 scope.
 
 ## Rollback strategy
 
-- Disable new Task notification/digest production first; never disable authorization/dedupe checks independently.
-- Stop new digest claims and allow/expire current claims before worker rollback.
-- Continue consuming already-written supported Outbox schemas during a compatibility window.
-- Preserve Notification logical keys and digest ledger rows so retry/rollback does not duplicate visible results.
-- Use forward fixes for persisted-data defects; down migrations are only safe before feature use or with explicit data-loss handling.
-- HTTP/manual refresh remains the functional fallback when SignalR is disabled/degraded.
+- disable new Task Notification/digest production first;
+- never disable authorization, payload validation, or dedupe independently;
+- stop new digest claims and allow/expire active claims before worker rollback;
+- continue consuming already-written supported Outbox schemas during a compatibility window;
+- preserve Notification logical keys and digest ledger rows to prevent duplicate visible results;
+- use forward fixes for persisted-data defects;
+- down migrations are safe only before feature use or with explicit data-loss handling;
+- HTTP/manual refresh remains the functional fallback when SignalR is disabled or degraded.
 
 ## PR06B exclusion
 
-PR06B issue #270 is outside every PR07 phase. The current Gantt bounds remain 500 combined canonical WorkItems/Milestones and 2,000 active same-Project dependencies, with typed HTTP 400, fail closed, no silent truncation, and no partial successful snapshot. No phase changes pagination, virtualization, adapter limits, or PR06 acceptance behavior.
+PR06B issue #270 remains outside every PR07 phase. The current Gantt safety contract remains:
+
+```text
+500 combined canonical WorkItems and Milestones
+2,000 active same-Project dependencies
+typed HTTP 400 on overflow
+fail closed
+no silent truncation
+no partial successful snapshot
+```
+
+No PR07 phase changes Gantt pagination, virtualization, adapter limits, or PR06 acceptance behavior.
 
 ## PR08 entry conditions
 
 PR08 may begin only after PR07-E proves:
 
-- all owner decisions are canonical and implemented;
-- immediate recipient, dedupe, three-point authorization, and deadline classifier tests pass;
-- digest idempotency/timezone/DST/worker health pass;
-- Outbox delivery/replay is current-authorized and observable;
+- all owner decisions are implemented exactly as canonicalized;
+- immediate-recipient, actor-suppression, Watch-independence, dedupe, three-point authorization, and deadline-classifier tests pass;
+- preference quarter-hour/inheritance/concurrency tests pass;
+- digest idempotency, timezone, DST, 3-attempt Failed, restart, and worker health pass;
+- Outbox 10-attempt DeadLetter, current-authorized replay, and observability pass;
 - shared-client reconnect/catch-up and protected-state clearing pass on a real backend;
 - preference/digest/open UI is accessible and Workspace-specific;
 - PR07 flags have a documented safe enable/disable procedure;
 - PR06B remains separate and no PR08 cutover code was pulled into PR07.
 
-## Recommended first implementation scope
+## Immediate next action
 
-After the three owner/spec decisions are merged, generate PR07-A exactly as defined above: one additive persistence migration for notification logical identity and Workspace member/default preference state; the two canonical preference APIs with active-membership, privacy, decided time validation, and optimistic concurrency; a logical-key notification creation primitive; focused migration/PostgreSQL/HTTP tests; and a disabled centralized rollout key. It must contain no Task notification generation, no deadline classifier, no digest ledger/worker, no semantic event emission, no SignalR routing change, and no Angular behavior.
+PR07-A may now begin from current `main` using the exact scope in this document. It must contain:
+
+- one additive migration for Notification logical identity and Workspace member/default preference state;
+- the two canonical current-user preference APIs;
+- quarter-hour validation, inheritance, privacy, and missing/stale-version conflict behavior;
+- a logical-key Notification creation primitive;
+- focused migration/PostgreSQL/HTTP tests;
+- one centralized rollout key, default disabled.
+
+It must not contain Task notification generation, deadline classification, digest ledger/worker, semantic event emission, SignalR routing changes, Angular behavior, PR06B, or PR08 work.

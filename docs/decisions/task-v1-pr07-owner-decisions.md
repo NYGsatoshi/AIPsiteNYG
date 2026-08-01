@@ -1,133 +1,173 @@
 # TASK-V1-PR07 owner decisions
 
-Status: Open
+Status: Resolved
 
 Audit baseline: `491d17db3701b7fb26010db8c0590eac7d24bd78`
 
-Specification baseline: `6e8e5c3651adeedc7a2709124e9af0fd927d35b5`
+Original specification baseline audited: `6e8e5c3651adeedc7a2709124e9af0fd927d35b5`
 
-This file contains only product or canonical-contract questions that cannot be answered from the current specification and implementation. It does not reopen the decisions already closed by `15-workspace-task-messaging-owner-decision-resolution.md`.
+Canonical resolution:
+
+- AIPsiteNYGspec PR: `NYGsatoshi/AIPsiteNYGspec#62`
+- Specification merge commit: `8b90c8897367606473515d17d3696e458b2ee7b5`
+- Resolution date: `2026-08-02`
+- Canonical authority: `docs/specs/aip-core-v4/01-core/15-workspace-task-messaging-owner-decision-resolution.md` in AIPsiteNYGspec
+
+This file records the implementation-repository synchronization of `PR07-OWNER-001` through `PR07-OWNER-003`. The questions below are closed and MUST NOT be reopened during PR07 implementation unless a later canonical specification change explicitly supersedes them.
 
 ## PR07-OWNER-001 — Exact mandatory recipients
 
-### Question
+Status: Resolved
 
-Which current, authorized Task relationships are mandatory recipients for each of these immediate categories?
+### Approved mandatory recipient matrix
 
-| Category | Already explicit | Still unresolved |
+| Event category | Mandatory recipient source | Mandatory recipients |
 | --- | --- | --- |
-| Primary Assignee assigned | New Primary Assignee | None |
-| Primary Assignee removed | Previous Primary Assignee | None |
-| Reviewer assigned | New Reviewer | None |
-| Valid direct mention | Each valid directly mentioned user | None |
-| Submitted for Review | Current Reviewer | Whether any other relationship is mandatory |
-| Returned/rejected from Review | The event is mandatory | Whether the Primary Assignee alone, the Primary Assignee plus Collaborators, or another set receives it |
-| Becomes Blocked | The event is mandatory | Exact mandatory relationship set |
-| Major hard-deadline change | The event is mandatory | Exact mandatory relationship set |
-| Important TaskComment | Direct mentions remain direct-mention recipients | Meaning of "applicable Task users" for the Important category |
+| Primary Assignee assigned | post-mutation relationship | new Primary Assignee |
+| Primary Assignee removed | pre-mutation relationship captured inside the business transaction | previous Primary Assignee |
+| Reviewer assigned | post-mutation relationship | new Reviewer |
+| Valid direct mention | server-validated mention targets | each valid directly mentioned user |
+| Submitted for Review | current Reviewer | current Reviewer |
+| Returned or rejected from Review | current Primary Assignee | current Primary Assignee |
+| Task becomes Blocked | current Primary Assignee and Reviewer | current Primary Assignee and current Reviewer |
+| Major hard-deadline change | current Primary Assignee and Reviewer | current Primary Assignee and current Reviewer |
+| Important `TaskComment` | current Primary Assignee, Reviewer, and Collaborators | current Primary Assignee, current Reviewer, and all current Collaborators |
 
-The higher-authority sources define the categories, actor suppression, current-authorization checks, and independence from Watch. They do not define all recipient sets. The older API/realtime mapping uses "affected users" and, for review resolution, mentions assignee/collaborators, but that is routing guidance rather than a complete notification recipient policy.
+### Required rules
 
-### Affected contracts
+1. Mandatory recipients and Watch-derived recipients are evaluated as separate sets.
+2. Explicit unwatch suppresses only Watch-derived activity; it does not suppress a mandatory recipient.
+3. The authenticated user actor is removed from the combined recipient set, including self-assignment and self-mention, unless a future canonical contract creates an explicit exception.
+4. Relationship removal or replacement captures the previous recipient before mutation in the same business transaction. A rolled-back transaction creates no notification intent.
+5. Overlapping relationships are deduplicated to one visible Notification per recipient-specific logical event.
+6. A direct mention and Important marker on the same TaskComment share the `TaskCommentSignificant` source-event group and produce one recipient union.
+7. Current authorization is checked at notification-intent creation, immediately before delayed/replayed dispatch, and when the notification target is opened.
+8. Ordinary TaskComment activity without a valid direct mention and without the Important marker MUST NOT notify all Task participants.
+9. Broad Task projection invalidation routes are not mandatory visible-notification recipients.
 
-- recipient-policy service contract;
-- logical notification keys;
-- Task mutation tests;
-- delayed dispatch authorization;
-- Real Backend two-user acceptance evidence;
-- notification volume and privacy exposure.
+### Implementation consequence
 
-### Recommended option
-
-Use the smallest relationship-specific mandatory set:
-
-- submitted for Review: current Reviewer;
-- returned/rejected: current Primary Assignee;
-- Blocked and major hard-deadline change: current Primary Assignee and current Reviewer;
-- Important TaskComment: current Primary Assignee, current Reviewer, and Collaborators;
-- exclude the actor under the existing canonical self-notification rule;
-- add effective Watch recipients only as a separate optional general-activity layer that respects explicit opt-out.
-
-Alternatives are to include the creator in one or more mandatory sets, or to make every effective watcher mandatory. The latter would erase the canonical distinction between mandatory and Watch-derived notification policy.
-
-### Risk of postponement
-
-Implementations could leak Task activity to an overly broad set or fail to notify a required user. The dedupe key shape also depends on a stable category and recipient policy.
-
-### Can PR07-A proceed?
-
-Yes for persistence and preference foundations. PR07-B must not begin notification generation until this decision is resolved.
+PR07-B MUST implement the matrix centrally and MUST NOT infer additional mandatory recipients from creator, watcher, broad Project membership, realtime route membership, or UI visibility.
 
 ## PR07-OWNER-002 — Digest local-time granularity
 
-### Question
+Status: Resolved
 
-What bounded values may `deadlineDigestLocalTime` contain?
+### Approved contract
 
-Canonical sources require a documented bounded granularity/range but do not define one. The current code has no equivalent setting from which to inherit a rule.
+- `deadlineDigestLocalTime` is a local-time-without-timezone value.
+- Allowed values are `00:00` through `23:45`, inclusive, at exactly 15-minute granularity.
+- The Workspace default is `08:00` local time.
+- A null per-user/per-Workspace value inherits the Workspace default.
+- `effectiveDeadlineDigestLocalTime` is always non-null.
+- `workspaceTimeZoneId` is the authoritative timezone identity used to derive the due instant.
+- Browser timezone and Project settings are not authoritative.
+- Project-specific digest time does not exist.
+- Invalid format, minute, or range returns typed HTTP 400 `TASK_NOTIFICATION_PREFERENCE_INVALID_LOCAL_TIME`.
+- The server MUST NOT silently round, coerce, substitute, or fall back from an invalid supplied value.
 
-### Affected contracts
+### Preference API contract
 
-- preference PATCH validation and error details;
-- Workspace settings UI controls;
-- scheduler due-window calculation;
-- DST and boundary tests;
-- API documentation.
+```text
+GET   /api/me/workspaces/{workspaceId}/task-notification-preferences
+PATCH /api/me/workspaces/{workspaceId}/task-notification-preferences
+```
 
-### Recommended option
+GET and successful PATCH return:
 
-Allow quarter-hour values from `00:00` through `23:45` in Workspace local time. Persist a time-without-timezone value and use the Workspace timezone only when calculating a due instant.
+```text
+deadlineDigestLocalTime nullable
+effectiveDeadlineDigestLocalTime non-null
+workspaceTimeZoneId
+version
+optional matching ETag
+```
 
-Alternatives are hourly values or arbitrary minute precision. Hourly values are simpler but less flexible; arbitrary minutes increase scheduler cardinality and test surface without a stated product need.
+PATCH requires `expectedVersion`.
 
-### Risk of postponement
+- stale or omitted `expectedVersion` returns typed HTTP 409 `TASK_NOTIFICATION_PREFERENCE_VERSION_CONFLICT`;
+- the losing or malformed request does not mutate the stored preference;
+- only safe current-version/ETag retry metadata may be returned;
+- another user's preference is never exposed through these current-user routes.
 
-The API could accept values that the UI cannot represent, or the scheduler could silently round a stored value.
+### Implementation consequence
 
-### Can PR07-A proceed?
-
-No as a complete independently reviewable PR, because PR07-A owns the preference validation contract. Schema-only work could proceed, but splitting schema from its API would add an unnecessary migration-only step.
+PR07-A is unblocked and owns persistence, DTOs, validation, inheritance, active-membership authorization, optimistic concurrency, and focused HTTP/PostgreSQL evidence for this contract.
 
 ## PR07-OWNER-003 — Background-job and Outbox delivery profile
 
-### Question
+Status: Resolved
 
-Confirm how the dedicated realtime Outbox and Task deadline digest are intended to relate to the generic MVP job rules in `22-audit-jobs-consistency.md`.
+### Approved state-machine boundary
 
-The canonical documents currently disagree or leave the boundary ambiguous:
+| Responsibility | Owner | Automatic attempts and terminal state | Operator behavior |
+| --- | --- | --- | --- |
+| Task deadline-digest generation | separate `NotificationDispatchJob` digest idempotency/claim ledger | at most 3 attempts, then terminal `Failed` | audited restart creates a new generation attempt; no separate digest dead-letter table |
+| User-visible Notification | Notification persistence | recipient-facing read/open lifecycle | normal recipient-owned operations; no scheduler semantics |
+| Transactional Outbox delivery | dedicated Outbox contract | at most 10 attempts, then terminal `DeadLetter` | bounded, capability-gated, audited replay with current authorization rechecked |
 
-- `outbox-delivery-contract.md` sets ten automatic attempts and a durable dead-letter/replay lifecycle;
-- `22-audit-jobs-consistency.md` says MVP retry is limited to three, dedicated DeadLetter and JobLease are Full-only, stopped work is represented by `BackgroundJobRecord.Status = Failed`, and the MVP job list does not name a Task deadline digest;
-- the PR07 prompt requires the digest to follow existing job/Outbox claim, lease, retry, dead-letter, bounded-processing, and observability contracts.
+### Required rules
 
-### Affected contracts
+1. The digest ledger owns Workspace-local scheduling, candidate identity, idempotency, claim, generation attempts, and terminal generation state.
+2. The digest ledger MUST NOT be used as an Outbox scheduler.
+3. The Transactional Outbox MUST NOT be used as digest candidate or idempotency state.
+4. A short database claim timeout is allowed only for digest concurrency safety and does not introduce the general Full-scope `JobLease` feature.
+5. Digest `Failed` is not Outbox `DeadLetter`.
+6. Successful digest generation creates the authorized visible Notification and its existing `Notifications.NotificationCreated.v1` Outbox signal.
+7. Outbox claim, retry, dead-letter, replay, retention, and stale-lock recovery remain governed by the dedicated Outbox contract.
+8. Current authorization is rechecked at Notification creation, Outbox dispatch/replay, and Notification open.
 
-- retry thresholds and backoff;
-- digest claim/lease fields;
-- failed/dead-letter state and replay procedure;
-- health and metrics semantics;
-- whether the digest is a permitted `NotificationDispatchJob` specialization;
-- operator runbook and acceptance tests.
+### Canonical realtime event boundary
 
-### Recommended option
+PR07 uses the existing approved event families:
 
-Clarify the boundary as follows:
+```text
+Projects.TaskChanged.v1
+Projects.TaskAssignmentChanged.v1
+Projects.TaskWorkflowChanged.v1
+Projects.TaskCommentChanged.v1
+Projects.ProjectChanged.v1
+Notifications.NotificationCreated.v1
+Notifications.NotificationReadStateChanged.v1
+Security.AuthorizationStateChanged.v1
+```
 
-- durable realtime Outbox delivery follows `outbox-delivery-contract.md`: ten attempts, Outbox dead-letter state, authorized replay;
-- digest generation is a `NotificationDispatchJob` specialization: three attempts, a terminal Failed state in its idempotency/claim ledger, no separate dead-letter table, and an operator restart that creates an audited new attempt;
-- a short database claim timeout is allowed for concurrency safety even though the generic document describes advanced JobLease as Full-only;
-- the digest ledger remains separate from Outbox delivery, while each resulting visible notification and realtime signal uses the existing transactional Outbox.
+PR07 MUST NOT create an equivalent `TaskDeadlineDigestReady` event or invent unapproved per-category Task event families. Any new event family requires a separate canonical catalog amendment with exact schema, routing, authorization, and acceptance.
 
-Alternatives are to give both mechanisms the ten-attempt Outbox profile, or to force both to the three-attempt generic job profile. Either alternative contradicts one of the current canonical documents.
+## Privacy and payload boundary
 
-### Risk of postponement
+Broad Task events, Outbox payloads where not recipient-specific, ordinary logs, and ordinary audit metadata MUST NOT contain:
 
-Two workers could implement incompatible terminal states, retry counts, and replay semantics, making operational evidence and idempotency unreliable.
+- TaskComment or Task description body;
+- review reason;
+- Watch source or opt-out state;
+- digest preference value;
+- complete digest Task list;
+- recipient relationship set;
+- restricted titles or display fields;
+- attachment content, storage path, grant, or token;
+- credentials or secrets;
+- stack traces, SQL, raw errors, or authorization internals.
 
-### Can PR07-A proceed?
-
-Yes for persistence/preferences/dedupe. PR07-C and the final observability contract must wait for the clarification.
+Recipient-specific presentation remains subject to current authorization and must fall back to a safe unavailable state.
 
 ## Implementation-start decision
 
-PR07 implementation as a whole is **NO-GO** until these three decisions are recorded in the canonical specification. The first proposed implementation PR is also blocked by `PR07-OWNER-002`.
+The canonical owner-decision gate is complete.
+
+```text
+TASK-V1-PR07 overall implementation: GO for the sequential PR07 lane
+PR07-A: GO
+PR07-B: blocked only by PR07-A completion
+PR07-C: blocked only by PR07-A and PR07-B completion
+PR07-D: blocked only by PR07-A through PR07-C completion
+PR07-E: blocked only by PR07-A through PR07-D completion
+```
+
+One implementation lane remains mandatory:
+
+```text
+PR07-A -> PR07-B -> PR07-C -> PR07-D -> PR07-E
+```
+
+This synchronization changes documentation status only. It does not implement production Notification, digest, Outbox, SignalR, API, database, or Angular behavior.
