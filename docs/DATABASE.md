@@ -170,13 +170,19 @@ Project lookup and does not load Task rows or the dependency graph. The
 repository also rechecks the combined Task/Milestone row count after the
 bounded reads, closing the PostgreSQL READ COMMITTED insert race between the
 initial counts and materialization.
-The provisional item bound counts 500 canonical Task-kind WorkItems plus canonical
-Milestones, consistently across snapshot, schedule, progress, and dependency
-paths; the dependency bound is 2,000. Their canonical owner decision remains
-open. Owner input for both bounds and overflow behavior is `UNRESOLVED`; these
-values are implementation safeguards only, are not owner-approved, and are
-not a formally approved numeric contract. `DECISION REQUIRED` remains open.
-Overflow is currently rejected and never silently truncated.
+PR #259 was merged before its numerical limit decision was formally recorded.
+On 2026-08-01, after the merge, the owner approved the existing safeguards as
+the temporary PR06 full-snapshot contract: 500 combined canonical Task-kind
+WorkItems and Milestones, consistently across snapshot, schedule, progress,
+and dependency paths, and 2,000 active same-Project dependencies with active
+canonical Task endpoints. Overflow is rejected with typed HTTP 400 and is
+never silently truncated or returned as a successful partial snapshot.
+
+These response limits do not constrain the number of records stored for a
+Project. They are not permanent Project capacity limits, database storage
+limits, or general-availability scalability guarantees. Large-project Gantt
+delivery is deferred to
+[`TASK-V1-PR06B` issue #270](https://github.com/NYGsatoshi/AIPsiteNYG/issues/270).
 
 Latest-main code-bearing candidate
 `1abce6c70d9f665b773d35f75d63c0d05a387cc8` repeated focused PostgreSQL 18.4

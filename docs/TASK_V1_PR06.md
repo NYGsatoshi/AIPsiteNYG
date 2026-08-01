@@ -4,24 +4,59 @@ TASK-V1-PR06 upgrades the existing Project Detail Schedule tab from its
 read-only compatibility projection to an authorized, versioned projection and
 manual-edit surface over canonical WorkItems.
 
-Status: implemented at exact latest-main code-bearing candidate
-`1abce6c70d9f665b773d35f75d63c0d05a387cc8`. Actual latest main
-`33c35cbc873fcdc78b75663d195ca120e2c01520` was incorporated by normal merge
-commit `1abce6c`; the two Messaging/PR07-scope files introduced by `9f7b8f3`
-remain restored to actual `origin/main` and absent from the PR diff. Exact
-code-bearing local migration, backend, Angular, architecture, license, bundle,
-raised-heap Storybook, and mocked Playwright gates passed. Default-heap
-Storybook remains an explicitly recorded OOM non-pass. Exact-head attempt
-`5111784e72054db9501135888e72330672a8c975` passed Documentation CI, all CI
-jobs, npm Security Audit, licensed Real Backend, and the Qodana job, but Code
-Quality failed because its lockfile-free inspection install repeated stale
-offline metadata resolution; that workflow is not a pass. Focused remediation
-`8efa845dec5c553d5ff2107cf6edef7993141a8b` keeps the first cache-first attempt
-and refreshes registry metadata on the second attempt. Every Gate must rerun on
-the new documentation-bearing final HEAD. The numeric cap/overflow owner
-decision is `UNRESOLVED`, so this document does not claim Acceptance. Detailed
-evidence belongs in
+Status: PR #259 was merged on 2026-08-01 at merge commit
+`d5de01cf303c914c2b390346575a22cadb8b4443`. The numerical capacity decision
+was unresolved when the merge occurred and was approved only afterward as the
+temporary PR06 full-snapshot contract. Detailed evidence belongs in
 [`docs/verification/task-v1-pr06-gantt.md`](verification/task-v1-pr06-gantt.md).
+
+## Post-merge status correction — 2026-08-01
+
+### Historical merge-time state
+
+PR #259 was merged before the numerical owner decision was formally recorded.
+Its retained PR body and the historical sections below therefore correctly
+show `Acceptance: Incomplete`, `Merge: No-Go`, `Merge performed: No`, and an
+unresolved decision as the state immediately before the merge. This correction
+does not rewrite that history.
+
+### Post-merge owner decision
+
+After the merge, the owner approved the existing implementation safeguards as
+the temporary PR06 full-snapshot contract:
+
+- maximum 500 combined canonical Task-kind WorkItems and Milestones;
+- maximum 2,000 active dependencies whose endpoints are active canonical Tasks
+  in the same Project;
+- repository-standard typed HTTP 400 on overflow;
+- fail closed, with no silent truncation, partial item set, partial dependency
+  graph, or successful partial snapshot.
+
+### Current contract
+
+The server MUST reject the complete snapshot request when either temporary
+limit is exceeded. It MUST NOT return a successful partial snapshot or silently
+truncate items or dependencies. These are temporary safety limits for the PR06
+full-snapshot implementation; they are not permanent Project capacity limits,
+database storage limits, or general-availability scalability guarantees.
+
+Current fields:
+
+- PR #259: Merged
+- Merge commit: `d5de01cf303c914c2b390346575a22cadb8b4443`
+- PR06 temporary capacity decision: Resolved post-merge
+- PR06B large-project support: Open / Deferred
+
+### Follow-up scalability work
+
+Paginated and virtualized large-project Gantt delivery is separate from this
+corrective work and is tracked in
+[`TASK-V1-PR06B` issue #270](https://github.com/NYGsatoshi/AIPsiteNYG/issues/270).
+This correction does not add
+pagination, infinite scrolling, or virtual scrolling.
+
+Unless explicitly labelled current or post-merge, the candidate and Gate
+entries below are preserved as historical merge-time evidence.
 
 ## Identity and authority
 
@@ -122,8 +157,7 @@ Projection rules:
 - use bounded, set-based PostgreSQL queries with deterministic ordering and
   cancellation propagation.
 
-Because the canonical sources do not provide a numeric graph limit, the
-code-bearing candidate uses an explicitly provisional maximum of 500
+The post-merge owner decision approves a temporary maximum of 500
 items counted consistently as canonical Task-kind WorkItems plus canonical
 Milestones, and 2,000 active dependencies whose endpoints are active
 same-Project canonical Tasks. The same count gate applies to snapshot,
@@ -131,8 +165,9 @@ schedule, progress, and dependency operations. Overflow returns a typed HTTP
 400 error (`GANTT_ITEM_LIMIT_EXCEEDED` or
 `GANTT_DEPENDENCY_LIMIT_EXCEEDED`) before returning a partial graph. It never
 silently truncates. The projection rechecks the combined item count after its
-bounded reads to close a count-then-read race. Owner approval of those values
-and that overflow contract remains `DECISION REQUIRED`.
+bounded reads to close a count-then-read race. These limits are not permanent
+Project or database capacity limits; large-project delivery is deferred to
+`TASK-V1-PR06B`.
 
 ## Manual commands
 
@@ -294,12 +329,12 @@ and only then starts authoritative HTTP revalidation.
 - changing package/license policy
 - merging PR06
 
-## DECISION REQUIRED
+## Historical merge-time decision record
 
-The canonical sources require a bounded snapshot but define neither its numeric
-maximum nor overflow behavior. The owner must select the maximum
-WorkItem/Milestone/dependency graph size and whether overflow returns a typed
-error, explicit truncation metadata, or pagination.
+At implementation and merge time, the canonical sources required a bounded
+snapshot but defined neither its numeric maximum nor overflow behavior. The
+owner had not yet selected the maximum WorkItem/Milestone/dependency graph size
+or the overflow behavior.
 
 The provisional implementation uses 500 items counted as canonical Task-kind
 WorkItems plus canonical Milestones and 2,000 active dependencies whose
@@ -307,7 +342,7 @@ predecessor and successor are active same-Project canonical Task endpoints. It
 applies the bounds consistently to snapshot and every PR06 command path,
 rejects overflow with a typed HTTP 400 response, and does not return a
 truncated snapshot. These values and semantics are implementation safety
-limits, not a canonical owner decision.
+limits, not a canonical owner decision at merge time.
 
 - Source: implementation safeguard; the canonical sources require only a
   bounded snapshot and provide no numeric value or overflow contract
@@ -315,8 +350,9 @@ limits, not a canonical owner decision.
 - Resolved: No
 - DECISION REQUIRED: Yes
 
-This is the only independent specification omission identified at
-implementation start.
+This is the historical merge-time record. The 2026-08-01 post-merge owner
+decision above resolves the temporary PR06 contract prospectively without
+changing this historical fact.
 
 ## Historical candidate evidence
 
@@ -547,7 +583,7 @@ latest-main merge `08056ee` and scope cleanup `e8bdf47`.
 - TASK-V1-PR07: No-Go pending PR06 merge and post-merge audit
 - PR08: No-Go
 
-## Current status
+## Historical final-remediation status and post-merge correction
 
 - Repository / PR / branch: `NYGsatoshi/AIPsiteNYG`, PR #259,
   `task/v1-pr06-gantt-adapter`
@@ -598,14 +634,11 @@ latest-main merge `08056ee` and scope cleanup `e8bdf47`.
   `eslint@undefined` / `ERESOLVE`; downstream quality steps were skipped.
   Commit `8efa845` changes only the second install attempt to refresh online
   metadata. The equivalent local online install and inspection inventory pass.
-- Numeric decision: WorkItem/Milestone cap `UNRESOLVED`; dependency cap
-  `UNRESOLVED`; overflow behavior `UNRESOLVED`; the current 500 / 2,000 /
-  typed HTTP 400 fail-closed behavior remains an implementation safeguard only
-- Final documentation HEAD, exact-head Documentation CI, CI, Code Quality,
-  npm Security Audit, licensed Real Backend Browser Smoke, artifact/secret
-  scan, final review-thread check, and PR body synchronization: Pending
-- Draft PR: retained; merge performed: No
-- TASK-V1-PR06 acceptance: Incomplete
-- PR #259 Merge: No-Go
-- TASK-V1-PR07: No-Go pending PR259 merge and post-merge audit
-- PR08: No-Go
+- Historical numerical decision at merge: `UNRESOLVED`; preserved above and
+  in the PR body
+- Post-merge temporary decision: Resolved — 500 / 2,000 / typed HTTP 400,
+  fail closed, no truncation, no partial graph
+- PR #259: Merged at `d5de01cf303c914c2b390346575a22cadb8b4443`
+- Large-project Gantt: Open / Deferred to `TASK-V1-PR06B`
+- PR07 or later work must incorporate the latest corrected `main` before merge
+  and does not inherit responsibility for PR06B unless the owner changes scope
