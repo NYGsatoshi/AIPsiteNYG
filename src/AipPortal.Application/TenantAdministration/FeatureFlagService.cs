@@ -28,7 +28,7 @@ public sealed class FeatureFlagService(
 
     public async Task<IReadOnlyList<string>> GetEnabledFeaturesAsync(Guid tenantId, CancellationToken cancellationToken = default)
     {
-        var enabled = new HashSet<string>(FeatureKeys.All, StringComparer.OrdinalIgnoreCase);
+        var enabled = new HashSet<string>(FeatureKeys.DefaultEnabled, StringComparer.OrdinalIgnoreCase);
         var subscription = await tenantPlans.GetActiveSubscriptionAsync(tenantId, cancellationToken);
         if (subscription?.Plan is not null)
         {
@@ -48,7 +48,7 @@ public sealed class FeatureFlagService(
     {
         if (string.IsNullOrWhiteSpace(json))
         {
-            return new HashSet<string>(FeatureKeys.All, StringComparer.OrdinalIgnoreCase);
+            return new HashSet<string>(FeatureKeys.DefaultEnabled, StringComparer.OrdinalIgnoreCase);
         }
 
         try
@@ -60,7 +60,7 @@ public sealed class FeatureFlagService(
         }
         catch (JsonException)
         {
-            return new HashSet<string>(FeatureKeys.All, StringComparer.OrdinalIgnoreCase);
+            return new HashSet<string>(FeatureKeys.DefaultEnabled, StringComparer.OrdinalIgnoreCase);
         }
     }
 

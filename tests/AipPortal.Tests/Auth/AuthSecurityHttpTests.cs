@@ -5,6 +5,7 @@ using AipPortal.Application;
 using AipPortal.Application.Auth;
 using AipPortal.Application.Common.Interfaces;
 using AipPortal.Application.Common.Tenancy;
+using AipPortal.Application.Notifications;
 using AipPortal.Domain.Entities;
 using AipPortal.Domain.Enums;
 using AipPortal.Infrastructure.Audit;
@@ -397,6 +398,7 @@ public sealed class AuthSecurityHttpTests
             services.AddScoped<IInviteRepository, InviteRepository>();
             services.AddScoped<ISessionRepository, SessionRepository>();
             services.AddScoped<IWorkspaceRepository, WorkspaceRepository>();
+            services.AddScoped<ITaskNotificationPreferenceRepository, TaskNotificationPreferenceRepository>();
             services.AddScoped<IGroupRepository, GroupRepository>();
             services.AddScoped<IChannelRepository, ChannelRepository>();
             services.AddScoped<IMessagingRepository, MessagingRepository>();

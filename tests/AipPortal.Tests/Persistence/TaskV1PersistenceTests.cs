@@ -80,6 +80,8 @@ public sealed class TaskV1PersistenceTests
         Assert.Contains(FeatureKeys.TasksDomainV1, FeatureKeys.All);
         Assert.Contains(FeatureKeys.KanbanV1, FeatureKeys.All);
         Assert.Contains(FeatureKeys.GanttV1, FeatureKeys.All);
+        Assert.Contains(FeatureKeys.TasksNotificationsV1, FeatureKeys.All);
+        Assert.DoesNotContain(FeatureKeys.TasksNotificationsV1, FeatureKeys.DefaultEnabled);
     }
 
     [Fact]

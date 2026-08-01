@@ -7,6 +7,8 @@ using AipPortal.Application;
 using AipPortal.Application.Common;
 using AipPortal.Application.Common.Interfaces;
 using AipPortal.Application.Common.Tenancy;
+using AipPortal.Application.Notifications;
+using AipPortal.Application.Workspaces;
 using AipPortal.Domain.Entities;
 using AipPortal.Domain.Enums;
 using AipPortal.Infrastructure.Audit;
@@ -147,6 +149,221 @@ public sealed class HttpTenantIsolationTests
         await AssertOkContainsOnlyAsync(app, data.TenantAMember, data.TenantA.Slug, "/api/notifications?page=1&pageSize=20", "TenantA notification", "TenantB notification");
         await AssertOkContainsOnlyAsync(app, data.TenantBMember, data.TenantB.Slug, "/api/notifications?page=1&pageSize=20", "TenantB notification", "TenantA notification");
         await AssertBadRequestAsync(app, data.TenantAMember, data.TenantA.Slug, $"/api/notifications/{data.NotificationB.Id}/read", HttpMethod.Patch);
+    }
+
+    [Fact]
+    [Trait("Scope", "TaskV1PR07A")]
+    public async Task TaskNotificationPreferencesUseCanonicalRoutesAndAcceptExactQuarterHours()
+    {
+        await using var app = await HttpTenantIsolationTestApp.CreateAsync();
+        var data = app.Data;
+        var path = $"/api/me/workspaces/{data.WorkspaceA.Id:D}/task-notification-preferences";
+
+        var routes = app.GetHttpRoutes();
+        Assert.Contains("GET api/me/workspaces/{workspaceId:guid}/task-notification-preferences", routes);
+        Assert.Contains("PATCH api/me/workspaces/{workspaceId:guid}/task-notification-preferences", routes);
+
+        using (var initial = await app.SendAsync(data.TenantAMember, data.TenantA.Slug, path))
+        using (var document = JsonDocument.Parse(await initial.Content.ReadAsStringAsync()))
+        {
+            Assert.Equal(HttpStatusCode.OK, initial.StatusCode);
+            Assert.Equal("\"1\"", initial.Headers.ETag?.Tag);
+            Assert.Equal(JsonValueKind.Null, document.RootElement.GetProperty("deadlineDigestLocalTime").ValueKind);
+            Assert.Equal("08:00", document.RootElement.GetProperty("effectiveDeadlineDigestLocalTime").GetString());
+            Assert.Equal("UTC", document.RootElement.GetProperty("workspaceTimeZoneId").GetString());
+            Assert.Equal(1L, document.RootElement.GetProperty("version").GetInt64());
+        }
+
+        var expectedVersion = 1L;
+        foreach (var localTime in new[] { "00:00", "00:15", "23:45" })
+        {
+            using var content = JsonContent($$"""{"deadlineDigestLocalTime":"{{localTime}}","expectedVersion":{{expectedVersion}}}""");
+            using var response = await app.SendAsync(data.TenantAMember, data.TenantA.Slug, path, HttpMethod.Patch, content);
+            using var document = JsonDocument.Parse(await response.Content.ReadAsStringAsync());
+
+            expectedVersion++;
+            Assert.Equal(HttpStatusCode.OK, response.StatusCode);
+            Assert.Equal($"\"{expectedVersion}\"", response.Headers.ETag?.Tag);
+            Assert.Equal(localTime, document.RootElement.GetProperty("deadlineDigestLocalTime").GetString());
+            Assert.Equal(localTime, document.RootElement.GetProperty("effectiveDeadlineDigestLocalTime").GetString());
+            Assert.Equal(expectedVersion, document.RootElement.GetProperty("version").GetInt64());
+        }
+
+        using (var inherit = JsonContent($$"""{"deadlineDigestLocalTime":null,"expectedVersion":{{expectedVersion}}}"""))
+        using (var response = await app.SendAsync(data.TenantAMember, data.TenantA.Slug, path, HttpMethod.Patch, inherit))
+        using (var document = JsonDocument.Parse(await response.Content.ReadAsStringAsync()))
+        {
+            Assert.Equal(HttpStatusCode.OK, response.StatusCode);
+            Assert.Equal(JsonValueKind.Null, document.RootElement.GetProperty("deadlineDigestLocalTime").ValueKind);
+            Assert.Equal("08:00", document.RootElement.GetProperty("effectiveDeadlineDigestLocalTime").GetString());
+            Assert.Equal(expectedVersion + 1, document.RootElement.GetProperty("version").GetInt64());
+        }
+    }
+
+    [Fact]
+    [Trait("Scope", "TaskV1PR07A")]
+    public async Task TaskNotificationPreferencesRejectInvalidTimesAndProvideSafeConcurrencyRetryMetadata()
+    {
+        await using var app = await HttpTenantIsolationTestApp.CreateAsync();
+        var data = app.Data;
+        var path = $"/api/me/workspaces/{data.WorkspaceA.Id:D}/task-notification-preferences";
+
+        foreach (var invalid in new[] { "00:01", "23:59", "24:00" })
+        {
+            using var content = JsonContent($$"""{"deadlineDigestLocalTime":"{{invalid}}","expectedVersion":1}""");
+            using var response = await app.SendAsync(data.TenantAMember, data.TenantA.Slug, path, HttpMethod.Patch, content);
+            await AssertTaskNotificationPreferenceErrorAsync(
+                response,
+                HttpStatusCode.BadRequest,
+                "TASK_NOTIFICATION_PREFERENCE_INVALID_LOCAL_TIME");
+        }
+
+        using (var missingVersion = JsonContent("""{"deadlineDigestLocalTime":"00:00"}"""))
+        using (var response = await app.SendAsync(data.TenantAMember, data.TenantA.Slug, path, HttpMethod.Patch, missingVersion))
+        {
+            await AssertTaskNotificationPreferenceErrorAsync(
+                response,
+                HttpStatusCode.Conflict,
+                "TASK_NOTIFICATION_PREFERENCE_VERSION_CONFLICT",
+                currentVersion: 1);
+        }
+
+        using (var winner = JsonContent("""{"deadlineDigestLocalTime":"00:15","expectedVersion":1}"""))
+        using (var response = await app.SendAsync(data.TenantAMember, data.TenantA.Slug, path, HttpMethod.Patch, winner))
+        {
+            Assert.Equal(HttpStatusCode.OK, response.StatusCode);
+            Assert.Equal("\"2\"", response.Headers.ETag?.Tag);
+        }
+
+        using (var stale = JsonContent("""{"deadlineDigestLocalTime":"23:45","expectedVersion":1}"""))
+        using (var response = await app.SendAsync(data.TenantAMember, data.TenantA.Slug, path, HttpMethod.Patch, stale))
+        {
+            await AssertTaskNotificationPreferenceErrorAsync(
+                response,
+                HttpStatusCode.Conflict,
+                "TASK_NOTIFICATION_PREFERENCE_VERSION_CONFLICT",
+                currentVersion: 2);
+        }
+
+        using (var retry = JsonContent("""{"deadlineDigestLocalTime":"23:45","expectedVersion":2}"""))
+        using (var response = await app.SendAsync(data.TenantAMember, data.TenantA.Slug, path, HttpMethod.Patch, retry))
+        using (var document = JsonDocument.Parse(await response.Content.ReadAsStringAsync()))
+        {
+            Assert.Equal(HttpStatusCode.OK, response.StatusCode);
+            Assert.Equal("23:45", document.RootElement.GetProperty("deadlineDigestLocalTime").GetString());
+            Assert.Equal(3L, document.RootElement.GetProperty("version").GetInt64());
+        }
+    }
+
+    [Fact]
+    [Trait("Scope", "TaskV1PR07A")]
+    public async Task TaskNotificationPreferencesArePrivateTenantScopedAndFailClosedForRevokedMembership()
+    {
+        await using var app = await HttpTenantIsolationTestApp.CreateAsync();
+        var data = app.Data;
+        var workspaceAPath = $"/api/me/workspaces/{data.WorkspaceA.Id:D}/task-notification-preferences";
+        var workspaceBPath = $"/api/me/workspaces/{data.WorkspaceB.Id:D}/task-notification-preferences";
+
+        using (var update = JsonContent("""{"deadlineDigestLocalTime":"23:45","expectedVersion":1}"""))
+        using (var response = await app.SendAsync(data.TenantAMember, data.TenantA.Slug, workspaceAPath, HttpMethod.Patch, update))
+        {
+            Assert.Equal(HttpStatusCode.OK, response.StatusCode);
+        }
+
+        using (var anotherMember = await app.SendAsync(data.CrossTenantUser, data.TenantA.Slug, workspaceAPath))
+        using (var document = JsonDocument.Parse(await anotherMember.Content.ReadAsStringAsync()))
+        {
+            Assert.Equal(HttpStatusCode.OK, anotherMember.StatusCode);
+            Assert.Equal(JsonValueKind.Null, document.RootElement.GetProperty("deadlineDigestLocalTime").ValueKind);
+            Assert.Equal(1L, document.RootElement.GetProperty("version").GetInt64());
+        }
+
+        using (var wrongWorkspace = await app.SendAsync(data.TenantAMember, data.TenantA.Slug, workspaceBPath))
+        {
+            await AssertTaskNotificationPreferenceErrorAsync(
+                wrongWorkspace,
+                HttpStatusCode.NotFound,
+                "TASK_NOTIFICATION_PREFERENCE_NOT_FOUND",
+                redacted: true);
+        }
+
+        using (var wrongTenant = await app.SendAsync(data.TenantAMember, data.TenantB.Slug, workspaceBPath))
+        {
+            await AssertTaskNotificationPreferenceErrorAsync(
+                wrongTenant,
+                HttpStatusCode.NotFound,
+                "TASK_NOTIFICATION_PREFERENCE_NOT_FOUND",
+                redacted: true);
+        }
+
+        await app.SetWorkspaceAvailabilityAsync(
+            data.TenantA.Id,
+            data.TenantA.Slug,
+            data.WorkspaceA.Id,
+            WorkspaceStatus.Archived,
+            softDeleted: true);
+        using (var inactiveWorkspace = await app.SendAsync(data.CrossTenantUser, data.TenantA.Slug, workspaceAPath))
+        {
+            await AssertTaskNotificationPreferenceErrorAsync(
+                inactiveWorkspace,
+                HttpStatusCode.NotFound,
+                "TASK_NOTIFICATION_PREFERENCE_NOT_FOUND",
+                redacted: true);
+        }
+        await app.SetWorkspaceAvailabilityAsync(
+            data.TenantA.Id,
+            data.TenantA.Slug,
+            data.WorkspaceA.Id,
+            WorkspaceStatus.Active,
+            softDeleted: false);
+
+        await app.SetWorkspaceMembershipStatusAsync(
+            data.TenantA.Id,
+            data.TenantA.Slug,
+            data.WorkspaceA.Id,
+            data.TenantAMember.Id,
+            MembershipStatus.Suspended);
+
+        using (var revokedGet = await app.SendAsync(data.TenantAMember, data.TenantA.Slug, workspaceAPath))
+        {
+            await AssertTaskNotificationPreferenceErrorAsync(
+                revokedGet,
+                HttpStatusCode.NotFound,
+                "TASK_NOTIFICATION_PREFERENCE_NOT_FOUND",
+                redacted: true);
+        }
+
+        using (var revokedPatch = JsonContent("""{"deadlineDigestLocalTime":"00:00","expectedVersion":2}"""))
+        using (var response = await app.SendAsync(data.TenantAMember, data.TenantA.Slug, workspaceAPath, HttpMethod.Patch, revokedPatch))
+        {
+            await AssertTaskNotificationPreferenceErrorAsync(
+                response,
+                HttpStatusCode.NotFound,
+                "TASK_NOTIFICATION_PREFERENCE_NOT_FOUND",
+                redacted: true);
+        }
+    }
+
+    [Fact]
+    [Trait("Scope", "TaskV1PR07A")]
+    public async Task GeneralWorkspaceDtosDoNotDisclosePrivateTaskNotificationPreferences()
+    {
+        await using var app = await HttpTenantIsolationTestApp.CreateAsync();
+        var data = app.Data;
+
+        using var members = await app.SendAsync(
+            data.TenantAOwner,
+            data.TenantA.Slug,
+            $"/api/workspaces/{data.WorkspaceA.Id:D}/members");
+        var membersBody = await members.Content.ReadAsStringAsync();
+
+        Assert.Equal(HttpStatusCode.OK, members.StatusCode);
+        Assert.DoesNotContain("taskDeadlineDigestLocalTime", membersBody, StringComparison.OrdinalIgnoreCase);
+        Assert.DoesNotContain("taskNotificationPreferenceVersion", membersBody, StringComparison.OrdinalIgnoreCase);
+        Assert.DoesNotContain(
+            typeof(WorkspaceMemberResponse).GetProperties(),
+            property => string.Equals(property.Name, "TaskDeadlineDigestLocalTime", StringComparison.Ordinal) ||
+                        string.Equals(property.Name, "TaskNotificationPreferenceVersion", StringComparison.Ordinal));
     }
 
     [Fact]
@@ -1131,6 +1348,29 @@ public sealed class HttpTenantIsolationTests
         Assert.True(document.RootElement.TryGetProperty("requestId", out _));
     }
 
+    private static async Task AssertTaskNotificationPreferenceErrorAsync(
+        HttpResponseMessage response,
+        HttpStatusCode status,
+        string code,
+        long? currentVersion = null,
+        bool redacted = false)
+    {
+        var body = await response.Content.ReadAsStringAsync();
+        Assert.Equal(status, response.StatusCode);
+        using var document = JsonDocument.Parse(body);
+        var root = document.RootElement;
+        Assert.Equal(code, root.GetProperty("error").GetProperty("code").GetString());
+        Assert.Equal(redacted, root.GetProperty("error").GetProperty("redactionApplied").GetBoolean());
+        Assert.True(root.TryGetProperty("requestId", out _));
+        Assert.DoesNotContain("StackTrace", body, StringComparison.OrdinalIgnoreCase);
+
+        if (currentVersion.HasValue)
+        {
+            Assert.Equal(currentVersion.Value, root.GetProperty("currentVersion").GetInt64());
+            Assert.Equal($"\"{currentVersion.Value}\"", response.Headers.ETag?.Tag);
+        }
+    }
+
     private static async Task AssertMyTasksErrorAsync(HttpResponseMessage response, HttpStatusCode status, string code)
     {
         var body = await response.Content.ReadAsStringAsync();
@@ -1362,6 +1602,31 @@ public sealed class HttpTenantIsolationTests
             await dbContext.SaveChangesAsync();
         }
 
+        public async Task SetWorkspaceAvailabilityAsync(
+            Guid tenantId,
+            string tenantSlug,
+            Guid workspaceId,
+            WorkspaceStatus status,
+            bool softDeleted)
+        {
+            await using var scope = App.Services.CreateAsyncScope();
+            var currentTenant = scope.ServiceProvider.GetRequiredService<CurrentTenantService>();
+            currentTenant.SetTenant(tenantId, tenantSlug);
+            var dbContext = scope.ServiceProvider.GetRequiredService<AppDbContext>();
+            var workspace = await dbContext.Workspaces.FirstAsync(item => item.Id == workspaceId);
+            workspace.Status = status;
+            if (softDeleted)
+            {
+                workspace.MarkDeleted(DateTimeOffset.UtcNow);
+            }
+            else
+            {
+                workspace.Restore();
+            }
+
+            await dbContext.SaveChangesAsync();
+        }
+
         public async Task AddGroupMemberAsync(Guid tenantId, string tenantSlug, Guid groupId, Guid userId)
         {
             await using var scope = App.Services.CreateAsyncScope();
@@ -1421,6 +1686,7 @@ public sealed class HttpTenantIsolationTests
             services.AddScoped<IInviteRepository, InviteRepository>();
             services.AddScoped<ISessionRepository, SessionRepository>();
             services.AddScoped<IWorkspaceRepository, WorkspaceRepository>();
+            services.AddScoped<ITaskNotificationPreferenceRepository, TaskNotificationPreferenceRepository>();
             services.AddScoped<IGroupRepository, GroupRepository>();
             services.AddScoped<IChannelRepository, ChannelRepository>();
             services.AddScoped<IMessagingRepository, MessagingRepository>();

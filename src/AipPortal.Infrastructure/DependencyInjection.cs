@@ -5,6 +5,7 @@ using AipPortal.Infrastructure.Persistence;
 using AipPortal.Infrastructure.Security;
 using AipPortal.Application.Projects;
 using AipPortal.Application.Realtime;
+using AipPortal.Application.Notifications;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
@@ -31,6 +32,7 @@ public static class DependencyInjection
         services.AddScoped<IInviteRepository, InviteRepository>();
         services.AddScoped<ISessionRepository, SessionRepository>();
         services.AddScoped<IWorkspaceRepository, WorkspaceRepository>();
+        services.AddScoped<ITaskNotificationPreferenceRepository, TaskNotificationPreferenceRepository>();
         services.AddScoped<IGroupRepository, GroupRepository>();
         services.AddScoped<IChannelRepository, ChannelRepository>();
         services.AddScoped<IMessagingRepository, MessagingRepository>();

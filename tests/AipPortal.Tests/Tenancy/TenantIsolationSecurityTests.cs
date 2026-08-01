@@ -435,6 +435,7 @@ public async Task WorkspaceAdminCannotReadAuditLogsForTheirWorkspace()
         var tenantAFeatures = new FeatureFlagService(plans, currentTenant);
         Assert.False(await tenantAFeatures.IsEnabledAsync(FeatureKeys.ProductionTracking));
         Assert.False(await tenantAFeatures.IsEnabledAsync(FeatureKeys.FileSharing));
+        Assert.False(await tenantAFeatures.IsEnabledAsync(FeatureKeys.TasksNotificationsV1));
         Assert.False((await quota.CanCreateProjectAsync(data.TenantA.Id)).IsSuccess);
         Assert.False((await quota.CanUploadFileAsync(data.TenantA.Id, 55)).IsSuccess);
         Assert.False((await quota.CanUploadFileAsync(data.TenantA.Id, 95)).IsSuccess);
@@ -443,6 +444,7 @@ public async Task WorkspaceAdminCannotReadAuditLogsForTheirWorkspace()
         var tenantBFeatures = new FeatureFlagService(plans, currentTenant);
         Assert.True(await tenantBFeatures.IsEnabledAsync(FeatureKeys.ProductionTracking));
         Assert.True(await tenantBFeatures.IsEnabledAsync(FeatureKeys.FileSharing));
+        Assert.False(await tenantBFeatures.IsEnabledAsync(FeatureKeys.TasksNotificationsV1));
         Assert.True((await quota.CanCreateProjectAsync(data.TenantB.Id)).IsSuccess);
         Assert.True((await quota.CanUploadFileAsync(data.TenantB.Id, 55)).IsSuccess);
     }

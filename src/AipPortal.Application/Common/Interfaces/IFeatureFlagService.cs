@@ -25,6 +25,7 @@ public static class FeatureKeys
     public const string MyTasksV1 = "tasks.myTasksV1";
     public const string KanbanV1 = "tasks.kanbanV1";
     public const string GanttV1 = "tasks.ganttV1";
+    public const string TasksNotificationsV1 = "tasks.notificationsV1";
 
     public static readonly IReadOnlyList<string> All =
     [
@@ -48,8 +49,16 @@ public static class FeatureKeys
         TasksDomainV1,
         MyTasksV1,
         KanbanV1,
-        GanttV1
+        GanttV1,
+        TasksNotificationsV1
     ];
+
+    /// <summary>
+    /// New Task-notification production remains explicitly opt-in. Existing
+    /// keys preserve the registry's historical enabled-by-default behavior.
+    /// </summary>
+    public static readonly IReadOnlyList<string> DefaultEnabled =
+        All.Where(key => !string.Equals(key, TasksNotificationsV1, StringComparison.Ordinal)).ToArray();
 
     public static string Normalize(string featureKey)
     {
@@ -58,6 +67,7 @@ public static class FeatureKeys
             "RealtimeSignalR" or "realtime.signalr" => RealtimeSignalR,
             "TransactionalOutbox" or "communication.transactionalOutbox.enabled" => TransactionalOutbox,
             "AuthorizedRealtimeGroups" or "communication.authorizedGroups.required" => AuthorizedRealtimeGroups,
+            "TasksNotificationsV1" => TasksNotificationsV1,
             _ => featureKey.Trim()
         };
     }

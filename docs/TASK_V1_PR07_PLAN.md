@@ -1,6 +1,6 @@
 # TASK-V1-PR07 sequential implementation plan
 
-Status: Active and unblocked for PR07-A
+Status: PR07-A implementation is on a draft branch; merge/acceptance and required PostgreSQL/CI evidence remain pending.
 
 Implementation baseline audited: `491d17db3701b7fb26010db8c0590eac7d24bd78`
 
@@ -134,11 +134,46 @@ Excluded from every phase:
 
 ## PR07-A — Contract foundation, preferences, and dedupe primitives
 
-Status: GO
+Status: Implemented on draft branch `task/v1-pr07-a-notification-foundation`; not merged or accepted.
 
 ### Goal
 
 Land additive persistence and exact preference/dedupe contracts without enabling Task notification generation or scheduled digest processing.
+
+### Current implementation status (draft branch)
+
+The historical audit baseline above remains historical evidence. This draft
+implements only the PR07-A foundation on implementation `main` base
+`ca0f3fec26a78d4199fa834ce82509a6dfeda812`, using resolved specification
+commit `8b90c8897367606473515d17d3696e458b2ee7b5`:
+
+- migration `20260801171714_AddTaskNotificationPreferenceFoundation` adds the
+  nullable logical key, filtered unique index, private preference/version
+  state, and `08:00` Workspace defaults;
+- `CreateOrGetByLogicalKeyAsync` is an explicit, PostgreSQL-authoritative
+  Notification primitive; legacy creation remains unchanged and legacy null
+  keys remain valid;
+- the two current-user preference routes enforce active membership,
+  tenant/workspace isolation, exact quarter-hour values, inheritance, and
+  version/ETag retry metadata without widening Workspace/member DTOs;
+- `tasks.notificationsV1` is registered centrally and remains disabled by
+  default. It does not gate authorization, privacy, or dedupe;
+- no Task producer, deadline classifier, digest ledger/worker, new semantic
+  Outbox event family, SignalR route, notification-open endpoint, or Angular
+  behavior is introduced.
+
+Focused HTTP tests pass locally. The PostgreSQL migration/dedupe/concurrency
+suite is conditional on `POSTGRES_TEST_CONNECTION_STRING` and must pass in CI
+before this status may be accepted as the PR07-B entry gate.
+
+Local final verification on this draft branch: `dotnet test AipPortal.slnx
+--no-restore --configuration Release` passed 416 tests with 89 conditional
+PostgreSQL skips and 0 failures; the focused `HttpTenantIsolationTests` suite
+passed all 30 tests. EF reports no pending model changes and the migration
+script from `20260730120626_AddCanonicalGanttVersions` contains only this
+foundation's additive operations. A scoped 28-file Codex Security scan found
+0 reportable findings. These local checks do not replace PostgreSQL-enabled
+GitHub Actions evidence or draft-PR acceptance.
 
 ### Included scope
 
