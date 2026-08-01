@@ -257,6 +257,56 @@ public sealed class HttpTenantIsolationTests
 
     [Fact]
     [Trait("Scope", "TaskV1PR07A")]
+    public async Task TaskNotificationPreferencesClassifyNumericVersionConflictsAndMalformedJsonSafelyWithoutMutation()
+    {
+        await using var app = await HttpTenantIsolationTestApp.CreateAsync();
+        var data = app.Data;
+        var path = $"/api/me/workspaces/{data.WorkspaceA.Id:D}/task-notification-preferences";
+
+        foreach (var requestJson in new[]
+                 {
+                     """{"deadlineDigestLocalTime":"00:00"}""",
+                     """{"deadlineDigestLocalTime":"00:00","expectedVersion":0}""",
+                     """{"deadlineDigestLocalTime":"00:00","expectedVersion":-1}"""
+                 })
+        {
+            using var content = JsonContent(requestJson);
+            using var response = await app.SendAsync(data.TenantAMember, data.TenantA.Slug, path, HttpMethod.Patch, content);
+            await AssertTaskNotificationPreferenceErrorAsync(
+                response,
+                HttpStatusCode.Conflict,
+                "TASK_NOTIFICATION_PREFERENCE_VERSION_CONFLICT",
+                currentVersion: 1);
+            await AssertTaskNotificationPreferenceStateAsync(app, data, path, null, 1);
+        }
+
+        using (var winner = JsonContent("""{"deadlineDigestLocalTime":"00:00","expectedVersion":1}"""))
+        using (var response = await app.SendAsync(data.TenantAMember, data.TenantA.Slug, path, HttpMethod.Patch, winner))
+        {
+            Assert.Equal(HttpStatusCode.OK, response.StatusCode);
+        }
+
+        using (var stale = JsonContent("""{"deadlineDigestLocalTime":"23:45","expectedVersion":1}"""))
+        using (var response = await app.SendAsync(data.TenantAMember, data.TenantA.Slug, path, HttpMethod.Patch, stale))
+        {
+            await AssertTaskNotificationPreferenceErrorAsync(
+                response,
+                HttpStatusCode.Conflict,
+                "TASK_NOTIFICATION_PREFERENCE_VERSION_CONFLICT",
+                currentVersion: 2);
+            await AssertTaskNotificationPreferenceStateAsync(app, data, path, "00:00", 2);
+        }
+
+        using (var incompatibleType = JsonContent("""{"deadlineDigestLocalTime":"23:45","expectedVersion":"abc"}"""))
+        using (var response = await app.SendAsync(data.TenantAMember, data.TenantA.Slug, path, HttpMethod.Patch, incompatibleType))
+        {
+            await AssertSafeModelBindingErrorAsync(response, HttpStatusCode.BadRequest);
+            await AssertTaskNotificationPreferenceStateAsync(app, data, path, "00:00", 2);
+        }
+    }
+
+    [Fact]
+    [Trait("Scope", "TaskV1PR07A")]
     public async Task TaskNotificationPreferencesArePrivateTenantScopedAndFailClosedForRevokedMembership()
     {
         await using var app = await HttpTenantIsolationTestApp.CreateAsync();
@@ -1363,11 +1413,39 @@ public sealed class HttpTenantIsolationTests
         Assert.Equal(redacted, root.GetProperty("error").GetProperty("redactionApplied").GetBoolean());
         Assert.True(root.TryGetProperty("requestId", out _));
         Assert.DoesNotContain("StackTrace", body, StringComparison.OrdinalIgnoreCase);
+        Assert.DoesNotContain("SELECT ", body, StringComparison.OrdinalIgnoreCase);
+        Assert.DoesNotContain("INSERT INTO", body, StringComparison.OrdinalIgnoreCase);
+        Assert.DoesNotContain("UPDATE ", body, StringComparison.OrdinalIgnoreCase);
+        Assert.False(root.TryGetProperty("deadlineDigestLocalTime", out _));
+        Assert.False(root.TryGetProperty("effectiveDeadlineDigestLocalTime", out _));
 
         if (currentVersion.HasValue)
         {
             Assert.Equal(currentVersion.Value, root.GetProperty("currentVersion").GetInt64());
             Assert.Equal($"\"{currentVersion.Value}\"", response.Headers.ETag?.Tag);
+        }
+    }
+
+    private static async Task AssertTaskNotificationPreferenceStateAsync(
+        HttpTenantIsolationTestApp app,
+        TenantIsolationTestData data,
+        string path,
+        string? expectedLocalTime,
+        long expectedVersion)
+    {
+        using var response = await app.SendAsync(data.TenantAMember, data.TenantA.Slug, path);
+        using var document = JsonDocument.Parse(await response.Content.ReadAsStringAsync());
+
+        Assert.Equal(HttpStatusCode.OK, response.StatusCode);
+        Assert.Equal($"\"{expectedVersion}\"", response.Headers.ETag?.Tag);
+        Assert.Equal(expectedVersion, document.RootElement.GetProperty("version").GetInt64());
+        if (expectedLocalTime is null)
+        {
+            Assert.Equal(JsonValueKind.Null, document.RootElement.GetProperty("deadlineDigestLocalTime").ValueKind);
+        }
+        else
+        {
+            Assert.Equal(expectedLocalTime, document.RootElement.GetProperty("deadlineDigestLocalTime").GetString());
         }
     }
 
@@ -1389,6 +1467,10 @@ public sealed class HttpTenantIsolationTests
         Assert.Equal((int)status, document.RootElement.GetProperty("status").GetInt32());
         Assert.True(document.RootElement.TryGetProperty("traceId", out _));
         Assert.DoesNotContain("StackTrace", body, StringComparison.OrdinalIgnoreCase);
+        Assert.DoesNotContain("SELECT ", body, StringComparison.OrdinalIgnoreCase);
+        Assert.DoesNotContain("INSERT INTO", body, StringComparison.OrdinalIgnoreCase);
+        Assert.DoesNotContain("UPDATE ", body, StringComparison.OrdinalIgnoreCase);
+        Assert.DoesNotContain("currentVersion", body, StringComparison.OrdinalIgnoreCase);
     }
 
     private static Guid ReadResponseId(string json)

@@ -78,7 +78,7 @@ public sealed class TaskV1Pr07NotificationFoundationPostgreSqlTests
             Assert.Contains(
                 context.Model.FindEntityType(typeof(Notification))!.GetIndexes(),
                 index => index.GetDatabaseName() == LogicalKeyIndex && index.IsUnique);
-            Assert.True(context.Model.FindEntityType(typeof(WorkspaceMember))!
+            Assert.False(context.Model.FindEntityType(typeof(WorkspaceMember))!
                 .FindProperty(nameof(WorkspaceMember.TaskNotificationPreferenceVersion))!
                 .IsConcurrencyToken);
         });
@@ -330,6 +330,79 @@ public sealed class TaskV1Pr07NotificationFoundationPostgreSqlTests
             Assert.True(retried.IsSuccess);
             Assert.Equal(3L, retried.Value!.Version);
             Assert.Equal("00:15", retried.Value.DeadlineDigestLocalTime);
+        });
+    }
+
+    [PostgreSqlFact]
+    [Trait("Category", "PostgreSQLIntegration")]
+    [Trait("Scope", "TaskV1PR07A")]
+    public async Task PreferenceVersionDoesNotConflictWithUnrelatedRoleOrStatusSaveChanges()
+    {
+        var connectionString = PostgreSqlTestEnvironment.RequireConnectionString();
+
+        await PostgreSqlMigrationTestDatabase.WithTemporaryDatabaseAsync(connectionString, async database =>
+        {
+            await PostgreSqlMigrationTestDatabase.MigrateAsync(database);
+            var graph = await SeedFoundationGraphAsync(database);
+
+            await using var unrelatedUpdateContext = CreateTenantContext(database, graph.TenantA);
+            var unrelatedMember = await unrelatedUpdateContext.WorkspaceMembers.SingleAsync(member =>
+                member.TenantId == graph.TenantA.Id &&
+                member.WorkspaceId == graph.WorkspaceA.Id &&
+                member.UserId == graph.UserA.Id);
+            Assert.Equal(1L, unrelatedMember.TaskNotificationPreferenceVersion);
+            Assert.Null(unrelatedMember.TaskDeadlineDigestLocalTime);
+
+            var firstTenant = new CurrentTenantService();
+            firstTenant.SetTenant(graph.TenantA.Id, graph.TenantA.Slug);
+            await using (var preferenceContext = CreateTenantContext(database, graph.TenantA))
+            {
+                var preferences = new TaskNotificationPreferenceRepository(preferenceContext, firstTenant);
+                Assert.True(await preferences.TryUpdateAsync(
+                    graph.WorkspaceA.Id,
+                    graph.UserA.Id,
+                    expectedVersion: 1,
+                    deadlineDigestLocalTime: new TimeOnly(0, 15),
+                    updatedAt: FixedClock.Instance.UtcNow));
+            }
+
+            unrelatedMember.Role = WorkspaceRole.Admin;
+            var roleSaveException = await Record.ExceptionAsync(
+                () => unrelatedUpdateContext.SaveChangesAsync());
+            Assert.Null(roleSaveException);
+
+            await using (var afterRole = CreateTenantContext(database, graph.TenantA))
+            {
+                var persisted = await afterRole.WorkspaceMembers.SingleAsync(member => member.Id == unrelatedMember.Id);
+                Assert.Equal(WorkspaceRole.Admin, persisted.Role);
+                Assert.Equal(new TimeOnly(0, 15), persisted.TaskDeadlineDigestLocalTime);
+                Assert.Equal(2L, persisted.TaskNotificationPreferenceVersion);
+            }
+
+            var secondTenant = new CurrentTenantService();
+            secondTenant.SetTenant(graph.TenantA.Id, graph.TenantA.Slug);
+            await using (var preferenceContext = CreateTenantContext(database, graph.TenantA))
+            {
+                var preferences = new TaskNotificationPreferenceRepository(preferenceContext, secondTenant);
+                Assert.True(await preferences.TryUpdateAsync(
+                    graph.WorkspaceA.Id,
+                    graph.UserA.Id,
+                    expectedVersion: 2,
+                    deadlineDigestLocalTime: new TimeOnly(0, 30),
+                    updatedAt: FixedClock.Instance.UtcNow));
+            }
+
+            unrelatedMember.Status = MembershipStatus.Suspended;
+            var statusSaveException = await Record.ExceptionAsync(
+                () => unrelatedUpdateContext.SaveChangesAsync());
+            Assert.Null(statusSaveException);
+
+            await using var verification = CreateTenantContext(database, graph.TenantA);
+            var final = await verification.WorkspaceMembers.SingleAsync(member => member.Id == unrelatedMember.Id);
+            Assert.Equal(WorkspaceRole.Admin, final.Role);
+            Assert.Equal(MembershipStatus.Suspended, final.Status);
+            Assert.Equal(new TimeOnly(0, 30), final.TaskDeadlineDigestLocalTime);
+            Assert.Equal(3L, final.TaskNotificationPreferenceVersion);
         });
     }
 

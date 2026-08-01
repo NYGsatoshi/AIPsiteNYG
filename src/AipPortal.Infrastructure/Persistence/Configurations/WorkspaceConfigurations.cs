@@ -52,7 +52,6 @@ public sealed class WorkspaceMemberConfiguration : IEntityTypeConfiguration<Work
             .HasColumnType("time without time zone");
         builder.Property(member => member.TaskNotificationPreferenceVersion)
             .HasDefaultValue(1L)
-            .IsConcurrencyToken()
             .IsRequired();
 
         builder.HasIndex(member => new { member.TenantId, member.WorkspaceId, member.UserId }).IsUnique();

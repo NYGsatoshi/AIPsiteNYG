@@ -4886,7 +4886,6 @@ namespace AipPortal.Infrastructure.Persistence.Migrations
                         .HasColumnType("time without time zone");
 
                     b.Property<long>("TaskNotificationPreferenceVersion")
-                        .IsConcurrencyToken()
                         .ValueGeneratedOnAdd()
                         .HasColumnType("bigint")
                         .HasDefaultValue(1L);
