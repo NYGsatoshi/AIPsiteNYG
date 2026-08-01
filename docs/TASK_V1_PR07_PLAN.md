@@ -1,6 +1,9 @@
 # TASK-V1-PR07 sequential implementation plan
 
-Status: PR07-A implementation is on a draft branch; merge/acceptance and required PostgreSQL/CI evidence remain pending.
+Status: PR #274 is open and non-draft. Post-remediation code-bearing candidate
+`b1f80fb212c820e22613d3c3ae637eaa6e77147e` awaits final-documentation-HEAD
+CI and review/merge judgment; PR07-B remains blocked until PR07-A is accepted
+from current `main`.
 
 Implementation baseline audited: `491d17db3701b7fb26010db8c0590eac7d24bd78`
 
@@ -74,7 +77,8 @@ Contract:
 - Project-specific digest time does not exist;
 - invalid format/minute/range returns HTTP 400 `TASK_NOTIFICATION_PREFERENCE_INVALID_LOCAL_TIME` with no rounding or mutation;
 - PATCH requires `expectedVersion`;
-- stale or omitted `expectedVersion` returns HTTP 409 `TASK_NOTIFICATION_PREFERENCE_VERSION_CONFLICT`, does not mutate the stored preference, and exposes only safe retry/version metadata;
+- an omitted, zero, negative, or stale numeric `expectedVersion` that binds to the request DTO returns HTTP 409 `TASK_NOTIFICATION_PREFERENCE_VERSION_CONFLICT`, does not mutate the stored preference, and exposes only safe retry/version metadata;
+- malformed JSON or an incompatible JSON value type (for example, `"expectedVersion": "abc"`) is rejected before the service by the shared safe HTTP 400 model-validation response, without mutation, retry metadata, or protected-state disclosure;
 - GET and successful PATCH return stored value, effective value, Workspace timezone identity, body version, and optionally a matching ETag.
 
 ### Digest generation versus Outbox delivery
@@ -134,18 +138,21 @@ Excluded from every phase:
 
 ## PR07-A — Contract foundation, preferences, and dedupe primitives
 
-Status: Implemented on draft branch `task/v1-pr07-a-notification-foundation`; not merged or accepted.
+Status: Implemented on open, non-draft PR #274 branch
+`task/v1-pr07-a-notification-foundation`; not merged or accepted.
 
 ### Goal
 
 Land additive persistence and exact preference/dedupe contracts without enabling Task notification generation or scheduled digest processing.
 
-### Current implementation status (draft branch)
+### Current implementation status (post-remediation code-bearing candidate)
 
-The historical audit baseline above remains historical evidence. This draft
+The historical audit baseline above remains historical evidence. This branch
 implements only the PR07-A foundation on implementation `main` base
 `ca0f3fec26a78d4199fa834ce82509a6dfeda812`, using resolved specification
-commit `8b90c8897367606473515d17d3696e458b2ee7b5`:
+commit `8b90c8897367606473515d17d3696e458b2ee7b5`. Post-remediation
+code-bearing candidate:
+`b1f80fb212c820e22613d3c3ae637eaa6e77147e`.
 
 - migration `20260801171714_AddTaskNotificationPreferenceFoundation` adds the
   nullable logical key, filtered unique index, private preference/version
@@ -156,26 +163,27 @@ commit `8b90c8897367606473515d17d3696e458b2ee7b5`:
 - the two current-user preference routes enforce active membership,
   tenant/workspace isolation, exact quarter-hour values, inheritance, and
   version/ETag retry metadata without widening Workspace/member DTOs;
+- the preference version is deliberately not an EF `WorkspaceMember`
+  concurrency token. The repository's tenant/member/version-scoped conditional
+  update remains the sole preference conflict authority, so unrelated Role or
+  Status saves do not conflict with or overwrite a preference change;
 - `tasks.notificationsV1` is registered centrally and remains disabled by
   default. It does not gate authorization, privacy, or dedupe;
 - no Task producer, deadline classifier, digest ledger/worker, new semantic
   Outbox event family, SignalR route, notification-open endpoint, or Angular
   behavior is introduced.
 
-Focused HTTP tests pass locally. The PostgreSQL migration/dedupe/concurrency
-suite is conditional on `POSTGRES_TEST_CONNECTION_STRING` locally; GitHub
-Actions run `30711182611` applied PostgreSQL migrations and passed all 505
-backend tests. This branch is still a draft and must merge and be accepted
-from current `main` before it becomes the PR07-B entry gate.
-
-Local final verification on this draft branch: `dotnet test AipPortal.slnx
---no-restore --configuration Release` passed 416 tests with 89 conditional
-PostgreSQL skips and 0 failures; the focused `HttpTenantIsolationTests` suite
-passed all 30 tests. EF reports no pending model changes and the migration
+The code-bearing candidate passed `HttpTenantIsolationTests` 31/31 and the
+PostgreSQL-enabled `Scope=TaskV1PR07A` suite 11/11 with 0 skips using a
+temporary PostgreSQL 18 container. The latter executes fresh/upgrade/Down
+migration coverage, filtered unique-index and logical-key race coverage,
+preference winner/loser/retry, and the Role/Status non-conflict regression.
+`dotnet test AipPortal.slnx --no-restore --configuration Release -m:1` passed
+507/507 with 0 failures/skips after applying migrations to that same isolated
+CI-shaped database. EF reports no pending model changes, and the migration
 script from `20260730120626_AddCanonicalGanttVersions` contains only this
-foundation's additive operations. A scoped 28-file Codex Security scan found
-0 reportable findings. These local checks do not replace PostgreSQL-enabled
-GitHub Actions evidence or draft-PR acceptance.
+foundation's additive columns and filtered index. These local checks do not
+replace exact-final-HEAD GitHub Actions evidence or PR acceptance.
 
 ### Included scope
 
@@ -225,7 +233,7 @@ No digest ledger is added in PR07-A. Existing rows remain valid and legacy notif
 - distinct recipient/event/version/category creates a distinct row;
 - soft-deleted logical row behavior is explicit and retry-safe;
 - GET/PATCH active-member success, null inheritance, `00:00`, `23:45`, and every invalid class;
-- omitted/stale expectedVersion returns the exact 409 contract without mutation;
+- omitted, zero, negative, and stale numeric expectedVersion values return the exact 409 contract without mutation; incompatible JSON value types use the shared safe HTTP 400 model-validation contract without mutation;
 - another Workspace/Tenant/member denial with safe errors;
 - revoked/expired membership denial;
 - optimistic-concurrency winner/loser/retry;

@@ -130,11 +130,19 @@ minute, or range returns HTTP 400 with
 `TASK_NOTIFICATION_PREFERENCE_INVALID_LOCAL_TIME`.
 
 `expectedVersion` is mandatory and must match the stored private preference
-version. Omitted, invalid, or stale versions return HTTP 409
-`TASK_NOTIFICATION_PREFERENCE_VERSION_CONFLICT`, leave the stored preference
-unchanged, and return only safe `currentVersion` plus a matching ETag for a
+version. When the JSON request binds to the DTO, an omitted, zero, negative, or
+stale numeric version returns HTTP 409
+`TASK_NOTIFICATION_PREFERENCE_VERSION_CONFLICT`, leaves the stored preference
+unchanged, and returns only safe `currentVersion` plus a matching ETag for a
 refetch/retry. The implementation performs the update as one tenant- and
 membership-scoped conditional database update.
+
+Malformed JSON or an incompatible JSON value type is rejected before the
+service by the shared `[ApiController]` model-validation contract. For example,
+`"expectedVersion": "abc"` returns its safe HTTP 400 model-validation
+response. It makes no mutation and returns neither retry metadata nor protected
+preference state. PR07-A deliberately does not add a custom JSON parser or
+model binder to turn that binding failure into a typed 409.
 
 The default-disabled `tasks.notificationsV1` registry key is deliberately not
 an authorization, privacy, preference, or dedupe gate. PR07-A introduces no

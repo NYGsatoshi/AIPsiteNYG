@@ -217,9 +217,12 @@ focused additive migration. It adds:
 The logical-key index deliberately does not include `DeletedAt`: a
 soft-deleted notification retains its identity so a duplicate replay cannot
 resurrect it. Legacy null-key notifications may coexist because the filtered
-index does not apply to them. The per-member preference version is the private
-optimistic-concurrency token; it is separate from the Workspace settings
-version.
+index does not apply to them. The per-member preference version is private
+preference state and is separate from the Workspace settings version. It is not
+an EF entity-wide concurrency token: the private preference repository is the
+only concurrency authority and uses a tenant/member/version-scoped conditional
+update. Therefore unrelated WorkspaceMember Role or Status saves neither
+conflict with nor overwrite a concurrent preference update.
 
 The Down migration removes only this filtered index and the five additive
 columns. It preserves existing Notification, Workspace, and WorkspaceMember
