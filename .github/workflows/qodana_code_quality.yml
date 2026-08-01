@@ -222,7 +222,11 @@ jobs:
         run: |
           for attempt in 1 2; do
             set +e
-            npm --prefix tools/frontend-inspections install --prefer-offline --ignore-scripts --no-audit --no-fund
+            if [[ "$attempt" -eq 1 ]]; then
+              npm --prefix tools/frontend-inspections install --prefer-offline --ignore-scripts --no-audit --no-fund
+            else
+              npm_config_prefer_offline=false npm --prefix tools/frontend-inspections install --prefer-online --ignore-scripts --no-audit --no-fund
+            fi
             status=$?
             set -e
             if [[ "$status" -eq 0 ]]; then
