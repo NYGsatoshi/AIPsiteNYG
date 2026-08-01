@@ -7,6 +7,45 @@ comparison happened before the first commit. Any item marked `Pending`,
 `Not run`, `Unverified`, or qualified as pre-final-HEAD must not be treated as
 passing.
 
+## Post-merge correction — 2026-08-01
+
+### Historical merge-time state
+
+PR #259 was merged at
+`d5de01cf303c914c2b390346575a22cadb8b4443` before the numerical owner
+decision was formally recorded. The retained `Draft`, `Open`, `Acceptance:
+Incomplete`, `Merge: No-Go`, `Merge performed: No`, and `UNRESOLVED` entries
+below are historical merge-time evidence. They are not the current status and
+have not been erased or rewritten.
+
+### Post-merge owner decision
+
+After the merge, the owner approved the existing implementation safeguards as
+the temporary PR06 full-snapshot contract:
+
+- maximum 500 combined canonical Task-kind WorkItems and Milestones;
+- maximum 2,000 active dependencies with active canonical Task endpoints in
+  the same Project;
+- repository-standard typed HTTP 400 on overflow;
+- fail closed, with no silent truncation, partial item set, partial dependency
+  graph, or successful partial snapshot.
+
+### Current contract
+
+The server MUST reject the complete snapshot request when either temporary
+limit is exceeded. It MUST NOT silently truncate items or dependencies and
+MUST NOT return a successful partial snapshot. These values are temporary
+safety limits for the PR06 full-snapshot implementation, not permanent Project
+capacity limits, database storage limits, or general-availability scalability
+guarantees.
+
+### Follow-up scalability work
+
+PR06 is merged and its temporary overflow contract is resolved post-merge.
+Paginated and virtualized large-project Gantt support remains incomplete and
+is tracked separately in
+[`TASK-V1-PR06B` issue #270](https://github.com/NYGsatoshi/AIPsiteNYG/issues/270).
+
 ## Scope and stopping point
 
 PR06 upgrades the existing Project Detail Schedule tab and
@@ -145,7 +184,7 @@ produced the following local evidence:
   0 critical); inactive frontend 8 (0 low, 5 moderate, 3 high, 0 critical).
   Syncfusion-affected entries were 0 and no forced fix was run.
 
-Owner decision input is explicitly unresolved:
+Owner decision input was explicitly unresolved at merge time:
 
 | Decision | Owner input | Current implementation safeguard |
 | --- | --- | --- |
@@ -154,6 +193,10 @@ Owner decision input is explicitly unresolved:
 | Overflow behavior | `UNRESOLVED` | typed HTTP 400, fail closed, no truncation, no partial graph |
 | Owner source | Current TASK-V1-PR06 final-remediation request | Canonical spec revision `20aa5a2e015ae8fb68e5ba2b257a416dfcad5c3f` supplies no numbers or overflow contract |
 | Resolved / DECISION REQUIRED | No / Yes | Safeguards are not formalized as the product contract |
+
+The post-merge owner decision recorded at the top of this ledger resolves the
+temporary PR06 contract prospectively; it does not change this merge-time
+record.
 
 Exact-final-HEAD Documentation CI, CI, Code Quality, npm Security Audit,
 licensed Real Backend Browser Smoke, artifact secret scan, review-thread
@@ -443,8 +486,8 @@ claim final acceptance.
   canonical Tasks; it never emits a partial snapshot. The same item count gate
   is used by snapshot, schedule, progress, and dependency paths.
   It rechecks the combined bound after reading rows to close the
-  count-then-read race. Those numbers remain provisional pending the owner
-  decision below.
+  count-then-read race. The owner approved those values after PR #259 merged as
+  temporary PR06 full-snapshot safety limits.
 - Schedule/progress commands own only their respective canonical fields,
   require optimistic versions, preserve `DeadlineAt`, allow Task schedule
   clear, enforce leaf/parent/Done/Cancelled/Milestone rules, and return
@@ -593,7 +636,7 @@ candidate `2fc5910e772f427355529de6e500b093583872b6`.
 | PostgreSQL query shape | Partially complete | Batched set queries, but unbounded | Bound graph; measure query count and capture SQL |
 | Real Backend browser | Missing | No PR06 scenario found | Exact-final-HEAD real stack scenario without interception |
 
-## DECISION REQUIRED
+## Historical merge-time decision record
 
 The canonical sources require the Gantt snapshot to be bounded and refer to a
 canonical maximum, but the audited PR06 sources do not define:
@@ -618,8 +661,9 @@ Interim implementation:
   `GANTT_DEPENDENCY_LIMIT_EXCEEDED`) when either limit is exceeded; and
 - no truncation, inferred dates, or partial graph.
 
-These are conservative implementation safeguards, not an owner-approved
-canonical decision. Acceptance remains incomplete while the decision is open.
+At merge time these were conservative implementation safeguards, not an
+owner-approved canonical decision. The 2026-08-01 post-merge decision at the
+top of this ledger approves them prospectively as the temporary PR06 contract.
 
 | Decision field | Current state |
 | --- | --- |
@@ -627,10 +671,13 @@ canonical decision. Acceptance remains incomplete while the decision is open.
 | Dependency cap | 2,000 active same-Project dependencies with active canonical Task endpoints |
 | Overflow behavior | Typed HTTP 400, fail closed, no truncation or partial graph |
 | Canonical source | Requires a bounded snapshot only; it supplies no numeric value or overflow contract |
-| Implementation source | Conservative implementation safeguard pending owner approval |
-| PR body/comments | No owner decision found |
-| Resolved | No |
-| DECISION REQUIRED | Yes |
+| Implementation source | Conservative implementation safeguard pending owner approval at merge time |
+| PR body/comments | No owner decision found at merge time |
+| Resolved at merge time | No |
+| DECISION REQUIRED at merge time | Yes |
+
+Current resolution: resolved post-merge for the temporary PR06 full-snapshot
+contract. This does not establish permanent Project or database limits.
 
 ## Implemented contract ledger
 
@@ -644,10 +691,10 @@ below.
 ### Snapshot
 
 - Endpoint: `GET /api/projects/{projectId}/gantt`
-- Item bound: provisional 500 canonical Task-kind WorkItems plus canonical
+- Item bound: temporary 500 canonical Task-kind WorkItems plus canonical
   Milestones, consistently applied across snapshot and all PR06 command paths;
   typed rejection and no truncation
-- Dependency bound: provisional 2,000 active same-Project dependencies whose
+- Dependency bound: temporary 2,000 active same-Project dependencies whose
   endpoints are active canonical Tasks; typed rejection and no truncation
 - Scheduled items: canonical Task items with at least one planned date
 - Unscheduled items: canonical Task items with neither date and an `UNSCHEDULED`
@@ -896,6 +943,7 @@ domain data. Down removes only those columns and preserves existing rows.
 | `Scope=TaskV1PR04` regression | 8/8 passed, 0 failed, 0 skipped |
 | Exact `f2d3805` PostgreSQL rerun | PR06 49/49, PR05 25/25, PR04 8/8, and full backend 494/494 passed, all with 0 failed and 0 skipped. The preceding no-PostgreSQL run is not used for Acceptance. |
 | Exact `2fc5910` PostgreSQL rerun | Empty migration apply succeeded; PR06 49/49, PR05 25/25, PR04 8/8, and full backend 494/494 passed, all with 0 failed and 0 skipped. Release build: 0 warnings / 0 errors. |
+| Post-merge exact boundary regression | `TaskV1Pr06GanttHostedHttpTests.Snapshot_RealPipelineHonorsExactCombinedItemBoundariesWithoutPartialDto` and `Snapshot_RealPipelineHonorsExactActiveDependencyBoundariesWithoutPartialDto` passed 2/2 against ephemeral PostgreSQL 18. The complete `Scope=TaskV1PR06` suite then passed 51/51 with the CI-equivalent base-database migration. They prove 499/500 success and 501 typed 400, plus 1,999/2,000 success and 2,001 typed 400, with no snapshot DTO fields on overflow. |
 | Full backend suite | 494/494 passed, 0 failed, 0 skipped at exact parent `69cc6f0943cfc9d3e2dab358edceb0fad0a0fea6`, exact test-only candidate `f2d3805466b2a9bce3e2a7bf8392069330a1d6fd`, exact current candidate `2fc5910e772f427355529de6e500b093583872b6`, and Hosted CI runs `30632549234` / `30637433590` |
 | Unexpected skipped tests | 0 in every backend run above |
 
@@ -1257,44 +1305,33 @@ This verdict must be replaced only by a final evidence-backed Go/No-Go report
 from the exact final PR06 HEAD. Even if every PR06 Gate later passes, this task
 must not merge the pull request.
 
-## Current blockers and verdict
+## Post-merge current status
 
-Resolved during this remediation:
+### Historical merge-time state
 
-- actual latest main `33c35cbc873fcdc78b75663d195ca120e2c01520` was incorporated
-  by normal merge `1abce6c70d9f665b773d35f75d63c0d05a387cc8`; behind is 0
-- the active frontend package conflicts were manually reconciled with Gantt
-  34.1.30 and main's Grid 34.1.33 retained; Angular 21 architect compatibility,
-  Compodoc 2.0.0, ESLint 10.8.0, globals 17.8.0, and queue controls remain
-- Messaging facade and UI-test contamination was removed from the PR diff by
-  forward cleanup `e8bdf47754ca38b6f4d1b3a31c945ae07432f06f`
-- code-bearing migration, backend, frontend, package, and mocked-browser local
-  Gates completed with 0 failures and 0 unexpected skips
-- failed exact-head Code Quality attempt `30673208389` was diagnosed rather
-  than accepted or blindly retried; focused commit `8efa845` refreshes registry
-  metadata only on the second lockfile-free inspection install attempt
+The immediately preceding blockers and No-Go verdict are retained as the
+historical state before PR #259 merged. The numerical decision was unresolved
+then, and this correction does not claim otherwise.
 
-Remaining blockers:
+### Post-merge owner decision
 
-- DECISION REQUIRED: WorkItem/Milestone cap is `UNRESOLVED`
-- DECISION REQUIRED: dependency cap is `UNRESOLVED`
-- DECISION REQUIRED: overflow behavior is `UNRESOLVED`
-- exact documentation-bearing final HEAD is not established until this commit
-- exact-final-HEAD Hosted Documentation CI, CI, Code Quality, npm Security
-  Audit, licensed Real Backend, artifact/secret, and review checks are pending
-- actual `origin/main` has no tracked `tools/frontend-inspections` lockfile, so
-  the requested local `npm ci` for that workspace is unavailable; the
-  repository's documented no-lock install/inventory path succeeded
-- PR body synchronization is pending; Draft is intentionally retained
+On 2026-08-01, after the merge, the owner approved the existing 500 combined
+item / 2,000 active same-Project dependency / typed HTTP 400 fail-closed
+safeguards as the temporary PR06 full-snapshot contract.
 
-Current Gate:
+### Current contract
 
-- TASK-V1-PR05: Complete
-- TASK-V1-PR06 acceptance: Incomplete
-- PR #259 Merge: No-Go
-- Merge performed: No
-- TASK-V1-PR07: No-Go pending PR259 merge and post-merge audit
-- PR08: No-Go
+- PR #259: Merged
+- Merge commit: `d5de01cf303c914c2b390346575a22cadb8b4443`
+- PR06 temporary capacity decision: Resolved post-merge
+- Overflow: typed HTTP 400, no silent truncation, no partial item set, no
+  partial dependency graph, and no successful partial snapshot
 
-The unresolved owner decision independently requires Incomplete / No-Go even
-if every technical Gate succeeds. This task does not merge PR #259.
+### Follow-up scalability work
+
+- PR06B large-project support: Open / Deferred
+- `TASK-V1-PR06B` owns pagination and virtualization; this corrective work does
+  not implement either
+- PR07 or later Gantt-dependent work must incorporate the corrected latest
+  `main` before merge and is not responsible for PR06B unless the owner
+  formally changes its scope

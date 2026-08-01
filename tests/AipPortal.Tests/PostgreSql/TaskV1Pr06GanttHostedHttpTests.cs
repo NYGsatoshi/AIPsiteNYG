@@ -157,6 +157,75 @@ public sealed class TaskV1Pr06GanttHostedHttpTests(ITestOutputHelper output)
     [PostgreSqlFact]
     [Trait("Category", "PostgreSQLIntegration")]
     [Trait("Scope", "TaskV1PR06")]
+    public async Task Snapshot_RealPipelineHonorsExactCombinedItemBoundariesWithoutPartialDto()
+    {
+        var connectionString = PostgreSqlTestEnvironment.RequireConnectionString();
+        await PostgreSqlMigrationTestDatabase.WithTemporaryDatabaseAsync(connectionString, async database =>
+        {
+            await PostgreSqlMigrationTestDatabase.MigrateAsync(database);
+            await using var app = await GanttHostedTestApp.CreateAsync(database);
+            var manager = await app.LoginAsync(app.Graph.Manager, app.Graph.TenantA);
+
+            foreach (var itemCount in new[] { 499, 500 })
+            {
+                var project = await app.SeedBoundaryProjectAsync(itemCount, activeDependencyCount: 0);
+                using var response = await manager.GetAsync($"/api/projects/{project.Id:D}/gantt");
+                Assert.Equal(HttpStatusCode.OK, response.StatusCode);
+                var snapshot = await ReadJsonAsync<ProjectGanttResponse>(response);
+                Assert.Equal(itemCount, snapshot.TotalItems);
+                Assert.Equal(
+                    itemCount,
+                    snapshot.ScheduledItems.Count + snapshot.UnscheduledItems.Count + snapshot.Milestones.Count);
+                Assert.Empty(snapshot.Dependencies);
+            }
+
+            var overflowProject = await app.SeedBoundaryProjectAsync(501, activeDependencyCount: 0);
+            using var overflow = await manager.GetAsync($"/api/projects/{overflowProject.Id:D}/gantt");
+            await AssertLimitFailureWithoutSnapshotAsync(
+                overflow,
+                overflowProject.Id,
+                "GANTT_ITEM_LIMIT_EXCEEDED");
+        });
+    }
+
+    [PostgreSqlFact]
+    [Trait("Category", "PostgreSQLIntegration")]
+    [Trait("Scope", "TaskV1PR06")]
+    public async Task Snapshot_RealPipelineHonorsExactActiveDependencyBoundariesWithoutPartialDto()
+    {
+        var connectionString = PostgreSqlTestEnvironment.RequireConnectionString();
+        await PostgreSqlMigrationTestDatabase.WithTemporaryDatabaseAsync(connectionString, async database =>
+        {
+            await PostgreSqlMigrationTestDatabase.MigrateAsync(database);
+            await using var app = await GanttHostedTestApp.CreateAsync(database);
+            var manager = await app.LoginAsync(app.Graph.Manager, app.Graph.TenantA);
+
+            foreach (var dependencyCount in new[] { 1_999, 2_000 })
+            {
+                var project = await app.SeedBoundaryProjectAsync(
+                    activeItemCount: 65,
+                    activeDependencyCount: dependencyCount);
+                using var response = await manager.GetAsync($"/api/projects/{project.Id:D}/gantt");
+                Assert.Equal(HttpStatusCode.OK, response.StatusCode);
+                var snapshot = await ReadJsonAsync<ProjectGanttResponse>(response);
+                Assert.Equal(65, snapshot.TotalItems);
+                Assert.Equal(dependencyCount, snapshot.Dependencies.Count);
+            }
+
+            var overflowProject = await app.SeedBoundaryProjectAsync(
+                activeItemCount: 65,
+                activeDependencyCount: 2_001);
+            using var overflow = await manager.GetAsync($"/api/projects/{overflowProject.Id:D}/gantt");
+            await AssertLimitFailureWithoutSnapshotAsync(
+                overflow,
+                overflowProject.Id,
+                "GANTT_DEPENDENCY_LIMIT_EXCEEDED");
+        });
+    }
+
+    [PostgreSqlFact]
+    [Trait("Category", "PostgreSQLIntegration")]
+    [Trait("Scope", "TaskV1PR06")]
     public async Task Commands_RealPipelineEnforcesCookieCsrfPermissionsConcurrencyAtomicityAndCanonicalPersistence()
     {
         var connectionString = PostgreSqlTestEnvironment.RequireConnectionString();
@@ -625,6 +694,26 @@ public sealed class TaskV1Pr06GanttHostedHttpTests(ITestOutputHelper output)
         Assert.DoesNotContain(project.Name, body, StringComparison.Ordinal);
     }
 
+    private static async Task AssertLimitFailureWithoutSnapshotAsync(
+        HttpResponseMessage response,
+        Guid projectId,
+        string expectedCode)
+    {
+        Assert.Equal(HttpStatusCode.BadRequest, response.StatusCode);
+        var error = await ReadSafeErrorAsync(response);
+        Assert.Equal(expectedCode, error.Code);
+        Assert.Equal("projectId", error.Target);
+        Assert.False(error.RedactionApplied);
+
+        var body = await response.Content.ReadAsStringAsync();
+        Assert.DoesNotContain(projectId.ToString("D"), body, StringComparison.OrdinalIgnoreCase);
+        Assert.DoesNotContain("scheduledItems", body, StringComparison.Ordinal);
+        Assert.DoesNotContain("unscheduledItems", body, StringComparison.Ordinal);
+        Assert.DoesNotContain("milestones", body, StringComparison.Ordinal);
+        Assert.DoesNotContain("dependencies", body, StringComparison.Ordinal);
+        Assert.DoesNotContain("totalItems", body, StringComparison.Ordinal);
+    }
+
     private static async Task<T> ReadJsonAsync<T>(HttpResponseMessage response) =>
         await response.Content.ReadFromJsonAsync<T>()
         ?? throw new InvalidOperationException($"HTTP response did not contain {typeof(T).Name}.");
@@ -828,6 +917,112 @@ public sealed class TaskV1Pr06GanttHostedHttpTests(ITestOutputHelper output)
                 item.UserId == user.Id);
             membership.Status = status;
             await db.SaveChangesAsync();
+        }
+
+        public async Task<Project> SeedBoundaryProjectAsync(
+            int activeItemCount,
+            int activeDependencyCount)
+        {
+            if (activeItemCount < 1)
+                throw new ArgumentOutOfRangeException(nameof(activeItemCount));
+
+            await using var scope = app.Services.CreateAsyncScope();
+            SetTenant(scope.ServiceProvider, Graph.TenantA);
+            var db = scope.ServiceProvider.GetRequiredService<AppDbContext>();
+            var suffix = Guid.NewGuid().ToString("N");
+            var project = Project(
+                Graph.TenantA,
+                Graph.Workspace,
+                Graph.Manager,
+                $"pr06-boundary-{suffix}",
+                $"PR06 boundary {activeItemCount}-{activeDependencyCount}");
+            db.AddRange(
+                project,
+                ProjectMember(
+                    Graph.TenantA,
+                    project,
+                    Graph.Manager,
+                    ProjectRole.Manager,
+                    DateTimeOffset.UtcNow));
+            await db.SaveChangesAsync();
+
+            var stageId = await TodoStageAsync(db, project.Id);
+            var activeTaskCount = activeItemCount - 1;
+            var tasks = Enumerable.Range(0, activeTaskCount)
+                .Select(index => Task(
+                    Graph.TenantA,
+                    Graph.Workspace,
+                    project,
+                    stageId,
+                    Graph.Manager,
+                    $"Boundary Task {index:D3}",
+                    index + 1))
+                .ToList();
+            var milestone = new Milestone
+            {
+                TenantId = Graph.TenantA.Id,
+                ProjectId = project.Id,
+                Name = "Boundary Milestone",
+                DueDate = new DateOnly(2026, 9, 1),
+                Status = MilestoneStatus.NotStarted,
+                SortOrder = 1,
+                VersionNo = 1
+            };
+            db.AddRange(tasks);
+            db.Add(milestone);
+            await db.SaveChangesAsync();
+
+            if (activeDependencyCount == 0)
+                return project;
+
+            var maximumAvailableDependencies = activeTaskCount * (activeTaskCount - 1) / 2;
+            if (activeDependencyCount > maximumAvailableDependencies)
+                throw new ArgumentOutOfRangeException(nameof(activeDependencyCount));
+
+            var dependencies = new List<TaskDependency>(activeDependencyCount + 1);
+            for (var predecessorIndex = 0;
+                 predecessorIndex < tasks.Count && dependencies.Count < activeDependencyCount;
+                 predecessorIndex++)
+            {
+                for (var successorIndex = predecessorIndex + 1;
+                     successorIndex < tasks.Count && dependencies.Count < activeDependencyCount;
+                     successorIndex++)
+                {
+                    dependencies.Add(new TaskDependency
+                    {
+                        TenantId = Graph.TenantA.Id,
+                        ProjectId = project.Id,
+                        PredecessorTaskItemId = tasks[predecessorIndex].Id,
+                        SuccessorTaskItemId = tasks[successorIndex].Id,
+                        DependencyType = TaskDependencyType.FinishToStart
+                    });
+                }
+            }
+
+            var deletedEndpoint = Task(
+                Graph.TenantA,
+                Graph.Workspace,
+                project,
+                stageId,
+                Graph.Manager,
+                "Deleted dependency endpoint",
+                activeTaskCount + 1);
+            deletedEndpoint.MarkDeleted(
+                DateTimeOffset.UtcNow,
+                Graph.Manager.Id,
+                "PR06 boundary inactive dependency check");
+            db.TaskItems.Add(deletedEndpoint);
+            dependencies.Add(new TaskDependency
+            {
+                TenantId = Graph.TenantA.Id,
+                ProjectId = project.Id,
+                PredecessorTaskItemId = tasks[0].Id,
+                SuccessorTaskItemId = deletedEndpoint.Id,
+                DependencyType = TaskDependencyType.FinishToStart
+            });
+            db.TaskDependencies.AddRange(dependencies);
+            await db.SaveChangesAsync();
+            return project;
         }
 
         public async Task<TaskState> ReadTaskStateAsync(Guid taskId)

@@ -71,7 +71,7 @@ Project references enforce a conventional dependency direction. See `docs/ARCHIT
 | Workspaces/groups/channels/posts | Backend implemented; browser UI planned/partial | REST layers exist; routes render placeholders |
 | Messaging | Partially implemented | REST, direct-message recipient search, direct conversation creation, browser send/read persistence, and durable realtime message/unread reconciliation exist. The two Messaging files accidentally committed to PR #259 by `9f7b8f3` were restored to actual `origin/main` by forward cleanup commit `e8bdf47`; PR #259 no longer contains their PR07-scope diff. Safe attachment ownership and production PostgreSQL verification remain incomplete. |
 | Announcements | Partially implemented | REST and UI exist; scoped visibility and frontend role/user-ID behavior have confirmed defects |
-| Projects/tasks/milestones/assignments/comments/Gantt data | Partially implemented; PR06 latest-main code-bearing candidate passed required local checks | PR02 adds versioned Task workflow, relationship, review, Claim, and FS-authoring command routes. PR05 adds the canonical Project Kanban snapshot/config/move flow. PR06 upgrades the existing Project Detail Schedule tab and Gantt route with a bounded scheduled/unscheduled projection, manual schedule/progress/FS dependency commands, canonical Task-only parent derivation and terminal parent/child guards, optimistic concurrency, explicit conflict Retry/Discard, structured warnings, accessible/mobile alternatives, lazy vendor isolation, and authoritative realtime refetch. Actual latest main `33c35cbc` was merged normally as `1abce6c`, retaining the prior Messaging cleanup. PostgreSQL 18.4, PR06 49/49, PR05 25/25, PR04 8/8, full backend 494/494, Angular 323/323, production/architecture/license/bundle checks, raised-heap Storybook, and mocked Playwright 63 passed with 3 expected skips succeeded at that head. Exact final-HEAD Hosted and licensed Real Backend reruns remain pending. The numeric graph-limit owner decision remains unresolved, so Acceptance remains Incomplete. See `docs/TASK_V1_PR02.md`, `docs/TASK_V1_PR05.md`, and `docs/TASK_V1_PR06.md`. |
+| Projects/tasks/milestones/assignments/comments/Gantt data | Partially implemented; PR06 merged, large-project delivery deferred | PR02 adds versioned Task workflow, relationship, review, Claim, and FS-authoring command routes. PR05 adds the canonical Project Kanban snapshot/config/move flow. PR06 upgrades the existing Project Detail Schedule tab and Gantt route with a bounded scheduled/unscheduled projection, manual schedule/progress/FS dependency commands, canonical Task-only parent derivation and terminal parent/child guards, optimistic concurrency, explicit conflict Retry/Discard, structured warnings, accessible/mobile alternatives, lazy vendor isolation, and authoritative realtime refetch. PR #259 merged at `d5de01cf303c914c2b390346575a22cadb8b4443`. The owner subsequently approved its 500 combined-item / 2,000 active-dependency / typed HTTP 400 fail-closed safeguards as the temporary PR06 snapshot contract. Large-project pagination and virtualization remain open under `TASK-V1-PR06B`. See `docs/TASK_V1_PR02.md`, `docs/TASK_V1_PR05.md`, and `docs/TASK_V1_PR06.md`. |
 | Events/attendance/calendar | Backend implemented; browser UI planned | Controller/service/repository/tests exist; calendar route is a placeholder outside dashboard summary |
 | Forms/surveys | Backend implemented; browser UI planned | Controller/service/repository/tests exist; `/forms` is a placeholder |
 | Notifications | Implemented with polling UI | Database-backed; no realtime push |
@@ -150,8 +150,9 @@ The 2026-06-18 local audit observed 123 passing .NET tests. This result needs qu
 - Root Playwright legacy static-SPA specs are obsolete after the Angular migration; future Playwright coverage should target Angular build output or a hosted Angular app.
 - CI supplies PostgreSQL and runs migrations before `dotnet test`.
 
-TASK-V1-PR06 final-remediation evidence on 2026-08-01 is not yet final-HEAD
-Acceptance evidence:
+Historical TASK-V1-PR06 merge-time evidence from 2026-08-01 follows. It is
+retained as evidence of the state before PR #259 merged, not as the current
+status:
 
 - Draft PR #259 is open and mergeable. Actual latest main
   `33c35cbc873fcdc78b75663d195ca120e2c01520` was incorporated by normal merge
@@ -203,15 +204,16 @@ Acceptance evidence:
   recorded in the PR body without another self-referential source commit.
 
 Historical pre-remediation evidence remains in
-`docs/verification/task-v1-pr06-gantt.md`; it is not final Acceptance evidence.
+`docs/verification/task-v1-pr06-gantt.md`; it is not the current status.
 
-The PR06 snapshot and command paths still use a provisional limit of 500 items,
-counted consistently as canonical Task-kind WorkItems plus canonical
-Milestones, and 2,000 active dependencies whose endpoints are active
-same-Project canonical Tasks, with typed HTTP 400 rejection and no truncation.
-Owner input for all three fields remains `UNRESOLVED`. Canonical authority only
-requires a bounded snapshot and supplies no numeric or overflow contract.
-`Resolved: No`; `DECISION REQUIRED: Yes`; Acceptance: Incomplete; Merge: No-Go.
+Post-merge resolution on 2026-08-01: PR #259 is merged at
+`d5de01cf303c914c2b390346575a22cadb8b4443`. The decision was unresolved at
+merge time. The owner subsequently approved the existing 500 combined-item /
+2,000 active-dependency / typed HTTP 400 fail-closed safeguards as the
+temporary PR06 full-snapshot contract. No successful partial snapshot or
+silent truncation is permitted. These are not permanent Project or database
+capacity limits; paginated and virtualized large-project delivery remains open
+as [`TASK-V1-PR06B` issue #270](https://github.com/NYGsatoshi/AIPsiteNYG/issues/270).
 
 Read `docs/TESTING.md` before using “tests pass” as evidence.
 

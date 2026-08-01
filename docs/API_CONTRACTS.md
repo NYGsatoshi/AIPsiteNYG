@@ -176,22 +176,28 @@ string-enum `type`, `editable`, successor aggregate `version`, and warnings.
 Finish-to-Start is the only authorable type. Legacy non-FS rows can be returned
 as read-only inventory with `LEGACY_DEPENDENCY_TYPE`.
 
-The current implementation safety limits are 500 items counted consistently as
-canonical Task-kind WorkItems plus canonical Milestones, and 2,000
-dependencies. The same item count gate applies to snapshot, schedule, progress,
-and dependency paths. Overflow returns `GANTT_ITEM_LIMIT_EXCEEDED` or
-`GANTT_DEPENDENCY_LIMIT_EXCEEDED`; the API never returns an undisclosed
-truncated graph. The repository rechecks the combined item bound after its
-bounded reads so inserts racing the preliminary counts cannot produce an
-oversized response. A successful response has `totalItems` equal to the number of
-rows across the three item collections; the Angular parser rejects a mismatch.
-These numeric values and overflow choice remain provisional pending the
-canonical owner decision recorded in
-`docs/verification/task-v1-pr06-gantt.md`.
-Owner input for the WorkItem/Milestone cap, dependency cap, and overflow
-behavior is currently `UNRESOLVED`; the values above describe implementation
-safeguards only, are not owner-approved, and are not a formal numeric product
-contract. `DECISION REQUIRED` remains open.
+PR #259 was merged before its numerical limit decision was formally recorded.
+On 2026-08-01, after the merge, the owner approved the existing safeguards as
+the temporary PR06 full-snapshot contract: 500 combined canonical Task-kind
+WorkItems and Milestones, and 2,000 active same-Project dependencies whose
+endpoints are active canonical Tasks. The same item count gate applies to
+snapshot, schedule, progress, and dependency paths.
+
+When either limit is exceeded, the server MUST reject the complete snapshot
+request with repository-standard typed HTTP 400
+(`GANTT_ITEM_LIMIT_EXCEEDED` or `GANTT_DEPENDENCY_LIMIT_EXCEEDED`). It MUST fail
+closed and MUST NOT silently truncate items or dependencies, return a partial
+item set or dependency graph, or return a successful partial snapshot. The
+repository rechecks the combined item bound after its bounded reads so inserts
+racing the preliminary counts cannot produce an oversized response. A
+successful response has `totalItems` equal to the number of rows across the
+three item collections; the Angular parser rejects a mismatch.
+
+These limits are temporary PR06 full-snapshot safety limits. They are not
+permanent Project capacity limits, database storage limits, or
+general-availability scalability guarantees. Paginated and virtualized
+large-project Gantt delivery is deferred to
+[`TASK-V1-PR06B` issue #270](https://github.com/NYGsatoshi/AIPsiteNYG/issues/270).
 
 ### Schedule and progress commands
 
