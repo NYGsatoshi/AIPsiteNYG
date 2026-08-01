@@ -83,7 +83,7 @@ rename, or unrelated cleanup.
 | Scoped Codex Security scan | Complete; 0 reportable findings | Scoped to 28 PR07-A production/control files; tenant scope, active membership, concurrency, privacy, logical-key recovery, soft-delete replay, and rollout boundary were reviewed. PostgreSQL execution remains an environmental limitation. |
 | Exclusion-path and whitespace check | Passed | `git diff --check` passed; no frontend, hosted artifact, new producer/digest-worker, or realtime-route path changed. |
 | Active-document local Markdown links | Passed | All local Markdown links in the changed active documentation resolve; the repository has no dedicated documentation-lint command. |
-| Pull-request CI | Pending | Required PostgreSQL-backed tests and GitHub Actions must pass on the draft PR before acceptance. |
+| Pull-request CI | Passed | GitHub Actions run `30711182611` applied PostgreSQL migrations and passed 505 tests with 0 failures; Documentation, npm audit, security scan, backend/frontend, and code-quality gates also succeeded. The draft still requires merge/acceptance before PR07-B. |
 
 No local result that reports PostgreSQL tests as passed/skipped without
 `POSTGRES_TEST_CONNECTION_STRING` is treated as PostgreSQL provider evidence.

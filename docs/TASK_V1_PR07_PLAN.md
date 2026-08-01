@@ -163,8 +163,10 @@ commit `8b90c8897367606473515d17d3696e458b2ee7b5`:
   behavior is introduced.
 
 Focused HTTP tests pass locally. The PostgreSQL migration/dedupe/concurrency
-suite is conditional on `POSTGRES_TEST_CONNECTION_STRING` and must pass in CI
-before this status may be accepted as the PR07-B entry gate.
+suite is conditional on `POSTGRES_TEST_CONNECTION_STRING` locally; GitHub
+Actions run `30711182611` applied PostgreSQL migrations and passed all 505
+backend tests. This branch is still a draft and must merge and be accepted
+from current `main` before it becomes the PR07-B entry gate.
 
 Local final verification on this draft branch: `dotnet test AipPortal.slnx
 --no-restore --configuration Release` passed 416 tests with 89 conditional

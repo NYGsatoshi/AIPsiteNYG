@@ -24,7 +24,9 @@ new semantic Outbox event family, SignalR authorization/routing, notification
 open endpoint, or Angular behavior is implemented. Focused current-branch
 evidence is recorded separately in
 `docs/verification/task-v1-pr07-a-foundation.md`; PostgreSQL evidence remains
-conditional on `POSTGRES_TEST_CONNECTION_STRING` until CI runs it.
+conditional on `POSTGRES_TEST_CONNECTION_STRING` locally, while GitHub Actions
+run `30711182611` has applied migrations and passed 505 backend tests. The
+draft remains unmerged and is not PR07-B acceptance evidence by itself.
 
 ## Audit identity
 
