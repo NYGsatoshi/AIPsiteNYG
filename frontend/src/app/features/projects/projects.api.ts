@@ -190,6 +190,141 @@ export interface ProjectKanbanCommandResponseDto {
   readonly warnings?: readonly ProjectKanbanWarningDto[];
 }
 
+/**
+ * Canonical, vendor-neutral Project schedule projection.
+ *
+ * Date fields are ISO `yyyy-MM-dd` calendar dates. Consumers must not convert
+ * them through `Date` or reinterpret them in the browser timezone.
+ */
+export interface ProjectGanttCalendarDto {
+  readonly timeZone: string;
+  readonly workingDays: readonly string[];
+  readonly holidaysAvailable: boolean;
+  readonly limitations: readonly string[];
+}
+
+export interface ProjectGanttWarningDto {
+  readonly code: string;
+  readonly message: string;
+  readonly severity: 'Info' | 'Warning';
+  readonly targetType: string;
+  readonly targetId: string | null;
+  readonly field: string | null;
+  readonly blocking: boolean;
+}
+
+export interface ProjectGanttPermissionsDto {
+  readonly canEditSchedule: boolean;
+  readonly canEditProgress: boolean;
+  readonly canManageDependencies: boolean;
+  readonly canClearSchedule: boolean;
+  readonly canOpen: boolean;
+}
+
+export interface ProjectGanttAssigneeDto {
+  readonly userId: string;
+  readonly displayName: string;
+}
+
+export interface ProjectGanttItemDto {
+  readonly taskId: string;
+  readonly kind: 'Task' | 'Milestone';
+  readonly parentTaskId: string | null;
+  readonly milestoneId: string | null;
+  readonly title: string;
+  readonly plannedStartDate: string | null;
+  readonly plannedEndDate: string | null;
+  readonly milestoneDate: string | null;
+  readonly progressPercent: number;
+  readonly progressIsDerived: boolean;
+  readonly workflowStageId: string | null;
+  readonly workflowStageName: string | null;
+  readonly stageCategory: 'Backlog' | 'Todo' | 'InProgress' | 'Review' | 'Done' | 'Cancelled';
+  readonly priority: 'Low' | 'Medium' | 'High' | 'Critical';
+  readonly isBlocked: boolean;
+  readonly primaryAssignee: ProjectGanttAssigneeDto | null;
+  readonly version: number;
+  readonly scheduleEditPermissions: ProjectGanttPermissionsDto;
+  readonly warnings: readonly ProjectGanttWarningDto[];
+}
+
+export interface ProjectGanttDependencyDto {
+  readonly dependencyId: string;
+  readonly predecessorTaskId: string;
+  readonly successorTaskId: string;
+  readonly type: 'FinishToStart' | 'StartToStart' | 'FinishToFinish' | 'StartToFinish';
+  readonly editable: boolean;
+  readonly version: number;
+  readonly warnings: readonly ProjectGanttWarningDto[];
+}
+
+export interface ProjectGanttSnapshotDto {
+  readonly projectId: string;
+  readonly projectTitle: string;
+  readonly projectVersion: number;
+  readonly workflowVersion: number;
+  readonly calendarVersion: number | null;
+  readonly calendar: ProjectGanttCalendarDto;
+  readonly scheduledItems: readonly ProjectGanttItemDto[];
+  readonly unscheduledItems: readonly ProjectGanttItemDto[];
+  readonly milestones: readonly ProjectGanttItemDto[];
+  readonly dependencies: readonly ProjectGanttDependencyDto[];
+  readonly warnings: readonly ProjectGanttWarningDto[];
+  readonly permissions: ProjectGanttPermissionsDto;
+  readonly maximumItems: number;
+  readonly totalItems: number;
+}
+
+export interface UpdateTaskScheduleRequestDto {
+  readonly plannedStartDate: string | null;
+  readonly plannedEndDate: string | null;
+  readonly milestoneDate: string | null;
+  readonly expectedVersion: number;
+}
+
+export interface UpdateTaskProgressRequestDto {
+  readonly progressPercent: number;
+  readonly expectedVersion: number;
+}
+
+/** The current dependency route authors Finish-to-Start only. */
+export interface AddTaskDependencyRequestDto {
+  readonly predecessorTaskId: string;
+  readonly dependencyType: 'FinishToStart';
+  readonly expectedVersion: number;
+}
+
+export interface RemoveTaskDependencyRequestDto {
+  readonly expectedVersion: number;
+}
+
+/** Existing PR02 dependency route response; the property converter serializes the enum name. */
+export interface TaskDependencyCommandResponseDto {
+  readonly id: string;
+  readonly predecessorTaskId: string;
+  readonly successorTaskId: string;
+  readonly dependencyType: 'FinishToStart' | 'StartToStart' | 'FinishToFinish' | 'StartToFinish';
+  readonly createdAt: string;
+  readonly version: number;
+  readonly editable: boolean;
+  readonly warnings: readonly ProjectGanttWarningDto[];
+}
+
+export interface RemoveTaskDependencyResponseDto {
+  readonly status: 'OK';
+}
+
+export interface ProjectGanttCommandResponseDto {
+  readonly taskId: string;
+  readonly kind: 'Task' | 'Milestone';
+  readonly plannedStartDate: string | null;
+  readonly plannedEndDate: string | null;
+  readonly milestoneDate: string | null;
+  readonly progressPercent: number;
+  readonly version: number;
+  readonly warnings: readonly ProjectGanttWarningDto[];
+}
+
 export interface MoveTaskOnKanbanRequestDto {
   readonly targetWorkflowStageId: string;
   readonly targetBeforeTaskId: string | null;

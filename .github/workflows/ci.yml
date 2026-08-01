@@ -482,6 +482,10 @@ jobs:
 
       - name: Angular Storybook build
         working-directory: frontend
+        env:
+          # The canonical Gantt Storybook build is larger than Node's default
+          # 2 GB heap. Keep the documented 4 GB build budget explicit in CI.
+          NODE_OPTIONS: --max-old-space-size=4096
         run: npm run build-storybook
 
       - name: Angular Playwright smoke

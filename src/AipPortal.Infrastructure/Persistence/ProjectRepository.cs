@@ -81,6 +81,44 @@ public sealed class ProjectRepository(AppDbContext dbContext) : IProjectReposito
             .ToListAsync(cancellationToken);
     }
 
+    public async Task<IReadOnlyList<TaskItem>> ListTasksBoundedAsync(Guid projectId, int take, CancellationToken cancellationToken = default)
+    {
+        return await dbContext.TaskItems
+            .AsNoTracking()
+            .Include(task => task.WorkflowStage)
+            .Where(task =>
+                task.ProjectId == projectId &&
+                task.Kind == WorkItemKind.Task &&
+                !task.DeletedAt.HasValue)
+            .OrderBy(task => task.SortKey)
+            .ThenBy(task => task.Id)
+            .Take(take)
+            .ToListAsync(cancellationToken);
+    }
+
+    public Task<int> CountGanttItemsBoundedAsync(
+        Guid projectId,
+        int take,
+        CancellationToken cancellationToken = default)
+    {
+        if (take <= 0)
+            return Task.FromResult(0);
+
+        var taskIds = dbContext.TaskItems
+            .Where(task =>
+                task.ProjectId == projectId &&
+                task.Kind == WorkItemKind.Task &&
+                !task.DeletedAt.HasValue)
+            .Select(task => task.Id);
+        var milestoneIds = dbContext.Milestones
+            .Where(milestone => milestone.ProjectId == projectId && !milestone.DeletedAt.HasValue)
+            .Select(milestone => milestone.Id);
+        return taskIds
+            .Concat(milestoneIds)
+            .Take(take)
+            .CountAsync(cancellationToken);
+    }
+
     public async Task<PagedResponse<TaskItem>> ListDirectSubtasksPageAsync(Guid projectId, Guid parentTaskItemId, int page, int pageSize, CancellationToken cancellationToken = default)
     {
         var query = dbContext.TaskItems
@@ -153,6 +191,32 @@ public sealed class ProjectRepository(AppDbContext dbContext) : IProjectReposito
             .AsNoTracking()
             .Where(dependency => dependency.SuccessorTaskItemId == taskItemId || dependency.PredecessorTaskItemId == taskItemId)
             .OrderBy(dependency => dependency.CreatedAt)
+            .ThenBy(dependency => dependency.Id)
+            .ToListAsync(cancellationToken);
+    }
+
+    public async Task<IReadOnlyList<TaskDependency>> ListDependenciesBoundedAsync(
+        Guid taskItemId,
+        int take,
+        CancellationToken cancellationToken = default)
+    {
+        return await dbContext.TaskDependencies
+            .AsNoTracking()
+            .Where(dependency =>
+                (dependency.SuccessorTaskItemId == taskItemId ||
+                 dependency.PredecessorTaskItemId == taskItemId) &&
+                dependency.PredecessorTaskItem != null &&
+                dependency.PredecessorTaskItem.ProjectId == dependency.ProjectId &&
+                dependency.PredecessorTaskItem.Kind == WorkItemKind.Task &&
+                !dependency.PredecessorTaskItem.DeletedAt.HasValue &&
+                dependency.SuccessorTaskItem != null &&
+                dependency.SuccessorTaskItem.ProjectId == dependency.ProjectId &&
+                dependency.SuccessorTaskItem.Kind == WorkItemKind.Task &&
+                !dependency.SuccessorTaskItem.DeletedAt.HasValue)
+            .OrderBy(dependency => dependency.PredecessorTaskItemId)
+            .ThenBy(dependency => dependency.SuccessorTaskItemId)
+            .ThenBy(dependency => dependency.Id)
+            .Take(take)
             .ToListAsync(cancellationToken);
     }
 
@@ -161,6 +225,27 @@ public sealed class ProjectRepository(AppDbContext dbContext) : IProjectReposito
         return await dbContext.TaskDependencies
             .AsNoTracking()
             .Where(dependency => dependency.ProjectId == projectId)
+            .ToListAsync(cancellationToken);
+    }
+
+    public async Task<IReadOnlyList<TaskDependency>> ListProjectDependenciesBoundedAsync(Guid projectId, int take, CancellationToken cancellationToken = default)
+    {
+        return await dbContext.TaskDependencies
+            .AsNoTracking()
+            .Where(dependency =>
+                dependency.ProjectId == projectId &&
+                dependency.PredecessorTaskItem != null &&
+                dependency.PredecessorTaskItem.ProjectId == projectId &&
+                dependency.PredecessorTaskItem.Kind == WorkItemKind.Task &&
+                !dependency.PredecessorTaskItem.DeletedAt.HasValue &&
+                dependency.SuccessorTaskItem != null &&
+                dependency.SuccessorTaskItem.ProjectId == projectId &&
+                dependency.SuccessorTaskItem.Kind == WorkItemKind.Task &&
+                !dependency.SuccessorTaskItem.DeletedAt.HasValue)
+            .OrderBy(dependency => dependency.PredecessorTaskItemId)
+            .ThenBy(dependency => dependency.SuccessorTaskItemId)
+            .ThenBy(dependency => dependency.Id)
+            .Take(take)
             .ToListAsync(cancellationToken);
     }
 

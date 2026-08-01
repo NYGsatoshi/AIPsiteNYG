@@ -14,7 +14,11 @@ import {
 import { AIP_REALTIME_TRANSPORT, RealtimeTransport, RealtimeTransportStatus } from './realtime-transport';
 import { SignalrRealtimeTransport } from './signalr-realtime.transport';
 
-export type RealtimeCatchUpCallback = () => Promise<void> | void;
+export interface RealtimeCatchUpContext {
+  readonly deniedOwners: ReadonlySet<string>;
+}
+
+export type RealtimeCatchUpCallback = (context: RealtimeCatchUpContext) => Promise<void> | void;
 export type RealtimeStaleEventGuard = (event: DurableRealtimeEvent) => boolean;
 
 interface SubscriptionEntry {
@@ -161,13 +165,18 @@ export class RealtimeFacade {
         return;
       }
 
-      for (const entry of this.subscriptions.values()) {
+      const deniedOwners = new Set<string>();
+      for (const entry of [...this.subscriptions.values()]) {
         if (entry.request.subscriptionType !== 'user') {
-          await this.authorizeSubscription(entry.request);
+          const result = await this.authorizeSubscription(entry.request);
+          if (!result.allowed) {
+            for (const owner of entry.owners)
+              deniedOwners.add(owner);
+          }
         }
       }
 
-      await this.runCatchUps();
+      await this.runCatchUps({ deniedOwners });
       if (this.canConnect()) {
         this.state.set('Connected');
       }
@@ -187,13 +196,20 @@ export class RealtimeFacade {
     return result;
   }
 
-  private async runCatchUps(): Promise<void> {
-    try {
-      // Registration order is the feature-defined authoritative reconciliation order.
-      for (const callback of this.catchUps.values()) {
-        await callback();
+  private async runCatchUps(context: RealtimeCatchUpContext): Promise<void> {
+    let failed = false;
+    // Registration order is the feature-defined authoritative reconciliation order.
+    // Every callback must observe a denied owner even when an unrelated HTTP
+    // reconciliation fails first, so one feature cannot prevent another from
+    // clearing protected state.
+    for (const callback of [...this.catchUps.values()]) {
+      try {
+        await callback(context);
+      } catch {
+        failed = true;
       }
-    } catch {
+    }
+    if (failed) {
       this.diagnosticsSubject.next({ code: 'CatchUpFailed' });
       throw new Error('Realtime catch-up could not complete.');
     }

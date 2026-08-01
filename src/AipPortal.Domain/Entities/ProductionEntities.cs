@@ -15,6 +15,7 @@ public sealed class Project : SoftDeletableEntity, ITenantEntity
     public ProjectStatus Status { get; set; } = ProjectStatus.Planning;
     public DateOnly? StartDate { get; set; }
     public DateOnly? DueDate { get; set; }
+    public long VersionNo { get; set; }
     public Guid CreatedByUserId { get; set; }
 
     public Workspace? Workspace { get; set; }
@@ -48,6 +49,7 @@ public sealed class Milestone : SoftDeletableEntity, ITenantEntity
     public DateOnly? DueDate { get; set; }
     public MilestoneStatus Status { get; set; } = MilestoneStatus.NotStarted;
     public int SortOrder { get; set; }
+    public long VersionNo { get; set; } = 1;
 
     public Project? Project { get; set; }
     public ICollection<TaskItem> Tasks { get; } = new List<TaskItem>();

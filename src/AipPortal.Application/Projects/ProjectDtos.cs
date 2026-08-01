@@ -1,3 +1,4 @@
+using AipPortal.Application.Planning;
 using AipPortal.Domain.Enums;
 
 namespace AipPortal.Application.Projects;
@@ -34,9 +35,15 @@ public sealed record TaskListQuery(
     public int SafePageSize => PageSize < 1 ? 50 : Math.Min(PageSize, 100);
 }
 
-public sealed record MilestoneResponse(Guid Id, Guid ProjectId, string Title, string? Description, DateOnly? DueDate, MilestoneStatus Status, int DisplayOrder, DateTimeOffset CreatedAt, DateTimeOffset? UpdatedAt);
+public sealed record MilestoneResponse(Guid Id, Guid ProjectId, string Title, string? Description, DateOnly? DueDate, MilestoneStatus Status, int DisplayOrder, DateTimeOffset CreatedAt, DateTimeOffset? UpdatedAt, long Version);
 public sealed record CreateMilestoneRequest(string Title, string? Description, DateOnly? DueDate, int DisplayOrder);
-public sealed record UpdateMilestoneRequest(string? Title, string? Description, DateOnly? DueDate, MilestoneStatus? Status, int? DisplayOrder);
+public sealed record UpdateMilestoneRequest(
+    string? Title,
+    string? Description,
+    DateOnly? DueDate,
+    MilestoneStatus? Status,
+    int? DisplayOrder,
+    [property: System.Text.Json.Serialization.JsonRequired] long ExpectedVersion);
 // Compatibility shape retained for the existing project screen.  The appended
 // values mirror the canonical Task detail contract so a list row cannot expose
 // stale parent-derived fields or a different aggregate version.
@@ -47,8 +54,24 @@ public sealed record UpdateTaskItemRequest(Guid? MilestoneId, string? Title, str
 public sealed record TaskAssignmentResponse(Guid Id, Guid TaskItemId, Guid UserId, string DisplayName, TaskAssignmentRole Role, decimal? EstimatedHours, decimal? ActualHours, DateTimeOffset AssignedAt, Guid AssignedByUserId);
 public sealed record AddTaskAssignmentRequest(Guid UserId, TaskAssignmentRole Role, decimal? EstimatedHours);
 public sealed record UpdateTaskAssignmentRequest(TaskAssignmentRole Role, decimal? EstimatedHours, decimal? ActualHours);
-public sealed record TaskDependencyResponse(Guid Id, Guid PredecessorTaskId, Guid SuccessorTaskId, TaskDependencyType DependencyType, DateTimeOffset CreatedAt);
-public sealed record AddTaskDependencyRequest(Guid PredecessorTaskId, TaskDependencyType DependencyType);
+public sealed record TaskDependencyResponse(
+    Guid Id,
+    Guid PredecessorTaskId,
+    Guid SuccessorTaskId,
+    [property: System.Text.Json.Serialization.JsonConverter(typeof(System.Text.Json.Serialization.JsonStringEnumConverter))] TaskDependencyType DependencyType,
+    DateTimeOffset CreatedAt,
+    long Version,
+    bool Editable,
+    IReadOnlyList<GanttWarningResponse> Warnings);
+[System.Text.Json.Serialization.JsonUnmappedMemberHandling(
+    System.Text.Json.Serialization.JsonUnmappedMemberHandling.Disallow)]
+public sealed record AddTaskDependencyRequest(
+    [property: System.Text.Json.Serialization.JsonRequired] Guid PredecessorTaskId,
+    [property: System.Text.Json.Serialization.JsonRequired]
+    [property: System.Text.Json.Serialization.JsonConverter(
+        typeof(System.Text.Json.Serialization.JsonStringEnumConverter))]
+    TaskDependencyType DependencyType,
+    long ExpectedVersion = 0);
 public sealed record CommentResponse(Guid Id, CommentTargetType TargetType, Guid TargetId, Guid AuthorUserId, string Body, DateTimeOffset CreatedAt, DateTimeOffset? UpdatedAt);
 public sealed record CreateCommentRequest(CommentTargetType TargetType, Guid TargetId, string Body);
 public sealed record UpdateCommentRequest(string Body, long? ExpectedVersion = null);

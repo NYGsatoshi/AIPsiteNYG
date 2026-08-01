@@ -3,6 +3,7 @@ using System;
 using AipPortal.Infrastructure.Persistence;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore.Infrastructure;
+using Microsoft.EntityFrameworkCore.Migrations;
 using Microsoft.EntityFrameworkCore.Storage.ValueConversion;
 using Npgsql.EntityFrameworkCore.PostgreSQL.Metadata;
 
@@ -11,9 +12,11 @@ using Npgsql.EntityFrameworkCore.PostgreSQL.Metadata;
 namespace AipPortal.Infrastructure.Persistence.Migrations
 {
     [DbContext(typeof(AppDbContext))]
-    partial class AppDbContextModelSnapshot : ModelSnapshot
+    [Migration("20260730120626_AddCanonicalGanttVersions")]
+    partial class AddCanonicalGanttVersions
     {
-        protected override void BuildModel(ModelBuilder modelBuilder)
+        /// <inheritdoc />
+        protected override void BuildTargetModel(ModelBuilder modelBuilder)
         {
 #pragma warning disable 612, 618
             modelBuilder
@@ -613,10 +616,6 @@ namespace AipPortal.Infrastructure.Persistence.Migrations
 
                     b.HasIndex("FileObjectId");
 
-                    b.HasIndex("OwnerType", "OwnerId", "FileObjectId")
-                        .IsUnique()
-                        .HasFilter("\"OwnerType\" = 'TaskItem' AND \"DeletedAt\" IS NULL");
-
                     b.HasIndex("OwnerUserId");
 
                     b.HasIndex("ScanStatus");
@@ -628,6 +627,10 @@ namespace AipPortal.Infrastructure.Persistence.Migrations
                     b.HasIndex("WorkspaceId");
 
                     b.HasIndex("OwnerType", "OwnerId");
+
+                    b.HasIndex("OwnerType", "OwnerId", "FileObjectId")
+                        .IsUnique()
+                        .HasFilter("\"OwnerType\" = 'TaskItem' AND \"DeletedAt\" IS NULL");
 
                     b.ToTable("attachments", (string)null);
                 });
@@ -3092,8 +3095,8 @@ namespace AipPortal.Infrastructure.Persistence.Migrations
                         .HasColumnType("character varying(120)");
 
                     b.Property<string>("NormalizedName")
-                        .ValueGeneratedOnAddOrUpdate()
                         .IsRequired()
+                        .ValueGeneratedOnAddOrUpdate()
                         .HasMaxLength(120)
                         .HasColumnType("character varying(120)")
                         .HasComputedColumnSql("lower(btrim(\"Name\"))", true);
@@ -4753,7 +4756,7 @@ namespace AipPortal.Infrastructure.Persistence.Migrations
 
                     b.HasIndex("TenantId", "UserId", "IsWatching", "TaskItemId");
 
-                    b.ToTable("work_item_watch_states", (string)null, t =>
+                    b.ToTable("work_item_watch_states", null, t =>
                         {
                             t.HasCheckConstraint("CK_work_item_watch_states_manual_opt_out_exclusive", "NOT (\"IsManualWatch\" AND \"IsExplicitOptOut\")");
                         });
@@ -4804,12 +4807,12 @@ namespace AipPortal.Infrastructure.Persistence.Migrations
                         .HasMaxLength(40)
                         .HasColumnType("character varying(40)");
 
+                    b.Property<Guid>("TenantId")
+                        .HasColumnType("uuid");
+
                     b.Property<string>("TimeZone")
                         .HasMaxLength(80)
                         .HasColumnType("character varying(80)");
-
-                    b.Property<Guid>("TenantId")
-                        .HasColumnType("uuid");
 
                     b.Property<DateTimeOffset?>("UpdatedAt")
                         .HasColumnType("timestamp with time zone");

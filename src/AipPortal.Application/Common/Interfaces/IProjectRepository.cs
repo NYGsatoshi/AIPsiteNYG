@@ -13,6 +13,23 @@ public interface IProjectRepository
     Task<IReadOnlyList<Milestone>> ListMilestonesAsync(Guid projectId, CancellationToken cancellationToken = default);
     Task<Milestone?> GetMilestoneAsync(Guid milestoneId, CancellationToken cancellationToken = default);
     Task<IReadOnlyList<TaskItem>> ListTasksAsync(Guid projectId, CancellationToken cancellationToken = default);
+    async Task<IReadOnlyList<TaskItem>> ListTasksBoundedAsync(Guid projectId, int take, CancellationToken cancellationToken = default) =>
+        (await ListTasksAsync(projectId, cancellationToken))
+            .Where(task => task.Kind == WorkItemKind.Task && !task.DeletedAt.HasValue)
+            .Take(take)
+            .ToList();
+    async Task<int> CountGanttItemsBoundedAsync(Guid projectId, int take, CancellationToken cancellationToken = default)
+    {
+        if (take <= 0)
+            return 0;
+        var tasks = await ListTasksBoundedAsync(projectId, take, cancellationToken);
+        if (tasks.Count >= take)
+            return take;
+        var milestones = await ListMilestonesAsync(projectId, cancellationToken);
+        return Math.Min(
+            take,
+            tasks.Count + milestones.Count(milestone => !milestone.DeletedAt.HasValue));
+    }
     Task<PagedResponse<TaskItem>> ListDirectSubtasksPageAsync(Guid projectId, Guid parentTaskItemId, int page, int pageSize, CancellationToken cancellationToken = default) => Task.FromResult(new PagedResponse<TaskItem>([], page, pageSize, 0));
     Task<TaskItem?> GetTaskAsync(Guid taskItemId, CancellationToken cancellationToken = default);
     Task<TaskWorkflowDefinition?> GetWorkflowDefinitionAsync(Guid projectId, CancellationToken cancellationToken = default) => Task.FromResult<TaskWorkflowDefinition?>(null);
@@ -34,7 +51,11 @@ public interface IProjectRepository
     Task<IReadOnlyList<TaskAssignment>> ListAssignmentsAsync(Guid taskItemId, CancellationToken cancellationToken = default);
     Task<TaskAssignment?> GetAssignmentAsync(Guid assignmentId, CancellationToken cancellationToken = default);
     Task<IReadOnlyList<TaskDependency>> ListDependenciesAsync(Guid taskItemId, CancellationToken cancellationToken = default);
+    async Task<IReadOnlyList<TaskDependency>> ListDependenciesBoundedAsync(Guid taskItemId, int take, CancellationToken cancellationToken = default) =>
+        (await ListDependenciesAsync(taskItemId, cancellationToken)).Take(take).ToList();
     Task<IReadOnlyList<TaskDependency>> ListProjectDependenciesAsync(Guid projectId, CancellationToken cancellationToken = default);
+    async Task<IReadOnlyList<TaskDependency>> ListProjectDependenciesBoundedAsync(Guid projectId, int take, CancellationToken cancellationToken = default) =>
+        (await ListProjectDependenciesAsync(projectId, cancellationToken)).Take(take).ToList();
     Task<TaskDependency?> GetDependencyAsync(Guid dependencyId, CancellationToken cancellationToken = default);
     Task<bool> DependencyExistsAsync(Guid predecessorTaskId, Guid successorTaskId, CancellationToken cancellationToken = default);
     Task<IReadOnlyList<Comment>> ListCommentsAsync(CommentTargetType targetType, Guid targetId, CancellationToken cancellationToken = default);

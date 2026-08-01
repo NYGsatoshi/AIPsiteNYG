@@ -2,8 +2,14 @@ import { Component } from '@angular/core';
 import { TestBed } from '@angular/core/testing';
 import { vi } from 'vitest';
 
-import { AipKanbanContract, AipKanbanMoveRequest } from '../../contracts/aip-complex-adapter.contracts';
-import { AipDataGridComponent, AipKanbanComponent } from './aip-adapter-shells.components';
+import {
+  AipGanttContract,
+  AipGanttEditIntent,
+  AipGanttItem,
+  AipKanbanContract,
+  AipKanbanMoveRequest
+} from '../../contracts/aip-complex-adapter.contracts';
+import { AipDataGridComponent, AipGanttComponent, AipKanbanComponent } from './aip-adapter-shells.components';
 
 @Component({
   standalone: true,
@@ -340,6 +346,308 @@ describe('AIPsite complex adapter shells', () => {
       source: 'keyboard'
     });
   });
+
+  it('renders the canonical narrow Schedule as semantic ordered sections with textual state and opens details', async () => {
+    await TestBed.configureTestingModule({ imports: [AipGanttComponent] }).compileComponents();
+    const fixture = TestBed.createComponent(AipGanttComponent);
+    fixture.componentInstance.presentation = 'narrow';
+    fixture.componentInstance.contract = ganttContract();
+    let opened: AipGanttItem | undefined;
+    fixture.componentInstance.itemActivated.subscribe((item) => opened = item);
+    fixture.detectChanges();
+
+    const host = fixture.nativeElement as HTMLElement;
+    const leaf = host.querySelector<HTMLElement>('[data-gantt-item-id="task-leaf"]')!;
+    const text = host.textContent ?? '';
+    expect(text).toContain('Scheduled work');
+    expect(text).toContain('Milestones');
+    expect(text).toContain('Unscheduled work');
+    expect(text).toContain('Dependencies');
+    expect(text).toContain('Schedule warnings');
+    expect(leaf.textContent).toContain('Priority');
+    expect(leaf.textContent).toContain('High');
+    expect(leaf.textContent).toContain('Blocked');
+    expect(leaf.textContent).toContain('In progress');
+    expect(leaf.textContent).toContain('DEPENDENCY_VIOLATION');
+    expect(itemElement(host, 'milestone-1').textContent).not.toContain('Open details');
+    expect(host.querySelector('aip-syncfusion-gantt')).toBeNull();
+    findButton(leaf, 'Open details').click();
+    expect(opened?.taskId).toBe('task-leaf');
+  });
+
+  it('routes schedule, clear, progress, Milestone, and FS dependency forms through canonical intents', async () => {
+    await TestBed.configureTestingModule({ imports: [AipGanttComponent] }).compileComponents();
+    const fixture = TestBed.createComponent(AipGanttComponent);
+    fixture.componentInstance.presentation = 'narrow';
+    fixture.componentInstance.contract = ganttContract();
+    const edits: AipGanttEditIntent[] = [];
+    fixture.componentInstance.editRequested.subscribe((intent) => edits.push(intent));
+    fixture.detectChanges();
+    const host = fixture.nativeElement as HTMLElement;
+
+    findButton(itemElement(host, 'task-leaf'), 'Edit dates').click();
+    fixture.detectChanges();
+    setValue(host.querySelector<HTMLInputElement>('input[name="plannedStartDate"]')!, '2026-08-03');
+    setValue(host.querySelector<HTMLInputElement>('input[name="plannedEndDate"]')!, '2026-08-07');
+    await fixture.whenStable();
+    fixture.detectChanges();
+    host.querySelector<HTMLFormElement>('.aip-gantt__form')!.dispatchEvent(submitEvent());
+    fixture.detectChanges();
+
+    findButton(itemElement(host, 'task-leaf'), 'Move to unscheduled').click();
+    fixture.detectChanges();
+    findButton(host.querySelector<HTMLElement>('.aip-gantt__dialog')!, 'Clear schedule').click();
+    fixture.detectChanges();
+
+    findButton(itemElement(host, 'task-leaf'), 'Edit progress').click();
+    fixture.detectChanges();
+    setValue(host.querySelector<HTMLInputElement>('input[name="progressPercent"]')!, '72');
+    await fixture.whenStable();
+    fixture.detectChanges();
+    host.querySelector<HTMLFormElement>('.aip-gantt__form')!.dispatchEvent(submitEvent());
+    fixture.detectChanges();
+
+    findButton(itemElement(host, 'milestone-1'), 'Edit Milestone date').click();
+    fixture.detectChanges();
+    setValue(host.querySelector<HTMLInputElement>('input[name="milestoneDate"]')!, '2026-08-15');
+    await fixture.whenStable();
+    fixture.detectChanges();
+    host.querySelector<HTMLFormElement>('.aip-gantt__form')!.dispatchEvent(submitEvent());
+    fixture.detectChanges();
+
+    findButton(itemElement(host, 'task-leaf'), 'Add FS predecessor').click();
+    fixture.detectChanges();
+    const predecessor = host.querySelector<HTMLSelectElement>('select[name="predecessorTaskId"]')!;
+    expect(Array.from(predecessor.options).map((option) => option.value)).not.toContain('milestone-1');
+    setValue(predecessor, 'task-unscheduled');
+    await fixture.whenStable();
+    fixture.detectChanges();
+    host.querySelector<HTMLFormElement>('.aip-gantt__form')!.dispatchEvent(submitEvent());
+    fixture.detectChanges();
+
+    findButton(host.querySelector<HTMLElement>('[data-gantt-dependency-id="dependency-1"]')!, 'Remove FS dependency').click();
+    fixture.detectChanges();
+    host.querySelector<HTMLFormElement>('.aip-gantt__form')!.dispatchEvent(submitEvent());
+
+    expect(edits).toEqual([
+      {
+        kind: 'schedule',
+        taskId: 'task-leaf',
+        plannedStartDate: '2026-08-03',
+        plannedEndDate: '2026-08-07',
+        milestoneDate: null,
+        expectedVersion: 8,
+        source: 'form'
+      },
+      {
+        kind: 'schedule',
+        taskId: 'task-leaf',
+        plannedStartDate: null,
+        plannedEndDate: null,
+        milestoneDate: null,
+        expectedVersion: 8,
+        source: 'form'
+      },
+      {
+        kind: 'progress',
+        taskId: 'task-leaf',
+        progressPercent: 72,
+        expectedVersion: 8,
+        source: 'form'
+      },
+      {
+        kind: 'schedule',
+        taskId: 'milestone-1',
+        plannedStartDate: null,
+        plannedEndDate: null,
+        milestoneDate: '2026-08-15',
+        expectedVersion: 3,
+        source: 'form'
+      },
+      {
+        kind: 'addDependency',
+        predecessorTaskId: 'task-unscheduled',
+        successorTaskId: 'task-leaf',
+        type: 'finishToStart',
+        expectedVersion: 8,
+        source: 'form'
+      },
+      {
+        kind: 'removeDependency',
+        dependencyId: 'dependency-1',
+        successorTaskId: 'task-leaf',
+        expectedVersion: 4,
+        source: 'form'
+      }
+    ]);
+  });
+
+  it('traps the editor workflow, sends no command on Escape or Cancel, and restores logical focus', async () => {
+    await TestBed.configureTestingModule({ imports: [AipGanttComponent] }).compileComponents();
+    const fixture = TestBed.createComponent(AipGanttComponent);
+    fixture.componentInstance.presentation = 'narrow';
+    fixture.componentInstance.contract = ganttContract();
+    const edits: AipGanttEditIntent[] = [];
+    fixture.componentInstance.editRequested.subscribe((intent) => edits.push(intent));
+    fixture.detectChanges();
+    const host = fixture.nativeElement as HTMLElement;
+    const trigger = findButton(itemElement(host, 'task-leaf'), 'Edit dates');
+
+    trigger.click();
+    fixture.detectChanges();
+    await fixture.whenStable();
+    const dialog = host.querySelector<HTMLElement>('[role="dialog"]')!;
+    expect(dialog.hasAttribute('aria-modal')).toBe(true);
+    dialog.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true, cancelable: true }));
+    fixture.detectChanges();
+    await Promise.resolve();
+
+    expect(edits).toEqual([]);
+    expect(host.querySelector('[role="dialog"]')).toBeNull();
+    expect(document.activeElement).toBe(trigger);
+
+    trigger.click();
+    fixture.detectChanges();
+    findButton(host.querySelector<HTMLElement>('[role="dialog"]')!, 'Cancel').click();
+    fixture.detectChanges();
+    await Promise.resolve();
+
+    expect(edits).toEqual([]);
+    expect(host.querySelector('[role="dialog"]')).toBeNull();
+    expect(document.activeElement).toBe(trigger);
+  });
+
+  it('hides every mutating action for a read-only viewer while retaining semantic data and Open details', async () => {
+    await TestBed.configureTestingModule({ imports: [AipGanttComponent] }).compileComponents();
+    const fixture = TestBed.createComponent(AipGanttComponent);
+    fixture.componentInstance.presentation = 'narrow';
+    const contract = ganttContract();
+    fixture.componentInstance.contract = { ...contract, readOnly: true };
+    fixture.detectChanges();
+
+    const host = fixture.nativeElement as HTMLElement;
+    const labels = Array.from(host.querySelectorAll<HTMLButtonElement>('button'))
+      .map((button) => button.textContent?.trim());
+    expect(labels).toContain('Open details');
+    expect(labels.some((label) => label?.startsWith('Edit'))).toBe(false);
+    expect(labels).not.toContain('Move to unscheduled');
+    expect(labels).not.toContain('Add FS predecessor');
+    expect(labels).not.toContain('Remove FS dependency');
+    expect(host.textContent).toContain('Schedule is read-only for the current actor.');
+  });
+
+  it('does not convert schedule edit permission into schedule-clear permission', async () => {
+    await TestBed.configureTestingModule({ imports: [AipGanttComponent] }).compileComponents();
+    const fixture = TestBed.createComponent(AipGanttComponent);
+    fixture.componentInstance.presentation = 'narrow';
+    const contract = ganttContract();
+    const scheduledItems = contract.scheduledItems!.map((item) =>
+      item.taskId === 'task-leaf'
+        ? {
+            ...item,
+            scheduleEditPermissions: {
+              ...item.scheduleEditPermissions,
+              canClearSchedule: false
+            }
+          }
+        : item);
+    fixture.componentInstance.contract = { ...contract, scheduledItems };
+    const edits: AipGanttEditIntent[] = [];
+    fixture.componentInstance.editRequested.subscribe((intent) => edits.push(intent));
+    fixture.detectChanges();
+    const host = fixture.nativeElement as HTMLElement;
+
+    const leaf = itemElement(host, 'task-leaf');
+    expect(Array.from(leaf.querySelectorAll('button')).some((button) =>
+      button.textContent?.trim() === 'Move to unscheduled')).toBe(false);
+    findButton(leaf, 'Edit dates').click();
+    fixture.detectChanges();
+    setValue(host.querySelector<HTMLInputElement>('input[name="plannedStartDate"]')!, '');
+    setValue(host.querySelector<HTMLInputElement>('input[name="plannedEndDate"]')!, '');
+    await fixture.whenStable();
+    fixture.detectChanges();
+    host.querySelector<HTMLFormElement>('.aip-gantt__form')!.dispatchEvent(submitEvent());
+    fixture.detectChanges();
+
+    expect(edits).toEqual([]);
+    expect(host.querySelector('[role="alert"]')?.textContent).toContain('permission to clear');
+    expect(host.querySelector('[role="dialog"]')).not.toBeNull();
+  });
+
+  it('allows an authorized derived parent to author an FS dependency without exposing derived date or progress edits', async () => {
+    await TestBed.configureTestingModule({ imports: [AipGanttComponent] }).compileComponents();
+    const fixture = TestBed.createComponent(AipGanttComponent);
+    fixture.componentInstance.presentation = 'narrow';
+    const contract = ganttContract();
+    const scheduledItems = contract.scheduledItems!.map((item) =>
+      item.taskId === 'task-parent'
+        ? {
+            ...item,
+            scheduleEditPermissions: {
+              ...item.scheduleEditPermissions,
+              canManageDependencies: true
+            }
+          }
+        : item);
+    fixture.componentInstance.contract = { ...contract, scheduledItems };
+    const edits: AipGanttEditIntent[] = [];
+    fixture.componentInstance.editRequested.subscribe((intent) => edits.push(intent));
+    fixture.detectChanges();
+    const host = fixture.nativeElement as HTMLElement;
+    const parent = itemElement(host, 'task-parent');
+
+    expect(Array.from(parent.querySelectorAll('button')).map((button) => button.textContent?.trim()))
+      .not.toContain('Edit dates');
+    expect(Array.from(parent.querySelectorAll('button')).map((button) => button.textContent?.trim()))
+      .not.toContain('Edit progress');
+    findButton(parent, 'Add FS predecessor').click();
+    fixture.detectChanges();
+    setValue(host.querySelector<HTMLSelectElement>('select[name="predecessorTaskId"]')!, 'task-unscheduled');
+    fixture.detectChanges();
+    host.querySelector<HTMLFormElement>('.aip-gantt__form')!.dispatchEvent(submitEvent());
+
+    expect(edits).toEqual([{
+      kind: 'addDependency',
+      predecessorTaskId: 'task-unscheduled',
+      successorTaskId: 'task-parent',
+      type: 'finishToStart',
+      expectedVersion: 5,
+      source: 'form'
+    }]);
+  });
+
+  it('restricts Milestone progress to the canonical 0 or 100 values', async () => {
+    await TestBed.configureTestingModule({ imports: [AipGanttComponent] }).compileComponents();
+    const fixture = TestBed.createComponent(AipGanttComponent);
+    fixture.componentInstance.presentation = 'narrow';
+    fixture.componentInstance.contract = ganttContract();
+    const edits: AipGanttEditIntent[] = [];
+    fixture.componentInstance.editRequested.subscribe((intent) => edits.push(intent));
+    fixture.detectChanges();
+    const host = fixture.nativeElement as HTMLElement;
+
+    findButton(itemElement(host, 'milestone-1'), 'Edit progress').click();
+    fixture.detectChanges();
+    setValue(host.querySelector<HTMLInputElement>('input[name="progressPercent"]')!, '50');
+    fixture.detectChanges();
+    host.querySelector<HTMLFormElement>('.aip-gantt__form')!.dispatchEvent(submitEvent());
+    fixture.detectChanges();
+
+    expect(edits).toEqual([]);
+    expect(host.querySelector('[role="alert"]')?.textContent).toContain('0 or 100');
+
+    setValue(host.querySelector<HTMLInputElement>('input[name="progressPercent"]')!, '100');
+    fixture.detectChanges();
+    host.querySelector<HTMLFormElement>('.aip-gantt__form')!.dispatchEvent(submitEvent());
+
+    expect(edits).toEqual([{
+      kind: 'progress',
+      taskId: 'milestone-1',
+      progressPercent: 100,
+      expectedVersion: 3,
+      source: 'form'
+    }]);
+  });
 });
 
 function kanbanContract(): AipKanbanContract<object> {
@@ -366,6 +674,168 @@ function kanbanContract(): AipKanbanContract<object> {
       { id: 'stage-cancelled', label: 'Cancelled', category: 'cancelled', cardCount: 0, wipWarningLimit: null, hasWipWarning: false, requiresReason: true }
     ]
   };
+}
+
+function ganttContract(): AipGanttContract<object> {
+  const parent = ganttItem({
+    taskId: 'task-parent',
+    title: 'Parent delivery',
+    progressIsDerived: true,
+    plannedStartDate: '2026-08-01',
+    plannedEndDate: '2026-08-10',
+    version: 5,
+    editable: false
+  });
+  const leaf = ganttItem({
+    taskId: 'task-leaf',
+    title: 'Blocked implementation',
+    parentTaskId: parent.taskId,
+    plannedStartDate: '2026-08-02',
+    plannedEndDate: '2026-08-05',
+    version: 8,
+    isBlocked: true,
+    warnings: [{
+      code: 'DEPENDENCY_VIOLATION',
+      message: 'Starts before its predecessor finishes.',
+      severity: 'warning',
+      targetType: 'task',
+      targetId: 'task-leaf',
+      field: 'plannedStartDate',
+      blocking: false
+    }]
+  });
+  const milestone = ganttItem({
+    taskId: 'milestone-1',
+    title: 'Release checkpoint',
+    kind: 'milestone',
+    milestoneDate: '2026-08-12',
+    version: 3
+  });
+  const unscheduled = ganttItem({
+    taskId: 'task-unscheduled',
+    title: 'Unscheduled follow-up',
+    version: 2,
+    warnings: [{
+      code: 'UNSCHEDULED',
+      message: 'Task has no planned dates.',
+      severity: 'info',
+      targetType: 'task',
+      targetId: 'task-unscheduled',
+      field: 'plannedStartDate',
+      blocking: false
+    }]
+  });
+  const permissions = ganttPermissions(true);
+  return {
+    ariaLabel: 'Canonical Project schedule',
+    presentation: 'narrow',
+    state: 'ready',
+    tasks: [],
+    taskIdentity: () => '',
+    taskLabel: () => '',
+    milestones: [],
+    timezone: 'Asia/Tokyo',
+    readOnly: false,
+    calendar: {
+      timeZone: 'Asia/Tokyo',
+      workingDays: ['Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday'],
+      holidaysAvailable: false,
+      limitations: ['Holiday service is unavailable.']
+    },
+    scheduledItems: [parent, leaf],
+    unscheduledItems: [unscheduled],
+    canonicalMilestones: [milestone],
+    dependencies: [{
+      dependencyId: 'dependency-1',
+      predecessorTaskId: parent.taskId,
+      successorTaskId: leaf.taskId,
+      type: 'finishToStart',
+      editable: true,
+      version: 4,
+      warnings: []
+    }],
+    warnings: [{
+      code: 'MISSING_ACTIVE_PLANNED_END',
+      message: 'An active Task has no planned end.',
+      severity: 'warning',
+      targetType: 'project',
+      targetId: null,
+      field: 'plannedEndDate',
+      blocking: false
+    }],
+    permissions,
+    busyItemId: null,
+    focusItemId: null,
+    feedback: 'Schedule loaded.'
+  };
+}
+
+function ganttItem(overrides: {
+  taskId: string;
+  title: string;
+  kind?: 'task' | 'milestone';
+  parentTaskId?: string | null;
+  progressIsDerived?: boolean;
+  plannedStartDate?: string | null;
+  plannedEndDate?: string | null;
+  milestoneDate?: string | null;
+  version: number;
+  editable?: boolean;
+  isBlocked?: boolean;
+  warnings?: AipGanttItem['warnings'];
+}): AipGanttItem {
+  return {
+    taskId: overrides.taskId,
+    kind: overrides.kind ?? 'task',
+    parentTaskId: overrides.parentTaskId ?? null,
+    milestoneId: null,
+    title: overrides.title,
+    plannedStartDate: overrides.plannedStartDate ?? null,
+    plannedEndDate: overrides.plannedEndDate ?? null,
+    milestoneDate: overrides.milestoneDate ?? null,
+    progressPercent: 40,
+    progressIsDerived: overrides.progressIsDerived ?? false,
+    workflowStageId: 'stage-in-progress',
+    workflowStageName: 'In progress',
+    stageCategory: 'inProgress',
+    priority: 'high',
+    isBlocked: overrides.isBlocked ?? false,
+    primaryAssignee: { userId: 'user-1', displayName: 'Taylor' },
+    version: overrides.version,
+    scheduleEditPermissions: ganttPermissions(overrides.editable ?? true),
+    warnings: overrides.warnings ?? []
+  };
+}
+
+function ganttPermissions(editable: boolean): {
+  canEditSchedule: boolean;
+  canEditProgress: boolean;
+  canManageDependencies: boolean;
+  canClearSchedule: boolean;
+  canOpen: true;
+} {
+  return {
+    canEditSchedule: editable,
+    canEditProgress: editable,
+    canManageDependencies: editable,
+    canClearSchedule: editable,
+    canOpen: true
+  };
+}
+
+function itemElement(host: HTMLElement, taskId: string): HTMLElement {
+  return host.querySelector<HTMLElement>(`[data-gantt-item-id="${taskId}"]`)!;
+}
+
+function findButton(host: HTMLElement, label: string): HTMLButtonElement {
+  return Array.from(host.querySelectorAll<HTMLButtonElement>('button'))
+    .find((button) => button.textContent?.trim() === label)!;
+}
+
+function setValue(control: HTMLInputElement | HTMLSelectElement, value: string): void {
+  control.value = value;
+  control.dispatchEvent(new Event('input', { bubbles: true }));
+  control.dispatchEvent(new Event('change', { bubbles: true }));
 }
 
 function dropEvent(): DragEvent {

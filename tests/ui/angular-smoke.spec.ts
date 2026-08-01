@@ -373,6 +373,121 @@ test.describe('MVP-A P0 Angular frontend smoke', () => {
     expect(api.kanbanGetCount()).toBe(1);
   });
 
+  test('uses the canonical Schedule tab forms for desktop and the 320px mobile projection', async ({ page }, testInfo) => {
+    await page.addInitScript(() => {
+      (window as Window & { __AIP_FEATURE_FLAGS__?: Record<string, boolean> }).__AIP_FEATURE_FLAGS__ = {
+        'tasks.ganttV1': true
+      };
+    });
+    const api = await installProjectGanttApi(page);
+    const mobile = testInfo.project.name === 'chromium-mobile';
+    await page.setViewportSize(mobile ? { width: 320, height: 800 } : { width: 1280, height: 900 });
+
+    await page.goto('/app/projects/static-project-gantt');
+    await page.getByRole('tab', { name: 'Schedule', exact: true }).click();
+
+    await expect(page.getByTestId('project-schedule')).toBeVisible();
+    await expect(page.getByTestId('aip-gantt-projection')).toBeVisible();
+    await expect(page.getByText('Workspace timezone:')).toContainText('Asia/Tokyo');
+    await expect(page.getByText('Derived parent Task', { exact: true })).toBeVisible();
+    await expect(page.getByText('50% (derived)', { exact: true })).toBeVisible();
+    await expect(page.getByRole('region', { name: 'Schedule warnings' })
+      .getByText(/DEPENDENCY_VIOLATION/)).toBeVisible();
+    await expect(page.getByRole('heading', { name: 'Milestones', exact: true })).toBeVisible();
+    await expect(page.getByRole('heading', { name: 'Unscheduled work', exact: true })).toBeVisible();
+
+    if (mobile) {
+      await expect(page.getByRole('heading', { name: 'Timeline chart', exact: true })).toHaveCount(0);
+      await expectNoDocumentHorizontalOverflow(page);
+    } else {
+      await expect(page.getByRole('heading', { name: 'Timeline chart', exact: true })).toBeVisible();
+    }
+
+    let scheduleItem = ganttItem(page, 'task-gantt-schedule');
+    const scheduleEdit = scheduleItem.getByRole('button', { name: 'Edit dates', exact: true });
+    await scheduleEdit.click();
+    await page.getByLabel('Planned start').fill('2026-08-03');
+    await page.getByLabel('Planned end').fill('2026-08-08');
+    await page.getByRole('button', { name: 'Apply schedule' }).click();
+    scheduleItem = ganttItem(page, 'task-gantt-schedule');
+    await expect(scheduleItem).toContainText('2026-08-03 to 2026-08-08');
+    await expectLogicalGanttFocus(scheduleItem);
+
+    await scheduleItem.getByRole('button', { name: 'Edit progress', exact: true }).click();
+    await page.getByLabel('Progress percent').fill('40');
+    await page.getByRole('button', { name: 'Apply progress' }).click();
+    await expect(ganttItem(page, 'task-gantt-schedule')).toContainText('40%');
+
+    const milestone = ganttItem(page, 'milestone-gantt-release');
+    await milestone.getByRole('button', { name: 'Edit Milestone date', exact: true }).click();
+    await page.getByRole('dialog', { name: 'Edit Milestone date' })
+      .locator('input[name="milestoneDate"]')
+      .fill('2026-08-31');
+    await page.getByRole('button', { name: 'Apply schedule' }).click();
+    await expect(ganttItem(page, 'milestone-gantt-release')).toContainText('2026-08-31');
+
+    const successor = ganttItem(page, 'task-gantt-successor');
+    await successor.getByRole('button', { name: 'Add FS predecessor', exact: true }).click();
+    await page.getByLabel('Finish-to-Start predecessor').selectOption('task-gantt-predecessor');
+    await page.getByRole('button', { name: 'Add dependency' }).click();
+    const addedDependency = page.locator('[data-gantt-dependency-id="dependency-gantt-added"]');
+    await expect(addedDependency).toContainText('Predecessor task');
+    await expect(addedDependency).toContainText('Dependency successor');
+
+    await addedDependency.getByRole('button', { name: 'Remove FS dependency' }).click();
+    await page.getByRole('button', { name: 'Remove dependency', exact: true }).click();
+    await expect(page.locator('[data-gantt-dependency-id="dependency-gantt-added"]')).toHaveCount(0);
+
+    scheduleItem = ganttItem(page, 'task-gantt-schedule');
+    await scheduleItem.getByRole('button', { name: 'Move to unscheduled', exact: true }).click();
+    await page.getByRole('button', { name: 'Clear schedule', exact: true }).click();
+    const unscheduled = page.getByRole('heading', { name: 'Unscheduled work', exact: true })
+      .locator('..');
+    await expect(unscheduled.locator('[data-gantt-item-id="task-gantt-schedule"]')).toBeVisible();
+    await expect(ganttItem(page, 'task-gantt-schedule')).toContainText('Unscheduled');
+
+    const requestsBeforeCancel = api.commandBodies.length;
+    await ganttItem(page, 'task-gantt-unscheduled').getByRole('button', { name: 'Edit dates', exact: true }).click();
+    await page.getByLabel('Planned start').press('Escape');
+    await expect(page.getByRole('dialog')).toHaveCount(0);
+    expect(api.commandBodies).toHaveLength(requestsBeforeCancel);
+    await expectLogicalGanttFocus(ganttItem(page, 'task-gantt-unscheduled'));
+
+    expect(api.commandBodies).toEqual(expect.arrayContaining([
+      expect.objectContaining({ kind: 'schedule', taskId: 'task-gantt-schedule', plannedStartDate: '2026-08-03', plannedEndDate: '2026-08-08' }),
+      expect.objectContaining({ kind: 'progress', taskId: 'task-gantt-schedule', progressPercent: 40 }),
+      expect.objectContaining({ kind: 'schedule', taskId: 'milestone-gantt-release', milestoneDate: '2026-08-31' }),
+      expect.objectContaining({ kind: 'addDependency', successorTaskId: 'task-gantt-successor', predecessorTaskId: 'task-gantt-predecessor' }),
+      expect.objectContaining({ kind: 'removeDependency', successorTaskId: 'task-gantt-successor', dependencyId: 'dependency-gantt-added' }),
+      expect.objectContaining({ kind: 'schedule', taskId: 'task-gantt-schedule', plannedStartDate: null, plannedEndDate: null })
+    ]));
+    expect(api.csrfHeaders.every((header) => header === 'csrf-gantt')).toBe(true);
+    expect(api.ganttGetCount()).toBeGreaterThan(1);
+  });
+
+  test('keeps the maintained read-only Schedule projection when tasks.ganttV1 is disabled', async ({ page }) => {
+    await page.addInitScript(() => {
+      (window as Window & { __AIP_FEATURE_FLAGS__?: Record<string, boolean> }).__AIP_FEATURE_FLAGS__ = {
+        'tasks.ganttV1': false
+      };
+    });
+    const api = await installProjectGanttApi(page);
+
+    await page.goto('/app/projects/static-project-gantt');
+    await page.getByRole('tab', { name: 'Schedule', exact: true }).click();
+
+    await expect(page.getByText(
+      'Canonical Gantt presentation is disabled. This maintained read-only list is derived from the same authoritative HTTP snapshot.',
+      { exact: true }
+    )).toBeVisible();
+    await expect(page.getByText(/Schedule is read-only because the current API/)).toBeVisible();
+    await expect(page.getByText(/Canonical schedule task/)).toBeVisible();
+    await expect(page.locator('[data-gantt-item-id]')).toHaveCount(0);
+    await expect(page.getByRole('button', { name: /Edit dates|Edit progress|Add FS predecessor/ })).toHaveCount(0);
+    expect(api.ganttGetCount()).toBe(1);
+    expect(api.commandBodies).toHaveLength(0);
+  });
+
   test('matches approved Angular P0 screenshot baselines', async ({ page }, testInfo) => {
     if (testInfo.project.name === 'chromium-desktop') {
       await page.setViewportSize({ width: 1280, height: 900 });
@@ -400,6 +515,530 @@ test.describe('MVP-A P0 Angular frontend smoke', () => {
     throw new Error(`Unexpected Playwright project for Angular screenshots: ${testInfo.project.name}`);
   });
 });
+
+async function installProjectGanttApi(page: Page) {
+  let snapshot = projectGanttSnapshot();
+  let ganttGets = 0;
+  const commandBodies: Record<string, unknown>[] = [];
+  const csrfHeaders: string[] = [];
+
+  await page.route('**/api/**', async (route) => {
+    const request = route.request();
+    const url = new URL(request.url());
+    const path = url.pathname;
+    const method = request.method();
+
+    if (path === '/api/security/csrf-token' && method === 'GET') {
+      await route.fulfill({
+        status: 200,
+        contentType: 'application/json',
+        body: JSON.stringify({ token: 'csrf-gantt', headerName: 'X-CSRF-Token' })
+      });
+      return;
+    }
+
+    if (path === '/api/projects/static-project-gantt' && method === 'GET') {
+      await route.fulfill({
+        status: 200,
+        contentType: 'application/json',
+        body: JSON.stringify({
+          id: 'static-project-gantt',
+          title: 'Canonical Gantt Project',
+          status: 'Active',
+          startDate: '2026-07-01',
+          endDate: '2026-09-30',
+          uiPermissions: { canCreateTask: true }
+        })
+      });
+      return;
+    }
+
+    if (path === '/api/projects/static-project-gantt/tasks' && method === 'GET') {
+      await route.fulfill({
+        status: 200,
+        contentType: 'application/json',
+        body: JSON.stringify({ items: [], totalCount: 0, hasMore: false })
+      });
+      return;
+    }
+
+    if (path === '/api/projects/static-project-gantt/kanban' && method === 'GET') {
+      const board = projectKanbanSnapshot('stage-todo', 1, 1);
+      await route.fulfill({
+        status: 200,
+        contentType: 'application/json',
+        body: JSON.stringify({
+          ...board,
+          board: {
+            ...board.board,
+            projectId: 'static-project-gantt',
+            totalAuthorizedCardCount: 0,
+            warnings: []
+          },
+          columns: board.columns.map((column) => ({
+            ...column,
+            currentAuthorizedCardCount: 0,
+            hasWipWarning: false
+          })),
+          cards: []
+        })
+      });
+      return;
+    }
+
+    if (path === '/api/projects/static-project-gantt/gantt' && method === 'GET') {
+      ganttGets += 1;
+      await route.fulfill({
+        status: 200,
+        contentType: 'application/json',
+        body: JSON.stringify(snapshot)
+      });
+      return;
+    }
+
+    if (path === '/api/projects/static-project-gantt/workload' && method === 'GET') {
+      await route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify({ members: [] }) });
+      return;
+    }
+
+    if (path === '/api/projects/static-project-gantt/members' && method === 'GET') {
+      await route.fulfill({ status: 200, contentType: 'application/json', body: '[]' });
+      return;
+    }
+
+    const scheduleMatch = /^\/api\/tasks\/([^/]+)\/schedule$/.exec(path);
+    if (scheduleMatch && method === 'PATCH') {
+      const taskId = scheduleMatch[1];
+      const body = request.postDataJSON() as Record<string, unknown>;
+      commandBodies.push({ kind: 'schedule', taskId, ...body });
+      csrfHeaders.push(request.headers()['x-csrf-token'] ?? '');
+      const item = findGanttDto(snapshot, taskId);
+      expect(body['expectedVersion']).toBe(item.version);
+      const updated = {
+        ...item,
+        plannedStartDate: body['plannedStartDate'] as string | null,
+        plannedEndDate: body['plannedEndDate'] as string | null,
+        milestoneDate: body['milestoneDate'] as string | null,
+        version: item.version + 1
+      };
+      if (updated.kind === 'Task' && updated.plannedStartDate === null && updated.plannedEndDate === null) {
+        updated.warnings = mergeWarningDto(updated.warnings, ganttWarningDto(
+          'UNSCHEDULED',
+          'Task is unscheduled.',
+          'Task',
+          updated.taskId
+        ));
+      } else {
+        updated.warnings = updated.warnings.filter((warning) => warning.code !== 'UNSCHEDULED');
+      }
+      snapshot = replaceGanttDto(snapshot, updated);
+      await route.fulfill({
+        status: 200,
+        contentType: 'application/json',
+        body: JSON.stringify(ganttCommandDto(updated))
+      });
+      return;
+    }
+
+    const progressMatch = /^\/api\/tasks\/([^/]+)\/progress$/.exec(path);
+    if (progressMatch && method === 'PATCH') {
+      const taskId = progressMatch[1];
+      const body = request.postDataJSON() as Record<string, unknown>;
+      commandBodies.push({ kind: 'progress', taskId, ...body });
+      csrfHeaders.push(request.headers()['x-csrf-token'] ?? '');
+      const item = findGanttDto(snapshot, taskId);
+      expect(body['expectedVersion']).toBe(item.version);
+      const updated = {
+        ...item,
+        progressPercent: Number(body['progressPercent']),
+        version: item.version + 1
+      };
+      snapshot = replaceGanttDto(snapshot, updated);
+      await route.fulfill({
+        status: 200,
+        contentType: 'application/json',
+        body: JSON.stringify(ganttCommandDto(updated))
+      });
+      return;
+    }
+
+    const dependencyAddMatch = /^\/api\/tasks\/([^/]+)\/dependencies$/.exec(path);
+    if (dependencyAddMatch && method === 'POST') {
+      const successorTaskId = dependencyAddMatch[1];
+      const body = request.postDataJSON() as Record<string, unknown>;
+      commandBodies.push({
+        kind: 'addDependency',
+        successorTaskId,
+        predecessorTaskId: body['predecessorTaskId'],
+        expectedVersion: body['expectedVersion']
+      });
+      csrfHeaders.push(request.headers()['x-csrf-token'] ?? '');
+      const successor = findGanttDto(snapshot, successorTaskId);
+      expect(body['expectedVersion']).toBe(successor.version);
+      const version = successor.version + 1;
+      snapshot = replaceGanttDto(snapshot, { ...successor, version });
+      snapshot = {
+        ...snapshot,
+        projectVersion: snapshot.projectVersion + 1,
+        dependencies: [...snapshot.dependencies, {
+          dependencyId: 'dependency-gantt-added',
+          predecessorTaskId: String(body['predecessorTaskId']),
+          successorTaskId,
+          type: 'FinishToStart',
+          editable: true,
+          version,
+          warnings: []
+        }]
+      };
+      await route.fulfill({
+        status: 200,
+        contentType: 'application/json',
+        body: JSON.stringify({
+          id: 'dependency-gantt-added',
+          predecessorTaskId: String(body['predecessorTaskId']),
+          successorTaskId,
+          dependencyType: 'FinishToStart',
+          createdAt: '2026-07-30T00:00:00Z',
+          version,
+          editable: true,
+          warnings: []
+        })
+      });
+      return;
+    }
+
+    const dependencyRemoveMatch = /^\/api\/tasks\/([^/]+)\/dependencies\/([^/]+)$/.exec(path);
+    if (dependencyRemoveMatch && method === 'DELETE') {
+      const [, successorTaskId, dependencyId] = dependencyRemoveMatch;
+      const successor = findGanttDto(snapshot, successorTaskId);
+      expect(url.searchParams.get('expectedVersion')).toBe(String(successor.version));
+      commandBodies.push({
+        kind: 'removeDependency',
+        successorTaskId,
+        dependencyId,
+        expectedVersion: successor.version
+      });
+      csrfHeaders.push(request.headers()['x-csrf-token'] ?? '');
+      snapshot = replaceGanttDto(snapshot, { ...successor, version: successor.version + 1 });
+      snapshot = {
+        ...snapshot,
+        projectVersion: snapshot.projectVersion + 1,
+        dependencies: snapshot.dependencies.filter((dependency) => dependency.dependencyId !== dependencyId)
+      };
+      await route.fulfill({
+        status: 200,
+        contentType: 'application/json',
+        body: JSON.stringify({ status: 'OK' })
+      });
+      return;
+    }
+
+    await route.fallback();
+  });
+
+  return {
+    commandBodies,
+    csrfHeaders,
+    ganttGetCount: () => ganttGets
+  };
+}
+
+type MockGanttWarning = {
+  code: string;
+  message: string;
+  severity: 'Info' | 'Warning';
+  targetType: string;
+  targetId: string | null;
+  field: string | null;
+  blocking: false;
+};
+
+type MockGanttItem = {
+  taskId: string;
+  kind: 'Task' | 'Milestone';
+  parentTaskId: string | null;
+  milestoneId: string | null;
+  title: string;
+  plannedStartDate: string | null;
+  plannedEndDate: string | null;
+  milestoneDate: string | null;
+  progressPercent: number;
+  progressIsDerived: boolean;
+  workflowStageId: string | null;
+  workflowStageName: string | null;
+  stageCategory: 'Backlog' | 'Todo' | 'InProgress' | 'Review' | 'Done' | 'Cancelled';
+  priority: 'Low' | 'Medium' | 'High' | 'Critical';
+  isBlocked: boolean;
+  primaryAssignee: { userId: string; displayName: string } | null;
+  version: number;
+  scheduleEditPermissions: MockGanttPermissions;
+  warnings: MockGanttWarning[];
+};
+
+type MockGanttPermissions = {
+  canEditSchedule: boolean;
+  canEditProgress: boolean;
+  canManageDependencies: boolean;
+  canClearSchedule: boolean;
+  canOpen: boolean;
+};
+
+type MockGanttSnapshot = {
+  projectId: string;
+  projectTitle: string;
+  projectVersion: number;
+  workflowVersion: number;
+  calendarVersion: number | null;
+  calendar: {
+    timeZone: string;
+    workingDays: string[];
+    holidaysAvailable: boolean;
+    limitations: string[];
+  };
+  scheduledItems: MockGanttItem[];
+  unscheduledItems: MockGanttItem[];
+  milestones: MockGanttItem[];
+  dependencies: {
+    dependencyId: string;
+    predecessorTaskId: string;
+    successorTaskId: string;
+    type: 'FinishToStart' | 'StartToStart' | 'FinishToFinish' | 'StartToFinish';
+    editable: boolean;
+    version: number;
+    warnings: MockGanttWarning[];
+  }[];
+  warnings: MockGanttWarning[];
+  permissions: MockGanttPermissions;
+  maximumItems: number;
+  totalItems: number;
+};
+
+const ganttEditorPermissions: MockGanttPermissions = {
+  canEditSchedule: true,
+  canEditProgress: true,
+  canManageDependencies: true,
+  canClearSchedule: true,
+  canOpen: true
+};
+
+function projectGanttSnapshot(): MockGanttSnapshot {
+  const parentPermissions = {
+    ...ganttEditorPermissions,
+    canEditSchedule: false,
+    canEditProgress: false,
+    canClearSchedule: false
+  };
+  const milestonePermissions = {
+    ...ganttEditorPermissions,
+    canEditProgress: false,
+    canManageDependencies: false,
+    canClearSchedule: false
+  };
+  const parentWarning = ganttWarningDto(
+    'PARENT_DERIVED',
+    'Parent schedule and progress are derived from child Tasks.',
+    'Task',
+    'task-gantt-parent'
+  );
+  const dependencyWarning = ganttWarningDto(
+    'DEPENDENCY_VIOLATION',
+    'The successor begins before its predecessor finishes; dates were not moved.',
+    'Dependency',
+    'dependency-gantt-existing',
+    'plannedStartDate'
+  );
+  const legacyWarning = ganttWarningDto(
+    'LEGACY_DEPENDENCY_TYPE',
+    'This legacy non-FS dependency is read-only.',
+    'Dependency',
+    'dependency-gantt-legacy',
+    'type'
+  );
+
+  return {
+    projectId: 'static-project-gantt',
+    projectTitle: 'Canonical Gantt Project',
+    projectVersion: 11,
+    workflowVersion: 5,
+    calendarVersion: null,
+    calendar: {
+      timeZone: 'Asia/Tokyo',
+      workingDays: [],
+      holidaysAvailable: false,
+      limitations: ['Holiday dates are unavailable from the current canonical calendar service.']
+    },
+    scheduledItems: [
+      ganttTaskDto({
+        taskId: 'task-gantt-parent',
+        title: 'Derived parent',
+        plannedStartDate: '2026-07-01',
+        plannedEndDate: '2026-07-10',
+        progressPercent: 50,
+        progressIsDerived: true,
+        scheduleEditPermissions: parentPermissions,
+        warnings: [parentWarning]
+      }),
+      ganttTaskDto({
+        taskId: 'task-gantt-schedule',
+        parentTaskId: 'task-gantt-parent',
+        title: 'Canonical schedule task',
+        plannedStartDate: '2026-07-03',
+        plannedEndDate: '2026-07-06',
+        progressPercent: 25,
+        isBlocked: true,
+        priority: 'Critical',
+        version: 3,
+        warnings: [dependencyWarning]
+      }),
+      ganttTaskDto({
+        taskId: 'task-gantt-predecessor',
+        parentTaskId: 'task-gantt-parent',
+        title: 'Predecessor task',
+        plannedStartDate: '2026-07-01',
+        plannedEndDate: '2026-07-10',
+        progressPercent: 75,
+        version: 2
+      }),
+      ganttTaskDto({
+        taskId: 'task-gantt-successor',
+        title: 'Dependency successor',
+        plannedStartDate: '2026-07-15',
+        plannedEndDate: '2026-07-20',
+        version: 4
+      })
+    ],
+    unscheduledItems: [
+      ganttTaskDto({
+        taskId: 'task-gantt-unscheduled',
+        title: 'Unscheduled task',
+        version: 2,
+        warnings: [ganttWarningDto('UNSCHEDULED', 'Task is unscheduled.', 'Task', 'task-gantt-unscheduled')]
+      })
+    ],
+    milestones: [{
+      ...ganttTaskDto({
+        taskId: 'milestone-gantt-release',
+        title: 'Release Milestone',
+        version: 4,
+        scheduleEditPermissions: milestonePermissions
+      }),
+      kind: 'Milestone',
+      milestoneDate: '2026-07-31'
+    }],
+    dependencies: [
+      {
+        dependencyId: 'dependency-gantt-existing',
+        predecessorTaskId: 'task-gantt-predecessor',
+        successorTaskId: 'task-gantt-schedule',
+        type: 'FinishToStart',
+        editable: true,
+        version: 3,
+        warnings: [dependencyWarning]
+      },
+      {
+        dependencyId: 'dependency-gantt-legacy',
+        predecessorTaskId: 'task-gantt-predecessor',
+        successorTaskId: 'task-gantt-unscheduled',
+        type: 'StartToStart',
+        editable: false,
+        version: 2,
+        warnings: [legacyWarning]
+      }
+    ],
+    warnings: [dependencyWarning, legacyWarning],
+    permissions: ganttEditorPermissions,
+    maximumItems: 20,
+    totalItems: 6
+  };
+}
+
+function ganttTaskDto(overrides: Partial<MockGanttItem>): MockGanttItem {
+  return {
+    taskId: 'task-gantt',
+    kind: 'Task',
+    parentTaskId: null,
+    milestoneId: null,
+    title: 'Task',
+    plannedStartDate: null,
+    plannedEndDate: null,
+    milestoneDate: null,
+    progressPercent: 0,
+    progressIsDerived: false,
+    workflowStageId: 'stage-todo',
+    workflowStageName: 'Todo',
+    stageCategory: 'Todo',
+    priority: 'High',
+    isBlocked: false,
+    primaryAssignee: { userId: 'user-gantt', displayName: 'Schedule Editor' },
+    version: 1,
+    scheduleEditPermissions: ganttEditorPermissions,
+    warnings: [],
+    ...overrides
+  };
+}
+
+function ganttWarningDto(
+  code: string,
+  message: string,
+  targetType: string,
+  targetId: string,
+  field: string | null = null
+): MockGanttWarning {
+  return {
+    code,
+    message,
+    severity: 'Warning',
+    targetType,
+    targetId,
+    field,
+    blocking: false
+  };
+}
+
+function mergeWarningDto(warnings: MockGanttWarning[], warning: MockGanttWarning): MockGanttWarning[] {
+  return [...warnings.filter((candidate) => candidate.code !== warning.code), warning];
+}
+
+function findGanttDto(snapshot: MockGanttSnapshot, taskId: string): MockGanttItem {
+  const item = [...snapshot.scheduledItems, ...snapshot.unscheduledItems, ...snapshot.milestones]
+    .find((candidate) => candidate.taskId === taskId);
+  if (!item) throw new Error(`Unexpected mocked Gantt WorkItem: ${taskId}`);
+  return item;
+}
+
+function replaceGanttDto(snapshot: MockGanttSnapshot, updated: MockGanttItem): MockGanttSnapshot {
+  const without = (items: MockGanttItem[]) => items.filter((item) => item.taskId !== updated.taskId);
+  const scheduledItems = without(snapshot.scheduledItems);
+  const unscheduledItems = without(snapshot.unscheduledItems);
+  const milestones = without(snapshot.milestones);
+  if (updated.kind === 'Milestone') {
+    milestones.push(updated);
+  } else if (updated.plannedStartDate === null && updated.plannedEndDate === null) {
+    unscheduledItems.push(updated);
+  } else {
+    scheduledItems.push(updated);
+  }
+  return {
+    ...snapshot,
+    projectVersion: snapshot.projectVersion + 1,
+    scheduledItems,
+    unscheduledItems,
+    milestones
+  };
+}
+
+function ganttCommandDto(item: MockGanttItem) {
+  return {
+    taskId: item.taskId,
+    kind: item.kind,
+    plannedStartDate: item.plannedStartDate,
+    plannedEndDate: item.plannedEndDate,
+    milestoneDate: item.milestoneDate,
+    progressPercent: item.progressPercent,
+    version: item.version,
+    warnings: item.warnings
+  };
+}
 
 async function installProjectKanbanApi(
   page: Page,
@@ -622,6 +1261,16 @@ function projectKanbanSnapshot(stageId: ProjectKanbanStageId, boardVersion: numb
 function projectKanbanStageId(value: unknown): ProjectKanbanStageId {
   if (value === 'stage-todo' || value === 'stage-done' || value === 'stage-cancelled') return value;
   throw new Error(`Unexpected mocked Kanban target Stage: ${String(value)}`);
+}
+
+function ganttItem(page: Page, taskId: string): Locator {
+  return page.locator(`[data-gantt-item-id="${taskId}"]`);
+}
+
+async function expectLogicalGanttFocus(item: Locator): Promise<void> {
+  await expect.poll(() => item.evaluate((element) =>
+    element === document.activeElement || element.contains(document.activeElement)
+  )).toBe(true);
 }
 
 async function expectHealthyAngularPage(page: Page) {

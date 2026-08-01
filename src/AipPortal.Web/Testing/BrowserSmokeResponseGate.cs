@@ -3,6 +3,13 @@ using AipPortal.Application.Common.Interfaces;
 
 namespace AipPortal.Web.Testing;
 
+public static class BrowserSmokeTestBoundary
+{
+    public static bool IsEnabled(string environmentName, bool requested) =>
+        requested &&
+        string.Equals(environmentName, "Test", StringComparison.OrdinalIgnoreCase);
+}
+
 public sealed record BrowserSmokeResponseGateArmRequest(string Method, string Path);
 
 public sealed record BrowserSmokeResponseGateSnapshot(string State, int? StatusCode);
@@ -33,7 +40,8 @@ public sealed class BrowserSmokeResponseGateRegistry
                string.Equals(segments[0], "api", StringComparison.Ordinal) &&
                string.Equals(segments[1], "projects", StringComparison.Ordinal) &&
                Guid.TryParse(segments[2], out _) &&
-               string.Equals(segments[3], "kanban", StringComparison.Ordinal);
+               (string.Equals(segments[3], "kanban", StringComparison.Ordinal) ||
+                string.Equals(segments[3], "gantt", StringComparison.Ordinal));
     }
 
     public bool TryArm(Guid gateId, Guid ownerUserId, string method, string path)

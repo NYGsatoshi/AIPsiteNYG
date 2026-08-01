@@ -705,6 +705,16 @@ public static class AppDbContextSeed
             now,
             cancellationToken);
 
+        await SeedBrowserSmokeGanttPr06Async(
+            dbContext,
+            tenantId,
+            user,
+            pr05Manager,
+            recipient,
+            workspace,
+            now,
+            cancellationToken);
+
         await dbContext.SaveChangesAsync(cancellationToken);
 
         await using var taskFileStream = new MemoryStream(taskFileBytes, writable: false);
@@ -1304,6 +1314,381 @@ public static class AppDbContextSeed
         await TaskAsync("PR05 stable neighbor card", 3000);
         await TaskAsync("PR05 cancellation card", 4000);
         await TaskAsync("PR05 stale conflict card", 5000);
+    }
+
+    private static async Task SeedBrowserSmokeGanttPr06Async(
+        AppDbContext dbContext,
+        Guid tenantId,
+        User owner,
+        User manager,
+        User viewer,
+        Workspace workspace,
+        DateTimeOffset now,
+        CancellationToken cancellationToken)
+    {
+        const string groupSlug = "browser-smoke-pr04-queue";
+        const string projectSlug = "browser-smoke-pr06-gantt";
+        var today = DateOnly.FromDateTime(now.UtcDateTime.Date);
+
+        var group = dbContext.Groups.Local.FirstOrDefault(
+            candidate =>
+                candidate.TenantId == tenantId &&
+                candidate.WorkspaceId == workspace.Id &&
+                candidate.Slug == groupSlug)
+            ?? await dbContext.Groups.SingleAsync(
+                candidate =>
+                    candidate.TenantId == tenantId &&
+                    candidate.WorkspaceId == workspace.Id &&
+                    candidate.Slug == groupSlug,
+                cancellationToken);
+
+        var managerWorkspaceMember = dbContext.WorkspaceMembers.Local.FirstOrDefault(
+            candidate =>
+                candidate.TenantId == tenantId &&
+                candidate.WorkspaceId == workspace.Id &&
+                candidate.UserId == manager.Id)
+            ?? await dbContext.WorkspaceMembers.FirstOrDefaultAsync(
+                candidate =>
+                    candidate.TenantId == tenantId &&
+                    candidate.WorkspaceId == workspace.Id &&
+                    candidate.UserId == manager.Id,
+                cancellationToken);
+        if (managerWorkspaceMember is null)
+        {
+            await dbContext.WorkspaceMembers.AddAsync(new WorkspaceMember
+            {
+                TenantId = tenantId,
+                WorkspaceId = workspace.Id,
+                UserId = manager.Id,
+                Role = WorkspaceRole.Member,
+                Status = MembershipStatus.Active,
+                JoinedAt = now
+            }, cancellationToken);
+        }
+        else
+        {
+            managerWorkspaceMember.Role = WorkspaceRole.Member;
+            managerWorkspaceMember.Status = MembershipStatus.Active;
+            managerWorkspaceMember.JoinedAt ??= now;
+        }
+
+        var project = await dbContext.Projects.FirstOrDefaultAsync(
+            candidate =>
+                candidate.TenantId == tenantId &&
+                candidate.WorkspaceId == workspace.Id &&
+                candidate.Slug == projectSlug,
+            cancellationToken);
+        if (project is null)
+        {
+            project = new Project
+            {
+                TenantId = tenantId,
+                WorkspaceId = workspace.Id,
+                GroupId = group.Id,
+                OwnerUserId = owner.Id,
+                CreatedByUserId = owner.Id,
+                Name = "PR06 Browser Acceptance Project",
+                Slug = projectSlug,
+                Description = "Synthetic canonical Gantt data for PR06 real-backend browser acceptance.",
+                Status = ProjectStatus.Active,
+                StartDate = today,
+                DueDate = today.AddDays(45),
+                VersionNo = 1
+            };
+            await dbContext.Projects.AddAsync(project, cancellationToken);
+        }
+        else
+        {
+            project.GroupId = group.Id;
+            project.OwnerUserId = owner.Id;
+            project.CreatedByUserId = owner.Id;
+            project.Name = "PR06 Browser Acceptance Project";
+            project.Description = "Synthetic canonical Gantt data for PR06 real-backend browser acceptance.";
+            project.Status = ProjectStatus.Active;
+            project.StartDate = today;
+            project.DueDate = today.AddDays(45);
+            if (project.IsDeleted)
+            {
+                project.Restore();
+            }
+        }
+
+        async Task ProjectMemberAsync(User user, ProjectRole role)
+        {
+            var member = await dbContext.ProjectMembers.FirstOrDefaultAsync(
+                candidate =>
+                    candidate.TenantId == tenantId &&
+                    candidate.ProjectId == project.Id &&
+                    candidate.UserId == user.Id,
+                cancellationToken);
+            if (member is null)
+            {
+                await dbContext.ProjectMembers.AddAsync(new ProjectMember
+                {
+                    TenantId = tenantId,
+                    ProjectId = project.Id,
+                    UserId = user.Id,
+                    Role = role,
+                    JoinedAt = now
+                }, cancellationToken);
+                return;
+            }
+
+            member.Role = role;
+            if (member.JoinedAt == default)
+            {
+                member.JoinedAt = now;
+            }
+        }
+
+        await ProjectMemberAsync(owner, ProjectRole.Owner);
+        await ProjectMemberAsync(manager, ProjectRole.Manager);
+        await ProjectMemberAsync(viewer, ProjectRole.Viewer);
+
+        var workflow = await dbContext.TaskWorkflowDefinitions.FirstOrDefaultAsync(
+            candidate => candidate.TenantId == tenantId && candidate.ProjectId == project.Id,
+            cancellationToken);
+        if (workflow is null)
+        {
+            workflow = new TaskWorkflowDefinition
+            {
+                TenantId = tenantId,
+                WorkspaceId = workspace.Id,
+                ProjectId = project.Id,
+                Name = "PR06 Browser Acceptance Workflow",
+                ReviewEnforcementEnabled = false,
+                KanbanDefaultSwimlane = ProjectKanbanSwimlane.None,
+                VersionNo = 1
+            };
+            await dbContext.TaskWorkflowDefinitions.AddAsync(workflow, cancellationToken);
+        }
+        else
+        {
+            workflow.WorkspaceId = workspace.Id;
+            workflow.Name = "PR06 Browser Acceptance Workflow";
+            workflow.ReviewEnforcementEnabled = false;
+            workflow.KanbanDefaultSwimlane = ProjectKanbanSwimlane.None;
+        }
+
+        async Task<TaskWorkflowStage> StageAsync(
+            string name,
+            TaskStageCategory category,
+            long sortKey,
+            bool initial,
+            bool terminal)
+        {
+            var stage = await dbContext.TaskWorkflowStages.FirstOrDefaultAsync(
+                candidate =>
+                    candidate.TenantId == tenantId &&
+                    candidate.ProjectId == project.Id &&
+                    candidate.InternalCategory == category,
+                cancellationToken);
+            if (stage is null)
+            {
+                stage = new TaskWorkflowStage
+                {
+                    TenantId = tenantId,
+                    WorkspaceId = workspace.Id,
+                    ProjectId = project.Id,
+                    DefinitionId = workflow.Id,
+                    Name = name,
+                    InternalCategory = category,
+                    SortKey = sortKey,
+                    IsInitialStage = initial,
+                    IsTerminalStage = terminal,
+                    VersionNo = 1
+                };
+                await dbContext.TaskWorkflowStages.AddAsync(stage, cancellationToken);
+            }
+            else
+            {
+                stage.WorkspaceId = workspace.Id;
+                stage.DefinitionId = workflow.Id;
+                stage.Name = name;
+                stage.SortKey = sortKey;
+                stage.IsInitialStage = initial;
+                stage.IsTerminalStage = terminal;
+            }
+
+            return stage;
+        }
+
+        var todo = await StageAsync("Todo", TaskStageCategory.Todo, 1000, true, false);
+        var inProgress = await StageAsync("In Progress", TaskStageCategory.InProgress, 2000, false, false);
+        await StageAsync("Done", TaskStageCategory.Done, 3000, false, true);
+
+        async Task<TaskItem> TaskAsync(
+            string title,
+            long sortKey,
+            TaskWorkflowStage stage,
+            DateOnly? plannedStartDate,
+            DateOnly? plannedEndDate,
+            int progressPercent,
+            bool blocked = false)
+        {
+            var task = await dbContext.TaskItems.FirstOrDefaultAsync(
+                candidate =>
+                    candidate.TenantId == tenantId &&
+                    candidate.ProjectId == project.Id &&
+                    candidate.Title == title,
+                cancellationToken);
+            if (task is null)
+            {
+                task = new TaskItem
+                {
+                    TenantId = tenantId,
+                    WorkspaceId = workspace.Id,
+                    ProjectId = project.Id,
+                    Title = title,
+                    CreatedByUserId = manager.Id
+                };
+                await dbContext.TaskItems.AddAsync(task, cancellationToken);
+            }
+            else if (task.IsDeleted)
+            {
+                task.Restore();
+            }
+
+            task.WorkspaceId = workspace.Id;
+            task.WorkflowStageId = stage.Id;
+            task.Kind = WorkItemKind.Task;
+            task.MilestoneId = null;
+            task.ParentTaskItemId = null;
+            task.Description = $"Synthetic {title} for PR06 real-backend browser acceptance.";
+            task.Status = stage.InternalCategory == TaskStageCategory.InProgress
+                ? TaskItemStatus.InProgress
+                : TaskItemStatus.NotStarted;
+            task.Priority = blocked ? TaskPriority.Critical : TaskPriority.High;
+            task.IsBlocked = blocked;
+            task.BlockedReason = blocked ? "Synthetic blocked-state acceptance." : null;
+            task.TargetGroupId = null;
+            task.PrimaryAssigneeUserId = manager.Id;
+            task.ReviewerUserId = null;
+            task.StartDate = null;
+            task.DueDate = null;
+            task.PlannedStartDate = plannedStartDate;
+            task.PlannedEndDate = plannedEndDate;
+            task.DeadlineAt = now.AddDays(60);
+            task.ActualStartAt = null;
+            task.CompletedAt = null;
+            task.CancelledAt = null;
+            task.CancellationReason = null;
+            task.ReviewStatus = TaskReviewStatus.None;
+            task.ReviewSubmittedAt = null;
+            task.ReviewResolvedAt = null;
+            task.ReviewResolvedByUserId = null;
+            task.ReviewReturnReason = null;
+            task.SortKey = sortKey;
+            task.ProgressPercent = progressPercent;
+            task.SortOrder = checked((int)(sortKey / 1000));
+            task.CreatedByUserId = manager.Id;
+            return task;
+        }
+
+        var parent = await TaskAsync(
+            "PR06 derived parent",
+            1000,
+            inProgress,
+            null,
+            null,
+            0);
+        var scheduleTask = await TaskAsync(
+            "PR06 schedule task",
+            2000,
+            inProgress,
+            today.AddDays(2),
+            today.AddDays(5),
+            25,
+            blocked: true);
+        var predecessor = await TaskAsync(
+            "PR06 predecessor task",
+            3000,
+            inProgress,
+            today,
+            today.AddDays(8),
+            20);
+        var unscheduled = await TaskAsync(
+            "PR06 unscheduled task",
+            4000,
+            todo,
+            null,
+            null,
+            0);
+        var conflict = await TaskAsync(
+            "PR06 conflict task",
+            5000,
+            todo,
+            today.AddDays(10),
+            today.AddDays(12),
+            0);
+        var dependencySuccessor = await TaskAsync(
+            "PR06 dependency successor",
+            6000,
+            todo,
+            today.AddDays(16),
+            today.AddDays(20),
+            0);
+
+        scheduleTask.ParentTaskItemId = parent.Id;
+        predecessor.ParentTaskItemId = parent.Id;
+
+        var milestone = await dbContext.Milestones.FirstOrDefaultAsync(
+            candidate =>
+                candidate.TenantId == tenantId &&
+                candidate.ProjectId == project.Id &&
+                candidate.Name == "PR06 release milestone",
+            cancellationToken);
+        if (milestone is null)
+        {
+            milestone = new Milestone
+            {
+                TenantId = tenantId,
+                ProjectId = project.Id,
+                Name = "PR06 release milestone",
+                Description = "Synthetic zero-duration PR06 Milestone.",
+                DueDate = today.AddDays(30),
+                Status = MilestoneStatus.NotStarted,
+                SortOrder = 1,
+                VersionNo = 1
+            };
+            await dbContext.Milestones.AddAsync(milestone, cancellationToken);
+        }
+        else
+        {
+            milestone.Description = "Synthetic zero-duration PR06 Milestone.";
+            milestone.DueDate = today.AddDays(30);
+            milestone.Status = MilestoneStatus.NotStarted;
+            milestone.SortOrder = 1;
+            if (milestone.IsDeleted)
+            {
+                milestone.Restore();
+            }
+        }
+
+        var existingDependencies = await dbContext.TaskDependencies
+            .Where(candidate => candidate.TenantId == tenantId && candidate.ProjectId == project.Id)
+            .ToListAsync(cancellationToken);
+        dbContext.TaskDependencies.RemoveRange(existingDependencies);
+        await dbContext.TaskDependencies.AddRangeAsync(
+            new TaskDependency
+            {
+                TenantId = tenantId,
+                ProjectId = project.Id,
+                PredecessorTaskItemId = predecessor.Id,
+                SuccessorTaskItemId = scheduleTask.Id,
+                DependencyType = TaskDependencyType.FinishToStart
+            },
+            new TaskDependency
+            {
+                TenantId = tenantId,
+                ProjectId = project.Id,
+                PredecessorTaskItemId = predecessor.Id,
+                SuccessorTaskItemId = conflict.Id,
+                DependencyType = TaskDependencyType.StartToStart
+            });
+
+        _ = unscheduled;
+        _ = dependencySuccessor;
     }
 
     public static async Task EnsureBootstrapAdminAsync(

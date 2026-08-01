@@ -55,8 +55,8 @@
 
 .aip-kanban__column > header { display: flex; align-items: baseline; justify-content: space-between; gap: var(--aip-space-2); }
 .aip-kanban__column h3 { margin: 0 0 var(--aip-space-2); }
-.aip-kanban__column ul, .aip-gantt ul, .aip-gantt ol { display: grid; gap: var(--aip-space-2); margin: 0; padding: 0; list-style: none; }
-.aip-kanban__column li, .aip-gantt li { display: grid; gap: var(--aip-space-1); padding: var(--aip-space-2); border: 1px solid var(--aip-color-border-default); border-radius: var(--aip-radius-md); background: var(--aip-color-bg-surface); }
+.aip-kanban__column ul { display: grid; gap: var(--aip-space-2); margin: 0; padding: 0; list-style: none; }
+.aip-kanban__column li { display: grid; gap: var(--aip-space-1); padding: var(--aip-space-2); border: 1px solid var(--aip-color-border-default); border-radius: var(--aip-radius-md); background: var(--aip-color-bg-surface); }
 .aip-kanban__column select { min-height: var(--aip-control-height); }
 .aip-kanban__card:focus-visible { outline: var(--aip-focus-outline); outline-offset: var(--aip-focus-offset); }
 .aip-kanban__card--busy { opacity: .72; }
@@ -70,7 +70,6 @@
 .aip-kanban__move label { display: grid; gap: var(--aip-space-1); }
 .aip-kanban__warning { color: var(--aip-color-warning-text, var(--aip-color-text-primary)); font-weight: 600; }
 .aip-kanban__feedback:empty { display: none; }
-.aip-gantt { display: grid; gap: var(--aip-space-3); }
 
 @media (max-width: 600px) {
   .aip-kanban { grid-template-columns: 1fr; }

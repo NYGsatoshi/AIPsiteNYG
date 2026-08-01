@@ -87,8 +87,72 @@
       </section>
     }
     @if (tab() === 'list') { <section><h2>Task list</h2><app-task-table [rows]="vm.tasks" [defaultPageSize]="50" [maximumPageSize]="100" (actionInvoked)="openTask($event.row)" /></section> }
-    @if (tab() === 'schedule') { <section><h2>Schedule</h2>@if (vm.schedule.tasks.length || vm.schedule.milestones.length) { <aip-gantt [contract]="gantt()" /> } @else { <app-empty-state title="No schedule data" message="No authorized schedule data was returned for this project." /> }</section> }
-    @if (tab() === 'workload') { <section><h2>Workload</h2>@if (vm.workload.length) { <ul class="project-detail-page__records">@for (item of vm.workload; track item.userId) { <li><strong>{{ item.displayName }}</strong><span>{{ item.projectRole }} · {{ item.assignedTaskCount }} assigned · {{ item.overdueTaskCount }} overdue · {{ item.estimatedHours }} estimated hours · {{ item.actualHours }} actual hours</span></li> }</ul> } @else { <app-empty-state title="No workload data" message="No authorized workload projection was returned." /> }</section> }
+    @if (tab() === 'schedule') {
+      <section class="project-detail-page__schedule" data-testid="project-schedule">
+        <header class="project-detail-page__schedule-header">
+          <div>
+            <h2>Schedule</h2>
+            <p>Manual Project dates use the Workspace calendar. Dependency warnings never move dates automatically.</p>
+          </div>
+          <button type="button" (click)="retrySchedule()">Refresh schedule</button>
+        </header>
+
+        @if (vm.schedule.status === 'loading' && !vm.schedule.snapshot) {
+          <app-inline-loading label="Loading Project schedule" />
+        } @else if (vm.schedule.status === 'permissionDenied') {
+          <app-permission-denied title="Project schedule is not available." />
+          @if (vm.schedule.error) {
+            <app-error-banner [error]="vm.schedule.error" title="Schedule permission changed" />
+          }
+        } @else if (vm.schedule.status === 'error' && !vm.schedule.snapshot) {
+          @if (vm.schedule.error) {
+            <app-error-banner [error]="vm.schedule.error" title="Project schedule could not be loaded" />
+          }
+        } @else if (vm.schedule.snapshot; as scheduleSnapshot) {
+          @if (!vm.schedule.canonicalEnabled) {
+            <p class="project-detail-page__degraded" role="status">
+              Canonical Gantt presentation is disabled. This maintained read-only list is derived from the same authoritative HTTP snapshot.
+            </p>
+          }
+          @if (vm.schedule.status === 'degraded') {
+            <p class="project-detail-page__degraded" role="status">
+              Live reconciliation is unavailable. HTTP edits and manual refresh remain authoritative.
+            </p>
+          }
+          @if (vm.schedule.status === 'conflict' || vm.schedule.status === 'rollback') {
+            <p class="project-detail-page__schedule-alert" role="alert">{{ vm.schedule.feedback }}</p>
+            @if (vm.schedule.error) {
+              <app-error-banner [error]="vm.schedule.error" title="Schedule change was not applied" />
+            }
+          }
+          @if (vm.schedule.preservedIntent) {
+            <p class="project-detail-page__schedule-alert" role="status">
+              The edit intent is preserved against the authoritative schedule.
+            </p>
+            <button type="button" (click)="retryPreservedScheduleIntent()">Retry preserved edit against the latest version</button>
+            <button type="button" (click)="clearPreservedScheduleIntent()">Discard preserved edit</button>
+          }
+          @if (vm.schedule.status === 'error' && vm.schedule.error) {
+            <app-error-banner [error]="vm.schedule.error" title="Schedule refresh failed" />
+          }
+          @if (vm.schedule.reconciliationQueued) {
+            <p role="status">An authoritative refresh is queued until the active schedule interaction finishes.</p>
+          }
+          @if (vm.schedule.status === 'empty') {
+            <p role="status">No authorized scheduled, unscheduled, or Milestone WorkItems were returned.</p>
+          }
+          <aip-gantt
+            [contract]="gantt(scheduleSnapshot, vm.schedule.status)"
+            [presentation]="schedulePresentation()"
+            [state]="ganttState(vm.schedule.status)"
+            (editRequested)="requestGanttEdit($event)"
+            (itemActivated)="openGanttItem($event, scheduleSnapshot.projectId)"
+            (interactionActiveChange)="setGanttInteractionActive($event)"
+            (vendorFailed)="reportGanttFailure()" />
+        }
+      </section>
+    }
+    @if (tab() === 'workload') { <section><h2>Workload</h2>@if (vm.workload.length) { <ul class="project-detail-page__records">@for (item of vm.workload; track item.userId) { <li><strong>{{ item.displayName }}</strong><span>{{ item.projectRole }} | {{ item.assignedTaskCount }} assigned | {{ item.overdueTaskCount }} overdue | {{ item.estimatedHours }} estimated hours | {{ item.actualHours }} actual hours</span></li> }</ul> } @else { <app-empty-state title="No workload data" message="No authorized workload projection was returned." /> }</section> }
     @if (tab() === 'members') { <section><h2>Members</h2>@if (vm.members.length) { <ul class="project-detail-page__records">@for (member of vm.members; track member.userId) { <li><strong>{{ member.displayName }}</strong><span>{{ member.role }}</span></li> }</ul> } @else { <app-empty-state title="No members" message="No authorized project members were returned." /> }</section> }
   }
 </section>

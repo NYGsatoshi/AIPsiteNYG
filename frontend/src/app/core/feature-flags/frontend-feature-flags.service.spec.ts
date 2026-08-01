@@ -34,4 +34,13 @@ describe('FrontendFeatureFlagsService', () => {
     flags.setForTesting({ 'tasks.kanbanV1': false });
     expect(flags.kanbanV1Enabled()).toBe(false);
   });
+
+  it('uses tasks.ganttV1 only as a reversible Schedule-tab presentation rollout', () => {
+    TestBed.configureTestingModule({});
+    const flags = TestBed.inject(FrontendFeatureFlagsService);
+
+    expect(flags.ganttV1Enabled()).toBe(true);
+    flags.setForTesting({ 'tasks.ganttV1': false });
+    expect(flags.ganttV1Enabled()).toBe(false);
+  });
 });

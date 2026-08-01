@@ -7,6 +7,7 @@ export interface FrontendRuntimeFlags {
   readonly 'frontend.syncfusionUploader'?: boolean;
   readonly 'tasks.myTasksV1'?: boolean;
   readonly 'tasks.kanbanV1'?: boolean;
+  readonly 'tasks.ganttV1'?: boolean;
   readonly 'realtime.signalR'?: boolean;
   readonly 'realtime.optimisticMessaging'?: boolean;
 }
@@ -29,6 +30,7 @@ export class FrontendFeatureFlagsService {
   readonly syncfusionUploaderEnabled = computed(() => this.values()['frontend.syncfusionUploader'] ?? false);
   readonly myTasksV1Enabled = computed(() => this.values()['tasks.myTasksV1'] ?? true);
   readonly kanbanV1Enabled = computed(() => this.values()['tasks.kanbanV1'] ?? true);
+  readonly ganttV1Enabled = computed(() => this.values()['tasks.ganttV1'] ?? true);
   readonly realtimeSignalREnabled = computed(() => this.values()['realtime.signalR'] ?? false);
   readonly optimisticMessagingEnabled = computed(() => this.values()['realtime.optimisticMessaging'] ?? true);
 

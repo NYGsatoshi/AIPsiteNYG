@@ -22,11 +22,11 @@ using Microsoft.Extensions.Options;
 using System.Text.Json;
 
 var builder = WebApplication.CreateBuilder(args);
-var browserSmokeSeedEnabled =
+var browserSmokeSeedEnabled = BrowserSmokeTestBoundary.IsEnabled(
+    builder.Environment.EnvironmentName,
     builder.Configuration.GetValue<bool>("BrowserSmokeSeed:Enabled") ||
-    builder.Configuration.GetValue<bool>("AIP_BROWSER_SMOKE_SEED_ENABLED");
+    builder.Configuration.GetValue<bool>("AIP_BROWSER_SMOKE_SEED_ENABLED"));
 var browserSmokeResponseGateEnabled =
-    builder.Environment.IsEnvironment("Test") &&
     browserSmokeSeedEnabled &&
     builder.Configuration.GetValue<bool>("AIP_BROWSER_SMOKE_RESPONSE_GATE_ENABLED");
 
@@ -290,7 +290,8 @@ app.MapGet("/api/ui/runtime-config.js", async (
     var flags = new Dictionary<string, bool>(StringComparer.Ordinal)
     {
         ["realtime.signalR"] = await featureFlags.IsEnabledAsync(FeatureKeys.RealtimeSignalR, cancellationToken),
-        ["tasks.kanbanV1"] = await featureFlags.IsEnabledAsync(FeatureKeys.KanbanV1, cancellationToken)
+        ["tasks.kanbanV1"] = await featureFlags.IsEnabledAsync(FeatureKeys.KanbanV1, cancellationToken),
+        ["tasks.ganttV1"] = await featureFlags.IsEnabledAsync(FeatureKeys.GanttV1, cancellationToken)
     };
     return Results.Text(
         $"window.__AIP_FEATURE_FLAGS__ = {JsonSerializer.Serialize(flags)};",

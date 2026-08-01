@@ -37,6 +37,7 @@
     "@ngrx/effects": "21.1.1",
     "@ngrx/entity": "21.1.1",
     "@ngrx/store": "21.1.1",
+    "@syncfusion/ej2-angular-gantt": "34.1.30",
     "@syncfusion/ej2-angular-grids": "34.1.33",
     "@syncfusion/ej2-angular-inputs": "34.1.32",
     "@syncfusion/ej2-angular-popups": "34.1.29",

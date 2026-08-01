@@ -12,16 +12,66 @@ public sealed class GlobalExceptionHandlingMiddleware(
         {
             await next(context);
         }
+        catch (OperationCanceledException) when (context.RequestAborted.IsCancellationRequested)
+        {
+            throw;
+        }
         catch (Exception exception)
         {
             logger.LogError(exception, "Unhandled request exception. TraceId: {TraceId}", context.TraceIdentifier);
             context.Response.StatusCode = StatusCodes.Status500InternalServerError;
             context.Response.ContentType = "application/json";
 
-            await context.Response.WriteAsJsonAsync(new ErrorResponse(
-                "InternalServerError",
-                "An unexpected server error occurred.",
-                context.TraceIdentifier));
+            if (IsPr06Path(context.Request.Path.Value))
+            {
+                var dependency =
+                    context.Request.Path.Value?.Contains(
+                        "/dependencies",
+                        StringComparison.OrdinalIgnoreCase) == true;
+                var snapshot = IsPr06SnapshotPath(context.Request.Path.Value);
+                await context.Response.WriteAsJsonAsync(new
+                {
+                    requestId = context.TraceIdentifier,
+                    error = new
+                    {
+                        code = dependency
+                            ? "TASK_DEPENDENCY_COMMAND_FAILED"
+                            : snapshot
+                                ? "GANTT_REQUEST_FAILED"
+                                : "GANTT_COMMAND_FAILED",
+                        message = snapshot
+                            ? "The schedule could not be loaded."
+                            : "The command could not be completed.",
+                        target = (string?)null,
+                        details = Array.Empty<object>(),
+                        redactionApplied = false
+                    }
+                });
+            }
+            else
+            {
+                await context.Response.WriteAsJsonAsync(new ErrorResponse(
+                    "InternalServerError",
+                    "An unexpected server error occurred.",
+                    context.TraceIdentifier));
+            }
         }
     }
+
+    private static bool IsPr06Path(string? path) =>
+        IsPr06SnapshotPath(path) ||
+        IsPr06CommandPath(path);
+
+    private static bool IsPr06SnapshotPath(string? path) =>
+        NormalizePath(path).StartsWith("/api/projects/", StringComparison.OrdinalIgnoreCase) &&
+        NormalizePath(path).EndsWith("/gantt", StringComparison.OrdinalIgnoreCase);
+
+    private static bool IsPr06CommandPath(string? path) =>
+        NormalizePath(path).StartsWith("/api/tasks/", StringComparison.OrdinalIgnoreCase) &&
+        (NormalizePath(path).EndsWith("/schedule", StringComparison.OrdinalIgnoreCase) ||
+         NormalizePath(path).EndsWith("/progress", StringComparison.OrdinalIgnoreCase) ||
+         NormalizePath(path).Contains("/dependencies", StringComparison.OrdinalIgnoreCase));
+
+    private static string NormalizePath(string? path) =>
+        path?.TrimEnd('/') ?? string.Empty;
 }

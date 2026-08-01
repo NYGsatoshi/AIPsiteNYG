@@ -21,7 +21,8 @@ internal static class TaskTransitionEngine
         TaskItem task,
         Guid workflowStageId,
         string? reason,
-        CancellationToken cancellationToken)
+        CancellationToken cancellationToken,
+        bool allowReviewOverride = false)
     {
         var stage = await projects.GetWorkflowStageAsync(workflowStageId, cancellationToken);
         if (stage is null || stage.ProjectId != task.ProjectId)
@@ -34,11 +35,29 @@ internal static class TaskTransitionEngine
             return Fail("TASK_TRANSITION_GUARD_FAILED", "Reopen a terminal task to Backlog or Todo before moving it to active work.");
         }
 
+        if (previous is TaskStageCategory.Done or TaskStageCategory.Cancelled &&
+            stage.InternalCategory is TaskStageCategory.Backlog or TaskStageCategory.Todo &&
+            task.ParentTaskItemId.HasValue)
+        {
+            var parent = await projects.GetTaskAsync(task.ParentTaskItemId.Value, cancellationToken);
+            if (parent is not null &&
+                !parent.DeletedAt.HasValue &&
+                CategoryOf(parent) is TaskStageCategory.Done or TaskStageCategory.Cancelled)
+            {
+                return Fail(
+                    "TASK_TRANSITION_GUARD_FAILED",
+                    "Reopen the parent Task before reopening its child.");
+            }
+        }
+
         if (stage.InternalCategory == TaskStageCategory.InProgress && !task.PrimaryAssigneeUserId.HasValue)
             return Fail("TASK_ASSIGNEE_REQUIRED", "A primary assignee is required before active work.");
 
-        var definition = await projects.GetWorkflowDefinitionAsync(task.ProjectId, cancellationToken);
-        if (stage.InternalCategory == TaskStageCategory.Done &&
+        var definition = allowReviewOverride
+            ? null
+            : await projects.GetWorkflowDefinitionAsync(task.ProjectId, cancellationToken);
+        if (!allowReviewOverride &&
+            stage.InternalCategory == TaskStageCategory.Done &&
             task.ReviewerUserId.HasValue &&
             definition?.ReviewEnforcementEnabled == true &&
             task.ReviewStatus != TaskReviewStatus.Accepted)
@@ -49,13 +68,26 @@ internal static class TaskTransitionEngine
         if (stage.InternalCategory == TaskStageCategory.Cancelled && !IsBounded(reason))
             return Fail("TASK_CANCEL_REASON_REQUIRED", "A cancellation reason is required.");
 
-        if (stage.InternalCategory == TaskStageCategory.Done &&
-            (await projects.ListTasksAsync(task.ProjectId, cancellationToken)).Any(child =>
-                child.ParentTaskItemId == task.Id &&
-                !child.DeletedAt.HasValue &&
-                CategoryOf(child) is not (TaskStageCategory.Done or TaskStageCategory.Cancelled)))
+        if (stage.InternalCategory == TaskStageCategory.Done)
         {
-            return Fail("TASK_TRANSITION_GUARD_FAILED", "A parent task with incomplete children cannot be completed.");
+            var projectTasks = await projects.ListTasksAsync(task.ProjectId, cancellationToken);
+            var children = projectTasks
+                .Where(child => child.Kind == WorkItemKind.Task)
+                .Where(child => child.ParentTaskItemId == task.Id && !child.DeletedAt.HasValue)
+                .ToArray();
+            if (children.Any(child =>
+                    CategoryOf(child) is not (TaskStageCategory.Done or TaskStageCategory.Cancelled)))
+            {
+                return Fail("TASK_TRANSITION_GUARD_FAILED", "A parent task with incomplete children cannot be completed.");
+            }
+
+            var derived = ParentTaskDerivedValuesCalculator.Calculate(task, projectTasks, CategoryOf);
+            if (derived.IsDerived && derived.ProgressPercent != 100)
+            {
+                return Fail(
+                    "TASK_TRANSITION_GUARD_FAILED",
+                    "A parent Task can be completed only when its canonical derived progress is 100 percent.");
+            }
         }
 
         task.WorkflowStageId = stage.Id;

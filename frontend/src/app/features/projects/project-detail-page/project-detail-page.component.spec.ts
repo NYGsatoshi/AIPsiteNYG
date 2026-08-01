@@ -1,14 +1,23 @@
+import { By } from '@angular/platform-browser';
 import { TestBed } from '@angular/core/testing';
-import { ActivatedRoute, convertToParamMap, provideRouter } from '@angular/router';
+import { ActivatedRoute, convertToParamMap, provideRouter, Router } from '@angular/router';
+import { vi } from 'vitest';
 
 import { mapProjectKanbanSnapshot } from '../project-kanban.models';
 import { snapshotDto } from '../project-kanban.test-data';
-import { ProjectDetailFacade, ProjectDetailViewModel, ProjectKanbanViewModel } from '../project-detail.facade';
+import { mapProjectGanttSnapshot } from '../project-gantt.models';
+import { ganttSnapshotDto, viewerGanttSnapshotDto } from '../project-detail-gantt.test-data';
+import {
+  ProjectDetailFacade,
+  ProjectDetailViewModel,
+  ProjectKanbanViewModel,
+  ProjectScheduleViewModel
+} from '../project-detail.facade';
 import { ProjectDetailPageComponent } from './project-detail-page.component';
 
 describe('ProjectDetailPageComponent canonical Kanban states', () => {
   it('renders WIP, hierarchy, blocked, priority, recent-Done, and narrow-layout meaning as text', async () => {
-    const fixture = await render(kanbanView('ready'));
+    const { fixture } = await render(kanbanView('ready'));
     const text = (fixture.nativeElement as HTMLElement).textContent ?? '';
 
     expect(text).toContain('Done shows 30 recent days');
@@ -27,24 +36,139 @@ describe('ProjectDetailPageComponent canonical Kanban states', () => {
 
   it('renders an authorized empty board separately from permission denial', async () => {
     const emptySnapshot = { ...mapProjectKanbanSnapshot(snapshotDto()), cards: [] };
-    const emptyFixture = await render({ ...kanbanView('empty'), snapshot: emptySnapshot });
+    const { fixture: emptyFixture } = await render({ ...kanbanView('empty'), snapshot: emptySnapshot });
     expect((emptyFixture.nativeElement as HTMLElement).textContent).toContain('No authorized Tasks match');
     emptyFixture.destroy();
     TestBed.resetTestingModule();
 
-    const deniedFixture = await render({ ...kanbanView('permissionDenied'), snapshot: null });
+    const { fixture: deniedFixture } = await render({ ...kanbanView('permissionDenied'), snapshot: null });
     expect((deniedFixture.nativeElement as HTMLElement).textContent).toContain('Project Kanban is not available');
   });
 
   it('falls back to the maintained Project Task List when the presentation flag is disabled', async () => {
-    const fixture = await render({ ...kanbanView('disabled'), snapshot: null, feedback: 'Project Kanban is disabled. The maintained Task List remains available.' });
+    const { fixture } = await render({ ...kanbanView('disabled'), snapshot: null, feedback: 'Project Kanban is disabled. The maintained Task List remains available.' });
 
     expect((fixture.nativeElement as HTMLElement).textContent).toContain('maintained Task List');
     expect((fixture.nativeElement as HTMLElement).querySelector('aip-kanban')).toBeNull();
   });
+
+  it('renders the canonical narrow Schedule projection with calendar, WorkItem, dependency, warning, and form actions', async () => {
+    const { fixture } = await render(kanbanView('ready'));
+    fixture.componentInstance.tab.set('schedule');
+    fixture.componentInstance.schedulePresentation.set('narrow');
+    fixture.detectChanges();
+    await fixture.whenStable();
+    fixture.detectChanges();
+
+    const host = fixture.nativeElement as HTMLElement;
+    const text = host.textContent ?? '';
+    expect(text).toContain('Workspace timezone: Asia/Tokyo');
+    expect(text).toContain('Scheduled work');
+    expect(text).toContain('Canonical schedule task');
+    expect(text).toContain('Milestones');
+    expect(text).toContain('Launch');
+    expect(text).toContain('Unscheduled work');
+    expect(text).toContain('Unscheduled task');
+    expect(text).toContain('UNSCHEDULED');
+    expect(text).toContain('Dependencies');
+    expect(text).toContain('Remove FS dependency');
+    expect(text).toContain('Edit dates');
+    expect(text).toContain('Edit progress');
+    expect(text).toContain('Add FS predecessor');
+    expect(host.querySelector('ejs-gantt')).toBeNull();
+  });
+
+  it('uses backend permissions for read-only controls and the feature flag only for the maintained projection', async () => {
+    const { fixture: viewerFixture } = await render(
+      kanbanView('ready'),
+      scheduleView({ snapshot: mapProjectGanttSnapshot(viewerGanttSnapshotDto()) })
+    );
+    viewerFixture.componentInstance.tab.set('schedule');
+    viewerFixture.componentInstance.schedulePresentation.set('narrow');
+    viewerFixture.detectChanges();
+    const viewerHost = viewerFixture.nativeElement as HTMLElement;
+    expect(viewerHost.textContent).toContain('Schedule is read-only for the current actor.');
+    expect(buttonLabels(viewerHost)).not.toContain('Edit dates');
+    expect(buttonLabels(viewerHost)).not.toContain('Add FS predecessor');
+    viewerFixture.destroy();
+    TestBed.resetTestingModule();
+
+    const { fixture: fallbackFixture } = await render(
+      kanbanView('ready'),
+      scheduleView({ canonicalEnabled: false })
+    );
+    fallbackFixture.componentInstance.tab.set('schedule');
+    fallbackFixture.componentInstance.schedulePresentation.set('narrow');
+    fallbackFixture.detectChanges();
+    const fallbackText = (fallbackFixture.nativeElement as HTMLElement).textContent ?? '';
+    expect(fallbackText).toContain('Canonical Gantt presentation is disabled');
+    expect(fallbackText).toContain('Canonical schedule task');
+    expect(fallbackText).toContain('read-only because the current API does not provide an authorized versioned schedule-write contract');
+  });
+
+  it('forwards canonical edit intents and opens the existing Task Detail route', async () => {
+    const { fixture, facade } = await render(kanbanView('ready'));
+    fixture.componentInstance.tab.set('schedule');
+    fixture.componentInstance.schedulePresentation.set('narrow');
+    fixture.detectChanges();
+    const gantt = fixture.debugElement.query(By.css('aip-gantt')).componentInstance;
+    const intent = {
+      kind: 'progress' as const,
+      taskId: 'task-1',
+      progressPercent: 40,
+      expectedVersion: 3,
+      source: 'form' as const
+    };
+
+    gantt.editRequested.emit(intent);
+    expect(facade.applyGanttEdit).toHaveBeenCalledWith(intent);
+
+    const router = TestBed.inject(Router);
+    const navigate = vi.spyOn(router, 'navigate').mockResolvedValue(true);
+    gantt.itemActivated.emit(scheduleView().snapshot!.scheduledItems[0]);
+    expect(navigate).toHaveBeenCalledWith(['/projects', 'project-1', 'tasks', 'task-1']);
+
+    gantt.itemActivated.emit(scheduleView().snapshot!.milestones[0]);
+    expect(navigate).toHaveBeenCalledTimes(1);
+  });
+
+  it('keeps preserved conflict intent actionable after authoritative refetch returns ready', async () => {
+    const preservedIntent = {
+      kind: 'progress' as const,
+      taskId: 'task-1',
+      progressPercent: 40,
+      expectedVersion: 3,
+      source: 'form' as const
+    };
+    const { fixture, facade } = await render(
+      kanbanView('ready'),
+      scheduleView({
+        status: 'ready',
+        feedback: 'Conflict reconciled from authoritative schedule data.',
+        preservedIntent
+      })
+    );
+    fixture.componentInstance.tab.set('schedule');
+    fixture.detectChanges();
+    const host = fixture.nativeElement as HTMLElement;
+    const retry = [...host.querySelectorAll('button')].find((button) =>
+      button.textContent?.includes('Retry preserved edit'));
+    const discard = [...host.querySelectorAll('button')].find((button) =>
+      button.textContent?.includes('Discard preserved edit'));
+
+    expect(retry).toBeDefined();
+    expect(discard).toBeDefined();
+    retry!.click();
+    discard!.click();
+    expect(facade.retryPreservedScheduleIntent).toHaveBeenCalledOnce();
+    expect(facade.clearPreservedScheduleIntent).toHaveBeenCalledOnce();
+  });
 });
 
-async function render(kanban: ProjectKanbanViewModel) {
+async function render(
+  kanban: ProjectKanbanViewModel,
+  schedule: ProjectScheduleViewModel = scheduleView()
+) {
   const view: ProjectDetailViewModel = {
     status: 'ready',
     project: {
@@ -60,20 +184,26 @@ async function render(kanban: ProjectKanbanViewModel) {
     },
     tasks: [],
     kanban,
-    schedule: { milestones: [], tasks: [] },
+    schedule,
     workload: [],
     members: []
   };
   const facade = {
     view: () => view,
-    load: () => undefined,
-    release: () => undefined,
-    retryKanban: () => undefined,
-    moveTask: () => undefined,
-    updateKanbanConfig: () => undefined,
-    setKanbanInteractionActive: () => undefined,
-    setKanbanSwimlane: () => undefined,
-    setIncludeOlderCompleted: () => undefined
+    load: vi.fn(),
+    release: vi.fn(),
+    retryKanban: vi.fn(),
+    retrySchedule: vi.fn(),
+    retryPreservedScheduleIntent: vi.fn(),
+    moveTask: vi.fn(),
+    applyGanttEdit: vi.fn(),
+    reportGanttAdapterFailure: vi.fn(),
+    clearPreservedScheduleIntent: vi.fn(),
+    updateKanbanConfig: vi.fn(),
+    setKanbanInteractionActive: vi.fn(),
+    setScheduleInteractionActive: vi.fn(),
+    setKanbanSwimlane: vi.fn(),
+    setIncludeOlderCompleted: vi.fn()
   };
   await TestBed.configureTestingModule({
     imports: [ProjectDetailPageComponent],
@@ -85,7 +215,7 @@ async function render(kanban: ProjectKanbanViewModel) {
   }).compileComponents();
   const fixture = TestBed.createComponent(ProjectDetailPageComponent);
   fixture.detectChanges();
-  return fixture;
+  return { fixture, facade };
 }
 
 function kanbanView(status: ProjectKanbanViewModel['status']): ProjectKanbanViewModel {
@@ -98,4 +228,23 @@ function kanbanView(status: ProjectKanbanViewModel['status']): ProjectKanbanView
     realtimeDegraded: false,
     reconciliationQueued: false
   };
+}
+
+function scheduleView(overrides: Partial<ProjectScheduleViewModel> = {}): ProjectScheduleViewModel {
+  return {
+    status: 'ready',
+    snapshot: mapProjectGanttSnapshot(ganttSnapshotDto()),
+    canonicalEnabled: true,
+    busyItemId: null,
+    focusItemId: null,
+    feedback: null,
+    preservedIntent: null,
+    realtimeDegraded: false,
+    reconciliationQueued: false,
+    ...overrides
+  };
+}
+
+function buttonLabels(host: HTMLElement): readonly string[] {
+  return [...host.querySelectorAll('button')].map((button) => button.textContent?.trim() ?? '');
 }

@@ -85,6 +85,47 @@ public sealed class ProjectServiceTests
     }
 
     [Fact]
+    [Trait("Scope", "TaskV1PR06")]
+    public async Task RevokedWorkspaceMemberCannotCreateTaskThroughRetainedProjectMembership()
+    {
+        var fixture = ProjectFixture.Create();
+        var contributor = fixture.AddUser();
+        fixture.Current.UserIdValue = contributor.Id;
+        fixture.AddProjectMember(contributor.Id, ProjectRole.Contributor);
+        fixture.Workspaces.Members.Single(member => member.UserId == contributor.Id).Status =
+            MembershipStatus.Suspended;
+
+        var result = await fixture.Service.CreateTaskAsync(
+            fixture.Project.Id,
+            new CreateTaskItemRequest(null, "Denied task", null, TaskPriority.Medium, null, null));
+
+        Assert.False(result.IsSuccess);
+        Assert.Equal("You are not allowed to create tasks.", result.Error);
+        Assert.Empty(fixture.Projects.Tasks);
+        Assert.Equal(0, fixture.CommandUnitOfWork.SaveCount);
+    }
+
+    [Fact]
+    [Trait("Scope", "TaskV1PR06")]
+    public async Task ArchivedProjectMemberCannotCreateTask()
+    {
+        var fixture = ProjectFixture.Create();
+        var contributor = fixture.AddUser();
+        fixture.Current.UserIdValue = contributor.Id;
+        fixture.AddProjectMember(contributor.Id, ProjectRole.Contributor);
+        fixture.Project.Status = ProjectStatus.Archived;
+
+        var result = await fixture.Service.CreateTaskAsync(
+            fixture.Project.Id,
+            new CreateTaskItemRequest(null, "Denied task", null, TaskPriority.Medium, null, null));
+
+        Assert.False(result.IsSuccess);
+        Assert.Equal("You are not allowed to create tasks.", result.Error);
+        Assert.Empty(fixture.Projects.Tasks);
+        Assert.Equal(0, fixture.CommandUnitOfWork.SaveCount);
+    }
+
+    [Fact]
     public async Task TaskResponseProjectsMutationPermissionsAndRejectsUnauthorizedUpdate()
     {
         var fixture = ProjectFixture.Create();
@@ -185,6 +226,7 @@ public sealed class ProjectServiceTests
     }
 
     [Fact]
+    [Trait("Scope", "TaskV1PR06")]
     public async Task TaskCannotDependOnItself()
     {
         var fixture = ProjectFixture.Create();
@@ -193,12 +235,13 @@ public sealed class ProjectServiceTests
         fixture.AddProjectMember(manager.Id, ProjectRole.Manager);
         var task = fixture.AddTask("Blocking");
 
-        var result = await fixture.Service.AddDependencyAsync(task.Id, new AddTaskDependencyRequest(task.Id, TaskDependencyType.FinishToStart));
+        var result = await fixture.Service.AddDependencyAsync(task.Id, new AddTaskDependencyRequest(task.Id, TaskDependencyType.FinishToStart, task.VersionNo));
 
-        Assert.False(result.IsSuccess);
+        Assert.StartsWith("TASK_DEPENDENCY_SELF|", result.Error);
     }
 
     [Fact]
+    [Trait("Scope", "TaskV1PR06")]
     public async Task DuplicateDependencyIsRejected()
     {
         var fixture = ProjectFixture.Create();
@@ -214,9 +257,333 @@ public sealed class ProjectServiceTests
             SuccessorTaskItemId = successor.Id
         });
 
-        var result = await fixture.Service.AddDependencyAsync(successor.Id, new AddTaskDependencyRequest(predecessor.Id, TaskDependencyType.FinishToStart));
+        var result = await fixture.Service.AddDependencyAsync(successor.Id, new AddTaskDependencyRequest(predecessor.Id, TaskDependencyType.FinishToStart, successor.VersionNo));
 
         Assert.False(result.IsSuccess);
+    }
+
+    [Fact]
+    [Trait("Scope", "TaskV1PR06")]
+    public async Task DependencyCycleIsRejectedWithoutMovingOrPersistingTasks()
+    {
+        var fixture = ProjectFixture.Create();
+        var manager = fixture.AddUser();
+        fixture.Current.UserIdValue = manager.Id;
+        fixture.AddProjectMember(manager.Id, ProjectRole.Manager);
+        var predecessor = fixture.AddTask("Predecessor");
+        var successor = fixture.AddTask("Successor");
+        fixture.Dependencies.Add(new TaskDependency
+        {
+            ProjectId = fixture.Project.Id,
+            PredecessorTaskItemId = successor.Id,
+            SuccessorTaskItemId = predecessor.Id,
+            DependencyType = TaskDependencyType.FinishToStart
+        });
+
+        var result = await fixture.Service.AddDependencyAsync(
+            successor.Id,
+            new AddTaskDependencyRequest(
+                predecessor.Id,
+                TaskDependencyType.FinishToStart,
+                successor.VersionNo));
+
+        Assert.StartsWith("TASK_DEPENDENCY_CYCLE|", result.Error);
+        Assert.Single(fixture.Dependencies);
+        Assert.Equal(1, predecessor.VersionNo);
+        Assert.Equal(1, successor.VersionNo);
+    }
+
+    [Fact]
+    [Trait("Scope", "TaskV1PR06")]
+    public async Task DependencyAtCanonicalLimitRejectsTheNextEdgeWithoutMutation()
+    {
+        var fixture = ProjectFixture.Create();
+        var manager = fixture.AddUser();
+        fixture.Current.UserIdValue = manager.Id;
+        fixture.AddProjectMember(manager.Id, ProjectRole.Manager);
+        var tasks = Enumerable.Range(0, 64)
+            .Select(index => fixture.AddTask($"Task {index:D2}"))
+            .ToArray();
+        var predecessor = tasks[0];
+        var successor = tasks[^1];
+
+        for (var predecessorIndex = 0;
+             predecessorIndex < tasks.Length && fixture.Dependencies.Count < 2_000;
+             predecessorIndex++)
+        {
+            for (var successorIndex = predecessorIndex + 1;
+                 successorIndex < tasks.Length && fixture.Dependencies.Count < 2_000;
+                 successorIndex++)
+            {
+                if (predecessorIndex == 0 && successorIndex == tasks.Length - 1)
+                {
+                    continue;
+                }
+
+                fixture.Dependencies.Add(new TaskDependency
+                {
+                    ProjectId = fixture.Project.Id,
+                    PredecessorTaskItemId = tasks[predecessorIndex].Id,
+                    SuccessorTaskItemId = tasks[successorIndex].Id,
+                    DependencyType = TaskDependencyType.FinishToStart
+                });
+            }
+        }
+
+        Assert.Equal(2_000, fixture.Dependencies.Count);
+        var projectVersion = fixture.Project.VersionNo;
+        var result = await fixture.Service.AddDependencyAsync(
+            successor.Id,
+            new AddTaskDependencyRequest(
+                predecessor.Id,
+                TaskDependencyType.FinishToStart,
+                successor.VersionNo));
+
+        Assert.StartsWith("TASK_DEPENDENCY_LIMIT_EXCEEDED|", result.Error);
+        Assert.Equal(2_000, fixture.Dependencies.Count);
+        Assert.Equal(1, successor.VersionNo);
+        Assert.Equal(projectVersion, fixture.Project.VersionNo);
+        Assert.Equal(0, fixture.CommandUnitOfWork.SaveCount);
+        Assert.Contains(
+            fixture.Audit.Entries,
+            entry => entry.Action == "TaskDependencyMutationRejected" &&
+                Equals(entry.Metadata?["reasonCode"], "TASK_DEPENDENCY_LIMIT_EXCEEDED"));
+    }
+
+    [Fact]
+    [Trait("Scope", "TaskV1PR06")]
+    public async Task UnknownAndDeletedDependencyNeighborsShareTheSafeNotFoundOutcome()
+    {
+        var fixture = ProjectFixture.Create();
+        var manager = fixture.AddUser();
+        fixture.Current.UserIdValue = manager.Id;
+        fixture.AddProjectMember(manager.Id, ProjectRole.Manager);
+        var successor = fixture.AddTask("Successor");
+        var deleted = fixture.AddTask("Deleted predecessor");
+        deleted.MarkDeleted(fixture.Clock.UtcNow, manager.Id, "test");
+        var legacyKind = fixture.AddTask("Legacy Milestone-kind predecessor");
+        legacyKind.Kind = WorkItemKind.Milestone;
+        var legacySuccessor = fixture.AddTask("Legacy Milestone-kind successor");
+        legacySuccessor.Kind = WorkItemKind.Milestone;
+
+        var unknown = await fixture.Service.AddDependencyAsync(
+            successor.Id,
+            new AddTaskDependencyRequest(
+                Guid.NewGuid(),
+                TaskDependencyType.FinishToStart,
+                successor.VersionNo));
+        var deletedResult = await fixture.Service.AddDependencyAsync(
+            successor.Id,
+            new AddTaskDependencyRequest(
+                deleted.Id,
+                TaskDependencyType.FinishToStart,
+                successor.VersionNo));
+        var legacyKindResult = await fixture.Service.AddDependencyAsync(
+            successor.Id,
+            new AddTaskDependencyRequest(
+                legacyKind.Id,
+                TaskDependencyType.FinishToStart,
+                successor.VersionNo));
+        var legacySuccessorResult = await fixture.Service.AddDependencyAsync(
+            legacySuccessor.Id,
+            new AddTaskDependencyRequest(
+                successor.Id,
+                TaskDependencyType.FinishToStart,
+                legacySuccessor.VersionNo));
+
+        Assert.StartsWith("TASK_DEPENDENCY_NOT_FOUND|", unknown.Error);
+        Assert.StartsWith("TASK_DEPENDENCY_NOT_FOUND|", deletedResult.Error);
+        Assert.StartsWith("TASK_DEPENDENCY_NOT_FOUND|", legacyKindResult.Error);
+        Assert.StartsWith("TASK_DEPENDENCY_NOT_FOUND|", legacySuccessorResult.Error);
+        Assert.Equal(unknown.Error, deletedResult.Error);
+        Assert.Equal(unknown.Error, legacyKindResult.Error);
+        Assert.Equal(unknown.Error, legacySuccessorResult.Error);
+        Assert.Empty(fixture.Dependencies);
+    }
+
+    [Fact]
+    [Trait("Scope", "TaskV1PR06")]
+    public async Task ProjectRevisionConcurrencyIsMappedWithoutThrowing()
+    {
+        var fixture = ProjectFixture.Create();
+        var manager = fixture.AddUser();
+        fixture.Current.UserIdValue = manager.Id;
+        fixture.AddProjectMember(manager.Id, ProjectRole.Manager);
+        fixture.CommandUnitOfWork.Outcome =
+            new TaskCommandSaveOutcome(TaskCommandSaveResult.ConcurrencyConflict);
+
+        var result = await fixture.Service.UpdateAsync(
+            fixture.Project.Id,
+            new UpdateProjectRequest("Concurrent rename", null, null, null, null));
+
+        Assert.False(result.IsSuccess);
+        Assert.Equal("PROJECT_CONFLICT", result.ErrorDetail?.Code);
+        Assert.Equal(1, fixture.CommandUnitOfWork.ClearCount);
+    }
+
+    [Fact]
+    [Trait("Scope", "TaskV1PR06")]
+    public async Task CanonicalFinishToStartDependencyAdvancesOnlySuccessorVersionWithoutMovingDates()
+    {
+        var fixture = ProjectFixture.Create();
+        var manager = fixture.AddUser();
+        fixture.Current.UserIdValue = manager.Id;
+        fixture.AddProjectMember(manager.Id, ProjectRole.Manager);
+        var predecessor = fixture.AddTask("Predecessor");
+        predecessor.PlannedStartDate = new DateOnly(2026, 8, 1);
+        predecessor.PlannedEndDate = new DateOnly(2026, 8, 10);
+        var successor = fixture.AddTask("Successor");
+        successor.PlannedStartDate = new DateOnly(2026, 8, 5);
+        successor.PlannedEndDate = new DateOnly(2026, 8, 8);
+        var predecessorDates = (predecessor.PlannedStartDate, predecessor.PlannedEndDate);
+        var successorDates = (successor.PlannedStartDate, successor.PlannedEndDate);
+
+        var result = await fixture.Service.AddDependencyAsync(
+            successor.Id,
+            new AddTaskDependencyRequest(predecessor.Id, TaskDependencyType.FinishToStart, successor.VersionNo));
+
+        Assert.True(result.IsSuccess);
+        Assert.Single(fixture.Dependencies);
+        Assert.Equal(1, predecessor.VersionNo);
+        Assert.Equal(2, successor.VersionNo);
+        Assert.Equal(predecessorDates, (predecessor.PlannedStartDate, predecessor.PlannedEndDate));
+        Assert.Equal(successorDates, (successor.PlannedStartDate, successor.PlannedEndDate));
+        Assert.Contains(fixture.Audit.Entries, entry => entry.Action == "TaskDependencyAdded");
+        Assert.Equal(successor.VersionNo, result.Value!.Version);
+        Assert.Contains(result.Value.Warnings, warning => warning.Code == "DEPENDENCY_VIOLATION" && !warning.Blocking);
+    }
+
+    [Fact]
+    [Trait("Scope", "TaskV1PR06")]
+    public async Task DependencyAuthoringRedactsCrossProjectNeighborAndRejectsLegacyType()
+    {
+        var fixture = ProjectFixture.Create();
+        var manager = fixture.AddUser();
+        fixture.Current.UserIdValue = manager.Id;
+        fixture.AddProjectMember(manager.Id, ProjectRole.Manager);
+        var successor = fixture.AddTask("Successor");
+        var otherProject = new Project
+        {
+            WorkspaceId = fixture.Workspace.Id,
+            Name = "Other",
+            Slug = "other",
+            OwnerUserId = manager.Id,
+            CreatedByUserId = manager.Id,
+            Status = ProjectStatus.Active
+        };
+        fixture.Projects.ProjectItems[otherProject.Id] = otherProject;
+        var hiddenNeighbor = new TaskItem
+        {
+            ProjectId = otherProject.Id,
+            WorkspaceId = fixture.Workspace.Id,
+            Title = "Hidden",
+            CreatedByUserId = manager.Id,
+            VersionNo = 1
+        };
+        fixture.Projects.Tasks[hiddenNeighbor.Id] = hiddenNeighbor;
+
+        var crossProject = await fixture.Service.AddDependencyAsync(
+            successor.Id,
+            new AddTaskDependencyRequest(hiddenNeighbor.Id, TaskDependencyType.FinishToStart, successor.VersionNo));
+        var legacy = await fixture.Service.AddDependencyAsync(
+            successor.Id,
+            new AddTaskDependencyRequest(Guid.NewGuid(), TaskDependencyType.StartToStart, successor.VersionNo));
+
+        Assert.StartsWith("TASK_DEPENDENCY_NOT_FOUND|", crossProject.Error);
+        Assert.DoesNotContain("Other", crossProject.Error, StringComparison.Ordinal);
+        Assert.StartsWith("TASK_DEPENDENCY_TYPE_DEFERRED|", legacy.Error);
+        Assert.Empty(fixture.Dependencies);
+        var rejections = fixture.Audit.Entries
+            .Where(entry => entry.Action == "TaskDependencyMutationRejected")
+            .ToArray();
+        Assert.Equal(2, rejections.Length);
+        Assert.Contains(
+            rejections,
+            entry => Equals(entry.Metadata!["reasonCode"], "TASK_DEPENDENCY_NOT_FOUND"));
+        Assert.Contains(
+            rejections,
+            entry => Equals(entry.Metadata!["reasonCode"], "TASK_DEPENDENCY_TYPE_DEFERRED"));
+        Assert.All(rejections, entry =>
+        {
+            Assert.Null(entry.EntityId);
+            Assert.DoesNotContain(entry.Metadata!.Keys, key =>
+                key.Contains("predecessor", StringComparison.OrdinalIgnoreCase) ||
+                key.Contains("neighbor", StringComparison.OrdinalIgnoreCase) ||
+                key.Contains("title", StringComparison.OrdinalIgnoreCase));
+        });
+    }
+
+    [Fact]
+    [Trait("Scope", "TaskV1PR06")]
+    public async Task DependencyDeleteRequiresSuccessorVersionAndKeepsLegacyRowsReadOnly()
+    {
+        var fixture = ProjectFixture.Create();
+        var manager = fixture.AddUser();
+        fixture.Current.UserIdValue = manager.Id;
+        fixture.AddProjectMember(manager.Id, ProjectRole.Manager);
+        var predecessor = fixture.AddTask("Predecessor");
+        var successor = fixture.AddTask("Successor");
+        var legacy = new TaskDependency
+        {
+            ProjectId = fixture.Project.Id,
+            PredecessorTaskItemId = predecessor.Id,
+            SuccessorTaskItemId = successor.Id,
+            DependencyType = TaskDependencyType.StartToStart
+        };
+        fixture.Dependencies.Add(legacy);
+
+        var stale = await fixture.Service.DeleteDependencyAsync(successor.Id, legacy.Id, 99);
+        var readOnly = await fixture.Service.DeleteDependencyAsync(successor.Id, legacy.Id, successor.VersionNo);
+
+        Assert.StartsWith("TASK_STALE_VERSION|", stale.Error);
+        Assert.StartsWith("TASK_DEPENDENCY_LEGACY_READ_ONLY|", readOnly.Error);
+        Assert.Contains(legacy, fixture.Dependencies);
+        Assert.Equal(1, successor.VersionNo);
+    }
+
+    [Fact]
+    [Trait("Scope", "TaskV1PR06")]
+    public async Task WorkspaceReadOnlyManagerCannotManageDependencies()
+    {
+        var fixture = ProjectFixture.Create();
+        var manager = fixture.AddUser(workspaceRole: WorkspaceRole.ReadOnly);
+        fixture.Current.UserIdValue = manager.Id;
+        fixture.AddProjectMember(manager.Id, ProjectRole.Manager);
+        var predecessor = fixture.AddTask("Predecessor");
+        var successor = fixture.AddTask("Successor");
+
+        var result = await fixture.Service.AddDependencyAsync(
+            successor.Id,
+            new AddTaskDependencyRequest(predecessor.Id, TaskDependencyType.FinishToStart, successor.VersionNo));
+
+        Assert.StartsWith("TASK_DEPENDENCY_FORBIDDEN|", result.Error);
+        Assert.Empty(fixture.Dependencies);
+    }
+
+    [Fact]
+    [Trait("Scope", "TaskV1PR06")]
+    public async Task DependencyAuthoringRejectsCombinedTaskAndMilestoneOverflow()
+    {
+        var fixture = ProjectFixture.Create();
+        var manager = fixture.AddUser();
+        fixture.Current.UserIdValue = manager.Id;
+        fixture.AddProjectMember(manager.Id, ProjectRole.Manager);
+        var predecessor = fixture.AddTask("Predecessor");
+        var successor = fixture.AddTask("Successor");
+        for (var index = 2; index < 500; index++)
+            fixture.AddTask($"Task {index}");
+        fixture.AddMilestone("Milestone", 1);
+
+        var result = await fixture.Service.AddDependencyAsync(
+            successor.Id,
+            new AddTaskDependencyRequest(
+                predecessor.Id,
+                TaskDependencyType.FinishToStart,
+                successor.VersionNo));
+
+        Assert.StartsWith("GANTT_ITEM_LIMIT_EXCEEDED|", result.Error);
+        Assert.Empty(fixture.Dependencies);
+        Assert.Equal(1, successor.VersionNo);
     }
 
     [Fact]
@@ -411,7 +778,15 @@ public sealed class ProjectServiceTests
         Assert.Equal(MilestoneStatus.NotStarted, created.Value.Status);
         Assert.Equal(20, created.Value.DisplayOrder);
 
-        var updated = await fixture.Service.UpdateMilestoneAsync(created.Value.Id, new UpdateMilestoneRequest(null, "Updated", new DateOnly(2026, 8, 1), MilestoneStatus.InProgress, 10));
+        var updated = await fixture.Service.UpdateMilestoneAsync(
+            created.Value.Id,
+            new UpdateMilestoneRequest(
+                null,
+                "Updated",
+                new DateOnly(2026, 8, 1),
+                MilestoneStatus.InProgress,
+                10,
+                created.Value.Version));
 
         Assert.True(updated.IsSuccess);
         Assert.Equal("Updated", updated.Value!.Description);
@@ -464,10 +839,79 @@ public sealed class ProjectServiceTests
         fixture.AddProjectMember(manager.Id, ProjectRole.Manager);
         var milestone = fixture.AddMilestone("Alpha", 1);
 
-        var result = await fixture.Service.UpdateMilestoneAsync(milestone.Id, new UpdateMilestoneRequest(null, null, null, MilestoneStatus.Cancelled, null));
+        var result = await fixture.Service.UpdateMilestoneAsync(
+            milestone.Id,
+            new UpdateMilestoneRequest(
+                null,
+                null,
+                null,
+                MilestoneStatus.Cancelled,
+                null,
+                milestone.VersionNo));
 
         Assert.False(result.IsSuccess);
         Assert.Equal(MilestoneStatus.NotStarted, milestone.Status);
+    }
+
+    [Fact]
+    [Trait("Scope", "TaskV1PR06")]
+    public async Task MilestoneCompatibilityUpdateRequiresCurrentVersion()
+    {
+        var fixture = ProjectFixture.Create();
+        var manager = fixture.AddUser();
+        fixture.Current.UserIdValue = manager.Id;
+        fixture.AddProjectMember(manager.Id, ProjectRole.Manager);
+        var milestone = fixture.AddMilestone("Alpha", 1);
+        milestone.DueDate = new DateOnly(2026, 8, 1);
+        milestone.VersionNo = 4;
+
+        var result = await fixture.Service.UpdateMilestoneAsync(
+            milestone.Id,
+            new UpdateMilestoneRequest(
+                "Stale title",
+                null,
+                new DateOnly(2026, 8, 2),
+                MilestoneStatus.Completed,
+                null,
+                3));
+
+        Assert.False(result.IsSuccess);
+        Assert.Equal("MILESTONE_STALE_VERSION", result.ErrorDetail?.Code);
+        Assert.Equal("Alpha", milestone.Name);
+        Assert.Equal(new DateOnly(2026, 8, 1), milestone.DueDate);
+        Assert.Equal(MilestoneStatus.NotStarted, milestone.Status);
+        Assert.Equal(4, milestone.VersionNo);
+        Assert.Equal(0, fixture.CommandUnitOfWork.SaveCount);
+        Assert.DoesNotContain(fixture.Audit.Entries, entry => entry.EntityId == milestone.Id);
+    }
+
+    [Fact]
+    [Trait("Scope", "TaskV1PR06")]
+    public async Task MilestoneCompatibilityUpdateCannotActivateOrCompleteWithoutDate()
+    {
+        var fixture = ProjectFixture.Create();
+        var manager = fixture.AddUser();
+        fixture.Current.UserIdValue = manager.Id;
+        fixture.AddProjectMember(manager.Id, ProjectRole.Manager);
+        var milestone = fixture.AddMilestone("Legacy undated", 1);
+
+        var result = await fixture.Service.UpdateMilestoneAsync(
+            milestone.Id,
+            new UpdateMilestoneRequest(
+                null,
+                null,
+                null,
+                MilestoneStatus.Completed,
+                null,
+                milestone.VersionNo));
+
+        Assert.False(result.IsSuccess);
+        Assert.Equal("MILESTONE_DATE_REQUIRED", result.ErrorDetail?.Code);
+        Assert.Null(milestone.DueDate);
+        Assert.Equal(MilestoneStatus.NotStarted, milestone.Status);
+        Assert.Equal(1, milestone.VersionNo);
+        Assert.Equal(0, fixture.CommandUnitOfWork.SaveCount);
+        Assert.DoesNotContain(fixture.Audit.Entries, entry => entry.EntityId == milestone.Id);
     }
 
     [Fact]
@@ -675,8 +1119,15 @@ public sealed class ProjectServiceTests
     private sealed class FakeTaskCommandUnitOfWork : ITaskCommandUnitOfWork
     {
         public TaskCommandSaveOutcome Outcome { get; set; } = new(TaskCommandSaveResult.Saved);
+        public int SaveCount { get; private set; }
+        public int ClearCount { get; private set; }
         public Task<int> SaveChangesAsync(CancellationToken cancellationToken = default) => Task.FromResult(1);
-        public Task<TaskCommandSaveOutcome> SaveTaskCommandAsync(CancellationToken cancellationToken = default) => Task.FromResult(Outcome);
+        public Task<TaskCommandSaveOutcome> SaveTaskCommandAsync(CancellationToken cancellationToken = default)
+        {
+            SaveCount++;
+            return Task.FromResult(Outcome);
+        }
+        public void ClearTaskCommandTracking() => ClearCount++;
     }
 
     private sealed class UtcTimeZoneResolver : ITaskWorkspaceTimeZoneResolver

@@ -24,6 +24,7 @@ public static class FeatureKeys
     public const string TasksDomainV1 = "tasks.domainV1";
     public const string MyTasksV1 = "tasks.myTasksV1";
     public const string KanbanV1 = "tasks.kanbanV1";
+    public const string GanttV1 = "tasks.ganttV1";
 
     public static readonly IReadOnlyList<string> All =
     [
@@ -46,7 +47,8 @@ public static class FeatureKeys
         AuthorizedRealtimeGroups,
         TasksDomainV1,
         MyTasksV1,
-        KanbanV1
+        KanbanV1,
+        GanttV1
     ];
 
     public static string Normalize(string featureKey)

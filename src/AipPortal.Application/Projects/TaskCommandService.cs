@@ -1,5 +1,6 @@
 using AipPortal.Application.Common;
 using AipPortal.Application.Common.Interfaces;
+using AipPortal.Application.Planning;
 using AipPortal.Application.Realtime;
 using AipPortal.Domain.Entities;
 using AipPortal.Domain.Enums;
@@ -18,8 +19,12 @@ public sealed class TaskCommandService(
     IAuditLogger audit,
     IBusinessInvalidationPublisher invalidations,
     ITaskCommandUnitOfWork unitOfWork,
-    ITaskWorkspaceTimeZoneResolver timeZones) : ITaskCommandService
+    ITaskWorkspaceTimeZoneResolver timeZones,
+    IWorkspaceRepository? workspaceRepository = null) : ITaskCommandService
 {
+    private const int MaximumGanttItems = 500;
+    private const int MaximumGanttDependencies = 2_000;
+
     public async Task<Result<CanonicalTaskResponse>> GetAsync(Guid taskId, CancellationToken cancellationToken = default)
     {
         var task = await projects.GetTaskAsync(taskId, cancellationToken);
@@ -70,6 +75,183 @@ public sealed class TaskCommandService(
         return committed.IsSuccess
             ? Result<CanonicalTaskResponse>.Success(committed.Value!.Task)
             : Result<CanonicalTaskResponse>.Failure(committed.Error!);
+    }
+
+    public async Task<Result<GanttEditCommandResponse>> UpdateScheduleAsync(
+        Guid taskId,
+        TaskScheduleUpdateRequest request,
+        CancellationToken cancellationToken = default)
+    {
+        if (!TryActor(out var actor))
+            return Fail<GanttEditCommandResponse>("GANTT_AUTHENTICATION_REQUIRED", "Authentication is required.");
+
+        var task = await projects.GetTaskAsync(taskId, cancellationToken);
+        if (task is not null)
+        {
+            if (task.DeletedAt.HasValue || task.Kind != WorkItemKind.Task)
+                return Fail<GanttEditCommandResponse>("GANTT_WORK_ITEM_NOT_FOUND", "Work item not found.");
+            var authorization = await AuthorizeGanttTaskMutationAsync(task, actor, cancellationToken);
+            if (authorization.Error is not null)
+                return Fail<GanttEditCommandResponse>(authorization.Error.Value.Code, authorization.Error.Value.Message);
+            if (request.ExpectedVersion <= 0)
+                return Fail<GanttEditCommandResponse>("GANTT_INVALID_EXPECTED_VERSION", "Expected version must be a positive integer.");
+            if (task.VersionNo != request.ExpectedVersion)
+                return Fail<GanttEditCommandResponse>("GANTT_STALE_VERSION", "Work item has changed. Refetch and retry.");
+            if (request.MilestoneDate.HasValue)
+                return Fail<GanttEditCommandResponse>("GANTT_INVALID_SCHEDULE_TARGET", "Milestone date is not applicable to a Task.");
+            if (request.PlannedStartDate.HasValue &&
+                request.PlannedEndDate.HasValue &&
+                request.PlannedEndDate.Value < request.PlannedStartDate.Value)
+            {
+                return Fail<GanttEditCommandResponse>("GANTT_INVALID_DATE_RANGE", "Planned end date must not precede planned start date.");
+            }
+
+            if (await GanttItemLimitExceededAsync(task.ProjectId, cancellationToken))
+                return GanttItemLimitFailure();
+            var projectTasks = await projects.ListTasksBoundedAsync(task.ProjectId, MaximumGanttItems, cancellationToken);
+            var derived = ParentTaskDerivedValuesCalculator.Calculate(task, projectTasks, CategoryOf);
+            if (derived.IsDerived)
+                return Fail<GanttEditCommandResponse>("GANTT_PARENT_DERIVED", "Parent schedule is derived from direct children.");
+
+            // StartDate/DueDate are the maintained compatibility columns used by
+            // the flag-disabled read-only projection. DeadlineAt is intentionally
+            // outside this command and is never rewritten.
+            task.PlannedStartDate = task.StartDate = request.PlannedStartDate;
+            task.PlannedEndDate = task.DueDate = request.PlannedEndDate;
+            var warnings = await BuildGanttWarningsAsync(task, projectTasks, cancellationToken);
+            if (warnings.DependencyLimitExceeded)
+                return GanttDependencyLimitFailure();
+            return await CommitGanttTaskAsync(
+                task,
+                authorization.Project!,
+                "TaskScheduleUpdated",
+                "scheduleChanged",
+                ["plannedStartDate", "plannedEndDate"],
+                warnings.Warnings,
+                cancellationToken);
+        }
+
+        var milestone = await projects.GetMilestoneAsync(taskId, cancellationToken);
+        if (milestone is null || milestone.DeletedAt.HasValue)
+            return Fail<GanttEditCommandResponse>("GANTT_WORK_ITEM_NOT_FOUND", "Work item not found.");
+        var milestoneAuthorization = await AuthorizeGanttMilestoneMutationAsync(milestone, actor, cancellationToken);
+        if (milestoneAuthorization.Error is not null)
+            return Fail<GanttEditCommandResponse>(milestoneAuthorization.Error.Value.Code, milestoneAuthorization.Error.Value.Message);
+        if (request.ExpectedVersion <= 0)
+            return Fail<GanttEditCommandResponse>("GANTT_INVALID_EXPECTED_VERSION", "Expected version must be a positive integer.");
+        if (milestone.VersionNo != request.ExpectedVersion)
+            return Fail<GanttEditCommandResponse>("GANTT_STALE_VERSION", "Work item has changed. Refetch and retry.");
+        if (await GanttItemLimitExceededAsync(milestone.ProjectId, cancellationToken))
+            return GanttItemLimitFailure();
+        if (request.PlannedStartDate.HasValue || request.PlannedEndDate.HasValue)
+            return Fail<GanttEditCommandResponse>("GANTT_INVALID_SCHEDULE_TARGET", "Planned Task dates are not applicable to a Milestone.");
+        if (!request.MilestoneDate.HasValue)
+            return Fail<GanttEditCommandResponse>("MILESTONE_DATE_REQUIRED", "Milestone date is required.");
+
+        milestone.DueDate = request.MilestoneDate;
+        return await CommitGanttMilestoneAsync(
+            milestone,
+            milestoneAuthorization.Project!,
+            "MilestoneScheduleUpdated",
+            "milestoneScheduleChanged",
+            [],
+            cancellationToken);
+    }
+
+    public async Task<Result<GanttEditCommandResponse>> UpdateProgressAsync(
+        Guid taskId,
+        TaskProgressUpdateRequest request,
+        CancellationToken cancellationToken = default)
+    {
+        if (!TryActor(out var actor))
+            return Fail<GanttEditCommandResponse>("GANTT_AUTHENTICATION_REQUIRED", "Authentication is required.");
+        if (request.ProgressPercent is not int progressPercent
+            || progressPercent is < 0 or > 100)
+            return Fail<GanttEditCommandResponse>("GANTT_INVALID_PROGRESS", "Progress must be an integer between 0 and 100.");
+
+        var task = await projects.GetTaskAsync(taskId, cancellationToken);
+        if (task is not null)
+        {
+            if (task.DeletedAt.HasValue || task.Kind != WorkItemKind.Task)
+                return Fail<GanttEditCommandResponse>("GANTT_WORK_ITEM_NOT_FOUND", "Work item not found.");
+            var authorization = await AuthorizeGanttTaskMutationAsync(task, actor, cancellationToken);
+            if (authorization.Error is not null)
+                return Fail<GanttEditCommandResponse>(authorization.Error.Value.Code, authorization.Error.Value.Message);
+            if (request.ExpectedVersion <= 0)
+                return Fail<GanttEditCommandResponse>("GANTT_INVALID_EXPECTED_VERSION", "Expected version must be a positive integer.");
+            if (task.VersionNo != request.ExpectedVersion)
+                return Fail<GanttEditCommandResponse>("GANTT_STALE_VERSION", "Work item has changed. Refetch and retry.");
+
+            if (await GanttItemLimitExceededAsync(task.ProjectId, cancellationToken))
+                return GanttItemLimitFailure();
+            var projectTasks = await projects.ListTasksBoundedAsync(task.ProjectId, MaximumGanttItems, cancellationToken);
+            var derived = ParentTaskDerivedValuesCalculator.Calculate(task, projectTasks, CategoryOf);
+            if (derived.IsDerived)
+                return Fail<GanttEditCommandResponse>("GANTT_PARENT_DERIVED", "Parent progress is derived from direct children.");
+            var category = CategoryOf(task);
+            if (category == TaskStageCategory.Done && progressPercent != 100)
+                return Fail<GanttEditCommandResponse>("GANTT_INVALID_PROGRESS", "Completed Tasks must remain at 100 percent progress.");
+            if (category == TaskStageCategory.Cancelled && progressPercent != task.ProgressPercent)
+                return Fail<GanttEditCommandResponse>("GANTT_INVALID_PROGRESS", "Cancelled Task progress cannot be changed.");
+
+            var warnings = await BuildGanttWarningsAsync(task, projectTasks, cancellationToken);
+            if (warnings.DependencyLimitExceeded)
+                return GanttDependencyLimitFailure();
+            if (task.ProgressPercent == progressPercent)
+            {
+                return Result<GanttEditCommandResponse>.Success(new GanttEditCommandResponse(
+                    task.Id,
+                    WorkItemKind.Task,
+                    task.PlannedStartDate,
+                    task.PlannedEndDate,
+                    null,
+                    task.ProgressPercent,
+                    task.VersionNo,
+                    warnings.Warnings));
+            }
+
+            task.ProgressPercent = progressPercent;
+            return await CommitGanttTaskAsync(
+                task,
+                authorization.Project!,
+                "TaskProgressUpdated",
+                "progressChanged",
+                ["progressPercent"],
+                warnings.Warnings,
+                cancellationToken);
+        }
+
+        var milestone = await projects.GetMilestoneAsync(taskId, cancellationToken);
+        if (milestone is null || milestone.DeletedAt.HasValue)
+            return Fail<GanttEditCommandResponse>("GANTT_WORK_ITEM_NOT_FOUND", "Work item not found.");
+        var milestoneAuthorization = await AuthorizeGanttMilestoneMutationAsync(milestone, actor, cancellationToken);
+        if (milestoneAuthorization.Error is not null)
+            return Fail<GanttEditCommandResponse>(milestoneAuthorization.Error.Value.Code, milestoneAuthorization.Error.Value.Message);
+        if (request.ExpectedVersion <= 0)
+            return Fail<GanttEditCommandResponse>("GANTT_INVALID_EXPECTED_VERSION", "Expected version must be a positive integer.");
+        if (milestone.VersionNo != request.ExpectedVersion)
+            return Fail<GanttEditCommandResponse>("GANTT_STALE_VERSION", "Work item has changed. Refetch and retry.");
+        if (await GanttItemLimitExceededAsync(milestone.ProjectId, cancellationToken))
+            return GanttItemLimitFailure();
+        if (progressPercent is not (0 or 100))
+            return Fail<GanttEditCommandResponse>("GANTT_INVALID_PROGRESS", "Milestone progress must be 0 or 100.");
+        if (!milestone.DueDate.HasValue)
+            return Fail<GanttEditCommandResponse>("MILESTONE_DATE_REQUIRED", "Milestone date is required before progress can be updated.");
+        if (milestone.Status == MilestoneStatus.Cancelled)
+            return Fail<GanttEditCommandResponse>("GANTT_INVALID_PROGRESS", "Cancelled Milestone progress cannot be changed.");
+
+        milestone.Status = progressPercent == 100
+            ? MilestoneStatus.Completed
+            : milestone.Status == MilestoneStatus.Completed
+                ? MilestoneStatus.NotStarted
+                : milestone.Status;
+        return await CommitGanttMilestoneAsync(
+            milestone,
+            milestoneAuthorization.Project!,
+            "MilestoneProgressUpdated",
+            "milestoneProgressChanged",
+            [],
+            cancellationToken);
     }
 
     public async Task<Result<TaskRelationshipsResponse>> GetRelationshipsAsync(Guid taskId, CancellationToken cancellationToken = default)
@@ -215,7 +397,16 @@ public sealed class TaskCommandService(
         if (!IsBounded(request.Reason)) return Fail<TaskCommandResponse>("TASK_TRANSITION_GUARD_FAILED", "An override reason is required.");
         var done = (await projects.ListWorkflowStagesAsync(task.ProjectId, cancellationToken)).FirstOrDefault(stage => stage.InternalCategory == TaskStageCategory.Done);
         if (done is null) return Fail<TaskCommandResponse>("TASK_INVALID_STAGE", "Done stage is unavailable.");
-        task.WorkflowStageId = done.Id; task.Status = TaskItemStatus.Completed; task.ProgressPercent = 100; task.CompletedAt = clock.UtcNow;
+        var transition = await TaskTransitionEngine.ApplyAsync(
+            projects,
+            clock,
+            task,
+            done.Id,
+            request.Reason,
+            cancellationToken,
+            allowReviewOverride: true);
+        if (!transition.IsSuccess)
+            return Result<TaskCommandResponse>.Failure(transition.Error!);
         return await CommitAsync(task, "TaskReviewOverrideCompleted", "reviewOverridden", cancellationToken, true, request.Reason);
     }
 
@@ -236,8 +427,16 @@ public sealed class TaskCommandService(
         var result = await AuthorizedTaskAsync(taskId, true, true, cancellationToken: cancellationToken, includeDeleted: true);
         if (result.Error is not null) return Fail<TaskCommandResponse>(result.Error.Value.Code, result.Error.Value.Message);
         var task = result.Value!; var stale = EnsureVersion(task, request.ExpectedVersion); if (stale is not null) return Fail<TaskCommandResponse>(stale.Value.Code, stale.Value.Message);
+        var parentGuard = await RequireReopenedParentForHierarchyMutationAsync(task, "restore", cancellationToken);
+        if (parentGuard is not null)
+            return Fail<TaskCommandResponse>(parentGuard.Value.Code, parentGuard.Value.Message);
         task.Restore();
-        return await CommitAsync(task, "TaskRestored", "restored", cancellationToken);
+        return await CommitAsync(
+            task,
+            "TaskRestored",
+            "restored",
+            cancellationToken,
+            projectChanged: true);
     }
 
     public async Task<Result<TaskCommandResponse>> DeleteAsync(Guid taskId, TaskDeleteRequest request, CancellationToken cancellationToken = default)
@@ -246,8 +445,16 @@ public sealed class TaskCommandService(
         if (result.Error is not null) return Fail<TaskCommandResponse>(result.Error.Value.Code, result.Error.Value.Message);
         var task = result.Value!;
         var stale = EnsureVersion(task, request.ExpectedVersion); if (stale is not null) return Fail<TaskCommandResponse>(stale.Value.Code, stale.Value.Message);
+        var parentGuard = await RequireReopenedParentForHierarchyMutationAsync(task, "delete", cancellationToken);
+        if (parentGuard is not null)
+            return Fail<TaskCommandResponse>(parentGuard.Value.Code, parentGuard.Value.Message);
         task.MarkDeleted(clock.UtcNow);
-        return await CommitAsync(task, "TaskDeleted", "deleted", cancellationToken);
+        return await CommitAsync(
+            task,
+            "TaskDeleted",
+            "deleted",
+            cancellationToken,
+            projectChanged: true);
     }
 
     public async Task<Result<TaskWatchStateResponse>> GetWatchStateAsync(Guid taskId, CancellationToken cancellationToken = default)
@@ -345,6 +552,325 @@ public sealed class TaskCommandService(
         return await CommitAsync(task, outcome == TaskReviewStatus.Accepted ? "TaskReviewAccepted" : "TaskReviewReturned", "reviewResolved", cancellationToken);
     }
 
+    private async Task<(Project? Project, (string Code, string Message)? Error)> AuthorizeGanttTaskMutationAsync(
+        TaskItem task,
+        Guid actor,
+        CancellationToken cancellationToken)
+    {
+        var project = await projects.GetProjectAsync(task.ProjectId, cancellationToken);
+        if (project is null ||
+            project.DeletedAt.HasValue ||
+            project.Status is ProjectStatus.Archived or ProjectStatus.Deleted ||
+            !await projectAuthorization.CanViewProject(actor, project.Id, cancellationToken))
+        {
+            return (null, ("GANTT_WORK_ITEM_NOT_FOUND", "Work item not found."));
+        }
+
+        var workspaceMember = workspaceRepository is null
+            ? null
+            : await workspaceRepository.GetMemberAsync(project.WorkspaceId, actor, cancellationToken);
+        if (workspaceMember is { Status: MembershipStatus.Active, Role: WorkspaceRole.ReadOnly })
+            return (null, ("GANTT_FORBIDDEN", "Schedule editing is not authorized."));
+
+        if (await projectAuthorization.CanManageProject(actor, project.Id, cancellationToken))
+            return (project, null);
+
+        var projectMember = await projects.GetMemberAsync(project.Id, actor, cancellationToken);
+        var mayEditOwnTask =
+            workspaceMember is { Status: MembershipStatus.Active } &&
+            workspaceMember.Role.CanContribute() &&
+            projectMember?.Role == ProjectRole.Contributor &&
+            (task.CreatedByUserId == actor || task.PrimaryAssigneeUserId == actor);
+        return mayEditOwnTask
+            ? (project, null)
+            : (null, ("GANTT_FORBIDDEN", "Schedule editing is not authorized."));
+    }
+
+    private async Task<(string Code, string Message)?> RequireReopenedParentForHierarchyMutationAsync(
+        TaskItem child,
+        string operation,
+        CancellationToken cancellationToken)
+    {
+        if (!child.ParentTaskItemId.HasValue)
+            return null;
+
+        var parent = await projects.GetTaskAsync(child.ParentTaskItemId.Value, cancellationToken);
+        if (parent is null ||
+            parent.DeletedAt.HasValue ||
+            CategoryOf(parent) is not (TaskStageCategory.Done or TaskStageCategory.Cancelled))
+        {
+            return null;
+        }
+
+        return (
+            "TASK_TRANSITION_GUARD_FAILED",
+            $"Reopen the parent Task before attempting to {operation} its child.");
+    }
+
+    private async Task<(Project? Project, (string Code, string Message)? Error)> AuthorizeGanttMilestoneMutationAsync(
+        Milestone milestone,
+        Guid actor,
+        CancellationToken cancellationToken)
+    {
+        var project = await projects.GetProjectAsync(milestone.ProjectId, cancellationToken);
+        if (project is null ||
+            project.DeletedAt.HasValue ||
+            project.Status is ProjectStatus.Archived or ProjectStatus.Deleted ||
+            !await projectAuthorization.CanViewProject(actor, project.Id, cancellationToken))
+        {
+            return (null, ("GANTT_WORK_ITEM_NOT_FOUND", "Work item not found."));
+        }
+
+        var workspaceMember = workspaceRepository is null
+            ? null
+            : await workspaceRepository.GetMemberAsync(project.WorkspaceId, actor, cancellationToken);
+        if (workspaceMember is { Status: MembershipStatus.Active, Role: WorkspaceRole.ReadOnly })
+            return (null, ("GANTT_FORBIDDEN", "Milestone editing is not authorized."));
+
+        return await projectAuthorization.CanManageProject(actor, project.Id, cancellationToken)
+            ? (project, null)
+            : (null, ("GANTT_FORBIDDEN", "Milestone editing is not authorized."));
+    }
+
+    private async Task<GanttWarningBuildResult> BuildGanttWarningsAsync(
+        TaskItem changedTask,
+        IReadOnlyList<TaskItem> projectTasks,
+        CancellationToken cancellationToken)
+    {
+        var effectiveTasks = projectTasks
+            .Where(task => task.Id != changedTask.Id && !task.DeletedAt.HasValue && task.Kind == WorkItemKind.Task)
+            .Append(changedTask)
+            .ToList();
+        var dependencies = await projects.ListProjectDependenciesBoundedAsync(
+            changedTask.ProjectId,
+            MaximumGanttDependencies + 1,
+            cancellationToken);
+        if (dependencies.Count > MaximumGanttDependencies)
+            return new GanttWarningBuildResult([], true);
+
+        var warnings = new List<GanttWarningResponse>();
+        var category = CategoryOf(changedTask);
+        if (!changedTask.PlannedStartDate.HasValue && !changedTask.PlannedEndDate.HasValue)
+        {
+            warnings.Add(GanttWarning(
+                "UNSCHEDULED",
+                "This Task has no planned dates and is listed as unscheduled.",
+                GanttWarningSeverity.Info,
+                "Task",
+                changedTask.Id,
+                "plannedStartDate"));
+        }
+        if (!changedTask.PlannedEndDate.HasValue &&
+            category is TaskStageCategory.InProgress or TaskStageCategory.Review)
+        {
+            warnings.Add(GanttWarning(
+                "MISSING_ACTIVE_PLANNED_END",
+                "Active work has no planned end date.",
+                GanttWarningSeverity.Warning,
+                "Task",
+                changedTask.Id,
+                "plannedEndDate"));
+        }
+
+        var tasksById = effectiveTasks.ToDictionary(task => task.Id);
+        var derivedById = effectiveTasks.ToDictionary(
+            task => task.Id,
+            task => ParentTaskDerivedValuesCalculator.Calculate(task, effectiveTasks, CategoryOf));
+        var affectedTaskIds = changedTask.ParentTaskItemId.HasValue
+            ? new HashSet<Guid> { changedTask.Id, changedTask.ParentTaskItemId.Value }
+            : new HashSet<Guid> { changedTask.Id };
+        foreach (var dependency in dependencies.Where(dependency =>
+                     affectedTaskIds.Contains(dependency.PredecessorTaskItemId) ||
+                     affectedTaskIds.Contains(dependency.SuccessorTaskItemId)))
+        {
+            if (dependency.DependencyType != TaskDependencyType.FinishToStart)
+            {
+                warnings.Add(GanttWarning(
+                    "LEGACY_DEPENDENCY_TYPE",
+                    "This legacy dependency type is read-only; new authoring supports Finish-to-Start only.",
+                    GanttWarningSeverity.Warning,
+                    "Dependency",
+                    dependency.Id,
+                    "type"));
+                continue;
+            }
+
+            if (!tasksById.ContainsKey(dependency.PredecessorTaskItemId) ||
+                !tasksById.ContainsKey(dependency.SuccessorTaskItemId))
+            {
+                continue;
+            }
+
+            var predecessor = derivedById[dependency.PredecessorTaskItemId];
+            var successor = derivedById[dependency.SuccessorTaskItemId];
+            if (predecessor.PlannedEndDate.HasValue &&
+                successor.PlannedStartDate.HasValue &&
+                predecessor.PlannedEndDate.Value > successor.PlannedStartDate.Value)
+            {
+                warnings.Add(GanttWarning(
+                    "DEPENDENCY_VIOLATION",
+                    "The predecessor is planned to finish after the successor starts. No dates were changed automatically.",
+                    GanttWarningSeverity.Warning,
+                    "Dependency",
+                    dependency.Id,
+                    "plannedStartDate"));
+            }
+        }
+
+        return new GanttWarningBuildResult(OrderedGanttWarnings(warnings), false);
+    }
+
+    private async Task<Result<GanttEditCommandResponse>> CommitGanttTaskAsync(
+        TaskItem task,
+        Project project,
+        string action,
+        string change,
+        IReadOnlyCollection<string> changedFields,
+        IReadOnlyList<GanttWarningResponse> warnings,
+        CancellationToken cancellationToken)
+    {
+        var actor = Actor();
+        await ReconcileAutomaticWatchAsync(task, null, cancellationToken);
+        task.VersionNo++;
+        await audit.LogAsync(new AuditLogEntry(
+            actor,
+            action,
+            "TaskItem",
+            task.Id,
+            action,
+            WorkspaceId: task.WorkspaceId,
+            ProjectId: task.ProjectId,
+            Metadata: new Dictionary<string, object?>
+            {
+                ["versionBefore"] = task.VersionNo - 1,
+                ["changedFields"] = changedFields.ToArray()
+            }), cancellationToken);
+        await invalidations.TaskChangedAsync(
+            task,
+            actor,
+            change,
+            changedFields,
+            RelatedUsers(task),
+            cancellationToken);
+        await invalidations.ProjectChangedAsync(project, actor, change, cancellationToken);
+        await AdvanceParentForChildMutationAsync(task, actor, action, cancellationToken);
+        var save = await unitOfWork.SaveTaskCommandAsync(cancellationToken);
+        if (!save.IsSaved)
+        {
+            try
+            {
+                return Fail<GanttEditCommandResponse>(
+                    save.Result == TaskCommandSaveResult.ConcurrencyConflict
+                        ? "GANTT_STALE_VERSION"
+                        : "GANTT_CONFLICT",
+                    "Work item has changed. Refetch and retry.");
+            }
+            finally
+            {
+                unitOfWork.ClearTaskCommandTracking();
+            }
+        }
+
+        return Result<GanttEditCommandResponse>.Success(new GanttEditCommandResponse(
+            task.Id,
+            WorkItemKind.Task,
+            task.PlannedStartDate,
+            task.PlannedEndDate,
+            null,
+            task.ProgressPercent,
+            task.VersionNo,
+            OrderedGanttWarnings(warnings)));
+    }
+
+    private async Task<Result<GanttEditCommandResponse>> CommitGanttMilestoneAsync(
+        Milestone milestone,
+        Project project,
+        string action,
+        string change,
+        IReadOnlyList<GanttWarningResponse> warnings,
+        CancellationToken cancellationToken)
+    {
+        var actor = Actor();
+        milestone.VersionNo++;
+        await audit.LogAsync(new AuditLogEntry(
+            actor,
+            action,
+            "Milestone",
+            milestone.Id,
+            action,
+            WorkspaceId: project.WorkspaceId,
+            ProjectId: project.Id,
+            Metadata: new Dictionary<string, object?>
+            {
+                ["versionBefore"] = milestone.VersionNo - 1
+            }), cancellationToken);
+        await invalidations.ProjectChangedAsync(project, actor, change, cancellationToken);
+        var save = await unitOfWork.SaveTaskCommandAsync(cancellationToken);
+        if (!save.IsSaved)
+        {
+            try
+            {
+                return Fail<GanttEditCommandResponse>(
+                    save.Result == TaskCommandSaveResult.ConcurrencyConflict
+                        ? "GANTT_STALE_VERSION"
+                        : "GANTT_CONFLICT",
+                    "Work item has changed. Refetch and retry.");
+            }
+            finally
+            {
+                unitOfWork.ClearTaskCommandTracking();
+            }
+        }
+
+        return Result<GanttEditCommandResponse>.Success(new GanttEditCommandResponse(
+            milestone.Id,
+            WorkItemKind.Milestone,
+            null,
+            null,
+            milestone.DueDate,
+            milestone.Status == MilestoneStatus.Completed ? 100 : 0,
+            milestone.VersionNo,
+            OrderedGanttWarnings(warnings)));
+    }
+
+    private static GanttWarningResponse GanttWarning(
+        string code,
+        string message,
+        GanttWarningSeverity severity,
+        string targetType,
+        Guid targetId,
+        string? field) =>
+        new(code, message, severity, targetType, targetId, field, false);
+
+    private static IReadOnlyList<GanttWarningResponse> OrderedGanttWarnings(IEnumerable<GanttWarningResponse> warnings) =>
+        warnings
+            .Distinct()
+            .OrderBy(warning => warning.Code, StringComparer.Ordinal)
+            .ThenBy(warning => warning.TargetId)
+            .ToList();
+
+    private static Result<GanttEditCommandResponse> GanttItemLimitFailure() =>
+        Fail<GanttEditCommandResponse>(
+            "GANTT_ITEM_LIMIT_EXCEEDED",
+            $"The Project schedule exceeds the supported limit of {MaximumGanttItems} work items.");
+
+    private async Task<bool> GanttItemLimitExceededAsync(
+        Guid projectId,
+        CancellationToken cancellationToken) =>
+        await projects.CountGanttItemsBoundedAsync(
+            projectId,
+            MaximumGanttItems + 1,
+            cancellationToken) > MaximumGanttItems;
+
+    private static Result<GanttEditCommandResponse> GanttDependencyLimitFailure() =>
+        Fail<GanttEditCommandResponse>(
+            "GANTT_DEPENDENCY_LIMIT_EXCEEDED",
+            "The Project dependency graph exceeds the supported schedule limit.");
+
+    private sealed record GanttWarningBuildResult(
+        IReadOnlyList<GanttWarningResponse> Warnings,
+        bool DependencyLimitExceeded);
+
     private async Task<(TaskItem? Value, (string Code, string Message)? Error)> AuthorizedTaskAsync(Guid taskId, bool mutate, bool requireAssign = false, bool requireOverride = false, CancellationToken cancellationToken = default, bool includeDeleted = false, bool requireReview = false)
     {
         var task = await projects.GetTaskAsync(taskId, cancellationToken);
@@ -355,7 +881,15 @@ public sealed class TaskCommandService(
         return allowed ? (task, null) : (null, ("TASK_FORBIDDEN", "Task operation is not authorized."));
     }
 
-    private async Task<Result<TaskCommandResponse>> CommitAsync(TaskItem task, string action, string change, CancellationToken cancellationToken, bool overrideApplied = false, string? reason = null, IReadOnlyCollection<Guid>? effectiveCollaboratorUserIds = null)
+    private async Task<Result<TaskCommandResponse>> CommitAsync(
+        TaskItem task,
+        string action,
+        string change,
+        CancellationToken cancellationToken,
+        bool overrideApplied = false,
+        string? reason = null,
+        IReadOnlyCollection<Guid>? effectiveCollaboratorUserIds = null,
+        bool projectChanged = false)
     {
         var actor = Actor();
         await ReconcileAutomaticWatchAsync(task, effectiveCollaboratorUserIds, cancellationToken);
@@ -365,6 +899,13 @@ public sealed class TaskCommandService(
         await audit.LogAsync(new AuditLogEntry(actor, action, "TaskItem", task.Id, action, WorkspaceId: task.WorkspaceId, ProjectId: task.ProjectId, Metadata: new Dictionary<string, object?> { ["versionBefore"] = task.VersionNo - 1, ["reasonProvided"] = !string.IsNullOrWhiteSpace(reason) }), cancellationToken);
         await invalidations.TaskChangedAsync(task, actor, change, affectedUserIds: RelatedUsers(task), cancellationToken: cancellationToken);
         await AdvanceParentForChildMutationAsync(task, actor, action, cancellationToken);
+        if (projectChanged)
+        {
+            var project = await projects.GetProjectAsync(task.ProjectId, cancellationToken);
+            if (project is null)
+                return Fail<TaskCommandResponse>("TASK_NOT_FOUND", "Task not found.");
+            await invalidations.ProjectChangedAsync(project, actor, change, cancellationToken);
+        }
         var save = await unitOfWork.SaveTaskCommandAsync(cancellationToken);
         if (!save.IsSaved)
         {

@@ -49,7 +49,10 @@ export function normalizeApiError(input: unknown, explicitStatus?: number): Fron
   const localErrorId = createLocalErrorId();
   const requestId = firstString(body.requestId, body.RequestId, body.traceId, body.TraceId, nested.requestId, nested.RequestId, nested.traceId, nested.TraceId);
   const code = firstString(body.code, body.Code, nested.code, nested.Code) ?? statusCodeToCode(httpStatus);
-  const validationDetails = normalizeValidationErrors(body.errors ?? body.Errors);
+  const validationDetails = [
+    ...normalizeValidationErrors(body.errors ?? body.Errors),
+    ...normalizeValidationErrors(nested.errors ?? nested.Errors)
+  ];
   const message =
     firstString(body.message, body.Message, nested.message, nested.Message) ??
     firstString(body.detail, body.Detail) ??
@@ -62,10 +65,14 @@ export function normalizeApiError(input: unknown, explicitStatus?: number): Fron
   return {
     code,
     message,
-    target: firstString(body.target, body.Target),
-    details: [...validationDetails, ...normalizeDetails(body.details ?? body.Details)],
+    target: firstString(body.target, body.Target, nested.target, nested.Target),
+    details: [
+      ...validationDetails,
+      ...normalizeDetails(body.details ?? body.Details),
+      ...normalizeDetails(nested.details ?? nested.Details)
+    ],
     requestId,
-    redactionApplied: firstBoolean(body.redactionApplied, body.RedactionApplied) ?? true,
+    redactionApplied: firstBoolean(body.redactionApplied, body.RedactionApplied, nested.redactionApplied, nested.RedactionApplied) ?? true,
     httpStatus,
     localErrorId
   };

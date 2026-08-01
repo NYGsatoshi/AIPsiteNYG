@@ -5,30 +5,86 @@ namespace AipPortal.Application.Planning;
 
 public sealed record ProjectGanttResponse(
     Guid ProjectId,
-    string Title,
-    DateOnly? StartDate,
-    DateOnly? EndDate,
-    IReadOnlyList<GanttMilestoneResponse> Milestones,
-    IReadOnlyList<GanttTaskResponse> Tasks,
-    IReadOnlyList<GanttDependencyResponse> Dependencies);
+    string ProjectTitle,
+    long ProjectVersion,
+    long WorkflowVersion,
+    long? CalendarVersion,
+    GanttCalendarResponse Calendar,
+    IReadOnlyList<GanttItemResponse> ScheduledItems,
+    IReadOnlyList<GanttItemResponse> UnscheduledItems,
+    IReadOnlyList<GanttItemResponse> Milestones,
+    IReadOnlyList<GanttDependencyResponse> Dependencies,
+    IReadOnlyList<GanttWarningResponse> Warnings,
+    GanttPermissionsResponse Permissions,
+    int MaximumItems,
+    int TotalItems);
 
-public sealed record GanttMilestoneResponse(Guid MilestoneId, string Title, DateOnly? DueDate, MilestoneStatus Status);
+public sealed record GanttCalendarResponse(
+    string TimeZone,
+    IReadOnlyList<string> WorkingDays,
+    bool HolidaysAvailable,
+    IReadOnlyList<string> Limitations);
 
-public sealed record GanttTaskResponse(
+public sealed record GanttPersonSummary(Guid UserId, string DisplayName);
+
+public sealed record GanttPermissionsResponse(
+    bool CanEditSchedule,
+    bool CanEditProgress,
+    bool CanManageDependencies,
+    bool CanClearSchedule,
+    bool CanOpen);
+
+public sealed record GanttItemResponse(
     Guid TaskId,
-    string Title,
+    [property: JsonConverter(typeof(JsonStringEnumConverter))] WorkItemKind Kind,
+    Guid? ParentTaskId,
     Guid? MilestoneId,
-    DateOnly? StartDate,
-    DateOnly? DueDate,
+    string Title,
+    DateOnly? PlannedStartDate,
+    DateOnly? PlannedEndDate,
+    DateOnly? MilestoneDate,
     int ProgressPercent,
-    TaskItemStatus Status,
-    TaskPriority Priority,
-    bool IsOverdue,
-    IReadOnlyList<GanttAssigneeResponse> Assignees);
+    bool ProgressIsDerived,
+    Guid? WorkflowStageId,
+    string WorkflowStageName,
+    [property: JsonConverter(typeof(JsonStringEnumConverter))] TaskStageCategory StageCategory,
+    [property: JsonConverter(typeof(JsonStringEnumConverter))] TaskPriority Priority,
+    bool IsBlocked,
+    GanttPersonSummary? PrimaryAssignee,
+    long Version,
+    GanttPermissionsResponse ScheduleEditPermissions,
+    IReadOnlyList<GanttWarningResponse> Warnings);
 
-public sealed record GanttAssigneeResponse(Guid UserId, string DisplayName, TaskAssignmentRole Role);
+public sealed record GanttDependencyResponse(
+    Guid DependencyId,
+    Guid PredecessorTaskId,
+    Guid SuccessorTaskId,
+    [property: JsonConverter(typeof(JsonStringEnumConverter))] TaskDependencyType Type,
+    bool Editable,
+    long Version,
+    IReadOnlyList<GanttWarningResponse> Warnings);
 
-public sealed record GanttDependencyResponse(Guid DependencyId, Guid PredecessorTaskId, Guid SuccessorTaskId, TaskDependencyType DependencyType);
+[JsonConverter(typeof(JsonStringEnumConverter))]
+public enum GanttWarningSeverity
+{
+    Info,
+    Warning
+}
+
+public sealed record GanttWarningResponse(
+    string Code,
+    string Message,
+    GanttWarningSeverity Severity,
+    string TargetType,
+    Guid TargetId,
+    string? Field,
+    bool Blocking = false);
+
+public sealed record GanttSnapshotReadResult(
+    ProjectGanttResponse? Snapshot,
+    int TotalItems,
+    bool ItemLimitExceeded,
+    bool DependencyLimitExceeded);
 
 public sealed record ProjectDashboardResponse(
     Guid ProjectId,

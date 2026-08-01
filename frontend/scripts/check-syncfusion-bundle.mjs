@@ -36,4 +36,16 @@ if (!syncfusionChunk) {
   throw new Error('Bundle analysis could not identify the lazy Syncfusion grid chunk.');
 }
 
-console.log(`Verified ${initialScripts.length} initial chunks and lazy Syncfusion grid chunk ${syncfusionChunk}; ${bundleFiles.filter((file) => file.endsWith('.js')).length} JavaScript bundles inspected.`);
+const ganttChunk = await Promise.any(lazyScripts.map(async (file) => {
+  const contents = await readFile(join(outputRoot, file), 'utf8');
+  if (contents.includes('ejs-gantt')) {
+    return file;
+  }
+  throw new Error('not the Syncfusion Gantt chunk');
+})).catch(() => null);
+
+if (!ganttChunk) {
+  throw new Error('Bundle analysis could not identify the lazy Syncfusion Gantt chunk.');
+}
+
+console.log(`Verified ${initialScripts.length} initial chunks, lazy Syncfusion grid chunk ${syncfusionChunk}, and lazy Syncfusion Gantt chunk ${ganttChunk}; ${bundleFiles.filter((file) => file.endsWith('.js')).length} JavaScript bundles inspected.`);

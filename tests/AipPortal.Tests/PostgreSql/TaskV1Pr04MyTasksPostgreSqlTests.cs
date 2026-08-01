@@ -2,7 +2,10 @@ using System.Data.Common;
 using AipPortal.Application.Common;
 using AipPortal.Application.Common.Interfaces;
 using AipPortal.Application.Common.Tenancy;
+using AipPortal.Application.Groups;
 using AipPortal.Application.Planning;
+using AipPortal.Application.Projects;
+using AipPortal.Application.Workspaces;
 using AipPortal.Domain.Entities;
 using AipPortal.Domain.Enums;
 using AipPortal.Infrastructure.Persistence;
@@ -168,7 +171,8 @@ public sealed class TaskV1Pr04MyTasksPostgreSqlTests
     [Trait("Category", "PostgreSQLIntegration")]
     [Trait("Scope", "TaskV1PR04")]
     [Trait("Scope", "TaskV1PR05")]
-    public async Task BrowserSmokeSeedIsIdempotentAndCoversCanonicalViewsAcrossTwoWorkspacesAndPr05Kanban()
+    [Trait("Scope", "TaskV1PR06")]
+    public async Task BrowserSmokeSeedIsIdempotentAndCoversCanonicalViewsAcrossTwoWorkspacesPr05KanbanAndPr06Gantt()
     {
         var connectionString = PostgreSqlTestEnvironment.RequireConnectionString();
         var suffix = Guid.NewGuid().ToString("N");
@@ -247,6 +251,35 @@ public sealed class TaskV1Pr04MyTasksPostgreSqlTests
                 member => member.ProjectId == pr05Project.Id && member.UserId == pr05Manager.Id)).Role);
         Assert.False(await db.GroupMembers.AnyAsync(
             member => member.GroupId == pr05Group.Id && member.UserId == pr05Manager.Id));
+
+        var pr06Project = await db.Projects.SingleAsync(
+            project => project.TenantId == tenant.Id && project.Slug == "browser-smoke-pr06-gantt");
+        var pr06ManagerMember = await db.ProjectMembers.SingleAsync(
+            member => member.ProjectId == pr06Project.Id && member.UserId == pr05Manager.Id);
+        var pr06Viewer = await db.Users.SingleAsync(
+            user => user.Email == "browser-smoke-recipient@example.test");
+        var pr06ViewerMember = await db.ProjectMembers.SingleAsync(
+            member => member.ProjectId == pr06Project.Id && member.UserId == pr06Viewer.Id);
+        Assert.Equal(primary.Id, pr06Project.WorkspaceId);
+        Assert.Equal(pr05Group.Id, pr06Project.GroupId);
+        Assert.Equal(ProjectRole.Manager, pr06ManagerMember.Role);
+        Assert.Equal(ProjectRole.Viewer, pr06ViewerMember.Role);
+        Assert.False(await db.GroupMembers.AnyAsync(
+            member => member.GroupId == pr05Group.Id && member.UserId == pr05Manager.Id));
+
+        db.ProjectMembers.Remove(pr06ManagerMember);
+        await db.SaveChangesAsync();
+        var users = new UserRepository(db);
+        var workspaceRepository = new WorkspaceRepository(db);
+        var workspaceAuthorization = new WorkspaceAuthorizationService(users, workspaceRepository);
+        var groups = new GroupRepository(db);
+        var groupAuthorization = new GroupAuthorizationService(groups, workspaceRepository, workspaceAuthorization);
+        var projectAuthorization = new ProjectAuthorizationService(
+            new ProjectRepository(db),
+            workspaceAuthorization,
+            groupAuthorization,
+            groups);
+        Assert.False(await projectAuthorization.CanViewProject(pr05Manager.Id, pr06Project.Id));
 
         var pr05Workflow = await db.TaskWorkflowDefinitions.SingleAsync(
             definition => definition.ProjectId == pr05Project.Id);

@@ -162,12 +162,9 @@ See [README.dev-env.md](../README.dev-env.md) for the lightweight mode, the opti
 - an explicit initial administrator when `AIP_SEED_ADMIN_ENABLED=true`;
 - a development-only local administrator when `LocalAdmin:SeedOnStartup=true` in Development;
 - optional UI-shell modules, panels, commands, and radial profiles.
-- deterministic synthetic browser-smoke data only when
-  `AIP_BROWSER_SMOKE_SEED_ENABLED=true`, including a test user, workspace,
-  announcement, project, task, and required memberships.
-- deterministic synthetic browser-smoke data only when
-  `AIP_BROWSER_SMOKE_SEED_ENABLED=true`, including a test user, workspace,
-  announcement, project, task, and required memberships.
+- deterministic synthetic browser-smoke data only in the `Test` environment and
+  only when `AIP_BROWSER_SMOKE_SEED_ENABLED=true`, including a test user,
+  workspace, announcement, project, task, and required memberships.
 
 The administrator seed uses the existing password hasher and creates or updates a platform administrator with owner membership in the default tenant. `AIP_SEED_ADMIN_USERNAME` is stored as the display name because the current user model uses email for login and has no username column.
 
@@ -214,7 +211,8 @@ npm.cmd run test:ui:real-backend
 
 This starts PostgreSQL, EF Core migrations, ASP.NET Core with the hosted
 production Angular build, deterministic synthetic seed data, and Playwright in
-one isolated Compose project. It uses `http://app:8080` within that network.
+one isolated Compose project. It uses the non-HSTS Compose alias
+`http://aip-backend:8080` within that network.
 For a manual run against an already-started backend, set
 `AIP_REAL_BACKEND_SMOKE=1`, `PLAYWRIGHT_BASE_URL`,
 `AIP_BROWSER_SMOKE_EMAIL`, and `AIP_BROWSER_SMOKE_PASSWORD`, then run

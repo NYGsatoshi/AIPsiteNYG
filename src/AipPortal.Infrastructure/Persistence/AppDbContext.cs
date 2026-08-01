@@ -89,6 +89,7 @@ public sealed class AppDbContext(
         StampAuditableEntities();
         var hasNormalTenantWrite = ApplyTenantRules();
         EnsureDefaultTaskWorkflows();
+        IncrementProjectAggregateVersions();
         IncrementTaskAggregateVersions();
         if (hasNormalTenantWrite)
         {
@@ -103,6 +104,7 @@ public sealed class AppDbContext(
         StampAuditableEntities();
         var hasNormalTenantWrite = ApplyTenantRules();
         EnsureDefaultTaskWorkflows();
+        IncrementProjectAggregateVersions();
         IncrementTaskAggregateVersions();
         if (hasNormalTenantWrite)
         {
@@ -243,6 +245,23 @@ public sealed class AppDbContext(
             else if (entry.State == EntityState.Modified && !entry.Property(task => task.VersionNo).IsModified)
             {
                 entry.Entity.VersionNo = entry.OriginalValues.GetValue<long>(nameof(TaskItem.VersionNo)) + 1;
+            }
+        }
+    }
+
+    private void IncrementProjectAggregateVersions()
+    {
+        foreach (var entry in ChangeTracker.Entries<Project>())
+        {
+            if (entry.State == EntityState.Added && entry.Entity.VersionNo <= 0)
+            {
+                entry.Entity.VersionNo = 1;
+            }
+            else if (entry.State == EntityState.Modified &&
+                     !entry.Property(project => project.VersionNo).IsModified)
+            {
+                entry.Entity.VersionNo =
+                    entry.OriginalValues.GetValue<long>(nameof(Project.VersionNo)) + 1;
             }
         }
     }

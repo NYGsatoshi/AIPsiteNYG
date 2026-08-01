@@ -1,26 +1,73 @@
 using AipPortal.Application.Common;
 using AipPortal.Application.Common.Interfaces;
 using AipPortal.Application.Projects;
+using AipPortal.Domain.Enums;
 
 namespace AipPortal.Application.Planning;
 
 public sealed class PlanningService(
     IPlanningRepository planning,
     IProjectAuthorizationService projectAuthorization,
+    IProjectRepository projects,
+    IWorkspaceRepository workspaces,
+    ITaskWorkspaceTimeZoneResolver timeZones,
     ICurrentUser currentUser,
     IClock clock) : IPlanningService
 {
+    public const int MaximumGanttItems = 500;
+
     public async Task<Result<ProjectGanttResponse>> GetGanttAsync(Guid projectId, CancellationToken cancellationToken = default)
     {
-        if (!TryCurrentUser(out var userId) || !await projectAuthorization.CanViewProject(userId, projectId, cancellationToken))
+        if (!TryCurrentUser(out var userId))
         {
-            return Result<ProjectGanttResponse>.Failure("Project not found.");
+            return Failure<ProjectGanttResponse>("GANTT_AUTHENTICATION_REQUIRED", "Authentication is required.");
         }
 
-        var response = await planning.GetGanttAsync(projectId, Today, cancellationToken);
-        return response is null
-            ? Result<ProjectGanttResponse>.Failure("Project not found.")
-            : Result<ProjectGanttResponse>.Success(response);
+        var project = await projects.GetProjectAsync(projectId, cancellationToken);
+        if (project is null ||
+            project.DeletedAt.HasValue ||
+            project.Status is ProjectStatus.Archived or ProjectStatus.Deleted ||
+            !await projectAuthorization.CanViewProject(userId, projectId, cancellationToken))
+        {
+            return Failure<ProjectGanttResponse>("GANTT_PROJECT_NOT_FOUND", "Project not found.");
+        }
+
+        var workspaceMember = await workspaces.GetMemberAsync(project.WorkspaceId, userId, cancellationToken);
+        var projectMember = await projects.GetMemberAsync(projectId, userId, cancellationToken);
+        var canManage =
+            await projectAuthorization.CanManageProject(userId, projectId, cancellationToken) &&
+            workspaceMember is not { Status: MembershipStatus.Active, Role: WorkspaceRole.ReadOnly };
+        var canContributeToOwnedTasks =
+            workspaceMember is { Status: MembershipStatus.Active } &&
+            workspaceMember.Role.CanContribute() &&
+            projectMember?.Role == ProjectRole.Contributor;
+        var timeZone = await timeZones.ResolveAsync(project.TenantId, project.WorkspaceId, cancellationToken);
+        var read = await planning.GetGanttAsync(
+            projectId,
+            userId,
+            canManage,
+            canContributeToOwnedTasks,
+            timeZone.Id,
+            MaximumGanttItems,
+            cancellationToken);
+
+        if (read.ItemLimitExceeded)
+        {
+            return Failure<ProjectGanttResponse>(
+                "GANTT_ITEM_LIMIT_EXCEEDED",
+                $"The Project schedule exceeds the supported limit of {MaximumGanttItems} work items.");
+        }
+
+        if (read.DependencyLimitExceeded)
+        {
+            return Failure<ProjectGanttResponse>(
+                "GANTT_DEPENDENCY_LIMIT_EXCEEDED",
+                "The Project dependency graph exceeds the supported schedule limit.");
+        }
+
+        return read.Snapshot is null
+            ? Failure<ProjectGanttResponse>("GANTT_PROJECT_NOT_FOUND", "Project not found.")
+            : Result<ProjectGanttResponse>.Success(read.Snapshot);
     }
 
     public async Task<Result<ProjectDashboardResponse>> GetDashboardAsync(Guid projectId, CancellationToken cancellationToken = default)

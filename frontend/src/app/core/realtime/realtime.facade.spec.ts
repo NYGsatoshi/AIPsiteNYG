@@ -24,11 +24,14 @@ class FakeRealtimeTransport implements RealtimeTransport {
   startCalls = 0;
   stopCalls = 0;
   result: RealtimeSubscriptionResult = { allowed: true, code: 'Subscribed' };
+  deniedSubscriptionType: RealtimeSubscriptionRequest['subscriptionType'] | null = null;
 
   async start(): Promise<void> { this.startCalls += 1; }
   async stop(): Promise<void> { this.stopCalls += 1; }
   async subscribe(request: RealtimeSubscriptionRequest): Promise<RealtimeSubscriptionResult> {
     this.subscribed.push(request);
+    if (request.subscriptionType === this.deniedSubscriptionType)
+      return { allowed: false, code: 'Forbidden' };
     return this.result;
   }
   async unsubscribe(request: RealtimeSubscriptionRequest): Promise<RealtimeSubscriptionResult> {
@@ -97,6 +100,53 @@ describe('RealtimeFacade', () => {
     ]);
     expect(order).toEqual(['catch-up', 'catch-up']);
     expect(facade.connectionState()).toBe('Connected');
+  });
+
+  it('reports a denied subscription owner to catch-up before reconnect completes', async () => {
+    const deniedOwners: string[][] = [];
+    facade.registerSubscription('project-detail', {
+      subscriptionType: 'project',
+      resourceId: RESOURCE_ID
+    });
+    facade.registerCatchUp('project-detail', (context) => {
+      deniedOwners.push([...context.deniedOwners]);
+    });
+    await enableAndAuthenticate();
+
+    transport.deniedSubscriptionType = 'project';
+    transport.statuses.next('reconnecting');
+    transport.statuses.next('reconnected');
+    await settle();
+    await settle();
+
+    expect(deniedOwners).toEqual([[], ['project-detail']]);
+    expect(facade.connectionState()).toBe('Connected');
+  });
+
+  it('notifies every denied owner even when an earlier catch-up fails', async () => {
+    const deniedOwners: string[][] = [];
+    const diagnostics: string[] = [];
+    facade.diagnostics$.subscribe((diagnostic) => diagnostics.push(diagnostic.code));
+    facade.registerSubscription('project-detail', {
+      subscriptionType: 'project',
+      resourceId: RESOURCE_ID
+    });
+    await enableAndAuthenticate();
+    facade.registerCatchUp('failing-feature', async () => {
+      throw new Error('HTTP catch-up failed.');
+    });
+    facade.registerCatchUp('project-detail', (context) => {
+      deniedOwners.push([...context.deniedOwners]);
+    });
+
+    transport.deniedSubscriptionType = 'project';
+    transport.statuses.next('reconnecting');
+    transport.statuses.next('reconnected');
+    await settle();
+    await settle();
+
+    expect(deniedOwners).toEqual([['project-detail']]);
+    expect(diagnostics).toContain('CatchUpFailed');
   });
 
   it('does not send guessed group names and only maps approved logical targets to the transport', async () => {

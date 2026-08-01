@@ -1,5 +1,7 @@
-import { Component, OnDestroy, computed, inject, signal } from '@angular/core';
+import { BreakpointObserver } from '@angular/cdk/layout';
+import { Component, DestroyRef, OnDestroy, computed, inject, signal } from '@angular/core';
 import { ActivatedRoute, Router } from '@angular/router';
+import { takeUntilDestroyed } from '@angular/core/rxjs-interop';
 
 import { AppEmptyStateComponent } from '../../../shared/empty-state/app-empty-state/app-empty-state.component';
 import { AppErrorBannerComponent } from '../../../shared/error/app-error-banner/app-error-banner.component';
@@ -9,16 +11,24 @@ import { AipGanttComponent, AipKanbanComponent } from '../../../shared/ui/adapte
 import {
   AipAdapterState,
   AipGanttContract,
+  AipGanttEditIntent,
+  AipGanttItem,
   AipKanbanContract,
   AipKanbanMoveRequest
 } from '../../../shared/ui/contracts/aip-complex-adapter.contracts';
+import { ProjectGanttSnapshot } from '../project-gantt.models';
 import {
   ProjectKanbanCard,
   ProjectKanbanColumn,
   ProjectKanbanSnapshot,
   ProjectKanbanSwimlane
 } from '../project-kanban.models';
-import { ProjectDetailFacade, ProjectDetailTab, ProjectKanbanStatus } from '../project-detail.facade';
+import {
+  ProjectDetailFacade,
+  ProjectDetailTab,
+  ProjectKanbanStatus,
+  ProjectScheduleStatus
+} from '../project-detail.facade';
 import { TaskGridRow } from '../projects.types';
 import { TaskTableComponent } from '../task-table/task-table.component';
 
@@ -27,8 +37,11 @@ export class ProjectDetailPageComponent implements OnDestroy {
   private readonly route = inject(ActivatedRoute);
   private readonly router = inject(Router);
   private readonly facade = inject(ProjectDetailFacade);
+  private readonly breakpoints = inject(BreakpointObserver);
+  private readonly destroyRef = inject(DestroyRef);
   readonly page = computed(() => this.facade.view());
   readonly tab = signal<ProjectDetailTab>('tasks');
+  readonly schedulePresentation = signal<'desktop' | 'narrow'>('desktop');
   readonly configOpen = signal(false);
   readonly configColumns = signal<readonly ProjectKanbanColumn[]>([]);
   readonly configSwimlane = signal<ProjectKanbanSwimlane>('none');
@@ -41,7 +54,13 @@ export class ProjectDetailPageComponent implements OnDestroy {
     { value: 'parentTask', label: 'Parent task' }
   ];
 
-  constructor() { const projectId = this.route.snapshot.paramMap.get('projectId'); if (projectId) this.facade.load(projectId); }
+  constructor() {
+    const projectId = this.route.snapshot.paramMap.get('projectId');
+    if (projectId) this.facade.load(projectId);
+    this.breakpoints.observe('(max-width: 40rem)')
+      .pipe(takeUntilDestroyed(this.destroyRef))
+      .subscribe((result) => this.schedulePresentation.set(result.matches ? 'narrow' : 'desktop'));
+  }
 
   ngOnDestroy(): void { this.facade.release(); }
   openTask(row: TaskGridRow): void { void this.router.navigate(['/projects', row.projectId, 'tasks', row.id]); }
@@ -54,6 +73,16 @@ export class ProjectDetailPageComponent implements OnDestroy {
   }
   setKanbanInteractionActive(active: boolean): void { this.facade.setKanbanInteractionActive(active); }
   retryKanban(): void { this.facade.retryKanban(); }
+  retrySchedule(): void { this.facade.retrySchedule(); }
+  retryPreservedScheduleIntent(): void { this.facade.retryPreservedScheduleIntent(); }
+  clearPreservedScheduleIntent(): void { this.facade.clearPreservedScheduleIntent(); }
+  requestGanttEdit(intent: AipGanttEditIntent): void { this.facade.applyGanttEdit(intent); }
+  setGanttInteractionActive(active: boolean): void { this.facade.setScheduleInteractionActive(active); }
+  reportGanttFailure(): void { this.facade.reportGanttAdapterFailure(); }
+  openGanttItem(item: AipGanttItem, projectId: string): void {
+    if (item.kind === 'task' && item.scheduleEditPermissions.canOpen)
+      void this.router.navigate(['/projects', projectId, 'tasks', item.taskId]);
+  }
   setSwimlane(value: string): void { this.facade.setKanbanSwimlane(value as ProjectKanbanSwimlane); }
   setIncludeOlderCompleted(include: boolean): void { this.facade.setIncludeOlderCompleted(include); }
 
@@ -136,5 +165,48 @@ export class ProjectDetailPageComponent implements OnDestroy {
       status;
   }
 
-  gantt(): AipGanttContract<{ id: string; label: string }> { const schedule = this.page().schedule; return { ariaLabel: 'Project schedule', presentation: 'desktop', state: 'ready', tasks: schedule.tasks, taskIdentity: (task) => task.id, taskLabel: (task) => task.label, milestones: schedule.milestones, timezone: 'project timezone unavailable from API', readOnly: true }; }
+  gantt(snapshot: ProjectGanttSnapshot, status: ProjectScheduleStatus): AipGanttContract<AipGanttItem> {
+    const schedule = this.page().schedule;
+    const compatibilityTasks = [...snapshot.scheduledItems, ...snapshot.unscheduledItems]
+      .filter((item) => item.kind === 'task');
+    const readOnly = !schedule.canonicalEnabled ||
+      !(
+        snapshot.permissions.canEditSchedule ||
+        snapshot.permissions.canEditProgress ||
+        snapshot.permissions.canManageDependencies ||
+        snapshot.permissions.canClearSchedule
+      );
+    return {
+      ariaLabel: 'Canonical Project schedule',
+      presentation: this.schedulePresentation(),
+      state: this.ganttState(status),
+      tasks: compatibilityTasks,
+      taskIdentity: (task) => task.taskId,
+      taskLabel: (task) =>
+        `${task.title}. ${task.plannedStartDate ?? 'No planned start'} to ${task.plannedEndDate ?? 'No planned end'}. ` +
+        `${task.workflowStageName ?? 'No Stage'}. Priority ${task.priority}. ${task.isBlocked ? 'Blocked' : 'Not blocked'}.`,
+      milestones: snapshot.milestones.map((milestone) => ({
+        id: milestone.taskId,
+        title: milestone.title,
+        dueDate: milestone.milestoneDate,
+        status: milestone.workflowStageName ?? milestone.stageCategory
+      })),
+      timezone: snapshot.calendar.timeZone,
+      readOnly,
+      calendar: schedule.canonicalEnabled ? snapshot.calendar : undefined,
+      scheduledItems: schedule.canonicalEnabled ? snapshot.scheduledItems : undefined,
+      unscheduledItems: schedule.canonicalEnabled ? snapshot.unscheduledItems : undefined,
+      canonicalMilestones: schedule.canonicalEnabled ? snapshot.milestones : undefined,
+      dependencies: schedule.canonicalEnabled ? snapshot.dependencies : undefined,
+      warnings: schedule.canonicalEnabled ? snapshot.warnings : undefined,
+      permissions: schedule.canonicalEnabled ? snapshot.permissions : undefined,
+      busyItemId: schedule.busyItemId,
+      focusItemId: schedule.focusItemId,
+      feedback: schedule.feedback
+    };
+  }
+
+  ganttState(status: ProjectScheduleStatus): AipAdapterState {
+    return status === 'permissionDenied' ? 'permission-denied' : status;
+  }
 }

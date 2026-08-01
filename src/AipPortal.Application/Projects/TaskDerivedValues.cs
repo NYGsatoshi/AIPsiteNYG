@@ -23,6 +23,7 @@ public static class ParentTaskDerivedValuesCalculator
     {
         var children = projectTasks
             .Where(task => task.ParentTaskItemId == parent.Id)
+            .Where(task => task.Kind == WorkItemKind.Task)
             .Where(task => !task.DeletedAt.HasValue)
             .ToArray();
 
