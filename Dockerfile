@@ -19,7 +19,7 @@ RUN --mount=type=secret,id=syncfusion_license,required=true \
     ! grep -R -F -q -- "$SYNCFUSION_LICENSE" dist || { echo "Syncfusion license material was found in frontend build output." >&2; exit 1; }; \
     unset SYNCFUSION_LICENSE
 
-FROM mcr.microsoft.com/dotnet/sdk:10.0.10 AS build
+FROM mcr.microsoft.com/dotnet/sdk:10.0.302 AS build
 WORKDIR /src
 
 COPY AipPortal.slnx ./
@@ -36,11 +36,11 @@ COPY --from=frontend-build /src/frontend/dist/aipportal-web/ src/AipPortal.Web/w
 RUN --mount=type=cache,id=aipsite-docker-nuget,target=/root/.nuget/packages,sharing=locked \
     dotnet publish src/AipPortal.Web/AipPortal.Web.csproj -c Release -o /app/publish --no-restore
 
-FROM mcr.microsoft.com/dotnet/aspnet:10.0 AS runtime
+FROM mcr.microsoft.com/dotnet/aspnet:10.0.10 AS runtime
 WORKDIR /app
 RUN apt-get update \
     && apt-get install -y --no-install-recommends curl \
-    && rm -rf /var/lib/apt/lists/* \
+    && rm -rf /var/lib/lists/* \
     && mkdir -p /app/storage/uploads
 COPY --from=build /app/publish .
 ENV PORT=8080
