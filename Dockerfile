@@ -19,7 +19,7 @@ RUN --mount=type=secret,id=syncfusion_license,required=true \
     ! grep -R -F -q -- "$SYNCFUSION_LICENSE" dist || { echo "Syncfusion license material was found in frontend build output." >&2; exit 1; }; \
     unset SYNCFUSION_LICENSE
 
-FROM mcr.microsoft.com/dotnet/sdk:10.0 AS build
+FROM mcr.microsoft.com/dotnet/sdk:10.0.10 AS build
 WORKDIR /src
 
 COPY AipPortal.slnx ./
