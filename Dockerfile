@@ -40,7 +40,7 @@ FROM mcr.microsoft.com/dotnet/aspnet:10.0.10 AS runtime
 WORKDIR /app
 RUN apt-get update \
     && apt-get install -y --no-install-recommends curl \
-    && rm -rf /var/lib/lists/* \
+    && rm -rf /var/lib/apt/lists/* \
     && mkdir -p /app/storage/uploads
 COPY --from=build /app/publish .
 ENV PORT=8080
