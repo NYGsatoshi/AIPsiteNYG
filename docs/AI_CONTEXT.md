@@ -165,7 +165,7 @@ Acceptance evidence:
   forward commit. Both files are absent from `origin/main...HEAD`; the backup
   patch SHA-256 is
   `1099E128C2BBBE43D986C29427F82F2CBDB14371320FEC00E1B402DF628844DD`.
-  Ahead/behind is 27/0 before the final documentation commit.
+  Ahead/behind is 29/0 before the final documentation commit.
 - Exact code-bearing candidate `1abce6c70d9f665b773d35f75d63c0d05a387cc8`
   passed .NET restore and Release build with 0 warnings/errors. PostgreSQL 18.4
   passed empty migration apply through
@@ -188,6 +188,15 @@ Acceptance evidence:
 - Local npm audit was root 0; active frontend 15 (3 low, 6 moderate, 6 high,
   0 critical); inactive frontend 8 (0 low, 5 moderate, 3 high, 0 critical).
   No affected audit entry referenced Syncfusion, and no forced fix was run.
+- Exact-head attempt `5111784e72054db9501135888e72330672a8c975` passed
+  Documentation CI, all CI jobs, npm Security Audit, licensed Real Backend,
+  and the Qodana job. Code Quality nevertheless failed because the
+  lockfile-free inspection install repeated stale `--prefer-offline` metadata
+  resolution and reported `eslint@undefined` / `ERESOLVE`; downstream Angular
+  quality steps were skipped, so the workflow is not a pass. Focused commit
+  `8efa845dec5c553d5ff2107cf6edef7993141a8b` retains cache-first resolution on
+  attempt one and refreshes online metadata on attempt two. No dependency,
+  lockfile, queue, Qodana-policy, or test change was made.
 - Documentation CI, CI, Code Quality, npm Security Audit, licensed Real Backend
   Browser Smoke, final artifact secret scan, and final review-thread check must
   rerun after the documentation commit on the exact final HEAD. Run IDs will be

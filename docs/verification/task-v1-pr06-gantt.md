@@ -100,9 +100,10 @@ self-referential commit.
 | Main merge commit | `1abce6c70d9f665b773d35f75d63c0d05a387cc8` |
 | Merge method / conflicts | Normal `--no-ff` merge / active frontend package manifest and lockfile; manually reconciled without unconditional ours/theirs |
 | Scope cleanup / code-bearing HEAD | Messaging cleanup remains `e8bdf47754ca38b6f4d1b3a31c945ae07432f06f`; latest-main code-bearing HEAD is `1abce6c70d9f665b773d35f75d63c0d05a387cc8` |
+| Inspection metadata fallback remediation | `8efa845dec5c553d5ff2107cf6edef7993141a8b` |
 | Messaging backup patch SHA-256 | `1099E128C2BBBE43D986C29427F82F2CBDB14371320FEC00E1B402DF628844DD` |
 | Messaging facade / test PR diff | None / none |
-| Ahead / behind before documentation commit | 27 / 0 |
+| Ahead / behind before documentation commit | 29 / 0 |
 | Draft / mergeable / merged | Yes / Yes / No |
 | Documentation-bearing final HEAD | Pending this ledger commit |
 
@@ -158,6 +159,20 @@ Exact-final-HEAD Documentation CI, CI, Code Quality, npm Security Audit,
 licensed Real Backend Browser Smoke, artifact secret scan, review-thread
 check, and PR-body synchronization remain pending until after this ledger is
 committed and pushed.
+
+Exact-head attempt `5111784e72054db9501135888e72330672a8c975` is retained as
+diagnostic evidence, not a final Gate pass. Documentation CI `30673208377`, CI
+`30673208386` (all three jobs), npm Security Audit `30673208382`, and licensed
+Real Backend `30673224616` succeeded. Qodana job `91297960761` also succeeded
+with 2,260 findings (1,421 warning, 839 note, 0 error, 0 critical), short
+report 0, and model failures 0. Code Quality run `30673208389` failed because
+Angular quality job `91305933712` repeated stale offline metadata resolution
+for the lockfile-free inspection workspace (`eslint@undefined` / `ERESOLVE`),
+then skipped its inventory/type/build/test steps. Focused commit `8efa845`
+retains the existing cache-first attempt and makes only its second attempt
+refresh online registry metadata; the equivalent local install and full
+inventory passed. No dependency, lockfile, queue, Qodana-policy, or test change
+was made. All Gates must rerun on the following documentation-bearing HEAD.
 
 ## Main post-PR05 Gate
 
@@ -1112,7 +1127,7 @@ exact final HEAD.
 
 | Gate | Result |
 | --- | --- |
-| Main integration | Actual latest main `33c35cbc873fcdc78b75663d195ca120e2c01520`; normal merge `1abce6c`; ahead/behind 27/0 before documentation |
+| Main integration | Actual latest main `33c35cbc873fcdc78b75663d195ca120e2c01520`; normal merge `1abce6c`; inspection metadata fallback `8efa845`; ahead/behind 29/0 before documentation |
 | Scope | Messaging facade/test diff 0; PR07/PR08 contamination 0 |
 | Release build | Passed; 0 warnings, 0 errors |
 | PostgreSQL 18.4 | Empty apply through `20260730120626_AddCanonicalGanttVersions`; PR05 upgrade/data/VersionNo preservation and additive Down passed; pending model changes 0 |
@@ -1123,7 +1138,7 @@ exact final HEAD.
 | Storybook | Default approximately 2 GB heap OOM, not a pass; 4 GB diagnostic build passed; exact-final Hosted Storybook required |
 | Playwright | 63 passed, 0 failed, 3 pre-existing expected skips, 0 unexpected skips |
 | npm audit | Root 0; active 15 (3 low, 6 moderate, 6 high, 0 critical); inactive 8 (0 low, 5 moderate, 3 high, 0 critical); Syncfusion affected 0 |
-| Qodana / Real Backend | Exact-final-HEAD reruns pending after documentation commit |
+| Qodana / Real Backend | Attempt `5111784`: Qodana job and Real Backend succeeded, but Code Quality workflow failed in Angular quality; not a final pass. Exact-final-HEAD reruns pending after documentation commit. |
 
 ### Post-documentation exact final-HEAD gates
 
@@ -1144,14 +1159,16 @@ embed self-referential evidence.
 
 ### Qodana candidates and review
 
-The latest completed pre-latest-main Qodana inventory below is exact for
-historical candidate `2fc5910e772f427355529de6e500b093583872b6`. The final
-documentation-bearing rerun after merge `1abce6c` remains Pending.
+The latest completed Qodana inventory below is exact for failed-workflow
+candidate `5111784e72054db9501135888e72330672a8c975`. Its Qodana job passed,
+but the separate Angular quality job failed, so Code Quality is not a pass.
+The final documentation-bearing rerun after remediation `8efa845` remains
+Pending.
 
 | Evidence | Status |
 | --- | --- |
-| Latest completed Code Quality candidate | Run `30637433561`, success at exact `2fc5910e772f427355529de6e500b093583872b6` |
-| Latest completed Qodana / Angular jobs | Qodana `91178484006` success; Angular quality `91183270978` success |
+| Latest attempted Code Quality candidate | Run `30673208389`, failure at exact `5111784e72054db9501135888e72330672a8c975`; not a pass |
+| Latest completed Qodana / Angular jobs | Qodana `91297960761` success; Angular quality `91305933712` failure during inspection install |
 | Full inventory | 2,260 findings: 1,421 warning, 839 note, 0 error, 0 critical |
 | Qodana short report | 0 |
 | Model validation | 0 unresolved findings and 0 model failures |
@@ -1159,10 +1176,10 @@ documentation-bearing rerun after merge `1abce6c` remains Pending.
 | Qodana Error | 0 |
 | Material PR06 findings | 0 |
 | Material PR-introduced findings | 0 |
-| Latest full inventory artifact | ID `8796327316`; digest `sha256:3e0c40fcf0caeb5bb8f8d8ad3c41b564a61502f8edc193a48912fc59d9b15c5d` |
-| Latest report artifact | ID `8796471351`; digest `sha256:cd4c4ab06552d7f5fab518f50f607bbfc00e4b4b0520e9f9e3caeca6c90bfbea` |
-| Latest model artifact | ID `8796506046`; digest `sha256:077bfe98533a2a8744740e0c112e6e9679a684fb76f79d2865689461ea2857c0` |
-| Latest frontend inspection artifact | ID `8796818315`; digest `sha256:24eb0f0a20de07ade99ad3ac18b9c7a52e4f396ed21f13a980315fead9ae2269` |
+| Latest full inventory artifact | ID `8810623145`; digest `sha256:9e15e61f054e30a0b2939e6e966805e650290d47b16a91c6e7bfccd062197ba1` |
+| Latest report artifact | ID `8810773389`; digest `sha256:bf69e0967d03eb00c621ac49a382f38b0a9cc1f2ffe3c0230ae68665f017d37c` |
+| Latest model artifact | ID `8810777568`; digest `sha256:1cfe6c0e4680901e0e075df2d83c345bde31355b2bb1815b94564b7d1a810d27` |
+| Latest frontend inspection artifact | None; the inspection install failed before inventory execution, so this is not a Code Quality pass |
 | Earlier candidate artifacts | `69cc6f0`: full `8792582726`, report `8792772245`, model `8792773927`, frontend `8793187227`; `e0e87dd9`: full `8786059473`, report `8786235946`, model `8786237568`, frontend `8786394667`; `555379db`: full `8785339371`, report `8785489866`, model `8785495363`, frontend `8785544038`; retained as historical evidence |
 | Product-code-parent review threads | 0 unresolved at the exact `69cc6f0` check |
 | Latest-main code-bearing-candidate review threads | 0 unresolved at exact `1abce6c` |
@@ -1253,6 +1270,9 @@ Resolved during this remediation:
   forward cleanup `e8bdf47754ca38b6f4d1b3a31c945ae07432f06f`
 - code-bearing migration, backend, frontend, package, and mocked-browser local
   Gates completed with 0 failures and 0 unexpected skips
+- failed exact-head Code Quality attempt `30673208389` was diagnosed rather
+  than accepted or blindly retried; focused commit `8efa845` refreshes registry
+  metadata only on the second lockfile-free inspection install attempt
 
 Remaining blockers:
 

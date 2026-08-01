@@ -11,10 +11,16 @@ commit `1abce6c`; the two Messaging/PR07-scope files introduced by `9f7b8f3`
 remain restored to actual `origin/main` and absent from the PR diff. Exact
 code-bearing local migration, backend, Angular, architecture, license, bundle,
 raised-heap Storybook, and mocked Playwright gates passed. Default-heap
-Storybook remains an explicitly recorded OOM non-pass. Every
-post-documentation exact-final-HEAD Hosted and licensed Real Backend Gate
-remains pending. The numeric cap/overflow owner decision is `UNRESOLVED`, so
-this document does not claim Acceptance. Detailed evidence belongs in
+Storybook remains an explicitly recorded OOM non-pass. Exact-head attempt
+`5111784e72054db9501135888e72330672a8c975` passed Documentation CI, all CI
+jobs, npm Security Audit, licensed Real Backend, and the Qodana job, but Code
+Quality failed because its lockfile-free inspection install repeated stale
+offline metadata resolution; that workflow is not a pass. Focused remediation
+`8efa845dec5c553d5ff2107cf6edef7993141a8b` keeps the first cache-first attempt
+and refreshes registry metadata on the second attempt. Every Gate must rerun on
+the new documentation-bearing final HEAD. The numeric cap/overflow owner
+decision is `UNRESOLVED`, so this document does not claim Acceptance. Detailed
+evidence belongs in
 [`docs/verification/task-v1-pr06-gantt.md`](verification/task-v1-pr06-gantt.md).
 
 ## Identity and authority
@@ -32,9 +38,11 @@ this document does not claim Acceptance. Detailed evidence belongs in
   `e8bdf47754ca38b6f4d1b3a31c945ae07432f06f`
 - Code-bearing candidate HEAD:
   `1abce6c70d9f665b773d35f75d63c0d05a387cc8`
+- Inspection metadata fallback remediation:
+  `8efa845dec5c553d5ff2107cf6edef7993141a8b`
 - Backup Messaging patch SHA-256:
   `1099E128C2BBBE43D986C29427F82F2CBDB14371320FEC00E1B402DF628844DD`
-- Ahead / behind: 27 / 0 before the final documentation commit
+- Ahead / behind: 29 / 0 before the final documentation commit
 - Draft PR: `#259`, open and mergeable
 - Final documentation HEAD: Pending
 - Canonical specification revision:
@@ -559,7 +567,8 @@ latest-main merge `08056ee` and scope cleanup `e8bdf47`.
 - Backup patch SHA-256:
   `1099E128C2BBBE43D986C29427F82F2CBDB14371320FEC00E1B402DF628844DD`
 - Exact code-bearing HEAD:
-  `1abce6c70d9f665b773d35f75d63c0d05a387cc8`; ahead/behind 27/0 before
+  `1abce6c70d9f665b773d35f75d63c0d05a387cc8`; inspection metadata fallback
+  remediation `8efa845dec5c553d5ff2107cf6edef7993141a8b`; ahead/behind 29/0 before
   this documentation commit
 - Release build: passed, 0 warnings / 0 errors
 - PostgreSQL 18.4: empty migration apply, PR05 upgrade/data preservation,
@@ -583,6 +592,12 @@ latest-main merge `08056ee` and scope cleanup `e8bdf47`.
   repository Hosted Node 24 toolchain remains authoritative for that Gate
 - npm audit: root 0; active 15 (3 low, 6 moderate, 6 high, 0 critical);
   inactive 8 (0 low, 5 moderate, 3 high, 0 critical); Syncfusion affected 0
+- Exact-head attempt `5111784e72054db9501135888e72330672a8c975` is not a
+  Code Quality pass: Qodana succeeded with 2,260 findings, 0 error, 0 critical,
+  and short report 0, but Angular quality failed at the inspection install with
+  `eslint@undefined` / `ERESOLVE`; downstream quality steps were skipped.
+  Commit `8efa845` changes only the second install attempt to refresh online
+  metadata. The equivalent local online install and inspection inventory pass.
 - Numeric decision: WorkItem/Milestone cap `UNRESOLVED`; dependency cap
   `UNRESOLVED`; overflow behavior `UNRESOLVED`; the current 500 / 2,000 /
   typed HTTP 400 fail-closed behavior remains an implementation safeguard only
