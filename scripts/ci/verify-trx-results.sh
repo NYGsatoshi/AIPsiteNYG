@@ -187,6 +187,7 @@ else
       completed
       inProgress
       pending
+      passedButRunAborted
     )
 
     declare -A counters=()
@@ -233,6 +234,7 @@ else
         completed
         inProgress
         pending
+        passedButRunAborted
       )
       for counter_name in "${non_zero_failures[@]}"; do
         if (( 10#${counters[$counter_name]} > 0 )); then
@@ -258,6 +260,10 @@ else
           missing_tests+=("$required_test_name")
         fi
       done < "$required_tests_file"
+
+      if [[ "$required_test_count" -eq 0 ]]; then
+        errors+=("Required test manifest contains no active test names.")
+      fi
 
       if [[ "${#missing_tests[@]}" -gt 0 ]]; then
         errors+=("One or more required tests were not present in executed TRX testName values.")
