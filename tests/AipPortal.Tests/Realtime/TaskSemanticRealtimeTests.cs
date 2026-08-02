@@ -24,7 +24,7 @@ public sealed class TaskSemanticRealtimeTests
     }
 
     [Fact]
-    public async Task AssignmentAndCommentPublishersEmitReferenceOnlyCanonicalPayloads()
+    public async Task TaskAssignmentChangedRoutesOnlyToProjectDuringPR07B()
     {
         var tenantId = Guid.NewGuid();
         var actorId = Guid.NewGuid();
@@ -33,6 +33,93 @@ public sealed class TaskSemanticRealtimeTests
         var tenant = TenantScope(tenantId);
         var outbox = new RecordingOutbox();
         var publisher = new BusinessInvalidationPublisher(outbox, tenant, FixedClock.Instance);
+        var task = new TaskItem
+        {
+            TenantId = tenantId,
+            WorkspaceId = Guid.NewGuid(),
+            ProjectId = projectId,
+            Title = "restricted task title",
+            Description = "restricted task description",
+            ReviewReturnReason = "restricted review reason",
+            VersionNo = 12
+        };
+        await publisher.TaskAssignmentChangedAsync(
+            task,
+            actorId,
+            "assigneeChanged",
+            [affectedUserId, affectedUserId, Guid.Empty]);
+        var assignment = Assert.Single(outbox.Items);
+        Assert.Equal("Projects.TaskAssignmentChanged.v1", assignment.Envelope.EventType);
+        Assert.Equal("Task", assignment.Envelope.AggregateType);
+        Assert.Equal(task.Id, assignment.Envelope.AggregateId);
+        Assert.Equal(task.VersionNo, assignment.Envelope.AggregateVersion);
+        Assert.Equal(
+            ["projectId", "taskId", "taskVersion", "change", "requiresRefetch"],
+            assignment.Envelope.Payload.EnumerateObject().Select(property => property.Name).ToArray());
+        var assignmentTarget = Assert.Single(assignment.Targets);
+        Assert.Equal(RealtimeSubscriptionType.Project, assignmentTarget.SubscriptionType);
+        Assert.Equal(projectId, assignmentTarget.ResourceId);
+
+        Assert.DoesNotContain(assignment.Targets, target => target.SubscriptionType == RealtimeSubscriptionType.User);
+        Assert.DoesNotContain(task.Title, assignment.Envelope.Payload.GetRawText(), StringComparison.Ordinal);
+        Assert.DoesNotContain(task.Description, assignment.Envelope.Payload.GetRawText(), StringComparison.Ordinal);
+        Assert.DoesNotContain(task.ReviewReturnReason, assignment.Envelope.Payload.GetRawText(), StringComparison.Ordinal);
+        Assert.DoesNotContain("important", assignment.Envelope.Payload.GetRawText(), StringComparison.OrdinalIgnoreCase);
+        Assert.DoesNotContain("watch", assignment.Envelope.Payload.GetRawText(), StringComparison.OrdinalIgnoreCase);
+        Assert.DoesNotContain("recipient", assignment.Envelope.Payload.GetRawText(), StringComparison.OrdinalIgnoreCase);
+    }
+
+    [Fact]
+    public async Task TaskChangedFromPR07BDoesNotAddAffectedUserRoutes()
+    {
+        var tenantId = Guid.NewGuid();
+        var projectId = Guid.NewGuid();
+        var affectedUserId = Guid.NewGuid();
+        var outbox = new RecordingOutbox();
+        var publisher = new BusinessInvalidationPublisher(outbox, TenantScope(tenantId), FixedClock.Instance);
+        var task = new TaskItem { TenantId = tenantId, WorkspaceId = Guid.NewGuid(), ProjectId = projectId, VersionNo = 12 };
+
+        await publisher.TaskChangedAsync(task, Guid.NewGuid(), "updated", affectedUserIds: [affectedUserId]);
+
+        var target = Assert.Single(Assert.Single(outbox.Items).Targets);
+        Assert.Equal(RealtimeSubscriptionType.Project, target.SubscriptionType);
+        Assert.Equal(projectId, target.ResourceId);
+    }
+
+    [Fact]
+    public async Task TaskCommentChangedRoutesOnlyToProject()
+    {
+        var tenantId = Guid.NewGuid();
+        var actorId = Guid.NewGuid();
+        var projectId = Guid.NewGuid();
+        var outbox = new RecordingOutbox();
+        var publisher = new BusinessInvalidationPublisher(outbox, TenantScope(tenantId), FixedClock.Instance);
+        var task = new TaskItem { TenantId = tenantId, WorkspaceId = Guid.NewGuid(), ProjectId = projectId, VersionNo = 12 };
+        var comment = new TaskComment { TenantId = tenantId, WorkspaceId = task.WorkspaceId, ProjectId = projectId, TaskItemId = task.Id, AuthorUserId = actorId, BodyPlainText = "restricted comment body", VersionNo = 3 };
+
+        await publisher.TaskCommentChangedAsync(task, comment, actorId, "created");
+
+        var commentChange = Assert.Single(outbox.Items);
+        Assert.Equal("Projects.TaskCommentChanged.v1", commentChange.Envelope.EventType);
+        Assert.Equal(
+            ["projectId", "taskId", "taskVersion", "commentId", "commentVersion", "change", "requiresRefetch"],
+            commentChange.Envelope.Payload.EnumerateObject().Select(property => property.Name).ToArray());
+        Assert.Equal(comment.Id, commentChange.Envelope.Payload.GetProperty("commentId").GetGuid());
+        Assert.Equal(comment.VersionNo, commentChange.Envelope.Payload.GetProperty("commentVersion").GetInt64());
+        var commentTarget = Assert.Single(commentChange.Targets);
+        Assert.Equal(RealtimeSubscriptionType.Project, commentTarget.SubscriptionType);
+        Assert.Equal(projectId, commentTarget.ResourceId);
+
+        Assert.DoesNotContain(commentChange.Targets, target => target.SubscriptionType == RealtimeSubscriptionType.User);
+        Assert.DoesNotContain(comment.BodyPlainText, commentChange.Envelope.Payload.GetRawText(), StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public async Task TaskSemanticPayloadContainsNoRestrictedDisplayFields()
+    {
+        var tenantId = Guid.NewGuid();
+        var actorId = Guid.NewGuid();
+        var projectId = Guid.NewGuid();
         var task = new TaskItem
         {
             TenantId = tenantId,
@@ -54,39 +141,12 @@ public sealed class TaskSemanticRealtimeTests
             IsImportant = true,
             VersionNo = 3
         };
+        var outbox = new RecordingOutbox();
+        var publisher = new BusinessInvalidationPublisher(outbox, TenantScope(tenantId), FixedClock.Instance);
 
-        await publisher.TaskAssignmentChangedAsync(
-            task,
-            actorId,
-            "assigneeChanged",
-            [affectedUserId, affectedUserId, Guid.Empty]);
-        await publisher.TaskCommentChangedAsync(task, comment, actorId, "created");
-
-        Assert.Equal(2, outbox.Items.Count);
-        var assignment = outbox.Items[0];
-        Assert.Equal("Projects.TaskAssignmentChanged.v1", assignment.Envelope.EventType);
-        Assert.Equal("Task", assignment.Envelope.AggregateType);
-        Assert.Equal(task.Id, assignment.Envelope.AggregateId);
-        Assert.Equal(task.VersionNo, assignment.Envelope.AggregateVersion);
-        Assert.Equal(
-            ["projectId", "taskId", "taskVersion", "change", "requiresRefetch"],
-            assignment.Envelope.Payload.EnumerateObject().Select(property => property.Name).ToArray());
-        Assert.Equal(2, assignment.Targets.Count);
-        Assert.Contains(assignment.Targets, target =>
-            target.SubscriptionType == RealtimeSubscriptionType.Project && target.ResourceId == projectId);
-        Assert.Contains(assignment.Targets, target =>
-            target.SubscriptionType == RealtimeSubscriptionType.User && target.ResourceId == affectedUserId);
-
-        var commentChange = outbox.Items[1];
-        Assert.Equal("Projects.TaskCommentChanged.v1", commentChange.Envelope.EventType);
-        Assert.Equal(
-            ["projectId", "taskId", "taskVersion", "commentId", "commentVersion", "change", "requiresRefetch"],
-            commentChange.Envelope.Payload.EnumerateObject().Select(property => property.Name).ToArray());
-        Assert.Equal(comment.Id, commentChange.Envelope.Payload.GetProperty("commentId").GetGuid());
-        Assert.Equal(comment.VersionNo, commentChange.Envelope.Payload.GetProperty("commentVersion").GetInt64());
-        var commentTarget = Assert.Single(commentChange.Targets);
-        Assert.Equal(RealtimeSubscriptionType.Project, commentTarget.SubscriptionType);
-        Assert.Equal(projectId, commentTarget.ResourceId);
+        await publisher.TaskChangedAsync(task, actorId, "updated", ["description"], [Guid.NewGuid()]);
+        await publisher.TaskAssignmentChangedAsync(task, actorId, "assigneeChanged", [Guid.NewGuid()]);
+        await publisher.TaskCommentChangedAsync(task, comment, actorId, "updated");
 
         var storedPayload = string.Join('\n', outbox.Items.Select(item => item.Envelope.Payload.GetRawText()));
         Assert.DoesNotContain(task.Title, storedPayload, StringComparison.Ordinal);
@@ -96,6 +156,7 @@ public sealed class TaskSemanticRealtimeTests
         Assert.DoesNotContain("important", storedPayload, StringComparison.OrdinalIgnoreCase);
         Assert.DoesNotContain("watch", storedPayload, StringComparison.OrdinalIgnoreCase);
         Assert.DoesNotContain("recipient", storedPayload, StringComparison.OrdinalIgnoreCase);
+        Assert.All(outbox.Items, item => Assert.DoesNotContain(item.Targets, target => target.SubscriptionType == RealtimeSubscriptionType.User));
     }
 
     [Fact]

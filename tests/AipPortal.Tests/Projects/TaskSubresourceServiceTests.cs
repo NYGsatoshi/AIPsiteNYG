@@ -11,7 +11,7 @@ public sealed class TaskSubresourceServiceTests
 {
     [Fact]
     [Trait("Scope", "TaskV1PR07B")]
-    public async Task OrdinaryCommentUsesHardZeroNotificationCategoryAndStagesBothInvalidations()
+    public async Task OrdinaryCommentStagesBothInvalidationsWithoutNotificationIntent()
     {
         var fixture = new Fixture();
 
@@ -20,10 +20,7 @@ public sealed class TaskSubresourceServiceTests
             new CreateTaskCommentRequest("ordinary comment"));
 
         Assert.True(result.IsSuccess);
-        var request = Assert.Single(fixture.Notifications.Requests);
-        Assert.Equal(TaskNotificationEventKind.OrdinaryComment, request.EventKind);
-        Assert.Empty(request.ValidDirectMentionUserIds ?? []);
-        Assert.False(request.IsImportantComment);
+        Assert.Empty(fixture.Notifications.Requests);
         Assert.Single(fixture.Invalidations.CommentChanges, change => change.Change == "created");
         Assert.Single(fixture.Invalidations.TaskChanges, change => change.Change == "commentChanged");
         Assert.Equal(1, fixture.UnitOfWork.SaveCount);
@@ -93,6 +90,143 @@ public sealed class TaskSubresourceServiceTests
         Assert.Empty(request.ValidDirectMentionUserIds ?? []);
         Assert.True(request.IsImportantComment);
         Assert.Equal(1, fixture.UnitOfWork.SaveCount);
+    }
+
+    [Fact]
+    [Trait("Scope", "TaskV1PR07B")]
+    public async Task AlreadyImportantCommentWithEmptyPatchDoesNotMutateOrNotify()
+    {
+        var fixture = new Fixture();
+        var comment = fixture.AddComment("important", important: true);
+        var before = fixture.Snapshot(comment);
+
+        var result = await fixture.Service.UpdateCommentAsync(
+            comment.Id,
+            new UpdateTaskCommentRequest(null, null, comment.VersionNo));
+
+        Assert.False(result.IsSuccess);
+        Assert.Equal("TASK_COMMENT_UPDATE_REQUIRED|At least one comment field must be supplied.", result.Error);
+        fixture.AssertUnchanged(comment, before);
+    }
+
+    [Fact]
+    [Trait("Scope", "TaskV1PR07B")]
+    public async Task AlreadyImportantCommentWithTrueAgainDoesNotMutateOrNotify()
+    {
+        var fixture = new Fixture();
+        var comment = fixture.AddComment("important", important: true);
+        var before = fixture.Snapshot(comment);
+
+        var result = await fixture.Service.UpdateCommentAsync(
+            comment.Id,
+            new UpdateTaskCommentRequest(null, true, comment.VersionNo));
+
+        Assert.True(result.IsSuccess, result.Error);
+        fixture.AssertUnchanged(comment, before);
+    }
+
+    [Fact]
+    [Trait("Scope", "TaskV1PR07B")]
+    public async Task SameBodyPatchDoesNotMutateOrNotify()
+    {
+        var fixture = new Fixture();
+        var comment = fixture.AddComment("same body", important: true);
+        var before = fixture.Snapshot(comment);
+
+        var result = await fixture.Service.UpdateCommentAsync(
+            comment.Id,
+            new UpdateTaskCommentRequest("same body", null, comment.VersionNo));
+
+        Assert.True(result.IsSuccess, result.Error);
+        fixture.AssertUnchanged(comment, before);
+    }
+
+    [Fact]
+    [Trait("Scope", "TaskV1PR07B")]
+    public async Task FalseToTrueImportantPatchCreatesOneSignificantIntent()
+    {
+        var fixture = new Fixture();
+        var comment = fixture.AddComment("ordinary");
+
+        var result = await fixture.Service.UpdateCommentAsync(
+            comment.Id,
+            new UpdateTaskCommentRequest(null, true, comment.VersionNo));
+
+        Assert.True(result.IsSuccess, result.Error);
+        var request = Assert.Single(fixture.Notifications.Requests);
+        Assert.Equal(TaskNotificationEventKind.TaskCommentSignificant, request.EventKind);
+        Assert.True(request.IsImportantComment);
+        Assert.Empty(request.ValidDirectMentionUserIds ?? []);
+        Assert.Equal(1, fixture.UnitOfWork.SaveCount);
+    }
+
+    [Fact]
+    [Trait("Scope", "TaskV1PR07B")]
+    public async Task TrueToFalseImportantPatchDoesNotNotify()
+    {
+        var fixture = new Fixture();
+        var comment = fixture.AddComment("important", important: true);
+
+        var result = await fixture.Service.UpdateCommentAsync(
+            comment.Id,
+            new UpdateTaskCommentRequest(null, false, comment.VersionNo));
+
+        Assert.True(result.IsSuccess, result.Error);
+        Assert.False(comment.IsImportant);
+        Assert.Empty(fixture.Notifications.Requests);
+        Assert.Equal(1, fixture.UnitOfWork.SaveCount);
+    }
+
+    [Fact]
+    [Trait("Scope", "TaskV1PR07B")]
+    public async Task BodyChangeOnExistingImportantWithoutMentionDoesNotNotifyImportantRecipients()
+    {
+        var fixture = new Fixture();
+        var comment = fixture.AddComment("important", important: true);
+
+        var result = await fixture.Service.UpdateCommentAsync(
+            comment.Id,
+            new UpdateTaskCommentRequest("changed body", null, comment.VersionNo));
+
+        Assert.True(result.IsSuccess, result.Error);
+        Assert.Empty(fixture.Notifications.Requests);
+    }
+
+    [Fact]
+    [Trait("Scope", "TaskV1PR07B")]
+    public async Task BodyChangeOnExistingImportantWithMentionNotifiesOnlyMentionTargets()
+    {
+        var fixture = new Fixture();
+        var mentionUserId = fixture.AddEligibleMentionUser();
+        var comment = fixture.AddComment("important", important: true);
+
+        var result = await fixture.Service.UpdateCommentAsync(
+            comment.Id,
+            new UpdateTaskCommentRequest($"changed @{{{mentionUserId:D}}}", null, comment.VersionNo));
+
+        Assert.True(result.IsSuccess, result.Error);
+        var request = Assert.Single(fixture.Notifications.Requests);
+        Assert.Equal([mentionUserId], request.ValidDirectMentionUserIds);
+        Assert.False(request.IsImportantComment);
+    }
+
+    [Fact]
+    [Trait("Scope", "TaskV1PR07B")]
+    public async Task BodyChangeAndFalseToTrueUsesOneRecipientUnion()
+    {
+        var fixture = new Fixture();
+        var mentionUserId = fixture.AddEligibleMentionUser();
+        var comment = fixture.AddComment("ordinary");
+
+        var result = await fixture.Service.UpdateCommentAsync(
+            comment.Id,
+            new UpdateTaskCommentRequest($"changed @{{{mentionUserId:D}}}", true, comment.VersionNo));
+
+        Assert.True(result.IsSuccess, result.Error);
+        var request = Assert.Single(fixture.Notifications.Requests);
+        Assert.Equal(TaskNotificationEventKind.TaskCommentSignificant, request.EventKind);
+        Assert.Equal([mentionUserId], request.ValidDirectMentionUserIds);
+        Assert.True(request.IsImportantComment);
     }
 
     [Fact]
@@ -207,7 +341,39 @@ public sealed class TaskSubresourceServiceTests
             Projects.Comments[comment.Id] = comment;
             return comment;
         }
+
+        public CommentMutationSnapshot Snapshot(TaskComment comment) => new(
+            comment.VersionNo,
+            Task.VersionNo,
+            comment.UpdatedAt,
+            Audit.Entries.Count,
+            Invalidations.TaskChanges.Count,
+            Invalidations.CommentChanges.Count,
+            Notifications.Requests.Count,
+            UnitOfWork.SaveCount);
+
+        public void AssertUnchanged(TaskComment comment, CommentMutationSnapshot before)
+        {
+            Assert.Equal(before.CommentVersion, comment.VersionNo);
+            Assert.Equal(before.TaskVersion, Task.VersionNo);
+            Assert.Equal(before.UpdatedAt, comment.UpdatedAt);
+            Assert.Equal(before.AuditCount, Audit.Entries.Count);
+            Assert.Equal(before.TaskInvalidationCount, Invalidations.TaskChanges.Count);
+            Assert.Equal(before.CommentInvalidationCount, Invalidations.CommentChanges.Count);
+            Assert.Equal(before.NotificationIntentCount, Notifications.Requests.Count);
+            Assert.Equal(before.SaveCount, UnitOfWork.SaveCount);
+        }
     }
+
+    private sealed record CommentMutationSnapshot(
+        long CommentVersion,
+        long TaskVersion,
+        DateTimeOffset? UpdatedAt,
+        int AuditCount,
+        int TaskInvalidationCount,
+        int CommentInvalidationCount,
+        int NotificationIntentCount,
+        int SaveCount);
 
     private sealed class FakeProjectRepository : IProjectRepository
     {

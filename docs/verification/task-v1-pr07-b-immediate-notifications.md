@@ -2,14 +2,11 @@
 
 ## Status
 
-The PR07-B implementation candidate is present in the worktree. Release build,
-focused and full PostgreSQL backend suites, tenant/security regressions, and
-frontend unit/build/architecture checks are green. Exact-final-HEAD hosted
-workflows, Draft PR synchronization, and final acceptance remain `Pending`.
-The pinned Linux Playwright rerun is also pending hosted CI because the local
-MCR image pull failed three times with a transport EOF before the test image could be
-built. This document must not be read as merge authorization. PR07-B must
-remain an unmerged Draft PR.
+The PR07-B implementation candidate is present in the worktree. This
+remediation adds TaskComment no-op protection and project-only Task semantic
+routing. Exact-final-HEAD hosted workflow evidence is maintained in the Draft
+PR body rather than a self-referential source commit. This document must not
+be read as merge authorization. PR07-B must remain an unmerged Draft PR.
 
 ## Authority and identity
 
@@ -107,6 +104,24 @@ relationship state and central producer; no-op mirrors retain only generic
 invalidation, while actual canonical changes produce exactly one relationship
 semantic and deduplicated recipient intent.
 
+### TaskComment PATCH no-op boundary
+
+The update service calculates `bodySpecified`, `bodyChanged`,
+`importantSpecified`, `importantChanged`, and `becameImportant` before it
+mutates a comment. A PATCH with no update field returns shared Task error
+`TASK_COMMENT_UPDATE_REQUIRED` and stages nothing. A specified value equal to
+the persisted normalized value returns a successful response without a save;
+the Task/comment versions, `UpdatedAt`, AuditLog, Outbox, Notification, and
+NotificationUserState are unchanged.
+
+Only `false -> true` supplies `IsImportantComment=true` to the central
+recipient policy. `true -> true` and `true -> false` create no
+Important-comment recipient work. Mentions are validated only for an actually
+changed supplied body. A body update on an already-Important comment can
+produce recipient-private direct-mention intent only; it cannot replay the
+Important relationship matrix. A direct mention combined with `false -> true`
+remains one `TaskCommentSignificant` recipient union and logical event.
+
 `TaskNotificationProducer` owns the stable category-to-presentation/logical
 group mapping and stages one recipient-private intent for each final
 recipient. Its logical key is based on Task identity, semantic source group,
@@ -180,6 +195,23 @@ The implementation does not add these unapproved synonyms:
 The retained general `Projects.TaskChanged.v1` remains the compatibility
 invalidation hint. HTTP refetch remains authoritative.
 
+### PR07-B routing boundary
+
+PR07-B writes the three Task semantic families only with the exact logical
+target `project:{projectId}`:
+
+- `Projects.TaskChanged.v1`;
+- `Projects.TaskAssignmentChanged.v1`; and
+- `Projects.TaskCommentChanged.v1`.
+
+No Task semantic event is routed to a User target in this phase. In
+particular, previous/new assignee, reviewer, collaborator, and actor IDs are
+not routing targets. Current Task-specific dispatch/replay authorization is
+reserved for PR07-D. The recipient-only
+`Notifications.NotificationCreated.v1` signal remains exactly
+`user:{notification.UserId}` with only `notificationId`, `stateVersion`, and
+`requiresRefetch` in its payload.
+
 ## Transaction and dedupe design
 
 `DbNotificationService.StageTaskByLogicalKeyAsync` stages, but does not save:
@@ -249,12 +281,14 @@ refetch rather than carrying a private Task projection.
 | --- | --- | --- |
 | PR07-A same-SHA post-merge gate | Passed | CI `30724803612`, Code Quality `30724803621`, Documentation CI `30724803620`, and npm Security Audit `30724803615`; all `success` at `c5627eb09ecf19d66146eacdbc3e938c0a1c8563`. |
 | Central policy/classifier/staging/semantic/privacy classes, Release | Passed: 60; failed/skipped: 0/0 | Covers exact recipient categories, actor/current-authorization/Watch behavior, both deadline shift directions and timezone boundaries, staged logical identity, minimal signals, approved event catalog/payloads, and audit privacy. |
-| `dotnet test ... --configuration Release --filter "Scope=TaskV1PR07B"` with PostgreSQL configuration | Passed: 63; failed/skipped: 0/0 | Runs service, contract, HTTP, compatibility, and all eight conditional PostgreSQL cases together. |
-| PostgreSQL 18 focused atomicity suite, Release | Passed: 7; failed/skipped: 0/0 | Fresh disposable PostgreSQL 18 container after all migrations through `20260801171714_AddTaskNotificationPreferenceFoundation`. Covers complete atomic commit, non-UTC deadline normalization, stale/auth zero deltas, canonical and compatibility Task/audit/Outbox database-failure rollback, a coordinated concurrent writer, one visible logical Notification, and an idempotent retry. Container was removed after all backend runs. |
+| TaskComment no-op unit suite, Release | Passed: 14; failed/skipped: 0/0 | Covers empty and same-value PATCH zero mutation, `false -> true`, `true -> false`, body-only mention behavior on existing Important comments, and mention-plus-Important union. |
+| Task semantic routing suite, Release | Passed: 6; failed/skipped: 0/0 | Verifies all three Task semantic families are Project-only, Task payloads contain no restricted display fields, and User routing is absent. |
+| `dotnet test ... --configuration Release --filter "Scope=TaskV1PR07B"` with PostgreSQL 18 | Passed: 72; failed/skipped: 0/0 | Fresh local PostgreSQL 18 container; includes the added Important-comment no-op persistence regression and has no conditional skips. |
+| PostgreSQL 18 focused atomicity suite, Release | Passed: 8; failed/skipped: 0/0 | Includes persisted `isImportant=true` and empty PATCH regression: Task/comment version, `UpdatedAt`, Notification, NotificationUserState, Outbox, and AuditLog remain unchanged after an existing Important notification. |
 | PostgreSQL 18 compatibility concurrency subset, Release | Passed: 3; failed/skipped: 0/0 | Covers one compatibility writer winning, clean loser retry, atomic canonical mapping, canonical no-op retry, and composite role-change logical dedupe. |
 | PostgreSQL migration apply for focused suite | Passed | Empty database migrated through the accepted PR07-A foundation; PR07-B adds no migration. |
 | EF pending-model-change check, Release | Passed | Reports no model changes since the accepted PR07-A migration. |
-| Full backend suite with PostgreSQL 18 | Passed: 620; failed/skipped: 0/0 | Both `POSTGRES_TEST_CONNECTION_STRING` and the application connection string targeted the same migrated database. |
+| Full backend suite with PostgreSQL 18 | Passed: 632; failed/skipped: 0/0 | Both `POSTGRES_TEST_CONNECTION_STRING` and the application connection string targeted the same migrated database. |
 | Task PR03C-PR06 scoped regressions | Passed: 146; failed/skipped: 0/0 | Includes the historical Prompt2C/Prompt2D supporting scopes carried by PR03C; they are not represented as a dedicated PR02 suite. |
 | PR02-equivalent Task persistence/command/project/HTTP class regressions | Passed: 146; failed/skipped: 0/0 | PR02 has no dedicated `Scope=TaskV1PR02` trait, so the exact four-class filter below plus the full backend run is recorded explicitly. |
 | HTTP tenant isolation | Passed: 32; failed/skipped: 0/0 | Runs the complete `HttpTenantIsolationTests` class, including the new hard-deadline contract. |

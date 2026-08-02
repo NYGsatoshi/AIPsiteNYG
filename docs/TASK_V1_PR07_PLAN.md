@@ -282,6 +282,19 @@ Generate every immediate Notification intent and approved Task invalidation/even
   Task Notification intent production; it does not alter command
   authorization, and every enabled intent still passes privacy and dedupe
   enforcement.
+- TaskComment PATCH is presence- and change-aware: a request with neither
+  body nor `isImportant` returns `TASK_COMMENT_UPDATE_REQUIRED`; a supplied
+  value equal to persisted state returns success without updating the comment
+  or Task version and without audit, Outbox, or Notification work. A comment
+  becomes Important only on `false -> true`; a body update evaluates mentions
+  only when the normalized body changed. An already-Important body update
+  never replays Important relationship recipients.
+- During PR07-B, `Projects.TaskChanged.v1`,
+  `Projects.TaskAssignmentChanged.v1`, and
+  `Projects.TaskCommentChanged.v1` route only to `project:{projectId}`.
+  Task/user-route dispatch authorization is explicitly deferred to PR07-D.
+  `Notifications.NotificationCreated.v1` remains the recipient-only minimal
+  `user:{recipientUserId}` signal.
 
 ### Included scope
 
@@ -300,7 +313,8 @@ Generate every immediate Notification intent and approved Task invalidation/even
 
 - no digest ledger/worker;
 - no notification-open endpoint;
-- no SignalR group/routing changes;
+- no SignalR Hub, subscription, dispatcher, or dispatch-authorization change;
+  Task semantic Outbox records remain project-only until PR07-D;
 - no Angular changes;
 - no email/push.
 
@@ -317,6 +331,12 @@ Generate every immediate Notification intent and approved Task invalidation/even
 - stale version, authorization denial, audit failure, and database failure roll back Task/Notification/Outbox together;
 - compatibility and canonical routes cannot double-notify;
 - forbidden payload/log fields are absent.
+- empty/same-value TaskComment PATCH has zero Task/comment version, audit,
+  Outbox, Notification, and NotificationUserState delta;
+- `false -> true` is the only Important-comment recipient trigger; unchanged
+  Important comments only notify newly validated direct mentions;
+- every PR07-B Task semantic Outbox target is exactly `project:{projectId}`;
+  `Notifications.NotificationCreated.v1` is exactly its recipient user route.
 
 ### Completion gate
 

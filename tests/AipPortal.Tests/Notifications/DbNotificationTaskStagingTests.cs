@@ -12,7 +12,7 @@ namespace AipPortal.Tests.Notifications;
 public sealed class DbNotificationTaskStagingTests
 {
     [Fact]
-    public async Task StageTaskLogicalKeyDoesNotSaveAndLocalRetryCreatesOneMinimalSignal()
+    public async Task NotificationCreatedStillRoutesOnlyToRecipientUser()
     {
         var tenantId = Guid.NewGuid();
         var recipientId = Guid.NewGuid();

@@ -230,22 +230,50 @@ public sealed class TaskSubresourceService(
         var comment = await projects.GetTaskCommentAsync(commentId, ct); if (comment?.TaskItem is null || !await CanEditCommentAsync(comment, ct)) return Fail<TaskCommentResponse>("TASK_COMMENT_FORBIDDEN", "Comment operation is not authorized.");
         if (request.ExpectedVersion <= 0) return Fail<TaskCommentResponse>("TASK_INVALID_EXPECTED_VERSION", "Expected version must be a positive integer.");
         if (comment.VersionNo != request.ExpectedVersion) return Fail<TaskCommentResponse>("TASK_STALE_VERSION", "Comment has changed. Refetch and retry.");
-        // Mentions are notification events only when this mutation supplies a
-        // comment body. An importance-only patch must not replay mentions from
-        // the previously persisted body.
-        IReadOnlyList<Guid> validatedMentionUserIds = [];
-        if (request.BodyPlainText is not null)
+
+        var bodySpecified = request.BodyPlainText is not null;
+        var importantSpecified = request.IsImportant.HasValue;
+        if (!bodySpecified && !importantSpecified)
+            return Fail<TaskCommentResponse>("TASK_COMMENT_UPDATE_REQUIRED", "At least one comment field must be supplied.");
+
+        string? normalizedBody = null;
+        var bodyChanged = false;
+        if (bodySpecified)
         {
-            var body = Text(request.BodyPlainText, 12000); if (body is null) return Fail<TaskCommentResponse>("VALIDATION_FAILED", "Comment body is required.");
-            var safety = safetyGuard.CheckMessagePost(new CommunicationSafetyScope(Actor(), comment.TaskItem.TenantId, comment.TaskItem.WorkspaceId, comment.TaskItem.Id), body, clock.UtcNow);
+            normalizedBody = Text(request.BodyPlainText, 12000);
+            if (normalizedBody is null)
+                return Fail<TaskCommentResponse>("VALIDATION_FAILED", "Comment body is required.");
+
+            bodyChanged = !string.Equals(normalizedBody, comment.BodyPlainText, StringComparison.Ordinal);
+        }
+
+        var importantChanged = importantSpecified && request.IsImportant!.Value != comment.IsImportant;
+        var becameImportant = importantChanged && !comment.IsImportant && request.IsImportant!.Value;
+
+        // A successfully parsed, same-value PATCH is a response-only no-op.
+        // It must not advance either optimistic-concurrency token or stage
+        // audit, Outbox, or notification work.
+        if (!bodyChanged && !importantChanged)
+            return Result<TaskCommentResponse>.Success((await ToCommentsAsync([comment], Actor(), await projectAuthorization.CanManageProject(Actor(), comment.ProjectId, ct), comment.ProjectId, ct))[0]);
+
+        // Mentions are notification events only when the body actually
+        // changes. An importance-only PATCH must not replay persisted mentions.
+        IReadOnlyList<Guid> validatedMentionUserIds = [];
+        if (bodyChanged)
+        {
+            var safety = safetyGuard.CheckMessagePost(new CommunicationSafetyScope(Actor(), comment.TaskItem.TenantId, comment.TaskItem.WorkspaceId, comment.TaskItem.Id), normalizedBody!, clock.UtcNow);
             if (!safety.IsAllowed) return safety.ReasonCode == "duplicate_post" ? Fail<TaskCommentResponse>("TASK_COMMENT_DUPLICATE", "Comment submission was rejected by the communication safety policy.") : Result<TaskCommentResponse>.Failure(new ApplicationErrorDetail("TASK_COMMENT_RATE_LIMITED", "Comment submission was rejected by the communication safety policy.", Math.Max(1, safety.RetryAfterSeconds ?? 1)));
-            var updatedMentionUserIds = await ValidatedMentionUserIdsAsync(body, comment.TaskItem, ct);
+            var updatedMentionUserIds = await ValidatedMentionUserIdsAsync(normalizedBody!, comment.TaskItem, ct);
             if (updatedMentionUserIds is null) return Fail<TaskCommentResponse>("TASK_MENTION_NOT_ELIGIBLE", "One or more mentions are not available for this task.");
             validatedMentionUserIds = updatedMentionUserIds;
-            comment.BodyPlainText = body;
+            comment.BodyPlainText = normalizedBody!;
         }
-        if (request.IsImportant.HasValue) comment.IsImportant = request.IsImportant.Value; comment.UpdatedAt = clock.UtcNow; comment.VersionNo++;
-        if (await CommitCommentAsync(comment.TaskItem, comment, "TaskCommentUpdated", "updated", new Dictionary<string, object?> { ["important"] = comment.IsImportant }, validatedMentionUserIds, comment.IsImportant, true, ct) != TaskCommandSaveResult.Saved) return Fail<TaskCommentResponse>("TASK_STALE_VERSION", "Task has changed. Refetch and retry.");
+        if (importantChanged)
+            comment.IsImportant = request.IsImportant!.Value;
+
+        comment.UpdatedAt = clock.UtcNow;
+        comment.VersionNo++;
+        if (await CommitCommentAsync(comment.TaskItem, comment, "TaskCommentUpdated", "updated", new Dictionary<string, object?> { ["important"] = comment.IsImportant }, validatedMentionUserIds, becameImportant, bodyChanged || becameImportant, ct) != TaskCommandSaveResult.Saved) return Fail<TaskCommentResponse>("TASK_STALE_VERSION", "Task has changed. Refetch and retry.");
         return Result<TaskCommentResponse>.Success((await ToCommentsAsync([comment], Actor(), await projectAuthorization.CanManageProject(Actor(), comment.ProjectId, ct), comment.ProjectId, ct))[0]);
     }
     public async Task<Result> DeleteCommentAsync(Guid commentId, long expectedVersion, CancellationToken ct = default)
@@ -443,15 +471,15 @@ public sealed class TaskSubresourceService(
         await invalidations.TaskChangedAsync(task, Actor(), "commentChanged", cancellationToken: ct);
         if (evaluateNotification && taskNotifications is not null)
         {
-            var eventKind = validatedMentionUserIds.Count > 0 || isImportantComment
-                ? TaskNotificationEventKind.TaskCommentSignificant
-                : TaskNotificationEventKind.OrdinaryComment;
-            await taskNotifications.ProduceAsync(new TaskNotificationRecipientRequest(
-                task,
-                eventKind,
-                ActorUserId: Actor(),
-                ValidDirectMentionUserIds: validatedMentionUserIds,
-                IsImportantComment: isImportantComment), ct);
+            if (validatedMentionUserIds.Count > 0 || isImportantComment)
+            {
+                await taskNotifications.ProduceAsync(new TaskNotificationRecipientRequest(
+                    task,
+                    TaskNotificationEventKind.TaskCommentSignificant,
+                    ActorUserId: Actor(),
+                    ValidDirectMentionUserIds: validatedMentionUserIds,
+                    IsImportantComment: isImportantComment), ct);
+            }
         }
         await AdvanceParentForChildMutationAsync(task, action, ct);
         return await taskUnitOfWork.SaveTaskCommandAsync(ct);

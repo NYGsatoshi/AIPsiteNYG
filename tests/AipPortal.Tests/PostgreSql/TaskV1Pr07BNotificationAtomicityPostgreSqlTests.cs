@@ -3,6 +3,7 @@ using AipPortal.Application.Common;
 using AipPortal.Application.Common.Interfaces;
 using AipPortal.Application.Common.Tenancy;
 using AipPortal.Application.Groups;
+using AipPortal.Application.Messaging;
 using AipPortal.Application.Projects;
 using AipPortal.Application.Realtime;
 using AipPortal.Application.Workspaces;
@@ -283,6 +284,66 @@ public sealed class TaskV1Pr07BNotificationAtomicityPostgreSqlTests
         Assert.Single(await harness.LoadNotificationsAsync());
     }
 
+    [PostgreSqlFact]
+    [Trait("Category", "PostgreSQLIntegration")]
+    [Trait("Scope", "TaskV1PR07B")]
+    public async Task ExistingImportantCommentNoOpPatchesDoNotMutateNotificationsOrOutbox()
+    {
+        await using var harness = await ServiceHarness.CreateAsync();
+
+        await using (var assignment = harness.CreateScope())
+        {
+            var assigned = await assignment.Commands.SetAssigneeAsync(
+                harness.Graph.Task.Id,
+                new TaskRelationshipUserRequest(harness.Graph.Recipient.Id, harness.Graph.Task.VersionNo));
+            Assert.True(assigned.IsSuccess, assigned.Error);
+        }
+
+        TaskCommentResponse comment;
+        await using (var create = harness.CreateScope())
+        {
+            var created = await create.Subresources.CreateCommentAsync(
+                harness.Graph.Task.Id,
+                new CreateTaskCommentRequest("important comment", IsImportant: true));
+            Assert.True(created.IsSuccess, created.Error);
+            comment = created.Value!;
+        }
+
+        var existingImportant = Assert.Single(
+            await harness.LoadNotificationsAsync(),
+            notification => notification.LogicalKey?.Contains("TaskCommentSignificant", StringComparison.Ordinal) == true);
+        Assert.Equal(harness.Graph.Recipient.Id, existingImportant.UserId);
+
+        var before = await harness.SnapshotAsync();
+        var commentBefore = await harness.LoadCommentSnapshotAsync(comment.Id);
+        var stateVersionBefore = await harness.LoadNotificationUserStateVersionAsync(harness.Graph.Recipient.Id);
+
+        await using (var sameValue = harness.CreateScope())
+        {
+            var result = await sameValue.Subresources.UpdateCommentAsync(
+                comment.Id,
+                new UpdateTaskCommentRequest(null, true, comment.Version));
+            Assert.True(result.IsSuccess, result.Error);
+        }
+
+        Assert.Equal(before, await harness.SnapshotAsync());
+        Assert.Equal(commentBefore, await harness.LoadCommentSnapshotAsync(comment.Id));
+        Assert.Equal(stateVersionBefore, await harness.LoadNotificationUserStateVersionAsync(harness.Graph.Recipient.Id));
+
+        await using (var emptyPatch = harness.CreateScope())
+        {
+            var result = await emptyPatch.Subresources.UpdateCommentAsync(
+                comment.Id,
+                new UpdateTaskCommentRequest(null, null, comment.Version));
+            Assert.False(result.IsSuccess);
+            Assert.Equal("TASK_COMMENT_UPDATE_REQUIRED", ErrorCode(result.Error));
+        }
+
+        Assert.Equal(before, await harness.SnapshotAsync());
+        Assert.Equal(commentBefore, await harness.LoadCommentSnapshotAsync(comment.Id));
+        Assert.Equal(stateVersionBefore, await harness.LoadNotificationUserStateVersionAsync(harness.Graph.Recipient.Id));
+    }
+
     private static string? ErrorCode(string? error) => error?.Split('|', 2)[0];
 
     private enum SaveFailureTarget
@@ -302,6 +363,8 @@ public sealed class TaskV1Pr07BNotificationAtomicityPostgreSqlTests
         int NotificationUserStateCount,
         int AuditCount,
         int OutboxCount);
+
+    private sealed record CommentSnapshot(long Version, DateTimeOffset? UpdatedAt, bool IsImportant);
 
     private sealed class ServiceHarness : IAsyncDisposable
     {
@@ -375,10 +438,29 @@ public sealed class TaskV1Pr07BNotificationAtomicityPostgreSqlTests
                 .SetTenant(Graph.Tenant.Id, Graph.Tenant.Slug);
             scope.ServiceProvider.GetRequiredService<TestCurrentUser>()
                 .SetUser(actorUserId ?? Graph.Actor.Id);
+            var serviceProvider = scope.ServiceProvider;
+            var subresources = new TaskSubresourceService(
+                serviceProvider.GetRequiredService<IProjectRepository>(),
+                serviceProvider.GetRequiredService<IUserRepository>(),
+                serviceProvider.GetRequiredService<IProjectAuthorizationService>(),
+                serviceProvider.GetRequiredService<ITaskAuthorizationService>(),
+                serviceProvider.GetRequiredService<ICommentAuthorizationService>(),
+                null!,
+                null!,
+                serviceProvider.GetRequiredService<ITaskCommandService>(),
+                new InMemoryCommunicationSafetyGuard(new CommunicationSafetyOptions()),
+                serviceProvider.GetRequiredService<ICurrentUser>(),
+                serviceProvider.GetRequiredService<IClock>(),
+                serviceProvider.GetRequiredService<IAuditLogger>(),
+                serviceProvider.GetRequiredService<IBusinessInvalidationPublisher>(),
+                serviceProvider.GetRequiredService<ITaskCommandUnitOfWork>(),
+                serviceProvider.GetRequiredService<ITaskWorkspaceTimeZoneResolver>(),
+                serviceProvider.GetRequiredService<ITaskNotificationProducer>());
             return new RequestScope(
                 scope,
-                scope.ServiceProvider.GetRequiredService<ITaskCommandService>(),
-                scope.ServiceProvider.GetRequiredService<IProjectService>());
+                serviceProvider.GetRequiredService<ITaskCommandService>(),
+                subresources,
+                serviceProvider.GetRequiredService<IProjectService>());
         }
 
         public async Task<PersistenceSnapshot> SnapshotAsync()
@@ -403,6 +485,24 @@ public sealed class TaskV1Pr07BNotificationAtomicityPostgreSqlTests
                 .Where(item => item.RelatedEntityType == "TaskItem" && item.RelatedEntityId == Graph.Task.Id)
                 .OrderBy(item => item.CreatedAt)
                 .ToListAsync();
+        }
+
+        public async Task<CommentSnapshot> LoadCommentSnapshotAsync(Guid commentId)
+        {
+            await using var db = CreateTenantContext(connectionString, Graph.Tenant);
+            return await db.TaskComments.AsNoTracking()
+                .Where(comment => comment.Id == commentId)
+                .Select(comment => new CommentSnapshot(comment.VersionNo, comment.UpdatedAt, comment.IsImportant))
+                .SingleAsync();
+        }
+
+        public async Task<long> LoadNotificationUserStateVersionAsync(Guid userId)
+        {
+            await using var db = CreateTenantContext(connectionString, Graph.Tenant);
+            return await db.NotificationUserStates.AsNoTracking()
+                .Where(state => state.UserId == userId)
+                .Select(state => state.Version)
+                .SingleAsync();
         }
 
         public async Task<DateTimeOffset?> LoadDeadlineAsync()
@@ -605,6 +705,7 @@ public sealed class TaskV1Pr07BNotificationAtomicityPostgreSqlTests
     private sealed record RequestScope(
         AsyncServiceScope Scope,
         ITaskCommandService Commands,
+        ITaskSubresourceService Subresources,
         IProjectService Compatibility) : IAsyncDisposable
     {
         public ValueTask DisposeAsync() => Scope.DisposeAsync();
