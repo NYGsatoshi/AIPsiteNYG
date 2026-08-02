@@ -122,6 +122,20 @@ without the variable is not PostgreSQL evidence. Exact commands and final
 counts are recorded in
 `docs/verification/task-v1-pr07-b-immediate-notifications.md`.
 
+The TaskComment remediation additionally requires focused unit and HTTP proof
+that revoked comment authors cannot PATCH or DELETE by stored comment ID,
+current authors and Managers retain their permitted updates, and archived or
+deleted parents deny changes without a persistence delta. Its safety coverage
+uses the real `InMemoryCommunicationSafetyGuard` to prove Important-only
+`false -> true` updates consume the post window, return
+`TASK_COMMENT_RATE_LIMITED` with positive retry metadata when limited, and do
+not double-charge a combined body/Important mutation. Mention tests must prove
+that revoked Workspace members with stale ProjectMember/GroupMember rows are
+absent from candidate search and that an authorized/unauthorized mixed mention
+rejects the full command without staged notification work. The conditional
+PostgreSQL suite must prove the same denied paths leave Task/comment versions,
+AuditLog, Outbox, Notification, and NotificationUserState unchanged.
+
 ### Browser UI tests
 
 Root Playwright infrastructure remains under `tests/ui`, but the legacy static-SPA specs have been marked obsolete after the MVP-A P0 Angular migration.

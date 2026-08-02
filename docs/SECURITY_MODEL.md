@@ -79,6 +79,24 @@ relationships, new or changed-to `Owner` rows are rejected, and current member,
 authorization, role-separation, active-work-assignee, and Project mutability
 invariants are enforced before staging any side effect.
 
+Canonical `TaskComment` PATCH and DELETE recheck the undeleted parent Task,
+current Project visibility, and current comment permission before allowing the
+current author or a current Project Manager to mutate it. This prevents a
+stored comment ID, historical authorship, or stale Project/Group row from
+bypassing a revoked Workspace/Project boundary. A failed check returns the
+uniform `TASK_COMMENT_FORBIDDEN` contract and stages no mutation, audit, or
+event.
+
+TaskComment significance is abuse-controlled once per mutation: changed bodies
+use the body-aware post check; an Important-only `false -> true` update uses
+the same post window through an explicit empty-body significance check; and a
+combined body/Important update is not double charged. Important no-ops and
+de-emphasis do not create a new check. Candidate search and direct mention
+validation both recheck every candidate's current Project visibility, so a
+revoked Workspace member cannot be displayed or mentioned through stale
+ProjectMember or GroupMember records. Mixed valid/invalid mentions fail as a
+single generic `TASK_MENTION_NOT_ELIGIBLE` command with no partial intent.
+
 Notification presentation and durable events are intentionally generic and
 reference-only. Broad Task payloads and Audit metadata reject comment/Task
 bodies, review or Blocked reasons, Watch/opt-out state, private preference

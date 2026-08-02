@@ -190,7 +190,7 @@ public sealed class TaskV1Pr07BNotificationAtomicityPostgreSqlTests
                      SaveFailureTarget.Outbox
                  })
         {
-            await using var harness = await ServiceHarness.CreateAsync(failureTarget);
+            await using var harness = await ServiceHarness.CreateAsync(failureTarget: failureTarget);
             var before = await harness.SnapshotAsync();
 
             await using (var request = harness.CreateScope())
@@ -218,7 +218,7 @@ public sealed class TaskV1Pr07BNotificationAtomicityPostgreSqlTests
                      SaveFailureTarget.Outbox
                  })
         {
-            await using var harness = await ServiceHarness.CreateAsync(failureTarget);
+            await using var harness = await ServiceHarness.CreateAsync(failureTarget: failureTarget);
             var before = await harness.SnapshotAsync();
 
             await using (var request = harness.CreateScope())
@@ -344,6 +344,91 @@ public sealed class TaskV1Pr07BNotificationAtomicityPostgreSqlTests
         Assert.Equal(stateVersionBefore, await harness.LoadNotificationUserStateVersionAsync(harness.Graph.Recipient.Id));
     }
 
+    [PostgreSqlFact]
+    [Trait("Category", "PostgreSQLIntegration")]
+    [Trait("Scope", "TaskV1PR07B")]
+    public async Task RevokedCommentAuthorCannotUpdateAndLeavesNoPersistenceDelta()
+    {
+        await using var harness = await ServiceHarness.CreateAsync();
+        var comment = await harness.AddTaskCommentAsync(harness.Graph.Actor.Id, "original");
+        var before = await harness.SnapshotAsync();
+        var commentBefore = await harness.LoadCommentSnapshotAsync(comment.Id);
+        await harness.SetWorkspaceMembershipStatusAsync(harness.Graph.Actor.Id, MembershipStatus.Suspended);
+
+        await using (var request = harness.CreateScope())
+        {
+            var result = await request.Subresources.UpdateCommentAsync(
+                comment.Id,
+                new UpdateTaskCommentRequest("must not change", true, comment.VersionNo));
+
+            Assert.False(result.IsSuccess);
+            Assert.Equal("TASK_COMMENT_FORBIDDEN", ErrorCode(result.Error));
+        }
+
+        Assert.Equal(before, await harness.SnapshotAsync());
+        Assert.Equal(commentBefore, await harness.LoadCommentSnapshotAsync(comment.Id));
+    }
+
+    [PostgreSqlFact]
+    [Trait("Category", "PostgreSQLIntegration")]
+    [Trait("Scope", "TaskV1PR07B")]
+    public async Task RateLimitedImportantOnlyUpdateLeavesNoPersistenceDelta()
+    {
+        await using var harness = await ServiceHarness.CreateAsync(new CommunicationSafetyOptions
+        {
+            MaxPostsPerMinutePerUser = 1,
+            MaxPostsPerMinutePerConversation = 10
+        });
+        var first = await harness.AddTaskCommentAsync(harness.Graph.Actor.Id, "first");
+        var second = await harness.AddTaskCommentAsync(harness.Graph.Actor.Id, "second");
+
+        await using (var request = harness.CreateScope())
+        {
+            var result = await request.Subresources.UpdateCommentAsync(
+                first.Id,
+                new UpdateTaskCommentRequest(null, true, first.VersionNo));
+            Assert.True(result.IsSuccess, result.Error);
+        }
+
+        var before = await harness.SnapshotAsync();
+        var commentBefore = await harness.LoadCommentSnapshotAsync(second.Id);
+        await using (var request = harness.CreateScope())
+        {
+            var result = await request.Subresources.UpdateCommentAsync(
+                second.Id,
+                new UpdateTaskCommentRequest(null, true, second.VersionNo));
+
+            Assert.False(result.IsSuccess);
+            Assert.Equal("TASK_COMMENT_RATE_LIMITED", result.ErrorDetail?.Code);
+            Assert.True(result.ErrorDetail?.RetryAfterSeconds >= 1);
+        }
+
+        Assert.Equal(before, await harness.SnapshotAsync());
+        Assert.Equal(commentBefore, await harness.LoadCommentSnapshotAsync(second.Id));
+    }
+
+    [PostgreSqlFact]
+    [Trait("Category", "PostgreSQLIntegration")]
+    [Trait("Scope", "TaskV1PR07B")]
+    public async Task RevokedWorkspaceMemberMentionLeavesNoPersistenceDelta()
+    {
+        await using var harness = await ServiceHarness.CreateAsync();
+        await harness.SetWorkspaceMembershipStatusAsync(harness.Graph.Recipient.Id, MembershipStatus.Suspended);
+        var before = await harness.SnapshotAsync();
+
+        await using (var request = harness.CreateScope())
+        {
+            var result = await request.Subresources.CreateCommentAsync(
+                harness.Graph.Task.Id,
+                new CreateTaskCommentRequest($"@{{{harness.Graph.Recipient.Id:D}}}"));
+
+            Assert.False(result.IsSuccess);
+            Assert.Equal("TASK_MENTION_NOT_ELIGIBLE", ErrorCode(result.Error));
+        }
+
+        Assert.Equal(before, await harness.SnapshotAsync());
+    }
+
     private static string? ErrorCode(string? error) => error?.Split('|', 2)[0];
 
     private enum SaveFailureTarget
@@ -364,30 +449,35 @@ public sealed class TaskV1Pr07BNotificationAtomicityPostgreSqlTests
         int AuditCount,
         int OutboxCount);
 
-    private sealed record CommentSnapshot(long Version, DateTimeOffset? UpdatedAt, bool IsImportant);
+    private sealed record CommentSnapshot(string Body, long Version, DateTimeOffset? UpdatedAt, bool IsImportant);
 
     private sealed class ServiceHarness : IAsyncDisposable
     {
         private readonly ServiceProvider provider;
         private readonly string connectionString;
+        private readonly ICommunicationSafetyGuard safetyGuard;
 
-        private ServiceHarness(ServiceProvider provider, string connectionString, Graph graph, SaveRaceCoordinator saveRace)
+        private ServiceHarness(ServiceProvider provider, string connectionString, Graph graph, SaveRaceCoordinator saveRace, ICommunicationSafetyGuard safetyGuard)
         {
             this.provider = provider;
             this.connectionString = connectionString;
             Graph = graph;
             SaveRace = saveRace;
+            this.safetyGuard = safetyGuard;
         }
 
         public Graph Graph { get; }
         public SaveRaceCoordinator SaveRace { get; }
 
-        public static async Task<ServiceHarness> CreateAsync(SaveFailureTarget failureTarget = SaveFailureTarget.None)
+        public static async Task<ServiceHarness> CreateAsync(
+            CommunicationSafetyOptions? communicationSafetyOptions = null,
+            SaveFailureTarget failureTarget = SaveFailureTarget.None)
         {
             var connectionString = PostgreSqlTestEnvironment.RequireConnectionString();
             var graph = await SeedAsync(connectionString);
             var saveRace = new SaveRaceCoordinator();
             var failure = new SaveFailureInterceptor(failureTarget);
+            var safetyGuard = new InMemoryCommunicationSafetyGuard(communicationSafetyOptions ?? new CommunicationSafetyOptions());
             var services = new ServiceCollection();
             services.AddDbContext<AppDbContext>(options =>
                 options.UseNpgsql(connectionString).AddInterceptors(failure));
@@ -428,7 +518,8 @@ public sealed class TaskV1Pr07BNotificationAtomicityPostgreSqlTests
                 services.BuildServiceProvider(new ServiceProviderOptions { ValidateScopes = true }),
                 connectionString,
                 graph,
-                saveRace);
+                saveRace,
+                safetyGuard);
         }
 
         public RequestScope CreateScope(Guid? actorUserId = null)
@@ -448,7 +539,7 @@ public sealed class TaskV1Pr07BNotificationAtomicityPostgreSqlTests
                 null!,
                 null!,
                 serviceProvider.GetRequiredService<ITaskCommandService>(),
-                new InMemoryCommunicationSafetyGuard(new CommunicationSafetyOptions()),
+                safetyGuard,
                 serviceProvider.GetRequiredService<ICurrentUser>(),
                 serviceProvider.GetRequiredService<IClock>(),
                 serviceProvider.GetRequiredService<IAuditLogger>(),
@@ -492,8 +583,36 @@ public sealed class TaskV1Pr07BNotificationAtomicityPostgreSqlTests
             await using var db = CreateTenantContext(connectionString, Graph.Tenant);
             return await db.TaskComments.AsNoTracking()
                 .Where(comment => comment.Id == commentId)
-                .Select(comment => new CommentSnapshot(comment.VersionNo, comment.UpdatedAt, comment.IsImportant))
+                .Select(comment => new CommentSnapshot(comment.BodyPlainText, comment.VersionNo, comment.UpdatedAt, comment.IsImportant))
                 .SingleAsync();
+        }
+
+        public async Task<TaskComment> AddTaskCommentAsync(Guid authorUserId, string body)
+        {
+            await using var db = CreateTenantContext(connectionString, Graph.Tenant);
+            var comment = new TaskComment
+            {
+                TenantId = Graph.Tenant.Id,
+                WorkspaceId = Graph.Workspace.Id,
+                ProjectId = Graph.Project.Id,
+                TaskItemId = Graph.Task.Id,
+                AuthorUserId = authorUserId,
+                BodyPlainText = body,
+                CreatedAt = FixedClock.Instance.UtcNow,
+                VersionNo = 1
+            };
+            db.TaskComments.Add(comment);
+            await db.SaveChangesAsync();
+            return comment;
+        }
+
+        public async Task SetWorkspaceMembershipStatusAsync(Guid userId, MembershipStatus status)
+        {
+            await using var db = CreateTenantContext(connectionString, Graph.Tenant);
+            var member = await db.WorkspaceMembers.SingleAsync(item =>
+                item.WorkspaceId == Graph.Workspace.Id && item.UserId == userId);
+            member.Status = status;
+            await db.SaveChangesAsync();
         }
 
         public async Task<long> LoadNotificationUserStateVersionAsync(Guid userId)

@@ -296,6 +296,20 @@ Generate every immediate Notification intent and approved Task invalidation/even
   events remain `project:{projectId}`-only until PR07-D adds their
   Task-specific dispatch/replay authorization. `Notifications.NotificationCreated.v1`
   remains the recipient-only minimal `user:{recipientUserId}` signal.
+- TaskComment update and delete recheck the current parent Task/Project
+  visibility and current comment authority before author-or-Manager evaluation.
+  A historical author identity or residual Project/Group membership row never
+  grants a mutation after Workspace access, Project visibility, or parent Task
+  lifecycle has been lost.
+- A `false -> true` Important-only TaskComment PATCH has one explicit
+  communication-safety significance check. A body change uses the body check
+  instead; a combined body/Important update is charged once, while no-op and
+  de-emphasis updates add no new rate-limit check.
+- Mention candidate display and direct mention validation both apply bounded
+  per-user current `CanViewProject` checks after repository eligibility. A
+  stale ProjectMember or GroupMember without current Workspace access is not
+  displayed and causes the entire direct-mention mutation to fail with the
+  existing generic eligibility error.
 
 ### Included scope
 
