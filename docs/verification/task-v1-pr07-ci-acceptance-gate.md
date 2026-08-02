@@ -9,8 +9,8 @@
 | Head branch | `ci/task-pr07b-acceptance-gate` |
 | Base branch | `task/v1-pr07-b-immediate-notifications` |
 | Starting base SHA | `6f59e133219a736ba7aca432bbb0bdf686ab3371` |
-| Latest base SHA | `6f59e133219a736ba7aca432bbb0bdf686ab3371` at branch creation; update after the PR #275 remediation push with a normal merge only |
-| Final CI branch SHA | Pending the CI-only commit |
+| Latest base SHA | `159b501d7d82416406a74d5f2bbf3fa59e7c87af`, incorporated by normal merge commit `b8fa6ebe68f27f069d6fc50af9e74b02449ff5de` |
+| Final CI branch SHA | Pending the final CI-only documentation commit and hosted checks |
 | Draft | Yes, required |
 | Merge performed | No |
 | PR #275 merge authorization | No |
@@ -52,18 +52,25 @@ count. It does not include test output, connection strings, or other secrets.
 
 ## Initial expected status
 
-At the starting base SHA, the required TaskComment remediation tests belong to
-PR #275 and are not yet present on the base branch. The focused acceptance
-gate is therefore expected to fail on missing manifest names until the
-remediation branch is pushed and normally merged into this stacked branch.
-The manifest must not be weakened to make that interim state green.
+At the starting base SHA, the required TaskComment remediation tests belonged
+to PR #275 and were not yet present on the base branch. That base has now been
+incorporated by normal merge. The current merged source and local focused TRX
+contain 12 of 14 required names; these two remain absent and must keep the
+focused acceptance gate red until they are added with `Scope=TaskV1PR07B`:
+
+- `RateLimitedImportantOnlyUpdateCreatesNoNotification`
+- `UnauthorizedMentionStagesNoNotificationIntent`
+
+The local run also has PostgreSQL conditional skips because the required
+PostgreSQL 18 image could not be pulled in this environment. The manifest and
+strict verifier must not be weakened to make either interim state green.
 
 ## Final evidence
 
 | Field | Status |
 | --- | --- |
-| Latest base incorporated | Pending the PR #275 remediation push |
+| Latest base incorporated | Yes: `159b501d7d82416406a74d5f2bbf3fa59e7c87af` via `b8fa6ebe68f27f069d6fc50af9e74b02449ff5de` |
 | Final check IDs | Pending the immutable final stacked-PR HEAD; record in the Draft PR after all checks finish |
-| Stacked checks green | Pending the remediation-base merge and focused gate |
+| Stacked checks green | No; two required focused-test names are absent, and local PostgreSQL execution is environment-blocked |
 | Merge performed | No |
 | PR #275 merge authorization | No |
