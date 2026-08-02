@@ -135,6 +135,12 @@ There are two distinct mechanisms:
 
 The database-backed mechanism is used selectively by files, artifacts, integrations, exports, and UI-shell services.
 
+TASK-V1-PR07-A registers `tasks.notificationsV1` in that same central registry.
+It is disabled by default for tenants without an explicit enablement; it does
+not gate preference authorization, privacy, logical dedupe, or the existing
+Notification lifecycle. The key is a rollout boundary for later Task
+notification producers, not a switch for the PR07-A persistence/API contract.
+
 The appsettings `Features:*` switches are bound but not read by feature controllers/services. Most `Platform:*` switches are also not enforcement gates. Treat them as partially implemented configuration, not authoritative runtime controls.
 
 ## Backend/UI coverage

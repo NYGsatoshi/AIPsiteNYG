@@ -1,3 +1,4 @@
+using AipPortal.Application.Notifications;
 using AipPortal.Domain.Entities;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore.Metadata.Builders;
@@ -88,6 +89,7 @@ public sealed class NotificationConfiguration : IEntityTypeConfiguration<Notific
         builder.Property(notification => notification.Title).HasMaxLength(200).IsRequired();
         builder.Property(notification => notification.Body).HasMaxLength(2000);
         builder.Property(notification => notification.RelatedEntityType).HasMaxLength(80);
+        builder.Property(notification => notification.LogicalKey).HasMaxLength(NotificationLogicalKeyContract.MaximumLength);
         builder.Property(notification => notification.CreatedAt).IsRequired();
         builder.Property(notification => notification.StateVersion).IsRequired();
 
@@ -98,6 +100,10 @@ public sealed class NotificationConfiguration : IEntityTypeConfiguration<Notific
         builder.HasIndex(notification => new { notification.UserId, notification.IsRead, notification.DeletedAt });
         builder.HasIndex(notification => new { notification.TenantId, notification.UserId, notification.IsRead, notification.CreatedAt });
         builder.HasIndex(notification => new { notification.RelatedEntityType, notification.RelatedEntityId });
+        builder.HasIndex(notification => new { notification.TenantId, notification.UserId, notification.LogicalKey })
+            .HasDatabaseName(NotificationLogicalKeyContract.UniqueIndexName)
+            .HasFilter("\"LogicalKey\" IS NOT NULL")
+            .IsUnique();
 
         builder
             .HasOne(notification => notification.User)

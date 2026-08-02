@@ -16,6 +16,13 @@ public sealed class WorkspaceConfiguration : IEntityTypeConfiguration<Workspace>
         builder.Property(workspace => workspace.Description).HasMaxLength(2000);
         builder.Property(workspace => workspace.Icon).HasMaxLength(120);
         builder.Property(workspace => workspace.TimeZone).HasMaxLength(80);
+        builder.Property(workspace => workspace.DefaultTaskDeadlineDigestLocalTime)
+            .HasColumnType("time without time zone")
+            .HasDefaultValue(new TimeOnly(8, 0))
+            .IsRequired();
+        builder.Property(workspace => workspace.TaskNotificationSettingsVersion)
+            .HasDefaultValue(1L)
+            .IsRequired();
         builder.Property(workspace => workspace.Status).HasEnumStringConversion().IsRequired();
 
         builder.HasIndex(workspace => new { workspace.TenantId, workspace.Slug }).IsUnique();
@@ -41,6 +48,11 @@ public sealed class WorkspaceMemberConfiguration : IEntityTypeConfiguration<Work
 
         builder.Property(member => member.Role).HasEnumStringConversion().IsRequired();
         builder.Property(member => member.Status).HasEnumStringConversion().IsRequired();
+        builder.Property(member => member.TaskDeadlineDigestLocalTime)
+            .HasColumnType("time without time zone");
+        builder.Property(member => member.TaskNotificationPreferenceVersion)
+            .HasDefaultValue(1L)
+            .IsRequired();
 
         builder.HasIndex(member => new { member.TenantId, member.WorkspaceId, member.UserId }).IsUnique();
         builder.HasIndex(member => new { member.WorkspaceId, member.Role });

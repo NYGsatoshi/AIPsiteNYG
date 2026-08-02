@@ -6,6 +6,25 @@ namespace AipPortal.Application.Common.Interfaces;
 
 public interface INotificationService
 {
+    /// <summary>
+    /// Persists a recipient-specific logical notification and returns the
+    /// pre-existing row when PostgreSQL reports the same logical identity.
+    /// Callers that combine this operation with other writes must establish
+    /// their transaction before invoking it.
+    /// </summary>
+    Task<Guid> CreateOrGetByLogicalKeyAsync(
+        Guid userId,
+        NotificationType type,
+        string title,
+        string? body,
+        string? relatedEntityType,
+        Guid? relatedEntityId,
+        string logicalKey,
+        CancellationToken cancellationToken = default)
+    {
+        return Task.FromException<Guid>(new NotSupportedException("Logical notification creation is not implemented."));
+    }
+
     Task<Guid> CreateAsync(
         Guid userId,
         NotificationType type,

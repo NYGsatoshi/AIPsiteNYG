@@ -40,6 +40,11 @@ public sealed class Notification : Entity, ITenantEntity
 {
     public Guid TenantId { get; set; }
     public Guid UserId { get; set; }
+    /// <summary>
+    /// Immutable, recipient-specific identity for a newly produced logical
+    /// notification. Legacy rows deliberately retain a null value.
+    /// </summary>
+    public string? LogicalKey { get; set; }
     public NotificationType NotificationType { get; set; } = NotificationType.System;
     public string Title { get; set; } = string.Empty;
     public string? Body { get; set; }

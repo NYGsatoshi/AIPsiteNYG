@@ -2,6 +2,32 @@
 
 Audit result: **NO-GO pending three canonical owner decisions.** No PR07 product behavior was implemented by this audit.
 
+## Current implementation status — PR07-A draft branch
+
+The NO-GO result and all baseline classifications below are retained historical
+audit evidence for `491d17db3701b7fb26010db8c0590eac7d24bd78`; they are not
+rewritten as if the audit had observed later work. The owner-decision gate was
+subsequently resolved in AIPsiteNYGspec PR #62 at
+`8b90c8897367606473515d17d3696e458b2ee7b5` and synchronized in
+`docs/decisions/task-v1-pr07-owner-decisions.md` (status: Resolved).
+
+Draft branch `task/v1-pr07-a-notification-foundation`, based on implementation
+`main` `ca0f3fec26a78d4199fa834ce82509a6dfeda812`, now supplies the limited
+PR07-A foundation: a nullable Notification logical key and filtered unique
+index, race-safe create-or-get primitive, Workspace/member digest preference
+state, the private current-user GET/PATCH contract, independent preference
+concurrency, and a default-disabled `tasks.notificationsV1` registry key.
+
+It does not change the audit's remaining PR07-B through PR07-E gaps: no Task
+notification producer, deadline mutation/classification, digest ledger/worker,
+new semantic Outbox event family, SignalR authorization/routing, notification
+open endpoint, or Angular behavior is implemented. Focused current-branch
+evidence is recorded separately in
+`docs/verification/task-v1-pr07-a-foundation.md`; PostgreSQL evidence remains
+conditional on `POSTGRES_TEST_CONNECTION_STRING` locally, while GitHub Actions
+run `30711182611` has applied migrations and passed 505 backend tests. The
+draft remains unmerged and is not PR07-B acceptance evidence by itself.
+
 ## Audit identity
 
 | Item | Exact value |

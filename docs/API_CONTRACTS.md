@@ -81,6 +81,74 @@ List APIs should define:
 
 Never return unbounded tables to the browser UI.
 
+## TASK-V1-PR07-A task notification preferences
+
+The following private, current-user routes are implemented by PR07-A. They do
+not enable Task notification production or digest delivery.
+
+- `GET /api/me/workspaces/{workspaceId}/task-notification-preferences`
+- `PATCH /api/me/workspaces/{workspaceId}/task-notification-preferences`
+
+Both routes require an authenticated user, an active current Tenant, an active
+Workspace, and that user's active membership in that Workspace. A guessed,
+cross-Tenant, inactive, or non-member Workspace returns the same safe typed
+404 `TASK_NOTIFICATION_PREFERENCE_NOT_FOUND`; it does not reveal which check
+failed. Authentication failure is 401.
+
+GET and a successful PATCH return the private DTO below and a matching ETag of
+the form `"{version}"`:
+
+```json
+{
+  "deadlineDigestLocalTime": null,
+  "effectiveDeadlineDigestLocalTime": "08:00",
+  "workspaceTimeZoneId": "Asia/Tokyo",
+  "version": 1
+}
+```
+
+`deadlineDigestLocalTime` is the stored nullable override. `null` means
+inherit the Workspace's `08:00` (or subsequently configured) local-time
+default, and `effectiveDeadlineDigestLocalTime` is therefore always non-null.
+`workspaceTimeZoneId` is resolved server-side from the Workspace with the
+existing Tenant/UTC fallback; browser and Project timezone values are not
+authoritative. Neither field is included in broad Workspace or member DTOs.
+
+PATCH accepts:
+
+```json
+{
+  "deadlineDigestLocalTime": "08:15",
+  "expectedVersion": 1
+}
+```
+
+The local time is a timezone-free, exact `HH:mm` value from `00:00` through
+`23:45` at 15-minute intervals. `null` restores inheritance. The server never
+rounds, coerces, or substitutes an invalid supplied value. Invalid format,
+minute, or range returns HTTP 400 with
+`TASK_NOTIFICATION_PREFERENCE_INVALID_LOCAL_TIME`.
+
+`expectedVersion` is mandatory and must match the stored private preference
+version. When the JSON request binds to the DTO, an omitted, zero, negative, or
+stale numeric version returns HTTP 409
+`TASK_NOTIFICATION_PREFERENCE_VERSION_CONFLICT`, leaves the stored preference
+unchanged, and returns only safe `currentVersion` plus a matching ETag for a
+refetch/retry. The implementation performs the update as one tenant- and
+membership-scoped conditional database update.
+
+Malformed JSON or an incompatible JSON value type is rejected before the
+service by the shared `[ApiController]` model-validation contract. For example,
+`"expectedVersion": "abc"` returns its safe HTTP 400 model-validation
+response. It makes no mutation and returns neither retry metadata nor protected
+preference state. PR07-A deliberately does not add a custom JSON parser or
+model binder to turn that binding failure into a typed 409.
+
+The default-disabled `tasks.notificationsV1` registry key is deliberately not
+an authorization, privacy, preference, or dedupe gate. PR07-A introduces no
+Task notification producer, digest worker, notification-open API, SignalR
+route, or Angular preference UI.
+
 ## Project Kanban
 
 TASK-V1-PR05 defines one vendor-neutral board over canonical Project Tasks:

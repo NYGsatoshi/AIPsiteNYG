@@ -12,6 +12,9 @@ public sealed class Workspace : SoftDeletableEntity, ITenantEntity
     public string? Icon { get; set; }
     /// <summary>IANA or platform timezone ID. Null inherits the tenant fallback.</summary>
     public string? TimeZone { get; set; }
+    /// <summary>Workspace-local digest default; this value intentionally has no timezone.</summary>
+    public TimeOnly DefaultTaskDeadlineDigestLocalTime { get; set; } = new(8, 0);
+    public long TaskNotificationSettingsVersion { get; set; } = 1;
     public WorkspaceStatus Status { get; set; } = WorkspaceStatus.Active;
     public Guid CreatedByUserId { get; set; }
 
@@ -28,6 +31,9 @@ public sealed class WorkspaceMember : AuditableEntity, ITenantEntity
     public WorkspaceRole Role { get; set; } = WorkspaceRole.Member;
     public MembershipStatus Status { get; set; } = MembershipStatus.Pending;
     public DateTimeOffset? JoinedAt { get; set; }
+    /// <summary>Null inherits <see cref="Workspace.DefaultTaskDeadlineDigestLocalTime"/>.</summary>
+    public TimeOnly? TaskDeadlineDigestLocalTime { get; set; }
+    public long TaskNotificationPreferenceVersion { get; set; } = 1;
 
     public Workspace? Workspace { get; set; }
     public User? User { get; set; }

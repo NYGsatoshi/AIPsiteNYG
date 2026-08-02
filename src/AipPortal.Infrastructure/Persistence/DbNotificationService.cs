@@ -5,6 +5,8 @@ using AipPortal.Application.Realtime;
 using AipPortal.Domain.Entities;
 using AipPortal.Domain.Enums;
 using Microsoft.EntityFrameworkCore;
+using Microsoft.EntityFrameworkCore.ChangeTracking;
+using Npgsql;
 
 namespace AipPortal.Infrastructure.Persistence;
 
@@ -14,6 +16,99 @@ public sealed class DbNotificationService(
     ICurrentTenant currentTenant,
     ITransactionalOutbox? outbox = null) : INotificationService
 {
+    private const string NotificationUserStateIdentityIndex = "IX_notification_user_states_TenantId_UserId";
+
+    public async Task<Guid> CreateOrGetByLogicalKeyAsync(
+        Guid userId,
+        NotificationType type,
+        string title,
+        string? body,
+        string? relatedEntityType,
+        Guid? relatedEntityId,
+        string logicalKey,
+        CancellationToken cancellationToken = default)
+    {
+        if (!currentTenant.IsAvailable)
+        {
+            throw new InvalidOperationException("A tenant scope is required to create a logical notification.");
+        }
+
+        var normalizedLogicalKey = NormalizeLogicalKey(logicalKey);
+        var local = dbContext.Notifications.Local.FirstOrDefault(notification =>
+            notification.TenantId == currentTenant.TenantId &&
+            notification.UserId == userId &&
+            string.Equals(notification.LogicalKey, normalizedLogicalKey, StringComparison.Ordinal));
+        if (local is not null)
+        {
+            return local.Id;
+        }
+
+        var existing = await FindLogicalNotificationAsync(userId, normalizedLogicalKey, cancellationToken);
+        if (existing.HasValue)
+        {
+            // This intentionally includes soft-deleted rows. A recipient's
+            // deletion must not let an Outbox replay resurrect the same event.
+            return existing.Value;
+        }
+
+        // The first ever notification for a recipient may also race on the
+        // NotificationUserState identity. Retry that narrow setup race once;
+        // a logical-key unique violation itself must always re-read a row.
+        for (var attempt = 0; attempt < 2; attempt++)
+        {
+            var originalEntries = CaptureTrackedEntries();
+            var now = clock.UtcNow;
+            var state = await GetOrCreateUserStateAsync(userId, now, cancellationToken);
+            var stateVersion = AdvanceState(state, now);
+            var notification = new Notification
+            {
+                TenantId = currentTenant.TenantId,
+                UserId = userId,
+                LogicalKey = normalizedLogicalKey,
+                NotificationType = type,
+                Title = title.Trim(),
+                Body = string.IsNullOrWhiteSpace(body) ? null : body.Trim(),
+                RelatedEntityType = string.IsNullOrWhiteSpace(relatedEntityType) ? null : relatedEntityType.Trim(),
+                RelatedEntityId = relatedEntityId,
+                CreatedAt = now,
+                StateVersion = stateVersion
+            };
+
+            await dbContext.Notifications.AddAsync(notification, cancellationToken);
+            await EnqueueCreatedAsync(notification, stateVersion, cancellationToken);
+
+            try
+            {
+                // This makes the unique index authoritative for this explicit
+                // create-or-get primitive. A future business mutation must run
+                // it inside the caller-owned transaction to retain atomicity.
+                await dbContext.SaveChangesAsync(cancellationToken);
+                return notification.Id;
+            }
+            catch (DbUpdateException exception) when (TryGetRetriableUniqueConflict(exception, out var isLogicalKeyConflict))
+            {
+                RestoreTrackedEntries(originalEntries);
+
+                existing = await FindLogicalNotificationAsync(userId, normalizedLogicalKey, cancellationToken);
+                if (existing.HasValue)
+                {
+                    return existing.Value;
+                }
+
+                if (!isLogicalKeyConflict && attempt == 0)
+                {
+                    continue;
+                }
+
+                // A matching logical-key violation without a safely readable
+                // row is not success. Preserve the original database failure.
+                throw;
+            }
+        }
+
+        throw new InvalidOperationException("The notification logical identity could not be persisted.");
+    }
+
     public async Task<Guid> CreateAsync(
         Guid userId,
         NotificationType type,
@@ -242,6 +337,92 @@ public sealed class DbNotificationService(
             _ => null
         };
     }
+
+    private async Task<Guid?> FindLogicalNotificationAsync(
+        Guid userId,
+        string logicalKey,
+        CancellationToken cancellationToken)
+    {
+        return await dbContext.Notifications
+            .AsNoTracking()
+            .Where(notification =>
+                notification.TenantId == currentTenant.TenantId &&
+                notification.UserId == userId &&
+                notification.LogicalKey == logicalKey)
+            .Select(notification => (Guid?)notification.Id)
+            .SingleOrDefaultAsync(cancellationToken);
+    }
+
+    private static string NormalizeLogicalKey(string logicalKey)
+    {
+        if (string.IsNullOrWhiteSpace(logicalKey))
+        {
+            throw new ArgumentException("A logical notification key is required.", nameof(logicalKey));
+        }
+
+        var normalized = logicalKey.Trim();
+        if (normalized.Length > NotificationLogicalKeyContract.MaximumLength)
+        {
+            throw new ArgumentException(
+                $"A logical notification key may not exceed {NotificationLogicalKeyContract.MaximumLength} characters.",
+                nameof(logicalKey));
+        }
+
+        return normalized;
+    }
+
+    private static bool TryGetRetriableUniqueConflict(DbUpdateException exception, out bool isLogicalKeyConflict)
+    {
+        isLogicalKeyConflict = false;
+        if (exception.InnerException is not PostgresException
+            {
+                SqlState: PostgresErrorCodes.UniqueViolation
+            } postgres)
+        {
+            return false;
+        }
+
+        isLogicalKeyConflict = string.Equals(
+            postgres.ConstraintName,
+            NotificationLogicalKeyContract.UniqueIndexName,
+            StringComparison.Ordinal);
+        return isLogicalKeyConflict || string.Equals(
+            postgres.ConstraintName,
+            NotificationUserStateIdentityIndex,
+            StringComparison.Ordinal);
+    }
+
+    private Dictionary<object, TrackedEntrySnapshot> CaptureTrackedEntries()
+    {
+        return dbContext.ChangeTracker.Entries()
+            .ToDictionary(
+                entry => entry.Entity,
+                entry => new TrackedEntrySnapshot(
+                    entry.State,
+                    entry.CurrentValues.Clone(),
+                    entry.OriginalValues.Clone()));
+    }
+
+    private void RestoreTrackedEntries(IReadOnlyDictionary<object, TrackedEntrySnapshot> originalEntries)
+    {
+        foreach (var entry in dbContext.ChangeTracker.Entries().ToList())
+        {
+            if (!originalEntries.TryGetValue(entry.Entity, out var snapshot))
+            {
+                entry.State = EntityState.Detached;
+                continue;
+            }
+
+            entry.CurrentValues.SetValues(snapshot.CurrentValues);
+            entry.OriginalValues.SetValues(snapshot.OriginalValues);
+            entry.State = snapshot.State;
+        }
+    }
+
+    private sealed record TrackedEntrySnapshot(
+        EntityState State,
+        PropertyValues CurrentValues,
+        PropertyValues OriginalValues);
 
     private async Task<NotificationUserState> GetOrCreateUserStateAsync(Guid userId, DateTimeOffset now, CancellationToken cancellationToken)
     {

@@ -1,6 +1,6 @@
 # Database
 
-Last implementation audit: 2026-07-30.
+Last implementation audit: 2026-08-02.
 
 ## Technology
 
@@ -25,10 +25,10 @@ Use these in order:
 
 ## Migration history
 
-There are forty timestamped EF migration classes as of 2026-07-30, from:
+There are forty-one timestamped EF migration classes as of 2026-08-02, from:
 
 - `20260606135558_InitialCreate`
-- through `20260730120626_AddCanonicalGanttVersions`
+- through `20260801171714_AddTaskNotificationPreferenceFoundation`
 
 Migration files live in `src/AipPortal.Infrastructure/Persistence/Migrations/`.
 
@@ -197,6 +197,38 @@ race. The fixture is intentionally small, so no `EXPLAIN` claim or index-plan
 claim is made. Evidence is recorded in
 `docs/verification/task-v1-pr06-gantt.md`; exact final-HEAD Hosted evidence is
 pending the documentation commit.
+
+### TASK-V1-PR07-A notification preference and logical-dedupe foundation
+
+Migration `20260801171714_AddTaskNotificationPreferenceFoundation` is one
+focused additive migration. It adds:
+
+- nullable `notifications.LogicalKey` (`character varying(512)`), retaining
+  null for every legacy row;
+- unique filtered PostgreSQL index
+  `IX_notifications_TenantId_UserId_LogicalKey` over
+  `("TenantId", "UserId", "LogicalKey") WHERE "LogicalKey" IS NOT NULL`;
+- nullable `workspace_members.TaskDeadlineDigestLocalTime` (`time without time
+  zone`) and non-null `TaskNotificationPreferenceVersion bigint`, default 1;
+- non-null `workspaces.DefaultTaskDeadlineDigestLocalTime` (`time without time
+  zone`), default/backfilled to `08:00`, and non-null
+  `TaskNotificationSettingsVersion bigint`, default 1.
+
+The logical-key index deliberately does not include `DeletedAt`: a
+soft-deleted notification retains its identity so a duplicate replay cannot
+resurrect it. Legacy null-key notifications may coexist because the filtered
+index does not apply to them. The per-member preference version is private
+preference state and is separate from the Workspace settings version. It is not
+an EF entity-wide concurrency token: the private preference repository is the
+only concurrency authority and uses a tenant/member/version-scoped conditional
+update. Therefore unrelated WorkspaceMember Role or Status saves neither
+conflict with nor overwrite a concurrent preference update.
+
+The Down migration removes only this filtered index and the five additive
+columns. It preserves existing Notification, Workspace, and WorkspaceMember
+rows, but—as with any column-removal rollback—values written only to the new
+columns are not retained after rollback. No digest ledger, worker, or Task
+notification-producer schema is added by this migration.
 
 ### System and UI shell
 
