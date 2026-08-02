@@ -3,10 +3,12 @@
 ## Status
 
 The PR07-B implementation candidate is present in the worktree. This
-remediation adds TaskComment no-op protection and project-only Task semantic
-routing. Exact-final-HEAD hosted workflow evidence is maintained in the Draft
-PR body rather than a self-referential source commit. This document must not
-be read as merge authorization. PR07-B must remain an unmerged Draft PR.
+remediation preserves the TaskComment no-op protection, restores accepted
+`Projects.TaskChanged.v1` affected-User projection invalidation, and keeps the
+new Assignment/Comment semantic events Project-only. Exact-final-HEAD hosted
+workflow evidence is maintained in the Draft PR body rather than a
+self-referential source commit. This document must not be read as merge
+authorization. PR07-B must remain an unmerged Draft PR.
 
 ## Authority and identity
 
@@ -197,17 +199,19 @@ invalidation hint. HTTP refetch remains authoritative.
 
 ### PR07-B routing boundary
 
-PR07-B writes the three Task semantic families only with the exact logical
-target `project:{projectId}`:
+`Projects.TaskChanged.v1` retains its accepted compatibility-invalidation
+routes: exactly `project:{projectId}` plus each valid, deduplicated affected
+User target. These User targets invalidate a user's My Tasks projection; they
+are not Notification recipients and do not carry display data.
 
-- `Projects.TaskChanged.v1`;
+The new semantic events remain exactly `project:{projectId}` during PR07-B:
+
 - `Projects.TaskAssignmentChanged.v1`; and
 - `Projects.TaskCommentChanged.v1`.
 
-No Task semantic event is routed to a User target in this phase. In
-particular, previous/new assignee, reviewer, collaborator, and actor IDs are
-not routing targets. Current Task-specific dispatch/replay authorization is
-reserved for PR07-D. The recipient-only
+Their compatible `affectedUserIds` argument is not converted to a routing
+target until PR07-D supplies Task-specific dispatch/replay authorization. The
+recipient-only
 `Notifications.NotificationCreated.v1` signal remains exactly
 `user:{notification.UserId}` with only `notificationId`, `stateVersion`, and
 `requiresRefetch` in its payload.
@@ -268,7 +272,8 @@ refetch rather than carrying a private Task projection.
 - digest ledger, worker, scheduling, and DST delivery behavior;
 - notification-open endpoint;
 - SignalR subscription authorization, routing, dispatcher, or hub changes;
-- Angular or other frontend changes;
+- Angular production or other frontend behavior changes; one My Tasks facade
+  regression test preserves the accepted HTTP-refetch contract;
 - email and push delivery;
 - PR06B and PR08;
 - a new migration or notification schema beyond the accepted PR07-A
@@ -282,18 +287,20 @@ refetch rather than carrying a private Task projection.
 | PR07-A same-SHA post-merge gate | Passed | CI `30724803612`, Code Quality `30724803621`, Documentation CI `30724803620`, and npm Security Audit `30724803615`; all `success` at `c5627eb09ecf19d66146eacdbc3e938c0a1c8563`. |
 | Central policy/classifier/staging/semantic/privacy classes, Release | Passed: 60; failed/skipped: 0/0 | Covers exact recipient categories, actor/current-authorization/Watch behavior, both deadline shift directions and timezone boundaries, staged logical identity, minimal signals, approved event catalog/payloads, and audit privacy. |
 | TaskComment no-op unit suite, Release | Passed: 14; failed/skipped: 0/0 | Covers empty and same-value PATCH zero mutation, `false -> true`, `true -> false`, body-only mention behavior on existing Important comments, and mention-plus-Important union. |
-| Task semantic routing suite, Release | Passed: 6; failed/skipped: 0/0 | Verifies all three Task semantic families are Project-only, Task payloads contain no restricted display fields, and User routing is absent. |
+| Task semantic routing suite, Release | Passed: 6; failed/skipped: 0/0 | Verifies `TaskChanged` retains exactly one Project route plus deduplicated valid affected-User projection-invalidation routes; the new Assignment/Comment events remain Project-only; Task payloads contain no restricted display fields. |
+| My Tasks realtime coalescing regression, frontend unit | Passed: 1; failed/skipped: 0/0 | A loaded My Tasks facade handles `Projects.TaskChanged.v1` without an active Project detail view, refetches tasks and counts after the bounded debounce, and coalesces duplicate events to one request pair. |
 | `dotnet test ... --configuration Release --filter "Scope=TaskV1PR07B"` with PostgreSQL 18 | Passed: 72; failed/skipped: 0/0 | Fresh local PostgreSQL 18 container; includes the added Important-comment no-op persistence regression and has no conditional skips. |
 | PostgreSQL 18 focused atomicity suite, Release | Passed: 8; failed/skipped: 0/0 | Includes persisted `isImportant=true` and empty PATCH regression: Task/comment version, `UpdatedAt`, Notification, NotificationUserState, Outbox, and AuditLog remain unchanged after an existing Important notification. |
 | PostgreSQL 18 compatibility concurrency subset, Release | Passed: 3; failed/skipped: 0/0 | Covers one compatibility writer winning, clean loser retry, atomic canonical mapping, canonical no-op retry, and composite role-change logical dedupe. |
 | PostgreSQL migration apply for focused suite | Passed | Empty database migrated through the accepted PR07-A foundation; PR07-B adds no migration. |
 | EF pending-model-change check, Release | Passed | Reports no model changes since the accepted PR07-A migration. |
 | Full backend suite with PostgreSQL 18 | Passed: 632; failed/skipped: 0/0 | Both `POSTGRES_TEST_CONNECTION_STRING` and the application connection string targeted the same migrated database. |
+| PR04-PR06 current-scope regression | Passed: 82; failed/skipped: 0/0 | Current remediation run used `Scope=TaskV1PR04|Scope=TaskV1PR05|Scope=TaskV1PR06` against PostgreSQL 18. |
 | Task PR03C-PR06 scoped regressions | Passed: 146; failed/skipped: 0/0 | Includes the historical Prompt2C/Prompt2D supporting scopes carried by PR03C; they are not represented as a dedicated PR02 suite. |
 | PR02-equivalent Task persistence/command/project/HTTP class regressions | Passed: 146; failed/skipped: 0/0 | PR02 has no dedicated `Scope=TaskV1PR02` trait, so the exact four-class filter below plus the full backend run is recorded explicitly. |
 | HTTP tenant isolation | Passed: 32; failed/skipped: 0/0 | Runs the complete `HttpTenantIsolationTests` class, including the new hard-deadline contract. |
 | Broad security boundary filter | Passed: 158; failed/skipped: 0/0 | Covers auth HTTP, exception privacy, file grants/storage/name safety, tenant isolation, pagination, seed isolation, and restricted student records. |
-| Frontend unit/architecture/license/TypeScript/build | Passed | Unit: 42 files / 323 tests; architecture: 4/4; Syncfusion license guard: 4/4; TypeScript no-emit: passed; production and Storybook builds: passed with pre-existing size warnings. A chained Storybook attempt exhausted Node's default 2 GB heap; the isolated 4 GB command below passed. Inventory lint produced zero fatal parser/configuration errors. No Angular source changed. |
+| Frontend unit/architecture/license/TypeScript/build | Passed | Unit: 42 files / 324 tests; architecture: 4/4; Syncfusion license guard: 4/4; TypeScript no-emit: passed; production and Storybook builds: passed with pre-existing size warnings. A chained Storybook attempt exhausted Node's default 2 GB heap; the isolated 4 GB command below passed. Inventory lint produced zero fatal parser/configuration errors. No Angular production source changed; one My Tasks facade regression test was added. |
 | Local Windows Playwright diagnostic | Passed: 63; failed: 0; expected skipped: 3 | Diagnostic only; it is not Linux screenshot-baseline approval. |
 | Pinned Linux Docker Playwright | Environment-blocked locally | Three MCR requests for `mcr.microsoft.com/playwright:v1.62.0-noble` ended with EOF before image build/test execution. Exact-final-HEAD hosted CI remains authoritative. |
 | Dependency security reports | Completed | NuGet vulnerable-package scan: none. Root npm audit: 0. Active and legacy frontend lockfiles each report the same pre-existing 4 moderate / 2 high development-tool findings; repository npm Security Audit is report-only and lockfiles are outside PR07-B. |

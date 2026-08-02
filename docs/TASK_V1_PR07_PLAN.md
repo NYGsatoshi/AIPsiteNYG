@@ -289,12 +289,13 @@ Generate every immediate Notification intent and approved Task invalidation/even
   becomes Important only on `false -> true`; a body update evaluates mentions
   only when the normalized body changed. An already-Important body update
   never replays Important relationship recipients.
-- During PR07-B, `Projects.TaskChanged.v1`,
-  `Projects.TaskAssignmentChanged.v1`, and
-  `Projects.TaskCommentChanged.v1` route only to `project:{projectId}`.
-  Task/user-route dispatch authorization is explicitly deferred to PR07-D.
-  `Notifications.NotificationCreated.v1` remains the recipient-only minimal
-  `user:{recipientUserId}` signal.
+- During PR07-B, the accepted `Projects.TaskChanged.v1` compatibility
+  invalidation retains `project:{projectId}` plus valid affected-user
+  projection-invalidation routes. The new
+  `Projects.TaskAssignmentChanged.v1` and `Projects.TaskCommentChanged.v1`
+  events remain `project:{projectId}`-only until PR07-D adds their
+  Task-specific dispatch/replay authorization. `Notifications.NotificationCreated.v1`
+  remains the recipient-only minimal `user:{recipientUserId}` signal.
 
 ### Included scope
 
@@ -314,8 +315,10 @@ Generate every immediate Notification intent and approved Task invalidation/even
 - no digest ledger/worker;
 - no notification-open endpoint;
 - no SignalR Hub, subscription, dispatcher, or dispatch-authorization change;
-  Task semantic Outbox records remain project-only until PR07-D;
-- no Angular changes;
+  the new Assignment and Comment Task semantic Outbox records remain
+  project-only until PR07-D;
+- no Angular production behavior changes; one My Tasks realtime regression test
+  preserves the accepted HTTP-refetch contract;
 - no email/push.
 
 ### Required tests
@@ -335,7 +338,9 @@ Generate every immediate Notification intent and approved Task invalidation/even
   Outbox, Notification, and NotificationUserState delta;
 - `false -> true` is the only Important-comment recipient trigger; unchanged
   Important comments only notify newly validated direct mentions;
-- every PR07-B Task semantic Outbox target is exactly `project:{projectId}`;
+- `Projects.TaskChanged.v1` preserves its Project target and deduplicated
+  valid affected-User projection-invalidation targets; the new Assignment and
+  Comment Task semantic events are exactly `project:{projectId}`; and
   `Notifications.NotificationCreated.v1` is exactly its recipient user route.
 
 ### Completion gate

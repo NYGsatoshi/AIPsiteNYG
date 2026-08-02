@@ -49,11 +49,13 @@ public sealed class BusinessInvalidationPublisher(
         // event must carry that aggregate version, not a process-local clock
         // token, so consumers can compare it with the authoritative reload.
         var version = task.VersionNo;
-        // PR07-B deliberately retains Task semantic events on the Project
-        // route only. Task-specific dispatch/replay authorization for User
-        // routes belongs to PR07-D; routing user IDs before that work would
-        // permit stale subscribers to receive Task invalidations.
         var targets = new List<RealtimeRoutingTarget> { new(RealtimeSubscriptionType.Project, task.ProjectId) };
+        targets.AddRange(
+            (affectedUserIds ?? [])
+            .Where(userId => userId != Guid.Empty)
+            .Distinct()
+            .OrderBy(userId => userId)
+            .Select(userId => new RealtimeRoutingTarget(RealtimeSubscriptionType.User, userId)));
         return EnqueueAsync("Projects.TaskChanged.v1", "Task", task.Id, actorUserId, new
         {
             projectId = task.ProjectId,
@@ -73,6 +75,9 @@ public sealed class BusinessInvalidationPublisher(
         CancellationToken cancellationToken = default)
     {
         var version = task.VersionNo;
+        // Retain the compatible affected-user argument for callers, but keep
+        // the new Assignment semantic event Project-only until PR07-D adds
+        // Task-specific dispatch and replay authorization.
         var targets = new List<RealtimeRoutingTarget>
         {
             new(RealtimeSubscriptionType.Project, task.ProjectId)

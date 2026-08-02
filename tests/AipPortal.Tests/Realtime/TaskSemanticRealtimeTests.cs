@@ -70,20 +70,27 @@ public sealed class TaskSemanticRealtimeTests
     }
 
     [Fact]
-    public async Task TaskChangedFromPR07BDoesNotAddAffectedUserRoutes()
+    public async Task TaskChangedPreservesProjectAndAffectedUserRoutes()
     {
         var tenantId = Guid.NewGuid();
         var projectId = Guid.NewGuid();
-        var affectedUserId = Guid.NewGuid();
+        var userA = Guid.NewGuid();
+        var userB = Guid.NewGuid();
         var outbox = new RecordingOutbox();
         var publisher = new BusinessInvalidationPublisher(outbox, TenantScope(tenantId), FixedClock.Instance);
         var task = new TaskItem { TenantId = tenantId, WorkspaceId = Guid.NewGuid(), ProjectId = projectId, VersionNo = 12 };
 
-        await publisher.TaskChangedAsync(task, Guid.NewGuid(), "updated", affectedUserIds: [affectedUserId]);
+        await publisher.TaskChangedAsync(task, Guid.NewGuid(), "updated", affectedUserIds: [userB, userA, userB, Guid.Empty]);
 
-        var target = Assert.Single(Assert.Single(outbox.Items).Targets);
-        Assert.Equal(RealtimeSubscriptionType.Project, target.SubscriptionType);
-        Assert.Equal(projectId, target.ResourceId);
+        var targets = Assert.Single(outbox.Items).Targets.ToArray();
+        Assert.Equal(3, targets.Length);
+        Assert.Equal(RealtimeSubscriptionType.Project, targets[0].SubscriptionType);
+        Assert.Equal(projectId, targets[0].ResourceId);
+        Assert.Equal(
+            new[] { userA, userB }.Order().ToArray(),
+            targets.Skip(1).Select(target => target.ResourceId).ToArray());
+        Assert.All(targets.Skip(1), target => Assert.Equal(RealtimeSubscriptionType.User, target.SubscriptionType));
+        Assert.DoesNotContain(targets, target => target.ResourceId == Guid.Empty);
     }
 
     [Fact]
@@ -156,7 +163,9 @@ public sealed class TaskSemanticRealtimeTests
         Assert.DoesNotContain("important", storedPayload, StringComparison.OrdinalIgnoreCase);
         Assert.DoesNotContain("watch", storedPayload, StringComparison.OrdinalIgnoreCase);
         Assert.DoesNotContain("recipient", storedPayload, StringComparison.OrdinalIgnoreCase);
-        Assert.All(outbox.Items, item => Assert.DoesNotContain(item.Targets, target => target.SubscriptionType == RealtimeSubscriptionType.User));
+        Assert.All(
+            outbox.Items.Where(item => item.Envelope.EventType is "Projects.TaskAssignmentChanged.v1" or "Projects.TaskCommentChanged.v1"),
+            item => Assert.DoesNotContain(item.Targets, target => target.SubscriptionType == RealtimeSubscriptionType.User));
     }
 
     [Fact]

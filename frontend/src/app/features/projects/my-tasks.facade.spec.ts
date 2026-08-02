@@ -130,6 +130,29 @@ describe('MyTasksFacade', () => {
     vi.useRealTimers();
   });
 
+  it('coalesces TaskChanged realtime events into one My Tasks refetch', () => {
+    vi.useFakeTimers();
+    facade.load();
+    flush({ items: [task], page: 1, pageSize: 50, totalCount: 1 }, { views: [{ view: 'Assigned', count: 1 }], timeGroups: [] });
+
+    const handleRealtimeEvent = (facade as unknown as { handleRealtimeEvent(event: unknown): void }).handleRealtimeEvent.bind(facade);
+    handleRealtimeEvent({ eventType: 'Projects.TaskChanged.v1' });
+    handleRealtimeEvent({ eventType: 'Projects.TaskChanged.v1' });
+
+    vi.advanceTimersByTime(149);
+    httpMock.expectNone('/api/me/tasks');
+    httpMock.expectNone('/api/me/tasks/counts');
+
+    vi.advanceTimersByTime(1);
+    const requests = httpMock.match((request) => request.url === '/api/me/tasks' || request.url === '/api/me/tasks/counts');
+    expect(requests).toHaveLength(2);
+    requests.find((request) => request.request.url === '/api/me/tasks')!
+      .flush({ items: [task], page: 1, pageSize: 50, totalCount: 1 });
+    requests.find((request) => request.request.url === '/api/me/tasks/counts')!
+      .flush({ views: [{ view: 'Assigned', count: 1 }], timeGroups: [] });
+    vi.useRealTimers();
+  });
+
   function flush(page: unknown, counts: unknown): void {
     const requests = httpMock.match((request) => request.url === '/api/me/tasks' || request.url === '/api/me/tasks/counts');
     expect(requests).toHaveLength(2);

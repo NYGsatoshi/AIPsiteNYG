@@ -955,7 +955,7 @@ public sealed class TaskCommandServiceTests
 
     [Fact]
     [Trait("Scope", "TaskV1PR07B")]
-    public async Task ReplacingPrimaryAssigneeCapturesBothSidesAndQueuesAssignmentSemanticEvent()
+    public async Task ReplacingPrimaryAssigneePreservesCompatibilityAndAssignmentSemanticAffectedUsers()
     {
         var fixture = Fixture.Create();
         var task = fixture.AddTask("relationship notification");
@@ -983,6 +983,13 @@ public sealed class TaskCommandServiceTests
         Assert.True(
             semantic.AffectedUserIds.ToHashSet().SetEquals(
                 [previousAssignee, newAssignee, reviewer]));
+
+        var compatibility = Assert.Single(fixture.Invalidations.TaskChanges);
+        Assert.Equal(task.Id, compatibility.TaskId);
+        Assert.Equal("assignmentChanged", compatibility.Change);
+        Assert.True(
+            compatibility.AffectedUserIds.ToHashSet().SetEquals(
+                [fixture.Actor, previousAssignee, newAssignee, reviewer]));
     }
 
     [Fact]
@@ -1398,10 +1405,10 @@ public sealed class TaskCommandServiceTests
     }
     private sealed class FakeInvalidations : IBusinessInvalidationPublisher
     {
-        public List<(Guid TaskId, string Change)> TaskChanges { get; } = [];
+        public List<(Guid TaskId, string Change, IReadOnlyList<Guid> AffectedUserIds)> TaskChanges { get; } = [];
         public List<(Guid TaskId, string Change, IReadOnlyList<Guid> AffectedUserIds)> TaskAssignmentChanges { get; } = [];
         public List<(Guid ProjectId, string Change)> ProjectChanges { get; } = [];
-        public Task TaskChangedAsync(TaskItem task, Guid actorUserId, string change, IEnumerable<string>? changedFields = null, IEnumerable<Guid>? affectedUserIds = null, CancellationToken cancellationToken = default) { TaskChanges.Add((task.Id, change)); return Task.CompletedTask; }
+        public Task TaskChangedAsync(TaskItem task, Guid actorUserId, string change, IEnumerable<string>? changedFields = null, IEnumerable<Guid>? affectedUserIds = null, CancellationToken cancellationToken = default) { TaskChanges.Add((task.Id, change, (affectedUserIds ?? []).Distinct().ToArray())); return Task.CompletedTask; }
         public Task TaskAssignmentChangedAsync(TaskItem task, Guid actorUserId, string change, IEnumerable<Guid>? affectedUserIds = null, CancellationToken cancellationToken = default)
         {
             TaskAssignmentChanges.Add((task.Id, change, (affectedUserIds ?? []).Distinct().ToArray()));
