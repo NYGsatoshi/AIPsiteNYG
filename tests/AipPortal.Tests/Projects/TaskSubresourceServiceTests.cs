@@ -267,9 +267,319 @@ public sealed class TaskSubresourceServiceTests
         Assert.Equal(1, fixture.UnitOfWork.SaveCount);
     }
 
+    [Fact]
+    [Trait("Scope", "TaskV1PR07B")]
+    public async Task RevokedCommentAuthorCannotUpdateComment()
+    {
+        var fixture = new Fixture();
+        var comment = fixture.AddComment("original");
+        var before = fixture.Snapshot(comment);
+        fixture.ProjectAuthorization.DeniedViewUserIds.Add(fixture.ActorUserId);
+
+        var result = await fixture.Service.UpdateCommentAsync(
+            comment.Id,
+            new UpdateTaskCommentRequest("changed", true, comment.VersionNo));
+
+        Assert.False(result.IsSuccess);
+        Assert.Equal("TASK_COMMENT_FORBIDDEN", result.Error?.Split('|', 2)[0]);
+        fixture.AssertUnchanged(comment, before);
+    }
+
+    [Fact]
+    [Trait("Scope", "TaskV1PR07B")]
+    public async Task RevokedCommentAuthorCannotDeleteComment()
+    {
+        var fixture = new Fixture();
+        var comment = fixture.AddComment("original");
+        var before = fixture.Snapshot(comment);
+        fixture.ProjectAuthorization.DeniedViewUserIds.Add(fixture.ActorUserId);
+
+        var result = await fixture.Service.DeleteCommentAsync(comment.Id, comment.VersionNo);
+
+        Assert.False(result.IsSuccess);
+        Assert.Equal("TASK_COMMENT_FORBIDDEN", result.Error?.Split('|', 2)[0]);
+        fixture.AssertUnchanged(comment, before);
+    }
+
+    [Fact]
+    [Trait("Scope", "TaskV1PR07B")]
+    public async Task CommentAuthorWithoutCurrentProjectVisibilityIsDenied()
+    {
+        var fixture = new Fixture();
+        var comment = fixture.AddComment("original");
+        var before = fixture.Snapshot(comment);
+        fixture.ProjectAuthorization.DeniedViewUserIds.Add(fixture.ActorUserId);
+
+        var result = await fixture.Service.UpdateCommentAsync(
+            comment.Id,
+            new UpdateTaskCommentRequest(null, true, comment.VersionNo));
+
+        Assert.False(result.IsSuccess);
+        Assert.Equal("TASK_COMMENT_FORBIDDEN", result.Error?.Split('|', 2)[0]);
+        fixture.AssertUnchanged(comment, before);
+    }
+
+    [Fact]
+    [Trait("Scope", "TaskV1PR07B")]
+    public async Task ArchivedProjectCommentCannotBeUpdated()
+    {
+        var fixture = new Fixture();
+        var comment = fixture.AddComment("original");
+        var before = fixture.Snapshot(comment);
+        fixture.ProjectAuthorization.ViewAllowed = false;
+
+        var result = await fixture.Service.UpdateCommentAsync(
+            comment.Id,
+            new UpdateTaskCommentRequest("changed", null, comment.VersionNo));
+
+        Assert.False(result.IsSuccess);
+        Assert.Equal("TASK_COMMENT_FORBIDDEN", result.Error?.Split('|', 2)[0]);
+        fixture.AssertUnchanged(comment, before);
+    }
+
+    [Fact]
+    [Trait("Scope", "TaskV1PR07B")]
+    public async Task DeletedTaskCommentCannotBeUpdated()
+    {
+        var fixture = new Fixture();
+        var comment = fixture.AddComment("original");
+        var before = fixture.Snapshot(comment);
+        fixture.Task.MarkDeleted(new DateTimeOffset(2026, 8, 2, 1, 0, 0, TimeSpan.Zero));
+
+        var result = await fixture.Service.UpdateCommentAsync(
+            comment.Id,
+            new UpdateTaskCommentRequest("changed", null, comment.VersionNo));
+
+        Assert.False(result.IsSuccess);
+        Assert.Equal("TASK_COMMENT_FORBIDDEN", result.Error?.Split('|', 2)[0]);
+        fixture.AssertUnchanged(comment, before);
+    }
+
+    [Fact]
+    [Trait("Scope", "TaskV1PR07B")]
+    public async Task CurrentAuthorWithProjectAccessCanStillUpdate()
+    {
+        var fixture = new Fixture();
+        var comment = fixture.AddComment("original");
+
+        var result = await fixture.Service.UpdateCommentAsync(
+            comment.Id,
+            new UpdateTaskCommentRequest("changed", null, comment.VersionNo));
+
+        Assert.True(result.IsSuccess, result.Error);
+        Assert.Equal("changed", comment.BodyPlainText);
+        Assert.Equal(1, fixture.UnitOfWork.SaveCount);
+    }
+
+    [Fact]
+    [Trait("Scope", "TaskV1PR07B")]
+    public async Task CurrentManagerWithProjectAccessCanStillUpdate()
+    {
+        var fixture = new Fixture();
+        var comment = fixture.AddComment("original", authorUserId: Guid.NewGuid());
+
+        var result = await fixture.Service.UpdateCommentAsync(
+            comment.Id,
+            new UpdateTaskCommentRequest("manager update", null, comment.VersionNo));
+
+        Assert.True(result.IsSuccess, result.Error);
+        Assert.Equal("manager update", comment.BodyPlainText);
+        Assert.Equal(1, fixture.UnitOfWork.SaveCount);
+    }
+
+    [Fact]
+    [Trait("Scope", "TaskV1PR07B")]
+    public async Task ImportantOnlyUpdateInvokesSignificanceSafetyCheck()
+    {
+        var safety = new RecordingCommunicationSafetyGuard();
+        var fixture = new Fixture(safety);
+        var comment = fixture.AddComment("ordinary");
+
+        var result = await fixture.Service.UpdateCommentAsync(
+            comment.Id,
+            new UpdateTaskCommentRequest(null, true, comment.VersionNo));
+
+        Assert.True(result.IsSuccess, result.Error);
+        Assert.Equal(0, safety.MessagePostCalls);
+        Assert.Equal(1, safety.SignificanceCalls);
+    }
+
+    [Fact]
+    [Trait("Scope", "TaskV1PR07B")]
+    public async Task BodyAndImportantUpdateInvokesSafetyCheckOnce()
+    {
+        var safety = new RecordingCommunicationSafetyGuard();
+        var fixture = new Fixture(safety);
+        var comment = fixture.AddComment("ordinary");
+
+        var result = await fixture.Service.UpdateCommentAsync(
+            comment.Id,
+            new UpdateTaskCommentRequest("changed", true, comment.VersionNo));
+
+        Assert.True(result.IsSuccess, result.Error);
+        Assert.Equal(1, safety.MessagePostCalls);
+        Assert.Equal(0, safety.SignificanceCalls);
+    }
+
+    [Fact]
+    [Trait("Scope", "TaskV1PR07B")]
+    public async Task RateLimitedImportantOnlyUpdateMutatesNothing()
+    {
+        var fixture = new Fixture(new InMemoryCommunicationSafetyGuard(new CommunicationSafetyOptions
+        {
+            MaxPostsPerMinutePerUser = 1,
+            MaxPostsPerMinutePerConversation = 10
+        }));
+        var first = fixture.AddComment("first");
+        var second = fixture.AddComment("second");
+
+        var firstResult = await fixture.Service.UpdateCommentAsync(
+            first.Id,
+            new UpdateTaskCommentRequest(null, true, first.VersionNo));
+        Assert.True(firstResult.IsSuccess, firstResult.Error);
+
+        var before = fixture.Snapshot(second);
+        var result = await fixture.Service.UpdateCommentAsync(
+            second.Id,
+            new UpdateTaskCommentRequest(null, true, second.VersionNo));
+
+        Assert.False(result.IsSuccess);
+        Assert.Equal("TASK_COMMENT_RATE_LIMITED", result.ErrorDetail?.Code);
+        Assert.True(result.ErrorDetail?.RetryAfterSeconds >= 1);
+        fixture.AssertUnchanged(second, before);
+    }
+
+    [Fact]
+    [Trait("Scope", "TaskV1PR07B")]
+    public async Task ImportantFalseToFalseDoesNotInvokeSafetyCheck()
+    {
+        var safety = new RecordingCommunicationSafetyGuard();
+        var fixture = new Fixture(safety);
+        var comment = fixture.AddComment("ordinary");
+
+        var result = await fixture.Service.UpdateCommentAsync(
+            comment.Id,
+            new UpdateTaskCommentRequest(null, false, comment.VersionNo));
+
+        Assert.True(result.IsSuccess, result.Error);
+        Assert.Equal(0, safety.MessagePostCalls);
+        Assert.Equal(0, safety.SignificanceCalls);
+    }
+
+    [Fact]
+    [Trait("Scope", "TaskV1PR07B")]
+    public async Task ImportantTrueToTrueNoOpDoesNotInvokeSafetyCheck()
+    {
+        var safety = new RecordingCommunicationSafetyGuard();
+        var fixture = new Fixture(safety);
+        var comment = fixture.AddComment("important", important: true);
+
+        var result = await fixture.Service.UpdateCommentAsync(
+            comment.Id,
+            new UpdateTaskCommentRequest(null, true, comment.VersionNo));
+
+        Assert.True(result.IsSuccess, result.Error);
+        Assert.Equal(0, safety.MessagePostCalls);
+        Assert.Equal(0, safety.SignificanceCalls);
+    }
+
+    [Fact]
+    [Trait("Scope", "TaskV1PR07B")]
+    public async Task RevokedWorkspaceMemberIsNotMentionCandidate()
+    {
+        var fixture = new Fixture();
+        var revokedUserId = fixture.AddMentionCandidateUser();
+        fixture.ProjectAuthorization.DeniedViewUserIds.Add(revokedUserId);
+
+        var result = await fixture.Service.SearchMentionCandidatesAsync(fixture.Task.Id, "Mention");
+
+        Assert.True(result.IsSuccess, result.Error);
+        Assert.Empty(result.Value!);
+    }
+
+    [Fact]
+    [Trait("Scope", "TaskV1PR07B")]
+    public async Task StaleProjectMemberWithoutWorkspaceAccessIsNotMentionCandidate()
+    {
+        var fixture = new Fixture();
+        var staleUserId = fixture.AddMentionCandidateUser();
+        fixture.ProjectAuthorization.DeniedViewUserIds.Add(staleUserId);
+
+        var result = await fixture.Service.SearchMentionCandidatesAsync(fixture.Task.Id, "Mention");
+
+        Assert.True(result.IsSuccess, result.Error);
+        Assert.Empty(result.Value!);
+    }
+
+    [Fact]
+    [Trait("Scope", "TaskV1PR07B")]
+    public async Task StaleGroupMemberWithoutWorkspaceAccessIsNotMentionCandidate()
+    {
+        var fixture = new Fixture();
+        var staleUserId = fixture.AddMentionCandidateUser();
+        fixture.ProjectAuthorization.DeniedViewUserIds.Add(staleUserId);
+
+        var result = await fixture.Service.SearchMentionCandidatesAsync(fixture.Task.Id, "Mention");
+
+        Assert.True(result.IsSuccess, result.Error);
+        Assert.Empty(result.Value!);
+    }
+
+    [Fact]
+    [Trait("Scope", "TaskV1PR07B")]
+    public async Task AuthorizedProjectMemberRemainsMentionCandidate()
+    {
+        var fixture = new Fixture();
+        var userId = fixture.AddMentionCandidateUser();
+
+        var result = await fixture.Service.SearchMentionCandidatesAsync(fixture.Task.Id, "Mention");
+
+        Assert.True(result.IsSuccess, result.Error);
+        Assert.Equal(userId, Assert.Single(result.Value!).UserId);
+    }
+
+    [Fact]
+    [Trait("Scope", "TaskV1PR07B")]
+    public async Task UnauthorizedDirectMentionReturnsGenericError()
+    {
+        var fixture = new Fixture();
+        var revokedUserId = fixture.AddEligibleMentionUser();
+        fixture.ProjectAuthorization.DeniedViewUserIds.Add(revokedUserId);
+
+        var result = await fixture.Service.CreateCommentAsync(
+            fixture.Task.Id,
+            new CreateTaskCommentRequest($"@{{{revokedUserId:D}}}"));
+
+        Assert.False(result.IsSuccess);
+        Assert.Equal("TASK_MENTION_NOT_ELIGIBLE|One or more mentions are not available for this task.", result.Error);
+        Assert.Empty(fixture.Projects.Comments);
+        Assert.Empty(fixture.Notifications.Requests);
+        Assert.Equal(0, fixture.UnitOfWork.SaveCount);
+    }
+
+    [Fact]
+    [Trait("Scope", "TaskV1PR07B")]
+    public async Task MixedAuthorizedAndUnauthorizedMentionsRejectWholeMutation()
+    {
+        var fixture = new Fixture();
+        var authorizedUserId = fixture.AddEligibleMentionUser();
+        var revokedUserId = fixture.AddEligibleMentionUser();
+        fixture.ProjectAuthorization.DeniedViewUserIds.Add(revokedUserId);
+        var comment = fixture.AddComment("original");
+        var before = fixture.Snapshot(comment);
+
+        var result = await fixture.Service.UpdateCommentAsync(
+            comment.Id,
+            new UpdateTaskCommentRequest($"@{{{authorizedUserId:D}}} @{{{revokedUserId:D}}}", null, comment.VersionNo));
+
+        Assert.False(result.IsSuccess);
+        Assert.Equal("TASK_MENTION_NOT_ELIGIBLE|One or more mentions are not available for this task.", result.Error);
+        fixture.AssertUnchanged(comment, before);
+    }
+
     private sealed class Fixture
     {
-        public Fixture()
+        public Fixture(ICommunicationSafetyGuard? safetyGuard = null)
         {
             ActorUserId = Guid.NewGuid();
             Task = new TaskItem
@@ -285,13 +595,13 @@ public sealed class TaskSubresourceServiceTests
             Service = new TaskSubresourceService(
                 Projects,
                 null!,
-                new AllowedProjectAuthorization(),
+                ProjectAuthorization,
                 null!,
-                new AllowedCommentAuthorization(),
+                CommentAuthorization,
                 null!,
                 null!,
                 null!,
-                new AllowingCommunicationSafetyGuard(),
+                safetyGuard ?? new AllowingCommunicationSafetyGuard(),
                 new FakeCurrentUser(ActorUserId),
                 new FixedClock(),
                 Audit,
@@ -308,6 +618,8 @@ public sealed class TaskSubresourceServiceTests
         public FakeInvalidationPublisher Invalidations { get; } = new();
         public FakeTaskUnitOfWork UnitOfWork { get; } = new();
         public FakeTaskNotificationProducer Notifications { get; } = new();
+        public ControllableProjectAuthorization ProjectAuthorization { get; } = new();
+        public ControllableCommentAuthorization CommentAuthorization { get; } = new();
         public TaskSubresourceService Service { get; }
 
         public Guid AddEligibleMentionUser()
@@ -323,7 +635,14 @@ public sealed class TaskSubresourceServiceTests
             return user.Id;
         }
 
-        public TaskComment AddComment(string body, bool important = false)
+        public Guid AddMentionCandidateUser()
+        {
+            var userId = AddEligibleMentionUser();
+            Projects.MentionCandidates[userId] = Projects.EligibleMentionUsers[userId];
+            return userId;
+        }
+
+        public TaskComment AddComment(string body, bool important = false, Guid? authorUserId = null)
         {
             var comment = new TaskComment
             {
@@ -332,7 +651,7 @@ public sealed class TaskSubresourceServiceTests
                 ProjectId = Task.ProjectId,
                 TaskItemId = Task.Id,
                 TaskItem = Task,
-                AuthorUserId = ActorUserId,
+                AuthorUserId = authorUserId ?? ActorUserId,
                 BodyPlainText = body,
                 IsImportant = important,
                 CreatedAt = new DateTimeOffset(2026, 8, 2, 0, 0, 0, TimeSpan.Zero),
@@ -343,6 +662,8 @@ public sealed class TaskSubresourceServiceTests
         }
 
         public CommentMutationSnapshot Snapshot(TaskComment comment) => new(
+            comment.BodyPlainText,
+            comment.IsImportant,
             comment.VersionNo,
             Task.VersionNo,
             comment.UpdatedAt,
@@ -354,6 +675,8 @@ public sealed class TaskSubresourceServiceTests
 
         public void AssertUnchanged(TaskComment comment, CommentMutationSnapshot before)
         {
+            Assert.Equal(before.Body, comment.BodyPlainText);
+            Assert.Equal(before.IsImportant, comment.IsImportant);
             Assert.Equal(before.CommentVersion, comment.VersionNo);
             Assert.Equal(before.TaskVersion, Task.VersionNo);
             Assert.Equal(before.UpdatedAt, comment.UpdatedAt);
@@ -366,6 +689,8 @@ public sealed class TaskSubresourceServiceTests
     }
 
     private sealed record CommentMutationSnapshot(
+        string Body,
+        bool IsImportant,
         long CommentVersion,
         long TaskVersion,
         DateTimeOffset? UpdatedAt,
@@ -380,6 +705,7 @@ public sealed class TaskSubresourceServiceTests
         public Dictionary<Guid, TaskItem> Tasks { get; } = [];
         public Dictionary<Guid, TaskComment> Comments { get; } = [];
         public Dictionary<Guid, User> EligibleMentionUsers { get; } = [];
+        public Dictionary<Guid, User> MentionCandidates { get; } = [];
 
         public Task<TaskItem?> GetTaskAsync(Guid taskItemId, CancellationToken cancellationToken = default) =>
             Task.FromResult(Tasks.GetValueOrDefault(taskItemId));
@@ -389,6 +715,9 @@ public sealed class TaskSubresourceServiceTests
 
         public Task<IReadOnlyList<User>> GetEligibleMentionUsersAsync(Guid projectId, IReadOnlyCollection<Guid> userIds, CancellationToken cancellationToken = default) =>
             Task.FromResult<IReadOnlyList<User>>(userIds.Where(EligibleMentionUsers.ContainsKey).Select(userId => EligibleMentionUsers[userId]).ToArray());
+
+        public Task<IReadOnlyList<User>> SearchMentionCandidatesAsync(Guid projectId, string query, int take, CancellationToken cancellationToken = default) =>
+            Task.FromResult<IReadOnlyList<User>>(MentionCandidates.Values.Take(take).ToArray());
 
         public Task AddTaskCommentAsync(TaskComment comment, CancellationToken cancellationToken = default)
         {
@@ -424,21 +753,47 @@ public sealed class TaskSubresourceServiceTests
         public void RemoveDependency(TaskDependency dependency) { }
     }
 
-    private sealed class AllowedProjectAuthorization : IProjectAuthorizationService
+    private sealed class ControllableProjectAuthorization : IProjectAuthorizationService
     {
-        public Task<bool> CanViewProject(Guid userId, Guid projectId, CancellationToken cancellationToken = default) => Task.FromResult(true);
-        public Task<bool> CanManageProject(Guid userId, Guid projectId, CancellationToken cancellationToken = default) => Task.FromResult(true);
+        public bool ViewAllowed { get; set; } = true;
+        public bool ManageAllowed { get; set; } = true;
+        public HashSet<Guid> DeniedViewUserIds { get; } = [];
+
+        public Task<bool> CanViewProject(Guid userId, Guid projectId, CancellationToken cancellationToken = default) => Task.FromResult(ViewAllowed && !DeniedViewUserIds.Contains(userId));
+        public Task<bool> CanManageProject(Guid userId, Guid projectId, CancellationToken cancellationToken = default) => Task.FromResult(ManageAllowed && ViewAllowed && !DeniedViewUserIds.Contains(userId));
         public Task<bool> CanCreateProject(Guid userId, Guid workspaceId, Guid groupId, CancellationToken cancellationToken = default) => Task.FromResult(true);
     }
 
-    private sealed class AllowedCommentAuthorization : ICommentAuthorizationService
+    private sealed class ControllableCommentAuthorization : ICommentAuthorizationService
     {
-        public Task<bool> CanCommentOnTarget(Guid userId, CommentTargetType targetType, Guid targetId, CancellationToken cancellationToken = default) => Task.FromResult(true);
+        public bool IsAllowed { get; set; } = true;
+        public Task<bool> CanCommentOnTarget(Guid userId, CommentTargetType targetType, Guid targetId, CancellationToken cancellationToken = default) => Task.FromResult(IsAllowed);
     }
 
     private sealed class AllowingCommunicationSafetyGuard : ICommunicationSafetyGuard
     {
         public CommunicationSafetyDecision CheckMessagePost(CommunicationSafetyScope scope, string normalizedBody, DateTimeOffset now) => CommunicationSafetyDecision.Allow();
+        public CommunicationSafetyDecision CheckThreadCreate(CommunicationSafetyScope scope, DateTimeOffset now) => CommunicationSafetyDecision.Allow();
+        public CommunicationSafetyDecision CheckReport(CommunicationSafetyScope scope, DateTimeOffset now) => CommunicationSafetyDecision.Allow();
+    }
+
+    private sealed class RecordingCommunicationSafetyGuard : ICommunicationSafetyGuard
+    {
+        public int MessagePostCalls { get; private set; }
+        public int SignificanceCalls { get; private set; }
+
+        public CommunicationSafetyDecision CheckMessagePost(CommunicationSafetyScope scope, string normalizedBody, DateTimeOffset now)
+        {
+            MessagePostCalls++;
+            return CommunicationSafetyDecision.Allow();
+        }
+
+        public CommunicationSafetyDecision CheckTaskCommentSignificance(CommunicationSafetyScope scope, DateTimeOffset now)
+        {
+            SignificanceCalls++;
+            return CommunicationSafetyDecision.Allow();
+        }
+
         public CommunicationSafetyDecision CheckThreadCreate(CommunicationSafetyScope scope, DateTimeOffset now) => CommunicationSafetyDecision.Allow();
         public CommunicationSafetyDecision CheckReport(CommunicationSafetyScope scope, DateTimeOffset now) => CommunicationSafetyDecision.Allow();
     }

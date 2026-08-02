@@ -10,6 +10,16 @@ workflow evidence is maintained in the Draft PR body rather than a
 self-referential source commit. This document must not be read as merge
 authorization. PR07-B must remain an unmerged Draft PR.
 
+The current authorization remediation adds a parent-Task/current-Project
+recheck to canonical TaskComment update/delete before author-or-Manager
+evaluation. It also applies one explicit safety check to an Important-only
+`false -> true` mutation and filters both mention search and direct mention
+validation through current `CanViewProject`. A denied mutation stages no Task,
+comment, AuditLog, Outbox, Notification, or NotificationUserState change. The
+exact final-HEAD counts, PostgreSQL execution evidence, and hosted workflow
+IDs remain the Draft PR body's authoritative record; this document does not
+self-reference a future commit.
+
 ## Authority and identity
 
 | Field | Value |
@@ -287,6 +297,7 @@ refetch rather than carrying a private Task projection.
 | PR07-A same-SHA post-merge gate | Passed | CI `30724803612`, Code Quality `30724803621`, Documentation CI `30724803620`, and npm Security Audit `30724803615`; all `success` at `c5627eb09ecf19d66146eacdbc3e938c0a1c8563`. |
 | Central policy/classifier/staging/semantic/privacy classes, Release | Passed: 60; failed/skipped: 0/0 | Covers exact recipient categories, actor/current-authorization/Watch behavior, both deadline shift directions and timezone boundaries, staged logical identity, minimal signals, approved event catalog/payloads, and audit privacy. |
 | TaskComment no-op unit suite, Release | Passed: 14; failed/skipped: 0/0 | Covers empty and same-value PATCH zero mutation, `false -> true`, `true -> false`, body-only mention behavior on existing Important comments, and mention-plus-Important union. |
+| Current-authorized TaskComment / Important safety / mention eligibility focused suites | Required for remediation final HEAD | Covers revoked-author PATCH/DELETE safe denial and zero delta, current author/Manager success, archived/deleted parent denial, single safety charge for combined body/Important updates, Important-only 429/retry/no delta, and stale Workspace/Project/Group mention exclusion. PostgreSQL execution remains mandatory and is not inferred from a skipped conditional run. |
 | Task semantic routing suite, Release | Passed: 6; failed/skipped: 0/0 | Verifies `TaskChanged` retains exactly one Project route plus deduplicated valid affected-User projection-invalidation routes; the new Assignment/Comment events remain Project-only; Task payloads contain no restricted display fields. |
 | My Tasks realtime coalescing regression, frontend unit | Passed: 1; failed/skipped: 0/0 | A loaded My Tasks facade handles `Projects.TaskChanged.v1` without an active Project detail view, refetches tasks and counts after the bounded debounce, and coalesces duplicate events to one request pair. |
 | `dotnet test ... --configuration Release --filter "Scope=TaskV1PR07B"` with PostgreSQL 18 | Passed: 72; failed/skipped: 0/0 | Fresh local PostgreSQL 18 container; includes the added Important-comment no-op persistence regression and has no conditional skips. |

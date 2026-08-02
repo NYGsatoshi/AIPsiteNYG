@@ -268,6 +268,11 @@ public sealed class TaskSubresourceService(
             validatedMentionUserIds = updatedMentionUserIds;
             comment.BodyPlainText = normalizedBody!;
         }
+        else if (becameImportant)
+        {
+            var safety = safetyGuard.CheckTaskCommentSignificance(new CommunicationSafetyScope(Actor(), comment.TaskItem.TenantId, comment.TaskItem.WorkspaceId, comment.TaskItem.Id), clock.UtcNow);
+            if (!safety.IsAllowed) return Result<TaskCommentResponse>.Failure(new ApplicationErrorDetail("TASK_COMMENT_RATE_LIMITED", "Comment submission was rejected by the communication safety policy.", Math.Max(1, safety.RetryAfterSeconds ?? 1)));
+        }
         if (importantChanged)
             comment.IsImportant = request.IsImportant!.Value;
 
@@ -289,8 +294,18 @@ public sealed class TaskSubresourceService(
         if (task is null || !await commentAuthorization.CanCommentOnTarget(Actor(), CommentTargetType.TaskItem, taskId, ct)) return Fail<IReadOnlyList<TaskMentionCandidateResponse>>("TASK_NOT_FOUND", "Task not found.");
         var text = query?.Trim(); if (string.IsNullOrWhiteSpace(text)) return Result<IReadOnlyList<TaskMentionCandidateResponse>>.Success([]);
         if (text.Length > 100) return Fail<IReadOnlyList<TaskMentionCandidateResponse>>("VALIDATION_FAILED", "Mention query must be 100 characters or fewer.");
-        var candidates = await projects.SearchMentionCandidatesAsync(task.ProjectId, text, Math.Clamp(limit, 1, 20), ct);
-        return Result<IReadOnlyList<TaskMentionCandidateResponse>>.Success(candidates.Select(candidate => new TaskMentionCandidateResponse(candidate.Id, candidate.DisplayName)).ToList());
+        var requestedLimit = Math.Clamp(limit, 1, 20);
+        var candidates = await projects.SearchMentionCandidatesAsync(task.ProjectId, text, requestedLimit, ct);
+        var authorized = new List<TaskMentionCandidateResponse>(requestedLimit);
+        foreach (var candidate in candidates)
+        {
+            if (await projectAuthorization.CanViewProject(candidate.Id, task.ProjectId, ct))
+            {
+                authorized.Add(new TaskMentionCandidateResponse(candidate.Id, candidate.DisplayName));
+            }
+        }
+
+        return Result<IReadOnlyList<TaskMentionCandidateResponse>>.Success(authorized.Take(requestedLimit).ToList());
     }
     public async Task<Result<IReadOnlyList<ProjectTaskLabelResponse>>> ListLabelsAsync(Guid projectId, bool includeArchived, CancellationToken ct = default)
     { if (!await projectAuthorization.CanViewProject(Actor(), projectId, ct)) return Fail<IReadOnlyList<ProjectTaskLabelResponse>>("TASK_NOT_FOUND", "Project not found."); return Result<IReadOnlyList<ProjectTaskLabelResponse>>.Success((await projects.ListTaskLabelsAsync(projectId, includeArchived, ct)).Select(ToLabel).ToList()); }
@@ -433,11 +448,36 @@ public sealed class TaskSubresourceService(
     private async Task<TaskItem?> EditableTaskAsync(Guid taskId,CancellationToken ct){var task=await VisibleTaskAsync(taskId,ct);return task is not null&&await taskAuthorization.CanUpdateTask(Actor(),taskId,ct)?task:null;}
     private async Task<Project?> ManagedProjectAsync(Guid projectId,CancellationToken ct){var p=await projects.GetProjectAsync(projectId,ct);return p is not null&&await projectAuthorization.CanManageProject(Actor(),projectId,ct)?p:null;}
     private async Task<ProjectTaskLabel?> ManagedLabelAsync(Guid projectId,Guid labelId,CancellationToken ct){if(await ManagedProjectAsync(projectId,ct) is null)return null;var l=await projects.GetTaskLabelAsync(labelId,ct);return l?.ProjectId==projectId?l:null;}
-    private async Task<bool> CanEditCommentAsync(TaskComment c,CancellationToken ct)=>!c.DeletedAt.HasValue&&(c.AuthorUserId==Actor()||await projectAuthorization.CanManageProject(Actor(),c.ProjectId,ct));
+    private async Task<bool> CanEditCommentAsync(TaskComment comment, CancellationToken ct)
+    {
+        if (comment.DeletedAt.HasValue)
+        {
+            return false;
+        }
+
+        var task = await VisibleTaskAsync(comment.TaskItemId, ct);
+        if (task is null ||
+            !await commentAuthorization.CanCommentOnTarget(Actor(), CommentTargetType.TaskItem, task.Id, ct))
+        {
+            return false;
+        }
+
+        return comment.AuthorUserId == Actor() ||
+               await projectAuthorization.CanManageProject(Actor(), comment.ProjectId, ct);
+    }
+
     private async Task<IReadOnlyList<Guid>?> ValidatedMentionUserIdsAsync(string body, TaskItem task, CancellationToken ct)
     {
         var ids = MentionIds(body);
-        var eligibleIds = (await projects.GetEligibleMentionUsersAsync(task.ProjectId, ids, ct)).Select(user => user.Id).ToHashSet();
+        var eligibleIds = new HashSet<Guid>();
+        foreach (var user in await projects.GetEligibleMentionUsersAsync(task.ProjectId, ids, ct))
+        {
+            if (await projectAuthorization.CanViewProject(user.Id, task.ProjectId, ct))
+            {
+                eligibleIds.Add(user.Id);
+            }
+        }
+
         return eligibleIds.SetEquals(ids) ? ids : null;
     }
     private async Task<TaskCommandSaveOutcome> CommitLabelDefinitionAsync(Project project, ProjectTaskLabel label, string action, string change, CancellationToken ct)

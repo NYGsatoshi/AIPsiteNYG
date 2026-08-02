@@ -1482,6 +1482,131 @@ public sealed class HttpTenantIsolationTests
         }
     }
 
+    [Fact]
+    [Trait("Scope", "TaskV1PR07B")]
+    public async Task RevokedTaskCommentAuthorReceivesSafeForbiddenForCanonicalUpdateAndDelete()
+    {
+        await using var app = await HttpTenantIsolationTestApp.CreateAsync();
+        var data = app.Data;
+        Guid commentId;
+        long commentVersion;
+
+        using (var create = JsonContent("""{"bodyPlainText":"author comment","isImportant":false}"""))
+        using (var response = await app.SendAsync(data.TenantAMember, data.TenantA.Slug, $"/api/tasks/{data.TaskA.Id:D}/comments", HttpMethod.Post, create))
+        {
+            Assert.Equal(HttpStatusCode.OK, response.StatusCode);
+            using var created = JsonDocument.Parse(await response.Content.ReadAsStringAsync());
+            commentId = created.RootElement.GetProperty("id").GetGuid();
+            commentVersion = created.RootElement.GetProperty("version").GetInt64();
+        }
+
+        await app.SetWorkspaceMembershipStatusAsync(
+            data.TenantA.Id,
+            data.TenantA.Slug,
+            data.WorkspaceA.Id,
+            data.TenantAMember.Id,
+            MembershipStatus.Suspended);
+
+        using (var update = JsonContent($$"""{"bodyPlainText":"must not change","isImportant":true,"expectedVersion":{{commentVersion}}}"""))
+        using (var response = await app.SendAsync(data.TenantAMember, data.TenantA.Slug, $"/api/task-comments/{commentId:D}", HttpMethod.Patch, update))
+        {
+            await AssertTaskErrorAsync(response, HttpStatusCode.Forbidden, "TASK_COMMENT_FORBIDDEN");
+        }
+
+        using (var response = await app.SendAsync(data.TenantAMember, data.TenantA.Slug, $"/api/task-comments/{commentId:D}?expectedVersion={commentVersion}", HttpMethod.Delete))
+        {
+            await AssertTaskErrorAsync(response, HttpStatusCode.Forbidden, "TASK_COMMENT_FORBIDDEN");
+        }
+    }
+
+    [Fact]
+    [Trait("Scope", "TaskV1PR07B")]
+    public async Task ImportantOnlyTaskCommentPatchIsRateLimitedWithRetryAfterAndNoPersistenceDelta()
+    {
+        await using var app = await HttpTenantIsolationTestApp.CreateAsync();
+        var data = app.Data;
+        var comments = new List<TaskComment>();
+        for (var index = 0; index < 4; index++)
+        {
+            comments.Add(await app.AddTaskCommentAsync(
+                data.TenantA.Id,
+                data.TenantA.Slug,
+                data.TaskA,
+                data.TenantAOwner.Id,
+                $"important-only-{index}"));
+        }
+
+        foreach (var comment in comments.Take(3))
+        {
+            using var update = JsonContent($$"""{"bodyPlainText":null,"isImportant":true,"expectedVersion":{{comment.VersionNo}}}""");
+            using var response = await app.SendAsync(data.TenantAOwner, data.TenantA.Slug, $"/api/task-comments/{comment.Id:D}", HttpMethod.Patch, update);
+            Assert.Equal(HttpStatusCode.OK, response.StatusCode);
+        }
+
+        var beforeTask = await app.GetTaskMutationStateAsync(data.TenantA.Id, data.TenantA.Slug, data.TaskA.Id);
+        var beforeComment = await app.GetTaskCommentStateAsync(data.TenantA.Id, data.TenantA.Slug, comments[3].Id);
+        using (var update = JsonContent($$"""{"bodyPlainText":null,"isImportant":true,"expectedVersion":{{comments[3].VersionNo}}}"""))
+        using (var response = await app.SendAsync(data.TenantAOwner, data.TenantA.Slug, $"/api/task-comments/{comments[3].Id:D}", HttpMethod.Patch, update))
+        {
+            Assert.Equal((HttpStatusCode)429, response.StatusCode);
+            Assert.True(response.Headers.TryGetValues("Retry-After", out var retryAfter));
+            Assert.True(int.TryParse(Assert.Single(retryAfter), out var retryAfterSeconds) && retryAfterSeconds >= 1);
+            using var problem = JsonDocument.Parse(await response.Content.ReadAsStringAsync());
+            Assert.Equal("TASK_COMMENT_RATE_LIMITED", problem.RootElement.GetProperty("code").GetString());
+        }
+
+        Assert.Equal(beforeTask, await app.GetTaskMutationStateAsync(data.TenantA.Id, data.TenantA.Slug, data.TaskA.Id));
+        Assert.Equal(beforeComment, await app.GetTaskCommentStateAsync(data.TenantA.Id, data.TenantA.Slug, comments[3].Id));
+    }
+
+    [Fact]
+    [Trait("Scope", "TaskV1PR07B")]
+    public async Task RevokedMemberIsExcludedFromMentionCandidatesAndDirectMentions()
+    {
+        await using var app = await HttpTenantIsolationTestApp.CreateAsync();
+        var data = app.Data;
+        Guid commentId;
+        long commentVersion;
+
+        using (var create = JsonContent("""{"bodyPlainText":"update target","isImportant":false}"""))
+        using (var response = await app.SendAsync(data.TenantAOwner, data.TenantA.Slug, $"/api/tasks/{data.TaskA.Id:D}/comments", HttpMethod.Post, create))
+        {
+            Assert.Equal(HttpStatusCode.OK, response.StatusCode);
+            using var created = JsonDocument.Parse(await response.Content.ReadAsStringAsync());
+            commentId = created.RootElement.GetProperty("id").GetGuid();
+            commentVersion = created.RootElement.GetProperty("version").GetInt64();
+        }
+
+        await app.SetWorkspaceMembershipStatusAsync(
+            data.TenantA.Id,
+            data.TenantA.Slug,
+            data.WorkspaceA.Id,
+            data.TenantAMember.Id,
+            MembershipStatus.Suspended);
+
+        using (var candidates = await app.SendAsync(data.TenantAOwner, data.TenantA.Slug, $"/api/tasks/{data.TaskA.Id:D}/mention-candidates?query=TenantAMember"))
+        {
+            Assert.Equal(HttpStatusCode.OK, candidates.StatusCode);
+            var body = await candidates.Content.ReadAsStringAsync();
+            Assert.DoesNotContain(data.TenantAMember.DisplayName, body, StringComparison.Ordinal);
+            using var json = JsonDocument.Parse(body);
+            Assert.Equal(0, json.RootElement.GetArrayLength());
+        }
+
+        var mentionBody = $"@{{{data.TenantAMember.Id:D}}}";
+        using (var create = JsonContent($$"""{"bodyPlainText":"{{mentionBody}}","isImportant":false}"""))
+        using (var response = await app.SendAsync(data.TenantAOwner, data.TenantA.Slug, $"/api/tasks/{data.TaskA.Id:D}/comments", HttpMethod.Post, create))
+        {
+            await AssertTaskErrorAsync(response, HttpStatusCode.BadRequest, "TASK_MENTION_NOT_ELIGIBLE");
+        }
+
+        using (var update = JsonContent($$"""{"bodyPlainText":"please review {{mentionBody}}","isImportant":false,"expectedVersion":{{commentVersion}}}"""))
+        using (var response = await app.SendAsync(data.TenantAOwner, data.TenantA.Slug, $"/api/task-comments/{commentId:D}", HttpMethod.Patch, update))
+        {
+            await AssertTaskErrorAsync(response, HttpStatusCode.BadRequest, "TASK_MENTION_NOT_ELIGIBLE");
+        }
+    }
+
     private static async Task AssertOkContainsOnlyAsync(
         HttpTenantIsolationTestApp app,
         User user,
@@ -1846,6 +1971,52 @@ public sealed class HttpTenantIsolationTests
                 task.VersionNo,
                 notificationCount,
                 outboxCount);
+        }
+
+        public async Task<TaskComment> AddTaskCommentAsync(
+            Guid tenantId,
+            string tenantSlug,
+            TaskItem task,
+            Guid authorUserId,
+            string body)
+        {
+            await using var scope = App.Services.CreateAsyncScope();
+            var currentTenant = scope.ServiceProvider.GetRequiredService<CurrentTenantService>();
+            currentTenant.SetTenant(tenantId, tenantSlug);
+            var dbContext = scope.ServiceProvider.GetRequiredService<AppDbContext>();
+            var comment = new TaskComment
+            {
+                TenantId = tenantId,
+                WorkspaceId = task.WorkspaceId,
+                ProjectId = task.ProjectId,
+                TaskItemId = task.Id,
+                AuthorUserId = authorUserId,
+                BodyPlainText = body,
+                CreatedAt = DateTimeOffset.UtcNow,
+                VersionNo = 1
+            };
+            dbContext.TaskComments.Add(comment);
+            await dbContext.SaveChangesAsync();
+            return comment;
+        }
+
+        public async Task<(string Body, bool IsImportant, long Version, DateTimeOffset? UpdatedAt)> GetTaskCommentStateAsync(
+            Guid tenantId,
+            string tenantSlug,
+            Guid commentId)
+        {
+            await using var scope = App.Services.CreateAsyncScope();
+            var currentTenant = scope.ServiceProvider.GetRequiredService<CurrentTenantService>();
+            currentTenant.SetTenant(tenantId, tenantSlug);
+            var dbContext = scope.ServiceProvider.GetRequiredService<AppDbContext>();
+            return await dbContext.TaskComments.AsNoTracking()
+                .Where(comment => comment.Id == commentId)
+                .Select(comment => new ValueTuple<string, bool, long, DateTimeOffset?>(
+                    comment.BodyPlainText,
+                    comment.IsImportant,
+                    comment.VersionNo,
+                    comment.UpdatedAt))
+                .SingleAsync();
         }
 
         public async Task<Guid> AddWorkspaceAsync(Guid tenantId, string tenantSlug, Guid userId)
