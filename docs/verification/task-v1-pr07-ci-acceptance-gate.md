@@ -10,7 +10,7 @@
 | Base branch | `task/v1-pr07-b-immediate-notifications` |
 | Starting base SHA | `6f59e133219a736ba7aca432bbb0bdf686ab3371` |
 | Latest base SHA | `159b501d7d82416406a74d5f2bbf3fa59e7c87af`, incorporated by normal merge commit `b8fa6ebe68f27f069d6fc50af9e74b02449ff5de` |
-| Final CI branch SHA | Pending the final CI-only documentation commit and hosted checks |
+| Final CI branch SHA | The Draft PR records the immutable final branch SHA and hosted check IDs after checks finish; this source document avoids self-referencing a follow-up documentation commit |
 | Draft | Yes, required |
 | Merge performed | No |
 | PR #275 merge authorization | No |
