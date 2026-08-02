@@ -1,9 +1,10 @@
 # TASK-V1-PR07 sequential implementation plan
 
-Status: PR #274 is open and non-draft. Post-remediation code-bearing candidate
-`b1f80fb212c820e22613d3c3ae637eaa6e77147e` awaits final-documentation-HEAD
-CI and review/merge judgment; PR07-B remains blocked until PR07-A is accepted
-from current `main`.
+Status: PR07-A was accepted and merged as PR #274 at
+`c5627eb09ecf19d66146eacdbc3e938c0a1c8563`. The same-sha post-merge `main`
+CI, Code Quality, Documentation CI, and npm Security Audit workflows all
+passed. PR07-B is being implemented and verified on
+`task/v1-pr07-b-immediate-notifications` from that exact `main` commit.
 
 Implementation baseline audited: `491d17db3701b7fb26010db8c0590eac7d24bd78`
 
@@ -138,21 +139,19 @@ Excluded from every phase:
 
 ## PR07-A — Contract foundation, preferences, and dedupe primitives
 
-Status: Implemented on open, non-draft PR #274 branch
-`task/v1-pr07-a-notification-foundation`; not merged or accepted.
+Status: Merged and accepted in PR #274 at
+`c5627eb09ecf19d66146eacdbc3e938c0a1c8563`.
 
 ### Goal
 
 Land additive persistence and exact preference/dedupe contracts without enabling Task notification generation or scheduled digest processing.
 
-### Current implementation status (post-remediation code-bearing candidate)
+### Accepted implementation status
 
-The historical audit baseline above remains historical evidence. This branch
-implements only the PR07-A foundation on implementation `main` base
-`ca0f3fec26a78d4199fa834ce82509a6dfeda812`, using resolved specification
-commit `8b90c8897367606473515d17d3696e458b2ee7b5`. Post-remediation
-code-bearing candidate:
-`b1f80fb212c820e22613d3c3ae637eaa6e77147e`.
+The historical audit baseline above remains historical evidence. PR07-A
+implemented only the foundation, using resolved specification commit
+`8b90c8897367606473515d17d3696e458b2ee7b5`, and is now present on `main` in
+merge commit `c5627eb09ecf19d66146eacdbc3e938c0a1c8563`.
 
 - migration `20260801171714_AddTaskNotificationPreferenceFoundation` adds the
   nullable logical key, filtered unique index, private preference/version
@@ -182,8 +181,9 @@ preference winner/loser/retry, and the Role/Status non-conflict regression.
 507/507 with 0 failures/skips after applying migrations to that same isolated
 CI-shaped database. EF reports no pending model changes, and the migration
 script from `20260730120626_AddCanonicalGanttVersions` contains only this
-foundation's additive columns and filtered index. These local checks do not
-replace exact-final-HEAD GitHub Actions evidence or PR acceptance.
+foundation's additive columns and filtered index. The merge commit's
+post-merge workflow runs passed: CI `30724803612`, Code Quality `30724803621`,
+Documentation CI `30724803620`, and npm Security Audit `30724803615`.
 
 ### Included scope
 
@@ -245,11 +245,43 @@ PR07-A completes only when fresh/upgrade migration and PostgreSQL uniqueness/con
 
 ## PR07-B — Immediate policy, hard-deadline classification, and transactional event production
 
-Status: blocked until PR07-A merges and is accepted
+Status: implementation and verification in progress on
+`task/v1-pr07-b-immediate-notifications`, based on accepted PR07-A merge
+`c5627eb09ecf19d66146eacdbc3e938c0a1c8563`
 
 ### Goal
 
 Generate every immediate Notification intent and approved Task invalidation/event inside the canonical business transaction using PR07-A logical identity.
+
+### Current implementation status
+
+- `TaskNotificationRecipientPolicy` is the single mandatory/Watch recipient
+  expansion boundary; it applies actor suppression, dedupe, active-user and
+  current Project authorization checks.
+- Canonical Task assignment, Reviewer, Blocked, review, direct-mention,
+  Important-comment, and hard-deadline mutations stage logical Notifications
+  through one focused producer. The compatibility assignment adapter maps
+  `Assignee`, `Reviewer`, and `Support` to Primary Assignee, Reviewer, and
+  Collaborator and uses that same producer in the same transaction. It emits a
+  semantic event and Notification only for an actual canonical relationship
+  change, so canonical-first mirrors do not duplicate intent. New or
+  changed-to legacy `Owner` rows and operations that would ambiguously change
+  canonical state fail closed; historical same-role `Owner`
+  maintenance/removal and mismatched-row removal stay non-canonical cleanup.
+  The legacy ordinary-comment notify-all path is removed.
+- Canonical Task detail PATCH accepts an omitted, explicit-null, or timestamp
+  `deadlineAt`. The server classifies the persisted old/new values with the
+  Workspace timezone; Gantt planned dates remain separate and client
+  significance fields are rejected.
+- Task mutation/relationship state, AuditLog, approved business Outbox rows,
+  logical Notifications, and recipient-only Notification signal Outbox rows
+  are staged before the command's one database save.
+- Only the approved catalog families are used. Payloads are reference-only and
+  exclude Task/comment/review/Watch/preference/display/license/secret data.
+- `tasks.notificationsV1` remains disabled by default and gates only new PR07
+  Task Notification intent production; it does not alter command
+  authorization, and every enabled intent still passes privacy and dedupe
+  enforcement.
 
 ### Included scope
 

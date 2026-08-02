@@ -7,6 +7,22 @@ namespace AipPortal.Application.Common.Interfaces;
 public interface INotificationService
 {
     /// <summary>
+    /// Stages a task notification and its recipient-only realtime refetch
+    /// signal without saving the current unit of work. The caller must commit
+    /// the task mutation, notification, audit, and Outbox rows together.
+    /// </summary>
+    Task<Guid> StageTaskByLogicalKeyAsync(
+        Guid userId,
+        NotificationType type,
+        string title,
+        Guid taskId,
+        string logicalKey,
+        CancellationToken cancellationToken = default)
+    {
+        return Task.FromException<Guid>(new NotSupportedException("Staged task notification creation is not implemented."));
+    }
+
+    /// <summary>
     /// Persists a recipient-specific logical notification and returns the
     /// pre-existing row when PostgreSQL reports the same logical identity.
     /// Callers that combine this operation with other writes must establish

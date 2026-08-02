@@ -18,13 +18,13 @@ public sealed class ProjectService(
     ICurrentUser currentUser,
     IClock clock,
     IAuditLogger auditLogger,
-    INotificationService notifications,
     IBusinessInvalidationPublisher invalidations,
     IAuthorizationStateChangePublisher authorizationChanges,
     IUnitOfWork unitOfWork,
     ITaskCommandUnitOfWork taskUnitOfWork,
     IFeatureFlagService? featureFlags = null,
-    ITaskWorkspaceTimeZoneResolver? timeZones = null) : IProjectService
+    ITaskWorkspaceTimeZoneResolver? timeZones = null,
+    ITaskNotificationProducer? taskNotifications = null) : IProjectService
 {
     private const int MaximumGanttItems = 500;
     private const int MaximumGanttDependencies = 2_000;
@@ -631,7 +631,6 @@ public sealed class ProjectService(
         }
 
         var previousStatus = task.Status;
-        var previousDueDate = task.DueDate;
         task.MilestoneId = request.MilestoneId ?? task.MilestoneId;
         task.Description = request.Description?.Trim() ?? task.Description;
         task.Status = request.Status ?? task.Status;
@@ -640,7 +639,6 @@ public sealed class ProjectService(
         task.DueDate = request.DueDate ?? task.DueDate;
         task.ProgressPercent = task.Status == TaskItemStatus.Completed ? 100 : progress;
 
-        await NotifyTaskChangesAsync(task, previousStatus, previousDueDate, cancellationToken);
         task.VersionNo++;
         await AuditAsync(userId, "TaskUpdated", "TaskItem", task.Id, cancellationToken);
         var changedFields = ChangedTaskFields(request, previousStatus);
@@ -689,7 +687,7 @@ public sealed class ProjectService(
     public async Task<Result<TaskAssignmentResponse>> AddAssignmentAsync(Guid taskItemId, AddTaskAssignmentRequest request, CancellationToken cancellationToken = default)
     {
         var task = await projects.GetTaskAsync(taskItemId, cancellationToken);
-        if (task is null)
+        if (task is null || task.DeletedAt.HasValue)
         {
             return Result<TaskAssignmentResponse>.Failure("Task not found.");
         }
@@ -702,6 +700,20 @@ public sealed class ProjectService(
         if (request.EstimatedHours is < 0)
         {
             return Result<TaskAssignmentResponse>.Failure("Estimated hours cannot be negative.");
+        }
+
+        if (!await IsCompatibilityTaskMutableAsync(task, cancellationToken))
+        {
+            return CompatibilityAssignmentFailure<TaskAssignmentResponse>(
+                "TASK_TRANSITION_GUARD_FAILED",
+                "Project is read-only.");
+        }
+
+        if (!Enum.IsDefined(request.Role) || request.Role == TaskAssignmentRole.Owner)
+        {
+            return CompatibilityAssignmentFailure<TaskAssignmentResponse>(
+                "TASK_ASSIGNMENT_ROLE_UNSUPPORTED",
+                "Legacy Owner assignments are historical and cannot be created.");
         }
 
         var projectMember = await projects.GetMemberAsync(task.ProjectId, request.UserId, cancellationToken);
@@ -717,6 +729,21 @@ public sealed class ProjectService(
             return Result<TaskAssignmentResponse>.Failure("User already has this assignment role.");
         }
 
+        var collaborators = await projects.ListCollaboratorsAsync(task.Id, cancellationToken);
+        var planResult = PlanCompatibilityRelationshipChange(
+            task,
+            existing,
+            collaborators,
+            request.UserId,
+            actorUserId,
+            PreviousRole: null,
+            NewRole: request.Role,
+            AssignmentId: null);
+        if (planResult.Error is not null)
+        {
+            return Result<TaskAssignmentResponse>.Failure(planResult.Error);
+        }
+
         var assignment = new TaskAssignment
         {
             TaskItemId = taskItemId,
@@ -729,12 +756,15 @@ public sealed class ProjectService(
         };
 
         await projects.AddAssignmentAsync(assignment, cancellationToken);
-        await notifications.NotifyAsync(request.UserId, "Task assigned", task.Title, "TaskItem", task.Id, cancellationToken);
-        task.VersionNo++;
-        await AuditAsync(actorUserId, "TaskAssigned", "TaskItem", task.Id, cancellationToken);
-        var assignmentUsers = (await projects.ListAssignmentsAsync(task.Id, cancellationToken)).Select(item => item.UserId).Append(request.UserId);
-        await invalidations.TaskChangedAsync(task, actorUserId, "assignmentChanged", ["assignments"], assignmentUsers, cancellationToken);
-        var save = await taskUnitOfWork.SaveTaskCommandAsync(cancellationToken);
+        await ApplyCompatibilityRelationshipPlanAsync(task, planResult.Plan!, actorUserId, cancellationToken);
+        var assignmentUsers = existing.Select(item => item.UserId).Append(request.UserId).Distinct().ToArray();
+        var save = await CommitCompatibilityAssignmentAsync(
+            task,
+            actorUserId,
+            "TaskAssigned",
+            planResult.Plan!,
+            assignmentUsers,
+            cancellationToken);
         if (save != TaskCommandSaveResult.Saved)
             return save.Result == TaskCommandSaveResult.UniqueConflict
                 ? (IsAssignmentIdentityConstraint(save.ConstraintName)
@@ -747,7 +777,7 @@ public sealed class ProjectService(
     public async Task<Result<TaskAssignmentResponse>> UpdateAssignmentAsync(Guid assignmentId, UpdateTaskAssignmentRequest request, CancellationToken cancellationToken = default)
     {
         var assignment = await projects.GetAssignmentAsync(assignmentId, cancellationToken);
-        if (assignment?.TaskItem is null)
+        if (assignment?.TaskItem is null || assignment.TaskItem.DeletedAt.HasValue)
         {
             return Result<TaskAssignmentResponse>.Failure("Assignment not found.");
         }
@@ -762,20 +792,70 @@ public sealed class ProjectService(
             return Result<TaskAssignmentResponse>.Failure("Hours cannot be negative.");
         }
 
+        if (!await IsCompatibilityTaskMutableAsync(assignment.TaskItem, cancellationToken))
+        {
+            return CompatibilityAssignmentFailure<TaskAssignmentResponse>(
+                "TASK_TRANSITION_GUARD_FAILED",
+                "Project is read-only.");
+        }
+
         var existing = await projects.ListAssignmentsAsync(assignment.TaskItemId, cancellationToken);
         if (existing.Any(item => item.Id != assignment.Id && item.UserId == assignment.UserId && item.Role == request.Role))
         {
             return Result<TaskAssignmentResponse>.Failure("User already has this assignment role.");
         }
 
+        var previousRole = assignment.Role;
+        if (previousRole == request.Role &&
+            assignment.EstimatedHours == request.EstimatedHours &&
+            assignment.ActualHours == request.ActualHours)
+        {
+            return Result<TaskAssignmentResponse>.Success(ToAssignment(assignment));
+        }
+
+
+        if (!Enum.IsDefined(request.Role) ||
+            request.Role == TaskAssignmentRole.Owner && previousRole != TaskAssignmentRole.Owner)
+        {
+            return CompatibilityAssignmentFailure<TaskAssignmentResponse>(
+                "TASK_ASSIGNMENT_ROLE_UNSUPPORTED",
+                "Legacy Owner assignments are historical and cannot be created.");
+        }
+
+        if (request.Role != TaskAssignmentRole.Owner &&
+            await projects.GetMemberAsync(assignment.TaskItem.ProjectId, assignment.UserId, cancellationToken) is null)
+        {
+            return CompatibilityAssignmentFailure<TaskAssignmentResponse>(
+                "TASK_FORBIDDEN",
+                "The assignment user must be a current project member.");
+        }
+
+        var collaborators = await projects.ListCollaboratorsAsync(assignment.TaskItemId, cancellationToken);
+        var planResult = PlanCompatibilityRelationshipChange(
+            assignment.TaskItem,
+            existing,
+            collaborators,
+            assignment.UserId,
+            userId,
+            previousRole,
+            request.Role,
+            assignment.Id);
+        if (planResult.Error is not null)
+        {
+            return Result<TaskAssignmentResponse>.Failure(planResult.Error);
+        }
+
         assignment.Role = request.Role;
         assignment.EstimatedHours = request.EstimatedHours;
         assignment.ActualHours = request.ActualHours;
-        await notifications.NotifyAsync(assignment.UserId, "Task assignment updated", assignment.TaskItem.Title, "TaskItem", assignment.TaskItemId, cancellationToken);
-        assignment.TaskItem.VersionNo++;
-        await AuditAsync(userId, "TaskAssignmentUpdated", "TaskItem", assignment.TaskItemId, cancellationToken);
-        await invalidations.TaskChangedAsync(assignment.TaskItem, userId, "assignmentChanged", ["assignments"], [assignment.UserId], cancellationToken);
-        var save = await taskUnitOfWork.SaveTaskCommandAsync(cancellationToken);
+        await ApplyCompatibilityRelationshipPlanAsync(assignment.TaskItem, planResult.Plan!, userId, cancellationToken);
+        var save = await CommitCompatibilityAssignmentAsync(
+            assignment.TaskItem,
+            userId,
+            "TaskAssignmentUpdated",
+            planResult.Plan!,
+            [assignment.UserId],
+            cancellationToken);
         if (save != TaskCommandSaveResult.Saved)
             return save.Result == TaskCommandSaveResult.UniqueConflict
                 ? (IsAssignmentIdentityConstraint(save.ConstraintName)
@@ -799,16 +879,43 @@ public sealed class ProjectService(
         }
 
         var task = assignment.TaskItem;
-        if (task is null)
+        if (task is null || task.DeletedAt.HasValue)
         {
             return Result.Failure("Task not found.");
         }
+
+        if (!await IsCompatibilityTaskMutableAsync(task, cancellationToken))
+        {
+            return CompatibilityAssignmentFailure(
+                "TASK_TRANSITION_GUARD_FAILED",
+                "Project is read-only.");
+        }
+
+        var existing = await projects.ListAssignmentsAsync(task.Id, cancellationToken);
+        var collaborators = await projects.ListCollaboratorsAsync(task.Id, cancellationToken);
+        var planResult = PlanCompatibilityRelationshipChange(
+            task,
+            existing,
+            collaborators,
+            assignment.UserId,
+            userId,
+            assignment.Role,
+            NewRole: null,
+            assignment.Id);
+        if (planResult.Error is not null)
+        {
+            return Result.Failure(planResult.Error);
+        }
+
         projects.RemoveAssignment(assignment);
-        await notifications.NotifyAsync(assignment.UserId, "Task assignment removed", assignment.TaskItem?.Title, "TaskItem", assignment.TaskItemId, cancellationToken);
-        task.VersionNo++;
-        await AuditAsync(userId, "TaskAssignmentRemoved", "TaskItem", assignment.TaskItemId, cancellationToken);
-        await invalidations.TaskChangedAsync(task, userId, "assignmentChanged", ["assignments"], [assignment.UserId], cancellationToken);
-        if (await taskUnitOfWork.SaveTaskCommandAsync(cancellationToken) != TaskCommandSaveResult.Saved)
+        await ApplyCompatibilityRelationshipPlanAsync(task, planResult.Plan!, userId, cancellationToken);
+        if (await CommitCompatibilityAssignmentAsync(
+                task,
+                userId,
+                "TaskAssignmentRemoved",
+                planResult.Plan!,
+                [assignment.UserId],
+                cancellationToken) != TaskCommandSaveResult.Saved)
             return TaskConflict();
         return Result.Success();
     }
@@ -1226,7 +1333,6 @@ public sealed class ProjectService(
         };
 
         await projects.AddCommentAsync(comment, cancellationToken);
-        await NotifyCommentAsync(comment, target.Value.ProjectId, cancellationToken);
         await AuditAsync(userId, "CommentAdded", "Comment", comment.Id, cancellationToken);
         await unitOfWork.SaveChangesAsync(cancellationToken);
         return Result<CommentResponse>.Success(ToComment(comment));
@@ -1405,40 +1511,6 @@ public sealed class ProjectService(
         if (workspaceMember is { Status: MembershipStatus.Active, Role: WorkspaceRole.ReadOnly })
             return false;
         return await projectAuthorization.CanManageProject(actorUserId, project.Id, cancellationToken);
-    }
-
-    private async Task NotifyTaskChangesAsync(TaskItem task, TaskItemStatus previousStatus, DateOnly? previousDueDate, CancellationToken cancellationToken)
-    {
-        var assignments = await projects.ListAssignmentsAsync(task.Id, cancellationToken);
-        if (task.DueDate != previousDueDate)
-        {
-            foreach (var assignment in assignments)
-            {
-                await notifications.NotifyAsync(assignment.UserId, "Task due date changed", task.Title, "TaskItem", task.Id, cancellationToken);
-            }
-        }
-
-        if (task.Status == TaskItemStatus.WaitingReview && previousStatus != TaskItemStatus.WaitingReview)
-        {
-            foreach (var assignment in assignments.Where(assignment => assignment.Role is TaskAssignmentRole.Owner or TaskAssignmentRole.Reviewer))
-            {
-                await notifications.NotifyAsync(assignment.UserId, "Task waiting for review", task.Title, "TaskItem", task.Id, cancellationToken);
-            }
-        }
-    }
-
-    private async Task NotifyCommentAsync(Comment comment, Guid projectId, CancellationToken cancellationToken)
-    {
-        if (comment.TargetType != CommentTargetType.TaskItem)
-        {
-            return;
-        }
-
-        var assignments = await projects.ListAssignmentsAsync(comment.TargetId, cancellationToken);
-        foreach (var assignment in assignments.Where(assignment => assignment.UserId != comment.AuthorUserId))
-        {
-            await notifications.NotifyAsync(assignment.UserId, "Comment added", comment.Body.Length > 120 ? comment.Body[..120] : comment.Body, "TaskItem", projectId, cancellationToken);
-        }
     }
 
     private async Task<bool> CanModifyCommentAsync(Guid userId, Comment comment, CancellationToken cancellationToken)
@@ -1660,6 +1732,472 @@ public sealed class ProjectService(
     {
         return new TaskAssignmentResponse(assignment.Id, assignment.TaskItemId, assignment.UserId, assignment.User?.DisplayName ?? string.Empty, assignment.Role, assignment.EstimatedHours, assignment.ActualHours, assignment.AssignedAt, assignment.AssignedByUserId);
     }
+
+    private CompatibilityRelationshipPlanResult PlanCompatibilityRelationshipChange(
+        TaskItem task,
+        IReadOnlyList<TaskAssignment> assignments,
+        IReadOnlyList<WorkItemCollaborator> collaborators,
+        Guid relationshipUserId,
+        Guid actorUserId,
+        TaskAssignmentRole? PreviousRole,
+        TaskAssignmentRole? NewRole,
+        Guid? AssignmentId)
+    {
+        if (NewRole == TaskAssignmentRole.Owner && PreviousRole != TaskAssignmentRole.Owner)
+        {
+            return CompatibilityRelationshipPlanResult.Failure(
+                "TASK_ASSIGNMENT_ROLE_UNSUPPORTED",
+                "Legacy Owner assignments are historical and cannot be created.");
+        }
+
+        var originalPrimaryAssigneeUserId = task.PrimaryAssigneeUserId;
+        var originalReviewerUserId = task.ReviewerUserId;
+        var finalPrimaryAssigneeUserId = originalPrimaryAssigneeUserId;
+        var finalReviewerUserId = originalReviewerUserId;
+        var finalCollaboratorUserIds = collaborators.Select(item => item.UserId).ToHashSet();
+        WorkItemCollaborator? collaboratorToRemove = null;
+        var addCollaborator = false;
+
+        bool HasOtherRole(TaskAssignmentRole role) => assignments.Any(item =>
+            item.Id != AssignmentId && item.Role == role);
+
+        if (PreviousRole == NewRole)
+        {
+            switch (PreviousRole)
+            {
+                case TaskAssignmentRole.Assignee:
+                    if (HasOtherRole(TaskAssignmentRole.Assignee) ||
+                        originalPrimaryAssigneeUserId != relationshipUserId)
+                    {
+                        return CompatibilityRelationshipPlanResult.Failure(
+                            "TASK_ASSIGNMENT_AMBIGUOUS",
+                            "The legacy assignee row does not map unambiguously to the canonical primary assignee.");
+                    }
+                    break;
+
+                case TaskAssignmentRole.Reviewer:
+                    if (HasOtherRole(TaskAssignmentRole.Reviewer) ||
+                        originalReviewerUserId != relationshipUserId)
+                    {
+                        return CompatibilityRelationshipPlanResult.Failure(
+                            "TASK_ASSIGNMENT_AMBIGUOUS",
+                            "The legacy reviewer row does not map unambiguously to the canonical reviewer.");
+                    }
+                    break;
+
+                case TaskAssignmentRole.Support:
+                    if (!finalCollaboratorUserIds.Contains(relationshipUserId))
+                    {
+                        return CompatibilityRelationshipPlanResult.Failure(
+                            "TASK_ASSIGNMENT_AMBIGUOUS",
+                            "The legacy Support row does not map unambiguously to a canonical collaborator.");
+                    }
+                    break;
+            }
+        }
+        else
+        {
+            switch (PreviousRole)
+            {
+                case TaskAssignmentRole.Assignee:
+                    if (originalPrimaryAssigneeUserId == relationshipUserId)
+                    {
+                        if (HasOtherRole(TaskAssignmentRole.Assignee))
+                        {
+                            return CompatibilityRelationshipPlanResult.Failure(
+                                "TASK_ASSIGNMENT_AMBIGUOUS",
+                                "Multiple legacy assignee rows prevent a canonical relationship change.");
+                        }
+                        finalPrimaryAssigneeUserId = null;
+                    }
+                    else if (NewRole.HasValue)
+                    {
+                        return CompatibilityRelationshipPlanResult.Failure(
+                            "TASK_ASSIGNMENT_AMBIGUOUS",
+                            "The legacy assignee row does not map to the canonical primary assignee.");
+                    }
+                    break;
+
+                case TaskAssignmentRole.Reviewer:
+                    if (originalReviewerUserId == relationshipUserId)
+                    {
+                        if (HasOtherRole(TaskAssignmentRole.Reviewer))
+                        {
+                            return CompatibilityRelationshipPlanResult.Failure(
+                                "TASK_ASSIGNMENT_AMBIGUOUS",
+                                "Multiple legacy reviewer rows prevent a canonical relationship change.");
+                        }
+                        finalReviewerUserId = null;
+                    }
+                    else if (NewRole.HasValue)
+                    {
+                        return CompatibilityRelationshipPlanResult.Failure(
+                            "TASK_ASSIGNMENT_AMBIGUOUS",
+                            "The legacy reviewer row does not map to the canonical reviewer.");
+                    }
+                    break;
+
+                case TaskAssignmentRole.Support:
+                    collaboratorToRemove = collaborators.FirstOrDefault(item => item.UserId == relationshipUserId);
+                    if (collaboratorToRemove is null && NewRole.HasValue)
+                    {
+                        return CompatibilityRelationshipPlanResult.Failure(
+                            "TASK_ASSIGNMENT_AMBIGUOUS",
+                            "The legacy Support row does not map to a canonical collaborator.");
+                    }
+                    if (collaboratorToRemove is not null)
+                    {
+                        finalCollaboratorUserIds.Remove(relationshipUserId);
+                    }
+                    break;
+            }
+
+            switch (NewRole)
+            {
+                case TaskAssignmentRole.Assignee:
+                    if (HasOtherRole(TaskAssignmentRole.Assignee))
+                    {
+                        return CompatibilityRelationshipPlanResult.Failure(
+                            "TASK_ASSIGNMENT_AMBIGUOUS",
+                            "A canonical Task can have only one primary assignee.");
+                    }
+                    if (finalPrimaryAssigneeUserId.HasValue &&
+                        finalPrimaryAssigneeUserId != relationshipUserId)
+                    {
+                        return CompatibilityRelationshipPlanResult.Failure(
+                            "TASK_ALREADY_ASSIGNED",
+                            "The Task already has a different primary assignee.");
+                    }
+                    finalPrimaryAssigneeUserId = relationshipUserId;
+                    break;
+
+                case TaskAssignmentRole.Reviewer:
+                    if (HasOtherRole(TaskAssignmentRole.Reviewer))
+                    {
+                        return CompatibilityRelationshipPlanResult.Failure(
+                            "TASK_ASSIGNMENT_AMBIGUOUS",
+                            "A canonical Task can have only one reviewer.");
+                    }
+                    if (finalReviewerUserId.HasValue &&
+                        finalReviewerUserId != relationshipUserId)
+                    {
+                        return CompatibilityRelationshipPlanResult.Failure(
+                            "TASK_ALREADY_ASSIGNED",
+                            "The Task already has a different reviewer.");
+                    }
+                    finalReviewerUserId = relationshipUserId;
+                    break;
+
+                case TaskAssignmentRole.Support:
+                    if (finalCollaboratorUserIds.Add(relationshipUserId))
+                    {
+                        addCollaborator = true;
+                    }
+                    break;
+            }
+        }
+
+        if (finalPrimaryAssigneeUserId.HasValue &&
+            finalPrimaryAssigneeUserId == finalReviewerUserId)
+        {
+            return CompatibilityRelationshipPlanResult.Failure(
+                "TASK_REVIEWER_MUST_DIFFER",
+                "Reviewer and primary assignee must differ.");
+        }
+
+        if (originalPrimaryAssigneeUserId.HasValue &&
+            !finalPrimaryAssigneeUserId.HasValue &&
+            CategoryOf(task) is TaskStageCategory.InProgress or TaskStageCategory.Review)
+        {
+            return CompatibilityRelationshipPlanResult.Failure(
+                "TASK_ASSIGNEE_REQUIRED",
+                "Active work cannot be unassigned.");
+        }
+
+        var primaryChanged = originalPrimaryAssigneeUserId != finalPrimaryAssigneeUserId;
+        var reviewerChanged = originalReviewerUserId != finalReviewerUserId;
+        var collaboratorChanged = collaboratorToRemove is not null || addCollaborator;
+        var canonicalChanged = primaryChanged || reviewerChanged || collaboratorChanged;
+        var semanticChange = canonicalChanged
+            ? CompatibilityAssignmentSemanticChange(NewRole ?? PreviousRole)
+            : null;
+        var changedFields = new List<string>();
+        if (primaryChanged) changedFields.Add("primaryAssigneeUserId");
+        if (reviewerChanged) changedFields.Add("reviewerUserId");
+        if (collaboratorChanged) changedFields.Add("collaborators");
+        var affectedUserIds = new[]
+            {
+                originalPrimaryAssigneeUserId,
+                finalPrimaryAssigneeUserId,
+                originalReviewerUserId,
+                finalReviewerUserId,
+                relationshipUserId
+            }
+            .Where(userId => userId.HasValue && userId.Value != Guid.Empty)
+            .Select(userId => userId!.Value)
+            .Distinct()
+            .ToArray();
+
+        return CompatibilityRelationshipPlanResult.Success(new CompatibilityRelationshipPlan(
+            relationshipUserId,
+            originalPrimaryAssigneeUserId,
+            finalPrimaryAssigneeUserId,
+            originalReviewerUserId,
+            finalReviewerUserId,
+            collaboratorToRemove,
+            addCollaborator,
+            finalCollaboratorUserIds.ToArray(),
+            canonicalChanged,
+            semanticChange,
+            changedFields,
+            affectedUserIds));
+    }
+
+    private async Task ApplyCompatibilityRelationshipPlanAsync(
+        TaskItem task,
+        CompatibilityRelationshipPlan plan,
+        Guid actorUserId,
+        CancellationToken cancellationToken)
+    {
+        task.PrimaryAssigneeUserId = plan.FinalPrimaryAssigneeUserId;
+        task.ReviewerUserId = plan.FinalReviewerUserId;
+        if (plan.OriginalReviewerUserId != plan.FinalReviewerUserId &&
+            !plan.FinalReviewerUserId.HasValue)
+        {
+            task.ReviewStatus = TaskReviewStatus.None;
+        }
+
+        if (plan.CollaboratorToRemove is not null)
+        {
+            projects.RemoveCollaborator(plan.CollaboratorToRemove);
+        }
+        if (plan.AddCollaborator)
+        {
+            await projects.AddCollaboratorAsync(new WorkItemCollaborator
+            {
+                TaskItemId = task.Id,
+                UserId = plan.RelationshipUserId,
+                AddedByUserId = actorUserId,
+                AddedAt = clock.UtcNow
+            }, cancellationToken);
+        }
+    }
+
+    private async Task<TaskCommandSaveOutcome> CommitCompatibilityAssignmentAsync(
+        TaskItem task,
+        Guid actorUserId,
+        string auditAction,
+        CompatibilityRelationshipPlan plan,
+        IEnumerable<Guid> compatibilityAffectedUserIds,
+        CancellationToken cancellationToken)
+    {
+        if (plan.CanonicalChanged)
+        {
+            await ReconcileCompatibilityAutomaticWatchAsync(
+                task,
+                plan.FinalCollaboratorUserIds,
+                cancellationToken);
+        }
+
+        task.VersionNo++;
+        await AuditAsync(actorUserId, auditAction, "TaskItem", task.Id, cancellationToken);
+        var affectedUserIds = compatibilityAffectedUserIds
+            .Concat(plan.AffectedUserIds)
+            .Where(userId => userId != Guid.Empty)
+            .Distinct()
+            .ToArray();
+        var changedFields = new[] { "assignments" }
+            .Concat(plan.ChangedFields)
+            .Distinct(StringComparer.Ordinal)
+            .ToArray();
+        await invalidations.TaskChangedAsync(
+            task,
+            actorUserId,
+            "assignmentChanged",
+            changedFields,
+            affectedUserIds,
+            cancellationToken);
+
+        if (plan.CanonicalChanged && plan.SemanticChange is not null)
+        {
+            await invalidations.TaskAssignmentChangedAsync(
+                task,
+                actorUserId,
+                plan.SemanticChange,
+                plan.AffectedUserIds,
+                cancellationToken);
+        }
+
+        if (taskNotifications is not null)
+        {
+            if (plan.OriginalPrimaryAssigneeUserId != plan.FinalPrimaryAssigneeUserId)
+            {
+                await taskNotifications.ProduceAsync(new TaskNotificationRecipientRequest(
+                    task,
+                    TaskNotificationEventKind.PrimaryAssigneeChanged,
+                    ActorUserId: actorUserId,
+                    PreviousPrimaryAssigneeUserId: plan.OriginalPrimaryAssigneeUserId,
+                    NewPrimaryAssigneeUserId: plan.FinalPrimaryAssigneeUserId), cancellationToken);
+            }
+            if (plan.OriginalReviewerUserId != plan.FinalReviewerUserId &&
+                plan.FinalReviewerUserId.HasValue)
+            {
+                await taskNotifications.ProduceAsync(new TaskNotificationRecipientRequest(
+                    task,
+                    TaskNotificationEventKind.ReviewerAssigned,
+                    ActorUserId: actorUserId,
+                    NewReviewerUserId: plan.FinalReviewerUserId), cancellationToken);
+            }
+        }
+
+        await AdvanceCompatibilityParentForAssignmentAsync(
+            task,
+            actorUserId,
+            auditAction,
+            cancellationToken);
+
+        return await taskUnitOfWork.SaveTaskCommandAsync(cancellationToken);
+    }
+
+    private async Task AdvanceCompatibilityParentForAssignmentAsync(
+        TaskItem child,
+        Guid actorUserId,
+        string childAction,
+        CancellationToken cancellationToken)
+    {
+        if (!child.ParentTaskItemId.HasValue)
+            return;
+
+        var parent = await projects.GetTaskAsync(child.ParentTaskItemId.Value, cancellationToken);
+        if (parent is null || parent.DeletedAt.HasValue)
+            return;
+
+        parent.VersionNo++;
+        await auditLogger.LogAsync(new AuditLogEntry(
+            actorUserId,
+            "TaskSubtasksChanged",
+            "TaskItem",
+            parent.Id,
+            WorkspaceId: parent.WorkspaceId,
+            ProjectId: parent.ProjectId,
+            Metadata: new Dictionary<string, object?>
+            {
+                ["childTaskId"] = child.Id,
+                ["childAction"] = childAction,
+                ["versionBefore"] = parent.VersionNo - 1
+            }), cancellationToken);
+        await invalidations.TaskChangedAsync(
+            parent,
+            actorUserId,
+            "subtasksChanged",
+            cancellationToken: cancellationToken);
+    }
+
+    private async Task ReconcileCompatibilityAutomaticWatchAsync(
+        TaskItem task,
+        IReadOnlyCollection<Guid> collaboratorUserIds,
+        CancellationToken cancellationToken)
+    {
+        var sources = new Dictionary<Guid, WorkItemWatchAutomaticSource>();
+        void Add(Guid? userId, WorkItemWatchAutomaticSource source)
+        {
+            if (!userId.HasValue || userId.Value == Guid.Empty)
+                return;
+            sources[userId.Value] = sources.GetValueOrDefault(userId.Value) | source;
+        }
+
+        Add(task.CreatedByUserId, WorkItemWatchAutomaticSource.Creator);
+        Add(task.PrimaryAssigneeUserId, WorkItemWatchAutomaticSource.PrimaryAssignee);
+        Add(task.ReviewerUserId, WorkItemWatchAutomaticSource.Reviewer);
+        foreach (var collaboratorUserId in collaboratorUserIds)
+        {
+            Add(collaboratorUserId, WorkItemWatchAutomaticSource.Collaborator);
+        }
+
+        var states = (await projects.ListWatchStatesAsync(task.Id, cancellationToken))
+            .ToDictionary(state => state.UserId);
+        foreach (var userId in states.Keys.Union(sources.Keys).ToArray())
+        {
+            if (!states.TryGetValue(userId, out var state))
+            {
+                var initialSources = sources.GetValueOrDefault(userId);
+                await projects.AddWatchStateAsync(new WorkItemWatchState
+                {
+                    TaskItemId = task.Id,
+                    UserId = userId,
+                    AutomaticSources = initialSources,
+                    IsWatching = TaskWatchStateRules.IsWatching(false, false, initialSources),
+                    UpdatedAt = clock.UtcNow,
+                    VersionNo = 1
+                }, cancellationToken);
+                continue;
+            }
+
+            var automaticSources = sources.GetValueOrDefault(userId);
+            if (state.AutomaticSources == automaticSources &&
+                state.IsWatching == TaskWatchStateRules.IsWatching(
+                    state.IsManualWatch,
+                    state.IsExplicitOptOut,
+                    automaticSources))
+            {
+                continue;
+            }
+
+            state.AutomaticSources = automaticSources;
+            TaskWatchStateRules.Normalize(state);
+            state.UpdatedAt = clock.UtcNow;
+            state.VersionNo++;
+        }
+    }
+
+    private async Task<bool> IsCompatibilityTaskMutableAsync(
+        TaskItem task,
+        CancellationToken cancellationToken)
+    {
+        var project = await projects.GetProjectAsync(task.ProjectId, cancellationToken);
+        return project is not null &&
+               !project.DeletedAt.HasValue &&
+               project.Status is not ProjectStatus.Archived and not ProjectStatus.Deleted;
+    }
+
+    private static string CompatibilityAssignmentSemanticChange(TaskAssignmentRole? role) => role switch
+    {
+        TaskAssignmentRole.Assignee => "assigneeChanged",
+        TaskAssignmentRole.Reviewer => "reviewerChanged",
+        TaskAssignmentRole.Support => "collaboratorChanged",
+        _ => throw new InvalidOperationException("A canonical compatibility relationship change requires a supported role.")
+    };
+
+    private sealed record CompatibilityRelationshipPlan(
+        Guid RelationshipUserId,
+        Guid? OriginalPrimaryAssigneeUserId,
+        Guid? FinalPrimaryAssigneeUserId,
+        Guid? OriginalReviewerUserId,
+        Guid? FinalReviewerUserId,
+        WorkItemCollaborator? CollaboratorToRemove,
+        bool AddCollaborator,
+        IReadOnlyList<Guid> FinalCollaboratorUserIds,
+        bool CanonicalChanged,
+        string? SemanticChange,
+        IReadOnlyList<string> ChangedFields,
+        IReadOnlyList<Guid> AffectedUserIds);
+
+    private sealed record CompatibilityRelationshipPlanResult(
+        CompatibilityRelationshipPlan? Plan,
+        string? Error)
+    {
+        public static CompatibilityRelationshipPlanResult Success(CompatibilityRelationshipPlan plan) =>
+            new(plan, null);
+
+        public static CompatibilityRelationshipPlanResult Failure(string code, string message) =>
+            new(null, $"{code}|{message}");
+    }
+
+    private static Result<T> CompatibilityAssignmentFailure<T>(string code, string message) =>
+        Result<T>.Failure($"{code}|{message}");
+
+    private static Result CompatibilityAssignmentFailure(string code, string message) =>
+        Result.Failure($"{code}|{message}");
 
     private static Result TaskConflict() =>
         Result.Failure(new ApplicationErrorDetail("TASK_STALE_VERSION", "Task has changed. Refetch and retry."));

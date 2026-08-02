@@ -1225,6 +1225,159 @@ public sealed class HttpTenantIsolationTests
     }
 
     [Fact]
+    [Trait("Scope", "TaskV1PR07B")]
+    public async Task TaskDeadlinePatchIsServerAuthoritativeAndSeparateFromPlannedSchedule()
+    {
+        await using var app = await HttpTenantIsolationTestApp.CreateAsync();
+        var data = app.Data;
+        var taskPath = $"/api/tasks/{data.TaskA.Id:D}";
+
+        using var initialResponse = await app.SendAsync(
+            data.TenantAOwner,
+            data.TenantA.Slug,
+            taskPath);
+        using var initialDocument = JsonDocument.Parse(
+            await initialResponse.Content.ReadAsStringAsync());
+        Assert.Equal(HttpStatusCode.OK, initialResponse.StatusCode);
+        var version = initialDocument.RootElement
+            .GetProperty("task")
+            .GetProperty("version")
+            .GetInt64();
+
+        using (var reviewer = JsonContent(
+                   $$"""{"userId":"{{data.TenantAMember.Id:D}}","expectedVersion":{{version}}}"""))
+        using (var reviewerResponse = await app.SendAsync(
+                   data.TenantAOwner,
+                   data.TenantA.Slug,
+                   $"{taskPath}/reviewer",
+                   HttpMethod.Put,
+                   reviewer))
+        using (var reviewerDocument = JsonDocument.Parse(
+                   await reviewerResponse.Content.ReadAsStringAsync()))
+        {
+            Assert.Equal(HttpStatusCode.OK, reviewerResponse.StatusCode);
+            version = reviewerDocument.RootElement
+                .GetProperty("task")
+                .GetProperty("version")
+                .GetInt64();
+        }
+
+        const string deadlineText = "2026-08-03T00:15:00+09:00";
+        var expectedDeadline = new DateTimeOffset(
+            2026,
+            8,
+            3,
+            0,
+            15,
+            0,
+            TimeSpan.FromHours(9));
+        using (var validDeadline = JsonContent(
+                   $$"""{"title":"TaskA","description":null,"priority":1,"plannedStartDate":null,"plannedEndDate":null,"progressPercent":0,"expectedVersion":{{version}},"deadlineAt":"{{deadlineText}}"}"""))
+        using (var validResponse = await app.SendAsync(
+                   data.TenantAOwner,
+                   data.TenantA.Slug,
+                   taskPath,
+                   HttpMethod.Patch,
+                   validDeadline))
+        using (var validDocument = JsonDocument.Parse(
+                   await validResponse.Content.ReadAsStringAsync()))
+        {
+            Assert.Equal(HttpStatusCode.OK, validResponse.StatusCode);
+            var responseDeadline = validDocument.RootElement
+                .GetProperty("deadlineAt")
+                .GetDateTimeOffset();
+            Assert.Equal(expectedDeadline.ToUniversalTime(), responseDeadline);
+            Assert.Equal(TimeSpan.Zero, responseDeadline.Offset);
+            version = validDocument.RootElement.GetProperty("version").GetInt64();
+        }
+
+        var afterValidDeadline = await app.GetTaskMutationStateAsync(
+            data.TenantA.Id,
+            data.TenantA.Slug,
+            data.TaskA.Id);
+        Assert.Equal(expectedDeadline.ToUniversalTime(), afterValidDeadline.DeadlineAt);
+        Assert.Equal(TimeSpan.Zero, afterValidDeadline.DeadlineAt!.Value.Offset);
+        Assert.Equal(version, afterValidDeadline.Version);
+        // tasks.notificationsV1 remains disabled in this application's seeded tenant.
+        Assert.Equal(0, afterValidDeadline.TaskNotificationCount);
+
+        foreach (var clientHint in new[]
+                 {
+                     "\"isMajorDeadlineChange\":true",
+                     "\"deadlineChangeClassification\":\"None\"",
+                     "\"suppressDeadlineNotification\":true"
+                 })
+        {
+            using var untrustedHint = JsonContent(
+                $$"""{"title":"TaskA","description":null,"priority":1,"plannedStartDate":null,"plannedEndDate":null,"progressPercent":0,"expectedVersion":{{version}},"deadlineAt":"2026-08-05T00:15:00+09:00",{{clientHint}}}""");
+            using var response = await app.SendAsync(
+                data.TenantAOwner,
+                data.TenantA.Slug,
+                taskPath,
+                HttpMethod.Patch,
+                untrustedHint);
+
+            await AssertSafeRejectedJsonContractAsync(response, HttpStatusCode.BadRequest);
+            Assert.Equal(
+                afterValidDeadline,
+                await app.GetTaskMutationStateAsync(
+                    data.TenantA.Id,
+                    data.TenantA.Slug,
+                    data.TaskA.Id));
+        }
+
+        var plannedEnd = new DateOnly(2026, 8, 6);
+        using (var plannedEndOnly = JsonContent(
+                   $$"""{"plannedStartDate":null,"plannedEndDate":"{{plannedEnd:yyyy-MM-dd}}","milestoneDate":null,"expectedVersion":{{version}}}"""))
+        using (var scheduleResponse = await app.SendAsync(
+                   data.TenantAOwner,
+                   data.TenantA.Slug,
+                   $"{taskPath}/schedule",
+                   HttpMethod.Patch,
+                   plannedEndOnly))
+        using (var scheduleDocument = JsonDocument.Parse(
+                   await scheduleResponse.Content.ReadAsStringAsync()))
+        {
+            Assert.Equal(HttpStatusCode.OK, scheduleResponse.StatusCode);
+            Assert.Equal(
+                plannedEnd,
+                DateOnly.FromDateTime(
+                    scheduleDocument.RootElement.GetProperty("plannedEndDate").GetDateTime()));
+            Assert.False(scheduleDocument.RootElement.TryGetProperty("deadlineAt", out _));
+            version = scheduleDocument.RootElement.GetProperty("version").GetInt64();
+        }
+
+        var afterPlannedEnd = await app.GetTaskMutationStateAsync(
+            data.TenantA.Id,
+            data.TenantA.Slug,
+            data.TaskA.Id);
+        Assert.Equal(expectedDeadline, afterPlannedEnd.DeadlineAt);
+        Assert.Equal(plannedEnd, afterPlannedEnd.PlannedEndDate);
+        Assert.Equal(version, afterPlannedEnd.Version);
+        Assert.Equal(
+            afterValidDeadline.TaskNotificationCount,
+            afterPlannedEnd.TaskNotificationCount);
+
+        using var deadlineOnSchedule = JsonContent(
+            $$"""{"plannedStartDate":null,"plannedEndDate":"2026-08-07","milestoneDate":null,"expectedVersion":{{version}},"deadlineAt":"2026-08-07T00:15:00+09:00"}""");
+        using var rejectedSchedule = await app.SendAsync(
+            data.TenantAOwner,
+            data.TenantA.Slug,
+            $"{taskPath}/schedule",
+            HttpMethod.Patch,
+            deadlineOnSchedule);
+        await AssertSafeRejectedJsonContractAsync(
+            rejectedSchedule,
+            HttpStatusCode.BadRequest);
+        Assert.Equal(
+            afterPlannedEnd,
+            await app.GetTaskMutationStateAsync(
+                data.TenantA.Id,
+                data.TenantA.Slug,
+                data.TaskA.Id));
+    }
+
+    [Fact]
     [Trait("Scope", "TaskV1PR03C")]
     public async Task TaskDetailHttpContractUsesCanonicalRoutesSafeErrorsAndBoundedAggregate()
     {
@@ -1473,6 +1626,27 @@ public sealed class HttpTenantIsolationTests
         Assert.DoesNotContain("currentVersion", body, StringComparison.OrdinalIgnoreCase);
     }
 
+    private static async Task AssertSafeRejectedJsonContractAsync(
+        HttpResponseMessage response,
+        HttpStatusCode status)
+    {
+        var body = await response.Content.ReadAsStringAsync();
+        Assert.Equal(status, response.StatusCode);
+        using var document = JsonDocument.Parse(body);
+        if (document.RootElement.TryGetProperty("status", out var responseStatus))
+        {
+            Assert.Equal((int)status, responseStatus.GetInt32());
+        }
+        Assert.True(
+            document.RootElement.TryGetProperty("traceId", out _) ||
+            document.RootElement.TryGetProperty("requestId", out _));
+        Assert.DoesNotContain("StackTrace", body, StringComparison.OrdinalIgnoreCase);
+        Assert.DoesNotContain("SELECT ", body, StringComparison.OrdinalIgnoreCase);
+        Assert.DoesNotContain("INSERT INTO", body, StringComparison.OrdinalIgnoreCase);
+        Assert.DoesNotContain("UPDATE ", body, StringComparison.OrdinalIgnoreCase);
+        Assert.DoesNotContain("currentVersion", body, StringComparison.OrdinalIgnoreCase);
+    }
+
     private static Guid ReadResponseId(string json)
     {
         using var document = JsonDocument.Parse(json);
@@ -1637,6 +1811,41 @@ public sealed class HttpTenantIsolationTests
             return await dbContext.Messages
                 .AsNoTracking()
                 .FirstOrDefaultAsync(message => message.Id == messageId);
+        }
+
+        public async Task<(
+            DateTimeOffset? DeadlineAt,
+            DateOnly? PlannedEndDate,
+            long Version,
+            int TaskNotificationCount,
+            int TaskOutboxCount)> GetTaskMutationStateAsync(
+                Guid tenantId,
+                string tenantSlug,
+                Guid taskId)
+        {
+            await using var scope = App.Services.CreateAsyncScope();
+            var currentTenant = scope.ServiceProvider.GetRequiredService<CurrentTenantService>();
+            currentTenant.SetTenant(tenantId, tenantSlug);
+            var dbContext = scope.ServiceProvider.GetRequiredService<AppDbContext>();
+            var task = await dbContext.TaskItems
+                .AsNoTracking()
+                .SingleAsync(item => item.Id == taskId);
+            var notificationCount = await dbContext.Notifications
+                .AsNoTracking()
+                .CountAsync(item =>
+                    item.RelatedEntityType == "TaskItem" &&
+                    item.RelatedEntityId == taskId);
+            var outboxCount = await dbContext.OutboxEvents
+                .AsNoTracking()
+                .CountAsync(item =>
+                    item.AggregateType == "Task" &&
+                    item.AggregateId == taskId);
+            return (
+                task.DeadlineAt,
+                task.PlannedEndDate,
+                task.VersionNo,
+                notificationCount,
+                outboxCount);
         }
 
         public async Task<Guid> AddWorkspaceAsync(Guid tenantId, string tenantSlug, Guid userId)

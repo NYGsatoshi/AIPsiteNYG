@@ -1,31 +1,35 @@
 # Testing
 
-Last completed local test-run audit: 2026-06-28. Backend source/build audit: 2026-06-28.
+Last completed full local backend test-run audit: 2026-08-02. Latest frontend
+unit/build/architecture audit: 2026-08-02.
 
-## Verification snapshot
+## Verification snapshot (2026-08-02)
 
 Command:
 
-```bash
-dotnet test AipPortal.slnx \
-  --configuration Release \
-  --no-restore \
-  --disable-build-servers \
-  -m:1
+```powershell
+dotnet test AipPortal.slnx --configuration Release --no-build
 ```
 
 Result:
 
-- 128 passed
+- 620 passed
 - 0 failed
 - 0 skipped reported
-- 0 build warnings
+- PostgreSQL 18 configured and all current migrations applied
 
-Important qualification: `POSTGRES_TEST_CONNECTION_STRING` was unset. The two tests marked `PostgreSQLIntegration` returned before live PostgreSQL assertions and were counted as passed.
+Both `POSTGRES_TEST_CONNECTION_STRING` and the application connection string
+targeted the same disposable migrated PostgreSQL 18 database. The container was
+removed after the run. This result is therefore PostgreSQL execution evidence,
+not an environment-unset conditional pass.
 
-Playwright was not run in this workspace because frontend dependencies were not installed.
+The active frontend unit suite passed 42 files / 323 tests, and the local
+Windows Playwright diagnostic passed 63 with 3 expected skips. The pinned Linux
+Playwright run remains hosted-CI evidence because three local MCR image pulls
+failed with transport EOF before the image could be built. Windows screenshots
+are not baseline-approval evidence.
 
-### 2026-06-28 A-04 auth boundary verification
+### Historical 2026-06-28 A-04 auth boundary verification
 
 - Release build completed with 0 warnings and 0 errors.
 - `AuthSecurityHttpTests` passed 15/15 after the test harness persisted Data Protection keys to an isolated temp directory instead of the Windows user-profile key folder.
@@ -91,6 +95,32 @@ PostgreSQL tests use `PostgreSqlFactAttribute` plus `PostgreSqlTestEnvironment.R
 When the variable is absent locally, they are explicitly reported as skipped at discovery;
 when `CI=true` or `GITHUB_ACTIONS=true`, the missing variable is a test failure. This
 prevents an unconfigured PostgreSQL suite from being reported as a pass.
+
+### TASK-V1-PR07-B immediate notification tests
+
+PR07-B adds focused service/contract tests for the exact recipient matrix,
+pre-mutation assignee capture, actor suppression, mandatory-versus-Watch
+independence, duplicate relationships, direct-mention validation, Important
+comment union, and ordinary-comment no-notify-all behavior. Command tests cover
+assignment/Reviewer/Blocked/review/deadline integration, compatibility-route
+normalization, default-off rollout behavior, safe semantic payloads, and the
+separation of Gantt planned dates from hard `DeadlineAt`.
+
+The deadline classifier suite fixes one `now` instant and exercises null/value,
+23h59m/24h, local Today, local Overdue, and timezone-conversion boundaries.
+Request/HTTP contract tests distinguish an omitted deadline from explicit null,
+reject client significance fields, and prove the schedule request cannot own a
+hard deadline.
+
+Conditional PostgreSQL PR07-B tests are the authoritative transaction and
+concurrency evidence. They must run with
+`POSTGRES_TEST_CONNECTION_STRING` and cover one committed Task mutation,
+relationship/Audit/Notification/business-Outbox/signal-Outbox unit; stale and
+authorization zero-row outcomes; injected Task-save, Audit, and Outbox failures; retry;
+and concurrent writers leaving one visible logical Notification. A local run
+without the variable is not PostgreSQL evidence. Exact commands and final
+counts are recorded in
+`docs/verification/task-v1-pr07-b-immediate-notifications.md`.
 
 ### Browser UI tests
 

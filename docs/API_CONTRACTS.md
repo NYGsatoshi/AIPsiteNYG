@@ -149,6 +149,67 @@ an authorization, privacy, preference, or dedupe gate. PR07-A introduces no
 Task notification producer, digest worker, notification-open API, SignalR
 route, or Angular preference UI.
 
+## TASK-V1-PR07-B hard deadline mutation
+
+The existing canonical versioned Task detail mutation is extended in place:
+
+- `PATCH /api/tasks/{taskItemId}`
+
+`deadlineAt` is optional independently of the existing required Task-body and
+`expectedVersion` fields. Omission preserves the persisted hard deadline,
+explicit JSON `null` removes it, and an ISO 8601 timestamp adds or replaces it.
+The server preserves the requested instant but normalizes every non-null value
+to UTC before classification, PostgreSQL persistence, and response
+serialization. An incompatible value uses the shared safe HTTP 400
+model-validation response.
+Unknown request members are rejected; clients cannot supply
+`isMajorDeadlineChange`, a deadline classification, or an equivalent field to
+force or suppress server behavior.
+
+```json
+{
+  "title": "Task",
+  "description": null,
+  "priority": 1,
+  "plannedStartDate": "2026-08-02",
+  "plannedEndDate": "2026-08-04",
+  "progressPercent": 25,
+  "expectedVersion": 7,
+  "deadlineAt": "2026-08-04T08:00:00+09:00"
+}
+```
+
+The server compares the persisted old value with the requested new value once,
+using the Workspace timezone and one command-time instant. The outcomes are
+`Added`, `Removed`, `ShiftAtLeast24Hours`, `CrossedUrgencyBoundary`, and
+`None`. Added/removed values are major; an absolute shift of exactly 24 hours
+or more is major; a smaller shift is major only when it crosses the local
+Overdue/Today urgency boundary. The safe classification may appear in Audit
+metadata, but no Task title/body, review/comment content, Watch state, or
+recipient relationship set is recorded with it.
+
+`PATCH /api/tasks/{taskItemId}/schedule` continues to own only
+`plannedStartDate` and `plannedEndDate`; it rejects `deadlineAt` and never runs
+hard-deadline classification.
+
+When `tasks.notificationsV1` is enabled, qualifying Task commands stage the
+authorized recipient Notification, its logical key, the approved business
+Outbox event, the minimal recipient-only Notification refetch signal, and the
+AuditLog in the mutation's single database save. The key remains disabled by
+default. It never bypasses authorization, privacy, actor suppression, or
+dedupe. Digest, notification-open, SignalR-routing, and Angular contracts are
+outside PR07-B.
+
+The existing `/api/tasks/{taskItemId}/assignments` collection remains a
+compatibility adapter. Its `Assignee`, `Reviewer`, and `Support` roles map to
+the canonical Primary Assignee, Reviewer, and Collaborator relationships and
+use the same transaction and notification producer. A row that merely mirrors
+the already-canonical relationship creates no second semantic event or
+notification. New or changed-to `Owner` roles, invariant violations, and
+operations that would ambiguously alter canonical state fail before mutation;
+historical same-role `Owner` metadata updates/removal and mismatched-row removal
+remain non-canonical compatibility cleanup.
+
 ## Project Kanban
 
 TASK-V1-PR05 defines one vendor-neutral board over canonical Project Tasks:

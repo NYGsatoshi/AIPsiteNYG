@@ -180,7 +180,7 @@ public sealed class ProjectServiceTests
     }
 
     [Fact]
-    public async Task AssignmentUpdateRejectsDuplicateRoleAndAuditsChanges()
+    public async Task AssignmentUpdateAuditsCanonicalCompatibilityChanges()
     {
         var fixture = ProjectFixture.Create();
         var manager = fixture.AddUser();
@@ -189,19 +189,387 @@ public sealed class ProjectServiceTests
         fixture.AddProjectMember(manager.Id, ProjectRole.Manager);
         fixture.AddProjectMember(assignee.Id, ProjectRole.Contributor);
         var task = fixture.AddTask("Composite");
-        var owner = await fixture.Service.AddAssignmentAsync(task.Id, new AddTaskAssignmentRequest(assignee.Id, TaskAssignmentRole.Owner, 4));
-        var reviewer = await fixture.Service.AddAssignmentAsync(task.Id, new AddTaskAssignmentRequest(assignee.Id, TaskAssignmentRole.Reviewer, 2));
+        task.PrimaryAssigneeUserId = assignee.Id;
+        var assignment = fixture.AddLegacyAssignment(task, assignee, TaskAssignmentRole.Assignee, manager.Id);
 
-        var duplicate = await fixture.Service.UpdateAssignmentAsync(reviewer.Value!.Id, new UpdateTaskAssignmentRequest(TaskAssignmentRole.Owner, 3, 1));
-        var updated = await fixture.Service.UpdateAssignmentAsync(owner.Value!.Id, new UpdateTaskAssignmentRequest(TaskAssignmentRole.Assignee, 3, 1));
+        var updated = await fixture.Service.UpdateAssignmentAsync(
+            assignment.Id,
+            new UpdateTaskAssignmentRequest(TaskAssignmentRole.Assignee, 3, 1));
 
-        Assert.False(duplicate.IsSuccess);
         Assert.True(updated.IsSuccess);
         Assert.Equal(TaskAssignmentRole.Assignee, updated.Value!.Role);
         Assert.Equal(3, updated.Value.EstimatedHours);
         Assert.Equal(1, updated.Value.ActualHours);
-        Assert.Equal(4, task.VersionNo);
+        Assert.Equal(2, task.VersionNo);
         Assert.Contains(fixture.Audit.Entries, entry => entry.Action == "TaskAssignmentUpdated" && entry.EntityId == task.Id);
+    }
+
+    [Theory]
+    [Trait("Scope", "TaskV1PR07B")]
+    [InlineData(TaskAssignmentRole.Assignee, "assigneeChanged", WorkItemWatchAutomaticSource.PrimaryAssignee)]
+    [InlineData(TaskAssignmentRole.Reviewer, "reviewerChanged", WorkItemWatchAutomaticSource.Reviewer)]
+    [InlineData(TaskAssignmentRole.Support, "collaboratorChanged", WorkItemWatchAutomaticSource.Collaborator)]
+    public async Task CompatibilitySupportedAssignmentAddMapsCanonicalRelationshipAtomically(
+        TaskAssignmentRole role,
+        string semanticChange,
+        WorkItemWatchAutomaticSource watchSource)
+    {
+        var fixture = ProjectFixture.Create();
+        var actor = fixture.AddUser();
+        var recipient = fixture.AddUser();
+        fixture.Current.UserIdValue = actor.Id;
+        fixture.AddProjectMember(actor.Id, ProjectRole.Manager);
+        fixture.AddProjectMember(recipient.Id, ProjectRole.Contributor);
+        var task = fixture.AddTask("Compatibility add");
+
+        var result = await fixture.Service.AddAssignmentAsync(
+            task.Id,
+            new AddTaskAssignmentRequest(recipient.Id, role, 1));
+
+        Assert.True(result.IsSuccess);
+        Assert.Single(fixture.Projects.Assignments);
+        Assert.Equal(role == TaskAssignmentRole.Assignee ? recipient.Id : null, task.PrimaryAssigneeUserId);
+        Assert.Equal(role == TaskAssignmentRole.Reviewer ? recipient.Id : null, task.ReviewerUserId);
+        Assert.Equal(role == TaskAssignmentRole.Support, fixture.Projects.Collaborators.Any(item => item.UserId == recipient.Id));
+        Assert.Equal(role == TaskAssignmentRole.Support ? 0 : 1, fixture.TaskNotifications.Requests.Count);
+        Assert.Equal(1, fixture.Invalidations.TaskChangedCount);
+        Assert.Equal([semanticChange], fixture.Invalidations.TaskAssignmentChanges);
+        var watch = Assert.Single(fixture.Projects.Watches, state => state.UserId == recipient.Id);
+        Assert.Equal(watchSource, watch.AutomaticSources);
+        Assert.True(watch.IsWatching);
+        Assert.Equal(1, fixture.CommandUnitOfWork.SaveCount);
+        Assert.Equal(2, task.VersionNo);
+    }
+
+    [Fact]
+    [Trait("Scope", "TaskV1PR07B")]
+    public async Task CompatibilityChildRelationshipChangeAdvancesParentInSameSave()
+    {
+        var fixture = ProjectFixture.Create();
+        var actor = fixture.AddUser();
+        var recipient = fixture.AddUser();
+        fixture.Current.UserIdValue = actor.Id;
+        fixture.AddProjectMember(actor.Id, ProjectRole.Manager);
+        fixture.AddProjectMember(recipient.Id, ProjectRole.Contributor);
+        var parent = fixture.AddTask("Parent");
+        var child = fixture.AddTask("Child");
+        child.ParentTaskItemId = parent.Id;
+
+        var result = await fixture.Service.AddAssignmentAsync(
+            child.Id,
+            new AddTaskAssignmentRequest(recipient.Id, TaskAssignmentRole.Assignee, 1));
+
+        Assert.True(result.IsSuccess);
+        Assert.Equal(2, child.VersionNo);
+        Assert.Equal(2, parent.VersionNo);
+        Assert.Equal(1, fixture.CommandUnitOfWork.SaveCount);
+        Assert.Equal(2, fixture.Invalidations.TaskChangedCount);
+        Assert.Contains(
+            fixture.Audit.Entries,
+            entry => entry.Action == "TaskSubtasksChanged" && entry.EntityId == parent.Id);
+    }
+
+    [Fact]
+    [Trait("Scope", "TaskV1PR07B")]
+    public async Task CompatibilityOwnerCreationFailsClosedWithoutMutation()
+    {
+        var fixture = ProjectFixture.Create();
+        var actor = fixture.AddUser();
+        var recipient = fixture.AddUser();
+        fixture.Current.UserIdValue = actor.Id;
+        fixture.AddProjectMember(actor.Id, ProjectRole.Manager);
+        fixture.AddProjectMember(recipient.Id, ProjectRole.Contributor);
+        var task = fixture.AddTask("Historical owner");
+
+        var result = await fixture.Service.AddAssignmentAsync(
+            task.Id,
+            new AddTaskAssignmentRequest(recipient.Id, TaskAssignmentRole.Owner, 1));
+
+        Assert.False(result.IsSuccess);
+        Assert.StartsWith("TASK_ASSIGNMENT_ROLE_UNSUPPORTED|", result.Error);
+        Assert.Empty(fixture.Projects.Assignments);
+        Assert.Equal(1, task.VersionNo);
+        Assert.Equal(0, fixture.CommandUnitOfWork.SaveCount);
+        Assert.Empty(fixture.Audit.Entries);
+        Assert.Equal(0, fixture.Invalidations.TaskChangedCount);
+    }
+
+    [Theory]
+    [Trait("Scope", "TaskV1PR07B")]
+    [InlineData(TaskAssignmentRole.Assignee)]
+    [InlineData(TaskAssignmentRole.Reviewer)]
+    [InlineData(TaskAssignmentRole.Support)]
+    public async Task HistoricalOwnerCanBeMigratedToSupportedCanonicalRole(TaskAssignmentRole newRole)
+    {
+        var fixture = ProjectFixture.Create();
+        var actor = fixture.AddUser();
+        var recipient = fixture.AddUser();
+        fixture.Current.UserIdValue = actor.Id;
+        fixture.AddProjectMember(actor.Id, ProjectRole.Manager);
+        fixture.AddProjectMember(recipient.Id, ProjectRole.Contributor);
+        var task = fixture.AddTask("Migrate owner");
+        var assignment = fixture.AddLegacyAssignment(task, recipient, TaskAssignmentRole.Owner, actor.Id);
+
+        var result = await fixture.Service.UpdateAssignmentAsync(
+            assignment.Id,
+            new UpdateTaskAssignmentRequest(newRole, 2, 1));
+
+        Assert.True(result.IsSuccess);
+        Assert.Equal(newRole, assignment.Role);
+        Assert.Equal(newRole == TaskAssignmentRole.Assignee ? recipient.Id : null, task.PrimaryAssigneeUserId);
+        Assert.Equal(newRole == TaskAssignmentRole.Reviewer ? recipient.Id : null, task.ReviewerUserId);
+        Assert.Equal(newRole == TaskAssignmentRole.Support, fixture.Projects.Collaborators.Any(item => item.UserId == recipient.Id));
+        Assert.Equal(newRole == TaskAssignmentRole.Support ? 0 : 1, fixture.TaskNotifications.Requests.Count);
+        Assert.Equal(1, fixture.Invalidations.TaskAssignmentChangedCount);
+        Assert.Equal(1, fixture.CommandUnitOfWork.SaveCount);
+    }
+
+    [Fact]
+    [Trait("Scope", "TaskV1PR07B")]
+    public async Task HistoricalOwnerHoursRemainEditableWithoutCreatingCanonicalOwnership()
+    {
+        var fixture = ProjectFixture.Create();
+        var actor = fixture.AddUser();
+        var recipient = fixture.AddUser();
+        fixture.Current.UserIdValue = actor.Id;
+        fixture.AddProjectMember(actor.Id, ProjectRole.Manager);
+        var task = fixture.AddTask("Historical owner hours");
+        var assignment = fixture.AddLegacyAssignment(task, recipient, TaskAssignmentRole.Owner, actor.Id);
+
+        var result = await fixture.Service.UpdateAssignmentAsync(
+            assignment.Id,
+            new UpdateTaskAssignmentRequest(TaskAssignmentRole.Owner, 3, 1));
+
+        Assert.True(result.IsSuccess);
+        Assert.Null(task.PrimaryAssigneeUserId);
+        Assert.Null(task.ReviewerUserId);
+        Assert.Empty(fixture.TaskNotifications.Requests);
+        Assert.Equal(0, fixture.Invalidations.TaskAssignmentChangedCount);
+        Assert.Equal(1, fixture.Invalidations.TaskChangedCount);
+        Assert.Equal(1, fixture.CommandUnitOfWork.SaveCount);
+    }
+
+    [Theory]
+    [Trait("Scope", "TaskV1PR07B")]
+    [InlineData(TaskAssignmentRole.Assignee)]
+    [InlineData(TaskAssignmentRole.Reviewer)]
+    public async Task CanonicalRelationshipThenCompatibilityRowDoesNotDuplicateIntentOrSemanticEvent(TaskAssignmentRole role)
+    {
+        var fixture = ProjectFixture.Create();
+        var actor = fixture.AddUser();
+        var recipient = fixture.AddUser();
+        fixture.Current.UserIdValue = actor.Id;
+        fixture.AddProjectMember(actor.Id, ProjectRole.Manager);
+        fixture.AddProjectMember(recipient.Id, ProjectRole.Contributor);
+        var task = fixture.AddTask("Canonical then compatibility");
+
+        var canonical = role == TaskAssignmentRole.Assignee
+            ? await fixture.Commands.SetAssigneeAsync(task.Id, new TaskRelationshipUserRequest(recipient.Id, task.VersionNo))
+            : await fixture.Commands.SetReviewerAsync(task.Id, new TaskRelationshipUserRequest(recipient.Id, task.VersionNo));
+        var compatibility = await fixture.Service.AddAssignmentAsync(
+            task.Id,
+            new AddTaskAssignmentRequest(recipient.Id, role, 1));
+
+        Assert.True(canonical.IsSuccess);
+        Assert.True(compatibility.IsSuccess);
+        Assert.Single(fixture.TaskNotifications.Requests);
+        Assert.Equal(1, fixture.Invalidations.TaskChangedCount);
+        Assert.Equal(0, fixture.Invalidations.TaskAssignmentChangedCount);
+        Assert.Equal(1, fixture.CommandUnitOfWork.SaveCount);
+    }
+
+    [Theory]
+    [Trait("Scope", "TaskV1PR07B")]
+    [InlineData(TaskAssignmentRole.Assignee)]
+    [InlineData(TaskAssignmentRole.Reviewer)]
+    public async Task CompatibilityRowThenCanonicalRelationshipDoesNotDuplicateIntentOrVersion(TaskAssignmentRole role)
+    {
+        var fixture = ProjectFixture.Create();
+        var actor = fixture.AddUser();
+        var recipient = fixture.AddUser();
+        fixture.Current.UserIdValue = actor.Id;
+        fixture.AddProjectMember(actor.Id, ProjectRole.Manager);
+        fixture.AddProjectMember(recipient.Id, ProjectRole.Contributor);
+        var task = fixture.AddTask("Compatibility then canonical");
+
+        var compatibility = await fixture.Service.AddAssignmentAsync(
+            task.Id,
+            new AddTaskAssignmentRequest(recipient.Id, role, 1));
+        var committedVersion = task.VersionNo;
+        var canonical = role == TaskAssignmentRole.Assignee
+            ? await fixture.Commands.SetAssigneeAsync(task.Id, new TaskRelationshipUserRequest(recipient.Id, task.VersionNo))
+            : await fixture.Commands.SetReviewerAsync(task.Id, new TaskRelationshipUserRequest(recipient.Id, task.VersionNo));
+
+        Assert.True(compatibility.IsSuccess);
+        Assert.True(canonical.IsSuccess);
+        Assert.Single(fixture.TaskNotifications.Requests);
+        Assert.Equal(committedVersion, task.VersionNo);
+        Assert.Equal(1, fixture.Invalidations.TaskChangedCount);
+        Assert.Equal(1, fixture.Invalidations.TaskAssignmentChangedCount);
+    }
+
+    [Fact]
+    [Trait("Scope", "TaskV1PR07B")]
+    public async Task CompositeAssigneeToReviewerRoleChangeUsesOneSaveAndOneSemanticEvent()
+    {
+        var fixture = ProjectFixture.Create();
+        var actor = fixture.AddUser();
+        var recipient = fixture.AddUser();
+        fixture.Current.UserIdValue = actor.Id;
+        fixture.AddProjectMember(actor.Id, ProjectRole.Manager);
+        fixture.AddProjectMember(recipient.Id, ProjectRole.Contributor);
+        var task = fixture.AddTask("Composite role change");
+        task.PrimaryAssigneeUserId = recipient.Id;
+        var assignment = fixture.AddLegacyAssignment(task, recipient, TaskAssignmentRole.Assignee, actor.Id);
+
+        var result = await fixture.Service.UpdateAssignmentAsync(
+            assignment.Id,
+            new UpdateTaskAssignmentRequest(TaskAssignmentRole.Reviewer, 1, 0));
+
+        Assert.True(result.IsSuccess);
+        Assert.Null(task.PrimaryAssigneeUserId);
+        Assert.Equal(recipient.Id, task.ReviewerUserId);
+        Assert.Collection(
+            fixture.TaskNotifications.Requests,
+            request => Assert.Equal(TaskNotificationEventKind.PrimaryAssigneeChanged, request.EventKind),
+            request => Assert.Equal(TaskNotificationEventKind.ReviewerAssigned, request.EventKind));
+        Assert.Equal(["reviewerChanged"], fixture.Invalidations.TaskAssignmentChanges);
+        Assert.Equal(1, fixture.Invalidations.TaskChangedCount);
+        Assert.Equal(1, fixture.CommandUnitOfWork.SaveCount);
+        var watch = Assert.Single(fixture.Projects.Watches, state => state.UserId == recipient.Id);
+        Assert.Equal(WorkItemWatchAutomaticSource.Reviewer, watch.AutomaticSources);
+    }
+
+    [Theory]
+    [Trait("Scope", "TaskV1PR07B")]
+    [InlineData(TaskAssignmentRole.Assignee)]
+    [InlineData(TaskAssignmentRole.Reviewer)]
+    [InlineData(TaskAssignmentRole.Support)]
+    public async Task CompatibilityDeleteRemovesCanonicalMappingAndReconcilesWatch(TaskAssignmentRole role)
+    {
+        var fixture = ProjectFixture.Create();
+        var actor = fixture.AddUser();
+        var recipient = fixture.AddUser();
+        fixture.Current.UserIdValue = actor.Id;
+        fixture.AddProjectMember(actor.Id, ProjectRole.Manager);
+        var task = fixture.AddTask("Compatibility delete");
+        var assignment = fixture.AddLegacyAssignment(task, recipient, role, actor.Id);
+        var source = role switch
+        {
+            TaskAssignmentRole.Assignee => WorkItemWatchAutomaticSource.PrimaryAssignee,
+            TaskAssignmentRole.Reviewer => WorkItemWatchAutomaticSource.Reviewer,
+            _ => WorkItemWatchAutomaticSource.Collaborator
+        };
+        if (role == TaskAssignmentRole.Assignee) task.PrimaryAssigneeUserId = recipient.Id;
+        if (role == TaskAssignmentRole.Reviewer) task.ReviewerUserId = recipient.Id;
+        if (role == TaskAssignmentRole.Support)
+        {
+            fixture.Projects.Collaborators.Add(new WorkItemCollaborator
+            {
+                TaskItemId = task.Id,
+                UserId = recipient.Id,
+                AddedByUserId = actor.Id,
+                AddedAt = fixture.Clock.UtcNow
+            });
+        }
+        fixture.Projects.Watches.Add(new WorkItemWatchState
+        {
+            TaskItemId = task.Id,
+            UserId = recipient.Id,
+            AutomaticSources = source,
+            IsWatching = true,
+            UpdatedAt = fixture.Clock.UtcNow
+        });
+
+        var result = await fixture.Service.DeleteAssignmentAsync(assignment.Id);
+
+        Assert.True(result.IsSuccess);
+        Assert.Null(task.PrimaryAssigneeUserId);
+        Assert.Null(task.ReviewerUserId);
+        Assert.DoesNotContain(fixture.Projects.Collaborators, item => item.UserId == recipient.Id);
+        Assert.Equal(role == TaskAssignmentRole.Assignee ? 1 : 0, fixture.TaskNotifications.Requests.Count);
+        Assert.Equal(1, fixture.Invalidations.TaskChangedCount);
+        Assert.Equal(1, fixture.Invalidations.TaskAssignmentChangedCount);
+        var watch = Assert.Single(fixture.Projects.Watches, state => state.UserId == recipient.Id);
+        Assert.Equal(WorkItemWatchAutomaticSource.None, watch.AutomaticSources);
+        Assert.False(watch.IsWatching);
+        Assert.Equal(1, fixture.CommandUnitOfWork.SaveCount);
+    }
+
+    [Fact]
+    [Trait("Scope", "TaskV1PR07B")]
+    public async Task ActivePrimaryAssigneeCannotBeClearedThroughCompatibilityDelete()
+    {
+        var fixture = ProjectFixture.Create();
+        var actor = fixture.AddUser();
+        var recipient = fixture.AddUser();
+        fixture.Current.UserIdValue = actor.Id;
+        fixture.AddProjectMember(actor.Id, ProjectRole.Manager);
+        var task = fixture.AddTask("Active assignment");
+        task.Status = TaskItemStatus.InProgress;
+        task.PrimaryAssigneeUserId = recipient.Id;
+        var assignment = fixture.AddLegacyAssignment(task, recipient, TaskAssignmentRole.Assignee, actor.Id);
+
+        var result = await fixture.Service.DeleteAssignmentAsync(assignment.Id);
+
+        Assert.False(result.IsSuccess);
+        Assert.StartsWith("TASK_ASSIGNEE_REQUIRED|", result.Error);
+        Assert.Equal(recipient.Id, task.PrimaryAssigneeUserId);
+        Assert.Contains(assignment, fixture.Projects.Assignments);
+        Assert.Equal(0, fixture.CommandUnitOfWork.SaveCount);
+        Assert.Empty(fixture.TaskNotifications.Requests);
+    }
+
+    [Fact]
+    [Trait("Scope", "TaskV1PR07B")]
+    public async Task AmbiguousCompatibilitySingletonFailsBeforeMutation()
+    {
+        var fixture = ProjectFixture.Create();
+        var actor = fixture.AddUser();
+        var first = fixture.AddUser();
+        var second = fixture.AddUser();
+        fixture.Current.UserIdValue = actor.Id;
+        fixture.AddProjectMember(actor.Id, ProjectRole.Manager);
+        fixture.AddProjectMember(first.Id, ProjectRole.Contributor);
+        fixture.AddProjectMember(second.Id, ProjectRole.Contributor);
+        var task = fixture.AddTask("Ambiguous compatibility rows");
+        task.PrimaryAssigneeUserId = first.Id;
+        fixture.AddLegacyAssignment(task, first, TaskAssignmentRole.Assignee, actor.Id);
+
+        var result = await fixture.Service.AddAssignmentAsync(
+            task.Id,
+            new AddTaskAssignmentRequest(second.Id, TaskAssignmentRole.Assignee, 1));
+
+        Assert.False(result.IsSuccess);
+        Assert.StartsWith("TASK_ASSIGNMENT_AMBIGUOUS|", result.Error);
+        Assert.Equal(first.Id, task.PrimaryAssigneeUserId);
+        Assert.Single(fixture.Projects.Assignments);
+        Assert.Equal(0, fixture.CommandUnitOfWork.SaveCount);
+        Assert.Equal(0, fixture.Invalidations.TaskChangedCount);
+    }
+
+    [Fact]
+    [Trait("Scope", "TaskV1PR07B")]
+    public async Task CompatibilityReviewerCannotEqualCanonicalPrimaryAssignee()
+    {
+        var fixture = ProjectFixture.Create();
+        var actor = fixture.AddUser();
+        var primaryAssignee = fixture.AddUser();
+        fixture.Current.UserIdValue = actor.Id;
+        fixture.AddProjectMember(actor.Id, ProjectRole.Manager);
+        fixture.AddProjectMember(primaryAssignee.Id, ProjectRole.Contributor);
+        var task = fixture.AddTask("Distinct reviewer");
+        task.PrimaryAssigneeUserId = primaryAssignee.Id;
+
+        var result = await fixture.Service.AddAssignmentAsync(
+            task.Id,
+            new AddTaskAssignmentRequest(primaryAssignee.Id, TaskAssignmentRole.Reviewer, 1));
+
+        Assert.False(result.IsSuccess);
+        Assert.StartsWith("TASK_REVIEWER_MUST_DIFFER|", result.Error);
+        Assert.Null(task.ReviewerUserId);
+        Assert.Empty(fixture.Projects.Assignments);
+        Assert.Equal(0, fixture.CommandUnitOfWork.SaveCount);
     }
 
     [Theory]
@@ -599,6 +967,41 @@ public sealed class ProjectServiceTests
     }
 
     [Fact]
+    [Trait("Scope", "TaskV1PR07B")]
+    public async Task CompatibilityOrdinaryTaskCommentNeverProducesTaskNotification()
+    {
+        var fixture = ProjectFixture.Create();
+        var actor = fixture.AddUser();
+        fixture.Current.UserIdValue = actor.Id;
+        fixture.AddProjectMember(actor.Id, ProjectRole.Contributor);
+        var task = fixture.AddTask("Compatibility comment");
+
+        var result = await fixture.Service.AddCommentAsync(
+            new CreateCommentRequest(CommentTargetType.TaskItem, task.Id, "Ordinary comment"));
+
+        Assert.True(result.IsSuccess);
+        Assert.Single(fixture.Projects.Comments);
+        Assert.Empty(fixture.TaskNotifications.Requests);
+        Assert.Equal(0, fixture.Invalidations.TaskAssignmentChangedCount);
+        Assert.Equal(1, fixture.UnitOfWork.SaveCount);
+    }
+
+    [Fact]
+    [Trait("Scope", "TaskV1PR07B")]
+    public void CompatibilityProjectServiceUsesCentralTaskProducerAndNoLegacyNotificationDependency()
+    {
+        var constructor = Assert.Single(typeof(ProjectService).GetConstructors());
+        var parameters = constructor.GetParameters();
+
+        Assert.DoesNotContain(
+            parameters,
+            parameter => parameter.ParameterType == typeof(INotificationService));
+        Assert.Contains(
+            parameters,
+            parameter => parameter.ParameterType == typeof(ITaskNotificationProducer));
+    }
+
+    [Fact]
     public async Task SoftDeletedProjectIsHiddenFromNormalList()
     {
         var fixture = ProjectFixture.Create();
@@ -974,11 +1377,11 @@ public sealed class ProjectServiceTests
                 Current,
                 Clock,
                 Audit,
-                Notifications,
-                new NoopInvalidations(),
+                Invalidations,
                 new NoopAuthorizationChanges(),
                 UnitOfWork,
-                CommandUnitOfWork);
+                CommandUnitOfWork,
+                taskNotifications: TaskNotifications);
             Commands = new TaskCommandService(
                 Projects,
                 Groups,
@@ -990,7 +1393,8 @@ public sealed class ProjectServiceTests
                 Audit,
                 new NoopInvalidations(),
                 new FakeTaskCommandUnitOfWork(),
-                new UtcTimeZoneResolver());
+                new UtcTimeZoneResolver(),
+                taskNotifications: TaskNotifications);
         }
 
         public FakeUsers Users { get; } = new();
@@ -1000,9 +1404,10 @@ public sealed class ProjectServiceTests
         public FakeCurrentUser Current { get; } = new();
         public FakeClock Clock { get; } = new();
         public FakeAuditLogger Audit { get; } = new();
-        public FakeNotifications Notifications { get; } = new();
         public FakeUnitOfWork UnitOfWork { get; } = new();
         public FakeTaskCommandUnitOfWork CommandUnitOfWork { get; } = new();
+        public RecordingTaskNotificationProducer TaskNotifications { get; } = new();
+        public RecordingInvalidations Invalidations { get; } = new();
         public WorkspaceAuthorizationService WorkspaceAuthorization { get; }
         public GroupAuthorizationService GroupAuthorization { get; }
         public ProjectAuthorizationService ProjectAuthorization { get; }
@@ -1101,11 +1506,66 @@ public sealed class ProjectServiceTests
             Projects.Milestones[milestone.Id] = milestone;
             return milestone;
         }
+
+        public TaskAssignment AddLegacyAssignment(
+            TaskItem task,
+            User user,
+            TaskAssignmentRole role,
+            Guid actorUserId)
+        {
+            var assignment = new TaskAssignment
+            {
+                TaskItemId = task.Id,
+                TaskItem = task,
+                UserId = user.Id,
+                User = user,
+                Role = role,
+                AssignedByUserId = actorUserId,
+                AssignedAt = Clock.UtcNow
+            };
+            Projects.Assignments.Add(assignment);
+            return assignment;
+        }
     }
 
     private sealed class NoopInvalidations : IBusinessInvalidationPublisher
     {
         public Task TaskChangedAsync(TaskItem task, Guid actorUserId, string change, IEnumerable<string>? changedFields = null, IEnumerable<Guid>? affectedUserIds = null, CancellationToken cancellationToken = default) => Task.CompletedTask;
+        public Task ProjectChangedAsync(Project project, Guid actorUserId, string change, CancellationToken cancellationToken = default) => Task.CompletedTask;
+        public Task AnnouncementChangedAsync(Announcement announcement, Guid actorUserId, string change, IEnumerable<Guid> audienceUserIds, CancellationToken cancellationToken = default) => Task.CompletedTask;
+        public Task FileChangedAsync(FileObject fileObject, Attachment attachment, Guid actorUserId, string change, CancellationToken cancellationToken = default) => Task.CompletedTask;
+    }
+
+    private sealed class RecordingInvalidations : IBusinessInvalidationPublisher
+    {
+        public int TaskChangedCount { get; private set; }
+        public int TaskAssignmentChangedCount { get; private set; }
+        public List<string> TaskAssignmentChanges { get; } = [];
+
+        public Task TaskChangedAsync(
+            TaskItem task,
+            Guid actorUserId,
+            string change,
+            IEnumerable<string>? changedFields = null,
+            IEnumerable<Guid>? affectedUserIds = null,
+            CancellationToken cancellationToken = default)
+        {
+            TaskChangedCount++;
+            return Task.CompletedTask;
+        }
+
+        public Task TaskAssignmentChangedAsync(
+            TaskItem task,
+            Guid actorUserId,
+            string change,
+            IEnumerable<Guid>? affectedUserIds = null,
+            CancellationToken cancellationToken = default)
+        {
+            TaskAssignmentChangedCount++;
+            TaskAssignmentChanges.Add(change);
+            return Task.CompletedTask;
+        }
+
         public Task ProjectChangedAsync(Project project, Guid actorUserId, string change, CancellationToken cancellationToken = default) => Task.CompletedTask;
         public Task AnnouncementChangedAsync(Announcement announcement, Guid actorUserId, string change, IEnumerable<Guid> audienceUserIds, CancellationToken cancellationToken = default) => Task.CompletedTask;
         public Task FileChangedAsync(FileObject fileObject, Attachment attachment, Guid actorUserId, string change, CancellationToken cancellationToken = default) => Task.CompletedTask;
@@ -1145,6 +1605,8 @@ public sealed class ProjectServiceTests
         public List<TaskAssignment> Assignments { get; } = [];
         public List<TaskDependency> Dependencies { get; } = [];
         public List<Comment> Comments { get; } = [];
+        public List<WorkItemCollaborator> Collaborators { get; } = [];
+        public List<WorkItemWatchState> Watches { get; } = [];
         private readonly object memberLookupSync = new();
         private readonly TaskCompletionSource firstMemberLookupEntered = new(TaskCreationOptions.RunContinuationsAsynchronously);
         private readonly TaskCompletionSource releaseMemberLookups = new(TaskCreationOptions.RunContinuationsAsynchronously);
@@ -1187,6 +1649,7 @@ public sealed class ProjectServiceTests
         public Task<TaskItem?> GetTaskAsync(Guid taskItemId, CancellationToken cancellationToken = default) => Task.FromResult(Tasks.GetValueOrDefault(taskItemId));
         public Task<TaskWorkflowStage?> GetWorkflowStageAsync(Guid workflowStageId, CancellationToken cancellationToken = default) => Task.FromResult(Stages.GetValueOrDefault(workflowStageId));
         public Task<IReadOnlyList<TaskWorkflowStage>> ListWorkflowStagesAsync(Guid projectId, CancellationToken cancellationToken = default) => Task.FromResult<IReadOnlyList<TaskWorkflowStage>>(Stages.Values.Where(stage => stage.ProjectId == projectId).ToList());
+        public Task<IReadOnlyList<WorkItemCollaborator>> ListCollaboratorsAsync(Guid taskItemId, CancellationToken cancellationToken = default) => Task.FromResult<IReadOnlyList<WorkItemCollaborator>>(Collaborators.Where(item => item.TaskItemId == taskItemId).ToList());
         public Task<IReadOnlyList<TaskAssignment>> ListAssignmentsAsync(Guid taskItemId, CancellationToken cancellationToken = default) => Task.FromResult<IReadOnlyList<TaskAssignment>>(Assignments.Where(assignment => assignment.TaskItemId == taskItemId).ToList());
         public Task<TaskAssignment?> GetAssignmentAsync(Guid assignmentId, CancellationToken cancellationToken = default)
         {
@@ -1203,16 +1666,20 @@ public sealed class ProjectServiceTests
         public Task<bool> DependencyExistsAsync(Guid predecessorTaskId, Guid successorTaskId, CancellationToken cancellationToken = default) => Task.FromResult(Dependencies.Any(dependency => dependency.PredecessorTaskItemId == predecessorTaskId && dependency.SuccessorTaskItemId == successorTaskId));
         public Task<IReadOnlyList<Comment>> ListCommentsAsync(CommentTargetType targetType, Guid targetId, CancellationToken cancellationToken = default) => Task.FromResult<IReadOnlyList<Comment>>(Comments.Where(comment => comment.TargetType == targetType && comment.TargetId == targetId).ToList());
         public Task<Comment?> GetCommentAsync(Guid commentId, CancellationToken cancellationToken = default) => Task.FromResult(Comments.FirstOrDefault(comment => comment.Id == commentId));
+        public Task<IReadOnlyList<WorkItemWatchState>> ListWatchStatesAsync(Guid taskItemId, CancellationToken cancellationToken = default) => Task.FromResult<IReadOnlyList<WorkItemWatchState>>(Watches.Where(state => state.TaskItemId == taskItemId).ToList());
         public Task AddProjectAsync(Project project, CancellationToken cancellationToken = default) { ProjectItems[project.Id] = project; return Task.CompletedTask; }
         public Task AddMemberAsync(ProjectMember member, CancellationToken cancellationToken = default) { Members.Add(member); return Task.CompletedTask; }
         public Task AddMilestoneAsync(Milestone milestone, CancellationToken cancellationToken = default) { Milestones[milestone.Id] = milestone; return Task.CompletedTask; }
         public Task AddTaskAsync(TaskItem task, CancellationToken cancellationToken = default) { Tasks[task.Id] = task; return Task.CompletedTask; }
+        public Task AddCollaboratorAsync(WorkItemCollaborator collaborator, CancellationToken cancellationToken = default) { Collaborators.Add(collaborator); return Task.CompletedTask; }
         public Task AddAssignmentAsync(TaskAssignment assignment, CancellationToken cancellationToken = default) { Assignments.Add(assignment); return Task.CompletedTask; }
         public Task AddDependencyAsync(TaskDependency dependency, CancellationToken cancellationToken = default) { Dependencies.Add(dependency); return Task.CompletedTask; }
         public Task AddCommentAsync(Comment comment, CancellationToken cancellationToken = default) { Comments.Add(comment); return Task.CompletedTask; }
+        public Task AddWatchStateAsync(WorkItemWatchState watchState, CancellationToken cancellationToken = default) { Watches.Add(watchState); return Task.CompletedTask; }
         public void RemoveMember(ProjectMember member) => Members.Remove(member);
         public void RemoveAssignment(TaskAssignment assignment) => Assignments.Remove(assignment);
         public void RemoveDependency(TaskDependency dependency) => Dependencies.Remove(dependency);
+        public void RemoveCollaborator(WorkItemCollaborator collaborator) => Collaborators.Remove(collaborator);
     }
 
     private sealed class FakeUsers : IUserRepository
@@ -1267,6 +1734,27 @@ public sealed class ProjectServiceTests
             return Task.CompletedTask;
         }
     }
-    private sealed class FakeNotifications : INotificationService { public Task NotifyAsync(Guid recipientUserId, string title, string? body, string sourceType, Guid sourceId, CancellationToken cancellationToken = default) => Task.CompletedTask; }
-    private sealed class FakeUnitOfWork : IUnitOfWork { public Task<int> SaveChangesAsync(CancellationToken cancellationToken = default) => Task.FromResult(1); }
+    private sealed class RecordingTaskNotificationProducer : ITaskNotificationProducer
+    {
+        public List<TaskNotificationRecipientRequest> Requests { get; } = [];
+
+        public Task ProduceAsync(
+            TaskNotificationRecipientRequest request,
+            CancellationToken cancellationToken = default)
+        {
+            Requests.Add(request);
+            return Task.CompletedTask;
+        }
+    }
+
+    private sealed class FakeUnitOfWork : IUnitOfWork
+    {
+        public int SaveCount { get; private set; }
+
+        public Task<int> SaveChangesAsync(CancellationToken cancellationToken = default)
+        {
+            SaveCount++;
+            return Task.FromResult(1);
+        }
+    }
 }

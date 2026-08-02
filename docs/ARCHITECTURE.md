@@ -138,8 +138,33 @@ The database-backed mechanism is used selectively by files, artifacts, integrati
 TASK-V1-PR07-A registers `tasks.notificationsV1` in that same central registry.
 It is disabled by default for tenants without an explicit enablement; it does
 not gate preference authorization, privacy, logical dedupe, or the existing
-Notification lifecycle. The key is a rollout boundary for later Task
-notification producers, not a switch for the PR07-A persistence/API contract.
+Notification lifecycle. PR07-B uses it only to stop new immediate Task
+Notification intent production. It does not change command authorization. When
+intent production is enabled, recipient authorization, actor suppression,
+privacy checks, and logical-key dedupe remain mandatory.
+
+PR07-B keeps immediate Task notification production inside the modular
+monolith's existing command unit of work. `TaskNotificationRecipientPolicy`
+owns mandatory and optional Watch-derived recipient expansion. Task and
+relationship mutations, AuditLog entries, approved reference-only business
+events, recipient Notification rows, and recipient-only
+`Notifications.NotificationCreated.v1` refetch signals are staged before the
+same EF save. Nothing is delivered through SignalR before that transaction
+commits. Canonical versioned Task commands and the legacy Task-assignment
+compatibility adapter share this same policy and unit of work. The adapter maps
+`Assignee` to Primary Assignee, `Reviewer` to Reviewer, and `Support` to
+Collaborator; it produces an assignment semantic and Notification intent only
+when that canonical relationship actually changes. A canonical-first mirror is
+therefore notification-idempotent. New or changed-to legacy `Owner` rows and
+operations that would ambiguously change canonical state fail closed, while
+historical same-role `Owner` maintenance/removal and mismatched-row removal
+remain non-canonical cleanup. The legacy ordinary-comment notify-all helper is
+removed.
+
+The canonical Task detail update owns the distinct timestamp-valued
+`DeadlineAt` mutation and server classification. Gantt schedule commands retain
+day-precision planned dates only. PR07-B does not add a digest worker,
+notification-open route, dispatch/routing changes, or frontend behavior.
 
 The appsettings `Features:*` switches are bound but not read by feature controllers/services. Most `Platform:*` switches are also not enforcement gates. Treat them as partially implemented configuration, not authoritative runtime controls.
 

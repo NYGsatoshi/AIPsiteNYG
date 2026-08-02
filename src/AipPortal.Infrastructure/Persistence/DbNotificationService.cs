@@ -18,6 +18,72 @@ public sealed class DbNotificationService(
 {
     private const string NotificationUserStateIdentityIndex = "IX_notification_user_states_TenantId_UserId";
 
+    public async Task<Guid> StageTaskByLogicalKeyAsync(
+        Guid userId,
+        NotificationType type,
+        string title,
+        Guid taskId,
+        string logicalKey,
+        CancellationToken cancellationToken = default)
+    {
+        if (!currentTenant.IsAvailable)
+        {
+            throw new InvalidOperationException("A tenant scope is required to stage a task notification.");
+        }
+
+        if (userId == Guid.Empty)
+        {
+            throw new ArgumentException("A notification recipient is required.", nameof(userId));
+        }
+
+        if (taskId == Guid.Empty)
+        {
+            throw new ArgumentException("A task reference is required.", nameof(taskId));
+        }
+
+        var normalizedTitle = title.Trim();
+        if (normalizedTitle.Length == 0)
+        {
+            throw new ArgumentException("A notification title is required.", nameof(title));
+        }
+
+        var normalizedLogicalKey = NormalizeLogicalKey(logicalKey);
+        var local = FindLocalLogicalNotification(userId, normalizedLogicalKey);
+        if (local is not null)
+        {
+            return local.Id;
+        }
+
+        var existing = await FindLogicalNotificationAsync(userId, normalizedLogicalKey, cancellationToken);
+        if (existing.HasValue)
+        {
+            // Logical identity includes soft-deleted rows. A retry must not
+            // resurrect the notification or emit another realtime signal.
+            return existing.Value;
+        }
+
+        var now = clock.UtcNow;
+        var state = await GetOrCreateUserStateAsync(userId, now, cancellationToken);
+        var stateVersion = AdvanceState(state, now);
+        var notification = new Notification
+        {
+            TenantId = currentTenant.TenantId,
+            UserId = userId,
+            LogicalKey = normalizedLogicalKey,
+            NotificationType = type,
+            Title = normalizedTitle,
+            Body = null,
+            RelatedEntityType = "TaskItem",
+            RelatedEntityId = taskId,
+            CreatedAt = now,
+            StateVersion = stateVersion
+        };
+
+        await dbContext.Notifications.AddAsync(notification, cancellationToken);
+        await EnqueueTaskCreatedAsync(notification, stateVersion, cancellationToken);
+        return notification.Id;
+    }
+
     public async Task<Guid> CreateOrGetByLogicalKeyAsync(
         Guid userId,
         NotificationType type,
@@ -34,10 +100,7 @@ public sealed class DbNotificationService(
         }
 
         var normalizedLogicalKey = NormalizeLogicalKey(logicalKey);
-        var local = dbContext.Notifications.Local.FirstOrDefault(notification =>
-            notification.TenantId == currentTenant.TenantId &&
-            notification.UserId == userId &&
-            string.Equals(notification.LogicalKey, normalizedLogicalKey, StringComparison.Ordinal));
+        var local = FindLocalLogicalNotification(userId, normalizedLogicalKey);
         if (local is not null)
         {
             return local.Id;
@@ -353,6 +416,14 @@ public sealed class DbNotificationService(
             .SingleOrDefaultAsync(cancellationToken);
     }
 
+    private Notification? FindLocalLogicalNotification(Guid userId, string logicalKey)
+    {
+        return dbContext.Notifications.Local.FirstOrDefault(notification =>
+            notification.TenantId == currentTenant.TenantId &&
+            notification.UserId == userId &&
+            string.Equals(notification.LogicalKey, logicalKey, StringComparison.Ordinal));
+    }
+
     private static string NormalizeLogicalKey(string logicalKey)
     {
         if (string.IsNullOrWhiteSpace(logicalKey))
@@ -426,6 +497,14 @@ public sealed class DbNotificationService(
 
     private async Task<NotificationUserState> GetOrCreateUserStateAsync(Guid userId, DateTimeOffset now, CancellationToken cancellationToken)
     {
+        var local = dbContext.NotificationUserStates.Local.FirstOrDefault(item =>
+            item.TenantId == currentTenant.TenantId &&
+            item.UserId == userId);
+        if (local is not null)
+        {
+            return local;
+        }
+
         var state = await dbContext.NotificationUserStates.SingleOrDefaultAsync(item => item.UserId == userId, cancellationToken);
         if (state is not null)
         {
@@ -448,6 +527,33 @@ public sealed class DbNotificationService(
         state.Version = checked(state.Version + 1);
         state.UpdatedAt = now;
         return state.Version;
+    }
+
+    private async Task EnqueueTaskCreatedAsync(Notification notification, long stateVersion, CancellationToken cancellationToken)
+    {
+        if (outbox is null || !currentTenant.IsAvailable)
+        {
+            return;
+        }
+
+        // Task notification signals are intentionally reference-only. The
+        // recipient must re-authorize and refetch the current projection; no
+        // task title, comment/review content, route, or relationship state is
+        // durable in this event.
+        var payload = System.Text.Json.JsonSerializer.SerializeToElement(new
+        {
+            notificationId = notification.Id,
+            stateVersion,
+            requiresRefetch = true
+        });
+        await EnqueueAsync(
+            "Notifications.NotificationCreated.v1",
+            notification.Id,
+            notification.StateVersion,
+            notification.CreatedAt,
+            payload,
+            notification.UserId,
+            cancellationToken);
     }
 
     private async Task EnqueueCreatedAsync(Notification notification, long stateVersion, CancellationToken cancellationToken)

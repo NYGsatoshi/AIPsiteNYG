@@ -953,6 +953,252 @@ public sealed class TaskCommandServiceTests
         Assert.Equal(2, fixture.UnitOfWork.SaveCount);
     }
 
+    [Fact]
+    [Trait("Scope", "TaskV1PR07B")]
+    public async Task ReplacingPrimaryAssigneeCapturesBothSidesAndQueuesAssignmentSemanticEvent()
+    {
+        var fixture = Fixture.Create();
+        var task = fixture.AddTask("relationship notification");
+        var previousAssignee = Guid.NewGuid();
+        var newAssignee = Guid.NewGuid();
+        var reviewer = Guid.NewGuid();
+        task.PrimaryAssigneeUserId = previousAssignee;
+        task.ReviewerUserId = reviewer;
+
+        var result = await fixture.Service.SetAssigneeAsync(
+            task.Id,
+            new TaskRelationshipUserRequest(newAssignee, task.VersionNo));
+
+        Assert.True(result.IsSuccess);
+        var notification = Assert.Single(fixture.Notifications.Requests);
+        Assert.Equal(TaskNotificationEventKind.PrimaryAssigneeChanged, notification.EventKind);
+        Assert.Equal(previousAssignee, notification.PreviousPrimaryAssigneeUserId);
+        Assert.Equal(newAssignee, notification.NewPrimaryAssigneeUserId);
+        Assert.Equal(fixture.Actor, notification.ActorUserId);
+        Assert.Equal(2, notification.Task.VersionNo);
+
+        var semantic = Assert.Single(fixture.Invalidations.TaskAssignmentChanges);
+        Assert.Equal(task.Id, semantic.TaskId);
+        Assert.Equal("assigneeChanged", semantic.Change);
+        Assert.True(
+            semantic.AffectedUserIds.ToHashSet().SetEquals(
+                [previousAssignee, newAssignee, reviewer]));
+    }
+
+    [Fact]
+    [Trait("Scope", "TaskV1PR07B")]
+    public async Task AssigningReviewerQueuesReviewerRequestAndAssignmentSemanticEvent()
+    {
+        var fixture = Fixture.Create();
+        var task = fixture.AddTask("reviewer notification");
+        task.PrimaryAssigneeUserId = Guid.NewGuid();
+        var reviewer = Guid.NewGuid();
+
+        var result = await fixture.Service.SetReviewerAsync(
+            task.Id,
+            new TaskRelationshipUserRequest(reviewer, task.VersionNo));
+
+        Assert.True(result.IsSuccess);
+        var notification = Assert.Single(fixture.Notifications.Requests);
+        Assert.Equal(TaskNotificationEventKind.ReviewerAssigned, notification.EventKind);
+        Assert.Equal(reviewer, notification.NewReviewerUserId);
+        Assert.Equal(fixture.Actor, notification.ActorUserId);
+
+        var semantic = Assert.Single(fixture.Invalidations.TaskAssignmentChanges);
+        Assert.Equal(task.Id, semantic.TaskId);
+        Assert.Equal("reviewerChanged", semantic.Change);
+        Assert.Contains(reviewer, semantic.AffectedUserIds);
+    }
+
+    [Fact]
+    [Trait("Scope", "TaskV1PR07B")]
+    public async Task OnlyFalseToTrueBlockedTransitionQueuesBlockedNotification()
+    {
+        var fixture = Fixture.Create();
+        var task = fixture.AddTask("blocked notification");
+
+        var alreadyUnblocked = await fixture.Service.SetBlockedStateAsync(
+            task.Id,
+            new TaskBlockedStateRequest(false, null, task.VersionNo));
+        var becameBlocked = await fixture.Service.SetBlockedStateAsync(
+            task.Id,
+            new TaskBlockedStateRequest(true, "External dependency", task.VersionNo));
+        var alreadyBlocked = await fixture.Service.SetBlockedStateAsync(
+            task.Id,
+            new TaskBlockedStateRequest(true, "External dependency", task.VersionNo));
+        var becameUnblocked = await fixture.Service.SetBlockedStateAsync(
+            task.Id,
+            new TaskBlockedStateRequest(false, null, task.VersionNo));
+
+        Assert.True(alreadyUnblocked.IsSuccess);
+        Assert.True(becameBlocked.IsSuccess);
+        Assert.True(alreadyBlocked.IsSuccess);
+        Assert.True(becameUnblocked.IsSuccess);
+        var notification = Assert.Single(fixture.Notifications.Requests);
+        Assert.Equal(TaskNotificationEventKind.BecameBlocked, notification.EventKind);
+        Assert.Equal(fixture.Actor, notification.ActorUserId);
+        Assert.Equal(2, fixture.UnitOfWork.SaveCount);
+    }
+
+    [Fact]
+    [Trait("Scope", "TaskV1PR07B")]
+    public async Task ReviewSubmitAndReturnQueueTheirDistinctRecipientCategories()
+    {
+        var submittedFixture = Fixture.Create();
+        var submittedTask = submittedFixture.AddTask("submit review");
+        submittedTask.PrimaryAssigneeUserId = submittedFixture.Actor;
+        submittedTask.ReviewerUserId = Guid.NewGuid();
+
+        var submitted = await submittedFixture.Service.SubmitReviewAsync(
+            submittedTask.Id,
+            new TaskReviewRequest(submittedTask.VersionNo));
+
+        Assert.True(submitted.IsSuccess);
+        Assert.Equal(
+            TaskNotificationEventKind.ReviewSubmitted,
+            Assert.Single(submittedFixture.Notifications.Requests).EventKind);
+
+        var returnedFixture = Fixture.Create();
+        var returnedTask = returnedFixture.AddTask("return review");
+        returnedTask.PrimaryAssigneeUserId = Guid.NewGuid();
+        returnedTask.ReviewerUserId = returnedFixture.Actor;
+        returnedTask.ReviewStatus = TaskReviewStatus.Submitted;
+
+        var returned = await returnedFixture.Service.ReturnReviewAsync(
+            returnedTask.Id,
+            new TaskReviewRequest(returnedTask.VersionNo, "Needs another pass"));
+
+        Assert.True(returned.IsSuccess);
+        Assert.Equal(
+            TaskNotificationEventKind.ReviewReturned,
+            Assert.Single(returnedFixture.Notifications.Requests).EventKind);
+    }
+
+    public static TheoryData<DateTimeOffset?, DateTimeOffset?, TaskDeadlineChangeClassification> MajorDeadlineCases =>
+        new()
+        {
+            { null, new DateTimeOffset(2026, 7, 27, 0, 0, 0, TimeSpan.Zero), TaskDeadlineChangeClassification.Added },
+            { new DateTimeOffset(2026, 7, 27, 0, 0, 0, TimeSpan.Zero), null, TaskDeadlineChangeClassification.Removed },
+            {
+                new DateTimeOffset(2026, 7, 27, 0, 0, 0, TimeSpan.Zero),
+                new DateTimeOffset(2026, 7, 28, 0, 0, 0, TimeSpan.Zero),
+                TaskDeadlineChangeClassification.ShiftAtLeast24Hours
+            },
+            {
+                new DateTimeOffset(2026, 7, 25, 23, 30, 0, TimeSpan.Zero),
+                new DateTimeOffset(2026, 7, 26, 0, 30, 0, TimeSpan.Zero),
+                TaskDeadlineChangeClassification.CrossedUrgencyBoundary
+            }
+        };
+
+    [Theory]
+    [MemberData(nameof(MajorDeadlineCases))]
+    [Trait("Scope", "TaskV1PR07B")]
+    public async Task HardDeadlineMutationQueuesServerClassificationAndSafeAuditMetadata(
+        DateTimeOffset? persistedDeadline,
+        DateTimeOffset? requestedDeadline,
+        TaskDeadlineChangeClassification expectedClassification)
+    {
+        var fixture = Fixture.Create();
+        var task = fixture.AddTask("restricted task title must not enter audit metadata");
+        task.DeadlineAt = persistedDeadline;
+
+        var result = await fixture.Service.UpdateDetailsAsync(
+            task.Id,
+            new TaskUpdateDetailsRequest(
+                task.Title,
+                null,
+                TaskPriority.Medium,
+                null,
+                null,
+                0,
+                task.VersionNo,
+                new OptionalDateTimeOffset(true, requestedDeadline)));
+
+        Assert.True(result.IsSuccess);
+        Assert.Equal(requestedDeadline, task.DeadlineAt);
+        var notification = Assert.Single(fixture.Notifications.Requests);
+        Assert.Equal(TaskNotificationEventKind.MajorDeadlineChanged, notification.EventKind);
+        Assert.Equal(expectedClassification, notification.DeadlineChangeClassification);
+
+        var audit = Assert.Single(fixture.Audit.Entries);
+        Assert.Equal(
+            expectedClassification.ToString(),
+            audit.Metadata!["deadlineChangeClassification"]);
+        Assert.Equal(
+            ["deadlineChangeClassification", "reasonProvided", "versionBefore"],
+            audit.Metadata.Keys.Order(StringComparer.Ordinal).ToArray());
+        Assert.DoesNotContain(
+            audit.Metadata.Values.OfType<string>(),
+            value => value.Contains(task.Title, StringComparison.Ordinal) ||
+                     value.Contains("2026-07", StringComparison.Ordinal));
+    }
+
+    [Fact]
+    [Trait("Scope", "TaskV1PR07B")]
+    public async Task PlannedEndOnlyScheduleChangeDoesNotClassifyOrMutateHardDeadline()
+    {
+        var fixture = Fixture.Create();
+        var task = fixture.AddTask("planned dates are separate");
+        var deadline = new DateTimeOffset(2026, 7, 30, 12, 0, 0, TimeSpan.Zero);
+        task.DeadlineAt = deadline;
+
+        var result = await fixture.Service.UpdateScheduleAsync(
+            task.Id,
+            new TaskScheduleUpdateRequest(
+                null,
+                new DateOnly(2026, 7, 29),
+                null,
+                task.VersionNo));
+
+        Assert.True(result.IsSuccess);
+        Assert.Equal(deadline, task.DeadlineAt);
+        Assert.Empty(fixture.Notifications.Requests);
+        Assert.DoesNotContain(
+            fixture.Audit.Entries,
+            entry => entry.Metadata?.ContainsKey("deadlineChangeClassification") == true);
+    }
+
+    [Fact]
+    [Trait("Scope", "TaskV1PR07B")]
+    public async Task StaleVersionQueuesNeitherRecipientRequestNorSave()
+    {
+        var fixture = Fixture.Create();
+        var task = fixture.AddTask("stale notification");
+
+        var result = await fixture.Service.SetAssigneeAsync(
+            task.Id,
+            new TaskRelationshipUserRequest(Guid.NewGuid(), task.VersionNo + 1));
+
+        Assert.StartsWith("TASK_STALE_VERSION|", result.Error);
+        Assert.Empty(fixture.Notifications.Requests);
+        Assert.Empty(fixture.Invalidations.TaskAssignmentChanges);
+        Assert.Empty(fixture.Audit.Entries);
+        Assert.Equal(0, fixture.UnitOfWork.SaveCount);
+    }
+
+    [Fact]
+    [Trait("Scope", "TaskV1PR07B")]
+    public async Task RepeatingSameRelationshipDoesNotQueueASecondRequestOrSave()
+    {
+        var fixture = Fixture.Create();
+        var task = fixture.AddTask("idempotent relationship");
+        var assignee = Guid.NewGuid();
+
+        var first = await fixture.Service.SetAssigneeAsync(
+            task.Id,
+            new TaskRelationshipUserRequest(assignee, task.VersionNo));
+        var duplicate = await fixture.Service.SetAssigneeAsync(
+            task.Id,
+            new TaskRelationshipUserRequest(assignee, task.VersionNo));
+
+        Assert.True(first.IsSuccess);
+        Assert.True(duplicate.IsSuccess);
+        Assert.Single(fixture.Notifications.Requests);
+        Assert.Single(fixture.Invalidations.TaskAssignmentChanges);
+        Assert.Equal(1, fixture.UnitOfWork.SaveCount);
+    }
+
     private sealed class Fixture
     {
         private Fixture()
@@ -970,7 +1216,19 @@ public sealed class TaskCommandServiceTests
                 SortKey = 1000
             };
             Projects.Stages[initialStage.Id] = initialStage;
-            Service = new TaskCommandService(Projects, new FakeGroups(), Users, new AllowedProjectAuthorization(), new AllowedTaskAuthorization(), new FakeCurrentUser(Actor), new FixedClock(), Audit, Invalidations, UnitOfWork, new UtcTimeZoneResolver());
+            Service = new TaskCommandService(
+                Projects,
+                new FakeGroups(),
+                Users,
+                new AllowedProjectAuthorization(),
+                new AllowedTaskAuthorization(),
+                new FakeCurrentUser(Actor),
+                new FixedClock(),
+                Audit,
+                Invalidations,
+                UnitOfWork,
+                new UtcTimeZoneResolver(),
+                taskNotifications: Notifications);
             Subresources = CreateSubresources();
         }
 
@@ -980,6 +1238,7 @@ public sealed class TaskCommandServiceTests
         public FakeUsers Users { get; } = new();
         public FakeAudit Audit { get; } = new();
         public FakeInvalidations Invalidations { get; } = new();
+        public RecordingTaskNotifications Notifications { get; } = new();
         public FakeTaskUnitOfWork UnitOfWork { get; } = new();
         public TaskCommandService Service { get; }
         public TaskSubresourceService Subresources { get; }
@@ -1110,6 +1369,19 @@ public sealed class TaskCommandServiceTests
     private sealed class FixedClock : IClock { public DateTimeOffset UtcNow => new(2026, 7, 25, 0, 0, 0, TimeSpan.Zero); }
     private sealed class UtcTimeZoneResolver : ITaskWorkspaceTimeZoneResolver { public Task<TimeZoneInfo> ResolveAsync(Guid tenantId, Guid workspaceId, CancellationToken cancellationToken = default) => Task.FromResult(TimeZoneInfo.Utc); }
     private sealed class FakeAudit : IAuditLogger { public List<AuditLogEntry> Entries { get; } = []; public Task LogAsync(AuditLogEntry entry, CancellationToken cancellationToken = default) { Entries.Add(entry); return Task.CompletedTask; } }
+    private sealed class RecordingTaskNotifications : ITaskNotificationProducer
+    {
+        public List<TaskNotificationRecipientRequest> Requests { get; } = [];
+
+        public Task ProduceAsync(
+            TaskNotificationRecipientRequest request,
+            CancellationToken cancellationToken = default)
+        {
+            Requests.Add(request);
+            return Task.CompletedTask;
+        }
+    }
+
     private sealed class FakeTaskUnitOfWork : ITaskCommandUnitOfWork
     {
         public int SaveCount { get; private set; }
@@ -1127,8 +1399,14 @@ public sealed class TaskCommandServiceTests
     private sealed class FakeInvalidations : IBusinessInvalidationPublisher
     {
         public List<(Guid TaskId, string Change)> TaskChanges { get; } = [];
+        public List<(Guid TaskId, string Change, IReadOnlyList<Guid> AffectedUserIds)> TaskAssignmentChanges { get; } = [];
         public List<(Guid ProjectId, string Change)> ProjectChanges { get; } = [];
         public Task TaskChangedAsync(TaskItem task, Guid actorUserId, string change, IEnumerable<string>? changedFields = null, IEnumerable<Guid>? affectedUserIds = null, CancellationToken cancellationToken = default) { TaskChanges.Add((task.Id, change)); return Task.CompletedTask; }
+        public Task TaskAssignmentChangedAsync(TaskItem task, Guid actorUserId, string change, IEnumerable<Guid>? affectedUserIds = null, CancellationToken cancellationToken = default)
+        {
+            TaskAssignmentChanges.Add((task.Id, change, (affectedUserIds ?? []).Distinct().ToArray()));
+            return Task.CompletedTask;
+        }
         public Task ProjectChangedAsync(Project project, Guid actorUserId, string change, CancellationToken cancellationToken = default) { ProjectChanges.Add((project.Id, change)); return Task.CompletedTask; }
         public Task AnnouncementChangedAsync(Announcement announcement, Guid actorUserId, string change, IEnumerable<Guid> audienceUserIds, CancellationToken cancellationToken = default) => Task.CompletedTask;
         public Task FileChangedAsync(FileObject fileObject, Attachment attachment, Guid actorUserId, string change, CancellationToken cancellationToken = default) => Task.CompletedTask;

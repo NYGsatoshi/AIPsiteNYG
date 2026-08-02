@@ -12,6 +12,27 @@ namespace AipPortal.Application.Realtime;
 public interface IBusinessInvalidationPublisher
 {
     Task TaskChangedAsync(TaskItem task, Guid actorUserId, string change, IEnumerable<string>? changedFields = null, IEnumerable<Guid>? affectedUserIds = null, CancellationToken cancellationToken = default);
+
+    Task TaskAssignmentChangedAsync(
+        TaskItem task,
+        Guid actorUserId,
+        string change,
+        IEnumerable<Guid>? affectedUserIds = null,
+        CancellationToken cancellationToken = default)
+    {
+        return Task.CompletedTask;
+    }
+
+    Task TaskCommentChangedAsync(
+        TaskItem task,
+        TaskComment comment,
+        Guid actorUserId,
+        string change,
+        CancellationToken cancellationToken = default)
+    {
+        return Task.CompletedTask;
+    }
+
     Task ProjectChangedAsync(Project project, Guid actorUserId, string change, CancellationToken cancellationToken = default);
     Task AnnouncementChangedAsync(Announcement announcement, Guid actorUserId, string change, IEnumerable<Guid> audienceUserIds, CancellationToken cancellationToken = default);
     Task FileChangedAsync(FileObject fileObject, Attachment attachment, Guid actorUserId, string change, CancellationToken cancellationToken = default);
@@ -39,6 +60,53 @@ public sealed class BusinessInvalidationPublisher(
             changedFields = (changedFields ?? []).Distinct(StringComparer.Ordinal).ToArray(),
             requiresRefetch = true
         }, targets, version, cancellationToken);
+    }
+
+    public Task TaskAssignmentChangedAsync(
+        TaskItem task,
+        Guid actorUserId,
+        string change,
+        IEnumerable<Guid>? affectedUserIds = null,
+        CancellationToken cancellationToken = default)
+    {
+        var version = task.VersionNo;
+        var targets = new List<RealtimeRoutingTarget>
+        {
+            new(RealtimeSubscriptionType.Project, task.ProjectId)
+        };
+        targets.AddRange((affectedUserIds ?? [])
+            .Where(id => id != Guid.Empty)
+            .Distinct()
+            .Select(id => new RealtimeRoutingTarget(RealtimeSubscriptionType.User, id)));
+
+        return EnqueueAsync("Projects.TaskAssignmentChanged.v1", "Task", task.Id, actorUserId, new
+        {
+            projectId = task.ProjectId,
+            taskId = task.Id,
+            taskVersion = version,
+            change,
+            requiresRefetch = true
+        }, targets, version, cancellationToken);
+    }
+
+    public Task TaskCommentChangedAsync(
+        TaskItem task,
+        TaskComment comment,
+        Guid actorUserId,
+        string change,
+        CancellationToken cancellationToken = default)
+    {
+        var version = task.VersionNo;
+        return EnqueueAsync("Projects.TaskCommentChanged.v1", "Task", task.Id, actorUserId, new
+        {
+            projectId = task.ProjectId,
+            taskId = task.Id,
+            taskVersion = version,
+            commentId = comment.Id,
+            commentVersion = comment.VersionNo,
+            change,
+            requiresRefetch = true
+        }, [new RealtimeRoutingTarget(RealtimeSubscriptionType.Project, task.ProjectId)], version, cancellationToken);
     }
 
     public Task ProjectChangedAsync(Project project, Guid actorUserId, string change, CancellationToken cancellationToken = default)
