@@ -63,6 +63,65 @@ Role layers:
 
 Known limitation: controllers commonly return `400` for application authorization/not-found failures, so HTTP status semantics are inconsistent.
 
+### Immediate Task notification boundary
+
+TASK-V1-PR07-B resolves notification recipients only after the mutating actor
+has passed the canonical Task/Project authorization checks. One centralized
+policy then filters candidate recipients to active users who can currently view
+the Project, removes the actor, and deduplicates mandatory and optional
+Watch-derived sets. An explicit Watch opt-out can suppress only the optional
+set; it cannot suppress assignment, mention, review, Blocked, hard-deadline, or
+Important-comment mandatory recipients. Invalid or unauthorized mentions fail
+without creating a protected Notification or disclosing the target identity.
+The legacy assignment collection is a fail-closed compatibility adapter: only
+unambiguous `Assignee`, `Reviewer`, and `Support` mappings may change canonical
+relationships, new or changed-to `Owner` rows are rejected, and current member,
+authorization, role-separation, active-work-assignee, and Project mutability
+invariants are enforced before staging any side effect.
+
+`TaskRelationshipTargetPolicy` is separate from notification-recipient
+calculation and is evaluated before any canonical Primary Assignee, Reviewer,
+or Collaborator relationship is created or maintained through a compatibility
+assignment. It requires a non-empty ID, an active non-deleted User,
+ProjectMember row, and current `CanViewProject` authorization (including
+active Workspace access and an active, non-archived, non-deleted Project). A
+retained ProjectMember row never authorizes a revoked target. Relationship
+cleanup remains allowed for an authorized actor: clearing/removing a revoked
+target does not require that target's current access.
+
+Canonical `TaskComment` PATCH and DELETE recheck the undeleted parent Task,
+current Project visibility, and current comment permission before allowing the
+current author or a current Project Manager to mutate it. This prevents a
+stored comment ID, historical authorship, or stale Project/Group row from
+bypassing a revoked Workspace/Project boundary. A failed check returns the
+uniform `TASK_COMMENT_FORBIDDEN` contract and stages no mutation, audit, or
+event.
+
+TaskComment significance is abuse-controlled once per mutation: changed bodies
+use the body-aware post check; an Important-only `false -> true` update uses
+the same post window through an explicit empty-body significance check; and a
+combined body/Important update is not double charged. Important no-ops and
+de-emphasis do not create a new check. Candidate search and direct mention
+validation both recheck every candidate's current Project visibility, so a
+revoked Workspace member cannot be displayed or mentioned through stale
+ProjectMember or GroupMember records. Mixed valid/invalid mentions fail as a
+single generic `TASK_MENTION_NOT_ELIGIBLE` command with no partial intent.
+
+Notification presentation and durable events are intentionally generic and
+reference-only. Broad Task payloads and Audit metadata reject comment/Task
+bodies, review or Blocked reasons, Watch/opt-out state, private preference
+values, recipient relationship sets, restricted titles/display fields,
+attachment/storage/grant/license material, credentials, secrets, SQL, and raw
+errors. The user Notification signal contains only its ID, state version, and a
+refetch hint and is routed only to that recipient.
+
+The mutation, relationships, AuditLog, logical Notification, approved business
+event, and Notification signal are committed in one database save, so no
+SignalR delivery can precede a successful commit. The default-disabled
+`tasks.notificationsV1` flag stops only the new Notification intent producer;
+it is not a security control. Dispatch/replay reauthorization and safe
+notification opening remain PR07-D work and are not claimed by PR07-B.
+
 ## Tenant isolation
 
 Implemented controls:
@@ -92,7 +151,10 @@ Needs verification:
 
 Do not rely on `Features:*` or most `Platform:*` appsettings values as security controls. They are bound to option classes but do not gate routes.
 
-Database-backed tenant features are enforced only in selected services. In the absence of subscription/settings records, `FeatureFlagService` starts from all known feature keys enabled.
+Database-backed tenant features are enforced only in selected services. In the
+absence of subscription/settings records, `FeatureFlagService` starts from the
+registry's `DefaultEnabled` set. `tasks.notificationsV1` is deliberately
+excluded from that set and therefore remains opt-in.
 
 Security-sensitive exposure should be controlled by authorization and implemented feature gates, not by currently inert configuration switches.
 

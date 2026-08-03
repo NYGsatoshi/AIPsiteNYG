@@ -73,7 +73,8 @@ jobs:
             "$job_temp/home" \
             "$job_temp/nuget/scratch" \
             "$GITHUB_WORKSPACE/artifacts/ci" \
-            "$GITHUB_WORKSPACE/artifacts/test-results"
+            "$GITHUB_WORKSPACE/artifacts/test-results" \
+            "$GITHUB_WORKSPACE/artifacts/task-pr07b-test-results"
           {
             echo "DOTNET_INSTALL_DIR=$install_dir"
             echo "DOTNET_CMD=$install_dir/dotnet"
@@ -121,6 +122,15 @@ jobs:
       - name: Apply PostgreSQL migrations
         run: '"$DOTNET_CMD" ef database update --project src/AipPortal.Infrastructure --startup-project src/AipPortal.Web --configuration Release'
 
+      - name: Verify EF Core model has no pending changes
+        shell: bash
+        run: |
+          "$DOTNET_CMD" ef migrations has-pending-model-changes \
+            --project src/AipPortal.Infrastructure \
+            --startup-project src/AipPortal.Web \
+            --configuration Release \
+            --no-build
+
       - name: Test
         run: >-
           "$DOTNET_CMD" test AipPortal.slnx
@@ -132,6 +142,14 @@ jobs:
           --logger "trx;LogFileName=backend-tests.trx"
           --results-directory artifacts/test-results
 
+      - name: Verify full backend test results
+        shell: bash
+        run: |
+          bash scripts/ci/verify-trx-results.sh \
+            artifacts/test-results/backend-tests.trx \
+            --minimum-total 1 \
+            --label "Full backend"
+
       - name: Upload backend test results
         if: always()
         uses: actions/upload-artifact@v7
@@ -139,6 +157,37 @@ jobs:
           name: backend-test-results
           path: artifacts/test-results
           if-no-files-found: warn
+
+      - name: Run TASK-V1-PR07-B acceptance tests
+        shell: bash
+        run: |
+          "$DOTNET_CMD" test \
+            tests/AipPortal.Tests/AipPortal.Tests.csproj \
+            --configuration Release \
+            --no-build \
+            --disable-build-servers \
+            -m:1 \
+            --verbosity normal \
+            --filter "Scope=TaskV1PR07B" \
+            --logger "trx;LogFileName=task-pr07b-acceptance.trx" \
+            --results-directory artifacts/task-pr07b-test-results
+
+      - name: Verify TASK-V1-PR07-B acceptance results
+        shell: bash
+        run: |
+          bash scripts/ci/verify-trx-results.sh \
+            artifacts/task-pr07b-test-results/task-pr07b-acceptance.trx \
+            --minimum-total 1 \
+            --required-tests scripts/ci/task-pr07b-required-tests.txt \
+            --label "TASK-V1-PR07-B"
+
+      - name: Upload TASK-V1-PR07-B acceptance results
+        if: always()
+        uses: actions/upload-artifact@v7
+        with:
+          name: task-pr07b-acceptance-test-results
+          path: artifacts/task-pr07b-test-results
+          if-no-files-found: error
 
       - name: Report backend cache and host resources on failure
         if: failure()

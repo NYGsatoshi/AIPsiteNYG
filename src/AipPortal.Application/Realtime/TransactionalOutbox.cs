@@ -13,6 +13,22 @@ public sealed class TransactionalOutbox(
     IClock clock) : ITransactionalOutbox
 {
     private static readonly JsonSerializerOptions JsonOptions = new(JsonSerializerDefaults.Web);
+    private static readonly HashSet<string> ProhibitedProperties = new(StringComparer.OrdinalIgnoreCase)
+    {
+        "password", "token", "inviteToken", "accessToken", "grantToken", "secret",
+        "storagePath", "storageKey", "filePath", "rawFilePath", "objectStoragePath", "signedUrl",
+        "attachmentContent", "connectionString", "stackTrace", "sql", "license", "licenseKey", "licenseMaterial"
+    };
+    private static readonly HashSet<string> ProhibitedTaskProperties = new(StringComparer.OrdinalIgnoreCase)
+    {
+        "body", "commentBody", "bodyPlainText", "description",
+        "reviewReason", "reviewReturnReason", "blockedReason",
+        "watch", "watchState", "watchStates", "isWatching", "isManualWatch", "isExplicitOptOut",
+        "preference", "preferences", "preferenceValue", "notificationPreference", "taskNotificationPreference",
+        "deadlineDigestLocalTime", "effectiveDeadlineDigestLocalTime",
+        "title", "taskTitle", "restrictedTitle", "displayName", "taskDisplayName",
+        "recipients", "recipientIds", "relationshipIds", "assigneeIds", "reviewerIds", "collaboratorIds"
+    };
 
     public async Task<Result<Guid>> EnqueueAsync(
         DurableEventEnvelope envelope,
@@ -41,7 +57,10 @@ public sealed class TransactionalOutbox(
 
         var payloadJson = JsonSerializer.Serialize(envelope, JsonOptions);
         var routingJson = JsonSerializer.Serialize(routingTargets, JsonOptions);
-        if (payloadJson.Length > 65536 || routingJson.Length > 8192 || ContainsProhibitedProperty(envelope.Payload))
+        if (payloadJson.Length > 65536 ||
+            routingJson.Length > 8192 ||
+            ContainsProhibitedProperty(envelope.Payload, ProhibitedProperties) ||
+            IsUnsafeTaskPayload(envelope.EventType, envelope.Payload))
         {
             return Result<Guid>.Failure("The durable realtime event payload is not safe to store.");
         }
@@ -82,14 +101,10 @@ public sealed class TransactionalOutbox(
         return routingTargets.All(target => target.SubscriptionType is RealtimeSubscriptionType.User or RealtimeSubscriptionType.Workspace or RealtimeSubscriptionType.Project);
     }
 
-    private static bool ContainsProhibitedProperty(JsonElement element)
+    private static bool IsUnsafeTaskPayload(string eventType, JsonElement payload)
     {
-        var prohibited = new HashSet<string>(StringComparer.OrdinalIgnoreCase)
-        {
-            "password", "token", "inviteToken", "accessToken", "secret", "storagePath", "storageKey", "signedUrl", "connectionString", "stackTrace", "sql"
-        };
-
-        return ContainsProhibitedProperty(element, prohibited);
+        return eventType.StartsWith("Projects.Task", StringComparison.Ordinal) &&
+               ContainsProhibitedProperty(payload, ProhibitedTaskProperties);
     }
 
     private static bool ContainsProhibitedProperty(JsonElement element, ISet<string> prohibited)

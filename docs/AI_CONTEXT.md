@@ -2,7 +2,7 @@
 
 This is the primary entry point for future Codex work on AIPsiteNYG.
 
-Last repository audit: **2026-08-01**.
+Last repository audit: **2026-08-02**.
 
 ## Documentation authority
 
@@ -74,7 +74,7 @@ Project references enforce a conventional dependency direction. See `docs/ARCHIT
 | Projects/tasks/milestones/assignments/comments/Gantt data | Partially implemented; PR06 merged, large-project delivery deferred | PR02 adds versioned Task workflow, relationship, review, Claim, and FS-authoring command routes. PR05 adds the canonical Project Kanban snapshot/config/move flow. PR06 upgrades the existing Project Detail Schedule tab and Gantt route with a bounded scheduled/unscheduled projection, manual schedule/progress/FS dependency commands, canonical Task-only parent derivation and terminal parent/child guards, optimistic concurrency, explicit conflict Retry/Discard, structured warnings, accessible/mobile alternatives, lazy vendor isolation, and authoritative realtime refetch. PR #259 merged at `d5de01cf303c914c2b390346575a22cadb8b4443`. The owner subsequently approved its 500 combined-item / 2,000 active-dependency / typed HTTP 400 fail-closed safeguards as the temporary PR06 snapshot contract. Large-project pagination and virtualization remain open under `TASK-V1-PR06B`. See `docs/TASK_V1_PR02.md`, `docs/TASK_V1_PR05.md`, and `docs/TASK_V1_PR06.md`. |
 | Events/attendance/calendar | Backend implemented; browser UI planned | Controller/service/repository/tests exist; calendar route is a placeholder outside dashboard summary |
 | Forms/surveys | Backend implemented; browser UI planned | Controller/service/repository/tests exist; `/forms` is a placeholder |
-| Notifications | Implemented with polling UI; PR07-A draft foundation | Database-backed list/read/delete behavior remains; draft PR07-A adds private Workspace digest preferences and logical-key persistence/dedupe, but no Task producer, digest worker, realtime route, or Angular behavior |
+| Notifications | Partially implemented; PR07-A merged and PR07-B backend implementation under verification | Database-backed list/read/delete and polling UI remain. PR #274 merged the private Workspace digest-preference and logical-key foundation at `c5627eb09ecf19d66146eacdbc3e938c0a1c8563`; its same-sha post-merge workflows passed. PR07-B centrally resolves immediate Task recipients, stages deduped Notifications plus minimal Outbox signals in the Task transaction, and adds server-authoritative hard-deadline classification. `tasks.notificationsV1` remains default-off. Digest generation, notification-open/current-dispatch reauthorization, SignalR routing changes, and Angular changes remain later PR07 phases. |
 | Search | Partially implemented | `DbSearchService` exists, but project/comment visibility is broader than canonical authorization; `/search` UI remains unavailable |
 | Local filesystem files | Partially implemented | Authorization, policy, repository, and storage exist; upload/database failure cleanup and controlled missing-file handling are incomplete |
 | Object storage | Planned | Unsupported adapter is selected for object-storage provider names |

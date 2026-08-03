@@ -1,10 +1,13 @@
 using AipPortal.Domain.Enums;
 using AipPortal.Application.Planning;
+using System.Text.Json;
+using System.Text.Json.Serialization;
 
 namespace AipPortal.Application.Projects;
 
 public sealed record TaskTransitionRequest(Guid WorkflowStageId, long ExpectedVersion, string? Reason = null);
 /// <summary>Ordinary Task-body fields only. Workflow state changes use the transition command.</summary>
+[JsonUnmappedMemberHandling(JsonUnmappedMemberHandling.Disallow)]
 public sealed record TaskUpdateDetailsRequest(
     string? Title,
     string? Description,
@@ -12,7 +15,47 @@ public sealed record TaskUpdateDetailsRequest(
     DateOnly? PlannedStartDate,
     DateOnly? PlannedEndDate,
     int? ProgressPercent,
-    long ExpectedVersion);
+    long ExpectedVersion,
+    OptionalDateTimeOffset DeadlineAt = default);
+
+/// <summary>Distinguishes an omitted hard-deadline PATCH member from an explicit JSON null.</summary>
+[JsonConverter(typeof(OptionalDateTimeOffsetJsonConverter))]
+public readonly record struct OptionalDateTimeOffset(bool IsSpecified, DateTimeOffset? Value)
+{
+    public static implicit operator OptionalDateTimeOffset(DateTimeOffset? value) => new(true, value);
+}
+
+public sealed class OptionalDateTimeOffsetJsonConverter : JsonConverter<OptionalDateTimeOffset>
+{
+    public override bool HandleNull => true;
+
+    public override OptionalDateTimeOffset Read(ref Utf8JsonReader reader, Type typeToConvert, JsonSerializerOptions options)
+    {
+        if (reader.TokenType == JsonTokenType.Null)
+        {
+            return new OptionalDateTimeOffset(true, null);
+        }
+
+        if (reader.TokenType != JsonTokenType.String || !reader.TryGetDateTimeOffset(out var value))
+        {
+            throw new JsonException("'deadlineAt' must be an ISO 8601 timestamp or null.");
+        }
+
+        return new OptionalDateTimeOffset(true, value);
+    }
+
+    public override void Write(Utf8JsonWriter writer, OptionalDateTimeOffset value, JsonSerializerOptions options)
+    {
+        if (value.Value.HasValue)
+        {
+            writer.WriteStringValue(value.Value.Value);
+        }
+        else
+        {
+            writer.WriteNullValue();
+        }
+    }
+}
 public sealed record TaskBlockedStateRequest(bool IsBlocked, string? Reason, long ExpectedVersion);
 public sealed record TaskRelationshipUserRequest(Guid? UserId, long ExpectedVersion);
 public sealed record TaskTargetGroupRequest(Guid? GroupId, long ExpectedVersion);

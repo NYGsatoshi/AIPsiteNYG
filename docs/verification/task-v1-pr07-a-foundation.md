@@ -2,21 +2,21 @@
 
 ## Status
 
-Post-remediation code-bearing evidence for open, non-draft PR #274. The
-code-bearing HEAD is `b1f80fb212c820e22613d3c3ae637eaa6e77147e`; this branch
-is not merged or accepted. The documentation-only final HEAD and its exact CI
-run IDs are recorded in the PR body to avoid self-referential evidence. PR07-B
-remains blocked until the pull request is accepted from current `main`.
+PR07-A was merged and accepted as PR #274 at
+`c5627eb09ecf19d66146eacdbc3e938c0a1c8563`. Same-sha post-merge `main`
+workflow runs passed: CI `30724803612`, Code Quality `30724803621`,
+Documentation CI `30724803620`, and npm Security Audit `30724803615`.
 
 ## Authority and identity
 
 | Field | Value |
 | --- | --- |
 | Implementation repository | `NYGsatoshi/AIPsiteNYG` |
-| Pull request | [#274](https://github.com/NYGsatoshi/AIPsiteNYG/pull/274), open and non-draft |
+| Pull request | [#274](https://github.com/NYGsatoshi/AIPsiteNYG/pull/274), merged |
 | Implementation base | `ca0f3fec26a78d4199fa834ce82509a6dfeda812` (`origin/main`) |
 | Audit-start HEAD | `adff1e1e072acb4e4e3a47db0263b9dca8cbfbf3` |
-| Code-bearing HEAD | `b1f80fb212c820e22613d3c3ae637eaa6e77147e` |
+| Historical code-bearing candidate | `b1f80fb212c820e22613d3c3ae637eaa6e77147e` |
+| Accepted merge commit | `c5627eb09ecf19d66146eacdbc3e938c0a1c8563` |
 | Branch | `task/v1-pr07-a-notification-foundation` |
 | Canonical specification PR | `NYGsatoshi/AIPsiteNYGspec#62` (merged) |
 | Canonical specification commit | `8b90c8897367606473515d17d3696e458b2ee7b5` |
@@ -92,15 +92,16 @@ rename, or unrelated cleanup.
 | `dotnet test AipPortal.slnx --no-restore --configuration Release -m:1` | Passed: 507; failed/skipped: 0/0 | PostgreSQL 18 temporary container after applying all migrations to the shared CI-shaped database. |
 | Exclusion-path and whitespace check | Passed | `git diff --check` passed; no frontend, hosted artifact, new producer/digest-worker, or realtime-route path changed. |
 | Active-document local Markdown links | Passed | All local Markdown links in the changed active documentation resolve; the repository has no dedicated documentation-lint command. |
-| Pull-request CI / Code Quality / Documentation CI / npm audit | Pending exact final documentation-only HEAD | Earlier runs are not used as final evidence. Their final IDs and outcomes are recorded in PR #274 after this documentation commit. |
+| Post-merge `main` CI / Code Quality / Documentation CI / npm audit | Passed at accepted merge commit | Same-SHA successful runs: CI `30724803612`, Code Quality `30724803621`, Documentation CI `30724803620`, and npm Security Audit `30724803615`. |
 
 No local result that reports PostgreSQL tests as passed/skipped without
 `POSTGRES_TEST_CONNECTION_STRING` is treated as PostgreSQL provider evidence.
 
 ## PR07-B entry gate
 
-PR07-B may begin only after this open PR is merged and accepted from current
-`main`, all required fresh/upgrade PostgreSQL migration and uniqueness/
-concurrency checks are green, the preference routes retain their exact private
-contract, the feature key remains disabled by default, and no excluded Task,
-digest, Outbox, SignalR, or Angular behavior is introduced by this PR.
+Gate passed on 2026-08-02. PR07-B began from exact accepted `origin/main`
+commit `c5627eb09ecf19d66146eacdbc3e938c0a1c8563` only after the four post-merge
+workflow runs above completed successfully. The PR07-A migration, PostgreSQL
+uniqueness/concurrency evidence, private preference contract, and default-off
+feature key therefore form the accepted foundation for the sequential PR07-B
+branch.

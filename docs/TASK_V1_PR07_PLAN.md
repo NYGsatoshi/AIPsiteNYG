@@ -1,9 +1,10 @@
 # TASK-V1-PR07 sequential implementation plan
 
-Status: PR #274 is open and non-draft. Post-remediation code-bearing candidate
-`b1f80fb212c820e22613d3c3ae637eaa6e77147e` awaits final-documentation-HEAD
-CI and review/merge judgment; PR07-B remains blocked until PR07-A is accepted
-from current `main`.
+Status: PR07-A was accepted and merged as PR #274 at
+`c5627eb09ecf19d66146eacdbc3e938c0a1c8563`. The same-sha post-merge `main`
+CI, Code Quality, Documentation CI, and npm Security Audit workflows all
+passed. PR07-B is being implemented and verified on
+`task/v1-pr07-b-immediate-notifications` from that exact `main` commit.
 
 Implementation baseline audited: `491d17db3701b7fb26010db8c0590eac7d24bd78`
 
@@ -138,21 +139,19 @@ Excluded from every phase:
 
 ## PR07-A — Contract foundation, preferences, and dedupe primitives
 
-Status: Implemented on open, non-draft PR #274 branch
-`task/v1-pr07-a-notification-foundation`; not merged or accepted.
+Status: Merged and accepted in PR #274 at
+`c5627eb09ecf19d66146eacdbc3e938c0a1c8563`.
 
 ### Goal
 
 Land additive persistence and exact preference/dedupe contracts without enabling Task notification generation or scheduled digest processing.
 
-### Current implementation status (post-remediation code-bearing candidate)
+### Accepted implementation status
 
-The historical audit baseline above remains historical evidence. This branch
-implements only the PR07-A foundation on implementation `main` base
-`ca0f3fec26a78d4199fa834ce82509a6dfeda812`, using resolved specification
-commit `8b90c8897367606473515d17d3696e458b2ee7b5`. Post-remediation
-code-bearing candidate:
-`b1f80fb212c820e22613d3c3ae637eaa6e77147e`.
+The historical audit baseline above remains historical evidence. PR07-A
+implemented only the foundation, using resolved specification commit
+`8b90c8897367606473515d17d3696e458b2ee7b5`, and is now present on `main` in
+merge commit `c5627eb09ecf19d66146eacdbc3e938c0a1c8563`.
 
 - migration `20260801171714_AddTaskNotificationPreferenceFoundation` adds the
   nullable logical key, filtered unique index, private preference/version
@@ -182,8 +181,9 @@ preference winner/loser/retry, and the Role/Status non-conflict regression.
 507/507 with 0 failures/skips after applying migrations to that same isolated
 CI-shaped database. EF reports no pending model changes, and the migration
 script from `20260730120626_AddCanonicalGanttVersions` contains only this
-foundation's additive columns and filtered index. These local checks do not
-replace exact-final-HEAD GitHub Actions evidence or PR acceptance.
+foundation's additive columns and filtered index. The merge commit's
+post-merge workflow runs passed: CI `30724803612`, Code Quality `30724803621`,
+Documentation CI `30724803620`, and npm Security Audit `30724803615`.
 
 ### Included scope
 
@@ -245,11 +245,84 @@ PR07-A completes only when fresh/upgrade migration and PostgreSQL uniqueness/con
 
 ## PR07-B — Immediate policy, hard-deadline classification, and transactional event production
 
-Status: blocked until PR07-A merges and is accepted
+Status: implementation and verification in progress on
+`task/v1-pr07-b-immediate-notifications`, based on accepted PR07-A merge
+`c5627eb09ecf19d66146eacdbc3e938c0a1c8563`
 
 ### Goal
 
 Generate every immediate Notification intent and approved Task invalidation/event inside the canonical business transaction using PR07-A logical identity.
+
+### Relationship-target authorization remediation
+
+Primary Assignee, Reviewer, and Collaborator are relationships, not merely
+notification candidates. Before a canonical command or the compatibility
+`Assignee`/`Reviewer`/`Support` adapter creates, changes, or maintains one,
+the target must be an active non-deleted User with a retained ProjectMember row
+and current Workspace/Project visibility through `CanViewProject`. A stale
+ProjectMember row fails closed with the existing safe Task authorization
+contract before any relationship, Watch, Audit, Notification, Outbox, or save
+is staged. The target check does not apply to authorized relationship cleanup,
+including clearing/removing revoked relationships and deleting a legacy
+assignment. This is separate from mandatory notification-recipient policy.
+
+### Current implementation status
+
+- `TaskNotificationRecipientPolicy` is the single mandatory/Watch recipient
+  expansion boundary; it applies actor suppression, dedupe, active-user and
+  current Project authorization checks.
+- Canonical Task assignment, Reviewer, Blocked, review, direct-mention,
+  Important-comment, and hard-deadline mutations stage logical Notifications
+  through one focused producer. The compatibility assignment adapter maps
+  `Assignee`, `Reviewer`, and `Support` to Primary Assignee, Reviewer, and
+  Collaborator and uses that same producer in the same transaction. It emits a
+  semantic event and Notification only for an actual canonical relationship
+  change, so canonical-first mirrors do not duplicate intent. New or
+  changed-to legacy `Owner` rows and operations that would ambiguously change
+  canonical state fail closed; historical same-role `Owner`
+  maintenance/removal and mismatched-row removal stay non-canonical cleanup.
+  The legacy ordinary-comment notify-all path is removed.
+- Canonical Task detail PATCH accepts an omitted, explicit-null, or timestamp
+  `deadlineAt`. The server classifies the persisted old/new values with the
+  Workspace timezone; Gantt planned dates remain separate and client
+  significance fields are rejected.
+- Task mutation/relationship state, AuditLog, approved business Outbox rows,
+  logical Notifications, and recipient-only Notification signal Outbox rows
+  are staged before the command's one database save.
+- Only the approved catalog families are used. Payloads are reference-only and
+  exclude Task/comment/review/Watch/preference/display/license/secret data.
+- `tasks.notificationsV1` remains disabled by default and gates only new PR07
+  Task Notification intent production; it does not alter command
+  authorization, and every enabled intent still passes privacy and dedupe
+  enforcement.
+- TaskComment PATCH is presence- and change-aware: a request with neither
+  body nor `isImportant` returns `TASK_COMMENT_UPDATE_REQUIRED`; a supplied
+  value equal to persisted state returns success without updating the comment
+  or Task version and without audit, Outbox, or Notification work. A comment
+  becomes Important only on `false -> true`; a body update evaluates mentions
+  only when the normalized body changed. An already-Important body update
+  never replays Important relationship recipients.
+- During PR07-B, the accepted `Projects.TaskChanged.v1` compatibility
+  invalidation retains `project:{projectId}` plus valid affected-user
+  projection-invalidation routes. The new
+  `Projects.TaskAssignmentChanged.v1` and `Projects.TaskCommentChanged.v1`
+  events remain `project:{projectId}`-only until PR07-D adds their
+  Task-specific dispatch/replay authorization. `Notifications.NotificationCreated.v1`
+  remains the recipient-only minimal `user:{recipientUserId}` signal.
+- TaskComment update and delete recheck the current parent Task/Project
+  visibility and current comment authority before author-or-Manager evaluation.
+  A historical author identity or residual Project/Group membership row never
+  grants a mutation after Workspace access, Project visibility, or parent Task
+  lifecycle has been lost.
+- A `false -> true` Important-only TaskComment PATCH has one explicit
+  communication-safety significance check. A body change uses the body check
+  instead; a combined body/Important update is charged once, while no-op and
+  de-emphasis updates add no new rate-limit check.
+- Mention candidate display and direct mention validation both apply bounded
+  per-user current `CanViewProject` checks after repository eligibility. A
+  stale ProjectMember or GroupMember without current Workspace access is not
+  displayed and causes the entire direct-mention mutation to fail with the
+  existing generic eligibility error.
 
 ### Included scope
 
@@ -268,8 +341,11 @@ Generate every immediate Notification intent and approved Task invalidation/even
 
 - no digest ledger/worker;
 - no notification-open endpoint;
-- no SignalR group/routing changes;
-- no Angular changes;
+- no SignalR Hub, subscription, dispatcher, or dispatch-authorization change;
+  the new Assignment and Comment Task semantic Outbox records remain
+  project-only until PR07-D;
+- no Angular production behavior changes; one My Tasks realtime regression test
+  preserves the accepted HTTP-refetch contract;
 - no email/push.
 
 ### Required tests
@@ -285,6 +361,14 @@ Generate every immediate Notification intent and approved Task invalidation/even
 - stale version, authorization denial, audit failure, and database failure roll back Task/Notification/Outbox together;
 - compatibility and canonical routes cannot double-notify;
 - forbidden payload/log fields are absent.
+- empty/same-value TaskComment PATCH has zero Task/comment version, audit,
+  Outbox, Notification, and NotificationUserState delta;
+- `false -> true` is the only Important-comment recipient trigger; unchanged
+  Important comments only notify newly validated direct mentions;
+- `Projects.TaskChanged.v1` preserves its Project target and deduplicated
+  valid affected-User projection-invalidation targets; the new Assignment and
+  Comment Task semantic events are exactly `project:{projectId}`; and
+  `Notifications.NotificationCreated.v1` is exactly its recipient user route.
 
 ### Completion gate
 

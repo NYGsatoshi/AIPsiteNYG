@@ -296,8 +296,8 @@ public sealed class TaskV1CoreConcurrencyPostgreSqlTests
         await using var second = harness.CreateScope();
         harness.Race.Arm();
         var results = await Task.WhenAll(
-            ExecuteAsync(first, () => first.Compatibility.AddAssignmentAsync(taskId, new AddTaskAssignmentRequest(harness.Graph.MentionUser.Id, TaskAssignmentRole.Owner, 1))),
-            ExecuteAsync(second, () => second.Compatibility.AddAssignmentAsync(taskId, new AddTaskAssignmentRequest(harness.Graph.MentionUser.Id, TaskAssignmentRole.Support, 1))));
+            ExecuteAsync(first, () => first.Compatibility.AddAssignmentAsync(taskId, new AddTaskAssignmentRequest(harness.Graph.MentionUser.Id, TaskAssignmentRole.Assignee, 1))),
+            ExecuteAsync(second, () => second.Compatibility.AddAssignmentAsync(taskId, new AddTaskAssignmentRequest(harness.Graph.ReviewerUser.Id, TaskAssignmentRole.Reviewer, 1))));
 
         Assert.Equal(1, results.Count(value => value.Result.IsSuccess));
         var loser = results.Single(value => !value.Result.IsSuccess);
@@ -311,15 +311,21 @@ public sealed class TaskV1CoreConcurrencyPostgreSqlTests
         }
 
         var winnerRole = results.Single(value => value.Result.IsSuccess).Result.Value!.Role;
-        var retryRole = winnerRole == TaskAssignmentRole.Owner ? TaskAssignmentRole.Support : TaskAssignmentRole.Owner;
+        var retryRole = winnerRole == TaskAssignmentRole.Assignee
+            ? TaskAssignmentRole.Reviewer
+            : TaskAssignmentRole.Assignee;
+        var retryUserId = retryRole == TaskAssignmentRole.Assignee
+            ? harness.Graph.MentionUser.Id
+            : harness.Graph.ReviewerUser.Id;
         await using var retry = harness.CreateScope();
-        var retried = await retry.Compatibility.AddAssignmentAsync(taskId, new AddTaskAssignmentRequest(harness.Graph.MentionUser.Id, retryRole, 1));
+        var retried = await retry.Compatibility.AddAssignmentAsync(taskId, new AddTaskAssignmentRequest(retryUserId, retryRole, 1));
         Assert.True(retried.IsSuccess);
     }
 
     [PostgreSqlFact]
     [Trait("Category", "PostgreSQLIntegration")]
-    public async Task AssignmentRaceWithRealNotificationsCommitsWinnerSideEffectsOnly()
+    [Trait("Scope", "TaskV1PR07B")]
+    public async Task CompatibilityAssigneeRaceCommitsOneAtomicIntentAndCompositeRetryDedupesLogicalNotification()
     {
         await using var harness = await ServiceHarness.CreateAsync(useRealNotifications: true);
         var taskId = harness.Graph.Task.Id;
@@ -328,21 +334,96 @@ public sealed class TaskV1CoreConcurrencyPostgreSqlTests
         await using var second = harness.CreateScope();
         harness.Race.Arm();
         var results = await Task.WhenAll(
-            ExecuteAsync(first, () => first.Compatibility.AddAssignmentAsync(taskId, new AddTaskAssignmentRequest(harness.Graph.MentionUser.Id, TaskAssignmentRole.Owner, 1))),
-            ExecuteAsync(second, () => second.Compatibility.AddAssignmentAsync(taskId, new AddTaskAssignmentRequest(harness.Graph.MentionUser.Id, TaskAssignmentRole.Support, 1))));
+            ExecuteAsync(first, () => first.Compatibility.AddAssignmentAsync(taskId, new AddTaskAssignmentRequest(harness.Graph.MentionUser.Id, TaskAssignmentRole.Assignee, 1))),
+            ExecuteAsync(second, () => second.Compatibility.AddAssignmentAsync(taskId, new AddTaskAssignmentRequest(harness.Graph.CollaboratorUser.Id, TaskAssignmentRole.Assignee, 1))));
 
         Assert.Equal(1, results.Count(value => value.Result.IsSuccess));
         var loser = results.Single(value => !value.Result.IsSuccess);
         Assert.Equal("TASK_STALE_VERSION", Code(loser.Result.Error));
         Assert.Empty(loser.Scope.Db.ChangeTracker.Entries());
 
-        await using var verify = harness.CreateScope();
-        Assert.Single(await verify.Db.TaskAssignments.Where(value => value.TaskItemId == taskId).ToListAsync());
-        await AssertTaskMutationSequenceAsync(verify.Db, before, taskId, ["TaskAssigned"]);
-        Assert.Single(await verify.Db.Notifications.Where(value => value.UserId == harness.Graph.MentionUser.Id && value.RelatedEntityId == taskId).ToListAsync());
-        var state = await verify.Db.NotificationUserStates.SingleAsync(value => value.UserId == harness.Graph.MentionUser.Id);
-        Assert.Equal(1, state.Version);
-        Assert.Single(await verify.Db.OutboxEvents.Where(value => value.EventType == "Notifications.NotificationCreated.v1" && value.AggregateId != taskId).ToListAsync());
+        var winner = results.Single(value => value.Result.IsSuccess).Result.Value!;
+        Guid assignmentId;
+        long committedVersion;
+        await using (var verify = harness.CreateScope())
+        {
+            var assignment = Assert.Single(await verify.Db.TaskAssignments.Where(value => value.TaskItemId == taskId).ToListAsync());
+            assignmentId = assignment.Id;
+            Assert.Equal(winner.UserId, assignment.UserId);
+            var task = await verify.Db.TaskItems.SingleAsync(value => value.Id == taskId);
+            committedVersion = task.VersionNo;
+            Assert.Equal(winner.UserId, task.PrimaryAssigneeUserId);
+            var notifications = await verify.Db.Notifications
+                .Where(value => value.UserId == winner.UserId && value.RelatedEntityId == taskId)
+                .ToListAsync();
+            var notification = Assert.Single(notifications);
+            var notificationSignal = Assert.Single(await verify.Db.OutboxEvents
+                .Where(value => value.EventType == "Notifications.NotificationCreated.v1")
+                .ToListAsync());
+            Assert.Equal(notification.Id, notificationSignal.AggregateId);
+            using (var envelope = JsonDocument.Parse(notificationSignal.PayloadJson))
+            {
+                Assert.Equal(
+                    notification.Id,
+                    envelope.RootElement.GetProperty("payload").GetProperty("notificationId").GetGuid());
+            }
+            Assert.Single(await verify.Db.OutboxEvents.Where(value => value.EventType == "Projects.TaskAssignmentChanged.v1" && value.AggregateId == taskId).ToListAsync());
+            Assert.Single(await verify.Db.OutboxEvents.Where(value => value.EventType == "Projects.TaskChanged.v1" && value.AggregateId == taskId).ToListAsync());
+            Assert.Single(await verify.Db.AuditLogs.Where(value => value.EntityId == taskId && value.Action == "TaskAssigned").ToListAsync());
+            Assert.Contains(
+                await verify.Db.WorkItemWatchStates.Where(value => value.TaskItemId == taskId && value.UserId == winner.UserId).ToListAsync(),
+                value => value.AutomaticSources.HasFlag(WorkItemWatchAutomaticSource.PrimaryAssignee));
+        }
+
+        await using (var canonicalRetry = harness.CreateScope())
+        {
+            var retried = await canonicalRetry.Commands.SetAssigneeAsync(
+                taskId,
+                new TaskRelationshipUserRequest(winner.UserId, committedVersion));
+            Assert.True(retried.IsSuccess, retried.Error);
+            Assert.Equal(committedVersion, retried.Value!.Task.Version);
+            Assert.Equal(0, canonicalRetry.SaveRecorder.SaveTaskCommandCallCount);
+        }
+
+        await using (var roleChange = harness.CreateScope())
+        {
+            var changed = await roleChange.Compatibility.UpdateAssignmentAsync(
+                assignmentId,
+                new UpdateTaskAssignmentRequest(TaskAssignmentRole.Reviewer, 1, 0));
+            Assert.True(changed.IsSuccess, changed.Error);
+        }
+
+        await using (var verify = harness.CreateScope())
+        {
+            var task = await verify.Db.TaskItems.SingleAsync(value => value.Id == taskId);
+            Assert.Equal(committedVersion + 1, task.VersionNo);
+            Assert.Null(task.PrimaryAssigneeUserId);
+            Assert.Equal(winner.UserId, task.ReviewerUserId);
+            Assert.Equal(TaskAssignmentRole.Reviewer, (await verify.Db.TaskAssignments.SingleAsync(value => value.Id == assignmentId)).Role);
+            var notifications = await verify.Db.Notifications
+                .Where(value => value.UserId == winner.UserId && value.RelatedEntityId == taskId)
+                .OrderBy(value => value.CreatedAt)
+                .ToListAsync();
+            Assert.Equal(2, notifications.Count);
+            Assert.Single(notifications, value => value.LogicalKey == $"task:{taskId:N}:event:TaskAssignmentChanged:version:{task.VersionNo}");
+            var notificationSignals = await verify.Db.OutboxEvents
+                .Where(value => value.EventType == "Notifications.NotificationCreated.v1")
+                .ToListAsync();
+            Assert.Equal(2, notificationSignals.Count);
+            Assert.Equal(
+                notifications.Select(value => value.Id).Order().ToArray(),
+                notificationSignals.Select(value => value.AggregateId).Order().ToArray());
+            foreach (var signal in notificationSignals)
+            {
+                using var envelope = JsonDocument.Parse(signal.PayloadJson);
+                Assert.Equal(
+                    signal.AggregateId,
+                    envelope.RootElement.GetProperty("payload").GetProperty("notificationId").GetGuid());
+            }
+            Assert.Equal(2, await verify.Db.OutboxEvents.CountAsync(value => value.EventType == "Projects.TaskAssignmentChanged.v1" && value.AggregateId == taskId));
+            Assert.Equal(2, await verify.Db.OutboxEvents.CountAsync(value => value.EventType == "Projects.TaskChanged.v1" && value.AggregateId == taskId));
+            Assert.Equal(2, await verify.Db.AuditLogs.CountAsync(value => value.EntityId == taskId && (value.Action == "TaskAssigned" || value.Action == "TaskAssignmentUpdated")));
+        }
     }
 
     [PostgreSqlFact]
@@ -1819,7 +1900,12 @@ public sealed class TaskV1CoreConcurrencyPostgreSqlTests
         return new SideEffectSnapshot(
             task.VersionNo,
             audit.Count,
-            await db.OutboxEvents.CountAsync(value => value.AggregateId == taskId),
+            // Semantic Task events can share the aggregate identity. This
+            // snapshot tracks only the general invalidation sequence asserted
+            // by AssertTaskMutationSequenceAsync below.
+            await db.OutboxEvents.CountAsync(value =>
+                value.AggregateId == taskId &&
+                value.EventType == "Projects.TaskChanged.v1"),
             audit.GroupBy(value => value.Action).ToDictionary(group => group.Key, group => group.Count()));
     }
 
@@ -2069,7 +2155,12 @@ public sealed class TaskV1CoreConcurrencyPostgreSqlTests
             services.AddScoped<ITransactionalOutbox, TransactionalOutbox>();
             services.AddScoped<IBusinessInvalidationPublisher, BusinessInvalidationPublisher>();
             if (useRealNotifications)
+            {
                 services.AddScoped<INotificationService, DbNotificationService>();
+                services.AddSingleton<IFeatureFlagService, EnabledTaskNotificationFeatureFlags>();
+                services.AddScoped<ITaskNotificationRecipientPolicy, TaskNotificationRecipientPolicy>();
+                services.AddScoped<ITaskNotificationProducer, TaskNotificationProducer>();
+            }
             else
                 services.AddScoped<INotificationService, NoopNotificationService>();
             services.AddScoped<IAuthorizationStateChangePublisher, NoopAuthorizationStateChangePublisher>();
@@ -2335,6 +2426,29 @@ public sealed class TaskV1CoreConcurrencyPostgreSqlTests
     private sealed class NoopNotificationService : INotificationService
     {
         public Task NotifyAsync(Guid recipientUserId, string title, string? body, string sourceType, Guid sourceId, CancellationToken cancellationToken = default) => Task.CompletedTask;
+    }
+
+    private sealed class EnabledTaskNotificationFeatureFlags : IFeatureFlagService
+    {
+        public Task<bool> IsEnabledAsync(
+            string featureKey,
+            CancellationToken cancellationToken = default) =>
+            Task.FromResult(string.Equals(
+                FeatureKeys.Normalize(featureKey),
+                FeatureKeys.TasksNotificationsV1,
+                StringComparison.Ordinal));
+
+        public async Task<AipPortal.Application.Common.Result> RequireEnabledAsync(
+            string featureKey,
+            CancellationToken cancellationToken = default) =>
+            await IsEnabledAsync(featureKey, cancellationToken)
+                ? AipPortal.Application.Common.Result.Success()
+                : AipPortal.Application.Common.Result.Failure($"Feature '{featureKey}' is disabled.");
+
+        public Task<IReadOnlyList<string>> GetEnabledFeaturesAsync(
+            Guid tenantId,
+            CancellationToken cancellationToken = default) =>
+            Task.FromResult<IReadOnlyList<string>>([FeatureKeys.TasksNotificationsV1]);
     }
 
     private sealed class NoopAuthorizationStateChangePublisher : IAuthorizationStateChangePublisher

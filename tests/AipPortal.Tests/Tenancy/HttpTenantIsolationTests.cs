@@ -1225,6 +1225,159 @@ public sealed class HttpTenantIsolationTests
     }
 
     [Fact]
+    [Trait("Scope", "TaskV1PR07B")]
+    public async Task TaskDeadlinePatchIsServerAuthoritativeAndSeparateFromPlannedSchedule()
+    {
+        await using var app = await HttpTenantIsolationTestApp.CreateAsync();
+        var data = app.Data;
+        var taskPath = $"/api/tasks/{data.TaskA.Id:D}";
+
+        using var initialResponse = await app.SendAsync(
+            data.TenantAOwner,
+            data.TenantA.Slug,
+            taskPath);
+        using var initialDocument = JsonDocument.Parse(
+            await initialResponse.Content.ReadAsStringAsync());
+        Assert.Equal(HttpStatusCode.OK, initialResponse.StatusCode);
+        var version = initialDocument.RootElement
+            .GetProperty("task")
+            .GetProperty("version")
+            .GetInt64();
+
+        using (var reviewer = JsonContent(
+                   $$"""{"userId":"{{data.TenantAMember.Id:D}}","expectedVersion":{{version}}}"""))
+        using (var reviewerResponse = await app.SendAsync(
+                   data.TenantAOwner,
+                   data.TenantA.Slug,
+                   $"{taskPath}/reviewer",
+                   HttpMethod.Put,
+                   reviewer))
+        using (var reviewerDocument = JsonDocument.Parse(
+                   await reviewerResponse.Content.ReadAsStringAsync()))
+        {
+            Assert.Equal(HttpStatusCode.OK, reviewerResponse.StatusCode);
+            version = reviewerDocument.RootElement
+                .GetProperty("task")
+                .GetProperty("version")
+                .GetInt64();
+        }
+
+        const string deadlineText = "2026-08-03T00:15:00+09:00";
+        var expectedDeadline = new DateTimeOffset(
+            2026,
+            8,
+            3,
+            0,
+            15,
+            0,
+            TimeSpan.FromHours(9));
+        using (var validDeadline = JsonContent(
+                   $$"""{"title":"TaskA","description":null,"priority":1,"plannedStartDate":null,"plannedEndDate":null,"progressPercent":0,"expectedVersion":{{version}},"deadlineAt":"{{deadlineText}}"}"""))
+        using (var validResponse = await app.SendAsync(
+                   data.TenantAOwner,
+                   data.TenantA.Slug,
+                   taskPath,
+                   HttpMethod.Patch,
+                   validDeadline))
+        using (var validDocument = JsonDocument.Parse(
+                   await validResponse.Content.ReadAsStringAsync()))
+        {
+            Assert.Equal(HttpStatusCode.OK, validResponse.StatusCode);
+            var responseDeadline = validDocument.RootElement
+                .GetProperty("deadlineAt")
+                .GetDateTimeOffset();
+            Assert.Equal(expectedDeadline.ToUniversalTime(), responseDeadline);
+            Assert.Equal(TimeSpan.Zero, responseDeadline.Offset);
+            version = validDocument.RootElement.GetProperty("version").GetInt64();
+        }
+
+        var afterValidDeadline = await app.GetTaskMutationStateAsync(
+            data.TenantA.Id,
+            data.TenantA.Slug,
+            data.TaskA.Id);
+        Assert.Equal(expectedDeadline.ToUniversalTime(), afterValidDeadline.DeadlineAt);
+        Assert.Equal(TimeSpan.Zero, afterValidDeadline.DeadlineAt!.Value.Offset);
+        Assert.Equal(version, afterValidDeadline.Version);
+        // tasks.notificationsV1 remains disabled in this application's seeded tenant.
+        Assert.Equal(0, afterValidDeadline.TaskNotificationCount);
+
+        foreach (var clientHint in new[]
+                 {
+                     "\"isMajorDeadlineChange\":true",
+                     "\"deadlineChangeClassification\":\"None\"",
+                     "\"suppressDeadlineNotification\":true"
+                 })
+        {
+            using var untrustedHint = JsonContent(
+                $$"""{"title":"TaskA","description":null,"priority":1,"plannedStartDate":null,"plannedEndDate":null,"progressPercent":0,"expectedVersion":{{version}},"deadlineAt":"2026-08-05T00:15:00+09:00",{{clientHint}}}""");
+            using var response = await app.SendAsync(
+                data.TenantAOwner,
+                data.TenantA.Slug,
+                taskPath,
+                HttpMethod.Patch,
+                untrustedHint);
+
+            await AssertSafeRejectedJsonContractAsync(response, HttpStatusCode.BadRequest);
+            Assert.Equal(
+                afterValidDeadline,
+                await app.GetTaskMutationStateAsync(
+                    data.TenantA.Id,
+                    data.TenantA.Slug,
+                    data.TaskA.Id));
+        }
+
+        var plannedEnd = new DateOnly(2026, 8, 6);
+        using (var plannedEndOnly = JsonContent(
+                   $$"""{"plannedStartDate":null,"plannedEndDate":"{{plannedEnd:yyyy-MM-dd}}","milestoneDate":null,"expectedVersion":{{version}}}"""))
+        using (var scheduleResponse = await app.SendAsync(
+                   data.TenantAOwner,
+                   data.TenantA.Slug,
+                   $"{taskPath}/schedule",
+                   HttpMethod.Patch,
+                   plannedEndOnly))
+        using (var scheduleDocument = JsonDocument.Parse(
+                   await scheduleResponse.Content.ReadAsStringAsync()))
+        {
+            Assert.Equal(HttpStatusCode.OK, scheduleResponse.StatusCode);
+            Assert.Equal(
+                plannedEnd,
+                DateOnly.FromDateTime(
+                    scheduleDocument.RootElement.GetProperty("plannedEndDate").GetDateTime()));
+            Assert.False(scheduleDocument.RootElement.TryGetProperty("deadlineAt", out _));
+            version = scheduleDocument.RootElement.GetProperty("version").GetInt64();
+        }
+
+        var afterPlannedEnd = await app.GetTaskMutationStateAsync(
+            data.TenantA.Id,
+            data.TenantA.Slug,
+            data.TaskA.Id);
+        Assert.Equal(expectedDeadline, afterPlannedEnd.DeadlineAt);
+        Assert.Equal(plannedEnd, afterPlannedEnd.PlannedEndDate);
+        Assert.Equal(version, afterPlannedEnd.Version);
+        Assert.Equal(
+            afterValidDeadline.TaskNotificationCount,
+            afterPlannedEnd.TaskNotificationCount);
+
+        using var deadlineOnSchedule = JsonContent(
+            $$"""{"plannedStartDate":null,"plannedEndDate":"2026-08-07","milestoneDate":null,"expectedVersion":{{version}},"deadlineAt":"2026-08-07T00:15:00+09:00"}""");
+        using var rejectedSchedule = await app.SendAsync(
+            data.TenantAOwner,
+            data.TenantA.Slug,
+            $"{taskPath}/schedule",
+            HttpMethod.Patch,
+            deadlineOnSchedule);
+        await AssertSafeRejectedJsonContractAsync(
+            rejectedSchedule,
+            HttpStatusCode.BadRequest);
+        Assert.Equal(
+            afterPlannedEnd,
+            await app.GetTaskMutationStateAsync(
+                data.TenantA.Id,
+                data.TenantA.Slug,
+                data.TaskA.Id));
+    }
+
+    [Fact]
     [Trait("Scope", "TaskV1PR03C")]
     public async Task TaskDetailHttpContractUsesCanonicalRoutesSafeErrorsAndBoundedAggregate()
     {
@@ -1326,6 +1479,131 @@ public sealed class HttpTenantIsolationTests
             Assert.Equal("TASK_COMMENT_RATE_LIMITED", problem.RootElement.GetProperty("code").GetString());
             Assert.True(problem.RootElement.GetProperty("retryAfterSeconds").GetInt32() > 0);
             Assert.DoesNotContain("StackTrace", body, StringComparison.OrdinalIgnoreCase);
+        }
+    }
+
+    [Fact]
+    [Trait("Scope", "TaskV1PR07B")]
+    public async Task RevokedTaskCommentAuthorReceivesSafeForbiddenForCanonicalUpdateAndDelete()
+    {
+        await using var app = await HttpTenantIsolationTestApp.CreateAsync();
+        var data = app.Data;
+        Guid commentId;
+        long commentVersion;
+
+        using (var create = JsonContent("""{"bodyPlainText":"author comment","isImportant":false}"""))
+        using (var response = await app.SendAsync(data.TenantAMember, data.TenantA.Slug, $"/api/tasks/{data.TaskA.Id:D}/comments", HttpMethod.Post, create))
+        {
+            Assert.Equal(HttpStatusCode.OK, response.StatusCode);
+            using var created = JsonDocument.Parse(await response.Content.ReadAsStringAsync());
+            commentId = created.RootElement.GetProperty("id").GetGuid();
+            commentVersion = created.RootElement.GetProperty("version").GetInt64();
+        }
+
+        await app.SetWorkspaceMembershipStatusAsync(
+            data.TenantA.Id,
+            data.TenantA.Slug,
+            data.WorkspaceA.Id,
+            data.TenantAMember.Id,
+            MembershipStatus.Suspended);
+
+        using (var update = JsonContent($$"""{"bodyPlainText":"must not change","isImportant":true,"expectedVersion":{{commentVersion}}}"""))
+        using (var response = await app.SendAsync(data.TenantAMember, data.TenantA.Slug, $"/api/task-comments/{commentId:D}", HttpMethod.Patch, update))
+        {
+            await AssertTaskErrorAsync(response, HttpStatusCode.Forbidden, "TASK_COMMENT_FORBIDDEN");
+        }
+
+        using (var response = await app.SendAsync(data.TenantAMember, data.TenantA.Slug, $"/api/task-comments/{commentId:D}?expectedVersion={commentVersion}", HttpMethod.Delete))
+        {
+            await AssertTaskErrorAsync(response, HttpStatusCode.Forbidden, "TASK_COMMENT_FORBIDDEN");
+        }
+    }
+
+    [Fact]
+    [Trait("Scope", "TaskV1PR07B")]
+    public async Task ImportantOnlyTaskCommentPatchIsRateLimitedWithRetryAfterAndNoPersistenceDelta()
+    {
+        await using var app = await HttpTenantIsolationTestApp.CreateAsync();
+        var data = app.Data;
+        var comments = new List<TaskComment>();
+        for (var index = 0; index < 4; index++)
+        {
+            comments.Add(await app.AddTaskCommentAsync(
+                data.TenantA.Id,
+                data.TenantA.Slug,
+                data.TaskA,
+                data.TenantAOwner.Id,
+                $"important-only-{index}"));
+        }
+
+        foreach (var comment in comments.Take(3))
+        {
+            using var update = JsonContent($$"""{"bodyPlainText":null,"isImportant":true,"expectedVersion":{{comment.VersionNo}}}""");
+            using var response = await app.SendAsync(data.TenantAOwner, data.TenantA.Slug, $"/api/task-comments/{comment.Id:D}", HttpMethod.Patch, update);
+            Assert.Equal(HttpStatusCode.OK, response.StatusCode);
+        }
+
+        var beforeTask = await app.GetTaskMutationStateAsync(data.TenantA.Id, data.TenantA.Slug, data.TaskA.Id);
+        var beforeComment = await app.GetTaskCommentStateAsync(data.TenantA.Id, data.TenantA.Slug, comments[3].Id);
+        using (var update = JsonContent($$"""{"bodyPlainText":null,"isImportant":true,"expectedVersion":{{comments[3].VersionNo}}}"""))
+        using (var response = await app.SendAsync(data.TenantAOwner, data.TenantA.Slug, $"/api/task-comments/{comments[3].Id:D}", HttpMethod.Patch, update))
+        {
+            Assert.Equal((HttpStatusCode)429, response.StatusCode);
+            Assert.True(response.Headers.TryGetValues("Retry-After", out var retryAfter));
+            Assert.True(int.TryParse(Assert.Single(retryAfter), out var retryAfterSeconds) && retryAfterSeconds >= 1);
+            using var problem = JsonDocument.Parse(await response.Content.ReadAsStringAsync());
+            Assert.Equal("TASK_COMMENT_RATE_LIMITED", problem.RootElement.GetProperty("code").GetString());
+        }
+
+        Assert.Equal(beforeTask, await app.GetTaskMutationStateAsync(data.TenantA.Id, data.TenantA.Slug, data.TaskA.Id));
+        Assert.Equal(beforeComment, await app.GetTaskCommentStateAsync(data.TenantA.Id, data.TenantA.Slug, comments[3].Id));
+    }
+
+    [Fact]
+    [Trait("Scope", "TaskV1PR07B")]
+    public async Task RevokedMemberIsExcludedFromMentionCandidatesAndDirectMentions()
+    {
+        await using var app = await HttpTenantIsolationTestApp.CreateAsync();
+        var data = app.Data;
+        Guid commentId;
+        long commentVersion;
+
+        using (var create = JsonContent("""{"bodyPlainText":"update target","isImportant":false}"""))
+        using (var response = await app.SendAsync(data.TenantAOwner, data.TenantA.Slug, $"/api/tasks/{data.TaskA.Id:D}/comments", HttpMethod.Post, create))
+        {
+            Assert.Equal(HttpStatusCode.OK, response.StatusCode);
+            using var created = JsonDocument.Parse(await response.Content.ReadAsStringAsync());
+            commentId = created.RootElement.GetProperty("id").GetGuid();
+            commentVersion = created.RootElement.GetProperty("version").GetInt64();
+        }
+
+        await app.SetWorkspaceMembershipStatusAsync(
+            data.TenantA.Id,
+            data.TenantA.Slug,
+            data.WorkspaceA.Id,
+            data.TenantAMember.Id,
+            MembershipStatus.Suspended);
+
+        using (var candidates = await app.SendAsync(data.TenantAOwner, data.TenantA.Slug, $"/api/tasks/{data.TaskA.Id:D}/mention-candidates?query=TenantAMember"))
+        {
+            Assert.Equal(HttpStatusCode.OK, candidates.StatusCode);
+            var body = await candidates.Content.ReadAsStringAsync();
+            Assert.DoesNotContain(data.TenantAMember.DisplayName, body, StringComparison.Ordinal);
+            using var json = JsonDocument.Parse(body);
+            Assert.Equal(0, json.RootElement.GetArrayLength());
+        }
+
+        var mentionBody = $"@{{{data.TenantAMember.Id:D}}}";
+        using (var create = JsonContent($$"""{"bodyPlainText":"{{mentionBody}}","isImportant":false}"""))
+        using (var response = await app.SendAsync(data.TenantAOwner, data.TenantA.Slug, $"/api/tasks/{data.TaskA.Id:D}/comments", HttpMethod.Post, create))
+        {
+            await AssertTaskErrorAsync(response, HttpStatusCode.BadRequest, "TASK_MENTION_NOT_ELIGIBLE");
+        }
+
+        using (var update = JsonContent($$"""{"bodyPlainText":"please review {{mentionBody}}","isImportant":false,"expectedVersion":{{commentVersion}}}"""))
+        using (var response = await app.SendAsync(data.TenantAOwner, data.TenantA.Slug, $"/api/task-comments/{commentId:D}", HttpMethod.Patch, update))
+        {
+            await AssertTaskErrorAsync(response, HttpStatusCode.BadRequest, "TASK_MENTION_NOT_ELIGIBLE");
         }
     }
 
@@ -1466,6 +1744,27 @@ public sealed class HttpTenantIsolationTests
         using var document = JsonDocument.Parse(body);
         Assert.Equal((int)status, document.RootElement.GetProperty("status").GetInt32());
         Assert.True(document.RootElement.TryGetProperty("traceId", out _));
+        Assert.DoesNotContain("StackTrace", body, StringComparison.OrdinalIgnoreCase);
+        Assert.DoesNotContain("SELECT ", body, StringComparison.OrdinalIgnoreCase);
+        Assert.DoesNotContain("INSERT INTO", body, StringComparison.OrdinalIgnoreCase);
+        Assert.DoesNotContain("UPDATE ", body, StringComparison.OrdinalIgnoreCase);
+        Assert.DoesNotContain("currentVersion", body, StringComparison.OrdinalIgnoreCase);
+    }
+
+    private static async Task AssertSafeRejectedJsonContractAsync(
+        HttpResponseMessage response,
+        HttpStatusCode status)
+    {
+        var body = await response.Content.ReadAsStringAsync();
+        Assert.Equal(status, response.StatusCode);
+        using var document = JsonDocument.Parse(body);
+        if (document.RootElement.TryGetProperty("status", out var responseStatus))
+        {
+            Assert.Equal((int)status, responseStatus.GetInt32());
+        }
+        Assert.True(
+            document.RootElement.TryGetProperty("traceId", out _) ||
+            document.RootElement.TryGetProperty("requestId", out _));
         Assert.DoesNotContain("StackTrace", body, StringComparison.OrdinalIgnoreCase);
         Assert.DoesNotContain("SELECT ", body, StringComparison.OrdinalIgnoreCase);
         Assert.DoesNotContain("INSERT INTO", body, StringComparison.OrdinalIgnoreCase);
@@ -1637,6 +1936,87 @@ public sealed class HttpTenantIsolationTests
             return await dbContext.Messages
                 .AsNoTracking()
                 .FirstOrDefaultAsync(message => message.Id == messageId);
+        }
+
+        public async Task<(
+            DateTimeOffset? DeadlineAt,
+            DateOnly? PlannedEndDate,
+            long Version,
+            int TaskNotificationCount,
+            int TaskOutboxCount)> GetTaskMutationStateAsync(
+                Guid tenantId,
+                string tenantSlug,
+                Guid taskId)
+        {
+            await using var scope = App.Services.CreateAsyncScope();
+            var currentTenant = scope.ServiceProvider.GetRequiredService<CurrentTenantService>();
+            currentTenant.SetTenant(tenantId, tenantSlug);
+            var dbContext = scope.ServiceProvider.GetRequiredService<AppDbContext>();
+            var task = await dbContext.TaskItems
+                .AsNoTracking()
+                .SingleAsync(item => item.Id == taskId);
+            var notificationCount = await dbContext.Notifications
+                .AsNoTracking()
+                .CountAsync(item =>
+                    item.RelatedEntityType == "TaskItem" &&
+                    item.RelatedEntityId == taskId);
+            var outboxCount = await dbContext.OutboxEvents
+                .AsNoTracking()
+                .CountAsync(item =>
+                    item.AggregateType == "Task" &&
+                    item.AggregateId == taskId);
+            return (
+                task.DeadlineAt,
+                task.PlannedEndDate,
+                task.VersionNo,
+                notificationCount,
+                outboxCount);
+        }
+
+        public async Task<TaskComment> AddTaskCommentAsync(
+            Guid tenantId,
+            string tenantSlug,
+            TaskItem task,
+            Guid authorUserId,
+            string body)
+        {
+            await using var scope = App.Services.CreateAsyncScope();
+            var currentTenant = scope.ServiceProvider.GetRequiredService<CurrentTenantService>();
+            currentTenant.SetTenant(tenantId, tenantSlug);
+            var dbContext = scope.ServiceProvider.GetRequiredService<AppDbContext>();
+            var comment = new TaskComment
+            {
+                TenantId = tenantId,
+                WorkspaceId = task.WorkspaceId,
+                ProjectId = task.ProjectId,
+                TaskItemId = task.Id,
+                AuthorUserId = authorUserId,
+                BodyPlainText = body,
+                CreatedAt = DateTimeOffset.UtcNow,
+                VersionNo = 1
+            };
+            dbContext.TaskComments.Add(comment);
+            await dbContext.SaveChangesAsync();
+            return comment;
+        }
+
+        public async Task<(string Body, bool IsImportant, long Version, DateTimeOffset? UpdatedAt)> GetTaskCommentStateAsync(
+            Guid tenantId,
+            string tenantSlug,
+            Guid commentId)
+        {
+            await using var scope = App.Services.CreateAsyncScope();
+            var currentTenant = scope.ServiceProvider.GetRequiredService<CurrentTenantService>();
+            currentTenant.SetTenant(tenantId, tenantSlug);
+            var dbContext = scope.ServiceProvider.GetRequiredService<AppDbContext>();
+            return await dbContext.TaskComments.AsNoTracking()
+                .Where(comment => comment.Id == commentId)
+                .Select(comment => new ValueTuple<string, bool, long, DateTimeOffset?>(
+                    comment.BodyPlainText,
+                    comment.IsImportant,
+                    comment.VersionNo,
+                    comment.UpdatedAt))
+                .SingleAsync();
         }
 
         public async Task<Guid> AddWorkspaceAsync(Guid tenantId, string tenantSlug, Guid userId)
