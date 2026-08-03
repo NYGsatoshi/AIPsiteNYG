@@ -1,6 +1,7 @@
 # Security Model
 
-Last implementation audit: 2026-06-18.
+Last broad implementation audit: 2026-06-18. TASK-V1-PR07-C security-boundary
+update: 2026-08-03.
 
 This document separates implemented security controls from intended policy. Root `SECURITY.md` describes vulnerability reporting; `docs/SECURITY.md` contains additional engineering guidance.
 
@@ -121,6 +122,91 @@ SignalR delivery can precede a successful commit. The default-disabled
 `tasks.notificationsV1` flag stops only the new Notification intent producer;
 it is not a security control. Dispatch/replay reauthorization and safe
 notification opening remain PR07-D work and are not claimed by PR07-B.
+
+### Workspace deadline-digest boundary
+
+TASK-V1-PR07-C treats a durable ledger row as permission to attempt generation,
+not as proof that its recipient may still see any Task. The generation path
+rechecks current state once while building. Inside the short commit transaction
+it locks the claimed job, then the recipient User row, and performs the final
+evaluation only after any User-lock wait completes. A membership or lifecycle
+change committed during that wait is therefore visible to the evaluation that
+authorizes Notification creation. The final evaluation requires:
+
+- the same active Tenant and active, non-deleted user;
+- active TenantUser and WorkspaceMember records;
+- an active, non-deleted Workspace;
+- current Project visibility, including current Project/Group/Workspace access;
+- a current-visible, non-archived, non-deleted Project and undeleted Task;
+- a Task that is not completed or cancelled by timestamp, status, or terminal
+  Workflow Stage; and
+- current digest relevance under the approved Watch contract.
+
+Digest relevance is narrower than visibility. A current manual Watch or a
+current automatic Creator, Primary Assignee, Collaborator, or Reviewer source
+may qualify. Explicit opt-out suppresses digest relevance. Mere Project/Task
+visibility and Team Queue eligibility do not qualify. The repository validates
+current relationship sources directly and does not trust a historical
+relationship or stale automatic Watch row. Watch never grants access; all
+authorization and lifecycle predicates remain independently mandatory.
+
+A membership revocation, Workspace/Project archive, Task deletion,
+completion/cancellation, relationship loss without another qualifying source,
+or explicit opt-out therefore removes the candidate at the final recheck. If
+none remain, the job succeeds as a no-op and stages neither Notification nor
+Outbox row. The same rule prevents a stale pre-transaction build result from
+being committed.
+
+The ledger and attempt tables are tenant-owned and use normal global query
+filters. Platform scope is used only for bounded active-Tenant discovery and
+aggregate health diagnostics; each schedule, claim, generation, failure, and
+restart operation executes in an explicit Tenant scope. Claim owner, expiry,
+and a random claim token fence concurrent workers and prevent an expired
+worker from completing a reclaimed job.
+
+The visible Notification is one recipient-owned generic
+`Task deadline digest` reference with a null body. It contains no Task list or
+sensitive display content. Its durable recipient signal contains only
+`notificationId`, `stateVersion`, and `requiresRefetch`; the Notification,
+state-version advance, signal Outbox row, and ledger success transition commit
+together. This is generation atomicity, not delayed-dispatch authorization.
+Current-authorized Outbox dispatch/replay, notification opening, and Angular
+state clearing remain PR07-D and must not be inferred from PR07-C.
+
+The recipient lock serializes concurrent digests for the same user, but it is
+not assumed to serialize every existing Notification producer. The shared
+`NotificationUserState.Version` is therefore also an EF concurrency token. A
+digest and immediate Task Notification race cannot commit the same recipient
+version: one unit of work wins, the other rolls back on optimistic conflict,
+and a clean logical-key retry advances the sequence to versions 1 then 2. This
+prevents duplicate committed state versions and lost recipient-state updates
+without putting display data into the signal.
+
+Automatic failure becomes terminal on exactly the third automatic attempt.
+Operator restart is limited to the existing Platform/System administrator
+boundary plus a current Tenant scope. It appends one requested-by-user attempt,
+links the prior attempt, and writes a generic AuditLog entry in the same
+transaction; it does not erase history or reset automatic attempts. The
+bounded operator reason is audit metadata and must not contain Task/comment
+content, private preference data, tokens, secrets, or other protected values.
+
+The worker never passes exception objects or exception messages to its
+operational log templates. Tenant-cycle and generation failures are represented
+only by bounded codes such as `DigestGenerationFailure`,
+`DigestGenerationTimeout`, or `DigestPersistenceConflict`; failure-recording
+logs are fixed text. Tests reject Tenant, Workspace, user, Task, job, and claim
+identifiers in these log records. Aggregate diagnostics use no high-cardinality
+identifier labels.
+
+Claim execution is concurrent only inside the already bounded claimed batch:
+all leased claims start immediately, each with a separate Tenant scope, and the
+hard claim-batch ceiling of 100 bounds fan-out. One claim's ordinary failure is
+recorded independently and does not suppress the others; cancellation remains
+shared and propagates through all started work.
+
+`tasks.notificationsV1` remains default off and opt-in per Tenant. It suppresses
+digest schedule/claim/generation work, but it is not an authorization control:
+all of the checks above remain mandatory whenever it is enabled.
 
 ## Tenant isolation
 

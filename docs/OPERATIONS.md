@@ -73,6 +73,142 @@ SaaS checks:
 - Server firewall and reverse proxy configured.
 - Raw passwords, tokens, invite tokens, signed URLs, and message/file contents excluded from logs.
 
+## TASK-V1-PR07-C deadline-digest operations
+
+The deadline digest is an in-process hosted worker. It uses the dedicated
+digest ledger for schedule, claim, retry, and terminal generation state; the
+Transactional Outbox begins only after a non-empty generic Notification is
+staged. Diagnose these state machines separately.
+
+### Configuration and rollout
+
+`tasks.notificationsV1` is a database-backed per-Tenant feature and remains
+default off. Use the existing reviewed tenant-feature process to enable it;
+`Features:*` appsettings are not its source of truth. A disabled Tenant receives
+no digest schedule upsert, claim, or generation, although the hosted worker
+continues bounded active-Tenant discovery so it can evaluate each Tenant's
+flag. Disabling the feature does not remove existing ledger rows and does not
+stop dispatch of Outbox rows that were already committed.
+
+Current `TaskDeadlineDigest` defaults are:
+
+| Setting | Default | Runtime boundary |
+| --- | ---: | --- |
+| `PollSeconds` | 60 | minimum 1 second |
+| `TenantPageSize` | 25 | 1-100 |
+| `SchedulePageSize` | 100 | 1-500 |
+| `ClaimBatchSize` | 20 | 1-100; also the per-Tenant claim-concurrency ceiling |
+| `CandidatePageSize` | 100 | 1-500 |
+| `ClaimTimeoutSeconds` | 120 | minimum 1 second |
+| `RetrySeconds` | 60 | minimum 1 second |
+
+Do not increase these values as an ad hoc backlog fix. Candidate-index and
+production-volume plan evidence is still environment-specific, and the worker
+is intentionally bounded.
+
+After a Tenant's bounded claim query completes, the worker starts every leased
+claim immediately in one `Task.WhenAll`. Each claim receives a separate DI and
+Tenant scope, so one slow recipient does not leave later leases idle and an
+ordinary per-user/Workspace failure does not stop its peers. Increasing
+`ClaimBatchSize` therefore also increases concurrent generation transactions
+and database load; 100 remains the hard ceiling. Shared host cancellation is
+propagated to every claim.
+
+Before enabling a Tenant, verify its Workspace timezones and stored/inherited
+quarter-hour preferences. Invalid timezone identities fall back through the
+implemented Workspace -> Tenant -> UTC chain and increment an aggregate
+diagnostic; invalid stored local times are skipped and increment their own
+diagnostic. Investigate and repair the source data rather than treating those
+counters as normal delivery.
+
+### Health and diagnosis
+
+`GET /health/task-deadline-digests` reports aggregate ledger counts and oldest
+due/claimed timestamps plus process-local worker counters. It contains no
+Tenant, Workspace, user, Task, Notification, job, or claim IDs. It is not part
+of `/health/ready`; a 200 response proves that the diagnostic query completed,
+not that backlog or lag is acceptable. PR07-C defines no alert threshold.
+
+Use this split when diagnosing:
+
+1. A `Pending`, overdue, or `Failed` ledger row is a generation problem. Check
+   feature state, preference/timezone diagnostics, claim age, bounded safe error
+   code, and append-preserved attempt history.
+2. A long-lived `Claimed` row may belong to a live worker or a cancelled/crashed
+   worker. Do not clear its owner/token manually. After `ClaimExpiresAt`, a
+   later enabled scheduler cycle fences the old token, marks that attempt
+   `Expired`, and either creates the next automatic attempt or reaches terminal
+   `Failed` when its budget is exhausted.
+3. A `Succeeded` job with no `NotificationId` is the approved zero-candidate
+   no-op, not a delivery failure.
+4. A `Succeeded` job with a Notification but delayed/missing realtime behavior
+   is an Outbox/dispatch problem. Diagnose the existing Outbox pending/retry/
+   dead-letter state; do not restart digest generation to replay delivery.
+
+Automatic failures and expired claims share the exact budget of three
+automatic attempts. The third terminal transition sets `Failed`; there is no
+separate digest dead-letter table.
+
+`NotificationUserState.Version` is an optimistic-concurrency token. If a
+digest and an immediate Task Notification stage the same next recipient
+version, only one unit of work can commit; the other Notification, Outbox row,
+state update, and digest transition roll back together. A digest-side conflict
+is recorded with the safe `DigestPersistenceConflict` code and follows the
+normal automatic retry budget. The clean retry reads the committed version,
+while logical keys reuse any already-committed intent, so the final recipient
+versions remain distinct rather than duplicating a signal.
+
+Worker warnings contain only fixed text and safe error codes. Do not add
+exception messages or Tenant/user/Workspace/Task/job/claim IDs while
+investigating. Do not put TaskComment bodies, review/Blocked reasons,
+restricted titles, private preferences, Watch state, tokens, secrets, license
+material, or file contents into logs or incident notes.
+
+### Audited operator restart
+
+There is no broad digest administration UI. A current Platform/System
+administrator in the affected Tenant may call:
+
+```http
+POST /api/admin/task-deadline-digests/{jobId}/restart
+Content-Type: application/json
+X-CSRF-Token: <token when CSRF is enabled>
+
+{
+  "reason": "Operator verified a transient dependency outage."
+}
+```
+
+Use this only after the job is terminal `Failed` and the root cause is
+understood. The reason is required, trimmed, and limited to 500 characters;
+keep it metadata-safe. Each call appends one linked, requested-by-user pending
+attempt and a `TaskDeadlineDigestRestarted` AuditLog entry. It grants exactly
+one operator attempt and preserves the three automatic attempts. Never reset
+attempt counters, delete attempt rows, rewrite the original failure as
+automatic, or clone the five-field identity to force delivery.
+
+### Worker drain and rollback
+
+There is no explicit drain endpoint. For maintenance:
+
+1. Disable `tasks.notificationsV1` for affected Tenants so no new claims are
+   taken.
+2. Allow every concurrently started claim in the current bounded batch to
+   finish, then stop the process with normal cancellation. Cancellation is
+   propagated through paging and every claim's database work.
+3. Treat any interrupted claim as fenced state. It may remain `Claimed` while
+   the feature is disabled; after re-enable, claim-expiry processing will
+   expire/retry it safely. Do not bypass `ClaimExpiresAt` with manual updates.
+4. Inspect digest and Outbox state independently before resuming.
+
+For an application rollback, first disable the feature and drain as above,
+then deploy the prior binary while leaving the additive digest migration in
+place. That binary does not use the new tables. Apply the migration Down only
+after backing up and explicitly accepting loss of all digest job/attempt
+history; Down drops both tables. It does not roll back or delete already
+committed Notification, Outbox, preference, or Audit rows. Never use Outbox
+deletion as a digest rollback mechanism.
+
 ## Backup
 
 AIP Portal recovery has two layers:
@@ -143,5 +279,7 @@ Do not paste passwords, raw tokens, invite token values, API token raw values, w
 - Production object storage adapter is not implemented.
 - Full tenant restore is not implemented.
 - Backup/restore must be rehearsed per environment.
-- Background job health checks are not complete.
+- Outbox and digest aggregate health endpoints exist, but they are not
+  readiness gates and have no repository-defined alert thresholds; background
+  worker health/alerting remains incomplete.
 - API smoke examples are placeholders until run against a seeded target environment.

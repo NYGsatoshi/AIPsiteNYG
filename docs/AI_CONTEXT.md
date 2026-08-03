@@ -2,7 +2,8 @@
 
 This is the primary entry point for future Codex work on AIPsiteNYG.
 
-Last repository audit: **2026-08-02**.
+Last broad repository audit: **2026-08-02**. TASK-V1-PR07-C implementation
+candidate update: **2026-08-03**.
 
 ## Documentation authority
 
@@ -74,7 +75,7 @@ Project references enforce a conventional dependency direction. See `docs/ARCHIT
 | Projects/tasks/milestones/assignments/comments/Gantt data | Partially implemented; PR06 merged, large-project delivery deferred | PR02 adds versioned Task workflow, relationship, review, Claim, and FS-authoring command routes. PR05 adds the canonical Project Kanban snapshot/config/move flow. PR06 upgrades the existing Project Detail Schedule tab and Gantt route with a bounded scheduled/unscheduled projection, manual schedule/progress/FS dependency commands, canonical Task-only parent derivation and terminal parent/child guards, optimistic concurrency, explicit conflict Retry/Discard, structured warnings, accessible/mobile alternatives, lazy vendor isolation, and authoritative realtime refetch. PR #259 merged at `d5de01cf303c914c2b390346575a22cadb8b4443`. The owner subsequently approved its 500 combined-item / 2,000 active-dependency / typed HTTP 400 fail-closed safeguards as the temporary PR06 snapshot contract. Large-project pagination and virtualization remain open under `TASK-V1-PR06B`. See `docs/TASK_V1_PR02.md`, `docs/TASK_V1_PR05.md`, and `docs/TASK_V1_PR06.md`. |
 | Events/attendance/calendar | Backend implemented; browser UI planned | Controller/service/repository/tests exist; calendar route is a placeholder outside dashboard summary |
 | Forms/surveys | Backend implemented; browser UI planned | Controller/service/repository/tests exist; `/forms` is a placeholder |
-| Notifications | Partially implemented; PR07-A merged and PR07-B backend implementation under verification | Database-backed list/read/delete and polling UI remain. PR #274 merged the private Workspace digest-preference and logical-key foundation at `c5627eb09ecf19d66146eacdbc3e938c0a1c8563`; its same-sha post-merge workflows passed. PR07-B centrally resolves immediate Task recipients, stages deduped Notifications plus minimal Outbox signals in the Task transaction, and adds server-authoritative hard-deadline classification. `tasks.notificationsV1` remains default-off. Digest generation, notification-open/current-dispatch reauthorization, SignalR routing changes, and Angular changes remain later PR07 phases. |
+| Notifications | Partially implemented; PR07-A/B merged and PR07-C deadline-digest candidate under verification | Database-backed list/read/delete and polling UI remain. PR #274 merged the private Workspace digest-preference and logical-key foundation at `c5627eb09ecf19d66146eacdbc3e938c0a1c8563`; PR #275 merged immediate Task Notification production at `93b1c5e260e04c243ff84f7370aca4d869484087`. The PR07-C candidate adds a dedicated five-field daily digest ledger, append-preserved automatic/operator attempts, bounded in-process scheduling/generation, Workspace-local/DST policy, current Watch plus authorization/lifecycle rechecks, and atomic generic Notification/minimal-Outbox staging. `tasks.notificationsV1` remains default-off. PR07-C is not merged or accepted by this status entry. Notification-open/current-dispatch reauthorization, SignalR routing changes, and Angular reconciliation remain PR07-D; operations/final acceptance remain PR07-E. |
 | Search | Partially implemented | `DbSearchService` exists, but project/comment visibility is broader than canonical authorization; `/search` UI remains unavailable |
 | Local filesystem files | Partially implemented | Authorization, policy, repository, and storage exist; upload/database failure cleanup and controlled missing-file handling are incomplete |
 | Object storage | Planned | Unsupported adapter is selected for object-storage provider names |
@@ -83,7 +84,7 @@ Project references enforce a conventional dependency direction. See `docs/ARCHIT
 | Webhook records and validation | Foundation only | “Test” validates configuration and sends no outbound request |
 | UI shell data model | Foundation only | Modules/panels/layouts/commands/radial-menu APIs exist; radial UI control is disabled |
 | SignalR and transactional Outbox | Messaging, Project Kanban, and PR06 Schedule integration implemented; exact final-HEAD PR06 real-transport Gate pending | Authenticated `/hubs/app`, server-authorized subscriptions, durable Outbox persistence, dispatcher retry/dead-letter/retention, diagnostics, and Angular reconnect/catch-up exist. PR05 uses committed Task/Project invalidations for Kanban. PR06 transactionally queues Task/Project schedule invalidations and treats them as version hints for authoritative Gantt HTTP refetch, including active-edit queuing, reconnect, degraded HTTP behavior, and synchronous protected Kanban/Gantt clear plus generation invalidation when Project subscription reauthorization is denied. Historical exact `2fc5910` licensed smoke run `30639800642` passed all six scenarios with 0 failed/skipped; it is not final evidence after latest-main integration and scope cleanup. |
-| Billing/payments, SSO/MFA, background jobs | Planned | No implementation found |
+| Billing/payments, SSO/MFA, general-purpose/external job orchestration | Planned | In-process Outbox and PR07-C digest hosted workers exist; no general-purpose external job runner was found |
 
 ## Status groups
 
@@ -107,7 +108,10 @@ Project references enforce a conventional dependency direction. See `docs/ARCHIT
 
 ### Planned
 
-- Password reset delivery, object storage, API token authentication, outbound webhooks, background jobs, tenant restore, SSO/MFA, billing, automatic/advanced planning, and full docking/radial UI.
+- Password reset delivery, object storage, API token authentication, outbound
+  webhooks, general-purpose/external job orchestration beyond the existing
+  in-process workers, tenant restore, SSO/MFA, billing, automatic/advanced
+  planning, and full docking/radial UI.
 
 ### Deprecated
 
@@ -149,6 +153,16 @@ The 2026-06-18 local audit observed 123 passing .NET tests. This result needs qu
 - HTTP tests use Kestrel but mostly EF Core InMemory.
 - Root Playwright legacy static-SPA specs are obsolete after the Angular migration; future Playwright coverage should target Angular build output or a hosted Angular app.
 - CI supplies PostgreSQL and runs migrations before `dotnet test`.
+
+The current TASK-V1-PR07-C worktree is a Draft implementation candidate, not a
+merged status. Its dedicated verification record is
+`docs/verification/task-v1-pr07-c-deadline-digest.md`. Conditional PostgreSQL
+tests are the authority for migration, five-field identity, concurrent/expired
+claims, exact attempt accounting, audited restart, integrated DST identity,
+current candidate predicates, Notification/Outbox atomicity, and focused
+query-plan evidence. An environment-unset run that reports those tests skipped
+must not be promoted to PostgreSQL or completion evidence. PR07-C adds no
+frontend, notification-open, or dispatch/replay-authorization proof.
 
 Historical TASK-V1-PR06 merge-time evidence from 2026-08-01 follows. It is
 retained as evidence of the state before PR #259 merged, not as the current
@@ -236,6 +250,9 @@ Then add:
 - Test changes or verification claims: `docs/TESTING.md`
 - Detailed entity fields: `docs/DATA_MODEL.md`
 - API conventions: `docs/API_CONTRACTS.md`
+- PR07-C deadline-digest implementation/evidence:
+  `docs/decisions/task-v1-pr07-c-deadline-digest-decisions.md` and
+  `docs/verification/task-v1-pr07-c-deadline-digest.md`
 - Canonical Gantt implementation/evidence:
   `docs/TASK_V1_PR06.md` and
   `docs/verification/task-v1-pr06-gantt.md`

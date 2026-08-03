@@ -35,6 +35,9 @@ public sealed class AdminControllerTests
 
     private sealed class FakeAdminService : IAdminService
     {
+        public Task<Result> RestartTaskDeadlineDigestAsync(Guid jobId, RestartTaskDeadlineDigestRequest request, CancellationToken cancellationToken = default) =>
+            Task.FromResult(Result.Success());
+
         public Task<Result<AdminInviteResponse>> CreateInviteAsync(CreateInviteRequest request, CancellationToken cancellationToken = default)
         {
             return Task.FromResult(Result<AdminInviteResponse>.Success(new AdminInviteResponse(

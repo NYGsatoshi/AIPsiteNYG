@@ -1,10 +1,11 @@
 # TASK-V1-PR07 sequential implementation plan
 
 Status: PR07-A was accepted and merged as PR #274 at
-`c5627eb09ecf19d66146eacdbc3e938c0a1c8563`. The same-sha post-merge `main`
-CI, Code Quality, Documentation CI, and npm Security Audit workflows all
-passed. PR07-B is being implemented and verified on
-`task/v1-pr07-b-immediate-notifications` from that exact `main` commit.
+`c5627eb09ecf19d66146eacdbc3e938c0a1c8563`. PR07-B was accepted and merged as
+PR #275 at `93b1c5e260e04c243ff84f7370aca4d869484087`; the same-sha post-merge
+`main` CI, Code Quality, Documentation CI, and npm Security Audit workflows all
+passed. PR07-C is active on `task/v1-pr07-c-deadline-digest` from that exact
+`main` commit.
 
 Implementation baseline audited: `491d17db3701b7fb26010db8c0590eac7d24bd78`
 
@@ -18,6 +19,13 @@ Canonical owner-decision resolution:
 - Specification merge commit: `8b90c8897367606473515d17d3696e458b2ee7b5`
 - Resolved decisions: `PR07-OWNER-001` through `PR07-OWNER-003`
 - Implementation-repository decision record: `docs/decisions/task-v1-pr07-owner-decisions.md`
+
+PR07-C owner-approved contract supplement:
+
+- Approval date: `2026-08-03`
+- Decision record: `docs/decisions/task-v1-pr07-c-deadline-digest-decisions.md`
+- Resolved topics: current effective-Watch relevance, zero-candidate success,
+  and operator-restart attempt accounting
 
 ## Objective
 
@@ -86,11 +94,18 @@ Contract:
 
 | Responsibility | Profile |
 | --- | --- |
-| Digest generation | separate `NotificationDispatchJob` digest ledger; at most 3 automatic attempts; terminal `Failed`; no separate digest dead-letter table; audited restart creates a new attempt |
+| Digest generation | separate `TaskDeadlineDigestJob` ledger; at most 3 automatic attempts; terminal `Failed`; no separate digest dead-letter table; each audited operator restart adds one operator attempt without resetting the automatic-attempt budget |
 | Visible Notification | recipient-owned persistence/read/open lifecycle; no scheduler semantics |
 | Transactional Outbox delivery | dedicated claim/lease/retry/replay profile; at most 10 automatic attempts; terminal `DeadLetter`; capability-gated audited replay |
 
 The digest ledger owns schedule, candidate identity, idempotency, claim, generation attempts, and terminal generation state. It is never an Outbox scheduler. The Outbox is never digest candidate/idempotency state. After successful digest generation creates an authorized visible Notification, its realtime signal is delivered through the existing Transactional Outbox.
+
+For PR07-C, a Task is digest-relevant only through current effective Watch after
+automatic-source reconciliation. Manual Watch qualifies, explicit opt-out
+suppresses digest relevance, and neither mere visibility nor Team Queue
+eligibility qualifies. A zero-candidate ledger unit reaches `Succeeded` without
+creating a Notification or Outbox row. The focused decision record above is the
+authority for these rules.
 
 ### Canonical realtime event boundary
 
@@ -245,9 +260,9 @@ PR07-A completes only when fresh/upgrade migration and PostgreSQL uniqueness/con
 
 ## PR07-B — Immediate policy, hard-deadline classification, and transactional event production
 
-Status: implementation and verification in progress on
-`task/v1-pr07-b-immediate-notifications`, based on accepted PR07-A merge
-`c5627eb09ecf19d66146eacdbc3e938c0a1c8563`
+Status: accepted and merged as PR #275 at
+`93b1c5e260e04c243ff84f7370aca4d869484087`; same-sha post-merge `main` checks
+passed
 
 ### Goal
 
@@ -376,7 +391,8 @@ PR07-B completes only with PostgreSQL transaction/dedupe/isolation evidence, exa
 
 ## PR07-C — Workspace deadline-digest ledger and worker
 
-Status: blocked until PR07-A and PR07-B merge and are accepted
+Status: active on `task/v1-pr07-c-deadline-digest`, based on accepted PR07-B
+merge `93b1c5e260e04c243ff84f7370aca4d869484087`
 
 ### Goal
 
@@ -388,10 +404,12 @@ Build bounded, independently retryable daily user/Workspace digests without dupl
 - implement bounded due-row selection and atomic database-safe claiming;
 - use Workspace-local preference/default time and a documented DST gap/fold policy;
 - group eligible Tasks for 3 days, 1 day, today, and overdue;
-- recheck membership, Workspace/Project/Task visibility, lifecycle, completion/cancellation, and current relevance before creation;
+- recheck membership, Workspace/Project/Task visibility, lifecycle, completion/cancellation, and current effective Watch after automatic-source reconciliation before creation;
+- include manual Watch, suppress explicit opt-out, and exclude mere visibility and Team Queue eligibility from digest relevance;
 - isolate each user/Workspace unit so one failure does not poison the batch;
 - make at most 3 automatic generation attempts, then terminal ledger `Failed`;
-- provide audited operator restart as a new attempt, with no digest dead-letter table;
+- make each audited operator restart one operator attempt without resetting the exhausted three-automatic-attempt budget, with no digest dead-letter table;
+- complete a zero-candidate ledger unit as `Succeeded` without creating a visible Notification or Outbox row;
 - create one authorized visible digest Notification and `Notifications.NotificationCreated.v1` Outbox signal after successful generation;
 - keep complete candidate Task lists out of realtime payloads, ordinary logs, and ordinary audit metadata;
 - expose metadata-safe due/running/succeeded/failed/restart metrics and health.
@@ -407,8 +425,10 @@ One focused migration for the digest ledger and due/claim indexes. Add a Task de
 - DST nonexistent/repeated local time and Workspace timezone change;
 - restart without double-send or permanent skip;
 - revoked/expired membership and deleted/archived/completed/cancelled/inaccessible Task exclusion;
+- automatic/manual effective Watch, explicit opt-out, relationship-source reconciliation, mere-visibility exclusion, and Team Queue exclusion;
+- zero-candidate `Succeeded` with no Notification or Outbox row;
 - bounded pages and one-user failure isolation;
-- concurrent workers, claim timeout/recovery, 3-attempt terminal Failed, and audited restart;
+- concurrent workers, claim timeout/recovery, 3-attempt terminal Failed, and one audited operator attempt per restart without budget reset;
 - one visible Notification under ledger retry and Outbox replay;
 - safe metrics/logs and query-count/plan evidence.
 
@@ -608,13 +628,10 @@ PR08 may begin only after PR07-E proves:
 
 ## Immediate next action
 
-PR07-A may now begin from current `main` using the exact scope in this document. It must contain:
+PR07-C may now proceed from
+`93b1c5e260e04c243ff84f7370aca4d869484087` using its exact scope above and the
+focused digest decision record. The rollout key remains default disabled.
 
-- one additive migration for Notification logical identity and Workspace member/default preference state;
-- the two canonical current-user preference APIs;
-- quarter-hour validation, inheritance, privacy, and missing/stale-version conflict behavior;
-- a logical-key Notification creation primitive;
-- focused migration/PostgreSQL/HTTP tests;
-- one centralized rollout key, default disabled.
-
-It must not contain Task notification generation, deadline classification, digest ledger/worker, semantic event emission, SignalR routing changes, Angular behavior, PR06B, or PR08 work.
+PR07-C must not add frontend/open behavior, SignalR route changes, PR06B, PR08,
+email/mobile push, Project-specific digest time, a digest dead-letter table, or
+Outbox-as-scheduler behavior.

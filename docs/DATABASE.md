@@ -1,6 +1,7 @@
 # Database
 
-Last implementation audit: 2026-08-02.
+Last broad implementation audit: 2026-08-02. TASK-V1-PR07-C schema update:
+2026-08-03.
 
 ## Technology
 
@@ -25,10 +26,11 @@ Use these in order:
 
 ## Migration history
 
-There are forty-one timestamped EF migration classes as of 2026-08-02, from:
+There are forty-two timestamped EF migration classes in the PR07-C candidate,
+from:
 
 - `20260606135558_InitialCreate`
-- through `20260801171714_AddTaskNotificationPreferenceFoundation`
+- through `20260803041347_AddTaskDeadlineDigestLedger`
 
 Migration files live in `src/AipPortal.Infrastructure/Persistence/Migrations/`.
 
@@ -56,6 +58,7 @@ The application does not auto-migrate. `/health/ready` fails when pending migrat
 - Post, PostThread
 - Conversation, ConversationMember, Message, MessageAttachment, ReadState
 - Announcement, AnnouncementRead, Notification
+- TaskDeadlineDigestJob, TaskDeadlineDigestAttempt
 
 ### Events and forms
 
@@ -229,6 +232,88 @@ columns. It preserves existing Notification, Workspace, and WorkspaceMember
 rows, but—as with any column-removal rollback—values written only to the new
 columns are not retained after rollback. No digest ledger, worker, or Task
 notification-producer schema is added by this migration.
+
+### TASK-V1-PR07-C Workspace deadline-digest ledger
+
+Migration `20260803041347_AddTaskDeadlineDigestLedger` adds two tenant-owned
+tables and no unrelated schema:
+
+- `task_deadline_digest_jobs` is the durable generation identity and current
+  state. Its unique index `IX_task_deadline_digest_jobs_identity` covers
+  exactly `(TenantId, WorkspaceId, UserId, LocalDate, PolicyVersion)`.
+- `task_deadline_digest_attempts` is the append-preserved automatic/operator
+  attempt history. `(JobId, AttemptNumber)` is unique, and filtered unique
+  index `IX_task_deadline_digest_attempts_one_active` permits only one
+  `Pending` or `Claimed` attempt for a job.
+
+The job records `Pending`, `Claimed`, `Succeeded`, or `Failed` plus
+`AttemptCount`, `AutomaticAttemptCount`, monotonic `AttemptSequence`,
+`ScheduledForUtc`, `NextAttemptAt`, claim owner/token/timestamps,
+`CompletedAt`, a bounded `LastErrorCode`, and the optional resulting
+`NotificationId`. Check constraints require coherent claim/completion fields,
+a positive policy version, valid attempt counts, and exactly three automatic
+attempts before terminal job failure. The Notification, Workspace, and User
+foreign keys use `Restrict`.
+
+Each claim creates or consumes an attempt row. The claim token is an optimistic
+fence on job and attempt state: a worker holding an expired token cannot later
+complete the reclaimed job. Expired claims finish their attempt as `Expired`;
+an automatic job is returned to `Pending` only while its three-attempt budget
+remains. PostgreSQL selection orders deterministically and uses `FOR UPDATE
+SKIP LOCKED`, so concurrent workers can claim different due rows without
+claiming one row twice.
+
+The automatic budget is exactly three. `AttemptCount` includes all claims,
+while `AutomaticAttemptCount` never resets. A Platform/System administrator's
+approved restart of a terminal job adds a new `OperatorRestart` attempt linked
+through `RestartedFromAttemptId`, records `RequestedByUserId`, increments the
+monotonic sequence, and writes `TaskDeadlineDigestRestarted` to AuditLog in the
+same transaction. It authorizes one operator attempt; failure or expiry of
+that operator attempt is terminal. Earlier attempt rows and the three-count
+automatic history remain intact. There is no independent dead-letter table.
+
+Two focused partial indexes match the worker's scheduler queries:
+
+- `IX_task_deadline_digest_jobs_due` on
+  `(TenantId, NextAttemptAt, CreatedAt, Id)` for `Status = 'Pending'`;
+- `IX_task_deadline_digest_jobs_claim_expiry` on
+  `(TenantId, ClaimExpiresAt, Id)` for `Status = 'Claimed'`.
+
+The conditional PostgreSQL suite captures `EXPLAIN (ANALYZE, BUFFERS)` output
+and requires those exact indexes for due and expired-claim selection. Candidate
+reads are asserted as one bounded SQL command per page, with a hard page-size
+ceiling of 500 and deterministic `(DeadlineAt, Id)` order. No speculative
+Task-deadline index is added: the current small fixture is not representative
+plan evidence for such an index. Production-volume candidate plans remain an
+explicit environment verification item.
+
+Generation does not use the Outbox as a schedule table. After an initial
+candidate build, the service begins a short transaction, locks the claimed
+job, and then locks the recipient User row. It repeats current context and
+candidate evaluation only after any recipient-lock wait completes, so a
+membership/lifecycle change committed during the wait is visible before
+authorization of the result. Concurrent Workspace digests for one user are
+therefore serialized before their final evaluation and state-version advance.
+Notification, Outbox signal, job `Succeeded` transition, and optional
+`NotificationId` are saved and committed together. A zero-candidate result
+commits only successful ledger completion; it creates neither Notification nor
+Outbox row.
+
+PR07-C also marks the existing `notification_user_states.Version` property as
+an EF optimistic-concurrency token. This is model metadata over the existing
+column and requires no new column or index in the focused migration. Every
+Notification producer advances the same recipient-private sequence. If a
+digest and immediate Task producer both load version 0 and try to commit
+version 1, one update wins and the other transaction raises
+`DbUpdateConcurrencyException` and rolls back its Notification/Outbox work. A
+clean logical-key retry reuses the winner and commits the other intent as
+version 2. PostgreSQL coverage verifies Notification and signal versions
+`[1, 2]` with no lost state update or duplicate committed version.
+
+The migration Down path drops both digest tables. The earlier Notification,
+preference, and Outbox schema remains, but all PR07-C ledger/attempt history is
+lost. Operational rollback should normally leave this additive migration in
+place; applying Down requires an explicit backup and acceptance of that loss.
 
 ### System and UI shell
 

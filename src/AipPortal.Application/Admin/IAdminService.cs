@@ -42,5 +42,10 @@ public interface IAdminService
 
     Task<Result> ArchiveChannelAsync(Guid channelId, CancellationToken cancellationToken = default);
 
+    Task<Result> RestartTaskDeadlineDigestAsync(
+        Guid jobId,
+        RestartTaskDeadlineDigestRequest request,
+        CancellationToken cancellationToken = default);
+
     Task<Result<AdminDashboardResponse>> GetDashboardAsync(CancellationToken cancellationToken = default);
 }

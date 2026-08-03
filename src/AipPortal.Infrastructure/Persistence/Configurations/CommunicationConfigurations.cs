@@ -120,7 +120,12 @@ public sealed class NotificationUserStateConfiguration : IEntityTypeConfiguratio
         builder.ToTable("notification_user_states");
         builder.ConfigureEntity();
 
-        builder.Property(state => state.Version).IsRequired();
+        // Every notification producer advances the same recipient-private
+        // sequence. Optimistic concurrency makes a racing producer retry
+        // instead of committing a duplicate stateVersion/lost update.
+        builder.Property(state => state.Version)
+            .IsRequired()
+            .IsConcurrencyToken();
         builder.Property(state => state.UpdatedAt).IsRequired();
         builder.HasIndex(state => new { state.TenantId, state.UserId }).IsUnique();
 

@@ -34,6 +34,8 @@ public sealed record UpdateAdminUserRequest(
 
 public sealed record ChangeSystemRoleRequest(SystemRole SystemRole);
 
+public sealed record RestartTaskDeadlineDigestRequest(string Reason);
+
 public sealed record CreateInviteRequest(
     Guid WorkspaceId,
     string Email,

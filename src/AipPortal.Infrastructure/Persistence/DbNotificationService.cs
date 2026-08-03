@@ -18,6 +18,62 @@ public sealed class DbNotificationService(
 {
     private const string NotificationUserStateIdentityIndex = "IX_notification_user_states_TenantId_UserId";
 
+    public async Task<Guid> StageTaskDeadlineDigestByLogicalKeyAsync(
+        Guid userId,
+        Guid digestJobId,
+        string logicalKey,
+        CancellationToken cancellationToken = default)
+    {
+        if (!currentTenant.IsAvailable)
+        {
+            throw new InvalidOperationException("A tenant scope is required to stage a Task deadline digest.");
+        }
+
+        if (userId == Guid.Empty)
+        {
+            throw new ArgumentException("A notification recipient is required.", nameof(userId));
+        }
+
+        if (digestJobId == Guid.Empty)
+        {
+            throw new ArgumentException("A digest job reference is required.", nameof(digestJobId));
+        }
+
+        var normalizedLogicalKey = NormalizeLogicalKey(logicalKey);
+        var local = FindLocalLogicalNotification(userId, normalizedLogicalKey);
+        if (local is not null)
+        {
+            return local.Id;
+        }
+
+        var existing = await FindLogicalNotificationAsync(userId, normalizedLogicalKey, cancellationToken);
+        if (existing.HasValue)
+        {
+            return existing.Value;
+        }
+
+        var now = clock.UtcNow;
+        var state = await GetOrCreateUserStateAsync(userId, now, cancellationToken);
+        var stateVersion = AdvanceState(state, now);
+        var notification = new Notification
+        {
+            TenantId = currentTenant.TenantId,
+            UserId = userId,
+            LogicalKey = normalizedLogicalKey,
+            NotificationType = NotificationType.TaskDueSoon,
+            Title = TaskDeadlineDigestPolicy.NotificationTitle,
+            Body = null,
+            RelatedEntityType = TaskDeadlineDigestPolicy.RelatedEntityType,
+            RelatedEntityId = digestJobId,
+            CreatedAt = now,
+            StateVersion = stateVersion
+        };
+
+        await dbContext.Notifications.AddAsync(notification, cancellationToken);
+        await EnqueueTaskCreatedAsync(notification, stateVersion, cancellationToken);
+        return notification.Id;
+    }
+
     public async Task<Guid> StageTaskByLogicalKeyAsync(
         Guid userId,
         NotificationType type,

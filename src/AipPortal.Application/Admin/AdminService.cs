@@ -3,6 +3,7 @@ using System.Security.Cryptography;
 using AipPortal.Application.Auth;
 using AipPortal.Application.Common;
 using AipPortal.Application.Common.Interfaces;
+using AipPortal.Application.Notifications;
 using AipPortal.Application.Realtime;
 using AipPortal.Domain.Entities;
 using AipPortal.Domain.Enums;
@@ -18,11 +19,58 @@ public sealed class AdminService(
     IUserSessionService userSessions,
     IUnitOfWork unitOfWork,
     ICurrentTenant? currentTenant = null,
-    IAuthorizationStateChangePublisher? authorizationChanges = null) : IAdminService
+    IAuthorizationStateChangePublisher? authorizationChanges = null,
+    ITaskDeadlineDigestRepository? taskDeadlineDigests = null,
+    TaskDeadlineDigestDiagnostics? taskDeadlineDigestDiagnostics = null) : IAdminService
 {
     private const int DefaultPageSize = 50;
     private const int MaxPageSize = 200;
     private const string MaskedSensitiveValue = "********";
+
+    public async Task<Result> RestartTaskDeadlineDigestAsync(
+        Guid jobId,
+        RestartTaskDeadlineDigestRequest request,
+        CancellationToken cancellationToken = default)
+    {
+        if (jobId == Guid.Empty ||
+            request is null ||
+            string.IsNullOrWhiteSpace(request.Reason) ||
+            request.Reason.Trim().Length > 500)
+        {
+            return Result.Failure("A bounded digest restart reason is required.");
+        }
+
+        if (!await IsSystemAdminAsync(cancellationToken))
+        {
+            return Result.Failure("SystemAdmin access is required.");
+        }
+
+        if (currentTenant is null || !currentTenant.IsAvailable || taskDeadlineDigests is null)
+        {
+            return Result.Failure("Task deadline digest restart is unavailable.");
+        }
+
+        var outcome = await taskDeadlineDigests.RestartFailedAsync(
+            jobId,
+            currentUser.UserId!.Value,
+            request.Reason.Trim(),
+            clock.UtcNow,
+            cancellationToken);
+        if (outcome == TaskDeadlineDigestRestartOutcome.Restarted)
+        {
+            taskDeadlineDigestDiagnostics?.RecordOperatorRestart();
+            return Result.Success();
+        }
+
+        return outcome switch
+        {
+            TaskDeadlineDigestRestartOutcome.NotFound =>
+                Result.Failure("Task deadline digest job not found."),
+            TaskDeadlineDigestRestartOutcome.NotFailed =>
+                Result.Failure("Only a failed Task deadline digest can be restarted."),
+            _ => Result.Failure("The Task deadline digest already has an active attempt.")
+        };
+    }
 
     public async Task<Result<PagedResponse<AdminUserListItemResponse>>> ListUsersAsync(int page, int pageSize, CancellationToken cancellationToken = default)
     {

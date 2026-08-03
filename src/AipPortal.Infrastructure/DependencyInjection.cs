@@ -33,6 +33,7 @@ public static class DependencyInjection
         services.AddScoped<ISessionRepository, SessionRepository>();
         services.AddScoped<IWorkspaceRepository, WorkspaceRepository>();
         services.AddScoped<ITaskNotificationPreferenceRepository, TaskNotificationPreferenceRepository>();
+        services.AddScoped<ITaskDeadlineDigestRepository, TaskDeadlineDigestRepository>();
         services.AddScoped<IGroupRepository, GroupRepository>();
         services.AddScoped<IChannelRepository, ChannelRepository>();
         services.AddScoped<IMessagingRepository, MessagingRepository>();
