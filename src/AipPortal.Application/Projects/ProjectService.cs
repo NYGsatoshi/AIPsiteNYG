@@ -24,7 +24,8 @@ public sealed class ProjectService(
     ITaskCommandUnitOfWork taskUnitOfWork,
     IFeatureFlagService? featureFlags = null,
     ITaskWorkspaceTimeZoneResolver? timeZones = null,
-    ITaskNotificationProducer? taskNotifications = null) : IProjectService
+    ITaskNotificationProducer? taskNotifications = null,
+    ITaskRelationshipTargetPolicy? relationshipTargets = null) : IProjectService
 {
     private const int MaximumGanttItems = 500;
     private const int MaximumGanttDependencies = 2_000;
@@ -716,6 +717,13 @@ public sealed class ProjectService(
                 "Legacy Owner assignments are historical and cannot be created.");
         }
 
+        if (!await RelationshipTargets.IsEligibleAsync(task.ProjectId, request.UserId, cancellationToken))
+        {
+            return CompatibilityAssignmentFailure<TaskAssignmentResponse>(
+                "TASK_FORBIDDEN",
+                "The assignment user is not available for this Task.");
+        }
+
         var projectMember = await projects.GetMemberAsync(task.ProjectId, request.UserId, cancellationToken);
         var user = await users.GetByIdAsync(request.UserId, cancellationToken);
         if (projectMember is null || user is null)
@@ -806,14 +814,6 @@ public sealed class ProjectService(
         }
 
         var previousRole = assignment.Role;
-        if (previousRole == request.Role &&
-            assignment.EstimatedHours == request.EstimatedHours &&
-            assignment.ActualHours == request.ActualHours)
-        {
-            return Result<TaskAssignmentResponse>.Success(ToAssignment(assignment));
-        }
-
-
         if (!Enum.IsDefined(request.Role) ||
             request.Role == TaskAssignmentRole.Owner && previousRole != TaskAssignmentRole.Owner)
         {
@@ -823,11 +823,18 @@ public sealed class ProjectService(
         }
 
         if (request.Role != TaskAssignmentRole.Owner &&
-            await projects.GetMemberAsync(assignment.TaskItem.ProjectId, assignment.UserId, cancellationToken) is null)
+            !await RelationshipTargets.IsEligibleAsync(assignment.TaskItem.ProjectId, assignment.UserId, cancellationToken))
         {
             return CompatibilityAssignmentFailure<TaskAssignmentResponse>(
                 "TASK_FORBIDDEN",
-                "The assignment user must be a current project member.");
+                "The assignment user is not available for this Task.");
+        }
+
+        if (previousRole == request.Role &&
+            assignment.EstimatedHours == request.EstimatedHours &&
+            assignment.ActualHours == request.ActualHours)
+        {
+            return Result<TaskAssignmentResponse>.Success(ToAssignment(assignment));
         }
 
         var collaborators = await projects.ListCollaboratorsAsync(assignment.TaskItemId, cancellationToken);
@@ -2167,6 +2174,9 @@ public sealed class ProjectService(
         TaskAssignmentRole.Support => "collaboratorChanged",
         _ => throw new InvalidOperationException("A canonical compatibility relationship change requires a supported role.")
     };
+
+    private ITaskRelationshipTargetPolicy RelationshipTargets =>
+        relationshipTargets ?? new TaskRelationshipTargetPolicy(projects, users, projectAuthorization);
 
     private sealed record CompatibilityRelationshipPlan(
         Guid RelationshipUserId,

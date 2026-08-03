@@ -429,6 +429,139 @@ public sealed class TaskV1Pr07BNotificationAtomicityPostgreSqlTests
         Assert.Equal(before, await harness.SnapshotAsync());
     }
 
+    [PostgreSqlFact]
+    [Trait("Category", "PostgreSQLIntegration")]
+    [Trait("Scope", "TaskV1PR07B")]
+    public async Task RevokedRelationshipTargetCannotBeAssignedAndLeavesNoPersistenceDelta()
+    {
+        await using var harness = await ServiceHarness.CreateAsync();
+        await harness.SetWorkspaceMembershipStatusAsync(harness.Graph.Recipient.Id, MembershipStatus.Suspended);
+        var before = await harness.SnapshotAsync();
+        await using var request = harness.CreateScope();
+
+        var result = await request.Commands.SetAssigneeAsync(
+            harness.Graph.Task.Id,
+            new TaskRelationshipUserRequest(harness.Graph.Recipient.Id, before.TaskVersion));
+
+        Assert.False(result.IsSuccess); Assert.Equal("TASK_FORBIDDEN", ErrorCode(result.Error));
+        Assert.Equal(before, await harness.SnapshotAsync());
+    }
+
+    [PostgreSqlFact]
+    [Trait("Category", "PostgreSQLIntegration")]
+    [Trait("Scope", "TaskV1PR07B")]
+    public async Task RevokedRelationshipTargetCannotBecomeReviewerAndLeavesNoPersistenceDelta()
+    {
+        await using var harness = await ServiceHarness.CreateAsync();
+        await harness.SetWorkspaceMembershipStatusAsync(harness.Graph.Recipient.Id, MembershipStatus.Suspended);
+        var before = await harness.SnapshotAsync();
+        await using var request = harness.CreateScope();
+
+        var result = await request.Commands.SetReviewerAsync(
+            harness.Graph.Task.Id,
+            new TaskRelationshipUserRequest(harness.Graph.Recipient.Id, before.TaskVersion));
+
+        Assert.False(result.IsSuccess); Assert.Equal("TASK_FORBIDDEN", ErrorCode(result.Error));
+        Assert.Equal(before, await harness.SnapshotAsync());
+    }
+
+    [PostgreSqlFact]
+    [Trait("Category", "PostgreSQLIntegration")]
+    [Trait("Scope", "TaskV1PR07B")]
+    public async Task RevokedRelationshipTargetCannotBecomeCollaboratorAndLeavesNoPersistenceDelta()
+    {
+        await using var harness = await ServiceHarness.CreateAsync();
+        await harness.SetWorkspaceMembershipStatusAsync(harness.Graph.Recipient.Id, MembershipStatus.Suspended);
+        var before = await harness.SnapshotAsync();
+        await using var request = harness.CreateScope();
+
+        var result = await request.Commands.AddCollaboratorAsync(
+            harness.Graph.Task.Id,
+            new TaskCollaboratorRequest(harness.Graph.Recipient.Id, before.TaskVersion));
+
+        Assert.False(result.IsSuccess); Assert.Equal("TASK_FORBIDDEN", ErrorCode(result.Error));
+        Assert.Equal(before, await harness.SnapshotAsync());
+    }
+
+    [PostgreSqlFact]
+    [Trait("Category", "PostgreSQLIntegration")]
+    [Trait("Scope", "TaskV1PR07B")]
+    public async Task CompatibilityAssignmentRejectsRevokedTargetAndLeavesNoPersistenceDelta()
+    {
+        await using var harness = await ServiceHarness.CreateAsync();
+        await harness.SetWorkspaceMembershipStatusAsync(harness.Graph.Recipient.Id, MembershipStatus.Suspended);
+        var before = await harness.SnapshotAsync();
+        await using var request = harness.CreateScope();
+
+        var result = await request.Compatibility.AddAssignmentAsync(
+            harness.Graph.Task.Id,
+            new AddTaskAssignmentRequest(harness.Graph.Recipient.Id, TaskAssignmentRole.Assignee, 1));
+
+        Assert.False(result.IsSuccess); Assert.Equal("TASK_FORBIDDEN", ErrorCode(result.Error));
+        Assert.Equal(before, await harness.SnapshotAsync());
+    }
+
+    [PostgreSqlFact]
+    [Trait("Category", "PostgreSQLIntegration")]
+    [Trait("Scope", "TaskV1PR07B")]
+    public async Task CompatibilityRoleChangeRejectsRevokedTargetAndLeavesNoPersistenceDelta()
+    {
+        await using var harness = await ServiceHarness.CreateAsync();
+        Guid assignmentId;
+        await using (var setup = harness.CreateScope())
+        {
+            var created = await setup.Compatibility.AddAssignmentAsync(
+                harness.Graph.Task.Id,
+                new AddTaskAssignmentRequest(harness.Graph.Recipient.Id, TaskAssignmentRole.Assignee, 1));
+            Assert.True(created.IsSuccess, created.Error);
+            assignmentId = created.Value!.Id;
+        }
+
+        await harness.SetWorkspaceMembershipStatusAsync(harness.Graph.Recipient.Id, MembershipStatus.Suspended);
+        var before = await harness.SnapshotAsync();
+        await using var request = harness.CreateScope();
+        var result = await request.Compatibility.UpdateAssignmentAsync(
+            assignmentId,
+            new UpdateTaskAssignmentRequest(TaskAssignmentRole.Reviewer, 2, 0));
+
+        Assert.False(result.IsSuccess); Assert.Equal("TASK_FORBIDDEN", ErrorCode(result.Error));
+        Assert.Equal(before, await harness.SnapshotAsync());
+    }
+
+    [PostgreSqlFact]
+    [Trait("Category", "PostgreSQLIntegration")]
+    [Trait("Scope", "TaskV1PR07B")]
+    public async Task RevokedRelationshipCanStillBeRemovedAtomically()
+    {
+        await using var harness = await ServiceHarness.CreateAsync();
+        await using (var setup = harness.CreateScope())
+        {
+            var assigned = await setup.Commands.SetAssigneeAsync(
+                harness.Graph.Task.Id,
+                new TaskRelationshipUserRequest(harness.Graph.Recipient.Id, harness.Graph.Task.VersionNo));
+            Assert.True(assigned.IsSuccess, assigned.Error);
+        }
+
+        await harness.SetWorkspaceMembershipStatusAsync(harness.Graph.Recipient.Id, MembershipStatus.Suspended);
+        var before = await harness.SnapshotAsync();
+        await using (var request = harness.CreateScope())
+        {
+            var result = await request.Commands.SetAssigneeAsync(
+                harness.Graph.Task.Id,
+                new TaskRelationshipUserRequest(null, before.TaskVersion));
+            Assert.True(result.IsSuccess, result.Error);
+        }
+
+        var after = await harness.SnapshotAsync();
+        Assert.Null(after.PrimaryAssigneeUserId);
+        Assert.Equal(before.TaskVersion + 1, after.TaskVersion);
+        Assert.Equal(before.TaskAssignmentCount, after.TaskAssignmentCount);
+        Assert.Equal(before.NotificationCount, after.NotificationCount);
+        Assert.Equal(before.NotificationUserStateCount, after.NotificationUserStateCount);
+        Assert.Equal(before.AuditCount + 1, after.AuditCount);
+        Assert.True(after.OutboxCount > before.OutboxCount);
+    }
+
     private static string? ErrorCode(string? error) => error?.Split('|', 2)[0];
 
     private enum SaveFailureTarget

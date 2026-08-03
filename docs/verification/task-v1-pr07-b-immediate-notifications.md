@@ -20,6 +20,20 @@ exact final-HEAD counts, PostgreSQL execution evidence, and hosted workflow
 IDs remain the Draft PR body's authoritative record; this document does not
 self-reference a future commit.
 
+The relationship-target remediation adds the shared
+`TaskRelationshipTargetPolicy` for canonical Primary Assignee, Reviewer, and
+Collaborator mutations and the legacy `Assignee`/`Reviewer`/`Support` adapter.
+It requires a non-empty target ID, active non-deleted User, retained
+ProjectMember row, and current `CanViewProject` access; current Workspace
+membership and active Project state are therefore re-evaluated before a
+relationship is saved. This does not change notification-recipient policy.
+Suspending a WorkspaceMember while retaining the User and ProjectMember is the
+required PostgreSQL reproduction: denied commands leave Task, relationship,
+Watch, Notification, NotificationUserState, Audit, and Outbox state unchanged,
+while authorized cleanup may remove a revoked relationship. The final
+exact-HEAD PostgreSQL/full-suite counts, manifest count/matches, and hosted run
+IDs remain in the Draft PR body to avoid a self-referential source commit.
+
 ## Authority and identity
 
 | Field | Value |

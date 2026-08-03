@@ -122,6 +122,15 @@ without the variable is not PostgreSQL evidence. Exact commands and final
 counts are recorded in
 `docs/verification/task-v1-pr07-b-immediate-notifications.md`.
 
+The PR07-B relationship-target regression set suspends a `WorkspaceMember`
+while retaining the User and `ProjectMember` records. Canonical
+assignee/reviewer/collaborator and compatibility Assignee/Reviewer/Support
+changes must reject before save, leaving Task, relationship, Watch,
+Notification, NotificationUserState, Audit, and Outbox state unchanged.
+Authorized cleanup of an already-revoked relationship remains permitted. The
+focused TRX manifest is `scripts/ci/task-pr07b-required-tests.txt`; record its
+active and matched counts from the final exact-HEAD run.
+
 The TaskComment remediation additionally requires focused unit and HTTP proof
 that revoked comment authors cannot PATCH or DELETE by stored comment ID,
 current authors and Managers retain their permitted updates, and archived or

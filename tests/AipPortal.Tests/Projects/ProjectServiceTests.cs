@@ -1,4 +1,5 @@
 using AipPortal.Application.Common.Interfaces;
+using AipPortal.Application.Common;
 using AipPortal.Application.Groups;
 using AipPortal.Application.Projects;
 using AipPortal.Application.Realtime;
@@ -1359,6 +1360,110 @@ public sealed class ProjectServiceTests
         Assert.Equal(row.Version, canonical.Version);
     }
 
+    [Fact]
+    [Trait("Scope", "TaskV1PR07B")]
+    public async Task CompatibilityAssigneeAddRejectsRevokedWorkspaceMember()
+    {
+        var fixture = ProjectFixture.Create(); var (manager, target, task) = PrepareCompatibilityTarget(fixture);
+        RevokeWorkspaceMember(fixture, target.Id);
+        var result = await fixture.Service.AddAssignmentAsync(task.Id, new AddTaskAssignmentRequest(target.Id, TaskAssignmentRole.Assignee, 1));
+        AssertCompatibilityRejected(fixture, task, result); Assert.Empty(fixture.Projects.Assignments); Assert.Null(task.PrimaryAssigneeUserId);
+    }
+
+    [Fact]
+    [Trait("Scope", "TaskV1PR07B")]
+    public async Task CompatibilityReviewerAddRejectsRevokedWorkspaceMember()
+    {
+        var fixture = ProjectFixture.Create(); var (_, target, task) = PrepareCompatibilityTarget(fixture);
+        RevokeWorkspaceMember(fixture, target.Id);
+        var result = await fixture.Service.AddAssignmentAsync(task.Id, new AddTaskAssignmentRequest(target.Id, TaskAssignmentRole.Reviewer, 1));
+        AssertCompatibilityRejected(fixture, task, result); Assert.Empty(fixture.Projects.Assignments); Assert.Null(task.ReviewerUserId);
+    }
+
+    [Fact]
+    [Trait("Scope", "TaskV1PR07B")]
+    public async Task CompatibilitySupportAddRejectsRevokedWorkspaceMember()
+    {
+        var fixture = ProjectFixture.Create(); var (_, target, task) = PrepareCompatibilityTarget(fixture);
+        RevokeWorkspaceMember(fixture, target.Id);
+        var result = await fixture.Service.AddAssignmentAsync(task.Id, new AddTaskAssignmentRequest(target.Id, TaskAssignmentRole.Support, 1));
+        AssertCompatibilityRejected(fixture, task, result); Assert.Empty(fixture.Projects.Assignments); Assert.Empty(fixture.Projects.Collaborators);
+    }
+
+    [Fact]
+    [Trait("Scope", "TaskV1PR07B")]
+    public async Task CompatibilityAssigneeAddRejectsSuspendedUser()
+    {
+        var fixture = ProjectFixture.Create(); var (_, target, task) = PrepareCompatibilityTarget(fixture);
+        target.Status = UserStatus.Suspended;
+        var result = await fixture.Service.AddAssignmentAsync(task.Id, new AddTaskAssignmentRequest(target.Id, TaskAssignmentRole.Assignee, 1));
+        AssertCompatibilityRejected(fixture, task, result); Assert.Empty(fixture.Projects.Assignments);
+    }
+
+    [Fact]
+    [Trait("Scope", "TaskV1PR07B")]
+    public async Task CompatibilityRoleChangeRejectsRevokedWorkspaceMember()
+    {
+        var fixture = ProjectFixture.Create(); var (manager, target, task) = PrepareCompatibilityTarget(fixture);
+        task.PrimaryAssigneeUserId = target.Id;
+        var assignment = fixture.AddLegacyAssignment(task, target, TaskAssignmentRole.Assignee, manager.Id);
+        RevokeWorkspaceMember(fixture, target.Id);
+        var result = await fixture.Service.UpdateAssignmentAsync(assignment.Id, new UpdateTaskAssignmentRequest(TaskAssignmentRole.Reviewer, 2, 0));
+        AssertCompatibilityRejected(fixture, task, result); Assert.Equal(TaskAssignmentRole.Assignee, assignment.Role); Assert.Equal(target.Id, task.PrimaryAssigneeUserId); Assert.Null(task.ReviewerUserId);
+    }
+
+    [Fact]
+    [Trait("Scope", "TaskV1PR07B")]
+    public async Task CompatibilitySameRoleUpdateRejectsRevokedWorkspaceMember()
+    {
+        var fixture = ProjectFixture.Create(); var (manager, target, task) = PrepareCompatibilityTarget(fixture);
+        task.PrimaryAssigneeUserId = target.Id;
+        var assignment = fixture.AddLegacyAssignment(task, target, TaskAssignmentRole.Assignee, manager.Id);
+        RevokeWorkspaceMember(fixture, target.Id);
+        var result = await fixture.Service.UpdateAssignmentAsync(assignment.Id, new UpdateTaskAssignmentRequest(TaskAssignmentRole.Assignee, 3, 0));
+        AssertCompatibilityRejected(fixture, task, result); Assert.Null(assignment.EstimatedHours); Assert.Equal(target.Id, task.PrimaryAssigneeUserId);
+    }
+
+    [Fact]
+    [Trait("Scope", "TaskV1PR07B")]
+    public async Task CompatibilityDeleteAllowsRevokedWorkspaceMemberCleanup()
+    {
+        var fixture = ProjectFixture.Create(); var (manager, target, task) = PrepareCompatibilityTarget(fixture);
+        task.PrimaryAssigneeUserId = target.Id;
+        var assignment = fixture.AddLegacyAssignment(task, target, TaskAssignmentRole.Assignee, manager.Id);
+        RevokeWorkspaceMember(fixture, target.Id);
+        var result = await fixture.Service.DeleteAssignmentAsync(assignment.Id);
+        Assert.True(result.IsSuccess, result.Error); Assert.Empty(fixture.Projects.Assignments); Assert.Null(task.PrimaryAssigneeUserId);
+    }
+
+    [Fact]
+    [Trait("Scope", "TaskV1PR07B")]
+    public async Task HistoricalOwnerCleanupStillWorks()
+    {
+        var fixture = ProjectFixture.Create(); var (manager, target, task) = PrepareCompatibilityTarget(fixture);
+        var assignment = fixture.AddLegacyAssignment(task, target, TaskAssignmentRole.Owner, manager.Id);
+        RevokeWorkspaceMember(fixture, target.Id);
+        var result = await fixture.Service.DeleteAssignmentAsync(assignment.Id);
+        Assert.True(result.IsSuccess, result.Error); Assert.Empty(fixture.Projects.Assignments);
+    }
+
+    private static (User Manager, User Target, TaskItem Task) PrepareCompatibilityTarget(ProjectFixture fixture)
+    {
+        var manager = fixture.AddUser(); var target = fixture.AddUser(); fixture.Current.UserIdValue = manager.Id;
+        fixture.AddProjectMember(manager.Id, ProjectRole.Manager); fixture.AddProjectMember(target.Id, ProjectRole.Contributor);
+        return (manager, target, fixture.AddTask("compatibility target"));
+    }
+
+    private static void RevokeWorkspaceMember(ProjectFixture fixture, Guid userId) =>
+        fixture.Workspaces.Members.Single(member => member.UserId == userId).Status = MembershipStatus.Suspended;
+
+    private static void AssertCompatibilityRejected(ProjectFixture fixture, TaskItem task, Result<TaskAssignmentResponse> result)
+    {
+        Assert.False(result.IsSuccess); Assert.StartsWith("TASK_FORBIDDEN|", result.Error); Assert.Equal(1, task.VersionNo);
+        Assert.Empty(fixture.Projects.Watches); Assert.Empty(fixture.TaskNotifications.Requests); Assert.Empty(fixture.Audit.Entries);
+        Assert.Empty(fixture.Invalidations.TaskAssignmentChanges); Assert.Equal(0, fixture.Invalidations.TaskChangedCount); Assert.Equal(0, fixture.CommandUnitOfWork.SaveCount);
+    }
+
     private sealed class ProjectFixture
     {
         private ProjectFixture()
@@ -1687,6 +1792,8 @@ public sealed class ProjectServiceTests
         public Dictionary<Guid, User> Items { get; } = [];
         public Task<User?> GetByIdAsync(Guid id, CancellationToken cancellationToken = default) => Task.FromResult(Items.GetValueOrDefault(id));
         public Task<User?> GetByNormalizedEmailAsync(string normalizedEmail, CancellationToken cancellationToken = default) => Task.FromResult(Items.Values.FirstOrDefault(user => user.NormalizedEmail == normalizedEmail));
+        public Task<IReadOnlyList<User>> GetActiveByIdsAsync(IReadOnlyCollection<Guid> ids, CancellationToken cancellationToken = default) =>
+            Task.FromResult<IReadOnlyList<User>>(Items.Values.Where(user => ids.Contains(user.Id) && user.Status == UserStatus.Active && user.DeletedAt is null).ToArray());
         public Task AddAsync(User user, CancellationToken cancellationToken = default) { Items[user.Id] = user; return Task.CompletedTask; }
     }
 

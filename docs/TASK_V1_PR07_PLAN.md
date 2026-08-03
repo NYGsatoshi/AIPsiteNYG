@@ -253,6 +253,19 @@ Status: implementation and verification in progress on
 
 Generate every immediate Notification intent and approved Task invalidation/event inside the canonical business transaction using PR07-A logical identity.
 
+### Relationship-target authorization remediation
+
+Primary Assignee, Reviewer, and Collaborator are relationships, not merely
+notification candidates. Before a canonical command or the compatibility
+`Assignee`/`Reviewer`/`Support` adapter creates, changes, or maintains one,
+the target must be an active non-deleted User with a retained ProjectMember row
+and current Workspace/Project visibility through `CanViewProject`. A stale
+ProjectMember row fails closed with the existing safe Task authorization
+contract before any relationship, Watch, Audit, Notification, Outbox, or save
+is staged. The target check does not apply to authorized relationship cleanup,
+including clearing/removing revoked relationships and deleting a legacy
+assignment. This is separate from mandatory notification-recipient policy.
+
 ### Current implementation status
 
 - `TaskNotificationRecipientPolicy` is the single mandatory/Watch recipient

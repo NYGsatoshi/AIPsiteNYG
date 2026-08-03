@@ -21,7 +21,8 @@ public sealed class TaskCommandService(
     ITaskCommandUnitOfWork unitOfWork,
     ITaskWorkspaceTimeZoneResolver timeZones,
     IWorkspaceRepository? workspaceRepository = null,
-    ITaskNotificationProducer? taskNotifications = null) : ITaskCommandService
+    ITaskNotificationProducer? taskNotifications = null,
+    ITaskRelationshipTargetPolicy? relationshipTargets = null) : ITaskCommandService
 {
     private const int MaximumGanttItems = 500;
     private const int MaximumGanttDependencies = 2_000;
@@ -375,7 +376,7 @@ public sealed class TaskCommandService(
         var task = result.Value!;
         var stale = EnsureVersion(task, request.ExpectedVersion); if (stale is not null) return Fail<TaskCommandResponse>(stale.Value.Code, stale.Value.Message);
         if (!request.UserId.HasValue && CategoryOf(task) is TaskStageCategory.InProgress or TaskStageCategory.Review) return Fail<TaskCommandResponse>("TASK_ASSIGNEE_REQUIRED", "Active work cannot be unassigned.");
-        if (request.UserId.HasValue && !await IsProjectMemberAsync(task.ProjectId, request.UserId.Value, cancellationToken)) return Fail<TaskCommandResponse>("TASK_FORBIDDEN", "The assignee must be a current project member.");
+        if (request.UserId.HasValue && !await RelationshipTargets.IsEligibleAsync(task.ProjectId, request.UserId.Value, cancellationToken)) return Fail<TaskCommandResponse>("TASK_FORBIDDEN", "The assignee is not available for this Task.");
         if (request.UserId.HasValue && request.UserId == task.ReviewerUserId)
             return Fail<TaskCommandResponse>("TASK_REVIEWER_MUST_DIFFER", "Reviewer and primary assignee must differ.");
         var previousAssigneeUserId = task.PrimaryAssigneeUserId;
@@ -436,7 +437,7 @@ public sealed class TaskCommandService(
         if (result.Error is not null) return Fail<TaskCommandResponse>(result.Error.Value.Code, result.Error.Value.Message);
         var task = result.Value!;
         var stale = EnsureVersion(task, request.ExpectedVersion); if (stale is not null) return Fail<TaskCommandResponse>(stale.Value.Code, stale.Value.Message);
-        if (!await IsProjectMemberAsync(task.ProjectId, request.UserId, cancellationToken)) return Fail<TaskCommandResponse>("TASK_FORBIDDEN", "Collaborator must be a current project member.");
+        if (!await RelationshipTargets.IsEligibleAsync(task.ProjectId, request.UserId, cancellationToken)) return Fail<TaskCommandResponse>("TASK_FORBIDDEN", "The collaborator is not available for this Task.");
         var collaborators = await projects.ListCollaboratorsAsync(task.Id, cancellationToken);
         if (collaborators.Any(item => item.UserId == request.UserId))
             return await CurrentCommandResponseAsync(task, cancellationToken);
@@ -479,7 +480,7 @@ public sealed class TaskCommandService(
         // Clearing a reviewer is valid when the task has no assignee.  Only a
         // concrete requested reviewer may violate the distinct-user invariant.
         if (request.UserId.HasValue && request.UserId == task.PrimaryAssigneeUserId) return Fail<TaskCommandResponse>("TASK_REVIEWER_MUST_DIFFER", "Reviewer and primary assignee must differ.");
-        if (request.UserId.HasValue && !await IsProjectMemberAsync(task.ProjectId, request.UserId.Value, cancellationToken)) return Fail<TaskCommandResponse>("TASK_FORBIDDEN", "Reviewer must be a current project member.");
+        if (request.UserId.HasValue && !await RelationshipTargets.IsEligibleAsync(task.ProjectId, request.UserId.Value, cancellationToken)) return Fail<TaskCommandResponse>("TASK_FORBIDDEN", "The reviewer is not available for this Task.");
         var previousReviewerUserId = task.ReviewerUserId;
         if (previousReviewerUserId == request.UserId)
             return await CurrentCommandResponseAsync(task, cancellationToken);
@@ -1248,6 +1249,7 @@ public sealed class TaskCommandService(
     }
 
     private async Task<TaskPersonSummary?> PersonAsync(Guid userId, CancellationToken cancellationToken) { var user = await users.GetByIdAsync(userId, cancellationToken); return user is null ? null : new TaskPersonSummary(user.Id, user.DisplayName); }
+    private ITaskRelationshipTargetPolicy RelationshipTargets => relationshipTargets ?? new TaskRelationshipTargetPolicy(projects, users, projectAuthorization);
     private async Task<bool> IsProjectMemberAsync(Guid projectId, Guid userId, CancellationToken cancellationToken) => await projects.GetMemberAsync(projectId, userId, cancellationToken) is not null;
     private static TaskStageCategory CategoryOf(TaskItem task) => task.WorkflowStage?.InternalCategory ?? task.Status switch { TaskItemStatus.InProgress => TaskStageCategory.InProgress, TaskItemStatus.WaitingReview => TaskStageCategory.Review, TaskItemStatus.Completed => TaskStageCategory.Done, TaskItemStatus.Cancelled => TaskStageCategory.Cancelled, _ => TaskStageCategory.Todo };
     private static TaskItemStatus LegacyStatus(TaskStageCategory category) => category switch { TaskStageCategory.InProgress => TaskItemStatus.InProgress, TaskStageCategory.Review => TaskItemStatus.WaitingReview, TaskStageCategory.Done => TaskItemStatus.Completed, TaskStageCategory.Cancelled => TaskItemStatus.Cancelled, _ => TaskItemStatus.NotStarted };

@@ -79,6 +79,16 @@ relationships, new or changed-to `Owner` rows are rejected, and current member,
 authorization, role-separation, active-work-assignee, and Project mutability
 invariants are enforced before staging any side effect.
 
+`TaskRelationshipTargetPolicy` is separate from notification-recipient
+calculation and is evaluated before any canonical Primary Assignee, Reviewer,
+or Collaborator relationship is created or maintained through a compatibility
+assignment. It requires a non-empty ID, an active non-deleted User,
+ProjectMember row, and current `CanViewProject` authorization (including
+active Workspace access and an active, non-archived, non-deleted Project). A
+retained ProjectMember row never authorizes a revoked target. Relationship
+cleanup remains allowed for an authorized actor: clearing/removing a revoked
+target does not require that target's current access.
+
 Canonical `TaskComment` PATCH and DELETE recheck the undeleted parent Task,
 current Project visibility, and current comment permission before allowing the
 current author or a current Project Manager to mutate it. This prevents a

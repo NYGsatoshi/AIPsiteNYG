@@ -1206,6 +1206,120 @@ public sealed class TaskCommandServiceTests
         Assert.Equal(1, fixture.UnitOfWork.SaveCount);
     }
 
+    [Fact]
+    [Trait("Scope", "TaskV1PR07B")]
+    public async Task RevokedWorkspaceMemberCannotBecomePrimaryAssignee()
+    {
+        var fixture = Fixture.Create(); var task = fixture.AddTask("revoked assignee"); var target = Guid.NewGuid();
+        fixture.RelationshipTargets.Ineligible.Add(target);
+        var result = await fixture.Service.SetAssigneeAsync(task.Id, new TaskRelationshipUserRequest(target, task.VersionNo));
+        AssertRejectedRelationshipMutation(fixture, task, result); Assert.Null(task.PrimaryAssigneeUserId);
+    }
+
+    [Fact]
+    [Trait("Scope", "TaskV1PR07B")]
+    public async Task RevokedWorkspaceMemberCannotBecomeReviewer()
+    {
+        var fixture = Fixture.Create(); var task = fixture.AddTask("revoked reviewer"); var target = Guid.NewGuid();
+        fixture.RelationshipTargets.Ineligible.Add(target);
+        var result = await fixture.Service.SetReviewerAsync(task.Id, new TaskRelationshipUserRequest(target, task.VersionNo));
+        AssertRejectedRelationshipMutation(fixture, task, result); Assert.Null(task.ReviewerUserId);
+    }
+
+    [Fact]
+    [Trait("Scope", "TaskV1PR07B")]
+    public async Task RevokedWorkspaceMemberCannotBecomeCollaborator()
+    {
+        var fixture = Fixture.Create(); var task = fixture.AddTask("revoked collaborator"); var target = Guid.NewGuid();
+        fixture.RelationshipTargets.Ineligible.Add(target);
+        var result = await fixture.Service.AddCollaboratorAsync(task.Id, new TaskCollaboratorRequest(target, task.VersionNo));
+        AssertRejectedRelationshipMutation(fixture, task, result); Assert.Empty(fixture.Projects.Collaborators);
+    }
+
+    [Fact]
+    [Trait("Scope", "TaskV1PR07B")]
+    public async Task SuspendedUserCannotBecomePrimaryAssignee()
+    {
+        var fixture = Fixture.Create(); var task = fixture.AddTask("suspended user"); var target = Guid.NewGuid();
+        fixture.RelationshipTargets.Ineligible.Add(target);
+        var result = await fixture.Service.SetAssigneeAsync(task.Id, new TaskRelationshipUserRequest(target, task.VersionNo));
+        AssertRejectedRelationshipMutation(fixture, task, result);
+    }
+
+    [Fact]
+    [Trait("Scope", "TaskV1PR07B")]
+    public async Task DeletedUserCannotBecomeReviewer()
+    {
+        var fixture = Fixture.Create(); var task = fixture.AddTask("deleted user"); var target = Guid.NewGuid();
+        fixture.RelationshipTargets.Ineligible.Add(target);
+        var result = await fixture.Service.SetReviewerAsync(task.Id, new TaskRelationshipUserRequest(target, task.VersionNo));
+        AssertRejectedRelationshipMutation(fixture, task, result);
+    }
+
+    [Fact]
+    [Trait("Scope", "TaskV1PR07B")]
+    public async Task RevokedAssigneeCanStillBeCleared()
+    {
+        var fixture = Fixture.Create(); var task = fixture.AddTask("clear assignee"); var target = Guid.NewGuid();
+        task.PrimaryAssigneeUserId = target; fixture.RelationshipTargets.Ineligible.Add(target);
+        var result = await fixture.Service.SetAssigneeAsync(task.Id, new TaskRelationshipUserRequest(null, task.VersionNo));
+        Assert.True(result.IsSuccess, result.Error); Assert.Null(task.PrimaryAssigneeUserId);
+    }
+
+    [Fact]
+    [Trait("Scope", "TaskV1PR07B")]
+    public async Task RevokedReviewerCanStillBeCleared()
+    {
+        var fixture = Fixture.Create(); var task = fixture.AddTask("clear reviewer"); var target = Guid.NewGuid();
+        task.ReviewerUserId = target; fixture.RelationshipTargets.Ineligible.Add(target);
+        var result = await fixture.Service.SetReviewerAsync(task.Id, new TaskRelationshipUserRequest(null, task.VersionNo));
+        Assert.True(result.IsSuccess, result.Error); Assert.Null(task.ReviewerUserId);
+    }
+
+    [Fact]
+    [Trait("Scope", "TaskV1PR07B")]
+    public async Task RevokedCollaboratorCanStillBeRemoved()
+    {
+        var fixture = Fixture.Create(); var task = fixture.AddTask("remove collaborator"); var target = Guid.NewGuid();
+        fixture.Projects.Collaborators.Add(new WorkItemCollaborator { TaskItemId = task.Id, UserId = target }); fixture.RelationshipTargets.Ineligible.Add(target);
+        var result = await fixture.Service.RemoveCollaboratorAsync(task.Id, target, task.VersionNo);
+        Assert.True(result.IsSuccess, result.Error); Assert.Empty(fixture.Projects.Collaborators);
+    }
+
+    [Fact]
+    [Trait("Scope", "TaskV1PR07B")]
+    public async Task ActiveCurrentProjectMemberCanBecomePrimaryAssignee()
+    {
+        var fixture = Fixture.Create(); var task = fixture.AddTask("active assignee"); var target = Guid.NewGuid();
+        var result = await fixture.Service.SetAssigneeAsync(task.Id, new TaskRelationshipUserRequest(target, task.VersionNo));
+        Assert.True(result.IsSuccess, result.Error); Assert.Equal(target, task.PrimaryAssigneeUserId);
+    }
+
+    [Fact]
+    [Trait("Scope", "TaskV1PR07B")]
+    public async Task ActiveCurrentProjectMemberCanBecomeReviewer()
+    {
+        var fixture = Fixture.Create(); var task = fixture.AddTask("active reviewer"); var target = Guid.NewGuid();
+        var result = await fixture.Service.SetReviewerAsync(task.Id, new TaskRelationshipUserRequest(target, task.VersionNo));
+        Assert.True(result.IsSuccess, result.Error); Assert.Equal(target, task.ReviewerUserId);
+    }
+
+    [Fact]
+    [Trait("Scope", "TaskV1PR07B")]
+    public async Task ActiveCurrentProjectMemberCanBecomeCollaborator()
+    {
+        var fixture = Fixture.Create(); var task = fixture.AddTask("active collaborator"); var target = Guid.NewGuid();
+        var result = await fixture.Service.AddCollaboratorAsync(task.Id, new TaskCollaboratorRequest(target, task.VersionNo));
+        Assert.True(result.IsSuccess, result.Error); Assert.Contains(fixture.Projects.Collaborators, item => item.UserId == target);
+    }
+
+    private static void AssertRejectedRelationshipMutation(Fixture fixture, TaskItem task, Result<TaskCommandResponse> result)
+    {
+        Assert.False(result.IsSuccess); Assert.StartsWith("TASK_FORBIDDEN|", result.Error); Assert.Equal(1, task.VersionNo);
+        Assert.Empty(fixture.Projects.Watches); Assert.Empty(fixture.Notifications.Requests); Assert.Empty(fixture.Audit.Entries);
+        Assert.Empty(fixture.Invalidations.TaskChanges); Assert.Empty(fixture.Invalidations.TaskAssignmentChanges); Assert.Equal(0, fixture.UnitOfWork.SaveCount);
+    }
+
     private sealed class Fixture
     {
         private Fixture()
@@ -1235,7 +1349,8 @@ public sealed class TaskCommandServiceTests
                 Invalidations,
                 UnitOfWork,
                 new UtcTimeZoneResolver(),
-                taskNotifications: Notifications);
+                taskNotifications: Notifications,
+                relationshipTargets: RelationshipTargets);
             Subresources = CreateSubresources();
         }
 
@@ -1246,6 +1361,7 @@ public sealed class TaskCommandServiceTests
         public FakeAudit Audit { get; } = new();
         public FakeInvalidations Invalidations { get; } = new();
         public RecordingTaskNotifications Notifications { get; } = new();
+        public RecordingRelationshipTargets RelationshipTargets { get; } = new();
         public FakeTaskUnitOfWork UnitOfWork { get; } = new();
         public TaskCommandService Service { get; }
         public TaskSubresourceService Subresources { get; }
@@ -1350,6 +1466,17 @@ public sealed class TaskCommandServiceTests
         public Task<User?> GetByIdAsync(Guid id, CancellationToken cancellationToken = default) => Task.FromResult<User?>(null);
         public Task<User?> GetByNormalizedEmailAsync(string normalizedEmail, CancellationToken cancellationToken = default) => Task.FromResult<User?>(null);
         public Task AddAsync(User user, CancellationToken cancellationToken = default) => Task.CompletedTask;
+    }
+
+    private sealed class RecordingRelationshipTargets : ITaskRelationshipTargetPolicy
+    {
+        public HashSet<Guid> Ineligible { get; } = [];
+        public List<(Guid ProjectId, Guid UserId)> Requests { get; } = [];
+        public Task<bool> IsEligibleAsync(Guid projectId, Guid userId, CancellationToken cancellationToken = default)
+        {
+            Requests.Add((projectId, userId));
+            return Task.FromResult(userId != Guid.Empty && !Ineligible.Contains(userId));
+        }
     }
 
     private sealed class AllowedProjectAuthorization : IProjectAuthorizationService
