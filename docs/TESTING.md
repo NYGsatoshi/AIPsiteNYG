@@ -223,11 +223,16 @@ timeout/abort/not-executed/skipped outcomes plus every active name in
 its active and matched counts must be taken from the immutable final-HEAD TRX,
 not from this source record.
 
-The PR07-C remediation has no final local or hosted count recorded here yet.
-The final evidence must identify the immutable HEAD, provider availability,
-focused and full-backend totals, manifest active/matched totals, and hosted run
-IDs. Earlier numerical snapshots are intentionally not used as acceptance
-evidence for this remediation.
+The code-bearing PR07-C remediation commit is
+`8545ae7ab8ecc3feb6d0bbe278ecfe81f217ba31`. Its local PostgreSQL 18 evidence
+recorded 94/94 `Scope=TaskV1PR07C` passed with 0 failed and 0 skipped; the
+strict manifest verifier recorded 64 active and 64 matched names. The
+individual PostgreSQL classes recorded 23/23 deadline-digest, 15/15
+candidate/atomicity, and 1/1 notification-version tests passed. The migrated
+full backend suite recorded 776/776 passed with 0 failed and 0 skipped, and
+the EF model-drift command reported no pending changes. Final branch-head and
+hosted run IDs are recorded in PR #277 after push; they cannot be made
+self-referential in the source commit that contains this text.
 
 ### Browser UI tests
 

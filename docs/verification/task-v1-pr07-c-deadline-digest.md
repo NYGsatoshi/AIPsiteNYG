@@ -2,11 +2,12 @@
 
 ## Status
 
-The PR07-C implementation candidate is present on
-`task/v1-pr07-c-deadline-digest`. This record describes the current worktree;
-it is not merge authorization and does not relabel PR07-C as complete. The
-branch must remain a non-merged Draft until its exact final HEAD and hosted
-checks are recorded outside any self-referential source commit.
+The PR07-C remediation implementation is present on
+`task/v1-pr07-c-deadline-digest` in code-bearing commit
+`8545ae7ab8ecc3feb6d0bbe278ecfe81f217ba31`. This record is not merge
+authorization and does not relabel PR07-C as complete. The branch remains a
+non-merged Draft; the exact final branch head and hosted run IDs are recorded
+in PR #277 rather than self-referential source content.
 
 PR07-C covers generation only. Current-authorized delayed dispatch/replay,
 notification opening, SignalR route changes, Angular reconciliation, and final
@@ -27,8 +28,8 @@ later phases.
 | Focused owner decision | `docs/decisions/task-v1-pr07-c-deadline-digest-decisions.md` (`Resolved`, 2026-08-03) |
 | Migration | `20260803041347_AddTaskDeadlineDigestLedger` |
 | Policy version | `1` |
-| Code-bearing HEAD | Final remediation SHA pending the documentation commit and final verification |
-| Pull request | `#277` — Draft and unmerged; final SHA/check references are pending |
+| Code-bearing remediation HEAD | `8545ae7ab8ecc3feb6d0bbe278ecfe81f217ba31` |
+| Pull request | `#277` — Draft and unmerged; final branch SHA/check references are recorded in the PR body after push |
 | Merge performed | No |
 
 Current source, tests, root deployment configuration, and active documentation
@@ -242,20 +243,23 @@ evidence, not an inferred index recommendation.
 
 ## Focused evidence
 
-No final-remediation result is claimed in this source record. The final run
-must execute against the immutable post-remediation HEAD and record its actual
-result rather than carrying forward a prior worktree count.
+The following local evidence ran against the code-bearing remediation tree
+before this documentation-only evidence commit. PostgreSQL 18 was available
+through a disposable migrated database; connection values are intentionally
+not recorded. The final branch SHA and hosted run IDs are recorded in PR #277
+after push, because a source file cannot self-identify the hash of the commit
+that contains it.
 
-| Check | Final-remediation evidence |
+| Check | Actual local evidence |
 | --- | --- |
-| Release restore/build | Pending exact final HEAD, including warning/error totals. |
-| `Scope=TaskV1PR07C` PostgreSQL acceptance and strict TRX manifest | Pending exact final HEAD; record provider availability, totals, and active/matched manifest counts. |
-| `TaskV1Pr07CDeadlineDigestPostgreSqlTests` | Pending exact final HEAD. |
-| `TaskV1Pr07CDigestCandidateAtomicityPostgreSqlTests` | Pending exact final HEAD, including the six post-final-evaluation fence races. |
-| `TaskV1Pr07CNotificationVersionConcurrencyPostgreSqlTests` | Pending exact final HEAD. |
-| Full backend and EF pending-model check | Pending exact final HEAD. |
-| Frontend unit/build, architecture, license, Storybook, and Playwright gates | Pending exact final HEAD; frontend production remains outside this change. |
-| Hosted Draft PR checks and review state | Pending final push; retain Draft and unmerged status. |
+| Release restore/build | Restore current; Release build passed with 0 warnings and 0 errors. |
+| `Scope=TaskV1PR07C` PostgreSQL acceptance and strict TRX manifest | 94 passed, 0 failed, 0 skipped; strict verifier passed; manifest active 64, matched 64. |
+| `TaskV1Pr07CDeadlineDigestPostgreSqlTests` | 23 passed, 0 failed, 0 skipped. |
+| `TaskV1Pr07CDigestCandidateAtomicityPostgreSqlTests` | 15 passed, 0 failed, 0 skipped, including all six post-final-evaluation fence races. |
+| `TaskV1Pr07CNotificationVersionConcurrencyPostgreSqlTests` | 1 passed, 0 failed, 0 skipped. |
+| Full backend and EF pending-model check | 776 passed, 0 failed, 0 skipped; strict TRX verifier passed; EF reported no pending model changes. |
+| Frontend unit/build, architecture, license, Storybook, and Playwright gates | Angular unit 324/324; production build, architecture, license, and Storybook builds passed; local and Docker Linux Playwright each passed 63 with 3 repository-defined skips. Frontend production source was unchanged. |
+| Hosted Draft PR checks and review state | Pending final push verification; retain Draft and unmerged status. |
 | Frontend/SignalR/open behavior | Excluded; PR07-D/E scope. |
 
 ### Commands
