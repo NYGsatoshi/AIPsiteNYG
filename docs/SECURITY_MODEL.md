@@ -126,12 +126,15 @@ notification opening remain PR07-D work and are not claimed by PR07-B.
 ### Workspace deadline-digest boundary
 
 TASK-V1-PR07-C treats a durable ledger row as permission to attempt generation,
-not as proof that its recipient may still see any Task. The generation path
-rechecks current state once while building. Inside the short commit transaction
-it locks the claimed job, then the recipient User row, and performs the final
-evaluation only after any User-lock wait completes. A membership or lifecycle
-change committed during that wait is therefore visible to the evaluation that
-authorizes Notification creation. The final evaluation requires:
+not as proof that its recipient may still see any Task. The one normal
+candidate-page enumeration runs inside the short generation transaction;
+bounded lock/rechecks validate each already enumerated page rather than
+forming a discarded second enumeration. A repository-owned commit fence locks
+and then rechecks current state before any visible result is staged. Its fixed
+order is Tenant, User, TenantUser,
+TenantSettings, Workspace, WorkspaceMember, Project, Group, ProjectMember,
+GroupMember, Task, WorkflowStage, Watch/Collaborator, then the digest job and
+claimed attempt. The final evaluation requires:
 
 - the same active Tenant and active, non-deleted user;
 - active TenantUser and WorkspaceMember records;
@@ -152,10 +155,13 @@ authorization and lifecycle predicates remain independently mandatory.
 
 A membership revocation, Workspace/Project archive, Task deletion,
 completion/cancellation, relationship loss without another qualifying source,
-or explicit opt-out therefore removes the candidate at the final recheck. If
-none remain, the job succeeds as a no-op and stages neither Notification nor
-Outbox row. The same rule prevents a stale pre-transaction build result from
-being committed.
+or explicit opt-out either commits before the fence and removes the candidate
+at its post-lock recheck, or waits for the fenced generation transaction to
+commit. If a value changed relative to the evaluated context/page, the whole
+transaction is discarded and retried; it cannot commit a stale Notification,
+Outbox row, or recipient state advance. If none remain, the job succeeds as a
+no-op and stages neither Notification nor Outbox row. There is no discarded
+pre-transaction candidate build.
 
 The ledger and attempt tables are tenant-owned and use normal global query
 filters. Platform scope is used only for bounded active-Tenant discovery and
@@ -163,6 +169,13 @@ aggregate health diagnostics; each schedule, claim, generation, failure, and
 restart operation executes in an explicit Tenant scope. Claim owner, expiry,
 and a random claim token fence concurrent workers and prevent an expired
 worker from completing a reclaimed job.
+
+The fence also treats PostgreSQL serialization/deadlock and EF concurrency
+conflicts as retryable without leaking provider details to Application. It
+recreates the entire transaction and reacquires all locks at most three times;
+each retry confirms the original claim token and does not consume another
+automatic attempt. A claim-loss result stages nothing. Only an exhausted safe
+conflict is passed to the normal bounded failure handling path.
 
 The visible Notification is one recipient-owned generic
 `Task deadline digest` reference with a null body. It contains no Task list or
@@ -206,7 +219,12 @@ shared and propagates through all started work.
 
 `tasks.notificationsV1` remains default off and opt-in per Tenant. It suppresses
 digest schedule/claim/generation work, but it is not an authorization control:
-all of the checks above remain mandatory whenever it is enabled.
+all of the checks above remain mandatory whenever it is enabled. If it becomes
+disabled after a claim, the token-fenced release returns an automatic job to
+pending and restores both attempt counters, or returns the same audited
+operator-restart attempt to pending without changing automatic budget. It
+creates no Notification or Outbox row and fences the released token from later
+completion, defer, or failure.
 
 ## Tenant isolation
 

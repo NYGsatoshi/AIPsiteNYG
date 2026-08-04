@@ -90,6 +90,15 @@ continues bounded active-Tenant discovery so it can evaluate each Tenant's
 flag. Disabling the feature does not remove existing ledger rows and does not
 stop dispatch of Outbox rows that were already committed.
 
+If a generator observes the flag disabled after it has claimed a job, it uses
+the claim token to release that claim immediately. An automatic claim returns
+the job to `Pending`, clears both claim records, restores `AttemptCount` and
+`AutomaticAttemptCount`, and completes that attempt as `Deferred`. An operator
+restart returns the same audited attempt to `Pending` without adding another
+restart row or changing the automatic budget. The release creates no
+Notification or Outbox row. Treat an old token after release as claim loss;
+never try to complete, defer, or fail it manually.
+
 Current `TaskDeadlineDigest` defaults are:
 
 | Setting | Default | Runtime boundary |
@@ -134,27 +143,36 @@ Use this split when diagnosing:
 1. A `Pending`, overdue, or `Failed` ledger row is a generation problem. Check
    feature state, preference/timezone diagnostics, claim age, bounded safe error
    code, and append-preserved attempt history.
-2. A long-lived `Claimed` row may belong to a live worker or a cancelled/crashed
-   worker. Do not clear its owner/token manually. After `ClaimExpiresAt`, a
-   later enabled scheduler cycle fences the old token, marks that attempt
-   `Expired`, and either creates the next automatic attempt or reaches terminal
-   `Failed` when its budget is exhausted.
-3. A `Succeeded` job with no `NotificationId` is the approved zero-candidate
+2. A claim that observes feature disable should be fenced-released immediately:
+   automatic counters return to their pre-claim values, while an operator
+   restart retains its one pending audited attempt. It is not a generation
+   failure and must not create a Notification or Outbox row.
+3. A long-lived `Claimed` row may belong to a live worker or a
+   cancelled/crashed worker that never observed the flag. Do not clear its
+   owner/token manually. After `ClaimExpiresAt`, a later enabled scheduler
+   cycle fences the old token, marks that attempt `Expired`, and either creates
+   the next automatic attempt or reaches terminal `Failed` when its budget is
+   exhausted.
+4. A `Succeeded` job with no `NotificationId` is the approved zero-candidate
    no-op, not a delivery failure.
-4. A `Succeeded` job with a Notification but delayed/missing realtime behavior
+5. A `Succeeded` job with a Notification but delayed/missing realtime behavior
    is an Outbox/dispatch problem. Diagnose the existing Outbox pending/retry/
    dead-letter state; do not restart digest generation to replay delivery.
 
 Automatic failures and expired claims share the exact budget of three
-automatic attempts. The third terminal transition sets `Failed`; there is no
-separate digest dead-letter table.
+automatic attempts. Feature-disabled claim release does not consume that
+budget. The third terminal transition sets `Failed`; there is no separate
+digest dead-letter table.
 
 `NotificationUserState.Version` is an optimistic-concurrency token. If a
 digest and an immediate Task Notification stage the same next recipient
 version, only one unit of work can commit; the other Notification, Outbox row,
 state update, and digest transition roll back together. A digest-side conflict
-is recorded with the safe `DigestPersistenceConflict` code and follows the
-normal automatic retry budget. The clean retry reads the committed version,
+is first retried inside the claimed attempt in up to three completely recreated
+generation transactions. The repository exposes only a safe persistence-
+conflict marker, never provider SQLSTATE or exception text. If those retries
+are exhausted, the worker records the safe `DigestPersistenceConflict` outcome
+through the normal failure path. A clean retry reads the committed version,
 while logical keys reuse any already-committed intent, so the final recipient
 versions remain distinct rather than duplicating a signal.
 
@@ -183,9 +201,12 @@ Use this only after the job is terminal `Failed` and the root cause is
 understood. The reason is required, trimmed, and limited to 500 characters;
 keep it metadata-safe. Each call appends one linked, requested-by-user pending
 attempt and a `TaskDeadlineDigestRestarted` AuditLog entry. It grants exactly
-one operator attempt and preserves the three automatic attempts. Never reset
-attempt counters, delete attempt rows, rewrite the original failure as
-automatic, or clone the five-field identity to force delivery.
+one operator attempt and preserves the three automatic attempts. An operator
+restart must not reset attempt counters, delete attempt rows, rewrite the
+original failure as automatic, or clone the five-field identity to force
+delivery. The separate feature-disable release may only reverse its
+just-claimed fenced automatic attempt; it is not an operator restart or a new
+attempt.
 
 ### Worker drain and rollback
 
@@ -193,12 +214,13 @@ There is no explicit drain endpoint. For maintenance:
 
 1. Disable `tasks.notificationsV1` for affected Tenants so no new claims are
    taken.
-2. Allow every concurrently started claim in the current bounded batch to
-   finish, then stop the process with normal cancellation. Cancellation is
-   propagated through paging and every claim's database work.
-3. Treat any interrupted claim as fenced state. It may remain `Claimed` while
-   the feature is disabled; after re-enable, claim-expiry processing will
-   expire/retry it safely. Do not bypass `ClaimExpiresAt` with manual updates.
+2. Allow an already-started generator to observe the disabled flag and perform
+   its fenced release before stopping the process. This restores an automatic
+   attempt budget or preserves the same pending operator-restart attempt; it
+   does not wait for claim expiry.
+3. Treat a claim interrupted before it can observe the flag as fenced state.
+   It may remain `Claimed`; after re-enable, ordinary claim-expiry processing
+   will recover it safely. Do not bypass `ClaimExpiresAt` with manual updates.
 4. Inspect digest and Outbox state independently before resuming.
 
 For an application rollback, first disable the feature and drain as above,

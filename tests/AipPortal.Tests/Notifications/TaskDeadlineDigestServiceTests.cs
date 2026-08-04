@@ -11,7 +11,7 @@ public sealed class TaskDeadlineDigestServiceTests
     private static readonly DateTimeOffset Now = new(2026, 8, 4, 9, 0, 0, TimeSpan.Zero);
 
     [Fact]
-    public async Task FeatureDisabledSkipsSchedulerAndGeneratorRepositories()
+    public async Task FeatureDisabledAfterClaimReleasesClaimWithoutConsumingAttempt()
     {
         var repository = new FakeDigestRepository();
         var featureFlags = new FakeFeatureFlags(enabled: false);
@@ -36,7 +36,7 @@ public sealed class TaskDeadlineDigestServiceTests
 
         Assert.Empty(claims);
         Assert.Equal(TaskDeadlineDigestGenerationOutcome.FeatureDisabled, generation.Outcome);
-        Assert.Equal(0, repository.CallCount);
+        Assert.Equal(1, repository.ReleaseFeatureDisabledCallCount);
         Assert.Equal(0, notifications.CallCount);
         Assert.Equal(2, featureFlags.CallCount);
     }
@@ -89,6 +89,36 @@ public sealed class TaskDeadlineDigestServiceTests
     }
 
     [Fact]
+    public async Task RepeatedIdenticalScheduleDoesNotIncrementScheduledDiagnostic()
+    {
+        var tenantId = Guid.NewGuid();
+        var repository = new FakeDigestRepository
+        {
+            ScheduleCandidates = (page, _) => page == 0
+                ? [new TaskDeadlineDigestScheduleCandidate(
+                    Guid.NewGuid(),
+                    Guid.NewGuid(),
+                    "UTC",
+                    new TimeOnly(8, 0))]
+                : []
+        };
+        repository.UpsertResults.Enqueue(1);
+        repository.UpsertResults.Enqueue(0);
+        var diagnostics = new TaskDeadlineDigestDiagnostics();
+        var scheduler = new TaskDeadlineDigestScheduler(
+            repository,
+            new FakeFeatureFlags(enabled: true),
+            new FakeCurrentTenant(tenantId, IsAvailable: true),
+            diagnostics);
+
+        await scheduler.ScheduleAndClaimAsync("schedule-worker", Now, Settings());
+        await scheduler.ScheduleAndClaimAsync("schedule-worker", Now.AddMinutes(1), Settings());
+
+        Assert.Equal(1, diagnostics.Snapshot().Scheduled);
+        Assert.Equal([1, 1], repository.UpsertBatches.Select(batch => batch.Count));
+    }
+
+    [Fact]
     public async Task SchedulerKeepsEachWorkspaceInItsEffectiveTimezone()
     {
         var tenantId = Guid.NewGuid();
@@ -137,7 +167,7 @@ public sealed class TaskDeadlineDigestServiceTests
     }
 
     [Fact]
-    public async Task GeneratorPagesCandidatesWithBoundedSizeOnBuildAndCommitEvaluation()
+    public async Task GeneratorEvaluatesCandidatesOnceOnNormalSuccess()
     {
         var claim = CreateClaim();
         var repository = ReadyGeneratorRepository(claim);
@@ -163,37 +193,37 @@ public sealed class TaskDeadlineDigestServiceTests
         Assert.Equal(TaskDeadlineDigestGenerationOutcome.Succeeded, result.Outcome);
         Assert.Equal(new TaskDeadlineDigestCategoryCounts(1, 1, 1, 1), result.Counts);
         Assert.Equal(
-            [(1, 0, 2), (1, 1, 2), (1, 2, 2), (2, 0, 2), (2, 1, 2), (2, 2, 2)],
+            [(1, 0, 2), (1, 1, 2), (1, 2, 2)],
             repository.CandidatePageRequests);
-        Assert.Equal(2, repository.CurrentContextCallCount);
+        Assert.Equal(1, repository.CurrentContextCallCount);
         Assert.Equal(1, notifications.CallCount);
     }
 
     [Fact]
-    public async Task GeneratorReevaluatesAtCommitAndDropsAStaleBuildCandidate()
+    public async Task GeneratorKeepsCandidatePagesBoundedInsideTransaction()
     {
         var claim = CreateClaim();
         var repository = ReadyGeneratorRepository(claim);
-        repository.CandidatePages = (evaluation, page, _) =>
-            evaluation == 1 && page == 0
+        repository.CandidatePages = (_, page, pageSize) =>
+        {
+            Assert.InRange(pageSize, 1, 500);
+            return page == 0
                 ? [new TaskDeadlineDigestCandidate(Guid.NewGuid(), Now.AddHours(1))]
                 : [];
+        };
         var notifications = new FakeNotifications();
         var generator = CreateGenerator(repository, notifications);
 
-        var result = await generator.GenerateAsync(claim, Now, candidatePageSize: 20);
+        var result = await generator.GenerateAsync(claim, Now, candidatePageSize: int.MaxValue);
 
-        Assert.Equal(TaskDeadlineDigestGenerationOutcome.SucceededWithoutCandidates, result.Outcome);
-        Assert.Equal(0, result.Counts.Total);
-        Assert.Equal(2, repository.CurrentContextCallCount);
-        Assert.Equal([(1, 0, 20), (2, 0, 20)], repository.CandidatePageRequests);
-        Assert.Equal(0, notifications.CallCount);
-        var succeeded = Assert.Single(repository.SucceededRequests);
-        Assert.Null(succeeded.NotificationId);
+        Assert.Equal(TaskDeadlineDigestGenerationOutcome.Succeeded, result.Outcome);
+        Assert.Equal([(1, 0, 500)], repository.CandidatePageRequests);
+        Assert.Equal(1, repository.CurrentContextCallCount);
+        Assert.Equal(1, notifications.CallCount);
     }
 
     [Fact]
-    public async Task GeneratorWithZeroCandidatesSucceedsWithoutNotification()
+    public async Task GeneratorEvaluatesCandidatesOnceOnZeroCandidateSuccess()
     {
         var claim = CreateClaim();
         var repository = ReadyGeneratorRepository(claim);
@@ -210,6 +240,8 @@ public sealed class TaskDeadlineDigestServiceTests
         Assert.Equal(1, repository.LastTransaction!.CommitCount);
         Assert.Null(Assert.Single(repository.SucceededRequests).NotificationId);
         Assert.Equal(1, diagnostics.Snapshot().SucceededWithoutCandidates);
+        Assert.Equal(1, repository.CurrentContextCallCount);
+        Assert.Equal([(1, 0, 20)], repository.CandidatePageRequests);
     }
 
     [Fact]
@@ -217,23 +249,43 @@ public sealed class TaskDeadlineDigestServiceTests
     {
         var claim = CreateClaim();
         var repository = ReadyGeneratorRepository(claim);
-        repository.CurrentContexts = evaluation => evaluation == 1
-            ? ContextFor(claim)
-            : null;
-        repository.CandidatePages = (evaluation, page, _) =>
-            evaluation == 1 && page == 0
-                ? [new TaskDeadlineDigestCandidate(Guid.NewGuid(), Now.AddHours(1))]
-                : [];
+        repository.CurrentContexts = _ => null;
         var notifications = new FakeNotifications();
         var generator = CreateGenerator(repository, notifications);
 
         var result = await generator.GenerateAsync(claim, Now, candidatePageSize: 20);
 
         Assert.Equal(TaskDeadlineDigestGenerationOutcome.SucceededWithoutCandidates, result.Outcome);
-        Assert.Equal(2, repository.CurrentContextCallCount);
-        Assert.Equal([(1, 0, 20)], repository.CandidatePageRequests);
+        Assert.Equal(0, result.Counts.Total);
+        Assert.Null(result.NotificationId);
+        Assert.Equal(1, repository.CurrentContextCallCount);
+        Assert.Empty(repository.CandidatePageRequests);
         Assert.Equal(0, notifications.CallCount);
         Assert.Null(Assert.Single(repository.SucceededRequests).NotificationId);
+    }
+
+    [Fact]
+    public async Task GeneratorReevaluatesOnlyWhenCommitFenceRetryOccurs()
+    {
+        var claim = CreateClaim();
+        var repository = ReadyGeneratorRepository(claim);
+        repository.CandidatePages = (_, page, _) => page == 0
+            ? [new TaskDeadlineDigestCandidate(Guid.NewGuid(), Now.AddHours(1))]
+            : [];
+        repository.FenceOutcomes.Enqueue(TaskDeadlineDigestGenerationFenceOutcome.Current);
+        repository.FenceOutcomes.Enqueue(TaskDeadlineDigestGenerationFenceOutcome.CurrentStateChanged);
+        repository.FenceOutcomes.Enqueue(TaskDeadlineDigestGenerationFenceOutcome.Current);
+        repository.FenceOutcomes.Enqueue(TaskDeadlineDigestGenerationFenceOutcome.Current);
+        var notifications = new FakeNotifications();
+        var generator = CreateGenerator(repository, notifications);
+
+        var result = await generator.GenerateAsync(claim, Now, candidatePageSize: 20);
+
+        Assert.Equal(TaskDeadlineDigestGenerationOutcome.Succeeded, result.Outcome);
+        Assert.Equal(2, repository.CurrentContextCallCount);
+        Assert.Equal([(1, 0, 20), (2, 0, 20)], repository.CandidatePageRequests);
+        Assert.Equal(1, notifications.CallCount);
+        Assert.Equal(1, repository.ResetGenerationStateCallCount);
     }
 
     [Fact]
@@ -242,13 +294,7 @@ public sealed class TaskDeadlineDigestServiceTests
         var localDate = new DateOnly(2026, 8, 4);
         var claim = CreateClaim(localDate: localDate);
         var repository = ReadyGeneratorRepository(claim);
-        repository.CurrentContexts = evaluation => evaluation == 1
-            ? ContextFor(claim, workspaceTimeZoneId: "Asia/Tokyo", effectiveLocalTime: TimeOnly.MinValue)
-            : ContextFor(claim, workspaceTimeZoneId: "UTC", effectiveLocalTime: TimeOnly.MinValue);
-        repository.CandidatePages = (evaluation, page, _) =>
-            evaluation == 1 && page == 0
-                ? [new TaskDeadlineDigestCandidate(Guid.NewGuid(), new DateTimeOffset(2026, 8, 3, 17, 0, 0, TimeSpan.Zero))]
-                : [];
+        repository.CurrentContexts = _ => ContextFor(claim, workspaceTimeZoneId: "UTC", effectiveLocalTime: TimeOnly.MinValue);
         var notifications = new FakeNotifications();
         var generator = CreateGenerator(repository, notifications);
         var currentInstant = new DateTimeOffset(2026, 8, 3, 16, 0, 0, TimeSpan.Zero);
@@ -256,8 +302,8 @@ public sealed class TaskDeadlineDigestServiceTests
         var result = await generator.GenerateAsync(claim, currentInstant, candidatePageSize: 20);
 
         Assert.Equal(TaskDeadlineDigestGenerationOutcome.SucceededWithoutCandidates, result.Outcome);
-        Assert.Equal(2, repository.CurrentContextCallCount);
-        Assert.Single(repository.CandidatePageRequests);
+        Assert.Equal(1, repository.CurrentContextCallCount);
+        Assert.Empty(repository.CandidatePageRequests);
         Assert.Equal(0, notifications.CallCount);
         var completedIdentity = Assert.Single(repository.SucceededRequests);
         Assert.Equal(claim.JobId, completedIdentity.JobId);
@@ -287,7 +333,7 @@ public sealed class TaskDeadlineDigestServiceTests
         Assert.Equal(
             "task-deadline-digest:workspace:00112233445566778899aabbccddeeff:date:2026-08-04:policy:1",
             staged.LogicalKey);
-        Assert.Equal(1, repository.LockRecipientCallCount);
+        Assert.True(repository.FenceCallCount >= 2);
         Assert.Equal(notificationId, Assert.Single(repository.SucceededRequests).NotificationId);
     }
 
@@ -521,7 +567,10 @@ public sealed class TaskDeadlineDigestServiceTests
         public Func<int, TaskDeadlineDigestCurrentContext?> CurrentContexts { get; set; } = _ => null;
         public Func<int, int, int, IReadOnlyList<TaskDeadlineDigestCandidate>> CandidatePages { get; set; } = (_, _, _) => [];
         public bool MarkSucceededResult { get; set; } = true;
+        public bool ReleaseFeatureDisabledResult { get; set; } = true;
         public Queue<TaskDeadlineDigestTransition> FailureTransitions { get; } = new();
+        public Queue<int> UpsertResults { get; } = new();
+        public Queue<TaskDeadlineDigestGenerationFenceOutcome> FenceOutcomes { get; } = new();
         public List<(int Page, int PageSize)> SchedulePageRequests { get; } = [];
         public List<IReadOnlyList<TaskDeadlineDigestScheduleWrite>> UpsertBatches { get; } = [];
         public List<ClaimRequest> ClaimRequests { get; } = [];
@@ -529,6 +578,9 @@ public sealed class TaskDeadlineDigestServiceTests
         public List<SucceededRequest> SucceededRequests { get; } = [];
         public List<FailureRequest> FailureRequests { get; } = [];
         public int CurrentContextCallCount { get; private set; }
+        public int FenceCallCount { get; private set; }
+        public int ReleaseFeatureDisabledCallCount { get; private set; }
+        public int ResetGenerationStateCallCount { get; private set; }
         public int LockRecipientCallCount { get; private set; }
         public int SaveChangesCallCount { get; private set; }
         public FakeDigestTransaction? LastTransaction { get; private set; }
@@ -567,7 +619,7 @@ public sealed class TaskDeadlineDigestServiceTests
         {
             Touch(cancellationToken);
             UpsertBatches.Add(schedules.ToArray());
-            return Task.FromResult(schedules.Count);
+            return Task.FromResult(UpsertResults.Count > 0 ? UpsertResults.Dequeue() : schedules.Count);
         }
 
         public Task<IReadOnlyList<TaskDeadlineDigestClaim>> ClaimDueAsync(
@@ -620,6 +672,20 @@ public sealed class TaskDeadlineDigestServiceTests
             return Task.FromResult(CandidatePages(CurrentContextCallCount, page, pageSize));
         }
 
+        public Task<TaskDeadlineDigestGenerationFenceOutcome> AcquireGenerationFenceAsync(
+            TaskDeadlineDigestClaim claim,
+            TaskDeadlineDigestCurrentContext? evaluatedContext,
+            IReadOnlyCollection<TaskDeadlineDigestCandidate> evaluatedCandidates,
+            CancellationToken cancellationToken = default)
+        {
+            Touch(cancellationToken);
+            FenceCallCount++;
+            return Task.FromResult(
+                FenceOutcomes.Count > 0
+                    ? FenceOutcomes.Dequeue()
+                    : TaskDeadlineDigestGenerationFenceOutcome.Current);
+        }
+
         public Task<ITaskDeadlineDigestTransaction> BeginGenerationTransactionAsync(
             CancellationToken cancellationToken = default)
         {
@@ -658,6 +724,17 @@ public sealed class TaskDeadlineDigestServiceTests
         {
             Touch(cancellationToken);
             return Task.FromResult(true);
+        }
+
+        public Task<bool> ReleaseFeatureDisabledClaimAsync(
+            Guid jobId,
+            Guid claimToken,
+            DateTimeOffset releasedAt,
+            CancellationToken cancellationToken = default)
+        {
+            Touch(cancellationToken);
+            ReleaseFeatureDisabledCallCount++;
+            return Task.FromResult(ReleaseFeatureDisabledResult);
         }
 
         public Task<TaskDeadlineDigestTransition> MarkFailureAsync(
@@ -701,6 +778,8 @@ public sealed class TaskDeadlineDigestServiceTests
             SaveChangesCallCount++;
             return Task.FromResult(1);
         }
+
+        public void ResetGenerationState() => ResetGenerationStateCallCount++;
 
         private void Touch(CancellationToken cancellationToken)
         {

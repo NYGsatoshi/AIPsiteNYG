@@ -3,6 +3,7 @@ using AipPortal.Application.Common;
 using AipPortal.Application.Common.Interfaces;
 using AipPortal.Application.Common.Tenancy;
 using AipPortal.Application.Notifications;
+using AipPortal.Application.Realtime;
 using AipPortal.Domain.Entities;
 using AipPortal.Domain.Enums;
 using AipPortal.Infrastructure.Persistence;
@@ -220,6 +221,155 @@ public sealed class TaskV1Pr07CDeadlineDigestPostgreSqlTests(ITestOutputHelper o
 
             output.WriteLine(
                 $"PR07-C candidate query: one command/page; requested pageSize={int.MaxValue} bound to 500; SQL={NormalizeSql(boundedCommand.CommandText)}");
+        });
+    }
+
+    [PostgreSqlFact]
+    public async Task RepeatedIdenticalScheduleUpsertIsNoOp()
+    {
+        var result = await ExerciseIdenticalScheduleUpsertAsync();
+
+        Assert.Equal(1, result.FirstAffectedRows);
+        Assert.Equal(0, result.SecondAffectedRows);
+        Assert.Equal(1, result.IdentityCount);
+    }
+
+    [PostgreSqlFact]
+    public async Task RepeatedIdenticalScheduleDoesNotChangeUpdatedAt()
+    {
+        var result = await ExerciseIdenticalScheduleUpsertAsync();
+
+        Assert.Equal(result.Before.UpdatedAt, result.After.UpdatedAt);
+        Assert.Equal(result.Before.ScheduledForUtc, result.After.ScheduledForUtc);
+        Assert.Equal(result.Before.NextAttemptAt, result.After.NextAttemptAt);
+    }
+
+    [PostgreSqlFact]
+    public async Task ChangedPreferenceUpdatesPendingUnattemptedSchedule()
+    {
+        var result = await ExerciseChangedPendingScheduleAsync(
+            new DateTimeOffset(2026, 8, 3, 8, 0, 0, TimeSpan.Zero),
+            new DateTimeOffset(2026, 8, 3, 8, 15, 0, TimeSpan.Zero));
+
+        Assert.Equal(1, result.SecondAffectedRows);
+        Assert.Equal(new DateTimeOffset(2026, 8, 3, 8, 15, 0, TimeSpan.Zero), result.After.ScheduledForUtc);
+        Assert.Equal(result.After.ScheduledForUtc, result.After.NextAttemptAt);
+    }
+
+    [PostgreSqlFact]
+    public async Task ChangedTimezoneUpdatesPendingUnattemptedSchedule()
+    {
+        // The same Workspace-local identity can resolve to a different UTC
+        // instant after a timezone change. The pending, unattempted row is the
+        // only identity that scheduling is allowed to update.
+        var result = await ExerciseChangedPendingScheduleAsync(
+            new DateTimeOffset(2026, 8, 3, 8, 0, 0, TimeSpan.Zero),
+            new DateTimeOffset(2026, 8, 3, 6, 0, 0, TimeSpan.Zero));
+
+        Assert.Equal(1, result.SecondAffectedRows);
+        Assert.Equal(new DateTimeOffset(2026, 8, 3, 6, 0, 0, TimeSpan.Zero), result.After.ScheduledForUtc);
+    }
+
+    [PostgreSqlFact]
+    public async Task ClaimedScheduleIsNotRewritten()
+    {
+        var connectionString = PostgreSqlTestEnvironment.RequireConnectionString();
+
+        await PostgreSqlMigrationTestDatabase.WithTemporaryDatabaseAsync(connectionString, async database =>
+        {
+            await PostgreSqlMigrationTestDatabase.MigrateAsync(database);
+            var graph = await SeedGraphAsync(database);
+            var write = NewScheduleWrite(graph, Now.AddHours(1));
+            TaskDeadlineDigestClaim claim;
+            await using (var context = CreateTenantContext(database, graph.Tenant))
+            {
+                var tenant = TenantScope(graph.Tenant);
+                var repository = new TaskDeadlineDigestRepository(context, tenant);
+                Assert.Equal(1, await repository.UpsertSchedulesAsync([write], Now));
+                claim = Assert.Single(await repository.ClaimDueAsync(
+                    "claimed-schedule",
+                    Now.AddHours(2),
+                    batchSize: 1,
+                    claimTimeout: TimeSpan.FromMinutes(2)));
+                Assert.Equal(write.JobId, claim.JobId);
+            }
+
+            await using var rewriteContext = CreateTenantContext(database, graph.Tenant);
+            var rewriteTenant = TenantScope(graph.Tenant);
+            var rewriteRepository = new TaskDeadlineDigestRepository(rewriteContext, rewriteTenant);
+            Assert.Equal(0, await rewriteRepository.UpsertSchedulesAsync(
+                [write with { ScheduledForUtc = Now.AddHours(3) }],
+                Now.AddMinutes(1)));
+            var persisted = await rewriteContext.TaskDeadlineDigestJobs.AsNoTracking().SingleAsync();
+            Assert.Equal(TaskDeadlineDigestJobStatus.Claimed, persisted.Status);
+            Assert.Equal(write.ScheduledForUtc, persisted.ScheduledForUtc);
+        });
+    }
+
+    [PostgreSqlFact]
+    public async Task AttemptedPendingScheduleIsNotRewritten()
+    {
+        var connectionString = PostgreSqlTestEnvironment.RequireConnectionString();
+
+        await PostgreSqlMigrationTestDatabase.WithTemporaryDatabaseAsync(connectionString, async database =>
+        {
+            await PostgreSqlMigrationTestDatabase.MigrateAsync(database);
+            var graph = await SeedGraphAsync(database);
+            var write = NewScheduleWrite(graph, Now);
+            await using (var context = CreateTenantContext(database, graph.Tenant))
+            {
+                var tenant = TenantScope(graph.Tenant);
+                var repository = new TaskDeadlineDigestRepository(context, tenant);
+                Assert.Equal(1, await repository.UpsertSchedulesAsync([write], Now));
+                var claim = Assert.Single(await repository.ClaimDueAsync(
+                    "attempted-schedule",
+                    Now,
+                    batchSize: 1,
+                    claimTimeout: TimeSpan.FromMinutes(2)));
+                Assert.True(await repository.DeferAsync(
+                    claim.JobId,
+                    claim.ClaimToken,
+                    Now.AddHours(1),
+                    Now));
+            }
+
+            await using var rewriteContext = CreateTenantContext(database, graph.Tenant);
+            var rewriteTenant = TenantScope(graph.Tenant);
+            var rewriteRepository = new TaskDeadlineDigestRepository(rewriteContext, rewriteTenant);
+            Assert.Equal(0, await rewriteRepository.UpsertSchedulesAsync(
+                [write with { ScheduledForUtc = Now.AddHours(3) }],
+                Now.AddMinutes(1)));
+            var persisted = await rewriteContext.TaskDeadlineDigestJobs.AsNoTracking().SingleAsync();
+            Assert.Equal(1, persisted.AttemptSequence);
+            Assert.Equal(Now.AddHours(1), persisted.ScheduledForUtc);
+        });
+    }
+
+    [PostgreSqlFact]
+    public async Task ConcurrentIdenticalUpsertKeepsOneIdentityAndOneMeaningfulWrite()
+    {
+        var connectionString = PostgreSqlTestEnvironment.RequireConnectionString();
+
+        await PostgreSqlMigrationTestDatabase.WithTemporaryDatabaseAsync(connectionString, async database =>
+        {
+            await PostgreSqlMigrationTestDatabase.MigrateAsync(database);
+            var graph = await SeedGraphAsync(database);
+            var write = NewScheduleWrite(graph, Now.AddHours(1));
+
+            async Task<int> UpsertAsync(Guid jobId)
+            {
+                await using var context = CreateTenantContext(database, graph.Tenant);
+                var tenant = TenantScope(graph.Tenant);
+                return await new TaskDeadlineDigestRepository(context, tenant).UpsertSchedulesAsync(
+                    [write with { JobId = jobId }],
+                    Now);
+            }
+
+            var writes = await Task.WhenAll(UpsertAsync(Guid.NewGuid()), UpsertAsync(Guid.NewGuid()));
+            Assert.Equal([0, 1], writes.Order());
+
+            await using var verification = CreateTenantContext(database, graph.Tenant);
+            Assert.Equal(1, await verification.TaskDeadlineDigestJobs.CountAsync());
         });
     }
 
@@ -721,6 +871,497 @@ public sealed class TaskV1Pr07CDeadlineDigestPostgreSqlTests(ITestOutputHelper o
         });
     }
 
+    [PostgreSqlFact]
+    public async Task FeatureDisabledAfterClaimReleasesClaimWithoutConsumingAttempt()
+    {
+        var connectionString = PostgreSqlTestEnvironment.RequireConnectionString();
+
+        await PostgreSqlMigrationTestDatabase.WithTemporaryDatabaseAsync(connectionString, async database =>
+        {
+            await PostgreSqlMigrationTestDatabase.MigrateAsync(database);
+            var graph = await SeedGraphAsync(database);
+            var job = await InsertJobAsync(
+                database,
+                graph,
+                new DateOnly(2026, 8, 3),
+                TaskDeadlineDigestPolicy.PolicyVersion,
+                Now);
+            var claim = await ClaimJobAsync(database, graph, "feature-disabled-release", Now);
+
+            var result = await GenerateClaimAsync(
+                database,
+                graph,
+                claim,
+                new ToggleableFeatureFlags(enabled: false));
+
+            Assert.Equal(TaskDeadlineDigestGenerationOutcome.FeatureDisabled, result.Outcome);
+
+            await using var verification = CreateTenantContext(database, graph.Tenant);
+            var persisted = await verification.TaskDeadlineDigestJobs.AsNoTracking()
+                .SingleAsync(candidate => candidate.Id == job.Id);
+            Assert.Equal(TaskDeadlineDigestJobStatus.Pending, persisted.Status);
+            Assert.Equal(0, persisted.AttemptCount);
+            Assert.Equal(0, persisted.AutomaticAttemptCount);
+            Assert.Equal(Now, persisted.NextAttemptAt);
+            Assert.Null(persisted.ClaimToken);
+            Assert.Null(persisted.ClaimOwner);
+            Assert.Null(persisted.ClaimedAt);
+            Assert.Null(persisted.ClaimExpiresAt);
+
+            var attempt = Assert.Single(await verification.TaskDeadlineDigestAttempts.AsNoTracking()
+                .Where(candidate => candidate.JobId == job.Id)
+                .ToListAsync());
+            Assert.Equal(TaskDeadlineDigestAttemptTrigger.Automatic, attempt.Trigger);
+            Assert.Equal(TaskDeadlineDigestAttemptStatus.Deferred, attempt.Status);
+            Assert.Equal(Now, attempt.CompletedAt);
+            Assert.Null(attempt.ClaimToken);
+        });
+    }
+
+    [PostgreSqlFact]
+    public async Task RepeatedFeatureDisableDoesNotReachTerminalFailure()
+    {
+        var connectionString = PostgreSqlTestEnvironment.RequireConnectionString();
+
+        await PostgreSqlMigrationTestDatabase.WithTemporaryDatabaseAsync(connectionString, async database =>
+        {
+            await PostgreSqlMigrationTestDatabase.MigrateAsync(database);
+            var graph = await SeedGraphAsync(database);
+            var job = await InsertJobAsync(
+                database,
+                graph,
+                new DateOnly(2026, 8, 3),
+                TaskDeadlineDigestPolicy.PolicyVersion,
+                Now);
+            var flags = new ToggleableFeatureFlags(enabled: true);
+
+            for (var cycle = 0; cycle < 3; cycle++)
+            {
+                var releasedAt = Now.AddMinutes(cycle);
+                var claim = await ClaimJobAsync(
+                    database,
+                    graph,
+                    $"feature-disable-cycle-{cycle}",
+                    releasedAt);
+                flags.Enabled = false;
+                var result = await GenerateClaimAsync(database, graph, claim, flags, releasedAt);
+                Assert.Equal(TaskDeadlineDigestGenerationOutcome.FeatureDisabled, result.Outcome);
+                flags.Enabled = true;
+            }
+
+            await using var verification = CreateTenantContext(database, graph.Tenant);
+            var persisted = await verification.TaskDeadlineDigestJobs.AsNoTracking()
+                .SingleAsync(candidate => candidate.Id == job.Id);
+            Assert.Equal(TaskDeadlineDigestJobStatus.Pending, persisted.Status);
+            Assert.Equal(0, persisted.AttemptCount);
+            Assert.Equal(0, persisted.AutomaticAttemptCount);
+            Assert.Equal(3, persisted.AttemptSequence);
+            Assert.Null(persisted.CompletedAt);
+            Assert.Null(persisted.ClaimToken);
+            Assert.Equal(3, await verification.TaskDeadlineDigestAttempts.CountAsync(
+                candidate => candidate.JobId == job.Id));
+            Assert.Equal(3, await verification.TaskDeadlineDigestAttempts.CountAsync(
+                candidate => candidate.JobId == job.Id &&
+                             candidate.Trigger == TaskDeadlineDigestAttemptTrigger.Automatic &&
+                             candidate.Status == TaskDeadlineDigestAttemptStatus.Deferred));
+        });
+    }
+
+    [PostgreSqlFact]
+    public async Task ReenabledFeatureCanClaimAndGenerateNormally()
+    {
+        var connectionString = PostgreSqlTestEnvironment.RequireConnectionString();
+
+        await PostgreSqlMigrationTestDatabase.WithTemporaryDatabaseAsync(connectionString, async database =>
+        {
+            await PostgreSqlMigrationTestDatabase.MigrateAsync(database);
+            var graph = await SeedGraphAsync(database);
+            var job = await InsertJobAsync(
+                database,
+                graph,
+                new DateOnly(2026, 8, 3),
+                TaskDeadlineDigestPolicy.PolicyVersion,
+                Now);
+            await AddQualifyingTaskAsync(database, graph);
+            var flags = new ToggleableFeatureFlags(enabled: false);
+            var disabledClaim = await ClaimJobAsync(database, graph, "feature-disabled", Now);
+
+            var disabled = await GenerateClaimAsync(database, graph, disabledClaim, flags);
+            Assert.Equal(TaskDeadlineDigestGenerationOutcome.FeatureDisabled, disabled.Outcome);
+
+            flags.Enabled = true;
+            var reenabledClaim = await ClaimJobAsync(database, graph, "feature-reenabled", Now);
+            var generated = await GenerateClaimAsync(database, graph, reenabledClaim, flags);
+
+            Assert.Equal(TaskDeadlineDigestGenerationOutcome.Succeeded, generated.Outcome);
+            Assert.NotNull(generated.NotificationId);
+
+            await using var verification = CreateTenantContext(database, graph.Tenant);
+            var persisted = await verification.TaskDeadlineDigestJobs.AsNoTracking()
+                .SingleAsync(candidate => candidate.Id == job.Id);
+            Assert.Equal(TaskDeadlineDigestJobStatus.Succeeded, persisted.Status);
+            Assert.Equal(1, persisted.AttemptCount);
+            Assert.Equal(1, persisted.AutomaticAttemptCount);
+            Assert.Equal(generated.NotificationId, persisted.NotificationId);
+            Assert.Single(await verification.Notifications.AsNoTracking().ToListAsync());
+            Assert.Single(await verification.OutboxEvents.AsNoTracking().ToListAsync());
+        });
+    }
+
+    [PostgreSqlFact]
+    public async Task OldClaimTokenCannotCompleteAfterFeatureDisableRelease()
+    {
+        var connectionString = PostgreSqlTestEnvironment.RequireConnectionString();
+
+        await PostgreSqlMigrationTestDatabase.WithTemporaryDatabaseAsync(connectionString, async database =>
+        {
+            await PostgreSqlMigrationTestDatabase.MigrateAsync(database);
+            var graph = await SeedGraphAsync(database);
+            var job = await InsertJobAsync(
+                database,
+                graph,
+                new DateOnly(2026, 8, 3),
+                TaskDeadlineDigestPolicy.PolicyVersion,
+                Now);
+            var claim = await ClaimJobAsync(database, graph, "old-token-before-release", Now);
+
+            await using (var releaseContext = CreateTenantContext(database, graph.Tenant))
+            {
+                var releaseTenant = TenantScope(graph.Tenant);
+                var repository = new TaskDeadlineDigestRepository(releaseContext, releaseTenant);
+                Assert.True(await repository.ReleaseFeatureDisabledClaimAsync(
+                    claim.JobId,
+                    claim.ClaimToken,
+                    Now));
+            }
+
+            await using (var staleContext = CreateTenantContext(database, graph.Tenant))
+            {
+                var staleTenant = TenantScope(graph.Tenant);
+                var repository = new TaskDeadlineDigestRepository(staleContext, staleTenant);
+                Assert.False(await repository.MarkSucceededAsync(
+                    job.Id,
+                    claim.ClaimToken,
+                    notificationId: null,
+                    completedAt: Now.AddMinutes(1)));
+                Assert.False((await repository.MarkFailureAsync(
+                    job.Id,
+                    claim.ClaimToken,
+                    "DigestBuildFailed",
+                    Now.AddMinutes(1),
+                    Now.AddMinutes(2))).Changed);
+                Assert.False(await repository.DeferAsync(
+                    job.Id,
+                    claim.ClaimToken,
+                    Now.AddMinutes(2),
+                    Now.AddMinutes(1)));
+            }
+
+            await using var verification = CreateTenantContext(database, graph.Tenant);
+            var persisted = await verification.TaskDeadlineDigestJobs.AsNoTracking()
+                .SingleAsync(candidate => candidate.Id == job.Id);
+            Assert.Equal(TaskDeadlineDigestJobStatus.Pending, persisted.Status);
+            Assert.Equal(0, persisted.AttemptCount);
+            Assert.Equal(0, persisted.AutomaticAttemptCount);
+            Assert.Null(persisted.ClaimToken);
+            Assert.Empty(await verification.Notifications.AsNoTracking().ToListAsync());
+            Assert.Empty(await verification.OutboxEvents.AsNoTracking().ToListAsync());
+        });
+    }
+
+    [PostgreSqlFact]
+    public async Task OperatorRestartFeatureDisablePreservesSinglePendingRestartAttempt()
+    {
+        var connectionString = PostgreSqlTestEnvironment.RequireConnectionString();
+
+        await PostgreSqlMigrationTestDatabase.WithTemporaryDatabaseAsync(connectionString, async database =>
+        {
+            await PostgreSqlMigrationTestDatabase.MigrateAsync(database);
+            var graph = await SeedGraphAsync(database);
+            var job = await InsertJobAsync(
+                database,
+                graph,
+                new DateOnly(2026, 8, 3),
+                TaskDeadlineDigestPolicy.PolicyVersion,
+                Now);
+            await ExhaustAutomaticAttemptsAsync(database, graph, job.Id);
+
+            var restartAt = Now.AddMinutes(4);
+            await using (var restartContext = CreateTenantContext(database, graph.Tenant))
+            {
+                var restartTenant = TenantScope(graph.Tenant);
+                var repository = new TaskDeadlineDigestRepository(restartContext, restartTenant);
+                Assert.Equal(
+                    TaskDeadlineDigestRestartOutcome.Restarted,
+                    await repository.RestartFailedAsync(
+                        job.Id,
+                        graph.User.Id,
+                        "Operator verified the feature switch state.",
+                        restartAt));
+            }
+
+            for (var cycle = 0; cycle < 2; cycle++)
+            {
+                var releasedAt = restartAt.AddMinutes(cycle);
+                var claim = await ClaimJobAsync(
+                    database,
+                    graph,
+                    $"operator-feature-disable-{cycle}",
+                    releasedAt);
+                Assert.Equal(TaskDeadlineDigestAttemptTrigger.OperatorRestart, claim.Trigger);
+                await using var releaseContext = CreateTenantContext(database, graph.Tenant);
+                var releaseTenant = TenantScope(graph.Tenant);
+                var repository = new TaskDeadlineDigestRepository(releaseContext, releaseTenant);
+                Assert.True(await repository.ReleaseFeatureDisabledClaimAsync(
+                    claim.JobId,
+                    claim.ClaimToken,
+                    releasedAt));
+            }
+
+            await using var verification = CreateTenantContext(database, graph.Tenant);
+            var persisted = await verification.TaskDeadlineDigestJobs.AsNoTracking()
+                .SingleAsync(candidate => candidate.Id == job.Id);
+            Assert.Equal(TaskDeadlineDigestJobStatus.Pending, persisted.Status);
+            Assert.Equal(TaskDeadlineDigestPolicy.MaximumAutomaticAttempts, persisted.AttemptCount);
+            Assert.Equal(TaskDeadlineDigestPolicy.MaximumAutomaticAttempts, persisted.AutomaticAttemptCount);
+            Assert.Equal(TaskDeadlineDigestPolicy.MaximumAutomaticAttempts + 1, persisted.AttemptSequence);
+            Assert.Null(persisted.ClaimToken);
+            Assert.Equal(1, await verification.TaskDeadlineDigestAttempts.CountAsync(
+                candidate => candidate.JobId == job.Id &&
+                             candidate.Trigger == TaskDeadlineDigestAttemptTrigger.OperatorRestart));
+            var restart = await verification.TaskDeadlineDigestAttempts.AsNoTracking().SingleAsync(
+                candidate => candidate.JobId == job.Id &&
+                             candidate.Trigger == TaskDeadlineDigestAttemptTrigger.OperatorRestart);
+            Assert.Equal(TaskDeadlineDigestAttemptStatus.Pending, restart.Status);
+            Assert.Null(restart.CompletedAt);
+            Assert.Null(restart.ClaimToken);
+            Assert.Equal(1, await verification.AuditLogs.CountAsync(log =>
+                log.Action == "TaskDeadlineDigestRestarted" && log.EntityId == job.Id));
+        });
+    }
+
+    [PostgreSqlFact]
+    public async Task FeatureDisableReleaseCreatesNoNotificationOrOutbox()
+    {
+        var connectionString = PostgreSqlTestEnvironment.RequireConnectionString();
+
+        await PostgreSqlMigrationTestDatabase.WithTemporaryDatabaseAsync(connectionString, async database =>
+        {
+            await PostgreSqlMigrationTestDatabase.MigrateAsync(database);
+            var graph = await SeedGraphAsync(database);
+            _ = await InsertJobAsync(
+                database,
+                graph,
+                new DateOnly(2026, 8, 3),
+                TaskDeadlineDigestPolicy.PolicyVersion,
+                Now);
+            var claim = await ClaimJobAsync(database, graph, "feature-disabled-no-artifacts", Now);
+
+            var result = await GenerateClaimAsync(
+                database,
+                graph,
+                claim,
+                new ToggleableFeatureFlags(enabled: false));
+
+            Assert.Equal(TaskDeadlineDigestGenerationOutcome.FeatureDisabled, result.Outcome);
+            await using var verification = CreateTenantContext(database, graph.Tenant);
+            Assert.Empty(await verification.Notifications.AsNoTracking().ToListAsync());
+            Assert.Empty(await verification.NotificationUserStates.AsNoTracking().ToListAsync());
+            Assert.Empty(await verification.OutboxEvents.AsNoTracking().ToListAsync());
+        });
+    }
+
+    private static async Task<ScheduleExercise> ExerciseIdenticalScheduleUpsertAsync()
+    {
+        var connectionString = PostgreSqlTestEnvironment.RequireConnectionString();
+        ScheduleExercise? result = null;
+        await PostgreSqlMigrationTestDatabase.WithTemporaryDatabaseAsync(connectionString, async database =>
+        {
+            await PostgreSqlMigrationTestDatabase.MigrateAsync(database);
+            var graph = await SeedGraphAsync(database);
+            var write = NewScheduleWrite(graph, Now.AddHours(1));
+            ScheduleSnapshot before;
+            int first;
+            await using (var context = CreateTenantContext(database, graph.Tenant))
+            {
+                var tenant = TenantScope(graph.Tenant);
+                var repository = new TaskDeadlineDigestRepository(context, tenant);
+                first = await repository.UpsertSchedulesAsync([write], Now);
+                var job = await context.TaskDeadlineDigestJobs.AsNoTracking().SingleAsync();
+                before = new ScheduleSnapshot(job.ScheduledForUtc, job.NextAttemptAt, job.UpdatedAt);
+            }
+
+            int second;
+            ScheduleSnapshot after;
+            int identityCount;
+            await using (var context = CreateTenantContext(database, graph.Tenant))
+            {
+                var tenant = TenantScope(graph.Tenant);
+                var repository = new TaskDeadlineDigestRepository(context, tenant);
+                second = await repository.UpsertSchedulesAsync([write], Now.AddMinutes(1));
+                var job = await context.TaskDeadlineDigestJobs.AsNoTracking().SingleAsync();
+                after = new ScheduleSnapshot(job.ScheduledForUtc, job.NextAttemptAt, job.UpdatedAt);
+                identityCount = await context.TaskDeadlineDigestJobs.CountAsync();
+            }
+
+            result = new ScheduleExercise(first, second, identityCount, before, after);
+        });
+        return result!;
+    }
+
+    private static async Task<ScheduleExercise> ExerciseChangedPendingScheduleAsync(
+        DateTimeOffset initialDueAt,
+        DateTimeOffset changedDueAt)
+    {
+        var connectionString = PostgreSqlTestEnvironment.RequireConnectionString();
+        ScheduleExercise? result = null;
+        await PostgreSqlMigrationTestDatabase.WithTemporaryDatabaseAsync(connectionString, async database =>
+        {
+            await PostgreSqlMigrationTestDatabase.MigrateAsync(database);
+            var graph = await SeedGraphAsync(database);
+            var write = NewScheduleWrite(graph, initialDueAt);
+            ScheduleSnapshot before;
+            int first;
+            await using (var context = CreateTenantContext(database, graph.Tenant))
+            {
+                var tenant = TenantScope(graph.Tenant);
+                var repository = new TaskDeadlineDigestRepository(context, tenant);
+                first = await repository.UpsertSchedulesAsync([write], Now);
+                var job = await context.TaskDeadlineDigestJobs.AsNoTracking().SingleAsync();
+                before = new ScheduleSnapshot(job.ScheduledForUtc, job.NextAttemptAt, job.UpdatedAt);
+            }
+
+            int second;
+            ScheduleSnapshot after;
+            await using (var context = CreateTenantContext(database, graph.Tenant))
+            {
+                var tenant = TenantScope(graph.Tenant);
+                var repository = new TaskDeadlineDigestRepository(context, tenant);
+                second = await repository.UpsertSchedulesAsync(
+                    [write with { ScheduledForUtc = changedDueAt }],
+                    Now.AddMinutes(1));
+                var job = await context.TaskDeadlineDigestJobs.AsNoTracking().SingleAsync();
+                after = new ScheduleSnapshot(job.ScheduledForUtc, job.NextAttemptAt, job.UpdatedAt);
+            }
+
+            result = new ScheduleExercise(first, second, 1, before, after);
+        });
+        return result!;
+    }
+
+    private static TaskDeadlineDigestScheduleWrite NewScheduleWrite(
+        DigestGraph graph,
+        DateTimeOffset dueAt) => new(
+        Guid.NewGuid(),
+        graph.Workspace.Id,
+        graph.User.Id,
+        new DateOnly(2026, 8, 3),
+        TaskDeadlineDigestPolicy.PolicyVersion,
+        dueAt);
+
+    private static async Task<TaskDeadlineDigestClaim> ClaimJobAsync(
+        string database,
+        DigestGraph graph,
+        string claimOwner,
+        DateTimeOffset claimedAt)
+    {
+        await using var context = CreateTenantContext(database, graph.Tenant);
+        var tenant = TenantScope(graph.Tenant);
+        var repository = new TaskDeadlineDigestRepository(context, tenant);
+        return Assert.Single(await repository.ClaimDueAsync(
+            claimOwner,
+            claimedAt,
+            batchSize: 1,
+            claimTimeout: TimeSpan.FromMinutes(2)));
+    }
+
+    private static async Task<TaskDeadlineDigestGenerationResult> GenerateClaimAsync(
+        string database,
+        DigestGraph graph,
+        TaskDeadlineDigestClaim claim,
+        IFeatureFlagService featureFlags,
+        DateTimeOffset? generatedAt = null)
+    {
+        var now = generatedAt ?? Now;
+        var tenant = TenantScope(graph.Tenant);
+        await using var context = CreateTenantContext(database, graph.Tenant);
+        var repository = new TaskDeadlineDigestRepository(context, tenant);
+        var clock = new FixedClock(now);
+        var outbox = new TransactionalOutbox(new OutboxEventRepository(context), tenant, clock);
+        var notifications = new DbNotificationService(context, clock, tenant, outbox);
+        var generator = new TaskDeadlineDigestGenerator(
+            repository,
+            notifications,
+            featureFlags,
+            new TaskDeadlineDigestDiagnostics());
+        return await generator.GenerateAsync(claim, now, candidatePageSize: 50);
+    }
+
+    private static async Task AddQualifyingTaskAsync(string database, DigestGraph graph)
+    {
+        var suffix = Guid.NewGuid().ToString("N");
+        await using var context = CreateTenantContext(database, graph.Tenant);
+        var project = new Project
+        {
+            TenantId = graph.Tenant.Id,
+            WorkspaceId = graph.Workspace.Id,
+            OwnerUserId = graph.User.Id,
+            CreatedByUserId = graph.User.Id,
+            Name = "PR07-C feature lifecycle project",
+            Slug = $"pr07c-feature-lifecycle-{suffix}",
+            Status = ProjectStatus.Active,
+            VersionNo = 1
+        };
+        var task = new TaskItem
+        {
+            TenantId = graph.Tenant.Id,
+            WorkspaceId = graph.Workspace.Id,
+            ProjectId = project.Id,
+            CreatedByUserId = graph.User.Id,
+            PrimaryAssigneeUserId = graph.User.Id,
+            Title = "PR07-C feature lifecycle task",
+            Status = TaskItemStatus.InProgress,
+            Kind = WorkItemKind.Task,
+            DeadlineAt = Now.AddMinutes(30),
+            VersionNo = 1
+        };
+        context.AddRange(project, task);
+        await context.SaveChangesAsync();
+    }
+
+    private static async Task ExhaustAutomaticAttemptsAsync(
+        string database,
+        DigestGraph graph,
+        Guid jobId)
+    {
+        for (var attemptNumber = 1;
+             attemptNumber <= TaskDeadlineDigestPolicy.MaximumAutomaticAttempts;
+             attemptNumber++)
+        {
+            var attemptedAt = Now.AddMinutes(attemptNumber - 1);
+            var claim = await ClaimJobAsync(
+                database,
+                graph,
+                $"exhaust-automatic-{attemptNumber}",
+                attemptedAt);
+            Assert.Equal(TaskDeadlineDigestAttemptTrigger.Automatic, claim.Trigger);
+
+            await using var context = CreateTenantContext(database, graph.Tenant);
+            var tenant = TenantScope(graph.Tenant);
+            var repository = new TaskDeadlineDigestRepository(context, tenant);
+            var transition = await repository.MarkFailureAsync(
+                jobId,
+                claim.ClaimToken,
+                "DigestBuildFailed",
+                attemptedAt,
+                attemptedAt.AddMinutes(1));
+            Assert.True(transition.Changed);
+            Assert.Equal(
+                attemptNumber == TaskDeadlineDigestPolicy.MaximumAutomaticAttempts,
+                transition.Terminal);
+        }
+    }
+
     private static Task<bool> TableExistsAsync(string connectionString, string tableName) =>
         PostgreSqlMigrationTestDatabase.ScalarAsync<bool>(
             connectionString,
@@ -880,6 +1521,7 @@ public sealed class TaskV1Pr07CDeadlineDigestPostgreSqlTests(ITestOutputHelper o
             Name = "PR07-C Workspace",
             Slug = $"pr07c-workspace-{suffix}",
             TimeZone = "UTC",
+            DefaultTaskDeadlineDigestLocalTime = new TimeOnly(4, 0),
             Status = WorkspaceStatus.Active,
             CreatedByUserId = user.Id
         };
@@ -962,6 +1604,8 @@ public sealed class TaskV1Pr07CDeadlineDigestPostgreSqlTests(ITestOutputHelper o
 
     private sealed record ObservedCommand(string CommandText, IReadOnlyList<int> IntegerParameterValues);
 
+    private sealed record FixedClock(DateTimeOffset UtcNow) : IClock;
+
     private sealed class EnabledFeatureFlags : IFeatureFlagService
     {
         public static readonly EnabledFeatureFlags Instance = new();
@@ -987,5 +1631,44 @@ public sealed class TaskV1Pr07CDeadlineDigestPostgreSqlTests(ITestOutputHelper o
             Task.FromResult<IReadOnlyList<string>>([FeatureKeys.TasksNotificationsV1]);
     }
 
+    private sealed class ToggleableFeatureFlags(bool enabled) : IFeatureFlagService
+    {
+        public bool Enabled { get; set; } = enabled;
+
+        public Task<bool> IsEnabledAsync(
+            string featureKey,
+            CancellationToken cancellationToken = default) =>
+            Task.FromResult(
+                Enabled && string.Equals(
+                    FeatureKeys.Normalize(featureKey),
+                    FeatureKeys.TasksNotificationsV1,
+                    StringComparison.Ordinal));
+
+        public async Task<Result> RequireEnabledAsync(
+            string featureKey,
+            CancellationToken cancellationToken = default) =>
+            await IsEnabledAsync(featureKey, cancellationToken)
+                ? Result.Success()
+                : Result.Failure("Feature is disabled.");
+
+        public Task<IReadOnlyList<string>> GetEnabledFeaturesAsync(
+            Guid tenantId,
+            CancellationToken cancellationToken = default) =>
+            Task.FromResult<IReadOnlyList<string>>(
+                Enabled ? [FeatureKeys.TasksNotificationsV1] : []);
+    }
+
     private sealed record DigestGraph(Tenant Tenant, Workspace Workspace, User User);
+
+    private sealed record ScheduleSnapshot(
+        DateTimeOffset ScheduledForUtc,
+        DateTimeOffset? NextAttemptAt,
+        DateTimeOffset? UpdatedAt);
+
+    private sealed record ScheduleExercise(
+        int FirstAffectedRows,
+        int SecondAffectedRows,
+        int IdentityCount,
+        ScheduleSnapshot Before,
+        ScheduleSnapshot After);
 }

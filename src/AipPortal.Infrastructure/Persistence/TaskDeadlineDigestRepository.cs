@@ -6,6 +6,7 @@ using AipPortal.Domain.Entities;
 using AipPortal.Domain.Enums;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore.Storage;
+using Npgsql;
 
 namespace AipPortal.Infrastructure.Persistence;
 
@@ -108,9 +109,16 @@ public sealed class TaskDeadlineDigestRepository(
                 DO UPDATE SET
                     "ScheduledForUtc" = EXCLUDED."ScheduledForUtc",
                     "NextAttemptAt" = EXCLUDED."NextAttemptAt",
-                    "UpdatedAt" = EXCLUDED."UpdatedAt"
+                    "UpdatedAt" = {{now}}
                 WHERE task_deadline_digest_jobs."Status" = 'Pending'
-                  AND task_deadline_digest_jobs."AttemptCount" = 0;
+                  AND task_deadline_digest_jobs."AttemptCount" = 0
+                  AND task_deadline_digest_jobs."AttemptSequence" = 0
+                  AND (
+                      task_deadline_digest_jobs."ScheduledForUtc"
+                          IS DISTINCT FROM EXCLUDED."ScheduledForUtc"
+                      OR task_deadline_digest_jobs."NextAttemptAt"
+                          IS DISTINCT FROM EXCLUDED."NextAttemptAt"
+                  );
                 """, cancellationToken);
         }
 
@@ -131,7 +139,13 @@ public sealed class TaskDeadlineDigestRepository(
             var identity = (schedule.WorkspaceId, schedule.UserId, schedule.LocalDate, schedule.PolicyVersion);
             if (byIdentity.TryGetValue(identity, out var job))
             {
-                if (job.Status != TaskDeadlineDigestJobStatus.Pending || job.AttemptCount != 0)
+                if (job.Status != TaskDeadlineDigestJobStatus.Pending ||
+                    job.AttemptCount != 0 ||
+                    job.AttemptSequence != 0)
+                    continue;
+
+                if (job.ScheduledForUtc == schedule.ScheduledForUtc &&
+                    job.NextAttemptAt == schedule.ScheduledForUtc)
                     continue;
 
                 job.ScheduledForUtc = schedule.ScheduledForUtc;
@@ -327,13 +341,31 @@ public sealed class TaskDeadlineDigestRepository(
         if (job is null)
             return null;
 
-        var trigger = await dbContext.TaskDeadlineDigestAttempts
-            .Where(attempt => attempt.JobId == job.Id &&
-                              attempt.ClaimToken == claimToken &&
-                              attempt.Status == TaskDeadlineDigestAttemptStatus.Claimed)
-            .Select(attempt => (TaskDeadlineDigestAttemptTrigger?)attempt.Trigger)
-            .SingleOrDefaultAsync(cancellationToken);
-        return trigger.HasValue
+        TaskDeadlineDigestAttempt? attempt;
+        if (forUpdate && dbContext.Database.IsNpgsql())
+        {
+            attempt = await dbContext.TaskDeadlineDigestAttempts
+                .FromSqlInterpolated($$"""
+                    SELECT * FROM task_deadline_digest_attempts
+                    WHERE "JobId" = {{job.Id}}
+                      AND "ClaimToken" = {{claimToken}}
+                      AND "Status" = 'Claimed'
+                    FOR UPDATE
+                    """)
+                .IgnoreQueryFilters()
+                .SingleOrDefaultAsync(cancellationToken);
+        }
+        else
+        {
+            attempt = await dbContext.TaskDeadlineDigestAttempts
+                .SingleOrDefaultAsync(candidate =>
+                    candidate.JobId == job.Id &&
+                    candidate.ClaimToken == claimToken &&
+                    candidate.Status == TaskDeadlineDigestAttemptStatus.Claimed,
+                    cancellationToken);
+        }
+
+        return attempt is not null
             ? new TaskDeadlineDigestClaim(
                 job.Id,
                 job.TenantId,
@@ -342,7 +374,7 @@ public sealed class TaskDeadlineDigestRepository(
                 job.LocalDate,
                 job.PolicyVersion,
                 claimToken,
-                trigger.Value)
+                attempt.Trigger)
             : null;
     }
 
@@ -351,7 +383,9 @@ public sealed class TaskDeadlineDigestRepository(
         Guid claimToken,
         CancellationToken cancellationToken = default)
     {
-        return await (
+        try
+        {
+            return await (
                 from job in dbContext.TaskDeadlineDigestJobs.AsNoTracking()
                 join workspace in dbContext.Workspaces.AsNoTracking() on job.WorkspaceId equals workspace.Id
                 join member in dbContext.WorkspaceMembers.AsNoTracking()
@@ -377,7 +411,12 @@ public sealed class TaskDeadlineDigestRepository(
                     workspace.TimeZone,
                     tenantSettings == null ? null : tenantSettings.TimeZone,
                     member.TaskDeadlineDigestLocalTime ?? workspace.DefaultTaskDeadlineDigestLocalTime))
-            .SingleOrDefaultAsync(cancellationToken);
+                .SingleOrDefaultAsync(cancellationToken);
+        }
+        catch (Exception exception) when (TaskDeadlineDigestPersistenceConflictClassifier.IsRetryable(exception))
+        {
+            throw new TaskDeadlineDigestRetryablePersistenceConflictException();
+        }
     }
 
     public async Task<IReadOnlyList<TaskDeadlineDigestCandidate>> ListCurrentCandidatesAsync(
@@ -388,7 +427,266 @@ public sealed class TaskDeadlineDigestRepository(
         int pageSize,
         CancellationToken cancellationToken = default)
     {
-        var (safePage, safePageSize) = BoundPage(page, pageSize);
+        try
+        {
+            var (safePage, safePageSize) = BoundPage(page, pageSize);
+            return await CurrentCandidatesQuery(jobId, claimToken, deadlineBeforeUtc)
+                .Skip(safePage * safePageSize)
+                .Take(safePageSize)
+                .ToListAsync(cancellationToken);
+        }
+        catch (Exception exception) when (TaskDeadlineDigestPersistenceConflictClassifier.IsRetryable(exception))
+        {
+            throw new TaskDeadlineDigestRetryablePersistenceConflictException();
+        }
+    }
+
+    /// <summary>
+    /// Acquires a deterministic PostgreSQL current-state fence after a
+    /// bounded candidate page has been evaluated. The fence locks every row
+    /// whose mutation could make the evaluated page unauthorized or stale,
+    /// then rechecks the exact predicate while those locks are held. A caller
+    /// retries in a new transaction on CurrentStateChanged.
+    /// </summary>
+    public async Task<TaskDeadlineDigestGenerationFenceOutcome> AcquireGenerationFenceAsync(
+        TaskDeadlineDigestClaim claim,
+        TaskDeadlineDigestCurrentContext? evaluatedContext,
+        IReadOnlyCollection<TaskDeadlineDigestCandidate> evaluatedCandidates,
+        CancellationToken cancellationToken = default)
+    {
+        try
+        {
+            if (!currentTenant.IsAvailable || currentTenant.TenantId != claim.TenantId)
+                return TaskDeadlineDigestGenerationFenceOutcome.ClaimLost;
+
+            if (!dbContext.Database.IsNpgsql())
+            {
+                // The non-relational fallback is exercised by service tests.
+                // Its single-context execution has no provider row-locking
+                // primitive; the production PostgreSQL path below is the
+                // authoritative commit fence.
+                return TaskDeadlineDigestGenerationFenceOutcome.Current;
+            }
+
+            // Fixed lock order: Tenant, User, TenantUser, TenantSettings,
+            // Workspace, WorkspaceMember, Project, ProjectMember/Group/
+            // GroupMember, Task, WorkflowStage, Watch/Collaborator, then the
+            // Digest job and claimed attempt. Normal EF mutations acquire row
+            // update locks and therefore wait after this fence is complete.
+            await LockRowsAsync($"""
+                SELECT 1 FROM tenants
+                WHERE "Id" = {claim.TenantId}
+                ORDER BY "Id"
+                FOR UPDATE
+                """, cancellationToken);
+            await LockRowsAsync($"""
+                SELECT 1 FROM users
+                WHERE "Id" = {claim.UserId}
+                ORDER BY "Id"
+                FOR UPDATE
+                """, cancellationToken);
+            await LockRowsAsync($"""
+                SELECT 1 FROM tenant_users
+                WHERE "TenantId" = {claim.TenantId}
+                  AND "UserId" = {claim.UserId}
+                ORDER BY "Id"
+                FOR UPDATE
+                """, cancellationToken);
+            await LockRowsAsync($"""
+                SELECT 1 FROM tenant_settings
+                WHERE "TenantId" = {claim.TenantId}
+                ORDER BY "Id"
+                FOR UPDATE
+                """, cancellationToken);
+            await LockRowsAsync($"""
+                SELECT 1 FROM workspaces
+                WHERE "Id" = {claim.WorkspaceId}
+                  AND "TenantId" = {claim.TenantId}
+                ORDER BY "Id"
+                FOR UPDATE
+                """, cancellationToken);
+            await LockRowsAsync($"""
+                SELECT 1 FROM workspace_members
+                WHERE "WorkspaceId" = {claim.WorkspaceId}
+                  AND "UserId" = {claim.UserId}
+                ORDER BY "Id"
+                FOR UPDATE
+                """, cancellationToken);
+
+            var currentContext = await GetCurrentContextAsync(
+                claim.JobId,
+                claim.ClaimToken,
+                cancellationToken);
+            if (currentContext != evaluatedContext)
+                return TaskDeadlineDigestGenerationFenceOutcome.CurrentStateChanged;
+
+            var candidateIds = evaluatedCandidates
+                .Select(candidate => candidate.TaskId)
+                .Where(id => id != Guid.Empty)
+                .Distinct()
+                .OrderBy(id => id)
+                .ToArray();
+
+            if (candidateIds.Length > 0)
+            {
+                // Capture parent identities before locking children. If a Task
+                // moved concurrently, its post-task-lock identity is compared
+                // with the evaluated page below and the entire transaction is
+                // retried before it can stage a Notification.
+                var expectedProjects = evaluatedCandidates
+                    .Where(candidate => candidate.ProjectId != Guid.Empty)
+                    .Select(candidate => candidate.ProjectId)
+                    .Distinct()
+                    .OrderBy(id => id)
+                    .ToArray();
+
+                if (expectedProjects.Length > 0)
+                {
+                    await LockRowsAsync($"""
+                        SELECT 1 FROM projects
+                        WHERE "Id" = ANY({expectedProjects})
+                        ORDER BY "Id"
+                        FOR UPDATE
+                        """, cancellationToken);
+                }
+
+                Guid[] groupIds;
+                if (expectedProjects.Length == 0)
+                {
+                    groupIds = [];
+                }
+                else
+                {
+                    groupIds = await dbContext.Projects
+                        .AsNoTracking()
+                        .Where(project => expectedProjects.Contains(project.Id) && project.GroupId.HasValue)
+                        .OrderBy(project => project.GroupId)
+                        .Select(project => project.GroupId!.Value)
+                        .Distinct()
+                        .ToArrayAsync(cancellationToken);
+                }
+                if (groupIds.Length > 0)
+                {
+                    await LockRowsAsync($"""
+                        SELECT 1 FROM groups
+                        WHERE "Id" = ANY({groupIds})
+                        ORDER BY "Id"
+                        FOR UPDATE
+                        """, cancellationToken);
+                }
+
+                if (expectedProjects.Length > 0)
+                {
+                    await LockRowsAsync($"""
+                        SELECT 1 FROM project_members
+                        WHERE "ProjectId" = ANY({expectedProjects})
+                          AND "UserId" = {claim.UserId}
+                        ORDER BY "Id"
+                        FOR UPDATE
+                        """, cancellationToken);
+                }
+                if (groupIds.Length > 0)
+                {
+                    await LockRowsAsync($"""
+                        SELECT 1 FROM group_members
+                        WHERE "GroupId" = ANY({groupIds})
+                          AND "UserId" = {claim.UserId}
+                        ORDER BY "Id"
+                        FOR UPDATE
+                        """, cancellationToken);
+                }
+
+                await LockRowsAsync($"""
+                    SELECT 1 FROM task_items
+                    WHERE "Id" = ANY({candidateIds})
+                    ORDER BY "Id"
+                    FOR UPDATE
+                    """, cancellationToken);
+
+                var expectedStages = evaluatedCandidates
+                    .Where(candidate => candidate.WorkflowStageId.HasValue)
+                    .Select(candidate => candidate.WorkflowStageId!.Value)
+                    .Distinct()
+                    .OrderBy(id => id)
+                    .ToArray();
+                if (expectedStages.Length > 0)
+                {
+                    await LockRowsAsync($"""
+                        SELECT 1 FROM task_workflow_stages
+                        WHERE "Id" = ANY({expectedStages})
+                        ORDER BY "Id"
+                        FOR UPDATE
+                        """, cancellationToken);
+                }
+
+                await LockRowsAsync($"""
+                    SELECT 1 FROM work_item_watch_states
+                    WHERE "TaskItemId" = ANY({candidateIds})
+                      AND "UserId" = {claim.UserId}
+                    ORDER BY "Id"
+                    FOR UPDATE
+                    """, cancellationToken);
+                await LockRowsAsync($"""
+                    SELECT 1 FROM task_item_collaborators
+                    WHERE "TaskItemId" = ANY({candidateIds})
+                      AND "UserId" = {claim.UserId}
+                    ORDER BY "Id"
+                    FOR UPDATE
+                    """, cancellationToken);
+            }
+
+            var lockedClaim = await GetClaimedAsync(
+                claim.JobId,
+                claim.ClaimToken,
+                forUpdate: true,
+                cancellationToken);
+            if (lockedClaim is null)
+                return TaskDeadlineDigestGenerationFenceOutcome.ClaimLost;
+
+            if (candidateIds.Length == 0)
+                return TaskDeadlineDigestGenerationFenceOutcome.Current;
+
+            var currentCandidates = (await CurrentCandidatesQuery(
+                    claim.JobId,
+                    claim.ClaimToken,
+                    ResolveFenceDeadlineBeforeUtc(evaluatedCandidates),
+                    candidateIds)
+                .ToListAsync(cancellationToken))
+                .OrderBy(candidate => candidate.TaskId)
+                .ToArray();
+            var expectedCandidates = evaluatedCandidates
+                .OrderBy(candidate => candidate.TaskId)
+                .ToArray();
+            if (currentCandidates.Length != expectedCandidates.Length)
+                return TaskDeadlineDigestGenerationFenceOutcome.CurrentStateChanged;
+
+            for (var index = 0; index < expectedCandidates.Length; index++)
+            {
+                var expected = expectedCandidates[index];
+                var current = currentCandidates[index];
+                if (current.TaskId != expected.TaskId ||
+                    current.DeadlineAt != expected.DeadlineAt ||
+                    current.ProjectId != expected.ProjectId ||
+                    current.WorkflowStageId != expected.WorkflowStageId)
+                {
+                    return TaskDeadlineDigestGenerationFenceOutcome.CurrentStateChanged;
+                }
+            }
+
+            return TaskDeadlineDigestGenerationFenceOutcome.Current;
+        }
+        catch (Exception exception) when (TaskDeadlineDigestPersistenceConflictClassifier.IsRetryable(exception))
+        {
+            throw new TaskDeadlineDigestRetryablePersistenceConflictException();
+        }
+    }
+
+    private IQueryable<TaskDeadlineDigestCandidate> CurrentCandidatesQuery(
+        Guid jobId,
+        Guid claimToken,
+        DateTimeOffset deadlineBeforeUtc,
+        Guid[]? onlyTaskIds = null)
+    {
         var eligible =
             from job in dbContext.TaskDeadlineDigestJobs.AsNoTracking()
             from task in dbContext.TaskItems.AsNoTracking()
@@ -449,25 +747,44 @@ public sealed class TaskDeadlineDigestRepository(
                      task.ReviewerUserId == job.UserId ||
                      dbContext.WorkItemCollaborators.Any(collaborator =>
                          collaborator.TaskItemId == task.Id && collaborator.UserId == job.UserId))))
-            orderby task.DeadlineAt, task.Id
-            select new TaskDeadlineDigestCandidate(task.Id, task.DeadlineAt!.Value);
+            select new
+            {
+                TaskId = task.Id,
+                DeadlineAt = task.DeadlineAt!.Value,
+                task.ProjectId,
+                task.WorkflowStageId
+            };
 
-        return await eligible
-            .Skip(safePage * safePageSize)
-            .Take(safePageSize)
-            .ToListAsync(cancellationToken);
+        if (onlyTaskIds is { Length: > 0 })
+            eligible = eligible.Where(candidate => onlyTaskIds.Contains(candidate.TaskId));
+
+        return eligible
+            .OrderBy(candidate => candidate.DeadlineAt)
+            .ThenBy(candidate => candidate.TaskId)
+            .Select(candidate => new TaskDeadlineDigestCandidate(
+                candidate.TaskId,
+                candidate.DeadlineAt,
+                candidate.ProjectId,
+                candidate.WorkflowStageId));
     }
 
     public async Task<ITaskDeadlineDigestTransaction> BeginGenerationTransactionAsync(
         CancellationToken cancellationToken = default)
     {
-        if (!dbContext.Database.IsRelational())
-            return NoopTaskDeadlineDigestTransaction.Instance;
+        try
+        {
+            if (!dbContext.Database.IsRelational())
+                return NoopTaskDeadlineDigestTransaction.Instance;
 
-        var transaction = await dbContext.Database.BeginTransactionAsync(
-            IsolationLevel.ReadCommitted,
-            cancellationToken);
-        return new EfTaskDeadlineDigestTransaction(transaction);
+            var transaction = await dbContext.Database.BeginTransactionAsync(
+                IsolationLevel.ReadCommitted,
+                cancellationToken);
+            return new EfTaskDeadlineDigestTransaction(transaction);
+        }
+        catch (Exception exception) when (TaskDeadlineDigestPersistenceConflictClassifier.IsRetryable(exception))
+        {
+            throw new TaskDeadlineDigestRetryablePersistenceConflictException();
+        }
     }
 
     public async Task LockNotificationRecipientAsync(
@@ -542,8 +859,68 @@ public sealed class TaskDeadlineDigestRepository(
         state.Value.Attempt.CompletedAt = preserveOperatorRestart ? null : deferredAt;
         state.Value.Attempt.LastErrorCode = null;
         ClearAttemptClaim(state.Value.Attempt);
-        await dbContext.SaveChangesAsync(cancellationToken);
+        await SaveChangesAsync(cancellationToken);
         return true;
+    }
+
+    public async Task<bool> ReleaseFeatureDisabledClaimAsync(
+        Guid jobId,
+        Guid claimToken,
+        DateTimeOffset releasedAt,
+        CancellationToken cancellationToken = default)
+    {
+        try
+        {
+            var ownsTransaction = dbContext.Database.IsRelational() &&
+                                  dbContext.Database.CurrentTransaction is null;
+            await using var transaction = ownsTransaction
+                ? await dbContext.Database.BeginTransactionAsync(IsolationLevel.ReadCommitted, cancellationToken)
+                : null;
+
+            // The job/attempt token fence is acquired before modifying either
+            // row. A prior release, success, defer, or failure makes this a
+            // safe ClaimLost result rather than consuming another attempt.
+            if (await GetClaimedAsync(jobId, claimToken, forUpdate: true, cancellationToken) is null)
+                return false;
+
+            var state = await LoadClaimStateAsync(jobId, claimToken, cancellationToken);
+            if (state is null)
+                return false;
+
+            state.Value.Job.Status = TaskDeadlineDigestJobStatus.Pending;
+            state.Value.Job.CompletedAt = null;
+            state.Value.Job.NextAttemptAt = releasedAt;
+            state.Value.Job.LastErrorCode = null;
+            state.Value.Job.AttemptCount = Math.Max(0, state.Value.Job.AttemptCount - 1);
+            if (state.Value.Attempt.Trigger == TaskDeadlineDigestAttemptTrigger.Automatic)
+            {
+                state.Value.Job.AutomaticAttemptCount = Math.Max(
+                    0,
+                    state.Value.Job.AutomaticAttemptCount - 1);
+                state.Value.Attempt.Status = TaskDeadlineDigestAttemptStatus.Deferred;
+                state.Value.Attempt.CompletedAt = releasedAt;
+            }
+            else
+            {
+                // Preserve the one audited operator restart row for retry; do
+                // not append another restart and do not alter automatic budget.
+                state.Value.Attempt.Status = TaskDeadlineDigestAttemptStatus.Pending;
+                state.Value.Attempt.CompletedAt = null;
+            }
+
+            state.Value.Attempt.LastErrorCode = null;
+            ClearJobClaim(state.Value.Job);
+            ClearAttemptClaim(state.Value.Attempt);
+
+            await dbContext.SaveChangesAsync(cancellationToken);
+            if (transaction is not null)
+                await transaction.CommitAsync(cancellationToken);
+            return true;
+        }
+        catch (Exception exception) when (TaskDeadlineDigestPersistenceConflictClassifier.IsRetryable(exception))
+        {
+            throw new TaskDeadlineDigestRetryablePersistenceConflictException();
+        }
     }
 
     public async Task<TaskDeadlineDigestTransition> MarkFailureAsync(
@@ -701,8 +1078,19 @@ public sealed class TaskDeadlineDigestRepository(
         return new TaskDeadlineDigestStoreDiagnostics(due, claimed, succeeded, failed, oldestDue, oldestClaimed);
     }
 
-    public Task<int> SaveChangesAsync(CancellationToken cancellationToken = default) =>
-        dbContext.SaveChangesAsync(cancellationToken);
+    public async Task<int> SaveChangesAsync(CancellationToken cancellationToken = default)
+    {
+        try
+        {
+            return await dbContext.SaveChangesAsync(cancellationToken);
+        }
+        catch (Exception exception) when (TaskDeadlineDigestPersistenceConflictClassifier.IsRetryable(exception))
+        {
+            throw new TaskDeadlineDigestRetryablePersistenceConflictException();
+        }
+    }
+
+    public void ResetGenerationState() => dbContext.ChangeTracker.Clear();
 
     private async Task<List<TaskDeadlineDigestJob>> SelectStaleClaimsAsync(
         DateTimeOffset now,
@@ -785,6 +1173,23 @@ public sealed class TaskDeadlineDigestRepository(
         return attempt is null ? null : (job, attempt);
     }
 
+    private async Task LockRowsAsync(
+        FormattableString command,
+        CancellationToken cancellationToken)
+    {
+        await dbContext.Database.ExecuteSqlInterpolatedAsync(command, cancellationToken);
+    }
+
+    private static DateTimeOffset ResolveFenceDeadlineBeforeUtc(
+        IReadOnlyCollection<TaskDeadlineDigestCandidate> evaluatedCandidates)
+    {
+        // The validation is already narrowed by the evaluated task IDs. Keep
+        // the deadline predicate broad so a concurrent deadline move outside
+        // the original page horizon is observed as a value mismatch rather
+        // than being silently omitted from the fence recheck.
+        return DateTimeOffset.MaxValue;
+    }
+
     private static void ClearJobClaim(TaskDeadlineDigestJob job)
     {
         job.ClaimOwner = null;
@@ -814,8 +1219,17 @@ public sealed class TaskDeadlineDigestRepository(
 
     private sealed class EfTaskDeadlineDigestTransaction(IDbContextTransaction transaction) : ITaskDeadlineDigestTransaction
     {
-        public Task CommitAsync(CancellationToken cancellationToken = default) =>
-            transaction.CommitAsync(cancellationToken);
+        public async Task CommitAsync(CancellationToken cancellationToken = default)
+        {
+            try
+            {
+                await transaction.CommitAsync(cancellationToken);
+            }
+            catch (Exception exception) when (TaskDeadlineDigestPersistenceConflictClassifier.IsRetryable(exception))
+            {
+                throw new TaskDeadlineDigestRetryablePersistenceConflictException();
+            }
+        }
 
         public ValueTask DisposeAsync() => transaction.DisposeAsync();
     }
@@ -825,5 +1239,26 @@ public sealed class TaskDeadlineDigestRepository(
         public static NoopTaskDeadlineDigestTransaction Instance { get; } = new();
         public Task CommitAsync(CancellationToken cancellationToken = default) => Task.CompletedTask;
         public ValueTask DisposeAsync() => ValueTask.CompletedTask;
+    }
+}
+
+/// <summary>
+/// Provider-specific retry classification is intentionally contained in
+/// Infrastructure. Application code receives only the safe marker exception.
+/// </summary>
+internal static class TaskDeadlineDigestPersistenceConflictClassifier
+{
+    public static bool IsRetryable(Exception exception)
+    {
+        if (exception is DbUpdateConcurrencyException)
+            return true;
+
+        if (exception is PostgresException postgres)
+        {
+            return postgres.SqlState is PostgresErrorCodes.SerializationFailure or
+                PostgresErrorCodes.DeadlockDetected;
+        }
+
+        return exception.InnerException is not null && IsRetryable(exception.InnerException);
     }
 }

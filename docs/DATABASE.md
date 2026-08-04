@@ -263,9 +263,19 @@ remains. PostgreSQL selection orders deterministically and uses `FOR UPDATE
 SKIP LOCKED`, so concurrent workers can claim different due rows without
 claiming one row twice.
 
-The automatic budget is exactly three. `AttemptCount` includes all claims,
-while `AutomaticAttemptCount` never resets. A Platform/System administrator's
-approved restart of a terminal job adds a new `OperatorRestart` attempt linked
+Feature-disable release uses the same job-and-attempt token fence. It clears a
+currently claimed automatic job back to `Pending`, restores its two automatic
+claim counters, and completes that attempt as `Deferred`; it creates no Notification or
+Outbox row. A claimed operator restart instead returns its existing audited
+attempt to `Pending`, without appending another row or changing automatic
+counts. A stale token is rejected by every later completion, defer, failure,
+or release operation.
+
+The automatic budget is exactly three. `AttemptCount` and
+`AutomaticAttemptCount` reflect claims, except that a feature-disabled release
+reverses only the just-claimed fenced automatic attempt. An operator restart
+never resets the automatic budget. A Platform/System administrator's approved
+restart of a terminal job adds a new `OperatorRestart` attempt linked
 through `RestartedFromAttemptId`, records `RequestedByUserId`, increments the
 monotonic sequence, and writes `TaskDeadlineDigestRestarted` to AuditLog in the
 same transaction. It authorizes one operator attempt; failure or expiry of
@@ -279,6 +289,15 @@ Two focused partial indexes match the worker's scheduler queries:
 - `IX_task_deadline_digest_jobs_claim_expiry` on
   `(TenantId, ClaimExpiresAt, Id)` for `Status = 'Claimed'`.
 
+The schedule upsert updates an existing identity only when it is `Pending`, has
+no prior claim/attempt sequence, and its calculated `ScheduledForUtc` or
+`NextAttemptAt` differs. PostgreSQL expresses that rule in the `ON CONFLICT`
+`DO UPDATE` predicate with `IS DISTINCT FROM`; a repeated identical upsert
+affects zero rows and does not change `UpdatedAt`. The fallback leaves an
+identical entity untouched and does not save. Consequently, scheduler
+diagnostics count inserts or meaningful schedule changes, not each candidate
+examined during a poll; claimed and attempted identities are not rewritten.
+
 The conditional PostgreSQL suite captures `EXPLAIN (ANALYZE, BUFFERS)` output
 and requires those exact indexes for due and expired-claim selection. Candidate
 reads are asserted as one bounded SQL command per page, with a hard page-size
@@ -287,17 +306,28 @@ Task-deadline index is added: the current small fixture is not representative
 plan evidence for such an index. Production-volume candidate plans remain an
 explicit environment verification item.
 
-Generation does not use the Outbox as a schedule table. After an initial
-candidate build, the service begins a short transaction, locks the claimed
-job, and then locks the recipient User row. It repeats current context and
-candidate evaluation only after any recipient-lock wait completes, so a
-membership/lifecycle change committed during the wait is visible before
-authorization of the result. Concurrent Workspace digests for one user are
-therefore serialized before their final evaluation and state-version advance.
-Notification, Outbox signal, job `Succeeded` transition, and optional
-`NotificationId` are saved and committed together. A zero-candidate result
-commits only successful ledger completion; it creates neither Notification nor
-Outbox row.
+Generation does not use the Outbox as a schedule table. Its one normal
+candidate-page enumeration runs inside a short transaction; bounded
+lock/recheck queries validate each already enumerated page rather than forming
+a discarded second enumeration. Before accepting context or each bounded
+candidate page, the PostgreSQL repository acquires a
+current-state fence in fixed order: Tenant, User, TenantUser, TenantSettings,
+Workspace, WorkspaceMember, Project, Group, ProjectMember, GroupMember, Task,
+WorkflowStage, Watch/Collaborator, then the digest job and claimed attempt.
+While those locks are held, it rechecks current context and the exact candidate
+predicate for the evaluated page. A later authorization/lifecycle mutation
+waits for commit; an earlier change is detected and rolls the transaction back
+before staging a visible result.
+
+The generator recreates the full transaction, reacquires the claim fence, and
+re-evaluates only for a detected current-state change, PostgreSQL
+serialization/deadlock, or EF concurrency conflict, up to three attempts.
+Infrastructure translates those provider failures to a safe application marker;
+the internal retries neither add Notifications nor consume a new automatic
+attempt. Claim loss stages nothing. Notification, Outbox signal, job
+`Succeeded` transition, and optional `NotificationId` are saved and committed
+together. A zero-candidate result commits only successful ledger completion;
+it creates neither Notification nor Outbox row.
 
 PR07-C also marks the existing `notification_user_states.Version` property as
 an EF optimistic-concurrency token. This is model metadata over the existing

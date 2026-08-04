@@ -404,7 +404,7 @@ Build bounded, independently retryable daily user/Workspace digests without dupl
 - implement bounded due-row selection and atomic database-safe claiming;
 - use Workspace-local preference/default time and a documented DST gap/fold policy;
 - group eligible Tasks for 3 days, 1 day, today, and overdue;
-- recheck membership, Workspace/Project/Task visibility, lifecycle, completion/cancellation, and current effective Watch after automatic-source reconciliation before creation;
+- enforce a deterministic commit-time current-state fence: lock and recheck membership, Workspace/Project/Task visibility and lifecycle, and current effective Watch/relationship state before creation;
 - include manual Watch, suppress explicit opt-out, and exclude mere visibility and Team Queue eligibility from digest relevance;
 - isolate each user/Workspace unit so one failure does not poison the batch;
 - make at most 3 automatic generation attempts, then terminal ledger `Failed`;
@@ -429,12 +429,18 @@ One focused migration for the digest ledger and due/claim indexes. Add a Task de
 - zero-candidate `Succeeded` with no Notification or Outbox row;
 - bounded pages and one-user failure isolation;
 - concurrent workers, claim timeout/recovery, 3-attempt terminal Failed, and one audited operator attempt per restart without budget reset;
+- post-final-evaluation membership revoke, Workspace/Project archive, Task completion, explicit Watch opt-out, and relationship-removal races, proving that the mutation waits behind the fence or the generator retries without committing stale state;
+- feature-disable claim release that restores automatic claim counters, preserves one pending operator-restart attempt, fences an old token, and stages no Notification or Outbox row;
+- identical schedule upsert no-op behavior, changed preference/timezone rescheduling of only pending unattempted rows, and diagnostics that count actual writes;
+- one normal in-transaction candidate evaluation pass, bounded pages, and a fresh evaluation only after a fence/persistence retry;
 - one visible Notification under ledger retry and Outbox replay;
 - safe metrics/logs and query-count/plan evidence.
 
 ### Completion gate
 
-PR07-C completes only with PostgreSQL concurrency, idempotency, retry, and DST evidence plus an operator-readable health state. The feature remains disabled.
+PR07-C completes only with PostgreSQL concurrency, commit-time current-state
+fencing, schedule idempotency, retry, and DST evidence plus an
+operator-readable health state. The feature remains disabled.
 
 ## PR07-D — Current-authorized delivery/opening and Angular reconciliation
 
@@ -590,7 +596,9 @@ PR07-E may recommend enablement. Actual integration/cutover remains PR08 scope.
 
 - disable new Task Notification/digest production first;
 - never disable authorization, payload validation, or dedupe independently;
-- stop new digest claims and allow/expire active claims before worker rollback;
+- stop new digest claims; a generator that observes feature disable after a
+  claim must fenced-release it immediately rather than consume automatic budget
+  or append another operator attempt;
 - continue consuming already-written supported Outbox schemas during a compatibility window;
 - preserve Notification logical keys and digest ledger rows to prevent duplicate visible results;
 - use forward fixes for persisted-data defects;

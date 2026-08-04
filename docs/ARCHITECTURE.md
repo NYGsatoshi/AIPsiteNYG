@@ -212,6 +212,14 @@ local date and policy version. A timezone change is re-evaluated before
 commit: a stale local-date identity completes without a visible digest, while
 a not-yet-due identity is deferred to its newly resolved instant.
 
+Schedule upsert is write-idempotent. PostgreSQL updates an existing identity
+only when it remains pending and unattempted and its calculated due/next-attempt
+instant actually changes; an identical conflict affects no row and leaves
+`UpdatedAt` untouched. The non-PostgreSQL fallback follows the same rule and
+does not call save for an identical schedule. Claimed or attempted identities
+are never rewritten by later schedule polling. The scheduled diagnostic counts
+only inserts and meaningful pending-schedule changes, not candidates examined.
+
 Candidate categories are deadline in three local days, deadline in one local
 day, due today, and overdue. Mere visibility and Team Queue eligibility are
 not relevance. A Task additionally requires current effective Watch under the
@@ -219,13 +227,26 @@ approved manual/Creator/Primary-Assignee/Collaborator/Reviewer contract, and
 an explicit opt-out suppresses that relevance. Tenant and user activity,
 active Workspace membership, Project visibility, Workspace/Project/Task
 lifecycle, completion/cancellation, and current relationship sources are
-independent mandatory filters. Candidates are evaluated before the generation
-transaction. Inside it, the claimed job is locked first and the recipient User
-row second. Only after any recipient-lock wait completes does the generator
-repeat the current-state evaluation, so a membership or lifecycle change
-committed during that wait is visible before Notification, Outbox, and
-`Succeeded` are saved. A zero-candidate recheck is a successful idempotent
-no-op with no Notification or Outbox row.
+independent mandatory filters. The one normal candidate-page enumeration occurs
+inside the generation transaction; bounded lock/rechecks validate each already
+enumerated page rather than creating a discarded second enumeration. Before
+accepting context or a bounded candidate page, a repository-owned fence locks
+state in this order: Tenant,
+User, TenantUser, TenantSettings, Workspace, WorkspaceMember, Project, Group,
+ProjectMember, GroupMember, Task, WorkflowStage, Watch/Collaborator, then the
+digest job and claimed attempt. It rechecks the current context and the exact
+candidate predicate while those locks are held. A mutation that arrives after
+the fence waits for the commit; a mutation that won earlier produces a
+current-state change and discards the transaction before Notification, Outbox,
+or `Succeeded` can be staged. A zero-candidate recheck is a successful
+idempotent no-op with no Notification or Outbox row.
+
+Serialization/deadlock, EF concurrency, and current-state conflicts are
+classified in Infrastructure and exposed to Application only as a safe
+persistence-conflict marker. The generator recreates the transaction, confirms
+the claim token, reacquires every fence, and re-evaluates at most three times;
+these internal retries do not consume another automatic attempt. Claim loss
+stops generation without staging state.
 
 The visible digest is intentionally generic: title `Task deadline digest`, no
 body or Task list, and a digest-job reference. Its signal contains only
@@ -242,7 +263,10 @@ Notification/signal versions 1 then 2.
 `tasks.notificationsV1` remains a database-backed per-Tenant flag and is
 default off. The hosted worker must still page active Tenants to evaluate that
 Tenant-scoped flag, but a disabled Tenant performs no schedule upsert, claim,
-or generation. PR07-C adds no notification-open API, dispatch/replay
+or generation. If the flag changes after a claim, its token-fenced release
+returns an automatic claim to pending without consuming counters, or preserves
+the same pending operator-restart attempt; it stages no Notification or Outbox
+row. PR07-C adds no notification-open API, dispatch/replay
 reauthorization, SignalR route change, Angular behavior, email, or push. Those
 remain PR07-D or later work.
 

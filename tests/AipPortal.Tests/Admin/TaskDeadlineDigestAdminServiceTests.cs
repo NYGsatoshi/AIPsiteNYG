@@ -213,13 +213,18 @@ public sealed class TaskDeadlineDigestAdminServiceTests
         public Task<TaskDeadlineDigestClaim?> GetClaimedAsync(Guid jobId, Guid claimToken, bool forUpdate, CancellationToken cancellationToken = default) => throw new NotSupportedException();
         public Task<TaskDeadlineDigestCurrentContext?> GetCurrentContextAsync(Guid jobId, Guid claimToken, CancellationToken cancellationToken = default) => throw new NotSupportedException();
         public Task<IReadOnlyList<TaskDeadlineDigestCandidate>> ListCurrentCandidatesAsync(Guid jobId, Guid claimToken, DateTimeOffset deadlineBeforeUtc, int page, int pageSize, CancellationToken cancellationToken = default) => throw new NotSupportedException();
+        public Task<TaskDeadlineDigestGenerationFenceOutcome> AcquireGenerationFenceAsync(TaskDeadlineDigestClaim claim, TaskDeadlineDigestCurrentContext? evaluatedContext, IReadOnlyCollection<TaskDeadlineDigestCandidate> evaluatedCandidates, CancellationToken cancellationToken = default) => throw new NotSupportedException();
         public Task<ITaskDeadlineDigestTransaction> BeginGenerationTransactionAsync(CancellationToken cancellationToken = default) => throw new NotSupportedException();
         public Task LockNotificationRecipientAsync(Guid userId, CancellationToken cancellationToken = default) => throw new NotSupportedException();
         public Task<bool> MarkSucceededAsync(Guid jobId, Guid claimToken, Guid? notificationId, DateTimeOffset completedAt, CancellationToken cancellationToken = default) => throw new NotSupportedException();
         public Task<bool> DeferAsync(Guid jobId, Guid claimToken, DateTimeOffset scheduledForUtc, DateTimeOffset deferredAt, CancellationToken cancellationToken = default) => throw new NotSupportedException();
+        public Task<bool> ReleaseFeatureDisabledClaimAsync(Guid jobId, Guid claimToken, DateTimeOffset releasedAt, CancellationToken cancellationToken = default) => throw new NotSupportedException();
         public Task<TaskDeadlineDigestTransition> MarkFailureAsync(Guid jobId, Guid claimToken, string errorCode, DateTimeOffset failedAt, DateTimeOffset nextAttemptAt, CancellationToken cancellationToken = default) => throw new NotSupportedException();
         public Task<TaskDeadlineDigestStoreDiagnostics> GetDiagnosticsAsync(DateTimeOffset now, CancellationToken cancellationToken = default) => throw new NotSupportedException();
         public Task<int> SaveChangesAsync(CancellationToken cancellationToken = default) => throw new NotSupportedException();
+        public void ResetGenerationState()
+        {
+        }
     }
 
     private sealed class FakeTokenHasher : ITokenHasher

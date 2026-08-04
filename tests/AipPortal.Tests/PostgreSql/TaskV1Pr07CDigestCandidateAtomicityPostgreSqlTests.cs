@@ -10,6 +10,7 @@ using AipPortal.Domain.Enums;
 using AipPortal.Infrastructure.Persistence;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore.Diagnostics;
+using Npgsql;
 
 namespace AipPortal.Tests.PostgreSql;
 
@@ -398,11 +399,9 @@ public sealed class TaskV1Pr07CDigestCandidateAtomicityPostgreSqlTests
             Assert.Equal(
                 new[] { utcJob.Id, pacificJob.Id }.Order(),
                 claims.Select(claim => claim.JobId).Order());
-            var lockGate = new ConcurrentUserLockGate();
             var results = await Task.WhenAll(claims.Select(claim =>
-                GenerateClaimAsync(database, graph.Tenant, claim, lockGate)));
+                GenerateClaimAsync(database, graph.Tenant, claim)));
 
-            Assert.Equal(2, lockGate.ArrivalCount);
             Assert.All(results, result =>
             {
                 Assert.Equal(TaskDeadlineDigestGenerationOutcome.Succeeded, result.Outcome);
@@ -495,6 +494,155 @@ public sealed class TaskV1Pr07CDigestCandidateAtomicityPostgreSqlTests
             Assert.Empty(await verification.Notifications.AsNoTracking().ToListAsync());
             Assert.Empty(await verification.NotificationUserStates.AsNoTracking().ToListAsync());
             Assert.Empty(await verification.OutboxEvents.AsNoTracking().ToListAsync());
+        });
+    }
+
+    [PostgreSqlFact]
+    public async Task MembershipRevokedAfterFinalEvaluationCannotCommitDigest()
+    {
+        var connectionString = PostgreSqlTestEnvironment.RequireConnectionString();
+
+        await PostgreSqlMigrationTestDatabase.WithTemporaryDatabaseAsync(connectionString, async database =>
+        {
+            await PostgreSqlMigrationTestDatabase.MigrateAsync(database);
+            var graph = await SeedGraphAsync(database);
+            await AddQualifyingTaskAsync(database, graph);
+
+            await AssertFinalCandidateMutationIsFencedAsync(database, graph, async db =>
+            {
+                var membership = await db.WorkspaceMembers.SingleAsync(member =>
+                    member.WorkspaceId == graph.Workspace.Id &&
+                    member.UserId == graph.Recipient.Id);
+                membership.Status = MembershipStatus.Suspended;
+            });
+        });
+    }
+
+    [PostgreSqlFact]
+    public async Task WorkspaceArchivedAfterFinalEvaluationCannotCommitDigest()
+    {
+        var connectionString = PostgreSqlTestEnvironment.RequireConnectionString();
+
+        await PostgreSqlMigrationTestDatabase.WithTemporaryDatabaseAsync(connectionString, async database =>
+        {
+            await PostgreSqlMigrationTestDatabase.MigrateAsync(database);
+            var graph = await SeedGraphAsync(database);
+            await AddQualifyingTaskAsync(database, graph);
+
+            await AssertFinalCandidateMutationIsFencedAsync(database, graph, async db =>
+            {
+                var workspace = await db.Workspaces.SingleAsync(item => item.Id == graph.Workspace.Id);
+                workspace.Status = WorkspaceStatus.Archived;
+            });
+        });
+    }
+
+    [PostgreSqlFact]
+    public async Task ProjectArchivedAfterFinalEvaluationCannotCommitDigest()
+    {
+        var connectionString = PostgreSqlTestEnvironment.RequireConnectionString();
+
+        await PostgreSqlMigrationTestDatabase.WithTemporaryDatabaseAsync(connectionString, async database =>
+        {
+            await PostgreSqlMigrationTestDatabase.MigrateAsync(database);
+            var graph = await SeedGraphAsync(database);
+            await AddQualifyingTaskAsync(database, graph);
+
+            await AssertFinalCandidateMutationIsFencedAsync(database, graph, async db =>
+            {
+                var project = await db.Projects.SingleAsync(item => item.Id == graph.Project.Id);
+                project.Status = ProjectStatus.Archived;
+            });
+        });
+    }
+
+    [PostgreSqlFact]
+    public async Task TaskCompletedAfterFinalEvaluationCannotCommitDigest()
+    {
+        var connectionString = PostgreSqlTestEnvironment.RequireConnectionString();
+
+        await PostgreSqlMigrationTestDatabase.WithTemporaryDatabaseAsync(connectionString, async database =>
+        {
+            await PostgreSqlMigrationTestDatabase.MigrateAsync(database);
+            var graph = await SeedGraphAsync(database);
+            var task = await AddQualifyingTaskAsync(database, graph);
+
+            await AssertFinalCandidateMutationIsFencedAsync(database, graph, async db =>
+            {
+                var currentTask = await db.TaskItems.SingleAsync(item => item.Id == task.Id);
+                currentTask.Status = TaskItemStatus.Completed;
+                currentTask.CompletedAt = Now;
+            });
+        });
+    }
+
+    [PostgreSqlFact]
+    public async Task WatchOptOutAfterFinalEvaluationCannotCommitDigest()
+    {
+        var connectionString = PostgreSqlTestEnvironment.RequireConnectionString();
+
+        await PostgreSqlMigrationTestDatabase.WithTemporaryDatabaseAsync(connectionString, async database =>
+        {
+            await PostgreSqlMigrationTestDatabase.MigrateAsync(database);
+            var graph = await SeedGraphAsync(database);
+            var task = await AddQualifyingTaskAsync(database, graph);
+            await using (var setup = CreateTenantContext(database, graph.Tenant))
+            {
+                setup.WorkItemWatchStates.Add(new WorkItemWatchState
+                {
+                    TenantId = graph.Tenant.Id,
+                    TaskItemId = task.Id,
+                    UserId = graph.Recipient.Id,
+                    AutomaticSources = WorkItemWatchAutomaticSource.PrimaryAssignee,
+                    IsWatching = true,
+                    UpdatedAt = Now
+                });
+                await setup.SaveChangesAsync();
+            }
+
+            await AssertFinalCandidateMutationIsFencedAsync(database, graph, async db =>
+            {
+                var watch = await db.WorkItemWatchStates.SingleAsync(item =>
+                    item.TaskItemId == task.Id && item.UserId == graph.Recipient.Id);
+                watch.IsExplicitOptOut = true;
+                watch.IsWatching = false;
+                watch.UpdatedAt = Now.AddMinutes(1);
+            });
+        });
+    }
+
+    [PostgreSqlFact]
+    public async Task RelationshipRemovedAfterFinalEvaluationCannotCommitDigest()
+    {
+        var connectionString = PostgreSqlTestEnvironment.RequireConnectionString();
+
+        await PostgreSqlMigrationTestDatabase.WithTemporaryDatabaseAsync(connectionString, async database =>
+        {
+            await PostgreSqlMigrationTestDatabase.MigrateAsync(database);
+            var graph = await SeedGraphAsync(database);
+            TaskItem task;
+            await using (var setup = CreateTenantContext(database, graph.Tenant))
+            {
+                task = NewTask(graph, "relationship fence candidate", 1);
+                setup.AddRange(
+                    task,
+                    new WorkItemCollaborator
+                    {
+                        TenantId = graph.Tenant.Id,
+                        TaskItemId = task.Id,
+                        UserId = graph.Recipient.Id,
+                        AddedAt = Now,
+                        AddedByUserId = graph.Actor.Id
+                    });
+                await setup.SaveChangesAsync();
+            }
+
+            await AssertFinalCandidateMutationIsFencedAsync(database, graph, async db =>
+            {
+                var collaborator = await db.WorkItemCollaborators.SingleAsync(item =>
+                    item.TaskItemId == task.Id && item.UserId == graph.Recipient.Id);
+                db.WorkItemCollaborators.Remove(collaborator);
+            });
         });
     }
 
@@ -623,6 +771,159 @@ public sealed class TaskV1Pr07CDigestCandidateAtomicityPostgreSqlTests
         });
     }
 
+    /// <summary>
+    /// Stops the generator only after its final bounded candidate evaluation
+    /// has finished and Notification/UserState/Outbox are staged, but before
+    /// their SaveChanges/commit. A competing mutation therefore has exactly
+    /// the problematic interval in which it could otherwise make the digest
+    /// stale.
+    ///
+    /// The assertion deliberately accepts either approved fence strategy:
+    /// a row-lock fence makes the mutation hit PostgreSQL lock_timeout and
+    /// lets the current digest commit first; a version/recheck implementation
+    /// may instead let the mutation commit first, in which case no visible
+    /// digest artifact may survive.
+    /// </summary>
+    private static async Task AssertFinalCandidateMutationIsFencedAsync(
+        string database,
+        Graph graph,
+        Func<AppDbContext, Task> mutateAsync)
+    {
+        await AddJobAsync(database, graph);
+        TaskDeadlineDigestClaim claim;
+        var claimTenant = TenantScope(graph.Tenant);
+        await using (var claimContext = CreateTenantContext(database, graph.Tenant, claimTenant))
+        {
+            var claimRepository = new TaskDeadlineDigestRepository(claimContext, claimTenant);
+            claim = Assert.Single(await claimRepository.ClaimDueAsync(
+                "final-candidate-fence-test",
+                Now,
+                batchSize: 1,
+                claimTimeout: TimeSpan.FromMinutes(2)));
+        }
+
+        var gate = new FinalCandidateCommitGate();
+        var generation = GenerateClaimAsync(database, graph.Tenant, claim, gate);
+        await gate.WaitForArrivalAsync();
+
+        var mutationCommittedBeforeGeneration = false;
+        try
+        {
+            mutationCommittedBeforeGeneration = await TryMutateWithLockTimeoutAsync(
+                database,
+                graph,
+                mutateAsync);
+        }
+        finally
+        {
+            // Always release the generator, including assertion failures, so
+            // a failed race test cannot strand a temporary test database.
+            gate.Release();
+        }
+
+        if (mutationCommittedBeforeGeneration)
+        {
+            await AssertMutationFirstCannotLeaveVisibleDigestAsync(generation, database, graph);
+            return;
+        }
+
+        var result = await generation.WaitAsync(TimeSpan.FromSeconds(15));
+        Assert.Equal(TaskDeadlineDigestGenerationOutcome.Succeeded, result.Outcome);
+        Assert.Equal(1, result.Counts.Total);
+        Assert.NotNull(result.NotificationId);
+        await AssertVisibleDigestArtifactsAsync(database, graph, result.NotificationId.Value);
+
+        // The first attempt observed the PostgreSQL lock. Re-run the same
+        // mutation only after the generation transaction has committed to
+        // prove the ordering rather than merely cancelling it.
+        await CommitMutationAsync(database, graph, mutateAsync);
+    }
+
+    private static async Task<bool> TryMutateWithLockTimeoutAsync(
+        string database,
+        Graph graph,
+        Func<AppDbContext, Task> mutateAsync)
+    {
+        try
+        {
+            await CommitMutationAsync(database, graph, mutateAsync, lockTimeout: "500ms");
+            return true;
+        }
+        catch (Exception exception) when (IsPostgreSqlLockTimeout(exception))
+        {
+            return false;
+        }
+    }
+
+    private static async Task CommitMutationAsync(
+        string database,
+        Graph graph,
+        Func<AppDbContext, Task> mutateAsync,
+        string? lockTimeout = null)
+    {
+        await using var db = CreateTenantContext(database, graph.Tenant);
+        await using var transaction = await db.Database.BeginTransactionAsync();
+        if (lockTimeout is not null)
+        {
+            // SET LOCAL applies only to this mutation transaction. It makes a
+            // blocked UPDATE an explicit race-test result without sleeps or
+            // process-level timing assumptions.
+            await db.Database.ExecuteSqlInterpolatedAsync(
+                $"SELECT set_config('lock_timeout', {lockTimeout}, true);");
+        }
+
+        await mutateAsync(db);
+        await db.SaveChangesAsync();
+        await transaction.CommitAsync();
+    }
+
+    private static async Task AssertMutationFirstCannotLeaveVisibleDigestAsync(
+        Task<TaskDeadlineDigestGenerationResult> generation,
+        string database,
+        Graph graph)
+    {
+        try
+        {
+            var result = await generation.WaitAsync(TimeSpan.FromSeconds(15));
+            Assert.Equal(TaskDeadlineDigestGenerationOutcome.SucceededWithoutCandidates, result.Outcome);
+            Assert.Equal(0, result.Counts.Total);
+            Assert.Null(result.NotificationId);
+        }
+        catch (TaskDeadlineDigestRetryablePersistenceConflictException)
+        {
+            // A bounded, safe conflict rollback is also acceptable only when
+            // it leaves no user-visible artifact. The worker's normal retry
+            // will later evaluate the now-current state.
+        }
+
+        await using var verification = CreateTenantContext(database, graph.Tenant);
+        Assert.Empty(await verification.Notifications.AsNoTracking().ToListAsync());
+        Assert.Empty(await verification.NotificationUserStates.AsNoTracking().ToListAsync());
+        Assert.Empty(await verification.OutboxEvents.AsNoTracking().ToListAsync());
+        var job = await verification.TaskDeadlineDigestJobs.AsNoTracking().SingleAsync();
+        Assert.Null(job.NotificationId);
+    }
+
+    private static async Task AssertVisibleDigestArtifactsAsync(
+        string database,
+        Graph graph,
+        Guid notificationId)
+    {
+        await using var verification = CreateTenantContext(database, graph.Tenant);
+        var job = await verification.TaskDeadlineDigestJobs.AsNoTracking().SingleAsync();
+        Assert.Equal(TaskDeadlineDigestJobStatus.Succeeded, job.Status);
+        Assert.Equal(notificationId, job.NotificationId);
+        var notification = await verification.Notifications.AsNoTracking().SingleAsync();
+        Assert.Equal(notificationId, notification.Id);
+        Assert.Null(notification.Body);
+        Assert.Equal(1, (await verification.NotificationUserStates.AsNoTracking().SingleAsync()).Version);
+        Assert.Single(await verification.OutboxEvents.AsNoTracking().ToListAsync());
+    }
+
+    private static bool IsPostgreSqlLockTimeout(Exception exception) =>
+        exception is PostgresException { SqlState: PostgresErrorCodes.LockNotAvailable } ||
+        exception.InnerException is not null && IsPostgreSqlLockTimeout(exception.InnerException);
+
     private static async Task AddAndClaimJobThenAssertCandidatesAsync(
         string database,
         Graph graph,
@@ -680,7 +981,7 @@ public sealed class TaskV1Pr07CDigestCandidateAtomicityPostgreSqlTests
         string database,
         Tenant tenant,
         TaskDeadlineDigestClaim claim,
-        IInterceptor interceptor)
+        IInterceptor? interceptor = null)
     {
         var currentTenant = TenantScope(tenant);
         await using var db = CreateTenantContext(database, tenant, currentTenant, interceptor);
@@ -1084,31 +1385,6 @@ public sealed class TaskV1Pr07CDigestCandidateAtomicityPostgreSqlTests
         }
     }
 
-    private sealed class ConcurrentUserLockGate : DbCommandInterceptor
-    {
-        private readonly TaskCompletionSource release = new(TaskCreationOptions.RunContinuationsAsynchronously);
-        private int arrivalCount;
-
-        public int ArrivalCount => Volatile.Read(ref arrivalCount);
-
-        public override async ValueTask<InterceptionResult<int>> NonQueryExecutingAsync(
-            DbCommand command,
-            CommandEventData eventData,
-            InterceptionResult<int> result,
-            CancellationToken cancellationToken = default)
-        {
-            if (command.CommandText.Contains("SELECT 1 FROM users", StringComparison.Ordinal) &&
-                command.CommandText.Contains("FOR UPDATE", StringComparison.Ordinal))
-            {
-                if (Interlocked.Increment(ref arrivalCount) == 2)
-                    release.TrySetResult();
-                await release.Task.WaitAsync(TimeSpan.FromSeconds(15), cancellationToken);
-            }
-
-            return result;
-        }
-    }
-
     private sealed class UserLockArrivalInterceptor : DbCommandInterceptor
     {
         private readonly TaskCompletionSource arrived = new(TaskCreationOptions.RunContinuationsAsynchronously);
@@ -1129,6 +1405,27 @@ public sealed class TaskV1Pr07CDigestCandidateAtomicityPostgreSqlTests
             }
 
             return base.NonQueryExecutingAsync(command, eventData, result, cancellationToken);
+        }
+    }
+
+    private sealed class FinalCandidateCommitGate : SaveChangesInterceptor
+    {
+        private readonly TaskCompletionSource arrived = new(TaskCreationOptions.RunContinuationsAsynchronously);
+        private readonly TaskCompletionSource release = new(TaskCreationOptions.RunContinuationsAsynchronously);
+
+        public Task WaitForArrivalAsync() =>
+            arrived.Task.WaitAsync(TimeSpan.FromSeconds(15));
+
+        public void Release() => release.TrySetResult();
+
+        public override async ValueTask<InterceptionResult<int>> SavingChangesAsync(
+            DbContextEventData eventData,
+            InterceptionResult<int> result,
+            CancellationToken cancellationToken = default)
+        {
+            arrived.TrySetResult();
+            await release.Task.WaitAsync(TimeSpan.FromSeconds(15), cancellationToken);
+            return result;
         }
     }
 

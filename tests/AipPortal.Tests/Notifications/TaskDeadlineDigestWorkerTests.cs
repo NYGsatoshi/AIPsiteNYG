@@ -426,6 +426,13 @@ public sealed class TaskDeadlineDigestWorkerTests
             CancellationToken cancellationToken = default) =>
             throw new NotSupportedException();
 
+        public Task<TaskDeadlineDigestGenerationFenceOutcome> AcquireGenerationFenceAsync(
+            TaskDeadlineDigestClaim claim,
+            TaskDeadlineDigestCurrentContext? evaluatedContext,
+            IReadOnlyCollection<TaskDeadlineDigestCandidate> evaluatedCandidates,
+            CancellationToken cancellationToken = default) =>
+            throw new NotSupportedException();
+
         public Task<ITaskDeadlineDigestTransaction> BeginGenerationTransactionAsync(
             CancellationToken cancellationToken = default) =>
             throw new NotSupportedException();
@@ -448,6 +455,13 @@ public sealed class TaskDeadlineDigestWorkerTests
             Guid claimToken,
             DateTimeOffset scheduledForUtc,
             DateTimeOffset deferredAt,
+            CancellationToken cancellationToken = default) =>
+            throw new NotSupportedException();
+
+        public Task<bool> ReleaseFeatureDisabledClaimAsync(
+            Guid jobId,
+            Guid claimToken,
+            DateTimeOffset releasedAt,
             CancellationToken cancellationToken = default) =>
             throw new NotSupportedException();
 
@@ -475,6 +489,10 @@ public sealed class TaskDeadlineDigestWorkerTests
 
         public Task<int> SaveChangesAsync(CancellationToken cancellationToken = default) =>
             throw new NotSupportedException();
+
+        public void ResetGenerationState()
+        {
+        }
     }
 
     private sealed class WorkerState

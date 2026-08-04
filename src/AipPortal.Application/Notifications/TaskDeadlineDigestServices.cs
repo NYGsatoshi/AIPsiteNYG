@@ -236,6 +236,19 @@ public sealed record TaskDeadlineDigestTimeZoneResolution(
     TimeZoneInfo TimeZone,
     bool HadInvalidIdentity);
 
+/// <summary>
+/// Safe application-layer marker for a transaction conflict that the
+/// infrastructure has classified as retryable. Provider exception types and
+/// SQLSTATE values deliberately remain in Infrastructure.
+/// </summary>
+public sealed class TaskDeadlineDigestRetryablePersistenceConflictException : Exception
+{
+    public TaskDeadlineDigestRetryablePersistenceConflictException()
+        : base("Task deadline digest persistence conflicted with concurrent state.")
+    {
+    }
+}
+
 public sealed class TaskDeadlineDigestGenerator(
     ITaskDeadlineDigestRepository repository,
     INotificationService notifications,
@@ -243,6 +256,7 @@ public sealed class TaskDeadlineDigestGenerator(
     TaskDeadlineDigestDiagnostics diagnostics) : ITaskDeadlineDigestGenerator
 {
     private static readonly TaskDeadlineDigestCategoryCounts EmptyCounts = new(0, 0, 0, 0);
+    private const int MaximumGenerationTransactionAttempts = 3;
 
     public async Task<TaskDeadlineDigestGenerationResult> GenerateAsync(
         TaskDeadlineDigestClaim claim,
@@ -251,93 +265,119 @@ public sealed class TaskDeadlineDigestGenerator(
         CancellationToken cancellationToken = default)
     {
         if (!await featureFlags.IsEnabledAsync(FeatureKeys.TasksNotificationsV1, cancellationToken))
-            return new TaskDeadlineDigestGenerationResult(
-                TaskDeadlineDigestGenerationOutcome.FeatureDisabled,
-                EmptyCounts);
+            return await ReleaseFeatureDisabledClaimAsync(claim, EmptyCounts, now, cancellationToken);
 
-        // Build once before entering the short commit transaction. The same
-        // projection is rebuilt inside that transaction immediately before the
-        // Notification and ledger state are committed.
-        _ = await EvaluateAsync(claim, now, candidatePageSize, cancellationToken);
-
-        await using var transaction = await repository.BeginGenerationTransactionAsync(cancellationToken);
-        var lockedClaim = await repository.GetClaimedAsync(
-            claim.JobId,
-            claim.ClaimToken,
-            forUpdate: true,
-            cancellationToken);
-        if (lockedClaim is null)
+        for (var transactionAttempt = 0;
+             transactionAttempt < MaximumGenerationTransactionAttempts;
+             transactionAttempt++)
         {
-            diagnostics.RecordClaimLoss();
-            return new TaskDeadlineDigestGenerationResult(
-                TaskDeadlineDigestGenerationOutcome.ClaimLost,
-                EmptyCounts);
-        }
-
-        // The recipient lock can wait behind an account or notification-state
-        // mutation. Acquire it before the final current-state projection so a
-        // membership/lifecycle change committed during that wait is visible to
-        // the evaluation that authorizes Notification creation.
-        await repository.LockNotificationRecipientAsync(
-            lockedClaim.UserId,
-            cancellationToken);
-        var evaluation = await EvaluateAsync(lockedClaim, now, candidatePageSize, cancellationToken);
-        if (evaluation.DeferUntilUtc.HasValue)
-        {
-            if (!await repository.DeferAsync(
-                    claim.JobId,
-                    claim.ClaimToken,
-                    evaluation.DeferUntilUtc.Value,
-                    now,
-                    cancellationToken))
+            var retry = false;
+            try
             {
-                diagnostics.RecordClaimLoss();
-                return new TaskDeadlineDigestGenerationResult(
-                    TaskDeadlineDigestGenerationOutcome.ClaimLost,
-                    evaluation.Counts);
+                await using (var transaction = await repository.BeginGenerationTransactionAsync(cancellationToken))
+                {
+                    // Candidate pages are evaluated exactly once in a normal
+                    // generation attempt. The repository fence immediately
+                    // locks and validates each evaluated page before its count
+                    // is accepted, so no pre-transaction throwaway build can
+                    // survive into a visible digest.
+                    var evaluation = await EvaluateAsync(claim, now, candidatePageSize, cancellationToken);
+                    switch (evaluation.FenceOutcome)
+                    {
+                        case TaskDeadlineDigestGenerationFenceOutcome.ClaimLost:
+                            diagnostics.RecordClaimLoss();
+                            return new TaskDeadlineDigestGenerationResult(
+                                TaskDeadlineDigestGenerationOutcome.ClaimLost,
+                                evaluation.Counts);
+                        case TaskDeadlineDigestGenerationFenceOutcome.CurrentStateChanged:
+                            retry = true;
+                            break;
+                    }
+
+                    if (!retry && !await featureFlags.IsEnabledAsync(FeatureKeys.TasksNotificationsV1, cancellationToken))
+                    {
+                        return await ReleaseFeatureDisabledClaimAsync(
+                            claim,
+                            evaluation.Counts,
+                            now,
+                            cancellationToken,
+                            transaction);
+                    }
+
+                    if (!retry && evaluation.DeferUntilUtc.HasValue)
+                    {
+                        if (!await repository.DeferAsync(
+                                claim.JobId,
+                                claim.ClaimToken,
+                                evaluation.DeferUntilUtc.Value,
+                                now,
+                                cancellationToken))
+                        {
+                            diagnostics.RecordClaimLoss();
+                            return new TaskDeadlineDigestGenerationResult(
+                                TaskDeadlineDigestGenerationOutcome.ClaimLost,
+                                evaluation.Counts);
+                        }
+
+                        await transaction.CommitAsync(cancellationToken);
+                        return new TaskDeadlineDigestGenerationResult(
+                            TaskDeadlineDigestGenerationOutcome.Deferred,
+                            evaluation.Counts);
+                    }
+
+                    if (!retry)
+                    {
+                        Guid? notificationId = null;
+                        if (evaluation.Counts.Total > 0)
+                        {
+                            notificationId = await notifications.StageTaskDeadlineDigestByLogicalKeyAsync(
+                                claim.UserId,
+                                claim.JobId,
+                                TaskDeadlineDigestPolicy.BuildNotificationLogicalKey(
+                                    claim.WorkspaceId,
+                                    claim.LocalDate,
+                                    claim.PolicyVersion),
+                                cancellationToken);
+                        }
+
+                        if (!await repository.MarkSucceededAsync(
+                                claim.JobId,
+                                claim.ClaimToken,
+                                notificationId,
+                                now,
+                                cancellationToken))
+                        {
+                            diagnostics.RecordClaimLoss();
+                            return new TaskDeadlineDigestGenerationResult(
+                                TaskDeadlineDigestGenerationOutcome.ClaimLost,
+                                evaluation.Counts);
+                        }
+
+                        await repository.SaveChangesAsync(cancellationToken);
+                        await transaction.CommitAsync(cancellationToken);
+                        diagnostics.RecordSucceeded(evaluation.Counts.Total > 0);
+                        return new TaskDeadlineDigestGenerationResult(
+                            evaluation.Counts.Total > 0
+                                ? TaskDeadlineDigestGenerationOutcome.Succeeded
+                                : TaskDeadlineDigestGenerationOutcome.SucceededWithoutCandidates,
+                            evaluation.Counts,
+                            notificationId);
+                    }
+                }
+            }
+            catch (TaskDeadlineDigestRetryablePersistenceConflictException)
+            {
+                retry = true;
             }
 
-            await transaction.CommitAsync(cancellationToken);
-            return new TaskDeadlineDigestGenerationResult(
-                TaskDeadlineDigestGenerationOutcome.Deferred,
-                evaluation.Counts);
+            repository.ResetGenerationState();
+            if (retry && transactionAttempt + 1 < MaximumGenerationTransactionAttempts)
+                continue;
+
+            throw new TaskDeadlineDigestRetryablePersistenceConflictException();
         }
 
-        Guid? notificationId = null;
-        if (evaluation.Counts.Total > 0)
-        {
-            notificationId = await notifications.StageTaskDeadlineDigestByLogicalKeyAsync(
-                lockedClaim.UserId,
-                lockedClaim.JobId,
-                TaskDeadlineDigestPolicy.BuildNotificationLogicalKey(
-                    lockedClaim.WorkspaceId,
-                    lockedClaim.LocalDate,
-                    lockedClaim.PolicyVersion),
-                cancellationToken);
-        }
-
-        if (!await repository.MarkSucceededAsync(
-                claim.JobId,
-                claim.ClaimToken,
-                notificationId,
-                now,
-                cancellationToken))
-        {
-            diagnostics.RecordClaimLoss();
-            return new TaskDeadlineDigestGenerationResult(
-                TaskDeadlineDigestGenerationOutcome.ClaimLost,
-                evaluation.Counts);
-        }
-
-        await repository.SaveChangesAsync(cancellationToken);
-        await transaction.CommitAsync(cancellationToken);
-        diagnostics.RecordSucceeded(evaluation.Counts.Total > 0);
-        return new TaskDeadlineDigestGenerationResult(
-            evaluation.Counts.Total > 0
-                ? TaskDeadlineDigestGenerationOutcome.Succeeded
-                : TaskDeadlineDigestGenerationOutcome.SucceededWithoutCandidates,
-            evaluation.Counts,
-            notificationId);
+        throw new TaskDeadlineDigestRetryablePersistenceConflictException();
     }
 
     private async Task<TaskDeadlineDigestEvaluation> EvaluateAsync(
@@ -350,12 +390,22 @@ public sealed class TaskDeadlineDigestGenerator(
             claim.JobId,
             claim.ClaimToken,
             cancellationToken);
+        var contextFence = await repository.AcquireGenerationFenceAsync(
+            claim,
+            context,
+            [],
+            cancellationToken);
+        if (contextFence != TaskDeadlineDigestGenerationFenceOutcome.Current)
+        {
+            return new TaskDeadlineDigestEvaluation(EmptyCounts, null, contextFence);
+        }
+
         if (context is null)
-            return new TaskDeadlineDigestEvaluation(EmptyCounts, null);
+            return new TaskDeadlineDigestEvaluation(EmptyCounts, null, TaskDeadlineDigestGenerationFenceOutcome.Current);
         if (!TaskDeadlineDigestPolicy.IsValidLocalTime(context.EffectiveLocalTime))
         {
             diagnostics.RecordInvalidPreference();
-            return new TaskDeadlineDigestEvaluation(EmptyCounts, null);
+            return new TaskDeadlineDigestEvaluation(EmptyCounts, null, TaskDeadlineDigestGenerationFenceOutcome.Current);
         }
 
         var zone = TaskDeadlineDigestScheduler.ResolveTimeZone(
@@ -368,7 +418,7 @@ public sealed class TaskDeadlineDigestGenerator(
             // A timezone change can make an old local-date row stale. Complete
             // it without a visible result; the current local date has its own
             // unique ledger identity.
-            return new TaskDeadlineDigestEvaluation(EmptyCounts, null);
+            return new TaskDeadlineDigestEvaluation(EmptyCounts, null, TaskDeadlineDigestGenerationFenceOutcome.Current);
         }
 
         var currentDueAt = TaskDeadlineDigestPolicy.ResolveDueAtUtc(
@@ -376,7 +426,7 @@ public sealed class TaskDeadlineDigestGenerator(
             context.EffectiveLocalTime,
             zone.TimeZone);
         if (currentDueAt > now)
-            return new TaskDeadlineDigestEvaluation(EmptyCounts, currentDueAt);
+            return new TaskDeadlineDigestEvaluation(EmptyCounts, currentDueAt, TaskDeadlineDigestGenerationFenceOutcome.Current);
 
         var deadlineBeforeUtc = TaskDeadlineDigestPolicy.ResolveDueAtUtc(
             claim.LocalDate.AddDays(4),
@@ -397,6 +447,16 @@ public sealed class TaskDeadlineDigestGenerator(
                 page,
                 safePageSize,
                 cancellationToken);
+            var pageFence = await repository.AcquireGenerationFenceAsync(
+                claim,
+                context,
+                candidates,
+                cancellationToken);
+            if (pageFence != TaskDeadlineDigestGenerationFenceOutcome.Current)
+            {
+                return new TaskDeadlineDigestEvaluation(EmptyCounts, null, pageFence);
+            }
+
             foreach (var candidate in candidates)
             {
                 switch (TaskDeadlineDigestPolicy.Classify(candidate.DeadlineAt, now, zone.TimeZone))
@@ -422,12 +482,41 @@ public sealed class TaskDeadlineDigestGenerator(
 
         return new TaskDeadlineDigestEvaluation(
             new TaskDeadlineDigestCategoryCounts(threeDays, oneDay, today, overdue),
-            null);
+            null,
+            TaskDeadlineDigestGenerationFenceOutcome.Current);
+    }
+
+    private async Task<TaskDeadlineDigestGenerationResult> ReleaseFeatureDisabledClaimAsync(
+        TaskDeadlineDigestClaim claim,
+        TaskDeadlineDigestCategoryCounts counts,
+        DateTimeOffset releasedAt,
+        CancellationToken cancellationToken,
+        ITaskDeadlineDigestTransaction? transaction = null)
+    {
+        if (!await repository.ReleaseFeatureDisabledClaimAsync(
+                claim.JobId,
+                claim.ClaimToken,
+                releasedAt,
+                cancellationToken))
+        {
+            diagnostics.RecordClaimLoss();
+            return new TaskDeadlineDigestGenerationResult(
+                TaskDeadlineDigestGenerationOutcome.ClaimLost,
+                counts);
+        }
+
+        if (transaction is not null)
+            await transaction.CommitAsync(cancellationToken);
+
+        return new TaskDeadlineDigestGenerationResult(
+            TaskDeadlineDigestGenerationOutcome.FeatureDisabled,
+            counts);
     }
 
     private sealed record TaskDeadlineDigestEvaluation(
         TaskDeadlineDigestCategoryCounts Counts,
-        DateTimeOffset? DeferUntilUtc);
+        DateTimeOffset? DeferUntilUtc,
+        TaskDeadlineDigestGenerationFenceOutcome FenceOutcome);
 }
 
 public sealed class TaskDeadlineDigestFailureHandler(
@@ -466,6 +555,7 @@ public static class TaskDeadlineDigestErrorCodes
     public static string FromException(Exception exception) => exception switch
     {
         TimeoutException => GenerationTimeout,
+        TaskDeadlineDigestRetryablePersistenceConflictException => PersistenceConflict,
         _ when exception.GetType().Name.Contains("Concurrency", StringComparison.Ordinal) => PersistenceConflict,
         _ => GenerationFailure
     };

@@ -34,7 +34,28 @@ public sealed record TaskDeadlineDigestCurrentContext(
     string? TenantTimeZoneId,
     TimeOnly EffectiveLocalTime);
 
-public sealed record TaskDeadlineDigestCandidate(Guid TaskId, DateTimeOffset DeadlineAt);
+/// <summary>
+/// A bounded candidate page returned while generating a digest. The structural
+/// values are retained only long enough for the repository-owned commit fence
+/// to prove that the same current Task is still eligible before staging a
+/// visible notification.
+/// </summary>
+public sealed record TaskDeadlineDigestCandidate(
+    Guid TaskId,
+    DateTimeOffset DeadlineAt,
+    Guid ProjectId = default,
+    Guid? WorkflowStageId = null);
+
+/// <summary>
+/// Result of the repository-owned current-state fence. Application code never
+/// receives provider error details or SQLSTATE values.
+/// </summary>
+public enum TaskDeadlineDigestGenerationFenceOutcome
+{
+    Current = 0,
+    ClaimLost = 1,
+    CurrentStateChanged = 2
+}
 
 public sealed record TaskDeadlineDigestTransition(bool Changed, bool Terminal);
 
@@ -106,6 +127,18 @@ public interface ITaskDeadlineDigestRepository
         int pageSize,
         CancellationToken cancellationToken = default);
 
+    /// <summary>
+    /// Locks the current authorization/lifecycle state that authorized the
+    /// supplied bounded candidate page and verifies that it has not changed
+    /// since evaluation. A non-current result must be retried in a new
+    /// generation transaction before any visible digest state is staged.
+    /// </summary>
+    Task<TaskDeadlineDigestGenerationFenceOutcome> AcquireGenerationFenceAsync(
+        TaskDeadlineDigestClaim claim,
+        TaskDeadlineDigestCurrentContext? evaluatedContext,
+        IReadOnlyCollection<TaskDeadlineDigestCandidate> evaluatedCandidates,
+        CancellationToken cancellationToken = default);
+
     Task<ITaskDeadlineDigestTransaction> BeginGenerationTransactionAsync(
         CancellationToken cancellationToken = default);
 
@@ -125,6 +158,18 @@ public interface ITaskDeadlineDigestRepository
         Guid claimToken,
         DateTimeOffset scheduledForUtc,
         DateTimeOffset deferredAt,
+        CancellationToken cancellationToken = default);
+
+    /// <summary>
+    /// Releases a still-owned claim because the Tenant rollout flag was
+    /// disabled. This is intentionally distinct from ordinary defer: it
+    /// restores the claimed attempt budget and preserves an operator restart
+    /// attempt as the same pending audited row.
+    /// </summary>
+    Task<bool> ReleaseFeatureDisabledClaimAsync(
+        Guid jobId,
+        Guid claimToken,
+        DateTimeOffset releasedAt,
         CancellationToken cancellationToken = default);
 
     Task<TaskDeadlineDigestTransition> MarkFailureAsync(
@@ -147,4 +192,10 @@ public interface ITaskDeadlineDigestRepository
         CancellationToken cancellationToken = default);
 
     Task<int> SaveChangesAsync(CancellationToken cancellationToken = default);
+
+    /// <summary>
+    /// Discards tracked state after a rolled-back generation attempt so an
+    /// internal retry always begins from current persisted state.
+    /// </summary>
+    void ResetGenerationState();
 }
