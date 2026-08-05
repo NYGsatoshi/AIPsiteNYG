@@ -468,17 +468,61 @@ public sealed class TaskDeadlineDigestRepository(
                 return TaskDeadlineDigestGenerationFenceOutcome.Current;
             }
 
-            // Fixed lock order: Tenant, User, TenantUser, TenantSettings,
-            // Workspace, WorkspaceMember, Project, ProjectMember/Group/
-            // GroupMember, Task, WorkflowStage, Watch/Collaborator, then the
-            // Digest job and claimed attempt. Normal EF mutations acquire row
-            // update locks and therefore wait after this fence is complete.
+            // Fixed lock order: Tenant, TenantSettings, active Subscription,
+            // Plan, recipient User, TenantUser, Workspace, WorkspaceMember,
+            // Project, Group, ProjectMember, GroupMember, Task, WorkflowStage,
+            // Watch/Collaborator, then the Digest job and claimed attempt.
+            //
+            // Authorization/lifecycle rows use FOR SHARE: independent Digest
+            // readers coexist, while PostgreSQL UPDATE/DELETE (including the
+            // usual FOR NO KEY UPDATE taken for non-key updates) waits through
+            // commit. The recipient User remains FOR UPDATE so only that
+            // recipient's NotificationUserState critical section serializes.
+            // Job/Attempt ownership remains exclusively fenced by GetClaimed.
             await LockRowsAsync($"""
                 SELECT 1 FROM tenants
                 WHERE "Id" = {claim.TenantId}
                 ORDER BY "Id"
-                FOR UPDATE
+                FOR SHARE
                 """, cancellationToken);
+            await LockRowsAsync($"""
+                SELECT 1 FROM tenant_settings
+                WHERE "TenantId" = {claim.TenantId}
+                ORDER BY "Id"
+                FOR SHARE
+                """, cancellationToken);
+
+            // FeatureFlags derive tasks.notificationsV1 from every active
+            // Subscription, its Plan, and TenantSettings. Lock all active
+            // subscriptions (rather than only the current winner) before
+            // resolving Plan IDs so an equal StartedAt tie cannot leave an
+            // unprotected source row.
+            await LockRowsAsync($"""
+                SELECT 1 FROM subscriptions
+                WHERE "TenantId" = {claim.TenantId}
+                  AND "Status" IN ('Trial', 'Active')
+                ORDER BY "Id"
+                FOR SHARE
+                """, cancellationToken);
+            var featurePlanIds = await dbContext.Subscriptions
+                .AsNoTracking()
+                .IgnoreQueryFilters()
+                .Where(subscription => subscription.TenantId == claim.TenantId &&
+                    (subscription.Status == SubscriptionStatus.Trial ||
+                     subscription.Status == SubscriptionStatus.Active))
+                .Select(subscription => subscription.PlanId)
+                .Distinct()
+                .OrderBy(planId => planId)
+                .ToArrayAsync(cancellationToken);
+            if (featurePlanIds.Length > 0)
+            {
+                await LockRowsAsync($"""
+                    SELECT 1 FROM plans
+                    WHERE "Id" = ANY({featurePlanIds})
+                    ORDER BY "Id"
+                    FOR SHARE
+                    """, cancellationToken);
+            }
             await LockRowsAsync($"""
                 SELECT 1 FROM users
                 WHERE "Id" = {claim.UserId}
@@ -490,27 +534,21 @@ public sealed class TaskDeadlineDigestRepository(
                 WHERE "TenantId" = {claim.TenantId}
                   AND "UserId" = {claim.UserId}
                 ORDER BY "Id"
-                FOR UPDATE
-                """, cancellationToken);
-            await LockRowsAsync($"""
-                SELECT 1 FROM tenant_settings
-                WHERE "TenantId" = {claim.TenantId}
-                ORDER BY "Id"
-                FOR UPDATE
+                FOR SHARE
                 """, cancellationToken);
             await LockRowsAsync($"""
                 SELECT 1 FROM workspaces
                 WHERE "Id" = {claim.WorkspaceId}
                   AND "TenantId" = {claim.TenantId}
                 ORDER BY "Id"
-                FOR UPDATE
+                FOR SHARE
                 """, cancellationToken);
             await LockRowsAsync($"""
                 SELECT 1 FROM workspace_members
                 WHERE "WorkspaceId" = {claim.WorkspaceId}
                   AND "UserId" = {claim.UserId}
                 ORDER BY "Id"
-                FOR UPDATE
+                FOR SHARE
                 """, cancellationToken);
 
             var currentContext = await GetCurrentContextAsync(
@@ -546,7 +584,7 @@ public sealed class TaskDeadlineDigestRepository(
                         SELECT 1 FROM projects
                         WHERE "Id" = ANY({expectedProjects})
                         ORDER BY "Id"
-                        FOR UPDATE
+                        FOR SHARE
                         """, cancellationToken);
                 }
 
@@ -571,7 +609,7 @@ public sealed class TaskDeadlineDigestRepository(
                         SELECT 1 FROM groups
                         WHERE "Id" = ANY({groupIds})
                         ORDER BY "Id"
-                        FOR UPDATE
+                        FOR SHARE
                         """, cancellationToken);
                 }
 
@@ -582,7 +620,7 @@ public sealed class TaskDeadlineDigestRepository(
                         WHERE "ProjectId" = ANY({expectedProjects})
                           AND "UserId" = {claim.UserId}
                         ORDER BY "Id"
-                        FOR UPDATE
+                        FOR SHARE
                         """, cancellationToken);
                 }
                 if (groupIds.Length > 0)
@@ -592,7 +630,7 @@ public sealed class TaskDeadlineDigestRepository(
                         WHERE "GroupId" = ANY({groupIds})
                           AND "UserId" = {claim.UserId}
                         ORDER BY "Id"
-                        FOR UPDATE
+                        FOR SHARE
                         """, cancellationToken);
                 }
 
@@ -600,7 +638,7 @@ public sealed class TaskDeadlineDigestRepository(
                     SELECT 1 FROM task_items
                     WHERE "Id" = ANY({candidateIds})
                     ORDER BY "Id"
-                    FOR UPDATE
+                    FOR SHARE
                     """, cancellationToken);
 
                 var expectedStages = evaluatedCandidates
@@ -615,7 +653,7 @@ public sealed class TaskDeadlineDigestRepository(
                         SELECT 1 FROM task_workflow_stages
                         WHERE "Id" = ANY({expectedStages})
                         ORDER BY "Id"
-                        FOR UPDATE
+                        FOR SHARE
                         """, cancellationToken);
                 }
 
@@ -624,14 +662,14 @@ public sealed class TaskDeadlineDigestRepository(
                     WHERE "TaskItemId" = ANY({candidateIds})
                       AND "UserId" = {claim.UserId}
                     ORDER BY "Id"
-                    FOR UPDATE
+                    FOR SHARE
                     """, cancellationToken);
                 await LockRowsAsync($"""
                     SELECT 1 FROM task_item_collaborators
                     WHERE "TaskItemId" = ANY({candidateIds})
                       AND "UserId" = {claim.UserId}
                     ORDER BY "Id"
-                    FOR UPDATE
+                    FOR SHARE
                     """, cancellationToken);
             }
 

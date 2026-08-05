@@ -310,14 +310,42 @@ Generation does not use the Outbox as a schedule table. Its one normal
 candidate-page enumeration runs inside a short transaction; bounded
 lock/recheck queries validate each already enumerated page rather than forming
 a discarded second enumeration. Before accepting context or each bounded
-candidate page, the PostgreSQL repository acquires a
-current-state fence in fixed order: Tenant, User, TenantUser, TenantSettings,
-Workspace, WorkspaceMember, Project, Group, ProjectMember, GroupMember, Task,
-WorkflowStage, Watch/Collaborator, then the digest job and claimed attempt.
-While those locks are held, it rechecks current context and the exact candidate
-predicate for the evaluated page. A later authorization/lifecycle mutation
-waits for commit; an earlier change is detected and rolls the transaction back
-before staging a visible result.
+candidate page, the PostgreSQL repository acquires a current-state fence in a
+fixed order. Tenant, TenantSettings, active Subscription(s), their Plan
+source(s), TenantUser, Workspace, WorkspaceMember, Project, Group,
+ProjectMember, GroupMember, Task, WorkflowStage, Watch, and Collaborator use
+`FOR SHARE`; the recipient User, claimed digest job, and claimed attempt use
+`FOR UPDATE`. Multiple IDs of one kind are locked in ascending ID order.
+
+`FOR SHARE` was selected from PostgreSQL's row-lock compatibility matrix:
+multiple digest readers coexist, while normal `UPDATE`/`DELETE` locks conflict
+until the digest commits. Thus neither the Tenant nor Workspace is a
+digest-wide exclusive fence. The recipient User row is deliberately exclusive
+so same-user digests serialize before they advance `notification_user_states`;
+different users in the same Tenant can still progress independently. The job
+and attempt retain exclusive claim-token fencing so no two generators can
+complete one claim.
+
+The feature source fence includes TenantSettings, every active Subscription,
+and the Plan row(s) selected from those subscriptions before the final
+`tasks.notificationsV1` evaluation. This prevents an enablement source change
+from committing ahead of a stale visible digest. That final evaluation uses
+no-tracking repository reads after the locks, so a preflight identity-map entry
+cannot be reused as stale feature state.
+
+Existing optional rows can be protected directly, but `FOR SHARE` cannot lock
+an absent row. The matching writer paths therefore use stable parent pivots
+before changing an optional child: Tenant for TenantSettings and Subscription,
+Workspace for WorkspaceMember, Project for ProjectMember, Group for
+GroupMember, and Task for Watch or Collaborator. The digest locks those same
+parents shared; writers lock them `FOR UPDATE`. This parent-pivot contract
+protects inserts as well as updates/deletes without advisory locks or schema
+changes.
+
+While the fence is held, generation rechecks current context and the exact
+candidate predicate for the evaluated page. A later authorization/lifecycle
+mutation waits for commit; an earlier change is detected and rolls the
+transaction back before staging a visible result.
 
 The generator recreates the full transaction, reacquires the claim fence, and
 re-evaluates only for a detected current-state change, PostgreSQL
@@ -340,10 +368,19 @@ clean logical-key retry reuses the winner and commits the other intent as
 version 2. PostgreSQL coverage verifies Notification and signal versions
 `[1, 2]` with no lost state update or duplicate committed version.
 
+For digest-to-digest races, the recipient User `FOR UPDATE` lock is acquired
+inside the generation transaction and is held through staging. It serializes
+only that recipient's Notification state, including two digest jobs for
+different Workspaces; it is not a Tenant-wide lock. The EF token remains the
+cross-producer backstop for immediate Task Notification work that does not
+share the digest's recipient lock.
+
 The migration Down path drops both digest tables. The earlier Notification,
 preference, and Outbox schema remains, but all PR07-C ledger/attempt history is
 lost. Operational rollback should normally leave this additive migration in
 place; applying Down requires an explicit backup and acceptance of that loss.
+The same-Tenant concurrency remediation changes lock SQL and mutation fences
+only; it adds no migration and does not rewrite an existing migration.
 
 ### System and UI shell
 

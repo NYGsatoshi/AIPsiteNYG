@@ -131,10 +131,13 @@ candidate-page enumeration runs inside the short generation transaction;
 bounded lock/rechecks validate each already enumerated page rather than
 forming a discarded second enumeration. A repository-owned commit fence locks
 and then rechecks current state before any visible result is staged. Its fixed
-order is Tenant, User, TenantUser,
-TenantSettings, Workspace, WorkspaceMember, Project, Group, ProjectMember,
-GroupMember, Task, WorkflowStage, Watch/Collaborator, then the digest job and
-claimed attempt. The final evaluation requires:
+order is Tenant, TenantSettings, active Subscription(s), Plan source(s),
+recipient User, TenantUser, Workspace, WorkspaceMember, Project, Group,
+ProjectMember, GroupMember, Task, WorkflowStage, Watch/Collaborator, then the
+digest job and claimed attempt. Tenant, feature, authorization, lifecycle, and
+relationship rows use PostgreSQL `FOR SHARE`; recipient User and claimed
+job/attempt rows use `FOR UPDATE`. IDs of the same resource kind are ordered
+ascending. The final evaluation requires:
 
 - the same active Tenant and active, non-deleted user;
 - active TenantUser and WorkspaceMember records;
@@ -163,6 +166,23 @@ Outbox row, or recipient state advance. If none remain, the job succeeds as a
 no-op and stages neither Notification nor Outbox row. There is no discarded
 pre-transaction candidate build.
 
+`FOR SHARE` permits independent digest readers to coexist and conflicts with
+the ordinary PostgreSQL update/delete locks used by lifecycle and authorization
+mutations. Consequently the Tenant and Workspace are not exclusive digest
+fences. The exclusive User lock is deliberately narrower: only digest work for
+the same recipient waits before it updates that recipient's Notification state.
+Feature evaluation is protected by the actual persistent inputs--TenantSettings,
+every active Subscription, and the relevant Plan source(s)--rather than by a
+TenantSettings-only read.
+
+Optional relationship rows require a phantom policy because no row lock exists
+when the child is absent. Generation holds a shared stable parent; the matching
+writer obtains that parent `FOR UPDATE` before inserting, changing, or deleting
+the child: Tenant for TenantSettings/Subscription, Workspace for
+WorkspaceMember, Project for ProjectMember, Group for GroupMember, and Task
+for Watch/Collaborator. This shared/exclusive parent-pivot protocol is required
+on both sides; a digest-only advisory lock would not protect writer races.
+
 The ledger and attempt tables are tenant-owned and use normal global query
 filters. Platform scope is used only for bounded active-Tenant discovery and
 aggregate health diagnostics; each schedule, claim, generation, failure, and
@@ -186,8 +206,9 @@ together. This is generation atomicity, not delayed-dispatch authorization.
 Current-authorized Outbox dispatch/replay, notification opening, and Angular
 state clearing remain PR07-D and must not be inferred from PR07-C.
 
-The recipient lock serializes concurrent digests for the same user, but it is
-not assumed to serialize every existing Notification producer. The shared
+The recipient User `FOR UPDATE` lock serializes concurrent digests for the
+same user, including different Workspace digests, but it is not assumed to
+serialize every existing Notification producer. The shared
 `NotificationUserState.Version` is therefore also an EF concurrency token. A
 digest and immediate Task Notification race cannot commit the same recipient
 version: one unit of work wins, the other rolls back on optimistic conflict,
@@ -211,11 +232,13 @@ logs are fixed text. Tests reject Tenant, Workspace, user, Task, job, and claim
 identifiers in these log records. Aggregate diagnostics use no high-cardinality
 identifier labels.
 
-Claim execution is concurrent only inside the already bounded claimed batch:
-all leased claims start immediately, each with a separate Tenant scope, and the
-hard claim-batch ceiling of 100 bounds fan-out. One claim's ordinary failure is
-recorded independently and does not suppress the others; cancellation remains
-shared and propagates through all started work.
+Claim execution starts every leased claim immediately inside the bounded batch:
+each has a separate Tenant scope, and the hard claim-batch limit of 100 bounds
+application fan-out. `Task.WhenAll` is not itself proof of database-level
+parallelism; the shared/exclusive fence contract above is what permits distinct
+recipients to advance while retaining same-recipient serialization. One claim's
+ordinary failure is recorded independently and does not suppress the others;
+cancellation remains shared and propagates through all started work.
 
 `tasks.notificationsV1` remains default off and opt-in per Tenant. It suppresses
 digest schedule/claim/generation work, but it is not an authorization control:

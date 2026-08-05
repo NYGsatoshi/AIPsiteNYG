@@ -330,6 +330,15 @@ public sealed class TaskDeadlineDigestGenerator(
                         Guid? notificationId = null;
                         if (evaluation.Counts.Total > 0)
                         {
+                            // The current-state fence holds the recipient User
+                            // row through this transaction. Keep the explicit
+                            // repository boundary here as well: it documents
+                            // that the NotificationUserState increment below
+                            // is a per-recipient critical section, never a
+                            // Tenant-wide one.
+                            await repository.LockNotificationRecipientAsync(
+                                claim.UserId,
+                                cancellationToken);
                             notificationId = await notifications.StageTaskDeadlineDigestByLogicalKeyAsync(
                                 claim.UserId,
                                 claim.JobId,

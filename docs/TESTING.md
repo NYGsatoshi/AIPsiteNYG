@@ -150,8 +150,10 @@ prove:
   DI. It proves Tenant and per-claim failure isolation, cancellation before
   not-yet-started work, immediate concurrent start of every claim in the
   bounded batch, Tenant page bound 100, schedule bound 500, claim/concurrency
-  bound 100, and structured-log privacy with no exception details or
-  Tenant/user/Workspace/Task/job/claim IDs.
+  fan-out bound 100, and structured-log privacy with no exception details or
+  Tenant/user/Workspace/Task/job/claim IDs. This is application scheduling
+  coverage only; it does not establish PostgreSQL lock compatibility or
+  database-level parallel progress.
 - `DbNotificationDigestStagingTests` verifies the generic null-body digest,
   minimal recipient-only signal, no implicit save, and logical retry dedupe.
 - `TaskDeadlineDigestAdminServiceTests` covers active system-administrator and
@@ -178,7 +180,23 @@ prove:
   generic Notification/state/minimal user Outbox signal and `Succeeded` ledger,
   zero-candidate no-op, logical-key retry, post-save rollback, and concurrent
   same-user digests across Workspaces and timezones with serialized state
-  versions.
+  versions. Its PostgreSQL gate/interceptor cases additionally prove
+  `DifferentUsersInSameTenantGenerateConcurrently`,
+  `DifferentUsersInSameWorkspaceDoNotShareExclusiveFence`,
+  `DifferentWorkspacesInSameTenantDoNotShareExclusiveFence`,
+  `SlowFirstClaimDoesNotExpireLaterSameTenantClaims`,
+  `SameRecipientStillSerializesNotificationStateVersion`,
+  `ConcurrentTenantMutationWaitsForGenerationFence`,
+  `ConcurrentFeatureDisableWaitsOrPreventsDigestCommit`, and
+  `MissingWatchRowOptOutInsertCannotBypassFence`. These tests must observe
+  candidate evaluation and commit completion across real PostgreSQL locks;
+  asserting only that two `Task` instances began is insufficient.
+- The feature-disable gate exercises TenantSettings, active Subscription, and
+  Plan feature sources (including an absent-TenantSettings insert); the absent
+  Watch gate inserts through `SaveChanges` to exercise the stable Task pivot.
+- Every PR07-C concurrency test carries `Trait("Scope", "TaskV1PR07C")` and
+  `Trait("Category", "PostgreSQLIntegration")`; the required-test manifest
+  may name only the tests that exist in that fixture.
 - `TaskV1Pr07CNotificationVersionConcurrencyPostgreSqlTests` makes the existing
   `NotificationUserState.Version` an asserted EF concurrency token and races a
   digest with an immediate Task Notification. One version-1 unit of work
@@ -223,16 +241,12 @@ timeout/abort/not-executed/skipped outcomes plus every active name in
 its active and matched counts must be taken from the immutable final-HEAD TRX,
 not from this source record.
 
-The code-bearing PR07-C remediation commit is
-`8545ae7ab8ecc3feb6d0bbe278ecfe81f217ba31`. Its local PostgreSQL 18 evidence
-recorded 94/94 `Scope=TaskV1PR07C` passed with 0 failed and 0 skipped; the
-strict manifest verifier recorded 64 active and 64 matched names. The
-individual PostgreSQL classes recorded 23/23 deadline-digest, 15/15
-candidate/atomicity, and 1/1 notification-version tests passed. The migrated
-full backend suite recorded 776/776 passed with 0 failed and 0 skipped, and
-the EF model-drift command reported no pending changes. Final branch-head and
-hosted run IDs are recorded in PR #277 after push; they cannot be made
-self-referential in the source commit that contains this text.
+Historical source records reference an earlier PR07-C candidate
+`8545ae7ab8ecc3feb6d0bbe278ecfe81f217ba31`. That evidence predates the
+same-Tenant concurrency remediation and is not acceptance evidence for this
+worktree. Do not carry its test counts, manifest counts, branch SHA, or hosted
+check state forward. The final immutable HEAD and every result must be recorded
+only after this remediation's required commands run.
 
 ### Browser UI tests
 

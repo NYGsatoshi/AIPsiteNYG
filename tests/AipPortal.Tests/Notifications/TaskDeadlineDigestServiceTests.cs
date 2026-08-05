@@ -197,6 +197,7 @@ public sealed class TaskDeadlineDigestServiceTests
             repository.CandidatePageRequests);
         Assert.Equal(1, repository.CurrentContextCallCount);
         Assert.Equal(1, notifications.CallCount);
+        Assert.Equal(1, repository.LockRecipientCallCount);
     }
 
     [Fact]

@@ -5,6 +5,7 @@ using AipPortal.Application.Common.Interfaces;
 using AipPortal.Application.Common.Tenancy;
 using AipPortal.Application.Notifications;
 using AipPortal.Application.Realtime;
+using AipPortal.Application.TenantAdministration;
 using AipPortal.Domain.Entities;
 using AipPortal.Domain.Enums;
 using AipPortal.Infrastructure.Persistence;
@@ -429,6 +430,528 @@ public sealed class TaskV1Pr07CDigestCandidateAtomicityPostgreSqlTests
             Assert.All(notifications, notification => Assert.Equal(graph.Recipient.Id, notification.UserId));
             Assert.Equal(2, await verification.OutboxEvents.CountAsync());
             Assert.Equal(2, (await verification.NotificationUserStates.AsNoTracking().SingleAsync()).Version);
+        });
+    }
+
+    [PostgreSqlFact]
+    public async Task DifferentUsersInSameTenantGenerateConcurrently()
+    {
+        var connectionString = PostgreSqlTestEnvironment.RequireConnectionString();
+
+        await PostgreSqlMigrationTestDatabase.WithTemporaryDatabaseAsync(connectionString, async database =>
+        {
+            await PostgreSqlMigrationTestDatabase.MigrateAsync(database);
+            var graph = await SeedGraphAsync(database);
+            await EnablePersistedNotificationsFeatureAsync(database, graph);
+            await AddQualifyingTaskAsync(database, graph);
+            var secondRecipient = await AddRecipientToWorkspaceAsync(database, graph, "same-tenant-recipient");
+            await AddQualifyingTaskAsync(
+                database,
+                graph.Tenant,
+                graph.Actor,
+                graph.Workspace,
+                graph.Project,
+                secondRecipient,
+                "same tenant second recipient task",
+                deadlineMinute: 2);
+
+            var firstJob = await AddJobAsync(database, graph);
+            var secondJob = await AddJobAsync(
+                database,
+                graph.Tenant,
+                graph.Workspace,
+                secondRecipient,
+                LocalDate);
+            var claims = await ClaimDueAsync(
+                database,
+                graph.Tenant,
+                "different-users-same-tenant",
+                batchSize: 2,
+                claimTimeout: TimeSpan.FromMinutes(2));
+            var claimsByJob = claims.ToDictionary(claim => claim.JobId);
+
+            var results = await GenerateWithFirstCandidateFencePausedAsync(
+                database,
+                graph.Tenant,
+                claimsByJob[firstJob.Id],
+                claimsByJob[secondJob.Id]);
+
+            Assert.All(results, result =>
+            {
+                Assert.Equal(TaskDeadlineDigestGenerationOutcome.Succeeded, result.Outcome);
+                Assert.Equal(1, result.Counts.Total);
+                Assert.NotNull(result.NotificationId);
+            });
+            await AssertClaimsSucceededWithoutExpiryAsync(database, graph.Tenant, claims);
+            await using var verification = CreateTenantContext(database, graph.Tenant);
+            Assert.Equal(2, await verification.Notifications.CountAsync());
+            Assert.Equal(2, await verification.OutboxEvents.CountAsync());
+        });
+    }
+
+    [PostgreSqlFact]
+    public async Task DifferentUsersInSameWorkspaceDoNotShareExclusiveFence()
+    {
+        var connectionString = PostgreSqlTestEnvironment.RequireConnectionString();
+
+        await PostgreSqlMigrationTestDatabase.WithTemporaryDatabaseAsync(connectionString, async database =>
+        {
+            await PostgreSqlMigrationTestDatabase.MigrateAsync(database);
+            var graph = await SeedGraphAsync(database);
+            await EnablePersistedNotificationsFeatureAsync(database, graph);
+            await AddQualifyingTaskAsync(database, graph);
+            var secondRecipient = await AddRecipientToWorkspaceAsync(database, graph, "shared-workspace-recipient");
+            await AddQualifyingTaskAsync(
+                database,
+                graph.Tenant,
+                graph.Actor,
+                graph.Workspace,
+                graph.Project,
+                secondRecipient,
+                "shared workspace second recipient task",
+                deadlineMinute: 2);
+
+            var firstJob = await AddJobAsync(database, graph);
+            var secondJob = await AddJobAsync(
+                database,
+                graph.Tenant,
+                graph.Workspace,
+                secondRecipient,
+                LocalDate);
+            var claims = await ClaimDueAsync(
+                database,
+                graph.Tenant,
+                "different-users-same-workspace",
+                batchSize: 2,
+                claimTimeout: TimeSpan.FromMinutes(2));
+            var claimsByJob = claims.ToDictionary(claim => claim.JobId);
+
+            var results = await GenerateWithFirstCandidateFencePausedAsync(
+                database,
+                graph.Tenant,
+                claimsByJob[firstJob.Id],
+                claimsByJob[secondJob.Id]);
+
+            Assert.All(results, result => Assert.Equal(TaskDeadlineDigestGenerationOutcome.Succeeded, result.Outcome));
+            await AssertClaimsSucceededWithoutExpiryAsync(database, graph.Tenant, claims);
+            await using var verification = CreateTenantContext(database, graph.Tenant);
+            Assert.Equal(2, await verification.Notifications.CountAsync());
+            Assert.Equal(2, await verification.OutboxEvents.CountAsync());
+        });
+    }
+
+    [PostgreSqlFact]
+    public async Task DifferentWorkspacesInSameTenantDoNotShareExclusiveFence()
+    {
+        var connectionString = PostgreSqlTestEnvironment.RequireConnectionString();
+
+        await PostgreSqlMigrationTestDatabase.WithTemporaryDatabaseAsync(connectionString, async database =>
+        {
+            await PostgreSqlMigrationTestDatabase.MigrateAsync(database);
+            var graph = await SeedGraphAsync(database);
+            await EnablePersistedNotificationsFeatureAsync(database, graph);
+            await AddQualifyingTaskAsync(database, graph);
+            var secondRecipient = await AddUserAsync(database, "different-workspace-recipient");
+            var secondWorkspace = await AddWorkspaceForRecipientAsync(database, graph, secondRecipient);
+
+            var firstJob = await AddJobAsync(database, graph);
+            var secondJob = await AddJobAsync(
+                database,
+                graph.Tenant,
+                secondWorkspace.Workspace,
+                secondRecipient,
+                LocalDate);
+            var claims = await ClaimDueAsync(
+                database,
+                graph.Tenant,
+                "different-workspaces-same-tenant",
+                batchSize: 2,
+                claimTimeout: TimeSpan.FromMinutes(2));
+            var claimsByJob = claims.ToDictionary(claim => claim.JobId);
+
+            var results = await GenerateWithFirstCandidateFencePausedAsync(
+                database,
+                graph.Tenant,
+                claimsByJob[firstJob.Id],
+                claimsByJob[secondJob.Id]);
+
+            Assert.All(results, result => Assert.Equal(TaskDeadlineDigestGenerationOutcome.Succeeded, result.Outcome));
+            await AssertClaimsSucceededWithoutExpiryAsync(database, graph.Tenant, claims);
+            await using var verification = CreateTenantContext(database, graph.Tenant);
+            Assert.Equal(2, await verification.Notifications.CountAsync());
+            Assert.Equal(2, await verification.OutboxEvents.CountAsync());
+        });
+    }
+
+    [PostgreSqlFact]
+    public async Task SlowFirstClaimDoesNotExpireLaterSameTenantClaims()
+    {
+        var connectionString = PostgreSqlTestEnvironment.RequireConnectionString();
+
+        await PostgreSqlMigrationTestDatabase.WithTemporaryDatabaseAsync(connectionString, async database =>
+        {
+            await PostgreSqlMigrationTestDatabase.MigrateAsync(database);
+            var graph = await SeedGraphAsync(database);
+            await EnablePersistedNotificationsFeatureAsync(database, graph);
+            await AddQualifyingTaskAsync(database, graph);
+            var laterRecipient = await AddRecipientToWorkspaceAsync(database, graph, "later-claim-recipient");
+            await AddQualifyingTaskAsync(
+                database,
+                graph.Tenant,
+                graph.Actor,
+                graph.Workspace,
+                graph.Project,
+                laterRecipient,
+                "later same tenant claim task",
+                deadlineMinute: 2);
+
+            var firstJob = await AddJobAsync(
+                database,
+                graph.Tenant,
+                graph.Workspace,
+                graph.Recipient,
+                LocalDate,
+                scheduledForUtc: Now.AddMinutes(-31));
+            var laterJob = await AddJobAsync(
+                database,
+                graph.Tenant,
+                graph.Workspace,
+                laterRecipient,
+                LocalDate,
+                scheduledForUtc: Now.AddMinutes(-30));
+            var firstClaim = Assert.Single(await ClaimDueAsync(
+                database,
+                graph.Tenant,
+                "slow-first-claim",
+                batchSize: 1,
+                claimTimeout: TimeSpan.FromMinutes(5)));
+            Assert.Equal(firstJob.Id, firstClaim.JobId);
+            var laterClaim = Assert.Single(await ClaimDueAsync(
+                database,
+                graph.Tenant,
+                "later-claim",
+                batchSize: 1,
+                claimTimeout: TimeSpan.FromSeconds(1)));
+            Assert.Equal(laterJob.Id, laterClaim.JobId);
+
+            var gate = new CandidateFenceGate();
+            var firstGeneration = GenerateClaimAsync(database, graph.Tenant, firstClaim, gate);
+            await gate.WaitForArrivalAsync();
+            try
+            {
+                var laterGeneration = GenerateClaimAsync(database, graph.Tenant, laterClaim);
+                var laterResult = await laterGeneration.WaitAsync(TimeSpan.FromSeconds(15));
+                Assert.True(gate.IsHolding);
+                Assert.False(firstGeneration.IsCompleted);
+                Assert.Equal(TaskDeadlineDigestGenerationOutcome.Succeeded, laterResult.Outcome);
+                Assert.Equal(1, laterResult.Counts.Total);
+
+                var staleClaims = await ClaimDueAsync(
+                    database,
+                    graph.Tenant,
+                    "lease-expiry-probe",
+                    batchSize: 2,
+                    claimTimeout: TimeSpan.FromSeconds(1),
+                    now: Now.AddSeconds(2));
+                Assert.Empty(staleClaims);
+            }
+            finally
+            {
+                gate.Release();
+            }
+
+            var firstResult = await firstGeneration.WaitAsync(TimeSpan.FromSeconds(15));
+            Assert.Equal(TaskDeadlineDigestGenerationOutcome.Succeeded, firstResult.Outcome);
+            await AssertClaimsSucceededWithoutExpiryAsync(database, graph.Tenant, [firstClaim, laterClaim]);
+
+            await using var verification = CreateTenantContext(database, graph.Tenant);
+            var laterPersisted = await verification.TaskDeadlineDigestJobs.AsNoTracking()
+                .SingleAsync(job => job.Id == laterJob.Id);
+            Assert.Equal(1, laterPersisted.AutomaticAttemptCount);
+            Assert.Equal(1, await verification.TaskDeadlineDigestAttempts.CountAsync(attempt => attempt.JobId == laterJob.Id));
+            Assert.DoesNotContain(
+                await verification.TaskDeadlineDigestAttempts.AsNoTracking()
+                    .Where(attempt => attempt.JobId == laterJob.Id)
+                    .ToListAsync(),
+                attempt => attempt.Status == TaskDeadlineDigestAttemptStatus.Expired);
+        });
+    }
+
+    [PostgreSqlFact]
+    public async Task SameRecipientStillSerializesNotificationStateVersion()
+    {
+        var connectionString = PostgreSqlTestEnvironment.RequireConnectionString();
+
+        await PostgreSqlMigrationTestDatabase.WithTemporaryDatabaseAsync(connectionString, async database =>
+        {
+            await PostgreSqlMigrationTestDatabase.MigrateAsync(database);
+            var graph = await SeedGraphAsync(database);
+            await EnablePersistedNotificationsFeatureAsync(database, graph);
+            await AddQualifyingTaskAsync(database, graph);
+            var secondWorkspace = await AddWorkspaceForRecipientAsync(database, graph, graph.Recipient);
+            var firstJob = await AddJobAsync(database, graph);
+            var secondJob = await AddJobAsync(
+                database,
+                graph.Tenant,
+                secondWorkspace.Workspace,
+                graph.Recipient,
+                LocalDate);
+            var claims = await ClaimDueAsync(
+                database,
+                graph.Tenant,
+                "same-recipient-state-version",
+                batchSize: 2,
+                claimTimeout: TimeSpan.FromMinutes(2));
+            var claimsByJob = claims.ToDictionary(claim => claim.JobId);
+
+            // SavingChanges is reached only after the generation fence has
+            // acquired the recipient User FOR UPDATE lock. Hold that first
+            // transaction there, then prove the second same-user digest has
+            // reached (and cannot complete past) its own User lock request.
+            var recipientGate = new FinalCandidateCommitGate();
+            var firstGeneration = GenerateClaimAsync(
+                database,
+                graph.Tenant,
+                claimsByJob[firstJob.Id],
+                recipientGate);
+            await recipientGate.WaitForArrivalAsync();
+            var secondArrival = new UserLockArrivalInterceptor();
+            var secondGeneration = GenerateClaimAsync(
+                database,
+                graph.Tenant,
+                claimsByJob[secondJob.Id],
+                secondArrival);
+            try
+            {
+                await secondArrival.WaitForArrivalAsync();
+                Assert.False(secondGeneration.IsCompleted);
+            }
+            finally
+            {
+                recipientGate.Release();
+            }
+            var results = await Task.WhenAll(
+                firstGeneration.WaitAsync(TimeSpan.FromSeconds(15)),
+                secondGeneration.WaitAsync(TimeSpan.FromSeconds(15)));
+
+            Assert.All(results, result => Assert.Equal(TaskDeadlineDigestGenerationOutcome.Succeeded, result.Outcome));
+            await AssertClaimsSucceededWithoutExpiryAsync(database, graph.Tenant, claims);
+            await using var verification = CreateTenantContext(database, graph.Tenant);
+            var notifications = await verification.Notifications.AsNoTracking()
+                .OrderBy(notification => notification.StateVersion)
+                .ToListAsync();
+            Assert.Equal([1L, 2L], notifications.Select(notification => notification.StateVersion));
+            Assert.Equal(2, notifications.Select(notification => notification.StateVersion).Distinct().Count());
+            Assert.All(notifications, notification => Assert.Equal(graph.Recipient.Id, notification.UserId));
+            Assert.Equal(2, await verification.OutboxEvents.CountAsync());
+            Assert.Equal(2, (await verification.NotificationUserStates.AsNoTracking().SingleAsync()).Version);
+        });
+    }
+
+    [PostgreSqlFact]
+    public async Task ConcurrentTenantMutationWaitsForGenerationFence()
+    {
+        var connectionString = PostgreSqlTestEnvironment.RequireConnectionString();
+
+        await PostgreSqlMigrationTestDatabase.WithTemporaryDatabaseAsync(connectionString, async database =>
+        {
+            await PostgreSqlMigrationTestDatabase.MigrateAsync(database);
+            var graph = await SeedGraphAsync(database);
+            await EnablePersistedNotificationsFeatureAsync(database, graph);
+            await AddQualifyingTaskAsync(database, graph);
+            var job = await AddJobAsync(database, graph);
+            var claim = Assert.Single(await ClaimDueAsync(
+                database,
+                graph.Tenant,
+                "tenant-mutation-fence",
+                batchSize: 1,
+                claimTimeout: TimeSpan.FromMinutes(2)));
+            Assert.Equal(job.Id, claim.JobId);
+
+            var gate = new CandidateFenceGate();
+            var generation = GenerateClaimAsync(database, graph.Tenant, claim, gate);
+            await gate.WaitForArrivalAsync();
+            var mutationCommittedBeforeGeneration = false;
+            try
+            {
+                mutationCommittedBeforeGeneration = await TryMutateWithLockTimeoutAsync(
+                    database,
+                    graph,
+                    async db =>
+                    {
+                        var tenant = await db.Tenants.SingleAsync(item => item.Id == graph.Tenant.Id);
+                        tenant.Status = TenantStatus.Suspended;
+                    });
+            }
+            finally
+            {
+                gate.Release();
+            }
+
+            if (mutationCommittedBeforeGeneration)
+            {
+                await AssertMutationFirstCannotLeaveVisibleDigestAsync(generation, database, graph);
+                return;
+            }
+
+            var result = await generation.WaitAsync(TimeSpan.FromSeconds(15));
+            Assert.Equal(TaskDeadlineDigestGenerationOutcome.Succeeded, result.Outcome);
+            Assert.NotNull(result.NotificationId);
+            await AssertVisibleDigestArtifactsAsync(database, graph, result.NotificationId.Value);
+            await CommitMutationAsync(database, graph, async db =>
+            {
+                var tenant = await db.Tenants.SingleAsync(item => item.Id == graph.Tenant.Id);
+                tenant.Status = TenantStatus.Suspended;
+            });
+        });
+    }
+
+    [PostgreSqlFact]
+    public async Task ConcurrentFeatureDisableWaitsOrPreventsDigestCommit()
+    {
+        var connectionString = PostgreSqlTestEnvironment.RequireConnectionString();
+
+        await PostgreSqlMigrationTestDatabase.WithTemporaryDatabaseAsync(connectionString, async database =>
+        {
+            await PostgreSqlMigrationTestDatabase.MigrateAsync(database);
+
+            var settingsGraph = await SeedGraphAsync(database);
+            await AddQualifyingTaskAsync(database, settingsGraph);
+            var settingsSources = await EnablePersistedNotificationsFeatureAsync(database, settingsGraph);
+            await AssertFeatureDisableIsFencedAsync(database, settingsGraph, async (db, sources) =>
+            {
+                var settings = await db.TenantSettings.SingleAsync(item => item.Id == sources.Settings!.Id);
+                settings.FeatureFlagsJson = JsonSerializer.Serialize(new Dictionary<string, bool>
+                {
+                    [FeatureKeys.TasksNotificationsV1] = false
+                });
+            }, settingsSources);
+
+            var subscriptionGraph = await SeedGraphAsync(database);
+            await AddQualifyingTaskAsync(database, subscriptionGraph);
+            var subscriptionSources = await EnablePersistedNotificationsFeatureAsync(database, subscriptionGraph);
+            await AssertFeatureDisableIsFencedAsync(database, subscriptionGraph, async (db, sources) =>
+            {
+                var subscription = await db.Subscriptions.SingleAsync(item => item.Id == sources.Subscription.Id);
+                subscription.PlanId = sources.DisabledPlan.Id;
+            }, subscriptionSources);
+
+            var planGraph = await SeedGraphAsync(database);
+            await AddQualifyingTaskAsync(database, planGraph);
+            var planSources = await EnablePersistedNotificationsFeatureAsync(database, planGraph);
+            await AssertFeatureDisableIsFencedAsync(database, planGraph, async (db, sources) =>
+            {
+                var plan = await db.Plans.SingleAsync(item => item.Id == sources.EnabledPlan.Id);
+                plan.EnabledFeaturesJson = "[]";
+            }, planSources);
+
+            var missingSettingsGraph = await SeedGraphAsync(database);
+            await AddQualifyingTaskAsync(database, missingSettingsGraph);
+            var missingSettingsSources = await EnablePersistedNotificationsFeatureAsync(
+                database,
+                missingSettingsGraph,
+                includeTenantSettings: false);
+            await AssertFeatureDisableIsFencedAsync(database, missingSettingsGraph, async (db, _) =>
+            {
+                db.TenantSettings.Add(new TenantSettings
+                {
+                    TenantId = missingSettingsGraph.Tenant.Id,
+                    DisplayName = "late feature override",
+                    FeatureFlagsJson = JsonSerializer.Serialize(new Dictionary<string, bool>
+                    {
+                        [FeatureKeys.TasksNotificationsV1] = false
+                    })
+                });
+            }, missingSettingsSources);
+        });
+    }
+
+    [PostgreSqlFact]
+    public async Task MissingWatchRowOptOutInsertCannotBypassFence()
+    {
+        var connectionString = PostgreSqlTestEnvironment.RequireConnectionString();
+
+        await PostgreSqlMigrationTestDatabase.WithTemporaryDatabaseAsync(connectionString, async database =>
+        {
+            await PostgreSqlMigrationTestDatabase.MigrateAsync(database);
+            var graph = await SeedGraphAsync(database);
+            await EnablePersistedNotificationsFeatureAsync(database, graph);
+            var task = await AddQualifyingTaskAsync(database, graph);
+            await using (var setup = CreateTenantContext(database, graph.Tenant))
+            {
+                Assert.Empty(await setup.WorkItemWatchStates.AsNoTracking()
+                    .Where(watch => watch.TaskItemId == task.Id && watch.UserId == graph.Recipient.Id)
+                    .ToListAsync());
+            }
+
+            var job = await AddJobAsync(database, graph);
+            var claim = Assert.Single(await ClaimDueAsync(
+                database,
+                graph.Tenant,
+                "missing-watch-phantom",
+                batchSize: 1,
+                claimTimeout: TimeSpan.FromMinutes(2)));
+            Assert.Equal(job.Id, claim.JobId);
+
+            var gate = new CandidateFenceGate();
+            var generation = GenerateClaimAsync(database, graph.Tenant, claim, gate);
+            await gate.WaitForArrivalAsync();
+            var mutationCommittedBeforeGeneration = false;
+            try
+            {
+                mutationCommittedBeforeGeneration = await TryMutateWithLockTimeoutAsync(
+                    database,
+                    graph,
+                    db =>
+                    {
+                        db.WorkItemWatchStates.Add(new WorkItemWatchState
+                        {
+                            TenantId = graph.Tenant.Id,
+                            TaskItemId = task.Id,
+                            UserId = graph.Recipient.Id,
+                            AutomaticSources = WorkItemWatchAutomaticSource.PrimaryAssignee,
+                            IsExplicitOptOut = true,
+                            IsWatching = false,
+                            UpdatedAt = Now
+                        });
+                        return Task.CompletedTask;
+                    });
+            }
+            finally
+            {
+                gate.Release();
+            }
+
+            if (mutationCommittedBeforeGeneration)
+            {
+                await AssertMutationFirstCannotLeaveVisibleDigestAsync(generation, database, graph);
+            }
+            else
+            {
+                var result = await generation.WaitAsync(TimeSpan.FromSeconds(15));
+                Assert.Equal(TaskDeadlineDigestGenerationOutcome.Succeeded, result.Outcome);
+                Assert.NotNull(result.NotificationId);
+                await CommitMutationAsync(database, graph, db =>
+                {
+                    db.WorkItemWatchStates.Add(new WorkItemWatchState
+                    {
+                        TenantId = graph.Tenant.Id,
+                        TaskItemId = task.Id,
+                        UserId = graph.Recipient.Id,
+                        AutomaticSources = WorkItemWatchAutomaticSource.PrimaryAssignee,
+                        IsExplicitOptOut = true,
+                        IsWatching = false,
+                        UpdatedAt = Now
+                    });
+                    return Task.CompletedTask;
+                });
+            }
+
+            await using var verification = CreateTenantContext(database, graph.Tenant);
+            var watch = await verification.WorkItemWatchStates.AsNoTracking().SingleAsync(item =>
+                item.TaskItemId == task.Id && item.UserId == graph.Recipient.Id);
+            Assert.True(watch.IsExplicitOptOut);
+            Assert.False(watch.IsWatching);
         });
     }
 
@@ -981,7 +1504,8 @@ public sealed class TaskV1Pr07CDigestCandidateAtomicityPostgreSqlTests
         string database,
         Tenant tenant,
         TaskDeadlineDigestClaim claim,
-        IInterceptor? interceptor = null)
+        IInterceptor? interceptor = null,
+        bool usePersistedFeatureFlags = false)
     {
         var currentTenant = TenantScope(tenant);
         await using var db = CreateTenantContext(database, tenant, currentTenant, interceptor);
@@ -992,9 +1516,208 @@ public sealed class TaskV1Pr07CDigestCandidateAtomicityPostgreSqlTests
         var generator = new TaskDeadlineDigestGenerator(
             repository,
             notifications,
-            EnabledFeatureFlags.Instance,
+            usePersistedFeatureFlags
+                ? new FeatureFlagService(new TenantPlanRepository(db), currentTenant)
+                : EnabledFeatureFlags.Instance,
             new TaskDeadlineDigestDiagnostics());
         return await generator.GenerateAsync(claim, Now, candidatePageSize: 50);
+    }
+
+    private static async Task<TaskDeadlineDigestGenerationResult[]> GenerateWithFirstCandidateFencePausedAsync(
+        string database,
+        Tenant tenant,
+        TaskDeadlineDigestClaim firstClaim,
+        TaskDeadlineDigestClaim secondClaim)
+    {
+        var gate = new CandidateFenceGate();
+        var firstGeneration = GenerateClaimAsync(database, tenant, firstClaim, gate);
+        await gate.WaitForArrivalAsync();
+        try
+        {
+            var secondGeneration = GenerateClaimAsync(database, tenant, secondClaim);
+            var secondResult = await secondGeneration.WaitAsync(TimeSpan.FromSeconds(15));
+
+            // This is the proof point: the second real PostgreSQL generation
+            // reached commit while the first transaction still held its
+            // candidate fence. Starting two Tasks alone would not prove it.
+            Assert.True(gate.IsHolding);
+            Assert.False(firstGeneration.IsCompleted);
+
+            gate.Release();
+            var firstResult = await firstGeneration.WaitAsync(TimeSpan.FromSeconds(15));
+            return [firstResult, secondResult];
+        }
+        finally
+        {
+            gate.Release();
+        }
+    }
+
+    private static async Task<IReadOnlyList<TaskDeadlineDigestClaim>> ClaimDueAsync(
+        string database,
+        Tenant tenant,
+        string claimOwner,
+        int batchSize,
+        TimeSpan claimTimeout,
+        DateTimeOffset? now = null)
+    {
+        var currentTenant = TenantScope(tenant);
+        await using var db = CreateTenantContext(database, tenant, currentTenant);
+        var repository = new TaskDeadlineDigestRepository(db, currentTenant);
+        return await repository.ClaimDueAsync(
+            claimOwner,
+            now ?? Now,
+            batchSize,
+            claimTimeout);
+    }
+
+    private static async Task AssertClaimsSucceededWithoutExpiryAsync(
+        string database,
+        Tenant tenant,
+        IReadOnlyCollection<TaskDeadlineDigestClaim> claims)
+    {
+        var jobIds = claims.Select(claim => claim.JobId).ToArray();
+        await using var verification = CreateTenantContext(database, tenant);
+        var jobs = await verification.TaskDeadlineDigestJobs.AsNoTracking()
+            .Where(job => jobIds.Contains(job.Id))
+            .ToListAsync();
+        var attempts = await verification.TaskDeadlineDigestAttempts.AsNoTracking()
+            .Where(attempt => jobIds.Contains(attempt.JobId))
+            .ToListAsync();
+
+        Assert.Equal(claims.Count, jobs.Count);
+        Assert.Equal(claims.Count, attempts.Count);
+        Assert.All(jobs, job =>
+        {
+            Assert.Equal(TaskDeadlineDigestJobStatus.Succeeded, job.Status);
+            Assert.Equal(1, job.AttemptCount);
+            Assert.Equal(1, job.AutomaticAttemptCount);
+            Assert.Null(job.ClaimToken);
+            Assert.Null(job.ClaimExpiresAt);
+        });
+        Assert.All(attempts, attempt =>
+        {
+            Assert.Equal(TaskDeadlineDigestAttemptStatus.Succeeded, attempt.Status);
+            Assert.Null(attempt.ClaimToken);
+            Assert.Null(attempt.ClaimExpiresAt);
+        });
+        Assert.DoesNotContain(attempts, attempt => attempt.Status == TaskDeadlineDigestAttemptStatus.Expired);
+    }
+
+    private static async Task AssertFeatureDisableIsFencedAsync(
+        string database,
+        Graph graph,
+        Func<AppDbContext, FeatureFlagSources, Task> mutateAsync,
+        FeatureFlagSources sources)
+    {
+        var job = await AddJobAsync(database, graph);
+        var claim = Assert.Single(await ClaimDueAsync(
+            database,
+            graph.Tenant,
+            "feature-disable-fence",
+            batchSize: 1,
+            claimTimeout: TimeSpan.FromMinutes(2)));
+        Assert.Equal(job.Id, claim.JobId);
+
+        var gate = new FinalCandidateCommitGate();
+        var generation = GenerateClaimAsync(
+            database,
+            graph.Tenant,
+            claim,
+            gate,
+            usePersistedFeatureFlags: true);
+        await gate.WaitForArrivalAsync();
+        var mutationCommittedBeforeGeneration = false;
+        try
+        {
+            mutationCommittedBeforeGeneration = await TryMutateWithLockTimeoutAsync(
+                database,
+                graph,
+                db => mutateAsync(db, sources));
+        }
+        finally
+        {
+            gate.Release();
+        }
+
+        if (mutationCommittedBeforeGeneration)
+        {
+            await AssertFeatureDisableFirstCannotLeaveVisibleDigestAsync(generation, database, graph);
+            return;
+        }
+
+        var result = await generation.WaitAsync(TimeSpan.FromSeconds(15));
+        Assert.Equal(TaskDeadlineDigestGenerationOutcome.Succeeded, result.Outcome);
+        Assert.NotNull(result.NotificationId);
+        await AssertVisibleDigestArtifactsAsync(database, graph, result.NotificationId.Value);
+        await CommitMutationAsync(database, graph, db => mutateAsync(db, sources));
+    }
+
+    private static async Task AssertFeatureDisableFirstCannotLeaveVisibleDigestAsync(
+        Task<TaskDeadlineDigestGenerationResult> generation,
+        string database,
+        Graph graph)
+    {
+        try
+        {
+            var result = await generation.WaitAsync(TimeSpan.FromSeconds(15));
+            Assert.Equal(TaskDeadlineDigestGenerationOutcome.FeatureDisabled, result.Outcome);
+            Assert.Null(result.NotificationId);
+        }
+        catch (TaskDeadlineDigestRetryablePersistenceConflictException)
+        {
+            // A bounded safe retry is acceptable only when it leaves no
+            // Notification, UserState, or Outbox artifact behind.
+        }
+
+        await using var verification = CreateTenantContext(database, graph.Tenant);
+        Assert.Empty(await verification.Notifications.AsNoTracking().ToListAsync());
+        Assert.Empty(await verification.NotificationUserStates.AsNoTracking().ToListAsync());
+        Assert.Empty(await verification.OutboxEvents.AsNoTracking().ToListAsync());
+        Assert.Null((await verification.TaskDeadlineDigestJobs.AsNoTracking().SingleAsync()).NotificationId);
+    }
+
+    private static async Task<FeatureFlagSources> EnablePersistedNotificationsFeatureAsync(
+        string database,
+        Graph graph,
+        bool includeTenantSettings = true)
+    {
+        var suffix = Guid.NewGuid().ToString("N");
+        var enabledPlan = new Plan
+        {
+            Name = $"PR07-C enabled digest {suffix}",
+            Status = PlanStatus.Active,
+            EnabledFeaturesJson = JsonSerializer.Serialize(new[] { FeatureKeys.TasksNotificationsV1 })
+        };
+        var disabledPlan = new Plan
+        {
+            Name = $"PR07-C disabled digest {suffix}",
+            Status = PlanStatus.Active,
+            EnabledFeaturesJson = "[]"
+        };
+        var subscription = new Subscription
+        {
+            TenantId = graph.Tenant.Id,
+            PlanId = enabledPlan.Id,
+            Status = SubscriptionStatus.Active,
+            StartedAt = Now.AddDays(-1)
+        };
+        var settings = includeTenantSettings
+            ? new TenantSettings
+            {
+                TenantId = graph.Tenant.Id,
+                DisplayName = graph.Tenant.DisplayName,
+                FeatureFlagsJson = "{}"
+            }
+            : null;
+
+        await using var db = CreateTenantContext(database, graph.Tenant);
+        db.AddRange(enabledPlan, disabledPlan, subscription);
+        if (settings is not null)
+            db.TenantSettings.Add(settings);
+        await db.SaveChangesAsync();
+
+        return new FeatureFlagSources(enabledPlan, disabledPlan, subscription, settings);
     }
 
     private static Task<TaskDeadlineDigestJob> AddJobAsync(string database, Graph graph) =>
@@ -1005,9 +1728,11 @@ public sealed class TaskV1Pr07CDigestCandidateAtomicityPostgreSqlTests
         Tenant tenant,
         Workspace workspace,
         User recipient,
-        DateOnly localDate)
+        DateOnly localDate,
+        DateTimeOffset? scheduledForUtc = null)
     {
         await using var db = CreateTenantContext(database, tenant);
+        var scheduledFor = scheduledForUtc ?? Now.AddMinutes(-30);
         var job = new TaskDeadlineDigestJob
         {
             TenantId = tenant.Id,
@@ -1016,22 +1741,188 @@ public sealed class TaskV1Pr07CDigestCandidateAtomicityPostgreSqlTests
             LocalDate = localDate,
             PolicyVersion = TaskDeadlineDigestPolicy.PolicyVersion,
             Status = TaskDeadlineDigestJobStatus.Pending,
-            ScheduledForUtc = Now.AddMinutes(-30),
-            NextAttemptAt = Now.AddMinutes(-30)
+            ScheduledForUtc = scheduledFor,
+            NextAttemptAt = scheduledFor
         };
         db.TaskDeadlineDigestJobs.Add(job);
         await db.SaveChangesAsync();
         return job;
     }
 
-    private static async Task<TaskItem> AddQualifyingTaskAsync(string database, Graph graph)
+    private static Task<TaskItem> AddQualifyingTaskAsync(string database, Graph graph) =>
+        AddQualifyingTaskAsync(
+            database,
+            graph.Tenant,
+            graph.Actor,
+            graph.Workspace,
+            graph.Project,
+            graph.Recipient,
+            "restricted digest task title",
+            deadlineMinute: 1);
+
+    private static async Task<TaskItem> AddQualifyingTaskAsync(
+        string database,
+        Tenant tenant,
+        User actor,
+        Workspace workspace,
+        Project project,
+        User recipient,
+        string title,
+        int deadlineMinute)
     {
-        await using var db = CreateTenantContext(database, graph.Tenant);
-        var task = NewTask(graph, "restricted digest task title", 1);
-        task.PrimaryAssigneeUserId = graph.Recipient.Id;
+        await using var db = CreateTenantContext(database, tenant);
+        var task = new TaskItem
+        {
+            TenantId = tenant.Id,
+            WorkspaceId = workspace.Id,
+            ProjectId = project.Id,
+            Title = title,
+            Status = TaskItemStatus.InProgress,
+            Kind = WorkItemKind.Task,
+            DeadlineAt = Now.AddMinutes(deadlineMinute),
+            PrimaryAssigneeUserId = recipient.Id,
+            CreatedByUserId = actor.Id,
+            VersionNo = 1
+        };
         db.TaskItems.Add(task);
         await db.SaveChangesAsync();
         return task;
+    }
+
+    private static async Task<User> AddUserAsync(string database, string role)
+    {
+        var user = UserFor(role, Guid.NewGuid().ToString("N"));
+        await using var platform = PostgreSqlMigrationTestDatabase.CreatePlatformContext(database);
+        platform.Users.Add(user);
+        await platform.SaveChangesAsync();
+        return user;
+    }
+
+    private static async Task<User> AddRecipientToWorkspaceAsync(
+        string database,
+        Graph graph,
+        string role)
+    {
+        var recipient = await AddUserAsync(database, role);
+        await using var db = CreateTenantContext(database, graph.Tenant);
+        db.AddRange(
+            new TenantUser
+            {
+                TenantId = graph.Tenant.Id,
+                UserId = recipient.Id,
+                Role = TenantUserRole.Member,
+                Status = TenantUserStatus.Active,
+                JoinedAt = Now
+            },
+            new WorkspaceMember
+            {
+                TenantId = graph.Tenant.Id,
+                WorkspaceId = graph.Workspace.Id,
+                UserId = recipient.Id,
+                Role = WorkspaceRole.Member,
+                Status = MembershipStatus.Active,
+                JoinedAt = Now
+            },
+            new ProjectMember
+            {
+                TenantId = graph.Tenant.Id,
+                ProjectId = graph.Project.Id,
+                UserId = recipient.Id,
+                Role = ProjectRole.Contributor,
+                JoinedAt = Now
+            });
+        await db.SaveChangesAsync();
+        return recipient;
+    }
+
+    private static async Task<WorkspaceGraph> AddWorkspaceForRecipientAsync(
+        string database,
+        Graph graph,
+        User recipient)
+    {
+        var suffix = Guid.NewGuid().ToString("N");
+        var workspace = new Workspace
+        {
+            TenantId = graph.Tenant.Id,
+            Name = "PR07-C concurrent workspace",
+            Slug = $"pr07c-concurrent-workspace-{suffix}",
+            TimeZone = "UTC",
+            DefaultTaskDeadlineDigestLocalTime = new TimeOnly(4, 0),
+            Status = WorkspaceStatus.Active,
+            CreatedByUserId = graph.Actor.Id
+        };
+        var project = new Project
+        {
+            TenantId = graph.Tenant.Id,
+            WorkspaceId = workspace.Id,
+            OwnerUserId = graph.Actor.Id,
+            CreatedByUserId = graph.Actor.Id,
+            Name = "PR07-C concurrent project",
+            Slug = $"pr07c-concurrent-project-{suffix}",
+            Status = ProjectStatus.Active,
+            VersionNo = 1
+        };
+        var task = new TaskItem
+        {
+            TenantId = graph.Tenant.Id,
+            WorkspaceId = workspace.Id,
+            ProjectId = project.Id,
+            Title = "concurrent workspace digest task",
+            Status = TaskItemStatus.InProgress,
+            Kind = WorkItemKind.Task,
+            DeadlineAt = Now.AddMinutes(1),
+            PrimaryAssigneeUserId = recipient.Id,
+            CreatedByUserId = graph.Actor.Id,
+            VersionNo = 1
+        };
+
+        await using var db = CreateTenantContext(database, graph.Tenant);
+        var isExistingTenantUser = await db.TenantUsers.AnyAsync(member =>
+            member.TenantId == graph.Tenant.Id && member.UserId == recipient.Id);
+        db.AddRange(
+            workspace,
+            project,
+            task,
+            new WorkspaceMember
+            {
+                TenantId = graph.Tenant.Id,
+                WorkspaceId = workspace.Id,
+                UserId = graph.Actor.Id,
+                Role = WorkspaceRole.Owner,
+                Status = MembershipStatus.Active,
+                JoinedAt = Now
+            },
+            new WorkspaceMember
+            {
+                TenantId = graph.Tenant.Id,
+                WorkspaceId = workspace.Id,
+                UserId = recipient.Id,
+                Role = WorkspaceRole.Member,
+                Status = MembershipStatus.Active,
+                JoinedAt = Now
+            },
+            new ProjectMember
+            {
+                TenantId = graph.Tenant.Id,
+                ProjectId = project.Id,
+                UserId = recipient.Id,
+                Role = ProjectRole.Contributor,
+                JoinedAt = Now
+            });
+        if (!isExistingTenantUser)
+        {
+            db.TenantUsers.Add(new TenantUser
+            {
+                TenantId = graph.Tenant.Id,
+                UserId = recipient.Id,
+                Role = TenantUserRole.Member,
+                Status = TenantUserStatus.Active,
+                JoinedAt = Now
+            });
+        }
+
+        await db.SaveChangesAsync();
+        return new WorkspaceGraph(workspace, project, task);
     }
 
     private static async Task AddCategoryTasksAsync(string database, Graph graph)
@@ -1339,6 +2230,12 @@ public sealed class TaskV1Pr07CDigestCandidateAtomicityPostgreSqlTests
 
     private sealed record WorkspaceGraph(Workspace Workspace, Project Project, TaskItem Task);
 
+    private sealed record FeatureFlagSources(
+        Plan EnabledPlan,
+        Plan DisabledPlan,
+        Subscription Subscription,
+        TenantSettings? Settings);
+
     private sealed class FixedClock(DateTimeOffset now) : IClock
     {
         public DateTimeOffset UtcNow => now;
@@ -1405,6 +2302,55 @@ public sealed class TaskV1Pr07CDigestCandidateAtomicityPostgreSqlTests
             }
 
             return base.NonQueryExecutingAsync(command, eventData, result, cancellationToken);
+        }
+    }
+
+    /// <summary>
+    /// Holds only the first generator after its non-empty candidate fence has
+    /// acquired the claimed Attempt row. The first claimed-Attempt command is
+    /// the context fence and the second is the candidate-page fence. The gate
+    /// is in the test assembly and waits on actual PostgreSQL command
+    /// completion, so a second generator that completes while it is held has
+    /// crossed the database fence rather than merely being scheduled by
+    /// Task.WhenAll.
+    /// </summary>
+    private sealed class CandidateFenceGate : DbCommandInterceptor
+    {
+        private readonly TaskCompletionSource arrived = new(TaskCreationOptions.RunContinuationsAsynchronously);
+        private readonly TaskCompletionSource release = new(TaskCreationOptions.RunContinuationsAsynchronously);
+        private int candidateFenceCount;
+        private int holding;
+
+        public bool IsHolding => Volatile.Read(ref holding) == 1;
+
+        public Task WaitForArrivalAsync() =>
+            arrived.Task.WaitAsync(TimeSpan.FromSeconds(15));
+
+        public void Release() => release.TrySetResult();
+
+        public override async ValueTask<DbDataReader> ReaderExecutedAsync(
+            DbCommand command,
+            CommandExecutedEventData eventData,
+            DbDataReader result,
+            CancellationToken cancellationToken = default)
+        {
+            if (command.CommandText.Contains("FROM task_deadline_digest_attempts", StringComparison.OrdinalIgnoreCase) &&
+                command.CommandText.Contains("FOR UPDATE", StringComparison.OrdinalIgnoreCase) &&
+                Interlocked.Increment(ref candidateFenceCount) == 2)
+            {
+                Volatile.Write(ref holding, 1);
+                arrived.TrySetResult();
+                try
+                {
+                    await release.Task.WaitAsync(TimeSpan.FromSeconds(15), cancellationToken);
+                }
+                finally
+                {
+                    Volatile.Write(ref holding, 0);
+                }
+            }
+
+            return await base.ReaderExecutedAsync(command, eventData, result, cancellationToken);
         }
     }
 

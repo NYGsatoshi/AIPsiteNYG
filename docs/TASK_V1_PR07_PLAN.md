@@ -404,7 +404,10 @@ Build bounded, independently retryable daily user/Workspace digests without dupl
 - implement bounded due-row selection and atomic database-safe claiming;
 - use Workspace-local preference/default time and a documented DST gap/fold policy;
 - group eligible Tasks for 3 days, 1 day, today, and overdue;
-- enforce a deterministic commit-time current-state fence: lock and recheck membership, Workspace/Project/Task visibility and lifecycle, and current effective Watch/relationship state before creation;
+- enforce a deterministic commit-time current-state fence: lock and recheck membership, Workspace/Project/Task visibility and lifecycle, current effective Watch/relationship state, and every persistent `tasks.notificationsV1` source before creation;
+- use PostgreSQL `FOR SHARE` for Tenant, TenantSettings, active Subscription, Plan, TenantUser, Workspace, WorkspaceMember, Project, Group, ProjectMember, GroupMember, Task, WorkflowStage, Watch, and Collaborator state so independent digest readers coexist; reserve `FOR UPDATE` for the recipient User and claimed digest Job/Attempt;
+- preserve the fixed lock order Tenant -> TenantSettings -> active Subscription -> Plan -> recipient User -> TenantUser -> Workspace -> WorkspaceMember -> sorted Project/Group/membership rows -> sorted Task/WorkflowStage/Watch/Collaborator rows -> claimed Job/Attempt;
+- protect absent TenantSettings/Subscription, WorkspaceMember, ProjectMember, GroupMember, Watch, and Collaborator rows with matching stable-parent shared/exclusive pivots (Tenant, Workspace, Project, Group, and Task respectively), rather than a digest-only advisory lock;
 - include manual Watch, suppress explicit opt-out, and exclude mere visibility and Team Queue eligibility from digest relevance;
 - isolate each user/Workspace unit so one failure does not poison the batch;
 - make at most 3 automatic generation attempts, then terminal ledger `Failed`;
@@ -416,7 +419,10 @@ Build bounded, independently retryable daily user/Workspace digests without dupl
 
 ### Migration impact
 
-One focused migration for the digest ledger and due/claim indexes. Add a Task deadline query index only when PostgreSQL plan evidence demonstrates it is required.
+One focused migration for the digest ledger and due/claim indexes. The
+same-Tenant concurrency remediation changes lock SQL and writer fences only;
+it adds no migration or digest-specific table. Add a Task deadline query index
+only when PostgreSQL plan evidence demonstrates it is required.
 
 ### Required tests
 
@@ -429,6 +435,21 @@ One focused migration for the digest ledger and due/claim indexes. Add a Task de
 - zero-candidate `Succeeded` with no Notification or Outbox row;
 - bounded pages and one-user failure isolation;
 - concurrent workers, claim timeout/recovery, 3-attempt terminal Failed, and one audited operator attempt per restart without budget reset;
+- provider-authoritative concurrency cases named
+  `DifferentUsersInSameTenantGenerateConcurrently`,
+  `DifferentUsersInSameWorkspaceDoNotShareExclusiveFence`,
+  `DifferentWorkspacesInSameTenantDoNotShareExclusiveFence`, and
+  `SlowFirstClaimDoesNotExpireLaterSameTenantClaims`; these must demonstrate
+  post-fence/commit progress before an intentionally paused unrelated
+  generator is released, not merely simultaneous task start;
+- `SameRecipientStillSerializesNotificationStateVersion`, proving two
+  same-user Workspace digests leave unique versions 1/2 with two
+  Notifications, two recipient-only Outbox rows, and two successful jobs;
+- `ConcurrentTenantMutationWaitsForGenerationFence`,
+  `ConcurrentFeatureDisableWaitsOrPreventsDigestCommit`, and
+  `MissingWatchRowOptOutInsertCannotBypassFence`, proving lifecycle/feature
+  mutation fencing and the absent-Watch phantom policy without a stale visible
+  result;
 - post-final-evaluation membership revoke, Workspace/Project archive, Task completion, explicit Watch opt-out, and relationship-removal races, proving that the mutation waits behind the fence or the generator retries without committing stale state;
 - feature-disable claim release that restores automatic claim counters, preserves one pending operator-restart attempt, fences an old token, and stages no Notification or Outbox row;
 - identical schedule upsert no-op behavior, changed preference/timezone rescheduling of only pending unattempted rows, and diagnostics that count actual writes;
@@ -438,8 +459,13 @@ One focused migration for the digest ledger and due/claim indexes. Add a Task de
 
 ### Completion gate
 
-PR07-C completes only with PostgreSQL concurrency, commit-time current-state
-fencing, schedule idempotency, retry, and DST evidence plus an
+PR07-C completes only with PostgreSQL evidence that at least two distinct-user
+generations can progress in the same Tenant and the same Workspace, while the
+same-recipient Notification-state critical section remains one-at-a-time;
+tenant/feature/lifecycle and absent-row mutations must conflict with the
+fence, and an intentionally slow unrelated claim must not expire later claims
+or consume extra automatic attempts. It additionally requires current-state
+fencing, schedule idempotency, bounded retry, DST evidence, and an
 operator-readable health state. The feature remains disabled.
 
 ## PR07-D — Current-authorized delivery/opening and Angular reconciliation

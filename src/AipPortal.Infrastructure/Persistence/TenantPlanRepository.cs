@@ -12,6 +12,15 @@ public sealed class TenantPlanRepository(AppDbContext dbContext) : ITenantPlanRe
         return dbContext.TenantSettings.FirstOrDefaultAsync(settings => settings.TenantId == tenantId, cancellationToken);
     }
 
+    public Task<TenantSettings?> GetTenantSettingsForFeatureEvaluationAsync(
+        Guid tenantId,
+        CancellationToken cancellationToken = default)
+    {
+        return dbContext.TenantSettings
+            .AsNoTracking()
+            .FirstOrDefaultAsync(settings => settings.TenantId == tenantId, cancellationToken);
+    }
+
     public async Task<TenantSettings> GetOrCreateTenantSettingsAsync(Guid tenantId, CancellationToken cancellationToken = default)
     {
         var settings = await GetTenantSettingsAsync(tenantId, cancellationToken);
@@ -49,6 +58,19 @@ public sealed class TenantPlanRepository(AppDbContext dbContext) : ITenantPlanRe
     public Task<Subscription?> GetActiveSubscriptionAsync(Guid tenantId, CancellationToken cancellationToken = default)
     {
         return dbContext.Subscriptions
+            .Include(subscription => subscription.Plan)
+            .Where(subscription => subscription.TenantId == tenantId)
+            .Where(subscription => subscription.Status == SubscriptionStatus.Trial || subscription.Status == SubscriptionStatus.Active)
+            .OrderByDescending(subscription => subscription.StartedAt)
+            .FirstOrDefaultAsync(cancellationToken);
+    }
+
+    public Task<Subscription?> GetActiveSubscriptionForFeatureEvaluationAsync(
+        Guid tenantId,
+        CancellationToken cancellationToken = default)
+    {
+        return dbContext.Subscriptions
+            .AsNoTracking()
             .Include(subscription => subscription.Plan)
             .Where(subscription => subscription.TenantId == tenantId)
             .Where(subscription => subscription.Status == SubscriptionStatus.Trial || subscription.Status == SubscriptionStatus.Active)

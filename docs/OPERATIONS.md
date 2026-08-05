@@ -106,7 +106,7 @@ Current `TaskDeadlineDigest` defaults are:
 | `PollSeconds` | 60 | minimum 1 second |
 | `TenantPageSize` | 25 | 1-100 |
 | `SchedulePageSize` | 100 | 1-500 |
-| `ClaimBatchSize` | 20 | 1-100; also the per-Tenant claim-concurrency ceiling |
+| `ClaimBatchSize` | 20 | 1-100; bounded per-Tenant claim fan-out, not a database-concurrency guarantee or ceiling |
 | `CandidatePageSize` | 100 | 1-500 |
 | `ClaimTimeoutSeconds` | 120 | minimum 1 second |
 | `RetrySeconds` | 60 | minimum 1 second |
@@ -119,9 +119,41 @@ After a Tenant's bounded claim query completes, the worker starts every leased
 claim immediately in one `Task.WhenAll`. Each claim receives a separate DI and
 Tenant scope, so one slow recipient does not leave later leases idle and an
 ordinary per-user/Workspace failure does not stop its peers. Increasing
-`ClaimBatchSize` therefore also increases concurrent generation transactions
-and database load; 100 remains the hard ceiling. Shared host cancellation is
-propagated to every claim.
+`ClaimBatchSize` therefore raises application fan-out and potential database
+load, but `Task.WhenAll` alone is not evidence that PostgreSQL generations
+run concurrently. The actual database behavior is governed by the generation
+fence: shared reader locks allow different recipients in one Tenant or
+Workspace to progress together, while the recipient User `FOR UPDATE` lock
+serializes only same-recipient Notification-state work. Shared host cancellation
+is propagated to every claim.
+
+### Generation fence and lock waits
+
+The digest never takes a Tenant-wide or Workspace-wide exclusive generation
+lock. Before final recheck and commit it takes `FOR SHARE` locks in this fixed
+order: Tenant, TenantSettings, active Subscription(s), Plan source(s),
+TenantUser, Workspace, WorkspaceMember, Project/Group membership rows, and
+candidate Task/WorkflowStage/Watch/Collaborator rows. It locks the recipient
+User and the claimed job/attempt `FOR UPDATE`. IDs within a resource type are
+ordered ascending. PostgreSQL shared readers coexist; normal lifecycle,
+authorization, and feature-source writers wait on conflicting update/delete
+locks until the digest commits.
+
+The writer side also takes a stable parent `FOR UPDATE` pivot for optional-row
+mutations, so an absent child cannot bypass the reader fence: Tenant for
+TenantSettings/Subscription, Workspace for WorkspaceMember, Project for
+ProjectMember, Group for GroupMember, and Task for Watch/Collaborator. This is
+the phantom policy; do not replace it with a digest-only advisory lock.
+
+`tasks.notificationsV1` is evaluated from the shared-fenced TenantSettings,
+active Subscription, and Plan sources immediately before a visible commit. A
+feature change either waits for the digest or makes the generator retry/release
+without committing stale Notification, Outbox, or user-state work. Ordinary
+shared-lock waiting is not a generation failure. Do not hide contention by
+reducing the batch to one, serializing `Task.WhenAll`, extending
+`ClaimTimeoutSeconds`, or increasing polling intervals. A later same-Tenant
+claim that expires merely because an unrelated generator holds its fence is a
+correctness regression to investigate.
 
 Before enabling a Tenant, verify its Workspace timezones and stored/inherited
 quarter-hour preferences. Invalid timezone identities fall back through the

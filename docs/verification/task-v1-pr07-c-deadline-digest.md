@@ -2,12 +2,13 @@
 
 ## Status
 
-The PR07-C remediation implementation is present on
-`task/v1-pr07-c-deadline-digest` in code-bearing commit
-`8545ae7ab8ecc3feb6d0bbe278ecfe81f217ba31`. This record is not merge
-authorization and does not relabel PR07-C as complete. The branch remains a
-non-merged Draft; the exact final branch head and hosted run IDs are recorded
-in PR #277 rather than self-referential source content.
+The same-Tenant concurrency remediation starts from audit HEAD
+`b6d10206c508b8acc57590f2c127f468f77cc3c0`. This record is not merge
+authorization and does not relabel PR07-C as complete. It intentionally
+records no final branch SHA, test count, workflow ID, or review/check result:
+those facts must be collected from the immutable final HEAD and recorded in
+the PR body after the required checks finish. PR #277 must remain Draft and
+unmerged during this work.
 
 PR07-C covers generation only. Current-authorized delayed dispatch/replay,
 notification opening, SignalR route changes, Angular reconciliation, and final
@@ -28,7 +29,8 @@ later phases.
 | Focused owner decision | `docs/decisions/task-v1-pr07-c-deadline-digest-decisions.md` (`Resolved`, 2026-08-03) |
 | Migration | `20260803041347_AddTaskDeadlineDigestLedger` |
 | Policy version | `1` |
-| Code-bearing remediation HEAD | `8545ae7ab8ecc3feb6d0bbe278ecfe81f217ba31` |
+| Same-Tenant-concurrency audit starting HEAD | `b6d10206c508b8acc57590f2c127f468f77cc3c0` |
+| Final remediation HEAD | Not recorded in source; obtain from the final immutable branch head |
 | Pull request | `#277` — Draft and unmerged; final branch SHA/check references are recorded in the PR body after push |
 | Merge performed | No |
 
@@ -117,12 +119,35 @@ Workflow terminal stage, and relationship source are all checked. The normal
 candidate-page enumeration runs only inside its generation transaction;
 bounded lock/rechecks validate each already enumerated page rather than
 forming a discarded second enumeration. Before accepting the context or a
-bounded evaluated page, the repository acquires a
-current-state fence in fixed order: Tenant, User, TenantUser, TenantSettings,
-Workspace, WorkspaceMember, Project, Group, ProjectMember, GroupMember, Task,
-WorkflowStage, Watch/Collaborator, then the digest job and claimed attempt. It
-rechecks the current context and exact page predicate while those locks are
-held.
+bounded evaluated page, the repository acquires a current-state fence. It uses
+`FOR SHARE` for Tenant, TenantSettings, active Subscription(s), their
+Plan source(s), TenantUser, Workspace, WorkspaceMember, Project, Group,
+ProjectMember, GroupMember, Task, WorkflowStage, Watch, and Collaborator; it
+uses `FOR UPDATE` for recipient User and claimed job/attempt. The actual fixed
+order is Tenant -> TenantSettings -> active Subscription -> Plan -> recipient
+User -> TenantUser -> Workspace -> WorkspaceMember -> sorted Project/Group/
+membership rows -> sorted Task/WorkflowStage/Watch/Collaborator rows -> claimed
+job/attempt. It rechecks the current context and exact page predicate while
+those locks are held.
+
+`FOR SHARE` allows independent digest readers to coexist while conflicting
+with ordinary PostgreSQL update/delete locks. Tenant and Workspace are not
+exclusive digest fences. The User `FOR UPDATE` row is deliberately the only
+recipient-wide serialization point, so same-user Workspace digests serialize
+their Notification-state advance while different users in the same Tenant or
+Workspace can progress together. The job and attempt retain exclusive
+claim-token ownership fencing.
+
+Absent optional rows have no row lock to protect. The writer and generator
+therefore share stable parent pivots: Tenant for TenantSettings/Subscription,
+Workspace for WorkspaceMember, Project for ProjectMember, Group for
+GroupMember, and Task for Watch/Collaborator. A digest takes the pivot shared;
+the matching writer takes it `FOR UPDATE` before it inserts, changes, or
+deletes the child. The source fence covers TenantSettings, every active
+Subscription, and the relevant Plan source(s), so a feature-disable mutation
+cannot commit ahead of a stale digest. Its final feature read is no-tracking
+after those locks, so a preflight-tracked source cannot be reused. No
+digest-only advisory lock is used.
 
 Thus an authorization/lifecycle mutation that arrives after fencing waits for
 the permitted commit, while a mutation that already committed causes a
@@ -147,6 +172,22 @@ rows. The required final-evaluation race cases are
 `RelationshipRemovedAfterFinalEvaluationCannotCommitDigest`. They must prove
 that no stale Notification, Outbox row, or recipient state advance commits.
 
+The same-Tenant PostgreSQL concurrency gates are
+`DifferentUsersInSameTenantGenerateConcurrently`,
+`DifferentUsersInSameWorkspaceDoNotShareExclusiveFence`,
+`DifferentWorkspacesInSameTenantDoNotShareExclusiveFence`,
+`SlowFirstClaimDoesNotExpireLaterSameTenantClaims`,
+`SameRecipientStillSerializesNotificationStateVersion`,
+`ConcurrentTenantMutationWaitsForGenerationFence`,
+`ConcurrentFeatureDisableWaitsOrPreventsDigestCommit`, and
+`MissingWatchRowOptOutInsertCannotBypassFence`. They use test-assembly-only
+gates/interceptors around real generator/repository transactions. The first
+three must show the later generator evaluates and commits before a paused
+unrelated predecessor is released; the slow-claim case must show no irrelevant
+expiry, extra automatic attempt, or claim loss; the same-recipient case must
+show unique state versions; and the feature/phantom cases must show no stale
+Notification, Outbox, or state update.
+
 ## Result, atomicity, and privacy
 
 A non-empty final evaluation stages exactly one generic recipient Notification:
@@ -167,8 +208,9 @@ The commit-time fence, including the recipient User and claimed job/attempt,
 is held through the single save/commit. Notification, NotificationUserState,
 minimal signal Outbox row, optional job `NotificationId`, and `Succeeded`
 transition therefore share one atomic outcome. Concurrent same-user Workspace
-digests serialize through their common recipient fence without treating the
-Outbox as a scheduler.
+digests serialize through their common recipient User `FOR UPDATE` fence,
+without treating the Outbox as a scheduler or serializing unrelated Tenant
+recipients.
 
 The existing `NotificationUserState.Version` is also an EF optimistic-
 concurrency token. It protects the state version when a digest races an
@@ -193,9 +235,12 @@ schedules/page, 100 claims/batch, and 500 candidates/page. Default claim expiry
 is 120 seconds and default failure retry delay is 60 seconds. Cancellation is
 propagated through paging and database/generation calls. Every claim in the
 bounded batch starts immediately in one `Task.WhenAll`, with its own DI and
-Tenant scope; the claim-batch bound of 100 is therefore also the concurrency
-ceiling. One Tenant cycle or one claimed-user generation failure does not stop
-later Tenants/claims.
+Tenant scope. The claim-batch bound of 100 is an application fan-out bound, not
+a database concurrency ceiling; `Task.WhenAll` does not by itself prove that
+generators made concurrent PostgreSQL progress. The shared/exclusive fence is
+the database contract that permits different recipients to progress while
+serializing a same recipient. One Tenant cycle or one claimed-user generation
+failure does not stop later Tenants/claims.
 
 Worker logs pass no exception object or message. They use fixed templates and
 safe bounded error codes only; focused tests reject Tenant, Workspace, user,
@@ -231,9 +276,9 @@ Focused partial indexes are:
 - `IX_task_deadline_digest_jobs_claim_expiry` for claimed rows ordered by
   Tenant, expiry, and ID.
 
-The PostgreSQL 18 suite captures `EXPLAIN (ANALYZE, BUFFERS)` and observes the
-due index directly and the claim-expiry index with incremental sort. Candidate
-list pages clamp a requested `int.MaxValue` page size to 500 and preserve
+The PostgreSQL 18 acceptance suite must capture `EXPLAIN (ANALYZE, BUFFERS)`
+and show the due index directly and the claim-expiry index with incremental
+sort. Candidate list pages clamp a requested `int.MaxValue` page size to 500 and preserve
 deterministic `(DeadlineAt, Id)` order. Commit fencing performs additional
 bounded lock/recheck operations for the evaluated page; it does not introduce
 a discarded pre-transaction candidate pass. No optional Task-deadline index was
@@ -241,25 +286,25 @@ added because the small fixture is not representative PostgreSQL plan evidence
 for that index. Production-volume candidate planning remains environment
 evidence, not an inferred index recommendation.
 
-## Focused evidence
+## Required final evidence
 
-The following local evidence ran against the code-bearing remediation tree
-before this documentation-only evidence commit. PostgreSQL 18 was available
-through a disposable migrated database; connection values are intentionally
-not recorded. The final branch SHA and hosted run IDs are recorded in PR #277
-after push, because a source file cannot self-identify the hash of the commit
-that contains it.
+No final evidence is recorded in this source file. A prior candidate's local
+results are historical only and predate this same-Tenant concurrency
+remediation; they must not be reused as a final SHA, count, manifest result, or
+hosted-check result. Use a disposable PostgreSQL 18 database, redact connection
+values, and record the following only after execution on the immutable final
+head:
 
-| Check | Actual local evidence |
+| Check | Required evidence, not yet recorded here |
 | --- | --- |
-| Release restore/build | Restore current; Release build passed with 0 warnings and 0 errors. |
-| `Scope=TaskV1PR07C` PostgreSQL acceptance and strict TRX manifest | 94 passed, 0 failed, 0 skipped; strict verifier passed; manifest active 64, matched 64. |
-| `TaskV1Pr07CDeadlineDigestPostgreSqlTests` | 23 passed, 0 failed, 0 skipped. |
-| `TaskV1Pr07CDigestCandidateAtomicityPostgreSqlTests` | 15 passed, 0 failed, 0 skipped, including all six post-final-evaluation fence races. |
-| `TaskV1Pr07CNotificationVersionConcurrencyPostgreSqlTests` | 1 passed, 0 failed, 0 skipped. |
-| Full backend and EF pending-model check | 776 passed, 0 failed, 0 skipped; strict TRX verifier passed; EF reported no pending model changes. |
-| Frontend unit/build, architecture, license, Storybook, and Playwright gates | Angular unit 324/324; production build, architecture, license, and Storybook builds passed; local and Docker Linux Playwright each passed 63 with 3 repository-defined skips. Frontend production source was unchanged. |
-| Hosted Draft PR checks and review state | Pending final push verification; retain Draft and unmerged status. |
+| Release restore/build | 0 warnings and 0 errors on the final head. |
+| `Scope=TaskV1PR07C` PostgreSQL acceptance and strict TRX manifest | No failed, skipped, aborted, or missing required test; record actual total and active/matched manifest counts from the final TRX. |
+| `TaskV1Pr07CDeadlineDigestPostgreSqlTests` | Final PostgreSQL result, including claim/lease fencing. |
+| `TaskV1Pr07CDigestCandidateAtomicityPostgreSqlTests` | Final PostgreSQL result, including all final-evaluation and new same-Tenant/phantom gates. |
+| `TaskV1Pr07CNotificationVersionConcurrencyPostgreSqlTests` | Final PostgreSQL recipient-version result. |
+| Full backend and EF pending-model check | Final result and exact model-drift output. |
+| Frontend/unit/build/architecture/license/Storybook/Playwright | Final command results, with skipped status reported rather than hidden. |
+| Hosted Draft PR checks and review state | Live final-HEAD workflow IDs, mergeability, behind-main, review threads, requested changes, and pending checks; retain Draft/unmerged. |
 | Frontend/SignalR/open behavior | Excluded; PR07-D/E scope. |
 
 ### Commands
@@ -271,7 +316,13 @@ redacted from durable evidence.
 $env:POSTGRES_TEST_CONNECTION_STRING = '<disposable PostgreSQL 18 connection string>'
 $env:ConnectionStrings__DefaultConnection = $env:POSTGRES_TEST_CONNECTION_STRING
 
-dotnet build AipPortal.slnx --configuration Release
+dotnet restore AipPortal.slnx
+
+dotnet build AipPortal.slnx `
+  --configuration Release `
+  --no-restore `
+  --disable-build-servers `
+  -m:1
 
 dotnet ef database update `
   --project src/AipPortal.Infrastructure `
@@ -288,6 +339,8 @@ dotnet ef migrations has-pending-model-changes `
 dotnet test tests/AipPortal.Tests/AipPortal.Tests.csproj `
   --configuration Release `
   --no-build `
+  --disable-build-servers `
+  -m:1 `
   --filter "Scope=TaskV1PR07C" `
   --logger "trx;LogFileName=task-pr07c-acceptance.trx" `
   --results-directory artifacts/task-pr07c-test-results
@@ -301,19 +354,29 @@ bash scripts/ci/verify-trx-results.sh `
 dotnet test tests/AipPortal.Tests/AipPortal.Tests.csproj `
   --configuration Release `
   --no-build `
+  --disable-build-servers `
+  -m:1 `
   --filter "FullyQualifiedName~TaskV1Pr07CDeadlineDigestPostgreSqlTests"
 
 dotnet test tests/AipPortal.Tests/AipPortal.Tests.csproj `
   --configuration Release `
   --no-build `
+  --disable-build-servers `
+  -m:1 `
   --filter "FullyQualifiedName~TaskV1Pr07CDigestCandidateAtomicityPostgreSqlTests"
 
 dotnet test tests/AipPortal.Tests/AipPortal.Tests.csproj `
   --configuration Release `
   --no-build `
+  --disable-build-servers `
+  -m:1 `
   --filter "FullyQualifiedName~TaskV1Pr07CNotificationVersionConcurrencyPostgreSqlTests"
 
-dotnet test AipPortal.slnx --configuration Release --no-build
+dotnet test AipPortal.slnx `
+  --configuration Release `
+  --no-build `
+  --disable-build-servers `
+  -m:1
 git diff --check
 ```
 
@@ -340,8 +403,12 @@ fresh/upgrade deployment evidence, pending-model check, or exact-head CI.
 At this documentation point:
 
 - Digest and Outbox state machines are separated in source.
-- The source contract now uses a deterministic commit-time current-state fence,
-  post-lock re-evaluation, and at most three recreated transaction attempts.
+- The source contract to verify uses a deterministic commit-time current-state
+  fence: shared Tenant/feature/authorization/lifecycle rows, an exclusive
+  recipient User, exclusive claim Job/Attempt rows, stable-parent phantom
+  pivots, post-lock re-evaluation, and at most three recreated transaction
+  attempts. It does not use a Tenant-wide or Workspace-wide exclusive digest
+  fence.
 - Feature-disable release, schedule write idempotency, and one normal
   in-transaction candidate evaluation are implemented contracts that require
   final provider evidence.

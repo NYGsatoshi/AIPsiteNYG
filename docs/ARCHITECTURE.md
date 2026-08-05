@@ -197,10 +197,14 @@ configured defaults are 25, 100, 20, and 100 respectively. Claim ownership is
 fenced by a token and short expiry (120 seconds by default), PostgreSQL claim
 queries use `FOR UPDATE SKIP LOCKED`, and every claim in the already bounded
 batch starts immediately through one `Task.WhenAll`. Each claim receives its
-own Tenant scope; the maximum batch of 100 is also the concurrency ceiling.
-Cancellation is propagated, and one Tenant or claimed-user failure does not
-stop other bounded work. Worker logs use only bounded error codes and fixed
-messages, without exception details or recipient/resource IDs.
+own Tenant scope. `Task.WhenAll` establishes bounded application fan-out; it
+does not by itself prove PostgreSQL concurrency, nor does a claim-batch limit
+define the database concurrency ceiling. The commit fence below determines
+which generators can make database progress: different recipients can share
+reader locks, while the same recipient is deliberately serialized. Cancellation
+is propagated, and one Tenant or claimed-user failure does not stop other
+bounded work. Worker logs use only bounded error codes and fixed messages,
+without exception details or recipient/resource IDs.
 
 Each schedule uses the member's stored local-time override or the Workspace
 default, the Workspace timezone with Tenant/UTC fallback, and the current
@@ -231,15 +235,41 @@ independent mandatory filters. The one normal candidate-page enumeration occurs
 inside the generation transaction; bounded lock/rechecks validate each already
 enumerated page rather than creating a discarded second enumeration. Before
 accepting context or a bounded candidate page, a repository-owned fence locks
-state in this order: Tenant,
-User, TenantUser, TenantSettings, Workspace, WorkspaceMember, Project, Group,
-ProjectMember, GroupMember, Task, WorkflowStage, Watch/Collaborator, then the
-digest job and claimed attempt. It rechecks the current context and the exact
-candidate predicate while those locks are held. A mutation that arrives after
-the fence waits for the commit; a mutation that won earlier produces a
-current-state change and discards the transaction before Notification, Outbox,
-or `Succeeded` can be staged. A zero-candidate recheck is a successful
-idempotent no-op with no Notification or Outbox row.
+state in this order:
+
+1. Tenant; TenantSettings; active Subscription(s); and their Plan row(s), all
+   `FOR SHARE`;
+2. recipient User `FOR UPDATE`, then TenantUser `FOR SHARE`;
+3. Workspace and WorkspaceMember `FOR SHARE`;
+4. candidate Project(s), Group(s), ProjectMember(s), and GroupMember(s), all
+   `FOR SHARE` in ascending ID order;
+5. candidate Task(s), WorkflowStage(s), Watch row(s), and Collaborator row(s),
+   all `FOR SHARE` in ascending ID order; and
+6. the claimed digest job and attempt `FOR UPDATE` with the original claim
+   token.
+
+`FOR SHARE` is intentional: concurrent digest readers coexist, whereas
+PostgreSQL `UPDATE`/`DELETE` row locks conflict until the generation commits.
+The Tenant and Workspace are therefore never digest-wide `FOR UPDATE` fences.
+Only the recipient User is exclusive, making the
+`NotificationUserState.Version` update a same-recipient critical section;
+different users in one Tenant or Workspace need not wait on each other.
+
+Row locks cannot protect an absent optional relationship. The fence therefore
+uses stable parent pivots, and the matching mutation path acquires that parent
+`FOR UPDATE` before it inserts, changes, or deletes the child: Tenant for
+TenantSettings/Subscription, Workspace for WorkspaceMember, Project for
+ProjectMember, Group for GroupMember, and Task for Watch/Collaborator. This
+protects the corresponding absent-row phantoms without session advisory locks.
+The feature check is made only after the shared source fence covers
+TenantSettings, every active Subscription, and the selected Plan source(s).
+
+It rechecks the current context and the exact candidate predicate while those
+locks are held. A mutation that arrives after the fence waits for the commit;
+a mutation that won earlier produces a current-state change and discards the
+transaction before Notification, Outbox, or `Succeeded` can be staged. A
+zero-candidate recheck is a successful idempotent no-op with no Notification
+or Outbox row.
 
 Serialization/deadlock, EF concurrency, and current-state conflicts are
 classified in Infrastructure and exposed to Application only as a safe
@@ -254,11 +284,13 @@ body or Task list, and a digest-job reference. Its signal contains only
 signal staging, the ledger transition, and their save occur in the same
 generation transaction. The stable Notification logical key is derived from
 Workspace, local date, and policy version; the existing Notification unique
-index adds Tenant and recipient to that identity. The shared
-`NotificationUserState.Version` is an EF optimistic-concurrency token. A digest
-and immediate Task producer racing from the same recipient version cannot both
-commit it: one unit of work rolls back, and a clean retry produces monotonic
-Notification/signal versions 1 then 2.
+index adds Tenant and recipient to that identity. The recipient User `FOR
+UPDATE` fence serializes concurrent digest generations for that user, including
+digests for different Workspaces. The shared `NotificationUserState.Version` is
+also an EF optimistic-concurrency token for other Notification producers. A
+digest and immediate Task producer racing from the same recipient version
+cannot both commit it: one unit of work rolls back, and a clean retry produces
+monotonic Notification/signal versions 1 then 2.
 
 `tasks.notificationsV1` remains a database-backed per-Tenant flag and is
 default off. The hosted worker must still page active Tenants to evaluate that
