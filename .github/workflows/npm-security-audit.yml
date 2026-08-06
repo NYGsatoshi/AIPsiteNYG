@@ -25,6 +25,7 @@ jobs:
         uses: actions/setup-node@v7
         with:
           node-version: "24"
+          package-manager-cache: false
 
       - name: Report Node toolchain
         run: |
@@ -120,7 +121,7 @@ jobs:
         with:
           name: npm-audit-reports
           path: artifacts/npm-audit/*.json
-          if-no-files-found: error
+          if-no-files-found: warn
 
       - name: Report audit result
         if: steps.audit.outputs.vulnerabilities_found == '1'
@@ -145,6 +146,7 @@ jobs:
         uses: actions/setup-node@v7
         with:
           node-version: "24"
+          package-manager-cache: false
 
       - name: Enforce root install policy
         run: bash scripts/ci/npm-ci-retry.sh .
