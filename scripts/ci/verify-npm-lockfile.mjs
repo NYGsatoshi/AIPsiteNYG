@@ -53,31 +53,6 @@ function packageNameFromLockPath(lockPath) {
   return markerIndex >= 0 ? lockPath.slice(markerIndex + marker.length) : null;
 }
 
-function currentPlatformCanInstall(metadata) {
-  const evaluateList = (values, currentValue) => {
-    if (!Array.isArray(values) || values.length === 0) {
-      return true;
-    }
-
-    const denied = values
-      .filter((value) => typeof value === 'string' && value.startsWith('!'))
-      .map((value) => value.slice(1));
-    if (denied.includes(currentValue)) {
-      return false;
-    }
-
-    const allowed = values.filter(
-      (value) => typeof value === 'string' && !value.startsWith('!'),
-    );
-    return allowed.length === 0 || allowed.includes(currentValue);
-  };
-
-  return (
-    evaluateList(metadata.os, process.platform) &&
-    evaluateList(metadata.cpu, process.arch)
-  );
-}
-
 function resolveInstallScriptDecision(allowScripts, packageName, version) {
   const exactKey = `${packageName}@${version}`;
   if (Object.hasOwn(allowScripts, exactKey)) {
@@ -136,7 +111,6 @@ for (const [key, value] of Object.entries(allowScripts)) {
 let packageCount = 0;
 let approvedInstallScriptCount = 0;
 let deniedInstallScriptCount = 0;
-let skippedPlatformInstallScriptCount = 0;
 const observedAllowScriptKeys = new Set();
 
 for (const [lockPath, metadata] of Object.entries(lockfile.packages ?? {})) {
@@ -184,11 +158,8 @@ for (const [lockPath, metadata] of Object.entries(lockfile.packages ?? {})) {
     continue;
   }
 
-  if (!currentPlatformCanInstall(metadata)) {
-    skippedPlatformInstallScriptCount += 1;
-    continue;
-  }
-
+  // npm strict-allow-scripts requires a decision for every package represented
+  // in the lockfile, including optional packages for a different OS/CPU.
   const decision = resolveInstallScriptDecision(
     allowScripts,
     packageName,
@@ -225,6 +196,5 @@ console.log(
     `packages=${packageCount}`,
     `approvedInstallScripts=${approvedInstallScriptCount}`,
     `deniedInstallScripts=${deniedInstallScriptCount}`,
-    `platformSkippedInstallScripts=${skippedPlatformInstallScriptCount}`,
   ].join(' '),
 );
