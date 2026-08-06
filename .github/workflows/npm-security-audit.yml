@@ -11,38 +11,30 @@ permissions:
 
 jobs:
   audit:
-    runs-on: self-hosted
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
 
     steps:
-      - name: Repair previous Docker workspace ownership
-        shell: bash
-        run: |
-          uid="$(id -u)"
-          gid="$(id -g)"
-          docker run --rm \
-            -v "$GITHUB_WORKSPACE:/workspace" \
-            alpine:3.21 \
-            sh -c "chown -R ${uid}:${gid} /workspace"
-
       - name: Checkout
         uses: actions/checkout@v7
+        with:
+          clean: true
+          persist-credentials: false
 
       - name: Setup Node.js
         uses: actions/setup-node@v7
         with:
           node-version: "24"
-          cache: npm
-          cache-dependency-path: |
-            **/package-lock.json
 
-      - name: Audit npm dependency trees
-        id: audit
+      - name: Report Node toolchain
+        run: |
+          node --version
+          npm --version
+
+      - name: Verify npm supply-chain policy
         shell: bash
         run: |
-          set -uo pipefail
-          report_dir="$GITHUB_WORKSPACE/artifacts/npm-audit"
-          mkdir -p "$report_dir"
-
+          set -euo pipefail
           mapfile -d '' lockfiles < <(
             find . -name package-lock.json \
               -not -path '*/node_modules/*' \
@@ -53,6 +45,29 @@ jobs:
             echo "No package-lock.json files found." >&2
             exit 1
           fi
+
+          for lockfile in "${lockfiles[@]}"; do
+            package_dir="$(dirname "$lockfile")"
+            node scripts/ci/verify-npm-lockfile.mjs "$package_dir"
+          done
+
+      - name: Audit npm dependency trees
+        id: audit
+        shell: bash
+        env:
+          NPM_CONFIG_REGISTRY: https://registry.npmjs.org/
+          NPM_CONFIG_ALLOW_GIT: none
+          NPM_CONFIG_ALLOW_REMOTE: none
+        run: |
+          set -uo pipefail
+          report_dir="$GITHUB_WORKSPACE/artifacts/npm-audit"
+          mkdir -p "$report_dir"
+
+          mapfile -d '' lockfiles < <(
+            find . -name package-lock.json \
+              -not -path '*/node_modules/*' \
+              -print0 | sort -z
+          )
 
           audit_failed=0
           for lockfile in "${lockfiles[@]}"; do
@@ -112,14 +127,3 @@ jobs:
         run: |
           echo "npm audit found vulnerable dependency trees."
           echo "This baseline workflow is report-only while remediation PRs are prepared."
-
-      - name: Repair workspace ownership
-        if: always()
-        shell: bash
-        run: |
-          uid="$(id -u)"
-          gid="$(id -g)"
-          docker run --rm \
-            -v "$GITHUB_WORKSPACE:/workspace" \
-            alpine:3.21 \
-            sh -c "chown -R ${uid}:${gid} /workspace"
