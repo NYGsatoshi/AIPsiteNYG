@@ -130,14 +130,23 @@ is propagated to every claim.
 ### Generation fence and lock waits
 
 The digest never takes a Tenant-wide or Workspace-wide exclusive generation
-lock. Before final recheck and commit it takes `FOR SHARE` locks in this fixed
-order: Tenant, TenantSettings, active Subscription(s), Plan source(s),
-TenantUser, Workspace, WorkspaceMember, Project/Group membership rows, and
-candidate Task/WorkflowStage/Watch/Collaborator rows. It locks the recipient
-User and the claimed job/attempt `FOR UPDATE`. IDs within a resource type are
-ordered ascending. PostgreSQL shared readers coexist; normal lifecycle,
-authorization, and feature-source writers wait on conflicting update/delete
-locks until the digest commits.
+lock. At transaction start it locks the claimed Job `FOR UPDATE`, then the
+claimed Attempt `FOR UPDATE`, and verifies original token/status plus
+Tenant/User/Workspace/Job/trigger identity. Before final recheck and commit it
+then takes `FOR SHARE` locks in this fixed order: Tenant, TenantSettings,
+active Subscription(s), Plan source(s), TenantUser, Workspace,
+WorkspaceMember, Project/Group membership rows, and candidate
+Task/WorkflowStage/Watch/Collaborator rows. It locks recipient User `FOR
+UPDATE` between Plan and TenantUser. IDs within a resource type are ordered
+ascending. PostgreSQL shared readers coexist; normal lifecycle, authorization,
+and feature-source writers wait on conflicting update/delete locks until the
+digest commits.
+
+The Job/Attempt locks remain held while a same-recipient transaction waits for
+the User row. Claim-expiry recovery retains `FOR UPDATE SKIP LOCKED`, so it
+skips that live queued claim rather than consuming an attempt. Only process
+crash, connection loss, or rollback releases the lock and permits normal
+expiry recovery; do not add a heartbeat, lease extension, or longer timeout.
 
 The writer side also takes a stable parent `FOR UPDATE` pivot for optional-row
 mutations, so an absent child cannot bypass the reader fence: Tenant for
@@ -181,9 +190,12 @@ Use this split when diagnosing:
    failure and must not create a Notification or Outbox row.
 3. A long-lived `Claimed` row may belong to a live worker or a
    cancelled/crashed worker that never observed the flag. Do not clear its
-   owner/token manually. After `ClaimExpiresAt`, a later enabled scheduler
-   cycle fences the old token, marks that attempt `Expired`, and either creates
-   the next automatic attempt or reaches terminal `Failed` when its budget is
+   owner/token manually. A live generation that is waiting on its recipient
+   User still holds its Job lock, so `FOR UPDATE SKIP LOCKED` must leave it
+   unchanged even after `ClaimExpiresAt`. After crash, connection loss, or
+   rollback releases the Job lock, a later enabled scheduler cycle fences the
+   old token, marks that attempt `Expired`, and either creates the next
+   automatic attempt or reaches terminal `Failed` when its budget is
    exhausted.
 4. A `Succeeded` job with no `NotificationId` is the approved zero-candidate
    no-op, not a delivery failure.

@@ -233,20 +233,28 @@ active Workspace membership, Project visibility, Workspace/Project/Task
 lifecycle, completion/cancellation, and current relationship sources are
 independent mandatory filters. The one normal candidate-page enumeration occurs
 inside the generation transaction; bounded lock/rechecks validate each already
-enumerated page rather than creating a discarded second enumeration. Before
-accepting context or a bounded candidate page, a repository-owned fence locks
-state in this order:
+enumerated page rather than creating a discarded second enumeration. At the
+start of every generation transaction, a repository-owned claim fence locks
+and validates state in this order:
 
-1. Tenant; TenantSettings; active Subscription(s); and their Plan row(s), all
+1. claimed digest Job `FOR UPDATE`, then its claimed Attempt `FOR UPDATE`;
+   both must retain the original token and `Claimed` status, and the Job must
+   match the current Tenant, recipient, and Workspace while the Attempt must
+   match the Job and original trigger;
+2. Tenant; TenantSettings; active Subscription(s); and their Plan row(s), all
    `FOR SHARE`;
-2. recipient User `FOR UPDATE`, then TenantUser `FOR SHARE`;
-3. Workspace and WorkspaceMember `FOR SHARE`;
-4. candidate Project(s), Group(s), ProjectMember(s), and GroupMember(s), all
-   `FOR SHARE` in ascending ID order;
-5. candidate Task(s), WorkflowStage(s), Watch row(s), and Collaborator row(s),
-   all `FOR SHARE` in ascending ID order; and
-6. the claimed digest job and attempt `FOR UPDATE` with the original claim
-   token.
+3. recipient User `FOR UPDATE`, then TenantUser `FOR SHARE`;
+4. Workspace and WorkspaceMember `FOR SHARE`;
+5. candidate Project(s), Group(s), ProjectMember(s), and GroupMember(s), all
+   `FOR SHARE` in ascending ID order; and
+6. candidate Task(s), WorkflowStage(s), Watch row(s), and Collaborator row(s),
+   all `FOR SHARE` in ascending ID order.
+
+The Job/Attempt ownership lock remains held while a same-recipient transaction
+waits for the User row. The expiry selector keeps `FOR UPDATE SKIP LOCKED`, so
+it skips that active generation rather than expiring its lease; a crash,
+connection loss, or rollback releases the lock and leaves ordinary expiry
+recovery available.
 
 `FOR SHARE` is intentional: concurrent digest readers coexist, whereas
 PostgreSQL `UPDATE`/`DELETE` row locks conflict until the generation commits.

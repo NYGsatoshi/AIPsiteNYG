@@ -197,7 +197,7 @@ public sealed class TaskDeadlineDigestServiceTests
             repository.CandidatePageRequests);
         Assert.Equal(1, repository.CurrentContextCallCount);
         Assert.Equal(1, notifications.CallCount);
-        Assert.Equal(1, repository.LockRecipientCallCount);
+        Assert.Equal(1, repository.GenerationClaimFenceCallCount);
     }
 
     [Fact]
@@ -564,7 +564,7 @@ public sealed class TaskDeadlineDigestServiceTests
         public string? TenantTimeZoneId { get; init; } = "UTC";
         public Func<int, int, IReadOnlyList<TaskDeadlineDigestScheduleCandidate>> ScheduleCandidates { get; init; } = (_, _) => [];
         public IReadOnlyList<TaskDeadlineDigestClaim> Claims { get; init; } = [];
-        public TaskDeadlineDigestClaim? Claimed { get; init; }
+        public TaskDeadlineDigestClaim? Claimed { get; set; }
         public Func<int, TaskDeadlineDigestCurrentContext?> CurrentContexts { get; set; } = _ => null;
         public Func<int, int, int, IReadOnlyList<TaskDeadlineDigestCandidate>> CandidatePages { get; set; } = (_, _, _) => [];
         public bool MarkSucceededResult { get; set; } = true;
@@ -580,9 +580,9 @@ public sealed class TaskDeadlineDigestServiceTests
         public List<FailureRequest> FailureRequests { get; } = [];
         public int CurrentContextCallCount { get; private set; }
         public int FenceCallCount { get; private set; }
+        public int GenerationClaimFenceCallCount { get; private set; }
         public int ReleaseFeatureDisabledCallCount { get; private set; }
         public int ResetGenerationStateCallCount { get; private set; }
-        public int LockRecipientCallCount { get; private set; }
         public int SaveChangesCallCount { get; private set; }
         public FakeDigestTransaction? LastTransaction { get; private set; }
 
@@ -650,6 +650,18 @@ public sealed class TaskDeadlineDigestServiceTests
                     : null);
         }
 
+        public Task<TaskDeadlineDigestClaim?> AcquireGenerationClaimFenceAsync(
+            TaskDeadlineDigestClaim claim,
+            CancellationToken cancellationToken = default)
+        {
+            Touch(cancellationToken);
+            GenerationClaimFenceCallCount++;
+            return Task.FromResult(
+                Claimed is not null && Claimed == claim
+                    ? Claimed
+                    : null);
+        }
+
         public Task<TaskDeadlineDigestCurrentContext?> GetCurrentContextAsync(
             Guid jobId,
             Guid claimToken,
@@ -693,15 +705,6 @@ public sealed class TaskDeadlineDigestServiceTests
             Touch(cancellationToken);
             LastTransaction = new FakeDigestTransaction();
             return Task.FromResult<ITaskDeadlineDigestTransaction>(LastTransaction);
-        }
-
-        public Task LockNotificationRecipientAsync(
-            Guid userId,
-            CancellationToken cancellationToken = default)
-        {
-            Touch(cancellationToken);
-            LockRecipientCallCount++;
-            return Task.CompletedTask;
         }
 
         public Task<bool> MarkSucceededAsync(

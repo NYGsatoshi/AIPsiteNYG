@@ -411,6 +411,11 @@ public sealed class TaskDeadlineDigestWorkerTests
             CancellationToken cancellationToken = default) =>
             throw new NotSupportedException();
 
+        public Task<TaskDeadlineDigestClaim?> AcquireGenerationClaimFenceAsync(
+            TaskDeadlineDigestClaim claim,
+            CancellationToken cancellationToken = default) =>
+            throw new NotSupportedException();
+
         public Task<TaskDeadlineDigestCurrentContext?> GetCurrentContextAsync(
             Guid jobId,
             Guid claimToken,
@@ -434,11 +439,6 @@ public sealed class TaskDeadlineDigestWorkerTests
             throw new NotSupportedException();
 
         public Task<ITaskDeadlineDigestTransaction> BeginGenerationTransactionAsync(
-            CancellationToken cancellationToken = default) =>
-            throw new NotSupportedException();
-
-        public Task LockNotificationRecipientAsync(
-            Guid userId,
             CancellationToken cancellationToken = default) =>
             throw new NotSupportedException();
 

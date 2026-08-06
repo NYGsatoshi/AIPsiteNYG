@@ -678,6 +678,123 @@ public sealed class TaskV1Pr07CDigestCandidateAtomicityPostgreSqlTests
     }
 
     [PostgreSqlFact]
+    public async Task SlowFirstSameRecipientClaimDoesNotExpireQueuedClaim()
+    {
+        var observation = await ExerciseSameRecipientQueuedClaimLeaseAsync(expiryProbeCount: 1);
+
+        Assert.Equal([0], observation.ExpiryProbeClaimCounts);
+        Assert.Equal(TaskDeadlineDigestJobStatus.Claimed, observation.SecondJobStatusDuringProbe);
+        Assert.Equal(TaskDeadlineDigestAttemptStatus.Claimed, observation.SecondAttemptStatusDuringProbe);
+        Assert.Equal(observation.SecondClaim.ClaimToken, observation.SecondClaimTokenDuringProbe);
+        Assert.Equal(1, observation.SecondAttemptCountDuringProbe);
+        Assert.Equal(1, observation.SecondAutomaticAttemptCountDuringProbe);
+        Assert.Equal(0, observation.ExpiredAttemptCountDuringProbe);
+        Assert.Equal(TaskDeadlineDigestGenerationOutcome.Succeeded, observation.FirstResult.Outcome);
+        Assert.Equal(TaskDeadlineDigestGenerationOutcome.Succeeded, observation.SecondResult.Outcome);
+        Assert.Equal(2, observation.NotificationCount);
+        Assert.Equal(2, observation.OutboxCount);
+        Assert.Equal([1L, 2L], observation.NotificationStateVersions);
+        Assert.Equal(0, observation.ExpiredAttemptCountAfterCompletion);
+        Assert.Equal(0, observation.ClaimLostCount);
+    }
+
+    [PostgreSqlFact]
+    public async Task SameRecipientWaitingClaimIsSkippedByExpiryScanner()
+    {
+        var observation = await ExerciseSameRecipientQueuedClaimLeaseAsync(expiryProbeCount: 1);
+
+        Assert.Equal([0], observation.ExpiryProbeClaimCounts);
+        Assert.True(observation.FirstRecipientUserLockWasHeld);
+        Assert.True(observation.SecondJobFenceWasAcquired);
+        Assert.True(observation.SecondAttemptFenceWasAcquired);
+        Assert.True(observation.SecondUserLockWasRequested);
+        Assert.False(observation.SecondGenerationCompletedBeforeFirstRelease);
+        Assert.True(observation.SecondClaimExpiresBeforeProbe);
+        Assert.Equal(TaskDeadlineDigestJobStatus.Claimed, observation.SecondJobStatusDuringProbe);
+        Assert.Equal(TaskDeadlineDigestAttemptStatus.Claimed, observation.SecondAttemptStatusDuringProbe);
+        Assert.Equal(observation.SecondClaim.ClaimToken, observation.SecondClaimTokenDuringProbe);
+        Assert.Equal(1, observation.SecondAutomaticAttemptCountDuringProbe);
+        Assert.Equal(0, observation.ExpiredAttemptCountDuringProbe);
+        Assert.Equal(TaskDeadlineDigestGenerationOutcome.Succeeded, observation.SecondResult.Outcome);
+    }
+
+    [PostgreSqlFact]
+    public async Task SameRecipientQueuedClaimKeepsAutomaticAttemptBudget()
+    {
+        var observation = await ExerciseSameRecipientQueuedClaimLeaseAsync(expiryProbeCount: 3);
+
+        Assert.Equal([0, 0, 0], observation.ExpiryProbeClaimCounts);
+        Assert.Equal(1, observation.SecondAttemptRowCountDuringProbe);
+        Assert.Equal(1, observation.SecondAttemptCountDuringProbe);
+        Assert.Equal(1, observation.SecondAutomaticAttemptCountDuringProbe);
+        Assert.Equal(0, observation.ExpiredAttemptCountDuringProbe);
+        Assert.Equal(observation.SecondClaim.ClaimToken, observation.SecondClaimTokenDuringProbe);
+        Assert.Equal(TaskDeadlineDigestJobStatus.Claimed, observation.SecondJobStatusDuringProbe);
+        Assert.Equal(TaskDeadlineDigestGenerationOutcome.Succeeded, observation.SecondResult.Outcome);
+        Assert.Equal(1, observation.SecondAttemptCountAfterCompletion);
+        Assert.Equal(1, observation.SecondAutomaticAttemptCountAfterCompletion);
+        Assert.Equal(1, observation.SecondAttemptRowCountAfterCompletion);
+        Assert.Equal(0, observation.ExpiredAttemptCountAfterCompletion);
+    }
+
+    [PostgreSqlFact]
+    public async Task ClaimLostBeforeTransactionFenceStagesNothing()
+    {
+        var connectionString = PostgreSqlTestEnvironment.RequireConnectionString();
+
+        await PostgreSqlMigrationTestDatabase.WithTemporaryDatabaseAsync(connectionString, async database =>
+        {
+            await PostgreSqlMigrationTestDatabase.MigrateAsync(database);
+            var graph = await SeedGraphAsync(database);
+            await AddQualifyingTaskAsync(database, graph);
+            var job = await AddJobAsync(database, graph);
+            var oldClaim = Assert.Single(await ClaimDueAsync(
+                database,
+                graph.Tenant,
+                "claim-lost-before-fence",
+                batchSize: 1,
+                claimTimeout: TimeSpan.FromSeconds(1)));
+            Assert.Equal(job.Id, oldClaim.JobId);
+
+            // Expire and reclaim before GenerateAsync can acquire its first
+            // Job/Attempt fence. The stale worker must be fenced before it can
+            // stage Notification, NotificationUserState, or Outbox state.
+            var replacementClaim = Assert.Single(await ClaimDueAsync(
+                database,
+                graph.Tenant,
+                "claim-lost-recovery",
+                batchSize: 1,
+                claimTimeout: TimeSpan.FromMinutes(2),
+                now: Now.AddSeconds(2)));
+            Assert.Equal(job.Id, replacementClaim.JobId);
+            Assert.NotEqual(oldClaim.ClaimToken, replacementClaim.ClaimToken);
+
+            var result = await GenerateClaimAsync(database, graph.Tenant, oldClaim);
+            Assert.Equal(TaskDeadlineDigestGenerationOutcome.ClaimLost, result.Outcome);
+            Assert.Null(result.NotificationId);
+
+            await using var verification = CreateTenantContext(database, graph.Tenant);
+            Assert.Empty(await verification.Notifications.AsNoTracking().ToListAsync());
+            Assert.Empty(await verification.NotificationUserStates.AsNoTracking().ToListAsync());
+            Assert.Empty(await verification.OutboxEvents.AsNoTracking().ToListAsync());
+
+            var persistedJob = await verification.TaskDeadlineDigestJobs.AsNoTracking()
+                .SingleAsync(candidate => candidate.Id == job.Id);
+            Assert.Equal(TaskDeadlineDigestJobStatus.Claimed, persistedJob.Status);
+            Assert.Equal(replacementClaim.ClaimToken, persistedJob.ClaimToken);
+            Assert.NotEqual(TaskDeadlineDigestJobStatus.Succeeded, persistedJob.Status);
+
+            var attempts = await verification.TaskDeadlineDigestAttempts.AsNoTracking()
+                .Where(candidate => candidate.JobId == job.Id)
+                .OrderBy(candidate => candidate.AttemptNumber)
+                .ToListAsync();
+            Assert.Equal(2, attempts.Count);
+            Assert.Equal(TaskDeadlineDigestAttemptStatus.Expired, attempts[0].Status);
+            Assert.Equal(TaskDeadlineDigestAttemptStatus.Claimed, attempts[1].Status);
+        });
+    }
+
+    [PostgreSqlFact]
     public async Task SameRecipientStillSerializesNotificationStateVersion()
     {
         var connectionString = PostgreSqlTestEnvironment.RequireConnectionString();
@@ -1571,6 +1688,196 @@ public sealed class TaskV1Pr07CDigestCandidateAtomicityPostgreSqlTests
             claimTimeout);
     }
 
+    private static async Task<SameRecipientQueuedClaimLeaseObservation>
+        ExerciseSameRecipientQueuedClaimLeaseAsync(int expiryProbeCount)
+    {
+        if (expiryProbeCount < 1)
+            throw new ArgumentOutOfRangeException(nameof(expiryProbeCount));
+
+        var connectionString = PostgreSqlTestEnvironment.RequireConnectionString();
+        SameRecipientQueuedClaimLeaseObservation? observation = null;
+
+        await PostgreSqlMigrationTestDatabase.WithTemporaryDatabaseAsync(connectionString, async database =>
+        {
+            await PostgreSqlMigrationTestDatabase.MigrateAsync(database);
+            var graph = await SeedGraphAsync(database);
+            await EnablePersistedNotificationsFeatureAsync(database, graph);
+            await AddQualifyingTaskAsync(database, graph);
+            var secondWorkspace = await AddWorkspaceForRecipientAsync(database, graph, graph.Recipient);
+            var firstJob = await AddJobAsync(
+                database,
+                graph.Tenant,
+                graph.Workspace,
+                graph.Recipient,
+                LocalDate,
+                scheduledForUtc: Now.AddMinutes(-31));
+            var secondJob = await AddJobAsync(
+                database,
+                graph.Tenant,
+                secondWorkspace.Workspace,
+                graph.Recipient,
+                LocalDate,
+                scheduledForUtc: Now.AddMinutes(-30));
+            var firstClaim = Assert.Single(await ClaimDueAsync(
+                database,
+                graph.Tenant,
+                "same-recipient-first",
+                batchSize: 1,
+                claimTimeout: TimeSpan.FromMinutes(5)));
+            Assert.Equal(firstJob.Id, firstClaim.JobId);
+            var secondClaim = Assert.Single(await ClaimDueAsync(
+                database,
+                graph.Tenant,
+                "same-recipient-second",
+                batchSize: 1,
+                claimTimeout: TimeSpan.FromSeconds(1)));
+            Assert.Equal(secondJob.Id, secondClaim.JobId);
+
+            // A is paused only after PostgreSQL has completed recipient User
+            // FOR UPDATE. Its claim Job/Attempt fence is therefore held while
+            // B first acquires its own Job/Attempt fence, then blocks trying
+            // to take the same recipient User row.
+            var firstRecipientGate = new RecipientUserLockGate();
+            var firstGeneration = GenerateClaimAsync(
+                database,
+                graph.Tenant,
+                firstClaim,
+                firstRecipientGate);
+            await firstRecipientGate.WaitForRecipientUserLockAsync();
+            var firstRecipientUserLockWasHeld = firstRecipientGate.IsHolding;
+            Assert.True(firstRecipientUserLockWasHeld);
+
+            var secondFence = new QueuedSameRecipientClaimProbe();
+            var secondGeneration = GenerateClaimAsync(
+                database,
+                graph.Tenant,
+                secondClaim,
+                secondFence);
+
+            var expiryProbeClaimCounts = new List<int>(expiryProbeCount);
+            TaskDeadlineDigestJobStatus secondJobStatusDuringProbe = default;
+            TaskDeadlineDigestAttemptStatus secondAttemptStatusDuringProbe = default;
+            Guid? secondClaimTokenDuringProbe = null;
+            var secondAttemptCountDuringProbe = 0;
+            var secondAutomaticAttemptCountDuringProbe = 0;
+            var secondAttemptRowCountDuringProbe = 0;
+            var expiredAttemptCountDuringProbe = 0;
+            var secondClaimExpiresBeforeProbe = false;
+            var secondGenerationCompletedBeforeFirstRelease = false;
+            var probeNow = Now.AddSeconds(2);
+
+            try
+            {
+                await secondFence.WaitForUserLockRequestAsync();
+                Assert.True(secondFence.JobFenceWasAcquired);
+                Assert.True(secondFence.AttemptFenceWasAcquired);
+                Assert.True(secondFence.UserLockWasRequested);
+                secondGenerationCompletedBeforeFirstRelease = secondGeneration.IsCompleted;
+                Assert.False(secondGenerationCompletedBeforeFirstRelease);
+
+                for (var probe = 0; probe < expiryProbeCount; probe++)
+                {
+                    var scannerClaims = await ClaimDueAsync(
+                        database,
+                        graph.Tenant,
+                        $"same-recipient-expiry-probe-{probe}",
+                        batchSize: 2,
+                        claimTimeout: TimeSpan.FromSeconds(1),
+                        now: probeNow.AddSeconds(probe));
+                    expiryProbeClaimCounts.Add(scannerClaims.Count);
+                    Assert.Empty(scannerClaims);
+                }
+
+                // A plain MVCC read is intentional: both locks are held by B,
+                // so this observes the last committed state while proving the
+                // expiry scanner did not rewrite its leased Job or Attempt.
+                await using var intermediate = CreateTenantContext(database, graph.Tenant);
+                var persistedSecondJob = await intermediate.TaskDeadlineDigestJobs.AsNoTracking()
+                    .SingleAsync(job => job.Id == secondJob.Id);
+                var persistedSecondAttempts = await intermediate.TaskDeadlineDigestAttempts.AsNoTracking()
+                    .Where(attempt => attempt.JobId == secondJob.Id)
+                    .OrderBy(attempt => attempt.AttemptNumber)
+                    .ToListAsync();
+                var persistedSecondAttempt = Assert.Single(persistedSecondAttempts);
+                secondJobStatusDuringProbe = persistedSecondJob.Status;
+                secondAttemptStatusDuringProbe = persistedSecondAttempt.Status;
+                secondClaimTokenDuringProbe = persistedSecondJob.ClaimToken;
+                secondAttemptCountDuringProbe = persistedSecondJob.AttemptCount;
+                secondAutomaticAttemptCountDuringProbe = persistedSecondJob.AutomaticAttemptCount;
+                secondAttemptRowCountDuringProbe = persistedSecondAttempts.Count;
+                expiredAttemptCountDuringProbe = persistedSecondAttempts.Count(attempt =>
+                    attempt.Status == TaskDeadlineDigestAttemptStatus.Expired);
+                secondClaimExpiresBeforeProbe = persistedSecondJob.ClaimExpiresAt < probeNow;
+
+                Assert.Equal(TaskDeadlineDigestJobStatus.Claimed, secondJobStatusDuringProbe);
+                Assert.Equal(TaskDeadlineDigestAttemptStatus.Claimed, secondAttemptStatusDuringProbe);
+                Assert.Equal(secondClaim.ClaimToken, secondClaimTokenDuringProbe);
+                Assert.Equal(1, secondAttemptCountDuringProbe);
+                Assert.Equal(1, secondAutomaticAttemptCountDuringProbe);
+                Assert.Equal(1, secondAttemptRowCountDuringProbe);
+                Assert.Equal(0, expiredAttemptCountDuringProbe);
+                Assert.True(secondClaimExpiresBeforeProbe);
+            }
+            finally
+            {
+                firstRecipientGate.Release();
+            }
+
+            var results = await Task.WhenAll(
+                firstGeneration.WaitAsync(TimeSpan.FromSeconds(15)),
+                secondGeneration.WaitAsync(TimeSpan.FromSeconds(15)));
+            var firstResult = results[0];
+            var secondResult = results[1];
+            Assert.Equal(TaskDeadlineDigestGenerationOutcome.Succeeded, firstResult.Outcome);
+            Assert.Equal(TaskDeadlineDigestGenerationOutcome.Succeeded, secondResult.Outcome);
+            await AssertClaimsSucceededWithoutExpiryAsync(database, graph.Tenant, [firstClaim, secondClaim]);
+
+            await using var verification = CreateTenantContext(database, graph.Tenant);
+            var jobIds = new[] { firstJob.Id, secondJob.Id };
+            var completedSecondJob = await verification.TaskDeadlineDigestJobs.AsNoTracking()
+                .SingleAsync(job => job.Id == secondJob.Id);
+            var completedSecondAttempts = await verification.TaskDeadlineDigestAttempts.AsNoTracking()
+                .Where(attempt => attempt.JobId == secondJob.Id)
+                .ToListAsync();
+            var allAttempts = await verification.TaskDeadlineDigestAttempts.AsNoTracking()
+                .Where(attempt => jobIds.Contains(attempt.JobId))
+                .ToListAsync();
+            var notifications = await verification.Notifications.AsNoTracking()
+                .OrderBy(notification => notification.StateVersion)
+                .ToListAsync();
+
+            observation = new SameRecipientQueuedClaimLeaseObservation(
+                secondClaim,
+                expiryProbeClaimCounts,
+                firstRecipientUserLockWasHeld,
+                secondFence.JobFenceWasAcquired,
+                secondFence.AttemptFenceWasAcquired,
+                secondFence.UserLockWasRequested,
+                secondGenerationCompletedBeforeFirstRelease,
+                secondClaimExpiresBeforeProbe,
+                secondJobStatusDuringProbe,
+                secondAttemptStatusDuringProbe,
+                secondClaimTokenDuringProbe,
+                secondAttemptCountDuringProbe,
+                secondAutomaticAttemptCountDuringProbe,
+                secondAttemptRowCountDuringProbe,
+                expiredAttemptCountDuringProbe,
+                firstResult,
+                secondResult,
+                await verification.Notifications.CountAsync(),
+                await verification.OutboxEvents.CountAsync(),
+                notifications.Select(notification => notification.StateVersion).ToArray(),
+                completedSecondJob.AttemptCount,
+                completedSecondJob.AutomaticAttemptCount,
+                completedSecondAttempts.Count,
+                allAttempts.Count(attempt => attempt.Status == TaskDeadlineDigestAttemptStatus.Expired),
+                results.Count(result => result.Outcome == TaskDeadlineDigestGenerationOutcome.ClaimLost));
+        });
+
+        return observation ?? throw new InvalidOperationException(
+            "The same-recipient lease scenario did not produce an observation.");
+    }
+
     private static async Task AssertClaimsSucceededWithoutExpiryAsync(
         string database,
         Tenant tenant,
@@ -2236,6 +2543,33 @@ public sealed class TaskV1Pr07CDigestCandidateAtomicityPostgreSqlTests
         Subscription Subscription,
         TenantSettings? Settings);
 
+    private sealed record SameRecipientQueuedClaimLeaseObservation(
+        TaskDeadlineDigestClaim SecondClaim,
+        IReadOnlyList<int> ExpiryProbeClaimCounts,
+        bool FirstRecipientUserLockWasHeld,
+        bool SecondJobFenceWasAcquired,
+        bool SecondAttemptFenceWasAcquired,
+        bool SecondUserLockWasRequested,
+        bool SecondGenerationCompletedBeforeFirstRelease,
+        bool SecondClaimExpiresBeforeProbe,
+        TaskDeadlineDigestJobStatus SecondJobStatusDuringProbe,
+        TaskDeadlineDigestAttemptStatus SecondAttemptStatusDuringProbe,
+        Guid? SecondClaimTokenDuringProbe,
+        int SecondAttemptCountDuringProbe,
+        int SecondAutomaticAttemptCountDuringProbe,
+        int SecondAttemptRowCountDuringProbe,
+        int ExpiredAttemptCountDuringProbe,
+        TaskDeadlineDigestGenerationResult FirstResult,
+        TaskDeadlineDigestGenerationResult SecondResult,
+        int NotificationCount,
+        int OutboxCount,
+        IReadOnlyList<long> NotificationStateVersions,
+        int SecondAttemptCountAfterCompletion,
+        int SecondAutomaticAttemptCountAfterCompletion,
+        int SecondAttemptRowCountAfterCompletion,
+        int ExpiredAttemptCountAfterCompletion,
+        int ClaimLostCount);
+
     private sealed class FixedClock(DateTimeOffset now) : IClock
     {
         public DateTimeOffset UtcNow => now;
@@ -2306,13 +2640,12 @@ public sealed class TaskV1Pr07CDigestCandidateAtomicityPostgreSqlTests
     }
 
     /// <summary>
-    /// Holds only the first generator after its non-empty candidate fence has
-    /// acquired the claimed Attempt row. The first claimed-Attempt command is
-    /// the context fence and the second is the candidate-page fence. The gate
-    /// is in the test assembly and waits on actual PostgreSQL command
-    /// completion, so a second generator that completes while it is held has
-    /// crossed the database fence rather than merely being scheduled by
-    /// Task.WhenAll.
+    /// Holds the first generator after its non-empty candidate page has
+    /// acquired the deterministic <c>task_items FOR SHARE</c> fence. The
+    /// gate observes actual PostgreSQL command completion, so a second
+    /// generator or mutation that completes while it is held has crossed the
+    /// candidate/phantom fence rather than merely being scheduled by
+    /// <see cref="Task.WhenAll"/>.
     /// </summary>
     private sealed class CandidateFenceGate : DbCommandInterceptor
     {
@@ -2328,15 +2661,13 @@ public sealed class TaskV1Pr07CDigestCandidateAtomicityPostgreSqlTests
 
         public void Release() => release.TrySetResult();
 
-        public override async ValueTask<DbDataReader> ReaderExecutedAsync(
+        public override async ValueTask<int> NonQueryExecutedAsync(
             DbCommand command,
             CommandExecutedEventData eventData,
-            DbDataReader result,
+            int result,
             CancellationToken cancellationToken = default)
         {
-            if (command.CommandText.Contains("FROM task_deadline_digest_attempts", StringComparison.OrdinalIgnoreCase) &&
-                command.CommandText.Contains("FOR UPDATE", StringComparison.OrdinalIgnoreCase) &&
-                Interlocked.Increment(ref candidateFenceCount) == 2)
+            if (IsCandidateTaskFence(command) && Interlocked.Increment(ref candidateFenceCount) == 1)
             {
                 Volatile.Write(ref holding, 1);
                 arrived.TrySetResult();
@@ -2350,9 +2681,131 @@ public sealed class TaskV1Pr07CDigestCandidateAtomicityPostgreSqlTests
                 }
             }
 
-            return await base.ReaderExecutedAsync(command, eventData, result, cancellationToken);
+            return await base.NonQueryExecutedAsync(command, eventData, result, cancellationToken);
         }
     }
+
+    /// <summary>
+    /// Holds the first generator only after PostgreSQL has completed the
+    /// recipient User <c>FOR UPDATE</c> command. Claim-first generation has
+    /// exactly one Job/Attempt acquisition at transaction start, so this gate
+    /// deliberately does not rely on a second Attempt lock that no longer
+    /// exists. A second generator completing while this is held has crossed
+    /// the real recipient fence rather than merely being scheduled by
+    /// <see cref="Task.WhenAll"/>.
+    /// </summary>
+    private sealed class RecipientUserLockGate : DbCommandInterceptor
+    {
+        private readonly TaskCompletionSource arrived = new(TaskCreationOptions.RunContinuationsAsynchronously);
+        private readonly TaskCompletionSource release = new(TaskCreationOptions.RunContinuationsAsynchronously);
+        private int userLockCount;
+        private int holding;
+
+        public bool IsHolding => Volatile.Read(ref holding) == 1;
+
+        public Task WaitForRecipientUserLockAsync() =>
+            arrived.Task.WaitAsync(TimeSpan.FromSeconds(15));
+
+        public void Release() => release.TrySetResult();
+
+        public override async ValueTask<int> NonQueryExecutedAsync(
+            DbCommand command,
+            CommandExecutedEventData eventData,
+            int result,
+            CancellationToken cancellationToken = default)
+        {
+            if (IsRecipientUserLock(command) && Interlocked.Increment(ref userLockCount) == 1)
+            {
+                Volatile.Write(ref holding, 1);
+                arrived.TrySetResult();
+                try
+                {
+                    await release.Task.WaitAsync(TimeSpan.FromSeconds(15), cancellationToken);
+                }
+                finally
+                {
+                    Volatile.Write(ref holding, 0);
+                }
+            }
+
+            return await base.NonQueryExecutedAsync(command, eventData, result, cancellationToken);
+        }
+    }
+
+    /// <summary>
+    /// Records B's transaction-start claim fence after its Job and Attempt
+    /// commands have completed, then records its subsequent request for the
+    /// same recipient User lock. The request interceptor runs before the
+    /// command can block, which lets the test run an expiry scanner while B is
+    /// demonstrably waiting with both claim rows protected.
+    /// </summary>
+    private sealed class QueuedSameRecipientClaimProbe : DbCommandInterceptor
+    {
+        private readonly TaskCompletionSource userLockRequested = new(TaskCreationOptions.RunContinuationsAsynchronously);
+        private int jobFenceWasAcquired;
+        private int attemptFenceWasAcquired;
+        private int userLockWasRequested;
+
+        public bool JobFenceWasAcquired => Volatile.Read(ref jobFenceWasAcquired) == 1;
+        public bool AttemptFenceWasAcquired => Volatile.Read(ref attemptFenceWasAcquired) == 1;
+        public bool UserLockWasRequested => Volatile.Read(ref userLockWasRequested) == 1;
+
+        public Task WaitForUserLockRequestAsync() =>
+            userLockRequested.Task.WaitAsync(TimeSpan.FromSeconds(15));
+
+        public override async ValueTask<DbDataReader> ReaderExecutedAsync(
+            DbCommand command,
+            CommandExecutedEventData eventData,
+            DbDataReader result,
+            CancellationToken cancellationToken = default)
+        {
+            if (IsClaimJobLock(command))
+                Interlocked.Exchange(ref jobFenceWasAcquired, 1);
+            if (IsClaimAttemptLock(command))
+                Interlocked.Exchange(ref attemptFenceWasAcquired, 1);
+
+            return await base.ReaderExecutedAsync(command, eventData, result, cancellationToken);
+        }
+
+        public override ValueTask<InterceptionResult<int>> NonQueryExecutingAsync(
+            DbCommand command,
+            CommandEventData eventData,
+            InterceptionResult<int> result,
+            CancellationToken cancellationToken = default)
+        {
+            if (IsRecipientUserLock(command))
+            {
+                Interlocked.Exchange(ref userLockWasRequested, 1);
+                if (!JobFenceWasAcquired || !AttemptFenceWasAcquired)
+                {
+                    userLockRequested.TrySetException(new InvalidOperationException(
+                        "The queued generator requested the recipient User lock before its Job/Attempt claim fence completed."));
+                }
+                else
+                {
+                    userLockRequested.TrySetResult();
+                }
+            }
+
+            return base.NonQueryExecutingAsync(command, eventData, result, cancellationToken);
+        }
+    }
+
+    private static bool IsClaimJobLock(DbCommand command) =>
+        command.CommandText.Contains("FROM task_deadline_digest_jobs", StringComparison.OrdinalIgnoreCase) &&
+        command.CommandText.Contains("FOR UPDATE", StringComparison.OrdinalIgnoreCase);
+
+    private static bool IsClaimAttemptLock(DbCommand command) =>
+        command.CommandText.Contains("FROM task_deadline_digest_attempts", StringComparison.OrdinalIgnoreCase) &&
+        command.CommandText.Contains("FOR UPDATE", StringComparison.OrdinalIgnoreCase);
+
+    private static bool IsCandidateTaskFence(DbCommand command) =>
+        command.CommandText.Contains("SELECT 1 FROM task_items", StringComparison.OrdinalIgnoreCase) &&
+        command.CommandText.Contains("FOR SHARE", StringComparison.OrdinalIgnoreCase);
+
+    private static bool IsRecipientUserLock(DbCommand command) =>
+        command.CommandText.Contains("FROM users", StringComparison.OrdinalIgnoreCase) &&
+        command.CommandText.Contains("FOR UPDATE", StringComparison.OrdinalIgnoreCase);
 
     private sealed class FinalCandidateCommitGate : SaveChangesInterceptor
     {

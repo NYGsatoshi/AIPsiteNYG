@@ -114,6 +114,17 @@ public interface ITaskDeadlineDigestRepository
         bool forUpdate,
         CancellationToken cancellationToken = default);
 
+    /// <summary>
+    /// Acquires the generation claim fence at the beginning of a generation
+    /// transaction. The implementation locks the claimed Job first and its
+    /// claimed Attempt second, then verifies the supplied token, status,
+    /// tenant, recipient, Workspace, and trigger identity. A null result
+    /// means a stale worker must stage nothing.
+    /// </summary>
+    Task<TaskDeadlineDigestClaim?> AcquireGenerationClaimFenceAsync(
+        TaskDeadlineDigestClaim claim,
+        CancellationToken cancellationToken = default);
+
     Task<TaskDeadlineDigestCurrentContext?> GetCurrentContextAsync(
         Guid jobId,
         Guid claimToken,
@@ -130,8 +141,12 @@ public interface ITaskDeadlineDigestRepository
     /// <summary>
     /// Locks the current authorization/lifecycle state that authorized the
     /// supplied bounded candidate page and verifies that it has not changed
-    /// since evaluation. A non-current result must be retried in a new
-    /// generation transaction before any visible digest state is staged.
+    /// since evaluation. The same generation transaction must already hold
+    /// its Job/Attempt ownership fence through
+    /// <see cref="AcquireGenerationClaimFenceAsync"/>; this method never
+    /// acquires that initial claim fence. A non-current result must be retried
+    /// in a new generation transaction before any visible digest state is
+    /// staged.
     /// </summary>
     Task<TaskDeadlineDigestGenerationFenceOutcome> AcquireGenerationFenceAsync(
         TaskDeadlineDigestClaim claim,
@@ -140,10 +155,6 @@ public interface ITaskDeadlineDigestRepository
         CancellationToken cancellationToken = default);
 
     Task<ITaskDeadlineDigestTransaction> BeginGenerationTransactionAsync(
-        CancellationToken cancellationToken = default);
-
-    Task LockNotificationRecipientAsync(
-        Guid userId,
         CancellationToken cancellationToken = default);
 
     Task<bool> MarkSucceededAsync(

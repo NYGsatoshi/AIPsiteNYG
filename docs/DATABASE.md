@@ -263,6 +263,16 @@ remains. PostgreSQL selection orders deterministically and uses `FOR UPDATE
 SKIP LOCKED`, so concurrent workers can claim different due rows without
 claiming one row twice.
 
+Each generation transaction first locks its claimed Job `FOR UPDATE` and then
+its claimed Attempt `FOR UPDATE`, before it reads current context or requests
+the recipient User lock. It validates the original token and `Claimed` status
+on both rows, the Job's Tenant/User/Workspace identity, and the Attempt's Job
+and trigger identity. The Job lock stays held through commit; therefore the
+same `FOR UPDATE SKIP LOCKED` expiry selector skips a live same-recipient
+generation that is waiting for the User row. A process crash, connection loss,
+or rollback releases that lock, after which normal expiry recovery may reclaim
+the expired claim. No heartbeat, lease extension, or longer timeout is used.
+
 Feature-disable release uses the same job-and-attempt token fence. It clears a
 currently claimed automatic job back to `Pending`, restores its two automatic
 claim counters, and completes that attempt as `Deferred`; it creates no Notification or
@@ -309,22 +319,26 @@ explicit environment verification item.
 Generation does not use the Outbox as a schedule table. Its one normal
 candidate-page enumeration runs inside a short transaction; bounded
 lock/recheck queries validate each already enumerated page rather than forming
-a discarded second enumeration. Before accepting context or each bounded
-candidate page, the PostgreSQL repository acquires a current-state fence in a
-fixed order. Tenant, TenantSettings, active Subscription(s), their Plan
-source(s), TenantUser, Workspace, WorkspaceMember, Project, Group,
-ProjectMember, GroupMember, Task, WorkflowStage, Watch, and Collaborator use
-`FOR SHARE`; the recipient User, claimed digest job, and claimed attempt use
-`FOR UPDATE`. Multiple IDs of one kind are locked in ascending ID order.
+a discarded second enumeration. Every generation transaction first acquires
+the original claim ownership fence: digest Job `FOR UPDATE`, then claimed
+Attempt `FOR UPDATE`, with token/status/Tenant/User/Workspace/Job/trigger
+identity validation. Only then does the current-state fence lock Tenant,
+TenantSettings, active Subscription(s), their Plan source(s), recipient User,
+TenantUser, Workspace, WorkspaceMember, Project, Group, ProjectMember,
+GroupMember, Task, WorkflowStage, Watch, and Collaborator. Those rows use
+`FOR SHARE` except recipient User `FOR UPDATE`; multiple IDs of one kind are
+locked in ascending ID order.
 
 `FOR SHARE` was selected from PostgreSQL's row-lock compatibility matrix:
 multiple digest readers coexist, while normal `UPDATE`/`DELETE` locks conflict
 until the digest commits. Thus neither the Tenant nor Workspace is a
 digest-wide exclusive fence. The recipient User row is deliberately exclusive
 so same-user digests serialize before they advance `notification_user_states`;
-different users in the same Tenant can still progress independently. The job
-and attempt retain exclusive claim-token fencing so no two generators can
-complete one claim.
+different users in the same Tenant can still progress independently. The Job
+and Attempt retain exclusive claim-token fencing so no two generators can
+complete one claim. Their lock is held before any same-recipient User-lock
+wait, so expiry scanning with `FOR UPDATE SKIP LOCKED` cannot consume a live
+queued claim's automatic-attempt budget.
 
 The feature source fence includes TenantSettings, every active Subscription,
 and the Plan row(s) selected from those subscriptions before the final
@@ -368,12 +382,13 @@ clean logical-key retry reuses the winner and commits the other intent as
 version 2. PostgreSQL coverage verifies Notification and signal versions
 `[1, 2]` with no lost state update or duplicate committed version.
 
-For digest-to-digest races, the recipient User `FOR UPDATE` lock is acquired
-inside the generation transaction and is held through staging. It serializes
-only that recipient's Notification state, including two digest jobs for
-different Workspaces; it is not a Tenant-wide lock. The EF token remains the
-cross-producer backstop for immediate Task Notification work that does not
-share the digest's recipient lock.
+For digest-to-digest races, each transaction acquires its own Job/Attempt
+claim fence before the recipient User `FOR UPDATE` lock and holds all of them
+through staging. The User lock serializes only that recipient's Notification
+state, including two digest jobs for different Workspaces; it is not a
+Tenant-wide lock. The EF token remains the cross-producer backstop for
+immediate Task Notification work that does not share the digest's recipient
+lock.
 
 The migration Down path drops both digest tables. The earlier Notification,
 preference, and Outbox schema remains, but all PR07-C ledger/attempt history is

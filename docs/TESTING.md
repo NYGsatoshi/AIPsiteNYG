@@ -186,11 +186,20 @@ prove:
   `DifferentWorkspacesInSameTenantDoNotShareExclusiveFence`,
   `SlowFirstClaimDoesNotExpireLaterSameTenantClaims`,
   `SameRecipientStillSerializesNotificationStateVersion`,
+  `SlowFirstSameRecipientClaimDoesNotExpireQueuedClaim`,
+  `SameRecipientWaitingClaimIsSkippedByExpiryScanner`,
+  `SameRecipientQueuedClaimKeepsAutomaticAttemptBudget`, and
+  `ClaimLostBeforeTransactionFenceStagesNothing`,
   `ConcurrentTenantMutationWaitsForGenerationFence`,
   `ConcurrentFeatureDisableWaitsOrPreventsDigestCommit`, and
   `MissingWatchRowOptOutInsertCannotBypassFence`. These tests must observe
   candidate evaluation and commit completion across real PostgreSQL locks;
-  asserting only that two `Task` instances began is insufficient.
+  the same-recipient lease cases additionally prove that B has locked its own
+  Job/Attempt before reaching the shared User lock, that a post-expiry
+  `FOR UPDATE SKIP LOCKED` probe returns no claim and leaves B `Claimed` with
+  its original token and one automatic attempt, and that release of A lets
+  both units succeed at state versions 1 and 2. Asserting only that two `Task`
+  instances began, or only their final state, is insufficient.
 - The feature-disable gate exercises TenantSettings, active Subscription, and
   Plan feature sources (including an absent-TenantSettings insert); the absent
   Watch gate inserts through `SaveChanges` to exercise the stable Task pivot.
@@ -239,7 +248,9 @@ service, writes `task-pr07c-acceptance.trx`, and validates zero failure/error/
 timeout/abort/not-executed/skipped outcomes plus every active name in
 `scripts/ci/task-pr07c-required-tests.txt`. The manifest is a coverage guard;
 its active and matched counts must be taken from the immutable final-HEAD TRX,
-not from this source record.
+not from this source record. The same-recipient lease additions raise the
+active required-test set from 72 to 76 names; the strict verifier must match
+all 76 after the final PostgreSQL run.
 
 Historical source records reference an earlier PR07-C candidate
 `8545ae7ab8ecc3feb6d0bbe278ecfe81f217ba31`. That evidence predates the

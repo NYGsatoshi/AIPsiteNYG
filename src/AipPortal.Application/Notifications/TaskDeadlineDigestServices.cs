@@ -276,6 +276,21 @@ public sealed class TaskDeadlineDigestGenerator(
             {
                 await using (var transaction = await repository.BeginGenerationTransactionAsync(cancellationToken))
                 {
+                    // Claim ownership is the first generation-transaction
+                    // fence. Holding Job then Attempt through commit keeps an
+                    // expired-claim scanner from reclaiming this Job while a
+                    // same-recipient generation waits on the User row below.
+                    var fencedClaim = await repository.AcquireGenerationClaimFenceAsync(
+                        claim,
+                        cancellationToken);
+                    if (fencedClaim is null)
+                    {
+                        diagnostics.RecordClaimLoss();
+                        return new TaskDeadlineDigestGenerationResult(
+                            TaskDeadlineDigestGenerationOutcome.ClaimLost,
+                            EmptyCounts);
+                    }
+
                     // Candidate pages are evaluated exactly once in a normal
                     // generation attempt. The repository fence immediately
                     // locks and validates each evaluated page before its count
@@ -330,15 +345,6 @@ public sealed class TaskDeadlineDigestGenerator(
                         Guid? notificationId = null;
                         if (evaluation.Counts.Total > 0)
                         {
-                            // The current-state fence holds the recipient User
-                            // row through this transaction. Keep the explicit
-                            // repository boundary here as well: it documents
-                            // that the NotificationUserState increment below
-                            // is a per-recipient critical section, never a
-                            // Tenant-wide one.
-                            await repository.LockNotificationRecipientAsync(
-                                claim.UserId,
-                                cancellationToken);
                             notificationId = await notifications.StageTaskDeadlineDigestByLogicalKeyAsync(
                                 claim.UserId,
                                 claim.JobId,

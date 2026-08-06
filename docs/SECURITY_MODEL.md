@@ -131,13 +131,16 @@ candidate-page enumeration runs inside the short generation transaction;
 bounded lock/rechecks validate each already enumerated page rather than
 forming a discarded second enumeration. A repository-owned commit fence locks
 and then rechecks current state before any visible result is staged. Its fixed
-order is Tenant, TenantSettings, active Subscription(s), Plan source(s),
-recipient User, TenantUser, Workspace, WorkspaceMember, Project, Group,
-ProjectMember, GroupMember, Task, WorkflowStage, Watch/Collaborator, then the
-digest job and claimed attempt. Tenant, feature, authorization, lifecycle, and
-relationship rows use PostgreSQL `FOR SHARE`; recipient User and claimed
-job/attempt rows use `FOR UPDATE`. IDs of the same resource kind are ordered
-ascending. The final evaluation requires:
+order starts with digest Job `FOR UPDATE`, then claimed Attempt `FOR UPDATE`.
+Both must retain the original token and `Claimed` status; the Job must match
+the current Tenant, recipient, and Workspace, and the Attempt must match the
+Job and original trigger. It then locks Tenant, TenantSettings, active
+Subscription(s), Plan source(s), recipient User, TenantUser, Workspace,
+WorkspaceMember, Project, Group, ProjectMember, GroupMember, Task,
+WorkflowStage, and Watch/Collaborator. Tenant, feature, authorization,
+lifecycle, and relationship rows use PostgreSQL `FOR SHARE`; recipient User
+and claimed Job/Attempt rows use `FOR UPDATE`. IDs of the same resource kind
+are ordered ascending. The final evaluation requires:
 
 - the same active Tenant and active, non-deleted user;
 - active TenantUser and WorkspaceMember records;
@@ -190,6 +193,15 @@ restart operation executes in an explicit Tenant scope. Claim owner, expiry,
 and a random claim token fence concurrent workers and prevent an expired
 worker from completing a reclaimed job.
 
+The Job/Attempt fence is acquired at transaction start, before current context
+or recipient User reads, and remains held while a same-recipient generation
+waits for that User row. The expiry scanner retains `FOR UPDATE SKIP LOCKED`,
+so it skips the live queued Job rather than expiring its Attempt or consuming
+automatic budget. Crash, connection loss, or rollback releases the row lock;
+ordinary claim-expiry recovery then remains available. A Job/Attempt mismatch
+is `ClaimLost` and stages no Notification, NotificationUserState change,
+Outbox row, or `Succeeded` transition.
+
 The fence also treats PostgreSQL serialization/deadlock and EF concurrency
 conflicts as retryable without leaking provider details to Application. It
 recreates the entire transaction and reacquires all locks at most three times;
@@ -206,9 +218,10 @@ together. This is generation atomicity, not delayed-dispatch authorization.
 Current-authorized Outbox dispatch/replay, notification opening, and Angular
 state clearing remain PR07-D and must not be inferred from PR07-C.
 
-The recipient User `FOR UPDATE` lock serializes concurrent digests for the
-same user, including different Workspace digests, but it is not assumed to
-serialize every existing Notification producer. The shared
+The recipient User `FOR UPDATE` lock, acquired only after the transaction's
+own Job/Attempt claim fence, serializes concurrent digests for the same user,
+including different Workspace digests, but it is not assumed to serialize
+every existing Notification producer. The shared
 `NotificationUserState.Version` is therefore also an EF concurrency token. A
 digest and immediate Task Notification race cannot commit the same recipient
 version: one unit of work wins, the other rolls back on optimistic conflict,

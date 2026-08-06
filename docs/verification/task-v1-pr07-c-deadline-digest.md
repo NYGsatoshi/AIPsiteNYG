@@ -118,17 +118,19 @@ Project authorization and lifecycle, Task deletion/completion/cancellation,
 Workflow terminal stage, and relationship source are all checked. The normal
 candidate-page enumeration runs only inside its generation transaction;
 bounded lock/rechecks validate each already enumerated page rather than
-forming a discarded second enumeration. Before accepting the context or a
-bounded evaluated page, the repository acquires a current-state fence. It uses
-`FOR SHARE` for Tenant, TenantSettings, active Subscription(s), their
-Plan source(s), TenantUser, Workspace, WorkspaceMember, Project, Group,
+forming a discarded second enumeration. At transaction start, the repository
+first acquires and validates the original claim fence: digest Job `FOR UPDATE`,
+then claimed Attempt `FOR UPDATE`, with matching token/`Claimed` status,
+Tenant/User/Workspace/Job/trigger identity. It then acquires the current-state
+fence. It uses `FOR SHARE` for Tenant, TenantSettings, active Subscription(s),
+their Plan source(s), TenantUser, Workspace, WorkspaceMember, Project, Group,
 ProjectMember, GroupMember, Task, WorkflowStage, Watch, and Collaborator; it
-uses `FOR UPDATE` for recipient User and claimed job/attempt. The actual fixed
-order is Tenant -> TenantSettings -> active Subscription -> Plan -> recipient
-User -> TenantUser -> Workspace -> WorkspaceMember -> sorted Project/Group/
-membership rows -> sorted Task/WorkflowStage/Watch/Collaborator rows -> claimed
-job/attempt. It rechecks the current context and exact page predicate while
-those locks are held.
+uses `FOR UPDATE` for recipient User. The actual fixed order is Job -> Attempt
+-> Tenant -> TenantSettings -> active Subscription -> Plan -> recipient User
+-> TenantUser -> Workspace -> WorkspaceMember -> sorted Project/Group/
+membership rows -> sorted Task/WorkflowStage/Watch/Collaborator rows. It
+rechecks the current context and exact page predicate while those locks are
+held.
 
 `FOR SHARE` allows independent digest readers to coexist while conflicting
 with ordinary PostgreSQL update/delete locks. Tenant and Workspace are not
@@ -178,6 +180,10 @@ The same-Tenant PostgreSQL concurrency gates are
 `DifferentWorkspacesInSameTenantDoNotShareExclusiveFence`,
 `SlowFirstClaimDoesNotExpireLaterSameTenantClaims`,
 `SameRecipientStillSerializesNotificationStateVersion`,
+`SlowFirstSameRecipientClaimDoesNotExpireQueuedClaim`,
+`SameRecipientWaitingClaimIsSkippedByExpiryScanner`,
+`SameRecipientQueuedClaimKeepsAutomaticAttemptBudget`, and
+`ClaimLostBeforeTransactionFenceStagesNothing`,
 `ConcurrentTenantMutationWaitsForGenerationFence`,
 `ConcurrentFeatureDisableWaitsOrPreventsDigestCommit`, and
 `MissingWatchRowOptOutInsertCannotBypassFence`. They use test-assembly-only
@@ -185,8 +191,14 @@ gates/interceptors around real generator/repository transactions. The first
 three must show the later generator evaluates and commits before a paused
 unrelated predecessor is released; the slow-claim case must show no irrelevant
 expiry, extra automatic attempt, or claim loss; the same-recipient case must
-show unique state versions; and the feature/phantom cases must show no stale
-Notification, Outbox, or state update.
+show unique state versions. The new lease cases prove that A has Job/Attempt
+and recipient User locks, B has completed its own Job/Attempt locks before it
+requests that User row, post-expiry `FOR UPDATE SKIP LOCKED` probes return no
+claim and leave B's Job/Attempt `Claimed` with its original token and one
+automatic attempt, and releasing A lets both units succeed. Claim loss before
+the transaction-start fence proves no Notification, recipient state, Outbox,
+or success staging. The feature/phantom cases must show no stale Notification,
+Outbox, or state update.
 
 ## Result, atomicity, and privacy
 
@@ -204,13 +216,15 @@ recipient-only `Notifications.NotificationCreated.v1` signal contains only
 list, Task/Project title, comment/review/Blocked content, Watch/private
 preference state, route, or relationship set.
 
-The commit-time fence, including the recipient User and claimed job/attempt,
-is held through the single save/commit. Notification, NotificationUserState,
-minimal signal Outbox row, optional job `NotificationId`, and `Succeeded`
-transition therefore share one atomic outcome. Concurrent same-user Workspace
-digests serialize through their common recipient User `FOR UPDATE` fence,
-without treating the Outbox as a scheduler or serializing unrelated Tenant
-recipients.
+The transaction-start Job/Attempt claim fence and the later recipient User
+fence are held through the single save/commit. Notification,
+NotificationUserState, minimal signal Outbox row, optional job
+`NotificationId`, and `Succeeded` transition therefore share one atomic
+outcome. The held Job lock makes the expiry scanner skip a live queued
+same-recipient claim; crash or rollback releases it for normal recovery.
+Concurrent same-user Workspace digests serialize through their common
+recipient User `FOR UPDATE` fence, without treating the Outbox as a scheduler
+or serializing unrelated Tenant recipients.
 
 The existing `NotificationUserState.Version` is also an EF optimistic-
 concurrency token. It protects the state version when a digest races an
@@ -385,6 +399,50 @@ Without it, local discovery skips those cases; CI fails when it is missing.
 The focused provider runs above do not substitute for a final full backend run,
 fresh/upgrade deployment evidence, pending-model check, or exact-head CI.
 
+## Same-recipient claim-lease remediation evidence
+
+Local provider verification on 2026-08-06 used an isolated PostgreSQL 18.4
+container with the CI-equivalent base-database migration apply before the full
+suite. The container had no mounted volume; it was removed after verification.
+The relevant evidence is:
+
+- `SlowFirstSameRecipientClaimDoesNotExpireQueuedClaim`,
+  `SameRecipientWaitingClaimIsSkippedByExpiryScanner`, and
+  `SameRecipientQueuedClaimKeepsAutomaticAttemptBudget` all passed. A first
+  Workspace transaction held the recipient User lock, while the second
+  Workspace transaction had already completed its own Job then Attempt locks
+  and was waiting for that User row. One or three post-expiry scanner probes
+  returned zero claims; during the probe the second Job and Attempt remained
+  `Claimed`, its token was unchanged, it had one Attempt row, and both
+  `AttemptCount` and `AutomaticAttemptCount` remained one.
+- Releasing the first transaction let both Workspace Jobs and Attempts
+  succeed. The combined outcome was two Notifications, two Outbox rows,
+  Notification state versions `[1, 2]`, zero expired Attempts, zero
+  same-recipient `ClaimLost` outcomes, and counts of one for both Jobs'
+  `AttemptCount` and `AutomaticAttemptCount`.
+- `ClaimLostBeforeTransactionFenceStagesNothing` passed: a stale token lost
+  before the transaction-start fence produced no Notification,
+  NotificationUserState, Outbox row, or `Succeeded` transition.
+- The three required PostgreSQL fixtures passed without skips: deadline digest
+  `23/23`, candidate/atomicity `27/27`, and Notification version concurrency
+  `1/1`. The four new cases themselves passed `4/4`.
+- The strict `Scope=TaskV1PR07C` TRX passed `106/106`, with no failed or
+  skipped tests. Its required-test manifest was active and matched for all
+  `76/76` names (the prior 72 retained plus four new exact test names).
+- The Release build completed with zero warnings and zero errors. After the
+  CI-equivalent migration apply, the full backend TRX passed `788/788`, with
+  no failures or skips; EF reported no pending model changes.
+- Frontend checks also completed: Angular unit tests `324/324`, production
+  build, architecture checks, license checks, and Storybook build all passed.
+  The Linux Docker Playwright smoke passed with 62 tests, three documented
+  skips, and one desktop retry that passed after its initial timeout; no
+  screenshot baseline was changed.
+
+These are local provider and frontend results. The immutable final commit,
+push, review state, and hosted workflow identifiers remain recorded on the
+Draft PR after the final commit is published; no local result substitutes for
+those exact-head hosted checks.
+
 ## Explicit exclusions
 
 - Notification-open endpoint and read/navigation timing;
@@ -403,12 +461,14 @@ fresh/upgrade deployment evidence, pending-model check, or exact-head CI.
 At this documentation point:
 
 - Digest and Outbox state machines are separated in source.
-- The source contract to verify uses a deterministic commit-time current-state
-  fence: shared Tenant/feature/authorization/lifecycle rows, an exclusive
-  recipient User, exclusive claim Job/Attempt rows, stable-parent phantom
-  pivots, post-lock re-evaluation, and at most three recreated transaction
-  attempts. It does not use a Tenant-wide or Workspace-wide exclusive digest
-  fence.
+- The source contract to verify uses a deterministic claim-first commit-time
+  fence: transaction-start Job then Attempt `FOR UPDATE` with token/status/
+  identity validation, shared Tenant/feature/authorization/lifecycle rows, an
+  exclusive recipient User, stable-parent phantom pivots, post-lock
+  re-evaluation, and at most three recreated transaction attempts. It holds
+  the Job while same-recipient work waits for User, so expiry recovery's
+  `FOR UPDATE SKIP LOCKED` path skips live work; it does not use a Tenant-wide
+  or Workspace-wide exclusive digest fence.
 - Feature-disable release, schedule write idempotency, and one normal
   in-transaction candidate evaluation are implemented contracts that require
   final provider evidence.
@@ -416,9 +476,10 @@ At this documentation point:
   attempts, append-preserved operator restart, zero-candidate success, generic
   Notification, minimal recipient-only Outbox signal, and privacy boundaries
   remain required preservation checks.
-- Exact-final-HEAD Release, focused provider suites, full backend, pending
-  model, frontend gates, hosted checks, manifest match, and review-state
-  evidence are still pending.
+- The local Release, focused provider suites, full backend, pending-model,
+  frontend gates, and manifest evidence above are complete. Exact-final-HEAD
+  hosted checks, PR review state, and merge authorization must be recorded on
+  the Draft PR before any separate merge decision.
 
 Therefore this source record currently says:
 

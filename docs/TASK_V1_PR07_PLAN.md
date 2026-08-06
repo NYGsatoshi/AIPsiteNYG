@@ -405,8 +405,9 @@ Build bounded, independently retryable daily user/Workspace digests without dupl
 - use Workspace-local preference/default time and a documented DST gap/fold policy;
 - group eligible Tasks for 3 days, 1 day, today, and overdue;
 - enforce a deterministic commit-time current-state fence: lock and recheck membership, Workspace/Project/Task visibility and lifecycle, current effective Watch/relationship state, and every persistent `tasks.notificationsV1` source before creation;
+- acquire the original digest Job `FOR UPDATE` and claimed Attempt `FOR UPDATE` at transaction start, validate token/status/Tenant/User/Workspace/Job/trigger identity, and hold those rows while same-recipient work waits for the User lock;
 - use PostgreSQL `FOR SHARE` for Tenant, TenantSettings, active Subscription, Plan, TenantUser, Workspace, WorkspaceMember, Project, Group, ProjectMember, GroupMember, Task, WorkflowStage, Watch, and Collaborator state so independent digest readers coexist; reserve `FOR UPDATE` for the recipient User and claimed digest Job/Attempt;
-- preserve the fixed lock order Tenant -> TenantSettings -> active Subscription -> Plan -> recipient User -> TenantUser -> Workspace -> WorkspaceMember -> sorted Project/Group/membership rows -> sorted Task/WorkflowStage/Watch/Collaborator rows -> claimed Job/Attempt;
+- preserve the fixed lock order Job -> Attempt -> Tenant -> TenantSettings -> active Subscription -> Plan -> recipient User -> TenantUser -> Workspace -> WorkspaceMember -> sorted Project/Group/membership rows -> sorted Task/WorkflowStage/Watch/Collaborator rows; keep expiry recovery on `FOR UPDATE SKIP LOCKED` so it skips an active queued same-recipient claim and relies on crash/rollback for normal recovery;
 - protect absent TenantSettings/Subscription, WorkspaceMember, ProjectMember, GroupMember, Watch, and Collaborator rows with matching stable-parent shared/exclusive pivots (Tenant, Workspace, Project, Group, and Task respectively), rather than a digest-only advisory lock;
 - include manual Watch, suppress explicit opt-out, and exclude mere visibility and Team Queue eligibility from digest relevance;
 - isolate each user/Workspace unit so one failure does not poison the batch;
@@ -445,6 +446,15 @@ only when PostgreSQL plan evidence demonstrates it is required.
 - `SameRecipientStillSerializesNotificationStateVersion`, proving two
   same-user Workspace digests leave unique versions 1/2 with two
   Notifications, two recipient-only Outbox rows, and two successful jobs;
+- `SlowFirstSameRecipientClaimDoesNotExpireQueuedClaim`,
+  `SameRecipientWaitingClaimIsSkippedByExpiryScanner`, and
+  `SameRecipientQueuedClaimKeepsAutomaticAttemptBudget`, proving that a
+  second Workspace digest has locked its own Job/Attempt before waiting on the
+  shared recipient User, expiry scanning skips it, and neither attempt budget
+  nor claim token changes; and
+- `ClaimLostBeforeTransactionFenceStagesNothing`, proving a worker that loses
+  its token before the transaction-start claim fence creates no Notification,
+  NotificationUserState, Outbox row, or success transition;
 - `ConcurrentTenantMutationWaitsForGenerationFence`,
   `ConcurrentFeatureDisableWaitsOrPreventsDigestCommit`, and
   `MissingWatchRowOptOutInsertCannotBypassFence`, proving lifecycle/feature
@@ -461,10 +471,11 @@ only when PostgreSQL plan evidence demonstrates it is required.
 
 PR07-C completes only with PostgreSQL evidence that at least two distinct-user
 generations can progress in the same Tenant and the same Workspace, while the
-same-recipient Notification-state critical section remains one-at-a-time;
-tenant/feature/lifecycle and absent-row mutations must conflict with the
-fence, and an intentionally slow unrelated claim must not expire later claims
-or consume extra automatic attempts. It additionally requires current-state
+same-recipient Notification-state critical section remains one-at-a-time and
+each queued claim retains its own Job/Attempt lock. Tenant/feature/lifecycle
+and absent-row mutations must conflict with the fence, and expiry scanning
+must skip a same-recipient claim waiting on the User row rather than consume
+its automatic attempt or token. It additionally requires current-state
 fencing, schedule idempotency, bounded retry, DST evidence, and an
 operator-readable health state. The feature remains disabled.
 

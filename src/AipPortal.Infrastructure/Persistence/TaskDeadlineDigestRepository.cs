@@ -333,6 +333,7 @@ public sealed class TaskDeadlineDigestRepository(
         {
             job = await dbContext.TaskDeadlineDigestJobs.SingleOrDefaultAsync(
                 candidate => candidate.Id == jobId &&
+                             candidate.TenantId == currentTenant.TenantId &&
                              candidate.ClaimToken == claimToken &&
                              candidate.Status == TaskDeadlineDigestJobStatus.Claimed,
                 cancellationToken);
@@ -348,6 +349,7 @@ public sealed class TaskDeadlineDigestRepository(
                 .FromSqlInterpolated($$"""
                     SELECT * FROM task_deadline_digest_attempts
                     WHERE "JobId" = {{job.Id}}
+                      AND "TenantId" = {{currentTenant.TenantId}}
                       AND "ClaimToken" = {{claimToken}}
                       AND "Status" = 'Claimed'
                     FOR UPDATE
@@ -360,6 +362,7 @@ public sealed class TaskDeadlineDigestRepository(
             attempt = await dbContext.TaskDeadlineDigestAttempts
                 .SingleOrDefaultAsync(candidate =>
                     candidate.JobId == job.Id &&
+                    candidate.TenantId == currentTenant.TenantId &&
                     candidate.ClaimToken == claimToken &&
                     candidate.Status == TaskDeadlineDigestAttemptStatus.Claimed,
                     cancellationToken);
@@ -376,6 +379,34 @@ public sealed class TaskDeadlineDigestRepository(
                 claimToken,
                 attempt.Trigger)
             : null;
+    }
+
+    /// <summary>
+    /// Acquires the generation fence in the fixed Job then Attempt order
+    /// before the transaction reads current context or requests the recipient
+    /// User lock. The locked rows remain held until the enclosing generation
+    /// transaction commits or rolls back, so the expiry scanner's
+    /// <c>FOR UPDATE SKIP LOCKED</c> selection skips an active generation.
+    /// </summary>
+    public async Task<TaskDeadlineDigestClaim?> AcquireGenerationClaimFenceAsync(
+        TaskDeadlineDigestClaim claim,
+        CancellationToken cancellationToken = default)
+    {
+        try
+        {
+            var lockedClaim = await GetClaimedAsync(
+                claim.JobId,
+                claim.ClaimToken,
+                forUpdate: true,
+                cancellationToken);
+            return lockedClaim is not null && HasSameClaimIdentity(claim, lockedClaim)
+                ? lockedClaim
+                : null;
+        }
+        catch (Exception exception) when (TaskDeadlineDigestPersistenceConflictClassifier.IsRetryable(exception))
+        {
+            throw new TaskDeadlineDigestRetryablePersistenceConflictException();
+        }
     }
 
     public async Task<TaskDeadlineDigestCurrentContext?> GetCurrentContextAsync(
@@ -442,8 +473,10 @@ public sealed class TaskDeadlineDigestRepository(
     }
 
     /// <summary>
-    /// Acquires a deterministic PostgreSQL current-state fence after a
-    /// bounded candidate page has been evaluated. The fence locks every row
+    /// Acquires a deterministic PostgreSQL authorization, lifecycle, and
+    /// candidate current-state fence after a bounded candidate page has been
+    /// evaluated. Generation has already acquired the claimed Job/Attempt
+    /// fence when it enters this method. This fence locks every remaining row
     /// whose mutation could make the evaluated page unauthorized or stale,
     /// then rechecks the exact predicate while those locks are held. A caller
     /// retries in a new transaction on CurrentStateChanged.
@@ -468,17 +501,20 @@ public sealed class TaskDeadlineDigestRepository(
                 return TaskDeadlineDigestGenerationFenceOutcome.Current;
             }
 
-            // Fixed lock order: Tenant, TenantSettings, active Subscription,
-            // Plan, recipient User, TenantUser, Workspace, WorkspaceMember,
-            // Project, Group, ProjectMember, GroupMember, Task, WorkflowStage,
-            // Watch/Collaborator, then the Digest job and claimed attempt.
+            // The generation transaction has already locked Digest Job then
+            // claimed Attempt. The remaining fixed order is Tenant,
+            // TenantSettings, active Subscription, Plan, recipient User,
+            // TenantUser, Workspace, WorkspaceMember, Project, Group,
+            // ProjectMember, GroupMember, Task, WorkflowStage, and
+            // Watch/Collaborator.
             //
             // Authorization/lifecycle rows use FOR SHARE: independent Digest
             // readers coexist, while PostgreSQL UPDATE/DELETE (including the
             // usual FOR NO KEY UPDATE taken for non-key updates) waits through
             // commit. The recipient User remains FOR UPDATE so only that
             // recipient's NotificationUserState critical section serializes.
-            // Job/Attempt ownership remains exclusively fenced by GetClaimed.
+            // Job/Attempt ownership remains exclusively fenced by the
+            // transaction-start AcquireGenerationClaimFenceAsync call.
             await LockRowsAsync($"""
                 SELECT 1 FROM tenants
                 WHERE "Id" = {claim.TenantId}
@@ -673,14 +709,6 @@ public sealed class TaskDeadlineDigestRepository(
                     """, cancellationToken);
             }
 
-            var lockedClaim = await GetClaimedAsync(
-                claim.JobId,
-                claim.ClaimToken,
-                forUpdate: true,
-                cancellationToken);
-            if (lockedClaim is null)
-                return TaskDeadlineDigestGenerationFenceOutcome.ClaimLost;
-
             if (candidateIds.Length == 0)
                 return TaskDeadlineDigestGenerationFenceOutcome.Current;
 
@@ -823,21 +851,6 @@ public sealed class TaskDeadlineDigestRepository(
         {
             throw new TaskDeadlineDigestRetryablePersistenceConflictException();
         }
-    }
-
-    public async Task LockNotificationRecipientAsync(
-        Guid userId,
-        CancellationToken cancellationToken = default)
-    {
-        if (!dbContext.Database.IsNpgsql())
-            return;
-
-        // Every digest generation uses this same stable row lock before it
-        // advances NotificationUserState. This serializes a user's concurrent
-        // Workspace digests, including the first state-row insert.
-        await dbContext.Database.ExecuteSqlInterpolatedAsync(
-            $"SELECT 1 FROM users WHERE \"Id\" = {userId} FOR UPDATE",
-            cancellationToken);
     }
 
     public async Task<bool> MarkSucceededAsync(
@@ -1227,6 +1240,18 @@ public sealed class TaskDeadlineDigestRepository(
         // than being silently omitted from the fence recheck.
         return DateTimeOffset.MaxValue;
     }
+
+    private static bool HasSameClaimIdentity(
+        TaskDeadlineDigestClaim expected,
+        TaskDeadlineDigestClaim actual) =>
+        actual.JobId == expected.JobId &&
+        actual.TenantId == expected.TenantId &&
+        actual.WorkspaceId == expected.WorkspaceId &&
+        actual.UserId == expected.UserId &&
+        actual.LocalDate == expected.LocalDate &&
+        actual.PolicyVersion == expected.PolicyVersion &&
+        actual.ClaimToken == expected.ClaimToken &&
+        actual.Trigger == expected.Trigger;
 
     private static void ClearJobClaim(TaskDeadlineDigestJob job)
     {
