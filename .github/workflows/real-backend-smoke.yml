@@ -3,6 +3,9 @@ name: Real Backend Browser Smoke
 on:
   workflow_dispatch:
 
+permissions:
+  contents: read
+
 jobs:
   real-backend-browser-smoke:
     runs-on: self-hosted
@@ -30,6 +33,7 @@ jobs:
           # a residual self-hosted runner checkout.
           ref: ${{ github.sha }}
           clean: true
+          persist-credentials: false
 
       - name: Setup Node.js
         uses: actions/setup-node@v7
@@ -37,7 +41,7 @@ jobs:
           node-version: "24"
 
       - name: Install smoke runner dependencies
-        run: npm ci
+        run: bash scripts/ci/npm-ci-retry.sh .
 
       - name: Run real-backend browser smoke
         env:
