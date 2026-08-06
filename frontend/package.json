@@ -65,6 +65,7 @@
     "@parcel/watcher@2.6.0": true,
     "@syncfusion/ej2-angular-base@34.1.29": true,
     "esbuild@0.28.1": true,
+    "fsevents@2.3.3": true,
     "lmdb@3.5.1": true,
     "msgpackr-extract@3.0.4": true
   },
