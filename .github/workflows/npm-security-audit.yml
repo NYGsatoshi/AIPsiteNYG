@@ -153,3 +153,6 @@ jobs:
 
       - name: Enforce frontend install policy
         run: bash scripts/ci/npm-ci-retry.sh frontend
+
+      - name: Enforce legacy frontend install policy
+        run: bash scripts/ci/npm-ci-retry.sh aipsite-frontend
