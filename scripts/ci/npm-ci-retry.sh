@@ -33,10 +33,48 @@ if (( npm_major < 11 || (npm_major == 11 && npm_minor < 16) )); then
   exit 2
 fi
 
-# actions/checkout persists a temporary credential in the local git config by
-# default. Remove it before any dependency lifecycle script can execute.
-git -C "$working_directory" config --local --unset-all \
-  http.https://github.com/.extraheader 2>/dev/null || true
+scrub_checkout_credentials() {
+  local repository_directory="$1"
+  local include_key
+
+  if ! git -C "$repository_directory" rev-parse --is-inside-work-tree >/dev/null 2>&1; then
+    return 0
+  fi
+
+  git -C "$repository_directory" config --local --unset-all \
+    http.https://github.com/.extraheader 2>/dev/null || true
+  git -C "$repository_directory" config --local --unset-all \
+    core.sshCommand 2>/dev/null || true
+
+  while IFS= read -r include_key; do
+    [[ -n "$include_key" ]] || continue
+    git -C "$repository_directory" config --local --unset-all \
+      "$include_key" 2>/dev/null || true
+  done < <(
+    git -C "$repository_directory" config --local --name-only \
+      --get-regexp '^includeIf\.gitdir:' 2>/dev/null || true
+  )
+
+  if [[ -n "${RUNNER_TEMP:-}" && -d "$RUNNER_TEMP" ]]; then
+    find "$RUNNER_TEMP" \
+      -maxdepth 1 \
+      -type f \
+      -name 'git-credentials-*.config' \
+      -delete 2>/dev/null || true
+  fi
+
+  if git -C "$repository_directory" config --local --get-regexp \
+    '(^http\..*\.extraheader$|^includeIf\.gitdir:|^core\.sshCommand$)' \
+    >/dev/null 2>&1; then
+    echo "Git checkout credentials remain configured before npm ci." >&2
+    exit 1
+  fi
+}
+
+# Remove every checkout credential indirection before dependency lifecycle
+# scripts can execute. This is a second line of defence behind
+# persist-credentials: false in workflows.
+scrub_checkout_credentials "$working_directory"
 
 secure_temp_root="${RUNNER_TEMP:-${TMPDIR:-/tmp}}"
 secure_cache="$secure_temp_root/npm-cache-${GITHUB_RUN_ID:-local}-${GITHUB_JOB:-job}-${GITHUB_RUN_ATTEMPT:-1}"
