@@ -29,13 +29,17 @@ public sealed class FeatureFlagService(
     public async Task<IReadOnlyList<string>> GetEnabledFeaturesAsync(Guid tenantId, CancellationToken cancellationToken = default)
     {
         var enabled = new HashSet<string>(FeatureKeys.DefaultEnabled, StringComparer.OrdinalIgnoreCase);
-        var subscription = await tenantPlans.GetActiveSubscriptionAsync(tenantId, cancellationToken);
+        var subscription = await tenantPlans.GetActiveSubscriptionForFeatureEvaluationAsync(
+            tenantId,
+            cancellationToken);
         if (subscription?.Plan is not null)
         {
             enabled = ParseFeatureArray(subscription.Plan.EnabledFeaturesJson);
         }
 
-        var settings = await tenantPlans.GetTenantSettingsAsync(tenantId, cancellationToken);
+        var settings = await tenantPlans.GetTenantSettingsForFeatureEvaluationAsync(
+            tenantId,
+            cancellationToken);
         if (settings is not null)
         {
             ApplyTenantOverrides(enabled, settings.FeatureFlagsJson);

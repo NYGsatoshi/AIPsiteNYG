@@ -130,6 +130,15 @@ public sealed class AdminController(IAdminService adminService) : ControllerBase
         return ToStatusResult(await adminService.ArchiveChannelAsync(channelId, cancellationToken));
     }
 
+    [HttpPost("task-deadline-digests/{jobId:guid}/restart")]
+    public async Task<IActionResult> RestartTaskDeadlineDigest(
+        Guid jobId,
+        RestartTaskDeadlineDigestRequest request,
+        CancellationToken cancellationToken)
+    {
+        return ToStatusResult(await adminService.RestartTaskDeadlineDigestAsync(jobId, request, cancellationToken));
+    }
+
     [HttpGet("dashboard")]
     public async Task<IActionResult> Dashboard(CancellationToken cancellationToken)
     {

@@ -1,33 +1,17 @@
 # Testing
 
-Last completed full local backend test-run audit: 2026-08-02. Latest frontend
-unit/build/architecture audit: 2026-08-02.
+The historical audit below predates the PR07-C remediation. No final
+post-remediation backend, frontend, or hosted result is recorded in this file;
+see `docs/verification/task-v1-pr07-c-deadline-digest.md` for the required
+evidence record.
 
-## Verification snapshot (2026-08-02)
+## Historical verification snapshot (2026-08-02)
 
-Command:
-
-```powershell
-dotnet test AipPortal.slnx --configuration Release --no-build
-```
-
-Result:
-
-- 620 passed
-- 0 failed
-- 0 skipped reported
-- PostgreSQL 18 configured and all current migrations applied
-
-Both `POSTGRES_TEST_CONNECTION_STRING` and the application connection string
-targeted the same disposable migrated PostgreSQL 18 database. The container was
-removed after the run. This result is therefore PostgreSQL execution evidence,
-not an environment-unset conditional pass.
-
-The active frontend unit suite passed 42 files / 323 tests, and the local
-Windows Playwright diagnostic passed 63 with 3 expected skips. The pinned Linux
-Playwright run remains hosted-CI evidence because three local MCR image pulls
-failed with transport EOF before the image could be built. Windows screenshots
-are not baseline-approval evidence.
+The prior full backend and frontend audit used a disposable migrated PostgreSQL
+18 database and a local Windows UI diagnostic. It is retained only as
+historical environment context. Its result counts do not establish acceptance
+of the current PR07-C remediation; the final run must record its own immutable
+HEAD, PostgreSQL availability, and exact totals.
 
 ### Historical 2026-06-28 A-04 auth boundary verification
 
@@ -144,6 +128,136 @@ absent from candidate search and that an authorized/unauthorized mixed mention
 rejects the full command without staged notification work. The conditional
 PostgreSQL suite must prove the same denied paths leave Task/comment versions,
 AuditLog, Outbox, Notification, and NotificationUserState unchanged.
+
+### TASK-V1-PR07-C Workspace deadline-digest tests
+
+PR07-C tests are tagged `Scope=TaskV1PR07C` and split by the boundary they
+prove:
+
+- `TaskDeadlineDigestPolicyTests` pins policy version 1, exactly three
+  automatic attempts, exact quarter-hour validation including `00:00` and
+  `23:45`, Workspace-local classification for three days/one day/today/
+  overdue, timezone conversion, DST gap/fold behavior, and stable daily
+  logical identity.
+- `TaskDeadlineDigestServiceTests` covers default-off behavior, feature-disable
+  fenced claim release, multiple Workspaces/timezones for one user, bounded
+  schedule/claim/candidate paging, one normal in-transaction candidate-page
+  enumeration plus bounded lock/rechecks, fence-retry re-evaluation only when
+  required, timezone
+  change, zero-candidate success, logical Notification identity, failure
+  transitions, and cancellation propagation.
+- `TaskDeadlineDigestWorkerTests` executes public `RunOnceAsync` through scoped
+  DI. It proves Tenant and per-claim failure isolation, cancellation before
+  not-yet-started work, immediate concurrent start of every claim in the
+  bounded batch, Tenant page bound 100, schedule bound 500, claim/concurrency
+  fan-out bound 100, and structured-log privacy with no exception details or
+  Tenant/user/Workspace/Task/job/claim IDs. This is application scheduling
+  coverage only; it does not establish PostgreSQL lock compatibility or
+  database-level parallel progress.
+- `DbNotificationDigestStagingTests` verifies the generic null-body digest,
+  minimal recipient-only signal, no implicit save, and logical retry dedupe.
+- `TaskDeadlineDigestAdminServiceTests` covers active system-administrator and
+  Tenant scope, bounded reason validation, restart outcome mapping, delegated
+  audit inputs, and process diagnostic accounting.
+- `TaskV1Pr07CDeadlineDigestPostgreSqlTests` is provider-authoritative for the
+  focused fresh/upgrade/Down/re-upgrade migration, five-field uniqueness,
+  due/claim-expiry `EXPLAIN (ANALYZE, BUFFERS)` partial-index selection, bounded
+  candidate list pages and their current-state fence rechecks, integrated DST
+  gap/fold scheduling and uniqueness, concurrent `SKIP LOCKED` claims, claim expiry/token fencing,
+  exact third automatic terminal failure, feature-disable claim release and
+  old-token fencing, schedule-upsert no-op/meaningful-write behavior, and
+  append-preserved audited operator restart.
+- `TaskV1Pr07CDigestCandidateAtomicityPostgreSqlTests` uses real PostgreSQL for
+  current candidate relevance and commit atomicity. It distinguishes current
+  Creator/Primary-Assignee/Reviewer/Collaborator/manual Watch from opt-out,
+  visibility-only, Team Queue-only, and restricted-group unauthorized cases;
+  preserves current authorized roles and non-archived Project states; removes
+  revoked, archived, deleted, completed, cancelled, opted-out, or
+  relationship-lost candidates; verifies final-evaluation races for membership
+  revoke, Workspace/Project archive, Task completion, Watch opt-out, and
+  relationship removal; and proves that stale Notification, Outbox, and state
+  advances cannot commit. It also covers all four categories producing one
+  generic Notification/state/minimal user Outbox signal and `Succeeded` ledger,
+  zero-candidate no-op, logical-key retry, post-save rollback, and concurrent
+  same-user digests across Workspaces and timezones with serialized state
+  versions. Its PostgreSQL gate/interceptor cases additionally prove
+  `DifferentUsersInSameTenantGenerateConcurrently`,
+  `DifferentUsersInSameWorkspaceDoNotShareExclusiveFence`,
+  `DifferentWorkspacesInSameTenantDoNotShareExclusiveFence`,
+  `SlowFirstClaimDoesNotExpireLaterSameTenantClaims`,
+  `SameRecipientStillSerializesNotificationStateVersion`,
+  `SlowFirstSameRecipientClaimDoesNotExpireQueuedClaim`,
+  `SameRecipientWaitingClaimIsSkippedByExpiryScanner`,
+  `SameRecipientQueuedClaimKeepsAutomaticAttemptBudget`, and
+  `ClaimLostBeforeTransactionFenceStagesNothing`,
+  `ConcurrentTenantMutationWaitsForGenerationFence`,
+  `ConcurrentFeatureDisableWaitsOrPreventsDigestCommit`, and
+  `MissingWatchRowOptOutInsertCannotBypassFence`. These tests must observe
+  candidate evaluation and commit completion across real PostgreSQL locks;
+  the same-recipient lease cases additionally prove that B has locked its own
+  Job/Attempt before reaching the shared User lock, that a post-expiry
+  `FOR UPDATE SKIP LOCKED` probe returns no claim and leaves B `Claimed` with
+  its original token and one automatic attempt, and that release of A lets
+  both units succeed at state versions 1 and 2. Asserting only that two `Task`
+  instances began, or only their final state, is insufficient.
+- The feature-disable gate exercises TenantSettings, active Subscription, and
+  Plan feature sources (including an absent-TenantSettings insert); the absent
+  Watch gate inserts through `SaveChanges` to exercise the stable Task pivot.
+- Every PR07-C concurrency test carries `Trait("Scope", "TaskV1PR07C")` and
+  `Trait("Category", "PostgreSQLIntegration")`; the required-test manifest
+  may name only the tests that exist in that fixture.
+- `TaskV1Pr07CNotificationVersionConcurrencyPostgreSqlTests` makes the existing
+  `NotificationUserState.Version` an asserted EF concurrency token and races a
+  digest with an immediate Task Notification. One version-1 unit of work
+  commits, one rolls back with `DbUpdateConcurrencyException`, and a clean
+  logical-key retry leaves exactly two Notifications/signals at versions 1/2.
+
+Run the focused scope locally with:
+
+```powershell
+dotnet test tests/AipPortal.Tests/AipPortal.Tests.csproj `
+  --filter "Scope=TaskV1PR07C"
+```
+
+Provider evidence requires a disposable PostgreSQL connection:
+
+```powershell
+$env:POSTGRES_TEST_CONNECTION_STRING = '<disposable PostgreSQL connection string>'
+$env:ConnectionStrings__DefaultConnection = $env:POSTGRES_TEST_CONNECTION_STRING
+
+dotnet test tests/AipPortal.Tests/AipPortal.Tests.csproj `
+  --configuration Release `
+  --filter "Scope=TaskV1PR07C"
+```
+
+If `POSTGRES_TEST_CONNECTION_STRING` is absent outside CI, the PostgreSQL cases
+are reported as skipped. A green run with those skips proves only pure/service/
+worker behavior. It is not evidence for migration, PostgreSQL DST/idempotency,
+locking, index plans, current repository authorization, or transaction
+atomicity. The small candidate fixture proves bounded command shape, not a
+production-volume Task-deadline index plan; no speculative deadline index was
+added. Exact worktree evidence and limitations are recorded in
+`docs/verification/task-v1-pr07-c-deadline-digest.md`.
+
+PR07-C changes no Angular or SignalR route behavior. Mocked Playwright cannot
+substitute for the PR07-D real-backend dispatch/open/reconciliation work, and
+PR07-C tests must not be described as proving that later scope.
+
+CI runs the same scope after the Release build against its PostgreSQL 18
+service, writes `task-pr07c-acceptance.trx`, and validates zero failure/error/
+timeout/abort/not-executed/skipped outcomes plus every active name in
+`scripts/ci/task-pr07c-required-tests.txt`. The manifest is a coverage guard;
+its active and matched counts must be taken from the immutable final-HEAD TRX,
+not from this source record. The same-recipient lease additions raise the
+active required-test set from 72 to 76 names; the strict verifier must match
+all 76 after the final PostgreSQL run.
+
+Historical source records reference an earlier PR07-C candidate
+`8545ae7ab8ecc3feb6d0bbe278ecfe81f217ba31`. That evidence predates the
+same-Tenant concurrency remediation and is not acceptance evidence for this
+worktree. Do not carry its test counts, manifest counts, branch SHA, or hosted
+check state forward. The final immutable HEAD and every result must be recorded
+only after this remediation's required commands run.
 
 ### Browser UI tests
 

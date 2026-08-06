@@ -210,6 +210,101 @@ operations that would ambiguously alter canonical state fail before mutation;
 historical same-role `Owner` metadata updates/removal and mismatched-row removal
 remain non-canonical compatibility cleanup.
 
+## TASK-V1-PR07-C Workspace deadline digest
+
+PR07-C adds internal generation and one operator command. It does not add a
+recipient digest-list API, notification-open API, SignalR route, or frontend
+navigation contract.
+
+The in-process worker derives one daily identity from the server-owned current
+Tenant, Workspace, user, Workspace-local date, and policy version. It reads the
+private member preference established by PR07-A, inheriting the Workspace
+default when that value is null. The accepted local-time contract remains an
+exact 15-minute value from `00:00` through `23:45`; clients cannot submit a
+timezone or Project-specific time through a digest-generation route.
+
+When the final current-state recheck finds at least one eligible Task, the
+existing Notification APIs expose one generic row. Its relevant fields are:
+
+```json
+{
+  "notificationType": 5,
+  "title": "Task deadline digest",
+  "body": null,
+  "relatedEntityType": "TaskDeadlineDigest",
+  "relatedEntityId": "<digest job id>"
+}
+```
+
+`notificationType: 5` is the existing numeric `TaskDueSoon` enum contract;
+PR07-C does not change repository-wide enum serialization.
+
+This shape intentionally contains no Task list, Task title, Project name,
+comment/review content, Watch state, or private preference. The transactionally
+staged `Notifications.NotificationCreated.v1` signal contains only:
+
+```json
+{
+  "notificationId": "<notification id>",
+  "stateVersion": 42,
+  "requiresRefetch": true
+}
+```
+
+There is exactly one logical Notification identity per recipient, Workspace,
+local date, and digest policy version. A zero-candidate recheck succeeds with
+no visible Notification and no Outbox signal. PR07-D remains responsible for
+current-authorized delayed dispatch/replay, notification opening, and Angular
+reconciliation; PR07-C does not claim those paths.
+
+### Operator restart
+
+The current Tenant-scoped administrator route is:
+
+- `POST /api/admin/task-deadline-digests/{jobId}/restart`
+
+The controller requires the existing `PlatformAdmin`/deprecated
+`SystemAdmin` role boundary, and the Application service rechecks the current
+active system administrator and current Tenant scope. The body is:
+
+```json
+{
+  "reason": "Operator verified a transient dependency outage."
+}
+```
+
+`jobId` must be non-empty. `reason` is trimmed, required, and limited to 500
+characters. The command accepts only a terminal `Failed` job with no active
+attempt. Success returns the controller's existing `{ "status": "OK" }`
+shape. Validation, cross-Tenant/not-found, non-failed, and active-attempt
+outcomes use the existing Admin controller `400 { "error": "..." }` mapping;
+PR07-C does not standardize that pre-existing API mismatch.
+
+A successful restart appends one linked `OperatorRestart` attempt and an
+AuditLog record. It never resets the three automatic attempts and it grants
+only one operator attempt. The reason is audit input, not Notification or
+realtime content.
+
+### Aggregate health
+
+`GET /health/task-deadline-digests` returns aggregate, platform-scope
+operational state only:
+
+- ledger due/claimed/succeeded/failed counts and oldest due/claimed times;
+- process-local scheduled/claimed/succeeded/zero-candidate/failure/terminal
+  failure/claim-loss/invalid-timezone/invalid-preference/operator-restart
+  counters.
+
+The response contains no Tenant, Workspace, user, Task, claim, or Notification
+identifier. Like the other mapped health endpoints it currently has no route
+authorization requirement; deployments must treat health-endpoint exposure as
+an operational boundary. It is not part of `/health/ready` and does not by
+itself prove worker progress.
+
+`tasks.notificationsV1` is still default off. Because it is a database-backed
+per-Tenant flag, the hosted worker enumerates active Tenants before checking it;
+a disabled Tenant performs no digest schedule upsert, claim, or generation.
+
 ## Project Kanban
 
 TASK-V1-PR05 defines one vendor-neutral board over canonical Project Tasks:

@@ -314,6 +314,30 @@ public enum OutboxEventStatus
     Cancelled = 5
 }
 
+public enum TaskDeadlineDigestJobStatus
+{
+    Pending = 0,
+    Claimed = 1,
+    Succeeded = 2,
+    Failed = 3
+}
+
+public enum TaskDeadlineDigestAttemptTrigger
+{
+    Automatic = 0,
+    OperatorRestart = 1
+}
+
+public enum TaskDeadlineDigestAttemptStatus
+{
+    Pending = 0,
+    Claimed = 1,
+    Succeeded = 2,
+    Failed = 3,
+    Expired = 4,
+    Deferred = 5
+}
+
 public enum ProjectStatus
 {
     Planning = 0,

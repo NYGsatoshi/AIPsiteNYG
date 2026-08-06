@@ -7,6 +7,20 @@ namespace AipPortal.Application.Common.Interfaces;
 public interface INotificationService
 {
     /// <summary>
+    /// Stages one generic Workspace deadline digest and its recipient-only
+    /// reference signal without saving. The digest ledger caller owns the
+    /// generation transaction.
+    /// </summary>
+    Task<Guid> StageTaskDeadlineDigestByLogicalKeyAsync(
+        Guid userId,
+        Guid digestJobId,
+        string logicalKey,
+        CancellationToken cancellationToken = default)
+    {
+        return Task.FromException<Guid>(new NotSupportedException("Staged Task deadline digest creation is not implemented."));
+    }
+
+    /// <summary>
     /// Stages a task notification and its recipient-only realtime refetch
     /// signal without saving the current unit of work. The caller must commit
     /// the task mutation, notification, audit, and Outbox rows together.

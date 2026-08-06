@@ -12,6 +12,8 @@ using AipPortal.Web.Middleware;
 using AipPortal.Web.Models;
 using AipPortal.Web.Security;
 using AipPortal.Web.Realtime;
+using AipPortal.Web.Notifications;
+using AipPortal.Application.Notifications;
 using AipPortal.Web.Testing;
 using Microsoft.AspNetCore.Authentication.Cookies;
 using Microsoft.AspNetCore.DataProtection;
@@ -65,12 +67,18 @@ builder.Services
 builder.Services.AddAuthorization();
 builder.Services.AddSignalR();
 builder.Services.Configure<RealtimeOptions>(builder.Configuration.GetSection("Realtime"));
+builder.Services.Configure<TaskDeadlineDigestWorkerOptions>(builder.Configuration.GetSection("TaskDeadlineDigest"));
+builder.Services.AddSingleton<TaskDeadlineDigestDiagnostics>();
+builder.Services.AddScoped<ITaskDeadlineDigestScheduler, TaskDeadlineDigestScheduler>();
+builder.Services.AddScoped<ITaskDeadlineDigestGenerator, TaskDeadlineDigestGenerator>();
+builder.Services.AddScoped<ITaskDeadlineDigestFailureHandler, TaskDeadlineDigestFailureHandler>();
 builder.Services.AddSingleton<HubSubscriptionRegistry>();
 builder.Services.AddSingleton<RealtimeDiagnostics>();
 builder.Services.AddSingleton<IRealtimeConnectionInvalidator, RealtimeConnectionInvalidator>();
 builder.Services.AddScoped<IHubSubscriptionAuthorizer, HubSubscriptionAuthorizer>();
 builder.Services.AddScoped<IRealtimeDispatchAuthorizer, RealtimeDispatchAuthorizer>();
 builder.Services.AddHostedService<OutboxDispatcher>();
+builder.Services.AddHostedService<TaskDeadlineDigestWorker>();
 builder.Services.AddRateLimiter(options =>
 {
     options.RejectionStatusCode = StatusCodes.Status429TooManyRequests;
@@ -336,6 +344,43 @@ app.MapGet("/health/realtime", async (
             failures = counters.DispatcherFailureCount
         },
         subscriptions = new { denials = counters.SubscriptionDenialCount }
+    });
+});
+
+app.MapGet("/health/task-deadline-digests", async (
+    ITaskDeadlineDigestRepository repository,
+    ICurrentTenantAccessor currentTenant,
+    TaskDeadlineDigestDiagnostics diagnostics,
+    CancellationToken cancellationToken) =>
+{
+    currentTenant.SetPlatformScope();
+    var store = await repository.GetDiagnosticsAsync(DateTimeOffset.UtcNow, cancellationToken);
+    var counters = diagnostics.Snapshot();
+    return Results.Ok(new
+    {
+        status = "OK",
+        ledger = new
+        {
+            due = store.DueCount,
+            claimed = store.ClaimedCount,
+            succeeded = store.SucceededCount,
+            failed = store.FailedCount,
+            oldestDueAt = store.OldestDueAt,
+            oldestClaimedAt = store.OldestClaimedAt
+        },
+        worker = new
+        {
+            scheduled = counters.Scheduled,
+            claimed = counters.Claimed,
+            succeeded = counters.Succeeded,
+            succeededWithoutCandidates = counters.SucceededWithoutCandidates,
+            failures = counters.Failures,
+            terminalFailures = counters.TerminalFailures,
+            claimLosses = counters.ClaimLosses,
+            invalidTimeZones = counters.InvalidTimeZones,
+            invalidPreferences = counters.InvalidPreferences,
+            operatorRestarts = counters.OperatorRestarts
+        }
     });
 });
 

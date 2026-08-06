@@ -1,6 +1,7 @@
 # Architecture
 
-Last implementation audit: 2026-06-18.
+Last broad implementation audit: 2026-06-18. TASK-V1-PR07-C implementation
+update: 2026-08-03.
 
 ## System shape
 
@@ -16,7 +17,10 @@ AipPortal.Application
   -> AipPortal.Domain
 ```
 
-The actual references are in the four `src/*/*.csproj` files. There are no separate services, message brokers, job workers, or plugin hosts.
+The actual references are in the four `src/*/*.csproj` files. There are no
+separate deployable services, message brokers, or plugin hosts. Durable Outbox
+dispatch and the TASK-V1-PR07-C deadline digest run as in-process hosted
+services inside `AipPortal.Web`.
 
 ## Projects
 
@@ -62,6 +66,8 @@ Contains:
 - cookie authentication and database session validation;
 - tenant resolution;
 - controllers;
+- in-process hosted workers for transactional Outbox dispatch and Workspace
+  deadline-digest scheduling/generation;
 - configuration validation;
 - Angular build artifacts hosted from `wwwroot/`; source lives under `frontend/`.
 
@@ -120,7 +126,8 @@ API token validation exists as a service but is not connected to ASP.NET Core au
 - One `AppDbContext`.
 - PostgreSQL through Npgsql.
 - Fluent configurations under `Infrastructure/Persistence/Configurations/`.
-- Thirteen migration classes as of 2026-06-18.
+- Migration history is tracked in `docs/DATABASE.md`; PR07-C adds the focused
+  `AddTaskDeadlineDigestLedger` migration.
 - Enums are generally stored as strings through `HasEnumStringConversion`.
 - Foreign-key deletion is predominantly `Restrict` or `SetNull`; user-facing lifecycle operations often use status plus soft-delete metadata.
 
@@ -163,8 +170,145 @@ removed.
 
 The canonical Task detail update owns the distinct timestamp-valued
 `DeadlineAt` mutation and server classification. Gantt schedule commands retain
-day-precision planned dates only. PR07-B does not add a digest worker,
+day-precision planned dates only. PR07-B did not add a digest worker,
 notification-open route, dispatch/routing changes, or frontend behavior.
+
+### TASK-V1-PR07-C Workspace deadline digest
+
+PR07-C adds an in-process `BackgroundService`, but it does not turn the
+Transactional Outbox into a scheduler. Generation and delivery are two
+separate durable state machines:
+
+1. `task_deadline_digest_jobs` owns one generation identity for
+   `(TenantId, WorkspaceId, UserId, LocalDate, PolicyVersion)` and the current
+   `Pending`/`Claimed`/`Succeeded`/`Failed` state.
+2. `task_deadline_digest_attempts` preserves automatic and operator-restart
+   attempt history. Exactly three automatic claims are available. An operator
+   restart appends one linked, requested-by-user attempt and AuditLog record;
+   it does not reset the three-attempt budget or replace earlier attempts.
+3. Only a successful non-empty generation stages a generic Notification and
+   its recipient-only `Notifications.NotificationCreated.v1` signal. The
+   existing Outbox owns delivery, retry, and dead-letter state after commit.
+
+The worker pages active Tenants and, within each Tenant scope, pages active
+user/Workspace schedules. Runtime bounds are 100 Tenants per page, 500
+schedules per page, 100 claims per batch, and 500 Task candidates per page;
+configured defaults are 25, 100, 20, and 100 respectively. Claim ownership is
+fenced by a token and short expiry (120 seconds by default), PostgreSQL claim
+queries use `FOR UPDATE SKIP LOCKED`, and every claim in the already bounded
+batch starts immediately through one `Task.WhenAll`. Each claim receives its
+own Tenant scope. `Task.WhenAll` establishes bounded application fan-out; it
+does not by itself prove PostgreSQL concurrency, nor does a claim-batch limit
+define the database concurrency ceiling. The commit fence below determines
+which generators can make database progress: different recipients can share
+reader locks, while the same recipient is deliberately serialized. Cancellation
+is propagated, and one Tenant or claimed-user failure does not stop other
+bounded work. Worker logs use only bounded error codes and fixed messages,
+without exception details or recipient/resource IDs.
+
+Each schedule uses the member's stored local-time override or the Workspace
+default, the Workspace timezone with Tenant/UTC fallback, and the current
+Workspace-local date. Local times are exact 15-minute values from `00:00`
+through `23:45`. A nonexistent DST wall time advances to the first valid
+instant after the gap; a repeated wall time selects its first chronological
+instant. The unique ledger identity prevents a second generation for the same
+local date and policy version. A timezone change is re-evaluated before
+commit: a stale local-date identity completes without a visible digest, while
+a not-yet-due identity is deferred to its newly resolved instant.
+
+Schedule upsert is write-idempotent. PostgreSQL updates an existing identity
+only when it remains pending and unattempted and its calculated due/next-attempt
+instant actually changes; an identical conflict affects no row and leaves
+`UpdatedAt` untouched. The non-PostgreSQL fallback follows the same rule and
+does not call save for an identical schedule. Claimed or attempted identities
+are never rewritten by later schedule polling. The scheduled diagnostic counts
+only inserts and meaningful pending-schedule changes, not candidates examined.
+
+Candidate categories are deadline in three local days, deadline in one local
+day, due today, and overdue. Mere visibility and Team Queue eligibility are
+not relevance. A Task additionally requires current effective Watch under the
+approved manual/Creator/Primary-Assignee/Collaborator/Reviewer contract, and
+an explicit opt-out suppresses that relevance. Tenant and user activity,
+active Workspace membership, Project visibility, Workspace/Project/Task
+lifecycle, completion/cancellation, and current relationship sources are
+independent mandatory filters. The one normal candidate-page enumeration occurs
+inside the generation transaction; bounded lock/rechecks validate each already
+enumerated page rather than creating a discarded second enumeration. At the
+start of every generation transaction, a repository-owned claim fence locks
+and validates state in this order:
+
+1. claimed digest Job `FOR UPDATE`, then its claimed Attempt `FOR UPDATE`;
+   both must retain the original token and `Claimed` status, and the Job must
+   match the current Tenant, recipient, and Workspace while the Attempt must
+   match the Job and original trigger;
+2. Tenant; TenantSettings; active Subscription(s); and their Plan row(s), all
+   `FOR SHARE`;
+3. recipient User `FOR UPDATE`, then TenantUser `FOR SHARE`;
+4. Workspace and WorkspaceMember `FOR SHARE`;
+5. candidate Project(s), Group(s), ProjectMember(s), and GroupMember(s), all
+   `FOR SHARE` in ascending ID order; and
+6. candidate Task(s), WorkflowStage(s), Watch row(s), and Collaborator row(s),
+   all `FOR SHARE` in ascending ID order.
+
+The Job/Attempt ownership lock remains held while a same-recipient transaction
+waits for the User row. The expiry selector keeps `FOR UPDATE SKIP LOCKED`, so
+it skips that active generation rather than expiring its lease; a crash,
+connection loss, or rollback releases the lock and leaves ordinary expiry
+recovery available.
+
+`FOR SHARE` is intentional: concurrent digest readers coexist, whereas
+PostgreSQL `UPDATE`/`DELETE` row locks conflict until the generation commits.
+The Tenant and Workspace are therefore never digest-wide `FOR UPDATE` fences.
+Only the recipient User is exclusive, making the
+`NotificationUserState.Version` update a same-recipient critical section;
+different users in one Tenant or Workspace need not wait on each other.
+
+Row locks cannot protect an absent optional relationship. The fence therefore
+uses stable parent pivots, and the matching mutation path acquires that parent
+`FOR UPDATE` before it inserts, changes, or deletes the child: Tenant for
+TenantSettings/Subscription, Workspace for WorkspaceMember, Project for
+ProjectMember, Group for GroupMember, and Task for Watch/Collaborator. This
+protects the corresponding absent-row phantoms without session advisory locks.
+The feature check is made only after the shared source fence covers
+TenantSettings, every active Subscription, and the selected Plan source(s).
+
+It rechecks the current context and the exact candidate predicate while those
+locks are held. A mutation that arrives after the fence waits for the commit;
+a mutation that won earlier produces a current-state change and discards the
+transaction before Notification, Outbox, or `Succeeded` can be staged. A
+zero-candidate recheck is a successful idempotent no-op with no Notification
+or Outbox row.
+
+Serialization/deadlock, EF concurrency, and current-state conflicts are
+classified in Infrastructure and exposed to Application only as a safe
+persistence-conflict marker. The generator recreates the transaction, confirms
+the claim token, reacquires every fence, and re-evaluates at most three times;
+these internal retries do not consume another automatic attempt. Claim loss
+stops generation without staging state.
+
+The visible digest is intentionally generic: title `Task deadline digest`, no
+body or Task list, and a digest-job reference. Its signal contains only
+`notificationId`, `stateVersion`, and `requiresRefetch`. Notification and
+signal staging, the ledger transition, and their save occur in the same
+generation transaction. The stable Notification logical key is derived from
+Workspace, local date, and policy version; the existing Notification unique
+index adds Tenant and recipient to that identity. The recipient User `FOR
+UPDATE` fence serializes concurrent digest generations for that user, including
+digests for different Workspaces. The shared `NotificationUserState.Version` is
+also an EF optimistic-concurrency token for other Notification producers. A
+digest and immediate Task producer racing from the same recipient version
+cannot both commit it: one unit of work rolls back, and a clean retry produces
+monotonic Notification/signal versions 1 then 2.
+
+`tasks.notificationsV1` remains a database-backed per-Tenant flag and is
+default off. The hosted worker must still page active Tenants to evaluate that
+Tenant-scoped flag, but a disabled Tenant performs no schedule upsert, claim,
+or generation. If the flag changes after a claim, its token-fenced release
+returns an automatic claim to pending without consuming counters, or preserves
+the same pending operator-restart attempt; it stages no Notification or Outbox
+row. PR07-C adds no notification-open API, dispatch/replay
+reauthorization, SignalR route change, Angular behavior, email, or push. Those
+remain PR07-D or later work.
 
 The appsettings `Features:*` switches are bound but not read by feature controllers/services. Most `Platform:*` switches are also not enforcement gates. Treat them as partially implemented configuration, not authoritative runtime controls.
 
@@ -204,13 +348,15 @@ Startup does not seed a user, administrator, tenant membership, workspace, or de
 
 The following are planned, not architectural components in the current build:
 
-- background job runner;
+- general-purpose or external job runner beyond the existing in-process
+  Outbox and deadline-digest hosted services;
 - email delivery;
 - outbound webhook dispatcher;
 - API token authentication handler;
 - object-storage client;
 - external SSO/MFA;
-- SignalR/realtime messaging;
+- PR07-D notification dispatch/open reauthorization and Angular digest
+  reconciliation (the existing shared SignalR/Outbox infrastructure remains);
 - billing/payment provider;
 - tenant restore engine;
 - full-text search service.

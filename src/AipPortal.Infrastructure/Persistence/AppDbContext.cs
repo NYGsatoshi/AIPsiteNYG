@@ -40,6 +40,8 @@ public sealed class AppDbContext(
     public DbSet<ReadState> ReadStates => Set<ReadState>();
     public DbSet<Notification> Notifications => Set<Notification>();
     public DbSet<NotificationUserState> NotificationUserStates => Set<NotificationUserState>();
+    public DbSet<TaskDeadlineDigestJob> TaskDeadlineDigestJobs => Set<TaskDeadlineDigestJob>();
+    public DbSet<TaskDeadlineDigestAttempt> TaskDeadlineDigestAttempts => Set<TaskDeadlineDigestAttempt>();
     public DbSet<Announcement> Announcements => Set<Announcement>();
     public DbSet<AnnouncementRead> AnnouncementReads => Set<AnnouncementRead>();
     public DbSet<ActivityEvent> ActivityEvents => Set<ActivityEvent>();
@@ -84,7 +86,12 @@ public sealed class AppDbContext(
     public DbSet<RadialMenuProfile> RadialMenuProfiles => Set<RadialMenuProfile>();
     public DbSet<RadialMenuItem> RadialMenuItems => Set<RadialMenuItem>();
 
-    public override async Task<int> SaveChangesAsync(CancellationToken cancellationToken = default)
+    public override Task<int> SaveChangesAsync(CancellationToken cancellationToken = default) =>
+        SaveChangesAsync(acceptAllChangesOnSuccess: true, cancellationToken);
+
+    public override async Task<int> SaveChangesAsync(
+        bool acceptAllChangesOnSuccess,
+        CancellationToken cancellationToken = default)
     {
         StampAuditableEntities();
         var hasNormalTenantWrite = ApplyTenantRules();
@@ -96,10 +103,28 @@ public sealed class AppDbContext(
             await EnsureCurrentTenantCanWriteAsync(cancellationToken);
         }
 
-        return await base.SaveChangesAsync(cancellationToken);
+        if (!RequiresTaskDeadlineDigestMutationFence() || !Database.IsNpgsql())
+        {
+            return await base.SaveChangesAsync(acceptAllChangesOnSuccess, cancellationToken);
+        }
+
+        var ownsTransaction = Database.CurrentTransaction is null;
+        await using var transaction = ownsTransaction
+            ? await Database.BeginTransactionAsync(cancellationToken)
+            : null;
+        await AcquireTaskDeadlineDigestMutationFenceAsync(cancellationToken);
+        var result = await base.SaveChangesAsync(acceptAllChangesOnSuccess, cancellationToken);
+        if (transaction is not null)
+        {
+            await transaction.CommitAsync(cancellationToken);
+        }
+
+        return result;
     }
 
-    public override int SaveChanges()
+    public override int SaveChanges() => SaveChanges(acceptAllChangesOnSuccess: true);
+
+    public override int SaveChanges(bool acceptAllChangesOnSuccess)
     {
         StampAuditableEntities();
         var hasNormalTenantWrite = ApplyTenantRules();
@@ -111,8 +136,215 @@ public sealed class AppDbContext(
             EnsureCurrentTenantCanWrite();
         }
 
-        return base.SaveChanges();
+        if (!RequiresTaskDeadlineDigestMutationFence() || !Database.IsNpgsql())
+        {
+            return base.SaveChanges(acceptAllChangesOnSuccess);
+        }
+
+        var ownsTransaction = Database.CurrentTransaction is null;
+        using var transaction = ownsTransaction
+            ? Database.BeginTransaction()
+            : null;
+        AcquireTaskDeadlineDigestMutationFence();
+        var result = base.SaveChanges(acceptAllChangesOnSuccess);
+        transaction?.Commit();
+        return result;
     }
+
+    /// <summary>
+    /// Protects digest predicates that depend on an optional relationship row.
+    /// PostgreSQL row locks protect existing rows only, so a digest's shared
+    /// read lock takes a stable parent and every relationship writer takes the
+    /// same parent exclusively before inserting, changing, or deleting the
+    /// child. This hook is intentionally at the DbContext boundary so legacy
+    /// commands, direct EF writers, and test mutations share the contract.
+    /// </summary>
+    private bool RequiresTaskDeadlineDigestMutationFence() =>
+        HasMutation<TenantSettings>() ||
+        HasMutation<Subscription>() ||
+        HasMutation<WorkspaceMember>() ||
+        HasMutation<ProjectMember>() ||
+        HasMutation<GroupMember>() ||
+        HasMutation<WorkItemWatchState>() ||
+        HasMutation<WorkItemCollaborator>();
+
+    private bool HasMutation<TEntity>() where TEntity : class =>
+        ChangeTracker.Entries<TEntity>().Any(entry => IsMutation(entry.State));
+
+    private static bool IsMutation(EntityState state) =>
+        state is EntityState.Added or EntityState.Modified or EntityState.Deleted;
+
+    private async Task AcquireTaskDeadlineDigestMutationFenceAsync(CancellationToken cancellationToken)
+    {
+        var pivots = CollectTaskDeadlineDigestMutationPivots();
+        if (pivots.TenantIds.Length > 0)
+        {
+            await Database.ExecuteSqlInterpolatedAsync($"""
+                SELECT 1 FROM tenants
+                WHERE "Id" = ANY({pivots.TenantIds})
+                ORDER BY "Id"
+                FOR UPDATE
+                """, cancellationToken);
+        }
+        if (pivots.WorkspaceIds.Length > 0)
+        {
+            await Database.ExecuteSqlInterpolatedAsync($"""
+                SELECT 1 FROM workspaces
+                WHERE "Id" = ANY({pivots.WorkspaceIds})
+                ORDER BY "Id"
+                FOR UPDATE
+                """, cancellationToken);
+        }
+        if (pivots.ProjectIds.Length > 0)
+        {
+            await Database.ExecuteSqlInterpolatedAsync($"""
+                SELECT 1 FROM projects
+                WHERE "Id" = ANY({pivots.ProjectIds})
+                ORDER BY "Id"
+                FOR UPDATE
+                """, cancellationToken);
+        }
+        if (pivots.GroupIds.Length > 0)
+        {
+            await Database.ExecuteSqlInterpolatedAsync($"""
+                SELECT 1 FROM groups
+                WHERE "Id" = ANY({pivots.GroupIds})
+                ORDER BY "Id"
+                FOR UPDATE
+                """, cancellationToken);
+        }
+        if (pivots.TaskIds.Length > 0)
+        {
+            await Database.ExecuteSqlInterpolatedAsync($"""
+                SELECT 1 FROM task_items
+                WHERE "Id" = ANY({pivots.TaskIds})
+                ORDER BY "Id"
+                FOR UPDATE
+                """, cancellationToken);
+        }
+    }
+
+    private void AcquireTaskDeadlineDigestMutationFence()
+    {
+        var pivots = CollectTaskDeadlineDigestMutationPivots();
+        if (pivots.TenantIds.Length > 0)
+        {
+            Database.ExecuteSqlInterpolated($"""
+                SELECT 1 FROM tenants
+                WHERE "Id" = ANY({pivots.TenantIds})
+                ORDER BY "Id"
+                FOR UPDATE
+                """);
+        }
+        if (pivots.WorkspaceIds.Length > 0)
+        {
+            Database.ExecuteSqlInterpolated($"""
+                SELECT 1 FROM workspaces
+                WHERE "Id" = ANY({pivots.WorkspaceIds})
+                ORDER BY "Id"
+                FOR UPDATE
+                """);
+        }
+        if (pivots.ProjectIds.Length > 0)
+        {
+            Database.ExecuteSqlInterpolated($"""
+                SELECT 1 FROM projects
+                WHERE "Id" = ANY({pivots.ProjectIds})
+                ORDER BY "Id"
+                FOR UPDATE
+                """);
+        }
+        if (pivots.GroupIds.Length > 0)
+        {
+            Database.ExecuteSqlInterpolated($"""
+                SELECT 1 FROM groups
+                WHERE "Id" = ANY({pivots.GroupIds})
+                ORDER BY "Id"
+                FOR UPDATE
+                """);
+        }
+        if (pivots.TaskIds.Length > 0)
+        {
+            Database.ExecuteSqlInterpolated($"""
+                SELECT 1 FROM task_items
+                WHERE "Id" = ANY({pivots.TaskIds})
+                ORDER BY "Id"
+                FOR UPDATE
+                """);
+        }
+    }
+
+    private TaskDeadlineDigestMutationPivots CollectTaskDeadlineDigestMutationPivots()
+    {
+        var addedTenantIds = AddedEntityIds<Tenant>();
+        var addedWorkspaceIds = AddedEntityIds<Workspace>();
+        var addedProjectIds = AddedEntityIds<Project>();
+        var addedGroupIds = AddedEntityIds<Group>();
+        var addedTaskIds = AddedEntityIds<TaskItem>();
+        var tenantIds = MutationParentIds<TenantSettings>(nameof(global::AipPortal.Domain.Entities.TenantSettings.TenantId))
+            .Concat(MutationParentIds<Subscription>(nameof(Subscription.TenantId)))
+            .Where(id => !addedTenantIds.Contains(id))
+            .Distinct()
+            .OrderBy(id => id)
+            .ToArray();
+        var workspaceIds = MutationParentIds<WorkspaceMember>(nameof(WorkspaceMember.WorkspaceId))
+            .Where(id => !addedWorkspaceIds.Contains(id))
+            .Distinct()
+            .OrderBy(id => id)
+            .ToArray();
+        var projectIds = MutationParentIds<ProjectMember>(nameof(ProjectMember.ProjectId))
+            .Where(id => !addedProjectIds.Contains(id))
+            .Distinct()
+            .OrderBy(id => id)
+            .ToArray();
+        var groupIds = MutationParentIds<GroupMember>(nameof(GroupMember.GroupId))
+            .Where(id => !addedGroupIds.Contains(id))
+            .Distinct()
+            .OrderBy(id => id)
+            .ToArray();
+        var taskIds = MutationParentIds<WorkItemWatchState>(nameof(WorkItemWatchState.TaskItemId))
+            .Concat(MutationParentIds<WorkItemCollaborator>(nameof(WorkItemCollaborator.TaskItemId)))
+            .Where(id => !addedTaskIds.Contains(id))
+            .Distinct()
+            .OrderBy(id => id)
+            .ToArray();
+
+        return new TaskDeadlineDigestMutationPivots(
+            tenantIds,
+            workspaceIds,
+            projectIds,
+            groupIds,
+            taskIds);
+    }
+
+    private HashSet<Guid> AddedEntityIds<TEntity>() where TEntity : Entity =>
+        ChangeTracker.Entries<TEntity>()
+            .Where(entry => entry.State == EntityState.Added && entry.Entity.Id != Guid.Empty)
+            .Select(entry => entry.Entity.Id)
+            .ToHashSet();
+
+    private IEnumerable<Guid> MutationParentIds<TEntity>(string propertyName) where TEntity : class
+    {
+        foreach (var entry in ChangeTracker.Entries<TEntity>().Where(entry => IsMutation(entry.State)))
+        {
+            var property = entry.Property(propertyName);
+            if (property.OriginalValue is Guid original && original != Guid.Empty)
+            {
+                yield return original;
+            }
+            if (property.CurrentValue is Guid current && current != Guid.Empty)
+            {
+                yield return current;
+            }
+        }
+    }
+
+    private sealed record TaskDeadlineDigestMutationPivots(
+        Guid[] TenantIds,
+        Guid[] WorkspaceIds,
+        Guid[] ProjectIds,
+        Guid[] GroupIds,
+        Guid[] TaskIds);
 
     protected override void OnModelCreating(ModelBuilder modelBuilder)
     {

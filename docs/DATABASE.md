@@ -1,6 +1,7 @@
 # Database
 
-Last implementation audit: 2026-08-02.
+Last broad implementation audit: 2026-08-02. TASK-V1-PR07-C schema update:
+2026-08-03.
 
 ## Technology
 
@@ -25,10 +26,11 @@ Use these in order:
 
 ## Migration history
 
-There are forty-one timestamped EF migration classes as of 2026-08-02, from:
+There are forty-two timestamped EF migration classes in the PR07-C candidate,
+from:
 
 - `20260606135558_InitialCreate`
-- through `20260801171714_AddTaskNotificationPreferenceFoundation`
+- through `20260803041347_AddTaskDeadlineDigestLedger`
 
 Migration files live in `src/AipPortal.Infrastructure/Persistence/Migrations/`.
 
@@ -56,6 +58,7 @@ The application does not auto-migrate. `/health/ready` fails when pending migrat
 - Post, PostThread
 - Conversation, ConversationMember, Message, MessageAttachment, ReadState
 - Announcement, AnnouncementRead, Notification
+- TaskDeadlineDigestJob, TaskDeadlineDigestAttempt
 
 ### Events and forms
 
@@ -229,6 +232,170 @@ columns. It preserves existing Notification, Workspace, and WorkspaceMember
 rows, but—as with any column-removal rollback—values written only to the new
 columns are not retained after rollback. No digest ledger, worker, or Task
 notification-producer schema is added by this migration.
+
+### TASK-V1-PR07-C Workspace deadline-digest ledger
+
+Migration `20260803041347_AddTaskDeadlineDigestLedger` adds two tenant-owned
+tables and no unrelated schema:
+
+- `task_deadline_digest_jobs` is the durable generation identity and current
+  state. Its unique index `IX_task_deadline_digest_jobs_identity` covers
+  exactly `(TenantId, WorkspaceId, UserId, LocalDate, PolicyVersion)`.
+- `task_deadline_digest_attempts` is the append-preserved automatic/operator
+  attempt history. `(JobId, AttemptNumber)` is unique, and filtered unique
+  index `IX_task_deadline_digest_attempts_one_active` permits only one
+  `Pending` or `Claimed` attempt for a job.
+
+The job records `Pending`, `Claimed`, `Succeeded`, or `Failed` plus
+`AttemptCount`, `AutomaticAttemptCount`, monotonic `AttemptSequence`,
+`ScheduledForUtc`, `NextAttemptAt`, claim owner/token/timestamps,
+`CompletedAt`, a bounded `LastErrorCode`, and the optional resulting
+`NotificationId`. Check constraints require coherent claim/completion fields,
+a positive policy version, valid attempt counts, and exactly three automatic
+attempts before terminal job failure. The Notification, Workspace, and User
+foreign keys use `Restrict`.
+
+Each claim creates or consumes an attempt row. The claim token is an optimistic
+fence on job and attempt state: a worker holding an expired token cannot later
+complete the reclaimed job. Expired claims finish their attempt as `Expired`;
+an automatic job is returned to `Pending` only while its three-attempt budget
+remains. PostgreSQL selection orders deterministically and uses `FOR UPDATE
+SKIP LOCKED`, so concurrent workers can claim different due rows without
+claiming one row twice.
+
+Each generation transaction first locks its claimed Job `FOR UPDATE` and then
+its claimed Attempt `FOR UPDATE`, before it reads current context or requests
+the recipient User lock. It validates the original token and `Claimed` status
+on both rows, the Job's Tenant/User/Workspace identity, and the Attempt's Job
+and trigger identity. The Job lock stays held through commit; therefore the
+same `FOR UPDATE SKIP LOCKED` expiry selector skips a live same-recipient
+generation that is waiting for the User row. A process crash, connection loss,
+or rollback releases that lock, after which normal expiry recovery may reclaim
+the expired claim. No heartbeat, lease extension, or longer timeout is used.
+
+Feature-disable release uses the same job-and-attempt token fence. It clears a
+currently claimed automatic job back to `Pending`, restores its two automatic
+claim counters, and completes that attempt as `Deferred`; it creates no Notification or
+Outbox row. A claimed operator restart instead returns its existing audited
+attempt to `Pending`, without appending another row or changing automatic
+counts. A stale token is rejected by every later completion, defer, failure,
+or release operation.
+
+The automatic budget is exactly three. `AttemptCount` and
+`AutomaticAttemptCount` reflect claims, except that a feature-disabled release
+reverses only the just-claimed fenced automatic attempt. An operator restart
+never resets the automatic budget. A Platform/System administrator's approved
+restart of a terminal job adds a new `OperatorRestart` attempt linked
+through `RestartedFromAttemptId`, records `RequestedByUserId`, increments the
+monotonic sequence, and writes `TaskDeadlineDigestRestarted` to AuditLog in the
+same transaction. It authorizes one operator attempt; failure or expiry of
+that operator attempt is terminal. Earlier attempt rows and the three-count
+automatic history remain intact. There is no independent dead-letter table.
+
+Two focused partial indexes match the worker's scheduler queries:
+
+- `IX_task_deadline_digest_jobs_due` on
+  `(TenantId, NextAttemptAt, CreatedAt, Id)` for `Status = 'Pending'`;
+- `IX_task_deadline_digest_jobs_claim_expiry` on
+  `(TenantId, ClaimExpiresAt, Id)` for `Status = 'Claimed'`.
+
+The schedule upsert updates an existing identity only when it is `Pending`, has
+no prior claim/attempt sequence, and its calculated `ScheduledForUtc` or
+`NextAttemptAt` differs. PostgreSQL expresses that rule in the `ON CONFLICT`
+`DO UPDATE` predicate with `IS DISTINCT FROM`; a repeated identical upsert
+affects zero rows and does not change `UpdatedAt`. The fallback leaves an
+identical entity untouched and does not save. Consequently, scheduler
+diagnostics count inserts or meaningful schedule changes, not each candidate
+examined during a poll; claimed and attempted identities are not rewritten.
+
+The conditional PostgreSQL suite captures `EXPLAIN (ANALYZE, BUFFERS)` output
+and requires those exact indexes for due and expired-claim selection. Candidate
+reads are asserted as one bounded SQL command per page, with a hard page-size
+ceiling of 500 and deterministic `(DeadlineAt, Id)` order. No speculative
+Task-deadline index is added: the current small fixture is not representative
+plan evidence for such an index. Production-volume candidate plans remain an
+explicit environment verification item.
+
+Generation does not use the Outbox as a schedule table. Its one normal
+candidate-page enumeration runs inside a short transaction; bounded
+lock/recheck queries validate each already enumerated page rather than forming
+a discarded second enumeration. Every generation transaction first acquires
+the original claim ownership fence: digest Job `FOR UPDATE`, then claimed
+Attempt `FOR UPDATE`, with token/status/Tenant/User/Workspace/Job/trigger
+identity validation. Only then does the current-state fence lock Tenant,
+TenantSettings, active Subscription(s), their Plan source(s), recipient User,
+TenantUser, Workspace, WorkspaceMember, Project, Group, ProjectMember,
+GroupMember, Task, WorkflowStage, Watch, and Collaborator. Those rows use
+`FOR SHARE` except recipient User `FOR UPDATE`; multiple IDs of one kind are
+locked in ascending ID order.
+
+`FOR SHARE` was selected from PostgreSQL's row-lock compatibility matrix:
+multiple digest readers coexist, while normal `UPDATE`/`DELETE` locks conflict
+until the digest commits. Thus neither the Tenant nor Workspace is a
+digest-wide exclusive fence. The recipient User row is deliberately exclusive
+so same-user digests serialize before they advance `notification_user_states`;
+different users in the same Tenant can still progress independently. The Job
+and Attempt retain exclusive claim-token fencing so no two generators can
+complete one claim. Their lock is held before any same-recipient User-lock
+wait, so expiry scanning with `FOR UPDATE SKIP LOCKED` cannot consume a live
+queued claim's automatic-attempt budget.
+
+The feature source fence includes TenantSettings, every active Subscription,
+and the Plan row(s) selected from those subscriptions before the final
+`tasks.notificationsV1` evaluation. This prevents an enablement source change
+from committing ahead of a stale visible digest. That final evaluation uses
+no-tracking repository reads after the locks, so a preflight identity-map entry
+cannot be reused as stale feature state.
+
+Existing optional rows can be protected directly, but `FOR SHARE` cannot lock
+an absent row. The matching writer paths therefore use stable parent pivots
+before changing an optional child: Tenant for TenantSettings and Subscription,
+Workspace for WorkspaceMember, Project for ProjectMember, Group for
+GroupMember, and Task for Watch or Collaborator. The digest locks those same
+parents shared; writers lock them `FOR UPDATE`. This parent-pivot contract
+protects inserts as well as updates/deletes without advisory locks or schema
+changes.
+
+While the fence is held, generation rechecks current context and the exact
+candidate predicate for the evaluated page. A later authorization/lifecycle
+mutation waits for commit; an earlier change is detected and rolls the
+transaction back before staging a visible result.
+
+The generator recreates the full transaction, reacquires the claim fence, and
+re-evaluates only for a detected current-state change, PostgreSQL
+serialization/deadlock, or EF concurrency conflict, up to three attempts.
+Infrastructure translates those provider failures to a safe application marker;
+the internal retries neither add Notifications nor consume a new automatic
+attempt. Claim loss stages nothing. Notification, Outbox signal, job
+`Succeeded` transition, and optional `NotificationId` are saved and committed
+together. A zero-candidate result commits only successful ledger completion;
+it creates neither Notification nor Outbox row.
+
+PR07-C also marks the existing `notification_user_states.Version` property as
+an EF optimistic-concurrency token. This is model metadata over the existing
+column and requires no new column or index in the focused migration. Every
+Notification producer advances the same recipient-private sequence. If a
+digest and immediate Task producer both load version 0 and try to commit
+version 1, one update wins and the other transaction raises
+`DbUpdateConcurrencyException` and rolls back its Notification/Outbox work. A
+clean logical-key retry reuses the winner and commits the other intent as
+version 2. PostgreSQL coverage verifies Notification and signal versions
+`[1, 2]` with no lost state update or duplicate committed version.
+
+For digest-to-digest races, each transaction acquires its own Job/Attempt
+claim fence before the recipient User `FOR UPDATE` lock and holds all of them
+through staging. The User lock serializes only that recipient's Notification
+state, including two digest jobs for different Workspaces; it is not a
+Tenant-wide lock. The EF token remains the cross-producer backstop for
+immediate Task Notification work that does not share the digest's recipient
+lock.
+
+The migration Down path drops both digest tables. The earlier Notification,
+preference, and Outbox schema remains, but all PR07-C ledger/attempt history is
+lost. Operational rollback should normally leave this additive migration in
+place; applying Down requires an explicit backup and acceptance of that loss.
+The same-Tenant concurrency remediation changes lock SQL and mutation fences
+only; it adds no migration and does not rewrite an existing migration.
 
 ### System and UI shell
 
