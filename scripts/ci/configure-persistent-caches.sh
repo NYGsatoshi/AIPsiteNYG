@@ -6,12 +6,27 @@ dotnet_install_dir="${DOTNET_INSTALL_DIR:-$HOME/.dotnet-ci}"
 nuget_packages="$HOME/.nuget/packages"
 nuget_http_cache="$cache_root/nuget/http-cache"
 angular_cache_root="$cache_root/angular"
+job_identity="${GITHUB_RUN_ID:-local}-${GITHUB_JOB:-job}-${GITHUB_RUN_ATTEMPT:-1}"
+
+if [[ -n "${RUNNER_TEMP:-}" ]]; then
+  npm_cache="$RUNNER_TEMP/npm-cache-$job_identity"
+  npm_userconfig="$RUNNER_TEMP/npm-userconfig-$job_identity.npmrc"
+else
+  npm_cache="${NPM_CONFIG_CACHE:-$HOME/.npm}"
+  npm_userconfig="${NPM_CONFIG_USERCONFIG:-$HOME/.npmrc}"
+fi
 
 mkdir -p \
   "$dotnet_install_dir" \
   "$nuget_packages" \
   "$nuget_http_cache" \
-  "$angular_cache_root"
+  "$angular_cache_root" \
+  "$npm_cache"
+
+if [[ -n "${RUNNER_TEMP:-}" ]]; then
+  : > "$npm_userconfig"
+  chmod 600 "$npm_userconfig"
+fi
 
 if [[ -n "${GITHUB_ENV:-}" ]]; then
   {
@@ -21,9 +36,15 @@ if [[ -n "${GITHUB_ENV:-}" ]]; then
     echo "NUGET_PACKAGES=$nuget_packages"
     echo "NUGET_HTTP_CACHE_PATH=$nuget_http_cache"
     echo "NUGET_XMLDOC_MODE=skip"
-    echo "npm_config_prefer_offline=true"
-    echo "npm_config_audit=false"
-    echo "npm_config_fund=false"
+    echo "NPM_CONFIG_CACHE=$npm_cache"
+    echo "NPM_CONFIG_USERCONFIG=$npm_userconfig"
+    echo "NPM_CONFIG_REGISTRY=https://registry.npmjs.org/"
+    echo "NPM_CONFIG_STRICT_ALLOW_SCRIPTS=true"
+    echo "NPM_CONFIG_ALLOW_GIT=none"
+    echo "NPM_CONFIG_ALLOW_REMOTE=none"
+    echo "NPM_CONFIG_PREFER_OFFLINE=false"
+    echo "NPM_CONFIG_AUDIT=false"
+    echo "NPM_CONFIG_FUND=false"
   } >> "$GITHUB_ENV"
 fi
 
@@ -57,6 +78,7 @@ printf 'Persistent CI cache root: %s\n' "$cache_root"
 printf '.NET SDK install cache: %s\n' "$dotnet_install_dir"
 printf 'NuGet packages cache: %s\n' "$nuget_packages"
 printf 'NuGet HTTP cache: %s\n' "$nuget_http_cache"
+printf 'Per-job npm cache: %s\n' "$npm_cache"
 if [[ -L frontend/.angular/cache ]]; then
   printf 'Angular build cache: %s\n' "$(readlink frontend/.angular/cache)"
 fi

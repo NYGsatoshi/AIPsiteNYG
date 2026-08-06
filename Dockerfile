@@ -2,11 +2,24 @@
 
 FROM node:25 AS frontend-build
 WORKDIR /src/frontend
-COPY frontend/package*.json ./
+COPY frontend/package.json frontend/package-lock.json frontend/.npmrc ./
+COPY scripts/ci/verify-npm-lockfile.mjs /usr/local/lib/aipsite/verify-npm-lockfile.mjs
 RUN --mount=type=cache,id=aipsite-docker-npm,target=/root/.npm,sharing=locked \
-    npm install --global npm@11.17.0
+    npm install --global npm@11.17.0 \
+      --ignore-scripts \
+      --allow-git=none \
+      --allow-remote=none \
+      --no-audit \
+      --no-fund
+RUN node /usr/local/lib/aipsite/verify-npm-lockfile.mjs .
 RUN --mount=type=cache,id=aipsite-docker-npm,target=/root/.npm,sharing=locked \
-    npm ci --prefer-offline --no-audit --no-fund
+    npm ci \
+      --prefer-online \
+      --strict-allow-scripts \
+      --allow-git=none \
+      --allow-remote=none \
+      --no-audit \
+      --no-fund
 COPY frontend/ ./
 RUN --mount=type=secret,id=syncfusion_license,required=true \
     --mount=type=cache,id=aipsite-docker-angular,target=/src/frontend/.angular/cache,sharing=locked \

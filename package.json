@@ -3,6 +3,7 @@
   "version": "0.0.0",
   "private": true,
   "type": "module",
+  "packageManager": "npm@11.17.0",
   "scripts": {
     "serve:ui": "node tests/ui/serve-static.mjs",
     "test": "node tests/ui/run-angular-playwright.mjs",
@@ -24,5 +25,8 @@
   },
   "dependencies": {
     "rg": "^0.0.2"
+  },
+  "allowScripts": {
+    "fsevents@2.3.2": true
   }
 }
