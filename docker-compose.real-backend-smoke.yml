@@ -101,6 +101,7 @@ services:
     environment:
       CI: "true"
       AIP_REAL_BACKEND_SMOKE: "1"
+      AIP_REAL_BACKEND_SMOKE_GREP: ${AIP_REAL_BACKEND_SMOKE_GREP:-}
       PLAYWRIGHT_BASE_URL: http://aip-backend:8080
       AIP_BROWSER_SMOKE_EMAIL: ${AIP_BROWSER_SMOKE_EMAIL:-e2e-user@example.test}
       AIP_BROWSER_SMOKE_PASSWORD: ${AIP_BROWSER_SMOKE_PASSWORD:-E2eSmoke!23456}

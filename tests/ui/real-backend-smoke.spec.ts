@@ -36,6 +36,10 @@ const pr06TaskTitles = {
   successor: 'PR06 dependency successor'
 } as const;
 const pr06MilestoneTitle = 'PR06 release milestone';
+const pr07NotificationFixturePath = '/internal/browser-smoke/notifications';
+const pr07ProjectTitle = 'PR07 Browser Smoke Notifications Project';
+const pr07TaskTitle = 'PR07 authorized notification task';
+const pr07NotificationTitle = 'PR07D authorized delivery smoke notification';
 
 test.describe('MVP0 real backend browser smoke', () => {
   test.setTimeout(120_000);
@@ -1914,6 +1918,204 @@ test.describe('MVP0 real backend browser smoke', () => {
       await ownerContext?.close();
       await viewerContext?.close();
       await testInfo.attach('task-v1-pr06-real-backend-evidence.json', {
+        body: JSON.stringify(evidence, null, 2),
+        contentType: 'application/json'
+      });
+    }
+  });
+
+  test('TASK-V1-PR07-D reauthorizes notification delivery, opens current Task routes, and clears revoked state through the real backend', async ({ page, browser }, testInfo) => {
+    const evidence: SmokeEvidence = {
+      baseURL: String(testInfo.project.use.baseURL ?? ''),
+      email: pr06ViewerEmail,
+      steps: [],
+      pageErrors: [],
+      consoleErrors: [],
+      failedApiResponses: []
+    };
+    let ownerContext: Awaited<ReturnType<typeof browser.newContext>> | null = null;
+    page.on('pageerror', (error) => evidence.pageErrors.push(error.message));
+    page.on('console', (message) => { if (message.type() === 'error') evidence.consoleErrors.push(message.text()); });
+    page.on('response', (response) => recordFailedApiResponse(response, evidence));
+
+    try {
+      await loginAndVerifySession(
+        page,
+        evidence,
+        { email: pr06ViewerEmail, password: `${smokePassword}:recipient` }
+      );
+      await expect(page.getByTestId('realtime-connection-state')).toContainText('Realtime updates connected.', { timeout: 30_000 });
+
+      const projects = await recordFetchJson(page, evidence, 'pr07-project-fixture', '/api/projects?page=1&pageSize=100', {
+        validate: (body) => isPagedResponse(body) &&
+          body.items.some((item: unknown) => hasStringValue(item, 'title', pr07ProjectTitle))
+      }) as Record<string, any>;
+      const project = projects.items.find((item: Record<string, unknown>) => item.title === pr07ProjectTitle)!;
+      const projectId = String(project.id);
+      const workspaceId = String(project.workspaceId);
+      const recipientUserId = evidence.userId!;
+      expect(projectId).toMatch(/^[0-9a-f-]{36}$/i);
+      expect(workspaceId).toMatch(/^[0-9a-f-]{36}$/i);
+
+      if (await page.getByTestId('right-panel-open').count()) {
+        await page.getByTestId('right-panel-open').click();
+      }
+      await expect(page.getByRole('heading', { name: 'Notifications and members' })).toBeVisible();
+
+      // The immediate delivery below happens only after the existing client
+      // reconnects and re-subscribes to its current authorized User route.
+      await verifyRealtimeTransportReconnect(page, evidence);
+
+      ownerContext = await browser.newContext({ baseURL: evidence.baseURL });
+      const ownerPage = await ownerContext.newPage();
+      const ownerEvidence: SmokeEvidence = {
+        baseURL: evidence.baseURL,
+        email: smokeEmail,
+        steps: [],
+        pageErrors: [],
+        consoleErrors: [],
+        failedApiResponses: []
+      };
+      ownerPage.on('pageerror', (error) => ownerEvidence.pageErrors.push(error.message));
+      ownerPage.on('console', (message) => { if (message.type() === 'error') ownerEvidence.consoleErrors.push(message.text()); });
+      ownerPage.on('response', (response) => recordFailedApiResponse(response, ownerEvidence));
+      await loginAndVerifySession(ownerPage, ownerEvidence);
+
+      const stageNotification = async (dispatchDelaySeconds: number) => {
+        const response = await requestWithCsrf(
+          ownerPage,
+          'POST',
+          `${pr07NotificationFixturePath}/task`,
+          { dispatchDelaySeconds }
+        );
+        evidence.steps.push({
+          name: dispatchDelaySeconds === 0 ? 'pr07-stage-immediate-task-notification' : 'pr07-stage-delayed-task-notification',
+          method: 'POST',
+          path: `${pr07NotificationFixturePath}/task`,
+          status: response.status
+        });
+        expect(response.status, response.text).toBe(200);
+        expect(response.csrfHeaderPresent).toBe(true);
+        const body = parseJson(response.text) as Record<string, unknown>;
+        const notificationId = String(body.notificationId ?? '');
+        const eventId = String(body.eventId ?? '');
+        const fixtureProjectId = String(body.projectId ?? '');
+        const taskId = String(body.taskId ?? '');
+        expect(notificationId).toMatch(/^[0-9a-f-]{36}$/i);
+        expect(eventId).toMatch(/^[0-9a-f-]{36}$/i);
+        expect(fixtureProjectId).toBe(projectId);
+        expect(taskId).toMatch(/^[0-9a-f-]{36}$/i);
+        expect(Number(body.dispatchDelaySeconds)).toBe(dispatchDelaySeconds);
+        return { notificationId, eventId, taskId };
+      };
+
+      const immediate = await stageNotification(0);
+      const immediateItem = page.locator('app-notification-item', { hasText: pr07NotificationTitle }).first();
+      await expect(immediateItem).toBeVisible({ timeout: 30_000 });
+      await expect(immediateItem.getByTestId('notification-target-link')).toBeVisible();
+
+      const openResponse = waitForApiResponse(page, 'POST', `/api/notifications/${immediate.notificationId}/open`);
+      const expectedTaskUrl = new RegExp(`/app/projects/${projectId}/tasks/${immediate.taskId}$`);
+      const taskNavigation = page.waitForURL(expectedTaskUrl);
+      await immediateItem.getByTestId('notification-target-link').click();
+      const opened = await openResponse;
+      const openedText = await opened.text();
+      const openedBody = parseJson(openedText) as Record<string, unknown>;
+      evidence.steps.push({
+        name: 'pr07-open-authorized-task-notification',
+        method: 'POST',
+        path: `/api/notifications/${immediate.notificationId}/open`,
+        status: opened.status(),
+        bodyPreview: preview(openedText)
+      });
+      expect(opened.status(), openedText).toBe(200);
+      expect(openedBody.status).toBe('Opened');
+      expect(openedBody.route).toBe(`/projects/${projectId}/tasks/${immediate.taskId}`);
+      await taskNavigation;
+      await expect(page.getByRole('heading', { name: pr07TaskTitle })).toBeVisible();
+
+      // Keep a visible protected notification in the real RightPanel while
+      // access changes; the next notification is deliberately held in the
+      // existing outbox until after the membership revocation commits.
+      await page.goto('/app/workspaces');
+      if (await page.getByTestId('right-panel-open').count()) {
+        await page.getByTestId('right-panel-open').click();
+      }
+      await expect(page.locator('app-notification-item', { hasText: pr07NotificationTitle })).toHaveCount(1);
+      const delayed = await stageNotification(8);
+
+      const protectedNotificationCleared = expect(
+        page.locator('app-notification-item', { hasText: pr07NotificationTitle })
+      ).toHaveCount(0, { timeout: 30_000 });
+      const revoke = await requestWithCsrf(
+        ownerPage,
+        'DELETE',
+        `/api/projects/${projectId}/members/${recipientUserId}`
+      );
+      evidence.steps.push({
+        name: 'pr07-project-membership-revoked-before-delayed-delivery',
+        method: 'DELETE',
+        path: `/api/projects/${projectId}/members/${recipientUserId}`,
+        status: revoke.status
+      });
+      expect(revoke.status, revoke.text).toBe(200);
+      expect(revoke.csrfHeaderPresent).toBe(true);
+      await protectedNotificationCleared;
+
+      const unavailable = await requestWithCsrf(
+        page,
+        'POST',
+        `/api/notifications/${delayed.notificationId}/open`
+      );
+      const unavailableBody = parseJson(unavailable.text) as Record<string, unknown>;
+      evidence.steps.push({
+        name: 'pr07-open-revoked-task-notification-is-unavailable',
+        method: 'POST',
+        path: `/api/notifications/${delayed.notificationId}/open`,
+        status: unavailable.status,
+        bodyPreview: preview(unavailable.text)
+      });
+      expect(unavailable.status, unavailable.text).toBe(200);
+      expect(unavailableBody).toMatchObject({ status: 'Unavailable', route: null });
+      expect(unavailable.text).not.toContain(pr07TaskTitle);
+      expect(unavailable.text).not.toContain(projectId);
+
+      const hidden = await fetchJsonFromPage(page, '/api/notifications?page=1&pageSize=100');
+      evidence.steps.push({
+        name: 'pr07-revoked-task-notifications-are-hidden-from-list',
+        method: 'GET',
+        path: '/api/notifications',
+        status: hidden.status,
+        bodyPreview: preview(JSON.stringify(hidden.body))
+      });
+      expect(hidden.status).toBe(200);
+      expect(Array.isArray(hidden.body?.items)).toBe(true);
+      expect(hidden.body.items.some((item: Record<string, unknown>) =>
+        item.id === immediate.notificationId || item.id === delayed.notificationId)).toBe(false);
+
+      await expect.poll(async () => {
+        const status = await fetchJsonFromPage(ownerPage, `${pr07NotificationFixturePath}/events/${delayed.eventId}`);
+        return status.status === 200 ? status.body : { status: `HTTP ${status.status}` };
+      }, {
+        message: 'the delayed task notification is terminally suppressed after current authorization is revoked',
+        timeout: 35_000
+      }).toMatchObject({
+        eventId: delayed.eventId,
+        status: 'Delivered',
+        attemptCount: 0,
+        outcomeCode: 'NoAuthorizedRecipient'
+      });
+      await expect(page.locator('app-notification-item', { hasText: pr07NotificationTitle })).toHaveCount(0);
+
+      expect(ownerEvidence.pageErrors, 'PR07-D owner browser page errors').toEqual([]);
+      expectUnexpectedConsoleErrors(ownerEvidence);
+      expectUnexpectedApiFailures(ownerEvidence);
+      expect(evidence.pageErrors, 'PR07-D recipient browser page errors').toEqual([]);
+      expectUnexpectedConsoleErrors(evidence);
+      expectUnexpectedApiFailures(evidence);
+    } finally {
+      await ownerContext?.close();
+      await testInfo.attach('task-v1-pr07d-real-backend-evidence.json', {
         body: JSON.stringify(evidence, null, 2),
         contentType: 'application/json'
       });

@@ -37,14 +37,7 @@ public sealed class CurrentAuthorizationTargetResolver(
             return NotOwned();
         }
 
-        var notification = await dbContext.Notifications
-            .AsNoTracking()
-            .SingleOrDefaultAsync(item =>
-                item.Id == notificationId &&
-                item.TenantId == tenantId &&
-                item.UserId == userId &&
-                item.DeletedAt == null,
-                cancellationToken);
+        var notification = await FindRecipientNotificationAsync(tenantId, userId, notificationId, cancellationToken);
         if (notification is null)
         {
             return NotOwned();
@@ -104,7 +97,31 @@ public sealed class CurrentAuthorizationTargetResolver(
         if (!IsTenantInScope(tenantId) ||
             envelope.EventType != "Notifications.NotificationCreated.v1" ||
             envelope.TenantId != tenantId ||
-            !TryGetGuid(envelope.Payload, "notificationId", out var notificationId) ||
+            envelope.AggregateId == Guid.Empty)
+        {
+            return false;
+        }
+
+        var notification = await FindRecipientNotificationAsync(
+            tenantId,
+            recipientUserId,
+            envelope.AggregateId,
+            cancellationToken);
+        if (notification is null || !await HasCurrentTenantUserAsync(tenantId, recipientUserId, cancellationToken))
+        {
+            return false;
+        }
+
+        // Existing generic recipient notifications retain their established
+        // embedded-event contract. The strict reference-only schema is the
+        // required boundary for Task and digest notifications, whose current
+        // authorization must also be re-evaluated before delivery.
+        if (!RequiresCurrentTargetResolution(notification))
+        {
+            return true;
+        }
+
+        if (!TryGetGuid(envelope.Payload, "notificationId", out var notificationId) ||
             notificationId != envelope.AggregateId ||
             !IsReferenceOnlyNotificationCreatedPayload(envelope.Payload, notificationId, envelope.AggregateVersion))
         {
@@ -146,10 +163,25 @@ public sealed class CurrentAuthorizationTargetResolver(
             return false;
         }
 
-        // A delayed/replayed state signal is not allowed to outlive the
-        // notification's currently authorized target. The response contains no
-        // target projection, but it still reveals recipient-private state and
-        // therefore shares the same current-target fence as notification open.
+        var notification = await FindRecipientNotificationAsync(
+            tenantId,
+            recipientUserId,
+            notificationId.Value,
+            cancellationToken);
+        if (notification is null)
+        {
+            return false;
+        }
+
+        // Generic recipient notifications retain their existing read-state
+        // event contract. Task and digest state still shares notification
+        // open's current-target fence, so a delayed/replayed signal cannot
+        // outlive a revocation.
+        if (!RequiresCurrentTargetResolution(notification))
+        {
+            return true;
+        }
+
         var resolution = await ResolveAsync(tenantId, recipientUserId, notificationId.Value, cancellationToken);
         return resolution.IsOwned && resolution.IsAvailable;
     }
@@ -379,6 +411,27 @@ public sealed class CurrentAuthorizationTargetResolver(
                 member.Status == TenantUserStatus.Active,
                 cancellationToken);
     }
+
+    private Task<Notification?> FindRecipientNotificationAsync(
+        Guid tenantId,
+        Guid userId,
+        Guid notificationId,
+        CancellationToken cancellationToken) =>
+        dbContext.Notifications
+            .AsNoTracking()
+            .SingleOrDefaultAsync(item =>
+                item.Id == notificationId &&
+                item.TenantId == tenantId &&
+                item.UserId == userId &&
+                item.DeletedAt == null,
+                cancellationToken);
+
+    private static bool RequiresCurrentTargetResolution(Notification notification) =>
+        notification.RelatedEntityType is "TaskItem" or "Task" ||
+        string.Equals(
+            notification.RelatedEntityType,
+            TaskDeadlineDigestPolicy.RelatedEntityType,
+            StringComparison.Ordinal);
 
     private async Task<bool> HasCurrentWorkspaceMembershipAsync(
         Guid tenantId,

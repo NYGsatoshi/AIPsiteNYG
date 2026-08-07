@@ -731,6 +731,7 @@ describe('ProjectDetailFacade canonical Kanban', () => {
     flushLoad();
 
     catchUp!();
+    flushAuthorizedProjectProjections();
     http.expectOne((request) => request.url === '/api/projects/project-1/kanban')
       .flush(snapshotDto({ board: { ...snapshotDto().board!, version: 8 } }));
     http.expectOne('/api/projects/project-1/gantt')
@@ -753,6 +754,14 @@ describe('ProjectDetailFacade canonical Kanban', () => {
     expect(facade.view().kanban.snapshot).toBeNull();
     expect(facade.view().schedule.snapshot).toBeNull();
     expect(facade.view().schedule.feedback).toContain('denied during reconnect');
+    http.expectOne('/api/projects/project-1').flush(
+      { error: { code: 'PROJECT_NOT_FOUND', message: 'Not found.' } },
+      { status: 400, statusText: 'Bad Request' }
+    );
+    expect(facade.view().status).toBe('permissionDenied');
+    expect(facade.view().message).toBe(
+      'Project access was denied during reconnect. Protected Project data was cleared.'
+    );
     http.expectOne((request) => request.url === '/api/projects/project-1/kanban').flush(
       { error: { code: 'KANBAN_NOT_FOUND', message: 'Not found.' } },
       { status: 404, statusText: 'Not Found' }
@@ -771,6 +780,7 @@ describe('ProjectDetailFacade canonical Kanban', () => {
 
     catchUp!();
 
+    flushAuthorizedProjectProjections();
     http.expectNone((request) => request.url === '/api/projects/project-1/kanban');
     http.expectOne('/api/projects/project-1/gantt').flush(ganttSnapshotDto());
     expect(facade.view().kanban.reconciliationQueued).toBe(true);

@@ -2,6 +2,12 @@ name: Real Backend Browser Smoke
 
 on:
   workflow_dispatch:
+    inputs:
+      playwright_grep:
+        description: Optional Playwright grep for a focused real-backend smoke run.
+        required: false
+        default: ''
+        type: string
 
 permissions:
   contents: read
@@ -46,6 +52,7 @@ jobs:
       - name: Run real-backend browser smoke
         env:
           SYNCFUSION_LICENSE: ${{ secrets.SYNCFUSION_LICENSE }}
+          AIP_REAL_BACKEND_SMOKE_GREP: ${{ inputs.playwright_grep }}
         shell: bash
         run: |
           test -n "${SYNCFUSION_LICENSE:-}" || {

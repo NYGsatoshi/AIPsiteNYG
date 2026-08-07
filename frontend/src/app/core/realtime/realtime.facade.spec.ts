@@ -154,7 +154,9 @@ describe('RealtimeFacade', () => {
   it('AuthorizationInvalidationReauthorizesRegisteredFeatureSubscription', async () => {
     const deniedOwners: string[][] = [];
     facade.registerSubscription('project-detail', { subscriptionType: 'project', resourceId: RESOURCE_ID });
-    facade.registerCatchUp('project-detail', (context) => deniedOwners.push([...context.deniedOwners]));
+    facade.registerCatchUp('project-detail', (context) => {
+      deniedOwners.push([...context.deniedOwners]);
+    });
     await enableAndAuthenticate();
 
     transport.deniedSubscriptionType = 'project';
@@ -272,6 +274,7 @@ describe('RealtimeFacade', () => {
 
     auth.setMockSession(activeSession('aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa'));
     await waitForConnection(facade);
+    await waitForSubscriptionCount(transport, 'user', 2);
 
     expect(transport.subscribed.filter((request) => request.subscriptionType === 'workspace')).toHaveLength(1);
     expect(transport.subscribed.filter((request) => request.subscriptionType === 'user')).toHaveLength(2);
@@ -382,6 +385,17 @@ function settle(): Promise<void> {
 async function waitForConnection(facade: RealtimeFacade): Promise<void> {
   for (let attempt = 0; attempt < 20; attempt += 1) {
     if (facade.connectionState() === 'Connected') return;
+    await new Promise((resolve) => setTimeout(resolve, 10));
+  }
+}
+
+async function waitForSubscriptionCount(
+  transport: FakeRealtimeTransport,
+  subscriptionType: RealtimeSubscriptionRequest['subscriptionType'],
+  count: number,
+): Promise<void> {
+  for (let attempt = 0; attempt < 20; attempt += 1) {
+    if (transport.subscribed.filter((request) => request.subscriptionType === subscriptionType).length >= count) return;
     await new Promise((resolve) => setTimeout(resolve, 10));
   }
 }

@@ -58,6 +58,7 @@ const renderLiveFilesPage = async (
   const fixture = TestBed.createComponent(FilesPageComponent);
   const http = TestBed.inject(HttpTestingController);
   fixture.detectChanges();
+  await fixture.whenStable();
   flushFileList(http, items);
   fixture.detectChanges();
   return { fixture, http };

@@ -98,6 +98,44 @@ public sealed class TaskV1Pr07DAuthorizedDeliveryTests
     }
 
     [Fact]
+    public async Task GenericRecipientNotificationCreatedRetainsLegacyRecipientDelivery()
+    {
+        await using var fixture = await Fixture.CreateAsync();
+        var notification = new Notification
+        {
+            TenantId = fixture.TenantId,
+            UserId = fixture.UserId,
+            NotificationType = NotificationType.System,
+            Title = "General recipient notification",
+            CreatedAt = FixedClock.Instance.UtcNow,
+            StateVersion = 6
+        };
+        fixture.Db.Notifications.Add(notification);
+        await fixture.Db.SaveChangesAsync();
+
+        var envelope = new DurableEventEnvelope(
+            Guid.NewGuid(),
+            "Notifications.NotificationCreated.v1",
+            RealtimeEventCatalog.PayloadSchemaVersion1,
+            FixedClock.Instance.UtcNow,
+            fixture.TenantId,
+            "Notification",
+            notification.Id,
+            notification.StateVersion,
+            RealtimeActor.System(),
+            null,
+            null,
+            JsonSerializer.SerializeToElement(new
+            {
+                notification = new { id = notification.Id, title = notification.Title, version = notification.StateVersion },
+                unreadCount = 1,
+                stateVersion = notification.StateVersion
+            }));
+
+        Assert.True(await fixture.Resolver.CanDeliverCreatedAsync(fixture.TenantId, fixture.UserId, envelope));
+    }
+
+    [Fact]
     public async Task TaskNotificationCreatedPayloadIsReferenceOnly()
     {
         await using var fixture = await Fixture.CreateAsync();
@@ -144,6 +182,45 @@ public sealed class TaskV1Pr07DAuthorizedDeliveryTests
     }
 
     [Fact]
+    public async Task GenericRecipientNotificationReadStateRetainsLegacyRecipientDelivery()
+    {
+        await using var fixture = await Fixture.CreateAsync();
+        var notification = new Notification
+        {
+            TenantId = fixture.TenantId,
+            UserId = fixture.UserId,
+            NotificationType = NotificationType.System,
+            Title = "General recipient notification",
+            CreatedAt = FixedClock.Instance.UtcNow,
+            StateVersion = 6
+        };
+        fixture.Db.Notifications.Add(notification);
+        await fixture.Db.SaveChangesAsync();
+        var envelope = new DurableEventEnvelope(
+            Guid.NewGuid(),
+            "Notifications.NotificationReadStateChanged.v1",
+            RealtimeEventCatalog.PayloadSchemaVersion1,
+            FixedClock.Instance.UtcNow,
+            fixture.TenantId,
+            "Notification",
+            notification.Id,
+            notification.StateVersion,
+            RealtimeActor.System(),
+            null,
+            null,
+            JsonSerializer.SerializeToElement(new
+            {
+                notificationId = notification.Id,
+                change = "read",
+                unreadCount = 0,
+                stateVersion = notification.StateVersion,
+                updatedAt = FixedClock.Instance.UtcNow
+            }));
+
+        Assert.True(await fixture.Resolver.CanDeliverReadStateAsync(fixture.TenantId, fixture.UserId, envelope));
+    }
+
+    [Fact]
     public async Task NotificationReadStateDispatchIsSuppressedAfterMembershipRevocation()
     {
         await using var fixture = await Fixture.CreateAsync();
@@ -154,6 +231,29 @@ public sealed class TaskV1Pr07DAuthorizedDeliveryTests
             fixture.TenantId,
             fixture.UserId,
             fixture.ReadStateEnvelope("read", fixture.Notification.Id)));
+    }
+
+    [Fact]
+    public async Task RevokedTaskNotificationIsHiddenAndCannotBeMutatedThroughTheLegacyEndpoints()
+    {
+        await using var fixture = await Fixture.CreateAsync();
+        fixture.Member.Status = MembershipStatus.Suspended;
+        await fixture.Db.SaveChangesAsync();
+        var notifications = new DbNotificationService(
+            fixture.Db,
+            FixedClock.Instance,
+            fixture.Tenant,
+            targets: fixture.Resolver);
+
+        var page = await notifications.ListAsync(fixture.UserId, 1, 20);
+
+        Assert.Empty(page.Items);
+        Assert.Equal(0, page.TotalCount);
+        Assert.Equal(0, await notifications.GetUnreadCountAsync(fixture.UserId));
+        Assert.False(await notifications.MarkAsReadAsync(fixture.UserId, fixture.Notification.Id));
+        Assert.False(await notifications.DeleteAsync(fixture.UserId, fixture.Notification.Id, FixedClock.Instance.UtcNow));
+        Assert.False((await fixture.Db.Notifications.SingleAsync()).IsRead);
+        Assert.Null((await fixture.Db.Notifications.SingleAsync()).DeletedAt);
     }
 
     [Fact]

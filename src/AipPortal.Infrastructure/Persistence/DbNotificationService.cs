@@ -14,9 +14,11 @@ public sealed class DbNotificationService(
     AppDbContext dbContext,
     IClock clock,
     ICurrentTenant currentTenant,
-    ITransactionalOutbox? outbox = null) : INotificationService
+    ITransactionalOutbox? outbox = null,
+    INotificationTargetResolver? targets = null) : INotificationService
 {
     private const string NotificationUserStateIdentityIndex = "IX_notification_user_states_TenantId_UserId";
+    private const int AuthorizationScanBatchSize = 100;
 
     public async Task<Guid> StageTaskDeadlineDigestByLogicalKeyAsync(
         Guid userId,
@@ -305,6 +307,11 @@ public sealed class DbNotificationService(
             return false;
         }
 
+        if (!await IsCurrentlyVisibleAsync(notification, userId, cancellationToken))
+        {
+            return false;
+        }
+
         if (!notification.IsRead)
         {
             var now = clock.UtcNow;
@@ -329,6 +336,24 @@ public sealed class DbNotificationService(
             return 0;
         }
 
+        if (targets is not null)
+        {
+            var visibleUnread = new List<Notification>(unread.Count);
+            foreach (var notification in unread)
+            {
+                if (await IsCurrentlyVisibleAsync(notification, userId, cancellationToken))
+                {
+                    visibleUnread.Add(notification);
+                }
+            }
+
+            unread = visibleUnread;
+            if (unread.Count == 0)
+            {
+                return 0;
+            }
+        }
+
         var now = clock.UtcNow;
         var stateVersion = AdvanceState(await GetOrCreateUserStateAsync(userId, now, cancellationToken), now);
         foreach (var notification in unread)
@@ -343,11 +368,17 @@ public sealed class DbNotificationService(
         return unread.Count;
     }
 
-    public Task<int> GetUnreadCountAsync(Guid userId, CancellationToken cancellationToken = default)
+    public async Task<int> GetUnreadCountAsync(Guid userId, CancellationToken cancellationToken = default)
     {
-        return dbContext.Notifications.CountAsync(
-            notification => notification.UserId == userId && !notification.IsRead && notification.DeletedAt == null,
-            cancellationToken);
+        var query = dbContext.Notifications
+            .AsNoTracking()
+            .Where(notification => notification.UserId == userId && !notification.IsRead && notification.DeletedAt == null);
+        if (targets is null)
+        {
+            return await query.CountAsync(cancellationToken);
+        }
+
+        return await CountCurrentlyVisibleAsync(query, userId, cancellationToken);
     }
 
     public async Task<PagedResponse<NotificationListItemResponse>> ListAsync(Guid userId, int page, int pageSize, CancellationToken cancellationToken = default)
@@ -357,26 +388,19 @@ public sealed class DbNotificationService(
             .Where(notification => notification.UserId == userId && notification.DeletedAt == null)
             .OrderByDescending(notification => notification.CreatedAt);
 
-        var total = await query.CountAsync(cancellationToken);
-        var items = await query
-            .Skip((page - 1) * pageSize)
-            .Take(pageSize)
-            .Select(notification => new NotificationListItemResponse(
-                notification.Id,
-                notification.UserId,
-                notification.NotificationType,
-                notification.Title,
-                notification.Body,
-                notification.RelatedEntityType,
-                notification.RelatedEntityId,
-                notification.IsRead,
-                notification.CreatedAt,
-                notification.ReadAt,
-                BuildTargetRoute(notification.RelatedEntityType, notification.RelatedEntityId),
-                notification.StateVersion))
-            .ToListAsync(cancellationToken);
+        if (targets is null)
+        {
+            var total = await query.CountAsync(cancellationToken);
+            var notifications = await query
+                .Skip((page - 1) * pageSize)
+                .Take(pageSize)
+                .ToListAsync(cancellationToken);
+            var items = notifications.Select(ToListItem).ToList();
 
-        return new PagedResponse<NotificationListItemResponse>(items, page, pageSize, total);
+            return new PagedResponse<NotificationListItemResponse>(items, page, pageSize, total);
+        }
+
+        return await ListCurrentlyVisibleAsync(query, userId, page, pageSize, cancellationToken);
     }
 
     public async Task<bool> DeleteAsync(Guid userId, Guid notificationId, DateTimeOffset deletedAt, CancellationToken cancellationToken = default)
@@ -387,6 +411,11 @@ public sealed class DbNotificationService(
             item.DeletedAt == null,
             cancellationToken);
         if (notification is null)
+        {
+            return false;
+        }
+
+        if (!await IsCurrentlyVisibleAsync(notification, userId, cancellationToken))
         {
             return false;
         }
@@ -460,6 +489,128 @@ public sealed class DbNotificationService(
             _ => null
         };
     }
+
+    private async Task<PagedResponse<NotificationListItemResponse>> ListCurrentlyVisibleAsync(
+        IQueryable<Notification> query,
+        Guid userId,
+        int page,
+        int pageSize,
+        CancellationToken cancellationToken)
+    {
+        var items = new List<NotificationListItemResponse>(pageSize);
+        var firstRequestedVisibleIndex = checked((page - 1) * pageSize);
+        var visibleCount = 0;
+        var rawOffset = 0;
+
+        while (true)
+        {
+            var candidates = await query
+                .Skip(rawOffset)
+                .Take(AuthorizationScanBatchSize)
+                .ToListAsync(cancellationToken);
+            if (candidates.Count == 0)
+            {
+                break;
+            }
+
+            foreach (var notification in candidates)
+            {
+                if (!await IsCurrentlyVisibleAsync(notification, userId, cancellationToken))
+                {
+                    continue;
+                }
+
+                if (visibleCount >= firstRequestedVisibleIndex && items.Count < pageSize)
+                {
+                    items.Add(ToListItem(notification));
+                }
+
+                visibleCount++;
+            }
+
+            rawOffset += candidates.Count;
+            if (candidates.Count < AuthorizationScanBatchSize)
+            {
+                break;
+            }
+        }
+
+        return new PagedResponse<NotificationListItemResponse>(items, page, pageSize, visibleCount);
+    }
+
+    private async Task<int> CountCurrentlyVisibleAsync(
+        IQueryable<Notification> query,
+        Guid userId,
+        CancellationToken cancellationToken)
+    {
+        var visibleCount = 0;
+        var rawOffset = 0;
+        while (true)
+        {
+            var candidates = await query
+                .Skip(rawOffset)
+                .Take(AuthorizationScanBatchSize)
+                .ToListAsync(cancellationToken);
+            if (candidates.Count == 0)
+            {
+                return visibleCount;
+            }
+
+            foreach (var notification in candidates)
+            {
+                if (await IsCurrentlyVisibleAsync(notification, userId, cancellationToken))
+                {
+                    visibleCount++;
+                }
+            }
+
+            rawOffset += candidates.Count;
+            if (candidates.Count < AuthorizationScanBatchSize)
+            {
+                return visibleCount;
+            }
+        }
+    }
+
+    private async Task<bool> IsCurrentlyVisibleAsync(
+        Notification notification,
+        Guid userId,
+        CancellationToken cancellationToken)
+    {
+        if (!RequiresCurrentTargetResolution(notification))
+        {
+            return true;
+        }
+
+        if (targets is null || !currentTenant.IsAvailable)
+        {
+            return targets is null;
+        }
+
+        var resolution = await targets.ResolveAsync(currentTenant.TenantId, userId, notification.Id, cancellationToken);
+        return resolution.IsOwned && resolution.IsAvailable;
+    }
+
+    private static bool RequiresCurrentTargetResolution(Notification notification) =>
+        notification.RelatedEntityType is "TaskItem" or "Task" ||
+        string.Equals(
+            notification.RelatedEntityType,
+            TaskDeadlineDigestPolicy.RelatedEntityType,
+            StringComparison.Ordinal);
+
+    private static NotificationListItemResponse ToListItem(Notification notification) => new(
+        notification.Id,
+        notification.UserId,
+        notification.NotificationType,
+        notification.Title,
+        notification.Body,
+        notification.RelatedEntityType,
+        notification.RelatedEntityId,
+        notification.IsRead,
+        notification.CreatedAt,
+        notification.ReadAt,
+        BuildTargetRoute(notification.RelatedEntityType, notification.RelatedEntityId),
+        notification.StateVersion);
 
     private async Task<Guid?> FindLogicalNotificationAsync(
         Guid userId,

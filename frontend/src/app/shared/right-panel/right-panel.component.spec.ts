@@ -207,7 +207,7 @@ describe('RightPanelFacade notifications', () => {
       '/dm/conversation-2',
     );
     expect(
-      mapNotificationRoute({ type: 'task', id: 'task-1', route: '/tasks/task-1' }),
+      mapNotificationRoute({ type: 'task', id: 'task-1' }),
     ).toBeUndefined();
     expect(mapNotificationRoute({ type: 'unsupported', id: 'legacy-1' })).toBeUndefined();
   });
@@ -308,6 +308,22 @@ describe('RightPanelFacade notifications', () => {
       id: 'notification-1',
       stateVersion: 6,
     }));
+    httpMock.expectNone('/api/notifications');
+    httpMock.verify();
+  });
+
+  it('AuthorizationInvalidationDoesNotRestoreProtectedStateFromAnInFlightList', async () => {
+    const { clearers } = configureLiveRightPanel();
+    const facade = TestBed.inject(RightPanelFacade);
+    const httpMock = TestBed.inject(HttpTestingController);
+    const initial = httpMock.expectOne('/api/notifications');
+
+    expect(clearers).toHaveLength(1);
+    clearers[0]!();
+    initial.flush({ items: [notificationDto(5)] });
+    await settleNotificationRefresh();
+
+    expect(facade.viewModel().notifications).toEqual([]);
     httpMock.expectNone('/api/notifications');
     httpMock.verify();
   });

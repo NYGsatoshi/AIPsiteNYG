@@ -52,7 +52,16 @@ embedded notifications and PR07 reference-only Task/digest signals. The latter
 cause a bounded/coalesced HTTP list refresh; no route/title/body is synthesized
 from the durable event. It calls the open endpoint before navigation or local
 read display, accepts only the returned canonical routes, and shows safe
-Unavailable state without fallback navigation.
+Unavailable state without fallback navigation. An authorization clear advances
+the RightPanel's list-request generation, so an HTTP response that began before
+revocation cannot restore a protected Task projection afterward.
+
+Task and digest notifications are also filtered from the authoritative list,
+unread count, and legacy read/delete mutations when their current target is no
+longer authorized. This closes the otherwise unsafe clear-then-refetch race.
+Legacy generic recipient notifications retain their existing embedded-created
+and read-state event contracts, but Task/digest dispatch remains fail-closed
+against any widened payload.
 
 Task Detail, My Tasks, Project Detail/Kanban/Gantt, and Workspace preference
 facades use approved durable events as coalesced HTTP invalidation triggers.
@@ -65,13 +74,13 @@ only exact 15-minute values, and keeps no browser-storage/timezone authority.
 
 `dotnet test tests/AipPortal.Tests/AipPortal.Tests.csproj --configuration
 Release --no-build --disable-build-servers -m:1 --filter "Scope=TaskV1PR07D"`
-passed **28/28** with zero failed and zero skipped against an isolated
+passed **31/31** with zero failed and zero skipped against an isolated
 PostgreSQL 18 container. The focused suite includes a real PostgreSQL
 read-state/Outbox atomicity test and dispatcher tests showing authorization
 suppression terminates as `NoAuthorizedRecipient` and replay calls the same
 authorization boundary. The manifest lists each focused name; CI verifies the
 TRX, rejects duplicate active manifest entries, and passed locally with all
-28 required names present.
+31 required names present.
 
 `TaskNotificationCreatedPayloadIsReferenceOnly`,
 `DigestNotificationCreatedPayloadIsReferenceOnly`, and
@@ -87,13 +96,33 @@ bounded local run. No policy was weakened and no alternative install method was
 used. Local full Angular verification is therefore **UNVERIFIED**; hosted
 `frontend-test` is authoritative.
 
+The existing Test-environment Real Backend Browser Smoke now contains one
+bounded PR07-D scenario. Its fixture is mapped only when the pre-existing
+browser-smoke Test opt-in and response-gate opt-in are both enabled; it uses
+the production `INotificationService`, transactional Outbox, dispatcher,
+SignalR client, notification-open endpoint, and PostgreSQL persistence without
+turning on `tasks.notificationsV1`. It creates an authorized Task notification
+after a reconnect, opens the returned project/task route, stages a second
+event for delayed dispatch, revokes the recipient's dedicated Project access,
+then proves a clear RightPanel, safe `Unavailable` open, hidden list rows, and
+terminal `NoAuthorizedRecipient` delivery. It is intentionally one focused
+two-user boundary scenario, not the broad PR07-E all-event acceptance suite.
+
+The existing manual `Real Backend Browser Smoke` workflow accepts an optional
+`playwright_grep` input. It passes the selector to the same Compose-hosted
+runner rather than creating another realtime harness; an empty selector keeps
+the established full smoke behavior. The PR07-D completion run selects the
+bounded `TASK-V1-PR07-D` scenario on the exact branch head.
+
 ## Verification still required before merge
 
 - PostgreSQL provider tests with no skipped cases, including delayed/replay
   revoke, Notification ownership/tenant isolation/soft-delete, read-state
   Outbox atomicity, and Workspace archive rollback atomicity.
-- Hosted HTTP/SignalR evidence for current authorization and
-  `NoAuthorizedRecipient` terminal behavior.
+- Hosted focused Real Backend Browser Smoke evidence for the bounded
+  current-authorization/reconnect/open/revocation scenario above. The run
+  must be on the exact final code head and does not substitute for PR07-E's
+  broader two-user all-event acceptance.
 - Full backend test suite. The EF pending-model check and final required-manifest
   TRX verification passed locally. One full-suite attempt did not return a
   result within the bounded local run, so `LOCAL_FULL_BACKEND=UNVERIFIED`.

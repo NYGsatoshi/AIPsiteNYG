@@ -7,9 +7,13 @@ import {
 
 const playwrightCli = fileURLToPath(new URL('../../node_modules/@playwright/test/cli.js', import.meta.url));
 const userArgs = process.argv.slice(2);
-const playwrightArgs = userArgs.length > 0
-  ? userArgs
-  : ['tests/ui/real-backend-smoke.spec.ts', '--project=chromium-desktop', '--retries=0', '--workers=1'];
+const focusedGrep = process.env.AIP_REAL_BACKEND_SMOKE_GREP?.trim();
+const playwrightArgs = [
+  ...(userArgs.length > 0
+    ? userArgs
+    : ['tests/ui/real-backend-smoke.spec.ts', '--project=chromium-desktop', '--retries=0', '--workers=1']),
+  ...(focusedGrep ? ['--grep', focusedGrep] : [])
+];
 
 let exitCode = 1;
 

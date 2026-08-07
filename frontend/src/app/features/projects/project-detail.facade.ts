@@ -1297,6 +1297,14 @@ export class ProjectDetailFacade {
       ) return;
 
       if (result.kind === 'error') {
+        // A denied realtime reauthorization has already cleared every
+        // protected projection and established the safe presentation state.
+        // The current Project endpoint deliberately returns a uniform safe
+        // denial that can be a 400/404 rather than a credential 401/403; do
+        // not let that response replace the security state with a generic
+        // loading error after the clear.
+        if (this.state().status === 'permissionDenied')
+          return;
         this.state.set(this.failure(result.error));
         return;
       }

@@ -75,7 +75,9 @@ export function mapNotificationRoute(
     case 'announcement':
       return `/announcements/${target.id}`;
     case 'task':
-      return target.route && isTaskDetailRoute(target.route) ? target.route : undefined;
+      // A persisted list route is not current authorization. Task navigation
+      // is allowed only after the notification-open endpoint resolves it.
+      return undefined;
     case 'project':
       return '/projects';
     case 'channelConversation':
@@ -120,6 +122,7 @@ export class RightPanelFacade {
   private readonly notificationOpenInProgressState = signal(false);
   private readonly unavailableMessageState = signal<string | null>(null);
   private notificationStateVersion = 0;
+  private notificationRefreshGeneration = 0;
   private notificationRefreshInFlight: Promise<void> | null = null;
   private notificationRefreshQueued = false;
   private notificationRefreshTimer: ReturnType<typeof setTimeout> | null = null;
@@ -247,8 +250,7 @@ export class RightPanelFacade {
     this.selectedNotificationIdState.set(null);
     this.notificationOpenInProgressState.set(false);
     this.unavailableMessageState.set(null);
-    this.notificationStateVersion = 0;
-    this.notificationState.set([]);
+    this.clearProtectedNotificationState();
   }
 
   private loadNotifications(): void {
@@ -374,6 +376,10 @@ export class RightPanelFacade {
   }
 
   private clearProtectedNotificationState(): void {
+    // An authorization change may race an existing HTTP list request. Ignore
+    // that request's response so a pre-revocation Task projection cannot be
+    // restored after protected state has been cleared.
+    this.notificationRefreshGeneration++;
     this.notificationStateVersion = 0;
     this.selectedNotificationIdState.set(null);
     this.notificationOpenInProgressState.set(false);
@@ -394,16 +400,25 @@ export class RightPanelFacade {
       this.notificationRefreshTimer = null;
     }
 
+    const refreshGeneration = this.notificationRefreshGeneration;
     this.notificationRefreshInFlight = new Promise<void>((resolve) => {
       this.http
         .get<PagedResponseDto<NotificationDto>>('/api/notifications', { withCredentials: true })
         .subscribe({
           next: (response) => {
+            if (refreshGeneration !== this.notificationRefreshGeneration) {
+              resolve();
+              return;
+            }
             this.notificationState.set(this.normalizeNotifications((response.items ?? []).map((item) => this.toNotification(item))));
             this.notificationStateVersion = Math.max(...this.notificationState().map((item) => item.stateVersion ?? 0), 0);
             resolve();
           },
           error: (error: { status?: number }) => {
+            if (refreshGeneration !== this.notificationRefreshGeneration) {
+              resolve();
+              return;
+            }
             if (error.status === 401 || error.status === 403) {
               this.permissionState.set('denied');
               this.notificationState.set([]);
