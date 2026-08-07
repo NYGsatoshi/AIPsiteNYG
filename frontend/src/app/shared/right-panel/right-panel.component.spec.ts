@@ -190,6 +190,7 @@ describe('RightPanelComponent', () => {
 
 describe('RightPanelFacade notifications', () => {
   afterEach(() => {
+    vi.useRealTimers();
     TestBed.resetTestingModule();
   });
 
@@ -276,13 +277,16 @@ describe('RightPanelFacade notifications', () => {
     const facade = TestBed.inject(RightPanelFacade);
     const httpMock = TestBed.inject(HttpTestingController);
     httpMock.expectOne('/api/notifications').flush({ items: [notificationDto(5)] });
-    await settleNotificationRefresh();
+    await flushNotificationPromises();
 
+    vi.useFakeTimers();
     events.next(referenceOnlyNotificationEvent(6));
     events.next(referenceOnlyNotificationEvent(6, '70000000-0000-4000-8000-000000000002'));
-    await settleNotificationRefresh();
+    await vi.advanceTimersByTimeAsync(74);
+    httpMock.expectNone('/api/notifications');
+    await vi.advanceTimersByTimeAsync(1);
     httpMock.expectOne('/api/notifications').flush({ items: [notificationDto(6)] });
-    await settleNotificationRefresh();
+    await flushNotificationPromises();
 
     httpMock.expectNone('/api/notifications');
     expect(facade.viewModel().notifications).toHaveLength(1);
@@ -296,12 +300,13 @@ describe('RightPanelFacade notifications', () => {
     const httpMock = TestBed.inject(HttpTestingController);
     const initial = httpMock.expectOne('/api/notifications');
 
+    vi.useFakeTimers();
     events.next(referenceOnlyNotificationEvent(6));
     initial.flush({ items: [notificationDto(5)] });
-    await settleNotificationRefresh();
+    await flushNotificationPromises();
 
     httpMock.expectOne('/api/notifications').flush({ items: [notificationDto(6)] });
-    await settleNotificationRefresh();
+    await flushNotificationPromises();
 
     expect(facade.viewModel().notifications).toHaveLength(1);
     expect(facade.viewModel().notifications[0]).toEqual(expect.objectContaining({
@@ -321,7 +326,7 @@ describe('RightPanelFacade notifications', () => {
     expect(clearers).toHaveLength(1);
     clearers[0]!();
     initial.flush({ items: [notificationDto(5)] });
-    await settleNotificationRefresh();
+    await flushNotificationPromises();
 
     expect(facade.viewModel().notifications).toEqual([]);
     httpMock.expectNone('/api/notifications');
@@ -333,10 +338,11 @@ describe('RightPanelFacade notifications', () => {
     const facade = TestBed.inject(RightPanelFacade);
     const httpMock = TestBed.inject(HttpTestingController);
     httpMock.expectOne('/api/notifications').flush({ items: [notificationDto(6)] });
-    await settleNotificationRefresh();
+    await flushNotificationPromises();
 
+    vi.useFakeTimers();
     events.next(referenceOnlyNotificationEvent(6));
-    await settleNotificationRefresh();
+    await vi.advanceTimersByTimeAsync(75);
 
     httpMock.expectNone('/api/notifications');
     expect(facade.viewModel().notifications).toHaveLength(1);
@@ -348,14 +354,69 @@ describe('RightPanelFacade notifications', () => {
     TestBed.inject(RightPanelFacade);
     const httpMock = TestBed.inject(HttpTestingController);
     httpMock.expectOne('/api/notifications').flush({ items: [notificationDto(1)] });
-    await settleNotificationRefresh();
+    await flushNotificationPromises();
 
+    vi.useFakeTimers();
     events.next(referenceOnlyNotificationEvent(3));
     events.next(referenceOnlyNotificationEvent(4, '70000000-0000-4000-8000-000000000003'));
-    await settleNotificationRefresh();
+    await vi.advanceTimersByTimeAsync(75);
     httpMock.expectOne('/api/notifications').flush({ items: [notificationDto(4)] });
-    await settleNotificationRefresh();
+    await flushNotificationPromises();
 
+    httpMock.expectNone('/api/notifications');
+    httpMock.verify();
+  });
+
+  it('RapidReferenceOnlyEventsProduceOneRefetch', async () => {
+    const { events } = configureLiveRightPanel();
+    TestBed.inject(RightPanelFacade);
+    const httpMock = TestBed.inject(HttpTestingController);
+    httpMock.expectOne('/api/notifications').flush({ items: [notificationDto(1)] });
+    await flushNotificationPromises();
+
+    vi.useFakeTimers();
+    events.next(referenceOnlyNotificationEvent(2));
+    events.next(referenceOnlyNotificationEvent(2, '70000000-0000-4000-8000-000000000004'));
+    events.next(referenceOnlyNotificationEvent(2, '70000000-0000-4000-8000-000000000005'));
+    await vi.advanceTimersByTimeAsync(75);
+
+    httpMock.expectOne('/api/notifications').flush({ items: [notificationDto(2)] });
+    await flushNotificationPromises();
+    httpMock.expectNone('/api/notifications');
+    httpMock.verify();
+  });
+
+  it('EventDuringInFlightRequestProducesExactlyOneFollowUpRefetch', async () => {
+    const { events } = configureLiveRightPanel();
+    TestBed.inject(RightPanelFacade);
+    const httpMock = TestBed.inject(HttpTestingController);
+    const initial = httpMock.expectOne('/api/notifications');
+
+    vi.useFakeTimers();
+    events.next(referenceOnlyNotificationEvent(6));
+    events.next(referenceOnlyNotificationEvent(7, '70000000-0000-4000-8000-000000000006'));
+    initial.flush({ items: [notificationDto(5)] });
+    await flushNotificationPromises();
+
+    httpMock.expectOne('/api/notifications').flush({ items: [notificationDto(7)] });
+    await flushNotificationPromises();
+    httpMock.expectNone('/api/notifications');
+    httpMock.verify();
+  });
+
+  it('NoPendingNotificationTimerAfterProtectedStateClear', async () => {
+    const { clearers, events } = configureLiveRightPanel();
+    const facade = TestBed.inject(RightPanelFacade);
+    const httpMock = TestBed.inject(HttpTestingController);
+    httpMock.expectOne('/api/notifications').flush({ items: [notificationDto(1)] });
+    await flushNotificationPromises();
+
+    vi.useFakeTimers();
+    events.next(referenceOnlyNotificationEvent(2));
+    clearers[0]!();
+    await vi.advanceTimersByTimeAsync(75);
+
+    expect(facade.viewModel().notifications).toEqual([]);
     httpMock.expectNone('/api/notifications');
     httpMock.verify();
   });
@@ -494,6 +555,9 @@ function referenceOnlyNotificationEvent(stateVersion: number, eventId = '7000000
   };
 }
 
-function settleNotificationRefresh(): Promise<void> {
-  return new Promise((resolve) => setTimeout(resolve, 100));
+async function flushNotificationPromises(): Promise<void> {
+  // Resolves the in-flight refresh promise/finalizer without relying on wall
+  // clock scheduling. Debounced paths advance Vitest's fake clock explicitly.
+  await Promise.resolve();
+  await Promise.resolve();
 }

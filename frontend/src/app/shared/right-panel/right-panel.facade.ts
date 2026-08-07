@@ -380,6 +380,11 @@ export class RightPanelFacade {
     // that request's response so a pre-revocation Task projection cannot be
     // restored after protected state has been cleared.
     this.notificationRefreshGeneration++;
+    if (this.notificationRefreshTimer !== null) {
+      clearTimeout(this.notificationRefreshTimer);
+      this.notificationRefreshTimer = null;
+    }
+    this.notificationRefreshQueued = false;
     this.notificationStateVersion = 0;
     this.selectedNotificationIdState.set(null);
     this.notificationOpenInProgressState.set(false);
@@ -430,7 +435,10 @@ export class RightPanelFacade {
       this.notificationRefreshInFlight = null;
       if (this.notificationRefreshQueued) {
         this.notificationRefreshQueued = false;
-        this.queueNotificationRefresh();
+        // An event that arrived while this request was active has already
+        // been coalesced by the in-flight request. Start exactly one
+        // follow-up now rather than adding a second wall-clock debounce.
+        void this.refreshNotifications();
       }
     });
     return this.notificationRefreshInFlight;

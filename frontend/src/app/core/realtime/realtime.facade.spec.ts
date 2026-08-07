@@ -3,6 +3,8 @@ import { Subject } from 'rxjs';
 
 import { AIP_AUTH_SESSION_MOCK, AuthSessionFacade, AuthSessionSnapshot, DEFAULT_AUTH_SESSION } from '../auth/auth-session.facade';
 import { FrontendFeatureFlagsService } from '../feature-flags/frontend-feature-flags.service';
+import { NotificationOpenContextService } from '../notifications/notification-open-context.service';
+import { ActiveWorkspaceFacade } from '../workspace/active-workspace.facade';
 import { DurableRealtimeEvent, RealtimeSubscriptionRequest, RealtimeSubscriptionResult } from './realtime.models';
 import { AIP_REALTIME_TRANSPORT, RealtimeTransport, RealtimeTransportStatus } from './realtime-transport';
 import { RealtimeFacade } from './realtime.facade';
@@ -11,6 +13,7 @@ import { RealtimeFacade } from './realtime.facade';
 // intentionally does not encode RFC UUID version/variant bits.
 const TENANT_ID = '11111111-1111-1111-1111-111111111111';
 const RESOURCE_ID = '22222222-2222-4222-8222-222222222222';
+const ACTIVE_WORKSPACE = { id: RESOURCE_ID, label: 'Current workspace' };
 
 class FakeRealtimeTransport implements RealtimeTransport {
   readonly events = new Subject<unknown>();
@@ -45,6 +48,8 @@ describe('RealtimeFacade', () => {
   let transport: FakeRealtimeTransport;
   let auth: AuthSessionFacade;
   let flags: FrontendFeatureFlagsService;
+  let activeWorkspace: ActiveWorkspaceFacade;
+  let notificationOpenContext: NotificationOpenContextService;
 
   beforeEach(() => {
     transport = new FakeRealtimeTransport();
@@ -57,6 +62,8 @@ describe('RealtimeFacade', () => {
     facade = TestBed.inject(RealtimeFacade);
     auth = TestBed.inject(AuthSessionFacade);
     flags = TestBed.inject(FrontendFeatureFlagsService);
+    activeWorkspace = TestBed.inject(ActiveWorkspaceFacade);
+    notificationOpenContext = TestBed.inject(NotificationOpenContextService);
   });
 
   afterEach(() => TestBed.resetTestingModule());
@@ -67,6 +74,77 @@ describe('RealtimeFacade', () => {
 
     expect(transport.startCalls).toBe(0);
     expect(facade.connectionState()).toBe('Degraded');
+  });
+
+  it('RealtimeDisabledDoesNotClearActiveWorkspace', async () => {
+    await settle();
+    activeWorkspace.setMockWorkspace(ACTIVE_WORKSPACE);
+    notificationOpenContext.setDigestWorkspace(RESOURCE_ID);
+
+    auth.setMockSession(activeSession());
+    await settle();
+
+    expect(activeWorkspace.activeWorkspace()).toEqual(ACTIVE_WORKSPACE);
+    expect(notificationOpenContext.takeDigestWorkspace()).toBe(RESOURCE_ID);
+    expect(transport.startCalls).toBe(0);
+  });
+
+  it('RealtimeDisabledDoesNotInvokeProtectedStateClearers', async () => {
+    await settle();
+    let clearCalls = 0;
+    facade.registerProtectedStateClearer('files-http-state', () => { clearCalls += 1; });
+
+    auth.setMockSession(activeSession());
+    await settle();
+
+    expect(clearCalls).toBe(0);
+  });
+
+  it('RealtimeDisabledPreservesDesiredSubscriptions', async () => {
+    await settle();
+    facade.registerSubscription('project-detail', { subscriptionType: 'project', resourceId: RESOURCE_ID });
+
+    auth.setMockSession(activeSession());
+    await settle();
+    expect(transport.startCalls).toBe(0);
+
+    flags.setForTesting({ 'realtime.signalR': true });
+    await waitForConnection(facade);
+
+    expect(transport.subscribed).toEqual([
+      { subscriptionType: 'user' },
+      { subscriptionType: 'project', resourceId: RESOURCE_ID },
+    ]);
+  });
+
+  it('RealtimeDisabledStillAllowsHttpOnlyFeatureState', async () => {
+    await settle();
+    let filesFromHttp = ['file-1'];
+    facade.registerProtectedStateClearer('files-http-state', () => { filesFromHttp = []; });
+
+    auth.setMockSession(activeSession());
+    await settle();
+
+    expect(filesFromHttp).toEqual(['file-1']);
+    expect(facade.connectionState()).toBe('Degraded');
+  });
+
+  it('RealtimeEnableAfterDisabledReauthorizesDesiredSubscriptions', async () => {
+    facade.registerSubscription('workspace-shell', { subscriptionType: 'workspace', resourceId: RESOURCE_ID });
+    await enableAndAuthenticate();
+    expect(transport.subscribed.filter((request) => request.subscriptionType === 'workspace')).toHaveLength(1);
+
+    flags.setForTesting({ 'realtime.signalR': false });
+    await settle();
+    expect(facade.connectionState()).toBe('Degraded');
+
+    flags.setForTesting({ 'realtime.signalR': true });
+    await waitForConnection(facade);
+
+    expect(transport.subscribed.filter((request) => request.subscriptionType === 'workspace')).toEqual([
+      { subscriptionType: 'workspace', resourceId: RESOURCE_ID },
+      { subscriptionType: 'workspace', resourceId: RESOURCE_ID },
+    ]);
   });
 
   it('owns exactly one connection and subscribes to the server-derived current user target', async () => {
@@ -151,7 +229,7 @@ describe('RealtimeFacade', () => {
     expect(facade.connectionState()).toBe('Connected');
   });
 
-  it('AuthorizationInvalidationReauthorizesRegisteredFeatureSubscription', async () => {
+  it('AuthorizationInvalidationPreservesDesiredSubscriptions', async () => {
     const deniedOwners: string[][] = [];
     facade.registerSubscription('project-detail', { subscriptionType: 'project', resourceId: RESOURCE_ID });
     facade.registerCatchUp('project-detail', (context) => {
@@ -267,6 +345,22 @@ describe('RealtimeFacade', () => {
     expect(transport.subscribed.filter((request) => request.subscriptionType === 'user')).toHaveLength(2);
   });
 
+  it('LogoutClearsActiveWorkspaceAndProtectedState', async () => {
+    await enableAndAuthenticate();
+    let protectedFiles = ['file-1'];
+    facade.registerProtectedStateClearer('files-http-state', () => { protectedFiles = []; });
+    activeWorkspace.setMockWorkspace(ACTIVE_WORKSPACE);
+    notificationOpenContext.setDigestWorkspace(RESOURCE_ID);
+
+    auth.markSessionExpired();
+    await settle();
+
+    expect(activeWorkspace.activeWorkspace()).toBeNull();
+    expect(notificationOpenContext.takeDigestWorkspace()).toBeNull();
+    expect(protectedFiles).toEqual([]);
+    expect(facade.connectionState()).toBe('Degraded');
+  });
+
   it('TenantSwitchDoesNotReusePreviousTenantSubscriptions', async () => {
     facade.registerSubscription('workspace-shell', { subscriptionType: 'workspace', resourceId: RESOURCE_ID });
     await enableAndAuthenticate();
@@ -280,13 +374,31 @@ describe('RealtimeFacade', () => {
     expect(transport.subscribed.filter((request) => request.subscriptionType === 'user')).toHaveLength(2);
   });
 
-  it('AuthorizationInvalidationClearsProtectedStateBeforeReauthorizationCatchUp', async () => {
+  it('TenantSwitchClearsPreviousTenantWorkspaceState', async () => {
+    auth.setMockSession(activeSession());
+    await settle();
+    let protectedFiles = ['file-1'];
+    facade.registerProtectedStateClearer('files-http-state', () => { protectedFiles = []; });
+    activeWorkspace.setMockWorkspace(ACTIVE_WORKSPACE);
+    notificationOpenContext.setDigestWorkspace(RESOURCE_ID);
+
+    auth.setMockSession(activeSession('aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa'));
+    await settle();
+
+    expect(activeWorkspace.activeWorkspace()).toBeNull();
+    expect(notificationOpenContext.takeDigestWorkspace()).toBeNull();
+    expect(protectedFiles).toEqual([]);
+  });
+
+  it('AuthorizationInvalidationClearsProtectedStateBeforeCatchUp', async () => {
     const order: string[] = [];
     const received: DurableRealtimeEvent[] = [];
     facade.registerProtectedStateClearer('right-panel', () => order.push('clear'));
     facade.registerCatchUp('right-panel', () => { order.push('catch-up'); });
     facade.durableEvents$.subscribe((value) => received.push(value));
     await enableAndAuthenticate();
+    activeWorkspace.setMockWorkspace(ACTIVE_WORKSPACE);
+    notificationOpenContext.setDigestWorkspace(RESOURCE_ID);
     order.length = 0;
 
     transport.events.next(event({
@@ -298,6 +410,8 @@ describe('RealtimeFacade', () => {
 
     expect(order).toEqual(['clear']);
     expect(received).toEqual([]);
+    expect(activeWorkspace.activeWorkspace()).toBeNull();
+    expect(notificationOpenContext.takeDigestWorkspace()).toBeNull();
     await waitForConnection(facade);
     expect(order).toEqual(['clear', 'catch-up']);
     expect(transport.subscribed.filter((request) => request.subscriptionType === 'user')).toHaveLength(2);
