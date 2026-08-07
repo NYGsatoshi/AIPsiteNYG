@@ -1,8 +1,14 @@
 import { Component, EventEmitter, Input, Output } from '@angular/core';
 import { ComponentFixture, TestBed } from '@angular/core/testing';
+import { HttpClient } from '@angular/common/http';
 import { ActivatedRoute, convertToParamMap, provideRouter } from '@angular/router';
+import { EMPTY } from 'rxjs';
 
+import { AuthSessionFacade } from '../../core/auth/auth-session.facade';
 import { FrontendApiError } from '../../core/api/api-error.model';
+import { NotificationOpenContextService } from '../../core/notifications/notification-open-context.service';
+import { RealtimeFacade } from '../../core/realtime/realtime.facade';
+import { ActiveWorkspaceFacade } from '../../core/workspace/active-workspace.facade';
 import { AppDataGridActionEvent } from '../../shared/grid/app-data-grid/app-data-grid.types';
 import { AIP_MY_TASKS_MOCK } from './my-tasks.facade';
 import { AIP_PROJECTS_MOCK, ProjectsFacade } from './projects.facade';
@@ -93,12 +99,42 @@ const query = <T extends HTMLElement, C = unknown>(fixture: ComponentFixture<C>,
 const queryAll = <T extends HTMLElement, C = unknown>(fixture: ComponentFixture<C>, selector: string): T[] =>
   Array.from((fixture.nativeElement as HTMLElement).querySelectorAll<T>(selector));
 
+// These static UI cases exercise the scenario adapters, not the root session
+// graph. Keep the real scenario-aware facades while replacing the unrelated
+// HTTP/realtime/session dependencies so each TestBed is self-contained.
+const scenarioProviders = (scenario: ProjectsScenario) => [
+  { provide: HttpClient, useValue: {} },
+  { provide: AIP_PROJECTS_MOCK, useValue: scenario },
+  { provide: AIP_MY_TASKS_MOCK, useValue: scenario },
+  {
+    provide: RealtimeFacade,
+    useValue: {
+      durableEvents$: EMPTY,
+      connectionState: () => 'Degraded',
+      registerProtectedStateClearer: () => () => undefined,
+      registerCatchUp: () => () => undefined
+    }
+  },
+  {
+    provide: AuthSessionFacade,
+    useValue: { session: () => ({ currentUser: { workspaces: [] } }) }
+  },
+  {
+    provide: ActiveWorkspaceFacade,
+    useValue: { activeWorkspace: () => null, setActiveWorkspace: () => undefined }
+  },
+  {
+    provide: NotificationOpenContextService,
+    useValue: { digestWorkspaceId: () => null, clear: () => undefined }
+  }
+];
+
 const renderProjectsOverview = async (
   scenario: ProjectsScenario = PROJECTS_SCENARIOS.default
 ) => {
   await TestBed.configureTestingModule({
     imports: [ProjectsOverviewPageComponent],
-    providers: [provideRouter([]), { provide: AIP_PROJECTS_MOCK, useValue: scenario }]
+    providers: [provideRouter([]), ...scenarioProviders(scenario)]
   })
     .overrideComponent(ProjectsOverviewPageComponent, {
       remove: { imports: [TaskTableComponent] },
@@ -116,7 +152,7 @@ const renderMyTasks = async (
 ) => {
   await TestBed.configureTestingModule({
     imports: [MyTasksPageComponent],
-    providers: [provideRouter([]), { provide: AIP_MY_TASKS_MOCK, useValue: scenario }]
+    providers: [provideRouter([]), ...scenarioProviders(scenario)]
   })
     .overrideComponent(MyTasksPageComponent, {
       remove: { imports: [TaskTableComponent] },
@@ -202,7 +238,7 @@ describe('Projects and tasks mock UI', () => {
 
   it('limits maximum page size to 100', () => {
     TestBed.configureTestingModule({
-      providers: [{ provide: AIP_PROJECTS_MOCK, useValue: PROJECTS_SCENARIOS.manyRowsBoundedPage }]
+      providers: scenarioProviders(PROJECTS_SCENARIOS.manyRowsBoundedPage)
     });
     const facade = TestBed.inject(ProjectsFacade);
 
@@ -233,7 +269,7 @@ describe('TaskEditorComponent', () => {
   ) => {
     await TestBed.configureTestingModule({
       imports: [TaskEditorComponent],
-      providers: [{ provide: AIP_PROJECTS_MOCK, useValue: scenario }]
+      providers: scenarioProviders(scenario)
     }).compileComponents();
 
     const facade = TestBed.inject(ProjectsFacade);
@@ -342,7 +378,7 @@ describe('TaskDependenciesReadonlyComponent', () => {
   it('renders dependencies as display-only content', async () => {
     await TestBed.configureTestingModule({
       imports: [TaskDependenciesReadonlyComponent],
-      providers: [{ provide: AIP_PROJECTS_MOCK, useValue: PROJECTS_SCENARIOS.dependenciesDisplayOnly }]
+      providers: scenarioProviders(PROJECTS_SCENARIOS.dependenciesDisplayOnly)
     }).compileComponents();
 
     const facade = TestBed.inject(ProjectsFacade);
