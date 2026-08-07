@@ -2,6 +2,7 @@ import { provideHttpClient } from '@angular/common/http';
 import { HttpTestingController, provideHttpClientTesting } from '@angular/common/http/testing';
 import { TestBed } from '@angular/core/testing';
 
+import { NotificationOpenContextService } from '../../core/notifications/notification-open-context.service';
 import { ActiveWorkspaceFacade } from '../../core/workspace/active-workspace.facade';
 import { MyTasksFacade } from './my-tasks.facade';
 
@@ -107,6 +108,17 @@ describe('MyTasksFacade', () => {
       .flush({ items: [], page: 1, pageSize: 50, totalCount: 0 });
     current.find((request) => request.request.url === '/api/me/tasks/counts')!
       .flush({ views: [], timeGroups: [] });
+  });
+
+  it('DigestOpenAppliesWorkspaceSpecificMyTasksContextAfterFacadeAlreadyExists', () => {
+    const context = TestBed.inject(NotificationOpenContextService);
+
+    context.setDigestWorkspace('workspace-2');
+    TestBed.flushEffects();
+
+    expect(activeWorkspace.activeWorkspace()?.id).toBe('workspace-2');
+    expect(facade.getMyTasks().workspaceId).toBe('workspace-2');
+    expect(context.takeDigestWorkspace()).toBeNull();
   });
 
   it('clears protected rows and counts before an authorization-state refetch', () => {

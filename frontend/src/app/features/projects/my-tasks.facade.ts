@@ -7,6 +7,7 @@ import { FrontendApiError } from '../../core/api/api-error.model';
 import { AuthSessionFacade } from '../../core/auth/auth-session.facade';
 import { RealtimeFacade } from '../../core/realtime/realtime.facade';
 import { DurableRealtimeEvent } from '../../core/realtime/realtime.models';
+import { NotificationOpenContextService } from '../../core/notifications/notification-open-context.service';
 import { ActiveWorkspaceFacade } from '../../core/workspace/active-workspace.facade';
 import { MyTasksCountsDto, MyTasksProjectionPageDto } from './projects.api';
 import { mapMyTaskDtoToProjection } from './projects.mapper';
@@ -50,6 +51,7 @@ export class MyTasksFacade {
   private readonly realtime = inject(RealtimeFacade);
   private readonly authSession = inject(AuthSessionFacade);
   private readonly activeWorkspace = inject(ActiveWorkspaceFacade);
+  private readonly notificationOpenContext = inject(NotificationOpenContextService);
   private readonly scenario = inject(AIP_MY_TASKS_MOCK, { optional: true });
   private readonly state = signal<MyTasksState>(this.initialState());
   private hasRequested = false;
@@ -60,6 +62,23 @@ export class MyTasksFacade {
 
   constructor() {
     this.realtime.durableEvents$.subscribe((event) => this.handleRealtimeEvent(event));
+    this.realtime.registerProtectedStateClearer?.('my-tasks', () => this.clearProtectedState());
+    this.realtime.registerCatchUp('my-tasks', () => {
+      if (this.hasRequested && !this.scenario) {
+        this.requestMyTasks();
+      }
+    });
+    effect(() => {
+      const digestWorkspaceId = this.notificationOpenContext.digestWorkspaceId();
+      if (!digestWorkspaceId) return;
+
+      // The backend open response is the only source that can select this
+      // Workspace. Consume it even when this root facade was already created
+      // by another Project surface before the notification was opened.
+      this.applyAuthorizedDigestWorkspace(digestWorkspaceId);
+      this.notificationOpenContext.clear();
+      if (this.hasRequested && !this.scenario) this.requestMyTasks();
+    });
     effect(() => {
       const workspaceId = this.activeWorkspace.activeWorkspace()?.id ?? null;
       const current = this.state();
@@ -111,6 +130,11 @@ export class MyTasksFacade {
   }
 
   setWorkspace(workspaceId: string): void {
+    this.applyAuthorizedDigestWorkspace(workspaceId);
+    this.requestMyTasks();
+  }
+
+  private applyAuthorizedDigestWorkspace(workspaceId: string): void {
     const workspace = this.authSession.session().currentUser?.workspaces.find((item) => item.id === workspaceId);
     this.activeWorkspace.setActiveWorkspace(workspace ?? { id: workspaceId, label: 'Workspace' });
     this.invalidateActiveRequest();
@@ -123,7 +147,6 @@ export class MyTasksFacade {
       counts: [],
       totalCount: 0
     }));
-    this.requestMyTasks();
   }
 
   setProjectFilter(projectId: string): void { this.updateFilter({ projectId: projectId.trim() }); }
@@ -256,11 +279,16 @@ export class MyTasksFacade {
   private handleRealtimeEvent(event: DurableRealtimeEvent): void {
     if (this.scenario || !this.hasRequested) return;
     if (event.eventType === 'Security.AuthorizationStateChanged.v1') {
-      const current = this.state();
-      this.invalidateActiveRequest();
-      this.state.set({ ...current, tasks: [], counts: [], totalCount: 0, status: 'loading', message: undefined, error: undefined });
+      this.clearProtectedState();
     }
-    if (!['Projects.TaskChanged.v1', 'Projects.ProjectChanged.v1', 'Security.AuthorizationStateChanged.v1'].includes(event.eventType)) return;
+    if (![
+      'Projects.TaskChanged.v1',
+      'Projects.TaskAssignmentChanged.v1',
+      'Projects.TaskWorkflowChanged.v1',
+      'Projects.TaskCommentChanged.v1',
+      'Projects.ProjectChanged.v1',
+      'Security.AuthorizationStateChanged.v1'
+    ].includes(event.eventType)) return;
     if (this.refreshTimer !== null) return;
     this.refreshTimer = setTimeout(() => { this.refreshTimer = null; this.requestMyTasks(); }, 150);
   }
@@ -314,6 +342,20 @@ export class MyTasksFacade {
     this.requestGeneration++;
     this.requestSubscription?.unsubscribe();
     this.requestSubscription = null;
+  }
+
+  private clearProtectedState(): void {
+    const current = this.state();
+    this.invalidateActiveRequest();
+    this.state.set({
+      ...current,
+      tasks: [],
+      counts: [],
+      totalCount: 0,
+      status: 'loading',
+      message: undefined,
+      error: undefined
+    });
   }
 }
 

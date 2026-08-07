@@ -305,6 +305,62 @@ itself prove worker progress.
 per-Tenant flag, the hosted worker enumerates active Tenants before checking it;
 a disabled Tenant performs no digest schedule upsert, claim, or generation.
 
+## TASK-V1-PR07-D notification opening
+
+`POST /api/notifications/{notificationId}/open` is the only navigation
+authority for a visible Task or deadline-digest Notification. It is recipient
+owned: a Notification belonging to another user, a cross-Tenant identifier,
+and a missing Notification all return the same metadata-safe not-found result
+and do not disclose whether the row or target exists.
+
+The use case resolves the current target and authorization before it changes
+read state. For a current authorized Task target it returns:
+
+```json
+{
+  "outcome": "Opened",
+  "route": "/projects/{projectId}/tasks/{taskId}",
+  "stateVersion": 42
+}
+```
+
+It never turns a persisted legacy `/tasks/{taskId}` list value into authority.
+For a current authorized `TaskDeadlineDigest` target, the route is `/tasks` and
+the optional typed context contains only the authorized current `workspaceId`.
+The response contains no digest Task list or protected display data.
+
+All stale, deleted, archived, revoked, inaccessible, inconsistent, unsupported,
+and unknown targets return the uniform success response below. They do not
+change read state and do not reveal a reason, Task title, Project/Workspace
+name, comment body, review reason, membership state, or authorization detail.
+
+```json
+{
+  "outcome": "Unavailable",
+  "route": null,
+  "stateVersion": 42
+}
+```
+
+On `Opened`, an unread Notification is marked read, its recipient state version
+is advanced, and the recipient-only `Notifications.NotificationReadStateChanged.v1`
+Outbox signal is staged in the same transaction. Reopening an already-read
+Notification does not advance the version or create another read-state signal.
+
+Task and digest `Notifications.NotificationCreated.v1` signals remain
+reference-only:
+
+```json
+{
+  "notificationId": "<notification id>",
+  "stateVersion": 42,
+  "requiresRefetch": true
+}
+```
+
+Clients must refetch their authorized HTTP projection and must not infer a
+route, title, body, relationship, or digest list from that event.
+
 ## Project Kanban
 
 TASK-V1-PR05 defines one vendor-neutral board over canonical Project Tasks:

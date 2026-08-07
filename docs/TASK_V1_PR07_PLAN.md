@@ -2,10 +2,12 @@
 
 Status: PR07-A was accepted and merged as PR #274 at
 `c5627eb09ecf19d66146eacdbc3e938c0a1c8563`. PR07-B was accepted and merged as
-PR #275 at `93b1c5e260e04c243ff84f7370aca4d869484087`; the same-sha post-merge
-`main` CI, Code Quality, Documentation CI, and npm Security Audit workflows all
-passed. PR07-C is active on `task/v1-pr07-c-deadline-digest` from that exact
-`main` commit.
+PR #275 at `93b1c5e260e04c243ff84f7370aca4d869484087`. PR07-C was merged and
+accepted as PR #277; its merge commit is
+`8d0b8b20551076ecd73ead06aced4b80c94749e7`. PR07-D is active on
+`task/v1-pr07-d-authorized-delivery-angular-reconciliation` from that current
+`main` commit. PR07-E remains blocked until PR07-D is merged and independently
+accepted.
 
 Implementation baseline audited: `491d17db3701b7fb26010db8c0590eac7d24bd78`
 
@@ -481,7 +483,9 @@ operator-readable health state. The feature remains disabled.
 
 ## PR07-D — Current-authorized delivery/opening and Angular reconciliation
 
-Status: blocked until PR07-A through PR07-C merge and are accepted
+Status: active on `task/v1-pr07-d-authorized-delivery-angular-reconciliation`.
+PR07-C was merged and accepted as PR #277 at
+`8d0b8b20551076ecd73ead06aced4b80c94749e7`.
 
 ### Goal
 
@@ -529,7 +533,7 @@ PR07-D completes only when real server routing authorization, notification openi
 
 ## PR07-E — Operations, Real Backend acceptance, and integration evidence
 
-Status: blocked until PR07-A through PR07-D merge and are accepted
+Status: blocked until PR07-D is merged and independently accepted
 
 ### Goal
 

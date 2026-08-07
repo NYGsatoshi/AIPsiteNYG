@@ -21,7 +21,8 @@ public sealed class AdminService(
     ICurrentTenant? currentTenant = null,
     IAuthorizationStateChangePublisher? authorizationChanges = null,
     ITaskDeadlineDigestRepository? taskDeadlineDigests = null,
-    TaskDeadlineDigestDiagnostics? taskDeadlineDigestDiagnostics = null) : IAdminService
+    TaskDeadlineDigestDiagnostics? taskDeadlineDigestDiagnostics = null,
+    IWorkspaceRepository? workspaces = null) : IAdminService
 {
     private const int DefaultPageSize = 50;
     private const int MaxPageSize = 200;
@@ -429,9 +430,20 @@ public sealed class AdminService(
             return Result.Failure("Workspace not found.");
         }
 
+        var affectedMembers = workspaces is null
+            ? []
+            : (await workspaces.ListMembersAsync(workspaceId, cancellationToken))
+                .Where(member => member.Status == MembershipStatus.Active)
+                .Select(member => member.UserId)
+                .Distinct()
+                .ToArray();
         workspace.Status = WorkspaceStatus.Archived;
         workspace.MarkDeleted(clock.UtcNow);
         await AuditAsync("DataArchived", "Workspace", workspace.Id, "Workspace archived.", cancellationToken);
+        foreach (var affectedUserId in affectedMembers)
+        {
+            await PublishWorkspaceAuthorizationChangeAsync(workspace.TenantId, affectedUserId, workspace.Id, cancellationToken);
+        }
         await unitOfWork.SaveChangesAsync(cancellationToken);
         return Result.Success();
     }
@@ -608,6 +620,16 @@ public sealed class AdminService(
         }
 
         return authorizationChanges.PublishAsync(currentTenant.TenantId, userId, "account", null, change, cancellationToken);
+    }
+
+    private Task PublishWorkspaceAuthorizationChangeAsync(Guid tenantId, Guid userId, Guid workspaceId, CancellationToken cancellationToken)
+    {
+        if (tenantId == Guid.Empty || authorizationChanges is null)
+        {
+            return Task.CompletedTask;
+        }
+
+        return authorizationChanges.PublishAsync(tenantId, userId, "workspace", workspaceId, "archived", cancellationToken);
     }
 
     private static AdminUserDetailResponse ToUserDetail(User user)

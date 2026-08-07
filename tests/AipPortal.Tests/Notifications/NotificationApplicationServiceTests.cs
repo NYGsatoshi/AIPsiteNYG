@@ -42,12 +42,14 @@ public sealed class NotificationApplicationServiceTests
     {
         private NotificationFixture()
         {
-            Service = new NotificationApplicationService(Current, Clock, Notifications, Audit, UnitOfWork);
+            Service = new NotificationApplicationService(Current, Tenant, Clock, Notifications, OpenService, Audit, UnitOfWork);
         }
 
         public FakeCurrentUser Current { get; } = new();
         public FakeClock Clock { get; } = new();
+        public FakeCurrentTenant Tenant { get; } = new();
         public FakeNotifications Notifications { get; } = new();
+        public FakeNotificationOpenService OpenService { get; } = new();
         public FakeAuditLogger Audit { get; } = new();
         public FakeUnitOfWork UnitOfWork { get; } = new();
         public NotificationApplicationService Service { get; }
@@ -107,6 +109,20 @@ public sealed class NotificationApplicationServiceTests
         public string? Email => null;
         public SystemRole? SystemRole => null;
         public bool IsAuthenticated => UserIdValue.HasValue;
+    }
+
+    private sealed class FakeCurrentTenant : ICurrentTenant
+    {
+        public Guid TenantId => Guid.NewGuid();
+        public bool IsAvailable => true;
+        public string? TenantSlug => "test";
+        public bool IsPlatformScope => false;
+    }
+
+    private sealed class FakeNotificationOpenService : INotificationOpenService
+    {
+        public Task<NotificationTargetResolution> OpenAsync(Guid tenantId, Guid userId, Guid notificationId, CancellationToken cancellationToken = default) =>
+            Task.FromResult(new NotificationTargetResolution(false, false, null, 0));
     }
 
     private sealed class FakeClock : IClock

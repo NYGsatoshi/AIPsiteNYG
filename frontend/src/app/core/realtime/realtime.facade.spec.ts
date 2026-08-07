@@ -102,6 +102,34 @@ describe('RealtimeFacade', () => {
     expect(facade.connectionState()).toBe('Connected');
   });
 
+  it('ReconnectRestoresDesiredProjectSubscription', async () => {
+    facade.registerSubscription('project-detail', { subscriptionType: 'project', resourceId: RESOURCE_ID });
+    await enableAndAuthenticate();
+
+    transport.statuses.next('reconnecting');
+    transport.statuses.next('reconnected');
+    await waitForConnection(facade);
+
+    expect(transport.subscribed.filter((request) => request.subscriptionType === 'project')).toEqual([
+      { subscriptionType: 'project', resourceId: RESOURCE_ID },
+      { subscriptionType: 'project', resourceId: RESOURCE_ID },
+    ]);
+  });
+
+  it('ReconnectRestoresDesiredWorkspaceSubscription', async () => {
+    facade.registerSubscription('workspace-shell', { subscriptionType: 'workspace', resourceId: RESOURCE_ID });
+    await enableAndAuthenticate();
+
+    transport.statuses.next('reconnecting');
+    transport.statuses.next('reconnected');
+    await waitForConnection(facade);
+
+    expect(transport.subscribed.filter((request) => request.subscriptionType === 'workspace')).toEqual([
+      { subscriptionType: 'workspace', resourceId: RESOURCE_ID },
+      { subscriptionType: 'workspace', resourceId: RESOURCE_ID },
+    ]);
+  });
+
   it('reports a denied subscription owner to catch-up before reconnect completes', async () => {
     const deniedOwners: string[][] = [];
     facade.registerSubscription('project-detail', {
@@ -121,6 +149,46 @@ describe('RealtimeFacade', () => {
 
     expect(deniedOwners).toEqual([[], ['project-detail']]);
     expect(facade.connectionState()).toBe('Connected');
+  });
+
+  it('AuthorizationInvalidationReauthorizesRegisteredFeatureSubscription', async () => {
+    const deniedOwners: string[][] = [];
+    facade.registerSubscription('project-detail', { subscriptionType: 'project', resourceId: RESOURCE_ID });
+    facade.registerCatchUp('project-detail', (context) => deniedOwners.push([...context.deniedOwners]));
+    await enableAndAuthenticate();
+
+    transport.deniedSubscriptionType = 'project';
+    transport.invalidations.next();
+    await waitForConnection(facade);
+
+    expect(transport.subscribed.filter((request) => request.subscriptionType === 'project')).toHaveLength(2);
+    expect(deniedOwners).toEqual([[], ['project-detail']]);
+
+    transport.deniedSubscriptionType = null;
+    transport.statuses.next('reconnecting');
+    transport.statuses.next('reconnected');
+    await waitForConnection(facade);
+    expect(transport.subscribed.filter((request) => request.subscriptionType === 'project')).toHaveLength(3);
+  });
+
+  it('DeniedSubscriptionDoesNotRestoreProtectedState', async () => {
+    let protectedTitle = 'Restricted task title';
+    const deniedOwners: string[][] = [];
+    facade.registerSubscription('project-detail', { subscriptionType: 'project', resourceId: RESOURCE_ID });
+    facade.registerProtectedStateClearer('project-detail', () => { protectedTitle = ''; });
+    facade.registerCatchUp('project-detail', (context) => {
+      deniedOwners.push([...context.deniedOwners]);
+      if (!context.deniedOwners.has('project-detail')) protectedTitle = 'refetched title';
+    });
+    await enableAndAuthenticate();
+    protectedTitle = 'Restricted task title';
+
+    transport.deniedSubscriptionType = 'project';
+    transport.invalidations.next();
+    await waitForConnection(facade);
+
+    expect(deniedOwners.at(-1)).toEqual(['project-detail']);
+    expect(protectedTitle).toBe('');
   });
 
   it('notifies every denied owner even when an earlier catch-up fails', async () => {
@@ -183,6 +251,56 @@ describe('RealtimeFacade', () => {
     expect(facade.connectionState()).toBe('Reconnecting');
   });
 
+  it('LogoutDoesNotReusePreviousTenantSubscriptions', async () => {
+    facade.registerSubscription('project-detail', { subscriptionType: 'project', resourceId: RESOURCE_ID });
+    await enableAndAuthenticate();
+    expect(transport.subscribed.filter((request) => request.subscriptionType === 'project')).toHaveLength(1);
+
+    auth.markSessionExpired();
+    await settle();
+    auth.setMockSession(activeSession());
+    await waitForConnection(facade);
+
+    expect(transport.subscribed.filter((request) => request.subscriptionType === 'project')).toHaveLength(1);
+    expect(transport.subscribed.filter((request) => request.subscriptionType === 'user')).toHaveLength(2);
+  });
+
+  it('TenantSwitchDoesNotReusePreviousTenantSubscriptions', async () => {
+    facade.registerSubscription('workspace-shell', { subscriptionType: 'workspace', resourceId: RESOURCE_ID });
+    await enableAndAuthenticate();
+    expect(transport.subscribed.filter((request) => request.subscriptionType === 'workspace')).toHaveLength(1);
+
+    auth.setMockSession(activeSession('aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa'));
+    await waitForConnection(facade);
+
+    expect(transport.subscribed.filter((request) => request.subscriptionType === 'workspace')).toHaveLength(1);
+    expect(transport.subscribed.filter((request) => request.subscriptionType === 'user')).toHaveLength(2);
+  });
+
+  it('AuthorizationInvalidationClearsProtectedStateBeforeReauthorizationCatchUp', async () => {
+    const order: string[] = [];
+    const received: DurableRealtimeEvent[] = [];
+    facade.registerProtectedStateClearer('right-panel', () => order.push('clear'));
+    facade.registerCatchUp('right-panel', () => { order.push('catch-up'); });
+    facade.durableEvents$.subscribe((value) => received.push(value));
+    await enableAndAuthenticate();
+    order.length = 0;
+
+    transport.events.next(event({
+      eventId: '77777777-7777-4777-8777-777777777777',
+      eventType: 'Security.AuthorizationStateChanged.v1',
+      aggregateType: 'AuthorizationState',
+      payload: { affectedUserId: RESOURCE_ID, scopeType: 'workspace', change: 'archived' },
+    }));
+
+    expect(order).toEqual(['clear']);
+    expect(received).toEqual([]);
+    await waitForConnection(facade);
+    expect(order).toEqual(['clear', 'catch-up']);
+    expect(transport.subscribed.filter((request) => request.subscriptionType === 'user')).toHaveLength(2);
+    expect(facade.connectionState()).toBe('Connected');
+  });
+
   it('rejects unknown schemas and duplicate event IDs without exposing payloads', async () => {
     const received: DurableRealtimeEvent[] = [];
     const diagnostics: string[] = [];
@@ -230,12 +348,12 @@ describe('RealtimeFacade', () => {
   }
 });
 
-function activeSession(): AuthSessionSnapshot {
+function activeSession(tenantId = TENANT_ID): AuthSessionSnapshot {
   return {
     ...DEFAULT_AUTH_SESSION,
     status: 'active',
     isAuthenticated: true,
-    currentTenant: { ...DEFAULT_AUTH_SESSION.currentTenant!, tenantId: TENANT_ID, isAvailable: true }
+    currentTenant: { ...DEFAULT_AUTH_SESSION.currentTenant!, tenantId, isAvailable: true }
   };
 }
 
@@ -259,4 +377,11 @@ function event(overrides: Partial<DurableRealtimeEvent> = {}): DurableRealtimeEv
 
 function settle(): Promise<void> {
   return new Promise((resolve) => setTimeout(resolve));
+}
+
+async function waitForConnection(facade: RealtimeFacade): Promise<void> {
+  for (let attempt = 0; attempt < 20; attempt += 1) {
+    if (facade.connectionState() === 'Connected') return;
+    await new Promise((resolve) => setTimeout(resolve, 10));
+  }
 }

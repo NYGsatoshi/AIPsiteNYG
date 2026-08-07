@@ -10,6 +10,7 @@ import { AccountProfilePanelComponent } from '../account-profile-panel/account-p
 import { AccountStatusPanelComponent } from '../account-status-panel/account-status-panel.component';
 import { PasswordPanelComponent } from '../password-panel/password-panel.component';
 import { SessionListComponent } from '../session-list/session-list.component';
+import { TaskNotificationPreferencesComponent } from '../task-notification-preferences/task-notification-preferences.component';
 
 @Component({
   selector: 'app-account-page',
@@ -21,7 +22,8 @@ import { SessionListComponent } from '../session-list/session-list.component';
     AppInlineLoadingComponent,
     AppPermissionDeniedComponent,
     PasswordPanelComponent,
-    SessionListComponent
+    SessionListComponent,
+    TaskNotificationPreferencesComponent
   ],
   templateUrl: './account-page.component.html',
   styleUrl: './account-page.component.scss'

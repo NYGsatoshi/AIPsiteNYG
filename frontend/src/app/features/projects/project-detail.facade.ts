@@ -131,6 +131,7 @@ export class ProjectDetailFacade {
 
   constructor() {
     this.realtime.durableEvents$.subscribe((event) => this.handleRealtimeEvent(event));
+    this.realtime.registerProtectedStateClearer?.(PROJECT_REALTIME_OWNER, () => this.clearProtectedProjectionsForDeniedSubscription());
   }
 
   view(): ProjectDetailViewModel {
@@ -909,6 +910,7 @@ export class ProjectDetailFacade {
         const denied = context.deniedOwners.has(PROJECT_REALTIME_OWNER);
         if (denied)
           this.clearProtectedProjectionsForDeniedSubscription();
+        this.refreshProjectProjections(projectId, this.authorizationGeneration);
         this.refreshKanban(
           false,
           denied
@@ -1155,7 +1157,14 @@ export class ProjectDetailFacade {
   }
 
   private handleRealtimeEvent(event: DurableRealtimeEvent): void {
-    if (!this.projectId || !['Projects.ProjectChanged.v1', 'Projects.TaskChanged.v1', 'Security.AuthorizationStateChanged.v1'].includes(event.eventType))
+    if (!this.projectId || ![
+      'Projects.ProjectChanged.v1',
+      'Projects.TaskChanged.v1',
+      'Projects.TaskAssignmentChanged.v1',
+      'Projects.TaskWorkflowChanged.v1',
+      'Projects.TaskCommentChanged.v1',
+      'Security.AuthorizationStateChanged.v1'
+    ].includes(event.eventType))
       return;
     if (event.eventType !== 'Security.AuthorizationStateChanged.v1' && text(event.payload['projectId']) !== this.projectId)
       return;
@@ -1206,7 +1215,7 @@ export class ProjectDetailFacade {
 
     let refreshKanban = true;
     let refreshSchedule = true;
-    if (event.eventType === 'Projects.TaskChanged.v1') {
+    if (event.eventType !== 'Projects.ProjectChanged.v1') {
       const taskId = text(event.payload['taskId']);
       const eventVersion = number(event.payload['taskVersion']);
       const card = this.state().kanban.snapshot?.cards.find((item) => item.taskId === taskId);

@@ -259,6 +259,32 @@ worktree. Do not carry its test counts, manifest counts, branch SHA, or hosted
 check state forward. The final immutable HEAD and every result must be recorded
 only after this remediation's required commands run.
 
+### TASK-V1-PR07-D authorized delivery and Angular reconciliation tests
+
+PR07-D tests carry `Trait("Scope", "TaskV1PR07D")`. The focused server suite
+exercises current Task/digest target resolution for NotificationCreated,
+recipient-only read-state routing, Task invalidation routing, Task/digest
+open results, unavailable/read-state ordering, state-version advancement, and
+metadata-only read-state Outbox staging. The required name manifest is
+`scripts/ci/task-pr07d-required-tests.txt`; CI runs the scoped suite after the
+Release build, writes `task-pr07d-acceptance.trx`, and its strict verifier
+rejects missing, duplicate, failed, skipped, aborted, or not-executed required
+tests.
+
+Authoritative PR07-D completion also requires provider-backed PostgreSQL and
+hosted HTTP/dispatcher evidence for revoke-before-delivery, replay-after-revoke,
+notification ownership/tenant isolation/soft delete, Outbox terminal
+suppression, Workspace archive rollback atomicity, and the open endpoint.
+In-memory tests do not establish those database/host guarantees.
+
+Angular unit coverage validates reference-only Notification list refetch
+coalescing, stale version rejection, backend-authoritative open/unavailable
+behavior, digest Workspace context handoff, authorization clear-before-catch-up,
+and server-authoritative preference conflict/validation behavior. It must be
+supplemented by the normal production build, architecture/type checks,
+Storybook, Playwright smoke, and Linux Docker screenshot run. Mocked browser
+responses are not backend authorization evidence.
+
 ### Browser UI tests
 
 Root Playwright infrastructure remains under `tests/ui`, but the legacy static-SPA specs have been marked obsolete after the MVP-A P0 Angular migration.

@@ -10,6 +10,8 @@ public interface INotificationApplicationService
 
     Task<Result> MarkAsReadAsync(Guid notificationId, CancellationToken cancellationToken = default);
 
+    Task<Result<NotificationOpenResponse>> OpenAsync(Guid notificationId, CancellationToken cancellationToken = default);
+
     Task<Result> MarkAllAsReadAsync(CancellationToken cancellationToken = default);
 
     Task<Result> DeleteAsync(Guid notificationId, CancellationToken cancellationToken = default);

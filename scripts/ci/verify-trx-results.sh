@@ -142,6 +142,7 @@ extract_executed_test_names() {
 errors=()
 missing_tests=()
 required_test_count=0
+duplicate_required_tests=()
 total="N/A"
 executed="N/A"
 passed="N/A"
@@ -159,6 +160,7 @@ write_summary() {
       printf '%s\n' "- failed: $failed"
       printf '%s\n' "- notExecuted: $not_executed"
       printf '%s\n' "- required test count: $required_test_count"
+      printf '%s\n' "- duplicate required test count: ${#duplicate_required_tests[@]}"
       printf '%s\n' "- missing required test count: ${#missing_tests[@]}"
     } >> "$GITHUB_STEP_SUMMARY"
   fi
@@ -249,6 +251,7 @@ else
       errors+=("Required test manifest does not exist: $required_tests_file")
     else
       executed_test_names="$(extract_executed_test_names)"
+      declare -A seen_required_tests=()
       while IFS= read -r manifest_line || [[ -n "$manifest_line" ]]; do
         required_test_name="$(printf '%s' "$manifest_line" | sed 's/^[[:space:]]*//; s/[[:space:]]*$//')"
         if [[ -z "$required_test_name" || "$required_test_name" == \#* ]]; then
@@ -256,6 +259,10 @@ else
         fi
 
         required_test_count=$((required_test_count + 1))
+        if [[ -n "${seen_required_tests[$required_test_name]:-}" ]]; then
+          duplicate_required_tests+=("$required_test_name")
+        fi
+        seen_required_tests["$required_test_name"]=1
         if ! printf '%s\n' "$executed_test_names" | grep -F -- "$required_test_name" >/dev/null; then
           missing_tests+=("$required_test_name")
         fi
@@ -263,6 +270,10 @@ else
 
       if [[ "$required_test_count" -eq 0 ]]; then
         errors+=("Required test manifest contains no active test names.")
+      fi
+
+      if [[ "${#duplicate_required_tests[@]}" -gt 0 ]]; then
+        errors+=("Required test manifest contains duplicate active test names.")
       fi
 
       if [[ "${#missing_tests[@]}" -gt 0 ]]; then
@@ -277,6 +288,11 @@ write_summary
 if [[ "${#missing_tests[@]}" -gt 0 ]]; then
   printf '%s\n' "Missing required executed test names:" >&2
   printf '  %s\n' "${missing_tests[@]}" >&2
+fi
+
+if [[ "${#duplicate_required_tests[@]}" -gt 0 ]]; then
+  printf '%s\n' "Duplicate active required test names:" >&2
+  printf '  %s\n' "${duplicate_required_tests[@]}" >&2
 fi
 
 if [[ "${#errors[@]}" -gt 0 ]]; then

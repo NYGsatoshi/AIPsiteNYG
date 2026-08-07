@@ -90,6 +90,12 @@ export class ProjectsFacade {
 
   constructor() {
     this.realtime.durableEvents$.subscribe((event) => this.handleRealtimeEvent(event));
+    this.realtime.registerProtectedStateClearer?.('projects-active-task', () => this.clearForAuthorizationLoss());
+    this.realtime.registerCatchUp('projects-active-task', () => {
+      if (this.activeTaskId && this.activeProjectId && !this.scenario) {
+        this.reauthorizeActiveState();
+      }
+    });
     // The Task route fetches one protected aggregate itself. Starting the broad
     // overview inventory during that route can race a post-revocation safe 404
     // and probe stale project/File resources.
@@ -510,13 +516,18 @@ export class ProjectsFacade {
       return;
     }
 
-    // The current realtime catalog only emits the aggregate invalidations below;
-    // subresource change names remain a future server contract rather than guesses.
-    if (!['Projects.TaskChanged.v1', 'Projects.ProjectChanged.v1', 'Files.FileChanged.v1'].includes(event.eventType)) {
+    if (![
+      'Projects.TaskChanged.v1',
+      'Projects.TaskAssignmentChanged.v1',
+      'Projects.TaskWorkflowChanged.v1',
+      'Projects.TaskCommentChanged.v1',
+      'Projects.ProjectChanged.v1',
+      'Files.FileChanged.v1'
+    ].includes(event.eventType)) {
       return;
     }
 
-    if (event.eventType === 'Projects.TaskChanged.v1' && this.activeTaskId === event.aggregateId) {
+    if (event.eventType !== 'Projects.ProjectChanged.v1' && this.activeTaskId === event.aggregateId) {
       if (this.isTaskBodyEditing()) {
         this.taskMutationState.set({ status: 'conflict', message: 'This task changed elsewhere. Your editor was preserved; reload before saving again.', requestId: event.eventId });
       } else {
@@ -650,6 +661,13 @@ export class ProjectsFacade {
       }
       this.loadTaskDetail(activeTaskId);
     });
+  }
+
+  private clearForAuthorizationLoss(): void {
+    if (this.scenario) return;
+    this.authorizationGeneration++;
+    this.clearProtectedTaskState();
+    this.liveState.set(this.emptyScenario('loading'));
   }
 
   private denyTaskDetail(): void {

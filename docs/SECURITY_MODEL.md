@@ -262,6 +262,39 @@ operator-restart attempt to pending without changing automatic budget. It
 creates no Notification or Outbox row and fences the released token from later
 completion, defer, or failure.
 
+## TASK-V1-PR07-D current authorization boundary
+
+Delivery authorization is evaluated at creation, dispatch/retry/replay, and
+open time. Historical Outbox routing, a SignalR group, a browser route guard,
+or a hidden UI control never substitutes for current HTTP/resource
+authorization. The shared target resolver fails closed when a recipient/user,
+TenantUser, Workspace/member, Project, Task, digest job, or routing identity is
+inactive, deleted, archived, revoked, missing, or inconsistent.
+
+Task/digest `Notifications.NotificationCreated.v1` carries only
+`notificationId`, `stateVersion`, and `requiresRefetch`; no Task title,
+description, comment/review text, relationship, route, preference, Workspace
+data, or digest list is placed in its payload. Notification read-state events
+also remain recipient-only and do not infer target content. A denied delivery
+is terminal without retry or DeadLetter mutation, and must not fall back to a
+broad route.
+
+`POST /api/notifications/{notificationId}/open` treats another recipient and a
+missing Notification uniformly. Its `Unavailable` response is metadata-safe:
+it contains no lifecycle/revocation explanation or protected target detail and
+does not mark the row read. Only a successfully resolved current target can
+advance read state and stage the recipient-only read-state Outbox event in the
+same transaction. Authorized Task navigation is always
+`/projects/{projectId}/tasks/{taskId}`; a digest can yield only `/tasks` plus
+authorized typed Workspace context.
+
+Authorization invalidation is sent separately as an approved metadata-only
+recipient event. `RealtimeFacade` clears protected notification, Task,
+project/Kanban/Gantt, My Tasks, selected route/context, active Workspace, and
+preference state before it reauthorizes subscriptions or starts HTTP catch-up.
+This clear-before-reauthorize ordering prevents a revoked browser from keeping
+a protected projection visible.
+
 ## Tenant isolation
 
 Implemented controls:

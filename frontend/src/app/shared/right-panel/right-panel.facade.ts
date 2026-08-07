@@ -1,9 +1,11 @@
 import { HttpClient } from '@angular/common/http';
 import { computed, Injectable, InjectionToken, inject, signal } from '@angular/core';
+import { Router } from '@angular/router';
 import { Subscription } from 'rxjs';
 
 import { DurableRealtimeEvent } from '../../core/realtime/realtime.models';
 import { RealtimeFacade } from '../../core/realtime/realtime.facade';
+import { NotificationOpenContextService } from '../../core/notifications/notification-open-context.service';
 
 import {
   NotificationTargetType,
@@ -24,6 +26,7 @@ const SUPPORTED_TARGETS = new Set<NotificationTargetType>([
   'dmConversation',
   'project',
   'task',
+  'taskDeadlineDigest',
 ]);
 
 export const AIP_RIGHT_PANEL_MOCK = new InjectionToken<RightPanelMockState>('AIP_RIGHT_PANEL_MOCK');
@@ -46,8 +49,14 @@ interface NotificationDto {
   readonly relatedEntityType?: unknown;
   readonly relatedEntityId?: unknown;
   readonly isRead?: unknown;
-  readonly targetRoute?: unknown;
   readonly stateVersion?: unknown;
+}
+
+interface NotificationOpenDto {
+  readonly outcome?: unknown;
+  readonly route?: unknown;
+  readonly stateVersion?: unknown;
+  readonly context?: unknown;
 }
 
 export function isSupportedNotificationTarget(target: NotificationTargetType): boolean {
@@ -55,13 +64,9 @@ export function isSupportedNotificationTarget(target: NotificationTargetType): b
 }
 
 export function mapNotificationRoute(
-  target: Pick<RightPanelNotification['target'], 'type' | 'id' | 'route'>,
+  target: Pick<RightPanelNotification['target'], 'type' | 'id'>,
   scope: RightPanelScope = EMPTY_RIGHT_PANEL_SCOPE,
 ): string | undefined {
-  if (target.route && isKnownSafeRoute(target.route)) {
-    return target.route;
-  }
-
   if (!target.id) {
     return undefined;
   }
@@ -78,6 +83,8 @@ export function mapNotificationRoute(
     case 'dmConversation':
       return `/dm/${target.id}`;
     default:
+      // Task and digest navigation is authorized only by the backend open
+      // response. A persisted TargetRoute or a task ID is never a fallback.
       return undefined;
   }
 }
@@ -90,6 +97,8 @@ export function clampRightPanelText(value: string, maxLength: number): string {
 export class RightPanelFacade {
   private readonly http = inject(HttpClient);
   private readonly realtime = inject(RealtimeFacade);
+  private readonly router = inject(Router, { optional: true });
+  private readonly notificationOpenContext = inject(NotificationOpenContextService);
   private readonly mockState = inject(AIP_RIGHT_PANEL_MOCK, { optional: true });
   private readonly modeState = signal<RightPanelMode>(
     this.mockState?.mode ?? this.readStoredMode(),
@@ -108,7 +117,12 @@ export class RightPanelFacade {
   );
   private readonly memberState = signal<readonly RightPanelMember[]>(this.mockState?.members ?? []);
   private readonly selectedNotificationIdState = signal<string | null>(null);
+  private readonly notificationOpenInProgressState = signal(false);
+  private readonly unavailableMessageState = signal<string | null>(null);
   private notificationStateVersion = 0;
+  private notificationRefreshInFlight: Promise<void> | null = null;
+  private notificationRefreshQueued = false;
+  private notificationRefreshTimer: ReturnType<typeof setTimeout> | null = null;
   private readonly realtimeEvents: Subscription;
 
   readonly mode = this.modeState.asReadonly();
@@ -131,12 +145,16 @@ export class RightPanelFacade {
       unreadCount: notifications.filter((notification) => !notification.read).length,
       members,
       selectedNotificationId: this.selectedNotificationIdState(),
+      notificationOpenInProgress: this.notificationOpenInProgressState(),
+      unavailableMessage: this.unavailableMessageState(),
+      realtimeDegraded: this.realtime.connectionState() !== 'Connected',
     };
   });
 
   constructor() {
     this.realtimeEvents = this.realtime.durableEvents$.subscribe((event) => this.applyRealtimeEvent(event));
     this.realtime.registerCatchUp('right-panel-notifications', () => this.refreshNotifications());
+    this.realtime.registerProtectedStateClearer?.('right-panel-notifications', () => this.clearProtectedNotificationState());
     if (!this.mockState) {
       this.loadNotifications();
     }
@@ -173,15 +191,35 @@ export class RightPanelFacade {
     this.scopeState.set(scope);
   }
 
-  displayNotificationTarget(notificationId: string): boolean {
+  /** HTTP remains authoritative when the realtime transport is degraded. */
+  refreshNotificationsNow(): void {
+    this.unavailableMessageState.set(null);
+    void this.refreshNotifications();
+  }
+
+  displayNotificationTarget(notificationId: string): void {
     const notification = this.notificationState().find((item) => item.id === notificationId);
-    if (!notification?.target.route) {
-      return false;
+    if (!notification || !isSupportedNotificationTarget(notification.target.type)) {
+      this.showUnavailable();
+      return;
     }
 
     this.selectedNotificationIdState.set(notificationId);
-    this.markNotificationRead(notificationId);
-    return true;
+    this.unavailableMessageState.set(null);
+    if (this.mockState) {
+      // Story/test data intentionally has no server authority. Do not invent
+      // a route or optimistic read state for a mocked notification.
+      return;
+    }
+
+    this.notificationOpenInProgressState.set(true);
+    this.http
+      .post<NotificationOpenDto>(`/api/notifications/${notificationId}/open`, {}, { withCredentials: true })
+      .subscribe({
+        next: (response) => this.applyNotificationOpenResult(notificationId, response),
+        error: () => this.showUnavailable(),
+        complete: () => this.notificationOpenInProgressState.set(false),
+      });
   }
 
   markNotificationRead(notificationId: string): void {
@@ -207,32 +245,14 @@ export class RightPanelFacade {
     this.permissionState.set(this.mockState?.permission ?? 'granted');
     this.scopeState.set(this.mockState?.activeScope ?? EMPTY_RIGHT_PANEL_SCOPE);
     this.selectedNotificationIdState.set(null);
+    this.notificationOpenInProgressState.set(false);
+    this.unavailableMessageState.set(null);
     this.notificationStateVersion = 0;
     this.notificationState.set([]);
   }
 
   private loadNotifications(): void {
-    this.http
-      .get<PagedResponseDto<NotificationDto>>('/api/notifications', { withCredentials: true })
-      .subscribe({
-        next: (response) => {
-          this.notificationState.set(
-            this.normalizeNotifications(
-              (response.items ?? []).map((item) => this.toNotification(item)),
-            ),
-          );
-          this.notificationStateVersion = Math.max(
-            this.notificationStateVersion,
-            ...this.notificationState().map((notification) => notification.stateVersion ?? 0),
-          );
-        },
-        error: (error: { status?: number }) => {
-          if (error.status === 401 || error.status === 403) {
-            this.permissionState.set('denied');
-          }
-          this.notificationState.set([]);
-        },
-      });
+    void this.refreshNotifications();
   }
 
   private toNotification(item: NotificationDto): RightPanelNotification {
@@ -240,8 +260,8 @@ export class RightPanelFacade {
     const target = {
       type: targetType,
       id: stringValue(item.relatedEntityId),
-      label: stringValue(item.targetRoute) ?? targetType,
-      route: stringValue(item.targetRoute),
+      label: targetType === 'taskDeadlineDigest' ? 'Task deadline digest' : targetType,
+      route: undefined,
     };
 
     return {
@@ -282,11 +302,6 @@ export class RightPanelFacade {
   }
 
   private applyRealtimeEvent(event: DurableRealtimeEvent): void {
-    if (event.eventType === 'Security.AuthorizationStateChanged.v1') {
-      this.clearProtectedNotificationState();
-      return;
-    }
-
     if (event.eventType === 'Notifications.NotificationCreated.v1') {
       this.applyNotificationCreated(event);
       return;
@@ -301,13 +316,21 @@ export class RightPanelFacade {
     const payload = event.payload;
     const notification = payload['notification'];
     const stateVersion = numericValue(payload['stateVersion']) ?? numericValue(recordValue(notification)['version']) ?? event.aggregateVersion ?? 0;
-    if (!notification || stateVersion <= this.notificationStateVersion) {
+    const requiresRefetch = payload['requiresRefetch'] === true;
+    if (stateVersion <= this.notificationStateVersion) {
+      return;
+    }
+
+    // Task and digest signals are reference-only. Never derive display data,
+    // a route, or recipient relationship state from a durable event.
+    if (requiresRefetch || !notification) {
+      this.queueNotificationRefresh();
       return;
     }
 
     const mapped = this.toNotification(recordValue(notification));
     if (!mapped.id) {
-      this.refreshNotifications();
+      this.queueNotificationRefresh();
       return;
     }
 
@@ -318,7 +341,7 @@ export class RightPanelFacade {
     ]);
     this.notificationStateVersion = stateVersion;
     if (uncertainOrdering) {
-      this.refreshNotifications();
+      this.queueNotificationRefresh();
     }
   }
 
@@ -346,21 +369,32 @@ export class RightPanelFacade {
     });
     this.notificationStateVersion = stateVersion;
     if (uncertainOrdering || !change) {
-      this.refreshNotifications();
+      this.queueNotificationRefresh();
     }
   }
 
   private clearProtectedNotificationState(): void {
     this.notificationStateVersion = 0;
     this.selectedNotificationIdState.set(null);
+    this.notificationOpenInProgressState.set(false);
+    this.unavailableMessageState.set(null);
     this.notificationState.set([]);
-    if (!this.mockState) {
-      this.refreshNotifications();
-    }
   }
 
   private refreshNotifications(): Promise<void> {
-    return new Promise((resolve) => {
+    if (this.mockState) {
+      return Promise.resolve();
+    }
+    if (this.notificationRefreshInFlight) {
+      this.notificationRefreshQueued = true;
+      return this.notificationRefreshInFlight;
+    }
+    if (this.notificationRefreshTimer !== null) {
+      clearTimeout(this.notificationRefreshTimer);
+      this.notificationRefreshTimer = null;
+    }
+
+    this.notificationRefreshInFlight = new Promise<void>((resolve) => {
       this.http
         .get<PagedResponseDto<NotificationDto>>('/api/notifications', { withCredentials: true })
         .subscribe({
@@ -369,9 +403,75 @@ export class RightPanelFacade {
             this.notificationStateVersion = Math.max(...this.notificationState().map((item) => item.stateVersion ?? 0), 0);
             resolve();
           },
-          error: () => resolve(),
+          error: (error: { status?: number }) => {
+            if (error.status === 401 || error.status === 403) {
+              this.permissionState.set('denied');
+              this.notificationState.set([]);
+            }
+            resolve();
+          },
         });
+    }).finally(() => {
+      this.notificationRefreshInFlight = null;
+      if (this.notificationRefreshQueued) {
+        this.notificationRefreshQueued = false;
+        this.queueNotificationRefresh();
+      }
     });
+    return this.notificationRefreshInFlight;
+  }
+
+  private queueNotificationRefresh(): void {
+    if (this.mockState) return;
+    if (this.notificationRefreshInFlight) {
+      this.notificationRefreshQueued = true;
+      return;
+    }
+    if (this.notificationRefreshTimer !== null) return;
+    this.notificationRefreshTimer = setTimeout(() => {
+      this.notificationRefreshTimer = null;
+      void this.refreshNotifications();
+    }, 75);
+  }
+
+  private applyNotificationOpenResult(notificationId: string, response: NotificationOpenDto): void {
+    const outcome = stringValue(response.outcome);
+    const route = stringValue(response.route);
+    const stateVersion = numericValue(response.stateVersion) ?? 0;
+    if (outcome !== 'Opened' || !route || !isAuthorizedOpenRoute(route)) {
+      this.showUnavailable();
+      return;
+    }
+
+    // An open result may update read state only after the server authorized
+    // the target. Older versions never overwrite a newer local projection.
+    if (stateVersion > this.notificationStateVersion) {
+      this.notificationState.update((items) =>
+        items.map((item) => item.id === notificationId ? { ...item, read: true, stateVersion } : item),
+      );
+      this.notificationStateVersion = stateVersion;
+    } else if (stateVersion < this.notificationStateVersion) {
+      this.queueNotificationRefresh();
+    }
+
+    if (route === '/tasks') {
+      const workspaceId = workspaceIdFromOpenContext(response.context);
+      if (!workspaceId) {
+        this.showUnavailable();
+        return;
+      }
+      this.notificationOpenContext.setDigestWorkspace(workspaceId);
+    }
+    if (!this.router) {
+      this.showUnavailable();
+      return;
+    }
+    void this.router.navigateByUrl(route).catch(() => this.showUnavailable());
+  }
+
+  private showUnavailable(): void {
+    this.notificationOpenInProgressState.set(false);
+    this.unavailableMessageState.set('This notification target is no longer available.');
   }
 
   private inNotificationScope(recordScope: RightPanelScope, activeScope: RightPanelScope): boolean {
@@ -446,22 +546,23 @@ function notificationTargetType(entityType: unknown, notificationType?: unknown)
   if (normalized.includes('project')) {
     return 'project';
   }
+  if (normalized.includes('deadline') || normalized.includes('digest')) {
+    return 'taskDeadlineDigest';
+  }
   if (normalized.includes('task')) {
     return 'task';
   }
   return 'unsupported';
 }
 
-function isKnownSafeRoute(route: string): boolean {
-  return (
-    /^\/announcements\/[^/]+$/.test(route) ||
-    route === '/projects' ||
-    isTaskDetailRoute(route) ||
-    /^\/workspaces\/[^/]+\/channels\/[^/]+$/.test(route) ||
-    /^\/dm\/[^/]+$/.test(route)
-  );
-}
-
 function isTaskDetailRoute(route: string): boolean {
   return /^\/projects\/[^/]+\/tasks\/[^/]+$/.test(route);
+}
+
+function isAuthorizedOpenRoute(route: string): boolean {
+  return route === '/tasks' || isTaskDetailRoute(route);
+}
+
+function workspaceIdFromOpenContext(value: unknown): string | undefined {
+  return stringValue(recordValue(value)['workspaceId']);
 }

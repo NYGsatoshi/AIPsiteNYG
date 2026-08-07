@@ -275,6 +275,35 @@ history; Down drops both tables. It does not roll back or delete already
 committed Notification, Outbox, preference, or Audit rows. Never use Outbox
 deletion as a digest rollback mechanism.
 
+## TASK-V1-PR07-D delivery and opening operations
+
+Outbox retry and operator replay use the same current dispatch authorizer as
+first delivery. Operators must not replay an event to a historical group or add
+payload detail to diagnose a denied recipient. A current authorization denial
+is completed as the existing metadata-safe `NoAuthorizedRecipient` terminal
+outcome; it is neither a transient retry nor a DeadLetter condition.
+
+When archiving a Workspace, confirm that the archive, audit entry, and one
+metadata-only `Security.AuthorizationStateChanged.v1` recipient event per
+active affected member commit together. A rollback must leave no authorization
+invalidation Outbox row. The event contains no member list, role, Task,
+Project, Notification, or display content; delivery is allowed only long
+enough for the recipient browser to clear protected state.
+
+For a report that a Notification cannot be opened, use the normal notification
+list/open flow and record only safe outcome codes. Do not inspect or expose a
+deleted/archived/revoked reason, protected title/body, digest Task list,
+preference, SQL, raw exception, route history, cookie, CSRF token, or session
+identifier. `Unavailable` intentionally remains indistinguishable across those
+target states.
+
+The Task/Digest created signal is reference-only. A healthy Angular client
+coalesces a bounded authorized HTTP refresh through the single
+`RealtimeFacade`; feature-specific sockets, manually constructed group names,
+and client-side routes persisted from old Notification rows are unsupported.
+If realtime is degraded, use the existing manual HTTP refresh fallback rather
+than treating a durable signal as data authority.
+
 ## Backup
 
 AIP Portal recovery has two layers:

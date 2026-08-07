@@ -449,7 +449,11 @@ public sealed class DbNotificationService(
             "ActivityEvent" or "Event" => $"/events/{relatedEntityId}",
             "InternalForm" or "Form" => $"/forms/{relatedEntityId}",
             "Project" => $"/projects/{relatedEntityId}",
-            "TaskItem" or "Task" => $"/tasks/{relatedEntityId}",
+            // Task and digest routes are resolved only by notification-open
+            // against current Task/Project/Workspace authorization.  A list
+            // response must never preserve the obsolete /tasks/{id} route as
+            // navigation authority.
+            "TaskItem" or "Task" or TaskDeadlineDigestPolicy.RelatedEntityType => null,
             "Artifact" => $"/artifacts/{relatedEntityId}",
             "Message" => $"/messages/{relatedEntityId}",
             "Post" => $"/posts/{relatedEntityId}",

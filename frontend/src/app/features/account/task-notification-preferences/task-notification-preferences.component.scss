@@ -1,0 +1,45 @@
+:host { display: block; }
+
+.task-notification-preferences {
+  display: grid;
+  gap: 10px;
+  border: 1px solid var(--aip-color-border-default);
+  border-radius: 10px;
+  padding: 16px;
+  background: var(--aip-color-bg-surface);
+}
+
+.task-notification-preferences__header {
+  display: flex;
+  align-items: start;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.task-notification-preferences__eyebrow,
+.task-notification-preferences__muted,
+.task-notification-preferences__timezone {
+  margin: 0;
+  color: var(--aip-color-text-secondary);
+  font-size: 0.85rem;
+}
+
+h2 { margin: 2px 0 0; font-size: 1rem; }
+
+select,
+button {
+  min-height: var(--shell-touch-target, 40px);
+  border: 1px solid var(--aip-color-border-default);
+  border-radius: 7px;
+  padding: 6px 8px;
+  background: var(--aip-color-bg-surface);
+  color: var(--aip-color-text-primary);
+}
+
+select:focus-visible,
+button:focus-visible {
+  outline: var(--aip-focus-outline);
+  outline-offset: var(--aip-focus-offset);
+}
+
+.task-notification-preferences__error { margin: 0; color: var(--aip-color-status-danger, #a11d2d); }

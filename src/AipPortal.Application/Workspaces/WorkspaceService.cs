@@ -134,8 +134,20 @@ public sealed class WorkspaceService(
             return Result.Failure("Workspace not found.");
         }
 
+        // Determine the affected recipients before changing the lifecycle and
+        // stage metadata-only invalidations in this same business unit of
+        // work.  The Outbox row is therefore absent on rollback.
+        var affectedMembers = (await workspaces.ListMembersAsync(workspaceId, cancellationToken))
+            .Where(member => member.Status == MembershipStatus.Active)
+            .Select(member => member.UserId)
+            .Distinct()
+            .ToArray();
         workspace.Status = WorkspaceStatus.Archived;
         await AuditAsync(userId, "WorkspaceArchived", workspace.Id, cancellationToken);
+        foreach (var affectedUserId in affectedMembers)
+        {
+            await PublishAuthorizationChangeAsync(affectedUserId, workspace.Id, "archived", cancellationToken);
+        }
         await unitOfWork.SaveChangesAsync(cancellationToken);
         return Result.Success();
     }

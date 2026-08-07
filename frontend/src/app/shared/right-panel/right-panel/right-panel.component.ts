@@ -88,6 +88,23 @@ const DEFAULT_RIGHT_PANEL_SCOPE: RightPanelScope = {
           <span>{{ vm.scope.conversationId }}</span>
         </div>
 
+        @if (vm.notificationOpenInProgress) {
+          <p class="right-panel__status" role="status">Opening notification target…</p>
+        }
+        @if (vm.realtimeDegraded) {
+          <div class="right-panel__status right-panel__status--degraded" role="status" data-testid="right-panel-realtime-degraded">
+            <span>Realtime updates are degraded.</span>
+            <button type="button" class="right-panel__status-action" (click)="refreshNotifications()">
+              Refresh notifications
+            </button>
+          </div>
+        }
+        @if (vm.unavailableMessage) {
+          <p class="right-panel__status right-panel__status--unavailable" role="status" data-testid="notification-open-unavailable">
+            {{ vm.unavailableMessage }}
+          </p>
+        }
+
         <div class="right-panel__tabs" role="tablist" aria-label="Right panel view">
           <button
             type="button"
@@ -209,6 +226,10 @@ export class RightPanelComponent implements OnChanges {
 
   markNotificationRead(notificationId: string): void {
     this.facade.markNotificationRead(notificationId);
+  }
+
+  refreshNotifications(): void {
+    this.facade.refreshNotificationsNow();
   }
 
   private resolveScope(): RightPanelScope {

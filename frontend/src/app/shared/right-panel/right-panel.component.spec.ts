@@ -1,8 +1,13 @@
 import { TestBed } from '@angular/core/testing';
 import { provideHttpClient } from '@angular/common/http';
 import { HttpTestingController, provideHttpClientTesting } from '@angular/common/http/testing';
-import { provideRouter } from '@angular/router';
+import { provideRouter, Router } from '@angular/router';
+import { Subject } from 'rxjs';
+import { vi } from 'vitest';
 
+import { NotificationOpenContextService } from '../../core/notifications/notification-open-context.service';
+import { RealtimeFacade } from '../../core/realtime/realtime.facade';
+import { DurableRealtimeEvent } from '../../core/realtime/realtime.models';
 import { NotificationItemComponent } from './notification-item/notification-item.component';
 import { RightPanelComponent } from './right-panel/right-panel.component';
 import { AIP_RIGHT_PANEL_MOCK, mapNotificationRoute, RightPanelFacade } from './right-panel.facade';
@@ -265,4 +270,214 @@ describe('RightPanelFacade notifications', () => {
     expect(facade.viewModel().unreadCount).toBe(1);
     httpMock.verify();
   });
+
+  it('ReferenceOnlyNotificationCreatedDoesNotRequireEmbeddedNotificationAndRefetchesExactlyOnce', async () => {
+    const { events } = configureLiveRightPanel();
+    const facade = TestBed.inject(RightPanelFacade);
+    const httpMock = TestBed.inject(HttpTestingController);
+    httpMock.expectOne('/api/notifications').flush({ items: [notificationDto(5)] });
+    await settleNotificationRefresh();
+
+    events.next(referenceOnlyNotificationEvent(6));
+    events.next(referenceOnlyNotificationEvent(6, '70000000-0000-4000-8000-000000000002'));
+    await settleNotificationRefresh();
+    httpMock.expectOne('/api/notifications').flush({ items: [notificationDto(6)] });
+    await settleNotificationRefresh();
+
+    httpMock.expectNone('/api/notifications');
+    expect(facade.viewModel().notifications).toHaveLength(1);
+    expect(facade.viewModel().notifications[0].stateVersion).toBe(6);
+    httpMock.verify();
+  });
+
+  it('DuplicateNotificationEventAndHttpResponseCreateOneVisibleItem', async () => {
+    const { events } = configureLiveRightPanel();
+    const facade = TestBed.inject(RightPanelFacade);
+    const httpMock = TestBed.inject(HttpTestingController);
+    const initial = httpMock.expectOne('/api/notifications');
+
+    events.next(referenceOnlyNotificationEvent(6));
+    initial.flush({ items: [notificationDto(5)] });
+    await settleNotificationRefresh();
+
+    httpMock.expectOne('/api/notifications').flush({ items: [notificationDto(6)] });
+    await settleNotificationRefresh();
+
+    expect(facade.viewModel().notifications).toHaveLength(1);
+    expect(facade.viewModel().notifications[0]).toEqual(expect.objectContaining({
+      id: 'notification-1',
+      stateVersion: 6,
+    }));
+    httpMock.expectNone('/api/notifications');
+    httpMock.verify();
+  });
+
+  it('StaleNotificationStateVersionIsIgnored', async () => {
+    const { events } = configureLiveRightPanel();
+    const facade = TestBed.inject(RightPanelFacade);
+    const httpMock = TestBed.inject(HttpTestingController);
+    httpMock.expectOne('/api/notifications').flush({ items: [notificationDto(6)] });
+    await settleNotificationRefresh();
+
+    events.next(referenceOnlyNotificationEvent(6));
+    await settleNotificationRefresh();
+
+    httpMock.expectNone('/api/notifications');
+    expect(facade.viewModel().notifications).toHaveLength(1);
+    httpMock.verify();
+  });
+
+  it('NotificationVersionGapTriggersCoalescedRefetch', async () => {
+    const { events } = configureLiveRightPanel();
+    TestBed.inject(RightPanelFacade);
+    const httpMock = TestBed.inject(HttpTestingController);
+    httpMock.expectOne('/api/notifications').flush({ items: [notificationDto(1)] });
+    await settleNotificationRefresh();
+
+    events.next(referenceOnlyNotificationEvent(3));
+    events.next(referenceOnlyNotificationEvent(4, '70000000-0000-4000-8000-000000000003'));
+    await settleNotificationRefresh();
+    httpMock.expectOne('/api/notifications').flush({ items: [notificationDto(4)] });
+    await settleNotificationRefresh();
+
+    httpMock.expectNone('/api/notifications');
+    httpMock.verify();
+  });
+
+  it('TaskOpenUsesProjectTaskRoute', () => {
+    configureLiveRightPanel();
+    const facade = TestBed.inject(RightPanelFacade);
+    const httpMock = TestBed.inject(HttpTestingController);
+    const router = TestBed.inject(Router);
+    const navigate = vi.spyOn(router, 'navigateByUrl').mockResolvedValue(true);
+    httpMock.expectOne('/api/notifications').flush({ items: [notificationDto(5)] });
+
+    facade.displayNotificationTarget('notification-1');
+    httpMock.expectOne('/api/notifications/notification-1/open').flush({
+      outcome: 'Opened',
+      route: '/projects/project-1/tasks/task-1',
+      stateVersion: 6,
+    });
+
+    expect(navigate).toHaveBeenCalledWith('/projects/project-1/tasks/task-1');
+    expect(facade.viewModel().notifications[0].read).toBe(true);
+    httpMock.verify();
+  });
+
+  it('UnavailableOpenDoesNotNavigateOrOptimisticallyMarkRead', () => {
+    configureLiveRightPanel();
+    const facade = TestBed.inject(RightPanelFacade);
+    const httpMock = TestBed.inject(HttpTestingController);
+    const router = TestBed.inject(Router);
+    const navigate = vi.spyOn(router, 'navigateByUrl').mockResolvedValue(true);
+    httpMock.expectOne('/api/notifications').flush({ items: [notificationDto(5)] });
+
+    facade.displayNotificationTarget('notification-1');
+    expect(facade.viewModel().notifications[0].read).toBe(false);
+    httpMock.expectOne('/api/notifications/notification-1/open').flush({
+      outcome: 'Unavailable',
+      route: null,
+      stateVersion: 5,
+    });
+
+    expect(navigate).not.toHaveBeenCalled();
+    expect(facade.viewModel().notifications[0].read).toBe(false);
+    expect(facade.viewModel().unavailableMessage).toContain('no longer available');
+    httpMock.verify();
+  });
+
+  it('DigestOpenAppliesWorkspaceSpecificMyTasksContext', () => {
+    configureLiveRightPanel();
+    const facade = TestBed.inject(RightPanelFacade);
+    const httpMock = TestBed.inject(HttpTestingController);
+    const router = TestBed.inject(Router);
+    const context = TestBed.inject(NotificationOpenContextService);
+    vi.spyOn(router, 'navigateByUrl').mockResolvedValue(true);
+    httpMock.expectOne('/api/notifications').flush({ items: [digestNotificationDto(5)] });
+
+    facade.displayNotificationTarget('notification-1');
+    httpMock.expectOne('/api/notifications/notification-1/open').flush({
+      outcome: 'Opened',
+      route: '/tasks',
+      stateVersion: 6,
+      context: { workspaceId: 'workspace-1' },
+    });
+
+    expect(context.takeDigestWorkspace()).toBe('workspace-1');
+    httpMock.verify();
+  });
 });
+
+function configureLiveRightPanel(): {
+  readonly events: Subject<DurableRealtimeEvent>;
+  readonly clearers: Array<() => void>;
+} {
+  const events = new Subject<DurableRealtimeEvent>();
+  const clearers: Array<() => void> = [];
+  TestBed.configureTestingModule({
+    providers: [
+      provideHttpClient(),
+      provideHttpClientTesting(),
+      provideRouter([]),
+      {
+        provide: RealtimeFacade,
+        useValue: {
+          durableEvents$: events.asObservable(),
+          connectionState: () => 'Connected',
+          registerCatchUp: () => undefined,
+          registerProtectedStateClearer: (_owner: string, clear: () => void) => {
+            clearers.push(clear);
+            return () => undefined;
+          },
+        },
+      },
+    ],
+  });
+  return { events, clearers };
+}
+
+function notificationDto(stateVersion: number): Record<string, unknown> {
+  return {
+    id: 'notification-1',
+    title: 'Task notification',
+    body: 'safe API list body',
+    relatedEntityType: 'TaskItem',
+    relatedEntityId: 'task-1',
+    targetRoute: '/tasks/task-1',
+    isRead: false,
+    stateVersion,
+  };
+}
+
+function digestNotificationDto(stateVersion: number): Record<string, unknown> {
+  return {
+    ...notificationDto(stateVersion),
+    relatedEntityType: 'TaskDeadlineDigest',
+    targetRoute: null,
+  };
+}
+
+function referenceOnlyNotificationEvent(stateVersion: number, eventId = '70000000-0000-4000-8000-000000000001'): DurableRealtimeEvent {
+  return {
+    eventId,
+    eventType: 'Notifications.NotificationCreated.v1',
+    payloadSchemaVersion: 1,
+    occurredAt: '2026-08-06T00:00:00.000Z',
+    tenantId: '11111111-1111-1111-1111-111111111111',
+    aggregateType: 'Notification',
+    aggregateId: 'notification-1',
+    aggregateVersion: stateVersion,
+    actor: { actorType: 'System', actorId: null },
+    correlationId: null,
+    causationId: null,
+    payload: {
+      notificationId: 'notification-1',
+      stateVersion,
+      requiresRefetch: true,
+    },
+  };
+}
+
+function settleNotificationRefresh(): Promise<void> {
+  return new Promise((resolve) => setTimeout(resolve, 100));
+}

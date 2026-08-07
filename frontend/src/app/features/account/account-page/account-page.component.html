@@ -27,6 +27,7 @@
         />
       </div>
       <aside class="account-page__aside">
+        <app-task-notification-preferences />
         @if (accountPage.accountStatus) {
           <app-account-status-panel [status]="accountPage.accountStatus" />
         }
