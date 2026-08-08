@@ -2029,7 +2029,7 @@ test.describe('MVP0 real backend browser smoke', () => {
         bodyPreview: preview(openedText)
       });
       expect(opened.status(), openedText).toBe(200);
-      expect(openedBody.status).toBe('Opened');
+      expect(openedBody.outcome).toBe('Opened');
       expect(openedBody.route).toBe(`/projects/${projectId}/tasks/${immediate.taskId}`);
       await taskNavigation;
       await expect(page.getByRole('heading', { name: pr07TaskTitle })).toBeVisible();
@@ -2076,7 +2076,7 @@ test.describe('MVP0 real backend browser smoke', () => {
         bodyPreview: preview(unavailable.text)
       });
       expect(unavailable.status, unavailable.text).toBe(200);
-      expect(unavailableBody).toMatchObject({ status: 'Unavailable', route: null });
+      expect(unavailableBody).toMatchObject({ outcome: 'Unavailable', route: null });
       expect(unavailable.text).not.toContain(pr07TaskTitle);
       expect(unavailable.text).not.toContain(projectId);
 
