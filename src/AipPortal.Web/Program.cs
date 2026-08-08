@@ -221,6 +221,9 @@ if (tenancyOptions.SeedOnStartup ||
             defaultTenant.Id,
             smokeEmail,
             smokePassword);
+        await BrowserSmokeNotificationFixtureSeed.EnsureRevocableProjectAccessAsync(
+            dbContext,
+            defaultTenant.Id);
     }
 }
 
