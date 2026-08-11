@@ -257,6 +257,62 @@ public sealed class TaskV1Pr07DAuthorizedDeliveryTests
     }
 
     [Fact]
+    public async Task OpenTaskNotificationReadStateEventUsesCurrentVisibleUnreadCount()
+    {
+        await using var fixture = await Fixture.CreateAsync();
+        var unavailableProject = new Project
+        {
+            TenantId = fixture.TenantId,
+            WorkspaceId = fixture.Workspace.Id,
+            OwnerUserId = fixture.UserId,
+            CreatedByUserId = fixture.UserId,
+            Name = "Unavailable project",
+            Slug = "unavailable-project",
+            Status = ProjectStatus.Archived
+        };
+        var unavailableTask = new TaskItem
+        {
+            TenantId = fixture.TenantId,
+            WorkspaceId = fixture.Workspace.Id,
+            ProjectId = unavailableProject.Id,
+            CreatedByUserId = fixture.UserId,
+            Title = "Unavailable task",
+            VersionNo = 1
+        };
+        var unavailableNotification = new Notification
+        {
+            TenantId = fixture.TenantId,
+            UserId = fixture.UserId,
+            NotificationType = NotificationType.TaskDueSoon,
+            Title = "Unavailable notification",
+            RelatedEntityType = "TaskItem",
+            RelatedEntityId = unavailableTask.Id,
+            CreatedAt = FixedClock.Instance.UtcNow,
+            StateVersion = 5
+        };
+        fixture.Db.AddRange(unavailableProject, unavailableTask, unavailableNotification);
+        await fixture.Db.SaveChangesAsync();
+        var notifications = new DbNotificationService(
+            fixture.Db,
+            FixedClock.Instance,
+            fixture.Tenant,
+            targets: fixture.Resolver);
+
+        Assert.Equal(1, await notifications.GetUnreadCountAsync(fixture.UserId));
+
+        var result = await fixture.Open.OpenAsync(fixture.TenantId, fixture.UserId, fixture.Notification.Id);
+
+        Assert.True(result.IsAvailable);
+        var eventPayload = Assert.Single(fixture.Outbox.Items).Envelope.Payload;
+        Assert.Equal(0, eventPayload.GetProperty("unreadCount").GetInt32());
+        Assert.Equal(0, await notifications.GetUnreadCountAsync(fixture.UserId));
+        Assert.False((await fixture.Db.Notifications.SingleAsync(item => item.Id == unavailableNotification.Id)).IsRead);
+        var page = await notifications.ListAsync(fixture.UserId, 1, 20);
+        Assert.Equal(1, page.TotalCount);
+        Assert.Equal(fixture.Notification.Id, Assert.Single(page.Items).Id);
+    }
+
+    [Fact]
     public async Task TaskInvalidationDispatchReauthorizesCurrentTaskAccess()
     {
         await using var fixture = await Fixture.CreateAsync();
@@ -359,6 +415,7 @@ public sealed class TaskV1Pr07DAuthorizedDeliveryTests
         Assert.False(result.IsAvailable);
         Assert.Null(result.Route);
         Assert.False((await fixture.Db.Notifications.SingleAsync()).IsRead);
+        Assert.Equal(5, (await fixture.Db.NotificationUserStates.SingleAsync()).Version);
         Assert.Empty(fixture.Outbox.Items);
     }
 
@@ -673,7 +730,8 @@ public sealed class TaskV1Pr07DAuthorizedDeliveryTests
 
             var outbox = new RecordingOutbox();
             var resolver = new CurrentAuthorizationTargetResolver(db, tenant);
-            var open = new NotificationOpenService(db, tenant, FixedClock.Instance, outbox, resolver);
+            var notifications = new DbNotificationService(db, FixedClock.Instance, tenant, targets: resolver);
+            var open = new NotificationOpenService(db, tenant, FixedClock.Instance, outbox, resolver, notifications);
             return new Fixture(db, tenant, resolver, open, outbox, tenantId, userId, workspace, member, project, task, notification);
         }
 

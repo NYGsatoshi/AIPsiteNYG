@@ -49,6 +49,7 @@ interface NotificationDto {
   readonly relatedEntityType?: unknown;
   readonly relatedEntityId?: unknown;
   readonly isRead?: unknown;
+  readonly targetRoute?: unknown;
   readonly stateVersion?: unknown;
 }
 
@@ -63,10 +64,27 @@ export function isSupportedNotificationTarget(target: NotificationTargetType): b
   return SUPPORTED_TARGETS.has(target);
 }
 
+/**
+ * Task and digest routes are protected resources.  Their persisted list
+ * route is never navigation authority; the current-authorized server open
+ * contract is the only way to obtain a route for them.
+ */
+export function requiresAuthorizedServerOpen(target: NotificationTargetType): boolean {
+  return target === 'task' || target === 'taskDeadlineDigest';
+}
+
 export function mapNotificationRoute(
-  target: Pick<RightPanelNotification['target'], 'type' | 'id'>,
+  target: Pick<RightPanelNotification['target'], 'type' | 'id' | 'route'>,
   scope: RightPanelScope = EMPTY_RIGHT_PANEL_SCOPE,
 ): string | undefined {
+  if (!isSupportedNotificationTarget(target.type) || requiresAuthorizedServerOpen(target.type)) {
+    return undefined;
+  }
+
+  if (target.route && isKnownSafeRoute(target.route)) {
+    return target.route;
+  }
+
   if (!target.id) {
     return undefined;
   }
@@ -74,10 +92,6 @@ export function mapNotificationRoute(
   switch (target.type) {
     case 'announcement':
       return `/announcements/${target.id}`;
-    case 'task':
-      // A persisted list route is not current authorization. Task navigation
-      // is allowed only after the notification-open endpoint resolves it.
-      return undefined;
     case 'project':
       return '/projects';
     case 'channelConversation':
@@ -85,8 +99,6 @@ export function mapNotificationRoute(
     case 'dmConversation':
       return `/dm/${target.id}`;
     default:
-      // Task and digest navigation is authorized only by the backend open
-      // response. A persisted TargetRoute or a task ID is never a fallback.
       return undefined;
   }
 }
@@ -209,9 +221,15 @@ export class RightPanelFacade {
 
     this.selectedNotificationIdState.set(notificationId);
     this.unavailableMessageState.set(null);
+
+    if (!requiresAuthorizedServerOpen(notification.target.type)) {
+      this.displayLegacyNotificationTarget(notification);
+      return;
+    }
+
     if (this.mockState) {
       // Story/test data intentionally has no server authority. Do not invent
-      // a route or optimistic read state for a mocked notification.
+      // a route or optimistic read state for a protected notification.
       return;
     }
 
@@ -259,11 +277,14 @@ export class RightPanelFacade {
 
   private toNotification(item: NotificationDto): RightPanelNotification {
     const targetType = notificationTargetType(item.relatedEntityType, item.notificationType);
+    const persistedRoute = stringValue(item.targetRoute);
     const target = {
       type: targetType,
       id: stringValue(item.relatedEntityId),
-      label: targetType === 'taskDeadlineDigest' ? 'Task deadline digest' : targetType,
-      route: undefined,
+      label: requiresAuthorizedServerOpen(targetType)
+        ? (targetType === 'taskDeadlineDigest' ? 'Task deadline digest' : targetType)
+        : (persistedRoute ?? targetType),
+      route: requiresAuthorizedServerOpen(targetType) ? undefined : persistedRoute,
     };
 
     return {
@@ -458,10 +479,22 @@ export class RightPanelFacade {
   }
 
   private applyNotificationOpenResult(notificationId: string, response: NotificationOpenDto): void {
+    const notification = this.notificationState().find((item) => item.id === notificationId);
     const outcome = stringValue(response.outcome);
     const route = stringValue(response.route);
     const stateVersion = numericValue(response.stateVersion) ?? 0;
-    if (outcome !== 'Opened' || !route || !isAuthorizedOpenRoute(route)) {
+    if (!notification || !requiresAuthorizedServerOpen(notification.target.type) || outcome !== 'Opened' || !route) {
+      this.showUnavailable();
+      return;
+    }
+
+    const digestWorkspaceId = notification.target.type === 'taskDeadlineDigest'
+      ? workspaceIdFromOpenContext(response.context)
+      : undefined;
+    const routeIsAuthorized = notification.target.type === 'task'
+      ? isTaskDetailRoute(route)
+      : route === '/tasks' && !!digestWorkspaceId;
+    if (!routeIsAuthorized) {
       this.showUnavailable();
       return;
     }
@@ -477,18 +510,27 @@ export class RightPanelFacade {
       this.queueNotificationRefresh();
     }
 
-    if (route === '/tasks') {
-      const workspaceId = workspaceIdFromOpenContext(response.context);
-      if (!workspaceId) {
-        this.showUnavailable();
-        return;
-      }
-      this.notificationOpenContext.setDigestWorkspace(workspaceId);
+    if (digestWorkspaceId) {
+      this.notificationOpenContext.setDigestWorkspace(digestWorkspaceId);
     }
     if (!this.router) {
       this.showUnavailable();
       return;
     }
+    void this.router.navigateByUrl(route).catch(() => this.showUnavailable());
+  }
+
+  private displayLegacyNotificationTarget(notification: RightPanelNotification): void {
+    const route = mapNotificationRoute(notification.target, notification.scope);
+    if (!route || !this.router) {
+      this.showUnavailable();
+      return;
+    }
+
+    // Preserve the legacy contract: navigation uses an already safe Angular
+    // route and read state changes only after the existing backend PATCH
+    // confirms it. Task/digest never enter this path.
+    this.markNotificationRead(notification.id);
     void this.router.navigateByUrl(route).catch(() => this.showUnavailable());
   }
 
@@ -582,8 +624,13 @@ function isTaskDetailRoute(route: string): boolean {
   return /^\/projects\/[^/]+\/tasks\/[^/]+$/.test(route);
 }
 
-function isAuthorizedOpenRoute(route: string): boolean {
-  return route === '/tasks' || isTaskDetailRoute(route);
+function isKnownSafeRoute(route: string): boolean {
+  return (
+    /^\/announcements\/[^/]+$/.test(route) ||
+    route === '/projects' ||
+    /^\/workspaces\/[^/]+\/channels\/[^/]+$/.test(route) ||
+    /^\/dm\/[^/]+$/.test(route)
+  );
 }
 
 function workspaceIdFromOpenContext(value: unknown): string | undefined {

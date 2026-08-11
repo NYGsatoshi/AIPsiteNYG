@@ -18,7 +18,8 @@ public sealed class NotificationOpenService(
     ICurrentTenant currentTenant,
     IClock clock,
     ITransactionalOutbox outbox,
-    INotificationTargetResolver targets) : INotificationOpenService
+    INotificationTargetResolver targets,
+    INotificationService notifications) : INotificationOpenService
 {
     public async Task<NotificationTargetResolution> OpenAsync(
         Guid tenantId,
@@ -53,12 +54,11 @@ public sealed class NotificationOpenService(
         if (!notification.IsRead)
         {
             var now = clock.UtcNow;
-            var unreadBeforeRead = await dbContext.Notifications.CountAsync(item =>
-                item.TenantId == tenantId &&
-                item.UserId == userId &&
-                item.DeletedAt == null &&
-                !item.IsRead,
-                cancellationToken);
+            // Reuse the authoritative, bounded current-visibility semantics
+            // used by the HTTP unread endpoint. A raw unread-row count would
+            // include a now-hidden Task/digest notification and make this
+            // recipient-only event disagree with the current projection.
+            var unreadBeforeRead = await notifications.GetUnreadCountAsync(userId, cancellationToken);
             var state = await GetOrCreateUserStateAsync(tenantId, userId, now, cancellationToken);
             var stateVersion = checked(state.Version + 1);
             state.Version = stateVersion;

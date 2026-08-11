@@ -32,7 +32,9 @@ Task returns `/projects/{projectId}/tasks/{taskId}`. A current digest returns
 list. Unavailable target states return no protected detail and do not mutate
 read state. An authorized unread open advances recipient state and stages the
 recipient-only read-state Outbox event in the same transaction; repeat open is
-idempotent.
+idempotent. This endpoint is navigation authority only for `Task`, `TaskItem`,
+and `TaskDeadlineDigest`; it is not a replacement for legacy notification
+navigation.
 
 Workspace archive captures active members before lifecycle mutation and stages
 one metadata-only recipient `Security.AuthorizationStateChanged.v1` event per
@@ -48,17 +50,23 @@ registrations remain desired across an authorization loss and are
 reauthorized on reconnect; only the currently authorized transport state is
 cleared. Tenant switch and logout discard the previous scope's desired
 registrations. RightPanel supports legacy
-embedded notifications and PR07 reference-only Task/digest signals. The latter
-cause a bounded/coalesced HTTP list refresh; no route/title/body is synthesized
-from the durable event. It calls the open endpoint before navigation or local
-read display, accepts only the returned canonical routes, and shows safe
-Unavailable state without fallback navigation. An authorization clear advances
-the RightPanel's list-request generation, so an HTTP response that began before
-revocation cannot restore a protected Task projection afterward.
+embedded notifications and PR07 reference-only Task/digest signals. Legacy
+supported targets retain their existing safe mapped Angular route plus existing
+read-PATCH contract; they do not call the Task/digest open endpoint. Task and
+digest signals cause a bounded/coalesced HTTP list refresh; no route/title/body
+is synthesized from the durable event. Task/digest navigation calls the open
+endpoint, accepts only the returned target-specific canonical route (and, for a
+digest, server-authorized Workspace context), and shows safe Unavailable state
+without fallback navigation. An authorization clear advances the RightPanel's
+list-request generation, so an HTTP response that began before revocation
+cannot restore a protected Task projection afterward.
 
 Task and digest notifications are also filtered from the authoritative list,
 unread count, and legacy read/delete mutations when their current target is no
 longer authorized. This closes the otherwise unsafe clear-then-refetch race.
+`NotificationOpenService` derives a read-state event's `unreadCount` through
+the same bounded current-visibility scan used by the HTTP unread-count service,
+so an unread but now-hidden Task/digest row cannot inflate the delivered count.
 Legacy generic recipient notifications retain their existing embedded-created
 and read-state event contracts, but Task/digest dispatch remains fail-closed
 against any widened payload.
@@ -72,15 +80,14 @@ only exact 15-minute values, and keeps no browser-storage/timezone authority.
 
 ## Focused evidence recorded during implementation
 
-`dotnet test tests/AipPortal.Tests/AipPortal.Tests.csproj --configuration
-Release --no-build --disable-build-servers -m:1 --filter "Scope=TaskV1PR07D"`
-passed **31/31** with zero failed and zero skipped against an isolated
-PostgreSQL 18 container. The focused suite includes a real PostgreSQL
-read-state/Outbox atomicity test and dispatcher tests showing authorization
-suppression terminates as `NoAuthorizedRecipient` and replay calls the same
-authorization boundary. The manifest lists each focused name; CI verifies the
-TRX, rejects duplicate active manifest entries, and passed locally with all
-31 required names present.
+The focused `Scope=TaskV1PR07D` manifest now contains **32** required test
+names. It includes the PostgreSQL read-state/Outbox atomicity case with one
+visible unread Notification plus one current-unavailable unread Task
+Notification. That case proves the current-visible unread count is one before
+open, the delivered read-state event reports zero after opening the visible
+row, and the unavailable row remains unread and hidden. CI verifies the TRX
+and rejects duplicate, missing, skipped, failed, aborted, or not-executed
+required names.
 
 `TaskNotificationCreatedPayloadIsReferenceOnly`,
 `DigestNotificationCreatedPayloadIsReferenceOnly`, and
@@ -88,13 +95,11 @@ TRX, rejects duplicate active manifest entries, and passed locally with all
 approved schema is property-order independent and that a Task/digest signal
 with an extra protected field is suppressed before delivery.
 
-A prior source-level Angular subset that used an existing dependency tree is
-historical supplementary evidence only; it is not clean worktree-local or
-final-head acceptance evidence. During remediation, the repository's strict
-Corepack npm 11.17 wrapper was attempted once and did not return output in the
-bounded local run. No policy was weakened and no alternative install method was
-used. Local full Angular verification is therefore **UNVERIFIED**; hosted
-`frontend-test` is authoritative.
+The repository's strict Corepack npm 11.17 wrapper passed in a clean linked
+worktree, and the focused RightPanel Angular suite passed locally. The host's
+Node 24.13 runtime remains below the repository's Node 24.15+ requirement and
+emits the documented engine warning, so local full Angular acceptance remains
+**UNVERIFIED**; hosted `frontend-test` is authoritative.
 
 The existing Test-environment Real Backend Browser Smoke now contains one
 bounded PR07-D scenario. Its fixture is mapped only when the pre-existing
@@ -114,7 +119,15 @@ runner rather than creating another realtime harness; an empty selector keeps
 the established full smoke behavior. The PR07-D completion run selects the
 bounded `TASK-V1-PR07-D` scenario on the exact branch head.
 
-## Verification still required before merge
+## Exact-final-head evidence protocol
+
+All code, test, and documentation changes are committed before Hosted
+validation. After that final commit is pushed, no source change is made before
+the required workflows and Real Backend runs complete. Exact-final-HEAD hosted
+run identities are recorded in PR #279 body so recording them does not mutate
+the evidence-bearing commit.
+
+## Verification required before independent re-audit
 
 - PostgreSQL provider tests with no skipped cases, including delayed/replay
   revoke, Notification ownership/tenant isolation/soft-delete, read-state
@@ -132,4 +145,6 @@ bounded `TASK-V1-PR07-D` scenario on the exact branch head.
 
 No migration, model-snapshot, NuGet, npm, package, or lockfile change is part
 of this scope. PR07-E, PR08, feature enablement, PR06B, new event families,
-and Qodana gate repair remain explicitly out of scope.
+and Qodana gate repair remain explicitly out of scope. PR07-E remains blocked
+until PR07-D is independently accepted and merged, followed by post-merge
+`main` verification.

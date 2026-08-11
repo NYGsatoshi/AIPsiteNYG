@@ -208,9 +208,71 @@ describe('RightPanelFacade notifications', () => {
       '/dm/conversation-2',
     );
     expect(
-      mapNotificationRoute({ type: 'task', id: 'task-1' }),
+      mapNotificationRoute({ type: 'task', id: 'task-1', route: '/projects/stale/tasks/task-1' }),
+    ).toBeUndefined();
+    expect(
+      mapNotificationRoute({ type: 'taskDeadlineDigest', id: 'digest-1', route: '/tasks' }),
     ).toBeUndefined();
     expect(mapNotificationRoute({ type: 'unsupported', id: 'legacy-1' })).toBeUndefined();
+  });
+
+  it('AnnouncementNotificationStillUsesLegacyMappedRoute', () => {
+    configureLiveRightPanel();
+    const facade = TestBed.inject(RightPanelFacade);
+    const httpMock = TestBed.inject(HttpTestingController);
+    const router = TestBed.inject(Router);
+    const navigate = vi.spyOn(router, 'navigateByUrl').mockResolvedValue(true);
+    httpMock.expectOne('/api/notifications').flush({
+      items: [legacyNotificationDto('Announcement', 'announcement-1', '/announcements/announcement-1')],
+    });
+
+    facade.displayNotificationTarget('notification-1');
+
+    httpMock.expectNone('/api/notifications/notification-1/open');
+    expect(facade.viewModel().notifications[0].read).toBe(false);
+    httpMock.expectOne('/api/notifications/notification-1/read').flush({});
+    expect(navigate).toHaveBeenCalledWith('/announcements/announcement-1');
+    expect(facade.viewModel().notifications[0].read).toBe(true);
+    httpMock.verify();
+  });
+
+  it('ProjectNotificationStillUsesLegacyMappedRoute', () => {
+    configureLiveRightPanel();
+    const facade = TestBed.inject(RightPanelFacade);
+    const httpMock = TestBed.inject(HttpTestingController);
+    const router = TestBed.inject(Router);
+    const navigate = vi.spyOn(router, 'navigateByUrl').mockResolvedValue(true);
+    httpMock.expectOne('/api/notifications').flush({
+      items: [legacyNotificationDto('Project', 'project-1', '/projects')],
+    });
+
+    facade.displayNotificationTarget('notification-1');
+
+    httpMock.expectNone('/api/notifications/notification-1/open');
+    httpMock.expectOne('/api/notifications/notification-1/read').flush({});
+    expect(navigate).toHaveBeenCalledWith('/projects');
+    expect(facade.viewModel().notifications[0].read).toBe(true);
+    httpMock.verify();
+  });
+
+  it('ConversationNotificationStillUsesLegacyMappedRoute', () => {
+    configureLiveRightPanel();
+    const facade = TestBed.inject(RightPanelFacade);
+    const httpMock = TestBed.inject(HttpTestingController);
+    const router = TestBed.inject(Router);
+    const navigate = vi.spyOn(router, 'navigateByUrl').mockResolvedValue(true);
+    const route = '/workspaces/workspace-1/channels/conversation-1';
+    httpMock.expectOne('/api/notifications').flush({
+      items: [legacyNotificationDto('ChannelConversation', 'conversation-1', route)],
+    });
+
+    facade.displayNotificationTarget('notification-1');
+
+    httpMock.expectNone('/api/notifications/notification-1/open');
+    httpMock.expectOne('/api/notifications/notification-1/read').flush({});
+    expect(navigate).toHaveBeenCalledWith(route);
+    expect(facade.viewModel().notifications[0].read).toBe(true);
+    httpMock.verify();
   });
 
   it('does not hide API notifications solely because local scope is empty', () => {
@@ -421,7 +483,7 @@ describe('RightPanelFacade notifications', () => {
     httpMock.verify();
   });
 
-  it('TaskOpenUsesProjectTaskRoute', () => {
+  it('TaskNotificationRequiresAuthorizedOpenEndpoint', () => {
     configureLiveRightPanel();
     const facade = TestBed.inject(RightPanelFacade);
     const httpMock = TestBed.inject(HttpTestingController);
@@ -430,6 +492,7 @@ describe('RightPanelFacade notifications', () => {
     httpMock.expectOne('/api/notifications').flush({ items: [notificationDto(5)] });
 
     facade.displayNotificationTarget('notification-1');
+    httpMock.expectNone('/api/notifications/notification-1/read');
     httpMock.expectOne('/api/notifications/notification-1/open').flush({
       outcome: 'Opened',
       route: '/projects/project-1/tasks/task-1',
@@ -441,7 +504,7 @@ describe('RightPanelFacade notifications', () => {
     httpMock.verify();
   });
 
-  it('UnavailableOpenDoesNotNavigateOrOptimisticallyMarkRead', () => {
+  it('UnavailableTaskOpenDoesNotFallbackToPersistedRoute', () => {
     configureLiveRightPanel();
     const facade = TestBed.inject(RightPanelFacade);
     const httpMock = TestBed.inject(HttpTestingController);
@@ -451,6 +514,7 @@ describe('RightPanelFacade notifications', () => {
 
     facade.displayNotificationTarget('notification-1');
     expect(facade.viewModel().notifications[0].read).toBe(false);
+    httpMock.expectNone('/api/notifications/notification-1/read');
     httpMock.expectOne('/api/notifications/notification-1/open').flush({
       outcome: 'Unavailable',
       route: null,
@@ -463,16 +527,17 @@ describe('RightPanelFacade notifications', () => {
     httpMock.verify();
   });
 
-  it('DigestOpenAppliesWorkspaceSpecificMyTasksContext', () => {
+  it('DigestNotificationRequiresAuthorizedOpenEndpoint', () => {
     configureLiveRightPanel();
     const facade = TestBed.inject(RightPanelFacade);
     const httpMock = TestBed.inject(HttpTestingController);
     const router = TestBed.inject(Router);
     const context = TestBed.inject(NotificationOpenContextService);
-    vi.spyOn(router, 'navigateByUrl').mockResolvedValue(true);
+    const navigate = vi.spyOn(router, 'navigateByUrl').mockResolvedValue(true);
     httpMock.expectOne('/api/notifications').flush({ items: [digestNotificationDto(5)] });
 
     facade.displayNotificationTarget('notification-1');
+    httpMock.expectNone('/api/notifications/notification-1/read');
     httpMock.expectOne('/api/notifications/notification-1/open').flush({
       outcome: 'Opened',
       route: '/tasks',
@@ -481,6 +546,26 @@ describe('RightPanelFacade notifications', () => {
     });
 
     expect(context.takeDigestWorkspace()).toBe('workspace-1');
+    expect(navigate).toHaveBeenCalledWith('/tasks');
+    httpMock.verify();
+  });
+
+  it('UnsupportedNotificationDoesNotNavigate', () => {
+    configureLiveRightPanel();
+    const facade = TestBed.inject(RightPanelFacade);
+    const httpMock = TestBed.inject(HttpTestingController);
+    const router = TestBed.inject(Router);
+    const navigate = vi.spyOn(router, 'navigateByUrl').mockResolvedValue(true);
+    httpMock.expectOne('/api/notifications').flush({
+      items: [legacyNotificationDto('UnknownRestrictedTarget', 'unsupported-1', '/announcements/unsupported-1')],
+    });
+
+    facade.displayNotificationTarget('notification-1');
+
+    httpMock.expectNone('/api/notifications/notification-1/open');
+    httpMock.expectNone('/api/notifications/notification-1/read');
+    expect(navigate).not.toHaveBeenCalled();
+    expect(facade.viewModel().unavailableMessage).toContain('no longer available');
     httpMock.verify();
   });
 });
@@ -520,9 +605,26 @@ function notificationDto(stateVersion: number): Record<string, unknown> {
     body: 'safe API list body',
     relatedEntityType: 'TaskItem',
     relatedEntityId: 'task-1',
-    targetRoute: '/tasks/task-1',
+    targetRoute: '/projects/stale-project/tasks/stale-task',
     isRead: false,
     stateVersion,
+  };
+}
+
+function legacyNotificationDto(
+  relatedEntityType: string,
+  relatedEntityId: string,
+  targetRoute: string,
+): Record<string, unknown> {
+  return {
+    id: 'notification-1',
+    title: 'Legacy notification',
+    body: 'safe API list body',
+    relatedEntityType,
+    relatedEntityId,
+    targetRoute,
+    isRead: false,
+    stateVersion: 5,
   };
 }
 

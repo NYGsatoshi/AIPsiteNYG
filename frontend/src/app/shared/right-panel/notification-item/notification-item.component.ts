@@ -1,5 +1,6 @@
 import { Component, EventEmitter, Input, Output } from '@angular/core';
 import { RightPanelNotification } from '../right-panel.types';
+import { isSupportedNotificationTarget, requiresAuthorizedServerOpen } from '../right-panel.facade';
 
 @Component({
   selector: 'app-notification-item',
@@ -52,6 +53,9 @@ export class NotificationItemComponent {
   @Output() readonly markReadRequested = new EventEmitter<string>();
 
   canOpenTarget(): boolean {
-    return this.notification.target.type !== 'unsupported' && !!this.notification.id;
+    return !!this.notification.id && (
+      requiresAuthorizedServerOpen(this.notification.target.type) ||
+      (isSupportedNotificationTarget(this.notification.target.type) && !!this.notification.target.route)
+    );
   }
 }
