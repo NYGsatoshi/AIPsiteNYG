@@ -25,11 +25,11 @@ describe('LoginPageComponent', () => {
     TestBed.resetTestingModule();
   });
 
-  it('keeps the /login recovery route immediately available as the login page', () => {
+  it('configures the first /login route as the login page', () => {
     const loginRoute = routes.find((route) => route.path === 'login');
 
-    expect(loginRoute?.component).toBe(LoginPageComponent);
-    expect(loginRoute?.loadComponent).toBeUndefined();
+    expect(loginRoute?.loadComponent).toBeTruthy();
+    expect(loginRoute?.component).toBeUndefined();
   });
 
   it('submits credentials with a CSRF token and does not trim the password', async () => {

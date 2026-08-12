@@ -3,7 +3,6 @@ import { Routes } from '@angular/router';
 import { authSessionGuard } from './core/auth/auth-session.guard';
 import { PagePlaceholderComponent } from './core/routing/page-placeholder.component';
 import { SessionExpiredPageComponent } from './core/session/session-expired-page.component';
-import { LoginPageComponent } from './features/auth/login-page/login-page.component';
 import { AppShellComponent } from './layout/app-shell/app-shell.component';
 import { AppPermissionDeniedComponent } from './shared/permission/app-permission-denied/app-permission-denied.component';
 
@@ -15,9 +14,8 @@ export const routes: Routes = [
   },
   {
     path: 'login',
-    // Logout clears the authenticated shell before redirecting here. Keep the public recovery
-    // route immediately available instead of depending on a post-clear lazy-component load.
-    component: LoginPageComponent
+    loadComponent: () =>
+      import('./features/auth/login-page/login-page.component').then((m) => m.LoginPageComponent)
   },
   {
     path: 'session-expired',

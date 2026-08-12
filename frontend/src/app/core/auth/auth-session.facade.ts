@@ -115,15 +115,10 @@ export class AuthSessionFacade {
   readonly navigation = computed(() => this.sessionState().navigation);
 
   clearSessionState(status: AuthSessionStatus = 'anonymous'): void {
-    console.warn(`[AIP logout diagnostic] clearSessionState:start:${status}`);
     this.sessionState.set(createSessionSnapshot(null, null, status, []));
-    console.warn(`[AIP logout diagnostic] clearSessionState:session-cleared:${status}`);
     this.activeWorkspace.clearWorkspace();
-    console.warn(`[AIP logout diagnostic] clearSessionState:workspace-cleared:${status}`);
     this.tenantScopedState.clearTenantScopedState();
-    console.warn(`[AIP logout diagnostic] clearSessionState:tenant-state-cleared:${status}`);
     this.csrfTokens.clearToken();
-    console.warn(`[AIP logout diagnostic] clearSessionState:complete:${status}`);
   }
 
   handleTerminal401(): void {
@@ -325,11 +320,8 @@ export class AuthSessionFacade {
   }
 
   private completeLogout(): AuthSessionSnapshot {
-    console.warn('[AIP logout diagnostic] completeLogout:start');
     this.clearSessionState('anonymous');
-    console.warn('[AIP logout diagnostic] completeLogout:after-clear');
     void this.router?.navigateByUrl('/login');
-    console.warn('[AIP logout diagnostic] completeLogout:navigation-requested');
     return this.sessionState();
   }
 

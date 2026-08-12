@@ -1,3 +1,4 @@
+import { signal } from '@angular/core';
 import { TestBed } from '@angular/core/testing';
 import { Subject } from 'rxjs';
 
@@ -411,6 +412,24 @@ describe('RealtimeFacade', () => {
     expect(notificationOpenContext.takeDigestWorkspace()).toBeNull();
     expect(protectedFiles).toEqual([]);
     expect(facade.connectionState()).toBe('Degraded');
+  });
+
+  it('LogoutClearersDoNotBecomeRealtimeEffectDependencies', async () => {
+    await enableAndAuthenticate();
+    const featureState = signal(0);
+    let clearCalls = 0;
+    facade.registerProtectedStateClearer('feature-state', () => {
+      clearCalls += 1;
+      if (featureState() === 0) {
+        featureState.set(1);
+      }
+    });
+
+    auth.markSessionExpired();
+    await settle();
+
+    expect(featureState()).toBe(1);
+    expect(clearCalls).toBe(1);
   });
 
   it('TenantSwitchDoesNotReusePreviousTenantSubscriptions', async () => {

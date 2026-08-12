@@ -1,4 +1,4 @@
-import { computed, effect, inject, Injectable, signal } from '@angular/core';
+import { computed, effect, inject, Injectable, signal, untracked } from '@angular/core';
 import { firstValueFrom, Subject } from 'rxjs';
 
 import { AuthSessionFacade } from '../auth/auth-session.facade';
@@ -371,21 +371,19 @@ export class RealtimeFacade {
   }
 
   private clearProtectedApplicationState(): void {
-    console.warn('[AIP logout diagnostic] protected-clear:start');
     this.activeWorkspace.clearWorkspace();
     this.notificationOpenContext.clear();
     for (const [owner, clear] of [...this.protectedStateClearers.entries()]) {
       try {
-        console.warn(`[AIP logout diagnostic] protected-clear:${owner}:start`);
-        clear();
-        console.warn(`[AIP logout diagnostic] protected-clear:${owner}:complete`);
+        // This can run from the root authorization effect. Feature clearers
+        // commonly read and replace their own signals, which must not become
+        // dependencies of that effect or re-enter a terminal clear boundary.
+        untracked(clear);
       } catch {
-        console.warn(`[AIP logout diagnostic] protected-clear:${owner}:failed`);
         // A feature clear must not block the security boundary for another
         // feature. Its next authoritative catch-up will recover its state.
       }
     }
-    console.warn('[AIP logout diagnostic] protected-clear:complete');
   }
 
   private clearTransportAuthorizationState(): void {
@@ -414,13 +412,10 @@ export class RealtimeFacade {
   }
 
   private stopForSessionBoundary(): void {
-    console.warn('[AIP logout diagnostic] session-boundary:start');
     this.clearSessionBoundaryState();
-    console.warn('[AIP logout diagnostic] session-boundary:state-cleared');
     this.intentionallyStopped = true;
     void this.stopTransport();
     this.state.set('Degraded');
-    console.warn('[AIP logout diagnostic] session-boundary:complete');
   }
 
   /**
