@@ -2985,7 +2985,7 @@ async function logoutAndVerifyAccessRevoked(page: Page, evidence: SmokeEvidence)
     waitForApiResponse(page, 'POST', '/api/auth/logout'),
     page.getByTestId('logout-action').click()
   ]);
-  await recordOkJson(logoutResponse, evidence, 'logout', (body) => hasStringValue(body, 'status', 'OK'));
+  recordLogoutResponse(logoutResponse, evidence);
 
   await expect(page).toHaveURL(/\/app\/login$/);
   await expect(page.getByTestId('login-page')).toBeVisible();
@@ -3073,6 +3073,31 @@ async function recordOkJson(
   expect(response.ok(), `${name} response ${response.status()}: ${text}`).toBe(true);
   expect(validate(body), `${name} response DTO shape: ${text}`).toBe(true);
   return body;
+}
+
+function recordLogoutResponse(response: PlaywrightResponse, evidence: SmokeEvidence): void {
+  const headers = response.headers();
+  const contentType = headers['content-type'] ?? '';
+  const setCookie = headers['set-cookie'] ?? '';
+
+  evidence.steps.push({
+    name: 'logout',
+    method: response.request().method(),
+    path: new URL(response.url()).pathname,
+    status: response.status(),
+    bodyPreview: '[not read: successful logout immediately routes to login]'
+  });
+
+  expect(response.ok(), `logout response status: ${response.status()}`).toBe(true);
+  expect(response.status(), 'logout response status').toBe(200);
+  expect(contentType, 'logout response content type').toContain('application/json');
+  expect(setCookie, 'logout must expire the authentication cookie').toContain('.AipPortal.Auth=');
+  expect(setCookie, 'logout authentication cookie expiry').toMatch(/expires=Thu, 01 Jan 1970/i);
+
+  // Angular clears the session and routes to /login as soon as this response succeeds.
+  // Playwright cannot safely read a response body after that SPA navigation; the exact
+  // { status: 'OK' } HTTP DTO is covered by AuthSecurityHttpTests, while this browser
+  // acceptance continues below with the observable logout and access-revocation contract.
 }
 
 async function recordFailureJson(

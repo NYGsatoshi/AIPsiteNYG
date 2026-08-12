@@ -145,6 +145,35 @@ public sealed class AuthSecurityHttpTests
     }
 
     [Fact]
+    public async Task AuthenticatedLogoutReturnsSuccessContractClearsCookieAndRevokesAccess()
+    {
+        await using var app = await AuthSecurityTestApp.CreateAsync();
+        await app.LoginAndReadAsync();
+        var csrfToken = await app.GetCsrfTokenAsync();
+
+        using var request = new HttpRequestMessage(HttpMethod.Post, "/api/auth/logout")
+        {
+            Content = JsonContent.Create(new { })
+        };
+        request.Headers.TryAddWithoutValidation(SecurityOptions.CsrfHeaderName, csrfToken);
+
+        using var response = await app.Client.SendAsync(request);
+
+        Assert.Equal(HttpStatusCode.OK, response.StatusCode);
+        Assert.Equal("application/json", response.Content.Headers.ContentType?.MediaType);
+        using var payload = JsonDocument.Parse(await response.Content.ReadAsStringAsync());
+        Assert.Equal("OK", payload.RootElement.GetProperty("status").GetString());
+        Assert.True(
+            response.Headers.TryGetValues("Set-Cookie", out var cookies) &&
+            cookies.Any(cookie => cookie.Contains(".AipPortal.Auth.Test=", StringComparison.Ordinal) &&
+                                  cookie.Contains("expires=Thu, 01 Jan 1970", StringComparison.OrdinalIgnoreCase)),
+            response.Headers.ToString());
+
+        using var currentUser = await app.Client.GetAsync("/api/auth/me");
+        Assert.Equal(HttpStatusCode.Unauthorized, currentUser.StatusCode);
+    }
+
+    [Fact]
     public async Task RevokedSessionCannotAccessAuthenticatedEndpoint()
     {
         await using var app = await AuthSecurityTestApp.CreateAsync();
