@@ -283,7 +283,17 @@ export class AuthSessionFacade {
     return http.get<CurrentTenantResponseDto>('/api/tenants/current', { withCredentials: true }).pipe(
       map((response) => mapCurrentTenantResponse(response)),
       tap((tenant) => this.patchTenant(tenant)),
-      catchError(() => of(null))
+      catchError((error: unknown) => {
+        // This request intentionally bypasses interceptors through HttpBackend.
+        // A 401/403 is therefore a terminal authentication boundary that must
+        // clear protected HTTP-owned state explicitly. Transient/network/server
+        // failures remain a tenant-hydration degradation and preserve state.
+        if (isExpectedUnauthenticatedError(error)) {
+          this.clearSessionState('anonymous');
+        }
+
+        return of(null);
+      })
     );
   }
 
