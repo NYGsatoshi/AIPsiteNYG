@@ -2990,6 +2990,7 @@ async function logoutAndVerifyAccessRevoked(page: Page, evidence: SmokeEvidence)
   await expect(page).toHaveURL(/\/app\/login$/);
   await expect(page.getByTestId('login-page')).toBeVisible();
   await expect(page.getByTestId('app-shell')).toHaveCount(0);
+  await expectAuthenticationCookieToBeCleared(page);
 
   const meProbe = await fetchFromPage(page, '/api/auth/me');
   evidence.steps.push({
@@ -3078,7 +3079,6 @@ async function recordOkJson(
 function recordLogoutResponse(response: PlaywrightResponse, evidence: SmokeEvidence): void {
   const headers = response.headers();
   const contentType = headers['content-type'] ?? '';
-  const setCookie = headers['set-cookie'] ?? '';
 
   evidence.steps.push({
     name: 'logout',
@@ -3091,13 +3091,20 @@ function recordLogoutResponse(response: PlaywrightResponse, evidence: SmokeEvide
   expect(response.ok(), `logout response status: ${response.status()}`).toBe(true);
   expect(response.status(), 'logout response status').toBe(200);
   expect(contentType, 'logout response content type').toContain('application/json');
-  expect(setCookie, 'logout must expire the authentication cookie').toContain('.AipPortal.Auth=');
-  expect(setCookie, 'logout authentication cookie expiry').toMatch(/expires=Thu, 01 Jan 1970/i);
 
   // Angular clears the session and routes to /login as soon as this response succeeds.
   // Playwright cannot safely read a response body after that SPA navigation; the exact
-  // { status: 'OK' } HTTP DTO is covered by AuthSecurityHttpTests, while this browser
-  // acceptance continues below with the observable logout and access-revocation contract.
+  // { status: 'OK' } DTO and Set-Cookie expiry header are covered by
+  // AuthSecurityHttpTests. Browser responses intentionally hide Set-Cookie, so this
+  // acceptance verifies the resulting browser cookie state below.
+}
+
+async function expectAuthenticationCookieToBeCleared(page: Page): Promise<void> {
+  const cookies = await page.context().cookies();
+  expect(
+    cookies.some((cookie) => cookie.name === '.AipPortal.Auth'),
+    'logout must remove the authentication cookie from the browser context'
+  ).toBe(false);
 }
 
 async function recordFailureJson(
