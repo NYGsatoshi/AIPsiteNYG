@@ -156,3 +156,45 @@ jobs:
 
       - name: Enforce legacy frontend install policy
         run: bash scripts/ci/npm-ci-retry.sh aipsite-frontend
+
+  pr280-lockfile-artifact:
+    name: PR 280 lockfile artifact
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v7
+        with:
+          clean: true
+          persist-credentials: false
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v7
+        with:
+          node-version: "24"
+          package-manager-cache: false
+
+      - name: Use repository npm version
+        run: npm install --global npm@11.17.0
+
+      - name: Regenerate frontend lockfile
+        working-directory: frontend
+        run: npm install --package-lock-only --ignore-scripts --no-audit --no-fund
+
+      - name: Regenerate legacy frontend lockfile
+        working-directory: aipsite-frontend
+        run: npm install --package-lock-only --ignore-scripts --no-audit --no-fund
+
+      - name: Stage lockfiles for download
+        run: |
+          mkdir -p artifacts/pr280-lockfiles/frontend artifacts/pr280-lockfiles/aipsite-frontend
+          cp frontend/package-lock.json artifacts/pr280-lockfiles/frontend/package-lock.json
+          cp aipsite-frontend/package-lock.json artifacts/pr280-lockfiles/aipsite-frontend/package-lock.json
+
+      - name: Upload regenerated lockfiles
+        uses: actions/upload-artifact@v7
+        with:
+          name: pr280-lockfiles
+          path: artifacts/pr280-lockfiles
+          if-no-files-found: error
