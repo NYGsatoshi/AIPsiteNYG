@@ -79,6 +79,9 @@
     "picomatch": "4.0.4",
     "http-auth": "4.2.1",
     "uuid": "11.1.1",
-    "body-parser": "1.20.6"
+    "body-parser": "1.20.6",
+    "hono": "4.13.1",
+    "postcss": "8.5.23",
+    "webpack-dev-server": "5.2.6"
   }
 }
