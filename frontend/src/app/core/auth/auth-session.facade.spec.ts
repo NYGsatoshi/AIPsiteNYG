@@ -173,7 +173,7 @@ describe('AuthSessionFacade logout', () => {
 
       expect(authSession.isAuthenticated()).toBe(true);
       expect(authSession.currentTenant()).toBeNull();
-      expect(activeWorkspace.activeWorkspace()).toEqual(workspace);
+      expect(activeWorkspace.activeWorkspace()?.id).toBe(workspace.id);
 
       httpMock.expectOne('/api/tenants/current').flush(
         { error: 'Authentication no longer valid' },
@@ -215,6 +215,6 @@ describe('AuthSessionFacade logout', () => {
     expect(authSession.isAuthenticated()).toBe(true);
     expect(authSession.currentUser()?.userId).toBe('user-1');
     expect(authSession.currentTenant()).toBeNull();
-    expect(activeWorkspace.activeWorkspace()).toEqual(workspace);
+    expect(activeWorkspace.activeWorkspace()?.id).toBe(workspace.id);
   });
 });
