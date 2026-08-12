@@ -2981,20 +2981,18 @@ async function submitInvalidPasswordChange(page: Page, evidence: SmokeEvidence) 
 }
 
 async function logoutAndVerifyAccessRevoked(page: Page, evidence: SmokeEvidence) {
-  // The successful logout response immediately clears the Angular session and
-  // starts the lazy /login route. Register both observers before the click so
-  // the real browser navigation is observed without reading its response body
-  // after the route transition begins.
-  const loginRoute = page.waitForURL(/\/app\/login$/);
+  // The browser response hides Set-Cookie and its body can no longer be read
+  // safely once the Angular logout completion starts the lazy public route.
+  // Assert the actual rendered public UI and browser location instead of
+  // Playwright's document-navigation observer: this is an in-document Angular
+  // route, not a new document request.
   const logoutResponse = waitForApiResponse(page, 'POST', '/api/auth/logout');
-  const [response] = await Promise.all([
-    logoutResponse,
-    loginRoute,
-    page.getByTestId('logout-action').click()
-  ]);
+  await page.getByTestId('logout-action').click();
+  const response = await logoutResponse;
   recordLogoutResponse(response, evidence);
 
   await expect(page.getByTestId('login-page')).toBeVisible();
+  await expectBrowserPathname(page, '/app/login', 'successful logout must navigate the browser to login');
   await expect(page.getByTestId('app-shell')).toHaveCount(0);
   await expectAuthenticationCookieToBeCleared(page);
 
@@ -3030,8 +3028,16 @@ async function logoutAndVerifyAccessRevoked(page: Page, evidence: SmokeEvidence)
   expect(projectsProbe.status, 'protected project API must reject after logout').toBe(401);
 
   await page.goto('/app/projects');
-  await expect(page).toHaveURL(/\/app\/login$/);
+  await expect(page.getByTestId('login-page')).toBeVisible();
+  await expectBrowserPathname(page, '/app/login', 'protected route must redirect the browser to login after logout');
   await expect(page.getByTestId('projects-overview-page')).toHaveCount(0);
+}
+
+async function expectBrowserPathname(page: Page, expectedPathname: string, message: string): Promise<void> {
+  // This is a read-only browser observation, not an Angular service or storage
+  // injection. It verifies the URL after the visible route has rendered.
+  const pathname = await page.evaluate(() => window.location.pathname);
+  expect(pathname, message).toBe(expectedPathname);
 }
 
 function waitForApiResponse(page: Page, method: string, path: string | RegExp): Promise<PlaywrightResponse> {
