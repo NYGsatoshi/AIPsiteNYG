@@ -2216,7 +2216,12 @@ test.describe('MVP0 real backend browser smoke', () => {
 
       const mismatchProjectId = '00000000-0000-0000-0000-000000000001';
       await page.goto(`/app/projects/${mismatchProjectId}/tasks/${taskId}`);
-      await expect(page.getByText('Task not found', { exact: true })).toBeVisible();
+      const safeUnavailable = page.getByTestId('permission-denied-state');
+      await expect(safeUnavailable).toBeVisible();
+      await expect(safeUnavailable).toHaveAttribute('role', 'status');
+      await expect(safeUnavailable.getByRole('heading', {
+        name: 'Task detail is no longer available with your current permission.'
+      })).toBeVisible();
       await expect(page.getByRole('heading', { name: smokeTaskTitle })).toHaveCount(0);
       await expect(page.getByText(smokeTaskLabelName, { exact: true })).toHaveCount(0);
       await expect(page.getByText(smokeTaskFileName, { exact: true })).toHaveCount(0);

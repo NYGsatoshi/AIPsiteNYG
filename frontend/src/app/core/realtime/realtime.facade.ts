@@ -89,7 +89,21 @@ export class RealtimeFacade {
       const tenant = this.authSession.currentTenant();
       const authenticated = this.authSession.isAuthenticated();
       const enabled = this.flags.realtimeSignalREnabled();
-      if (!authenticated || !tenant?.isAvailable) {
+      if (!authenticated) {
+        this.stopForSessionBoundary();
+        return;
+      }
+
+      // AuthSession hydrates the authenticated user (and its canonical current
+      // Workspace) before /api/tenants/current completes. That short-lived
+      // tenant-null state is not a logout, Tenant switch, or authorization
+      // invalidation, so it must not clear protected HTTP-owned state.
+      if (!tenant) {
+        this.stopRealtimeTransportOnly();
+        return;
+      }
+
+      if (!tenant.isAvailable) {
         this.stopForSessionBoundary();
         return;
       }
@@ -402,9 +416,10 @@ export class RealtimeFacade {
   }
 
   /**
-   * Stops only the unavailable transport. A disabled realtime rollout is not
-   * a logout, Tenant change, or authorization revocation, so HTTP-owned
-   * application state and declarative subscriptions must remain intact.
+   * Stops only the unavailable transport. A disabled realtime rollout or the
+   * authenticated tenant-hydration interval is not a logout, Tenant change,
+   * or authorization revocation, so HTTP-owned application state and
+   * declarative subscriptions must remain intact.
    */
   private stopRealtimeTransportOnly(): void {
     this.intentionallyStopped = true;

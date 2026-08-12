@@ -89,6 +89,32 @@ describe('RealtimeFacade', () => {
     expect(transport.startCalls).toBe(0);
   });
 
+  it('TenantHydrationDoesNotClearActiveWorkspaceOrProtectedState', async () => {
+    await settle();
+    flags.setForTesting({ 'realtime.signalR': true });
+    activeWorkspace.setMockWorkspace(ACTIVE_WORKSPACE);
+    notificationOpenContext.setDigestWorkspace(RESOURCE_ID);
+    let clearCalls = 0;
+    facade.registerProtectedStateClearer('files-http-state', () => { clearCalls += 1; });
+
+    // AuthSession patches the authenticated user and its workspace before the
+    // current-Tenant request resolves.
+    auth.setMockSession(tenantHydratingSession());
+    await settle();
+
+    expect(activeWorkspace.activeWorkspace()).toEqual(ACTIVE_WORKSPACE);
+    expect(notificationOpenContext.takeDigestWorkspace()).toBe(RESOURCE_ID);
+    expect(clearCalls).toBe(0);
+    expect(transport.startCalls).toBe(0);
+    expect(facade.connectionState()).toBe('Degraded');
+
+    auth.setMockSession(activeSession());
+    await waitForConnection(facade);
+
+    expect(activeWorkspace.activeWorkspace()).toEqual(ACTIVE_WORKSPACE);
+    expect(facade.connectionState()).toBe('Connected');
+  });
+
   it('RealtimeDisabledDoesNotInvokeProtectedStateClearers', async () => {
     await settle();
     let clearCalls = 0;
@@ -206,6 +232,32 @@ describe('RealtimeFacade', () => {
       { subscriptionType: 'workspace', resourceId: RESOURCE_ID },
       { subscriptionType: 'workspace', resourceId: RESOURCE_ID },
     ]);
+  });
+
+  it('TransportReconnectDoesNotClearActiveWorkspace', async () => {
+    await enableAndAuthenticate();
+    activeWorkspace.setMockWorkspace(ACTIVE_WORKSPACE);
+    notificationOpenContext.setDigestWorkspace(RESOURCE_ID);
+
+    transport.statuses.next('reconnecting');
+    transport.statuses.next('reconnected');
+    await waitForConnection(facade);
+
+    expect(activeWorkspace.activeWorkspace()).toEqual(ACTIVE_WORKSPACE);
+    expect(notificationOpenContext.takeDigestWorkspace()).toBe(RESOURCE_ID);
+  });
+
+  it('HubDegradationDoesNotClearActiveWorkspace', async () => {
+    await enableAndAuthenticate();
+    activeWorkspace.setMockWorkspace(ACTIVE_WORKSPACE);
+    notificationOpenContext.setDigestWorkspace(RESOURCE_ID);
+
+    transport.statuses.next('closed');
+    await settle();
+
+    expect(facade.connectionState()).toBe('Degraded');
+    expect(activeWorkspace.activeWorkspace()).toEqual(ACTIVE_WORKSPACE);
+    expect(notificationOpenContext.takeDigestWorkspace()).toBe(RESOURCE_ID);
   });
 
   it('reports a denied subscription owner to catch-up before reconnect completes', async () => {
@@ -471,6 +523,18 @@ function activeSession(tenantId = TENANT_ID): AuthSessionSnapshot {
     status: 'active',
     isAuthenticated: true,
     currentTenant: { ...DEFAULT_AUTH_SESSION.currentTenant!, tenantId, isAvailable: true }
+  };
+}
+
+function tenantHydratingSession(): AuthSessionSnapshot {
+  return {
+    ...activeSession(),
+    currentTenant: null,
+    currentUser: {
+      ...DEFAULT_AUTH_SESSION.currentUser!,
+      currentWorkspace: ACTIVE_WORKSPACE,
+      workspaces: [ACTIVE_WORKSPACE],
+    },
   };
 }
 
