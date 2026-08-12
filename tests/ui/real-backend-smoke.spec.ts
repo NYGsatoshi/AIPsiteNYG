@@ -2981,13 +2981,19 @@ async function submitInvalidPasswordChange(page: Page, evidence: SmokeEvidence) 
 }
 
 async function logoutAndVerifyAccessRevoked(page: Page, evidence: SmokeEvidence) {
-  const [logoutResponse] = await Promise.all([
-    waitForApiResponse(page, 'POST', '/api/auth/logout'),
+  // The successful logout response immediately clears the Angular session and
+  // starts the lazy /login route. Register both observers before the click so
+  // the real browser navigation is observed without reading its response body
+  // after the route transition begins.
+  const loginRoute = page.waitForURL(/\/app\/login$/);
+  const logoutResponse = waitForApiResponse(page, 'POST', '/api/auth/logout');
+  const [response] = await Promise.all([
+    logoutResponse,
+    loginRoute,
     page.getByTestId('logout-action').click()
   ]);
-  recordLogoutResponse(logoutResponse, evidence);
+  recordLogoutResponse(response, evidence);
 
-  await expect(page).toHaveURL(/\/app\/login$/);
   await expect(page.getByTestId('login-page')).toBeVisible();
   await expect(page.getByTestId('app-shell')).toHaveCount(0);
   await expectAuthenticationCookieToBeCleared(page);
