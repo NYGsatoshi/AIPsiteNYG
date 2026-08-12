@@ -1,0 +1,53 @@
+name: PR 280 lockfile repair
+
+on:
+  push:
+    branches:
+      - dependabot/npm_and_yarn/frontend/npm-security-updates-864ed900c4
+
+permissions:
+  contents: write
+
+jobs:
+  regenerate-lockfiles:
+    if: github.event.head_commit.message == 'chore(ci): regenerate PR 280 lockfiles'
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check out PR branch
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '24'
+          cache: npm
+          cache-dependency-path: |
+            frontend/package-lock.json
+            aipsite-frontend/package-lock.json
+
+      - name: Use repository npm version
+        run: npm install --global npm@11.17.0
+
+      - name: Regenerate frontend lockfile
+        working-directory: frontend
+        run: npm install --package-lock-only --ignore-scripts --no-audit --no-fund
+
+      - name: Regenerate aipsite-frontend lockfile
+        working-directory: aipsite-frontend
+        run: npm install --package-lock-only --ignore-scripts --no-audit --no-fund
+
+      - name: Commit regenerated lockfiles
+        shell: bash
+        run: |
+          set -euo pipefail
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add frontend/package-lock.json aipsite-frontend/package-lock.json
+          if git diff --cached --quiet; then
+            echo "Lockfiles already match the Angular 21 manifests."
+            exit 0
+          fi
+          git commit -m "fix(ci): regenerate lockfiles for Angular 21 compatibility"
+          git push origin "HEAD:${GITHUB_REF_NAME}"
