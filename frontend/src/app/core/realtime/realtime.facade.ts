@@ -371,16 +371,21 @@ export class RealtimeFacade {
   }
 
   private clearProtectedApplicationState(): void {
+    console.warn('[AIP logout diagnostic] protected-clear:start');
     this.activeWorkspace.clearWorkspace();
     this.notificationOpenContext.clear();
-    for (const clear of [...this.protectedStateClearers.values()]) {
+    for (const [owner, clear] of [...this.protectedStateClearers.entries()]) {
       try {
+        console.warn(`[AIP logout diagnostic] protected-clear:${owner}:start`);
         clear();
+        console.warn(`[AIP logout diagnostic] protected-clear:${owner}:complete`);
       } catch {
+        console.warn(`[AIP logout diagnostic] protected-clear:${owner}:failed`);
         // A feature clear must not block the security boundary for another
         // feature. Its next authoritative catch-up will recover its state.
       }
     }
+    console.warn('[AIP logout diagnostic] protected-clear:complete');
   }
 
   private clearTransportAuthorizationState(): void {
@@ -409,10 +414,13 @@ export class RealtimeFacade {
   }
 
   private stopForSessionBoundary(): void {
+    console.warn('[AIP logout diagnostic] session-boundary:start');
     this.clearSessionBoundaryState();
+    console.warn('[AIP logout diagnostic] session-boundary:state-cleared');
     this.intentionallyStopped = true;
     void this.stopTransport();
     this.state.set('Degraded');
+    console.warn('[AIP logout diagnostic] session-boundary:complete');
   }
 
   /**
