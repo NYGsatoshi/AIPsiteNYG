@@ -46,7 +46,11 @@ RUN --mount=type=cache,id=aipsite-docker-nuget,target=/root/.nuget/packages,shar
 COPY . .
 RUN rm -rf src/AipPortal.Web/wwwroot/*
 COPY --from=frontend-build /src/frontend/dist/aipportal-web/ src/AipPortal.Web/wwwroot/
+# BuildKit cache mounts are mutable and can be pruned independently from cached
+# restore layers. Force a restore in the same cache mount as publish so missing
+# NuGet packages are repaired before --no-restore is used.
 RUN --mount=type=cache,id=aipsite-docker-nuget,target=/root/.nuget/packages,sharing=locked \
+    dotnet restore src/AipPortal.Web/AipPortal.Web.csproj --force && \
     dotnet publish src/AipPortal.Web/AipPortal.Web.csproj -c Release -o /app/publish --no-restore
 
 FROM mcr.microsoft.com/dotnet/aspnet:10.0.10 AS runtime
