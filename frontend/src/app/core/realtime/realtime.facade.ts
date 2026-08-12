@@ -373,7 +373,7 @@ export class RealtimeFacade {
   private clearProtectedApplicationState(): void {
     this.activeWorkspace.clearWorkspace();
     this.notificationOpenContext.clear();
-    for (const [owner, clear] of [...this.protectedStateClearers.entries()]) {
+    for (const clear of [...this.protectedStateClearers.values()]) {
       try {
         // This can run from the root authorization effect. Feature clearers
         // commonly read and replace their own signals, which must not become
