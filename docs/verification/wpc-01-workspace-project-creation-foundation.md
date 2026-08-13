@@ -1,9 +1,13 @@
 # WPC-01 Workspace / Project creation backend foundation
 
-Status: partial implementation candidate; blockers remain  
-Implementation base: `74d0a334e4b3094e1efad48006fce9b13b21bdef`  
-Specification main: `f7535ce7de1846780a1dd6689e93310f0482897b`  
-Branch: `wpc/01-workspace-project-creation-foundation`  
+Status: partial implementation candidate; blockers remain
+
+Implementation base: `74d0a334e4b3094e1efad48006fce9b13b21bdef`
+
+Specification main: `f7535ce7de1846780a1dd6689e93310f0482897b`
+
+Branch: `wpc/01-workspace-project-creation-foundation`
+
 Date: 2026-08-13
 
 ## Verdict
