@@ -104,6 +104,10 @@ public static class DependencyInjection
         services.AddScoped<ITokenHasher, Sha256TokenHasher>();
         services.AddScoped<IAuditLogger, DbAuditLogger>();
         services.AddScoped<INotificationService, DbNotificationService>();
+        services.AddScoped<CurrentAuthorizationTargetResolver>();
+        services.AddScoped<INotificationTargetResolver>(provider => provider.GetRequiredService<CurrentAuthorizationTargetResolver>());
+        services.AddScoped<IRealtimeEventTargetResolver>(provider => provider.GetRequiredService<CurrentAuthorizationTargetResolver>());
+        services.AddScoped<INotificationOpenService, NotificationOpenService>();
         services.AddScoped<AipPortal.Application.Search.ISearchService, DbSearchService>();
         services.AddScoped<AipPortal.Application.Audit.IAuditQueryService, DbAuditQueryService>();
         services.AddSingleton<IClock, SystemClock>();

@@ -19,3 +19,16 @@ public sealed record NotificationListItemResponse(
     long StateVersion = 0);
 
 public sealed record NotificationUnreadCountResponse(int UnreadCount, long StateVersion = 0);
+
+/// <summary>
+/// The result of resolving and opening a notification target.  Unavailable is
+/// intentionally uniform: it never contains a reason or protected resource
+/// data.  Context is only populated for a currently authorized digest target.
+/// </summary>
+public sealed record NotificationOpenResponse(
+    string Outcome,
+    string? Route,
+    long StateVersion,
+    NotificationOpenContextResponse? Context = null);
+
+public sealed record NotificationOpenContextResponse(Guid WorkspaceId);

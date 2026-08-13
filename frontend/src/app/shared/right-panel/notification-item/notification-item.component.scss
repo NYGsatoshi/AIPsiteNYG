@@ -58,6 +58,7 @@
   font-size: 0.78rem;
   font-weight: 700;
   text-decoration: none;
+  cursor: pointer;
 }
 
 .notification__mark {
@@ -67,4 +68,10 @@
 .notification__unsupported {
   color: #6b5b2c;
   font-size: 0.78rem;
+}
+
+.notification__link:focus-visible,
+.notification__mark:focus-visible {
+  outline: var(--aip-focus-outline);
+  outline-offset: var(--aip-focus-offset);
 }

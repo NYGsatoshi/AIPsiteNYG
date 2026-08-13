@@ -150,4 +150,71 @@ describe('AuthSessionFacade logout', () => {
     expect(snapshots.at(-1)?.capabilities).not.toContain('admin:access');
     expect(snapshots.at(-1)?.capabilities).not.toContain('invite:create');
   });
+
+  it.each([401, 403])(
+    'clears hydrated protected state when current tenant refresh returns terminal auth status %s',
+    (status) => {
+      const snapshots: AuthSessionSnapshot[] = [];
+      const workspace = { id: 'workspace-a', label: 'Workspace A' };
+      authSession.clearSessionState('anonymous');
+
+      authSession.bootstrap().subscribe((snapshot) => snapshots.push(snapshot));
+
+      httpMock.expectOne('/api/auth/me').flush({
+        userId: 'user-1',
+        displayName: 'Member',
+        email: 'member@example.test',
+        systemRole: 'User',
+        status: 'Active',
+        capabilities: ['workspace:view', 'projects:view', 'account:view'],
+        currentWorkspace: workspace,
+        workspaces: [workspace]
+      });
+
+      expect(authSession.isAuthenticated()).toBe(true);
+      expect(authSession.currentTenant()).toBeNull();
+      expect(activeWorkspace.activeWorkspace()?.id).toBe(workspace.id);
+
+      httpMock.expectOne('/api/tenants/current').flush(
+        { error: 'Authentication no longer valid' },
+        { status, statusText: status === 401 ? 'Unauthorized' : 'Forbidden' }
+      );
+
+      expect(snapshots.at(-1)?.status).toBe('anonymous');
+      expect(authSession.isAuthenticated()).toBe(false);
+      expect(authSession.currentUser()).toBeNull();
+      expect(authSession.currentTenant()).toBeNull();
+      expect(activeWorkspace.activeWorkspace()).toBeNull();
+    }
+  );
+
+  it('preserves hydrated workspace state when current tenant refresh fails transiently', () => {
+    const snapshots: AuthSessionSnapshot[] = [];
+    const workspace = { id: 'workspace-a', label: 'Workspace A' };
+    authSession.clearSessionState('anonymous');
+
+    authSession.bootstrap().subscribe((snapshot) => snapshots.push(snapshot));
+
+    httpMock.expectOne('/api/auth/me').flush({
+      userId: 'user-1',
+      displayName: 'Member',
+      email: 'member@example.test',
+      systemRole: 'User',
+      status: 'Active',
+      capabilities: ['workspace:view', 'projects:view', 'account:view'],
+      currentWorkspace: workspace,
+      workspaces: [workspace]
+    });
+
+    httpMock.expectOne('/api/tenants/current').flush(
+      { error: 'Temporary tenant service failure' },
+      { status: 500, statusText: 'Server Error' }
+    );
+
+    expect(snapshots.at(-1)?.status).toBe('active');
+    expect(authSession.isAuthenticated()).toBe(true);
+    expect(authSession.currentUser()?.userId).toBe('user-1');
+    expect(authSession.currentTenant()).toBeNull();
+    expect(activeWorkspace.activeWorkspace()?.id).toBe(workspace.id);
+  });
 });

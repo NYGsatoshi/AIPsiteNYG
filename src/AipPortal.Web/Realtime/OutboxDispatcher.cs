@@ -133,7 +133,7 @@ public sealed class OutboxDispatcher(
             foreach (var subscription in subscriptions.GetForTarget(eventItem.TenantId, target.SubscriptionType, target.ResourceId))
             {
                 if (deliveredConnectionIds.Contains(subscription.ConnectionId) ||
-                    (!authorizationInvalidation && !await authorizer.CanReceiveAsync(subscription, target.SubscriptionType, target.ResourceId, envelope, cancellationToken)))
+                    !await authorizer.CanReceiveAsync(subscription, target.SubscriptionType, target.ResourceId, envelope, cancellationToken))
                 {
                     continue;
                 }

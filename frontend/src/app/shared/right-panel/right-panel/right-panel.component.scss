@@ -87,6 +87,40 @@ h2 {
   font-size: 0.72rem;
 }
 
+.right-panel__status {
+  margin: 0;
+  border-radius: 8px;
+  padding: 8px;
+  background: var(--aip-color-bg-surface-subtle);
+  color: var(--aip-color-text-secondary);
+  font-size: 0.82rem;
+}
+
+.right-panel__status--unavailable {
+  border: 1px solid var(--aip-color-border-default);
+}
+
+.right-panel__status--degraded {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+}
+
+.right-panel__status-action {
+  min-height: var(--shell-touch-target, 40px);
+  border: 1px solid currentColor;
+  border-radius: 6px;
+  padding: 4px 8px;
+  background: transparent;
+  color: inherit;
+}
+
+.right-panel__status-action:focus-visible {
+  outline: var(--aip-focus-outline);
+  outline-offset: var(--aip-focus-offset);
+}
+
 .right-panel__tabs {
   border-bottom: 1px solid var(--aip-color-border-default);
 }

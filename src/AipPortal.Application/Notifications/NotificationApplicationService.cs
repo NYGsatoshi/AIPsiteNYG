@@ -5,8 +5,10 @@ namespace AipPortal.Application.Notifications;
 
 public sealed class NotificationApplicationService(
     ICurrentUser currentUser,
+    ICurrentTenant currentTenant,
     IClock clock,
     INotificationService notifications,
+    INotificationOpenService notificationOpen,
     IAuditLogger auditLogger,
     IUnitOfWork unitOfWork) : INotificationApplicationService
 {
@@ -48,6 +50,45 @@ public sealed class NotificationApplicationService(
 
         await unitOfWork.SaveChangesAsync(cancellationToken);
         return Result.Success();
+    }
+
+    public async Task<Result<NotificationOpenResponse>> OpenAsync(Guid notificationId, CancellationToken cancellationToken = default)
+    {
+        if (!TryCurrentUser(out var userId))
+        {
+            return Result<NotificationOpenResponse>.Failure("Authentication is required.");
+        }
+
+        // The infrastructure implementation owns the target-resolution,
+        // read-state and Outbox transaction.  Do not mark a notification read
+        // on the client or before its current target is authorized.
+        var resolution = await notificationOpen.OpenAsync(
+            currentTenant.IsAvailable ? currentTenant.TenantId : Guid.Empty,
+            userId,
+            notificationId,
+            cancellationToken);
+        if (!resolution.IsOwned)
+        {
+            // Controller maps this to the same safe not-found response used
+            // for a missing notification; another recipient is never exposed.
+            return Result<NotificationOpenResponse>.Failure("Notification not found.");
+        }
+
+        if (!resolution.IsAvailable)
+        {
+            return Result<NotificationOpenResponse>.Success(new NotificationOpenResponse(
+                "Unavailable",
+                null,
+                resolution.StateVersion));
+        }
+
+        return Result<NotificationOpenResponse>.Success(new NotificationOpenResponse(
+            "Opened",
+            resolution.Route,
+            resolution.StateVersion,
+            resolution.WorkspaceId.HasValue
+                ? new NotificationOpenContextResponse(resolution.WorkspaceId.Value)
+                : null));
     }
 
     public async Task<Result> MarkAllAsReadAsync(CancellationToken cancellationToken = default)

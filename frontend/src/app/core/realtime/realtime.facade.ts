@@ -1,8 +1,10 @@
-import { computed, effect, inject, Injectable, signal } from '@angular/core';
+import { computed, effect, inject, Injectable, signal, untracked } from '@angular/core';
 import { firstValueFrom, Subject } from 'rxjs';
 
 import { AuthSessionFacade } from '../auth/auth-session.facade';
 import { FrontendFeatureFlagsService } from '../feature-flags/frontend-feature-flags.service';
+import { NotificationOpenContextService } from '../notifications/notification-open-context.service';
+import { ActiveWorkspaceFacade } from '../workspace/active-workspace.facade';
 import { validateDurableRealtimeEvent } from './realtime-event.validator';
 import {
   DurableRealtimeEvent,
@@ -37,18 +39,26 @@ const MAX_DEDUP_EVENTS = 256;
 @Injectable({ providedIn: 'root' })
 export class RealtimeFacade {
   private readonly authSession = inject(AuthSessionFacade);
+  private readonly activeWorkspace = inject(ActiveWorkspaceFacade);
+  private readonly notificationOpenContext = inject(NotificationOpenContextService);
   private readonly flags = inject(FrontendFeatureFlagsService);
   private readonly transport = inject(AIP_REALTIME_TRANSPORT, { optional: true }) ?? inject(SignalrRealtimeTransport);
   private readonly state = signal<RealtimeConnectionState>('Degraded');
   private readonly events = new Subject<DurableRealtimeEvent>();
   private readonly diagnosticsSubject = new Subject<RealtimeDiagnostic>();
-  private readonly subscriptions = new Map<string, SubscriptionEntry>();
+  // Feature registrations are declarative intent. They survive a transient
+  // authorization loss so a later reconnect can ask the server again. The
+  // separate set represents only groups authorized on the current transport.
+  private readonly desiredSubscriptions = new Map<string, SubscriptionEntry>();
+  private readonly authorizedSubscriptionKeys = new Set<string>();
   private readonly catchUps = new Map<string, RealtimeCatchUpCallback>();
   private readonly staleGuards = new Map<string, RealtimeStaleEventGuard>();
+  private readonly protectedStateClearers = new Map<string, () => void>();
   private readonly dedup = new Map<string, number>();
   private readonly aggregateVersions = new Map<string, number>();
   private tenantId: string | null = null;
   private starting: Promise<void> | null = null;
+  private stopping: Promise<void> | null = null;
   private intentionallyStopped = false;
 
   readonly connectionState = this.state.asReadonly();
@@ -79,8 +89,22 @@ export class RealtimeFacade {
       const tenant = this.authSession.currentTenant();
       const authenticated = this.authSession.isAuthenticated();
       const enabled = this.flags.realtimeSignalREnabled();
-      if (!enabled || !authenticated || !tenant?.isAvailable) {
-        this.stopForSessionBoundary(enabled ? 'Degraded' : 'Degraded');
+      if (!authenticated) {
+        this.stopForSessionBoundary();
+        return;
+      }
+
+      // AuthSession hydrates the authenticated user (and its canonical current
+      // Workspace) before /api/tenants/current completes. That short-lived
+      // tenant-null state is not a logout, Tenant switch, or authorization
+      // invalidation, so it must not clear protected HTTP-owned state.
+      if (!tenant) {
+        this.stopRealtimeTransportOnly();
+        return;
+      }
+
+      if (!tenant.isAvailable) {
+        this.stopForSessionBoundary();
         return;
       }
 
@@ -88,6 +112,15 @@ export class RealtimeFacade {
         this.clearForTenantBoundary();
       }
       this.tenantId = tenant.tenantId;
+
+      // The rollout flag controls only the SignalR transport. HTTP remains
+      // authoritative and its valid feature state is not a session, tenant,
+      // or authorization boundary.
+      if (!enabled) {
+        this.stopRealtimeTransportOnly();
+        return;
+      }
+
       void this.connectAndSynchronize();
     });
   }
@@ -95,11 +128,11 @@ export class RealtimeFacade {
   registerSubscription(owner: string, request: RealtimeSubscriptionRequest): () => void {
     validateSubscription(request);
     const key = subscriptionKey(request);
-    const existing = this.subscriptions.get(key);
+    const existing = this.desiredSubscriptions.get(key);
     if (existing) {
       existing.owners.add(owner);
     } else {
-      this.subscriptions.set(key, { request, owners: new Set([owner]) });
+      this.desiredSubscriptions.set(key, { request, owners: new Set([owner]) });
     }
 
     if (this.isSynchronized()) {
@@ -118,27 +151,43 @@ export class RealtimeFacade {
     return () => this.staleGuards.delete(owner);
   }
 
+  /**
+   * Registers a feature-owned clear operation. Authorization loss is handled
+   * before transport reauthorization/catch-up, so no protected projection is
+   * left visible while an old SignalR group is being replaced.
+   */
+  registerProtectedStateClearer(owner: string, clear: () => void): () => void {
+    this.protectedStateClearers.set(owner, clear);
+    return () => this.protectedStateClearers.delete(owner);
+  }
+
   /** Called by session/tenant lifecycle owners before protected state changes. */
   clearForTenantBoundary(): void {
-    this.tenantId = null;
-    this.clearProtectedRealtimeState();
+    // A new Tenant must never inherit Workspace/context/subscription state
+    // from the old Tenant. This is distinct from a temporary authorization
+    // invalidation, which preserves declarative subscription intent.
+    this.clearTenantBoundaryState();
     this.intentionallyStopped = true;
-    void this.transport.stop();
+    void this.stopTransport();
     this.state.set('Degraded');
   }
 
   clearForAuthorizationLoss(): void {
-    this.clearProtectedRealtimeState();
+    // Keep declarative subscription intents so a reconnect explicitly
+    // reauthorizes each one. Clearing only the map would make a lost group
+    // silently disappear without a current HTTP/catch-up decision.
+    this.clearAuthorizationInvalidationState();
     this.state.set('Reconnecting');
     this.intentionallyStopped = true;
-    void this.transport.stop().then(async () => {
+    void this.stopTransport().then(async () => {
       await this.refreshSessionAfterConnectionFailure();
-      this.intentionallyStopped = false;
-      if (this.canConnect()) {
-        await this.connectAndSynchronize();
-      } else {
+      if (!this.canConnect()) {
         this.state.set('Degraded');
+        return;
       }
+
+      this.intentionallyStopped = false;
+      await this.connectAndSynchronize();
     });
   }
 
@@ -154,6 +203,12 @@ export class RealtimeFacade {
 
   private async beginSynchronization(): Promise<void> {
     try {
+      if (this.stopping) {
+        await this.stopping;
+      }
+      if (!this.canConnect()) {
+        return;
+      }
       await this.transport.start();
       if (!this.canConnect()) {
         return;
@@ -166,7 +221,7 @@ export class RealtimeFacade {
       }
 
       const deniedOwners = new Set<string>();
-      for (const entry of [...this.subscriptions.values()]) {
+      for (const entry of [...this.desiredSubscriptions.values()]) {
         if (entry.request.subscriptionType !== 'user') {
           const result = await this.authorizeSubscription(entry.request);
           if (!result.allowed) {
@@ -189,9 +244,14 @@ export class RealtimeFacade {
 
   private async authorizeSubscription(request: RealtimeSubscriptionRequest): Promise<RealtimeSubscriptionResult> {
     const result = await this.transport.subscribe(request);
+    const key = subscriptionKey(request);
     if (!result.allowed) {
       this.diagnosticsSubject.next({ code: 'SubscriptionDenied' });
-      this.removeDeniedSubscription(request);
+      // A denial revokes only the current transport group. The feature owner
+      // still exists and must be reauthorized on a later reconnect.
+      this.authorizedSubscriptionKeys.delete(key);
+    } else {
+      this.authorizedSubscriptionKeys.add(key);
     }
     return result;
   }
@@ -235,10 +295,11 @@ export class RealtimeFacade {
       return;
     }
 
-    this.events.next(event);
     if (event.eventType === 'Security.AuthorizationStateChanged.v1') {
       this.clearForAuthorizationLoss();
+      return;
     }
+    this.events.next(event);
   }
 
   private isDuplicate(eventId: string): boolean {
@@ -271,7 +332,7 @@ export class RealtimeFacade {
 
   private removeSubscription(owner: string, request: RealtimeSubscriptionRequest): void {
     const key = subscriptionKey(request);
-    const entry = this.subscriptions.get(key);
+    const entry = this.desiredSubscriptions.get(key);
     if (!entry) {
       return;
     }
@@ -279,15 +340,12 @@ export class RealtimeFacade {
     if (entry.owners.size > 0) {
       return;
     }
-    this.subscriptions.delete(key);
-    if (this.isSynchronized() && request.subscriptionType !== 'user' && request.subscriptionType !== 'tenant') {
+    this.desiredSubscriptions.delete(key);
+    if (this.isSynchronized() &&
+        this.authorizedSubscriptionKeys.delete(key) &&
+        request.subscriptionType !== 'user' &&
+        request.subscriptionType !== 'tenant') {
       void this.transport.unsubscribe(request);
-    }
-  }
-
-  private removeDeniedSubscription(request: RealtimeSubscriptionRequest): void {
-    if (request.subscriptionType !== 'user') {
-      this.subscriptions.delete(subscriptionKey(request));
     }
   }
 
@@ -296,31 +354,81 @@ export class RealtimeFacade {
       return;
     }
     if (status === 'reconnecting' || status === 'connecting') {
+      this.authorizedSubscriptionKeys.clear();
       this.state.set('Reconnecting');
       return;
     }
     if (status === 'reconnected') {
+      this.authorizedSubscriptionKeys.clear();
       this.state.set('Reconnecting');
       void this.connectAndSynchronize();
       return;
     }
     if (status === 'closed') {
+      this.authorizedSubscriptionKeys.clear();
       this.state.set(this.httpIsLikelyAvailable() ? 'Degraded' : 'Offline');
     }
   }
 
-  private clearProtectedRealtimeState(): void {
-    this.subscriptions.clear();
+  private clearProtectedApplicationState(): void {
+    this.activeWorkspace.clearWorkspace();
+    this.notificationOpenContext.clear();
+    for (const clear of [...this.protectedStateClearers.values()]) {
+      try {
+        // This can run from the root authorization effect. Feature clearers
+        // commonly read and replace their own signals, which must not become
+        // dependencies of that effect or re-enter a terminal clear boundary.
+        untracked(clear);
+      } catch {
+        // A feature clear must not block the security boundary for another
+        // feature. Its next authoritative catch-up will recover its state.
+      }
+    }
+  }
+
+  private clearTransportAuthorizationState(): void {
+    this.authorizedSubscriptionKeys.clear();
     this.dedup.clear();
     this.aggregateVersions.clear();
   }
 
-  private stopForSessionBoundary(state: RealtimeConnectionState): void {
-    this.clearProtectedRealtimeState();
+  private clearSessionBoundaryState(): void {
+    this.clearProtectedApplicationState();
+    this.desiredSubscriptions.clear();
+    this.clearTransportAuthorizationState();
     this.tenantId = null;
+  }
+
+  private clearTenantBoundaryState(): void {
+    this.clearProtectedApplicationState();
+    this.desiredSubscriptions.clear();
+    this.clearTransportAuthorizationState();
+    this.tenantId = null;
+  }
+
+  private clearAuthorizationInvalidationState(): void {
+    this.clearProtectedApplicationState();
+    this.clearTransportAuthorizationState();
+  }
+
+  private stopForSessionBoundary(): void {
+    this.clearSessionBoundaryState();
     this.intentionallyStopped = true;
-    void this.transport.stop();
-    this.state.set(state);
+    void this.stopTransport();
+    this.state.set('Degraded');
+  }
+
+  /**
+   * Stops only the unavailable transport. A disabled realtime rollout or the
+   * authenticated tenant-hydration interval is not a logout, Tenant change,
+   * or authorization revocation, so HTTP-owned application state and
+   * declarative subscriptions must remain intact.
+   */
+  private stopRealtimeTransportOnly(): void {
+    this.intentionallyStopped = true;
+    this.clearTransportAuthorizationState();
+    void this.stopTransport();
+    this.state.set('Degraded');
   }
 
   private canConnect(): boolean {
@@ -332,6 +440,22 @@ export class RealtimeFacade {
       await firstValueFrom(this.authSession.refreshSessionContext());
     } catch {
       // HTTP remains the authority; a failed probe simply preserves degraded mode.
+    }
+  }
+
+  private async stopTransport(): Promise<void> {
+    if (this.stopping) {
+      return this.stopping;
+    }
+
+    const stop = this.transport.stop().catch(() => undefined);
+    this.stopping = stop;
+    try {
+      await stop;
+    } finally {
+      if (this.stopping === stop) {
+        this.stopping = null;
+      }
     }
   }
 

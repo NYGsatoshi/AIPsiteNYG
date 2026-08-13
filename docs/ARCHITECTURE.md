@@ -310,6 +310,36 @@ row. PR07-C adds no notification-open API, dispatch/replay
 reauthorization, SignalR route change, Angular behavior, email, or push. Those
 remain PR07-D or later work.
 
+### TASK-V1-PR07-D current-authorized delivery and opening
+
+PR07-D keeps all entity-specific target resolution behind the focused
+Notification/realtime resolver boundary. The dispatcher and notification-open
+use case use the same current-state policy rather than duplicating DbContext
+queries in controllers, the hub, or Angular. Immediately before every normal,
+delayed, retry, or operator-replay delivery, it rechecks tenant/user/session,
+active TenantUser, Workspace/member, Project visibility/lifecycle, Task
+lifecycle, and the routing target's current identity.
+
+`Notifications.NotificationCreated.v1` and
+`Notifications.NotificationReadStateChanged.v1` are recipient-only user
+routes. Task/Project subscriptions remain delivery optimizations only; a broad
+Workspace or Project target does not grant Task access. Authorization denial is
+a metadata-safe `NoAuthorizedRecipient` terminal delivery result, not a retry
+or DeadLetter transition. `Security.AuthorizationStateChanged.v1` remains a
+metadata-only recipient route and is emitted in the same business transaction
+as Workspace archive for every active affected member.
+
+The hosted Angular application retains exactly one SignalR transport:
+`RealtimeFacade`. It validates approved envelopes/tenant IDs, bounds event
+dedupe/version state, owns reconnect subscription reauthorization and HTTP
+catch-up, and clears protected feature state before catch-up when authorization
+is invalidated. RightPanel, Task Detail, My Tasks, Project Detail, Kanban,
+Gantt, and Workspace preference state own their projections; they treat events
+as bounded refetch triggers and preserve active edits rather than accepting a
+payload as projection truth. Task/digest Notification signals are
+reference-only and RightPanel coalesces its HTTP list refetch instead of
+constructing route or display data from the event.
+
 The appsettings `Features:*` switches are bound but not read by feature controllers/services. Most `Platform:*` switches are also not enforcement gates. Treat them as partially implemented configuration, not authoritative runtime controls.
 
 ## Backend/UI coverage

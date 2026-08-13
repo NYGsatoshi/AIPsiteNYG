@@ -2,6 +2,8 @@ import { provideHttpClient } from '@angular/common/http';
 import { HttpTestingController, provideHttpClientTesting } from '@angular/common/http/testing';
 import { TestBed } from '@angular/core/testing';
 
+import { AIP_AUTH_SESSION_MOCK, DEFAULT_AUTH_SESSION } from '../../core/auth/auth-session.facade';
+import { NotificationOpenContextService } from '../../core/notifications/notification-open-context.service';
 import { ActiveWorkspaceFacade } from '../../core/workspace/active-workspace.facade';
 import { MyTasksFacade } from './my-tasks.facade';
 
@@ -19,14 +21,26 @@ describe('MyTasksFacade', () => {
   let activeWorkspace: ActiveWorkspaceFacade;
 
   beforeEach(() => {
-    TestBed.configureTestingModule({ providers: [provideHttpClient(), provideHttpClientTesting()] });
+    TestBed.configureTestingModule({
+      providers: [
+        provideHttpClient(),
+        provideHttpClientTesting(),
+        // The HTTP projection is valid only for an authenticated session. A
+        // disabled realtime transport must not be modeled as a logout.
+        { provide: AIP_AUTH_SESSION_MOCK, useValue: DEFAULT_AUTH_SESSION },
+      ],
+    });
     activeWorkspace = TestBed.inject(ActiveWorkspaceFacade);
     activeWorkspace.setActiveWorkspace({ id: 'workspace-1', label: 'Workspace one' });
     facade = TestBed.inject(MyTasksFacade);
     httpMock = TestBed.inject(HttpTestingController);
   });
 
-  afterEach(() => { httpMock.verify(); TestBed.resetTestingModule(); });
+  afterEach(() => {
+    vi.useRealTimers();
+    httpMock.verify();
+    TestBed.resetTestingModule();
+  });
 
   it('loads the canonical projection and counts using an explicit relationship view', () => {
     facade.load();
@@ -109,6 +123,17 @@ describe('MyTasksFacade', () => {
       .flush({ views: [], timeGroups: [] });
   });
 
+  it('DigestOpenAppliesWorkspaceSpecificMyTasksContextAfterFacadeAlreadyExists', () => {
+    const context = TestBed.inject(NotificationOpenContextService);
+
+    context.setDigestWorkspace('workspace-2');
+    TestBed.flushEffects();
+
+    expect(activeWorkspace.activeWorkspace()?.id).toBe('workspace-2');
+    expect(facade.getMyTasks().workspaceId).toBe('workspace-2');
+    expect(context.takeDigestWorkspace()).toBeNull();
+  });
+
   it('clears protected rows and counts before an authorization-state refetch', () => {
     vi.useFakeTimers();
     facade.load();
@@ -127,7 +152,6 @@ describe('MyTasksFacade', () => {
     expect(requests).toHaveLength(2);
     requests[0].flush({ items: [], page: 1, pageSize: 50, totalCount: 0 });
     requests[1].flush({ views: [], timeGroups: [] });
-    vi.useRealTimers();
   });
 
   it('coalesces TaskChanged realtime events into one My Tasks refetch', () => {
@@ -150,7 +174,6 @@ describe('MyTasksFacade', () => {
       .flush({ items: [task], page: 1, pageSize: 50, totalCount: 1 });
     requests.find((request) => request.request.url === '/api/me/tasks/counts')!
       .flush({ views: [{ view: 'Assigned', count: 1 }], timeGroups: [] });
-    vi.useRealTimers();
   });
 
   function flush(page: unknown, counts: unknown): void {

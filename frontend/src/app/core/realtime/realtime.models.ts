@@ -41,6 +41,9 @@ export type RealtimeEventType =
   | 'Notifications.NotificationCreated.v1'
   | 'Notifications.NotificationReadStateChanged.v1'
   | 'Projects.TaskChanged.v1'
+  | 'Projects.TaskAssignmentChanged.v1'
+  | 'Projects.TaskWorkflowChanged.v1'
+  | 'Projects.TaskCommentChanged.v1'
   | 'Projects.ProjectChanged.v1'
   | 'Announcements.AnnouncementChanged.v1'
   | 'Files.FileChanged.v1'
@@ -66,6 +69,9 @@ export const REALTIME_EVENT_TYPES: ReadonlySet<string> = new Set([
   'Notifications.NotificationCreated.v1',
   'Notifications.NotificationReadStateChanged.v1',
   'Projects.TaskChanged.v1',
+  'Projects.TaskAssignmentChanged.v1',
+  'Projects.TaskWorkflowChanged.v1',
+  'Projects.TaskCommentChanged.v1',
   'Projects.ProjectChanged.v1',
   'Announcements.AnnouncementChanged.v1',
   'Files.FileChanged.v1',

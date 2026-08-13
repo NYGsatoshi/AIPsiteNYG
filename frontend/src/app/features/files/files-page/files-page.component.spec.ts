@@ -3,6 +3,7 @@ import { HttpTestingController, provideHttpClientTesting } from '@angular/common
 import { ComponentFixture, TestBed } from '@angular/core/testing';
 import { By } from '@angular/platform-browser';
 
+import { AIP_AUTH_SESSION_MOCK, DEFAULT_AUTH_SESSION } from '../../../core/auth/auth-session.facade';
 import { AIP_ACTIVE_WORKSPACE_MOCK } from '../../../core/workspace/active-workspace.facade';
 import { AttachmentPickerDialogComponent } from '../attachment-picker-dialog/attachment-picker-dialog.component';
 import { FileRowComponent } from '../file-row/file-row.component';
@@ -51,6 +52,10 @@ const renderLiveFilesPage = async (
     providers: [
       provideHttpClient(),
       provideHttpClientTesting(),
+      // Files HTTP fallback requires a valid session. The default mock is
+      // anonymous, which correctly represents a session boundary rather than
+      // a disabled realtime transport.
+      { provide: AIP_AUTH_SESSION_MOCK, useValue: DEFAULT_AUTH_SESSION },
       { provide: AIP_ACTIVE_WORKSPACE_MOCK, useValue: { id: WORKSPACE_ID, label: 'Workspace' } },
     ],
   }).compileComponents();

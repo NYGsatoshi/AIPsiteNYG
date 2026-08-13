@@ -715,6 +715,15 @@ public static class AppDbContextSeed
             now,
             cancellationToken);
 
+        await SeedBrowserSmokeNotificationsPr07Async(
+            dbContext,
+            tenantId,
+            user,
+            recipient,
+            workspace,
+            now,
+            cancellationToken);
+
         await dbContext.SaveChangesAsync(cancellationToken);
 
         await using var taskFileStream = new MemoryStream(taskFileBytes, writable: false);
@@ -726,6 +735,131 @@ public static class AppDbContextSeed
         if (!storageResult.IsSuccess)
         {
             throw new InvalidOperationException("Browser smoke synthetic file could not be stored.");
+        }
+    }
+
+    private static async Task SeedBrowserSmokeNotificationsPr07Async(
+        AppDbContext dbContext,
+        Guid tenantId,
+        User owner,
+        User recipient,
+        Workspace workspace,
+        DateTimeOffset now,
+        CancellationToken cancellationToken)
+    {
+        const string projectSlug = "browser-smoke-pr07-notifications";
+        const string projectTitle = "PR07 Browser Smoke Notifications Project";
+        const string taskTitle = "PR07 authorized notification task";
+        var today = DateOnly.FromDateTime(now.UtcDateTime.Date);
+
+        var project = await dbContext.Projects.FirstOrDefaultAsync(candidate =>
+            candidate.TenantId == tenantId &&
+            candidate.WorkspaceId == workspace.Id &&
+            candidate.Slug == projectSlug,
+            cancellationToken);
+        if (project is null)
+        {
+            project = new Project
+            {
+                TenantId = tenantId,
+                WorkspaceId = workspace.Id,
+                OwnerUserId = owner.Id,
+                CreatedByUserId = owner.Id,
+                Name = projectTitle,
+                Slug = projectSlug,
+                Description = "Synthetic isolated Project for PR07-D notification delivery acceptance.",
+                Status = ProjectStatus.Active,
+                StartDate = today,
+                DueDate = today.AddDays(7)
+            };
+            await dbContext.Projects.AddAsync(project, cancellationToken);
+        }
+        else
+        {
+            project.OwnerUserId = owner.Id;
+            project.CreatedByUserId = owner.Id;
+            project.Name = projectTitle;
+            project.Description = "Synthetic isolated Project for PR07-D notification delivery acceptance.";
+            project.Status = ProjectStatus.Active;
+            project.StartDate = today;
+            project.DueDate = today.AddDays(7);
+            if (project.IsDeleted)
+            {
+                project.Restore();
+            }
+        }
+
+        async Task EnsureProjectMemberAsync(User member, ProjectRole role)
+        {
+            var existing = await dbContext.ProjectMembers.FirstOrDefaultAsync(candidate =>
+                candidate.TenantId == tenantId &&
+                candidate.ProjectId == project.Id &&
+                candidate.UserId == member.Id,
+                cancellationToken);
+            if (existing is null)
+            {
+                await dbContext.ProjectMembers.AddAsync(new ProjectMember
+                {
+                    TenantId = tenantId,
+                    ProjectId = project.Id,
+                    UserId = member.Id,
+                    Role = role,
+                    JoinedAt = now
+                }, cancellationToken);
+            }
+            else
+            {
+                existing.Role = role;
+                if (existing.JoinedAt == default)
+                {
+                    existing.JoinedAt = now;
+                }
+            }
+        }
+
+        await EnsureProjectMemberAsync(owner, ProjectRole.Owner);
+        await EnsureProjectMemberAsync(recipient, ProjectRole.Contributor);
+
+        var task = await dbContext.TaskItems.FirstOrDefaultAsync(candidate =>
+            candidate.TenantId == tenantId &&
+            candidate.ProjectId == project.Id &&
+            candidate.Title == taskTitle,
+            cancellationToken);
+        if (task is null)
+        {
+            task = new TaskItem
+            {
+                TenantId = tenantId,
+                WorkspaceId = workspace.Id,
+                ProjectId = project.Id,
+                Title = taskTitle,
+                Description = "Synthetic isolated Task for PR07-D notification delivery acceptance.",
+                Status = TaskItemStatus.NotStarted,
+                Priority = TaskPriority.Medium,
+                StartDate = today,
+                DueDate = today.AddDays(7),
+                SortKey = 1,
+                SortOrder = 1,
+                VersionNo = 1,
+                CreatedByUserId = owner.Id
+            };
+            await dbContext.TaskItems.AddAsync(task, cancellationToken);
+        }
+        else
+        {
+            task.WorkspaceId = workspace.Id;
+            task.Status = TaskItemStatus.NotStarted;
+            task.Priority = TaskPriority.Medium;
+            task.StartDate = today;
+            task.DueDate = today.AddDays(7);
+            task.SortKey = 1;
+            task.SortOrder = 1;
+            task.VersionNo = 1;
+            task.CreatedByUserId = owner.Id;
+            if (task.IsDeleted)
+            {
+                task.Restore();
+            }
         }
     }
 

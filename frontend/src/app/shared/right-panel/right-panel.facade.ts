@@ -1,9 +1,11 @@
 import { HttpClient } from '@angular/common/http';
 import { computed, Injectable, InjectionToken, inject, signal } from '@angular/core';
+import { Router } from '@angular/router';
 import { Subscription } from 'rxjs';
 
 import { DurableRealtimeEvent } from '../../core/realtime/realtime.models';
 import { RealtimeFacade } from '../../core/realtime/realtime.facade';
+import { NotificationOpenContextService } from '../../core/notifications/notification-open-context.service';
 
 import {
   NotificationTargetType,
@@ -24,6 +26,7 @@ const SUPPORTED_TARGETS = new Set<NotificationTargetType>([
   'dmConversation',
   'project',
   'task',
+  'taskDeadlineDigest',
 ]);
 
 export const AIP_RIGHT_PANEL_MOCK = new InjectionToken<RightPanelMockState>('AIP_RIGHT_PANEL_MOCK');
@@ -50,14 +53,34 @@ interface NotificationDto {
   readonly stateVersion?: unknown;
 }
 
+interface NotificationOpenDto {
+  readonly outcome?: unknown;
+  readonly route?: unknown;
+  readonly stateVersion?: unknown;
+  readonly context?: unknown;
+}
+
 export function isSupportedNotificationTarget(target: NotificationTargetType): boolean {
   return SUPPORTED_TARGETS.has(target);
+}
+
+/**
+ * Task and digest routes are protected resources.  Their persisted list
+ * route is never navigation authority; the current-authorized server open
+ * contract is the only way to obtain a route for them.
+ */
+export function requiresAuthorizedServerOpen(target: NotificationTargetType): boolean {
+  return target === 'task' || target === 'taskDeadlineDigest';
 }
 
 export function mapNotificationRoute(
   target: Pick<RightPanelNotification['target'], 'type' | 'id' | 'route'>,
   scope: RightPanelScope = EMPTY_RIGHT_PANEL_SCOPE,
 ): string | undefined {
+  if (!isSupportedNotificationTarget(target.type) || requiresAuthorizedServerOpen(target.type)) {
+    return undefined;
+  }
+
   if (target.route && isKnownSafeRoute(target.route)) {
     return target.route;
   }
@@ -69,8 +92,6 @@ export function mapNotificationRoute(
   switch (target.type) {
     case 'announcement':
       return `/announcements/${target.id}`;
-    case 'task':
-      return target.route && isTaskDetailRoute(target.route) ? target.route : undefined;
     case 'project':
       return '/projects';
     case 'channelConversation':
@@ -90,6 +111,8 @@ export function clampRightPanelText(value: string, maxLength: number): string {
 export class RightPanelFacade {
   private readonly http = inject(HttpClient);
   private readonly realtime = inject(RealtimeFacade);
+  private readonly router = inject(Router, { optional: true });
+  private readonly notificationOpenContext = inject(NotificationOpenContextService);
   private readonly mockState = inject(AIP_RIGHT_PANEL_MOCK, { optional: true });
   private readonly modeState = signal<RightPanelMode>(
     this.mockState?.mode ?? this.readStoredMode(),
@@ -108,7 +131,13 @@ export class RightPanelFacade {
   );
   private readonly memberState = signal<readonly RightPanelMember[]>(this.mockState?.members ?? []);
   private readonly selectedNotificationIdState = signal<string | null>(null);
+  private readonly notificationOpenInProgressState = signal(false);
+  private readonly unavailableMessageState = signal<string | null>(null);
   private notificationStateVersion = 0;
+  private notificationRefreshGeneration = 0;
+  private notificationRefreshInFlight: Promise<void> | null = null;
+  private notificationRefreshQueued = false;
+  private notificationRefreshTimer: ReturnType<typeof setTimeout> | null = null;
   private readonly realtimeEvents: Subscription;
 
   readonly mode = this.modeState.asReadonly();
@@ -131,12 +160,16 @@ export class RightPanelFacade {
       unreadCount: notifications.filter((notification) => !notification.read).length,
       members,
       selectedNotificationId: this.selectedNotificationIdState(),
+      notificationOpenInProgress: this.notificationOpenInProgressState(),
+      unavailableMessage: this.unavailableMessageState(),
+      realtimeDegraded: this.realtime.connectionState() !== 'Connected',
     };
   });
 
   constructor() {
     this.realtimeEvents = this.realtime.durableEvents$.subscribe((event) => this.applyRealtimeEvent(event));
     this.realtime.registerCatchUp('right-panel-notifications', () => this.refreshNotifications());
+    this.realtime.registerProtectedStateClearer?.('right-panel-notifications', () => this.clearProtectedNotificationState());
     if (!this.mockState) {
       this.loadNotifications();
     }
@@ -173,15 +206,41 @@ export class RightPanelFacade {
     this.scopeState.set(scope);
   }
 
-  displayNotificationTarget(notificationId: string): boolean {
+  /** HTTP remains authoritative when the realtime transport is degraded. */
+  refreshNotificationsNow(): void {
+    this.unavailableMessageState.set(null);
+    void this.refreshNotifications();
+  }
+
+  displayNotificationTarget(notificationId: string): void {
     const notification = this.notificationState().find((item) => item.id === notificationId);
-    if (!notification?.target.route) {
-      return false;
+    if (!notification || !isSupportedNotificationTarget(notification.target.type)) {
+      this.showUnavailable();
+      return;
     }
 
     this.selectedNotificationIdState.set(notificationId);
-    this.markNotificationRead(notificationId);
-    return true;
+    this.unavailableMessageState.set(null);
+
+    if (!requiresAuthorizedServerOpen(notification.target.type)) {
+      this.displayLegacyNotificationTarget(notification);
+      return;
+    }
+
+    if (this.mockState) {
+      // Story/test data intentionally has no server authority. Do not invent
+      // a route or optimistic read state for a protected notification.
+      return;
+    }
+
+    this.notificationOpenInProgressState.set(true);
+    this.http
+      .post<NotificationOpenDto>(`/api/notifications/${notificationId}/open`, {}, { withCredentials: true })
+      .subscribe({
+        next: (response) => this.applyNotificationOpenResult(notificationId, response),
+        error: () => this.showUnavailable(),
+        complete: () => this.notificationOpenInProgressState.set(false),
+      });
   }
 
   markNotificationRead(notificationId: string): void {
@@ -207,41 +266,25 @@ export class RightPanelFacade {
     this.permissionState.set(this.mockState?.permission ?? 'granted');
     this.scopeState.set(this.mockState?.activeScope ?? EMPTY_RIGHT_PANEL_SCOPE);
     this.selectedNotificationIdState.set(null);
-    this.notificationStateVersion = 0;
-    this.notificationState.set([]);
+    this.notificationOpenInProgressState.set(false);
+    this.unavailableMessageState.set(null);
+    this.clearProtectedNotificationState();
   }
 
   private loadNotifications(): void {
-    this.http
-      .get<PagedResponseDto<NotificationDto>>('/api/notifications', { withCredentials: true })
-      .subscribe({
-        next: (response) => {
-          this.notificationState.set(
-            this.normalizeNotifications(
-              (response.items ?? []).map((item) => this.toNotification(item)),
-            ),
-          );
-          this.notificationStateVersion = Math.max(
-            this.notificationStateVersion,
-            ...this.notificationState().map((notification) => notification.stateVersion ?? 0),
-          );
-        },
-        error: (error: { status?: number }) => {
-          if (error.status === 401 || error.status === 403) {
-            this.permissionState.set('denied');
-          }
-          this.notificationState.set([]);
-        },
-      });
+    void this.refreshNotifications();
   }
 
   private toNotification(item: NotificationDto): RightPanelNotification {
     const targetType = notificationTargetType(item.relatedEntityType, item.notificationType);
+    const persistedRoute = stringValue(item.targetRoute);
     const target = {
       type: targetType,
       id: stringValue(item.relatedEntityId),
-      label: stringValue(item.targetRoute) ?? targetType,
-      route: stringValue(item.targetRoute),
+      label: requiresAuthorizedServerOpen(targetType)
+        ? (targetType === 'taskDeadlineDigest' ? 'Task deadline digest' : targetType)
+        : (persistedRoute ?? targetType),
+      route: requiresAuthorizedServerOpen(targetType) ? undefined : persistedRoute,
     };
 
     return {
@@ -282,11 +325,6 @@ export class RightPanelFacade {
   }
 
   private applyRealtimeEvent(event: DurableRealtimeEvent): void {
-    if (event.eventType === 'Security.AuthorizationStateChanged.v1') {
-      this.clearProtectedNotificationState();
-      return;
-    }
-
     if (event.eventType === 'Notifications.NotificationCreated.v1') {
       this.applyNotificationCreated(event);
       return;
@@ -301,13 +339,21 @@ export class RightPanelFacade {
     const payload = event.payload;
     const notification = payload['notification'];
     const stateVersion = numericValue(payload['stateVersion']) ?? numericValue(recordValue(notification)['version']) ?? event.aggregateVersion ?? 0;
-    if (!notification || stateVersion <= this.notificationStateVersion) {
+    const requiresRefetch = payload['requiresRefetch'] === true;
+    if (stateVersion <= this.notificationStateVersion) {
+      return;
+    }
+
+    // Task and digest signals are reference-only. Never derive display data,
+    // a route, or recipient relationship state from a durable event.
+    if (requiresRefetch || !notification) {
+      this.queueNotificationRefresh();
       return;
     }
 
     const mapped = this.toNotification(recordValue(notification));
     if (!mapped.id) {
-      this.refreshNotifications();
+      this.queueNotificationRefresh();
       return;
     }
 
@@ -318,7 +364,7 @@ export class RightPanelFacade {
     ]);
     this.notificationStateVersion = stateVersion;
     if (uncertainOrdering) {
-      this.refreshNotifications();
+      this.queueNotificationRefresh();
     }
   }
 
@@ -346,32 +392,151 @@ export class RightPanelFacade {
     });
     this.notificationStateVersion = stateVersion;
     if (uncertainOrdering || !change) {
-      this.refreshNotifications();
+      this.queueNotificationRefresh();
     }
   }
 
   private clearProtectedNotificationState(): void {
+    // An authorization change may race an existing HTTP list request. Ignore
+    // that request's response so a pre-revocation Task projection cannot be
+    // restored after protected state has been cleared.
+    this.notificationRefreshGeneration++;
+    if (this.notificationRefreshTimer !== null) {
+      clearTimeout(this.notificationRefreshTimer);
+      this.notificationRefreshTimer = null;
+    }
+    this.notificationRefreshQueued = false;
     this.notificationStateVersion = 0;
     this.selectedNotificationIdState.set(null);
+    this.notificationOpenInProgressState.set(false);
+    this.unavailableMessageState.set(null);
     this.notificationState.set([]);
-    if (!this.mockState) {
-      this.refreshNotifications();
-    }
   }
 
   private refreshNotifications(): Promise<void> {
-    return new Promise((resolve) => {
+    if (this.mockState) {
+      return Promise.resolve();
+    }
+    if (this.notificationRefreshInFlight) {
+      this.notificationRefreshQueued = true;
+      return this.notificationRefreshInFlight;
+    }
+    if (this.notificationRefreshTimer !== null) {
+      clearTimeout(this.notificationRefreshTimer);
+      this.notificationRefreshTimer = null;
+    }
+
+    const refreshGeneration = this.notificationRefreshGeneration;
+    this.notificationRefreshInFlight = new Promise<void>((resolve) => {
       this.http
         .get<PagedResponseDto<NotificationDto>>('/api/notifications', { withCredentials: true })
         .subscribe({
           next: (response) => {
+            if (refreshGeneration !== this.notificationRefreshGeneration) {
+              resolve();
+              return;
+            }
             this.notificationState.set(this.normalizeNotifications((response.items ?? []).map((item) => this.toNotification(item))));
             this.notificationStateVersion = Math.max(...this.notificationState().map((item) => item.stateVersion ?? 0), 0);
             resolve();
           },
-          error: () => resolve(),
+          error: (error: { status?: number }) => {
+            if (refreshGeneration !== this.notificationRefreshGeneration) {
+              resolve();
+              return;
+            }
+            if (error.status === 401 || error.status === 403) {
+              this.permissionState.set('denied');
+              this.notificationState.set([]);
+            }
+            resolve();
+          },
         });
+    }).finally(() => {
+      this.notificationRefreshInFlight = null;
+      if (this.notificationRefreshQueued) {
+        this.notificationRefreshQueued = false;
+        // An event that arrived while this request was active has already
+        // been coalesced by the in-flight request. Start exactly one
+        // follow-up now rather than adding a second wall-clock debounce.
+        void this.refreshNotifications();
+      }
     });
+    return this.notificationRefreshInFlight;
+  }
+
+  private queueNotificationRefresh(): void {
+    if (this.mockState) return;
+    if (this.notificationRefreshInFlight) {
+      this.notificationRefreshQueued = true;
+      return;
+    }
+    if (this.notificationRefreshTimer !== null) return;
+    this.notificationRefreshTimer = setTimeout(() => {
+      this.notificationRefreshTimer = null;
+      void this.refreshNotifications();
+    }, 75);
+  }
+
+  private applyNotificationOpenResult(notificationId: string, response: NotificationOpenDto): void {
+    const notification = this.notificationState().find((item) => item.id === notificationId);
+    const outcome = stringValue(response.outcome);
+    const route = stringValue(response.route);
+    const stateVersion = numericValue(response.stateVersion) ?? 0;
+    if (!notification || !requiresAuthorizedServerOpen(notification.target.type) || outcome !== 'Opened' || !route) {
+      this.showUnavailable();
+      return;
+    }
+
+    const digestWorkspaceId = notification.target.type === 'taskDeadlineDigest'
+      ? workspaceIdFromOpenContext(response.context)
+      : undefined;
+    const routeIsAuthorized = notification.target.type === 'task'
+      ? isTaskDetailRoute(route)
+      : route === '/tasks' && !!digestWorkspaceId;
+    if (!routeIsAuthorized) {
+      this.showUnavailable();
+      return;
+    }
+
+    // An open result may update read state only after the server authorized
+    // the target. Older versions never overwrite a newer local projection.
+    if (stateVersion > this.notificationStateVersion) {
+      this.notificationState.update((items) =>
+        items.map((item) => item.id === notificationId ? { ...item, read: true, stateVersion } : item),
+      );
+      this.notificationStateVersion = stateVersion;
+    } else if (stateVersion < this.notificationStateVersion) {
+      this.queueNotificationRefresh();
+    }
+
+    if (digestWorkspaceId) {
+      this.notificationOpenContext.setDigestWorkspace(digestWorkspaceId);
+    }
+    if (!this.router) {
+      this.showUnavailable();
+      return;
+    }
+    void this.router.navigateByUrl(route).catch(() => this.showUnavailable());
+  }
+
+  private displayLegacyNotificationTarget(notification: RightPanelNotification): void {
+    const route = mapNotificationRoute(notification.target, notification.scope);
+    if (!route || !this.router) {
+      this.showUnavailable();
+      return;
+    }
+
+    // Preserve the legacy contract: navigation uses an already safe Angular
+    // route and read state changes only after the existing backend PATCH
+    // confirms it. Task/digest never enter this path.
+    this.markNotificationRead(notification.id);
+    void this.router.navigateByUrl(route).catch(() => this.showUnavailable());
+  }
+
+  private showUnavailable(): void {
+    this.notificationOpenInProgressState.set(false);
+    this.unavailableMessageState.set('This notification target is no longer available.');
   }
 
   private inNotificationScope(recordScope: RightPanelScope, activeScope: RightPanelScope): boolean {
@@ -446,22 +611,28 @@ function notificationTargetType(entityType: unknown, notificationType?: unknown)
   if (normalized.includes('project')) {
     return 'project';
   }
+  if (normalized.includes('deadline') || normalized.includes('digest')) {
+    return 'taskDeadlineDigest';
+  }
   if (normalized.includes('task')) {
     return 'task';
   }
   return 'unsupported';
 }
 
+function isTaskDetailRoute(route: string): boolean {
+  return /^\/projects\/[^/]+\/tasks\/[^/]+$/.test(route);
+}
+
 function isKnownSafeRoute(route: string): boolean {
   return (
     /^\/announcements\/[^/]+$/.test(route) ||
     route === '/projects' ||
-    isTaskDetailRoute(route) ||
     /^\/workspaces\/[^/]+\/channels\/[^/]+$/.test(route) ||
     /^\/dm\/[^/]+$/.test(route)
   );
 }
 
-function isTaskDetailRoute(route: string): boolean {
-  return /^\/projects\/[^/]+\/tasks\/[^/]+$/.test(route);
+function workspaceIdFromOpenContext(value: unknown): string | undefined {
+  return stringValue(recordValue(value)['workspaceId']);
 }

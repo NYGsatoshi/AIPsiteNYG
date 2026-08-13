@@ -1,8 +1,11 @@
+import { signal } from '@angular/core';
 import { TestBed } from '@angular/core/testing';
 import { Subject } from 'rxjs';
 
 import { AIP_AUTH_SESSION_MOCK, AuthSessionFacade, AuthSessionSnapshot, DEFAULT_AUTH_SESSION } from '../auth/auth-session.facade';
 import { FrontendFeatureFlagsService } from '../feature-flags/frontend-feature-flags.service';
+import { NotificationOpenContextService } from '../notifications/notification-open-context.service';
+import { ActiveWorkspaceFacade } from '../workspace/active-workspace.facade';
 import { DurableRealtimeEvent, RealtimeSubscriptionRequest, RealtimeSubscriptionResult } from './realtime.models';
 import { AIP_REALTIME_TRANSPORT, RealtimeTransport, RealtimeTransportStatus } from './realtime-transport';
 import { RealtimeFacade } from './realtime.facade';
@@ -11,6 +14,7 @@ import { RealtimeFacade } from './realtime.facade';
 // intentionally does not encode RFC UUID version/variant bits.
 const TENANT_ID = '11111111-1111-1111-1111-111111111111';
 const RESOURCE_ID = '22222222-2222-4222-8222-222222222222';
+const ACTIVE_WORKSPACE = { id: RESOURCE_ID, label: 'Current workspace' };
 
 class FakeRealtimeTransport implements RealtimeTransport {
   readonly events = new Subject<unknown>();
@@ -45,6 +49,8 @@ describe('RealtimeFacade', () => {
   let transport: FakeRealtimeTransport;
   let auth: AuthSessionFacade;
   let flags: FrontendFeatureFlagsService;
+  let activeWorkspace: ActiveWorkspaceFacade;
+  let notificationOpenContext: NotificationOpenContextService;
 
   beforeEach(() => {
     transport = new FakeRealtimeTransport();
@@ -57,6 +63,8 @@ describe('RealtimeFacade', () => {
     facade = TestBed.inject(RealtimeFacade);
     auth = TestBed.inject(AuthSessionFacade);
     flags = TestBed.inject(FrontendFeatureFlagsService);
+    activeWorkspace = TestBed.inject(ActiveWorkspaceFacade);
+    notificationOpenContext = TestBed.inject(NotificationOpenContextService);
   });
 
   afterEach(() => TestBed.resetTestingModule());
@@ -67,6 +75,103 @@ describe('RealtimeFacade', () => {
 
     expect(transport.startCalls).toBe(0);
     expect(facade.connectionState()).toBe('Degraded');
+  });
+
+  it('RealtimeDisabledDoesNotClearActiveWorkspace', async () => {
+    await settle();
+    activeWorkspace.setMockWorkspace(ACTIVE_WORKSPACE);
+    notificationOpenContext.setDigestWorkspace(RESOURCE_ID);
+
+    auth.setMockSession(activeSession());
+    await settle();
+
+    expect(activeWorkspace.activeWorkspace()).toEqual(ACTIVE_WORKSPACE);
+    expect(notificationOpenContext.takeDigestWorkspace()).toBe(RESOURCE_ID);
+    expect(transport.startCalls).toBe(0);
+  });
+
+  it('TenantHydrationDoesNotClearActiveWorkspaceOrProtectedState', async () => {
+    await settle();
+    flags.setForTesting({ 'realtime.signalR': true });
+    activeWorkspace.setMockWorkspace(ACTIVE_WORKSPACE);
+    notificationOpenContext.setDigestWorkspace(RESOURCE_ID);
+    let clearCalls = 0;
+    facade.registerProtectedStateClearer('files-http-state', () => { clearCalls += 1; });
+
+    // AuthSession patches the authenticated user and its workspace before the
+    // current-Tenant request resolves.
+    auth.setMockSession(tenantHydratingSession());
+    await settle();
+
+    expect(activeWorkspace.activeWorkspace()).toEqual(ACTIVE_WORKSPACE);
+    expect(notificationOpenContext.takeDigestWorkspace()).toBe(RESOURCE_ID);
+    expect(clearCalls).toBe(0);
+    expect(transport.startCalls).toBe(0);
+    expect(facade.connectionState()).toBe('Degraded');
+
+    auth.setMockSession(activeSession());
+    await waitForConnection(facade);
+
+    expect(activeWorkspace.activeWorkspace()).toEqual(ACTIVE_WORKSPACE);
+    expect(facade.connectionState()).toBe('Connected');
+  });
+
+  it('RealtimeDisabledDoesNotInvokeProtectedStateClearers', async () => {
+    await settle();
+    let clearCalls = 0;
+    facade.registerProtectedStateClearer('files-http-state', () => { clearCalls += 1; });
+
+    auth.setMockSession(activeSession());
+    await settle();
+
+    expect(clearCalls).toBe(0);
+  });
+
+  it('RealtimeDisabledPreservesDesiredSubscriptions', async () => {
+    await settle();
+    facade.registerSubscription('project-detail', { subscriptionType: 'project', resourceId: RESOURCE_ID });
+
+    auth.setMockSession(activeSession());
+    await settle();
+    expect(transport.startCalls).toBe(0);
+
+    flags.setForTesting({ 'realtime.signalR': true });
+    await waitForConnection(facade);
+
+    expect(transport.subscribed).toEqual([
+      { subscriptionType: 'user' },
+      { subscriptionType: 'project', resourceId: RESOURCE_ID },
+    ]);
+  });
+
+  it('RealtimeDisabledStillAllowsHttpOnlyFeatureState', async () => {
+    await settle();
+    let filesFromHttp = ['file-1'];
+    facade.registerProtectedStateClearer('files-http-state', () => { filesFromHttp = []; });
+
+    auth.setMockSession(activeSession());
+    await settle();
+
+    expect(filesFromHttp).toEqual(['file-1']);
+    expect(facade.connectionState()).toBe('Degraded');
+  });
+
+  it('RealtimeEnableAfterDisabledReauthorizesDesiredSubscriptions', async () => {
+    facade.registerSubscription('workspace-shell', { subscriptionType: 'workspace', resourceId: RESOURCE_ID });
+    await enableAndAuthenticate();
+    expect(transport.subscribed.filter((request) => request.subscriptionType === 'workspace')).toHaveLength(1);
+
+    flags.setForTesting({ 'realtime.signalR': false });
+    await settle();
+    expect(facade.connectionState()).toBe('Degraded');
+
+    flags.setForTesting({ 'realtime.signalR': true });
+    await waitForConnection(facade);
+
+    expect(transport.subscribed.filter((request) => request.subscriptionType === 'workspace')).toEqual([
+      { subscriptionType: 'workspace', resourceId: RESOURCE_ID },
+      { subscriptionType: 'workspace', resourceId: RESOURCE_ID },
+    ]);
   });
 
   it('owns exactly one connection and subscribes to the server-derived current user target', async () => {
@@ -102,6 +207,60 @@ describe('RealtimeFacade', () => {
     expect(facade.connectionState()).toBe('Connected');
   });
 
+  it('ReconnectRestoresDesiredProjectSubscription', async () => {
+    facade.registerSubscription('project-detail', { subscriptionType: 'project', resourceId: RESOURCE_ID });
+    await enableAndAuthenticate();
+
+    transport.statuses.next('reconnecting');
+    transport.statuses.next('reconnected');
+    await waitForConnection(facade);
+
+    expect(transport.subscribed.filter((request) => request.subscriptionType === 'project')).toEqual([
+      { subscriptionType: 'project', resourceId: RESOURCE_ID },
+      { subscriptionType: 'project', resourceId: RESOURCE_ID },
+    ]);
+  });
+
+  it('ReconnectRestoresDesiredWorkspaceSubscription', async () => {
+    facade.registerSubscription('workspace-shell', { subscriptionType: 'workspace', resourceId: RESOURCE_ID });
+    await enableAndAuthenticate();
+
+    transport.statuses.next('reconnecting');
+    transport.statuses.next('reconnected');
+    await waitForConnection(facade);
+
+    expect(transport.subscribed.filter((request) => request.subscriptionType === 'workspace')).toEqual([
+      { subscriptionType: 'workspace', resourceId: RESOURCE_ID },
+      { subscriptionType: 'workspace', resourceId: RESOURCE_ID },
+    ]);
+  });
+
+  it('TransportReconnectDoesNotClearActiveWorkspace', async () => {
+    await enableAndAuthenticate();
+    activeWorkspace.setMockWorkspace(ACTIVE_WORKSPACE);
+    notificationOpenContext.setDigestWorkspace(RESOURCE_ID);
+
+    transport.statuses.next('reconnecting');
+    transport.statuses.next('reconnected');
+    await waitForConnection(facade);
+
+    expect(activeWorkspace.activeWorkspace()).toEqual(ACTIVE_WORKSPACE);
+    expect(notificationOpenContext.takeDigestWorkspace()).toBe(RESOURCE_ID);
+  });
+
+  it('HubDegradationDoesNotClearActiveWorkspace', async () => {
+    await enableAndAuthenticate();
+    activeWorkspace.setMockWorkspace(ACTIVE_WORKSPACE);
+    notificationOpenContext.setDigestWorkspace(RESOURCE_ID);
+
+    transport.statuses.next('closed');
+    await settle();
+
+    expect(facade.connectionState()).toBe('Degraded');
+    expect(activeWorkspace.activeWorkspace()).toEqual(ACTIVE_WORKSPACE);
+    expect(notificationOpenContext.takeDigestWorkspace()).toBe(RESOURCE_ID);
+  });
+
   it('reports a denied subscription owner to catch-up before reconnect completes', async () => {
     const deniedOwners: string[][] = [];
     facade.registerSubscription('project-detail', {
@@ -121,6 +280,48 @@ describe('RealtimeFacade', () => {
 
     expect(deniedOwners).toEqual([[], ['project-detail']]);
     expect(facade.connectionState()).toBe('Connected');
+  });
+
+  it('AuthorizationInvalidationPreservesDesiredSubscriptions', async () => {
+    const deniedOwners: string[][] = [];
+    facade.registerSubscription('project-detail', { subscriptionType: 'project', resourceId: RESOURCE_ID });
+    facade.registerCatchUp('project-detail', (context) => {
+      deniedOwners.push([...context.deniedOwners]);
+    });
+    await enableAndAuthenticate();
+
+    transport.deniedSubscriptionType = 'project';
+    transport.invalidations.next();
+    await waitForConnection(facade);
+
+    expect(transport.subscribed.filter((request) => request.subscriptionType === 'project')).toHaveLength(2);
+    expect(deniedOwners).toEqual([[], ['project-detail']]);
+
+    transport.deniedSubscriptionType = null;
+    transport.statuses.next('reconnecting');
+    transport.statuses.next('reconnected');
+    await waitForConnection(facade);
+    expect(transport.subscribed.filter((request) => request.subscriptionType === 'project')).toHaveLength(3);
+  });
+
+  it('DeniedSubscriptionDoesNotRestoreProtectedState', async () => {
+    let protectedTitle = 'Restricted task title';
+    const deniedOwners: string[][] = [];
+    facade.registerSubscription('project-detail', { subscriptionType: 'project', resourceId: RESOURCE_ID });
+    facade.registerProtectedStateClearer('project-detail', () => { protectedTitle = ''; });
+    facade.registerCatchUp('project-detail', (context) => {
+      deniedOwners.push([...context.deniedOwners]);
+      if (!context.deniedOwners.has('project-detail')) protectedTitle = 'refetched title';
+    });
+    await enableAndAuthenticate();
+    protectedTitle = 'Restricted task title';
+
+    transport.deniedSubscriptionType = 'project';
+    transport.invalidations.next();
+    await waitForConnection(facade);
+
+    expect(deniedOwners.at(-1)).toEqual(['project-detail']);
+    expect(protectedTitle).toBe('');
   });
 
   it('notifies every denied owner even when an earlier catch-up fails', async () => {
@@ -183,6 +384,111 @@ describe('RealtimeFacade', () => {
     expect(facade.connectionState()).toBe('Reconnecting');
   });
 
+  it('LogoutDoesNotReusePreviousTenantSubscriptions', async () => {
+    facade.registerSubscription('project-detail', { subscriptionType: 'project', resourceId: RESOURCE_ID });
+    await enableAndAuthenticate();
+    expect(transport.subscribed.filter((request) => request.subscriptionType === 'project')).toHaveLength(1);
+
+    auth.markSessionExpired();
+    await settle();
+    auth.setMockSession(activeSession());
+    await waitForConnection(facade);
+
+    expect(transport.subscribed.filter((request) => request.subscriptionType === 'project')).toHaveLength(1);
+    expect(transport.subscribed.filter((request) => request.subscriptionType === 'user')).toHaveLength(2);
+  });
+
+  it('LogoutClearsActiveWorkspaceAndProtectedState', async () => {
+    await enableAndAuthenticate();
+    let protectedFiles = ['file-1'];
+    facade.registerProtectedStateClearer('files-http-state', () => { protectedFiles = []; });
+    activeWorkspace.setMockWorkspace(ACTIVE_WORKSPACE);
+    notificationOpenContext.setDigestWorkspace(RESOURCE_ID);
+
+    auth.markSessionExpired();
+    await settle();
+
+    expect(activeWorkspace.activeWorkspace()).toBeNull();
+    expect(notificationOpenContext.takeDigestWorkspace()).toBeNull();
+    expect(protectedFiles).toEqual([]);
+    expect(facade.connectionState()).toBe('Degraded');
+  });
+
+  it('LogoutClearersDoNotBecomeRealtimeEffectDependencies', async () => {
+    await enableAndAuthenticate();
+    const featureState = signal(0);
+    let clearCalls = 0;
+    facade.registerProtectedStateClearer('feature-state', () => {
+      clearCalls += 1;
+      if (featureState() === 0) {
+        featureState.set(1);
+      }
+    });
+
+    auth.markSessionExpired();
+    await settle();
+
+    expect(featureState()).toBe(1);
+    expect(clearCalls).toBe(1);
+  });
+
+  it('TenantSwitchDoesNotReusePreviousTenantSubscriptions', async () => {
+    facade.registerSubscription('workspace-shell', { subscriptionType: 'workspace', resourceId: RESOURCE_ID });
+    await enableAndAuthenticate();
+    expect(transport.subscribed.filter((request) => request.subscriptionType === 'workspace')).toHaveLength(1);
+
+    auth.setMockSession(activeSession('aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa'));
+    await waitForConnection(facade);
+    await waitForSubscriptionCount(transport, 'user', 2);
+
+    expect(transport.subscribed.filter((request) => request.subscriptionType === 'workspace')).toHaveLength(1);
+    expect(transport.subscribed.filter((request) => request.subscriptionType === 'user')).toHaveLength(2);
+  });
+
+  it('TenantSwitchClearsPreviousTenantWorkspaceState', async () => {
+    auth.setMockSession(activeSession());
+    await settle();
+    let protectedFiles = ['file-1'];
+    facade.registerProtectedStateClearer('files-http-state', () => { protectedFiles = []; });
+    activeWorkspace.setMockWorkspace(ACTIVE_WORKSPACE);
+    notificationOpenContext.setDigestWorkspace(RESOURCE_ID);
+
+    auth.setMockSession(activeSession('aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa'));
+    await settle();
+
+    expect(activeWorkspace.activeWorkspace()).toBeNull();
+    expect(notificationOpenContext.takeDigestWorkspace()).toBeNull();
+    expect(protectedFiles).toEqual([]);
+  });
+
+  it('AuthorizationInvalidationClearsProtectedStateBeforeCatchUp', async () => {
+    const order: string[] = [];
+    const received: DurableRealtimeEvent[] = [];
+    facade.registerProtectedStateClearer('right-panel', () => order.push('clear'));
+    facade.registerCatchUp('right-panel', () => { order.push('catch-up'); });
+    facade.durableEvents$.subscribe((value) => received.push(value));
+    await enableAndAuthenticate();
+    activeWorkspace.setMockWorkspace(ACTIVE_WORKSPACE);
+    notificationOpenContext.setDigestWorkspace(RESOURCE_ID);
+    order.length = 0;
+
+    transport.events.next(event({
+      eventId: '77777777-7777-4777-8777-777777777777',
+      eventType: 'Security.AuthorizationStateChanged.v1',
+      aggregateType: 'AuthorizationState',
+      payload: { affectedUserId: RESOURCE_ID, scopeType: 'workspace', change: 'archived' },
+    }));
+
+    expect(order).toEqual(['clear']);
+    expect(received).toEqual([]);
+    expect(activeWorkspace.activeWorkspace()).toBeNull();
+    expect(notificationOpenContext.takeDigestWorkspace()).toBeNull();
+    await waitForConnection(facade);
+    expect(order).toEqual(['clear', 'catch-up']);
+    expect(transport.subscribed.filter((request) => request.subscriptionType === 'user')).toHaveLength(2);
+    expect(facade.connectionState()).toBe('Connected');
+  });
+
   it('rejects unknown schemas and duplicate event IDs without exposing payloads', async () => {
     const received: DurableRealtimeEvent[] = [];
     const diagnostics: string[] = [];
@@ -230,12 +536,24 @@ describe('RealtimeFacade', () => {
   }
 });
 
-function activeSession(): AuthSessionSnapshot {
+function activeSession(tenantId = TENANT_ID): AuthSessionSnapshot {
   return {
     ...DEFAULT_AUTH_SESSION,
     status: 'active',
     isAuthenticated: true,
-    currentTenant: { ...DEFAULT_AUTH_SESSION.currentTenant!, tenantId: TENANT_ID, isAvailable: true }
+    currentTenant: { ...DEFAULT_AUTH_SESSION.currentTenant!, tenantId, isAvailable: true }
+  };
+}
+
+function tenantHydratingSession(): AuthSessionSnapshot {
+  return {
+    ...activeSession(),
+    currentTenant: null,
+    currentUser: {
+      ...DEFAULT_AUTH_SESSION.currentUser!,
+      currentWorkspace: ACTIVE_WORKSPACE,
+      workspaces: [ACTIVE_WORKSPACE],
+    },
   };
 }
 
@@ -259,4 +577,22 @@ function event(overrides: Partial<DurableRealtimeEvent> = {}): DurableRealtimeEv
 
 function settle(): Promise<void> {
   return new Promise((resolve) => setTimeout(resolve));
+}
+
+async function waitForConnection(facade: RealtimeFacade): Promise<void> {
+  for (let attempt = 0; attempt < 20; attempt += 1) {
+    if (facade.connectionState() === 'Connected') return;
+    await new Promise((resolve) => setTimeout(resolve, 10));
+  }
+}
+
+async function waitForSubscriptionCount(
+  transport: FakeRealtimeTransport,
+  subscriptionType: RealtimeSubscriptionRequest['subscriptionType'],
+  count: number,
+): Promise<void> {
+  for (let attempt = 0; attempt < 20; attempt += 1) {
+    if (transport.subscribed.filter((request) => request.subscriptionType === subscriptionType).length >= count) return;
+    await new Promise((resolve) => setTimeout(resolve, 10));
+  }
 }

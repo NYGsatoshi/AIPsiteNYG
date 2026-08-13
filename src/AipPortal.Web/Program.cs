@@ -221,6 +221,9 @@ if (tenancyOptions.SeedOnStartup ||
             defaultTenant.Id,
             smokeEmail,
             smokePassword);
+        await BrowserSmokeNotificationFixtureSeed.EnsureRevocableProjectAccessAsync(
+            dbContext,
+            defaultTenant.Id);
     }
 }
 
@@ -287,6 +290,14 @@ if (browserSmokeResponseGateEnabled)
     responseGates.MapPost("/{gateId}/arm", ArmBrowserSmokeResponseGate);
     responseGates.MapGet("/{gateId}", GetBrowserSmokeResponseGate);
     responseGates.MapPost("/{gateId}/release", ReleaseBrowserSmokeResponseGate);
+
+    // These fixture endpoints stay inside the same explicitly enabled Test
+    // boundary as the response gates. They exercise the production
+    // notification/outbox pipeline without enabling tasks.notificationsV1.
+    var notificationFixture = app.MapGroup("/internal/browser-smoke/notifications")
+        .RequireAuthorization();
+    notificationFixture.MapPost("/task", StageBrowserSmokeTaskNotificationAsync);
+    notificationFixture.MapGet("/events/{eventId:guid}", GetBrowserSmokeOutboxEventAsync);
 }
 
 // Runtime flags are loaded as a same-origin external script so the Angular
@@ -461,6 +472,152 @@ static IResult ReleaseBrowserSmokeResponseGate(
     }
 
     return Results.Ok(new { state = "released" });
+}
+
+static async Task<IResult> StageBrowserSmokeTaskNotificationAsync(
+    BrowserSmokeTaskNotificationRequest request,
+    AppDbContext dbContext,
+    INotificationService notifications,
+    IUnitOfWork unitOfWork,
+    ICurrentTenant currentTenant,
+    ICurrentUser currentUser,
+    CancellationToken cancellationToken)
+{
+    if (!TryGetSyntheticBrowserSmokeActor(currentUser, out var actorUserId) || !currentTenant.IsAvailable)
+    {
+        return Results.NotFound();
+    }
+
+    var target = await dbContext.TaskItems
+        .Where(task =>
+            task.TenantId == currentTenant.TenantId &&
+            task.DeletedAt == null &&
+            task.Title == BrowserSmokeNotificationFixture.TaskTitle)
+        .Join(
+            dbContext.Projects.Where(project =>
+                project.TenantId == currentTenant.TenantId &&
+                project.DeletedAt == null &&
+                project.Status == ProjectStatus.Active &&
+                project.Slug == BrowserSmokeNotificationFixture.ProjectSlug),
+            task => task.ProjectId,
+            project => project.Id,
+            (task, project) => new
+            {
+                TaskId = task.Id,
+                task.WorkspaceId,
+                ProjectId = project.Id,
+                project.OwnerUserId
+            })
+        .SingleOrDefaultAsync(cancellationToken);
+    if (target is null || target.OwnerUserId != actorUserId)
+    {
+        return Results.NotFound();
+    }
+
+    var recipient = await dbContext.Users.SingleOrDefaultAsync(user =>
+        user.NormalizedEmail == BrowserSmokeNotificationFixture.RecipientEmail.ToUpperInvariant(),
+        cancellationToken);
+    if (recipient is null || !await dbContext.ProjectMembers.AnyAsync(member =>
+            member.TenantId == currentTenant.TenantId &&
+            member.ProjectId == target.ProjectId &&
+            member.UserId == recipient.Id,
+            cancellationToken))
+    {
+        return Results.NotFound();
+    }
+
+    var notificationId = await notifications.StageTaskByLogicalKeyAsync(
+        recipient.Id,
+        NotificationType.TaskAssigned,
+        BrowserSmokeNotificationFixture.NotificationTitle,
+        target.TaskId,
+        $"browser-smoke:pr07d:{Guid.NewGuid():N}",
+        cancellationToken);
+    var notification = dbContext.Notifications.Local.SingleOrDefault(item => item.Id == notificationId);
+    var eventItem = dbContext.OutboxEvents.Local.SingleOrDefault(item =>
+        item.EventType == "Notifications.NotificationCreated.v1" &&
+        item.AggregateType == "Notification" &&
+        item.AggregateId == notificationId);
+    if (notification is null || eventItem is null)
+    {
+        return Results.Problem("The browser-smoke notification fixture could not stage its durable event.");
+    }
+
+    var delay = Math.Clamp(
+        request.DispatchDelaySeconds ?? 0,
+        0,
+        BrowserSmokeNotificationFixture.MaximumDispatchDelaySeconds);
+    if (delay > 0)
+    {
+        eventItem.NextAttemptAt = DateTimeOffset.UtcNow.AddSeconds(delay);
+    }
+
+    await unitOfWork.SaveChangesAsync(cancellationToken);
+    return Results.Ok(new BrowserSmokeTaskNotificationResponse(
+        notificationId,
+        eventItem.Id,
+        target.WorkspaceId,
+        target.ProjectId,
+        target.TaskId,
+        notification.StateVersion,
+        delay));
+}
+
+static async Task<IResult> GetBrowserSmokeOutboxEventAsync(
+    Guid eventId,
+    AppDbContext dbContext,
+    ICurrentTenant currentTenant,
+    ICurrentUser currentUser,
+    CancellationToken cancellationToken)
+{
+    if (!TryGetSyntheticBrowserSmokeActor(currentUser, out var actorUserId) || !currentTenant.IsAvailable)
+    {
+        return Results.NotFound();
+    }
+
+    var eventItem = await dbContext.OutboxEvents.AsNoTracking().SingleOrDefaultAsync(item =>
+        item.Id == eventId &&
+        item.TenantId == currentTenant.TenantId &&
+        item.EventType == "Notifications.NotificationCreated.v1" &&
+        item.AggregateType == "Notification",
+        cancellationToken);
+    if (eventItem is null)
+    {
+        return Results.NotFound();
+    }
+
+    var notification = await dbContext.Notifications.AsNoTracking().SingleOrDefaultAsync(item =>
+        item.Id == eventItem.AggregateId &&
+        item.TenantId == currentTenant.TenantId &&
+        item.RelatedEntityType == "TaskItem" &&
+        item.RelatedEntityId.HasValue,
+        cancellationToken);
+    if (notification?.RelatedEntityId is not { } taskId)
+    {
+        return Results.NotFound();
+    }
+
+    var task = await dbContext.TaskItems.AsNoTracking().SingleOrDefaultAsync(item =>
+        item.TenantId == currentTenant.TenantId &&
+        item.Id == taskId &&
+        item.DeletedAt == null &&
+        item.Title == BrowserSmokeNotificationFixture.TaskTitle,
+        cancellationToken);
+    if (task is null || !await dbContext.Projects.AnyAsync(project =>
+            project.TenantId == currentTenant.TenantId &&
+            project.Id == task.ProjectId &&
+            project.OwnerUserId == actorUserId &&
+            project.Slug == BrowserSmokeNotificationFixture.ProjectSlug,
+            cancellationToken))
+    {
+        return Results.NotFound();
+    }
+
+    return Results.Ok(new BrowserSmokeOutboxEventSnapshot(
+        eventItem.Id,
+        eventItem.Status.ToString(),
+        eventItem.AttemptCount,
+        eventItem.LastErrorCode));
 }
 
 static bool TryGetSyntheticBrowserSmokeActor(ICurrentUser currentUser, out Guid actorUserId)

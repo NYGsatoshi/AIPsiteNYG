@@ -27,6 +27,21 @@ public sealed class NotificationsController(INotificationApplicationService noti
         return result.IsSuccess ? Ok(new { status = "OK" }) : BadRequest(new { error = result.Error });
     }
 
+    [HttpPost("api/notifications/{notificationId:guid}/open")]
+    public async Task<IActionResult> Open(Guid notificationId, CancellationToken cancellationToken)
+    {
+        var result = await notifications.OpenAsync(notificationId, cancellationToken);
+        if (result.IsSuccess)
+        {
+            return Ok(result.Value);
+        }
+
+        // A missing notification and a notification owned by another
+        // recipient are indistinguishable at the boundary.  Do not disclose
+        // a target lifecycle or authorization reason.
+        return NotFound(new NotificationOpenResponse("Unavailable", null, 0));
+    }
+
     [HttpPatch("api/notifications/read-all")]
     public async Task<IActionResult> MarkAllRead(CancellationToken cancellationToken)
     {

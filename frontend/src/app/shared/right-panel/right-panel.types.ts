@@ -14,6 +14,7 @@ export type NotificationTargetType =
   | 'dmConversation'
   | 'project'
   | 'task'
+  | 'taskDeadlineDigest'
   | 'unsupported';
 
 export interface RightPanelScope {
@@ -58,6 +59,9 @@ export interface RightPanelViewModel {
   readonly unreadCount: number;
   readonly members: readonly RightPanelMember[];
   readonly selectedNotificationId: string | null;
+  readonly notificationOpenInProgress: boolean;
+  readonly unavailableMessage: string | null;
+  readonly realtimeDegraded: boolean;
 }
 
 export interface RightPanelMockState {
