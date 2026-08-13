@@ -262,7 +262,7 @@ public sealed class ProjectsController(IProjectService projects, ITaskCommandSer
     {
         if (result.IsSuccess)
             return Ok(new { status = "OK" });
-        if (result.ErrorDetail?.Code == "PROJECT_CONFLICT")
+        if (result.ErrorDetail?.Code is "PROJECT_CONFLICT" or "InvalidStateTransition")
             return ProjectConflict(result.ErrorDetail);
         if (result.ErrorDetail?.Code is "MILESTONE_STALE_VERSION" or "MILESTONE_CONFLICT")
             return MilestoneConflict(result.ErrorDetail);
@@ -273,7 +273,7 @@ public sealed class ProjectsController(IProjectService projects, ITaskCommandSer
     {
         if (result.IsSuccess)
             return Ok(result.Value);
-        if (result.ErrorDetail?.Code == "PROJECT_CONFLICT")
+        if (result.ErrorDetail?.Code is "PROJECT_CONFLICT" or "InvalidStateTransition")
             return ProjectConflict(result.ErrorDetail);
         if (result.ErrorDetail?.Code is "MILESTONE_STALE_VERSION" or "MILESTONE_CONFLICT")
             return MilestoneConflict(result.ErrorDetail);

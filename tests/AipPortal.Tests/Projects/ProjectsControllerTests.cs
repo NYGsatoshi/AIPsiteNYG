@@ -60,6 +60,31 @@ public sealed class ProjectsControllerTests
     }
 
     [Fact]
+    public void ExplicitActivationRequirementMapsToSafeHttp409Envelope()
+    {
+        var detail = new ApplicationErrorDetail(
+            "InvalidStateTransition",
+            "A Planning Project must use the explicit activation command before it can become Active.");
+        var controller = Controller();
+        var genericMethod = typeof(ProjectsController)
+            .GetMethods(BindingFlags.Instance | BindingFlags.NonPublic)
+            .Single(candidate => candidate.Name == "ToActionResult" && candidate.IsGenericMethod)
+            .MakeGenericMethod(typeof(string));
+
+        var action = Assert.IsType<ObjectResult>(
+            genericMethod.Invoke(controller, [Result<string>.Failure(detail)]));
+
+        Assert.Equal(StatusCodes.Status409Conflict, action.StatusCode);
+        using var envelope = JsonDocument.Parse(JsonSerializer.Serialize(action.Value));
+        Assert.Equal(
+            "InvalidStateTransition",
+            envelope.RootElement.GetProperty("error").GetProperty("code").GetString());
+        Assert.Equal(
+            "project",
+            envelope.RootElement.GetProperty("error").GetProperty("target").GetString());
+    }
+
+    [Fact]
     [Trait("Scope", "TaskV1PR06")]
     public void MilestoneRevisionConflictMapsToSafeHttp409Envelope()
     {

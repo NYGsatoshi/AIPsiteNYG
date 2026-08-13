@@ -153,6 +153,12 @@ public sealed class ProjectService(
 
         var previousStatus = project.Status;
         var nextStatus = request.Status ?? project.Status;
+        if (previousStatus == ProjectStatus.Planning && nextStatus == ProjectStatus.Active)
+        {
+            return Result<ProjectResponse>.Failure(new ApplicationErrorDetail(
+                "InvalidStateTransition",
+                "A Planning Project must use the explicit activation command before it can become Active."));
+        }
         if (!IsValidProjectStatusTransition(previousStatus, nextStatus))
         {
             return Result<ProjectResponse>.Failure($"Project status cannot transition from {previousStatus} to {nextStatus}.");
@@ -1594,7 +1600,7 @@ public sealed class ProjectService(
 
         return current switch
         {
-            ProjectStatus.Planning => next is ProjectStatus.Active or ProjectStatus.Suspended or ProjectStatus.Archived,
+            ProjectStatus.Planning => next is ProjectStatus.Suspended or ProjectStatus.Archived,
             ProjectStatus.Active => next is ProjectStatus.Review or ProjectStatus.Completed or ProjectStatus.Suspended or ProjectStatus.Archived,
             ProjectStatus.Review => next is ProjectStatus.Active or ProjectStatus.Completed or ProjectStatus.Suspended or ProjectStatus.Archived,
             ProjectStatus.Completed => next is ProjectStatus.Archived,
@@ -1653,13 +1659,14 @@ public sealed class ProjectService(
         return new ProjectResponse(
             project.Id,
             project.WorkspaceId,
-            project.GroupId ?? Guid.Empty,
+            project.GroupId,
             project.OwnerUserId,
             project.Name,
             project.Description,
             project.Status,
             project.StartDate,
             project.DueDate,
+            project.VersionNo,
             project.CreatedAt,
             project.UpdatedAt,
             new ProjectUiPermissionResponse(await taskAuthorization.CanCreateTask(userId, project.Id, cancellationToken)));

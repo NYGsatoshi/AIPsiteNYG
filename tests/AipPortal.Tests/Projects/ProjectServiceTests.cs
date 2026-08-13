@@ -1150,6 +1150,44 @@ public sealed class ProjectServiceTests
     }
 
     [Fact]
+    public async Task GenericUpdateCannotActivatePlanningProject()
+    {
+        var fixture = ProjectFixture.Create();
+        var manager = fixture.AddUser();
+        fixture.Current.UserIdValue = manager.Id;
+        fixture.AddProjectMember(manager.Id, ProjectRole.Manager);
+        fixture.Project.Status = ProjectStatus.Planning;
+
+        var result = await fixture.Service.UpdateAsync(
+            fixture.Project.Id,
+            new UpdateProjectRequest(null, null, ProjectStatus.Active, null, null));
+
+        Assert.False(result.IsSuccess);
+        Assert.Equal("InvalidStateTransition", result.ErrorDetail?.Code);
+        Assert.Equal(ProjectStatus.Planning, fixture.Project.Status);
+        Assert.Equal(0, fixture.CommandUnitOfWork.SaveCount);
+        Assert.Empty(fixture.Audit.Entries);
+        Assert.Equal(0, fixture.Invalidations.ProjectChangedCount);
+    }
+
+    [Fact]
+    public async Task ProjectResponsePreservesNullGroupAndExposesVersion()
+    {
+        var fixture = ProjectFixture.Create();
+        var member = fixture.AddUser();
+        fixture.Current.UserIdValue = member.Id;
+        fixture.AddProjectMember(member.Id, ProjectRole.Viewer);
+        fixture.Project.GroupId = null;
+        fixture.Project.VersionNo = 7;
+
+        var result = await fixture.Service.GetAsync(fixture.Project.Id);
+
+        Assert.True(result.IsSuccess);
+        Assert.Null(result.Value!.GroupId);
+        Assert.Equal(7, result.Value.VersionNo);
+    }
+
+    [Fact]
     public async Task ArchiveCreatesAuditLog()
     {
         var fixture = ProjectFixture.Create();
@@ -1645,6 +1683,7 @@ public sealed class ProjectServiceTests
     {
         public int TaskChangedCount { get; private set; }
         public int TaskAssignmentChangedCount { get; private set; }
+        public int ProjectChangedCount { get; private set; }
         public List<string> TaskAssignmentChanges { get; } = [];
 
         public Task TaskChangedAsync(
@@ -1671,7 +1710,11 @@ public sealed class ProjectServiceTests
             return Task.CompletedTask;
         }
 
-        public Task ProjectChangedAsync(Project project, Guid actorUserId, string change, CancellationToken cancellationToken = default) => Task.CompletedTask;
+        public Task ProjectChangedAsync(Project project, Guid actorUserId, string change, CancellationToken cancellationToken = default)
+        {
+            ProjectChangedCount++;
+            return Task.CompletedTask;
+        }
         public Task AnnouncementChangedAsync(Announcement announcement, Guid actorUserId, string change, IEnumerable<Guid> audienceUserIds, CancellationToken cancellationToken = default) => Task.CompletedTask;
         public Task FileChangedAsync(FileObject fileObject, Attachment attachment, Guid actorUserId, string change, CancellationToken cancellationToken = default) => Task.CompletedTask;
     }
