@@ -4,6 +4,52 @@ This document is the active API convention guide. For endpoint examples, use `do
 
 Implementation note: this document describes the intended contract. The current controllers do not consistently follow one error shape or HTTP status mapping. Global exceptions return `ErrorResponse(Code, Message, TraceId)`, while many controller failures return `{ "error": "..." }` and map authorization/not-found failures to `400`. TASK-V1-PR06 adds a narrow safe envelope and typed status mapping for the Gantt snapshot, schedule/progress, and dependency routes only; it does not resolve the repository-wide mismatch. Track the broader mismatch in `docs/KNOWN_ISSUES.md`; exact controller/service findings are in `docs/BACKEND_LOGIC_AUDIT.md`.
 
+## WPC-01 partial backend foundation
+
+WPC-01 makes Workspace creation retry-safe and moves its authority from the
+legacy platform-role check to current Tenant Owner/Admin membership. It does
+not complete the canonical Project creation or activation contracts because
+the current specification does not resolve the existing-Project visibility
+backfill or Project-create authority, and the implementation has no canonical
+default-channel provisioning boundary.
+
+`GET /api/workspaces/capabilities` returns the backend-owned current-Tenant
+projection:
+
+```json
+{ "canCreate": true }
+```
+
+`POST /api/workspaces` requires an `Idempotency-Key` header of at most 128
+characters and keeps the approved minimal body:
+
+```json
+{
+  "name": "Workspace name",
+  "description": null,
+  "icon": null
+}
+```
+
+The authenticated actor and current Tenant are server-owned scope. Tenant
+Owner/Admin may create; ordinary membership and platform role alone do not
+grant creation. A successful response is HTTP 201 and reconciles one
+Workspace, one active creator `Owner` membership, one `WorkspaceCreated` audit
+row, one authorization-state Outbox event, and one durable idempotency record.
+Replaying the same normalized request with the same scoped identity returns
+the same logical resource. Reusing the identity for a different request is
+HTTP 409. Missing/invalid identity is HTTP 400.
+
+Project responses now preserve nullable `groupId` and expose `versionNo`.
+`POST /api/projects` remains the only create route and is explicitly a legacy,
+incomplete compatibility surface: its body still owns `workspaceId`, Group is
+still required, and it has no Visibility or create-idempotency contract.
+`POST /api/workspaces/{workspaceId}/projects` and
+`POST /api/projects/{projectId}/activate` are not implemented by WPC-01.
+Generic Project PATCH rejects the direct `Planning` to `Active` transition,
+but complete activation-only lifecycle enforcement remains blocked by legacy
+archive/restore and suspended-state semantics.
+
 ## General Rules
 
 - REST APIs are the source of truth for the bundled frontend.

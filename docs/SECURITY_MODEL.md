@@ -1,7 +1,7 @@
 # Security Model
 
-Last broad implementation audit: 2026-06-18. TASK-V1-PR07-C security-boundary
-update: 2026-08-03.
+Last broad implementation audit: 2026-06-18. WPC-01 security-boundary update
+candidate: 2026-08-13.
 
 This document separates implemented security controls from intended policy. Root `SECURITY.md` describes vulnerability reporting; `docs/SECURITY.md` contains additional engineering guidance.
 
@@ -63,6 +63,38 @@ Role layers:
 - Workspace, group, channel, conversation, and project roles control resource operations.
 
 Known limitation: controllers commonly return `400` for application authorization/not-found failures, so HTTP status semantics are inconsistent.
+
+### WPC-01 Workspace creation boundary
+
+Workspace creation is authorized against current persisted Tenant membership.
+An active, non-deleted user with active Tenant `Owner` or `Admin` membership
+may create in that current Tenant. Ordinary Tenant membership is insufficient,
+and a platform/SystemAdmin role is not an undocumented Tenant bypass. The
+backend publishes this same decision through
+`GET /api/workspaces/capabilities`; frontend role labels are not authority.
+
+Delegated `workspace.create` is not implemented because there is no current
+delegation store or evaluator boundary. WPC-01 fails closed instead of deriving
+delegation from display roles or unrelated admin access.
+
+Create retry identity is scoped by Tenant, authenticated actor, operation, and
+a hash of the client identity. Reconciliation re-runs current authorization
+and queries through current Tenant filters. A key cannot authorize another
+Tenant, actor, or operation. The raw identity and request payload are not
+persisted.
+
+### WPC-01 Project security status
+
+Canonical Project Visibility is not partially persisted or projected. The
+existing discovery/read paths do not yet provide one consistent safe mapping
+for `WorkspaceVisible`, `MembersOnly`, and `Restricted`, and the specification
+does not define a non-broadening backfill for existing Projects. The canonical
+Workspace-scoped create route and activation command therefore remain blocked.
+Project responses only receive the already-safe nullable Group projection and
+existing optimistic-concurrency version. Generic PATCH now rejects the direct
+`Planning` to `Active` transition; indirect legacy archive/restore and
+suspended-state activation paths remain an explicit blocker rather than being
+misrepresented as canonical activation.
 
 ### Immediate Task notification boundary
 

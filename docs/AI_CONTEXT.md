@@ -2,8 +2,8 @@
 
 This is the primary entry point for future Codex work on AIPsiteNYG.
 
-Last broad repository audit: **2026-08-02**. TASK-V1-PR07-D implementation
-worktree update: **2026-08-06**.
+Last broad repository audit: **2026-08-02**. WPC-01 backend-foundation
+candidate update: **2026-08-13**.
 
 ## Documentation authority
 
@@ -69,7 +69,8 @@ Project references enforce a conventional dependency direction. See `docs/ARCHIT
 | `Platform:*` configuration switches | Partially implemented | Properties are bound; only setup mode is consulted by startup validation |
 | Database tenant feature flags and quotas | Partially implemented | File uploads, exports, integrations, and UI shell use them; broad module gating is incomplete |
 | `Features:*` appsettings switches | Documentation mismatch | Bound in DI but not used to gate controllers/services |
-| Workspaces/groups/channels/posts | Backend implemented; browser UI planned/partial | REST layers exist; routes render placeholders |
+| Workspaces/groups/channels/posts | Partially implemented; WPC-01 Workspace-create foundation candidate | REST layers exist. WPC-01 authorizes create from current active Tenant Owner/Admin membership, adds a backend `canCreate` projection, and makes Workspace/creator-Owner/audit/authorization-Outbox creation retry-safe with durable scoped idempotency. Delegated `workspace.create` and canonical default `general` Conversation provisioning remain blocked. Browser creation UI is not part of WPC-01. |
+| WPC Project creation/activation | Blocked foundation | Project responses preserve nullable `GroupId` and expose `VersionNo`; direct generic `Planning -> Active` PATCH is denied. Canonical Visibility/backfill, Workspace-scoped create, optional Group API binding, Project create idempotency, authoritative create capability, canonical default Channel provisioning, and atomic activation remain unresolved. See `docs/verification/wpc-01-workspace-project-creation-foundation.md`. |
 | Messaging | Partially implemented | REST, direct-message recipient search, direct conversation creation, browser send/read persistence, and durable realtime message/unread reconciliation exist. The two Messaging files accidentally committed to PR #259 by `9f7b8f3` were restored to actual `origin/main` by forward cleanup commit `e8bdf47`; PR #259 no longer contains their PR07-scope diff. Safe attachment ownership and production PostgreSQL verification remain incomplete. |
 | Announcements | Partially implemented | REST and UI exist; scoped visibility and frontend role/user-ID behavior have confirmed defects |
 | Projects/tasks/milestones/assignments/comments/Gantt data | Partially implemented; PR06 merged, large-project delivery deferred | PR02 adds versioned Task workflow, relationship, review, Claim, and FS-authoring command routes. PR05 adds the canonical Project Kanban snapshot/config/move flow. PR06 upgrades the existing Project Detail Schedule tab and Gantt route with a bounded scheduled/unscheduled projection, manual schedule/progress/FS dependency commands, canonical Task-only parent derivation and terminal parent/child guards, optimistic concurrency, explicit conflict Retry/Discard, structured warnings, accessible/mobile alternatives, lazy vendor isolation, and authoritative realtime refetch. PR #259 merged at `d5de01cf303c914c2b390346575a22cadb8b4443`. The owner subsequently approved its 500 combined-item / 2,000 active-dependency / typed HTTP 400 fail-closed safeguards as the temporary PR06 snapshot contract. Large-project pagination and virtualization remain open under `TASK-V1-PR06B`. See `docs/TASK_V1_PR02.md`, `docs/TASK_V1_PR05.md`, and `docs/TASK_V1_PR06.md`. |

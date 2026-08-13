@@ -1,7 +1,7 @@
 # Database
 
-Last broad implementation audit: 2026-08-02. TASK-V1-PR07-C schema update:
-2026-08-03.
+Last broad implementation audit: 2026-08-02. WPC-01 schema update candidate:
+2026-08-13.
 
 ## Technology
 
@@ -26,11 +26,11 @@ Use these in order:
 
 ## Migration history
 
-There are forty-two timestamped EF migration classes in the PR07-C candidate,
+There are forty-three timestamped EF migration classes in the WPC-01 candidate,
 from:
 
 - `20260606135558_InitialCreate`
-- through `20260803041347_AddTaskDeadlineDigestLedger`
+- through `20260813100711_Wpc01WorkspaceCreateIdempotency`
 
 Migration files live in `src/AipPortal.Infrastructure/Persistence/Migrations/`.
 
@@ -43,8 +43,30 @@ The application does not auto-migrate. `/health/ready` fails when pending migrat
 - Tenant, TenantSettings
 - Plan, Subscription, UsageRecord
 - TenantUser
+- IdempotencyRecord
 - ExportJob
 - IntegrationAccount, WebhookEndpoint, ApiToken
+
+### WPC-01 Workspace create idempotency
+
+Migration `20260813100711_Wpc01WorkspaceCreateIdempotency` adds only
+`idempotency_records`. The unique key is
+`(TenantId, ActorUserId, Operation, KeyHash)`. The raw client identity and
+request body are never stored; SHA-256 hashes retain retry identity and request
+equivalence. A resource index supports safe reconciliation, and the actor
+foreign key uses restricted deletion.
+
+The claim, Workspace, creator Owner membership, audit row, and authorization
+Outbox row commit in one PostgreSQL transaction. Failed initialization rolls
+the claim back, so a later retry is not mistaken for a successful replay.
+Records currently have no automatic expiration; they retain replay identity
+indefinitely unless a separately approved retention operation is added.
+
+WPC-01 deliberately adds no Project Visibility column or backfill. The
+canonical specification does not map existing rows safely, and adding the
+`MembersOnly` create default as an existing-row default could remove currently
+available access while another mapping could broaden it. Project Visibility
+persistence remains a blocking migration decision.
 
 ### Identity
 

@@ -4,6 +4,33 @@ Last implementation audit: 2026-06-19.
 
 This list records confirmed implementation/documentation mismatches and major unknowns. It is not limited to defects already filed in GitHub.
 
+## WPC-01 canonical creation blockers
+
+The WPC-01 branch implements only the independent safe Workspace-create
+foundation. The following canonical blockers remain and prevent WPC-02/WPC-03
+from treating the backend as complete:
+
+- **WPC-01-001, blocking decision:** no specification rule safely maps existing
+  Projects to `WorkspaceVisible`, `MembersOnly`, or `Restricted`. Existing list,
+  detail, search, Task, and Group-derived access semantics disagree, so a
+  migration default could broaden or remove access.
+- **WPC-01-002, blocking decision:** the canonical authority for creating a
+  Workspace-root Project is not resolved. Current code requires Group
+  management and must not be broadened by inference.
+- **WPC-01-003, blocking dependency:** no persisted/evaluated delegated
+  `workspace.create` capability boundary exists. Tenant Owner/Admin is enforced;
+  delegation fails closed.
+- **WPC-01-004, blocking dependency:** canonical Conversation persistence has
+  no unambiguous Workspace/Project default-channel provisioning boundary.
+  Legacy Channel/Post is not an acceptable substitute.
+- **WPC-01-005, blocking lifecycle/data-integrity dependency:** atomic Project
+  activation cannot be implemented until Visibility, canonical default Channel,
+  and Task workflow attachment semantics are resolved. Direct generic
+  `Planning -> Active` PATCH is closed, but `Planning -> Archived/Suspended ->
+  Active` can still pass through legacy restore/status paths because current
+  persistence does not distinguish a never-activated Draft from a previously
+  active Project. Do not expose activation UI until this is remediated.
+
 ## Backend application logic audit findings
 
 The detailed controller, service, validation, error-handling, file, project, messaging, announcement, DI, and HTTP-status audit is maintained in `docs/BACKEND_LOGIC_AUDIT.md`.
