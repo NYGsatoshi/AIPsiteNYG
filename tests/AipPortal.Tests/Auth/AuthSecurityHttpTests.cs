@@ -96,6 +96,7 @@ public sealed class AuthSecurityHttpTests
     [InlineData("DELETE", "/api/files/00000000-0000-0000-0000-000000000000")]
     [InlineData("POST", "/api/auth/register-by-invite")]
     [InlineData("POST", "/api/invites/accept")]
+    [InlineData("POST", "/api/workspaces")]
     [InlineData("PUT", "/api/projects/00000000-0000-0000-0000-000000000000/kanban/config")]
     [InlineData("POST", "/api/tasks/00000000-0000-0000-0000-000000000000/kanban-move")]
     public async Task UnsafeCookieAuthFlowsWithoutCsrfTokenAreRejected(string method, string path)

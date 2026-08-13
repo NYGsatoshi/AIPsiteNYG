@@ -1,12 +1,14 @@
 using AipPortal.Application.Common;
 using AipPortal.Application.Common.Interfaces;
+using AipPortal.Application.Tenancy;
 using AipPortal.Domain.Enums;
 
 namespace AipPortal.Application.Workspaces;
 
 public sealed class WorkspaceAuthorizationService(
     IUserRepository users,
-    IWorkspaceRepository workspaces) : IWorkspaceAuthorizationService
+    IWorkspaceRepository workspaces,
+    ITenantAuthorizationService? tenants = null) : IWorkspaceAuthorizationService
 {
     public async Task<bool> CanViewWorkspace(Guid userId, Guid workspaceId, CancellationToken cancellationToken = default)
     {
@@ -41,10 +43,13 @@ public sealed class WorkspaceAuthorizationService(
         return member is { Status: MembershipStatus.Active } && member.Role.CanContribute();
     }
 
-    public async Task<bool> CanCreateWorkspace(Guid userId, CancellationToken cancellationToken = default)
+    public async Task<bool> CanCreateWorkspace(Guid userId, Guid tenantId, CancellationToken cancellationToken = default)
     {
         var user = await users.GetByIdAsync(userId, cancellationToken);
-        return user is { SystemRole: SystemRole.SystemAdmin, Status: UserStatus.Active };
+        return tenantId != Guid.Empty &&
+               tenants is not null &&
+               user is { Status: UserStatus.Active, DeletedAt: null } &&
+               await tenants.CanManageTenantAsync(userId, tenantId, cancellationToken);
     }
 
     private async Task<bool> IsSystemAdmin(Guid userId, CancellationToken cancellationToken)

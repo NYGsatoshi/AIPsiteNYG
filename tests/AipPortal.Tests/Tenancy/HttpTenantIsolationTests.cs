@@ -37,6 +37,95 @@ namespace AipPortal.Tests.Tenancy;
 public sealed class HttpTenantIsolationTests
 {
     [Fact]
+    [Trait("Scope", "WPC01")]
+    public async Task WorkspaceCreateHttpContractBindsCapabilityAuthorizationAndIdempotency()
+    {
+        await using var app = await HttpTenantIsolationTestApp.CreateAsync();
+        var data = app.Data;
+
+        Assert.Contains("GET api/workspaces/capabilities", app.GetHttpRoutes());
+        Assert.Contains("POST api/workspaces", app.GetHttpRoutes());
+
+        using (var ownerCapability = await app.SendAsync(data.TenantAOwner, data.TenantA.Slug, "/api/workspaces/capabilities"))
+        using (var document = JsonDocument.Parse(await ownerCapability.Content.ReadAsStringAsync()))
+        {
+            Assert.Equal(HttpStatusCode.OK, ownerCapability.StatusCode);
+            Assert.True(document.RootElement.GetProperty("canCreate").GetBoolean());
+        }
+
+        using (var memberCapability = await app.SendAsync(data.TenantAMember, data.TenantA.Slug, "/api/workspaces/capabilities"))
+        using (var document = JsonDocument.Parse(await memberCapability.Content.ReadAsStringAsync()))
+        {
+            Assert.Equal(HttpStatusCode.OK, memberCapability.StatusCode);
+            Assert.False(document.RootElement.GetProperty("canCreate").GetBoolean());
+        }
+
+        using (var missingIdentity = await SendWorkspaceCreateAsync(
+                   app,
+                   data.TenantAOwner,
+                   data.TenantA.Slug,
+                   null,
+                   "Missing identity"))
+        {
+            Assert.Equal(HttpStatusCode.BadRequest, missingIdentity.StatusCode);
+        }
+
+        using (var denied = await SendWorkspaceCreateAsync(
+                   app,
+                   data.TenantAMember,
+                   data.TenantA.Slug,
+                   "wpc01-member-denied",
+                   "Denied member workspace"))
+        {
+            Assert.Equal(HttpStatusCode.Forbidden, denied.StatusCode);
+        }
+
+        Guid createdId;
+        using (var created = await SendWorkspaceCreateAsync(
+                   app,
+                   data.TenantAOwner,
+                   data.TenantA.Slug,
+                   "wpc01-http-create",
+                   "HTTP Created Workspace"))
+        using (var document = JsonDocument.Parse(await created.Content.ReadAsStringAsync()))
+        {
+            Assert.Equal(HttpStatusCode.Created, created.StatusCode);
+            createdId = document.RootElement.GetProperty("id").GetGuid();
+            Assert.Null(document.RootElement.GetProperty("description").GetString());
+        }
+
+        using (var replay = await SendWorkspaceCreateAsync(
+                   app,
+                   data.TenantAOwner,
+                   data.TenantA.Slug,
+                   "wpc01-http-create",
+                   "HTTP Created Workspace"))
+        using (var document = JsonDocument.Parse(await replay.Content.ReadAsStringAsync()))
+        {
+            Assert.Equal(HttpStatusCode.Created, replay.StatusCode);
+            Assert.Equal(createdId, document.RootElement.GetProperty("id").GetGuid());
+        }
+
+        using (var mismatch = await SendWorkspaceCreateAsync(
+                   app,
+                   data.TenantAOwner,
+                   data.TenantA.Slug,
+                   "wpc01-http-create",
+                   "Different request"))
+        using (var document = JsonDocument.Parse(await mismatch.Content.ReadAsStringAsync()))
+        {
+            Assert.Equal(HttpStatusCode.Conflict, mismatch.StatusCode);
+            Assert.Equal(
+                "IdempotencyConflict",
+                document.RootElement.GetProperty("error").GetProperty("code").GetString());
+        }
+
+        Assert.Equal(
+            1,
+            await app.CountWorkspacesAsync(data.TenantA.Id, data.TenantA.Slug, "HTTP Created Workspace"));
+    }
+
+    [Fact]
     public async Task AuthenticatedHttpRequestsStayTenantScopedAcrossCoreWorkflows()
     {
         await using var app = await HttpTenantIsolationTestApp.CreateAsync();
@@ -1639,6 +1728,31 @@ public sealed class HttpTenantIsolationTests
 
     private static StringContent JsonContent(string json) => new(json, Encoding.UTF8, "application/json");
 
+    private static async Task<HttpResponseMessage> SendWorkspaceCreateAsync(
+        HttpTenantIsolationTestApp app,
+        User user,
+        string tenantSlug,
+        string? idempotencyKey,
+        string name)
+    {
+        using var request = new HttpRequestMessage(HttpMethod.Post, "/api/workspaces");
+        request.Headers.TryAddWithoutValidation("X-Test-User-Id", user.Id.ToString("D"));
+        request.Headers.TryAddWithoutValidation("X-Test-Email", user.Email);
+        request.Headers.TryAddWithoutValidation("X-Test-System-Role", user.SystemRole.ToString());
+        request.Headers.TryAddWithoutValidation("X-Tenant-Slug", tenantSlug);
+        if (idempotencyKey is not null)
+        {
+            request.Headers.TryAddWithoutValidation("Idempotency-Key", idempotencyKey);
+        }
+        request.Content = JsonContent(JsonSerializer.Serialize(new
+        {
+            name,
+            description = (string?)null,
+            icon = (string?)null
+        }));
+        return await app.Client.SendAsync(request);
+    }
+
     private static void AssertDetailAggregateShape(JsonElement root, TenantIsolationTestData data)
     {
         var task = root.GetProperty("task");
@@ -1915,6 +2029,15 @@ public sealed class HttpTenantIsolationTests
             return await dbContext.AuditLogs.AsNoTracking().ToListAsync();
         }
 
+        public async Task<int> CountWorkspacesAsync(Guid tenantId, string tenantSlug, string name)
+        {
+            await using var scope = App.Services.CreateAsyncScope();
+            var currentTenant = scope.ServiceProvider.GetRequiredService<CurrentTenantService>();
+            currentTenant.SetTenant(tenantId, tenantSlug);
+            var dbContext = scope.ServiceProvider.GetRequiredService<AppDbContext>();
+            return await dbContext.Workspaces.CountAsync(item => item.Name == name);
+        }
+
         public async Task<Conversation?> GetConversationAsync(Guid tenantId, string tenantSlug, Guid conversationId)
         {
             await using var scope = App.Services.CreateAsyncScope();
@@ -2166,6 +2289,7 @@ public sealed class HttpTenantIsolationTests
             services.AddScoped<AipPortal.Application.Realtime.IOutboxEventRepository, OutboxEventRepository>();
             services.AddScoped<AipPortal.Application.Realtime.ITransactionalOutbox, AipPortal.Application.Realtime.TransactionalOutbox>();
             services.AddScoped<IUnitOfWork, EfUnitOfWork>();
+            services.AddScoped<ICreateIdempotencyCoordinator, EfCreateIdempotencyCoordinator>();
             services.AddScoped<IFileUploadPolicy, ConfiguredFileUploadPolicy>();
             services.AddScoped<IFileStorageService, InMemoryFileStorageService>();
             services.AddScoped<IPasswordHasher, Pbkdf2PasswordHasher>();

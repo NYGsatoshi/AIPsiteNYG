@@ -14,10 +14,44 @@ public sealed class WorkspacesController(IWorkspaceService workspaces) : Control
         return ToActionResult(await workspaces.ListAsync(cancellationToken));
     }
 
-    [HttpPost("api/workspaces")]
-    public async Task<IActionResult> Create(CreateWorkspaceRequest request, CancellationToken cancellationToken)
+    [HttpGet("api/workspaces/capabilities")]
+    public async Task<IActionResult> Capabilities(CancellationToken cancellationToken)
     {
-        return ToActionResult(await workspaces.CreateAsync(request, cancellationToken));
+        return ToActionResult(await workspaces.GetCapabilitiesAsync(cancellationToken));
+    }
+
+    [HttpPost("api/workspaces")]
+    public async Task<IActionResult> Create(
+        CreateWorkspaceRequest request,
+        [FromHeader(Name = "Idempotency-Key")] string? idempotencyKey,
+        CancellationToken cancellationToken)
+    {
+        var result = await workspaces.CreateAsync(request, idempotencyKey, cancellationToken);
+        if (result.IsSuccess)
+        {
+            return CreatedAtAction(nameof(Get), new { workspaceId = result.Value!.Id }, result.Value);
+        }
+
+        var payload = new
+        {
+            requestId = HttpContext.TraceIdentifier,
+            error = new
+            {
+                code = result.ErrorDetail?.Code ?? "ValidationFailed",
+                message = result.ErrorDetail?.Message ?? result.Error ?? "Workspace creation failed.",
+                target = "workspace",
+                details = Array.Empty<object>(),
+                redactionApplied = false
+            }
+        };
+        return result.ErrorDetail?.Code switch
+        {
+            "AuthenticationRequired" => Unauthorized(payload),
+            "CapabilityDenied" => StatusCode(StatusCodes.Status403Forbidden, payload),
+            "IdempotencyConflict" or "IdempotencyReplayUnavailable" => Conflict(payload),
+            "IdempotencyUnavailable" or "InitializationUnavailable" => StatusCode(StatusCodes.Status503ServiceUnavailable, payload),
+            _ => BadRequest(payload)
+        };
     }
 
     [HttpGet("api/workspaces/{workspaceId:guid}")]

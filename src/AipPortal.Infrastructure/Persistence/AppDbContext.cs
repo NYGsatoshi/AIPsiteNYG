@@ -26,6 +26,7 @@ public sealed class AppDbContext(
     public DbSet<Session> Sessions => Set<Session>();
     public DbSet<Invite> Invites => Set<Invite>();
     public DbSet<Workspace> Workspaces => Set<Workspace>();
+    public DbSet<IdempotencyRecord> IdempotencyRecords => Set<IdempotencyRecord>();
     public DbSet<WorkspaceMember> WorkspaceMembers => Set<WorkspaceMember>();
     public DbSet<Group> Groups => Set<Group>();
     public DbSet<GroupMember> GroupMembers => Set<GroupMember>();

@@ -57,6 +57,7 @@ public static class DependencyInjection
         services.AddScoped<EfUnitOfWork>();
         services.AddScoped<IUnitOfWork>(serviceProvider => serviceProvider.GetRequiredService<EfUnitOfWork>());
         services.AddScoped<ITaskCommandUnitOfWork>(serviceProvider => serviceProvider.GetRequiredService<EfUnitOfWork>());
+        services.AddScoped<ICreateIdempotencyCoordinator, EfCreateIdempotencyCoordinator>();
         services.Configure<FileStorageOptions>(options =>
         {
             var section = configuration.GetSection("FileStorage");
