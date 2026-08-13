@@ -1204,6 +1204,8 @@ public sealed class ProjectServiceTests
         Assert.DoesNotContain(fixture.Audit.Entries, entry => entry.Action == "ProjectRestored");
         Assert.DoesNotContain(fixture.Audit.Entries, entry => entry.Action == "ProjectActivated");
         Assert.Equal(1, fixture.Invalidations.ProjectChangedCount);
+        Assert.Contains(fixture.AuthorizationChanges.Items, item =>
+            item.UserId == manager.Id && item.ScopeId == fixture.Project.Id && item.Change == "archived");
     }
 
     [Fact]
@@ -1349,6 +1351,61 @@ public sealed class ProjectServiceTests
 
     [Fact]
     [Trait("Scope", "WPC01")]
+    public async Task ActiveProjectCanCompleteAsAnOrdinaryPostOperationalTransition()
+    {
+        var fixture = ProjectFixture.Create();
+        var manager = fixture.AddUser();
+        fixture.Current.UserIdValue = manager.Id;
+        fixture.AddProjectMember(manager.Id, ProjectRole.Manager);
+        fixture.Project.Status = ProjectStatus.Active;
+
+        var result = await fixture.Service.UpdateAsync(
+            fixture.Project.Id,
+            new UpdateProjectRequest(null, null, ProjectStatus.Completed, null, null));
+
+        Assert.True(result.IsSuccess);
+        Assert.Equal(ProjectStatus.Completed, fixture.Project.Status);
+        Assert.Single(fixture.Audit.Entries, entry => entry.Action == "ProjectStatusChanged");
+        Assert.Equal(1, fixture.CommandUnitOfWork.SaveCount);
+        Assert.Equal(1, fixture.Invalidations.ProjectChangedCount);
+    }
+
+    [Theory]
+    [InlineData(ProjectStatus.Suspended, "suspended")]
+    [InlineData(ProjectStatus.Archived, "archived")]
+    [Trait("Scope", "WPC01")]
+    public async Task VisibilityReducingGenericTransitionInvalidatesEveryCurrentReader(
+        ProjectStatus nextStatus,
+        string change)
+    {
+        var fixture = ProjectFixture.Create();
+        var manager = fixture.AddUser();
+        var ordinaryViewer = fixture.AddUser();
+        fixture.Current.UserIdValue = manager.Id;
+        fixture.AddProjectMember(manager.Id, ProjectRole.Manager);
+        fixture.Projects.CurrentReaderUserIds[fixture.Project.Id] = [manager.Id, ordinaryViewer.Id];
+
+        var result = await fixture.Service.UpdateAsync(
+            fixture.Project.Id,
+            new UpdateProjectRequest(null, null, nextStatus, null, null));
+
+        Assert.True(result.IsSuccess);
+        Assert.Equal(nextStatus, fixture.Project.Status);
+        Assert.Equal(
+            new[] { manager.Id, ordinaryViewer.Id }.Order().ToArray(),
+            fixture.AuthorizationChanges.Items.Select(item => item.UserId).Order().ToArray());
+        Assert.All(fixture.AuthorizationChanges.Items, item =>
+        {
+            Assert.Equal(fixture.Project.Id, item.ScopeId);
+            Assert.Equal("project", item.ScopeType);
+            Assert.Equal(change, item.Change);
+        });
+        Assert.Equal(1, fixture.Invalidations.ProjectChangedCount);
+        Assert.Equal(1, fixture.CommandUnitOfWork.SaveCount);
+    }
+
+    [Fact]
+    [Trait("Scope", "WPC01")]
     public async Task ActiveProjectMetadataUpdateRetainsActiveStatus()
     {
         var fixture = ProjectFixture.Create();
@@ -1419,6 +1476,33 @@ public sealed class ProjectServiceTests
     }
 
     [Fact]
+    [Trait("Scope", "WPC01")]
+    public async Task ArchivedProjectIsReadOnlyAcrossUpdateAndRepeatedArchive()
+    {
+        var fixture = ProjectFixture.Create();
+        var manager = fixture.AddUser();
+        fixture.Current.UserIdValue = manager.Id;
+        fixture.AddProjectMember(manager.Id, ProjectRole.Manager);
+        fixture.Project.Status = ProjectStatus.Archived;
+        var originalName = fixture.Project.Name;
+
+        var updated = await fixture.Service.UpdateAsync(
+            fixture.Project.Id,
+            new UpdateProjectRequest("Must not persist", "Must not persist", null, null, null));
+        var archivedAgain = await fixture.Service.ArchiveAsync(fixture.Project.Id);
+
+        Assert.False(updated.IsSuccess);
+        Assert.Equal("InvalidStateTransition", updated.ErrorDetail?.Code);
+        Assert.False(archivedAgain.IsSuccess);
+        Assert.Equal("InvalidStateTransition", archivedAgain.ErrorDetail?.Code);
+        Assert.Equal(ProjectStatus.Archived, fixture.Project.Status);
+        Assert.Equal(originalName, fixture.Project.Name);
+        Assert.Empty(fixture.Audit.Entries);
+        Assert.Equal(0, fixture.CommandUnitOfWork.SaveCount);
+        Assert.Equal(0, fixture.Invalidations.ProjectChangedCount);
+    }
+
+    [Fact]
     public async Task PlanningProjectIsHiddenFromWorkspaceAndGroupAuthoritiesWithoutProjectMembership()
     {
         var fixture = ProjectFixture.Create();
@@ -1470,6 +1554,8 @@ public sealed class ProjectServiceTests
         Assert.Equal(ProjectStatus.Archived, fixture.Project.Status);
         Assert.False(fixture.Project.DeletedAt.HasValue);
         Assert.Contains(fixture.Audit.Entries, entry => entry.Action == "ProjectArchived" && entry.EntityId == fixture.Project.Id);
+        Assert.Contains(fixture.AuthorizationChanges.Items, item =>
+            item.UserId == manager.Id && item.ScopeId == fixture.Project.Id && item.Change == "archived");
     }
 
     [Fact]
@@ -1790,7 +1876,7 @@ public sealed class ProjectServiceTests
                 Clock,
                 Audit,
                 Invalidations,
-                new NoopAuthorizationChanges(),
+                AuthorizationChanges,
                 UnitOfWork,
                 CommandUnitOfWork,
                 taskNotifications: TaskNotifications);
@@ -1820,6 +1906,7 @@ public sealed class ProjectServiceTests
         public FakeTaskCommandUnitOfWork CommandUnitOfWork { get; } = new();
         public RecordingTaskNotificationProducer TaskNotifications { get; } = new();
         public RecordingInvalidations Invalidations { get; } = new();
+        public RecordingAuthorizationChanges AuthorizationChanges { get; } = new();
         public WorkspaceAuthorizationService WorkspaceAuthorization { get; }
         public GroupAuthorizationService GroupAuthorization { get; }
         public ProjectAuthorizationService ProjectAuthorization { get; }
@@ -1988,9 +2075,15 @@ public sealed class ProjectServiceTests
         public Task FileChangedAsync(FileObject fileObject, Attachment attachment, Guid actorUserId, string change, CancellationToken cancellationToken = default) => Task.CompletedTask;
     }
 
-    private sealed class NoopAuthorizationChanges : IAuthorizationStateChangePublisher
+    private sealed class RecordingAuthorizationChanges : IAuthorizationStateChangePublisher
     {
-        public Task PublishAsync(Guid tenantId, Guid affectedUserId, string scopeType, Guid? scopeId, string change, CancellationToken cancellationToken = default) => Task.CompletedTask;
+        public List<(Guid TenantId, Guid UserId, string ScopeType, Guid? ScopeId, string Change)> Items { get; } = [];
+
+        public Task PublishAsync(Guid tenantId, Guid affectedUserId, string scopeType, Guid? scopeId, string change, CancellationToken cancellationToken = default)
+        {
+            Items.Add((tenantId, affectedUserId, scopeType, scopeId, change));
+            return Task.CompletedTask;
+        }
     }
 
     private sealed class FakeTaskCommandUnitOfWork : ITaskCommandUnitOfWork
@@ -2015,6 +2108,7 @@ public sealed class ProjectServiceTests
     private sealed class FakeProjects : IProjectRepository
     {
         public Dictionary<Guid, Project> ProjectItems { get; } = [];
+        public Dictionary<Guid, IReadOnlyList<Guid>> CurrentReaderUserIds { get; } = [];
         public List<ProjectMember> Members { get; } = [];
         public Dictionary<Guid, Milestone> Milestones { get; } = [];
         public Dictionary<Guid, TaskItem> Tasks { get; } = [];
@@ -2034,6 +2128,14 @@ public sealed class ProjectServiceTests
         public void ReleaseMemberLookups() => releaseMemberLookups.TrySetResult();
 
         public Task<IReadOnlyList<Project>> ListVisibleAsync(Guid userId, CancellationToken cancellationToken = default) => Task.FromResult<IReadOnlyList<Project>>(ProjectItems.Values.Where(project => Members.Any(member => member.ProjectId == project.Id && member.UserId == userId)).ToList());
+        public Task<IReadOnlyList<Guid>> ListCurrentReaderUserIdsAsync(Guid projectId, CancellationToken cancellationToken = default) =>
+            Task.FromResult(CurrentReaderUserIds.TryGetValue(projectId, out var userIds)
+                ? userIds
+                : (IReadOnlyList<Guid>)Members
+                    .Where(member => member.ProjectId == projectId)
+                    .Select(member => member.UserId)
+                    .Distinct()
+                    .ToArray());
         public Task<Project?> GetProjectAsync(Guid projectId, CancellationToken cancellationToken = default) => Task.FromResult(ProjectItems.GetValueOrDefault(projectId));
         public async Task<ProjectMember?> GetMemberAsync(Guid projectId, Guid userId, CancellationToken cancellationToken = default)
         {

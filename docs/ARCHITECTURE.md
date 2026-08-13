@@ -318,7 +318,10 @@ use case use the same current-state policy rather than duplicating DbContext
 queries in controllers, the hub, or Angular. Immediately before every normal,
 delayed, retry, or operator-replay delivery, it rechecks tenant/user/session,
 active TenantUser, Workspace/member, Project visibility/lifecycle, Task
-lifecycle, and the routing target's current identity.
+lifecycle, Artifact ownership, recursive Message/Conversation ancestry, digest
+identity, and the routing target's current identity. Artifact resolution reuses
+the Project read boundary. Message resolution reuses the same scope-consistent,
+cycle-safe, maximum-32-level Conversation relation as Messaging reads.
 
 `Notifications.NotificationCreated.v1` and
 `Notifications.NotificationReadStateChanged.v1` are recipient-only user
@@ -326,8 +329,10 @@ routes. Task/Project subscriptions remain delivery optimizations only; a broad
 Workspace or Project target does not grant Task access. Authorization denial is
 a metadata-safe `NoAuthorizedRecipient` terminal delivery result, not a retry
 or DeadLetter transition. `Security.AuthorizationStateChanged.v1` remains a
-metadata-only recipient route and is emitted in the same business transaction
-as Workspace archive for every active affected member.
+metadata-only recipient route. Workspace archive emits it transactionally for
+every active affected member; Project archive and operational-to-Suspended
+transitions first capture the current Project readers and stage the same
+recipient-only invalidation in the lifecycle transaction.
 
 The hosted Angular application retains exactly one SignalR transport:
 `RealtimeFacade`. It validates approved envelopes/tenant IDs, bounds event
@@ -339,6 +344,10 @@ as bounded refetch triggers and preserve active edits rather than accepting a
 payload as projection truth. Task/digest Notification signals are
 reference-only and RightPanel coalesces its HTTP list refetch instead of
 constructing route or display data from the event.
+Artifact/Message created signals retain the legacy embedded recipient payload,
+but current target authorization still gates initial, delayed, retried, and
+replayed delivery. Notification list/count evaluation batches these checks so
+Message authorization does not execute one recursive query per row.
 
 The appsettings `Features:*` switches are bound but not read by feature controllers/services. Most `Platform:*` switches are also not enforcement gates. Treat them as partially implemented configuration, not authoritative runtime controls.
 
@@ -351,7 +360,7 @@ The appsettings `Features:*` switches are bound but not read by feature controll
 | Workspaces/groups/channels | CRUD and membership APIs | Angular target; route implementation is MVP-A follow-up |
 | Messaging | Conversation/message APIs | Angular target; route implementation is MVP-A follow-up |
 | Announcements | CRUD/read-state APIs | Angular target; route implementation is MVP-A follow-up |
-| Notifications | List/read/delete APIs | Angular target; route implementation is MVP-A follow-up |
+| Notifications | List/unread/read/delete/open APIs with protected-target reauthorization | Angular RightPanel implemented for its supported target union; Artifact/Message navigation remains a frontend binding follow-up |
 | Projects/planning | Broad project/task/planning APIs | Angular target; route implementation is MVP-A follow-up |
 | Files/artifacts | Upload/download/version APIs | Angular target; route implementation is MVP-A follow-up |
 | Events/forms | Broad APIs | Angular target; route implementation is MVP-A follow-up |
@@ -385,8 +394,6 @@ The following are planned, not architectural components in the current build:
 - API token authentication handler;
 - object-storage client;
 - external SSO/MFA;
-- PR07-D notification dispatch/open reauthorization and Angular digest
-  reconciliation (the existing shared SignalR/Outbox infrastructure remains);
 - billing/payment provider;
 - tenant restore engine;
 - full-text search service.

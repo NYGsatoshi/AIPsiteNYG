@@ -503,7 +503,7 @@ It does not create users, memberships, or demo content.
 
 ## Search
 
-Search queries relational tables directly with Npgsql `ILike` and membership predicates. There is no separate search index or full-text engine.
+Search queries relational tables directly with Npgsql `ILike` and membership predicates. There is no separate search index or full-text engine. Project-derived queries share the EF-translatable Project read scope. Message Search takes at most 100 candidate Conversation IDs, then authorizes their ancestor chains through a PostgreSQL recursive relation with a 32-level fail-closed ceiling before loading title/body results. Production Conversation pagination derives both items and `totalCount` from that same set-based recursive authorization relation; bounded detail/Search checks restrict its anchor to the requested IDs, and no broader preauthorization count is returned.
 
 PostgreSQL search tests exist but execute only when `POSTGRES_TEST_CONNECTION_STRING` is set.
 

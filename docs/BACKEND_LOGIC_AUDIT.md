@@ -72,7 +72,7 @@ The audit did not modify authentication logic, database schema, application UI, 
 ### BE-002: Project-derived Search authorization parity
 
 - Priority: critical.
-- Status: resolved in PR #281 under the current Project read policy; canonical
+- Status: resolved by the current PR #281 candidate under the current Project read policy; canonical
   Project Visibility persistence remains a separate WPC decision.
 - Affected pages: Search, Projects, Tasks, Artifacts, and project activity/comment results.
 - Exact files and methods:
@@ -96,9 +96,15 @@ The audit did not modify authentication logic, database schema, application UI, 
 - Resolution:
   - `ProjectReadScope.VisibleProjectsFor` is the reusable EF/PostgreSQL-
     translatable form of the current `CanViewProject` predicate;
-  - Project list and every Project-derived Search query use it;
+  - the non-Archived Project list and every Project-derived Search query use
+    it; `ListableProjectsFor` alone adds non-deleted Archived history for current Workspace
+    members with explicit Project membership;
   - Messaging retains readable Conversation membership and then applies the
     same Project scope;
+  - production PostgreSQL Conversation detail/list/count, polling, and Message
+    Search use one set-based recursive Thread ancestry boundary, reject missing,
+    inconsistent, cyclic, and deeper-than-32 scope, and never persist a child
+    beyond the readable limit;
   - My Tasks applies the same Project scope plus its existing active Workspace
     membership and task-relationship fences, removing the wider Adviser and
     `Project.OwnerUserId` shortcuts;
@@ -111,7 +117,9 @@ The audit did not modify authentication logic, database schema, application UI, 
     Project and Group even when readable Conversation membership exists;
   - it preserves explicit ProjectMember, GroupMember, Workspace Owner/Admin,
     ungrouped ordinary-member, and current SystemAdmin access, and denies a
-    revoked Workspace member with stale subordinate memberships.
+    revoked Workspace member with stale subordinate memberships;
+  - a depth-three revoked-ancestor case proves no item/count/body disclosure,
+    and an over-depth case proves bounded fail-closed search authorization.
 - Suggested issue: **Align search authorization with project and comment access rules**.
 
 ### BE-003: New conversations use an invalid required workspace foreign key

@@ -320,7 +320,7 @@ public sealed class Wpc01WorkspaceCreationPostgreSqlTests
             var ordinarySearch = await new DbSearchService(
                     db,
                     new TestCurrentUser(graph.OrdinaryUserId),
-                    conversationAuthorization)
+                    messaging)
                 .SearchAsync(new SearchRequest(
                     WorkspaceId: graph.WorkspaceId,
                     ProjectId: graph.ProjectId,
@@ -328,7 +328,7 @@ public sealed class Wpc01WorkspaceCreationPostgreSqlTests
             var systemAdminSearch = await new DbSearchService(
                     db,
                     new TestCurrentUser(graph.SystemAdminUserId, SystemRole.SystemAdmin),
-                    conversationAuthorization)
+                    messaging)
                 .SearchAsync(new SearchRequest(
                     WorkspaceId: graph.WorkspaceId,
                     ProjectId: graph.ProjectId,
@@ -336,7 +336,7 @@ public sealed class Wpc01WorkspaceCreationPostgreSqlTests
             var ownerSearch = await new DbSearchService(
                     db,
                     new TestCurrentUser(graph.OwnerUserId),
-                    conversationAuthorization)
+                    messaging)
                 .SearchAsync(new SearchRequest(
                     WorkspaceId: graph.WorkspaceId,
                     ProjectId: graph.ProjectId,
@@ -377,7 +377,7 @@ public sealed class Wpc01WorkspaceCreationPostgreSqlTests
             var suspendedSearch = await new DbSearchService(
                     db,
                     new TestCurrentUser(graph.OrdinaryUserId),
-                    conversationAuthorization)
+                    messaging)
                 .SearchAsync(new SearchRequest(
                     WorkspaceId: graph.WorkspaceId,
                     ProjectId: graph.ProjectId,
@@ -439,6 +439,16 @@ public sealed class Wpc01WorkspaceCreationPostgreSqlTests
                     expectation);
             }
 
+            Assert.Equal(
+                groupedExpectations
+                    .Where(expectation => expectation.Expected)
+                    .Select(expectation => expectation.UserId)
+                    .Order()
+                    .ToArray(),
+                (await projectRepository.ListCurrentReaderUserIdsAsync(graph.GroupedProject.ProjectId))
+                    .Order()
+                    .ToArray());
+
             await AssertProjectReadParityAsync(
                 db,
                 projectAuthorization,
@@ -450,6 +460,68 @@ public sealed class Wpc01WorkspaceCreationPostgreSqlTests
                     graph.OrdinaryWorkspaceMemberUserId,
                     SystemRole.NormalUser,
                     true));
+
+            var resolverTenant = new CurrentTenantService();
+            resolverTenant.SetTenant(graph.TenantId, graph.TenantSlug);
+            var realtimeResolver = new CurrentAuthorizationTargetResolver(db, resolverTenant);
+            var projectEnvelope = new DurableEventEnvelope(
+                Guid.NewGuid(),
+                "Projects.ProjectChanged.v1",
+                RealtimeEventCatalog.PayloadSchemaVersion1,
+                TestClock.Value,
+                graph.TenantId,
+                "Project",
+                graph.GroupedProject.ProjectId,
+                1,
+                RealtimeActor.System(),
+                null,
+                null,
+                System.Text.Json.JsonSerializer.SerializeToElement(new
+                {
+                    projectId = graph.GroupedProject.ProjectId,
+                    workspaceId = graph.WorkspaceId
+                }));
+            var taskEnvelope = new DurableEventEnvelope(
+                Guid.NewGuid(),
+                "Projects.TaskChanged.v1",
+                RealtimeEventCatalog.PayloadSchemaVersion1,
+                TestClock.Value,
+                graph.TenantId,
+                "Task",
+                graph.GroupedProject.TaskId,
+                1,
+                RealtimeActor.System(),
+                null,
+                null,
+                System.Text.Json.JsonSerializer.SerializeToElement(new
+                {
+                    taskId = graph.GroupedProject.TaskId,
+                    projectId = graph.GroupedProject.ProjectId
+                }));
+            Assert.False(await realtimeResolver.CanReceiveProjectEventAsync(
+                graph.TenantId,
+                graph.OrdinaryWorkspaceMemberUserId,
+                RealtimeSubscriptionType.Project,
+                graph.GroupedProject.ProjectId,
+                projectEnvelope));
+            Assert.False(await realtimeResolver.CanReceiveTaskEventAsync(
+                graph.TenantId,
+                graph.OrdinaryWorkspaceMemberUserId,
+                RealtimeSubscriptionType.Project,
+                graph.GroupedProject.ProjectId,
+                taskEnvelope));
+            Assert.True(await realtimeResolver.CanReceiveProjectEventAsync(
+                graph.TenantId,
+                graph.GroupMemberUserId,
+                RealtimeSubscriptionType.Project,
+                graph.GroupedProject.ProjectId,
+                projectEnvelope));
+            Assert.True(await realtimeResolver.CanReceiveTaskEventAsync(
+                graph.TenantId,
+                graph.GroupMemberUserId,
+                RealtimeSubscriptionType.Project,
+                graph.GroupedProject.ProjectId,
+                taskEnvelope));
 
             Assert.False(await planning.CanViewMyTasksProjectAsync(
                 graph.OrdinaryWorkspaceMemberUserId,
@@ -544,6 +616,29 @@ public sealed class Wpc01WorkspaceCreationPostgreSqlTests
             db.Messages.Add(nestedMessage);
             await db.SaveChangesAsync();
 
+            Assert.True(await conversationAuthorization.CanViewConversation(
+                graph.ExplicitProjectMemberUserId,
+                nestedThread.Id));
+            var readableNestedPage = await messaging.ListForUserAsync(
+                graph.ExplicitProjectMemberUserId,
+                1,
+                100);
+            Assert.Contains(
+                readableNestedPage.Items,
+                conversation => conversation.Id == nestedThread.Id);
+            var readableNestedSearch = await new DbSearchService(
+                    db,
+                    new TestCurrentUser(graph.ExplicitProjectMemberUserId),
+                    messaging)
+                .SearchAsync(new SearchRequest(
+                    nestedNeedle,
+                    SearchResultType.Message,
+                    WorkspaceId: graph.WorkspaceId,
+                    ProjectId: graph.GroupedProject.ProjectId,
+                    PageSize: 50));
+            Assert.True(readableNestedSearch.IsSuccess, readableNestedSearch.Error);
+            Assert.Contains(readableNestedSearch.Value!.Items, item => item.Id == nestedMessage.Id);
+
             var revokedAncestorMember = await db.ConversationMembers.SingleAsync(member =>
                 member.ConversationId == firstThread.Id &&
                 member.UserId == graph.ExplicitProjectMemberUserId);
@@ -554,10 +649,42 @@ public sealed class Wpc01WorkspaceCreationPostgreSqlTests
             Assert.False(await conversationAuthorization.CanViewConversation(
                 graph.ExplicitProjectMemberUserId,
                 nestedThread.Id));
+            var authorizedConversationPage = await messaging.ListForUserAsync(
+                graph.ExplicitProjectMemberUserId,
+                1,
+                100);
+            var authorizedConversationCount = 0;
+            foreach (var conversation in authorizedConversationPage.Items)
+            {
+                if (await conversationAuthorization.CanViewConversation(
+                    graph.ExplicitProjectMemberUserId,
+                    conversation.Id))
+                {
+                    authorizedConversationCount++;
+                }
+            }
+
+            Assert.DoesNotContain(
+                authorizedConversationPage.Items,
+                conversation => conversation.Id == nestedThread.Id);
+            Assert.Equal(authorizedConversationCount, authorizedConversationPage.TotalCount);
+            var firstConversationPage = await messaging.ListForUserAsync(
+                graph.ExplicitProjectMemberUserId,
+                1,
+                1);
+            var secondConversationPage = await messaging.ListForUserAsync(
+                graph.ExplicitProjectMemberUserId,
+                2,
+                1);
+            Assert.Single(firstConversationPage.Items);
+            Assert.Equal(1, firstConversationPage.TotalCount);
+            Assert.Empty(secondConversationPage.Items);
+            Assert.Equal(firstConversationPage.TotalCount, secondConversationPage.TotalCount);
+
             var nestedSearch = await new DbSearchService(
                     db,
                     new TestCurrentUser(graph.ExplicitProjectMemberUserId),
-                    conversationAuthorization)
+                    messaging)
                 .SearchAsync(new SearchRequest(
                     nestedNeedle,
                     SearchResultType.Message,
@@ -566,6 +693,303 @@ public sealed class Wpc01WorkspaceCreationPostgreSqlTests
                     PageSize: 50));
             Assert.True(nestedSearch.IsSuccess, nestedSearch.Error);
             Assert.DoesNotContain(nestedSearch.Value!.Items, item => item.Id == nestedMessage.Id);
+
+            const string depthNeedle = "WpcThreadDepthBoundNeedle";
+            var deepThreads = new List<Conversation>();
+            var deepMembers = new List<ConversationMember>();
+            var parentId = graph.GroupedProject.ConversationId;
+            for (var depth = 1; depth <= 33; depth++)
+            {
+                var thread = new Conversation
+                {
+                    TenantId = graph.TenantId,
+                    WorkspaceId = graph.WorkspaceId,
+                    ProjectId = graph.GroupedProject.ProjectId,
+                    Type = ConversationType.Thread,
+                    ParentConversationId = parentId,
+                    RootConversationId = graph.GroupedProject.ConversationId,
+                    Title = $"WPC bounded thread {depth}",
+                    CreatedByUserId = graph.WorkspaceOwnerUserId
+                };
+                deepThreads.Add(thread);
+                deepMembers.Add(NewReadableConversationMember(
+                    graph,
+                    thread.Id,
+                    graph.ExplicitProjectMemberUserId));
+                parentId = thread.Id;
+            }
+
+            var overDepthThread = deepThreads[^1];
+            var overDepthMessage = new Message
+            {
+                TenantId = graph.TenantId,
+                WorkspaceId = graph.WorkspaceId,
+                ConversationId = overDepthThread.Id,
+                AuthorUserId = graph.WorkspaceOwnerUserId,
+                Body = $"{depthNeedle} protected message body"
+            };
+            db.Conversations.AddRange(deepThreads);
+            db.ConversationMembers.AddRange(deepMembers);
+            db.Messages.Add(overDepthMessage);
+            await db.SaveChangesAsync();
+            db.ChangeTracker.Clear();
+
+            Assert.True(await conversationAuthorization.CanCreateThread(
+                graph.ExplicitProjectMemberUserId,
+                deepThreads[30].Id));
+            Assert.False(await conversationAuthorization.CanCreateThread(
+                graph.ExplicitProjectMemberUserId,
+                deepThreads[31].Id));
+            Assert.False(await conversationAuthorization.CanViewConversation(
+                graph.ExplicitProjectMemberUserId,
+                overDepthThread.Id));
+            var boundedConversationPage = await messaging.ListForUserAsync(
+                graph.ExplicitProjectMemberUserId,
+                1,
+                100);
+            Assert.DoesNotContain(
+                boundedConversationPage.Items,
+                conversation => conversation.Id == overDepthThread.Id);
+            Assert.Equal(33, boundedConversationPage.TotalCount);
+
+            var depthSearch = await new DbSearchService(
+                    db,
+                    new TestCurrentUser(graph.ExplicitProjectMemberUserId),
+                    messaging)
+                .SearchAsync(new SearchRequest(
+                    depthNeedle,
+                    SearchResultType.Message,
+                    WorkspaceId: graph.WorkspaceId,
+                    ProjectId: graph.GroupedProject.ProjectId,
+                    PageSize: 50));
+            Assert.True(depthSearch.IsSuccess, depthSearch.Error);
+            Assert.DoesNotContain(depthSearch.Value!.Items, item => item.Id == overDepthMessage.Id);
+        });
+    }
+
+    [PostgreSqlFact]
+    [Trait("Category", "PostgreSQLIntegration")]
+    [Trait("Scope", "WPC01")]
+    public async Task ExplicitMemberCanListArchivedHistoryWithoutSearchOrDetailDisclosure()
+    {
+        var connectionString = PostgreSqlTestEnvironment.RequireConnectionString();
+        await PostgreSqlMigrationTestDatabase.WithTemporaryDatabaseAsync(connectionString, async database =>
+        {
+            await PostgreSqlMigrationTestDatabase.MigrateAsync(database);
+            var graph = await SeedActiveVisibilityGraphAsync(database);
+            await using var db = CreateTenantContext(database, graph.TenantId, graph.TenantSlug);
+            var users = new UserRepository(db);
+            var workspaces = new WorkspaceRepository(db);
+            var groups = new GroupRepository(db);
+            var projectRepository = new ProjectRepository(db);
+            var workspaceAuthorization = new WorkspaceAuthorizationService(
+                users,
+                workspaces,
+                new TenantAuthorizationService(new TenantRepository(db)));
+            var projectAuthorization = new ProjectAuthorizationService(
+                projectRepository,
+                workspaceAuthorization,
+                new GroupAuthorizationService(groups, workspaces, workspaceAuthorization),
+                groups);
+            var messaging = new MessagingRepository(db);
+
+            var project = await db.Projects.SingleAsync(item =>
+                item.Id == graph.GroupedProject.ProjectId);
+            project.Status = ProjectStatus.Archived;
+            await db.SaveChangesAsync();
+            db.ChangeTracker.Clear();
+
+            Assert.Contains(
+                await projectRepository.ListVisibleAsync(graph.ExplicitProjectMemberUserId),
+                item => item.Id == graph.GroupedProject.ProjectId);
+            Assert.DoesNotContain(
+                await projectRepository.ListVisibleAsync(graph.GroupMemberUserId),
+                item => item.Id == graph.GroupedProject.ProjectId);
+            Assert.DoesNotContain(
+                await projectRepository.ListVisibleAsync(graph.WorkspaceOwnerUserId),
+                item => item.Id == graph.GroupedProject.ProjectId);
+            Assert.DoesNotContain(
+                await projectRepository.ListVisibleAsync(graph.SystemAdminUserId),
+                item => item.Id == graph.GroupedProject.ProjectId);
+            Assert.DoesNotContain(
+                await projectRepository.ListVisibleAsync(graph.RevokedWorkspaceMemberUserId),
+                item => item.Id == graph.GroupedProject.ProjectId);
+            Assert.Equal(
+                [graph.ExplicitProjectMemberUserId],
+                await projectRepository.ListCurrentReaderUserIdsAsync(graph.GroupedProject.ProjectId));
+            Assert.False(await projectAuthorization.CanViewProject(
+                graph.ExplicitProjectMemberUserId,
+                graph.GroupedProject.ProjectId));
+
+            var search = await new DbSearchService(
+                    db,
+                    new TestCurrentUser(graph.ExplicitProjectMemberUserId),
+                    messaging)
+                .SearchAsync(new SearchRequest(
+                    graph.GroupedProject.Needle,
+                    WorkspaceId: graph.WorkspaceId,
+                    ProjectId: graph.GroupedProject.ProjectId,
+                    PageSize: 50));
+            Assert.True(search.IsSuccess, search.Error);
+            Assert.DoesNotContain(
+                search.Value!.Items,
+                item => item.Id == graph.GroupedProject.ProjectId ||
+                    item.Id == graph.GroupedProject.TaskId ||
+                    item.Id == graph.GroupedProject.ArtifactId ||
+                    item.Id == graph.GroupedProject.ActivityLogId ||
+                    item.Id == graph.GroupedProject.CommentId ||
+                    item.Id == graph.GroupedProject.MessageId);
+        });
+    }
+
+    [PostgreSqlFact]
+    [Trait("Category", "PostgreSQLIntegration")]
+    [Trait("Scope", "WPC01")]
+    public async Task RecursiveConversationReadScopeRejectsCyclesAndInconsistentProjectScope()
+    {
+        var connectionString = PostgreSqlTestEnvironment.RequireConnectionString();
+        await PostgreSqlMigrationTestDatabase.WithTemporaryDatabaseAsync(connectionString, async database =>
+        {
+            await PostgreSqlMigrationTestDatabase.MigrateAsync(database);
+            var graph = await SeedActiveVisibilityGraphAsync(database);
+            await using var db = CreateTenantContext(database, graph.TenantId, graph.TenantSlug);
+            var users = new UserRepository(db);
+            var workspaces = new WorkspaceRepository(db);
+            var groups = new GroupRepository(db);
+            var projectRepository = new ProjectRepository(db);
+            var workspaceAuthorization = new WorkspaceAuthorizationService(
+                users,
+                workspaces,
+                new TenantAuthorizationService(new TenantRepository(db)));
+            var projectAuthorization = new ProjectAuthorizationService(
+                projectRepository,
+                workspaceAuthorization,
+                new GroupAuthorizationService(groups, workspaces, workspaceAuthorization),
+                groups);
+            var messaging = new MessagingRepository(db);
+            var conversationAuthorization = new ConversationAuthorizationService(messaging, projectAuthorization);
+            var groupedRootMember = await db.ConversationMembers.SingleAsync(member =>
+                member.ConversationId == graph.GroupedProject.ConversationId &&
+                member.UserId == graph.ExplicitProjectMemberUserId);
+            groupedRootMember.CanManageMembers = true;
+
+            var inconsistentThread = new Conversation
+            {
+                TenantId = graph.TenantId,
+                WorkspaceId = graph.WorkspaceId,
+                ProjectId = graph.UngroupedProject.ProjectId,
+                Type = ConversationType.Thread,
+                ParentConversationId = graph.GroupedProject.ConversationId,
+                RootConversationId = graph.GroupedProject.ConversationId,
+                Title = "WPC inconsistent Project thread",
+                CreatedByUserId = graph.ExplicitProjectMemberUserId
+            };
+            var cycleA = new Conversation
+            {
+                TenantId = graph.TenantId,
+                WorkspaceId = graph.WorkspaceId,
+                ProjectId = graph.GroupedProject.ProjectId,
+                Type = ConversationType.Thread,
+                ParentConversationId = graph.GroupedProject.ConversationId,
+                RootConversationId = graph.GroupedProject.ConversationId,
+                Title = "WPC cycle A",
+                CreatedByUserId = graph.ExplicitProjectMemberUserId
+            };
+            var cycleB = new Conversation
+            {
+                TenantId = graph.TenantId,
+                WorkspaceId = graph.WorkspaceId,
+                ProjectId = graph.GroupedProject.ProjectId,
+                Type = ConversationType.Thread,
+                ParentConversationId = graph.GroupedProject.ConversationId,
+                RootConversationId = graph.GroupedProject.ConversationId,
+                Title = "WPC cycle B",
+                CreatedByUserId = graph.ExplicitProjectMemberUserId
+            };
+            var inconsistentMember = NewReadableConversationMember(
+                graph,
+                inconsistentThread.Id,
+                graph.ExplicitProjectMemberUserId);
+            var cycleAMember = NewReadableConversationMember(
+                graph,
+                cycleA.Id,
+                graph.ExplicitProjectMemberUserId);
+            var cycleBMember = NewReadableConversationMember(
+                graph,
+                cycleB.Id,
+                graph.ExplicitProjectMemberUserId);
+            foreach (var member in new[] { inconsistentMember, cycleAMember, cycleBMember })
+            {
+                member.CanCreateThread = true;
+                member.CanManageMembers = true;
+            }
+
+            db.Conversations.AddRange(inconsistentThread, cycleA, cycleB);
+            db.ConversationMembers.AddRange(inconsistentMember, cycleAMember, cycleBMember);
+            await db.SaveChangesAsync();
+
+            cycleA.ParentConversationId = cycleB.Id;
+            cycleB.ParentConversationId = cycleA.Id;
+            var cycleMessage = new Message
+            {
+                TenantId = graph.TenantId,
+                WorkspaceId = graph.WorkspaceId,
+                ConversationId = cycleA.Id,
+                AuthorUserId = graph.ExplicitProjectMemberUserId,
+                Body = "WpcCycleConversationNeedle protected body"
+            };
+            var inconsistentMessage = new Message
+            {
+                TenantId = graph.TenantId,
+                WorkspaceId = graph.WorkspaceId,
+                ConversationId = inconsistentThread.Id,
+                AuthorUserId = graph.ExplicitProjectMemberUserId,
+                Body = "WpcInconsistentConversationNeedle protected body"
+            };
+            db.Messages.AddRange(cycleMessage, inconsistentMessage);
+            await db.SaveChangesAsync();
+            db.ChangeTracker.Clear();
+
+            Assert.False(await conversationAuthorization.CanViewConversation(
+                graph.ExplicitProjectMemberUserId,
+                inconsistentThread.Id));
+            Assert.False(await conversationAuthorization.CanViewConversation(
+                graph.ExplicitProjectMemberUserId,
+                cycleA.Id));
+            foreach (var conversationId in new[] { inconsistentThread.Id, cycleA.Id })
+            {
+                Assert.False(await conversationAuthorization.CanSendMessage(
+                    graph.ExplicitProjectMemberUserId,
+                    conversationId));
+                Assert.False(await conversationAuthorization.CanModerateConversation(
+                    graph.ExplicitProjectMemberUserId,
+                    conversationId));
+                Assert.False(await conversationAuthorization.CanCreateThread(
+                    graph.ExplicitProjectMemberUserId,
+                    conversationId));
+            }
+            var page = await messaging.ListForUserAsync(graph.ExplicitProjectMemberUserId, 1, 100);
+            Assert.DoesNotContain(page.Items, item => item.Id == inconsistentThread.Id || item.Id == cycleA.Id);
+
+            foreach (var (needle, messageId, projectId) in new[]
+                     {
+                         ("WpcCycleConversationNeedle", cycleMessage.Id, graph.GroupedProject.ProjectId),
+                         ("WpcInconsistentConversationNeedle", inconsistentMessage.Id, graph.UngroupedProject.ProjectId)
+                     })
+            {
+                var search = await new DbSearchService(
+                        db,
+                        new TestCurrentUser(graph.ExplicitProjectMemberUserId),
+                        messaging)
+                    .SearchAsync(new SearchRequest(
+                        needle,
+                        SearchResultType.Message,
+                        WorkspaceId: graph.WorkspaceId,
+                        ProjectId: projectId,
+                        PageSize: 50));
+                Assert.True(search.IsSuccess, search.Error);
+                Assert.DoesNotContain(search.Value!.Items, item => item.Id == messageId);
+            }
         });
     }
 
@@ -597,7 +1021,7 @@ public sealed class Wpc01WorkspaceCreationPostgreSqlTests
         var search = await new DbSearchService(
                 db,
                 new TestCurrentUser(expectation.UserId, expectation.SystemRole),
-                new ConversationAuthorizationService(messaging, projectAuthorization))
+                messaging)
             .SearchAsync(new SearchRequest(
                 project.Needle,
                 WorkspaceId: project.WorkspaceId,

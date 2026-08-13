@@ -10,7 +10,7 @@ public sealed class ProjectRepository(AppDbContext dbContext) : IProjectReposito
 {
     public async Task<IReadOnlyList<Project>> ListVisibleAsync(Guid userId, CancellationToken cancellationToken = default)
     {
-        return await dbContext.VisibleProjectsFor(userId)
+        return await dbContext.ListableProjectsFor(userId)
             .OrderBy(project => project.Name)
             .ToListAsync(cancellationToken);
     }
@@ -63,6 +63,14 @@ public sealed class ProjectRepository(AppDbContext dbContext) : IProjectReposito
             .ThenBy(task => task.SortOrder)
             .ThenBy(task => task.DueDate)
             .ThenBy(task => task.Title)
+            .ToListAsync(cancellationToken);
+    }
+
+    public async Task<IReadOnlyList<Guid>> ListCurrentReaderUserIdsAsync(
+        Guid projectId,
+        CancellationToken cancellationToken = default)
+    {
+        return await dbContext.CurrentReaderUserIdsForProject(projectId)
             .ToListAsync(cancellationToken);
     }
 

@@ -52,12 +52,14 @@ was provisioned. Replaying the same normalized request with the same scoped
 identity reconciles one logical resource; another actor/Tenant cannot recover
 it, current membership is rechecked, and reuse for another payload is HTTP 409.
 
-WPC create failures use the full error envelope. Exact cases include
+Workspace-create failures use the full WPC error envelope. Exact cases include
 `MalformedJson`, `ValidationFailed`, `MissingIdempotencyKey`,
 `InvalidIdempotencyKey`, `AuthenticationRequired`, `CapabilityDenied`,
-`CsrfRejected`, masked `NotFound`, `InvalidStateTransition`,
-`IdempotencyConflict`, `UnsupportedMediaType`, `DependencyUnavailable`, and
-`UnexpectedServerError`. WPC successes carry `requestId`, `data`, and
+`CsrfRejected`, masked `NotFound`, `IdempotencyConflict`,
+`UnsupportedMediaType`, `DependencyUnavailable`, and `UnexpectedServerError`.
+Changed activation, recovery, and archive-read-only conflicts add 409
+`InvalidStateTransition`; unrelated missing generic graph edges retain their
+existing validation mapping. WPC successes carry `requestId`, `data`, and
 `warnings`; errors carry `requestId`, `error.code`, `error.message`,
 `error.target`, `error.details`, `error.redactionApplied`, `traceId`, and
 `status`.
@@ -73,20 +75,31 @@ Generic `Planning -> Active` and provenance-ambiguous `Suspended -> Active`
 return 409 `InvalidStateTransition`. `Review -> Active` remains an ordinary
 operational return because Review has only an operational production inbound
 path. An Active metadata-only update may retain Active. Archived/Deleted
-restore cannot safely select a prior lifecycle state, so it returns the same
+restore cannot safely select a prior lifecycle state, so an otherwise-authorized request returns the same
 typed 409 without lifecycle/deletion mutation, success audit, invalidation, or
-save. Planning/Suspended discovery and subordinate resources require explicit
-Project membership.
+save. Archived/Deleted Projects are read-only through the generic update path,
+and the ordinary archive path cannot produce a second success side effect; an
+otherwise-authorized explicit Project manager receives typed 409 on repetition.
+Planning/Suspended discovery and subordinate resources require
+explicit Project membership.
 
-Project list and Project-derived Search share the current Project detail read
-predicate. It covers Project, Task, Artifact, ActivityLog, Comment, and
-project-bound Message results. A grouped operational Project therefore remains
+For non-Archived rows, Project list and Project-derived Search share the
+current Project detail read predicate. It covers Project, Task, Artifact,
+ActivityLog, Comment, and project-bound Message results. A grouped operational Project therefore remains
 hidden from an ordinary Workspace member outside its Project and Group, while
 explicit Project members, Group members, Workspace Owner/Admin actors, ordinary
 members viewing ungrouped operational Projects, and current-policy
-SystemAdmins retain their existing access. SystemAdmin is not a global bypass:
-Planning/Suspended still require Project membership and Archived/Deleted remain
-hidden. Lifecycle provenance, Visibility/backfill, exact create authority,
+SystemAdmins retain their existing access. SystemAdmin is not a global bypass.
+Planning/Suspended still require Project membership. Non-deleted Archived
+history is list-only for an active Workspace member who is also an explicit
+Project member; it remains hidden from detail, Search, and subordinate reads,
+while Deleted rows remain hidden. Project-bound Conversation detail, list totals, unread/update polling,
+and Message Search use the same depth-bounded recursive Thread read boundary.
+Missing ancestor identity, inconsistent Workspace/Project/root scope, a cycle,
+or more than 32 Thread edges fails closed before protected content or count
+metadata is returned. Send, moderate, and Thread-create authorization first
+requires that structural read boundary; Thread creation cannot persist a child
+outside it. Lifecycle provenance, Visibility/backfill, exact create authority,
 default Project Channel, and activation-time workflow mapping remain explicit
 decision/dependency blockers.
 
@@ -393,11 +406,12 @@ a disabled Tenant performs no digest schedule upsert, claim, or generation.
 
 ## TASK-V1-PR07-D notification opening
 
-`POST /api/notifications/{notificationId}/open` is the only navigation
-authority for a visible Task or deadline-digest Notification. It is recipient
-owned: a Notification belonging to another user, a cross-Tenant identifier,
-and a missing Notification all return the same metadata-safe not-found result
-and do not disclose whether the row or target exists.
+`POST /api/notifications/{notificationId}/open` is the navigation authority for
+protected Task/TaskItem, deadline-digest, Artifact, and Message Notifications.
+It is recipient owned: a Notification belonging to another user, a
+cross-Tenant identifier, and a missing Notification all return the same
+metadata-safe not-found result and do not disclose whether the row or target
+exists.
 
 The use case resolves the current target and authorization before it changes
 read state. For a current authorized Task target it returns:
@@ -414,6 +428,10 @@ It never turns a persisted legacy `/tasks/{taskId}` list value into authority.
 For a current authorized `TaskDeadlineDigest` target, the route is `/tasks` and
 the optional typed context contains only the authorized current `workspaceId`.
 The response contains no digest Task list or protected display data.
+An authorized Artifact resolves through the current Project read boundary to
+`/artifacts/{artifactId}`. An authorized Message resolves through the current
+depth-bounded recursive Conversation boundary to `/messages/{messageId}`.
+Artifact and Message open responses do not add Workspace context.
 
 All stale, deleted, archived, revoked, inaccessible, inconsistent, unsupported,
 and unknown targets return the uniform success response below. They do not
@@ -432,6 +450,11 @@ On `Opened`, an unread Notification is marked read, its recipient state version
 is advanced, and the recipient-only `Notifications.NotificationReadStateChanged.v1`
 Outbox signal is staged in the same transaction. Reopening an already-read
 Notification does not advance the version or create another read-state signal.
+The same current target resolution filters list results, total and unread
+counts, read/delete mutations, and created/read-state delivery. Revocation,
+Project archive, Artifact deletion, or loss of any required Conversation
+ancestor therefore hides the protected row and prevents mutation or delayed,
+retried, or replayed delivery.
 
 Task and digest `Notifications.NotificationCreated.v1` signals remain
 reference-only:
@@ -446,6 +469,12 @@ reference-only:
 
 Clients must refetch their authorized HTTP projection and must not infer a
 route, title, body, relationship, or digest list from that event.
+Artifact and Message created events retain the legacy embedded recipient
+payload shape, but that payload is never authorization: first delivery,
+delay, retry, and replay all resolve the current Project or Conversation target
+before dispatch. Protected target checks are batched for list/count operations;
+Message batches invoke one bounded recursive Conversation authorization query
+rather than one query per Notification.
 
 ## Project Kanban
 

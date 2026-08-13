@@ -10,7 +10,7 @@ namespace AipPortal.Infrastructure.Persistence;
 public sealed class DbSearchService(
     AppDbContext dbContext,
     ICurrentUser currentUser,
-    IConversationAuthorizationService conversationAuthorization) : ISearchService
+    IMessagingRepository messaging) : ISearchService
 {
     private const int MaxPageSize = 50;
 
@@ -307,14 +307,10 @@ public sealed class DbSearchService(
             .Distinct()
             .Take(100)
             .ToListAsync(cancellationToken);
-        var authorizedConversationIds = new List<Guid>(candidateConversationIds.Count);
-        foreach (var conversationId in candidateConversationIds)
-        {
-            if (await conversationAuthorization.CanViewConversation(userId, conversationId, cancellationToken))
-            {
-                authorizedConversationIds.Add(conversationId);
-            }
-        }
+        var authorizedConversationIds = await messaging.FilterReadableConversationIdsAsync(
+            userId,
+            candidateConversationIds,
+            cancellationToken);
 
         if (authorizedConversationIds.Count == 0)
         {

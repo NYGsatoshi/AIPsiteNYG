@@ -177,7 +177,7 @@ public sealed class PostgreSqlIntegrationTests
         var search = new DbSearchService(
             dbContext,
             new TestCurrentUser(userA),
-            new ConversationAuthorizationService(new MessagingRepository(dbContext), projectAuthorization));
+            new MessagingRepository(dbContext));
         var result = await search.SearchAsync(new SearchRequest("securesearchneedle", PageSize: 50));
 
         Assert.True(result.IsSuccess, result.Error);

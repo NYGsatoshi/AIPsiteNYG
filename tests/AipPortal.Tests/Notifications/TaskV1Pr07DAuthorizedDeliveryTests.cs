@@ -234,6 +234,76 @@ public sealed class TaskV1Pr07DAuthorizedDeliveryTests
     }
 
     [Fact]
+    public async Task ReadAndDeleteSignalsUseResultingUnreadCountAndCurrentTargetAuthorization()
+    {
+        await using var fixture = await Fixture.CreateAsync();
+        var notifications = new DbNotificationService(
+            fixture.Db,
+            FixedClock.Instance,
+            fixture.Tenant,
+            fixture.Outbox,
+            fixture.Resolver);
+
+        Assert.True(await notifications.MarkAsReadAsync(fixture.UserId, fixture.Notification.Id));
+        await fixture.Db.SaveChangesAsync();
+        var readEnvelope = Assert.Single(fixture.Outbox.Items).Envelope;
+        Assert.Equal(0, readEnvelope.Payload.GetProperty("unreadCount").GetInt32());
+        Assert.True(await fixture.Resolver.CanDeliverReadStateAsync(
+            fixture.TenantId,
+            fixture.UserId,
+            readEnvelope));
+
+        fixture.Outbox.Items.Clear();
+        Assert.True(await notifications.DeleteAsync(
+            fixture.UserId,
+            fixture.Notification.Id,
+            FixedClock.Instance.UtcNow));
+        await fixture.Db.SaveChangesAsync();
+        var deletedEnvelope = Assert.Single(fixture.Outbox.Items).Envelope;
+        Assert.Equal("deleted", deletedEnvelope.Payload.GetProperty("change").GetString());
+        Assert.Equal(0, deletedEnvelope.Payload.GetProperty("unreadCount").GetInt32());
+        Assert.True(await fixture.Resolver.CanDeliverReadStateAsync(
+            fixture.TenantId,
+            fixture.UserId,
+            deletedEnvelope));
+    }
+
+    [Fact]
+    public async Task AuthorizationScanUsesStableOrderingAcrossTiedTimestampBatches()
+    {
+        await using var fixture = await Fixture.CreateAsync();
+        var tied = Enumerable.Range(0, 125)
+            .Select(index => new Notification
+            {
+                TenantId = fixture.TenantId,
+                UserId = fixture.UserId,
+                NotificationType = NotificationType.System,
+                Title = $"Tied notification {index}",
+                CreatedAt = FixedClock.Instance.UtcNow,
+                StateVersion = 5
+            })
+            .ToArray();
+        fixture.Db.Notifications.AddRange(tied);
+        await fixture.Db.SaveChangesAsync();
+
+        var first = await fixture.Notifications.ListAsync(fixture.UserId, 1, 100);
+        var second = await fixture.Notifications.ListAsync(fixture.UserId, 2, 100);
+        var ids = first.Items.Concat(second.Items).Select(item => item.Id).ToArray();
+        var expectedIds = tied
+            .Select(notification => notification.Id)
+            .Append(fixture.Notification.Id)
+            .OrderByDescending(id => id)
+            .ToArray();
+
+        Assert.Equal(126, first.TotalCount);
+        Assert.Equal(126, second.TotalCount);
+        Assert.Equal(100, first.Items.Count);
+        Assert.Equal(26, second.Items.Count);
+        Assert.Equal(expectedIds, ids);
+        Assert.Equal(126, await fixture.Notifications.GetUnreadCountAsync(fixture.UserId));
+    }
+
+    [Fact]
     public async Task RevokedTaskNotificationIsHiddenAndCannotBeMutatedThroughTheLegacyEndpoints()
     {
         await using var fixture = await Fixture.CreateAsync();
@@ -254,6 +324,107 @@ public sealed class TaskV1Pr07DAuthorizedDeliveryTests
         Assert.False(await notifications.DeleteAsync(fixture.UserId, fixture.Notification.Id, FixedClock.Instance.UtcNow));
         Assert.False((await fixture.Db.Notifications.SingleAsync()).IsRead);
         Assert.Null((await fixture.Db.Notifications.SingleAsync()).DeletedAt);
+    }
+
+    [Fact]
+    public async Task ArtifactNotificationReauthorizesListOpenMutationAndDelayedDelivery()
+    {
+        await using var fixture = await Fixture.CreateAsync();
+        var (artifact, notification) = await fixture.AddArtifactNotificationAsync();
+
+        var visible = await fixture.Notifications.ListAsync(fixture.UserId, 1, 20);
+        Assert.Contains(visible.Items, item =>
+            item.Id == notification.Id &&
+            item.Body == "Protected artifact name");
+        var available = await fixture.Resolver.ResolveAsync(fixture.TenantId, fixture.UserId, notification.Id);
+        Assert.True(available.IsAvailable);
+        Assert.Equal($"/artifacts/{artifact.Id}", available.Route);
+        Assert.True(await fixture.Resolver.CanDeliverCreatedAsync(
+            fixture.TenantId,
+            fixture.UserId,
+            fixture.EmbeddedNotificationCreatedEnvelope(notification)));
+
+        fixture.Member.Status = MembershipStatus.Suspended;
+        await fixture.Db.SaveChangesAsync();
+
+        var hidden = await fixture.Notifications.ListAsync(fixture.UserId, 1, 20);
+        Assert.DoesNotContain(hidden.Items, item => item.Id == notification.Id);
+        Assert.Equal(0, hidden.TotalCount);
+        Assert.Equal(0, await fixture.Notifications.GetUnreadCountAsync(fixture.UserId));
+        Assert.False(await fixture.Notifications.MarkAsReadAsync(fixture.UserId, notification.Id));
+        Assert.False(await fixture.Notifications.DeleteAsync(
+            fixture.UserId,
+            notification.Id,
+            FixedClock.Instance.UtcNow));
+        var open = await fixture.Open.OpenAsync(fixture.TenantId, fixture.UserId, notification.Id);
+        Assert.True(open.IsOwned);
+        Assert.False(open.IsAvailable);
+        Assert.False(await fixture.Resolver.CanDeliverCreatedAsync(
+            fixture.TenantId,
+            fixture.UserId,
+            fixture.EmbeddedNotificationCreatedEnvelope(notification)));
+        Assert.False(await fixture.Resolver.CanDeliverReadStateAsync(
+            fixture.TenantId,
+            fixture.UserId,
+            fixture.ReadStateEnvelope("read", notification.Id)));
+        var persisted = await fixture.Db.Notifications.SingleAsync(item => item.Id == notification.Id);
+        Assert.False(persisted.IsRead);
+        Assert.Null(persisted.DeletedAt);
+    }
+
+    [Fact]
+    public async Task ProjectMessageNotificationReauthorizesConversationAndProjectAccess()
+    {
+        await using var fixture = await Fixture.CreateAsync();
+        var (message, notification) = await fixture.AddMessageNotificationAsync();
+
+        var available = await fixture.Resolver.ResolveAsync(fixture.TenantId, fixture.UserId, notification.Id);
+        Assert.True(available.IsAvailable);
+        Assert.Equal($"/messages/{message.Id}", available.Route);
+        Assert.True(await fixture.Resolver.CanDeliverCreatedAsync(
+            fixture.TenantId,
+            fixture.UserId,
+            fixture.EmbeddedNotificationCreatedEnvelope(notification)));
+
+        var conversation = await fixture.Db.Conversations.SingleAsync(item => item.Id == message.ConversationId);
+        var conversationMember = await fixture.Db.ConversationMembers
+            .SingleAsync(item => item.ConversationId == conversation.RootConversationId && item.UserId == fixture.UserId);
+        conversationMember.RemovedAt = FixedClock.Instance.UtcNow;
+        await fixture.Db.SaveChangesAsync();
+
+        var hidden = await fixture.Notifications.ListAsync(fixture.UserId, 1, 20);
+        Assert.DoesNotContain(hidden.Items, item => item.Id == notification.Id);
+        Assert.Equal(1, hidden.TotalCount);
+        Assert.Equal(fixture.Notification.Id, Assert.Single(hidden.Items).Id);
+        Assert.Equal(1, await fixture.Notifications.GetUnreadCountAsync(fixture.UserId));
+        Assert.False(await fixture.Notifications.MarkAsReadAsync(fixture.UserId, notification.Id));
+        Assert.False(await fixture.Notifications.DeleteAsync(
+            fixture.UserId,
+            notification.Id,
+            FixedClock.Instance.UtcNow));
+        var open = await fixture.Open.OpenAsync(fixture.TenantId, fixture.UserId, notification.Id);
+        Assert.True(open.IsOwned);
+        Assert.False(open.IsAvailable);
+        Assert.False(await fixture.Resolver.CanDeliverCreatedAsync(
+            fixture.TenantId,
+            fixture.UserId,
+            fixture.EmbeddedNotificationCreatedEnvelope(notification)));
+        Assert.False(await fixture.Resolver.CanDeliverReadStateAsync(
+            fixture.TenantId,
+            fixture.UserId,
+            fixture.ReadStateEnvelope("read", notification.Id)));
+
+        conversationMember.RemovedAt = null;
+        fixture.Project.Status = ProjectStatus.Archived;
+        await fixture.Db.SaveChangesAsync();
+        Assert.False((await fixture.Resolver.ResolveAsync(
+            fixture.TenantId,
+            fixture.UserId,
+            notification.Id)).IsAvailable);
+        Assert.False(await fixture.Resolver.CanDeliverCreatedAsync(
+            fixture.TenantId,
+            fixture.UserId,
+            fixture.EmbeddedNotificationCreatedEnvelope(notification)));
     }
 
     [Fact]
@@ -666,6 +837,7 @@ public sealed class TaskV1Pr07DAuthorizedDeliveryTests
             AppDbContext db,
             CurrentTenantService tenant,
             CurrentAuthorizationTargetResolver resolver,
+            DbNotificationService notifications,
             NotificationOpenService open,
             RecordingOutbox outbox,
             Guid tenantId,
@@ -679,6 +851,7 @@ public sealed class TaskV1Pr07DAuthorizedDeliveryTests
             Db = db;
             Tenant = tenant;
             Resolver = resolver;
+            Notifications = notifications;
             Open = open;
             Outbox = outbox;
             TenantId = tenantId;
@@ -693,6 +866,7 @@ public sealed class TaskV1Pr07DAuthorizedDeliveryTests
         public AppDbContext Db { get; }
         public CurrentTenantService Tenant { get; }
         public CurrentAuthorizationTargetResolver Resolver { get; }
+        public DbNotificationService Notifications { get; }
         public NotificationOpenService Open { get; }
         public RecordingOutbox Outbox { get; }
         public Guid TenantId { get; }
@@ -767,10 +941,101 @@ public sealed class TaskV1Pr07DAuthorizedDeliveryTests
             await db.SaveChangesAsync();
 
             var outbox = new RecordingOutbox();
-            var resolver = new CurrentAuthorizationTargetResolver(db, tenant);
+            var resolver = new CurrentAuthorizationTargetResolver(db, tenant, new MessagingRepository(db));
             var notifications = new DbNotificationService(db, FixedClock.Instance, tenant, targets: resolver);
             var open = new NotificationOpenService(db, tenant, FixedClock.Instance, outbox, resolver, notifications);
-            return new Fixture(db, tenant, resolver, open, outbox, tenantId, userId, workspace, member, project, task, notification);
+            return new Fixture(db, tenant, resolver, notifications, open, outbox, tenantId, userId, workspace, member, project, task, notification);
+        }
+
+        public async Task<(Artifact Artifact, Notification Notification)> AddArtifactNotificationAsync()
+        {
+            var artifact = new Artifact
+            {
+                TenantId = TenantId,
+                ProjectId = Project.Id,
+                Name = "Protected artifact name",
+                CreatedByUserId = UserId
+            };
+            var notification = new Notification
+            {
+                TenantId = TenantId,
+                UserId = UserId,
+                NotificationType = NotificationType.ArtifactUploaded,
+                Title = "Artifact uploaded",
+                Body = artifact.Name,
+                RelatedEntityType = "Artifact",
+                RelatedEntityId = artifact.Id,
+                CreatedAt = FixedClock.Instance.UtcNow,
+                StateVersion = 5
+            };
+            Db.AddRange(artifact, notification);
+            await Db.SaveChangesAsync();
+            return (artifact, notification);
+        }
+
+        public async Task<(Message Message, Notification Notification)> AddMessageNotificationAsync()
+        {
+            var conversation = new Conversation
+            {
+                TenantId = TenantId,
+                WorkspaceId = Workspace.Id,
+                ProjectId = Project.Id,
+                Type = ConversationType.ProjectChannel,
+                Title = "Protected project conversation",
+                CreatedByUserId = UserId
+            };
+            var thread = new Conversation
+            {
+                TenantId = TenantId,
+                WorkspaceId = Workspace.Id,
+                ProjectId = Project.Id,
+                Type = ConversationType.Thread,
+                Title = "Protected project thread",
+                ParentConversationId = conversation.Id,
+                RootConversationId = conversation.Id,
+                CreatedByUserId = UserId
+            };
+            var message = new Message
+            {
+                TenantId = TenantId,
+                WorkspaceId = Workspace.Id,
+                ConversationId = thread.Id,
+                AuthorUserId = UserId,
+                Body = "Protected message body"
+            };
+            var notification = new Notification
+            {
+                TenantId = TenantId,
+                UserId = UserId,
+                NotificationType = NotificationType.DirectMessage,
+                Title = "New message",
+                Body = message.Body,
+                RelatedEntityType = "Message",
+                RelatedEntityId = message.Id,
+                CreatedAt = FixedClock.Instance.UtcNow,
+                StateVersion = 5
+            };
+            Db.AddRange(
+                conversation,
+                new ConversationMember
+                {
+                    TenantId = TenantId,
+                    ConversationId = conversation.Id,
+                    UserId = UserId,
+                    JoinedAt = FixedClock.Instance.UtcNow
+                },
+                thread,
+                new ConversationMember
+                {
+                    TenantId = TenantId,
+                    ConversationId = thread.Id,
+                    UserId = UserId,
+                    JoinedAt = FixedClock.Instance.UtcNow
+                },
+                message,
+                notification);
+            await Db.SaveChangesAsync();
+            return (message, notification);
         }
 
         public DurableEventEnvelope NotificationCreatedEnvelope() => new(
@@ -786,6 +1051,36 @@ public sealed class TaskV1Pr07DAuthorizedDeliveryTests
             null,
             null,
             JsonSerializer.SerializeToElement(new { notificationId = Notification.Id, stateVersion = Notification.StateVersion, requiresRefetch = true }));
+
+        public DurableEventEnvelope EmbeddedNotificationCreatedEnvelope(Notification notification) => new(
+            Guid.NewGuid(),
+            "Notifications.NotificationCreated.v1",
+            RealtimeEventCatalog.PayloadSchemaVersion1,
+            FixedClock.Instance.UtcNow,
+            TenantId,
+            "Notification",
+            notification.Id,
+            notification.StateVersion,
+            RealtimeActor.System(),
+            null,
+            null,
+            JsonSerializer.SerializeToElement(new
+            {
+                notification = new
+                {
+                    id = notification.Id,
+                    title = notification.Title,
+                    body = notification.Body,
+                    target = new
+                    {
+                        targetType = notification.RelatedEntityType,
+                        targetId = notification.RelatedEntityId
+                    },
+                    version = notification.StateVersion
+                },
+                unreadCount = 2,
+                stateVersion = notification.StateVersion
+            }));
 
         public DurableEventEnvelope ReadStateEnvelope(string change, Guid? notificationId) => new(
             Guid.NewGuid(),

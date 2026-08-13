@@ -16,7 +16,8 @@ namespace AipPortal.Infrastructure.Persistence;
 /// </summary>
 public sealed class CurrentAuthorizationTargetResolver(
     AppDbContext dbContext,
-    ICurrentTenant currentTenant) : INotificationTargetResolver, IRealtimeEventTargetResolver
+    ICurrentTenant currentTenant,
+    IMessagingRepository? messaging = null) : INotificationTargetResolver, IRealtimeEventTargetResolver
 {
     private static readonly HashSet<string> TaskEventTypes = new(StringComparer.Ordinal)
     {
@@ -43,6 +44,15 @@ public sealed class CurrentAuthorizationTargetResolver(
             return NotOwned();
         }
 
+        return await ResolveNotificationTargetAsync(notification, tenantId, userId, cancellationToken);
+    }
+
+    private async Task<NotificationTargetResolution> ResolveNotificationTargetAsync(
+        Notification notification,
+        Guid tenantId,
+        Guid userId,
+        CancellationToken cancellationToken)
+    {
         if (!await HasCurrentTenantUserAsync(tenantId, userId, cancellationToken))
         {
             return Unavailable(notification.StateVersion);
@@ -83,6 +93,48 @@ public sealed class CurrentAuthorizationTargetResolver(
                 : new NotificationTargetResolution(true, true, "/tasks", notification.StateVersion, target.WorkspaceId);
         }
 
+        if (string.Equals(notification.RelatedEntityType, "Artifact", StringComparison.Ordinal))
+        {
+            if (!notification.RelatedEntityId.HasValue)
+            {
+                return Unavailable(notification.StateVersion);
+            }
+
+            var target = await ResolveArtifactTargetAsync(
+                tenantId,
+                userId,
+                notification.RelatedEntityId.Value,
+                cancellationToken);
+            return target is null
+                ? Unavailable(notification.StateVersion)
+                : new NotificationTargetResolution(
+                    true,
+                    true,
+                    $"/artifacts/{target.ArtifactId}",
+                    notification.StateVersion);
+        }
+
+        if (string.Equals(notification.RelatedEntityType, "Message", StringComparison.Ordinal))
+        {
+            if (!notification.RelatedEntityId.HasValue)
+            {
+                return Unavailable(notification.StateVersion);
+            }
+
+            var target = await ResolveMessageTargetAsync(
+                tenantId,
+                userId,
+                notification.RelatedEntityId.Value,
+                cancellationToken);
+            return target is null
+                ? Unavailable(notification.StateVersion)
+                : new NotificationTargetResolution(
+                    true,
+                    true,
+                    $"/messages/{target.MessageId}",
+                    notification.StateVersion);
+        }
+
         // This endpoint is intentionally narrow.  Legacy and unknown targets
         // cannot turn a persisted historical route into navigation authority.
         return Unavailable(notification.StateVersion);
@@ -113,22 +165,30 @@ public sealed class CurrentAuthorizationTargetResolver(
         }
 
         // Existing generic recipient notifications retain their established
-        // embedded-event contract. The strict reference-only schema is the
-        // required boundary for Task and digest notifications, whose current
-        // authorization must also be re-evaluated before delivery.
-        if (!RequiresCurrentTargetResolution(notification))
+        // embedded-event contract. Task and digest use a strict reference-only
+        // schema. Artifact and Message retain their legacy embedded schema but
+        // still require current target authorization before delivery.
+        if (!NotificationCurrentAuthorizationPolicy.RequiresCurrentTargetResolution(notification.RelatedEntityType))
         {
             return true;
         }
 
-        if (!TryGetGuid(envelope.Payload, "notificationId", out var notificationId) ||
-            notificationId != envelope.AggregateId ||
-            !IsReferenceOnlyNotificationCreatedPayload(envelope.Payload, notificationId, envelope.AggregateVersion))
+        if (NotificationCurrentAuthorizationPolicy.RequiresReferenceOnlyCreatedPayload(notification.RelatedEntityType) &&
+            (!TryGetGuid(envelope.Payload, "notificationId", out var payloadNotificationId) ||
+             payloadNotificationId != envelope.AggregateId ||
+             !IsReferenceOnlyNotificationCreatedPayload(
+                 envelope.Payload,
+                 payloadNotificationId,
+                 envelope.AggregateVersion)))
         {
             return false;
         }
 
-        var resolution = await ResolveAsync(tenantId, recipientUserId, notificationId, cancellationToken);
+        var resolution = await ResolveAsync(
+            tenantId,
+            recipientUserId,
+            envelope.AggregateId,
+            cancellationToken);
         return resolution.IsOwned && resolution.IsAvailable;
     }
 
@@ -163,27 +223,138 @@ public sealed class CurrentAuthorizationTargetResolver(
             return false;
         }
 
-        var notification = await FindRecipientNotificationAsync(
-            tenantId,
-            recipientUserId,
-            notificationId.Value,
-            cancellationToken);
-        if (notification is null)
+        var change = GetString(envelope.Payload, "change");
+        if (change is not ("read" or "deleted"))
+        {
+            return false;
+        }
+
+        var notification = change == "deleted"
+            ? await FindDeletedRecipientNotificationAsync(
+                tenantId,
+                recipientUserId,
+                notificationId.Value,
+                cancellationToken)
+            : await FindRecipientNotificationAsync(
+                tenantId,
+                recipientUserId,
+                notificationId.Value,
+                cancellationToken);
+        if (notification is null ||
+            (change == "deleted" && !notification.DeletedAt.HasValue))
         {
             return false;
         }
 
         // Generic recipient notifications retain their existing read-state
-        // event contract. Task and digest state still shares notification
-        // open's current-target fence, so a delayed/replayed signal cannot
-        // outlive a revocation.
-        if (!RequiresCurrentTargetResolution(notification))
+        // event contract. Protected target state shares notification open's
+        // current-target fence, so a delayed/replayed signal cannot outlive a
+        // revocation.
+        if (!NotificationCurrentAuthorizationPolicy.RequiresCurrentTargetResolution(notification.RelatedEntityType))
         {
             return true;
         }
 
-        var resolution = await ResolveAsync(tenantId, recipientUserId, notificationId.Value, cancellationToken);
+        var resolution = change == "deleted"
+            ? await ResolveNotificationTargetAsync(notification, tenantId, recipientUserId, cancellationToken)
+            : await ResolveAsync(tenantId, recipientUserId, notificationId.Value, cancellationToken);
         return resolution.IsOwned && resolution.IsAvailable;
+    }
+
+    public async Task<IReadOnlySet<Guid>> FilterAvailableNotificationIdsAsync(
+        Guid tenantId,
+        Guid userId,
+        IReadOnlyCollection<Guid> notificationIds,
+        CancellationToken cancellationToken = default)
+    {
+        if (!IsTenantInScope(tenantId) ||
+            userId == Guid.Empty ||
+            notificationIds.Count == 0 ||
+            !await HasCurrentTenantUserAsync(tenantId, userId, cancellationToken))
+        {
+            return new HashSet<Guid>();
+        }
+
+        var requestedIds = notificationIds.Distinct().ToArray();
+        var notifications = await dbContext.Notifications
+            .AsNoTracking()
+            .Where(item =>
+                requestedIds.Contains(item.Id) &&
+                item.TenantId == tenantId &&
+                item.UserId == userId &&
+                item.DeletedAt == null)
+            .Select(item => new
+            {
+                item.Id,
+                item.RelatedEntityType,
+                item.RelatedEntityId
+            })
+            .ToListAsync(cancellationToken);
+        var available = new HashSet<Guid>();
+
+        var artifactNotifications = notifications
+            .Where(item => item.RelatedEntityType == "Artifact" && item.RelatedEntityId.HasValue)
+            .ToArray();
+        if (artifactNotifications.Length > 0)
+        {
+            var artifactIds = artifactNotifications.Select(item => item.RelatedEntityId!.Value).Distinct().ToArray();
+            var visibleProjectIds = dbContext.VisibleProjectsFor(userId).Select(project => project.Id);
+            var visibleArtifactIds = await dbContext.Artifacts
+                .AsNoTracking()
+                .Where(item => artifactIds.Contains(item.Id) && item.TenantId == tenantId && item.DeletedAt == null)
+                .Where(item => visibleProjectIds.Contains(item.ProjectId))
+                .Select(item => item.Id)
+                .ToListAsync(cancellationToken);
+            var visibleArtifacts = visibleArtifactIds.ToHashSet();
+            foreach (var notification in artifactNotifications)
+            {
+                if (visibleArtifacts.Contains(notification.RelatedEntityId!.Value))
+                {
+                    available.Add(notification.Id);
+                }
+            }
+        }
+
+        var messageNotifications = notifications
+            .Where(item => item.RelatedEntityType == "Message" && item.RelatedEntityId.HasValue)
+            .ToArray();
+        if (messageNotifications.Length > 0 && messaging is not null)
+        {
+            var messageIds = messageNotifications.Select(item => item.RelatedEntityId!.Value).Distinct().ToArray();
+            var messages = await dbContext.Messages
+                .AsNoTracking()
+                .Where(item => messageIds.Contains(item.Id) && item.TenantId == tenantId && item.DeletedAt == null)
+                .Where(item => item.WorkspaceId == item.Conversation!.WorkspaceId)
+                .Select(item => new { item.Id, item.ConversationId })
+                .ToListAsync(cancellationToken);
+            var readableConversationIds = await messaging.FilterReadableConversationIdsAsync(
+                userId,
+                messages.Select(item => item.ConversationId).Distinct().ToArray(),
+                cancellationToken);
+            var readableMessageIds = messages
+                .Where(item => readableConversationIds.Contains(item.ConversationId))
+                .Select(item => item.Id)
+                .ToHashSet();
+            foreach (var notification in messageNotifications)
+            {
+                if (readableMessageIds.Contains(notification.RelatedEntityId!.Value))
+                {
+                    available.Add(notification.Id);
+                }
+            }
+        }
+
+        foreach (var notification in notifications.Where(item =>
+                     item.RelatedEntityType != "Artifact" && item.RelatedEntityType != "Message"))
+        {
+            var resolution = await ResolveAsync(tenantId, userId, notification.Id, cancellationToken);
+            if (resolution.IsOwned && resolution.IsAvailable)
+            {
+                available.Add(notification.Id);
+            }
+        }
+
+        return available;
     }
 
     public async Task<bool> CanReceiveTaskEventAsync(
@@ -300,6 +471,72 @@ public sealed class CurrentAuthorizationTargetResolver(
         return project is null || project.WorkspaceId != task.WorkspaceId
             ? null
             : new ResolvedTaskTarget(task.Id, project.ProjectId, project.WorkspaceId);
+    }
+
+    private async Task<ResolvedArtifactTarget?> ResolveArtifactTargetAsync(
+        Guid tenantId,
+        Guid userId,
+        Guid artifactId,
+        CancellationToken cancellationToken)
+    {
+        var artifact = await dbContext.Artifacts
+            .AsNoTracking()
+            .SingleOrDefaultAsync(item =>
+                item.Id == artifactId &&
+                item.TenantId == tenantId &&
+                item.DeletedAt == null,
+                cancellationToken);
+        if (artifact is null)
+        {
+            return null;
+        }
+
+        var project = await dbContext.VisibleProjectsFor(userId)
+            .Where(item => item.Id == artifact.ProjectId)
+            .Select(item => new { item.Id, item.WorkspaceId })
+            .SingleOrDefaultAsync(cancellationToken);
+        return project is null
+            ? null
+            : new ResolvedArtifactTarget(artifact.Id, project.WorkspaceId);
+    }
+
+    private async Task<ResolvedMessageTarget?> ResolveMessageTargetAsync(
+        Guid tenantId,
+        Guid userId,
+        Guid messageId,
+        CancellationToken cancellationToken)
+    {
+        if (messaging is null)
+        {
+            return null;
+        }
+
+        var message = await dbContext.Messages
+            .AsNoTracking()
+            .Where(item =>
+                item.Id == messageId &&
+                item.TenantId == tenantId &&
+                item.DeletedAt == null)
+            .Select(item => new
+            {
+                item.Id,
+                item.ConversationId,
+                item.WorkspaceId,
+                ConversationWorkspaceId = item.Conversation!.WorkspaceId
+            })
+            .SingleOrDefaultAsync(cancellationToken);
+        if (message is null || message.WorkspaceId != message.ConversationWorkspaceId)
+        {
+            return null;
+        }
+
+        var readable = await messaging.FilterReadableConversationIdsAsync(
+            userId,
+            [message.ConversationId],
+            cancellationToken);
+        return readable.Contains(message.ConversationId)
+            ? new ResolvedMessageTarget(message.Id, message.WorkspaceId)
+            : null;
     }
 
     private async Task<ResolvedProjectTarget?> ResolveProjectTargetAsync(
@@ -430,12 +667,19 @@ public sealed class CurrentAuthorizationTargetResolver(
                 item.DeletedAt == null,
                 cancellationToken);
 
-    private static bool RequiresCurrentTargetResolution(Notification notification) =>
-        notification.RelatedEntityType is "TaskItem" or "Task" ||
-        string.Equals(
-            notification.RelatedEntityType,
-            TaskDeadlineDigestPolicy.RelatedEntityType,
-            StringComparison.Ordinal);
+    private Task<Notification?> FindDeletedRecipientNotificationAsync(
+        Guid tenantId,
+        Guid userId,
+        Guid notificationId,
+        CancellationToken cancellationToken) =>
+        dbContext.Notifications
+            .AsNoTracking()
+            .SingleOrDefaultAsync(item =>
+                item.Id == notificationId &&
+                item.TenantId == tenantId &&
+                item.UserId == userId &&
+                item.DeletedAt != null,
+                cancellationToken);
 
     private async Task<bool> HasCurrentWorkspaceMembershipAsync(
         Guid tenantId,
@@ -558,6 +802,10 @@ public sealed class CurrentAuthorizationTargetResolver(
             : null;
 
     private sealed record ResolvedTaskTarget(Guid TaskId, Guid ProjectId, Guid WorkspaceId);
+
+    private sealed record ResolvedArtifactTarget(Guid ArtifactId, Guid WorkspaceId);
+
+    private sealed record ResolvedMessageTarget(Guid MessageId, Guid WorkspaceId);
 
     private sealed record ResolvedProjectTarget(Guid ProjectId, Guid WorkspaceId);
 

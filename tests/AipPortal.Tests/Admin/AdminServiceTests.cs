@@ -2,6 +2,8 @@ using AipPortal.Application.Admin;
 using AipPortal.Application.Auth;
 using AipPortal.Application.Common;
 using AipPortal.Application.Common.Interfaces;
+using AipPortal.Application.Common.Tenancy;
+using AipPortal.Application.Realtime;
 using AipPortal.Domain.Entities;
 using AipPortal.Domain.Enums;
 using AipPortal.Infrastructure.Security;
@@ -143,7 +145,93 @@ public sealed class AdminServiceTests
         Assert.Equal(ProjectStatus.Deleted, project.Status);
         Assert.Equal(deletedAt, project.DeletedAt);
         Assert.Empty(fixture.Audit.Entries);
+        Assert.Empty(fixture.AuthorizationChanges.Items);
         Assert.Equal(0, fixture.UnitOfWork.SaveCount);
+    }
+
+    [Fact]
+    [Trait("Scope", "WPC01")]
+    public async Task SystemAdminArchiveProjectPublishesTransactionalAuthorizationInvalidation()
+    {
+        var fixture = AdminFixture.Create(SystemRole.SystemAdmin);
+        var memberId = Guid.NewGuid();
+        var secondSystemAdmin = new User
+        {
+            DisplayName = "Second system administrator",
+            Email = "second-system-admin@example.com",
+            NormalizedEmail = "SECOND-SYSTEM-ADMIN@EXAMPLE.COM",
+            SystemRole = SystemRole.SystemAdmin,
+            Status = UserStatus.Active
+        };
+        fixture.Repository.Users[secondSystemAdmin.Id] = secondSystemAdmin;
+        var project = new Project
+        {
+            TenantId = fixture.Tenant.TenantId,
+            WorkspaceId = Guid.NewGuid(),
+            Status = ProjectStatus.Active,
+            Name = "Operational Project",
+            Slug = "operational-project"
+        };
+        fixture.Repository.Project = project;
+        fixture.Workspaces.Members.AddRange(
+        [
+            new WorkspaceMember
+            {
+                TenantId = project.TenantId,
+                WorkspaceId = project.WorkspaceId,
+                UserId = memberId,
+                Status = MembershipStatus.Active
+            },
+            new WorkspaceMember
+            {
+                TenantId = project.TenantId,
+                WorkspaceId = project.WorkspaceId,
+                UserId = Guid.NewGuid(),
+                Status = MembershipStatus.Suspended
+            }
+        ]);
+
+        var result = await fixture.Service.ArchiveProjectAsync(project.Id);
+
+        Assert.True(result.IsSuccess);
+        Assert.Equal(ProjectStatus.Archived, project.Status);
+        Assert.Equal(fixture.Clock.UtcNow, project.DeletedAt);
+        Assert.Contains(fixture.Audit.Entries, item =>
+            item.Action == "DataArchived" && item.EntityId == project.Id);
+        Assert.Equal(1, fixture.UnitOfWork.SaveCount);
+        Assert.Equal(
+            new[] { fixture.ActorUser.Id, memberId, secondSystemAdmin.Id }.Order().ToArray(),
+            fixture.AuthorizationChanges.Items.Select(item => item.UserId).Order().ToArray());
+        Assert.All(fixture.AuthorizationChanges.Items, item =>
+        {
+            Assert.Equal(project.TenantId, item.TenantId);
+            Assert.Equal("project", item.ScopeType);
+            Assert.Equal(project.Id, item.ScopeId);
+            Assert.Equal("archived", item.Change);
+        });
+    }
+
+    [Fact]
+    [Trait("Scope", "WPC01")]
+    public async Task SystemAdminArchiveProjectDoesNotSaveWhenRequiredInvalidationCannotBeStaged()
+    {
+        var fixture = AdminFixture.Create(SystemRole.SystemAdmin);
+        var project = new Project
+        {
+            TenantId = fixture.Tenant.TenantId,
+            WorkspaceId = Guid.NewGuid(),
+            Status = ProjectStatus.Active,
+            Name = "Operational Project",
+            Slug = "operational-project"
+        };
+        fixture.Repository.Project = project;
+        fixture.AuthorizationChanges.ThrowOnPublish = true;
+
+        await Assert.ThrowsAsync<RequiredOutboxStagingException>(() =>
+            fixture.Service.ArchiveProjectAsync(project.Id));
+
+        Assert.Equal(0, fixture.UnitOfWork.SaveCount);
+        Assert.Empty(fixture.AuthorizationChanges.Items);
     }
 
     private sealed class AdminFixture
@@ -160,6 +248,7 @@ public sealed class AdminServiceTests
             };
 
             Repository.Users[ActorUser.Id] = ActorUser;
+            Tenant.SetTenant(Repository.WorkspaceTenantId, "admin-test");
             Service = new AdminService(
                 Repository,
                 new Sha256TokenHasher(),
@@ -167,17 +256,67 @@ public sealed class AdminServiceTests
                 new FakeCurrentUser(ActorUser),
                 Clock,
                 new FakeUserSessionService(),
-                UnitOfWork);
+                UnitOfWork,
+                Tenant,
+                AuthorizationChanges,
+                workspaces: Workspaces);
         }
 
         public FakeAdminRepository Repository { get; } = new();
         public FakeClock Clock { get; } = new(new DateTimeOffset(2026, 6, 7, 0, 0, 0, TimeSpan.Zero));
         public FakeAuditLogger Audit { get; } = new();
         public FakeUnitOfWork UnitOfWork { get; } = new();
+        public CurrentTenantService Tenant { get; } = new();
+        public RecordingAuthorizationChanges AuthorizationChanges { get; } = new();
+        public FakeWorkspaceRepository Workspaces { get; } = new();
         public User ActorUser { get; }
         public AdminService Service { get; }
 
         public static AdminFixture Create(SystemRole actorRole) => new(actorRole);
+    }
+
+    private sealed class RecordingAuthorizationChanges : IAuthorizationStateChangePublisher
+    {
+        public List<(Guid TenantId, Guid UserId, string ScopeType, Guid? ScopeId, string Change)> Items { get; } = [];
+        public bool ThrowOnPublish { get; set; }
+
+        public Task PublishAsync(
+            Guid tenantId,
+            Guid affectedUserId,
+            string scopeType,
+            Guid? scopeId,
+            string change,
+            CancellationToken cancellationToken = default)
+        {
+            if (ThrowOnPublish)
+            {
+                throw new RequiredOutboxStagingException();
+            }
+
+            Items.Add((tenantId, affectedUserId, scopeType, scopeId, change));
+            return Task.CompletedTask;
+        }
+    }
+
+    private sealed class FakeWorkspaceRepository : IWorkspaceRepository
+    {
+        public List<WorkspaceMember> Members { get; } = [];
+
+        public Task<IReadOnlyList<Workspace>> ListForUserAsync(Guid userId, bool includeAll, CancellationToken cancellationToken = default) =>
+            Task.FromResult<IReadOnlyList<Workspace>>([]);
+
+        public Task<Workspace?> GetByIdAsync(Guid workspaceId, CancellationToken cancellationToken = default) =>
+            Task.FromResult<Workspace?>(null);
+
+        public Task<WorkspaceMember?> GetMemberAsync(Guid workspaceId, Guid userId, CancellationToken cancellationToken = default) =>
+            Task.FromResult(Members.FirstOrDefault(item => item.WorkspaceId == workspaceId && item.UserId == userId));
+
+        public Task<IReadOnlyList<WorkspaceMember>> ListMembersAsync(Guid workspaceId, CancellationToken cancellationToken = default) =>
+            Task.FromResult<IReadOnlyList<WorkspaceMember>>(Members.Where(item => item.WorkspaceId == workspaceId).ToArray());
+
+        public Task AddAsync(Workspace workspace, CancellationToken cancellationToken = default) => Task.CompletedTask;
+
+        public Task AddMemberAsync(WorkspaceMember member, CancellationToken cancellationToken = default) => Task.CompletedTask;
     }
 
     private sealed class FakeAdminRepository : IAdminRepository
@@ -217,6 +356,12 @@ public sealed class AdminServiceTests
         {
             return Task.FromResult(Users.Values.Count(user => user.Id != userId && user.SystemRole == SystemRole.SystemAdmin && user.Status == UserStatus.Active && !user.DeletedAt.HasValue));
         }
+
+        public Task<IReadOnlyList<Guid>> ListActiveSystemAdminIdsAsync(CancellationToken cancellationToken = default) =>
+            Task.FromResult<IReadOnlyList<Guid>>(Users.Values
+                .Where(user => user.SystemRole == SystemRole.SystemAdmin && user.Status == UserStatus.Active && !user.DeletedAt.HasValue)
+                .Select(user => user.Id)
+                .ToArray());
 
         public Task<PagedResponse<AdminInviteResponse>> ListInvitesAsync(int page, int pageSize, CancellationToken cancellationToken = default)
         {

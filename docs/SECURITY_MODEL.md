@@ -104,16 +104,28 @@ Active update may remain Active. Archived/Deleted recovery cannot safely choose
 Planning or Active, so it returns 409 `InvalidStateTransition` without status
 or deletion-metadata mutation, success audit, invalidation, or save. Because no
 trustworthy activation provenance exists, Planning and Suspended require
-current Workspace access plus explicit Project membership.
+current Workspace access plus explicit Project membership. Archived/Deleted
+rows are read-only through generic update. The ordinary Project archive path
+cannot produce a second success side effect; an otherwise-authorized explicit
+Project manager receives the same typed conflict on repetition.
 
-Project detail, list, and every Project-derived Search category use equivalent
-current read predicates. The shared SQL-translatable scope protects Project,
-Task, Artifact, ActivityLog, Comment, and project-bound Message results and does
-not introduce a global SystemAdmin bypass. My Tasks and Messaging apply that
-Project boundary plus their own stricter current-membership/relationship
-requirements. Digest evaluation, authorization-target resolution, and realtime
-delivery remain equally strict or stricter. Historical Conversation membership
-and Outbox routing are not authority. Delayed
+Project detail, every Project-derived Search category, and the non-Archived
+Project list scope use equivalent current read predicates. Non-deleted Archived history is
+list-only for an active Workspace member who is also an explicit Project
+member; detail, Search, and subordinate reads stay hidden. The shared
+SQL-translatable scope protects Project, Task, Artifact, ActivityLog, Comment,
+and project-bound Message results and does not introduce a global SystemAdmin
+bypass. My Tasks and Messaging apply that Project boundary plus their own
+stricter current-membership/relationship requirements. Digest evaluation,
+authorization-target resolution, and realtime delivery remain equally strict
+or stricter. Historical Conversation membership and Outbox routing are not
+authority. Production PostgreSQL Conversation
+detail/list/count, unread/update polling, and Message Search use one set-based
+recursive ancestry boundary. Missing identity, inconsistent Workspace/Project/
+root scope, cycles, and ancestry beyond 32 Thread edges fail closed. Send,
+moderate, and Thread-create checks require that structural read boundary;
+creation cannot persist an immediately unreadable child, and protected fields
+are materialized only after that boundary. Delayed
 `Messaging.ConversationUnreadChanged.v1` delivery parses its Conversation
 identity and rechecks current Conversation/Project authorization.
 
@@ -323,12 +335,16 @@ completion, defer, or failure.
 
 ## TASK-V1-PR07-D current authorization boundary
 
-Delivery authorization is evaluated at creation, dispatch/retry/replay, and
-open time. Historical Outbox routing, a SignalR group, a browser route guard,
-or a hidden UI control never substitutes for current HTTP/resource
-authorization. The shared target resolver fails closed when a recipient/user,
-TenantUser, Workspace/member, Project, Task, digest job, or routing identity is
-inactive, deleted, archived, revoked, missing, or inconsistent.
+Recipient intent is staged from the authorized source command and persisted
+relationships. Current target authorization is evaluated for list/unread,
+read/delete/open, and immediately before first, delayed, retry, or replay
+delivery. Historical Outbox routing, a SignalR group, a browser route guard, or
+a hidden UI control never substitutes for current HTTP/resource authorization.
+Each target follows its authoritative current policy: Task/digest additionally
+requires active Workspace state/membership; Artifact reuses current Project
+visibility; Message reuses the same cycle-safe, scope-consistent, 32-level
+recursive Conversation boundary as normal Messaging reads. Missing, deleted,
+revoked, inconsistent, or otherwise unauthorized targets fail closed.
 
 Task/digest `Notifications.NotificationCreated.v1` carries only
 `notificationId`, `stateVersion`, and `requiresRefetch`; no Task title,
@@ -338,6 +354,13 @@ also remain recipient-only and do not infer target content. A denied delivery
 is terminal without retry or DeadLetter mutation, and must not fall back to a
 broad route.
 
+Artifact/Message created events retain their legacy embedded payload contract,
+so their current-target check is mandatory before first, delayed, retried, or
+replayed dispatch. Recipient ownership alone is insufficient. List, total,
+unread, read/delete, open, created delivery, and read-state delivery share the
+same target fence. Batched list/count evaluation avoids per-Message recursive
+authorization calls.
+
 `POST /api/notifications/{notificationId}/open` treats another recipient and a
 missing Notification uniformly. Its `Unavailable` response is metadata-safe:
 it contains no lifecycle/revocation explanation or protected target detail and
@@ -346,6 +369,8 @@ advance read state and stage the recipient-only read-state Outbox event in the
 same transaction. Authorized Task navigation is always
 `/projects/{projectId}/tasks/{taskId}`; a digest can yield only `/tasks` plus
 authorized typed Workspace context.
+Authorized Artifact and Message routes are `/artifacts/{artifactId}` and
+`/messages/{messageId}` respectively; they expose no extra Workspace context.
 
 Authorization invalidation is sent separately as an approved metadata-only
 recipient event. `RealtimeFacade` clears protected notification, Task,

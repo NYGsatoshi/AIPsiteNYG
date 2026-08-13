@@ -1319,6 +1319,43 @@ public sealed class HttpTenantIsolationTests
     }
 
     [Fact]
+    [Trait("Scope", "WPC01")]
+    public async Task ConversationThreadCreationRejectsChildBeyondReadableDepthWithoutSuccessMutation()
+    {
+        await using var app = await HttpTenantIsolationTestApp.CreateAsync();
+        var data = app.Data;
+        var deepestReadableThreadId = await app.AddConversationThreadChainAsync(
+            data.TenantA.Id,
+            data.TenantA.Slug,
+            data.ConversationA.Id,
+            data.WorkspaceA.Id,
+            data.CrossTenantUser.Id,
+            depth: 32);
+        var before = await app.GetConversationThreadCreationCountsAsync(
+            data.TenantA.Id,
+            data.TenantA.Slug);
+
+        using var content = JsonContent($$"""
+            {"type":"Thread","workspaceId":"{{data.WorkspaceA.Id:D}}","parentConversationId":"{{deepestReadableThreadId:D}}","title":"unreadable level 33","memberUserIds":[]}
+            """);
+        using var response = await app.SendAsync(
+            data.CrossTenantUser,
+            data.TenantA.Slug,
+            "/api/conversations",
+            HttpMethod.Post,
+            content);
+        var responseBody = await response.Content.ReadAsStringAsync();
+        var after = await app.GetConversationThreadCreationCountsAsync(
+            data.TenantA.Id,
+            data.TenantA.Slug);
+
+        Assert.Equal(HttpStatusCode.BadRequest, response.StatusCode);
+        Assert.DoesNotContain("unreadable level 33", responseBody, StringComparison.Ordinal);
+        Assert.Equal(before.Conversations, after.Conversations);
+        Assert.Equal(before.SuccessAudits, after.SuccessAudits);
+    }
+
+    [Fact]
     public async Task ConversationCreateRejectsDisabledTypesAndInvalidThreadBoundariesWithoutBodyLeak()
     {
         await using var app = await HttpTenantIsolationTestApp.CreateAsync();
@@ -2562,6 +2599,64 @@ public sealed class HttpTenantIsolationTests
             currentTenant.SetTenant(tenantId, tenantSlug);
             var dbContext = scope.ServiceProvider.GetRequiredService<AppDbContext>();
             return await dbContext.Workspaces.CountAsync(item => item.Name == name);
+        }
+
+        public async Task<Guid> AddConversationThreadChainAsync(
+            Guid tenantId,
+            string tenantSlug,
+            Guid rootConversationId,
+            Guid workspaceId,
+            Guid userId,
+            int depth)
+        {
+            await using var scope = App.Services.CreateAsyncScope();
+            var currentTenant = scope.ServiceProvider.GetRequiredService<CurrentTenantService>();
+            currentTenant.SetTenant(tenantId, tenantSlug);
+            var dbContext = scope.ServiceProvider.GetRequiredService<AppDbContext>();
+            var parentId = rootConversationId;
+
+            for (var level = 1; level <= depth; level++)
+            {
+                var conversation = new Conversation
+                {
+                    TenantId = tenantId,
+                    WorkspaceId = workspaceId,
+                    Type = ConversationType.Thread,
+                    Title = $"Depth {level}",
+                    ParentConversationId = parentId,
+                    RootConversationId = rootConversationId,
+                    CreatedByUserId = userId
+                };
+                dbContext.Conversations.Add(conversation);
+                dbContext.ConversationMembers.Add(new ConversationMember
+                {
+                    TenantId = tenantId,
+                    ConversationId = conversation.Id,
+                    UserId = userId,
+                    Role = ConversationMemberRole.Member,
+                    CanRead = true,
+                    CanPost = true,
+                    CanCreateThread = true,
+                    JoinedAt = DateTimeOffset.UtcNow
+                });
+                parentId = conversation.Id;
+            }
+
+            await dbContext.SaveChangesAsync();
+            return parentId;
+        }
+
+        public async Task<(int Conversations, int SuccessAudits)> GetConversationThreadCreationCountsAsync(
+            Guid tenantId,
+            string tenantSlug)
+        {
+            await using var scope = App.Services.CreateAsyncScope();
+            var currentTenant = scope.ServiceProvider.GetRequiredService<CurrentTenantService>();
+            currentTenant.SetTenant(tenantId, tenantSlug);
+            var dbContext = scope.ServiceProvider.GetRequiredService<AppDbContext>();
+            return (
+                await dbContext.Conversations.CountAsync(),
+                await dbContext.AuditLogs.CountAsync(log => log.Action == "ConversationThreadCreated"));
         }
 
         public async Task<(int Workspaces, int WorkspaceMembers, int Conversations, int ConversationMembers, int Audits, int Outbox, int Idempotency)>

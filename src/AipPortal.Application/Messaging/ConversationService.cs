@@ -32,13 +32,17 @@ public sealed class ConversationService(
     {
         if (!TryCurrentUser(out var userId)) return Result<PagedResponse<ConversationListItemResponse>>.Failure("Authentication is required.");
         var conversations = await messaging.ListForUserAsync(userId, query.SafePage, query.SafePageSize, cancellationToken);
+        var readableIds = await messaging.FilterReadableConversationIdsAsync(
+            userId,
+            conversations.Items.Select(conversation => conversation.Id).ToArray(),
+            cancellationToken);
         var result = new List<ConversationListItemResponse>();
         foreach (var conversation in conversations.Items)
         {
-            // Repository filtering applies the bounded SQL prefilter; this
-            // application check is the final record-level authorization
-            // boundary before any title or last-message content is mapped.
-            if (!await authorization.CanViewConversation(userId, conversation.Id, cancellationToken))
+            // Repository filtering recursively scopes paging/counts. This
+            // batched check is the final current-authorization boundary
+            // before any title or last-message content is mapped.
+            if (!readableIds.Contains(conversation.Id))
             {
                 continue;
             }

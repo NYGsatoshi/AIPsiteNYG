@@ -15,9 +15,12 @@
 `CurrentAuthorizationTargetResolver` is the shared current-state boundary for
 notification opening and dispatch authorization. It resolves only safe outcome
 metadata. It checks current tenant/user/TenantUser, Workspace/member,
-Project visibility/lifecycle, Task lifecycle, digest-job identity, and routing
-identity immediately before dispatch or open. A persisted route, historical
-Outbox membership, or broad subscription cannot grant access.
+Project visibility/lifecycle, Task lifecycle, digest-job identity, Artifact
+Project scope, recursive Message/Conversation ancestry, and routing identity
+immediately before dispatch or open. Message resolution uses the same
+scope-consistent, cycle-safe, maximum-32-level boundary as Messaging reads. A
+persisted route, historical Outbox membership, or broad subscription cannot
+grant access.
 
 `RealtimeDispatchAuthorizer` applies that resolver to the approved Task,
 Project, NotificationCreated, NotificationReadStateChanged, and
@@ -32,9 +35,10 @@ Task returns `/projects/{projectId}/tasks/{taskId}`. A current digest returns
 list. Unavailable target states return no protected detail and do not mutate
 read state. An authorized unread open advances recipient state and stages the
 recipient-only read-state Outbox event in the same transaction; repeat open is
-idempotent. This endpoint is navigation authority only for `Task`, `TaskItem`,
-and `TaskDeadlineDigest`; it is not a replacement for legacy notification
-navigation.
+idempotent. It is also backend navigation authority for authorized `Artifact`
+and `Message` targets, returning `/artifacts/{artifactId}` or
+`/messages/{messageId}` without extra Workspace context. The current Angular
+supported-target union does not yet bind those two backend routes.
 
 Workspace archive captures active members before lifecycle mutation and stages
 one metadata-only recipient `Security.AuthorizationStateChanged.v1` event per
@@ -61,15 +65,16 @@ without fallback navigation. An authorization clear advances the RightPanel's
 list-request generation, so an HTTP response that began before revocation
 cannot restore a protected Task projection afterward.
 
-Task and digest notifications are also filtered from the authoritative list,
+Task, digest, Artifact, and Message notifications are filtered from the authoritative list,
 unread count, and legacy read/delete mutations when their current target is no
 longer authorized. This closes the otherwise unsafe clear-then-refetch race.
 `NotificationOpenService` derives a read-state event's `unreadCount` through
 the same bounded current-visibility scan used by the HTTP unread-count service,
-so an unread but now-hidden Task/digest row cannot inflate the delivered count.
-Legacy generic recipient notifications retain their existing embedded-created
-and read-state event contracts, but Task/digest dispatch remains fail-closed
-against any widened payload.
+so an unread but now-hidden protected row cannot inflate the delivered count.
+Task/digest created events remain strict reference-only signals. Artifact and
+Message created events retain their legacy embedded shape, but initial,
+delayed, retry, and replay delivery reauthorizes the current target first.
+Other generic recipient notifications retain their existing contracts.
 
 Task Detail, My Tasks, Project Detail/Kanban/Gantt, and Workspace preference
 facades use approved durable events as coalesced HTTP invalidation triggers.
@@ -80,12 +85,12 @@ only exact 15-minute values, and keeps no browser-storage/timezone authority.
 
 ## Focused evidence recorded during implementation
 
-The focused `Scope=TaskV1PR07D` manifest now contains **32** required test
+The focused `Scope=TaskV1PR07D` manifest now contains **34** required test
 names. It includes the PostgreSQL read-state/Outbox atomicity case with one
-visible unread Notification plus one current-unavailable unread Task
-Notification. That case proves the current-visible unread count is one before
-open, the delivered read-state event reports zero after opening the visible
-row, and the unavailable row remains unread and hidden. CI verifies the TRX
+visible Task, Artifact, and Message Notification plus one current-unavailable
+Task Notification. The case proves a visible count of three, a delivered
+read-state count of two after opening the Task row, and zero after the owning
+Project is archived; the unavailable rows remain unread and hidden. CI verifies the TRX
 and rejects duplicate, missing, skipped, failed, aborted, or not-executed
 required names.
 
@@ -94,6 +99,13 @@ required names.
 `NotificationCreatedDispatchRejectsWidenedReferencePayload` prove that the
 approved schema is property-order independent and that a Task/digest signal
 with an extra protected field is suppressed before delivery.
+
+`ArtifactNotificationReauthorizesListOpenMutationAndDelayedDelivery` and
+`ProjectMessageNotificationReauthorizesConversationAndProjectAccess` prove
+authorized routes/content first, then list/count/unread, mutation, open,
+created-event, and read-state suppression after Workspace, Project, or
+Conversation-ancestor access loss. The PostgreSQL case proves the batched
+Project and recursive Conversation predicates translate on Npgsql.
 
 The repository's strict Corepack npm 11.17 wrapper passed in a clean linked
 worktree, and the focused RightPanel Angular suite passed locally. The host's

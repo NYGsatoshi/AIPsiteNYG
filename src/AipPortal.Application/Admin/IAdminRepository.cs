@@ -15,6 +15,8 @@ public interface IAdminRepository
 
     Task<int> CountSystemAdminsExcludingAsync(Guid userId, CancellationToken cancellationToken = default);
 
+    Task<IReadOnlyList<Guid>> ListActiveSystemAdminIdsAsync(CancellationToken cancellationToken = default);
+
     Task<PagedResponse<AdminInviteResponse>> ListInvitesAsync(int page, int pageSize, CancellationToken cancellationToken = default);
 
     Task AddInviteAsync(Invite invite, CancellationToken cancellationToken = default);

@@ -98,6 +98,14 @@ public sealed class ProjectService(
             return Result<ProjectResponse>.Failure("Project not found.");
         }
 
+        if (project.Status is ProjectStatus.Archived or ProjectStatus.Deleted)
+        {
+            return Result<ProjectResponse>.Failure(new ApplicationErrorDetail(
+                "InvalidStateTransition",
+                "Archived or deleted Projects are read-only.",
+                Target: "project"));
+        }
+
         var startDate = request.StartDate ?? project.StartDate;
         var endDate = request.EndDate ?? project.DueDate;
         if (HasInvalidDateRange(startDate, endDate))
@@ -132,6 +140,10 @@ public sealed class ProjectService(
             return Result<ProjectResponse>.Failure($"Project status cannot transition from {previousStatus} to {nextStatus}.");
         }
 
+        var affectedReaders = RemovesCurrentReadAccess(previousStatus, nextStatus)
+            ? await projects.ListCurrentReaderUserIdsAsync(project.Id, cancellationToken)
+            : [];
+
         if (normalizedTitle is not null)
         {
             project.Name = normalizedTitle;
@@ -144,6 +156,11 @@ public sealed class ProjectService(
         project.DueDate = request.EndDate ?? project.DueDate;
         await AuditAsync(userId, project.Status == previousStatus ? "ProjectUpdated" : "ProjectStatusChanged", "Project", project.Id, cancellationToken);
         await invalidations.ProjectChangedAsync(project, userId, "updated", cancellationToken);
+        await PublishProjectAccessInvalidationsAsync(
+            project,
+            affectedReaders,
+            nextStatus == ProjectStatus.Archived ? "archived" : "suspended",
+            cancellationToken);
         if (!await SaveProjectMutationAsync(cancellationToken))
             return ProjectConflict<ProjectResponse>();
         return Result<ProjectResponse>.Success(await ToProjectAsync(project, userId, cancellationToken));
@@ -162,7 +179,7 @@ public sealed class ProjectService(
             return Result.Failure("Project not found.");
         }
 
-        if (project.DeletedAt.HasValue || project.Status == ProjectStatus.Deleted)
+        if (project.DeletedAt.HasValue || project.Status is ProjectStatus.Archived or ProjectStatus.Deleted)
         {
             return Result.Failure(new ApplicationErrorDetail(
                 "InvalidStateTransition",
@@ -170,9 +187,11 @@ public sealed class ProjectService(
                 Target: "project"));
         }
 
+        var affectedReaders = await projects.ListCurrentReaderUserIdsAsync(project.Id, cancellationToken);
         project.Status = ProjectStatus.Archived;
         await AuditAsync(userId, "ProjectArchived", "Project", project.Id, cancellationToken);
         await invalidations.ProjectChangedAsync(project, userId, "archived", cancellationToken);
+        await PublishProjectAccessInvalidationsAsync(project, affectedReaders, "archived", cancellationToken);
         if (!await SaveProjectMutationAsync(cancellationToken))
             return ProjectConflict();
         return Result.Success();
@@ -1570,6 +1589,29 @@ public sealed class ProjectService(
     {
         return auditLogger.LogAsync(new AuditLogEntry(actorUserId, action, targetType, targetId, SummaryFor(action)), cancellationToken);
     }
+
+    private async Task PublishProjectAccessInvalidationsAsync(
+        Project project,
+        IReadOnlyList<Guid> affectedUserIds,
+        string change,
+        CancellationToken cancellationToken)
+    {
+        foreach (var affectedUserId in affectedUserIds.Distinct())
+        {
+            await authorizationChanges.PublishAsync(
+                project.TenantId,
+                affectedUserId,
+                "project",
+                project.Id,
+                change,
+                cancellationToken);
+        }
+    }
+
+    private static bool RemovesCurrentReadAccess(ProjectStatus current, ProjectStatus next) =>
+        next == ProjectStatus.Archived ||
+        (next == ProjectStatus.Suspended &&
+         current is ProjectStatus.Active or ProjectStatus.Review or ProjectStatus.Completed);
 
     private static bool IsValidProjectStatusTransition(ProjectStatus current, ProjectStatus next)
     {

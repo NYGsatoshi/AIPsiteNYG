@@ -11,12 +11,16 @@ foundation. The following canonical blockers remain and prevent WPC-02/WPC-03
 from treating the backend as complete:
 
 - **WPC-01-001, blocking decision:** no specification rule safely maps existing
-  Projects to `WorkspaceVisible`, `MembersOnly`, or `Restricted`. Existing list,
-  detail, search, Task, and Group-derived access semantics disagree, so a
-  migration default could broaden or remove access.
+  Projects to `WorkspaceVisible`, `MembersOnly`, or `Restricted`. The current
+  Project detail/Search/subordinate predicates and the non-Archived list scope
+  are aligned. Archived history remains list-only for current Workspace members
+  who are explicit Project members. These current rules do not select a
+  canonical persisted Visibility value; a migration default could still
+  broaden or remove access.
 - **WPC-01-002, blocking decision:** the canonical authority for creating a
-  Workspace-root Project is not resolved. Current code requires Group
-  management and must not be broadened by inference.
+  Workspace-root Project is not resolved. The deprecated Group-scoped
+  compatibility command returns 503 without mutation and cannot be treated as
+  canonical authority precedent.
 - **WPC-01-003, blocking dependency:** no persisted/evaluated delegated
   `workspace.create` capability boundary exists. Tenant Owner/Admin is enforced;
   delegation fails closed.
@@ -44,12 +48,17 @@ The detailed controller, service, validation, error-handling, file, project, mes
 The highest-severity confirmed findings are:
 
 - **BE-001, critical:** scoped group/private-channel announcements can be disclosed to active workspace members because visibility predicates are not mutually exclusive.
-- **BE-002, resolved in PR #281:** Project-derived Search, Project list,
-  project-bound Messaging, and the Project boundary used by My Tasks now share
-  one SQL-translatable form of the current `CanViewProject` policy. This closes
+- **BE-002, resolved by the current PR #281 candidate:** Project-derived Search,
+  the non-Archived Project list, project-bound Messaging, and the Project
+  boundary used by My Tasks now share one SQL-translatable form of the current
+  `CanViewProject` policy. The list alone adds narrowly authorized Archived
+  history for current Workspace members with explicit Project membership. This closes
   disclosure of Project, Task, Artifact, ActivityLog, Comment, and
   project-bound Message content without claiming canonical Visibility
-  persistence.
+  persistence. Production PostgreSQL Conversation list/count and Message Search
+  now share one depth-bounded recursive ancestry relation and fail closed on
+  missing, inconsistent, cyclic, or deeper-than-32 hierarchies. Thread creation
+  cannot persist a child beyond that readable boundary.
 - **BE-003, resolved for direct-message MVP:** direct conversation creation now derives an active shared workspace server-side instead of writing `WorkspaceId = Guid.Empty`; broader PostgreSQL coverage for all conversation creation modes is still recommended.
 - **BE-004, critical:** message attachment requests trust client storage metadata and create records without required workspace/file-object relationships.
 - **BE-005, high:** post update/delete/pin operations mutate entities loaded with `AsNoTracking`, so successful responses may not correspond to persisted changes.

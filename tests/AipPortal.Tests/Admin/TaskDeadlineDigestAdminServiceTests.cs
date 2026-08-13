@@ -166,6 +166,7 @@ public sealed class TaskDeadlineDigestAdminServiceTests
         public Task<User?> GetUserByNormalizedEmailAsync(string normalizedEmail, CancellationToken cancellationToken = default) => throw new NotSupportedException();
         public Task<int> CountSystemAdminsAsync(CancellationToken cancellationToken = default) => throw new NotSupportedException();
         public Task<int> CountSystemAdminsExcludingAsync(Guid userId, CancellationToken cancellationToken = default) => throw new NotSupportedException();
+        public Task<IReadOnlyList<Guid>> ListActiveSystemAdminIdsAsync(CancellationToken cancellationToken = default) => throw new NotSupportedException();
         public Task<PagedResponse<AdminInviteResponse>> ListInvitesAsync(int page, int pageSize, CancellationToken cancellationToken = default) => throw new NotSupportedException();
         public Task AddInviteAsync(Invite invite, CancellationToken cancellationToken = default) => throw new NotSupportedException();
         public Task<Invite?> GetInviteAsync(Guid inviteId, CancellationToken cancellationToken = default) => throw new NotSupportedException();

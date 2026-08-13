@@ -11,6 +11,11 @@ public sealed class AppDbContext(
     DbContextOptions<AppDbContext> options,
     ICurrentTenant currentTenant) : DbContext(options)
 {
+    internal Guid? ActiveTenantId =>
+        currentTenant.IsAvailable && !currentTenant.IsPlatformScope
+            ? currentTenant.TenantId
+            : null;
+
     public DbSet<Tenant> Tenants => Set<Tenant>();
     public DbSet<TenantSettings> TenantSettings => Set<TenantSettings>();
     public DbSet<Plan> Plans => Set<Plan>();

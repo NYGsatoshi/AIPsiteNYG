@@ -314,12 +314,22 @@ public sealed class DbNotificationService(
 
         if (!notification.IsRead)
         {
+            var resultingUnreadCount = Math.Max(
+                0,
+                await GetUnreadCountAsync(userId, cancellationToken) - 1);
             var now = clock.UtcNow;
             var stateVersion = AdvanceState(await GetOrCreateUserStateAsync(userId, now, cancellationToken), now);
             notification.IsRead = true;
             notification.ReadAt = now;
             notification.StateVersion = stateVersion;
-            await EnqueueReadStateChangeAsync(userId, notification.Id, "read", stateVersion, now, cancellationToken);
+            await EnqueueReadStateChangeAsync(
+                userId,
+                notification.Id,
+                "read",
+                stateVersion,
+                now,
+                resultingUnreadCount,
+                cancellationToken);
         }
 
         return true;
@@ -339,12 +349,11 @@ public sealed class DbNotificationService(
         if (targets is not null)
         {
             var visibleUnread = new List<Notification>(unread.Count);
-            foreach (var notification in unread)
+            for (var offset = 0; offset < unread.Count; offset += AuthorizationScanBatchSize)
             {
-                if (await IsCurrentlyVisibleAsync(notification, userId, cancellationToken))
-                {
-                    visibleUnread.Add(notification);
-                }
+                var batch = unread.Skip(offset).Take(AuthorizationScanBatchSize).ToArray();
+                var visibleIds = await FilterCurrentlyVisibleIdsAsync(batch, userId, cancellationToken);
+                visibleUnread.AddRange(batch.Where(notification => visibleIds.Contains(notification.Id)));
             }
 
             unread = visibleUnread;
@@ -363,7 +372,7 @@ public sealed class DbNotificationService(
             notification.StateVersion = stateVersion;
         }
 
-        await EnqueueReadStateChangeAsync(userId, null, "allRead", stateVersion, now, cancellationToken);
+        await EnqueueReadStateChangeAsync(userId, null, "allRead", stateVersion, now, 0, cancellationToken);
 
         return unread.Count;
     }
@@ -372,7 +381,9 @@ public sealed class DbNotificationService(
     {
         var query = dbContext.Notifications
             .AsNoTracking()
-            .Where(notification => notification.UserId == userId && !notification.IsRead && notification.DeletedAt == null);
+            .Where(notification => notification.UserId == userId && !notification.IsRead && notification.DeletedAt == null)
+            .OrderByDescending(notification => notification.CreatedAt)
+            .ThenByDescending(notification => notification.Id);
         if (targets is null)
         {
             return await query.CountAsync(cancellationToken);
@@ -386,7 +397,8 @@ public sealed class DbNotificationService(
         var query = dbContext.Notifications
             .AsNoTracking()
             .Where(notification => notification.UserId == userId && notification.DeletedAt == null)
-            .OrderByDescending(notification => notification.CreatedAt);
+            .OrderByDescending(notification => notification.CreatedAt)
+            .ThenByDescending(notification => notification.Id);
 
         if (targets is null)
         {
@@ -420,10 +432,22 @@ public sealed class DbNotificationService(
             return false;
         }
 
+        var resultingUnreadCount = await GetUnreadCountAsync(userId, cancellationToken);
+        if (!notification.IsRead)
+        {
+            resultingUnreadCount = Math.Max(0, resultingUnreadCount - 1);
+        }
         var stateVersion = AdvanceState(await GetOrCreateUserStateAsync(userId, deletedAt, cancellationToken), deletedAt);
         notification.DeletedAt = deletedAt;
         notification.StateVersion = stateVersion;
-        await EnqueueReadStateChangeAsync(userId, notification.Id, "deleted", stateVersion, deletedAt, cancellationToken);
+        await EnqueueReadStateChangeAsync(
+            userId,
+            notification.Id,
+            "deleted",
+            stateVersion,
+            deletedAt,
+            resultingUnreadCount,
+            cancellationToken);
         return true;
     }
 
@@ -479,9 +503,10 @@ public sealed class DbNotificationService(
             "InternalForm" or "Form" => $"/forms/{relatedEntityId}",
             "Project" => $"/projects/{relatedEntityId}",
             // Task and digest routes are resolved only by notification-open
-            // against current Task/Project/Workspace authorization.  A list
+            // against current Task/Project/Workspace authorization. A list
             // response must never preserve the obsolete /tasks/{id} route as
-            // navigation authority.
+            // navigation authority. Artifact and Message list routes remain
+            // usable only because the list itself is current-target filtered.
             "TaskItem" or "Task" or TaskDeadlineDigestPolicy.RelatedEntityType => null,
             "Artifact" => $"/artifacts/{relatedEntityId}",
             "Message" => $"/messages/{relatedEntityId}",
@@ -513,9 +538,11 @@ public sealed class DbNotificationService(
                 break;
             }
 
+            var visibleIds = await FilterCurrentlyVisibleIdsAsync(candidates, userId, cancellationToken);
+
             foreach (var notification in candidates)
             {
-                if (!await IsCurrentlyVisibleAsync(notification, userId, cancellationToken))
+                if (!visibleIds.Contains(notification.Id))
                 {
                     continue;
                 }
@@ -556,13 +583,9 @@ public sealed class DbNotificationService(
                 return visibleCount;
             }
 
-            foreach (var notification in candidates)
-            {
-                if (await IsCurrentlyVisibleAsync(notification, userId, cancellationToken))
-                {
-                    visibleCount++;
-                }
-            }
+            var visibleIds = await FilterCurrentlyVisibleIdsAsync(candidates, userId, cancellationToken);
+
+            visibleCount += candidates.Count(notification => visibleIds.Contains(notification.Id));
 
             rawOffset += candidates.Count;
             if (candidates.Count < AuthorizationScanBatchSize)
@@ -577,7 +600,7 @@ public sealed class DbNotificationService(
         Guid userId,
         CancellationToken cancellationToken)
     {
-        if (!RequiresCurrentTargetResolution(notification))
+        if (!NotificationCurrentAuthorizationPolicy.RequiresCurrentTargetResolution(notification.RelatedEntityType))
         {
             return true;
         }
@@ -591,12 +614,43 @@ public sealed class DbNotificationService(
         return resolution.IsOwned && resolution.IsAvailable;
     }
 
-    private static bool RequiresCurrentTargetResolution(Notification notification) =>
-        notification.RelatedEntityType is "TaskItem" or "Task" ||
-        string.Equals(
-            notification.RelatedEntityType,
-            TaskDeadlineDigestPolicy.RelatedEntityType,
-            StringComparison.Ordinal);
+    private async Task<IReadOnlySet<Guid>> FilterCurrentlyVisibleIdsAsync(
+        IReadOnlyCollection<Notification> notifications,
+        Guid userId,
+        CancellationToken cancellationToken)
+    {
+        var visible = notifications
+            .Where(notification =>
+                !NotificationCurrentAuthorizationPolicy.RequiresCurrentTargetResolution(notification.RelatedEntityType))
+            .Select(notification => notification.Id)
+            .ToHashSet();
+        var protectedIds = notifications
+            .Where(notification =>
+                NotificationCurrentAuthorizationPolicy.RequiresCurrentTargetResolution(notification.RelatedEntityType))
+            .Select(notification => notification.Id)
+            .ToArray();
+        if (protectedIds.Length == 0)
+        {
+            return visible;
+        }
+
+        if (targets is null || !currentTenant.IsAvailable)
+        {
+            if (targets is null)
+            {
+                visible.UnionWith(protectedIds);
+            }
+
+            return visible;
+        }
+
+        visible.UnionWith(await targets.FilterAvailableNotificationIdsAsync(
+            currentTenant.TenantId,
+            userId,
+            protectedIds,
+            cancellationToken));
+        return visible;
+    }
 
     private static NotificationListItemResponse ToListItem(Notification notification) => new(
         notification.Id,
@@ -799,14 +853,20 @@ public sealed class DbNotificationService(
         await EnqueueAsync("Notifications.NotificationCreated.v1", notification.Id, notification.StateVersion, notification.CreatedAt, payload, notification.UserId, cancellationToken);
     }
 
-    private async Task EnqueueReadStateChangeAsync(Guid userId, Guid? notificationId, string change, long stateVersion, DateTimeOffset updatedAt, CancellationToken cancellationToken)
+    private async Task EnqueueReadStateChangeAsync(
+        Guid userId,
+        Guid? notificationId,
+        string change,
+        long stateVersion,
+        DateTimeOffset updatedAt,
+        int unreadCount,
+        CancellationToken cancellationToken)
     {
         if (outbox is null || !currentTenant.IsAvailable)
         {
             return;
         }
 
-        var unreadCount = await GetUnreadCountAsync(userId, cancellationToken);
         var payload = System.Text.Json.JsonSerializer.SerializeToElement(new { notificationId, change, unreadCount, stateVersion, updatedAt });
         await EnqueueAsync("Notifications.NotificationReadStateChanged.v1", notificationId ?? userId, stateVersion, updatedAt, payload, userId, cancellationToken);
     }

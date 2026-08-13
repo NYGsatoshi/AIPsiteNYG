@@ -128,19 +128,20 @@ reconciles the committed winner; it does not create a second Workspace.
 
 ## Project lifecycle audit
 
-Production paths capable of assigning or retaining `ProjectStatus.Active`:
+Production Project lifecycle entry points:
 
 | Path | Final behavior |
 | --- | --- |
 | `ProjectService.CreateAsync` | Deprecated command returns 503 and creates nothing. Domain default for any separately constructed new Project remains Planning. |
-| `ProjectService.UpdateAsync` | An already-Active row may remain Active during a metadata-only update. Planning/Suspended/other non-Review transitions to Active return 409 before mutation, audit, invalidation, or save. Review may return to Active. |
-| `ProjectService.ArchiveAsync` | Writes only Archived. |
-| `ProjectService.RestoreAsync` | Current persistence cannot choose a safe prior status. Restore requests return typed 409 without status/deletion mutation, success audit, invalidation, or save. |
+| `ProjectService.UpdateAsync` | Same-state metadata retention is valid except Archived/Deleted, which are read-only. Graph edges are Planning -> Suspended/Archived; Active -> Review/Completed/Suspended/Archived; Review -> Active/Completed/Suspended/Archived; Completed -> Archived; Suspended -> Planning/Archived. Non-Review transitions to Active return typed 409; every other missing edge is rejected before mutation, audit, invalidation, or save. |
+| `ProjectService.ArchiveAsync` | Maps any non-Archived/non-Deleted, non-soft-deleted state to Archived. Repeating archive conflicts without a success side effect. |
+| `AdminService.ArchiveProjectAsync` | Compatibility administration path writes Archived plus deletion metadata and a `DataArchived` audit. Before mutation it enumerates the same current Project readers and stages metadata-only authorization invalidations with the archive/audit transaction. Deleted/already-soft-deleted input conflicts before mutation, audit, invalidation, or save; the path never writes Active. |
+| `ProjectService.RestoreAsync` | Current persistence cannot choose a safe prior status. Otherwise-authorized restore requests return typed 409 without status/deletion mutation, success audit, invalidation, or save. |
 | Suspended recovery | Transition graph permits Planning or Archived, never Active. A subsequent attempt to target Active is independently rejected. |
 | Explicit `POST /activate` | Absent. |
 | Domain `Restore()` helper | Clears deletion metadata only; it does not change Project status. |
 | Migrations | No migration writes Project status to Active and no activation provenance migration exists. |
-| Browser-smoke seed | Test-environment-only fixture creation may construct new Active fixtures. Refresh no longer promotes an existing Planning/non-Active row to Active. |
+| Browser-smoke seed | Test-environment-only fixture creation may construct new Active fixtures. Refresh never promotes an existing Planning/non-Active row to Active; four compatibility refresh paths may clear deletion metadata while preserving the existing status. |
 | Direct EF/test fixtures | Trusted test setup can construct Active rows because no schema invariant/provenance exists; it is not an application/API lifecycle command. |
 
 This closes every generic first-activation bypass without breaking the
@@ -154,25 +155,37 @@ foundation, not a final activation or historical-recovery policy.
 ## Draft and subordinate-resource boundary
 
 Planning/Suspended access requires current active Workspace membership and an
-explicit ProjectMember. The same predicate is applied to:
+explicit ProjectMember. The same base boundary is applied below, with each
+feature retaining stricter role or relationship checks where required:
 
 - Project list, detail, management, and search;
 - Task/Artifact/Activity/Comment search;
 - My Tasks projection/count/Project scope;
 - deadline-digest current-state evaluation;
 - project-bound Conversation creation, read/send authorization, list counts,
-  and Message search;
+  unread/update polling, and Message search;
 - authorization target resolution and Project/Task realtime delivery;
 - delayed `Messaging.ConversationUnreadChanged.v1` user-routed events.
+- persisted Artifact and project-bound Message notifications across list,
+  totals/unread, read/delete, open, and delayed created/read-state delivery.
 
 For operational Projects, the exact current detail predicate has a shared
 SQL-translatable query form used by Project list and all Project-derived Search
-categories. It preserves explicit ProjectMember, authorized GroupMember,
+categories. Non-deleted Archived history is available only through the archive
+list filter to an active Workspace member who is also an explicit Project
+member; detail, Search, and subordinate reads remain hidden. The shared scope
+preserves explicit ProjectMember, authorized GroupMember,
 Workspace Owner/Admin, ungrouped ordinary-member, and current SystemAdmin
 access while denying an ordinary member outside a grouped Project/Group and a
 revoked member with stale subordinate rows. Message Search also performs the
 authoritative recursive Conversation check over a bounded candidate set before
-mapping any Thread or Project-bound title/body. Direct-message reuse matches
+mapping any Thread or Project-bound title/body. Production PostgreSQL detail,
+pages, counts, polling, and Message Search use the same set-based ancestry
+relation; missing identity, inconsistent Workspace/Project/root scope, cycles,
+or more than 32 Thread edges fail closed instead of affecting returned metadata.
+Send, moderate, and Thread-create checks first require that same structural
+boundary. Thread creation rejects a child beyond the readable limit before
+success mutation. Direct-message reuse matches
 Workspace and nullable Project scope exactly and reauthorizes existing rows.
 
 Conversation membership or historical Outbox routing is not authority.
@@ -180,6 +193,17 @@ Project-bound Conversations recheck every non-null `ProjectId`, regardless
 of Conversation type. Delayed unread events parse a non-empty Conversation ID
 and call current Conversation authorization; malformed identity or revoked
 access is denied.
+
+Artifact Notifications resolve through the shared current Project read scope.
+Message Notifications resolve through the same recursive Conversation scope.
+Their list/count checks batch at most 100 protected Notification IDs, so a
+Message batch performs one recursive authorization query rather than an
+unbounded per-row N+1. Task/digest created signals remain reference-only;
+Artifact/Message legacy embedded signals are dispatched only after current
+target reauthorization. Visibility-reducing Project transitions (Suspended or
+Archived) capture the pre-transition current readers and stage metadata-only
+`Security.AuthorizationStateChanged.v1` events in the same business unit of
+work; a failed required Outbox stage prevents save.
 
 ## Project create status
 
@@ -242,10 +266,12 @@ Changed endpoint behavior:
 - hidden `GET /api/projects/{projectId}`
   - indistinguishable full redacted 404 `NotFound`.
 
-`Idempotency-Key` must contain 8–128 printable ASCII characters. Missing,
-invalid, malformed JSON, syntactically valid type-conversion, unsupported
-media type, authentication, authorization, CSRF, dependency, concurrency,
-and unexpected-server cases are covered at the real HTTP boundary.
+`Idempotency-Key` must contain 8–128 printable ASCII characters.
+Hosted HTTP coverage includes missing/invalid keys, malformed JSON, valid-JSON
+binding or type errors, unsupported media type, authentication, authorization,
+CSRF, dependency unavailability, idempotency conflict, lifecycle conflict, and
+masked not-found behavior. Unexpected-server and replay-isolation cases are
+additionally covered at the middleware/controller boundary.
 
 The envelope helper emits static public messages and empty details. The
 canonical repository-wide `IRedactionService`/ErrorResponse profile is absent
@@ -280,14 +306,27 @@ The real PostgreSQL migration test:
 
 Final verification uses an isolated PostgreSQL 18 container with
 `POSTGRES_TEST_CONNECTION_STRING` explicitly present for the database-backed
-runs. Exact final command counts are recorded in PR #281 after the last source
-change and full run; no conditional early return is counted as database
-evidence.
+runs. These counts were recorded after the last production-source change; no
+conditional early return is counted as database evidence.
 
-| Final command group | Passed | Failed | Skipped | Result / qualification |
+| Final command | Passed | Failed | Skipped | Result / qualification |
 | --- | ---: | ---: | ---: | --- |
-| Restore, Release build, eight required focused groups, full solution, pending-model check, and diff check | See final PR body | See final PR body | See final PR body | Updated only from completed final-tree execution. |
-| Independent security diff review | See final PR body | See final PR body | See final PR body | Includes authorization widening, Search/Message disclosure, lifecycle corruption, replay, tenant, realtime, and SystemAdmin review. |
+| `dotnet restore AipPortal.slnx` | - | 0 | 0 | All projects already restored. |
+| Release build, `--no-restore --disable-build-servers -m:1` | - | 0 | 0 | 0 warnings and 0 errors. |
+| `Scope=WPC01` | 45 | 0 | 0 | Includes real-PostgreSQL Workspace/idempotency, lifecycle, authorization, recursive Conversation, archive-history, realtime, and migration cases. |
+| Workspace creation foundation + controller | 30 | 0 | 0 | Fail-closed production gate, atomic initializer seam, replay isolation, and envelope mapping. |
+| `ProjectServiceTests` | 84 | 0 | 0 | Full lifecycle graph and failed-recovery side effects. |
+| Search/Project authorization PostgreSQL group | 11 | 0 | 0 | Project-derived Search parity, Group-bound denial/positive actors, archived list exception, recursive Message scope, and Tenant isolation. |
+| Messaging focused group | 21 | 0 | 0 | Conversation/polling/safety and hosted communication isolation. |
+| My Tasks focused group | 7 | 0 | 0 | Includes provider-backed current-Project scope. |
+| Realtime/authorized-delivery focused group | 49 | 0 | 0 | Project/Task/Conversation/Notification dispatch reauthorization. |
+| `HttpTenantIsolationTests` | 43 | 0 | 0 | Hosted WPC envelope, Tenant, lifecycle, and Messaging boundaries. |
+| `Scope=TaskV1PR07D` | 37 | 0 | 0 | 34 required manifest names plus additional notification regressions; real PostgreSQL enabled. |
+| Admin lifecycle + deadline-digest focused group | 63 | 0 | 0 | Compatibility archive, required invalidation, and digest authorization. |
+| Full `dotnet test AipPortal.slnx --configuration Release --no-build --no-restore` | 905 | 0 | 0 | Real isolated PostgreSQL; 4 minutes 41 seconds. |
+| EF pending-model check | - | 0 | 0 | `No changes have been made to the model since the last migration.` |
+| `git diff --check` | - | 0 | 0 | Clean; line-ending conversion notices only. |
+| Independent final source/security diff review | 0 reportable findings | 0 | 0 deferred | Covers authorization widening, Search/Message/Notification disclosure, lifecycle corruption, replay, Tenant escape, delayed realtime, and SystemAdmin behavior; sealed scan identity is recorded in the final PR body. |
 
 `dotnet format AipPortal.slnx --verify-no-changes --no-restore --verbosity
 minimal` exited 1 on widespread pre-existing whitespace violations, including
@@ -313,6 +352,14 @@ not counted as default-`general` provisioning evidence.
 - **DEPENDENCY BLOCKER — PROJECT TASK WORKFLOW INITIALIZATION**
 - **DEPENDENCY BLOCKER — CANONICAL CROSS-MODULE REDACTION SERVICE**
 
-The final PR body classifies any code defect found by the last source review.
+### Code defects
+
+- **NON-BLOCKING PERFORMANCE DEFECT - NOTIFICATION MARK-ALL MATERIALIZATION:**
+  `MarkAllAsReadAsync` still materializes all unread rows for one recipient
+  before applying current-target authorization in bounded batches. It does not
+  widen visibility or cross a Tenant/user boundary, but a recipient with an
+  unusually large notification history can cause avoidable memory use. A
+  transaction-preserving set-based redesign is follow-up work outside WPC-01.
+
 Unresolved specification and cross-module behavior remains unavailable or
 conservatively restricted rather than being approximated with inferred policy.

@@ -23,7 +23,7 @@ public sealed record NotificationUnreadCountResponse(int UnreadCount, long State
 /// <summary>
 /// The result of resolving and opening a notification target.  Unavailable is
 /// intentionally uniform: it never contains a reason or protected resource
-/// data.  Context is only populated for a currently authorized digest target.
+/// data. Context is only populated for a currently authorized digest target.
 /// </summary>
 public sealed record NotificationOpenResponse(
     string Outcome,

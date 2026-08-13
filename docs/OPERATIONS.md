@@ -31,11 +31,16 @@ Run this before a local demo, internal pilot handoff, or on-prem school demonstr
 8. Confirm tenant admin cannot call `/api/platform/*`.
 9. Confirm a TenantA user cannot access TenantB records by URL or API.
 10. Invite/register a normal user.
-11. Create a workspace, group, channel, post, project, task, and comment.
-12. Upload a valid file and download it through an authorized user.
-13. Try invalid extension, invalid MIME type, oversized upload, and unauthorized download.
-14. Trigger a notification and verify another user cannot mark it read.
-15. Stop and restart the app; verify login, tenant context, uploaded files, and project/task data persist.
+11. Verify production Workspace creation reports `canCreate=false` and returns
+    503 without durable rows while canonical `general` provisioning is
+    unavailable. Verify deprecated Project creation also returns 503 and that
+    no activation route is exposed.
+12. Using explicitly pre-provisioned Workspace/Project data, create or verify a
+    group, channel, post, task, and comment.
+13. Upload a valid file and download it through an authorized user.
+14. Try invalid extension, invalid MIME type, oversized upload, and unauthorized download.
+15. Trigger a notification and verify another user cannot mark it read.
+16. Stop and restart the app; verify login, tenant context, uploaded files, and project/task data persist.
 
 OnPremSingleTenant checks:
 
@@ -301,6 +306,13 @@ The Task/Digest created signal is reference-only. A healthy Angular client
 coalesces a bounded authorized HTTP refresh through the single
 `RealtimeFacade`; feature-specific sockets, manually constructed group names,
 and client-side routes persisted from old Notification rows are unsupported.
+Artifact and Message Notifications retain their legacy embedded created-event
+shape, but the server resolves Artifact through current Project visibility and
+Message through current recursive Conversation visibility before initial,
+delayed, retry, or replay delivery. A user denied by the authoritative current
+Project or Conversation policy must see the row disappear from list/unread,
+receive `Unavailable` on open, and be unable to read/delete it. Treat any
+embedded payload delivered after that loss as an authorization incident.
 If realtime is degraded, use the existing manual HTTP refresh fallback rather
 than treating a durable signal as data authority.
 

@@ -15,6 +15,27 @@ public sealed record NotificationTargetResolution(
     Guid? WorkspaceId = null);
 
 /// <summary>
+/// Identifies persisted notification targets whose display data and realtime
+/// signals must be reauthorized against the current resource boundary.
+/// </summary>
+public static class NotificationCurrentAuthorizationPolicy
+{
+    public static bool RequiresCurrentTargetResolution(string? relatedEntityType) =>
+        relatedEntityType is "TaskItem" or "Task" or "Artifact" or "Message" ||
+        string.Equals(
+            relatedEntityType,
+            TaskDeadlineDigestPolicy.RelatedEntityType,
+            StringComparison.Ordinal);
+
+    public static bool RequiresReferenceOnlyCreatedPayload(string? relatedEntityType) =>
+        relatedEntityType is "TaskItem" or "Task" ||
+        string.Equals(
+            relatedEntityType,
+            TaskDeadlineDigestPolicy.RelatedEntityType,
+            StringComparison.Ordinal);
+}
+
+/// <summary>
 /// Centralizes the current-state checks shared by notification opening and
 /// durable realtime dispatch.  Delivery routing remains an optimization;
 /// this resolver is the authority for the underlying target.
@@ -38,6 +59,25 @@ public interface INotificationTargetResolver
         Guid recipientUserId,
         DurableEventEnvelope envelope,
         CancellationToken cancellationToken = default);
+
+    async Task<IReadOnlySet<Guid>> FilterAvailableNotificationIdsAsync(
+        Guid tenantId,
+        Guid userId,
+        IReadOnlyCollection<Guid> notificationIds,
+        CancellationToken cancellationToken = default)
+    {
+        var available = new HashSet<Guid>();
+        foreach (var notificationId in notificationIds)
+        {
+            var resolution = await ResolveAsync(tenantId, userId, notificationId, cancellationToken);
+            if (resolution.IsOwned && resolution.IsAvailable)
+            {
+                available.Add(notificationId);
+            }
+        }
+
+        return available;
+    }
 }
 
 /// <summary>
