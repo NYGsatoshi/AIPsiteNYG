@@ -267,7 +267,7 @@ duplicating this behavior without an approved attachment/compatibility rule
 could duplicate stages or change existing Project creation semantics. WPC-01
 does not create a second workflow model or modify Task transitions/Kanban.
 
-## Verification commands executed before final-head packaging
+## Verification commands executed through final-head packaging
 
 The isolated PostgreSQL environment used PostgreSQL 18 on localhost with a
 temporary database credential. The credential is intentionally not recorded.
@@ -285,10 +285,11 @@ passed after an early return and is not PostgreSQL evidence.
 | `dotnet test tests/AipPortal.Tests/AipPortal.Tests.csproj --configuration Release --no-build --filter "FullyQualifiedName~PostgreSqlMigrationTests\|FullyQualifiedName~PostgreSqlRepositoryTests"` | 0 | 6 | 0 | 0 | Baseline PostgreSQL migration/repository set after migration |
 | `dotnet restore AipPortal.slnx` | 0 | n/a | n/a | n/a | WPC candidate; all projects up to date |
 | `dotnet build AipPortal.slnx --configuration Release --no-restore --disable-build-servers -m:1` | 0 | n/a | n/a | n/a | WPC candidate, 0 warnings/0 errors |
-| `dotnet test tests/AipPortal.Tests/AipPortal.Tests.csproj --configuration Release --no-build --filter "FullyQualifiedName~WorkspaceCreationFoundationTests\|FullyQualifiedName~WorkspacesControllerTests\|FullyQualifiedName~OrganizationAuthorizationTests\|FullyQualifiedName~ProjectServiceTests\|FullyQualifiedName~ProjectsControllerTests\|FullyQualifiedName~TenancyFoundationTests\|FullyQualifiedName~TenantIsolationSecurityTests" --logger "console;verbosity=minimal"` | 0 | 137 | 0 | 0 | Workspace/Project/Tenant service, authorization, controller evidence |
+| `dotnet test tests/AipPortal.Tests/AipPortal.Tests.csproj --configuration Release --no-build --filter "FullyQualifiedName~WorkspaceCreationFoundationTests\|FullyQualifiedName~WorkspacesControllerTests\|FullyQualifiedName~OrganizationAuthorizationTests\|FullyQualifiedName~ProjectServiceTests\|FullyQualifiedName~ProjectsControllerTests\|FullyQualifiedName~TenancyFoundationTests\|FullyQualifiedName~TenantIsolationSecurityTests" --logger "console;verbosity=minimal"` | 0 | 138 | 0 | 0 | Workspace/Project/Tenant service, authorization, controller evidence, including revoked-replay masking |
 | `dotnet test tests/AipPortal.Tests/AipPortal.Tests.csproj --configuration Release --no-build --filter "FullyQualifiedName~HttpTenantIsolationTests\|FullyQualifiedName~AuthSecurityHttpTests" --logger "console;verbosity=minimal"` | 0 | 57 | 0 | 0 | Hosted HTTP, cookie, route, and CSRF evidence |
-| `dotnet test AipPortal.slnx --configuration Release --no-build --logger "console;verbosity=minimal"` | 0 | 685 | 0 | 163 | Full .NET suite; PostgreSQL-conditional tests were skipped because the connection environment was deliberately unset for this run |
-| `dotnet test tests/AipPortal.Tests/AipPortal.Tests.csproj --configuration Release --no-build --filter "FullyQualifiedName~Wpc01WorkspaceCreationPostgreSqlTests\|FullyQualifiedName~PostgreSqlIntegrationTests" --logger "console;verbosity=minimal"` | 0 | 6 | 0 | 0 | Real PostgreSQL migration, duplicate-name constraint, concurrency, rollback, repository, and tenant-search evidence |
+| `dotnet test AipPortal.slnx --configuration Release --no-build --logger "console;verbosity=minimal"` | 0 | 686 | 0 | 163 | Full .NET suite; PostgreSQL-conditional tests were skipped because the connection environment was deliberately unset for this run |
+| `dotnet test tests/AipPortal.Tests/AipPortal.Tests.csproj --configuration Release --no-build --filter "FullyQualifiedName~Wpc01WorkspaceCreationPostgreSqlTests\|FullyQualifiedName~PostgreSqlIntegrationTests" --logger "console;verbosity=minimal"` | 1 | 4 | 2 | 0 | Fresh supplied base was intentionally not migrated; all four WPC temporary-database tests passed and the two generic tests reported pending base migrations (environment setup failure) |
+| same PostgreSQL command after `dotnet ef database update` | 0 | 6 | 0 | 0 | Real PostgreSQL migration, duplicate-name constraint, concurrency, rollback, repository, and tenant-search evidence |
 | `dotnet ef migrations has-pending-model-changes --project src/AipPortal.Infrastructure --startup-project src/AipPortal.Web --configuration Release --no-build` | 0 | n/a | n/a | n/a | Reported no model changes after the WPC migration |
 | `dotnet ef database update --project src/AipPortal.Infrastructure --startup-project src/AipPortal.Web --configuration Release --no-build` | 0 | n/a | n/a | n/a | Upgraded isolated current-schema database with `20260813100711_Wpc01WorkspaceCreateIdempotency` |
 | `dotnet ef migrations script 20260803041347_AddTaskDeadlineDigestLedger 20260813100711_Wpc01WorkspaceCreateIdempotency --project src/AipPortal.Infrastructure --startup-project src/AipPortal.Web --configuration Release --no-build` | 0 | n/a | n/a | n/a | Additive SQL: create table/FK/indexes/history row only |
@@ -299,8 +300,8 @@ An earlier baseline representative PostgreSQL run against the supplied but unmig
 base database reported 4 passed and 2 failed. The failures were missing-schema
 environment failures, not code regressions; after `database update`, the same
 migration/repository set passed 6/6. No unrelated baseline failure was fixed.
-Final-head commands and immutable tested SHA are recorded in the draft PR and
-the execution report after all scoped commits.
+The immutable tested SHA is recorded in the draft PR and execution report
+after all scoped commits.
 
 ## Unresolved blockers and remediation
 
