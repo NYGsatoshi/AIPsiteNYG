@@ -121,6 +121,31 @@ public sealed class AdminServiceTests
         Assert.Equal("secret-value", fixture.Repository.Settings.Single().Value);
     }
 
+    [Fact]
+    [Trait("Scope", "WPC01")]
+    public async Task SystemAdminArchiveCannotRewriteDeletedProjectLifecycle()
+    {
+        var fixture = AdminFixture.Create(SystemRole.SystemAdmin);
+        var project = new Project
+        {
+            Status = ProjectStatus.Deleted,
+            Name = "Deleted Project",
+            Slug = "deleted-project"
+        };
+        var deletedAt = fixture.Clock.UtcNow.AddDays(-1);
+        project.MarkDeleted(deletedAt, fixture.ActorUser.Id, "historical deletion");
+        fixture.Repository.Project = project;
+
+        var result = await fixture.Service.ArchiveProjectAsync(project.Id);
+
+        Assert.False(result.IsSuccess);
+        Assert.Equal("InvalidStateTransition", result.ErrorDetail?.Code);
+        Assert.Equal(ProjectStatus.Deleted, project.Status);
+        Assert.Equal(deletedAt, project.DeletedAt);
+        Assert.Empty(fixture.Audit.Entries);
+        Assert.Equal(0, fixture.UnitOfWork.SaveCount);
+    }
+
     private sealed class AdminFixture
     {
         private AdminFixture(SystemRole actorRole)
@@ -138,15 +163,17 @@ public sealed class AdminServiceTests
             Service = new AdminService(
                 Repository,
                 new Sha256TokenHasher(),
-                new FakeAuditLogger(),
+                Audit,
                 new FakeCurrentUser(ActorUser),
                 Clock,
                 new FakeUserSessionService(),
-                new FakeUnitOfWork());
+                UnitOfWork);
         }
 
         public FakeAdminRepository Repository { get; } = new();
         public FakeClock Clock { get; } = new(new DateTimeOffset(2026, 6, 7, 0, 0, 0, TimeSpan.Zero));
+        public FakeAuditLogger Audit { get; } = new();
+        public FakeUnitOfWork UnitOfWork { get; } = new();
         public User ActorUser { get; }
         public AdminService Service { get; }
 
@@ -160,6 +187,7 @@ public sealed class AdminServiceTests
         public List<Invite> Invites { get; } = [];
         public bool WorkspaceExists { get; set; } = true;
         public Guid WorkspaceTenantId { get; set; } = Guid.Parse("11111111-1111-1111-1111-111111111111");
+        public Project? Project { get; set; }
 
         public Task<PagedResponse<AdminUserListItemResponse>> ListUsersAsync(int page, int pageSize, CancellationToken cancellationToken = default)
         {
@@ -223,7 +251,8 @@ public sealed class AdminServiceTests
 
         public Task<Group?> GetGroupAsync(Guid groupId, CancellationToken cancellationToken = default) => Task.FromResult<Group?>(null);
 
-        public Task<Project?> GetProjectAsync(Guid projectId, CancellationToken cancellationToken = default) => Task.FromResult<Project?>(null);
+        public Task<Project?> GetProjectAsync(Guid projectId, CancellationToken cancellationToken = default) =>
+            Task.FromResult(Project?.Id == projectId ? Project : null);
 
         public Task<Channel?> GetChannelAsync(Guid channelId, CancellationToken cancellationToken = default) => Task.FromResult<Channel?>(null);
 
@@ -251,7 +280,13 @@ public sealed class AdminServiceTests
 
     private sealed class FakeAuditLogger : IAuditLogger
     {
-        public Task LogAsync(AuditLogEntry entry, CancellationToken cancellationToken = default) => Task.CompletedTask;
+        public List<AuditLogEntry> Entries { get; } = [];
+
+        public Task LogAsync(AuditLogEntry entry, CancellationToken cancellationToken = default)
+        {
+            Entries.Add(entry);
+            return Task.CompletedTask;
+        }
     }
 
     private sealed class FakeUserSessionService : IUserSessionService
@@ -288,8 +323,11 @@ public sealed class AdminServiceTests
 
     private sealed class FakeUnitOfWork : IUnitOfWork
     {
+        public int SaveCount { get; private set; }
+
         public Task<int> SaveChangesAsync(CancellationToken cancellationToken = default)
         {
+            SaveCount++;
             return Task.FromResult(1);
         }
     }

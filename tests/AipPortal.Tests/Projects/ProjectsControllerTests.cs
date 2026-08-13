@@ -87,6 +87,28 @@ public sealed class ProjectsControllerTests
     }
 
     [Fact]
+    [Trait("Scope", "WPC01")]
+    public void AmbiguousRestoreMapsToSafeProjectTargetedHttp409Envelope()
+    {
+        var detail = new ApplicationErrorDetail(
+            "InvalidStateTransition",
+            "The Project cannot be restored because its prior lifecycle state is unavailable.",
+            Target: "project");
+        var controller = Controller();
+        var method = typeof(ProjectsController)
+            .GetMethods(BindingFlags.Instance | BindingFlags.NonPublic)
+            .Single(candidate => candidate.Name == "OkOrBad");
+
+        var action = Assert.IsType<ObjectResult>(method.Invoke(controller, [Result.Failure(detail)]));
+
+        Assert.Equal(StatusCodes.Status409Conflict, action.StatusCode);
+        using var envelope = JsonDocument.Parse(JsonSerializer.Serialize(action.Value));
+        Assert.Equal("InvalidStateTransition", envelope.RootElement.GetProperty("error").GetProperty("code").GetString());
+        Assert.Equal("project", envelope.RootElement.GetProperty("error").GetProperty("target").GetString());
+        Assert.Equal(StatusCodes.Status409Conflict, envelope.RootElement.GetProperty("status").GetInt32());
+    }
+
+    [Fact]
     public void HiddenProjectMapsToRedactedNotFoundEnvelope()
     {
         var controller = Controller();

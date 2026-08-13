@@ -35,7 +35,7 @@ public sealed class ConversationService(
         var result = new List<ConversationListItemResponse>();
         foreach (var conversation in conversations.Items)
         {
-            // Repository filtering keeps paging/counts non-disclosing; this
+            // Repository filtering applies the bounded SQL prefilter; this
             // application check is the final record-level authorization
             // boundary before any title or last-message content is mapped.
             if (!await authorization.CanViewConversation(userId, conversation.Id, cancellationToken))
@@ -98,6 +98,11 @@ public sealed class ConversationService(
         var existing = await messaging.FindDirectForUsersAsync(userId, request.RecipientUserId, cancellationToken);
         if (existing is not null)
         {
+            if (!await authorization.CanViewConversation(userId, existing.Id, cancellationToken))
+            {
+                return Result<ConversationDetailResponse>.Failure("Conversation not found.");
+            }
+
             return Result<ConversationDetailResponse>.Success(await ToDetailAsync(existing, cancellationToken, userId));
         }
 
@@ -180,8 +185,21 @@ public sealed class ConversationService(
         if (request.Type == ConversationType.DirectMessage)
         {
             if (memberIds.Count != 2) return Result<ConversationDetailResponse>.Failure("Direct conversations require exactly two members.");
-            var existing = await messaging.FindDirectAsync(request.WorkspaceId.Value, memberIds[0], memberIds[1], cancellationToken);
-            if (existing is not null) return Result<ConversationDetailResponse>.Success(await ToDetailAsync(existing, cancellationToken, userId));
+            var existing = await messaging.FindDirectAsync(
+                request.WorkspaceId.Value,
+                project?.Id,
+                memberIds[0],
+                memberIds[1],
+                cancellationToken);
+            if (existing is not null)
+            {
+                if (!await authorization.CanViewConversation(userId, existing.Id, cancellationToken))
+                {
+                    return Result<ConversationDetailResponse>.Failure("Conversation not found.");
+                }
+
+                return Result<ConversationDetailResponse>.Success(await ToDetailAsync(existing, cancellationToken, userId));
+            }
         }
 
         foreach (var memberId in memberIds)

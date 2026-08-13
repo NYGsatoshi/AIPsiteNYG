@@ -315,7 +315,7 @@ public sealed class ProjectsController(IProjectService projects, ITaskCommandSer
                 StatusCodes.Status409Conflict,
                 detail.Code,
                 detail.Message,
-                detail.Code == "InvalidStateTransition" ? "body.status" : "project"));
+                detail.Target ?? (detail.Code == "InvalidStateTransition" ? "body.status" : "project")));
 
     private IActionResult MilestoneConflict(
         AipPortal.Application.Common.ApplicationErrorDetail detail) =>

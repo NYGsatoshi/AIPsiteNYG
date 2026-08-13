@@ -1,12 +1,16 @@
 using AipPortal.Application.Common;
 using AipPortal.Application.Common.Interfaces;
+using AipPortal.Application.Messaging;
 using AipPortal.Application.Search;
 using AipPortal.Domain.Enums;
 using Microsoft.EntityFrameworkCore;
 
 namespace AipPortal.Infrastructure.Persistence;
 
-public sealed class DbSearchService(AppDbContext dbContext, ICurrentUser currentUser) : ISearchService
+public sealed class DbSearchService(
+    AppDbContext dbContext,
+    ICurrentUser currentUser,
+    IConversationAuthorizationService conversationAuthorization) : ISearchService
 {
     private const int MaxPageSize = 50;
 
@@ -73,27 +77,27 @@ public sealed class DbSearchService(AppDbContext dbContext, ICurrentUser current
 
         if (ShouldInclude(request.Type, SearchResultType.Project))
         {
-            items.AddRange(await SearchProjectsAsync(userId, isSystemAdmin, q, request, cancellationToken));
+            items.AddRange(await SearchProjectsAsync(userId, q, request, cancellationToken));
         }
 
         if (ShouldInclude(request.Type, SearchResultType.Task))
         {
-            items.AddRange(await SearchTasksAsync(userId, isSystemAdmin, q, request, cancellationToken));
+            items.AddRange(await SearchTasksAsync(userId, q, request, cancellationToken));
         }
 
         if (ShouldInclude(request.Type, SearchResultType.Artifact))
         {
-            items.AddRange(await SearchArtifactsAsync(userId, isSystemAdmin, q, request, cancellationToken));
+            items.AddRange(await SearchArtifactsAsync(userId, q, request, cancellationToken));
         }
 
         if (ShouldInclude(request.Type, SearchResultType.ActivityLog))
         {
-            items.AddRange(await SearchActivityLogsAsync(userId, isSystemAdmin, q, request, cancellationToken));
+            items.AddRange(await SearchActivityLogsAsync(userId, q, request, cancellationToken));
         }
 
         if (ShouldInclude(request.Type, SearchResultType.Comment))
         {
-            items.AddRange(await SearchCommentsAsync(userId, isSystemAdmin, q, request, cancellationToken));
+            items.AddRange(await SearchCommentsAsync(userId, q, request, cancellationToken));
         }
 
         var ordered = items
@@ -244,7 +248,7 @@ public sealed class DbSearchService(AppDbContext dbContext, ICurrentUser current
                 member.RemovedAt == null &&
                 member.CanRead)
             .Select(member => member.ConversationId);
-        var visibleProjectIds = VisibleProjects(userId, false).Select(project => project.Id);
+        var visibleProjectIds = dbContext.VisibleProjectsFor(userId).Select(project => project.Id);
 
         var query = dbContext.Messages.AsNoTracking()
             .Where(message => message.DeletedAt == null && memberConversationIds.Contains(message.ConversationId))
@@ -253,12 +257,23 @@ public sealed class DbSearchService(AppDbContext dbContext, ICurrentUser current
                 (item.conversation.Type != ConversationType.ProjectChannel || item.conversation.ProjectId.HasValue) &&
                 (item.conversation.Type != ConversationType.Thread ||
                  item.conversation.ParentConversationId.HasValue &&
+                 item.conversation.RootConversationId.HasValue &&
                  dbContext.ConversationMembers.Any(parentMember =>
                      parentMember.ConversationId == item.conversation.ParentConversationId.Value &&
                      parentMember.UserId == userId &&
                      parentMember.LeftAt == null &&
                      parentMember.RemovedAt == null &&
-                     parentMember.CanRead)) &&
+                     parentMember.CanRead) &&
+                 dbContext.ConversationMembers.Any(rootMember =>
+                     rootMember.ConversationId == item.conversation.RootConversationId.Value &&
+                     rootMember.UserId == userId &&
+                     rootMember.LeftAt == null &&
+                     rootMember.RemovedAt == null &&
+                     rootMember.CanRead) &&
+                 item.conversation.ParentConversation!.ProjectId == item.conversation.ProjectId &&
+                 item.conversation.RootConversation!.ProjectId == item.conversation.ProjectId &&
+                 (item.conversation.RootConversation.Type != ConversationType.ProjectChannel ||
+                  item.conversation.RootConversation.ProjectId.HasValue)) &&
                 (!item.conversation.ProjectId.HasValue ||
                  visibleProjectIds.Contains(item.conversation.ProjectId.Value)));
 
@@ -283,7 +298,33 @@ public sealed class DbSearchService(AppDbContext dbContext, ICurrentUser current
             (!request.FromDate.HasValue || item.message.CreatedAt >= request.FromDate.Value) &&
             (!request.ToDate.HasValue || item.message.CreatedAt <= request.ToDate.Value));
 
+        // Thread authority is recursive: every ancestor scope and participant
+        // relationship must still be valid.  Bound the candidate set before
+        // invoking the authoritative record-level policy so Search never maps
+        // a protected title/body and never performs unbounded N+1 checks.
+        var candidateConversationIds = await query
+            .Select(item => item.conversation.Id)
+            .Distinct()
+            .Take(100)
+            .ToListAsync(cancellationToken);
+        var authorizedConversationIds = new List<Guid>(candidateConversationIds.Count);
+        foreach (var conversationId in candidateConversationIds)
+        {
+            if (await conversationAuthorization.CanViewConversation(userId, conversationId, cancellationToken))
+            {
+                authorizedConversationIds.Add(conversationId);
+            }
+        }
+
+        if (authorizedConversationIds.Count == 0)
+        {
+            return [];
+        }
+
+        query = query.Where(item => authorizedConversationIds.Contains(item.conversation.Id));
+
         return await query
+            .OrderByDescending(item => item.message.CreatedAt)
             .Select(item => new SearchResultItemResponse(SearchResultType.Message, item.message.Id, item.conversation.Title ?? "Conversation", Snippet(item.message.Body), $"/conversations/{item.conversation.Id}", item.conversation.WorkspaceId, null, null, item.message.CreatedAt, item.message.AuthorUser!.DisplayName))
             .Take(100)
             .ToListAsync(cancellationToken);
@@ -318,9 +359,9 @@ public sealed class DbSearchService(AppDbContext dbContext, ICurrentUser current
             .ToListAsync(cancellationToken);
     }
 
-    private async Task<IReadOnlyList<SearchResultItemResponse>> SearchProjectsAsync(Guid userId, bool isSystemAdmin, string? q, SearchRequest request, CancellationToken cancellationToken)
+    private async Task<IReadOnlyList<SearchResultItemResponse>> SearchProjectsAsync(Guid userId, string? q, SearchRequest request, CancellationToken cancellationToken)
     {
-        var query = VisibleProjects(userId, isSystemAdmin);
+        var query = dbContext.VisibleProjectsFor(userId);
         query = ApplyScopeFilters(query, request, project => project.WorkspaceId, project => project.GroupId, project => project.Id);
         if (!string.IsNullOrWhiteSpace(q))
         {
@@ -334,9 +375,9 @@ public sealed class DbSearchService(AppDbContext dbContext, ICurrentUser current
             .ToListAsync(cancellationToken);
     }
 
-    private async Task<IReadOnlyList<SearchResultItemResponse>> SearchTasksAsync(Guid userId, bool isSystemAdmin, string? q, SearchRequest request, CancellationToken cancellationToken)
+    private async Task<IReadOnlyList<SearchResultItemResponse>> SearchTasksAsync(Guid userId, string? q, SearchRequest request, CancellationToken cancellationToken)
     {
-        var visibleProjectIds = VisibleProjects(userId, isSystemAdmin).Select(project => project.Id);
+        var visibleProjectIds = dbContext.VisibleProjectsFor(userId).Select(project => project.Id);
         var query = dbContext.TaskItems.AsNoTracking()
             .Where(task => task.DeletedAt == null && visibleProjectIds.Contains(task.ProjectId))
             .Join(dbContext.Projects, task => task.ProjectId, project => project.Id, (task, project) => new { task, project });
@@ -371,9 +412,9 @@ public sealed class DbSearchService(AppDbContext dbContext, ICurrentUser current
             .ToListAsync(cancellationToken);
     }
 
-    private async Task<IReadOnlyList<SearchResultItemResponse>> SearchArtifactsAsync(Guid userId, bool isSystemAdmin, string? q, SearchRequest request, CancellationToken cancellationToken)
+    private async Task<IReadOnlyList<SearchResultItemResponse>> SearchArtifactsAsync(Guid userId, string? q, SearchRequest request, CancellationToken cancellationToken)
     {
-        var visibleProjectIds = VisibleProjects(userId, isSystemAdmin).Select(project => project.Id);
+        var visibleProjectIds = dbContext.VisibleProjectsFor(userId).Select(project => project.Id);
         var query = dbContext.Artifacts.AsNoTracking()
             .Where(artifact => artifact.DeletedAt == null && visibleProjectIds.Contains(artifact.ProjectId))
             .Join(dbContext.Projects, artifact => artifact.ProjectId, project => project.Id, (artifact, project) => new { artifact, project });
@@ -408,9 +449,9 @@ public sealed class DbSearchService(AppDbContext dbContext, ICurrentUser current
             .ToListAsync(cancellationToken);
     }
 
-    private async Task<IReadOnlyList<SearchResultItemResponse>> SearchActivityLogsAsync(Guid userId, bool isSystemAdmin, string? q, SearchRequest request, CancellationToken cancellationToken)
+    private async Task<IReadOnlyList<SearchResultItemResponse>> SearchActivityLogsAsync(Guid userId, string? q, SearchRequest request, CancellationToken cancellationToken)
     {
-        var visibleProjectIds = VisibleProjects(userId, isSystemAdmin).Select(project => project.Id);
+        var visibleProjectIds = dbContext.VisibleProjectsFor(userId).Select(project => project.Id);
         var query = dbContext.ActivityLogs.AsNoTracking()
             .Where(log => visibleProjectIds.Contains(log.ProjectId))
             .Join(dbContext.Projects, log => log.ProjectId, project => project.Id, (log, project) => new { log, project });
@@ -450,9 +491,9 @@ public sealed class DbSearchService(AppDbContext dbContext, ICurrentUser current
             .ToListAsync(cancellationToken);
     }
 
-    private async Task<IReadOnlyList<SearchResultItemResponse>> SearchCommentsAsync(Guid userId, bool isSystemAdmin, string? q, SearchRequest request, CancellationToken cancellationToken)
+    private async Task<IReadOnlyList<SearchResultItemResponse>> SearchCommentsAsync(Guid userId, string? q, SearchRequest request, CancellationToken cancellationToken)
     {
-        var visibleProjectIds = VisibleProjects(userId, isSystemAdmin).Select(project => project.Id);
+        var visibleProjectIds = dbContext.VisibleProjectsFor(userId).Select(project => project.Id);
         var query = dbContext.Comments.AsNoTracking()
             .Where(comment => comment.DeletedAt == null &&
                 ((comment.TargetType == CommentTargetType.Project && visibleProjectIds.Contains(comment.TargetId)) ||
@@ -501,21 +542,6 @@ public sealed class DbSearchService(AppDbContext dbContext, ICurrentUser current
             ((channel.Type == ChannelType.Public || channel.Type == ChannelType.Announcement) &&
                 dbContext.GroupMembers.Any(member => member.GroupId == channel.GroupId && member.UserId == userId)) ||
             dbContext.ChannelMembers.Any(member => member.ChannelId == channel.Id && member.UserId == userId));
-    }
-
-    private IQueryable<Domain.Entities.Project> VisibleProjects(Guid userId, bool isSystemAdmin)
-    {
-        return dbContext.Projects.AsNoTracking().Where(project =>
-            project.DeletedAt == null &&
-            project.Status != ProjectStatus.Archived &&
-            project.Status != ProjectStatus.Deleted &&
-            dbContext.WorkspaceMembers.Any(member =>
-                member.WorkspaceId == project.WorkspaceId &&
-                member.UserId == userId &&
-                member.Status == MembershipStatus.Active) &&
-            ((project.Status != ProjectStatus.Planning &&
-              project.Status != ProjectStatus.Suspended) ||
-             project.Members.Any(member => member.UserId == userId)));
     }
 
     private static bool ShouldInclude(SearchResultType requested, SearchResultType item)

@@ -10,29 +10,7 @@ public sealed class MessagingRepository(AppDbContext dbContext) : IMessagingRepo
 {
     public async Task<PagedResponse<Conversation>> ListForUserAsync(Guid userId, int page, int pageSize, CancellationToken cancellationToken = default)
     {
-        var visibleProjectIds = dbContext.Projects
-            .AsNoTracking()
-            .Where(project =>
-                project.DeletedAt == null &&
-                project.Status != ProjectStatus.Archived &&
-                project.Status != ProjectStatus.Deleted &&
-                dbContext.WorkspaceMembers.Any(workspaceMember =>
-                    workspaceMember.WorkspaceId == project.WorkspaceId &&
-                    workspaceMember.UserId == userId &&
-                    workspaceMember.Status == MembershipStatus.Active) &&
-                (dbContext.ProjectMembers.Any(projectMember =>
-                     projectMember.ProjectId == project.Id && projectMember.UserId == userId) ||
-                 ((project.Status == ProjectStatus.Active ||
-                   project.Status == ProjectStatus.Review ||
-                   project.Status == ProjectStatus.Completed) &&
-                  (!project.GroupId.HasValue ||
-                   dbContext.WorkspaceMembers.Any(workspaceMember =>
-                       workspaceMember.WorkspaceId == project.WorkspaceId &&
-                       workspaceMember.UserId == userId &&
-                       workspaceMember.Status == MembershipStatus.Active &&
-                       (workspaceMember.Role == WorkspaceRole.Owner || workspaceMember.Role == WorkspaceRole.Admin)) ||
-                   dbContext.GroupMembers.Any(groupMember =>
-                       groupMember.GroupId == project.GroupId.Value && groupMember.UserId == userId)))))
+        var visibleProjectIds = dbContext.VisibleProjectsFor(userId)
             .Select(project => project.Id);
 
         var query = dbContext.Conversations
@@ -44,7 +22,12 @@ public sealed class MessagingRepository(AppDbContext dbContext) : IMessagingRepo
                 c.Members.Any(m => m.UserId == userId && m.LeftAt == null && m.RemovedAt == null && m.CanRead) &&
                 (c.Type != Domain.Enums.ConversationType.Thread ||
                     c.ParentConversationId != null &&
-                    c.ParentConversation!.Members.Any(m => m.UserId == userId && m.LeftAt == null && m.RemovedAt == null && m.CanRead)) &&
+                    c.RootConversationId != null &&
+                    c.ParentConversation!.Members.Any(m => m.UserId == userId && m.LeftAt == null && m.RemovedAt == null && m.CanRead) &&
+                    c.RootConversation!.Members.Any(m => m.UserId == userId && m.LeftAt == null && m.RemovedAt == null && m.CanRead) &&
+                    c.ParentConversation.ProjectId == c.ProjectId &&
+                    c.RootConversation.ProjectId == c.ProjectId &&
+                    (c.RootConversation.Type != Domain.Enums.ConversationType.ProjectChannel || c.RootConversation.ProjectId.HasValue)) &&
                 (c.Type != Domain.Enums.ConversationType.ProjectChannel || c.ProjectId.HasValue) &&
                 (!c.ProjectId.HasValue || visibleProjectIds.Contains(c.ProjectId.Value)))
             .OrderByDescending(c => c.UpdatedAt ?? c.CreatedAt);
@@ -99,10 +82,14 @@ public sealed class MessagingRepository(AppDbContext dbContext) : IMessagingRepo
         return dbContext.Conversations.FirstOrDefaultAsync(c => c.Id == conversationId, cancellationToken);
     }
 
-    public Task<Conversation?> FindDirectAsync(Guid workspaceId, Guid userAId, Guid userBId, CancellationToken cancellationToken = default)
+    public Task<Conversation?> FindDirectAsync(Guid workspaceId, Guid? projectId, Guid userAId, Guid userBId, CancellationToken cancellationToken = default)
     {
         return dbContext.Conversations
-            .Where(c => c.WorkspaceId == workspaceId && c.Type == Domain.Enums.ConversationType.DirectMessage && c.Members.Count == 2)
+            .Where(c =>
+                c.WorkspaceId == workspaceId &&
+                c.ProjectId == projectId &&
+                c.Type == Domain.Enums.ConversationType.DirectMessage &&
+                c.Members.Count == 2)
             .FirstOrDefaultAsync(c =>
                 c.Members.Any(m => m.UserId == userAId && m.LeftAt == null && m.RemovedAt == null && m.CanRead) &&
                 c.Members.Any(m => m.UserId == userBId && m.LeftAt == null && m.RemovedAt == null && m.CanRead),
@@ -112,7 +99,10 @@ public sealed class MessagingRepository(AppDbContext dbContext) : IMessagingRepo
     public Task<Conversation?> FindDirectForUsersAsync(Guid userAId, Guid userBId, CancellationToken cancellationToken = default)
     {
         return dbContext.Conversations
-            .Where(c => c.Type == ConversationType.DirectMessage && c.Members.Count == 2)
+            .Where(c =>
+                c.ProjectId == null &&
+                c.Type == ConversationType.DirectMessage &&
+                c.Members.Count == 2)
             .OrderBy(c => c.CreatedAt)
             .FirstOrDefaultAsync(c =>
                 c.Members.Any(m => m.UserId == userAId && m.LeftAt == null && m.RemovedAt == null && m.CanRead) &&

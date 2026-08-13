@@ -612,29 +612,15 @@ public sealed class PlanningRepository(AppDbContext dbContext) : IPlanningReposi
         Guid userId,
         Guid projectId,
         CancellationToken cancellationToken = default) =>
-        dbContext.Projects
-            .AsNoTracking()
+        dbContext.VisibleProjectsFor(userId)
             .AnyAsync(project =>
                 project.Id == projectId &&
-                !project.DeletedAt.HasValue &&
-                project.Status != ProjectStatus.Archived &&
-                project.Status != ProjectStatus.Deleted &&
                 !project.Workspace!.DeletedAt.HasValue &&
                 project.Workspace.Status == WorkspaceStatus.Active &&
                 dbContext.WorkspaceMembers.Any(member =>
                     member.WorkspaceId == project.WorkspaceId &&
                     member.UserId == userId &&
-                    member.Status == MembershipStatus.Active) &&
-                (dbContext.ProjectMembers.Any(member => member.ProjectId == project.Id && member.UserId == userId) ||
-                 ((project.Status != ProjectStatus.Planning && project.Status != ProjectStatus.Suspended) &&
-                  (project.OwnerUserId == userId ||
-                   !project.GroupId.HasValue ||
-                   dbContext.GroupMembers.Any(member => member.GroupId == project.GroupId && member.UserId == userId) ||
-                   dbContext.WorkspaceMembers.Any(member =>
-                       member.WorkspaceId == project.WorkspaceId &&
-                       member.UserId == userId &&
-                       member.Status == MembershipStatus.Active &&
-                       (member.Role == WorkspaceRole.Owner || member.Role == WorkspaceRole.Admin || member.Role == WorkspaceRole.Adviser))))),
+                    member.Status == MembershipStatus.Active),
                 cancellationToken);
 
     private IQueryable<Workspace> AccessibleWorkspacesFor(Guid userId) =>
@@ -648,30 +634,23 @@ public sealed class PlanningRepository(AppDbContext dbContext) : IPlanningReposi
                     member.UserId == userId &&
                     member.Status == MembershipStatus.Active));
 
-    private IQueryable<TaskItem> VisibleTasksFor(Guid userId) =>
-        dbContext.TaskItems
+    private IQueryable<TaskItem> VisibleTasksFor(Guid userId)
+    {
+        var visibleProjectIds = dbContext.VisibleProjectsFor(userId).Select(project => project.Id);
+        return dbContext.TaskItems
             .AsNoTracking()
             .Where(task =>
                 !task.DeletedAt.HasValue &&
-                !task.Project!.DeletedAt.HasValue &&
-                task.Project.Status != ProjectStatus.Archived &&
-                task.Project.Status != ProjectStatus.Deleted &&
-                !task.Project.Workspace!.DeletedAt.HasValue &&
+                task.Project != null &&
+                task.Project.Workspace != null &&
+                visibleProjectIds.Contains(task.ProjectId) &&
+                !task.Project.Workspace.DeletedAt.HasValue &&
                 task.Project.Workspace.Status == WorkspaceStatus.Active &&
                 dbContext.WorkspaceMembers.Any(member =>
                     member.WorkspaceId == task.WorkspaceId &&
                     member.UserId == userId &&
-                    member.Status == MembershipStatus.Active) &&
-                (dbContext.ProjectMembers.Any(member => member.ProjectId == task.ProjectId && member.UserId == userId) ||
-                 ((task.Project.Status != ProjectStatus.Planning && task.Project.Status != ProjectStatus.Suspended) &&
-                  (task.Project.OwnerUserId == userId ||
-                   !task.Project.GroupId.HasValue ||
-                   dbContext.GroupMembers.Any(member => member.GroupId == task.Project.GroupId && member.UserId == userId) ||
-                   dbContext.WorkspaceMembers.Any(member =>
-                       member.WorkspaceId == task.WorkspaceId &&
-                       member.UserId == userId &&
-                       member.Status == MembershipStatus.Active &&
-                       (member.Role == WorkspaceRole.Owner || member.Role == WorkspaceRole.Admin || member.Role == WorkspaceRole.Adviser))))));
+                    member.Status == MembershipStatus.Active));
+    }
 
     private IQueryable<TaskItem> ApplyMyTasksFilters(
         IQueryable<TaskItem> source,

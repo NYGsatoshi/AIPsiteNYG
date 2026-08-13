@@ -75,9 +75,11 @@ persistence remains a blocking migration decision.
 
 WPC-01 also adds no Project activation-provenance column or backfill. Existing
 Archived/Suspended rows cannot be reliably classified as never-activated or
-previously Active. Application recovery therefore fails closed to Planning and
-member-only ambiguous-state access rather than inferring provenance from
-status, audit, workflow, Channel, or child data.
+previously Active. A recovery command that needs that fact therefore returns a
+non-mutating 409 `InvalidStateTransition`; it does not rewrite the row to
+Planning or Active and does not clear deletion metadata. Ambiguous-state access
+remains member-only rather than inferring provenance from status, audit,
+workflow, Channel, or child data.
 
 ### Identity
 

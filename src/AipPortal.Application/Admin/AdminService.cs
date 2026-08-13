@@ -481,6 +481,14 @@ public sealed class AdminService(
             return Result.Failure("Project not found.");
         }
 
+        if (project.DeletedAt.HasValue || project.Status == ProjectStatus.Deleted)
+        {
+            return Result.Failure(new ApplicationErrorDetail(
+                "InvalidStateTransition",
+                "The requested Project lifecycle transition is not available.",
+                Target: "project"));
+        }
+
         project.Status = ProjectStatus.Archived;
         project.MarkDeleted(clock.UtcNow);
         await AuditAsync("DataArchived", "Project", project.Id, "Project archived.", cancellationToken);

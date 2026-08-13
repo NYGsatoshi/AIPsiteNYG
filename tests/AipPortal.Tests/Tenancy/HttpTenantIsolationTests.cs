@@ -364,19 +364,22 @@ public sealed class HttpTenantIsolationTests
                    data.TenantA.Slug,
                    $"/api/projects/{graph.Project.Id:D}/restore",
                    HttpMethod.Post))
+        using (var restoreDocument = JsonDocument.Parse(await ownerRestore.Content.ReadAsStringAsync()))
         {
-            Assert.Equal(HttpStatusCode.OK, ownerRestore.StatusCode);
+            Assert.Equal(HttpStatusCode.Conflict, ownerRestore.StatusCode);
+            AssertCompleteErrorEnvelope(
+                restoreDocument.RootElement,
+                409,
+                "InvalidStateTransition",
+                "project");
         }
 
-        using (var detail = await app.SendAsync(
-                   data.TenantAOwner,
-                   data.TenantA.Slug,
-                   $"/api/projects/{graph.Project.Id:D}"))
-        using (var detailDocument = JsonDocument.Parse(await detail.Content.ReadAsStringAsync()))
-        {
-            Assert.Equal(HttpStatusCode.OK, detail.StatusCode);
-            Assert.Equal((int)ProjectStatus.Planning, detailDocument.RootElement.GetProperty("status").GetInt32());
-        }
+        var lifecycle = await app.GetProjectLifecycleAsync(
+            data.TenantA.Id,
+            data.TenantA.Slug,
+            graph.Project.Id);
+        Assert.Equal(ProjectStatus.Archived, lifecycle.Status);
+        Assert.Null(lifecycle.DeletedAt);
     }
 
     private static async Task AssertDraftGraphHiddenAsync(
@@ -1174,6 +1177,100 @@ public sealed class HttpTenantIsolationTests
     }
 
     [Fact]
+    [Trait("Scope", "WPC01")]
+    public async Task UnscopedDirectCreateDoesNotReuseProjectBoundConversationForDeniedActor()
+    {
+        await using var app = await HttpTenantIsolationTestApp.CreateAsync();
+        var data = app.Data;
+        var protectedConversation = await app.AddProjectBoundDirectConversationAsync(
+            data.TenantA.Id,
+            data.TenantA.Slug,
+            data.WorkspaceA.Id,
+            data.ProjectA.Id,
+            data.TenantAStaff.Id,
+            data.TenantAOwner.Id);
+
+        using (var deniedDetail = await app.SendAsync(
+                   data.TenantAStaff,
+                   data.TenantA.Slug,
+                   $"/api/conversations/{protectedConversation.Id:D}"))
+        {
+            var deniedBody = await deniedDetail.Content.ReadAsStringAsync();
+            Assert.Equal(HttpStatusCode.BadRequest, deniedDetail.StatusCode);
+            Assert.DoesNotContain(protectedConversation.Title!, deniedBody, StringComparison.Ordinal);
+            Assert.DoesNotContain(data.ProjectA.Id.ToString("D"), deniedBody, StringComparison.OrdinalIgnoreCase);
+        }
+
+        using var createContent = JsonContent($$"""{"recipientUserId":"{{data.TenantAOwner.Id:D}}"}""");
+        using var createResponse = await app.SendAsync(
+            data.TenantAStaff,
+            data.TenantA.Slug,
+            "/api/conversations/direct",
+            HttpMethod.Post,
+            createContent);
+        var createBody = await createResponse.Content.ReadAsStringAsync();
+
+        Assert.Equal(HttpStatusCode.OK, createResponse.StatusCode);
+        Assert.DoesNotContain(protectedConversation.Title!, createBody, StringComparison.Ordinal);
+        Assert.DoesNotContain(data.ProjectA.Id.ToString("D"), createBody, StringComparison.OrdinalIgnoreCase);
+        var unscopedConversationId = ReadResponseId(createBody);
+        Assert.NotEqual(protectedConversation.Id, unscopedConversationId);
+
+        var unscopedConversation = await app.GetConversationAsync(
+            data.TenantA.Id,
+            data.TenantA.Slug,
+            unscopedConversationId);
+        Assert.NotNull(unscopedConversation);
+        Assert.Null(unscopedConversation.ProjectId);
+    }
+
+    [Fact]
+    [Trait("Scope", "WPC01")]
+    public async Task GenericDirectCreateReusesOnlyAnExactlyMatchingProjectScope()
+    {
+        await using var app = await HttpTenantIsolationTestApp.CreateAsync();
+        var data = app.Data;
+        var projectBound = await app.AddProjectBoundDirectConversationAsync(
+            data.TenantA.Id,
+            data.TenantA.Slug,
+            data.WorkspaceA.Id,
+            data.ProjectA.Id,
+            data.TenantAMember.Id,
+            data.TenantAOwner.Id);
+
+        using var sameProject = JsonContent($$"""
+            {"type":"DirectMessage","workspaceId":"{{data.WorkspaceA.Id:D}}","projectId":"{{data.ProjectA.Id:D}}","memberUserIds":["{{data.TenantAMember.Id:D}}"]}
+            """);
+        using var sameProjectResponse = await app.SendAsync(
+            data.TenantAOwner,
+            data.TenantA.Slug,
+            "/api/conversations",
+            HttpMethod.Post,
+            sameProject);
+        Assert.Equal(HttpStatusCode.OK, sameProjectResponse.StatusCode);
+        Assert.Equal(
+            projectBound.Id,
+            ReadResponseId(await sameProjectResponse.Content.ReadAsStringAsync()));
+
+        using var unscoped = JsonContent($$"""
+            {"type":"DirectMessage","workspaceId":"{{data.WorkspaceA.Id:D}}","memberUserIds":["{{data.TenantAMember.Id:D}}"]}
+            """);
+        using var unscopedResponse = await app.SendAsync(
+            data.TenantAOwner,
+            data.TenantA.Slug,
+            "/api/conversations",
+            HttpMethod.Post,
+            unscoped);
+        Assert.Equal(HttpStatusCode.OK, unscopedResponse.StatusCode);
+        var unscopedId = ReadResponseId(await unscopedResponse.Content.ReadAsStringAsync());
+        Assert.NotEqual(projectBound.Id, unscopedId);
+        Assert.Null((await app.GetConversationAsync(
+            data.TenantA.Id,
+            data.TenantA.Slug,
+            unscopedId))!.ProjectId);
+    }
+
+    [Fact]
     public async Task DirectConversationMvpRejectsSelfAndCrossTenantRecipients()
     {
         await using var app = await HttpTenantIsolationTestApp.CreateAsync();
@@ -1645,12 +1742,16 @@ public sealed class HttpTenantIsolationTests
             "MY_TASKS_WORKSPACE_FORBIDDEN");
 
         var projectScopedPath = $"/api/me/tasks?view=Assigned&workspaceId={data.WorkspaceA.Id:D}&projectId={data.ProjectA.Id:D}";
-        foreach (var visibleUser in new[] { data.TenantAOwner, data.TenantAAdmin, data.TenantAStaff, data.TenantAMember })
+        foreach (var visibleUser in new[] { data.TenantAOwner, data.TenantAAdmin, data.TenantAMember })
         {
             Assert.Equal(
                 HttpStatusCode.OK,
                 (await app.SendAsync(visibleUser, data.TenantA.Slug, projectScopedPath)).StatusCode);
         }
+        await AssertMyTasksErrorAsync(
+            await app.SendAsync(data.TenantAStaff, data.TenantA.Slug, projectScopedPath),
+            HttpStatusCode.NotFound,
+            "MY_TASKS_PROJECT_NOT_FOUND");
 
         await app.AddGroupMemberAsync(
             data.TenantA.Id,
@@ -2591,6 +2692,68 @@ public sealed class HttpTenantIsolationTests
             dbContext.Messages.Add(message);
             await dbContext.SaveChangesAsync();
             return new PlanningProjectGraph(project, task, artifact, activityLog, comment, conversation, message);
+        }
+
+        public async Task<(ProjectStatus Status, DateTimeOffset? DeletedAt)> GetProjectLifecycleAsync(
+            Guid tenantId,
+            string tenantSlug,
+            Guid projectId)
+        {
+            await using var scope = App.Services.CreateAsyncScope();
+            var currentTenant = scope.ServiceProvider.GetRequiredService<CurrentTenantService>();
+            currentTenant.SetTenant(tenantId, tenantSlug);
+            var dbContext = scope.ServiceProvider.GetRequiredService<AppDbContext>();
+            var project = await dbContext.Projects
+                .AsNoTracking()
+                .SingleAsync(item => item.Id == projectId);
+            return (project.Status, project.DeletedAt);
+        }
+
+        public async Task<Conversation> AddProjectBoundDirectConversationAsync(
+            Guid tenantId,
+            string tenantSlug,
+            Guid workspaceId,
+            Guid projectId,
+            Guid userAId,
+            Guid userBId)
+        {
+            await using var scope = App.Services.CreateAsyncScope();
+            var currentTenant = scope.ServiceProvider.GetRequiredService<CurrentTenantService>();
+            currentTenant.SetTenant(tenantId, tenantSlug);
+            var dbContext = scope.ServiceProvider.GetRequiredService<AppDbContext>();
+            var conversation = new Conversation
+            {
+                TenantId = tenantId,
+                WorkspaceId = workspaceId,
+                ProjectId = projectId,
+                Type = ConversationType.DirectMessage,
+                Title = "WPC protected Project-bound direct conversation",
+                CreatedByUserId = userBId
+            };
+            dbContext.Conversations.Add(conversation);
+            dbContext.ConversationMembers.AddRange(
+                new ConversationMember
+                {
+                    TenantId = tenantId,
+                    ConversationId = conversation.Id,
+                    UserId = userAId,
+                    Role = ConversationMemberRole.Member,
+                    CanRead = true,
+                    CanPost = true,
+                    JoinedAt = DateTimeOffset.UtcNow
+                },
+                new ConversationMember
+                {
+                    TenantId = tenantId,
+                    ConversationId = conversation.Id,
+                    UserId = userBId,
+                    Role = ConversationMemberRole.Admin,
+                    CanRead = true,
+                    CanPost = true,
+                    JoinedAt = DateTimeOffset.UtcNow
+                });
+            await dbContext.SaveChangesAsync();
+            return conversation;
         }
 
         public async Task<Conversation?> GetConversationAsync(Guid tenantId, string tenantSlug, Guid conversationId)

@@ -105,6 +105,7 @@ public sealed class ProjectService(
             return Result<ProjectResponse>.Failure("Project end date cannot be before the start date.");
         }
 
+        string? normalizedTitle = null;
         if (request.Title is not null)
         {
             if (string.IsNullOrWhiteSpace(request.Title))
@@ -112,21 +113,29 @@ public sealed class ProjectService(
                 return Result<ProjectResponse>.Failure("Project title is required.");
             }
 
-            project.Name = request.Title.Trim();
-            project.Slug = SlugGenerator.FromName(project.Name);
+            normalizedTitle = request.Title.Trim();
         }
 
         var previousStatus = project.Status;
         var nextStatus = request.Status ?? project.Status;
-        if (previousStatus != nextStatus && nextStatus == ProjectStatus.Active)
+        if (previousStatus != nextStatus &&
+            nextStatus == ProjectStatus.Active &&
+            previousStatus != ProjectStatus.Review)
         {
             return Result<ProjectResponse>.Failure(new ApplicationErrorDetail(
                 "InvalidStateTransition",
-                "A Project must use the explicit activation command before it can become Active."));
+                "The requested Project lifecycle transition is not available.",
+                Target: "body.status"));
         }
         if (!IsValidProjectStatusTransition(previousStatus, nextStatus))
         {
             return Result<ProjectResponse>.Failure($"Project status cannot transition from {previousStatus} to {nextStatus}.");
+        }
+
+        if (normalizedTitle is not null)
+        {
+            project.Name = normalizedTitle;
+            project.Slug = SlugGenerator.FromName(project.Name);
         }
 
         project.Description = request.Description?.Trim() ?? project.Description;
@@ -153,6 +162,14 @@ public sealed class ProjectService(
             return Result.Failure("Project not found.");
         }
 
+        if (project.DeletedAt.HasValue || project.Status == ProjectStatus.Deleted)
+        {
+            return Result.Failure(new ApplicationErrorDetail(
+                "InvalidStateTransition",
+                "The requested Project lifecycle transition is not available.",
+                Target: "project"));
+        }
+
         project.Status = ProjectStatus.Archived;
         await AuditAsync(userId, "ProjectArchived", "Project", project.Id, cancellationToken);
         await invalidations.ProjectChangedAsync(project, userId, "archived", cancellationToken);
@@ -174,17 +191,13 @@ public sealed class ProjectService(
             return Result.Failure("Project not found.");
         }
 
-        project.Restore();
-        if (project.Status is ProjectStatus.Archived or ProjectStatus.Deleted)
-        {
-            project.Status = ProjectStatus.Planning;
-        }
-
-        await AuditAsync(userId, "ProjectRestored", "Project", project.Id, cancellationToken);
-        await invalidations.ProjectChangedAsync(project, userId, "restored", cancellationToken);
-        if (!await SaveProjectMutationAsync(cancellationToken))
-            return ProjectConflict();
-        return Result.Success();
+        var message = project.Status is ProjectStatus.Archived or ProjectStatus.Deleted
+            ? "The Project cannot be restored because its prior lifecycle state is unavailable."
+            : "The requested Project lifecycle transition is not available.";
+        return Result.Failure(new ApplicationErrorDetail(
+            "InvalidStateTransition",
+            message,
+            Target: "project"));
     }
 
     public async Task<Result<IReadOnlyList<ProjectMemberResponse>>> ListMembersAsync(Guid projectId, CancellationToken cancellationToken = default)
@@ -1567,7 +1580,7 @@ public sealed class ProjectService(
         {
             ProjectStatus.Planning => next is ProjectStatus.Suspended or ProjectStatus.Archived,
             ProjectStatus.Active => next is ProjectStatus.Review or ProjectStatus.Completed or ProjectStatus.Suspended or ProjectStatus.Archived,
-            ProjectStatus.Review => next is ProjectStatus.Completed or ProjectStatus.Suspended or ProjectStatus.Archived,
+            ProjectStatus.Review => next is ProjectStatus.Active or ProjectStatus.Completed or ProjectStatus.Suspended or ProjectStatus.Archived,
             ProjectStatus.Completed => next is ProjectStatus.Archived,
             ProjectStatus.Suspended => next is ProjectStatus.Planning or ProjectStatus.Archived,
             ProjectStatus.Archived => false,

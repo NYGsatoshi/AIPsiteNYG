@@ -319,21 +319,24 @@ public sealed class Wpc01WorkspaceCreationPostgreSqlTests
 
             var ordinarySearch = await new DbSearchService(
                     db,
-                    new TestCurrentUser(graph.OrdinaryUserId))
+                    new TestCurrentUser(graph.OrdinaryUserId),
+                    conversationAuthorization)
                 .SearchAsync(new SearchRequest(
                     WorkspaceId: graph.WorkspaceId,
                     ProjectId: graph.ProjectId,
                     PageSize: 50));
             var systemAdminSearch = await new DbSearchService(
                     db,
-                    new TestCurrentUser(graph.SystemAdminUserId, SystemRole.SystemAdmin))
+                    new TestCurrentUser(graph.SystemAdminUserId, SystemRole.SystemAdmin),
+                    conversationAuthorization)
                 .SearchAsync(new SearchRequest(
                     WorkspaceId: graph.WorkspaceId,
                     ProjectId: graph.ProjectId,
                     PageSize: 50));
             var ownerSearch = await new DbSearchService(
                     db,
-                    new TestCurrentUser(graph.OwnerUserId))
+                    new TestCurrentUser(graph.OwnerUserId),
+                    conversationAuthorization)
                 .SearchAsync(new SearchRequest(
                     WorkspaceId: graph.WorkspaceId,
                     ProjectId: graph.ProjectId,
@@ -373,7 +376,8 @@ public sealed class Wpc01WorkspaceCreationPostgreSqlTests
 
             var suspendedSearch = await new DbSearchService(
                     db,
-                    new TestCurrentUser(graph.OrdinaryUserId))
+                    new TestCurrentUser(graph.OrdinaryUserId),
+                    conversationAuthorization)
                 .SearchAsync(new SearchRequest(
                     WorkspaceId: graph.WorkspaceId,
                     ProjectId: graph.ProjectId,
@@ -381,6 +385,248 @@ public sealed class Wpc01WorkspaceCreationPostgreSqlTests
             Assert.True(suspendedSearch.IsSuccess, suspendedSearch.Error);
             Assert.DoesNotContain(suspendedSearch.Value!.Items, item => protectedIds.Contains(item.Id));
         });
+    }
+
+    [PostgreSqlFact]
+    [Trait("Category", "PostgreSQLIntegration")]
+    [Trait("Scope", "WPC01")]
+    public async Task ActiveGroupedProjectReadBoundaryIsEquivalentAcrossDetailListSearchMessagingAndMyTasks()
+    {
+        var connectionString = PostgreSqlTestEnvironment.RequireConnectionString();
+        await PostgreSqlMigrationTestDatabase.WithTemporaryDatabaseAsync(connectionString, async database =>
+        {
+            await PostgreSqlMigrationTestDatabase.MigrateAsync(database);
+            var graph = await SeedActiveVisibilityGraphAsync(database);
+            await using var db = CreateTenantContext(database, graph.TenantId, graph.TenantSlug);
+            var users = new UserRepository(db);
+            var workspaces = new WorkspaceRepository(db);
+            var groups = new GroupRepository(db);
+            var projectRepository = new ProjectRepository(db);
+            var workspaceAuthorization = new WorkspaceAuthorizationService(
+                users,
+                workspaces,
+                new TenantAuthorizationService(new TenantRepository(db)));
+            var projectAuthorization = new ProjectAuthorizationService(
+                projectRepository,
+                workspaceAuthorization,
+                new GroupAuthorizationService(groups, workspaces, workspaceAuthorization),
+                groups);
+            var messaging = new MessagingRepository(db);
+            var conversationAuthorization = new ConversationAuthorizationService(messaging, projectAuthorization);
+            var planning = new PlanningRepository(db);
+
+            var groupedExpectations = new[]
+            {
+                new ProjectReadExpectation("explicit ProjectMember", graph.ExplicitProjectMemberUserId, SystemRole.NormalUser, true),
+                new ProjectReadExpectation("authorized GroupMember", graph.GroupMemberUserId, SystemRole.NormalUser, true),
+                new ProjectReadExpectation("Workspace Owner", graph.WorkspaceOwnerUserId, SystemRole.NormalUser, true),
+                new ProjectReadExpectation("Workspace Admin", graph.WorkspaceAdminUserId, SystemRole.NormalUser, true),
+                new ProjectReadExpectation("ordinary Workspace Member outside Group", graph.OrdinaryWorkspaceMemberUserId, SystemRole.NormalUser, false),
+                new ProjectReadExpectation("Workspace Adviser outside Group", graph.AdviserUserId, SystemRole.NormalUser, false),
+                new ProjectReadExpectation("Project owner field without policy membership", graph.OwnerFieldOnlyUserId, SystemRole.NormalUser, false),
+                new ProjectReadExpectation("active SystemAdmin", graph.SystemAdminUserId, SystemRole.SystemAdmin, true),
+                new ProjectReadExpectation("revoked Workspace member with stale memberships", graph.RevokedWorkspaceMemberUserId, SystemRole.NormalUser, false)
+            };
+
+            foreach (var expectation in groupedExpectations)
+            {
+                await AssertProjectReadParityAsync(
+                    db,
+                    projectAuthorization,
+                    projectRepository,
+                    messaging,
+                    graph.GroupedProject,
+                    expectation);
+            }
+
+            await AssertProjectReadParityAsync(
+                db,
+                projectAuthorization,
+                projectRepository,
+                messaging,
+                graph.UngroupedProject,
+                new ProjectReadExpectation(
+                    "ordinary Workspace Member on ungrouped Active Project",
+                    graph.OrdinaryWorkspaceMemberUserId,
+                    SystemRole.NormalUser,
+                    true));
+
+            Assert.False(await planning.CanViewMyTasksProjectAsync(
+                graph.OrdinaryWorkspaceMemberUserId,
+                graph.GroupedProject.ProjectId));
+            Assert.False(await planning.CanViewMyTasksProjectAsync(
+                graph.AdviserUserId,
+                graph.GroupedProject.ProjectId));
+            Assert.False(await planning.CanViewMyTasksProjectAsync(
+                graph.OwnerFieldOnlyUserId,
+                graph.GroupedProject.ProjectId));
+            Assert.False(await planning.CanViewMyTasksProjectAsync(
+                graph.RevokedWorkspaceMemberUserId,
+                graph.GroupedProject.ProjectId));
+            Assert.True(await planning.CanViewMyTasksProjectAsync(
+                graph.OrdinaryWorkspaceMemberUserId,
+                graph.UngroupedProject.ProjectId));
+
+            var ordinaryMyTasks = await planning.ListMyTasksAsync(
+                graph.OrdinaryWorkspaceMemberUserId,
+                new MyTasksQuery(
+                    View: MyTasksRelationshipView.Assigned,
+                    WorkspaceId: graph.WorkspaceId),
+                TestClock.Value);
+            Assert.DoesNotContain(ordinaryMyTasks.Items, item => item.TaskId == graph.GroupedProject.TaskId);
+            Assert.Contains(ordinaryMyTasks.Items, item => item.TaskId == graph.UngroupedProject.TaskId);
+
+            var adviserMyTasks = await planning.ListMyTasksAsync(
+                graph.AdviserUserId,
+                new MyTasksQuery(
+                    View: MyTasksRelationshipView.Assigned,
+                    WorkspaceId: graph.WorkspaceId,
+                    ProjectId: graph.GroupedProject.ProjectId),
+                TestClock.Value);
+            Assert.DoesNotContain(adviserMyTasks.Items, item => item.TaskId == graph.AdviserTaskId);
+
+            var ownerFieldMyTasks = await planning.ListMyTasksAsync(
+                graph.OwnerFieldOnlyUserId,
+                new MyTasksQuery(
+                    View: MyTasksRelationshipView.Assigned,
+                    WorkspaceId: graph.WorkspaceId,
+                    ProjectId: graph.GroupedProject.ProjectId),
+                TestClock.Value);
+            Assert.DoesNotContain(ownerFieldMyTasks.Items, item => item.TaskId == graph.OwnerFieldTaskId);
+
+            const string nestedNeedle = "WpcNestedThreadAuthorizationNeedle";
+            var firstThread = new Conversation
+            {
+                TenantId = graph.TenantId,
+                WorkspaceId = graph.WorkspaceId,
+                ProjectId = graph.GroupedProject.ProjectId,
+                Type = ConversationType.Thread,
+                ParentConversationId = graph.GroupedProject.ConversationId,
+                RootConversationId = graph.GroupedProject.ConversationId,
+                Title = "WPC first Project thread",
+                CreatedByUserId = graph.WorkspaceOwnerUserId
+            };
+            var secondThread = new Conversation
+            {
+                TenantId = graph.TenantId,
+                WorkspaceId = graph.WorkspaceId,
+                ProjectId = graph.GroupedProject.ProjectId,
+                Type = ConversationType.Thread,
+                ParentConversationId = firstThread.Id,
+                RootConversationId = graph.GroupedProject.ConversationId,
+                Title = "WPC second Project thread",
+                CreatedByUserId = graph.WorkspaceOwnerUserId
+            };
+            var nestedThread = new Conversation
+            {
+                TenantId = graph.TenantId,
+                WorkspaceId = graph.WorkspaceId,
+                ProjectId = graph.GroupedProject.ProjectId,
+                Type = ConversationType.Thread,
+                ParentConversationId = secondThread.Id,
+                RootConversationId = graph.GroupedProject.ConversationId,
+                Title = nestedNeedle,
+                CreatedByUserId = graph.WorkspaceOwnerUserId
+            };
+            var nestedMessage = new Message
+            {
+                TenantId = graph.TenantId,
+                WorkspaceId = graph.WorkspaceId,
+                ConversationId = nestedThread.Id,
+                AuthorUserId = graph.WorkspaceOwnerUserId,
+                Body = $"{nestedNeedle} protected message body"
+            };
+            db.Conversations.AddRange(firstThread, secondThread, nestedThread);
+            db.ConversationMembers.AddRange(
+                NewReadableConversationMember(graph, firstThread.Id, graph.ExplicitProjectMemberUserId),
+                NewReadableConversationMember(graph, secondThread.Id, graph.ExplicitProjectMemberUserId),
+                NewReadableConversationMember(graph, nestedThread.Id, graph.ExplicitProjectMemberUserId));
+            db.Messages.Add(nestedMessage);
+            await db.SaveChangesAsync();
+
+            var revokedAncestorMember = await db.ConversationMembers.SingleAsync(member =>
+                member.ConversationId == firstThread.Id &&
+                member.UserId == graph.ExplicitProjectMemberUserId);
+            revokedAncestorMember.RemovedAt = TestClock.Value;
+            await db.SaveChangesAsync();
+            db.ChangeTracker.Clear();
+
+            Assert.False(await conversationAuthorization.CanViewConversation(
+                graph.ExplicitProjectMemberUserId,
+                nestedThread.Id));
+            var nestedSearch = await new DbSearchService(
+                    db,
+                    new TestCurrentUser(graph.ExplicitProjectMemberUserId),
+                    conversationAuthorization)
+                .SearchAsync(new SearchRequest(
+                    nestedNeedle,
+                    SearchResultType.Message,
+                    WorkspaceId: graph.WorkspaceId,
+                    ProjectId: graph.GroupedProject.ProjectId,
+                    PageSize: 50));
+            Assert.True(nestedSearch.IsSuccess, nestedSearch.Error);
+            Assert.DoesNotContain(nestedSearch.Value!.Items, item => item.Id == nestedMessage.Id);
+        });
+    }
+
+    private static ConversationMember NewReadableConversationMember(
+        ActiveVisibilityGraph graph,
+        Guid conversationId,
+        Guid userId) => new()
+    {
+        TenantId = graph.TenantId,
+        ConversationId = conversationId,
+        UserId = userId,
+        Role = ConversationMemberRole.Member,
+        CanRead = true,
+        CanPost = true,
+        JoinedAt = TestClock.Value
+    };
+
+    private static async Task AssertProjectReadParityAsync(
+        AppDbContext db,
+        ProjectAuthorizationService projectAuthorization,
+        ProjectRepository projectRepository,
+        MessagingRepository messaging,
+        ProjectResourceGraph project,
+        ProjectReadExpectation expectation)
+    {
+        var canView = await projectAuthorization.CanViewProject(expectation.UserId, project.ProjectId);
+        var listed = (await projectRepository.ListVisibleAsync(expectation.UserId))
+            .Any(item => item.Id == project.ProjectId);
+        var search = await new DbSearchService(
+                db,
+                new TestCurrentUser(expectation.UserId, expectation.SystemRole),
+                new ConversationAuthorizationService(messaging, projectAuthorization))
+            .SearchAsync(new SearchRequest(
+                project.Needle,
+                WorkspaceId: project.WorkspaceId,
+                ProjectId: project.ProjectId,
+                PageSize: 50));
+        Assert.True(search.IsSuccess, $"{expectation.Label}: {search.Error}");
+
+        var searchIds = search.Value!.Items.Select(item => item.Id).ToHashSet();
+        var protectedIds = new[]
+        {
+            project.ProjectId,
+            project.TaskId,
+            project.ArtifactId,
+            project.ActivityLogId,
+            project.CommentId,
+            project.MessageId
+        };
+        var conversationVisible = (await messaging.ListForUserAsync(expectation.UserId, 1, 100))
+            .Items.Any(item => item.Id == project.ConversationId);
+
+        Assert.Equal(expectation.Expected, canView);
+        Assert.Equal(expectation.Expected, listed);
+        Assert.Equal(expectation.Expected, conversationVisible);
+        foreach (var protectedId in protectedIds)
+        {
+            Assert.Equal(
+                expectation.Expected,
+                searchIds.Contains(protectedId));
+        }
     }
 
     private static async Task AssertCreationCountsAsync(
@@ -579,6 +825,252 @@ public sealed class Wpc01WorkspaceCreationPostgreSqlTests
             systemAdmin.Id);
     }
 
+    private static async Task<ActiveVisibilityGraph> SeedActiveVisibilityGraphAsync(string connectionString)
+    {
+        await using var context = PostgreSqlMigrationTestDatabase.CreatePlatformContext(connectionString);
+        var tenant = new Tenant
+        {
+            Name = "WPC Project visibility tenant",
+            DisplayName = "WPC Project visibility tenant",
+            Slug = $"wpc-project-visibility-{Guid.NewGuid():N}",
+            Status = TenantStatus.Active
+        };
+        var explicitProjectMember = NewUser("visibility-project-member", SystemRole.NormalUser);
+        var groupMember = NewUser("visibility-group-member", SystemRole.NormalUser);
+        var workspaceOwner = NewUser("visibility-workspace-owner", SystemRole.NormalUser);
+        var workspaceAdmin = NewUser("visibility-workspace-admin", SystemRole.NormalUser);
+        var ordinaryWorkspaceMember = NewUser("visibility-ordinary-member", SystemRole.NormalUser);
+        var adviser = NewUser("visibility-adviser", SystemRole.NormalUser);
+        var ownerFieldOnly = NewUser("visibility-owner-field-only", SystemRole.NormalUser);
+        var systemAdmin = NewUser("visibility-system-admin", SystemRole.SystemAdmin);
+        var revokedWorkspaceMember = NewUser("visibility-revoked-member", SystemRole.NormalUser);
+        var allUsers = new[]
+        {
+            explicitProjectMember,
+            groupMember,
+            workspaceOwner,
+            workspaceAdmin,
+            ordinaryWorkspaceMember,
+            adviser,
+            ownerFieldOnly,
+            systemAdmin,
+            revokedWorkspaceMember
+        };
+        var workspace = new Workspace
+        {
+            TenantId = tenant.Id,
+            Name = "WPC Project visibility workspace",
+            Slug = $"wpc-project-visibility-workspace-{Guid.NewGuid():N}",
+            Status = WorkspaceStatus.Active,
+            CreatedByUserId = workspaceOwner.Id
+        };
+        var group = new Group
+        {
+            TenantId = tenant.Id,
+            WorkspaceId = workspace.Id,
+            Name = "WPC Project visibility group",
+            Slug = $"wpc-project-visibility-group-{Guid.NewGuid():N}",
+            Status = GroupStatus.Active,
+            CreatedByUserId = workspaceOwner.Id
+        };
+
+        const string groupedNeedle = "WpcParityGroupedNeedle";
+        var groupedProject = NewActiveProjectResourceGraph(
+            tenant.Id,
+            workspace.Id,
+            group.Id,
+            ownerFieldOnly.Id,
+            workspaceOwner.Id,
+            ordinaryWorkspaceMember.Id,
+            groupedNeedle);
+        const string ungroupedNeedle = "WpcParityUngroupedNeedle";
+        var ungroupedProject = NewActiveProjectResourceGraph(
+            tenant.Id,
+            workspace.Id,
+            null,
+            workspaceOwner.Id,
+            workspaceOwner.Id,
+            ordinaryWorkspaceMember.Id,
+            ungroupedNeedle);
+        var adviserTask = new TaskItem
+        {
+            TenantId = tenant.Id,
+            WorkspaceId = workspace.Id,
+            ProjectId = groupedProject.Project.Id,
+            PrimaryAssigneeUserId = adviser.Id,
+            CreatedByUserId = workspaceOwner.Id,
+            Title = $"{groupedNeedle} adviser-only assignment"
+        };
+        var ownerFieldTask = new TaskItem
+        {
+            TenantId = tenant.Id,
+            WorkspaceId = workspace.Id,
+            ProjectId = groupedProject.Project.Id,
+            PrimaryAssigneeUserId = ownerFieldOnly.Id,
+            CreatedByUserId = workspaceOwner.Id,
+            Title = $"{groupedNeedle} owner-field-only assignment"
+        };
+
+        context.Add(tenant);
+        context.Users.AddRange(allUsers);
+        context.TenantUsers.AddRange(allUsers.Select(user => new TenantUser
+        {
+            TenantId = tenant.Id,
+            UserId = user.Id,
+            Role = user.Id == workspaceOwner.Id ? TenantUserRole.Owner : TenantUserRole.Member,
+            Status = TenantUserStatus.Active,
+            JoinedAt = TestClock.Value
+        }));
+        context.Workspaces.Add(workspace);
+        context.WorkspaceMembers.AddRange(
+            new WorkspaceMember { TenantId = tenant.Id, WorkspaceId = workspace.Id, UserId = explicitProjectMember.Id, Role = WorkspaceRole.Member, Status = MembershipStatus.Active, JoinedAt = TestClock.Value },
+            new WorkspaceMember { TenantId = tenant.Id, WorkspaceId = workspace.Id, UserId = groupMember.Id, Role = WorkspaceRole.Member, Status = MembershipStatus.Active, JoinedAt = TestClock.Value },
+            new WorkspaceMember { TenantId = tenant.Id, WorkspaceId = workspace.Id, UserId = workspaceOwner.Id, Role = WorkspaceRole.Owner, Status = MembershipStatus.Active, JoinedAt = TestClock.Value },
+            new WorkspaceMember { TenantId = tenant.Id, WorkspaceId = workspace.Id, UserId = workspaceAdmin.Id, Role = WorkspaceRole.Admin, Status = MembershipStatus.Active, JoinedAt = TestClock.Value },
+            new WorkspaceMember { TenantId = tenant.Id, WorkspaceId = workspace.Id, UserId = ordinaryWorkspaceMember.Id, Role = WorkspaceRole.Member, Status = MembershipStatus.Active, JoinedAt = TestClock.Value },
+            new WorkspaceMember { TenantId = tenant.Id, WorkspaceId = workspace.Id, UserId = adviser.Id, Role = WorkspaceRole.Adviser, Status = MembershipStatus.Active, JoinedAt = TestClock.Value },
+            new WorkspaceMember { TenantId = tenant.Id, WorkspaceId = workspace.Id, UserId = ownerFieldOnly.Id, Role = WorkspaceRole.Member, Status = MembershipStatus.Active, JoinedAt = TestClock.Value },
+            new WorkspaceMember { TenantId = tenant.Id, WorkspaceId = workspace.Id, UserId = revokedWorkspaceMember.Id, Role = WorkspaceRole.Member, Status = MembershipStatus.Suspended, JoinedAt = TestClock.Value });
+        context.Groups.Add(group);
+        context.GroupMembers.AddRange(
+            new GroupMember { TenantId = tenant.Id, GroupId = group.Id, UserId = groupMember.Id, Role = GroupRole.Member, JoinedAt = TestClock.Value },
+            new GroupMember { TenantId = tenant.Id, GroupId = group.Id, UserId = revokedWorkspaceMember.Id, Role = GroupRole.Member, JoinedAt = TestClock.Value });
+        context.Projects.AddRange(groupedProject.Project, ungroupedProject.Project);
+        context.ProjectMembers.AddRange(
+            new ProjectMember { TenantId = tenant.Id, ProjectId = groupedProject.Project.Id, UserId = explicitProjectMember.Id, Role = ProjectRole.Viewer, JoinedAt = TestClock.Value },
+            new ProjectMember { TenantId = tenant.Id, ProjectId = groupedProject.Project.Id, UserId = revokedWorkspaceMember.Id, Role = ProjectRole.Viewer, JoinedAt = TestClock.Value });
+        context.TaskItems.AddRange(groupedProject.Task, ungroupedProject.Task, adviserTask, ownerFieldTask);
+        context.Artifacts.AddRange(groupedProject.Artifact, ungroupedProject.Artifact);
+        context.ActivityLogs.AddRange(groupedProject.ActivityLog, ungroupedProject.ActivityLog);
+        context.Comments.AddRange(groupedProject.Comment, ungroupedProject.Comment);
+        context.Conversations.AddRange(groupedProject.Conversation, ungroupedProject.Conversation);
+        context.ConversationMembers.AddRange(allUsers.Select(user => new ConversationMember
+        {
+            TenantId = tenant.Id,
+            ConversationId = groupedProject.Conversation.Id,
+            UserId = user.Id,
+            Role = ConversationMemberRole.Member,
+            CanRead = true,
+            JoinedAt = TestClock.Value
+        }));
+        context.ConversationMembers.Add(new ConversationMember
+        {
+            TenantId = tenant.Id,
+            ConversationId = ungroupedProject.Conversation.Id,
+            UserId = ordinaryWorkspaceMember.Id,
+            Role = ConversationMemberRole.Member,
+            CanRead = true,
+            JoinedAt = TestClock.Value
+        });
+        context.Messages.AddRange(groupedProject.Message, ungroupedProject.Message);
+        await context.SaveChangesAsync();
+
+        return new ActiveVisibilityGraph(
+            tenant.Id,
+            tenant.Slug,
+            workspace.Id,
+            groupedProject.ToIds(),
+            ungroupedProject.ToIds(),
+            explicitProjectMember.Id,
+            groupMember.Id,
+            workspaceOwner.Id,
+            workspaceAdmin.Id,
+            ordinaryWorkspaceMember.Id,
+            adviser.Id,
+            ownerFieldOnly.Id,
+            systemAdmin.Id,
+            revokedWorkspaceMember.Id,
+            adviserTask.Id,
+            ownerFieldTask.Id);
+    }
+
+    private static MutableProjectResourceGraph NewActiveProjectResourceGraph(
+        Guid tenantId,
+        Guid workspaceId,
+        Guid? groupId,
+        Guid ownerUserId,
+        Guid createdByUserId,
+        Guid primaryAssigneeUserId,
+        string needle)
+    {
+        var project = new Project
+        {
+            TenantId = tenantId,
+            WorkspaceId = workspaceId,
+            GroupId = groupId,
+            OwnerUserId = ownerUserId,
+            CreatedByUserId = createdByUserId,
+            Name = $"{needle} Project",
+            Slug = $"{needle.ToLowerInvariant()}-{Guid.NewGuid():N}",
+            Description = $"{needle} protected description",
+            Status = ProjectStatus.Active
+        };
+        var task = new TaskItem
+        {
+            TenantId = tenantId,
+            WorkspaceId = workspaceId,
+            ProjectId = project.Id,
+            PrimaryAssigneeUserId = primaryAssigneeUserId,
+            CreatedByUserId = createdByUserId,
+            Title = $"{needle} Task",
+            Description = $"{needle} protected task body"
+        };
+        var artifact = new Artifact
+        {
+            TenantId = tenantId,
+            ProjectId = project.Id,
+            TaskItemId = task.Id,
+            CreatedByUserId = createdByUserId,
+            Name = $"{needle} Artifact",
+            Description = $"{needle} protected artifact metadata"
+        };
+        var activityLog = new ActivityLog
+        {
+            TenantId = tenantId,
+            ProjectId = project.Id,
+            TaskItemId = task.Id,
+            AuthorUserId = createdByUserId,
+            ActivityType = ActivityLogType.Note,
+            Body = $"{needle} protected activity",
+            OccurredAt = TestClock.Value
+        };
+        var comment = new Comment
+        {
+            TenantId = tenantId,
+            WorkspaceId = workspaceId,
+            AuthorUserId = createdByUserId,
+            TargetType = CommentTargetType.Project,
+            TargetId = project.Id,
+            Body = $"{needle} protected comment"
+        };
+        var conversation = new Conversation
+        {
+            TenantId = tenantId,
+            WorkspaceId = workspaceId,
+            ProjectId = project.Id,
+            Type = ConversationType.ProjectChannel,
+            Title = $"{needle} Project Channel",
+            CreatedByUserId = createdByUserId
+        };
+        var message = new Message
+        {
+            TenantId = tenantId,
+            WorkspaceId = workspaceId,
+            ConversationId = conversation.Id,
+            AuthorUserId = createdByUserId,
+            Body = $"{needle} protected message"
+        };
+        return new MutableProjectResourceGraph(
+            project,
+            task,
+            artifact,
+            activityLog,
+            comment,
+            conversation,
+            message,
+            needle);
+    }
+
     private static User NewUser(string prefix, SystemRole role) => new()
     {
         DisplayName = prefix,
@@ -674,6 +1166,63 @@ public sealed class Wpc01WorkspaceCreationPostgreSqlTests
         Guid OwnerUserId,
         Guid OrdinaryUserId,
         Guid SystemAdminUserId);
+
+    private sealed record ProjectReadExpectation(
+        string Label,
+        Guid UserId,
+        SystemRole SystemRole,
+        bool Expected);
+
+    private sealed record ProjectResourceGraph(
+        Guid WorkspaceId,
+        Guid ProjectId,
+        Guid TaskId,
+        Guid ArtifactId,
+        Guid ActivityLogId,
+        Guid CommentId,
+        Guid ConversationId,
+        Guid MessageId,
+        string Needle);
+
+    private sealed record MutableProjectResourceGraph(
+        Project Project,
+        TaskItem Task,
+        Artifact Artifact,
+        ActivityLog ActivityLog,
+        Comment Comment,
+        Conversation Conversation,
+        Message Message,
+        string Needle)
+    {
+        public ProjectResourceGraph ToIds() => new(
+            Project.WorkspaceId,
+            Project.Id,
+            Task.Id,
+            Artifact.Id,
+            ActivityLog.Id,
+            Comment.Id,
+            Conversation.Id,
+            Message.Id,
+            Needle);
+    }
+
+    private sealed record ActiveVisibilityGraph(
+        Guid TenantId,
+        string TenantSlug,
+        Guid WorkspaceId,
+        ProjectResourceGraph GroupedProject,
+        ProjectResourceGraph UngroupedProject,
+        Guid ExplicitProjectMemberUserId,
+        Guid GroupMemberUserId,
+        Guid WorkspaceOwnerUserId,
+        Guid WorkspaceAdminUserId,
+        Guid OrdinaryWorkspaceMemberUserId,
+        Guid AdviserUserId,
+        Guid OwnerFieldOnlyUserId,
+        Guid SystemAdminUserId,
+        Guid RevokedWorkspaceMemberUserId,
+        Guid AdviserTaskId,
+        Guid OwnerFieldTaskId);
 
     private sealed record ServiceScope(AppDbContext Db, WorkspaceService Service) : IAsyncDisposable
     {

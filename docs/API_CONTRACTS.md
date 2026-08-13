@@ -54,9 +54,13 @@ it, current membership is rechecked, and reuse for another payload is HTTP 409.
 
 WPC create failures use the full error envelope. Exact cases include
 `MalformedJson`, `ValidationFailed`, `MissingIdempotencyKey`,
-`InvalidIdempotencyKey`, `CapabilityDenied`, `CsrfRejected`,
-`IdempotencyConflict`, `UnsupportedMediaType`,
-`DependencyUnavailable`, and `UnexpectedServerError`.
+`InvalidIdempotencyKey`, `AuthenticationRequired`, `CapabilityDenied`,
+`CsrfRejected`, masked `NotFound`, `InvalidStateTransition`,
+`IdempotencyConflict`, `UnsupportedMediaType`, `DependencyUnavailable`, and
+`UnexpectedServerError`. WPC successes carry `requestId`, `data`, and
+`warnings`; errors carry `requestId`, `error.code`, `error.message`,
+`error.target`, `error.details`, `error.redactionApplied`, `traceId`, and
+`status`.
 
 Project responses preserve nullable `groupId` and expose `versionNo`.
 `POST /api/projects` is a deprecated compatibility route and now always
@@ -65,12 +69,26 @@ authority, required Group, missing Visibility, and missing idempotency cannot
 safely approximate the canonical command.
 `POST /api/workspaces/{workspaceId}/projects` and
 `POST /api/projects/{projectId}/activate` are not implemented by WPC-01.
-Every generic status change whose destination is `Active` returns 409
-`InvalidStateTransition`; Archived/Deleted restore returns `Planning`.
-Planning/Suspended discovery and subordinate resources require explicit
-Project membership. Lifecycle provenance, Visibility/backfill, exact create
-authority, default Project Channel, and activation-time workflow mapping remain
-explicit decision/dependency blockers.
+Generic `Planning -> Active` and provenance-ambiguous `Suspended -> Active`
+return 409 `InvalidStateTransition`. `Review -> Active` remains an ordinary
+operational return because Review has only an operational production inbound
+path. An Active metadata-only update may retain Active. Archived/Deleted
+restore cannot safely select a prior lifecycle state, so it returns the same
+typed 409 without lifecycle/deletion mutation, success audit, invalidation, or
+save. Planning/Suspended discovery and subordinate resources require explicit
+Project membership.
+
+Project list and Project-derived Search share the current Project detail read
+predicate. It covers Project, Task, Artifact, ActivityLog, Comment, and
+project-bound Message results. A grouped operational Project therefore remains
+hidden from an ordinary Workspace member outside its Project and Group, while
+explicit Project members, Group members, Workspace Owner/Admin actors, ordinary
+members viewing ungrouped operational Projects, and current-policy
+SystemAdmins retain their existing access. SystemAdmin is not a global bypass:
+Planning/Suspended still require Project membership and Archived/Deleted remain
+hidden. Lifecycle provenance, Visibility/backfill, exact create authority,
+default Project Channel, and activation-time workflow mapping remain explicit
+decision/dependency blockers.
 
 ## General Rules
 

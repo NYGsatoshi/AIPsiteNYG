@@ -1,13 +1,14 @@
 # WPC-01 Workspace / Project creation backend foundation
 
-Status: fail-closed remediation candidate for independent merge audit
+Status: final merge-readiness remediation candidate
 
 - PR: #281
 - Base SHA: `74d0a334e4b3094e1efad48006fce9b13b21bdef`
-- Starting HEAD: `270b539163a49616cd5971af2eb3b58321c50a87`
+- Independent-audit starting HEAD: `e9a73f032cd1341fad978609a4a9dbf34d14e765`
+- Final HEAD: recorded in PR #281 after the scoped remediation push
 - Specification SHA: `f7535ce7de1846780a1dd6689e93310f0482897b`
 - Branch: `wpc/01-workspace-project-creation-foundation`
-- Date: 2026-08-13
+- Date: 2026-08-14
 
 ## Verdict
 
@@ -20,8 +21,9 @@ remain unresolved.
 
 The implemented foundation is safe and deliberately bounded:
 
-- every application status change into `ProjectStatus.Active` is rejected;
-- archive/restore of an ambiguous Project returns it to `Planning`;
+- generic Draft activation is rejected, while the proven operational
+  `Active -> Review -> Active` path remains valid;
+- ambiguous Archived/Deleted recovery returns a non-mutating typed conflict;
 - Planning and provenance-ambiguous lifecycle states fail closed against broad
   discovery and subordinate-resource access;
 - legacy body-scoped Project creation returns 503 without mutation;
@@ -60,11 +62,11 @@ The following files were read at specification SHA
 | Workspace create idempotency | WPC-DEC-021; WPC §13 | IMPLEMENTED | Tenant + actor + operation + SHA-256 key identity, normalized fingerprint, replay authorization, and concurrent reconciliation are preserved. |
 | WPC success/error envelope | API error contract; hardening §2 | IMPLEMENTED | Changed WPC endpoints and their pre-controller failures use the full success/error envelope and canonical HTTP mapping. |
 | Canonical cross-module RedactionService | API error contract | DEPENDENCY BLOCKER | No repository redaction service exists. WPC uses fixed public messages, empty details, masked targets, and `redactionApplied`; it does not claim repository-wide redactor integration. |
-| Generic Project transition to Active | WPC-DEC-014/024; WPC §12.2 | IMPLEMENTED | Every status-changing request whose target is Active returns 409 `InvalidStateTransition`. |
-| Never-activated archive/restore | WPC-DEC-014/024 | IMPLEMENTED | Archive produces Archived; authorized restore produces Planning, never Active. |
+| Generic Project transition to Active | WPC-DEC-014/024; WPC §12.2 | IMPLEMENTED | Planning/Suspended/other non-Review attempts to target Active return 409 `InvalidStateTransition`; Review may return to Active because its production provenance is operational. |
+| Never-activated archive/restore | WPC-DEC-014/024 | IMPLEMENTED | Archive produces Archived; recovery does not guess Planning or Active and returns a non-mutating 409. |
 | Suspended recovery | WPC-DEC-014/024 | IMPLEMENTED | Suspended may return to Planning, but neither direct nor resumed generic flow may target Active. |
-| Previously-active lifecycle provenance | No normative mapping found | DECISION REQUIRED | No `ActivatedAt`, audit inference, or data backfill was invented. Ambiguous recovery lands Planning. |
-| Draft/ambiguous-state non-disclosure | WPC-DEC-016; governance §§5, 13 | IMPLEMENTED | Planning/Suspended require current Workspace access plus explicit Project membership across list/detail/search, Tasks, My Tasks, digest, Messaging, and realtime. Archived recovery is explicit Owner/Manager-only. |
+| Previously-active lifecycle provenance | No normative mapping found | DECISION REQUIRED | No `ActivatedAt`, audit inference, or data backfill was invented. Recovery needing unknown provenance conflicts without mutation. |
+| Draft/ambiguous-state non-disclosure | WPC-DEC-016; governance §§5, 13 | IMPLEMENTED | Planning/Suspended require current Workspace access plus explicit Project membership across list/detail/search, Tasks, My Tasks, digest, Messaging, and realtime. Project-derived Search and Messaging reapply current authorization before returning protected content. |
 | Canonical Workspace-scoped Project create | WPC-DEC-020; WPC §12.1 | FAIL-CLOSED / GATED | The route is absent. Deprecated `POST /api/projects` returns 503 and performs no mutation. |
 | Workspace-root Project-create authority | Governance §§4, 9; WPC §12.1 | DECISION REQUIRED | The specification names no exact capability or actor predicate. |
 | Non-default Visibility authority | WPC-DEC-016 | DECISION REQUIRED | The specification requires a capability but does not name it. |
@@ -131,9 +133,9 @@ Production paths capable of assigning or retaining `ProjectStatus.Active`:
 | Path | Final behavior |
 | --- | --- |
 | `ProjectService.CreateAsync` | Deprecated command returns 503 and creates nothing. Domain default for any separately constructed new Project remains Planning. |
-| `ProjectService.UpdateAsync` | An already-Active row may remain Active during a metadata-only update. Any status change whose destination is Active returns 409 before audit, Outbox/invalidation, or save. |
+| `ProjectService.UpdateAsync` | An already-Active row may remain Active during a metadata-only update. Planning/Suspended/other non-Review transitions to Active return 409 before mutation, audit, invalidation, or save. Review may return to Active. |
 | `ProjectService.ArchiveAsync` | Writes only Archived. |
-| `ProjectService.RestoreAsync` | Clears soft-delete metadata; Archived/Deleted map to Planning. It never assigns Active. |
+| `ProjectService.RestoreAsync` | Current persistence cannot choose a safe prior status. Restore requests return typed 409 without status/deletion mutation, success audit, invalidation, or save. |
 | Suspended recovery | Transition graph permits Planning or Archived, never Active. A subsequent attempt to target Active is independently rejected. |
 | Explicit `POST /activate` | Absent. |
 | Domain `Restore()` helper | Clears deletion metadata only; it does not change Project status. |
@@ -141,13 +143,13 @@ Production paths capable of assigning or retaining `ProjectStatus.Active`:
 | Browser-smoke seed | Test-environment-only fixture creation may construct new Active fixtures. Refresh no longer promotes an existing Planning/non-Active row to Active. |
 | Direct EF/test fixtures | Trusted test setup can construct Active rows because no schema invariant/provenance exists; it is not an application/API lifecycle command. |
 
-This closes all application/API transitions into Active. Existing Active rows
-cannot be proven previously activated because the schema has no provenance.
-Planning, Suspended, and Archived/Deleted histories are therefore treated
-conservatively. Explicit Project members retain bounded access; broader
+This closes every generic first-activation bypass without breaking the
+unambiguous operational `Review -> Active` return. Planning, Suspended, and
+Archived/Deleted histories are treated conservatively when provenance is
+required. Explicit Project members retain bounded access; broader
 Workspace/Group governance does not acquire Draft visibility merely by moving
-the row to Suspended or Archived. This is a compatibility restriction and is
-documented as **FAIL-CLOSED / GATED**, not a final lifecycle policy.
+the row to Suspended or Archived. This remains a **FAIL-CLOSED / GATED**
+foundation, not a final activation or historical-recovery policy.
 
 ## Draft and subordinate-resource boundary
 
@@ -162,6 +164,16 @@ explicit ProjectMember. The same predicate is applied to:
   and Message search;
 - authorization target resolution and Project/Task realtime delivery;
 - delayed `Messaging.ConversationUnreadChanged.v1` user-routed events.
+
+For operational Projects, the exact current detail predicate has a shared
+SQL-translatable query form used by Project list and all Project-derived Search
+categories. It preserves explicit ProjectMember, authorized GroupMember,
+Workspace Owner/Admin, ungrouped ordinary-member, and current SystemAdmin
+access while denying an ordinary member outside a grouped Project/Group and a
+revoked member with stale subordinate rows. Message Search also performs the
+authoritative recursive Conversation check over a bounded candidate set before
+mapping any Thread or Project-bound title/body. Direct-message reuse matches
+Workspace and nullable Project scope exactly and reauthorizes existing rows.
 
 Conversation membership or historical Outbox routing is not authority.
 Project-bound Conversations recheck every non-null `ProjectId`, regardless
@@ -221,7 +233,12 @@ Changed endpoint behavior:
 - `POST /api/projects`
   - 503 `DependencyUnavailable`, no mutation.
 - `PATCH /api/projects/{projectId}` targeting Active
-  - 409 `InvalidStateTransition`, target `body.status`.
+  - Planning/Suspended/other non-Review attempts: 409
+    `InvalidStateTransition`, target `body.status`;
+  - Review return and Active metadata retention remain valid.
+- `POST /api/projects/{projectId}/restore`
+  - 409 `InvalidStateTransition`, target `project`, with no lifecycle/deletion
+    mutation or success side effect.
 - hidden `GET /api/projects/{projectId}`
   - indistinguishable full redacted 404 `NotFound`.
 
@@ -261,21 +278,16 @@ The real PostgreSQL migration test:
 
 ## Verification
 
-Final verification used an isolated PostgreSQL 18 container with
+Final verification uses an isolated PostgreSQL 18 container with
 `POSTGRES_TEST_CONNECTION_STRING` explicitly present for the database-backed
-runs. The unset-variable focused run is reported separately and is not
-PostgreSQL evidence.
+runs. Exact final command counts are recorded in PR #281 after the last source
+change and full run; no conditional early return is counted as database
+evidence.
 
-| Command | Passed | Failed | Skipped | Result / qualification |
+| Final command group | Passed | Failed | Skipped | Result / qualification |
 | --- | ---: | ---: | ---: | --- |
-| `dotnet restore AipPortal.slnx` | n/a | n/a | n/a | Exit 0; all projects current. |
-| `dotnet build AipPortal.slnx --configuration Release --no-restore --disable-build-servers -m:1` | n/a | n/a | n/a | Exit 0; 0 warnings, 0 errors. |
-| `dotnet test tests/AipPortal.Tests/AipPortal.Tests.csproj --configuration Release --no-build --no-restore --filter "Scope=WPC01" --logger "console;verbosity=minimal"` with the connection variable absent | 14 | 0 | 7 | The seven conditional PostgreSQL tests explicitly skipped; this is not database evidence. |
-| The same focused command with the isolated PostgreSQL connection configured | 21 | 0 | 0 | Real PostgreSQL; migration, rollback/reapply, query translation, concurrency, failure rollback, and production gating exercised. |
-| `dotnet test AipPortal.slnx --configuration Release --no-build --no-restore --logger "console;verbosity=minimal"` with the isolated PostgreSQL connection configured | 884 | 0 | 0 | Full solution, including every conditional PostgreSQL test. |
-| `dotnet ef migrations has-pending-model-changes --project src/AipPortal.Infrastructure --startup-project src/AipPortal.Web --configuration Release --no-build` | n/a | n/a | n/a | Exit 0: `No changes have been made to the model since the last migration.` |
-| `git diff --check -- . ':(exclude)qodana.yaml'` | n/a | n/a | n/a | Exit 0. The excluded file is an unrelated pre-existing user modification. |
-| Codex Security diff scan of the complete remediation patch | n/a | 0 findings | n/a | Complete coverage of all 24 deterministic changed source-like worklist rows; the one candidate discovered during review was fixed, retested, and rejected as a live finding. |
+| Restore, Release build, eight required focused groups, full solution, pending-model check, and diff check | See final PR body | See final PR body | See final PR body | Updated only from completed final-tree execution. |
+| Independent security diff review | See final PR body | See final PR body | See final PR body | Includes authorization widening, Search/Message disclosure, lifecycle corruption, replay, tenant, realtime, and SystemAdmin review. |
 
 `dotnet format AipPortal.slnx --verify-no-changes --no-restore --verbosity
 minimal` exited 1 on widespread pre-existing whitespace violations, including
@@ -301,6 +313,6 @@ not counted as default-`general` provisioning evidence.
 - **DEPENDENCY BLOCKER — PROJECT TASK WORKFLOW INITIALIZATION**
 - **DEPENDENCY BLOCKER — CANONICAL CROSS-MODULE REDACTION SERVICE**
 
-There is no open WPC code defect in the behaviors declared implemented above.
-Unresolved behavior remains unavailable or conservatively restricted rather
-than being approximated with inferred policy.
+The final PR body classifies any code defect found by the last source review.
+Unresolved specification and cross-module behavior remains unavailable or
+conservatively restricted rather than being approximated with inferred policy.

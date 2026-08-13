@@ -97,18 +97,25 @@ capability for non-default Visibility. Canonical Workspace-scoped create and
 activation therefore remain unavailable, and deprecated `POST /api/projects`
 returns 503 without mutation.
 
-Every generic status change into `Active` is rejected; Archived/Deleted
-restore returns `Planning`, and Suspended recovery cannot then activate via
-PATCH. Because no trustworthy activation provenance exists, Planning and
-Suspended require current Workspace access plus explicit Project membership,
-and ambiguous Archived recovery requires an explicit Project Owner/Manager.
-The same fail-closed predicate covers Project list/detail/search, Task and
-subresource search, My Tasks, digest evaluation, project-bound Conversation
-creation/read/list, Message search, authorization-target resolution, and
-realtime delivery. Historical Conversation membership and Outbox routing are
-not authority. Delayed `Messaging.ConversationUnreadChanged.v1` delivery
-parses its Conversation identity and rechecks current Conversation/Project
-authorization.
+Generic `Planning -> Active` and provenance-ambiguous `Suspended -> Active` are
+rejected. `Review -> Active` remains the ordinary return from a lifecycle state
+whose production inbound path proves prior operation, and a metadata-only
+Active update may remain Active. Archived/Deleted recovery cannot safely choose
+Planning or Active, so it returns 409 `InvalidStateTransition` without status
+or deletion-metadata mutation, success audit, invalidation, or save. Because no
+trustworthy activation provenance exists, Planning and Suspended require
+current Workspace access plus explicit Project membership.
+
+Project detail, list, and every Project-derived Search category use equivalent
+current read predicates. The shared SQL-translatable scope protects Project,
+Task, Artifact, ActivityLog, Comment, and project-bound Message results and does
+not introduce a global SystemAdmin bypass. My Tasks and Messaging apply that
+Project boundary plus their own stricter current-membership/relationship
+requirements. Digest evaluation, authorization-target resolution, and realtime
+delivery remain equally strict or stricter. Historical Conversation membership
+and Outbox routing are not authority. Delayed
+`Messaging.ConversationUnreadChanged.v1` delivery parses its Conversation
+identity and rechecks current Conversation/Project authorization.
 
 These controls prevent broad Draft disclosure but do not implement
 `WorkspaceVisible`, `MembersOnly`, or `Restricted` as a persisted policy.

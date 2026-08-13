@@ -1,6 +1,6 @@
 # Known Issues
 
-Last implementation audit: 2026-06-19.
+Last WPC-01 remediation audit: 2026-08-14.
 
 This list records confirmed implementation/documentation mismatches and major unknowns. It is not limited to defects already filed in GitHub.
 
@@ -25,11 +25,17 @@ from treating the backend as complete:
   Legacy Channel/Post is not an acceptable substitute.
 - **WPC-01-005, blocking lifecycle/data-integrity dependency:** atomic Project
   activation cannot be implemented until Visibility, canonical default Channel,
-  and Task workflow attachment semantics are resolved. Direct generic
-  `Planning -> Active` PATCH is closed, but `Planning -> Archived/Suspended ->
-  Active` can still pass through legacy restore/status paths because current
-  persistence does not distinguish a never-activated Draft from a previously
-  active Project. Do not expose activation UI until this is remediated.
+  and Task workflow attachment semantics are resolved. Draft activation bypass
+  is closed: generic `Planning -> Active` is denied, including after
+  `Planning -> Suspended -> Planning`, and ambiguous `Suspended -> Active` or
+  Archived/Deleted recovery cannot substitute for activation. `Review ->
+  Active` remains the ordinary return from a state whose production inbound
+  path proves prior operation. Persistence still cannot distinguish every
+  never-activated historical Suspended/Archived row from a previously active
+  Project. Recovery that requires that missing provenance returns 409
+  `InvalidStateTransition` without lifecycle/deletion mutation, success audit,
+  invalidation, or save. Do not expose activation UI until the explicit atomic
+  command and its dependencies are implemented.
 
 ## Backend application logic audit findings
 
@@ -38,7 +44,12 @@ The detailed controller, service, validation, error-handling, file, project, mes
 The highest-severity confirmed findings are:
 
 - **BE-001, critical:** scoped group/private-channel announcements can be disclosed to active workspace members because visibility predicates are not mutually exclusive.
-- **BE-002, critical:** search authorization is broader than normal project/comment authorization and can expose restricted project-derived content.
+- **BE-002, resolved in PR #281:** Project-derived Search, Project list,
+  project-bound Messaging, and the Project boundary used by My Tasks now share
+  one SQL-translatable form of the current `CanViewProject` policy. This closes
+  disclosure of Project, Task, Artifact, ActivityLog, Comment, and
+  project-bound Message content without claiming canonical Visibility
+  persistence.
 - **BE-003, resolved for direct-message MVP:** direct conversation creation now derives an active shared workspace server-side instead of writing `WorkspaceId = Guid.Empty`; broader PostgreSQL coverage for all conversation creation modes is still recommended.
 - **BE-004, critical:** message attachment requests trust client storage metadata and create records without required workspace/file-object relationships.
 - **BE-005, high:** post update/delete/pin operations mutate entities loaded with `AsNoTracking`, so successful responses may not correspond to persisted changes.

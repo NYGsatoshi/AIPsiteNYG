@@ -1,6 +1,11 @@
 using AipPortal.Application.Common.Interfaces;
 using AipPortal.Application.Common.Tenancy;
+using AipPortal.Application.Groups;
+using AipPortal.Application.Messaging;
+using AipPortal.Application.Projects;
 using AipPortal.Application.Search;
+using AipPortal.Application.Tenancy;
+using AipPortal.Application.Workspaces;
 using AipPortal.Domain.Entities;
 using AipPortal.Domain.Enums;
 using AipPortal.Infrastructure.Persistence;
@@ -156,7 +161,23 @@ public sealed class PostgreSqlIntegrationTests
         var tenantBData = await SeedSearchGraphAsync(dbContext, currentTenant, tenantB, userB, runId, "TenantB", now.AddMinutes(1));
 
         currentTenant.SetTenant(tenantA.Id, tenantA.Slug);
-        var search = new DbSearchService(dbContext, new TestCurrentUser(userA));
+        var users = new UserRepository(dbContext);
+        var workspaces = new WorkspaceRepository(dbContext);
+        var groups = new GroupRepository(dbContext);
+        var projectRepository = new ProjectRepository(dbContext);
+        var workspaceAuthorization = new WorkspaceAuthorizationService(
+            users,
+            workspaces,
+            new TenantAuthorizationService(new TenantRepository(dbContext)));
+        var projectAuthorization = new ProjectAuthorizationService(
+            projectRepository,
+            workspaceAuthorization,
+            new GroupAuthorizationService(groups, workspaces, workspaceAuthorization),
+            groups);
+        var search = new DbSearchService(
+            dbContext,
+            new TestCurrentUser(userA),
+            new ConversationAuthorizationService(new MessagingRepository(dbContext), projectAuthorization));
         var result = await search.SearchAsync(new SearchRequest("securesearchneedle", PageSize: 50));
 
         Assert.True(result.IsSuccess, result.Error);

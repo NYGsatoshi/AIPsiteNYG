@@ -8,7 +8,7 @@ public interface IMessagingRepository
     Task<PagedResponse<Conversation>> ListForUserAsync(Guid userId, int page, int pageSize, CancellationToken cancellationToken = default);
     Task<IReadOnlyList<User>> SearchDirectRecipientsAsync(Guid userId, string? query, int limit, CancellationToken cancellationToken = default);
     Task<Conversation?> GetConversationAsync(Guid conversationId, CancellationToken cancellationToken = default);
-    Task<Conversation?> FindDirectAsync(Guid workspaceId, Guid userAId, Guid userBId, CancellationToken cancellationToken = default);
+    Task<Conversation?> FindDirectAsync(Guid workspaceId, Guid? projectId, Guid userAId, Guid userBId, CancellationToken cancellationToken = default);
     Task<Conversation?> FindDirectForUsersAsync(Guid userAId, Guid userBId, CancellationToken cancellationToken = default);
     Task<Workspace?> FindSharedActiveWorkspaceAsync(Guid userAId, Guid userBId, CancellationToken cancellationToken = default);
     Task<ConversationMember?> GetMemberAsync(Guid conversationId, Guid userId, CancellationToken cancellationToken = default);

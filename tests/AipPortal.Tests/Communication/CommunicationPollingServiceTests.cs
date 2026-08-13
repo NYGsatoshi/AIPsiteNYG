@@ -308,7 +308,7 @@ public sealed class CommunicationPollingServiceTests
             return Task.FromResult(Conversations.FirstOrDefault(conversation => conversation.Id == conversationId));
         }
 
-        public Task<Conversation?> FindDirectAsync(Guid workspaceId, Guid userAId, Guid userBId, CancellationToken cancellationToken = default)
+        public Task<Conversation?> FindDirectAsync(Guid workspaceId, Guid? projectId, Guid userAId, Guid userBId, CancellationToken cancellationToken = default)
         {
             return Task.FromResult<Conversation?>(null);
         }

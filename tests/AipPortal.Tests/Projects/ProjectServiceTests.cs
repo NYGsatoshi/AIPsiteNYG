@@ -1154,6 +1154,7 @@ public sealed class ProjectServiceTests
     }
 
     [Fact]
+    [Trait("Scope", "WPC01")]
     public async Task GenericUpdateCannotActivatePlanningProject()
     {
         var fixture = ProjectFixture.Create();
@@ -1162,20 +1163,23 @@ public sealed class ProjectServiceTests
         fixture.AddProjectMember(manager.Id, ProjectRole.Manager);
         fixture.Project.Status = ProjectStatus.Planning;
 
+        var originalName = fixture.Project.Name;
         var result = await fixture.Service.UpdateAsync(
             fixture.Project.Id,
-            new UpdateProjectRequest(null, null, ProjectStatus.Active, null, null));
+            new UpdateProjectRequest("Must not persist", null, ProjectStatus.Active, null, null));
 
         Assert.False(result.IsSuccess);
         Assert.Equal("InvalidStateTransition", result.ErrorDetail?.Code);
         Assert.Equal(ProjectStatus.Planning, fixture.Project.Status);
+        Assert.Equal(originalName, fixture.Project.Name);
         Assert.Equal(0, fixture.CommandUnitOfWork.SaveCount);
         Assert.Empty(fixture.Audit.Entries);
         Assert.Equal(0, fixture.Invalidations.ProjectChangedCount);
     }
 
     [Fact]
-    public async Task PlanningProjectArchiveThenRestoreReturnsToPlanning()
+    [Trait("Scope", "WPC01")]
+    public async Task PlanningProjectArchiveThenRestoreFailsWithoutGuessingPriorState()
     {
         var fixture = ProjectFixture.Create();
         var manager = fixture.AddUser();
@@ -1185,17 +1189,25 @@ public sealed class ProjectServiceTests
 
         var archived = await fixture.Service.ArchiveAsync(fixture.Project.Id);
         var restored = await fixture.Service.RestoreAsync(fixture.Project.Id);
+        var activated = await fixture.Service.UpdateAsync(
+            fixture.Project.Id,
+            new UpdateProjectRequest(null, null, ProjectStatus.Active, null, null));
 
         Assert.True(archived.IsSuccess);
-        Assert.True(restored.IsSuccess);
-        Assert.Equal(ProjectStatus.Planning, fixture.Project.Status);
-        Assert.Equal(2, fixture.CommandUnitOfWork.SaveCount);
+        Assert.False(restored.IsSuccess);
+        Assert.Equal("InvalidStateTransition", restored.ErrorDetail?.Code);
+        Assert.False(activated.IsSuccess);
+        Assert.Equal("InvalidStateTransition", activated.ErrorDetail?.Code);
+        Assert.Equal(ProjectStatus.Archived, fixture.Project.Status);
+        Assert.Equal(1, fixture.CommandUnitOfWork.SaveCount);
         Assert.Contains(fixture.Audit.Entries, entry => entry.Action == "ProjectArchived");
-        Assert.Contains(fixture.Audit.Entries, entry => entry.Action == "ProjectRestored");
+        Assert.DoesNotContain(fixture.Audit.Entries, entry => entry.Action == "ProjectRestored");
         Assert.DoesNotContain(fixture.Audit.Entries, entry => entry.Action == "ProjectActivated");
+        Assert.Equal(1, fixture.Invalidations.ProjectChangedCount);
     }
 
     [Fact]
+    [Trait("Scope", "WPC01")]
     public async Task GenericUpdateCannotActivateSuspendedPlanningProject()
     {
         var fixture = ProjectFixture.Create();
@@ -1221,6 +1233,7 @@ public sealed class ProjectServiceTests
     }
 
     [Fact]
+    [Trait("Scope", "WPC01")]
     public async Task SuspendedPlanningProjectCannotResumeThenActivateThroughGenericUpdates()
     {
         var fixture = ProjectFixture.Create();
@@ -1250,6 +1263,7 @@ public sealed class ProjectServiceTests
     }
 
     [Fact]
+    [Trait("Scope", "WPC01")]
     public async Task NeverActivatedSuspendedProjectRemainsLimitedToExplicitMembers()
     {
         var fixture = ProjectFixture.Create();
@@ -1278,6 +1292,7 @@ public sealed class ProjectServiceTests
     }
 
     [Fact]
+    [Trait("Scope", "WPC01")]
     public async Task NeverActivatedArchivedProjectCannotBeRestoredByNonmemberGovernanceActor()
     {
         var fixture = ProjectFixture.Create();
@@ -1298,28 +1313,108 @@ public sealed class ProjectServiceTests
         Assert.Equal(ProjectStatus.Archived, fixture.Project.Status);
 
         fixture.Current.UserIdValue = manager.Id;
-        Assert.True((await fixture.Service.RestoreAsync(fixture.Project.Id)).IsSuccess);
-        Assert.Equal(ProjectStatus.Planning, fixture.Project.Status);
+        var ambiguous = await fixture.Service.RestoreAsync(fixture.Project.Id);
+        Assert.False(ambiguous.IsSuccess);
+        Assert.Equal("InvalidStateTransition", ambiguous.ErrorDetail?.Code);
+        Assert.Equal(ProjectStatus.Archived, fixture.Project.Status);
+        Assert.DoesNotContain(fixture.Audit.Entries, entry => entry.Action == "ProjectRestored");
+        Assert.Equal(1, fixture.CommandUnitOfWork.SaveCount);
+        Assert.Equal(1, fixture.Invalidations.ProjectChangedCount);
     }
 
     [Fact]
-    public async Task GenericUpdateCannotReturnReviewProjectToActive()
+    [Trait("Scope", "WPC01")]
+    public async Task ActiveProjectCanEnterReviewAndReturnToActive()
     {
         var fixture = ProjectFixture.Create();
         var manager = fixture.AddUser();
         fixture.Current.UserIdValue = manager.Id;
         fixture.AddProjectMember(manager.Id, ProjectRole.Manager);
-        fixture.Project.Status = ProjectStatus.Review;
+        fixture.Project.Status = ProjectStatus.Active;
 
-        var result = await fixture.Service.UpdateAsync(
+        var review = await fixture.Service.UpdateAsync(
+            fixture.Project.Id,
+            new UpdateProjectRequest(null, null, ProjectStatus.Review, null, null));
+        var active = await fixture.Service.UpdateAsync(
             fixture.Project.Id,
             new UpdateProjectRequest(null, null, ProjectStatus.Active, null, null));
 
+        Assert.True(review.IsSuccess);
+        Assert.True(active.IsSuccess);
+        Assert.Equal(ProjectStatus.Active, fixture.Project.Status);
+        Assert.Equal(2, fixture.CommandUnitOfWork.SaveCount);
+        Assert.Equal(2, fixture.Audit.Entries.Count(entry => entry.Action == "ProjectStatusChanged"));
+        Assert.Equal(2, fixture.Invalidations.ProjectChangedCount);
+    }
+
+    [Fact]
+    [Trait("Scope", "WPC01")]
+    public async Task ActiveProjectMetadataUpdateRetainsActiveStatus()
+    {
+        var fixture = ProjectFixture.Create();
+        var manager = fixture.AddUser();
+        fixture.Current.UserIdValue = manager.Id;
+        fixture.AddProjectMember(manager.Id, ProjectRole.Manager);
+        fixture.Project.Status = ProjectStatus.Active;
+
+        var result = await fixture.Service.UpdateAsync(
+            fixture.Project.Id,
+            new UpdateProjectRequest("Renamed operational project", "Updated", null, null, null));
+
+        Assert.True(result.IsSuccess);
+        Assert.Equal(ProjectStatus.Active, fixture.Project.Status);
+        Assert.Equal("Renamed operational project", fixture.Project.Name);
+        Assert.Single(fixture.Audit.Entries, entry => entry.Action == "ProjectUpdated");
+        Assert.Equal(1, fixture.CommandUnitOfWork.SaveCount);
+        Assert.Equal(1, fixture.Invalidations.ProjectChangedCount);
+    }
+
+    [Fact]
+    [Trait("Scope", "WPC01")]
+    public async Task RestoreOnActiveProjectFailsWithoutFalseSuccessSideEffects()
+    {
+        var fixture = ProjectFixture.Create();
+        var manager = fixture.AddUser();
+        fixture.Current.UserIdValue = manager.Id;
+        fixture.AddProjectMember(manager.Id, ProjectRole.Manager);
+        fixture.Project.Status = ProjectStatus.Active;
+
+        var result = await fixture.Service.RestoreAsync(fixture.Project.Id);
+
         Assert.False(result.IsSuccess);
         Assert.Equal("InvalidStateTransition", result.ErrorDetail?.Code);
-        Assert.Equal(ProjectStatus.Review, fixture.Project.Status);
-        Assert.Equal(0, fixture.CommandUnitOfWork.SaveCount);
+        Assert.Equal(ProjectStatus.Active, fixture.Project.Status);
+        Assert.Null(fixture.Project.DeletedAt);
         Assert.Empty(fixture.Audit.Entries);
+        Assert.Equal(0, fixture.CommandUnitOfWork.SaveCount);
+        Assert.Equal(0, fixture.Invalidations.ProjectChangedCount);
+    }
+
+    [Fact]
+    [Trait("Scope", "WPC01")]
+    public async Task DeletedProjectRestoreAndArchiveFailWithoutMutationOrSuccessSideEffects()
+    {
+        var fixture = ProjectFixture.Create();
+        var manager = fixture.AddUser();
+        fixture.Current.UserIdValue = manager.Id;
+        fixture.AddProjectMember(manager.Id, ProjectRole.Manager);
+        var deletedAt = fixture.Clock.UtcNow.AddMinutes(-5);
+        fixture.Project.Status = ProjectStatus.Deleted;
+        fixture.Project.MarkDeleted(deletedAt, manager.Id, "historical deletion");
+
+        var restored = await fixture.Service.RestoreAsync(fixture.Project.Id);
+        var archived = await fixture.Service.ArchiveAsync(fixture.Project.Id);
+
+        Assert.False(restored.IsSuccess);
+        Assert.Equal("InvalidStateTransition", restored.ErrorDetail?.Code);
+        Assert.False(archived.IsSuccess);
+        Assert.Equal("InvalidStateTransition", archived.ErrorDetail?.Code);
+        Assert.Equal(ProjectStatus.Deleted, fixture.Project.Status);
+        Assert.Equal(deletedAt, fixture.Project.DeletedAt);
+        Assert.Equal(manager.Id, fixture.Project.DeletedByUserId);
+        Assert.Equal("historical deletion", fixture.Project.DeleteReason);
+        Assert.Empty(fixture.Audit.Entries);
+        Assert.Equal(0, fixture.CommandUnitOfWork.SaveCount);
         Assert.Equal(0, fixture.Invalidations.ProjectChangedCount);
     }
 
