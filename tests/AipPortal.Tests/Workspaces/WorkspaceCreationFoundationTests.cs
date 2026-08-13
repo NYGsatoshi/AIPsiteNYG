@@ -216,6 +216,33 @@ public sealed class WorkspaceCreationFoundationTests
     }
 
     [Fact]
+    public async Task ReplayDoesNotExposeWorkspaceAfterWorkspaceAccessIsRevoked()
+    {
+        await using var fixture = await Fixture.CreateAsync(
+            TenantUserRole.Owner,
+            TenantUserStatus.Active,
+            UserStatus.Active);
+        var request = new CreateWorkspaceRequest("Revoked replay", null, null);
+        var service = fixture.CreateService();
+        var first = await service.CreateAsync(request, "revoked-replay-key");
+        Assert.True(first.IsSuccess);
+
+        var membership = await fixture.Db.WorkspaceMembers.SingleAsync(item =>
+            item.WorkspaceId == first.Value!.Id && item.UserId == fixture.Actor.Id);
+        membership.Status = MembershipStatus.Suspended;
+        await fixture.Db.SaveChangesAsync();
+        fixture.Db.ChangeTracker.Clear();
+
+        var replay = await service.CreateAsync(request, "revoked-replay-key");
+
+        Assert.False(replay.IsSuccess);
+        Assert.Equal("IdempotencyReplayUnavailable", replay.ErrorDetail?.Code);
+        Assert.Single(await fixture.Db.Workspaces.AsNoTracking().ToListAsync());
+        Assert.Single(await fixture.Db.IdempotencyRecords.AsNoTracking().ToListAsync());
+        Assert.Single(await fixture.Db.AuditLogs.AsNoTracking().Where(item => item.Action == "WorkspaceCreated").ToListAsync());
+    }
+
+    [Fact]
     public async Task AnotherTenantMayReuseIdentityButCannotReceiveTheEarlierResource()
     {
         await using var fixture = await Fixture.CreateAsync(

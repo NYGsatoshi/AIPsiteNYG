@@ -210,9 +210,12 @@ the unique key and then reconciles the committed winner. Any initialization or
 save failure rolls back the claim and all staged effects. A failed request
 therefore cannot masquerade as a successful replay.
 
-Reauthorization occurs before reconciliation, tenant query filters remain in
-force, and operation/actor/Tenant are part of identity. A key cannot return a
-resource from another actor, Tenant, Workspace operation, or resource type.
+Tenant create authority and current Workspace view authorization are both
+rechecked before reconciliation, tenant query filters remain in force, and
+operation/actor/Tenant are part of identity. A revoked Workspace member cannot
+use an old create identity to recover protected Workspace metadata. A key
+cannot return a resource from another actor, Tenant, Workspace operation, or
+resource type.
 Records have no automatic expiry in this bounded foundation; replay identity
 is retained indefinitely. A deleted/unavailable prior resource fails safe with
 a replay-unavailable conflict instead of creating a duplicate.

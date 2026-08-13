@@ -155,7 +155,15 @@ public sealed class WorkspaceService(
                 await PublishAuthorizationChangeAsync(userId, workspace.Id, "granted", token);
                 return workspace;
             },
-            (resourceId, token) => workspaces.GetByIdAsync(resourceId, token),
+            async (resourceId, token) =>
+            {
+                if (!await authorization.CanViewWorkspace(userId, resourceId, token))
+                {
+                    return null;
+                }
+
+                return await workspaces.GetByIdAsync(resourceId, token);
+            },
             cancellationToken);
 
         return idempotency.Disposition switch
