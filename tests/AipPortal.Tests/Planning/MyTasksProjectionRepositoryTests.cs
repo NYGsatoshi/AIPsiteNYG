@@ -53,7 +53,7 @@ public sealed class MyTasksProjectionRepositoryTests
         graph.Context.Workspaces.Add(otherWorkspace);
         await graph.Context.SaveChangesAsync();
         graph.Context.WorkspaceMembers.Add(new WorkspaceMember { WorkspaceId = otherWorkspace.Id, UserId = graph.User.Id, Status = MembershipStatus.Active, Role = WorkspaceRole.Member, JoinedAt = DateTimeOffset.UtcNow });
-        var otherProject = new Project { WorkspaceId = otherWorkspace.Id, OwnerUserId = graph.User.Id, CreatedByUserId = graph.User.Id, Name = "Second project", Slug = "second-project" };
+        var otherProject = new Project { WorkspaceId = otherWorkspace.Id, OwnerUserId = graph.User.Id, CreatedByUserId = graph.User.Id, Name = "Second project", Slug = "second-project", Status = ProjectStatus.Active };
         graph.Context.Projects.Add(otherProject);
         await graph.Context.SaveChangesAsync();
         var current = graph.NewTask("Current", primaryAssignee: graph.User.Id);
@@ -108,7 +108,7 @@ public sealed class MyTasksProjectionRepositoryTests
             new WorkspaceMember { WorkspaceId = workspace.Id, UserId = otherUser.Id, Status = MembershipStatus.Active, Role = WorkspaceRole.Member, JoinedAt = DateTimeOffset.UtcNow });
         var group = new Group { WorkspaceId = workspace.Id, Name = "Queue", Slug = "queue", CreatedByUserId = user.Id };
         setup.Groups.Add(group);
-        var project = new Project { WorkspaceId = workspace.Id, OwnerUserId = user.Id, CreatedByUserId = user.Id, Name = "Project", Slug = "project" };
+        var project = new Project { WorkspaceId = workspace.Id, OwnerUserId = user.Id, CreatedByUserId = user.Id, Name = "Project", Slug = "project", Status = ProjectStatus.Active };
         setup.Projects.Add(project);
         await setup.SaveChangesAsync();
         setup.GroupMembers.Add(new GroupMember { GroupId = group.Id, UserId = user.Id, JoinedAt = DateTimeOffset.UtcNow });

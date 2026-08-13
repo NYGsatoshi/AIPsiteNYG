@@ -10,6 +10,31 @@ public sealed class MessagingRepository(AppDbContext dbContext) : IMessagingRepo
 {
     public async Task<PagedResponse<Conversation>> ListForUserAsync(Guid userId, int page, int pageSize, CancellationToken cancellationToken = default)
     {
+        var visibleProjectIds = dbContext.Projects
+            .AsNoTracking()
+            .Where(project =>
+                project.DeletedAt == null &&
+                project.Status != ProjectStatus.Archived &&
+                project.Status != ProjectStatus.Deleted &&
+                dbContext.WorkspaceMembers.Any(workspaceMember =>
+                    workspaceMember.WorkspaceId == project.WorkspaceId &&
+                    workspaceMember.UserId == userId &&
+                    workspaceMember.Status == MembershipStatus.Active) &&
+                (dbContext.ProjectMembers.Any(projectMember =>
+                     projectMember.ProjectId == project.Id && projectMember.UserId == userId) ||
+                 ((project.Status == ProjectStatus.Active ||
+                   project.Status == ProjectStatus.Review ||
+                   project.Status == ProjectStatus.Completed) &&
+                  (!project.GroupId.HasValue ||
+                   dbContext.WorkspaceMembers.Any(workspaceMember =>
+                       workspaceMember.WorkspaceId == project.WorkspaceId &&
+                       workspaceMember.UserId == userId &&
+                       workspaceMember.Status == MembershipStatus.Active &&
+                       (workspaceMember.Role == WorkspaceRole.Owner || workspaceMember.Role == WorkspaceRole.Admin)) ||
+                   dbContext.GroupMembers.Any(groupMember =>
+                       groupMember.GroupId == project.GroupId.Value && groupMember.UserId == userId)))))
+            .Select(project => project.Id);
+
         var query = dbContext.Conversations
             .AsNoTracking()
             .Where(c =>
@@ -19,7 +44,9 @@ public sealed class MessagingRepository(AppDbContext dbContext) : IMessagingRepo
                 c.Members.Any(m => m.UserId == userId && m.LeftAt == null && m.RemovedAt == null && m.CanRead) &&
                 (c.Type != Domain.Enums.ConversationType.Thread ||
                     c.ParentConversationId != null &&
-                    c.ParentConversation!.Members.Any(m => m.UserId == userId && m.LeftAt == null && m.RemovedAt == null && m.CanRead)))
+                    c.ParentConversation!.Members.Any(m => m.UserId == userId && m.LeftAt == null && m.RemovedAt == null && m.CanRead)) &&
+                (c.Type != Domain.Enums.ConversationType.ProjectChannel || c.ProjectId.HasValue) &&
+                (!c.ProjectId.HasValue || visibleProjectIds.Contains(c.ProjectId.Value)))
             .OrderByDescending(c => c.UpdatedAt ?? c.CreatedAt);
 
         var total = await query.CountAsync(cancellationToken);

@@ -449,7 +449,10 @@ public static class AppDbContextSeed
             project.CreatedByUserId = user.Id;
             project.Name = "Browser Smoke Project";
             project.Description = "Synthetic project for the real-backend browser smoke test.";
-            project.Status = ProjectStatus.Active;
+            // Test fixture refresh must not activate an existing Project. A
+            // slug collision with a never-activated fixture remains in its
+            // current lifecycle state; only the explicit activation command
+            // may make a persisted Project Active.
             project.StartDate = DateOnly.FromDateTime(now.UtcDateTime.Date);
             project.DueDate = DateOnly.FromDateTime(now.UtcDateTime.Date.AddDays(14));
             if (project.IsDeleted)
@@ -780,7 +783,7 @@ public static class AppDbContextSeed
             project.CreatedByUserId = owner.Id;
             project.Name = projectTitle;
             project.Description = "Synthetic isolated Project for PR07-D notification delivery acceptance.";
-            project.Status = ProjectStatus.Active;
+            // Preserve the existing lifecycle state on fixture refresh.
             project.StartDate = today;
             project.DueDate = today.AddDays(7);
             if (project.IsDeleted)
@@ -1268,7 +1271,7 @@ public static class AppDbContextSeed
             project.CreatedByUserId = owner.Id;
             project.Name = "PR05 Browser Acceptance Project";
             project.Description = "Synthetic Project Kanban data for PR05 real-backend browser acceptance.";
-            project.Status = ProjectStatus.Active;
+            // Preserve the existing lifecycle state on fixture refresh.
             project.StartDate = DateOnly.FromDateTime(now.UtcDateTime.Date);
             project.DueDate = DateOnly.FromDateTime(now.UtcDateTime.Date.AddDays(14));
             if (project.IsDeleted)
@@ -1538,7 +1541,7 @@ public static class AppDbContextSeed
             project.CreatedByUserId = owner.Id;
             project.Name = "PR06 Browser Acceptance Project";
             project.Description = "Synthetic canonical Gantt data for PR06 real-backend browser acceptance.";
-            project.Status = ProjectStatus.Active;
+            // Preserve the existing lifecycle state on fixture refresh.
             project.StartDate = today;
             project.DueDate = today.AddDays(45);
             if (project.IsDeleted)

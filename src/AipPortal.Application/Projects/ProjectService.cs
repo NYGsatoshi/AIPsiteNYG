@@ -57,68 +57,33 @@ public sealed class ProjectService(
 
     public async Task<Result<ProjectResponse>> CreateAsync(CreateProjectRequest request, CancellationToken cancellationToken = default)
     {
-        if (!TryCurrentUser(out var userId) ||
-            !await projectAuthorization.CanCreateProject(userId, request.WorkspaceId, request.GroupId, cancellationToken))
-        {
-            return Result<ProjectResponse>.Failure("You are not allowed to create projects.");
-        }
-
-        var validation = await ValidateProjectParentAsync(request.WorkspaceId, request.GroupId, cancellationToken);
-        if (!validation.IsSuccess)
-        {
-            return Result<ProjectResponse>.Failure(validation.Error!);
-        }
-
-        if (string.IsNullOrWhiteSpace(request.Title))
-        {
-            return Result<ProjectResponse>.Failure("Project title is required.");
-        }
-
-        if (HasInvalidDateRange(request.StartDate, request.EndDate))
-        {
-            return Result<ProjectResponse>.Failure("Project end date cannot be before the start date.");
-        }
-
-        var project = new Project
-        {
-            WorkspaceId = request.WorkspaceId,
-            GroupId = request.GroupId,
-            OwnerUserId = userId,
-            CreatedByUserId = userId,
-            Name = request.Title.Trim(),
-            Slug = SlugGenerator.FromName(request.Title),
-            Description = request.Description?.Trim(),
-            Status = ProjectStatus.Planning,
-            StartDate = request.StartDate,
-            DueDate = request.EndDate
-        };
-
-        await projects.AddProjectAsync(project, cancellationToken);
-        await projects.AddMemberAsync(new ProjectMember
-        {
-            ProjectId = project.Id,
-            UserId = userId,
-            Role = ProjectRole.Owner,
-            JoinedAt = clock.UtcNow
-        }, cancellationToken);
-        await AuditAsync(userId, "ProjectCreated", "Project", project.Id, cancellationToken);
-        await invalidations.ProjectChangedAsync(project, userId, "created", cancellationToken);
-        await unitOfWork.SaveChangesAsync(cancellationToken);
-        return Result<ProjectResponse>.Success(await ToProjectAsync(project, userId, cancellationToken));
+        // The deprecated body-scoped command cannot safely approximate the
+        // canonical Workspace-root authority, Visibility, or idempotency
+        // contract.  Leave it explicitly fail closed until those decisions
+        // and dependencies are resolved.
+        await Task.CompletedTask;
+        return Result<ProjectResponse>.Failure(new ApplicationErrorDetail(
+            "DependencyUnavailable",
+            "Project creation is temporarily unavailable."));
     }
 
     public async Task<Result<ProjectResponse>> GetAsync(Guid projectId, CancellationToken cancellationToken = default)
     {
         if (!TryCurrentUser(out var userId) || !await projectAuthorization.CanViewProject(userId, projectId, cancellationToken))
         {
-            return Result<ProjectResponse>.Failure("Project not found.");
+            return ProjectNotFound<ProjectResponse>();
         }
 
         var project = await projects.GetProjectAsync(projectId, cancellationToken);
         return project is null || project.DeletedAt.HasValue
-            ? Result<ProjectResponse>.Failure("Project not found.")
+            ? ProjectNotFound<ProjectResponse>()
             : Result<ProjectResponse>.Success(await ToProjectAsync(project, userId, cancellationToken));
     }
+
+    private static Result<T> ProjectNotFound<T>() =>
+        Result<T>.Failure(new ApplicationErrorDetail(
+            "NotFound",
+            "The requested resource was not found."));
 
     public async Task<Result<ProjectResponse>> UpdateAsync(Guid projectId, UpdateProjectRequest request, CancellationToken cancellationToken = default)
     {
@@ -153,11 +118,11 @@ public sealed class ProjectService(
 
         var previousStatus = project.Status;
         var nextStatus = request.Status ?? project.Status;
-        if (previousStatus == ProjectStatus.Planning && nextStatus == ProjectStatus.Active)
+        if (previousStatus != nextStatus && nextStatus == ProjectStatus.Active)
         {
             return Result<ProjectResponse>.Failure(new ApplicationErrorDetail(
                 "InvalidStateTransition",
-                "A Planning Project must use the explicit activation command before it can become Active."));
+                "A Project must use the explicit activation command before it can become Active."));
         }
         if (!IsValidProjectStatusTransition(previousStatus, nextStatus))
         {
@@ -212,7 +177,7 @@ public sealed class ProjectService(
         project.Restore();
         if (project.Status is ProjectStatus.Archived or ProjectStatus.Deleted)
         {
-            project.Status = ProjectStatus.Active;
+            project.Status = ProjectStatus.Planning;
         }
 
         await AuditAsync(userId, "ProjectRestored", "Project", project.Id, cancellationToken);
@@ -1602,9 +1567,9 @@ public sealed class ProjectService(
         {
             ProjectStatus.Planning => next is ProjectStatus.Suspended or ProjectStatus.Archived,
             ProjectStatus.Active => next is ProjectStatus.Review or ProjectStatus.Completed or ProjectStatus.Suspended or ProjectStatus.Archived,
-            ProjectStatus.Review => next is ProjectStatus.Active or ProjectStatus.Completed or ProjectStatus.Suspended or ProjectStatus.Archived,
+            ProjectStatus.Review => next is ProjectStatus.Completed or ProjectStatus.Suspended or ProjectStatus.Archived,
             ProjectStatus.Completed => next is ProjectStatus.Archived,
-            ProjectStatus.Suspended => next is ProjectStatus.Planning or ProjectStatus.Active or ProjectStatus.Archived,
+            ProjectStatus.Suspended => next is ProjectStatus.Planning or ProjectStatus.Archived,
             ProjectStatus.Archived => false,
             _ => false
         };

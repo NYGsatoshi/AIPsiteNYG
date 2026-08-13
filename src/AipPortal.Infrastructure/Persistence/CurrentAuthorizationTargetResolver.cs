@@ -349,6 +349,10 @@ public sealed class CurrentAuthorizationTargetResolver(
         var isProjectMember = await dbContext.ProjectMembers
             .AsNoTracking()
             .AnyAsync(item => item.TenantId == tenantId && item.ProjectId == projectId && item.UserId == userId, cancellationToken);
+        if ((project.Status is ProjectStatus.Planning or ProjectStatus.Suspended) && !isProjectMember)
+        {
+            return null;
+        }
         if (!isProjectMember && project.GroupId.HasValue)
         {
             var canManageWorkspace = member.Role is WorkspaceRole.Owner or WorkspaceRole.Admin;

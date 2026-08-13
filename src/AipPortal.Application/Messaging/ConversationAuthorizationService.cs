@@ -152,8 +152,13 @@ public sealed class ConversationAuthorizationService(IMessagingRepository messag
 
     private async Task<bool> IsConversationScopeAllowed(Guid userId, Conversation conversation, CancellationToken cancellationToken)
     {
-        return conversation.Type != ConversationType.ProjectChannel ||
-            conversation.ProjectId.HasValue && await projects.CanViewProject(userId, conversation.ProjectId.Value, cancellationToken);
+        if (conversation.Type == ConversationType.ProjectChannel && !conversation.ProjectId.HasValue)
+        {
+            return false;
+        }
+
+        return !conversation.ProjectId.HasValue ||
+            await projects.CanViewProject(userId, conversation.ProjectId.Value, cancellationToken);
     }
 
     private static bool IsActiveParticipant(ConversationMember? member)

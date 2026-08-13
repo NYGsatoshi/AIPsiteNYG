@@ -22,7 +22,16 @@ public sealed class GlobalExceptionHandlingMiddleware(
             context.Response.StatusCode = StatusCodes.Status500InternalServerError;
             context.Response.ContentType = "application/json";
 
-            if (IsPr06Path(context.Request.Path.Value))
+            if (IsWpcPath(context.Request.Path.Value))
+            {
+                await context.Response.WriteAsJsonAsync(ApiEnvelope.Error(
+                    context,
+                    StatusCodes.Status500InternalServerError,
+                    "UnexpectedServerError",
+                    "An unexpected server error occurred.",
+                    redactionApplied: true));
+            }
+            else if (IsPr06Path(context.Request.Path.Value))
             {
                 var dependency =
                     context.Request.Path.Value?.Contains(
@@ -61,6 +70,11 @@ public sealed class GlobalExceptionHandlingMiddleware(
     private static bool IsPr06Path(string? path) =>
         IsPr06SnapshotPath(path) ||
         IsPr06CommandPath(path);
+
+    private static bool IsWpcPath(string? path)
+    {
+        return ApiEnvelope.IsWorkspaceCreationPath(path);
+    }
 
     private static bool IsPr06SnapshotPath(string? path) =>
         NormalizePath(path).StartsWith("/api/projects/", StringComparison.OrdinalIgnoreCase) &&

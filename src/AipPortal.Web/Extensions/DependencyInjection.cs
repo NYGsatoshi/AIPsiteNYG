@@ -5,7 +5,10 @@ using AipPortal.Application.Messaging;
 using AipPortal.Web.Configuration;
 using AipPortal.Web.Security;
 using AipPortal.Web.Services;
+using AipPortal.Web.Models;
 using Microsoft.AspNetCore.Mvc;
+using Microsoft.AspNetCore.Authorization;
+using Microsoft.AspNetCore.Authorization.Policy;
 using Microsoft.Extensions.Options;
 
 namespace AipPortal.Web.Extensions;
@@ -35,6 +38,7 @@ public static class DependencyInjection
         services.AddHttpContextAccessor();
         services.AddScoped<ICurrentUser, CurrentUserService>();
         services.AddScoped<DbSessionCookieAuthenticationEvents>();
+        services.AddSingleton<IAuthorizationMiddlewareResultHandler, WpcAuthorizationMiddlewareResultHandler>();
         services.AddScoped<ITenantResolver, HttpTenantResolver>();
         services.AddControllers()
             .ConfigureApiBehaviorOptions(options =>
@@ -43,6 +47,52 @@ public static class DependencyInjection
                 options.InvalidModelStateResponseFactory = context =>
                 {
                     var path = context.HttpContext.Request.Path.Value;
+                    if (IsWpcCreatePath(path, context.HttpContext.Request.Method))
+                    {
+                        if (context.HttpContext.User.Identity?.IsAuthenticated != true)
+                        {
+                            return new UnauthorizedObjectResult(ApiEnvelope.Error(
+                                context.HttpContext,
+                                StatusCodes.Status401Unauthorized,
+                                "AuthenticationRequired",
+                                "Authentication is required."));
+                        }
+
+                        // ASP.NET records formatter failures as safe messages
+                        // without the original exception. Syntax failures use
+                        // the root JSON path; root type-conversion failures are
+                        // still validation failures rather than malformed JSON.
+                        var malformedJson = context.ModelState.Any(entry =>
+                            string.Equals(entry.Key, "$", StringComparison.Ordinal) &&
+                            entry.Value?.Errors.Any(error =>
+                                !error.ErrorMessage.Contains("could not be converted", StringComparison.OrdinalIgnoreCase)) == true);
+                        var unsupportedMediaType = context.ModelState.Values
+                            .SelectMany(value => value.Errors)
+                            .Any(error => string.Equals(
+                                error.Exception?.GetType().Name,
+                                "UnsupportedContentTypeException",
+                                StringComparison.Ordinal));
+                        if (unsupportedMediaType)
+                        {
+                            return new ObjectResult(ApiEnvelope.Error(
+                                context.HttpContext,
+                                StatusCodes.Status415UnsupportedMediaType,
+                                "UnsupportedMediaType",
+                                "The request Content-Type is not supported.",
+                                "header.Content-Type"))
+                            {
+                                StatusCode = StatusCodes.Status415UnsupportedMediaType
+                            };
+                        }
+                        return new BadRequestObjectResult(ApiEnvelope.Error(
+                            context.HttpContext,
+                            StatusCodes.Status400BadRequest,
+                            malformedJson ? "MalformedJson" : "ValidationFailed",
+                            malformedJson
+                                ? "The request body is not valid JSON."
+                                : "The request body or parameters are invalid.",
+                            "body"));
+                    }
                     if (!IsPr06CommandPath(path))
                         return defaultFactory(context);
 
@@ -87,6 +137,10 @@ public static class DependencyInjection
         (NormalizePath(path).EndsWith("/schedule", StringComparison.OrdinalIgnoreCase) ||
          NormalizePath(path).EndsWith("/progress", StringComparison.OrdinalIgnoreCase) ||
          NormalizePath(path).Contains("/dependencies", StringComparison.OrdinalIgnoreCase));
+
+    private static bool IsWpcCreatePath(string? path, string method) =>
+        HttpMethods.IsPost(method) &&
+        NormalizePath(path).Equals("/api/workspaces", StringComparison.OrdinalIgnoreCase);
 
     private static string NormalizePath(string? path) =>
         path?.TrimEnd('/') ?? string.Empty;

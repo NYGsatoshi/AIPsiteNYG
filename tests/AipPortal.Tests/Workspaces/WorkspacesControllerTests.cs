@@ -1,8 +1,8 @@
-using System.Text.Json;
 using AipPortal.Application.Common;
 using AipPortal.Application.Workspaces;
 using AipPortal.Domain.Enums;
 using AipPortal.Web.Controllers;
+using AipPortal.Web.Models;
 using Microsoft.AspNetCore.Http;
 using Microsoft.AspNetCore.Mvc;
 
@@ -36,6 +36,10 @@ public sealed class WorkspacesControllerTests
         var created = Assert.IsType<CreatedAtActionResult>(action);
         Assert.Equal(nameof(WorkspacesController.Get), created.ActionName);
         Assert.Equal(value.Id, created.RouteValues!["workspaceId"]);
+        var envelope = Assert.IsType<ApiSuccessEnvelope<WorkspaceDetailResponse>>(created.Value);
+        Assert.Equal("wpc01-request", envelope.RequestId);
+        Assert.Same(value, envelope.Data);
+        Assert.Empty(envelope.Warnings);
         Assert.Equal("browser-request-001", service.ClientRequestIdentity);
     }
 
@@ -56,13 +60,14 @@ public sealed class WorkspacesControllerTests
             CancellationToken.None);
 
         var conflict = Assert.IsType<ConflictObjectResult>(action);
-        using var envelope = JsonDocument.Parse(JsonSerializer.Serialize(conflict.Value));
-        Assert.Equal(
-            "IdempotencyConflict",
-            envelope.RootElement.GetProperty("error").GetProperty("code").GetString());
-        Assert.Equal(
-            "workspace",
-            envelope.RootElement.GetProperty("error").GetProperty("target").GetString());
+        var envelope = Assert.IsType<ApiErrorEnvelope>(conflict.Value);
+        Assert.Equal("wpc01-request", envelope.RequestId);
+        Assert.Equal("IdempotencyConflict", envelope.Error.Code);
+        Assert.Equal("header.Idempotency-Key", envelope.Error.Target);
+        Assert.Empty(envelope.Error.Details);
+        Assert.False(envelope.Error.RedactionApplied);
+        Assert.Equal(StatusCodes.Status409Conflict, envelope.Status);
+        Assert.False(string.IsNullOrWhiteSpace(envelope.TraceId));
     }
 
     [Fact]
@@ -78,7 +83,34 @@ public sealed class WorkspacesControllerTests
         var action = await controller.Capabilities(CancellationToken.None);
 
         var ok = Assert.IsType<OkObjectResult>(action);
-        Assert.True(Assert.IsType<WorkspaceCapabilitiesResponse>(ok.Value).CanCreate);
+        var envelope = Assert.IsType<ApiSuccessEnvelope<WorkspaceCapabilitiesResponse>>(ok.Value);
+        Assert.True(envelope.Data.CanCreate);
+        Assert.Empty(envelope.Warnings);
+    }
+
+    [Fact]
+    public async Task UnrecoverableReplayUsesRedactedNotFoundEnvelope()
+    {
+        var service = new StubWorkspaceService
+        {
+            CreateResult = Result<WorkspaceDetailResponse>.Failure(new ApplicationErrorDetail(
+                "NotFound",
+                "The requested resource was not found."))
+        };
+        var controller = Controller(service);
+
+        var action = await controller.Create(
+            new CreateWorkspaceRequest("Workspace", null, null),
+            "browser-request-001",
+            CancellationToken.None);
+
+        var notFound = Assert.IsType<NotFoundObjectResult>(action);
+        var envelope = Assert.IsType<ApiErrorEnvelope>(notFound.Value);
+        Assert.Equal(StatusCodes.Status404NotFound, envelope.Status);
+        Assert.Equal("NotFound", envelope.Error.Code);
+        Assert.Null(envelope.Error.Target);
+        Assert.Empty(envelope.Error.Details);
+        Assert.True(envelope.Error.RedactionApplied);
     }
 
     private static WorkspacesController Controller(IWorkspaceService service) => new(service)

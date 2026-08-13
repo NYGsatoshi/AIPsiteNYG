@@ -1,5 +1,6 @@
 using AipPortal.Application.Common;
 using AipPortal.Application.Common.Interfaces;
+using AipPortal.Application.Projects;
 using AipPortal.Application.Realtime;
 using AipPortal.Domain.Entities;
 using AipPortal.Domain.Enums;
@@ -12,6 +13,7 @@ public sealed class ConversationService(
     IUserRepository users,
     IWorkspaceRepository workspaces,
     IProjectRepository projects,
+    IProjectAuthorizationService projectAuthorization,
     IConversationAuthorizationService authorization,
     ICurrentUser currentUser,
     IClock clock,
@@ -33,6 +35,14 @@ public sealed class ConversationService(
         var result = new List<ConversationListItemResponse>();
         foreach (var conversation in conversations.Items)
         {
+            // Repository filtering keeps paging/counts non-disclosing; this
+            // application check is the final record-level authorization
+            // boundary before any title or last-message content is mapped.
+            if (!await authorization.CanViewConversation(userId, conversation.Id, cancellationToken))
+            {
+                continue;
+            }
+
             var page = await messaging.ListMessagesAsync(conversation.Id, 1, null, cancellationToken);
             var last = page.Items.FirstOrDefault();
             var read = await messaging.GetReadStateAsync(conversation.Id, userId, cancellationToken);
@@ -146,6 +156,11 @@ public sealed class ConversationService(
             {
                 return Result<ConversationDetailResponse>.Failure("Project must belong to the selected workspace.");
             }
+
+            if (!await CanBindConversationToProjectAsync(project, userId, cancellationToken))
+            {
+                return Result<ConversationDetailResponse>.Failure("Project not found.");
+            }
         }
         else if (request.ProjectId.HasValue)
         {
@@ -153,6 +168,11 @@ public sealed class ConversationService(
             if (project is null || project.DeletedAt.HasValue || project.WorkspaceId != request.WorkspaceId.Value)
             {
                 return Result<ConversationDetailResponse>.Failure("Project must belong to the selected workspace.");
+            }
+
+            if (!await CanBindConversationToProjectAsync(project, userId, cancellationToken))
+            {
+                return Result<ConversationDetailResponse>.Failure("Project not found.");
             }
         }
 
@@ -166,7 +186,15 @@ public sealed class ConversationService(
 
         foreach (var memberId in memberIds)
         {
-            if (await users.GetByIdAsync(memberId, cancellationToken) is null) return Result<ConversationDetailResponse>.Failure("Conversation member not found.");
+            if (await users.GetByIdAsync(memberId, cancellationToken) is null)
+            {
+                return Result<ConversationDetailResponse>.Failure("Conversation member not found.");
+            }
+            if (project is not null &&
+                !await projectAuthorization.CanViewProject(memberId, project.Id, cancellationToken))
+            {
+                return Result<ConversationDetailResponse>.Failure("Conversation member not found.");
+            }
         }
 
         var conversation = new Conversation
@@ -682,6 +710,19 @@ public sealed class ConversationService(
 
     private bool TryCurrentUser(out Guid userId) { userId = currentUser.UserId ?? Guid.Empty; return currentUser.IsAuthenticated && currentUser.UserId.HasValue; }
     private static bool IsSupportedMvpType(ConversationType type) => type is ConversationType.DirectMessage or ConversationType.ProjectChannel or ConversationType.Thread;
+
+    private async Task<bool> CanBindConversationToProjectAsync(
+        Project project,
+        Guid userId,
+        CancellationToken cancellationToken)
+    {
+        // A Project-bound conversation is an operational surface.  The
+        // generic Messaging create command must not substitute for explicit
+        // Project activation or provision channels for a provenance-ambiguous
+        // Planning/Suspended Project.
+        return project.Status is ProjectStatus.Active or ProjectStatus.Review or ProjectStatus.Completed &&
+               await projectAuthorization.CanViewProject(userId, project.Id, cancellationToken);
+    }
 
     private async Task<Result<ConversationDetailResponse>> CreateThreadAsync(CreateConversationRequest request, Guid userId, CancellationToken cancellationToken)
     {

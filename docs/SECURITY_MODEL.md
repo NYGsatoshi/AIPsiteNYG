@@ -62,7 +62,7 @@ Role layers:
 - `TenantUserRole.Owner/Admin` controls tenant administration.
 - Workspace, group, channel, conversation, and project roles control resource operations.
 
-Known limitation: controllers commonly return `400` for application authorization/not-found failures, so HTTP status semantics are inconsistent.
+Known limitation: controllers commonly return `400` for application authorization/not-found failures, so HTTP status semantics are inconsistent. WPC-01 has a narrow full-envelope exception for Workspace capability/create and its pre-controller boundary, masked Project detail, disabled legacy Project create, and Project activation-transition conflict; this is not a repository-wide migration.
 
 ### WPC-01 Workspace creation boundary
 
@@ -72,6 +72,10 @@ may create in that current Tenant. Ordinary Tenant membership is insufficient,
 and a platform/SystemAdmin role is not an undocumented Tenant bypass. The
 backend publishes this same decision through
 `GET /api/workspaces/capabilities`; frontend role labels are not authority.
+Capability also incorporates required server-side initialization availability.
+Because canonical Workspace `general` provisioning is unavailable, production
+reports `canCreate: false` and returns 503 before staging a Workspace or
+idempotency claim.
 
 Delegated `workspace.create` is not implemented because there is no current
 delegation store or evaluator boundary. WPC-01 fails closed instead of deriving
@@ -81,20 +85,36 @@ Create retry identity is scoped by Tenant, authenticated actor, operation, and
 a hash of the client identity. Reconciliation re-runs current authorization
 and queries through current Tenant filters. A key cannot authorize another
 Tenant, actor, or operation. The raw identity and request payload are not
-persisted.
+persisted. Replay requires the same actor's current active Workspace membership;
+a revoked actor cannot recover protected metadata through the legacy
+Platform/SystemAdmin Workspace-view shortcut.
 
 ### WPC-01 Project security status
 
 Canonical Project Visibility is not partially persisted or projected. The
-existing discovery/read paths do not yet provide one consistent safe mapping
-for `WorkspaceVisible`, `MembersOnly`, and `Restricted`, and the specification
-does not define a non-broadening backfill for existing Projects. The canonical
-Workspace-scoped create route and activation command therefore remain blocked.
-Project responses only receive the already-safe nullable Group projection and
-existing optimistic-concurrency version. Generic PATCH now rejects the direct
-`Planning` to `Active` transition; indirect legacy archive/restore and
-suspended-state activation paths remain an explicit blocker rather than being
-misrepresented as canonical activation.
+specification does not define a non-broadening existing-row backfill or the
+capability for non-default Visibility. Canonical Workspace-scoped create and
+activation therefore remain unavailable, and deprecated `POST /api/projects`
+returns 503 without mutation.
+
+Every generic status change into `Active` is rejected; Archived/Deleted
+restore returns `Planning`, and Suspended recovery cannot then activate via
+PATCH. Because no trustworthy activation provenance exists, Planning and
+Suspended require current Workspace access plus explicit Project membership,
+and ambiguous Archived recovery requires an explicit Project Owner/Manager.
+The same fail-closed predicate covers Project list/detail/search, Task and
+subresource search, My Tasks, digest evaluation, project-bound Conversation
+creation/read/list, Message search, authorization-target resolution, and
+realtime delivery. Historical Conversation membership and Outbox routing are
+not authority. Delayed `Messaging.ConversationUnreadChanged.v1` delivery
+parses its Conversation identity and rechecks current Conversation/Project
+authorization.
+
+These controls prevent broad Draft disclosure but do not implement
+`WorkspaceVisible`, `MembersOnly`, or `Restricted` as a persisted policy.
+The WPC error boundary uses fixed public messages, empty details, masked
+targets, and `redactionApplied`; a canonical cross-module RedactionService
+does not yet exist and remains a dependency blocker.
 
 ### Immediate Task notification boundary
 

@@ -56,9 +56,14 @@ request body are never stored; SHA-256 hashes retain retry identity and request
 equivalence. A resource index supports safe reconciliation, and the actor
 foreign key uses restricted deletion.
 
-The claim, Workspace, creator Owner membership, audit row, and authorization
-Outbox row commit in one PostgreSQL transaction. Failed initialization rolls
-the claim back, so a later retry is not mistaken for a successful replay.
+The claim, Workspace, creator Owner membership, required initializer, audit
+row, and authorization Outbox row commit in one PostgreSQL transaction.
+Failed initialization or required Outbox staging rolls the claim and every
+business effect back, so a later retry is not mistaken for a successful replay.
+Production currently registers an unavailable required initializer because no
+canonical Workspace `general` provisioner exists; production creation
+therefore commits none of these rows. Successful no-op-initializer tests prove
+transaction/idempotency plumbing only, not default-channel provisioning.
 Records currently have no automatic expiration; they retain replay identity
 indefinitely unless a separately approved retention operation is added.
 
@@ -67,6 +72,12 @@ canonical specification does not map existing rows safely, and adding the
 `MembersOnly` create default as an existing-row default could remove currently
 available access while another mapping could broaden it. Project Visibility
 persistence remains a blocking migration decision.
+
+WPC-01 also adds no Project activation-provenance column or backfill. Existing
+Archived/Suspended rows cannot be reliably classified as never-activated or
+previously Active. Application recovery therefore fails closed to Planning and
+member-only ambiguous-state access rather than inferring provenance from
+status, audit, workflow, Channel, or child data.
 
 ### Identity
 

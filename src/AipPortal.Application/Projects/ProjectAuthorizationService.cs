@@ -32,6 +32,15 @@ public sealed class ProjectAuthorizationService(
         var member = await projects.GetMemberAsync(projectId, userId, cancellationToken);
         if (member is not null) return true;
 
+        // Planning and Suspended are provenance-ambiguous in the current
+        // schema: either may describe a Project that has never completed the
+        // explicit activation command.  Broader governance discovery must
+        // therefore fail closed until activation provenance exists.
+        if (RequiresExplicitMembership(project.Status))
+        {
+            return false;
+        }
+
         if (!project.GroupId.HasValue)
         {
             return await workspaces.CanViewWorkspace(userId, project.WorkspaceId, cancellationToken);
@@ -46,9 +55,13 @@ public sealed class ProjectAuthorizationService(
         var project = await projects.GetProjectAsync(projectId, cancellationToken);
         if (project is null) return false;
         if (!await workspaces.CanViewWorkspace(userId, project.WorkspaceId, cancellationToken)) return false;
+        var member = await projects.GetMemberAsync(projectId, userId, cancellationToken);
+        if (RequiresExplicitMembership(project.Status))
+        {
+            return member?.Role is ProjectRole.Owner or ProjectRole.Manager;
+        }
         if (await workspaces.CanManageWorkspace(userId, project.WorkspaceId, cancellationToken)) return true;
         if (project.GroupId.HasValue && await groups.CanManageGroup(userId, project.GroupId.Value, cancellationToken)) return true;
-        var member = await projects.GetMemberAsync(projectId, userId, cancellationToken);
         return member?.Role is ProjectRole.Owner or ProjectRole.Manager;
     }
 
@@ -98,6 +111,9 @@ public sealed class ProjectAuthorizationService(
     }
 
     public Task<bool> CanOverrideTaskReview(Guid userId, Guid taskItemId, CancellationToken cancellationToken = default) => CanAssignTask(userId, taskItemId, cancellationToken);
+
+    private static bool RequiresExplicitMembership(ProjectStatus status) =>
+        status is ProjectStatus.Planning or ProjectStatus.Suspended or ProjectStatus.Archived or ProjectStatus.Deleted;
 
     public async Task<bool> CanCommentOnTarget(Guid userId, CommentTargetType targetType, Guid targetId, CancellationToken cancellationToken = default)
     {

@@ -1,361 +1,306 @@
 # WPC-01 Workspace / Project creation backend foundation
 
-Status: partial implementation candidate; blockers remain
+Status: fail-closed remediation candidate for independent merge audit
 
-Implementation base: `74d0a334e4b3094e1efad48006fce9b13b21bdef`
-
-Specification main: `f7535ce7de1846780a1dd6689e93310f0482897b`
-
-Branch: `wpc/01-workspace-project-creation-foundation`
-
-Date: 2026-08-13
+- PR: #281
+- Base SHA: `74d0a334e4b3094e1efad48006fce9b13b21bdef`
+- Starting HEAD: `270b539163a49616cd5971af2eb3b58321c50a87`
+- Specification SHA: `f7535ce7de1846780a1dd6689e93310f0482897b`
+- Branch: `wpc/01-workspace-project-creation-foundation`
+- Date: 2026-08-13
 
 ## Verdict
 
-WPC-01 is not a complete canonical backend contract. The branch implements
-the independent safe Workspace-create foundation and two narrow Project
-compatibility corrections. It intentionally does not invent policy or commit
-an unsafe Project Visibility migration. WPC-02/WPC-03 must not bind to a
-canonical Project-create or activation API from this candidate.
+WPC-01 does not report an incomplete canonical create operation as successful.
+Production Workspace creation is gated because the repository has no canonical,
+Conversation-backed provisioner for the required Workspace `general` channel.
+Canonical Project creation and activation are also unavailable while exact
+authority, Visibility migration, default Channel, and Task workflow decisions
+remain unresolved.
 
-Blocking outcomes:
+The implemented foundation is safe and deliberately bounded:
 
-- `DECISION REQUIRED — EXISTING PROJECT VISIBILITY BACKFILL`
-- `DECISION REQUIRED — PROJECT CREATE AUTHORITY`
-- `DEPENDENCY BLOCKER — DELEGATED workspace.create CAPABILITY INFRASTRUCTURE`
-- `DEPENDENCY BLOCKER — DEFAULT CHANNEL PROVISIONING`
-- `DEPENDENCY BLOCKER — PROJECT TASK WORKFLOW INITIALIZATION`
+- every application status change into `ProjectStatus.Active` is rejected;
+- archive/restore of an ambiguous Project returns it to `Planning`;
+- Planning and provenance-ambiguous lifecycle states fail closed against broad
+  discovery and subordinate-resource access;
+- legacy body-scoped Project creation returns 503 without mutation;
+- Workspace initialization availability is server-owned, and production cannot
+  return 201 while required `general` provisioning is unavailable;
+- successful no-op initializer tests exercise the transaction/idempotency seam
+  only and are not evidence that `general` was provisioned.
 
-## Resolved repository state
+## Canonical sources reconciled
 
-- Implementation `origin/main` exactly matched the prompt baseline.
-- Specification `origin/main` exactly matched the prompt baseline.
-- The assigned branch did not exist locally or on `origin`; it was created
-  forward from resolved implementation main.
-- GitHub reported no open pull requests and no active remote production/schema
-  branch with material ownership overlap in the required collision areas.
-- Existing unrelated `qodana.yaml`, `.aip-spec-source/**`, `.tools/**`, IDE,
-  artifact, local script, and environment files were excluded from every
-  change and staging decision.
+The following files were read at specification SHA
+`f7535ce7de1846780a1dd6689e93310f0482897b` before production changes:
 
-## Canonical sources used
+- `01-core/16-workspace-project-creation-ui-owner-decision-resolution.md`
+- `01-core/11-workspace-project-governance.md`
+- `01-core/15-workspace-task-messaging-owner-decision-resolution.md`
+- `03-acceptance/workspace-project-creation-ui-acceptance.md`
+- `06-implementation-mapping/workspace-task-messaging-implementation-sequence.md`
+- `01-core/10-communication-conversation-scope.md`
+- `01-core/13-messaging-product-contract.md`
+- `01-core/14-workspace-task-messaging-realtime-addendum.md`
+- `01-core/api-error-contract.md`
+- `01-core/outbox-delivery-contract.md`
+- `01-core/22-audit-jobs-consistency.md`
 
-The following paths were read at specification commit
-`f7535ce7de1846780a1dd6689e93310f0482897b`:
+## Requirement matrix
 
-- `docs/specs/aip-core-v4/01-core/16-workspace-project-creation-ui-owner-decision-resolution.md`
-- `docs/specs/aip-core-v4/01-core/11-workspace-project-governance.md`
-- `docs/specs/aip-core-v4/01-core/15-workspace-task-messaging-owner-decision-resolution.md`
-- `docs/specs/aip-core-v4/03-acceptance/workspace-project-creation-ui-acceptance.md`
-- `docs/specs/aip-core-v4/06-implementation-mapping/workspace-task-messaging-implementation-sequence.md`
-- `docs/specs/aip-core-v4/01-core/10-communication-conversation-scope.md`
-- `docs/specs/aip-core-v4/01-core/13-messaging-product-contract.md`
-- `docs/specs/aip-core-v4/01-core/14-workspace-task-messaging-realtime-addendum.md`
-- `docs/specs/aip-core-v4/01-core/22-audit-jobs-consistency.md`
-- `docs/specs/aip-core-v4/01-core/api-error-contract.md`
-- `docs/specs/aip-core-v4/01-core/outbox-delivery-contract.md`
+| Requirement | Normative source | Classification | Actual state |
+| --- | --- | --- | --- |
+| Tenant Owner/Admin Workspace-create authority | WPC-DEC-002; governance §8.1 | IMPLEMENTED | Current active Tenant membership is authoritative. Platform/SystemAdmin status alone is not a bypass. |
+| Delegated `workspace.create` | WPC-DEC-002 | DEPENDENCY BLOCKER | No canonical delegation store/evaluator exists; delegated callers remain denied. |
+| Backend create capability | WPC-DEC-011 | IMPLEMENTED | `GET /api/workspaces/capabilities` uses create authority plus required-initialization availability. Production currently returns `canCreate: false`. |
+| Required Workspace `general` | WPC-DEC-025; WPC §4.4 | FAIL-CLOSED / GATED | Production registers the unavailable initializer. A valid create receives 503 before any durable mutation. |
+| Canonical Workspace-channel provisioner | Messaging contract §§2, 10 | DEPENDENCY BLOCKER | Conversation has no WorkspaceChannel/default identity or uniqueness boundary. Legacy Channel/Post was not extended. |
+| Workspace transaction orchestration | WPC-DEC-006/021/025 | IMPLEMENTED | Claim, Workspace, Owner, required initializer, audit, Outbox, and commit share one relational coordinator transaction. Initializer/Outbox failures roll back all staged effects. |
+| Workspace create idempotency | WPC-DEC-021; WPC §13 | IMPLEMENTED | Tenant + actor + operation + SHA-256 key identity, normalized fingerprint, replay authorization, and concurrent reconciliation are preserved. |
+| WPC success/error envelope | API error contract; hardening §2 | IMPLEMENTED | Changed WPC endpoints and their pre-controller failures use the full success/error envelope and canonical HTTP mapping. |
+| Canonical cross-module RedactionService | API error contract | DEPENDENCY BLOCKER | No repository redaction service exists. WPC uses fixed public messages, empty details, masked targets, and `redactionApplied`; it does not claim repository-wide redactor integration. |
+| Generic Project transition to Active | WPC-DEC-014/024; WPC §12.2 | IMPLEMENTED | Every status-changing request whose target is Active returns 409 `InvalidStateTransition`. |
+| Never-activated archive/restore | WPC-DEC-014/024 | IMPLEMENTED | Archive produces Archived; authorized restore produces Planning, never Active. |
+| Suspended recovery | WPC-DEC-014/024 | IMPLEMENTED | Suspended may return to Planning, but neither direct nor resumed generic flow may target Active. |
+| Previously-active lifecycle provenance | No normative mapping found | DECISION REQUIRED | No `ActivatedAt`, audit inference, or data backfill was invented. Ambiguous recovery lands Planning. |
+| Draft/ambiguous-state non-disclosure | WPC-DEC-016; governance §§5, 13 | IMPLEMENTED | Planning/Suspended require current Workspace access plus explicit Project membership across list/detail/search, Tasks, My Tasks, digest, Messaging, and realtime. Archived recovery is explicit Owner/Manager-only. |
+| Canonical Workspace-scoped Project create | WPC-DEC-020; WPC §12.1 | FAIL-CLOSED / GATED | The route is absent. Deprecated `POST /api/projects` returns 503 and performs no mutation. |
+| Workspace-root Project-create authority | Governance §§4, 9; WPC §12.1 | DECISION REQUIRED | The specification names no exact capability or actor predicate. |
+| Non-default Visibility authority | WPC-DEC-016 | DECISION REQUIRED | The specification requires a capability but does not name it. |
+| Optional Group | WPC-DEC-012 | FAIL-CLOSED / GATED | Domain/response support nullable Group, but no canonical create command is exposed. |
+| Existing Project Visibility backfill | No normative mapping found | DECISION REQUIRED | No Visibility schema/default/backfill was added. |
+| Project creator Owner/idempotency | WPC §§11, 13 | FAIL-CLOSED / GATED | No create succeeds until the complete atomic command can be implemented. |
+| Explicit activation endpoint | WPC-DEC-024; WPC §12.2 | FAIL-CLOSED / GATED | The route is absent; PATCH/restore cannot substitute. |
+| Default Project Channel | WPC-DEC-024 | DEPENDENCY BLOCKER | No canonical idempotent Conversation provisioner exists. |
+| Task workflow activation mapping | WPC-DEC-024 | DEPENDENCY BLOCKER | Existing create-time workflow initialization has no approved activation compatibility rule. |
+| Angular production UI | Scope rule | OUT OF SCOPE | No production frontend code was changed. |
 
-Current implementation authority also included Tenant/Workspace/Project
-authorization services, Project discovery repositories, Search authorization,
-Conversation persistence, Task workflow configuration, Outbox publishers,
-Audit logging, optimistic-concurrency conventions, global antiforgery setup,
-EF migrations, tests, and the root deployment configuration.
+## Workspace initialization audit
 
-## Implementation gap matrix
+Canonical `general` provisioning: **FAIL-CLOSED / GATED**.
 
-| Requirement | Canonical source | Existing implementation | Required delta / outcome | Evidence |
-| --- | --- | --- | --- | --- |
-| Workspace create authority | WPC decisions §§2, 4; governance §8.1 | SystemAdmin-only check | Active current Tenant Owner/Admin implemented; delegation blocked because no capability store/evaluator exists | Workspace authorization and hosted HTTP tests |
-| Workspace create capability projection | WPC-DEC-011 | Frontend inferred unrelated state | Added backend `GET /api/workspaces/capabilities` with `canCreate` | Service/controller/HTTP tests |
-| Minimal Workspace request | WPC-DEC-004/010 | Name, Description, Icon already present | Preserved; bounded validation and normalization added | Service/controller tests |
-| Duplicate Workspace display names | WPC-DEC-009 | Name-derived slug collided under the Tenant unique index | Bounded slug uses the opaque Workspace ID as a deterministic unique suffix | InMemory and PostgreSQL persistence tests |
-| Deterministic Workspace defaults | WPC-DEC-005 | Existing server-side nullable Workspace values and resolvers | No browser data added; required default provisioning remains partial | Diff audit |
-| Workspace creator Owner atomicity | WPC-DEC-006 | Creator membership saved with Workspace but create audit could fail open | Workspace, one active Owner, required audit, authorization Outbox, and idempotency now share one coordinator transaction | InMemory and PostgreSQL rollback/concurrency tests |
-| Workspace default `general` | WPC-DEC-025 | Legacy Channel/Post and canonical Conversation coexist; Conversation lacks a canonical Workspace default-channel provisioning boundary | Blocked; no second communication stack or legacy feature was added | Domain/spec audit |
-| Workspace create idempotency | WPC-DEC-021; §13 | None | Durable actor/Tenant/operation/key uniqueness and request reconciliation implemented | PostgreSQL concurrent/rollback tests; hosted HTTP replay test |
-| Optional Project Group | WPC-DEC-012 | Domain `Project.GroupId` nullable; create DTO/service require `Guid` and group management | Response now preserves null; canonical create input/path remains blocked by create-authority decision | Project response tests |
-| Canonical Project create route | WPC-DEC-020; §12.1 | Only `POST /api/projects`, body owns WorkspaceId | Blocked; no ambiguous partial route added | Route/source audit |
-| Project create authority | Governance §9; prompt gate | Group manager required | Exact Workspace-root authority is not specified | Decision required |
-| Project Draft creation | WPC-DEC-013/014 | Current service already creates `Planning` and creator Owner | Correct behavior preserved, but only on legacy non-idempotent route | Project service tests |
-| Project Visibility | WPC-DEC-016; governance §§3.3, 5, 13 | No domain column; list/detail/search/resource rules disagree | Blocked rather than adding an unsafe column/backfill or UI-only value | Migration and authorization audit |
-| Project response normalization | WPC §12 | DTO required GroupId and omitted concurrency version | `GroupId?` and `VersionNo` now projected | Service tests |
-| Explicit Project activation | WPC-DEC-024; governance §9.4 | No activation command; generic status paths exist | Blocked on Visibility/channel/workflow semantics | Source audit |
-| Generic activation bypass | WPC §12.2 | PATCH allowed direct Planning to Active; indirect suspend/archive paths also exist | Direct transition now returns typed 409; indirect lifecycle paths remain blocking because no persisted activation history distinguishes Draft from formerly Active | Service/controller tests plus lifecycle audit |
-| Project default Channel | WPC-DEC-024 | No canonical idempotent Conversation provisioning boundary | Blocked; legacy Channel/Post unchanged | Messaging boundary audit |
-| Project Task workflow | WPC-DEC-024 | `AppDbContext` creates a default workflow on initial Project add, before activation | Cannot safely move/attach it without canonical activation semantics | Dependency blocker |
-| CSRF | Existing security contract | Global unsafe-method antiforgery | Unchanged | Auth security HTTP regression suite |
-| Realtime | WPC decisions; realtime/outbox contract | Transactional Outbox infrastructure exists | Workspace creator authorization-state invalidation staged in same transaction; HTTP remains authoritative | PostgreSQL side-effect assertions |
+Production evidence:
 
-## API contract before and after
+- `UnavailableWorkspaceRequiredInitialization.IsAvailable` is false;
+- `GetCapabilitiesAsync` therefore reports `canCreate: false`;
+- an otherwise authorized valid POST returns 503 `DependencyUnavailable`;
+- the availability gate is evaluated before the idempotency coordinator, so no
+  Workspace, Owner, audit, Outbox, idempotency record, Conversation, or partial
+  default is persisted.
 
-### Workspace create
+Transaction evidence:
 
-Before:
+- injected successful initializer tests exercise only the coordinator seam;
+- the successful fake is intentionally a no-op and is not `general` evidence;
+- injected initializer failure tests prove rollback of Workspace, Owner, audit,
+  Outbox, and the idempotency claim;
+- required Outbox enqueue failure throws inside that same boundary;
+- retry/concurrency tests prove one logical transaction and one side-effect set.
 
-- `POST /api/workspaces`
-- body `Name`, `Description?`, `Icon?`
-- no idempotency identity
-- effectively SystemAdmin-only
-- generic 200 response/error mapping
+The current Conversation entity supports DirectMessage, ProjectChannel, and
+Thread, but not an unambiguous WorkspaceChannel/default marker. Its indexes do
+not enforce one default `general` per Workspace. The legacy Channel entity
+requires Group scope. Consequently neither model can be used as the required
+default without inventing policy or creating a competing Messaging boundary.
 
-After:
+## Idempotency and authorization
 
-```http
-POST /api/workspaces
-Idempotency-Key: <required, maximum 128 characters>
-Content-Type: application/json
-
-{
-  "name": "Workspace name",
-  "description": null,
-  "icon": null
-}
-```
-
-- route/current authentication supplies actor and Tenant scope;
-- HTTP 201 returns the authoritative Workspace DTO;
-- replay of the same normalized request returns the same logical resource;
-- same scoped key with a different request returns HTTP 409;
-- missing/invalid key returns HTTP 400;
-- unavailable required idempotency/invalidation infrastructure returns 503;
-- capability denial returns 403.
-
-The backend-owned create affordance is:
-
-```http
-GET /api/workspaces/capabilities
-
-200 { "canCreate": true }
-```
-
-### Project create compatibility state
-
-The canonical route below is **not implemented**:
-
-```http
-POST /api/workspaces/{workspaceId}/projects
-```
-
-The remaining `POST /api/projects` route is deprecated/incomplete. Its body
-still contains `WorkspaceId`, requires `GroupId`, has no Visibility field, and
-has no create idempotency identity. Repository search found no active Angular
-Project-create caller; current direct callers are backend tests. Removal is
-gated on a resolved create-authority decision and one canonical scoped service
-path.
-
-Project responses now expose the already-persisted safe fields:
-
-```text
-Id, WorkspaceId, GroupId?, OwnerUserId, Title, Description?, Status,
-StartDate?, EndDate?, VersionNo, CreatedAt, UpdatedAt?, UiPermissions
-```
-
-Visibility is not falsely exposed because it is not yet persisted or
-authorized canonically.
-
-### Project activation compatibility state
-
-`POST /api/projects/{projectId}/activate` is **not implemented**. Generic PATCH
-returns typed HTTP 409 for the direct `Planning -> Active` transition. It is
-not a substitute for activation and does not provision Channel/workflow
-defaults.
-
-## Authorization and Visibility behavior
-
-### Workspace
-
-- Active current-Tenant Owner: may create.
-- Active current-Tenant Admin: may create.
-- Ordinary Member: denied.
-- Suspended/inactive Tenant membership: denied.
-- Inactive/deleted user: denied.
-- Same actor holding authority only in another Tenant: denied in the current
-  Tenant.
-- Platform/SystemAdmin display/system role alone: no Tenant bypass.
-- Delegated `workspace.create`: blocked and therefore denied until a canonical
-  delegation store/evaluator exists.
-
-### Project
-
-No partial Visibility implementation was added. Intended behavior remains:
-
-- `WorkspaceVisible`: broad current Workspace discovery only after activation
-  and only under resource policy.
-- `MembersOnly`: Project participants and explicit governance/audit actors.
-- `Restricted`: existence/body/membership/content masked; Workspace Owner/Admin
-  alone does not grant body access.
-- `Planning`/Draft: no broad discovery solely from intended
-  `WorkspaceVisible`.
-
-Current code cannot prove these rules consistently across list, detail,
-search, Task, File, membership, or realtime recipient paths. This is a blocker,
-not a known-issue waiver.
-
-## Atomicity and idempotency
-
-The new durable identity is scoped by:
+The durable identity is:
 
 ```text
 TenantId + ActorUserId + Operation + SHA-256(ClientRequestIdentity)
 ```
 
-The unique PostgreSQL index enforces that scope. `RequestHash` is a SHA-256
-fingerprint of normalized Name/Description/Icon, and `ResourceType` plus
-`ResourceId` reconcile the response. Raw keys and bodies are not stored.
+The request fingerprint hashes every normalized authoritative Workspace-create
+field. Raw keys and request bodies are not stored. Create authority is checked
+before both first execution and replay. Replay additionally requires the same
+actor's current active Workspace membership; a revoked actor cannot recover
+metadata through a Platform/SystemAdmin shortcut. Another actor, Tenant,
+operation, or request fingerprint cannot reconcile the record.
 
-The coordinator first writes the claim inside an uncommitted relational
-transaction. The winner stages the Workspace, creator Owner, audit row, and
-authorization Outbox row, saves them, and commits. A concurrent loser waits on
-the unique key and then reconciles the committed winner. Any initialization or
-save failure rolls back the claim and all staged effects. A failed request
-therefore cannot masquerade as a successful replay.
+The relational coordinator creates its claim inside an uncommitted transaction,
+stages all business effects, saves once, and commits. It rolls back and clears
+the EF change tracker on callback or persistence failure. A concurrent loser
+reconciles the committed winner; it does not create a second Workspace.
 
-Tenant create authority and current Workspace view authorization are both
-rechecked before reconciliation, tenant query filters remain in force, and
-operation/actor/Tenant are part of identity. A revoked Workspace member cannot
-use an old create identity to recover protected Workspace metadata. A key
-cannot return a resource from another actor, Tenant, Workspace operation, or
-resource type.
-Records have no automatic expiry in this bounded foundation; replay identity
-is retained indefinitely. A deleted/unavailable prior resource fails safe with
-a replay-unavailable conflict instead of creating a duplicate.
+## Project lifecycle audit
 
-Workspace default `general` and Project Channel/workflow effects are absent,
-not falsely counted as atomic. Their absence prevents a complete WPC-01
-verdict.
+Production paths capable of assigning or retaining `ProjectStatus.Active`:
 
-## Migration and backfill decision
+| Path | Final behavior |
+| --- | --- |
+| `ProjectService.CreateAsync` | Deprecated command returns 503 and creates nothing. Domain default for any separately constructed new Project remains Planning. |
+| `ProjectService.UpdateAsync` | An already-Active row may remain Active during a metadata-only update. Any status change whose destination is Active returns 409 before audit, Outbox/invalidation, or save. |
+| `ProjectService.ArchiveAsync` | Writes only Archived. |
+| `ProjectService.RestoreAsync` | Clears soft-delete metadata; Archived/Deleted map to Planning. It never assigns Active. |
+| Suspended recovery | Transition graph permits Planning or Archived, never Active. A subsequent attempt to target Active is independently rejected. |
+| Explicit `POST /activate` | Absent. |
+| Domain `Restore()` helper | Clears deletion metadata only; it does not change Project status. |
+| Migrations | No migration writes Project status to Active and no activation provenance migration exists. |
+| Browser-smoke seed | Test-environment-only fixture creation may construct new Active fixtures. Refresh no longer promotes an existing Planning/non-Active row to Active. |
+| Direct EF/test fixtures | Trusted test setup can construct Active rows because no schema invariant/provenance exists; it is not an application/API lifecycle command. |
 
-Migration:
+This closes all application/API transitions into Active. Existing Active rows
+cannot be proven previously activated because the schema has no provenance.
+Planning, Suspended, and Archived/Deleted histories are therefore treated
+conservatively. Explicit Project members retain bounded access; broader
+Workspace/Group governance does not acquire Draft visibility merely by moving
+the row to Suspended or Archived. This is a compatibility restriction and is
+documented as **FAIL-CLOSED / GATED**, not a final lifecycle policy.
+
+## Draft and subordinate-resource boundary
+
+Planning/Suspended access requires current active Workspace membership and an
+explicit ProjectMember. The same predicate is applied to:
+
+- Project list, detail, management, and search;
+- Task/Artifact/Activity/Comment search;
+- My Tasks projection/count/Project scope;
+- deadline-digest current-state evaluation;
+- project-bound Conversation creation, read/send authorization, list counts,
+  and Message search;
+- authorization target resolution and Project/Task realtime delivery;
+- delayed `Messaging.ConversationUnreadChanged.v1` user-routed events.
+
+Conversation membership or historical Outbox routing is not authority.
+Project-bound Conversations recheck every non-null `ProjectId`, regardless
+of Conversation type. Delayed unread events parse a non-empty Conversation ID
+and call current Conversation authorization; malformed identity or revoked
+access is denied.
+
+## Project create status
+
+- Workspace-scoped route: **FAIL-CLOSED / GATED**
+- Optional Group: **FAIL-CLOSED / GATED**
+- Create authority: **DECISION REQUIRED**
+- Visibility: **DECISION REQUIRED**
+- Draft non-disclosure: **IMPLEMENTED**
+- Creator Owner atomicity: **FAIL-CLOSED / GATED**
+- Idempotency: **FAIL-CLOSED / GATED**
+
+The body-scoped compatibility route remains registered so existing clients
+receive a deterministic safe response, but the application command returns
+503 before authorization inference or mutation. There is therefore no second
+successful Workspace scope, no cross-Workspace/Tenant Group binding, and no
+non-idempotent Project retry.
+
+## Activation status
+
+- Explicit endpoint: **FAIL-CLOSED / GATED**
+- Concurrency: **FAIL-CLOSED / GATED**
+- Default Channel: **DEPENDENCY BLOCKER**
+- Task workflow: **DEPENDENCY BLOCKER**
+- Visibility validation: **DECISION REQUIRED**
+- Audit: **FAIL-CLOSED / GATED**
+- Outbox: **FAIL-CLOSED / GATED**
+- Atomic rollback: **FAIL-CLOSED / GATED**
+
+Activation is not exposed. This avoids marking Active before the required
+default Project Channel, Task workflow compatibility, Visibility policy,
+audit, Outbox, and optimistic-concurrency checks can succeed atomically.
+
+## API contract
+
+Changed endpoint behavior:
+
+- `GET /api/workspaces/capabilities`
+  - 200 `{ requestId, data: { canCreate }, warnings: [] }`;
+  - production currently reports false because required initialization is unavailable;
+  - unauthenticated/invalid current-Tenant failures use full 401/403 envelopes.
+- `POST /api/workspaces`
+  - future 201 is possible only when a real required initializer is available
+    and the transaction commits;
+  - current production valid request: 503 `DependencyUnavailable`;
+  - 400: `ValidationFailed`, `MalformedJson`,
+    `MissingIdempotencyKey`, or `InvalidIdempotencyKey`;
+  - 403: `CapabilityDenied` or `CsrfRejected`;
+  - 409: `IdempotencyConflict`;
+  - 415: `UnsupportedMediaType`;
+  - protected replay no longer recoverable: redacted 404 `NotFound`.
+- `POST /api/projects`
+  - 503 `DependencyUnavailable`, no mutation.
+- `PATCH /api/projects/{projectId}` targeting Active
+  - 409 `InvalidStateTransition`, target `body.status`.
+- hidden `GET /api/projects/{projectId}`
+  - indistinguishable full redacted 404 `NotFound`.
+
+`Idempotency-Key` must contain 8–128 printable ASCII characters. Missing,
+invalid, malformed JSON, syntactically valid type-conversion, unsupported
+media type, authentication, authorization, CSRF, dependency, concurrency,
+and unexpected-server cases are covered at the real HTTP boundary.
+
+The envelope helper emits static public messages and empty details. The
+canonical repository-wide `IRedactionService`/ErrorResponse profile is absent
+and remains a dependency blocker; WPC does not claim to have migrated unrelated
+legacy endpoints.
+
+## Migration evidence
+
+No remediation migration was added. The existing WPC migration is:
 
 ```text
 20260813100711_Wpc01WorkspaceCreateIdempotency
 ```
 
-It additively creates `idempotency_records`, the actor FK, Tenant/actor/
-operation/key unique index, resource lookup index, Tenant index, and creation
-time index. It does not alter Workspace, Project, Group, Conversation, Task,
-or workflow tables. Down drops only the new table; rolling down loses replay
-history but does not remove created business resources.
+It additively creates `idempotency_records`, the restricted actor foreign key,
+and bounded actor/Tenant/resource/created-time indexes. Down drops only that
+table. SQL review found no Project, Workspace, Conversation, Task, or other
+business-row update. No Visibility or lifecycle-provenance column/backfill was
+added.
 
-PostgreSQL tests apply all migrations to an empty database, upgrade a seeded
-database from `20260803041347_AddTaskDeadlineDigestLedger`, migrate down, and
-reapply. The seeded Project survives. The model reports no pending changes.
+The real PostgreSQL migration test:
 
-Existing Project Visibility mapping: **none committed**. No specification rule
-chooses a safe existing-row value. `MembersOnly` may remove current Group/
-Workspace-derived access; `WorkspaceVisible` can broaden access; `Restricted`
-can remove access and is not implied by current data. No backfill is safe to
-infer.
+- applies the prior schema and seeds an existing Project;
+- upgrades to the current migration;
+- verifies the Project survives and no Visibility column exists;
+- rolls back to the prior migration;
+- verifies the Project still survives;
+- reapplies current migrations;
+- verifies no pending migration or model change.
 
-## Default provisioning boundaries
+## Verification
 
-### Workspace general Channel
+Final verification used an isolated PostgreSQL 18 container with
+`POSTGRES_TEST_CONNECTION_STRING` explicitly present for the database-backed
+runs. The unset-variable focused run is reported separately and is not
+PostgreSQL evidence.
 
-Canonical messaging uses Conversation persistence, but current Conversation
-scope does not model an unambiguous Workspace default Channel with a unique
-idempotent provisioning service. The older Channel/Post model is a distinct
-legacy representation. WPC-01 adds to neither and does not duplicate
-Conversation creation logic.
+| Command | Passed | Failed | Skipped | Result / qualification |
+| --- | ---: | ---: | ---: | --- |
+| `dotnet restore AipPortal.slnx` | n/a | n/a | n/a | Exit 0; all projects current. |
+| `dotnet build AipPortal.slnx --configuration Release --no-restore --disable-build-servers -m:1` | n/a | n/a | n/a | Exit 0; 0 warnings, 0 errors. |
+| `dotnet test tests/AipPortal.Tests/AipPortal.Tests.csproj --configuration Release --no-build --no-restore --filter "Scope=WPC01" --logger "console;verbosity=minimal"` with the connection variable absent | 14 | 0 | 7 | The seven conditional PostgreSQL tests explicitly skipped; this is not database evidence. |
+| The same focused command with the isolated PostgreSQL connection configured | 21 | 0 | 0 | Real PostgreSQL; migration, rollback/reapply, query translation, concurrency, failure rollback, and production gating exercised. |
+| `dotnet test AipPortal.slnx --configuration Release --no-build --no-restore --logger "console;verbosity=minimal"` with the isolated PostgreSQL connection configured | 884 | 0 | 0 | Full solution, including every conditional PostgreSQL test. |
+| `dotnet ef migrations has-pending-model-changes --project src/AipPortal.Infrastructure --startup-project src/AipPortal.Web --configuration Release --no-build` | n/a | n/a | n/a | Exit 0: `No changes have been made to the model since the last migration.` |
+| `git diff --check -- . ':(exclude)qodana.yaml'` | n/a | n/a | n/a | Exit 0. The excluded file is an unrelated pre-existing user modification. |
+| Codex Security diff scan of the complete remediation patch | n/a | 0 findings | n/a | Complete coverage of all 24 deterministic changed source-like worklist rows; the one candidate discovered during review was fixed, retested, and rejected as a live finding. |
 
-### Project Task workflow
+`dotnet format AipPortal.slnx --verify-no-changes --no-restore --verbosity
+minimal` exited 1 on widespread pre-existing whitespace violations, including
+untouched `TaskSubresourceService.cs` and `TenantIsolationSecurityTests.cs`.
+No repository-wide formatting rewrite was performed.
 
-Current `AppDbContext` initialization adds a default workflow when a new
-Project is first saved. Canonical WPC activation requires provisioning or
-attaching the required workflow during activation where applicable. Moving or
-duplicating this behavior without an approved attachment/compatibility rule
-could duplicate stages or change existing Project creation semantics. WPC-01
-does not create a second workflow model or modify Task transitions/Kanban.
+Successful no-op initializer tests are named coordinator seam tests and are
+not counted as default-`general` provisioning evidence.
 
-## Verification commands executed through final-head packaging
+## Remaining blockers
 
-The isolated PostgreSQL environment used PostgreSQL 18 on localhost with a
-temporary database credential. The credential is intentionally not recorded.
-Tests marked PostgreSQL conditional require
-`POSTGRES_TEST_CONNECTION_STRING`; an unset environment may report them as
-passed after an early return and is not PostgreSQL evidence.
+### Specification decisions
 
-| Command | Exit | Passed | Failed | Skipped | Qualification |
-| --- | ---: | ---: | ---: | ---: | --- |
-| `dotnet restore AipPortal.slnx` | 0 | n/a | n/a | n/a | Baseline restore |
-| `dotnet build AipPortal.slnx --configuration Release --no-restore --disable-build-servers -m:1` | 0 | n/a | n/a | n/a | Baseline, 0 warnings/0 errors |
-| `dotnet test tests/AipPortal.Tests/AipPortal.Tests.csproj --configuration Release --no-build --filter "FullyQualifiedName~OrganizationAuthorizationTests\|FullyQualifiedName~ProjectServiceTests\|FullyQualifiedName~ProjectsControllerTests\|FullyQualifiedName~TenancyFoundationTests\|FullyQualifiedName~TenantIsolationSecurityTests"` | 0 | 116 | 0 | 0 | Baseline Workspace/Project/Tenant set |
-| `dotnet test tests/AipPortal.Tests/AipPortal.Tests.csproj --configuration Release --no-build --filter "FullyQualifiedName~HttpTenantIsolationTests\|FullyQualifiedName~AuthSecurityHttpTests"` | 0 | 55 | 0 | 0 | Baseline hosted HTTP/CSRF set |
-| `dotnet ef database update --project src/AipPortal.Infrastructure --startup-project src/AipPortal.Web --configuration Release --no-build` | 0 | n/a | n/a | n/a | Applied baseline migrations to isolated PostgreSQL after the first representative fixture run identified an unmigrated supplied database |
-| `dotnet test tests/AipPortal.Tests/AipPortal.Tests.csproj --configuration Release --no-build --filter "FullyQualifiedName~PostgreSqlMigrationTests\|FullyQualifiedName~PostgreSqlRepositoryTests"` | 0 | 6 | 0 | 0 | Baseline PostgreSQL migration/repository set after migration |
-| `dotnet restore AipPortal.slnx` | 0 | n/a | n/a | n/a | WPC candidate; all projects up to date |
-| `dotnet build AipPortal.slnx --configuration Release --no-restore --disable-build-servers -m:1` | 0 | n/a | n/a | n/a | WPC candidate, 0 warnings/0 errors |
-| `dotnet test tests/AipPortal.Tests/AipPortal.Tests.csproj --configuration Release --no-build --filter "FullyQualifiedName~WorkspaceCreationFoundationTests\|FullyQualifiedName~WorkspacesControllerTests\|FullyQualifiedName~OrganizationAuthorizationTests\|FullyQualifiedName~ProjectServiceTests\|FullyQualifiedName~ProjectsControllerTests\|FullyQualifiedName~TenancyFoundationTests\|FullyQualifiedName~TenantIsolationSecurityTests" --logger "console;verbosity=minimal"` | 0 | 138 | 0 | 0 | Workspace/Project/Tenant service, authorization, controller evidence, including revoked-replay masking |
-| `dotnet test tests/AipPortal.Tests/AipPortal.Tests.csproj --configuration Release --no-build --filter "FullyQualifiedName~HttpTenantIsolationTests\|FullyQualifiedName~AuthSecurityHttpTests" --logger "console;verbosity=minimal"` | 0 | 57 | 0 | 0 | Hosted HTTP, cookie, route, and CSRF evidence |
-| `dotnet test AipPortal.slnx --configuration Release --no-build --logger "console;verbosity=minimal"` | 0 | 686 | 0 | 163 | Full .NET suite; PostgreSQL-conditional tests were skipped because the connection environment was deliberately unset for this run |
-| `dotnet test tests/AipPortal.Tests/AipPortal.Tests.csproj --configuration Release --no-build --filter "FullyQualifiedName~Wpc01WorkspaceCreationPostgreSqlTests\|FullyQualifiedName~PostgreSqlIntegrationTests" --logger "console;verbosity=minimal"` | 1 | 4 | 2 | 0 | Fresh supplied base was intentionally not migrated; all four WPC temporary-database tests passed and the two generic tests reported pending base migrations (environment setup failure) |
-| same PostgreSQL command after `dotnet ef database update` | 0 | 6 | 0 | 0 | Real PostgreSQL migration, duplicate-name constraint, concurrency, rollback, repository, and tenant-search evidence |
-| `dotnet ef migrations has-pending-model-changes --project src/AipPortal.Infrastructure --startup-project src/AipPortal.Web --configuration Release --no-build` | 0 | n/a | n/a | n/a | Reported no model changes after the WPC migration |
-| `dotnet ef database update --project src/AipPortal.Infrastructure --startup-project src/AipPortal.Web --configuration Release --no-build` | 0 | n/a | n/a | n/a | Upgraded isolated current-schema database with `20260813100711_Wpc01WorkspaceCreateIdempotency` |
-| `dotnet ef migrations script 20260803041347_AddTaskDeadlineDigestLedger 20260813100711_Wpc01WorkspaceCreateIdempotency --project src/AipPortal.Infrastructure --startup-project src/AipPortal.Web --configuration Release --no-build` | 0 | n/a | n/a | n/a | Additive SQL: create table/FK/indexes/history row only |
-| `dotnet ef migrations script 20260813100711_Wpc01WorkspaceCreateIdempotency 20260803041347_AddTaskDeadlineDigestLedger --project src/AipPortal.Infrastructure --startup-project src/AipPortal.Web --configuration Release --no-build` | 0 | n/a | n/a | n/a | Down SQL drops only the new idempotency table/history row |
-| `dotnet format AipPortal.slnx --verify-no-changes --no-restore --verbosity minimal` | 1 | n/a | n/a | n/a | Pre-existing repository-wide whitespace violations in unrelated files such as `TaskSubresourceService.cs` and `TenantIsolationSecurityTests.cs`; WPC files pass `git diff --check`; unrelated formatting was not changed |
+- **DECISION REQUIRED — PROJECT CREATE AUTHORITY**
+- **DECISION REQUIRED — EXISTING PROJECT VISIBILITY BACKFILL**
+- **DECISION REQUIRED — NON-DEFAULT PROJECT VISIBILITY AUTHORITY**
+- **DECISION REQUIRED — PROJECT LIFECYCLE PROVENANCE**
 
-An earlier baseline representative PostgreSQL run against the supplied but unmigrated
-base database reported 4 passed and 2 failed. The failures were missing-schema
-environment failures, not code regressions; after `database update`, the same
-migration/repository set passed 6/6. No unrelated baseline failure was fixed.
-The immutable tested SHA is recorded in the draft PR and execution report
-after all scoped commits.
+### External/cross-module dependencies
 
-## Unresolved blockers and remediation
+- **DEPENDENCY BLOCKER — DELEGATED workspace.create CAPABILITY INFRASTRUCTURE**
+- **DEPENDENCY BLOCKER — CANONICAL WORKSPACE/PROJECT DEFAULT CHANNEL PROVISIONING**
+- **DEPENDENCY BLOCKER — PROJECT TASK WORKFLOW INITIALIZATION**
+- **DEPENDENCY BLOCKER — CANONICAL CROSS-MODULE REDACTION SERVICE**
 
-### Existing Project Visibility backfill
-
-Required remediation: approve an existing-row mapping or an explicit
-classification migration process, then implement one authoritative domain/
-persistence/API/authorization policy across discovery and related resources.
-This blocks WPC-02 Project binding and WPC-03 creation/activation UX.
-
-### Project create authority
-
-Required remediation: define the Workspace roles/capability that may create a
-Workspace-root Project and any separate authority required to select
-non-default Visibility. Then implement one Workspace-scoped command with route
-scope authoritative. This blocks WPC-03.
-
-### Delegated `workspace.create`
-
-Required remediation: supply the canonical delegation persistence/evaluation
-boundary. Do not infer it from role text, `admin:access`, or frontend state.
-Tenant Owner/Admin and capability projection are safe for WPC-02, but delegated
-users remain unsupported.
-
-### Default Channel provisioning
-
-Required remediation: choose and implement one canonical Conversation-backed,
-scope-aware, idempotent provisioning service and define when the capability is
-required. It must participate in Workspace create and Project activation
-transactions. This blocks complete Workspace creation and Project activation.
-
-### Task workflow initialization and lifecycle provenance
-
-Required remediation: define how existing create-time default workflows map to
-activation-time required workflow attachment, and add sufficient lifecycle
-state/provenance to distinguish never-activated Drafts from previously Active
-Projects during suspend/archive restore. Then close every indirect path to
-Active and implement versioned activation. This blocks WPC-03.
-
-## Out-of-scope handoff
-
-- WPC-02: consume the backend `GET /api/workspaces/capabilities` projection;
-  implement no create UI until the required `general` provisioning decision is
-  accepted. Active Workspace route/preference/single-selection behavior remains
-  entirely frontend follow-up.
-- WPC-03: do not bind a Project dialog or activation button to the legacy
-  `POST /api/projects`. Wait for Visibility/backfill, create authority,
-  canonical route, and activation dependencies.
-- Workspace member paging/settings/governance redesign remains separate.
-- Messaging must supply the canonical default-channel boundary; WPC-01 does not
-  extend legacy Channel/Post.
-- Task workflow work must reuse canonical definitions/stages and must not alter
-  Kanban, Gantt, or transition semantics as a shortcut.
-
-No frontend production file, package/lockfile, Angular configuration, CI file,
-legacy hosted SPA artifact, global style, or unrelated Task/Messaging
-production file is changed by this candidate.
+There is no open WPC code defect in the behaviors declared implemented above.
+Unresolved behavior remains unavailable or conservatively restricted rather
+than being approximated with inferred policy.

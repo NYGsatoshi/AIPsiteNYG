@@ -266,6 +266,19 @@ public sealed class ProjectsController(IProjectService projects, ITaskCommandSer
             return ProjectConflict(result.ErrorDetail);
         if (result.ErrorDetail?.Code is "MILESTONE_STALE_VERSION" or "MILESTONE_CONFLICT")
             return MilestoneConflict(result.ErrorDetail);
+        if (result.ErrorDetail?.Code == "NotFound")
+            return StatusCode(StatusCodes.Status404NotFound, ApiEnvelope.Error(
+                HttpContext,
+                StatusCodes.Status404NotFound,
+                "NotFound",
+                "The requested resource was not found.",
+                redactionApplied: true));
+        if (result.ErrorDetail?.Code == "DependencyUnavailable")
+            return StatusCode(StatusCodes.Status503ServiceUnavailable, ApiEnvelope.Error(
+                HttpContext,
+                StatusCodes.Status503ServiceUnavailable,
+                "DependencyUnavailable",
+                "Project creation is temporarily unavailable."));
         return BadRequest(ToErrorResponse(result.Error));
     }
 
@@ -277,23 +290,32 @@ public sealed class ProjectsController(IProjectService projects, ITaskCommandSer
             return ProjectConflict(result.ErrorDetail);
         if (result.ErrorDetail?.Code is "MILESTONE_STALE_VERSION" or "MILESTONE_CONFLICT")
             return MilestoneConflict(result.ErrorDetail);
+        if (result.ErrorDetail?.Code == "NotFound")
+            return StatusCode(StatusCodes.Status404NotFound, ApiEnvelope.Error(
+                HttpContext,
+                StatusCodes.Status404NotFound,
+                "NotFound",
+                "The requested resource was not found.",
+                redactionApplied: true));
+        if (result.ErrorDetail?.Code == "DependencyUnavailable")
+            return StatusCode(StatusCodes.Status503ServiceUnavailable, ApiEnvelope.Error(
+                HttpContext,
+                StatusCodes.Status503ServiceUnavailable,
+                "DependencyUnavailable",
+                "Project creation is temporarily unavailable."));
         return BadRequest(ToErrorResponse(result.Error));
     }
 
     private IActionResult ProjectConflict(
         AipPortal.Application.Common.ApplicationErrorDetail detail) =>
-        StatusCode(StatusCodes.Status409Conflict, new
-        {
-            requestId = HttpContext.TraceIdentifier,
-            error = new
-            {
-                code = detail.Code,
-                message = detail.Message,
-                target = "project",
-                details = Array.Empty<object>(),
-                redactionApplied = false
-            }
-        });
+        StatusCode(
+            StatusCodes.Status409Conflict,
+            ApiEnvelope.Error(
+                HttpContext,
+                StatusCodes.Status409Conflict,
+                detail.Code,
+                detail.Message,
+                detail.Code == "InvalidStateTransition" ? "body.status" : "project"));
 
     private IActionResult MilestoneConflict(
         AipPortal.Application.Common.ApplicationErrorDetail detail) =>

@@ -63,7 +63,8 @@ public sealed class PostgreSqlIntegrationTests
             OwnerUserId = user.Id,
             CreatedByUserId = user.Id,
             Name = "PostgreSQL Project A",
-            Slug = $"pg-project-a-{runId}"
+            Slug = $"pg-project-a-{runId}",
+            Status = ProjectStatus.Active
         };
         await dbContext.Projects.AddAsync(projectA);
         await dbContext.ProjectMembers.AddAsync(new ProjectMember
@@ -97,7 +98,8 @@ public sealed class PostgreSqlIntegrationTests
             OwnerUserId = user.Id,
             CreatedByUserId = user.Id,
             Name = "PostgreSQL Project B",
-            Slug = $"pg-project-b-{runId}"
+            Slug = $"pg-project-b-{runId}",
+            Status = ProjectStatus.Active
         });
         await dbContext.SaveChangesAsync();
 

@@ -66,6 +66,37 @@ public sealed class GlobalExceptionHandlingMiddlewareTests
     }
 
     [Fact]
+    [Trait("Scope", "WPC01")]
+    public async Task WorkspaceCreateExceptionUsesCompleteRedactedEnvelope()
+    {
+        var middleware = new GlobalExceptionHandlingMiddleware(
+            _ => throw new InvalidOperationException("Password=leaked; SELECT tenant secrets"),
+            NullLogger<GlobalExceptionHandlingMiddleware>.Instance);
+        var context = new DefaultHttpContext
+        {
+            TraceIdentifier = "wpc01-exception-request",
+            Response = { Body = new MemoryStream() }
+        };
+        context.Request.Path = "/api/workspaces";
+
+        await middleware.InvokeAsync(context);
+
+        context.Response.Body.Position = 0;
+        using var payload = await JsonDocument.ParseAsync(context.Response.Body);
+        var root = payload.RootElement;
+        Assert.Equal(StatusCodes.Status500InternalServerError, context.Response.StatusCode);
+        Assert.Equal("wpc01-exception-request", root.GetProperty("requestId").GetString());
+        Assert.False(string.IsNullOrWhiteSpace(root.GetProperty("traceId").GetString()));
+        Assert.Equal(500, root.GetProperty("status").GetInt32());
+        var error = root.GetProperty("error");
+        Assert.Equal("UnexpectedServerError", error.GetProperty("code").GetString());
+        Assert.Equal(0, error.GetProperty("details").GetArrayLength());
+        Assert.True(error.GetProperty("redactionApplied").GetBoolean());
+        Assert.DoesNotContain("Password", root.GetRawText(), StringComparison.OrdinalIgnoreCase);
+        Assert.DoesNotContain("SELECT", root.GetRawText(), StringComparison.OrdinalIgnoreCase);
+    }
+
+    [Fact]
     [Trait("Scope", "TaskV1PR06")]
     public async Task RequestAbortCancellationPropagatesWithoutWritingAnErrorResponse()
     {

@@ -2,26 +2,32 @@
 
 This document is the active API convention guide. For endpoint examples, use `docs/API_SMOKE_TESTS.http`.
 
-Implementation note: this document describes the intended contract. The current controllers do not consistently follow one error shape or HTTP status mapping. Global exceptions return `ErrorResponse(Code, Message, TraceId)`, while many controller failures return `{ "error": "..." }` and map authorization/not-found failures to `400`. TASK-V1-PR06 adds a narrow safe envelope and typed status mapping for the Gantt snapshot, schedule/progress, and dependency routes only; it does not resolve the repository-wide mismatch. Track the broader mismatch in `docs/KNOWN_ISSUES.md`; exact controller/service findings are in `docs/BACKEND_LOGIC_AUDIT.md`.
+Implementation note: this document describes the intended contract. The current controllers do not consistently follow one error shape or HTTP status mapping. Global exceptions return `ErrorResponse(Code, Message, TraceId)`, while many controller failures return `{ "error": "..." }` and map authorization/not-found failures to `400`. TASK-V1-PR06 adds a narrow safe envelope for Gantt routes. WPC-01 now does the same for Workspace capabilities/create, their authentication/model-binding/CSRF/exception boundary, Project activation-transition conflicts, disabled legacy Project create, and masked Project detail. Neither change resolves the repository-wide mismatch. Track that broader mismatch in `docs/KNOWN_ISSUES.md`; exact controller/service findings are in `docs/BACKEND_LOGIC_AUDIT.md`.
 
-## WPC-01 partial backend foundation
+## WPC-01 fail-closed backend foundation
 
-WPC-01 makes Workspace creation retry-safe and moves its authority from the
-legacy platform-role check to current Tenant Owner/Admin membership. It does
-not complete the canonical Project creation or activation contracts because
-the current specification does not resolve the existing-Project visibility
-backfill or Project-create authority, and the implementation has no canonical
-default-channel provisioning boundary.
+WPC-01 implements the retry-safe Workspace transaction boundary and current
+Tenant Owner/Admin authority, but production Workspace creation is currently
+gated. Canonical success requires the default Workspace `general` Channel,
+and the repository has no safe Conversation-backed provisioner for it.
 
 `GET /api/workspaces/capabilities` returns the backend-owned current-Tenant
-projection:
+projection through the canonical success envelope:
 
 ```json
-{ "canCreate": true }
+{
+  "requestId": "...",
+  "data": { "canCreate": false },
+  "warnings": []
+}
 ```
 
-`POST /api/workspaces` requires an `Idempotency-Key` header of at most 128
-characters and keeps the approved minimal body:
+The value combines current create authority with required-initialization
+availability. Production therefore reports false even for a Tenant Owner/Admin
+until canonical `general` provisioning exists.
+
+`POST /api/workspaces` requires an `Idempotency-Key` containing 8–128
+printable ASCII characters and keeps the approved minimal body:
 
 ```json
 {
@@ -32,23 +38,39 @@ characters and keeps the approved minimal body:
 ```
 
 The authenticated actor and current Tenant are server-owned scope. Tenant
-Owner/Admin may create; ordinary membership and platform role alone do not
-grant creation. A successful response is HTTP 201 and reconciles one
-Workspace, one active creator `Owner` membership, one `WorkspaceCreated` audit
-row, one authorization-state Outbox event, and one durable idempotency record.
-Replaying the same normalized request with the same scoped identity returns
-the same logical resource. Reusing the identity for a different request is
-HTTP 409. Missing/invalid identity is HTTP 400.
+Owner/Admin authority is required; ordinary membership and platform role alone
+do not grant creation. Production returns a full 503
+`DependencyUnavailable` envelope before the idempotency coordinator, so no
+Workspace, Owner, audit, Outbox, idempotency, or partial initialization row is
+committed.
 
-Project responses now preserve nullable `groupId` and expose `versionNo`.
-`POST /api/projects` remains the only create route and is explicitly a legacy,
-incomplete compatibility surface: its body still owns `workspaceId`, Group is
-still required, and it has no Visibility or create-idempotency contract.
+When an explicit test initializer is injected, the coordinator proves one
+transaction containing the claim, Workspace, active creator Owner, required
+initializer, `WorkspaceCreated` audit, and authorization Outbox event. The
+current successful fake is a no-op seam and is not evidence that `general`
+was provisioned. Replaying the same normalized request with the same scoped
+identity reconciles one logical resource; another actor/Tenant cannot recover
+it, current membership is rechecked, and reuse for another payload is HTTP 409.
+
+WPC create failures use the full error envelope. Exact cases include
+`MalformedJson`, `ValidationFailed`, `MissingIdempotencyKey`,
+`InvalidIdempotencyKey`, `CapabilityDenied`, `CsrfRejected`,
+`IdempotencyConflict`, `UnsupportedMediaType`,
+`DependencyUnavailable`, and `UnexpectedServerError`.
+
+Project responses preserve nullable `groupId` and expose `versionNo`.
+`POST /api/projects` is a deprecated compatibility route and now always
+returns 503 without mutation because its body-owned Workspace scope, legacy
+authority, required Group, missing Visibility, and missing idempotency cannot
+safely approximate the canonical command.
 `POST /api/workspaces/{workspaceId}/projects` and
 `POST /api/projects/{projectId}/activate` are not implemented by WPC-01.
-Generic Project PATCH rejects the direct `Planning` to `Active` transition,
-but complete activation-only lifecycle enforcement remains blocked by legacy
-archive/restore and suspended-state semantics.
+Every generic status change whose destination is `Active` returns 409
+`InvalidStateTransition`; Archived/Deleted restore returns `Planning`.
+Planning/Suspended discovery and subordinate resources require explicit
+Project membership. Lifecycle provenance, Visibility/backfill, exact create
+authority, default Project Channel, and activation-time workflow mapping remain
+explicit decision/dependency blockers.
 
 ## General Rules
 

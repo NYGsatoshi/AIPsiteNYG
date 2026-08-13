@@ -1,6 +1,7 @@
 using System.Security.Claims;
 using AipPortal.Application.Auth;
 using AipPortal.Application.Common.Interfaces;
+using AipPortal.Web.Models;
 using Microsoft.AspNetCore.Authentication;
 using Microsoft.AspNetCore.Authentication.Cookies;
 
@@ -11,16 +12,30 @@ public sealed class DbSessionCookieAuthenticationEvents(
     ICurrentTenant currentTenant,
     ILogger<DbSessionCookieAuthenticationEvents> logger) : CookieAuthenticationEvents
 {
-    public override Task RedirectToLogin(RedirectContext<CookieAuthenticationOptions> context)
+    public override async Task RedirectToLogin(RedirectContext<CookieAuthenticationOptions> context)
     {
         context.Response.StatusCode = StatusCodes.Status401Unauthorized;
-        return Task.CompletedTask;
+        if (IsWpcPath(context.Request.Path.Value))
+        {
+            await context.Response.WriteAsJsonAsync(ApiEnvelope.Error(
+                context.HttpContext,
+                StatusCodes.Status401Unauthorized,
+                "AuthenticationRequired",
+                "Authentication is required."));
+        }
     }
 
-    public override Task RedirectToAccessDenied(RedirectContext<CookieAuthenticationOptions> context)
+    public override async Task RedirectToAccessDenied(RedirectContext<CookieAuthenticationOptions> context)
     {
         context.Response.StatusCode = StatusCodes.Status403Forbidden;
-        return Task.CompletedTask;
+        if (IsWpcPath(context.Request.Path.Value))
+        {
+            await context.Response.WriteAsJsonAsync(ApiEnvelope.Error(
+                context.HttpContext,
+                StatusCodes.Status403Forbidden,
+                "CapabilityDenied",
+                "You are not allowed to perform this action."));
+        }
     }
 
     public override async Task ValidatePrincipal(CookieValidatePrincipalContext context)
@@ -73,5 +88,10 @@ public sealed class DbSessionCookieAuthenticationEvents(
         logger.LogWarning("Rejecting auth cookie principal: {Reason}", reason);
         context.RejectPrincipal();
         await context.HttpContext.SignOutAsync(CookieAuthenticationDefaults.AuthenticationScheme);
+    }
+
+    private static bool IsWpcPath(string? path)
+    {
+        return ApiEnvelope.IsWorkspaceCreationPath(path);
     }
 }

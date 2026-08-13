@@ -1,4 +1,5 @@
 using AipPortal.Application.Common.Interfaces;
+using AipPortal.Application.Common;
 using AipPortal.Application.Common.Tenancy;
 using AipPortal.Application.Realtime;
 using AipPortal.Application.Tenancy;
@@ -93,6 +94,92 @@ public sealed class WorkspaceCreationFoundationTests
         Assert.Equal("CapabilityDenied", create.ErrorDetail?.Code);
         Assert.Empty(await fixture.Db.Workspaces.AsNoTracking().ToListAsync());
         Assert.Empty(await fixture.Db.IdempotencyRecords.AsNoTracking().ToListAsync());
+    }
+
+    [Fact]
+    public async Task CanonicalGeneralDependencyGatesCapabilityAndLeavesNoPartialCreate()
+    {
+        await using var fixture = await Fixture.CreateAsync(
+            TenantUserRole.Owner,
+            TenantUserStatus.Active,
+            UserStatus.Active);
+        var service = fixture.CreateService(
+            requiredInitialization: new UnavailableWorkspaceRequiredInitialization());
+
+        var capability = await service.GetCapabilitiesAsync();
+        var create = await service.CreateAsync(
+            new CreateWorkspaceRequest("Gated", null, null),
+            "gated-workspace-create");
+
+        Assert.True(capability.IsSuccess);
+        Assert.False(capability.Value!.CanCreate);
+        Assert.False(create.IsSuccess);
+        Assert.Equal("DependencyUnavailable", create.ErrorDetail?.Code);
+        await AssertNoCreateSideEffectsAsync(fixture.Db);
+    }
+
+    [Theory]
+    [InlineData("")]
+    [InlineData("short")]
+    [InlineData("        ")]
+    [InlineData("valid-ascii-key-\u001f")]
+    [InlineData("non-ascii-key-é")]
+    public async Task InvalidIdempotencyIdentityFailsBeforeAnyCreateSideEffect(string identity)
+    {
+        await using var fixture = await Fixture.CreateAsync(
+            TenantUserRole.Owner,
+            TenantUserStatus.Active,
+            UserStatus.Active);
+
+        var failure = await fixture.CreateService().CreateAsync(
+            new CreateWorkspaceRequest("Invalid key", null, null),
+            identity);
+
+        Assert.False(failure.IsSuccess);
+        Assert.Equal("InvalidIdempotencyKey", failure.ErrorDetail?.Code);
+        Assert.Equal("header.Idempotency-Key", failure.ErrorDetail?.Target);
+        await AssertNoCreateSideEffectsAsync(fixture.Db);
+    }
+
+    [Fact]
+    public async Task ConcurrentRetryFailsClosedWithoutRowsWhenGeneralDependencyIsUnavailable()
+    {
+        await using var fixture = await Fixture.CreateAsync(
+            TenantUserRole.Owner,
+            TenantUserStatus.Active,
+            UserStatus.Active);
+        var service = fixture.CreateService(
+            requiredInitialization: new UnavailableWorkspaceRequiredInitialization());
+        var request = new CreateWorkspaceRequest("Concurrent gated", null, null);
+
+        var results = await Task.WhenAll(
+            service.CreateAsync(request, "concurrent-gated-key"),
+            service.CreateAsync(request, "concurrent-gated-key"));
+
+        Assert.All(results, result =>
+        {
+            Assert.False(result.IsSuccess);
+            Assert.Equal("DependencyUnavailable", result.ErrorDetail?.Code);
+        });
+        await AssertNoCreateSideEffectsAsync(fixture.Db);
+    }
+
+    [Fact]
+    public async Task MissingIdempotencyIdentityUsesCanonicalErrorWithoutSideEffects()
+    {
+        await using var fixture = await Fixture.CreateAsync(
+            TenantUserRole.Owner,
+            TenantUserStatus.Active,
+            UserStatus.Active);
+
+        var failure = await fixture.CreateService().CreateAsync(
+            new CreateWorkspaceRequest("Missing key", null, null),
+            null);
+
+        Assert.False(failure.IsSuccess);
+        Assert.Equal("MissingIdempotencyKey", failure.ErrorDetail?.Code);
+        Assert.Equal("header.Idempotency-Key", failure.ErrorDetail?.Target);
+        await AssertNoCreateSideEffectsAsync(fixture.Db);
     }
 
     [Fact]
@@ -236,7 +323,35 @@ public sealed class WorkspaceCreationFoundationTests
         var replay = await service.CreateAsync(request, "revoked-replay-key");
 
         Assert.False(replay.IsSuccess);
-        Assert.Equal("IdempotencyReplayUnavailable", replay.ErrorDetail?.Code);
+        Assert.Equal("NotFound", replay.ErrorDetail?.Code);
+        Assert.Single(await fixture.Db.Workspaces.AsNoTracking().ToListAsync());
+        Assert.Single(await fixture.Db.IdempotencyRecords.AsNoTracking().ToListAsync());
+        Assert.Single(await fixture.Db.AuditLogs.AsNoTracking().Where(item => item.Action == "WorkspaceCreated").ToListAsync());
+    }
+
+    [Fact]
+    public async Task PlatformAdministratorCannotReplayAfterCreatorWorkspaceAccessIsRevoked()
+    {
+        await using var fixture = await Fixture.CreateAsync(
+            TenantUserRole.Owner,
+            TenantUserStatus.Active,
+            UserStatus.Active,
+            SystemRole.PlatformAdmin);
+        var request = new CreateWorkspaceRequest("Revoked platform replay", null, null);
+        var service = fixture.CreateService();
+        var first = await service.CreateAsync(request, "revoked-platform-replay-key");
+        Assert.True(first.IsSuccess);
+
+        var membership = await fixture.Db.WorkspaceMembers.SingleAsync(item =>
+            item.WorkspaceId == first.Value!.Id && item.UserId == fixture.Actor.Id);
+        membership.Status = MembershipStatus.Suspended;
+        await fixture.Db.SaveChangesAsync();
+        fixture.Db.ChangeTracker.Clear();
+
+        var replay = await service.CreateAsync(request, "revoked-platform-replay-key");
+
+        Assert.False(replay.IsSuccess);
+        Assert.Equal("NotFound", replay.ErrorDetail?.Code);
         Assert.Single(await fixture.Db.Workspaces.AsNoTracking().ToListAsync());
         Assert.Single(await fixture.Db.IdempotencyRecords.AsNoTracking().ToListAsync());
         Assert.Single(await fixture.Db.AuditLogs.AsNoTracking().Where(item => item.Action == "WorkspaceCreated").ToListAsync());
@@ -267,27 +382,58 @@ public sealed class WorkspaceCreationFoundationTests
     }
 
     [Fact]
-    public async Task RequiredInitializationFailureLeavesNoReplayOrPartialWorkspace()
+    public async Task RequiredGeneralInitializationFailureLeavesNoReplayOrPartialWorkspace()
     {
         await using var fixture = await Fixture.CreateAsync(
             TenantUserRole.Owner,
             TenantUserStatus.Active,
             UserStatus.Active);
-        var failing = fixture.CreateService(authorizationChanges: new ThrowingAuthorizationChanges());
+        var failing = fixture.CreateService(requiredInitialization: new FailingRequiredInitialization());
         var request = new CreateWorkspaceRequest("Rollback", null, null);
 
-        await Assert.ThrowsAsync<InvalidOperationException>(() =>
-            failing.CreateAsync(request, "workspace-create-rollback"));
+        var failure = await failing.CreateAsync(request, "workspace-create-rollback");
 
-        Assert.Empty(await fixture.Db.Workspaces.AsNoTracking().ToListAsync());
-        Assert.Empty(await fixture.Db.WorkspaceMembers.AsNoTracking().ToListAsync());
-        Assert.Empty(await fixture.Db.IdempotencyRecords.AsNoTracking().ToListAsync());
-        Assert.Empty(await fixture.Db.AuditLogs.AsNoTracking().ToListAsync());
-        Assert.Empty(await fixture.Db.OutboxEvents.AsNoTracking().ToListAsync());
+        Assert.False(failure.IsSuccess);
+        Assert.Equal("DependencyUnavailable", failure.ErrorDetail?.Code);
+        await AssertNoCreateSideEffectsAsync(fixture.Db);
 
         var retry = await fixture.CreateService().CreateAsync(request, "workspace-create-rollback");
         Assert.True(retry.IsSuccess);
         Assert.Single(await fixture.Db.Workspaces.AsNoTracking().ToListAsync());
+    }
+
+    [Fact]
+    public async Task FailedMandatoryOutboxResultRollsBackEveryCreateSideEffect()
+    {
+        await using var fixture = await Fixture.CreateAsync(
+            TenantUserRole.Owner,
+            TenantUserStatus.Active,
+            UserStatus.Active);
+        var clock = new TestClock();
+        var publisher = new AuthorizationStateChangePublisher(
+            new FailingOutbox(),
+            fixture.CurrentTenant,
+            clock);
+        var service = fixture.CreateService(authorizationChanges: publisher);
+
+        var failure = await service.CreateAsync(
+            new CreateWorkspaceRequest("Outbox rollback", null, null),
+            "workspace-outbox-rollback");
+
+        Assert.False(failure.IsSuccess);
+        Assert.Equal("DependencyUnavailable", failure.ErrorDetail?.Code);
+        await AssertNoCreateSideEffectsAsync(fixture.Db);
+    }
+
+    private static async Task AssertNoCreateSideEffectsAsync(AppDbContext db)
+    {
+        Assert.Empty(await db.Workspaces.AsNoTracking().ToListAsync());
+        Assert.Empty(await db.WorkspaceMembers.AsNoTracking().ToListAsync());
+        Assert.Empty(await db.Conversations.AsNoTracking().ToListAsync());
+        Assert.Empty(await db.ConversationMembers.AsNoTracking().ToListAsync());
+        Assert.Empty(await db.IdempotencyRecords.AsNoTracking().ToListAsync());
+        Assert.Empty(await db.AuditLogs.AsNoTracking().ToListAsync());
+        Assert.Empty(await db.OutboxEvents.AsNoTracking().ToListAsync());
     }
 
     private sealed class Fixture : IAsyncDisposable
@@ -401,7 +547,8 @@ public sealed class WorkspaceCreationFoundationTests
 
         public WorkspaceService CreateService(
             User? actor = null,
-            IAuthorizationStateChangePublisher? authorizationChanges = null)
+            IAuthorizationStateChangePublisher? authorizationChanges = null,
+            IWorkspaceRequiredInitialization? requiredInitialization = null)
         {
             actor ??= Actor;
             var currentUser = new TestCurrentUser(actor.Id);
@@ -425,7 +572,8 @@ public sealed class WorkspaceCreationFoundationTests
                 new EfUnitOfWork(Db),
                 CurrentTenant,
                 publisher,
-                new EfCreateIdempotencyCoordinator(Db));
+                new EfCreateIdempotencyCoordinator(Db),
+                requiredInitialization ?? new SuccessfulRequiredInitialization());
         }
 
         public ValueTask DisposeAsync() => Db.DisposeAsync();
@@ -454,15 +602,34 @@ public sealed class WorkspaceCreationFoundationTests
         public DateTimeOffset UtcNow => new(2026, 8, 13, 0, 0, 0, TimeSpan.Zero);
     }
 
-    private sealed class ThrowingAuthorizationChanges : IAuthorizationStateChangePublisher
+    private sealed class SuccessfulRequiredInitialization : IWorkspaceRequiredInitialization
     {
-        public Task PublishAsync(
-            Guid tenantId,
-            Guid affectedUserId,
-            string scopeType,
-            Guid? scopeId,
-            string change,
+        public bool IsAvailable => true;
+
+        public Task<Result> StageAsync(
+            Workspace workspace,
+            Guid creatorUserId,
             CancellationToken cancellationToken = default) =>
-            throw new InvalidOperationException("Required invalidation staging failed.");
+            Task.FromResult(Result.Success());
+    }
+
+    private sealed class FailingRequiredInitialization : IWorkspaceRequiredInitialization
+    {
+        public bool IsAvailable => true;
+
+        public Task<Result> StageAsync(
+            Workspace workspace,
+            Guid creatorUserId,
+            CancellationToken cancellationToken = default) =>
+            Task.FromResult(Result.Failure("Canonical general provisioning failed."));
+    }
+
+    private sealed class FailingOutbox : ITransactionalOutbox
+    {
+        public Task<Result<Guid>> EnqueueAsync(
+            DurableEventEnvelope envelope,
+            IReadOnlyCollection<RealtimeRoutingTarget> routingTargets,
+            CancellationToken cancellationToken = default) =>
+            Task.FromResult(Result<Guid>.Failure("Outbox staging failed."));
     }
 }

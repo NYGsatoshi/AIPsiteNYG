@@ -19,6 +19,14 @@ public interface IAuthorizationStateChangePublisher
 /// Emits a metadata-only invalidation in the caller's business transaction.
 /// The dispatcher re-evaluates authorization before any later protected event.
 /// </summary>
+public sealed class RequiredOutboxStagingException : Exception
+{
+    public RequiredOutboxStagingException()
+        : base("A required transactional Outbox event could not be staged.")
+    {
+    }
+}
+
 public sealed class AuthorizationStateChangePublisher(
     ITransactionalOutbox outbox,
     ICurrentTenant currentTenant,
@@ -47,7 +55,7 @@ public sealed class AuthorizationStateChangePublisher(
             change,
             authorizationVersion
         });
-        await outbox.EnqueueAsync(
+        var enqueue = await outbox.EnqueueAsync(
             new DurableEventEnvelope(
                 Guid.NewGuid(),
                 "Security.AuthorizationStateChanged.v1",
@@ -63,5 +71,9 @@ public sealed class AuthorizationStateChangePublisher(
                 payload),
             [new RealtimeRoutingTarget(RealtimeSubscriptionType.User, affectedUserId)],
             cancellationToken);
+        if (!enqueue.IsSuccess)
+        {
+            throw new RequiredOutboxStagingException();
+        }
     }
 }

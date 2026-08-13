@@ -352,6 +352,44 @@ public sealed class TaskV1Pr07DAuthorizedDeliveryTests
     }
 
     [Fact]
+    [Trait("Scope", "WPC01")]
+    public async Task PlanningTaskRealtimeAndNotificationTargetsRequireExplicitProjectMembership()
+    {
+        await using var fixture = await Fixture.CreateAsync();
+        fixture.Project.Status = ProjectStatus.Planning;
+        await fixture.Db.SaveChangesAsync();
+
+        Assert.False(await fixture.Resolver.CanReceiveTaskEventAsync(
+            fixture.TenantId,
+            fixture.UserId,
+            RealtimeSubscriptionType.Project,
+            fixture.Project.Id,
+            fixture.TaskChangedEnvelope()));
+        var unavailable = await fixture.Open.OpenAsync(
+            fixture.TenantId,
+            fixture.UserId,
+            fixture.Notification.Id);
+        Assert.False(unavailable.IsAvailable);
+
+        fixture.Db.ProjectMembers.Add(new ProjectMember
+        {
+            TenantId = fixture.TenantId,
+            ProjectId = fixture.Project.Id,
+            UserId = fixture.UserId,
+            Role = ProjectRole.Contributor,
+            JoinedAt = FixedClock.Instance.UtcNow
+        });
+        await fixture.Db.SaveChangesAsync();
+
+        Assert.True(await fixture.Resolver.CanReceiveTaskEventAsync(
+            fixture.TenantId,
+            fixture.UserId,
+            RealtimeSubscriptionType.Project,
+            fixture.Project.Id,
+            fixture.TaskChangedEnvelope()));
+    }
+
+    [Fact]
     public async Task OpenTaskNotificationReturnsCurrentProjectTaskRoute()
     {
         await using var fixture = await Fixture.CreateAsync();

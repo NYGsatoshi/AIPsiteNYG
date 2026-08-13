@@ -80,8 +80,29 @@ public sealed class ProjectsControllerTests
             "InvalidStateTransition",
             envelope.RootElement.GetProperty("error").GetProperty("code").GetString());
         Assert.Equal(
-            "project",
+            "body.status",
             envelope.RootElement.GetProperty("error").GetProperty("target").GetString());
+        Assert.Equal(StatusCodes.Status409Conflict, envelope.RootElement.GetProperty("status").GetInt32());
+        Assert.False(string.IsNullOrWhiteSpace(envelope.RootElement.GetProperty("traceId").GetString()));
+    }
+
+    [Fact]
+    public void HiddenProjectMapsToRedactedNotFoundEnvelope()
+    {
+        var controller = Controller();
+        var genericMethod = typeof(ProjectsController)
+            .GetMethods(BindingFlags.Instance | BindingFlags.NonPublic)
+            .Single(candidate => candidate.Name == "ToActionResult" && candidate.IsGenericMethod)
+            .MakeGenericMethod(typeof(string));
+        var action = Assert.IsType<ObjectResult>(genericMethod.Invoke(
+            controller,
+            [Result<string>.Failure(new ApplicationErrorDetail("NotFound", "The requested resource was not found."))]));
+
+        Assert.Equal(StatusCodes.Status404NotFound, action.StatusCode);
+        using var envelope = JsonDocument.Parse(JsonSerializer.Serialize(action.Value));
+        Assert.Equal("NotFound", envelope.RootElement.GetProperty("error").GetProperty("code").GetString());
+        Assert.True(envelope.RootElement.GetProperty("error").GetProperty("redactionApplied").GetBoolean());
+        Assert.Equal(JsonValueKind.Null, envelope.RootElement.GetProperty("error").GetProperty("target").ValueKind);
     }
 
     [Fact]

@@ -1,6 +1,10 @@
 namespace AipPortal.Application.Common;
 
-public sealed record ApplicationErrorDetail(string Code, string Message, int? RetryAfterSeconds = null);
+public sealed record ApplicationErrorDetail(
+    string Code,
+    string Message,
+    int? RetryAfterSeconds = null,
+    string? Target = null);
 
 public sealed record Result(bool IsSuccess, string? Error = null, ApplicationErrorDetail? ErrorDetail = null)
 {
