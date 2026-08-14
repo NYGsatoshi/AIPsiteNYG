@@ -97,13 +97,16 @@ capability for non-default Visibility. Canonical Workspace-scoped create and
 activation therefore remain unavailable, and deprecated `POST /api/projects`
 returns 503 without mutation.
 
-Generic `Planning -> Active` and provenance-ambiguous `Suspended -> Active` are
-rejected. `Review -> Active` remains the ordinary return from a lifecycle state
-whose production inbound path proves prior operation, and a metadata-only
-Active update may remain Active. Archived/Deleted recovery cannot safely choose
-Planning or Active, so it returns 409 `InvalidStateTransition` without status
-or deletion-metadata mutation, success audit, invalidation, or save. Because no
-trustworthy activation provenance exists, Planning and Suspended require
+Generic `Planning -> Active`, `Suspended -> Planning`, and `Suspended -> Active`
+are rejected because no trustworthy activation provenance exists.
+`Planning -> Suspended` and `Suspended -> Archived` remain available. `Review -> Active`
+remains the ordinary return from a lifecycle state whose production inbound
+path proves prior operation, and metadata-only Active or Suspended updates may
+retain their state. Every missing generic lifecycle edge returns 409
+`InvalidStateTransition`, target `body.status`, before metadata/lifecycle
+mutation, success audit, ProjectChanged or authorization invalidation, or save.
+Archived/Deleted recovery cannot safely choose Planning or Active and fails
+closed without deletion-metadata mutation. Planning and Suspended require
 current Workspace access plus explicit Project membership. Archived/Deleted
 rows are read-only through generic update. The ordinary Project archive path
 cannot produce a second success side effect; an otherwise-authorized explicit
@@ -125,7 +128,10 @@ recursive ancestry boundary. Missing identity, inconsistent Workspace/Project/
 root scope, cycles, and ancestry beyond 32 Thread edges fail closed. Send,
 moderate, and Thread-create checks require that structural read boundary;
 creation cannot persist an immediately unreadable child, and protected fields
-are materialized only after that boundary. Delayed
+are materialized only after that boundary. PostgreSQL Message Search composes
+the shared readable-ID relation over all matching Messages before deterministic
+`CreatedAt DESC, Id ASC` ordering and the final bound, rather than authorizing
+an arbitrary Conversation subset first. Delayed
 `Messaging.ConversationUnreadChanged.v1` delivery parses its Conversation
 identity and rechecks current Conversation/Project authorization.
 

@@ -298,6 +298,8 @@ public sealed class CommunicationPollingServiceTests
             return Task.FromResult(new PagedResponse<Conversation>(items, page, pageSize, query.Count));
         }
 
+        public IQueryable<Guid>? QueryReadableConversationIds(Guid userId) => null;
+
         public Task<IReadOnlySet<Guid>> FilterReadableConversationIdsAsync(
             Guid userId,
             IReadOnlyCollection<Guid> conversationIds,

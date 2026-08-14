@@ -105,6 +105,10 @@ The audit did not modify authentication logic, database schema, application UI, 
     Search use one set-based recursive Thread ancestry boundary, reject missing,
     inconsistent, cyclic, and deeper-than-32 scope, and never persist a child
     beyond the readable limit;
+  - Message Search composes the shared readable-Conversation ID relation across
+    all matching Messages before `CreatedAt DESC, Id ASC` and the final result
+    limit; the former arbitrary first-100 Conversation authorization cutoff is
+    removed;
   - My Tasks applies the same Project scope plus its existing active Workspace
     membership and task-relationship fences, removing the wider Adviser and
     `Project.OwnerUserId` shortcuts;
@@ -119,7 +123,11 @@ The audit did not modify authentication logic, database schema, application UI, 
     ungrouped ordinary-member, and current SystemAdmin access, and denies a
     revoked Workspace member with stale subordinate memberships;
   - a depth-three revoked-ancestor case proves no item/count/body disclosure,
-    and an over-depth case proves bounded fail-closed search authorization.
+    and an over-depth case proves bounded fail-closed search authorization;
+  - a real-PostgreSQL 125-authorized-Conversation regression proves the newest
+    authorized Message is retained even when its Conversation is outside the
+    former first 100, tied timestamps use Message ID order, and a recursively
+    unauthorized Thread contributes neither title nor body.
 - Suggested issue: **Align search authorization with project and comment access rules**.
 
 ### BE-003: New conversations use an invalid required workspace foreign key

@@ -1,6 +1,5 @@
 using AipPortal.Application.Common;
 using AipPortal.Application.Common.Interfaces;
-using AipPortal.Application.Messaging;
 using AipPortal.Application.Search;
 using AipPortal.Domain.Enums;
 using Microsoft.EntityFrameworkCore;
@@ -241,41 +240,9 @@ public sealed class DbSearchService(
 
     private async Task<IReadOnlyList<SearchResultItemResponse>> SearchMessagesAsync(Guid userId, string? q, SearchRequest request, CancellationToken cancellationToken)
     {
-        var memberConversationIds = dbContext.ConversationMembers
-            .Where(member =>
-                member.UserId == userId &&
-                member.LeftAt == null &&
-                member.RemovedAt == null &&
-                member.CanRead)
-            .Select(member => member.ConversationId);
-        var visibleProjectIds = dbContext.VisibleProjectsFor(userId).Select(project => project.Id);
-
         var query = dbContext.Messages.AsNoTracking()
-            .Where(message => message.DeletedAt == null && memberConversationIds.Contains(message.ConversationId))
-            .Join(dbContext.Conversations, message => message.ConversationId, conversation => conversation.Id, (message, conversation) => new { message, conversation })
-            .Where(item =>
-                (item.conversation.Type != ConversationType.ProjectChannel || item.conversation.ProjectId.HasValue) &&
-                (item.conversation.Type != ConversationType.Thread ||
-                 item.conversation.ParentConversationId.HasValue &&
-                 item.conversation.RootConversationId.HasValue &&
-                 dbContext.ConversationMembers.Any(parentMember =>
-                     parentMember.ConversationId == item.conversation.ParentConversationId.Value &&
-                     parentMember.UserId == userId &&
-                     parentMember.LeftAt == null &&
-                     parentMember.RemovedAt == null &&
-                     parentMember.CanRead) &&
-                 dbContext.ConversationMembers.Any(rootMember =>
-                     rootMember.ConversationId == item.conversation.RootConversationId.Value &&
-                     rootMember.UserId == userId &&
-                     rootMember.LeftAt == null &&
-                     rootMember.RemovedAt == null &&
-                     rootMember.CanRead) &&
-                 item.conversation.ParentConversation!.ProjectId == item.conversation.ProjectId &&
-                 item.conversation.RootConversation!.ProjectId == item.conversation.ProjectId &&
-                 (item.conversation.RootConversation.Type != ConversationType.ProjectChannel ||
-                  item.conversation.RootConversation.ProjectId.HasValue)) &&
-                (!item.conversation.ProjectId.HasValue ||
-                 visibleProjectIds.Contains(item.conversation.ProjectId.Value)));
+            .Where(message => message.DeletedAt == null)
+            .Join(dbContext.Conversations, message => message.ConversationId, conversation => conversation.Id, (message, conversation) => new { message, conversation });
 
         if (request.WorkspaceId.HasValue)
         {
@@ -298,29 +265,46 @@ public sealed class DbSearchService(
             (!request.FromDate.HasValue || item.message.CreatedAt >= request.FromDate.Value) &&
             (!request.ToDate.HasValue || item.message.CreatedAt <= request.ToDate.Value));
 
-        // Thread authority is recursive: every ancestor scope and participant
-        // relationship must still be valid.  Bound the candidate set before
-        // invoking the authoritative record-level policy so Search never maps
-        // a protected title/body and never performs unbounded N+1 checks.
-        var candidateConversationIds = await query
-            .Select(item => item.conversation.Id)
-            .Distinct()
-            .Take(100)
-            .ToListAsync(cancellationToken);
-        var authorizedConversationIds = await messaging.FilterReadableConversationIdsAsync(
-            userId,
-            candidateConversationIds,
-            cancellationToken);
-
-        if (authorizedConversationIds.Count == 0)
+        var readableConversationIds = messaging.QueryReadableConversationIds(userId);
+        if (readableConversationIds is not null)
         {
-            return [];
+            // PostgreSQL composes the authoritative recursive Conversation
+            // relation into the Message query before result ordering/limiting.
+            query = query.Where(item => readableConversationIds.Contains(item.conversation.Id));
         }
+        else
+        {
+            // Non-relational test providers cannot compose the recursive CTE.
+            // Keep their existing fail-closed bound, but make candidate choice
+            // deterministic and recency-first before the bounded recursive check.
+            var candidateConversationIds = await query
+                .GroupBy(item => item.conversation.Id)
+                .Select(group => new
+                {
+                    ConversationId = group.Key,
+                    LatestMessageAt = group.Max(item => item.message.CreatedAt)
+                })
+                .OrderByDescending(item => item.LatestMessageAt)
+                .ThenBy(item => item.ConversationId)
+                .Take(100)
+                .Select(item => item.ConversationId)
+                .ToListAsync(cancellationToken);
+            var authorizedConversationIds = await messaging.FilterReadableConversationIdsAsync(
+                userId,
+                candidateConversationIds,
+                cancellationToken);
 
-        query = query.Where(item => authorizedConversationIds.Contains(item.conversation.Id));
+            if (authorizedConversationIds.Count == 0)
+            {
+                return [];
+            }
+
+            query = query.Where(item => authorizedConversationIds.Contains(item.conversation.Id));
+        }
 
         return await query
             .OrderByDescending(item => item.message.CreatedAt)
+            .ThenBy(item => item.message.Id)
             .Select(item => new SearchResultItemResponse(SearchResultType.Message, item.message.Id, item.conversation.Title ?? "Conversation", Snippet(item.message.Body), $"/conversations/{item.conversation.Id}", item.conversation.WorkspaceId, null, null, item.message.CreatedAt, item.message.AuthorUser!.DisplayName))
             .Take(100)
             .ToListAsync(cancellationToken);

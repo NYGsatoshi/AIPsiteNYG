@@ -30,16 +30,18 @@ from treating the backend as complete:
 - **WPC-01-005, blocking lifecycle/data-integrity dependency:** atomic Project
   activation cannot be implemented until Visibility, canonical default Channel,
   and Task workflow attachment semantics are resolved. Draft activation bypass
-  is closed: generic `Planning -> Active` is denied, including after
-  `Planning -> Suspended -> Planning`, and ambiguous `Suspended -> Active` or
-  Archived/Deleted recovery cannot substitute for activation. `Review ->
-  Active` remains the ordinary return from a state whose production inbound
-  path proves prior operation. Persistence still cannot distinguish every
-  never-activated historical Suspended/Archived row from a previously active
-  Project. Recovery that requires that missing provenance returns 409
-  `InvalidStateTransition` without lifecycle/deletion mutation, success audit,
-  invalidation, or save. Do not expose activation UI until the explicit atomic
-  command and its dependencies are implemented.
+  is closed: generic `Planning -> Active` is denied. `Planning -> Suspended`
+  remains allowed, but once Suspended, recovery to either Planning or Active is
+  gated because persistence cannot distinguish a never-activated Project from a
+  previously operational one. Both transitions return 409
+  `InvalidStateTransition` with target `body.status` and no metadata/lifecycle
+  mutation, success audit, ProjectChanged or authorization invalidation, or
+  save. `Suspended -> Archived` remains available. `Review -> Active` remains
+  the ordinary return from a state whose production inbound path proves prior
+  operation. Archived/Deleted recovery also fails closed without guessing
+  provenance. Every missing lifecycle edge in `ProjectService.UpdateAsync`
+  uses the same fixed safe typed conflict. Do not expose activation UI until
+  the explicit atomic command and its dependencies are implemented.
 
 ## Backend application logic audit findings
 
@@ -57,8 +59,14 @@ The highest-severity confirmed findings are:
   project-bound Message content without claiming canonical Visibility
   persistence. Production PostgreSQL Conversation list/count and Message Search
   now share one depth-bounded recursive ancestry relation and fail closed on
-  missing, inconsistent, cyclic, or deeper-than-32 hierarchies. Thread creation
-  cannot persist a child beyond that readable boundary.
+  missing, inconsistent, cyclic, or deeper-than-32 hierarchies. Message Search
+  composes that relation over every matching Conversation before deterministic
+  Message ordering and the final result bound; it no longer authorizes an
+  arbitrary first 100 Conversation IDs. A real-PostgreSQL regression covers 125
+  authorized matching Conversations, the newest authorized Message outside the
+  former first 100, tied timestamps, and an unauthorized nested Thread with a
+  revoked ancestor whose title/body remain absent. Thread creation cannot
+  persist a child beyond that readable boundary.
 - **BE-003, resolved for direct-message MVP:** direct conversation creation now derives an active shared workspace server-side instead of writing `WorkspaceId = Guid.Empty`; broader PostgreSQL coverage for all conversation creation modes is still recommended.
 - **BE-004, critical:** message attachment requests trust client storage metadata and create records without required workspace/file-object relationships.
 - **BE-005, high:** post update/delete/pin operations mutate entities loaded with `AsNoTracking`, so successful responses may not correspond to persisted changes.

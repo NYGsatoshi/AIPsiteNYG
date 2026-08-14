@@ -6,6 +6,12 @@ namespace AipPortal.Application.Common.Interfaces;
 public interface IMessagingRepository
 {
     Task<PagedResponse<Conversation>> ListForUserAsync(Guid userId, int page, int pageSize, CancellationToken cancellationToken = default);
+    /// <summary>
+    /// Returns the provider-composable authoritative Conversation readability
+    /// relation, or <see langword="null"/> when the provider requires the
+    /// bounded asynchronous fallback.
+    /// </summary>
+    IQueryable<Guid>? QueryReadableConversationIds(Guid userId);
     Task<IReadOnlySet<Guid>> FilterReadableConversationIdsAsync(Guid userId, IReadOnlyCollection<Guid> conversationIds, CancellationToken cancellationToken = default);
     Task<IReadOnlyList<User>> SearchDirectRecipientsAsync(Guid userId, string? query, int limit, CancellationToken cancellationToken = default);
     Task<Conversation?> GetConversationAsync(Guid conversationId, CancellationToken cancellationToken = default);

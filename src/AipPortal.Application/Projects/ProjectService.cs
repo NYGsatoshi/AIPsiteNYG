@@ -106,6 +106,25 @@ public sealed class ProjectService(
                 Target: "project"));
         }
 
+        var previousStatus = project.Status;
+        var nextStatus = request.Status ?? project.Status;
+        if (previousStatus != nextStatus &&
+            nextStatus == ProjectStatus.Active &&
+            previousStatus != ProjectStatus.Review)
+        {
+            return Result<ProjectResponse>.Failure(new ApplicationErrorDetail(
+                "InvalidStateTransition",
+                "The requested Project lifecycle transition is not available.",
+                Target: "body.status"));
+        }
+        if (!IsValidProjectStatusTransition(previousStatus, nextStatus))
+        {
+            return Result<ProjectResponse>.Failure(new ApplicationErrorDetail(
+                "InvalidStateTransition",
+                "The requested Project lifecycle transition is not available.",
+                Target: "body.status"));
+        }
+
         var startDate = request.StartDate ?? project.StartDate;
         var endDate = request.EndDate ?? project.DueDate;
         if (HasInvalidDateRange(startDate, endDate))
@@ -123,23 +142,6 @@ public sealed class ProjectService(
 
             normalizedTitle = request.Title.Trim();
         }
-
-        var previousStatus = project.Status;
-        var nextStatus = request.Status ?? project.Status;
-        if (previousStatus != nextStatus &&
-            nextStatus == ProjectStatus.Active &&
-            previousStatus != ProjectStatus.Review)
-        {
-            return Result<ProjectResponse>.Failure(new ApplicationErrorDetail(
-                "InvalidStateTransition",
-                "The requested Project lifecycle transition is not available.",
-                Target: "body.status"));
-        }
-        if (!IsValidProjectStatusTransition(previousStatus, nextStatus))
-        {
-            return Result<ProjectResponse>.Failure($"Project status cannot transition from {previousStatus} to {nextStatus}.");
-        }
-
         var affectedReaders = RemovesCurrentReadAccess(previousStatus, nextStatus)
             ? await projects.ListCurrentReaderUserIdsAsync(project.Id, cancellationToken)
             : [];
@@ -1624,7 +1626,7 @@ public sealed class ProjectService(
             ProjectStatus.Active => next is ProjectStatus.Review or ProjectStatus.Completed or ProjectStatus.Suspended or ProjectStatus.Archived,
             ProjectStatus.Review => next is ProjectStatus.Active or ProjectStatus.Completed or ProjectStatus.Suspended or ProjectStatus.Archived,
             ProjectStatus.Completed => next is ProjectStatus.Archived,
-            ProjectStatus.Suspended => next is ProjectStatus.Planning or ProjectStatus.Archived,
+            ProjectStatus.Suspended => next is ProjectStatus.Archived,
             ProjectStatus.Archived => false,
             _ => false
         };

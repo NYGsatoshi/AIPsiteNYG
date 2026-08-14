@@ -58,11 +58,13 @@ Workspace-create failures use the full WPC error envelope. Exact cases include
 `CsrfRejected`, masked `NotFound`, `IdempotencyConflict`,
 `UnsupportedMediaType`, `DependencyUnavailable`, and `UnexpectedServerError`.
 Changed activation, recovery, and archive-read-only conflicts add 409
-`InvalidStateTransition`; unrelated missing generic graph edges retain their
-existing validation mapping. WPC successes carry `requestId`, `data`, and
-`warnings`; errors carry `requestId`, `error.code`, `error.message`,
-`error.target`, `error.details`, `error.redactionApplied`, `traceId`, and
-`status`.
+`InvalidStateTransition`. Every invalid Project lifecycle transition produced
+by `ProjectService.UpdateAsync` returns that typed HTTP 409 with target
+`body.status` and the fixed safe public message. Restore and read-only
+conflicts retain their approved Project-targeted equivalents. WPC successes
+carry `requestId`, `data`, and `warnings`; errors carry `requestId`,
+`error.code`, `error.message`, `error.target`, `error.details`,
+`error.redactionApplied`, `traceId`, and `status`.
 
 Project responses preserve nullable `groupId` and expose `versionNo`.
 `POST /api/projects` is a deprecated compatibility route and now always
@@ -71,17 +73,18 @@ authority, required Group, missing Visibility, and missing idempotency cannot
 safely approximate the canonical command.
 `POST /api/workspaces/{workspaceId}/projects` and
 `POST /api/projects/{projectId}/activate` are not implemented by WPC-01.
-Generic `Planning -> Active` and provenance-ambiguous `Suspended -> Active`
-return 409 `InvalidStateTransition`. `Review -> Active` remains an ordinary
-operational return because Review has only an operational production inbound
-path. An Active metadata-only update may retain Active. Archived/Deleted
-restore cannot safely select a prior lifecycle state, so an otherwise-authorized request returns the same
-typed 409 without lifecycle/deletion mutation, success audit, invalidation, or
-save. Archived/Deleted Projects are read-only through the generic update path,
-and the ordinary archive path cannot produce a second success side effect; an
-otherwise-authorized explicit Project manager receives typed 409 on repetition.
-Planning/Suspended discovery and subordinate resources require
-explicit Project membership.
+Generic `Planning -> Active`, `Suspended -> Planning`, and
+`Suspended -> Active` return 409 `InvalidStateTransition`. `Planning -> Suspended`,
+`Suspended -> Archived`, `Active -> Review`, and `Review -> Active` remain
+valid. Same-state metadata-only Active or Suspended updates remain valid, and
+no generic mutation introduces another route to Active. Archived/Deleted
+restore cannot safely select a prior lifecycle state, so an otherwise-authorized
+request returns the same typed 409 without lifecycle/deletion mutation,
+success audit, invalidation, or save. Archived/Deleted Projects are read-only
+through the generic update path, and the ordinary archive path cannot produce
+a second success side effect; an otherwise-authorized explicit Project manager
+receives typed 409 on repetition. Planning/Suspended discovery and subordinate
+resources require explicit Project membership.
 
 For non-Archived rows, Project list and Project-derived Search share the
 current Project detail read predicate. It covers Project, Task, Artifact,
@@ -99,9 +102,14 @@ Missing ancestor identity, inconsistent Workspace/Project/root scope, a cycle,
 or more than 32 Thread edges fails closed before protected content or count
 metadata is returned. Send, moderate, and Thread-create authorization first
 requires that structural read boundary; Thread creation cannot persist a child
-outside it. Lifecycle provenance, Visibility/backfill, exact create authority,
-default Project Channel, and activation-time workflow mapping remain explicit
-decision/dependency blockers.
+outside it. On PostgreSQL, matching Messages are constrained by that
+authoritative recursive readable-Conversation ID query before deterministic
+`CreatedAt DESC, Id ASC` ordering and the final result bound. Tenant, membership,
+Workspace/Project/root consistency, cycle rejection, Project visibility, and
+the 32-level ceiling remain inside the shared relation. Non-PostgreSQL
+providers retain the bounded fail-closed fallback. Lifecycle provenance,
+Visibility/backfill, exact create authority, default Project Channel, and
+activation-time workflow mapping remain explicit decision/dependency blockers.
 
 ## General Rules
 

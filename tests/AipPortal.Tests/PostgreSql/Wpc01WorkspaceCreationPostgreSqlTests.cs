@@ -770,6 +770,232 @@ public sealed class Wpc01WorkspaceCreationPostgreSqlTests
     [PostgreSqlFact]
     [Trait("Category", "PostgreSQLIntegration")]
     [Trait("Scope", "WPC01")]
+    public async Task MessageSearchAuthorizesAllMatchingConversationsBeforeDeterministicLimit()
+    {
+        var connectionString = PostgreSqlTestEnvironment.RequireConnectionString();
+        await PostgreSqlMigrationTestDatabase.WithTemporaryDatabaseAsync(connectionString, async database =>
+        {
+            await PostgreSqlMigrationTestDatabase.MigrateAsync(database);
+            var graph = await SeedActiveVisibilityGraphAsync(database);
+            await using var db = CreateTenantContext(database, graph.TenantId, graph.TenantSlug);
+            var messaging = new MessagingRepository(db);
+            const string needle = "WpcSetBasedMessageSearchNeedle";
+            const string unauthorizedTitle = "Unauthorized recursive title marker";
+            const string unauthorizedBody = "Unauthorized recursive body marker";
+            var baseline = TestClock.Value.AddDays(1);
+            var conversations = new List<Conversation>();
+            var members = new List<ConversationMember>();
+            var messages = new List<Message>();
+
+            for (var index = 0; index < 125; index++)
+            {
+                var conversation = new Conversation
+                {
+                    TenantId = graph.TenantId,
+                    WorkspaceId = graph.WorkspaceId,
+                    Type = ConversationType.DirectMessage,
+                    Title = $"{needle} authorized conversation {index:D3}",
+                    CreatedByUserId = graph.WorkspaceOwnerUserId,
+                    CreatedAt = baseline.AddHours(-2)
+                };
+                var message = new Message
+                {
+                    TenantId = graph.TenantId,
+                    WorkspaceId = graph.WorkspaceId,
+                    ConversationId = conversation.Id,
+                    AuthorUserId = graph.GroupMemberUserId,
+                    Body = $"{needle} authorized message {index:D3}",
+                    CreatedAt = baseline.AddMinutes(-index - 1)
+                };
+                conversations.Add(conversation);
+                members.Add(NewReadableConversationMember(
+                    graph,
+                    conversation.Id,
+                    graph.ExplicitProjectMemberUserId));
+                messages.Add(message);
+            }
+
+            var root = conversations[0];
+            var revokedAncestor = new Conversation
+            {
+                TenantId = graph.TenantId,
+                WorkspaceId = graph.WorkspaceId,
+                Type = ConversationType.Thread,
+                ParentConversationId = root.Id,
+                RootConversationId = root.Id,
+                Title = $"{needle} revoked ancestor",
+                CreatedByUserId = graph.WorkspaceOwnerUserId,
+                CreatedAt = baseline.AddHours(-2)
+            };
+            var readableParent = new Conversation
+            {
+                TenantId = graph.TenantId,
+                WorkspaceId = graph.WorkspaceId,
+                Type = ConversationType.Thread,
+                ParentConversationId = revokedAncestor.Id,
+                RootConversationId = root.Id,
+                Title = $"{needle} readable immediate parent",
+                CreatedByUserId = graph.WorkspaceOwnerUserId,
+                CreatedAt = baseline.AddHours(-2)
+            };
+            var unauthorizedNestedThread = new Conversation
+            {
+                TenantId = graph.TenantId,
+                WorkspaceId = graph.WorkspaceId,
+                Type = ConversationType.Thread,
+                ParentConversationId = readableParent.Id,
+                RootConversationId = root.Id,
+                Title = $"{needle} {unauthorizedTitle}",
+                CreatedByUserId = graph.WorkspaceOwnerUserId,
+                CreatedAt = baseline.AddHours(-2)
+            };
+            var revokedMember = NewReadableConversationMember(
+                graph,
+                revokedAncestor.Id,
+                graph.ExplicitProjectMemberUserId);
+            revokedMember.RemovedAt = baseline.AddHours(-1);
+            var unauthorizedMessage = new Message
+            {
+                TenantId = graph.TenantId,
+                WorkspaceId = graph.WorkspaceId,
+                ConversationId = unauthorizedNestedThread.Id,
+                AuthorUserId = graph.GroupMemberUserId,
+                Body = $"{needle} {unauthorizedBody}",
+                CreatedAt = baseline.AddHours(3)
+            };
+
+            db.Conversations.AddRange(conversations);
+            db.Conversations.AddRange(revokedAncestor, readableParent, unauthorizedNestedThread);
+            db.ConversationMembers.AddRange(members);
+            db.ConversationMembers.AddRange(
+                revokedMember,
+                NewReadableConversationMember(graph, readableParent.Id, graph.ExplicitProjectMemberUserId),
+                NewReadableConversationMember(graph, unauthorizedNestedThread.Id, graph.ExplicitProjectMemberUserId));
+            db.Messages.AddRange(messages);
+            db.Messages.Add(unauthorizedMessage);
+            await db.SaveChangesAsync();
+
+            // AppDbContext assigns CreatedAt while inserting. Reapply the deliberately
+            // distinct timestamps after persistence so the regression never depends on
+            // wall-clock timing or on messages created by the shared visibility fixture.
+            for (var index = 0; index < messages.Count; index++)
+            {
+                messages[index].CreatedAt = baseline.AddMinutes(-index - 1);
+            }
+
+            unauthorizedMessage.CreatedAt = baseline.AddHours(3);
+
+            IQueryable<Guid> LegacyCandidateConversationIds()
+            {
+                var memberConversationIds = db.ConversationMembers
+                    .Where(member =>
+                        member.UserId == graph.ExplicitProjectMemberUserId &&
+                        member.LeftAt == null &&
+                        member.RemovedAt == null &&
+                        member.CanRead)
+                    .Select(member => member.ConversationId);
+                return db.Messages
+                    .AsNoTracking()
+                    .Where(message =>
+                        message.DeletedAt == null &&
+                        message.AuthorUserId == graph.GroupMemberUserId &&
+                        memberConversationIds.Contains(message.ConversationId))
+                    .Join(
+                        db.Conversations,
+                        message => message.ConversationId,
+                        conversation => conversation.Id,
+                        (message, conversation) => new { message, conversation })
+                    .Where(item =>
+                        (item.conversation.Type != ConversationType.ProjectChannel ||
+                         item.conversation.ProjectId.HasValue) &&
+                        (item.conversation.Type != ConversationType.Thread ||
+                         item.conversation.ParentConversationId.HasValue &&
+                         item.conversation.RootConversationId.HasValue &&
+                         db.ConversationMembers.Any(parentMember =>
+                             parentMember.ConversationId == item.conversation.ParentConversationId.Value &&
+                             parentMember.UserId == graph.ExplicitProjectMemberUserId &&
+                             parentMember.LeftAt == null &&
+                             parentMember.RemovedAt == null &&
+                             parentMember.CanRead) &&
+                         db.ConversationMembers.Any(rootMember =>
+                             rootMember.ConversationId == item.conversation.RootConversationId.Value &&
+                             rootMember.UserId == graph.ExplicitProjectMemberUserId &&
+                             rootMember.LeftAt == null &&
+                             rootMember.RemovedAt == null &&
+                             rootMember.CanRead) &&
+                         item.conversation.ParentConversation!.ProjectId == item.conversation.ProjectId &&
+                         item.conversation.RootConversation!.ProjectId == item.conversation.ProjectId &&
+                         (item.conversation.RootConversation.Type != ConversationType.ProjectChannel ||
+                          item.conversation.RootConversation.ProjectId.HasValue)) &&
+                        !item.conversation.ProjectId.HasValue &&
+                        (EF.Functions.ILike(item.message.Body, $"%{needle}%") ||
+                         item.conversation.Title != null &&
+                         EF.Functions.ILike(item.conversation.Title, $"%{needle}%")))
+                    .Select(item => item.conversation.Id)
+                    .Distinct();
+            }
+
+            var legacyCandidatePopulation = await LegacyCandidateConversationIds().ToListAsync();
+            Assert.True(legacyCandidatePopulation.Count > 100);
+            Assert.Contains(unauthorizedNestedThread.Id, legacyCandidatePopulation);
+            var legacyFirstOneHundred = (await LegacyCandidateConversationIds()
+                    .Take(100)
+                    .ToListAsync())
+                .ToHashSet();
+            var newestAuthorizedMessage = messages.First(message =>
+                !legacyFirstOneHundred.Contains(message.ConversationId));
+            var tiedMessages = messages
+                .Where(message => message.Id != newestAuthorizedMessage.Id)
+                .Take(2)
+                .ToArray();
+            newestAuthorizedMessage.CreatedAt = baseline.AddHours(2);
+            foreach (var tiedMessage in tiedMessages)
+            {
+                tiedMessage.CreatedAt = baseline.AddHours(1);
+            }
+
+            await db.SaveChangesAsync();
+            Assert.DoesNotContain(
+                newestAuthorizedMessage.ConversationId,
+                await LegacyCandidateConversationIds().Take(100).ToListAsync());
+            var tiedMessageIds = tiedMessages.Select(message => message.Id).ToArray();
+            var expectedTiedOrder = await db.Messages
+                .Where(message => tiedMessageIds.Contains(message.Id))
+                .OrderBy(message => message.Id)
+                .Select(message => message.Id)
+                .ToListAsync();
+            db.ChangeTracker.Clear();
+
+            var result = await new DbSearchService(
+                    db,
+                    new TestCurrentUser(graph.ExplicitProjectMemberUserId),
+                    messaging)
+                .SearchAsync(new SearchRequest(
+                    needle,
+                    SearchResultType.Message,
+                    WorkspaceId: graph.WorkspaceId,
+                    AuthorUserId: graph.GroupMemberUserId,
+                    PageSize: 50));
+
+            Assert.True(result.IsSuccess, result.Error);
+            var response = result.Value!;
+            Assert.Equal(100, response.TotalCount);
+            Assert.Equal(newestAuthorizedMessage.Id, response.Items[0].Id);
+            Assert.Equal(
+                expectedTiedOrder,
+                response.Items.Skip(1).Take(2).Select(item => item.Id));
+            Assert.All(
+                response.Items.Zip(response.Items.Skip(1)),
+                pair => Assert.True(pair.First.CreatedAt >= pair.Second.CreatedAt));
+            Assert.DoesNotContain(response.Items, item => item.Id == unauthorizedMessage.Id);
+            Assert.DoesNotContain(response.Items, item => item.Title.Contains(unauthorizedTitle, StringComparison.Ordinal));
+            Assert.DoesNotContain(response.Items, item => item.Snippet?.Contains(unauthorizedBody, StringComparison.Ordinal) == true);
+        });
+    }
+
+    [PostgreSqlFact]
+    [Trait("Category", "PostgreSQLIntegration")]
+    [Trait("Scope", "WPC01")]
     public async Task ExplicitMemberCanListArchivedHistoryWithoutSearchOrDetailDisclosure()
     {
         var connectionString = PostgreSqlTestEnvironment.RequireConnectionString();

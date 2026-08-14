@@ -308,6 +308,52 @@ public sealed class HttpTenantIsolationTests
         AssertCompleteErrorEnvelope(document.RootElement, 403, "CsrfRejected", null);
     }
 
+    [Theory]
+    [InlineData(ProjectStatus.Planning, ProjectStatus.Review)]
+    [InlineData(ProjectStatus.Active, ProjectStatus.Planning)]
+    [InlineData(ProjectStatus.Completed, ProjectStatus.Review)]
+    [InlineData(ProjectStatus.Suspended, ProjectStatus.Planning)]
+    [Trait("Scope", "WPC01")]
+    public async Task InvalidProjectLifecycleTransitionsUseCanonicalHttp409Envelope(
+        ProjectStatus previousStatus,
+        ProjectStatus nextStatus)
+    {
+        await using var app = await HttpTenantIsolationTestApp.CreateAsync();
+        var data = app.Data;
+        var graph = await app.AddPlanningProjectGraphAsync(
+            data.TenantA.Id,
+            data.TenantA.Slug,
+            data.WorkspaceA.Id,
+            data.GroupA.Id,
+            data.TenantAOwner.Id,
+            data.TenantAAdmin.Id,
+            [],
+            previousStatus);
+
+        using var response = await app.SendAsync(
+            data.TenantAOwner,
+            data.TenantA.Slug,
+            $"/api/projects/{graph.Project.Id:D}",
+            HttpMethod.Patch,
+            JsonContent($$"""
+                {"title":"Must not persist","description":"Must not persist","status":{{(int)nextStatus}},"startDate":"2026-02-01","endDate":"2026-11-30"}
+                """));
+        using var document = JsonDocument.Parse(await response.Content.ReadAsStringAsync());
+
+        Assert.Equal(HttpStatusCode.Conflict, response.StatusCode);
+        AssertCompleteErrorEnvelope(
+            document.RootElement,
+            StatusCodes.Status409Conflict,
+            "InvalidStateTransition",
+            "body.status");
+        var lifecycle = await app.GetProjectLifecycleAsync(
+            data.TenantA.Id,
+            data.TenantA.Slug,
+            graph.Project.Id);
+        Assert.Equal(previousStatus, lifecycle.Status);
+        Assert.Null(lifecycle.DeletedAt);
+    }
+
     [Fact]
     [Trait("Scope", "WPC01")]
     public async Task PlanningProjectAndSubresourcesAreNotDisclosedBeyondProjectMembership()
@@ -2683,7 +2729,8 @@ public sealed class HttpTenantIsolationTests
                 Guid groupId,
                 Guid ownerUserId,
                 Guid relationshipUserId,
-                IReadOnlyCollection<Guid> staleConversationMemberUserIds)
+                IReadOnlyCollection<Guid> staleConversationMemberUserIds,
+                ProjectStatus status = ProjectStatus.Planning)
         {
             await using var scope = App.Services.CreateAsyncScope();
             var currentTenant = scope.ServiceProvider.GetRequiredService<CurrentTenantService>();
@@ -2699,7 +2746,7 @@ public sealed class HttpTenantIsolationTests
                 Name = $"WPC draft {Guid.NewGuid():N}",
                 Slug = $"wpc-draft-{Guid.NewGuid():N}",
                 Description = "WPC planning project",
-                Status = ProjectStatus.Planning
+                Status = status
             };
             var task = new TaskItem
             {

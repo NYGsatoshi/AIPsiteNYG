@@ -77,9 +77,11 @@ WPC-01 also adds no Project activation-provenance column or backfill. Existing
 Archived/Suspended rows cannot be reliably classified as never-activated or
 previously Active. A recovery command that needs that fact therefore returns a
 non-mutating 409 `InvalidStateTransition`; it does not rewrite the row to
-Planning or Active and does not clear deletion metadata. Ambiguous-state access
-remains member-only rather than inferring provenance from status, audit,
-workflow, Channel, or child data.
+Planning or Active and does not clear deletion metadata. In particular,
+Suspended cannot transition to Planning or Active until that provenance is
+canonical; Suspended may remain Suspended during metadata-only update or move
+to Archived. Ambiguous-state access remains member-only rather than inferring
+provenance from status, audit, workflow, Channel, or child data.
 
 ### Identity
 
@@ -503,7 +505,7 @@ It does not create users, memberships, or demo content.
 
 ## Search
 
-Search queries relational tables directly with Npgsql `ILike` and membership predicates. There is no separate search index or full-text engine. Project-derived queries share the EF-translatable Project read scope. Message Search takes at most 100 candidate Conversation IDs, then authorizes their ancestor chains through a PostgreSQL recursive relation with a 32-level fail-closed ceiling before loading title/body results. Production Conversation pagination derives both items and `totalCount` from that same set-based recursive authorization relation; bounded detail/Search checks restrict its anchor to the requested IDs, and no broader preauthorization count is returned.
+Search queries relational tables directly with Npgsql `ILike` and membership predicates. There is no separate search index or full-text engine. Project-derived queries share the EF-translatable Project read scope. PostgreSQL Message Search constrains every matching Message by the shared readable-Conversation ID query, which composes Project scope with a recursive ancestry relation and 32-level fail-closed ceiling, before deterministic `CreatedAt DESC, Id ASC` ordering and the final 100-result bound. It does not materialize the caller's Conversation history or authorize an arbitrary pre-limit subset. Production Conversation pagination derives both items and `totalCount` from that same set-based recursive authorization relation; bounded record checks may restrict its anchor to requested IDs, while Search consumes the unrestricted queryable relation. Non-PostgreSQL providers retain the bounded fail-closed fallback.
 
 PostgreSQL search tests exist but execute only when `POSTGRES_TEST_CONNECTION_STRING` is set.
 

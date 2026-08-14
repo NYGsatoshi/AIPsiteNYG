@@ -20,7 +20,7 @@ public sealed class MessagingRepository(AppDbContext dbContext) : IMessagingRepo
 
         if (UsesPostgreSql())
         {
-            var readableIds = PostgreSqlReadableConversationIds(userId);
+            var readableIds = QueryReadableConversationIds(userId)!;
             var query = candidates.Where(conversation => readableIds.Contains(conversation.Id));
             var total = await query.CountAsync(cancellationToken);
             var items = await query
@@ -33,6 +33,13 @@ public sealed class MessagingRepository(AppDbContext dbContext) : IMessagingRepo
         }
 
         return await ListForUserNonPostgreSqlAsync(userId, page, pageSize, candidates, cancellationToken);
+    }
+
+    public IQueryable<Guid>? QueryReadableConversationIds(Guid userId)
+    {
+        return UsesPostgreSql()
+            ? PostgreSqlQueryableReadableConversationIds(userId)
+            : null;
     }
 
     public async Task<IReadOnlySet<Guid>> FilterReadableConversationIdsAsync(
@@ -52,10 +59,7 @@ public sealed class MessagingRepository(AppDbContext dbContext) : IMessagingRepo
 
         if (UsesPostgreSql())
         {
-            return await ReadableConversationCandidates(userId)
-                .Where(conversation => originalIds.Contains(conversation.Id))
-                .Where(conversation => PostgreSqlReadableConversationIds(userId, originalIds).Contains(conversation.Id))
-                .Select(conversation => conversation.Id)
+            return await PostgreSqlQueryableReadableConversationIds(userId, originalIds)
                 .ToHashSetAsync(cancellationToken);
         }
 
@@ -140,6 +144,22 @@ public sealed class MessagingRepository(AppDbContext dbContext) : IMessagingRepo
         }
 
         return authorized;
+    }
+
+    private IQueryable<Guid> PostgreSqlQueryableReadableConversationIds(
+        Guid userId,
+        IReadOnlyCollection<Guid>? originIds = null)
+    {
+        var candidates = ReadableConversationCandidates(userId);
+        if (originIds is not null)
+        {
+            candidates = candidates.Where(conversation => originIds.Contains(conversation.Id));
+        }
+
+        var recursivelyReadableIds = PostgreSqlReadableConversationIds(userId, originIds);
+        return candidates
+            .Where(conversation => recursivelyReadableIds.Contains(conversation.Id))
+            .Select(conversation => conversation.Id);
     }
 
     private IQueryable<Guid> PostgreSqlReadableConversationIds(

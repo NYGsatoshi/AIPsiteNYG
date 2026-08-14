@@ -4,7 +4,7 @@ Status: final merge-readiness remediation candidate
 
 - PR: #281
 - Base SHA: `74d0a334e4b3094e1efad48006fce9b13b21bdef`
-- Independent-audit starting HEAD: `e9a73f032cd1341fad978609a4a9dbf34d14e765`
+- Final-targeted-remediation starting HEAD: `e131b6707b25374b9f99f8008c7c417773941a94`
 - Final HEAD: recorded in PR #281 after the scoped remediation push
 - Specification SHA: `f7535ce7de1846780a1dd6689e93310f0482897b`
 - Branch: `wpc/01-workspace-project-creation-foundation`
@@ -23,6 +23,8 @@ The implemented foundation is safe and deliberately bounded:
 
 - generic Draft activation is rejected, while the proven operational
   `Active -> Review -> Active` path remains valid;
+- `Planning -> Suspended` remains valid, but Suspended recovery into Planning
+  or Active is gated until lifecycle provenance is canonical;
 - ambiguous Archived/Deleted recovery returns a non-mutating typed conflict;
 - Planning and provenance-ambiguous lifecycle states fail closed against broad
   discovery and subordinate-resource access;
@@ -64,7 +66,7 @@ The following files were read at specification SHA
 | Canonical cross-module RedactionService | API error contract | DEPENDENCY BLOCKER | No repository redaction service exists. WPC uses fixed public messages, empty details, masked targets, and `redactionApplied`; it does not claim repository-wide redactor integration. |
 | Generic Project transition to Active | WPC-DEC-014/024; WPC §12.2 | IMPLEMENTED | Planning/Suspended/other non-Review attempts to target Active return 409 `InvalidStateTransition`; Review may return to Active because its production provenance is operational. |
 | Never-activated archive/restore | WPC-DEC-014/024 | IMPLEMENTED | Archive produces Archived; recovery does not guess Planning or Active and returns a non-mutating 409. |
-| Suspended recovery | WPC-DEC-014/024 | IMPLEMENTED | Suspended may return to Planning, but neither direct nor resumed generic flow may target Active. |
+| Suspended recovery | No normative provenance mapping found | FAIL-CLOSED / GATED | Suspended cannot return to Planning or Active until canonical lifecycle provenance exists. Both attempts return a non-mutating typed 409; Suspended may still transition to Archived. |
 | Previously-active lifecycle provenance | No normative mapping found | DECISION REQUIRED | No `ActivatedAt`, audit inference, or data backfill was invented. Recovery needing unknown provenance conflicts without mutation. |
 | Draft/ambiguous-state non-disclosure | WPC-DEC-016; governance §§5, 13 | IMPLEMENTED | Planning/Suspended require current Workspace access plus explicit Project membership across list/detail/search, Tasks, My Tasks, digest, Messaging, and realtime. Project-derived Search and Messaging reapply current authorization before returning protected content. |
 | Canonical Workspace-scoped Project create | WPC-DEC-020; WPC §12.1 | FAIL-CLOSED / GATED | The route is absent. Deprecated `POST /api/projects` returns 503 and performs no mutation. |
@@ -133,11 +135,11 @@ Production Project lifecycle entry points:
 | Path | Final behavior |
 | --- | --- |
 | `ProjectService.CreateAsync` | Deprecated command returns 503 and creates nothing. Domain default for any separately constructed new Project remains Planning. |
-| `ProjectService.UpdateAsync` | Same-state metadata retention is valid except Archived/Deleted, which are read-only. Graph edges are Planning -> Suspended/Archived; Active -> Review/Completed/Suspended/Archived; Review -> Active/Completed/Suspended/Archived; Completed -> Archived; Suspended -> Planning/Archived. Non-Review transitions to Active return typed 409; every other missing edge is rejected before mutation, audit, invalidation, or save. |
+| `ProjectService.UpdateAsync` | Same-state metadata retention is valid except Archived/Deleted, which are read-only. Graph edges are Planning -> Suspended/Archived; Active -> Review/Completed/Suspended/Archived; Review -> Active/Completed/Suspended/Archived; Completed -> Archived; Suspended -> Archived. Every missing edge returns typed 409 `InvalidStateTransition`, target `body.status`, before metadata/lifecycle mutation, audit, ProjectChanged or authorization invalidation, or save. |
 | `ProjectService.ArchiveAsync` | Maps any non-Archived/non-Deleted, non-soft-deleted state to Archived. Repeating archive conflicts without a success side effect. |
 | `AdminService.ArchiveProjectAsync` | Compatibility administration path writes Archived plus deletion metadata and a `DataArchived` audit. Before mutation it enumerates the same current Project readers and stages metadata-only authorization invalidations with the archive/audit transaction. Deleted/already-soft-deleted input conflicts before mutation, audit, invalidation, or save; the path never writes Active. |
 | `ProjectService.RestoreAsync` | Current persistence cannot choose a safe prior status. Otherwise-authorized restore requests return typed 409 without status/deletion mutation, success audit, invalidation, or save. |
-| Suspended recovery | Transition graph permits Planning or Archived, never Active. A subsequent attempt to target Active is independently rejected. |
+| Suspended recovery | Transition graph permits only Archived. Planning and Active recovery remain gated until canonical provenance exists. An otherwise valid metadata-only update may retain Suspended. |
 | Explicit `POST /activate` | Absent. |
 | Domain `Restore()` helper | Clears deletion metadata only; it does not change Project status. |
 | Migrations | No migration writes Project status to Active and no activation provenance migration exists. |
@@ -149,7 +151,9 @@ unambiguous operational `Review -> Active` return. Planning, Suspended, and
 Archived/Deleted histories are treated conservatively when provenance is
 required. Explicit Project members retain bounded access; broader
 Workspace/Group governance does not acquire Draft visibility merely by moving
-the row to Suspended or Archived. This remains a **FAIL-CLOSED / GATED**
+the row to Suspended or Archived. Suspended recovery into Planning or Active is
+also gated rather than inferred from audit, child-resource, timestamp,
+membership, workflow, or client state. This remains a **FAIL-CLOSED / GATED**
 foundation, not a final activation or historical-recovery policy.
 
 ## Draft and subordinate-resource boundary
@@ -177,12 +181,15 @@ member; detail, Search, and subordinate reads remain hidden. The shared scope
 preserves explicit ProjectMember, authorized GroupMember,
 Workspace Owner/Admin, ungrouped ordinary-member, and current SystemAdmin
 access while denying an ordinary member outside a grouped Project/Group and a
-revoked member with stale subordinate rows. Message Search also performs the
-authoritative recursive Conversation check over a bounded candidate set before
-mapping any Thread or Project-bound title/body. Production PostgreSQL detail,
-pages, counts, polling, and Message Search use the same set-based ancestry
-relation; missing identity, inconsistent Workspace/Project/root scope, cycles,
-or more than 32 Thread edges fail closed instead of affecting returned metadata.
+revoked member with stale subordinate rows. PostgreSQL Message Search composes
+the authoritative recursive readable-Conversation ID relation over all
+matching Messages before `CreatedAt DESC, Id ASC` ordering and `Take(100)`;
+there is no arbitrary pre-authorization Conversation subset. Production
+PostgreSQL detail, pages, counts, polling, and Message Search use the same
+set-based ancestry relation; missing identity, inconsistent Workspace/Project/
+root scope, cycles, or more than 32 Thread edges fail closed instead of
+affecting returned metadata. The bounded non-PostgreSQL provider fallback
+remains fail closed.
 Send, moderate, and Thread-create checks first require that same structural
 boundary. Thread creation rejects a child beyond the readable limit before
 success mutation. Direct-message reuse matches
@@ -260,6 +267,11 @@ Changed endpoint behavior:
   - Planning/Suspended/other non-Review attempts: 409
     `InvalidStateTransition`, target `body.status`;
   - Review return and Active metadata retention remain valid.
+- `PATCH /api/projects/{projectId}` for any invalid lifecycle edge
+  - Planning -> Review, Active -> Planning, Completed -> Review, and Suspended
+    -> Planning are covered through the actual service/controller boundary;
+  - each returns 409 `InvalidStateTransition`, target `body.status`, with no
+    rejected-request mutation or success side effect.
 - `POST /api/projects/{projectId}/restore`
   - 409 `InvalidStateTransition`, target `project`, with no lifecycle/deletion
     mutation or success side effect.
@@ -313,20 +325,18 @@ conditional early return is counted as database evidence.
 | --- | ---: | ---: | ---: | --- |
 | `dotnet restore AipPortal.slnx` | - | 0 | 0 | All projects already restored. |
 | Release build, `--no-restore --disable-build-servers -m:1` | - | 0 | 0 | 0 warnings and 0 errors. |
-| `Scope=WPC01` | 45 | 0 | 0 | Includes real-PostgreSQL Workspace/idempotency, lifecycle, authorization, recursive Conversation, archive-history, realtime, and migration cases. |
-| Workspace creation foundation + controller | 30 | 0 | 0 | Fail-closed production gate, atomic initializer seam, replay isolation, and envelope mapping. |
-| `ProjectServiceTests` | 84 | 0 | 0 | Full lifecycle graph and failed-recovery side effects. |
-| Search/Project authorization PostgreSQL group | 11 | 0 | 0 | Project-derived Search parity, Group-bound denial/positive actors, archived list exception, recursive Message scope, and Tenant isolation. |
-| Messaging focused group | 21 | 0 | 0 | Conversation/polling/safety and hosted communication isolation. |
-| My Tasks focused group | 7 | 0 | 0 | Includes provider-backed current-Project scope. |
-| Realtime/authorized-delivery focused group | 49 | 0 | 0 | Project/Task/Conversation/Notification dispatch reauthorization. |
-| `HttpTenantIsolationTests` | 43 | 0 | 0 | Hosted WPC envelope, Tenant, lifecycle, and Messaging boundaries. |
+| `Scope=WPC01` | 57 | 0 | 0 | Includes real-PostgreSQL Workspace/idempotency, lifecycle, authorization, recursive Conversation, >100-Conversation Message Search, archive-history, realtime, and migration cases. |
+| `ProjectServiceTests` | 90 | 0 | 0 | Full lifecycle graph, metadata retention, typed conflicts, and rejected-request zero-side-effect assertions. |
+| `ProjectsControllerTests` | 11 | 0 | 0 | Controller mapping helpers, including the canonical lifecycle-conflict envelope. |
+| Search/Project authorization PostgreSQL group | 13 | 0 | 0 | `PostgreSqlIntegrationTests` plus the WPC PostgreSQL fixture: Project-derived Search parity, recursive scope, >100 Conversations, unauthorized Thread exclusion, and deterministic Message ordering. |
+| Messaging focused group | 32 | 0 | 0 | Conversation, polling, safety, hosted communication isolation, and PostgreSQL recursive-authorization coverage. |
+| Realtime/authorized-delivery focused group | 52 | 0 | 0 | Project/Task/Conversation/Notification dispatch reauthorization. |
+| `HttpTenantIsolationTests` | 47 | 0 | 0 | Hosted WPC envelope, four service-produced invalid-transition 409 cases, Tenant, lifecycle, and Messaging boundaries. |
 | `Scope=TaskV1PR07D` | 37 | 0 | 0 | 34 required manifest names plus additional notification regressions; real PostgreSQL enabled. |
-| Admin lifecycle + deadline-digest focused group | 63 | 0 | 0 | Compatibility archive, required invalidation, and digest authorization. |
-| Full `dotnet test AipPortal.slnx --configuration Release --no-build --no-restore` | 905 | 0 | 0 | Real isolated PostgreSQL; 4 minutes 41 seconds. |
+| Full `dotnet test AipPortal.slnx --configuration Release --no-build --no-restore` | 916 | 0 | 0 | Real isolated PostgreSQL 18; 4 minutes 55 seconds. |
 | EF pending-model check | - | 0 | 0 | `No changes have been made to the model since the last migration.` |
 | `git diff --check` | - | 0 | 0 | Clean; line-ending conversion notices only. |
-| Independent final source/security diff review | 0 reportable findings | 0 | 0 deferred | Covers authorization widening, Search/Message/Notification disclosure, lifecycle corruption, replay, Tenant escape, delayed realtime, and SystemAdmin behavior; sealed scan identity is recorded in the final PR body. |
+| Independent final source review | 0 reportable findings | 0 | 0 deferred | Adversarial review covered lifecycle ordering/side effects, recursive Search composition, Tenant/Project/Workspace/root consistency, cycle/depth rejection, provider fallback, deterministic ordering, and the >100 regression. |
 
 `dotnet format AipPortal.slnx --verify-no-changes --no-restore --verbosity
 minimal` exited 1 on widespread pre-existing whitespace violations, including
