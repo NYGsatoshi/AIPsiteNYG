@@ -7,14 +7,34 @@ namespace AipPortal.Application.Messaging;
 
 public sealed class ConversationAuthorizationService(IMessagingRepository messaging, IProjectAuthorizationService projects) : IConversationAuthorizationService
 {
-    public Task<bool> CanViewConversation(Guid userId, Guid conversationId, CancellationToken cancellationToken = default)
+    private const int MaxThreadDepth = 32;
+
+    public async Task<bool> CanViewConversation(Guid userId, Guid conversationId, CancellationToken cancellationToken = default)
     {
-        return CanViewConversationCore(userId, conversationId, [], cancellationToken);
+        if (conversationId == Guid.Empty)
+        {
+            return false;
+        }
+
+        var conversation = await messaging.GetConversationAsync(conversationId, cancellationToken);
+        if (conversation is null ||
+            !IsSupportedMvpType(conversation.Type) ||
+            !await IsConversationScopeAllowed(userId, conversation, cancellationToken))
+        {
+            return false;
+        }
+
+        var readableIds = await messaging.FilterReadableConversationIdsAsync(
+            userId,
+            [conversationId],
+            cancellationToken);
+        return readableIds.Contains(conversationId);
     }
 
-    public Task<bool> CanSendMessage(Guid userId, Guid conversationId, CancellationToken cancellationToken = default)
+    public async Task<bool> CanSendMessage(Guid userId, Guid conversationId, CancellationToken cancellationToken = default)
     {
-        return CanSendMessageCore(userId, conversationId, [], cancellationToken);
+        return await CanViewConversation(userId, conversationId, cancellationToken) &&
+            await CanSendMessageCore(userId, conversationId, [], 0, cancellationToken);
     }
 
     public async Task<bool> CanManageConversation(Guid userId, Guid conversationId, CancellationToken cancellationToken = default)
@@ -36,6 +56,22 @@ public sealed class ConversationAuthorizationService(IMessagingRepository messag
 
     public async Task<bool> CanModerateConversation(Guid userId, Guid conversationId, CancellationToken cancellationToken = default)
     {
+        return await CanViewConversation(userId, conversationId, cancellationToken) &&
+            await CanModerateConversationCore(userId, conversationId, [], 0, cancellationToken);
+    }
+
+    private async Task<bool> CanModerateConversationCore(
+        Guid userId,
+        Guid conversationId,
+        HashSet<Guid> visited,
+        int depth,
+        CancellationToken cancellationToken)
+    {
+        if (conversationId == Guid.Empty || depth > MaxThreadDepth || !visited.Add(conversationId))
+        {
+            return false;
+        }
+
         var conversation = await messaging.GetConversationAsync(conversationId, cancellationToken);
         if (conversation is null ||
             !IsSupportedMvpType(conversation.Type) ||
@@ -53,11 +89,32 @@ public sealed class ConversationAuthorizationService(IMessagingRepository messag
         }
 
         return conversation.Type != ConversationType.Thread ||
-            await CanModerateConversation(userId, conversation.ParentConversationId ?? Guid.Empty, cancellationToken);
+            await CanModerateConversationCore(
+                userId,
+                conversation.ParentConversationId ?? Guid.Empty,
+                visited,
+                depth + 1,
+                cancellationToken);
     }
 
     public async Task<bool> CanCreateThread(Guid userId, Guid parentConversationId, CancellationToken cancellationToken = default)
     {
+        return await CanViewConversation(userId, parentConversationId, cancellationToken) &&
+            await CanCreateThreadCore(userId, parentConversationId, [], 0, cancellationToken);
+    }
+
+    private async Task<bool> CanCreateThreadCore(
+        Guid userId,
+        Guid parentConversationId,
+        HashSet<Guid> visited,
+        int depth,
+        CancellationToken cancellationToken)
+    {
+        if (parentConversationId == Guid.Empty || depth > MaxThreadDepth || !visited.Add(parentConversationId))
+        {
+            return false;
+        }
+
         var parent = await messaging.GetConversationAsync(parentConversationId, cancellationToken);
         if (parent is null ||
             !IsSupportedMvpType(parent.Type) ||
@@ -69,12 +126,30 @@ public sealed class ConversationAuthorizationService(IMessagingRepository messag
         }
 
         var member = await messaging.GetMemberAsync(parentConversationId, userId, cancellationToken);
-        return member is not null &&
-            IsActiveParticipant(member) &&
-            member.CanPost &&
-            member.CanCreateThread &&
-            member.Role != ConversationMemberRole.ReadOnly &&
-            (parent.Type != ConversationType.Thread || await CanCreateThread(userId, parent.ParentConversationId ?? Guid.Empty, cancellationToken));
+        if (member is null ||
+            !IsActiveParticipant(member) ||
+            !member.CanPost ||
+            !member.CanCreateThread ||
+            member.Role == ConversationMemberRole.ReadOnly)
+        {
+            return false;
+        }
+
+        if (parent.Type != ConversationType.Thread)
+        {
+            // The new Thread adds one edge below this root. A parent chain
+            // that already consumes the full read-depth budget must not be
+            // allowed to create a durable child that immediately fails the
+            // authoritative read boundary.
+            return depth < MaxThreadDepth;
+        }
+
+        return await CanCreateThreadCore(
+            userId,
+            parent.ParentConversationId ?? Guid.Empty,
+            visited,
+            depth + 1,
+            cancellationToken);
     }
 
     public async Task<bool> CanEditMessage(Guid userId, Guid messageId, CancellationToken cancellationToken = default)
@@ -95,34 +170,14 @@ public sealed class ConversationAuthorizationService(IMessagingRepository messag
             await CanModerateConversation(userId, message.ConversationId, cancellationToken));
     }
 
-    private async Task<bool> CanViewConversationCore(Guid userId, Guid conversationId, HashSet<Guid> visited, CancellationToken cancellationToken)
+    private async Task<bool> CanSendMessageCore(
+        Guid userId,
+        Guid conversationId,
+        HashSet<Guid> visited,
+        int depth,
+        CancellationToken cancellationToken)
     {
-        if (conversationId == Guid.Empty || !visited.Add(conversationId))
-        {
-            return false;
-        }
-
-        var conversation = await messaging.GetConversationAsync(conversationId, cancellationToken);
-        if (conversation is null ||
-            !IsSupportedMvpType(conversation.Type) ||
-            !await IsConversationScopeAllowed(userId, conversation, cancellationToken))
-        {
-            return false;
-        }
-
-        var member = await messaging.GetMemberAsync(conversationId, userId, cancellationToken);
-        if (!IsActiveParticipant(member))
-        {
-            return false;
-        }
-
-        return conversation.Type != ConversationType.Thread ||
-            await CanViewConversationCore(userId, conversation.ParentConversationId ?? Guid.Empty, visited, cancellationToken);
-    }
-
-    private async Task<bool> CanSendMessageCore(Guid userId, Guid conversationId, HashSet<Guid> visited, CancellationToken cancellationToken)
-    {
-        if (conversationId == Guid.Empty || !visited.Add(conversationId))
+        if (conversationId == Guid.Empty || depth > MaxThreadDepth || !visited.Add(conversationId))
         {
             return false;
         }
@@ -147,13 +202,23 @@ public sealed class ConversationAuthorizationService(IMessagingRepository messag
         }
 
         return conversation.Type != ConversationType.Thread ||
-            await CanSendMessageCore(userId, conversation.ParentConversationId ?? Guid.Empty, visited, cancellationToken);
+            await CanSendMessageCore(
+                userId,
+                conversation.ParentConversationId ?? Guid.Empty,
+                visited,
+                depth + 1,
+                cancellationToken);
     }
 
     private async Task<bool> IsConversationScopeAllowed(Guid userId, Conversation conversation, CancellationToken cancellationToken)
     {
-        return conversation.Type != ConversationType.ProjectChannel ||
-            conversation.ProjectId.HasValue && await projects.CanViewProject(userId, conversation.ProjectId.Value, cancellationToken);
+        if (conversation.Type == ConversationType.ProjectChannel && !conversation.ProjectId.HasValue)
+        {
+            return false;
+        }
+
+        return !conversation.ProjectId.HasValue ||
+            await projects.CanViewProject(userId, conversation.ProjectId.Value, cancellationToken);
     }
 
     private static bool IsActiveParticipant(ConversationMember? member)

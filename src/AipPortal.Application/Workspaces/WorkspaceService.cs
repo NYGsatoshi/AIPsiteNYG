@@ -1,3 +1,5 @@
+using System.Security.Cryptography;
+using System.Text;
 using AipPortal.Application.Common;
 using AipPortal.Application.Common.Interfaces;
 using AipPortal.Application.Realtime;
@@ -15,8 +17,12 @@ public sealed class WorkspaceService(
     IAuditLogger auditLogger,
     IUnitOfWork unitOfWork,
     ICurrentTenant? currentTenant = null,
-    IAuthorizationStateChangePublisher? authorizationChanges = null) : IWorkspaceService
+    IAuthorizationStateChangePublisher? authorizationChanges = null,
+    ICreateIdempotencyCoordinator? createIdempotency = null,
+    IWorkspaceRequiredInitialization? requiredInitialization = null) : IWorkspaceService
 {
+    private const string WorkspaceCreateOperation = "Workspace.Create.v1";
+
     public async Task<Result<IReadOnlyList<WorkspaceListItemResponse>>> ListAsync(CancellationToken cancellationToken = default)
     {
         if (!TryCurrentUser(out var userId))
@@ -33,46 +39,191 @@ public sealed class WorkspaceService(
             .ToList());
     }
 
-    public async Task<Result<WorkspaceDetailResponse>> CreateAsync(CreateWorkspaceRequest request, CancellationToken cancellationToken = default)
+    public async Task<Result<WorkspaceCapabilitiesResponse>> GetCapabilitiesAsync(CancellationToken cancellationToken = default)
     {
         if (!TryCurrentUser(out var userId))
         {
-            return Result<WorkspaceDetailResponse>.Failure("Authentication is required.");
+            return Result<WorkspaceCapabilitiesResponse>.Failure(new ApplicationErrorDetail(
+                "AuthenticationRequired",
+                "Authentication is required."));
         }
 
-        if (!await authorization.CanCreateWorkspace(userId, cancellationToken))
+        if (currentTenant is not { IsAvailable: true, IsPlatformScope: false })
         {
-            return Result<WorkspaceDetailResponse>.Failure("You are not allowed to create workspaces.");
+            return Result<WorkspaceCapabilitiesResponse>.Failure(new ApplicationErrorDetail(
+                "TenantMembershipRequired",
+                "An active Tenant membership is required."));
+        }
+
+        var canCreate = requiredInitialization is { IsAvailable: true } &&
+                        await authorization.CanCreateWorkspace(userId, currentTenant.TenantId, cancellationToken);
+        return Result<WorkspaceCapabilitiesResponse>.Success(new WorkspaceCapabilitiesResponse(canCreate));
+    }
+
+    public async Task<Result<WorkspaceDetailResponse>> CreateAsync(
+        CreateWorkspaceRequest request,
+        string? clientRequestIdentity,
+        CancellationToken cancellationToken = default)
+    {
+        if (!TryCurrentUser(out var userId))
+        {
+            return Result<WorkspaceDetailResponse>.Failure(new ApplicationErrorDetail(
+                "AuthenticationRequired",
+                "Authentication is required."));
+        }
+
+        if (currentTenant is not { IsAvailable: true, IsPlatformScope: false })
+        {
+            return Result<WorkspaceDetailResponse>.Failure(new ApplicationErrorDetail(
+                "TenantMembershipRequired",
+                "An active Tenant membership is required."));
+        }
+
+        if (!await authorization.CanCreateWorkspace(userId, currentTenant.TenantId, cancellationToken))
+        {
+            return Result<WorkspaceDetailResponse>.Failure(new ApplicationErrorDetail(
+                "CapabilityDenied",
+                "You are not allowed to create workspaces."));
         }
 
         if (string.IsNullOrWhiteSpace(request.Name))
         {
-            return Result<WorkspaceDetailResponse>.Failure("Workspace name is required.");
+            return ValidationFailure("Workspace name is required.", "body.name");
+        }
+
+        var name = request.Name.Trim();
+        var description = NormalizeOptional(request.Description);
+        var icon = NormalizeOptional(request.Icon);
+        if (name.Length > 160)
+        {
+            return ValidationFailure("Workspace name must not exceed 160 characters.", "body.name");
+        }
+        if (description?.Length > 2000)
+        {
+            return ValidationFailure("Workspace description must not exceed 2000 characters.", "body.description");
+        }
+        if (icon?.Length > 120)
+        {
+            return ValidationFailure("Workspace icon must not exceed 120 characters.", "body.icon");
+        }
+        if (clientRequestIdentity is null)
+        {
+            return Result<WorkspaceDetailResponse>.Failure(new ApplicationErrorDetail(
+                "MissingIdempotencyKey",
+                "An Idempotency-Key header is required.",
+                Target: "header.Idempotency-Key"));
+        }
+        if (!IsValidClientRequestIdentity(clientRequestIdentity))
+        {
+            return Result<WorkspaceDetailResponse>.Failure(new ApplicationErrorDetail(
+                "InvalidIdempotencyKey",
+                "The Idempotency-Key header is invalid.",
+                Target: "header.Idempotency-Key"));
+        }
+        if (createIdempotency is null)
+        {
+            return Result<WorkspaceDetailResponse>.Failure(new ApplicationErrorDetail(
+                "DependencyUnavailable",
+                "Workspace creation is temporarily unavailable."));
+        }
+        if (authorizationChanges is null)
+        {
+            return Result<WorkspaceDetailResponse>.Failure(new ApplicationErrorDetail(
+                "DependencyUnavailable",
+                "Workspace creation is temporarily unavailable."));
+        }
+        if (requiredInitialization is not { IsAvailable: true })
+        {
+            return Result<WorkspaceDetailResponse>.Failure(new ApplicationErrorDetail(
+                "DependencyUnavailable",
+                "Workspace creation is temporarily unavailable."));
         }
 
         var workspace = new Workspace
         {
-            Name = request.Name.Trim(),
-            Slug = SlugGenerator.FromName(request.Name),
-            Description = request.Description?.Trim(),
-            Icon = request.Icon?.Trim(),
+            Name = name,
+            Description = description,
+            Icon = icon,
             Status = WorkspaceStatus.Active,
             CreatedByUserId = userId
         };
+        workspace.Slug = CreateWorkspaceSlug(name, workspace.Id);
 
-        await workspaces.AddAsync(workspace, cancellationToken);
-        await workspaces.AddMemberAsync(new WorkspaceMember
+        IdempotentCreateResult<Workspace> idempotency;
+        try
         {
-            WorkspaceId = workspace.Id,
-            UserId = userId,
-            Role = WorkspaceRole.Owner,
-            Status = MembershipStatus.Active,
-            JoinedAt = clock.UtcNow
-        }, cancellationToken);
-        await AuditAsync(userId, "WorkspaceCreated", workspace.Id, cancellationToken);
-        await unitOfWork.SaveChangesAsync(cancellationToken);
+            idempotency = await createIdempotency.ExecuteAsync(
+                new CreateIdempotencyContext(
+                    currentTenant.TenantId,
+                    userId,
+                    WorkspaceCreateOperation,
+                    clientRequestIdentity,
+                    CreateRequestFingerprint(name, description, icon),
+                    "Workspace",
+                    workspace.Id),
+                async token =>
+                {
+                    await workspaces.AddAsync(workspace, token);
+                    await workspaces.AddMemberAsync(new WorkspaceMember
+                    {
+                        WorkspaceId = workspace.Id,
+                        UserId = userId,
+                        Role = WorkspaceRole.Owner,
+                        Status = MembershipStatus.Active,
+                        JoinedAt = clock.UtcNow
+                    }, token);
+                    var initialization = await requiredInitialization.StageAsync(workspace, userId, token);
+                    if (!initialization.IsSuccess)
+                    {
+                        throw new WorkspaceRequiredInitializationException();
+                    }
+                    await AuditAsync(userId, "WorkspaceCreated", workspace.Id, token);
+                    await PublishAuthorizationChangeAsync(userId, workspace.Id, "granted", token);
+                    return workspace;
+                },
+                async (resourceId, token) =>
+                {
+                    // A create replay must re-establish the creator's current
+                    // record-level access.  The broader Workspace viewer
+                    // policy includes a legacy SystemAdmin shortcut, but a
+                    // platform role alone must not recover create metadata
+                    // after the creator's Workspace membership is revoked.
+                    var membership = await workspaces.GetMemberAsync(resourceId, userId, token);
+                    if (membership is not { Status: MembershipStatus.Active })
+                    {
+                        return null;
+                    }
 
-        return Result<WorkspaceDetailResponse>.Success(ToDetail(workspace));
+                    return await workspaces.GetByIdAsync(resourceId, token);
+                },
+                cancellationToken);
+        }
+        catch (WorkspaceRequiredInitializationException)
+        {
+            return Result<WorkspaceDetailResponse>.Failure(new ApplicationErrorDetail(
+                "DependencyUnavailable",
+                "Workspace creation is temporarily unavailable."));
+        }
+        catch (RequiredOutboxStagingException)
+        {
+            return Result<WorkspaceDetailResponse>.Failure(new ApplicationErrorDetail(
+                "DependencyUnavailable",
+                "Workspace creation is temporarily unavailable."));
+        }
+
+        return idempotency.Disposition switch
+        {
+            IdempotentCreateDisposition.Created or IdempotentCreateDisposition.Replayed when idempotency.Value is not null =>
+                Result<WorkspaceDetailResponse>.Success(ToDetail(idempotency.Value)),
+            IdempotentCreateDisposition.RequestMismatch =>
+                Result<WorkspaceDetailResponse>.Failure(new ApplicationErrorDetail(
+                    "IdempotencyConflict",
+                    "The Idempotency-Key was already used with a different Workspace request.",
+                    Target: "header.Idempotency-Key")),
+            _ => Result<WorkspaceDetailResponse>.Failure(new ApplicationErrorDetail(
+                "NotFound",
+                "The requested resource was not found."))
+        };
     }
 
     public async Task<Result<WorkspaceDetailResponse>> GetAsync(Guid workspaceId, CancellationToken cancellationToken = default)
@@ -109,7 +260,7 @@ public sealed class WorkspaceService(
             }
 
             workspace.Name = request.Name.Trim();
-            workspace.Slug = SlugGenerator.FromName(workspace.Name);
+            workspace.Slug = CreateWorkspaceSlug(workspace.Name, workspace.Id);
         }
 
         workspace.Description = request.Description?.Trim() ?? workspace.Description;
@@ -290,6 +441,67 @@ public sealed class WorkspaceService(
             cancellationToken) ?? Task.CompletedTask;
     }
 
+    private static Result<WorkspaceDetailResponse> ValidationFailure(string message, string target) =>
+        Result<WorkspaceDetailResponse>.Failure(new ApplicationErrorDetail(
+            "ValidationFailed",
+            message,
+            Target: target));
+
+    private static string? NormalizeOptional(string? value)
+    {
+        var normalized = value?.Trim();
+        return string.IsNullOrEmpty(normalized) ? null : normalized;
+    }
+
+    private static bool IsValidClientRequestIdentity(string value) =>
+        value.Length is >= 8 and <= 128 &&
+        !string.IsNullOrWhiteSpace(value) &&
+        value.All(character => character is >= ' ' and <= '~');
+
+    private static string CreateRequestFingerprint(string name, string? description, string? icon)
+    {
+        var canonical = string.Concat(
+            EncodeFingerprintPart(name),
+            EncodeFingerprintPart(description),
+            EncodeFingerprintPart(icon));
+        return Convert.ToHexStringLower(SHA256.HashData(Encoding.UTF8.GetBytes(canonical)));
+    }
+
+    private static string EncodeFingerprintPart(string? value) =>
+        value is null ? "-1:" : $"{Encoding.UTF8.GetByteCount(value)}:{value}";
+
+    private static string CreateWorkspaceSlug(string name, Guid workspaceId)
+    {
+        const int maximumLength = 120;
+        var suffix = $"-{workspaceId:N}";
+        var stemBuilder = new StringBuilder();
+        foreach (var character in name.Trim().ToLowerInvariant())
+        {
+            if (char.IsLetterOrDigit(character))
+            {
+                stemBuilder.Append(character);
+            }
+            else if (stemBuilder.Length > 0 && stemBuilder[^1] != '-')
+            {
+                stemBuilder.Append('-');
+            }
+        }
+
+        var stem = stemBuilder.ToString().Trim('-');
+        if (string.IsNullOrEmpty(stem))
+        {
+            stem = "workspace";
+        }
+
+        var maximumStemLength = maximumLength - suffix.Length;
+        if (stem.Length > maximumStemLength)
+        {
+            stem = stem[..maximumStemLength].TrimEnd('-');
+        }
+
+        return string.Concat(stem, suffix);
+    }
+
     private static WorkspaceListItemResponse ToListItem(Workspace workspace)
     {
         return new WorkspaceListItemResponse(workspace.Id, workspace.Name, workspace.Description, workspace.Icon, workspace.Status, workspace.CreatedAt, workspace.UpdatedAt);
@@ -303,5 +515,9 @@ public sealed class WorkspaceService(
     private static WorkspaceMemberResponse ToMember(WorkspaceMember member)
     {
         return new WorkspaceMemberResponse(member.UserId, member.User?.DisplayName ?? string.Empty, member.User?.Email ?? string.Empty, member.Role, member.Status, member.JoinedAt);
+    }
+
+    private sealed class WorkspaceRequiredInitializationException : Exception
+    {
     }
 }

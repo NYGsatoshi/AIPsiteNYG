@@ -1,7 +1,7 @@
 # Database
 
-Last broad implementation audit: 2026-08-02. TASK-V1-PR07-C schema update:
-2026-08-03.
+Last broad implementation audit: 2026-08-02. WPC-01 schema update candidate:
+2026-08-13.
 
 ## Technology
 
@@ -26,11 +26,11 @@ Use these in order:
 
 ## Migration history
 
-There are forty-two timestamped EF migration classes in the PR07-C candidate,
+There are forty-three timestamped EF migration classes in the WPC-01 candidate,
 from:
 
 - `20260606135558_InitialCreate`
-- through `20260803041347_AddTaskDeadlineDigestLedger`
+- through `20260813100711_Wpc01WorkspaceCreateIdempotency`
 
 Migration files live in `src/AipPortal.Infrastructure/Persistence/Migrations/`.
 
@@ -43,8 +43,45 @@ The application does not auto-migrate. `/health/ready` fails when pending migrat
 - Tenant, TenantSettings
 - Plan, Subscription, UsageRecord
 - TenantUser
+- IdempotencyRecord
 - ExportJob
 - IntegrationAccount, WebhookEndpoint, ApiToken
+
+### WPC-01 Workspace create idempotency
+
+Migration `20260813100711_Wpc01WorkspaceCreateIdempotency` adds only
+`idempotency_records`. The unique key is
+`(TenantId, ActorUserId, Operation, KeyHash)`. The raw client identity and
+request body are never stored; SHA-256 hashes retain retry identity and request
+equivalence. A resource index supports safe reconciliation, and the actor
+foreign key uses restricted deletion.
+
+The claim, Workspace, creator Owner membership, required initializer, audit
+row, and authorization Outbox row commit in one PostgreSQL transaction.
+Failed initialization or required Outbox staging rolls the claim and every
+business effect back, so a later retry is not mistaken for a successful replay.
+Production currently registers an unavailable required initializer because no
+canonical Workspace `general` provisioner exists; production creation
+therefore commits none of these rows. Successful no-op-initializer tests prove
+transaction/idempotency plumbing only, not default-channel provisioning.
+Records currently have no automatic expiration; they retain replay identity
+indefinitely unless a separately approved retention operation is added.
+
+WPC-01 deliberately adds no Project Visibility column or backfill. The
+canonical specification does not map existing rows safely, and adding the
+`MembersOnly` create default as an existing-row default could remove currently
+available access while another mapping could broaden it. Project Visibility
+persistence remains a blocking migration decision.
+
+WPC-01 also adds no Project activation-provenance column or backfill. Existing
+Archived/Suspended rows cannot be reliably classified as never-activated or
+previously Active. A recovery command that needs that fact therefore returns a
+non-mutating 409 `InvalidStateTransition`; it does not rewrite the row to
+Planning or Active and does not clear deletion metadata. In particular,
+Suspended cannot transition to Planning or Active until that provenance is
+canonical; Suspended may remain Suspended during metadata-only update or move
+to Archived. Ambiguous-state access remains member-only rather than inferring
+provenance from status, audit, workflow, Channel, or child data.
 
 ### Identity
 
@@ -468,7 +505,7 @@ It does not create users, memberships, or demo content.
 
 ## Search
 
-Search queries relational tables directly with Npgsql `ILike` and membership predicates. There is no separate search index or full-text engine.
+Search queries relational tables directly with Npgsql `ILike` and membership predicates. There is no separate search index or full-text engine. Project-derived queries share the EF-translatable Project read scope. PostgreSQL Message Search constrains every matching Message by the shared readable-Conversation ID query, which composes Project scope with a recursive ancestry relation and 32-level fail-closed ceiling, before deterministic `CreatedAt DESC, Id ASC` ordering and the final 100-result bound. It does not materialize the caller's Conversation history or authorize an arbitrary pre-limit subset. Production Conversation pagination derives both items and `totalCount` from that same set-based recursive authorization relation; bounded record checks may restrict its anchor to requested IDs, while Search consumes the unrestricted queryable relation. Non-PostgreSQL providers retain the bounded fail-closed fallback.
 
 PostgreSQL search tests exist but execute only when `POSTGRES_TEST_CONNECTION_STRING` is set.
 

@@ -298,6 +298,48 @@ public sealed class CommunicationPollingServiceTests
             return Task.FromResult(new PagedResponse<Conversation>(items, page, pageSize, query.Count));
         }
 
+        public IQueryable<Guid>? QueryReadableConversationIds(Guid userId) => null;
+
+        public Task<IReadOnlySet<Guid>> FilterReadableConversationIdsAsync(
+            Guid userId,
+            IReadOnlyCollection<Guid> conversationIds,
+            CancellationToken cancellationToken = default)
+        {
+            var readable = new HashSet<Guid>();
+            foreach (var conversationId in conversationIds.Distinct())
+            {
+                var currentId = conversationId;
+                var visited = new HashSet<Guid>();
+                for (var depth = 0; depth <= 32 && visited.Add(currentId); depth++)
+                {
+                    var conversation = Conversations.FirstOrDefault(item => item.Id == currentId);
+                    var member = Members.FirstOrDefault(item =>
+                        item.ConversationId == currentId &&
+                        item.UserId == userId);
+                    if (conversation is null ||
+                        member is not { CanRead: true, LeftAt: null, RemovedAt: null })
+                    {
+                        break;
+                    }
+
+                    if (conversation.Type != ConversationType.Thread)
+                    {
+                        readable.Add(conversationId);
+                        break;
+                    }
+
+                    if (!conversation.ParentConversationId.HasValue)
+                    {
+                        break;
+                    }
+
+                    currentId = conversation.ParentConversationId.Value;
+                }
+            }
+
+            return Task.FromResult<IReadOnlySet<Guid>>(readable);
+        }
+
         public Task<IReadOnlyList<User>> SearchDirectRecipientsAsync(Guid userId, string? query, int limit, CancellationToken cancellationToken = default)
         {
             return Task.FromResult<IReadOnlyList<User>>([]);
@@ -308,7 +350,7 @@ public sealed class CommunicationPollingServiceTests
             return Task.FromResult(Conversations.FirstOrDefault(conversation => conversation.Id == conversationId));
         }
 
-        public Task<Conversation?> FindDirectAsync(Guid workspaceId, Guid userAId, Guid userBId, CancellationToken cancellationToken = default)
+        public Task<Conversation?> FindDirectAsync(Guid workspaceId, Guid? projectId, Guid userAId, Guid userBId, CancellationToken cancellationToken = default)
         {
             return Task.FromResult<Conversation?>(null);
         }

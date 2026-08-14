@@ -65,6 +65,22 @@ public sealed class RealtimeDispatchAuthorizer(
                 await notifications.CanDeliverReadStateAsync(subscription.TenantId, subscription.UserId, envelope, cancellationToken);
         }
 
+        // Unread counters are routed to a user for delivery efficiency, but a
+        // delayed event still identifies its protected Conversation.  Always
+        // resolve that current resource authority instead of trusting the
+        // historical user route recorded when the event was staged.
+        if (envelope.EventType == "Messaging.ConversationUnreadChanged.v1")
+        {
+            return targetType == RealtimeSubscriptionType.User &&
+                targetResourceId == subscription.UserId &&
+                envelope.Payload.ValueKind == System.Text.Json.JsonValueKind.Object &&
+                envelope.Payload.TryGetProperty("conversationId", out var conversationIdElement) &&
+                conversationIdElement.ValueKind == System.Text.Json.JsonValueKind.String &&
+                conversationIdElement.TryGetGuid(out var conversationId) &&
+                conversationId != Guid.Empty &&
+                await conversations.CanViewConversation(subscription.UserId, conversationId, cancellationToken);
+        }
+
         if (envelope.EventType is "Projects.TaskChanged.v1" or
             "Projects.TaskAssignmentChanged.v1" or
             "Projects.TaskWorkflowChanged.v1" or

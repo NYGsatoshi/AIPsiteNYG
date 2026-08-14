@@ -127,6 +127,7 @@ if (ForwardedHeadersConfiguration.ShouldTrustForwardedHeaders(app.Configuration)
 }
 
 app.UseMiddleware<GlobalExceptionHandlingMiddleware>();
+app.UseMiddleware<WpcApiContractMiddleware>();
 app.UseMiddleware<SecurityHeadersMiddleware>();
 
 var tenancyOptions = app.Services.GetRequiredService<TenancyOptions>();

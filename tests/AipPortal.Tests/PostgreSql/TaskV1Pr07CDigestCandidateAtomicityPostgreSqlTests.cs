@@ -96,7 +96,7 @@ public sealed class TaskV1Pr07CDigestCandidateAtomicityPostgreSqlTests
     }
 
     [PostgreSqlFact]
-    public async Task CandidateQueryUsesCanonicalGroupRestrictedVisibilityAndKeepsNonArchivedProjectStates()
+    public async Task CandidateQueryUsesCanonicalGroupRestrictedVisibilityAndFailsClosedForSuspendedWithoutExplicitMembership()
     {
         var connectionString = PostgreSqlTestEnvironment.RequireConnectionString();
 
@@ -180,8 +180,9 @@ public sealed class TaskV1Pr07CDigestCandidateAtomicityPostgreSqlTests
             Assert.Empty(await CandidateIdsAsync(repository, claimsByUser[adviser.Id]));
             Assert.Empty(await CandidateIdsAsync(repository, claimsByUser[ownerFieldOnly.Id]));
             Assert.Equal(
-                [systemAdminTask.Id, completedProjectTask.Id, suspendedProjectTask.Id],
+                [systemAdminTask.Id, completedProjectTask.Id],
                 await CandidateIdsAsync(repository, claimsByUser[systemAdmin.Id]));
+            Assert.DoesNotContain(suspendedProjectTask.Id, await CandidateIdsAsync(repository, claimsByUser[systemAdmin.Id]));
             Assert.DoesNotContain(adviserTask.Id, await CandidateIdsAsync(repository, claimsByUser[systemAdmin.Id]));
             Assert.DoesNotContain(ownerFieldTask.Id, await CandidateIdsAsync(repository, claimsByUser[systemAdmin.Id]));
         });

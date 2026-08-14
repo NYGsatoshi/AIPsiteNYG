@@ -14,11 +14,19 @@ public sealed class TenantAuthorizationService(ITenantRepository tenantRepositor
     public async Task<bool> CanManageTenantAsync(Guid userId, Guid tenantId, CancellationToken cancellationToken = default)
     {
         var membership = await tenantRepository.GetTenantUserAsync(tenantId, userId, cancellationToken);
-        return membership is
+        if (membership is not
         {
             Status: TenantUserStatus.Active,
             Role: TenantUserRole.Owner or TenantUserRole.Admin
-        };
+        })
+        {
+            return false;
+        }
+
+        var tenant = membership.Tenant ?? await tenantRepository.GetTenantAsync(tenantId, cancellationToken);
+        var user = membership.User ?? await tenantRepository.GetUserAsync(userId, cancellationToken);
+        return tenant is { Status: TenantStatus.Active, DeletedAt: null } &&
+               user is { Status: UserStatus.Active, DeletedAt: null };
     }
 
     public async Task<bool> IsPlatformAdminAsync(Guid userId, CancellationToken cancellationToken = default)

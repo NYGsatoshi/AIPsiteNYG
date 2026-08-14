@@ -32,7 +32,7 @@ The audit did not modify authentication logic, database schema, application UI, 
 
 | Severity | Count | Main areas |
 | --- | ---: | --- |
-| Critical | 4 | announcement visibility, search authorization, conversation persistence, chat attachments |
+| Critical | 3 open + 1 resolved | announcement visibility, conversation persistence, and chat attachments remain open; Project-derived Search authorization is resolved by PR #281 |
 | High | 8 | detached EF mutations, concurrent EF use, file consistency, read-state integrity, notification targets/limits, duplicate task rows, HTTP contracts |
 | Medium | 7 | route-parent validation, PATCH clearing, concurrency, membership semantics, listing filters, DI registration, query efficiency |
 
@@ -69,14 +69,16 @@ The audit did not modify authentication logic, database schema, application UI, 
   - Platform/system-admin behavior remains explicit and tenant-scoped.
 - Suggested issue: **Prevent workspace-wide disclosure of scoped announcements**.
 
-### BE-002: Search authorization is broader than normal project and comment authorization
+### BE-002: Project-derived Search authorization parity
 
 - Priority: critical.
-- Status: confirmed source-level authorization mismatch.
+- Status: resolved by the current PR #281 candidate under the current Project read policy; canonical
+  Project Visibility persistence remains a separate WPC decision.
 - Affected pages: Search, Projects, Tasks, Artifacts, and project activity/comment results.
 - Exact files and methods:
-  - `src/AipPortal.Infrastructure/Persistence/DbSearchService.cs`
-    - `VisibleProjects`
+  - Historical implementation:
+    - `src/AipPortal.Infrastructure/Persistence/DbSearchService.cs`
+    - removed private `VisibleProjects`
     - `SearchProjectsAsync`
     - `SearchTasksAsync`
     - `SearchArtifactsAsync`
@@ -85,20 +87,47 @@ The audit did not modify authentication logic, database schema, application UI, 
   - Canonical comparison:
     - `src/AipPortal.Application/Projects/ProjectAuthorizationService.cs`
     - `CanViewProject`
-- Evidence:
-  - `VisibleProjects` grants visibility to every active workspace member.
-  - `ProjectAuthorizationService.CanViewProject` requires explicit project membership, workspace-management access, or parent-group membership.
-  - Comment search authorizes only through visible workspace IDs and does not resolve the comment target to its project/resource authorization.
-- Impact:
-  - Search can expose restricted project names, descriptions, tasks, artifacts, activity logs, author details, and comment bodies to users who cannot open those resources through their normal APIs.
-- Patch suggestion:
-  - Replace the search-only visibility predicate with a SQL-translatable predicate matching `CanViewProject`.
-  - Resolve comment target types to their owning project/resource before including results.
-  - Keep one reusable visibility expression for project-derived search result types.
-- Suggested tests:
-  - A workspace member who is neither a project member nor a parent-group member receives no project-derived search results.
-  - A permitted project/group member receives project, task, artifact, activity, and comment results.
-  - Comment searches enforce each supported `CommentTargetType`.
+- Historical evidence:
+  - the removed Search-only predicate granted every active Workspace member
+    operational Project visibility even when `CanViewProject` denied a grouped
+    Project;
+  - Project, Task, Artifact, ActivityLog, Comment, and project-bound Message
+    results inherited that wider scope.
+- Resolution:
+  - `ProjectReadScope.VisibleProjectsFor` is the reusable EF/PostgreSQL-
+    translatable form of the current `CanViewProject` predicate;
+  - the non-Archived Project list and every Project-derived Search query use
+    it; `ListableProjectsFor` alone adds non-deleted Archived history for current Workspace
+    members with explicit Project membership;
+  - Messaging retains readable Conversation membership and then applies the
+    same Project scope;
+  - production PostgreSQL Conversation detail/list/count, polling, and Message
+    Search use one set-based recursive Thread ancestry boundary, reject missing,
+    inconsistent, cyclic, and deeper-than-32 scope, and never persist a child
+    beyond the readable limit;
+  - Message Search composes the shared readable-Conversation ID relation across
+    all matching Messages before `CreatedAt DESC, Id ASC` and the final result
+    limit; the former arbitrary first-100 Conversation authorization cutoff is
+    removed;
+  - My Tasks applies the same Project scope plus its existing active Workspace
+    membership and task-relationship fences, removing the wider Adviser and
+    `Project.OwnerUserId` shortcuts;
+  - SystemAdmin behavior matches current detail authorization rather than
+    becoming a global all-status bypass.
+- Regression evidence:
+  - real-PostgreSQL WPC coverage compares detail, list, Project/Task/Artifact/
+    ActivityLog/Comment/Message Search, Messaging list, and My Tasks;
+  - it denies an ordinary active Workspace member outside a grouped Active
+    Project and Group even when readable Conversation membership exists;
+  - it preserves explicit ProjectMember, GroupMember, Workspace Owner/Admin,
+    ungrouped ordinary-member, and current SystemAdmin access, and denies a
+    revoked Workspace member with stale subordinate memberships;
+  - a depth-three revoked-ancestor case proves no item/count/body disclosure,
+    and an over-depth case proves bounded fail-closed search authorization;
+  - a real-PostgreSQL 125-authorized-Conversation regression proves the newest
+    authorized Message is retained even when its Conversation is outside the
+    former first 100, tied timestamps use Message ID order, and a recursively
+    unauthorized Thread contributes neither title nor body.
 - Suggested issue: **Align search authorization with project and comment access rules**.
 
 ### BE-003: New conversations use an invalid required workspace foreign key
@@ -509,7 +538,9 @@ Patch suggestion: log the internal exception with correlation data, but persist 
 ### Critical regression tests
 
 1. Announcement visibility matrix across workspace, group, public channel, private channel, and confidential channel scopes.
-2. Search authorization parity with `CanViewProject` for projects, tasks, artifacts, logs, and comments.
+2. Search authorization parity with `CanViewProject` for projects, tasks,
+   artifacts, logs, comments, and project-bound messages. **Covered by PR #281
+   real-PostgreSQL matrix.**
 3. PostgreSQL direct/group conversation creation with real workspace FKs.
 4. Canonical file attachment persistence and authorization for messages.
 
@@ -549,7 +580,7 @@ Patch suggestion: log the internal exception with correlation data, but persist 
 | --- | --- | --- |
 | Announcements | `Application/Announcements/AnnouncementService.cs` | `ResolveCreateScopeAsync`, `CreateAsync`, `UpdateAsync` |
 | Announcement visibility | `Infrastructure/Persistence/AnnouncementRepository.cs` | `VisibleAnnouncements`, `IsVisibleToUserAsync` |
-| Search | `Infrastructure/Persistence/DbSearchService.cs` | `VisibleProjects`, `SearchAnnouncementsAsync`, `SearchCommentsAsync`, project-derived searches |
+| Search | `Infrastructure/Persistence/ProjectReadScope.cs`, `Infrastructure/Persistence/DbSearchService.cs` | `VisibleProjectsFor`, `SearchAnnouncementsAsync`, `SearchCommentsAsync`, project-derived searches |
 | Messaging | `Application/Messaging/ConversationService.cs` | `CreateAsync`, `SendMessageAsync`, `MarkReadAsync` |
 | Message contracts | `Application/Messaging/MessagingDtos.cs` | `CreateConversationRequest`, `AttachmentMetadataRequest`, `SendMessageRequest` |
 | Post persistence | `Infrastructure/Persistence/OrganizationRepositories.cs` | `ChannelRepository.GetPostByIdAsync` |
@@ -574,7 +605,7 @@ Patch suggestion: log the internal exception with correlation data, but persist 
 ## 8. Suggested issue list
 
 1. **Prevent workspace-wide disclosure of scoped announcements** — critical.
-2. **Align search authorization with project and comment access rules** — critical.
+2. **Align search authorization with project and comment access rules** — resolved by PR #281 for Project-derived results under the current Project read policy.
 3. **Persist conversations with an authorized workspace** — critical.
 4. **Replace client-supplied chat attachment metadata with canonical file IDs** — critical.
 5. **Persist channel post edit, delete, and pin mutations** — high.

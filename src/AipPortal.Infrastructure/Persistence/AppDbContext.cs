@@ -11,6 +11,11 @@ public sealed class AppDbContext(
     DbContextOptions<AppDbContext> options,
     ICurrentTenant currentTenant) : DbContext(options)
 {
+    internal Guid? ActiveTenantId =>
+        currentTenant.IsAvailable && !currentTenant.IsPlatformScope
+            ? currentTenant.TenantId
+            : null;
+
     public DbSet<Tenant> Tenants => Set<Tenant>();
     public DbSet<TenantSettings> TenantSettings => Set<TenantSettings>();
     public DbSet<Plan> Plans => Set<Plan>();
@@ -26,6 +31,7 @@ public sealed class AppDbContext(
     public DbSet<Session> Sessions => Set<Session>();
     public DbSet<Invite> Invites => Set<Invite>();
     public DbSet<Workspace> Workspaces => Set<Workspace>();
+    public DbSet<IdempotencyRecord> IdempotencyRecords => Set<IdempotencyRecord>();
     public DbSet<WorkspaceMember> WorkspaceMembers => Set<WorkspaceMember>();
     public DbSet<Group> Groups => Set<Group>();
     public DbSet<GroupMember> GroupMembers => Set<GroupMember>();

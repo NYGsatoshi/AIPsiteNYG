@@ -60,6 +60,74 @@ public sealed class ProjectsControllerTests
     }
 
     [Fact]
+    public void ExplicitActivationRequirementMapsToSafeHttp409Envelope()
+    {
+        var detail = new ApplicationErrorDetail(
+            "InvalidStateTransition",
+            "A Planning Project must use the explicit activation command before it can become Active.");
+        var controller = Controller();
+        var genericMethod = typeof(ProjectsController)
+            .GetMethods(BindingFlags.Instance | BindingFlags.NonPublic)
+            .Single(candidate => candidate.Name == "ToActionResult" && candidate.IsGenericMethod)
+            .MakeGenericMethod(typeof(string));
+
+        var action = Assert.IsType<ObjectResult>(
+            genericMethod.Invoke(controller, [Result<string>.Failure(detail)]));
+
+        Assert.Equal(StatusCodes.Status409Conflict, action.StatusCode);
+        using var envelope = JsonDocument.Parse(JsonSerializer.Serialize(action.Value));
+        Assert.Equal(
+            "InvalidStateTransition",
+            envelope.RootElement.GetProperty("error").GetProperty("code").GetString());
+        Assert.Equal(
+            "body.status",
+            envelope.RootElement.GetProperty("error").GetProperty("target").GetString());
+        Assert.Equal(StatusCodes.Status409Conflict, envelope.RootElement.GetProperty("status").GetInt32());
+        Assert.False(string.IsNullOrWhiteSpace(envelope.RootElement.GetProperty("traceId").GetString()));
+    }
+
+    [Fact]
+    [Trait("Scope", "WPC01")]
+    public void AmbiguousRestoreMapsToSafeProjectTargetedHttp409Envelope()
+    {
+        var detail = new ApplicationErrorDetail(
+            "InvalidStateTransition",
+            "The Project cannot be restored because its prior lifecycle state is unavailable.",
+            Target: "project");
+        var controller = Controller();
+        var method = typeof(ProjectsController)
+            .GetMethods(BindingFlags.Instance | BindingFlags.NonPublic)
+            .Single(candidate => candidate.Name == "OkOrBad");
+
+        var action = Assert.IsType<ObjectResult>(method.Invoke(controller, [Result.Failure(detail)]));
+
+        Assert.Equal(StatusCodes.Status409Conflict, action.StatusCode);
+        using var envelope = JsonDocument.Parse(JsonSerializer.Serialize(action.Value));
+        Assert.Equal("InvalidStateTransition", envelope.RootElement.GetProperty("error").GetProperty("code").GetString());
+        Assert.Equal("project", envelope.RootElement.GetProperty("error").GetProperty("target").GetString());
+        Assert.Equal(StatusCodes.Status409Conflict, envelope.RootElement.GetProperty("status").GetInt32());
+    }
+
+    [Fact]
+    public void HiddenProjectMapsToRedactedNotFoundEnvelope()
+    {
+        var controller = Controller();
+        var genericMethod = typeof(ProjectsController)
+            .GetMethods(BindingFlags.Instance | BindingFlags.NonPublic)
+            .Single(candidate => candidate.Name == "ToActionResult" && candidate.IsGenericMethod)
+            .MakeGenericMethod(typeof(string));
+        var action = Assert.IsType<ObjectResult>(genericMethod.Invoke(
+            controller,
+            [Result<string>.Failure(new ApplicationErrorDetail("NotFound", "The requested resource was not found."))]));
+
+        Assert.Equal(StatusCodes.Status404NotFound, action.StatusCode);
+        using var envelope = JsonDocument.Parse(JsonSerializer.Serialize(action.Value));
+        Assert.Equal("NotFound", envelope.RootElement.GetProperty("error").GetProperty("code").GetString());
+        Assert.True(envelope.RootElement.GetProperty("error").GetProperty("redactionApplied").GetBoolean());
+        Assert.Equal(JsonValueKind.Null, envelope.RootElement.GetProperty("error").GetProperty("target").ValueKind);
+    }
+
+    [Fact]
     [Trait("Scope", "TaskV1PR06")]
     public void MilestoneRevisionConflictMapsToSafeHttp409Envelope()
     {

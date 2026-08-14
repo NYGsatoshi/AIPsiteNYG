@@ -57,68 +57,33 @@ public sealed class ProjectService(
 
     public async Task<Result<ProjectResponse>> CreateAsync(CreateProjectRequest request, CancellationToken cancellationToken = default)
     {
-        if (!TryCurrentUser(out var userId) ||
-            !await projectAuthorization.CanCreateProject(userId, request.WorkspaceId, request.GroupId, cancellationToken))
-        {
-            return Result<ProjectResponse>.Failure("You are not allowed to create projects.");
-        }
-
-        var validation = await ValidateProjectParentAsync(request.WorkspaceId, request.GroupId, cancellationToken);
-        if (!validation.IsSuccess)
-        {
-            return Result<ProjectResponse>.Failure(validation.Error!);
-        }
-
-        if (string.IsNullOrWhiteSpace(request.Title))
-        {
-            return Result<ProjectResponse>.Failure("Project title is required.");
-        }
-
-        if (HasInvalidDateRange(request.StartDate, request.EndDate))
-        {
-            return Result<ProjectResponse>.Failure("Project end date cannot be before the start date.");
-        }
-
-        var project = new Project
-        {
-            WorkspaceId = request.WorkspaceId,
-            GroupId = request.GroupId,
-            OwnerUserId = userId,
-            CreatedByUserId = userId,
-            Name = request.Title.Trim(),
-            Slug = SlugGenerator.FromName(request.Title),
-            Description = request.Description?.Trim(),
-            Status = ProjectStatus.Planning,
-            StartDate = request.StartDate,
-            DueDate = request.EndDate
-        };
-
-        await projects.AddProjectAsync(project, cancellationToken);
-        await projects.AddMemberAsync(new ProjectMember
-        {
-            ProjectId = project.Id,
-            UserId = userId,
-            Role = ProjectRole.Owner,
-            JoinedAt = clock.UtcNow
-        }, cancellationToken);
-        await AuditAsync(userId, "ProjectCreated", "Project", project.Id, cancellationToken);
-        await invalidations.ProjectChangedAsync(project, userId, "created", cancellationToken);
-        await unitOfWork.SaveChangesAsync(cancellationToken);
-        return Result<ProjectResponse>.Success(await ToProjectAsync(project, userId, cancellationToken));
+        // The deprecated body-scoped command cannot safely approximate the
+        // canonical Workspace-root authority, Visibility, or idempotency
+        // contract.  Leave it explicitly fail closed until those decisions
+        // and dependencies are resolved.
+        await Task.CompletedTask;
+        return Result<ProjectResponse>.Failure(new ApplicationErrorDetail(
+            "DependencyUnavailable",
+            "Project creation is temporarily unavailable."));
     }
 
     public async Task<Result<ProjectResponse>> GetAsync(Guid projectId, CancellationToken cancellationToken = default)
     {
         if (!TryCurrentUser(out var userId) || !await projectAuthorization.CanViewProject(userId, projectId, cancellationToken))
         {
-            return Result<ProjectResponse>.Failure("Project not found.");
+            return ProjectNotFound<ProjectResponse>();
         }
 
         var project = await projects.GetProjectAsync(projectId, cancellationToken);
         return project is null || project.DeletedAt.HasValue
-            ? Result<ProjectResponse>.Failure("Project not found.")
+            ? ProjectNotFound<ProjectResponse>()
             : Result<ProjectResponse>.Success(await ToProjectAsync(project, userId, cancellationToken));
     }
+
+    private static Result<T> ProjectNotFound<T>() =>
+        Result<T>.Failure(new ApplicationErrorDetail(
+            "NotFound",
+            "The requested resource was not found."));
 
     public async Task<Result<ProjectResponse>> UpdateAsync(Guid projectId, UpdateProjectRequest request, CancellationToken cancellationToken = default)
     {
@@ -133,6 +98,33 @@ public sealed class ProjectService(
             return Result<ProjectResponse>.Failure("Project not found.");
         }
 
+        if (project.Status is ProjectStatus.Archived or ProjectStatus.Deleted)
+        {
+            return Result<ProjectResponse>.Failure(new ApplicationErrorDetail(
+                "InvalidStateTransition",
+                "Archived or deleted Projects are read-only.",
+                Target: "project"));
+        }
+
+        var previousStatus = project.Status;
+        var nextStatus = request.Status ?? project.Status;
+        if (previousStatus != nextStatus &&
+            nextStatus == ProjectStatus.Active &&
+            previousStatus != ProjectStatus.Review)
+        {
+            return Result<ProjectResponse>.Failure(new ApplicationErrorDetail(
+                "InvalidStateTransition",
+                "The requested Project lifecycle transition is not available.",
+                Target: "body.status"));
+        }
+        if (!IsValidProjectStatusTransition(previousStatus, nextStatus))
+        {
+            return Result<ProjectResponse>.Failure(new ApplicationErrorDetail(
+                "InvalidStateTransition",
+                "The requested Project lifecycle transition is not available.",
+                Target: "body.status"));
+        }
+
         var startDate = request.StartDate ?? project.StartDate;
         var endDate = request.EndDate ?? project.DueDate;
         if (HasInvalidDateRange(startDate, endDate))
@@ -140,6 +132,7 @@ public sealed class ProjectService(
             return Result<ProjectResponse>.Failure("Project end date cannot be before the start date.");
         }
 
+        string? normalizedTitle = null;
         if (request.Title is not null)
         {
             if (string.IsNullOrWhiteSpace(request.Title))
@@ -147,15 +140,16 @@ public sealed class ProjectService(
                 return Result<ProjectResponse>.Failure("Project title is required.");
             }
 
-            project.Name = request.Title.Trim();
-            project.Slug = SlugGenerator.FromName(project.Name);
+            normalizedTitle = request.Title.Trim();
         }
+        var affectedReaders = RemovesCurrentReadAccess(previousStatus, nextStatus)
+            ? await projects.ListCurrentReaderUserIdsAsync(project.Id, cancellationToken)
+            : [];
 
-        var previousStatus = project.Status;
-        var nextStatus = request.Status ?? project.Status;
-        if (!IsValidProjectStatusTransition(previousStatus, nextStatus))
+        if (normalizedTitle is not null)
         {
-            return Result<ProjectResponse>.Failure($"Project status cannot transition from {previousStatus} to {nextStatus}.");
+            project.Name = normalizedTitle;
+            project.Slug = SlugGenerator.FromName(project.Name);
         }
 
         project.Description = request.Description?.Trim() ?? project.Description;
@@ -164,6 +158,11 @@ public sealed class ProjectService(
         project.DueDate = request.EndDate ?? project.DueDate;
         await AuditAsync(userId, project.Status == previousStatus ? "ProjectUpdated" : "ProjectStatusChanged", "Project", project.Id, cancellationToken);
         await invalidations.ProjectChangedAsync(project, userId, "updated", cancellationToken);
+        await PublishProjectAccessInvalidationsAsync(
+            project,
+            affectedReaders,
+            nextStatus == ProjectStatus.Archived ? "archived" : "suspended",
+            cancellationToken);
         if (!await SaveProjectMutationAsync(cancellationToken))
             return ProjectConflict<ProjectResponse>();
         return Result<ProjectResponse>.Success(await ToProjectAsync(project, userId, cancellationToken));
@@ -182,9 +181,19 @@ public sealed class ProjectService(
             return Result.Failure("Project not found.");
         }
 
+        if (project.DeletedAt.HasValue || project.Status is ProjectStatus.Archived or ProjectStatus.Deleted)
+        {
+            return Result.Failure(new ApplicationErrorDetail(
+                "InvalidStateTransition",
+                "The requested Project lifecycle transition is not available.",
+                Target: "project"));
+        }
+
+        var affectedReaders = await projects.ListCurrentReaderUserIdsAsync(project.Id, cancellationToken);
         project.Status = ProjectStatus.Archived;
         await AuditAsync(userId, "ProjectArchived", "Project", project.Id, cancellationToken);
         await invalidations.ProjectChangedAsync(project, userId, "archived", cancellationToken);
+        await PublishProjectAccessInvalidationsAsync(project, affectedReaders, "archived", cancellationToken);
         if (!await SaveProjectMutationAsync(cancellationToken))
             return ProjectConflict();
         return Result.Success();
@@ -203,17 +212,13 @@ public sealed class ProjectService(
             return Result.Failure("Project not found.");
         }
 
-        project.Restore();
-        if (project.Status is ProjectStatus.Archived or ProjectStatus.Deleted)
-        {
-            project.Status = ProjectStatus.Active;
-        }
-
-        await AuditAsync(userId, "ProjectRestored", "Project", project.Id, cancellationToken);
-        await invalidations.ProjectChangedAsync(project, userId, "restored", cancellationToken);
-        if (!await SaveProjectMutationAsync(cancellationToken))
-            return ProjectConflict();
-        return Result.Success();
+        var message = project.Status is ProjectStatus.Archived or ProjectStatus.Deleted
+            ? "The Project cannot be restored because its prior lifecycle state is unavailable."
+            : "The requested Project lifecycle transition is not available.";
+        return Result.Failure(new ApplicationErrorDetail(
+            "InvalidStateTransition",
+            message,
+            Target: "project"));
     }
 
     public async Task<Result<IReadOnlyList<ProjectMemberResponse>>> ListMembersAsync(Guid projectId, CancellationToken cancellationToken = default)
@@ -1587,6 +1592,29 @@ public sealed class ProjectService(
         return auditLogger.LogAsync(new AuditLogEntry(actorUserId, action, targetType, targetId, SummaryFor(action)), cancellationToken);
     }
 
+    private async Task PublishProjectAccessInvalidationsAsync(
+        Project project,
+        IReadOnlyList<Guid> affectedUserIds,
+        string change,
+        CancellationToken cancellationToken)
+    {
+        foreach (var affectedUserId in affectedUserIds.Distinct())
+        {
+            await authorizationChanges.PublishAsync(
+                project.TenantId,
+                affectedUserId,
+                "project",
+                project.Id,
+                change,
+                cancellationToken);
+        }
+    }
+
+    private static bool RemovesCurrentReadAccess(ProjectStatus current, ProjectStatus next) =>
+        next == ProjectStatus.Archived ||
+        (next == ProjectStatus.Suspended &&
+         current is ProjectStatus.Active or ProjectStatus.Review or ProjectStatus.Completed);
+
     private static bool IsValidProjectStatusTransition(ProjectStatus current, ProjectStatus next)
     {
         if (current == next) return true;
@@ -1594,11 +1622,11 @@ public sealed class ProjectService(
 
         return current switch
         {
-            ProjectStatus.Planning => next is ProjectStatus.Active or ProjectStatus.Suspended or ProjectStatus.Archived,
+            ProjectStatus.Planning => next is ProjectStatus.Suspended or ProjectStatus.Archived,
             ProjectStatus.Active => next is ProjectStatus.Review or ProjectStatus.Completed or ProjectStatus.Suspended or ProjectStatus.Archived,
             ProjectStatus.Review => next is ProjectStatus.Active or ProjectStatus.Completed or ProjectStatus.Suspended or ProjectStatus.Archived,
             ProjectStatus.Completed => next is ProjectStatus.Archived,
-            ProjectStatus.Suspended => next is ProjectStatus.Planning or ProjectStatus.Active or ProjectStatus.Archived,
+            ProjectStatus.Suspended => next is ProjectStatus.Archived,
             ProjectStatus.Archived => false,
             _ => false
         };
@@ -1653,13 +1681,14 @@ public sealed class ProjectService(
         return new ProjectResponse(
             project.Id,
             project.WorkspaceId,
-            project.GroupId ?? Guid.Empty,
+            project.GroupId,
             project.OwnerUserId,
             project.Name,
             project.Description,
             project.Status,
             project.StartDate,
             project.DueDate,
+            project.VersionNo,
             project.CreatedAt,
             project.UpdatedAt,
             new ProjectUiPermissionResponse(await taskAuthorization.CanCreateTask(userId, project.Id, cancellationToken)));

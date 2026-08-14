@@ -17,7 +17,9 @@ using AipPortal.Infrastructure.Persistence;
 using AipPortal.Infrastructure.Security;
 using AipPortal.Web.Controllers;
 using AipPortal.Web.Extensions;
+using AipPortal.Web.Configuration;
 using AipPortal.Web.Middleware;
+using AipPortal.Web.Security;
 using Microsoft.AspNetCore.Authentication;
 using Microsoft.AspNetCore.Builder;
 using Microsoft.AspNetCore.Hosting;
@@ -36,6 +38,554 @@ namespace AipPortal.Tests.Tenancy;
 
 public sealed class HttpTenantIsolationTests
 {
+    private sealed record PlanningProjectGraph(
+        Project Project,
+        TaskItem Task,
+        Artifact Artifact,
+        ActivityLog ActivityLog,
+        Comment Comment,
+        Conversation Conversation,
+        Message Message);
+
+    [Fact]
+    [Trait("Scope", "WPC01")]
+    public async Task WorkspaceCreateCoordinatorHttpSeamBindsCapabilityAuthorizationAndIdempotency()
+    {
+        // This explicit no-op initialization seam isolates the HTTP and
+        // idempotency coordinator contract. It is not evidence that canonical
+        // general-channel provisioning exists in production.
+        await using var app = await HttpTenantIsolationTestApp.CreateAsync(workspaceInitializationAvailable: true);
+        var data = app.Data;
+
+        Assert.Contains("GET api/workspaces/capabilities", app.GetHttpRoutes());
+        Assert.Contains("POST api/workspaces", app.GetHttpRoutes());
+        Assert.DoesNotContain("POST api/workspaces/{workspaceId:guid}/projects", app.GetHttpRoutes());
+        Assert.DoesNotContain("POST api/projects/{projectId:guid}/activate", app.GetHttpRoutes());
+
+        using (var ownerCapability = await app.SendAsync(data.TenantAOwner, data.TenantA.Slug, "/api/workspaces/capabilities"))
+        using (var document = JsonDocument.Parse(await ownerCapability.Content.ReadAsStringAsync()))
+        {
+            Assert.Equal(HttpStatusCode.OK, ownerCapability.StatusCode);
+            Assert.True(document.RootElement.GetProperty("data").GetProperty("canCreate").GetBoolean());
+            Assert.Equal(JsonValueKind.Array, document.RootElement.GetProperty("warnings").ValueKind);
+            Assert.False(string.IsNullOrWhiteSpace(document.RootElement.GetProperty("requestId").GetString()));
+        }
+
+        using (var memberCapability = await app.SendAsync(data.TenantAMember, data.TenantA.Slug, "/api/workspaces/capabilities"))
+        using (var document = JsonDocument.Parse(await memberCapability.Content.ReadAsStringAsync()))
+        {
+            Assert.Equal(HttpStatusCode.OK, memberCapability.StatusCode);
+            Assert.False(document.RootElement.GetProperty("data").GetProperty("canCreate").GetBoolean());
+        }
+
+        using (var missingIdentity = await SendWorkspaceCreateAsync(
+                   app,
+                   data.TenantAOwner,
+                   data.TenantA.Slug,
+                   null,
+                   "Missing identity"))
+        {
+            Assert.Equal(HttpStatusCode.BadRequest, missingIdentity.StatusCode);
+            using var document = JsonDocument.Parse(await missingIdentity.Content.ReadAsStringAsync());
+            Assert.Equal("MissingIdempotencyKey", document.RootElement.GetProperty("error").GetProperty("code").GetString());
+            Assert.Equal("header.Idempotency-Key", document.RootElement.GetProperty("error").GetProperty("target").GetString());
+            Assert.Equal(JsonValueKind.Array, document.RootElement.GetProperty("error").GetProperty("details").ValueKind);
+            AssertCompleteErrorEnvelope(document.RootElement, 400, "MissingIdempotencyKey", "header.Idempotency-Key");
+        }
+
+        using (var denied = await SendWorkspaceCreateAsync(
+                   app,
+                   data.TenantAMember,
+                   data.TenantA.Slug,
+                   "wpc01-member-denied",
+                   "Denied member workspace"))
+        {
+            Assert.Equal(HttpStatusCode.Forbidden, denied.StatusCode);
+            using var document = JsonDocument.Parse(await denied.Content.ReadAsStringAsync());
+            Assert.Equal("CapabilityDenied", document.RootElement.GetProperty("error").GetProperty("code").GetString());
+            Assert.Equal("workspace", document.RootElement.GetProperty("error").GetProperty("target").GetString());
+            AssertCompleteErrorEnvelope(document.RootElement, 403, "CapabilityDenied", "workspace");
+        }
+
+        using (var invalidIdentity = await SendWorkspaceCreateAsync(
+                   app,
+                   data.TenantAOwner,
+                   data.TenantA.Slug,
+                   "short",
+                   "Invalid identity"))
+        using (var document = JsonDocument.Parse(await invalidIdentity.Content.ReadAsStringAsync()))
+        {
+            Assert.Equal(HttpStatusCode.BadRequest, invalidIdentity.StatusCode);
+            Assert.Equal("InvalidIdempotencyKey", document.RootElement.GetProperty("error").GetProperty("code").GetString());
+            Assert.Equal("header.Idempotency-Key", document.RootElement.GetProperty("error").GetProperty("target").GetString());
+            Assert.Equal(400, document.RootElement.GetProperty("status").GetInt32());
+            AssertCompleteErrorEnvelope(document.RootElement, 400, "InvalidIdempotencyKey", "header.Idempotency-Key");
+        }
+
+        Guid createdId;
+        using (var created = await SendWorkspaceCreateAsync(
+                   app,
+                   data.TenantAOwner,
+                   data.TenantA.Slug,
+                   "wpc01-http-create",
+                   "HTTP Created Workspace"))
+        using (var document = JsonDocument.Parse(await created.Content.ReadAsStringAsync()))
+        {
+            Assert.Equal(HttpStatusCode.Created, created.StatusCode);
+            var dataElement = document.RootElement.GetProperty("data");
+            createdId = dataElement.GetProperty("id").GetGuid();
+            Assert.Null(dataElement.GetProperty("description").GetString());
+            Assert.Equal(JsonValueKind.Array, document.RootElement.GetProperty("warnings").ValueKind);
+            Assert.False(string.IsNullOrWhiteSpace(document.RootElement.GetProperty("requestId").GetString()));
+            Assert.NotNull(created.Headers.Location);
+            Assert.EndsWith($"/api/workspaces/{createdId:D}", created.Headers.Location!.ToString(), StringComparison.OrdinalIgnoreCase);
+        }
+
+        using (var replay = await SendWorkspaceCreateAsync(
+                   app,
+                   data.TenantAOwner,
+                   data.TenantA.Slug,
+                   "wpc01-http-create",
+                   "HTTP Created Workspace"))
+        using (var document = JsonDocument.Parse(await replay.Content.ReadAsStringAsync()))
+        {
+            Assert.Equal(HttpStatusCode.Created, replay.StatusCode);
+            Assert.Equal(createdId, document.RootElement.GetProperty("data").GetProperty("id").GetGuid());
+        }
+
+        using (var mismatch = await SendWorkspaceCreateAsync(
+                   app,
+                   data.TenantAOwner,
+                   data.TenantA.Slug,
+                   "wpc01-http-create",
+                   "Different request"))
+        using (var document = JsonDocument.Parse(await mismatch.Content.ReadAsStringAsync()))
+        {
+            Assert.Equal(HttpStatusCode.Conflict, mismatch.StatusCode);
+            Assert.Equal(
+                "IdempotencyConflict",
+                document.RootElement.GetProperty("error").GetProperty("code").GetString());
+            Assert.Equal(
+                "header.Idempotency-Key",
+                document.RootElement.GetProperty("error").GetProperty("target").GetString());
+            AssertCompleteErrorEnvelope(document.RootElement, 409, "IdempotencyConflict", "header.Idempotency-Key");
+        }
+
+        Assert.Equal(
+            1,
+            await app.CountWorkspacesAsync(data.TenantA.Id, data.TenantA.Slug, "HTTP Created Workspace"));
+    }
+
+    [Fact]
+    [Trait("Scope", "WPC01")]
+    public async Task WorkspaceCreateFailsClosedThroughCanonicalEnvelopeWhenGeneralIsUnavailable()
+    {
+        await using var app = await HttpTenantIsolationTestApp.CreateAsync(workspaceInitializationAvailable: false);
+        var data = app.Data;
+        var before = await app.GetWorkspaceCreateCountsAsync(data.TenantA.Id, data.TenantA.Slug);
+
+        using (var capability = await app.SendAsync(
+                   data.TenantAOwner,
+                   data.TenantA.Slug,
+                   "/api/workspaces/capabilities"))
+        using (var document = JsonDocument.Parse(await capability.Content.ReadAsStringAsync()))
+        {
+            Assert.Equal(HttpStatusCode.OK, capability.StatusCode);
+            Assert.False(document.RootElement.GetProperty("data").GetProperty("canCreate").GetBoolean());
+        }
+
+        using (var failure = await SendWorkspaceCreateAsync(
+                   app,
+                   data.TenantAOwner,
+                   data.TenantA.Slug,
+                   "wpc01-general-unavailable",
+                   "Must not persist"))
+        using (var document = JsonDocument.Parse(await failure.Content.ReadAsStringAsync()))
+        {
+            Assert.Equal(HttpStatusCode.ServiceUnavailable, failure.StatusCode);
+            var root = document.RootElement;
+            Assert.False(string.IsNullOrWhiteSpace(root.GetProperty("requestId").GetString()));
+            Assert.Equal("DependencyUnavailable", root.GetProperty("error").GetProperty("code").GetString());
+            Assert.Equal(JsonValueKind.Null, root.GetProperty("error").GetProperty("target").ValueKind);
+            Assert.Equal(0, root.GetProperty("error").GetProperty("details").GetArrayLength());
+            Assert.False(root.GetProperty("error").GetProperty("redactionApplied").GetBoolean());
+            AssertCompleteErrorEnvelope(root, 503, "DependencyUnavailable", null);
+        }
+
+        Assert.Equal(before, await app.GetWorkspaceCreateCountsAsync(data.TenantA.Id, data.TenantA.Slug));
+        Assert.Equal(0, await app.CountWorkspacesAsync(data.TenantA.Id, data.TenantA.Slug, "Must not persist"));
+    }
+
+    [Fact]
+    [Trait("Scope", "WPC01")]
+    public async Task WorkspacePreControllerFailuresUseCompleteCanonicalEnvelopes()
+    {
+        await using var app = await HttpTenantIsolationTestApp.CreateAsync();
+        var data = app.Data;
+
+        using (var unauthenticatedRequest = new HttpRequestMessage(HttpMethod.Get, "/api/workspaces/capabilities"))
+        {
+            unauthenticatedRequest.Headers.TryAddWithoutValidation("X-Tenant-Slug", data.TenantA.Slug);
+            using var response = await app.Client.SendAsync(unauthenticatedRequest);
+            using var document = JsonDocument.Parse(await response.Content.ReadAsStringAsync());
+            Assert.Equal(HttpStatusCode.Unauthorized, response.StatusCode);
+            AssertCompleteErrorEnvelope(document.RootElement, 401, "AuthenticationRequired", null);
+        }
+
+        using (var malformedBody = new StringContent("{", Encoding.UTF8, "application/json"))
+        using (var response = await app.SendAsync(
+                   data.TenantAOwner,
+                   data.TenantA.Slug,
+                   "/api/workspaces",
+                   HttpMethod.Post,
+                   malformedBody))
+        using (var document = JsonDocument.Parse(await response.Content.ReadAsStringAsync()))
+        {
+            Assert.Equal(HttpStatusCode.BadRequest, response.StatusCode);
+            AssertCompleteErrorEnvelope(document.RootElement, 400, "MalformedJson", "body");
+        }
+
+        using (var invalidFieldTypeBody = new StringContent("""{"name":123}""", Encoding.UTF8, "application/json"))
+        using (var response = await app.SendAsync(
+                   data.TenantAOwner,
+                   data.TenantA.Slug,
+                   "/api/workspaces",
+                   HttpMethod.Post,
+                   invalidFieldTypeBody))
+        using (var document = JsonDocument.Parse(await response.Content.ReadAsStringAsync()))
+        {
+            Assert.Equal(HttpStatusCode.BadRequest, response.StatusCode);
+            AssertCompleteErrorEnvelope(document.RootElement, 400, "ValidationFailed", "body");
+        }
+
+        using (var invalidRootTypeBody = new StringContent("123", Encoding.UTF8, "application/json"))
+        using (var response = await app.SendAsync(
+                   data.TenantAOwner,
+                   data.TenantA.Slug,
+                   "/api/workspaces",
+                   HttpMethod.Post,
+                   invalidRootTypeBody))
+        using (var document = JsonDocument.Parse(await response.Content.ReadAsStringAsync()))
+        {
+            Assert.Equal(HttpStatusCode.BadRequest, response.StatusCode);
+            AssertCompleteErrorEnvelope(document.RootElement, 400, "ValidationFailed", "body");
+        }
+
+        using (var unsupportedBody = new StringContent("name=unsupported", Encoding.UTF8, "text/plain"))
+        using (var response = await app.SendAsync(
+                   data.TenantAOwner,
+                   data.TenantA.Slug,
+                   "/api/workspaces",
+                   HttpMethod.Post,
+                   unsupportedBody))
+        using (var document = JsonDocument.Parse(await response.Content.ReadAsStringAsync()))
+        {
+            Assert.Equal(HttpStatusCode.UnsupportedMediaType, response.StatusCode);
+            AssertCompleteErrorEnvelope(
+                document.RootElement,
+                415,
+                "UnsupportedMediaType",
+                "header.Content-Type");
+        }
+    }
+
+    [Fact]
+    [Trait("Scope", "WPC01")]
+    public async Task WorkspaceCreateCsrfFailureUsesCompleteCanonicalEnvelope()
+    {
+        await using var app = await HttpTenantIsolationTestApp.CreateAsync(enableCsrfProtection: true);
+        var data = app.Data;
+
+        using var response = await SendWorkspaceCreateAsync(
+            app,
+            data.TenantAOwner,
+            data.TenantA.Slug,
+            "wpc01-csrf-rejected",
+            "CSRF rejected");
+        using var document = JsonDocument.Parse(await response.Content.ReadAsStringAsync());
+
+        Assert.Equal(HttpStatusCode.Forbidden, response.StatusCode);
+        AssertCompleteErrorEnvelope(document.RootElement, 403, "CsrfRejected", null);
+    }
+
+    [Theory]
+    [InlineData(ProjectStatus.Planning, ProjectStatus.Review)]
+    [InlineData(ProjectStatus.Active, ProjectStatus.Planning)]
+    [InlineData(ProjectStatus.Completed, ProjectStatus.Review)]
+    [InlineData(ProjectStatus.Suspended, ProjectStatus.Planning)]
+    [Trait("Scope", "WPC01")]
+    public async Task InvalidProjectLifecycleTransitionsUseCanonicalHttp409Envelope(
+        ProjectStatus previousStatus,
+        ProjectStatus nextStatus)
+    {
+        await using var app = await HttpTenantIsolationTestApp.CreateAsync();
+        var data = app.Data;
+        var graph = await app.AddPlanningProjectGraphAsync(
+            data.TenantA.Id,
+            data.TenantA.Slug,
+            data.WorkspaceA.Id,
+            data.GroupA.Id,
+            data.TenantAOwner.Id,
+            data.TenantAAdmin.Id,
+            [],
+            previousStatus);
+
+        using var response = await app.SendAsync(
+            data.TenantAOwner,
+            data.TenantA.Slug,
+            $"/api/projects/{graph.Project.Id:D}",
+            HttpMethod.Patch,
+            JsonContent($$"""
+                {"title":"Must not persist","description":"Must not persist","status":{{(int)nextStatus}},"startDate":"2026-02-01","endDate":"2026-11-30"}
+                """));
+        using var document = JsonDocument.Parse(await response.Content.ReadAsStringAsync());
+
+        Assert.Equal(HttpStatusCode.Conflict, response.StatusCode);
+        AssertCompleteErrorEnvelope(
+            document.RootElement,
+            StatusCodes.Status409Conflict,
+            "InvalidStateTransition",
+            "body.status");
+        var lifecycle = await app.GetProjectLifecycleAsync(
+            data.TenantA.Id,
+            data.TenantA.Slug,
+            graph.Project.Id);
+        Assert.Equal(previousStatus, lifecycle.Status);
+        Assert.Null(lifecycle.DeletedAt);
+    }
+
+    [Fact]
+    [Trait("Scope", "WPC01")]
+    public async Task PlanningProjectAndSubresourcesAreNotDisclosedBeyondProjectMembership()
+    {
+        await using var app = await HttpTenantIsolationTestApp.CreateAsync();
+        var data = app.Data;
+        var graph = await app.AddPlanningProjectGraphAsync(
+            data.TenantA.Id,
+            data.TenantA.Slug,
+            data.WorkspaceA.Id,
+            data.GroupA.Id,
+            data.TenantAOwner.Id,
+            data.TenantAAdmin.Id,
+            [data.TenantAMember.Id, data.TenantAAdmin.Id, data.PlatformAdmin.Id]);
+
+        await AssertDraftGraphHiddenAsync(app, data, graph);
+
+        using (var suspend = await app.SendAsync(
+                   data.TenantAOwner,
+                   data.TenantA.Slug,
+                   $"/api/projects/{graph.Project.Id:D}",
+                   HttpMethod.Patch,
+                   JsonContent("""{"status":4}""")))
+        {
+            Assert.Equal(HttpStatusCode.OK, suspend.StatusCode);
+        }
+        await AssertDraftGraphHiddenAsync(app, data, graph);
+
+        using (var archive = await app.SendAsync(
+                   data.TenantAOwner,
+                   data.TenantA.Slug,
+                   $"/api/projects/{graph.Project.Id:D}/archive",
+                   HttpMethod.Post))
+        {
+            Assert.Equal(HttpStatusCode.OK, archive.StatusCode);
+        }
+        using (var archivedList = await app.SendAsync(
+                   data.TenantAAdmin,
+                   data.TenantA.Slug,
+                   "/api/projects?archived=true"))
+        {
+            Assert.DoesNotContain(graph.Project.Name, await archivedList.Content.ReadAsStringAsync(), StringComparison.Ordinal);
+        }
+        using (var deniedRestore = await app.SendAsync(
+                   data.TenantAAdmin,
+                   data.TenantA.Slug,
+                   $"/api/projects/{graph.Project.Id:D}/restore",
+                   HttpMethod.Post))
+        {
+            Assert.Equal(HttpStatusCode.BadRequest, deniedRestore.StatusCode);
+        }
+        using (var ownerRestore = await app.SendAsync(
+                   data.TenantAOwner,
+                   data.TenantA.Slug,
+                   $"/api/projects/{graph.Project.Id:D}/restore",
+                   HttpMethod.Post))
+        using (var restoreDocument = JsonDocument.Parse(await ownerRestore.Content.ReadAsStringAsync()))
+        {
+            Assert.Equal(HttpStatusCode.Conflict, ownerRestore.StatusCode);
+            AssertCompleteErrorEnvelope(
+                restoreDocument.RootElement,
+                409,
+                "InvalidStateTransition",
+                "project");
+        }
+
+        var lifecycle = await app.GetProjectLifecycleAsync(
+            data.TenantA.Id,
+            data.TenantA.Slug,
+            graph.Project.Id);
+        Assert.Equal(ProjectStatus.Archived, lifecycle.Status);
+        Assert.Null(lifecycle.DeletedAt);
+    }
+
+    private static async Task AssertDraftGraphHiddenAsync(
+        HttpTenantIsolationTestApp app,
+        TenantIsolationTestData data,
+        PlanningProjectGraph graph)
+    {
+        foreach (var deniedActor in new[] { data.TenantAMember, data.TenantAAdmin, data.PlatformAdmin })
+        {
+            using var detail = await app.SendAsync(
+                deniedActor,
+                data.TenantA.Slug,
+                $"/api/projects/{graph.Project.Id:D}");
+            var detailBody = await detail.Content.ReadAsStringAsync();
+            Assert.Equal(HttpStatusCode.NotFound, detail.StatusCode);
+            Assert.DoesNotContain(graph.Project.Name, detailBody, StringComparison.Ordinal);
+            using (var detailDocument = JsonDocument.Parse(detailBody))
+            {
+                AssertCompleteErrorEnvelope(detailDocument.RootElement, 404, "NotFound", null, expectedRedactionApplied: true);
+            }
+
+            Assert.DoesNotContain(
+                graph.Project.Id,
+                await SearchIdsAsync(app, deniedActor, data.TenantA.Slug, "Project", graph.Project.Id, data.WorkspaceA.Id));
+            Assert.DoesNotContain(
+                graph.Task.Id,
+                await SearchIdsAsync(app, deniedActor, data.TenantA.Slug, "Task", graph.Project.Id, data.WorkspaceA.Id));
+            Assert.DoesNotContain(
+                graph.Artifact.Id,
+                await SearchIdsAsync(app, deniedActor, data.TenantA.Slug, "Artifact", graph.Project.Id, data.WorkspaceA.Id));
+            Assert.DoesNotContain(
+                graph.ActivityLog.Id,
+                await SearchIdsAsync(app, deniedActor, data.TenantA.Slug, "ActivityLog", graph.Project.Id, data.WorkspaceA.Id));
+            Assert.DoesNotContain(
+                graph.Comment.Id,
+                await SearchIdsAsync(app, deniedActor, data.TenantA.Slug, "Comment", graph.Project.Id, data.WorkspaceA.Id));
+
+            using (var conversationList = await app.SendAsync(
+                       deniedActor,
+                       data.TenantA.Slug,
+                       "/api/conversations"))
+            {
+                var body = await conversationList.Content.ReadAsStringAsync();
+                Assert.DoesNotContain(graph.Conversation.Title!, body, StringComparison.Ordinal);
+                Assert.DoesNotContain(graph.Message.Body, body, StringComparison.Ordinal);
+            }
+            using (var messages = await app.SendAsync(
+                       deniedActor,
+                       data.TenantA.Slug,
+                       $"/api/conversations/{graph.Conversation.Id:D}/messages"))
+            {
+                var body = await messages.Content.ReadAsStringAsync();
+                Assert.Equal(HttpStatusCode.BadRequest, messages.StatusCode);
+                Assert.DoesNotContain(graph.Message.Body, body, StringComparison.Ordinal);
+            }
+            Assert.DoesNotContain(
+                graph.Message.Id,
+                await SearchIdsAsync(app, deniedActor, data.TenantA.Slug, "Message", graph.Project.Id, data.WorkspaceA.Id));
+
+            using var createChannel = await app.SendAsync(
+                deniedActor,
+                data.TenantA.Slug,
+                "/api/conversations",
+                HttpMethod.Post,
+                JsonContent($$"""
+                    {"type":"ProjectChannel","workspaceId":"{{data.WorkspaceA.Id:D}}","projectId":"{{graph.Project.Id:D}}","title":"unauthorized draft channel","memberUserIds":[]}
+                    """));
+            Assert.Equal(HttpStatusCode.BadRequest, createChannel.StatusCode);
+        }
+
+        using (var myTasks = await app.SendAsync(
+                   data.TenantAAdmin,
+                   data.TenantA.Slug,
+                   $"/api/me/tasks?scope=CurrentWorkspace&workspaceId={data.WorkspaceA.Id:D}&projectId={graph.Project.Id:D}&view=Assigned"))
+        {
+            var body = await myTasks.Content.ReadAsStringAsync();
+            Assert.Equal(HttpStatusCode.NotFound, myTasks.StatusCode);
+            Assert.DoesNotContain(graph.Task.Title, body, StringComparison.Ordinal);
+        }
+
+        using (var detail = await app.SendAsync(
+                   data.TenantAOwner,
+                   data.TenantA.Slug,
+                   $"/api/projects/{graph.Project.Id:D}"))
+        {
+            Assert.Equal(HttpStatusCode.OK, detail.StatusCode);
+        }
+        Assert.Contains(
+            graph.Project.Id,
+            await SearchIdsAsync(app, data.TenantAOwner, data.TenantA.Slug, "Project", graph.Project.Id, data.WorkspaceA.Id));
+        Assert.Contains(
+            graph.Task.Id,
+            await SearchIdsAsync(app, data.TenantAOwner, data.TenantA.Slug, "Task", graph.Project.Id, data.WorkspaceA.Id));
+        Assert.Contains(
+            graph.Artifact.Id,
+            await SearchIdsAsync(app, data.TenantAOwner, data.TenantA.Slug, "Artifact", graph.Project.Id, data.WorkspaceA.Id));
+        Assert.Contains(
+            graph.ActivityLog.Id,
+            await SearchIdsAsync(app, data.TenantAOwner, data.TenantA.Slug, "ActivityLog", graph.Project.Id, data.WorkspaceA.Id));
+        Assert.Contains(
+            graph.Comment.Id,
+            await SearchIdsAsync(app, data.TenantAOwner, data.TenantA.Slug, "Comment", graph.Project.Id, data.WorkspaceA.Id));
+        Assert.Contains(
+            graph.Message.Id,
+            await SearchIdsAsync(app, data.TenantAOwner, data.TenantA.Slug, "Message", graph.Project.Id, data.WorkspaceA.Id));
+        using (var conversationList = await app.SendAsync(
+                   data.TenantAOwner,
+                   data.TenantA.Slug,
+                   "/api/conversations"))
+        {
+            var body = await conversationList.Content.ReadAsStringAsync();
+            Assert.Contains(graph.Conversation.Title!, body, StringComparison.Ordinal);
+            Assert.Contains(graph.Message.Body, body, StringComparison.Ordinal);
+        }
+    }
+
+    private static async Task<IReadOnlySet<Guid>> SearchIdsAsync(
+        HttpTenantIsolationTestApp app,
+        User actor,
+        string tenantSlug,
+        string type,
+        Guid projectId,
+        Guid workspaceId)
+    {
+        var scope = type is "Comment" or "Message"
+            ? $"workspaceId={workspaceId:D}"
+            : $"projectId={projectId:D}";
+        using var response = await app.SendAsync(
+            actor,
+            tenantSlug,
+            $"/api/search?type={type}&{scope}&pageSize=50");
+        Assert.Equal(HttpStatusCode.OK, response.StatusCode);
+        using var document = JsonDocument.Parse(await response.Content.ReadAsStringAsync());
+        return document.RootElement.GetProperty("items")
+            .EnumerateArray()
+            .Select(item => item.GetProperty("id").GetGuid())
+            .ToHashSet();
+    }
+
+    private static void AssertCompleteErrorEnvelope(
+        JsonElement root,
+        int expectedStatus,
+        string expectedCode,
+        string? expectedTarget,
+        bool expectedRedactionApplied = false)
+    {
+        Assert.False(string.IsNullOrWhiteSpace(root.GetProperty("requestId").GetString()));
+        Assert.False(string.IsNullOrWhiteSpace(root.GetProperty("traceId").GetString()));
+        Assert.Equal(expectedStatus, root.GetProperty("status").GetInt32());
+        var error = root.GetProperty("error");
+        Assert.Equal(expectedCode, error.GetProperty("code").GetString());
+        Assert.False(string.IsNullOrWhiteSpace(error.GetProperty("message").GetString()));
+        if (expectedTarget is null)
+            Assert.Equal(JsonValueKind.Null, error.GetProperty("target").ValueKind);
+        else
+            Assert.Equal(expectedTarget, error.GetProperty("target").GetString());
+        Assert.Equal(0, error.GetProperty("details").GetArrayLength());
+        Assert.Equal(expectedRedactionApplied, error.GetProperty("redactionApplied").GetBoolean());
+    }
+
     [Fact]
     public async Task AuthenticatedHttpRequestsStayTenantScopedAcrossCoreWorkflows()
     {
@@ -53,7 +603,7 @@ public sealed class HttpTenantIsolationTests
 
         await AssertOkContainsOnlyAsync(app, data.CrossTenantUser, data.TenantA.Slug, "/api/projects?archived=false", "ProjectA", "ProjectB");
         await AssertOkContainsOnlyAsync(app, data.CrossTenantUser, data.TenantA.Slug, $"/api/projects/{data.ProjectA.Id}", "ProjectA", "ProjectB");
-        await AssertBadRequestAsync(app, data.CrossTenantUser, data.TenantA.Slug, $"/api/projects/{data.ProjectB.Id}");
+        await AssertStatusAsync(app, data.CrossTenantUser, data.TenantA.Slug, $"/api/projects/{data.ProjectB.Id}", HttpStatusCode.NotFound);
 
         await AssertOkContainsOnlyAsync(app, data.CrossTenantUser, data.TenantA.Slug, $"/api/projects/{data.ProjectA.Id}/tasks", "TaskA", "TaskB");
         await AssertOkContainsOnlyAsync(app, data.CrossTenantUser, data.TenantA.Slug, $"/api/tasks/{data.TaskA.Id}", "TaskA", "TaskB");
@@ -673,6 +1223,100 @@ public sealed class HttpTenantIsolationTests
     }
 
     [Fact]
+    [Trait("Scope", "WPC01")]
+    public async Task UnscopedDirectCreateDoesNotReuseProjectBoundConversationForDeniedActor()
+    {
+        await using var app = await HttpTenantIsolationTestApp.CreateAsync();
+        var data = app.Data;
+        var protectedConversation = await app.AddProjectBoundDirectConversationAsync(
+            data.TenantA.Id,
+            data.TenantA.Slug,
+            data.WorkspaceA.Id,
+            data.ProjectA.Id,
+            data.TenantAStaff.Id,
+            data.TenantAOwner.Id);
+
+        using (var deniedDetail = await app.SendAsync(
+                   data.TenantAStaff,
+                   data.TenantA.Slug,
+                   $"/api/conversations/{protectedConversation.Id:D}"))
+        {
+            var deniedBody = await deniedDetail.Content.ReadAsStringAsync();
+            Assert.Equal(HttpStatusCode.BadRequest, deniedDetail.StatusCode);
+            Assert.DoesNotContain(protectedConversation.Title!, deniedBody, StringComparison.Ordinal);
+            Assert.DoesNotContain(data.ProjectA.Id.ToString("D"), deniedBody, StringComparison.OrdinalIgnoreCase);
+        }
+
+        using var createContent = JsonContent($$"""{"recipientUserId":"{{data.TenantAOwner.Id:D}}"}""");
+        using var createResponse = await app.SendAsync(
+            data.TenantAStaff,
+            data.TenantA.Slug,
+            "/api/conversations/direct",
+            HttpMethod.Post,
+            createContent);
+        var createBody = await createResponse.Content.ReadAsStringAsync();
+
+        Assert.Equal(HttpStatusCode.OK, createResponse.StatusCode);
+        Assert.DoesNotContain(protectedConversation.Title!, createBody, StringComparison.Ordinal);
+        Assert.DoesNotContain(data.ProjectA.Id.ToString("D"), createBody, StringComparison.OrdinalIgnoreCase);
+        var unscopedConversationId = ReadResponseId(createBody);
+        Assert.NotEqual(protectedConversation.Id, unscopedConversationId);
+
+        var unscopedConversation = await app.GetConversationAsync(
+            data.TenantA.Id,
+            data.TenantA.Slug,
+            unscopedConversationId);
+        Assert.NotNull(unscopedConversation);
+        Assert.Null(unscopedConversation.ProjectId);
+    }
+
+    [Fact]
+    [Trait("Scope", "WPC01")]
+    public async Task GenericDirectCreateReusesOnlyAnExactlyMatchingProjectScope()
+    {
+        await using var app = await HttpTenantIsolationTestApp.CreateAsync();
+        var data = app.Data;
+        var projectBound = await app.AddProjectBoundDirectConversationAsync(
+            data.TenantA.Id,
+            data.TenantA.Slug,
+            data.WorkspaceA.Id,
+            data.ProjectA.Id,
+            data.TenantAMember.Id,
+            data.TenantAOwner.Id);
+
+        using var sameProject = JsonContent($$"""
+            {"type":"DirectMessage","workspaceId":"{{data.WorkspaceA.Id:D}}","projectId":"{{data.ProjectA.Id:D}}","memberUserIds":["{{data.TenantAMember.Id:D}}"]}
+            """);
+        using var sameProjectResponse = await app.SendAsync(
+            data.TenantAOwner,
+            data.TenantA.Slug,
+            "/api/conversations",
+            HttpMethod.Post,
+            sameProject);
+        Assert.Equal(HttpStatusCode.OK, sameProjectResponse.StatusCode);
+        Assert.Equal(
+            projectBound.Id,
+            ReadResponseId(await sameProjectResponse.Content.ReadAsStringAsync()));
+
+        using var unscoped = JsonContent($$"""
+            {"type":"DirectMessage","workspaceId":"{{data.WorkspaceA.Id:D}}","memberUserIds":["{{data.TenantAMember.Id:D}}"]}
+            """);
+        using var unscopedResponse = await app.SendAsync(
+            data.TenantAOwner,
+            data.TenantA.Slug,
+            "/api/conversations",
+            HttpMethod.Post,
+            unscoped);
+        Assert.Equal(HttpStatusCode.OK, unscopedResponse.StatusCode);
+        var unscopedId = ReadResponseId(await unscopedResponse.Content.ReadAsStringAsync());
+        Assert.NotEqual(projectBound.Id, unscopedId);
+        Assert.Null((await app.GetConversationAsync(
+            data.TenantA.Id,
+            data.TenantA.Slug,
+            unscopedId))!.ProjectId);
+    }
+
+    [Fact]
     public async Task DirectConversationMvpRejectsSelfAndCrossTenantRecipients()
     {
         await using var app = await HttpTenantIsolationTestApp.CreateAsync();
@@ -718,6 +1362,43 @@ public sealed class HttpTenantIsolationTests
         Assert.Equal(
             new[] { data.CrossTenantUser.Id, data.TenantAMember.Id }.Order().ToArray(),
             thread.Members.Select(member => member.UserId).Order().ToArray());
+    }
+
+    [Fact]
+    [Trait("Scope", "WPC01")]
+    public async Task ConversationThreadCreationRejectsChildBeyondReadableDepthWithoutSuccessMutation()
+    {
+        await using var app = await HttpTenantIsolationTestApp.CreateAsync();
+        var data = app.Data;
+        var deepestReadableThreadId = await app.AddConversationThreadChainAsync(
+            data.TenantA.Id,
+            data.TenantA.Slug,
+            data.ConversationA.Id,
+            data.WorkspaceA.Id,
+            data.CrossTenantUser.Id,
+            depth: 32);
+        var before = await app.GetConversationThreadCreationCountsAsync(
+            data.TenantA.Id,
+            data.TenantA.Slug);
+
+        using var content = JsonContent($$"""
+            {"type":"Thread","workspaceId":"{{data.WorkspaceA.Id:D}}","parentConversationId":"{{deepestReadableThreadId:D}}","title":"unreadable level 33","memberUserIds":[]}
+            """);
+        using var response = await app.SendAsync(
+            data.CrossTenantUser,
+            data.TenantA.Slug,
+            "/api/conversations",
+            HttpMethod.Post,
+            content);
+        var responseBody = await response.Content.ReadAsStringAsync();
+        var after = await app.GetConversationThreadCreationCountsAsync(
+            data.TenantA.Id,
+            data.TenantA.Slug);
+
+        Assert.Equal(HttpStatusCode.BadRequest, response.StatusCode);
+        Assert.DoesNotContain("unreadable level 33", responseBody, StringComparison.Ordinal);
+        Assert.Equal(before.Conversations, after.Conversations);
+        Assert.Equal(before.SuccessAudits, after.SuccessAudits);
     }
 
     [Fact]
@@ -1074,7 +1755,7 @@ public sealed class HttpTenantIsolationTests
 
         await AssertOkContainsOnlyAsync(app, data.Outsider, data.TenantA.Slug, "/api/workspaces", "", "WorkspaceA");
         await AssertBadRequestAsync(app, data.Outsider, data.TenantA.Slug, $"/api/workspaces/{data.WorkspaceA.Id}");
-        await AssertBadRequestAsync(app, data.Outsider, data.TenantA.Slug, $"/api/projects/{data.ProjectA.Id}");
+        await AssertStatusAsync(app, data.Outsider, data.TenantA.Slug, $"/api/projects/{data.ProjectA.Id}", HttpStatusCode.NotFound);
         await AssertBadRequestAsync(app, data.Outsider, data.TenantA.Slug, $"/api/conversations/{data.ConversationA.Id}");
         await AssertBadRequestAsync(app, data.Outsider, data.TenantA.Slug, $"/api/files/{data.FileA.Id}/download");
     }
@@ -1144,12 +1825,16 @@ public sealed class HttpTenantIsolationTests
             "MY_TASKS_WORKSPACE_FORBIDDEN");
 
         var projectScopedPath = $"/api/me/tasks?view=Assigned&workspaceId={data.WorkspaceA.Id:D}&projectId={data.ProjectA.Id:D}";
-        foreach (var visibleUser in new[] { data.TenantAOwner, data.TenantAAdmin, data.TenantAStaff, data.TenantAMember })
+        foreach (var visibleUser in new[] { data.TenantAOwner, data.TenantAAdmin, data.TenantAMember })
         {
             Assert.Equal(
                 HttpStatusCode.OK,
                 (await app.SendAsync(visibleUser, data.TenantA.Slug, projectScopedPath)).StatusCode);
         }
+        await AssertMyTasksErrorAsync(
+            await app.SendAsync(data.TenantAStaff, data.TenantA.Slug, projectScopedPath),
+            HttpStatusCode.NotFound,
+            "MY_TASKS_PROJECT_NOT_FOUND");
 
         await app.AddGroupMemberAsync(
             data.TenantA.Id,
@@ -1639,6 +2324,31 @@ public sealed class HttpTenantIsolationTests
 
     private static StringContent JsonContent(string json) => new(json, Encoding.UTF8, "application/json");
 
+    private static async Task<HttpResponseMessage> SendWorkspaceCreateAsync(
+        HttpTenantIsolationTestApp app,
+        User user,
+        string tenantSlug,
+        string? idempotencyKey,
+        string name)
+    {
+        using var request = new HttpRequestMessage(HttpMethod.Post, "/api/workspaces");
+        request.Headers.TryAddWithoutValidation("X-Test-User-Id", user.Id.ToString("D"));
+        request.Headers.TryAddWithoutValidation("X-Test-Email", user.Email);
+        request.Headers.TryAddWithoutValidation("X-Test-System-Role", user.SystemRole.ToString());
+        request.Headers.TryAddWithoutValidation("X-Tenant-Slug", tenantSlug);
+        if (idempotencyKey is not null)
+        {
+            request.Headers.TryAddWithoutValidation("Idempotency-Key", idempotencyKey);
+        }
+        request.Content = JsonContent(JsonSerializer.Serialize(new
+        {
+            name,
+            description = (string?)null,
+            icon = (string?)null
+        }));
+        return await app.Client.SendAsync(request);
+    }
+
     private static void AssertDetailAggregateShape(JsonElement root, TenantIsolationTestData data)
     {
         var task = root.GetProperty("task");
@@ -1819,7 +2529,9 @@ public sealed class HttpTenantIsolationTests
         public HttpClient Client { get; }
         public TenantIsolationTestData Data { get; }
 
-        public static async Task<HttpTenantIsolationTestApp> CreateAsync()
+        public static async Task<HttpTenantIsolationTestApp> CreateAsync(
+            bool workspaceInitializationAvailable = false,
+            bool enableCsrfProtection = false)
         {
             var builder = WebApplication.CreateBuilder(new WebApplicationOptions
             {
@@ -1837,7 +2549,7 @@ public sealed class HttpTenantIsolationTests
                 ["Security:CookieSecurePolicy"] = "SameAsRequest",
                 ["Security:RequireHttps"] = "false",
                 ["Security:EnableHsts"] = "false",
-                ["Security:EnableCsrfProtection"] = "false",
+                ["Security:EnableCsrfProtection"] = enableCsrfProtection.ToString(),
                 ["Security:EnableRateLimiting"] = "false",
                 ["CommunicationSafety:MaxMessageLength"] = "120",
                 ["CommunicationSafety:MaxAttachmentsPerMessage"] = "2",
@@ -1865,10 +2577,21 @@ public sealed class HttpTenantIsolationTests
             builder.Services.AddDbContext<AppDbContext>(options =>
                 options.UseInMemoryDatabase(databaseName));
             AddInfrastructureLikeServices(builder.Services, builder.Configuration);
+            if (workspaceInitializationAvailable)
+            {
+                builder.Services.AddScoped<IWorkspaceRequiredInitialization, NoopWorkspaceInitializationForCoordinatorTests>();
+            }
 
             var app = builder.Build();
+            app.UseMiddleware<GlobalExceptionHandlingMiddleware>();
+            app.UseMiddleware<WpcApiContractMiddleware>();
             app.UseMiddleware<TenantResolutionMiddleware>();
             app.UseAuthentication();
+            if (enableCsrfProtection)
+            {
+                app.Services.GetRequiredService<CsrfProtectionState>().MarkMiddlewareActive();
+                app.UseMiddleware<CsrfProtectionMiddleware>();
+            }
             app.UseAuthorization();
             app.MapControllers();
 
@@ -1913,6 +2636,266 @@ public sealed class HttpTenantIsolationTests
             currentTenant.SetTenant(tenantId, tenantSlug);
             var dbContext = scope.ServiceProvider.GetRequiredService<AppDbContext>();
             return await dbContext.AuditLogs.AsNoTracking().ToListAsync();
+        }
+
+        public async Task<int> CountWorkspacesAsync(Guid tenantId, string tenantSlug, string name)
+        {
+            await using var scope = App.Services.CreateAsyncScope();
+            var currentTenant = scope.ServiceProvider.GetRequiredService<CurrentTenantService>();
+            currentTenant.SetTenant(tenantId, tenantSlug);
+            var dbContext = scope.ServiceProvider.GetRequiredService<AppDbContext>();
+            return await dbContext.Workspaces.CountAsync(item => item.Name == name);
+        }
+
+        public async Task<Guid> AddConversationThreadChainAsync(
+            Guid tenantId,
+            string tenantSlug,
+            Guid rootConversationId,
+            Guid workspaceId,
+            Guid userId,
+            int depth)
+        {
+            await using var scope = App.Services.CreateAsyncScope();
+            var currentTenant = scope.ServiceProvider.GetRequiredService<CurrentTenantService>();
+            currentTenant.SetTenant(tenantId, tenantSlug);
+            var dbContext = scope.ServiceProvider.GetRequiredService<AppDbContext>();
+            var parentId = rootConversationId;
+
+            for (var level = 1; level <= depth; level++)
+            {
+                var conversation = new Conversation
+                {
+                    TenantId = tenantId,
+                    WorkspaceId = workspaceId,
+                    Type = ConversationType.Thread,
+                    Title = $"Depth {level}",
+                    ParentConversationId = parentId,
+                    RootConversationId = rootConversationId,
+                    CreatedByUserId = userId
+                };
+                dbContext.Conversations.Add(conversation);
+                dbContext.ConversationMembers.Add(new ConversationMember
+                {
+                    TenantId = tenantId,
+                    ConversationId = conversation.Id,
+                    UserId = userId,
+                    Role = ConversationMemberRole.Member,
+                    CanRead = true,
+                    CanPost = true,
+                    CanCreateThread = true,
+                    JoinedAt = DateTimeOffset.UtcNow
+                });
+                parentId = conversation.Id;
+            }
+
+            await dbContext.SaveChangesAsync();
+            return parentId;
+        }
+
+        public async Task<(int Conversations, int SuccessAudits)> GetConversationThreadCreationCountsAsync(
+            Guid tenantId,
+            string tenantSlug)
+        {
+            await using var scope = App.Services.CreateAsyncScope();
+            var currentTenant = scope.ServiceProvider.GetRequiredService<CurrentTenantService>();
+            currentTenant.SetTenant(tenantId, tenantSlug);
+            var dbContext = scope.ServiceProvider.GetRequiredService<AppDbContext>();
+            return (
+                await dbContext.Conversations.CountAsync(),
+                await dbContext.AuditLogs.CountAsync(log => log.Action == "ConversationThreadCreated"));
+        }
+
+        public async Task<(int Workspaces, int WorkspaceMembers, int Conversations, int ConversationMembers, int Audits, int Outbox, int Idempotency)>
+            GetWorkspaceCreateCountsAsync(Guid tenantId, string tenantSlug)
+        {
+            await using var scope = App.Services.CreateAsyncScope();
+            var currentTenant = scope.ServiceProvider.GetRequiredService<CurrentTenantService>();
+            currentTenant.SetTenant(tenantId, tenantSlug);
+            var dbContext = scope.ServiceProvider.GetRequiredService<AppDbContext>();
+            return (
+                await dbContext.Workspaces.CountAsync(),
+                await dbContext.WorkspaceMembers.CountAsync(),
+                await dbContext.Conversations.CountAsync(),
+                await dbContext.ConversationMembers.CountAsync(),
+                await dbContext.AuditLogs.CountAsync(),
+                await dbContext.OutboxEvents.CountAsync(),
+                await dbContext.IdempotencyRecords.CountAsync());
+        }
+
+        public async Task<PlanningProjectGraph> AddPlanningProjectGraphAsync(
+                Guid tenantId,
+                string tenantSlug,
+                Guid workspaceId,
+                Guid groupId,
+                Guid ownerUserId,
+                Guid relationshipUserId,
+                IReadOnlyCollection<Guid> staleConversationMemberUserIds,
+                ProjectStatus status = ProjectStatus.Planning)
+        {
+            await using var scope = App.Services.CreateAsyncScope();
+            var currentTenant = scope.ServiceProvider.GetRequiredService<CurrentTenantService>();
+            currentTenant.SetTenant(tenantId, tenantSlug);
+            var dbContext = scope.ServiceProvider.GetRequiredService<AppDbContext>();
+            var project = new Project
+            {
+                TenantId = tenantId,
+                WorkspaceId = workspaceId,
+                GroupId = groupId,
+                OwnerUserId = ownerUserId,
+                CreatedByUserId = ownerUserId,
+                Name = $"WPC draft {Guid.NewGuid():N}",
+                Slug = $"wpc-draft-{Guid.NewGuid():N}",
+                Description = "WPC planning project",
+                Status = status
+            };
+            var task = new TaskItem
+            {
+                TenantId = tenantId,
+                WorkspaceId = workspaceId,
+                ProjectId = project.Id,
+                CreatedByUserId = ownerUserId,
+                Title = "WPC draft task",
+                PrimaryAssigneeUserId = relationshipUserId
+            };
+            var artifact = new Artifact
+            {
+                TenantId = tenantId,
+                ProjectId = project.Id,
+                TaskItemId = task.Id,
+                CreatedByUserId = ownerUserId,
+                Name = "WPC draft artifact"
+            };
+            var activityLog = new ActivityLog
+            {
+                TenantId = tenantId,
+                ProjectId = project.Id,
+                TaskItemId = task.Id,
+                AuthorUserId = ownerUserId,
+                ActivityType = ActivityLogType.Note,
+                Body = "WPC draft activity",
+                OccurredAt = DateTimeOffset.UtcNow
+            };
+            var comment = new Comment
+            {
+                TenantId = tenantId,
+                WorkspaceId = workspaceId,
+                AuthorUserId = ownerUserId,
+                TargetType = CommentTargetType.Project,
+                TargetId = project.Id,
+                Body = "WPC draft comment"
+            };
+            var conversation = new Conversation
+            {
+                TenantId = tenantId,
+                WorkspaceId = workspaceId,
+                ProjectId = project.Id,
+                Type = ConversationType.ProjectChannel,
+                Title = "WPC protected draft conversation",
+                CreatedByUserId = ownerUserId
+            };
+            var message = new Message
+            {
+                TenantId = tenantId,
+                WorkspaceId = workspaceId,
+                ConversationId = conversation.Id,
+                AuthorUserId = ownerUserId,
+                Body = "WPC protected draft message"
+            };
+            dbContext.Projects.Add(project);
+            dbContext.ProjectMembers.Add(new ProjectMember
+            {
+                TenantId = tenantId,
+                ProjectId = project.Id,
+                UserId = ownerUserId,
+                Role = ProjectRole.Owner,
+                JoinedAt = DateTimeOffset.UtcNow
+            });
+            dbContext.TaskItems.Add(task);
+            dbContext.Artifacts.Add(artifact);
+            dbContext.ActivityLogs.Add(activityLog);
+            dbContext.Comments.Add(comment);
+            dbContext.Conversations.Add(conversation);
+            foreach (var memberUserId in staleConversationMemberUserIds.Append(ownerUserId).Distinct())
+            {
+                dbContext.ConversationMembers.Add(new ConversationMember
+                {
+                    TenantId = tenantId,
+                    ConversationId = conversation.Id,
+                    UserId = memberUserId,
+                    Role = memberUserId == ownerUserId
+                        ? ConversationMemberRole.Admin
+                        : ConversationMemberRole.Member,
+                    CanRead = true,
+                    CanPost = true,
+                    CanCreateThread = true,
+                    JoinedAt = DateTimeOffset.UtcNow
+                });
+            }
+            dbContext.Messages.Add(message);
+            await dbContext.SaveChangesAsync();
+            return new PlanningProjectGraph(project, task, artifact, activityLog, comment, conversation, message);
+        }
+
+        public async Task<(ProjectStatus Status, DateTimeOffset? DeletedAt)> GetProjectLifecycleAsync(
+            Guid tenantId,
+            string tenantSlug,
+            Guid projectId)
+        {
+            await using var scope = App.Services.CreateAsyncScope();
+            var currentTenant = scope.ServiceProvider.GetRequiredService<CurrentTenantService>();
+            currentTenant.SetTenant(tenantId, tenantSlug);
+            var dbContext = scope.ServiceProvider.GetRequiredService<AppDbContext>();
+            var project = await dbContext.Projects
+                .AsNoTracking()
+                .SingleAsync(item => item.Id == projectId);
+            return (project.Status, project.DeletedAt);
+        }
+
+        public async Task<Conversation> AddProjectBoundDirectConversationAsync(
+            Guid tenantId,
+            string tenantSlug,
+            Guid workspaceId,
+            Guid projectId,
+            Guid userAId,
+            Guid userBId)
+        {
+            await using var scope = App.Services.CreateAsyncScope();
+            var currentTenant = scope.ServiceProvider.GetRequiredService<CurrentTenantService>();
+            currentTenant.SetTenant(tenantId, tenantSlug);
+            var dbContext = scope.ServiceProvider.GetRequiredService<AppDbContext>();
+            var conversation = new Conversation
+            {
+                TenantId = tenantId,
+                WorkspaceId = workspaceId,
+                ProjectId = projectId,
+                Type = ConversationType.DirectMessage,
+                Title = "WPC protected Project-bound direct conversation",
+                CreatedByUserId = userBId
+            };
+            dbContext.Conversations.Add(conversation);
+            dbContext.ConversationMembers.AddRange(
+                new ConversationMember
+                {
+                    TenantId = tenantId,
+                    ConversationId = conversation.Id,
+                    UserId = userAId,
+                    Role = ConversationMemberRole.Member,
+                    CanRead = true,
+                    CanPost = true,
+                    JoinedAt = DateTimeOffset.UtcNow
+                },
+                new ConversationMember
+                {
+                    TenantId = tenantId,
+                    ConversationId = conversation.Id,
+                    UserId = userBId,
+                    Role = ConversationMemberRole.Admin,
+                    CanRead = true,
+                    CanPost = true,
+                    JoinedAt = DateTimeOffset.UtcNow
+                });
+            await dbContext.SaveChangesAsync();
+            return conversation;
         }
 
         public async Task<Conversation?> GetConversationAsync(Guid tenantId, string tenantSlug, Guid conversationId)
@@ -2166,6 +3149,7 @@ public sealed class HttpTenantIsolationTests
             services.AddScoped<AipPortal.Application.Realtime.IOutboxEventRepository, OutboxEventRepository>();
             services.AddScoped<AipPortal.Application.Realtime.ITransactionalOutbox, AipPortal.Application.Realtime.TransactionalOutbox>();
             services.AddScoped<IUnitOfWork, EfUnitOfWork>();
+            services.AddScoped<ICreateIdempotencyCoordinator, EfCreateIdempotencyCoordinator>();
             services.AddScoped<IFileUploadPolicy, ConfiguredFileUploadPolicy>();
             services.AddScoped<IFileStorageService, InMemoryFileStorageService>();
             services.AddScoped<IPasswordHasher, Pbkdf2PasswordHasher>();
@@ -2180,6 +3164,17 @@ public sealed class HttpTenantIsolationTests
             services.AddSingleton<IClock, AipPortal.Infrastructure.Security.SystemClock>();
             services.AddScoped<IStudentRecordRepository, StudentRecordRepository>();
         }
+    }
+
+    private sealed class NoopWorkspaceInitializationForCoordinatorTests : IWorkspaceRequiredInitialization
+    {
+        public bool IsAvailable => true;
+
+        public Task<Result> StageAsync(
+            Workspace workspace,
+            Guid creatorUserId,
+            CancellationToken cancellationToken = default) =>
+            Task.FromResult(Result.Success());
     }
 
     private sealed class TestAuthHandler(

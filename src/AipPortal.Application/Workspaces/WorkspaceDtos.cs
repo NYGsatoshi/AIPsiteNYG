@@ -23,6 +23,8 @@ public sealed record WorkspaceDetailResponse(
 
 public sealed record CreateWorkspaceRequest(string Name, string? Description, string? Icon);
 
+public sealed record WorkspaceCapabilitiesResponse(bool CanCreate);
+
 public sealed record UpdateWorkspaceRequest(string? Name, string? Description, string? Icon, WorkspaceStatus? Status);
 
 public sealed record WorkspaceMemberResponse(

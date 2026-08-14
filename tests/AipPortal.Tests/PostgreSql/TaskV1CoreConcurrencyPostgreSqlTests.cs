@@ -2317,8 +2317,8 @@ public sealed class TaskV1CoreConcurrencyPostgreSqlTests
             currentTenant.SetTenant(tenant.Id, tenant.Slug);
             await using var db = new AppDbContext(new DbContextOptionsBuilder<AppDbContext>().UseNpgsql(connectionString).Options, currentTenant);
             var workspace = new Workspace { TenantId = tenant.Id, Name = "Task concurrency workspace", Slug = $"task-concurrency-ws-{suffix}", CreatedByUserId = user.Id };
-            var project = new Project { TenantId = tenant.Id, WorkspaceId = workspace.Id, OwnerUserId = user.Id, CreatedByUserId = user.Id, Name = "Task concurrency project", Slug = $"task-concurrency-project-{suffix}" };
-            var otherProject = new Project { TenantId = tenant.Id, WorkspaceId = workspace.Id, OwnerUserId = user.Id, CreatedByUserId = user.Id, Name = "Other task concurrency project", Slug = $"other-task-concurrency-project-{suffix}" };
+            var project = new Project { TenantId = tenant.Id, WorkspaceId = workspace.Id, OwnerUserId = user.Id, CreatedByUserId = user.Id, Name = "Task concurrency project", Slug = $"task-concurrency-project-{suffix}", Status = ProjectStatus.Active };
+            var otherProject = new Project { TenantId = tenant.Id, WorkspaceId = workspace.Id, OwnerUserId = user.Id, CreatedByUserId = user.Id, Name = "Other task concurrency project", Slug = $"other-task-concurrency-project-{suffix}", Status = ProjectStatus.Active };
             var workflow = new TaskWorkflowDefinition { TenantId = tenant.Id, WorkspaceId = workspace.Id, ProjectId = project.Id, Name = "Task concurrency workflow", ReviewEnforcementEnabled = false };
             var todo = new TaskWorkflowStage { TenantId = tenant.Id, WorkspaceId = workspace.Id, ProjectId = project.Id, DefinitionId = workflow.Id, Name = "Todo", InternalCategory = TaskStageCategory.Todo, SortKey = 1024, IsInitialStage = true };
             var inProgress = new TaskWorkflowStage { TenantId = tenant.Id, WorkspaceId = workspace.Id, ProjectId = project.Id, DefinitionId = workflow.Id, Name = "In progress", InternalCategory = TaskStageCategory.InProgress, SortKey = 2048 };

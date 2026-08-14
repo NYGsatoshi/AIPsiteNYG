@@ -22,7 +22,8 @@ public sealed class AdminService(
     IAuthorizationStateChangePublisher? authorizationChanges = null,
     ITaskDeadlineDigestRepository? taskDeadlineDigests = null,
     TaskDeadlineDigestDiagnostics? taskDeadlineDigestDiagnostics = null,
-    IWorkspaceRepository? workspaces = null) : IAdminService
+    IWorkspaceRepository? workspaces = null,
+    IProjectRepository? projectReaders = null) : IAdminService
 {
     private const int DefaultPageSize = 50;
     private const int MaxPageSize = 200;
@@ -481,9 +482,44 @@ public sealed class AdminService(
             return Result.Failure("Project not found.");
         }
 
+        if (project.DeletedAt.HasValue || project.Status == ProjectStatus.Deleted)
+        {
+            return Result.Failure(new ApplicationErrorDetail(
+                "InvalidStateTransition",
+                "The requested Project lifecycle transition is not available.",
+                Target: "project"));
+        }
+
+        IReadOnlyList<Guid> affectedUsers;
+        if (projectReaders is not null)
+        {
+            affectedUsers = await projectReaders.ListCurrentReaderUserIdsAsync(project.Id, cancellationToken);
+        }
+        else
+        {
+            var activeWorkspaceMembers = workspaces is null
+                ? []
+                : (await workspaces.ListMembersAsync(project.WorkspaceId, cancellationToken))
+                    .Where(member => member.Status == MembershipStatus.Active)
+                    .Select(member => member.UserId)
+                    .ToArray();
+            affectedUsers = activeWorkspaceMembers
+                .Concat(await adminRepository.ListActiveSystemAdminIdsAsync(cancellationToken))
+                .Distinct()
+                .ToArray();
+        }
+
         project.Status = ProjectStatus.Archived;
         project.MarkDeleted(clock.UtcNow);
         await AuditAsync("DataArchived", "Project", project.Id, "Project archived.", cancellationToken);
+        foreach (var affectedUserId in affectedUsers)
+        {
+            await PublishProjectAuthorizationChangeAsync(
+                project.TenantId,
+                affectedUserId,
+                project.Id,
+                cancellationToken);
+        }
         await unitOfWork.SaveChangesAsync(cancellationToken);
         return Result.Success();
     }
@@ -630,6 +666,16 @@ public sealed class AdminService(
         }
 
         return authorizationChanges.PublishAsync(tenantId, userId, "workspace", workspaceId, "archived", cancellationToken);
+    }
+
+    private Task PublishProjectAuthorizationChangeAsync(Guid tenantId, Guid userId, Guid projectId, CancellationToken cancellationToken)
+    {
+        if (tenantId == Guid.Empty || authorizationChanges is null)
+        {
+            return Task.CompletedTask;
+        }
+
+        return authorizationChanges.PublishAsync(tenantId, userId, "project", projectId, "archived", cancellationToken);
     }
 
     private static AdminUserDetailResponse ToUserDetail(User user)

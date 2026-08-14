@@ -51,6 +51,18 @@ public sealed class AdminRepository(AppDbContext dbContext) : IAdminRepository
         return dbContext.Users.CountAsync(user => user.Id != userId && user.SystemRole == SystemRole.SystemAdmin && user.Status == UserStatus.Active && user.DeletedAt == null, cancellationToken);
     }
 
+    public async Task<IReadOnlyList<Guid>> ListActiveSystemAdminIdsAsync(CancellationToken cancellationToken = default)
+    {
+        return await dbContext.Users
+            .AsNoTracking()
+            .Where(user =>
+                user.SystemRole == SystemRole.SystemAdmin &&
+                user.Status == UserStatus.Active &&
+                user.DeletedAt == null)
+            .Select(user => user.Id)
+            .ToListAsync(cancellationToken);
+    }
+
     public async Task<PagedResponse<AdminInviteResponse>> ListInvitesAsync(int page, int pageSize, CancellationToken cancellationToken = default)
     {
         var query = dbContext.Invites.AsNoTracking().OrderByDescending(invite => invite.CreatedAt);

@@ -86,6 +86,54 @@ public sealed class TaskV1Pr07DAuthorizedDeliveryPostgreSqlTests
                 CreatedAt = Now,
                 StateVersion = 4
             };
+            var artifact = new Artifact
+            {
+                TenantId = tenant.Id,
+                ProjectId = project.Id,
+                Name = "Protected PostgreSQL artifact",
+                CreatedByUserId = recipient.Id
+            };
+            var artifactNotification = new Notification
+            {
+                TenantId = tenant.Id,
+                UserId = recipient.Id,
+                NotificationType = NotificationType.ArtifactUploaded,
+                Title = "Artifact uploaded",
+                Body = artifact.Name,
+                RelatedEntityType = "Artifact",
+                RelatedEntityId = artifact.Id,
+                CreatedAt = Now,
+                StateVersion = 4
+            };
+            var conversation = new Conversation
+            {
+                TenantId = tenant.Id,
+                WorkspaceId = workspace.Id,
+                ProjectId = project.Id,
+                Type = ConversationType.ProjectChannel,
+                Title = "Protected PostgreSQL conversation",
+                CreatedByUserId = recipient.Id
+            };
+            var message = new Message
+            {
+                TenantId = tenant.Id,
+                WorkspaceId = workspace.Id,
+                ConversationId = conversation.Id,
+                AuthorUserId = recipient.Id,
+                Body = "Protected PostgreSQL message"
+            };
+            var messageNotification = new Notification
+            {
+                TenantId = tenant.Id,
+                UserId = recipient.Id,
+                NotificationType = NotificationType.DirectMessage,
+                Title = "New project message",
+                Body = message.Body,
+                RelatedEntityType = "Message",
+                RelatedEntityId = message.Id,
+                CreatedAt = Now,
+                StateVersion = 4
+            };
             var unavailableProject = new Project
             {
                 TenantId = tenant.Id,
@@ -126,6 +174,18 @@ public sealed class TaskV1Pr07DAuthorizedDeliveryPostgreSqlTests
                     project,
                     task,
                     notification,
+                    artifact,
+                    artifactNotification,
+                    conversation,
+                    new ConversationMember
+                    {
+                        TenantId = tenant.Id,
+                        ConversationId = conversation.Id,
+                        UserId = recipient.Id,
+                        JoinedAt = Now
+                    },
+                    message,
+                    messageNotification,
                     unavailableProject,
                     unavailableTask,
                     unavailableNotification,
@@ -136,12 +196,29 @@ public sealed class TaskV1Pr07DAuthorizedDeliveryPostgreSqlTests
             var currentTenant = TenantScope(tenant);
             await using (var openContext = CreateTenantContext(database, tenant))
             {
-                var resolver = new CurrentAuthorizationTargetResolver(openContext, currentTenant);
+                var resolver = new CurrentAuthorizationTargetResolver(
+                    openContext,
+                    currentTenant,
+                    new MessagingRepository(openContext));
                 var outbox = new TransactionalOutbox(new OutboxEventRepository(openContext), currentTenant, new FixedClock());
                 var notifications = new DbNotificationService(openContext, new FixedClock(), currentTenant, targets: resolver);
                 var service = new NotificationOpenService(openContext, currentTenant, new FixedClock(), outbox, resolver, notifications);
 
-                Assert.Equal(1, await notifications.GetUnreadCountAsync(recipient.Id));
+                Assert.Equal(3, await notifications.GetUnreadCountAsync(recipient.Id));
+                var initialPage = await notifications.ListAsync(recipient.Id, 1, 20);
+                Assert.Equal(3, initialPage.TotalCount);
+                Assert.Contains(initialPage.Items, item => item.Id == artifactNotification.Id && item.Body == artifact.Name);
+                Assert.Contains(initialPage.Items, item => item.Id == messageNotification.Id && item.Body == message.Body);
+                Assert.True((await resolver.ResolveAsync(tenant.Id, recipient.Id, artifactNotification.Id)).IsAvailable);
+                Assert.True((await resolver.ResolveAsync(tenant.Id, recipient.Id, messageNotification.Id)).IsAvailable);
+                Assert.True(await resolver.CanDeliverCreatedAsync(
+                    tenant.Id,
+                    recipient.Id,
+                    EmbeddedCreatedEnvelope(tenant.Id, artifactNotification)));
+                Assert.True(await resolver.CanDeliverCreatedAsync(
+                    tenant.Id,
+                    recipient.Id,
+                    EmbeddedCreatedEnvelope(tenant.Id, messageNotification)));
 
                 var result = await service.OpenAsync(tenant.Id, recipient.Id, notification.Id);
 
@@ -149,6 +226,20 @@ public sealed class TaskV1Pr07DAuthorizedDeliveryPostgreSqlTests
                 Assert.True(result.IsAvailable);
                 Assert.Equal($"/projects/{project.Id}/tasks/{task.Id}", result.Route);
                 Assert.Equal(5, result.StateVersion);
+                Assert.Equal(2, await notifications.GetUnreadCountAsync(recipient.Id));
+
+                var mutableProject = await openContext.Projects.SingleAsync(item => item.Id == project.Id);
+                mutableProject.Status = ProjectStatus.Archived;
+                await openContext.SaveChangesAsync();
+                Assert.Equal(0, await notifications.GetUnreadCountAsync(recipient.Id));
+                Assert.False(await resolver.CanDeliverCreatedAsync(
+                    tenant.Id,
+                    recipient.Id,
+                    EmbeddedCreatedEnvelope(tenant.Id, artifactNotification)));
+                Assert.False(await resolver.CanDeliverCreatedAsync(
+                    tenant.Id,
+                    recipient.Id,
+                    EmbeddedCreatedEnvelope(tenant.Id, messageNotification)));
             }
 
             await using var verify = CreateTenantContext(database, tenant);
@@ -163,7 +254,7 @@ public sealed class TaskV1Pr07DAuthorizedDeliveryPostgreSqlTests
                 ["change", "notificationId", "stateVersion", "unreadCount", "updatedAt"],
                 payload.EnumerateObject().Select(property => property.Name).Order().ToArray());
             Assert.Equal(notification.Id, payload.GetProperty("notificationId").GetGuid());
-            Assert.Equal(0, payload.GetProperty("unreadCount").GetInt32());
+            Assert.Equal(2, payload.GetProperty("unreadCount").GetInt32());
             Assert.DoesNotContain("Restricted task", signal.PayloadJson, StringComparison.Ordinal);
             Assert.DoesNotContain("route", signal.PayloadJson, StringComparison.OrdinalIgnoreCase);
             var routes = JsonSerializer.Deserialize<List<RealtimeRoutingTarget>>(signal.RoutingJson, new JsonSerializerOptions(JsonSerializerDefaults.Web));
@@ -171,15 +262,48 @@ public sealed class TaskV1Pr07DAuthorizedDeliveryPostgreSqlTests
             Assert.Equal(RealtimeSubscriptionType.User, route.SubscriptionType);
             Assert.Equal(recipient.Id, route.ResourceId);
             var verificationTenant = TenantScope(tenant);
-            var verificationResolver = new CurrentAuthorizationTargetResolver(verify, verificationTenant);
+            var verificationResolver = new CurrentAuthorizationTargetResolver(
+                verify,
+                verificationTenant,
+                new MessagingRepository(verify));
             var verificationNotifications = new DbNotificationService(verify, new FixedClock(), verificationTenant, targets: verificationResolver);
             Assert.Equal(0, await verificationNotifications.GetUnreadCountAsync(recipient.Id));
             Assert.False((await verify.Notifications.SingleAsync(item => item.Id == unavailableNotification.Id)).IsRead);
             var page = await verificationNotifications.ListAsync(recipient.Id, 1, 20);
-            Assert.Equal(1, page.TotalCount);
-            Assert.Equal(notification.Id, Assert.Single(page.Items).Id);
+            Assert.Equal(0, page.TotalCount);
+            Assert.Empty(page.Items);
         });
     }
+
+    private static DurableEventEnvelope EmbeddedCreatedEnvelope(Guid tenantId, Notification notification) => new(
+        Guid.NewGuid(),
+        "Notifications.NotificationCreated.v1",
+        RealtimeEventCatalog.PayloadSchemaVersion1,
+        Now,
+        tenantId,
+        "Notification",
+        notification.Id,
+        notification.StateVersion,
+        RealtimeActor.System(),
+        null,
+        null,
+        JsonSerializer.SerializeToElement(new
+        {
+            notification = new
+            {
+                id = notification.Id,
+                title = notification.Title,
+                body = notification.Body,
+                target = new
+                {
+                    targetType = notification.RelatedEntityType,
+                    targetId = notification.RelatedEntityId
+                },
+                version = notification.StateVersion
+            },
+            unreadCount = 3,
+            stateVersion = notification.StateVersion
+        }));
 
     private static AppDbContext CreateTenantContext(string connectionString, Tenant tenant) =>
         new(new DbContextOptionsBuilder<AppDbContext>().UseNpgsql(connectionString).Options, TenantScope(tenant));

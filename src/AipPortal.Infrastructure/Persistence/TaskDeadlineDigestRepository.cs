@@ -786,20 +786,21 @@ public sealed class TaskDeadlineDigestRepository(
                       member.Status == MembershipStatus.Active) &&
                   (dbContext.ProjectMembers.Any(member =>
                        member.ProjectId == task.ProjectId && member.UserId == job.UserId) ||
-                   (!task.Project.GroupId.HasValue ||
-                    dbContext.GroupMembers.Any(member =>
-                        member.GroupId == task.Project.GroupId && member.UserId == job.UserId) ||
-                    dbContext.WorkspaceMembers.Any(member =>
-                        member.WorkspaceId == job.WorkspaceId &&
-                        member.UserId == job.UserId &&
-                        member.Status == MembershipStatus.Active &&
-                        (member.Role == WorkspaceRole.Owner ||
-                         member.Role == WorkspaceRole.Admin)) ||
-                    dbContext.Users.Any(user =>
-                        user.Id == job.UserId &&
-                        user.Status == UserStatus.Active &&
-                        user.DeletedAt == null &&
-                        user.SystemRole == SystemRole.SystemAdmin))) &&
+                   ((task.Project.Status != ProjectStatus.Planning && task.Project.Status != ProjectStatus.Suspended) &&
+                    (!task.Project.GroupId.HasValue ||
+                     dbContext.GroupMembers.Any(member =>
+                         member.GroupId == task.Project.GroupId && member.UserId == job.UserId) ||
+                     dbContext.WorkspaceMembers.Any(member =>
+                         member.WorkspaceId == job.WorkspaceId &&
+                         member.UserId == job.UserId &&
+                         member.Status == MembershipStatus.Active &&
+                         (member.Role == WorkspaceRole.Owner ||
+                          member.Role == WorkspaceRole.Admin)) ||
+                     dbContext.Users.Any(user =>
+                         user.Id == job.UserId &&
+                         user.Status == UserStatus.Active &&
+                         user.DeletedAt == null &&
+                         user.SystemRole == SystemRole.SystemAdmin)))) &&
                   (dbContext.WorkItemWatchStates.Any(watch =>
                        watch.TaskItemId == task.Id &&
                        watch.UserId == job.UserId &&

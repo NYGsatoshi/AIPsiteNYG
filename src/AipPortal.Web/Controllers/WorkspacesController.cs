@@ -1,4 +1,5 @@
 using AipPortal.Application.Workspaces;
+using AipPortal.Web.Models;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
 
@@ -14,10 +15,69 @@ public sealed class WorkspacesController(IWorkspaceService workspaces) : Control
         return ToActionResult(await workspaces.ListAsync(cancellationToken));
     }
 
-    [HttpPost("api/workspaces")]
-    public async Task<IActionResult> Create(CreateWorkspaceRequest request, CancellationToken cancellationToken)
+    [HttpGet("api/workspaces/capabilities")]
+    public async Task<IActionResult> Capabilities(CancellationToken cancellationToken)
     {
-        return ToActionResult(await workspaces.CreateAsync(request, cancellationToken));
+        var result = await workspaces.GetCapabilitiesAsync(cancellationToken);
+        return result.IsSuccess
+            ? Ok(ApiEnvelope.Success(HttpContext, result.Value!))
+            : ToWpcError(result.ErrorDetail, result.Error, "Workspace capabilities could not be evaluated.");
+    }
+
+    [HttpPost("api/workspaces")]
+    public async Task<IActionResult> Create(
+        CreateWorkspaceRequest request,
+        [FromHeader(Name = "Idempotency-Key")] string? idempotencyKey,
+        CancellationToken cancellationToken)
+    {
+        var result = await workspaces.CreateAsync(request, idempotencyKey, cancellationToken);
+        if (result.IsSuccess)
+        {
+            return CreatedAtAction(
+                nameof(Get),
+                new { workspaceId = result.Value!.Id },
+                ApiEnvelope.Success(HttpContext, result.Value));
+        }
+
+        return ToWpcError(result.ErrorDetail, result.Error, "Workspace creation failed.");
+    }
+
+    private IActionResult ToWpcError(
+        AipPortal.Application.Common.ApplicationErrorDetail? detail,
+        string? fallbackError,
+        string fallbackMessage)
+    {
+        var sourceCode = detail?.Code ?? "ValidationFailed";
+        var redactionApplied = sourceCode == "NotFound";
+        var code = redactionApplied ? "NotFound" : sourceCode;
+        var message = redactionApplied
+            ? "The requested resource was not found."
+            : detail?.Message ?? fallbackError ?? fallbackMessage;
+        var target = detail?.Target ?? (sourceCode switch
+        {
+            "CapabilityDenied" => "workspace",
+            "IdempotencyConflict" => "header.Idempotency-Key",
+            _ => null
+        });
+        var status = sourceCode switch
+        {
+            "AuthenticationRequired" => StatusCodes.Status401Unauthorized,
+            "CapabilityDenied" or "TenantMembershipRequired" => StatusCodes.Status403Forbidden,
+            "NotFound" => StatusCodes.Status404NotFound,
+            "IdempotencyConflict" or "ConcurrentModification" => StatusCodes.Status409Conflict,
+            "DependencyUnavailable" => StatusCodes.Status503ServiceUnavailable,
+            _ => StatusCodes.Status400BadRequest
+        };
+        var payload = ApiEnvelope.Error(HttpContext, status, code, message, target, redactionApplied);
+        return sourceCode switch
+        {
+            "AuthenticationRequired" => Unauthorized(payload),
+            "CapabilityDenied" or "TenantMembershipRequired" => StatusCode(status, payload),
+            "NotFound" => NotFound(payload),
+            "IdempotencyConflict" or "ConcurrentModification" => Conflict(payload),
+            "DependencyUnavailable" => StatusCode(status, payload),
+            _ => BadRequest(payload)
+        };
     }
 
     [HttpGet("api/workspaces/{workspaceId:guid}")]

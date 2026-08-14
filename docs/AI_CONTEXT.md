@@ -2,8 +2,8 @@
 
 This is the primary entry point for future Codex work on AIPsiteNYG.
 
-Last broad repository audit: **2026-08-02**. TASK-V1-PR07-D implementation
-worktree update: **2026-08-06**.
+Last broad repository audit: **2026-08-02**. WPC-01 backend-foundation
+candidate update: **2026-08-14**.
 
 ## Documentation authority
 
@@ -69,14 +69,15 @@ Project references enforce a conventional dependency direction. See `docs/ARCHIT
 | `Platform:*` configuration switches | Partially implemented | Properties are bound; only setup mode is consulted by startup validation |
 | Database tenant feature flags and quotas | Partially implemented | File uploads, exports, integrations, and UI shell use them; broad module gating is incomplete |
 | `Features:*` appsettings switches | Documentation mismatch | Bound in DI but not used to gate controllers/services |
-| Workspaces/groups/channels/posts | Backend implemented; browser UI planned/partial | REST layers exist; routes render placeholders |
-| Messaging | Partially implemented | REST, direct-message recipient search, direct conversation creation, browser send/read persistence, and durable realtime message/unread reconciliation exist. The two Messaging files accidentally committed to PR #259 by `9f7b8f3` were restored to actual `origin/main` by forward cleanup commit `e8bdf47`; PR #259 no longer contains their PR07-scope diff. Safe attachment ownership and production PostgreSQL verification remain incomplete. |
+| Workspaces/groups/channels/posts | Partially implemented; WPC-01 Workspace-create foundation candidate | REST layers exist. WPC-01 authorizes create from current active Tenant Owner/Admin membership and adds a backend `canCreate` projection. With an explicitly injected test initializer, the coordinator proves retry-safe Workspace/creator-Owner/audit/authorization-Outbox creation with durable scoped idempotency. Production remains gated before that transaction because canonical default `general` Conversation provisioning is unavailable. Delegated `workspace.create` and browser creation UI are not part of WPC-01. |
+| WPC Project creation/activation | Blocked foundation | Project responses preserve nullable `GroupId` and expose `VersionNo`. Generic `Planning -> Active`, `Suspended -> Planning`, `Suspended -> Active`, and Archived/Deleted recovery without trustworthy provenance return a non-mutating 409 `InvalidStateTransition`. `Planning -> Suspended`, `Suspended -> Archived`, and ordinary `Active -> Review -> Active` remain valid; metadata-only updates may retain Active or Suspended. No lifecycle-provenance persistence was guessed. Canonical Visibility/backfill, Workspace-scoped create, optional Group API binding, Project create idempotency, authoritative create capability, canonical default Channel provisioning, and atomic activation remain unresolved. See `docs/verification/wpc-01-workspace-project-creation-foundation.md`. |
+| Messaging | Partially implemented | REST, direct-message recipient search, direct conversation creation, browser send/read persistence, and durable realtime message/unread reconciliation exist. WPC-01 makes Project-scoped direct-message reuse exact; production PostgreSQL conversation pages/counts, unread/update polling, detail, and Message Search share a depth-bounded recursive Thread boundary. Missing/inconsistent/cyclic or deeper-than-32 ancestry fails closed, and creation cannot persist an unreadable level-33 child. The two Messaging files accidentally committed to PR #259 by `9f7b8f3` were restored to actual `origin/main` by forward cleanup commit `e8bdf47`; PR #259 no longer contains their PR07-scope diff. Safe attachment ownership remains incomplete. |
 | Announcements | Partially implemented | REST and UI exist; scoped visibility and frontend role/user-ID behavior have confirmed defects |
 | Projects/tasks/milestones/assignments/comments/Gantt data | Partially implemented; PR06 merged, large-project delivery deferred | PR02 adds versioned Task workflow, relationship, review, Claim, and FS-authoring command routes. PR05 adds the canonical Project Kanban snapshot/config/move flow. PR06 upgrades the existing Project Detail Schedule tab and Gantt route with a bounded scheduled/unscheduled projection, manual schedule/progress/FS dependency commands, canonical Task-only parent derivation and terminal parent/child guards, optimistic concurrency, explicit conflict Retry/Discard, structured warnings, accessible/mobile alternatives, lazy vendor isolation, and authoritative realtime refetch. PR #259 merged at `d5de01cf303c914c2b390346575a22cadb8b4443`. The owner subsequently approved its 500 combined-item / 2,000 active-dependency / typed HTTP 400 fail-closed safeguards as the temporary PR06 snapshot contract. Large-project pagination and virtualization remain open under `TASK-V1-PR06B`. See `docs/TASK_V1_PR02.md`, `docs/TASK_V1_PR05.md`, and `docs/TASK_V1_PR06.md`. |
 | Events/attendance/calendar | Backend implemented; browser UI planned | Controller/service/repository/tests exist; calendar route is a placeholder outside dashboard summary |
 | Forms/surveys | Backend implemented; browser UI planned | Controller/service/repository/tests exist; `/forms` is a placeholder |
-| Notifications | Partially implemented; PR07-C merged and PR07-D active | PR #274 merged the private Workspace digest-preference and logical-key foundation at `c5627eb09ecf19d66146eacdbc3e938c0a1c8563`; PR #275 merged immediate Task Notification production at `93b1c5e260e04c243ff84f7370aca4d869484087`; PR #277 merged and accepted the deadline-digest ledger/worker at `8d0b8b20551076ecd73ead06aced4b80c94749e7`. The PR07-D worktree adds current-authorized delayed delivery/opening, recipient-only notification routing, reference-only event HTTP reconciliation, workspace preference UI, and protected-state clearing through the single `RealtimeFacade`. `tasks.notificationsV1` remains default-off. PR07-E operations/final acceptance remains blocked until PR07-D is merged and independently accepted. |
-| Search | Partially implemented | `DbSearchService` exists, but project/comment visibility is broader than canonical authorization; `/search` UI remains unavailable |
+| Notifications | Partially implemented; PR07-D backend/UI foundation present | PR #274 merged the private Workspace digest-preference and logical-key foundation at `c5627eb09ecf19d66146eacdbc3e938c0a1c8563`; PR #275 merged immediate Task Notification production at `93b1c5e260e04c243ff84f7370aca4d869484087`; PR #277 merged the deadline-digest ledger/worker at `8d0b8b20551076ecd73ead06aced4b80c94749e7`. Current target resolution gates Task/digest, Artifact through Project visibility, and Message through recursive Conversation visibility across list/unread/mutation/open and delayed delivery. Task/digest created events alone are reference-only; Artifact/Message retain the legacy embedded shape but are reauthorized before every delivery attempt. The Angular supported-target union still does not bind Artifact/Message navigation. `tasks.notificationsV1` remains default-off. |
+| Search | Partially implemented | Project-derived results use the same current SQL-translatable Project read boundary as detail and the non-Archived list scope for Project, Task, Artifact, ActivityLog, Comment, and project-bound Message results. Project list alone preserves current-Workspace explicit-member Archived history; Search, detail, and subordinate reads remain stricter. PostgreSQL Message Search constrains all matching Messages by the shared recursive readable-Conversation relation before deterministic `CreatedAt DESC, Id ASC` ordering and the final bounded result; no arbitrary pre-authorization Conversation cutoff remains. The relation is capped at 32 Thread levels. Canonical Visibility persistence is unresolved and `/search` UI remains unavailable. |
 | Local filesystem files | Partially implemented | Authorization, policy, repository, and storage exist; upload/database failure cleanup and controlled missing-file handling are incomplete |
 | Object storage | Planned | Unsupported adapter is selected for object-storage provider names |
 | Tenant export | Partially implemented | Metadata ZIP only; excludes file bodies; no restore |
@@ -141,7 +142,11 @@ Project references enforce a conventional dependency direction. See `docs/ARCHIT
 - API errors are not standardized repository-wide despite
   `docs/API_CONTRACTS.md` describing a shared shape. PR06 aligns only its Gantt
   snapshot/command/dependency routes with a narrow safe envelope.
-- Critical backend logic defects affect scoped announcements, search authorization, conversation persistence, and message attachments.
+- Critical backend logic defects still affect scoped announcements,
+  conversation persistence, and message attachments. The current PR #281
+  candidate closes the
+  confirmed Project-derived Search authorization mismatch under the current
+  Project read policy.
 
 Details and suggested issue titles are in `docs/KNOWN_ISSUES.md` and `docs/BACKEND_LOGIC_AUDIT.md`.
 
@@ -154,15 +159,16 @@ The 2026-06-18 local audit observed 123 passing .NET tests. This result needs qu
 - Root Playwright legacy static-SPA specs are obsolete after the Angular migration; future Playwright coverage should target Angular build output or a hosted Angular app.
 - CI supplies PostgreSQL and runs migrations before `dotnet test`.
 
-The current TASK-V1-PR07-C worktree is a Draft implementation candidate, not a
-merged status. Its dedicated verification record is
+TASK-V1-PR07-C is historical merged prerequisite evidence, not the current
+worktree. Its dedicated verification record is
 `docs/verification/task-v1-pr07-c-deadline-digest.md`. Conditional PostgreSQL
 tests are the authority for migration, five-field identity, concurrent/expired
 claims, exact attempt accounting, audited restart, integrated DST identity,
 current candidate predicates, Notification/Outbox atomicity, and focused
 query-plan evidence. An environment-unset run that reports those tests skipped
-must not be promoted to PostgreSQL or completion evidence. PR07-C adds no
-frontend, notification-open, or dispatch/replay-authorization proof.
+must not be promoted to PostgreSQL or completion evidence. Later PR07-D/current
+source supplies notification-open and dispatch/replay authorization; those
+capabilities must not be inferred from the older PR07-C evidence alone.
 
 Historical TASK-V1-PR06 merge-time evidence from 2026-08-01 follows. It is
 retained as evidence of the state before PR #259 merged, not as the current

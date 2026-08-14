@@ -1,8 +1,47 @@
 # Known Issues
 
-Last implementation audit: 2026-06-19.
+Last WPC-01 remediation audit: 2026-08-14.
 
 This list records confirmed implementation/documentation mismatches and major unknowns. It is not limited to defects already filed in GitHub.
+
+## WPC-01 canonical creation blockers
+
+The WPC-01 branch implements only the independent safe Workspace-create
+foundation. The following canonical blockers remain and prevent WPC-02/WPC-03
+from treating the backend as complete:
+
+- **WPC-01-001, blocking decision:** no specification rule safely maps existing
+  Projects to `WorkspaceVisible`, `MembersOnly`, or `Restricted`. The current
+  Project detail/Search/subordinate predicates and the non-Archived list scope
+  are aligned. Archived history remains list-only for current Workspace members
+  who are explicit Project members. These current rules do not select a
+  canonical persisted Visibility value; a migration default could still
+  broaden or remove access.
+- **WPC-01-002, blocking decision:** the canonical authority for creating a
+  Workspace-root Project is not resolved. The deprecated Group-scoped
+  compatibility command returns 503 without mutation and cannot be treated as
+  canonical authority precedent.
+- **WPC-01-003, blocking dependency:** no persisted/evaluated delegated
+  `workspace.create` capability boundary exists. Tenant Owner/Admin is enforced;
+  delegation fails closed.
+- **WPC-01-004, blocking dependency:** canonical Conversation persistence has
+  no unambiguous Workspace/Project default-channel provisioning boundary.
+  Legacy Channel/Post is not an acceptable substitute.
+- **WPC-01-005, blocking lifecycle/data-integrity dependency:** atomic Project
+  activation cannot be implemented until Visibility, canonical default Channel,
+  and Task workflow attachment semantics are resolved. Draft activation bypass
+  is closed: generic `Planning -> Active` is denied. `Planning -> Suspended`
+  remains allowed, but once Suspended, recovery to either Planning or Active is
+  gated because persistence cannot distinguish a never-activated Project from a
+  previously operational one. Both transitions return 409
+  `InvalidStateTransition` with target `body.status` and no metadata/lifecycle
+  mutation, success audit, ProjectChanged or authorization invalidation, or
+  save. `Suspended -> Archived` remains available. `Review -> Active` remains
+  the ordinary return from a state whose production inbound path proves prior
+  operation. Archived/Deleted recovery also fails closed without guessing
+  provenance. Every missing lifecycle edge in `ProjectService.UpdateAsync`
+  uses the same fixed safe typed conflict. Do not expose activation UI until
+  the explicit atomic command and its dependencies are implemented.
 
 ## Backend application logic audit findings
 
@@ -11,7 +50,23 @@ The detailed controller, service, validation, error-handling, file, project, mes
 The highest-severity confirmed findings are:
 
 - **BE-001, critical:** scoped group/private-channel announcements can be disclosed to active workspace members because visibility predicates are not mutually exclusive.
-- **BE-002, critical:** search authorization is broader than normal project/comment authorization and can expose restricted project-derived content.
+- **BE-002, resolved by the current PR #281 candidate:** Project-derived Search,
+  the non-Archived Project list, project-bound Messaging, and the Project
+  boundary used by My Tasks now share one SQL-translatable form of the current
+  `CanViewProject` policy. The list alone adds narrowly authorized Archived
+  history for current Workspace members with explicit Project membership. This closes
+  disclosure of Project, Task, Artifact, ActivityLog, Comment, and
+  project-bound Message content without claiming canonical Visibility
+  persistence. Production PostgreSQL Conversation list/count and Message Search
+  now share one depth-bounded recursive ancestry relation and fail closed on
+  missing, inconsistent, cyclic, or deeper-than-32 hierarchies. Message Search
+  composes that relation over every matching Conversation before deterministic
+  Message ordering and the final result bound; it no longer authorizes an
+  arbitrary first 100 Conversation IDs. A real-PostgreSQL regression covers 125
+  authorized matching Conversations, the newest authorized Message outside the
+  former first 100, tied timestamps, and an unauthorized nested Thread with a
+  revoked ancestor whose title/body remain absent. Thread creation cannot
+  persist a child beyond that readable boundary.
 - **BE-003, resolved for direct-message MVP:** direct conversation creation now derives an active shared workspace server-side instead of writing `WorkspaceId = Guid.Empty`; broader PostgreSQL coverage for all conversation creation modes is still recommended.
 - **BE-004, critical:** message attachment requests trust client storage metadata and create records without required workspace/file-object relationships.
 - **BE-005, high:** post update/delete/pin operations mutate entities loaded with `AsNoTracking`, so successful responses may not correspond to persisted changes.

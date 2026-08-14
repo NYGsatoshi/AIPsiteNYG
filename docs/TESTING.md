@@ -262,7 +262,8 @@ only after this remediation's required commands run.
 ### TASK-V1-PR07-D authorized delivery and Angular reconciliation tests
 
 PR07-D tests carry `Trait("Scope", "TaskV1PR07D")`. The focused server suite
-exercises current Task/digest target resolution for NotificationCreated,
+exercises current Task/digest, Artifact/Project, and Message/recursive-
+Conversation target resolution for NotificationCreated,
 recipient-only read-state routing, Task invalidation routing, Task/digest
 open results, unavailable/read-state ordering, state-version advancement, and
 metadata-only read-state Outbox staging. The required name manifest is
@@ -270,6 +271,14 @@ metadata-only read-state Outbox staging. The required name manifest is
 Release build, writes `task-pr07d-acceptance.trx`, and its strict verifier
 rejects missing, duplicate, failed, skipped, aborted, or not-executed required
 tests.
+
+The permanent Artifact and Message regressions prove authorized routes and
+content first, then revoke Workspace/Project or ancestor-Conversation access
+and assert list/total/unread exclusion, mutation/open denial, no protected
+state mutation, and created/read-state delivery suppression. PostgreSQL
+coverage proves EF translation for batched Artifact visibility and the
+set-based recursive Message boundary. The strict PR07-D manifest contains 34
+required names.
 
 Authoritative PR07-D completion also requires provider-backed PostgreSQL and
 hosted HTTP/dispatcher evidence for revoke-before-delivery, replay-after-revoke,

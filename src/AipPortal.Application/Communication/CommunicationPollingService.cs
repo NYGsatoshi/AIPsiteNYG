@@ -41,10 +41,21 @@ public sealed class CommunicationPollingService(
         var pageSize = SafePageSize(query.PageSize);
         var conversations = await messaging.ListForUserAsync(userId, page, pageSize, cancellationToken);
         var items = new List<ConversationUnreadPollingItem>();
+        var scopedConversations = conversations.Items
+            .Where(item => WorkspaceMatches(item, query.WorkspaceId))
+            .ToList();
+        var readableIds = await messaging.FilterReadableConversationIdsAsync(
+            userId,
+            scopedConversations.Select(conversation => conversation.Id).ToArray(),
+            cancellationToken);
 
-        foreach (var conversation in conversations.Items.Where(item => WorkspaceMatches(item, query.WorkspaceId)))
+        foreach (var conversation in scopedConversations)
         {
-            var item = await BuildUnreadItemAsync(userId, conversation, cancellationToken);
+            var item = await BuildUnreadItemAsync(
+                userId,
+                conversation,
+                readableIds.Contains(conversation.Id),
+                cancellationToken);
             if (item is not null)
             {
                 items.Add(item);
@@ -108,8 +119,15 @@ public sealed class CommunicationPollingService(
         var pageSize = SafePageSize(query.PageSize);
         var conversations = await messaging.ListForUserAsync(userId, page, pageSize, cancellationToken);
         var updates = new List<CommunicationUpdatePollingItem>();
+        var scopedConversations = conversations.Items
+            .Where(item => WorkspaceMatches(item, query.WorkspaceId))
+            .ToList();
+        var readableIds = await messaging.FilterReadableConversationIdsAsync(
+            userId,
+            scopedConversations.Select(conversation => conversation.Id).ToArray(),
+            cancellationToken);
 
-        foreach (var conversation in conversations.Items.Where(item => WorkspaceMatches(item, query.WorkspaceId)))
+        foreach (var conversation in scopedConversations)
         {
             var updatedAt = conversation.UpdatedAt ?? conversation.CreatedAt;
             if (updatedAt <= since)
@@ -117,7 +135,11 @@ public sealed class CommunicationPollingService(
                 continue;
             }
 
-            var unread = await BuildUnreadItemAsync(userId, conversation, cancellationToken);
+            var unread = await BuildUnreadItemAsync(
+                userId,
+                conversation,
+                readableIds.Contains(conversation.Id),
+                cancellationToken);
             if (unread is not null)
             {
                 updates.Add(new CommunicationUpdatePollingItem("conversation", conversation.Id, null, unread.UnreadCount, updatedAt));
@@ -147,10 +169,14 @@ public sealed class CommunicationPollingService(
             clock.UtcNow));
     }
 
-    private async Task<ConversationUnreadPollingItem?> BuildUnreadItemAsync(Guid userId, Conversation conversation, CancellationToken cancellationToken)
+    private async Task<ConversationUnreadPollingItem?> BuildUnreadItemAsync(
+        Guid userId,
+        Conversation conversation,
+        bool isCurrentlyReadable,
+        CancellationToken cancellationToken)
     {
         if (!IsSupportedMvpType(conversation.Type) ||
-            !await conversationAuthorization.CanViewConversation(userId, conversation.Id, cancellationToken))
+            !isCurrentlyReadable)
         {
             await AuditPollingAsync(userId, "unread_counts", "deny", "participant_missing", conversation.WorkspaceId, 0, cancellationToken);
             return null;
