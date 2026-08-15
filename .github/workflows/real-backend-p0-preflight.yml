@@ -10,7 +10,9 @@ on:
       - "tests/ui/build-playwright-grep.node-test.mjs"
       - "tests/ui/verify-playwright-required-tests.node-test.mjs"
       - "tests/ui/real-backend-smoke.spec.ts"
+      - "tests/ui/prepare-real-backend-p0-state.mjs"
       - "tests/ui/run-real-backend-p0.mjs"
+      - "tests/ui/run-real-backend-playwright.mjs"
       - "tests/ui/run-real-backend-smoke-compose.mjs"
   push:
     branches: ["main"]
@@ -22,7 +24,9 @@ on:
       - "tests/ui/build-playwright-grep.node-test.mjs"
       - "tests/ui/verify-playwright-required-tests.node-test.mjs"
       - "tests/ui/real-backend-smoke.spec.ts"
+      - "tests/ui/prepare-real-backend-p0-state.mjs"
       - "tests/ui/run-real-backend-p0.mjs"
+      - "tests/ui/run-real-backend-playwright.mjs"
       - "tests/ui/run-real-backend-smoke-compose.mjs"
 
 permissions:
@@ -50,6 +54,14 @@ jobs:
           tests/ui/build-playwright-grep.node-test.mjs
           tests/ui/verify-playwright-required-tests.node-test.mjs
 
+      - name: Check P0 runner syntax
+        shell: bash
+        run: |
+          node --check tests/ui/prepare-real-backend-p0-state.mjs
+          node --check tests/ui/run-real-backend-p0.mjs
+          node --check tests/ui/run-real-backend-playwright.mjs
+          node --check tests/ui/run-real-backend-smoke-compose.mjs
+
       - name: Verify required P0 test titles still exist
         shell: bash
         run: |
@@ -64,4 +76,5 @@ jobs:
             echo "- Manifest titles verified against the real-backend Playwright spec"
             echo "- Focused grep generated successfully"
             echo "- Required JUnit result verifier unit-tested"
+            echo "- P0 setup and runner JavaScript syntax checked"
           } >> "$GITHUB_STEP_SUMMARY"
