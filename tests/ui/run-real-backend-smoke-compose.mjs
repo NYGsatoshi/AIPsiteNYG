@@ -36,7 +36,7 @@ async function main() {
       await waitForMigration();
       await waitForHealthy('app');
 
-      exitCode = (await runCompose(['-p', projectName, '-f', composeFile, 'run', '--build', 'real-backend-playwright'])).exitCode;
+      exitCode = (await runCompose(realBackendPlaywrightRunArgs())).exitCode;
     }
   } catch (error) {
     console.error(error instanceof Error ? error.message : error);
@@ -50,6 +50,15 @@ async function main() {
   }
 
   return exitCode;
+}
+
+function realBackendPlaywrightRunArgs() {
+  const args = ['-p', projectName, '-f', composeFile, 'run', '--build'];
+  if (composeEnv.AIP_REAL_BACKEND_P0_SETUP === '1') {
+    args.push('--env', 'AIP_REAL_BACKEND_P0_SETUP=1');
+  }
+  args.push('real-backend-playwright');
+  return args;
 }
 
 async function isCommandAvailable(command, args) {
