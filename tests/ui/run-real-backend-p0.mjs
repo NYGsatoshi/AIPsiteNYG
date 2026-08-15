@@ -9,6 +9,7 @@ process.env.AIP_REAL_BACKEND_SMOKE_GREP = await buildPlaywrightGrep(manifestUrl,
   verifyPath: specUrl
 });
 process.env.AIP_REAL_BACKEND_SMOKE_SCOPE = 'PR P0 required set';
+process.env.AIP_REAL_BACKEND_P0_SETUP = '1';
 
 await import('./run-real-backend-smoke-compose.mjs');
 
