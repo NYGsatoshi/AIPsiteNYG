@@ -1,7 +1,7 @@
 import { readFile } from 'node:fs/promises';
 import { pathToFileURL } from 'node:url';
 
-export async function buildPlaywrightGrep(manifestPath, options = {}) {
+export async function readRequiredTestTitles(manifestPath) {
   const manifest = await readFile(manifestPath, 'utf8');
   const testTitles = manifest
     .split(/\r?\n/u)
@@ -16,6 +16,12 @@ export async function buildPlaywrightGrep(manifestPath, options = {}) {
   if (duplicates.length > 0) {
     throw new Error(`Required-test manifest contains duplicate titles: ${[...new Set(duplicates)].join(', ')}`);
   }
+
+  return testTitles;
+}
+
+export async function buildPlaywrightGrep(manifestPath, options = {}) {
+  const testTitles = await readRequiredTestTitles(manifestPath);
 
   if (options.verifyPath) {
     const specSource = await readFile(options.verifyPath, 'utf8');
