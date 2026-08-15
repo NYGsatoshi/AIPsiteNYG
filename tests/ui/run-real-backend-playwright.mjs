@@ -1,5 +1,6 @@
 import { spawn } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
+import { prepareRealBackendP0State } from './prepare-real-backend-p0-state.mjs';
 import {
   isHstsPreloadedHttpUrl,
   isStaticAngularServerUrl
@@ -20,6 +21,9 @@ let exitCode = 1;
 try {
   const configuration = validateConfiguration(process.env);
   await waitForReady(configuration.baseURL);
+  if (process.env.AIP_REAL_BACKEND_P0_SETUP === '1') {
+    await prepareRealBackendP0State(configuration);
+  }
   exitCode = await runPlaywright(configuration.baseURL);
 } catch (error) {
   console.error(error instanceof Error ? error.message : error);
@@ -66,7 +70,7 @@ function validateConfiguration(environment) {
     throw new Error('AIP_BROWSER_SMOKE_PASSWORD is required for the real-backend smoke seed.');
   }
 
-  return { baseURL };
+  return { baseURL, email, password };
 }
 
 function runPlaywright(baseURL) {

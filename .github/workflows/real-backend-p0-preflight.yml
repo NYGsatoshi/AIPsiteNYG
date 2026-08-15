@@ -1,0 +1,80 @@
+name: Real Backend P0 Preflight
+
+on:
+  pull_request:
+    paths:
+      - ".github/workflows/real-backend-p0-preflight.yml"
+      - "scripts/ci/build-playwright-grep.mjs"
+      - "scripts/ci/real-backend-pr-p0-required-tests.txt"
+      - "scripts/ci/verify-playwright-required-tests.mjs"
+      - "tests/ui/build-playwright-grep.node-test.mjs"
+      - "tests/ui/verify-playwright-required-tests.node-test.mjs"
+      - "tests/ui/real-backend-smoke.spec.ts"
+      - "tests/ui/prepare-real-backend-p0-state.mjs"
+      - "tests/ui/run-real-backend-p0.mjs"
+      - "tests/ui/run-real-backend-playwright.mjs"
+      - "tests/ui/run-real-backend-smoke-compose.mjs"
+  push:
+    branches: ["main"]
+    paths:
+      - ".github/workflows/real-backend-p0-preflight.yml"
+      - "scripts/ci/build-playwright-grep.mjs"
+      - "scripts/ci/real-backend-pr-p0-required-tests.txt"
+      - "scripts/ci/verify-playwright-required-tests.mjs"
+      - "tests/ui/build-playwright-grep.node-test.mjs"
+      - "tests/ui/verify-playwright-required-tests.node-test.mjs"
+      - "tests/ui/real-backend-smoke.spec.ts"
+      - "tests/ui/prepare-real-backend-p0-state.mjs"
+      - "tests/ui/run-real-backend-p0.mjs"
+      - "tests/ui/run-real-backend-playwright.mjs"
+      - "tests/ui/run-real-backend-smoke-compose.mjs"
+
+permissions:
+  contents: read
+
+jobs:
+  real-backend-p0-preflight:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v7
+        with:
+          persist-credentials: false
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v7
+        with:
+          node-version: "24"
+
+      - name: Test P0 manifest and result helpers
+        run: >-
+          node --test
+          tests/ui/build-playwright-grep.node-test.mjs
+          tests/ui/verify-playwright-required-tests.node-test.mjs
+
+      - name: Check P0 runner syntax
+        shell: bash
+        run: |
+          node --check tests/ui/prepare-real-backend-p0-state.mjs
+          node --check tests/ui/run-real-backend-p0.mjs
+          node --check tests/ui/run-real-backend-playwright.mjs
+          node --check tests/ui/run-real-backend-smoke-compose.mjs
+
+      - name: Verify required P0 test titles still exist
+        shell: bash
+        run: |
+          grep_pattern="$(node scripts/ci/build-playwright-grep.mjs \
+            scripts/ci/real-backend-pr-p0-required-tests.txt \
+            --verify tests/ui/real-backend-smoke.spec.ts)"
+          test -n "$grep_pattern"
+          {
+            echo "### Real backend P0 preflight"
+            echo
+            echo "- Required manifest: \`scripts/ci/real-backend-pr-p0-required-tests.txt\`"
+            echo "- Manifest titles verified against the real-backend Playwright spec"
+            echo "- Focused grep generated successfully"
+            echo "- Required JUnit result verifier unit-tested"
+            echo "- P0 setup and runner JavaScript syntax checked"
+          } >> "$GITHUB_STEP_SUMMARY"
