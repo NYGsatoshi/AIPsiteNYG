@@ -1,0 +1,85 @@
+name: Real Backend P0 Acceptance
+
+on:
+  pull_request:
+    paths:
+      - ".github/workflows/real-backend-p0.yml"
+      - "Dockerfile"
+      - "Dockerfile.playwright"
+      - "docker-compose.real-backend-smoke.yml"
+      - "frontend/**"
+      - "src/**"
+      - "tests/ui/**"
+      - "scripts/ci/**"
+      - "package.json"
+      - "package-lock.json"
+      - "global.json"
+
+permissions:
+  contents: read
+
+jobs:
+  real-backend-p0-acceptance:
+    if: github.event.pull_request.head.repo.full_name == github.repository
+    runs-on: self-hosted
+    timeout-minutes: 35
+    concurrency:
+      group: aipsite-self-hosted-frontend-heavy-v2
+      cancel-in-progress: false
+      queue: max
+
+    steps:
+      - name: Repair previous Docker workspace ownership
+        shell: bash
+        run: |
+          uid="$(id -u)"
+          gid="$(id -g)"
+          docker run --rm \
+            -v "$GITHUB_WORKSPACE:/workspace" \
+            alpine:3.21 \
+            sh -c "chown -R ${uid}:${gid} /workspace"
+
+      - name: Checkout
+        uses: actions/checkout@v7
+        with:
+          ref: ${{ github.sha }}
+          clean: true
+          persist-credentials: false
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v7
+        with:
+          node-version: "24"
+
+      - name: Install smoke runner dependencies
+        run: bash scripts/ci/npm-ci-retry.sh .
+
+      - name: Run required real-backend P0 acceptance set
+        env:
+          SYNCFUSION_LICENSE: ${{ secrets.SYNCFUSION_LICENSE }}
+        shell: bash
+        run: |
+          test -n "${SYNCFUSION_LICENSE:-}" || {
+            echo "SYNCFUSION_LICENSE is not configured." >&2
+            exit 1
+          }
+          node tests/ui/run-real-backend-p0.mjs
+
+      - name: Upload Playwright artifacts
+        if: always()
+        uses: actions/upload-artifact@v7
+        with:
+          name: real-backend-p0-acceptance-artifacts
+          path: |
+            playwright-report/
+            test-results/
+          if-no-files-found: ignore
+
+      - name: Report runner resources on failure
+        if: failure()
+        shell: bash
+        run: |
+          df -h || true
+          df -i || true
+          free -h || true
+          docker system df || true
