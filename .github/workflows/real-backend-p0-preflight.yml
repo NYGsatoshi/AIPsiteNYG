@@ -6,7 +6,9 @@ on:
       - ".github/workflows/real-backend-p0-preflight.yml"
       - "scripts/ci/build-playwright-grep.mjs"
       - "scripts/ci/real-backend-pr-p0-required-tests.txt"
+      - "scripts/ci/verify-playwright-required-tests.mjs"
       - "tests/ui/build-playwright-grep.node-test.mjs"
+      - "tests/ui/verify-playwright-required-tests.node-test.mjs"
       - "tests/ui/real-backend-smoke.spec.ts"
       - "tests/ui/run-real-backend-p0.mjs"
       - "tests/ui/run-real-backend-smoke-compose.mjs"
@@ -16,7 +18,9 @@ on:
       - ".github/workflows/real-backend-p0-preflight.yml"
       - "scripts/ci/build-playwright-grep.mjs"
       - "scripts/ci/real-backend-pr-p0-required-tests.txt"
+      - "scripts/ci/verify-playwright-required-tests.mjs"
       - "tests/ui/build-playwright-grep.node-test.mjs"
+      - "tests/ui/verify-playwright-required-tests.node-test.mjs"
       - "tests/ui/real-backend-smoke.spec.ts"
       - "tests/ui/run-real-backend-p0.mjs"
       - "tests/ui/run-real-backend-smoke-compose.mjs"
@@ -40,8 +44,11 @@ jobs:
         with:
           node-version: "24"
 
-      - name: Test P0 manifest helper
-        run: node --test tests/ui/build-playwright-grep.node-test.mjs
+      - name: Test P0 manifest and result helpers
+        run: >-
+          node --test
+          tests/ui/build-playwright-grep.node-test.mjs
+          tests/ui/verify-playwright-required-tests.node-test.mjs
 
       - name: Verify required P0 test titles still exist
         shell: bash
@@ -56,4 +63,5 @@ jobs:
             echo "- Required manifest: \`scripts/ci/real-backend-pr-p0-required-tests.txt\`"
             echo "- Manifest titles verified against the real-backend Playwright spec"
             echo "- Focused grep generated successfully"
+            echo "- Required JUnit result verifier unit-tested"
           } >> "$GITHUB_STEP_SUMMARY"
