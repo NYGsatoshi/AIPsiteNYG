@@ -1,59 +1,76 @@
 import { readFile } from 'node:fs/promises';
+import { pathToFileURL } from 'node:url';
 
-const args = process.argv.slice(2);
-const manifestPath = args.shift();
+export async function buildPlaywrightGrep(manifestPath, options = {}) {
+  const manifest = await readFile(manifestPath, 'utf8');
+  const testTitles = manifest
+    .split(/\r?\n/u)
+    .map((line) => line.trim())
+    .filter((line) => line.length > 0 && !line.startsWith('#'));
 
-if (!manifestPath) {
-  fail('Usage: node scripts/ci/build-playwright-grep.mjs <manifest> [--verify <spec-file>]');
-}
-
-let verifyPath = '';
-while (args.length > 0) {
-  const argument = args.shift();
-  if (argument !== '--verify') {
-    fail(`Unknown argument: ${argument}`);
+  if (testTitles.length === 0) {
+    throw new Error(`Required-test manifest contains no active test titles: ${manifestPath}`);
   }
 
-  verifyPath = args.shift() ?? '';
-  if (!verifyPath) {
-    fail('--verify requires a spec file path.');
+  const duplicates = testTitles.filter((title, index) => testTitles.indexOf(title) !== index);
+  if (duplicates.length > 0) {
+    throw new Error(`Required-test manifest contains duplicate titles: ${[...new Set(duplicates)].join(', ')}`);
   }
-}
 
-const manifest = await readFile(manifestPath, 'utf8');
-const testTitles = manifest
-  .split(/\r?\n/u)
-  .map((line) => line.trim())
-  .filter((line) => line.length > 0 && !line.startsWith('#'));
-
-if (testTitles.length === 0) {
-  fail(`Required-test manifest contains no active test titles: ${manifestPath}`);
-}
-
-const duplicates = testTitles.filter((title, index) => testTitles.indexOf(title) !== index);
-if (duplicates.length > 0) {
-  fail(`Required-test manifest contains duplicate titles: ${[...new Set(duplicates)].join(', ')}`);
-}
-
-if (verifyPath) {
-  const specSource = await readFile(verifyPath, 'utf8');
-  const missingTitles = testTitles.filter(
-    (title) => !specSource.includes(`test('${title}'`) && !specSource.includes(`test("${title}"`)
-  );
-
-  if (missingTitles.length > 0) {
-    fail(
-      `Required real-backend tests are missing or renamed in ${verifyPath}:\n${missingTitles
-        .map((title) => `  - ${title}`)
-        .join('\n')}`
+  if (options.verifyPath) {
+    const specSource = await readFile(options.verifyPath, 'utf8');
+    const missingTitles = testTitles.filter(
+      (title) => !specSource.includes(`test('${title}'`) && !specSource.includes(`test("${title}"`)
     );
+
+    if (missingTitles.length > 0) {
+      throw new Error(
+        `Required real-backend tests are missing or renamed in ${options.verifyPath}:\n${missingTitles
+          .map((title) => `  - ${title}`)
+          .join('\n')}`
+      );
+    }
+  }
+
+  const escapedTitles = testTitles.map((title) => title.replace(/[.*+?^${}()|[\]\\]/gu, '\\$&'));
+  return `^(${escapedTitles.join('|')})$`;
+}
+
+if (isMainModule()) {
+  try {
+    const { manifestPath, verifyPath } = parseArguments(process.argv.slice(2));
+    const grepPattern = await buildPlaywrightGrep(manifestPath, { verifyPath });
+    process.stdout.write(grepPattern);
+  } catch (error) {
+    console.error(error instanceof Error ? error.message : error);
+    process.exitCode = 1;
   }
 }
 
-const escapedTitles = testTitles.map((title) => title.replace(/[.*+?^${}()|[\]\\]/gu, '\\$&'));
-process.stdout.write(`^(${escapedTitles.join('|')})$`);
+function parseArguments(args) {
+  const remaining = [...args];
+  const manifestPath = remaining.shift();
+  if (!manifestPath) {
+    throw new Error('Usage: node scripts/ci/build-playwright-grep.mjs <manifest> [--verify <spec-file>]');
+  }
 
-function fail(message) {
-  console.error(message);
-  process.exit(1);
+  let verifyPath = '';
+  while (remaining.length > 0) {
+    const argument = remaining.shift();
+    if (argument !== '--verify') {
+      throw new Error(`Unknown argument: ${argument}`);
+    }
+
+    verifyPath = remaining.shift() ?? '';
+    if (!verifyPath) {
+      throw new Error('--verify requires a spec file path.');
+    }
+  }
+
+  return { manifestPath, verifyPath };
+}
+
+function isMainModule() {
+  const entryPoint = process.argv[1];
+  return Boolean(entryPoint) && import.meta.url === pathToFileURL(entryPoint).href;
 }
