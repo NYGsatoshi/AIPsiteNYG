@@ -39,7 +39,11 @@ export async function buildPlaywrightGrep(manifestPath, options = {}) {
   }
 
   const escapedTitles = testTitles.map((title) => title.replace(/[.*+?^${}()|[\]\\]/gu, '\\$&'));
-  return `^(${escapedTitles.join('|')})$`;
+
+  // Playwright applies --grep to a fully-qualified title that includes project,
+  // file, and test.describe names before the test title. Match an exact required
+  // test title at the end of that string rather than anchoring the beginning.
+  return `(?:^|\\s)(?:${escapedTitles.join('|')})$`;
 }
 
 if (isMainModule()) {
