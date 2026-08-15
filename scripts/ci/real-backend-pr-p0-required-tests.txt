@@ -1,0 +1,18 @@
+# Required real-backend browser tests for pull requests.
+#
+# This is the first CI acceptance slice. It deliberately covers a small set of
+# high-value cross-layer journeys so PR feedback stays bounded while the full
+# real-backend suite remains available on main and workflow_dispatch.
+#
+# MBJ coverage represented by this slice:
+# - MBJ-03 authentication/session and CSRF baseline
+# - MBJ-05 project/task live-backed behavior
+# - MBJ-07 HTTP fallback when realtime is unavailable
+# - MBJ-08 direct-message live-backed persistence
+# - MBJ-09 file grant reauthorization
+# - MBJ-10 notification authorization/reconciliation
+
+exercises mandatory authenticated MVP0 flows through ASP.NET Core backend
+keeps authenticated HTTP requests available when the Hub cannot connect
+TASK-V1-PR07-D reauthorizes notification delivery, opens current Task routes, and clears revoked state through the real backend
+TASK-V1-PR03C uses the real backend for task detail, mutations, revocation, and File grant reauthorization
