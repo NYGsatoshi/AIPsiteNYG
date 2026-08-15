@@ -64,6 +64,8 @@ export async function prepareRealBackendP0State({ baseURL, email, password }) {
       throw new Error('Real-backend P0 setup left the synthetic secondary-Workspace task visible after membership revocation.');
     }
 
+    // Keep setup output non-sensitive: never serialize credentials, CSRF tokens,
+    // cookies, Workspace IDs, or user IDs into CI logs.
     console.log('Real-backend P0 fixture prepared: secondary Workspace membership revoked and My Tasks authorization scope verified.');
   } finally {
     await api.dispose();
