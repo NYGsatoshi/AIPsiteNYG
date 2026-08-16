@@ -1329,6 +1329,9 @@ public sealed class TaskV1Pr06GanttHostedHttpTests(ITestOutputHelper output)
             Name = name,
             Slug = slug,
             Status = ProjectStatus.Active,
+            ActivationState = ProjectActivationState.Activated,
+            ActivatedAtUtc = new DateTimeOffset(2026, 8, 1, 0, 0, 0, TimeSpan.Zero),
+            ActivationVersion = 1,
             VersionNo = 1
         };
 
@@ -1427,7 +1430,7 @@ public sealed class TaskV1Pr06GanttHostedHttpTests(ITestOutputHelper output)
             var token = await GetCsrfTokenAsync();
             using var request = new HttpRequestMessage(HttpMethod.Post, "/api/auth/login")
             {
-                Content = JsonContent.Create(new LoginRequest(email, password))
+                Content = JsonContent.Create(new LoginRequest(email, Password))
             };
             request.Headers.TryAddWithoutValidation("X-Tenant-Slug", tenantSlug);
             request.Headers.TryAddWithoutValidation(SecurityOptions.CsrfHeaderName, token);
