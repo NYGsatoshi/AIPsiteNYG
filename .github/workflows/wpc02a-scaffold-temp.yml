@@ -57,32 +57,32 @@ jobs:
           migration = migrations[0]
           text = migration.read_text(encoding='utf-8-sig')
           scaffolded = '''            migrationBuilder.AddColumn<string>(
-                          name: "ActivationState",
-                          table: "projects",
-                          type: "character varying(40)",
-                          maxLength: 40,
-                          nullable: false,
-                          defaultValue: "");'''
+                name: "ActivationState",
+                table: "projects",
+                type: "character varying(40)",
+                maxLength: 40,
+                nullable: false,
+                defaultValue: "");'''
           safe_upgrade = '''            migrationBuilder.AddColumn<string>(
-                          name: "ActivationState",
-                          table: "projects",
-                          type: "character varying(40)",
-                          maxLength: 40,
-                          nullable: true);
+                name: "ActivationState",
+                table: "projects",
+                type: "character varying(40)",
+                maxLength: 40,
+                nullable: true);
 
-                      migrationBuilder.Sql(
-                          "UPDATE \\\"projects\\\" SET \\\"ActivationState\\\" = 'LegacyUnknown' WHERE \\\"ActivationState\\\" IS NULL;");
+            migrationBuilder.Sql(
+                "UPDATE \\\"projects\\\" SET \\\"ActivationState\\\" = 'LegacyUnknown' WHERE \\\"ActivationState\\\" IS NULL;");
 
-                      migrationBuilder.AlterColumn<string>(
-                          name: "ActivationState",
-                          table: "projects",
-                          type: "character varying(40)",
-                          maxLength: 40,
-                          nullable: false,
-                          oldClrType: typeof(string),
-                          oldType: "character varying(40)",
-                          oldMaxLength: 40,
-                          oldNullable: true);'''
+            migrationBuilder.AlterColumn<string>(
+                name: "ActivationState",
+                table: "projects",
+                type: "character varying(40)",
+                maxLength: 40,
+                nullable: false,
+                oldClrType: typeof(string),
+                oldType: "character varying(40)",
+                oldMaxLength: 40,
+                oldNullable: true);'''
           if text.count(scaffolded) != 1:
               raise SystemExit('unexpected ActivationState scaffold shape')
           text = text.replace(scaffolded, safe_upgrade, 1)
@@ -91,19 +91,22 @@ jobs:
           service = Path('src/AipPortal.Application/Projects/ProjectService.cs')
           service_text = service.read_text(encoding='utf-8-sig')
           old_projection = '''            project.UpdatedAt,
-                      new ProjectUiPermissionResponse(await taskAuthorization.CanCreateTask(userId, project.Id, cancellationToken)));'''
+            new ProjectUiPermissionResponse(await taskAuthorization.CanCreateTask(userId, project.Id, cancellationToken)));'''
           new_projection = '''            project.UpdatedAt,
-                      new ProjectUiPermissionResponse(await taskAuthorization.CanCreateTask(userId, project.Id, cancellationToken)),
-                      project.Visibility,
-                      project.ActivationState,
-                      project.ActivatedAtUtc,
-                      project.ActivationVersion,
-                      project.SuspendedFromStatus,
-                      project.ArchivedFromStatus);'''
+            new ProjectUiPermissionResponse(await taskAuthorization.CanCreateTask(userId, project.Id, cancellationToken)),
+            project.Visibility,
+            project.ActivationState,
+            project.ActivatedAtUtc,
+            project.ActivationVersion,
+            project.SuspendedFromStatus,
+            project.ArchivedFromStatus);'''
           if service_text.count(old_projection) != 1:
               raise SystemExit('unexpected ProjectResponse projection shape')
           service.write_text(service_text.replace(old_projection, new_projection, 1), encoding='utf-8')
           PY
+
+      - name: Build generated migration
+        run: dotnet build AipPortal.slnx --configuration Release --no-restore
 
       - name: Verify generated model is clean
         env:
