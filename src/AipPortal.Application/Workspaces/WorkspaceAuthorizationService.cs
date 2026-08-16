@@ -135,12 +135,11 @@ public sealed class WorkspaceAuthorizationService(
         Guid workspaceId,
         CancellationToken cancellationToken)
     {
-        // Membership is the common authorization read. WorkspaceRepository
-        // hydrates the parent in the same SQL command, so current Workspace
-        // status is checked without issuing a second round trip for members.
-        // Non-members still resolve the Workspace explicitly so SystemAdmin
-        // handling and unknown/deleted Workspace behavior remain fail-closed.
-        var member = await workspaces.GetMemberAsync(workspaceId, userId, cancellationToken);
+        // Authorization needs membership and the current parent Workspace state
+        // from one command. Keep this separate from the generic membership read:
+        // callers such as the Gantt projection must not acquire a tracked
+        // Workspace as a side effect and suppress later authoritative reads.
+        var member = await workspaces.GetMemberWithWorkspaceAsync(workspaceId, userId, cancellationToken);
         var workspace = member?.Workspace ?? await workspaces.GetByIdAsync(workspaceId, cancellationToken);
         return new WorkspaceAccess(workspace, member);
     }
