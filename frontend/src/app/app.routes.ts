@@ -50,6 +50,13 @@ export const routes: Routes = [
           )
       },
       {
+        path: 'conversations/:conversationId',
+        loadComponent: () =>
+          import('./features/messaging/channel-messaging-page/channel-messaging-page.component').then(
+            (m) => m.ChannelMessagingPageComponent
+          )
+      },
+      {
         path: 'workspaces/:workspaceId/channels/:conversationId',
         loadComponent: () =>
           import('./features/messaging/channel-messaging-page/channel-messaging-page.component').then(
@@ -113,6 +120,13 @@ export const routes: Routes = [
         loadComponent: () =>
           import('./features/projects/projects-overview-page/projects-overview-page.component').then(
             (m) => m.ProjectsOverviewPageComponent
+          )
+      },
+      {
+        path: 'artifacts/:artifactId',
+        loadComponent: () =>
+          import('./features/artifacts/artifact-detail-page/artifact-detail-page.component').then(
+            (m) => m.ArtifactDetailPageComponent
           )
       },
       {
