@@ -6,10 +6,11 @@ on:
       - wpc-02a-visibility-provenance-archive
 
 permissions:
-  contents: read
+  contents: write
 
 jobs:
   scaffold:
+    if: github.actor != 'github-actions[bot]'
     runs-on: ubuntu-latest
     timeout-minutes: 30
     steps:
@@ -41,25 +42,87 @@ jobs:
           --configuration Release
           --no-build
 
-      - name: Collect generated migration files
+      - name: Apply LegacyUnknown migration semantics and Project projection
         shell: bash
         run: |
           set -euo pipefail
-          git status --short
-          mkdir -p artifacts/wpc02a-migration
-          git status --porcelain | while IFS= read -r line; do
-            path="${line:3}"
-            case "$path" in
-              src/AipPortal.Infrastructure/Persistence/Migrations/*)
-                mkdir -p "artifacts/wpc02a-migration/$(dirname "$path")"
-                cp "$path" "artifacts/wpc02a-migration/$path"
-                ;;
-            esac
-          done
+          python - <<'PY'
+          from pathlib import Path
 
-      - name: Upload generated migration
-        uses: actions/upload-artifact@v7
-        with:
-          name: wpc02a-ef-scaffold
-          path: artifacts/wpc02a-migration
-          if-no-files-found: error
+          migrations = sorted(Path('src/AipPortal.Infrastructure/Persistence/Migrations').glob('*_Wpc02AProjectVisibilityAndActivationProvenance.cs'))
+          migrations = [path for path in migrations if not path.name.endswith('.Designer.cs')]
+          if len(migrations) != 1:
+              raise SystemExit(f'expected exactly one WPC-02A migration, found {len(migrations)}')
+
+          migration = migrations[0]
+          text = migration.read_text(encoding='utf-8-sig')
+          scaffolded = '''            migrationBuilder.AddColumn<string>(
+                          name: "ActivationState",
+                          table: "projects",
+                          type: "character varying(40)",
+                          maxLength: 40,
+                          nullable: false,
+                          defaultValue: "");'''
+          safe_upgrade = '''            migrationBuilder.AddColumn<string>(
+                          name: "ActivationState",
+                          table: "projects",
+                          type: "character varying(40)",
+                          maxLength: 40,
+                          nullable: true);
+
+                      migrationBuilder.Sql(
+                          "UPDATE \\\"projects\\\" SET \\\"ActivationState\\\" = 'LegacyUnknown' WHERE \\\"ActivationState\\\" IS NULL;");
+
+                      migrationBuilder.AlterColumn<string>(
+                          name: "ActivationState",
+                          table: "projects",
+                          type: "character varying(40)",
+                          maxLength: 40,
+                          nullable: false,
+                          oldClrType: typeof(string),
+                          oldType: "character varying(40)",
+                          oldMaxLength: 40,
+                          oldNullable: true);'''
+          if text.count(scaffolded) != 1:
+              raise SystemExit('unexpected ActivationState scaffold shape')
+          text = text.replace(scaffolded, safe_upgrade, 1)
+          migration.write_text(text, encoding='utf-8')
+
+          service = Path('src/AipPortal.Application/Projects/ProjectService.cs')
+          service_text = service.read_text(encoding='utf-8-sig')
+          old_projection = '''            project.UpdatedAt,
+                      new ProjectUiPermissionResponse(await taskAuthorization.CanCreateTask(userId, project.Id, cancellationToken)));'''
+          new_projection = '''            project.UpdatedAt,
+                      new ProjectUiPermissionResponse(await taskAuthorization.CanCreateTask(userId, project.Id, cancellationToken)),
+                      project.Visibility,
+                      project.ActivationState,
+                      project.ActivatedAtUtc,
+                      project.ActivationVersion,
+                      project.SuspendedFromStatus,
+                      project.ArchivedFromStatus);'''
+          if service_text.count(old_projection) != 1:
+              raise SystemExit('unexpected ProjectResponse projection shape')
+          service.write_text(service_text.replace(old_projection, new_projection, 1), encoding='utf-8')
+          PY
+
+      - name: Verify generated model is clean
+        env:
+          ConnectionStrings__DefaultConnection: Host=localhost;Port=5432;Database=aip_portal_design;Username=postgres;Password=postgres
+        run: >-
+          dotnet ef migrations has-pending-model-changes
+          --project src/AipPortal.Infrastructure
+          --startup-project src/AipPortal.Web
+          --configuration Release
+          --no-build
+
+      - name: Commit generated WPC-02A migration
+        shell: bash
+        run: |
+          set -euo pipefail
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add src/AipPortal.Infrastructure/Persistence/Migrations \
+                  src/AipPortal.Application/Projects/ProjectService.cs
+          git status --short
+          git commit -m "WPC-02A: add visibility and provenance migration"
+          git push origin HEAD:wpc-02a-visibility-provenance-archive
