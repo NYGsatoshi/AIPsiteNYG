@@ -930,7 +930,8 @@ public sealed class Wpc01WorkspaceCreationPostgreSqlTests
                          item.conversation.Title != null &&
                          EF.Functions.ILike(item.conversation.Title, $"%{needle}%")))
                     .Select(item => item.conversation.Id)
-                    .Distinct();
+                    .Distinct()
+                    .OrderBy(conversationId => conversationId);
             }
 
             var legacyCandidatePopulation = await LegacyCandidateConversationIds().ToListAsync();

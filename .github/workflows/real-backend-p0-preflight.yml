@@ -9,6 +9,8 @@ on:
       - "scripts/ci/verify-playwright-required-tests.mjs"
       - "tests/ui/build-playwright-grep.node-test.mjs"
       - "tests/ui/verify-playwright-required-tests.node-test.mjs"
+      - "tests/ui/real-backend-smoke-compose-helpers.mjs"
+      - "tests/ui/real-backend-smoke-compose-helpers.node-test.mjs"
       - "tests/ui/real-backend-smoke.spec.ts"
       - "tests/ui/prepare-real-backend-p0-state.mjs"
       - "tests/ui/run-real-backend-p0.mjs"
@@ -23,6 +25,8 @@ on:
       - "scripts/ci/verify-playwright-required-tests.mjs"
       - "tests/ui/build-playwright-grep.node-test.mjs"
       - "tests/ui/verify-playwright-required-tests.node-test.mjs"
+      - "tests/ui/real-backend-smoke-compose-helpers.mjs"
+      - "tests/ui/real-backend-smoke-compose-helpers.node-test.mjs"
       - "tests/ui/real-backend-smoke.spec.ts"
       - "tests/ui/prepare-real-backend-p0-state.mjs"
       - "tests/ui/run-real-backend-p0.mjs"
@@ -48,16 +52,18 @@ jobs:
         with:
           node-version: "24"
 
-      - name: Test P0 manifest and result helpers
+      - name: Test P0 manifest and runner helpers
         run: >-
           node --test
           tests/ui/build-playwright-grep.node-test.mjs
           tests/ui/verify-playwright-required-tests.node-test.mjs
+          tests/ui/real-backend-smoke-compose-helpers.node-test.mjs
 
       - name: Check P0 runner syntax
         shell: bash
         run: |
           node --check tests/ui/prepare-real-backend-p0-state.mjs
+          node --check tests/ui/real-backend-smoke-compose-helpers.mjs
           node --check tests/ui/run-real-backend-p0.mjs
           node --check tests/ui/run-real-backend-playwright.mjs
           node --check tests/ui/run-real-backend-smoke-compose.mjs
@@ -76,5 +82,6 @@ jobs:
             echo "- Manifest titles verified against the real-backend Playwright spec"
             echo "- Focused grep generated successfully"
             echo "- Required JUnit result verifier unit-tested"
+            echo "- Compose helper selection/redaction/URL/exit-code behavior unit-tested"
             echo "- P0 setup and runner JavaScript syntax checked"
           } >> "$GITHUB_STEP_SUMMARY"
