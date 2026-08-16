@@ -15,6 +15,8 @@ export type NotificationTargetType =
   | 'project'
   | 'task'
   | 'taskDeadlineDigest'
+  | 'artifact'
+  | 'message'
   | 'unsupported';
 
 export interface RightPanelScope {
