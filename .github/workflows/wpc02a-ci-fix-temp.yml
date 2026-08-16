@@ -1,0 +1,240 @@
+name: WPC-02A CI regression fix temporary
+
+on:
+  push:
+    branches:
+      - wpc-02a-visibility-provenance-archive
+
+permissions:
+  contents: write
+
+jobs:
+  apply-fixes:
+    if: github.event.head_commit.message == 'WPC-02A: stage CI regression fixes'
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          ref: wpc-02a-visibility-provenance-archive
+          fetch-depth: 0
+      - name: Apply bounded CI regression fixes
+        shell: python
+        run: |
+          from pathlib import Path
+
+          def replace_once(path: str, old: str, new: str):
+              p = Path(path)
+              text = p.read_text()
+              count = text.count(old)
+              if count != 1:
+                  raise SystemExit(f"{path}: expected one replacement, found {count}")
+              p.write_text(text.replace(old, new, 1))
+
+          # 1. Preserve typed lifecycle errors for a currently authorized explicit
+          # Project manager without making Deleted projects operationally manageable.
+          path = "src/AipPortal.Application/Projects/ProjectService.cs"
+          old = '''    public async Task<Result> ArchiveAsync(Guid projectId, CancellationToken cancellationToken = default)
+    {
+        if (!TryCurrentUser(out var userId) || !await projectAuthorization.CanManageProject(userId, projectId, cancellationToken))
+        {
+            return Result.Failure("You are not allowed to manage this project.");
+        }
+
+        var project = await projects.GetProjectAsync(projectId, cancellationToken);
+        if (project is null)
+        {
+            return Result.Failure("Project not found.");
+        }
+
+        if (project.DeletedAt.HasValue || project.Status is ProjectStatus.Archived or ProjectStatus.Deleted)
+'''
+          new = '''    public async Task<Result> ArchiveAsync(Guid projectId, CancellationToken cancellationToken = default)
+    {
+        if (!TryCurrentUser(out var userId))
+        {
+            return Result.Failure("You are not allowed to manage this project.");
+        }
+
+        var canManage = await projectAuthorization.CanManageProject(userId, projectId, cancellationToken);
+        var project = await projects.GetProjectAsync(projectId, cancellationToken);
+        if (project is null)
+        {
+            return Result.Failure("Project not found.");
+        }
+
+        var isDeletedTerminalState = project.DeletedAt.HasValue || project.Status == ProjectStatus.Deleted;
+        if (!canManage &&
+            !(isDeletedTerminalState && await CanReceiveTerminalLifecycleErrorAsync(userId, project, cancellationToken)))
+        {
+            return Result.Failure("You are not allowed to manage this project.");
+        }
+
+        if (project.DeletedAt.HasValue || project.Status is ProjectStatus.Archived or ProjectStatus.Deleted)
+'''
+          replace_once(path, old, new)
+
+          old = '''    public async Task<Result> RestoreAsync(Guid projectId, CancellationToken cancellationToken = default)
+    {
+        if (!TryCurrentUser(out var userId) || !await projectAuthorization.CanManageProject(userId, projectId, cancellationToken))
+        {
+            return Result.Failure("You are not allowed to manage this project.");
+        }
+
+        var project = await projects.GetProjectAsync(projectId, cancellationToken);
+        if (project is null)
+        {
+            return Result.Failure("Project not found.");
+        }
+
+        var message = project.Status is ProjectStatus.Archived or ProjectStatus.Deleted
+'''
+          new = '''    public async Task<Result> RestoreAsync(Guid projectId, CancellationToken cancellationToken = default)
+    {
+        if (!TryCurrentUser(out var userId))
+        {
+            return Result.Failure("You are not allowed to manage this project.");
+        }
+
+        var canManage = await projectAuthorization.CanManageProject(userId, projectId, cancellationToken);
+        var project = await projects.GetProjectAsync(projectId, cancellationToken);
+        if (project is null)
+        {
+            return Result.Failure("Project not found.");
+        }
+
+        var isDeletedTerminalState = project.DeletedAt.HasValue || project.Status == ProjectStatus.Deleted;
+        if (!canManage &&
+            !(isDeletedTerminalState && await CanReceiveTerminalLifecycleErrorAsync(userId, project, cancellationToken)))
+        {
+            return Result.Failure("You are not allowed to manage this project.");
+        }
+
+        var message = project.Status is ProjectStatus.Archived or ProjectStatus.Deleted
+'''
+          replace_once(path, old, new)
+
+          marker = '''    private static Result<T> ProjectNotFound<T>() =>
+'''
+          helper = '''    private async Task<bool> CanReceiveTerminalLifecycleErrorAsync(
+        Guid userId,
+        Project project,
+        CancellationToken cancellationToken)
+    {
+        // This helper changes only the error shape for a known historical Project.
+        // It does not make Deleted Projects operationally manageable: the command
+        // still returns InvalidStateTransition before any mutation or side effect.
+        var workspaceMember = await workspaces.GetMemberAsync(project.WorkspaceId, userId, cancellationToken);
+        if (workspaceMember is not { Status: MembershipStatus.Active })
+        {
+            return false;
+        }
+
+        var projectMember = await projects.GetMemberAsync(project.Id, userId, cancellationToken);
+        return projectMember?.Role is ProjectRole.Owner or ProjectRole.Manager;
+    }
+
+'''
+          replace_once(path, marker, helper + marker)
+
+          # 2. WPC-02A deliberately adds three authoritative Workspace-state reads
+          # to the Gantt authorization path. Keep the exact query budget explicit.
+          replace_once(
+              "tests/AipPortal.Tests/PostgreSql/TaskV1Pr06GanttHostedHttpTests.cs",
+              '''            Assert.Equal(24, authorizedSnapshotCommands.Count);''',
+              '''            // WPC-02A adds three authoritative Workspace status/membership reads
+            // so archived-parent authorization cannot be bypassed by Project membership.
+            Assert.Equal(27, authorizedSnapshotCommands.Count);''')
+
+          # 3. Make the historical raw-SQL fixture aware of the schema boundary.
+          path = "tests/AipPortal.Tests/PostgreSql/TaskV1MigrationRawSqlSeed.cs"
+          old = '''        await PostgreSqlMigrationTestDatabase.ExecuteAsync(connectionString, """
+INSERT INTO tenants ("Id", "Name", "Slug", "DisplayName", "Status", "CreatedAt")
+VALUES (@tenantId, @name, @slug, @name, 'Active', @now);
+INSERT INTO users ("Id", "DisplayName", "Email", "NormalizedEmail", "PasswordHash", "Status", "SystemRole", "FailedLoginAttempts", "CreatedAt")
+VALUES (@userId, 'Migration user', @email, @normalizedEmail, 'hash', 'Active', 'User', 0, @now);
+INSERT INTO workspaces ("Id", "TenantId", "Name", "Slug", "Status", "CreatedByUserId", "CreatedAt")
+VALUES (@workspaceId, @tenantId, 'Migration workspace', @workspaceSlug, 'Active', @userId, @now);
+INSERT INTO projects ("Id", "TenantId", "WorkspaceId", "Name", "Slug", "Status", "OwnerUserId", "CreatedByUserId", "CreatedAt")
+VALUES (@projectId, @tenantId, @workspaceId, 'Migration project', @projectSlug, 'Active', @userId, @userId, @now);
+INSERT INTO task_items ("Id", "TenantId", "WorkspaceId", "ProjectId", "Title", "Status", "Priority", "ProgressPercent", "SortOrder", "CreatedByUserId", "CreatedAt", "Kind", "IsBlocked", "SortKey", "VersionNo", "DeletedAt")
+VALUES (@taskId, @tenantId, @workspaceId, @projectId, 'Migration task', 'Todo', 'Medium', 0, 0, @userId, @now, 'Task', false, 1024, 1, @deletedAt);
+""",
+'''
+          new = '''        var hasActivationState = await PostgreSqlMigrationTestDatabase.ScalarAsync<long>(
+            connectionString,
+            """
+SELECT COUNT(*)
+FROM information_schema.columns
+WHERE table_schema = current_schema()
+  AND table_name = 'projects'
+  AND column_name = 'ActivationState';
+""") > 0;
+
+        var projectInsert = hasActivationState
+            ? """
+INSERT INTO projects ("Id", "TenantId", "WorkspaceId", "Name", "Slug", "Status", "OwnerUserId", "CreatedByUserId", "CreatedAt", "ActivationState")
+VALUES (@projectId, @tenantId, @workspaceId, 'Migration project', @projectSlug, 'Active', @userId, @userId, @now, 'LegacyUnknown');
+"""
+            : """
+INSERT INTO projects ("Id", "TenantId", "WorkspaceId", "Name", "Slug", "Status", "OwnerUserId", "CreatedByUserId", "CreatedAt")
+VALUES (@projectId, @tenantId, @workspaceId, 'Migration project', @projectSlug, 'Active', @userId, @userId, @now);
+""";
+
+        await PostgreSqlMigrationTestDatabase.ExecuteAsync(connectionString, $$"""
+INSERT INTO tenants ("Id", "Name", "Slug", "DisplayName", "Status", "CreatedAt")
+VALUES (@tenantId, @name, @slug, @name, 'Active', @now);
+INSERT INTO users ("Id", "DisplayName", "Email", "NormalizedEmail", "PasswordHash", "Status", "SystemRole", "FailedLoginAttempts", "CreatedAt")
+VALUES (@userId, 'Migration user', @email, @normalizedEmail, 'hash', 'Active', 'User', 0, @now);
+INSERT INTO workspaces ("Id", "TenantId", "Name", "Slug", "Status", "CreatedByUserId", "CreatedAt")
+VALUES (@workspaceId, @tenantId, 'Migration workspace', @workspaceSlug, 'Active', @userId, @now);
+{{projectInsert}}
+INSERT INTO task_items ("Id", "TenantId", "WorkspaceId", "ProjectId", "Title", "Status", "Priority", "ProgressPercent", "SortOrder", "CreatedByUserId", "CreatedAt", "Kind", "IsBlocked", "SortKey", "VersionNo", "DeletedAt")
+VALUES (@taskId, @tenantId, @workspaceId, @projectId, 'Migration task', 'Todo', 'Medium', 0, 0, @userId, @now, 'Task', false, 1024, 1, @deletedAt);
+""",
+'''
+          replace_once(path, old, new)
+
+          # 4. Keep the WPC-01 migration test at its own historical boundary.
+          path = "tests/AipPortal.Tests/PostgreSql/Wpc01WorkspaceCreationPostgreSqlTests.cs"
+          replace_once(
+              path,
+              '''    private const string PreviousMigration = "20260803041347_AddTaskDeadlineDigestLedger";''',
+              '''    private const string PreviousMigration = "20260803041347_AddTaskDeadlineDigestLedger";
+    private const string Wpc01Migration = "20260813100711_Wpc01WorkspaceCreateIdempotency";''')
+          replace_once(path, '''            await PostgreSqlMigrationTestDatabase.MigrateAsync(database);\n\n            Assert.True(await TableExistsAsync(database, "idempotency_records"));''', '''            await PostgreSqlMigrationTestDatabase.MigrateAsync(database, Wpc01Migration);\n\n            Assert.True(await TableExistsAsync(database, "idempotency_records"));''')
+          replace_once(path, '''            await using (var current = PostgreSqlMigrationTestDatabase.CreatePlatformContext(database))
+            {
+                Assert.Empty(await current.Database.GetPendingMigrationsAsync());
+                Assert.False(current.Database.HasPendingModelChanges());
+            }
+
+''', '''            // This is a historical migration-boundary test. Current-model pending
+            // migration checks belong to the current WPC-02A acceptance suite.
+
+''')
+          replace_once(path, '''            await PostgreSqlMigrationTestDatabase.MigrateAsync(database);
+            Assert.True(await TableExistsAsync(database, "idempotency_records"));''', '''            await PostgreSqlMigrationTestDatabase.MigrateAsync(database, Wpc01Migration);
+            Assert.True(await TableExistsAsync(database, "idempotency_records"));''')
+
+          # 5. Workspace denial is now safe-not-found for both cross-tenant and
+          # same-tenant outsider cases. Other resource contracts stay untouched.
+          path = "tests/AipPortal.Tests/Tenancy/HttpTenantIsolationTests.cs"
+          replace_once(
+              path,
+              '''        await AssertBadRequestAsync(app, data.CrossTenantUser, data.TenantA.Slug, $"/api/workspaces/{data.WorkspaceB.Id}");''',
+              '''        await AssertStatusAsync(app, data.CrossTenantUser, data.TenantA.Slug, $"/api/workspaces/{data.WorkspaceB.Id}", HttpStatusCode.NotFound);''')
+          replace_once(
+              path,
+              '''        await AssertBadRequestAsync(app, data.Outsider, data.TenantA.Slug, $"/api/workspaces/{data.WorkspaceA.Id}");''',
+              '''        await AssertStatusAsync(app, data.Outsider, data.TenantA.Slug, $"/api/workspaces/{data.WorkspaceA.Id}", HttpStatusCode.NotFound);''')
+
+          Path(".github/workflows/wpc02a-ci-fix-temp.yml").unlink()
+
+      - name: Commit regression fixes and remove temporary workflow
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add -A
+          git diff --cached --check
+          git commit -m "WPC-02A: fix full-suite CI regressions"
+          git push origin HEAD:wpc-02a-visibility-provenance-archive
