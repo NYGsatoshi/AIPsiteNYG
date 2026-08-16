@@ -259,7 +259,10 @@ async function expectMe(api, expectedStatus, evidence, name, expectedUserId) {
 }
 
 async function expectHubNegotiate(api, expectedStatus, evidence, name) {
-  const response = await api.post('/hubs/app/negotiate?negotiateVersion=1');
+  const csrf = await getCsrf(api, evidence, `${name}-csrf`);
+  const response = await api.post('/hubs/app/negotiate?negotiateVersion=1', {
+    headers: { [csrf.headerName]: csrf.token }
+  });
   record(evidence, name, 'POST', '/hubs/app/negotiate?negotiateVersion=1', response.status());
   requireStatus(response, expectedStatus, name);
 }
