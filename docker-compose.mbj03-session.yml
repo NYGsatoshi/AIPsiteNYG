@@ -1,0 +1,27 @@
+# MBJ-03 authentication/session lifecycle overlay.
+#
+# Uses an isolated fresh PostgreSQL database and persistent Data Protection
+# volume from the real-backend stack. Only a synthetic SystemAdmin is seeded;
+# the subject account is created through the real administrator invite flow.
+# Passwords are generated at runtime by the runner and never stored in source
+# or uploaded evidence.
+
+services:
+  app:
+    environment:
+      AIP_BROWSER_SMOKE_SEED_ENABLED: "false"
+      AIP_BROWSER_SMOKE_RESPONSE_GATE_ENABLED: "false"
+      AIP_SEED_ADMIN_ENABLED: ${AIP_MBJ03_SEED_ADMIN_ENABLED:-true}
+      AIP_SEED_ADMIN_EMAIL: ${AIP_MBJ03_ADMIN_EMAIL:?set AIP_MBJ03_ADMIN_EMAIL}
+      AIP_SEED_ADMIN_USERNAME: ${AIP_MBJ03_ADMIN_DISPLAY_NAME:-MBJ03 System Admin}
+      AIP_SEED_ADMIN_PASSWORD: ${AIP_MBJ03_SEED_ADMIN_PASSWORD:-}
+
+  real-backend-playwright:
+    environment:
+      AIP_MBJ03_ADMIN_EMAIL: ${AIP_MBJ03_ADMIN_EMAIL:?set AIP_MBJ03_ADMIN_EMAIL}
+      AIP_MBJ03_ADMIN_DISPLAY_NAME: ${AIP_MBJ03_ADMIN_DISPLAY_NAME:-MBJ03 System Admin}
+      AIP_MBJ03_ADMIN_PASSWORD: ${AIP_MBJ03_ADMIN_PASSWORD:?set AIP_MBJ03_ADMIN_PASSWORD}
+      AIP_MBJ03_SUBJECT_EMAIL: ${AIP_MBJ03_SUBJECT_EMAIL:?set AIP_MBJ03_SUBJECT_EMAIL}
+      AIP_MBJ03_SUBJECT_DISPLAY_NAME: ${AIP_MBJ03_SUBJECT_DISPLAY_NAME:-MBJ03 Session Subject}
+      AIP_MBJ03_OLD_PASSWORD: ${AIP_MBJ03_OLD_PASSWORD:?set AIP_MBJ03_OLD_PASSWORD}
+      AIP_MBJ03_NEW_PASSWORD: ${AIP_MBJ03_NEW_PASSWORD:?set AIP_MBJ03_NEW_PASSWORD}
