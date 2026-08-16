@@ -115,9 +115,9 @@ public sealed class Wpc02FNotificationNavigationPostgreSqlTests
                 TenantId = tenant.Id,
                 ProjectId = project.Id,
                 Name = "Deleted artifact",
-                CreatedByUserId = recipient.Id,
-                DeletedAt = Now
+                CreatedByUserId = recipient.Id
             };
+            deletedArtifact.MarkDeleted(Now);
             var deletedArtifactNotification = new Notification
             {
                 TenantId = tenant.Id,
