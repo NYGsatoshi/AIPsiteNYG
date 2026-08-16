@@ -15,6 +15,15 @@ public sealed class WorkspacesController(IWorkspaceService workspaces) : Control
         return ToActionResult(await workspaces.ListAsync(cancellationToken));
     }
 
+    [HttpGet("api/workspaces/archived")]
+    public async Task<IActionResult> ListArchived(CancellationToken cancellationToken)
+    {
+        var result = await workspaces.ListArchivedAsync(cancellationToken);
+        return result.IsSuccess
+            ? Ok(result.Value)
+            : ToWpcError(result.ErrorDetail, result.Error, "Archived Workspaces could not be listed.");
+    }
+
     [HttpGet("api/workspaces/capabilities")]
     public async Task<IActionResult> Capabilities(CancellationToken cancellationToken)
     {
@@ -64,7 +73,7 @@ public sealed class WorkspacesController(IWorkspaceService workspaces) : Control
             "AuthenticationRequired" => StatusCodes.Status401Unauthorized,
             "CapabilityDenied" or "TenantMembershipRequired" => StatusCodes.Status403Forbidden,
             "NotFound" => StatusCodes.Status404NotFound,
-            "IdempotencyConflict" or "ConcurrentModification" => StatusCodes.Status409Conflict,
+            "IdempotencyConflict" or "ConcurrentModification" or "InvalidStateTransition" => StatusCodes.Status409Conflict,
             "DependencyUnavailable" => StatusCodes.Status503ServiceUnavailable,
             _ => StatusCodes.Status400BadRequest
         };
@@ -74,7 +83,7 @@ public sealed class WorkspacesController(IWorkspaceService workspaces) : Control
             "AuthenticationRequired" => Unauthorized(payload),
             "CapabilityDenied" or "TenantMembershipRequired" => StatusCode(status, payload),
             "NotFound" => NotFound(payload),
-            "IdempotencyConflict" or "ConcurrentModification" => Conflict(payload),
+            "IdempotencyConflict" or "ConcurrentModification" or "InvalidStateTransition" => Conflict(payload),
             "DependencyUnavailable" => StatusCode(status, payload),
             _ => BadRequest(payload)
         };
@@ -83,59 +92,84 @@ public sealed class WorkspacesController(IWorkspaceService workspaces) : Control
     [HttpGet("api/workspaces/{workspaceId:guid}")]
     public async Task<IActionResult> Get(Guid workspaceId, CancellationToken cancellationToken)
     {
-        return ToActionResult(await workspaces.GetAsync(workspaceId, cancellationToken));
+        var result = await workspaces.GetAsync(workspaceId, cancellationToken);
+        return result.IsSuccess
+            ? Ok(result.Value)
+            : ToWpcError(result.ErrorDetail, result.Error, "Workspace could not be read.");
     }
 
     [HttpPatch("api/workspaces/{workspaceId:guid}")]
     public async Task<IActionResult> Update(Guid workspaceId, UpdateWorkspaceRequest request, CancellationToken cancellationToken)
     {
-        return ToActionResult(await workspaces.UpdateAsync(workspaceId, request, cancellationToken));
+        var result = await workspaces.UpdateAsync(workspaceId, request, cancellationToken);
+        return result.IsSuccess
+            ? Ok(result.Value)
+            : ToWpcError(result.ErrorDetail, result.Error, "Workspace update failed.");
     }
 
     [HttpDelete("api/workspaces/{workspaceId:guid}")]
     public async Task<IActionResult> Delete(Guid workspaceId, CancellationToken cancellationToken)
     {
-        var result = await workspaces.ArchiveAsync(workspaceId, cancellationToken);
-        return result.IsSuccess ? Ok(new { status = "OK" }) : BadRequest(new { error = result.Error });
+        return await ArchiveResult(workspaceId, cancellationToken);
     }
 
     [HttpPost("api/workspaces/{workspaceId:guid}/archive")]
     public async Task<IActionResult> Archive(Guid workspaceId, CancellationToken cancellationToken)
     {
-        var result = await workspaces.ArchiveAsync(workspaceId, cancellationToken);
-        return result.IsSuccess ? Ok(new { status = "OK" }) : BadRequest(new { error = result.Error });
+        return await ArchiveResult(workspaceId, cancellationToken);
     }
 
     [HttpPost("api/workspaces/{workspaceId:guid}/restore")]
     public async Task<IActionResult> Restore(Guid workspaceId, CancellationToken cancellationToken)
     {
         var result = await workspaces.RestoreAsync(workspaceId, cancellationToken);
-        return result.IsSuccess ? Ok(new { status = "OK" }) : BadRequest(new { error = result.Error });
+        return result.IsSuccess
+            ? Ok(new { status = "OK" })
+            : ToWpcError(result.ErrorDetail, result.Error, "Workspace restore failed.");
     }
 
     [HttpGet("api/workspaces/{workspaceId:guid}/members")]
     public async Task<IActionResult> ListMembers(Guid workspaceId, CancellationToken cancellationToken)
     {
-        return ToActionResult(await workspaces.ListMembersAsync(workspaceId, cancellationToken));
+        var result = await workspaces.ListMembersAsync(workspaceId, cancellationToken);
+        return result.IsSuccess
+            ? Ok(result.Value)
+            : ToWpcError(result.ErrorDetail, result.Error, "Workspace members could not be read.");
     }
 
     [HttpPost("api/workspaces/{workspaceId:guid}/members")]
     public async Task<IActionResult> AddMember(Guid workspaceId, AddWorkspaceMemberRequest request, CancellationToken cancellationToken)
     {
-        return ToActionResult(await workspaces.AddMemberAsync(workspaceId, request, cancellationToken));
+        var result = await workspaces.AddMemberAsync(workspaceId, request, cancellationToken);
+        return result.IsSuccess
+            ? Ok(result.Value)
+            : ToWpcError(result.ErrorDetail, result.Error, "Workspace member could not be added.");
     }
 
     [HttpPatch("api/workspaces/{workspaceId:guid}/members/{userId:guid}")]
     public async Task<IActionResult> UpdateMember(Guid workspaceId, Guid userId, UpdateWorkspaceMemberRequest request, CancellationToken cancellationToken)
     {
-        return ToActionResult(await workspaces.UpdateMemberAsync(workspaceId, userId, request, cancellationToken));
+        var result = await workspaces.UpdateMemberAsync(workspaceId, userId, request, cancellationToken);
+        return result.IsSuccess
+            ? Ok(result.Value)
+            : ToWpcError(result.ErrorDetail, result.Error, "Workspace member could not be updated.");
     }
 
     [HttpDelete("api/workspaces/{workspaceId:guid}/members/{userId:guid}")]
     public async Task<IActionResult> RemoveMember(Guid workspaceId, Guid userId, CancellationToken cancellationToken)
     {
         var result = await workspaces.RemoveMemberAsync(workspaceId, userId, cancellationToken);
-        return result.IsSuccess ? Ok(new { status = "OK" }) : BadRequest(new { error = result.Error });
+        return result.IsSuccess
+            ? Ok(new { status = "OK" })
+            : ToWpcError(result.ErrorDetail, result.Error, "Workspace member could not be removed.");
+    }
+
+    private async Task<IActionResult> ArchiveResult(Guid workspaceId, CancellationToken cancellationToken)
+    {
+        var result = await workspaces.ArchiveAsync(workspaceId, cancellationToken);
+        return result.IsSuccess
+            ? Ok(new { status = "OK" })
+            : ToWpcError(result.ErrorDetail, result.Error, "Workspace archive failed.");
     }
 
     private IActionResult ToActionResult<T>(AipPortal.Application.Common.Result<T> result)

@@ -21,8 +21,11 @@ public static class DependencyInjection
         var connectionString = configuration.GetConnectionString("DefaultConnection")
             ?? throw new InvalidOperationException("ConnectionStrings:DefaultConnection is not configured.");
 
-        services.AddDbContext<AppDbContext>(options =>
-            options.UseNpgsql(connectionString));
+        services.AddScoped<ProjectGovernanceSaveChangesInterceptor>();
+        services.AddDbContext<AppDbContext>((serviceProvider, options) =>
+            options
+                .UseNpgsql(connectionString)
+                .AddInterceptors(serviceProvider.GetRequiredService<ProjectGovernanceSaveChangesInterceptor>()));
 
         services.AddScoped<IUserRepository, UserRepository>();
         services.AddScoped<ITenantRepository, TenantRepository>();

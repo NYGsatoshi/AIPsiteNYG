@@ -12,17 +12,43 @@ public sealed class WorkspaceAuthorizationService(
 {
     public async Task<bool> CanViewWorkspace(Guid userId, Guid workspaceId, CancellationToken cancellationToken = default)
     {
+        var workspace = await workspaces.GetByIdAsync(workspaceId, cancellationToken);
+        if (workspace is null || workspace.DeletedAt.HasValue || workspace.Status == WorkspaceStatus.Deleted)
+        {
+            return false;
+        }
+
+        var member = await workspaces.GetMemberAsync(workspaceId, userId, cancellationToken);
+        if (workspace.Status == WorkspaceStatus.Archived)
+        {
+            // Archived Workspaces are an authorized historical projection.
+            // A platform role alone never grants archived access.
+            return member is { Status: MembershipStatus.Active };
+        }
+
+        if (workspace.Status != WorkspaceStatus.Active)
+        {
+            return false;
+        }
+
         if (await IsSystemAdmin(userId, cancellationToken))
         {
             return true;
         }
 
-        var member = await workspaces.GetMemberAsync(workspaceId, userId, cancellationToken);
         return member is { Status: MembershipStatus.Active };
     }
 
     public async Task<bool> CanManageWorkspace(Guid userId, Guid workspaceId, CancellationToken cancellationToken = default)
     {
+        var workspace = await workspaces.GetByIdAsync(workspaceId, cancellationToken);
+        if (workspace is null ||
+            workspace.DeletedAt.HasValue ||
+            workspace.Status != WorkspaceStatus.Active)
+        {
+            return false;
+        }
+
         if (await IsSystemAdmin(userId, cancellationToken))
         {
             return true;
@@ -32,8 +58,57 @@ public sealed class WorkspaceAuthorizationService(
         return member is { Status: MembershipStatus.Active } && member.Role.CanManage();
     }
 
+    public async Task<bool> CanGovernWorkspace(Guid userId, Guid workspaceId, CancellationToken cancellationToken = default)
+    {
+        var workspace = await workspaces.GetByIdAsync(workspaceId, cancellationToken);
+        if (workspace is null || workspace.DeletedAt.HasValue || workspace.Status == WorkspaceStatus.Deleted)
+        {
+            return false;
+        }
+
+        var member = await workspaces.GetMemberAsync(workspaceId, userId, cancellationToken);
+        if (workspace.Status == WorkspaceStatus.Archived)
+        {
+            return member is { Status: MembershipStatus.Active } && member.Role.CanManage();
+        }
+
+        if (workspace.Status != WorkspaceStatus.Active)
+        {
+            return false;
+        }
+
+        return await IsSystemAdmin(userId, cancellationToken) ||
+               member is { Status: MembershipStatus.Active } && member.Role.CanManage();
+    }
+
+    public async Task<bool> CanRestoreWorkspace(Guid userId, Guid workspaceId, CancellationToken cancellationToken = default)
+    {
+        var workspace = await workspaces.GetByIdAsync(workspaceId, cancellationToken);
+        if (workspace is null ||
+            workspace.DeletedAt.HasValue ||
+            workspace.Status != WorkspaceStatus.Archived)
+        {
+            return false;
+        }
+
+        var member = await workspaces.GetMemberAsync(workspaceId, userId, cancellationToken);
+        return member is
+        {
+            Status: MembershipStatus.Active,
+            Role: WorkspaceRole.Owner
+        };
+    }
+
     public async Task<bool> CanContributeWorkspace(Guid userId, Guid workspaceId, CancellationToken cancellationToken = default)
     {
+        var workspace = await workspaces.GetByIdAsync(workspaceId, cancellationToken);
+        if (workspace is null ||
+            workspace.DeletedAt.HasValue ||
+            workspace.Status != WorkspaceStatus.Active)
+        {
+            return false;
+        }
+
         if (await IsSystemAdmin(userId, cancellationToken))
         {
             return true;
@@ -55,6 +130,6 @@ public sealed class WorkspaceAuthorizationService(
     private async Task<bool> IsSystemAdmin(Guid userId, CancellationToken cancellationToken)
     {
         var user = await users.GetByIdAsync(userId, cancellationToken);
-        return user is { SystemRole: SystemRole.SystemAdmin, Status: UserStatus.Active };
+        return user is { SystemRole: SystemRole.SystemAdmin, Status: UserStatus.Active, DeletedAt: null };
     }
 }

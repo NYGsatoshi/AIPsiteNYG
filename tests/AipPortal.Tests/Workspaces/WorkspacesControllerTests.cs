@@ -113,6 +113,50 @@ public sealed class WorkspacesControllerTests
         Assert.True(envelope.Error.RedactionApplied);
     }
 
+    [Fact]
+    public async Task ArchivedWorkspaceMutationUsesConflictEnvelope()
+    {
+        var service = new StubWorkspaceService
+        {
+            UpdateResult = Result<WorkspaceDetailResponse>.Failure(new ApplicationErrorDetail(
+                "InvalidStateTransition",
+                "Archived Workspaces are read-only.",
+                Target: "workspace.status"))
+        };
+        var controller = Controller(service);
+
+        var action = await controller.Update(
+            Guid.NewGuid(),
+            new UpdateWorkspaceRequest(null, null, null, null),
+            CancellationToken.None);
+
+        var conflict = Assert.IsType<ConflictObjectResult>(action);
+        var envelope = Assert.IsType<ApiErrorEnvelope>(conflict.Value);
+        Assert.Equal(StatusCodes.Status409Conflict, envelope.Status);
+        Assert.Equal("InvalidStateTransition", envelope.Error.Code);
+        Assert.Equal("workspace.status", envelope.Error.Target);
+    }
+
+    [Fact]
+    public async Task WorkspaceAdminRestoreDenialUsesForbiddenEnvelope()
+    {
+        var service = new StubWorkspaceService
+        {
+            RestoreResult = Result.Failure(new ApplicationErrorDetail(
+                "CapabilityDenied",
+                "Only a current Workspace Owner can restore an archived Workspace.",
+                Target: "workspace"))
+        };
+        var controller = Controller(service);
+
+        var action = await controller.Restore(Guid.NewGuid(), CancellationToken.None);
+
+        var forbidden = Assert.IsType<ObjectResult>(action);
+        Assert.Equal(StatusCodes.Status403Forbidden, forbidden.StatusCode);
+        var envelope = Assert.IsType<ApiErrorEnvelope>(forbidden.Value);
+        Assert.Equal("CapabilityDenied", envelope.Error.Code);
+    }
+
     private static WorkspacesController Controller(IWorkspaceService service) => new(service)
     {
         ControllerContext = new ControllerContext
@@ -125,11 +169,17 @@ public sealed class WorkspacesControllerTests
     {
         public Result<WorkspaceDetailResponse> CreateResult { get; init; } =
             Result<WorkspaceDetailResponse>.Failure("Not configured.");
+        public Result<WorkspaceDetailResponse> UpdateResult { get; init; } =
+            Result<WorkspaceDetailResponse>.Failure("Not configured.");
         public Result<WorkspaceCapabilitiesResponse> CapabilityResult { get; init; } =
             Result<WorkspaceCapabilitiesResponse>.Failure("Not configured.");
+        public Result RestoreResult { get; init; } = Result.Failure("Not configured.");
         public string? ClientRequestIdentity { get; private set; }
 
         public Task<Result<IReadOnlyList<WorkspaceListItemResponse>>> ListAsync(CancellationToken cancellationToken = default) =>
+            throw new NotSupportedException();
+
+        public Task<Result<IReadOnlyList<WorkspaceListItemResponse>>> ListArchivedAsync(CancellationToken cancellationToken = default) =>
             throw new NotSupportedException();
 
         public Task<Result<WorkspaceCapabilitiesResponse>> GetCapabilitiesAsync(CancellationToken cancellationToken = default) =>
@@ -147,11 +197,11 @@ public sealed class WorkspacesControllerTests
         public Task<Result<WorkspaceDetailResponse>> GetAsync(Guid workspaceId, CancellationToken cancellationToken = default) =>
             throw new NotSupportedException();
         public Task<Result<WorkspaceDetailResponse>> UpdateAsync(Guid workspaceId, UpdateWorkspaceRequest request, CancellationToken cancellationToken = default) =>
-            throw new NotSupportedException();
+            Task.FromResult(UpdateResult);
         public Task<Result> ArchiveAsync(Guid workspaceId, CancellationToken cancellationToken = default) =>
             throw new NotSupportedException();
         public Task<Result> RestoreAsync(Guid workspaceId, CancellationToken cancellationToken = default) =>
-            throw new NotSupportedException();
+            Task.FromResult(RestoreResult);
         public Task<Result<IReadOnlyList<WorkspaceMemberResponse>>> ListMembersAsync(Guid workspaceId, CancellationToken cancellationToken = default) =>
             throw new NotSupportedException();
         public Task<Result<WorkspaceMemberResponse>> AddMemberAsync(Guid workspaceId, AddWorkspaceMemberRequest request, CancellationToken cancellationToken = default) =>

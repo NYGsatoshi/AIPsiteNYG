@@ -595,7 +595,7 @@ public sealed class HttpTenantIsolationTests
         await AssertOkContainsOnlyAsync(app, data.CrossTenantUser, data.TenantA.Slug, "/api/tenants/current", data.TenantA.Slug, data.TenantB.Slug);
         await AssertOkContainsOnlyAsync(app, data.CrossTenantUser, data.TenantA.Slug, "/api/workspaces", "WorkspaceA", "WorkspaceB");
         await AssertOkContainsOnlyAsync(app, data.CrossTenantUser, data.TenantA.Slug, $"/api/workspaces/{data.WorkspaceA.Id}", "WorkspaceA", "WorkspaceB");
-        await AssertBadRequestAsync(app, data.CrossTenantUser, data.TenantA.Slug, $"/api/workspaces/{data.WorkspaceB.Id}");
+        await AssertStatusAsync(app, data.CrossTenantUser, data.TenantA.Slug, $"/api/workspaces/{data.WorkspaceB.Id}", HttpStatusCode.NotFound);
 
         await AssertOkContainsOnlyAsync(app, data.CrossTenantUser, data.TenantA.Slug, $"/api/workspaces/{data.WorkspaceA.Id}/groups", "GroupA", "GroupB");
         await AssertOkContainsOnlyAsync(app, data.CrossTenantUser, data.TenantA.Slug, $"/api/groups/{data.GroupA.Id}", "GroupA", "GroupB");
@@ -1754,7 +1754,7 @@ public sealed class HttpTenantIsolationTests
         var data = app.Data;
 
         await AssertOkContainsOnlyAsync(app, data.Outsider, data.TenantA.Slug, "/api/workspaces", "", "WorkspaceA");
-        await AssertBadRequestAsync(app, data.Outsider, data.TenantA.Slug, $"/api/workspaces/{data.WorkspaceA.Id}");
+        await AssertStatusAsync(app, data.Outsider, data.TenantA.Slug, $"/api/workspaces/{data.WorkspaceA.Id}", HttpStatusCode.NotFound);
         await AssertStatusAsync(app, data.Outsider, data.TenantA.Slug, $"/api/projects/{data.ProjectA.Id}", HttpStatusCode.NotFound);
         await AssertBadRequestAsync(app, data.Outsider, data.TenantA.Slug, $"/api/conversations/{data.ConversationA.Id}");
         await AssertBadRequestAsync(app, data.Outsider, data.TenantA.Slug, $"/api/files/{data.FileA.Id}/download");

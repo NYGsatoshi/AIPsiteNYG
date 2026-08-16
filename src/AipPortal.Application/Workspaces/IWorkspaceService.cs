@@ -5,6 +5,7 @@ namespace AipPortal.Application.Workspaces;
 public interface IWorkspaceService
 {
     Task<Result<IReadOnlyList<WorkspaceListItemResponse>>> ListAsync(CancellationToken cancellationToken = default);
+    Task<Result<IReadOnlyList<WorkspaceListItemResponse>>> ListArchivedAsync(CancellationToken cancellationToken = default);
     Task<Result<WorkspaceCapabilitiesResponse>> GetCapabilitiesAsync(CancellationToken cancellationToken = default);
     Task<Result<WorkspaceDetailResponse>> CreateAsync(CreateWorkspaceRequest request, string? clientRequestIdentity, CancellationToken cancellationToken = default);
     Task<Result<WorkspaceDetailResponse>> GetAsync(Guid workspaceId, CancellationToken cancellationToken = default);

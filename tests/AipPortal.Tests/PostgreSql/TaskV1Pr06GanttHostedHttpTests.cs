@@ -69,7 +69,9 @@ public sealed class TaskV1Pr06GanttHostedHttpTests(ITestOutputHelper output)
             for (var index = 0; index < authorizedSnapshotCommands.Count; index++)
                 output.WriteLine(
                     $"PR06 authorized HTTP SQL {index + 1:D2}: {NormalizeSql(authorizedSnapshotCommands[index])}");
-            Assert.Equal(24, authorizedSnapshotCommands.Count);
+            // WPC-02A adds three authoritative Workspace status/membership reads so
+            // archived-parent authorization cannot be bypassed by Project membership.
+            Assert.Equal(27, authorizedSnapshotCommands.Count);
 
             Assert.Equal(app.Graph.Project.Id, snapshot.ProjectId);
             Assert.True(snapshot.ProjectVersion > 0);
