@@ -1,0 +1,101 @@
+name: WPC-02A final EF scaffold temporary
+
+on:
+  push:
+    branches:
+      - wpc-02a-visibility-provenance-archive
+
+permissions:
+  contents: write
+
+jobs:
+  scaffold:
+    if: github.actor != 'github-actions[bot]'
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-dotnet@v6
+        with:
+          global-json-file: global.json
+      - run: dotnet restore AipPortal.slnx
+      - run: dotnet tool restore
+      - name: Scaffold migration
+        env:
+          ConnectionStrings__DefaultConnection: Host=localhost;Port=5432;Database=aip_portal_design;Username=postgres;Password=postgres
+        run: >-
+          dotnet ef migrations add Wpc02AProjectVisibilityAndActivationProvenance
+          --project src/AipPortal.Infrastructure
+          --startup-project src/AipPortal.Web
+          --output-dir Persistence/Migrations
+          --configuration Release
+      - name: Preserve LegacyUnknown migration semantics and API projection
+        shell: bash
+        run: |
+          set -euo pipefail
+          python - <<'PY'
+          from pathlib import Path
+          import re
+
+          migrations = [p for p in Path('src/AipPortal.Infrastructure/Persistence/Migrations').glob('*_Wpc02AProjectVisibilityAndActivationProvenance.cs') if not p.name.endswith('.Designer.cs')]
+          if len(migrations) != 1:
+              raise SystemExit(f'expected one migration, got {len(migrations)}')
+          migration = migrations[0]
+          text = migration.read_text(encoding='utf-8-sig')
+          pattern = re.compile(r'''migrationBuilder\.AddColumn<string>\(\s*name: "ActivationState",\s*table: "projects",\s*type: "character varying\(40\)",\s*maxLength: 40,\s*nullable: false,\s*defaultValue: ""\);''')
+          replacement = '''migrationBuilder.AddColumn<string>(
+                name: "ActivationState",
+                table: "projects",
+                type: "character varying(40)",
+                maxLength: 40,
+                nullable: true);
+
+            migrationBuilder.Sql(
+                "UPDATE \\\"projects\\\" SET \\\"ActivationState\\\" = 'LegacyUnknown' WHERE \\\"ActivationState\\\" IS NULL;");
+
+            migrationBuilder.AlterColumn<string>(
+                name: "ActivationState",
+                table: "projects",
+                type: "character varying(40)",
+                maxLength: 40,
+                nullable: false,
+                oldClrType: typeof(string),
+                oldType: "character varying(40)",
+                oldMaxLength: 40,
+                oldNullable: true);'''
+          text, count = pattern.subn(replacement, text, count=1)
+          if count != 1:
+              raise SystemExit('ActivationState scaffold shape did not match')
+          migration.write_text(text, encoding='utf-8')
+
+          service = Path('src/AipPortal.Application/Projects/ProjectService.cs')
+          source = service.read_text(encoding='utf-8-sig')
+          pattern = re.compile(r'''(?P<i>[ \t]*)project\.UpdatedAt,\s*new ProjectUiPermissionResponse\(await taskAuthorization\.CanCreateTask\(userId, project\.Id, cancellationToken\)\)\);''')
+          def repl(m):
+              i=m.group('i')
+              return f'''{i}project.UpdatedAt,\n{i}new ProjectUiPermissionResponse(await taskAuthorization.CanCreateTask(userId, project.Id, cancellationToken)),\n{i}project.Visibility,\n{i}project.ActivationState,\n{i}project.ActivatedAtUtc,\n{i}project.ActivationVersion,\n{i}project.SuspendedFromStatus,\n{i}project.ArchivedFromStatus);'''
+          source, count = pattern.subn(repl, source, count=1)
+          if count != 1:
+              raise SystemExit('ProjectResponse mapper shape did not match')
+          service.write_text(source, encoding='utf-8')
+          PY
+      - name: Build generated model
+        run: dotnet build AipPortal.slnx --configuration Release --no-restore
+      - name: Verify model snapshot
+        env:
+          ConnectionStrings__DefaultConnection: Host=localhost;Port=5432;Database=aip_portal_design;Username=postgres;Password=postgres
+        run: >-
+          dotnet ef migrations has-pending-model-changes
+          --project src/AipPortal.Infrastructure
+          --startup-project src/AipPortal.Web
+          --configuration Release
+          --no-build
+      - name: Commit generated files
+        shell: bash
+        run: |
+          set -euo pipefail
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add src/AipPortal.Infrastructure/Persistence/Migrations src/AipPortal.Application/Projects/ProjectService.cs
+          git commit -m "WPC-02A: add project governance schema migration"
+          git push origin HEAD:wpc-02a-visibility-provenance-archive
