@@ -1,0 +1,55 @@
+name: Node Toolchain Preflight
+
+on:
+  pull_request:
+    paths:
+      - "Dockerfile"
+      - "frontend.Dockerfile"
+      - "package.json"
+      - "frontend/package.json"
+      - ".github/workflows/**"
+      - "scripts/ci/verify-node-toolchain.mjs"
+  push:
+    branches: ["main"]
+    paths:
+      - "Dockerfile"
+      - "frontend.Dockerfile"
+      - "package.json"
+      - "frontend/package.json"
+      - ".github/workflows/**"
+      - "scripts/ci/verify-node-toolchain.mjs"
+
+permissions:
+  contents: read
+
+jobs:
+  node-toolchain-preflight:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v7
+        with:
+          persist-credentials: false
+
+      - name: Setup repository Node.js
+        uses: actions/setup-node@v7
+        with:
+          node-version: "24"
+
+      - name: Verify Node and npm toolchain policy
+        run: node scripts/ci/verify-node-toolchain.mjs
+
+      - name: Report toolchain versions
+        shell: bash
+        run: |
+          {
+            echo "### Node toolchain preflight"
+            echo
+            echo "- Node: \`$(node --version)\`"
+            echo "- npm: \`$(npm --version)\`"
+            echo "- Docker production frontend base: Node 24"
+            echo "- Docker frontend development base: Node 24-alpine"
+            echo "- Workflow setup-node majors: Node 24"
+          } >> "$GITHUB_STEP_SUMMARY"
