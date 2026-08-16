@@ -13,6 +13,16 @@ public sealed class Project : SoftDeletableEntity, ITenantEntity
     public string Slug { get; set; } = string.Empty;
     public string? Description { get; set; }
     public ProjectStatus Status { get; set; } = ProjectStatus.Planning;
+    /// <summary>
+    /// Canonical visibility. Null is the internal LegacyUnknown migration state
+    /// and must never be inferred from legacy relationships or lifecycle state.
+    /// </summary>
+    public ProjectVisibility? Visibility { get; set; }
+    public ProjectActivationState ActivationState { get; set; } = ProjectActivationState.NeverActivated;
+    public DateTimeOffset? ActivatedAtUtc { get; set; }
+    public int? ActivationVersion { get; set; }
+    public ProjectStatus? SuspendedFromStatus { get; set; }
+    public ProjectStatus? ArchivedFromStatus { get; set; }
     public DateOnly? StartDate { get; set; }
     public DateOnly? DueDate { get; set; }
     public long VersionNo { get; set; }
