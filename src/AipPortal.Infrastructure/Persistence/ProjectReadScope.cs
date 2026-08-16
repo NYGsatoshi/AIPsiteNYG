@@ -149,7 +149,7 @@ internal static class ProjectReadScope
                                   (member.Role == WorkspaceRole.Owner || member.Role == WorkspaceRole.Admin)) ||
                               dbContext.GroupMembers.Any(member =>
                                   member.GroupId == item.GroupId.Value &&
-                                  member.UserId == user.Id)))))))
+                                  member.UserId == user.Id))))))
             .Select(user => user.Id);
     }
 }
