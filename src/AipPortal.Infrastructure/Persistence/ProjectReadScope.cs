@@ -29,7 +29,20 @@ internal static class ProjectReadScope
                 project.DeletedAt == null &&
                 project.Status != ProjectStatus.Archived &&
                 project.Status != ProjectStatus.Deleted &&
-                HasCurrentWorkspaceRead(dbContext, project, userId, activeSystemAdminIds) &&
+                dbContext.Workspaces.Any(workspace =>
+                    workspace.Id == project.WorkspaceId &&
+                    workspace.DeletedAt == null &&
+                    ((workspace.Status == WorkspaceStatus.Active &&
+                      (activeSystemAdminIds.Contains(userId) ||
+                       dbContext.WorkspaceMembers.Any(member =>
+                           member.WorkspaceId == project.WorkspaceId &&
+                           member.UserId == userId &&
+                           member.Status == MembershipStatus.Active))) ||
+                     (workspace.Status == WorkspaceStatus.Archived &&
+                      dbContext.WorkspaceMembers.Any(member =>
+                          member.WorkspaceId == project.WorkspaceId &&
+                          member.UserId == userId &&
+                          member.Status == MembershipStatus.Active)))) &&
                 (project.Members.Any(member => member.UserId == userId) ||
                  (project.Visibility.HasValue
                      ? project.Visibility == ProjectVisibility.WorkspaceVisible &&
@@ -37,7 +50,23 @@ internal static class ProjectReadScope
                        (project.Status == ProjectStatus.Active ||
                         project.Status == ProjectStatus.Review ||
                         project.Status == ProjectStatus.Completed)
-                     : IsLegacyCompatibilityReadable(dbContext, project, userId, activeSystemAdminIds))));
+                     : (project.Status == ProjectStatus.Active ||
+                        project.Status == ProjectStatus.Review ||
+                        project.Status == ProjectStatus.Completed) &&
+                       (!project.GroupId.HasValue ||
+                        dbContext.Workspaces.Any(workspace =>
+                            workspace.Id == project.WorkspaceId &&
+                            workspace.DeletedAt == null &&
+                            workspace.Status == WorkspaceStatus.Active &&
+                            activeSystemAdminIds.Contains(userId)) ||
+                        dbContext.WorkspaceMembers.Any(member =>
+                            member.WorkspaceId == project.WorkspaceId &&
+                            member.UserId == userId &&
+                            member.Status == MembershipStatus.Active &&
+                            (member.Role == WorkspaceRole.Owner || member.Role == WorkspaceRole.Admin)) ||
+                        dbContext.GroupMembers.Any(member =>
+                            member.GroupId == project.GroupId.Value &&
+                            member.UserId == userId)))));
     }
 
     public static IQueryable<Project> ListableProjectsFor(this AppDbContext dbContext, Guid userId)
@@ -74,8 +103,29 @@ internal static class ProjectReadScope
             .Where(user => user.Status == UserStatus.Active && user.DeletedAt == null)
             .Where(user => project.Any(item =>
                 item.Status == ProjectStatus.Archived
-                    ? HasCurrentArchivedProjectHistory(dbContext, item, user.Id)
-                    : HasCurrentWorkspaceReadForUser(dbContext, item, user) &&
+                    ? dbContext.Workspaces.Any(workspace =>
+                          workspace.Id == item.WorkspaceId &&
+                          workspace.DeletedAt == null &&
+                          (workspace.Status == WorkspaceStatus.Active || workspace.Status == WorkspaceStatus.Archived)) &&
+                      dbContext.WorkspaceMembers.Any(member =>
+                          member.WorkspaceId == item.WorkspaceId &&
+                          member.UserId == user.Id &&
+                          member.Status == MembershipStatus.Active) &&
+                      item.Members.Any(member => member.UserId == user.Id)
+                    : dbContext.Workspaces.Any(workspace =>
+                          workspace.Id == item.WorkspaceId &&
+                          workspace.DeletedAt == null &&
+                          ((workspace.Status == WorkspaceStatus.Active &&
+                            (user.SystemRole == SystemRole.SystemAdmin ||
+                             dbContext.WorkspaceMembers.Any(member =>
+                                 member.WorkspaceId == item.WorkspaceId &&
+                                 member.UserId == user.Id &&
+                                 member.Status == MembershipStatus.Active))) ||
+                           (workspace.Status == WorkspaceStatus.Archived &&
+                            dbContext.WorkspaceMembers.Any(member =>
+                                member.WorkspaceId == item.WorkspaceId &&
+                                member.UserId == user.Id &&
+                                member.Status == MembershipStatus.Active)))) &&
                       (item.Members.Any(member => member.UserId == user.Id) ||
                        (item.Visibility.HasValue
                            ? item.Visibility == ProjectVisibility.WorkspaceVisible &&
@@ -83,96 +133,23 @@ internal static class ProjectReadScope
                              (item.Status == ProjectStatus.Active ||
                               item.Status == ProjectStatus.Review ||
                               item.Status == ProjectStatus.Completed)
-                           : IsLegacyCompatibilityReadableForUser(dbContext, item, user)))))
+                           : (item.Status == ProjectStatus.Active ||
+                              item.Status == ProjectStatus.Review ||
+                              item.Status == ProjectStatus.Completed) &&
+                             (!item.GroupId.HasValue ||
+                              dbContext.Workspaces.Any(workspace =>
+                                  workspace.Id == item.WorkspaceId &&
+                                  workspace.DeletedAt == null &&
+                                  workspace.Status == WorkspaceStatus.Active &&
+                                  user.SystemRole == SystemRole.SystemAdmin) ||
+                              dbContext.WorkspaceMembers.Any(member =>
+                                  member.WorkspaceId == item.WorkspaceId &&
+                                  member.UserId == user.Id &&
+                                  member.Status == MembershipStatus.Active &&
+                                  (member.Role == WorkspaceRole.Owner || member.Role == WorkspaceRole.Admin)) ||
+                              dbContext.GroupMembers.Any(member =>
+                                  member.GroupId == item.GroupId.Value &&
+                                  member.UserId == user.Id)))))))
             .Select(user => user.Id);
     }
-
-    private static bool HasCurrentWorkspaceRead(
-        AppDbContext dbContext,
-        Project project,
-        Guid userId,
-        IQueryable<Guid> activeSystemAdminIds) =>
-        dbContext.Workspaces.Any(workspace =>
-            workspace.Id == project.WorkspaceId &&
-            workspace.DeletedAt == null &&
-            ((workspace.Status == WorkspaceStatus.Active &&
-              (activeSystemAdminIds.Contains(userId) ||
-               dbContext.WorkspaceMembers.Any(member =>
-                   member.WorkspaceId == project.WorkspaceId &&
-                   member.UserId == userId &&
-                   member.Status == MembershipStatus.Active))) ||
-             (workspace.Status == WorkspaceStatus.Archived &&
-              dbContext.WorkspaceMembers.Any(member =>
-                  member.WorkspaceId == project.WorkspaceId &&
-                  member.UserId == userId &&
-                  member.Status == MembershipStatus.Active))));
-
-    private static bool HasCurrentWorkspaceReadForUser(AppDbContext dbContext, Project project, User user) =>
-        dbContext.Workspaces.Any(workspace =>
-            workspace.Id == project.WorkspaceId &&
-            workspace.DeletedAt == null &&
-            ((workspace.Status == WorkspaceStatus.Active &&
-              (user.SystemRole == SystemRole.SystemAdmin ||
-               dbContext.WorkspaceMembers.Any(member =>
-                   member.WorkspaceId == project.WorkspaceId &&
-                   member.UserId == user.Id &&
-                   member.Status == MembershipStatus.Active))) ||
-             (workspace.Status == WorkspaceStatus.Archived &&
-              dbContext.WorkspaceMembers.Any(member =>
-                  member.WorkspaceId == project.WorkspaceId &&
-                  member.UserId == user.Id &&
-                  member.Status == MembershipStatus.Active))));
-
-    private static bool HasCurrentArchivedProjectHistory(AppDbContext dbContext, Project project, Guid userId) =>
-        dbContext.Workspaces.Any(workspace =>
-            workspace.Id == project.WorkspaceId &&
-            workspace.DeletedAt == null &&
-            (workspace.Status == WorkspaceStatus.Active || workspace.Status == WorkspaceStatus.Archived)) &&
-        dbContext.WorkspaceMembers.Any(member =>
-            member.WorkspaceId == project.WorkspaceId &&
-            member.UserId == userId &&
-            member.Status == MembershipStatus.Active) &&
-        project.Members.Any(member => member.UserId == userId);
-
-    private static bool IsLegacyCompatibilityReadable(
-        AppDbContext dbContext,
-        Project project,
-        Guid userId,
-        IQueryable<Guid> activeSystemAdminIds) =>
-        (project.Status == ProjectStatus.Active ||
-         project.Status == ProjectStatus.Review ||
-         project.Status == ProjectStatus.Completed) &&
-        (!project.GroupId.HasValue ||
-         dbContext.Workspaces.Any(workspace =>
-             workspace.Id == project.WorkspaceId &&
-             workspace.DeletedAt == null &&
-             workspace.Status == WorkspaceStatus.Active &&
-             activeSystemAdminIds.Contains(userId)) ||
-         dbContext.WorkspaceMembers.Any(member =>
-             member.WorkspaceId == project.WorkspaceId &&
-             member.UserId == userId &&
-             member.Status == MembershipStatus.Active &&
-             (member.Role == WorkspaceRole.Owner || member.Role == WorkspaceRole.Admin)) ||
-         dbContext.GroupMembers.Any(member =>
-             member.GroupId == project.GroupId.Value &&
-             member.UserId == userId));
-
-    private static bool IsLegacyCompatibilityReadableForUser(AppDbContext dbContext, Project project, User user) =>
-        (project.Status == ProjectStatus.Active ||
-         project.Status == ProjectStatus.Review ||
-         project.Status == ProjectStatus.Completed) &&
-        (!project.GroupId.HasValue ||
-         dbContext.Workspaces.Any(workspace =>
-             workspace.Id == project.WorkspaceId &&
-             workspace.DeletedAt == null &&
-             workspace.Status == WorkspaceStatus.Active &&
-             user.SystemRole == SystemRole.SystemAdmin) ||
-         dbContext.WorkspaceMembers.Any(member =>
-             member.WorkspaceId == project.WorkspaceId &&
-             member.UserId == user.Id &&
-             member.Status == MembershipStatus.Active &&
-             (member.Role == WorkspaceRole.Owner || member.Role == WorkspaceRole.Admin)) ||
-         dbContext.GroupMembers.Any(member =>
-             member.GroupId == project.GroupId.Value &&
-             member.UserId == user.Id));
 }
