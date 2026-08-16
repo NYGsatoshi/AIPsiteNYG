@@ -3,6 +3,8 @@
 # This overlay intentionally disables the broad browser-smoke seed and creates
 # only the first synthetic administrator through the documented startup seed.
 # The administrator password is injected at runtime and must never be committed.
+# After initial bootstrap the app-side seed password is cleared while the
+# acceptance probe retains its private runtime copy to prove persisted login.
 
 services:
   app:
@@ -12,7 +14,7 @@ services:
       AIP_SEED_ADMIN_ENABLED: ${AIP_MBJ01_SEED_ENABLED:-true}
       AIP_SEED_ADMIN_EMAIL: ${AIP_MBJ01_BOOTSTRAP_EMAIL:?set AIP_MBJ01_BOOTSTRAP_EMAIL}
       AIP_SEED_ADMIN_USERNAME: ${AIP_MBJ01_BOOTSTRAP_DISPLAY_NAME:-MBJ01 Bootstrap Admin}
-      AIP_SEED_ADMIN_PASSWORD: ${AIP_MBJ01_BOOTSTRAP_PASSWORD:?set AIP_MBJ01_BOOTSTRAP_PASSWORD}
+      AIP_SEED_ADMIN_PASSWORD: ${AIP_MBJ01_APP_SEED_PASSWORD:-}
 
   real-backend-playwright:
     environment:
