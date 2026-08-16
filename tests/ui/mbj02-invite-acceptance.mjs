@@ -15,6 +15,7 @@ const mismatchOtherEmail = requiredSyntheticEmail('AIP_MBJ02_MISMATCH_OTHER_EMAI
 const crossTenantEmail = requiredSyntheticEmail('AIP_MBJ02_CROSS_TENANT_EMAIL');
 const crossTenantToken = requiredEnv('AIP_MBJ02_CROSS_TENANT_TOKEN');
 const crossTenantWorkspaceId = requiredEnv('AIP_MBJ02_CROSS_TENANT_WORKSPACE_ID');
+const workspaceRoleMember = 3;
 
 const evidence = {
   journey: 'MBJ-02',
@@ -60,13 +61,14 @@ try {
   const acceptedInvite = await createInvite(admin, createCsrf, {
     workspaceId,
     email: inviteeEmail,
-    role: 'Member',
+    role: workspaceRoleMember,
     expiresAt: null
   }, 'accepted-invite-create');
   const acceptedInviteId = requiredString(acceptedInvite, 'id', 'accepted invite response');
   const acceptedToken = extractInviteToken(acceptedInvite, 'accepted invite response');
   requireEqual(acceptedInvite.email, inviteeEmail, 'accepted invite email');
   requireEqual(acceptedInvite.workspaceId, workspaceId, 'accepted invite Workspace');
+  requireEqual(acceptedInvite.role, 'Member', 'accepted invite role');
 
   const invited = await newApiContext();
   try {
@@ -87,7 +89,6 @@ try {
     requireStatus(accept, 200, 'anonymous invite acceptance');
     const accepted = await readJson(accept, 'anonymous invite acceptance response');
     const inviteeUserId = requiredString(accepted, 'userId', 'anonymous invite acceptance response');
-    const acceptanceSessionId = requiredString(accepted, 'sessionId', 'anonymous invite acceptance response');
     requireEqual(accepted.email, inviteeEmail, 'accepted user email');
     requireEqual(accepted.displayName, inviteeDisplayName, 'accepted user display name');
     requireArray(accepted.workspaces, 'accepted user workspaces');
@@ -108,7 +109,6 @@ try {
     evidence.accepted = {
       inviteId: acceptedInviteId,
       userId: inviteeUserId,
-      acceptanceSessionId,
       workspaceId
     };
   } finally {
@@ -138,8 +138,14 @@ try {
     record('post-accept-login', 'POST', '/api/auth/login', login.status(), '[credential body redacted]');
     requireStatus(login, 200, 'post-accept login');
     const loginBody = await readJson(login, 'post-accept login response');
-    evidence.postAcceptLoginSessionId = requiredString(loginBody, 'sessionId', 'post-accept login response');
     requireEqual(loginBody.userId, evidence.accepted.userId, 'post-accept login user id');
+    requireEqual(loginBody.email, inviteeEmail, 'post-accept login email');
+
+    const postLoginMe = await loginAfterAccept.get('/api/auth/me');
+    record('post-accept-login-me', 'GET', '/api/auth/me', postLoginMe.status());
+    requireStatus(postLoginMe, 200, 'post-accept login current-user lookup');
+    const postLoginCurrentUser = await readJson(postLoginMe, 'post-accept login current-user response');
+    requireEqual(postLoginCurrentUser.userId, evidence.accepted.userId, 'post-accept login current-user id');
   } finally {
     await loginAfterAccept.dispose();
   }
@@ -147,7 +153,7 @@ try {
   const revokedInvite = await createInvite(admin, createCsrf, {
     workspaceId,
     email: revokedEmail,
-    role: 'Member',
+    role: workspaceRoleMember,
     expiresAt: null
   }, 'revoked-invite-create');
   const revokedInviteId = requiredString(revokedInvite, 'id', 'revoked invite response');
@@ -179,7 +185,7 @@ try {
   const expiredInvite = await createInvite(admin, createCsrf, {
     workspaceId,
     email: expiredEmail,
-    role: 'Member',
+    role: workspaceRoleMember,
     expiresAt
   }, 'expired-invite-create');
   const expiredInviteId = requiredString(expiredInvite, 'id', 'expired invite response');
@@ -220,7 +226,7 @@ try {
   const mismatchInvite = await createInvite(admin, createCsrf, {
     workspaceId,
     email: mismatchTargetEmail,
-    role: 'Member',
+    role: workspaceRoleMember,
     expiresAt: null
   }, 'mismatch-invite-create');
   const mismatchInviteId = requiredString(mismatchInvite, 'id', 'mismatch invite response');
@@ -252,7 +258,7 @@ try {
     data: {
       workspaceId: crossTenantWorkspaceId,
       email: 'mbj02-cross-admin-attempt@example.test',
-      role: 'Member',
+      role: workspaceRoleMember,
       expiresAt: null
     },
     headers: { [createCsrf.headerName]: createCsrf.token }
@@ -317,7 +323,10 @@ async function createInvite(api, csrf, data, stepName) {
     headers: { [csrf.headerName]: csrf.token }
   });
   record(stepName, 'POST', '/api/admin/invites', response.status(), '[invite token redacted]');
-  requireStatus(response, 200, stepName);
+  if (response.status() !== 200) {
+    const detail = await safeFailureDetail(response);
+    throw new Error(`${stepName} returned HTTP ${response.status()}, expected 200${detail ? `: ${detail}` : '.'}`);
+  }
   return readJson(response, `${stepName} response`);
 }
 
@@ -393,6 +402,22 @@ async function readJson(response, label) {
   } catch {
     throw new Error(`${label} is not valid JSON.`);
   }
+}
+
+async function safeFailureDetail(response) {
+  let text;
+  try {
+    text = await response.text();
+  } catch {
+    return '';
+  }
+
+  for (const secret of [adminPassword, inviteePassword, crossTenantToken]) {
+    if (secret) {
+      text = text.split(secret).join('[REDACTED]');
+    }
+  }
+  return text.trim().slice(0, 1000);
 }
 
 function delay(milliseconds) {
