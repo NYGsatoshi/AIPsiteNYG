@@ -85,7 +85,7 @@ async function runPhase1() {
       data: { currentPassword: oldPassword, newPassword }
     });
     record(evidence, 'change-password-missing-csrf-rejected', 'POST', '/api/auth/change-password', missingCsrf.status(), '[password body redacted]');
-    requireStatus(missingCsrf, 400, 'missing-CSRF password change');
+    requireStatus(missingCsrf, 403, 'missing-CSRF password change');
 
     const passwordCsrf = await getCsrf(subjectA, evidence, 'change-password-csrf');
     const passwordChange = await subjectA.post('/api/auth/change-password', {
