@@ -31,6 +31,8 @@ jobs:
         run: dotnet build AipPortal.slnx --configuration Release --no-restore
 
       - name: Scaffold WPC-02A migration
+        env:
+          ConnectionStrings__DefaultConnection: Host=localhost;Port=5432;Database=aip_portal_design;Username=postgres;Password=postgres
         run: >-
           dotnet ef migrations add Wpc02AProjectVisibilityAndActivationProvenance
           --project src/AipPortal.Infrastructure
