@@ -3,9 +3,11 @@ import { computed, Injectable, InjectionToken, inject, signal } from '@angular/c
 import { Router } from '@angular/router';
 import { Subscription } from 'rxjs';
 
+import { AuthSessionFacade } from '../../core/auth/auth-session.facade';
 import { DurableRealtimeEvent } from '../../core/realtime/realtime.models';
 import { RealtimeFacade } from '../../core/realtime/realtime.facade';
 import { NotificationOpenContextService } from '../../core/notifications/notification-open-context.service';
+import { ActiveWorkspaceFacade } from '../../core/workspace/active-workspace.facade';
 
 import {
   NotificationTargetType,
@@ -27,6 +29,8 @@ const SUPPORTED_TARGETS = new Set<NotificationTargetType>([
   'project',
   'task',
   'taskDeadlineDigest',
+  'artifact',
+  'message',
 ]);
 
 export const AIP_RIGHT_PANEL_MOCK = new InjectionToken<RightPanelMockState>('AIP_RIGHT_PANEL_MOCK');
@@ -65,12 +69,15 @@ export function isSupportedNotificationTarget(target: NotificationTargetType): b
 }
 
 /**
- * Task and digest routes are protected resources.  Their persisted list
- * route is never navigation authority; the current-authorized server open
- * contract is the only way to obtain a route for them.
+ * Task, digest, Artifact, and Message routes are protected resources. Their
+ * persisted list route is never navigation authority; the current-authorized
+ * server open contract is the only way to obtain a route for them.
  */
 export function requiresAuthorizedServerOpen(target: NotificationTargetType): boolean {
-  return target === 'task' || target === 'taskDeadlineDigest';
+  return target === 'task' ||
+    target === 'taskDeadlineDigest' ||
+    target === 'artifact' ||
+    target === 'message';
 }
 
 export function mapNotificationRoute(
@@ -112,6 +119,8 @@ export class RightPanelFacade {
   private readonly http = inject(HttpClient);
   private readonly realtime = inject(RealtimeFacade);
   private readonly router = inject(Router, { optional: true });
+  private readonly authSession = inject(AuthSessionFacade);
+  private readonly activeWorkspace = inject(ActiveWorkspaceFacade);
   private readonly notificationOpenContext = inject(NotificationOpenContextService);
   private readonly mockState = inject(AIP_RIGHT_PANEL_MOCK, { optional: true });
   private readonly modeState = signal<RightPanelMode>(
@@ -344,8 +353,8 @@ export class RightPanelFacade {
       return;
     }
 
-    // Task and digest signals are reference-only. Never derive display data,
-    // a route, or recipient relationship state from a durable event.
+    // Protected target signals may be reference-only. Never derive display
+    // data, a route, or recipient relationship state from such a signal.
     if (requiresRefetch || !notification) {
       this.queueNotificationRefresh();
       return;
@@ -398,8 +407,8 @@ export class RightPanelFacade {
 
   private clearProtectedNotificationState(): void {
     // An authorization change may race an existing HTTP list request. Ignore
-    // that request's response so a pre-revocation Task projection cannot be
-    // restored after protected state has been cleared.
+    // that request's response so a pre-revocation protected projection cannot
+    // be restored after protected state has been cleared.
     this.notificationRefreshGeneration++;
     if (this.notificationRefreshTimer !== null) {
       clearTimeout(this.notificationRefreshTimer);
@@ -488,19 +497,58 @@ export class RightPanelFacade {
       return;
     }
 
-    const digestWorkspaceId = notification.target.type === 'taskDeadlineDigest'
-      ? workspaceIdFromOpenContext(response.context)
-      : undefined;
-    const routeIsAuthorized = notification.target.type === 'task'
-      ? isTaskDetailRoute(route)
-      : route === '/tasks' && !!digestWorkspaceId;
+    const contextWorkspaceId = workspaceIdFromOpenContext(response.context);
+    let routeIsAuthorized = false;
+    let targetWorkspaceId: string | undefined;
+    let messageConversationId: string | undefined;
+
+    switch (notification.target.type) {
+      case 'task':
+        routeIsAuthorized = isTaskDetailRoute(route);
+        break;
+      case 'taskDeadlineDigest':
+        targetWorkspaceId = contextWorkspaceId;
+        routeIsAuthorized = route === '/tasks' && !!targetWorkspaceId;
+        break;
+      case 'artifact':
+        targetWorkspaceId = contextWorkspaceId;
+        routeIsAuthorized = !!notification.target.id &&
+          !!targetWorkspaceId &&
+          isArtifactDetailRoute(route, notification.target.id);
+        break;
+      case 'message':
+        targetWorkspaceId = contextWorkspaceId;
+        messageConversationId = notification.target.id
+          ? conversationIdFromMessageRoute(route, notification.target.id)
+          : undefined;
+        routeIsAuthorized = !!targetWorkspaceId && !!messageConversationId;
+        break;
+    }
+
     if (!routeIsAuthorized) {
       this.showUnavailable();
       return;
     }
 
+    // Cross-workspace state changes happen only after the backend has both
+    // authorized the current target and returned an exact canonical route.
+    if ((notification.target.type === 'artifact' || notification.target.type === 'message') &&
+        (!targetWorkspaceId || !this.switchToAuthorizedWorkspace(targetWorkspaceId))) {
+      this.showUnavailable();
+      return;
+    }
+
+    if (targetWorkspaceId && (notification.target.type === 'artifact' || notification.target.type === 'message')) {
+      this.scopeState.set({
+        workspaceId: targetWorkspaceId,
+        projectId: '',
+        conversationId: notification.target.type === 'message' ? (messageConversationId ?? '') : '',
+      });
+    }
+
     // An open result may update read state only after the server authorized
-    // the target. Older versions never overwrite a newer local projection.
+    // the target and all client-side route/context checks passed. Older
+    // versions never overwrite a newer local projection.
     if (stateVersion > this.notificationStateVersion) {
       this.notificationState.update((items) =>
         items.map((item) => item.id === notificationId ? { ...item, read: true, stateVersion } : item),
@@ -510,14 +558,28 @@ export class RightPanelFacade {
       this.queueNotificationRefresh();
     }
 
-    if (digestWorkspaceId) {
-      this.notificationOpenContext.setDigestWorkspace(digestWorkspaceId);
+    if (notification.target.type === 'taskDeadlineDigest' && targetWorkspaceId) {
+      this.notificationOpenContext.setDigestWorkspace(targetWorkspaceId);
     }
     if (!this.router) {
       this.showUnavailable();
       return;
     }
     void this.router.navigateByUrl(route).catch(() => this.showUnavailable());
+  }
+
+  private switchToAuthorizedWorkspace(workspaceId: string): boolean {
+    const authorizedWorkspace = this.authSession.currentUser()?.workspaces.find(
+      (workspace) => workspace.id === workspaceId,
+    );
+    if (!authorizedWorkspace) {
+      return false;
+    }
+
+    if (this.activeWorkspace.activeWorkspace()?.id !== workspaceId) {
+      this.activeWorkspace.setActiveWorkspace(authorizedWorkspace);
+    }
+    return true;
   }
 
   private displayLegacyNotificationTarget(notification: RightPanelNotification): void {
@@ -529,7 +591,7 @@ export class RightPanelFacade {
 
     // Preserve the legacy contract: navigation uses an already safe Angular
     // route and read state changes only after the existing backend PATCH
-    // confirms it. Task/digest never enter this path.
+    // confirms it. Protected targets never enter this path.
     this.markNotificationRead(notification.id);
     void this.router.navigateByUrl(route).catch(() => this.showUnavailable());
   }
@@ -594,6 +656,14 @@ function recordValue(value: unknown): Record<string, unknown> {
 }
 
 function notificationTargetType(entityType: unknown, notificationType?: unknown): NotificationTargetType {
+  const normalizedEntityType = String(entityType ?? '').trim().toLowerCase();
+  if (normalizedEntityType === 'artifact') {
+    return 'artifact';
+  }
+  if (normalizedEntityType === 'message') {
+    return 'message';
+  }
+
   const normalized = `${String(entityType ?? '')} ${String(notificationType ?? '')}`.toLowerCase();
   if (normalized.includes('announcement')) {
     return 'announcement';
@@ -622,6 +692,25 @@ function notificationTargetType(entityType: unknown, notificationType?: unknown)
 
 function isTaskDetailRoute(route: string): boolean {
   return /^\/projects\/[^/]+\/tasks\/[^/]+$/.test(route);
+}
+
+function isArtifactDetailRoute(route: string, artifactId: string): boolean {
+  return route === `/artifacts/${artifactId}`;
+}
+
+function conversationIdFromMessageRoute(route: string, messageId: string): string | undefined {
+  const match = /^\/conversations\/([^/?#]+)\?messageId=([^&#]+)$/.exec(route);
+  if (!match) {
+    return undefined;
+  }
+
+  try {
+    const conversationId = decodeURIComponent(match[1]);
+    const routeMessageId = decodeURIComponent(match[2]);
+    return conversationId && routeMessageId === messageId ? conversationId : undefined;
+  } catch {
+    return undefined;
+  }
 }
 
 function isKnownSafeRoute(route: string): boolean {
