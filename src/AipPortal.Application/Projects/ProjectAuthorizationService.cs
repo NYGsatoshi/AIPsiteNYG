@@ -1,6 +1,7 @@
 using AipPortal.Application.Common.Interfaces;
 using AipPortal.Application.Groups;
 using AipPortal.Application.Workspaces;
+using AipPortal.Domain.Entities;
 using AipPortal.Domain.Enums;
 
 namespace AipPortal.Application.Projects;
@@ -21,48 +22,97 @@ public sealed class ProjectAuthorizationService(
             return false;
         }
 
-        // A ProjectMember row must never outlive the actor's current workspace
-        // access.  File grants and Task detail open actions rely on this check
-        // when reauthorizing a Task/File association.
+        // Project membership never outlives the current Workspace read boundary.
+        // In particular, archived Workspaces require a current active membership;
+        // SystemAdmin alone is not a historical-read grant.
         if (!await workspaces.CanViewWorkspace(userId, project.WorkspaceId, cancellationToken))
         {
             return false;
         }
 
         var member = await projects.GetMemberAsync(projectId, userId, cancellationToken);
-        if (member is not null) return true;
-
-        // Planning and Suspended are provenance-ambiguous in the current
-        // schema: either may describe a Project that has never completed the
-        // explicit activation command.  Broader governance discovery must
-        // therefore fail closed until activation provenance exists.
-        if (RequiresExplicitMembership(project.Status))
+        if (member is not null)
         {
-            return false;
+            return true;
         }
 
-        if (!project.GroupId.HasValue)
+        if (!project.Visibility.HasValue)
         {
-            return await workspaces.CanViewWorkspace(userId, project.WorkspaceId, cancellationToken);
+            // NULL is the internal LegacyUnknown migration state. Preserve the
+            // pre-canonical compatibility boundary exactly; never guess a
+            // canonical Visibility from GroupId, lifecycle state, or membership.
+            return await CanViewLegacyUnknownProjectAsync(userId, project, cancellationToken);
         }
 
-        return await workspaces.CanManageWorkspace(userId, project.WorkspaceId, cancellationToken) ||
-            await groupRepository.GetMemberAsync(project.GroupId.Value, userId, cancellationToken) is not null;
+        return project.Visibility.Value switch
+        {
+            ProjectVisibility.WorkspaceVisible =>
+                project.ActivationState == ProjectActivationState.Activated &&
+                project.Status is ProjectStatus.Active or ProjectStatus.Review or ProjectStatus.Completed,
+            ProjectVisibility.MembersOnly => false,
+            ProjectVisibility.Restricted => false,
+            _ => false
+        };
     }
 
     public async Task<bool> CanManageProject(Guid userId, Guid projectId, CancellationToken cancellationToken = default)
     {
         var project = await projects.GetProjectAsync(projectId, cancellationToken);
-        if (project is null) return false;
-        if (!await workspaces.CanViewWorkspace(userId, project.WorkspaceId, cancellationToken)) return false;
-        var member = await projects.GetMemberAsync(projectId, userId, cancellationToken);
-        if (RequiresExplicitMembership(project.Status))
+        if (project is null || project.DeletedAt.HasValue || project.Status == ProjectStatus.Deleted)
         {
-            return member?.Role is ProjectRole.Owner or ProjectRole.Manager;
+            return false;
         }
-        if (await workspaces.CanManageWorkspace(userId, project.WorkspaceId, cancellationToken)) return true;
-        if (project.GroupId.HasValue && await groups.CanManageGroup(userId, project.GroupId.Value, cancellationToken)) return true;
-        return member?.Role is ProjectRole.Owner or ProjectRole.Manager;
+
+        // Ordinary Project operations are unavailable while the containing
+        // Workspace is archived. CanContributeWorkspace is active-only and
+        // therefore closes the ProjectMember bypass through an archived parent.
+        if (!await workspaces.CanContributeWorkspace(userId, project.WorkspaceId, cancellationToken))
+        {
+            return false;
+        }
+
+        var member = await projects.GetMemberAsync(projectId, userId, cancellationToken);
+        var isProjectManager = member?.Role is ProjectRole.Owner or ProjectRole.Manager;
+
+        // Archived Projects retain the established explicit-member management
+        // boundary so restore cannot become a Workspace/SystemAdmin shortcut.
+        if (project.Status == ProjectStatus.Archived)
+        {
+            return isProjectManager;
+        }
+
+        if (!project.Visibility.HasValue)
+        {
+            if (RequiresExplicitMembership(project.Status))
+            {
+                return isProjectManager;
+            }
+
+            if (await workspaces.CanGovernWorkspace(userId, project.WorkspaceId, cancellationToken))
+            {
+                return true;
+            }
+
+            if (project.GroupId.HasValue && await groups.CanManageGroup(userId, project.GroupId.Value, cancellationToken))
+            {
+                return true;
+            }
+
+            return isProjectManager;
+        }
+
+        return project.Visibility.Value switch
+        {
+            // MembersOnly and Restricted body access remains project-explicit.
+            // Workspace visibility/governance changes are a separate capability
+            // boundary owned by the canonical create/visibility workflow.
+            ProjectVisibility.MembersOnly or ProjectVisibility.Restricted => isProjectManager,
+            ProjectVisibility.WorkspaceVisible =>
+                isProjectManager ||
+                await workspaces.CanGovernWorkspace(userId, project.WorkspaceId, cancellationToken) ||
+                (project.GroupId.HasValue && await groups.CanManageGroup(userId, project.GroupId.Value, cancellationToken)),
+            _ => false
+        };
     }
 
     public async Task<bool> CanCreateProject(Guid userId, Guid workspaceId, Guid groupId, CancellationToken cancellationToken = default)
@@ -111,6 +161,25 @@ public sealed class ProjectAuthorizationService(
     }
 
     public Task<bool> CanOverrideTaskReview(Guid userId, Guid taskItemId, CancellationToken cancellationToken = default) => CanAssignTask(userId, taskItemId, cancellationToken);
+
+    private async Task<bool> CanViewLegacyUnknownProjectAsync(
+        Guid userId,
+        Project project,
+        CancellationToken cancellationToken)
+    {
+        if (RequiresExplicitMembership(project.Status))
+        {
+            return false;
+        }
+
+        if (!project.GroupId.HasValue)
+        {
+            return true;
+        }
+
+        return await workspaces.CanGovernWorkspace(userId, project.WorkspaceId, cancellationToken) ||
+               await groupRepository.GetMemberAsync(project.GroupId.Value, userId, cancellationToken) is not null;
+    }
 
     private static bool RequiresExplicitMembership(ProjectStatus status) =>
         status is ProjectStatus.Planning or ProjectStatus.Suspended or ProjectStatus.Archived or ProjectStatus.Deleted;
