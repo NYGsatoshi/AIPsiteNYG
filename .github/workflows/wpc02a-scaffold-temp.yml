@@ -1,0 +1,63 @@
+name: WPC-02A EF scaffold temporary
+
+on:
+  push:
+    branches:
+      - wpc-02a-visibility-provenance-archive
+
+permissions:
+  contents: read
+
+jobs:
+  scaffold:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v7
+
+      - name: Setup .NET
+        uses: actions/setup-dotnet@v6
+        with:
+          global-json-file: global.json
+
+      - name: Restore
+        run: dotnet restore AipPortal.slnx
+
+      - name: Restore tools
+        run: dotnet tool restore
+
+      - name: Build
+        run: dotnet build AipPortal.slnx --configuration Release --no-restore
+
+      - name: Scaffold WPC-02A migration
+        run: >-
+          dotnet ef migrations add Wpc02AProjectVisibilityAndActivationProvenance
+          --project src/AipPortal.Infrastructure
+          --startup-project src/AipPortal.Web
+          --output-dir Persistence/Migrations
+          --configuration Release
+          --no-build
+
+      - name: Collect generated migration files
+        shell: bash
+        run: |
+          set -euo pipefail
+          git status --short
+          mkdir -p artifacts/wpc02a-migration
+          git status --porcelain | while IFS= read -r line; do
+            path="${line:3}"
+            case "$path" in
+              src/AipPortal.Infrastructure/Persistence/Migrations/*)
+                mkdir -p "artifacts/wpc02a-migration/$(dirname "$path")"
+                cp "$path" "artifacts/wpc02a-migration/$path"
+                ;;
+            esac
+          done
+
+      - name: Upload generated migration
+        uses: actions/upload-artifact@v7
+        with:
+          name: wpc02a-ef-scaffold
+          path: artifacts/wpc02a-migration
+          if-no-files-found: error
