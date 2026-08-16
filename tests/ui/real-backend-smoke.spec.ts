@@ -2302,7 +2302,7 @@ test.describe('MVP0 real backend browser smoke', () => {
         .slice(postRevocationFailureStart)
         .filter((failure) => {
           const method = failure.method.toUpperCase();
-          const { pathname } = new URL(`${baseURL}${failure.path}`);
+          const { pathname } = new URL(failure.path, 'http://localhost');
           return failure.status === 400 &&
             method === 'GET' &&
             /^\/api\/projects\/[^/]+\/tasks$/u.test(pathname);
