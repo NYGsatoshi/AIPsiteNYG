@@ -47,12 +47,12 @@ public sealed class ProjectGovernanceSaveChangesInterceptor : SaveChangesInterce
                 var current = project.Status;
                 if (previous != current)
                 {
-                    // Recovery never guesses. Leaving Archived/Suspended must
-                    // return to the exact status that was persisted when the
-                    // lifecycle entered that state. Archive while Suspended is
-                    // not a resume; it preserves both provenance layers so a
-                    // later restore can return to Suspended and then resume.
-                    if (previous == ProjectStatus.Archived)
+                    // Recovery never guesses. Leaving Archived/Suspended for an
+                    // ordinary lifecycle state must return to the exact status
+                    // recorded when that recovery layer was entered. Transition
+                    // to Deleted is terminal mutation, not restore/resume, and is
+                    // therefore left to the owning deletion command/policy.
+                    if (previous == ProjectStatus.Archived && current != ProjectStatus.Deleted)
                     {
                         ValidateArchivedRestore(project, current);
                         project.ArchivedFromStatus = null;
@@ -62,7 +62,8 @@ public sealed class ProjectGovernanceSaveChangesInterceptor : SaveChangesInterce
                             project.SuspendedFromStatus = null;
                         }
                     }
-                    else if (previous == ProjectStatus.Suspended && current != ProjectStatus.Archived)
+                    else if (previous == ProjectStatus.Suspended &&
+                             current is not ProjectStatus.Archived and not ProjectStatus.Deleted)
                     {
                         ValidateSuspendedResume(project, current);
                         project.SuspendedFromStatus = null;
