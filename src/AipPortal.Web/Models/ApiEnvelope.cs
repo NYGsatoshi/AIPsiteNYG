@@ -1,5 +1,6 @@
 using System.Diagnostics;
 using System.Text.Json.Serialization;
+using AipPortal.Application.Security.Redaction;
 
 namespace AipPortal.Web.Models;
 
@@ -22,9 +23,11 @@ public sealed record ApiErrorBody(
     [property: JsonPropertyName("redactionApplied")] bool RedactionApplied);
 
 /// <summary>
-/// Common API envelope factory. Error details are deny-by-default and callers
-/// must supply only an already-safe public message. This does not replace the
-/// canonical cross-module IRedactionService dependency.
+/// Common WPC API envelope factory. Error payloads always pass through the
+/// canonical ErrorResponse redaction profile. Existing callers may set
+/// redactionApplied=true to classify their supplied content as sensitive; the
+/// emitted flag is still derived from whether canonical redaction changed the
+/// response rather than copied from that request.
 /// </summary>
 public static class ApiEnvelope
 {
@@ -37,17 +40,49 @@ public static class ApiEnvelope
         string code,
         string message,
         string? target = null,
-        bool redactionApplied = false) =>
-        new(
+        bool redactionApplied = false,
+        AuthorizationContext? authorizationContext = null)
+    {
+        var redactionService =
+            context.RequestServices.GetService(typeof(IRedactionService)) as IRedactionService ??
+            new CanonicalRedactionService();
+
+        var redactionContext = authorizationContext ?? new AuthorizationContext(
+            ActorId: null,
+            TenantId: null,
+            ModuleKey: "WpcEnvelope",
+            Purpose: "NormalOperation",
+            RequestId: context.TraceIdentifier,
+            AuthorizationState: RedactionAuthorizationState.Unknown);
+
+        var source = new ErrorRedactionSource(
+            code,
+            message,
+            target,
+            Array.Empty<object>(),
+            redactionApplied ? RedactionSensitivity.Sensitive : RedactionSensitivity.PublicSafe);
+
+        var result = redactionService.Redact(
+            redactionContext,
+            source,
+            RedactionProfile.ErrorResponse);
+
+        if (result.Value is not ErrorRedactionSource redacted)
+        {
+            throw new InvalidOperationException("Canonical ErrorResponse redaction returned an invalid payload type.");
+        }
+
+        return new ApiErrorEnvelope(
             context.TraceIdentifier,
             new ApiErrorBody(
-                code,
-                message,
-                redactionApplied ? null : target,
-                Array.Empty<object>(),
-                redactionApplied),
+                redacted.Code,
+                redacted.Message,
+                redacted.Target,
+                redacted.Details,
+                result.RedactionApplied),
             Activity.Current?.Id ?? context.TraceIdentifier,
             status);
+    }
 
     public static bool IsWorkspaceCreationPath(string? path)
     {
