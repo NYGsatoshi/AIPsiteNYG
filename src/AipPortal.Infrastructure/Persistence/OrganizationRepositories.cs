@@ -29,6 +29,7 @@ public sealed class WorkspaceRepository(AppDbContext dbContext) : IWorkspaceRepo
     public Task<WorkspaceMember?> GetMemberAsync(Guid workspaceId, Guid userId, CancellationToken cancellationToken = default)
     {
         return dbContext.WorkspaceMembers
+            .Include(member => member.Workspace)
             .Include(member => member.User)
             .FirstOrDefaultAsync(member => member.WorkspaceId == workspaceId && member.UserId == userId, cancellationToken);
     }
