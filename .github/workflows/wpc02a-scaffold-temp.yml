@@ -48,6 +48,7 @@ jobs:
           set -euo pipefail
           python - <<'PY'
           from pathlib import Path
+          import re
 
           migrations = sorted(Path('src/AipPortal.Infrastructure/Persistence/Migrations').glob('*_Wpc02AProjectVisibilityAndActivationProvenance.cs'))
           migrations = [path for path in migrations if not path.name.endswith('.Designer.cs')]
@@ -56,13 +57,15 @@ jobs:
 
           migration = migrations[0]
           text = migration.read_text(encoding='utf-8-sig')
-          scaffolded = '''            migrationBuilder.AddColumn<string>(
-                name: "ActivationState",
-                table: "projects",
-                type: "character varying(40)",
-                maxLength: 40,
-                nullable: false,
-                defaultValue: "");'''
+          activation_pattern = re.compile(
+              r'''            migrationBuilder\.AddColumn<string>\(\s*'''
+              r'''name: "ActivationState",\s*'''
+              r'''table: "projects",\s*'''
+              r'''type: "character varying\(40\)",\s*'''
+              r'''maxLength: 40,\s*'''
+              r'''nullable: false,\s*'''
+              r'''defaultValue: ""\);''',
+              re.MULTILINE)
           safe_upgrade = '''            migrationBuilder.AddColumn<string>(
                 name: "ActivationState",
                 table: "projects",
@@ -83,26 +86,33 @@ jobs:
                 oldType: "character varying(40)",
                 oldMaxLength: 40,
                 oldNullable: true);'''
-          if text.count(scaffolded) != 1:
+          text, replacements = activation_pattern.subn(safe_upgrade, text, count=1)
+          if replacements != 1:
               raise SystemExit('unexpected ActivationState scaffold shape')
-          text = text.replace(scaffolded, safe_upgrade, 1)
           migration.write_text(text, encoding='utf-8')
 
           service = Path('src/AipPortal.Application/Projects/ProjectService.cs')
           service_text = service.read_text(encoding='utf-8-sig')
-          old_projection = '''            project.UpdatedAt,
-            new ProjectUiPermissionResponse(await taskAuthorization.CanCreateTask(userId, project.Id, cancellationToken)));'''
-          new_projection = '''            project.UpdatedAt,
-            new ProjectUiPermissionResponse(await taskAuthorization.CanCreateTask(userId, project.Id, cancellationToken)),
-            project.Visibility,
-            project.ActivationState,
-            project.ActivatedAtUtc,
-            project.ActivationVersion,
-            project.SuspendedFromStatus,
-            project.ArchivedFromStatus);'''
-          if service_text.count(old_projection) != 1:
+          projection_pattern = re.compile(
+              r'''(?P<indent>[ \t]*)project\.UpdatedAt,\s*'''
+              r'''new ProjectUiPermissionResponse\(await taskAuthorization\.CanCreateTask\(userId, project\.Id, cancellationToken\)\)\);''')
+
+          def projection_replacement(match):
+              indent = match.group('indent')
+              return (
+                  f'{indent}project.UpdatedAt,\n'
+                  f'{indent}new ProjectUiPermissionResponse(await taskAuthorization.CanCreateTask(userId, project.Id, cancellationToken)),\n'
+                  f'{indent}project.Visibility,\n'
+                  f'{indent}project.ActivationState,\n'
+                  f'{indent}project.ActivatedAtUtc,\n'
+                  f'{indent}project.ActivationVersion,\n'
+                  f'{indent}project.SuspendedFromStatus,\n'
+                  f'{indent}project.ArchivedFromStatus);')
+
+          service_text, projection_replacements = projection_pattern.subn(projection_replacement, service_text, count=1)
+          if projection_replacements != 1:
               raise SystemExit('unexpected ProjectResponse projection shape')
-          service.write_text(service_text.replace(old_projection, new_projection, 1), encoding='utf-8')
+          service.write_text(service_text, encoding='utf-8')
           PY
 
       - name: Build generated migration
