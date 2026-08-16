@@ -1,0 +1,127 @@
+name: MBJ-02 Invite Onboarding Acceptance
+
+on:
+  pull_request:
+    paths:
+      - ".github/workflows/mbj02-invite-onboarding.yml"
+      - "docker-compose.mbj02-invite.yml"
+      - "docker-compose.real-backend-smoke.yml"
+      - "Dockerfile"
+      - "Dockerfile.playwright"
+      - "package.json"
+      - "package-lock.json"
+      - "global.json"
+      - "scripts/ci/run-mbj02-invite-acceptance.sh"
+      - "tests/ui/mbj02-invite-acceptance.mjs"
+      - "src/AipPortal.Web/Program.cs"
+      - "src/AipPortal.Web/Controllers/AdminController.cs"
+      - "src/AipPortal.Web/Controllers/AuthController.cs"
+      - "src/AipPortal.Web/Controllers/InvitesController.cs"
+      - "src/AipPortal.Web/Configuration/**"
+      - "src/AipPortal.Web/Security/**"
+      - "src/AipPortal.Web/Health/**"
+      - "src/AipPortal.Application/Admin/**"
+      - "src/AipPortal.Application/Auth/**"
+      - "src/AipPortal.Application/Common/Tenancy/**"
+      - "src/AipPortal.Application/Common/Interfaces/IAuthRepositories.cs"
+      - "src/AipPortal.Infrastructure/Persistence/AppDbContext.cs"
+      - "src/AipPortal.Infrastructure/Persistence/AppDbContextSeed.cs"
+      - "src/AipPortal.Infrastructure/Persistence/AdminRepository.cs"
+      - "src/AipPortal.Infrastructure/Persistence/AuthRepositories.cs"
+      - "src/AipPortal.Infrastructure/Persistence/Configurations/IdentityConfigurations.cs"
+      - "src/AipPortal.Infrastructure/Persistence/Configurations/TenantConfigurations.cs"
+      - "src/AipPortal.Infrastructure/Persistence/Configurations/WorkspaceConfigurations.cs"
+      - "src/AipPortal.Infrastructure/Persistence/Configurations/SystemConfigurations.cs"
+      - "src/AipPortal.Infrastructure/Persistence/Migrations/**"
+      - "src/AipPortal.Infrastructure/Security/**"
+  push:
+    branches: ["main"]
+    paths:
+      - ".github/workflows/mbj02-invite-onboarding.yml"
+      - "docker-compose.mbj02-invite.yml"
+      - "docker-compose.real-backend-smoke.yml"
+      - "Dockerfile"
+      - "Dockerfile.playwright"
+      - "package.json"
+      - "package-lock.json"
+      - "global.json"
+      - "scripts/ci/run-mbj02-invite-acceptance.sh"
+      - "tests/ui/mbj02-invite-acceptance.mjs"
+      - "src/AipPortal.Web/Program.cs"
+      - "src/AipPortal.Web/Controllers/AdminController.cs"
+      - "src/AipPortal.Web/Controllers/AuthController.cs"
+      - "src/AipPortal.Web/Controllers/InvitesController.cs"
+      - "src/AipPortal.Web/Configuration/**"
+      - "src/AipPortal.Web/Security/**"
+      - "src/AipPortal.Web/Health/**"
+      - "src/AipPortal.Application/Admin/**"
+      - "src/AipPortal.Application/Auth/**"
+      - "src/AipPortal.Application/Common/Tenancy/**"
+      - "src/AipPortal.Application/Common/Interfaces/IAuthRepositories.cs"
+      - "src/AipPortal.Infrastructure/Persistence/AppDbContext.cs"
+      - "src/AipPortal.Infrastructure/Persistence/AppDbContextSeed.cs"
+      - "src/AipPortal.Infrastructure/Persistence/AdminRepository.cs"
+      - "src/AipPortal.Infrastructure/Persistence/AuthRepositories.cs"
+      - "src/AipPortal.Infrastructure/Persistence/Configurations/IdentityConfigurations.cs"
+      - "src/AipPortal.Infrastructure/Persistence/Configurations/TenantConfigurations.cs"
+      - "src/AipPortal.Infrastructure/Persistence/Configurations/WorkspaceConfigurations.cs"
+      - "src/AipPortal.Infrastructure/Persistence/Configurations/SystemConfigurations.cs"
+      - "src/AipPortal.Infrastructure/Persistence/Migrations/**"
+      - "src/AipPortal.Infrastructure/Security/**"
+
+permissions:
+  contents: read
+
+jobs:
+  mbj02-invite-onboarding:
+    if: github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository
+    runs-on: ubuntu-24.04
+    timeout-minutes: 45
+    concurrency:
+      group: mbj02-invite-${{ github.event.pull_request.number || github.ref }}
+      cancel-in-progress: true
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v7
+        with:
+          persist-credentials: false
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v7
+        with:
+          node-version: "24"
+
+      - name: Validate acceptance runner syntax
+        shell: bash
+        run: |
+          bash -n scripts/ci/run-mbj02-invite-acceptance.sh
+          node --check tests/ui/mbj02-invite-acceptance.mjs
+
+      - name: Run MBJ-02 administrator invite onboarding acceptance
+        env:
+          SYNCFUSION_LICENSE: ${{ secrets.SYNCFUSION_LICENSE }}
+        shell: bash
+        run: |
+          test -n "${SYNCFUSION_LICENSE:-}" || {
+            echo "SYNCFUSION_LICENSE is not configured." >&2
+            exit 1
+          }
+          bash scripts/ci/run-mbj02-invite-acceptance.sh
+
+      - name: Upload MBJ-02 evidence
+        if: always()
+        uses: actions/upload-artifact@v7
+        with:
+          name: mbj02-invite-onboarding-evidence
+          path: test-results/mbj02-*
+          if-no-files-found: ignore
+
+      - name: Report runner resources on failure
+        if: failure()
+        shell: bash
+        run: |
+          df -h || true
+          df -i || true
+          free -h || true
+          docker system df || true
