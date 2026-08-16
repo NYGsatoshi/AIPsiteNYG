@@ -9,10 +9,18 @@ public sealed class ProjectGovernanceConfiguration : IEntityTypeConfiguration<Pr
 {
     public void Configure(EntityTypeBuilder<Project> builder)
     {
-        builder.Property(project => project.Visibility).HasEnumStringConversion();
-        builder.Property(project => project.ActivationState).HasEnumStringConversion().IsRequired();
-        builder.Property(project => project.SuspendedFromStatus).HasEnumStringConversion();
-        builder.Property(project => project.ArchivedFromStatus).HasEnumStringConversion();
+        builder.Property(project => project.Visibility)
+            .HasConversion<string>()
+            .HasMaxLength(40);
+        builder.Property(project => project.ActivationState)
+            .HasEnumStringConversion()
+            .IsRequired();
+        builder.Property(project => project.SuspendedFromStatus)
+            .HasConversion<string>()
+            .HasMaxLength(40);
+        builder.Property(project => project.ArchivedFromStatus)
+            .HasConversion<string>()
+            .HasMaxLength(40);
 
         builder.HasIndex(project => new { project.TenantId, project.Visibility });
         builder.HasIndex(project => new { project.TenantId, project.ActivationState });
