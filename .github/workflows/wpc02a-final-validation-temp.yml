@@ -1,0 +1,122 @@
+name: WPC-02A ordered final acceptance temporary
+
+on:
+  push:
+    branches:
+      - wpc-02a-visibility-provenance-archive
+
+permissions:
+  contents: read
+
+jobs:
+  validate:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 60
+    services:
+      postgres:
+        image: postgres:18-alpine
+        env:
+          POSTGRES_DB: aip_portal_ci
+          POSTGRES_USER: aip_portal_ci
+          POSTGRES_PASSWORD: aip_portal_ci_password
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U aip_portal_ci -d aip_portal_ci"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 20
+    env:
+      ASPNETCORE_ENVIRONMENT: Test
+      ConnectionStrings__DefaultConnection: Host=localhost;Port=5432;Database=aip_portal_ci;Username=aip_portal_ci;Password=aip_portal_ci_password
+      POSTGRES_TEST_CONNECTION_STRING: Host=localhost;Port=5432;Database=aip_portal_ci;Username=aip_portal_ci;Password=aip_portal_ci_password
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          fetch-depth: 0
+      - uses: actions/setup-dotnet@v6
+        with:
+          global-json-file: global.json
+      - name: Restore
+        run: dotnet restore AipPortal.slnx --disable-parallel
+      - name: Build
+        run: dotnet build AipPortal.slnx --configuration Release --no-restore --disable-build-servers -m:1
+      - name: Restore EF tools
+        run: dotnet tool restore
+      - name: Apply current PostgreSQL migrations
+        run: dotnet ef database update --project src/AipPortal.Infrastructure --startup-project src/AipPortal.Web --configuration Release --no-build
+
+      - name: Full backend 926
+        run: |
+          mkdir -p artifacts/wpc02a-final/full
+          dotnet test AipPortal.slnx \
+            --configuration Release \
+            --no-build \
+            --disable-build-servers \
+            -m:1 \
+            --verbosity normal \
+            --logger "trx;LogFileName=full-backend.trx" \
+            --results-directory artifacts/wpc02a-final/full
+      - name: Assert full backend exactly 926 passed
+        shell: python
+        run: |
+          import xml.etree.ElementTree as ET
+          from pathlib import Path
+          path = Path('artifacts/wpc02a-final/full/full-backend.trx')
+          root = ET.parse(path).getroot()
+          counters = next(node for node in root.iter() if node.tag.endswith('Counters'))
+          attrs = counters.attrib
+          total = int(attrs['total'])
+          passed = int(attrs['passed'])
+          failed = int(attrs['failed'])
+          print(f'Full backend counters: total={total} passed={passed} failed={failed}')
+          if total != 926 or passed != 926 or failed != 0:
+              raise SystemExit(f'Expected exactly 926/926 passed, got total={total} passed={passed} failed={failed}')
+
+      - name: Scope WPC02A PostgreSQL acceptance
+        run: |
+          mkdir -p artifacts/wpc02a-final/scope
+          dotnet test tests/AipPortal.Tests/AipPortal.Tests.csproj \
+            --configuration Release \
+            --no-build \
+            --disable-build-servers \
+            -m:1 \
+            --filter 'Scope=WPC02A' \
+            --logger "trx;LogFileName=wpc02a.trx" \
+            --results-directory artifacts/wpc02a-final/scope
+      - name: Assert WPC02A scope passed
+        shell: python
+        run: |
+          import xml.etree.ElementTree as ET
+          from pathlib import Path
+          path = Path('artifacts/wpc02a-final/scope/wpc02a.trx')
+          root = ET.parse(path).getroot()
+          counters = next(node for node in root.iter() if node.tag.endswith('Counters'))
+          attrs = counters.attrib
+          total = int(attrs['total'])
+          failed = int(attrs['failed'])
+          passed = int(attrs['passed'])
+          print(f'WPC02A counters: total={total} passed={passed} failed={failed}')
+          if total < 1 or failed != 0 or passed != total:
+              raise SystemExit('Scope=WPC02A acceptance did not fully pass')
+
+      - name: EF pending-model check
+        run: |
+          dotnet ef migrations has-pending-model-changes \
+            --project src/AipPortal.Infrastructure \
+            --startup-project src/AipPortal.Web \
+            --configuration Release \
+            --no-build
+
+      - name: git diff --check
+        run: |
+          git fetch origin main
+          git diff --check origin/main...HEAD
+
+      - name: Upload ordered acceptance results
+        if: always()
+        uses: actions/upload-artifact@v7
+        with:
+          name: wpc02a-ordered-final-acceptance
+          path: artifacts/wpc02a-final
+          if-no-files-found: warn
