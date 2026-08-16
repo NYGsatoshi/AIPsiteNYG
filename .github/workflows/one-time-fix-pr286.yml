@@ -27,37 +27,16 @@ jobs:
           text = path.read_text(encoding='utf-8')
 
           revoke_anchor = "      const removeMembership = await requestWithCsrf(page, 'DELETE', `/api/workspaces/${workspaceId}/members/${userId}`);"
-          if text.count(revoke_anchor) != 1:
-              raise SystemExit(f'expected exactly one PR03C revocation anchor, found {text.count(revoke_anchor)}')
+          revoke_count = text.count(revoke_anchor)
+          if revoke_count != 1:
+              raise SystemExit(f'expected exactly one PR03C revocation anchor, found {revoke_count}')
           text = text.replace(revoke_anchor, "      const postRevocationFailureStart = evidence.failedApiResponses.length;\n" + revoke_anchor, 1)
 
-          old_tail = "\n".join([
-              "      expect(deniedRetainedGrant.text, 'revoked retained grant must not return the seeded bytes').not.toContain('Synthetic PR03C browser smoke file.');",
-              "",
-              "      expect(evidence.pageErrors, 'browser page errors').toEqual([]);",
-              "      expectUnexpectedConsoleErrors(evidence);",
-              "      expectUnexpectedApiFailures(evidence);",
-          ])
-          new_tail = "\n".join([
-              "      expect(deniedRetainedGrant.text, 'revoked retained grant must not return the seeded bytes').not.toContain('Synthetic PR03C browser smoke file.');",
-              "",
-              "      // Revocation can race with stale project task-list refreshes already queued by the SPA.",
-              "      // They must fail closed, and are expected only after this scenario removes Workspace access.",
-              "      const expectedRevocationRefreshFailures = evidence.failedApiResponses",\n              "        .slice(postRevocationFailureStart)",
-              "        .filter((failure) => {",
-              "          const method = failure.method.toUpperCase();",
-              "          const { pathname } = new URL(`${baseURL}${failure.path}`);",
-              "          return failure.status === 400 &&",
-              "            method === 'GET' &&",
-              "            /^\\/api\\/projects\\/[^/]+\\/tasks$/u.test(pathname);",
-              "        });",
-              "",
-              "      expect(evidence.pageErrors, 'browser page errors').toEqual([]);",
-              "      expectUnexpectedConsoleErrors(evidence, expectedRevocationRefreshFailures);",
-              "      expectUnexpectedApiFailures(evidence, expectedRevocationRefreshFailures);",
-          ])
-          if text.count(old_tail) != 1:
-              raise SystemExit(f'expected exactly one PR03C evidence tail, found {text.count(old_tail)}')
+          old_tail = "\n".join(["      expect(deniedRetainedGrant.text, 'revoked retained grant must not return the seeded bytes').not.toContain('Synthetic PR03C browser smoke file.');", "", "      expect(evidence.pageErrors, 'browser page errors').toEqual([]);", "      expectUnexpectedConsoleErrors(evidence);", "      expectUnexpectedApiFailures(evidence);"])
+          new_tail = "\n".join(["      expect(deniedRetainedGrant.text, 'revoked retained grant must not return the seeded bytes').not.toContain('Synthetic PR03C browser smoke file.');", "", "      // Revocation can race with stale project task-list refreshes already queued by the SPA.", "      // They must fail closed, and are expected only after this scenario removes Workspace access.", "      const expectedRevocationRefreshFailures = evidence.failedApiResponses", "        .slice(postRevocationFailureStart)", "        .filter((failure) => {", "          const method = failure.method.toUpperCase();", "          const { pathname } = new URL(`${baseURL}${failure.path}`);", "          return failure.status === 400 &&", "            method === 'GET' &&", "            /^\\/api\\/projects\\/[^/]+\\/tasks$/u.test(pathname);", "        });", "", "      expect(evidence.pageErrors, 'browser page errors').toEqual([]);", "      expectUnexpectedConsoleErrors(evidence, expectedRevocationRefreshFailures);", "      expectUnexpectedApiFailures(evidence, expectedRevocationRefreshFailures);"])
+          tail_count = text.count(old_tail)
+          if tail_count != 1:
+              raise SystemExit(f'expected exactly one PR03C evidence tail, found {tail_count}')
           path.write_text(text.replace(old_tail, new_tail, 1), encoding='utf-8')
           PY
 
