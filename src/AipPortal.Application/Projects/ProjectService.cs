@@ -759,12 +759,17 @@ public sealed class ProjectService(
         var task = await projects.GetTaskAsync(taskItemId, cancellationToken);
         if (task is null || task.DeletedAt.HasValue)
         {
-            return Result<TaskAssignmentResponse>.Failure("Assignment target task was not found.");
+            return Result<TaskAssignmentResponse>.Failure("Task not found.");
         }
 
-        if (!TryCurrentUser(out var userId) || !await taskAuthorization.CanAssignTask(userId, taskItemId, cancellationToken))
+        if (!TryCurrentUser(out var actorUserId) || !await taskAuthorization.CanAssignTask(actorUserId, taskItemId, cancellationToken))
         {
             return Result<TaskAssignmentResponse>.Failure("You are not allowed to assign this task.");
+        }
+
+        if (request.EstimatedHours is < 0)
+        {
+            return Result<TaskAssignmentResponse>.Failure("Estimated hours cannot be negative.");
         }
 
         if (!await IsCompatibilityTaskMutableAsync(task, cancellationToken))
@@ -774,13 +779,7 @@ public sealed class ProjectService(
                 "Project is read-only.");
         }
 
-        var targetUser = await users.GetByIdAsync(request.UserId, cancellationToken);
-        if (targetUser is null)
-        {
-            return Result<TaskAssignmentResponse>.Failure("Assignment target user was not found.");
-        }
-
-        if (request.Role == TaskAssignmentRole.Owner)
+        if (!Enum.IsDefined(request.Role) || request.Role == TaskAssignmentRole.Owner)
         {
             return CompatibilityAssignmentFailure<TaskAssignmentResponse>(
                 "TASK_ASSIGNMENT_ROLE_UNSUPPORTED",
@@ -791,26 +790,32 @@ public sealed class ProjectService(
         {
             return CompatibilityAssignmentFailure<TaskAssignmentResponse>(
                 "TASK_FORBIDDEN",
-                "The selected user is not eligible for this task relationship.");
+                "The assignment user is not available for this Task.");
+        }
+
+        var projectMember = await projects.GetMemberAsync(task.ProjectId, request.UserId, cancellationToken);
+        var user = await users.GetByIdAsync(request.UserId, cancellationToken);
+        if (projectMember is null || user is null)
+        {
+            return Result<TaskAssignmentResponse>.Failure("User must be a project member before assignment.");
         }
 
         var existing = await projects.ListAssignmentsAsync(taskItemId, cancellationToken);
-        if (existing.Any(item => item.UserId == request.UserId && item.Role == request.Role))
+        if (existing.Any(assignment => assignment.UserId == request.UserId && assignment.Role == request.Role))
         {
-            return CompatibilityAssignmentFailure<TaskAssignmentResponse>(
-                "TASK_ALREADY_ASSIGNED",
-                "The user already has this assignment role.");
+            return Result<TaskAssignmentResponse>.Failure("User already has this assignment role.");
         }
-        var collaborators = await projects.ListCollaboratorsAsync(taskItemId, cancellationToken);
+
+        var collaborators = await projects.ListCollaboratorsAsync(task.Id, cancellationToken);
         var planResult = PlanCompatibilityRelationshipChange(
             task,
             existing,
             collaborators,
             request.UserId,
-            userId,
-            null,
-            request.Role,
-            null);
+            actorUserId,
+            PreviousRole: null,
+            NewRole: request.Role,
+            AssignmentId: null);
         if (planResult.Error is not null)
         {
             return Result<TaskAssignmentResponse>.Failure(planResult.Error);
@@ -820,18 +825,19 @@ public sealed class ProjectService(
         {
             TaskItemId = taskItemId,
             UserId = request.UserId,
-            User = targetUser,
+            User = user,
             Role = request.Role,
             EstimatedHours = request.EstimatedHours,
-            AssignedByUserId = userId,
+            AssignedByUserId = actorUserId,
             AssignedAt = clock.UtcNow
         };
+
         await projects.AddAssignmentAsync(assignment, cancellationToken);
-        await ApplyCompatibilityRelationshipPlanAsync(task, planResult.Plan!, userId, cancellationToken);
+        await ApplyCompatibilityRelationshipPlanAsync(task, planResult.Plan!, actorUserId, cancellationToken);
         var assignmentUsers = existing.Select(item => item.UserId).Append(request.UserId).Distinct().ToArray();
         var save = await CommitCompatibilityAssignmentAsync(
             task,
-            userId,
+            actorUserId,
             "TaskAssigned",
             planResult.Plan!,
             assignmentUsers,
@@ -1332,7 +1338,7 @@ public sealed class ProjectService(
             Metadata: new Dictionary<string, object?>
             {
                 ["predecessorTaskId"] = dependency.PredecessorTaskItemId,
-                ["successorTaskId"] = successor.Id,
+                ["successorTaskId"] = dependency.SuccessorTaskItemId,
                 ["versionBefore"] = successor.VersionNo - 1
             }), cancellationToken);
         await invalidations.TaskChangedAsync(
