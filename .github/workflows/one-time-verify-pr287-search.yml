@@ -1,0 +1,42 @@
+name: One-time verify PR287 search regression
+
+on:
+  push:
+    branches:
+      - agent/ci-compose-helper-preflight
+
+jobs:
+  verify:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    services:
+      postgres:
+        image: postgres:18-alpine
+        env:
+          POSTGRES_DB: aip_portal_ci
+          POSTGRES_USER: aip_portal_ci
+          POSTGRES_PASSWORD: aip_portal_ci_password
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U aip_portal_ci -d aip_portal_ci"
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+    env:
+      ASPNETCORE_ENVIRONMENT: Test
+      ConnectionStrings__DefaultConnection: Host=localhost;Port=5432;Database=aip_portal_ci;Username=aip_portal_ci;Password=aip_portal_ci_password
+      POSTGRES_TEST_CONNECTION_STRING: Host=localhost;Port=5432;Database=aip_portal_ci;Username=aip_portal_ci;Password=aip_portal_ci_password
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-dotnet@v6
+        with:
+          global-json-file: global.json
+          cache: false
+      - name: Run deterministic message-search authorization regression
+        shell: bash
+        run: |
+          dotnet test tests/AipPortal.Tests/AipPortal.Tests.csproj \
+            --configuration Release \
+            --filter 'FullyQualifiedName=AipPortal.Tests.PostgreSql.Wpc01WorkspaceCreationPostgreSqlTests.MessageSearchAuthorizesAllMatchingConversationsBeforeDeterministicLimit' \
+            --logger 'console;verbosity=normal'
