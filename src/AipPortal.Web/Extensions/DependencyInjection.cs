@@ -2,6 +2,7 @@ using AipPortal.Application.Common.Interfaces;
 using AipPortal.Application.Common.Tenancy;
 using AipPortal.Application.Auth;
 using AipPortal.Application.Messaging;
+using AipPortal.Application.Security.Redaction;
 using AipPortal.Web.Configuration;
 using AipPortal.Web.Security;
 using AipPortal.Web.Services;
@@ -38,6 +39,7 @@ public static class DependencyInjection
         services.AddHttpContextAccessor();
         services.AddScoped<ICurrentUser, CurrentUserService>();
         services.AddScoped<DbSessionCookieAuthenticationEvents>();
+        services.AddSingleton<IRedactionService, CanonicalRedactionService>();
         services.AddSingleton<IAuthorizationMiddlewareResultHandler, WpcAuthorizationMiddlewareResultHandler>();
         services.AddScoped<ITenantResolver, HttpTenantResolver>();
         services.AddControllers()

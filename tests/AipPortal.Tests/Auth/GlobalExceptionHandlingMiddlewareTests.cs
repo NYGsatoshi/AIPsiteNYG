@@ -67,7 +67,7 @@ public sealed class GlobalExceptionHandlingMiddlewareTests
 
     [Fact]
     [Trait("Scope", "WPC01")]
-    public async Task WorkspaceCreateExceptionUsesCompleteRedactedEnvelope()
+    public async Task WorkspaceCreateExceptionUsesCompleteSafeEnvelope()
     {
         var middleware = new GlobalExceptionHandlingMiddleware(
             _ => throw new InvalidOperationException("Password=leaked; SELECT tenant secrets"),
@@ -91,7 +91,7 @@ public sealed class GlobalExceptionHandlingMiddlewareTests
         var error = root.GetProperty("error");
         Assert.Equal("UnexpectedServerError", error.GetProperty("code").GetString());
         Assert.Equal(0, error.GetProperty("details").GetArrayLength());
-        Assert.True(error.GetProperty("redactionApplied").GetBoolean());
+        Assert.False(error.GetProperty("redactionApplied").GetBoolean());
         Assert.DoesNotContain("Password", root.GetRawText(), StringComparison.OrdinalIgnoreCase);
         Assert.DoesNotContain("SELECT", root.GetRawText(), StringComparison.OrdinalIgnoreCase);
     }

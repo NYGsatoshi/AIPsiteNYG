@@ -28,8 +28,7 @@ public sealed class GlobalExceptionHandlingMiddleware(
                     context,
                     StatusCodes.Status500InternalServerError,
                     "UnexpectedServerError",
-                    "An unexpected server error occurred.",
-                    redactionApplied: true));
+                    "An unexpected server error occurred."));
             }
             else if (IsPr06Path(context.Request.Path.Value))
             {
