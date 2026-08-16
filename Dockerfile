@@ -1,6 +1,6 @@
 # syntax=docker/dockerfile:1.7
 
-FROM node:25 AS frontend-build
+FROM node:24 AS frontend-build
 WORKDIR /src/frontend
 COPY frontend/package.json frontend/package-lock.json frontend/.npmrc ./
 COPY scripts/ci/verify-npm-lockfile.mjs /usr/local/lib/aipsite/verify-npm-lockfile.mjs
