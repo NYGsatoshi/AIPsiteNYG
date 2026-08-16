@@ -125,21 +125,36 @@ public sealed class ProjectService(
 
         var previousStatus = project.Status;
         var nextStatus = request.Status ?? project.Status;
-        if (previousStatus != nextStatus &&
-            nextStatus == ProjectStatus.Active &&
-            previousStatus != ProjectStatus.Review)
+        var isSuspendedResume = previousStatus == ProjectStatus.Suspended &&
+                                nextStatus is not ProjectStatus.Suspended and not ProjectStatus.Archived;
+        if (isSuspendedResume)
         {
-            return Result<ProjectResponse>.Failure(new ApplicationErrorDetail(
-                "InvalidStateTransition",
-                "The requested Project lifecycle transition is not available.",
-                Target: "body.status"));
+            if (!CanRecoverProjectTo(project, project.SuspendedFromStatus, nextStatus))
+            {
+                return Result<ProjectResponse>.Failure(new ApplicationErrorDetail(
+                    "InvalidStateTransition",
+                    "The requested Project lifecycle transition is not available.",
+                    Target: "body.status"));
+            }
         }
-        if (!IsValidProjectStatusTransition(previousStatus, nextStatus))
+        else
         {
-            return Result<ProjectResponse>.Failure(new ApplicationErrorDetail(
-                "InvalidStateTransition",
-                "The requested Project lifecycle transition is not available.",
-                Target: "body.status"));
+            if (previousStatus != nextStatus &&
+                nextStatus == ProjectStatus.Active &&
+                previousStatus != ProjectStatus.Review)
+            {
+                return Result<ProjectResponse>.Failure(new ApplicationErrorDetail(
+                    "InvalidStateTransition",
+                    "The requested Project lifecycle transition is not available.",
+                    Target: "body.status"));
+            }
+            if (!IsValidProjectStatusTransition(previousStatus, nextStatus))
+            {
+                return Result<ProjectResponse>.Failure(new ApplicationErrorDetail(
+                    "InvalidStateTransition",
+                    "The requested Project lifecycle transition is not available.",
+                    Target: "body.status"));
+            }
         }
 
         var startDate = request.StartDate ?? project.StartDate;
@@ -174,7 +189,7 @@ public sealed class ProjectService(
         project.StartDate = request.StartDate ?? project.StartDate;
         project.DueDate = request.EndDate ?? project.DueDate;
         await AuditAsync(userId, project.Status == previousStatus ? "ProjectUpdated" : "ProjectStatusChanged", "Project", project.Id, cancellationToken);
-        await invalidations.ProjectChangedAsync(project, userId, "updated", cancellationToken);
+        await invalidations.ProjectChangedAsync(project, userId, isSuspendedResume ? "resumed" : "updated", cancellationToken);
         await PublishProjectAccessInvalidationsAsync(
             project,
             affectedReaders,
@@ -245,13 +260,29 @@ public sealed class ProjectService(
             return Result.Failure("You are not allowed to manage this project.");
         }
 
-        var message = project.Status is ProjectStatus.Archived or ProjectStatus.Deleted
-            ? "The Project cannot be restored because its prior lifecycle state is unavailable."
-            : "The requested Project lifecycle transition is not available.";
-        return Result.Failure(new ApplicationErrorDetail(
-            "InvalidStateTransition",
-            message,
-            Target: "project"));
+        if (project.DeletedAt.HasValue ||
+            project.Status != ProjectStatus.Archived ||
+            !project.ArchivedFromStatus.HasValue ||
+            !CanRecoverProjectTo(project, project.ArchivedFromStatus, project.ArchivedFromStatus.Value))
+        {
+            var message = project.Status is ProjectStatus.Archived or ProjectStatus.Deleted
+                ? "The Project cannot be restored because its prior lifecycle state is unavailable or inconsistent."
+                : "The requested Project lifecycle transition is not available.";
+            return Result.Failure(new ApplicationErrorDetail(
+                "InvalidStateTransition",
+                message,
+                Target: "project"));
+        }
+
+        var restoreStatus = project.ArchivedFromStatus.Value;
+        var affectedReaders = await projects.ListCurrentReaderUserIdsAsync(project.Id, cancellationToken);
+        project.Status = restoreStatus;
+        await AuditAsync(userId, "ProjectRestored", "Project", project.Id, cancellationToken);
+        await invalidations.ProjectChangedAsync(project, userId, "restored", cancellationToken);
+        await PublishProjectAccessInvalidationsAsync(project, affectedReaders, "restored", cancellationToken);
+        if (!await SaveProjectMutationAsync(cancellationToken))
+            return ProjectConflict();
+        return Result.Success();
     }
 
     public async Task<Result<IReadOnlyList<ProjectMemberResponse>>> ListMembersAsync(Guid projectId, CancellationToken cancellationToken = default)
@@ -728,17 +759,12 @@ public sealed class ProjectService(
         var task = await projects.GetTaskAsync(taskItemId, cancellationToken);
         if (task is null || task.DeletedAt.HasValue)
         {
-            return Result<TaskAssignmentResponse>.Failure("Task not found.");
+            return Result<TaskAssignmentResponse>.Failure("Assignment target task was not found.");
         }
 
-        if (!TryCurrentUser(out var actorUserId) || !await taskAuthorization.CanAssignTask(actorUserId, taskItemId, cancellationToken))
+        if (!TryCurrentUser(out var userId) || !await taskAuthorization.CanAssignTask(userId, taskItemId, cancellationToken))
         {
             return Result<TaskAssignmentResponse>.Failure("You are not allowed to assign this task.");
-        }
-
-        if (request.EstimatedHours is < 0)
-        {
-            return Result<TaskAssignmentResponse>.Failure("Estimated hours cannot be negative.");
         }
 
         if (!await IsCompatibilityTaskMutableAsync(task, cancellationToken))
@@ -748,7 +774,13 @@ public sealed class ProjectService(
                 "Project is read-only.");
         }
 
-        if (!Enum.IsDefined(request.Role) || request.Role == TaskAssignmentRole.Owner)
+        var targetUser = await users.GetByIdAsync(request.UserId, cancellationToken);
+        if (targetUser is null)
+        {
+            return Result<TaskAssignmentResponse>.Failure("Assignment target user was not found.");
+        }
+
+        if (request.Role == TaskAssignmentRole.Owner)
         {
             return CompatibilityAssignmentFailure<TaskAssignmentResponse>(
                 "TASK_ASSIGNMENT_ROLE_UNSUPPORTED",
@@ -759,32 +791,26 @@ public sealed class ProjectService(
         {
             return CompatibilityAssignmentFailure<TaskAssignmentResponse>(
                 "TASK_FORBIDDEN",
-                "The assignment user is not available for this Task.");
-        }
-
-        var projectMember = await projects.GetMemberAsync(task.ProjectId, request.UserId, cancellationToken);
-        var user = await users.GetByIdAsync(request.UserId, cancellationToken);
-        if (projectMember is null || user is null)
-        {
-            return Result<TaskAssignmentResponse>.Failure("User must be a project member before assignment.");
+                "The selected user is not eligible for this task relationship.");
         }
 
         var existing = await projects.ListAssignmentsAsync(taskItemId, cancellationToken);
-        if (existing.Any(assignment => assignment.UserId == request.UserId && assignment.Role == request.Role))
+        if (existing.Any(item => item.UserId == request.UserId && item.Role == request.Role))
         {
-            return Result<TaskAssignmentResponse>.Failure("User already has this assignment role.");
+            return CompatibilityAssignmentFailure<TaskAssignmentResponse>(
+                "TASK_ALREADY_ASSIGNED",
+                "The user already has this assignment role.");
         }
-
-        var collaborators = await projects.ListCollaboratorsAsync(task.Id, cancellationToken);
+        var collaborators = await projects.ListCollaboratorsAsync(taskItemId, cancellationToken);
         var planResult = PlanCompatibilityRelationshipChange(
             task,
             existing,
             collaborators,
             request.UserId,
-            actorUserId,
-            PreviousRole: null,
-            NewRole: request.Role,
-            AssignmentId: null);
+            userId,
+            null,
+            request.Role,
+            null);
         if (planResult.Error is not null)
         {
             return Result<TaskAssignmentResponse>.Failure(planResult.Error);
@@ -794,19 +820,18 @@ public sealed class ProjectService(
         {
             TaskItemId = taskItemId,
             UserId = request.UserId,
-            User = user,
+            User = targetUser,
             Role = request.Role,
             EstimatedHours = request.EstimatedHours,
-            AssignedByUserId = actorUserId,
+            AssignedByUserId = userId,
             AssignedAt = clock.UtcNow
         };
-
         await projects.AddAssignmentAsync(assignment, cancellationToken);
-        await ApplyCompatibilityRelationshipPlanAsync(task, planResult.Plan!, actorUserId, cancellationToken);
+        await ApplyCompatibilityRelationshipPlanAsync(task, planResult.Plan!, userId, cancellationToken);
         var assignmentUsers = existing.Select(item => item.UserId).Append(request.UserId).Distinct().ToArray();
         var save = await CommitCompatibilityAssignmentAsync(
             task,
-            actorUserId,
+            userId,
             "TaskAssigned",
             planResult.Plan!,
             assignmentUsers,
@@ -1307,7 +1332,7 @@ public sealed class ProjectService(
             Metadata: new Dictionary<string, object?>
             {
                 ["predecessorTaskId"] = dependency.PredecessorTaskItemId,
-                ["successorTaskId"] = dependency.SuccessorTaskItemId,
+                ["successorTaskId"] = successor.Id,
                 ["versionBefore"] = successor.VersionNo - 1
             }), cancellationToken);
         await invalidations.TaskChangedAsync(
@@ -1648,6 +1673,40 @@ public sealed class ProjectService(
         (next == ProjectStatus.Suspended &&
          current is ProjectStatus.Active or ProjectStatus.Review or ProjectStatus.Completed);
 
+    private static bool CanRecoverProjectTo(
+        Project project,
+        ProjectStatus? storedStatus,
+        ProjectStatus requestedStatus)
+    {
+        if (project.ActivationState == ProjectActivationState.LegacyUnknown ||
+            !storedStatus.HasValue ||
+            storedStatus.Value != requestedStatus)
+        {
+            return false;
+        }
+
+        if (requestedStatus == ProjectStatus.Suspended)
+        {
+            return project.SuspendedFromStatus.HasValue &&
+                   IsRecoveryStateConsistent(project, project.SuspendedFromStatus.Value);
+        }
+
+        return IsRecoveryStateConsistent(project, requestedStatus);
+    }
+
+    private static bool IsRecoveryStateConsistent(Project project, ProjectStatus status) => status switch
+    {
+        ProjectStatus.Planning =>
+            project.ActivationState == ProjectActivationState.NeverActivated &&
+            !project.ActivatedAtUtc.HasValue &&
+            !project.ActivationVersion.HasValue,
+        ProjectStatus.Active or ProjectStatus.Review or ProjectStatus.Completed =>
+            project.ActivationState == ProjectActivationState.Activated &&
+            project.ActivatedAtUtc.HasValue &&
+            project.ActivationVersion is > 0,
+        _ => false
+    };
+
     private static bool IsValidProjectStatusTransition(ProjectStatus current, ProjectStatus next)
     {
         if (current == next) return true;
@@ -1682,6 +1741,7 @@ public sealed class ProjectService(
     private static string SummaryFor(string action) => action switch
     {
         "ProjectStatusChanged" => "Project status changed.",
+        "ProjectRestored" => "Project restored to its recorded lifecycle state.",
         "TaskAssigned" => "Task assignment added.",
         "TaskAssignmentUpdated" => "Task assignment changed.",
         "TaskAssignmentRemoved" => "Task assignment removed.",
