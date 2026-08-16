@@ -1,0 +1,107 @@
+name: MBJ-01 Fresh Bootstrap Acceptance
+
+on:
+  pull_request:
+    paths:
+      - ".github/workflows/mbj01-bootstrap-acceptance.yml"
+      - "docker-compose.mbj01-bootstrap.yml"
+      - "docker-compose.real-backend-smoke.yml"
+      - "Dockerfile"
+      - "Dockerfile.playwright"
+      - "package.json"
+      - "package-lock.json"
+      - "global.json"
+      - "scripts/ci/run-mbj01-bootstrap-acceptance.sh"
+      - "tests/ui/mbj01-bootstrap-acceptance.mjs"
+      - "src/AipPortal.Web/Program.cs"
+      - "src/AipPortal.Web/Controllers/AuthController.cs"
+      - "src/AipPortal.Web/Configuration/**"
+      - "src/AipPortal.Web/Security/**"
+      - "src/AipPortal.Web/Health/**"
+      - "src/AipPortal.Application/Auth/**"
+      - "src/AipPortal.Application/Common/Tenancy/**"
+      - "src/AipPortal.Infrastructure/Persistence/AppDbContext.cs"
+      - "src/AipPortal.Infrastructure/Persistence/AppDbContextSeed.cs"
+      - "src/AipPortal.Infrastructure/Persistence/Migrations/**"
+      - "src/AipPortal.Infrastructure/Security/**"
+  push:
+    branches: ["main"]
+    paths:
+      - ".github/workflows/mbj01-bootstrap-acceptance.yml"
+      - "docker-compose.mbj01-bootstrap.yml"
+      - "docker-compose.real-backend-smoke.yml"
+      - "Dockerfile"
+      - "Dockerfile.playwright"
+      - "package.json"
+      - "package-lock.json"
+      - "global.json"
+      - "scripts/ci/run-mbj01-bootstrap-acceptance.sh"
+      - "tests/ui/mbj01-bootstrap-acceptance.mjs"
+      - "src/AipPortal.Web/Program.cs"
+      - "src/AipPortal.Web/Controllers/AuthController.cs"
+      - "src/AipPortal.Web/Configuration/**"
+      - "src/AipPortal.Web/Security/**"
+      - "src/AipPortal.Web/Health/**"
+      - "src/AipPortal.Application/Auth/**"
+      - "src/AipPortal.Application/Common/Tenancy/**"
+      - "src/AipPortal.Infrastructure/Persistence/AppDbContext.cs"
+      - "src/AipPortal.Infrastructure/Persistence/AppDbContextSeed.cs"
+      - "src/AipPortal.Infrastructure/Persistence/Migrations/**"
+      - "src/AipPortal.Infrastructure/Security/**"
+
+permissions:
+  contents: read
+
+jobs:
+  mbj01-fresh-bootstrap:
+    if: github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository
+    runs-on: ubuntu-24.04
+    timeout-minutes: 45
+    concurrency:
+      group: mbj01-bootstrap-${{ github.event.pull_request.number || github.ref }}
+      cancel-in-progress: true
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v7
+        with:
+          persist-credentials: false
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v7
+        with:
+          node-version: "24"
+
+      - name: Validate acceptance runner syntax
+        shell: bash
+        run: |
+          bash -n scripts/ci/run-mbj01-bootstrap-acceptance.sh
+          node --check tests/ui/mbj01-bootstrap-acceptance.mjs
+
+      - name: Run MBJ-01 fresh bootstrap acceptance
+        env:
+          SYNCFUSION_LICENSE: ${{ secrets.SYNCFUSION_LICENSE }}
+        shell: bash
+        run: |
+          test -n "${SYNCFUSION_LICENSE:-}" || {
+            echo "SYNCFUSION_LICENSE is not configured." >&2
+            exit 1
+          }
+          bash scripts/ci/run-mbj01-bootstrap-acceptance.sh
+
+      - name: Upload MBJ-01 evidence
+        if: always()
+        uses: actions/upload-artifact@v7
+        with:
+          name: mbj01-fresh-bootstrap-evidence
+          path: test-results/mbj01-*
+          if-no-files-found: ignore
+
+      - name: Report runner resources on failure
+        if: failure()
+        shell: bash
+        run: |
+          df -h || true
+          df -i || true
+          free -h || true
+          docker system df || true
