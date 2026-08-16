@@ -22,30 +22,18 @@ jobs:
         run: |
           python - <<'PY'
           from pathlib import Path
+          import re
 
           path = Path('tests/AipPortal.Tests/PostgreSql/Wpc01WorkspaceCreationPostgreSqlTests.cs')
           text = path.read_text(encoding='utf-8')
-          old = '''            IQueryable<Guid> LegacyCandidateConversationIds() =>
-                setupDb.Messages
-                    .AsNoTracking()
-                    .Where(message => message.TenantId == tenantId
-                                      && message.DeletedAt == null
-                                      && EF.Functions.ILike(message.Body, "%needle%"))
-                    .Select(message => message.ConversationId)
-                    .Distinct();'''
-          new = '''            IQueryable<Guid> LegacyCandidateConversationIds() =>
-                setupDb.Messages
-                    .AsNoTracking()
-                    .Where(message => message.TenantId == tenantId
-                                      && message.DeletedAt == null
-                                      && EF.Functions.ILike(message.Body, "%needle%"))
-                    .Select(message => message.ConversationId)
-                    .Distinct()
-                    .OrderBy(conversationId => conversationId);'''
-          count = text.count(old)
-          if count != 1:
-              raise SystemExit(f'expected exactly one legacy candidate query, found {count}')
-          path.write_text(text.replace(old, new, 1), encoding='utf-8')
+          pattern = re.compile(r'(?P<indent>\s*)\.Select\(message => message\.ConversationId\)\r?\n(?P=indent)\.Distinct\(\);')
+          matches = list(pattern.finditer(text))
+          if len(matches) != 1:
+              raise SystemExit(f'expected exactly one legacy candidate projection, found {len(matches)}')
+          match = matches[0]
+          indent = match.group('indent')
+          replacement = f'{indent}.Select(message => message.ConversationId)\n{indent}.Distinct()\n{indent}.OrderBy(conversationId => conversationId);'
+          path.write_text(text[:match.start()] + replacement + text[match.end():], encoding='utf-8')
           PY
 
           rm .github/workflows/one-time-fix-pr287.yml
