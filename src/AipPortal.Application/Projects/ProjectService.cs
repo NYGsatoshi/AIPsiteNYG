@@ -80,6 +80,23 @@ public sealed class ProjectService(
             : Result<ProjectResponse>.Success(await ToProjectAsync(project, userId, cancellationToken));
     }
 
+    private async Task<bool> CanReceiveTerminalLifecycleErrorAsync(
+        Guid userId,
+        Project project,
+        CancellationToken cancellationToken)
+    {
+        // This grants no operational mutation authority. It only preserves the
+        // typed terminal-state error for a current explicit Project manager.
+        var workspaceMember = await workspaces.GetMemberAsync(project.WorkspaceId, userId, cancellationToken);
+        if (workspaceMember is not { Status: MembershipStatus.Active })
+        {
+            return false;
+        }
+
+        var projectMember = await projects.GetMemberAsync(project.Id, userId, cancellationToken);
+        return projectMember?.Role is ProjectRole.Owner or ProjectRole.Manager;
+    }
+
     private static Result<T> ProjectNotFound<T>() =>
         Result<T>.Failure(new ApplicationErrorDetail(
             "NotFound",
@@ -170,15 +187,23 @@ public sealed class ProjectService(
 
     public async Task<Result> ArchiveAsync(Guid projectId, CancellationToken cancellationToken = default)
     {
-        if (!TryCurrentUser(out var userId) || !await projectAuthorization.CanManageProject(userId, projectId, cancellationToken))
+        if (!TryCurrentUser(out var userId))
         {
             return Result.Failure("You are not allowed to manage this project.");
         }
 
+        var canManage = await projectAuthorization.CanManageProject(userId, projectId, cancellationToken);
         var project = await projects.GetProjectAsync(projectId, cancellationToken);
         if (project is null)
         {
             return Result.Failure("Project not found.");
+        }
+
+        var isDeletedTerminalState = project.DeletedAt.HasValue || project.Status == ProjectStatus.Deleted;
+        if (!canManage &&
+            !(isDeletedTerminalState && await CanReceiveTerminalLifecycleErrorAsync(userId, project, cancellationToken)))
+        {
+            return Result.Failure("You are not allowed to manage this project.");
         }
 
         if (project.DeletedAt.HasValue || project.Status is ProjectStatus.Archived or ProjectStatus.Deleted)
@@ -201,15 +226,23 @@ public sealed class ProjectService(
 
     public async Task<Result> RestoreAsync(Guid projectId, CancellationToken cancellationToken = default)
     {
-        if (!TryCurrentUser(out var userId) || !await projectAuthorization.CanManageProject(userId, projectId, cancellationToken))
+        if (!TryCurrentUser(out var userId))
         {
             return Result.Failure("You are not allowed to manage this project.");
         }
 
+        var canManage = await projectAuthorization.CanManageProject(userId, projectId, cancellationToken);
         var project = await projects.GetProjectAsync(projectId, cancellationToken);
         if (project is null)
         {
             return Result.Failure("Project not found.");
+        }
+
+        var isDeletedTerminalState = project.DeletedAt.HasValue || project.Status == ProjectStatus.Deleted;
+        if (!canManage &&
+            !(isDeletedTerminalState && await CanReceiveTerminalLifecycleErrorAsync(userId, project, cancellationToken)))
+        {
+            return Result.Failure("You are not allowed to manage this project.");
         }
 
         var message = project.Status is ProjectStatus.Archived or ProjectStatus.Deleted

@@ -21,6 +21,7 @@ namespace AipPortal.Tests.PostgreSql;
 public sealed class Wpc01WorkspaceCreationPostgreSqlTests
 {
     private const string PreviousMigration = "20260803041347_AddTaskDeadlineDigestLedger";
+    private const string Wpc01Migration = "20260813100711_Wpc01WorkspaceCreateIdempotency";
 
     [PostgreSqlFact]
     [Trait("Category", "PostgreSQLIntegration")]
@@ -36,7 +37,7 @@ public sealed class Wpc01WorkspaceCreationPostgreSqlTests
             Assert.False(await TableExistsAsync(database, "idempotency_records"));
             Assert.False(await ColumnExistsAsync(database, "projects", "Visibility"));
 
-            await PostgreSqlMigrationTestDatabase.MigrateAsync(database);
+            await PostgreSqlMigrationTestDatabase.MigrateAsync(database, Wpc01Migration);
 
             Assert.True(await TableExistsAsync(database, "idempotency_records"));
             Assert.True(await IndexExistsAsync(database, "UX_idempotency_tenant_actor_operation_key"));
@@ -47,11 +48,8 @@ public sealed class Wpc01WorkspaceCreationPostgreSqlTests
                     database,
                     "SELECT COUNT(*) FROM projects WHERE \"Id\" = @id;",
                     ("id", graph.ProjectId)));
-            await using (var current = PostgreSqlMigrationTestDatabase.CreatePlatformContext(database))
-            {
-                Assert.Empty(await current.Database.GetPendingMigrationsAsync());
-                Assert.False(current.Database.HasPendingModelChanges());
-            }
+            // Current-model pending-migration/model checks belong to the current
+            // WPC-02A acceptance suite, not this historical WPC-01 boundary test.
 
             await PostgreSqlMigrationTestDatabase.MigrateAsync(database, PreviousMigration);
             Assert.False(await TableExistsAsync(database, "idempotency_records"));
@@ -62,7 +60,7 @@ public sealed class Wpc01WorkspaceCreationPostgreSqlTests
                     "SELECT COUNT(*) FROM projects WHERE \"Id\" = @id;",
                     ("id", graph.ProjectId)));
 
-            await PostgreSqlMigrationTestDatabase.MigrateAsync(database);
+            await PostgreSqlMigrationTestDatabase.MigrateAsync(database, Wpc01Migration);
             Assert.True(await TableExistsAsync(database, "idempotency_records"));
         });
     }
