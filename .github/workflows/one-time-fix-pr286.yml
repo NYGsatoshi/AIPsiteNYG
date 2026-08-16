@@ -26,44 +26,39 @@ jobs:
           path = Path('tests/ui/real-backend-smoke.spec.ts')
           text = path.read_text(encoding='utf-8')
 
-          old_revoke = '''      await page.goto(`/app/projects/${projectId}/tasks/${taskId}`);
-      await expect(page.getByRole('heading', { name: smokeTaskTitle })).toBeVisible();
-      const removeMembership = await requestWithCsrf(page, 'DELETE', `/api/workspaces/${workspaceId}/members/${userId}`);'''
-          new_revoke = '''      await page.goto(`/app/projects/${projectId}/tasks/${taskId}`);
-      await expect(page.getByRole('heading', { name: smokeTaskTitle })).toBeVisible();
-      const postRevocationFailureStart = evidence.failedApiResponses.length;
-      const removeMembership = await requestWithCsrf(page, 'DELETE', `/api/workspaces/${workspaceId}/members/${userId}`);'''
-          revoke_count = text.count(old_revoke)
-          if revoke_count != 1:
-              raise SystemExit(f'expected exactly one PR03C revocation anchor, found {revoke_count}')
-          text = text.replace(old_revoke, new_revoke, 1)
+          revoke_anchor = "      const removeMembership = await requestWithCsrf(page, 'DELETE', `/api/workspaces/${workspaceId}/members/${userId}`);"
+          if text.count(revoke_anchor) != 1:
+              raise SystemExit(f'expected exactly one PR03C revocation anchor, found {text.count(revoke_anchor)}')
+          text = text.replace(revoke_anchor, "      const postRevocationFailureStart = evidence.failedApiResponses.length;\n" + revoke_anchor, 1)
 
-          old_assertions = '''      expect(deniedRetainedGrant.text, 'revoked retained grant must not return the seeded bytes').not.toContain('Synthetic PR03C browser smoke file.');
-
-      expect(evidence.pageErrors, 'browser page errors').toEqual([]);
-      expectUnexpectedConsoleErrors(evidence);
-      expectUnexpectedApiFailures(evidence);'''
-          new_assertions = '''      expect(deniedRetainedGrant.text, 'revoked retained grant must not return the seeded bytes').not.toContain('Synthetic PR03C browser smoke file.');
-
-      // Revocation can race with stale project task-list refreshes already queued by the SPA.
-      // They must fail closed, and are expected only after this scenario removes Workspace access.
-      const expectedRevocationRefreshFailures = evidence.failedApiResponses
-        .slice(postRevocationFailureStart)
-        .filter((failure) => {
-          const method = failure.method.toUpperCase();
-          const { pathname } = new URL(`${baseURL}${failure.path}`);
-          return failure.status === 400 &&
-            method === 'GET' &&
-            /^\\/api\\/projects\\/[^/]+\\/tasks$/u.test(pathname);
-        });
-
-      expect(evidence.pageErrors, 'browser page errors').toEqual([]);
-      expectUnexpectedConsoleErrors(evidence, expectedRevocationRefreshFailures);
-      expectUnexpectedApiFailures(evidence, expectedRevocationRefreshFailures);'''
-          assertion_count = text.count(old_assertions)
-          if assertion_count != 1:
-              raise SystemExit(f'expected exactly one PR03C evidence assertion anchor, found {assertion_count}')
-          path.write_text(text.replace(old_assertions, new_assertions, 1), encoding='utf-8')
+          old_tail = "\n".join([
+              "      expect(deniedRetainedGrant.text, 'revoked retained grant must not return the seeded bytes').not.toContain('Synthetic PR03C browser smoke file.');",
+              "",
+              "      expect(evidence.pageErrors, 'browser page errors').toEqual([]);",
+              "      expectUnexpectedConsoleErrors(evidence);",
+              "      expectUnexpectedApiFailures(evidence);",
+          ])
+          new_tail = "\n".join([
+              "      expect(deniedRetainedGrant.text, 'revoked retained grant must not return the seeded bytes').not.toContain('Synthetic PR03C browser smoke file.');",
+              "",
+              "      // Revocation can race with stale project task-list refreshes already queued by the SPA.",
+              "      // They must fail closed, and are expected only after this scenario removes Workspace access.",
+              "      const expectedRevocationRefreshFailures = evidence.failedApiResponses",\n              "        .slice(postRevocationFailureStart)",
+              "        .filter((failure) => {",
+              "          const method = failure.method.toUpperCase();",
+              "          const { pathname } = new URL(`${baseURL}${failure.path}`);",
+              "          return failure.status === 400 &&",
+              "            method === 'GET' &&",
+              "            /^\\/api\\/projects\\/[^/]+\\/tasks$/u.test(pathname);",
+              "        });",
+              "",
+              "      expect(evidence.pageErrors, 'browser page errors').toEqual([]);",
+              "      expectUnexpectedConsoleErrors(evidence, expectedRevocationRefreshFailures);",
+              "      expectUnexpectedApiFailures(evidence, expectedRevocationRefreshFailures);",
+          ])
+          if text.count(old_tail) != 1:
+              raise SystemExit(f'expected exactly one PR03C evidence tail, found {text.count(old_tail)}')
+          path.write_text(text.replace(old_tail, new_tail, 1), encoding='utf-8')
           PY
 
           rm .github/workflows/one-time-fix-pr286.yml
