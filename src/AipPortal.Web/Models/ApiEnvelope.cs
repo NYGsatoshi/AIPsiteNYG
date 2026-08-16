@@ -43,8 +43,9 @@ public static class ApiEnvelope
         bool redactionApplied = false,
         AuthorizationContext? authorizationContext = null)
     {
+        var requestServices = context.RequestServices;
         var redactionService =
-            context.RequestServices.GetService(typeof(IRedactionService)) as IRedactionService ??
+            requestServices?.GetService(typeof(IRedactionService)) as IRedactionService ??
             new CanonicalRedactionService();
 
         var redactionContext = authorizationContext ?? new AuthorizationContext(
