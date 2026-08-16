@@ -1430,7 +1430,7 @@ public sealed class TaskV1Pr06GanttHostedHttpTests(ITestOutputHelper output)
             var token = await GetCsrfTokenAsync();
             using var request = new HttpRequestMessage(HttpMethod.Post, "/api/auth/login")
             {
-                Content = JsonContent.Create(new LoginRequest(email, Password))
+                Content = JsonContent.Create(new LoginRequest(email, password))
             };
             request.Headers.TryAddWithoutValidation("X-Tenant-Slug", tenantSlug);
             request.Headers.TryAddWithoutValidation(SecurityOptions.CsrfHeaderName, token);
