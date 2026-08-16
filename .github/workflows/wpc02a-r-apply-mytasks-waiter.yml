@@ -35,10 +35,10 @@ jobs:
           s = p.read_text()
           old = "      const pageSizeResponse = waitForApiResponse(page, 'GET', '/api/me/tasks');"
           new = """      const pageSizeResponse = page.waitForResponse((response) => {
-                if (response.request().method() !== 'GET') return false;
-                const url = new URL(response.url());
-                return url.pathname === '/api/me/tasks' && url.searchParams.get('pageSize') === '10';
-              });"""
+                  if (response.request().method() !== 'GET') return false;
+                  const url = new URL(response.url());
+                  return url.pathname === '/api/me/tasks' && url.searchParams.get('pageSize') === '10';
+                });"""
           if s.count(old) != 1:
               raise SystemExit(f"expected exactly one waiter target, found {s.count(old)}")
           p.write_text(s.replace(old, new))
