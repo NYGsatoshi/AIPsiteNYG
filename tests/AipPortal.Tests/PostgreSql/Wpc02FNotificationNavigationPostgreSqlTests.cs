@@ -79,7 +79,6 @@ public sealed class Wpc02FNotificationNavigationPostgreSqlTests
                 Title = "Artifact uploaded",
                 RelatedEntityType = "Artifact",
                 RelatedEntityId = artifact.Id,
-                TargetRoute = "/projects/stale-artifact-route",
                 CreatedAt = Now,
                 StateVersion = 4
             };
@@ -108,7 +107,6 @@ public sealed class Wpc02FNotificationNavigationPostgreSqlTests
                 Title = "New message",
                 RelatedEntityType = "Message",
                 RelatedEntityId = message.Id,
-                TargetRoute = "/messages/stale-message-route",
                 CreatedAt = Now,
                 StateVersion = 4
             };
@@ -128,7 +126,6 @@ public sealed class Wpc02FNotificationNavigationPostgreSqlTests
                 Title = "Deleted artifact notification",
                 RelatedEntityType = "Artifact",
                 RelatedEntityId = deletedArtifact.Id,
-                TargetRoute = $"/artifacts/{deletedArtifact.Id}",
                 CreatedAt = Now,
                 StateVersion = 4
             };
