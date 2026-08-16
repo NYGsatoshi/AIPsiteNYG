@@ -1691,7 +1691,13 @@ public sealed class ProjectService(
             project.VersionNo,
             project.CreatedAt,
             project.UpdatedAt,
-            new ProjectUiPermissionResponse(await taskAuthorization.CanCreateTask(userId, project.Id, cancellationToken)));
+            new ProjectUiPermissionResponse(await taskAuthorization.CanCreateTask(userId, project.Id, cancellationToken)),
+            project.Visibility,
+            project.ActivationState,
+            project.ActivatedAtUtc,
+            project.ActivationVersion,
+            project.SuspendedFromStatus,
+            project.ArchivedFromStatus);
     }
 
     private static ProjectMemberResponse ToProjectMember(ProjectMember member)
