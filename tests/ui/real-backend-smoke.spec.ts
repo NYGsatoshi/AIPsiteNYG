@@ -333,9 +333,22 @@ test.describe('MVP0 real backend browser smoke', () => {
         status: revokeSecond.status
       });
       expect(revokeSecond.status).toBe(200);
-      await recordOkJson(await authorizationRefresh, evidence, 'pr04-authorization-state-refresh', (body) =>
-        isPagedResponse(body) &&
-        !body.items.some((item: unknown) => hasStringValue(item, 'title', 'PR04 second workspace assigned')));
+
+      // AuthorizationStateChanged can replace the selected Workspace as soon as
+      // this request completes. Chromium may discard the response body during
+      // that SPA transition, so treat this response as transport evidence only;
+      // the authoritative post-revocation DTO is read and validated immediately
+      // below with a direct same-origin fetch.
+      const authorizationRefreshResponse = await authorizationRefresh;
+      evidence.steps.push({
+        name: 'pr04-authorization-state-refresh',
+        method: authorizationRefreshResponse.request().method(),
+        path: new URL(authorizationRefreshResponse.url()).pathname,
+        status: authorizationRefreshResponse.status(),
+        bodyPreview: '[not read: authorization refresh may replace the selected Workspace]'
+      });
+      expect(authorizationRefreshResponse.status(), 'authorization refresh status').toBe(200);
+      expect(authorizationRefreshResponse.ok(), 'authorization refresh succeeds').toBe(true);
       await expect(page.getByText('PR04 second workspace assigned', { exact: true })).toHaveCount(0);
       await expect(page.getByTestId('my-tasks-workspace-select').locator(`option[value="${secondWorkspaceId}"]`)).toHaveCount(0);
 
