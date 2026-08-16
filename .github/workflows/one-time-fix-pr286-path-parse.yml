@@ -1,0 +1,42 @@
+name: One-time fix PR286 path parse
+
+on:
+  push:
+    branches:
+      - agent/ci-mbj01-bootstrap
+
+permissions:
+  contents: write
+
+jobs:
+  patch:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          ref: ${{ github.ref_name }}
+          fetch-depth: 0
+
+      - name: Fix PR03C expected failure path parsing
+        shell: bash
+        run: |
+          python - <<'PY'
+          from pathlib import Path
+
+          path = Path('tests/ui/real-backend-smoke.spec.ts')
+          text = path.read_text(encoding='utf-8')
+          old = "          const { pathname } = new URL(`${baseURL}${failure.path}`);"
+          new = "          const { pathname } = new URL(failure.path, 'http://localhost');"
+          count = text.count(old)
+          if count != 1:
+              raise SystemExit(f'expected exactly one PR03C path parser, found {count}')
+          path.write_text(text.replace(old, new, 1), encoding='utf-8')
+          PY
+
+          rm .github/workflows/one-time-fix-pr286-path-parse.yml
+          git diff --check
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add tests/ui/real-backend-smoke.spec.ts .github/workflows/one-time-fix-pr286-path-parse.yml
+          git commit -m "Fix PR03C expected failure path parsing"
+          git push origin "HEAD:${GITHUB_REF_NAME}"
