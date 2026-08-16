@@ -34,7 +34,26 @@ public sealed class WorkspaceService(
         var includeAll = user?.SystemRole == SystemRole.SystemAdmin;
         var items = await workspaces.ListForUserAsync(userId, includeAll, cancellationToken);
         return Result<IReadOnlyList<WorkspaceListItemResponse>>.Success(items
-            .Where(workspace => !workspace.DeletedAt.HasValue && workspace.Status != WorkspaceStatus.Archived && workspace.Status != WorkspaceStatus.Deleted)
+            .Where(workspace => !workspace.DeletedAt.HasValue && workspace.Status == WorkspaceStatus.Active)
+            .Select(ToListItem)
+            .ToList());
+    }
+
+    public async Task<Result<IReadOnlyList<WorkspaceListItemResponse>>> ListArchivedAsync(CancellationToken cancellationToken = default)
+    {
+        if (!TryCurrentUser(out var userId))
+        {
+            return Result<IReadOnlyList<WorkspaceListItemResponse>>.Failure(new ApplicationErrorDetail(
+                "AuthenticationRequired",
+                "Authentication is required."));
+        }
+
+        // Archived history never uses the SystemAdmin include-all shortcut.
+        // The repository's normal user scope requires a current active
+        // Workspace membership, which is the canonical historical boundary.
+        var items = await workspaces.ListForUserAsync(userId, includeAll: false, cancellationToken);
+        return Result<IReadOnlyList<WorkspaceListItemResponse>>.Success(items
+            .Where(workspace => !workspace.DeletedAt.HasValue && workspace.Status == WorkspaceStatus.Archived)
             .Select(ToListItem)
             .ToList());
     }
@@ -184,10 +203,9 @@ public sealed class WorkspaceService(
                 async (resourceId, token) =>
                 {
                     // A create replay must re-establish the creator's current
-                    // record-level access.  The broader Workspace viewer
-                    // policy includes a legacy SystemAdmin shortcut, but a
-                    // platform role alone must not recover create metadata
-                    // after the creator's Workspace membership is revoked.
+                    // record-level access. The broader Workspace viewer policy
+                    // may include an active-workspace SystemAdmin shortcut, but
+                    // a platform role alone never recovers create metadata.
                     var membership = await workspaces.GetMemberAsync(resourceId, userId, token);
                     if (membership is not { Status: MembershipStatus.Active })
                     {
@@ -220,9 +238,7 @@ public sealed class WorkspaceService(
                     "IdempotencyConflict",
                     "The Idempotency-Key was already used with a different Workspace request.",
                     Target: "header.Idempotency-Key")),
-            _ => Result<WorkspaceDetailResponse>.Failure(new ApplicationErrorDetail(
-                "NotFound",
-                "The requested resource was not found."))
+            _ => Result<WorkspaceDetailResponse>.Failure(NotFoundError())
         };
     }
 
@@ -230,26 +246,49 @@ public sealed class WorkspaceService(
     {
         if (!TryCurrentUser(out var userId) || !await authorization.CanViewWorkspace(userId, workspaceId, cancellationToken))
         {
-            return Result<WorkspaceDetailResponse>.Failure("Workspace not found.");
+            return Result<WorkspaceDetailResponse>.Failure(NotFoundError());
         }
 
         var workspace = await workspaces.GetByIdAsync(workspaceId, cancellationToken);
         return workspace is null
-            ? Result<WorkspaceDetailResponse>.Failure("Workspace not found.")
+            ? Result<WorkspaceDetailResponse>.Failure(NotFoundError())
             : Result<WorkspaceDetailResponse>.Success(ToDetail(workspace));
     }
 
     public async Task<Result<WorkspaceDetailResponse>> UpdateAsync(Guid workspaceId, UpdateWorkspaceRequest request, CancellationToken cancellationToken = default)
     {
-        if (!TryCurrentUser(out var userId) || !await authorization.CanManageWorkspace(userId, workspaceId, cancellationToken))
+        if (!TryCurrentUser(out var userId))
         {
-            return Result<WorkspaceDetailResponse>.Failure("You are not allowed to manage this workspace.");
+            return Result<WorkspaceDetailResponse>.Failure(AuthenticationRequiredError());
+        }
+
+        if (!await authorization.CanViewWorkspace(userId, workspaceId, cancellationToken))
+        {
+            return Result<WorkspaceDetailResponse>.Failure(NotFoundError());
         }
 
         var workspace = await workspaces.GetByIdAsync(workspaceId, cancellationToken);
         if (workspace is null)
         {
-            return Result<WorkspaceDetailResponse>.Failure("Workspace not found.");
+            return Result<WorkspaceDetailResponse>.Failure(NotFoundError());
+        }
+
+        if (workspace.Status == WorkspaceStatus.Archived)
+        {
+            return Result<WorkspaceDetailResponse>.Failure(ArchivedReadOnlyError());
+        }
+
+        if (!await authorization.CanManageWorkspace(userId, workspaceId, cancellationToken))
+        {
+            return Result<WorkspaceDetailResponse>.Failure(CapabilityDeniedError("You are not allowed to manage this workspace."));
+        }
+
+        if (request.Status.HasValue && request.Status.Value != workspace.Status)
+        {
+            return Result<WorkspaceDetailResponse>.Failure(new ApplicationErrorDetail(
+                "InvalidStateTransition",
+                "Workspace lifecycle changes must use the archive or restore command.",
+                Target: "body.status"));
         }
 
         if (request.Name is not null)
@@ -265,7 +304,6 @@ public sealed class WorkspaceService(
 
         workspace.Description = request.Description?.Trim() ?? workspace.Description;
         workspace.Icon = request.Icon?.Trim() ?? workspace.Icon;
-        workspace.Status = request.Status ?? workspace.Status;
         await AuditAsync(userId, "WorkspaceUpdated", workspace.Id, cancellationToken);
         await unitOfWork.SaveChangesAsync(cancellationToken);
 
@@ -274,20 +312,38 @@ public sealed class WorkspaceService(
 
     public async Task<Result> ArchiveAsync(Guid workspaceId, CancellationToken cancellationToken = default)
     {
-        if (!TryCurrentUser(out var userId) || !await authorization.CanManageWorkspace(userId, workspaceId, cancellationToken))
+        if (!TryCurrentUser(out var userId))
         {
-            return Result.Failure("You are not allowed to manage this workspace.");
+            return Result.Failure(AuthenticationRequiredError());
+        }
+
+        if (!await authorization.CanViewWorkspace(userId, workspaceId, cancellationToken))
+        {
+            return Result.Failure(NotFoundError());
         }
 
         var workspace = await workspaces.GetByIdAsync(workspaceId, cancellationToken);
         if (workspace is null)
         {
-            return Result.Failure("Workspace not found.");
+            return Result.Failure(NotFoundError());
+        }
+
+        if (workspace.Status == WorkspaceStatus.Archived)
+        {
+            return Result.Failure(new ApplicationErrorDetail(
+                "InvalidStateTransition",
+                "The Workspace is already archived.",
+                Target: "workspace.status"));
+        }
+
+        if (!await authorization.CanManageWorkspace(userId, workspaceId, cancellationToken))
+        {
+            return Result.Failure(CapabilityDeniedError("You are not allowed to manage this workspace."));
         }
 
         // Determine the affected recipients before changing the lifecycle and
         // stage metadata-only invalidations in this same business unit of
-        // work.  The Outbox row is therefore absent on rollback.
+        // work. The Outbox row is therefore absent on rollback.
         var affectedMembers = (await workspaces.ListMembersAsync(workspaceId, cancellationToken))
             .Where(member => member.Status == MembershipStatus.Active)
             .Select(member => member.UserId)
@@ -305,24 +361,48 @@ public sealed class WorkspaceService(
 
     public async Task<Result> RestoreAsync(Guid workspaceId, CancellationToken cancellationToken = default)
     {
-        if (!TryCurrentUser(out var userId) || !await authorization.CanManageWorkspace(userId, workspaceId, cancellationToken))
+        if (!TryCurrentUser(out var userId))
         {
-            return Result.Failure("You are not allowed to manage this workspace.");
+            return Result.Failure(AuthenticationRequiredError());
+        }
+
+        // This check intentionally precedes restore authority. SystemAdmin
+        // without a current Workspace membership must not learn archived state.
+        if (!await authorization.CanViewWorkspace(userId, workspaceId, cancellationToken))
+        {
+            return Result.Failure(NotFoundError());
         }
 
         var workspace = await workspaces.GetByIdAsync(workspaceId, cancellationToken);
         if (workspace is null)
         {
-            return Result.Failure("Workspace not found.");
+            return Result.Failure(NotFoundError());
         }
 
-        workspace.Restore();
-        if (workspace.Status is WorkspaceStatus.Archived or WorkspaceStatus.Deleted)
+        if (workspace.Status != WorkspaceStatus.Archived)
         {
-            workspace.Status = WorkspaceStatus.Active;
+            return Result.Failure(new ApplicationErrorDetail(
+                "InvalidStateTransition",
+                "Only an archived Workspace can be restored.",
+                Target: "workspace.status"));
         }
 
+        if (!await authorization.CanRestoreWorkspace(userId, workspaceId, cancellationToken))
+        {
+            return Result.Failure(CapabilityDeniedError("Only a current Workspace Owner can restore an archived Workspace."));
+        }
+
+        var affectedMembers = (await workspaces.ListMembersAsync(workspaceId, cancellationToken))
+            .Where(member => member.Status == MembershipStatus.Active)
+            .Select(member => member.UserId)
+            .Distinct()
+            .ToArray();
+        workspace.Status = WorkspaceStatus.Active;
         await AuditAsync(userId, "WorkspaceRestored", workspace.Id, cancellationToken);
+        foreach (var affectedUserId in affectedMembers)
+        {
+            await PublishAuthorizationChangeAsync(affectedUserId, workspace.Id, "restored", cancellationToken);
+        }
         await unitOfWork.SaveChangesAsync(cancellationToken);
         return Result.Success();
     }
@@ -331,7 +411,7 @@ public sealed class WorkspaceService(
     {
         if (!TryCurrentUser(out var userId) || !await authorization.CanViewWorkspace(userId, workspaceId, cancellationToken))
         {
-            return Result<IReadOnlyList<WorkspaceMemberResponse>>.Failure("Workspace not found.");
+            return Result<IReadOnlyList<WorkspaceMemberResponse>>.Failure(NotFoundError());
         }
 
         var members = await workspaces.ListMembersAsync(workspaceId, cancellationToken);
@@ -340,9 +420,28 @@ public sealed class WorkspaceService(
 
     public async Task<Result<WorkspaceMemberResponse>> AddMemberAsync(Guid workspaceId, AddWorkspaceMemberRequest request, CancellationToken cancellationToken = default)
     {
-        if (!TryCurrentUser(out var actorUserId) || !await authorization.CanManageWorkspace(actorUserId, workspaceId, cancellationToken))
+        if (!TryCurrentUser(out var actorUserId))
         {
-            return Result<WorkspaceMemberResponse>.Failure("You are not allowed to manage members.");
+            return Result<WorkspaceMemberResponse>.Failure(AuthenticationRequiredError());
+        }
+
+        if (!await authorization.CanViewWorkspace(actorUserId, workspaceId, cancellationToken))
+        {
+            return Result<WorkspaceMemberResponse>.Failure(NotFoundError());
+        }
+
+        var workspace = await workspaces.GetByIdAsync(workspaceId, cancellationToken);
+        if (workspace is null)
+        {
+            return Result<WorkspaceMemberResponse>.Failure(NotFoundError());
+        }
+        if (workspace.Status == WorkspaceStatus.Archived)
+        {
+            return Result<WorkspaceMemberResponse>.Failure(ArchivedReadOnlyError());
+        }
+        if (!await authorization.CanManageWorkspace(actorUserId, workspaceId, cancellationToken))
+        {
+            return Result<WorkspaceMemberResponse>.Failure(CapabilityDeniedError("You are not allowed to manage members."));
         }
 
         var user = await users.GetByIdAsync(request.UserId, cancellationToken);
@@ -375,9 +474,28 @@ public sealed class WorkspaceService(
 
     public async Task<Result<WorkspaceMemberResponse>> UpdateMemberAsync(Guid workspaceId, Guid userId, UpdateWorkspaceMemberRequest request, CancellationToken cancellationToken = default)
     {
-        if (!TryCurrentUser(out var actorUserId) || !await authorization.CanManageWorkspace(actorUserId, workspaceId, cancellationToken))
+        if (!TryCurrentUser(out var actorUserId))
         {
-            return Result<WorkspaceMemberResponse>.Failure("You are not allowed to manage members.");
+            return Result<WorkspaceMemberResponse>.Failure(AuthenticationRequiredError());
+        }
+
+        if (!await authorization.CanViewWorkspace(actorUserId, workspaceId, cancellationToken))
+        {
+            return Result<WorkspaceMemberResponse>.Failure(NotFoundError());
+        }
+
+        var workspace = await workspaces.GetByIdAsync(workspaceId, cancellationToken);
+        if (workspace is null)
+        {
+            return Result<WorkspaceMemberResponse>.Failure(NotFoundError());
+        }
+        if (workspace.Status == WorkspaceStatus.Archived)
+        {
+            return Result<WorkspaceMemberResponse>.Failure(ArchivedReadOnlyError());
+        }
+        if (!await authorization.CanManageWorkspace(actorUserId, workspaceId, cancellationToken))
+        {
+            return Result<WorkspaceMemberResponse>.Failure(CapabilityDeniedError("You are not allowed to manage members."));
         }
 
         var member = await workspaces.GetMemberAsync(workspaceId, userId, cancellationToken);
@@ -396,9 +514,28 @@ public sealed class WorkspaceService(
 
     public async Task<Result> RemoveMemberAsync(Guid workspaceId, Guid userId, CancellationToken cancellationToken = default)
     {
-        if (!TryCurrentUser(out var actorUserId) || !await authorization.CanManageWorkspace(actorUserId, workspaceId, cancellationToken))
+        if (!TryCurrentUser(out var actorUserId))
         {
-            return Result.Failure("You are not allowed to manage members.");
+            return Result.Failure(AuthenticationRequiredError());
+        }
+
+        if (!await authorization.CanViewWorkspace(actorUserId, workspaceId, cancellationToken))
+        {
+            return Result.Failure(NotFoundError());
+        }
+
+        var workspace = await workspaces.GetByIdAsync(workspaceId, cancellationToken);
+        if (workspace is null)
+        {
+            return Result.Failure(NotFoundError());
+        }
+        if (workspace.Status == WorkspaceStatus.Archived)
+        {
+            return Result.Failure(ArchivedReadOnlyError());
+        }
+        if (!await authorization.CanManageWorkspace(actorUserId, workspaceId, cancellationToken))
+        {
+            return Result.Failure(CapabilityDeniedError("You are not allowed to manage members."));
         }
 
         var member = await workspaces.GetMemberAsync(workspaceId, userId, cancellationToken);
@@ -440,6 +577,21 @@ public sealed class WorkspaceService(
             change,
             cancellationToken) ?? Task.CompletedTask;
     }
+
+    private static ApplicationErrorDetail AuthenticationRequiredError() =>
+        new("AuthenticationRequired", "Authentication is required.");
+
+    private static ApplicationErrorDetail NotFoundError() =>
+        new("NotFound", "The requested resource was not found.");
+
+    private static ApplicationErrorDetail CapabilityDeniedError(string message) =>
+        new("CapabilityDenied", message, Target: "workspace");
+
+    private static ApplicationErrorDetail ArchivedReadOnlyError() =>
+        new(
+            "InvalidStateTransition",
+            "Archived Workspaces are read-only. Restore the Workspace before modifying it.",
+            Target: "workspace.status");
 
     private static Result<WorkspaceDetailResponse> ValidationFailure(string message, string target) =>
         Result<WorkspaceDetailResponse>.Failure(new ApplicationErrorDetail(
