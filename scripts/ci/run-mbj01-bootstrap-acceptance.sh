@@ -87,7 +87,11 @@ SELECT
   (SELECT count(*)
      FROM users u
     WHERE u."NormalizedEmail" = upper(:'email')
-      AND u."SystemRole" = 'SystemAdmin'
+      AND u."SystemRole" IN ('PlatformAdmin', 'SystemAdmin')
+      AND u."Status" = 'Active'),
+  (SELECT coalesce(max(u."SystemRole"), '')
+     FROM users u
+    WHERE u."NormalizedEmail" = upper(:'email')
       AND u."Status" = 'Active'),
   (SELECT count(*)
      FROM tenant_users tu
@@ -111,13 +115,14 @@ SELECT
 SQL
 )"
 
-  local user_count tenant_membership_count workspace_membership_count workspace_count
-  IFS='|' read -r user_count tenant_membership_count workspace_membership_count workspace_count <<< "$row"
-  if [[ "$user_count" != "1" ||
+  local administrator_count administrator_role tenant_membership_count workspace_membership_count workspace_count
+  IFS='|' read -r administrator_count administrator_role tenant_membership_count workspace_membership_count workspace_count <<< "$row"
+  if [[ "$administrator_count" != "1" ||
+        ( "$administrator_role" != "PlatformAdmin" && "$administrator_role" != "SystemAdmin" ) ||
         "$tenant_membership_count" != "1" ||
         "$workspace_membership_count" != "1" ||
         "$workspace_count" != "1" ]]; then
-    echo "MBJ-01 PostgreSQL state mismatch in phase '$phase': user=$user_count tenantMembership=$tenant_membership_count workspaceMembership=$workspace_membership_count workspace=$workspace_count" >&2
+    echo "MBJ-01 PostgreSQL state mismatch in phase '$phase': administrator=$administrator_count role=$administrator_role tenantMembership=$tenant_membership_count workspaceMembership=$workspace_membership_count workspace=$workspace_count" >&2
     return 1
   fi
 
@@ -125,14 +130,16 @@ SQL
 {
   "journey": "MBJ-01",
   "phase": "$phase",
-  "activeSystemAdminCount": $user_count,
+  "activeAdministratorCount": $administrator_count,
+  "administratorRole": "$administrator_role",
+  "acceptedAdministratorRoleAliases": ["PlatformAdmin", "SystemAdmin"],
   "activeTenantOwnerMembershipCount": $tenant_membership_count,
   "activeDefaultWorkspaceOwnerMembershipCount": $workspace_membership_count,
   "activeDefaultWorkspaceCount": $workspace_count,
   "passwordMaterialRecorded": false
 }
 JSON
-  echo "MBJ-01 PostgreSQL state verified for phase '$phase'."
+  echo "MBJ-01 PostgreSQL state verified for phase '$phase' with administrator role '$administrator_role'."
 }
 
 echo "Validating MBJ-01 Compose configuration."
