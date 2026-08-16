@@ -119,10 +119,12 @@ public sealed class CanonicalRedactionService : IRedactionService
             Sensitivity = RedactionSensitivity.PublicSafe
         };
 
+        // redactionApplied describes a change visible in the response payload.
+        // Internal policy metadata changing from Sensitive to PublicSafe alone
+        // must not make the transport claim that redaction was applied.
         var changed = !string.Equals(error.Message, redacted.Message, StringComparison.Ordinal) ||
                       error.Target is not null ||
-                      error.Details.Count != 0 ||
-                      error.Sensitivity != redacted.Sensitivity;
+                      error.Details.Count != 0;
 
         return new RedactionResult(redacted, RedactionApplied: changed);
     }
