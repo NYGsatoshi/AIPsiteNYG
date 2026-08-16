@@ -1,0 +1,8 @@
+# Required real-backend browser acceptance for the My Tasks / PR04 boundary.
+#
+# Keep this exact title synchronized with tests/ui/real-backend-smoke.spec.ts.
+# The runner verifies the title before Compose startup and verifies the emitted
+# Playwright JUnit result after the browser run, so removal/rename/skip cannot
+# silently turn this acceptance gate green.
+
+TASK-V1-PR04 exercises canonical My Tasks scopes, relationships, filters, paging, and UI against PostgreSQL
