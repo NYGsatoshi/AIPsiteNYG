@@ -1,0 +1,61 @@
+name: WPC-02A-R Apply My Tasks Waiter Fix
+
+on:
+  pull_request:
+    branches: ["main"]
+    paths:
+      - ".github/workflows/wpc02a-r-apply-mytasks-waiter.yml"
+
+permissions:
+  contents: write
+
+jobs:
+  apply:
+    if: >
+      github.event.pull_request.head.repo.full_name == github.repository &&
+      github.event.pull_request.head.ref == 'fix/wpc-02a-r-mytasks-waiter'
+    runs-on: ubuntu-24.04
+    steps:
+      - name: Checkout corrective branch
+        uses: actions/checkout@v7
+        with:
+          ref: ${{ github.event.pull_request.head.ref }}
+          persist-credentials: true
+          clean: true
+
+      - name: Apply exact waiter patch
+        shell: bash
+        run: |
+          set -euo pipefail
+          path="tests/ui/real-backend-smoke.spec.ts"
+          test "$(git hash-object "$path")" = "1f9b8b5479c840bcdfa49b8515151b0b7f6fd091"
+          python - <<'PY'
+          from pathlib import Path
+          p = Path("tests/ui/real-backend-smoke.spec.ts")
+          s = p.read_text()
+          old = "      const pageSizeResponse = waitForApiResponse(page, 'GET', '/api/me/tasks');"
+          new = """      const pageSizeResponse = page.waitForResponse((response) => {
+                if (response.request().method() !== 'GET') return false;
+                const url = new URL(response.url());
+                return url.pathname === '/api/me/tasks' && url.searchParams.get('pageSize') === '10';
+              });"""
+          if s.count(old) != 1:
+              raise SystemExit(f"expected exactly one waiter target, found {s.count(old)}")
+          p.write_text(s.replace(old, new))
+          PY
+          test "$(git hash-object "$path")" = "df5d49199f1c5bab1801d2d93507e78b72b98813"
+          git diff --check
+          rm ".github/workflows/wpc02a-r-apply-mytasks-waiter.yml"
+
+      - name: Commit exact corrective diff
+        shell: bash
+        run: |
+          set -euo pipefail
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add tests/ui/real-backend-smoke.spec.ts .github/workflows/wpc02a-r-apply-mytasks-waiter.yml
+          actual="$(git diff --cached --name-only | sort)"
+          expected="$(printf '%s\n%s\n' '.github/workflows/wpc02a-r-apply-mytasks-waiter.yml' 'tests/ui/real-backend-smoke.spec.ts' | sort)"
+          test "$actual" = "$expected"
+          git commit -m "test: qualify My Tasks page-size response"
+          git push origin HEAD:${{ github.event.pull_request.head.ref }}
