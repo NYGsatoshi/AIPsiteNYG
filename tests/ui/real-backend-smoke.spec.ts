@@ -2228,6 +2228,7 @@ test.describe('MVP0 real backend browser smoke', () => {
 
       await page.goto(`/app/projects/${projectId}/tasks/${taskId}`);
       await expect(page.getByRole('heading', { name: smokeTaskTitle })).toBeVisible();
+      const postRevocationFailureStart = evidence.failedApiResponses.length;
       const removeMembership = await requestWithCsrf(page, 'DELETE', `/api/workspaces/${workspaceId}/members/${userId}`);
       evidence.steps.push({ name: 'pr03c-workspace-membership-revoked', method: 'DELETE', path: `/api/workspaces/${workspaceId}/members/${userId}`, status: removeMembership.status });
       expect(removeMembership.status, 'test setup revokes active Workspace access through the real backend').toBe(200);
@@ -2295,9 +2296,21 @@ test.describe('MVP0 real backend browser smoke', () => {
       expect(deniedRetainedGrant.status, 'membership revocation invalidates a previously issued unused grant').toBe(400);
       expect(deniedRetainedGrant.text, 'revoked retained grant must not return the seeded bytes').not.toContain('Synthetic PR03C browser smoke file.');
 
+      // Revocation can race with stale project task-list refreshes already queued by the SPA.
+      // They must fail closed, and are expected only after this scenario removes Workspace access.
+      const expectedRevocationRefreshFailures = evidence.failedApiResponses
+        .slice(postRevocationFailureStart)
+        .filter((failure) => {
+          const method = failure.method.toUpperCase();
+          const { pathname } = new URL(`${baseURL}${failure.path}`);
+          return failure.status === 400 &&
+            method === 'GET' &&
+            /^\/api\/projects\/[^/]+\/tasks$/u.test(pathname);
+        });
+
       expect(evidence.pageErrors, 'browser page errors').toEqual([]);
-      expectUnexpectedConsoleErrors(evidence);
-      expectUnexpectedApiFailures(evidence);
+      expectUnexpectedConsoleErrors(evidence, expectedRevocationRefreshFailures);
+      expectUnexpectedApiFailures(evidence, expectedRevocationRefreshFailures);
     } finally {
       await testInfo.attach('task-v1-pr03c-real-backend-evidence.json', { body: JSON.stringify(evidence, null, 2), contentType: 'application/json' });
     }
