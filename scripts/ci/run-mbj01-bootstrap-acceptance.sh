@@ -27,7 +27,7 @@ cleanup() {
     echo "Collecting sanitized MBJ-01 failure evidence." >&2
     "${compose[@]}" ps --all > test-results/mbj01-compose-ps.txt 2>&1 || true
     "${compose[@]}" logs --no-color --tail 300 postgres migrate app > /tmp/mbj01-compose.log 2>&1 || true
-    python3 - <<'PY' < /tmp/mbj01-compose.log > test-results/mbj01-compose.log 2>/dev/null || true
+    python3 -c '
 import os
 import sys
 text = sys.stdin.read()
@@ -35,12 +35,14 @@ secret = os.environ.get("AIP_MBJ01_BOOTSTRAP_PASSWORD", "")
 if secret:
     text = text.replace(secret, "[REDACTED]")
 sys.stdout.write(text)
-PY
+' < /tmp/mbj01-compose.log > test-results/mbj01-compose.log 2>/dev/null || true
   fi
   "${compose[@]}" down --volumes --remove-orphans >/dev/null 2>&1 || true
   return "$exit_code"
 }
-trap cleanup EXIT INT TERM
+trap cleanup EXIT
+trap 'exit 130' INT
+trap 'exit 143' TERM
 
 wait_healthy() {
   local service="$1"
