@@ -33,6 +33,14 @@ public sealed class WorkspaceRepository(AppDbContext dbContext) : IWorkspaceRepo
             .FirstOrDefaultAsync(member => member.WorkspaceId == workspaceId && member.UserId == userId, cancellationToken);
     }
 
+    public Task<WorkspaceMember?> GetMemberWithWorkspaceAsync(Guid workspaceId, Guid userId, CancellationToken cancellationToken = default)
+    {
+        return dbContext.WorkspaceMembers
+            .Include(member => member.Workspace)
+            .Include(member => member.User)
+            .FirstOrDefaultAsync(member => member.WorkspaceId == workspaceId && member.UserId == userId, cancellationToken);
+    }
+
     public async Task<IReadOnlyList<WorkspaceMember>> ListMembersAsync(Guid workspaceId, CancellationToken cancellationToken = default)
     {
         return await dbContext.WorkspaceMembers

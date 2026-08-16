@@ -125,21 +125,36 @@ public sealed class ProjectService(
 
         var previousStatus = project.Status;
         var nextStatus = request.Status ?? project.Status;
-        if (previousStatus != nextStatus &&
-            nextStatus == ProjectStatus.Active &&
-            previousStatus != ProjectStatus.Review)
+        var isSuspendedResume = previousStatus == ProjectStatus.Suspended &&
+                                nextStatus is not ProjectStatus.Suspended and not ProjectStatus.Archived;
+        if (isSuspendedResume)
         {
-            return Result<ProjectResponse>.Failure(new ApplicationErrorDetail(
-                "InvalidStateTransition",
-                "The requested Project lifecycle transition is not available.",
-                Target: "body.status"));
+            if (!CanRecoverProjectTo(project, project.SuspendedFromStatus, nextStatus))
+            {
+                return Result<ProjectResponse>.Failure(new ApplicationErrorDetail(
+                    "InvalidStateTransition",
+                    "The requested Project lifecycle transition is not available.",
+                    Target: "body.status"));
+            }
         }
-        if (!IsValidProjectStatusTransition(previousStatus, nextStatus))
+        else
         {
-            return Result<ProjectResponse>.Failure(new ApplicationErrorDetail(
-                "InvalidStateTransition",
-                "The requested Project lifecycle transition is not available.",
-                Target: "body.status"));
+            if (previousStatus != nextStatus &&
+                nextStatus == ProjectStatus.Active &&
+                previousStatus != ProjectStatus.Review)
+            {
+                return Result<ProjectResponse>.Failure(new ApplicationErrorDetail(
+                    "InvalidStateTransition",
+                    "The requested Project lifecycle transition is not available.",
+                    Target: "body.status"));
+            }
+            if (!IsValidProjectStatusTransition(previousStatus, nextStatus))
+            {
+                return Result<ProjectResponse>.Failure(new ApplicationErrorDetail(
+                    "InvalidStateTransition",
+                    "The requested Project lifecycle transition is not available.",
+                    Target: "body.status"));
+            }
         }
 
         var startDate = request.StartDate ?? project.StartDate;
@@ -174,7 +189,7 @@ public sealed class ProjectService(
         project.StartDate = request.StartDate ?? project.StartDate;
         project.DueDate = request.EndDate ?? project.DueDate;
         await AuditAsync(userId, project.Status == previousStatus ? "ProjectUpdated" : "ProjectStatusChanged", "Project", project.Id, cancellationToken);
-        await invalidations.ProjectChangedAsync(project, userId, "updated", cancellationToken);
+        await invalidations.ProjectChangedAsync(project, userId, isSuspendedResume ? "resumed" : "updated", cancellationToken);
         await PublishProjectAccessInvalidationsAsync(
             project,
             affectedReaders,
@@ -245,13 +260,29 @@ public sealed class ProjectService(
             return Result.Failure("You are not allowed to manage this project.");
         }
 
-        var message = project.Status is ProjectStatus.Archived or ProjectStatus.Deleted
-            ? "The Project cannot be restored because its prior lifecycle state is unavailable."
-            : "The requested Project lifecycle transition is not available.";
-        return Result.Failure(new ApplicationErrorDetail(
-            "InvalidStateTransition",
-            message,
-            Target: "project"));
+        if (project.DeletedAt.HasValue ||
+            project.Status != ProjectStatus.Archived ||
+            !project.ArchivedFromStatus.HasValue ||
+            !CanRecoverProjectTo(project, project.ArchivedFromStatus, project.ArchivedFromStatus.Value))
+        {
+            var message = project.Status is ProjectStatus.Archived or ProjectStatus.Deleted
+                ? "The Project cannot be restored because its prior lifecycle state is unavailable or inconsistent."
+                : "The requested Project lifecycle transition is not available.";
+            return Result.Failure(new ApplicationErrorDetail(
+                "InvalidStateTransition",
+                message,
+                Target: "project"));
+        }
+
+        var restoreStatus = project.ArchivedFromStatus.Value;
+        var affectedReaders = await projects.ListCurrentReaderUserIdsAsync(project.Id, cancellationToken);
+        project.Status = restoreStatus;
+        await AuditAsync(userId, "ProjectRestored", "Project", project.Id, cancellationToken);
+        await invalidations.ProjectChangedAsync(project, userId, "restored", cancellationToken);
+        await PublishProjectAccessInvalidationsAsync(project, affectedReaders, "restored", cancellationToken);
+        if (!await SaveProjectMutationAsync(cancellationToken))
+            return ProjectConflict();
+        return Result.Success();
     }
 
     public async Task<Result<IReadOnlyList<ProjectMemberResponse>>> ListMembersAsync(Guid projectId, CancellationToken cancellationToken = default)
@@ -1648,6 +1679,40 @@ public sealed class ProjectService(
         (next == ProjectStatus.Suspended &&
          current is ProjectStatus.Active or ProjectStatus.Review or ProjectStatus.Completed);
 
+    private static bool CanRecoverProjectTo(
+        Project project,
+        ProjectStatus? storedStatus,
+        ProjectStatus requestedStatus)
+    {
+        if (project.ActivationState == ProjectActivationState.LegacyUnknown ||
+            !storedStatus.HasValue ||
+            storedStatus.Value != requestedStatus)
+        {
+            return false;
+        }
+
+        if (requestedStatus == ProjectStatus.Suspended)
+        {
+            return project.SuspendedFromStatus.HasValue &&
+                   IsRecoveryStateConsistent(project, project.SuspendedFromStatus.Value);
+        }
+
+        return IsRecoveryStateConsistent(project, requestedStatus);
+    }
+
+    private static bool IsRecoveryStateConsistent(Project project, ProjectStatus status) => status switch
+    {
+        ProjectStatus.Planning =>
+            project.ActivationState == ProjectActivationState.NeverActivated &&
+            !project.ActivatedAtUtc.HasValue &&
+            !project.ActivationVersion.HasValue,
+        ProjectStatus.Active or ProjectStatus.Review or ProjectStatus.Completed =>
+            project.ActivationState == ProjectActivationState.Activated &&
+            project.ActivatedAtUtc.HasValue &&
+            project.ActivationVersion is > 0,
+        _ => false
+    };
+
     private static bool IsValidProjectStatusTransition(ProjectStatus current, ProjectStatus next)
     {
         if (current == next) return true;
@@ -1682,6 +1747,7 @@ public sealed class ProjectService(
     private static string SummaryFor(string action) => action switch
     {
         "ProjectStatusChanged" => "Project status changed.",
+        "ProjectRestored" => "Project restored to its recorded lifecycle state.",
         "TaskAssigned" => "Task assignment added.",
         "TaskAssignmentUpdated" => "Task assignment changed.",
         "TaskAssignmentRemoved" => "Task assignment removed.",

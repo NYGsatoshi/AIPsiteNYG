@@ -1,6 +1,7 @@
 using AipPortal.Application.Common;
 using AipPortal.Application.Common.Interfaces;
 using AipPortal.Application.Tenancy;
+using AipPortal.Domain.Entities;
 using AipPortal.Domain.Enums;
 
 namespace AipPortal.Application.Workspaces;
@@ -12,13 +13,14 @@ public sealed class WorkspaceAuthorizationService(
 {
     public async Task<bool> CanViewWorkspace(Guid userId, Guid workspaceId, CancellationToken cancellationToken = default)
     {
-        var workspace = await workspaces.GetByIdAsync(workspaceId, cancellationToken);
+        var access = await ResolveAccessAsync(userId, workspaceId, cancellationToken);
+        var workspace = access.Workspace;
+        var member = access.Member;
         if (workspace is null || workspace.DeletedAt.HasValue || workspace.Status == WorkspaceStatus.Deleted)
         {
             return false;
         }
 
-        var member = await workspaces.GetMemberAsync(workspaceId, userId, cancellationToken);
         if (workspace.Status == WorkspaceStatus.Archived)
         {
             // Archived Workspaces are an authorized historical projection.
@@ -41,7 +43,8 @@ public sealed class WorkspaceAuthorizationService(
 
     public async Task<bool> CanManageWorkspace(Guid userId, Guid workspaceId, CancellationToken cancellationToken = default)
     {
-        var workspace = await workspaces.GetByIdAsync(workspaceId, cancellationToken);
+        var access = await ResolveAccessAsync(userId, workspaceId, cancellationToken);
+        var workspace = access.Workspace;
         if (workspace is null ||
             workspace.DeletedAt.HasValue ||
             workspace.Status != WorkspaceStatus.Active)
@@ -54,19 +57,19 @@ public sealed class WorkspaceAuthorizationService(
             return true;
         }
 
-        var member = await workspaces.GetMemberAsync(workspaceId, userId, cancellationToken);
-        return member is { Status: MembershipStatus.Active } && member.Role.CanManage();
+        return access.Member is { Status: MembershipStatus.Active } member && member.Role.CanManage();
     }
 
     public async Task<bool> CanGovernWorkspace(Guid userId, Guid workspaceId, CancellationToken cancellationToken = default)
     {
-        var workspace = await workspaces.GetByIdAsync(workspaceId, cancellationToken);
+        var access = await ResolveAccessAsync(userId, workspaceId, cancellationToken);
+        var workspace = access.Workspace;
+        var member = access.Member;
         if (workspace is null || workspace.DeletedAt.HasValue || workspace.Status == WorkspaceStatus.Deleted)
         {
             return false;
         }
 
-        var member = await workspaces.GetMemberAsync(workspaceId, userId, cancellationToken);
         if (workspace.Status == WorkspaceStatus.Archived)
         {
             return member is { Status: MembershipStatus.Active } && member.Role.CanManage();
@@ -83,7 +86,8 @@ public sealed class WorkspaceAuthorizationService(
 
     public async Task<bool> CanRestoreWorkspace(Guid userId, Guid workspaceId, CancellationToken cancellationToken = default)
     {
-        var workspace = await workspaces.GetByIdAsync(workspaceId, cancellationToken);
+        var access = await ResolveAccessAsync(userId, workspaceId, cancellationToken);
+        var workspace = access.Workspace;
         if (workspace is null ||
             workspace.DeletedAt.HasValue ||
             workspace.Status != WorkspaceStatus.Archived)
@@ -91,8 +95,7 @@ public sealed class WorkspaceAuthorizationService(
             return false;
         }
 
-        var member = await workspaces.GetMemberAsync(workspaceId, userId, cancellationToken);
-        return member is
+        return access.Member is
         {
             Status: MembershipStatus.Active,
             Role: WorkspaceRole.Owner
@@ -101,7 +104,8 @@ public sealed class WorkspaceAuthorizationService(
 
     public async Task<bool> CanContributeWorkspace(Guid userId, Guid workspaceId, CancellationToken cancellationToken = default)
     {
-        var workspace = await workspaces.GetByIdAsync(workspaceId, cancellationToken);
+        var access = await ResolveAccessAsync(userId, workspaceId, cancellationToken);
+        var workspace = access.Workspace;
         if (workspace is null ||
             workspace.DeletedAt.HasValue ||
             workspace.Status != WorkspaceStatus.Active)
@@ -114,8 +118,7 @@ public sealed class WorkspaceAuthorizationService(
             return true;
         }
 
-        var member = await workspaces.GetMemberAsync(workspaceId, userId, cancellationToken);
-        return member is { Status: MembershipStatus.Active } && member.Role.CanContribute();
+        return access.Member is { Status: MembershipStatus.Active } member && member.Role.CanContribute();
     }
 
     public async Task<bool> CanCreateWorkspace(Guid userId, Guid tenantId, CancellationToken cancellationToken = default)
@@ -127,9 +130,25 @@ public sealed class WorkspaceAuthorizationService(
                await tenants.CanManageTenantAsync(userId, tenantId, cancellationToken);
     }
 
+    private async Task<WorkspaceAccess> ResolveAccessAsync(
+        Guid userId,
+        Guid workspaceId,
+        CancellationToken cancellationToken)
+    {
+        // Authorization needs membership and the current parent Workspace state
+        // from one command. Keep this separate from the generic membership read:
+        // callers such as the Gantt projection must not acquire a tracked
+        // Workspace as a side effect and suppress later authoritative reads.
+        var member = await workspaces.GetMemberWithWorkspaceAsync(workspaceId, userId, cancellationToken);
+        var workspace = member?.Workspace ?? await workspaces.GetByIdAsync(workspaceId, cancellationToken);
+        return new WorkspaceAccess(workspace, member);
+    }
+
     private async Task<bool> IsSystemAdmin(Guid userId, CancellationToken cancellationToken)
     {
         var user = await users.GetByIdAsync(userId, cancellationToken);
         return user is { SystemRole: SystemRole.SystemAdmin, Status: UserStatus.Active, DeletedAt: null };
     }
+
+    private sealed record WorkspaceAccess(Workspace? Workspace, WorkspaceMember? Member);
 }
