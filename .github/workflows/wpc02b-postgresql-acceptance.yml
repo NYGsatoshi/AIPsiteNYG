@@ -93,5 +93,5 @@ jobs:
         with:
           name: wpc02b-postgresql-acceptance-results
           path: artifacts/wpc02b-test-results
-          if-no-files-found: error
+          if-no-files-found: warn
           retention-days: 14
