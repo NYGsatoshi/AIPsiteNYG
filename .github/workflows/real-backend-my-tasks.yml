@@ -43,7 +43,7 @@ permissions:
 jobs:
   real-backend-my-tasks-acceptance:
     if: github.event.pull_request.head.repo.full_name == github.repository
-    runs-on: ubuntu-24.04
+    runs-on: self-hosted
     timeout-minutes: 45
     concurrency:
       group: real-backend-my-tasks-${{ github.event.pull_request.number }}
