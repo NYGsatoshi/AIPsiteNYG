@@ -78,7 +78,11 @@ public static class DependencyInjection
         services.AddSingleton(new CommunicationSafetyOptions());
         services.AddSingleton<ICommunicationSafetyGuard, InMemoryCommunicationSafetyGuard>();
         services.AddScoped<IAnnouncementService, AnnouncementService>();
-        services.AddScoped<IWorkspaceRequiredInitialization, WorkspaceGeneralRequiredInitialization>();
+        services.AddScoped<WorkspaceGeneralRequiredInitialization>();
+        services.AddScoped<IWorkspaceRequiredInitialization>(provider =>
+            provider.GetRequiredService<IDefaultConversationStore>() is UnavailableDefaultConversationStore
+                ? new UnavailableWorkspaceRequiredInitialization()
+                : provider.GetRequiredService<WorkspaceGeneralRequiredInitialization>());
         services.AddScoped<IWorkspaceGeneralMembershipSynchronizer, WorkspaceGeneralMembershipSynchronizer>();
         services.AddScoped<IWorkspaceService, WorkspaceService>();
         services.AddScoped<IGroupService, GroupService>();
