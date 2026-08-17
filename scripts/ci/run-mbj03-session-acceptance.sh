@@ -149,6 +149,11 @@ WITH subject AS (
   SELECT s.*
   FROM sessions s
   JOIN subject u ON u."Id" = s."UserId"
+), subject_revocations AS (
+  SELECT a.*
+  FROM audit_logs a
+  JOIN subject u ON a."MetadataJson"->>'targetUserId' = u."Id"::text
+  WHERE a."Action" = 'SessionRevoked'
 )
 SELECT
   (SELECT count(*) FROM subject),
@@ -161,15 +166,19 @@ SELECT
   (SELECT count(*) FROM audit_logs a JOIN subject u ON a."EntityId" = u."Id" WHERE a."Action" = 'Logout'),
   (SELECT count(*) FROM audit_logs a JOIN subject u ON a."EntityId" = u."Id" WHERE a."Action" = 'UserSuspended'),
   (SELECT count(*) FROM audit_logs a JOIN subject u ON a."EntityId" = u."Id" WHERE a."Action" = 'UserActivated'),
-  (SELECT count(*) FROM audit_logs a WHERE a."Action" = 'SessionRevoked');
+  (SELECT count(*) FROM subject_revocations WHERE "MetadataJson"->>'reason' = 'PasswordChanged'),
+  (SELECT count(*) FROM subject_revocations WHERE "MetadataJson"->>'reason' = 'Logout'),
+  (SELECT count(*) FROM subject_revocations WHERE "MetadataJson"->>'reason' = 'UserSuspended');
 SQL
 )"
 
   local subject_count active_subject_count total_sessions revoked_sessions expired_sessions active_sessions
-  local password_changed_count logout_count suspended_count activated_count session_revoked_audit_count
+  local password_changed_count logout_count suspended_count activated_count
+  local password_revoked_count logout_revoked_count suspended_revoked_count
   IFS='|' read -r \
     subject_count active_subject_count total_sessions revoked_sessions expired_sessions active_sessions \
-    password_changed_count logout_count suspended_count activated_count session_revoked_audit_count <<< "$row"
+    password_changed_count logout_count suspended_count activated_count \
+    password_revoked_count logout_revoked_count suspended_revoked_count <<< "$row"
 
   if [[ "$subject_count" != "1" ||
         "$active_subject_count" != "1" ||
@@ -181,8 +190,10 @@ SQL
         "$logout_count" -lt 1 ||
         "$suspended_count" -lt 1 ||
         "$activated_count" -lt 1 ||
-        "$session_revoked_audit_count" -lt 3 ]]; then
-    echo "MBJ-03 PostgreSQL state mismatch: subject=$subject_count activeSubject=$active_subject_count totalSessions=$total_sessions revoked=$revoked_sessions expired=$expired_sessions activeSessions=$active_sessions passwordChanged=$password_changed_count logout=$logout_count suspended=$suspended_count activated=$activated_count sessionRevokedAudit=$session_revoked_audit_count" >&2
+        "$password_revoked_count" -lt 1 ||
+        "$logout_revoked_count" -lt 1 ||
+        "$suspended_revoked_count" -lt 1 ]]; then
+    echo "MBJ-03 PostgreSQL state mismatch: subject=$subject_count activeSubject=$active_subject_count totalSessions=$total_sessions revoked=$revoked_sessions expired=$expired_sessions activeSessions=$active_sessions passwordChanged=$password_changed_count logout=$logout_count suspended=$suspended_count activated=$activated_count passwordRevoked=$password_revoked_count logoutRevoked=$logout_revoked_count suspendedRevoked=$suspended_revoked_count" >&2
     return 1
   fi
 
@@ -199,7 +210,10 @@ SQL
   "logoutAuditCount": $logout_count,
   "userSuspendedAuditCount": $suspended_count,
   "userActivatedAuditCount": $activated_count,
-  "sessionRevokedAuditCount": $session_revoked_audit_count,
+  "passwordChangedSessionRevokedAuditCount": $password_revoked_count,
+  "logoutSessionRevokedAuditCount": $logout_revoked_count,
+  "userSuspendedSessionRevokedAuditCount": $suspended_revoked_count,
+  "sessionRevocationAuditsBoundToSubject": true,
   "secretMaterialRecorded": false
 }
 JSON
