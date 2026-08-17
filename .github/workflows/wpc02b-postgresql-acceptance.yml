@@ -1,0 +1,97 @@
+name: WPC-02B PostgreSQL Acceptance
+
+on:
+  workflow_dispatch:
+  pull_request:
+    branches: ["main"]
+    paths-ignore:
+      - "**/*.md"
+      - "docs/**"
+  push:
+    branches: ["main"]
+    paths-ignore:
+      - "**/*.md"
+      - "docs/**"
+
+concurrency:
+  group: wpc02b-postgresql-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+jobs:
+  acceptance:
+    name: WPC-02B PostgreSQL / PG18
+    runs-on: ubuntu-24.04
+    timeout-minutes: 35
+
+    services:
+      postgres:
+        image: postgres:18-alpine
+        env:
+          POSTGRES_DB: aip_portal_wpc02b
+          POSTGRES_USER: aip_portal_wpc02b
+          POSTGRES_PASSWORD: aip_portal_wpc02b_password
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U aip_portal_wpc02b -d aip_portal_wpc02b"
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+
+    env:
+      ASPNETCORE_ENVIRONMENT: Test
+      DOTNET_CLI_TELEMETRY_OPTOUT: "1"
+      DOTNET_NOLOGO: "1"
+      ConnectionStrings__DefaultConnection: Host=localhost;Port=5432;Database=aip_portal_wpc02b;Username=aip_portal_wpc02b;Password=aip_portal_wpc02b_password
+      POSTGRES_TEST_CONNECTION_STRING: Host=localhost;Port=5432;Database=aip_portal_wpc02b;Username=aip_portal_wpc02b;Password=aip_portal_wpc02b_password
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v7
+
+      - name: Set up .NET SDK
+        uses: actions/setup-dotnet@v6
+        with:
+          global-json-file: global.json
+
+      - name: Restore
+        run: dotnet restore AipPortal.slnx --disable-parallel --verbosity normal
+
+      - name: Build
+        run: dotnet build AipPortal.slnx --configuration Release --no-restore --disable-build-servers -m:1
+
+      - name: Run WPC-02B PostgreSQL acceptance
+        shell: bash
+        run: |
+          mkdir -p artifacts/wpc02b-test-results
+          dotnet test \
+            tests/AipPortal.Tests/AipPortal.Tests.csproj \
+            --configuration Release \
+            --no-build \
+            --disable-build-servers \
+            -m:1 \
+            --verbosity normal \
+            --filter "Scope=WPC02B" \
+            --logger "trx;LogFileName=wpc02b-acceptance.trx" \
+            --results-directory artifacts/wpc02b-test-results
+
+      - name: Verify WPC-02B required tests
+        shell: bash
+        run: |
+          bash scripts/ci/verify-trx-results.sh \
+            artifacts/wpc02b-test-results/wpc02b-acceptance.trx \
+            --minimum-total 4 \
+            --required-tests scripts/ci/wpc02b-required-tests.txt \
+            --label "WPC-02B PostgreSQL"
+
+      - name: Upload WPC-02B acceptance results
+        if: always()
+        uses: actions/upload-artifact@v7
+        with:
+          name: wpc02b-postgresql-acceptance-results
+          path: artifacts/wpc02b-test-results
+          if-no-files-found: error
+          retention-days: 14
