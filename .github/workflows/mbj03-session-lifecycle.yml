@@ -1,0 +1,117 @@
+name: MBJ-03 Session Lifecycle Acceptance
+
+on:
+  pull_request:
+    paths:
+      - ".github/workflows/mbj03-session-lifecycle.yml"
+      - "docker-compose.mbj03-session.yml"
+      - "docker-compose.real-backend-smoke.yml"
+      - "Dockerfile"
+      - "Dockerfile.playwright"
+      - "package.json"
+      - "package-lock.json"
+      - "global.json"
+      - "scripts/ci/run-mbj03-session-acceptance.sh"
+      - "tests/ui/mbj03-session-acceptance.mjs"
+      - "src/AipPortal.Web/Program.cs"
+      - "src/AipPortal.Web/Controllers/AdminController.cs"
+      - "src/AipPortal.Web/Controllers/AuthController.cs"
+      - "src/AipPortal.Web/Controllers/InvitesController.cs"
+      - "src/AipPortal.Web/Security/**"
+      - "src/AipPortal.Web/Configuration/**"
+      - "src/AipPortal.Application/Admin/**"
+      - "src/AipPortal.Application/Auth/**"
+      - "src/AipPortal.Application/Realtime/**"
+      - "src/AipPortal.Infrastructure/Persistence/AuthRepositories.cs"
+      - "src/AipPortal.Infrastructure/Persistence/AdminRepository.cs"
+      - "src/AipPortal.Infrastructure/Persistence/AppDbContext.cs"
+      - "src/AipPortal.Infrastructure/Persistence/AppDbContextSeed.cs"
+      - "src/AipPortal.Infrastructure/Persistence/Configurations/IdentityConfigurations.cs"
+      - "src/AipPortal.Infrastructure/Persistence/Migrations/**"
+      - "src/AipPortal.Infrastructure/Security/**"
+  push:
+    branches: ["main"]
+    paths:
+      - ".github/workflows/mbj03-session-lifecycle.yml"
+      - "docker-compose.mbj03-session.yml"
+      - "docker-compose.real-backend-smoke.yml"
+      - "Dockerfile"
+      - "Dockerfile.playwright"
+      - "package.json"
+      - "package-lock.json"
+      - "global.json"
+      - "scripts/ci/run-mbj03-session-acceptance.sh"
+      - "tests/ui/mbj03-session-acceptance.mjs"
+      - "src/AipPortal.Web/Program.cs"
+      - "src/AipPortal.Web/Controllers/AdminController.cs"
+      - "src/AipPortal.Web/Controllers/AuthController.cs"
+      - "src/AipPortal.Web/Controllers/InvitesController.cs"
+      - "src/AipPortal.Web/Security/**"
+      - "src/AipPortal.Web/Configuration/**"
+      - "src/AipPortal.Application/Admin/**"
+      - "src/AipPortal.Application/Auth/**"
+      - "src/AipPortal.Application/Realtime/**"
+      - "src/AipPortal.Infrastructure/Persistence/AuthRepositories.cs"
+      - "src/AipPortal.Infrastructure/Persistence/AdminRepository.cs"
+      - "src/AipPortal.Infrastructure/Persistence/AppDbContext.cs"
+      - "src/AipPortal.Infrastructure/Persistence/AppDbContextSeed.cs"
+      - "src/AipPortal.Infrastructure/Persistence/Configurations/IdentityConfigurations.cs"
+      - "src/AipPortal.Infrastructure/Persistence/Migrations/**"
+      - "src/AipPortal.Infrastructure/Security/**"
+
+permissions:
+  contents: read
+
+jobs:
+  mbj03-session-lifecycle:
+    if: github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository
+    runs-on: ubuntu-24.04
+    timeout-minutes: 45
+    concurrency:
+      group: mbj03-session-${{ github.event.pull_request.number || github.ref }}
+      cancel-in-progress: true
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v7
+        with:
+          persist-credentials: false
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v7
+        with:
+          node-version: "24"
+
+      - name: Validate acceptance runner syntax
+        shell: bash
+        run: |
+          bash -n scripts/ci/run-mbj03-session-acceptance.sh
+          node --check tests/ui/mbj03-session-acceptance.mjs
+
+      - name: Run MBJ-03 session lifecycle acceptance
+        env:
+          SYNCFUSION_LICENSE: ${{ secrets.SYNCFUSION_LICENSE }}
+        shell: bash
+        run: |
+          test -n "${SYNCFUSION_LICENSE:-}" || {
+            echo "SYNCFUSION_LICENSE is not configured." >&2
+            exit 1
+          }
+          bash scripts/ci/run-mbj03-session-acceptance.sh
+
+      - name: Upload MBJ-03 evidence
+        if: always()
+        uses: actions/upload-artifact@v7
+        with:
+          name: mbj03-session-lifecycle-evidence
+          path: test-results/mbj03-*
+          if-no-files-found: ignore
+
+      - name: Report runner resources on failure
+        if: failure()
+        shell: bash
+        run: |
+          df -h || true
+          df -i || true
+          free -h || true
+          docker system df || true
