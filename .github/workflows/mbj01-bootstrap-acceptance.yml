@@ -47,7 +47,7 @@ permissions:
 jobs:
   mbj01-fresh-bootstrap:
     if: github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository
-    runs-on: ubuntu-24.04
+    runs-on: self-hosted
     timeout-minutes: 45
     concurrency:
       group: mbj01-bootstrap-${{ github.event.pull_request.number || github.ref }}
