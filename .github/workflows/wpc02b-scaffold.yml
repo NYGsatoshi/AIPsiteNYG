@@ -1,0 +1,193 @@
+name: WPC-02B branch scaffold
+
+on:
+  push:
+    branches:
+      - wpc-02b-capabilitygrant-workspace-general
+    paths:
+      - .github/workflows/wpc02b-scaffold.yml
+
+permissions:
+  contents: write
+
+jobs:
+  scaffold:
+    if: github.actor != 'github-actions[bot]'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: wpc-02b-capabilitygrant-workspace-general
+          fetch-depth: 0
+
+      - uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: 10.0.302
+
+      - name: Apply bounded WPC-02B integration patches
+        shell: bash
+        run: |
+          python3 <<'PY'
+          from pathlib import Path
+
+          def replace(path, old, new, count=1):
+              p = Path(path)
+              text = p.read_text(encoding='utf-8-sig')
+              found = text.count(old)
+              if found < count:
+                  raise SystemExit(f"{path}: expected at least {count} occurrence(s), found {found}: {old[:100]!r}")
+              text = text.replace(old, new, count)
+              p.write_text(text, encoding='utf-8')
+
+          replace(
+              'src/AipPortal.Domain/Enums/CoreEnums.cs',
+              '    System = 9\n}',
+              '    System = 9,\n    WorkspaceChannel = 10\n}')
+
+          replace(
+              'src/AipPortal.Domain/Entities/MessagingEntities.cs',
+              '    public ConversationType Type { get; set; } = ConversationType.DirectMessage;\n    public string? Title { get; set; }',
+              '    public ConversationType Type { get; set; } = ConversationType.DirectMessage;\n    public ConversationVisibility? Visibility { get; set; }\n    public ConversationDefaultKind? DefaultKind { get; set; }\n    public string? Title { get; set; }')
+
+          replace(
+              'src/AipPortal.Infrastructure/Persistence/Configurations/MessagingConfigurations.cs',
+              '        builder.ToTable("conversations");',
+              '''        builder.ToTable("conversations", table =>\n        {\n            table.HasCheckConstraint(\n                "CK_conversations_workspace_general_shape",\n                "\\\"DefaultKind\\\" <> 'WorkspaceGeneral' OR (\\\"Type\\\" = 'WorkspaceChannel' AND \\\"ProjectId\\\" IS NULL AND \\\"Visibility\\\" = 'PublicWithinScope')");\n            table.HasCheckConstraint(\n                "CK_conversations_project_general_shape",\n                "\\\"DefaultKind\\\" <> 'ProjectGeneral' OR (\\\"Type\\\" = 'ProjectChannel' AND \\\"ProjectId\\\" IS NOT NULL AND \\\"Visibility\\\" = 'PublicWithinScope')");\n        });''')
+          replace(
+              'src/AipPortal.Infrastructure/Persistence/Configurations/MessagingConfigurations.cs',
+              '        builder.Property(conversation => conversation.Type).HasEnumStringConversion().IsRequired();\n        builder.Property(conversation => conversation.Title).HasMaxLength(200);',
+              '''        builder.Property(conversation => conversation.Type).HasEnumStringConversion().IsRequired();\n        builder.Property(conversation => conversation.Visibility).HasConversion<string>().HasMaxLength(40);\n        builder.Property(conversation => conversation.DefaultKind).HasConversion<string>().HasMaxLength(40);\n        builder.Property(conversation => conversation.Title).HasMaxLength(200);''')
+          replace(
+              'src/AipPortal.Infrastructure/Persistence/Configurations/MessagingConfigurations.cs',
+              '        builder.HasIndex(conversation => new { conversation.TenantId, conversation.WorkspaceId, conversation.ProjectId });',
+              '''        builder.HasIndex(conversation => new { conversation.TenantId, conversation.WorkspaceId, conversation.ProjectId });\n        builder.HasIndex(conversation => new { conversation.TenantId, conversation.WorkspaceId, conversation.DefaultKind })\n            .IsUnique()\n            .HasFilter("\\\"DefaultKind\\\" = 'WorkspaceGeneral'");\n        builder.HasIndex(conversation => new { conversation.TenantId, conversation.ProjectId, conversation.DefaultKind })\n            .IsUnique()\n            .HasFilter("\\\"DefaultKind\\\" = 'ProjectGeneral' AND \\\"ProjectId\\\" IS NOT NULL");''')
+
+          replace(
+              'src/AipPortal.Application/Workspaces/WorkspaceAuthorizationService.cs',
+              '    IWorkspaceRepository workspaces,\n    ITenantAuthorizationService? tenants = null) : IWorkspaceAuthorizationService',
+              '    IWorkspaceRepository workspaces,\n    ITenantAuthorizationService? tenants = null,\n    ICapabilityGrantEvaluator? capabilityGrants = null) : IWorkspaceAuthorizationService')
+          replace(
+              'src/AipPortal.Application/Workspaces/WorkspaceAuthorizationService.cs',
+              '''        var user = await users.GetByIdAsync(userId, cancellationToken);\n        return tenantId != Guid.Empty &&\n               tenants is not null &&\n               user is { Status: UserStatus.Active, DeletedAt: null } &&\n               await tenants.CanManageTenantAsync(userId, tenantId, cancellationToken);''',
+              '''        var user = await users.GetByIdAsync(userId, cancellationToken);\n        if (tenantId == Guid.Empty ||\n            tenants is null ||\n            user is not { Status: UserStatus.Active, DeletedAt: null })\n        {\n            return false;\n        }\n\n        if (await tenants.CanManageTenantAsync(userId, tenantId, cancellationToken))\n        {\n            return true;\n        }\n\n        return capabilityGrants is not null &&\n               await capabilityGrants.HasActiveGrantAsync(\n                   userId,\n                   tenantId,\n                   CapabilityKeys.WorkspaceCreate,\n                   CapabilityScopeType.Tenant,\n                   tenantId,\n                   cancellationToken);''')
+
+          replace(
+              'src/AipPortal.Application/DependencyInjection.cs',
+              '        services.AddScoped<ITenantAuthorizationService, TenantAuthorizationService>();\n        services.AddScoped<ITenantService, TenantService>();',
+              '''        services.AddScoped<ITenantAuthorizationService, TenantAuthorizationService>();\n        services.AddScoped<ICapabilityGrantEvaluator, CapabilityGrantEvaluator>();\n        services.AddScoped<ICapabilityGrantService, CapabilityGrantService>();\n        services.AddScoped<ITenantService, TenantService>();''')
+          replace(
+              'src/AipPortal.Application/DependencyInjection.cs',
+              '        services.AddScoped<IWorkspaceRequiredInitialization, UnavailableWorkspaceRequiredInitialization>();\n        services.AddScoped<IWorkspaceService, WorkspaceService>();',
+              '''        services.AddScoped<IWorkspaceRequiredInitialization, WorkspaceGeneralRequiredInitialization>();\n        services.AddScoped<IWorkspaceGeneralMembershipSynchronizer, WorkspaceGeneralMembershipSynchronizer>();\n        services.AddScoped<IWorkspaceService, WorkspaceService>();''')
+
+          replace(
+              'src/AipPortal.Infrastructure/DependencyInjection.cs',
+              '        services.AddScoped<ITenantRepository, TenantRepository>();',
+              '        services.AddScoped<ITenantRepository, TenantRepository>();\n        services.AddScoped<ICapabilityGrantRepository, CapabilityGrantRepository>();')
+          replace(
+              'src/AipPortal.Infrastructure/DependencyInjection.cs',
+              '        services.AddScoped<IMessagingRepository, MessagingRepository>();',
+              '        services.AddScoped<IMessagingRepository, MessagingRepository>();\n        services.AddScoped<IDefaultConversationStore, DefaultConversationStore>();')
+
+          replace(
+              'src/AipPortal.Application/Workspaces/WorkspaceService.cs',
+              '    ICreateIdempotencyCoordinator? createIdempotency = null,\n    IWorkspaceRequiredInitialization? requiredInitialization = null) : IWorkspaceService',
+              '    ICreateIdempotencyCoordinator? createIdempotency = null,\n    IWorkspaceRequiredInitialization? requiredInitialization = null,\n    IWorkspaceGeneralMembershipSynchronizer? generalMemberships = null) : IWorkspaceService')
+          replace(
+              'src/AipPortal.Application/Workspaces/WorkspaceService.cs',
+              '        await workspaces.AddMemberAsync(member, cancellationToken);\n        await AuditAsync(actorUserId, "WorkspaceMemberAdded", workspaceId, cancellationToken);',
+              '''        await workspaces.AddMemberAsync(member, cancellationToken);\n        var generalSync = await StageWorkspaceGeneralMembershipAsync(member, actorUserId, cancellationToken);\n        if (!generalSync.IsSuccess)\n        {\n            return Result<WorkspaceMemberResponse>.Failure(WorkspaceGeneralDependencyError());\n        }\n        await AuditAsync(actorUserId, "WorkspaceMemberAdded", workspaceId, cancellationToken);''')
+          replace(
+              'src/AipPortal.Application/Workspaces/WorkspaceService.cs',
+              '        member.Role = request.Role;\n        member.Status = request.Status ?? member.Status;\n        await AuditAsync(actorUserId, "WorkspaceMemberRoleChanged", workspaceId, cancellationToken);',
+              '''        member.Role = request.Role;\n        member.Status = request.Status ?? member.Status;\n        var generalSync = await StageWorkspaceGeneralMembershipAsync(member, actorUserId, cancellationToken);\n        if (!generalSync.IsSuccess)\n        {\n            return Result<WorkspaceMemberResponse>.Failure(WorkspaceGeneralDependencyError());\n        }\n        await AuditAsync(actorUserId, "WorkspaceMemberRoleChanged", workspaceId, cancellationToken);''')
+          replace(
+              'src/AipPortal.Application/Workspaces/WorkspaceService.cs',
+              '        member.Status = MembershipStatus.Suspended;\n        await AuditAsync(actorUserId, "WorkspaceMemberRemoved", workspaceId, cancellationToken);',
+              '''        member.Status = MembershipStatus.Suspended;\n        var generalSync = await StageWorkspaceGeneralMembershipAsync(member, actorUserId, cancellationToken);\n        if (!generalSync.IsSuccess)\n        {\n            return Result.Failure(WorkspaceGeneralDependencyError());\n        }\n        await AuditAsync(actorUserId, "WorkspaceMemberRemoved", workspaceId, cancellationToken);''')
+          replace(
+              'src/AipPortal.Application/Workspaces/WorkspaceService.cs',
+              '    private bool TryCurrentUser(out Guid userId)',
+              '''    private Task<Result> StageWorkspaceGeneralMembershipAsync(\n        WorkspaceMember member,\n        Guid actorUserId,\n        CancellationToken cancellationToken)\n    {\n        return generalMemberships?.StageAsync(member, actorUserId, cancellationToken)\n               ?? Task.FromResult(Result.Success());\n    }\n\n    private bool TryCurrentUser(out Guid userId)''')
+          replace(
+              'src/AipPortal.Application/Workspaces/WorkspaceService.cs',
+              '    private static ApplicationErrorDetail ArchivedReadOnlyError() =>',
+              '''    private static ApplicationErrorDetail WorkspaceGeneralDependencyError() =>\n        new(\n            "DependencyUnavailable",\n            "Canonical Workspace general membership could not be synchronized.",\n            Target: "workspace.general");\n\n    private static ApplicationErrorDetail ArchivedReadOnlyError() =>''')
+
+          replace(
+              'src/AipPortal.Application/Messaging/ConversationAuthorizationService.cs',
+              'using AipPortal.Application.Projects;\n',
+              'using AipPortal.Application.Projects;\nusing AipPortal.Application.Workspaces;\n')
+          replace(
+              'src/AipPortal.Application/Messaging/ConversationAuthorizationService.cs',
+              'public sealed class ConversationAuthorizationService(IMessagingRepository messaging, IProjectAuthorizationService projects) : IConversationAuthorizationService',
+              'public sealed class ConversationAuthorizationService(IMessagingRepository messaging, IProjectAuthorizationService projects, IWorkspaceAuthorizationService? workspaces = null) : IConversationAuthorizationService')
+          replace(
+              'src/AipPortal.Application/Messaging/ConversationAuthorizationService.cs',
+              '''        if (conversation.Type == ConversationType.ProjectChannel && !conversation.ProjectId.HasValue)\n        {\n            return false;\n        }\n\n        return !conversation.ProjectId.HasValue ||\n            await projects.CanViewProject(userId, conversation.ProjectId.Value, cancellationToken);''',
+              '''        if (conversation.Type == ConversationType.WorkspaceChannel)\n        {\n            return !conversation.ProjectId.HasValue &&\n                   workspaces is not null &&\n                   await workspaces.CanViewWorkspace(userId, conversation.WorkspaceId, cancellationToken);\n        }\n\n        if (conversation.Type == ConversationType.ProjectChannel && !conversation.ProjectId.HasValue)\n        {\n            return false;\n        }\n\n        return !conversation.ProjectId.HasValue ||\n            await projects.CanViewProject(userId, conversation.ProjectId.Value, cancellationToken);''')
+          replace(
+              'src/AipPortal.Application/Messaging/ConversationAuthorizationService.cs',
+              '        return type is ConversationType.DirectMessage or ConversationType.ProjectChannel or ConversationType.Thread;',
+              '        return type is ConversationType.DirectMessage or ConversationType.WorkspaceChannel or ConversationType.ProjectChannel or ConversationType.Thread;')
+
+          replace(
+              'src/AipPortal.Infrastructure/Persistence/MessagingRepository.cs',
+              "                  AND conversation.\"Type\" IN ('DirectMessage', 'ProjectChannel', 'Thread')",
+              "                  AND conversation.\"Type\" IN ('DirectMessage', 'WorkspaceChannel', 'ProjectChannel', 'Thread')")
+          replace(
+              'src/AipPortal.Infrastructure/Persistence/MessagingRepository.cs',
+              "                  AND (conversation.\"Type\" <> 'ProjectChannel' OR conversation.\"ProjectId\" IS NOT NULL)",
+              '''                  AND (conversation."Type" <> 'ProjectChannel' OR conversation."ProjectId" IS NOT NULL)\n                  AND (conversation."Type" <> 'WorkspaceChannel' OR (\n                      conversation."ProjectId" IS NULL AND EXISTS (\n                          SELECT 1\n                          FROM workspaces AS workspace\n                          INNER JOIN workspace_members AS workspace_member\n                              ON workspace_member."WorkspaceId" = workspace."Id"\n                             AND workspace_member."TenantId" = workspace."TenantId"\n                          WHERE workspace."Id" = conversation."WorkspaceId"\n                            AND workspace."TenantId" = {{tenantId.Value}}\n                            AND workspace."DeletedAt" IS NULL\n                            AND workspace."Status" IN ('Active', 'Archived')\n                            AND workspace_member."UserId" = {{userId}}\n                            AND workspace_member."Status" = 'Active')))' ''')
+          replace(
+              'src/AipPortal.Infrastructure/Persistence/MessagingRepository.cs',
+              "                  AND parent.\"Type\" IN ('DirectMessage', 'ProjectChannel', 'Thread')",
+              "                  AND parent.\"Type\" IN ('DirectMessage', 'WorkspaceChannel', 'ProjectChannel', 'Thread')")
+          replace(
+              'src/AipPortal.Infrastructure/Persistence/MessagingRepository.cs',
+              "                  AND (parent.\"Type\" <> 'ProjectChannel' OR parent.\"ProjectId\" IS NOT NULL)",
+              '''                  AND (parent."Type" <> 'ProjectChannel' OR parent."ProjectId" IS NOT NULL)\n                  AND (parent."Type" <> 'WorkspaceChannel' OR (\n                      parent."ProjectId" IS NULL AND EXISTS (\n                          SELECT 1\n                          FROM workspaces AS workspace\n                          INNER JOIN workspace_members AS workspace_member\n                              ON workspace_member."WorkspaceId" = workspace."Id"\n                             AND workspace_member."TenantId" = workspace."TenantId"\n                          WHERE workspace."Id" = parent."WorkspaceId"\n                            AND workspace."TenantId" = {{tenantId.Value}}\n                            AND workspace."DeletedAt" IS NULL\n                            AND workspace."Status" IN ('Active', 'Archived')\n                            AND workspace_member."UserId" = {{userId}}\n                            AND workspace_member."Status" = 'Active')))' ''')
+          replace(
+              'src/AipPortal.Infrastructure/Persistence/MessagingRepository.cs',
+              '''                (conversation.Type == ConversationType.DirectMessage ||\n                 conversation.Type == ConversationType.ProjectChannel ||\n                 conversation.Type == ConversationType.Thread) &&''',
+              '''                (conversation.Type == ConversationType.DirectMessage ||\n                 conversation.Type == ConversationType.WorkspaceChannel ||\n                 conversation.Type == ConversationType.ProjectChannel ||\n                 conversation.Type == ConversationType.Thread) &&''')
+          replace(
+              'src/AipPortal.Infrastructure/Persistence/MessagingRepository.cs',
+              '''                (conversation.Type != ConversationType.ProjectChannel ||\n                 conversation.ProjectId.HasValue) &&\n                (!conversation.ProjectId.HasValue ||\n                 visibleProjectIds.Contains(conversation.ProjectId.Value)));''',
+              '''                (conversation.Type != ConversationType.ProjectChannel ||\n                 conversation.ProjectId.HasValue) &&\n                (conversation.Type != ConversationType.WorkspaceChannel ||\n                 (!conversation.ProjectId.HasValue &&\n                  dbContext.Workspaces.Any(workspace =>\n                      workspace.Id == conversation.WorkspaceId &&\n                      workspace.DeletedAt == null &&\n                      (workspace.Status == WorkspaceStatus.Active || workspace.Status == WorkspaceStatus.Archived) &&\n                      workspace.Members.Any(member =>\n                          member.UserId == userId && member.Status == MembershipStatus.Active)))) &&\n                (!conversation.ProjectId.HasValue ||\n                 visibleProjectIds.Contains(conversation.ProjectId.Value)));''')
+          PY
+
+      - name: Restore and build patched model
+        run: |
+          dotnet restore AipPortal.slnx
+          dotnet build AipPortal.slnx --no-restore --configuration Release
+
+      - name: Generate WPC-02B EF migration
+        env:
+          ConnectionStrings__DefaultConnection: Host=127.0.0.1;Port=5432;Database=aip_wpc02b_design;Username=postgres;Password=postgres
+        run: |
+          dotnet tool install --global dotnet-ef --version 10.0.10
+          dotnet ef migrations add Wpc02BCapabilityGrantWorkspaceGeneral \
+            --project src/AipPortal.Infrastructure/AipPortal.Infrastructure.csproj \
+            --startup-project src/AipPortal.Web/AipPortal.Web.csproj \
+            --context AppDbContext \
+            --output-dir Persistence/Migrations \
+            --no-build
+
+      - name: Verify pending model is clean
+        env:
+          ConnectionStrings__DefaultConnection: Host=127.0.0.1;Port=5432;Database=aip_wpc02b_design;Username=postgres;Password=postgres
+        run: |
+          dotnet ef migrations has-pending-model-changes \
+            --project src/AipPortal.Infrastructure/AipPortal.Infrastructure.csproj \
+            --startup-project src/AipPortal.Web/AipPortal.Web.csproj \
+            --context AppDbContext \
+            --no-build
+
+      - name: Commit generated integration and migration
+        run: |
+          git config user.name github-actions[bot]
+          git config user.email 41898282+github-actions[bot]@users.noreply.github.com
+          git add src
+          git commit -m "WPC-02B integrate capability grants and WorkspaceGeneral"
+          git push origin HEAD:wpc-02b-capabilitygrant-workspace-general
