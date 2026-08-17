@@ -9,6 +9,8 @@ public sealed class Conversation : AuditableEntity, ITenantEntity
     public Guid WorkspaceId { get; set; }
     public Guid? ProjectId { get; set; }
     public ConversationType Type { get; set; } = ConversationType.DirectMessage;
+    public ConversationVisibility? Visibility { get; set; }
+    public ConversationDefaultKind? DefaultKind { get; set; }
     public string? Title { get; set; }
     public Guid? ParentConversationId { get; set; }
     public Guid? RootConversationId { get; set; }

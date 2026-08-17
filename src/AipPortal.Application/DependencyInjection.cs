@@ -23,6 +23,7 @@ using AipPortal.Application.TenantAdministration;
 using AipPortal.Application.TenantExports;
 using AipPortal.Application.UiShell;
 using AipPortal.Application.Workspaces;
+using AipPortal.Application.Common;
 using AipPortal.Application.Common.Interfaces;
 using AipPortal.Application.Common.Tenancy;
 
@@ -36,6 +37,14 @@ public static class DependencyInjection
         services.AddScoped<ICurrentTenant>(provider => provider.GetRequiredService<CurrentTenantService>());
         services.AddScoped<ICurrentTenantAccessor>(provider => provider.GetRequiredService<CurrentTenantService>());
         services.AddScoped<ITenantAuthorizationService, TenantAuthorizationService>();
+        // AddApplication() is also used by minimal test/utility hosts that do not
+        // compose Infrastructure. Keep WPC-02B dependencies fail closed there;
+        // AddInfrastructure() registers the real persistence implementations later
+        // and therefore overrides these single-service fallbacks in the full host.
+        services.AddScoped<ICapabilityGrantRepository, UnavailableCapabilityGrantRepository>();
+        services.AddScoped<IDefaultConversationStore, UnavailableDefaultConversationStore>();
+        services.AddScoped<ICapabilityGrantEvaluator, CapabilityGrantEvaluator>();
+        services.AddScoped<ICapabilityGrantService, CapabilityGrantService>();
         services.AddScoped<ITenantService, TenantService>();
         services.AddScoped<ITenantExportService, TenantExportService>();
         services.AddScoped<IFeatureFlagService, FeatureFlagService>();
@@ -69,7 +78,12 @@ public static class DependencyInjection
         services.AddSingleton(new CommunicationSafetyOptions());
         services.AddSingleton<ICommunicationSafetyGuard, InMemoryCommunicationSafetyGuard>();
         services.AddScoped<IAnnouncementService, AnnouncementService>();
-        services.AddScoped<IWorkspaceRequiredInitialization, UnavailableWorkspaceRequiredInitialization>();
+        services.AddScoped<WorkspaceGeneralRequiredInitialization>();
+        services.AddScoped<IWorkspaceRequiredInitialization>(provider =>
+            provider.GetRequiredService<IDefaultConversationStore>() is UnavailableDefaultConversationStore
+                ? new UnavailableWorkspaceRequiredInitialization()
+                : provider.GetRequiredService<WorkspaceGeneralRequiredInitialization>());
+        services.AddScoped<IWorkspaceGeneralMembershipSynchronizer, WorkspaceGeneralMembershipSynchronizer>();
         services.AddScoped<IWorkspaceService, WorkspaceService>();
         services.AddScoped<IGroupService, GroupService>();
         services.AddScoped<IChannelService, ChannelService>();

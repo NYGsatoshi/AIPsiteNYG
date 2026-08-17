@@ -19,7 +19,8 @@ public sealed class WorkspaceService(
     ICurrentTenant? currentTenant = null,
     IAuthorizationStateChangePublisher? authorizationChanges = null,
     ICreateIdempotencyCoordinator? createIdempotency = null,
-    IWorkspaceRequiredInitialization? requiredInitialization = null) : IWorkspaceService
+    IWorkspaceRequiredInitialization? requiredInitialization = null,
+    IWorkspaceGeneralMembershipSynchronizer? generalMemberships = null) : IWorkspaceService
 {
     private const string WorkspaceCreateOperation = "Workspace.Create.v1";
 
@@ -466,6 +467,11 @@ public sealed class WorkspaceService(
         };
 
         await workspaces.AddMemberAsync(member, cancellationToken);
+        var generalSync = await StageWorkspaceGeneralMembershipAsync(member, actorUserId, cancellationToken);
+        if (!generalSync.IsSuccess)
+        {
+            return Result<WorkspaceMemberResponse>.Failure(WorkspaceGeneralDependencyError());
+        }
         await AuditAsync(actorUserId, "WorkspaceMemberAdded", workspaceId, cancellationToken);
         await PublishAuthorizationChangeAsync(member.UserId, workspaceId, "granted", cancellationToken);
         await unitOfWork.SaveChangesAsync(cancellationToken);
@@ -506,6 +512,11 @@ public sealed class WorkspaceService(
 
         member.Role = request.Role;
         member.Status = request.Status ?? member.Status;
+        var generalSync = await StageWorkspaceGeneralMembershipAsync(member, actorUserId, cancellationToken);
+        if (!generalSync.IsSuccess)
+        {
+            return Result<WorkspaceMemberResponse>.Failure(WorkspaceGeneralDependencyError());
+        }
         await AuditAsync(actorUserId, "WorkspaceMemberRoleChanged", workspaceId, cancellationToken);
         await PublishAuthorizationChangeAsync(member.UserId, workspaceId, member.Status == MembershipStatus.Active ? "membershipChanged" : "suspended", cancellationToken);
         await unitOfWork.SaveChangesAsync(cancellationToken);
@@ -545,10 +556,24 @@ public sealed class WorkspaceService(
         }
 
         member.Status = MembershipStatus.Suspended;
+        var generalSync = await StageWorkspaceGeneralMembershipAsync(member, actorUserId, cancellationToken);
+        if (!generalSync.IsSuccess)
+        {
+            return Result.Failure(WorkspaceGeneralDependencyError());
+        }
         await AuditAsync(actorUserId, "WorkspaceMemberRemoved", workspaceId, cancellationToken);
         await PublishAuthorizationChangeAsync(userId, workspaceId, "revoked", cancellationToken);
         await unitOfWork.SaveChangesAsync(cancellationToken);
         return Result.Success();
+    }
+
+    private Task<Result> StageWorkspaceGeneralMembershipAsync(
+        WorkspaceMember member,
+        Guid actorUserId,
+        CancellationToken cancellationToken)
+    {
+        return generalMemberships?.StageAsync(member, actorUserId, cancellationToken)
+               ?? Task.FromResult(Result.Success());
     }
 
     private bool TryCurrentUser(out Guid userId)
@@ -586,6 +611,12 @@ public sealed class WorkspaceService(
 
     private static ApplicationErrorDetail CapabilityDeniedError(string message) =>
         new("CapabilityDenied", message, Target: "workspace");
+
+    private static ApplicationErrorDetail WorkspaceGeneralDependencyError() =>
+        new(
+            "DependencyUnavailable",
+            "Canonical Workspace general membership could not be synchronized.",
+            Target: "workspace.general");
 
     private static ApplicationErrorDetail ArchivedReadOnlyError() =>
         new(

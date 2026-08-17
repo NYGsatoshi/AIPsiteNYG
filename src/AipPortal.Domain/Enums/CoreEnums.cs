@@ -146,7 +146,8 @@ public enum ConversationType
     LegalHoldConversation = 6,
     Group = 7,
     ProjectLinked = 8,
-    System = 9
+    System = 9,
+    WorkspaceChannel = 10
 }
 
 public enum ConversationMemberRole
