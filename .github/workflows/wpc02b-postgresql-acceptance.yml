@@ -72,6 +72,18 @@ jobs:
         with:
           persist-credentials: false
 
+      - name: Configure user-local .NET install
+        shell: bash
+        run: |
+          install_dir="$HOME/.dotnet-ci"
+          mkdir -p "$install_dir"
+          {
+            echo "DOTNET_INSTALL_DIR=$install_dir"
+            echo "DOTNET_ROOT=$install_dir"
+            echo "DOTNET_MULTILEVEL_LOOKUP=0"
+          } >> "$GITHUB_ENV"
+          echo "$install_dir" >> "$GITHUB_PATH"
+
       - name: Set up .NET SDK
         uses: actions/setup-dotnet@v6
         with:
