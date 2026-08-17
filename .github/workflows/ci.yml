@@ -539,7 +539,7 @@ jobs:
       - security-scan
     timeout-minutes: 120
     concurrency:
-      group: aipsite-self-hosted-frontend-heavy-v2
+      group: ${{ github.event_name == 'pull_request' && format('aipsite-ci-frontend-pr-{0}', github.event.pull_request.number) || 'aipsite-self-hosted-frontend-heavy-v2' }}
       cancel-in-progress: false
       queue: max
 
