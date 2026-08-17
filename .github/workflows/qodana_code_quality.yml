@@ -32,9 +32,9 @@ jobs:
       pull-requests: write
       checks: write
     # Trusted main runs share the self-hosted machine with frontend-heavy jobs;
-    # PR runs use an ephemeral GitHub-hosted runner instead.
+    # PR runs use an ephemeral GitHub-hosted runner and a PR-local queue.
     concurrency:
-      group: aipsite-self-hosted-frontend-heavy-v2
+      group: ${{ github.event_name == 'pull_request' && format('aipsite-code-quality-pr-{0}', github.event.pull_request.number) || 'aipsite-self-hosted-frontend-heavy-v2' }}
       cancel-in-progress: false
       queue: max
 
@@ -167,7 +167,7 @@ jobs:
     if: ${{ always() }}
     timeout-minutes: 90
     concurrency:
-      group: aipsite-self-hosted-frontend-heavy-v2
+      group: ${{ github.event_name == 'pull_request' && format('aipsite-code-quality-pr-{0}', github.event.pull_request.number) || 'aipsite-self-hosted-frontend-heavy-v2' }}
       cancel-in-progress: false
       queue: max
 
