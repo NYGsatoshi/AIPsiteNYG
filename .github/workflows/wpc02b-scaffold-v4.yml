@@ -1,0 +1,72 @@
+name: WPC-02B branch scaffold v4
+
+on:
+  push:
+    branches:
+      - wpc-02b-capabilitygrant-workspace-general
+    paths:
+      - .github/workflows/wpc02b-scaffold-v4.yml
+
+permissions:
+  contents: write
+
+jobs:
+  scaffold:
+    if: github.actor != 'github-actions[bot]'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: wpc-02b-capabilitygrant-workspace-general
+          fetch-depth: 0
+      - uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: 10.0.302
+      - name: Reuse bounded integration patch
+        run: |
+          python3 <<'PY'
+          from pathlib import Path
+          import textwrap
+          workflow = Path('.github/workflows/wpc02b-scaffold.yml').read_text(encoding='utf-8')
+          marker = "python3 <<'PY'\n"
+          block = workflow.split(marker, 1)[1].split("\n          PY", 1)[0]
+          exec(textwrap.dedent(block), {})
+
+          repo = Path('src/AipPortal.Infrastructure/Persistence/MessagingRepository.cs')
+          text = repo.read_text(encoding='utf-8')
+          text = text.replace("AND workspace_member.\"Status\" = 'Active')))' ",
+                              "AND workspace_member.\"Status\" = 'Active')))\n")
+          repo.write_text(text, encoding='utf-8')
+          PY
+      - name: Restore tools and build
+        run: |
+          dotnet restore AipPortal.slnx
+          dotnet tool restore
+          dotnet build AipPortal.slnx --no-restore
+      - name: Generate migration
+        env:
+          ConnectionStrings__DefaultConnection: Host=127.0.0.1;Port=5432;Database=aip_wpc02b_design;Username=postgres;Password=postgres
+        run: |
+          dotnet ef migrations add Wpc02BCapabilityGrantWorkspaceGeneral \
+            --project src/AipPortal.Infrastructure/AipPortal.Infrastructure.csproj \
+            --startup-project src/AipPortal.Web/AipPortal.Web.csproj \
+            --context AppDbContext \
+            --output-dir Persistence/Migrations \
+            --no-build
+      - name: Rebuild snapshot and verify pending model
+        env:
+          ConnectionStrings__DefaultConnection: Host=127.0.0.1;Port=5432;Database=aip_wpc02b_design;Username=postgres;Password=postgres
+        run: |
+          dotnet build AipPortal.slnx --no-restore
+          dotnet ef migrations has-pending-model-changes \
+            --project src/AipPortal.Infrastructure/AipPortal.Infrastructure.csproj \
+            --startup-project src/AipPortal.Web/AipPortal.Web.csproj \
+            --context AppDbContext \
+            --no-build
+      - name: Commit integration and migration
+        run: |
+          git config user.name github-actions[bot]
+          git config user.email 41898282+github-actions[bot]@users.noreply.github.com
+          git add src
+          git commit -m "WPC-02B integrate capability grants and WorkspaceGeneral"
+          git push origin HEAD:wpc-02b-capabilitygrant-workspace-general
