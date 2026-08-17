@@ -59,3 +59,5 @@ jobs:
           --context AppDbContext
           --configuration Release
           --no-build
+
+# validation attempt 2
