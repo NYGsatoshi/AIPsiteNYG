@@ -15,9 +15,12 @@ concurrency:
   group: ci-${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
   cancel-in-progress: true
 
+permissions:
+  contents: read
+
 jobs:
   build-test:
-    runs-on: self-hosted
+    runs-on: ${{ github.event_name == 'pull_request' && 'ubuntu-24.04' || 'self-hosted' }}
     timeout-minutes: 90
 
     services:
@@ -61,6 +64,8 @@ jobs:
 
       - name: Checkout
         uses: actions/checkout@v7
+        with:
+          persist-credentials: false
 
       - name: Configure persistent .NET caches
         shell: bash
@@ -275,7 +280,7 @@ jobs:
           fi
 
   security-scan:
-    runs-on: self-hosted
+    runs-on: ${{ github.event_name == 'pull_request' && 'ubuntu-24.04' || 'self-hosted' }}
     timeout-minutes: 90
     permissions:
       contents: read
@@ -301,6 +306,7 @@ jobs:
         uses: actions/checkout@v7
         with:
           fetch-depth: 0
+          persist-credentials: false
 
       - name: Initialize security reports
         shell: bash
@@ -484,7 +490,7 @@ jobs:
             -v "$PWD:/repo" \
             aquasec/trivy:0.65.0 \
             image --scanners vuln --vuln-type os,library \
-            --severity HIGH,CRITICAL --ignore-unfixed \
+            --severity HIGH,CRITICAL --ignore-unfixed --exit-code 1 \
             --format table --output /repo/trivy-image-report.txt \
             "$IMAGE_NAME"
           status=$?
@@ -527,7 +533,7 @@ jobs:
             sh -c "chown -R ${uid}:${gid} /workspace"
 
   frontend-test:
-    runs-on: self-hosted
+    runs-on: ${{ github.event_name == 'pull_request' && 'ubuntu-24.04' || 'self-hosted' }}
     needs:
       - build-test
       - security-scan
@@ -550,6 +556,8 @@ jobs:
 
       - name: Checkout
         uses: actions/checkout@v7
+        with:
+          persist-credentials: false
 
       - name: Setup Node.js
         uses: actions/setup-node@v7
