@@ -8,10 +8,20 @@ public sealed class ConversationConfiguration : IEntityTypeConfiguration<Convers
 {
     public void Configure(EntityTypeBuilder<Conversation> builder)
     {
-        builder.ToTable("conversations");
+        builder.ToTable("conversations", table =>
+        {
+            table.HasCheckConstraint(
+                "CK_conversations_workspace_general_shape",
+                "\"DefaultKind\" <> 'WorkspaceGeneral' OR (\"Type\" = 'WorkspaceChannel' AND \"ProjectId\" IS NULL AND \"Visibility\" = 'PublicWithinScope')");
+            table.HasCheckConstraint(
+                "CK_conversations_project_general_shape",
+                "\"DefaultKind\" <> 'ProjectGeneral' OR (\"Type\" = 'ProjectChannel' AND \"ProjectId\" IS NOT NULL AND \"Visibility\" = 'PublicWithinScope')");
+        });
         builder.ConfigureAuditableEntity();
 
         builder.Property(conversation => conversation.Type).HasEnumStringConversion().IsRequired();
+        builder.Property(conversation => conversation.Visibility).HasConversion<string>().HasMaxLength(40);
+        builder.Property(conversation => conversation.DefaultKind).HasConversion<string>().HasMaxLength(40);
         builder.Property(conversation => conversation.Title).HasMaxLength(200);
 
         builder.HasIndex(conversation => conversation.WorkspaceId);
@@ -21,6 +31,12 @@ public sealed class ConversationConfiguration : IEntityTypeConfiguration<Convers
         builder.HasIndex(conversation => conversation.CreatedByUserId);
         builder.HasIndex(conversation => new { conversation.TenantId, conversation.WorkspaceId });
         builder.HasIndex(conversation => new { conversation.TenantId, conversation.WorkspaceId, conversation.ProjectId });
+        builder.HasIndex(conversation => new { conversation.TenantId, conversation.WorkspaceId, conversation.DefaultKind })
+            .IsUnique()
+            .HasFilter("\"DefaultKind\" = 'WorkspaceGeneral'");
+        builder.HasIndex(conversation => new { conversation.TenantId, conversation.ProjectId, conversation.DefaultKind })
+            .IsUnique()
+            .HasFilter("\"DefaultKind\" = 'ProjectGeneral' AND \"ProjectId\" IS NOT NULL");
         builder.HasIndex(conversation => new { conversation.TenantId, conversation.ParentConversationId });
         builder.HasIndex(conversation => new { conversation.TenantId, conversation.UpdatedAt });
 

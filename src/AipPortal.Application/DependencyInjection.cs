@@ -36,6 +36,8 @@ public static class DependencyInjection
         services.AddScoped<ICurrentTenant>(provider => provider.GetRequiredService<CurrentTenantService>());
         services.AddScoped<ICurrentTenantAccessor>(provider => provider.GetRequiredService<CurrentTenantService>());
         services.AddScoped<ITenantAuthorizationService, TenantAuthorizationService>();
+        services.AddScoped<ICapabilityGrantEvaluator, CapabilityGrantEvaluator>();
+        services.AddScoped<ICapabilityGrantService, CapabilityGrantService>();
         services.AddScoped<ITenantService, TenantService>();
         services.AddScoped<ITenantExportService, TenantExportService>();
         services.AddScoped<IFeatureFlagService, FeatureFlagService>();
@@ -69,7 +71,8 @@ public static class DependencyInjection
         services.AddSingleton(new CommunicationSafetyOptions());
         services.AddSingleton<ICommunicationSafetyGuard, InMemoryCommunicationSafetyGuard>();
         services.AddScoped<IAnnouncementService, AnnouncementService>();
-        services.AddScoped<IWorkspaceRequiredInitialization, UnavailableWorkspaceRequiredInitialization>();
+        services.AddScoped<IWorkspaceRequiredInitialization, WorkspaceGeneralRequiredInitialization>();
+        services.AddScoped<IWorkspaceGeneralMembershipSynchronizer, WorkspaceGeneralMembershipSynchronizer>();
         services.AddScoped<IWorkspaceService, WorkspaceService>();
         services.AddScoped<IGroupService, GroupService>();
         services.AddScoped<IChannelService, ChannelService>();
