@@ -23,11 +23,13 @@ public interface ICapabilityGrantEvaluator
 
 /// <summary>
 /// Authoritative current-state delegated-capability evaluator. Every decision
-/// revalidates the user, Tenant membership, Tenant lifecycle and grant lifetime.
+/// revalidates the user, Tenant membership, Tenant lifecycle, current scoped
+/// resource and grant lifetime.
 /// </summary>
 public sealed class CapabilityGrantEvaluator(
     ICapabilityGrantRepository grants,
     ITenantRepository tenants,
+    IWorkspaceRepository workspaces,
     ICurrentTenant currentTenant,
     IClock clock) : ICapabilityGrantEvaluator
 {
@@ -61,6 +63,18 @@ public sealed class CapabilityGrantEvaluator(
             user is not { Status: UserStatus.Active, DeletedAt: null })
         {
             return false;
+        }
+
+        if (scopeType == CapabilityScopeType.Workspace)
+        {
+            var workspace = await workspaces.GetByIdAsync(scopeId!.Value, cancellationToken);
+            if (workspace is null ||
+                workspace.TenantId != tenantId ||
+                workspace.DeletedAt.HasValue ||
+                workspace.Status == WorkspaceStatus.Deleted)
+            {
+                return false;
+            }
         }
 
         var grant = await grants.FindSlotAsync(
