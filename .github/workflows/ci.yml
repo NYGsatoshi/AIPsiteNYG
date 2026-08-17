@@ -20,7 +20,7 @@ permissions:
 
 jobs:
   build-test:
-    runs-on: ${{ github.event_name == 'pull_request' && 'ubuntu-24.04' || 'self-hosted' }}
+    runs-on: self-hosted
     timeout-minutes: 90
 
     services:
@@ -280,7 +280,7 @@ jobs:
           fi
 
   security-scan:
-    runs-on: ${{ github.event_name == 'pull_request' && 'ubuntu-24.04' || 'self-hosted' }}
+    runs-on: self-hosted
     timeout-minutes: 90
     permissions:
       contents: read
@@ -533,13 +533,13 @@ jobs:
             sh -c "chown -R ${uid}:${gid} /workspace"
 
   frontend-test:
-    runs-on: ${{ github.event_name == 'pull_request' && 'ubuntu-24.04' || 'self-hosted' }}
+    runs-on: self-hosted
     needs:
       - build-test
       - security-scan
     timeout-minutes: 120
     concurrency:
-      group: ${{ github.event_name == 'pull_request' && format('aipsite-ci-frontend-pr-{0}', github.event.pull_request.number) || 'aipsite-self-hosted-frontend-heavy-v2' }}
+      group: aipsite-self-hosted-frontend-heavy-v2
       cancel-in-progress: false
       queue: max
 
@@ -604,8 +604,6 @@ jobs:
       - name: Angular Storybook build
         working-directory: frontend
         env:
-          # The canonical Gantt Storybook build is larger than Node's default
-          # 2 GB heap. Keep the documented 4 GB build budget explicit in CI.
           NODE_OPTIONS: --max-old-space-size=4096
         run: npm run build-storybook
 
