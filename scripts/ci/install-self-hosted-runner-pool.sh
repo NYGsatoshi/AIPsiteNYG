@@ -7,8 +7,6 @@ Install additional GitHub Actions runners on the current Linux host.
 
 The existing runner remains in place. By default this script adds three more
 runner services, allowing up to four self-hosted jobs to execute concurrently.
-New runner registrations are also labeled for GitHub automatic dependency
-submission so NuGet dependency graph jobs can use the self-hosted pool.
 
 Usage:
   sudo RUNNER_TOKEN='<registration-token>' \
@@ -25,7 +23,7 @@ Options:
   --root PATH             Installation root. Default: /opt/aipsite-actions-runners.
   --version VERSION       actions/runner version. Default: 2.335.1.
   --labels LABELS         Additional comma-separated labels.
-                          Default: aipsiteci-pool,dependency-submission.
+                          Default: aipsiteci-pool.
   -h, --help              Show this help.
 
 A repository registration token is short-lived. Generate it immediately before
@@ -41,7 +39,7 @@ name_prefix="aipsiteci"
 user_prefix="aiprunner"
 install_root="/opt/aipsite-actions-runners"
 runner_version="2.335.1"
-extra_labels="aipsiteci-pool,dependency-submission"
+extra_labels="aipsiteci-pool"
 
 while [[ $# -gt 0 ]]; do
   case "$1" in
@@ -189,7 +187,6 @@ for index in $(seq "$start_index" "$last_index"); do
       --replace
   else
     echo "$runner_name is already configured; preserving its registration."
-    echo "Existing registrations are not relabeled by config.sh; verify the dependency-submission label in GitHub."
   fi
 
   if [[ ! -f "$runner_dir/.service" ]]; then
@@ -214,12 +211,8 @@ Existing runner: expected to provide one concurrent slot.
 Additional runners installed: $runner_count
 Expected total concurrent self-hosted jobs: $((runner_count + 1))
 
-All newly registered runners have the default self-hosted/Linux architecture labels plus:
+All added runners have the default self-hosted/Linux architecture labels plus:
   $extra_labels
-
-Already configured runners retain their existing labels. Add the
-'dependency-submission' label to those runners in GitHub before switching
-Automatic dependency submission to 'Enabled for labeled runners'.
 
 Verify them in GitHub:
   Settings > Actions > Runners
