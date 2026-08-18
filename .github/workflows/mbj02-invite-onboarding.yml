@@ -47,7 +47,9 @@ permissions:
 jobs:
   mbj02-invite-onboarding:
     if: github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository
-    runs-on: self-hosted
+    runs-on:
+      - codebuild-NYGsatoshi-${{ github.run_id }}-${{ github.run_attempt }}
+      - mbj02-invite-onboarding
     timeout-minutes: 45
     concurrency:
       group: mbj02-invite-${{ github.event.pull_request.number || github.ref }}
