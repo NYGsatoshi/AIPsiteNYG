@@ -23,7 +23,9 @@ permissions:
 jobs:
   acceptance:
     name: WPC-02C PostgreSQL / PG18
-    runs-on: self-hosted
+    runs-on:
+      - codebuild-NYGsatoshi-${{ github.run_id }}-${{ github.run_attempt }}
+      - acceptance
     timeout-minutes: 35
 
     services:
