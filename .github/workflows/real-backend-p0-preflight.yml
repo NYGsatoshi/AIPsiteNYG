@@ -38,7 +38,9 @@ permissions:
 
 jobs:
   real-backend-p0-preflight:
-    runs-on: self-hosted
+    runs-on:
+      - codebuild-NYGsatoshi-${{ github.run_id }}-${{ github.run_attempt }}
+      - real-backend-p0-preflight
     timeout-minutes: 5
 
     steps:
