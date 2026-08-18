@@ -43,7 +43,9 @@ permissions:
 jobs:
   real-backend-my-tasks-acceptance:
     if: github.event.pull_request.head.repo.full_name == github.repository
-    runs-on: self-hosted
+    runs-on:
+      - codebuild-NYGsatoshi-${{ github.run_id }}-${{ github.run_attempt }}
+      - real-backend-my-tasks-acceptance
     timeout-minutes: 45
     concurrency:
       group: real-backend-my-tasks-${{ github.event.pull_request.number }}
