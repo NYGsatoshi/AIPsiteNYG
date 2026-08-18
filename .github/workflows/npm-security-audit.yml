@@ -11,7 +11,9 @@ permissions:
 
 jobs:
   audit:
-    runs-on: self-hosted
+    runs-on:
+      - codebuild-NYGsatoshi-${{ github.run_id }}-${{ github.run_attempt }}
+      - audit
     timeout-minutes: 30
 
     steps:
@@ -150,7 +152,9 @@ jobs:
   install-policy:
     name: npm install policy
     needs: audit
-    runs-on: self-hosted
+    runs-on:
+      - codebuild-NYGsatoshi-${{ github.run_id }}-${{ github.run_attempt }}
+      - install-policy
     timeout-minutes: 30
 
     steps:
