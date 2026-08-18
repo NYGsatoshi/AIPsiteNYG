@@ -78,10 +78,7 @@ jobs:
             "$job_temp/home" \
             "$job_temp/nuget/scratch" \
             "$GITHUB_WORKSPACE/artifacts/ci" \
-            "$GITHUB_WORKSPACE/artifacts/test-results" \
-            "$GITHUB_WORKSPACE/artifacts/task-pr07b-test-results" \
-            "$GITHUB_WORKSPACE/artifacts/task-pr07c-test-results" \
-            "$GITHUB_WORKSPACE/artifacts/task-pr07d-test-results"
+            "$GITHUB_WORKSPACE/artifacts/test-results"
           {
             echo "DOTNET_INSTALL_DIR=$install_dir"
             echo "DOTNET_CMD=$install_dir/dotnet"
@@ -165,98 +162,32 @@ jobs:
           path: artifacts/test-results
           if-no-files-found: warn
 
-      - name: Run TASK-V1-PR07-B acceptance tests
-        shell: bash
-        run: |
-          "$DOTNET_CMD" test \
-            tests/AipPortal.Tests/AipPortal.Tests.csproj \
-            --configuration Release \
-            --no-build \
-            --disable-build-servers \
-            -m:1 \
-            --verbosity normal \
-            --filter "Scope=TaskV1PR07B" \
-            --logger "trx;LogFileName=task-pr07b-acceptance.trx" \
-            --results-directory artifacts/task-pr07b-test-results
-
       - name: Verify TASK-V1-PR07-B acceptance results
         shell: bash
         run: |
           bash scripts/ci/verify-trx-results.sh \
-            artifacts/task-pr07b-test-results/task-pr07b-acceptance.trx \
+            artifacts/test-results/backend-tests.trx \
             --minimum-total 1 \
             --required-tests scripts/ci/task-pr07b-required-tests.txt \
             --label "TASK-V1-PR07-B"
-
-      - name: Upload TASK-V1-PR07-B acceptance results
-        if: always()
-        uses: actions/upload-artifact@v7
-        with:
-          name: task-pr07b-acceptance-test-results
-          path: artifacts/task-pr07b-test-results
-          if-no-files-found: error
-
-      - name: Run TASK-V1-PR07-C acceptance tests
-        shell: bash
-        run: |
-          "$DOTNET_CMD" test \
-            tests/AipPortal.Tests/AipPortal.Tests.csproj \
-            --configuration Release \
-            --no-build \
-            --disable-build-servers \
-            -m:1 \
-            --verbosity normal \
-            --filter "Scope=TaskV1PR07C" \
-            --logger "trx;LogFileName=task-pr07c-acceptance.trx" \
-            --results-directory artifacts/task-pr07c-test-results
 
       - name: Verify TASK-V1-PR07-C acceptance results
         shell: bash
         run: |
           bash scripts/ci/verify-trx-results.sh \
-            artifacts/task-pr07c-test-results/task-pr07c-acceptance.trx \
+            artifacts/test-results/backend-tests.trx \
             --minimum-total 1 \
             --required-tests scripts/ci/task-pr07c-required-tests.txt \
             --label "TASK-V1-PR07-C"
-
-      - name: Upload TASK-V1-PR07-C acceptance results
-        if: always()
-        uses: actions/upload-artifact@v7
-        with:
-          name: task-pr07c-acceptance-test-results
-          path: artifacts/task-pr07c-test-results
-          if-no-files-found: error
-
-      - name: Run TASK-V1-PR07-D acceptance tests
-        shell: bash
-        run: |
-          "$DOTNET_CMD" test \
-            tests/AipPortal.Tests/AipPortal.Tests.csproj \
-            --configuration Release \
-            --no-build \
-            --disable-build-servers \
-            -m:1 \
-            --verbosity normal \
-            --filter "Scope=TaskV1PR07D" \
-            --logger "trx;LogFileName=task-pr07d-acceptance.trx" \
-            --results-directory artifacts/task-pr07d-test-results
 
       - name: Verify TASK-V1-PR07-D acceptance results
         shell: bash
         run: |
           bash scripts/ci/verify-trx-results.sh \
-            artifacts/task-pr07d-test-results/task-pr07d-acceptance.trx \
+            artifacts/test-results/backend-tests.trx \
             --minimum-total 1 \
             --required-tests scripts/ci/task-pr07d-required-tests.txt \
             --label "TASK-V1-PR07-D"
-
-      - name: Upload TASK-V1-PR07-D acceptance results
-        if: always()
-        uses: actions/upload-artifact@v7
-        with:
-          name: task-pr07d-acceptance-test-results
-          path: artifacts/task-pr07d-test-results
-          if-no-files-found: error
 
       - name: Report backend cache and host resources on failure
         if: failure()
