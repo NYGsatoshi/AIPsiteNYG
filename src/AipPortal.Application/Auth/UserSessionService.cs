@@ -70,10 +70,17 @@ public sealed class UserSessionService(
         string reason,
         CancellationToken cancellationToken = default)
     {
+        var targetSession = await sessions.GetByIdWithUserAsync(sessionId, cancellationToken);
         var revoked = await sessions.RevokeAsync(sessionId, clock.UtcNow, cancellationToken);
         if (revoked)
         {
-            await LogRevocationAsync(actorUserId, reason, 1, cancellationToken);
+            await LogRevocationAsync(
+                actorUserId,
+                targetSession?.UserId,
+                sessionId,
+                reason,
+                1,
+                cancellationToken);
             await unitOfWork.SaveChangesAsync(cancellationToken);
         }
 
@@ -90,7 +97,13 @@ public sealed class UserSessionService(
         var count = await sessions.RevokeUserSessionsAsync(userId, clock.UtcNow, exceptSessionId, cancellationToken);
         if (count > 0)
         {
-            await LogRevocationAsync(actorUserId, reason, count, cancellationToken);
+            await LogRevocationAsync(
+                actorUserId,
+                userId,
+                null,
+                reason,
+                count,
+                cancellationToken);
             await unitOfWork.SaveChangesAsync(cancellationToken);
         }
 
@@ -118,29 +131,31 @@ public sealed class UserSessionService(
 
     private async Task LogRevocationAsync(
         Guid? actorUserId,
+        Guid? targetUserId,
+        Guid? sessionId,
         string reason,
         int count,
         CancellationToken cancellationToken)
     {
+        var metadata = new Dictionary<string, object?>
+        {
+            ["targetUserId"] = targetUserId,
+            ["sessionId"] = sessionId,
+            ["reason"] = reason,
+            ["count"] = count
+        };
+
         await auditLogger.LogAsync(new AuditLogEntry(
             actorUserId,
             "SessionRevoked",
             "Session",
-            null,
+            sessionId,
             "User session revoked.",
-            Metadata: new Dictionary<string, object?>
-            {
-                ["reason"] = reason,
-                ["count"] = count
-            }), cancellationToken);
+            Metadata: metadata), cancellationToken);
         await auditLogger.LogSecurityAsync(
             "SessionRevoked",
             "User session revoked.",
-            new Dictionary<string, object?>
-            {
-                ["reason"] = reason,
-                ["count"] = count
-            },
+            metadata,
             cancellationToken: cancellationToken);
     }
 }
