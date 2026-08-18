@@ -10,30 +10,25 @@ namespace AipPortal.Tests.Persistence;
 public sealed class TaskV1PersistenceTests
 {
     [Fact]
-    public async Task CreatingProjectCreatesDeterministicDefaultWorkflow()
+    public async Task CreatingPlanningProjectDoesNotProvisionTaskWorkflowBeforeActivation()
     {
-        var (context, tenant, workspace, user) = await CreateGraphAsync();
+        var (context, _, workspace, user) = await CreateGraphAsync();
         var project = new Project
         {
             WorkspaceId = workspace.Id,
             OwnerUserId = user.Id,
             CreatedByUserId = user.Id,
             Name = "Task v1 project",
-            Slug = "task-v1-project"
+            Slug = "task-v1-project",
+            Status = ProjectStatus.Planning,
+            ActivationState = ProjectActivationState.NeverActivated
         };
 
         context.Projects.Add(project);
         await context.SaveChangesAsync();
 
-        var definition = await context.TaskWorkflowDefinitions.SingleAsync(item => item.ProjectId == project.Id);
-        var stages = await context.TaskWorkflowStages.Where(item => item.DefinitionId == definition.Id).OrderBy(item => item.SortKey).ToListAsync();
-        Assert.True(definition.ReviewEnforcementEnabled);
-        Assert.Equal(ProjectKanbanSwimlane.None, definition.KanbanDefaultSwimlane);
-        Assert.Equal(
-            [TaskStageCategory.Backlog, TaskStageCategory.Todo, TaskStageCategory.InProgress, TaskStageCategory.Review, TaskStageCategory.Done, TaskStageCategory.Cancelled],
-            stages.Select(item => item.InternalCategory));
-        Assert.Single(stages, item => item.IsInitialStage);
-        Assert.Equal(2, stages.Count(item => item.IsTerminalStage));
+        Assert.Empty(await context.TaskWorkflowDefinitions.Where(item => item.ProjectId == project.Id).ToListAsync());
+        Assert.Empty(await context.TaskWorkflowStages.Where(item => item.ProjectId == project.Id).ToListAsync());
     }
 
     [Fact]

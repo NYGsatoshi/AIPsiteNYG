@@ -141,8 +141,7 @@ public static class DependencyInjection
          NormalizePath(path).Contains("/dependencies", StringComparison.OrdinalIgnoreCase));
 
     private static bool IsWpcCreatePath(string? path, string method) =>
-        HttpMethods.IsPost(method) &&
-        NormalizePath(path).Equals("/api/workspaces", StringComparison.OrdinalIgnoreCase);
+        HttpMethods.IsPost(method) && ApiEnvelope.IsWorkspaceCreationPath(path);
 
     private static string NormalizePath(string? path) =>
         path?.TrimEnd('/') ?? string.Empty;
