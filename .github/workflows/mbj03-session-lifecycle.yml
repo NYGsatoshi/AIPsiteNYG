@@ -47,7 +47,9 @@ permissions:
 jobs:
   mbj03-session-lifecycle:
     if: github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository
-    runs-on: self-hosted
+    runs-on:
+      - codebuild-NYGsatoshi-${{ github.run_id }}-${{ github.run_attempt }}
+      - mbj03-session-lifecycle
     timeout-minutes: 45
     concurrency:
       group: mbj03-session-${{ github.event.pull_request.number || github.ref }}
