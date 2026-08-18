@@ -11,14 +11,40 @@ in a queue:
 - `Code Quality / Qodana Community / .NET`
 - `Code Quality / Angular / TypeScript / JavaScript / HTML / SCSS / CSS`
 
-The workflows already use `runs-on: self-hosted`. GitHub automatically distributes
-queued jobs across every online repository runner that matches the default
-`self-hosted`, `Linux`, and architecture labels. No workflow matrix or artificial
-job dependency is required.
+The repository-authored workflows already use `runs-on: self-hosted`. GitHub
+automatically distributes queued jobs across every online repository runner that
+matches the default `self-hosted`, `Linux`, and architecture labels. No workflow
+matrix or artificial job dependency is required.
 
 This repository therefore provides an installer that adds three independent
 runner services beside the existing `aipsiteci` runner, giving four concurrent
 execution slots in total.
+
+## Automatic NuGet dependency submission
+
+NuGet automatic dependency submission is a GitHub-managed workflow rather than a
+workflow YAML stored in this repository. It therefore does not inherit the
+`runs-on: self-hosted` setting from `ci.yml` or the other repository workflows.
+
+GitHub routes automatic dependency submission to self-hosted runners when both of
+the following are true:
+
+1. the eligible self-hosted runner has the custom label `dependency-submission`;
+2. **Settings > Security > Advanced Security > Dependency graph > Automatic
+   dependency submission** is set to **Enabled for labeled runners**.
+
+The runner-pool installer now assigns both `aipsiteci-pool` and
+`dependency-submission` to every newly registered runner by default. This makes
+new pool members eligible for the GitHub-managed NuGet submission jobs as soon as
+the repository setting above is enabled.
+
+The installer intentionally preserves existing `.runner` registrations. Running
+it again therefore does not mutate labels on runners that are already registered.
+For the existing `aipsiteci`, `aipsiteci-2`, `aipsiteci-3`, and `aipsiteci-4`
+runners, open **Settings > Actions > Runners**, select each runner, and add the
+`dependency-submission` custom label. Assigning it to all four runners allows the
+GitHub-managed submission jobs to use the same pool instead of falling back to
+GitHub-hosted infrastructure.
 
 ## Isolation model
 
@@ -64,18 +90,20 @@ sudo RUNNER_TOKEN='REPLACE_WITH_FRESH_TOKEN' \
 
 The default installation adds:
 
-| Runner | Linux user | Installation directory |
-|---|---|---|
-| `aipsiteci-2` | `aiprunner2` | `/opt/aipsite-actions-runners/aipsiteci-2` |
-| `aipsiteci-3` | `aiprunner3` | `/opt/aipsite-actions-runners/aipsiteci-3` |
-| `aipsiteci-4` | `aiprunner4` | `/opt/aipsite-actions-runners/aipsiteci-4` |
+| Runner | Linux user | Installation directory | Custom labels for new registrations |
+|---|---|---|---|
+| `aipsiteci-2` | `aiprunner2` | `/opt/aipsite-actions-runners/aipsiteci-2` | `aipsiteci-pool`, `dependency-submission` |
+| `aipsiteci-3` | `aiprunner3` | `/opt/aipsite-actions-runners/aipsiteci-3` | `aipsiteci-pool`, `dependency-submission` |
+| `aipsiteci-4` | `aiprunner4` | `/opt/aipsite-actions-runners/aipsiteci-4` | `aipsiteci-pool`, `dependency-submission` |
 
 The existing `aipsiteci` service remains unchanged and supplies the fourth slot.
+Add the `dependency-submission` label to that existing registration separately.
 
 ## Verify
 
 Check GitHub under **Settings > Actions > Runners**. All four runners should be
-online and idle before a workflow starts.
+online and idle before a workflow starts. Confirm that every runner intended for
+NuGet automatic dependency submission shows the `dependency-submission` label.
 
 On the server:
 
@@ -91,6 +119,11 @@ sudo systemctl status 'actions.runner.*aipsiteci-2*' --no-pager
 
 Trigger a pull-request workflow and confirm that Build, Security, Qodana, and
 Frontend obtain different runner names in their **Set up job** logs.
+
+After switching Automatic dependency submission to **Enabled for labeled
+runners**, trigger or wait for a NuGet dependency submission and confirm its
+**Set up job** step names one of the `aipsiteci*` self-hosted runners rather than
+a GitHub-hosted image.
 
 ## Capacity warning
 
@@ -127,5 +160,7 @@ existing `.runner` registration and starts the service when needed. Use a new
 registration token only when adding runner instances that have not yet been
 configured.
 
+Because GitHub does not apply new `config.sh --labels` values to an already
+registered runner, relabel existing runners in **Settings > Actions > Runners**.
 The installer does not delete or reconfigure the existing
 `/home/adminhome/actions-runner` instance.
