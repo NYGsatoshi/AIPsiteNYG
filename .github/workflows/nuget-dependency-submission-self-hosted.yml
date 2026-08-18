@@ -40,8 +40,9 @@ jobs:
           echo "runner.name=${RUNNER_NAME}"
           echo "runner.os=${RUNNER_OS}"
           echo "runner.arch=${RUNNER_ARCH}"
-          if [[ "${RUNNER_NAME}" == "GitHub Actions" ]]; then
-            echo "Unexpected GitHub-hosted runner." >&2
+          echo "runner.environment=${RUNNER_ENVIRONMENT}"
+          if [[ "${RUNNER_ENVIRONMENT}" != "self-hosted" ]]; then
+            echo "Unexpected runner environment: ${RUNNER_ENVIRONMENT}" >&2
             exit 1
           fi
 
