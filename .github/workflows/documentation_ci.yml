@@ -25,7 +25,9 @@ permissions:
 jobs:
   documentation:
     name: Documentation
-    runs-on: self-hosted
+    runs-on:
+      - codebuild-NYGsatoshi-${{ github.run_id }}-${{ github.run_attempt }}
+      - documentation
     timeout-minutes: 10
 
     steps:
