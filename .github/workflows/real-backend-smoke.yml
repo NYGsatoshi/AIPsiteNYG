@@ -14,7 +14,9 @@ permissions:
 
 jobs:
   real-backend-browser-smoke:
-    runs-on: self-hosted
+    runs-on:
+      - codebuild-NYGsatoshi-${{ github.run_id }}-${{ github.run_attempt }}
+      - real-backend-browser-smoke
     timeout-minutes: 35
     concurrency:
       group: aipsite-self-hosted-frontend-heavy-v2
