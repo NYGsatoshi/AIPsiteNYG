@@ -59,7 +59,7 @@ public sealed class HttpTenantIsolationTests
 
         Assert.Contains("GET api/workspaces/capabilities", app.GetHttpRoutes());
         Assert.Contains("POST api/workspaces", app.GetHttpRoutes());
-        Assert.DoesNotContain("POST api/workspaces/{workspaceId:guid}/projects", app.GetHttpRoutes());
+        Assert.Contains("POST api/workspaces/{workspaceId:guid}/projects", app.GetHttpRoutes());
         Assert.DoesNotContain("POST api/projects/{projectId:guid}/activate", app.GetHttpRoutes());
 
         using (var ownerCapability = await app.SendAsync(data.TenantAOwner, data.TenantA.Slug, "/api/workspaces/capabilities"))

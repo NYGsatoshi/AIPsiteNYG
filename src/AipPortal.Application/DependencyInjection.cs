@@ -43,6 +43,7 @@ public static class DependencyInjection
         // and therefore overrides these single-service fallbacks in the full host.
         services.AddScoped<ICapabilityGrantRepository, UnavailableCapabilityGrantRepository>();
         services.AddScoped<IDefaultConversationStore, UnavailableDefaultConversationStore>();
+        services.AddScoped<ICreateIdempotencyCoordinator, UnavailableCreateIdempotencyCoordinator>();
         services.AddScoped<ICapabilityGrantEvaluator, CapabilityGrantEvaluator>();
         services.AddScoped<ICapabilityGrantService, CapabilityGrantService>();
         services.AddScoped<ITenantService, TenantService>();
@@ -91,6 +92,7 @@ public static class DependencyInjection
         services.AddScoped<IntegrationService>();
         services.AddScoped<IIntegrationService>(provider => provider.GetRequiredService<IntegrationService>());
         services.AddScoped<IApiTokenValidator>(provider => provider.GetRequiredService<IntegrationService>());
+        services.AddScoped<ICanonicalProjectCreateService, CanonicalProjectCreateService>();
         services.AddScoped<IProjectService, ProjectService>();
         // Minimal hosts may register only IUnitOfWork after AddApplication. Reuse that
         // same scoped instance when it also supports the Task-specific save contract.
