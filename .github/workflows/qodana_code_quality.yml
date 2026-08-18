@@ -25,7 +25,9 @@ permissions:
 jobs:
   qodana-dotnet-community:
     name: Qodana Community / .NET
-    runs-on: self-hosted
+    runs-on:
+      - codebuild-NYGsatoshi-${{ github.run_id }}-${{ github.run_attempt }}
+      - qodana-dotnet-community
     timeout-minutes: 120
     permissions:
       contents: read
@@ -162,7 +164,9 @@ jobs:
 
   frontend-quality:
     name: Angular / TypeScript / JavaScript / HTML / SCSS / CSS
-    runs-on: self-hosted
+    runs-on:
+      - codebuild-NYGsatoshi-${{ github.run_id }}-${{ github.run_attempt }}
+      - frontend-quality
     needs: qodana-dotnet-community
     if: ${{ always() }}
     timeout-minutes: 90
