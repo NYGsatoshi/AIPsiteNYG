@@ -53,7 +53,7 @@ RUN --mount=type=cache,id=aipsite-docker-nuget,target=/root/.nuget/packages,shar
     dotnet restore src/AipPortal.Web/AipPortal.Web.csproj --force && \
     dotnet publish src/AipPortal.Web/AipPortal.Web.csproj -c Release -o /app/publish --no-restore
 
-FROM mcr.microsoft.com/dotnet/aspnet:10.0.10 AS runtime
+FROM mcr.microsoft.com/dotnet/aspnet:10.0.11 AS runtime
 WORKDIR /app
 RUN apt-get update \
     && apt-get install -y --no-install-recommends curl \
