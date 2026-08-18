@@ -20,31 +20,57 @@ This repository therefore provides an installer that adds three independent
 runner services beside the existing `aipsiteci` runner, giving four concurrent
 execution slots in total.
 
-## Automatic NuGet dependency submission
+## Strict self-hosted NuGet dependency submission
 
-NuGet automatic dependency submission is a GitHub-managed workflow rather than a
-workflow YAML stored in this repository. It therefore does not inherit the
-`runs-on: self-hosted` setting from `ci.yml` or the other repository workflows.
+GitHub's Automatic dependency submission is a GitHub-managed dynamic workflow.
+Even when it is configured for labeled self-hosted runners, GitHub documents that
+the automatic job can use GitHub Actions infrastructure when the eligible
+self-hosted runners are unavailable. That behavior does not meet this repository's
+strict requirement that NuGet dependency submission never consume GitHub-hosted
+runner capacity.
 
-GitHub routes automatic dependency submission to self-hosted runners when both of
-the following are true:
+For that reason, this repository uses the explicit workflow:
 
-1. the eligible self-hosted runner has the custom label `dependency-submission`;
-2. **Settings > Security > Advanced Security > Dependency graph > Automatic
-   dependency submission** is set to **Enabled for labeled runners**.
+```text
+.github/workflows/nuget-dependency-submission-self-hosted.yml
+```
 
-The runner-pool installer now assigns both `aipsiteci-pool` and
-`dependency-submission` to every newly registered runner by default. This makes
-new pool members eligible for the GitHub-managed NuGet submission jobs as soon as
-the repository setting above is enabled.
+The workflow has `runs-on: self-hosted`, uses GitHub's documented Component
+Detection dependency-submission action for NuGet, and only runs from repository
+workflow configuration. A job whose `runs-on` expression is `self-hosted` queues
+until an eligible self-hosted runner is available; it has no GitHub-hosted runner
+fallback.
 
-The installer intentionally preserves existing `.runner` registrations. Running
-it again therefore does not mutate labels on runners that are already registered.
-For the existing `aipsiteci`, `aipsiteci-2`, `aipsiteci-3`, and `aipsiteci-4`
-runners, open **Settings > Actions > Runners**, select each runner, and add the
-`dependency-submission` custom label. Assigning it to all four runners allows the
-GitHub-managed submission jobs to use the same pool instead of falling back to
-GitHub-hosted infrastructure.
+### Required repository setting
+
+After the explicit workflow is merged, open:
+
+**Settings > Security > Advanced Security > Dependency graph > Automatic dependency submission**
+
+and set Automatic dependency submission to **Disabled**.
+
+This setting is required. If GitHub Automatic dependency submission remains
+enabled, GitHub may continue creating `Dynamic Submit / NuGet` jobs independently
+of the repository-authored self-hosted workflow, causing duplicate dependency
+submissions and possible GitHub-hosted usage.
+
+Do not remove the NuGet entry from `.github/dependabot.yml` merely to suppress the
+dynamic job. Dependabot NuGet update configuration and dependency-graph submission
+are separate concerns. Keep Dependabot updates configured and disable only the
+GitHub-managed Automatic dependency submission feature.
+
+### Verification
+
+After merge and after disabling Automatic dependency submission:
+
+1. Open **Actions > NuGet Dependency Submission (Self-Hosted)**.
+2. Run the workflow with `workflow_dispatch`, or merge a NuGet manifest change to
+   `main`.
+3. Confirm the `Prove runner routing` step prints an `aipsiteci*` runner name.
+4. Confirm new `Dynamic Submit / NuGet` runs are no longer created.
+
+If the self-hosted pool is busy or offline, the explicit job must remain queued.
+It must not start on a GitHub-hosted image.
 
 ## Isolation model
 
@@ -90,20 +116,18 @@ sudo RUNNER_TOKEN='REPLACE_WITH_FRESH_TOKEN' \
 
 The default installation adds:
 
-| Runner | Linux user | Installation directory | Custom labels for new registrations |
-|---|---|---|---|
-| `aipsiteci-2` | `aiprunner2` | `/opt/aipsite-actions-runners/aipsiteci-2` | `aipsiteci-pool`, `dependency-submission` |
-| `aipsiteci-3` | `aiprunner3` | `/opt/aipsite-actions-runners/aipsiteci-3` | `aipsiteci-pool`, `dependency-submission` |
-| `aipsiteci-4` | `aiprunner4` | `/opt/aipsite-actions-runners/aipsiteci-4` | `aipsiteci-pool`, `dependency-submission` |
+| Runner | Linux user | Installation directory |
+|---|---|---|
+| `aipsiteci-2` | `aiprunner2` | `/opt/aipsite-actions-runners/aipsiteci-2` |
+| `aipsiteci-3` | `aiprunner3` | `/opt/aipsite-actions-runners/aipsiteci-3` |
+| `aipsiteci-4` | `aiprunner4` | `/opt/aipsite-actions-runners/aipsiteci-4` |
 
 The existing `aipsiteci` service remains unchanged and supplies the fourth slot.
-Add the `dependency-submission` label to that existing registration separately.
 
 ## Verify
 
 Check GitHub under **Settings > Actions > Runners**. All four runners should be
-online and idle before a workflow starts. Confirm that every runner intended for
-NuGet automatic dependency submission shows the `dependency-submission` label.
+online and idle before a workflow starts.
 
 On the server:
 
@@ -119,11 +143,6 @@ sudo systemctl status 'actions.runner.*aipsiteci-2*' --no-pager
 
 Trigger a pull-request workflow and confirm that Build, Security, Qodana, and
 Frontend obtain different runner names in their **Set up job** logs.
-
-After switching Automatic dependency submission to **Enabled for labeled
-runners**, trigger or wait for a NuGet dependency submission and confirm its
-**Set up job** step names one of the `aipsiteci*` self-hosted runners rather than
-a GitHub-hosted image.
 
 ## Capacity warning
 
@@ -160,7 +179,5 @@ existing `.runner` registration and starts the service when needed. Use a new
 registration token only when adding runner instances that have not yet been
 configured.
 
-Because GitHub does not apply new `config.sh --labels` values to an already
-registered runner, relabel existing runners in **Settings > Actions > Runners**.
 The installer does not delete or reconfigure the existing
 `/home/adminhome/actions-runner` instance.
