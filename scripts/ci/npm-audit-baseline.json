@@ -1,0 +1,65 @@
+{
+  "version": 1,
+  "findings": [
+    {
+      "report": "aipsite-frontend",
+      "package": "@angular-devkit/build-angular",
+      "severity": "high",
+      "via": ["dependency:@angular/build", "dependency:less"]
+    },
+    {
+      "report": "aipsite-frontend",
+      "package": "image-size",
+      "severity": "high",
+      "via": ["advisory:1138808", "advisory:1138809"]
+    },
+    {
+      "report": "aipsite-frontend",
+      "package": "less",
+      "severity": "high",
+      "via": ["dependency:image-size"]
+    },
+    {
+      "report": "aipsite-frontend",
+      "package": "nanoid",
+      "severity": "high",
+      "via": ["advisory:1139427"]
+    },
+    {
+      "report": "aipsite-frontend",
+      "package": "undici",
+      "severity": "high",
+      "via": ["advisory:1130715", "advisory:1130718", "advisory:1130726", "advisory:1130729", "advisory:1130731"]
+    },
+    {
+      "report": "frontend",
+      "package": "@angular-devkit/build-angular",
+      "severity": "high",
+      "via": ["dependency:@angular/build", "dependency:less"]
+    },
+    {
+      "report": "frontend",
+      "package": "image-size",
+      "severity": "high",
+      "via": ["advisory:1138808", "advisory:1138809"]
+    },
+    {
+      "report": "frontend",
+      "package": "less",
+      "severity": "high",
+      "via": ["dependency:image-size"]
+    },
+    {
+      "report": "frontend",
+      "package": "nanoid",
+      "severity": "high",
+      "via": ["advisory:1139427"]
+    },
+    {
+      "report": "frontend",
+      "package": "undici",
+      "severity": "high",
+      "via": ["advisory:1130715", "advisory:1130718", "advisory:1130726", "advisory:1130729", "advisory:1130731"]
+    }
+  ]
+}
