@@ -24,7 +24,9 @@ permissions:
 
 jobs:
   node-toolchain-preflight:
-    runs-on: self-hosted
+    runs-on:
+      - codebuild-NYGsatoshi-${{ github.run_id }}-${{ github.run_attempt }}
+      - node-toolchain-preflight
     timeout-minutes: 5
 
     steps:
