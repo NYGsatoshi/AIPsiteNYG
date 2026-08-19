@@ -4,6 +4,7 @@ using AipPortal.Domain.Entities;
 using AipPortal.Domain.Enums;
 using AipPortal.Infrastructure.Persistence;
 using Microsoft.EntityFrameworkCore;
+using Npgsql;
 
 namespace AipPortal.Tests.PostgreSql;
 
@@ -28,21 +29,23 @@ public sealed class Wpc02DConfiguredWorkflowSourcePostgreSqlTests
             Assert.True(workspace.IsSuccess, workspace.Error);
             Assert.Equal("Workspace Template", workspace.Value!.DisplayName);
             Assert.StartsWith($"TaskWorkflowTemplate/{graph.WorkspaceTemplateId:D}/v", workspace.Value.SourceIdentity);
-            Assert.Equal(new[] { "Workspace Todo", "Workspace Done" }, workspace.Value.Stages.Select(stage => stage.Name).ToArray());
+            Assert.Equal(
+                new[] { "Workspace Todo", "Workspace Done" },
+                workspace.Value.Stages.Select(stage => stage.Name).ToArray());
 
-            var workspaceRow = await db.Workspaces.SingleAsync(item => item.Id == graph.WorkspaceId);
-            workspaceRow.DefaultTaskWorkflowTemplateId = null;
-            await db.SaveChangesAsync();
+            await db.Database.ExecuteSqlInterpolatedAsync(
+                $"""DELETE FROM "workspace_task_workflow_defaults" WHERE "TenantId" = {graph.TenantId} AND "WorkspaceId" = {graph.WorkspaceId}""");
 
             var tenant = await resolver.ResolveAsync(project);
             Assert.True(tenant.IsSuccess, tenant.Error);
             Assert.Equal("Tenant Template", tenant.Value!.DisplayName);
             Assert.StartsWith($"TaskWorkflowTemplate/{graph.TenantTemplateId:D}/v", tenant.Value.SourceIdentity);
-            Assert.Equal(new[] { "Tenant Ready", "Tenant Complete" }, tenant.Value.Stages.Select(stage => stage.Name).ToArray());
+            Assert.Equal(
+                new[] { "Tenant Ready", "Tenant Complete" },
+                tenant.Value.Stages.Select(stage => stage.Name).ToArray());
 
-            var settings = await db.TenantSettings.SingleAsync(item => item.TenantId == graph.TenantId);
-            settings.DefaultTaskWorkflowTemplateId = null;
-            await db.SaveChangesAsync();
+            await db.Database.ExecuteSqlInterpolatedAsync(
+                $"""DELETE FROM "tenant_task_workflow_defaults" WHERE "TenantId" = {graph.TenantId}""");
 
             var fallback = await resolver.ResolveAsync(project);
             Assert.True(fallback.IsSuccess, fallback.Error);
@@ -122,19 +125,29 @@ public sealed class Wpc02DConfiguredWorkflowSourcePostgreSqlTests
             platform.Users.Add(user);
             await platform.SaveChangesAsync();
 
-            var foreignTemplate = new TaskWorkflowTemplate
-            {
-                TenantId = tenantB.Id,
-                Name = "Foreign Template",
-                ReviewEnforcementEnabled = true
-            };
-            platform.Set<TaskWorkflowTemplate>().Add(foreignTemplate);
-            await platform.SaveChangesAsync();
+            var foreignTemplateId = Guid.NewGuid();
+            await InsertTemplateAsync(
+                platform,
+                tenantB.Id,
+                foreignTemplateId,
+                "Foreign Template",
+                reviewEnforcementEnabled: true,
+                ("Ready", TaskStageCategory.Todo, 1000L, null, true, false),
+                ("Done", TaskStageCategory.Done, 2000L, null, false, true));
 
             var currentTenantA = new CurrentTenantService();
             currentTenantA.SetTenant(tenantA.Id, tenantA.Slug);
+            Guid workspaceId;
             await using (var seedA = new AppDbContext(Options(database), currentTenantA))
             {
+                seedA.TenantUsers.Add(new TenantUser
+                {
+                    TenantId = tenantA.Id,
+                    UserId = user.Id,
+                    Role = TenantUserRole.Owner,
+                    Status = TenantUserStatus.Active,
+                    JoinedAt = DateTimeOffset.UtcNow
+                });
                 var workspace = new Workspace
                 {
                     TenantId = tenantA.Id,
@@ -144,26 +157,28 @@ public sealed class Wpc02DConfiguredWorkflowSourcePostgreSqlTests
                     Status = WorkspaceStatus.Active
                 };
                 seedA.Workspaces.Add(workspace);
-                seedA.TenantSettings.Add(new TenantSettings
-                {
-                    TenantId = tenantA.Id,
-                    DisplayName = "Tenant A"
-                });
                 await seedA.SaveChangesAsync();
+                workspaceId = workspace.Id;
             }
 
             await using (var workspaceAttempt = new AppDbContext(Options(database), currentTenantA))
             {
-                var workspace = await workspaceAttempt.Workspaces.SingleAsync();
-                workspace.DefaultTaskWorkflowTemplateId = foreignTemplate.Id;
-                await Assert.ThrowsAsync<DbUpdateException>(() => workspaceAttempt.SaveChangesAsync());
+                await Assert.ThrowsAsync<PostgresException>(async () =>
+                    await workspaceAttempt.Database.ExecuteSqlInterpolatedAsync(
+                        $"""
+                        INSERT INTO "workspace_task_workflow_defaults" ("TenantId", "WorkspaceId", "TemplateId", "VersionNo")
+                        VALUES ({tenantA.Id}, {workspaceId}, {foreignTemplateId}, {1L})
+                        """));
             }
 
             await using (var tenantAttempt = new AppDbContext(Options(database), currentTenantA))
             {
-                var settings = await tenantAttempt.TenantSettings.SingleAsync();
-                settings.DefaultTaskWorkflowTemplateId = foreignTemplate.Id;
-                await Assert.ThrowsAsync<DbUpdateException>(() => tenantAttempt.SaveChangesAsync());
+                await Assert.ThrowsAsync<PostgresException>(async () =>
+                    await tenantAttempt.Database.ExecuteSqlInterpolatedAsync(
+                        $"""
+                        INSERT INTO "tenant_task_workflow_defaults" ("TenantId", "TemplateId", "VersionNo")
+                        VALUES ({tenantA.Id}, {foreignTemplateId}, {1L})
+                        """));
             }
         });
     }
@@ -181,20 +196,14 @@ public sealed class Wpc02DConfiguredWorkflowSourcePostgreSqlTests
         await db.SaveChangesAsync();
 
         currentTenant.SetTenant(tenant.Id, tenant.Slug);
-        var workspaceTemplate = NewTemplate(
-            tenant.Id,
-            "Workspace Template",
-            reviewEnforcementEnabled: false,
-            ("Workspace Todo", TaskStageCategory.Todo, 1000L, 3, true, false),
-            ("Workspace Done", TaskStageCategory.Done, 2000L, null, false, true));
-        var tenantTemplate = NewTemplate(
-            tenant.Id,
-            "Tenant Template",
-            reviewEnforcementEnabled: true,
-            ("Tenant Ready", TaskStageCategory.Backlog, 1000L, null, true, false),
-            ("Tenant Complete", TaskStageCategory.Done, 2000L, null, false, true));
-        db.Set<TaskWorkflowTemplate>().AddRange(workspaceTemplate, tenantTemplate);
-        await db.SaveChangesAsync();
+        db.TenantUsers.Add(new TenantUser
+        {
+            TenantId = tenant.Id,
+            UserId = owner.Id,
+            Role = TenantUserRole.Owner,
+            Status = TenantUserStatus.Active,
+            JoinedAt = DateTimeOffset.UtcNow
+        });
 
         var workspace = new Workspace
         {
@@ -202,14 +211,7 @@ public sealed class Wpc02DConfiguredWorkflowSourcePostgreSqlTests
             Name = $"Configured Workspace {suffix}",
             Slug = $"configured-{suffix}-{Guid.NewGuid():N}",
             CreatedByUserId = owner.Id,
-            Status = WorkspaceStatus.Active,
-            DefaultTaskWorkflowTemplateId = workspaceTemplate.Id
-        };
-        var settings = new TenantSettings
-        {
-            TenantId = tenant.Id,
-            DisplayName = $"Configured Tenant {suffix}",
-            DefaultTaskWorkflowTemplateId = tenantTemplate.Id
+            Status = WorkspaceStatus.Active
         };
         var project = new Project
         {
@@ -225,48 +227,74 @@ public sealed class Wpc02DConfiguredWorkflowSourcePostgreSqlTests
             VersionNo = 1
         };
         db.Workspaces.Add(workspace);
-        db.TenantSettings.Add(settings);
         db.Projects.Add(project);
         await db.SaveChangesAsync();
+
+        var workspaceTemplateId = Guid.NewGuid();
+        var tenantTemplateId = Guid.NewGuid();
+        await InsertTemplateAsync(
+            db,
+            tenant.Id,
+            workspaceTemplateId,
+            "Workspace Template",
+            reviewEnforcementEnabled: false,
+            ("Workspace Todo", TaskStageCategory.Todo, 1000L, 3, true, false),
+            ("Workspace Done", TaskStageCategory.Done, 2000L, null, false, true));
+        await InsertTemplateAsync(
+            db,
+            tenant.Id,
+            tenantTemplateId,
+            "Tenant Template",
+            reviewEnforcementEnabled: true,
+            ("Tenant Ready", TaskStageCategory.Backlog, 1000L, null, true, false),
+            ("Tenant Complete", TaskStageCategory.Done, 2000L, null, false, true));
+
+        await db.Database.ExecuteSqlInterpolatedAsync(
+            $"""
+            INSERT INTO "workspace_task_workflow_defaults" ("TenantId", "WorkspaceId", "TemplateId", "VersionNo")
+            VALUES ({tenant.Id}, {workspace.Id}, {workspaceTemplateId}, {1L})
+            """);
+        await db.Database.ExecuteSqlInterpolatedAsync(
+            $"""
+            INSERT INTO "tenant_task_workflow_defaults" ("TenantId", "TemplateId", "VersionNo")
+            VALUES ({tenant.Id}, {tenantTemplateId}, {1L})
+            """);
 
         return new ConfiguredGraph(
             tenant.Id,
             tenant.Slug,
             workspace.Id,
             project.Id,
-            workspaceTemplate.Id,
-            tenantTemplate.Id);
+            workspaceTemplateId,
+            tenantTemplateId);
     }
 
-    private static TaskWorkflowTemplate NewTemplate(
+    private static async Task InsertTemplateAsync(
+        AppDbContext db,
         Guid tenantId,
+        Guid templateId,
         string name,
         bool reviewEnforcementEnabled,
         params (string Name, TaskStageCategory Category, long SortKey, int? Wip, bool Initial, bool Terminal)[] stages)
     {
-        var template = new TaskWorkflowTemplate
-        {
-            TenantId = tenantId,
-            Name = name,
-            ReviewEnforcementEnabled = reviewEnforcementEnabled,
-            VersionNo = 1
-        };
+        await db.Database.ExecuteSqlInterpolatedAsync(
+            $"""
+            INSERT INTO "task_workflow_templates" ("Id", "TenantId", "Name", "ReviewEnforcementEnabled", "VersionNo")
+            VALUES ({templateId}, {tenantId}, {name}, {reviewEnforcementEnabled}, {1L})
+            """);
+
         foreach (var stage in stages)
         {
-            template.Stages.Add(new TaskWorkflowTemplateStage
-            {
-                TenantId = tenantId,
-                TemplateId = template.Id,
-                Name = stage.Name,
-                InternalCategory = stage.Category,
-                SortKey = stage.SortKey,
-                WipWarningLimit = stage.Wip,
-                IsInitialStage = stage.Initial,
-                IsTerminalStage = stage.Terminal,
-                VersionNo = 1
-            });
+            var stageId = Guid.NewGuid();
+            var category = stage.Category.ToString();
+            await db.Database.ExecuteSqlInterpolatedAsync(
+                $"""
+                INSERT INTO "task_workflow_template_stages"
+                    ("Id", "TenantId", "TemplateId", "Name", "InternalCategory", "SortKey", "WipWarningLimit", "IsInitialStage", "IsTerminalStage", "VersionNo")
+                VALUES
+                    ({stageId}, {tenantId}, {templateId}, {stage.Name}, {category}, {stage.SortKey}, {stage.Wip}, {stage.Initial}, {stage.Terminal}, {1L})
+                """);
         }
-        return template;
     }
 
     private static Tenant NewTenant(string suffix) => new()
@@ -277,14 +305,18 @@ public sealed class Wpc02DConfiguredWorkflowSourcePostgreSqlTests
         Status = TenantStatus.Active
     };
 
-    private static User NewUser(string suffix) => new()
+    private static User NewUser(string suffix)
     {
-        DisplayName = $"WPC02D {suffix}",
-        Email = $"{suffix}-{Guid.NewGuid():N}@example.test".ToLowerInvariant(),
-        NormalizedEmail = $"{suffix}-{Guid.NewGuid():N}@example.test".ToUpperInvariant(),
-        Status = UserStatus.Active,
-        SystemRole = SystemRole.NormalUser
-    };
+        var email = $"{suffix}-{Guid.NewGuid():N}@example.test".ToLowerInvariant();
+        return new User
+        {
+            DisplayName = $"WPC02D {suffix}",
+            Email = email,
+            NormalizedEmail = email.ToUpperInvariant(),
+            Status = UserStatus.Active,
+            SystemRole = SystemRole.NormalUser
+        };
+    }
 
     private static AppDbContext CreateTenantContext(
         string connectionString,
