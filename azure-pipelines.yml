@@ -1,22 +1,9 @@
-# Temporary Azure Pipelines CI for AIPsiteNYG.
-# Automatic GitHub Actions workflows that require self-hosted runners are
-# preserved as *.yml.disabled while this pipeline is in use.
-# Required Azure secret variable: SYNCFUSION_LICENSE
-#
-# The Azure jobs are path-scoped and deliberately reuse authoritative test
-# results instead of re-running the same acceptance scopes multiple times.
+# Temporary Azure Pipelines fallback for AIPsiteNYG.
+# Automatic CI is currently handled by the restored self-hosted GitHub Actions workflows.
+# Keep this definition available for manual fallback only.
 
-trigger:
-  batch: true
-  branches:
-    include:
-      - main
-
-pr:
-  autoCancel: true
-  branches:
-    include:
-      - main
+trigger: none
+pr: none
 
 pool:
   vmImage: ubuntu-latest
@@ -41,6 +28,4 @@ jobs:
   - template: ci/azure/core-jobs.yml
   - template: ci/azure/security-jobs.yml
   - template: ci/azure/frontend-jobs.yml
-  # Dedicated PR #313 validation. The template itself is source/PR-number
-  # guarded, so unrelated PRs do not run this WPC-02D job.
   - template: ci/azure/wpc02d-jobs.yml
