@@ -2,6 +2,9 @@
 # Automatic GitHub Actions workflows that require self-hosted runners are
 # preserved as *.yml.disabled while this pipeline is in use.
 # Required Azure secret variable: SYNCFUSION_LICENSE
+#
+# The Azure jobs are path-scoped and deliberately reuse authoritative test
+# results instead of re-running the same acceptance scopes multiple times.
 
 trigger:
   batch: true
