@@ -116,7 +116,7 @@ jobs:
         run: |
           bash scripts/ci/verify-trx-results.sh \
             artifacts/wpc02d-test-results/wpc02d-acceptance.trx \
-            --minimum-total 13 \
+            --minimum-total 14 \
             --required-tests scripts/ci/wpc02d-required-tests.txt \
             --label "WPC-02D PostgreSQL"
 

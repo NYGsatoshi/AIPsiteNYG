@@ -7,7 +7,8 @@ namespace AipPortal.Application.Projects;
 
 /// <summary>
 /// Canonical explicit first-activation command (WPC-DEC-032 / WPC-DEC-033).
-/// All required effects are staged before one activation unit-of-work save.
+/// Database-dependent validation and all required effects execute inside one
+/// activation-owned serializable transaction.
 /// </summary>
 public sealed class ProjectActivationService(
     IProjectRepository projects,
@@ -41,7 +42,39 @@ public sealed class ProjectActivationService(
             return Failure("TenantMembershipRequired", "An active Tenant membership is required.");
         }
 
+        if (projectId == Guid.Empty)
+        {
+            return NotFound();
+        }
+
+        if (expectedVersion <= 0)
+        {
+            return Failure(
+                "ValidationFailed",
+                "ExpectedVersion must be a positive integer.",
+                "body.expectedVersion");
+        }
+
         var tenantId = currentTenant.TenantId;
+        return await unitOfWork.ExecuteActivationAsync(
+            token => ActivateInsideTransactionAsync(
+                projectId,
+                expectedVersion,
+                userId,
+                tenantId,
+                token),
+            cancellationToken);
+    }
+
+    private async Task<Result> ActivateInsideTransactionAsync(
+        Guid projectId,
+        long expectedVersion,
+        Guid userId,
+        Guid tenantId,
+        CancellationToken cancellationToken)
+    {
+        // Every database-dependent authority/scope check is deliberately inside
+        // the activation transaction so there is one serializable business view.
         var tenantMembership = await tenants.GetTenantUserAsync(tenantId, userId, cancellationToken);
         if (tenantMembership is not { Status: TenantUserStatus.Active })
         {
@@ -54,19 +87,6 @@ public sealed class ProjectActivationService(
             user is not { Status: UserStatus.Active, DeletedAt: null })
         {
             return Failure("TenantMembershipRequired", "An active Tenant membership is required.");
-        }
-
-        if (projectId == Guid.Empty)
-        {
-            return NotFound();
-        }
-
-        if (expectedVersion <= 0)
-        {
-            return Failure(
-                "ValidationFailed",
-                "ExpectedVersion must be a positive integer.",
-                "body.expectedVersion");
         }
 
         var project = await projects.GetProjectAsync(projectId, cancellationToken);
@@ -151,6 +171,9 @@ public sealed class ProjectActivationService(
             return Failure("DependencyUnavailable", "Project activation is temporarily unavailable.");
         }
 
+        // The configured workflow adapter reuses the same scoped AppDbContext and
+        // current transaction, so Workspace/Tenant defaults and template rows are
+        // read from the same serializable snapshot as authorization and Project state.
         var workflowResult = await taskWorkflow.StageAsync(project, cancellationToken);
         if (!workflowResult.IsSuccess)
         {
@@ -186,21 +209,13 @@ public sealed class ProjectActivationService(
         catch (InvalidOperationException)
         {
             // BusinessInvalidationPublisher throws when its required durable
-            // event cannot be staged. Nothing has been saved at this point.
+            // event cannot be staged. The transaction executor rolls back every
+            // staged activation effect when this result is returned.
             return Failure("DependencyUnavailable", "Project activation is temporarily unavailable.");
         }
 
-        var save = await unitOfWork.SaveActivationAsync(cancellationToken);
-        return save switch
-        {
-            ProjectActivationSaveResult.Saved => Result.Success(),
-            ProjectActivationSaveResult.ConcurrencyConflict or ProjectActivationSaveResult.UniqueConflict =>
-                Failure(
-                    "ConcurrentModification",
-                    "Project activation raced another mutation. Refetch the Project before retrying.",
-                    "project"),
-            _ => Failure("DependencyUnavailable", "Project activation is temporarily unavailable.")
-        };
+        // The unit of work saves and commits only after this callback succeeds.
+        return Result.Success();
     }
 
     private bool TryCurrentUser(out Guid userId)

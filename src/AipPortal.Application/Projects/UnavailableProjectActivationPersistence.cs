@@ -1,3 +1,5 @@
+using AipPortal.Application.Common;
+
 namespace AipPortal.Application.Projects;
 
 /// <summary>
@@ -29,7 +31,10 @@ public sealed class UnavailableProjectActivationWorkflowStore : IProjectActivati
 
 public sealed class UnavailableProjectActivationUnitOfWork : IProjectActivationUnitOfWork
 {
-    public Task<ProjectActivationSaveResult> SaveActivationAsync(
+    public Task<Result> ExecuteActivationAsync(
+        Func<CancellationToken, Task<Result>> operation,
         CancellationToken cancellationToken = default) =>
-        Task.FromResult(ProjectActivationSaveResult.Failed);
+        Task.FromResult(Result.Failure(new ApplicationErrorDetail(
+            "DependencyUnavailable",
+            "Project activation persistence is unavailable.")));
 }

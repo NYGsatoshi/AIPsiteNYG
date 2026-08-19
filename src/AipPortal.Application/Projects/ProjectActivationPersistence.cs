@@ -1,19 +1,15 @@
+using AipPortal.Application.Common;
+
 namespace AipPortal.Application.Projects;
 
-public enum ProjectActivationSaveResult
-{
-    Saved,
-    ConcurrencyConflict,
-    UniqueConflict,
-    Failed
-}
-
 /// <summary>
-/// Persistence boundary for the single atomic activation save. Infrastructure
-/// maps provider-specific concurrency/uniqueness failures into stable outcomes.
+/// Owns the complete canonical activation transaction. Database-dependent
+/// authorization, scope/default resolution, staging, persistence and commit must
+/// execute inside the callback so activation observes one serializable snapshot.
 /// </summary>
 public interface IProjectActivationUnitOfWork
 {
-    Task<ProjectActivationSaveResult> SaveActivationAsync(
+    Task<Result> ExecuteActivationAsync(
+        Func<CancellationToken, Task<Result>> operation,
         CancellationToken cancellationToken = default);
 }
