@@ -5,30 +5,12 @@ jobs:
     steps:
       - checkout: self
         fetchDepth: 0
-        persistCredentials: false
+        # This job may need to fetch the PR target branch to compute a merge-base.
+        # Keep the Azure/GitHub service-connection credential only for this short job.
+        persistCredentials: true
 
       - bash: |
-          set -euo pipefail
-
-          head_sha="$SOURCE_VERSION"
-          if [ "$BUILD_REASON" = "PullRequest" ] && [ -n "${PR_SOURCE_COMMIT:-}" ]; then
-            head_sha="$PR_SOURCE_COMMIT"
-            target="${PR_TARGET_BRANCH#refs/heads/}"
-            git fetch --no-tags origin "$target"
-            base_sha="$(git merge-base "$head_sha" "origin/$target")"
-          else
-            if git rev-parse "${head_sha}^" >/dev/null 2>&1; then
-              base_sha="${head_sha}^"
-            else
-              base_sha="$(git hash-object -t tree /dev/null)"
-            fi
-          fi
-
-          echo "base=$base_sha"
-          echo "head=$head_sha"
-          git diff --name-only --diff-filter=ACMR "$base_sha" "$head_sha" | sort -u > changed-files.txt
-          echo "Changed files:"
-          cat changed-files.txt || true
+          set -uo pipefail
 
           primary=false
           docs=false
@@ -46,6 +28,44 @@ jobs:
           mbj02=false
           mbj03=false
           migration_all=false
+          detection_failed=false
+
+          compute_changed_files() {
+            local head_sha="$SOURCE_VERSION"
+            local base_sha=""
+
+            if [ "$BUILD_REASON" = "PullRequest" ] && [ -n "${PR_SOURCE_COMMIT:-}" ]; then
+              head_sha="$PR_SOURCE_COMMIT"
+              local target="${PR_TARGET_BRANCH#refs/heads/}"
+              [ -n "$target" ] || return 1
+
+              # checkout uses fetchDepth: 0, but the target tracking ref is not
+              # guaranteed to exist in every Azure/GitHub checkout shape.
+              git fetch --no-tags origin "$target" || return 1
+              base_sha="$(git merge-base "$head_sha" "origin/$target")" || return 1
+            else
+              if git rev-parse "${head_sha}^" >/dev/null 2>&1; then
+                base_sha="${head_sha}^"
+              else
+                base_sha="$(git hash-object -t tree /dev/null)" || return 1
+              fi
+            fi
+
+            echo "base=$base_sha"
+            echo "head=$head_sha"
+            git diff --name-only --diff-filter=ACMR "$base_sha" "$head_sha" | sort -u > changed-files.txt || return 1
+          }
+
+          if ! compute_changed_files; then
+            # Scope detection is an optimization only. If it cannot prove the
+            # diff, running too much CI is safer than silently skipping gates.
+            echo "##vso[task.logissue type=warning]Unable to compute changed-file scope; enabling the full Azure CI matrix."
+            : > changed-files.txt
+            detection_failed=true
+          fi
+
+          echo "Changed files:"
+          cat changed-files.txt || true
 
           while IFS= read -r file; do
             [ -n "$file" ] || continue
@@ -125,7 +145,7 @@ jobs:
             esac
           done < changed-files.txt
 
-          if [ "$migration_all" = true ]; then
+          if [ "$detection_failed" = true ] || [ "$migration_all" = true ]; then
             primary=true
             docs=true
             backend=true
@@ -142,6 +162,8 @@ jobs:
             mbj02=true
             mbj03=true
           fi
+
+          echo "CI scope summary: primary=$primary docs=$docs backend=$backend frontend=$frontend preflight=$preflight dotnetSecurity=$dotnet_security containerSecurity=$container_security npmSecurity=$npm_security npmLegacy=$npm_legacy qodana=$qodana p0=$p0 myTasks=$my_tasks mbj01=$mbj01 mbj02=$mbj02 mbj03=$mbj03"
 
           set_output() {
             echo "##vso[task.setvariable variable=$1;isOutput=true]$2"
