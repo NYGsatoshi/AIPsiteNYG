@@ -19,7 +19,7 @@ jobs:
               eq(variables['System.PullRequest.SourceBranch'], 'wpc-02d-project-activation')
             )
           ),
-          and(${{ parameters.allowManual }}, ne(variables['Build.Reason'], 'PullRequest'))
+          and(${{ eq(parameters.allowManual, true) }}, ne(variables['Build.Reason'], 'PullRequest'))
         )
       )
     services:
