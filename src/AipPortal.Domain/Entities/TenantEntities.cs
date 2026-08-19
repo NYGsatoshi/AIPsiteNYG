@@ -55,9 +55,12 @@ public sealed class TenantSettings : AuditableEntity, ITenantEntity
     public long FileUploadLimitBytes { get; set; } = 50L * 1024 * 1024;
     public string FeatureFlagsJson { get; set; } = "{}";
     public string NotificationSettingsJson { get; set; } = "{}";
+    /// <summary>Optional Tenant-wide Task workflow default used when a Workspace has no override.</summary>
+    public Guid? DefaultTaskWorkflowTemplateId { get; set; }
 
     public Tenant? Tenant { get; set; }
     public FileObject? LogoFile { get; set; }
+    public TaskWorkflowTemplate? DefaultTaskWorkflowTemplate { get; set; }
 }
 
 public sealed class Plan : AuditableEntity
