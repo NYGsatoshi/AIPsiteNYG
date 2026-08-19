@@ -41,3 +41,6 @@ jobs:
   - template: ci/azure/core-jobs.yml
   - template: ci/azure/security-jobs.yml
   - template: ci/azure/frontend-jobs.yml
+  # Dedicated PR #313 validation. The template itself is source/PR-number
+  # guarded, so unrelated PRs do not run this WPC-02D job.
+  - template: ci/azure/wpc02d-jobs.yml

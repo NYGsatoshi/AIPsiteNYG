@@ -23,12 +23,13 @@ public sealed class ProjectActivationUnitOfWork(AppDbContext dbContext) : IProje
             return DependencyFailure("A nested Project activation transaction is not allowed.");
         }
 
-        await using var transaction = await dbContext.Database.BeginTransactionAsync(
-            IsolationLevel.Serializable,
-            cancellationToken);
-
+        IDbContextTransaction? transaction = null;
         try
         {
+            transaction = await dbContext.Database.BeginTransactionAsync(
+                IsolationLevel.Serializable,
+                cancellationToken);
+
             var result = await operation(cancellationToken);
             if (!result.IsSuccess)
             {
@@ -67,25 +68,48 @@ public sealed class ProjectActivationUnitOfWork(AppDbContext dbContext) : IProje
             await RollbackAndClearAsync(transaction);
             return DependencyFailure("Project activation persistence failed.");
         }
+        catch (NpgsqlException)
+        {
+            // Includes connection/open/begin/commit provider failures that occur
+            // outside SaveChangesAsync. They are dependency failures, not 500s.
+            await RollbackAndClearAsync(transaction);
+            return DependencyFailure("Project activation persistence is unavailable.");
+        }
+        catch (TimeoutException)
+        {
+            await RollbackAndClearAsync(transaction);
+            return DependencyFailure("Project activation persistence is unavailable.");
+        }
         catch (InvalidOperationException)
         {
             await RollbackAndClearAsync(transaction);
             return DependencyFailure("Project activation persistence failed.");
         }
+        finally
+        {
+            if (transaction is not null)
+            {
+                await transaction.DisposeAsync();
+            }
+        }
     }
 
-    private async Task RollbackAndClearAsync(IDbContextTransaction transaction)
+    private async Task RollbackAndClearAsync(IDbContextTransaction? transaction)
     {
-        try
+        if (transaction is not null)
         {
-            await transaction.RollbackAsync(CancellationToken.None);
-        }
-        catch
-        {
-            // The original failure remains authoritative. Clearing tracking
-            // prevents a losing activation graph from leaking into later work.
+            try
+            {
+                await transaction.RollbackAsync(CancellationToken.None);
+            }
+            catch
+            {
+                // The original failure remains authoritative.
+            }
         }
 
+        // Prevent any losing/failed activation graph from leaking into later work
+        // in this scoped context, including failures before a transaction starts.
         dbContext.ChangeTracker.Clear();
     }
 
