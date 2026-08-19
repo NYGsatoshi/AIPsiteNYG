@@ -86,10 +86,10 @@ public static class ApiEnvelope
     }
 
     /// <summary>
-    /// Identifies the WPC creation surfaces that must use the canonical envelope
-    /// even when authentication, CSRF, model binding, or exception handling fails
-    /// before the controller executes. The method name is retained for WPC-01
-    /// compatibility; WPC-02C extends the family with Workspace-scoped Project create.
+    /// Identifies WPC canonical command surfaces that must use the canonical
+    /// envelope even when authentication, CSRF, model binding, or exception
+    /// handling fails before the controller executes. The method name is
+    /// retained for WPC-01 compatibility.
     /// </summary>
     public static bool IsWorkspaceCreationPath(string? path)
     {
@@ -101,10 +101,19 @@ public static class ApiEnvelope
         }
 
         var segments = normalized.Split('/', StringSplitOptions.RemoveEmptyEntries);
+        if (segments.Length == 4 &&
+            segments[0].Equals("api", StringComparison.OrdinalIgnoreCase) &&
+            segments[1].Equals("workspaces", StringComparison.OrdinalIgnoreCase) &&
+            Guid.TryParse(segments[2], out _) &&
+            segments[3].Equals("projects", StringComparison.OrdinalIgnoreCase))
+        {
+            return true;
+        }
+
         return segments.Length == 4 &&
                segments[0].Equals("api", StringComparison.OrdinalIgnoreCase) &&
-               segments[1].Equals("workspaces", StringComparison.OrdinalIgnoreCase) &&
+               segments[1].Equals("projects", StringComparison.OrdinalIgnoreCase) &&
                Guid.TryParse(segments[2], out _) &&
-               segments[3].Equals("projects", StringComparison.OrdinalIgnoreCase);
+               segments[3].Equals("activate", StringComparison.OrdinalIgnoreCase);
     }
 }
