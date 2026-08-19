@@ -14,14 +14,11 @@ public sealed class Workspace : SoftDeletableEntity, ITenantEntity
     public string? TimeZone { get; set; }
     /// <summary>Workspace-local digest default; this value intentionally has no timezone.</summary>
     public TimeOnly DefaultTaskDeadlineDigestLocalTime { get; set; } = new(8, 0);
-    /// <summary>Optional Tenant-owned Task workflow template selected for Project activation.</summary>
-    public Guid? DefaultTaskWorkflowTemplateId { get; set; }
     public long TaskNotificationSettingsVersion { get; set; } = 1;
     public WorkspaceStatus Status { get; set; } = WorkspaceStatus.Active;
     public Guid CreatedByUserId { get; set; }
 
     public User? CreatedByUser { get; set; }
-    public TaskWorkflowTemplate? DefaultTaskWorkflowTemplate { get; set; }
     public ICollection<WorkspaceMember> Members { get; } = new List<WorkspaceMember>();
     public ICollection<Group> Groups { get; } = new List<Group>();
 }
