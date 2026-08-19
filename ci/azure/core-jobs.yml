@@ -32,7 +32,14 @@ jobs:
 
           primary=false
           docs=false
+          backend=false
+          frontend=false
           preflight=false
+          dotnet_security=false
+          container_security=false
+          npm_security=false
+          npm_legacy=false
+          qodana=false
           p0=false
           my_tasks=false
           mbj01=false
@@ -53,8 +60,43 @@ jobs:
             esac
 
             case "$file" in
+              src/*|tests/AipPortal.Tests/*|AipPortal.slnx|global.json|Directory.Build.*|Directory.Packages.*|NuGet.config|NuGet.Config|.config/dotnet-tools.json|*.csproj|*.props|*.targets|*.sln|*.slnx|scripts/ci/verify-trx-results.sh|scripts/ci/task-pr07*-required-tests.txt|scripts/ci/wpc02*-required-tests.txt)
+                backend=true ;;
+            esac
+
+            case "$file" in
+              frontend/*|tests/ui/*|tools/frontend-inspections/*|package.json|package-lock.json|frontend.Dockerfile|Dockerfile.playwright|docker-compose.playwright.yml|scripts/ci/npm-ci-retry.sh|scripts/ci/verify-node-toolchain.mjs|scripts/ci/build-playwright-grep.mjs|scripts/ci/verify-playwright-required-tests.mjs|scripts/ci/real-backend-*-required-tests.txt)
+                frontend=true ;;
+            esac
+
+            case "$file" in
               Dockerfile|frontend.Dockerfile|package.json|frontend/package.json|scripts/ci/verify-node-toolchain.mjs|scripts/ci/build-playwright-grep.mjs|scripts/ci/real-backend-pr-p0-required-tests.txt|scripts/ci/verify-playwright-required-tests.mjs|tests/ui/build-playwright-grep.node-test.mjs|tests/ui/verify-playwright-required-tests.node-test.mjs|tests/ui/real-backend-smoke-compose-helpers.mjs|tests/ui/real-backend-smoke-compose-helpers.node-test.mjs|tests/ui/real-backend-smoke.spec.ts|tests/ui/prepare-real-backend-p0-state.mjs|tests/ui/run-real-backend-p0.mjs|tests/ui/run-real-backend-playwright.mjs|tests/ui/run-real-backend-smoke-compose.mjs|.github/workflows/node-toolchain-preflight.yml.disabled|.github/workflows/real-backend-p0-preflight.yml.disabled)
                 preflight=true ;;
+            esac
+
+            case "$file" in
+              *.csproj|*.props|*.targets|*.sln|*.slnx|Directory.Packages.*|NuGet.config|NuGet.Config|global.json|packages.lock.json|packages.config|.config/dotnet-tools.json)
+                dotnet_security=true ;;
+            esac
+
+            case "$file" in
+              Dockerfile|Dockerfile.*|frontend.Dockerfile|docker-compose*.yml|deploy/*docker-compose*.yml|*.csproj|*.props|*.targets|Directory.Packages.*|global.json|package.json|package-lock.json|frontend/package.json|frontend/package-lock.json)
+                container_security=true ;;
+            esac
+
+            case "$file" in
+              package.json|package-lock.json|frontend/package.json|frontend/package-lock.json|aipsite-frontend/package.json|aipsite-frontend/package-lock.json|.npmrc|scripts/ci/verify-npm-lockfile.mjs|scripts/ci/check-npm-audit-baseline.mjs|scripts/ci/npm-audit-baseline.json|scripts/ci/npm-ci-retry.sh)
+                npm_security=true ;;
+            esac
+
+            case "$file" in
+              aipsite-frontend/package.json|aipsite-frontend/package-lock.json|scripts/ci/npm-ci-retry.sh)
+                npm_legacy=true ;;
+            esac
+
+            case "$file" in
+              src/*|tests/AipPortal.Tests/*|*.csproj|*.sln|*.slnx|Directory.Build.*|Directory.Packages.*|global.json|qodana.yaml|.editorconfig|scripts/quality/*)
+                qodana=true ;;
             esac
 
             case "$file" in
@@ -86,7 +128,14 @@ jobs:
           if [ "$migration_all" = true ]; then
             primary=true
             docs=true
+            backend=true
+            frontend=true
             preflight=true
+            dotnet_security=true
+            container_security=true
+            npm_security=true
+            npm_legacy=true
+            qodana=true
             p0=true
             my_tasks=true
             mbj01=true
@@ -99,8 +148,14 @@ jobs:
           }
           set_output primary "$primary"
           set_output docs "$docs"
+          set_output backend "$backend"
+          set_output frontend "$frontend"
           set_output preflight "$preflight"
-          set_output npmSecurity true
+          set_output dotnetSecurity "$dotnet_security"
+          set_output containerSecurity "$container_security"
+          set_output npmSecurity "$npm_security"
+          set_output npmLegacy "$npm_legacy"
+          set_output qodana "$qodana"
           set_output p0 "$p0"
           set_output myTasks "$my_tasks"
           set_output mbj01 "$mbj01"
@@ -155,45 +210,10 @@ jobs:
           PY
         displayName: Validate UTF-8 and conflict markers
 
-  - job: Preflight
-    displayName: Node and real-backend P0 preflight
-    dependsOn: DetectChanges
-    condition: and(succeeded(), eq(dependencies.DetectChanges.outputs['changes.preflight'], 'true'))
-    timeoutInMinutes: 10
-    steps:
-      - checkout: self
-        persistCredentials: false
-      - task: NodeTool@0
-        displayName: Install Node.js 24
-        inputs:
-          versionSpec: '24.x'
-      - bash: node scripts/ci/verify-node-toolchain.mjs
-        displayName: Verify Node toolchain policy
-      - bash: >-
-          node --test
-          tests/ui/build-playwright-grep.node-test.mjs
-          tests/ui/verify-playwright-required-tests.node-test.mjs
-          tests/ui/real-backend-smoke-compose-helpers.node-test.mjs
-        displayName: Test P0 manifest and runner helpers
-        condition: succeededOrFailed()
-      - bash: |
-          set -euo pipefail
-          node --check tests/ui/prepare-real-backend-p0-state.mjs
-          node --check tests/ui/real-backend-smoke-compose-helpers.mjs
-          node --check tests/ui/run-real-backend-p0.mjs
-          node --check tests/ui/run-real-backend-playwright.mjs
-          node --check tests/ui/run-real-backend-smoke-compose.mjs
-          grep_pattern="$(node scripts/ci/build-playwright-grep.mjs \
-            scripts/ci/real-backend-pr-p0-required-tests.txt \
-            --verify tests/ui/real-backend-smoke.spec.ts)"
-          test -n "$grep_pattern"
-        displayName: Validate P0 syntax and required test titles
-        condition: succeededOrFailed()
-
   - job: BuildTest
-    displayName: Backend build and test
+    displayName: Backend build, test and .NET dependency gates
     dependsOn: DetectChanges
-    condition: and(succeeded(), eq(dependencies.DetectChanges.outputs['changes.primary'], 'true'))
+    condition: and(succeeded(), eq(dependencies.DetectChanges.outputs['changes.backend'], 'true'))
     timeoutInMinutes: 60
     services:
       postgres: postgres
@@ -205,6 +225,7 @@ jobs:
       DOTNET_NOLOGO: '1'
       DOTNET_MULTILEVEL_LOOKUP: '0'
       DOTNET_CLI_WORKLOAD_UPDATE_NOTIFY_DISABLE: '1'
+      runDotnetSecurity: $[ dependencies.DetectChanges.outputs['changes.dotnetSecurity'] ]
     steps:
       - checkout: self
         persistCredentials: false
@@ -227,7 +248,7 @@ jobs:
         displayName: Wait for PostgreSQL
       - bash: |
           set -euo pipefail
-          mkdir -p artifacts/ci artifacts/test-results artifacts/task-pr07b-test-results artifacts/task-pr07c-test-results artifacts/task-pr07d-test-results
+          mkdir -p artifacts/ci artifacts/test-results artifacts/security
           log="artifacts/ci/build-test-dotnet-restore.log"
           set +e
           dotnet restore AipPortal.slnx --disable-parallel --verbosity normal 2>&1 | tee "$log"
@@ -249,30 +270,56 @@ jobs:
           --verbosity normal --logger "trx;LogFileName=backend-tests.trx"
           --results-directory artifacts/test-results
         displayName: Full backend tests
+
       - bash: bash scripts/ci/verify-trx-results.sh artifacts/test-results/backend-tests.trx --minimum-total 1 --label "Full backend"
         displayName: Verify full backend results
         condition: succeededOrFailed()
-      - bash: |
-          dotnet test tests/AipPortal.Tests/AipPortal.Tests.csproj --configuration Release --no-build --disable-build-servers -m:1 --verbosity normal --filter "Scope=TaskV1PR07B" --logger "trx;LogFileName=task-pr07b-acceptance.trx" --results-directory artifacts/task-pr07b-test-results
-          bash scripts/ci/verify-trx-results.sh artifacts/task-pr07b-test-results/task-pr07b-acceptance.trx --minimum-total 1 --required-tests scripts/ci/task-pr07b-required-tests.txt --label "TASK-V1-PR07-B"
-        displayName: TASK-V1-PR07-B acceptance
+      - bash: bash scripts/ci/verify-trx-results.sh artifacts/test-results/backend-tests.trx --minimum-total 1 --required-tests scripts/ci/task-pr07b-required-tests.txt --label "TASK-V1-PR07-B"
+        displayName: Verify TASK-V1-PR07-B required tests from full run
         condition: succeededOrFailed()
-      - bash: |
-          dotnet test tests/AipPortal.Tests/AipPortal.Tests.csproj --configuration Release --no-build --disable-build-servers -m:1 --verbosity normal --filter "Scope=TaskV1PR07C" --logger "trx;LogFileName=task-pr07c-acceptance.trx" --results-directory artifacts/task-pr07c-test-results
-          bash scripts/ci/verify-trx-results.sh artifacts/task-pr07c-test-results/task-pr07c-acceptance.trx --minimum-total 1 --required-tests scripts/ci/task-pr07c-required-tests.txt --label "TASK-V1-PR07-C"
-        displayName: TASK-V1-PR07-C acceptance
+      - bash: bash scripts/ci/verify-trx-results.sh artifacts/test-results/backend-tests.trx --minimum-total 1 --required-tests scripts/ci/task-pr07c-required-tests.txt --label "TASK-V1-PR07-C"
+        displayName: Verify TASK-V1-PR07-C required tests from full run
         condition: succeededOrFailed()
-      - bash: |
-          dotnet test tests/AipPortal.Tests/AipPortal.Tests.csproj --configuration Release --no-build --disable-build-servers -m:1 --verbosity normal --filter "Scope=TaskV1PR07D" --logger "trx;LogFileName=task-pr07d-acceptance.trx" --results-directory artifacts/task-pr07d-test-results
-          bash scripts/ci/verify-trx-results.sh artifacts/task-pr07d-test-results/task-pr07d-acceptance.trx --minimum-total 1 --required-tests scripts/ci/task-pr07d-required-tests.txt --label "TASK-V1-PR07-D"
-        displayName: TASK-V1-PR07-D acceptance
+      - bash: bash scripts/ci/verify-trx-results.sh artifacts/test-results/backend-tests.trx --minimum-total 1 --required-tests scripts/ci/task-pr07d-required-tests.txt --label "TASK-V1-PR07-D"
+        displayName: Verify TASK-V1-PR07-D required tests from full run
         condition: succeededOrFailed()
+      - bash: bash scripts/ci/verify-trx-results.sh artifacts/test-results/backend-tests.trx --minimum-total 4 --required-tests scripts/ci/wpc02b-required-tests.txt --label "WPC-02B PostgreSQL"
+        displayName: Verify WPC-02B required tests from full run
+        condition: succeededOrFailed()
+      - bash: bash scripts/ci/verify-trx-results.sh artifacts/test-results/backend-tests.trx --minimum-total 15 --required-tests scripts/ci/wpc02c-required-tests.txt --label "WPC-02C PostgreSQL"
+        displayName: Verify WPC-02C required tests from full run
+        condition: succeededOrFailed()
+
+      - bash: |
+          set -euo pipefail
+          set +e
+          dotnet list AipPortal.slnx package --vulnerable --include-transitive > artifacts/security/dotnet-vulnerable-packages.txt 2>&1
+          status=$?
+          set -e
+          cat artifacts/security/dotnet-vulnerable-packages.txt
+          if grep -q "has the following vulnerable packages" artifacts/security/dotnet-vulnerable-packages.txt; then
+            exit 1
+          fi
+          exit "$status"
+        displayName: Check .NET vulnerable packages
+        condition: and(succeededOrFailed(), eq(variables['runDotnetSecurity'], 'true'))
+      - bash: |
+          set -euo pipefail
+          set +e
+          dotnet list AipPortal.slnx package --deprecated > artifacts/security/dotnet-deprecated-packages.txt 2>&1
+          status=$?
+          set -e
+          cat artifacts/security/dotnet-deprecated-packages.txt
+          exit "$status"
+        displayName: Report .NET deprecated packages
+        condition: and(succeededOrFailed(), eq(variables['runDotnetSecurity'], 'true'))
+
       - task: PublishTestResults@2
         displayName: Publish backend test results
         condition: always()
         inputs:
           testResultsFormat: VSTest
-          testResultsFiles: 'artifacts/**/*.trx'
+          testResultsFiles: 'artifacts/test-results/*.trx'
           searchFolder: '$(Build.SourcesDirectory)'
           failTaskOnFailedTests: true
           failTaskOnMissingResultsFile: false
@@ -283,83 +330,3 @@ jobs:
           targetPath: '$(Build.SourcesDirectory)/artifacts'
           artifact: backend-ci-artifacts
           publishLocation: pipeline
-
-  - job: WPC02B
-    displayName: WPC-02B PostgreSQL acceptance
-    dependsOn: DetectChanges
-    condition: and(succeeded(), eq(dependencies.DetectChanges.outputs['changes.primary'], 'true'))
-    timeoutInMinutes: 35
-    services:
-      postgres: postgres
-    variables:
-      ASPNETCORE_ENVIRONMENT: Test
-      POSTGRES_TEST_CONNECTION_STRING: 'Host=localhost;Port=5432;Database=aip_portal_ci;Username=aip_portal_ci;Password=aip_portal_ci_password'
-      ConnectionStrings__DefaultConnection: 'Host=localhost;Port=5432;Database=aip_portal_ci;Username=aip_portal_ci;Password=aip_portal_ci_password'
-    steps:
-      - checkout: self
-        persistCredentials: false
-      - task: UseDotNet@2
-        inputs:
-          packageType: sdk
-          useGlobalJson: true
-          workingDirectory: '$(Build.SourcesDirectory)'
-        displayName: Install .NET SDK
-      - bash: dotnet restore AipPortal.slnx --disable-parallel --verbosity normal
-        displayName: Restore
-      - bash: dotnet build AipPortal.slnx --configuration Release --no-restore --disable-build-servers -m:1
-        displayName: Build
-      - bash: |
-          mkdir -p artifacts/wpc02b-test-results
-          dotnet test tests/AipPortal.Tests/AipPortal.Tests.csproj --configuration Release --no-build --disable-build-servers -m:1 --verbosity normal --filter "Scope=WPC02B" --logger "trx;LogFileName=wpc02b-acceptance.trx" --results-directory artifacts/wpc02b-test-results
-        displayName: Run WPC-02B acceptance
-      - bash: bash scripts/ci/verify-trx-results.sh artifacts/wpc02b-test-results/wpc02b-acceptance.trx --minimum-total 4 --required-tests scripts/ci/wpc02b-required-tests.txt --label "WPC-02B PostgreSQL"
-        displayName: Verify WPC-02B required tests
-        condition: succeededOrFailed()
-      - task: PublishTestResults@2
-        condition: always()
-        inputs:
-          testResultsFormat: VSTest
-          testResultsFiles: 'artifacts/wpc02b-test-results/*.trx'
-          failTaskOnFailedTests: true
-          failTaskOnMissingResultsFile: false
-        displayName: Publish WPC-02B results
-
-  - job: WPC02C
-    displayName: WPC-02C PostgreSQL acceptance
-    dependsOn: DetectChanges
-    condition: and(succeeded(), eq(dependencies.DetectChanges.outputs['changes.primary'], 'true'))
-    timeoutInMinutes: 35
-    services:
-      postgres: postgres
-    variables:
-      ASPNETCORE_ENVIRONMENT: Test
-      POSTGRES_TEST_CONNECTION_STRING: 'Host=localhost;Port=5432;Database=aip_portal_ci;Username=aip_portal_ci;Password=aip_portal_ci_password'
-      ConnectionStrings__DefaultConnection: 'Host=localhost;Port=5432;Database=aip_portal_ci;Username=aip_portal_ci;Password=aip_portal_ci_password'
-    steps:
-      - checkout: self
-        persistCredentials: false
-      - task: UseDotNet@2
-        inputs:
-          packageType: sdk
-          useGlobalJson: true
-          workingDirectory: '$(Build.SourcesDirectory)'
-        displayName: Install .NET SDK
-      - bash: dotnet restore AipPortal.slnx --disable-parallel --verbosity normal
-        displayName: Restore
-      - bash: dotnet build AipPortal.slnx --configuration Release --no-restore --disable-build-servers -m:1
-        displayName: Build
-      - bash: |
-          mkdir -p artifacts/wpc02c-test-results
-          dotnet test tests/AipPortal.Tests/AipPortal.Tests.csproj --configuration Release --no-build --disable-build-servers -m:1 --verbosity normal --filter "Scope=WPC02C" --logger "trx;LogFileName=wpc02c-acceptance.trx" --results-directory artifacts/wpc02c-test-results
-        displayName: Run WPC-02C acceptance
-      - bash: bash scripts/ci/verify-trx-results.sh artifacts/wpc02c-test-results/wpc02c-acceptance.trx --minimum-total 15 --required-tests scripts/ci/wpc02c-required-tests.txt --label "WPC-02C PostgreSQL"
-        displayName: Verify WPC-02C required tests
-        condition: succeededOrFailed()
-      - task: PublishTestResults@2
-        condition: always()
-        inputs:
-          testResultsFormat: VSTest
-          testResultsFiles: 'artifacts/wpc02c-test-results/*.trx'
-          failTaskOnFailedTests: true
-          failTaskOnMissingResultsFile: false
-        displayName: Publish WPC-02C results
