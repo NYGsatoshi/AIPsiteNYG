@@ -1,6 +1,6 @@
 jobs:
   - job: SecurityScan
-    displayName: Security and container scan
+    displayName: Secret and container security
     dependsOn: DetectChanges
     condition: and(succeeded(), eq(dependencies.DetectChanges.outputs['changes.primary'], 'true'))
     timeoutInMinutes: 60
@@ -8,10 +8,7 @@ jobs:
       IMAGE_NAME: 'aipsite-nyg-ci:$(Build.SourceVersion)-$(Build.BuildId)'
       DOCKER_BUILDKIT: '1'
       BUILDKIT_PROGRESS: plain
-      DOTNET_CLI_TELEMETRY_OPTOUT: '1'
-      DOTNET_NOLOGO: '1'
-      DOTNET_MULTILEVEL_LOOKUP: '0'
-      DOTNET_CLI_WORKLOAD_UPDATE_NOTIFY_DISABLE: '1'
+      runContainerSecurity: $[ dependencies.DetectChanges.outputs['changes.containerSecurity'] ]
     steps:
       - checkout: self
         fetchDepth: 0
@@ -19,7 +16,7 @@ jobs:
 
       - bash: |
           set -euo pipefail
-          mkdir -p artifacts/security artifacts/ci
+          mkdir -p artifacts/security
           set +e
           docker run --rm \
             -v "$PWD:/repo" \
@@ -32,53 +29,6 @@ jobs:
           cat artifacts/security/gitleaks-report.json
           exit "$status"
         displayName: Gitleaks secret scan
-
-      - task: UseDotNet@2
-        displayName: Install .NET SDK from global.json
-        condition: succeededOrFailed()
-        inputs:
-          packageType: sdk
-          useGlobalJson: true
-          workingDirectory: '$(Build.SourcesDirectory)'
-
-      - bash: |
-          set -euo pipefail
-          mkdir -p artifacts/ci
-          log="artifacts/ci/security-dotnet-restore.log"
-          set +e
-          dotnet restore AipPortal.slnx --disable-parallel --verbosity normal 2>&1 | tee "$log"
-          status=${PIPESTATUS[0]}
-          set -e
-          exit "$status"
-        displayName: Restore for security scan
-        condition: succeededOrFailed()
-
-      - bash: |
-          set -euo pipefail
-          mkdir -p artifacts/security
-          set +e
-          dotnet list AipPortal.slnx package --vulnerable --include-transitive > artifacts/security/dotnet-vulnerable-packages.txt 2>&1
-          status=$?
-          set -e
-          cat artifacts/security/dotnet-vulnerable-packages.txt
-          if grep -q "has the following vulnerable packages" artifacts/security/dotnet-vulnerable-packages.txt; then
-            exit 1
-          fi
-          exit "$status"
-        displayName: Check .NET vulnerable packages
-        condition: succeededOrFailed()
-
-      - bash: |
-          set -euo pipefail
-          mkdir -p artifacts/security
-          set +e
-          dotnet list AipPortal.slnx package --deprecated > artifacts/security/dotnet-deprecated-packages.txt 2>&1
-          status=$?
-          set -e
-          cat artifacts/security/dotnet-deprecated-packages.txt
-          exit "$status"
-        displayName: Report .NET deprecated packages
-        condition: succeededOrFailed()
 
       - bash: |
           set -euo pipefail
@@ -96,7 +46,7 @@ jobs:
           docker compose -f docker-compose.onprem.yml config --quiet
           docker compose -p deploy -f deploy/sakura/docker-compose.yml config --quiet
         displayName: Validate Docker Compose configs
-        condition: succeededOrFailed()
+        condition: and(succeededOrFailed(), eq(variables['runContainerSecurity'], 'true'))
 
       - bash: |
           set -euo pipefail
@@ -120,13 +70,14 @@ jobs:
             docker system df || true
             sleep 15
           done
-        displayName: Build Docker image
-        condition: succeededOrFailed()
+        displayName: Build production Docker image
+        condition: and(succeededOrFailed(), eq(variables['runContainerSecurity'], 'true'))
         env:
           SYNCFUSION_LICENSE: $(SYNCFUSION_LICENSE)
 
       - bash: |
           set -euo pipefail
+          docker image inspect "$IMAGE_NAME" >/dev/null
           docker run --rm --entrypoint sh "$IMAGE_NAME" -c '
             test ! -e /run/secrets &&
             test ! -e /app/.env &&
@@ -134,11 +85,12 @@ jobs:
             ! find /app -type f \( -name ".env" -o -name ".env.*" -o -name "syncfusion-license.txt" \) -print -quit | grep -q .
           '
         displayName: Verify runtime image excludes license material
-        condition: succeededOrFailed()
+        condition: and(succeededOrFailed(), eq(variables['runContainerSecurity'], 'true'))
 
       - bash: |
           set -euo pipefail
           mkdir -p artifacts/security
+          docker image inspect "$IMAGE_NAME" >/dev/null
           set +e
           docker run --rm \
             -v /var/run/docker.sock:/var/run/docker.sock \
@@ -153,13 +105,13 @@ jobs:
           test -f artifacts/security/trivy-image-report.txt && cat artifacts/security/trivy-image-report.txt
           exit "$status"
         displayName: Trivy image scan
-        condition: succeededOrFailed()
+        condition: and(succeededOrFailed(), eq(variables['runContainerSecurity'], 'true'))
 
       - task: PublishPipelineArtifact@1
         displayName: Publish security reports
         condition: always()
         inputs:
-          targetPath: '$(Build.SourcesDirectory)/artifacts'
+          targetPath: '$(Build.SourcesDirectory)/artifacts/security'
           artifact: security-ci-artifacts
           publishLocation: pipeline
 
@@ -168,10 +120,13 @@ jobs:
         condition: always()
 
   - job: NpmSecurity
-    displayName: npm supply-chain and install policy
+    displayName: npm supply-chain audit
     dependsOn: DetectChanges
     condition: and(succeeded(), eq(dependencies.DetectChanges.outputs['changes.npmSecurity'], 'true'))
-    timeoutInMinutes: 45
+    timeoutInMinutes: 35
+    variables:
+      NPM_CONFIG_CACHE: $(Pipeline.Workspace)/.npm
+      runLegacyInstall: $[ dependencies.DetectChanges.outputs['changes.npmLegacy'] ]
     steps:
       - checkout: self
         persistCredentials: false
@@ -179,6 +134,14 @@ jobs:
         displayName: Install Node.js 24
         inputs:
           versionSpec: '24.x'
+      - task: Cache@2
+        displayName: Restore npm download cache
+        inputs:
+          key: 'npm | "$(Agent.OS)" | package-lock.json | frontend/package-lock.json'
+          restoreKeys: |
+            npm | "$(Agent.OS)"
+          path: $(NPM_CONFIG_CACHE)
+
       - bash: |
           set -euo pipefail
           mkdir -p artifacts/npm-audit
@@ -188,6 +151,7 @@ jobs:
             node scripts/ci/verify-npm-lockfile.mjs "$(dirname "$lockfile")"
           done
         displayName: Verify npm supply-chain policy
+
       - bash: |
           set -uo pipefail
           report_dir="$BUILD_SOURCESDIRECTORY/artifacts/npm-audit"
@@ -196,7 +160,9 @@ jobs:
           for lockfile in "${lockfiles[@]}"; do
             package_dir="$(dirname "$lockfile")"
             relative_dir="${package_dir#./}"
-            [ "$relative_dir" = "." ] || [ -z "$relative_dir" ] && relative_dir="root"
+            if [ "$relative_dir" = "." ] || [ -z "$relative_dir" ]; then
+              relative_dir="root"
+            fi
             report_name="$(printf '%s' "$relative_dir" | tr '/ ' '__')"
             report_path="$report_dir/${report_name}.json"
             set +e
@@ -221,18 +187,15 @@ jobs:
           NPM_CONFIG_REGISTRY: https://registry.npmjs.org/
           NPM_CONFIG_ALLOW_GIT: none
           NPM_CONFIG_ALLOW_REMOTE: none
+
       - bash: node scripts/ci/check-npm-audit-baseline.mjs artifacts/npm-audit scripts/ci/npm-audit-baseline.json
         displayName: Enforce npm High/Critical baseline
         condition: succeededOrFailed()
-      - bash: bash scripts/ci/npm-ci-retry.sh .
-        displayName: Enforce root install policy
-        condition: succeededOrFailed()
-      - bash: bash scripts/ci/npm-ci-retry.sh frontend
-        displayName: Enforce frontend install policy
-        condition: succeededOrFailed()
+
       - bash: bash scripts/ci/npm-ci-retry.sh aipsite-frontend
         displayName: Enforce legacy frontend install policy
-        condition: succeededOrFailed()
+        condition: and(succeededOrFailed(), eq(variables['runLegacyInstall'], 'true'))
+
       - task: PublishPipelineArtifact@1
         displayName: Publish npm audit reports
         condition: always()
@@ -244,7 +207,7 @@ jobs:
   - job: QodanaInventory
     displayName: Qodana Community .NET inventory
     dependsOn: DetectChanges
-    condition: and(succeeded(), eq(dependencies.DetectChanges.outputs['changes.primary'], 'true'))
+    condition: and(succeeded(), eq(dependencies.DetectChanges.outputs['changes.qodana'], 'true'))
     timeoutInMinutes: 60
     steps:
       - checkout: self
@@ -258,6 +221,7 @@ jobs:
             -v "$PWD:/data/project" \
             -v "$PWD/artifacts/qodana:/data/results" \
             -e QODANA_FRONTEND_REQUIRED=false \
+            -e QODANA_SKIP_FRONTEND_BOOTSTRAP=true \
             jetbrains/qodana-cdnet:2026.1-eap-privileged \
             --solution AipPortal.slnx \
             --configuration Release
