@@ -1,6 +1,8 @@
 using AipPortal.Application.Common;
 using AipPortal.Application.Projects;
+using AipPortal.Application.Security.Redaction;
 using AipPortal.Web.Models;
+using AipPortal.Web.Security;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
 
@@ -25,7 +27,11 @@ public sealed class ProjectActivationController(IProjectActivationService activa
         {
             return Ok(ApiEnvelope.Success(
                 HttpContext,
-                new ProjectActivationCommandResponse(projectId)));
+                CanonicalRedactionProjection.Apply(
+                    HttpContext,
+                    new ProjectActivationCommandResponse(projectId),
+                    RedactionProfile.UiDetail,
+                    "ProjectActivation")));
         }
 
         return ToWpcError(result.ErrorDetail, result.Error, "Project activation failed.");
