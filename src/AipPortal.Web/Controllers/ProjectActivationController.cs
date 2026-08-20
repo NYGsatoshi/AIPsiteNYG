@@ -31,7 +31,8 @@ public sealed class ProjectActivationController(IProjectActivationService activa
                     HttpContext,
                     new ProjectActivationCommandResponse(projectId),
                     RedactionProfile.UiDetail,
-                    "ProjectActivation")));
+                    "ProjectActivation",
+                    RedactionAuthorizationState.Allowed)));
         }
 
         return ToWpcError(result.ErrorDetail, result.Error, "Project activation failed.");
