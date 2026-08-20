@@ -23,7 +23,7 @@ public sealed class ProjectsController(IProjectService projects, ITaskCommandSer
                 RedactionProfile.UiList,
                 "Projects",
                 RedactionAuthorizationState.Allowed))
-            : ToActionResult(result);
+            : ToProjectReadError(result, "ProjectListFailed");
     }
 
     [HttpPost("api/projects")]
@@ -40,7 +40,7 @@ public sealed class ProjectsController(IProjectService projects, ITaskCommandSer
                 RedactionProfile.UiDetail,
                 "Projects",
                 RedactionAuthorizationState.Allowed))
-            : ToActionResult(result);
+            : ToProjectReadError(result, "ProjectReadFailed");
     }
 
     [HttpPatch("api/projects/{projectId:guid}")]
@@ -305,6 +305,16 @@ public sealed class ProjectsController(IProjectService projects, ITaskCommandSer
                 "Project creation is temporarily unavailable."));
         return BadRequest(ToErrorResponse(result.Error));
     }
+
+    private IActionResult ToProjectReadError<T>(
+        AipPortal.Application.Common.Result<T> result,
+        string fallbackCode) =>
+        BadRequest(CanonicalErrorEnvelope.FromSensitiveResult(
+            HttpContext,
+            StatusCodes.Status400BadRequest,
+            result.ErrorDetail,
+            result.Error,
+            fallbackCode));
 
     private IActionResult ToActionResult<T>(AipPortal.Application.Common.Result<T> result)
     {
