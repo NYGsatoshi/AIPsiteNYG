@@ -28,20 +28,33 @@ public sealed class CanonicalRedactionServiceTests
     }
 
     [Theory]
-    [InlineData(RedactionAuthorizationState.Denied)]
-    [InlineData(RedactionAuthorizationState.Unknown)]
+    [InlineData(RedactionAuthorizationState.Denied, RedactionProfile.UiList)]
+    [InlineData(RedactionAuthorizationState.Denied, RedactionProfile.UiDetail)]
+    [InlineData(RedactionAuthorizationState.Denied, RedactionProfile.SearchSnippet)]
+    [InlineData(RedactionAuthorizationState.Denied, RedactionProfile.ExportRow)]
+    [InlineData(RedactionAuthorizationState.Denied, RedactionProfile.AuditDisplay)]
+    [InlineData(RedactionAuthorizationState.Denied, RedactionProfile.NotificationPayload)]
+    [InlineData(RedactionAuthorizationState.Denied, RedactionProfile.FileMetadata)]
+    [InlineData(RedactionAuthorizationState.Unknown, RedactionProfile.UiList)]
+    [InlineData(RedactionAuthorizationState.Unknown, RedactionProfile.UiDetail)]
+    [InlineData(RedactionAuthorizationState.Unknown, RedactionProfile.SearchSnippet)]
+    [InlineData(RedactionAuthorizationState.Unknown, RedactionProfile.ExportRow)]
+    [InlineData(RedactionAuthorizationState.Unknown, RedactionProfile.AuditDisplay)]
+    [InlineData(RedactionAuthorizationState.Unknown, RedactionProfile.NotificationPayload)]
+    [InlineData(RedactionAuthorizationState.Unknown, RedactionProfile.FileMetadata)]
     public void NonErrorProfile_UnknownOrDeniedAuthorization_FailsClosed(
-        RedactionAuthorizationState authorizationState)
+        RedactionAuthorizationState authorizationState,
+        RedactionProfile profile)
     {
         var service = new CanonicalRedactionService();
         var source = new { secret = "must-not-pass-through" };
         var context = CreateContext(authorizationState);
 
-        var result = service.Redact(context, source, RedactionProfile.UiDetail);
+        var result = service.Redact(context, source, profile);
 
         Assert.True(result.RedactionApplied);
         var redacted = Assert.IsType<RedactedPayload>(result.Value);
-        Assert.Equal(RedactionProfile.UiDetail, redacted.Profile);
+        Assert.Equal(profile, redacted.Profile);
         Assert.Equal("authorization", redacted.Reason);
         Assert.NotSame(source, result.Value);
     }
