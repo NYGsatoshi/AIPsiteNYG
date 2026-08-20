@@ -74,6 +74,11 @@ public sealed class AuditController(IAuditQueryService audit) : ControllerBase
                 moduleKey,
                 RedactionAuthorizationState.Allowed,
                 "SecurityAuditLite"))
-            : BadRequest(new { error = result.Error });
+            : BadRequest(CanonicalErrorEnvelope.FromSensitiveResult(
+                HttpContext,
+                StatusCodes.Status400BadRequest,
+                result.ErrorDetail,
+                result.Error,
+                "AuditQueryFailed"));
     }
 }
