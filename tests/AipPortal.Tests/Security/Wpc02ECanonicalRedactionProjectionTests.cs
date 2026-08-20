@@ -90,6 +90,25 @@ public sealed class Wpc02ECanonicalRedactionProjectionTests
         Assert.Contains("endpoint-compatible", exception.Message);
     }
 
+    [Fact]
+    public void SensitiveResultError_UsesTheCanonicalErrorResponseProfile()
+    {
+        var httpContext = CreateHttpContext(new CanonicalRedactionService());
+
+        var envelope = CanonicalErrorEnvelope.FromSensitiveResult(
+            httpContext,
+            StatusCodes.Status400BadRequest,
+            detail: null,
+            fallbackError: "private search failure",
+            fallbackCode: "SearchFailed");
+
+        Assert.Equal("SearchFailed", envelope.Error.Code);
+        Assert.Equal("The request could not be completed.", envelope.Error.Message);
+        Assert.Null(envelope.Error.Target);
+        Assert.Empty(envelope.Error.Details);
+        Assert.True(envelope.Error.RedactionApplied);
+    }
+
     [Theory]
     [InlineData("/api/workspaces")]
     [InlineData("/api/workspaces/00000000-0000-0000-0000-000000000001/projects")]
