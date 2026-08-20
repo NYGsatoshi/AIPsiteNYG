@@ -43,7 +43,8 @@ public sealed class NotificationsController(INotificationApplicationService noti
                 HttpContext,
                 result.Value!,
                 RedactionProfile.NotificationPayload,
-                "NotificationOpen"));
+                "NotificationOpen",
+                RedactionAuthorizationState.Allowed));
         }
 
         // A missing notification and a notification owned by another
@@ -53,7 +54,8 @@ public sealed class NotificationsController(INotificationApplicationService noti
             HttpContext,
             new NotificationOpenResponse("Unavailable", null, 0),
             RedactionProfile.NotificationPayload,
-            "NotificationOpen"));
+            "NotificationOpen",
+            RedactionAuthorizationState.Allowed));
     }
 
     [HttpPatch("api/notifications/read-all")]
@@ -79,7 +81,8 @@ public sealed class NotificationsController(INotificationApplicationService noti
                 HttpContext,
                 result.Value!,
                 RedactionProfile.NotificationPayload,
-                moduleKey))
+                moduleKey,
+                RedactionAuthorizationState.Allowed))
             : BadRequest(new { error = result.Error });
     }
 }
