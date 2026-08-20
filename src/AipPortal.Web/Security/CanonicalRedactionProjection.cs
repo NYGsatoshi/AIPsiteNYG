@@ -17,7 +17,8 @@ public static class CanonicalRedactionProjection
         RedactionProfile profile,
         string moduleKey,
         RedactionAuthorizationState authorizationState,
-        RedactionPurpose purpose = RedactionPurpose.NormalOperation)
+        RedactionPurpose purpose = RedactionPurpose.NormalOperation,
+        FieldAccessPolicySnapshot? fieldAccessPolicy = null)
     {
         ArgumentNullException.ThrowIfNull(httpContext);
         ArgumentNullException.ThrowIfNull(source);
@@ -58,7 +59,8 @@ public static class CanonicalRedactionProjection
             ModuleKey: moduleKey,
             Purpose: purpose,
             RequestId: httpContext.TraceIdentifier,
-            AuthorizationState: authorizationState);
+            AuthorizationState: authorizationState,
+            FieldAccessPolicy: fieldAccessPolicy);
 
         var redactionService = requestServices.GetRequiredService<IRedactionService>();
         var result = redactionService.Redact(context, source!, profile);
