@@ -308,13 +308,25 @@ public sealed class ProjectsController(IProjectService projects, ITaskCommandSer
 
     private IActionResult ToProjectReadError<T>(
         AipPortal.Application.Common.Result<T> result,
-        string fallbackCode) =>
-        BadRequest(CanonicalErrorEnvelope.FromSensitiveResult(
+        string fallbackCode)
+    {
+        var status = result.ErrorDetail?.Code switch
+        {
+            "PROJECT_CONFLICT" or "InvalidStateTransition" or
+            "MILESTONE_STALE_VERSION" or "MILESTONE_CONFLICT" =>
+                StatusCodes.Status409Conflict,
+            "NotFound" => StatusCodes.Status404NotFound,
+            "DependencyUnavailable" => StatusCodes.Status503ServiceUnavailable,
+            _ => StatusCodes.Status400BadRequest
+        };
+
+        return StatusCode(status, CanonicalErrorEnvelope.FromSensitiveResult(
             HttpContext,
-            StatusCodes.Status400BadRequest,
+            status,
             result.ErrorDetail,
             result.Error,
             fallbackCode));
+    }
 
     private IActionResult ToActionResult<T>(AipPortal.Application.Common.Result<T> result)
     {
