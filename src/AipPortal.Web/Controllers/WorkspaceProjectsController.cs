@@ -1,6 +1,8 @@
 using AipPortal.Application.Common;
 using AipPortal.Application.Projects;
+using AipPortal.Application.Security.Redaction;
 using AipPortal.Web.Models;
+using AipPortal.Web.Security;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
 
@@ -23,7 +25,13 @@ public sealed class WorkspaceProjectsController(ICanonicalProjectCreateService p
             var value = result.Value!;
             return Created(
                 $"/api/projects/{value.Id}",
-                ApiEnvelope.Success(HttpContext, value));
+                ApiEnvelope.Success(
+                    HttpContext,
+                    CanonicalRedactionProjection.Apply(
+                        HttpContext,
+                        value,
+                        RedactionProfile.UiDetail,
+                        "ProjectCreate")));
         }
 
         return ToWpcError(result.ErrorDetail, result.Error, "Project creation failed.");
