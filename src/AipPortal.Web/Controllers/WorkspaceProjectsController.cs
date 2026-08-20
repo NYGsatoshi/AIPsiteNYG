@@ -31,7 +31,8 @@ public sealed class WorkspaceProjectsController(ICanonicalProjectCreateService p
                         HttpContext,
                         value,
                         RedactionProfile.UiDetail,
-                        "ProjectCreate")));
+                        "ProjectCreate",
+                        RedactionAuthorizationState.Allowed)));
         }
 
         return ToWpcError(result.ErrorDetail, result.Error, "Project creation failed.");
