@@ -64,7 +64,7 @@ public sealed class FilesController(IFileObjectService files) : ControllerBase
         var result = await files.DownloadFileObjectAsync(fileObjectId, cancellationToken);
         return result.IsSuccess
             ? PrivateFile(result.Value!.Content, result.Value.ContentType, result.Value.FileName)
-            : BadRequest(CanonicalErrorEnvelope.FromSensitiveResult(
+            : BadRequest(CanonicalErrorEnvelope.FromResult(
                 HttpContext,
                 StatusCodes.Status400BadRequest,
                 result.ErrorDetail,
@@ -78,7 +78,7 @@ public sealed class FilesController(IFileObjectService files) : ControllerBase
         [FromBody] FileDownloadGrantRequest? request,
         CancellationToken cancellationToken)
     {
-        return ToActionResult(await files.RequestFileObjectDownloadGrantAsync(
+        return ToDownloadGrantActionResult(await files.RequestFileObjectDownloadGrantAsync(
             fileObjectId,
             request ?? new FileDownloadGrantRequest(),
             cancellationToken));
@@ -93,7 +93,7 @@ public sealed class FilesController(IFileObjectService files) : ControllerBase
         var result = await files.DownloadFileObjectWithGrantAsync(fileDownloadGrantId, request.Token, cancellationToken);
         return result.IsSuccess
             ? PrivateFile(result.Value!.Content, result.Value.ContentType, result.Value.FileName)
-            : BadRequest(CanonicalErrorEnvelope.FromSensitiveResult(
+            : BadRequest(CanonicalErrorEnvelope.FromResult(
                 HttpContext,
                 StatusCodes.Status400BadRequest,
                 result.ErrorDetail,
@@ -110,17 +110,23 @@ public sealed class FilesController(IFileObjectService files) : ControllerBase
     private IActionResult OkOrBad(Result result) =>
         result.IsSuccess
             ? Ok(new { status = "OK" })
-            : BadRequest(CanonicalErrorEnvelope.FromSensitiveResult(
+            : BadRequest(CanonicalErrorEnvelope.FromResult(
                 HttpContext,
                 StatusCodes.Status400BadRequest,
                 result.ErrorDetail,
                 result.Error,
                 "FileOperationFailed"));
 
-    private IActionResult ToActionResult<T>(Result<T> result) =>
+    private IActionResult ToDownloadGrantActionResult<T>(Result<T> result) =>
         result.IsSuccess
-            ? Ok(result.Value)
-            : BadRequest(CanonicalErrorEnvelope.FromSensitiveResult(
+            ? Ok(CanonicalRedactionProjection.Apply(
+                HttpContext,
+                result.Value!,
+                RedactionProfile.UiDetail,
+                "FileDownloadGrant",
+                RedactionAuthorizationState.Allowed,
+                RedactionPurpose.FileDownload))
+            : BadRequest(CanonicalErrorEnvelope.FromResult(
                 HttpContext,
                 StatusCodes.Status400BadRequest,
                 result.ErrorDetail,
@@ -137,7 +143,7 @@ public sealed class FilesController(IFileObjectService files) : ControllerBase
                 RedactionProfile.FileMetadata,
                 moduleKey,
                 RedactionAuthorizationState.Allowed))
-            : BadRequest(CanonicalErrorEnvelope.FromSensitiveResult(
+            : BadRequest(CanonicalErrorEnvelope.FromResult(
                 HttpContext,
                 StatusCodes.Status400BadRequest,
                 result.ErrorDetail,
