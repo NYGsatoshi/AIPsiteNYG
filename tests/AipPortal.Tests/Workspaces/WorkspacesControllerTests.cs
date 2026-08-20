@@ -114,7 +114,7 @@ public sealed class WorkspacesControllerTests
     }
 
     [Fact]
-    public async Task ArchivedWorkspaceMutationUsesConflictEnvelope()
+    public async Task ArchivedWorkspaceMutationUsesRedactedConflictEnvelope()
     {
         var service = new StubWorkspaceService
         {
@@ -134,7 +134,10 @@ public sealed class WorkspacesControllerTests
         var envelope = Assert.IsType<ApiErrorEnvelope>(conflict.Value);
         Assert.Equal(StatusCodes.Status409Conflict, envelope.Status);
         Assert.Equal("InvalidStateTransition", envelope.Error.Code);
-        Assert.Equal("workspace.status", envelope.Error.Target);
+        Assert.Equal("The request could not be completed.", envelope.Error.Message);
+        Assert.Null(envelope.Error.Target);
+        Assert.Empty(envelope.Error.Details);
+        Assert.True(envelope.Error.RedactionApplied);
     }
 
     [Fact]
