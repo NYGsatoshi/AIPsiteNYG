@@ -1,4 +1,6 @@
+using AipPortal.Application.Security.Redaction;
 using AipPortal.Application.TenantExports;
+using AipPortal.Web.Security;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
 
@@ -17,7 +19,12 @@ public sealed class TenantExportController(ITenantExportService tenantExports) :
             return BadRequest(new { error = result.Error });
         }
 
-        var file = result.Value!;
+        var file = CanonicalRedactionProjection.Apply(
+            HttpContext,
+            result.Value!,
+            RedactionProfile.ExportRow,
+            "TenantExport",
+            "ExportBuild");
         Response.Headers["X-Export-Job-Id"] = file.ExportJobId.ToString();
         return File(file.Content, file.ContentType, file.FileName);
     }
@@ -26,6 +33,13 @@ public sealed class TenantExportController(ITenantExportService tenantExports) :
     public async Task<IActionResult> GetJob(Guid exportJobId, CancellationToken cancellationToken)
     {
         var result = await tenantExports.GetJobAsync(exportJobId, cancellationToken);
-        return result.IsSuccess ? Ok(result.Value) : BadRequest(new { error = result.Error });
+        return result.IsSuccess
+            ? Ok(CanonicalRedactionProjection.Apply(
+                HttpContext,
+                result.Value!,
+                RedactionProfile.ExportRow,
+                "TenantExport",
+                "ExportBuild"))
+            : BadRequest(new { error = result.Error });
     }
 }
