@@ -21,7 +21,8 @@ public sealed class SearchController(ISearchService search) : ControllerBase
                 HttpContext,
                 result.Value!,
                 RedactionProfile.SearchSnippet,
-                "Search"))
+                "Search",
+                RedactionAuthorizationState.Allowed))
             : BadRequest(new { error = result.Error });
     }
 }
