@@ -51,15 +51,12 @@ public sealed class ProjectActivationUnitOfWork(AppDbContext dbContext) : IProje
             await RollbackAndClearAsync(transaction);
             return ConcurrentModification();
         }
-        catch (DbUpdateException exception) when (exception.InnerException is PostgresException postgres && IsConflict(postgres))
+        catch (Exception exception) when (ContainsPostgresConflict(exception))
         {
-            await RollbackAndClearAsync(transaction);
-            return ConcurrentModification();
-        }
-        catch (PostgresException exception) when (IsConflict(exception))
-        {
-            // PostgreSQL may surface SERIALIZABLE/commit failures directly rather
-            // than wrapping them in DbUpdateException.
+            // EF Core/Npgsql can add provider/ORM wrappers around a PostgreSQL
+            // serialization, unique-key or deadlock error. The SQLSTATE is the
+            // authoritative signal; preserve the WPC concurrency contract even
+            // when PostgresException is not the immediate caught exception.
             await RollbackAndClearAsync(transaction);
             return ConcurrentModification();
         }
@@ -111,6 +108,30 @@ public sealed class ProjectActivationUnitOfWork(AppDbContext dbContext) : IProje
         // Prevent any losing/failed activation graph from leaking into later work
         // in this scoped context, including failures before a transaction starts.
         dbContext.ChangeTracker.Clear();
+    }
+
+    private static bool ContainsPostgresConflict(Exception exception)
+    {
+        if (exception is PostgresException postgres && IsConflict(postgres))
+        {
+            return true;
+        }
+
+        if (exception is AggregateException aggregate)
+        {
+            foreach (var inner in aggregate.InnerExceptions)
+            {
+                if (ContainsPostgresConflict(inner))
+                {
+                    return true;
+                }
+            }
+
+            return false;
+        }
+
+        return exception.InnerException is not null &&
+               ContainsPostgresConflict(exception.InnerException);
     }
 
     private static bool IsConflict(PostgresException exception) =>
