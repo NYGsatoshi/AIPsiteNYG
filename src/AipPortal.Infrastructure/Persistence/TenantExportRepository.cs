@@ -40,6 +40,18 @@ public sealed class TenantExportRepository(
         AuthorizationContext authorizationContext,
         CancellationToken cancellationToken = default)
     {
+        if (tenantId == Guid.Empty ||
+            authorizationContext.AuthorizationState != RedactionAuthorizationState.Allowed ||
+            !authorizationContext.ActorId.HasValue ||
+            authorizationContext.ActorId.Value == Guid.Empty ||
+            authorizationContext.TenantId != tenantId ||
+            authorizationContext.Purpose != RedactionPurpose.ExportBuild ||
+            !string.Equals(authorizationContext.ModuleKey, "TenantExport", StringComparison.Ordinal))
+        {
+            throw new InvalidOperationException(
+                "Tenant export authorization context does not match the requested Tenant export boundary.");
+        }
+
         async Task AddRedactedJsonAsync<T>(
             ZipArchive archive,
             string path,
