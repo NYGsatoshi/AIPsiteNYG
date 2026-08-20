@@ -1,17 +1,16 @@
 using AipPortal.Application.Common.Interfaces;
 using AipPortal.Application.Security.Redaction;
+using Microsoft.Extensions.DependencyInjection;
 
 namespace AipPortal.Web.Security;
 
 /// <summary>
 /// Applies one canonical redaction profile at an HTTP response boundary.
 ///
-/// Callers may use this helper only after the application use case has returned
-/// a successful, current authorization-scoped result. The helper deliberately
-/// does not infer or upgrade business authorization; it records that completed
-/// decision as <see cref="RedactionAuthorizationState.Allowed"/> and fails
-/// closed if the canonical service cannot return the endpoint's declared DTO
-/// shape.
+/// The caller must supply the authorization state that was established by the
+/// application use case. This helper never infers or upgrades that decision:
+/// an unknown or denied state must therefore return an endpoint-compatible
+/// projection from the canonical service, or the request fails closed.
 /// </summary>
 public static class CanonicalRedactionProjection
 {
@@ -20,6 +19,7 @@ public static class CanonicalRedactionProjection
         T source,
         RedactionProfile profile,
         string moduleKey,
+        RedactionAuthorizationState authorizationState,
         string purpose = "NormalOperation")
     {
         ArgumentNullException.ThrowIfNull(httpContext);
@@ -27,19 +27,17 @@ public static class CanonicalRedactionProjection
         ArgumentException.ThrowIfNullOrWhiteSpace(moduleKey);
         ArgumentException.ThrowIfNullOrWhiteSpace(purpose);
 
-        var currentUser = httpContext.RequestServices?.GetService(typeof(ICurrentUser)) as ICurrentUser;
-        var currentTenant = httpContext.RequestServices?.GetService(typeof(ICurrentTenant)) as ICurrentTenant;
+        var currentUser = httpContext.RequestServices.GetService(typeof(ICurrentUser)) as ICurrentUser;
+        var currentTenant = httpContext.RequestServices.GetService(typeof(ICurrentTenant)) as ICurrentTenant;
         var context = new AuthorizationContext(
             ActorId: currentUser?.UserId,
             TenantId: currentTenant is { IsAvailable: true } ? currentTenant.TenantId : null,
             ModuleKey: moduleKey,
             Purpose: purpose,
             RequestId: httpContext.TraceIdentifier,
-            AuthorizationState: RedactionAuthorizationState.Allowed);
+            AuthorizationState: authorizationState);
 
-        var redactionService =
-            httpContext.RequestServices?.GetService(typeof(IRedactionService)) as IRedactionService ??
-            new CanonicalRedactionService();
+        var redactionService = httpContext.RequestServices.GetRequiredService<IRedactionService>();
         var result = redactionService.Redact(context, source!, profile);
 
         if (result.Value is T projected)
