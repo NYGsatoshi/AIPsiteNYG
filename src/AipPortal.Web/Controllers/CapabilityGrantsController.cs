@@ -69,7 +69,6 @@ public sealed class CapabilityGrantsController(ICapabilityGrantService capabilit
         string fallbackMessage)
     {
         var sourceCode = detail?.Code ?? "ValidationFailed";
-        var redactionApplied = sourceCode is not "AuthenticationRequired" and not "IdempotencyConflict";
         var message = detail?.Message ?? fallbackError ?? fallbackMessage;
         var status = sourceCode switch
         {
@@ -86,7 +85,7 @@ public sealed class CapabilityGrantsController(ICapabilityGrantService capabilit
             sourceCode,
             message,
             detail?.Target,
-            redactionApplied);
+            CanonicalErrorExposurePolicy.IsSensitive(sourceCode));
         return StatusCode(status, payload);
     }
 }
