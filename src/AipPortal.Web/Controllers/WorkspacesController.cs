@@ -86,7 +86,14 @@ public sealed class WorkspacesController(IWorkspaceService workspaces) : Control
         string fallbackMessage)
     {
         var sourceCode = detail?.Code ?? "ValidationFailed";
-        var redactionApplied = sourceCode is not "AuthenticationRequired" and not "IdempotencyConflict";
+        // Only result codes whose contents can reveal resource or state details
+        // receive ErrorResponse redaction. Validation, idempotency, and
+        // dependency availability contracts deliberately retain their public
+        // field targets so clients can recover deterministically.
+        var redactionApplied = sourceCode is
+            "NotFound" or
+            "ConcurrentModification" or
+            "InvalidStateTransition";
         var code = sourceCode;
         var message = detail?.Message ?? fallbackError ?? fallbackMessage;
         var target = detail?.Target ?? (sourceCode switch
