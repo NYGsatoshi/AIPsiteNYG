@@ -221,6 +221,7 @@ public sealed class CanonicalRedactionService : IRedactionService
 {
     private const string SafeErrorMessage = "The request could not be completed.";
     private const string RestrictedMarker = "[redacted:restricted]";
+    private const string DirectMessageGenericNotificationBody = "You have a new message.";
 
     private static readonly JsonSerializerOptions ProjectionJson =
         new(JsonSerializerDefaults.Web);
@@ -370,6 +371,16 @@ public sealed class CanonicalRedactionService : IRedactionService
                     continue;
                 }
 
+                if (IsExplicitlyPublicSafeNotificationValue(profile, normalizedName, property.Value))
+                {
+                    projected[property.Key] = ProjectNode(
+                        property.Value,
+                        context,
+                        profile,
+                        ref changed);
+                    continue;
+                }
+
                 if (ShouldRedact(context, profile, normalizedName))
                 {
                     projected[property.Key] = RedactedValue(property.Value, normalizedName);
@@ -399,6 +410,21 @@ public sealed class CanonicalRedactionService : IRedactionService
         }
 
         return node?.DeepClone();
+    }
+
+    private static bool IsExplicitlyPublicSafeNotificationValue(
+        RedactionProfile profile,
+        string normalizedName,
+        JsonNode? value)
+    {
+        // Message notifications deliberately use a fixed server-owned placeholder
+        // instead of message content. Preserve that exact safe phrase while every
+        // other NotificationPayload.body remains Confidential by default.
+        return profile == RedactionProfile.NotificationPayload &&
+               normalizedName == "body" &&
+               value is JsonValue scalar &&
+               scalar.TryGetValue<string>(out var text) &&
+               string.Equals(text, DirectMessageGenericNotificationBody, StringComparison.Ordinal);
     }
 
     private static bool ShouldRemove(
