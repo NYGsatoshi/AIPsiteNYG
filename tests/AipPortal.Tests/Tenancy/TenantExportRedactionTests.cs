@@ -78,6 +78,77 @@ public sealed class TenantExportRedactionTests
     }
 
     [Fact]
+    public async Task MetadataZip_ProductionRedactor_RedactsPersistedRestrictedFields()
+    {
+        var currentTenant = new CurrentTenantService();
+        currentTenant.SetPlatformScope();
+        await using var dbContext = CreateDbContext(currentTenant);
+        var context = CreateAuthorizationContext();
+        var tenantId = context.TenantId!.Value;
+
+        dbContext.Tenants.Add(new Tenant(tenantId)
+        {
+            Name = "School tenant",
+            Slug = "school-tenant",
+            DisplayName = "School",
+            PrimaryDomain = "students.school.example"
+        });
+        await dbContext.SaveChangesAsync();
+
+        var repository = new TenantExportRepository(dbContext, new CanonicalRedactionService());
+        var archiveBytes = await repository.CreateMetadataZipAsync(
+            tenantId,
+            context,
+            CancellationToken.None);
+
+        using var archiveStream = new MemoryStream(archiveBytes);
+        using var archive = new ZipArchive(archiveStream, ZipArchiveMode.Read);
+        var tenantEntry = Assert.IsType<ZipArchiveEntry>(archive.GetEntry("tenant.json"));
+        await using var tenantStream = tenantEntry.Open();
+        using var json = await JsonDocument.ParseAsync(tenantStream);
+        var row = json.RootElement.EnumerateArray().Single();
+
+        Assert.Equal("School tenant", row.GetProperty("name").GetString());
+        Assert.Equal("[redacted:restricted]", row.GetProperty("primaryDomain").GetString());
+    }
+
+    [Fact]
+    public async Task MetadataZip_FailsClosed_WhenTenantContextDoesNotMatchRequestedTenant()
+    {
+        var context = CreateAuthorizationContext();
+        await AssertContextRejectedAsync(
+            context with { TenantId = Guid.NewGuid() },
+            context.TenantId!.Value);
+    }
+
+    [Fact]
+    public async Task MetadataZip_FailsClosed_WhenAuthorizationIsNotAllowed()
+    {
+        var context = CreateAuthorizationContext();
+        await AssertContextRejectedAsync(
+            context with { AuthorizationState = RedactionAuthorizationState.Denied },
+            context.TenantId!.Value);
+    }
+
+    [Fact]
+    public async Task MetadataZip_FailsClosed_WhenActorIsMissing()
+    {
+        var context = CreateAuthorizationContext();
+        await AssertContextRejectedAsync(
+            context with { ActorId = null },
+            context.TenantId!.Value);
+    }
+
+    [Fact]
+    public async Task MetadataZip_FailsClosed_WhenPurposeIsNotExportBuild()
+    {
+        var context = CreateAuthorizationContext();
+        await AssertContextRejectedAsync(
+            context with { Purpose = RedactionPurpose.NormalOperation },
+            context.TenantId!.Value);
+    }
+
+    [Fact]
     public async Task MetadataZip_FailsClosed_WhenExportRowCannotBeSerialized()
     {
         var currentTenant = new CurrentTenantService();
@@ -95,6 +166,24 @@ public sealed class TenantExportRedactionTests
         Assert.Contains("serializable export row", exception.Message);
     }
 
+    private static async Task AssertContextRejectedAsync(
+        AuthorizationContext context,
+        Guid requestedTenantId)
+    {
+        var currentTenant = new CurrentTenantService();
+        currentTenant.SetPlatformScope();
+        await using var dbContext = CreateDbContext(currentTenant);
+        var repository = new TenantExportRepository(dbContext, new CanonicalRedactionService());
+
+        var exception = await Assert.ThrowsAsync<InvalidOperationException>(() =>
+            repository.CreateMetadataZipAsync(
+                requestedTenantId,
+                context,
+                CancellationToken.None));
+
+        Assert.Contains("does not match", exception.Message);
+    }
+
     private static AppDbContext CreateDbContext(CurrentTenantService currentTenant) =>
         new(
             new DbContextOptionsBuilder<AppDbContext>()
@@ -107,7 +196,7 @@ public sealed class TenantExportRedactionTests
             ActorId: Guid.NewGuid(),
             TenantId: Guid.NewGuid(),
             ModuleKey: "TenantExport",
-            Purpose: "ExportBuild",
+            Purpose: RedactionPurpose.ExportBuild,
             RequestId: "wpc02e-export-build",
             AuthorizationState: RedactionAuthorizationState.Allowed);
 
