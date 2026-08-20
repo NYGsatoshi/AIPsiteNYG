@@ -6,35 +6,55 @@ namespace AipPortal.Web.Security;
 
 /// <summary>
 /// Applies one canonical redaction profile at an HTTP response boundary.
-///
-/// The caller must supply the authorization state that was established by the
-/// application use case. This helper never infers or upgrades that decision:
-/// an unknown or denied state must therefore return an endpoint-compatible
-/// projection from the canonical service, or the request fails closed.
+/// The application use case owns the authorization decision; this helper fixes
+/// the authenticated actor/Tenant request context and never upgrades that state.
 /// </summary>
 public static class CanonicalRedactionProjection
 {
-    public static T Apply<T>(
+    public static object Apply<T>(
         HttpContext httpContext,
         T source,
         RedactionProfile profile,
         string moduleKey,
         RedactionAuthorizationState authorizationState,
-        string purpose = "NormalOperation")
+        RedactionPurpose purpose = RedactionPurpose.NormalOperation)
     {
         ArgumentNullException.ThrowIfNull(httpContext);
         ArgumentNullException.ThrowIfNull(source);
         ArgumentException.ThrowIfNullOrWhiteSpace(moduleKey);
-        ArgumentException.ThrowIfNullOrWhiteSpace(purpose);
 
         var requestServices = httpContext.RequestServices
             ?? throw new InvalidOperationException(
                 "Canonical redaction requires a configured request service provider.");
-        var currentUser = requestServices.GetService(typeof(ICurrentUser)) as ICurrentUser;
-        var currentTenant = requestServices.GetService(typeof(ICurrentTenant)) as ICurrentTenant;
+
+        var currentUser = requestServices.GetRequiredService<ICurrentUser>();
+        if (!currentUser.IsAuthenticated ||
+            !currentUser.UserId.HasValue ||
+            currentUser.UserId.Value == Guid.Empty)
+        {
+            throw new InvalidOperationException(
+                "Canonical redaction requires an authenticated request actor.");
+        }
+
+        var currentTenant = requestServices.GetRequiredService<ICurrentTenant>();
+        Guid? tenantId;
+        if (currentTenant.IsPlatformScope)
+        {
+            tenantId = null;
+        }
+        else if (currentTenant.IsAvailable && currentTenant.TenantId != Guid.Empty)
+        {
+            tenantId = currentTenant.TenantId;
+        }
+        else
+        {
+            throw new InvalidOperationException(
+                "Canonical redaction requires a resolved Tenant or explicit platform scope.");
+        }
+
         var context = new AuthorizationContext(
-            ActorId: currentUser?.UserId,
-            TenantId: currentTenant is { IsAvailable: true } ? currentTenant.TenantId : null,
+            ActorId: currentUser.UserId.Value,
+            TenantId: tenantId,
             ModuleKey: moduleKey,
             Purpose: purpose,
             RequestId: httpContext.TraceIdentifier,
@@ -43,12 +63,12 @@ public static class CanonicalRedactionProjection
         var redactionService = requestServices.GetRequiredService<IRedactionService>();
         var result = redactionService.Redact(context, source!, profile);
 
-        if (result.Value is T projected)
+        if (result.Value is null or RedactedPayload)
         {
-            return projected;
+            throw new InvalidOperationException(
+                "Canonical redaction did not return an endpoint-compatible response projection.");
         }
 
-        throw new InvalidOperationException(
-            "Canonical redaction did not return an endpoint-compatible response projection.");
+        return result.Value;
     }
 }
