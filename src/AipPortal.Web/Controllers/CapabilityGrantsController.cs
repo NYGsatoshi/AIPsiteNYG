@@ -67,9 +67,7 @@ public sealed class CapabilityGrantsController(ICapabilityGrantService capabilit
     {
         var sourceCode = detail?.Code ?? "ValidationFailed";
         var redactionApplied = sourceCode is not "AuthenticationRequired" and not "IdempotencyConflict";
-        var message = redactionApplied
-            ? "The requested resource was not found."
-            : detail?.Message ?? fallbackError ?? fallbackMessage;
+        var message = detail?.Message ?? fallbackError ?? fallbackMessage;
         var status = sourceCode switch
         {
             "AuthenticationRequired" => StatusCodes.Status401Unauthorized,
@@ -82,7 +80,7 @@ public sealed class CapabilityGrantsController(ICapabilityGrantService capabilit
         var payload = ApiEnvelope.Error(
             HttpContext,
             status,
-            redactionApplied ? "NotFound" : sourceCode,
+            sourceCode,
             message,
             detail?.Target,
             redactionApplied);
