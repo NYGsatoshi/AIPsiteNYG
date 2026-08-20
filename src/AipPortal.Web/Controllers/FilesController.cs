@@ -1,6 +1,7 @@
 using AipPortal.Application.Common;
 using AipPortal.Application.Files;
 using AipPortal.Application.Security.Redaction;
+using AipPortal.Web.Models;
 using AipPortal.Web.Security;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
@@ -30,7 +31,12 @@ public sealed class FilesController(IFileObjectService files) : ControllerBase
     {
         if (form.File is null)
         {
-            return BadRequest(new { error = "File is required." });
+            return BadRequest(ApiEnvelope.Error(
+                HttpContext,
+                StatusCodes.Status400BadRequest,
+                "ValidationFailed",
+                "File is required.",
+                "file"));
         }
 
         await using var stream = form.File.OpenReadStream();
@@ -58,7 +64,12 @@ public sealed class FilesController(IFileObjectService files) : ControllerBase
         var result = await files.DownloadFileObjectAsync(fileObjectId, cancellationToken);
         return result.IsSuccess
             ? PrivateFile(result.Value!.Content, result.Value.ContentType, result.Value.FileName)
-            : BadRequest(new { error = result.Error });
+            : BadRequest(CanonicalErrorEnvelope.FromSensitiveResult(
+                HttpContext,
+                StatusCodes.Status400BadRequest,
+                result.ErrorDetail,
+                result.Error,
+                "FileDownloadFailed"));
     }
 
     [HttpPost("api/files/{fileObjectId:guid}/download-grants")]
@@ -82,7 +93,12 @@ public sealed class FilesController(IFileObjectService files) : ControllerBase
         var result = await files.DownloadFileObjectWithGrantAsync(fileDownloadGrantId, request.Token, cancellationToken);
         return result.IsSuccess
             ? PrivateFile(result.Value!.Content, result.Value.ContentType, result.Value.FileName)
-            : BadRequest(new { error = result.Error });
+            : BadRequest(CanonicalErrorEnvelope.FromSensitiveResult(
+                HttpContext,
+                StatusCodes.Status400BadRequest,
+                result.ErrorDetail,
+                result.Error,
+                "FileDownloadFailed"));
     }
 
     [HttpDelete("api/files/{fileObjectId:guid}")]
@@ -91,9 +107,25 @@ public sealed class FilesController(IFileObjectService files) : ControllerBase
         return OkOrBad(await files.DeleteFileObjectAsync(fileObjectId, reason, cancellationToken));
     }
 
-    private IActionResult OkOrBad(Result result) => result.IsSuccess ? Ok(new { status = "OK" }) : BadRequest(new { error = result.Error });
+    private IActionResult OkOrBad(Result result) =>
+        result.IsSuccess
+            ? Ok(new { status = "OK" })
+            : BadRequest(CanonicalErrorEnvelope.FromSensitiveResult(
+                HttpContext,
+                StatusCodes.Status400BadRequest,
+                result.ErrorDetail,
+                result.Error,
+                "FileOperationFailed"));
 
-    private IActionResult ToActionResult<T>(Result<T> result) => result.IsSuccess ? Ok(result.Value) : BadRequest(new { error = result.Error });
+    private IActionResult ToActionResult<T>(Result<T> result) =>
+        result.IsSuccess
+            ? Ok(result.Value)
+            : BadRequest(CanonicalErrorEnvelope.FromSensitiveResult(
+                HttpContext,
+                StatusCodes.Status400BadRequest,
+                result.ErrorDetail,
+                result.Error,
+                "FileGrantFailed"));
 
     private IActionResult ToFileMetadataActionResult<T>(
         Result<T> result,
@@ -105,7 +137,12 @@ public sealed class FilesController(IFileObjectService files) : ControllerBase
                 RedactionProfile.FileMetadata,
                 moduleKey,
                 RedactionAuthorizationState.Allowed))
-            : BadRequest(new { error = result.Error });
+            : BadRequest(CanonicalErrorEnvelope.FromSensitiveResult(
+                HttpContext,
+                StatusCodes.Status400BadRequest,
+                result.ErrorDetail,
+                result.Error,
+                "FileMetadataFailed"));
 
     private FileStreamResult PrivateFile(Stream content, string contentType, string fileName)
     {
