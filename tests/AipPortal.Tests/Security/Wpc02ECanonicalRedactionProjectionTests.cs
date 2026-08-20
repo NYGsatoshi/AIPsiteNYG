@@ -1,5 +1,7 @@
 using System.Text.Json;
+using AipPortal.Application.Common.Interfaces;
 using AipPortal.Application.Security.Redaction;
+using AipPortal.Domain.Enums;
 using AipPortal.Web.Middleware;
 using AipPortal.Web.Security;
 using Microsoft.AspNetCore.Http;
@@ -37,6 +39,9 @@ public sealed class Wpc02ECanonicalRedactionProjectionTests
         Assert.NotNull(redactor.Context);
         Assert.Equal(RedactionAuthorizationState.Allowed, redactor.Context!.AuthorizationState);
         Assert.Equal("Wpc02ETest", redactor.Context.ModuleKey);
+        Assert.Equal(RedactionPurpose.NormalOperation, redactor.Context.Purpose);
+        Assert.NotNull(redactor.Context.ActorId);
+        Assert.NotNull(redactor.Context.TenantId);
         Assert.Equal(httpContext.TraceIdentifier, redactor.Context.RequestId);
     }
 
@@ -58,9 +63,14 @@ public sealed class Wpc02ECanonicalRedactionProjectionTests
     [Fact]
     public void AuthorizedProjection_FailsClosed_WhenTheCanonicalServiceIsMissing()
     {
+        var services = new ServiceCollection()
+            .AddSingleton<ICurrentUser>(new TestCurrentUser(Guid.NewGuid()))
+            .AddSingleton<ICurrentTenant>(new TestCurrentTenant(Guid.NewGuid()))
+            .BuildServiceProvider();
         var httpContext = new DefaultHttpContext
         {
-            TraceIdentifier = "wpc02e-no-redactor"
+            TraceIdentifier = "wpc02e-no-redactor",
+            RequestServices = services
         };
         var source = new ProjectionProbe("must not pass through");
 
@@ -68,6 +78,42 @@ public sealed class Wpc02ECanonicalRedactionProjectionTests
             CanonicalRedactionProjection.Apply(
                 httpContext,
                 source,
+                RedactionProfile.UiDetail,
+                "Wpc02ETest",
+                RedactionAuthorizationState.Allowed));
+    }
+
+    [Fact]
+    public void AuthorizedProjection_FailsClosed_WhenCurrentUserIsMissing()
+    {
+        var services = new ServiceCollection()
+            .AddSingleton<ICurrentTenant>(new TestCurrentTenant(Guid.NewGuid()))
+            .AddSingleton<IRedactionService, CanonicalRedactionService>()
+            .BuildServiceProvider();
+        var httpContext = new DefaultHttpContext { RequestServices = services };
+
+        Assert.Throws<InvalidOperationException>(() =>
+            CanonicalRedactionProjection.Apply(
+                httpContext,
+                new ProjectionProbe("must not pass through"),
+                RedactionProfile.UiDetail,
+                "Wpc02ETest",
+                RedactionAuthorizationState.Allowed));
+    }
+
+    [Fact]
+    public void AuthorizedProjection_FailsClosed_WhenTenantContextIsMissing()
+    {
+        var services = new ServiceCollection()
+            .AddSingleton<ICurrentUser>(new TestCurrentUser(Guid.NewGuid()))
+            .AddSingleton<IRedactionService, CanonicalRedactionService>()
+            .BuildServiceProvider();
+        var httpContext = new DefaultHttpContext { RequestServices = services };
+
+        Assert.Throws<InvalidOperationException>(() =>
+            CanonicalRedactionProjection.Apply(
+                httpContext,
+                new ProjectionProbe("must not pass through"),
                 RedactionProfile.UiDetail,
                 "Wpc02ETest",
                 RedactionAuthorizationState.Allowed));
@@ -95,7 +141,7 @@ public sealed class Wpc02ECanonicalRedactionProjectionTests
     {
         var httpContext = CreateHttpContext(new CanonicalRedactionService());
 
-        var envelope = CanonicalErrorEnvelope.FromSensitiveResult(
+        var envelope = CanonicalErrorEnvelope.FromResult(
             httpContext,
             StatusCodes.Status400BadRequest,
             detail: null,
@@ -168,6 +214,8 @@ public sealed class Wpc02ECanonicalRedactionProjectionTests
     {
         var services = new ServiceCollection()
             .AddSingleton<IRedactionService>(redactor)
+            .AddSingleton<ICurrentUser>(new TestCurrentUser(Guid.NewGuid()))
+            .AddSingleton<ICurrentTenant>(new TestCurrentTenant(Guid.NewGuid()))
             .BuildServiceProvider();
 
         return new DefaultHttpContext
@@ -179,10 +227,26 @@ public sealed class Wpc02ECanonicalRedactionProjectionTests
 
     private sealed record ProjectionProbe(string Value);
 
+    private sealed class TestCurrentUser(Guid userId) : ICurrentUser
+    {
+        public Guid? UserId => userId;
+        public Guid? SessionId => Guid.NewGuid();
+        public string? Email => "redaction-test@example.invalid";
+        public SystemRole? SystemRole => Domain.Enums.SystemRole.NormalUser;
+        public bool IsAuthenticated => true;
+    }
+
+    private sealed class TestCurrentTenant(Guid tenantId) : ICurrentTenant
+    {
+        public Guid TenantId => tenantId;
+        public bool IsAvailable => true;
+        public string? TenantSlug => "redaction-test";
+        public bool IsPlatformScope => false;
+    }
+
     private sealed class RecordingRedactionService : IRedactionService
     {
         public AuthorizationContext? Context { get; private set; }
-
         public RedactionProfile? Profile { get; private set; }
 
         public RedactionResult Redact(
