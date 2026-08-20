@@ -21,7 +21,8 @@ public sealed class ProjectsController(IProjectService projects, ITaskCommandSer
                 HttpContext,
                 result.Value!,
                 RedactionProfile.UiList,
-                "Projects"))
+                "Projects",
+                RedactionAuthorizationState.Allowed))
             : ToActionResult(result);
     }
 
@@ -37,7 +38,8 @@ public sealed class ProjectsController(IProjectService projects, ITaskCommandSer
                 HttpContext,
                 result.Value!,
                 RedactionProfile.UiDetail,
-                "Projects"))
+                "Projects",
+                RedactionAuthorizationState.Allowed))
             : ToActionResult(result);
     }
 
