@@ -37,9 +37,92 @@ public enum RedactionPurpose
 }
 
 /// <summary>
+/// Canonical MVP data-classification vocabulary used by the response projection
+/// boundary. This application-layer vocabulary deliberately does not mutate the
+/// persisted domain enum while WPC-02E remains a migration-free change.
+/// </summary>
+public enum CanonicalDataClassification
+{
+    Public,
+    Internal,
+    Confidential,
+    Restricted
+}
+
+/// <summary>
+/// Immutable field-access decision supplied to the canonical redaction layer.
+/// Record/capability authorization is evaluated before this snapshot is built;
+/// this object only expresses which data classifications and explicitly granted
+/// Restricted fields may cross the response boundary.
+/// </summary>
+public sealed class FieldAccessPolicySnapshot
+{
+    private readonly HashSet<CanonicalDataClassification> allowedClassifications;
+    private readonly HashSet<string> allowedRestrictedFields;
+
+    public static FieldAccessPolicySnapshot StandardAuthorized { get; } = new(
+        new[]
+        {
+            CanonicalDataClassification.Public,
+            CanonicalDataClassification.Internal
+        });
+
+    public static FieldAccessPolicySnapshot ThroughConfidential { get; } = new(
+        new[]
+        {
+            CanonicalDataClassification.Public,
+            CanonicalDataClassification.Internal,
+            CanonicalDataClassification.Confidential
+        });
+
+    public FieldAccessPolicySnapshot(
+        IEnumerable<CanonicalDataClassification> allowedClassifications,
+        IEnumerable<string>? allowedRestrictedFields = null)
+    {
+        ArgumentNullException.ThrowIfNull(allowedClassifications);
+
+        this.allowedClassifications = new HashSet<CanonicalDataClassification>(allowedClassifications);
+        this.allowedClassifications.Add(CanonicalDataClassification.Public);
+        this.allowedRestrictedFields = new HashSet<string>(
+            (allowedRestrictedFields ?? Array.Empty<string>())
+                .Where(field => !string.IsNullOrWhiteSpace(field))
+                .Select(NormalizeFieldName),
+            StringComparer.Ordinal);
+    }
+
+    public static FieldAccessPolicySnapshot ThroughRestrictedFields(params string[] fields) =>
+        new(
+            new[]
+            {
+                CanonicalDataClassification.Public,
+                CanonicalDataClassification.Internal,
+                CanonicalDataClassification.Confidential,
+                CanonicalDataClassification.Restricted
+            },
+            fields);
+
+    public bool Allows(CanonicalDataClassification classification, string fieldName)
+    {
+        if (!allowedClassifications.Contains(classification))
+        {
+            return false;
+        }
+
+        return classification != CanonicalDataClassification.Restricted ||
+               allowedRestrictedFields.Contains(NormalizeFieldName(fieldName));
+    }
+
+    private static string NormalizeFieldName(string name) =>
+        name.Replace("_", string.Empty, StringComparison.Ordinal)
+            .Replace("-", string.Empty, StringComparison.Ordinal)
+            .ToLowerInvariant();
+}
+
+/// <summary>
 /// Canonical redaction input context. Authorization is supplied by the caller;
 /// the redaction layer never invents or upgrades a business authorization decision.
-/// Purpose is restricted to the canonical MVP vocabulary.
+/// Purpose is restricted to the canonical MVP vocabulary. FieldAccessPolicy is
+/// the already-authorized DataClassification/FieldAccessPolicy projection input.
 /// </summary>
 public sealed record AuthorizationContext
 {
@@ -49,6 +132,7 @@ public sealed record AuthorizationContext
     public RedactionPurpose Purpose { get; }
     public string RequestId { get; }
     public RedactionAuthorizationState AuthorizationState { get; }
+    public FieldAccessPolicySnapshot FieldAccessPolicy { get; }
 
     public AuthorizationContext(
         Guid? ActorId,
@@ -56,7 +140,8 @@ public sealed record AuthorizationContext
         string ModuleKey,
         RedactionPurpose Purpose,
         string RequestId,
-        RedactionAuthorizationState AuthorizationState)
+        RedactionAuthorizationState AuthorizationState,
+        FieldAccessPolicySnapshot? FieldAccessPolicy = null)
     {
         ArgumentException.ThrowIfNullOrWhiteSpace(ModuleKey);
         ArgumentException.ThrowIfNullOrWhiteSpace(RequestId);
@@ -67,6 +152,7 @@ public sealed record AuthorizationContext
         this.Purpose = Purpose;
         this.RequestId = RequestId;
         this.AuthorizationState = AuthorizationState;
+        this.FieldAccessPolicy = FieldAccessPolicy ?? FieldAccessPolicySnapshot.StandardAuthorized;
     }
 
     public AuthorizationContext(
@@ -75,14 +161,16 @@ public sealed record AuthorizationContext
         string ModuleKey,
         string Purpose,
         string RequestId,
-        RedactionAuthorizationState AuthorizationState)
+        RedactionAuthorizationState AuthorizationState,
+        FieldAccessPolicySnapshot? FieldAccessPolicy = null)
         : this(
             ActorId,
             TenantId,
             ModuleKey,
             ParsePurpose(Purpose),
             RequestId,
-            AuthorizationState)
+            AuthorizationState,
+            FieldAccessPolicy)
     {
     }
 
@@ -144,6 +232,7 @@ public sealed class CanonicalRedactionService : IRedactionService
         "clientsecret",
         "webhooksecret",
         "rawtoken",
+        "token",
         "tokenhash",
         "credential",
         "credentialvalue",
@@ -164,17 +253,15 @@ public sealed class CanonicalRedactionService : IRedactionService
         "auditdetail",
         "rightsevidence");
 
-    private static readonly IReadOnlyDictionary<RedactionProfile, HashSet<string>> ProfileRestrictedFields =
+    // These maps classify fields; they do not directly decide visibility.
+    // Visibility is determined by AuthorizationContext.FieldAccessPolicy.
+    // Fields not listed here are Internal after the resource-level authorization
+    // decision has already succeeded.
+    private static readonly IReadOnlyDictionary<RedactionProfile, HashSet<string>> ProfileConfidentialFields =
         new Dictionary<RedactionProfile, HashSet<string>>
         {
-            [RedactionProfile.UiList] = Set(
-                "email",
-                "originalfilename",
-                "uploadedbydisplayname"),
-            [RedactionProfile.UiDetail] = Set(
-                "email",
-                "originalfilename",
-                "uploadedbydisplayname"),
+            [RedactionProfile.UiList] = Set("email"),
+            [RedactionProfile.UiDetail] = Set("email"),
             [RedactionProfile.SearchSnippet] = Set(
                 "email",
                 "snippet",
@@ -184,7 +271,6 @@ public sealed class CanonicalRedactionService : IRedactionService
                 "summary"),
             [RedactionProfile.ExportRow] = Set(
                 "email",
-                "primarydomain",
                 "originalfilename",
                 "filename",
                 "uploadedbyuserid",
@@ -193,19 +279,9 @@ public sealed class CanonicalRedactionService : IRedactionService
                 "content",
                 "message",
                 "description",
-                "summary",
-                "metadata",
-                "details",
-                "ipaddress",
-                "useragent",
-                "deletereason",
-                "token"),
+                "summary"),
             [RedactionProfile.AuditDisplay] = Set(
                 "summary",
-                "metadata",
-                "details",
-                "ipaddress",
-                "useragent",
                 "body",
                 "content",
                 "description"),
@@ -213,16 +289,30 @@ public sealed class CanonicalRedactionService : IRedactionService
                 "email",
                 "body",
                 "content",
-                "message",
-                "summary",
                 "description"),
-            [RedactionProfile.FileMetadata] = Set(
-                "originalfilename",
-                "filename",
-                "uploadedbyuserid",
-                "uploadedbydisplayname",
-                "uploader",
-                "targetlabel")
+            [RedactionProfile.FileMetadata] = Set()
+        };
+
+    private static readonly IReadOnlyDictionary<RedactionProfile, HashSet<string>> ProfileRestrictedFields =
+        new Dictionary<RedactionProfile, HashSet<string>>
+        {
+            [RedactionProfile.UiList] = Set(),
+            [RedactionProfile.UiDetail] = Set(),
+            [RedactionProfile.SearchSnippet] = Set(),
+            [RedactionProfile.ExportRow] = Set(
+                "primarydomain",
+                "metadata",
+                "details",
+                "ipaddress",
+                "useragent",
+                "deletereason"),
+            [RedactionProfile.AuditDisplay] = Set(
+                "metadata",
+                "details",
+                "ipaddress",
+                "useragent"),
+            [RedactionProfile.NotificationPayload] = Set(),
+            [RedactionProfile.FileMetadata] = Set()
         };
 
     public RedactionResult Redact(
@@ -280,7 +370,7 @@ public sealed class CanonicalRedactionService : IRedactionService
                     continue;
                 }
 
-                if (ShouldRedact(profile, normalizedName))
+                if (ShouldRedact(context, profile, normalizedName))
                 {
                     projected[property.Key] = RedactedValue(property.Value, normalizedName);
                     changed = true;
@@ -316,32 +406,48 @@ public sealed class CanonicalRedactionService : IRedactionService
         RedactionProfile profile,
         string normalizedName)
     {
-        if (AlwaysRemoveFields.Contains(normalizedName))
-        {
-            return true;
-        }
-
+        // Raw bearer/grant tokens are default-deny. The only response exception
+        // is the one-time FileDownloadGrant issuance boundary with the exact
+        // canonical module/profile/purpose tuple.
         if (normalizedName == "token" &&
+            context.AuthorizationState == RedactionAuthorizationState.Allowed &&
             profile == RedactionProfile.UiDetail &&
+            context.Purpose == RedactionPurpose.FileDownload &&
             string.Equals(context.ModuleKey, "FileDownloadGrant", StringComparison.Ordinal))
         {
             return false;
         }
 
-        return false;
+        return AlwaysRemoveFields.Contains(normalizedName);
     }
 
     private static bool ShouldRedact(
+        AuthorizationContext context,
         RedactionProfile profile,
         string normalizedName)
     {
-        if (AlwaysRestrictedFields.Contains(normalizedName))
+        var classification = ClassifyField(profile, normalizedName);
+        return !context.FieldAccessPolicy.Allows(classification, normalizedName);
+    }
+
+    private static CanonicalDataClassification ClassifyField(
+        RedactionProfile profile,
+        string normalizedName)
+    {
+        if (AlwaysRestrictedFields.Contains(normalizedName) ||
+            (ProfileRestrictedFields.TryGetValue(profile, out var restricted) &&
+             restricted.Contains(normalizedName)))
         {
-            return true;
+            return CanonicalDataClassification.Restricted;
         }
 
-        return ProfileRestrictedFields.TryGetValue(profile, out var fields) &&
-               fields.Contains(normalizedName);
+        if (ProfileConfidentialFields.TryGetValue(profile, out var confidential) &&
+            confidential.Contains(normalizedName))
+        {
+            return CanonicalDataClassification.Confidential;
+        }
+
+        return CanonicalDataClassification.Internal;
     }
 
     private static JsonNode? RedactedValue(JsonNode? value, string normalizedName)
