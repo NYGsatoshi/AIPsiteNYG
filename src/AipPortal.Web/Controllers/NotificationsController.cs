@@ -54,15 +54,11 @@ public sealed class NotificationsController(INotificationApplicationService noti
                 RedactionAuthorizationState.Allowed));
         }
 
-        // A missing notification and a notification owned by another
-        // recipient are indistinguishable at the boundary.  Do not disclose
-        // a target lifecycle or authorization reason.
-        return NotFound(CanonicalRedactionProjection.Apply(
-            HttpContext,
-            new NotificationOpenResponse("Unavailable", null, 0),
-            RedactionProfile.NotificationPayload,
-            "NotificationOpen",
-            RedactionAuthorizationState.Allowed));
+        // A missing notification and a notification owned by another recipient
+        // are deliberately collapsed to the same already-public-safe sentinel.
+        // Do not fabricate an Allowed authorization state merely to pass that
+        // sentinel through the canonical projection helper.
+        return NotFound(new NotificationOpenResponse("Unavailable", null, 0));
     }
 
     [HttpPatch("api/notifications/read-all")]
