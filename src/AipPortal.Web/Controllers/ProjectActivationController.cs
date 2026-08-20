@@ -44,10 +44,8 @@ public sealed class ProjectActivationController(IProjectActivationService activa
     {
         var sourceCode = detail?.Code ?? "ValidationFailed";
         var sensitive = sourceCode is not "AuthenticationRequired" and not "IdempotencyConflict";
-        var code = sensitive ? "NotFound" : sourceCode;
-        var message = sensitive
-            ? "The requested resource was not found."
-            : detail?.Message ?? fallbackError ?? fallbackMessage;
+        var code = sourceCode;
+        var message = detail?.Message ?? fallbackError ?? fallbackMessage;
         var status = sourceCode switch
         {
             "AuthenticationRequired" => StatusCodes.Status401Unauthorized,
