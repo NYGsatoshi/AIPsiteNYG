@@ -30,7 +30,14 @@ public sealed class NotificationsController(INotificationApplicationService noti
     public async Task<IActionResult> MarkRead(Guid notificationId, CancellationToken cancellationToken)
     {
         var result = await notifications.MarkAsReadAsync(notificationId, cancellationToken);
-        return result.IsSuccess ? Ok(new { status = "OK" }) : BadRequest(new { error = result.Error });
+        return result.IsSuccess
+            ? Ok(new { status = "OK" })
+            : BadRequest(CanonicalErrorEnvelope.FromSensitiveResult(
+                HttpContext,
+                StatusCodes.Status400BadRequest,
+                result.ErrorDetail,
+                result.Error,
+                "NotificationUpdateFailed"));
     }
 
     [HttpPost("api/notifications/{notificationId:guid}/open")]
@@ -62,14 +69,28 @@ public sealed class NotificationsController(INotificationApplicationService noti
     public async Task<IActionResult> MarkAllRead(CancellationToken cancellationToken)
     {
         var result = await notifications.MarkAllAsReadAsync(cancellationToken);
-        return result.IsSuccess ? Ok(new { status = "OK" }) : BadRequest(new { error = result.Error });
+        return result.IsSuccess
+            ? Ok(new { status = "OK" })
+            : BadRequest(CanonicalErrorEnvelope.FromSensitiveResult(
+                HttpContext,
+                StatusCodes.Status400BadRequest,
+                result.ErrorDetail,
+                result.Error,
+                "NotificationUpdateFailed"));
     }
 
     [HttpDelete("api/notifications/{notificationId:guid}")]
     public async Task<IActionResult> Delete(Guid notificationId, CancellationToken cancellationToken)
     {
         var result = await notifications.DeleteAsync(notificationId, cancellationToken);
-        return result.IsSuccess ? Ok(new { status = "OK" }) : BadRequest(new { error = result.Error });
+        return result.IsSuccess
+            ? Ok(new { status = "OK" })
+            : BadRequest(CanonicalErrorEnvelope.FromSensitiveResult(
+                HttpContext,
+                StatusCodes.Status400BadRequest,
+                result.ErrorDetail,
+                result.Error,
+                "NotificationUpdateFailed"));
     }
 
     private IActionResult ToActionResult<T>(
@@ -83,6 +104,11 @@ public sealed class NotificationsController(INotificationApplicationService noti
                 RedactionProfile.NotificationPayload,
                 moduleKey,
                 RedactionAuthorizationState.Allowed))
-            : BadRequest(new { error = result.Error });
+            : BadRequest(CanonicalErrorEnvelope.FromSensitiveResult(
+                HttpContext,
+                StatusCodes.Status400BadRequest,
+                result.ErrorDetail,
+                result.Error,
+                "NotificationQueryFailed"));
     }
 }
