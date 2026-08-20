@@ -76,11 +76,20 @@ jobs:
         shell: bash
         run: |
           install_dir="$HOME/.dotnet-ci"
-          mkdir -p "$install_dir"
+          job_temp="$RUNNER_TEMP/dotnet-${GITHUB_JOB}-${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}"
+          mkdir -p \
+            "$install_dir" \
+            "$job_temp/home" \
+            "$job_temp/nuget/scratch" \
+            "$HOME/.nuget/packages"
           {
             echo "DOTNET_INSTALL_DIR=$install_dir"
             echo "DOTNET_ROOT=$install_dir"
             echo "DOTNET_MULTILEVEL_LOOKUP=0"
+            echo "DOTNET_CLI_HOME=$job_temp/home"
+            echo "DOTNET_CLI_WORKLOAD_UPDATE_NOTIFY_DISABLE=1"
+            echo "NUGET_PACKAGES=$HOME/.nuget/packages"
+            echo "NUGET_SCRATCH=$job_temp/nuget/scratch"
           } >> "$GITHUB_ENV"
           echo "$install_dir" >> "$GITHUB_PATH"
 
@@ -90,7 +99,7 @@ jobs:
           global-json-file: global.json
 
       - name: Restore
-        run: dotnet restore AipPortal.slnx --disable-parallel --verbosity normal
+        run: dotnet restore AipPortal.slnx --disable-parallel --disable-build-servers --verbosity normal
 
       - name: Build
         run: dotnet build AipPortal.slnx --configuration Release --no-restore --disable-build-servers -m:1
