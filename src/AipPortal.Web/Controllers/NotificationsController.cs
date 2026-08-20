@@ -49,7 +49,11 @@ public sealed class NotificationsController(INotificationApplicationService noti
         // A missing notification and a notification owned by another
         // recipient are indistinguishable at the boundary.  Do not disclose
         // a target lifecycle or authorization reason.
-        return NotFound(new NotificationOpenResponse("Unavailable", null, 0));
+        return NotFound(CanonicalRedactionProjection.Apply(
+            HttpContext,
+            new NotificationOpenResponse("Unavailable", null, 0),
+            RedactionProfile.NotificationPayload,
+            "NotificationOpen"));
     }
 
     [HttpPatch("api/notifications/read-all")]
