@@ -34,8 +34,6 @@ public sealed class AuditController(IAuditQueryService audit) : ControllerBase
     [HttpGet("api/admin/audit-grid")]
     public async Task<IActionResult> AdminAuditGrid([FromQuery] AuditLogQuery query, CancellationToken cancellationToken)
     {
-        // The admin grid paginates client-side and offers 50/100 rows per page.
-        // Load its complete supported window when the caller omits PageSize.
         var effectiveQuery = Request.Query.ContainsKey(nameof(AuditLogQuery.PageSize))
             ? query
             : query with { PageSize = AdminAuditGridDefaultPageSize };
@@ -73,7 +71,7 @@ public sealed class AuditController(IAuditQueryService audit) : ControllerBase
                 RedactionProfile.AuditDisplay,
                 moduleKey,
                 RedactionAuthorizationState.Allowed,
-                "SecurityAuditLite"))
+                RedactionPurpose.SecurityAuditLite))
             : BadRequest(CanonicalErrorEnvelope.FromSensitiveResult(
                 HttpContext,
                 StatusCodes.Status400BadRequest,
