@@ -11,10 +11,7 @@ public sealed class WpcApiContractMiddleware(RequestDelegate next)
     public async Task InvokeAsync(HttpContext context)
     {
         if (!HttpMethods.IsPost(context.Request.Method) ||
-            !string.Equals(
-                context.Request.Path.Value?.TrimEnd('/'),
-                "/api/workspaces",
-                StringComparison.OrdinalIgnoreCase) ||
+            !ApiEnvelope.IsWorkspaceCreationPath(context.Request.Path.Value) ||
             string.IsNullOrWhiteSpace(context.Request.ContentType) ||
             context.Request.HasJsonContentType())
         {
