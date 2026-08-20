@@ -224,8 +224,4 @@ public sealed class WorkspacesController(IWorkspaceService workspaces) : Control
             : ToWpcError(result.ErrorDetail, result.Error, "Workspace archive failed.");
     }
 
-    private IActionResult ToActionResult<T>(AipPortal.Application.Common.Result<T> result)
-    {
-        return result.IsSuccess ? Ok(result.Value) : BadRequest(new { error = result.Error });
-    }
 }
