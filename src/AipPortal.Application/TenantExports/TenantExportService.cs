@@ -74,6 +74,24 @@ public sealed class TenantExportService(
                 tenantId,
                 buildAuthorization.Value!,
                 cancellationToken);
+
+            // Building the archive can take long enough for tenant membership,
+            // feature availability, or manage permission to change. Re-check
+            // immediately after materialization and discard the bytes when the
+            // caller no longer has export authority.
+            var deliveryAuthorization = await AuthorizeExportAsync(
+                userId,
+                tenantId,
+                cancellationToken);
+            if (!deliveryAuthorization.IsSuccess)
+            {
+                exportJob.Status = ExportJobStatus.Failed;
+                exportJob.ErrorMessage = "Authorization changed before export delivery.";
+                await unitOfWork.SaveChangesAsync(cancellationToken);
+                return Result<TenantExportFileResponse>.Failure(
+                    "Tenant export could not be completed.");
+            }
+
             exportJob.Status = ExportJobStatus.Completed;
             exportJob.CompletedAt = clock.UtcNow;
             await auditLogger.LogUserActionAsync(
