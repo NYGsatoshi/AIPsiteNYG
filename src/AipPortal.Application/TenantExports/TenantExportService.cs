@@ -164,7 +164,8 @@ public sealed class TenantExportService(
             ModuleKey: "TenantExport",
             Purpose: "ExportBuild",
             RequestId: exportJobId.ToString("N"),
-            AuthorizationState: RedactionAuthorizationState.Allowed));
+            AuthorizationState: RedactionAuthorizationState.Allowed,
+            FieldAccessPolicy: FieldAccessPolicySnapshot.ThroughConfidential));
     }
 
     private async Task<Result> AuthorizeExportAsync(Guid userId, Guid tenantId, CancellationToken cancellationToken)
