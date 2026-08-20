@@ -1,6 +1,8 @@
 using AipPortal.Application.Common;
 using AipPortal.Application.Projects;
+using AipPortal.Application.Security.Redaction;
 using AipPortal.Web.Models;
+using AipPortal.Web.Security;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
 
@@ -23,7 +25,14 @@ public sealed class WorkspaceProjectsController(ICanonicalProjectCreateService p
             var value = result.Value!;
             return Created(
                 $"/api/projects/{value.Id}",
-                ApiEnvelope.Success(HttpContext, value));
+                ApiEnvelope.Success(
+                    HttpContext,
+                    CanonicalRedactionProjection.Apply(
+                        HttpContext,
+                        value,
+                        RedactionProfile.UiDetail,
+                        "ProjectCreate",
+                        RedactionAuthorizationState.Allowed)));
         }
 
         return ToWpcError(result.ErrorDetail, result.Error, "Project creation failed.");
@@ -35,11 +44,9 @@ public sealed class WorkspaceProjectsController(ICanonicalProjectCreateService p
         string fallbackMessage)
     {
         var sourceCode = detail?.Code ?? "ValidationFailed";
-        var sensitive = sourceCode == "NotFound";
-        var code = sensitive ? "NotFound" : sourceCode;
-        var message = sensitive
-            ? "The requested resource was not found."
-            : detail?.Message ?? fallbackError ?? fallbackMessage;
+        var sensitive = sourceCode is not "AuthenticationRequired" and not "IdempotencyConflict";
+        var code = sourceCode;
+        var message = detail?.Message ?? fallbackError ?? fallbackMessage;
         var status = sourceCode switch
         {
             "AuthenticationRequired" => StatusCodes.Status401Unauthorized,

@@ -1,5 +1,7 @@
+using AipPortal.Application.Security.Redaction;
 using AipPortal.Application.Workspaces;
 using AipPortal.Web.Models;
+using AipPortal.Web.Security;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
 
@@ -12,7 +14,15 @@ public sealed class WorkspacesController(IWorkspaceService workspaces) : Control
     [HttpGet("api/workspaces")]
     public async Task<IActionResult> List(CancellationToken cancellationToken)
     {
-        return ToActionResult(await workspaces.ListAsync(cancellationToken));
+        var result = await workspaces.ListAsync(cancellationToken);
+        return result.IsSuccess
+            ? Ok(CanonicalRedactionProjection.Apply(
+                HttpContext,
+                result.Value!,
+                RedactionProfile.UiList,
+                "Workspaces",
+                RedactionAuthorizationState.Allowed))
+            : ToWpcError(result.ErrorDetail, result.Error, "Workspaces could not be listed.");
     }
 
     [HttpGet("api/workspaces/archived")]
@@ -20,7 +30,12 @@ public sealed class WorkspacesController(IWorkspaceService workspaces) : Control
     {
         var result = await workspaces.ListArchivedAsync(cancellationToken);
         return result.IsSuccess
-            ? Ok(result.Value)
+            ? Ok(CanonicalRedactionProjection.Apply(
+                HttpContext,
+                result.Value!,
+                RedactionProfile.UiList,
+                "Workspaces",
+                RedactionAuthorizationState.Allowed))
             : ToWpcError(result.ErrorDetail, result.Error, "Archived Workspaces could not be listed.");
     }
 
@@ -29,7 +44,14 @@ public sealed class WorkspacesController(IWorkspaceService workspaces) : Control
     {
         var result = await workspaces.GetCapabilitiesAsync(cancellationToken);
         return result.IsSuccess
-            ? Ok(ApiEnvelope.Success(HttpContext, result.Value!))
+            ? Ok(ApiEnvelope.Success(
+                HttpContext,
+                CanonicalRedactionProjection.Apply(
+                    HttpContext,
+                    result.Value!,
+                    RedactionProfile.UiDetail,
+                    "WorkspaceCapabilities",
+                    RedactionAuthorizationState.Allowed)))
             : ToWpcError(result.ErrorDetail, result.Error, "Workspace capabilities could not be evaluated.");
     }
 
@@ -45,7 +67,14 @@ public sealed class WorkspacesController(IWorkspaceService workspaces) : Control
             return CreatedAtAction(
                 nameof(Get),
                 new { workspaceId = result.Value!.Id },
-                ApiEnvelope.Success(HttpContext, result.Value));
+                ApiEnvelope.Success(
+                    HttpContext,
+                    CanonicalRedactionProjection.Apply(
+                        HttpContext,
+                        result.Value!,
+                        RedactionProfile.UiDetail,
+                        "WorkspaceCreate",
+                        RedactionAuthorizationState.Allowed)));
         }
 
         return ToWpcError(result.ErrorDetail, result.Error, "Workspace creation failed.");
@@ -57,11 +86,9 @@ public sealed class WorkspacesController(IWorkspaceService workspaces) : Control
         string fallbackMessage)
     {
         var sourceCode = detail?.Code ?? "ValidationFailed";
-        var redactionApplied = sourceCode == "NotFound";
-        var code = redactionApplied ? "NotFound" : sourceCode;
-        var message = redactionApplied
-            ? "The requested resource was not found."
-            : detail?.Message ?? fallbackError ?? fallbackMessage;
+        var redactionApplied = sourceCode is not "AuthenticationRequired" and not "IdempotencyConflict";
+        var code = sourceCode;
+        var message = detail?.Message ?? fallbackError ?? fallbackMessage;
         var target = detail?.Target ?? (sourceCode switch
         {
             "CapabilityDenied" => "workspace",
@@ -94,7 +121,12 @@ public sealed class WorkspacesController(IWorkspaceService workspaces) : Control
     {
         var result = await workspaces.GetAsync(workspaceId, cancellationToken);
         return result.IsSuccess
-            ? Ok(result.Value)
+            ? Ok(CanonicalRedactionProjection.Apply(
+                HttpContext,
+                result.Value!,
+                RedactionProfile.UiDetail,
+                "WorkspaceRead",
+                RedactionAuthorizationState.Allowed))
             : ToWpcError(result.ErrorDetail, result.Error, "Workspace could not be read.");
     }
 
@@ -103,7 +135,12 @@ public sealed class WorkspacesController(IWorkspaceService workspaces) : Control
     {
         var result = await workspaces.UpdateAsync(workspaceId, request, cancellationToken);
         return result.IsSuccess
-            ? Ok(result.Value)
+            ? Ok(CanonicalRedactionProjection.Apply(
+                HttpContext,
+                result.Value!,
+                RedactionProfile.UiDetail,
+                "WorkspaceUpdate",
+                RedactionAuthorizationState.Allowed))
             : ToWpcError(result.ErrorDetail, result.Error, "Workspace update failed.");
     }
 
@@ -133,7 +170,12 @@ public sealed class WorkspacesController(IWorkspaceService workspaces) : Control
     {
         var result = await workspaces.ListMembersAsync(workspaceId, cancellationToken);
         return result.IsSuccess
-            ? Ok(result.Value)
+            ? Ok(CanonicalRedactionProjection.Apply(
+                HttpContext,
+                result.Value!,
+                RedactionProfile.UiList,
+                "WorkspaceMembers",
+                RedactionAuthorizationState.Allowed))
             : ToWpcError(result.ErrorDetail, result.Error, "Workspace members could not be read.");
     }
 
@@ -142,7 +184,12 @@ public sealed class WorkspacesController(IWorkspaceService workspaces) : Control
     {
         var result = await workspaces.AddMemberAsync(workspaceId, request, cancellationToken);
         return result.IsSuccess
-            ? Ok(result.Value)
+            ? Ok(CanonicalRedactionProjection.Apply(
+                HttpContext,
+                result.Value!,
+                RedactionProfile.UiDetail,
+                "WorkspaceMemberUpdate",
+                RedactionAuthorizationState.Allowed))
             : ToWpcError(result.ErrorDetail, result.Error, "Workspace member could not be added.");
     }
 
@@ -151,7 +198,12 @@ public sealed class WorkspacesController(IWorkspaceService workspaces) : Control
     {
         var result = await workspaces.UpdateMemberAsync(workspaceId, userId, request, cancellationToken);
         return result.IsSuccess
-            ? Ok(result.Value)
+            ? Ok(CanonicalRedactionProjection.Apply(
+                HttpContext,
+                result.Value!,
+                RedactionProfile.UiDetail,
+                "WorkspaceMemberUpdate",
+                RedactionAuthorizationState.Allowed))
             : ToWpcError(result.ErrorDetail, result.Error, "Workspace member could not be updated.");
     }
 
@@ -172,8 +224,4 @@ public sealed class WorkspacesController(IWorkspaceService workspaces) : Control
             : ToWpcError(result.ErrorDetail, result.Error, "Workspace archive failed.");
     }
 
-    private IActionResult ToActionResult<T>(AipPortal.Application.Common.Result<T> result)
-    {
-        return result.IsSuccess ? Ok(result.Value) : BadRequest(new { error = result.Error });
-    }
 }

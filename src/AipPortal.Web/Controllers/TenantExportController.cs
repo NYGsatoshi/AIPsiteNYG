@@ -1,4 +1,6 @@
+using AipPortal.Application.Security.Redaction;
 using AipPortal.Application.TenantExports;
+using AipPortal.Web.Security;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
 
@@ -14,9 +16,17 @@ public sealed class TenantExportController(ITenantExportService tenantExports) :
         var result = await tenantExports.ExportAsync(request, cancellationToken);
         if (!result.IsSuccess)
         {
-            return BadRequest(new { error = result.Error });
+            return BadRequest(CanonicalErrorEnvelope.FromSensitiveResult(
+                HttpContext,
+                StatusCodes.Status400BadRequest,
+                result.ErrorDetail,
+                result.Error,
+                "TenantExportFailed"));
         }
 
+        // The ZIP's individual rows have already passed through ExportRow
+        // redaction during the service/repository build. Applying a profile to
+        // this byte wrapper would not protect its serialized contents.
         var file = result.Value!;
         Response.Headers["X-Export-Job-Id"] = file.ExportJobId.ToString();
         return File(file.Content, file.ContentType, file.FileName);
@@ -26,6 +36,18 @@ public sealed class TenantExportController(ITenantExportService tenantExports) :
     public async Task<IActionResult> GetJob(Guid exportJobId, CancellationToken cancellationToken)
     {
         var result = await tenantExports.GetJobAsync(exportJobId, cancellationToken);
-        return result.IsSuccess ? Ok(result.Value) : BadRequest(new { error = result.Error });
+        return result.IsSuccess
+            ? Ok(CanonicalRedactionProjection.Apply(
+                HttpContext,
+                result.Value!,
+                RedactionProfile.UiDetail,
+                "TenantExport",
+                RedactionAuthorizationState.Allowed))
+            : BadRequest(CanonicalErrorEnvelope.FromSensitiveResult(
+                HttpContext,
+                StatusCodes.Status400BadRequest,
+                result.ErrorDetail,
+                result.Error,
+                "TenantExportJobFailed"));
     }
 }

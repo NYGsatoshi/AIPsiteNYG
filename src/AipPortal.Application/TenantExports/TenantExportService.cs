@@ -1,5 +1,6 @@
 using AipPortal.Application.Common;
 using AipPortal.Application.Common.Interfaces;
+using AipPortal.Application.Security.Redaction;
 using AipPortal.Application.Tenancy;
 using AipPortal.Domain.Entities;
 using AipPortal.Domain.Enums;
@@ -53,7 +54,26 @@ public sealed class TenantExportService(
 
         try
         {
-            var content = await exports.CreateMetadataZipAsync(tenantId, cancellationToken);
+            // Export generation can happen after the request-side decision and
+            // must be authorized again immediately before rows are materialized.
+            var buildAuthorization = await ReauthorizeExportBuildAsync(
+                userId,
+                tenantId,
+                exportJob.Id,
+                cancellationToken);
+            if (!buildAuthorization.IsSuccess)
+            {
+                exportJob.Status = ExportJobStatus.Failed;
+                exportJob.ErrorMessage = "Authorization changed before export build.";
+                await unitOfWork.SaveChangesAsync(cancellationToken);
+                return Result<TenantExportFileResponse>.Failure(
+                    "Tenant export could not be completed.");
+            }
+
+            var content = await exports.CreateMetadataZipAsync(
+                tenantId,
+                buildAuthorization.Value!,
+                cancellationToken);
             exportJob.Status = ExportJobStatus.Completed;
             exportJob.CompletedAt = clock.UtcNow;
             await auditLogger.LogUserActionAsync(
@@ -76,12 +96,12 @@ public sealed class TenantExportService(
                 exportJob.CreatedAt,
                 exportJob.CompletedAt));
         }
-        catch (Exception exception)
+        catch
         {
             exportJob.Status = ExportJobStatus.Failed;
-            exportJob.ErrorMessage = exception.Message.Length > 2000 ? exception.Message[..2000] : exception.Message;
+            exportJob.ErrorMessage = "Tenant export could not be completed.";
             await unitOfWork.SaveChangesAsync(cancellationToken);
-            return Result<TenantExportFileResponse>.Failure("Tenant export failed.");
+            return Result<TenantExportFileResponse>.Failure("Tenant export could not be completed.");
         }
     }
 
@@ -105,6 +125,28 @@ public sealed class TenantExportService(
         }
 
         return Result<TenantExportJobResponse>.Success(ToResponse(job));
+    }
+
+    private async Task<Result<AuthorizationContext>> ReauthorizeExportBuildAsync(
+        Guid userId,
+        Guid tenantId,
+        Guid exportJobId,
+        CancellationToken cancellationToken)
+    {
+        var authorization = await AuthorizeExportAsync(userId, tenantId, cancellationToken);
+        if (!authorization.IsSuccess)
+        {
+            return Result<AuthorizationContext>.Failure(
+                "Tenant export authorization could not be confirmed.");
+        }
+
+        return Result<AuthorizationContext>.Success(new AuthorizationContext(
+            ActorId: userId,
+            TenantId: tenantId,
+            ModuleKey: "TenantExport",
+            Purpose: "ExportBuild",
+            RequestId: exportJobId.ToString("N"),
+            AuthorizationState: RedactionAuthorizationState.Allowed));
     }
 
     private async Task<Result> AuthorizeExportAsync(Guid userId, Guid tenantId, CancellationToken cancellationToken)
