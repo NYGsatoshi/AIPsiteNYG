@@ -1,5 +1,8 @@
+using System.IO.Compression;
+using System.Text.Json;
 using AipPortal.Application.Common.Tenancy;
 using AipPortal.Application.Security.Redaction;
+using AipPortal.Domain.Entities;
 using AipPortal.Infrastructure.Persistence;
 using Microsoft.EntityFrameworkCore;
 
@@ -27,6 +30,51 @@ public sealed class TenantExportRedactionTests
         var call = Assert.Single(redactor.Calls);
         Assert.Equal(context, call.Context);
         Assert.Equal(RedactionProfile.ExportRow, call.Profile);
+    }
+
+    [Fact]
+    public async Task MetadataZip_SerializesCanonicalProjectionForPersistedTenantRow()
+    {
+        var currentTenant = new CurrentTenantService();
+        currentTenant.SetPlatformScope();
+        await using var dbContext = CreateDbContext(currentTenant);
+        var context = CreateAuthorizationContext();
+        var tenantId = context.TenantId!.Value;
+
+        dbContext.Tenants.Add(new Tenant(tenantId)
+        {
+            Name = "Original tenant",
+            Slug = "original-tenant",
+            DisplayName = "Sensitive display name"
+        });
+        await dbContext.SaveChangesAsync();
+
+        var redactor = new ReplacingTenantRowRedactionService();
+        var repository = new TenantExportRepository(dbContext, redactor);
+
+        var archiveBytes = await repository.CreateMetadataZipAsync(
+            tenantId,
+            context,
+            CancellationToken.None);
+
+        Assert.Equal(1, redactor.TenantRowCalls);
+
+        using var archiveStream = new MemoryStream(archiveBytes);
+        using var archive = new ZipArchive(archiveStream, ZipArchiveMode.Read);
+        var tenantEntry = archive.GetEntry("tenant.json");
+        Assert.NotNull(tenantEntry);
+
+        await using var tenantStream = tenantEntry!.Open();
+        using var json = await JsonDocument.ParseAsync(tenantStream);
+        Assert.Equal(JsonValueKind.Array, json.RootElement.ValueKind);
+        Assert.Equal(1, json.RootElement.GetArrayLength());
+
+        var rows = json.RootElement.EnumerateArray();
+        Assert.True(rows.MoveNext());
+        var row = rows.Current;
+        Assert.False(rows.MoveNext());
+        Assert.Equal("[redacted]", row.GetProperty("displayName").GetString());
+        Assert.False(row.TryGetProperty("name", out _));
     }
 
     [Fact]
@@ -73,6 +121,29 @@ public sealed class TenantExportRedactionTests
             RedactionProfile profile)
         {
             Calls.Add((context, profile));
+            return new RedactionResult(source, RedactionApplied: false);
+        }
+    }
+
+    private sealed class ReplacingTenantRowRedactionService : IRedactionService
+    {
+        public int TenantRowCalls { get; private set; }
+
+        public RedactionResult Redact(
+            AuthorizationContext context,
+            object source,
+            RedactionProfile profile)
+        {
+            Assert.Equal(RedactionProfile.ExportRow, profile);
+
+            if (source.GetType().GetProperty("DisplayName") is not null)
+            {
+                TenantRowCalls++;
+                return new RedactionResult(
+                    new { DisplayName = "[redacted]" },
+                    RedactionApplied: true);
+            }
+
             return new RedactionResult(source, RedactionApplied: false);
         }
     }
