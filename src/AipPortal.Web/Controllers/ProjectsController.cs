@@ -1,6 +1,8 @@
 using AipPortal.Application.Projects;
+using AipPortal.Application.Security.Redaction;
 using AipPortal.Domain.Enums;
 using AipPortal.Web.Models;
+using AipPortal.Web.Security;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
 
@@ -11,13 +13,33 @@ namespace AipPortal.Web.Controllers;
 public sealed class ProjectsController(IProjectService projects, ITaskCommandService taskCommands, ITaskSubresourceService taskSubresources) : ControllerBase
 {
     [HttpGet("api/projects")]
-    public async Task<IActionResult> List([FromQuery] ProjectListQuery query, CancellationToken cancellationToken) => ToActionResult(await projects.ListAsync(query, cancellationToken));
+    public async Task<IActionResult> List([FromQuery] ProjectListQuery query, CancellationToken cancellationToken)
+    {
+        var result = await projects.ListAsync(query, cancellationToken);
+        return result.IsSuccess
+            ? Ok(CanonicalRedactionProjection.Apply(
+                HttpContext,
+                result.Value!,
+                RedactionProfile.UiList,
+                "Projects"))
+            : ToActionResult(result);
+    }
 
     [HttpPost("api/projects")]
     public async Task<IActionResult> Create(CreateProjectRequest request, CancellationToken cancellationToken) => ToActionResult(await projects.CreateAsync(request, cancellationToken));
 
     [HttpGet("api/projects/{projectId:guid}")]
-    public async Task<IActionResult> Get(Guid projectId, CancellationToken cancellationToken) => ToActionResult(await projects.GetAsync(projectId, cancellationToken));
+    public async Task<IActionResult> Get(Guid projectId, CancellationToken cancellationToken)
+    {
+        var result = await projects.GetAsync(projectId, cancellationToken);
+        return result.IsSuccess
+            ? Ok(CanonicalRedactionProjection.Apply(
+                HttpContext,
+                result.Value!,
+                RedactionProfile.UiDetail,
+                "Projects"))
+            : ToActionResult(result);
+    }
 
     [HttpPatch("api/projects/{projectId:guid}")]
     public async Task<IActionResult> Update(Guid projectId, UpdateProjectRequest request, CancellationToken cancellationToken) => ToActionResult(await projects.UpdateAsync(projectId, request, cancellationToken));
