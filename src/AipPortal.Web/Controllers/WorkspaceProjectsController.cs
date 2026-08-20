@@ -43,7 +43,7 @@ public sealed class WorkspaceProjectsController(ICanonicalProjectCreateService p
         string fallbackMessage)
     {
         var sourceCode = detail?.Code ?? "ValidationFailed";
-        var sensitive = sourceCode == "NotFound";
+        var sensitive = sourceCode is not "AuthenticationRequired" and not "IdempotencyConflict";
         var code = sensitive ? "NotFound" : sourceCode;
         var message = sensitive
             ? "The requested resource was not found."
