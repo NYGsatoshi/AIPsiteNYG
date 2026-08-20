@@ -1,4 +1,5 @@
 using System.Diagnostics;
+using System.Text.Json.Nodes;
 using AipPortal.Application.Security.Redaction;
 using AipPortal.Web.Models;
 using Microsoft.AspNetCore.Http;
@@ -57,6 +58,80 @@ public sealed class CanonicalRedactionServiceTests
         Assert.Equal(profile, redacted.Profile);
         Assert.Equal("authorization", redacted.Reason);
         Assert.NotSame(source, result.Value);
+    }
+
+    [Theory]
+    [InlineData(RedactionProfile.UiList)]
+    [InlineData(RedactionProfile.UiDetail)]
+    [InlineData(RedactionProfile.SearchSnippet)]
+    [InlineData(RedactionProfile.ExportRow)]
+    [InlineData(RedactionProfile.AuditDisplay)]
+    [InlineData(RedactionProfile.NotificationPayload)]
+    [InlineData(RedactionProfile.FileMetadata)]
+    public void AllowedProfile_AppliesProductionFieldPolicy(RedactionProfile profile)
+    {
+        var service = new CanonicalRedactionService();
+        var source = new
+        {
+            Email = "student@example.invalid",
+            OriginalFileName = "restricted-plan.pdf",
+            Snippet = "confidential snippet",
+            Summary = "sensitive summary",
+            Body = "confidential body",
+            HealthNotes = "restricted health data",
+            StorageKey = "tenant/private/object",
+            HashSha256 = "0123456789abcdef",
+            SafeId = Guid.NewGuid()
+        };
+
+        var result = service.Redact(
+            CreateContext(RedactionAuthorizationState.Allowed),
+            source,
+            profile);
+
+        Assert.True(result.RedactionApplied);
+        var projected = Assert.IsType<JsonObject>(result.Value);
+        Assert.Equal("[redacted:restricted]", projected["healthNotes"]?.GetValue<string>());
+        Assert.False(projected.ContainsKey("storageKey"));
+        Assert.False(projected.ContainsKey("hashSha256"));
+        Assert.NotNull(projected["safeId"]);
+
+        if (profile is RedactionProfile.UiList or RedactionProfile.UiDetail or RedactionProfile.ExportRow)
+        {
+            Assert.Equal("[redacted:email]", projected["email"]?.GetValue<string>());
+        }
+
+        if (profile is RedactionProfile.FileMetadata or RedactionProfile.ExportRow)
+        {
+            Assert.Equal("[redacted:file]", projected["originalFileName"]?.GetValue<string>());
+        }
+
+        if (profile == RedactionProfile.SearchSnippet)
+        {
+            Assert.Equal("[redacted:restricted]", projected["snippet"]?.GetValue<string>());
+        }
+
+        if (profile == RedactionProfile.AuditDisplay)
+        {
+            Assert.Equal("[redacted:restricted]", projected["summary"]?.GetValue<string>());
+        }
+
+        if (profile == RedactionProfile.NotificationPayload)
+        {
+            Assert.Equal("[redacted:restricted]", projected["body"]?.GetValue<string>());
+        }
+    }
+
+    [Fact]
+    public void AuthorizationContext_RejectsFreeFormPurpose()
+    {
+        Assert.Throws<ArgumentOutOfRangeException>(() => new AuthorizationContext(
+            ActorId: Guid.NewGuid(),
+            TenantId: Guid.NewGuid(),
+            ModuleKey: "Tests",
+            Purpose: "FreeFormPurpose",
+            RequestId: "request-test",
+            AuthorizationState: RedactionAuthorizationState.Allowed));
     }
 
     [Fact]
@@ -181,10 +256,10 @@ public sealed class CanonicalRedactionServiceTests
 
     private static AuthorizationContext CreateContext(RedactionAuthorizationState authorizationState) =>
         new(
-            ActorId: null,
-            TenantId: null,
+            ActorId: Guid.NewGuid(),
+            TenantId: Guid.NewGuid(),
             ModuleKey: "Tests",
-            Purpose: "NormalOperation",
+            Purpose: RedactionPurpose.NormalOperation,
             RequestId: "request-test",
             AuthorizationState: authorizationState);
 }
