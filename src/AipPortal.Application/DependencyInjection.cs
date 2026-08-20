@@ -17,6 +17,7 @@ using AipPortal.Application.Planning;
 using AipPortal.Application.Projects;
 using AipPortal.Application.Realtime;
 using AipPortal.Application.Search;
+using AipPortal.Application.Security.Redaction;
 using AipPortal.Application.StudentRecords;
 using AipPortal.Application.Tenancy;
 using AipPortal.Application.TenantAdministration;
@@ -36,6 +37,7 @@ public static class DependencyInjection
         services.AddScoped<CurrentTenantService>();
         services.AddScoped<ICurrentTenant>(provider => provider.GetRequiredService<CurrentTenantService>());
         services.AddScoped<ICurrentTenantAccessor>(provider => provider.GetRequiredService<CurrentTenantService>());
+        services.AddSingleton<IRedactionService, CanonicalRedactionService>();
         services.AddScoped<ITenantAuthorizationService, TenantAuthorizationService>();
         // AddApplication() is also used by minimal test/utility hosts that do not
         // compose Infrastructure. Keep persistence-backed WPC dependencies fail
