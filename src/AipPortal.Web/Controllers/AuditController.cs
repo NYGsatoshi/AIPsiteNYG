@@ -72,6 +72,7 @@ public sealed class AuditController(IAuditQueryService audit) : ControllerBase
                 result.Value!,
                 RedactionProfile.AuditDisplay,
                 moduleKey,
+                RedactionAuthorizationState.Allowed,
                 "SecurityAuditLite"))
             : BadRequest(new { error = result.Error });
     }
