@@ -74,9 +74,14 @@ public sealed class TenantExportServiceAuthorizationTests
         }
     }
 
-    private sealed class SequenceTenantAuthorizationService(params bool[] canManageResponses) : ITenantAuthorizationService
+    private sealed class SequenceTenantAuthorizationService : ITenantAuthorizationService
     {
-        private readonly Queue<bool> _responses = new(canManageResponses);
+        private readonly Queue<bool> _responses;
+
+        public SequenceTenantAuthorizationService(params bool[] canManageResponses)
+        {
+            _responses = new Queue<bool>(canManageResponses);
+        }
 
         public int CanManageCalls { get; private set; }
 
@@ -119,7 +124,7 @@ public sealed class TenantExportServiceAuthorizationTests
     private sealed class TestCurrentUser(Guid userId) : ICurrentUser
     {
         public Guid? UserId => userId;
-        public Guid? SessionId => Guid.NewGuid();
+        public Guid? SessionId => Guid.Empty;
         public string? Email => "export-test@example.invalid";
         public SystemRole? SystemRole => null;
         public bool IsAuthenticated => true;
