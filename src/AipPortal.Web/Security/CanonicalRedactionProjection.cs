@@ -27,8 +27,11 @@ public static class CanonicalRedactionProjection
         ArgumentException.ThrowIfNullOrWhiteSpace(moduleKey);
         ArgumentException.ThrowIfNullOrWhiteSpace(purpose);
 
-        var currentUser = httpContext.RequestServices.GetService(typeof(ICurrentUser)) as ICurrentUser;
-        var currentTenant = httpContext.RequestServices.GetService(typeof(ICurrentTenant)) as ICurrentTenant;
+        var requestServices = httpContext.RequestServices
+            ?? throw new InvalidOperationException(
+                "Canonical redaction requires a configured request service provider.");
+        var currentUser = requestServices.GetService(typeof(ICurrentUser)) as ICurrentUser;
+        var currentTenant = requestServices.GetService(typeof(ICurrentTenant)) as ICurrentTenant;
         var context = new AuthorizationContext(
             ActorId: currentUser?.UserId,
             TenantId: currentTenant is { IsAvailable: true } ? currentTenant.TenantId : null,
@@ -37,7 +40,7 @@ public static class CanonicalRedactionProjection
             RequestId: httpContext.TraceIdentifier,
             AuthorizationState: authorizationState);
 
-        var redactionService = httpContext.RequestServices.GetRequiredService<IRedactionService>();
+        var redactionService = requestServices.GetRequiredService<IRedactionService>();
         var result = redactionService.Redact(context, source!, profile);
 
         if (result.Value is T projected)
