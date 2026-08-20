@@ -117,7 +117,7 @@ public sealed class TenantExportRedactionTests
     {
         var context = CreateAuthorizationContext();
         await AssertContextRejectedAsync(
-            context with { TenantId = Guid.NewGuid() },
+            CopyContext(context, tenantId: Guid.NewGuid()),
             context.TenantId!.Value);
     }
 
@@ -126,7 +126,7 @@ public sealed class TenantExportRedactionTests
     {
         var context = CreateAuthorizationContext();
         await AssertContextRejectedAsync(
-            context with { AuthorizationState = RedactionAuthorizationState.Denied },
+            CopyContext(context, authorizationState: RedactionAuthorizationState.Denied),
             context.TenantId!.Value);
     }
 
@@ -135,7 +135,7 @@ public sealed class TenantExportRedactionTests
     {
         var context = CreateAuthorizationContext();
         await AssertContextRejectedAsync(
-            context with { ActorId = null },
+            CopyContext(context, actorId: null, overrideActor: true),
             context.TenantId!.Value);
     }
 
@@ -144,7 +144,7 @@ public sealed class TenantExportRedactionTests
     {
         var context = CreateAuthorizationContext();
         await AssertContextRejectedAsync(
-            context with { Purpose = RedactionPurpose.NormalOperation },
+            CopyContext(context, purpose: RedactionPurpose.NormalOperation),
             context.TenantId!.Value);
     }
 
@@ -165,6 +165,21 @@ public sealed class TenantExportRedactionTests
 
         Assert.Contains("serializable export row", exception.Message);
     }
+
+    private static AuthorizationContext CopyContext(
+        AuthorizationContext source,
+        Guid? actorId = null,
+        bool overrideActor = false,
+        Guid? tenantId = null,
+        RedactionPurpose? purpose = null,
+        RedactionAuthorizationState? authorizationState = null) =>
+        new(
+            ActorId: overrideActor ? actorId : source.ActorId,
+            TenantId: tenantId ?? source.TenantId,
+            ModuleKey: source.ModuleKey,
+            Purpose: purpose ?? source.Purpose,
+            RequestId: source.RequestId,
+            AuthorizationState: authorizationState ?? source.AuthorizationState);
 
     private static async Task AssertContextRejectedAsync(
         AuthorizationContext context,
