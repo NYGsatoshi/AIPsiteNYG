@@ -1,10 +1,12 @@
 using AipPortal.Application.Common;
+using AipPortal.Application.Security.Redaction;
 using AipPortal.Application.Workspaces;
 using AipPortal.Domain.Enums;
 using AipPortal.Web.Controllers;
 using AipPortal.Web.Models;
 using Microsoft.AspNetCore.Http;
 using Microsoft.AspNetCore.Mvc;
+using Microsoft.Extensions.DependencyInjection;
 
 namespace AipPortal.Tests.Workspaces;
 
@@ -160,13 +162,24 @@ public sealed class WorkspacesControllerTests
         Assert.Equal("CapabilityDenied", envelope.Error.Code);
     }
 
-    private static WorkspacesController Controller(IWorkspaceService service) => new(service)
+    private static WorkspacesController Controller(IWorkspaceService service)
     {
-        ControllerContext = new ControllerContext
+        var services = new ServiceCollection()
+            .AddSingleton<IRedactionService, CanonicalRedactionService>()
+            .BuildServiceProvider();
+
+        return new WorkspacesController(service)
         {
-            HttpContext = new DefaultHttpContext { TraceIdentifier = "wpc01-request" }
-        }
-    };
+            ControllerContext = new ControllerContext
+            {
+                HttpContext = new DefaultHttpContext
+                {
+                    TraceIdentifier = "wpc01-request",
+                    RequestServices = services
+                }
+            }
+        };
+    }
 
     private sealed class StubWorkspaceService : IWorkspaceService
     {
