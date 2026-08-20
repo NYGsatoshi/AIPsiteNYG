@@ -24,7 +24,7 @@ permissions:
 jobs:
   acceptance:
     name: WPC-02D PostgreSQL / PG18
-    runs-on: self-hosted
+    runs-on: [self-hosted, aipsite-ci, general]
     timeout-minutes: 35
 
     services:
