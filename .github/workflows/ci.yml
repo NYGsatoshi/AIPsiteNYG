@@ -426,7 +426,7 @@ jobs:
           POSTGRES_USER: aip_portal
           POSTGRES_PASSWORD: ci_dummy_password
           DB_PASSWORD: ci_dummy_password
-          LOCAL_ADMIN_PASSWORD: ci_dummy_local_admin_password
+          LOCAL_ADMIN_PASSWORD: ci_dummy_password
         run: |
           docker compose -f docker-compose.db.yml config --quiet
           docker compose -f docker-compose.dev.yml config --quiet
@@ -533,15 +533,11 @@ jobs:
             sh -c "chown -R ${uid}:${gid} /workspace"
 
   frontend-test:
-    runs-on: self-hosted
+    runs-on: [self-hosted, aipsite-ci, general]
     needs:
       - build-test
       - security-scan
     timeout-minutes: 120
-    concurrency:
-      group: aipsite-self-hosted-frontend-heavy-v2
-      cancel-in-progress: false
-      queue: max
 
     steps:
       - name: Repair previous Docker workspace ownership
