@@ -22,7 +22,7 @@ public sealed class WorkspacesController(IWorkspaceService workspaces) : Control
                 RedactionProfile.UiList,
                 "Workspaces",
                 RedactionAuthorizationState.Allowed))
-            : ToActionResult(result);
+            : ToWpcError(result.ErrorDetail, result.Error, "Workspaces could not be listed.");
     }
 
     [HttpGet("api/workspaces/archived")]
