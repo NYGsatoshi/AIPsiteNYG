@@ -232,7 +232,7 @@ public sealed class Wpc02ECanonicalRedactionProjectionTests
         public Guid? UserId => userId;
         public Guid? SessionId => Guid.NewGuid();
         public string? Email => "redaction-test@example.invalid";
-        public SystemRole? SystemRole => Domain.Enums.SystemRole.NormalUser;
+        public SystemRole? SystemRole => AipPortal.Domain.Enums.SystemRole.NormalUser;
         public bool IsAuthenticated => true;
     }
 
