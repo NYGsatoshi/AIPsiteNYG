@@ -16,15 +16,18 @@ public sealed class TenantExportController(ITenantExportService tenantExports) :
         var result = await tenantExports.ExportAsync(request, cancellationToken);
         if (!result.IsSuccess)
         {
-            return BadRequest(new { error = result.Error });
+            return BadRequest(CanonicalErrorEnvelope.FromSensitiveResult(
+                HttpContext,
+                StatusCodes.Status400BadRequest,
+                result.ErrorDetail,
+                result.Error,
+                "TenantExportFailed"));
         }
 
-        var file = CanonicalRedactionProjection.Apply(
-            HttpContext,
-            result.Value!,
-            RedactionProfile.ExportRow,
-            "TenantExport",
-            "ExportBuild");
+        // The ZIP's individual rows have already passed through ExportRow
+        // redaction during the service/repository build. Applying a profile to
+        // this byte wrapper would not protect its serialized contents.
+        var file = result.Value!;
         Response.Headers["X-Export-Job-Id"] = file.ExportJobId.ToString();
         return File(file.Content, file.ContentType, file.FileName);
     }
@@ -37,9 +40,14 @@ public sealed class TenantExportController(ITenantExportService tenantExports) :
             ? Ok(CanonicalRedactionProjection.Apply(
                 HttpContext,
                 result.Value!,
-                RedactionProfile.ExportRow,
+                RedactionProfile.UiDetail,
                 "TenantExport",
-                "ExportBuild"))
-            : BadRequest(new { error = result.Error });
+                RedactionAuthorizationState.Allowed))
+            : BadRequest(CanonicalErrorEnvelope.FromSensitiveResult(
+                HttpContext,
+                StatusCodes.Status400BadRequest,
+                result.ErrorDetail,
+                result.Error,
+                "TenantExportJobFailed"));
     }
 }
