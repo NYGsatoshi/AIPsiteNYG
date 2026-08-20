@@ -16,7 +16,7 @@ on:
       - "docs/**"
 
 concurrency:
-  group: code-quality-${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
+  group: code-quality-v2-${{ github.event.pull_request.number || github.ref }}
   cancel-in-progress: true
 
 permissions:
@@ -25,18 +25,12 @@ permissions:
 jobs:
   qodana-dotnet-community:
     name: Qodana Community / .NET
-    runs-on: self-hosted
+    runs-on: [self-hosted, aipsite-ci, general]
     timeout-minutes: 120
     permissions:
       contents: read
       pull-requests: write
       checks: write
-    # All heavy code-quality jobs share the self-hosted queue while hosted
-    # runner billing is unavailable.
-    concurrency:
-      group: aipsite-self-hosted-frontend-heavy-v2
-      cancel-in-progress: false
-      queue: max
 
     env:
       DOTNET_CLI_TELEMETRY_OPTOUT: "1"
@@ -63,7 +57,15 @@ jobs:
 
       - name: Configure persistent .NET caches
         shell: bash
-        run: bash scripts/ci/configure-persistent-caches.sh
+        run: |
+          bash scripts/ci/configure-persistent-caches.sh
+          job_temp="$RUNNER_TEMP/dotnet-${GITHUB_JOB}-${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}"
+          mkdir -p "$job_temp/home" "$job_temp/nuget/scratch"
+          {
+            echo "DOTNET_CLI_HOME=$job_temp/home"
+            echo "DOTNET_CLI_WORKLOAD_UPDATE_NOTIFY_DISABLE=1"
+            echo "NUGET_SCRATCH=$job_temp/nuget/scratch"
+          } >> "$GITHUB_ENV"
 
       - name: Set up .NET SDK
         uses: actions/setup-dotnet@v6
@@ -75,8 +77,6 @@ jobs:
         run: bash scripts/ci/cleanup-qodana-containers.sh "$GITHUB_WORKSPACE"
 
       - name: Record complete Qodana inspection inventory
-        # This non-gating inventory makes existing findings reviewable. The
-        # following PR-mode scan is the deterministic blocking gate.
         continue-on-error: true
         uses: JetBrains/qodana-action@v2026.1.3
         with:
@@ -112,8 +112,6 @@ jobs:
             --image jetbrains/qodana-cdnet:2026.1-eap-privileged
             --solution AipPortal.slnx
             --configuration Release
-          # fetch-depth: 0 plus PR mode compares this head to its GitHub base;
-          # runner cache is never used as a baseline.
           pr-mode: true
           results-dir: ${{ runner.temp }}/qodana/results-${{ github.run_id }}-${{ github.run_attempt }}
           use-caches: false
@@ -162,14 +160,10 @@ jobs:
 
   frontend-quality:
     name: Angular / TypeScript / JavaScript / HTML / SCSS / CSS
-    runs-on: self-hosted
+    runs-on: [self-hosted, aipsite-ci, general]
     needs: qodana-dotnet-community
-    if: ${{ always() }}
+    if: ${{ !cancelled() }}
     timeout-minutes: 90
-    concurrency:
-      group: aipsite-self-hosted-frontend-heavy-v2
-      cancel-in-progress: false
-      queue: max
 
     steps:
       - name: Repair previous Docker workspace ownership

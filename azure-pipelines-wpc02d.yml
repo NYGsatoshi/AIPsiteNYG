@@ -1,9 +1,14 @@
-# Temporary Azure Pipelines fallback for AIPsiteNYG.
-# Automatic CI is currently handled by the restored self-hosted GitHub Actions workflows.
-# Keep this definition available for manual fallback only.
+# Standalone Azure Pipelines entry point for WPC-02D / PR #313.
+# The existing repository-wide azure-pipelines.yml also includes the same
+# guarded WPC-02D job, so a separately registered pipeline is optional.
 
 trigger: none
-pr: none
+
+pr:
+  autoCancel: true
+  branches:
+    include:
+      - main
 
 pool:
   vmImage: ubuntu-latest
@@ -25,7 +30,6 @@ resources:
         --health-retries 5
 
 jobs:
-  - template: ci/azure/core-jobs.yml
-  - template: ci/azure/security-jobs.yml
-  - template: ci/azure/frontend-jobs.yml
   - template: ci/azure/wpc02d-jobs.yml
+    parameters:
+      allowManual: true

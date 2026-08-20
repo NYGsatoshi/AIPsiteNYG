@@ -38,12 +38,14 @@ public static class DependencyInjection
         services.AddScoped<ICurrentTenantAccessor>(provider => provider.GetRequiredService<CurrentTenantService>());
         services.AddScoped<ITenantAuthorizationService, TenantAuthorizationService>();
         // AddApplication() is also used by minimal test/utility hosts that do not
-        // compose Infrastructure. Keep WPC-02B dependencies fail closed there;
-        // AddInfrastructure() registers the real persistence implementations later
-        // and therefore overrides these single-service fallbacks in the full host.
+        // compose Infrastructure. Keep persistence-backed WPC dependencies fail
+        // closed there; AddInfrastructure() registers the real implementations
+        // later and therefore overrides these single-service fallbacks.
         services.AddScoped<ICapabilityGrantRepository, UnavailableCapabilityGrantRepository>();
         services.AddScoped<IDefaultConversationStore, UnavailableDefaultConversationStore>();
         services.AddScoped<ICreateIdempotencyCoordinator, UnavailableCreateIdempotencyCoordinator>();
+        services.AddScoped<IProjectActivationWorkflowStore, UnavailableProjectActivationWorkflowStore>();
+        services.AddScoped<IProjectActivationUnitOfWork, UnavailableProjectActivationUnitOfWork>();
         services.AddScoped<ICapabilityGrantEvaluator, CapabilityGrantEvaluator>();
         services.AddScoped<ICapabilityGrantService, CapabilityGrantService>();
         services.AddScoped<ITenantService, TenantService>();
@@ -93,6 +95,11 @@ public static class DependencyInjection
         services.AddScoped<IIntegrationService>(provider => provider.GetRequiredService<IntegrationService>());
         services.AddScoped<IApiTokenValidator>(provider => provider.GetRequiredService<IntegrationService>());
         services.AddScoped<ICanonicalProjectCreateService, CanonicalProjectCreateService>();
+        services.AddScoped<IProjectGeneralActivationProvisioner, ProjectGeneralActivationProvisioner>();
+        services.AddScoped<IConfiguredProjectTaskWorkflowSource, NoConfiguredProjectTaskWorkflowSource>();
+        services.AddScoped<IProjectTaskWorkflowResolver, ProjectTaskWorkflowResolver>();
+        services.AddScoped<IProjectTaskWorkflowActivationProvisioner, ProjectTaskWorkflowActivationProvisioner>();
+        services.AddScoped<IProjectActivationService, ProjectActivationService>();
         services.AddScoped<IProjectService, ProjectService>();
         // Minimal hosts may register only IUnitOfWork after AddApplication. Reuse that
         // same scoped instance when it also supports the Task-specific save contract.
