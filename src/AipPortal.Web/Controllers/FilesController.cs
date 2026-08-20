@@ -103,7 +103,8 @@ public sealed class FilesController(IFileObjectService files) : ControllerBase
                 HttpContext,
                 result.Value!,
                 RedactionProfile.FileMetadata,
-                moduleKey))
+                moduleKey,
+                RedactionAuthorizationState.Allowed))
             : BadRequest(new { error = result.Error });
 
     private FileStreamResult PrivateFile(Stream content, string contentType, string fileName)
