@@ -66,7 +66,7 @@ public sealed class CapabilityGrantsController(ICapabilityGrantService capabilit
         string fallbackMessage)
     {
         var sourceCode = detail?.Code ?? "ValidationFailed";
-        var redactionApplied = sourceCode == "NotFound";
+        var redactionApplied = sourceCode is not "AuthenticationRequired" and not "IdempotencyConflict";
         var message = redactionApplied
             ? "The requested resource was not found."
             : detail?.Message ?? fallbackError ?? fallbackMessage;
