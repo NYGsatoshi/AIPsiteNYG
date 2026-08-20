@@ -20,7 +20,8 @@ public sealed class WorkspacesController(IWorkspaceService workspaces) : Control
                 HttpContext,
                 result.Value!,
                 RedactionProfile.UiList,
-                "Workspaces"))
+                "Workspaces",
+                RedactionAuthorizationState.Allowed))
             : ToActionResult(result);
     }
 
@@ -33,7 +34,8 @@ public sealed class WorkspacesController(IWorkspaceService workspaces) : Control
                 HttpContext,
                 result.Value!,
                 RedactionProfile.UiList,
-                "Workspaces"))
+                "Workspaces",
+                RedactionAuthorizationState.Allowed))
             : ToWpcError(result.ErrorDetail, result.Error, "Archived Workspaces could not be listed.");
     }
 
@@ -48,7 +50,8 @@ public sealed class WorkspacesController(IWorkspaceService workspaces) : Control
                     HttpContext,
                     result.Value!,
                     RedactionProfile.UiDetail,
-                    "WorkspaceCapabilities")))
+                    "WorkspaceCapabilities",
+                    RedactionAuthorizationState.Allowed)))
             : ToWpcError(result.ErrorDetail, result.Error, "Workspace capabilities could not be evaluated.");
     }
 
@@ -70,7 +73,8 @@ public sealed class WorkspacesController(IWorkspaceService workspaces) : Control
                         HttpContext,
                         result.Value!,
                         RedactionProfile.UiDetail,
-                        "WorkspaceCreate")));
+                        "WorkspaceCreate",
+                        RedactionAuthorizationState.Allowed)));
         }
 
         return ToWpcError(result.ErrorDetail, result.Error, "Workspace creation failed.");
@@ -121,7 +125,8 @@ public sealed class WorkspacesController(IWorkspaceService workspaces) : Control
                 HttpContext,
                 result.Value!,
                 RedactionProfile.UiDetail,
-                "WorkspaceRead"))
+                "WorkspaceRead",
+                RedactionAuthorizationState.Allowed))
             : ToWpcError(result.ErrorDetail, result.Error, "Workspace could not be read.");
     }
 
@@ -134,7 +139,8 @@ public sealed class WorkspacesController(IWorkspaceService workspaces) : Control
                 HttpContext,
                 result.Value!,
                 RedactionProfile.UiDetail,
-                "WorkspaceUpdate"))
+                "WorkspaceUpdate",
+                RedactionAuthorizationState.Allowed))
             : ToWpcError(result.ErrorDetail, result.Error, "Workspace update failed.");
     }
 
@@ -168,7 +174,8 @@ public sealed class WorkspacesController(IWorkspaceService workspaces) : Control
                 HttpContext,
                 result.Value!,
                 RedactionProfile.UiList,
-                "WorkspaceMembers"))
+                "WorkspaceMembers",
+                RedactionAuthorizationState.Allowed))
             : ToWpcError(result.ErrorDetail, result.Error, "Workspace members could not be read.");
     }
 
@@ -181,7 +188,8 @@ public sealed class WorkspacesController(IWorkspaceService workspaces) : Control
                 HttpContext,
                 result.Value!,
                 RedactionProfile.UiDetail,
-                "WorkspaceMemberUpdate"))
+                "WorkspaceMemberUpdate",
+                RedactionAuthorizationState.Allowed))
             : ToWpcError(result.ErrorDetail, result.Error, "Workspace member could not be added.");
     }
 
@@ -194,7 +202,8 @@ public sealed class WorkspacesController(IWorkspaceService workspaces) : Control
                 HttpContext,
                 result.Value!,
                 RedactionProfile.UiDetail,
-                "WorkspaceMemberUpdate"))
+                "WorkspaceMemberUpdate",
+                RedactionAuthorizationState.Allowed))
             : ToWpcError(result.ErrorDetail, result.Error, "Workspace member could not be updated.");
     }
 
