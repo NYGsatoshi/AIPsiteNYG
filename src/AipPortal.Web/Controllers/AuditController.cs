@@ -21,14 +21,14 @@ public sealed class AuditController(IAuditQueryService audit) : ControllerBase
     [HttpGet("api/tenant/audit-logs")]
     public async Task<IActionResult> TenantAuditLogs([FromQuery] AuditLogQuery query, CancellationToken cancellationToken)
     {
-        return ToActionResult(await audit.ListAuditLogsAsync(query, cancellationToken));
+        return ToActionResult(await audit.ListAuditLogsAsync(query, cancellationToken), "AuditLogs");
     }
 
     [HttpGet("api/platform/audit-logs")]
     [Authorize(Roles = "PlatformAdmin,SystemAdmin")]
     public async Task<IActionResult> PlatformAuditLogs([FromQuery] AuditLogQuery query, CancellationToken cancellationToken)
     {
-        return ToActionResult(await audit.ListAuditLogsAsync(query, cancellationToken));
+        return ToActionResult(await audit.ListAuditLogsAsync(query, cancellationToken), "AuditLogs");
     }
 
     [HttpGet("api/admin/audit-grid")]
@@ -52,14 +52,14 @@ public sealed class AuditController(IAuditQueryService audit) : ControllerBase
     [HttpGet("api/tenant/security-events")]
     public async Task<IActionResult> TenantSecurityEvents([FromQuery] SecurityEventQuery query, CancellationToken cancellationToken)
     {
-        return ToActionResult(await audit.ListSecurityEventsAsync(query, cancellationToken));
+        return ToActionResult(await audit.ListSecurityEventsAsync(query, cancellationToken), "SecurityEvents");
     }
 
     [HttpGet("api/platform/security-events")]
     [Authorize(Roles = "PlatformAdmin,SystemAdmin")]
     public async Task<IActionResult> PlatformSecurityEvents([FromQuery] SecurityEventQuery query, CancellationToken cancellationToken)
     {
-        return ToActionResult(await audit.ListSecurityEventsAsync(query, cancellationToken));
+        return ToActionResult(await audit.ListSecurityEventsAsync(query, cancellationToken), "SecurityEvents");
     }
 
     private IActionResult ToActionResult<T>(
