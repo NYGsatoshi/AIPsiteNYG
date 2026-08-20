@@ -1,8 +1,10 @@
 using AipPortal.Application.Audit;
 using AipPortal.Application.Common;
+using AipPortal.Application.Security.Redaction;
 using AipPortal.Web.Controllers;
 using Microsoft.AspNetCore.Http;
 using Microsoft.AspNetCore.Mvc;
+using Microsoft.Extensions.DependencyInjection;
 
 namespace AipPortal.Tests.Audit;
 
@@ -42,11 +44,17 @@ public sealed class AuditControllerTests
         CapturingAuditQueryService audit,
         string? queryString = null)
     {
+        var services = new ServiceCollection()
+            .AddSingleton<IRedactionService, CanonicalRedactionService>()
+            .BuildServiceProvider();
         var controller = new AuditController(audit)
         {
             ControllerContext = new ControllerContext
             {
-                HttpContext = new DefaultHttpContext()
+                HttpContext = new DefaultHttpContext
+                {
+                    RequestServices = services
+                }
             }
         };
 
