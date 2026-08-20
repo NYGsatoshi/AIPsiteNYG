@@ -44,7 +44,6 @@ public sealed class WorkspaceProjectsController(ICanonicalProjectCreateService p
         string fallbackMessage)
     {
         var sourceCode = detail?.Code ?? "ValidationFailed";
-        var sensitive = sourceCode is not "AuthenticationRequired" and not "IdempotencyConflict";
         var code = sourceCode;
         var message = detail?.Message ?? fallbackError ?? fallbackMessage;
         var status = sourceCode switch
@@ -62,7 +61,7 @@ public sealed class WorkspaceProjectsController(ICanonicalProjectCreateService p
             code,
             message,
             detail?.Target,
-            sensitive);
+            CanonicalErrorExposurePolicy.IsSensitive(sourceCode));
 
         return status switch
         {
