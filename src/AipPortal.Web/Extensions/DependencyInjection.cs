@@ -39,7 +39,6 @@ public static class DependencyInjection
         services.AddHttpContextAccessor();
         services.AddScoped<ICurrentUser, CurrentUserService>();
         services.AddScoped<DbSessionCookieAuthenticationEvents>();
-        services.AddSingleton<IRedactionService, CanonicalRedactionService>();
         services.AddSingleton<IAuthorizationMiddlewareResultHandler, WpcAuthorizationMiddlewareResultHandler>();
         services.AddScoped<ITenantResolver, HttpTenantResolver>();
         services.AddControllers()
