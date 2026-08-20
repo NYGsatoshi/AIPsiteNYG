@@ -24,7 +24,8 @@ public sealed class CapabilityGrantsController(ICapabilityGrantService capabilit
                     HttpContext,
                     result.Value!,
                     RedactionProfile.UiList,
-                    "CapabilityGrants")))
+                    "CapabilityGrants",
+                    RedactionAuthorizationState.Allowed)))
             : ToWpcError(result.ErrorDetail, result.Error, "Capability grants could not be listed.");
     }
 
@@ -41,7 +42,8 @@ public sealed class CapabilityGrantsController(ICapabilityGrantService capabilit
                     HttpContext,
                     result.Value!,
                     RedactionProfile.UiDetail,
-                    "CapabilityGrantUpdate")))
+                    "CapabilityGrantUpdate",
+                    RedactionAuthorizationState.Allowed)))
             : ToWpcError(result.ErrorDetail, result.Error, "Capability grant update failed.");
     }
 
@@ -56,7 +58,8 @@ public sealed class CapabilityGrantsController(ICapabilityGrantService capabilit
                     HttpContext,
                     result.Value!,
                     RedactionProfile.UiDetail,
-                    "CapabilityGrantRevoke")))
+                    "CapabilityGrantRevoke",
+                    RedactionAuthorizationState.Allowed)))
             : ToWpcError(result.ErrorDetail, result.Error, "Capability grant revocation failed.");
     }
 
