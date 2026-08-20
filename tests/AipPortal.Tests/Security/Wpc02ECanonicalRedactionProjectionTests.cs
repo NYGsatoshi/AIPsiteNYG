@@ -92,7 +92,6 @@ public sealed class Wpc02ECanonicalRedactionProjectionTests
 
     [Theory]
     [InlineData("/api/workspaces")]
-    [InlineData("/api/workspaces/capabilities")]
     [InlineData("/api/workspaces/00000000-0000-0000-0000-000000000001/projects")]
     [InlineData("/api/projects/00000000-0000-0000-0000-000000000001/activate")]
     public async Task WpcContractMiddleware_UsesTheCanonicalErrorEnvelopeForEveryWpcCommandRoute(
@@ -124,6 +123,26 @@ public sealed class Wpc02ECanonicalRedactionProjectionTests
         Assert.Equal(
             "UnsupportedMediaType",
             payload.RootElement.GetProperty("error").GetProperty("code").GetString());
+    }
+
+    [Fact]
+    public async Task WpcContractMiddleware_DelegatesPostForGetOnlyCapabilitiesRoute()
+    {
+        var nextCalled = false;
+        var middleware = new WpcApiContractMiddleware(_ =>
+        {
+            nextCalled = true;
+            return Task.CompletedTask;
+        });
+        var httpContext = new DefaultHttpContext();
+        httpContext.Request.Method = HttpMethods.Post;
+        httpContext.Request.Path = "/api/workspaces/capabilities";
+        httpContext.Request.ContentType = "text/plain";
+
+        await middleware.InvokeAsync(httpContext);
+
+        Assert.True(nextCalled);
+        Assert.Equal(StatusCodes.Status200OK, httpContext.Response.StatusCode);
     }
 
     private static DefaultHttpContext CreateHttpContext(IRedactionService redactor)
