@@ -96,12 +96,12 @@ public sealed class TenantExportService(
                 exportJob.CreatedAt,
                 exportJob.CompletedAt));
         }
-        catch (Exception exception)
+        catch
         {
             exportJob.Status = ExportJobStatus.Failed;
-            exportJob.ErrorMessage = exception.Message.Length > 2000 ? exception.Message[..2000] : exception.Message;
+            exportJob.ErrorMessage = "Tenant export could not be completed.";
             await unitOfWork.SaveChangesAsync(cancellationToken);
-            return Result<TenantExportFileResponse>.Failure("Tenant export failed.");
+            return Result<TenantExportFileResponse>.Failure("Tenant export could not be completed.");
         }
     }
 
