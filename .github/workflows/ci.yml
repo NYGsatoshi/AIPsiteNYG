@@ -464,15 +464,11 @@ jobs:
             sh -c "chown -R ${uid}:${gid} /workspace"
 
   frontend-test:
-    runs-on: self-hosted
+    runs-on: [self-hosted, aipsite-ci, general]
     needs:
       - build-test
       - security-scan
     timeout-minutes: 120
-    concurrency:
-      group: aipsite-self-hosted-frontend-heavy-v2
-      cancel-in-progress: false
-      queue: max
 
     steps:
       - name: Repair previous Docker workspace ownership

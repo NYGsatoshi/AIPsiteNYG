@@ -1,9 +1,10 @@
-name: WPC-02B PostgreSQL Acceptance
+name: WPC-02D PostgreSQL Acceptance
 
 on:
   workflow_dispatch:
   pull_request:
-    branches: ["main"]
+    branches:
+      - "main"
     paths-ignore:
       - "**/*.md"
       - "docs/**"
@@ -14,7 +15,7 @@ on:
       - "docs/**"
 
 concurrency:
-  group: wpc02b-postgresql-${{ github.event.pull_request.number || github.ref }}
+  group: wpc02d-postgresql-${{ github.event.pull_request.number || github.ref }}
   cancel-in-progress: true
 
 permissions:
@@ -22,21 +23,21 @@ permissions:
 
 jobs:
   acceptance:
-    name: WPC-02B PostgreSQL / PG18
-    runs-on: self-hosted
+    name: WPC-02D PostgreSQL / PG18
+    runs-on: [self-hosted, aipsite-ci, general]
     timeout-minutes: 35
 
     services:
       postgres:
         image: postgres:18-alpine
         env:
-          POSTGRES_DB: aip_portal_wpc02b
-          POSTGRES_USER: aip_portal_wpc02b
-          POSTGRES_PASSWORD: aip_portal_wpc02b_password
+          POSTGRES_DB: aip_portal_wpc02d
+          POSTGRES_USER: aip_portal_wpc02d
+          POSTGRES_PASSWORD: aip_portal_wpc02d_password
         ports:
           - 5432/tcp
         options: >-
-          --health-cmd "pg_isready -U aip_portal_wpc02b -d aip_portal_wpc02b"
+          --health-cmd "pg_isready -U aip_portal_wpc02d -d aip_portal_wpc02d"
           --health-interval 10s
           --health-timeout 5s
           --health-retries 5
@@ -53,8 +54,8 @@ jobs:
           postgres_port='${{ job.services.postgres.ports[5432] }}'
           test -n "$postgres_port"
           {
-            echo "ConnectionStrings__DefaultConnection=Host=localhost;Port=${postgres_port};Database=aip_portal_wpc02b;Username=aip_portal_wpc02b;Password=aip_portal_wpc02b_password"
-            echo "POSTGRES_TEST_CONNECTION_STRING=Host=localhost;Port=${postgres_port};Database=aip_portal_wpc02b;Username=aip_portal_wpc02b;Password=aip_portal_wpc02b_password"
+            echo "ConnectionStrings__DefaultConnection=Host=localhost;Port=${postgres_port};Database=aip_portal_wpc02d;Username=aip_portal_wpc02d;Password=aip_portal_wpc02d_password"
+            echo "POSTGRES_TEST_CONNECTION_STRING=Host=localhost;Port=${postgres_port};Database=aip_portal_wpc02d;Username=aip_portal_wpc02d;Password=aip_portal_wpc02d_password"
           } >> "$GITHUB_ENV"
 
       - name: Repair previous Docker workspace ownership
@@ -76,20 +77,11 @@ jobs:
         shell: bash
         run: |
           install_dir="$HOME/.dotnet-ci"
-          job_temp="$RUNNER_TEMP/dotnet-${GITHUB_JOB}-${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}"
-          mkdir -p \
-            "$install_dir" \
-            "$job_temp/home" \
-            "$job_temp/nuget/scratch" \
-            "$HOME/.nuget/packages"
+          mkdir -p "$install_dir"
           {
             echo "DOTNET_INSTALL_DIR=$install_dir"
             echo "DOTNET_ROOT=$install_dir"
             echo "DOTNET_MULTILEVEL_LOOKUP=0"
-            echo "DOTNET_CLI_HOME=$job_temp/home"
-            echo "DOTNET_CLI_WORKLOAD_UPDATE_NOTIFY_DISABLE=1"
-            echo "NUGET_PACKAGES=$HOME/.nuget/packages"
-            echo "NUGET_SCRATCH=$job_temp/nuget/scratch"
           } >> "$GITHUB_ENV"
           echo "$install_dir" >> "$GITHUB_PATH"
 
@@ -99,15 +91,15 @@ jobs:
           global-json-file: global.json
 
       - name: Restore
-        run: dotnet restore AipPortal.slnx --disable-parallel --disable-build-servers --verbosity normal
+        run: dotnet restore AipPortal.slnx --disable-parallel --verbosity normal
 
       - name: Build
         run: dotnet build AipPortal.slnx --configuration Release --no-restore --disable-build-servers -m:1
 
-      - name: Run WPC-02B PostgreSQL acceptance
+      - name: Run WPC-02D acceptance
         shell: bash
         run: |
-          mkdir -p artifacts/wpc02b-test-results
+          mkdir -p artifacts/wpc02d-test-results
           dotnet test \
             tests/AipPortal.Tests/AipPortal.Tests.csproj \
             --configuration Release \
@@ -115,24 +107,24 @@ jobs:
             --disable-build-servers \
             -m:1 \
             --verbosity normal \
-            --filter "Scope=WPC02B" \
-            --logger "trx;LogFileName=wpc02b-acceptance.trx" \
-            --results-directory artifacts/wpc02b-test-results
+            --filter "Scope=WPC02D" \
+            --logger "trx;LogFileName=wpc02d-acceptance.trx" \
+            --results-directory artifacts/wpc02d-test-results
 
-      - name: Verify WPC-02B required tests
+      - name: Verify WPC-02D required tests
         shell: bash
         run: |
           bash scripts/ci/verify-trx-results.sh \
-            artifacts/wpc02b-test-results/wpc02b-acceptance.trx \
-            --minimum-total 4 \
-            --required-tests scripts/ci/wpc02b-required-tests.txt \
-            --label "WPC-02B PostgreSQL"
+            artifacts/wpc02d-test-results/wpc02d-acceptance.trx \
+            --minimum-total 14 \
+            --required-tests scripts/ci/wpc02d-required-tests.txt \
+            --label "WPC-02D PostgreSQL"
 
-      - name: Upload WPC-02B acceptance results
+      - name: Upload WPC-02D acceptance results
         if: always()
         uses: actions/upload-artifact@v7
         with:
-          name: wpc02b-postgresql-acceptance-results
-          path: artifacts/wpc02b-test-results
+          name: wpc02d-postgresql-acceptance-results
+          path: artifacts/wpc02d-test-results
           if-no-files-found: warn
           retention-days: 14

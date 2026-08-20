@@ -1,0 +1,127 @@
+parameters:
+  - name: allowManual
+    type: boolean
+    default: false
+
+jobs:
+  - job: Wpc02D
+    displayName: WPC-02D PostgreSQL / PG18
+    timeoutInMinutes: 45
+    condition: >-
+      and(
+        succeeded(),
+        or(
+          and(
+            eq(variables['Build.Reason'], 'PullRequest'),
+            or(
+              eq(variables['System.PullRequest.PullRequestNumber'], '313'),
+              eq(variables['System.PullRequest.SourceBranch'], 'refs/heads/wpc-02d-project-activation'),
+              eq(variables['System.PullRequest.SourceBranch'], 'wpc-02d-project-activation')
+            )
+          ),
+          and(${{ eq(parameters.allowManual, true) }}, ne(variables['Build.Reason'], 'PullRequest'))
+        )
+      )
+    services:
+      postgres: postgres
+    variables:
+      ASPNETCORE_ENVIRONMENT: Test
+      ConnectionStrings__DefaultConnection: 'Host=localhost;Port=5432;Database=aip_portal_ci;Username=aip_portal_ci;Password=aip_portal_ci_password'
+      POSTGRES_TEST_CONNECTION_STRING: 'Host=localhost;Port=5432;Database=aip_portal_ci;Username=aip_portal_ci;Password=aip_portal_ci_password'
+      DOTNET_CLI_TELEMETRY_OPTOUT: '1'
+      DOTNET_NOLOGO: '1'
+      DOTNET_MULTILEVEL_LOOKUP: '0'
+      DOTNET_CLI_WORKLOAD_UPDATE_NOTIFY_DISABLE: '1'
+
+    steps:
+      - checkout: self
+        fetchDepth: 0
+        persistCredentials: false
+
+      - task: UseDotNet@2
+        displayName: Install .NET SDK from global.json
+        inputs:
+          packageType: sdk
+          useGlobalJson: true
+          workingDirectory: '$(Build.SourcesDirectory)'
+
+      - bash: |
+          set -euo pipefail
+          postgres_id="$(docker ps --filter 'ancestor=postgres:18-alpine' --format '{{.ID}}' | head -n 1)"
+          test -n "$postgres_id"
+          for attempt in $(seq 1 30); do
+            docker exec "$postgres_id" pg_isready -U aip_portal_ci -d aip_portal_ci && exit 0
+            sleep 2
+          done
+          docker logs "$postgres_id" || true
+          exit 1
+        displayName: Wait for PostgreSQL 18
+
+      - bash: dotnet restore AipPortal.slnx --disable-parallel --verbosity normal
+        displayName: Restore
+
+      - bash: dotnet build AipPortal.slnx --configuration Release --no-restore --disable-build-servers -m:1
+        displayName: Build Release
+
+      - bash: dotnet tool restore
+        displayName: Restore .NET tools
+
+      - bash: dotnet ef database update --project src/AipPortal.Infrastructure --startup-project src/AipPortal.Web --configuration Release --no-build
+        displayName: Apply PostgreSQL migrations
+
+      - bash: dotnet ef migrations has-pending-model-changes --project src/AipPortal.Infrastructure --startup-project src/AipPortal.Web --configuration Release --no-build
+        displayName: Verify EF Core model
+
+      - bash: |
+          set -euo pipefail
+          dotnet ef database update 20260817023749_Wpc02BCapabilityGrantWorkspaceGeneral \
+            --project src/AipPortal.Infrastructure \
+            --startup-project src/AipPortal.Web \
+            --configuration Release \
+            --no-build
+          dotnet ef database update \
+            --project src/AipPortal.Infrastructure \
+            --startup-project src/AipPortal.Web \
+            --configuration Release \
+            --no-build
+        displayName: Verify WPC-02D migration rollback boundary
+
+      - bash: |
+          set -euo pipefail
+          mkdir -p artifacts/wpc02d-test-results
+          dotnet test \
+            tests/AipPortal.Tests/AipPortal.Tests.csproj \
+            --configuration Release \
+            --no-build \
+            --disable-build-servers \
+            -m:1 \
+            --verbosity normal \
+            --filter "Scope=WPC02D" \
+            --logger "trx;LogFileName=wpc02d-azure-acceptance.trx" \
+            --results-directory artifacts/wpc02d-test-results
+        displayName: Run WPC-02D acceptance
+
+      - bash: |
+          set -euo pipefail
+          bash scripts/ci/verify-trx-results.sh \
+            artifacts/wpc02d-test-results/wpc02d-azure-acceptance.trx \
+            --minimum-total 14 \
+            --required-tests scripts/ci/wpc02d-required-tests.txt \
+            --label "WPC-02D Azure PostgreSQL"
+        displayName: Verify 14 required WPC-02D tests
+
+      - task: PublishTestResults@2
+        displayName: Publish WPC-02D TRX
+        condition: succeededOrFailed()
+        inputs:
+          testResultsFormat: VSTest
+          testResultsFiles: 'artifacts/wpc02d-test-results/*.trx'
+          failTaskOnFailedTests: true
+          testRunTitle: 'WPC-02D Azure PostgreSQL 18'
+
+      - task: PublishPipelineArtifact@1
+        displayName: Publish WPC-02D artifacts
+        condition: succeededOrFailed()
+        inputs:
+          targetPath: 'artifacts/wpc02d-test-results'
+          artifact: 'wpc02d-azure-postgresql-results'
