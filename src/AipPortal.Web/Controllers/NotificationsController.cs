@@ -1,4 +1,6 @@
 using AipPortal.Application.Notifications;
+using AipPortal.Application.Security.Redaction;
+using AipPortal.Web.Security;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
 
@@ -11,13 +13,17 @@ public sealed class NotificationsController(INotificationApplicationService noti
     [HttpGet("api/notifications")]
     public async Task<IActionResult> List([FromQuery] NotificationListQuery query, CancellationToken cancellationToken)
     {
-        return ToActionResult(await notifications.ListAsync(query, cancellationToken));
+        return ToActionResult(
+            await notifications.ListAsync(query, cancellationToken),
+            "Notifications");
     }
 
     [HttpGet("api/notifications/unread-count")]
     public async Task<IActionResult> UnreadCount(CancellationToken cancellationToken)
     {
-        return ToActionResult(await notifications.GetUnreadCountAsync(cancellationToken));
+        return ToActionResult(
+            await notifications.GetUnreadCountAsync(cancellationToken),
+            "NotificationUnreadCount");
     }
 
     [HttpPatch("api/notifications/{notificationId:guid}/read")]
@@ -33,7 +39,11 @@ public sealed class NotificationsController(INotificationApplicationService noti
         var result = await notifications.OpenAsync(notificationId, cancellationToken);
         if (result.IsSuccess)
         {
-            return Ok(result.Value);
+            return Ok(CanonicalRedactionProjection.Apply(
+                HttpContext,
+                result.Value!,
+                RedactionProfile.NotificationPayload,
+                "NotificationOpen"));
         }
 
         // A missing notification and a notification owned by another
@@ -56,8 +66,16 @@ public sealed class NotificationsController(INotificationApplicationService noti
         return result.IsSuccess ? Ok(new { status = "OK" }) : BadRequest(new { error = result.Error });
     }
 
-    private IActionResult ToActionResult<T>(AipPortal.Application.Common.Result<T> result)
+    private IActionResult ToActionResult<T>(
+        AipPortal.Application.Common.Result<T> result,
+        string moduleKey)
     {
-        return result.IsSuccess ? Ok(result.Value) : BadRequest(new { error = result.Error });
+        return result.IsSuccess
+            ? Ok(CanonicalRedactionProjection.Apply(
+                HttpContext,
+                result.Value!,
+                RedactionProfile.NotificationPayload,
+                moduleKey))
+            : BadRequest(new { error = result.Error });
     }
 }
