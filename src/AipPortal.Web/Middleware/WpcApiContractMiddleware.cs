@@ -3,15 +3,15 @@ using AipPortal.Web.Models;
 namespace AipPortal.Web.Middleware;
 
 /// <summary>
-/// Rejects unsupported media types at the WPC boundary before MVC generates
-/// its body-less 415 response.
+/// Rejects unsupported media types at canonical WPC command boundaries before
+/// MVC generates its body-less 415 response.
 /// </summary>
 public sealed class WpcApiContractMiddleware(RequestDelegate next)
 {
     public async Task InvokeAsync(HttpContext context)
     {
         if (!HttpMethods.IsPost(context.Request.Method) ||
-            !ApiEnvelope.IsWorkspaceCreationPath(context.Request.Path.Value) ||
+            !IsCanonicalCommandPath(context.Request.Path.Value) ||
             string.IsNullOrWhiteSpace(context.Request.ContentType) ||
             context.Request.HasJsonContentType())
         {
@@ -26,5 +26,20 @@ public sealed class WpcApiContractMiddleware(RequestDelegate next)
             "UnsupportedMediaType",
             "The request Content-Type is not supported.",
             "header.Content-Type"));
+    }
+
+    private static bool IsCanonicalCommandPath(string? path)
+    {
+        if (!ApiEnvelope.IsWorkspaceCreationPath(path))
+        {
+            return false;
+        }
+
+        // This shared WPC classifier also serves GET-only capabilities for
+        // authorization/exception envelopes. It is not a JSON command route.
+        var normalized = path?.TrimEnd('/') ?? string.Empty;
+        return !normalized.Equals(
+            "/api/workspaces/capabilities",
+            StringComparison.OrdinalIgnoreCase);
     }
 }
