@@ -83,10 +83,8 @@ public sealed class WorkspacesController(IWorkspaceService workspaces) : Control
     {
         var sourceCode = detail?.Code ?? "ValidationFailed";
         var redactionApplied = sourceCode is not "AuthenticationRequired" and not "IdempotencyConflict";
-        var code = redactionApplied ? "NotFound" : sourceCode;
-        var message = redactionApplied
-            ? "The requested resource was not found."
-            : detail?.Message ?? fallbackError ?? fallbackMessage;
+        var code = sourceCode;
+        var message = detail?.Message ?? fallbackError ?? fallbackMessage;
         var target = detail?.Target ?? (sourceCode switch
         {
             "CapabilityDenied" => "workspace",
