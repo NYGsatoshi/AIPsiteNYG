@@ -44,7 +44,6 @@ public sealed class ProjectActivationController(IProjectActivationService activa
         string fallbackMessage)
     {
         var sourceCode = detail?.Code ?? "ValidationFailed";
-        var sensitive = sourceCode is not "AuthenticationRequired" and not "IdempotencyConflict";
         var code = sourceCode;
         var message = detail?.Message ?? fallbackError ?? fallbackMessage;
         var status = sourceCode switch
@@ -63,7 +62,7 @@ public sealed class ProjectActivationController(IProjectActivationService activa
             code,
             message,
             detail?.Target,
-            sensitive);
+            CanonicalErrorExposurePolicy.IsSensitive(sourceCode));
 
         return status switch
         {
