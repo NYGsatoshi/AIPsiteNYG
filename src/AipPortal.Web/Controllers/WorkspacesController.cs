@@ -82,7 +82,7 @@ public sealed class WorkspacesController(IWorkspaceService workspaces) : Control
         string fallbackMessage)
     {
         var sourceCode = detail?.Code ?? "ValidationFailed";
-        var redactionApplied = sourceCode == "NotFound";
+        var redactionApplied = sourceCode is not "AuthenticationRequired" and not "IdempotencyConflict";
         var code = redactionApplied ? "NotFound" : sourceCode;
         var message = redactionApplied
             ? "The requested resource was not found."
