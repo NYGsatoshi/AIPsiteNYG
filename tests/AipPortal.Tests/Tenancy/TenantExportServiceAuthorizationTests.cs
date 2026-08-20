@@ -69,6 +69,12 @@ public sealed class TenantExportServiceAuthorizationTests
         {
             Assert.Equal(tenantId, requestedTenantId);
             Assert.Equal(RedactionAuthorizationState.Allowed, authorizationContext.AuthorizationState);
+            Assert.True(authorizationContext.FieldAccessPolicy.Allows(
+                CanonicalDataClassification.Confidential,
+                "email"));
+            Assert.False(authorizationContext.FieldAccessPolicy.Allows(
+                CanonicalDataClassification.Restricted,
+                "healthNotes"));
             BuildCalled = true;
             return Task.FromResult(new byte[] { 1, 2, 3 });
         }
