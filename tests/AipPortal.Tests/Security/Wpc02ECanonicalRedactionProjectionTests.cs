@@ -29,7 +29,8 @@ public sealed class Wpc02ECanonicalRedactionProjectionTests
             httpContext,
             source,
             profile,
-            "Wpc02ETest");
+            "Wpc02ETest",
+            RedactionAuthorizationState.Allowed);
 
         Assert.Same(source, projected);
         Assert.Equal(profile, redactor.Profile);
@@ -50,11 +51,48 @@ public sealed class Wpc02ECanonicalRedactionProjectionTests
                 httpContext,
                 source,
                 RedactionProfile.UiDetail,
-                "Wpc02ETest"));
+                "Wpc02ETest",
+                RedactionAuthorizationState.Allowed));
+    }
+
+    [Fact]
+    public void AuthorizedProjection_FailsClosed_WhenTheCanonicalServiceIsMissing()
+    {
+        var httpContext = new DefaultHttpContext
+        {
+            TraceIdentifier = "wpc02e-no-redactor"
+        };
+        var source = new ProjectionProbe("must not pass through");
+
+        Assert.Throws<InvalidOperationException>(() =>
+            CanonicalRedactionProjection.Apply(
+                httpContext,
+                source,
+                RedactionProfile.UiDetail,
+                "Wpc02ETest",
+                RedactionAuthorizationState.Allowed));
+    }
+
+    [Fact]
+    public void UnknownAuthorizationState_FailsClosed()
+    {
+        var httpContext = CreateHttpContext(new CanonicalRedactionService());
+        var source = new ProjectionProbe("must not pass through");
+
+        var exception = Assert.Throws<InvalidOperationException>(() =>
+            CanonicalRedactionProjection.Apply(
+                httpContext,
+                source,
+                RedactionProfile.UiDetail,
+                "Wpc02ETest",
+                RedactionAuthorizationState.Unknown));
+
+        Assert.Contains("endpoint-compatible", exception.Message);
     }
 
     [Theory]
     [InlineData("/api/workspaces")]
+    [InlineData("/api/workspaces/capabilities")]
     [InlineData("/api/workspaces/00000000-0000-0000-0000-000000000001/projects")]
     [InlineData("/api/projects/00000000-0000-0000-0000-000000000001/activate")]
     public async Task WpcContractMiddleware_UsesTheCanonicalErrorEnvelopeForEveryWpcCommandRoute(
