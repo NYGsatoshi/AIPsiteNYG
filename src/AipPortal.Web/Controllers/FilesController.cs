@@ -1,5 +1,7 @@
 using AipPortal.Application.Common;
 using AipPortal.Application.Files;
+using AipPortal.Application.Security.Redaction;
+using AipPortal.Web.Security;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.AspNetCore.RateLimiting;
@@ -17,7 +19,9 @@ public sealed class FilesController(IFileObjectService files) : ControllerBase
         [FromQuery] int pageSize = 20,
         CancellationToken cancellationToken = default)
     {
-        return ToActionResult(await files.ListFileObjectsAsync(workspaceId, page, pageSize, cancellationToken));
+        return ToFileMetadataActionResult(
+            await files.ListFileObjectsAsync(workspaceId, page, pageSize, cancellationToken),
+            "FileList");
     }
 
     [HttpPost("api/files")]
@@ -30,19 +34,22 @@ public sealed class FilesController(IFileObjectService files) : ControllerBase
         }
 
         await using var stream = form.File.OpenReadStream();
-        return ToActionResult(await files.UploadAsync(new AttachmentUploadInput(
+        return ToFileMetadataActionResult(await files.UploadAsync(new AttachmentUploadInput(
             form.OwnerType,
             form.OwnerId,
             form.File.FileName,
             form.File.ContentType,
             form.File.Length,
-            stream), cancellationToken));
+            stream), cancellationToken),
+            "FileUpload");
     }
 
     [HttpGet("api/files/{fileObjectId:guid}")]
     public async Task<IActionResult> Get(Guid fileObjectId, CancellationToken cancellationToken)
     {
-        return ToActionResult(await files.GetFileObjectAsync(fileObjectId, cancellationToken));
+        return ToFileMetadataActionResult(
+            await files.GetFileObjectAsync(fileObjectId, cancellationToken),
+            "FileRead");
     }
 
     [HttpGet("api/files/{fileObjectId:guid}/download")]
@@ -87,6 +94,18 @@ public sealed class FilesController(IFileObjectService files) : ControllerBase
     private IActionResult OkOrBad(Result result) => result.IsSuccess ? Ok(new { status = "OK" }) : BadRequest(new { error = result.Error });
 
     private IActionResult ToActionResult<T>(Result<T> result) => result.IsSuccess ? Ok(result.Value) : BadRequest(new { error = result.Error });
+
+    private IActionResult ToFileMetadataActionResult<T>(
+        Result<T> result,
+        string moduleKey) =>
+        result.IsSuccess
+            ? Ok(CanonicalRedactionProjection.Apply(
+                HttpContext,
+                result.Value!,
+                RedactionProfile.FileMetadata,
+                moduleKey,
+                "FileDownload"))
+            : BadRequest(new { error = result.Error });
 
     private FileStreamResult PrivateFile(Stream content, string contentType, string fileName)
     {
