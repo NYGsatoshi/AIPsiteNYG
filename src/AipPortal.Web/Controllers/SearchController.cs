@@ -1,5 +1,6 @@
 using AipPortal.Application.Search;
 using AipPortal.Application.Security.Redaction;
+using AipPortal.Web.Models;
 using AipPortal.Web.Security;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
@@ -23,6 +24,11 @@ public sealed class SearchController(ISearchService search) : ControllerBase
                 RedactionProfile.SearchSnippet,
                 "Search",
                 RedactionAuthorizationState.Allowed))
-            : BadRequest(new { error = result.Error });
+            : BadRequest(CanonicalErrorEnvelope.FromSensitiveResult(
+                HttpContext,
+                StatusCodes.Status400BadRequest,
+                result.ErrorDetail,
+                result.Error,
+                "SearchFailed"));
     }
 }
