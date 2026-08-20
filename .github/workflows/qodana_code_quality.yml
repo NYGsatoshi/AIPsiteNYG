@@ -16,7 +16,7 @@ on:
       - "docs/**"
 
 concurrency:
-  group: code-quality-${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
+  group: code-quality-v2-${{ github.event.pull_request.number || github.ref }}
   cancel-in-progress: true
 
 permissions:
@@ -162,7 +162,7 @@ jobs:
     name: Angular / TypeScript / JavaScript / HTML / SCSS / CSS
     runs-on: [self-hosted, aipsite-ci, general]
     needs: qodana-dotnet-community
-    if: ${{ always() }}
+    if: ${{ !cancelled() }}
     timeout-minutes: 90
 
     steps:
