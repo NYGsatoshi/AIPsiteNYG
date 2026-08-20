@@ -1,4 +1,6 @@
 using AipPortal.Application.Common;
+using AipPortal.Application.Common.Interfaces;
+using AipPortal.Application.Common.Tenancy;
 using AipPortal.Application.Security.Redaction;
 using AipPortal.Application.Workspaces;
 using AipPortal.Domain.Enums;
@@ -38,7 +40,7 @@ public sealed class WorkspacesControllerTests
         var created = Assert.IsType<CreatedAtActionResult>(action);
         Assert.Equal(nameof(WorkspacesController.Get), created.ActionName);
         Assert.Equal(value.Id, created.RouteValues!["workspaceId"]);
-        var envelope = Assert.IsType<ApiSuccessEnvelope<WorkspaceDetailResponse>>(created.Value);
+        var envelope = Assert.IsType<ApiSuccessEnvelope<object>>(created.Value);
         Assert.Equal("wpc01-request", envelope.RequestId);
         Assert.Same(value, envelope.Data);
         Assert.Empty(envelope.Warnings);
@@ -85,8 +87,9 @@ public sealed class WorkspacesControllerTests
         var action = await controller.Capabilities(CancellationToken.None);
 
         var ok = Assert.IsType<OkObjectResult>(action);
-        var envelope = Assert.IsType<ApiSuccessEnvelope<WorkspaceCapabilitiesResponse>>(ok.Value);
-        Assert.True(envelope.Data.CanCreate);
+        var envelope = Assert.IsType<ApiSuccessEnvelope<object>>(ok.Value);
+        var capability = Assert.IsType<WorkspaceCapabilitiesResponse>(envelope.Data);
+        Assert.True(capability.CanCreate);
         Assert.Empty(envelope.Warnings);
     }
 
@@ -160,12 +163,18 @@ public sealed class WorkspacesControllerTests
         Assert.Equal(StatusCodes.Status403Forbidden, forbidden.StatusCode);
         var envelope = Assert.IsType<ApiErrorEnvelope>(forbidden.Value);
         Assert.Equal("CapabilityDenied", envelope.Error.Code);
+        Assert.Equal("workspace", envelope.Error.Target);
+        Assert.False(envelope.Error.RedactionApplied);
     }
 
     private static WorkspacesController Controller(IWorkspaceService service)
     {
+        var tenant = new CurrentTenantService();
+        tenant.SetTenant(Guid.NewGuid(), "workspace-test");
         var services = new ServiceCollection()
             .AddSingleton<IRedactionService, CanonicalRedactionService>()
+            .AddSingleton<ICurrentUser>(new TestCurrentUser(Guid.NewGuid()))
+            .AddSingleton<ICurrentTenant>(tenant)
             .BuildServiceProvider();
 
         return new WorkspacesController(service)
@@ -179,6 +188,15 @@ public sealed class WorkspacesControllerTests
                 }
             }
         };
+    }
+
+    private sealed class TestCurrentUser(Guid userId) : ICurrentUser
+    {
+        public Guid? UserId => userId;
+        public Guid? SessionId => Guid.NewGuid();
+        public string? Email => "workspace-test@example.invalid";
+        public SystemRole? SystemRole => AipPortal.Domain.Enums.SystemRole.NormalUser;
+        public bool IsAuthenticated => true;
     }
 
     private sealed class StubWorkspaceService : IWorkspaceService
