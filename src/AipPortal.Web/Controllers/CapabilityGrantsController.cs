@@ -1,6 +1,8 @@
 using AipPortal.Application.Common;
+using AipPortal.Application.Security.Redaction;
 using AipPortal.Application.Tenancy;
 using AipPortal.Web.Models;
+using AipPortal.Web.Security;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
 
@@ -16,7 +18,13 @@ public sealed class CapabilityGrantsController(ICapabilityGrantService capabilit
     {
         var result = await capabilityGrants.ListAsync(cancellationToken);
         return result.IsSuccess
-            ? Ok(ApiEnvelope.Success(HttpContext, result.Value!))
+            ? Ok(ApiEnvelope.Success(
+                HttpContext,
+                CanonicalRedactionProjection.Apply(
+                    HttpContext,
+                    result.Value!,
+                    RedactionProfile.UiList,
+                    "CapabilityGrants")))
             : ToWpcError(result.ErrorDetail, result.Error, "Capability grants could not be listed.");
     }
 
@@ -27,7 +35,13 @@ public sealed class CapabilityGrantsController(ICapabilityGrantService capabilit
     {
         var result = await capabilityGrants.GrantAsync(request, cancellationToken);
         return result.IsSuccess
-            ? Ok(ApiEnvelope.Success(HttpContext, result.Value!))
+            ? Ok(ApiEnvelope.Success(
+                HttpContext,
+                CanonicalRedactionProjection.Apply(
+                    HttpContext,
+                    result.Value!,
+                    RedactionProfile.UiDetail,
+                    "CapabilityGrantUpdate")))
             : ToWpcError(result.ErrorDetail, result.Error, "Capability grant update failed.");
     }
 
@@ -36,7 +50,13 @@ public sealed class CapabilityGrantsController(ICapabilityGrantService capabilit
     {
         var result = await capabilityGrants.RevokeAsync(grantId, cancellationToken);
         return result.IsSuccess
-            ? Ok(ApiEnvelope.Success(HttpContext, result.Value!))
+            ? Ok(ApiEnvelope.Success(
+                HttpContext,
+                CanonicalRedactionProjection.Apply(
+                    HttpContext,
+                    result.Value!,
+                    RedactionProfile.UiDetail,
+                    "CapabilityGrantRevoke")))
             : ToWpcError(result.ErrorDetail, result.Error, "Capability grant revocation failed.");
     }
 
