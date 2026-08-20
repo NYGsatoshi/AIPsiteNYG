@@ -43,6 +43,39 @@ public sealed class Wpc02ECanonicalRedactionProjectionTests
         Assert.NotNull(redactor.Context.ActorId);
         Assert.NotNull(redactor.Context.TenantId);
         Assert.Equal(httpContext.TraceIdentifier, redactor.Context.RequestId);
+        Assert.True(redactor.Context.FieldAccessPolicy.Allows(
+            CanonicalDataClassification.Internal,
+            "safeField"));
+        Assert.False(redactor.Context.FieldAccessPolicy.Allows(
+            CanonicalDataClassification.Confidential,
+            "confidentialField"));
+    }
+
+    [Fact]
+    public void AuthorizedProjection_PropagatesExplicitFieldAccessPolicy()
+    {
+        var redactor = new RecordingRedactionService();
+        var httpContext = CreateHttpContext(redactor);
+        var source = new ProjectionProbe("authorized confidential output");
+        var fieldAccessPolicy = FieldAccessPolicySnapshot.ThroughConfidential;
+
+        var projected = CanonicalRedactionProjection.Apply(
+            httpContext,
+            source,
+            RedactionProfile.UiDetail,
+            "Wpc02ETest",
+            RedactionAuthorizationState.Allowed,
+            fieldAccessPolicy: fieldAccessPolicy);
+
+        Assert.Same(source, projected);
+        Assert.NotNull(redactor.Context);
+        Assert.Same(fieldAccessPolicy, redactor.Context!.FieldAccessPolicy);
+        Assert.True(redactor.Context.FieldAccessPolicy.Allows(
+            CanonicalDataClassification.Confidential,
+            "confidentialField"));
+        Assert.False(redactor.Context.FieldAccessPolicy.Allows(
+            CanonicalDataClassification.Restricted,
+            "healthNotes"));
     }
 
     [Fact]
