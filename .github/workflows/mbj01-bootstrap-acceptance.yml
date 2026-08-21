@@ -81,7 +81,7 @@ jobs:
           node --check tests/ui/mbj01-bootstrap-acceptance.mjs
 
       - name: Run MBJ-01 fresh bootstrap acceptance
-        if: github.actor != 'dependabot[bot]'
+        if: github.event_name != 'pull_request' || github.event.pull_request.user.login != 'dependabot[bot]'
         env:
           SYNCFUSION_LICENSE: ${{ secrets.SYNCFUSION_LICENSE }}
         shell: bash
@@ -93,7 +93,7 @@ jobs:
           bash scripts/ci/run-mbj01-bootstrap-acceptance.sh
 
       - name: Validate Dependabot no-secret acceptance boundary
-        if: github.actor == 'dependabot[bot]'
+        if: github.event_name == 'pull_request' && github.event.pull_request.user.login == 'dependabot[bot]'
         shell: bash
         run: |
           echo "Protected Syncfusion license is unavailable to Dependabot by design; licensed MBJ-01 acceptance is not executed in this trust context."
