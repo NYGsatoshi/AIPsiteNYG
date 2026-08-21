@@ -38,9 +38,8 @@ public sealed class WpcFinal03WorkspaceMembershipBoundaryTests
     {
         var tenant = NewCurrentTenant();
         var user = NewUser();
-        var foreignTenant = new Tenant
+        var foreignTenant = new Tenant(Guid.NewGuid())
         {
-            Id = Guid.NewGuid(),
             Name = "Foreign Tenant",
             DisplayName = "Foreign Tenant",
             Slug = $"foreign-{Guid.NewGuid():N}",
@@ -76,9 +75,8 @@ public sealed class WpcFinal03WorkspaceMembershipBoundaryTests
     {
         var tenant = NewCurrentTenant();
         var user = NewUser();
-        var tenantEntity = new Tenant
+        var tenantEntity = new Tenant(tenant.TenantId)
         {
-            Id = tenant.TenantId,
             Name = "WPC Final03",
             DisplayName = "WPC Final03",
             Slug = "wpc-final03",
@@ -121,9 +119,8 @@ public sealed class WpcFinal03WorkspaceMembershipBoundaryTests
     {
         var tenant = NewCurrentTenant();
         var user = NewUser();
-        var tenantEntity = new Tenant
+        var tenantEntity = new Tenant(tenant.TenantId)
         {
-            Id = tenant.TenantId,
             Name = "Suspended tenant membership",
             DisplayName = "Suspended tenant membership",
             Slug = "wpc-final03-suspended",
