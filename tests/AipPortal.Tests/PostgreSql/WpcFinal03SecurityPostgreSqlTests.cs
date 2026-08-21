@@ -100,7 +100,7 @@ public sealed class WpcFinal03SecurityPostgreSqlTests
 
     [PostgreSqlFact]
     [Trait("Category", "PostgreSQLIntegration")]
-    public async Task WorkspaceVisibleReadDoesNotBecomeProjectFileMutationAuthority()
+    public async Task WorkspaceVisibleReadDoesNotBecomeProjectFileOrTaskMutationAuthority()
     {
         var connectionString = PostgreSqlTestEnvironment.RequireConnectionString();
         await PostgreSqlMigrationTestDatabase.WithTemporaryDatabaseAsync(connectionString, async testConnectionString =>
@@ -112,7 +112,7 @@ public sealed class WpcFinal03SecurityPostgreSqlTests
                 .Options;
 
             await using var dbContext = new AppDbContext(options, currentTenant);
-            var tenant = NewTenant("file-boundary");
+            var tenant = NewTenant("mutation-boundary");
             var owner = NewUser("project-owner");
             var reader = NewUser("workspace-reader");
 
@@ -129,8 +129,8 @@ public sealed class WpcFinal03SecurityPostgreSqlTests
             var workspace = new Workspace
             {
                 TenantId = tenant.Id,
-                Name = "File Boundary Workspace",
-                Slug = $"file-boundary-{Guid.NewGuid():N}",
+                Name = "Mutation Boundary Workspace",
+                Slug = $"mutation-boundary-{Guid.NewGuid():N}",
                 Status = WorkspaceStatus.Active,
                 CreatedByUserId = owner.Id
             };
@@ -180,7 +180,7 @@ public sealed class WpcFinal03SecurityPostgreSqlTests
                 TenantId = tenant.Id,
                 WorkspaceId = workspace.Id,
                 ProjectId = project.Id,
-                Title = "Attachment target",
+                Title = "Mutation target",
                 CreatedByUserId = owner.Id,
                 VersionNo = 1
             };
@@ -214,6 +214,7 @@ public sealed class WpcFinal03SecurityPostgreSqlTests
                 workspaceAuthorization);
 
             Assert.True(await projectAuthorization.CanViewProject(reader.Id, project.Id));
+            Assert.False(await projectAuthorization.CanCreateTask(reader.Id, project.Id));
             Assert.False(await fileAuthorization.CanUploadAttachment(
                 reader.Id,
                 AttachmentOwnerType.TaskItem,
@@ -228,10 +229,16 @@ public sealed class WpcFinal03SecurityPostgreSqlTests
                 Role = ProjectRole.Viewer,
                 JoinedAt = DateTimeOffset.UtcNow
             };
+            task.CreatedByUserId = reader.Id;
+            task.PrimaryAssigneeUserId = reader.Id;
+            task.ReviewerUserId = reader.Id;
             dbContext.ProjectMembers.Add(readerProjectMember);
             await dbContext.SaveChangesAsync();
 
             Assert.True(await projectAuthorization.CanViewProject(reader.Id, project.Id));
+            Assert.False(await projectAuthorization.CanCreateTask(reader.Id, project.Id));
+            Assert.False(await projectAuthorization.CanUpdateTask(reader.Id, task.Id));
+            Assert.True(await projectAuthorization.CanReviewTask(reader.Id, task.Id));
             Assert.False(await fileAuthorization.CanUploadAttachment(
                 reader.Id,
                 AttachmentOwnerType.TaskItem,
@@ -240,7 +247,20 @@ public sealed class WpcFinal03SecurityPostgreSqlTests
             readerProjectMember.Role = ProjectRole.Contributor;
             await dbContext.SaveChangesAsync();
 
+            Assert.True(await projectAuthorization.CanCreateTask(reader.Id, project.Id));
+            Assert.True(await projectAuthorization.CanUpdateTask(reader.Id, task.Id));
             Assert.True(await fileAuthorization.CanUploadAttachment(
+                reader.Id,
+                AttachmentOwnerType.TaskItem,
+                task.Id));
+
+            project.Status = ProjectStatus.Completed;
+            await dbContext.SaveChangesAsync();
+
+            Assert.True(await projectAuthorization.CanViewProject(reader.Id, project.Id));
+            Assert.False(await projectAuthorization.CanCreateTask(reader.Id, project.Id));
+            Assert.False(await projectAuthorization.CanUpdateTask(reader.Id, task.Id));
+            Assert.False(await fileAuthorization.CanUploadAttachment(
                 reader.Id,
                 AttachmentOwnerType.TaskItem,
                 task.Id));
