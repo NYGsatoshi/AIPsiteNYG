@@ -235,8 +235,11 @@ public sealed class WpcFinal03SecurityPostgreSqlTests
                 Role = ProjectRole.Viewer,
                 JoinedAt = DateTimeOffset.UtcNow
             };
+            // Preserve the database invariant that reviewer and primary assignee
+            // must be distinct while still proving that creator/reviewer history
+            // cannot elevate a current Project Viewer into mutation authority.
             task.CreatedByUserId = reader.Id;
-            task.PrimaryAssigneeUserId = reader.Id;
+            task.PrimaryAssigneeUserId = null;
             task.ReviewerUserId = reader.Id;
             dbContext.ProjectMembers.Add(readerProjectMember);
             await dbContext.SaveChangesAsync();
