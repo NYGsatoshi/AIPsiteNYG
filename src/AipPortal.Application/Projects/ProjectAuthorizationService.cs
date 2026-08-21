@@ -121,7 +121,7 @@ public sealed class ProjectAuthorizationService(
         if (project is null ||
             project.DeletedAt.HasValue ||
             project.ActivationState != ProjectActivationState.Activated ||
-            project.Status is not ProjectStatus.Active and not ProjectStatus.Review)
+            (project.Status != ProjectStatus.Active && project.Status != ProjectStatus.Review))
         {
             return false;
         }
@@ -157,13 +157,18 @@ public sealed class ProjectAuthorizationService(
 
     public async Task<bool> CanCreateTask(Guid userId, Guid projectId, CancellationToken cancellationToken = default)
     {
-        if (!await CanUseProjectOperationally(userId, projectId, cancellationToken))
+        if (!await CanUseTaskMutationScopeAsync(userId, projectId, cancellationToken))
         {
             return false;
         }
 
         var member = await projects.GetMemberAsync(projectId, userId, cancellationToken);
-        return member is not null || await CanManageProject(userId, projectId, cancellationToken);
+        if (member is not null && member.Role != ProjectRole.Viewer)
+        {
+            return true;
+        }
+
+        return await CanManageProject(userId, projectId, cancellationToken);
     }
 
     public async Task<bool> CanUpdateTask(Guid userId, Guid taskItemId, CancellationToken cancellationToken = default)
@@ -171,36 +176,71 @@ public sealed class ProjectAuthorizationService(
         var task = await projects.GetTaskAsync(taskItemId, cancellationToken);
         if (task is null ||
             task.DeletedAt.HasValue ||
-            !await CanUseProjectOperationally(userId, task.ProjectId, cancellationToken))
+            !await CanUseTaskMutationScopeAsync(userId, task.ProjectId, cancellationToken))
         {
             return false;
         }
 
-        return await CanManageProject(userId, task.ProjectId, cancellationToken) ||
-               task.CreatedByUserId == userId ||
-               task.PrimaryAssigneeUserId == userId;
+        if (await CanManageProject(userId, task.ProjectId, cancellationToken))
+        {
+            return true;
+        }
+
+        var member = await projects.GetMemberAsync(task.ProjectId, userId, cancellationToken);
+        return member is not null &&
+               member.Role != ProjectRole.Viewer &&
+               (task.CreatedByUserId == userId || task.PrimaryAssigneeUserId == userId);
     }
 
     public async Task<bool> CanAssignTask(Guid userId, Guid taskItemId, CancellationToken cancellationToken = default)
     {
         var task = await projects.GetTaskAsync(taskItemId, cancellationToken);
-        return task is not null && await CanManageProject(userId, task.ProjectId, cancellationToken);
+        return task is not null &&
+               !task.DeletedAt.HasValue &&
+               await CanUseTaskMutationScopeAsync(userId, task.ProjectId, cancellationToken) &&
+               await CanManageProject(userId, task.ProjectId, cancellationToken);
     }
 
-    public Task<bool> CanDeleteTask(Guid userId, Guid taskItemId, CancellationToken cancellationToken = default) => CanAssignTask(userId, taskItemId, cancellationToken);
+    public Task<bool> CanDeleteTask(Guid userId, Guid taskItemId, CancellationToken cancellationToken = default) =>
+        CanAssignTask(userId, taskItemId, cancellationToken);
 
     public async Task<bool> CanReviewTask(Guid userId, Guid taskItemId, CancellationToken cancellationToken = default)
     {
         var task = await projects.GetTaskAsync(taskItemId, cancellationToken);
-        if (task is null || !await CanUseProjectOperationally(userId, task.ProjectId, cancellationToken))
+        if (task is null ||
+            task.DeletedAt.HasValue ||
+            !await CanUseTaskMutationScopeAsync(userId, task.ProjectId, cancellationToken))
         {
             return false;
         }
 
-        return task.ReviewerUserId == userId || await CanManageProject(userId, task.ProjectId, cancellationToken);
+        if (await CanManageProject(userId, task.ProjectId, cancellationToken))
+        {
+            return true;
+        }
+
+        // Reviewer is a narrow relationship authority. It permits review
+        // outcomes but does not imply unrestricted Task-body editing.
+        var member = await projects.GetMemberAsync(task.ProjectId, userId, cancellationToken);
+        return member is not null && task.ReviewerUserId == userId;
     }
 
-    public Task<bool> CanOverrideTaskReview(Guid userId, Guid taskItemId, CancellationToken cancellationToken = default) => CanAssignTask(userId, taskItemId, cancellationToken);
+    public Task<bool> CanOverrideTaskReview(Guid userId, Guid taskItemId, CancellationToken cancellationToken = default) =>
+        CanAssignTask(userId, taskItemId, cancellationToken);
+
+    private async Task<bool> CanUseTaskMutationScopeAsync(
+        Guid userId,
+        Guid projectId,
+        CancellationToken cancellationToken)
+    {
+        var project = await projects.GetProjectAsync(projectId, cancellationToken);
+        return project is not null &&
+               !project.DeletedAt.HasValue &&
+               project.ActivationState == ProjectActivationState.Activated &&
+               (project.Status == ProjectStatus.Active || project.Status == ProjectStatus.Review) &&
+               await workspaces.CanContributeWorkspace(userId, project.WorkspaceId, cancellationToken) &&
+               await CanViewProject(userId, projectId, cancellationToken);
+    }
 
     private async Task<bool> CanUseProjectOperationally(
         Guid userId,
