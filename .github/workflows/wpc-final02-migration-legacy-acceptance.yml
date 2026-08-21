@@ -1,0 +1,214 @@
+name: WPC-Final02 Migration and Legacy Compatibility
+
+on:
+  workflow_dispatch:
+  pull_request:
+    branches: ["main"]
+    paths:
+      - ".github/workflows/wpc-final02-migration-legacy-acceptance.yml"
+      - "scripts/ci/wpc-final02-migration-required-tests.txt"
+      - "scripts/ci/verify-trx-results.sh"
+      - "tests/AipPortal.Tests/PostgreSql/WpcFinal02MigrationLegacyCompatibilityPostgreSqlTests.cs"
+      - "tests/AipPortal.Tests/PostgreSql/PostgreSqlMigrationTestDatabase.cs"
+      - "tests/AipPortal.Tests/PostgreSql/PostgreSqlTestEnvironment.cs"
+      - "tests/AipPortal.Tests/PostgreSql/TaskV1MigrationRawSqlSeed.cs"
+      - "tests/AipPortal.Tests/AipPortal.Tests.csproj"
+      - "src/AipPortal.Infrastructure/Persistence/Migrations/20260816041835_Wpc02AProjectVisibilityAndActivationProvenance.cs"
+      - "src/AipPortal.Infrastructure/Persistence/Migrations/20260817023749_Wpc02BCapabilityGrantWorkspaceGeneral.cs"
+      - "src/AipPortal.Infrastructure/Persistence/Migrations/20260819070000_Wpc02DTaskWorkflowTemplates.cs"
+      - "src/AipPortal.Infrastructure/Persistence/Migrations/AppDbContextModelSnapshot.cs"
+      - "src/AipPortal.Infrastructure/Persistence/Configurations/MessagingConfigurations.cs"
+      - "src/AipPortal.Infrastructure/Persistence/Configurations/ProductionConfigurations.cs"
+      - "src/AipPortal.Infrastructure/Persistence/Configurations/TenantConfigurations.cs"
+      - "src/AipPortal.Infrastructure/Persistence/CapabilityGrantRepository.cs"
+      - "src/AipPortal.Infrastructure/Persistence/TenantRepository.cs"
+      - "src/AipPortal.Infrastructure/Persistence/WorkspaceRepository.cs"
+      - "src/AipPortal.Application/Tenancy/CapabilityGrantEvaluator.cs"
+      - "src/AipPortal.Domain/Entities/MessagingEntities.cs"
+      - "src/AipPortal.Domain/Entities/ProductionEntities.cs"
+      - "src/AipPortal.Domain/Enums/CoreEnums.cs"
+      - "global.json"
+      - "Directory.Packages.props"
+  push:
+    branches: ["main"]
+    paths:
+      - ".github/workflows/wpc-final02-migration-legacy-acceptance.yml"
+      - "scripts/ci/wpc-final02-migration-required-tests.txt"
+      - "scripts/ci/verify-trx-results.sh"
+      - "tests/AipPortal.Tests/PostgreSql/WpcFinal02MigrationLegacyCompatibilityPostgreSqlTests.cs"
+      - "tests/AipPortal.Tests/PostgreSql/PostgreSqlMigrationTestDatabase.cs"
+      - "tests/AipPortal.Tests/PostgreSql/PostgreSqlTestEnvironment.cs"
+      - "tests/AipPortal.Tests/PostgreSql/TaskV1MigrationRawSqlSeed.cs"
+      - "tests/AipPortal.Tests/AipPortal.Tests.csproj"
+      - "src/AipPortal.Infrastructure/Persistence/Migrations/20260816041835_Wpc02AProjectVisibilityAndActivationProvenance.cs"
+      - "src/AipPortal.Infrastructure/Persistence/Migrations/20260817023749_Wpc02BCapabilityGrantWorkspaceGeneral.cs"
+      - "src/AipPortal.Infrastructure/Persistence/Migrations/20260819070000_Wpc02DTaskWorkflowTemplates.cs"
+      - "src/AipPortal.Infrastructure/Persistence/Migrations/AppDbContextModelSnapshot.cs"
+      - "src/AipPortal.Infrastructure/Persistence/Configurations/MessagingConfigurations.cs"
+      - "src/AipPortal.Infrastructure/Persistence/Configurations/ProductionConfigurations.cs"
+      - "src/AipPortal.Infrastructure/Persistence/Configurations/TenantConfigurations.cs"
+      - "src/AipPortal.Infrastructure/Persistence/CapabilityGrantRepository.cs"
+      - "src/AipPortal.Infrastructure/Persistence/TenantRepository.cs"
+      - "src/AipPortal.Infrastructure/Persistence/WorkspaceRepository.cs"
+      - "src/AipPortal.Application/Tenancy/CapabilityGrantEvaluator.cs"
+      - "src/AipPortal.Domain/Entities/MessagingEntities.cs"
+      - "src/AipPortal.Domain/Entities/ProductionEntities.cs"
+      - "src/AipPortal.Domain/Enums/CoreEnums.cs"
+      - "global.json"
+      - "Directory.Packages.props"
+
+concurrency:
+  group: wpc-final02-migration-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+jobs:
+  acceptance:
+    if: github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository
+    name: WPC-Final02 / PostgreSQL 18 migration chain
+    runs-on: [self-hosted, aipsite-ci, general]
+    timeout-minutes: 40
+
+    services:
+      postgres:
+        image: postgres:18-alpine
+        env:
+          POSTGRES_DB: aip_portal_wpc_final02
+          POSTGRES_USER: aip_portal_wpc_final02
+          POSTGRES_PASSWORD: aip_portal_wpc_final02_password
+        ports:
+          - 5432/tcp
+        options: >-
+          --health-cmd "pg_isready -U aip_portal_wpc_final02 -d aip_portal_wpc_final02"
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+
+    env:
+      ASPNETCORE_ENVIRONMENT: Test
+      DOTNET_CLI_TELEMETRY_OPTOUT: "1"
+      DOTNET_NOLOGO: "1"
+
+    steps:
+      - name: Configure PostgreSQL connection
+        shell: bash
+        run: |
+          postgres_port='${{ job.services.postgres.ports[5432] }}'
+          test -n "$postgres_port"
+          {
+            echo "ConnectionStrings__DefaultConnection=Host=localhost;Port=${postgres_port};Database=aip_portal_wpc_final02;Username=aip_portal_wpc_final02;Password=aip_portal_wpc_final02_password"
+            echo "POSTGRES_TEST_CONNECTION_STRING=Host=localhost;Port=${postgres_port};Database=aip_portal_wpc_final02;Username=aip_portal_wpc_final02;Password=aip_portal_wpc_final02_password"
+          } >> "$GITHUB_ENV"
+
+      - name: Repair previous Docker workspace ownership
+        shell: bash
+        run: |
+          uid="$(id -u)"
+          gid="$(id -g)"
+          docker run --rm \
+            -v "$GITHUB_WORKSPACE:/workspace" \
+            alpine:3.21 \
+            sh -c "chown -R ${uid}:${gid} /workspace"
+
+      - name: Checkout
+        uses: actions/checkout@v7
+        with:
+          ref: ${{ github.sha }}
+          clean: true
+          persist-credentials: false
+
+      - name: Verify required-test manifest
+        shell: bash
+        run: |
+          python3 - <<'PY'
+          from pathlib import Path
+
+          tests = [
+              line.strip()
+              for line in Path("scripts/ci/wpc-final02-migration-required-tests.txt")
+              .read_text(encoding="utf-8")
+              .splitlines()
+              if line.strip() and not line.lstrip().startswith("#")
+          ]
+          if len(tests) != 3:
+              raise SystemExit(f"Expected 3 Final02 migration tests, found {len(tests)}")
+          if len(set(tests)) != len(tests):
+              raise SystemExit("Final02 migration manifest contains duplicate test names")
+          print("Final02 migration manifest contains 3 unique required tests.")
+          PY
+
+      - name: Configure user-local .NET install
+        shell: bash
+        run: |
+          install_dir="$HOME/.dotnet-ci"
+          job_temp="$RUNNER_TEMP/dotnet-${GITHUB_JOB}-${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}"
+          mkdir -p \
+            "$install_dir" \
+            "$job_temp/home" \
+            "$job_temp/nuget/scratch" \
+            "$HOME/.nuget/packages"
+          {
+            echo "DOTNET_INSTALL_DIR=$install_dir"
+            echo "DOTNET_ROOT=$install_dir"
+            echo "DOTNET_MULTILEVEL_LOOKUP=0"
+            echo "DOTNET_CLI_HOME=$job_temp/home"
+            echo "DOTNET_CLI_WORKLOAD_UPDATE_NOTIFY_DISABLE=1"
+            echo "NUGET_PACKAGES=$HOME/.nuget/packages"
+            echo "NUGET_SCRATCH=$job_temp/nuget/scratch"
+          } >> "$GITHUB_ENV"
+          echo "$install_dir" >> "$GITHUB_PATH"
+
+      - name: Set up .NET SDK
+        uses: actions/setup-dotnet@v6
+        with:
+          global-json-file: global.json
+
+      - name: Restore
+        run: dotnet restore AipPortal.slnx --disable-parallel --disable-build-servers --verbosity normal
+
+      - name: Build
+        run: dotnet build AipPortal.slnx --configuration Release --no-restore --disable-build-servers -m:1
+
+      - name: Restore .NET tools
+        run: dotnet tool restore
+
+      - name: Apply latest PostgreSQL schema
+        run: dotnet ef database update --project src/AipPortal.Infrastructure --startup-project src/AipPortal.Web --configuration Release
+
+      - name: Reject pending EF Core model changes
+        run: dotnet ef migrations has-pending-model-changes --project src/AipPortal.Infrastructure --startup-project src/AipPortal.Web --configuration Release --no-build
+
+      - name: Run Final02 migration and legacy acceptance
+        shell: bash
+        run: |
+          mkdir -p artifacts/wpc-final02-migration-results
+          dotnet test \
+            tests/AipPortal.Tests/AipPortal.Tests.csproj \
+            --configuration Release \
+            --no-build \
+            --disable-build-servers \
+            -m:1 \
+            --verbosity normal \
+            --filter "Scope=WPCFinal02" \
+            --logger "trx;LogFileName=wpc-final02-migration.trx" \
+            --results-directory artifacts/wpc-final02-migration-results
+
+      - name: Verify Final02 required tests executed
+        shell: bash
+        run: |
+          bash scripts/ci/verify-trx-results.sh \
+            artifacts/wpc-final02-migration-results/wpc-final02-migration.trx \
+            --minimum-total 3 \
+            --required-tests scripts/ci/wpc-final02-migration-required-tests.txt \
+            --label "WPC-Final02 migration and legacy compatibility"
+
+      - name: Upload Final02 migration evidence
+        if: always()
+        uses: actions/upload-artifact@v7
+        with:
+          name: wpc-final02-migration-legacy-results
+          path: artifacts/wpc-final02-migration-results
+          if-no-files-found: warn
+          retention-days: 14
