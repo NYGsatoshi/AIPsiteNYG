@@ -146,7 +146,7 @@ public sealed class WpcFinal02MigrationLegacyCompatibilityPostgreSqlTests
                     ("templateId", templateId)));
             Assert.Equal(PostgresErrorCodes.ForeignKeyViolation, workspaceDefaultError.SqlState);
             Assert.Equal(
-                "FK_workspace_task_workflow_defaults_templates_TenantId_TemplateId",
+                "FK_workspace_task_workflow_defaults_templates_TenantId_Template",
                 workspaceDefaultError.ConstraintName);
 
             await InsertCanonicalConversationAsync(
@@ -444,7 +444,7 @@ public sealed class WpcFinal02MigrationLegacyCompatibilityPostgreSqlTests
         Assert.Equal(legacy.WorkflowName, definition.Name);
         Assert.False(definition.ReviewEnforcementEnabled);
         Assert.Equal("None", definition.KanbanDefaultSwimlane);
-        Assert.Equal(7, definition.VersionNo);
+        Assert.Equal(7L, definition.VersionNo);
 
         var stages = await PostgreSqlMigrationTestDatabase.QueryAsync(
             database,
@@ -474,7 +474,7 @@ public sealed class WpcFinal02MigrationLegacyCompatibilityPostgreSqlTests
             Assert.Equal(expected.SortKey, actual.SortKey);
             Assert.Equal(expected.IsInitial, actual.IsInitial);
             Assert.Equal(expected.IsTerminal, actual.IsTerminal);
-            Assert.Equal(3, actual.VersionNo);
+            Assert.Equal(3L, actual.VersionNo);
         }
 
         Assert.Equal(
