@@ -81,6 +81,7 @@ jobs:
           node --check tests/ui/mbj02-invite-acceptance.mjs
 
       - name: Run MBJ-02 administrator invite onboarding acceptance
+        if: github.actor != 'dependabot[bot]'
         env:
           SYNCFUSION_LICENSE: ${{ secrets.SYNCFUSION_LICENSE }}
         shell: bash
@@ -90,6 +91,13 @@ jobs:
             exit 1
           }
           bash scripts/ci/run-mbj02-invite-acceptance.sh
+
+      - name: Validate Dependabot no-secret acceptance boundary
+        if: github.actor == 'dependabot[bot]'
+        shell: bash
+        run: |
+          echo "Protected Syncfusion license is unavailable to Dependabot by design; licensed MBJ-02 acceptance is not executed in this trust context."
+          docker compose -p aipsite-dependabot-mbj02 -f docker-compose.real-backend-smoke.yml config --quiet
 
       - name: Upload MBJ-02 evidence
         if: always()

@@ -54,6 +54,7 @@ jobs:
         run: bash scripts/ci/npm-ci-retry.sh .
 
       - name: Run required real-backend P0 acceptance set
+        if: github.actor != 'dependabot[bot]'
         env:
           SYNCFUSION_LICENSE: ${{ secrets.SYNCFUSION_LICENSE }}
         shell: bash
@@ -63,6 +64,15 @@ jobs:
             exit 1
           }
           node tests/ui/run-real-backend-p0.mjs
+
+      - name: Validate Dependabot no-secret acceptance boundary
+        if: github.actor == 'dependabot[bot]'
+        shell: bash
+        run: |
+          echo "Protected Syncfusion license is unavailable to Dependabot by design; licensed real-backend acceptance is not executed in this trust context."
+          node --check tests/ui/run-real-backend-p0.mjs
+          node --check tests/ui/run-real-backend-smoke-compose.mjs
+          docker compose -p aipsite-dependabot-p0 -f docker-compose.real-backend-smoke.yml config --quiet
 
       - name: Upload Playwright artifacts
         if: always()
