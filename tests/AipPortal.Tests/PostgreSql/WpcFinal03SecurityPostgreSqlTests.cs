@@ -217,6 +217,10 @@ public sealed class WpcFinal03SecurityPostgreSqlTests
 
             Assert.True(await projectAuthorization.CanViewProject(reader.Id, project.Id));
             Assert.False(await projectAuthorization.CanCreateTask(reader.Id, project.Id));
+            Assert.False(await projectAuthorization.CanCommentOnTarget(
+                reader.Id,
+                CommentTargetType.Project,
+                project.Id));
             Assert.False(await fileAuthorization.CanUploadAttachment(
                 reader.Id,
                 AttachmentOwnerType.TaskItem,
@@ -241,6 +245,10 @@ public sealed class WpcFinal03SecurityPostgreSqlTests
             Assert.False(await projectAuthorization.CanCreateTask(reader.Id, project.Id));
             Assert.False(await projectAuthorization.CanUpdateTask(reader.Id, task.Id));
             Assert.True(await projectAuthorization.CanReviewTask(reader.Id, task.Id));
+            Assert.False(await projectAuthorization.CanCommentOnTarget(
+                reader.Id,
+                CommentTargetType.TaskItem,
+                task.Id));
             Assert.False(await fileAuthorization.CanUploadAttachment(
                 reader.Id,
                 AttachmentOwnerType.TaskItem,
@@ -251,6 +259,10 @@ public sealed class WpcFinal03SecurityPostgreSqlTests
 
             Assert.True(await projectAuthorization.CanCreateTask(reader.Id, project.Id));
             Assert.True(await projectAuthorization.CanUpdateTask(reader.Id, task.Id));
+            Assert.True(await projectAuthorization.CanCommentOnTarget(
+                reader.Id,
+                CommentTargetType.TaskItem,
+                task.Id));
             Assert.True(await fileAuthorization.CanUploadAttachment(
                 reader.Id,
                 AttachmentOwnerType.TaskItem,
@@ -262,6 +274,10 @@ public sealed class WpcFinal03SecurityPostgreSqlTests
             Assert.True(await projectAuthorization.CanViewProject(reader.Id, project.Id));
             Assert.False(await projectAuthorization.CanCreateTask(reader.Id, project.Id));
             Assert.False(await projectAuthorization.CanUpdateTask(reader.Id, task.Id));
+            Assert.False(await projectAuthorization.CanCommentOnTarget(
+                reader.Id,
+                CommentTargetType.Project,
+                project.Id));
             Assert.False(await fileAuthorization.CanUploadAttachment(
                 reader.Id,
                 AttachmentOwnerType.TaskItem,
