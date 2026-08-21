@@ -201,11 +201,15 @@ public sealed class WorkspacesController(
             userId,
             cancellationToken);
         return membership is
-        {
-            Status: TenantUserStatus.Active,
-            User: { Status: UserStatus.Active, DeletedAt: null },
-            Tenant: { Status: TenantStatus.Active, DeletedAt: null }
-        };
+               {
+                   Status: TenantUserStatus.Active,
+                   User: { Status: UserStatus.Active, DeletedAt: null },
+                   Tenant: { Status: TenantStatus.Active, DeletedAt: null }
+               } &&
+               membership.TenantId == currentTenant.TenantId &&
+               membership.UserId == userId &&
+               membership.Tenant.Id == currentTenant.TenantId &&
+               membership.User.Id == userId;
     }
 
     private async Task<IActionResult> ArchiveResult(Guid workspaceId, CancellationToken cancellationToken)
