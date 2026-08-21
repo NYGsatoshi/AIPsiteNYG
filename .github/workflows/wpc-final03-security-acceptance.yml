@@ -10,7 +10,9 @@ on:
       - "src/AipPortal.Application/Security/Redaction/**"
       - "src/AipPortal.Application/Workspaces/**"
       - "src/AipPortal.Application/DependencyInjection.cs"
+      - "src/AipPortal.Infrastructure/Persistence/ProjectGovernanceSaveChangesInterceptor.cs"
       - "src/AipPortal.Web/Controllers/WorkspacesController.cs"
+      - "src/AipPortal.Web/Security/CanonicalProjectsResponseProjectionFilter.cs"
       - "tests/AipPortal.Tests/**/WpcFinal03*.cs"
       - "scripts/ci/wpc-final03-required-tests.txt"
       - ".github/workflows/wpc-final03-security-acceptance.yml"
@@ -22,7 +24,9 @@ on:
       - "src/AipPortal.Application/Security/Redaction/**"
       - "src/AipPortal.Application/Workspaces/**"
       - "src/AipPortal.Application/DependencyInjection.cs"
+      - "src/AipPortal.Infrastructure/Persistence/ProjectGovernanceSaveChangesInterceptor.cs"
       - "src/AipPortal.Web/Controllers/WorkspacesController.cs"
+      - "src/AipPortal.Web/Security/CanonicalProjectsResponseProjectionFilter.cs"
       - "tests/AipPortal.Tests/**/WpcFinal03*.cs"
       - "scripts/ci/wpc-final03-required-tests.txt"
       - ".github/workflows/wpc-final03-security-acceptance.yml"
@@ -138,7 +142,7 @@ jobs:
         run: |
           bash scripts/ci/verify-trx-results.sh \
             artifacts/wpc-final03-test-results/wpc-final03-acceptance.trx \
-            --minimum-total 16 \
+            --minimum-total 17 \
             --required-tests scripts/ci/wpc-final03-required-tests.txt \
             --label "WPC-Final03 Security"
 
