@@ -48,7 +48,7 @@ Primary normative files:
 | Surface | Reviewed implementation |
 |---|---|
 | Project read and management | `ProjectAuthorizationService`, `ProjectReadScope` |
-| Task/Milestone mutation | `TaskCommandService`, `TaskSubresourceService`, `ProjectGovernanceSaveChangesInterceptor` |
+| Task/Milestone/comment mutation | `TaskCommandService`, `TaskSubresourceService`, `ProjectAuthorizationService`, `ProjectGovernanceSaveChangesInterceptor` |
 | Canonical Project create | `CanonicalProjectCreateService`, `WorkspaceProjectsController` |
 | Project activation | `ProjectActivationService`, activation unit of work/provisioners |
 | Workspace membership | `WorkspaceService`, `WorkspacesController`, Workspace `general` synchronizer |
@@ -132,20 +132,21 @@ Remediation:
 - production Workspace `general` synchronization revalidates the same Tenant/User/TenantUser state before granting Conversation participation;
 - revocation remains available even after Tenant suspension because inactive Workspace membership follows the removal path.
 
-### F03-SEC-005 — Viewer and stale Project lifecycle could reach Task/Gantt mutation
+### F03-SEC-005 — Viewer and stale Project lifecycle could reach Task, Gantt, review, and comment mutation
 
 **Severity: High**  
 **Status: Remediated in PR #324**
 
-The Task authorization path treated any Project membership as sufficient for creation, and creator/assignee relationships could allow body updates without excluding Project Viewer. The Gantt schedule/progress compatibility path used a separate authorization branch that excluded only Archived/Deleted Projects, so Planning, Suspended, Completed, or non-canonical activation states could reach mutation.
+The Task authorization path treated any Project membership as sufficient for creation, and creator/assignee/reviewer relationships could permit mutation without excluding Project Viewer. Project comments also reused Project read authority. The Gantt schedule/progress compatibility path used a separate authorization branch that excluded only Archived/Deleted Projects, so Planning, Suspended, Completed, or non-canonical activation states could reach mutation.
 
 Remediation:
 
-- Project Viewer is denied Task creation and Task-body update;
-- creator/assignee history cannot override current non-viewer Project authority;
+- Project Viewer is denied Task creation, Task-body update, review outcomes, and Project/Task/Milestone comment mutation;
+- creator, assignee, and reviewer history cannot override the current non-viewer Project boundary;
 - Task mutation requires an activated Project in `Active` or `Review` state and a contributing Workspace membership;
-- explicit reviewer assignment remains a narrow review-outcome permission, not unrestricted Task editing;
-- `ProjectGovernanceSaveChangesInterceptor` now rejects every tracked Task/Milestone persistence mutation unless the current Project is tracked in the same unit of work with coherent Activated provenance and `Active`/`Review` status;
+- explicit reviewer assignment remains a narrow review-outcome permission for a current non-viewer Project member, not unrestricted Task editing or Project management;
+- Project content comments use the same current contributor-or-manager operational boundary rather than Project visibility;
+- `ProjectGovernanceSaveChangesInterceptor` rejects every tracked Task/Milestone persistence mutation unless the current Project is tracked in the same unit of work with coherent Activated provenance and `Active`/`Review` status;
 - the persistence fence covers alternate Gantt adapters as well as ordinary Task commands.
 
 ### F03-SEC-006 — Missing Workspace `general` synchronizer failed open
@@ -200,7 +201,7 @@ The Workspace File list repository returns Workspace-owned attachments only; it 
 
 ### Archived and LegacyUnknown state
 
-Archived Workspace access and restore remain explicit-member/owner constrained. Project `Visibility == null` and legacy activation state are not inferred as canonical write authority. File, Task, Milestone, and Gantt mutation boundaries fail closed for non-activated/legacy states.
+Archived Workspace access and restore remain explicit-member/owner constrained. Project `Visibility == null` and legacy activation state are not inferred as canonical write authority. File, Task, Milestone, Gantt, review, and comment mutation boundaries fail closed for non-activated/legacy states.
 
 ### Unrouted Task subresource summary helper
 
@@ -237,10 +238,9 @@ Archived Workspace access and restore remain explicit-member/owner constrained. 
   - verifies the canonical synchronizer rejects the staged Workspace membership;
   - verifies no invalid Workspace member row is persisted.
 - `WorkspaceVisibleReadDoesNotBecomeProjectFileOrTaskMutationAuthority`
-  - verifies a Workspace ReadOnly reader may read a WorkspaceVisible Project but cannot create Tasks or upload;
-  - verifies an explicit Project Viewer cannot create/update Tasks or upload even when historical creator/assignee data matches;
-  - preserves narrow explicit reviewer outcome authority;
-  - verifies an explicit current Project Contributor can create/update/upload;
+  - verifies a Workspace ReadOnly reader may read a WorkspaceVisible Project but cannot create Tasks, comment, or upload;
+  - verifies an explicit Project Viewer cannot create/update/review/comment/upload even when historical creator/assignee/reviewer data matches;
+  - verifies an explicit current Project Contributor with reviewer assignment can create, update, review, comment, and upload;
   - verifies Completed remains readable but not mutable;
   - proves the persistence interceptor rejects a direct Task write in Completed state.
 
