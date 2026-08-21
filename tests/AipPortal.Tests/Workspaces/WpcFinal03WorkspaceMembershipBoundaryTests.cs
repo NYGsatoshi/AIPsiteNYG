@@ -1,3 +1,4 @@
+using System.Reflection;
 using AipPortal.Application.Common;
 using AipPortal.Application.Common.Interfaces;
 using AipPortal.Application.Common.Tenancy;
@@ -121,6 +122,47 @@ public sealed class WpcFinal03WorkspaceMembershipBoundaryTests
         Assert.False(result.IsSuccess);
         Assert.Equal(
             "WorkspaceGeneral membership requires an active Tenant membership.",
+            result.Error);
+    }
+
+    [Fact]
+    public async Task WorkspaceMemberMutationFailsClosedWhenGeneralSynchronizerIsUnavailable()
+    {
+        var service = new WorkspaceService(
+            null!,
+            null!,
+            null!,
+            null!,
+            null!,
+            null!,
+            null!);
+        var method = typeof(WorkspaceService).GetMethod(
+            "StageWorkspaceGeneralMembershipAsync",
+            BindingFlags.Instance | BindingFlags.NonPublic);
+        Assert.NotNull(method);
+
+        var invocation = method.Invoke(
+            service,
+            [
+                new WorkspaceMember
+                {
+                    TenantId = Guid.NewGuid(),
+                    WorkspaceId = Guid.NewGuid(),
+                    UserId = Guid.NewGuid(),
+                    Role = WorkspaceRole.Member,
+                    Status = MembershipStatus.Active,
+                    JoinedAt = DateTimeOffset.UtcNow
+                },
+                Guid.NewGuid(),
+                CancellationToken.None
+            ]);
+        var task = Assert.IsAssignableFrom<Task<Result>>(invocation);
+
+        var result = await task;
+
+        Assert.False(result.IsSuccess);
+        Assert.Equal(
+            "Canonical Workspace general membership synchronization is unavailable.",
             result.Error);
     }
 
