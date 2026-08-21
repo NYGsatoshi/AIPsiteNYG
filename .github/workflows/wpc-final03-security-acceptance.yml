@@ -138,7 +138,7 @@ jobs:
         run: |
           bash scripts/ci/verify-trx-results.sh \
             artifacts/wpc-final03-test-results/wpc-final03-acceptance.trx \
-            --minimum-total 15 \
+            --minimum-total 16 \
             --required-tests scripts/ci/wpc-final03-required-tests.txt \
             --label "WPC-Final03 Security"
 
