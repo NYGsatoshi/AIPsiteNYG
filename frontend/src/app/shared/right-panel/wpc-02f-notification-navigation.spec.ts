@@ -146,14 +146,42 @@ describe('WPC-02F protected notification navigation', () => {
     expect(navigate).not.toHaveBeenCalled();
     expect(facade.viewModel().notifications[0].read).toBe(false);
   });
+
+  it('rejects an authorized route when the returned Workspace is outside the current user scope', () => {
+    configure([{ id: 'workspace-a', label: 'Workspace A' }]);
+    const facade = TestBed.inject(RightPanelFacade);
+    const http = TestBed.inject(HttpTestingController);
+    const router = TestBed.inject(Router);
+    const activeWorkspace = TestBed.inject(ActiveWorkspaceFacade);
+    const navigate = vi.spyOn(router, 'navigateByUrl').mockResolvedValue(true);
+
+    activeWorkspace.setActiveWorkspace({ id: 'workspace-a', label: 'Workspace A' });
+    http.expectOne('/api/notifications').flush({
+      items: [notificationDto('Artifact', 'ArtifactChanged', 'artifact-1', '/artifacts/stale')],
+    });
+
+    facade.displayNotificationTarget('notification-1');
+    http.expectOne('/api/notifications/notification-1/open').flush({
+      outcome: 'Opened',
+      route: '/artifacts/artifact-1',
+      stateVersion: 6,
+      context: { workspaceId: 'workspace-b' },
+    });
+
+    expect(activeWorkspace.activeWorkspace()?.id).toBe('workspace-a');
+    expect(navigate).not.toHaveBeenCalled();
+    expect(facade.viewModel().notifications[0].read).toBe(false);
+    expect(facade.viewModel().unavailableMessage).toContain('no longer available');
+  });
 });
 
-function configure(): void {
-  const events = new Subject<DurableRealtimeEvent>();
-  const workspaces = [
+function configure(
+  workspaces = [
     { id: 'workspace-a', label: 'Workspace A' },
     { id: 'workspace-b', label: 'Workspace B' },
-  ];
+  ],
+): void {
+  const events = new Subject<DurableRealtimeEvent>();
 
   TestBed.configureTestingModule({
     providers: [
