@@ -9,7 +9,9 @@ namespace AipPortal.Infrastructure.Persistence;
 /// Persistence guard for WPC-02A Project governance state. Application commands
 /// remain responsible for their lifecycle policy; this interceptor guarantees
 /// that an accepted status mutation cannot be persisted without exact suspend /
-/// archive provenance and coherent activation metadata.
+/// archive provenance and coherent activation metadata. It also closes alternate
+/// Task/Milestone command paths that attempt to persist operational mutations
+/// outside an activated, writable Project lifecycle state.
 /// </summary>
 public sealed class ProjectGovernanceSaveChangesInterceptor : SaveChangesInterceptor
 {
@@ -106,7 +108,61 @@ public sealed class ProjectGovernanceSaveChangesInterceptor : SaveChangesInterce
 
             ValidateActivationProvenance(project);
         }
+
+        ValidateOperationalChildMutations(context);
     }
+
+    /// <summary>
+    /// Task and Milestone commands have several adapters, including the Gantt
+    /// compatibility endpoints. Every accepted write must therefore converge on
+    /// the same persistence invariant instead of relying on one controller or
+    /// service branch. The Project must already be tracked because a current
+    /// authorization/lifecycle decision is required in the same unit of work.
+    /// </summary>
+    private static void ValidateOperationalChildMutations(DbContext context)
+    {
+        var affectedProjectIds = context.ChangeTracker.Entries<TaskItem>()
+            .Where(entry => IsMutation(entry.State))
+            .Select(entry => entry.Entity.ProjectId)
+            .Concat(context.ChangeTracker.Entries<Milestone>()
+                .Where(entry => IsMutation(entry.State))
+                .Select(entry => entry.Entity.ProjectId))
+            .Where(projectId => projectId != Guid.Empty)
+            .Distinct()
+            .ToArray();
+
+        if (affectedProjectIds.Length == 0)
+        {
+            return;
+        }
+
+        var trackedProjects = context.ChangeTracker.Entries<Project>()
+            .Where(entry => entry.State != EntityState.Detached)
+            .Select(entry => entry.Entity)
+            .GroupBy(project => project.Id)
+            .ToDictionary(group => group.Key, group => group.Last());
+
+        foreach (var projectId in affectedProjectIds)
+        {
+            if (!trackedProjects.TryGetValue(projectId, out var project))
+            {
+                throw new InvalidOperationException(
+                    "Task and Milestone mutations require the current Project governance state in the same unit of work.");
+            }
+
+            if (project.DeletedAt.HasValue ||
+                project.ActivationState != ProjectActivationState.Activated ||
+                !HasActivatedProvenance(project) ||
+                project.Status is not (ProjectStatus.Active or ProjectStatus.Review))
+            {
+                throw new InvalidOperationException(
+                    "Task and Milestone mutations require an activated Project in Active or Review status.");
+            }
+        }
+    }
+
+    private static bool IsMutation(EntityState state) =>
+        state is EntityState.Added or EntityState.Modified or EntityState.Deleted;
 
     private static void ValidateArchivedRestore(Project project, ProjectStatus requestedStatus)
     {
