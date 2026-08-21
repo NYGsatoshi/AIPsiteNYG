@@ -115,6 +115,15 @@ public sealed class CanonicalFileMetadataRedactionService(
             return JsonValue.Create("[redacted:file]");
         }
 
+        // Identifier-shaped metadata must preserve its transport type after
+        // redaction. A string marker in a Guid/Guid? field breaks consumers and
+        // leaks that a concrete identifier existed. Null is the canonical
+        // fail-closed projection for uploader/user identifiers.
+        if (normalizedName.EndsWith("userid", StringComparison.Ordinal))
+        {
+            return null;
+        }
+
         if (value is JsonValue scalar && scalar.TryGetValue<string>(out _))
         {
             return JsonValue.Create(ConfidentialMarker);
