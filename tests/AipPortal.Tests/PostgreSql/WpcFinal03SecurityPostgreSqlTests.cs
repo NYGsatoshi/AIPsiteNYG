@@ -26,6 +26,7 @@ public sealed class WpcFinal03SecurityPostgreSqlTests
             var currentTenant = new CurrentTenantService();
             var options = new DbContextOptionsBuilder<AppDbContext>()
                 .UseNpgsql(testConnectionString)
+                .AddInterceptors(new ProjectGovernanceSaveChangesInterceptor())
                 .Options;
 
             await using var dbContext = new AppDbContext(options, currentTenant);
@@ -109,6 +110,7 @@ public sealed class WpcFinal03SecurityPostgreSqlTests
             var currentTenant = new CurrentTenantService();
             var options = new DbContextOptionsBuilder<AppDbContext>()
                 .UseNpgsql(testConnectionString)
+                .AddInterceptors(new ProjectGovernanceSaveChangesInterceptor())
                 .Options;
 
             await using var dbContext = new AppDbContext(options, currentTenant);
@@ -264,6 +266,14 @@ public sealed class WpcFinal03SecurityPostgreSqlTests
                 reader.Id,
                 AttachmentOwnerType.TaskItem,
                 task.Id));
+
+            task.ProgressPercent = 50;
+            var exception = await Assert.ThrowsAsync<InvalidOperationException>(
+                () => dbContext.SaveChangesAsync());
+            Assert.Contains(
+                "activated Project in Active or Review status",
+                exception.Message,
+                StringComparison.Ordinal);
         });
     }
 
