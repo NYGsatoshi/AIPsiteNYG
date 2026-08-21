@@ -1,0 +1,76 @@
+name: WPC-Final02 status synchronization
+
+on:
+  push:
+    branches:
+      - wpc-final02-canonical-completion-audit
+    paths:
+      - .github/workflows/wpc-final02-status-sync.yml
+
+permissions:
+  contents: write
+
+jobs:
+  synchronize:
+    if: github.actor != 'github-actions[bot]'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+
+    steps:
+      - name: Checkout branch
+        uses: actions/checkout@v7
+        with:
+          persist-credentials: true
+
+      - name: Replace stale WPC blocker status
+        shell: bash
+        run: |
+          python3 - <<'PY'
+          from pathlib import Path
+
+          path = Path("docs/KNOWN_ISSUES.md")
+          text = path.read_text(encoding="utf-8")
+          start_marker = "Last WPC-01 remediation audit: 2026-08-14."
+          end_marker = "## Backend application logic audit findings"
+
+          start = text.find(start_marker)
+          end = text.find(end_marker)
+          if start < 0 or end < 0 or end <= start:
+              raise SystemExit("Refusing to edit KNOWN_ISSUES.md: expected WPC status markers were not found")
+
+          replacement = """Last WPC-Final02 integration audit: 2026-08-21.
+
+This list records confirmed implementation/documentation mismatches and major unknowns. It is not limited to defects already filed in GitHub.
+
+## WPC canonical completion status
+
+The WPC-01 canonical creation blockers are resolved by the merged WPC-02 implementation sequence. They are no longer active blockers:
+
+- **WPC-01-001, resolved:** PRs #290, #291, and #293 added persisted Project Visibility and activation provenance. Existing rows retain `Visibility = NULL` and `ActivationState = LegacyUnknown` rather than receiving invented historical facts; ambiguous reads and recovery remain fail closed.
+- **WPC-01-002, resolved:** PR #308 added the canonical Workspace-scoped Project-create command. The deprecated Group-scoped compatibility path remains non-canonical and cannot bypass the new authorization boundary.
+- **WPC-01-003, resolved:** PR #301 added persisted CapabilityGrant evaluation, including current tenant, membership, Workspace scope, revocation, and expiry revalidation.
+- **WPC-01-004, resolved:** PR #301 provisions canonical WorkspaceGeneral identity atomically with Workspace creation, and PR #313 provisions ProjectGeneral only during successful activation.
+- **WPC-01-005, resolved:** PRs #290 and #313 added explicit activation provenance, exact suspend/archive recovery, expected-version activation, and atomic activation-time ProjectGeneral, Task workflow, audit, realtime outbox, and authorization invalidation.
+
+PRs #289 and #319 apply canonical redaction across the WPC response boundaries. PR #288 provides current-authorized Artifact and Message notification navigation. Final integrated acceptance and its retained evidence are defined in `docs/verification/wpc-final02-canonical-completion.md`.
+
+This completion status is limited to the normative Workspace/Project canonical-completion scope. It does not close unrelated findings below or findings in `docs/BACKEND_LOGIC_AUDIT.md`.
+
+"""
+
+          path.write_text(text[:start] + replacement + text[end:], encoding="utf-8")
+          PY
+          git diff --check
+
+      - name: Commit synchronized status
+        shell: bash
+        run: |
+          if git diff --quiet -- docs/KNOWN_ISSUES.md; then
+            echo "KNOWN_ISSUES.md already has the Final02 status."
+            exit 0
+          fi
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add docs/KNOWN_ISSUES.md
+          git commit -m "docs(wpc-final02): resolve superseded WPC blockers"
+          git push origin "HEAD:${GITHUB_REF_NAME}"
