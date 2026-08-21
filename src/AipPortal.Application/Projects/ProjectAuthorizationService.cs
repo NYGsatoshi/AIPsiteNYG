@@ -115,6 +115,33 @@ public sealed class ProjectAuthorizationService(
         };
     }
 
+    public async Task<bool> CanContributeProject(Guid userId, Guid projectId, CancellationToken cancellationToken = default)
+    {
+        var project = await projects.GetProjectAsync(projectId, cancellationToken);
+        if (project is null ||
+            project.DeletedAt.HasValue ||
+            project.ActivationState != ProjectActivationState.Activated ||
+            project.Status is not ProjectStatus.Active and not ProjectStatus.Review)
+        {
+            return false;
+        }
+
+        // Project visibility is a read/discovery input only. Content mutation
+        // also requires an active contributing Workspace membership and an
+        // explicit non-viewer Project membership.
+        if (!await workspaces.CanContributeWorkspace(userId, project.WorkspaceId, cancellationToken))
+        {
+            return false;
+        }
+
+        var member = await projects.GetMemberAsync(projectId, userId, cancellationToken);
+        return member?.Role is
+            ProjectRole.Owner or
+            ProjectRole.Manager or
+            ProjectRole.Contributor or
+            ProjectRole.Reviewer;
+    }
+
     public async Task<bool> CanCreateProject(Guid userId, Guid workspaceId, Guid groupId, CancellationToken cancellationToken = default)
     {
         if (groupId == Guid.Empty)
