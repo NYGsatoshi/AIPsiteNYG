@@ -220,9 +220,12 @@ public sealed class ProjectAuthorizationService(
         }
 
         // Reviewer is a narrow relationship authority. It permits review
-        // outcomes but does not imply unrestricted Task-body editing.
+        // outcomes but does not imply unrestricted Task-body editing or allow a
+        // Project Viewer to cross the read-only boundary.
         var member = await projects.GetMemberAsync(task.ProjectId, userId, cancellationToken);
-        return member is not null && task.ReviewerUserId == userId;
+        return member is not null &&
+               member.Role != ProjectRole.Viewer &&
+               task.ReviewerUserId == userId;
     }
 
     public Task<bool> CanOverrideTaskReview(Guid userId, Guid taskItemId, CancellationToken cancellationToken = default) =>
