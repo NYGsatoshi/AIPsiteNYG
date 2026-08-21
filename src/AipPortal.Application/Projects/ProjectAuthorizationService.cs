@@ -242,16 +242,22 @@ public sealed class ProjectAuthorizationService(
                await CanViewProject(userId, projectId, cancellationToken);
     }
 
-    private async Task<bool> CanUseProjectOperationally(
+    private async Task<bool> CanMutateProjectContentAsync(
         Guid userId,
         Guid projectId,
         CancellationToken cancellationToken)
     {
+        if (await CanContributeProject(userId, projectId, cancellationToken))
+        {
+            return true;
+        }
+
         var project = await projects.GetProjectAsync(projectId, cancellationToken);
         return project is not null &&
                !project.DeletedAt.HasValue &&
-               await workspaces.CanContributeWorkspace(userId, project.WorkspaceId, cancellationToken) &&
-               await CanViewProject(userId, projectId, cancellationToken);
+               project.ActivationState == ProjectActivationState.Activated &&
+               (project.Status == ProjectStatus.Active || project.Status == ProjectStatus.Review) &&
+               await CanManageProject(userId, projectId, cancellationToken);
     }
 
     private async Task<bool> CanViewLegacyUnknownProjectAsync(
@@ -280,17 +286,20 @@ public sealed class ProjectAuthorizationService(
     {
         if (targetType == CommentTargetType.Project)
         {
-            return await CanUseProjectOperationally(userId, targetId, cancellationToken);
+            return await CanMutateProjectContentAsync(userId, targetId, cancellationToken);
         }
         if (targetType == CommentTargetType.TaskItem)
         {
             var task = await projects.GetTaskAsync(targetId, cancellationToken);
-            return task is not null && await CanUseProjectOperationally(userId, task.ProjectId, cancellationToken);
+            return task is not null &&
+                   !task.DeletedAt.HasValue &&
+                   await CanMutateProjectContentAsync(userId, task.ProjectId, cancellationToken);
         }
         if (targetType == CommentTargetType.Milestone)
         {
             var milestone = await projects.GetMilestoneAsync(targetId, cancellationToken);
-            return milestone is not null && await CanUseProjectOperationally(userId, milestone.ProjectId, cancellationToken);
+            return milestone is not null &&
+                   await CanMutateProjectContentAsync(userId, milestone.ProjectId, cancellationToken);
         }
         return false;
     }
