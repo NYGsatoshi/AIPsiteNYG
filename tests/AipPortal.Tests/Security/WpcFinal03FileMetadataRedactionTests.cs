@@ -1,6 +1,8 @@
 using System.Text.Json.Nodes;
 using AipPortal.Application;
+using AipPortal.Application.Projects;
 using AipPortal.Application.Security.Redaction;
+using AipPortal.Web.Security;
 using Microsoft.Extensions.DependencyInjection;
 
 namespace AipPortal.Tests.Security;
@@ -93,6 +95,43 @@ public sealed class WpcFinal03FileMetadataRedactionTests
         var service = provider.GetRequiredService<IRedactionService>();
 
         Assert.IsType<CanonicalFileMetadataRedactionService>(service);
+    }
+
+    [Fact]
+    public void TaskFileResponsesUseFileMetadataProfileAndRedactNestedFileNames()
+    {
+        var item = new TaskFileAssociationResponse(
+            Guid.NewGuid(),
+            Guid.NewGuid(),
+            "student-private-evidence.pdf",
+            "application/pdf",
+            8192,
+            "Clean",
+            DateTimeOffset.UtcNow,
+            "Available",
+            CanOpen: true,
+            CanRequestDownloadGrant: true,
+            DownloadGrantRequired: false,
+            RestrictionCode: null);
+        var page = new TaskFileAssociationPage([item], 1, 20, 1, HasMore: false);
+
+        Assert.Equal(
+            RedactionProfile.FileMetadata,
+            CanonicalProjectsResponseProjectionFilter.ProfileFor(item));
+        Assert.Equal(
+            RedactionProfile.FileMetadata,
+            CanonicalProjectsResponseProjectionFilter.ProfileFor(page));
+
+        var result = CreateService().Redact(
+            AllowedContext(FieldAccessPolicySnapshot.StandardAuthorized),
+            page,
+            RedactionProfile.FileMetadata);
+
+        Assert.True(result.RedactionApplied);
+        var projected = Assert.IsType<JsonObject>(result.Value);
+        var items = Assert.IsType<JsonArray>(projected["items"]);
+        var projectedItem = Assert.IsType<JsonObject>(Assert.Single(items));
+        Assert.Equal("[redacted:file]", projectedItem["fileName"]!.GetValue<string>());
     }
 
     private static IRedactionService CreateService() =>
