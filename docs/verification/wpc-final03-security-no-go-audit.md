@@ -4,7 +4,7 @@
 
 **Current decision: CONDITIONAL NO-GO.**
 
-The integrated WPC baseline contained four security-significant authorization/redaction gaps. This branch contains targeted remediations and dedicated unit/PostgreSQL acceptance coverage, but the PR remains Draft until all required CI checks pass and the branch is rechecked against the then-current `main`.
+The integrated WPC baseline contained seven security-significant authorization, lifecycle, dependency, and redaction gaps. This branch contains targeted remediations and dedicated unit/PostgreSQL acceptance coverage, but the PR remains Draft until all required CI checks pass and the branch is rechecked against the then-current `main`.
 
 No auto-merge is permitted.
 
@@ -26,30 +26,35 @@ The implementation baseline includes the merged WPC-02A, WPC-02B, WPC-02C, WPC-0
 The audit treats the following specification requirements as merge blockers:
 
 1. Project visibility is a discovery/read decision; it is not resource-mutation authority.
-2. `WorkspaceRole.ReadOnly` cannot perform mutation.
+2. `WorkspaceRole.ReadOnly` and Project Viewer are read-only and cannot perform mutation.
 3. Tenant membership is necessary, but not sufficient, for Workspace membership and access.
 4. Cross-Tenant Workspace, Project, membership, and File relationships are prohibited.
 5. Membership revocation must immediately invalidate File and other dependent authorization.
 6. Unknown, legacy-unknown, incomplete, or unavailable authorization state fails closed.
 7. File metadata uses the canonical `IRedactionService` and applies field policy to filename, uploader, target label, and classification.
 8. Persisted historical identity and routes are attribution/context only; current authorization is authoritative.
+9. Task and Milestone mutation requires a current authorized, activated, operational Project state at the command and persistence boundaries.
+10. Required default-resource provisioning and membership synchronization cannot be silently skipped.
 
 Primary normative files:
 
 - `docs/specs/aip-core-v4/01-core/04-permission-data-access-security.md`
 - `docs/specs/aip-core-v4/01-core/11-workspace-project-governance.md`
+- `docs/specs/aip-core-v4/01-core/11-task-work-planning-scope.md`
+- `docs/specs/aip-core-v4/03-acceptance/task-work-planning-acceptance.md`
 
 ## 4. Audited WPC surfaces
 
 | Surface | Reviewed implementation |
 |---|---|
 | Project read and management | `ProjectAuthorizationService`, `ProjectReadScope` |
+| Task/Milestone mutation | `TaskCommandService`, `TaskSubresourceService`, `ProjectGovernanceSaveChangesInterceptor` |
 | Canonical Project create | `CanonicalProjectCreateService`, `WorkspaceProjectsController` |
 | Project activation | `ProjectActivationService`, activation unit of work/provisioners |
 | Workspace membership | `WorkspaceService`, `WorkspacesController`, Workspace `general` synchronizer |
 | Capability delegation | `CapabilityGrantEvaluator`, `CapabilityGrantService` |
 | File access | `FileAuthorizationService`, `FileService`, `FileRepository`, `FilesController` |
-| Redaction | `IRedactionService`, canonical projection boundaries, File metadata projections |
+| Redaction | `IRedactionService`, canonical projection filters, File metadata projections |
 | Notification navigation | current target resolver, notification open transaction, Angular protected-target flow |
 | Archived state | Workspace/Project read and restore authorization |
 | Migration fail-closed states | Project Visibility/Activation `LegacyUnknown` handling |
@@ -75,7 +80,7 @@ Remediation:
 - added `IProjectAuthorizationService.CanContributeProject`;
 - require activated `Active`/`Review` Project state;
 - require current contributing Workspace membership;
-- require explicit Project role `Owner`, `Manager`, `Contributor`, or `Reviewer`;
+- require an explicit non-viewer Project role;
 - deny Project Viewer, Workspace ReadOnly, Planning, Completed, Suspended, Archived, Deleted, and LegacyUnknown states;
 - changed File upload to use this mutation-specific decision.
 
@@ -122,9 +127,54 @@ Remediation:
 
 - the HTTP command boundary checks the current non-platform Tenant context;
 - requires an exact active `TenantUser` with active, non-deleted `User` and `Tenant`;
-- invalid, inactive, cross-Tenant, or unavailable cases are not-found masked before Workspace mutation;
+- validates scalar and navigation Tenant/User identities against the current request and requested user;
+- invalid, inactive, mismatched, cross-Tenant, or unavailable cases are not-found masked before Workspace mutation;
 - production Workspace `general` synchronization revalidates the same Tenant/User/TenantUser state before granting Conversation participation;
 - revocation remains available even after Tenant suspension because inactive Workspace membership follows the removal path.
+
+### F03-SEC-005 — Viewer and stale Project lifecycle could reach Task/Gantt mutation
+
+**Severity: High**  
+**Status: Remediated in PR #324**
+
+The Task authorization path treated any Project membership as sufficient for creation, and creator/assignee relationships could allow body updates without excluding Project Viewer. The Gantt schedule/progress compatibility path used a separate authorization branch that excluded only Archived/Deleted Projects, so Planning, Suspended, Completed, or non-canonical activation states could reach mutation.
+
+Remediation:
+
+- Project Viewer is denied Task creation and Task-body update;
+- creator/assignee history cannot override current non-viewer Project authority;
+- Task mutation requires an activated Project in `Active` or `Review` state and a contributing Workspace membership;
+- explicit reviewer assignment remains a narrow review-outcome permission, not unrestricted Task editing;
+- `ProjectGovernanceSaveChangesInterceptor` now rejects every tracked Task/Milestone persistence mutation unless the current Project is tracked in the same unit of work with coherent Activated provenance and `Active`/`Review` status;
+- the persistence fence covers alternate Gantt adapters as well as ordinary Task commands.
+
+### F03-SEC-006 — Missing Workspace `general` synchronizer failed open
+
+**Severity: High**  
+**Status: Remediated in PR #324**
+
+Workspace member add/update/remove previously treated an unavailable `IWorkspaceGeneralMembershipSynchronizer` as `Result.Success()`. This allowed the Workspace membership write to commit while the required canonical Conversation participant state was silently skipped, leaving split authorization state.
+
+Remediation:
+
+- unavailable synchronization now returns a dependency failure;
+- member add, role/status update, and removal do not save the unit of work when synchronization fails;
+- the HTTP boundary maps the typed dependency failure to service unavailable;
+- a dedicated contract test proves the null dependency fails closed.
+
+### F03-SEC-007 — Task File responses used the generic Project redaction profile
+
+**Severity: High for Confidential/Restricted metadata; Medium otherwise**  
+**Status: Remediated in PR #324**
+
+`CanonicalProjectsResponseProjectionFilter` applied `UiDetail` to every successful `ProjectsController` response. `TaskFileAssociationResponse` and `TaskFileAssociationPage` include `FileName`, so Task readers could receive File metadata without the mandatory `FileMetadata` field-policy projection.
+
+Remediation:
+
+- the global Projects response filter selects `FileMetadata` for Task File response/page DTOs;
+- all other Project responses remain on `UiDetail`;
+- the canonical File metadata engine recursively redacts nested page items;
+- a dedicated test verifies both profile selection and nested filename redaction.
 
 ## 6. Reviewed areas with no additional No-Go finding
 
@@ -144,9 +194,17 @@ Evaluation revalidates active Tenant membership, user state, scope identity, rev
 
 Notification open reauthorizes the current target before read-state mutation and outbox commit. Artifact and Message navigation use current authoritative routes rather than persisted historical `targetRoute`. No new Final03 blocker was found.
 
+### Workspace File listing
+
+The Workspace File list repository returns Workspace-owned attachments only; it does not mix Project/Conversation/Channel attachment rows into a Workspace-wide page. Record authorization plus the hardened File metadata projection therefore does not expose Restricted Project rows through this endpoint.
+
 ### Archived and LegacyUnknown state
 
-Archived Workspace access and restore remain explicit-member/owner constrained. Project `Visibility == null` and legacy activation state are not inferred as canonical write authority. The new File mutation boundary also fails closed for non-activated/legacy states.
+Archived Workspace access and restore remain explicit-member/owner constrained. Project `Visibility == null` and legacy activation state are not inferred as canonical write authority. File, Task, Milestone, and Gantt mutation boundaries fail closed for non-activated/legacy states.
+
+### Unrouted Task subresource summary helper
+
+`TaskSubresourceService.GetSummaryAsync` currently has no direct Controller route or repository caller. It was recorded as a future hardening point, but no current external reachability was found and it is not classified as a Final03 merge blocker.
 
 ## 7. Acceptance coverage
 
@@ -162,11 +220,14 @@ Archived Workspace access and restore remain explicit-member/owner constrained. 
   - default policy redacts all mandated File metadata fields;
   - explicit Confidential policy discloses them;
   - unknown authorization fails closed;
-  - application DI resolves the hardened redaction boundary.
+  - application DI resolves the hardened redaction boundary;
+  - Task File response/page selects `FileMetadata` and recursively redacts nested filenames.
 - `WpcFinal03WorkspaceMembershipBoundaryTests`
   - missing current Tenant membership is rejected before service mutation;
+  - an active but mismatched Tenant membership record is rejected;
   - active exact-Tenant membership is forwarded;
-  - Workspace `general` synchronization rejects a suspended Tenant membership.
+  - Workspace `general` synchronization rejects a suspended Tenant membership;
+  - unavailable Workspace `general` synchronization fails closed.
 
 ### PostgreSQL acceptance
 
@@ -175,10 +236,13 @@ Archived Workspace access and restore remain explicit-member/owner constrained. 
   - creates two Tenants and a user who belongs only to the other Tenant;
   - verifies the canonical synchronizer rejects the staged Workspace membership;
   - verifies no invalid Workspace member row is persisted.
-- `WorkspaceVisibleReadDoesNotBecomeProjectFileMutationAuthority`
-  - verifies a Workspace ReadOnly reader may read a WorkspaceVisible Project but cannot upload;
-  - verifies an explicit Project Viewer still cannot upload;
-  - verifies an explicit current Project Contributor can upload.
+- `WorkspaceVisibleReadDoesNotBecomeProjectFileOrTaskMutationAuthority`
+  - verifies a Workspace ReadOnly reader may read a WorkspaceVisible Project but cannot create Tasks or upload;
+  - verifies an explicit Project Viewer cannot create/update Tasks or upload even when historical creator/assignee data matches;
+  - preserves narrow explicit reviewer outcome authority;
+  - verifies an explicit current Project Contributor can create/update/upload;
+  - verifies Completed remains readable but not mutable;
+  - proves the persistence interceptor rejects a direct Task write in Completed state.
 
 Dedicated gate:
 
@@ -186,7 +250,7 @@ Dedicated gate:
 - PostgreSQL 18 service;
 - `Scope=WPCFinal03` filter;
 - exactly named required-test verification;
-- minimum 14-test enforcement;
+- minimum 17-test enforcement;
 - TRX artifact retention.
 
 ## 8. Scope isolation
@@ -197,7 +261,9 @@ This Final03 PR does not modify:
 - legacy migration inventory/rollout evidence;
 - WPC integration acceptance matrices owned by Final01;
 - migration/legacy execution material owned by Final02;
-- unrelated feature code or frontend behavior.
+- unrelated frontend behavior.
+
+The additional Infrastructure/Web changes are limited to the existing Project governance interceptor and canonical Projects response projection filter because those are the authoritative persistence and HTTP redaction boundaries for the confirmed findings.
 
 ## 9. Remaining merge gates
 
