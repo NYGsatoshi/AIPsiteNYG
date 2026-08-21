@@ -369,7 +369,7 @@ jobs:
           docker compose -p deploy -f deploy/sakura/docker-compose.yml config --quiet
 
       - name: Build Docker image with persistent BuildKit caches
-        if: github.actor != 'dependabot[bot]'
+        if: github.event_name != 'pull_request' || github.event.pull_request.user.login != 'dependabot[bot]'
         env:
           SYNCFUSION_LICENSE: ${{ secrets.SYNCFUSION_LICENSE }}
         shell: bash
@@ -404,7 +404,7 @@ jobs:
           done
 
       - name: Verify runtime image excludes Syncfusion license material
-        if: github.actor != 'dependabot[bot]'
+        if: github.event_name != 'pull_request' || github.event.pull_request.user.login != 'dependabot[bot]'
         shell: bash
         run: |
           docker run --rm --entrypoint sh "$IMAGE_NAME" -c '
@@ -415,7 +415,7 @@ jobs:
           '
 
       - name: Scan Docker image with Trivy
-        if: github.actor != 'dependabot[bot]'
+        if: github.event_name != 'pull_request' || github.event.pull_request.user.login != 'dependabot[bot]'
         shell: bash
         run: |
           set +e
@@ -433,7 +433,7 @@ jobs:
           exit "$status"
 
       - name: Scan repository with Trivy for Dependabot
-        if: github.actor == 'dependabot[bot]'
+        if: github.event_name == 'pull_request' && github.event.pull_request.user.login == 'dependabot[bot]'
         shell: bash
         run: |
           set +e
@@ -528,7 +528,7 @@ jobs:
         run: npm run build
 
       - name: Validate licensed frontend build when Syncfusion is installed
-        if: github.actor != 'dependabot[bot]'
+        if: github.event_name != 'pull_request' || github.event.pull_request.user.login != 'dependabot[bot]'
         working-directory: frontend
         env:
           SYNCFUSION_LICENSE: ${{ secrets.SYNCFUSION_LICENSE }}
