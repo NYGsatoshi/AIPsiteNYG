@@ -2,6 +2,7 @@ using AipPortal.Domain.Entities;
 using AipPortal.Domain.Enums;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore.Diagnostics;
+using Microsoft.Extensions.Configuration;
 
 namespace AipPortal.Infrastructure.Persistence;
 
@@ -15,6 +16,34 @@ namespace AipPortal.Infrastructure.Persistence;
 /// </summary>
 public sealed class ProjectGovernanceSaveChangesInterceptor : SaveChangesInterceptor
 {
+    private static readonly HashSet<string> BrowserSmokeFixtureProjectSlugs = new(StringComparer.Ordinal)
+    {
+        "browser-smoke-project",
+        "browser-smoke-pr04-second-project",
+        "browser-smoke-pr05-kanban",
+        "browser-smoke-pr06-gantt",
+        "browser-smoke-pr07-notifications"
+    };
+
+    private readonly bool _browserSmokeFixtureSeedEnabled;
+
+    public ProjectGovernanceSaveChangesInterceptor()
+    {
+    }
+
+    public ProjectGovernanceSaveChangesInterceptor(IConfiguration configuration)
+    {
+        ArgumentNullException.ThrowIfNull(configuration);
+
+        var environmentName =
+            configuration["ASPNETCORE_ENVIRONMENT"] ??
+            configuration["DOTNET_ENVIRONMENT"];
+        _browserSmokeFixtureSeedEnabled =
+            string.Equals(environmentName, "Test", StringComparison.OrdinalIgnoreCase) &&
+            (IsEnabled(configuration["BrowserSmokeSeed:Enabled"]) ||
+             IsEnabled(configuration["AIP_BROWSER_SMOKE_SEED_ENABLED"]));
+    }
+
     public override InterceptionResult<int> SavingChanges(
         DbContextEventData eventData,
         InterceptionResult<int> result)
@@ -32,12 +61,14 @@ public sealed class ProjectGovernanceSaveChangesInterceptor : SaveChangesInterce
         return base.SavingChangesAsync(eventData, result, cancellationToken);
     }
 
-    private static void Apply(DbContext? context)
+    private void Apply(DbContext? context)
     {
         if (context is null)
         {
             return;
         }
+
+        ApplyBrowserSmokeFixtureActivationProvenance(context);
 
         foreach (var entry in context.ChangeTracker.Entries<Project>()
                      .Where(entry => entry.State is EntityState.Added or EntityState.Modified))
@@ -113,6 +144,42 @@ public sealed class ProjectGovernanceSaveChangesInterceptor : SaveChangesInterce
     }
 
     /// <summary>
+    /// Browser-smoke fixtures are synthetic data created only inside the explicit
+    /// Test-environment seed boundary. They predate the canonical activation
+    /// command and are created together with their Task/Gantt fixture graph.
+    /// Normalize only newly-added, reserved fixture Projects so the fixture obeys
+    /// the same persistence invariant. Existing Projects, arbitrary slugs, and all
+    /// non-Test runtime paths remain untouched and fail closed normally.
+    /// </summary>
+    private void ApplyBrowserSmokeFixtureActivationProvenance(DbContext context)
+    {
+        if (!_browserSmokeFixtureSeedEnabled)
+        {
+            return;
+        }
+
+        var activatedAtUtc = DateTimeOffset.UtcNow;
+        foreach (var entry in context.ChangeTracker.Entries<Project>()
+                     .Where(entry => entry.State == EntityState.Added &&
+                                     BrowserSmokeFixtureProjectSlugs.Contains(entry.Entity.Slug)))
+        {
+            var project = entry.Entity;
+            if (project.Status != ProjectStatus.Active ||
+                project.ActivationState != ProjectActivationState.NeverActivated ||
+                project.ActivatedAtUtc.HasValue ||
+                project.ActivationVersion.HasValue)
+            {
+                throw new InvalidOperationException(
+                    "Browser-smoke fixture Project activation seed state is inconsistent.");
+            }
+
+            project.ActivationState = ProjectActivationState.Activated;
+            project.ActivatedAtUtc = activatedAtUtc;
+            project.ActivationVersion = 1;
+        }
+    }
+
+    /// <summary>
     /// Task and Milestone commands have several adapters, including the Gantt
     /// compatibility endpoints. Every accepted write must therefore converge on
     /// the same persistence invariant instead of relying on one controller or
@@ -163,6 +230,9 @@ public sealed class ProjectGovernanceSaveChangesInterceptor : SaveChangesInterce
 
     private static bool IsMutation(EntityState state) =>
         state is EntityState.Added or EntityState.Modified or EntityState.Deleted;
+
+    private static bool IsEnabled(string? value) =>
+        bool.TryParse(value, out var enabled) && enabled;
 
     private static void ValidateArchivedRestore(Project project, ProjectStatus requestedStatus)
     {
