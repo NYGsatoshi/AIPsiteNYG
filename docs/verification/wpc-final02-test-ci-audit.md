@@ -13,7 +13,8 @@ exact pull-request head described in the merge gate below.
 The implementation baseline already contains WPC-02A through WPC-02F and the
 WPC-02E-2 response-boundary adoption. This audit does not infer completion from
 routes, entities, or historical documents; it uses the current test assembly,
-workflow definitions, and a retained hosted TRX artifact.
+workflow definitions, frontend specifications, and a retained hosted TRX
+artifact.
 
 ## 2. Inherited evidence
 
@@ -45,18 +46,21 @@ but there was no single durable contract that:
    final acceptance set; and
 4. proved the dedicated B/C/D manifests remained included in the final set.
 
-### 3.2 WPC-02F frontend behavior lacked direct Artifact and Message regressions
+### 3.2 WPC-02F had one untested current-Workspace rejection branch
 
-The current Right Panel implementation treats Task, TaskDeadlineDigest,
-Artifact, and Message as server-authoritative protected targets. Artifact and
-Message additionally validate the canonical route, returned Workspace context,
-current Workspace membership, and Message ID before changing read state or
-navigating.
+The existing `wpc-02f-notification-navigation.spec.ts` already directly
+covers:
 
-The existing Right Panel unit suite directly covered Task and digest protected
-open behavior, but did not directly exercise the Artifact and Message branches.
-That left the cross-Workspace and canonical Message-route checks vulnerable to
-an unobserved regression.
+- Artifact open through the server-authoritative endpoint;
+- Message open through the canonical Conversation route;
+- rejection of a mismatched Message ID; and
+- an `Unavailable` protected target remaining unread.
+
+The remaining branch was narrower: the backend may return an otherwise
+canonical `Opened` route and Workspace context, while that Workspace is no
+longer present in `AuthSessionFacade.currentUser().workspaces`. Production code
+fails closed in `switchToAuthorizedWorkspace`, but the dedicated WPC-02F
+frontend suite did not directly pin that membership-revocation case.
 
 ### 3.3 The existing CI topology is already the correct execution authority
 
@@ -112,20 +116,21 @@ run and enforces:
 This makes silent deletion, renaming, trait removal, provider-test weakening,
 or unreviewed scope expansion fail the normal CI test job.
 
-### 4.3 WPC-02F Angular regressions
+### 4.3 WPC-02F current-Workspace regression
 
-`right-panel.wpc02f.spec.ts` adds direct tests for:
+The existing `wpc-02f-notification-navigation.spec.ts` is extended with one
+focused case:
 
-1. Artifact open through the current-authorized endpoint and returned Workspace;
-2. Message open through
-   `/conversations/{conversationId}?messageId={messageId}`;
-3. rejection of a Message route whose `messageId` does not match the
-   notification target; and
-4. rejection of an otherwise canonical route when the returned Workspace is
-   absent from the current authorized Workspace set.
+1. the notification list carries a protected Artifact target;
+2. the backend returns `Opened`, the exact canonical Artifact route, and a
+   Workspace ID;
+3. that Workspace is absent from the current user's authorized Workspace set;
+4. the client does not switch Workspace;
+5. the client does not navigate; and
+6. the notification remains unread and reports the target as unavailable.
 
-Every denied path asserts no fallback navigation, no Workspace switch, and no
-optimistic read-state mutation.
+This complements, rather than duplicates, the existing Artifact, Message,
+mismatched-ID, and unavailable-target cases.
 
 ## 5. CI execution model
 
@@ -138,7 +143,7 @@ The existing jobs provide the gates:
 | `CI / build-test` | discovers the coverage contract and all A-F backend tests against PostgreSQL 18 |
 | strict backend TRX verification | rejects failed and not-executed/skipped results |
 | WPC-02B/C/D PostgreSQL workflows | retain their narrower provider-specific acceptance gates |
-| `CI / frontend-test` | discovers the new Angular WPC-02F spec and runs build/unit/architecture/Storybook/Playwright checks |
+| `CI / frontend-test` | discovers the amended WPC-02F Angular spec and runs build/unit/architecture/Storybook/Playwright checks |
 | security and dependency jobs | remain independent release guards |
 
 ## 6. Reproduction commands
@@ -183,7 +188,7 @@ pull-request head:
 2. the WPC-Final02 coverage contract passes;
 3. no backend TRX result is failed, skipped/not-executed, aborted, or incomplete;
 4. WPC-02B/C/D dedicated PostgreSQL jobs pass;
-5. Angular unit tests include the new Artifact/Message regressions and pass;
+5. the WPC-02F current-Workspace rejection regression passes;
 6. Angular production/licensed builds, architecture checks, Storybook, and
    Linux Docker Playwright smoke pass; and
 7. no unrelated production or migration changes are present.
@@ -192,7 +197,7 @@ pull-request head:
 
 The backend job publishes a TRX artifact with per-test identities. The Angular
 job currently fails on unit-test regressions but does not publish an equivalent
-durable per-test result artifact. This does not prevent the new tests from
-gating CI, but it limits post-run per-test evidence retention. Adding a stable
-Angular JUnit artifact is an observability enhancement; it should be handled
-without replacing the existing full frontend gate.
+durable per-test result artifact. This does not prevent the amended WPC-02F test
+from gating CI, but it limits post-run per-test evidence retention. Adding a
+stable Angular JUnit artifact is an observability enhancement; it should be
+handled without replacing the existing full frontend gate.
