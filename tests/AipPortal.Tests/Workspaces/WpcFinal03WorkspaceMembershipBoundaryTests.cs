@@ -34,6 +34,44 @@ public sealed class WpcFinal03WorkspaceMembershipBoundaryTests
     }
 
     [Fact]
+    public async Task HttpBoundaryRejectsMismatchedTenantMembershipRecord()
+    {
+        var tenant = NewCurrentTenant();
+        var user = NewUser();
+        var foreignTenant = new Tenant
+        {
+            Id = Guid.NewGuid(),
+            Name = "Foreign Tenant",
+            DisplayName = "Foreign Tenant",
+            Slug = $"foreign-{Guid.NewGuid():N}",
+            Status = TenantStatus.Active
+        };
+        var mismatchedMembership = new TenantUser
+        {
+            TenantId = foreignTenant.Id,
+            UserId = user.Id,
+            User = user,
+            Tenant = foreignTenant,
+            Role = TenantUserRole.Member,
+            Status = TenantUserStatus.Active,
+            JoinedAt = DateTimeOffset.UtcNow
+        };
+        var service = new WorkspaceServiceStub();
+        var controller = CreateController(
+            service,
+            new TenantRepositoryStub(mismatchedMembership),
+            tenant);
+
+        var action = await controller.AddMember(
+            Guid.NewGuid(),
+            new AddWorkspaceMemberRequest(user.Id, WorkspaceRole.Member),
+            CancellationToken.None);
+
+        Assert.IsType<NotFoundObjectResult>(action);
+        Assert.Equal(0, service.AddMemberCalls);
+    }
+
+    [Fact]
     public async Task HttpBoundaryForwardsOnlyActiveCurrentTenantUser()
     {
         var tenant = NewCurrentTenant();
