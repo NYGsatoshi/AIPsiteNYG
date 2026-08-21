@@ -1,0 +1,270 @@
+name: WPC-Final02 Canonical Completion
+
+on:
+  workflow_dispatch:
+  pull_request:
+    branches: ["main"]
+    paths:
+      - ".github/workflows/wpc-final02-canonical-completion.yml"
+      - "scripts/ci/wpc-final02-required-tests.txt"
+      - "scripts/ci/wpc02b-required-tests.txt"
+      - "scripts/ci/wpc02c-required-tests.txt"
+      - "scripts/ci/wpc02d-required-tests.txt"
+      - "scripts/ci/verify-trx-results.sh"
+      - "src/AipPortal.Domain/Entities/ProductionEntities.cs"
+      - "src/AipPortal.Domain/Entities/WorkspaceEntities.cs"
+      - "src/AipPortal.Domain/Enums/CoreEnums.cs"
+      - "src/AipPortal.Application/Workspaces/**"
+      - "src/AipPortal.Application/Projects/**"
+      - "src/AipPortal.Application/Notifications/**"
+      - "src/AipPortal.Application/Security/**"
+      - "src/AipPortal.Application/TenantExports/**"
+      - "src/AipPortal.Infrastructure/Audit/**"
+      - "src/AipPortal.Infrastructure/Persistence/**"
+      - "src/AipPortal.Web/Controllers/AuditController.cs"
+      - "src/AipPortal.Web/Controllers/CapabilityGrantsController.cs"
+      - "src/AipPortal.Web/Controllers/FilesController.cs"
+      - "src/AipPortal.Web/Controllers/NotificationsController.cs"
+      - "src/AipPortal.Web/Controllers/ProjectActivationController.cs"
+      - "src/AipPortal.Web/Controllers/ProjectsController.cs"
+      - "src/AipPortal.Web/Controllers/SearchController.cs"
+      - "src/AipPortal.Web/Controllers/TenantExportController.cs"
+      - "src/AipPortal.Web/Controllers/WorkspaceProjectsController.cs"
+      - "src/AipPortal.Web/Controllers/WorkspacesController.cs"
+      - "src/AipPortal.Web/Extensions/DependencyInjection.cs"
+      - "src/AipPortal.Web/Middleware/WpcApiContractMiddleware.cs"
+      - "src/AipPortal.Web/Security/**"
+      - "tests/AipPortal.Tests/**/Wpc02*.cs"
+      - "tests/AipPortal.Tests/Tenancy/TenantExportRedactionTests.cs"
+      - "tests/AipPortal.Tests/Tenancy/TenantExportServiceAuthorizationTests.cs"
+      - "frontend/src/app/shared/right-panel/right-panel.facade.ts"
+      - "frontend/src/app/shared/right-panel/wpc-02f-notification-navigation.spec.ts"
+      - "frontend/package.json"
+      - "frontend/package-lock.json"
+      - "global.json"
+      - "Directory.Packages.props"
+  push:
+    branches: ["main"]
+    paths:
+      - ".github/workflows/wpc-final02-canonical-completion.yml"
+      - "scripts/ci/wpc-final02-required-tests.txt"
+      - "scripts/ci/wpc02b-required-tests.txt"
+      - "scripts/ci/wpc02c-required-tests.txt"
+      - "scripts/ci/wpc02d-required-tests.txt"
+      - "scripts/ci/verify-trx-results.sh"
+      - "src/AipPortal.Domain/Entities/ProductionEntities.cs"
+      - "src/AipPortal.Domain/Entities/WorkspaceEntities.cs"
+      - "src/AipPortal.Domain/Enums/CoreEnums.cs"
+      - "src/AipPortal.Application/Workspaces/**"
+      - "src/AipPortal.Application/Projects/**"
+      - "src/AipPortal.Application/Notifications/**"
+      - "src/AipPortal.Application/Security/**"
+      - "src/AipPortal.Application/TenantExports/**"
+      - "src/AipPortal.Infrastructure/Audit/**"
+      - "src/AipPortal.Infrastructure/Persistence/**"
+      - "src/AipPortal.Web/Controllers/AuditController.cs"
+      - "src/AipPortal.Web/Controllers/CapabilityGrantsController.cs"
+      - "src/AipPortal.Web/Controllers/FilesController.cs"
+      - "src/AipPortal.Web/Controllers/NotificationsController.cs"
+      - "src/AipPortal.Web/Controllers/ProjectActivationController.cs"
+      - "src/AipPortal.Web/Controllers/ProjectsController.cs"
+      - "src/AipPortal.Web/Controllers/SearchController.cs"
+      - "src/AipPortal.Web/Controllers/TenantExportController.cs"
+      - "src/AipPortal.Web/Controllers/WorkspaceProjectsController.cs"
+      - "src/AipPortal.Web/Controllers/WorkspacesController.cs"
+      - "src/AipPortal.Web/Extensions/DependencyInjection.cs"
+      - "src/AipPortal.Web/Middleware/WpcApiContractMiddleware.cs"
+      - "src/AipPortal.Web/Security/**"
+      - "tests/AipPortal.Tests/**/Wpc02*.cs"
+      - "tests/AipPortal.Tests/Tenancy/TenantExportRedactionTests.cs"
+      - "tests/AipPortal.Tests/Tenancy/TenantExportServiceAuthorizationTests.cs"
+      - "frontend/src/app/shared/right-panel/right-panel.facade.ts"
+      - "frontend/src/app/shared/right-panel/wpc-02f-notification-navigation.spec.ts"
+      - "frontend/package.json"
+      - "frontend/package-lock.json"
+      - "global.json"
+      - "Directory.Packages.props"
+
+concurrency:
+  group: wpc-final02-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+jobs:
+  canonical-completion:
+    name: WPC-Final02 / PostgreSQL 18 and Angular
+    runs-on: [self-hosted, aipsite-ci, general]
+    timeout-minutes: 50
+
+    services:
+      postgres:
+        image: postgres:18-alpine
+        env:
+          POSTGRES_DB: aip_portal_wpc_final02
+          POSTGRES_USER: aip_portal_wpc_final02
+          POSTGRES_PASSWORD: aip_portal_wpc_final02_password
+        ports:
+          - 5432/tcp
+        options: >-
+          --health-cmd "pg_isready -U aip_portal_wpc_final02 -d aip_portal_wpc_final02"
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+
+    env:
+      ASPNETCORE_ENVIRONMENT: Test
+      DOTNET_CLI_TELEMETRY_OPTOUT: "1"
+      DOTNET_NOLOGO: "1"
+      NODE_OPTIONS: --max-old-space-size=4096
+
+    steps:
+      - name: Configure PostgreSQL connection
+        shell: bash
+        run: |
+          postgres_port='${{ job.services.postgres.ports[5432] }}'
+          test -n "$postgres_port"
+          {
+            echo "ConnectionStrings__DefaultConnection=Host=localhost;Port=${postgres_port};Database=aip_portal_wpc_final02;Username=aip_portal_wpc_final02;Password=aip_portal_wpc_final02_password"
+            echo "POSTGRES_TEST_CONNECTION_STRING=Host=localhost;Port=${postgres_port};Database=aip_portal_wpc_final02;Username=aip_portal_wpc_final02;Password=aip_portal_wpc_final02_password"
+          } >> "$GITHUB_ENV"
+
+      - name: Repair previous Docker workspace ownership
+        shell: bash
+        run: |
+          uid="$(id -u)"
+          gid="$(id -g)"
+          docker run --rm \
+            -v "$GITHUB_WORKSPACE:/workspace" \
+            alpine:3.21 \
+            sh -c "chown -R ${uid}:${gid} /workspace"
+
+      - name: Checkout
+        uses: actions/checkout@v7
+        with:
+          persist-credentials: false
+
+      - name: Verify Final02 manifest includes predecessor gates
+        shell: bash
+        run: |
+          python3 - <<'PY'
+          from pathlib import Path
+
+          def active(path: str) -> list[str]:
+              return [
+                  line.strip()
+                  for line in Path(path).read_text(encoding="utf-8").splitlines()
+                  if line.strip() and not line.lstrip().startswith("#")
+              ]
+
+          final = active("scripts/ci/wpc-final02-required-tests.txt")
+          duplicates = sorted({name for name in final if final.count(name) > 1})
+          if duplicates:
+              raise SystemExit(f"Final02 manifest contains duplicates: {duplicates}")
+
+          final_set = set(final)
+          missing: dict[str, list[str]] = {}
+          for component in (
+              "scripts/ci/wpc02b-required-tests.txt",
+              "scripts/ci/wpc02c-required-tests.txt",
+              "scripts/ci/wpc02d-required-tests.txt",
+          ):
+              absent = [name for name in active(component) if name not in final_set]
+              if absent:
+                  missing[component] = absent
+
+          if missing:
+              raise SystemExit(f"Final02 manifest omits predecessor requirements: {missing}")
+          if len(final) < 60:
+              raise SystemExit(f"Final02 manifest unexpectedly contains only {len(final)} active tests")
+
+          print(f"Final02 manifest contains {len(final)} unique required tests.")
+          PY
+
+      - name: Configure user-local .NET install
+        shell: bash
+        run: |
+          install_dir="$HOME/.dotnet-ci"
+          job_temp="$RUNNER_TEMP/dotnet-${GITHUB_JOB}-${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}"
+          mkdir -p \
+            "$install_dir" \
+            "$job_temp/home" \
+            "$job_temp/nuget/scratch" \
+            "$HOME/.nuget/packages"
+          {
+            echo "DOTNET_INSTALL_DIR=$install_dir"
+            echo "DOTNET_ROOT=$install_dir"
+            echo "DOTNET_MULTILEVEL_LOOKUP=0"
+            echo "DOTNET_CLI_HOME=$job_temp/home"
+            echo "DOTNET_CLI_WORKLOAD_UPDATE_NOTIFY_DISABLE=1"
+            echo "NUGET_PACKAGES=$HOME/.nuget/packages"
+            echo "NUGET_SCRATCH=$job_temp/nuget/scratch"
+          } >> "$GITHUB_ENV"
+          echo "$install_dir" >> "$GITHUB_PATH"
+
+      - name: Set up .NET SDK
+        uses: actions/setup-dotnet@v6
+        with:
+          global-json-file: global.json
+
+      - name: Restore
+        run: dotnet restore AipPortal.slnx --disable-parallel --disable-build-servers --verbosity normal
+
+      - name: Build
+        run: dotnet build AipPortal.slnx --configuration Release --no-restore --disable-build-servers -m:1
+
+      - name: Restore .NET tools
+        run: dotnet tool restore
+
+      - name: Apply PostgreSQL migrations
+        run: dotnet ef database update --project src/AipPortal.Infrastructure --startup-project src/AipPortal.Web --configuration Release
+
+      - name: Verify EF Core model
+        run: dotnet ef migrations has-pending-model-changes --project src/AipPortal.Infrastructure --startup-project src/AipPortal.Web --configuration Release --no-build
+
+      - name: Run WPC canonical completion backend acceptance
+        shell: bash
+        run: |
+          mkdir -p artifacts/wpc-final02-test-results
+          dotnet test \
+            tests/AipPortal.Tests/AipPortal.Tests.csproj \
+            --configuration Release \
+            --no-build \
+            --disable-build-servers \
+            -m:1 \
+            --verbosity normal \
+            --filter "Scope~WPC02" \
+            --logger "trx;LogFileName=wpc-final02-acceptance.trx" \
+            --results-directory artifacts/wpc-final02-test-results
+
+      - name: Verify WPC-Final02 required backend tests
+        shell: bash
+        run: |
+          bash scripts/ci/verify-trx-results.sh \
+            artifacts/wpc-final02-test-results/wpc-final02-acceptance.trx \
+            --minimum-total 60 \
+            --required-tests scripts/ci/wpc-final02-required-tests.txt \
+            --label "WPC-Final02 canonical completion"
+
+      - name: Set up Node.js 24
+        uses: actions/setup-node@v7
+        with:
+          node-version: "24"
+
+      - name: Install Angular dependencies
+        run: bash scripts/ci/npm-ci-retry.sh frontend
+
+      - name: Run WPC-02F Angular protected-navigation acceptance
+        run: >-
+          npm --prefix frontend test --
+          --include src/app/shared/right-panel/wpc-02f-notification-navigation.spec.ts
+
+      - name: Upload WPC-Final02 evidence
+        if: always()
+        uses: actions/upload-artifact@v7
+        with:
+          name: wpc-final02-canonical-completion-results
+          path: artifacts/wpc-final02-test-results
+          if-no-files-found: warn
+          retention-days: 14
