@@ -1,3 +1,4 @@
+using AipPortal.Application.Security.Redaction;
 using AipPortal.Domain.Entities;
 using AipPortal.Domain.Enums;
 
@@ -11,5 +12,8 @@ public interface ITenantExportRepository
 
     Task AddExportJobAsync(ExportJob exportJob, CancellationToken cancellationToken = default);
 
-    Task<byte[]> CreateMetadataZipAsync(Guid tenantId, CancellationToken cancellationToken = default);
+    Task<byte[]> CreateMetadataZipAsync(
+        Guid tenantId,
+        AuthorizationContext authorizationContext,
+        CancellationToken cancellationToken = default);
 }

@@ -1,6 +1,8 @@
 using AipPortal.Application.Projects;
+using AipPortal.Application.Security.Redaction;
 using AipPortal.Domain.Enums;
 using AipPortal.Web.Models;
+using AipPortal.Web.Security;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
 
@@ -11,13 +13,35 @@ namespace AipPortal.Web.Controllers;
 public sealed class ProjectsController(IProjectService projects, ITaskCommandService taskCommands, ITaskSubresourceService taskSubresources) : ControllerBase
 {
     [HttpGet("api/projects")]
-    public async Task<IActionResult> List([FromQuery] ProjectListQuery query, CancellationToken cancellationToken) => ToActionResult(await projects.ListAsync(query, cancellationToken));
+    public async Task<IActionResult> List([FromQuery] ProjectListQuery query, CancellationToken cancellationToken)
+    {
+        var result = await projects.ListAsync(query, cancellationToken);
+        return result.IsSuccess
+            ? Ok(CanonicalRedactionProjection.Apply(
+                HttpContext,
+                result.Value!,
+                RedactionProfile.UiList,
+                "Projects",
+                RedactionAuthorizationState.Allowed))
+            : ToProjectReadError(result, "ProjectListFailed");
+    }
 
     [HttpPost("api/projects")]
     public async Task<IActionResult> Create(CreateProjectRequest request, CancellationToken cancellationToken) => ToActionResult(await projects.CreateAsync(request, cancellationToken));
 
     [HttpGet("api/projects/{projectId:guid}")]
-    public async Task<IActionResult> Get(Guid projectId, CancellationToken cancellationToken) => ToActionResult(await projects.GetAsync(projectId, cancellationToken));
+    public async Task<IActionResult> Get(Guid projectId, CancellationToken cancellationToken)
+    {
+        var result = await projects.GetAsync(projectId, cancellationToken);
+        return result.IsSuccess
+            ? Ok(CanonicalRedactionProjection.Apply(
+                HttpContext,
+                result.Value!,
+                RedactionProfile.UiDetail,
+                "Projects",
+                RedactionAuthorizationState.Allowed))
+            : ToProjectReadError(result, "ProjectReadFailed");
+    }
 
     [HttpPatch("api/projects/{projectId:guid}")]
     public async Task<IActionResult> Update(Guid projectId, UpdateProjectRequest request, CancellationToken cancellationToken) => ToActionResult(await projects.UpdateAsync(projectId, request, cancellationToken));
@@ -280,6 +304,28 @@ public sealed class ProjectsController(IProjectService projects, ITaskCommandSer
                 "DependencyUnavailable",
                 "Project creation is temporarily unavailable."));
         return BadRequest(ToErrorResponse(result.Error));
+    }
+
+    private IActionResult ToProjectReadError<T>(
+        AipPortal.Application.Common.Result<T> result,
+        string fallbackCode)
+    {
+        var status = result.ErrorDetail?.Code switch
+        {
+            "PROJECT_CONFLICT" or "InvalidStateTransition" or
+            "MILESTONE_STALE_VERSION" or "MILESTONE_CONFLICT" =>
+                StatusCodes.Status409Conflict,
+            "NotFound" => StatusCodes.Status404NotFound,
+            "DependencyUnavailable" => StatusCodes.Status503ServiceUnavailable,
+            _ => StatusCodes.Status400BadRequest
+        };
+
+        return StatusCode(status, CanonicalErrorEnvelope.FromSensitiveResult(
+            HttpContext,
+            status,
+            result.ErrorDetail,
+            result.Error,
+            fallbackCode));
     }
 
     private IActionResult ToActionResult<T>(AipPortal.Application.Common.Result<T> result)

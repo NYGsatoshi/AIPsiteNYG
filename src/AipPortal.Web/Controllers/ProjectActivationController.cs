@@ -1,6 +1,8 @@
 using AipPortal.Application.Common;
 using AipPortal.Application.Projects;
+using AipPortal.Application.Security.Redaction;
 using AipPortal.Web.Models;
+using AipPortal.Web.Security;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
 
@@ -25,7 +27,12 @@ public sealed class ProjectActivationController(IProjectActivationService activa
         {
             return Ok(ApiEnvelope.Success(
                 HttpContext,
-                new ProjectActivationCommandResponse(projectId)));
+                CanonicalRedactionProjection.Apply(
+                    HttpContext,
+                    new ProjectActivationCommandResponse(projectId),
+                    RedactionProfile.UiDetail,
+                    "ProjectActivation",
+                    RedactionAuthorizationState.Allowed)));
         }
 
         return ToWpcError(result.ErrorDetail, result.Error, "Project activation failed.");
@@ -37,11 +44,8 @@ public sealed class ProjectActivationController(IProjectActivationService activa
         string fallbackMessage)
     {
         var sourceCode = detail?.Code ?? "ValidationFailed";
-        var sensitive = sourceCode == "NotFound";
-        var code = sensitive ? "NotFound" : sourceCode;
-        var message = sensitive
-            ? "The requested resource was not found."
-            : detail?.Message ?? fallbackError ?? fallbackMessage;
+        var code = sourceCode;
+        var message = detail?.Message ?? fallbackError ?? fallbackMessage;
         var status = sourceCode switch
         {
             "AuthenticationRequired" => StatusCodes.Status401Unauthorized,
@@ -58,7 +62,7 @@ public sealed class ProjectActivationController(IProjectActivationService activa
             code,
             message,
             detail?.Target,
-            sensitive);
+            CanonicalErrorExposurePolicy.IsSensitive(sourceCode));
 
         return status switch
         {

@@ -39,10 +39,10 @@ public static class DependencyInjection
         services.AddHttpContextAccessor();
         services.AddScoped<ICurrentUser, CurrentUserService>();
         services.AddScoped<DbSessionCookieAuthenticationEvents>();
-        services.AddSingleton<IRedactionService, CanonicalRedactionService>();
         services.AddSingleton<IAuthorizationMiddlewareResultHandler, WpcAuthorizationMiddlewareResultHandler>();
         services.AddScoped<ITenantResolver, HttpTenantResolver>();
-        services.AddControllers()
+        services.AddControllers(options =>
+            options.Filters.Add<CanonicalProjectsResponseProjectionFilter>())
             .ConfigureApiBehaviorOptions(options =>
             {
                 var defaultFactory = options.InvalidModelStateResponseFactory;
@@ -60,10 +60,6 @@ public static class DependencyInjection
                                 "Authentication is required."));
                         }
 
-                        // ASP.NET records formatter failures as safe messages
-                        // without the original exception. Syntax failures use
-                        // the root JSON path; root type-conversion failures are
-                        // still validation failures rather than malformed JSON.
                         var malformedJson = context.ModelState.Any(entry =>
                             string.Equals(entry.Key, "$", StringComparison.Ordinal) &&
                             entry.Value?.Errors.Any(error =>

@@ -1,8 +1,13 @@
 using AipPortal.Application.Audit;
 using AipPortal.Application.Common;
+using AipPortal.Application.Common.Interfaces;
+using AipPortal.Application.Common.Tenancy;
+using AipPortal.Application.Security.Redaction;
+using AipPortal.Domain.Enums;
 using AipPortal.Web.Controllers;
 using Microsoft.AspNetCore.Http;
 using Microsoft.AspNetCore.Mvc;
+using Microsoft.Extensions.DependencyInjection;
 
 namespace AipPortal.Tests.Audit;
 
@@ -42,11 +47,21 @@ public sealed class AuditControllerTests
         CapturingAuditQueryService audit,
         string? queryString = null)
     {
+        var tenant = new CurrentTenantService();
+        tenant.SetTenant(Guid.NewGuid(), "audit-test");
+        var services = new ServiceCollection()
+            .AddSingleton<IRedactionService, CanonicalRedactionService>()
+            .AddSingleton<ICurrentUser>(new TestCurrentUser(Guid.NewGuid()))
+            .AddSingleton<ICurrentTenant>(tenant)
+            .BuildServiceProvider();
         var controller = new AuditController(audit)
         {
             ControllerContext = new ControllerContext
             {
-                HttpContext = new DefaultHttpContext()
+                HttpContext = new DefaultHttpContext
+                {
+                    RequestServices = services
+                }
             }
         };
 
@@ -56,6 +71,15 @@ public sealed class AuditControllerTests
         }
 
         return controller;
+    }
+
+    private sealed class TestCurrentUser(Guid userId) : ICurrentUser
+    {
+        public Guid? UserId => userId;
+        public Guid? SessionId => Guid.NewGuid();
+        public string? Email => "audit-test@example.invalid";
+        public SystemRole? SystemRole => AipPortal.Domain.Enums.SystemRole.NormalUser;
+        public bool IsAuthenticated => true;
     }
 
     private sealed class CapturingAuditQueryService : IAuditQueryService

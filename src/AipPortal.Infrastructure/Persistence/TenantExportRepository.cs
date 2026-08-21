@@ -1,12 +1,15 @@
 using System.IO.Compression;
 using System.Text.Json;
 using AipPortal.Application.Common.Interfaces;
+using AipPortal.Application.Security.Redaction;
 using AipPortal.Domain.Entities;
 using Microsoft.EntityFrameworkCore;
 
 namespace AipPortal.Infrastructure.Persistence;
 
-public sealed class TenantExportRepository(AppDbContext dbContext) : ITenantExportRepository
+public sealed class TenantExportRepository(
+    AppDbContext dbContext,
+    IRedactionService redactionService) : ITenantExportRepository
 {
     private static readonly JsonSerializerOptions JsonOptions = new(JsonSerializerDefaults.Web)
     {
@@ -32,12 +35,74 @@ public sealed class TenantExportRepository(AppDbContext dbContext) : ITenantExpo
         await dbContext.ExportJobs.AddAsync(exportJob, cancellationToken);
     }
 
-    public async Task<byte[]> CreateMetadataZipAsync(Guid tenantId, CancellationToken cancellationToken = default)
+    public async Task<byte[]> CreateMetadataZipAsync(
+        Guid tenantId,
+        AuthorizationContext authorizationContext,
+        CancellationToken cancellationToken = default)
     {
+        if (tenantId == Guid.Empty ||
+            authorizationContext.AuthorizationState != RedactionAuthorizationState.Allowed ||
+            !authorizationContext.ActorId.HasValue ||
+            authorizationContext.ActorId.Value == Guid.Empty ||
+            authorizationContext.TenantId != tenantId ||
+            authorizationContext.Purpose != RedactionPurpose.ExportBuild ||
+            !string.Equals(authorizationContext.ModuleKey, "TenantExport", StringComparison.Ordinal))
+        {
+            throw new InvalidOperationException(
+                "Tenant export authorization context does not match the requested Tenant export boundary.");
+        }
+
+        async Task AddRedactedJsonAsync<T>(
+            ZipArchive archive,
+            string path,
+            T value,
+            CancellationToken token)
+        {
+            object projection;
+            if (value is System.Collections.IEnumerable values && value is not string)
+            {
+                var rows = new List<object>();
+                foreach (var row in values)
+                {
+                    if (row is null)
+                    {
+                        throw new InvalidOperationException("Tenant export rows must not be null.");
+                    }
+
+                    rows.Add(RedactRow(row));
+                }
+
+                projection = rows;
+            }
+            else
+            {
+                projection = RedactRow(value!);
+            }
+
+            await AddJsonAsync(archive, path, projection, token);
+        }
+
+        object RedactRow(object source)
+        {
+            var result = redactionService.Redact(
+                authorizationContext,
+                source,
+                RedactionProfile.ExportRow);
+
+            return result.Value switch
+            {
+                RedactedPayload => throw new InvalidOperationException(
+                    "Canonical redaction did not return a serializable export row."),
+                null => throw new InvalidOperationException(
+                    "Canonical redaction returned a null export row."),
+                _ => result.Value
+            };
+        }
+
         using var stream = new MemoryStream();
         using (var archive = new ZipArchive(stream, ZipArchiveMode.Create, leaveOpen: true))
         {
-            await AddJsonAsync(archive, "manifest.json", new
+            await AddRedactedJsonAsync(archive, "manifest.json", new
             {
                 exportVersion = 1,
                 exportType = "Metadata",
@@ -54,7 +119,7 @@ public sealed class TenantExportRepository(AppDbContext dbContext) : ITenantExpo
                 }
             }, cancellationToken);
 
-            await AddJsonAsync(archive, "tenant.json", await dbContext.Tenants
+            await AddRedactedJsonAsync(archive, "tenant.json", await dbContext.Tenants
                 .IgnoreQueryFilters()
                 .Where(tenant => tenant.Id == tenantId)
                 .Select(tenant => new
@@ -74,7 +139,7 @@ public sealed class TenantExportRepository(AppDbContext dbContext) : ITenantExpo
                 })
                 .ToListAsync(cancellationToken), cancellationToken);
 
-            await AddJsonAsync(archive, "users.json", await dbContext.TenantUsers
+            await AddRedactedJsonAsync(archive, "users.json", await dbContext.TenantUsers
                 .IgnoreQueryFilters()
                 .Where(membership => membership.TenantId == tenantId)
                 .Select(membership => new
@@ -100,7 +165,7 @@ public sealed class TenantExportRepository(AppDbContext dbContext) : ITenantExpo
                 })
                 .ToListAsync(cancellationToken), cancellationToken);
 
-            await AddJsonAsync(archive, "workspaces.json", await dbContext.Workspaces
+            await AddRedactedJsonAsync(archive, "workspaces.json", await dbContext.Workspaces
                 .IgnoreQueryFilters()
                 .Where(workspace => workspace.TenantId == tenantId)
                 .Select(workspace => new
@@ -121,7 +186,7 @@ public sealed class TenantExportRepository(AppDbContext dbContext) : ITenantExpo
                 })
                 .ToListAsync(cancellationToken), cancellationToken);
 
-            await AddJsonAsync(archive, "groups.json", await dbContext.Groups
+            await AddRedactedJsonAsync(archive, "groups.json", await dbContext.Groups
                 .IgnoreQueryFilters()
                 .Where(group => group.TenantId == tenantId)
                 .Select(group => new
@@ -144,7 +209,7 @@ public sealed class TenantExportRepository(AppDbContext dbContext) : ITenantExpo
                 })
                 .ToListAsync(cancellationToken), cancellationToken);
 
-            await AddJsonAsync(archive, "projects.json", await dbContext.Projects
+            await AddRedactedJsonAsync(archive, "projects.json", await dbContext.Projects
                 .IgnoreQueryFilters()
                 .Where(project => project.TenantId == tenantId)
                 .Select(project => new
@@ -169,7 +234,7 @@ public sealed class TenantExportRepository(AppDbContext dbContext) : ITenantExpo
                 })
                 .ToListAsync(cancellationToken), cancellationToken);
 
-            await AddJsonAsync(archive, "tasks.json", await dbContext.TaskItems
+            await AddRedactedJsonAsync(archive, "tasks.json", await dbContext.TaskItems
                 .IgnoreQueryFilters()
                 .Where(task => task.TenantId == tenantId)
                 .Select(task => new
@@ -195,27 +260,27 @@ public sealed class TenantExportRepository(AppDbContext dbContext) : ITenantExpo
                 })
                 .ToListAsync(cancellationToken), cancellationToken);
 
-            await AddJsonAsync(archive, "events.json", await dbContext.ActivityEvents
+            await AddRedactedJsonAsync(archive, "events.json", await dbContext.ActivityEvents
                 .IgnoreQueryFilters()
                 .Where(item => item.TenantId == tenantId)
                 .ToListAsync(cancellationToken), cancellationToken);
 
-            await AddJsonAsync(archive, "attendance.json", await dbContext.EventAttendances
+            await AddRedactedJsonAsync(archive, "attendance.json", await dbContext.EventAttendances
                 .IgnoreQueryFilters()
                 .Where(item => item.TenantId == tenantId)
                 .ToListAsync(cancellationToken), cancellationToken);
 
-            await AddJsonAsync(archive, "comments.json", await dbContext.Comments
+            await AddRedactedJsonAsync(archive, "comments.json", await dbContext.Comments
                 .IgnoreQueryFilters()
                 .Where(comment => comment.TenantId == tenantId)
                 .ToListAsync(cancellationToken), cancellationToken);
 
-            await AddJsonAsync(archive, "artifacts.json", await dbContext.Artifacts
+            await AddRedactedJsonAsync(archive, "artifacts.json", await dbContext.Artifacts
                 .IgnoreQueryFilters()
                 .Where(artifact => artifact.TenantId == tenantId)
                 .ToListAsync(cancellationToken), cancellationToken);
 
-            await AddJsonAsync(archive, "file_objects.json", await dbContext.FileObjects
+            await AddRedactedJsonAsync(archive, "file_objects.json", await dbContext.FileObjects
                 .IgnoreQueryFilters()
                 .Where(file => file.TenantId == tenantId)
                 .Select(file => new
@@ -240,22 +305,22 @@ public sealed class TenantExportRepository(AppDbContext dbContext) : ITenantExpo
                 })
                 .ToListAsync(cancellationToken), cancellationToken);
 
-            await AddJsonAsync(archive, "notifications.json", await dbContext.Notifications
+            await AddRedactedJsonAsync(archive, "notifications.json", await dbContext.Notifications
                 .IgnoreQueryFilters()
                 .Where(notification => notification.TenantId == tenantId)
                 .ToListAsync(cancellationToken), cancellationToken);
 
-            await AddJsonAsync(archive, "audit_logs.json", await dbContext.AuditLogs
+            await AddRedactedJsonAsync(archive, "audit_logs.json", await dbContext.AuditLogs
                 .IgnoreQueryFilters()
                 .Where(log => log.TenantId == tenantId)
                 .ToListAsync(cancellationToken), cancellationToken);
 
-            await AddJsonAsync(archive, "tenant_settings.json", await dbContext.TenantSettings
+            await AddRedactedJsonAsync(archive, "tenant_settings.json", await dbContext.TenantSettings
                 .IgnoreQueryFilters()
                 .Where(settings => settings.TenantId == tenantId)
                 .ToListAsync(cancellationToken), cancellationToken);
 
-            await AddJsonAsync(archive, "usage_records.json", await dbContext.UsageRecords
+            await AddRedactedJsonAsync(archive, "usage_records.json", await dbContext.UsageRecords
                 .IgnoreQueryFilters()
                 .Where(record => record.TenantId == tenantId)
                 .ToListAsync(cancellationToken), cancellationToken);

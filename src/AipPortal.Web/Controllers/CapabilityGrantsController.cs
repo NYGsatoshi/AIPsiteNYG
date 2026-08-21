@@ -1,6 +1,8 @@
 using AipPortal.Application.Common;
+using AipPortal.Application.Security.Redaction;
 using AipPortal.Application.Tenancy;
 using AipPortal.Web.Models;
+using AipPortal.Web.Security;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
 
@@ -16,7 +18,14 @@ public sealed class CapabilityGrantsController(ICapabilityGrantService capabilit
     {
         var result = await capabilityGrants.ListAsync(cancellationToken);
         return result.IsSuccess
-            ? Ok(ApiEnvelope.Success(HttpContext, result.Value!))
+            ? Ok(ApiEnvelope.Success(
+                HttpContext,
+                CanonicalRedactionProjection.Apply(
+                    HttpContext,
+                    result.Value!,
+                    RedactionProfile.UiList,
+                    "CapabilityGrants",
+                    RedactionAuthorizationState.Allowed)))
             : ToWpcError(result.ErrorDetail, result.Error, "Capability grants could not be listed.");
     }
 
@@ -27,7 +36,14 @@ public sealed class CapabilityGrantsController(ICapabilityGrantService capabilit
     {
         var result = await capabilityGrants.GrantAsync(request, cancellationToken);
         return result.IsSuccess
-            ? Ok(ApiEnvelope.Success(HttpContext, result.Value!))
+            ? Ok(ApiEnvelope.Success(
+                HttpContext,
+                CanonicalRedactionProjection.Apply(
+                    HttpContext,
+                    result.Value!,
+                    RedactionProfile.UiDetail,
+                    "CapabilityGrantUpdate",
+                    RedactionAuthorizationState.Allowed)))
             : ToWpcError(result.ErrorDetail, result.Error, "Capability grant update failed.");
     }
 
@@ -36,7 +52,14 @@ public sealed class CapabilityGrantsController(ICapabilityGrantService capabilit
     {
         var result = await capabilityGrants.RevokeAsync(grantId, cancellationToken);
         return result.IsSuccess
-            ? Ok(ApiEnvelope.Success(HttpContext, result.Value!))
+            ? Ok(ApiEnvelope.Success(
+                HttpContext,
+                CanonicalRedactionProjection.Apply(
+                    HttpContext,
+                    result.Value!,
+                    RedactionProfile.UiDetail,
+                    "CapabilityGrantRevoke",
+                    RedactionAuthorizationState.Allowed)))
             : ToWpcError(result.ErrorDetail, result.Error, "Capability grant revocation failed.");
     }
 
@@ -46,10 +69,7 @@ public sealed class CapabilityGrantsController(ICapabilityGrantService capabilit
         string fallbackMessage)
     {
         var sourceCode = detail?.Code ?? "ValidationFailed";
-        var redactionApplied = sourceCode == "NotFound";
-        var message = redactionApplied
-            ? "The requested resource was not found."
-            : detail?.Message ?? fallbackError ?? fallbackMessage;
+        var message = detail?.Message ?? fallbackError ?? fallbackMessage;
         var status = sourceCode switch
         {
             "AuthenticationRequired" => StatusCodes.Status401Unauthorized,
@@ -62,10 +82,10 @@ public sealed class CapabilityGrantsController(ICapabilityGrantService capabilit
         var payload = ApiEnvelope.Error(
             HttpContext,
             status,
-            redactionApplied ? "NotFound" : sourceCode,
+            sourceCode,
             message,
             detail?.Target,
-            redactionApplied);
+            CanonicalErrorExposurePolicy.IsSensitive(sourceCode));
         return StatusCode(status, payload);
     }
 }
