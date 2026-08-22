@@ -10,7 +10,7 @@ namespace AipPortal.Infrastructure.Persistence;
 /// preserves explicitly-authorized archived Project history without making
 /// archived Project-derived content searchable or navigable.
 /// </summary>
-internal static class ProjectReadScope
+public static class ProjectReadScope
 {
     public static IQueryable<Project> VisibleProjectsFor(this AppDbContext dbContext, Guid userId)
     {
