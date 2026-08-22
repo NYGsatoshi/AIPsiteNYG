@@ -16,7 +16,9 @@
     <dl class="announcement-detail__meta">
       <div>
         <dt>優先度</dt>
-        <dd data-testid="announcement-priority-label">{{ priorityLabels[announcement.priority] }}</dd>
+        <dd data-testid="announcement-priority-label">
+          <app-announcement-priority-badge [priority]="announcement.priority" />
+        </dd>
       </div>
       <div>
         <dt>対象</dt>
