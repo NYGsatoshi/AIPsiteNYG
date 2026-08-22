@@ -20,7 +20,7 @@ permissions:
 
 jobs:
   build-test:
-    runs-on: self-hosted
+    runs-on: [self-hosted, aipsite-ci, general]
     timeout-minutes: 90
 
     services:
