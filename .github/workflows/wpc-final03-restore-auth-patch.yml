@@ -42,10 +42,10 @@ jobs:
           python3 - <<'PY'
           from pathlib import Path
 
-          task_path = Path("src/AipPortal.Application/Projects/TaskCommandService.cs")
-          task_text = task_path.read_text()
-          task_old = '''        var allowed = requireOverride ? await taskAuthorization.CanOverrideTaskReview(actor, task.Id, cancellationToken) : requireReview ? await taskAuthorization.CanReviewTask(actor, task.Id, cancellationToken) : requireAssign ? await taskAuthorization.CanAssignTask(actor, task.Id, cancellationToken) : !mutate || await taskAuthorization.CanUpdateTask(actor, task.Id, cancellationToken);'''
-          task_new = '''        // Restore is the only command that intentionally authorizes a soft-deleted
+          path = Path("src/AipPortal.Application/Projects/TaskCommandService.cs")
+          text = path.read_text()
+          old = '''        var allowed = requireOverride ? await taskAuthorization.CanOverrideTaskReview(actor, task.Id, cancellationToken) : requireReview ? await taskAuthorization.CanReviewTask(actor, task.Id, cancellationToken) : requireAssign ? await taskAuthorization.CanAssignTask(actor, task.Id, cancellationToken) : !mutate || await taskAuthorization.CanUpdateTask(actor, task.Id, cancellationToken);'''
+          new = '''        // Restore is the only command that intentionally authorizes a soft-deleted
         // Task. Normal assignment/deletion authorization remains fail-closed for
         // deleted rows; Restore requires both current operational contribution
         // authority and current Project management authority.
@@ -59,45 +59,20 @@ jobs:
                           await projectAuthorization.CanManageProject(actor, task.ProjectId, cancellationToken)
                         : await taskAuthorization.CanAssignTask(actor, task.Id, cancellationToken)
                     : !mutate || await taskAuthorization.CanUpdateTask(actor, task.Id, cancellationToken);'''
-          task_count = task_text.count(task_old)
-          if task_count != 1:
-              raise SystemExit(f"expected exactly one TaskCommandService authorization expression, found {task_count}")
-          task_path.write_text(task_text.replace(task_old, task_new, 1))
-
-          auth_path = Path("src/AipPortal.Application/Projects/ProjectAuthorizationService.cs")
-          auth_text = auth_path.read_text()
-          auth_old = '''        // Deleted-row visibility is enforced by the command boundary. Restore is
-        // the single command that intentionally opts into deleted Task loading,
-        // and it must reuse the same current manager-level authorization as
-        // assignment/delete without making historical attribution a capability.
-        return task is not null &&
-               await CanUseTaskMutationScopeAsync(userId, task.ProjectId, cancellationToken) &&
-               await CanManageProject(userId, task.ProjectId, cancellationToken);'''
-          auth_new = '''        // Assignment/delete/override authorization is a live-row capability.
-        // Restore handles its soft-deleted exception explicitly at the command
-        // boundary instead of widening this reusable authorization primitive.
-        return task is not null &&
-               !task.DeletedAt.HasValue &&
-               await CanUseTaskMutationScopeAsync(userId, task.ProjectId, cancellationToken) &&
-               await CanManageProject(userId, task.ProjectId, cancellationToken);'''
-          auth_count = auth_text.count(auth_old)
-          if auth_count != 1:
-              raise SystemExit(f"expected exactly one ProjectAuthorizationService block, found {auth_count}")
-          auth_path.write_text(auth_text.replace(auth_old, auth_new, 1))
+          count = text.count(old)
+          if count != 1:
+              raise SystemExit(f"expected exactly one authorization expression, found {count}")
+          path.write_text(text.replace(old, new, 1))
           PY
 
           git diff --check
-          git diff -- \
-            src/AipPortal.Application/Projects/TaskCommandService.cs \
-            src/AipPortal.Application/Projects/ProjectAuthorizationService.cs
+          git diff -- src/AipPortal.Application/Projects/TaskCommandService.cs
 
       - name: Commit fix
         shell: bash
         run: |
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          git add \
-            src/AipPortal.Application/Projects/TaskCommandService.cs \
-            src/AipPortal.Application/Projects/ProjectAuthorizationService.cs
+          git add src/AipPortal.Application/Projects/TaskCommandService.cs
           git commit -m "Harden deleted Task restore authorization"
           git push origin HEAD:wpc-final03-security-no-go
