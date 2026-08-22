@@ -111,6 +111,16 @@ export class AppDataGridComponent<TData extends object> implements OnInit, After
     })) as unknown as ColDef<TData>[];
   }
 
+  get rowSelection(): GridOptions<TData>['rowSelection'] {
+    if (this.selectionMode === 'none') {
+      return undefined;
+    }
+
+    return this.selectionMode === 'multiple'
+      ? { mode: 'multiRow', checkboxes: true, headerCheckbox: true, enableClickSelection: false }
+      : { mode: 'singleRow', checkboxes: true, enableClickSelection: false };
+  }
+
   get rowData(): TData[] {
     return [...this.rows];
   }
@@ -165,6 +175,13 @@ export class AppDataGridComponent<TData extends object> implements OnInit, After
     }
 
     this.actionInvoked.emit({ actionId, row: event.data, trigger: actionTarget });
+  }
+
+  handleSelectionChanged(event: { api: { getSelectedRows(): TData[] } }): void {
+    if (this.selectionMode === 'none') {
+      return;
+    }
+    this.selectionChanged.emit({ rows: event.api.getSelectedRows() });
   }
 
   private async loadSyncfusionAdapter(): Promise<void> {
