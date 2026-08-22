@@ -1,8 +1,9 @@
-import { Component, computed, inject, signal } from '@angular/core';
+import { Component, computed, effect, inject, signal } from '@angular/core';
 import { FormsModule } from '@angular/forms';
 import { Router } from '@angular/router';
 
 import { ConversationListComponent } from '../conversation-list/conversation-list.component';
+import { MessageNavigationStateService } from '../message-navigation-state.service';
 import { ConversationRecipientDto, MessagingApi } from '../messaging.api';
 import { MessagingFacade } from '../messaging.facade';
 
@@ -155,6 +156,7 @@ export class MessagesPageComponent {
   readonly facade = inject(MessagingFacade);
   private readonly api = inject(MessagingApi);
   private readonly router = inject(Router);
+  private readonly navigationState = inject(MessageNavigationStateService);
   readonly page = this.facade.page;
   readonly createDialogOpen = signal(false);
   readonly recipientQuery = signal('');
@@ -166,6 +168,11 @@ export class MessagesPageComponent {
   readonly canSubmitCreate = computed(() => this.selectedRecipientId() !== null && !this.creating());
 
   constructor() {
+    effect(() => {
+      if (this.page().status !== 'loading') {
+        this.navigationState.restoreListScroll();
+      }
+    });
     this.facade.loadConversationListPage();
   }
 
