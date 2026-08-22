@@ -33,9 +33,10 @@ public static class AnnouncementReadScope
             return baseQuery;
         }
 
-        var hasActiveTenantMembership = dbContext.TenantUsers.Any(tenantUser =>
-            tenantUser.UserId == userId &&
-            tenantUser.Status == TenantUserStatus.Active);
+        var activeTenantUserIds = dbContext.TenantUsers
+            .AsNoTracking()
+            .Where(tenantUser => tenantUser.Status == TenantUserStatus.Active)
+            .Select(tenantUser => tenantUser.UserId);
 
         var readableWorkspaceIds = dbContext.Workspaces
             .AsNoTracking()
@@ -50,7 +51,7 @@ public static class AnnouncementReadScope
             .Select(workspace => workspace.Id);
 
         return baseQuery.Where(announcement =>
-            hasActiveTenantMembership &&
+            activeTenantUserIds.Contains(userId) &&
             (
                 // Tenant-global announcement.
                 (!announcement.WorkspaceId.HasValue &&
