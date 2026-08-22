@@ -854,6 +854,7 @@ public sealed class FileService(
             fileObject.UploadedByUserId,
             fileObject.UploadedByUser?.DisplayName ?? attachment.UploadedByUser?.DisplayName,
             fileObject.CreatedAt,
+            fileObject.UpdatedAt,
             fileObject.DeletedAt ?? attachment.DeletedAt);
     }
 }
