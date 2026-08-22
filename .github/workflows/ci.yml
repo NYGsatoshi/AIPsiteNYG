@@ -369,6 +369,7 @@ jobs:
           docker compose -p deploy -f deploy/sakura/docker-compose.yml config --quiet
 
       - name: Build Docker image with persistent BuildKit caches
+        if: github.event_name != 'pull_request' || github.event.pull_request.user.login != 'dependabot[bot]'
         env:
           SYNCFUSION_LICENSE: ${{ secrets.SYNCFUSION_LICENSE }}
         shell: bash
@@ -403,6 +404,7 @@ jobs:
           done
 
       - name: Verify runtime image excludes Syncfusion license material
+        if: github.event_name != 'pull_request' || github.event.pull_request.user.login != 'dependabot[bot]'
         shell: bash
         run: |
           docker run --rm --entrypoint sh "$IMAGE_NAME" -c '
@@ -413,6 +415,7 @@ jobs:
           '
 
       - name: Scan Docker image with Trivy
+        if: github.event_name != 'pull_request' || github.event.pull_request.user.login != 'dependabot[bot]'
         shell: bash
         run: |
           set +e
@@ -424,6 +427,23 @@ jobs:
             --severity HIGH,CRITICAL --ignore-unfixed --exit-code 1 \
             --format table --output /repo/trivy-image-report.txt \
             "$IMAGE_NAME"
+          status=$?
+          set -e
+          cat trivy-image-report.txt
+          exit "$status"
+
+      - name: Scan repository with Trivy for Dependabot
+        if: github.event_name == 'pull_request' && github.event.pull_request.user.login == 'dependabot[bot]'
+        shell: bash
+        run: |
+          set +e
+          docker run --rm \
+            -v "$PWD:/repo" \
+            aquasec/trivy:0.65.0 \
+            fs --scanners vuln \
+            --severity HIGH,CRITICAL --ignore-unfixed --exit-code 1 \
+            --format table --output /repo/trivy-image-report.txt \
+            /repo
           status=$?
           set -e
           cat trivy-image-report.txt
@@ -508,6 +528,7 @@ jobs:
         run: npm run build
 
       - name: Validate licensed frontend build when Syncfusion is installed
+        if: github.event_name != 'pull_request' || github.event.pull_request.user.login != 'dependabot[bot]'
         working-directory: frontend
         env:
           SYNCFUSION_LICENSE: ${{ secrets.SYNCFUSION_LICENSE }}
