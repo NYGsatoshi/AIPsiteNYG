@@ -64,7 +64,7 @@ The corrective implementation closes those gaps as follows:
 | WPC-DEC-032 ProjectGeneral | 02D + Final01 corrective | one canonical Project Conversation, activation participation, role/removal synchronization without broad-viewer materialization |
 | WPC-DEC-033 Task workflow | 02D | Workspace -> Tenant -> immutable fallback precedence, reuse of compatible state, fail-closed invalid state |
 | WPC-02E redaction acceptance | 02E-1 + 02E-2 | all canonical profiles, data-classification policy, fail-closed context, safe error correlation, export reauthorization |
-| WPC-DEC-034 notification/realtime current authorization | 02F + Final01 corrective | Artifact/Message navigation plus Task notification and Task/Project realtime authorization using the canonical Project read boundary, including explicit `Restricted` non-member denial |
+| WPC-DEC-034 notification/realtime current authorization | 02F + Final01 corrective | Artifact/Message navigation plus Task notification open/created-delivery and Task/Project realtime authorization using the canonical Project read boundary, including explicit `Restricted` non-member denial |
 
 ## 5. Schema integration order
 
@@ -93,7 +93,7 @@ The gate:
 7. runs the Angular unit suite, including `wpc-02f-notification-navigation.spec.ts`;
 8. uploads backend TRX, restore log, and frontend unit-test log.
 
-The A/D/F manifests bind the corrective classification, read-only membership, ProjectGeneral synchronization, and Task notification/realtime regressions. The composite WPC-02A evidence now includes an ordinary Workspace Member with a current Workspace-scoped `project.visibility.manage` grant successfully performing an explicit Visibility change. The composite WPC-02F evidence now includes a Workspace-only non-member being denied Task notification navigation plus Task and Project realtime delivery for a `Restricted` Project. The existing B/C/E manifests remain the source of truth for their worker scopes.
+The A/D/F manifests bind the corrective classification, read-only membership, ProjectGeneral synchronization, and Task notification/realtime regressions. The composite WPC-02A evidence now includes an ordinary Workspace Member with a current Workspace-scoped `project.visibility.manage` grant successfully performing an explicit Visibility change. The composite WPC-02F evidence now includes a Workspace-only non-member being denied Task notification open, NotificationCreated delivery, Task realtime, and Project realtime for a `Restricted` Project. The existing B/C/E manifests remain the source of truth for their worker scopes.
 
 ## 7. Current-head rule
 
