@@ -62,6 +62,7 @@ export interface ProjectMockRecord {
   readonly statusLabel: string;
   readonly startDate: string;
   readonly dueDate: string;
+  readonly updatedAt: string;
   readonly group: string;
   readonly authorized: boolean;
   readonly canCreateTask: boolean;
@@ -96,6 +97,7 @@ export interface ProjectSummaryViewModel {
   readonly statusLabel: string;
   readonly startDate: string;
   readonly dueDate: string;
+  readonly updatedAt: string;
   readonly group: string;
   readonly taskCounts: {
     readonly total: number;
