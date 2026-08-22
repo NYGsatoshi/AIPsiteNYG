@@ -108,7 +108,10 @@ describe('AppShellComponent', () => {
 
     const fixture = TestBed.createComponent(AppShellComponent);
     const router = TestBed.inject(Router);
+    fixture.detectChanges();
+
     await router.navigateByUrl('/projects/project-123');
+    await fixture.whenStable();
     fixture.detectChanges();
 
     const projectLink = (fixture.nativeElement as HTMLElement).querySelector<HTMLAnchorElement>(
