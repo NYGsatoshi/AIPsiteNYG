@@ -68,7 +68,7 @@ export interface AnnouncementEditorDraft {
   readonly priority: AnnouncementPriority;
   readonly audienceScope: AnnouncementAudienceScope;
   readonly requiresReadConfirmation: boolean;
-  readonly publicationState: AnnouncementPublicationState;
+  readonly publicationState?: AnnouncementPublicationState;
   readonly scheduledAtLabel?: string;
   readonly timeZoneLabel?: string;
 }
