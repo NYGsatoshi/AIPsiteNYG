@@ -11,7 +11,7 @@ public sealed class AnnouncementRepository(AppDbContext dbContext, IClock clock)
 {
     public async Task<PagedResponse<Announcement>> ListVisibleAsync(Guid userId, bool isSystemAdmin, AnnouncementListQuery query, CancellationToken cancellationToken = default)
     {
-        var source = VisibleAnnouncements(userId, isSystemAdmin)
+        var source = dbContext.VisibleAnnouncementsFor(userId, isSystemAdmin, clock.UtcNow)
             .Where(announcement =>
                 (!query.WorkspaceId.HasValue || announcement.WorkspaceId == query.WorkspaceId) &&
                 (!query.GroupId.HasValue || announcement.GroupId == query.GroupId) &&
@@ -35,7 +35,8 @@ public sealed class AnnouncementRepository(AppDbContext dbContext, IClock clock)
 
     public Task<bool> IsVisibleToUserAsync(Guid announcementId, Guid userId, bool isSystemAdmin, CancellationToken cancellationToken = default)
     {
-        return VisibleAnnouncements(userId, isSystemAdmin).AnyAsync(announcement => announcement.Id == announcementId, cancellationToken);
+        return dbContext.VisibleAnnouncementsFor(userId, isSystemAdmin, clock.UtcNow)
+            .AnyAsync(announcement => announcement.Id == announcementId, cancellationToken);
     }
 
     public Task<bool> HasReadAsync(Guid announcementId, Guid userId, CancellationToken cancellationToken = default)
@@ -107,32 +108,4 @@ public sealed class AnnouncementRepository(AppDbContext dbContext, IClock clock)
         return dbContext.AnnouncementReads.CountAsync(read => read.AnnouncementId == announcementId, cancellationToken);
     }
 
-    private IQueryable<Announcement> VisibleAnnouncements(Guid userId, bool isSystemAdmin)
-    {
-        var now = clock.UtcNow;
-        var baseQuery = dbContext.Announcements
-            .AsNoTracking()
-            .Where(announcement =>
-                announcement.DeletedAt == null &&
-                announcement.PublishedAt <= now &&
-                (!announcement.ExpiresAt.HasValue || announcement.ExpiresAt.Value > now));
-
-        if (isSystemAdmin)
-        {
-            return baseQuery;
-        }
-
-        return baseQuery.Where(announcement =>
-            announcement.WorkspaceId == null ||
-            (announcement.WorkspaceId.HasValue && dbContext.WorkspaceMembers.Any(member =>
-                member.WorkspaceId == announcement.WorkspaceId.Value &&
-                member.UserId == userId &&
-                member.Status == MembershipStatus.Active)) ||
-            (announcement.GroupId.HasValue && dbContext.GroupMembers.Any(member =>
-                member.GroupId == announcement.GroupId.Value &&
-                member.UserId == userId)) ||
-            (announcement.ChannelId.HasValue && dbContext.ChannelMembers.Any(member =>
-                member.ChannelId == announcement.ChannelId.Value &&
-                member.UserId == userId)));
-    }
 }

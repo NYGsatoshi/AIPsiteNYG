@@ -593,7 +593,12 @@ public sealed class HttpTenantIsolationTests
         var data = app.Data;
 
         await AssertOkContainsOnlyAsync(app, data.CrossTenantUser, data.TenantA.Slug, "/api/tenants/current", data.TenantA.Slug, data.TenantB.Slug);
-        await AssertOkContainsOnlyAsync(app, data.CrossTenantUser, data.TenantA.Slug, "/api/workspaces", "WorkspaceA", "WorkspaceB");
+        await AssertWorkspaceProjectionUnavailableOnNonPostgreSqlAsync(
+            app,
+            data.CrossTenantUser,
+            data.TenantA.Slug,
+            "WorkspaceA",
+            "WorkspaceB");
         await AssertOkContainsOnlyAsync(app, data.CrossTenantUser, data.TenantA.Slug, $"/api/workspaces/{data.WorkspaceA.Id}", "WorkspaceA", "WorkspaceB");
         await AssertStatusAsync(app, data.CrossTenantUser, data.TenantA.Slug, $"/api/workspaces/{data.WorkspaceB.Id}", HttpStatusCode.NotFound);
 
@@ -1762,7 +1767,12 @@ public sealed class HttpTenantIsolationTests
         await using var app = await HttpTenantIsolationTestApp.CreateAsync();
         var data = app.Data;
 
-        await AssertOkContainsOnlyAsync(app, data.Outsider, data.TenantA.Slug, "/api/workspaces", "", "WorkspaceA");
+        await AssertWorkspaceProjectionUnavailableOnNonPostgreSqlAsync(
+            app,
+            data.Outsider,
+            data.TenantA.Slug,
+            "WorkspaceA",
+            "WorkspaceB");
         await AssertStatusAsync(app, data.Outsider, data.TenantA.Slug, $"/api/workspaces/{data.WorkspaceA.Id}", HttpStatusCode.NotFound);
         await AssertStatusAsync(app, data.Outsider, data.TenantA.Slug, $"/api/projects/{data.ProjectA.Id}", HttpStatusCode.NotFound);
         await AssertBadRequestAsync(app, data.Outsider, data.TenantA.Slug, $"/api/conversations/{data.ConversationA.Id}");
@@ -2319,6 +2329,26 @@ public sealed class HttpTenantIsolationTests
         }
 
         Assert.DoesNotContain(unexpected, body, StringComparison.Ordinal);
+    }
+
+    private static async Task AssertWorkspaceProjectionUnavailableOnNonPostgreSqlAsync(
+        HttpTenantIsolationTestApp app,
+        User user,
+        string tenantSlug,
+        params string[] hiddenWorkspaceNames)
+    {
+        using var response = await app.SendAsync(user, tenantSlug, "/api/workspaces");
+        var body = await response.Content.ReadAsStringAsync();
+
+        Assert.Equal(HttpStatusCode.ServiceUnavailable, response.StatusCode);
+        using var document = JsonDocument.Parse(body);
+        AssertCompleteErrorEnvelope(
+            document.RootElement,
+            StatusCodes.Status503ServiceUnavailable,
+            "DependencyUnavailable",
+            expectedTarget: null);
+        Assert.All(hiddenWorkspaceNames, workspaceName =>
+            Assert.DoesNotContain(workspaceName, body, StringComparison.Ordinal));
     }
 
     private static Task AssertBadRequestAsync(

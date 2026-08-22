@@ -49,7 +49,7 @@ The detailed controller, service, validation, error-handling, file, project, mes
 
 The highest-severity confirmed findings are:
 
-- **BE-001, critical:** scoped group/private-channel announcements can be disclosed to active workspace members because visibility predicates are not mutually exclusive.
+- **BE-001, resolved by the current WS-01-BE candidate:** Announcement list, detail/read-status, Search, and the Workspace dashboard unread aggregate now share the SQL-translatable `AnnouncementReadScope`. Its global, Workspace-only, Group, and Channel audience branches are mutually exclusive; public/announcement channels use Group membership, while private/confidential channels require explicit Channel membership.
 - **BE-002, resolved by the current PR #281 candidate:** Project-derived Search,
   the non-Archived Project list, project-bound Messaging, and the Project
   boundary used by My Tasks now share one SQL-translatable form of the current
