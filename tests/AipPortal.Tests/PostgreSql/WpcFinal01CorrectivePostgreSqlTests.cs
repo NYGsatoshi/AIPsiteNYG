@@ -3,7 +3,7 @@ namespace AipPortal.Tests.PostgreSql;
 /// <summary>
 /// Compatibility names retained in the worker manifests that were introduced
 /// during the first Final01 corrective pass. The authoritative cross-worker
-/// evidence now lives in WpcFinal01CanonicalCompletionPostgreSqlTests.
+/// evidence lives in the Final01 PostgreSQL acceptance suites.
 /// </summary>
 public sealed class WpcFinal01CorrectivePostgreSqlTests
 {
@@ -23,6 +23,8 @@ public sealed class WpcFinal01CorrectivePostgreSqlTests
             .DelegatedProjectCreateDoesNotImplyVisibilityManagement();
         await new WpcFinal01CanonicalCompletionPostgreSqlTests()
             .ProjectCreateGrantDoesNotAuthorizeVisibilityChange();
+        await new WpcFinal01MergeAuditPostgreSqlTests()
+            .VisibilityCapabilityGrantAllowsExplicitVisibilityMutation();
     }
 
     [PostgreSqlFact]
@@ -52,5 +54,7 @@ public sealed class WpcFinal01CorrectivePostgreSqlTests
             .MembersOnlyProjectMemberRemovalRevokesConversationAndTaskNotificationAccess();
         await new WpcFinal01CanonicalCompletionPostgreSqlTests()
             .ProjectRealtimeResolverUsesCanonicalVisibilityScope();
+        await new WpcFinal01MergeAuditPostgreSqlTests()
+            .RestrictedProjectBlocksTaskNotificationAndRealtimeForWorkspaceOnlyMember();
     }
 }
