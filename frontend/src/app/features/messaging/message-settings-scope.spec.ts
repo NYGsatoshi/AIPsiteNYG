@@ -110,7 +110,10 @@ describe('Message settings scope separation', () => {
   });
 
   it('applies the global unread-badge preference without changing conversation data', async () => {
-    await TestBed.configureTestingModule({ imports: [ConversationListComponent] }).compileComponents();
+    await TestBed.configureTestingModule({
+      imports: [ConversationListComponent],
+      providers: [provideRouter([])]
+    }).compileComponents();
 
     const fixture = TestBed.createComponent(ConversationListComponent);
     fixture.componentRef.setInput('conversations', [
