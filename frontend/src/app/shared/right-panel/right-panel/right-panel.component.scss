@@ -5,8 +5,9 @@
 }
 
 .right-panel {
-  width: var(--shell-right-panel-expanded-width, 320px);
-  max-width: 100vw;
+  box-sizing: border-box;
+  width: 100%;
+  max-width: 100%;
   height: 100%;
   border-left: 1px solid var(--aip-color-border-default);
   background: var(--aip-color-bg-surface);
@@ -17,8 +18,8 @@
 .right-panel--collapsed {
   display: grid;
   place-items: start center;
-  width: var(--shell-right-panel-collapsed-width, 56px);
-  padding: 12px 8px;
+  width: 100%;
+  padding: 12px 5px;
   overflow: hidden;
 }
 
@@ -34,7 +35,7 @@
   position: fixed;
   inset: 0 0 0 auto;
   z-index: 50;
-  width: var(--shell-right-drawer-width, min(360px, 100vw));
+  width: var(--aip-shell-right-drawer-width, min(360px, 100vw));
   max-width: 100vw;
   box-shadow: var(--aip-shadow-floating);
 }
@@ -46,7 +47,6 @@
   background: var(--aip-color-overlay);
 }
 
-.right-panel__header,
 .right-panel__tabs,
 .right-panel__scope {
   display: flex;
@@ -55,7 +55,15 @@
 }
 
 .right-panel__header {
-  justify-content: space-between;
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  align-items: start;
+  gap: 8px;
+  min-width: 0;
+}
+
+.right-panel__header > div {
+  min-width: 0;
 }
 
 .right-panel__eyebrow {
@@ -70,6 +78,7 @@ h2 {
   color: var(--aip-color-text-primary);
   font-size: 1rem;
   line-height: 1.35;
+  overflow-wrap: anywhere;
 }
 
 .right-panel__scope {
@@ -161,6 +170,7 @@ h2 {
 .right-panel__icon-button {
   display: inline-grid;
   place-items: center;
+  box-sizing: border-box;
   width: var(--shell-touch-target, 44px);
   height: var(--shell-touch-target, 44px);
   border: 1px solid var(--aip-color-border-default);
@@ -169,6 +179,11 @@ h2 {
   color: var(--aip-color-text-primary);
   cursor: pointer;
   font-weight: 800;
+  line-height: 1;
+}
+
+.right-panel__icon-button {
+  justify-self: end;
 }
 
 .right-panel__rail-button:hover,
@@ -186,7 +201,7 @@ h2 {
 
 @media (max-width: 840px) {
   .right-panel--expanded {
-    width: var(--shell-right-panel-collapsed-width, 56px);
+    width: 100%;
     padding: 12px 8px;
   }
 }
