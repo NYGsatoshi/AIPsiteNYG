@@ -6,13 +6,18 @@ on:
       - wpc-final03-security-no-go
     paths:
       - .github/workflows/wpc-final03-fixture-patch.yml
+  pull_request:
+    branches:
+      - main
+    paths:
+      - .github/workflows/wpc-final03-fixture-patch.yml
 
 permissions:
   contents: write
 
 concurrency:
   group: wpc-final03-fixture-patch
-  cancel-in-progress: false
+  cancel-in-progress: true
 
 jobs:
   patch-fixtures:
