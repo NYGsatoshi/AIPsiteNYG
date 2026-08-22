@@ -18,7 +18,9 @@
       [paginationPageSize]="boundedPageSize"
       [paginationPageSizeSelector]="pageSizeOptions"
       [getRowId]="getRowId"
+      [rowSelection]="rowSelection"
       (cellClicked)="handleCellClicked($event)"
+      (selectionChanged)="handleSelectionChanged($event)"
     />
   }
   <p class="app-data-grid__page-limit" data-testid="app-data-grid-page-limit">max {{ maximumPageSizeLabel }}</p>
