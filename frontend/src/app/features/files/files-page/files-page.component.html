@@ -61,6 +61,8 @@
             rowIdField="id"
             selectionMode="multiple"
             [rowHeight]="density() === 'compact' ? 36 : 48"
+            [defaultPageSize]="vm.pageSize"
+            [maximumPageSize]="vm.pageSize"
             [rows]="vm.recentFiles"
             [columns]="columns()"
             (actionInvoked)="handleGridAction($event)"
@@ -68,6 +70,11 @@
           />
         </div>
         <div class="files-page__mobile-list"><app-recent-files-list [files]="vm.recentFiles" (downloadRequested)="downloadFile($event)" /></div>
+        <nav class="files-page__pagination" aria-label="File list pages">
+          <button type="button" data-testid="files-page-previous" [disabled]="vm.page <= 1" (click)="goToPreviousPage()">Previous</button>
+          <span data-testid="files-page-pagination-status">Page {{ vm.page }} of {{ totalPages() }} · {{ vm.totalCount }} files</span>
+          <button type="button" data-testid="files-page-next" [disabled]="!vm.hasMore" (click)="goToNextPage()">Next</button>
+        </nav>
       </section>
     </div>
 
