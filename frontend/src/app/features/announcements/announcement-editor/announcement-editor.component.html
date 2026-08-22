@@ -1,35 +1,57 @@
 <form class="announcement-editor" [formGroup]="form" data-testid="announcement-editor">
   <header>
     <app-announcement-publication-status
-      [state]="draft.publicationState"
+      [state]="publicationState"
       [scheduledAtLabel]="draft.scheduledAtLabel"
       [timeZoneLabel]="draft.timeZoneLabel"
     />
     <h2>{{ draft.id ? 'お知らせを編集' : '新しいお知らせ' }}</h2>
   </header>
 
-  <label><span>タイトル</span><input type="text" formControlName="title" data-testid="announcement-editor-title" /></label>
-  <label><span>本文</span><textarea rows="7" formControlName="body" data-testid="announcement-editor-body"></textarea></label>
+  <label>
+    <span>タイトル</span>
+    <input type="text" formControlName="title" data-testid="announcement-editor-title" />
+  </label>
+
+  <label>
+    <span>本文</span>
+    <textarea rows="7" formControlName="body" data-testid="announcement-editor-body"></textarea>
+  </label>
 
   <div class="announcement-editor__row">
     <label>
       <span>優先度</span>
       <select formControlName="priority" data-testid="announcement-editor-priority">
-        @for (priority of priorityOptions; track priority) { <option [value]="priority">{{ priorityLabels[priority] }}</option> }
+        @for (priority of priorityOptions; track priority) {
+          <option [value]="priority">{{ priorityLabels[priority] }}</option>
+        }
       </select>
     </label>
+
     <label>
       <span>対象</span>
       <select formControlName="audienceScope" data-testid="announcement-editor-audience">
-        @for (audience of audienceOptions; track audience) { <option [value]="audience">{{ audienceLabels[audience] }}</option> }
+        @for (audience of audienceOptions; track audience) {
+          <option [value]="audience">{{ audienceLabels[audience] }}</option>
+        }
       </select>
     </label>
   </div>
 
-  <label class="announcement-editor__check"><input type="checkbox" formControlName="requiresReadConfirmation" /><span>既読確認</span></label>
+  <label class="announcement-editor__check">
+    <input type="checkbox" formControlName="requiresReadConfirmation" />
+    <span>既読確認</span>
+  </label>
 
   <div class="announcement-editor__actions">
     <button type="button" [disabled]="!canSaveDraft" data-testid="announcement-save-draft-action">下書き保存</button>
-    <button type="button" class="announcement-editor__primary" [disabled]="!canPublish" data-testid="announcement-publish-action">公開</button>
+    <button
+      type="button"
+      class="announcement-editor__primary"
+      [disabled]="!canPublish"
+      data-testid="announcement-publish-action"
+    >
+      公開
+    </button>
   </div>
 </form>
