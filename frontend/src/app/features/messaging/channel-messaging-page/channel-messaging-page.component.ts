@@ -1,6 +1,6 @@
 import { Component, computed, inject } from '@angular/core';
 import { takeUntilDestroyed } from '@angular/core/rxjs-interop';
-import { ActivatedRoute } from '@angular/router';
+import { ActivatedRoute, RouterLink } from '@angular/router';
 
 import { ConversationListComponent } from '../conversation-list/conversation-list.component';
 import { MessageComposerComponent } from '../message-composer/message-composer.component';
@@ -16,6 +16,7 @@ import { ThreadPreviewComponent } from '../thread-preview/thread-preview.compone
     ConversationListComponent,
     MessageComposerComponent,
     MessageTimelineComponent,
+    RouterLink,
     ThreadPreviewComponent,
   ],
   templateUrl: './channel-messaging-page.component.html',
