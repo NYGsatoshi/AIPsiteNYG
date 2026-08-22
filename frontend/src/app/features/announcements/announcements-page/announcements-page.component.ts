@@ -30,12 +30,15 @@ export class AnnouncementsPageComponent implements OnDestroy {
   readonly editorVisible = signal(false);
   readonly editingAnnouncementId = signal<string | null>(null);
 
-  readonly filteredAnnouncements = computed(() => this.filterAuthorizedAnnouncements(this.page().announcements, this.searchValue()));
+  readonly filteredAnnouncements = computed(() =>
+    this.filterAuthorizedAnnouncements(this.page().announcements, this.searchValue())
+  );
   readonly selectedAnnouncement = computed(() => {
     const selectedId = this.page().selectedAnnouncementId ?? this.selectedAnnouncementId();
     if (selectedId) {
       return this.filteredAnnouncements().find((announcement) => announcement.id === selectedId) ?? null;
     }
+
     return this.filteredAnnouncements()[0] ?? null;
   });
 
@@ -67,7 +70,9 @@ export class AnnouncementsPageComponent implements OnDestroy {
   });
 
   constructor() {
-    if (this.routeAnnouncementId) this.facade.selectAnnouncement(this.routeAnnouncementId);
+    if (this.routeAnnouncementId) {
+      this.facade.selectAnnouncement(this.routeAnnouncementId);
+    }
   }
 
   selectAnnouncement(announcementId: string): void {
@@ -107,13 +112,28 @@ export class AnnouncementsPageComponent implements OnDestroy {
     this.facade.setEditorActive(false);
   }
 
-  private filterAuthorizedAnnouncements(announcements: readonly AnnouncementViewModel[], searchValue: string): readonly AnnouncementViewModel[] {
-    const readableAnnouncements = announcements.filter((announcement) => announcement.capabilities.includes('readAnnouncement'));
+  private filterAuthorizedAnnouncements(
+    announcements: readonly AnnouncementViewModel[],
+    searchValue: string
+  ): readonly AnnouncementViewModel[] {
+    const readableAnnouncements = announcements.filter((announcement) =>
+      announcement.capabilities.includes('readAnnouncement')
+    );
     const query = searchValue.trim().toLocaleLowerCase('ja-JP');
-    if (!query) return readableAnnouncements;
+
+    if (!query) {
+      return readableAnnouncements;
+    }
 
     return readableAnnouncements.filter((announcement) =>
-      [announcement.title, announcement.body, announcement.publishedAtLabel, announcement.scheduledAtLabel ?? '', announcement.timeZoneLabel ?? '', ANNOUNCEMENT_PUBLICATION_STATE_LABELS[announcement.publicationState]]
+      [
+        announcement.title,
+        announcement.body,
+        announcement.publishedAtLabel,
+        announcement.scheduledAtLabel ?? '',
+        announcement.timeZoneLabel ?? '',
+        ANNOUNCEMENT_PUBLICATION_STATE_LABELS[announcement.publicationState]
+      ]
         .join(' ')
         .toLocaleLowerCase('ja-JP')
         .includes(query)
