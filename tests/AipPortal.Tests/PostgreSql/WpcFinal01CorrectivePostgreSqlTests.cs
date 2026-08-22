@@ -19,10 +19,14 @@ public sealed class WpcFinal01CorrectivePostgreSqlTests
     [Trait("Scope", "WPC02A")]
     public async Task NonDefaultVisibilityMutationRequiresWorkspaceGovernanceOrVisibilityCapability()
     {
+        // Negative evidence: project.create never implies visibility management.
         await new Wpc02CCanonicalProjectCreatePostgreSqlTests()
             .DelegatedProjectCreateDoesNotImplyVisibilityManagement();
         await new WpcFinal01CanonicalCompletionPostgreSqlTests()
             .ProjectCreateGrantDoesNotAuthorizeVisibilityChange();
+
+        // Positive evidence: the exact current project.visibility.manage grant
+        // authorizes the explicit, audited, concurrency-controlled mutation.
         await new WpcFinal01MergeAuditPostgreSqlTests()
             .VisibilityCapabilityGrantAllowsExplicitVisibilityMutation();
     }
@@ -50,10 +54,14 @@ public sealed class WpcFinal01CorrectivePostgreSqlTests
     [Trait("Scope", "WPC02F")]
     public async Task TaskNotificationAndRealtimeUseCanonicalProjectVisibilityAuthorization()
     {
+        // MembersOnly revocation plus WorkspaceVisible positive compatibility.
         await new WpcFinal01CanonicalCompletionPostgreSqlTests()
             .MembersOnlyProjectMemberRemovalRevokesConversationAndTaskNotificationAccess();
         await new WpcFinal01CanonicalCompletionPostgreSqlTests()
             .ProjectRealtimeResolverUsesCanonicalVisibilityScope();
+
+        // Restricted is a separate explicit negative: a Workspace-only user may
+        // neither open/receive the Task notification nor receive Task/Project realtime.
         await new WpcFinal01MergeAuditPostgreSqlTests()
             .RestrictedProjectBlocksTaskNotificationAndRealtimeForWorkspaceOnlyMember();
     }
