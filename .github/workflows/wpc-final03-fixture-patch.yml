@@ -1,0 +1,163 @@
+name: WPC-Final03 Fixture Patch
+
+on:
+  push:
+    branches:
+      - wpc-final03-security-no-go
+    paths:
+      - .github/workflows/wpc-final03-fixture-patch.yml
+
+permissions:
+  contents: write
+
+concurrency:
+  group: wpc-final03-fixture-patch
+  cancel-in-progress: false
+
+jobs:
+  patch-fixtures:
+    runs-on: self-hosted
+    timeout-minutes: 15
+    steps:
+      - name: Repair previous Docker workspace ownership
+        shell: bash
+        run: |
+          uid="$(id -u)"
+          gid="$(id -g)"
+          docker run --rm \
+            -v "$GITHUB_WORKSPACE:/workspace" \
+            alpine:3.21 \
+            sh -c "chown -R ${uid}:${gid} /workspace"
+
+      - name: Checkout branch
+        uses: actions/checkout@v7
+        with:
+          ref: wpc-final03-security-no-go
+          fetch-depth: 0
+          persist-credentials: true
+
+      - name: Apply exact fixture and redaction expectation patches
+        shell: bash
+        run: |
+          python3 - <<'PY'
+          from pathlib import Path
+
+          def replace_once(path: str, old: str, new: str) -> None:
+              p = Path(path)
+              text = p.read_text()
+              count = text.count(old)
+              if count != 1:
+                  raise SystemExit(f"{path}: expected exactly one match, found {count}: {old[:100]!r}")
+              p.write_text(text.replace(old, new, 1))
+
+          core = "tests/AipPortal.Tests/PostgreSql/TaskV1CoreConcurrencyPostgreSqlTests.cs"
+          replace_once(
+              core,
+              '            var project = new Project { TenantId = tenant.Id, WorkspaceId = workspace.Id, OwnerUserId = user.Id, CreatedByUserId = user.Id, Name = "Task concurrency project", Slug = $"task-concurrency-project-{suffix}", Status = ProjectStatus.Active };',
+              '            var project = new Project { TenantId = tenant.Id, WorkspaceId = workspace.Id, OwnerUserId = user.Id, CreatedByUserId = user.Id, Name = "Task concurrency project", Slug = $"task-concurrency-project-{suffix}", Status = ProjectStatus.Active, ActivationState = ProjectActivationState.Activated, ActivatedAtUtc = new DateTimeOffset(2026, 7, 26, 0, 0, 0, TimeSpan.Zero), ActivationVersion = 1 };')
+          replace_once(
+              core,
+              '            var otherProject = new Project { TenantId = tenant.Id, WorkspaceId = workspace.Id, OwnerUserId = user.Id, CreatedByUserId = user.Id, Name = "Other task concurrency project", Slug = $"other-task-concurrency-project-{suffix}", Status = ProjectStatus.Active };',
+              '            var otherProject = new Project { TenantId = tenant.Id, WorkspaceId = workspace.Id, OwnerUserId = user.Id, CreatedByUserId = user.Id, Name = "Other task concurrency project", Slug = $"other-task-concurrency-project-{suffix}", Status = ProjectStatus.Active, ActivationState = ProjectActivationState.Activated, ActivatedAtUtc = new DateTimeOffset(2026, 7, 26, 0, 0, 0, TimeSpan.Zero), ActivationVersion = 1 };')
+
+          project_tests = "tests/AipPortal.Tests/Projects/ProjectServiceTests.cs"
+          replace_once(
+              project_tests,
+              '''        fixture.AddProjectMember(member.Id, ProjectRole.Viewer);
+                  var secondProject = new Project
+                  {
+                      WorkspaceId = fixture.Workspace.Id,
+                      OwnerUserId = member.Id,
+                      CreatedByUserId = member.Id,
+                      Name = "Second project",
+                      Slug = "second-project",
+                      Status = ProjectStatus.Active
+                  };''',
+              '''        fixture.AddProjectMember(member.Id, ProjectRole.Viewer);
+                  fixture.EnsureProjectOperational();
+                  var secondProject = new Project
+                  {
+                      WorkspaceId = fixture.Workspace.Id,
+                      OwnerUserId = member.Id,
+                      CreatedByUserId = member.Id,
+                      Name = "Second project",
+                      Slug = "second-project",
+                      Status = ProjectStatus.Active,
+                      ActivationState = ProjectActivationState.Activated,
+                      ActivatedAtUtc = fixture.Clock.UtcNow,
+                      ActivationVersion = 1
+                  };''')
+          replace_once(
+              project_tests,
+              '''        public TaskItem AddTask(string title)
+                  {
+                      var task = new TaskItem''',
+              '''        public void EnsureProjectOperational()
+                  {
+                      if (Project.Status is not (ProjectStatus.Active or ProjectStatus.Review) ||
+                          Project.ActivationState == ProjectActivationState.Activated)
+                          return;
+
+                      Project.ActivationState = ProjectActivationState.Activated;
+                      Project.ActivatedAtUtc = Clock.UtcNow;
+                      Project.ActivationVersion = 1;
+                  }
+
+                  public TaskItem AddTask(string title)
+                  {
+                      EnsureProjectOperational();
+                      var task = new TaskItem''')
+          replace_once(
+              project_tests,
+              '''        public Milestone AddMilestone(string title, int displayOrder)
+                  {
+                      var milestone = new Milestone''',
+              '''        public Milestone AddMilestone(string title, int displayOrder)
+                  {
+                      EnsureProjectOperational();
+                      var milestone = new Milestone''')
+
+          http_tests = "tests/AipPortal.Tests/Tenancy/HttpTenantIsolationTests.cs"
+          replace_once(
+              http_tests,
+              '        Assert.Contains("secret.txt", body, StringComparison.Ordinal);',
+              '        Assert.Contains("[redacted:file]", body, StringComparison.Ordinal);\n        Assert.DoesNotContain("secret.txt", body, StringComparison.Ordinal);')
+          replace_once(
+              http_tests,
+              '        await AssertOkContainsOnlyAsync(app, data.CrossTenantUser, data.TenantA.Slug, $"/api/files/{data.FileA.Id}", data.FileA.OriginalFileName, data.FileB.OriginalFileName);',
+              '''        using (var fileMetadata = await app.SendAsync(data.CrossTenantUser, data.TenantA.Slug, $"/api/files/{data.FileA.Id}"))
+                  {
+                      var fileBody = await fileMetadata.Content.ReadAsStringAsync();
+                      Assert.Equal(HttpStatusCode.OK, fileMetadata.StatusCode);
+                      Assert.Contains("[redacted:file]", fileBody, StringComparison.Ordinal);
+                      Assert.DoesNotContain(data.FileA.OriginalFileName, fileBody, StringComparison.Ordinal);
+                      Assert.DoesNotContain(data.FileB.OriginalFileName, fileBody, StringComparison.Ordinal);
+                  }''')
+          replace_once(
+              http_tests,
+              '        Assert.Contains(data.FileA.OriginalFileName, allowedBody, StringComparison.Ordinal);',
+              '        Assert.Contains("[redacted:file]", allowedBody, StringComparison.Ordinal);\n        Assert.DoesNotContain(data.FileA.OriginalFileName, allowedBody, StringComparison.Ordinal);')
+          PY
+
+      - name: Validate patch shape
+        shell: bash
+        run: |
+          git diff --check
+          git diff --exit-code -- .github/workflows/wpc-final03-fixture-patch.yml
+          git diff -- tests/AipPortal.Tests/Projects/ProjectServiceTests.cs \
+            tests/AipPortal.Tests/PostgreSql/TaskV1CoreConcurrencyPostgreSqlTests.cs \
+            tests/AipPortal.Tests/Tenancy/HttpTenantIsolationTests.cs
+
+      - name: Commit fixture fixes and remove one-shot workflow
+        shell: bash
+        run: |
+          rm .github/workflows/wpc-final03-fixture-patch.yml
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add \
+            .github/workflows/wpc-final03-fixture-patch.yml \
+            tests/AipPortal.Tests/Projects/ProjectServiceTests.cs \
+            tests/AipPortal.Tests/PostgreSql/TaskV1CoreConcurrencyPostgreSqlTests.cs \
+            tests/AipPortal.Tests/Tenancy/HttpTenantIsolationTests.cs
+          git commit -m "Fix Final03 legacy test fixtures"
+          git push origin HEAD:wpc-final03-security-no-go
