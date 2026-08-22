@@ -30,6 +30,9 @@
       (actionComplete)="handleActionComplete($event)"
     >
       <e-columns>
+        @if (selectionMode !== 'none') {
+          <e-column type="checkbox" width="48" [allowSorting]="false" [allowFiltering]="false" />
+        }
         @for (column of columns; track getColumnId(column)) {
           <e-column
             [field]="getColumnField(column)"
