@@ -16,6 +16,12 @@ export const ANNOUNCEMENT_AUDIENCE_LABELS: Record<AnnouncementAudienceScope, str
   adminOnly: '管理者'
 };
 
+export interface AnnouncementAudienceOption {
+  readonly scope: AnnouncementAudienceScope;
+  readonly displayName: string;
+  readonly recipientCount?: number;
+}
+
 export type AnnouncementCapability = 'readAnnouncement' | 'createAnnouncement' | 'editAnnouncement';
 
 export type AnnouncementPageStatus = 'ready' | 'loading' | 'empty' | 'error' | 'permissionDenied' | 'recordAccessDenied';
@@ -57,6 +63,7 @@ export interface AnnouncementEditorDraft {
   readonly body: string;
   readonly priority: AnnouncementPriority;
   readonly audienceScope: AnnouncementAudienceScope;
+  readonly availableAudiences: readonly AnnouncementAudienceOption[];
   readonly requiresReadConfirmation: boolean;
 }
 
