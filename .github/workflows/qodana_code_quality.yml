@@ -78,7 +78,7 @@ jobs:
 
       - name: Record complete Qodana inspection inventory
         continue-on-error: true
-        uses: JetBrains/qodana-action@v2026.1.3
+        uses: JetBrains/qodana-action@v2026.2.0
         with:
           args: |
             --image jetbrains/qodana-cdnet:2026.1-eap-privileged
@@ -106,7 +106,7 @@ jobs:
 
       - name: Gate PR-introduced Qodana findings
         id: qodana_gate
-        uses: JetBrains/qodana-action@v2026.1.3
+        uses: JetBrains/qodana-action@v2026.2.0
         with:
           args: |
             --image jetbrains/qodana-cdnet:2026.1-eap-privileged
