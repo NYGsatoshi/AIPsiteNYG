@@ -78,7 +78,7 @@ public sealed class DbAuditLogger(AppDbContext dbContext, IClock clock, ICurrent
         {
             if (entry.Action.Contains("Security", StringComparison.OrdinalIgnoreCase) ||
                 entry.EntityType.Equals("SecurityEvent", StringComparison.OrdinalIgnoreCase) ||
-                entry.Action is "WorkspaceCreated" or "ProjectCreated" or "ProjectActivated")
+                entry.Action is "WorkspaceCreated" or "ProjectCreated" or "ProjectActivated" or "ProjectVisibilityChanged")
             {
                 throw;
             }
