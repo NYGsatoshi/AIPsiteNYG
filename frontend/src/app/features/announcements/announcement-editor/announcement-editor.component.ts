@@ -1,9 +1,9 @@
-import { Component, Input, OnChanges, SimpleChanges } from '@angular/core';
+import { Component, computed, Input, OnChanges, signal, SimpleChanges } from '@angular/core';
 import { FormBuilder, ReactiveFormsModule, Validators } from '@angular/forms';
 
 import {
-  ANNOUNCEMENT_AUDIENCE_LABELS,
   ANNOUNCEMENT_PRIORITY_LABELS,
+  AnnouncementAudienceOption,
   AnnouncementAudienceScope,
   AnnouncementEditorDraft,
   AnnouncementPriority
@@ -20,14 +20,8 @@ export class AnnouncementEditorComponent implements OnChanges {
   @Input({ required: true }) draft!: AnnouncementEditorDraft;
 
   readonly priorityOptions: readonly AnnouncementPriority[] = ['normal', 'important', 'urgent'];
-  readonly audienceOptions: readonly AnnouncementAudienceScope[] = [
-    'allWorkspaceMembers',
-    'guardiansOnly',
-    'teachersOnly',
-    'adminOnly'
-  ];
   readonly priorityLabels = ANNOUNCEMENT_PRIORITY_LABELS;
-  readonly audienceLabels = ANNOUNCEMENT_AUDIENCE_LABELS;
+  readonly availableAudiences = signal<readonly AnnouncementAudienceOption[]>([]);
 
   readonly form = new FormBuilder().nonNullable.group({
     title: ['', [Validators.required, Validators.maxLength(120)]],
@@ -37,15 +31,38 @@ export class AnnouncementEditorComponent implements OnChanges {
     requiresReadConfirmation: [false]
   });
 
+  readonly selectedAudience = computed(() => {
+    const selectedScope = this.form.controls.audienceScope.value;
+    return this.availableAudiences().find((audience) => audience.scope === selectedScope) ?? null;
+  });
+
+  constructor() {
+    this.form.controls.audienceScope.valueChanges.subscribe(() => {
+      this.availableAudiences.update((audiences) => [...audiences]);
+    });
+  }
+
   ngOnChanges(changes: SimpleChanges): void {
     if (changes['draft'] && this.draft) {
+      this.availableAudiences.set(this.draft.availableAudiences);
+      const authorizedInitialAudience =
+        this.draft.availableAudiences.find((audience) => audience.scope === this.draft.audienceScope)?.scope ??
+        this.draft.availableAudiences[0]?.scope ??
+        'allWorkspaceMembers';
+
       this.form.reset({
         title: this.draft.title,
         body: this.draft.body,
         priority: this.draft.priority,
-        audienceScope: this.draft.audienceScope,
+        audienceScope: authorizedInitialAudience,
         requiresReadConfirmation: this.draft.requiresReadConfirmation
       });
     }
+  }
+
+  audienceOptionLabel(audience: AnnouncementAudienceOption): string {
+    return audience.recipientCount === undefined
+      ? audience.displayName
+      : `${audience.displayName} — ${audience.recipientCount.toLocaleString('ja-JP')}名`;
   }
 }
