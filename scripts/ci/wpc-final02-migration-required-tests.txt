@@ -1,0 +1,4 @@
+# WPC-Final02 migration / legacy-compatibility acceptance
+LegacyRowsUpgradeAcrossWpcChainWithoutInventedClassificationOrDefaults
+WpcMigrationRollbackBoundariesPreserveLegacyRowsAndReapplyCleanly
+MigrationConstraintsPreserveTenantIsolationAndCanonicalDefaultIdentity
