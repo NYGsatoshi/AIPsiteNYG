@@ -5,8 +5,13 @@ import { NavigationItem } from '../../shared/navigation/navigation.models';
 import { FeatureMenuComponent } from './feature-menu.component';
 
 const navigationItems: readonly NavigationItem[] = [
-  { id: 'projects', label: 'Projects', route: '/projects' },
-  { id: 'tasks', label: 'Tasks', route: '/tasks' },
+  { id: 'workspaces', label: 'Workspaces', route: '/workspaces' },
+  { id: 'files', label: 'Files', route: '/files' },
+];
+
+const pinnedItems: readonly NavigationItem[] = [
+  { id: 'projects', label: 'Projects', route: '/projects', placement: 'pinned' },
+  { id: 'tasks', label: 'My Tasks', route: '/tasks', placement: 'pinned' },
 ];
 
 describe('FeatureMenuComponent', () => {
@@ -18,6 +23,7 @@ describe('FeatureMenuComponent', () => {
 
     const fixture = TestBed.createComponent(FeatureMenuComponent);
     fixture.componentRef.setInput('navigationItems', navigationItems);
+    fixture.componentRef.setInput('pinnedItems', pinnedItems);
     fixture.componentRef.setInput('collapsible', true);
     fixture.componentRef.setInput('collapsed', collapsed);
     fixture.detectChanges();
@@ -42,23 +48,77 @@ describe('FeatureMenuComponent', () => {
     expect(menu?.classList.contains('feature-menu--collapsible')).toBe(true);
     expect(toggle).toBeTruthy();
     expect(toggle?.getAttribute('aria-expanded')).toBe('true');
-    expect(element.querySelector('[data-testid="nav-projects"]')).toBeTruthy();
+    expect(element.querySelector('[data-testid="nav-workspaces"]')).toBeTruthy();
 
     toggle?.click();
 
     expect(requestedState).toBe(true);
   });
 
-  it('keeps a labelled reopen control while collapsed and hides navigation links', async () => {
+  it('visually separates primary navigation from pinned shortcuts', async () => {
+    const fixture = await createFeatureMenu(false);
+    const element = fixture.nativeElement as HTMLElement;
+    const primary = element.querySelector<HTMLElement>('[data-testid="primary-navigation-section"]');
+    const pinned = element.querySelector<HTMLElement>('[data-testid="pinned-navigation-section"]');
+
+    expect(primary).toBeTruthy();
+    expect(pinned).toBeTruthy();
+    expect(primary?.querySelector('[data-testid="nav-workspaces"]')).toBeTruthy();
+    expect(primary?.querySelector('[data-testid="nav-projects"]')).toBeNull();
+    expect(pinned?.querySelector('[data-testid="nav-projects"]')).toBeTruthy();
+    expect(pinned?.textContent).toContain('Pinned');
+  });
+
+  it('keeps primary and pinned destinations reachable in the collapsed rail', async () => {
     const fixture = await createFeatureMenu(true);
     const element = fixture.nativeElement as HTMLElement;
     const toggle = element.querySelector<HTMLButtonElement>('[data-testid="feature-menu-toggle"]');
+    const primaryLink = element.querySelector<HTMLAnchorElement>('[data-testid="nav-workspaces"]');
+    const pinnedLink = element.querySelector<HTMLAnchorElement>('[data-testid="nav-projects"]');
 
     expect(toggle).toBeTruthy();
     expect(toggle?.getAttribute('aria-expanded')).toBe('false');
     expect(toggle?.getAttribute('aria-label')).toBe('メニューを展開');
-    expect(element.querySelector('[data-testid="nav-projects"]')).toBeNull();
-    expect(element.querySelector('[data-testid="nav-tasks"]')).toBeNull();
+    expect(element.querySelector('[data-testid="feature-menu-rail"]')).toBeTruthy();
+    expect(primaryLink?.getAttribute('href')).toBe('/workspaces');
+    expect(primaryLink?.getAttribute('title')).toBe('Workspaces');
+    expect(pinnedLink?.getAttribute('href')).toBe('/projects');
+    expect(pinnedLink?.getAttribute('title')).toBe('Pinned: Projects');
+  });
+
+  it('allows the Pinned section to be collapsed independently', async () => {
+    const fixture = await createFeatureMenu(false);
+    let requestedState: boolean | undefined;
+    fixture.componentInstance.pinnedCollapsedChange.subscribe((value) => {
+      requestedState = value;
+    });
+
+    const toggle = (fixture.nativeElement as HTMLElement).querySelector<HTMLButtonElement>(
+      '[data-testid="pinned-section-toggle"]'
+    );
+    toggle?.click();
+
+    expect(requestedState).toBe(true);
+  });
+
+  it('offers keyboard-operable move controls instead of requiring drag and drop', async () => {
+    const fixture = await createFeatureMenu(false);
+    let request: { itemId: string; direction: string } | undefined;
+    fixture.componentInstance.pinnedMove.subscribe((value) => {
+      request = value;
+    });
+
+    const element = fixture.nativeElement as HTMLElement;
+    const moveDown = element.querySelector<HTMLButtonElement>('[data-testid="pinned-move-down-projects"]');
+    const moveUp = element.querySelector<HTMLButtonElement>('[data-testid="pinned-move-up-projects"]');
+
+    expect(moveUp?.disabled).toBe(true);
+    expect(moveDown?.disabled).toBe(false);
+    expect(moveDown?.getAttribute('aria-label')).toBe('Projectsを下へ移動');
+
+    moveDown?.click();
+
+    expect(request).toEqual({ itemId: 'projects', direction: 'down' });
   });
 
   it('does not add desktop collapse layout or controls to the compact mobile menu', async () => {
@@ -69,6 +129,7 @@ describe('FeatureMenuComponent', () => {
 
     const fixture = TestBed.createComponent(FeatureMenuComponent);
     fixture.componentRef.setInput('navigationItems', navigationItems);
+    fixture.componentRef.setInput('pinnedItems', pinnedItems);
     fixture.componentRef.setInput('compact', true);
     fixture.detectChanges();
 
@@ -79,6 +140,7 @@ describe('FeatureMenuComponent', () => {
     expect(menu?.classList.contains('feature-menu--collapsible')).toBe(false);
     expect(menu?.classList.contains('feature-menu--collapsed')).toBe(false);
     expect(element.querySelector('[data-testid="feature-menu-toggle"]')).toBeNull();
+    expect(element.querySelector('[data-testid="nav-workspaces"]')).toBeTruthy();
     expect(element.querySelector('[data-testid="nav-projects"]')).toBeTruthy();
   });
 });
