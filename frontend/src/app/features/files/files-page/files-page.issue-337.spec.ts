@@ -6,16 +6,18 @@ import { By } from '@angular/platform-browser';
 import { AppDataGridComponent } from '../../../shared/grid/app-data-grid/app-data-grid.component';
 import { AIP_FILES_PAGE_MOCK } from '../files.facade';
 import { DEFAULT_FILES, FILES_PAGE_SCENARIOS } from '../files.mock';
-import { FileViewModel } from '../files.types';
+import { FilesPageViewModel, FileViewModel } from '../files.types';
 import { FilesPageComponent } from './files-page.component';
 
-const renderFilesPage = async (): Promise<ComponentFixture<FilesPageComponent>> => {
+const renderFilesPage = async (
+  page: FilesPageViewModel = FILES_PAGE_SCENARIOS.default,
+): Promise<ComponentFixture<FilesPageComponent>> => {
   await TestBed.configureTestingModule({
     imports: [FilesPageComponent],
     providers: [
       provideHttpClient(),
       provideHttpClientTesting(),
-      { provide: AIP_FILES_PAGE_MOCK, useValue: FILES_PAGE_SCENARIOS.default },
+      { provide: AIP_FILES_PAGE_MOCK, useValue: page },
     ],
   }).compileComponents();
 
@@ -148,24 +150,29 @@ describe('FilesPageComponent issue #337', () => {
     expect(compactButton?.getAttribute('aria-pressed')).toBe('true');
   });
 
-  it('keeps each grid page bounded when the data source contains more than 1,000 rows', async () => {
-    const fixture = await renderFilesPage();
-    const grid = fixture.debugElement.query(By.directive(AppDataGridComponent))
-      .componentInstance as AppDataGridComponent<FileViewModel>;
+  it('renders one bounded server page for a workspace with more than 1,000 files', async () => {
     const seed = DEFAULT_FILES[0];
     if (!seed) {
       throw new Error('Expected the default file fixture.');
     }
+    const fixture = await renderFilesPage({
+      ...FILES_PAGE_SCENARIOS.default,
+      recentFiles: [seed],
+      pickerFiles: [seed],
+      page: 21,
+      pageSize: 50,
+      totalCount: 1_001,
+      hasMore: false,
+    });
+    const grid = fixture.debugElement.query(By.directive(AppDataGridComponent))
+      .componentInstance as AppDataGridComponent<FileViewModel>;
+    const status = (fixture.nativeElement as HTMLElement)
+      .querySelector('[data-testid="files-page-pagination-status"]');
 
-    grid.rows = Array.from({ length: 1_001 }, (_, index) => ({
-      ...seed,
-      id: `attachment-${index}`,
-      canonicalFileId: `file-object-${index}`,
-      originalFileName: `file-${index}.pdf`,
-    }));
-
-    expect(grid.rowData).toHaveLength(1_001);
+    expect(grid.rowData).toHaveLength(1);
     expect(grid.boundedPageSize).toBe(50);
-    expect(grid.maximumPageSize).toBe(100);
+    expect(grid.maximumPageSize).toBe(50);
+    expect(status?.textContent).toContain('Page 21 of 21');
+    expect(status?.textContent).toContain('1001 files');
   });
 });
