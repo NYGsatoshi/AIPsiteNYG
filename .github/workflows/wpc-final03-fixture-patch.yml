@@ -6,11 +6,6 @@ on:
       - wpc-final03-security-no-go
     paths:
       - .github/workflows/wpc-final03-fixture-patch.yml
-  pull_request:
-    branches:
-      - main
-    paths:
-      - .github/workflows/wpc-final03-fixture-patch.yml
 
 permissions:
   contents: write
@@ -21,7 +16,7 @@ concurrency:
 
 jobs:
   patch-fixtures:
-    runs-on: self-hosted
+    runs-on: [self-hosted, aipsiteci-pool]
     timeout-minutes: 15
     steps:
       - name: Repair previous Docker workspace ownership
@@ -69,58 +64,58 @@ jobs:
           replace_once(
               project_tests,
               '''        fixture.AddProjectMember(member.Id, ProjectRole.Viewer);
-                  var secondProject = new Project
-                  {
-                      WorkspaceId = fixture.Workspace.Id,
-                      OwnerUserId = member.Id,
-                      CreatedByUserId = member.Id,
-                      Name = "Second project",
-                      Slug = "second-project",
-                      Status = ProjectStatus.Active
-                  };''',
+        var secondProject = new Project
+        {
+            WorkspaceId = fixture.Workspace.Id,
+            OwnerUserId = member.Id,
+            CreatedByUserId = member.Id,
+            Name = "Second project",
+            Slug = "second-project",
+            Status = ProjectStatus.Active
+        };''',
               '''        fixture.AddProjectMember(member.Id, ProjectRole.Viewer);
-                  fixture.EnsureProjectOperational();
-                  var secondProject = new Project
-                  {
-                      WorkspaceId = fixture.Workspace.Id,
-                      OwnerUserId = member.Id,
-                      CreatedByUserId = member.Id,
-                      Name = "Second project",
-                      Slug = "second-project",
-                      Status = ProjectStatus.Active,
-                      ActivationState = ProjectActivationState.Activated,
-                      ActivatedAtUtc = fixture.Clock.UtcNow,
-                      ActivationVersion = 1
-                  };''')
+        fixture.EnsureProjectOperational();
+        var secondProject = new Project
+        {
+            WorkspaceId = fixture.Workspace.Id,
+            OwnerUserId = member.Id,
+            CreatedByUserId = member.Id,
+            Name = "Second project",
+            Slug = "second-project",
+            Status = ProjectStatus.Active,
+            ActivationState = ProjectActivationState.Activated,
+            ActivatedAtUtc = fixture.Clock.UtcNow,
+            ActivationVersion = 1
+        };''')
           replace_once(
               project_tests,
               '''        public TaskItem AddTask(string title)
-                  {
-                      var task = new TaskItem''',
+        {
+            var task = new TaskItem''',
               '''        public void EnsureProjectOperational()
-                  {
-                      if (Project.Status is not (ProjectStatus.Active or ProjectStatus.Review) ||
-                          Project.ActivationState == ProjectActivationState.Activated)
-                          return;
+        {
+            if (Project.Status is not (ProjectStatus.Active or ProjectStatus.Review) ||
+                Project.ActivationState == ProjectActivationState.Activated)
+                return;
 
-                      Project.ActivationState = ProjectActivationState.Activated;
-                      Project.ActivatedAtUtc = Clock.UtcNow;
-                      Project.ActivationVersion = 1;
-                  }
+            Project.ActivationState = ProjectActivationState.Activated;
+            Project.ActivatedAtUtc = Clock.UtcNow;
+            Project.ActivationVersion = 1;
+        }
 
-                  public TaskItem AddTask(string title)
-                  {
-                      EnsureProjectOperational();
-                      var task = new TaskItem''')
+        public TaskItem AddTask(string title)
+        {
+            EnsureProjectOperational();
+            var task = new TaskItem''')
           replace_once(
               project_tests,
               '''        public Milestone AddMilestone(string title, int displayOrder)
-                  {
-                      var milestone = new Milestone''',
+        {
+            var milestone = new Milestone''',
               '''        public Milestone AddMilestone(string title, int displayOrder)
-                  {
-                      EnsureProjectOperational();
-                      var milestone = new Milestone''')
+        {
+            EnsureProjectOperational();
+            var milestone = new Milestone''')
           replace_once(
               project_tests,
               '        Assert.True(visibleProjects.Value!.Items.Single().UiPermissions.CanCreateTask);',
@@ -135,13 +130,13 @@ jobs:
               http_tests,
               '        await AssertOkContainsOnlyAsync(app, data.CrossTenantUser, data.TenantA.Slug, $"/api/files/{data.FileA.Id}", data.FileA.OriginalFileName, data.FileB.OriginalFileName);',
               '''        using (var fileMetadata = await app.SendAsync(data.CrossTenantUser, data.TenantA.Slug, $"/api/files/{data.FileA.Id}"))
-                  {
-                      var fileBody = await fileMetadata.Content.ReadAsStringAsync();
-                      Assert.Equal(HttpStatusCode.OK, fileMetadata.StatusCode);
-                      Assert.Contains("[redacted:file]", fileBody, StringComparison.Ordinal);
-                      Assert.DoesNotContain(data.FileA.OriginalFileName, fileBody, StringComparison.Ordinal);
-                      Assert.DoesNotContain(data.FileB.OriginalFileName, fileBody, StringComparison.Ordinal);
-                  }''')
+        {
+            var fileBody = await fileMetadata.Content.ReadAsStringAsync();
+            Assert.Equal(HttpStatusCode.OK, fileMetadata.StatusCode);
+            Assert.Contains("[redacted:file]", fileBody, StringComparison.Ordinal);
+            Assert.DoesNotContain(data.FileA.OriginalFileName, fileBody, StringComparison.Ordinal);
+            Assert.DoesNotContain(data.FileB.OriginalFileName, fileBody, StringComparison.Ordinal);
+        }''')
           replace_once(
               http_tests,
               '        Assert.Contains(data.FileA.OriginalFileName, allowedBody, StringComparison.Ordinal);',
