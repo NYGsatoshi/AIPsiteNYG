@@ -4,7 +4,9 @@
 
 **Current decision: CONDITIONAL NO-GO.**
 
-The integrated WPC baseline contained seven security-significant authorization, lifecycle, dependency, and redaction gaps. This branch contains targeted remediations and dedicated unit/PostgreSQL acceptance coverage, but the PR remains Draft until all required CI checks pass and the branch is rechecked against the then-current `main`.
+The integrated WPC baseline contained seven security-significant authorization, lifecycle, dependency, and redaction gaps. This branch contains targeted remediations and dedicated unit/PostgreSQL acceptance coverage. The merge-audit implementation blockers identified after the initial acceptance pass have also been closed: WPC-Final01 and WPC-Final02 are merged into the current `main`, the temporary restore-repair workflow has been removed, generic Task assignment authorization is live-row-only again, and the soft-deleted Task exception is scoped explicitly to Restore at the command boundary.
+
+The PR remains Draft until all required CI checks pass on the final exact PR head and that head is rechecked against the then-current `main`.
 
 No auto-merge is permitted.
 
@@ -13,13 +15,15 @@ No auto-merge is permitted.
 | Target | Baseline |
 |---|---|
 | Implementation repository | `NYGsatoshi/AIPsiteNYG` |
-| Integrated implementation baseline | `31a5d2986d8a83c31fbaee22a679042a17b4335c` |
+| Original integrated implementation baseline | `31a5d2986d8a83c31fbaee22a679042a17b4335c` |
+| Current merge-audit `main` baseline | `6cdc29434293ff03f066a4974323e2bd61b8c437` |
+| WPC-Final01 merged baseline | `6eed5071736a71eb80d3d7688614b59bcaa063fc` |
 | Specification repository | `NYGsatoshi/AIPsiteNYGspec` |
 | Normative specification baseline | `38339ba2964587f225c4c4151f643abb5523e862` |
 | Audit PR | `#324` |
 | Audit branch | `wpc-final03-security-no-go` |
 
-The implementation baseline includes the merged WPC-02A, WPC-02B, WPC-02C, WPC-02D, WPC-02E-1, WPC-02E-2, and WPC-02F workstreams.
+The original implementation baseline includes the merged WPC-02A, WPC-02B, WPC-02C, WPC-02D, WPC-02E-1, WPC-02E-2, and WPC-02F workstreams. The current merge-audit baseline additionally includes merged WPC-Final01 and WPC-Final02. PR #324 is based directly on that current `main` baseline with no outstanding base drift at the time of this update.
 
 ## 3. Normative security rules used
 
@@ -147,7 +151,11 @@ Remediation:
 - explicit reviewer assignment remains a narrow review-outcome permission for a current non-viewer Project member, not unrestricted Task editing or Project management;
 - Project content comments use the same current contributor-or-manager operational boundary rather than Project visibility;
 - `ProjectGovernanceSaveChangesInterceptor` rejects every tracked Task/Milestone persistence mutation unless the current Project is tracked in the same unit of work with coherent Activated provenance and `Active`/`Review` status;
-- the persistence fence covers alternate Gantt adapters as well as ordinary Task commands.
+- the persistence fence covers alternate Gantt adapters as well as ordinary Task commands;
+- reusable `ITaskAuthorizationService.CanAssignTask` / delete / override authority remains live-row-only and rejects soft-deleted Tasks;
+- `TaskCommandService.RestoreAsync` is the sole soft-deleted Task mutation exception: `includeDeleted` is explicit and Restore additionally requires both current `CanContributeProject` and current `CanManageProject` authority before version/concurrency validation and persistence.
+
+This preserves the ordinary deleted-row fail-closed boundary while allowing the canonical Restore command to reach optimistic concurrency handling.
 
 ### F03-SEC-006 — Missing Workspace `general` synchronizer failed open
 
@@ -203,6 +211,10 @@ The Workspace File list repository returns Workspace-owned attachments only; it 
 
 Archived Workspace access and restore remain explicit-member/owner constrained. Project `Visibility == null` and legacy activation state are not inferred as canonical write authority. File, Task, Milestone, Gantt, review, and comment mutation boundaries fail closed for non-activated/legacy states.
 
+### WPC-Final01 / WPC-Final02 integration
+
+WPC-Final01 is merged before the current merge-audit baseline and WPC-Final02 is merged on top of it. The Final03 branch is based on the resulting `main` commit `6cdc29434293ff03f066a4974323e2bd61b8c437`. The current Final03 production authorization/redaction changes were re-read against that integrated baseline; no additional source-level collision blocker was identified. Any subsequent movement of `main` before merge requires the same final collision check again.
+
 ### Unrouted Task subresource summary helper
 
 `TaskSubresourceService.GetSummaryAsync` currently has no direct Controller route or repository caller. It was recorded as a future hardening point, but no current external reachability was found and it is not classified as a Final03 merge blocker.
@@ -243,6 +255,7 @@ Archived Workspace access and restore remain explicit-member/owner constrained. 
   - verifies an explicit current Project Contributor with reviewer assignment can create, update, review, comment, and upload;
   - verifies Completed remains readable but not mutable;
   - proves the persistence interceptor rejects a direct Task write in Completed state.
+- ordinary PostgreSQL Task concurrency coverage includes the delete/restore child race and verifies canonical Restore reaches the optimistic-concurrency boundary rather than being rejected by the generic live-row assignment primitive.
 
 Dedicated gate:
 
@@ -265,14 +278,16 @@ This Final03 PR does not modify:
 
 The additional Infrastructure/Web changes are limited to the existing Project governance interceptor and canonical Projects response projection filter because those are the authoritative persistence and HTTP redaction boundaries for the confirmed findings.
 
+Temporary repair workflows used while stabilizing CI and the Restore authorization boundary have been removed from the final PR diff. No workflow with branch-write permission is retained for that repair.
+
 ## 9. Remaining merge gates
 
 The PR must remain Draft until all are true:
 
-1. `WPC-Final03 Security Acceptance` passes;
-2. repository build/test, code quality, npm security, and existing WPC PostgreSQL gates are green or proven unrelated;
-3. `main` has not introduced a conflicting security-sensitive change, or the branch has been rebased and re-audited;
+1. `WPC-Final03 Security Acceptance` passes on the final exact PR head;
+2. repository build/test, code quality, npm security, WPC-Final01 composite acceptance, and existing WPC PostgreSQL gates are green or proven unrelated on that same final head;
+3. the final PR head is still based on the current `main`, or any later `main` movement has been collision-checked and re-audited;
 4. PR changed-file and review-thread collision checks are clean;
-5. this document is updated from `CONDITIONAL NO-GO` to the final evidence-backed decision.
+5. this document is updated from `CONDITIONAL NO-GO` to the final evidence-backed decision only after items 1–4 are satisfied.
 
-A passing unit test set alone is not sufficient. PostgreSQL-backed acceptance and current-main revalidation are mandatory.
+The source-level merge blockers identified during the Final03 merge audit are closed at the time of this update. The remaining gate is evidence: exact-head CI plus the final current-main/review-thread check. A passing unit test set alone is not sufficient. PostgreSQL-backed acceptance and current-main revalidation are mandatory.
