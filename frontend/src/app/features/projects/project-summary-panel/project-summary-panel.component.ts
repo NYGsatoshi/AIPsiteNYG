@@ -2,22 +2,35 @@ import { Component, Input } from '@angular/core';
 import { RouterLink } from '@angular/router';
 
 import { WorkStatusBadgeComponent } from '../../../shared/ui/work-status/work-status-badge.component';
-import { WorkStatus } from '../../../shared/ui/work-status/work-status';
-import { ProjectStatus, ProjectSummaryViewModel } from '../projects.types';
+import { projectWorkStatus } from '../projects.mapper';
+import { ProjectSummaryViewModel } from '../projects.types';
 
 @Component({
   selector: 'app-project-summary-panel',
   standalone: true,
   imports: [RouterLink, WorkStatusBadgeComponent],
   template: `
-    <section class="project-summary-panel" data-testid="project-summary-panel">
+    <section class="project-summary-panel" data-testid="project-summary-panel" data-presentation="card">
       @for (project of projects; track project.id) {
         <article class="project-summary-panel__item" data-testid="project-summary-card">
           <div class="project-summary-panel__primary">
-            <a [routerLink]="['/projects', project.id]" [attr.aria-label]="'Open ' + project.name">
-              <h2>{{ project.name }}</h2>
-            </a>
-            <app-work-status-badge [status]="statusPresentation(project.status)" />
+            <div class="project-summary-panel__identity">
+              <a [routerLink]="['/projects', project.id]" [attr.aria-label]="'Open ' + project.name">
+                <h2>{{ project.name }}</h2>
+              </a>
+              <p class="project-summary-panel__updated" data-testid="project-updated-at">
+                <span>Updated</span>
+                @if (project.updatedAt) {
+                  <time [attr.datetime]="project.updatedAt">{{ formatUpdatedAt(project.updatedAt) }}</time>
+                } @else {
+                  <span>Not available</span>
+                }
+              </p>
+            </div>
+            <app-work-status-badge
+              [status]="workStatus(project.status)"
+              [attr.data-testid]="'project-status-' + project.id"
+            />
           </div>
 
           <details class="project-summary-panel__secondary">
@@ -33,7 +46,12 @@ import { ProjectStatus, ProjectSummaryViewModel } from '../projects.types';
               </div>
               <div>
                 <dt>Tasks</dt>
-                <dd>{{ project.taskCounts.done }}/{{ project.taskCounts.total }} done</dd>
+                <dd>
+                  {{ project.taskCounts.done }}/{{ project.taskCounts.total }} done
+                  @if (project.taskCounts.blocked > 0) {
+                    <span> · {{ project.taskCounts.blocked }} blocked</span>
+                  }
+                </dd>
               </div>
             </dl>
           </details>
@@ -66,8 +84,15 @@ import { ProjectStatus, ProjectSummaryViewModel } from '../projects.types';
         gap: 0.75rem;
       }
 
+      .project-summary-panel__identity {
+        display: grid;
+        gap: 0.35rem;
+        min-width: 0;
+      }
+
       .project-summary-panel h2,
-      .project-summary-panel dl {
+      .project-summary-panel dl,
+      .project-summary-panel p {
         margin: 0;
       }
 
@@ -85,6 +110,20 @@ import { ProjectStatus, ProjectSummaryViewModel } from '../projects.types';
       .project-summary-panel a:hover,
       .project-summary-panel a:focus-visible {
         text-decoration: underline;
+      }
+
+      .project-summary-panel__updated {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 0.3rem;
+        color: #536179;
+        font-size: 0.8rem;
+      }
+
+      .project-summary-panel__updated time,
+      .project-summary-panel__updated > span:last-child {
+        color: #334155;
+        font-weight: 650;
       }
 
       .project-summary-panel__secondary {
@@ -133,19 +172,17 @@ import { ProjectStatus, ProjectSummaryViewModel } from '../projects.types';
 export class ProjectSummaryPanelComponent {
   @Input() projects: readonly ProjectSummaryViewModel[] = [];
 
-  readonly statusPresentation = projectStatusPresentation;
-}
+  readonly workStatus = projectWorkStatus;
 
-export function projectStatusPresentation(status: ProjectStatus): WorkStatus {
-  return (
-    {
-      planning: 'draft',
-      active: 'running',
-      review: 'needsReview',
-      atRisk: 'needsAttention',
-      complete: 'completed',
-      suspended: 'paused',
-      archived: 'archived'
-    } satisfies Record<ProjectStatus, WorkStatus>
-  )[status];
+  formatUpdatedAt(value: string): string {
+    const date = new Date(value);
+    if (Number.isNaN(date.getTime())) {
+      return 'Not available';
+    }
+
+    return new Intl.DateTimeFormat(undefined, {
+      dateStyle: 'medium',
+      timeStyle: 'short'
+    }).format(date);
+  }
 }
