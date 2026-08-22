@@ -91,13 +91,7 @@ public sealed class ProjectVisibilityService(
             tenantId,
             project.WorkspaceId,
             cancellationToken);
-        var projectMembership = await projects.GetMemberAsync(project.Id, actorUserId, cancellationToken);
-        var isProjectManager = projectMembership?.Role is ProjectRole.Owner or ProjectRole.Manager;
-
-        var authorized = request.Visibility == ProjectVisibility.MembersOnly
-            ? hasWorkspaceGovernance || hasVisibilityCapability || isProjectManager
-            : hasWorkspaceGovernance || hasVisibilityCapability;
-        if (!authorized)
+        if (!hasWorkspaceGovernance && !hasVisibilityCapability)
         {
             return Failure(
                 "CapabilityDenied",
