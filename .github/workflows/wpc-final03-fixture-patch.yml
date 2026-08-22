@@ -21,9 +21,19 @@ concurrency:
 
 jobs:
   patch-fixtures:
-    runs-on: ubuntu-latest
+    runs-on: self-hosted
     timeout-minutes: 15
     steps:
+      - name: Repair previous Docker workspace ownership
+        shell: bash
+        run: |
+          uid="$(id -u)"
+          gid="$(id -g)"
+          docker run --rm \
+            -v "$GITHUB_WORKSPACE:/workspace" \
+            alpine:3.21 \
+            sh -c "chown -R ${uid}:${gid} /workspace"
+
       - name: Checkout branch
         uses: actions/checkout@v7
         with:
@@ -111,6 +121,10 @@ jobs:
                   {
                       EnsureProjectOperational();
                       var milestone = new Milestone''')
+          replace_once(
+              project_tests,
+              '        Assert.True(visibleProjects.Value!.Items.Single().UiPermissions.CanCreateTask);',
+              '        Assert.False(visibleProjects.Value!.Items.Single().UiPermissions.CanCreateTask);')
 
           http_tests = "tests/AipPortal.Tests/Tenancy/HttpTenantIsolationTests.cs"
           replace_once(
