@@ -91,23 +91,25 @@ import { MessageGlobalSettingsService } from '../message-global-settings.service
   `,
   styles: [`
     :host { display: block; }
-    .message-settings { max-width: 58rem; margin: 0 auto; padding: 1.5rem; }
+    .message-settings { max-width: 58rem; margin: 0 auto; padding: 1.5rem; color: var(--aip-color-text-primary); }
     .message-settings__header { display: flex; justify-content: space-between; gap: 1.5rem; align-items: flex-start; margin-bottom: 1.5rem; }
-    .message-settings__eyebrow { margin: 0; font-size: .75rem; font-weight: 700; letter-spacing: .08em; text-transform: uppercase; }
+    .message-settings__eyebrow { margin: 0; color: var(--aip-color-text-muted); font-size: .75rem; font-weight: 700; letter-spacing: .08em; text-transform: uppercase; }
     .message-settings__header h1 { margin: .25rem 0 .5rem; }
-    .message-settings__scope, .message-settings__muted { max-width: 44rem; color: var(--aip-color-text-muted, #5f6773); }
-    .message-settings__card { border: 1px solid var(--aip-color-border, #d9dde5); border-radius: .75rem; padding: 1.25rem; background: var(--aip-color-surface, #fff); }
-    .message-settings__scope-badge { display: inline-flex; border-radius: 999px; padding: .2rem .55rem; font-size: .75rem; font-weight: 700; background: var(--aip-color-surface-subtle, #f1f3f6); }
-    .message-settings__setting { display: flex; justify-content: space-between; gap: 1rem; align-items: center; padding: 1rem 0; border-top: 1px solid var(--aip-color-border, #d9dde5); }
+    .message-settings__header a { min-block-size: 2.5rem; display: inline-flex; align-items: center; color: var(--aip-color-action-primary); font-weight: 800; }
+    .message-settings__scope, .message-settings__muted { max-width: 44rem; color: var(--aip-color-text-secondary); }
+    .message-settings__card { border: 1px solid var(--aip-color-border-default); border-radius: .75rem; padding: 1.25rem; background: var(--aip-color-bg-surface); }
+    .message-settings__scope-badge { display: inline-flex; border-radius: 999px; padding: .2rem .55rem; font-size: .75rem; font-weight: 700; background: var(--aip-color-bg-selected); color: var(--aip-color-text-secondary); }
+    .message-settings__setting { display: flex; justify-content: space-between; gap: 1rem; align-items: center; padding: 1rem 0; border-top: 1px solid var(--aip-color-border-default); }
     .message-settings__setting span { display: grid; gap: .25rem; }
-    .message-settings__setting small { color: var(--aip-color-text-muted, #5f6773); }
-    .message-settings__setting input { inline-size: 1.25rem; block-size: 1.25rem; }
+    .message-settings__setting small { color: var(--aip-color-text-secondary); }
+    .message-settings__setting input { inline-size: 1.25rem; block-size: 1.25rem; accent-color: var(--aip-color-action-primary); }
     .message-settings__actions { display: flex; justify-content: flex-end; gap: .75rem; }
-    .message-settings button, .message-settings a { min-block-size: 2.5rem; }
+    .message-settings button { min-block-size: 2.5rem; border: 1px solid var(--aip-color-border-default); border-radius: 6px; padding: 0 .85rem; background: var(--aip-color-bg-control); color: var(--aip-color-text-primary); font: inherit; font-weight: 800; cursor: pointer; }
+    .message-settings button:disabled { cursor: not-allowed; opacity: .6; }
     .message-settings__status { margin-bottom: 0; }
-    .message-settings__overlay { position: fixed; inset: 0; display: grid; place-items: center; padding: 1rem; background: rgb(0 0 0 / .42); z-index: 1000; }
-    .message-settings__confirm { width: min(32rem, 100%); border-radius: .75rem; padding: 1.25rem; background: var(--aip-color-surface, #fff); box-shadow: 0 1rem 3rem rgb(0 0 0 / .2); }
-    .message-settings :focus-visible { outline: 3px solid currentColor; outline-offset: 3px; }
+    .message-settings__overlay { position: fixed; inset: 0; display: grid; place-items: center; padding: 1rem; background: var(--aip-color-overlay); z-index: 1000; }
+    .message-settings__confirm { width: min(32rem, 100%); border: 1px solid var(--aip-color-border-default); border-radius: .75rem; padding: 1.25rem; background: var(--aip-color-bg-elevated); box-shadow: var(--aip-shadow-floating); }
+    .message-settings :focus-visible { outline: 2px solid var(--aip-color-focus); outline-offset: 3px; }
     @media (max-width: 40rem) { .message-settings__header { flex-direction: column; } }
   `]
 })
