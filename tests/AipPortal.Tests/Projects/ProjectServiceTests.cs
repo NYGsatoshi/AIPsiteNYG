@@ -153,7 +153,7 @@ public sealed class ProjectServiceTests
 
         Assert.True(viewerDetail.IsSuccess);
         Assert.False(viewerDetail.Value!.UiPermissions.CanEdit);
-        Assert.True(visibleProjects.Value!.Items.Single().UiPermissions.CanCreateTask);
+        Assert.False(visibleProjects.Value!.Items.Single().UiPermissions.CanCreateTask);
         Assert.False(denied.IsSuccess);
         Assert.Equal("You are not allowed to update this task.", denied.Error);
         Assert.Equal("Permissioned task", task.Title);
@@ -1072,6 +1072,7 @@ public sealed class ProjectServiceTests
         var member = fixture.AddUser();
         fixture.Current.UserIdValue = member.Id;
         fixture.AddProjectMember(member.Id, ProjectRole.Viewer);
+        fixture.EnsureProjectOperational();
         var secondProject = new Project
         {
             WorkspaceId = fixture.Workspace.Id,
@@ -1079,7 +1080,10 @@ public sealed class ProjectServiceTests
             CreatedByUserId = member.Id,
             Name = "Second project",
             Slug = "second-project",
-            Status = ProjectStatus.Active
+            Status = ProjectStatus.Active,
+            ActivationState = ProjectActivationState.Activated,
+            ActivatedAtUtc = fixture.Clock.UtcNow,
+            ActivationVersion = 1
         };
         fixture.Projects.ProjectItems[secondProject.Id] = secondProject;
         fixture.Projects.Members.Add(new ProjectMember
@@ -2140,8 +2144,20 @@ public sealed class ProjectServiceTests
             });
         }
 
+        public void EnsureProjectOperational()
+        {
+            if (Project.Status is not (ProjectStatus.Active or ProjectStatus.Review) ||
+                Project.ActivationState == ProjectActivationState.Activated)
+                return;
+
+            Project.ActivationState = ProjectActivationState.Activated;
+            Project.ActivatedAtUtc = Clock.UtcNow;
+            Project.ActivationVersion = 1;
+        }
+
         public TaskItem AddTask(string title)
         {
+            EnsureProjectOperational();
             var task = new TaskItem
             {
                 ProjectId = Project.Id,
@@ -2154,6 +2170,7 @@ public sealed class ProjectServiceTests
 
         public Milestone AddMilestone(string title, int displayOrder)
         {
+            EnsureProjectOperational();
             var milestone = new Milestone
             {
                 ProjectId = Project.Id,
