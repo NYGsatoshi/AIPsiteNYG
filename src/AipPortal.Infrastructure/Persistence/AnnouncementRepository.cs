@@ -60,30 +60,101 @@ public sealed class AnnouncementRepository(AppDbContext dbContext, IClock clock)
 
         if (announcement.ChannelId.HasValue)
         {
-            var channel = await dbContext.Channels.AsNoTracking().FirstOrDefaultAsync(item => item.Id == announcement.ChannelId.Value, cancellationToken);
+            if (!announcement.WorkspaceId.HasValue || !announcement.GroupId.HasValue)
+            {
+                return [];
+            }
+
+            var channel = await dbContext.Channels
+                .AsNoTracking()
+                .Where(item =>
+                    item.Id == announcement.ChannelId.Value &&
+                    item.WorkspaceId == announcement.WorkspaceId.Value &&
+                    item.GroupId == announcement.GroupId.Value &&
+                    item.DeletedAt == null &&
+                    item.Status == ChannelStatus.Active &&
+                    dbContext.Groups.Any(group =>
+                        group.Id == item.GroupId &&
+                        group.WorkspaceId == item.WorkspaceId &&
+                        group.DeletedAt == null &&
+                        group.Status == GroupStatus.Active) &&
+                    dbContext.Workspaces.Any(workspace =>
+                        workspace.Id == item.WorkspaceId &&
+                        workspace.DeletedAt == null &&
+                        (workspace.Status == WorkspaceStatus.Active ||
+                         workspace.Status == WorkspaceStatus.Archived)))
+                .Select(item => new { item.Id, item.GroupId, item.WorkspaceId, item.Type })
+                .FirstOrDefaultAsync(cancellationToken);
             if (channel is null)
             {
                 return [];
             }
 
+            var currentWorkspaceUserIds = CurrentWorkspaceUserIds(channel.WorkspaceId);
             users = channel.Type is ChannelType.Public or ChannelType.Announcement
                 ? dbContext.GroupMembers
-                    .Where(member => member.GroupId == channel.GroupId)
+                    .Where(member =>
+                        member.GroupId == channel.GroupId &&
+                        currentWorkspaceUserIds.Contains(member.UserId))
                     .Select(member => member.User!)
                 : dbContext.ChannelMembers
-                    .Where(member => member.ChannelId == channel.Id)
+                    .Where(member =>
+                        member.ChannelId == channel.Id &&
+                        currentWorkspaceUserIds.Contains(member.UserId))
                     .Select(member => member.User!);
         }
         else if (announcement.GroupId.HasValue)
         {
+            if (!announcement.WorkspaceId.HasValue)
+            {
+                return [];
+            }
+
+            var group = await dbContext.Groups
+                .AsNoTracking()
+                .Where(item =>
+                    item.Id == announcement.GroupId.Value &&
+                    item.WorkspaceId == announcement.WorkspaceId.Value &&
+                    item.DeletedAt == null &&
+                    item.Status == GroupStatus.Active &&
+                    dbContext.Workspaces.Any(workspace =>
+                        workspace.Id == item.WorkspaceId &&
+                        workspace.DeletedAt == null &&
+                        (workspace.Status == WorkspaceStatus.Active ||
+                         workspace.Status == WorkspaceStatus.Archived)))
+                .Select(item => new { item.Id, item.WorkspaceId })
+                .FirstOrDefaultAsync(cancellationToken);
+            if (group is null)
+            {
+                return [];
+            }
+
+            var currentWorkspaceUserIds = CurrentWorkspaceUserIds(group.WorkspaceId);
             users = dbContext.GroupMembers
-                .Where(member => member.GroupId == announcement.GroupId.Value)
+                .Where(member =>
+                    member.GroupId == group.Id &&
+                    currentWorkspaceUserIds.Contains(member.UserId))
                 .Select(member => member.User!);
         }
         else if (announcement.WorkspaceId.HasValue)
         {
+            var workspaceIsReadable = await dbContext.Workspaces
+                .AsNoTracking()
+                .AnyAsync(workspace =>
+                    workspace.Id == announcement.WorkspaceId.Value &&
+                    workspace.DeletedAt == null &&
+                    (workspace.Status == WorkspaceStatus.Active ||
+                     workspace.Status == WorkspaceStatus.Archived),
+                    cancellationToken);
+            if (!workspaceIsReadable)
+            {
+                return [];
+            }
+
             users = dbContext.WorkspaceMembers
-                .Where(member => member.WorkspaceId == announcement.WorkspaceId.Value && member.Status == MembershipStatus.Active)
+                .Where(member =>
+                    member.WorkspaceId == announcement.WorkspaceId.Value &&
+                    member.Status == MembershipStatus.Active)
                 .Select(member => member.User!);
         }
         else
@@ -108,4 +179,10 @@ public sealed class AnnouncementRepository(AppDbContext dbContext, IClock clock)
         return dbContext.AnnouncementReads.CountAsync(read => read.AnnouncementId == announcementId, cancellationToken);
     }
 
+    private IQueryable<Guid> CurrentWorkspaceUserIds(Guid workspaceId) =>
+        dbContext.WorkspaceMembers
+            .Where(member =>
+                member.WorkspaceId == workspaceId &&
+                member.Status == MembershipStatus.Active)
+            .Select(member => member.UserId);
 }
