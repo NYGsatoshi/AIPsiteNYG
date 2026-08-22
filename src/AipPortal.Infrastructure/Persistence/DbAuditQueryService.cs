@@ -3,16 +3,33 @@ using AipPortal.Application.Common;
 using AipPortal.Application.Common.Interfaces;
 using AipPortal.Application.Tenancy;
 using AipPortal.Domain.Entities;
+using AipPortal.Domain.Enums;
 using Microsoft.EntityFrameworkCore;
 
 namespace AipPortal.Infrastructure.Persistence;
 
-public sealed class DbAuditQueryService(
-    AppDbContext dbContext,
-    IAuditAuthorizationService auditAuthorization,
-    ICurrentTenant currentTenant) : IAuditQueryService
+public sealed class DbAuditQueryService : IAuditQueryService
 {
     private const int MaxPageSize = 100;
+
+    private readonly AppDbContext dbContext;
+    private readonly ICurrentTenant currentTenant;
+    private readonly IAuditAuthorizationService auditAuthorization;
+
+    public DbAuditQueryService(
+        AppDbContext dbContext,
+        ICurrentUser currentUser,
+        ICurrentTenant currentTenant,
+        ITenantRepository tenantRepository,
+        IAuditAuthorizationService? auditAuthorization = null)
+    {
+        this.dbContext = dbContext;
+        this.currentTenant = currentTenant;
+        this.auditAuthorization = auditAuthorization ?? new LegacyAuditAuthorizationService(
+            currentUser,
+            currentTenant,
+            tenantRepository);
+    }
 
     public async Task<Result<PagedResponse<AuditLogListItemResponse>>> ListAuditLogsAsync(
         AuditLogQuery query,
@@ -380,5 +397,79 @@ public sealed class DbAuditQueryService(
     private static bool ContainsAny(string value, params string[] needles)
     {
         return needles.Any(needle => value.Contains(needle, StringComparison.OrdinalIgnoreCase));
+    }
+
+    private sealed class LegacyAuditAuthorizationService(
+        ICurrentUser currentUser,
+        ICurrentTenant currentTenant,
+        ITenantRepository tenantRepository) : IAuditAuthorizationService
+    {
+        public async Task<AuditCapabilityResponse> GetCapabilitiesAsync(
+            CancellationToken cancellationToken = default)
+        {
+            if (!currentUser.IsAuthenticated || !currentUser.UserId.HasValue)
+            {
+                return new AuditCapabilityResponse(false, false, false, false, false);
+            }
+
+            if (currentUser.SystemRole is SystemRole.PlatformAdmin or SystemRole.SystemAdmin)
+            {
+                return new AuditCapabilityResponse(true, true, true, true, true);
+            }
+
+            if (currentTenant is not { IsAvailable: true, IsPlatformScope: false })
+            {
+                return new AuditCapabilityResponse(false, false, false, false, false);
+            }
+
+            var membership = await tenantRepository.GetTenantUserAsync(
+                currentTenant.TenantId,
+                currentUser.UserId.Value,
+                cancellationToken);
+            var isTenantAdmin = membership is
+            {
+                Status: TenantUserStatus.Active,
+                Role: TenantUserRole.Owner or TenantUserRole.Admin
+            };
+
+            return isTenantAdmin
+                ? new AuditCapabilityResponse(true, true, false, false, false)
+                : new AuditCapabilityResponse(false, false, false, false, false);
+        }
+
+        public async Task<bool> HasCapabilityAsync(
+            string capabilityKey,
+            CancellationToken cancellationToken = default)
+        {
+            var capabilities = await GetCapabilitiesAsync(cancellationToken);
+            return capabilityKey switch
+            {
+                CapabilityKeys.AuditView => capabilities.CanView,
+                CapabilityKeys.AuditReview => capabilities.CanReview,
+                CapabilityKeys.AuditApprove => capabilities.CanApprove,
+                CapabilityKeys.AuditExport => capabilities.CanExport,
+                CapabilityKeys.AuditSensitiveMetadataView => capabilities.CanViewSensitiveMetadata,
+                _ => false
+            };
+        }
+
+        public async Task<Result> AuthorizeAsync(
+            string capabilityKey,
+            string operation,
+            CancellationToken cancellationToken = default)
+        {
+            if (await HasCapabilityAsync(capabilityKey, cancellationToken))
+            {
+                return Result.Success();
+            }
+
+            var message = capabilityKey == CapabilityKeys.AuditView
+                ? "You are not allowed to view audit logs."
+                : "The requested Audit operation is not permitted.";
+            return Result.Failure(new ApplicationErrorDetail(
+                "CapabilityDenied",
+                message,
+                Target: "audit"));
+        }
     }
 }
