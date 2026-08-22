@@ -1,0 +1,3 @@
+# WPC-02F Artifact/Message navigation and click/delivery current authorization
+ArtifactAndMessageOpenUseCurrentAuthorizedCanonicalNavigationAndUnavailableTargetStaysUnread
+TaskNotificationAndRealtimeUseCanonicalProjectVisibilityAuthorization
