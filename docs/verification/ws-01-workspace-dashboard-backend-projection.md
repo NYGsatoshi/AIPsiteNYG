@@ -159,7 +159,7 @@ Local PostgreSQL evidence used a disposable `postgres:16-alpine` container and
 temporary per-test databases. The shared test database was migrated only to run
 one existing search-isolation test that expects a pre-migrated database.
 
-Commands and results recorded before the final commit:
+Commands and results confirmed after rebasing onto the refreshed PR #324 head:
 
 ```powershell
 dotnet restore AipPortal.slnx --configfile .git/ws01-nuget.config /p:RestoreFallbackFolders=
@@ -205,7 +205,8 @@ source/test correction.
 
 ```powershell
 $env:POSTGRES_TEST_CONNECTION_STRING = "<disposable local PostgreSQL>"
-dotnet test tests/AipPortal.Tests/AipPortal.Tests.csproj -c Release --no-build --filter "<WS-01 + PR #324 + Project/Conversation/Search security selection>"
+$filter = "FullyQualifiedName~Ws01WorkspaceDashboardProjectionPostgreSqlTests|FullyQualifiedName~WpcFinal03SecurityPostgreSqlTests|FullyQualifiedName~ActiveGroupedProjectReadBoundaryIsEquivalentAcrossDetailListSearchMessagingAndMyTasks|FullyQualifiedName~RecursiveConversationReadScopeRejectsCyclesAndInconsistentProjectScope|FullyQualifiedName~MessageSearchAuthorizesAllMatchingConversationsBeforeDeterministicLimit|FullyQualifiedName~PlanningProjectDiscoveryRequiresExplicitProjectMembership|FullyQualifiedName~MembersOnlyProjectMemberRemovalRevokesConversationAndTaskNotificationAccess|FullyQualifiedName~RestrictedProjectBlocksTaskNotificationAndRealtimeForWorkspaceOnlyMember|FullyQualifiedName~ArchivedWorkspaceReadScopeRequiresCurrentMembershipEvenForSystemAdmin|FullyQualifiedName~TenantScopedSearchIsolationWorksAgainstPostgreSql"
+dotnet test tests/AipPortal.Tests/AipPortal.Tests.csproj -c Release --no-build --filter $filter --logger "console;verbosity=normal"
 ```
 
 Passed: 12; failed: 0; skipped: 0. It includes both WS-01 PostgreSQL tests, both
