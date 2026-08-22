@@ -83,17 +83,30 @@ type ConversationSettingsStatus = 'idle' | 'loading' | 'ready' | 'saving' | 'err
   `,
   styles: [`
     :host { position: relative; display: inline-block; }
-    .conversation-settings__trigger { min-block-size: 2.5rem; }
-    .conversation-settings__panel { position: absolute; inset-inline-end: 0; top: calc(100% + .5rem); z-index: 50; width: min(26rem, calc(100vw - 2rem)); padding: 1rem; border: 1px solid var(--aip-color-border, #d9dde5); border-radius: .75rem; background: var(--aip-color-surface, #fff); box-shadow: 0 .75rem 2rem rgb(0 0 0 / .16); text-align: start; }
+    .conversation-settings__trigger,
+    .conversation-settings__header button,
+    .conversation-settings__error button {
+      min-block-size: 2.5rem;
+      border: 1px solid var(--aip-color-border-default);
+      border-radius: 6px;
+      padding: 0 .75rem;
+      background: var(--aip-color-bg-control);
+      color: var(--aip-color-text-primary);
+      font: inherit;
+      font-weight: 800;
+      cursor: pointer;
+    }
+    .conversation-settings__panel { position: absolute; inset-inline-end: 0; top: calc(100% + .5rem); z-index: 50; width: min(26rem, calc(100vw - 2rem)); padding: 1rem; border: 1px solid var(--aip-color-border-default); border-radius: .75rem; background: var(--aip-color-bg-elevated); color: var(--aip-color-text-primary); box-shadow: var(--aip-shadow-floating); text-align: start; }
     .conversation-settings__header { display: flex; align-items: flex-start; justify-content: space-between; gap: 1rem; }
     .conversation-settings__header h2 { margin: .35rem 0 0; font-size: 1.1rem; }
-    .conversation-settings__scope-badge { display: inline-flex; border-radius: 999px; padding: .2rem .55rem; font-size: .75rem; font-weight: 700; background: var(--aip-color-surface-subtle, #f1f3f6); }
-    .conversation-settings__scope, .conversation-settings__current, .conversation-settings__footer { color: var(--aip-color-text-muted, #5f6773); }
+    .conversation-settings__scope-badge { display: inline-flex; border-radius: 999px; padding: .2rem .55rem; font-size: .75rem; font-weight: 700; background: var(--aip-color-bg-selected); color: var(--aip-color-text-secondary); }
+    .conversation-settings__scope, .conversation-settings__current, .conversation-settings__footer { color: var(--aip-color-text-secondary); }
     .conversation-settings__field { display: grid; gap: .35rem; margin-top: 1rem; font-weight: 600; }
-    .conversation-settings__field select { min-block-size: 2.5rem; }
+    .conversation-settings__field select { min-block-size: 2.5rem; border: 1px solid var(--aip-color-border-default); border-radius: 6px; padding: 0 .5rem; background: var(--aip-color-bg-control); color: var(--aip-color-text-primary); font: inherit; }
     .conversation-settings__error { margin-top: 1rem; }
-    .conversation-settings__footer { display: grid; gap: .25rem; margin-top: 1rem; padding-top: 1rem; border-top: 1px solid var(--aip-color-border, #d9dde5); font-size: .875rem; }
-    .conversation-settings__panel :focus-visible, .conversation-settings__trigger:focus-visible { outline: 3px solid currentColor; outline-offset: 3px; }
+    .conversation-settings__footer { display: grid; gap: .25rem; margin-top: 1rem; padding-top: 1rem; border-top: 1px solid var(--aip-color-border-default); font-size: .875rem; }
+    .conversation-settings__footer a { color: var(--aip-color-action-primary); font-weight: 800; }
+    .conversation-settings__panel :focus-visible, .conversation-settings__trigger:focus-visible { outline: 2px solid var(--aip-color-focus); outline-offset: 3px; }
   `]
 })
 export class ConversationSettingsPanelComponent implements OnChanges {
