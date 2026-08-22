@@ -1,3 +1,4 @@
+import { WorkStatus, workStatusLabel } from '../../shared/ui/work-status/work-status';
 import { MyTaskDto, ProjectDto, TaskDto } from './projects.api';
 import {
   ProjectCapability,
@@ -19,6 +20,7 @@ export function mapProjectDtoToRecord(project: ProjectDto): ProjectMockRecord {
     statusLabel: projectStatusLabel(status),
     startDate: stringValue(project.startDate) ?? '',
     dueDate: stringValue(project.endDate) ?? '',
+    updatedAt: stringValue(project.updatedAt) ?? stringValue(project.createdAt) ?? '',
     group: 'Group not shown by API',
     authorized: true,
     canCreateTask: project.uiPermissions?.canCreateTask === true
@@ -178,18 +180,22 @@ export function mapTaskPriority(value: unknown): TaskPriority {
   return 'medium';
 }
 
-export function projectStatusLabel(status: ProjectStatus): string {
+export function projectWorkStatus(status: ProjectStatus): WorkStatus {
   return (
     {
-      planning: 'Planning',
-      active: 'Active',
-      review: 'Review',
-      atRisk: 'At risk',
-      complete: 'Complete',
-      suspended: 'Suspended',
-      archived: 'Archived'
-    } satisfies Record<ProjectStatus, string>
+      planning: 'draft',
+      active: 'running',
+      review: 'needsReview',
+      atRisk: 'needsAttention',
+      complete: 'completed',
+      suspended: 'paused',
+      archived: 'archived'
+    } satisfies Record<ProjectStatus, WorkStatus>
   )[status];
+}
+
+export function projectStatusLabel(status: ProjectStatus): string {
+  return workStatusLabel(projectWorkStatus(status));
 }
 
 export function taskStatusLabel(status: TaskStatus): string {
