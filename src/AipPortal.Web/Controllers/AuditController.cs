@@ -11,14 +11,17 @@ namespace AipPortal.Web.Controllers;
 [Authorize]
 public sealed class AuditController(
     IAuditQueryService audit,
-    IAuditAuthorizationService auditAuthorization) : ControllerBase
+    IAuditAuthorizationService? auditAuthorization = null) : ControllerBase
 {
     private const int AdminAuditGridDefaultPageSize = 100;
 
     [HttpGet("api/audit/capabilities")]
     public async Task<IActionResult> Capabilities(CancellationToken cancellationToken)
     {
-        return Ok(await auditAuthorization.GetCapabilitiesAsync(cancellationToken));
+        var capabilities = auditAuthorization is null
+            ? new AuditCapabilityResponse(false, false, false, false, false)
+            : await auditAuthorization.GetCapabilitiesAsync(cancellationToken);
+        return Ok(capabilities);
     }
 
     [HttpGet("api/audit-logs")]
