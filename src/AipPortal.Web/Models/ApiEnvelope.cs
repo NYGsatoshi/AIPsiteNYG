@@ -114,6 +114,18 @@ public static class ApiEnvelope
                segments[0].Equals("api", StringComparison.OrdinalIgnoreCase) &&
                segments[1].Equals("projects", StringComparison.OrdinalIgnoreCase) &&
                Guid.TryParse(segments[2], out _) &&
-               segments[3].Equals("activate", StringComparison.OrdinalIgnoreCase);
+               (segments[3].Equals("activate", StringComparison.OrdinalIgnoreCase) ||
+                segments[3].Equals("visibility", StringComparison.OrdinalIgnoreCase));
+    }
+
+    public static bool IsProjectVisibilityPath(string? path)
+    {
+        var normalized = path?.TrimEnd('/') ?? string.Empty;
+        var segments = normalized.Split('/', StringSplitOptions.RemoveEmptyEntries);
+        return segments.Length == 4 &&
+               segments[0].Equals("api", StringComparison.OrdinalIgnoreCase) &&
+               segments[1].Equals("projects", StringComparison.OrdinalIgnoreCase) &&
+               Guid.TryParse(segments[2], out _) &&
+               segments[3].Equals("visibility", StringComparison.OrdinalIgnoreCase);
     }
 }

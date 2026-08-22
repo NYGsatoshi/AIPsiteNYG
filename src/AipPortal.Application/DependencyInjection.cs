@@ -98,11 +98,14 @@ public static class DependencyInjection
         services.AddScoped<IApiTokenValidator>(provider => provider.GetRequiredService<IntegrationService>());
         services.AddScoped<ICanonicalProjectCreateService, CanonicalProjectCreateService>();
         services.AddScoped<IProjectGeneralActivationProvisioner, ProjectGeneralActivationProvisioner>();
+        services.AddScoped<IProjectGeneralMembershipSynchronizer, ProjectGeneralMembershipSynchronizer>();
+        services.AddScoped<IProjectMembershipService, ProjectMembershipService>();
         services.AddScoped<IConfiguredProjectTaskWorkflowSource, NoConfiguredProjectTaskWorkflowSource>();
         services.AddScoped<IProjectTaskWorkflowResolver, ProjectTaskWorkflowResolver>();
         services.AddScoped<IProjectTaskWorkflowActivationProvisioner, ProjectTaskWorkflowActivationProvisioner>();
         services.AddScoped<IProjectActivationService, ProjectActivationService>();
-        services.AddScoped<IProjectService, ProjectService>();
+        services.AddScoped<ProjectService>();
+        services.AddScoped<IProjectService, CanonicalProjectService>();
         // Minimal hosts may register only IUnitOfWork after AddApplication. Reuse that
         // same scoped instance when it also supports the Task-specific save contract.
         // Full Infrastructure registration supplies a later explicit binding and wins.
