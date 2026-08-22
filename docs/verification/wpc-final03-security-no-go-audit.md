@@ -16,14 +16,15 @@ No auto-merge is permitted.
 |---|---|
 | Implementation repository | `NYGsatoshi/AIPsiteNYG` |
 | Original integrated implementation baseline | `31a5d2986d8a83c31fbaee22a679042a17b4335c` |
-| Current merge-audit `main` baseline | `6cdc29434293ff03f066a4974323e2bd61b8c437` |
+| Current merge-audit `main` baseline | `74cca8756bac69061c676d924fcb74a6edf3123b` |
 | WPC-Final01 merged baseline | `6eed5071736a71eb80d3d7688614b59bcaa063fc` |
+| WPC-Final02 merged baseline | `6cdc29434293ff03f066a4974323e2bd61b8c437` |
 | Specification repository | `NYGsatoshi/AIPsiteNYGspec` |
 | Normative specification baseline | `38339ba2964587f225c4c4151f643abb5523e862` |
 | Audit PR | `#324` |
 | Audit branch | `wpc-final03-security-no-go` |
 
-The original implementation baseline includes the merged WPC-02A, WPC-02B, WPC-02C, WPC-02D, WPC-02E-1, WPC-02E-2, and WPC-02F workstreams. The current merge-audit baseline additionally includes merged WPC-Final01 and WPC-Final02. PR #324 is based directly on that current `main` baseline with no outstanding base drift at the time of this update.
+The original implementation baseline includes the merged WPC-02A, WPC-02B, WPC-02C, WPC-02D, WPC-02E-1, WPC-02E-2, and WPC-02F workstreams. The current merge-audit baseline additionally includes merged WPC-Final01 and WPC-Final02 plus UI Shell PR #326. PR #326 changes frontend App Shell/FeatureMenu/RightPanel files only and does not overlap the Final03 backend/security hot spots. PR #324 has merged that current `main` baseline into its branch with no outstanding base drift at the time of this update.
 
 ## 3. Normative security rules used
 
@@ -211,9 +212,9 @@ The Workspace File list repository returns Workspace-owned attachments only; it 
 
 Archived Workspace access and restore remain explicit-member/owner constrained. Project `Visibility == null` and legacy activation state are not inferred as canonical write authority. File, Task, Milestone, Gantt, review, and comment mutation boundaries fail closed for non-activated/legacy states.
 
-### WPC-Final01 / WPC-Final02 integration
+### WPC-Final01 / WPC-Final02 / current-main integration
 
-WPC-Final01 is merged before the current merge-audit baseline and WPC-Final02 is merged on top of it. The Final03 branch is based on the resulting `main` commit `6cdc29434293ff03f066a4974323e2bd61b8c437`. The current Final03 production authorization/redaction changes were re-read against that integrated baseline; no additional source-level collision blocker was identified. Any subsequent movement of `main` before merge requires the same final collision check again.
+WPC-Final01 is merged before WPC-Final02, and the current `main` is `74cca8756bac69061c676d924fcb74a6edf3123b`. The only post-Final02 main movement reviewed here is merged UI Shell PR #326, whose diff is confined to frontend App Shell, FeatureMenu, RightPanel, and component-token files. It does not touch Final03 authorization, membership, persistence, redaction, or backend CI ownership surfaces. PR #324 has merged this current main into the audit branch. The current Final03 production authorization/redaction changes were re-read against that integrated baseline; no additional source-level collision blocker was identified. Any subsequent movement of `main` before merge requires the same final collision check again.
 
 ### Unrouted Task subresource summary helper
 
