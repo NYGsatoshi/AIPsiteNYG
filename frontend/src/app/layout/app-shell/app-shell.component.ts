@@ -50,6 +50,7 @@ export class AppShellComponent implements AfterViewChecked {
 
   readonly viewModel = this.facade.viewModel;
   readonly mobileDrawerOpen = signal(false);
+  readonly featureMenuCollapsed = signal(false);
   readonly pageSearch = signal('');
   readonly logoutPending = signal(false);
   readonly logoutError = signal('');
@@ -77,6 +78,10 @@ export class AppShellComponent implements AfterViewChecked {
 
   setPageSearch(value: string): void {
     this.pageSearch.set(value);
+  }
+
+  setFeatureMenuCollapsed(collapsed: boolean): void {
+    this.featureMenuCollapsed.set(collapsed);
   }
 
   logout(): void {
