@@ -7,7 +7,8 @@ import {
   ANNOUNCEMENT_PRIORITY_LABELS,
   AnnouncementAudienceScope,
   AnnouncementEditorDraft,
-  AnnouncementPriority
+  AnnouncementPriority,
+  AnnouncementPublicationState
 } from '../announcements.types';
 
 @Component({
@@ -21,7 +22,12 @@ export class AnnouncementEditorComponent implements OnChanges {
   @Input({ required: true }) draft!: AnnouncementEditorDraft;
 
   readonly priorityOptions: readonly AnnouncementPriority[] = ['normal', 'important', 'urgent'];
-  readonly audienceOptions: readonly AnnouncementAudienceScope[] = ['allWorkspaceMembers', 'guardiansOnly', 'teachersOnly', 'adminOnly'];
+  readonly audienceOptions: readonly AnnouncementAudienceScope[] = [
+    'allWorkspaceMembers',
+    'guardiansOnly',
+    'teachersOnly',
+    'adminOnly'
+  ];
   readonly priorityLabels = ANNOUNCEMENT_PRIORITY_LABELS;
   readonly audienceLabels = ANNOUNCEMENT_AUDIENCE_LABELS;
 
@@ -33,12 +39,16 @@ export class AnnouncementEditorComponent implements OnChanges {
     requiresReadConfirmation: [false]
   });
 
+  get publicationState(): AnnouncementPublicationState {
+    return this.draft.publicationState ?? 'draft';
+  }
+
   get canSaveDraft(): boolean {
-    return this.draft.publicationState === 'draft';
+    return this.publicationState === 'draft';
   }
 
   get canPublish(): boolean {
-    return this.draft.publicationState === 'draft';
+    return this.publicationState === 'draft';
   }
 
   ngOnChanges(changes: SimpleChanges): void {
