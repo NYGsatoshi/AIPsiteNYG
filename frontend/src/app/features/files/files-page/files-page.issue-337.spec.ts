@@ -83,8 +83,15 @@ describe('FilesPageComponent issue #337', () => {
       .componentInstance as AppDataGridComponent<FileViewModel>;
     const nameColumn = fixture.componentInstance.columns()[0];
     const actions = nameColumn?.actions?.(file) ?? [];
+    const fallbackRenderer = grid.columnDefs[0]?.cellRenderer;
 
     expect(actions.map((action) => action.id)).toEqual(['open']);
+    expect(typeof fallbackRenderer).toBe('function');
+    if (typeof fallbackRenderer !== 'function') {
+      throw new Error('Expected the AG Grid fallback action renderer.');
+    }
+    const renderedAction = fallbackRenderer({ data: file }) as HTMLElement;
+    expect(renderedAction.querySelector('[data-grid-action="open"]')?.textContent).toBe(file.originalFileName);
     expect(grid.selectionMode).toBe('multiple');
     expect(grid.rowSelection).toMatchObject({
       checkboxes: true,
