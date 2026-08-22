@@ -1,10 +1,8 @@
 import { Component, Input } from '@angular/core';
 import { RouterLink } from '@angular/router';
 
-import {
-  WorkStatusBadgeComponent,
-  WorkStatusPresentation
-} from '../../../shared/status/work-status-badge.component';
+import { WorkStatusBadgeComponent } from '../../../shared/ui/work-status/work-status-badge.component';
+import { WorkStatus } from '../../../shared/ui/work-status/work-status';
 import { ProjectStatus, ProjectSummaryViewModel } from '../projects.types';
 
 @Component({
@@ -19,10 +17,7 @@ import { ProjectStatus, ProjectSummaryViewModel } from '../projects.types';
             <a [routerLink]="['/projects', project.id]" [attr.aria-label]="'Open ' + project.name">
               <h2>{{ project.name }}</h2>
             </a>
-            <app-work-status-badge
-              [status]="statusPresentation(project.status)"
-              [label]="statusLabel(project.status)"
-            />
+            <app-work-status-badge [status]="statusPresentation(project.status)" />
           </div>
 
           <details class="project-summary-panel__secondary">
@@ -139,33 +134,18 @@ export class ProjectSummaryPanelComponent {
   @Input() projects: readonly ProjectSummaryViewModel[] = [];
 
   readonly statusPresentation = projectStatusPresentation;
-  readonly statusLabel = projectStatusDisplayLabel;
 }
 
-export function projectStatusPresentation(status: ProjectStatus): WorkStatusPresentation {
+export function projectStatusPresentation(status: ProjectStatus): WorkStatus {
   return (
     {
       planning: 'draft',
       active: 'running',
       review: 'needsReview',
-      atRisk: 'atRisk',
+      atRisk: 'needsAttention',
       complete: 'completed',
       suspended: 'paused',
       archived: 'archived'
-    } satisfies Record<ProjectStatus, WorkStatusPresentation>
-  )[status];
-}
-
-export function projectStatusDisplayLabel(status: ProjectStatus): string {
-  return (
-    {
-      planning: 'Draft',
-      active: 'Running',
-      review: 'Needs review',
-      atRisk: 'At risk',
-      complete: 'Completed',
-      suspended: 'Paused',
-      archived: 'Archived'
-    } satisfies Record<ProjectStatus, string>
+    } satisfies Record<ProjectStatus, WorkStatus>
   )[status];
 }
