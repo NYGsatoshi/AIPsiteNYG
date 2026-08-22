@@ -2,11 +2,17 @@
   <article class="announcement-detail" data-testid="announcement-detail">
     <header class="announcement-detail__header">
       <div>
-        <p class="announcement-detail__state">{{ announcement.publicationState === 'draft' ? '下書き' : '公開' }}</p>
+        <p class="announcement-detail__state">
+          <app-announcement-publication-status
+            [state]="announcement.publicationState"
+            [scheduledAtLabel]="announcement.scheduledAtLabel"
+            [timeZoneLabel]="announcement.timeZoneLabel"
+          />
+        </p>
         <h2 data-testid="announcement-detail-title">{{ announcement.title }}</h2>
       </div>
 
-      @if (canEdit && announcement.capabilities.includes('editAnnouncement')) {
+      @if (canEdit && announcement.capabilities.includes('editAnnouncement') && announcement.publicationState !== 'archived') {
         <button class="announcement-detail__edit" type="button" (click)="editRequested.emit(announcement.id)" data-testid="edit-announcement-action">
           編集
         </button>
@@ -14,51 +20,35 @@
     </header>
 
     <dl class="announcement-detail__meta">
+      <div><dt>優先度</dt><dd data-testid="announcement-priority-label">{{ priorityLabels[announcement.priority] }}</dd></div>
+      <div><dt>対象</dt><dd><app-announcement-audience-preview [audienceScope]="announcement.audienceScope" /></dd></div>
       <div>
-        <dt>優先度</dt>
-        <dd data-testid="announcement-priority-label">{{ priorityLabels[announcement.priority] }}</dd>
+        <dt>{{ announcement.publicationState === 'scheduled' ? '公開予定' : '公開日時' }}</dt>
+        <dd>
+          @if (announcement.publicationState === 'scheduled') {
+            {{ announcement.scheduledAtLabel || '未設定' }} @if (announcement.timeZoneLabel) { （{{ announcement.timeZoneLabel }}） }
+          } @else {
+            {{ announcement.publishedAtLabel }}
+          }
+        </dd>
       </div>
-      <div>
-        <dt>対象</dt>
-        <dd><app-announcement-audience-preview [audienceScope]="announcement.audienceScope" /></dd>
-      </div>
-      <div>
-        <dt>公開日時</dt>
-        <dd>{{ announcement.publishedAtLabel }}</dd>
-      </div>
-      <div>
-        <dt>既読確認</dt>
-        <dd><app-announcement-read-state [readState]="announcement.readState" /></dd>
-      </div>
+      <div><dt>既読確認</dt><dd><app-announcement-read-state [readState]="announcement.readState" /></dd></div>
     </dl>
 
     @if (announcement.detailState === 'loaded') {
       <p class="announcement-detail__body" data-testid="announcement-body-text">{{ announcement.body }}</p>
     } @else {
-      <p class="announcement-detail__body" data-testid="announcement-detail-message">
-        {{ announcement.detailMessage }}
-      </p>
+      <p class="announcement-detail__body" data-testid="announcement-detail-message">{{ announcement.detailMessage }}</p>
     }
 
     @if (announcement.readState.requiresReadConfirmation && !announcement.readState.isRead) {
-      <button
-        type="button"
-        class="announcement-detail__edit"
-        data-testid="announcement-mark-read-action"
-        (click)="markReadRequested.emit(announcement.id)"
-      >
-        既読にする
-      </button>
+      <button type="button" class="announcement-detail__edit" data-testid="announcement-mark-read-action" (click)="markReadRequested.emit(announcement.id)">既読にする</button>
     }
 
     @if (announcement.attachment) {
-      <p class="announcement-detail__attachment" data-testid="announcement-attachment-disabled">
-        {{ announcement.attachment.label }}
-      </p>
+      <p class="announcement-detail__attachment" data-testid="announcement-attachment-disabled">{{ announcement.attachment.label }}</p>
     }
   </article>
 } @else {
-  <section class="announcement-detail announcement-detail--empty" data-testid="announcement-detail-empty">
-    表示できるお知らせがありません。
-  </section>
+  <section class="announcement-detail announcement-detail--empty" data-testid="announcement-detail-empty">表示できるお知らせがありません。</section>
 }
