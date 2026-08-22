@@ -113,6 +113,11 @@ public sealed class WpcFinal01MergeAuditPostgreSqlTests
             Assert.False(navigation.IsAvailable);
             Assert.Null(navigation.Route);
 
+            Assert.False(await resolver.CanDeliverCreatedAsync(
+                graph.TenantId,
+                graph.ReaderUserId,
+                NewNotificationCreatedEvent(graph)));
+
             Assert.False(await resolver.CanReceiveTaskEventAsync(
                 graph.TenantId,
                 graph.ReaderUserId,
@@ -234,6 +239,25 @@ public sealed class WpcFinal01MergeAuditPostgreSqlTests
             owner.Id,
             reader.Id);
     }
+
+    private static DurableEventEnvelope NewNotificationCreatedEvent(Graph graph) => new(
+        Guid.NewGuid(),
+        "Notifications.NotificationCreated.v1",
+        RealtimeEventCatalog.PayloadSchemaVersion1,
+        Now,
+        graph.TenantId,
+        "Notification",
+        graph.NotificationId,
+        1,
+        RealtimeActor.System(),
+        null,
+        null,
+        JsonSerializer.SerializeToElement(new
+        {
+            notificationId = graph.NotificationId,
+            stateVersion = 1,
+            requiresRefetch = true
+        }));
 
     private static DurableEventEnvelope NewTaskEvent(Graph graph) => new(
         Guid.NewGuid(),
