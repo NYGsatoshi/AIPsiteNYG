@@ -1,6 +1,7 @@
-import { Component, EventEmitter, Input, Output } from '@angular/core';
+import { Component, EventEmitter, Input, Output, ViewChild } from '@angular/core';
 import {
   FilterService,
+  GridComponent,
   GridModule,
   PageService,
   SelectionService,
@@ -41,6 +42,8 @@ type SyncfusionGridEvent<TData> = {
   styleUrl: './syncfusion-data-grid.component.scss'
 })
 export class SyncfusionDataGridComponent<TData extends object> {
+  @ViewChild('grid') private grid?: GridComponent;
+
   @Input() rows: readonly TData[] = [];
   @Input() columns: readonly AppDataGridColumnDef<TData>[] = [];
   @Input() loading = false;
@@ -49,6 +52,7 @@ export class SyncfusionDataGridComponent<TData extends object> {
   @Input() rowIdField: keyof TData & string = 'id' as keyof TData & string;
   @Input() ariaLabel = 'Data grid';
   @Input() selectionMode: AppDataGridSelectionMode = 'none';
+  @Input() rowHeight?: number;
   @Input() page = 1;
   @Input() error: string | null = null;
   @Input() emptyState: string | null = null;
@@ -128,14 +132,12 @@ export class SyncfusionDataGridComponent<TData extends object> {
     }
   }
 
-  handleRowSelected(event: SyncfusionGridEvent<TData>): void {
+  handleSelectionChanged(): void {
     if (this.selectionMode === 'none') {
       return;
     }
 
-    const rows: readonly TData[] = Array.isArray(event.data)
-      ? event.data as readonly TData[]
-      : event.data ? [event.data as TData] : [];
+    const rows = (this.grid?.getSelectedRecords() ?? []) as TData[];
     this.selectionChanged.emit({ rows });
   }
 
