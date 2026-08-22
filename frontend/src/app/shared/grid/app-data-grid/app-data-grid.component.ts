@@ -109,9 +109,12 @@ export class AppDataGridComponent<TData extends object> implements OnInit, After
       valueFormatter: column.valueFormatter
         ? (params) => column.valueFormatter?.({ data: params.data, value: params.value })
         : undefined,
-      cellRenderer: column.actions
+      // Existing feature-owned renderers remain authoritative. The generic
+      // vendor-neutral action renderer is only the fallback for columns that
+      // declare action metadata without their own renderer (Files #337).
+      cellRenderer: column.cellRenderer ?? (column.actions
         ? (params: { data?: TData }) => this.renderActions(column, params.data)
-        : column.cellRenderer
+        : undefined)
     })) as unknown as ColDef<TData>[];
   }
 
