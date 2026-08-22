@@ -73,6 +73,12 @@ export const DEFAULT_ANNOUNCEMENTS_PAGE: AnnouncementsPageViewModel = {
     body: '',
     priority: 'normal',
     audienceScope: 'allWorkspaceMembers',
+    availableAudiences: [
+      { scope: 'allWorkspaceMembers', displayName: '全生徒', recipientCount: 1248 },
+      { scope: 'guardiansOnly', displayName: '保護者', recipientCount: 1162 },
+      { scope: 'teachersOnly', displayName: '教職員', recipientCount: 86 },
+      { scope: 'adminOnly', displayName: '管理者', recipientCount: 12 }
+    ],
     requiresReadConfirmation: false
   }
 };
