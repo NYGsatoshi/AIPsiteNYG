@@ -36,8 +36,10 @@ describe('FeatureMenuComponent', () => {
     });
 
     const element = fixture.nativeElement as HTMLElement;
+    const menu = element.querySelector<HTMLElement>('.feature-menu');
     const toggle = element.querySelector<HTMLButtonElement>('[data-testid="feature-menu-toggle"]');
 
+    expect(menu?.classList.contains('feature-menu--collapsible')).toBe(true);
     expect(toggle).toBeTruthy();
     expect(toggle?.getAttribute('aria-expanded')).toBe('true');
     expect(element.querySelector('[data-testid="nav-projects"]')).toBeTruthy();
@@ -59,7 +61,7 @@ describe('FeatureMenuComponent', () => {
     expect(element.querySelector('[data-testid="nav-tasks"]')).toBeNull();
   });
 
-  it('does not add a desktop collapse control to the compact mobile menu', async () => {
+  it('does not add desktop collapse layout or controls to the compact mobile menu', async () => {
     await TestBed.configureTestingModule({
       imports: [FeatureMenuComponent],
       providers: [provideRouter([])],
@@ -71,6 +73,11 @@ describe('FeatureMenuComponent', () => {
     fixture.detectChanges();
 
     const element = fixture.nativeElement as HTMLElement;
+    const menu = element.querySelector<HTMLElement>('.feature-menu');
+
+    expect(menu?.classList.contains('feature-menu--compact')).toBe(true);
+    expect(menu?.classList.contains('feature-menu--collapsible')).toBe(false);
+    expect(menu?.classList.contains('feature-menu--collapsed')).toBe(false);
     expect(element.querySelector('[data-testid="feature-menu-toggle"]')).toBeNull();
     expect(element.querySelector('[data-testid="nav-projects"]')).toBeTruthy();
   });
