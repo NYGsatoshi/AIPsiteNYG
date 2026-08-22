@@ -18,8 +18,8 @@ import { MessagingConversationListItem } from '../messaging.types';
           } @else {
             <span class="conversation-list__preview" data-testid="channel-preview">{{ conversation.safePreviewLabel }}</span>
           }
-          @if (conversation.unreadCount) {
-            <span class="conversation-list__badge">{{ conversation.unreadCount }}</span>
+          @if (showUnreadBadges && conversation.unreadCount) {
+            <span class="conversation-list__badge" data-testid="conversation-unread-badge">{{ conversation.unreadCount }}</span>
           }
         </a>
       }
@@ -29,4 +29,5 @@ import { MessagingConversationListItem } from '../messaging.types';
 })
 export class ConversationListComponent {
   @Input({ required: true }) conversations: readonly MessagingConversationListItem[] = [];
+  @Input() showUnreadBadges = true;
 }
