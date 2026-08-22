@@ -2,11 +2,7 @@ import { TestBed } from '@angular/core/testing';
 import { provideRouter } from '@angular/router';
 
 import { ProjectSummaryViewModel } from '../projects.types';
-import {
-  ProjectSummaryPanelComponent,
-  projectStatusDisplayLabel,
-  projectStatusPresentation
-} from './project-summary-panel.component';
+import { ProjectSummaryPanelComponent, projectStatusPresentation } from './project-summary-panel.component';
 
 const project = (status: ProjectSummaryViewModel['status']): ProjectSummaryViewModel => ({
   id: `project-${status}`,
@@ -23,27 +19,17 @@ const project = (status: ProjectSummaryViewModel['status']): ProjectSummaryViewM
 describe('ProjectSummaryPanelComponent', () => {
   afterEach(() => TestBed.resetTestingModule());
 
-  it('uses the canonical project-card status vocabulary', () => {
-    expect(projectStatusDisplayLabel('planning')).toBe('Draft');
-    expect(projectStatusDisplayLabel('active')).toBe('Running');
-    expect(projectStatusDisplayLabel('review')).toBe('Needs review');
-    expect(projectStatusDisplayLabel('atRisk')).toBe('At risk');
-    expect(projectStatusDisplayLabel('complete')).toBe('Completed');
-    expect(projectStatusDisplayLabel('suspended')).toBe('Paused');
-    expect(projectStatusDisplayLabel('archived')).toBe('Archived');
-  });
-
-  it('maps every project lifecycle state to a non-color status presentation', () => {
+  it('maps every Project lifecycle state to the shared work-status vocabulary', () => {
     expect(projectStatusPresentation('planning')).toBe('draft');
     expect(projectStatusPresentation('active')).toBe('running');
     expect(projectStatusPresentation('review')).toBe('needsReview');
-    expect(projectStatusPresentation('atRisk')).toBe('atRisk');
+    expect(projectStatusPresentation('atRisk')).toBe('needsAttention');
     expect(projectStatusPresentation('complete')).toBe('completed');
     expect(projectStatusPresentation('suspended')).toBe('paused');
     expect(projectStatusPresentation('archived')).toBe('archived');
   });
 
-  it('renders the normalized text status and keeps secondary metrics collapsed by default', async () => {
+  it('renders icon plus normalized text and keeps secondary metrics collapsed by default', async () => {
     await TestBed.configureTestingModule({
       imports: [ProjectSummaryPanelComponent],
       providers: [provideRouter([])]
@@ -54,11 +40,11 @@ describe('ProjectSummaryPanelComponent', () => {
     fixture.detectChanges();
 
     const root = fixture.nativeElement as HTMLElement;
-    const badge = root.querySelector<HTMLElement>('app-work-status-badge .work-status-badge');
+    const badge = root.querySelector<HTMLElement>('app-work-status-badge .work-status');
     const details = root.querySelector<HTMLDetailsElement>('.project-summary-panel__secondary');
 
     expect(badge?.textContent).toContain('Running');
-    expect(badge?.getAttribute('data-status')).toBe('running');
+    expect(badge?.getAttribute('data-work-status')).toBe('running');
     expect(badge?.querySelector('svg')).not.toBeNull();
     expect(details?.open).toBe(false);
     expect(root.textContent).not.toContain('legacy status label');
