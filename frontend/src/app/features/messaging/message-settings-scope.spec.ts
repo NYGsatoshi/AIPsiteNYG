@@ -101,11 +101,12 @@ describe('Message settings scope separation', () => {
     fixture.detectChanges();
     expect(settings.showUnreadBadges()).toBe(true);
     expect(root.querySelector('[data-testid="global-settings-confirmation"]')).not.toBeNull();
+    expect(root.textContent).toContain('Individual conversation mute settings will not be changed');
 
     root.querySelector<HTMLButtonElement>('[data-testid="confirm-global-message-settings"]')?.click();
     fixture.detectChanges();
     expect(settings.showUnreadBadges()).toBe(false);
-    expect(root.textContent).toContain('Individual conversation mute settings will not be changed');
+    expect(root.textContent).toContain('Global message display settings were updated');
   });
 
   it('applies the global unread-badge preference without changing conversation data', async () => {
