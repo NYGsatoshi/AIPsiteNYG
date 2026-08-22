@@ -30,6 +30,10 @@ export class FilesPageComponent {
   readonly syncfusionUploaderEnabled = this.flags.syncfusionUploaderEnabled;
   readonly density = signal<FileListDensity>('comfortable');
   readonly selectedCount = signal(0);
+  readonly totalPages = computed(() => {
+    const page = this.page();
+    return Math.max(1, Math.ceil(page.totalCount / Math.max(1, page.pageSize)));
+  });
   readonly optionalColumns = [
     { id: 'type' as const, label: 'Type' },
     { id: 'size' as const, label: 'Size' },
@@ -53,7 +57,7 @@ export class FilesPageComponent {
           disabledReason: row.downloadMessage,
         }],
       },
-      { field: 'createdAtLabel', headerName: 'Modified', flex: 1, minWidth: 150 },
+      { field: 'modifiedAtLabel', headerName: 'Modified', flex: 1, minWidth: 150 },
       { field: 'uploadedByDisplay', headerName: 'Owner', flex: 1, minWidth: 140 },
       {
         colId: 'status',
@@ -128,6 +132,24 @@ export class FilesPageComponent {
 
   handleSelectionChanged(event: { rows: readonly FileViewModel[] }): void {
     this.selectedCount.set(event.rows.length);
+  }
+
+  goToPreviousPage(): void {
+    const current = this.page();
+    if (current.page <= 1) {
+      return;
+    }
+    this.selectedCount.set(0);
+    this.facade.goToPage(current.page - 1);
+  }
+
+  goToNextPage(): void {
+    const current = this.page();
+    if (!current.hasMore) {
+      return;
+    }
+    this.selectedCount.set(0);
+    this.facade.goToPage(current.page + 1);
   }
 
   handleGridAction(event: { actionId: string; row: FileViewModel }): void {
