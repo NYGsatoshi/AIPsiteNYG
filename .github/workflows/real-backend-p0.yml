@@ -21,13 +21,23 @@ permissions:
 jobs:
   real-backend-p0-acceptance:
     if: github.event.pull_request.head.repo.full_name == github.repository
-    runs-on: ubuntu-24.04
+    runs-on: self-hosted
     timeout-minutes: 45
     concurrency:
       group: real-backend-p0-${{ github.event.pull_request.number }}
       cancel-in-progress: true
 
     steps:
+      - name: Repair previous Docker workspace ownership
+        shell: bash
+        run: |
+          uid="$(id -u)"
+          gid="$(id -g)"
+          docker run --rm \
+            -v "$GITHUB_WORKSPACE:/workspace" \
+            alpine:3.21 \
+            sh -c "chown -R ${uid}:${gid} /workspace"
+
       - name: Checkout
         uses: actions/checkout@v7
         with:

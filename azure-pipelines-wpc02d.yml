@@ -1,0 +1,35 @@
+# Standalone Azure Pipelines entry point for WPC-02D / PR #313.
+# The existing repository-wide azure-pipelines.yml also includes the same
+# guarded WPC-02D job, so a separately registered pipeline is optional.
+
+trigger: none
+
+pr:
+  autoCancel: true
+  branches:
+    include:
+      - main
+
+pool:
+  vmImage: ubuntu-latest
+
+resources:
+  containers:
+    - container: postgres
+      image: postgres:18-alpine
+      env:
+        POSTGRES_DB: aip_portal_ci
+        POSTGRES_USER: aip_portal_ci
+        POSTGRES_PASSWORD: aip_portal_ci_password
+      ports:
+        - 5432:5432
+      options: >-
+        --health-cmd "pg_isready -U aip_portal_ci -d aip_portal_ci"
+        --health-interval 10s
+        --health-timeout 5s
+        --health-retries 5
+
+jobs:
+  - template: ci/azure/wpc02d-jobs.yml
+    parameters:
+      allowManual: true

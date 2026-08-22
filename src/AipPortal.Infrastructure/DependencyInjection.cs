@@ -29,6 +29,7 @@ public static class DependencyInjection
 
         services.AddScoped<IUserRepository, UserRepository>();
         services.AddScoped<ITenantRepository, TenantRepository>();
+        services.AddScoped<ICapabilityGrantRepository, CapabilityGrantRepository>();
         services.AddScoped<ITenantExportRepository, TenantExportRepository>();
         services.AddScoped<IIntegrationRepository, IntegrationRepository>();
         services.AddScoped<AipPortal.Application.Admin.IAdminRepository, AdminRepository>();
@@ -40,7 +41,11 @@ public static class DependencyInjection
         services.AddScoped<IGroupRepository, GroupRepository>();
         services.AddScoped<IChannelRepository, ChannelRepository>();
         services.AddScoped<IMessagingRepository, MessagingRepository>();
+        services.AddScoped<IDefaultConversationStore, DefaultConversationStore>();
         services.AddScoped<IProjectRepository, ProjectRepository>();
+        services.AddScoped<IProjectActivationWorkflowStore, ProjectActivationWorkflowStore>();
+        services.AddScoped<IProjectActivationUnitOfWork, ProjectActivationUnitOfWork>();
+        services.AddScoped<IConfiguredProjectTaskWorkflowSource, ConfiguredProjectTaskWorkflowSource>();
         services.AddScoped<IProjectKanbanRepository, ProjectKanbanRepository>();
         services.AddScoped<IProjectKanbanService, ProjectKanbanService>();
         services.AddScoped<IEventRepository, EventRepository>();

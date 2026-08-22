@@ -715,6 +715,80 @@ namespace AipPortal.Infrastructure.Persistence.Migrations
                     b.ToTable("audit_logs", (string)null);
                 });
 
+            modelBuilder.Entity("AipPortal.Domain.Entities.CapabilityGrant", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("uuid");
+
+                    b.Property<string>("CapabilityKey")
+                        .IsRequired()
+                        .HasMaxLength(120)
+                        .HasColumnType("character varying(120)");
+
+                    b.Property<DateTimeOffset>("CreatedAt")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<DateTimeOffset?>("ExpiresAt")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<DateTimeOffset>("GrantedAt")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<Guid>("GrantedByUserId")
+                        .HasColumnType("uuid");
+
+                    b.Property<DateTimeOffset?>("RevokedAt")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<Guid?>("ScopeId")
+                        .HasColumnType("uuid");
+
+                    b.Property<string>("ScopeType")
+                        .IsRequired()
+                        .HasMaxLength(40)
+                        .HasColumnType("character varying(40)");
+
+                    b.Property<Guid>("SubjectUserId")
+                        .HasColumnType("uuid");
+
+                    b.Property<Guid>("TenantId")
+                        .HasColumnType("uuid");
+
+                    b.Property<DateTimeOffset?>("UpdatedAt")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<long>("VersionNo")
+                        .IsConcurrencyToken()
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("bigint")
+                        .HasDefaultValue(1L);
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("CreatedAt");
+
+                    b.HasIndex("ExpiresAt");
+
+                    b.HasIndex("GrantedByUserId");
+
+                    b.HasIndex("RevokedAt");
+
+                    b.HasIndex("SubjectUserId");
+
+                    b.HasIndex("TenantId");
+
+                    b.HasIndex("TenantId", "SubjectUserId", "CapabilityKey", "ScopeType", "ScopeId")
+                        .IsUnique();
+
+                    b.ToTable("capability_grants", null, t =>
+                        {
+                            t.HasCheckConstraint("CK_capability_grants_scope_shape", "(\"ScopeType\" = 'Tenant' AND \"ScopeId\" = \"TenantId\") OR (\"ScopeType\" = 'Workspace' AND \"ScopeId\" IS NOT NULL)");
+
+                            t.HasCheckConstraint("CK_capability_grants_version_positive", "\"VersionNo\" > 0");
+                        });
+                });
+
             modelBuilder.Entity("AipPortal.Domain.Entities.Channel", b =>
                 {
                     b.Property<Guid>("Id")
@@ -996,6 +1070,10 @@ namespace AipPortal.Infrastructure.Persistence.Migrations
                     b.Property<Guid>("CreatedByUserId")
                         .HasColumnType("uuid");
 
+                    b.Property<string>("DefaultKind")
+                        .HasMaxLength(40)
+                        .HasColumnType("character varying(40)");
+
                     b.Property<bool>("IsArchived")
                         .HasColumnType("boolean");
 
@@ -1026,6 +1104,10 @@ namespace AipPortal.Infrastructure.Persistence.Migrations
                     b.Property<DateTimeOffset?>("UpdatedAt")
                         .HasColumnType("timestamp with time zone");
 
+                    b.Property<string>("Visibility")
+                        .HasMaxLength(40)
+                        .HasColumnType("character varying(40)");
+
                     b.Property<Guid>("WorkspaceId")
                         .HasColumnType("uuid");
 
@@ -1051,9 +1133,22 @@ namespace AipPortal.Infrastructure.Persistence.Migrations
 
                     b.HasIndex("TenantId", "WorkspaceId");
 
+                    b.HasIndex("TenantId", "ProjectId", "DefaultKind")
+                        .IsUnique()
+                        .HasFilter("\"DefaultKind\" = 'ProjectGeneral' AND \"ProjectId\" IS NOT NULL");
+
+                    b.HasIndex("TenantId", "WorkspaceId", "DefaultKind")
+                        .IsUnique()
+                        .HasFilter("\"DefaultKind\" = 'WorkspaceGeneral'");
+
                     b.HasIndex("TenantId", "WorkspaceId", "ProjectId");
 
-                    b.ToTable("conversations", (string)null);
+                    b.ToTable("conversations", null, t =>
+                        {
+                            t.HasCheckConstraint("CK_conversations_project_general_shape", "\"DefaultKind\" <> 'ProjectGeneral' OR (\"Type\" = 'ProjectChannel' AND \"ProjectId\" IS NOT NULL AND \"Visibility\" = 'PublicWithinScope')");
+
+                            t.HasCheckConstraint("CK_conversations_workspace_general_shape", "\"DefaultKind\" <> 'WorkspaceGeneral' OR (\"Type\" = 'WorkspaceChannel' AND \"ProjectId\" IS NULL AND \"Visibility\" = 'PublicWithinScope')");
+                        });
                 });
 
             modelBuilder.Entity("AipPortal.Domain.Entities.ConversationMember", b =>
@@ -5467,6 +5562,25 @@ namespace AipPortal.Infrastructure.Persistence.Migrations
                     b.Navigation("Project");
 
                     b.Navigation("Workspace");
+                });
+
+            modelBuilder.Entity("AipPortal.Domain.Entities.CapabilityGrant", b =>
+                {
+                    b.HasOne("AipPortal.Domain.Entities.User", "GrantedByUser")
+                        .WithMany()
+                        .HasForeignKey("GrantedByUserId")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired();
+
+                    b.HasOne("AipPortal.Domain.Entities.User", "SubjectUser")
+                        .WithMany()
+                        .HasForeignKey("SubjectUserId")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired();
+
+                    b.Navigation("GrantedByUser");
+
+                    b.Navigation("SubjectUser");
                 });
 
             modelBuilder.Entity("AipPortal.Domain.Entities.Channel", b =>

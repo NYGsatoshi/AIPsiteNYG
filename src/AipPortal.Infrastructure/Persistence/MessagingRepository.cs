@@ -191,8 +191,22 @@ public sealed class MessagingRepository(AppDbContext dbContext) : IMessagingRepo
                 FROM conversations AS conversation
                 WHERE conversation."TenantId" = {{tenantId.Value}}
                   AND (NOT {{restrictOrigins}} OR conversation."Id" = ANY({{requestedOriginIds}}))
-                  AND conversation."Type" IN ('DirectMessage', 'ProjectChannel', 'Thread')
+                  AND conversation."Type" IN ('DirectMessage', 'WorkspaceChannel', 'ProjectChannel', 'Thread')
                   AND (conversation."Type" <> 'ProjectChannel' OR conversation."ProjectId" IS NOT NULL)
+                  AND (conversation."Type" <> 'WorkspaceChannel' OR (
+                      conversation."ProjectId" IS NULL AND EXISTS (
+                          SELECT 1
+                          FROM workspaces AS workspace
+                          INNER JOIN workspace_members AS workspace_member
+                              ON workspace_member."WorkspaceId" = workspace."Id"
+                             AND workspace_member."TenantId" = workspace."TenantId"
+                          WHERE workspace."Id" = conversation."WorkspaceId"
+                            AND workspace."TenantId" = {{tenantId.Value}}
+                            AND workspace."DeletedAt" IS NULL
+                            AND workspace."Status" IN ('Active', 'Archived')
+                            AND workspace_member."UserId" = {{userId}}
+                            AND workspace_member."Status" = 'Active')))
+
                   AND (conversation."Type" <> 'Thread' OR
                        (conversation."ParentConversationId" IS NOT NULL AND conversation."RootConversationId" IS NOT NULL))
                   AND EXISTS (
@@ -223,8 +237,22 @@ public sealed class MessagingRepository(AppDbContext dbContext) : IMessagingRepo
                    AND parent."TenantId" = {{tenantId.Value}}
                 WHERE ancestry."CurrentType" = 'Thread'
                   AND ancestry."Depth" < {{MaxThreadDepth}}
-                  AND parent."Type" IN ('DirectMessage', 'ProjectChannel', 'Thread')
+                  AND parent."Type" IN ('DirectMessage', 'WorkspaceChannel', 'ProjectChannel', 'Thread')
                   AND (parent."Type" <> 'ProjectChannel' OR parent."ProjectId" IS NOT NULL)
+                  AND (parent."Type" <> 'WorkspaceChannel' OR (
+                      parent."ProjectId" IS NULL AND EXISTS (
+                          SELECT 1
+                          FROM workspaces AS workspace
+                          INNER JOIN workspace_members AS workspace_member
+                              ON workspace_member."WorkspaceId" = workspace."Id"
+                             AND workspace_member."TenantId" = workspace."TenantId"
+                          WHERE workspace."Id" = parent."WorkspaceId"
+                            AND workspace."TenantId" = {{tenantId.Value}}
+                            AND workspace."DeletedAt" IS NULL
+                            AND workspace."Status" IN ('Active', 'Archived')
+                            AND workspace_member."UserId" = {{userId}}
+                            AND workspace_member."Status" = 'Active')))
+
                   AND (parent."Type" <> 'Thread' OR
                        (parent."ParentConversationId" IS NOT NULL AND
                         parent."RootConversationId" = ancestry."OriginRootConversationId"))
@@ -322,6 +350,7 @@ public sealed class MessagingRepository(AppDbContext dbContext) : IMessagingRepo
             .AsNoTracking()
             .Where(conversation =>
                 (conversation.Type == ConversationType.DirectMessage ||
+                 conversation.Type == ConversationType.WorkspaceChannel ||
                  conversation.Type == ConversationType.ProjectChannel ||
                  conversation.Type == ConversationType.Thread) &&
                 conversation.Members.Any(member =>
@@ -331,6 +360,14 @@ public sealed class MessagingRepository(AppDbContext dbContext) : IMessagingRepo
                     member.CanRead) &&
                 (conversation.Type != ConversationType.ProjectChannel ||
                  conversation.ProjectId.HasValue) &&
+                (conversation.Type != ConversationType.WorkspaceChannel ||
+                 (!conversation.ProjectId.HasValue &&
+                  dbContext.Workspaces.Any(workspace =>
+                      workspace.Id == conversation.WorkspaceId &&
+                      workspace.DeletedAt == null &&
+                      (workspace.Status == WorkspaceStatus.Active || workspace.Status == WorkspaceStatus.Archived) &&
+                      workspace.Members.Any(member =>
+                          member.UserId == userId && member.Status == MembershipStatus.Active)))) &&
                 (!conversation.ProjectId.HasValue ||
                  visibleProjectIds.Contains(conversation.ProjectId.Value)));
     }

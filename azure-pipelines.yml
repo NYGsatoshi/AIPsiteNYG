@@ -1,0 +1,31 @@
+# Temporary Azure Pipelines fallback for AIPsiteNYG.
+# Automatic CI is currently handled by the restored self-hosted GitHub Actions workflows.
+# Keep this definition available for manual fallback only.
+
+trigger: none
+pr: none
+
+pool:
+  vmImage: ubuntu-latest
+
+resources:
+  containers:
+    - container: postgres
+      image: postgres:18-alpine
+      env:
+        POSTGRES_DB: aip_portal_ci
+        POSTGRES_USER: aip_portal_ci
+        POSTGRES_PASSWORD: aip_portal_ci_password
+      ports:
+        - 5432:5432
+      options: >-
+        --health-cmd "pg_isready -U aip_portal_ci -d aip_portal_ci"
+        --health-interval 10s
+        --health-timeout 5s
+        --health-retries 5
+
+jobs:
+  - template: ci/azure/core-jobs.yml
+  - template: ci/azure/security-jobs.yml
+  - template: ci/azure/frontend-jobs.yml
+  - template: ci/azure/wpc02d-jobs.yml

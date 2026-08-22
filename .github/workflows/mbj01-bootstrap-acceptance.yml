@@ -8,22 +8,18 @@ on:
       - "docker-compose.real-backend-smoke.yml"
       - "Dockerfile"
       - "Dockerfile.playwright"
+      - "AipPortal.slnx"
+      - "global.json"
+      - "Directory.Build.*"
+      - "Directory.Packages.*"
+      - "NuGet.config"
       - "package.json"
       - "package-lock.json"
-      - "global.json"
+      - "frontend/**"
+      - "src/**"
       - "scripts/ci/run-mbj01-bootstrap-acceptance.sh"
+      - "scripts/ci/verify-npm-lockfile.mjs"
       - "tests/ui/mbj01-bootstrap-acceptance.mjs"
-      - "src/AipPortal.Web/Program.cs"
-      - "src/AipPortal.Web/Controllers/AuthController.cs"
-      - "src/AipPortal.Web/Configuration/**"
-      - "src/AipPortal.Web/Security/**"
-      - "src/AipPortal.Web/Health/**"
-      - "src/AipPortal.Application/Auth/**"
-      - "src/AipPortal.Application/Common/Tenancy/**"
-      - "src/AipPortal.Infrastructure/Persistence/AppDbContext.cs"
-      - "src/AipPortal.Infrastructure/Persistence/AppDbContextSeed.cs"
-      - "src/AipPortal.Infrastructure/Persistence/Migrations/**"
-      - "src/AipPortal.Infrastructure/Security/**"
   push:
     branches: ["main"]
     paths:
@@ -32,22 +28,18 @@ on:
       - "docker-compose.real-backend-smoke.yml"
       - "Dockerfile"
       - "Dockerfile.playwright"
+      - "AipPortal.slnx"
+      - "global.json"
+      - "Directory.Build.*"
+      - "Directory.Packages.*"
+      - "NuGet.config"
       - "package.json"
       - "package-lock.json"
-      - "global.json"
+      - "frontend/**"
+      - "src/**"
       - "scripts/ci/run-mbj01-bootstrap-acceptance.sh"
+      - "scripts/ci/verify-npm-lockfile.mjs"
       - "tests/ui/mbj01-bootstrap-acceptance.mjs"
-      - "src/AipPortal.Web/Program.cs"
-      - "src/AipPortal.Web/Controllers/AuthController.cs"
-      - "src/AipPortal.Web/Configuration/**"
-      - "src/AipPortal.Web/Security/**"
-      - "src/AipPortal.Web/Health/**"
-      - "src/AipPortal.Application/Auth/**"
-      - "src/AipPortal.Application/Common/Tenancy/**"
-      - "src/AipPortal.Infrastructure/Persistence/AppDbContext.cs"
-      - "src/AipPortal.Infrastructure/Persistence/AppDbContextSeed.cs"
-      - "src/AipPortal.Infrastructure/Persistence/Migrations/**"
-      - "src/AipPortal.Infrastructure/Security/**"
 
 permissions:
   contents: read
@@ -55,13 +47,23 @@ permissions:
 jobs:
   mbj01-fresh-bootstrap:
     if: github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository
-    runs-on: ubuntu-24.04
+    runs-on: self-hosted
     timeout-minutes: 45
     concurrency:
       group: mbj01-bootstrap-${{ github.event.pull_request.number || github.ref }}
       cancel-in-progress: true
 
     steps:
+      - name: Repair previous Docker workspace ownership
+        shell: bash
+        run: |
+          uid="$(id -u)"
+          gid="$(id -g)"
+          docker run --rm \
+            -v "$GITHUB_WORKSPACE:/workspace" \
+            alpine:3.21 \
+            sh -c "chown -R ${uid}:${gid} /workspace"
+
       - name: Checkout
         uses: actions/checkout@v7
         with:

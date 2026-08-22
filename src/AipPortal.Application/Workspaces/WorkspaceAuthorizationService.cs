@@ -9,7 +9,8 @@ namespace AipPortal.Application.Workspaces;
 public sealed class WorkspaceAuthorizationService(
     IUserRepository users,
     IWorkspaceRepository workspaces,
-    ITenantAuthorizationService? tenants = null) : IWorkspaceAuthorizationService
+    ITenantAuthorizationService? tenants = null,
+    ICapabilityGrantEvaluator? capabilityGrants = null) : IWorkspaceAuthorizationService
 {
     public async Task<bool> CanViewWorkspace(Guid userId, Guid workspaceId, CancellationToken cancellationToken = default)
     {
@@ -124,10 +125,26 @@ public sealed class WorkspaceAuthorizationService(
     public async Task<bool> CanCreateWorkspace(Guid userId, Guid tenantId, CancellationToken cancellationToken = default)
     {
         var user = await users.GetByIdAsync(userId, cancellationToken);
-        return tenantId != Guid.Empty &&
-               tenants is not null &&
-               user is { Status: UserStatus.Active, DeletedAt: null } &&
-               await tenants.CanManageTenantAsync(userId, tenantId, cancellationToken);
+        if (tenantId == Guid.Empty ||
+            tenants is null ||
+            user is not { Status: UserStatus.Active, DeletedAt: null })
+        {
+            return false;
+        }
+
+        if (await tenants.CanManageTenantAsync(userId, tenantId, cancellationToken))
+        {
+            return true;
+        }
+
+        return capabilityGrants is not null &&
+               await capabilityGrants.HasActiveGrantAsync(
+                   userId,
+                   tenantId,
+                   CapabilityKeys.WorkspaceCreate,
+                   CapabilityScopeType.Tenant,
+                   tenantId,
+                   cancellationToken);
     }
 
     private async Task<WorkspaceAccess> ResolveAccessAsync(

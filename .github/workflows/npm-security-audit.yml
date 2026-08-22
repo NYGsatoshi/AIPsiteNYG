@@ -11,10 +11,20 @@ permissions:
 
 jobs:
   audit:
-    runs-on: ubuntu-24.04
+    runs-on: self-hosted
     timeout-minutes: 30
 
     steps:
+      - name: Repair previous Docker workspace ownership
+        shell: bash
+        run: |
+          uid="$(id -u)"
+          gid="$(id -g)"
+          docker run --rm \
+            -v "$GITHUB_WORKSPACE:/workspace" \
+            alpine:3.21 \
+            sh -c "chown -R ${uid}:${gid} /workspace"
+
       - name: Checkout
         uses: actions/checkout@v7
         with:
@@ -123,19 +133,37 @@ jobs:
           path: artifacts/npm-audit/*.json
           if-no-files-found: warn
 
-      - name: Report audit result
+      - name: Enforce npm High/Critical baseline
+        shell: bash
+        run: |
+          node scripts/ci/check-npm-audit-baseline.mjs \
+            artifacts/npm-audit \
+            scripts/ci/npm-audit-baseline.json
+
+      - name: Report accepted npm audit debt
         if: steps.audit.outputs.vulnerabilities_found == '1'
         run: |
-          echo "npm audit found vulnerable dependency trees."
-          echo "This baseline workflow is report-only while remediation PRs are prepared."
+          echo "npm audit reported known vulnerable dependency trees."
+          echo "High/Critical findings are allowed only when they exactly match the reviewed baseline."
+          echo "Any new or stale High/Critical baseline entry fails the preceding gate."
 
   install-policy:
     name: npm install policy
     needs: audit
-    runs-on: ubuntu-24.04
+    runs-on: self-hosted
     timeout-minutes: 30
 
     steps:
+      - name: Repair previous Docker workspace ownership
+        shell: bash
+        run: |
+          uid="$(id -u)"
+          gid="$(id -g)"
+          docker run --rm \
+            -v "$GITHUB_WORKSPACE:/workspace" \
+            alpine:3.21 \
+            sh -c "chown -R ${uid}:${gid} /workspace"
+
       - name: Checkout
         uses: actions/checkout@v7
         with:

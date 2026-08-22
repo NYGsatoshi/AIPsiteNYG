@@ -16,25 +16,21 @@ on:
       - "docs/**"
 
 concurrency:
-  group: code-quality-${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
+  group: code-quality-v2-${{ github.event.pull_request.number || github.ref }}
   cancel-in-progress: true
 
 permissions:
   contents: read
-  pull-requests: write
-  checks: write
 
 jobs:
   qodana-dotnet-community:
     name: Qodana Community / .NET
-    runs-on: self-hosted
+    runs-on: [self-hosted, aipsite-ci, general]
     timeout-minutes: 120
-    # Serialize Qodana with frontend-heavy jobs on the shared self-hosted machine
-    # to prevent resource contention and deterministic container-name collisions.
-    concurrency:
-      group: aipsite-self-hosted-frontend-heavy-v2
-      cancel-in-progress: false
-      queue: max
+    permissions:
+      contents: read
+      pull-requests: write
+      checks: write
 
     env:
       DOTNET_CLI_TELEMETRY_OPTOUT: "1"
@@ -57,31 +53,32 @@ jobs:
         with:
           ref: ${{ github.event.pull_request.head.sha || github.sha }}
           fetch-depth: 0
+          persist-credentials: false
 
       - name: Configure persistent .NET caches
         shell: bash
-        run: bash scripts/ci/configure-persistent-caches.sh
+        run: |
+          bash scripts/ci/configure-persistent-caches.sh
+          job_temp="$RUNNER_TEMP/dotnet-${GITHUB_JOB}-${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}"
+          mkdir -p "$job_temp/home" "$job_temp/nuget/scratch"
+          {
+            echo "DOTNET_CLI_HOME=$job_temp/home"
+            echo "DOTNET_CLI_WORKLOAD_UPDATE_NOTIFY_DISABLE=1"
+            echo "NUGET_SCRATCH=$job_temp/nuget/scratch"
+          } >> "$GITHUB_ENV"
 
       - name: Set up .NET SDK
         uses: actions/setup-dotnet@v6
         with:
           global-json-file: global.json
 
-      - name: Remove orphaned Qodana runner containers
+      - name: Remove orphaned Qodana containers for this workspace
         shell: bash
-        run: |
-          # This job is globally serialized above. Any matching container at
-          # this point is an orphan from an interrupted prior scan.
-          orphaned_qodana_containers="$(docker ps -aq --filter 'name=^/qodana-cli-')"
-          if [[ -n "$orphaned_qodana_containers" ]]; then
-            docker rm -f $orphaned_qodana_containers
-          fi
+        run: bash scripts/ci/cleanup-qodana-containers.sh "$GITHUB_WORKSPACE"
 
       - name: Record complete Qodana inspection inventory
-        # This non-gating inventory makes existing findings reviewable. The
-        # following PR-mode scan is the deterministic blocking gate.
         continue-on-error: true
-        uses: JetBrains/qodana-action@v2026.1.3
+        uses: JetBrains/qodana-action@v2026.2.0
         with:
           args: |
             --image jetbrains/qodana-cdnet:2026.1-eap-privileged
@@ -104,24 +101,17 @@ jobs:
           if-no-files-found: warn
 
       - name: Remove Qodana inventory container before the PR gate
-        if: always()
         shell: bash
-        run: |
-          inventory_containers="$(docker ps -aq --filter 'name=^/qodana-cli-')"
-          if [[ -n "$inventory_containers" ]]; then
-            docker rm -f $inventory_containers
-          fi
+        run: bash scripts/ci/cleanup-qodana-containers.sh "$GITHUB_WORKSPACE"
 
       - name: Gate PR-introduced Qodana findings
-        if: always()
-        uses: JetBrains/qodana-action@v2026.1.3
+        id: qodana_gate
+        uses: JetBrains/qodana-action@v2026.2.0
         with:
           args: |
             --image jetbrains/qodana-cdnet:2026.1-eap-privileged
             --solution AipPortal.slnx
             --configuration Release
-          # fetch-depth: 0 plus PR mode compares this head to its GitHub base;
-          # runner cache is never used as a baseline.
           pr-mode: true
           results-dir: ${{ runner.temp }}/qodana/results-${{ github.run_id }}-${{ github.run_attempt }}
           use-caches: false
@@ -142,21 +132,21 @@ jobs:
             sh -c "chown -R ${uid}:${gid} /workspace"
 
       - name: Set up Node.js for project-model guard
-        if: always()
+        if: steps.qodana_gate.outcome == 'success'
         uses: actions/setup-node@v7
         with:
           node-version: "24"
 
       - name: Guard Qodana project model
-        if: always()
+        if: steps.qodana_gate.outcome == 'success'
         env:
           QODANA_PROJECT_MODEL_SUMMARY_PATH: ${{ runner.temp }}/qodana/project-model-summary.json
         shell: bash
         run: |
           sarif="${RUNNER_TEMP}/qodana/results-${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}/qodana.sarif.json"
           if [[ ! -f "$sarif" ]]; then
-            echo "::warning::Qodana SARIF was not produced; skipping the secondary project-model guard."
-            exit 0
+            echo "::error::Qodana gate succeeded without producing the required SARIF report."
+            exit 1
           fi
           node scripts/quality/check-qodana-project-model.mjs "$sarif"
 
@@ -170,14 +160,10 @@ jobs:
 
   frontend-quality:
     name: Angular / TypeScript / JavaScript / HTML / SCSS / CSS
-    runs-on: self-hosted
+    runs-on: [self-hosted, aipsite-ci, general]
     needs: qodana-dotnet-community
-    if: ${{ always() }}
+    if: ${{ !cancelled() }}
     timeout-minutes: 90
-    concurrency:
-      group: aipsite-self-hosted-frontend-heavy-v2
-      cancel-in-progress: false
-      queue: max
 
     steps:
       - name: Repair previous Docker workspace ownership
@@ -194,6 +180,7 @@ jobs:
         uses: actions/checkout@v7
         with:
           ref: ${{ github.event.pull_request.head.sha || github.sha }}
+          persist-credentials: false
 
       - name: Set up Node.js
         uses: actions/setup-node@v7
