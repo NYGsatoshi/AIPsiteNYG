@@ -823,7 +823,11 @@ public sealed class TaskV1Pr07BNotificationAtomicityPostgreSqlTests
                 OwnerUserId = actor.Id,
                 CreatedByUserId = actor.Id,
                 Name = "PR07-B project",
-                Slug = $"pr07b-project-{suffix}"
+                Slug = $"pr07b-project-{suffix}",
+                Status = ProjectStatus.Active,
+                ActivationState = ProjectActivationState.Activated,
+                ActivatedAtUtc = FixedClock.Instance.UtcNow,
+                ActivationVersion = 1
             };
             var workflow = new TaskWorkflowDefinition
             {
