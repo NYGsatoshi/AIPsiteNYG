@@ -34,6 +34,7 @@ public sealed class Wpc02EResponseBoundaryArchitectureTests
     [InlineData("FilesController.cs")]
     [InlineData("NotificationsController.cs")]
     [InlineData("ProjectActivationController.cs")]
+    [InlineData("ProjectVisibilityController.cs")]
     [InlineData("SearchController.cs")]
     [InlineData("TenantExportController.cs")]
     [InlineData("WorkspaceProjectsController.cs")]

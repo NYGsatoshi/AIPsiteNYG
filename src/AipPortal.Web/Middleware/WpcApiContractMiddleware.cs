@@ -10,8 +10,7 @@ public sealed class WpcApiContractMiddleware(RequestDelegate next)
 {
     public async Task InvokeAsync(HttpContext context)
     {
-        if (!HttpMethods.IsPost(context.Request.Method) ||
-            !IsCanonicalCommandPath(context.Request.Path.Value) ||
+        if (!IsCanonicalJsonCommand(context.Request.Method, context.Request.Path.Value) ||
             string.IsNullOrWhiteSpace(context.Request.ContentType) ||
             context.Request.HasJsonContentType())
         {
@@ -28,9 +27,14 @@ public sealed class WpcApiContractMiddleware(RequestDelegate next)
             "header.Content-Type"));
     }
 
-    private static bool IsCanonicalCommandPath(string? path)
+    private static bool IsCanonicalJsonCommand(string method, string? path)
     {
-        if (!ApiEnvelope.IsWorkspaceCreationPath(path))
+        if (HttpMethods.IsPut(method))
+        {
+            return ApiEnvelope.IsProjectVisibilityPath(path);
+        }
+
+        if (!HttpMethods.IsPost(method) || !ApiEnvelope.IsWorkspaceCreationPath(path))
         {
             return false;
         }
@@ -40,6 +44,7 @@ public sealed class WpcApiContractMiddleware(RequestDelegate next)
         var normalized = path?.TrimEnd('/') ?? string.Empty;
         return !normalized.Equals(
             "/api/workspaces/capabilities",
-            StringComparison.OrdinalIgnoreCase);
+            StringComparison.OrdinalIgnoreCase) &&
+               !ApiEnvelope.IsProjectVisibilityPath(path);
     }
 }
