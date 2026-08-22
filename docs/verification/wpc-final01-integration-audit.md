@@ -48,23 +48,23 @@ The corrective implementation closes those gaps as follows:
 
 - `PUT /api/projects/{projectId}/visibility` is the explicit Visibility mutation/classification boundary. It requires `ExpectedVersion`, uses Workspace governance or `project.visibility.manage` for non-default Visibility, records `ProjectVisibilityChanged`, and stages authorization/realtime invalidation in the same save.
 - `CanonicalCurrentAuthorizationTargetResolver` is an AND-only fence over the existing current-state resolver. Task notifications and Task/Project realtime must also satisfy `VisibleProjectsFor`; the fence can narrow but cannot widen existing authorization.
-- `ProjectGeneralMembershipSaveChangesInterceptor` synchronizes Project-derived participant rights atomically with ProjectMember add/role-change/remove saves. It preserves separately granted Conversation Admin authority while revoking Project-derived stale posting rights.
-- The same persistence boundary rejects ProjectMember mutations for Archived/Deleted Projects before any membership/audit/outbox save can commit.
+- Production Project membership mutation is routed through `IProjectService` -> `CanonicalProjectService` -> `ProjectMembershipService`. `ProjectGeneralMembershipSynchronizer` stages the Project-derived participant change, audit evidence, business invalidation, and authorization invalidation before the shared `ITaskCommandUnitOfWork.SaveTaskCommandAsync` persistence boundary commits them together.
+- `ProjectMembershipService` rejects Archived/Deleted Project member add/update/remove before any membership, participant, audit, or outbox mutation can commit. There is no second production SaveChanges interceptor for this responsibility.
 
 ## 4. Decision-to-evidence matrix
 
 | Decision / acceptance area | Implementation owner | Required evidence bound by Final01 |
 |---|---|---|
-| WPC-DEC-026 Project Visibility | 02A + 02C + Final01 corrective | LegacyUnknown migration, database constraints, explicit classification, optimistic concurrency, non-default authority, canonical create defaults |
+| WPC-DEC-026 Project Visibility | 02A + 02C + Final01 corrective | LegacyUnknown migration, database constraints, explicit classification, optimistic concurrency, non-default authority, positive `project.visibility.manage` authority, canonical create defaults |
 | WPC-DEC-027 activation provenance | 02A + 02D | historical unknown state, exact suspend/archive recovery, atomic explicit activation, stale/concurrent failure behavior |
 | WPC-DEC-028 archived Workspace/Project read-only boundaries | 02A + Final01 corrective | current-member historical read, Owner-only Workspace restore, Admin/SystemAdmin negatives, Archived Project membership mutation denial |
-| WPC-DEC-029 CapabilityGrant | 02B + 02C + Final01 corrective | persisted scoped grants, current revalidation, revoked/expired/cross-scope denial, `project.visibility.manage` mutation authority |
+| WPC-DEC-029 CapabilityGrant | 02B + 02C + Final01 corrective | persisted scoped grants, current revalidation, revoked/expired/cross-scope denial, positive `project.visibility.manage` mutation authority |
 | WPC-DEC-030 WorkspaceGeneral | 02B | canonical identity/uniqueness, least-privilege membership mapping, create-transaction participation |
 | WPC-DEC-031 Project create authority | 02C | Workspace-scoped route, Group-bound limits, no implicit SystemAdmin authority, idempotent atomic outcome |
 | WPC-DEC-032 ProjectGeneral | 02D + Final01 corrective | one canonical Project Conversation, activation participation, role/removal synchronization without broad-viewer materialization |
 | WPC-DEC-033 Task workflow | 02D | Workspace -> Tenant -> immutable fallback precedence, reuse of compatible state, fail-closed invalid state |
 | WPC-02E redaction acceptance | 02E-1 + 02E-2 | all canonical profiles, data-classification policy, fail-closed context, safe error correlation, export reauthorization |
-| WPC-DEC-034 notification/realtime current authorization | 02F + Final01 corrective | Artifact/Message navigation plus Task notification and Task/Project realtime authorization using the canonical Project read boundary |
+| WPC-DEC-034 notification/realtime current authorization | 02F + Final01 corrective | Artifact/Message navigation plus Task notification and Task/Project realtime authorization using the canonical Project read boundary, including explicit `Restricted` non-member denial |
 
 ## 5. Schema integration order
 
@@ -93,7 +93,7 @@ The gate:
 7. runs the Angular unit suite, including `wpc-02f-notification-navigation.spec.ts`;
 8. uploads backend TRX, restore log, and frontend unit-test log.
 
-The A/D/F manifests now bind the corrective classification, read-only membership, ProjectGeneral synchronization, and Task notification/realtime authorization regressions. The existing B/C/E manifests remain the source of truth for their worker scopes.
+The A/D/F manifests bind the corrective classification, read-only membership, ProjectGeneral synchronization, and Task notification/realtime regressions. The composite WPC-02A evidence now includes an ordinary Workspace Member with a current Workspace-scoped `project.visibility.manage` grant successfully performing an explicit Visibility change. The composite WPC-02F evidence now includes a Workspace-only non-member being denied Task notification navigation plus Task and Project realtime delivery for a `Restricted` Project. The existing B/C/E manifests remain the source of truth for their worker scopes.
 
 ## 7. Current-head rule
 
@@ -108,7 +108,7 @@ WPC-Final01 is **NO-GO for merge** until the corrected current head has:
 - `WPC-Final01 / PostgreSQL 18 + Angular` successful;
 - the ordinary repository `CI` successful;
 - all other required repository checks successful;
-- every newly added corrective test present in the Final01 aggregate manifest and passing;
+- every newly added corrective test present through the Final01 aggregate manifest/composite evidence and passing;
 - no unresolved review thread that changes an authorization, migration, redaction, membership-synchronization, or navigation conclusion.
 
 No auto-merge is authorized by this record.
