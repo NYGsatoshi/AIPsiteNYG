@@ -4,6 +4,7 @@
   class="app-shell"
   data-testid="app-shell"
   [class.app-shell--drawer-open]="mobileDrawerOpen()"
+  [class.app-shell--feature-menu-collapsed]="featureMenuCollapsed()"
   [class.app-shell--right-expanded]="vm.rightPanelMode === 'expanded'"
 >
   <a class="app-shell__skip-link" href="#app-shell-main-content">Skip to main content</a>
@@ -27,6 +28,9 @@
     class="app-shell__feature-menu"
     navigationAriaLabel="Primary navigation"
     [navigationItems]="vm.navigationItems"
+    [collapsible]="true"
+    [collapsed]="featureMenuCollapsed()"
+    (collapsedChange)="setFeatureMenuCollapsed($event)"
   />
 
   <div class="app-shell__body" data-testid="shell-body">
