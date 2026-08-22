@@ -143,14 +143,12 @@ jobs:
             tests/AipPortal.Tests/PostgreSql/TaskV1CoreConcurrencyPostgreSqlTests.cs \
             tests/AipPortal.Tests/Tenancy/HttpTenantIsolationTests.cs
 
-      - name: Commit fixture fixes and remove one-shot workflow
+      - name: Commit fixture fixes
         shell: bash
         run: |
-          rm .github/workflows/wpc-final03-fixture-patch.yml
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
           git add \
-            .github/workflows/wpc-final03-fixture-patch.yml \
             tests/AipPortal.Tests/Projects/ProjectServiceTests.cs \
             tests/AipPortal.Tests/PostgreSql/TaskV1CoreConcurrencyPostgreSqlTests.cs \
             tests/AipPortal.Tests/Tenancy/HttpTenantIsolationTests.cs
