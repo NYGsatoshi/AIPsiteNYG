@@ -19,6 +19,7 @@ manifests=(
   "scripts/ci/wpc02d-required-tests.txt"
   "scripts/ci/wpc02e-required-tests.txt"
   "scripts/ci/wpc02f-required-tests.txt"
+  "scripts/ci/wpc-final01-required-tests.txt"
 )
 
 aggregate_manifest="$(mktemp)"

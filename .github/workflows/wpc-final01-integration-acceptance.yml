@@ -13,6 +13,7 @@ on:
       - "scripts/ci/wpc02d-required-tests.txt"
       - "scripts/ci/wpc02e-required-tests.txt"
       - "scripts/ci/wpc02f-required-tests.txt"
+      - "scripts/ci/wpc-final01-required-tests.txt"
       - "src/**"
       - "tests/AipPortal.Tests/**"
       - "frontend/src/app/shared/right-panel/**"
@@ -35,6 +36,7 @@ on:
       - "scripts/ci/wpc02d-required-tests.txt"
       - "scripts/ci/wpc02e-required-tests.txt"
       - "scripts/ci/wpc02f-required-tests.txt"
+      - "scripts/ci/wpc-final01-required-tests.txt"
       - "src/**"
       - "tests/AipPortal.Tests/**"
       - "frontend/src/app/shared/right-panel/**"
@@ -183,7 +185,7 @@ jobs:
             --disable-build-servers \
             -m:1 \
             --verbosity normal \
-            --filter "Scope=WPC02A|Scope=WPC02B|Scope=WPC02C|Scope=WPC02D|Scope=WPC02E|Scope=WPC02F|FullyQualifiedName~Wpc02AWorkspaceAuthorizationTests|FullyQualifiedName~CanonicalRedactionServiceTests" \
+            --filter "Scope=WPC02A|Scope=WPC02B|Scope=WPC02C|Scope=WPC02D|Scope=WPC02E|Scope=WPC02F|Scope=WPCFINAL01|FullyQualifiedName~Wpc02AWorkspaceAuthorizationTests|FullyQualifiedName~CanonicalRedactionServiceTests" \
             --logger "trx;LogFileName=wpc-final01-acceptance.trx" \
             --results-directory artifacts/wpc-final01/backend
 

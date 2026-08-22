@@ -175,7 +175,7 @@ public sealed class ProjectVisibilityService(
                     cancellationToken);
             }
         }
-        catch (RequiredOutboxStagingException)
+        catch (Exception exception) when (exception is RequiredOutboxStagingException or InvalidOperationException)
         {
             unitOfWork.ClearTaskCommandTracking();
             return Failure("DependencyUnavailable", "Project visibility could not be changed safely.");

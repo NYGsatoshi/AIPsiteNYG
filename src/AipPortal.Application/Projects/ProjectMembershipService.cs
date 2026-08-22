@@ -120,7 +120,7 @@ public sealed class ProjectMembershipService(
                 "membershipChanged",
                 cancellationToken);
         }
-        catch (RequiredOutboxStagingException)
+        catch (Exception exception) when (exception is RequiredOutboxStagingException or InvalidOperationException)
         {
             unitOfWork.ClearTaskCommandTracking();
             return DependencyFailure<ProjectMemberResponse>();
@@ -189,7 +189,7 @@ public sealed class ProjectMembershipService(
                 "membershipChanged",
                 cancellationToken);
         }
-        catch (RequiredOutboxStagingException)
+        catch (Exception exception) when (exception is RequiredOutboxStagingException or InvalidOperationException)
         {
             unitOfWork.ClearTaskCommandTracking();
             return DependencyFailure<ProjectMemberResponse>();
@@ -257,7 +257,7 @@ public sealed class ProjectMembershipService(
                 "revoked",
                 cancellationToken);
         }
-        catch (RequiredOutboxStagingException)
+        catch (Exception exception) when (exception is RequiredOutboxStagingException or InvalidOperationException)
         {
             unitOfWork.ClearTaskCommandTracking();
             return DependencyFailure();
