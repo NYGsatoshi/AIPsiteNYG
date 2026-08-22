@@ -151,15 +151,15 @@ public sealed class AnnouncementRepository(AppDbContext dbContext, IClock clock)
                 return [];
             }
 
-            users = dbContext.WorkspaceMembers
-                .Where(member =>
-                    member.WorkspaceId == announcement.WorkspaceId.Value &&
-                    member.Status == MembershipStatus.Active)
-                .Select(member => member.User!);
+            var currentWorkspaceUserIds = CurrentWorkspaceUserIds(announcement.WorkspaceId.Value);
+            users = dbContext.Users.Where(user => currentWorkspaceUserIds.Contains(user.Id));
         }
         else
         {
-            users = dbContext.Users;
+            users = dbContext.Users.Where(user =>
+                dbContext.TenantUsers.Any(tenantUser =>
+                    tenantUser.UserId == user.Id &&
+                    tenantUser.Status == TenantUserStatus.Active));
         }
 
         return await users
@@ -183,6 +183,9 @@ public sealed class AnnouncementRepository(AppDbContext dbContext, IClock clock)
         dbContext.WorkspaceMembers
             .Where(member =>
                 member.WorkspaceId == workspaceId &&
-                member.Status == MembershipStatus.Active)
+                member.Status == MembershipStatus.Active &&
+                dbContext.TenantUsers.Any(tenantUser =>
+                    tenantUser.UserId == member.UserId &&
+                    tenantUser.Status == TenantUserStatus.Active))
             .Select(member => member.UserId);
 }
