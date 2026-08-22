@@ -75,7 +75,7 @@ export class SyncfusionDataGridComponent<TData extends object> {
   }
 
   get selectionSettings(): { type: 'Single' | 'Multiple'; mode: 'Row'; checkboxOnly: boolean } {
-    return { type: this.selectionMode === 'multiple' ? 'Multiple' : 'Single', mode: 'Row', checkboxOnly: false };
+    return { type: this.selectionMode === 'multiple' ? 'Multiple' : 'Single', mode: 'Row', checkboxOnly: true };
   }
 
   get filteringEnabled(): boolean {
@@ -118,7 +118,7 @@ export class SyncfusionDataGridComponent<TData extends object> {
 
   handleRecordClick(event: SyncfusionGridEvent<TData>): void {
     const target = event.target instanceof HTMLElement ? event.target : null;
-    if (target?.closest('[data-grid-action]')) {
+    if (target?.closest('[data-grid-action]') || target?.closest('.e-checkselect')) {
       return;
     }
 
@@ -157,7 +157,7 @@ export class SyncfusionDataGridComponent<TData extends object> {
       const filter = event.currentFilterObject;
       this.filterChanged.emit({
         columnId: filter?.field ?? event.columnName ?? '',
-        value: filter?.value === undefined || filter.value === null ? null : String(filter.value)
+        value: filter?.value === undefined || filter?.value === null ? null : String(filter.value)
       });
     }
   }
