@@ -1,4 +1,4 @@
-import { Component, computed, Input, OnChanges, signal, SimpleChanges } from '@angular/core';
+import { Component, Input, OnChanges, signal, SimpleChanges } from '@angular/core';
 import { FormBuilder, ReactiveFormsModule, Validators } from '@angular/forms';
 
 import {
@@ -31,17 +31,6 @@ export class AnnouncementEditorComponent implements OnChanges {
     requiresReadConfirmation: [false]
   });
 
-  readonly selectedAudience = computed(() => {
-    const selectedScope = this.form.controls.audienceScope.value;
-    return this.availableAudiences().find((audience) => audience.scope === selectedScope) ?? null;
-  });
-
-  constructor() {
-    this.form.controls.audienceScope.valueChanges.subscribe(() => {
-      this.availableAudiences.update((audiences) => [...audiences]);
-    });
-  }
-
   ngOnChanges(changes: SimpleChanges): void {
     if (changes['draft'] && this.draft) {
       this.availableAudiences.set(this.draft.availableAudiences);
@@ -58,6 +47,11 @@ export class AnnouncementEditorComponent implements OnChanges {
         requiresReadConfirmation: this.draft.requiresReadConfirmation
       });
     }
+  }
+
+  selectedAudience(): AnnouncementAudienceOption | null {
+    const selectedScope = this.form.controls.audienceScope.value;
+    return this.availableAudiences().find((audience) => audience.scope === selectedScope) ?? null;
   }
 
   audienceOptionLabel(audience: AnnouncementAudienceOption): string {
