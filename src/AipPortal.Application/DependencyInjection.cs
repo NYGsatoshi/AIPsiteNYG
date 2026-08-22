@@ -50,6 +50,7 @@ public static class DependencyInjection
         services.AddScoped<IProjectActivationUnitOfWork, UnavailableProjectActivationUnitOfWork>();
         services.AddScoped<ICapabilityGrantEvaluator, CapabilityGrantEvaluator>();
         services.AddScoped<ICapabilityGrantService, CapabilityGrantService>();
+        services.AddScoped<IAuditAuthorizationService, AuditAuthorizationService>();
         services.AddScoped<ITenantService, TenantService>();
         services.AddScoped<ITenantExportService, TenantExportService>();
         services.AddScoped<IFeatureFlagService, FeatureFlagService>();
