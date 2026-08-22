@@ -2,6 +2,7 @@ using AipPortal.Application.Audit;
 using AipPortal.Application.Common;
 using AipPortal.Application.Common.Interfaces;
 using AipPortal.Application.Tenancy;
+using AipPortal.Domain.Entities;
 using Microsoft.EntityFrameworkCore;
 
 namespace AipPortal.Infrastructure.Persistence;
@@ -319,21 +320,18 @@ public sealed class DbAuditQueryService(
             new PagedResponse<SecurityEventListItemResponse>(items, page, pageSize, total));
     }
 
-    private IQueryable<T> ScopeToCurrentTenant<T>(IQueryable<T> source) where T : class
+    private IQueryable<AuditLog> ScopeToCurrentTenant(IQueryable<AuditLog> source)
     {
-        if (currentTenant is not { IsAvailable: true, IsPlatformScope: false })
-        {
-            return source;
-        }
+        return currentTenant is { IsAvailable: true, IsPlatformScope: false }
+            ? source.Where(log => log.TenantId == currentTenant.TenantId)
+            : source;
+    }
 
-        return source switch
-        {
-            IQueryable<AipPortal.Domain.Entities.AuditLog> auditLogs =>
-                (IQueryable<T>)auditLogs.Where(log => log.TenantId == currentTenant.TenantId),
-            IQueryable<AipPortal.Domain.Entities.SecurityEvent> securityEvents =>
-                (IQueryable<T>)securityEvents.Where(item => item.TenantId == currentTenant.TenantId),
-            _ => source
-        };
+    private IQueryable<SecurityEvent> ScopeToCurrentTenant(IQueryable<SecurityEvent> source)
+    {
+        return currentTenant is { IsAvailable: true, IsPlatformScope: false }
+            ? source.Where(item => item.TenantId == currentTenant.TenantId)
+            : source;
     }
 
     private Result<T>? ValidateQueryScope<T>()
