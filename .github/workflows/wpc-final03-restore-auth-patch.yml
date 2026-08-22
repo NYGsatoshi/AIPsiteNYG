@@ -16,7 +16,7 @@ concurrency:
 
 jobs:
   patch:
-    runs-on: self-hosted
+    runs-on: [self-hosted, aipsiteci-pool]
     timeout-minutes: 10
     steps:
       - name: Repair previous Docker workspace ownership
