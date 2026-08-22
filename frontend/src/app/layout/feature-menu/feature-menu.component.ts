@@ -11,6 +11,7 @@ import { NavigationItem } from '../../shared/navigation/navigation.models';
     <nav
       class="feature-menu"
       [class.feature-menu--compact]="compact"
+      [class.feature-menu--collapsible]="collapsible"
       [class.feature-menu--collapsed]="collapsible && collapsed"
       [attr.aria-label]="navigationAriaLabel"
     >
