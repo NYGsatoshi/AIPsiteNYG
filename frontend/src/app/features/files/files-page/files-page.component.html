@@ -60,6 +60,7 @@
             migrationTarget="files"
             rowIdField="id"
             selectionMode="multiple"
+            [rowHeight]="density() === 'compact' ? 36 : 48"
             [rows]="vm.recentFiles"
             [columns]="columns()"
             (actionInvoked)="handleGridAction($event)"
