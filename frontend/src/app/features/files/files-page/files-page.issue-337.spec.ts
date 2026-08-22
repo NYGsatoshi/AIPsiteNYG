@@ -101,6 +101,31 @@ describe('FilesPageComponent issue #337', () => {
     expect(grid.gridOptions.suppressCellFocus).toBe(false);
   });
 
+  it('preserves feature-owned action renderers outside Files', async () => {
+    const fixture = await renderFilesPage();
+    const grid = fixture.debugElement.query(By.directive(AppDataGridComponent))
+      .componentInstance as AppDataGridComponent<FileViewModel>;
+    const file = DEFAULT_FILES[0];
+    if (!file) {
+      throw new Error('Expected the default file fixture.');
+    }
+
+    const customRenderer = (): HTMLElement => {
+      const element = document.createElement('span');
+      element.textContent = 'Feature renderer';
+      return element;
+    };
+    grid.columns = [{
+      colId: 'custom-action',
+      headerName: 'Custom action',
+      actions: (row) => [{ id: 'open', label: 'Open', row }],
+      cellRenderer: customRenderer,
+    }];
+    grid.rows = [file];
+
+    expect(grid.columnDefs[0]?.cellRenderer).toBe(customRenderer);
+  });
+
   it('changes row density without changing selection state', async () => {
     const fixture = await renderFilesPage();
     const file = DEFAULT_FILES[0];
