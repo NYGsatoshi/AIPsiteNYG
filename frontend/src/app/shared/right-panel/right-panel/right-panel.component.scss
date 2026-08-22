@@ -19,7 +19,7 @@
   display: grid;
   place-items: start center;
   width: 100%;
-  padding: 12px 8px;
+  padding: 12px 5px;
   overflow: hidden;
 }
 
@@ -179,10 +179,11 @@ h2 {
   color: var(--aip-color-text-primary);
   cursor: pointer;
   font-weight: 800;
+  line-height: 1;
 }
 
 .right-panel__icon-button {
-  flex: 0 0 auto;
+  justify-self: end;
 }
 
 .right-panel__rail-button:hover,
