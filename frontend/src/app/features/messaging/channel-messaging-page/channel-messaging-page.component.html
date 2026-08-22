@@ -10,12 +10,23 @@
       <h1>{{ vm.conversation.title }}</h1>
       <p>{{ vm.conversation.subtitle }}</p>
     </div>
-    <button type="button" data-testid="manual-refresh" (click)="facade.manualRefresh()">更新</button>
+    <div class="messaging-page__header-actions">
+      @if (vm.conversation.id && vm.conversation.viewerIsParticipant && !vm.conversation.viewerWasRemoved) {
+        <app-conversation-settings-panel
+          [conversationId]="vm.conversation.id"
+          [conversationTitle]="vm.conversation.title"
+        />
+      }
+      <button type="button" data-testid="manual-refresh" (click)="facade.manualRefresh()">更新</button>
+    </div>
   </header>
 
   <div class="messaging-page__layout">
     <aside class="messaging-page__rail">
-      <app-conversation-list [conversations]="vm.conversations" />
+      <app-conversation-list
+        [conversations]="vm.conversations"
+        [showUnreadBadges]="globalSettings.showUnreadBadges()"
+      />
     </aside>
 
     <main class="messaging-page__main" data-testid="conversation-surface">
