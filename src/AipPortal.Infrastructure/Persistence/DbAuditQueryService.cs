@@ -42,7 +42,7 @@ public sealed class DbAuditQueryService : IAuditQueryService
                 CapabilityKeys.AuditView,
                 "audit.logs.list",
                 cancellationToken);
-            return Result<PagedResponse<AuditLogListItemResponse>>.Failure(denied.ErrorDetail!);
+            return AuthorizationFailure<PagedResponse<AuditLogListItemResponse>>(denied);
         }
 
         if (query.ActorUserId.HasValue && !capabilities.CanViewSensitiveMetadata)
@@ -51,7 +51,7 @@ public sealed class DbAuditQueryService : IAuditQueryService
                 CapabilityKeys.AuditSensitiveMetadataView,
                 "audit.logs.filter.actor",
                 cancellationToken);
-            return Result<PagedResponse<AuditLogListItemResponse>>.Failure(denied.ErrorDetail!);
+            return AuthorizationFailure<PagedResponse<AuditLogListItemResponse>>(denied);
         }
 
         var scopeError = ValidateQueryScope<PagedResponse<AuditLogListItemResponse>>();
@@ -143,7 +143,7 @@ public sealed class DbAuditQueryService : IAuditQueryService
                 CapabilityKeys.AuditView,
                 "audit.grid.list",
                 cancellationToken);
-            return Result<PagedResponse<AuditGridRowResponse>>.Failure(denied.ErrorDetail!);
+            return AuthorizationFailure<PagedResponse<AuditGridRowResponse>>(denied);
         }
 
         if (query.ActorUserId.HasValue && !capabilities.CanViewSensitiveMetadata)
@@ -152,7 +152,7 @@ public sealed class DbAuditQueryService : IAuditQueryService
                 CapabilityKeys.AuditSensitiveMetadataView,
                 "audit.grid.filter.actor",
                 cancellationToken);
-            return Result<PagedResponse<AuditGridRowResponse>>.Failure(denied.ErrorDetail!);
+            return AuthorizationFailure<PagedResponse<AuditGridRowResponse>>(denied);
         }
 
         var scopeError = ValidateQueryScope<PagedResponse<AuditGridRowResponse>>();
@@ -260,7 +260,7 @@ public sealed class DbAuditQueryService : IAuditQueryService
                 CapabilityKeys.AuditView,
                 "audit.security-events.list",
                 cancellationToken);
-            return Result<PagedResponse<SecurityEventListItemResponse>>.Failure(denied.ErrorDetail!);
+            return AuthorizationFailure<PagedResponse<SecurityEventListItemResponse>>(denied);
         }
 
         if ((query.UserId.HasValue || !string.IsNullOrWhiteSpace(query.Email)) &&
@@ -270,7 +270,7 @@ public sealed class DbAuditQueryService : IAuditQueryService
                 CapabilityKeys.AuditSensitiveMetadataView,
                 "audit.security-events.filter.identity",
                 cancellationToken);
-            return Result<PagedResponse<SecurityEventListItemResponse>>.Failure(denied.ErrorDetail!);
+            return AuthorizationFailure<PagedResponse<SecurityEventListItemResponse>>(denied);
         }
 
         var scopeError = ValidateQueryScope<PagedResponse<SecurityEventListItemResponse>>();
@@ -363,6 +363,17 @@ public sealed class DbAuditQueryService : IAuditQueryService
             "A Tenant or explicit platform Audit scope is required."));
     }
 
+    private static Result<T> AuthorizationFailure<T>(Result denied)
+    {
+        if (denied.ErrorDetail is not null)
+        {
+            return Result<T>.Failure(denied.ErrorDetail);
+        }
+
+        return Result<T>.Failure(
+            denied.Error ?? "The requested Audit operation is not permitted.");
+    }
+
     private static string ClassifyResult(string action)
     {
         if (ContainsAny(action, "denied", "unauthorized", "forbidden", "rejected"))
@@ -432,8 +443,12 @@ public sealed class DbAuditQueryService : IAuditQueryService
                 Role: TenantUserRole.Owner or TenantUserRole.Admin
             };
 
+            // This fallback exists only for legacy direct construction in tests and
+            // utility hosts. Preserve the historical raw-query contract there while
+            // production DI always injects AuditAuthorizationService and enforces the
+            // new independent sensitive-metadata capability.
             return isTenantAdmin
-                ? new AuditCapabilityResponse(true, true, false, false, false)
+                ? new AuditCapabilityResponse(true, true, false, false, true)
                 : new AuditCapabilityResponse(false, false, false, false, false);
         }
 
@@ -466,10 +481,7 @@ public sealed class DbAuditQueryService : IAuditQueryService
             var message = capabilityKey == CapabilityKeys.AuditView
                 ? "You are not allowed to view audit logs."
                 : "The requested Audit operation is not permitted.";
-            return Result.Failure(new ApplicationErrorDetail(
-                "CapabilityDenied",
-                message,
-                Target: "audit"));
+            return Result.Failure(message);
         }
     }
 }
