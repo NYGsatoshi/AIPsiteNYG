@@ -1,4 +1,5 @@
 using AipPortal.Application.Audit;
+using AipPortal.Application.Common;
 using AipPortal.Application.Security.Redaction;
 using AipPortal.Web.Security;
 using Microsoft.AspNetCore.Authorization;
@@ -8,9 +9,17 @@ namespace AipPortal.Web.Controllers;
 
 [ApiController]
 [Authorize]
-public sealed class AuditController(IAuditQueryService audit) : ControllerBase
+public sealed class AuditController(
+    IAuditQueryService audit,
+    IAuditAuthorizationService auditAuthorization) : ControllerBase
 {
     private const int AdminAuditGridDefaultPageSize = 100;
+
+    [HttpGet("api/audit/capabilities")]
+    public async Task<IActionResult> Capabilities(CancellationToken cancellationToken)
+    {
+        return Ok(await auditAuthorization.GetCapabilitiesAsync(cancellationToken));
+    }
 
     [HttpGet("api/audit-logs")]
     public async Task<IActionResult> AuditLogs([FromQuery] AuditLogQuery query, CancellationToken cancellationToken)
@@ -60,23 +69,31 @@ public sealed class AuditController(IAuditQueryService audit) : ControllerBase
         return ToActionResult(await audit.ListSecurityEventsAsync(query, cancellationToken), "SecurityEvents");
     }
 
-    private IActionResult ToActionResult<T>(
-        AipPortal.Application.Common.Result<T> result,
-        string moduleKey)
+    private IActionResult ToActionResult<T>(Result<T> result, string moduleKey)
     {
-        return result.IsSuccess
-            ? Ok(CanonicalRedactionProjection.Apply(
+        if (result.IsSuccess)
+        {
+            return Ok(CanonicalRedactionProjection.Apply(
                 HttpContext,
                 result.Value!,
                 RedactionProfile.AuditDisplay,
                 moduleKey,
                 RedactionAuthorizationState.Allowed,
-                RedactionPurpose.SecurityAuditLite))
-            : BadRequest(CanonicalErrorEnvelope.FromSensitiveResult(
-                HttpContext,
-                StatusCodes.Status400BadRequest,
-                result.ErrorDetail,
-                result.Error,
-                "AuditQueryFailed"));
+                RedactionPurpose.SecurityAuditLite));
+        }
+
+        var status = result.ErrorDetail?.Code switch
+        {
+            "AuthenticationRequired" => StatusCodes.Status401Unauthorized,
+            "CapabilityDenied" or "TenantMembershipRequired" => StatusCodes.Status403Forbidden,
+            _ => StatusCodes.Status400BadRequest
+        };
+
+        return StatusCode(status, CanonicalErrorEnvelope.FromSensitiveResult(
+            HttpContext,
+            status,
+            result.ErrorDetail,
+            result.Error,
+            "AuditQueryFailed"));
     }
 }
