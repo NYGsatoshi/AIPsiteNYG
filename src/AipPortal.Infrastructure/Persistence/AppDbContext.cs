@@ -101,7 +101,7 @@ public sealed class AppDbContext(
     {
         StampAuditableEntities();
         var hasNormalTenantWrite = ApplyTenantRules();
-        EnsureDefaultTaskWorkflows();
+        EnsureLegacyUnclassifiedOperationalTaskWorkflowCompatibility();
         IncrementProjectAggregateVersions();
         IncrementTaskAggregateVersions();
         if (hasNormalTenantWrite)
@@ -134,7 +134,7 @@ public sealed class AppDbContext(
     {
         StampAuditableEntities();
         var hasNormalTenantWrite = ApplyTenantRules();
-        EnsureDefaultTaskWorkflows();
+        EnsureLegacyUnclassifiedOperationalTaskWorkflowCompatibility();
         IncrementProjectAggregateVersions();
         IncrementTaskAggregateVersions();
         if (hasNormalTenantWrite)
@@ -420,10 +420,19 @@ public sealed class AppDbContext(
         return hasNormalTenantWrite;
     }
 
-    private void EnsureDefaultTaskWorkflows()
+    /// <summary>
+    /// Temporary compatibility for legacy operational graphs that are inserted
+    /// directly with no canonical Visibility classification. Canonical WPC create
+    /// always writes a classified Planning Project, so this path cannot provision
+    /// workflow state for canonical Draft creation and is never used by activation.
+    /// </summary>
+    private void EnsureLegacyUnclassifiedOperationalTaskWorkflowCompatibility()
     {
         foreach (var project in ChangeTracker.Entries<Project>()
-                     .Where(entry => entry.State == EntityState.Added)
+                     .Where(entry =>
+                         entry.State == EntityState.Added &&
+                         entry.Entity.Visibility is null &&
+                         entry.Entity.Status is ProjectStatus.Active or ProjectStatus.Review or ProjectStatus.Completed)
                      .Select(entry => entry.Entity)
                      .ToList())
         {

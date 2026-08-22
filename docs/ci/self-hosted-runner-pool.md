@@ -11,14 +11,66 @@ in a queue:
 - `Code Quality / Qodana Community / .NET`
 - `Code Quality / Angular / TypeScript / JavaScript / HTML / SCSS / CSS`
 
-The workflows already use `runs-on: self-hosted`. GitHub automatically distributes
-queued jobs across every online repository runner that matches the default
-`self-hosted`, `Linux`, and architecture labels. No workflow matrix or artificial
-job dependency is required.
+The repository-authored workflows already use `runs-on: self-hosted`. GitHub
+automatically distributes queued jobs across every online repository runner that
+matches the default `self-hosted`, `Linux`, and architecture labels. No workflow
+matrix or artificial job dependency is required.
 
 This repository therefore provides an installer that adds three independent
 runner services beside the existing `aipsiteci` runner, giving four concurrent
 execution slots in total.
+
+## Strict self-hosted NuGet dependency submission
+
+GitHub's Automatic dependency submission is a GitHub-managed dynamic workflow.
+Even when it is configured for labeled self-hosted runners, GitHub documents that
+the automatic job can use GitHub Actions infrastructure when the eligible
+self-hosted runners are unavailable. That behavior does not meet this repository's
+strict requirement that NuGet dependency submission never consume GitHub-hosted
+runner capacity.
+
+For that reason, this repository uses the explicit workflow:
+
+```text
+.github/workflows/nuget-dependency-submission-self-hosted.yml
+```
+
+The workflow has `runs-on: self-hosted`, uses GitHub's documented Component
+Detection dependency-submission action for NuGet, and only runs from repository
+workflow configuration. A job whose `runs-on` expression is `self-hosted` queues
+until an eligible self-hosted runner is available; it has no GitHub-hosted runner
+fallback.
+
+### Required repository setting
+
+After the explicit workflow is merged, open:
+
+**Settings > Security > Advanced Security > Dependency graph > Automatic dependency submission**
+
+and set Automatic dependency submission to **Disabled**.
+
+This setting is required. If GitHub Automatic dependency submission remains
+enabled, GitHub may continue creating `Dynamic Submit / NuGet` jobs independently
+of the repository-authored self-hosted workflow, causing duplicate dependency
+submissions and possible GitHub-hosted usage.
+
+Do not remove the NuGet entry from `.github/dependabot.yml` merely to suppress the
+dynamic job. Dependabot NuGet update configuration and dependency-graph submission
+are separate concerns. Keep Dependabot updates configured and disable only the
+GitHub-managed Automatic dependency submission feature.
+
+### Verification
+
+After merge and after disabling Automatic dependency submission:
+
+1. Open **Actions > NuGet Dependency Submission (Self-Hosted)**.
+2. Run the workflow with `workflow_dispatch`, or merge a NuGet manifest change to
+   `main`.
+3. Confirm the `Prove runner routing` step prints an `aipsiteci*` runner name.
+4. Confirm new `Dynamic Submit / NuGet` runs are no longer created.
+
+If the self-hosted pool is busy or offline, the explicit job must remain queued.
+It must not start on a GitHub-hosted image.
 
 ## Isolation model
 

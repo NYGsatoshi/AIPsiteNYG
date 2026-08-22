@@ -85,10 +85,35 @@ public static class ApiEnvelope
             status);
     }
 
+    /// <summary>
+    /// Identifies WPC canonical command surfaces that must use the canonical
+    /// envelope even when authentication, CSRF, model binding, or exception
+    /// handling fails before the controller executes. The method name is
+    /// retained for WPC-01 compatibility.
+    /// </summary>
     public static bool IsWorkspaceCreationPath(string? path)
     {
         var normalized = path?.TrimEnd('/') ?? string.Empty;
-        return normalized.Equals("/api/workspaces", StringComparison.OrdinalIgnoreCase) ||
-               normalized.Equals("/api/workspaces/capabilities", StringComparison.OrdinalIgnoreCase);
+        if (normalized.Equals("/api/workspaces", StringComparison.OrdinalIgnoreCase) ||
+            normalized.Equals("/api/workspaces/capabilities", StringComparison.OrdinalIgnoreCase))
+        {
+            return true;
+        }
+
+        var segments = normalized.Split('/', StringSplitOptions.RemoveEmptyEntries);
+        if (segments.Length == 4 &&
+            segments[0].Equals("api", StringComparison.OrdinalIgnoreCase) &&
+            segments[1].Equals("workspaces", StringComparison.OrdinalIgnoreCase) &&
+            Guid.TryParse(segments[2], out _) &&
+            segments[3].Equals("projects", StringComparison.OrdinalIgnoreCase))
+        {
+            return true;
+        }
+
+        return segments.Length == 4 &&
+               segments[0].Equals("api", StringComparison.OrdinalIgnoreCase) &&
+               segments[1].Equals("projects", StringComparison.OrdinalIgnoreCase) &&
+               Guid.TryParse(segments[2], out _) &&
+               segments[3].Equals("activate", StringComparison.OrdinalIgnoreCase);
     }
 }

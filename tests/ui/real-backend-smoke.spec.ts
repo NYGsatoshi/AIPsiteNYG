@@ -303,7 +303,11 @@ test.describe('MVP0 real backend browser smoke', () => {
 
       await page.reload();
       await expect(page.getByTestId('my-tasks-page-size')).toBeVisible();
-      const pageSizeResponse = waitForApiResponse(page, 'GET', '/api/me/tasks');
+      const pageSizeResponse = page.waitForResponse((response) => {
+        if (response.request().method() !== 'GET') return false;
+        const url = new URL(response.url());
+        return url.pathname === '/api/me/tasks' && url.searchParams.get('pageSize') === '10';
+      });
       await page.getByTestId('my-tasks-page-size').selectOption('10');
       await recordOkJson(await pageSizeResponse, evidence, 'pr04-ui-page-size', (body) =>
         isPagedResponse(body) && body.page === 1 && body.pageSize === 10 && body.totalCount > 10);

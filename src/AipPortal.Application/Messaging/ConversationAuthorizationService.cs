@@ -1,11 +1,12 @@
 using AipPortal.Application.Common.Interfaces;
 using AipPortal.Application.Projects;
+using AipPortal.Application.Workspaces;
 using AipPortal.Domain.Entities;
 using AipPortal.Domain.Enums;
 
 namespace AipPortal.Application.Messaging;
 
-public sealed class ConversationAuthorizationService(IMessagingRepository messaging, IProjectAuthorizationService projects) : IConversationAuthorizationService
+public sealed class ConversationAuthorizationService(IMessagingRepository messaging, IProjectAuthorizationService projects, IWorkspaceAuthorizationService? workspaces = null) : IConversationAuthorizationService
 {
     private const int MaxThreadDepth = 32;
 
@@ -212,6 +213,13 @@ public sealed class ConversationAuthorizationService(IMessagingRepository messag
 
     private async Task<bool> IsConversationScopeAllowed(Guid userId, Conversation conversation, CancellationToken cancellationToken)
     {
+        if (conversation.Type == ConversationType.WorkspaceChannel)
+        {
+            return !conversation.ProjectId.HasValue &&
+                   workspaces is not null &&
+                   await workspaces.CanViewWorkspace(userId, conversation.WorkspaceId, cancellationToken);
+        }
+
         if (conversation.Type == ConversationType.ProjectChannel && !conversation.ProjectId.HasValue)
         {
             return false;
@@ -228,6 +236,6 @@ public sealed class ConversationAuthorizationService(IMessagingRepository messag
 
     private static bool IsSupportedMvpType(ConversationType type)
     {
-        return type is ConversationType.DirectMessage or ConversationType.ProjectChannel or ConversationType.Thread;
+        return type is ConversationType.DirectMessage or ConversationType.WorkspaceChannel or ConversationType.ProjectChannel or ConversationType.Thread;
     }
 }

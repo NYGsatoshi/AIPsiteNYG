@@ -1,4 +1,5 @@
 using System.Diagnostics;
+using System.Text.Json.Nodes;
 using AipPortal.Application.Security.Redaction;
 using AipPortal.Web.Models;
 using Microsoft.AspNetCore.Http;
@@ -28,22 +29,215 @@ public sealed class CanonicalRedactionServiceTests
     }
 
     [Theory]
-    [InlineData(RedactionAuthorizationState.Denied)]
-    [InlineData(RedactionAuthorizationState.Unknown)]
+    [InlineData(RedactionAuthorizationState.Denied, RedactionProfile.UiList)]
+    [InlineData(RedactionAuthorizationState.Denied, RedactionProfile.UiDetail)]
+    [InlineData(RedactionAuthorizationState.Denied, RedactionProfile.SearchSnippet)]
+    [InlineData(RedactionAuthorizationState.Denied, RedactionProfile.ExportRow)]
+    [InlineData(RedactionAuthorizationState.Denied, RedactionProfile.AuditDisplay)]
+    [InlineData(RedactionAuthorizationState.Denied, RedactionProfile.NotificationPayload)]
+    [InlineData(RedactionAuthorizationState.Denied, RedactionProfile.FileMetadata)]
+    [InlineData(RedactionAuthorizationState.Unknown, RedactionProfile.UiList)]
+    [InlineData(RedactionAuthorizationState.Unknown, RedactionProfile.UiDetail)]
+    [InlineData(RedactionAuthorizationState.Unknown, RedactionProfile.SearchSnippet)]
+    [InlineData(RedactionAuthorizationState.Unknown, RedactionProfile.ExportRow)]
+    [InlineData(RedactionAuthorizationState.Unknown, RedactionProfile.AuditDisplay)]
+    [InlineData(RedactionAuthorizationState.Unknown, RedactionProfile.NotificationPayload)]
+    [InlineData(RedactionAuthorizationState.Unknown, RedactionProfile.FileMetadata)]
     public void NonErrorProfile_UnknownOrDeniedAuthorization_FailsClosed(
-        RedactionAuthorizationState authorizationState)
+        RedactionAuthorizationState authorizationState,
+        RedactionProfile profile)
     {
         var service = new CanonicalRedactionService();
         var source = new { secret = "must-not-pass-through" };
         var context = CreateContext(authorizationState);
 
-        var result = service.Redact(context, source, RedactionProfile.UiDetail);
+        var result = service.Redact(context, source, profile);
 
         Assert.True(result.RedactionApplied);
         var redacted = Assert.IsType<RedactedPayload>(result.Value);
-        Assert.Equal(RedactionProfile.UiDetail, redacted.Profile);
+        Assert.Equal(profile, redacted.Profile);
         Assert.Equal("authorization", redacted.Reason);
         Assert.NotSame(source, result.Value);
+    }
+
+    [Theory]
+    [InlineData(RedactionProfile.UiList)]
+    [InlineData(RedactionProfile.UiDetail)]
+    [InlineData(RedactionProfile.SearchSnippet)]
+    [InlineData(RedactionProfile.ExportRow)]
+    [InlineData(RedactionProfile.AuditDisplay)]
+    [InlineData(RedactionProfile.NotificationPayload)]
+    [InlineData(RedactionProfile.FileMetadata)]
+    public void AllowedProfile_AppliesProductionFieldPolicy(RedactionProfile profile)
+    {
+        var service = new CanonicalRedactionService();
+        var source = new
+        {
+            Email = "student@example.invalid",
+            OriginalFileName = "restricted-plan.pdf",
+            Snippet = "confidential snippet",
+            Summary = "sensitive summary",
+            Message = "You have a new message.",
+            Body = "confidential body",
+            HealthNotes = "restricted health data",
+            StorageKey = "tenant/private/object",
+            HashSha256 = "0123456789abcdef",
+            SafeId = Guid.NewGuid()
+        };
+
+        var result = service.Redact(
+            CreateContext(RedactionAuthorizationState.Allowed),
+            source,
+            profile);
+
+        Assert.True(result.RedactionApplied);
+        var projected = Assert.IsType<JsonObject>(result.Value);
+        Assert.Equal("[redacted:restricted]", projected["healthNotes"]?.GetValue<string>());
+        Assert.False(projected.ContainsKey("storageKey"));
+        Assert.False(projected.ContainsKey("hashSha256"));
+        Assert.NotNull(projected["safeId"]);
+
+        if (profile is RedactionProfile.UiList or RedactionProfile.UiDetail or RedactionProfile.ExportRow)
+        {
+            Assert.Equal("[redacted:email]", projected["email"]?.GetValue<string>());
+        }
+
+        if (profile == RedactionProfile.ExportRow)
+        {
+            Assert.Equal("[redacted:file]", projected["originalFileName"]?.GetValue<string>());
+        }
+
+        if (profile == RedactionProfile.FileMetadata)
+        {
+            Assert.Equal("restricted-plan.pdf", projected["originalFileName"]?.GetValue<string>());
+        }
+
+        if (profile == RedactionProfile.SearchSnippet)
+        {
+            Assert.Equal("[redacted:restricted]", projected["snippet"]?.GetValue<string>());
+        }
+
+        if (profile == RedactionProfile.AuditDisplay)
+        {
+            Assert.Equal("[redacted:restricted]", projected["summary"]?.GetValue<string>());
+        }
+
+        if (profile == RedactionProfile.NotificationPayload)
+        {
+            Assert.Equal("[redacted:restricted]", projected["body"]?.GetValue<string>());
+            Assert.Equal("You have a new message.", projected["message"]?.GetValue<string>());
+        }
+    }
+
+    [Fact]
+    public void AllowedProfile_FieldAccessPolicyCanPermitConfidentialField()
+    {
+        var service = new CanonicalRedactionService();
+        var source = new
+        {
+            Email = "authorized@example.invalid",
+            HealthNotes = "still restricted"
+        };
+
+        var result = service.Redact(
+            CreateContext(
+                RedactionAuthorizationState.Allowed,
+                FieldAccessPolicySnapshot.ThroughConfidential),
+            source,
+            RedactionProfile.UiDetail);
+
+        Assert.True(result.RedactionApplied);
+        var projected = Assert.IsType<JsonObject>(result.Value);
+        Assert.Equal("authorized@example.invalid", projected["email"]?.GetValue<string>());
+        Assert.Equal("[redacted:restricted]", projected["healthNotes"]?.GetValue<string>());
+    }
+
+    [Fact]
+    public void RestrictedField_RequiresExplicitFieldGrant()
+    {
+        var service = new CanonicalRedactionService();
+        var source = new
+        {
+            HealthNotes = "authorized restricted value",
+            SafeId = Guid.NewGuid()
+        };
+
+        var deniedByFieldPolicy = service.Redact(
+            CreateContext(RedactionAuthorizationState.Allowed),
+            source,
+            RedactionProfile.UiDetail);
+        Assert.True(deniedByFieldPolicy.RedactionApplied);
+        Assert.Equal(
+            "[redacted:restricted]",
+            Assert.IsType<JsonObject>(deniedByFieldPolicy.Value)["healthNotes"]?.GetValue<string>());
+
+        var allowedByFieldPolicy = service.Redact(
+            CreateContext(
+                RedactionAuthorizationState.Allowed,
+                FieldAccessPolicySnapshot.ThroughRestrictedFields("HealthNotes")),
+            source,
+            RedactionProfile.UiDetail);
+
+        Assert.False(allowedByFieldPolicy.RedactionApplied);
+        Assert.Same(source, allowedByFieldPolicy.Value);
+    }
+
+    [Fact]
+    public void Token_IsDefaultDeny_ExceptExactFileDownloadGrantIssuanceBoundary()
+    {
+        var service = new CanonicalRedactionService();
+        var source = new
+        {
+            Token = "one-time-download-token",
+            SafeId = Guid.NewGuid()
+        };
+
+        var defaultResult = service.Redact(
+            CreateContext(RedactionAuthorizationState.Allowed),
+            source,
+            RedactionProfile.UiDetail);
+        Assert.True(defaultResult.RedactionApplied);
+        Assert.False(Assert.IsType<JsonObject>(defaultResult.Value).ContainsKey("token"));
+
+        var exactGrantContext = new AuthorizationContext(
+            ActorId: Guid.NewGuid(),
+            TenantId: Guid.NewGuid(),
+            ModuleKey: "FileDownloadGrant",
+            Purpose: RedactionPurpose.FileDownload,
+            RequestId: "request-download-grant",
+            AuthorizationState: RedactionAuthorizationState.Allowed);
+        var grantResult = service.Redact(
+            exactGrantContext,
+            source,
+            RedactionProfile.UiDetail);
+        Assert.False(grantResult.RedactionApplied);
+        Assert.Same(source, grantResult.Value);
+
+        var wrongPurposeContext = new AuthorizationContext(
+            ActorId: exactGrantContext.ActorId,
+            TenantId: exactGrantContext.TenantId,
+            ModuleKey: exactGrantContext.ModuleKey,
+            Purpose: RedactionPurpose.NormalOperation,
+            RequestId: exactGrantContext.RequestId,
+            AuthorizationState: RedactionAuthorizationState.Allowed);
+        var wrongPurposeResult = service.Redact(
+            wrongPurposeContext,
+            source,
+            RedactionProfile.UiDetail);
+        Assert.True(wrongPurposeResult.RedactionApplied);
+        Assert.False(Assert.IsType<JsonObject>(wrongPurposeResult.Value).ContainsKey("token"));
+    }
+
+    [Fact]
+    public void AuthorizationContext_RejectsFreeFormPurpose()
+    {
+        Assert.Throws<ArgumentOutOfRangeException>(() => new AuthorizationContext(
+            ActorId: Guid.NewGuid(),
+            TenantId: Guid.NewGuid(),
+            ModuleKey: "Tests",
+            Purpose: "FreeFormPurpose",
+            RequestId: "request-test",
+            AuthorizationState: RedactionAuthorizationState.Allowed));
     }
 
     [Fact]
@@ -166,12 +360,15 @@ public sealed class CanonicalRedactionServiceTests
         Assert.True(envelope.Error.RedactionApplied);
     }
 
-    private static AuthorizationContext CreateContext(RedactionAuthorizationState authorizationState) =>
+    private static AuthorizationContext CreateContext(
+        RedactionAuthorizationState authorizationState,
+        FieldAccessPolicySnapshot? fieldAccessPolicy = null) =>
         new(
-            ActorId: null,
-            TenantId: null,
+            ActorId: Guid.NewGuid(),
+            TenantId: Guid.NewGuid(),
             ModuleKey: "Tests",
-            Purpose: "NormalOperation",
+            Purpose: RedactionPurpose.NormalOperation,
             RequestId: "request-test",
-            AuthorizationState: authorizationState);
+            AuthorizationState: authorizationState,
+            FieldAccessPolicy: fieldAccessPolicy);
 }
