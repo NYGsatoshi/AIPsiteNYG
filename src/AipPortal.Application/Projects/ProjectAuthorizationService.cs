@@ -195,8 +195,11 @@ public sealed class ProjectAuthorizationService(
     public async Task<bool> CanAssignTask(Guid userId, Guid taskItemId, CancellationToken cancellationToken = default)
     {
         var task = await projects.GetTaskAsync(taskItemId, cancellationToken);
+        // Deleted-row visibility is enforced by the command boundary. Restore is
+        // the single command that intentionally opts into deleted Task loading,
+        // and it must reuse the same current manager-level authorization as
+        // assignment/delete without making historical attribution a capability.
         return task is not null &&
-               !task.DeletedAt.HasValue &&
                await CanUseTaskMutationScopeAsync(userId, task.ProjectId, cancellationToken) &&
                await CanManageProject(userId, task.ProjectId, cancellationToken);
     }
