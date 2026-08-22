@@ -8,16 +8,22 @@
 }
 
 .app-shell {
+  --app-shell-feature-menu-width: var(--aip-shell-feature-menu-width);
+
   position: relative;
   display: grid;
   grid-template-columns:
     var(--aip-shell-account-rail-width)
-    var(--aip-shell-feature-menu-width)
+    var(--app-shell-feature-menu-width)
     minmax(0, 1fr)
     var(--aip-shell-right-panel-collapsed-width);
   min-width: 0;
   min-height: 100dvh;
   overflow-x: hidden;
+}
+
+.app-shell--feature-menu-collapsed {
+  --app-shell-feature-menu-width: var(--aip-shell-feature-menu-collapsed-width);
 }
 
 .app-shell__skip-link {
@@ -46,7 +52,7 @@
 .app-shell--right-expanded {
   grid-template-columns:
     var(--aip-shell-account-rail-width)
-    var(--aip-shell-feature-menu-width)
+    var(--app-shell-feature-menu-width)
     minmax(0, 1fr)
     var(--aip-shell-right-panel-expanded-width);
 }
@@ -79,7 +85,8 @@
 
 @media (max-width: 860px) {
   .app-shell,
-  .app-shell--right-expanded {
+  .app-shell--right-expanded,
+  .app-shell--feature-menu-collapsed {
     grid-template-columns: minmax(0, 1fr);
     grid-template-rows: auto minmax(0, 1fr);
   }
