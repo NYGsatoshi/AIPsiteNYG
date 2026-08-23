@@ -29,13 +29,19 @@
 
     <label>
       <span>対象</span>
-      <select formControlName="audienceScope" data-testid="announcement-editor-audience">
-        @for (audience of availableAudiences(); track audience.scope) {
-          <option [value]="audience.scope">{{ audienceOptionLabel(audience) }}</option>
+      <select formControlName="audienceKey" data-testid="announcement-editor-audience">
+        @for (audience of availableAudiences(); track audience.key) {
+          <option [value]="audience.key">{{ audienceOptionLabel(audience) }}</option>
         }
       </select>
     </label>
   </div>
+
+  @if (availableAudiences().length === 0) {
+    <p class="announcement-editor__audience-note" role="alert" data-testid="announcement-audience-unavailable">
+      現在公開できる配信対象がありません。権限を再確認してください。
+    </p>
+  }
 
   @if (selectedAudience(); as audience) {
     <section class="announcement-editor__audience-summary" aria-live="polite" data-testid="announcement-audience-summary">
@@ -48,7 +54,7 @@
       } @else {
         <p>受信者数は公開前の確認時に再計算されます。</p>
       }
-      <p class="announcement-editor__audience-note">公開前に対象をもう一度確認してください。</p>
+      <p class="announcement-editor__audience-note">公開時にサーバーで権限と対象を再確認します。</p>
     </section>
   }
 
@@ -85,7 +91,8 @@
       type="button"
       class="announcement-editor__primary"
       data-testid="announcement-publish-action"
-      [disabled]="selectedAudience() === null"
+      [disabled]="form.invalid || selectedAudience() === null"
+      (click)="publish()"
     >
       公開
     </button>
