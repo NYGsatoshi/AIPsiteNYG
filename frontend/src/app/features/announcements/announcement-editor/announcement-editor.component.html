@@ -1,7 +1,11 @@
 <form class="announcement-editor" [formGroup]="form" data-testid="announcement-editor">
   <header>
-    <p>下書き</p>
-    <h2>新しいお知らせ</h2>
+    <app-announcement-publication-status
+      [state]="publicationState"
+      [scheduledAtLabel]="draft.scheduledAtLabel"
+      [timeZoneLabel]="draft.timeZoneLabel"
+    />
+    <h2>{{ draft.id ? 'お知らせを編集' : '新しいお知らせ' }}</h2>
   </header>
 
   <label>
@@ -86,12 +90,12 @@
   </section>
 
   <div class="announcement-editor__actions">
-    <button type="button">下書き保存</button>
+    <button type="button" [disabled]="!canSaveDraft" data-testid="announcement-save-draft-action">下書き保存</button>
     <button
       type="button"
       class="announcement-editor__primary"
       data-testid="announcement-publish-action"
-      [disabled]="form.invalid || selectedAudience() === null"
+      [disabled]="!canPublish || form.invalid || selectedAudience() === null"
       (click)="publish()"
     >
       公開
