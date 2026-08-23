@@ -23,6 +23,8 @@ const dashboardItem = (
   unreadAnnouncementCount: 0,
   unreadConversationCount: 0,
   inProgressProjectCount: 0,
+  runningProjectCount: 0,
+  needsReviewProjectCount: 0,
   ...overrides,
 });
 
@@ -58,20 +60,28 @@ describe('Workspace dashboard API mapper', () => {
         unreadAnnouncementCount: 7,
         unreadConversationCount: 4,
         inProgressProjectCount: 9,
+        runningProjectCount: 6,
+        needsReviewProjectCount: 3,
       }),
     );
 
     expect(zero.unreadAnnouncementCount).toBe(0);
     expect(zero.unreadConversationCount).toBe(0);
     expect(zero.activeProjectCount).toBe(0);
+    expect(zero.runningProjectCount).toBe(0);
+    expect(zero.needsReviewProjectCount).toBe(0);
     expect(zero.availability).toMatchObject({
       unreadAnnouncements: true,
       unreadConversations: true,
       activeProjects: true,
+      runningProjects: true,
+      needsReviewProjects: true,
     });
     expect(nonZero.unreadAnnouncementCount).toBe(7);
     expect(nonZero.unreadConversationCount).toBe(4);
     expect(nonZero.activeProjectCount).toBe(9);
+    expect(nonZero.runningProjectCount).toBe(6);
+    expect(nonZero.needsReviewProjectCount).toBe(3);
   });
 
   it('maps each backend card capability boolean independently', () => {
@@ -98,6 +108,8 @@ describe('Workspace dashboard API mapper', () => {
         unreadAnnouncementCount: undefined,
         unreadConversationCount: undefined,
         inProgressProjectCount: undefined,
+        runningProjectCount: undefined,
+        needsReviewProjectCount: undefined,
       }),
     );
 
@@ -107,11 +119,36 @@ describe('Workspace dashboard API mapper', () => {
     expect(card.unreadAnnouncementCount).toBeNull();
     expect(card.unreadConversationCount).toBeNull();
     expect(card.activeProjectCount).toBeNull();
+    expect(card.runningProjectCount).toBeNull();
+    expect(card.needsReviewProjectCount).toBeNull();
     expect(card.availability).toMatchObject({
       unreadAnnouncements: false,
       unreadConversations: false,
       activeProjects: false,
+      runningProjects: false,
+      needsReviewProjects: false,
     });
+  });
+
+  it('derives the compatibility total only when both additive state counts are authoritative', () => {
+    const splitOnly = mapWorkspaceDashboardItem(
+      dashboardItem({
+        inProgressProjectCount: undefined,
+        runningProjectCount: 2,
+        needsReviewProjectCount: 1,
+      }),
+    );
+    const incompleteSplit = mapWorkspaceDashboardItem(
+      dashboardItem({
+        inProgressProjectCount: undefined,
+        runningProjectCount: 2,
+        needsReviewProjectCount: undefined,
+      }),
+    );
+
+    expect(splitOnly.activeProjectCount).toBe(3);
+    expect(incompleteSplit.activeProjectCount).toBeNull();
+    expect(incompleteSplit.needsReviewProjectCount).toBeNull();
   });
 
   it('maps page create capability only from the enveloped backend value', () => {

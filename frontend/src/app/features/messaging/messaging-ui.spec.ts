@@ -1,14 +1,20 @@
 import { provideHttpClient } from '@angular/common/http';
 import { HttpTestingController, provideHttpClientTesting } from '@angular/common/http/testing';
+import { signal } from '@angular/core';
 import { ComponentFixture, TestBed } from '@angular/core/testing';
 import { ActivatedRoute, convertToParamMap, provideRouter, Router } from '@angular/router';
-import { of } from 'rxjs';
+import { BehaviorSubject, of, Subject } from 'rxjs';
 
 import {
   AIP_AUTH_SESSION_MOCK,
   DEFAULT_AUTH_SESSION
 } from '../../core/auth/auth-session.facade';
+import { RealtimeFacade } from '../../core/realtime/realtime.facade';
+import { DurableRealtimeEvent } from '../../core/realtime/realtime.models';
+import { FrontendFeatureFlagsService } from '../../core/feature-flags/frontend-feature-flags.service';
+import { ActiveWorkspaceFacade } from '../../core/workspace/active-workspace.facade';
 import { ChannelMessagingPageComponent } from './channel-messaging-page/channel-messaging-page.component';
+import { DraftStorageService } from './draft-storage.service';
 import { mapMessage } from './messaging.mapper';
 import { AIP_MESSAGING_PAGE_MOCK, MessagingFacade } from './messaging.facade';
 import { MESSAGING_PAGE_SCENARIOS } from './messaging.mock';
@@ -16,7 +22,15 @@ import { MessagesPageComponent } from './messages-page/messages-page.component';
 
 const currentUserId = DEFAULT_AUTH_SESSION.currentUser?.userId ?? 'mock-user-a';
 
-async function configureHttpTest(imports: any[], conversationId = 'conversation-a'): Promise<HttpTestingController> {
+async function configureHttpTest(
+  imports: any[],
+  conversationId = 'conversation-a',
+  workspaceId: string | null = 'workspace-a',
+): Promise<HttpTestingController> {
+  const routeParams: Record<string, string> = { conversationId };
+  if (workspaceId) {
+    routeParams['workspaceId'] = workspaceId;
+  }
   await TestBed.configureTestingModule({
     imports,
     providers: [
@@ -30,7 +44,7 @@ async function configureHttpTest(imports: any[], conversationId = 'conversation-
       {
         provide: ActivatedRoute,
         useValue: {
-          paramMap: of(convertToParamMap({ workspaceId: 'workspace-a', conversationId }))
+          paramMap: of(convertToParamMap(routeParams))
         }
       }
     ]
@@ -254,6 +268,142 @@ describe('Messaging MVP0 backend wiring', () => {
     expect(root.textContent).toContain('Existing backend message');
   });
 
+  it('opens a legacy notification conversation route in the canonical active Workspace', async () => {
+    const httpMock = await configureHttpTest(
+      [ChannelMessagingPageComponent],
+      'conversation-a',
+      null,
+    );
+    TestBed.inject(ActiveWorkspaceFacade).setActiveWorkspace({
+      id: 'workspace-a',
+      label: 'Workspace A',
+    });
+    const fixture = TestBed.createComponent(ChannelMessagingPageComponent);
+
+    flushConversationOpen(httpMock);
+    fixture.detectChanges();
+
+    expect(fixture.componentInstance.page().conversation).toMatchObject({
+      id: 'conversation-a',
+      workspaceId: 'workspace-a',
+    });
+    expect(fixture.componentInstance.page().messages).toHaveLength(1);
+  });
+
+  it('fails closed for a legacy conversation route without an active Workspace', async () => {
+    const httpMock = await configureHttpTest(
+      [ChannelMessagingPageComponent],
+      'conversation-a',
+      null,
+    );
+    const fixture = TestBed.createComponent(ChannelMessagingPageComponent);
+
+    httpMock.expectNone('/api/conversations');
+    httpMock.expectNone('/api/conversations/conversation-a');
+    expect(fixture.componentInstance.page()).toMatchObject({
+      status: 'permissionDenied',
+      conversations: [],
+      messages: [],
+      conversation: { id: '' },
+    });
+  });
+
+  it('rejects a canonical channel DTO from another Workspace before messages or realtime', async () => {
+    const events = new Subject<DurableRealtimeEvent>();
+    const registerSubscription = vi.fn(() => () => undefined);
+    const registerCatchUp = vi.fn(() => () => undefined);
+    await TestBed.configureTestingModule({
+      imports: [ChannelMessagingPageComponent],
+      providers: [
+        provideRouter([]),
+        provideHttpClient(),
+        provideHttpClientTesting(),
+        { provide: AIP_AUTH_SESSION_MOCK, useValue: DEFAULT_AUTH_SESSION },
+        {
+          provide: ActivatedRoute,
+          useValue: {
+            paramMap: of(convertToParamMap({
+              workspaceId: 'workspace-a',
+              conversationId: 'conversation-a',
+            })),
+          },
+        },
+        {
+          provide: FrontendFeatureFlagsService,
+          useValue: {
+            realtimeSignalREnabled: () => true,
+            optimisticMessagingEnabled: () => true,
+          },
+        },
+        {
+          provide: RealtimeFacade,
+          useValue: {
+            connectionState: signal('Connected'),
+            durableEvents$: events.asObservable(),
+            registerProtectedStateClearer: () => () => undefined,
+            registerSubscription,
+            registerCatchUp,
+          },
+        },
+      ],
+    }).compileComponents();
+    const httpMock = TestBed.inject(HttpTestingController);
+    TestBed.createComponent(ChannelMessagingPageComponent);
+
+    httpMock.expectOne('/api/conversations').flush({ items: [] });
+    httpMock.expectOne('/api/conversations/conversation-a').flush({
+      id: 'conversation-a',
+      workspaceId: 'workspace-b',
+      type: 'ProjectChannel',
+      title: 'Other Workspace channel',
+      isLocked: false,
+      isArchived: false,
+      members: [],
+      createdAt: '2026-07-09T00:00:00Z',
+    });
+
+    httpMock.expectNone('/api/conversations/conversation-a/messages');
+    expect(registerSubscription).not.toHaveBeenCalled();
+    expect(registerCatchUp).not.toHaveBeenCalled();
+    expect(TestBed.inject(MessagingFacade).page()).toMatchObject({
+      status: 'permissionDenied',
+      conversations: [],
+      messages: [],
+      conversation: { id: '' },
+    });
+  });
+
+  it('waits for NavigationEnd to commit a cross-Workspace channel scope before loading', async () => {
+    const routeParams = new BehaviorSubject(convertToParamMap({
+      workspaceId: 'workspace-a',
+      conversationId: 'conversation-a',
+    }));
+    await TestBed.configureTestingModule({
+      imports: [ChannelMessagingPageComponent],
+      providers: [
+        provideRouter([]),
+        provideHttpClient(),
+        provideHttpClientTesting(),
+        { provide: AIP_AUTH_SESSION_MOCK, useValue: DEFAULT_AUTH_SESSION },
+        {
+          provide: ActivatedRoute,
+          useValue: { paramMap: routeParams.asObservable() },
+        },
+      ],
+    }).compileComponents();
+    const httpMock = TestBed.inject(HttpTestingController);
+    const activeWorkspace = TestBed.inject(ActiveWorkspaceFacade);
+    activeWorkspace.setActiveWorkspace({ id: 'workspace-b', label: 'Workspace B' });
+
+    TestBed.createComponent(ChannelMessagingPageComponent);
+    httpMock.expectNone('/api/conversations');
+    httpMock.expectNone('/api/conversations/conversation-a');
+
+    activeWorkspace.setActiveWorkspace({ id: 'workspace-a', label: 'Workspace A' });
+    TestBed.flushEffects();
+    flushConversationOpen(httpMock);
+  });
+
   it('keeps the same-tenant conversation rail populated while a different detail route loads', async () => {
     const httpMock = await configureHttpTest([ChannelMessagingPageComponent]);
     const fixture = TestBed.createComponent(ChannelMessagingPageComponent);
@@ -262,13 +412,221 @@ describe('Messaging MVP0 backend wiring', () => {
 
     expect(facade.page().conversations.map((conversation) => conversation.id)).toEqual(['conversation-a']);
 
-    facade.loadConversation('conversation-b', 'channel');
+    facade.loadConversation('conversation-b', 'channel', 'workspace-a');
 
     expect(facade.page().status).toBe('loading');
     expect(facade.page().conversations.map((conversation) => conversation.id)).toEqual(['conversation-a']);
 
     flushConversationOpen(httpMock, 'conversation-b');
     fixture.detectChanges();
+  });
+
+  it('clears protected conversation state and pending requests at a Workspace boundary while retaining the partitioned draft', async () => {
+    const httpMock = await configureHttpTest([ChannelMessagingPageComponent]);
+    TestBed.createComponent(ChannelMessagingPageComponent);
+    flushConversationOpen(httpMock);
+    const facade = TestBed.inject(MessagingFacade);
+    const realtime = TestBed.inject(RealtimeFacade);
+    const draftStorage = TestBed.inject(DraftStorageService);
+    const pageBeforeBoundary = facade.page();
+    const draftKey = draftStorage.keyFor({
+      tenantId: pageBeforeBoundary.conversation.tenantId,
+      userId: currentUserId,
+      workspaceId: pageBeforeBoundary.conversation.workspaceId,
+      conversationId: pageBeforeBoundary.conversation.id,
+    });
+    facade.setDraft('Workspace-partitioned draft');
+    sessionStorage.setItem('aip.messaging.list-scroll-y.v1', '320');
+    sessionStorage.setItem('aip.messaging.list-scroll-restore-pending.v1', '1');
+
+    facade.loadConversation('conversation-b', 'channel', 'workspace-a');
+    const pending = httpMock.match((request) =>
+      request.url === '/api/conversations' || request.url === '/api/conversations/conversation-b'
+    );
+    expect(pending).toHaveLength(2);
+
+    realtime.clearForWorkspaceBoundary();
+
+    expect(pending.every((request) => request.cancelled)).toBe(true);
+    expect(facade.page().conversation.id).toBe('');
+    expect(facade.page().conversations).toEqual([]);
+    expect(facade.page().messages).toEqual([]);
+    expect(facade.page().draft).toBe('');
+    expect(sessionStorage.getItem(draftKey)).toBe('Workspace-partitioned draft');
+    expect(sessionStorage.getItem('aip.messaging.list-scroll-y.v1')).toBeNull();
+    expect(sessionStorage.getItem('aip.messaging.list-scroll-restore-pending.v1')).toBeNull();
+  });
+
+  it('keeps realtime catch-up pending until the full authoritative conversation reload settles', async () => {
+    const events = new Subject<DurableRealtimeEvent>();
+    let catchUp: (() => Promise<void> | void) | null = null;
+    await TestBed.configureTestingModule({
+      providers: [
+        provideHttpClient(),
+        provideHttpClientTesting(),
+        { provide: AIP_AUTH_SESSION_MOCK, useValue: DEFAULT_AUTH_SESSION },
+        {
+          provide: FrontendFeatureFlagsService,
+          useValue: {
+            realtimeSignalREnabled: () => true,
+            optimisticMessagingEnabled: () => true,
+          },
+        },
+        {
+          provide: RealtimeFacade,
+          useValue: {
+            durableEvents$: events.asObservable(),
+            registerProtectedStateClearer: () => () => undefined,
+            registerSubscription: () => () => undefined,
+            registerCatchUp: (_owner: string, callback: () => Promise<void> | void) => {
+              catchUp = callback;
+              return () => { catchUp = null; };
+            },
+          },
+        },
+      ],
+    }).compileComponents();
+    const httpMock = TestBed.inject(HttpTestingController);
+    const facade = TestBed.inject(MessagingFacade);
+    facade.loadConversation('conversation-a', 'channel', 'workspace-a');
+    flushConversationOpen(httpMock);
+    expect(catchUp).not.toBeNull();
+
+    const catchUpCompletion = catchUp?.();
+    expect(catchUpCompletion).toBeInstanceOf(Promise);
+    let settled = false;
+    void Promise.resolve(catchUpCompletion).then(() => { settled = true; });
+
+    httpMock.expectOne('/api/conversations').flush({ items: [] });
+    httpMock.expectOne('/api/conversations/conversation-a').flush({
+      id: 'conversation-a',
+      workspaceId: 'workspace-a',
+      type: 'ProjectChannel',
+      title: 'General',
+      isLocked: false,
+      isArchived: false,
+      members: [{
+        userId: currentUserId,
+        displayName: 'Mock User A',
+        canRead: true,
+        canPost: true,
+        removedAt: null,
+        leftAt: null,
+      }],
+      createdAt: '2026-07-09T00:00:00Z',
+    });
+    await Promise.resolve();
+    expect(settled).toBe(false);
+
+    httpMock.expectOne('/api/conversations/conversation-a/messages').flush({ items: [] });
+    await catchUpCompletion;
+    expect(settled).toBe(true);
+  });
+
+  it('discards conversation metadata when access is denied between detail and messages', async () => {
+    const events = new Subject<DurableRealtimeEvent>();
+    let catchUp: (() => Promise<void> | void) | null = null;
+    await TestBed.configureTestingModule({
+      providers: [
+        provideHttpClient(),
+        provideHttpClientTesting(),
+        { provide: AIP_AUTH_SESSION_MOCK, useValue: DEFAULT_AUTH_SESSION },
+        {
+          provide: FrontendFeatureFlagsService,
+          useValue: {
+            realtimeSignalREnabled: () => true,
+            optimisticMessagingEnabled: () => true,
+          },
+        },
+        {
+          provide: RealtimeFacade,
+          useValue: {
+            durableEvents$: events.asObservable(),
+            registerProtectedStateClearer: () => () => undefined,
+            registerSubscription: () => () => undefined,
+            registerCatchUp: (_owner: string, callback: () => Promise<void> | void) => {
+              catchUp = callback;
+              return () => { catchUp = null; };
+            },
+          },
+        },
+      ],
+    }).compileComponents();
+    const httpMock = TestBed.inject(HttpTestingController);
+    const facade = TestBed.inject(MessagingFacade);
+    facade.loadConversation('conversation-a', 'channel', 'workspace-a');
+    flushConversationOpen(httpMock);
+
+    const completion = catchUp?.();
+    httpMock.expectOne('/api/conversations').flush({ items: [] });
+    httpMock.expectOne('/api/conversations/conversation-a').flush({
+      id: 'conversation-a',
+      workspaceId: 'workspace-a',
+      type: 'ProjectChannel',
+      title: 'Sensitive conversation title',
+      isLocked: false,
+      isArchived: false,
+      members: [{
+        userId: 'sensitive-member',
+        displayName: 'Sensitive member name',
+        canRead: true,
+        canPost: false,
+        removedAt: null,
+        leftAt: null,
+      }],
+      createdAt: '2026-07-09T00:00:00Z',
+    });
+    httpMock.expectOne('/api/conversations/conversation-a/messages').flush(
+      { error: 'ConversationAccessDenied' },
+      { status: 400, statusText: 'Bad Request' },
+    );
+    await completion;
+
+    expect(facade.page()).toMatchObject({
+      status: 'permissionDenied',
+      conversations: [],
+      messages: [],
+      conversation: { id: '', title: 'Conversation', mentionCandidates: [] },
+    });
+    expect(JSON.stringify(facade.page())).not.toContain('Sensitive');
+  });
+
+  it('clears user-partitioned drafts at a session boundary', async () => {
+    const events = new Subject<DurableRealtimeEvent>();
+    let clearProtectedState: ((reason: 'session' | 'tenant' | 'authorization' | 'workspace') => void) | null = null;
+    await TestBed.configureTestingModule({
+      providers: [
+        provideHttpClient(),
+        provideHttpClientTesting(),
+        { provide: AIP_AUTH_SESSION_MOCK, useValue: DEFAULT_AUTH_SESSION },
+        {
+          provide: RealtimeFacade,
+          useValue: {
+            durableEvents$: events.asObservable(),
+            registerProtectedStateClearer: (
+              _owner: string,
+              callback: (reason: 'session' | 'tenant' | 'authorization' | 'workspace') => void,
+            ) => {
+              clearProtectedState = callback;
+              return () => { clearProtectedState = null; };
+            },
+          },
+        },
+      ],
+    }).compileComponents();
+    TestBed.inject(MessagingFacade);
+    const drafts = TestBed.inject(DraftStorageService);
+    const scope = {
+      tenantId: 'tenant-a',
+      userId: currentUserId,
+      workspaceId: 'workspace-a',
+      conversationId: 'conversation-a',
+    };
+    drafts.writeDraft(scope, 'Previous user private draft');
+
+    clearProtectedState?.('session');
+
+    expect(drafts.readDraft(scope)).toBe('');
   });
 
   it('maps own messages from the current user id', () => {

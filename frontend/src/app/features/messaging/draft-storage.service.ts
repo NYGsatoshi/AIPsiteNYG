@@ -7,7 +7,11 @@ export class DraftStorageService {
   private readonly prefix = 'aip.messaging.draft';
 
   readDraft(scope: MessagingDraftScope): string {
-    return this.storage()?.getItem(this.keyFor(scope)) ?? '';
+    try {
+      return this.storage()?.getItem(this.keyFor(scope)) ?? '';
+    } catch {
+      return '';
+    }
   }
 
   writeDraft(scope: MessagingDraftScope, value: string): void {
@@ -16,17 +20,26 @@ export class DraftStorageService {
       return;
     }
 
-    const key = this.keyFor(scope);
-    if (value.length === 0) {
-      storage.removeItem(key);
-      return;
-    }
+    try {
+      const key = this.keyFor(scope);
+      if (value.length === 0) {
+        storage.removeItem(key);
+        return;
+      }
 
-    storage.setItem(key, value);
+      storage.setItem(key, value);
+    } catch {
+      // Draft persistence is optional UX state. Storage denial/quota must not
+      // crash the protected messaging surface.
+    }
   }
 
   clearDraft(scope: MessagingDraftScope): void {
-    this.storage()?.removeItem(this.keyFor(scope));
+    try {
+      this.storage()?.removeItem(this.keyFor(scope));
+    } catch {
+      // Best effort; the user-partitioned key still prevents cross-user reads.
+    }
   }
 
   clearAllDrafts(): void {
@@ -35,17 +48,35 @@ export class DraftStorageService {
       return;
     }
 
-    const keys = Array.from({ length: storage.length }, (_, index) => storage.key(index)).filter(
-      (key): key is string => key?.startsWith(`${this.prefix}:`) ?? false
-    );
+    const keys: string[] = [];
+    let length = 0;
+    try {
+      length = storage.length;
+    } catch {
+      return;
+    }
+    for (let index = 0; index < length; index++) {
+      try {
+        const key = storage.key(index);
+        if (key?.startsWith(`${this.prefix}:`)) {
+          keys.push(key);
+        }
+      } catch {
+        // Continue clearing any other enumerable draft keys.
+      }
+    }
     for (const key of keys) {
-      storage.removeItem(key);
+      try {
+        storage.removeItem(key);
+      } catch {
+        // Continue so one denied entry cannot abort the session-boundary pass.
+      }
     }
   }
 
   keyFor(scope: MessagingDraftScope): string {
     const workspacePart = scope.workspaceId ?? 'dm';
-    return `${this.prefix}:${scope.tenantId}:${workspacePart}:${scope.conversationId}`;
+    return `${this.prefix}:${scope.tenantId}:${scope.userId}:${workspacePart}:${scope.conversationId}`;
   }
 
   private storage(): Storage | null {

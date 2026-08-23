@@ -113,6 +113,11 @@ export class MessageNavigationStateService {
     });
   }
 
+  /** Workspace navigation state is intentionally unscoped session data. */
+  clearForWorkspaceBoundary(): void {
+    this.clearPendingListScroll();
+  }
+
   private effectiveScrollHost(): MessageScrollHost | null {
     const hosts = this.scrollHosts();
     return (

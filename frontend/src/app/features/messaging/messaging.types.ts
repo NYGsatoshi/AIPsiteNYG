@@ -28,6 +28,7 @@ export type MessageSendState =
 
 export interface MessagingDraftScope {
   readonly tenantId: string;
+  readonly userId: string;
   readonly workspaceId?: string;
   readonly conversationId: string;
 }

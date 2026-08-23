@@ -4,7 +4,9 @@ import { TestBed } from '@angular/core/testing';
 
 import { AIP_AUTH_SESSION_MOCK, DEFAULT_AUTH_SESSION } from '../../core/auth/auth-session.facade';
 import { NotificationOpenContextService } from '../../core/notifications/notification-open-context.service';
+import { RealtimeFacade } from '../../core/realtime/realtime.facade';
 import { ActiveWorkspaceFacade } from '../../core/workspace/active-workspace.facade';
+import { WorkspaceSelectionFacade } from '../../core/workspace/workspace-selection.facade';
 import { MyTasksFacade } from './my-tasks.facade';
 
 const task = {
@@ -31,7 +33,14 @@ describe('MyTasksFacade', () => {
       ],
     });
     activeWorkspace = TestBed.inject(ActiveWorkspaceFacade);
-    activeWorkspace.setActiveWorkspace({ id: 'workspace-1', label: 'Workspace one' });
+    TestBed.inject(WorkspaceSelectionFacade).reconcileAuthorizedWorkspaces(
+      [
+        { id: 'workspace-1', label: 'Workspace one' },
+        { id: 'workspace-2', label: 'Workspace two' },
+      ],
+      { tenantId: 'tenant-1', userId: 'user-1' },
+      'workspace-1',
+    );
     facade = TestBed.inject(MyTasksFacade);
     httpMock = TestBed.inject(HttpTestingController);
   });
@@ -109,6 +118,7 @@ describe('MyTasksFacade', () => {
     const prior = httpMock.match((request) => request.url === '/api/me/tasks' || request.url === '/api/me/tasks/counts');
 
     facade.setWorkspace('workspace-2');
+    TestBed.flushEffects();
 
     expect(prior.every((request) => request.cancelled)).toBe(true);
     expect(facade.getMyTasks().tasks).toEqual([]);
@@ -123,9 +133,11 @@ describe('MyTasksFacade', () => {
       .flush({ views: [], timeGroups: [] });
   });
 
-  it('DigestOpenAppliesWorkspaceSpecificMyTasksContextAfterFacadeAlreadyExists', () => {
+  it('DigestOpenAppliesWorkspaceSpecificMyTasksContextAfterFacadeAlreadyExists', async () => {
     const context = TestBed.inject(NotificationOpenContextService);
+    const selection = TestBed.inject(WorkspaceSelectionFacade);
 
+    await selection.selectWorkspace('workspace-2');
     context.setDigestWorkspace('workspace-2');
     TestBed.flushEffects();
 
@@ -134,22 +146,27 @@ describe('MyTasksFacade', () => {
     expect(context.takeDigestWorkspace()).toBeNull();
   });
 
-  it('clears protected rows and counts before an authorization-state refetch', () => {
-    vi.useFakeTimers();
+  it('clears protected rows, scope IDs, and active HTTP before a new Workspace is selected', () => {
     facade.load();
-    flush({ items: [task], page: 1, pageSize: 50, totalCount: 1 }, { views: [{ view: 'Assigned', count: 1 }], timeGroups: [] });
+    const prior = httpMock.match((request) => request.url === '/api/me/tasks' || request.url === '/api/me/tasks/counts');
 
-    (facade as unknown as { handleRealtimeEvent(event: unknown): void }).handleRealtimeEvent({
-      eventType: 'Security.AuthorizationStateChanged.v1'
-    });
+    TestBed.inject(RealtimeFacade).clearForWorkspaceBoundary();
 
+    expect(prior.every((request) => request.cancelled)).toBe(true);
     expect(facade.getMyTasks().tasks).toEqual([]);
     expect(facade.getMyTasks().counts).toEqual([]);
     expect(facade.getMyTasks().totalCount).toBe(0);
+    expect(facade.getMyTasks().workspaceId).toBeNull();
+    expect(facade.getMyTasks().page).toBe(1);
+    expect(activeWorkspace.activeWorkspace()).toBeNull();
+    httpMock.expectNone('/api/me/tasks');
+    httpMock.expectNone('/api/me/tasks/counts');
 
-    vi.advanceTimersByTime(150);
+    activeWorkspace.setActiveWorkspace({ id: 'workspace-2', label: 'Workspace two' });
+    TestBed.flushEffects();
     const requests = httpMock.match((request) => request.url === '/api/me/tasks' || request.url === '/api/me/tasks/counts');
     expect(requests).toHaveLength(2);
+    expect(requests.every((request) => request.request.params.get('workspaceId') === 'workspace-2')).toBe(true);
     requests[0].flush({ items: [], page: 1, pageSize: 50, totalCount: 0 });
     requests[1].flush({ views: [], timeGroups: [] });
   });

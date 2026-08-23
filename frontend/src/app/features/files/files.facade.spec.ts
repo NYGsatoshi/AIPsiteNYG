@@ -11,12 +11,23 @@ import { FilesFacade } from './files.facade';
 describe('FilesFacade paging query state', () => {
   let facade: FilesFacade;
   let http: HttpTestingController;
+  let clearProtectedState: (() => void) | undefined;
 
   beforeEach(() => {
+    clearProtectedState = undefined;
     TestBed.configureTestingModule({ providers: [
       provideHttpClient(), provideHttpClientTesting(),
       { provide: ActiveWorkspaceFacade, useValue: { activeWorkspace: signal(null) } },
-      { provide: RealtimeFacade, useValue: { durableEvents$: new Subject() } }
+      {
+        provide: RealtimeFacade,
+        useValue: {
+          durableEvents$: new Subject(),
+          registerProtectedStateClearer: (_owner: string, clear: () => void) => {
+            clearProtectedState = clear;
+            return () => { clearProtectedState = undefined; };
+          },
+        },
+      }
     ] });
     facade = TestBed.inject(FilesFacade);
     http = TestBed.inject(HttpTestingController);
@@ -72,6 +83,30 @@ describe('FilesFacade paging query state', () => {
 
     expect(facade.page()).toMatchObject({ page: 21, pageSize: 50, totalCount: 1_001, hasMore: false });
     expect(facade.page().recentFiles.map(item => item.id)).toEqual(['file-1001']);
+  });
+
+  it('synchronously clears Workspace projections and cancels late page and picker responses', () => {
+    facade.loadPageFilesForWorkspace('workspace-a');
+    facade.loadPickerFilesForWorkspace('workspace-a');
+    const pending = http.match((request) => request.url === '/api/files');
+    expect(pending).toHaveLength(2);
+
+    clearProtectedState?.();
+
+    expect(pending.every((request) => request.cancelled)).toBe(true);
+    expect(facade.page()).toMatchObject({
+      recentFiles: [],
+      pickerFiles: [],
+      totalCount: 0,
+      hasMore: false,
+      upload: { state: 'idle', canUpload: false },
+    });
+    expect(facade.pickerStateForTask()).toMatchObject({
+      status: 'idle',
+      workspaceId: null,
+      files: [],
+      totalCount: 0,
+    });
   });
 
   function file(id: string) {

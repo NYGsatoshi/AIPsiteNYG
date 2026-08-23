@@ -1,5 +1,6 @@
 import { ActivatedRoute, convertToParamMap } from '@angular/router';
 import { applicationConfig, type Meta, type StoryObj } from '@storybook/angular';
+import { of } from 'rxjs';
 
 import { AIP_WORKSPACE_MEMBERS_MOCK } from '../members.facade';
 import { WORKSPACE_MEMBERS_PRIMARY_WORKSPACE_ID, WORKSPACE_MEMBERS_SCENARIOS } from '../members.mock';
@@ -8,7 +9,8 @@ import { WorkspaceMembersPageComponent } from './workspace-members-page.componen
 const routeStub = {
   snapshot: {
     paramMap: convertToParamMap({ workspaceId: WORKSPACE_MEMBERS_PRIMARY_WORKSPACE_ID })
-  }
+  },
+  paramMap: of(convertToParamMap({ workspaceId: WORKSPACE_MEMBERS_PRIMARY_WORKSPACE_ID })),
 };
 
 const meta: Meta<WorkspaceMembersPageComponent> = {

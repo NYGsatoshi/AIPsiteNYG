@@ -151,6 +151,41 @@ describe('AuthSessionFacade logout', () => {
     expect(snapshots.at(-1)?.capabilities).not.toContain('invite:create');
   });
 
+  it('does not choose the first auth Workspace when multiple authorized Workspaces require selection', () => {
+    authSession.bootstrap().subscribe();
+
+    httpMock.expectOne('/api/auth/me').flush({
+      userId: 'user-multi',
+      displayName: 'Multi Workspace User',
+      email: 'multi@example.test',
+      systemRole: 'User',
+      status: 'Active',
+      capabilities: ['workspace:view'],
+      currentWorkspace: null,
+      workspaces: [
+        { id: 'workspace-first', name: 'First API row' },
+        { id: 'workspace-second', name: 'Second API row' },
+      ],
+    });
+    httpMock.expectOne('/api/tenants/current').flush({
+      tenantId: 'tenant-1',
+      tenantSlug: 'default',
+      isAvailable: true,
+      isPlatformScope: false,
+      displayName: 'Default',
+      status: 'Active',
+      currentUserRole: 'Member',
+      appMode: 'OnPremSingleTenant',
+      allowTenantSwitching: false,
+    });
+
+    expect(authSession.currentUser()?.workspaces.map((workspace) => workspace.id)).toEqual([
+      'workspace-first',
+      'workspace-second',
+    ]);
+    expect(activeWorkspace.activeWorkspace()).toBeNull();
+  });
+
   it.each([401, 403])(
     'clears hydrated protected state when current tenant refresh returns terminal auth status %s',
     (status) => {
@@ -173,7 +208,9 @@ describe('AuthSessionFacade logout', () => {
 
       expect(authSession.isAuthenticated()).toBe(true);
       expect(authSession.currentTenant()).toBeNull();
-      expect(activeWorkspace.activeWorkspace()?.id).toBe(workspace.id);
+      // WorkspaceSelectionFacade owns activation after the authorized
+      // dashboard reconciles; auth hydration must not bypass its boundary.
+      expect(activeWorkspace.activeWorkspace()).toBeNull();
 
       httpMock.expectOne('/api/tenants/current').flush(
         { error: 'Authentication no longer valid' },
@@ -215,6 +252,6 @@ describe('AuthSessionFacade logout', () => {
     expect(authSession.isAuthenticated()).toBe(true);
     expect(authSession.currentUser()?.userId).toBe('user-1');
     expect(authSession.currentTenant()).toBeNull();
-    expect(activeWorkspace.activeWorkspace()?.id).toBe(workspace.id);
+    expect(activeWorkspace.activeWorkspace()).toBeNull();
   });
 });

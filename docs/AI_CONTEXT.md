@@ -3,7 +3,8 @@
 This is the primary entry point for future Codex work on AIPsiteNYG.
 
 Last broad repository audit: **2026-08-02**. WPC-01 backend-foundation
-candidate update: **2026-08-14**.
+candidate update: **2026-08-14**. WS-02 active-Workspace/context-header
+candidate update: **2026-08-24**.
 
 ## Documentation authority
 
@@ -69,7 +70,7 @@ Project references enforce a conventional dependency direction. See `docs/ARCHIT
 | `Platform:*` configuration switches | Partially implemented | Properties are bound; only setup mode is consulted by startup validation |
 | Database tenant feature flags and quotas | Partially implemented | File uploads, exports, integrations, and UI shell use them; broad module gating is incomplete |
 | `Features:*` appsettings switches | Documentation mismatch | Bound in DI but not used to gate controllers/services |
-| Workspaces/groups/channels/posts | Partially implemented; WPC-01 Workspace-create foundation candidate | REST layers exist. WPC-01 authorizes create from current active Tenant Owner/Admin membership and adds a backend `canCreate` projection. With an explicitly injected test initializer, the coordinator proves retry-safe Workspace/creator-Owner/audit/authorization-Outbox creation with durable scoped idempotency. Production remains gated before that transaction because canonical default `general` Conversation provisioning is unavailable. Delegated `workspace.create` and browser creation UI are not part of WPC-01. |
+| Workspaces/groups/channels/posts | Partially implemented; WS-01 dashboard and WS-02 context-header candidate; WPC-01 Workspace-create foundation candidate | REST layers exist. The current WS-02 candidate resolves active Workspace from a valid explicit Workspace route, then a Tenant/user-scoped last-used preference, then the sole authorized active Workspace, otherwise explicit selection; it never selects API row zero. It clears protected feature state and resource subscriptions before activating a different scope. The header separates capability-derived Workspace actions from global Notifications/Account/Logout and presents backend-authorized `Active`/`Review` Project counts as textual Running/Needs review state; legacy `inProgressProjectCount` remains their sum. Local preference and hidden controls are not authorization. WPC-01 authorizes create from current active Tenant Owner/Admin membership and adds backend `canCreate`, but production creation remains gated before its transaction because canonical default `general` Conversation provisioning is unavailable. Delegated `workspace.create` and browser creation UI are not part of WPC-01. See `docs/verification/ws-02-workspace-context-header.md`. |
 | WPC Project creation/activation | Blocked foundation | Project responses preserve nullable `GroupId` and expose `VersionNo`. Generic `Planning -> Active`, `Suspended -> Planning`, `Suspended -> Active`, and Archived/Deleted recovery without trustworthy provenance return a non-mutating 409 `InvalidStateTransition`. `Planning -> Suspended`, `Suspended -> Archived`, and ordinary `Active -> Review -> Active` remain valid; metadata-only updates may retain Active or Suspended. No lifecycle-provenance persistence was guessed. Canonical Visibility/backfill, Workspace-scoped create, optional Group API binding, Project create idempotency, authoritative create capability, canonical default Channel provisioning, and atomic activation remain unresolved. See `docs/verification/wpc-01-workspace-project-creation-foundation.md`. |
 | Messaging | Partially implemented | REST, direct-message recipient search, direct conversation creation, browser send/read persistence, and durable realtime message/unread reconciliation exist. Global Message notification delivery is stored per active Tenant membership, while conversation mute state remains conversation-specific; both suppress ordinary and mention notification rows without suppressing conversation activity or realtime delivery. WPC-01 makes Project-scoped direct-message reuse exact; production PostgreSQL conversation pages/counts, unread/update polling, detail, and Message Search share a depth-bounded recursive Thread boundary. Missing/inconsistent/cyclic or deeper-than-32 ancestry fails closed, and creation cannot persist an unreadable level-33 child. Safe attachment ownership remains incomplete. |
 | Announcements | Partially implemented | REST and UI exist; scoped visibility and frontend role/user-ID behavior have confirmed defects |
@@ -256,6 +257,8 @@ Then add:
 - Test changes or verification claims: `docs/TESTING.md`
 - Detailed entity fields: `docs/DATA_MODEL.md`
 - API conventions: `docs/API_CONTRACTS.md`
+- Active Workspace selection/context header:
+  `docs/verification/ws-02-workspace-context-header.md`
 - PR07-C deadline-digest implementation/evidence:
   `docs/decisions/task-v1-pr07-c-deadline-digest-decisions.md` and
   `docs/verification/task-v1-pr07-c-deadline-digest.md`

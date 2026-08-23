@@ -53,7 +53,9 @@ public sealed class WorkspacesControllerTests
             true,
             1,
             2,
-            3);
+            3,
+            2,
+            1);
         var service = new StubWorkspaceService
         {
             ListResult = Result<IReadOnlyList<WorkspaceDashboardListItemResponse>>.Success([value])
@@ -69,6 +71,8 @@ public sealed class WorkspacesControllerTests
         Assert.Null(item.CurrentUserRole);
         Assert.Equal(WorkspaceDashboardAccessSource.SystemAdmin, item.AccessSource);
         Assert.Equal(3, item.InProgressProjectCount);
+        Assert.Equal(2, item.RunningProjectCount);
+        Assert.Equal(1, item.NeedsReviewProjectCount);
     }
 
     [Fact]

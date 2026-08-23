@@ -219,6 +219,20 @@ describe('MessageNavigationStateService', () => {
     expect(scrollTo).not.toHaveBeenCalled();
   });
 
+  it('clears unscoped list restoration state at a Workspace boundary', () => {
+    installScrollHost(384);
+    installDocumentScrollHost(0, false);
+    const service = TestBed.inject(MessageNavigationStateService);
+    service.rememberListScroll('conversation-a');
+
+    service.clearForWorkspaceBoundary();
+
+    expect(sessionStorage.getItem('aip.messaging.list-scroll-y.v1')).toBeNull();
+    expect(sessionStorage.getItem('aip.messaging.list-scroll-host.v1')).toBeNull();
+    expect(sessionStorage.getItem('aip.messaging.list-scroll-restore-pending.v1')).toBeNull();
+    expect(sessionStorage.getItem('aip.messaging.list-focus-conversation.v1')).toBeNull();
+  });
+
   it('drops invalid stored positions instead of attempting to scroll', () => {
     const { scrollTo } = installScrollHost();
     installDocumentScrollHost(0, false);

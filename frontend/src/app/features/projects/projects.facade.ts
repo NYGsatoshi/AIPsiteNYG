@@ -1,5 +1,5 @@
 import { HttpClient, HttpErrorResponse } from '@angular/common/http';
-import { inject, Injectable, InjectionToken, signal } from '@angular/core';
+import { effect, inject, Injectable, InjectionToken, signal } from '@angular/core';
 import { Router } from '@angular/router';
 import { forkJoin, Observable, of, Subscription } from 'rxjs';
 import { catchError, finalize, map, switchMap } from 'rxjs/operators';
@@ -7,8 +7,12 @@ import { catchError, finalize, map, switchMap } from 'rxjs/operators';
 import { normalizeApiError } from '../../core/api/api-error.adapter';
 import { FrontendApiError } from '../../core/api/api-error.model';
 import { MyTasksFacade } from './my-tasks.facade';
-import { RealtimeFacade } from '../../core/realtime/realtime.facade';
+import {
+  ProtectedStateClearReason,
+  RealtimeFacade,
+} from '../../core/realtime/realtime.facade';
 import { DurableRealtimeEvent } from '../../core/realtime/realtime.models';
+import { ActiveWorkspaceFacade } from '../../core/workspace/active-workspace.facade';
 import { CanonicalTaskDetailDto, PagedResponseDto, ProjectDto, TaskDto, TaskLabelDto, toCreateTaskRequestDto, toUpdateTaskRequestDto } from './projects.api';
 import {
   mapProjectDtoToRecord,
@@ -61,6 +65,7 @@ export class ProjectsFacade {
   private readonly http = inject(HttpClient);
   private readonly myTasksFacade = inject(MyTasksFacade);
   private readonly realtime = inject(RealtimeFacade);
+  private readonly activeWorkspace = inject(ActiveWorkspaceFacade);
   private readonly router = inject(Router, { optional: true });
   private readonly scenario = inject(AIP_PROJECTS_MOCK, { optional: true });
   private readonly liveState = signal<ProjectsScenario>(
@@ -86,22 +91,43 @@ export class ProjectsFacade {
   private activeTaskId: string | null = null;
   private activeProjectId: string | null = null;
   private activeProjectSubscription: (() => void) | null = null;
+  private activeProjectCatchUpCleanup: (() => void) | null = null;
   private refreshTimer: ReturnType<typeof setTimeout> | null = null;
+  private observedWorkspaceId = this.activeWorkspace.activeWorkspace()?.id ?? null;
 
   constructor() {
     this.realtime.durableEvents$.subscribe((event) => this.handleRealtimeEvent(event));
-    this.realtime.registerProtectedStateClearer?.('projects-active-task', () => this.clearForAuthorizationLoss());
-    this.realtime.registerCatchUp('projects-active-task', () => {
-      if (this.activeTaskId && this.activeProjectId && !this.scenario) {
-        this.reauthorizeActiveState();
-      }
-    });
+    this.realtime.registerProtectedStateClearer?.(
+      'projects-active-task',
+      (reason) => this.clearProtectedState(reason),
+    );
     // The Task route fetches one protected aggregate itself. Starting the broad
     // overview inventory during that route can race a post-revocation safe 404
     // and probe stale project/File resources.
     if (!this.scenario && !this.router?.url.includes('/tasks/')) {
       this.loadProjects();
     }
+    effect(() => {
+      const workspaceId = this.activeWorkspace.activeWorkspace()?.id ?? null;
+      const previousWorkspaceId = this.observedWorkspaceId;
+      if (workspaceId === previousWorkspaceId) {
+        return;
+      }
+
+      this.observedWorkspaceId = workspaceId;
+      if (!this.scenario && workspaceId) {
+        // Initial shell selection may race the constructor's already-active
+        // request. Actual Workspace changes and authorization restoration have
+        // no surviving request and must rehydrate the mounted Project route.
+        if (previousWorkspaceId !== null || !this.projectsRequest) {
+          if (this.activeTaskId && this.activeProjectId) {
+            this.reauthorizeActiveState();
+          } else {
+            this.loadProjects();
+          }
+        }
+      }
+    });
   }
 
   getProjectsOverview(): ProjectsOverviewViewModel {
@@ -214,7 +240,13 @@ export class ProjectsFacade {
     this.activeTaskId = taskId;
     this.activeProjectId = projectId;
     this.activeProjectSubscription?.();
+    this.activeProjectCatchUpCleanup?.();
     this.activeProjectSubscription = this.realtime.registerSubscription('projects-active-task', { subscriptionType: 'project', resourceId: projectId });
+    this.activeProjectCatchUpCleanup = this.realtime.registerCatchUp('projects-active-task', () => {
+      if (this.activeTaskId && this.activeProjectId && !this.scenario) {
+        this.reauthorizeActiveState();
+      }
+    });
     if (!this.taskDetails()[taskId]) {
       this.loadTaskDetail(taskId);
     }
@@ -226,6 +258,8 @@ export class ProjectsFacade {
     this.activeProjectId = null;
     this.activeProjectSubscription?.();
     this.activeProjectSubscription = null;
+    this.activeProjectCatchUpCleanup?.();
+    this.activeProjectCatchUpCleanup = null;
   }
 
   getTaskMutationState(): TaskMutationState {
@@ -666,7 +700,25 @@ export class ProjectsFacade {
   private clearForAuthorizationLoss(): void {
     if (this.scenario) return;
     this.authorizationGeneration++;
+    this.projectsRequest?.unsubscribe();
+    this.projectsRequest = null;
     this.clearProtectedTaskState();
+    this.liveState.set(this.emptyScenario('loading'));
+  }
+
+  private clearProtectedState(reason: ProtectedStateClearReason): void {
+    if (reason === 'authorization') {
+      // Keep the mounted route's opaque IDs and declarative realtime intent.
+      // A successful SignalR catch-up or degraded HTTP restoration will
+      // reauthorize them before repopulating protected projections.
+      this.clearForAuthorizationLoss();
+      return;
+    }
+
+    this.authorizationGeneration++;
+    this.projectsRequest?.unsubscribe();
+    this.projectsRequest = null;
+    this.releaseTaskDetail();
     this.liveState.set(this.emptyScenario('loading'));
   }
 
