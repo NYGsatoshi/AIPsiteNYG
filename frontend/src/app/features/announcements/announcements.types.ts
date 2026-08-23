@@ -57,7 +57,15 @@ export type AnnouncementCapability = 'readAnnouncement' | 'createAnnouncement' |
 
 export type AnnouncementPageStatus = 'ready' | 'loading' | 'empty' | 'error' | 'permissionDenied' | 'recordAccessDenied';
 
-export type AnnouncementPublicationState = 'draft' | 'published';
+export type AnnouncementPublicationState = 'draft' | 'scheduled' | 'published' | 'updated' | 'archived';
+
+export const ANNOUNCEMENT_PUBLICATION_STATE_LABELS: Record<AnnouncementPublicationState, string> = {
+  draft: '下書き',
+  scheduled: '予約済み',
+  published: '公開済み',
+  updated: '更新済み',
+  archived: 'アーカイブ済み'
+};
 
 export type AnnouncementDetailState = 'notLoaded' | 'loading' | 'loaded' | 'unavailable' | 'error';
 
@@ -82,6 +90,8 @@ export interface AnnouncementViewModel {
   readonly audienceScope: AnnouncementAudienceScope;
   readonly publishedAtLabel: string;
   readonly publicationState: AnnouncementPublicationState;
+  readonly scheduledAtLabel?: string;
+  readonly timeZoneLabel?: string;
   readonly readState: AnnouncementReadStateViewModel;
   readonly capabilities: readonly AnnouncementCapability[];
   readonly notificationTarget: 'announcementDetail';
@@ -96,6 +106,9 @@ export interface AnnouncementEditorDraft {
   readonly audienceKey: string;
   readonly availableAudiences: readonly AnnouncementAudienceOption[];
   readonly requiresReadConfirmation: boolean;
+  readonly publicationState?: AnnouncementPublicationState;
+  readonly scheduledAtLabel?: string;
+  readonly timeZoneLabel?: string;
 }
 
 export interface AnnouncementsPageViewModel {
