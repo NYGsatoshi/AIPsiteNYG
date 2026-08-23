@@ -5,17 +5,29 @@ import { MessageNavigationStateService } from './message-navigation-state.servic
 describe('MessageNavigationStateService', () => {
   let host: HTMLElement | null = null;
   let documentHost: HTMLElement | null = null;
-  const originalScrollingElementDescriptor = Object.getOwnPropertyDescriptor(document, 'scrollingElement');
+  let focusTarget: HTMLElement | null = null;
+  const originalScrollingElementDescriptor = Object.getOwnPropertyDescriptor(
+    document,
+    'scrollingElement',
+  );
+  const originalMatchMediaDescriptor = Object.getOwnPropertyDescriptor(window, 'matchMedia');
 
   afterEach(() => {
     host?.remove();
     documentHost?.remove();
+    focusTarget?.remove();
     host = null;
     documentHost = null;
+    focusTarget = null;
     if (originalScrollingElementDescriptor) {
       Object.defineProperty(document, 'scrollingElement', originalScrollingElementDescriptor);
     } else {
       Reflect.deleteProperty(document, 'scrollingElement');
+    }
+    if (originalMatchMediaDescriptor) {
+      Object.defineProperty(window, 'matchMedia', originalMatchMediaDescriptor);
+    } else {
+      Reflect.deleteProperty(window, 'matchMedia');
     }
     sessionStorage.clear();
     vi.restoreAllMocks();
@@ -71,10 +83,37 @@ describe('MessageNavigationStateService', () => {
   }
 
   function runAnimationFramesImmediately() {
-    return vi.spyOn(window, 'requestAnimationFrame').mockImplementation((callback: FrameRequestCallback) => {
-      callback(0);
-      return 1;
+    return vi
+      .spyOn(window, 'requestAnimationFrame')
+      .mockImplementation((callback: FrameRequestCallback) => {
+        callback(0);
+        return 1;
+      });
+  }
+
+  function setMobileHierarchy(matches: boolean) {
+    Object.defineProperty(window, 'matchMedia', {
+      configurable: true,
+      value: (query: string) =>
+        ({
+          matches: query === '(max-width: 860px)' && matches,
+          media: query,
+          onchange: null,
+          addListener: vi.fn(),
+          removeListener: vi.fn(),
+          addEventListener: vi.fn(),
+          removeEventListener: vi.fn(),
+          dispatchEvent: vi.fn(() => true),
+        }) as MediaQueryList,
     });
+  }
+
+  function installConversationFocusTarget(conversationId: string) {
+    focusTarget = document.createElement('a');
+    focusTarget.dataset['conversationId'] = conversationId;
+    focusTarget.tabIndex = 0;
+    document.body.append(focusTarget);
+    return focusTarget;
   }
 
   it('remembers a scrollable AppShell content position', () => {
@@ -86,6 +125,7 @@ describe('MessageNavigationStateService', () => {
 
     expect(scrollHost.scrollTop).toBe(384);
     expect(sessionStorage.getItem('aip.messaging.list-scroll-y.v1')).toBe('384');
+    expect(sessionStorage.getItem('aip.messaging.list-scroll-host.v1')).toBe('app');
     expect(sessionStorage.getItem('aip.messaging.list-scroll-restore-pending.v1')).toBe('1');
   });
 
@@ -98,6 +138,7 @@ describe('MessageNavigationStateService', () => {
 
     expect(pageScroll.scrollTop).toBe(420);
     expect(sessionStorage.getItem('aip.messaging.list-scroll-y.v1')).toBe('420');
+    expect(sessionStorage.getItem('aip.messaging.list-scroll-host.v1')).toBe('document');
     expect(sessionStorage.getItem('aip.messaging.list-scroll-restore-pending.v1')).toBe('1');
   });
 
@@ -133,6 +174,39 @@ describe('MessageNavigationStateService', () => {
     expect(sessionStorage.getItem('aip.messaging.list-scroll-restore-pending.v1')).toBeNull();
   });
 
+  it('waits for the remembered document root when both roots can overflow', () => {
+    const { scrollTo: appScrollTo } = installScrollHost(0, true);
+    const { host: pageScroll } = installDocumentScrollHost(480, true);
+    const target = installConversationFocusTarget('conversation-a');
+    const service = TestBed.inject(MessageNavigationStateService);
+    service.rememberListScroll('conversation-a');
+    expect(sessionStorage.getItem('aip.messaging.list-scroll-host.v1')).toBe('document');
+    pageScroll.scrollTop = 0;
+    let documentRootReady = false;
+    Object.defineProperty(pageScroll, 'scrollHeight', {
+      configurable: true,
+      get: () => (documentRootReady ? 1600 : 400),
+    });
+    const pageScrollTo = vi.fn((options: ScrollToOptions) => {
+      if (documentRootReady) {
+        pageScroll.scrollTop = Number(options.top ?? 0);
+      }
+      documentRootReady = true;
+    });
+    Object.defineProperty(pageScroll, 'scrollTo', {
+      configurable: true,
+      value: pageScrollTo,
+    });
+    runAnimationFramesImmediately();
+
+    service.restoreListScroll();
+
+    expect(sessionStorage.getItem('aip.messaging.list-scroll-host.v1')).toBeNull();
+    expect(pageScrollTo).toHaveBeenCalledWith({ top: 480, left: 0, behavior: 'auto' });
+    expect(appScrollTo).not.toHaveBeenCalled();
+    expect(document.activeElement).toBe(target);
+  });
+
   it('does not restore an old position when there is no pending conversation return', () => {
     const { scrollTo } = installScrollHost();
     installDocumentScrollHost(0, false);
@@ -162,7 +236,12 @@ describe('MessageNavigationStateService', () => {
   it('starts conversation detail at the top of both possible scroll roots', () => {
     const { host: scrollHost, scrollTo: appScrollTo } = installScrollHost(320);
     const { host: pageScroll, scrollTo: pageScrollTo } = installDocumentScrollHost(240);
+    focusTarget = document.createElement('a');
+    focusTarget.id = 'messages-mobile-back-link';
+    focusTarget.tabIndex = 0;
+    document.body.append(focusTarget);
     const service = TestBed.inject(MessageNavigationStateService);
+    setMobileHierarchy(true);
     runAnimationFramesImmediately();
 
     service.resetDetailScroll();
@@ -171,5 +250,21 @@ describe('MessageNavigationStateService', () => {
     expect(pageScrollTo).toHaveBeenCalledWith({ top: 0, left: 0, behavior: 'auto' });
     expect(scrollHost.scrollTop).toBe(0);
     expect(pageScroll.scrollTop).toBe(0);
+    expect(document.activeElement).toBe(focusTarget);
+  });
+
+  it('does not reset the shared page scroll when desktop split view changes route', () => {
+    const { host: scrollHost, scrollTo: appScrollTo } = installScrollHost(320);
+    const { host: pageScroll, scrollTo: pageScrollTo } = installDocumentScrollHost(240);
+    const service = TestBed.inject(MessageNavigationStateService);
+    setMobileHierarchy(false);
+    runAnimationFramesImmediately();
+
+    service.resetDetailScroll();
+
+    expect(appScrollTo).not.toHaveBeenCalled();
+    expect(pageScrollTo).not.toHaveBeenCalled();
+    expect(scrollHost.scrollTop).toBe(320);
+    expect(pageScroll.scrollTop).toBe(240);
   });
 });

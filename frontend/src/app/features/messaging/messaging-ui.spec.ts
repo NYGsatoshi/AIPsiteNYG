@@ -254,6 +254,23 @@ describe('Messaging MVP0 backend wiring', () => {
     expect(root.textContent).toContain('Existing backend message');
   });
 
+  it('keeps the same-tenant conversation rail populated while a different detail route loads', async () => {
+    const httpMock = await configureHttpTest([ChannelMessagingPageComponent]);
+    const fixture = TestBed.createComponent(ChannelMessagingPageComponent);
+    flushConversationOpen(httpMock);
+    const facade = TestBed.inject(MessagingFacade);
+
+    expect(facade.page().conversations.map((conversation) => conversation.id)).toEqual(['conversation-a']);
+
+    facade.loadConversation('conversation-b', 'channel');
+
+    expect(facade.page().status).toBe('loading');
+    expect(facade.page().conversations.map((conversation) => conversation.id)).toEqual(['conversation-a']);
+
+    flushConversationOpen(httpMock, 'conversation-b');
+    fixture.detectChanges();
+  });
+
   it('maps own messages from the current user id', () => {
     const ownMessage = mapMessage(
       {

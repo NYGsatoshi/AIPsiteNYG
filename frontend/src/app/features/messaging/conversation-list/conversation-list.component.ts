@@ -17,9 +17,10 @@ import { MessagingConversationListItem } from '../messaging.types';
           [class.conversation-list__item--unread]="isUnread(conversation)"
           [class.conversation-list__item--mention]="conversation.hasMention === true"
           [attr.aria-current]="isSelected(conversation) ? 'page' : null"
+          [attr.data-conversation-id]="conversation.id"
           [routerLink]="conversation.route"
           data-testid="conversation-list-item"
-          (click)="rememberListScrollBeforeNavigate()"
+          (click)="rememberListScrollBeforeNavigate(conversation.id)"
         >
           <span class="conversation-list__title">{{ conversation.title }}</span>
           <span class="conversation-list__meta">{{ conversation.lastActivityLabel }}</span>
@@ -73,9 +74,9 @@ export class ConversationListComponent {
     return (conversation.unreadCount ?? 0) > 0;
   }
 
-  rememberListScrollBeforeNavigate(): void {
+  rememberListScrollBeforeNavigate(conversationId: string): void {
     if (this.preserveListScroll) {
-      this.navigationState.rememberListScroll();
+      this.navigationState.rememberListScroll(conversationId);
     }
   }
 }

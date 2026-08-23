@@ -4,13 +4,13 @@ const workspaceId = 'static-workspace-1';
 const currentUserId = 'mock-user-a';
 
 const conversations = Array.from({ length: 30 }, (_, index) => {
-  const channel = index === 0;
-  const id = channel ? 'mobile-channel-1' : `mobile-dm-${index}`;
+  const channel = index === 0 || index === 10;
+  const id = channel ? `mobile-channel-${index + 1}` : `mobile-dm-${index}`;
   return {
     id,
     workspaceId,
     type: channel ? 'ProjectChannel' : 'DirectMessage',
-    title: channel ? 'Mobile channel' : `Mobile DM ${index}`,
+    title: channel ? `Mobile channel ${index + 1}` : `Mobile DM ${index}`,
     lastMessage: {
       id: `last-${id}`,
       conversationId: id,
@@ -41,25 +41,31 @@ test.describe('Issue #351 mobile Message hierarchy', () => {
     await expect(page.getByTestId('conversation-list-item')).toHaveCount(conversations.length);
     await expectNoHorizontalOverflow(page);
 
-    const rememberedTop = await setEffectiveScrollTop(page, 420);
+    const conversation = page.getByTestId('conversation-list-item').nth(12);
+    await conversation.scrollIntoViewIfNeeded();
+    const rememberedTop = await effectiveScrollTop(page);
     expect(rememberedTop).toBeGreaterThan(0);
+    await conversation.focus();
+    await expect(conversation).toBeFocused();
 
-    await page.getByTestId('conversation-list-item').first().evaluate((element) => {
-      (element as HTMLAnchorElement).click();
-    });
+    await conversation.press('Enter');
 
-    await expect(page).toHaveURL(/\/app\/workspaces\/static-workspace-1\/channels\/mobile-channel-1$/);
-    await expect(page.getByTestId('channel-messaging-page')).toBeVisible();
-    await expect(page.getByTestId('messages-back-link')).toBeVisible();
-    await expect(page.locator('.messaging-page__rail')).toBeHidden();
+    await expect(page).toHaveURL(/\/app\/dm\/mobile-dm-12$/);
+    await expect(page.getByTestId('dm-page')).toBeVisible();
+    const backLink = page.getByTestId('messages-back-link');
+    await expect(backLink).toBeVisible();
+    await expect(backLink).toBeFocused();
     await expect.poll(() => effectiveScrollTop(page)).toBe(0);
     await expectNoHorizontalOverflow(page);
 
-    await page.getByTestId('messages-back-link').click();
+    const detailHistoryLength = await page.evaluate(() => window.history.length);
+    await backLink.press('Enter');
 
     await expect(page).toHaveURL(/\/app\/messages$/);
     await expect(page.getByTestId('messages-page')).toBeVisible();
     await expect.poll(() => effectiveScrollTop(page)).toBe(rememberedTop);
+    await expect(page.getByTestId('conversation-list-item').nth(12)).toBeFocused();
+    expect(await page.evaluate(() => window.history.length)).toBe(detailHistoryLength);
   });
 
   test('keeps the composer input and Send reachable in a keyboard-sized viewport', async ({ page }) => {
@@ -83,10 +89,12 @@ test.describe('Issue #351 mobile Message hierarchy', () => {
     expect(viewportContent).toContain('viewport-fit=cover');
 
     const viewportHeight = await page.evaluate(() => window.innerHeight);
-    await expect.poll(async () => {
-      const box = await send.boundingBox();
-      return box ? box.y + box.height : Number.POSITIVE_INFINITY;
-    }).toBeLessThanOrEqual(viewportHeight + 1);
+    await expect
+      .poll(async () => {
+        const box = await send.boundingBox();
+        return box ? box.y + box.height : Number.POSITIVE_INFINITY;
+      })
+      .toBeLessThanOrEqual(viewportHeight + 1);
 
     const textareaBox = await textarea.boundingBox();
     const sendBox = await send.boundingBox();
@@ -101,6 +109,49 @@ test.describe('Issue #351 mobile Message hierarchy', () => {
     expect(sendBox!.y).toBeGreaterThanOrEqual(-1);
     expect(sendBox!.y + sendBox!.height).toBeLessThanOrEqual(viewportHeight + 1);
     await expectNoHorizontalOverflow(page);
+
+    const sendRequestPromise = page.waitForRequest(
+      (request) => request.method() === 'POST' && request.url().endsWith('/api/conversations/mobile-dm-1/messages')
+    );
+    await send.focus();
+    await send.press('Enter');
+    const sendRequest = await sendRequestPromise;
+    expect(sendRequest.postDataJSON()).toMatchObject({
+      body: 'Keyboard viewport message'
+    });
+    expect(sendRequest.headers()['x-csrf-token']).toBe('csrf-message-mobile');
+    await expect(textarea).toHaveValue('');
+  });
+
+  test('matches the AppShell mobile boundary and preserves desktop split-view scroll', async ({ page }) => {
+    await page.setViewportSize({ width: 860, height: 800 });
+    await page.goto('/app/workspaces/static-workspace-1/channels/mobile-channel-1');
+
+    await expect(page.getByTestId('channel-messaging-page')).toBeVisible();
+    await expect(page.getByTestId('messages-back-link')).toBeVisible();
+    await expect(page.locator('.messaging-page__rail')).toBeHidden();
+    await expect.poll(() => composerPosition(page)).toBe('sticky');
+
+    await page.setViewportSize({ width: 861, height: 800 });
+    await expect(page.getByTestId('messages-back-link')).toBeHidden();
+    await expect(page.locator('.messaging-page__rail')).toBeVisible();
+    await expect.poll(() => composerPosition(page)).toBe('static');
+
+    const nextChannel = page.getByTestId('conversation-list-item').filter({ hasText: 'Mobile channel 11' });
+    await nextChannel.scrollIntoViewIfNeeded();
+    await nextChannel.focus();
+    const beforeNavigation = await activeScrollState(page);
+    expect(Math.max(beforeNavigation.app, beforeNavigation.document)).toBeGreaterThan(0);
+
+    await nextChannel.press('Enter');
+
+    await expect(page).toHaveURL(/\/app\/workspaces\/static-workspace-1\/channels\/mobile-channel-11$/);
+    await expect
+      .poll(async () => {
+        const current = await activeScrollState(page);
+        return Math.max(current.app, current.document);
+      })
+      .toBeGreaterThan(0);
   });
 });
 
@@ -115,9 +166,7 @@ async function effectiveScrollTop(page: Page): Promise<number> {
   return page.evaluate(() => {
     const appHost = document.getElementById('app-shell-main-content');
     const documentHost = document.scrollingElement;
-    const hosts = [appHost, documentHost].filter(
-      (host): host is HTMLElement => host instanceof HTMLElement
-    );
+    const hosts = [appHost, documentHost].filter((host): host is HTMLElement => host instanceof HTMLElement);
     const scrollRoot =
       hosts.find((host) => host.scrollTop > 0) ??
       hosts.find((host) => host.scrollHeight > host.clientHeight + 1) ??
@@ -127,45 +176,47 @@ async function effectiveScrollTop(page: Page): Promise<number> {
   });
 }
 
-async function setEffectiveScrollTop(page: Page, requestedTop: number): Promise<number> {
-  return page.evaluate((top) => {
-    const appHost = document.getElementById('app-shell-main-content');
-    const documentHost = document.scrollingElement;
-    const hosts = [appHost, documentHost].filter(
-      (host): host is HTMLElement => host instanceof HTMLElement
-    );
-    const scrollRoot =
-      hosts.find((host) => host.scrollTop > 0) ??
-      hosts.find((host) => host.scrollHeight > host.clientHeight + 1) ??
-      hosts[0] ??
-      null;
-    if (!scrollRoot) {
-      return 0;
-    }
+async function activeScrollState(page: Page): Promise<{ app: number; document: number }> {
+  return page.evaluate(() => ({
+    app: document.getElementById('app-shell-main-content')?.scrollTop ?? 0,
+    document: document.scrollingElement?.scrollTop ?? 0
+  }));
+}
 
-    const maxTop = Math.max(0, scrollRoot.scrollHeight - scrollRoot.clientHeight);
-    scrollRoot.scrollTo({ top: Math.min(top, maxTop), left: 0, behavior: 'auto' });
-    return scrollRoot.scrollTop;
-  }, requestedTop);
+async function composerPosition(page: Page): Promise<string> {
+  return page.getByTestId('message-composer').evaluate((element) => {
+    const host = element.closest('app-message-composer');
+    return host ? window.getComputedStyle(host).position : '';
+  });
 }
 
 async function scrollEffectiveRootToEnd(page: Page): Promise<void> {
   await page.evaluate(() => {
     const appHost = document.getElementById('app-shell-main-content');
     const documentHost = document.scrollingElement;
-    const hosts = [appHost, documentHost].filter(
-      (host): host is HTMLElement => host instanceof HTMLElement
-    );
+    const hosts = [appHost, documentHost].filter((host): host is HTMLElement => host instanceof HTMLElement);
     const scrollRoot =
       hosts.find((host) => host.scrollTop > 0) ??
       hosts.find((host) => host.scrollHeight > host.clientHeight + 1) ??
       hosts[0] ??
       null;
-    scrollRoot?.scrollTo({ top: scrollRoot.scrollHeight, left: 0, behavior: 'auto' });
+    scrollRoot?.scrollTo({
+      top: scrollRoot.scrollHeight,
+      left: 0,
+      behavior: 'auto'
+    });
   });
 }
 
 async function installMessagingApi(page: Page): Promise<void> {
+  await page.route('**/api/security/csrf-token', async (route) => {
+    await route.fulfill({
+      status: 200,
+      contentType: 'application/json',
+      body: JSON.stringify({ token: 'csrf-message-mobile', headerName: 'X-CSRF-Token' })
+    });
+  });
+
   await page.route('**/api/conversations**', async (route) => {
     const request = route.request();
     const url = new URL(request.url());
@@ -182,6 +233,32 @@ async function installMessagingApi(page: Page): Promise<void> {
     }
 
     const messageMatch = path.match(/^\/api\/conversations\/([^/]+)\/messages$/);
+    if (messageMatch && method === 'POST') {
+      const conversationId = messageMatch[1];
+      const payload = request.postDataJSON() as {
+        body?: string;
+        clientRequestId?: string;
+      };
+      await route.fulfill({
+        status: 200,
+        contentType: 'application/json',
+        body: JSON.stringify({
+          id: `sent-${conversationId}`,
+          workspaceId,
+          conversationId,
+          authorUserId: currentUserId,
+          authorDisplayName: 'Mock User A',
+          body: payload.body ?? '',
+          attachments: [],
+          clientRequestId: payload.clientRequestId,
+          createdAt: '2026-08-23T00:01:00Z',
+          isDeleted: false,
+          version: 1
+        })
+      });
+      return;
+    }
+
     if (messageMatch && method === 'GET') {
       const conversationId = messageMatch[1];
       await route.fulfill({
@@ -207,7 +284,11 @@ async function installMessagingApi(page: Page): Promise<void> {
 
     const readMatch = path.match(/^\/api\/conversations\/([^/]+)\/read$/);
     if (readMatch && method === 'POST') {
-      await route.fulfill({ status: 200, contentType: 'application/json', body: '{}' });
+      await route.fulfill({
+        status: 200,
+        contentType: 'application/json',
+        body: '{}'
+      });
       return;
     }
 

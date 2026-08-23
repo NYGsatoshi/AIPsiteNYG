@@ -79,7 +79,15 @@ export class MessagingFacade {
 
     this.loadedConversationId.set(conversationId);
     this.registerConversationRealtime(conversationId);
-    this.pageState.set(emptyMessagingPage(routeKind, 'loading'));
+    const currentPage = this.pageState();
+    const existingConversations =
+      currentPage.conversation.tenantId === this.currentTenantId()
+        ? currentPage.conversations
+        : [];
+    this.pageState.set({
+      ...emptyMessagingPage(routeKind, 'loading'),
+      conversations: existingConversations
+    });
     this.loadConversationList(routeKind, false);
     this.api.getConversation(conversationId).subscribe({
       next: (conversation) => {
