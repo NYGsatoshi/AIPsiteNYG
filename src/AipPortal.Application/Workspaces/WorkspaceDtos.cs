@@ -33,6 +33,8 @@ public sealed record WorkspaceDashboardListItemResponse(
     bool CanOpenWorkspace,
     bool CanOpenMembers,
     bool CanOpenProjects,
+    bool CanCreateProject,
+    bool CanAddFiles,
     int UnreadAnnouncementCount,
     int UnreadConversationCount,
     int InProgressProjectCount,
