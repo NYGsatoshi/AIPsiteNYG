@@ -290,12 +290,16 @@ export class AnnouncementsFacade {
     const audienceKey =
       audiences.find((audience) => audience.key === previousAudienceKey)?.key ?? audiences[0]?.key ?? '';
     return {
+      id: previous?.id,
       title: previous?.title ?? '',
       body: previous?.body ?? '',
       priority: previous?.priority ?? 'normal',
       audienceKey,
       availableAudiences: audiences,
       requiresReadConfirmation: previous?.requiresReadConfirmation ?? false,
+      publicationState: previous?.publicationState ?? 'draft',
+      scheduledAtLabel: previous?.scheduledAtLabel,
+      timeZoneLabel: previous?.timeZoneLabel,
     };
   }
 
@@ -309,6 +313,7 @@ export class AnnouncementsFacade {
         audienceKey: submission.audience.key,
         availableAudiences: this.audienceOptions,
         requiresReadConfirmation: submission.requiresReadConfirmation,
+        publicationState: 'draft',
       },
       message,
     }));
