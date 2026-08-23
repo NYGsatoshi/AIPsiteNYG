@@ -23,7 +23,7 @@ describe('announcement API adapters', () => {
     expect(announcement.readState.requiresReadConfirmation).toBe(true);
   });
 
-  it('maps detail DTO body only after the detail endpoint returns it', () => {
+  it('maps the legacy backend urgent value to the critical UI semantic', () => {
     const announcement = mapAnnouncementDetail({
       id: 'announcement-1',
       title: 'Published notice',
@@ -36,7 +36,11 @@ describe('announcement API adapters', () => {
 
     expect(announcement.body).toBe('Real backend body');
     expect(announcement.detailState).toBe('loaded');
-    expect(announcement.priority).toBe('urgent');
+    expect(announcement.priority).toBe('critical');
     expect(announcement.readState.isRead).toBe(true);
+  });
+
+  it('accepts critical when the API adopts the new semantic name', () => {
+    expect(mapAnnouncementListItem({ priority: 'Critical' }).priority).toBe('critical');
   });
 });
