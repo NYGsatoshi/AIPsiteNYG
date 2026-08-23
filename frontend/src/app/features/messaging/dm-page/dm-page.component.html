@@ -38,8 +38,9 @@
         [sendState]="vm.sendState"
         [disabledReason]="composerDisabledReason()"
         [attachmentDisabledLabel]="vm.conversation.attachment.label"
+        [mentionCandidates]="vm.conversation.mentionCandidates ?? []"
         (draftChange)="facade.setDraft($event)"
-        (send)="facade.sendDraft()"
+        (send)="facade.sendDraft($event)"
       />
     }
   </main>
