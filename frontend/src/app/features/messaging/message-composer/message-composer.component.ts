@@ -1,6 +1,6 @@
-import { Component, EventEmitter, Input, Output } from '@angular/core';
+import { Component, EventEmitter, Input, OnChanges, Output, SimpleChanges } from '@angular/core';
 
-import { MessageSendState } from '../messaging.types';
+import { MessagingMentionCandidate, MessageSendState } from '../messaging.types';
 
 @Component({
   selector: 'app-message-composer',
@@ -27,6 +27,26 @@ import { MessageSendState } from '../messaging.types';
       <p id="composer-keyboard-hint" class="composer__hint">
         Enterで送信 · Shift+Enterで改行 · IME変換中は送信されません
       </p>
+
+      @if (mentionCandidates.length > 0) {
+        <div class="composer__mention-tools" role="group" aria-label="メンションを追加" data-testid="mention-candidates">
+          <span class="composer__mention-label">メンション</span>
+          <div class="composer__mention-candidates">
+            @for (candidate of mentionCandidates; track candidate.userId) {
+              <button
+                class="composer__mention-candidate"
+                type="button"
+                data-testid="mention-candidate"
+                [attr.aria-pressed]="isMentioned(candidate.userId)"
+                [disabled]="disabled || sending || isMentioned(candidate.userId)"
+                (click)="addMention(candidate)"
+              >
+                {{ '@' + candidate.displayName }}{{ isMentioned(candidate.userId) ? ' 追加済み' : ' を追加' }}
+              </button>
+            }
+          </div>
+        </div>
+      }
 
       @if (sending || sendState.status === 'sending') {
         <p class="composer__status" data-testid="composer-send-status" role="status" aria-live="polite">
@@ -64,20 +84,30 @@ import { MessageSendState } from '../messaging.types';
   `,
   styleUrl: './message-composer.component.scss'
 })
-export class MessageComposerComponent {
+export class MessageComposerComponent implements OnChanges {
   @Input() draft = '';
   @Input() disabled = false;
   @Input() sending = false;
   @Input() sendState: MessageSendState = { status: 'idle' };
   @Input() disabledReason = '';
   @Input() attachmentDisabledLabel = '添付はまだ利用できません';
+  @Input() mentionCandidates: readonly MessagingMentionCandidate[] = [];
   @Output() readonly draftChange = new EventEmitter<string>();
-  @Output() readonly send = new EventEmitter<void>();
+  @Output() readonly send = new EventEmitter<readonly string[]>();
 
   private composing = false;
+  private selectedMentionUserIds: string[] = [];
+
+  ngOnChanges(changes: SimpleChanges): void {
+    if (changes['draft']) {
+      this.reconcileSelectedMentions(this.draft);
+    }
+  }
 
   onDraftInput(event: Event): void {
-    this.draftChange.emit((event.target as HTMLTextAreaElement | null)?.value ?? '');
+    const value = (event.target as HTMLTextAreaElement | null)?.value ?? '';
+    this.reconcileSelectedMentions(value);
+    this.draftChange.emit(value);
   }
 
   onCompositionStart(): void {
@@ -86,6 +116,20 @@ export class MessageComposerComponent {
 
   onCompositionEnd(): void {
     this.composing = false;
+  }
+
+  addMention(candidate: MessagingMentionCandidate): void {
+    if (this.disabled || this.sending || this.isMentioned(candidate.userId)) {
+      return;
+    }
+
+    this.selectedMentionUserIds = [...this.selectedMentionUserIds, candidate.userId];
+    const separator = this.draft.length > 0 && !/\s$/u.test(this.draft) ? ' ' : '';
+    this.draftChange.emit(`${this.draft}${separator}@${candidate.displayName} `);
+  }
+
+  isMentioned(userId: string): boolean {
+    return this.selectedMentionUserIds.includes(userId);
   }
 
   onDraftKeydown(event: KeyboardEvent): void {
@@ -107,14 +151,29 @@ export class MessageComposerComponent {
     }
 
     event.preventDefault();
-    this.send.emit();
+    this.emitSend();
   }
 
   submit(event: Event): void {
     event.preventDefault();
     if (this.canSend(this.draft)) {
-      this.send.emit();
+      this.emitSend();
     }
+  }
+
+  private reconcileSelectedMentions(value: string): void {
+    if (this.selectedMentionUserIds.length === 0) {
+      return;
+    }
+
+    const selected = new Set(this.selectedMentionUserIds);
+    this.selectedMentionUserIds = this.mentionCandidates
+      .filter((candidate) => selected.has(candidate.userId) && value.includes(`@${candidate.displayName}`))
+      .map((candidate) => candidate.userId);
+  }
+
+  private emitSend(): void {
+    this.send.emit([...this.selectedMentionUserIds]);
   }
 
   private canSend(value: string): boolean {

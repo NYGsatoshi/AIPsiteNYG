@@ -163,7 +163,7 @@ export class MessagingFacade {
     }));
   }
 
-  sendDraft(): void {
+  sendDraft(mentionedUserIds: readonly string[] = []): void {
     const page = this.pageState();
     const body = page.draft.trim();
     if (!body || page.sending || !this.canPost(page)) {
@@ -179,6 +179,7 @@ export class MessagingFacade {
       return;
     }
 
+    const normalizedMentionedUserIds = [...new Set(mentionedUserIds.filter((userId) => userId.length > 0))];
     const clientRequestId = createClientRequestId();
     const useOptimistic = this.flags.optimisticMessagingEnabled();
     const pendingMessage: MessagingMessageViewModel = {
@@ -190,7 +191,8 @@ export class MessagingFacade {
       body,
       sentAtLabel: 'Sending',
       deliveryState: 'sending',
-      retryAllowed: false
+      retryAllowed: false,
+      mentionedUserIds: normalizedMentionedUserIds
     };
 
     this.pageState.set({
@@ -202,9 +204,13 @@ export class MessagingFacade {
       status: page.status === 'empty' ? 'ready' : page.status
     });
 
-    this.api.sendMessage(page.conversation.id, body, clientRequestId).subscribe({
+    this.api.sendMessage(page.conversation.id, body, clientRequestId, normalizedMentionedUserIds).subscribe({
       next: (message) => {
-        const confirmedMessage = { ...mapMessage(message, this.currentUserId()), clientRequestId };
+        const confirmedMessage = {
+          ...mapMessage(message, this.currentUserId()),
+          clientRequestId,
+          mentionedUserIds: normalizedMentionedUserIds
+        };
         this.draftStorage.clearDraft(this.scopeFor(page));
         this.pageState.update((current) => ({
           ...current,
@@ -242,9 +248,13 @@ export class MessagingFacade {
       sendState: { status: 'sending', clientRequestId: failed.clientRequestId },
       messages: current.messages.map((message) => message.id === messageId ? { ...message, deliveryState: 'sending', failureCode: undefined, safeFailureReason: undefined, retryAllowed: false } : message)
     }));
-    this.api.sendMessage(page.conversation.id, failed.body, failed.clientRequestId).subscribe({
+    this.api.sendMessage(page.conversation.id, failed.body, failed.clientRequestId, failed.mentionedUserIds ?? []).subscribe({
       next: (message) => {
-        const confirmed = { ...mapMessage(message, this.currentUserId()), clientRequestId: failed.clientRequestId };
+        const confirmed = {
+          ...mapMessage(message, this.currentUserId()),
+          clientRequestId: failed.clientRequestId,
+          mentionedUserIds: failed.mentionedUserIds
+        };
         this.pageState.update((current) => ({ ...current, sending: false, sendState: { status: 'sent', messageId: confirmed.id }, messages: reconcileMessage(current.messages, confirmed) }));
       },
       error: (error: { status?: number }) => {
@@ -406,6 +416,7 @@ function emptyMessagingPage(
       viewerWasRemoved: false,
       capabilities: [],
       composerDisabledReason: 'Conversation API data is not loaded.',
+      mentionCandidates: [],
       attachment: {
         mode: 'disabled',
         label: 'Attachments are disabled for MVP0 messaging.'
