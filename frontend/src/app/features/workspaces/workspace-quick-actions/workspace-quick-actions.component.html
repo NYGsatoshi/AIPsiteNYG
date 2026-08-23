@@ -1,21 +1,48 @@
 <div class="workspace-actions" [attr.data-workspace-id]="workspaceId">
-  @if (hasCapability('openWorkspace')) {
-    <button
-      class="workspace-actions__primary"
-      type="button"
-      data-testid="open-workspace-action"
-      disabled
-      title="Workspace詳細画面は未実装です。"
-    >
-      詳細は未実装
-    </button>
+  @if (hasCapability('createProject') || hasCapability('addFiles')) {
+    <div class="workspace-actions__create" aria-label="作成">
+      @if (hasCapability('createProject')) {
+        <a
+          class="workspace-actions__primary"
+          [routerLink]="['/workspaces', workspaceId, 'research', 'new']"
+          data-testid="start-research-action"
+        >
+          新しいリサーチ
+        </a>
+      }
+
+      @if (hasCapability('addFiles')) {
+        <a
+          class="workspace-actions__secondary"
+          [routerLink]="['/workspaces', workspaceId, 'files']"
+          fragment="upload"
+          data-testid="add-files-action"
+        >
+          ファイルを追加
+        </a>
+      }
+    </div>
   }
 
-  @if (hasCapability('openMembers')) {
-    <a [routerLink]="['/workspaces', workspaceId, 'members']" data-testid="open-members-action">メンバー</a>
-  }
+  @if (hasCapability('openMembers') || hasCapability('openProjects')) {
+    <nav class="workspace-actions__navigation" aria-label="Workspace内を移動">
+      @if (hasCapability('openProjects')) {
+        <a
+          [routerLink]="['/workspaces', workspaceId, 'projects']"
+          data-testid="open-projects-action"
+        >
+          プロジェクト
+        </a>
+      }
 
-  @if (hasCapability('openProjects')) {
-    <a routerLink="/projects" data-testid="open-projects-action">プロジェクト</a>
+      @if (hasCapability('openMembers')) {
+        <a
+          [routerLink]="['/workspaces', workspaceId, 'members']"
+          data-testid="open-members-action"
+        >
+          メンバー
+        </a>
+      }
+    </nav>
   }
 </div>
