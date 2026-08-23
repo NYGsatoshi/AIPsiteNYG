@@ -27,6 +27,7 @@ const backendFile = {
   uploadedByUserId: 'user-1',
   uploadedByDisplayName: 'Fixture User',
   createdAt: '2026-07-08T00:00:00Z',
+  updatedAt: '2026-07-09T00:00:00Z',
 };
 
 const renderMockFilesPage = async (page: FilesPageViewModel): Promise<ComponentFixture<FilesPageComponent>> => {
@@ -72,9 +73,9 @@ const flushFileList = (http: HttpTestingController, items: readonly unknown[]): 
   const request = http.expectOne((candidate) => candidate.url === '/api/files' && candidate.method === 'GET');
   expect(request.request.params.get('workspaceId')).toBe(WORKSPACE_ID);
   expect(request.request.params.get('page')).toBe('1');
-  expect(request.request.params.get('pageSize')).toBe('20');
+  expect(request.request.params.get('pageSize')).toBe('50');
   expect(request.request.withCredentials).toBe(true);
-  request.flush({ items });
+  request.flush({ items, page: 1, pageSize: 50, totalCount: items.length, hasMore: false });
 };
 
 const textContent = (fixture: ComponentFixture<FilesPageComponent>): string =>

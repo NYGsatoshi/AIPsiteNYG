@@ -4,6 +4,7 @@
   class="app-shell"
   data-testid="app-shell"
   [class.app-shell--drawer-open]="mobileDrawerOpen()"
+  [class.app-shell--feature-menu-collapsed]="featureMenuCollapsed()"
   [class.app-shell--right-expanded]="vm.rightPanelMode === 'expanded'"
 >
   <a class="app-shell__skip-link" href="#app-shell-main-content">Skip to main content</a>
@@ -25,20 +26,31 @@
 
   <app-feature-menu
     class="app-shell__feature-menu"
-    navigationAriaLabel="Primary navigation"
-    [navigationItems]="vm.navigationItems"
+    navigationAriaLabel="Workspace navigation"
+    [navigationItems]="vm.primaryNavigationItems"
+    [pinnedItems]="orderedPinnedNavigationItems()"
+    [pinnedCollapsed]="pinnedSectionCollapsed()"
+    [collapsible]="true"
+    [collapsed]="featureMenuCollapsed()"
+    (collapsedChange)="setFeatureMenuCollapsed($event)"
+    (pinnedCollapsedChange)="setPinnedSectionCollapsed($event)"
+    (pinnedMove)="movePinnedItem($event)"
   />
 
   <div class="app-shell__body" data-testid="shell-body">
     <app-top-bar
       data-testid="top-bar-region"
       [workspace]="vm.workspace"
-      [searchValue]="pageSearch()"
+      [workspaceOptions]="vm.workspaceOptions"
+      [workspaceSelectionStatus]="vm.workspaceSelectionStatus"
+      [runningProjectCount]="vm.runningProjectCount"
+      [needsReviewProjectCount]="vm.needsReviewProjectCount"
+      [canOpenWorkspaceMembers]="vm.canOpenWorkspaceMembers"
       [sessionStatus]="vm.session.status"
       [rightPanelMode]="vm.rightPanelMode"
       [logoutPending]="logoutPending()"
       [logoutError]="logoutError()"
-      (searchValueChange)="setPageSearch($event)"
+      (workspaceSelected)="selectWorkspace($event)"
       (logoutRequested)="logout()"
       (rightPanelToggle)="toggleRightPanelFromTopBar($event)"
     />
@@ -80,13 +92,15 @@
     [cdkTrapFocus]="mobileDrawerOpen()"
     [cdkTrapFocusAutoCapture]="mobileDrawerOpen()"
   >
-    <nav aria-label="Primary navigation">
-      <app-feature-menu
-        navigationAriaLabel="Primary navigation"
-        [compact]="true"
-        [navigationItems]="vm.navigationItems"
-        (itemSelected)="closeMobileDrawer(false)"
-      />
-    </nav>
+    <app-feature-menu
+      navigationAriaLabel="Workspace navigation"
+      [compact]="true"
+      [navigationItems]="vm.primaryNavigationItems"
+      [pinnedItems]="orderedPinnedNavigationItems()"
+      [pinnedCollapsed]="pinnedSectionCollapsed()"
+      (itemSelected)="closeMobileDrawer(false)"
+      (pinnedCollapsedChange)="setPinnedSectionCollapsed($event)"
+      (pinnedMove)="movePinnedItem($event)"
+    />
   </aside>
 </div>

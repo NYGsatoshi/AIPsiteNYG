@@ -1,43 +1,68 @@
 using AipPortal.Application.Audit;
 using AipPortal.Application.Common;
 using AipPortal.Application.Common.Interfaces;
+using AipPortal.Application.Tenancy;
+using AipPortal.Domain.Entities;
 using AipPortal.Domain.Enums;
 using Microsoft.EntityFrameworkCore;
 
 namespace AipPortal.Infrastructure.Persistence;
 
-public sealed class DbAuditQueryService(
-    AppDbContext dbContext,
-    ICurrentUser currentUser,
-    ICurrentTenant currentTenant,
-    ITenantRepository tenantRepository) : IAuditQueryService
+public sealed class DbAuditQueryService : IAuditQueryService
 {
     private const int MaxPageSize = 100;
 
-    public async Task<Result<PagedResponse<AuditLogListItemResponse>>> ListAuditLogsAsync(AuditLogQuery query, CancellationToken cancellationToken = default)
+    private readonly AppDbContext dbContext;
+    private readonly ICurrentTenant currentTenant;
+    private readonly IAuditAuthorizationService auditAuthorization;
+
+    public DbAuditQueryService(
+        AppDbContext dbContext,
+        ICurrentUser currentUser,
+        ICurrentTenant currentTenant,
+        ITenantRepository tenantRepository,
+        IAuditAuthorizationService? auditAuthorization = null)
     {
-        if (!currentUser.IsAuthenticated || !currentUser.UserId.HasValue)
+        this.dbContext = dbContext;
+        this.currentTenant = currentTenant;
+        this.auditAuthorization = auditAuthorization ?? new LegacyAuditAuthorizationService(
+            currentUser,
+            currentTenant,
+            tenantRepository);
+    }
+
+    public async Task<Result<PagedResponse<AuditLogListItemResponse>>> ListAuditLogsAsync(
+        AuditLogQuery query,
+        CancellationToken cancellationToken = default)
+    {
+        var capabilities = await auditAuthorization.GetCapabilitiesAsync(cancellationToken);
+        if (!capabilities.CanView)
         {
-            return Result<PagedResponse<AuditLogListItemResponse>>.Failure("Authentication is required.");
+            var denied = await auditAuthorization.AuthorizeAsync(
+                CapabilityKeys.AuditView,
+                "audit.logs.list",
+                cancellationToken);
+            return AuthorizationFailure<PagedResponse<AuditLogListItemResponse>>(denied);
         }
 
-        var userId = currentUser.UserId.Value;
-        var isSystemAdmin = currentUser.SystemRole is SystemRole.SystemAdmin or SystemRole.PlatformAdmin;
-        var isTenantAdmin = currentTenant.IsAvailable &&
-            await IsTenantAdminAsync(userId, currentTenant.TenantId, cancellationToken);
-        if (!isSystemAdmin && !isTenantAdmin)
+        if (query.ActorUserId.HasValue && !capabilities.CanViewSensitiveMetadata)
         {
-            return Result<PagedResponse<AuditLogListItemResponse>>.Failure("You are not allowed to view audit logs.");
+            var denied = await auditAuthorization.AuthorizeAsync(
+                CapabilityKeys.AuditSensitiveMetadataView,
+                "audit.logs.filter.actor",
+                cancellationToken);
+            return AuthorizationFailure<PagedResponse<AuditLogListItemResponse>>(denied);
+        }
+
+        var scopeError = ValidateQueryScope<PagedResponse<AuditLogListItemResponse>>();
+        if (scopeError is not null)
+        {
+            return scopeError;
         }
 
         var page = Math.Max(1, query.Page);
         var pageSize = Math.Clamp(query.PageSize, 1, MaxPageSize);
-        var source = dbContext.AuditLogs.AsNoTracking();
-
-        if (!isSystemAdmin && currentTenant.IsAvailable)
-        {
-            source = source.Where(log => log.TenantId == currentTenant.TenantId);
-        }
+        var source = ScopeToCurrentTenant(dbContext.AuditLogs.AsNoTracking());
 
         if (!string.IsNullOrWhiteSpace(query.Action))
         {
@@ -80,14 +105,17 @@ public sealed class DbAuditQueryService(
         }
 
         var total = await source.CountAsync(cancellationToken);
+        var canViewSensitiveMetadata = capabilities.CanViewSensitiveMetadata;
         var items = await source
             .OrderByDescending(log => log.CreatedAt)
             .Skip((page - 1) * pageSize)
             .Take(pageSize)
             .Select(log => new AuditLogListItemResponse(
                 log.Id,
-                log.ActorUserId,
-                log.ActorUser == null ? null : log.ActorUser.DisplayName,
+                canViewSensitiveMetadata ? log.ActorUserId : null,
+                canViewSensitiveMetadata
+                    ? (log.ActorUser == null ? null : log.ActorUser.DisplayName)
+                    : null,
                 log.Action,
                 log.EntityType,
                 log.EntityId,
@@ -95,38 +123,47 @@ public sealed class DbAuditQueryService(
                 log.GroupId,
                 log.ProjectId,
                 log.Summary,
-                log.MetadataJson,
-                log.CorrelationId,
+                canViewSensitiveMetadata ? log.MetadataJson : null,
+                canViewSensitiveMetadata ? log.CorrelationId : null,
                 log.CreatedAt))
             .ToListAsync(cancellationToken);
 
-        return Result<PagedResponse<AuditLogListItemResponse>>.Success(new PagedResponse<AuditLogListItemResponse>(items, page, pageSize, total));
+        return Result<PagedResponse<AuditLogListItemResponse>>.Success(
+            new PagedResponse<AuditLogListItemResponse>(items, page, pageSize, total));
     }
 
-    public async Task<Result<PagedResponse<AuditGridRowResponse>>> ListAuditGridAsync(AuditLogQuery query, CancellationToken cancellationToken = default)
+    public async Task<Result<PagedResponse<AuditGridRowResponse>>> ListAuditGridAsync(
+        AuditLogQuery query,
+        CancellationToken cancellationToken = default)
     {
-        if (!currentUser.IsAuthenticated || !currentUser.UserId.HasValue)
+        var capabilities = await auditAuthorization.GetCapabilitiesAsync(cancellationToken);
+        if (!capabilities.CanView)
         {
-            return Result<PagedResponse<AuditGridRowResponse>>.Failure("Authentication is required.");
+            var denied = await auditAuthorization.AuthorizeAsync(
+                CapabilityKeys.AuditView,
+                "audit.grid.list",
+                cancellationToken);
+            return AuthorizationFailure<PagedResponse<AuditGridRowResponse>>(denied);
         }
 
-        var userId = currentUser.UserId.Value;
-        var isSystemAdmin = currentUser.SystemRole is SystemRole.SystemAdmin or SystemRole.PlatformAdmin;
-        var isTenantAdmin = currentTenant.IsAvailable &&
-            await IsTenantAdminAsync(userId, currentTenant.TenantId, cancellationToken);
-        if (!isSystemAdmin && !isTenantAdmin)
+        if (query.ActorUserId.HasValue && !capabilities.CanViewSensitiveMetadata)
         {
-            return Result<PagedResponse<AuditGridRowResponse>>.Failure("You are not allowed to view audit logs.");
+            var denied = await auditAuthorization.AuthorizeAsync(
+                CapabilityKeys.AuditSensitiveMetadataView,
+                "audit.grid.filter.actor",
+                cancellationToken);
+            return AuthorizationFailure<PagedResponse<AuditGridRowResponse>>(denied);
+        }
+
+        var scopeError = ValidateQueryScope<PagedResponse<AuditGridRowResponse>>();
+        if (scopeError is not null)
+        {
+            return scopeError;
         }
 
         var page = Math.Max(1, query.Page);
         var pageSize = Math.Clamp(query.PageSize, 1, MaxPageSize);
-        var source = dbContext.AuditLogs.AsNoTracking();
-
-        if (!isSystemAdmin && currentTenant.IsAvailable)
-        {
-            source = source.Where(log => log.TenantId == currentTenant.TenantId);
-        }
+        var source = ScopeToCurrentTenant(dbContext.AuditLogs.AsNoTracking());
 
         if (!string.IsNullOrWhiteSpace(query.Action))
         {
@@ -187,6 +224,7 @@ public sealed class DbAuditQueryService(
             })
             .ToListAsync(cancellationToken);
 
+        var canViewSensitiveMetadata = capabilities.CanViewSensitiveMetadata;
         var items = records
             .Select(log =>
             {
@@ -195,43 +233,55 @@ public sealed class DbAuditQueryService(
                     log.Id,
                     log.CreatedAt,
                     log.Action,
-                    string.IsNullOrWhiteSpace(log.ActorDisplayName) ? "Unknown actor" : log.ActorDisplayName,
+                    canViewSensitiveMetadata
+                        ? (string.IsNullOrWhiteSpace(log.ActorDisplayName) ? "Unknown actor" : log.ActorDisplayName)
+                        : "Redacted actor",
                     log.EntityType,
                     log.WorkspaceLabel ?? log.WorkspaceId?.ToString("D"),
                     ClassifySeverity(log.Action, result),
                     result,
                     string.IsNullOrWhiteSpace(log.Summary) ? log.Action : log.Summary,
-                    log.CorrelationId);
+                    canViewSensitiveMetadata ? log.CorrelationId : null);
             })
             .ToList();
 
-        return Result<PagedResponse<AuditGridRowResponse>>.Success(new PagedResponse<AuditGridRowResponse>(items, page, pageSize, total));
+        return Result<PagedResponse<AuditGridRowResponse>>.Success(
+            new PagedResponse<AuditGridRowResponse>(items, page, pageSize, total));
     }
 
-    public async Task<Result<PagedResponse<SecurityEventListItemResponse>>> ListSecurityEventsAsync(SecurityEventQuery query, CancellationToken cancellationToken = default)
+    public async Task<Result<PagedResponse<SecurityEventListItemResponse>>> ListSecurityEventsAsync(
+        SecurityEventQuery query,
+        CancellationToken cancellationToken = default)
     {
-        if (!currentUser.IsAuthenticated || !currentUser.UserId.HasValue)
+        var capabilities = await auditAuthorization.GetCapabilitiesAsync(cancellationToken);
+        if (!capabilities.CanView)
         {
-            return Result<PagedResponse<SecurityEventListItemResponse>>.Failure("Authentication is required.");
+            var denied = await auditAuthorization.AuthorizeAsync(
+                CapabilityKeys.AuditView,
+                "audit.security-events.list",
+                cancellationToken);
+            return AuthorizationFailure<PagedResponse<SecurityEventListItemResponse>>(denied);
         }
 
-        var isSystemAdmin = currentUser.SystemRole is SystemRole.SystemAdmin or SystemRole.PlatformAdmin;
-        var isTenantAdmin = currentTenant.IsAvailable &&
-            await IsTenantAdminAsync(currentUser.UserId.Value, currentTenant.TenantId, cancellationToken);
-
-        if (!isSystemAdmin && !isTenantAdmin)
+        if ((query.UserId.HasValue || !string.IsNullOrWhiteSpace(query.Email)) &&
+            !capabilities.CanViewSensitiveMetadata)
         {
-            return Result<PagedResponse<SecurityEventListItemResponse>>.Failure("Only system admins can view security events.");
+            var denied = await auditAuthorization.AuthorizeAsync(
+                CapabilityKeys.AuditSensitiveMetadataView,
+                "audit.security-events.filter.identity",
+                cancellationToken);
+            return AuthorizationFailure<PagedResponse<SecurityEventListItemResponse>>(denied);
+        }
+
+        var scopeError = ValidateQueryScope<PagedResponse<SecurityEventListItemResponse>>();
+        if (scopeError is not null)
+        {
+            return scopeError;
         }
 
         var page = Math.Max(1, query.Page);
         var pageSize = Math.Clamp(query.PageSize, 1, MaxPageSize);
-        var source = dbContext.SecurityEvents.AsNoTracking();
-
-        if (!isSystemAdmin && currentTenant.IsAvailable)
-        {
-            source = source.Where(item => item.TenantId == currentTenant.TenantId);
-        }
+        var source = ScopeToCurrentTenant(dbContext.SecurityEvents.AsNoTracking());
 
         if (query.EventType.HasValue)
         {
@@ -250,7 +300,8 @@ public sealed class DbAuditQueryService(
 
         if (!string.IsNullOrWhiteSpace(query.Email))
         {
-            source = source.Where(item => item.Email != null && EF.Functions.ILike(item.Email, $"%{query.Email.Trim()}%"));
+            source = source.Where(item =>
+                item.Email != null && EF.Functions.ILike(item.Email, $"%{query.Email.Trim()}%"));
         }
 
         if (query.FromDate.HasValue)
@@ -264,6 +315,7 @@ public sealed class DbAuditQueryService(
         }
 
         var total = await source.CountAsync(cancellationToken);
+        var canViewSensitiveMetadata = capabilities.CanViewSensitiveMetadata;
         var items = await source
             .OrderByDescending(item => item.CreatedAt)
             .Skip((page - 1) * pageSize)
@@ -271,27 +323,55 @@ public sealed class DbAuditQueryService(
             .Select(item => new SecurityEventListItemResponse(
                 item.Id,
                 item.EventType,
-                item.UserId,
-                item.Email,
-                item.IpAddress,
-                item.UserAgent,
+                canViewSensitiveMetadata ? item.UserId : null,
+                canViewSensitiveMetadata ? item.Email : null,
+                canViewSensitiveMetadata ? item.IpAddress : null,
+                canViewSensitiveMetadata ? item.UserAgent : null,
                 item.Severity,
                 item.Summary,
-                item.MetadataJson,
+                canViewSensitiveMetadata ? item.MetadataJson : null,
                 item.CreatedAt))
             .ToListAsync(cancellationToken);
 
-        return Result<PagedResponse<SecurityEventListItemResponse>>.Success(new PagedResponse<SecurityEventListItemResponse>(items, page, pageSize, total));
+        return Result<PagedResponse<SecurityEventListItemResponse>>.Success(
+            new PagedResponse<SecurityEventListItemResponse>(items, page, pageSize, total));
     }
 
-    private async Task<bool> IsTenantAdminAsync(Guid userId, Guid tenantId, CancellationToken cancellationToken)
+    private IQueryable<AuditLog> ScopeToCurrentTenant(IQueryable<AuditLog> source)
     {
-        var membership = await tenantRepository.GetTenantUserAsync(tenantId, userId, cancellationToken);
-        return membership is
+        return currentTenant is { IsAvailable: true, IsPlatformScope: false }
+            ? source.Where(log => log.TenantId == currentTenant.TenantId)
+            : source;
+    }
+
+    private IQueryable<SecurityEvent> ScopeToCurrentTenant(IQueryable<SecurityEvent> source)
+    {
+        return currentTenant is { IsAvailable: true, IsPlatformScope: false }
+            ? source.Where(item => item.TenantId == currentTenant.TenantId)
+            : source;
+    }
+
+    private Result<T>? ValidateQueryScope<T>()
+    {
+        if (currentTenant.IsPlatformScope || currentTenant.IsAvailable)
         {
-            Status: TenantUserStatus.Active,
-            Role: TenantUserRole.Owner or TenantUserRole.Admin
-        };
+            return null;
+        }
+
+        return Result<T>.Failure(new ApplicationErrorDetail(
+            "TenantMembershipRequired",
+            "A Tenant or explicit platform Audit scope is required."));
+    }
+
+    private static Result<T> AuthorizationFailure<T>(Result denied)
+    {
+        if (denied.ErrorDetail is not null)
+        {
+            return Result<T>.Failure(denied.ErrorDetail);
+        }
+
+        return Result<T>.Failure(
+            denied.Error ?? "The requested Audit operation is not permitted.");
     }
 
     private static string ClassifyResult(string action)
@@ -316,7 +396,8 @@ public sealed class DbAuditQueryService(
             return "critical";
         }
 
-        if (result == "denied" || ContainsAny(action, "failure", "warning", "rejected", "rate", "revoked", "expired", "blocked"))
+        if (result == "denied" ||
+            ContainsAny(action, "failure", "warning", "rejected", "rate", "revoked", "expired", "blocked"))
         {
             return "warning";
         }
@@ -327,5 +408,80 @@ public sealed class DbAuditQueryService(
     private static bool ContainsAny(string value, params string[] needles)
     {
         return needles.Any(needle => value.Contains(needle, StringComparison.OrdinalIgnoreCase));
+    }
+
+    private sealed class LegacyAuditAuthorizationService(
+        ICurrentUser currentUser,
+        ICurrentTenant currentTenant,
+        ITenantRepository tenantRepository) : IAuditAuthorizationService
+    {
+        public async Task<AuditCapabilityResponse> GetCapabilitiesAsync(
+            CancellationToken cancellationToken = default)
+        {
+            if (!currentUser.IsAuthenticated || !currentUser.UserId.HasValue)
+            {
+                return new AuditCapabilityResponse(false, false, false, false, false);
+            }
+
+            if (currentUser.SystemRole is SystemRole.PlatformAdmin or SystemRole.SystemAdmin)
+            {
+                return new AuditCapabilityResponse(true, true, true, true, true);
+            }
+
+            if (currentTenant is not { IsAvailable: true, IsPlatformScope: false })
+            {
+                return new AuditCapabilityResponse(false, false, false, false, false);
+            }
+
+            var membership = await tenantRepository.GetTenantUserAsync(
+                currentTenant.TenantId,
+                currentUser.UserId.Value,
+                cancellationToken);
+            var isTenantAdmin = membership is
+            {
+                Status: TenantUserStatus.Active,
+                Role: TenantUserRole.Owner or TenantUserRole.Admin
+            };
+
+            // This fallback exists only for legacy direct construction in tests and
+            // utility hosts. Preserve the historical raw-query contract there while
+            // production DI always injects AuditAuthorizationService and enforces the
+            // new independent sensitive-metadata capability.
+            return isTenantAdmin
+                ? new AuditCapabilityResponse(true, true, false, false, true)
+                : new AuditCapabilityResponse(false, false, false, false, false);
+        }
+
+        public async Task<bool> HasCapabilityAsync(
+            string capabilityKey,
+            CancellationToken cancellationToken = default)
+        {
+            var capabilities = await GetCapabilitiesAsync(cancellationToken);
+            return capabilityKey switch
+            {
+                CapabilityKeys.AuditView => capabilities.CanView,
+                CapabilityKeys.AuditReview => capabilities.CanReview,
+                CapabilityKeys.AuditApprove => capabilities.CanApprove,
+                CapabilityKeys.AuditExport => capabilities.CanExport,
+                CapabilityKeys.AuditSensitiveMetadataView => capabilities.CanViewSensitiveMetadata,
+                _ => false
+            };
+        }
+
+        public async Task<Result> AuthorizeAsync(
+            string capabilityKey,
+            string operation,
+            CancellationToken cancellationToken = default)
+        {
+            if (await HasCapabilityAsync(capabilityKey, cancellationToken))
+            {
+                return Result.Success();
+            }
+
+            var message = capabilityKey == CapabilityKeys.AuditView
+                ? "You are not allowed to view audit logs."
+                : "The requested Audit operation is not permitted.";
+            return Result.Failure(message);
+        }
     }
 }

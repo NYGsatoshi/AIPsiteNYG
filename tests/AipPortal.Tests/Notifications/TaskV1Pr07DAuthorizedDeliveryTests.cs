@@ -339,6 +339,7 @@ public sealed class TaskV1Pr07DAuthorizedDeliveryTests
         var available = await fixture.Resolver.ResolveAsync(fixture.TenantId, fixture.UserId, notification.Id);
         Assert.True(available.IsAvailable);
         Assert.Equal($"/artifacts/{artifact.Id}", available.Route);
+        Assert.Equal(fixture.Workspace.Id, available.WorkspaceId);
         Assert.True(await fixture.Resolver.CanDeliverCreatedAsync(
             fixture.TenantId,
             fixture.UserId,
@@ -381,6 +382,7 @@ public sealed class TaskV1Pr07DAuthorizedDeliveryTests
         var available = await fixture.Resolver.ResolveAsync(fixture.TenantId, fixture.UserId, notification.Id);
         Assert.True(available.IsAvailable);
         Assert.Equal($"/messages/{message.Id}", available.Route);
+        Assert.Equal(fixture.Workspace.Id, available.WorkspaceId);
         Assert.True(await fixture.Resolver.CanDeliverCreatedAsync(
             fixture.TenantId,
             fixture.UserId,
@@ -570,6 +572,7 @@ public sealed class TaskV1Pr07DAuthorizedDeliveryTests
         Assert.True(result.IsOwned);
         Assert.True(result.IsAvailable);
         Assert.Equal($"/projects/{fixture.Project.Id}/tasks/{fixture.Task.Id}", result.Route);
+        Assert.Equal(fixture.Workspace.Id, result.WorkspaceId);
         Assert.Equal(6, result.StateVersion);
         var persisted = await fixture.Db.Notifications.SingleAsync();
         Assert.True(persisted.IsRead);

@@ -1,8 +1,10 @@
+using System.Text.Json;
 using AipPortal.Application.Audit;
 using AipPortal.Application.Common;
 using AipPortal.Application.Common.Interfaces;
 using AipPortal.Application.Common.Tenancy;
 using AipPortal.Application.Security.Redaction;
+using AipPortal.Application.Tenancy;
 using AipPortal.Domain.Enums;
 using AipPortal.Web.Controllers;
 using Microsoft.AspNetCore.Http;
@@ -43,9 +45,90 @@ public sealed class AuditControllerTests
         Assert.Equal(2, capturedQuery.Page);
     }
 
+    [Fact]
+    public async Task SecurityEvents_ResponseBoundaryRedactsRestrictedFieldsWithoutSensitiveCapability()
+    {
+        const string ipAddress = "203.0.113.42";
+        const string userAgent = "audit-sensitive-agent";
+        const string summary = "Visible audit summary";
+        var audit = new CapturingAuditQueryService(
+            securityEvents:
+            [
+                new SecurityEventListItemResponse(
+                    Guid.NewGuid(),
+                    SecurityEventType.AccessDenied,
+                    null,
+                    null,
+                    ipAddress,
+                    userAgent,
+                    SecurityEventSeverity.Warning,
+                    summary,
+                    null,
+                    DateTimeOffset.UtcNow)
+            ]);
+        var controller = CreateController(
+            audit,
+            capabilities: new AuditCapabilityResponse(
+                CanView: true,
+                CanReview: true,
+                CanApprove: false,
+                CanExport: false,
+                CanViewSensitiveMetadata: false));
+
+        var result = await controller.SecurityEvents(new SecurityEventQuery(), CancellationToken.None);
+
+        var payload = SerializeOk(result);
+        Assert.Contains(summary, payload, StringComparison.Ordinal);
+        Assert.DoesNotContain(ipAddress, payload, StringComparison.Ordinal);
+        Assert.DoesNotContain(userAgent, payload, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public async Task SecurityEvents_ResponseBoundaryPreservesRestrictedFieldsWithSensitiveCapability()
+    {
+        const string ipAddress = "203.0.113.43";
+        const string userAgent = "audit-authorized-sensitive-agent";
+        var audit = new CapturingAuditQueryService(
+            securityEvents:
+            [
+                new SecurityEventListItemResponse(
+                    Guid.NewGuid(),
+                    SecurityEventType.AccessDenied,
+                    null,
+                    null,
+                    ipAddress,
+                    userAgent,
+                    SecurityEventSeverity.Warning,
+                    "Visible audit summary",
+                    null,
+                    DateTimeOffset.UtcNow)
+            ]);
+        var controller = CreateController(
+            audit,
+            capabilities: new AuditCapabilityResponse(
+                CanView: true,
+                CanReview: true,
+                CanApprove: false,
+                CanExport: false,
+                CanViewSensitiveMetadata: true));
+
+        var result = await controller.SecurityEvents(new SecurityEventQuery(), CancellationToken.None);
+
+        var payload = SerializeOk(result);
+        Assert.Contains(ipAddress, payload, StringComparison.Ordinal);
+        Assert.Contains(userAgent, payload, StringComparison.Ordinal);
+    }
+
+    private static string SerializeOk(IActionResult result)
+    {
+        var ok = Assert.IsType<OkObjectResult>(result);
+        return JsonSerializer.Serialize(ok.Value);
+    }
+
     private static AuditController CreateController(
         CapturingAuditQueryService audit,
-        string? queryString = null)
+        string? queryString = null,
+        AuditCapabilityResponse? capabilities = null)
     {
         var tenant = new CurrentTenantService();
         tenant.SetTenant(Guid.NewGuid(), "audit-test");
@@ -54,7 +137,9 @@ public sealed class AuditControllerTests
             .AddSingleton<ICurrentUser>(new TestCurrentUser(Guid.NewGuid()))
             .AddSingleton<ICurrentTenant>(tenant)
             .BuildServiceProvider();
-        var controller = new AuditController(audit)
+        var controller = new AuditController(
+            audit,
+            capabilities is null ? null : new StubAuditAuthorizationService(capabilities))
         {
             ControllerContext = new ControllerContext
             {
@@ -82,8 +167,43 @@ public sealed class AuditControllerTests
         public bool IsAuthenticated => true;
     }
 
-    private sealed class CapturingAuditQueryService : IAuditQueryService
+    private sealed class StubAuditAuthorizationService(AuditCapabilityResponse capabilities)
+        : IAuditAuthorizationService
     {
+        public Task<AuditCapabilityResponse> GetCapabilitiesAsync(
+            CancellationToken cancellationToken = default) => Task.FromResult(capabilities);
+
+        public Task<bool> HasCapabilityAsync(
+            string capabilityKey,
+            CancellationToken cancellationToken = default) =>
+            Task.FromResult(IsGranted(capabilityKey));
+
+        public Task<Result> AuthorizeAsync(
+            string capabilityKey,
+            string operation,
+            CancellationToken cancellationToken = default) =>
+            Task.FromResult(IsGranted(capabilityKey)
+                ? Result.Success()
+                : Result.Failure(new ApplicationErrorDetail(
+                    "CapabilityDenied",
+                    "The requested Audit operation is not permitted.")));
+
+        private bool IsGranted(string capabilityKey) => capabilityKey switch
+        {
+            CapabilityKeys.AuditView => capabilities.CanView,
+            CapabilityKeys.AuditReview => capabilities.CanReview,
+            CapabilityKeys.AuditApprove => capabilities.CanApprove,
+            CapabilityKeys.AuditExport => capabilities.CanExport,
+            CapabilityKeys.AuditSensitiveMetadataView => capabilities.CanViewSensitiveMetadata,
+            _ => false
+        };
+    }
+
+    private sealed class CapturingAuditQueryService(
+        IReadOnlyList<SecurityEventListItemResponse>? securityEvents = null) : IAuditQueryService
+    {
+        private readonly IReadOnlyList<SecurityEventListItemResponse> securityEvents = securityEvents ?? [];
+
         public AuditLogQuery? LastGridQuery { get; private set; }
 
         public Task<Result<PagedResponse<AuditLogListItemResponse>>> ListAuditLogsAsync(
@@ -117,10 +237,10 @@ public sealed class AuditControllerTests
         {
             return Task.FromResult(Result<PagedResponse<SecurityEventListItemResponse>>.Success(
                 new PagedResponse<SecurityEventListItemResponse>(
-                    Array.Empty<SecurityEventListItemResponse>(),
+                    securityEvents,
                     query.Page,
                     query.PageSize,
-                    0)));
+                    securityEvents.Count)));
         }
     }
 }

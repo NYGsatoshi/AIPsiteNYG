@@ -42,6 +42,8 @@ Covered areas include:
 - projects/tasks;
 - forms and events;
 - notifications;
+- global and conversation-scoped Message notification suppression, including
+  mention notifications and current Tenant membership scoping;
 - integration/API-token foundations;
 - local file storage;
 - pagination safety;
@@ -297,6 +299,12 @@ responses are not backend authorization evidence.
 ### Browser UI tests
 
 Root Playwright infrastructure remains under `tests/ui`, but the legacy static-SPA specs have been marked obsolete after the MVP-A P0 Angular migration.
+
+Angular component coverage for Message settings verifies the separate global
+and conversation endpoints, stale response rejection, confirmation before a
+global save, Escape cancellation/focus behavior through the shared dialog, and
+browser-only unread-badge presentation. This mocked coverage does not replace
+the PostgreSQL preference-store or server authorization tests.
 
 - `tests/ui/serve-static.mjs` serves Angular build output from `frontend/dist/aipportal-web` by default;
 - legacy vanilla-SPA mocked API fixtures were removed;

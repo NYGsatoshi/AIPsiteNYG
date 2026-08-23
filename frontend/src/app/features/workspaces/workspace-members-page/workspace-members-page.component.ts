@@ -1,6 +1,8 @@
-import { Component, computed, inject, signal } from '@angular/core';
+import { Component, computed, effect, inject, signal } from '@angular/core';
+import { takeUntilDestroyed } from '@angular/core/rxjs-interop';
 import { FormsModule } from '@angular/forms';
 import { ActivatedRoute } from '@angular/router';
+import { distinctUntilChanged, map } from 'rxjs';
 
 import {
   AppDataGridActionEvent,
@@ -14,6 +16,7 @@ import { AppInlineLoadingComponent } from '../../../shared/loading/app-inline-lo
 import { AppPermissionDeniedComponent } from '../../../shared/permission/app-permission-denied/app-permission-denied.component';
 import { MemberRoleBadgeComponent } from '../member-role-badge/member-role-badge.component';
 import { WorkspaceMembersFacade } from '../members.facade';
+import { ActiveWorkspaceFacade } from '../../../core/workspace/active-workspace.facade';
 import { WorkspaceMemberGridRow, WorkspaceMemberRowAction } from '../members.types';
 
 @Component({
@@ -34,14 +37,66 @@ import { WorkspaceMemberGridRow, WorkspaceMemberRowAction } from '../members.typ
 export class WorkspaceMembersPageComponent {
   private readonly facade = inject(WorkspaceMembersFacade);
   private readonly route = inject(ActivatedRoute);
+  private readonly activeWorkspace = inject(ActiveWorkspaceFacade);
 
   readonly searchValue = signal('');
   readonly confirmAction = signal<AppDataGridActionEvent<WorkspaceMemberGridRow> | null>(null);
   readonly auditAction = signal<AppDataGridActionEvent<WorkspaceMemberGridRow> | null>(null);
   readonly lastAuditReason = signal<string | null>(null);
-  readonly workspaceId = this.route.snapshot.paramMap.get('workspaceId') ?? 'workspace-alpha';
-  readonly vm = computed(() => this.withColumns(this.facade.getPage(this.workspaceId)));
+  private readonly workspaceIdState = signal(
+    this.route.snapshot.paramMap.get('workspaceId') ?? 'workspace-alpha',
+  );
+  private hasObservedActiveWorkspace = false;
+  private lastLoadedWorkspaceId: string | null = null;
+  readonly vm = computed(() => this.withColumns(this.facade.getPage(this.workspaceIdState())));
   readonly filteredRows = computed(() => this.filterRows(this.vm().rows, this.searchValue()));
+
+  get workspaceId(): string {
+    return this.workspaceIdState();
+  }
+
+  constructor() {
+    this.route.paramMap
+      .pipe(
+        map((paramMap) => paramMap.get('workspaceId') ?? 'workspace-alpha'),
+        distinctUntilChanged(),
+        takeUntilDestroyed(),
+      )
+      .subscribe((workspaceId) => {
+        if (workspaceId !== this.workspaceIdState()) {
+          this.searchValue.set('');
+          this.confirmAction.set(null);
+          this.auditAction.set(null);
+          this.lastAuditReason.set(null);
+          this.workspaceIdState.set(workspaceId);
+        }
+        this.loadForCommittedScope();
+      });
+
+    effect(() => {
+      this.workspaceIdState();
+      this.activeWorkspace.activeWorkspace();
+      this.loadForCommittedScope();
+    });
+  }
+
+  private loadForCommittedScope(): void {
+    const workspaceId = this.workspaceIdState();
+    const activeWorkspaceId = this.activeWorkspace.activeWorkspace()?.id ?? null;
+    if (activeWorkspaceId) {
+      this.hasObservedActiveWorkspace = true;
+    }
+    if (
+      (activeWorkspaceId && activeWorkspaceId !== workspaceId) ||
+      (!activeWorkspaceId && this.hasObservedActiveWorkspace) ||
+      this.lastLoadedWorkspaceId === workspaceId
+    ) {
+      return;
+    }
+
+    this.lastLoadedWorkspaceId = workspaceId;
+    this.facade.ensureLoaded(workspaceId);
+  }
 
   updateSearch(value: string): void {
     this.searchValue.set(value);

@@ -6,6 +6,7 @@ import {
 import {
   MessagingCapability,
   MessagingConversationListItem,
+  MessagingMentionCandidate,
   MessagingMessageViewModel,
   MessagingPageStatus,
   MessagingPageViewModel,
@@ -70,6 +71,7 @@ export function mapConversationPage(
       composerDisabledReason: canPost
         ? undefined
         : 'Posting is not available for this conversation.',
+      mentionCandidates: mentionCandidatesFor(conversation, context.currentUserId),
       attachment: {
         mode: 'disabled',
         label: 'Attachments are disabled for MVP0 messaging.'
@@ -105,7 +107,8 @@ export function mapConversationListItem(
     lastActivityLabel: formatDate(conversation.updatedAt) || formatDate(conversation.createdAt),
     safePreviewLabel: stringValue(conversation.lastMessage?.body) ?? '',
     viewerIsParticipant: true,
-    unreadCount: numberValue(conversation.unreadCount)
+    unreadCount: numberValue(conversation.unreadCount),
+    hasMention: booleanValue(conversation.hasMention)
   };
 }
 
@@ -156,12 +159,32 @@ function titleFor(conversation: ConversationDto, routeKind: MessagingRouteKind, 
   return routeKind === 'dm' ? 'Direct message' : 'Conversation';
 }
 
+function mentionCandidatesFor(
+  conversation: ConversationDetailDto,
+  currentUserId: string
+): readonly MessagingMentionCandidate[] {
+  return (conversation.members ?? []).flatMap((member) => {
+    const userId = stringValue(member.userId);
+    const displayName = stringValue(member.displayName);
+    const active = member.leftAt === null || member.leftAt === undefined;
+    const notRemoved = member.removedAt === null || member.removedAt === undefined;
+    if (!userId || !displayName || userId === currentUserId || member.canRead !== true || !active || !notRemoved) {
+      return [];
+    }
+    return [{ userId, displayName }];
+  });
+}
+
 function stringValue(value: unknown): string | undefined {
   return typeof value === 'string' && value.length > 0 ? value : undefined;
 }
 
 function numberValue(value: unknown): number | undefined {
   return typeof value === 'number' && Number.isFinite(value) ? value : undefined;
+}
+
+function booleanValue(value: unknown): boolean | undefined {
+  return typeof value === 'boolean' ? value : undefined;
 }
 
 function formatDate(value: unknown): string {

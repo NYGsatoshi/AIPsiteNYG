@@ -1,20 +1,12 @@
 name: WPC-02B PostgreSQL Acceptance
 
+# TEMPORARY CONTEST MODE: this milestone acceptance duplicates the core
+# backend build/test path on most code PRs. Keep it available on demand.
 on:
   workflow_dispatch:
-  pull_request:
-    branches: ["main"]
-    paths-ignore:
-      - "**/*.md"
-      - "docs/**"
-  push:
-    branches: ["main"]
-    paths-ignore:
-      - "**/*.md"
-      - "docs/**"
 
 concurrency:
-  group: wpc02b-postgresql-${{ github.event.pull_request.number || github.ref }}
+  group: wpc02b-postgresql-${{ github.ref }}
   cancel-in-progress: true
 
 permissions:
@@ -71,6 +63,22 @@ jobs:
         uses: actions/checkout@v7
         with:
           persist-credentials: false
+
+      - name: Reset .NET build outputs after checkout
+        shell: bash
+        run: |
+          uid="$(id -u)"
+          gid="$(id -g)"
+          docker run --rm \
+            -v "$GITHUB_WORKSPACE:/workspace" \
+            alpine:3.21 \
+            sh -ec "
+              find /workspace/src /workspace/tests -type d -name bin -prune -exec rm -rf {} +
+              find /workspace/src /workspace/tests -type d -name obj -prune -exec rm -rf {} +
+              chown -R ${uid}:${gid} /workspace
+            "
+          mkdir -p src/AipPortal.Web/obj
+          test -w src/AipPortal.Web/obj
 
       - name: Configure user-local .NET install
         shell: bash

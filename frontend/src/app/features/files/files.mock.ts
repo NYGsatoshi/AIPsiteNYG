@@ -10,6 +10,7 @@ export const DEFAULT_FILES: readonly FileViewModel[] = [
     scanStatus: 'allowed',
     uploadedByDisplay: 'Fixture User',
     createdAtLabel: '2026-07-01 09:30',
+    modifiedAtLabel: '2026-07-01 09:30',
     kind: 'pdf',
     downloadPolicy: 'available',
     capabilities: ['download'],
@@ -26,6 +27,7 @@ export const DEFAULT_FILES: readonly FileViewModel[] = [
     scanStatus: 'pending',
     uploadedByDisplay: 'Fixture User',
     createdAtLabel: '2026-07-01 10:12',
+    modifiedAtLabel: '2026-07-01 10:12',
     kind: 'image',
     downloadPolicy: 'available',
     capabilities: ['download'],
@@ -39,6 +41,7 @@ export const DEFAULT_FILES: readonly FileViewModel[] = [
     scanStatus: 'blocked',
     uploadedByDisplay: 'Fixture User',
     createdAtLabel: '2026-07-01 10:40',
+    modifiedAtLabel: '2026-07-01 10:40',
     kind: 'zip',
     downloadPolicy: 'adminOverrideRequired',
     capabilities: ['adminOverrideBlockedDownload'],
@@ -53,6 +56,7 @@ export const DEFAULT_FILES: readonly FileViewModel[] = [
     scanStatus: 'allowed',
     uploadedByDisplay: 'Fixture User',
     createdAtLabel: '2026-07-01 11:05',
+    modifiedAtLabel: '2026-07-01 11:05',
     kind: 'svg',
     downloadPolicy: 'denied',
     capabilities: [],
@@ -67,6 +71,7 @@ export const DEFAULT_FILES: readonly FileViewModel[] = [
     scanStatus: 'allowed',
     uploadedByDisplay: 'Fixture User',
     createdAtLabel: '2026-07-01 11:28',
+    modifiedAtLabel: '2026-07-01 11:28',
     kind: 'video',
     downloadPolicy: 'denied',
     capabilities: [],
@@ -91,6 +96,10 @@ const basePage = (overrides: Partial<FilesPageViewModel> = {}): FilesPageViewMod
   },
   recentFiles: DEFAULT_FILES,
   pickerFiles: DEFAULT_FILES,
+  page: 1,
+  pageSize: 50,
+  totalCount: DEFAULT_FILES.length,
+  hasMore: false,
   ...overrides,
 });
 
@@ -131,19 +140,24 @@ export const FILES_PAGE_SCENARIOS = {
   }),
   scanPending: basePage({
     recentFiles: [DEFAULT_FILES[1]],
+    totalCount: 1,
   }),
   scanBlocked: basePage({
     recentFiles: [DEFAULT_FILES[2]],
+    totalCount: 1,
   }),
   scanAllowed: basePage({
     recentFiles: [DEFAULT_FILES[0]],
+    totalCount: 1,
   }),
   downloadDenied: basePage({
     recentFiles: [DEFAULT_FILES[4]],
+    totalCount: 1,
   }),
   noCanonicalFileIdYet: basePage({
     pickerFiles: [DEFAULT_FILES[3], DEFAULT_FILES[0]],
     recentFiles: [DEFAULT_FILES[3]],
+    totalCount: 1,
   }),
   quotaExceeded: basePage({
     upload: {
@@ -195,11 +209,13 @@ export const FILES_PAGE_SCENARIOS = {
   }),
   adminOverrideRequired: basePage({
     recentFiles: [DEFAULT_FILES[2]],
+    totalCount: 1,
   }),
   previewDisabled: basePage({
     recentFiles: [DEFAULT_FILES[0], DEFAULT_FILES[1], DEFAULT_FILES[2], DEFAULT_FILES[3], DEFAULT_FILES[4]],
   }),
   mobile: basePage({
     recentFiles: [DEFAULT_FILES[0], DEFAULT_FILES[1], DEFAULT_FILES[4]],
+    totalCount: 3,
   }),
 } satisfies Record<string, FilesPageViewModel>;

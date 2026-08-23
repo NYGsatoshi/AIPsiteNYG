@@ -55,6 +55,7 @@ export interface FileViewModel {
   readonly scanStatus: FileScanStatus;
   readonly uploadedByDisplay: string;
   readonly createdAtLabel: string;
+  readonly modifiedAtLabel: string;
   readonly kind: FileKind;
   readonly downloadPolicy: FileDownloadPolicy;
   readonly capabilities: readonly FileCapability[];
@@ -88,6 +89,10 @@ export interface FilesPageViewModel {
   readonly quota: FileQuotaViewModel;
   readonly recentFiles: readonly FileViewModel[];
   readonly pickerFiles: readonly FileViewModel[];
+  readonly page: number;
+  readonly pageSize: number;
+  readonly totalCount: number;
+  readonly hasMore: boolean;
 }
 
 export const FILE_SCAN_STATUS_LABELS: Record<FileScanStatus, string> = {

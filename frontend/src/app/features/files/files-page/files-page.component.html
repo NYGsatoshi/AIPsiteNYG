@@ -27,13 +27,54 @@
 
       <section class="files-page__panel" aria-label="Recent files">
         <div class="files-page__panel-header">
-          <p>Recent files</p>
-          <strong>Downloads use backend grants and authorization.</strong>
+          <div>
+            <p>Recent files</p>
+            <strong>Choose files with checkboxes. Open a file from its name.</strong>
+          </div>
+          <div class="files-page__list-controls" aria-label="File list settings">
+            <div class="files-page__density" role="group" aria-label="Row density">
+              <button type="button" [attr.aria-pressed]="density() === 'comfortable'" (click)="setDensity('comfortable')">Comfortable</button>
+              <button type="button" [attr.aria-pressed]="density() === 'compact'" (click)="setDensity('compact')">Compact</button>
+            </div>
+            <details class="files-page__columns">
+              <summary>Columns</summary>
+              <div class="files-page__columns-menu">
+                @for (option of optionalColumns; track option.id) {
+                  <label>
+                    <input
+                      type="checkbox"
+                      [checked]="isColumnVisible(option.id)"
+                      (change)="toggleColumn(option.id, $any($event.target).checked)"
+                    />
+                    <span>{{ option.label }}</span>
+                  </label>
+                }
+              </div>
+            </details>
+          </div>
         </div>
-        <div class="files-page__desktop-grid">
-          <app-data-grid ariaLabel="Files" migrationTarget="files" [rows]="vm.recentFiles" [columns]="columns" (actionInvoked)="handleGridAction($event)" />
+        <p class="files-page__selection-status" role="status" aria-live="polite">{{ selectedCount() }} selected. Keyboard focus does not change selection.</p>
+        <div class="files-page__desktop-grid" [class.files-page__desktop-grid--compact]="density() === 'compact'">
+          <app-data-grid
+            ariaLabel="Files"
+            migrationTarget="files"
+            rowIdField="id"
+            selectionMode="multiple"
+            [rowHeight]="density() === 'compact' ? 36 : 48"
+            [defaultPageSize]="vm.pageSize"
+            [maximumPageSize]="vm.pageSize"
+            [rows]="vm.recentFiles"
+            [columns]="columns()"
+            (actionInvoked)="handleGridAction($event)"
+            (selectionChanged)="handleSelectionChanged($event)"
+          />
         </div>
         <div class="files-page__mobile-list"><app-recent-files-list [files]="vm.recentFiles" (downloadRequested)="downloadFile($event)" /></div>
+        <nav class="files-page__pagination" aria-label="File list pages">
+          <button type="button" data-testid="files-page-previous" [disabled]="vm.page <= 1" (click)="goToPreviousPage()">Previous</button>
+          <span data-testid="files-page-pagination-status">Page {{ vm.page }} of {{ totalPages() }} · {{ vm.totalCount }} files</span>
+          <button type="button" data-testid="files-page-next" [disabled]="!vm.hasMore" (click)="goToNextPage()">Next</button>
+        </nav>
       </section>
     </div>
 
@@ -47,7 +88,7 @@
         <strong>Preview is not available in MVP0.</strong>
         <span>Images, SVG, PDF, ZIP extraction, video playback, and streaming are not rendered in this screen.</span>
         <span>CDN links, public links, and external signed URL sharing are disabled.</span>
-        <span>Download requires backend authorization and a short-lived download grant.</span>
+        <span>Opening a file uses backend authorization and a short-lived download grant until Preview is implemented.</span>
       </section>
     </aside>
   </div>

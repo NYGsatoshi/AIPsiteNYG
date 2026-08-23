@@ -11,7 +11,11 @@ const distIndexPath = path.join(distRoot, 'index.html');
 const serverPath = fileURLToPath(new URL('./serve-static.mjs', import.meta.url));
 const playwrightCli = fileURLToPath(new URL('../../node_modules/@playwright/test/cli.js', import.meta.url));
 const playwrightArgs = process.argv.slice(2);
-const staticSuiteFiles = ['tests/ui/angular-smoke.spec.ts', 'tests/ui/app.spec.ts'];
+const staticSuiteFiles = [
+  'tests/ui/angular-smoke.spec.ts',
+  'tests/ui/message-mobile-navigation.spec.ts',
+  'tests/ui/app.spec.ts'
+];
 let server = null;
 
 let exitCode = 1;

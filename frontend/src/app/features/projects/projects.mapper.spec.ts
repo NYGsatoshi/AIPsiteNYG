@@ -1,4 +1,10 @@
-import { mapMyTaskDtoToRecord, mapProjectDtoToRecord, mapTaskDtoToRecord } from './projects.mapper';
+import {
+  mapMyTaskDtoToRecord,
+  mapProjectDtoToRecord,
+  mapTaskDtoToRecord,
+  projectStatusLabel,
+  projectWorkStatus
+} from './projects.mapper';
 
 describe('projects mapper', () => {
   it('maps numeric and string task enums from backend DTOs', () => {
@@ -57,13 +63,39 @@ describe('projects mapper', () => {
     expect(task.rowVersion).toBe('7');
   });
 
-  it('maps project create permission and my-task rows without fake progress', () => {
+  it('maps project create permission, canonical work status, and authoritative update time', () => {
     const project = mapProjectDtoToRecord({
       id: 'project-1',
       title: 'Project',
       status: 1,
+      createdAt: '2026-08-20T09:00:00Z',
+      updatedAt: '2026-08-22T11:30:00Z',
       uiPermissions: { canCreateTask: true }
     });
+
+    expect(project.canCreateTask).toBe(true);
+    expect(project.status).toBe('active');
+    expect(project.statusLabel).toBe('Running');
+    expect(project.updatedAt).toBe('2026-08-22T11:30:00Z');
+    expect(projectWorkStatus('planning')).toBe('draft');
+    expect(projectWorkStatus('review')).toBe('needsReview');
+    expect(projectWorkStatus('atRisk')).toBe('needsAttention');
+    expect(projectStatusLabel('complete')).toBe('Completed');
+  });
+
+  it('falls back to project creation time when no update time exists', () => {
+    const project = mapProjectDtoToRecord({
+      id: 'project-1',
+      title: 'Project',
+      status: 'Planning',
+      createdAt: '2026-08-20T09:00:00Z'
+    });
+
+    expect(project.updatedAt).toBe('2026-08-20T09:00:00Z');
+    expect(project.statusLabel).toBe('Draft');
+  });
+
+  it('maps my-task rows without fake progress', () => {
     const myTask = mapMyTaskDtoToRecord({
       taskId: 'task-1',
       projectId: 'project-1',
@@ -73,8 +105,6 @@ describe('projects mapper', () => {
       priority: 'Normal'
     });
 
-    expect(project.canCreateTask).toBe(true);
-    expect(project.status).toBe('active');
     expect(myTask.assignee).toBe('Assigned to you');
     expect(myTask.progressPercent).toBeNull();
   });

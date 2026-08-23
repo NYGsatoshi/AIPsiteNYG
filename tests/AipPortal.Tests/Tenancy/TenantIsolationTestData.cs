@@ -286,7 +286,10 @@ internal sealed class TenantIsolationTestData
         CreatedByUserId = userId,
         Name = name,
         Slug = slug,
-        Status = ProjectStatus.Active
+        Status = ProjectStatus.Active,
+        ActivationState = ProjectActivationState.Activated,
+        ActivatedAtUtc = new DateTimeOffset(2026, 6, 7, 0, 0, 0, TimeSpan.Zero),
+        ActivationVersion = 1
     };
 
     private static ProjectMember NewProjectMember(Guid tenantId, Guid projectId, Guid userId) => new()

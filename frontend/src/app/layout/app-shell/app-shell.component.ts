@@ -5,7 +5,7 @@ import {
   DestroyRef,
   ElementRef,
   HostListener,
-  effect,
+  computed,
   inject,
   signal,
   viewChild
@@ -17,6 +17,7 @@ import { filter } from 'rxjs';
 import { AuthSessionFacade } from '../../core/auth/auth-session.facade';
 import { RealtimeConnectionIndicatorComponent } from '../../core/realtime/realtime-connection-indicator.component';
 import { RealtimeFacade } from '../../core/realtime/realtime.facade';
+import { NavigationMoveRequest } from '../../shared/navigation/navigation.models';
 import { RightPanelComponent } from '../../shared/right-panel/right-panel/right-panel.component';
 import { AccountRailComponent } from '../account-rail/account-rail.component';
 import { FeatureMenuComponent } from '../feature-menu/feature-menu.component';
@@ -50,7 +51,24 @@ export class AppShellComponent implements AfterViewChecked {
 
   readonly viewModel = this.facade.viewModel;
   readonly mobileDrawerOpen = signal(false);
-  readonly pageSearch = signal('');
+  readonly featureMenuCollapsed = signal(false);
+  readonly pinnedSectionCollapsed = signal(false);
+  readonly pinnedOrder = signal<readonly string[]>([]);
+  readonly orderedPinnedNavigationItems = computed(() => {
+    const items = this.viewModel().pinnedNavigationItems;
+    const requestedOrder = this.pinnedOrder();
+    if (requestedOrder.length === 0) {
+      return items;
+    }
+
+    const itemsById = new Map(items.map((item) => [item.id, item]));
+    const ordered = requestedOrder
+      .map((itemId) => itemsById.get(itemId))
+      .filter((item): item is (typeof items)[number] => item !== undefined);
+    const included = new Set(ordered.map((item) => item.id));
+
+    return [...ordered, ...items.filter((item) => !included.has(item.id))];
+  });
   readonly logoutPending = signal(false);
   readonly logoutError = signal('');
   readonly rightPanelReturnFocus = signal<HTMLElement | null>(null);
@@ -64,19 +82,36 @@ export class AppShellComponent implements AfterViewChecked {
         takeUntilDestroyed(this.destroyRef)
       )
       .subscribe(() => {
-        this.pageSearch.set('');
         this.closeMobileDrawer(false);
       });
-
-    effect(() => {
-      if (this.viewModel().session.status === 'expired') {
-        this.pageSearch.set('');
-      }
-    });
   }
 
-  setPageSearch(value: string): void {
-    this.pageSearch.set(value);
+  selectWorkspace(workspaceId: string): void {
+    void this.facade.selectWorkspace(workspaceId);
+  }
+
+  setFeatureMenuCollapsed(collapsed: boolean): void {
+    this.featureMenuCollapsed.set(collapsed);
+  }
+
+  setPinnedSectionCollapsed(collapsed: boolean): void {
+    this.pinnedSectionCollapsed.set(collapsed);
+  }
+
+  movePinnedItem(request: NavigationMoveRequest): void {
+    const items = [...this.orderedPinnedNavigationItems()];
+    const currentIndex = items.findIndex((item) => item.id === request.itemId);
+    if (currentIndex < 0) {
+      return;
+    }
+
+    const targetIndex = request.direction === 'up' ? currentIndex - 1 : currentIndex + 1;
+    if (targetIndex < 0 || targetIndex >= items.length) {
+      return;
+    }
+
+    [items[currentIndex], items[targetIndex]] = [items[targetIndex], items[currentIndex]];
+    this.pinnedOrder.set(items.map((item) => item.id));
   }
 
   logout(): void {

@@ -4,6 +4,7 @@ import { defineConfig, devices } from "@playwright/test";
 
 const port = Number(process.env.PLAYWRIGHT_PORT ?? 4173);
 const baseURL = process.env.PLAYWRIGHT_BASE_URL ?? `http://127.0.0.1:${port}`;
+const expectTimeout = process.env.AIP_REAL_BACKEND_SMOKE === "1" ? 15_000 : 5_000;
 const snapshotPathTemplate = process.env.CI
   ? "{testDir}/__angular_snapshots__/linux/{testFilePath}/{arg}{ext}"
   : "{testDir}/__angular_snapshots__/{testFilePath}/{arg}{ext}";
@@ -13,7 +14,7 @@ export default defineConfig({
   snapshotPathTemplate,
   timeout: 30_000,
   expect: {
-    timeout: 5_000
+    timeout: expectTimeout
   },
   fullyParallel: true,
   forbidOnly: !!process.env.CI,

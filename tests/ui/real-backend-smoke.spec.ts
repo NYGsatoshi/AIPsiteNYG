@@ -243,6 +243,16 @@ test.describe('MVP0 real backend browser smoke', () => {
       ) as Record<string, any>;
       expect(counts.views.find((item: Record<string, unknown>) => item.view === 'Assigned')?.count).toBe(current.totalCount);
 
+      // With multiple authorized Workspaces, WS-02 deliberately requires an
+      // explicit choice. Select through the canonical header before a full
+      // navigation so the persisted preference, rather than array position,
+      // restores the same scope on /tasks.
+      await page.goto('/app/workspaces');
+      const workspaceSwitcher = page.getByTestId('workspace-switcher');
+      await expect(workspaceSwitcher).toHaveValue('');
+      await workspaceSwitcher.selectOption(primaryWorkspaceId);
+      await expect(workspaceSwitcher).toHaveValue(primaryWorkspaceId);
+
       const initialUiRequest = waitForApiResponse(page, 'GET', '/api/me/tasks');
       await page.goto('/app/tasks');
       const initialUiResponse = await initialUiRequest;
@@ -2048,6 +2058,7 @@ test.describe('MVP0 real backend browser smoke', () => {
       expect(opened.status(), openedText).toBe(200);
       expect(openedBody.outcome).toBe('Opened');
       expect(openedBody.route).toBe(`/projects/${projectId}/tasks/${immediate.taskId}`);
+      expect(openedBody.context).toMatchObject({ workspaceId });
       await taskNavigation;
       await expect(page.getByRole('heading', { name: pr07TaskTitle })).toBeVisible();
 
