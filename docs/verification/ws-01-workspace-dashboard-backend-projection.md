@@ -1,8 +1,9 @@
 # WS-01 Workspace dashboard projection verification
 
-Status: the scoped WS-01 implementation is complete on draft PR #403. The
-repository merge gate remains NO-GO until the exact PR head has a green CI
-frontend job. The known blockers are recorded under **Remaining merge gates**.
+Status: the scoped WS-01 implementation and its authoritative Linux visual
+baselines are complete on draft PR #403. The repository merge gate remains
+NO-GO until every required check is green on the exact final PR head. The
+remaining conditions are recorded under **Remaining merge gates**.
 
 ## Change identity
 
@@ -236,6 +237,21 @@ Frontend results at the tested implementation commit:
 - pinned Linux diagnostic: 62 passed, 1 stale desktop snapshot failure,
   3 intentionally skipped.
 
+The two deterministic Workspace screenshot differences from the integrated
+branch were inspected before approval. The desktop change replaces the stale
+fabricated partial-summary state with the backend-authoritative Workspace
+counts, role, and capability-derived actions while retaining the current
+integrated shell. The mobile drawer itself is unchanged; only the obscured
+Workspace content and selected navigation state reflect that same intended
+projection. The pinned Linux update command regenerated exactly these files:
+
+- `desktop-shell-workspaces.png`;
+- `mobile-shell-workspaces-drawer.png`.
+
+An immediate pinned Linux run completed with 63 passed and 3 intentionally
+skipped tests. The generated files are byte-identical to the stable actual
+images captured on every retry of CI run `32645432984`.
+
 ## Scope confirmation
 
 - No migration, entity/schema, configuration, or model-snapshot change.
@@ -248,18 +264,11 @@ Frontend results at the tested implementation commit:
 
 ## Remaining merge gates
 
-1. The repository-wide Angular suite has a deterministic stale Announcement
-   assertion already present on exact current `main`; it is outside the allowed
-   Workspace feature path.
-2. `tests/ui/serve-static.mjs` still returns the old six-field Workspace fixture
-   and no capabilities response. Its Linux desktop baseline expects the removed
-   fabricated Member role, partial-summary banner, and hard-coded actions.
-   Updating that fixture/baseline is outside the authorized change paths.
-3. The exact final PR head must complete CI, PostgreSQL 18 acceptance, security,
+1. The exact final PR head must complete CI, PostgreSQL 18 acceptance, security,
    frontend, Storybook/Playwright, and Buildkite checks with no unresolved review
    thread.
-4. WS-02 still owns route/last-used active Workspace selection; `cards[0]`
+2. WS-02 still owns route/last-used active Workspace selection; `cards[0]`
    remains intentionally unchanged.
 
-Until the out-of-scope acceptance artifacts are authorized and reconciled, PR
-#403 remains Draft and is not merge-ready.
+Until the current-head checks complete, PR #403 remains Draft and is not
+merge-ready.
