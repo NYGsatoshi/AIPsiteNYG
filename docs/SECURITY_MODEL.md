@@ -1,8 +1,8 @@
 # Security Model
 
-Last broad implementation audit: 2026-06-18. WPC-01 security-boundary update
-candidate: 2026-08-13. WS-02 active-Workspace client-boundary candidate:
-2026-08-24.
+Last broad implementation audit: 2026-06-18. WPC-02B Workspace-create
+security-boundary update: 2026-08-24. WS-02 active-Workspace and WS-03
+Workspace-create client-boundary update: 2026-08-24.
 
 This document separates implemented security controls from intended policy. Root `SECURITY.md` describes vulnerability reporting; `docs/SECURITY.md` contains additional engineering guidance.
 
@@ -63,32 +63,59 @@ Role layers:
 - `TenantUserRole.Owner/Admin` controls tenant administration.
 - Workspace, group, channel, conversation, and project roles control resource operations.
 
-Known limitation: controllers commonly return `400` for application authorization/not-found failures, so HTTP status semantics are inconsistent. WPC-01 has a narrow full-envelope exception for Workspace capability/create and its pre-controller boundary, masked Project detail, disabled legacy Project create, and Project activation-transition conflict; this is not a repository-wide migration.
+Known limitation: controllers commonly return `400` for application authorization/not-found failures, so HTTP status semantics are inconsistent. The WPC canonical routes have a narrow full-envelope exception for Workspace capability/create and its pre-controller boundary, masked Project detail, canonical Project create/activation, and Project lifecycle conflicts; this is not a repository-wide migration.
 
-### WPC-01 Workspace creation boundary
+### WPC-02B and WS-03 Workspace creation boundary
 
-Workspace creation is authorized against current persisted Tenant membership.
-An active, non-deleted user with active Tenant `Owner` or `Admin` membership
-may create in that current Tenant. Ordinary Tenant membership is insufficient,
-and a platform/SystemAdmin role is not an undocumented Tenant bypass. The
-backend publishes this same decision through
-`GET /api/workspaces/capabilities`; frontend role labels are not authority.
-Capability also incorporates required server-side initialization availability.
-Because canonical Workspace `general` provisioning is unavailable, production
-reports `canCreate: false` and returns 503 before staging a Workspace or
-idempotency claim.
+Workspace creation is authorized against current persisted Tenant state. An
+active, non-deleted user may create in the current active Tenant when either:
 
-Delegated `workspace.create` is not implemented because there is no current
-delegation store or evaluator boundary. WPC-01 fails closed instead of deriving
-delegation from display roles or unrelated admin access.
+- the current Tenant membership is active `Owner` or `Admin`; or
+- the user has a current, non-revoked, non-expired `workspace.create` grant
+  whose scope type is `Tenant` and whose scope ID is the current Tenant.
+
+The grant evaluator revalidates the subject user, Tenant membership, Tenant
+lifecycle, current Tenant scope, grant version, grant time, expiry, and
+revocation for every decision. Ordinary Tenant membership is insufficient, and
+a platform/SystemAdmin role is not an undocumented Tenant bypass. The backend
+publishes the same current decision through
+`GET /api/workspaces/capabilities`; frontend role labels and hidden controls
+are not authority. `canCreate` also requires the canonical server initializer
+to be available, so a missing persistence-backed default-Conversation
+dependency fails closed.
+
+Production `POST /api/workspaces` accepts only client-owned `name`, optional
+`description`, and optional `icon`. The Tenant, creator, Workspace ID, and
+internal slug are server-owned. Duplicate display names are allowed and do not
+become an authorization identity. One relational transaction commits the
+idempotency claim, active Workspace, creator's active Workspace `Owner`
+membership, canonical public-within-scope `WorkspaceGeneral` Conversation,
+creator Conversation administrator participation, `WorkspaceCreated` audit,
+and required authorization Outbox events. Required initialization or Outbox
+staging failure rolls the transaction back rather than leaving a partial
+Workspace.
 
 Create retry identity is scoped by Tenant, authenticated actor, operation, and
-a hash of the client identity. Reconciliation re-runs current authorization
-and queries through current Tenant filters. A key cannot authorize another
-Tenant, actor, or operation. The raw identity and request payload are not
-persisted. Replay requires the same actor's current active Workspace membership;
-a revoked actor cannot recover protected metadata through the legacy
-Platform/SystemAdmin Workspace-view shortcut.
+a SHA-256 hash of the client identity. The normalized request fingerprint is
+also hashed. Reconciliation re-runs current authorization and queries through
+current Tenant filters. A key cannot authorize another Tenant, actor, or
+operation. The idempotency record stores neither the raw key nor a copy of the
+raw JSON request; it stores hashes while the normal Workspace resource fields
+are persisted. Replay requires the same actor's current active Workspace
+membership; a revoked actor cannot recover protected metadata through the
+Platform/SystemAdmin Workspace view shortcut.
+
+The WS-03 browser candidate treats `canCreate` only as an entry-point and
+preflight presentation gate; the POST denial remains authoritative. It keeps
+one in-memory `Idempotency-Key` for the same authenticated Tenant/user and
+canonical trimmed payload across close/reopen and uncertain network, 5xx, or
+malformed-success retries. A changed payload or authenticated identity receives
+a different key. The client accepts only a structurally verified HTTP 201
+envelope before recording a committed resource. It then refreshes the
+authorized Workspace list and activates the returned ID only through the WS-02
+selection boundary. If that post-commit list or selection step fails, the
+`committedPendingActivation` recovery path performs GET/reconciliation and
+selection only; it never repeats the create POST.
 
 ### WS-02 active Workspace client boundary
 
@@ -135,16 +162,28 @@ header distinguishes an authoritative numeric zero from unavailable projection
 data and does not derive Project visibility or Research authorization from the
 counts.
 
-### WPC-01 Project security status
+### WPC-02 Project security status
 
-Canonical Project Visibility is not partially persisted or projected. The
-specification does not define a non-broadening existing-row backfill or the
-capability for non-default Visibility. Canonical Workspace-scoped create and
-activation therefore remain unavailable, and deprecated `POST /api/projects`
-returns 503 without mutation.
+WPC-02A persists canonical Project Visibility and activation provenance. Legacy
+rows remain explicitly unclassified; authorization never infers a broader
+Visibility or activation history for them. WPC-02C provides the canonical,
+idempotent Workspace-scoped create command. It requires current active Tenant
+and Workspace membership plus Workspace governance authority, a current
+Workspace-scoped `project.create` grant, or management of the bound Group.
+Selecting a non-default Visibility additionally requires Workspace governance
+authority or a current `project.visibility.manage` grant. No platform role,
+including SystemAdmin, bypasses those current resource boundaries.
 
-Generic `Planning -> Active`, `Suspended -> Planning`, and `Suspended -> Active`
-are rejected because no trustworthy activation provenance exists.
+WPC-02D provides the explicit first-activation command. It requires current
+Project management authority, a matching positive Project version, an active
+Workspace, canonical Visibility, and a `NeverActivated` Planning Project. One
+serializable transaction provisions ProjectGeneral and the Task workflow,
+records activation provenance and lifecycle state, writes audit and durable
+authorization events, and commits only when every required effect succeeds.
+The deprecated unscoped `POST /api/projects` remains disabled, and generic
+lifecycle update cannot bypass the activation command. Generic
+`Planning -> Active`, `Suspended -> Planning`, and `Suspended -> Active`
+are therefore rejected outside that command.
 `Planning -> Suspended` and `Suspended -> Archived` remain available. `Review -> Active`
 remains the ordinary return from a lifecycle state whose production inbound
 path proves prior operation, and metadata-only Active or Suspended updates may
@@ -181,11 +220,14 @@ an arbitrary Conversation subset first. Delayed
 `Messaging.ConversationUnreadChanged.v1` delivery parses its Conversation
 identity and rechecks current Conversation/Project authorization.
 
-These controls prevent broad Draft disclosure but do not implement
-`WorkspaceVisible`, `MembersOnly`, or `Restricted` as a persisted policy.
-The WPC error boundary uses fixed public messages, empty details, masked
-targets, and `redactionApplied`; a canonical cross-module RedactionService
-does not yet exist and remains a dependency blocker.
+WPC-02A persists `WorkspaceVisible`, `MembersOnly`, and `Restricted` and the
+current Project read boundary enforces those values. Pre-migration `NULL`
+Visibility remains an explicit legacy compatibility state; it is never
+reclassified from lifecycle, Group, membership, audit, or child data. The WPC
+error boundary uses fixed public messages, empty details, masked targets, and
+`redactionApplied`. The registered canonical `IRedactionService` is applied at
+the adopted WPC response and export boundaries after record-level
+authorization; redaction cannot widen access or substitute for that check.
 
 ### Message notification preference boundary
 

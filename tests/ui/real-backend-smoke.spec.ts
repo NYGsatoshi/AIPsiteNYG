@@ -109,6 +109,218 @@ test.describe('MVP0 real backend browser smoke', () => {
     }
   });
 
+  test('creates and activates a Workspace through the delegated real-backend capability', async ({ page }, testInfo) => {
+    const evidence: SmokeEvidence = {
+      baseURL: String(testInfo.project.use.baseURL ?? ''),
+      email: smokeEmail,
+      steps: [],
+      pageErrors: [],
+      consoleErrors: [],
+      failedApiResponses: []
+    };
+    const workspaceName = `U22 Browser Workspace ${randomUUID().slice(0, 8)}`;
+    const workspaceDescription = 'Synthetic U-22 Workspace creation evidence';
+    let createdWorkspaceId: string | null = null;
+
+    page.on('pageerror', (error) => evidence.pageErrors.push(error.message));
+    page.on('console', (message) => {
+      if (message.type() === 'error') evidence.consoleErrors.push(message.text());
+    });
+    page.on('response', (response) => recordFailedApiResponse(response, evidence));
+
+    try {
+      await loginAndVerifySession(page, evidence);
+
+      const tenantContext = await recordFetchJson(
+        page,
+        evidence,
+        'workspace-create-tenant-member-boundary',
+        '/api/tenants/current',
+        {
+          validate: (body) =>
+            body &&
+            typeof body === 'object' &&
+            (body as Record<string, unknown>).isAvailable === true &&
+            (body as Record<string, unknown>).isPlatformScope === false &&
+            (body as Record<string, unknown>).currentUserRole === 3
+        }
+      ) as Record<string, unknown>;
+      expect(tenantContext.currentUserRole, 'delegated creator remains a Tenant Member').toBe(3);
+
+      await recordFetchJson(
+        page,
+        evidence,
+        'workspace-create-capability',
+        '/api/workspaces/capabilities',
+        {
+          validate: (body) =>
+            body &&
+            typeof body === 'object' &&
+            (body as Record<string, any>).data?.canCreate === true &&
+            Array.isArray((body as Record<string, unknown>).warnings)
+        }
+      );
+
+      await page.goto('/app/workspaces');
+      await expect(page.getByTestId('workspace-dashboard')).toBeVisible();
+      const createAction = page.getByTestId('create-workspace-action');
+      await expect(createAction).toBeVisible();
+      await createAction.click();
+      await expect(page.getByRole('dialog', { name: 'Create Workspace' })).toBeVisible();
+      await page.getByTestId('workspace-create-name').fill(workspaceName);
+      await page.getByTestId('workspace-create-description').fill(workspaceDescription);
+
+      const createResponsePromise = waitForApiResponse(page, 'POST', '/api/workspaces');
+      await page.getByRole('button', { name: 'Create Workspace' }).click();
+      const createResponse = await createResponsePromise;
+      const createText = await createResponse.text();
+      const createBody = parseJson(createText) as Record<string, any>;
+      createdWorkspaceId = typeof createBody?.data?.id === 'string' ? createBody.data.id : null;
+
+      const createRequest = createResponse.request();
+      const createHeaders = await createRequest.allHeaders();
+      const idempotencyKey = createHeaders['idempotency-key'] ?? '';
+      const csrfHeaderPresent = typeof createHeaders['x-csrf-token'] === 'string' && createHeaders['x-csrf-token'].length > 0;
+      const createRequestBody = createRequest.postDataJSON() as Record<string, unknown>;
+      evidence.steps.push({
+        name: 'workspace-create-ui-command',
+        method: createRequest.method(),
+        path: new URL(createResponse.url()).pathname,
+        status: createResponse.status(),
+        body: {
+          request: createRequestBody,
+          idempotencyKeyPresent: idempotencyKey.length > 0,
+          csrfHeaderPresent
+        },
+        bodyPreview: preview(createText)
+      });
+
+      expect(createResponse.status(), `Workspace create response: ${createText}`).toBe(201);
+      expect(createResponse.ok(), `Workspace create response: ${createText}`).toBe(true);
+      expect(createdWorkspaceId, 'created Workspace id').toMatch(/^[0-9a-f-]{36}$/i);
+      expect(createBody).toMatchObject({
+        data: {
+          id: createdWorkspaceId,
+          name: workspaceName,
+          description: workspaceDescription,
+          icon: null,
+          status: 0,
+          createdByUserId: evidence.userId
+        },
+        warnings: []
+      });
+      expect(createRequestBody).toEqual({
+        name: workspaceName,
+        description: workspaceDescription,
+        icon: null
+      });
+      expect(idempotencyKey).toMatch(/^[\x20-\x7e]{8,128}$/u);
+      expect(csrfHeaderPresent, 'Workspace create uses the real Angular CSRF interceptor').toBe(true);
+
+      await expect(page).toHaveURL(/\/app\/workspaces$/);
+      await expect(page.getByTestId('workspace-card').filter({ hasText: workspaceName })).toBeVisible();
+      await expect(page.getByTestId('workspace-switcher')).toHaveValue(createdWorkspaceId!);
+      await expect(page.getByTestId('workspace-created-announcement')).toContainText(workspaceName);
+
+      const members = await recordFetchJson(
+        page,
+        evidence,
+        'workspace-create-owner-membership',
+        `/api/workspaces/${createdWorkspaceId}/members`,
+        {
+          validate: (body) =>
+            Array.isArray(body) &&
+            body.some((member: Record<string, unknown>) =>
+              member.userId === evidence.userId &&
+              member.role === 0 &&
+              member.status === 1)
+        }
+      ) as Record<string, unknown>[];
+      expect(
+        members.filter((member) =>
+          member.userId === evidence.userId &&
+          member.role === 0 &&
+          member.status === 1),
+        'creator has exactly one active Workspace Owner membership'
+      ).toHaveLength(1);
+
+      const conversations = await recordFetchJson(
+        page,
+        evidence,
+        'workspace-create-general-conversation-list',
+        '/api/conversations?page=1&pageSize=100',
+        {
+          validate: (body) => isPagedResponse(body)
+        }
+      ) as Record<string, any>;
+      const workspaceGeneral = conversations.items.filter((conversation: Record<string, unknown>) =>
+        conversation.workspaceId === createdWorkspaceId &&
+        conversation.projectId === null &&
+        conversation.type === 'WorkspaceChannel' &&
+        conversation.title === 'general'
+      );
+      expect(
+        workspaceGeneral,
+        'the authorized projection exposes exactly one canonical general Workspace channel'
+      ).toHaveLength(1);
+
+      const generalDetail = await recordFetchJson(
+        page,
+        evidence,
+        'workspace-create-general-conversation-detail',
+        `/api/conversations/${workspaceGeneral[0].id}`,
+        {
+          validate: (body) =>
+            body &&
+            body.workspaceId === createdWorkspaceId &&
+            body.projectId === null &&
+            body.type === 'WorkspaceChannel' &&
+            body.title === 'general' &&
+            Array.isArray(body.members) &&
+            body.members.some((member: Record<string, unknown>) =>
+              member.userId === evidence.userId &&
+              member.role === 0 &&
+              member.canRead === true &&
+              member.canPost === true &&
+              member.canManageMembers === true)
+        }
+      ) as Record<string, any>;
+      expect(generalDetail.members).toHaveLength(1);
+    } finally {
+      if (createdWorkspaceId) {
+        const cleanup = await requestWithCsrf(
+          page,
+          'POST',
+          `/api/workspaces/${createdWorkspaceId}/archive`
+        );
+        evidence.steps.push({
+          name: 'workspace-create-cleanup-archive',
+          method: 'POST',
+          path: `/api/workspaces/${createdWorkspaceId}/archive`,
+          status: cleanup.status,
+          bodyPreview: preview(cleanup.text)
+        });
+        expect(cleanup.status, `Workspace cleanup archive: ${cleanup.text}`).toBe(200);
+        expect(cleanup.csrfHeaderPresent, 'Workspace cleanup uses a real CSRF token').toBe(true);
+
+        await expect.poll(async () => {
+          const list = await fetchJsonFromPage(page, '/api/workspaces');
+          return list.status === 200 &&
+            Array.isArray(list.body) &&
+            !list.body.some((workspace: Record<string, unknown>) => workspace.id === createdWorkspaceId);
+        }).toBe(true);
+      }
+
+      expect(evidence.pageErrors, 'browser page errors').toEqual([]);
+      expectUnexpectedConsoleErrors(evidence);
+      expectUnexpectedApiFailures(evidence);
+      await testInfo.attach('workspace-create-real-backend-evidence.json', {
+        body: JSON.stringify(evidence, null, 2),
+        contentType: 'application/json'
+      });
+    }
+  });
+
   test('keeps authenticated HTTP requests available when the Hub cannot connect', async ({ page }, testInfo) => {
     await page.addInitScript(() => {
       const nativeFetch = window.fetch.bind(window);
