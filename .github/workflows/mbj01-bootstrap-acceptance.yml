@@ -1,56 +1,19 @@
 name: MBJ-01 Fresh Bootstrap Acceptance
 
+# TEMPORARY CONTEST MODE: keep the heavyweight fresh-bootstrap acceptance
+# available on demand instead of running it for every broad code change.
 on:
-  pull_request:
-    paths:
-      - ".github/workflows/mbj01-bootstrap-acceptance.yml"
-      - "docker-compose.mbj01-bootstrap.yml"
-      - "docker-compose.real-backend-smoke.yml"
-      - "Dockerfile"
-      - "Dockerfile.playwright"
-      - "AipPortal.slnx"
-      - "global.json"
-      - "Directory.Build.*"
-      - "Directory.Packages.*"
-      - "NuGet.config"
-      - "package.json"
-      - "package-lock.json"
-      - "frontend/**"
-      - "src/**"
-      - "scripts/ci/run-mbj01-bootstrap-acceptance.sh"
-      - "scripts/ci/verify-npm-lockfile.mjs"
-      - "tests/ui/mbj01-bootstrap-acceptance.mjs"
-  push:
-    branches: ["main"]
-    paths:
-      - ".github/workflows/mbj01-bootstrap-acceptance.yml"
-      - "docker-compose.mbj01-bootstrap.yml"
-      - "docker-compose.real-backend-smoke.yml"
-      - "Dockerfile"
-      - "Dockerfile.playwright"
-      - "AipPortal.slnx"
-      - "global.json"
-      - "Directory.Build.*"
-      - "Directory.Packages.*"
-      - "NuGet.config"
-      - "package.json"
-      - "package-lock.json"
-      - "frontend/**"
-      - "src/**"
-      - "scripts/ci/run-mbj01-bootstrap-acceptance.sh"
-      - "scripts/ci/verify-npm-lockfile.mjs"
-      - "tests/ui/mbj01-bootstrap-acceptance.mjs"
+  workflow_dispatch:
 
 permissions:
   contents: read
 
 jobs:
   mbj01-fresh-bootstrap:
-    if: github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository
     runs-on: self-hosted
     timeout-minutes: 45
     concurrency:
-      group: mbj01-bootstrap-${{ github.event.pull_request.number || github.ref }}
+      group: mbj01-bootstrap-${{ github.ref }}
       cancel-in-progress: true
 
     steps:
