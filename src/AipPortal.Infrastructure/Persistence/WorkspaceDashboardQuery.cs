@@ -82,8 +82,8 @@ public sealed class WorkspaceDashboardQuery(
                     grant.TenantId == workspace.TenantId &&
                     grant.SubjectUserId == userId &&
                     grant.CapabilityKey == CapabilityKeys.ProjectCreate &&
-                    grant.ScopeType == CapabilityScopeType.Workspace &&
-                    grant.ScopeId == workspace.Id &&
+                    ((grant.ScopeType == CapabilityScopeType.Workspace && grant.ScopeId == workspace.Id) ||
+                     (grant.ScopeType == CapabilityScopeType.Tenant && grant.ScopeId == workspace.TenantId)) &&
                     grant.RevokedAt == null &&
                     (!grant.ExpiresAt.HasValue || grant.ExpiresAt > now)),
                 dbContext.GroupMembers.Any(member =>
@@ -192,8 +192,8 @@ public sealed class WorkspaceDashboardQuery(
              row.HasDelegatedProjectCreate ||
              row.ManagesActiveGroup);
         var canAddFiles =
-            row.HasActiveTenantMembership &&
-            (row.HasSystemAdminAccess ||
+            row.HasSystemAdminAccess ||
+            (row.HasActiveTenantMembership &&
              row.CurrentUserRole is WorkspaceRole.Owner or
                  WorkspaceRole.Admin or
                  WorkspaceRole.Adviser or
