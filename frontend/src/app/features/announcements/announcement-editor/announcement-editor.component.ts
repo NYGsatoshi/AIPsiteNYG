@@ -21,7 +21,7 @@ import {
 export class AnnouncementEditorComponent implements OnChanges {
   @Input({ required: true }) draft!: AnnouncementEditorDraft;
 
-  readonly priorityOptions: readonly AnnouncementPriority[] = ['normal', 'important', 'urgent'];
+  readonly priorityOptions: readonly AnnouncementPriority[] = ['normal', 'important', 'critical'];
   readonly audienceOptions: readonly AnnouncementAudienceScope[] = [
     'allWorkspaceMembers',
     'guardiansOnly',
