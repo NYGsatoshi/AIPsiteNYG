@@ -11,7 +11,7 @@ export class MessageNavigationStateService {
 
   rememberListScroll(): void {
     const window = this.document.defaultView;
-    const host = this.scrollHost();
+    const host = this.effectiveScrollHost();
     if (!window || !host) {
       return;
     }
@@ -38,7 +38,7 @@ export class MessageNavigationStateService {
 
     let attemptsRemaining = 8;
     const restore = () => {
-      const host = this.scrollHost();
+      const host = this.effectiveScrollHost();
       if (!host) {
         this.clearPendingListScroll();
         return;
@@ -65,18 +65,32 @@ export class MessageNavigationStateService {
     }
 
     window.requestAnimationFrame(() => {
-      this.scrollHost()?.scrollTo({ top: 0, left: 0, behavior: 'auto' });
+      for (const host of this.scrollHosts()) {
+        host.scrollTo({ top: 0, left: 0, behavior: 'auto' });
+      }
     });
   }
 
-  private scrollHost(): HTMLElement | null {
+  private effectiveScrollHost(): HTMLElement | null {
+    const hosts = this.scrollHosts();
+    const active = hosts.find((host) => host.scrollTop > 0 || host.scrollHeight > host.clientHeight + 1);
+    return active ?? hosts[0] ?? null;
+  }
+
+  private scrollHosts(): HTMLElement[] {
+    const hosts: HTMLElement[] = [];
     const appHost = this.document.getElementById(APP_SCROLL_HOST_ID);
+    const documentHost = this.document.scrollingElement;
+
     if (appHost instanceof HTMLElement) {
-      return appHost;
+      hosts.push(appHost);
     }
 
-    const fallback = this.document.scrollingElement;
-    return fallback instanceof HTMLElement ? fallback : null;
+    if (documentHost instanceof HTMLElement && documentHost !== appHost) {
+      hosts.push(documentHost);
+    }
+
+    return hosts;
   }
 
   private clearPendingListScroll(): void {
