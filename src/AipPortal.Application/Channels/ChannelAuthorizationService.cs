@@ -13,7 +13,7 @@ public sealed class ChannelAuthorizationService(
     public async Task<bool> CanViewChannel(Guid userId, Guid channelId, CancellationToken cancellationToken = default)
     {
         var channel = await channels.GetByIdAsync(channelId, cancellationToken);
-        if (channel is null || channel.Status != ChannelStatus.Active)
+        if (channel is null || channel.DeletedAt.HasValue || channel.Status != ChannelStatus.Active)
         {
             return false;
         }
@@ -21,6 +21,11 @@ public sealed class ChannelAuthorizationService(
         if (await groupAuthorization.CanManageGroup(userId, channel.GroupId, cancellationToken))
         {
             return true;
+        }
+
+        if (!await groupAuthorization.CanViewGroup(userId, channel.GroupId, cancellationToken))
+        {
+            return false;
         }
 
         return channel.Type switch
@@ -59,7 +64,7 @@ public sealed class ChannelAuthorizationService(
     public async Task<bool> CanManageChannel(Guid userId, Guid channelId, CancellationToken cancellationToken = default)
     {
         var channel = await channels.GetByIdAsync(channelId, cancellationToken);
-        if (channel is null)
+        if (channel is null || channel.DeletedAt.HasValue || channel.Status != ChannelStatus.Active)
         {
             return false;
         }
@@ -67,6 +72,11 @@ public sealed class ChannelAuthorizationService(
         if (await groupAuthorization.CanManageGroup(userId, channel.GroupId, cancellationToken))
         {
             return true;
+        }
+
+        if (!await groupAuthorization.CanViewGroup(userId, channel.GroupId, cancellationToken))
+        {
+            return false;
         }
 
         var member = await channels.GetMemberAsync(channelId, userId, cancellationToken);
