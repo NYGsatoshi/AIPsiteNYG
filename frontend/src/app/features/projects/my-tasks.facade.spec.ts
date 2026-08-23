@@ -1,6 +1,7 @@
 import { provideHttpClient } from '@angular/common/http';
 import { HttpTestingController, provideHttpClientTesting } from '@angular/common/http/testing';
 import { TestBed } from '@angular/core/testing';
+import { Router } from '@angular/router';
 
 import { AIP_AUTH_SESSION_MOCK, DEFAULT_AUTH_SESSION } from '../../core/auth/auth-session.facade';
 import { NotificationOpenContextService } from '../../core/notifications/notification-open-context.service';
@@ -21,8 +22,16 @@ describe('MyTasksFacade', () => {
   let facade: MyTasksFacade;
   let httpMock: HttpTestingController;
   let activeWorkspace: ActiveWorkspaceFacade;
+  let router: { url: string; navigateByUrl: ReturnType<typeof vi.fn> };
 
   beforeEach(() => {
+    router = {
+      url: '/workspaces',
+      navigateByUrl: vi.fn(async (url: string) => {
+        router.url = url;
+        return true;
+      }),
+    };
     TestBed.configureTestingModule({
       providers: [
         provideHttpClient(),
@@ -30,6 +39,7 @@ describe('MyTasksFacade', () => {
         // The HTTP projection is valid only for an authenticated session. A
         // disabled realtime transport must not be modeled as a logout.
         { provide: AIP_AUTH_SESSION_MOCK, useValue: DEFAULT_AUTH_SESSION },
+        { provide: Router, useValue: router },
       ],
     });
     activeWorkspace = TestBed.inject(ActiveWorkspaceFacade);
@@ -131,6 +141,67 @@ describe('MyTasksFacade', () => {
       .flush({ items: [], page: 1, pageSize: 50, totalCount: 0 });
     current.find((request) => request.request.url === '/api/me/tasks/counts')!
       .flush({ views: [], timeGroups: [] });
+  });
+
+  it('returns the page-level Workspace control to My Tasks only after a safe neutral transition', async () => {
+    router.url = '/tasks';
+
+    facade.setWorkspace('workspace-2');
+
+    await vi.waitFor(() => expect(router.navigateByUrl).toHaveBeenCalledTimes(2));
+    expect(router.navigateByUrl).toHaveBeenNthCalledWith(1, '/workspaces');
+    expect(router.navigateByUrl).toHaveBeenNthCalledWith(2, '/tasks');
+    expect(activeWorkspace.activeWorkspace()?.id).toBe('workspace-2');
+    expect(facade.getMyTasks().workspaceId).toBe('workspace-2');
+  });
+
+  it('leaves the neutral Workspace route in place when returning to My Tasks is canceled', async () => {
+    router.url = '/tasks';
+    router.navigateByUrl = vi.fn(async (url: string) => {
+      if (url === '/workspaces') {
+        router.url = url;
+        return true;
+      }
+      return false;
+    });
+
+    facade.setWorkspace('workspace-2');
+
+    await vi.waitFor(() => expect(router.navigateByUrl).toHaveBeenCalledTimes(2));
+    expect(router.url).toBe('/workspaces');
+    expect(activeWorkspace.activeWorkspace()?.id).toBe('workspace-2');
+    expect(facade.getMyTasks().workspaceId).toBe('workspace-2');
+  });
+
+  it('repairs a stale My Tasks return when a newer Workspace wins during navigation', async () => {
+    router.url = '/tasks';
+    let resolveTaskNavigation!: (navigated: boolean) => void;
+    const taskNavigation = new Promise<boolean>((resolve) => {
+      resolveTaskNavigation = resolve;
+    });
+    router.navigateByUrl = vi.fn(async (url: string) => {
+      if (url === '/workspaces') {
+        router.url = url;
+        return true;
+      }
+
+      const navigated = await taskNavigation;
+      if (navigated) {
+        router.url = url;
+      }
+      return navigated;
+    });
+
+    facade.setWorkspace('workspace-2');
+    await vi.waitFor(() => expect(router.navigateByUrl).toHaveBeenCalledTimes(2));
+
+    await TestBed.inject(WorkspaceSelectionFacade).selectWorkspace('workspace-1');
+    resolveTaskNavigation(true);
+
+    await vi.waitFor(() => expect(router.navigateByUrl).toHaveBeenCalledTimes(3));
+    expect(router.navigateByUrl).toHaveBeenNthCalledWith(3, '/workspaces');
+    expect(router.url).toBe('/workspaces');
+    expect(activeWorkspace.activeWorkspace()?.id).toBe('workspace-1');
   });
 
   it('DigestOpenAppliesWorkspaceSpecificMyTasksContextAfterFacadeAlreadyExists', async () => {

@@ -1,5 +1,6 @@
 import { HttpClient, HttpParams } from '@angular/common/http';
 import { effect, inject, Injectable, InjectionToken, signal } from '@angular/core';
+import { Router } from '@angular/router';
 import { catchError, forkJoin, of, Subscription } from 'rxjs';
 
 import { normalizeApiError } from '../../core/api/api-error.adapter';
@@ -54,6 +55,7 @@ export class MyTasksFacade {
   private readonly activeWorkspace = inject(ActiveWorkspaceFacade);
   private readonly workspaceSelection = inject(WorkspaceSelectionFacade);
   private readonly notificationOpenContext = inject(NotificationOpenContextService);
+  private readonly router = inject(Router, { optional: true });
   private readonly scenario = inject(AIP_MY_TASKS_MOCK, { optional: true });
   private readonly state = signal<MyTasksState>(this.initialState());
   private hasRequested = false;
@@ -132,7 +134,46 @@ export class MyTasksFacade {
   }
 
   setWorkspace(workspaceId: string): void {
-    void this.workspaceSelection.selectWorkspace(workspaceId);
+    void this.selectWorkspaceAndReturnToTasks(workspaceId);
+  }
+
+  private async selectWorkspaceAndReturnToTasks(workspaceId: string): Promise<void> {
+    const selected = await this.workspaceSelection.selectWorkspace(workspaceId);
+    if (
+      !selected ||
+      this.workspaceSelection.selection().workspaceId !== workspaceId ||
+      !this.router
+    ) {
+      return;
+    }
+
+    const transitionRevision = this.workspaceSelection.transitionRevision();
+    // Selection first neutralizes the old Workspace-scoped route so its
+    // component cannot survive under the new authorization context. This
+    // page-level scope control can then safely remount My Tasks for the newly
+    // selected Workspace. A canceled target navigation leaves the neutral
+    // Workspace dashboard in place rather than restoring stale route state.
+    try {
+      const navigated = await this.router.navigateByUrl('/tasks');
+      if (!navigated) {
+        return;
+      }
+
+      if (
+        this.workspaceSelection.selection().workspaceId !== workspaceId ||
+        this.workspaceSelection.transitionRevision() !== transitionRevision
+      ) {
+        // A newer authorization or Workspace transition superseded this
+        // page-owned continuation while navigation was in flight. Repair only
+        // the route this operation just landed; a newer, different route owns
+        // its own navigation outcome.
+        if (this.router.url === '/tasks') {
+          await this.router.navigateByUrl('/workspaces');
+        }
+      }
+    } catch {
+      // The neutral route is the fail-closed fallback.
+    }
   }
 
   private applyAuthorizedDigestWorkspace(workspaceId: string): boolean {
