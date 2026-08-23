@@ -81,9 +81,8 @@ jobs:
             -v "$GITHUB_WORKSPACE:/workspace" \
             alpine:3.21 \
             sh -ec "
-              find /workspace/src /workspace/tests \
-                -type d \\( -name bin -o -name obj \\) \
-                -prune -exec rm -rf {} +
+              find /workspace/src /workspace/tests -type d -name bin -prune -exec rm -rf {} +
+              find /workspace/src /workspace/tests -type d -name obj -prune -exec rm -rf {} +
               chown -R ${uid}:${gid} /workspace
             "
           mkdir -p src/AipPortal.Web/obj
