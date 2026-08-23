@@ -96,6 +96,10 @@ export interface ParticipantStateDto {
   readonly updatedAt?: unknown;
 }
 
+export interface MessageNotificationPreferenceDto {
+  readonly messageNotificationsEnabled?: unknown;
+}
+
 @Injectable({ providedIn: 'root' })
 export class MessagingApi {
   private readonly http = inject(HttpClient);
@@ -152,6 +156,20 @@ export class MessagingApi {
     return this.http.patch<ParticipantStateDto>(
       `/api/conversations/${conversationId}/state`,
       { isMuted },
+      { withCredentials: true }
+    );
+  }
+
+  getMessageNotificationPreference(): Observable<MessageNotificationPreferenceDto> {
+    return this.http.get<MessageNotificationPreferenceDto>('/api/me/message-notification-preferences', {
+      withCredentials: true
+    });
+  }
+
+  updateMessageNotificationPreference(messageNotificationsEnabled: boolean): Observable<MessageNotificationPreferenceDto> {
+    return this.http.patch<MessageNotificationPreferenceDto>(
+      '/api/me/message-notification-preferences',
+      { messageNotificationsEnabled },
       { withCredentials: true }
     );
   }

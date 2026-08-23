@@ -2,7 +2,9 @@ using AipPortal.Application.Common.Interfaces;
 using AipPortal.Application.Common.Tenancy;
 using AipPortal.Application.Auth;
 using AipPortal.Application.Messaging;
+using AipPortal.Application.Notifications;
 using AipPortal.Application.Security.Redaction;
+using AipPortal.Infrastructure.Persistence;
 using AipPortal.Web.Configuration;
 using AipPortal.Web.Security;
 using AipPortal.Web.Services;
@@ -10,6 +12,7 @@ using AipPortal.Web.Models;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Authorization.Policy;
+using Microsoft.Extensions.DependencyInjection.Extensions;
 using Microsoft.Extensions.Options;
 
 namespace AipPortal.Web.Extensions;
@@ -41,6 +44,15 @@ public static class DependencyInjection
         services.AddScoped<DbSessionCookieAuthenticationEvents>();
         services.AddSingleton<IAuthorizationMiddlewareResultHandler, WpcAuthorizationMiddlewareResultHandler>();
         services.AddScoped<ITenantResolver, HttpTenantResolver>();
+
+        // Message notification settings are tenant/user scoped. Replace the
+        // generic persistence service at the Web composition root so all
+        // Message notification creation passes through the preference policy.
+        services.AddScoped<IMessageNotificationPreferenceStore, MessageNotificationPreferenceStore>();
+        services.AddScoped<IMessageNotificationPreferenceService, MessageNotificationPreferenceService>();
+        services.AddScoped<DbNotificationService>();
+        services.Replace(ServiceDescriptor.Scoped<INotificationService, PreferenceAwareNotificationService>());
+
         services.AddControllers(options =>
             options.Filters.Add<CanonicalProjectsResponseProjectionFilter>())
             .ConfigureApiBehaviorOptions(options =>

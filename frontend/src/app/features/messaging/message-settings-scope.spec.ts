@@ -79,22 +79,26 @@ describe('Message settings scope separation', () => {
     expect(fixture.componentInstance.isMuted()).toBe(false);
   });
 
-  it('requires confirmation before applying a global Message change', async () => {
+  it('confirms and persists the tenant-wide Message notification setting before local display changes', async () => {
     globalThis.localStorage?.clear();
     await TestBed.configureTestingModule({
       imports: [MessageSettingsPageComponent],
-      providers: [provideRouter([])]
+      providers: [provideRouter([]), provideHttpClient(), provideHttpClientTesting()]
     }).compileComponents();
 
+    const httpMock = TestBed.inject(HttpTestingController);
     const fixture = TestBed.createComponent(MessageSettingsPageComponent);
     const settings = TestBed.inject(MessageGlobalSettingsService);
+    httpMock.expectOne('/api/me/message-notification-preferences').flush({ messageNotificationsEnabled: true });
     fixture.detectChanges();
     const root = fixture.nativeElement as HTMLElement;
 
-    const checkbox = root.querySelector<HTMLInputElement>('[data-testid="global-show-unread-badges"]');
-    expect(settings.showUnreadBadges()).toBe(true);
-    checkbox!.checked = false;
-    checkbox!.dispatchEvent(new Event('change'));
+    const notificationCheckbox = root.querySelector<HTMLInputElement>('[data-testid="global-message-notifications"]');
+    const badgeCheckbox = root.querySelector<HTMLInputElement>('[data-testid="global-show-unread-badges"]');
+    notificationCheckbox!.checked = false;
+    notificationCheckbox!.dispatchEvent(new Event('change'));
+    badgeCheckbox!.checked = false;
+    badgeCheckbox!.dispatchEvent(new Event('change'));
     fixture.detectChanges();
 
     root.querySelector<HTMLButtonElement>('[data-testid="save-global-message-settings"]')?.click();
@@ -102,11 +106,52 @@ describe('Message settings scope separation', () => {
     expect(settings.showUnreadBadges()).toBe(true);
     expect(root.querySelector('[data-testid="global-settings-confirmation"]')).not.toBeNull();
     expect(root.textContent).toContain('Individual conversation mute settings will not be changed');
+    httpMock.expectNone('/api/me/message-notification-preferences');
 
-    root.querySelector<HTMLButtonElement>('[data-testid="confirm-global-message-settings"]')?.click();
+    const applyButton = Array.from(
+      root.querySelectorAll<HTMLButtonElement>('[data-testid="global-settings-confirmation"] button')
+    ).find((button) => button.textContent?.includes('Apply global change'));
+    applyButton?.click();
+
+    const saveRequest = httpMock.expectOne('/api/me/message-notification-preferences');
+    expect(saveRequest.request.method).toBe('PATCH');
+    expect(saveRequest.request.body).toEqual({ messageNotificationsEnabled: false });
+    expect(saveRequest.request.withCredentials).toBe(true);
+    expect(settings.showUnreadBadges()).toBe(true);
+    saveRequest.flush({ messageNotificationsEnabled: false });
     fixture.detectChanges();
+
     expect(settings.showUnreadBadges()).toBe(false);
-    expect(root.textContent).toContain('Global message display settings were updated');
+    expect(root.textContent).toContain('Global Message settings were updated');
+    expect(root.textContent).toContain('Current saved value: Off');
+  });
+
+  it('uses the shared accessible confirm dialog and Escape cancels without saving', async () => {
+    await TestBed.configureTestingModule({
+      imports: [MessageSettingsPageComponent],
+      providers: [provideRouter([]), provideHttpClient(), provideHttpClientTesting()]
+    }).compileComponents();
+
+    const httpMock = TestBed.inject(HttpTestingController);
+    const fixture = TestBed.createComponent(MessageSettingsPageComponent);
+    httpMock.expectOne('/api/me/message-notification-preferences').flush({ messageNotificationsEnabled: true });
+    fixture.detectChanges();
+    const root = fixture.nativeElement as HTMLElement;
+
+    const checkbox = root.querySelector<HTMLInputElement>('[data-testid="global-message-notifications"]');
+    checkbox!.checked = false;
+    checkbox!.dispatchEvent(new Event('change'));
+    root.querySelector<HTMLButtonElement>('[data-testid="save-global-message-settings"]')?.click();
+    fixture.detectChanges();
+
+    const dialog = root.querySelector('[role="dialog"][aria-modal="true"]');
+    expect(dialog).not.toBeNull();
+    document.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true, cancelable: true }));
+    await Promise.resolve();
+    fixture.detectChanges();
+
+    expect(root.querySelector('[data-testid="global-settings-confirmation"]')).toBeNull();
+    httpMock.expectNone('/api/me/message-notification-preferences');
   });
 
   it('applies the global unread-badge preference without changing conversation data', async () => {
