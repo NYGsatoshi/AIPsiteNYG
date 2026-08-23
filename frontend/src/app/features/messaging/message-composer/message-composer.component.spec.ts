@@ -108,4 +108,47 @@ describe('MessageComposerComponent', () => {
     expect(error?.textContent).toContain('再試行');
     expect(textarea?.value).toBe('Do not clear me');
   });
+
+  it('adds an explicit mention token and emits the canonical mentioned user id on send', async () => {
+    const fixture = await createComposer('Please review');
+    fixture.componentRef.setInput('mentionCandidates', [
+      { userId: 'user-a', displayName: 'Alice' }
+    ]);
+    fixture.detectChanges();
+
+    const draftSpy = vi.spyOn(fixture.componentInstance.draftChange, 'emit');
+    const sendSpy = vi.spyOn(fixture.componentInstance.send, 'emit');
+    const root = fixture.nativeElement as HTMLElement;
+    const mentionButton = root.querySelector<HTMLButtonElement>('[data-testid="mention-candidate"]');
+
+    expect(mentionButton?.textContent).toContain('@Alice');
+    mentionButton?.click();
+    fixture.detectChanges();
+
+    expect(draftSpy).toHaveBeenCalledWith('Please review @Alice ');
+    expect(mentionButton?.getAttribute('aria-pressed')).toBe('true');
+
+    fixture.componentInstance.submit(new Event('submit', { cancelable: true }));
+    expect(sendSpy).toHaveBeenCalledWith(['user-a']);
+  });
+
+  it('drops canonical mention state when the visible mention token is removed from the draft', async () => {
+    const fixture = await createComposer('Please review');
+    fixture.componentRef.setInput('mentionCandidates', [
+      { userId: 'user-a', displayName: 'Alice' }
+    ]);
+    fixture.detectChanges();
+
+    const root = fixture.nativeElement as HTMLElement;
+    root.querySelector<HTMLButtonElement>('[data-testid="mention-candidate"]')?.click();
+    fixture.detectChanges();
+
+    fixture.componentInstance.onDraftInput({
+      target: { value: 'Please review' }
+    } as unknown as Event);
+
+    const sendSpy = vi.spyOn(fixture.componentInstance.send, 'emit');
+    fixture.componentInstance.submit(new Event('submit', { cancelable: true }));
+    expect(sendSpy).toHaveBeenCalledWith([]);
+  });
 });

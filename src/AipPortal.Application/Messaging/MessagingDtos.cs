@@ -13,6 +13,7 @@ public sealed record ConversationListItemResponse(
     Guid? RootConversationId,
     MessageResponse? LastMessage,
     int UnreadCount,
+    bool HasMention,
     bool IsMuted,
     bool IsArchived,
     DateTimeOffset CreatedAt,
@@ -78,7 +79,11 @@ public sealed record AttachmentResponse(Guid Id, string FileName, string Content
 
 public sealed record MessageResponse(Guid Id, Guid WorkspaceId, Guid ConversationId, Guid AuthorUserId, string AuthorDisplayName, string Body, IReadOnlyList<AttachmentResponse> Attachments, DateTimeOffset CreatedAt, DateTimeOffset? UpdatedAt, DateTimeOffset? EditedAt, bool IsDeleted, Guid? ClientRequestId = null, long Version = 1);
 
-public sealed record SendMessageRequest(string? Body, IReadOnlyList<AttachmentMetadataRequest>? Attachments = null, Guid? ClientRequestId = null);
+public sealed record SendMessageRequest(
+    string? Body,
+    IReadOnlyList<AttachmentMetadataRequest>? Attachments = null,
+    Guid? ClientRequestId = null,
+    IReadOnlyList<Guid>? MentionedUserIds = null);
 
 public sealed record UpdateMessageRequest(string Body);
 
