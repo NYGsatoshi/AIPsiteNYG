@@ -8,7 +8,12 @@
     </div>
 
     @if (canCreate()) {
-      <button type="button" class="announcements-page__create" (click)="showCreateEditor()" data-testid="create-announcement-action">
+      <button
+        type="button"
+        class="announcements-page__create"
+        (click)="showCreateEditor()"
+        data-testid="create-announcement-action"
+      >
         新しいお知らせ
       </button>
     }
@@ -29,10 +34,10 @@
       このお知らせを表示する権限がありません。
     </section>
   } @else if (vm.status === 'empty' || vm.announcements.length === 0) {
-    @if (editorVisible() && vm.editorDraft) {
+    @if (editorVisible() && activeEditorDraft()) {
       <div class="announcements-page__main">
         <app-announcement-editor
-          [draft]="vm.editorDraft"
+          [draft]="activeEditorDraft()!"
           (publishRequested)="publishAnnouncement($event)"
         />
       </div>
@@ -64,9 +69,9 @@
           <section class="announcements-page__state" data-testid="announcements-filter-empty">
             表示できるお知らせがありません。
           </section>
-        } @else if (editorVisible() && vm.editorDraft) {
+        } @else if (editorVisible() && activeEditorDraft()) {
           <app-announcement-editor
-            [draft]="vm.editorDraft"
+            [draft]="activeEditorDraft()!"
             (publishRequested)="publishAnnouncement($event)"
           />
         } @else {
