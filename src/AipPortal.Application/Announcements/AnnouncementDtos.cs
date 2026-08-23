@@ -35,6 +35,15 @@ public sealed record AnnouncementDetailResponse(
     DateTimeOffset CreatedAt,
     DateTimeOffset? UpdatedAt);
 
+public sealed record AnnouncementAudienceOptionResponse(
+    string Key,
+    string ScopeType,
+    Guid? WorkspaceId,
+    Guid? GroupId,
+    Guid? ChannelId,
+    string DisplayName,
+    int EstimatedRecipientCount);
+
 public sealed record CreateAnnouncementRequest(
     Guid? WorkspaceId,
     Guid? GroupId,
