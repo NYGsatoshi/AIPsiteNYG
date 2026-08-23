@@ -8,7 +8,12 @@
     </div>
 
     @if (canCreate()) {
-      <button type="button" class="announcements-page__create" (click)="showCreateEditor()" data-testid="create-announcement-action">
+      <button
+        type="button"
+        class="announcements-page__create"
+        (click)="showCreateEditor()"
+        data-testid="create-announcement-action"
+      >
         新しいお知らせ
       </button>
     }
@@ -55,8 +60,8 @@
           <section class="announcements-page__state" data-testid="announcements-filter-empty">
             表示できるお知らせがありません。
           </section>
-        } @else if (editorVisible() && vm.editorDraft) {
-          <app-announcement-editor [draft]="vm.editorDraft" />
+        } @else if (editorVisible() && activeEditorDraft()) {
+          <app-announcement-editor [draft]="activeEditorDraft()!" />
         } @else {
           <app-announcement-detail
             [announcement]="selectedAnnouncement()"

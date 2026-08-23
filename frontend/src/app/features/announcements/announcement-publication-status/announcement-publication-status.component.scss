@@ -1,0 +1,14 @@
+.announcement-publication-status {
+  display: inline-flex;
+  flex-wrap: wrap;
+  gap: 0.35rem;
+  align-items: baseline;
+}
+
+.announcement-publication-status__label {
+  font-weight: 700;
+}
+
+.announcement-publication-status__schedule {
+  font-size: 0.875rem;
+}

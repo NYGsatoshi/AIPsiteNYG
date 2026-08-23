@@ -37,7 +37,8 @@ public static class DependencyInjection
         services.AddScoped<CurrentTenantService>();
         services.AddScoped<ICurrentTenant>(provider => provider.GetRequiredService<CurrentTenantService>());
         services.AddScoped<ICurrentTenantAccessor>(provider => provider.GetRequiredService<CurrentTenantService>());
-        services.AddSingleton<IRedactionService, CanonicalRedactionService>();
+        services.AddSingleton<CanonicalRedactionService>();
+        services.AddSingleton<IRedactionService, CanonicalFileMetadataRedactionService>();
         services.AddScoped<ITenantAuthorizationService, TenantAuthorizationService>();
         // AddApplication() is also used by minimal test/utility hosts that do not
         // compose Infrastructure. Keep persistence-backed WPC dependencies fail

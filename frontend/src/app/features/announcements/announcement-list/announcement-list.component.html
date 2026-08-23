@@ -11,8 +11,14 @@
       <span class="announcement-list__meta">
         <app-announcement-priority-badge [priority]="announcement.priority" />
         <app-announcement-audience-preview [audienceScope]="announcement.audienceScope" />
-        <span>{{ announcement.publicationState === 'draft' ? '下書き' : '公開' }}</span>
-        <span>{{ announcement.publishedAtLabel }}</span>
+        <app-announcement-publication-status
+          [state]="announcement.publicationState"
+          [scheduledAtLabel]="announcement.scheduledAtLabel"
+          [timeZoneLabel]="announcement.timeZoneLabel"
+        />
+        @if (announcement.publicationState === 'published' || announcement.publicationState === 'updated') {
+          <span>{{ announcement.publishedAtLabel }}</span>
+        }
       </span>
       <app-announcement-read-state [readState]="announcement.readState" />
     </button>

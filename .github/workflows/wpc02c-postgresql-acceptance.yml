@@ -72,7 +72,7 @@ jobs:
         with:
           persist-credentials: false
 
-      - name: Configure user-local .NET install
+      - name: Configure user-local .NET install and NuGet isolation
         shell: bash
         run: |
           install_dir="$HOME/.dotnet-ci"

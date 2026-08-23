@@ -124,7 +124,8 @@ public sealed class WorkspaceGeneralMembershipSynchronizer(
     IDefaultConversationStore conversations,
     ICurrentTenant currentTenant,
     IClock clock,
-    IAuthorizationStateChangePublisher authorizationChanges) : IWorkspaceGeneralMembershipSynchronizer
+    IAuthorizationStateChangePublisher authorizationChanges,
+    ITenantRepository? tenants = null) : IWorkspaceGeneralMembershipSynchronizer
 {
     public async Task<Result> StageAsync(
         WorkspaceMember workspaceMember,
@@ -137,6 +138,31 @@ public sealed class WorkspaceGeneralMembershipSynchronizer(
             (workspaceMember.TenantId != Guid.Empty && workspaceMember.TenantId != currentTenant.TenantId))
         {
             return Result.Failure("WorkspaceGeneral membership scope is invalid.");
+        }
+
+        // Production composition supplies ITenantRepository. Before an active
+        // Workspace membership can become a Conversation participant, revalidate
+        // the current Tenant membership and both parent records. Revocation must
+        // remain possible after Tenant suspension, so inactive Workspace members
+        // continue to the removal path below.
+        if (workspaceMember.Status == MembershipStatus.Active && tenants is not null)
+        {
+            var tenantMembership = await tenants.GetTenantUserAsync(
+                currentTenant.TenantId,
+                workspaceMember.UserId,
+                cancellationToken);
+            if (tenantMembership is not
+                {
+                    Status: TenantUserStatus.Active,
+                    User: { Status: UserStatus.Active, DeletedAt: null },
+                    Tenant: { Status: TenantStatus.Active, DeletedAt: null }
+                } ||
+                tenantMembership.TenantId != currentTenant.TenantId ||
+                tenantMembership.UserId != workspaceMember.UserId)
+            {
+                return Result.Failure(
+                    "WorkspaceGeneral membership requires an active Tenant membership.");
+            }
         }
 
         var conversation = await conversations.FindDefaultAsync(
