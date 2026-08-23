@@ -1,22 +1,12 @@
 name: Documentation CI
 
+# TEMPORARY CONTEST MODE: documentation validation remains available on demand
+# but no longer consumes runner capacity automatically.
 on:
   workflow_dispatch:
-  pull_request:
-    branches: ["main"]
-    paths:
-      - "**/*.md"
-      - "docs/**"
-      - ".github/workflows/documentation_ci.yml"
-  push:
-    branches: ["main"]
-    paths:
-      - "**/*.md"
-      - "docs/**"
-      - ".github/workflows/documentation_ci.yml"
 
 concurrency:
-  group: documentation-ci-${{ github.event.pull_request.number || github.ref }}
+  group: documentation-ci-${{ github.ref }}
   cancel-in-progress: true
 
 permissions:
