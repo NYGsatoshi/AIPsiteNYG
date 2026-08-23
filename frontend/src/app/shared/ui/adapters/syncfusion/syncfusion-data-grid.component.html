@@ -9,6 +9,7 @@
     <p class="aip-syncfusion-grid__state" data-testid="app-data-grid-empty">{{ emptyState ?? 'No rows are available.' }}</p>
   } @else {
     <ejs-grid
+      #grid
       class="aip-syncfusion-grid__grid"
       [attr.aria-label]="ariaLabel"
       [dataSource]="rows"
@@ -17,6 +18,7 @@
       [allowFiltering]="filteringEnabled"
       [allowSelection]="selectionMode !== 'none'"
       [allowKeyboard]="true"
+      [rowHeight]="rowHeight ?? 36"
       [pageSettings]="pageSettings"
       [selectionSettings]="selectionSettings"
       [enableHover]="true"
@@ -26,10 +28,14 @@
       [allowReordering]="false"
       [allowResizing]="false"
       (recordClick)="handleRecordClick($event)"
-      (rowSelected)="handleRowSelected($event)"
+      (rowSelected)="handleSelectionChanged()"
+      (rowDeselected)="handleSelectionChanged()"
       (actionComplete)="handleActionComplete($event)"
     >
       <e-columns>
+        @if (selectionMode !== 'none') {
+          <e-column type="checkbox" width="48" [allowSorting]="false" [allowFiltering]="false" />
+        }
         @for (column of columns; track getColumnId(column)) {
           <e-column
             [field]="getColumnField(column)"

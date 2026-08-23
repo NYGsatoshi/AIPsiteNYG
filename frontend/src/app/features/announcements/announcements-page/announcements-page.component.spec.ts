@@ -91,12 +91,13 @@ describe('AnnouncementsPageComponent', () => {
     expect(text).not.toContain('この本文は検索しても表示されません。');
   });
 
-  it('renders priority labels from frontend mapping', async () => {
+  it('renders the accessible priority label from frontend semantics', async () => {
     const fixture = await renderAnnouncementsPage(ANNOUNCEMENT_PAGE_SCENARIOS.default);
-
-    expect((fixture.nativeElement as HTMLElement).querySelector('[data-testid="announcement-priority-label"]')?.textContent).toContain(
-      '重要'
+    const priority = (fixture.nativeElement as HTMLElement).querySelector<HTMLElement>(
+      '[data-testid="announcement-priority-label"]'
     );
+
+    expect(priority?.textContent).toContain('IMPORTANT');
   });
 
   it('wraps long title and body safely', async () => {

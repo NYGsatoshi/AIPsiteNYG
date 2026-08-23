@@ -18,6 +18,8 @@ import { FileDownloadState, FilesPageViewModel, FileUploadQueueItem, FileUploadV
 
 export const AIP_FILES_PAGE_MOCK = new InjectionToken<FilesPageViewModel>('AIP_FILES_PAGE_MOCK');
 
+const FILES_PAGE_SIZE = 50;
+
 export interface AttachmentDownloadContext {
   /** Prevent an obsolete Task route from receiving a completion callback. */
   readonly isCurrent?: () => boolean;
@@ -67,7 +69,23 @@ export class FilesFacade {
       return;
     }
     this.pageWorkspaceId = workspaceId;
-    this.loadFiles(workspaceId);
+    this.loadFiles(workspaceId, 1, FILES_PAGE_SIZE);
+  }
+
+  goToPage(page: number): void {
+    if (this.mockPage || !this.pageWorkspaceId) {
+      return;
+    }
+
+    const state = this.pageState();
+    const totalPages = Math.max(1, Math.ceil(state.totalCount / Math.max(1, state.pageSize)));
+    const requestedPage = Number.isFinite(page) ? Math.floor(page) : state.page;
+    const targetPage = Math.max(1, Math.min(requestedPage, totalPages));
+    if (targetPage === state.page) {
+      return;
+    }
+
+    this.loadFiles(this.pageWorkspaceId, targetPage, state.pageSize);
   }
 
   uploadFiles(files: readonly File[]): void {
@@ -114,7 +132,7 @@ export class FilesFacade {
             message: 'Upload accepted by backend.',
           });
           this.loadingWorkspaceIds.delete(workspaceId);
-          this.loadFiles(workspaceId);
+          this.loadFiles(workspaceId, 1, this.pageState().pageSize);
           this.reconcileAfterMutation(workspaceId);
         },
         error: (error: unknown) => {
@@ -273,37 +291,62 @@ export class FilesFacade {
     this.attachmentDownloads.clear();
   }
 
-  private loadFiles(workspaceId: string): void {
+  private loadFiles(workspaceId: string, page: number, pageSize: number): void {
     if (this.loadingWorkspaceIds.has(workspaceId)) {
       return;
     }
 
+    const safePage = Math.max(1, Math.floor(page));
+    const safePageSize = Math.max(1, Math.min(Math.floor(pageSize || FILES_PAGE_SIZE), 100));
     this.loadingWorkspaceIds.add(workspaceId);
     const currentUpload = this.pageState().upload;
     this.http
       .get<PagedResponseDto<FileListItemDto>>('/api/files', {
-        params: { workspaceId, page: 1, pageSize: 20 },
+        params: { workspaceId, page: safePage, pageSize: safePageSize },
         withCredentials: true,
       })
       .subscribe({
         next: (response) => {
           this.loadingWorkspaceIds.delete(workspaceId);
+          if (this.pageWorkspaceId !== workspaceId) {
+            return;
+          }
+
           const files = (response.items ?? []).map((item) => mapFileListItem(item)).filter((file) => file.id.length > 0);
+          const responsePage = numberValue(response.page) ?? safePage;
+          const responsePageSize = numberValue(response.pageSize) ?? safePageSize;
+          const totalCount = numberValue(response.totalCount) ?? files.length;
+          const totalPages = Math.max(1, Math.ceil(totalCount / Math.max(1, responsePageSize)));
+
+          if (files.length === 0 && totalCount > 0 && responsePage > totalPages) {
+            this.loadFiles(workspaceId, totalPages, responsePageSize);
+            return;
+          }
+
           this.pageState.set({
             ...this.emptyPage(files.length === 0 ? 'No files returned by backend.' : 'Files are loaded from backend.'),
             upload: currentUpload,
             uploadQueue: this.pageState().uploadQueue,
             recentFiles: files,
             pickerFiles: files,
+            page: responsePage,
+            pageSize: responsePageSize,
+            totalCount,
+            hasMore: response.hasMore === true || responsePage * responsePageSize < totalCount,
           });
         },
         error: (error: unknown) => {
           this.loadingWorkspaceIds.delete(workspaceId);
+          if (this.pageWorkspaceId !== workspaceId) {
+            return;
+          }
           const normalized = normalizeApiError(error);
           this.pageState.set({
             ...this.emptyPage(normalized.message),
             upload: { ...currentUpload, canUpload: true },
             uploadQueue: this.pageState().uploadQueue,
+            page: safePage,
+            pageSize: safePageSize,
           });
         },
       });
@@ -412,7 +455,8 @@ export class FilesFacade {
     }
     this.refreshTimer = setTimeout(() => {
       this.refreshTimer = null;
-      this.loadFiles(workspaceId);
+      const state = this.pageState();
+      this.loadFiles(workspaceId, state.page, state.pageSize);
     }, 100);
   }
 
@@ -442,6 +486,10 @@ export class FilesFacade {
       },
       recentFiles: [],
       pickerFiles: [],
+      page: 1,
+      pageSize: FILES_PAGE_SIZE,
+      totalCount: 0,
+      hasMore: false,
     };
   }
 

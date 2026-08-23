@@ -117,8 +117,8 @@ function announcementPriority(value: unknown): AnnouncementPriority {
   if (normalized === '1' || normalized === 'important') {
     return 'important';
   }
-  if (normalized === '2' || normalized === 'urgent') {
-    return 'urgent';
+  if (normalized === '2' || normalized === 'urgent' || normalized === 'critical') {
+    return 'critical';
   }
   return 'normal';
 }
