@@ -20,12 +20,6 @@ public interface IAnnouncementRepository
 
     Task<IReadOnlyList<AnnouncementTargetUser>> ListTargetUsersAsync(Announcement announcement, CancellationToken cancellationToken = default);
 
-    async Task<int> CountTargetUsersAsync(Announcement announcement, CancellationToken cancellationToken = default)
-    {
-        var targets = await ListTargetUsersAsync(announcement, cancellationToken);
-        return targets.Count;
-    }
-
     Task<int> CountReadsAsync(Guid announcementId, CancellationToken cancellationToken = default);
 }
 
