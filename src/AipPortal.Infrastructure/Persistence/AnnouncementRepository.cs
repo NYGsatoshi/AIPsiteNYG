@@ -214,6 +214,7 @@ public sealed class AnnouncementRepository(
                 user.Status == UserStatus.Active &&
                 user.DeletedAt == null)
             .OrderBy(user => user.DisplayName)
+            .ThenBy(user => user.Id)
             .Select(user => new AnnouncementTargetUser(
                 user.Id,
                 user.DisplayName,
