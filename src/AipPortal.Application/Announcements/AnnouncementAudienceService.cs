@@ -14,6 +14,7 @@ public sealed class AnnouncementAudienceService(
     IGroupRepository groups,
     IChannelRepository channels,
     IUserRepository users,
+    ITenantRepository tenants,
     IWorkspaceAuthorizationService workspaceAuthorization,
     IGroupAuthorizationService groupAuthorization,
     IChannelAuthorizationService channelAuthorization,
@@ -34,6 +35,15 @@ public sealed class AnnouncementAudienceService(
 
         var userId = currentUser.UserId.Value;
         var isSystemAdmin = await IsSystemAdminAsync(userId, cancellationToken);
+        if (!isSystemAdmin)
+        {
+            var tenantMembership = await tenants.GetTenantUserAsync(currentTenant.TenantId, userId, cancellationToken);
+            if (tenantMembership is not { Status: TenantUserStatus.Active })
+            {
+                return Result<IReadOnlyList<AnnouncementAudienceOptionResponse>>.Success([]);
+            }
+        }
+
         var options = new List<AnnouncementAudienceOptionResponse>();
 
         if (isSystemAdmin)
