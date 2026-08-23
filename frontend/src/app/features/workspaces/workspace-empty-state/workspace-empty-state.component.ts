@@ -1,4 +1,4 @@
-import { Component, Input } from '@angular/core';
+import { Component, EventEmitter, Input, Output } from '@angular/core';
 
 @Component({
   selector: 'app-workspace-empty-state',
@@ -9,4 +9,6 @@ import { Component, Input } from '@angular/core';
 export class WorkspaceEmptyStateComponent {
   @Input() title = '表示できるWorkspaceがありません';
   @Input() message = 'Workspaceの作成または招待が完了すると、ここに表示されます。';
+  @Input() actionLabel: string | null = null;
+  @Output() readonly action = new EventEmitter<void>();
 }

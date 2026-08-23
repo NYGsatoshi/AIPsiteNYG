@@ -1,7 +1,7 @@
 # Database
 
-Last broad implementation audit: 2026-08-02. WPC-01 schema update candidate:
-2026-08-13.
+Last broad implementation audit: 2026-08-02. WPC-02A/B/D schema status
+update: 2026-08-24.
 
 ## Technology
 
@@ -26,11 +26,11 @@ Use these in order:
 
 ## Migration history
 
-There are forty-three timestamped EF migration classes in the WPC-01 candidate,
+There are forty-seven timestamped EF migration classes in the current source,
 from:
 
 - `20260606135558_InitialCreate`
-- through `20260813100711_Wpc01WorkspaceCreateIdempotency`
+- through `20260823054500_AddMessageNotificationPreference`
 
 Migration files live in `src/AipPortal.Infrastructure/Persistence/Migrations/`.
 
@@ -47,7 +47,7 @@ The application does not auto-migrate. `/health/ready` fails when pending migrat
 - ExportJob
 - IntegrationAccount, WebhookEndpoint, ApiToken
 
-### WPC-01 Workspace create idempotency
+### WPC canonical creation and lifecycle persistence
 
 Migration `20260813100711_Wpc01WorkspaceCreateIdempotency` adds only
 `idempotency_records`. The unique key is
@@ -56,32 +56,32 @@ request body are never stored; SHA-256 hashes retain retry identity and request
 equivalence. A resource index supports safe reconciliation, and the actor
 foreign key uses restricted deletion.
 
-The claim, Workspace, creator Owner membership, required initializer, audit
-row, and authorization Outbox row commit in one PostgreSQL transaction.
-Failed initialization or required Outbox staging rolls the claim and every
-business effect back, so a later retry is not mistaken for a successful replay.
-Production currently registers an unavailable required initializer because no
-canonical Workspace `general` provisioner exists; production creation
-therefore commits none of these rows. Successful no-op-initializer tests prove
-transaction/idempotency plumbing only, not default-channel provisioning.
-Records currently have no automatic expiration; they retain replay identity
-indefinitely unless a separately approved retention operation is added.
+Migration `20260817023749_Wpc02BCapabilityGrantWorkspaceGeneral` adds persisted
+Capability Grants plus the Conversation `DefaultKind`, unique partial indexes,
+and shape constraints for `WorkspaceGeneral` and `ProjectGeneral`. Production
+registers the persistence-backed `WorkspaceGeneral` initializer. The
+idempotency claim, active Workspace, creator Owner membership, canonical
+`WorkspaceGeneral` Conversation and creator participation, audit row, and
+authorization Outbox rows commit in one PostgreSQL transaction. Failed
+initialization or required Outbox staging rolls the claim and every business
+effect back, so a later retry is not mistaken for a successful replay.
+Idempotency records currently have no automatic expiration; they retain replay
+identity indefinitely unless a separately approved retention operation is
+added.
 
-WPC-01 deliberately adds no Project Visibility column or backfill. The
-canonical specification does not map existing rows safely, and adding the
-`MembersOnly` create default as an existing-row default could remove currently
-available access while another mapping could broaden it. Project Visibility
-persistence remains a blocking migration decision.
-
-WPC-01 also adds no Project activation-provenance column or backfill. Existing
-Archived/Suspended rows cannot be reliably classified as never-activated or
-previously Active. A recovery command that needs that fact therefore returns a
-non-mutating 409 `InvalidStateTransition`; it does not rewrite the row to
-Planning or Active and does not clear deletion metadata. In particular,
-Suspended cannot transition to Planning or Active until that provenance is
-canonical; Suspended may remain Suspended during metadata-only update or move
-to Archived. Ambiguous-state access remains member-only rather than inferring
-provenance from status, audit, workflow, Channel, or child data.
+Migration `20260816041835_Wpc02AProjectVisibilityAndActivationProvenance` adds
+nullable Project `Visibility` and explicit activation/recovery provenance.
+Canonical creates persist `WorkspaceVisible`, `MembersOnly`, or `Restricted`;
+pre-migration rows remain `NULL` and therefore explicitly unclassified instead
+of receiving a guessed authorization policy. Existing rows receive
+`ActivationState = LegacyUnknown`, while canonical creates use
+`NeverActivated` and successful activation records `Activated`,
+`ActivatedAtUtc`, and a positive `ActivationVersion`. `SuspendedFromStatus` and
+`ArchivedFromStatus` retain recoverable lifecycle provenance, with database
+constraints and the governance save interceptor rejecting inconsistent state.
+Restore or resume succeeds only when the stored prior state is canonical and
+consistent; ambiguous legacy state continues to fail closed with a non-mutating
+`InvalidStateTransition`.
 
 ### Identity
 
