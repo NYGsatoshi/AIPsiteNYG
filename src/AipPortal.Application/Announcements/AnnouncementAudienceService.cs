@@ -255,7 +255,7 @@ public sealed class AnnouncementAudienceService(
             GroupId = groupId,
             ChannelId = channelId
         };
-        var recipients = await announcements.ListTargetUsersAsync(prototype, cancellationToken);
+        var recipientCount = await announcements.CountTargetUsersAsync(prototype, cancellationToken);
         return new AnnouncementAudienceOptionResponse(
             key,
             scopeType,
@@ -263,7 +263,7 @@ public sealed class AnnouncementAudienceService(
             groupId,
             channelId,
             displayName,
-            recipients.Count);
+            recipientCount);
     }
 
     private async Task<bool> CanCreateWorkspaceAnnouncementAsync(Guid userId, Guid workspaceId, CancellationToken cancellationToken)
