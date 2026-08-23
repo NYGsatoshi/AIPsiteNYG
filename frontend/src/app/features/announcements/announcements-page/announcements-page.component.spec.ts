@@ -91,12 +91,13 @@ describe('AnnouncementsPageComponent', () => {
     expect(text).not.toContain('この本文は検索しても表示されません。');
   });
 
-  it('renders priority labels from frontend mapping', async () => {
+  it('renders the accessible priority label from frontend semantics', async () => {
     const fixture = await renderAnnouncementsPage(ANNOUNCEMENT_PAGE_SCENARIOS.default);
-
-    expect((fixture.nativeElement as HTMLElement).querySelector('[data-testid="announcement-priority-label"]')?.textContent).toContain(
-      '重要'
+    const priority = (fixture.nativeElement as HTMLElement).querySelector<HTMLElement>(
+      '[data-testid="announcement-priority-label"]'
     );
+
+    expect(priority?.textContent).toContain('IMPORTANT');
   });
 
   it('wraps long title and body safely', async () => {
@@ -127,5 +128,16 @@ describe('AnnouncementsPageComponent', () => {
     fixture.detectChanges();
 
     expect((fixture.nativeElement as HTMLElement).querySelector('[data-testid="announcement-editor"]')).not.toBeNull();
+  });
+
+  it('shows the create editor even when the authorized announcement list is empty', async () => {
+    const fixture = await renderAnnouncementsPage(ANNOUNCEMENT_PAGE_SCENARIOS.empty);
+
+    expect((fixture.nativeElement as HTMLElement).querySelector('[data-testid="announcements-empty"]')).not.toBeNull();
+    fixture.componentInstance.showCreateEditor();
+    fixture.detectChanges();
+
+    expect((fixture.nativeElement as HTMLElement).querySelector('[data-testid="announcement-editor"]')).not.toBeNull();
+    expect((fixture.nativeElement as HTMLElement).querySelector('[data-testid="announcements-empty"]')).toBeNull();
   });
 });

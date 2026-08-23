@@ -4,18 +4,40 @@
   @if (realtime.connectionState() === 'Degraded') {
     <p class="messaging-page__realtime-notice" role="status">Realtime updates are delayed. Sending and refresh remain available.</p>
   }
+  <a
+    id="messages-mobile-back-link"
+    class="messaging-page__back"
+    routerLink="/messages"
+    [replaceUrl]="true"
+    data-testid="messages-back-link"
+    aria-label="会話一覧へ戻る"
+  >
+    ← 会話一覧
+  </a>
   <header class="messaging-page__header">
     <div>
       <p class="messaging-page__eyebrow">チャンネル</p>
       <h1>{{ vm.conversation.title }}</h1>
       <p>{{ vm.conversation.subtitle }}</p>
     </div>
-    <button type="button" data-testid="manual-refresh" (click)="facade.manualRefresh()">更新</button>
+    <div class="messaging-page__header-actions">
+      @if (vm.conversation.id && vm.conversation.viewerIsParticipant && !vm.conversation.viewerWasRemoved) {
+        <app-conversation-settings-panel
+          [conversationId]="vm.conversation.id"
+          [conversationTitle]="vm.conversation.title"
+        />
+      }
+      <button type="button" data-testid="manual-refresh" (click)="facade.manualRefresh()">更新</button>
+    </div>
   </header>
 
   <div class="messaging-page__layout">
     <aside class="messaging-page__rail">
-      <app-conversation-list [conversations]="vm.conversations" />
+      <app-conversation-list
+        [conversations]="vm.conversations"
+        [selectedConversationId]="vm.conversation.id"
+        [showUnreadBadges]="globalSettings.showUnreadBadges()"
+      />
     </aside>
 
     <main class="messaging-page__main" data-testid="conversation-surface">
@@ -41,10 +63,12 @@
           [draft]="vm.draft"
           [disabled]="!canPost()"
           [sending]="vm.sending"
+          [sendState]="vm.sendState"
           [disabledReason]="composerDisabledReason()"
           [attachmentDisabledLabel]="vm.conversation.attachment.label"
+          [mentionCandidates]="vm.conversation.mentionCandidates ?? []"
           (draftChange)="facade.setDraft($event)"
-          (send)="facade.sendDraft()"
+          (send)="facade.sendDraft($event)"
         />
       }
     </main>

@@ -6,6 +6,7 @@ using AipPortal.Infrastructure.Security;
 using AipPortal.Application.Projects;
 using AipPortal.Application.Realtime;
 using AipPortal.Application.Notifications;
+using AipPortal.Application.Workspaces;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
@@ -36,6 +37,7 @@ public static class DependencyInjection
         services.AddScoped<IInviteRepository, InviteRepository>();
         services.AddScoped<ISessionRepository, SessionRepository>();
         services.AddScoped<IWorkspaceRepository, WorkspaceRepository>();
+        services.AddScoped<IWorkspaceDashboardQuery, WorkspaceDashboardQuery>();
         services.AddScoped<ITaskNotificationPreferenceRepository, TaskNotificationPreferenceRepository>();
         services.AddScoped<ITaskDeadlineDigestRepository, TaskDeadlineDigestRepository>();
         services.AddScoped<IGroupRepository, GroupRepository>();
@@ -43,6 +45,7 @@ public static class DependencyInjection
         services.AddScoped<IMessagingRepository, MessagingRepository>();
         services.AddScoped<IDefaultConversationStore, DefaultConversationStore>();
         services.AddScoped<IProjectRepository, ProjectRepository>();
+        services.AddScoped<IProjectVisibilityService, ProjectVisibilityService>();
         services.AddScoped<IProjectActivationWorkflowStore, ProjectActivationWorkflowStore>();
         services.AddScoped<IProjectActivationUnitOfWork, ProjectActivationUnitOfWork>();
         services.AddScoped<IConfiguredProjectTaskWorkflowSource, ConfiguredProjectTaskWorkflowSource>();
@@ -114,9 +117,11 @@ public static class DependencyInjection
         services.AddScoped<IAuditLogger, DbAuditLogger>();
         services.AddScoped<INotificationService, DbNotificationService>();
         services.AddScoped<CurrentAuthorizationTargetResolver>();
+        services.AddScoped<CanonicalCurrentAuthorizationTargetResolver>();
         services.AddScoped<NotificationNavigationTargetResolver>();
-        services.AddScoped<INotificationTargetResolver>(provider => provider.GetRequiredService<NotificationNavigationTargetResolver>());
-        services.AddScoped<IRealtimeEventTargetResolver>(provider => provider.GetRequiredService<CurrentAuthorizationTargetResolver>());
+        services.AddScoped<CanonicalNotificationTargetResolver>();
+        services.AddScoped<INotificationTargetResolver>(provider => provider.GetRequiredService<CanonicalNotificationTargetResolver>());
+        services.AddScoped<IRealtimeEventTargetResolver>(provider => provider.GetRequiredService<CanonicalCurrentAuthorizationTargetResolver>());
         services.AddScoped<INotificationOpenService, NotificationOpenService>();
         services.AddScoped<AipPortal.Application.Search.ISearchService, DbSearchService>();
         services.AddScoped<AipPortal.Application.Audit.IAuditQueryService, DbAuditQueryService>();

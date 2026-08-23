@@ -593,7 +593,12 @@ public sealed class HttpTenantIsolationTests
         var data = app.Data;
 
         await AssertOkContainsOnlyAsync(app, data.CrossTenantUser, data.TenantA.Slug, "/api/tenants/current", data.TenantA.Slug, data.TenantB.Slug);
-        await AssertOkContainsOnlyAsync(app, data.CrossTenantUser, data.TenantA.Slug, "/api/workspaces", "WorkspaceA", "WorkspaceB");
+        await AssertWorkspaceProjectionUnavailableOnNonPostgreSqlAsync(
+            app,
+            data.CrossTenantUser,
+            data.TenantA.Slug,
+            "WorkspaceA",
+            "WorkspaceB");
         await AssertOkContainsOnlyAsync(app, data.CrossTenantUser, data.TenantA.Slug, $"/api/workspaces/{data.WorkspaceA.Id}", "WorkspaceA", "WorkspaceB");
         await AssertStatusAsync(app, data.CrossTenantUser, data.TenantA.Slug, $"/api/workspaces/{data.WorkspaceB.Id}", HttpStatusCode.NotFound);
 
@@ -615,7 +620,14 @@ public sealed class HttpTenantIsolationTests
         await AssertOkContainsOnlyAsync(app, data.CrossTenantUser, data.TenantA.Slug, $"/api/conversations/{data.ConversationA.Id}", "ConversationA", "ConversationB");
         await AssertBadRequestAsync(app, data.CrossTenantUser, data.TenantA.Slug, $"/api/conversations/{data.ConversationB.Id}");
 
-        await AssertOkContainsOnlyAsync(app, data.CrossTenantUser, data.TenantA.Slug, $"/api/files/{data.FileA.Id}", data.FileA.OriginalFileName, data.FileB.OriginalFileName);
+        using (var fileMetadata = await app.SendAsync(data.CrossTenantUser, data.TenantA.Slug, $"/api/files/{data.FileA.Id}"))
+        {
+            var fileBody = await fileMetadata.Content.ReadAsStringAsync();
+            Assert.Equal(HttpStatusCode.OK, fileMetadata.StatusCode);
+            Assert.Contains("[redacted:file]", fileBody, StringComparison.Ordinal);
+            Assert.DoesNotContain(data.FileA.OriginalFileName, fileBody, StringComparison.Ordinal);
+            Assert.DoesNotContain(data.FileB.OriginalFileName, fileBody, StringComparison.Ordinal);
+        }
         await AssertStatusAsync(app, data.CrossTenantUser, data.TenantA.Slug, $"/api/files/{data.FileA.Id}/download", HttpStatusCode.OK);
         await AssertBadRequestAsync(app, data.CrossTenantUser, data.TenantA.Slug, $"/api/files/{data.FileB.Id}");
         await AssertBadRequestAsync(app, data.CrossTenantUser, data.TenantA.Slug, $"/api/files/{data.FileB.Id}/download");
@@ -631,7 +643,8 @@ public sealed class HttpTenantIsolationTests
         var allowedBody = await allowedMetadata.Content.ReadAsStringAsync();
 
         Assert.Equal(HttpStatusCode.OK, allowedMetadata.StatusCode);
-        Assert.Contains(data.FileA.OriginalFileName, allowedBody, StringComparison.Ordinal);
+        Assert.Contains("[redacted:file]", allowedBody, StringComparison.Ordinal);
+        Assert.DoesNotContain(data.FileA.OriginalFileName, allowedBody, StringComparison.Ordinal);
         Assert.DoesNotContain("storageKey", allowedBody, StringComparison.OrdinalIgnoreCase);
         Assert.DoesNotContain("storedFileName", allowedBody, StringComparison.OrdinalIgnoreCase);
         Assert.DoesNotContain(data.FileA.StorageKey, allowedBody, StringComparison.Ordinal);
@@ -683,7 +696,8 @@ public sealed class HttpTenantIsolationTests
         var body = await response.Content.ReadAsStringAsync();
 
         Assert.Equal(HttpStatusCode.OK, response.StatusCode);
-        Assert.Contains("secret.txt", body, StringComparison.Ordinal);
+        Assert.Contains("[redacted:file]", body, StringComparison.Ordinal);
+        Assert.DoesNotContain("secret.txt", body, StringComparison.Ordinal);
         Assert.DoesNotContain("..", body, StringComparison.Ordinal);
         Assert.DoesNotContain("storageKey", body, StringComparison.OrdinalIgnoreCase);
         Assert.DoesNotContain("storedFileName", body, StringComparison.OrdinalIgnoreCase);
@@ -1753,7 +1767,12 @@ public sealed class HttpTenantIsolationTests
         await using var app = await HttpTenantIsolationTestApp.CreateAsync();
         var data = app.Data;
 
-        await AssertOkContainsOnlyAsync(app, data.Outsider, data.TenantA.Slug, "/api/workspaces", "", "WorkspaceA");
+        await AssertWorkspaceProjectionUnavailableOnNonPostgreSqlAsync(
+            app,
+            data.Outsider,
+            data.TenantA.Slug,
+            "WorkspaceA",
+            "WorkspaceB");
         await AssertStatusAsync(app, data.Outsider, data.TenantA.Slug, $"/api/workspaces/{data.WorkspaceA.Id}", HttpStatusCode.NotFound);
         await AssertStatusAsync(app, data.Outsider, data.TenantA.Slug, $"/api/projects/{data.ProjectA.Id}", HttpStatusCode.NotFound);
         await AssertBadRequestAsync(app, data.Outsider, data.TenantA.Slug, $"/api/conversations/{data.ConversationA.Id}");
@@ -2310,6 +2329,26 @@ public sealed class HttpTenantIsolationTests
         }
 
         Assert.DoesNotContain(unexpected, body, StringComparison.Ordinal);
+    }
+
+    private static async Task AssertWorkspaceProjectionUnavailableOnNonPostgreSqlAsync(
+        HttpTenantIsolationTestApp app,
+        User user,
+        string tenantSlug,
+        params string[] hiddenWorkspaceNames)
+    {
+        using var response = await app.SendAsync(user, tenantSlug, "/api/workspaces");
+        var body = await response.Content.ReadAsStringAsync();
+
+        Assert.Equal(HttpStatusCode.ServiceUnavailable, response.StatusCode);
+        using var document = JsonDocument.Parse(body);
+        AssertCompleteErrorEnvelope(
+            document.RootElement,
+            StatusCodes.Status503ServiceUnavailable,
+            "DependencyUnavailable",
+            expectedTarget: null);
+        Assert.All(hiddenWorkspaceNames, workspaceName =>
+            Assert.DoesNotContain(workspaceName, body, StringComparison.Ordinal));
     }
 
     private static Task AssertBadRequestAsync(
@@ -3155,7 +3194,13 @@ public sealed class HttpTenantIsolationTests
             services.AddScoped<IPasswordHasher, Pbkdf2PasswordHasher>();
             services.AddScoped<ITokenHasher, Sha256TokenHasher>();
             services.AddScoped<IAuditLogger, DbAuditLogger>();
-            services.AddScoped<INotificationService, DbNotificationService>();
+            // The hosted fixture uses EF InMemory, while the production store is
+            // intentionally a PostgreSQL sidecar and has dedicated PostgreSQL
+            // coverage. Keep delivery enabled here so the real preference-aware
+            // wrapper and pre-save Message path are still exercised end to end.
+            services.AddScoped<IMessageNotificationPreferenceStore, EnabledMessageNotificationPreferenceStore>();
+            services.AddScoped<DbNotificationService>();
+            services.AddScoped<INotificationService, PreferenceAwareNotificationService>();
             services.AddScoped<CurrentAuthorizationTargetResolver>();
             services.AddScoped<INotificationTargetResolver>(provider => provider.GetRequiredService<CurrentAuthorizationTargetResolver>());
             services.AddScoped<INotificationOpenService, NotificationOpenService>();
@@ -3164,6 +3209,23 @@ public sealed class HttpTenantIsolationTests
             services.AddSingleton<IClock, AipPortal.Infrastructure.Security.SystemClock>();
             services.AddScoped<IStudentRecordRepository, StudentRecordRepository>();
         }
+    }
+
+    private sealed class EnabledMessageNotificationPreferenceStore : IMessageNotificationPreferenceStore
+    {
+        public Task<bool?> GetEnabledAsync(
+            Guid tenantId,
+            Guid userId,
+            CancellationToken cancellationToken = default) =>
+            Task.FromResult<bool?>(true);
+
+        public Task<bool> SetEnabledAsync(
+            Guid tenantId,
+            Guid userId,
+            bool value,
+            DateTimeOffset updatedAt,
+            CancellationToken cancellationToken = default) =>
+            Task.FromResult(true);
     }
 
     private sealed class NoopWorkspaceInitializationForCoordinatorTests : IWorkspaceRequiredInitialization

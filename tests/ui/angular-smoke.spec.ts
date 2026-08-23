@@ -18,6 +18,9 @@ const coreResponsiveRoutes = [
 
 const themeStorageKey = 'aipsite.ui.theme.v1';
 
+const workspacePreferenceKey = (tenantId: string, userId: string) =>
+  `aip.workspace.last-used:${encodeURIComponent(tenantId)}:${encodeURIComponent(userId)}`;
+
 const approvedThemeMigrationDiffRatio = {
   desktop: 0.055,
   mobile: 0.002
@@ -53,7 +56,96 @@ test.describe('MVP-A P0 Angular frontend smoke', () => {
 
     await waitForWorkspaceShellReady(page);
     await expect(page.locator('a[href="/app/workspaces"]').first()).toBeAttached();
+    await expect(page.getByTestId('workspace-switcher')).toHaveValue('static-workspace-1');
+    await expect(page.getByTestId('workspace-research-status')).toContainText('2 Running');
+    await expect(page.getByTestId('workspace-research-status')).toContainText('1 Needs review');
+    await expect(page.getByRole('navigation', { name: 'Workspace actions' })).toContainText('Members');
+    await expect(page.getByRole('navigation', { name: 'Global actions' })).toContainText('Notifications');
     await expectHealthyAngularPage(page);
+  });
+
+  test('requires an explicit Workspace choice when multiple authorized Workspaces have no preference', async ({ page }) => {
+    const workspaces = workspaceContextFixtures();
+    await installWorkspaceContextApi(page, workspaces, null);
+
+    await page.goto('/app/workspaces');
+    await waitForWorkspaceShellReady(page);
+
+    const switcher = page.getByTestId('workspace-switcher');
+    await expect(switcher).toHaveValue('');
+    await expect(page.getByTestId('workspace-selection-status')).toContainText('Choose a Workspace');
+    await expect(page.getByTestId('workspace-members-action')).toHaveCount(0);
+    await expect
+      .poll(() => page.evaluate((key) => globalThis.localStorage.getItem(key), workspacePreferenceKey('mock-tenant', 'mock-user-a')))
+      .toBeNull();
+  });
+
+  test('switches Workspace with the keyboard and restores the scoped preference', async ({ page }) => {
+    const workspaces = workspaceContextFixtures();
+    await installWorkspaceContextApi(page, workspaces, null);
+
+    await page.goto('/app/workspaces');
+    await waitForWorkspaceShellReady(page);
+
+    const switcher = page.getByTestId('workspace-switcher');
+    await switcher.focus();
+    await page.keyboard.press('End');
+    await page.keyboard.press('Enter');
+
+    await expect(switcher).toHaveValue('workspace-beta');
+    await expect(page.getByTestId('workspace-research-status')).toContainText('0 Running');
+    await expect(page.getByTestId('workspace-research-status')).toContainText('0 Needs review');
+    const preferenceKey = workspacePreferenceKey('mock-tenant', 'mock-user-a');
+    await expect
+      .poll(() => page.evaluate((key) => globalThis.localStorage.getItem(key), preferenceKey))
+      .toBe('workspace-beta');
+
+    await page.reload();
+    await waitForWorkspaceShellReady(page);
+    await expect(page.getByTestId('workspace-switcher')).toHaveValue('workspace-beta');
+  });
+
+  test('gives a valid route Workspace precedence over the stored preference', async ({ page }) => {
+    const workspaces = workspaceContextFixtures();
+    const preferenceKey = workspacePreferenceKey('mock-tenant', 'mock-user-a');
+    await page.addInitScript(({ key }) => globalThis.localStorage.setItem(key, 'workspace-beta'), {
+      key: preferenceKey
+    });
+    await installWorkspaceContextApi(page, workspaces, null);
+
+    await page.goto('/app/workspaces/workspace-alpha/members');
+    await expect(page.getByTestId('app-shell')).toBeVisible();
+    await expect(page.getByTestId('workspace-switcher')).toHaveValue('workspace-alpha');
+    await expect
+      .poll(() => page.evaluate((key) => globalThis.localStorage.getItem(key), preferenceKey))
+      .toBe('workspace-alpha');
+  });
+
+  test('discards a stale Workspace preference without selecting the first authorized row', async ({ page }) => {
+    const preferenceKey = workspacePreferenceKey('mock-tenant', 'mock-user-a');
+    await page.addInitScript(({ key }) => globalThis.localStorage.setItem(key, 'revoked-workspace'), {
+      key: preferenceKey
+    });
+    await installWorkspaceContextApi(page, workspaceContextFixtures(), null);
+
+    await page.goto('/app/workspaces');
+    await waitForWorkspaceShellReady(page);
+
+    await expect(page.getByTestId('workspace-switcher')).toHaveValue('');
+    await expect
+      .poll(() => page.evaluate((key) => globalThis.localStorage.getItem(key), preferenceKey))
+      .toBeNull();
+  });
+
+  test('distinguishes an authorized sole Workspace with unavailable Research counts from zero', async ({ page }) => {
+    const workspace = { id: 'workspace-unavailable', name: 'Workspace Unavailable' };
+    await installWorkspaceContextApi(page, [workspace], null);
+
+    await page.goto('/app/workspaces');
+    await waitForWorkspaceShellReady(page);
+
+    await expect(page.getByTestId('workspace-switcher')).toHaveValue(workspace.id);
+    await expect(page.getByTestId('workspace-research-status')).toHaveText(/Status unavailable/);
   });
 
   test('switches and persists the selected light or dark theme', async ({ page }) => {
@@ -192,8 +284,30 @@ test.describe('MVP-A P0 Angular frontend smoke', () => {
 
     await waitForWorkspaceShellReady(page);
     await pressTabUntilFocused(page, page.locator('a[href="/app/workspaces"]').first());
-    await pressTabUntilFocused(page, page.getByRole('searchbox', { name: /page search/i }));
-    await pressTabUntilFocused(page, page.getByRole('button', { name: /details|close details/i }));
+    await pressTabUntilFocused(page, page.getByTestId('workspace-switcher'));
+    await pressTabUntilFocused(page, page.getByTestId('workspace-members-action'));
+    await pressTabUntilFocused(page, page.getByTestId('right-panel-toggle'));
+    await pressTabUntilFocused(page, page.getByTestId('account-action'));
+    await pressTabUntilFocused(page, page.getByTestId('logout-action'));
+  });
+
+  test('keeps Workspace and global header actions keyboard reachable at 320px', async ({ page }) => {
+    await page.setViewportSize({ width: 320, height: 800 });
+    await page.goto('/app/workspaces');
+    await waitForWorkspaceShellReady(page, { mobile: true });
+
+    const controls = [
+      page.getByTestId('workspace-switcher'),
+      page.getByTestId('workspace-members-action'),
+      page.getByTestId('right-panel-toggle'),
+      page.getByTestId('account-action'),
+      page.getByTestId('logout-action')
+    ];
+    for (const control of controls) {
+      await expect(control).toBeVisible();
+      await pressTabUntilFocused(page, control, 20);
+    }
+    await expectNoDocumentHorizontalOverflow(page);
   });
 
   test('icon-only shell controls have accessible names', async ({ page }) => {
@@ -1261,6 +1375,81 @@ function projectKanbanSnapshot(stageId: ProjectKanbanStageId, boardVersion: numb
 function projectKanbanStageId(value: unknown): ProjectKanbanStageId {
   if (value === 'stage-todo' || value === 'stage-done' || value === 'stage-cancelled') return value;
   throw new Error(`Unexpected mocked Kanban target Stage: ${String(value)}`);
+}
+
+interface WorkspaceContextFixture {
+  readonly id: string;
+  readonly name: string;
+  readonly runningProjectCount?: number;
+  readonly needsReviewProjectCount?: number;
+}
+
+function workspaceContextFixtures(): readonly WorkspaceContextFixture[] {
+  return [
+    {
+      id: 'workspace-alpha',
+      name: 'Workspace Alpha',
+      runningProjectCount: 2,
+      needsReviewProjectCount: 1
+    },
+    {
+      id: 'workspace-beta',
+      name: 'Workspace Beta',
+      runningProjectCount: 0,
+      needsReviewProjectCount: 0
+    }
+  ];
+}
+
+async function installWorkspaceContextApi(
+  page: Page,
+  workspaces: readonly WorkspaceContextFixture[],
+  currentWorkspace: WorkspaceContextFixture | null
+): Promise<void> {
+  const dashboardItems = workspaces.map((workspace) => ({
+    ...workspace,
+    description: `${workspace.name} Playwright fixture`,
+    icon: null,
+    status: 'Active',
+    createdAt: '2026-07-06T00:00:00Z',
+    updatedAt: '2026-07-06T00:00:00Z',
+    currentUserRole: 'Member',
+    accessSource: 'WorkspaceMembership',
+    canOpenWorkspace: true,
+    canOpenMembers: true,
+    canOpenProjects: true,
+    unreadAnnouncementCount: 0,
+    unreadConversationCount: 0,
+    inProgressProjectCount:
+      workspace.runningProjectCount === undefined || workspace.needsReviewProjectCount === undefined
+        ? undefined
+        : workspace.runningProjectCount + workspace.needsReviewProjectCount
+  }));
+
+  await page.route('**/api/auth/me', async (route) => {
+    await route.fulfill({
+      status: 200,
+      contentType: 'application/json; charset=utf-8',
+      body: JSON.stringify({
+        userId: 'mock-user-a',
+        displayName: 'Mock User A',
+        email: 'mock-user-a@example.invalid',
+        systemRole: 'TenantUser',
+        status: 'Active',
+        capabilities: ['workspace:view', 'announcements:view', 'projects:view', 'files:view', 'account:view', 'audit:view'],
+        currentWorkspace,
+        workspaces
+      })
+    });
+  });
+
+  await page.route('**/api/workspaces', async (route) => {
+    await route.fulfill({
+      status: 200,
+      contentType: 'application/json; charset=utf-8',
+      body: JSON.stringify(dashboardItems)
+    });
+  });
 }
 
 function ganttItem(page: Page, taskId: string): Locator {

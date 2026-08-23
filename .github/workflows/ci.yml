@@ -20,7 +20,7 @@ permissions:
 
 jobs:
   build-test:
-    runs-on: self-hosted
+    runs-on: [self-hosted, aipsite-ci, general]
     timeout-minutes: 90
 
     services:
@@ -484,7 +484,7 @@ jobs:
             sh -c "chown -R ${uid}:${gid} /workspace"
 
   frontend-test:
-    runs-on: [self-hosted, aipsite-ci, general]
+    runs-on: self-hosted
     needs:
       - build-test
       - security-scan

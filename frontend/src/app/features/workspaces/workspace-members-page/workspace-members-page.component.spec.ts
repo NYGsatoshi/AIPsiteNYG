@@ -2,6 +2,7 @@ import { Component, EventEmitter, Input, Output } from '@angular/core';
 import { ComponentFixture, TestBed } from '@angular/core/testing';
 import { FormsModule } from '@angular/forms';
 import { ActivatedRoute, convertToParamMap } from '@angular/router';
+import { BehaviorSubject, of } from 'rxjs';
 
 import { AppDataGridComponent } from '../../../shared/grid/app-data-grid/app-data-grid.component';
 import {
@@ -9,10 +10,15 @@ import {
   AppDataGridColumnDef,
   clampAppDataGridPageSize
 } from '../../../shared/grid/app-data-grid/app-data-grid.types';
-import { AIP_WORKSPACE_MEMBERS_MOCK } from '../members.facade';
-import { WORKSPACE_MEMBERS_PRIMARY_WORKSPACE_ID, WORKSPACE_MEMBERS_SCENARIOS } from '../members.mock';
+import { AIP_WORKSPACE_MEMBERS_MOCK, WorkspaceMembersFacade } from '../members.facade';
+import {
+  WORKSPACE_MEMBERS_OTHER_WORKSPACE_ID,
+  WORKSPACE_MEMBERS_PRIMARY_WORKSPACE_ID,
+  WORKSPACE_MEMBERS_SCENARIOS,
+} from '../members.mock';
 import { WorkspaceMemberGridRow, WorkspaceMembersScenario } from '../members.types';
 import { WorkspaceMembersPageComponent } from './workspace-members-page.component';
+import { ActiveWorkspaceFacade } from '../../../core/workspace/active-workspace.facade';
 
 @Component({
   selector: 'app-data-grid',
@@ -61,7 +67,8 @@ class StubDataGridComponent {
 const routeStub = (workspaceId = WORKSPACE_MEMBERS_PRIMARY_WORKSPACE_ID) => ({
   snapshot: {
     paramMap: convertToParamMap({ workspaceId })
-  }
+  },
+  paramMap: of(convertToParamMap({ workspaceId })),
 });
 
 const renderMembers = async (
@@ -126,6 +133,72 @@ describe('WorkspaceMembersPageComponent', () => {
 
     expect(textContent(fixture)).not.toContain('別ワークスペース参加者');
     expect(textContent(fixture)).not.toContain('非表示領域');
+  });
+
+  it('loads the distinct Workspace when a reused members route changes from A to B', async () => {
+    const routeParams = new BehaviorSubject(
+      convertToParamMap({ workspaceId: WORKSPACE_MEMBERS_PRIMARY_WORKSPACE_ID }),
+    );
+    await TestBed.configureTestingModule({
+      imports: [WorkspaceMembersPageComponent],
+      providers: [
+        {
+          provide: ActivatedRoute,
+          useValue: {
+            snapshot: {
+              paramMap: convertToParamMap({
+                workspaceId: WORKSPACE_MEMBERS_PRIMARY_WORKSPACE_ID,
+              }),
+            },
+            paramMap: routeParams.asObservable(),
+          },
+        },
+        {
+          provide: AIP_WORKSPACE_MEMBERS_MOCK,
+          useValue: WORKSPACE_MEMBERS_SCENARIOS.default,
+        },
+      ],
+    })
+      .overrideComponent(WorkspaceMembersPageComponent, {
+        remove: { imports: [AppDataGridComponent] },
+        add: { imports: [StubDataGridComponent] },
+      })
+      .compileComponents();
+    const facade = TestBed.inject(WorkspaceMembersFacade);
+    const activeWorkspace = TestBed.inject(ActiveWorkspaceFacade);
+    activeWorkspace.setActiveWorkspace({
+      id: WORKSPACE_MEMBERS_PRIMARY_WORKSPACE_ID,
+      label: 'Workspace A',
+    });
+    const ensureLoaded = vi.spyOn(facade, 'ensureLoaded');
+    const fixture = TestBed.createComponent(WorkspaceMembersPageComponent);
+    fixture.detectChanges();
+
+    expect(ensureLoaded).toHaveBeenCalledTimes(1);
+    expect(ensureLoaded).toHaveBeenLastCalledWith(WORKSPACE_MEMBERS_PRIMARY_WORKSPACE_ID);
+
+    routeParams.next(convertToParamMap({ workspaceId: WORKSPACE_MEMBERS_PRIMARY_WORKSPACE_ID }));
+    expect(ensureLoaded).toHaveBeenCalledTimes(1);
+
+    routeParams.next(convertToParamMap({ workspaceId: WORKSPACE_MEMBERS_OTHER_WORKSPACE_ID }));
+    fixture.detectChanges();
+
+    expect(ensureLoaded).toHaveBeenCalledTimes(1);
+
+    activeWorkspace.setActiveWorkspace({
+      id: WORKSPACE_MEMBERS_OTHER_WORKSPACE_ID,
+      label: 'Workspace B',
+    });
+    TestBed.flushEffects();
+    fixture.detectChanges();
+
+    expect(ensureLoaded).toHaveBeenCalledTimes(2);
+    expect(ensureLoaded).toHaveBeenLastCalledWith(WORKSPACE_MEMBERS_OTHER_WORKSPACE_ID);
+    expect(fixture.componentInstance.workspaceId).toBe(WORKSPACE_MEMBERS_OTHER_WORKSPACE_ID);
+    expect(fixture.componentInstance.vm().workspaceId).toBe(WORKSPACE_MEMBERS_OTHER_WORKSPACE_ID);
+    expect(fixture.componentInstance.vm().rows.map((row) => row.id)).toEqual([
+      'member-hidden-other-001',
+    ]);
   });
 
   it('enforces the maximum page size at 100', async () => {

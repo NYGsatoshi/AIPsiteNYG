@@ -3,6 +3,7 @@ import { Routes } from '@angular/router';
 import { authSessionGuard } from './core/auth/auth-session.guard';
 import { PagePlaceholderComponent } from './core/routing/page-placeholder.component';
 import { SessionExpiredPageComponent } from './core/session/session-expired-page.component';
+import { workspaceContextGuard } from './core/workspace/workspace-context.guard';
 import { AppShellComponent } from './layout/app-shell/app-shell.component';
 import { AppPermissionDeniedComponent } from './shared/permission/app-permission-denied/app-permission-denied.component';
 
@@ -43,6 +44,13 @@ export const routes: Routes = [
         redirectTo: 'workspaces'
       },
       {
+        path: 'messages/settings',
+        loadComponent: () =>
+          import('./features/messaging/message-settings-page/message-settings-page.component').then(
+            (m) => m.MessageSettingsPageComponent
+          )
+      },
+      {
         path: 'messages',
         loadComponent: () =>
           import('./features/messaging/messages-page/messages-page.component').then(
@@ -58,6 +66,7 @@ export const routes: Routes = [
       },
       {
         path: 'workspaces/:workspaceId/channels/:conversationId',
+        canActivate: [workspaceContextGuard],
         loadComponent: () =>
           import('./features/messaging/channel-messaging-page/channel-messaging-page.component').then(
             (m) => m.ChannelMessagingPageComponent
@@ -70,6 +79,7 @@ export const routes: Routes = [
       },
       {
         path: 'workspaces/:workspaceId/members',
+        canActivate: [workspaceContextGuard],
         loadComponent: () =>
           import('./features/workspaces/workspace-members-page/workspace-members-page.component').then(
             (m) => m.WorkspaceMembersPageComponent

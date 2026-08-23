@@ -423,7 +423,9 @@ public sealed class AuthService(
             .Select(workspace => new AuthWorkspaceSummary(workspace.Id, workspace.Name, workspace.Description, workspace.Status))
             .ToList();
 
-        return new WorkspaceContext(activeWorkspaces.FirstOrDefault(), activeWorkspaces);
+        return new WorkspaceContext(
+            activeWorkspaces.Count == 1 ? activeWorkspaces[0] : null,
+            activeWorkspaces);
     }
 
     private sealed record WorkspaceContext(

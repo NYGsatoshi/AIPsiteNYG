@@ -29,6 +29,8 @@ export interface ConversationDto {
   readonly rootConversationId?: unknown;
   readonly lastMessage?: MessageDto | null;
   readonly unreadCount?: unknown;
+  readonly hasMention?: unknown;
+  readonly isMuted?: unknown;
   readonly isArchived?: unknown;
   readonly isLocked?: unknown;
   readonly updatedAt?: unknown;
@@ -80,6 +82,25 @@ export interface ConversationRecipientDto {
   readonly displayName?: unknown;
 }
 
+export interface ParticipantStateDto {
+  readonly participantId?: unknown;
+  readonly userId?: unknown;
+  readonly conversationId?: unknown;
+  readonly lastOpenedAt?: unknown;
+  readonly lastReadMessageId?: unknown;
+  readonly lastReadAt?: unknown;
+  readonly unreadCursorMessageId?: unknown;
+  readonly unreadCount?: unknown;
+  readonly isMuted?: unknown;
+  readonly isArchived?: unknown;
+  readonly createdAt?: unknown;
+  readonly updatedAt?: unknown;
+}
+
+export interface MessageNotificationPreferenceDto {
+  readonly messageNotificationsEnabled?: unknown;
+}
+
 @Injectable({ providedIn: 'root' })
 export class MessagingApi {
   private readonly http = inject(HttpClient);
@@ -118,10 +139,43 @@ export class MessagingApi {
     });
   }
 
-  sendMessage(conversationId: string, body: string, clientRequestId?: string): Observable<MessageDto> {
+  sendMessage(
+    conversationId: string,
+    body: string,
+    clientRequestId?: string,
+    mentionedUserIds: readonly string[] = []
+  ): Observable<MessageDto> {
     return this.http.post<MessageDto>(
       `/api/conversations/${conversationId}/messages`,
-      { body, clientRequestId },
+      { body, clientRequestId, mentionedUserIds },
+      { withCredentials: true }
+    );
+  }
+
+  getParticipantState(conversationId: string): Observable<ParticipantStateDto> {
+    return this.http.get<ParticipantStateDto>(`/api/conversations/${conversationId}/state`, {
+      withCredentials: true
+    });
+  }
+
+  updateParticipantState(conversationId: string, isMuted: boolean): Observable<ParticipantStateDto> {
+    return this.http.patch<ParticipantStateDto>(
+      `/api/conversations/${conversationId}/state`,
+      { isMuted },
+      { withCredentials: true }
+    );
+  }
+
+  getMessageNotificationPreference(): Observable<MessageNotificationPreferenceDto> {
+    return this.http.get<MessageNotificationPreferenceDto>('/api/me/message-notification-preferences', {
+      withCredentials: true
+    });
+  }
+
+  updateMessageNotificationPreference(messageNotificationsEnabled: boolean): Observable<MessageNotificationPreferenceDto> {
+    return this.http.patch<MessageNotificationPreferenceDto>(
+      '/api/me/message-notification-preferences',
+      { messageNotificationsEnabled },
       { withCredentials: true }
     );
   }

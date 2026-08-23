@@ -307,7 +307,6 @@ export class AuthSessionFacade {
   }
 
   private patchUser(user: AuthCurrentUser): void {
-    this.activeWorkspace.setActiveWorkspace(user.currentWorkspace ?? user.workspaces[0] ?? null);
     this.sessionState.update((session) =>
       createSessionSnapshot(
         user,

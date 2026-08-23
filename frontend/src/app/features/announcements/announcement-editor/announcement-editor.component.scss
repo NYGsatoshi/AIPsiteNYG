@@ -20,7 +20,10 @@
 }
 
 .announcement-editor p,
-.announcement-editor h2 {
+.announcement-editor h2,
+.announcement-editor h3,
+.announcement-editor dl,
+.announcement-editor dd {
   margin: 0;
 }
 
@@ -34,6 +37,11 @@
   color: var(--aip-color-text-primary);
   font-size: 1.18rem;
   line-height: 1.25;
+}
+
+.announcement-editor h3 {
+  color: var(--aip-color-text-primary);
+  font-size: 0.95rem;
 }
 
 .announcement-editor label {
@@ -67,6 +75,53 @@
   display: grid;
   grid-template-columns: repeat(2, minmax(0, 1fr));
   gap: 12px;
+}
+
+.announcement-editor__audience-summary,
+.announcement-editor__review {
+  display: grid;
+  gap: 10px;
+  border: 1px solid var(--aip-color-border-default);
+  border-radius: 8px;
+  padding: 14px;
+  background: var(--aip-color-bg-elevated);
+}
+
+.announcement-editor__audience-summary > div {
+  display: grid;
+  gap: 3px;
+}
+
+.announcement-editor__audience-summary span,
+.announcement-editor__review dt {
+  color: var(--aip-color-text-secondary);
+  font-size: 0.78rem;
+  font-weight: 800;
+}
+
+.announcement-editor__audience-summary strong,
+.announcement-editor__review dd {
+  color: var(--aip-color-text-primary);
+}
+
+.announcement-editor__audience-note {
+  font-weight: 600 !important;
+}
+
+.announcement-editor__review dl {
+  display: grid;
+  gap: 8px;
+}
+
+.announcement-editor__review dl > div {
+  display: grid;
+  grid-template-columns: minmax(100px, 0.4fr) minmax(0, 1fr);
+  gap: 12px;
+}
+
+.announcement-editor__review dd {
+  overflow-wrap: anywhere;
+  font-weight: 800;
 }
 
 .announcement-editor__check {
@@ -116,7 +171,8 @@
     padding: 14px;
   }
 
-  .announcement-editor__row {
+  .announcement-editor__row,
+  .announcement-editor__review dl > div {
     grid-template-columns: minmax(0, 1fr);
   }
 

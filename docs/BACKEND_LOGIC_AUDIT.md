@@ -32,7 +32,7 @@ The audit did not modify authentication logic, database schema, application UI, 
 
 | Severity | Count | Main areas |
 | --- | ---: | --- |
-| Critical | 3 open + 1 resolved | announcement visibility, conversation persistence, and chat attachments remain open; Project-derived Search authorization is resolved by PR #281 |
+| Critical | 2 open + 2 resolved | conversation persistence and chat attachments remain open; Announcement visibility is resolved by the current WS-01-BE candidate and Project-derived Search authorization is resolved by PR #281 |
 | High | 8 | detached EF mutations, concurrent EF use, file consistency, read-state integrity, notification targets/limits, duplicate task rows, HTTP contracts |
 | Medium | 7 | route-parent validation, PATCH clearing, concurrency, membership semantics, listing filters, DI registration, query efficiency |
 
@@ -41,27 +41,30 @@ The audit did not modify authentication logic, database schema, application UI, 
 ### BE-001: Scoped announcements can be disclosed to the whole workspace
 
 - Priority: critical.
-- Status: confirmed source-level authorization defect.
+- Status: resolved by the current WS-01-BE candidate.
 - Affected pages: Announcements and Search.
 - Exact files and methods:
   - `src/AipPortal.Application/Announcements/AnnouncementService.cs`
     - `ResolveCreateScopeAsync`
+  - `src/AipPortal.Infrastructure/Persistence/AnnouncementReadScope.cs`
+    - `VisibleAnnouncementsFor`
   - `src/AipPortal.Infrastructure/Persistence/AnnouncementRepository.cs`
-    - `VisibleAnnouncements`
+    - `ListVisibleAsync`, `IsVisibleToUserAsync`
   - `src/AipPortal.Infrastructure/Persistence/DbSearchService.cs`
     - `SearchAnnouncementsAsync`
-- Evidence:
+- Historical evidence:
   - Group and channel announcements store the owning `WorkspaceId` in addition to their narrower scope IDs.
   - Visibility predicates combine workspace, group, and channel checks with OR conditions.
   - An active workspace membership therefore satisfies the workspace branch even when the announcement belongs to a group or private/confidential channel.
 - Impact:
   - Users outside a target group or private/confidential channel can receive announcement metadata and body content through list, detail, or search APIs.
-- Patch suggestion:
+- Implemented resolution:
   - Make visibility branches mutually exclusive.
   - If `ChannelId` is set, authorize only against the stored channel and its channel-type rules.
   - Else if `GroupId` is set, authorize against the stored group.
   - Else if `WorkspaceId` is set, authorize against the workspace.
-  - Use the same predicate for list, detail, read-status, and search paths.
+  - The Workspace dashboard unread aggregate composes the same predicate and returns only a grouped numeric count.
+  - List, detail/read-status, Search, and dashboard integration tests cover Group and private-Channel non-disclosure on PostgreSQL.
 - Suggested tests:
   - Workspace member outside a group cannot list or get a group announcement.
   - Group member outside a private channel cannot list, get, or search its announcement.
@@ -579,7 +582,7 @@ Patch suggestion: log the internal exception with correlation data, but persist 
 | Area | File | Methods/types |
 | --- | --- | --- |
 | Announcements | `Application/Announcements/AnnouncementService.cs` | `ResolveCreateScopeAsync`, `CreateAsync`, `UpdateAsync` |
-| Announcement visibility | `Infrastructure/Persistence/AnnouncementRepository.cs` | `VisibleAnnouncements`, `IsVisibleToUserAsync` |
+| Announcement visibility | `Infrastructure/Persistence/AnnouncementReadScope.cs`, `Infrastructure/Persistence/AnnouncementRepository.cs` | `VisibleAnnouncementsFor`, `ListVisibleAsync`, `IsVisibleToUserAsync` |
 | Search | `Infrastructure/Persistence/ProjectReadScope.cs`, `Infrastructure/Persistence/DbSearchService.cs` | `VisibleProjectsFor`, `SearchAnnouncementsAsync`, `SearchCommentsAsync`, project-derived searches |
 | Messaging | `Application/Messaging/ConversationService.cs` | `CreateAsync`, `SendMessageAsync`, `MarkReadAsync` |
 | Message contracts | `Application/Messaging/MessagingDtos.cs` | `CreateConversationRequest`, `AttachmentMetadataRequest`, `SendMessageRequest` |
@@ -604,7 +607,7 @@ Patch suggestion: log the internal exception with correlation data, but persist 
 
 ## 8. Suggested issue list
 
-1. **Prevent workspace-wide disclosure of scoped announcements** — critical.
+1. **Prevent workspace-wide disclosure of scoped announcements** — resolved by the current WS-01-BE candidate.
 2. **Align search authorization with project and comment access rules** — resolved by PR #281 for Project-derived results under the current Project read policy.
 3. **Persist conversations with an authorized workspace** — critical.
 4. **Replace client-supplied chat attachment metadata with canonical file IDs** — critical.

@@ -327,6 +327,36 @@ public sealed class AuthServiceTests
     }
 
     [Fact]
+    public async Task WorkspaceContextAutoSelectsOnlyExactlyOneAuthorizedActiveWorkspace()
+    {
+        var fixture = AuthFixture.Create();
+        var user = fixture.AddUser("student@example.com", "Password123", UserStatus.Active);
+        var soleActiveWorkspace = fixture.AddWorkspaceForUser(user, "Sole active Workspace");
+        fixture.AddWorkspaceForUser(
+            user,
+            "Archived Workspace",
+            WorkspaceStatus.Archived);
+
+        var login = await fixture.Service.LoginAsync(
+            new LoginRequest("student@example.com", "Password123"));
+
+        Assert.True(login.IsSuccess, login.Error);
+        Assert.Equal(soleActiveWorkspace.Id, login.Value!.CurrentWorkspace?.Id);
+        Assert.Equal(soleActiveWorkspace.Id, Assert.Single(login.Value.Workspaces).Id);
+
+        var secondActiveWorkspace = fixture.AddWorkspaceForUser(user, "Second active Workspace");
+        fixture.CurrentUser.SetUser(user);
+
+        var currentUser = await fixture.Service.GetCurrentUserAsync();
+
+        Assert.True(currentUser.IsSuccess, currentUser.Error);
+        Assert.Null(currentUser.Value!.CurrentWorkspace);
+        Assert.Equal(2, currentUser.Value.Workspaces.Count);
+        Assert.Contains(currentUser.Value.Workspaces, workspace => workspace.Id == soleActiveWorkspace.Id);
+        Assert.Contains(currentUser.Value.Workspaces, workspace => workspace.Id == secondActiveWorkspace.Id);
+    }
+
+    [Fact]
     public async Task ExpiredLockoutIsClearedBeforePasswordVerification()
     {
         var fixture = AuthFixture.Create(new AuthSecurityOptions
@@ -353,6 +383,7 @@ public sealed class AuthServiceTests
     {
         private AuthFixture(AuthSecurityOptions? securityOptions)
         {
+            CurrentUser = new FakeCurrentUser();
             Service = new AuthService(
                 new FakeUserRepository(Users),
                 new FakeInviteRepository(Invites),
@@ -363,7 +394,7 @@ public sealed class AuthServiceTests
                 PasswordHasher,
                 TokenHasher,
                 AuditLogger,
-                new FakeCurrentUser(),
+                CurrentUser,
                 Clock,
                 new FakeUnitOfWork(),
                 securityOptions ?? new AuthSecurityOptions());
@@ -380,6 +411,7 @@ public sealed class AuthServiceTests
         public Pbkdf2PasswordHasher PasswordHasher { get; } = new();
         public Sha256TokenHasher TokenHasher { get; } = new();
         public FakeAuditLogger AuditLogger { get; } = new();
+        public FakeCurrentUser CurrentUser { get; }
         public AuthService Service { get; }
 
         public static AuthFixture Create(AuthSecurityOptions? securityOptions = null) => new(securityOptions);
@@ -398,6 +430,48 @@ public sealed class AuthServiceTests
 
             Users[user.Id] = user;
             return user;
+        }
+
+        public Workspace AddWorkspaceForUser(
+            User user,
+            string name,
+            WorkspaceStatus status = WorkspaceStatus.Active)
+        {
+            var tenant = Tenants.Values.FirstOrDefault();
+            if (tenant is null)
+            {
+                tenant = new Tenant
+                {
+                    Name = "Workspace context Tenant",
+                    DisplayName = "Workspace context Tenant",
+                    Slug = $"workspace-context-{Guid.NewGuid():N}",
+                    Status = TenantStatus.Active
+                };
+                Tenants[tenant.Id] = tenant;
+            }
+
+            var workspace = new Workspace
+            {
+                TenantId = tenant.Id,
+                Name = name,
+                Slug = $"workspace-{Guid.NewGuid():N}",
+                Status = status,
+                CreatedByUserId = user.Id,
+                CreatedAt = Clock.UtcNow.AddMinutes(Workspaces.Count)
+            };
+            Workspaces[workspace.Id] = workspace;
+            WorkspaceMembers.Add(new WorkspaceMember
+            {
+                TenantId = workspace.TenantId,
+                WorkspaceId = workspace.Id,
+                UserId = user.Id,
+                Role = WorkspaceRole.Member,
+                Status = MembershipStatus.Active,
+                JoinedAt = Clock.UtcNow,
+                CreatedAt = Clock.UtcNow
+            });
+
+            return workspace;
         }
 
         public Invite AddInvite(
@@ -647,11 +721,18 @@ public sealed class AuthServiceTests
 
     private sealed class FakeCurrentUser : ICurrentUser
     {
-        public Guid? UserId => null;
-        public Guid? SessionId => null;
-        public string? Email => null;
-        public SystemRole? SystemRole => null;
-        public bool IsAuthenticated => false;
+        private User? user;
+
+        public Guid? UserId => user?.Id;
+        public Guid? SessionId => user is null ? null : Guid.NewGuid();
+        public string? Email => user?.Email;
+        public SystemRole? SystemRole => user?.SystemRole;
+        public bool IsAuthenticated => user is not null;
+
+        public void SetUser(User currentUser)
+        {
+            user = currentUser;
+        }
     }
 
     private sealed class FakeClock(DateTimeOffset utcNow) : IClock

@@ -20,24 +20,34 @@ public sealed class WorkspaceService(
     IAuthorizationStateChangePublisher? authorizationChanges = null,
     ICreateIdempotencyCoordinator? createIdempotency = null,
     IWorkspaceRequiredInitialization? requiredInitialization = null,
-    IWorkspaceGeneralMembershipSynchronizer? generalMemberships = null) : IWorkspaceService
+    IWorkspaceGeneralMembershipSynchronizer? generalMemberships = null,
+    IWorkspaceDashboardQuery? dashboardQuery = null) : IWorkspaceService
 {
     private const string WorkspaceCreateOperation = "Workspace.Create.v1";
 
-    public async Task<Result<IReadOnlyList<WorkspaceListItemResponse>>> ListAsync(CancellationToken cancellationToken = default)
+    public async Task<Result<IReadOnlyList<WorkspaceDashboardListItemResponse>>> ListAsync(CancellationToken cancellationToken = default)
     {
         if (!TryCurrentUser(out var userId))
         {
-            return Result<IReadOnlyList<WorkspaceListItemResponse>>.Failure("Authentication is required.");
+            return Result<IReadOnlyList<WorkspaceDashboardListItemResponse>>.Failure(AuthenticationRequiredError());
         }
 
-        var user = await users.GetByIdAsync(userId, cancellationToken);
-        var includeAll = user?.SystemRole == SystemRole.SystemAdmin;
-        var items = await workspaces.ListForUserAsync(userId, includeAll, cancellationToken);
-        return Result<IReadOnlyList<WorkspaceListItemResponse>>.Success(items
-            .Where(workspace => !workspace.DeletedAt.HasValue && workspace.Status == WorkspaceStatus.Active)
-            .Select(ToListItem)
-            .ToList());
+        if (currentTenant is not { IsAvailable: true, IsPlatformScope: false })
+        {
+            return Result<IReadOnlyList<WorkspaceDashboardListItemResponse>>.Failure(new ApplicationErrorDetail(
+                "TenantMembershipRequired",
+                "An active Tenant membership is required."));
+        }
+
+        if (dashboardQuery is not { IsAvailable: true })
+        {
+            return Result<IReadOnlyList<WorkspaceDashboardListItemResponse>>.Failure(new ApplicationErrorDetail(
+                "DependencyUnavailable",
+                "Workspace dashboard projection is temporarily unavailable."));
+        }
+
+        var items = await dashboardQuery.ListAsync(userId, cancellationToken);
+        return Result<IReadOnlyList<WorkspaceDashboardListItemResponse>>.Success(items);
     }
 
     public async Task<Result<IReadOnlyList<WorkspaceListItemResponse>>> ListArchivedAsync(CancellationToken cancellationToken = default)
@@ -573,7 +583,8 @@ public sealed class WorkspaceService(
         CancellationToken cancellationToken)
     {
         return generalMemberships?.StageAsync(member, actorUserId, cancellationToken)
-               ?? Task.FromResult(Result.Success());
+               ?? Task.FromResult(Result.Failure(
+                   "Canonical Workspace general membership synchronization is unavailable."));
     }
 
     private bool TryCurrentUser(out Guid userId)

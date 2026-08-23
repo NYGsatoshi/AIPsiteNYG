@@ -36,6 +36,12 @@ public sealed class ConversationService(
             userId,
             conversations.Items.Select(conversation => conversation.Id).ToArray(),
             cancellationToken);
+        var mentionConversationIds = await MentionAttentionResolver.ListUnreadMentionConversationIdsAsync(
+            notifications,
+            messaging,
+            userId,
+            readableIds,
+            cancellationToken);
         var result = new List<ConversationListItemResponse>();
         foreach (var conversation in conversations.Items)
         {
@@ -65,6 +71,7 @@ public sealed class ConversationService(
                 conversation.RootConversationId,
                 last is null ? null : ToMessage(last),
                 unread,
+                mentionConversationIds.Contains(conversation.Id),
                 member?.IsMuted ?? false,
                 member?.IsArchived ?? false,
                 conversation.CreatedAt,
@@ -435,6 +442,11 @@ public sealed class ConversationService(
         }
         var message = new Message
         {
+            // Notification policy is evaluated before the unit-of-work save that
+            // normally stamps tenant-owned entities. Carry the already-authorized
+            // conversation tenant so preference checks can fail closed without
+            // suppressing every newly posted Message notification.
+            TenantId = conversation.TenantId,
             WorkspaceId = conversation.WorkspaceId,
             ConversationId = conversationId,
             AuthorUserId = userId,
@@ -450,10 +462,27 @@ public sealed class ConversationService(
             await messaging.AddAttachmentAsync(attachment, new MessageAttachment { MessageId = message.Id, AttachmentId = attachment.Id }, cancellationToken);
             await AuditAsync(userId, "MessageAttachmentAdded", message.Id, cancellationToken);
         }
+        var requestedMentionUserIds = (request.MentionedUserIds ?? [])
+            .Where(mentionedUserId => mentionedUserId != Guid.Empty && mentionedUserId != userId)
+            .ToHashSet();
         var members = await messaging.ListMembersAsync(conversationId, cancellationToken);
         foreach (var member in members.Where(m => m.UserId != userId && IsActiveParticipant(m)))
         {
-            await notifications.NotifyAsync(member.UserId, "New direct message", "You have a new message.", "Message", message.Id, cancellationToken);
+            if (requestedMentionUserIds.Contains(member.UserId))
+            {
+                await notifications.CreateAsync(
+                    member.UserId,
+                    NotificationType.Mention,
+                    "You were mentioned in a message",
+                    "Open the conversation to review the mention.",
+                    "Message",
+                    message.Id,
+                    cancellationToken);
+            }
+            else
+            {
+                await notifications.NotifyAsync(member.UserId, "New direct message", "You have a new message.", "Message", message.Id, cancellationToken);
+            }
         }
         await LogCommunicationAuditAsync(userId, "communication.message_posted", "Message", message.Id, conversation, message.Id, conversation.Type == ConversationType.Thread ? conversation.Id : null, "allow", "posted", cancellationToken);
         message.AuthorUser = await users.GetByIdAsync(userId, cancellationToken);

@@ -20,22 +20,31 @@
     }
   </header>
 
-  @if (vm.partialSummaryUnavailable && vm.message) {
-    <p class="workspace-dashboard__notice" role="status">{{ vm.message }}</p>
-  }
-
   @if (vm.status === 'loading') {
-    <section class="workspace-dashboard__loading" aria-label="読み込み中" data-testid="workspace-loading">
+    <section
+      class="workspace-dashboard__loading"
+      aria-label="読み込み中"
+      data-testid="workspace-loading"
+    >
       <span></span>
       <span></span>
       <span></span>
     </section>
   } @else if (vm.status === 'error') {
-    <app-workspace-empty-state title="Workspaceを取得できません" [message]="vm.message ?? '時間をおいて再度確認してください。'" />
+    <app-workspace-empty-state
+      title="Workspaceを取得できません"
+      [message]="vm.message ?? '時間をおいて再度確認してください。'"
+    />
   } @else if (vm.status === 'permissionDenied') {
-    <app-workspace-empty-state title="Workspaceを表示できません" [message]="vm.message ?? '必要な権限が付与されるまで表示できません。'" />
+    <app-workspace-empty-state
+      title="Workspaceを表示できません"
+      [message]="vm.message ?? '必要な権限が付与されるまで表示できません。'"
+    />
   } @else if (vm.status === 'noWorkspaceAccess') {
-    <app-workspace-empty-state title="表示できるWorkspaceがありません" [message]="vm.message ?? 'Workspaceの作成または招待が必要です。'" />
+    <app-workspace-empty-state
+      title="表示できるWorkspaceがありません"
+      [message]="vm.message ?? 'Workspaceの作成または招待が必要です。'"
+    />
   } @else {
     @if (vm.workspaces.length > 0) {
       <label class="workspace-dashboard__search">

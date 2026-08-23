@@ -47,6 +47,14 @@ export class SignalrRealtimeTransport implements RealtimeTransport {
   }
 
   unsubscribe(request: RealtimeSubscriptionRequest): Promise<RealtimeSubscriptionResult> {
+    if (request.subscriptionType === 'user' || request.subscriptionType === 'tenant') {
+      // These targets are derived exclusively from the authenticated
+      // connection and AppHub intentionally exposes no UnsubscribeUser or
+      // UnsubscribeTenant method. Calling the subscribe method here would turn
+      // a cleanup request into a grant; callers must stop the transport to
+      // discard either server-derived group.
+      return Promise.resolve({ allowed: false, code: 'TransportStopRequired' });
+    }
     return this.invokeSubscription('unsubscribe', request);
   }
 
@@ -64,11 +72,24 @@ export class SignalrRealtimeTransport implements RealtimeTransport {
       .build();
 
     // Hub callbacks are deliberately registered before start.
-    connection.on('DurableEvent', (event) => this.durableEvents.next(event));
-    connection.on('AuthorizationInvalidated', () => this.authorizationInvalidations.next());
-    connection.onreconnecting(() => this.statuses.next('reconnecting'));
-    connection.onreconnected(() => this.statuses.next('reconnected'));
-    connection.onclose(() => this.statuses.next('closed'));
+    // A stopped connection can still drain callbacks while its close Promise
+    // settles. Scope every callback to the currently owned connection so an
+    // obsolete frame/status cannot contaminate its replacement epoch.
+    connection.on('DurableEvent', (event) => {
+      if (this.connection === connection) this.durableEvents.next(event);
+    });
+    connection.on('AuthorizationInvalidated', () => {
+      if (this.connection === connection) this.authorizationInvalidations.next();
+    });
+    connection.onreconnecting(() => {
+      if (this.connection === connection) this.statuses.next('reconnecting');
+    });
+    connection.onreconnected(() => {
+      if (this.connection === connection) this.statuses.next('reconnected');
+    });
+    connection.onclose(() => {
+      if (this.connection === connection) this.statuses.next('closed');
+    });
     this.connection = connection;
     return connection;
   }

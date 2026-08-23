@@ -2,6 +2,7 @@ using AipPortal.Domain.Entities;
 using AipPortal.Domain.Enums;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore.Diagnostics;
+using Microsoft.Extensions.Configuration;
 
 namespace AipPortal.Infrastructure.Persistence;
 
@@ -9,10 +10,40 @@ namespace AipPortal.Infrastructure.Persistence;
 /// Persistence guard for WPC-02A Project governance state. Application commands
 /// remain responsible for their lifecycle policy; this interceptor guarantees
 /// that an accepted status mutation cannot be persisted without exact suspend /
-/// archive provenance and coherent activation metadata.
+/// archive provenance and coherent activation metadata. It also closes alternate
+/// Task/Milestone command paths that attempt to persist operational mutations
+/// outside an activated, writable Project lifecycle state.
 /// </summary>
 public sealed class ProjectGovernanceSaveChangesInterceptor : SaveChangesInterceptor
 {
+    private static readonly HashSet<string> BrowserSmokeFixtureProjectSlugs = new(StringComparer.Ordinal)
+    {
+        "browser-smoke-project",
+        "browser-smoke-pr04-second-project",
+        "browser-smoke-pr05-kanban",
+        "browser-smoke-pr06-gantt",
+        "browser-smoke-pr07-notifications"
+    };
+
+    private readonly bool _browserSmokeFixtureSeedEnabled;
+
+    public ProjectGovernanceSaveChangesInterceptor()
+    {
+    }
+
+    public ProjectGovernanceSaveChangesInterceptor(IConfiguration configuration)
+    {
+        ArgumentNullException.ThrowIfNull(configuration);
+
+        var environmentName =
+            configuration["ASPNETCORE_ENVIRONMENT"] ??
+            configuration["DOTNET_ENVIRONMENT"];
+        _browserSmokeFixtureSeedEnabled =
+            string.Equals(environmentName, "Test", StringComparison.OrdinalIgnoreCase) &&
+            (IsEnabled(configuration["BrowserSmokeSeed:Enabled"]) ||
+             IsEnabled(configuration["AIP_BROWSER_SMOKE_SEED_ENABLED"]));
+    }
+
     public override InterceptionResult<int> SavingChanges(
         DbContextEventData eventData,
         InterceptionResult<int> result)
@@ -30,12 +61,14 @@ public sealed class ProjectGovernanceSaveChangesInterceptor : SaveChangesInterce
         return base.SavingChangesAsync(eventData, result, cancellationToken);
     }
 
-    private static void Apply(DbContext? context)
+    private void Apply(DbContext? context)
     {
         if (context is null)
         {
             return;
         }
+
+        ApplyBrowserSmokeFixtureActivationProvenance(context);
 
         foreach (var entry in context.ChangeTracker.Entries<Project>()
                      .Where(entry => entry.State is EntityState.Added or EntityState.Modified))
@@ -106,7 +139,100 @@ public sealed class ProjectGovernanceSaveChangesInterceptor : SaveChangesInterce
 
             ValidateActivationProvenance(project);
         }
+
+        ValidateOperationalChildMutations(context);
     }
+
+    /// <summary>
+    /// Browser-smoke fixtures are synthetic data created only inside the explicit
+    /// Test-environment seed boundary. They predate the canonical activation
+    /// command and are created together with their Task/Gantt fixture graph.
+    /// Normalize only newly-added, reserved fixture Projects so the fixture obeys
+    /// the same persistence invariant. Existing Projects, arbitrary slugs, and all
+    /// non-Test runtime paths remain untouched and fail closed normally.
+    /// </summary>
+    private void ApplyBrowserSmokeFixtureActivationProvenance(DbContext context)
+    {
+        if (!_browserSmokeFixtureSeedEnabled)
+        {
+            return;
+        }
+
+        var activatedAtUtc = DateTimeOffset.UtcNow;
+        foreach (var entry in context.ChangeTracker.Entries<Project>()
+                     .Where(entry => entry.State == EntityState.Added &&
+                                     BrowserSmokeFixtureProjectSlugs.Contains(entry.Entity.Slug)))
+        {
+            var project = entry.Entity;
+            if (project.Status != ProjectStatus.Active ||
+                project.ActivationState != ProjectActivationState.NeverActivated ||
+                project.ActivatedAtUtc.HasValue ||
+                project.ActivationVersion.HasValue)
+            {
+                throw new InvalidOperationException(
+                    "Browser-smoke fixture Project activation seed state is inconsistent.");
+            }
+
+            project.ActivationState = ProjectActivationState.Activated;
+            project.ActivatedAtUtc = activatedAtUtc;
+            project.ActivationVersion = 1;
+        }
+    }
+
+    /// <summary>
+    /// Task and Milestone commands have several adapters, including the Gantt
+    /// compatibility endpoints. Every accepted write must therefore converge on
+    /// the same persistence invariant instead of relying on one controller or
+    /// service branch. The Project must already be tracked because a current
+    /// authorization/lifecycle decision is required in the same unit of work.
+    /// </summary>
+    private static void ValidateOperationalChildMutations(DbContext context)
+    {
+        var affectedProjectIds = context.ChangeTracker.Entries<TaskItem>()
+            .Where(entry => IsMutation(entry.State))
+            .Select(entry => entry.Entity.ProjectId)
+            .Concat(context.ChangeTracker.Entries<Milestone>()
+                .Where(entry => IsMutation(entry.State))
+                .Select(entry => entry.Entity.ProjectId))
+            .Where(projectId => projectId != Guid.Empty)
+            .Distinct()
+            .ToArray();
+
+        if (affectedProjectIds.Length == 0)
+        {
+            return;
+        }
+
+        var trackedProjects = context.ChangeTracker.Entries<Project>()
+            .Where(entry => entry.State != EntityState.Detached)
+            .Select(entry => entry.Entity)
+            .GroupBy(project => project.Id)
+            .ToDictionary(group => group.Key, group => group.Last());
+
+        foreach (var projectId in affectedProjectIds)
+        {
+            if (!trackedProjects.TryGetValue(projectId, out var project))
+            {
+                throw new InvalidOperationException(
+                    "Task and Milestone mutations require the current Project governance state in the same unit of work.");
+            }
+
+            if (project.DeletedAt.HasValue ||
+                project.ActivationState != ProjectActivationState.Activated ||
+                !HasActivatedProvenance(project) ||
+                project.Status is not (ProjectStatus.Active or ProjectStatus.Review))
+            {
+                throw new InvalidOperationException(
+                    "Task and Milestone mutations require an activated Project in Active or Review status.");
+            }
+        }
+    }
+
+    private static bool IsMutation(EntityState state) =>
+        state is EntityState.Added or EntityState.Modified or EntityState.Deleted;
+
+    private static bool IsEnabled(string? value) =>
+        bool.TryParse(value, out var enabled) && enabled;
 
     private static void ValidateArchivedRestore(Project project, ProjectStatus requestedStatus)
     {

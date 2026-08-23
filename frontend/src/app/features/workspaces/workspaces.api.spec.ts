@@ -1,0 +1,172 @@
+import {
+  mapWorkspaceDashboardItem,
+  mapWorkspaceDashboardResponse,
+  mapWorkspacePageCapabilities,
+  WorkspaceDashboardListItemDto,
+} from './workspaces.api';
+
+const dashboardItem = (
+  overrides: Partial<WorkspaceDashboardListItemDto> = {},
+): WorkspaceDashboardListItemDto => ({
+  id: 'workspace-1',
+  name: 'Canonical Workspace',
+  description: null,
+  icon: null,
+  status: 0,
+  createdAt: '2026-08-22T00:00:00Z',
+  updatedAt: '2026-08-23T00:00:00Z',
+  currentUserRole: 'Member',
+  accessSource: 'WorkspaceMembership',
+  canOpenWorkspace: true,
+  canOpenMembers: true,
+  canOpenProjects: true,
+  unreadAnnouncementCount: 0,
+  unreadConversationCount: 0,
+  inProgressProjectCount: 0,
+  runningProjectCount: 0,
+  needsReviewProjectCount: 0,
+  ...overrides,
+});
+
+describe('Workspace dashboard API mapper', () => {
+  it.each([
+    ['Owner', '管理者'],
+    ['Admin', '管理者'],
+    ['Adviser', '先生'],
+    ['Member', 'メンバー'],
+    ['ReadOnly', '閲覧のみ'],
+  ] as const)('maps the canonical %s role without inventing another role', (role, label) => {
+    const card = mapWorkspaceDashboardItem(dashboardItem({ currentUserRole: role }));
+
+    expect(card.currentUserRole).toBe(role);
+    expect(card.accessSource).toBe('WorkspaceMembership');
+    expect(card.roleLabel).toBe(label);
+  });
+
+  it('presents SystemAdmin access explicitly with no Workspace membership role', () => {
+    const card = mapWorkspaceDashboardItem(
+      dashboardItem({ currentUserRole: null, accessSource: 'SystemAdmin' }),
+    );
+
+    expect(card.currentUserRole).toBeNull();
+    expect(card.accessSource).toBe('SystemAdmin');
+    expect(card.roleLabel).toBe('システム管理者アクセス');
+  });
+
+  it('preserves authoritative zero and non-zero counts', () => {
+    const zero = mapWorkspaceDashboardItem(dashboardItem());
+    const nonZero = mapWorkspaceDashboardItem(
+      dashboardItem({
+        unreadAnnouncementCount: 7,
+        unreadConversationCount: 4,
+        inProgressProjectCount: 9,
+        runningProjectCount: 6,
+        needsReviewProjectCount: 3,
+      }),
+    );
+
+    expect(zero.unreadAnnouncementCount).toBe(0);
+    expect(zero.unreadConversationCount).toBe(0);
+    expect(zero.activeProjectCount).toBe(0);
+    expect(zero.runningProjectCount).toBe(0);
+    expect(zero.needsReviewProjectCount).toBe(0);
+    expect(zero.availability).toMatchObject({
+      unreadAnnouncements: true,
+      unreadConversations: true,
+      activeProjects: true,
+      runningProjects: true,
+      needsReviewProjects: true,
+    });
+    expect(nonZero.unreadAnnouncementCount).toBe(7);
+    expect(nonZero.unreadConversationCount).toBe(4);
+    expect(nonZero.activeProjectCount).toBe(9);
+    expect(nonZero.runningProjectCount).toBe(6);
+    expect(nonZero.needsReviewProjectCount).toBe(3);
+  });
+
+  it('maps each backend card capability boolean independently', () => {
+    const all = mapWorkspaceDashboardItem(dashboardItem());
+    const membersDenied = mapWorkspaceDashboardItem(dashboardItem({ canOpenMembers: false }));
+    const projectsOnly = mapWorkspaceDashboardItem(
+      dashboardItem({
+        canOpenWorkspace: false,
+        canOpenMembers: false,
+        canOpenProjects: true,
+      }),
+    );
+
+    expect(all.capabilities).toEqual(['openWorkspace', 'openMembers', 'openProjects']);
+    expect(membersDenied.capabilities).toEqual(['openWorkspace', 'openProjects']);
+    expect(projectsOnly.capabilities).toEqual(['openProjects']);
+  });
+
+  it('keeps unavailable values distinct instead of fabricating numeric zero or Member', () => {
+    const card = mapWorkspaceDashboardItem(
+      dashboardItem({
+        currentUserRole: undefined,
+        accessSource: undefined,
+        unreadAnnouncementCount: undefined,
+        unreadConversationCount: undefined,
+        inProgressProjectCount: undefined,
+        runningProjectCount: undefined,
+        needsReviewProjectCount: undefined,
+      }),
+    );
+
+    expect(card.currentUserRole).toBeNull();
+    expect(card.accessSource).toBeNull();
+    expect(card.roleLabel).toBe('役割情報なし');
+    expect(card.unreadAnnouncementCount).toBeNull();
+    expect(card.unreadConversationCount).toBeNull();
+    expect(card.activeProjectCount).toBeNull();
+    expect(card.runningProjectCount).toBeNull();
+    expect(card.needsReviewProjectCount).toBeNull();
+    expect(card.availability).toMatchObject({
+      unreadAnnouncements: false,
+      unreadConversations: false,
+      activeProjects: false,
+      runningProjects: false,
+      needsReviewProjects: false,
+    });
+  });
+
+  it('derives the compatibility total only when both additive state counts are authoritative', () => {
+    const splitOnly = mapWorkspaceDashboardItem(
+      dashboardItem({
+        inProgressProjectCount: undefined,
+        runningProjectCount: 2,
+        needsReviewProjectCount: 1,
+      }),
+    );
+    const incompleteSplit = mapWorkspaceDashboardItem(
+      dashboardItem({
+        inProgressProjectCount: undefined,
+        runningProjectCount: 2,
+        needsReviewProjectCount: undefined,
+      }),
+    );
+
+    expect(splitOnly.activeProjectCount).toBe(3);
+    expect(incompleteSplit.activeProjectCount).toBeNull();
+    expect(incompleteSplit.needsReviewProjectCount).toBeNull();
+  });
+
+  it('maps page create capability only from the enveloped backend value', () => {
+    expect(
+      mapWorkspacePageCapabilities({
+        requestId: 'request-1',
+        data: { canCreate: true },
+        warnings: [],
+      }),
+    ).toEqual(['createWorkspace']);
+    expect(mapWorkspacePageCapabilities({ data: { canCreate: false } })).toEqual([]);
+    expect(mapWorkspacePageCapabilities({ data: null })).toEqual([]);
+    expect(mapWorkspacePageCapabilities(null)).toEqual([]);
+  });
+
+  it('rejects a non-array dashboard response instead of treating it as no access', () => {
+    expect(() => mapWorkspaceDashboardResponse({ items: [] })).toThrow(
+      'Workspace dashboard response must be an array.',
+    );
+  });
+});

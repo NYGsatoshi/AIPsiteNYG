@@ -7,9 +7,13 @@ import {
 } from '../../core/auth/auth-session.facade';
 import { PagePlaceholderComponent } from '../../core/routing/page-placeholder.component';
 import {
-  AIP_ACTIVE_WORKSPACE_MOCK,
   type WorkspaceSummary
 } from '../../core/workspace/active-workspace.facade';
+import { AIP_WORKSPACES_DASHBOARD_MOCK } from '../../features/workspaces/workspaces.facade';
+import {
+  DEFAULT_WORKSPACE_DASHBOARD,
+  MEMBER_WORKSPACE
+} from '../../features/workspaces/workspaces.mock';
 import { AIP_APP_SHELL_MOCK } from './app-shell.facade';
 import { AppShellComponent } from './app-shell.component';
 
@@ -52,12 +56,31 @@ const STORY_ACTIVE_WORKSPACE: WorkspaceSummary = {
   description: 'Storybook workspace mock'
 };
 
+const STORY_WORKSPACE_CARD = {
+  ...MEMBER_WORKSPACE,
+  id: STORY_ACTIVE_WORKSPACE.id,
+  displayName: STORY_ACTIVE_WORKSPACE.label,
+  runningProjectCount: 2,
+  needsReviewProjectCount: 1,
+  activeProjectCount: 3
+} as const;
+
+const STORY_WORKSPACE_DASHBOARD = {
+  ...DEFAULT_WORKSPACE_DASHBOARD,
+  workspaces: [STORY_WORKSPACE_CARD],
+  pageCapabilities: []
+} as const;
+
 const meta: Meta<AppShellComponent> = {
   title: 'Shell/AppShell',
   component: AppShellComponent,
   decorators: [
     applicationConfig({
-      providers: [provideRouter(storyRoutes)]
+      providers: [
+        provideRouter(storyRoutes),
+        { provide: AIP_AUTH_SESSION_MOCK, useValue: DEFAULT_AUTH_SESSION },
+        { provide: AIP_WORKSPACES_DASHBOARD_MOCK, useValue: STORY_WORKSPACE_DASHBOARD }
+      ]
     })
   ],
   parameters: {
@@ -90,7 +113,12 @@ export const RightPanelExpanded: Story = {
 export const NoWorkspaceSelected: Story = {
   decorators: [
     applicationConfig({
-      providers: [{ provide: AIP_ACTIVE_WORKSPACE_MOCK, useValue: null }]
+      providers: [
+        {
+          provide: AIP_WORKSPACES_DASHBOARD_MOCK,
+          useValue: { ...STORY_WORKSPACE_DASHBOARD, workspaces: [] }
+        }
+      ]
     })
   ]
 };
@@ -154,10 +182,13 @@ export const LongWorkspaceName: Story = {
     applicationConfig({
       providers: [
         {
-          provide: AIP_ACTIVE_WORKSPACE_MOCK,
+          provide: AIP_WORKSPACES_DASHBOARD_MOCK,
           useValue: {
-            ...STORY_ACTIVE_WORKSPACE,
-            label: '架空制作ワークスペース長文検証一号二号'
+            ...STORY_WORKSPACE_DASHBOARD,
+            workspaces: [{
+              ...STORY_WORKSPACE_CARD,
+              displayName: '架空制作ワークスペース長文検証一号二号'
+            }]
           }
         }
       ]
