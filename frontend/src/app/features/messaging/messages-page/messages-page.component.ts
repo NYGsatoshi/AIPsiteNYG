@@ -54,7 +54,10 @@ interface RecipientOption {
           <button type="button" (click)="facade.manualRefresh()">再試行</button>
         </section>
       } @else if (page().conversations.length > 0) {
-        <app-conversation-list [conversations]="page().conversations" />
+        <app-conversation-list
+          [conversations]="page().conversations"
+          [preserveListScroll]="true"
+        />
       } @else {
         <section class="messages-page__state" data-testid="messages-list-empty">
           <h2>まだ会話はありません</h2>
