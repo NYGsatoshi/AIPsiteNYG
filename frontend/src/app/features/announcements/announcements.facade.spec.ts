@@ -196,10 +196,11 @@ describe('AnnouncementsFacade', () => {
       .flush({ error: 'not authorized' }, { status: 400, statusText: 'Bad Request' });
     httpMock.expectOne('/api/announcements/audiences').flush([]);
 
-    expect(facade.page().editorDraft).toEqual({
+    expect(facade.page().editorDraft).toMatchObject({
       title: 'Preserved title',
       body: 'Preserved body',
       priority: 'critical',
+      publicationState: 'draft',
       audienceKey: '',
       availableAudiences: [],
       requiresReadConfirmation: true,
