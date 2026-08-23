@@ -23,25 +23,15 @@ public sealed class AnnouncementAudienceService(
 {
     public async Task<Result<IReadOnlyList<AnnouncementAudienceOptionResponse>>> ListAsync(CancellationToken cancellationToken = default)
     {
-        if (!currentUser.IsAuthenticated || !currentUser.UserId.HasValue)
+        if (!TryCurrentActor(out var userId, out var contextError))
         {
-            return Result<IReadOnlyList<AnnouncementAudienceOptionResponse>>.Failure("Authentication is required.");
+            return Result<IReadOnlyList<AnnouncementAudienceOptionResponse>>.Failure(contextError!);
         }
 
-        if (!currentTenant.IsAvailable || currentTenant.IsPlatformScope)
-        {
-            return Result<IReadOnlyList<AnnouncementAudienceOptionResponse>>.Failure("A tenant context is required to resolve announcement audiences.");
-        }
-
-        var userId = currentUser.UserId.Value;
         var isSystemAdmin = await IsSystemAdminAsync(userId, cancellationToken);
-        if (!isSystemAdmin)
+        if (!isSystemAdmin && !await HasActiveTenantMembershipAsync(userId, cancellationToken))
         {
-            var tenantMembership = await tenants.GetTenantUserAsync(currentTenant.TenantId, userId, cancellationToken);
-            if (tenantMembership is not { Status: TenantUserStatus.Active })
-            {
-                return Result<IReadOnlyList<AnnouncementAudienceOptionResponse>>.Success([]);
-            }
+            return Result<IReadOnlyList<AnnouncementAudienceOptionResponse>>.Success([]);
         }
 
         var options = new List<AnnouncementAudienceOptionResponse>();
@@ -123,6 +113,130 @@ public sealed class AnnouncementAudienceService(
         }
 
         return Result<IReadOnlyList<AnnouncementAudienceOptionResponse>>.Success(options);
+    }
+
+    public async Task<Result<bool>> IsAuthorizedAsync(
+        Guid? workspaceId,
+        Guid? groupId,
+        Guid? channelId,
+        CancellationToken cancellationToken = default)
+    {
+        if (!TryCurrentActor(out var userId, out var contextError))
+        {
+            return Result<bool>.Failure(contextError!);
+        }
+
+        var isSystemAdmin = await IsSystemAdminAsync(userId, cancellationToken);
+        if (!isSystemAdmin && !await HasActiveTenantMembershipAsync(userId, cancellationToken))
+        {
+            return Result<bool>.Success(false);
+        }
+
+        if (channelId.HasValue)
+        {
+            if (!groupId.HasValue || !workspaceId.HasValue)
+            {
+                return Result<bool>.Success(false);
+            }
+
+            var channel = await channels.GetByIdAsync(channelId.Value, cancellationToken);
+            if (channel is null ||
+                channel.DeletedAt.HasValue ||
+                channel.Status != ChannelStatus.Active ||
+                channel.GroupId != groupId.Value ||
+                channel.WorkspaceId != workspaceId.Value)
+            {
+                return Result<bool>.Success(false);
+            }
+
+            if (!await ParentScopeIsActiveAsync(workspaceId.Value, groupId.Value, cancellationToken))
+            {
+                return Result<bool>.Success(false);
+            }
+
+            return Result<bool>.Success(await channelAuthorization.CanManageChannel(userId, channelId.Value, cancellationToken));
+        }
+
+        if (groupId.HasValue)
+        {
+            if (!workspaceId.HasValue)
+            {
+                return Result<bool>.Success(false);
+            }
+
+            var group = await groups.GetByIdAsync(groupId.Value, cancellationToken);
+            if (group is null ||
+                group.DeletedAt.HasValue ||
+                group.Status != GroupStatus.Active ||
+                group.WorkspaceId != workspaceId.Value)
+            {
+                return Result<bool>.Success(false);
+            }
+
+            var workspace = await workspaces.GetByIdAsync(workspaceId.Value, cancellationToken);
+            if (workspace is null || workspace.DeletedAt.HasValue || workspace.Status != WorkspaceStatus.Active)
+            {
+                return Result<bool>.Success(false);
+            }
+
+            return Result<bool>.Success(await CanCreateGroupAnnouncementAsync(userId, groupId.Value, cancellationToken));
+        }
+
+        if (workspaceId.HasValue)
+        {
+            var workspace = await workspaces.GetByIdAsync(workspaceId.Value, cancellationToken);
+            if (workspace is null || workspace.DeletedAt.HasValue || workspace.Status != WorkspaceStatus.Active)
+            {
+                return Result<bool>.Success(false);
+            }
+
+            return Result<bool>.Success(await CanCreateWorkspaceAnnouncementAsync(userId, workspaceId.Value, cancellationToken));
+        }
+
+        return Result<bool>.Success(isSystemAdmin);
+    }
+
+    private bool TryCurrentActor(out Guid userId, out string? error)
+    {
+        userId = Guid.Empty;
+        error = null;
+
+        if (!currentUser.IsAuthenticated || !currentUser.UserId.HasValue)
+        {
+            error = "Authentication is required.";
+            return false;
+        }
+
+        if (!currentTenant.IsAvailable || currentTenant.IsPlatformScope)
+        {
+            error = "A tenant context is required to resolve announcement audiences.";
+            return false;
+        }
+
+        userId = currentUser.UserId.Value;
+        return true;
+    }
+
+    private async Task<bool> HasActiveTenantMembershipAsync(Guid userId, CancellationToken cancellationToken)
+    {
+        var tenantMembership = await tenants.GetTenantUserAsync(currentTenant.TenantId, userId, cancellationToken);
+        return tenantMembership is { Status: TenantUserStatus.Active };
+    }
+
+    private async Task<bool> ParentScopeIsActiveAsync(Guid workspaceId, Guid groupId, CancellationToken cancellationToken)
+    {
+        var workspace = await workspaces.GetByIdAsync(workspaceId, cancellationToken);
+        if (workspace is null || workspace.DeletedAt.HasValue || workspace.Status != WorkspaceStatus.Active)
+        {
+            return false;
+        }
+
+        var group = await groups.GetByIdAsync(groupId, cancellationToken);
+        return group is
+        {
+            DeletedAt: null,
+            Status: GroupStatus.Active
+        } && group.WorkspaceId == workspaceId;
     }
 
     private async Task<AnnouncementAudienceOptionResponse> CreateOptionAsync(
