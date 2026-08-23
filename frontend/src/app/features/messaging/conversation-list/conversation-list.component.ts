@@ -15,7 +15,7 @@ import { MessagingConversationListItem } from '../messaging.types';
           class="conversation-list__item"
           [routerLink]="conversation.route"
           data-testid="conversation-list-item"
-          (click)="navigationState.rememberListScroll()"
+          (click)="rememberListScrollBeforeNavigate()"
         >
           <span class="conversation-list__title">{{ conversation.title }}</span>
           <span class="conversation-list__meta">{{ conversation.lastActivityLabel }}</span>
@@ -34,6 +34,13 @@ import { MessagingConversationListItem } from '../messaging.types';
   styleUrl: './conversation-list.component.scss'
 })
 export class ConversationListComponent {
-  readonly navigationState = inject(MessageNavigationStateService);
+  private readonly navigationState = inject(MessageNavigationStateService);
   @Input({ required: true }) conversations: readonly MessagingConversationListItem[] = [];
+  @Input() preserveListScroll = false;
+
+  rememberListScrollBeforeNavigate(): void {
+    if (this.preserveListScroll) {
+      this.navigationState.rememberListScroll();
+    }
+  }
 }
