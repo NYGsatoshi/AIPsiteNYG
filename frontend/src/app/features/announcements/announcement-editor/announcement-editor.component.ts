@@ -27,7 +27,7 @@ export class AnnouncementEditorComponent implements OnChanges {
     title: ['', [Validators.required, Validators.maxLength(120)]],
     body: ['', [Validators.required, Validators.maxLength(4000)]],
     priority: ['normal' as AnnouncementPriority, Validators.required],
-    audienceScope: ['allWorkspaceMembers' as AnnouncementAudienceScope, Validators.required],
+    audienceScope: ['' as AnnouncementAudienceScope | '', Validators.required],
     requiresReadConfirmation: [false]
   });
 
@@ -37,7 +37,7 @@ export class AnnouncementEditorComponent implements OnChanges {
       const authorizedInitialAudience =
         this.draft.availableAudiences.find((audience) => audience.scope === this.draft.audienceScope)?.scope ??
         this.draft.availableAudiences[0]?.scope ??
-        'allWorkspaceMembers';
+        '';
 
       this.form.reset({
         title: this.draft.title,
