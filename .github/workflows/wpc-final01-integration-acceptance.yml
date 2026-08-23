@@ -1,56 +1,13 @@
 name: WPC-Final01 Canonical Completion
 
+# TEMPORARY CONTEST MODE: this is a broad milestone-completion suite that
+# duplicates core backend/frontend validation on many PRs. Keep it available
+# for explicit milestone verification instead of running automatically.
 on:
   workflow_dispatch:
-  pull_request:
-    branches: ["main"]
-    paths:
-      - ".github/workflows/wpc-final01-integration-acceptance.yml"
-      - "scripts/ci/verify-wpc-final01-results.sh"
-      - "scripts/ci/wpc02a-required-tests.txt"
-      - "scripts/ci/wpc02b-required-tests.txt"
-      - "scripts/ci/wpc02c-required-tests.txt"
-      - "scripts/ci/wpc02d-required-tests.txt"
-      - "scripts/ci/wpc02e-required-tests.txt"
-      - "scripts/ci/wpc02f-required-tests.txt"
-      - "scripts/ci/wpc-final01-required-tests.txt"
-      - "src/**"
-      - "tests/AipPortal.Tests/**"
-      - "frontend/src/app/shared/right-panel/**"
-      - "frontend/src/app/features/artifacts/**"
-      - "frontend/src/app/app.routes.ts"
-      - "frontend/package.json"
-      - "frontend/package-lock.json"
-      - "AipPortal.slnx"
-      - "Directory.Build.*"
-      - "Directory.Packages.*"
-      - "global.json"
-  push:
-    branches: ["main"]
-    paths:
-      - ".github/workflows/wpc-final01-integration-acceptance.yml"
-      - "scripts/ci/verify-wpc-final01-results.sh"
-      - "scripts/ci/wpc02a-required-tests.txt"
-      - "scripts/ci/wpc02b-required-tests.txt"
-      - "scripts/ci/wpc02c-required-tests.txt"
-      - "scripts/ci/wpc02d-required-tests.txt"
-      - "scripts/ci/wpc02e-required-tests.txt"
-      - "scripts/ci/wpc02f-required-tests.txt"
-      - "scripts/ci/wpc-final01-required-tests.txt"
-      - "src/**"
-      - "tests/AipPortal.Tests/**"
-      - "frontend/src/app/shared/right-panel/**"
-      - "frontend/src/app/features/artifacts/**"
-      - "frontend/src/app/app.routes.ts"
-      - "frontend/package.json"
-      - "frontend/package-lock.json"
-      - "AipPortal.slnx"
-      - "Directory.Build.*"
-      - "Directory.Packages.*"
-      - "global.json"
 
 concurrency:
-  group: wpc-final01-${{ github.event.pull_request.number || github.ref }}
+  group: wpc-final01-${{ github.ref }}
   cancel-in-progress: true
 
 permissions:
