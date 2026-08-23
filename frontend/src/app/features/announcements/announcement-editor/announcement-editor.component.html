@@ -17,11 +17,14 @@
   <div class="announcement-editor__row">
     <label>
       <span>優先度</span>
-      <select formControlName="priority" data-testid="announcement-editor-priority">
+      <select formControlName="priority" data-testid="announcement-editor-priority" aria-describedby="announcement-priority-help">
         @for (priority of priorityOptions; track priority) {
           <option [value]="priority">{{ priorityLabels[priority] }}</option>
         }
       </select>
+      <small id="announcement-priority-help">
+        CRITICAL は障害・セキュリティ・期限付き必須対応など、直ちに確認が必要な場合に限定してください。
+      </small>
     </label>
 
     <label>
