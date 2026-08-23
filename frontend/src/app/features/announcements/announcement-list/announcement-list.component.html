@@ -9,7 +9,7 @@
     >
       <span class="announcement-list__title" data-testid="announcement-list-title">{{ announcement.title }}</span>
       <span class="announcement-list__meta">
-        <span>{{ priorityLabels[announcement.priority] }}</span>
+        <app-announcement-priority-badge [priority]="announcement.priority" />
         <app-announcement-audience-preview [audienceScope]="announcement.audienceScope" />
         <span>{{ announcement.publicationState === 'draft' ? '下書き' : '公開' }}</span>
         <span>{{ announcement.publishedAtLabel }}</span>
