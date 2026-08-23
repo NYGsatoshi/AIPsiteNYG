@@ -1,4 +1,14 @@
-import { Component, Input, OnChanges, SimpleChanges, inject, signal } from '@angular/core';
+import {
+  Component,
+  ElementRef,
+  HostListener,
+  Input,
+  OnChanges,
+  SimpleChanges,
+  ViewChild,
+  inject,
+  signal
+} from '@angular/core';
 import { RouterLink } from '@angular/router';
 
 import { MessagingApi, ParticipantStateDto } from '../messaging.api';
@@ -11,6 +21,7 @@ type ConversationSettingsStatus = 'idle' | 'loading' | 'ready' | 'saving' | 'err
   imports: [RouterLink],
   template: `
     <button
+      #triggerButton
       type="button"
       class="conversation-settings__trigger"
       data-testid="conversation-settings-trigger"
@@ -35,7 +46,15 @@ type ConversationSettingsStatus = 'idle' | 'loading' | 'ready' | 'saving' | 'err
             <span class="conversation-settings__scope-badge">This conversation</span>
             <h2 id="conversation-settings-title">Conversation settings</h2>
           </div>
-          <button type="button" aria-label="Close conversation settings" (click)="closePanel()">×</button>
+          <button
+            #closeButton
+            type="button"
+            aria-label="Close conversation settings"
+            data-testid="conversation-settings-close"
+            (click)="closePanel()"
+          >
+            ×
+          </button>
         </header>
 
         <p id="conversation-settings-scope" class="conversation-settings__scope">
@@ -113,6 +132,22 @@ export class ConversationSettingsPanelComponent implements OnChanges {
   private readonly api = inject(MessagingApi);
   private requestGeneration = 0;
 
+  @ViewChild('triggerButton', { read: ElementRef })
+  private triggerButton?: ElementRef<HTMLButtonElement>;
+
+  @ViewChild('closeButton', { read: ElementRef })
+  private set closeButton(button: ElementRef<HTMLButtonElement> | undefined) {
+    if (!button) {
+      return;
+    }
+
+    queueMicrotask(() => {
+      if (this.open()) {
+        button.nativeElement.focus();
+      }
+    });
+  }
+
   @Input({ required: true }) conversationId = '';
   @Input({ required: true }) conversationTitle = '';
 
@@ -124,7 +159,11 @@ export class ConversationSettingsPanelComponent implements OnChanges {
   ngOnChanges(changes: SimpleChanges): void {
     if (changes['conversationId']) {
       this.requestGeneration++;
-      this.open.set(false);
+      if (this.open()) {
+        this.closePanel();
+      } else {
+        this.open.set(false);
+      }
       this.status.set('idle');
       this.isMuted.set(false);
       this.message.set(null);
@@ -142,7 +181,22 @@ export class ConversationSettingsPanelComponent implements OnChanges {
   }
 
   closePanel(): void {
+    if (!this.open()) {
+      return;
+    }
+
     this.open.set(false);
+    queueMicrotask(() => this.triggerButton?.nativeElement.focus());
+  }
+
+  @HostListener('document:keydown.escape', ['$event'])
+  onEscape(event: KeyboardEvent): void {
+    if (!this.open()) {
+      return;
+    }
+
+    event.preventDefault();
+    this.closePanel();
   }
 
   load(): void {

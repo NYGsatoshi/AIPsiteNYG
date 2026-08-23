@@ -54,6 +54,44 @@ describe('Message settings scope separation', () => {
     expect(root.textContent).toContain('Muted');
   });
 
+  it('moves focus into conversation settings and restores it when Escape closes the dialog', async () => {
+    await TestBed.configureTestingModule({
+      imports: [ConversationSettingsPanelComponent],
+      providers: [provideRouter([]), provideHttpClient(), provideHttpClientTesting()]
+    }).compileComponents();
+
+    const httpMock = TestBed.inject(HttpTestingController);
+    const fixture = TestBed.createComponent(ConversationSettingsPanelComponent);
+    fixture.componentRef.setInput('conversationId', 'conversation-a');
+    fixture.componentRef.setInput('conversationTitle', 'General');
+    document.body.appendChild(fixture.nativeElement);
+    fixture.detectChanges();
+
+    const root = fixture.nativeElement as HTMLElement;
+    const trigger = root.querySelector<HTMLButtonElement>('[data-testid="conversation-settings-trigger"]')!;
+    trigger.focus();
+    trigger.click();
+    fixture.detectChanges();
+    httpMock.expectOne('/api/conversations/conversation-a/state').flush({
+      conversationId: 'conversation-a',
+      isMuted: false
+    });
+    fixture.detectChanges();
+    await Promise.resolve();
+
+    expect(document.activeElement).toBe(
+      root.querySelector<HTMLButtonElement>('[data-testid="conversation-settings-close"]')
+    );
+
+    document.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true, cancelable: true }));
+    fixture.detectChanges();
+    await Promise.resolve();
+
+    expect(root.querySelector('[data-testid="conversation-settings-panel"]')).toBeNull();
+    expect(document.activeElement).toBe(trigger);
+    fixture.destroy();
+  });
+
   it('rejects a participant-state response for a different conversation', async () => {
     await TestBed.configureTestingModule({
       imports: [ConversationSettingsPanelComponent],
