@@ -6,6 +6,7 @@ using AipPortal.Infrastructure.Security;
 using AipPortal.Application.Projects;
 using AipPortal.Application.Realtime;
 using AipPortal.Application.Notifications;
+using AipPortal.Application.Workspaces;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
@@ -36,6 +37,7 @@ public static class DependencyInjection
         services.AddScoped<IInviteRepository, InviteRepository>();
         services.AddScoped<ISessionRepository, SessionRepository>();
         services.AddScoped<IWorkspaceRepository, WorkspaceRepository>();
+        services.AddScoped<IWorkspaceDashboardQuery, WorkspaceDashboardQuery>();
         services.AddScoped<ITaskNotificationPreferenceRepository, TaskNotificationPreferenceRepository>();
         services.AddScoped<ITaskDeadlineDigestRepository, TaskDeadlineDigestRepository>();
         services.AddScoped<IGroupRepository, GroupRepository>();

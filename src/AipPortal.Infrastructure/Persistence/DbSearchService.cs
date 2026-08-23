@@ -313,18 +313,7 @@ public sealed class DbSearchService(
     private async Task<IReadOnlyList<SearchResultItemResponse>> SearchAnnouncementsAsync(Guid userId, bool isSystemAdmin, string? q, SearchRequest request, CancellationToken cancellationToken)
     {
         var now = DateTimeOffset.UtcNow;
-        var query = dbContext.Announcements.AsNoTracking().Where(announcement =>
-            announcement.DeletedAt == null &&
-            announcement.PublishedAt <= now &&
-            (!announcement.ExpiresAt.HasValue || announcement.ExpiresAt.Value > now));
-        if (!isSystemAdmin)
-        {
-            query = query.Where(announcement =>
-                announcement.WorkspaceId == null ||
-                (announcement.WorkspaceId.HasValue && dbContext.WorkspaceMembers.Any(member => member.WorkspaceId == announcement.WorkspaceId && member.UserId == userId && member.Status == MembershipStatus.Active)) ||
-                (announcement.GroupId.HasValue && dbContext.GroupMembers.Any(member => member.GroupId == announcement.GroupId && member.UserId == userId)) ||
-                (announcement.ChannelId.HasValue && dbContext.ChannelMembers.Any(member => member.ChannelId == announcement.ChannelId && member.UserId == userId)));
-        }
+        var query = dbContext.VisibleAnnouncementsFor(userId, isSystemAdmin, now);
 
         query = ApplyScopeFilters(query, request, announcement => announcement.WorkspaceId, announcement => announcement.GroupId, null);
         if (!string.IsNullOrWhiteSpace(q))

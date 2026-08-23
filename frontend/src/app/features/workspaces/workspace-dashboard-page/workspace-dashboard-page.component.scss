@@ -54,16 +54,6 @@ h1 {
   background: var(--aip-color-action-primary-hover);
 }
 
-.workspace-dashboard__notice {
-  margin: 0;
-  border: 1px solid var(--aip-color-warning);
-  border-radius: 6px;
-  padding: 10px 12px;
-  background: var(--aip-color-warning-subtle);
-  color: var(--aip-color-warning);
-  font-weight: 700;
-}
-
 .workspace-dashboard__search {
   display: grid;
   gap: 6px;
