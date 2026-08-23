@@ -46,7 +46,7 @@ export const DEFAULT_ANNOUNCEMENTS: readonly AnnouncementViewModel[] = [
     title: '下書き: 校内掲示の更新案',
     body: 'この下書きは編集状態の確認用です。公開前の安全な架空データのみを使用しています。',
     detailState: 'loaded',
-    priority: 'urgent',
+    priority: 'critical',
     audienceScope: 'teachersOnly',
     publishedAtLabel: '下書き',
     publicationState: 'draft',
