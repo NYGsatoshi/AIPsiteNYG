@@ -1,6 +1,7 @@
 using AipPortal.Application.Common.Interfaces;
 using AipPortal.Application.Notifications;
 using AipPortal.Domain.Entities;
+using AipPortal.Domain.Enums;
 using AipPortal.Infrastructure.Persistence;
 using Microsoft.EntityFrameworkCore;
 
@@ -53,6 +54,46 @@ public sealed class MessageNotificationDeliveryPreferenceTests
         var notification = Assert.Single(fixture.Db.Notifications.Local);
         Assert.Equal(fixture.RecipientUserId, notification.UserId);
         Assert.Equal("Message", notification.RelatedEntityType);
+        Assert.Equal(fixture.Message.Id, notification.RelatedEntityId);
+    }
+
+    [Theory]
+    [InlineData(false, false)]
+    [InlineData(true, true)]
+    public async Task MessageMentionRespectsGlobalAndConversationNotificationSuppression(
+        bool globalEnabled,
+        bool conversationMuted)
+    {
+        await using var fixture = CreateFixture(globalEnabled, conversationMuted);
+
+        var notificationId = await fixture.Service.CreateAsync(
+            fixture.RecipientUserId,
+            NotificationType.Mention,
+            "You were mentioned in a message",
+            "Open the conversation to review the mention.",
+            "Message",
+            fixture.Message.Id);
+
+        Assert.Equal(Guid.Empty, notificationId);
+        Assert.Empty(fixture.Db.Notifications.Local);
+    }
+
+    [Fact]
+    public async Task MessageMentionIsCreatedWhenGlobalAndConversationNotificationsAllowIt()
+    {
+        await using var fixture = CreateFixture(globalEnabled: true, conversationMuted: false);
+
+        var notificationId = await fixture.Service.CreateAsync(
+            fixture.RecipientUserId,
+            NotificationType.Mention,
+            "You were mentioned in a message",
+            "Open the conversation to review the mention.",
+            "Message",
+            fixture.Message.Id);
+
+        var notification = Assert.Single(fixture.Db.Notifications.Local);
+        Assert.Equal(notification.Id, notificationId);
+        Assert.Equal(NotificationType.Mention, notification.NotificationType);
         Assert.Equal(fixture.Message.Id, notification.RelatedEntityId);
     }
 

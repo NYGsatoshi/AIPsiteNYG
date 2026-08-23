@@ -3,22 +3,15 @@ set -Eeuo pipefail
 
 cache_root="${AIPSITE_CI_CACHE_ROOT:-$HOME/.cache/aipsite-ci}"
 dotnet_install_dir="${DOTNET_INSTALL_DIR:-$HOME/.dotnet-ci}"
+nuget_packages="$HOME/.nuget/packages"
+nuget_http_cache="$cache_root/nuget/http-cache"
 angular_cache_root="$cache_root/angular"
 job_identity="${GITHUB_RUN_ID:-local}-${GITHUB_JOB:-job}-${GITHUB_RUN_ATTEMPT:-1}"
 
-# NuGet's global-packages and HTTP caches are writable working sets, not just
-# immutable download caches. Sharing them between concurrent self-hosted jobs
-# can leave a partially extracted package or a missing *.dat-new file when one
-# restore is interrupted. Keep those caches job-isolated on GitHub Actions while
-# retaining the persistent SDK install cache above.
 if [[ -n "${RUNNER_TEMP:-}" ]]; then
-  nuget_packages="$RUNNER_TEMP/nuget-packages-$job_identity"
-  nuget_http_cache="$RUNNER_TEMP/nuget-http-cache-$job_identity"
   npm_cache="$RUNNER_TEMP/npm-cache-$job_identity"
   npm_userconfig="$RUNNER_TEMP/npm-userconfig-$job_identity.npmrc"
 else
-  nuget_packages="$HOME/.nuget/packages"
-  nuget_http_cache="$cache_root/nuget/http-cache"
   npm_cache="${NPM_CONFIG_CACHE:-$HOME/.npm}"
   npm_userconfig="${NPM_CONFIG_USERCONFIG:-$HOME/.npmrc}"
 fi

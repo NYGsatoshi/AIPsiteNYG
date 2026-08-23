@@ -141,6 +141,23 @@ The WPC error boundary uses fixed public messages, empty details, masked
 targets, and `redactionApplied`; a canonical cross-module RedactionService
 does not yet exist and remains a dependency blocker.
 
+### Message notification preference boundary
+
+Global Message notification delivery is private state scoped to the current
+authenticated user and active Tenant membership. The API derives both IDs from
+the server request context, and the persistence store includes both IDs plus
+active membership status in every read and update. Cross-Tenant, inactive,
+missing, and platform scope fail closed with the same generic result.
+
+Before an ordinary or mention Message notification row is staged, the server
+rechecks that the Message belongs to the current Tenant and is not deleted,
+that the recipient is a current readable Conversation participant, that the
+Conversation participant is not muted, and that the recipient's global Message
+preference is enabled. These preferences do not grant Conversation access and
+do not suppress Message persistence, unread state, or realtime conversation
+events. Browser unread-badge visibility is presentation-only and is not a
+security control.
+
 ### Immediate Task notification boundary
 
 TASK-V1-PR07-B resolves notification recipients only after the mutating actor

@@ -188,6 +188,37 @@ List APIs should define:
 
 Never return unbounded tables to the browser UI.
 
+## Message notification preference scopes
+
+The private current-user routes are:
+
+- `GET /api/me/message-notification-preferences`
+- `PATCH /api/me/message-notification-preferences`
+
+They require cookie authentication and an active membership in the current
+Tenant. The Tenant and user are derived server-side; neither is accepted from
+the request body. Missing, inactive, cross-Tenant, and platform scope fail with
+the same generic unavailable response.
+
+GET and a successful PATCH return:
+
+```json
+{
+  "messageNotificationsEnabled": true
+}
+```
+
+PATCH accepts the same Boolean field. This switch controls Message notification
+row creation for all conversations in the current Tenant, including mentions.
+Each conversation's existing `isMuted` participant state is evaluated
+independently and can suppress that conversation even when the global value is
+enabled. Neither preference suppresses Message persistence, unread state, or
+realtime conversation activity.
+
+The browser-only unread-badge display setting is not part of this API. It is
+namespaced by Tenant and user in local storage and has no authorization or
+delivery effect.
+
 ## TASK-V1-PR07-A task notification preferences
 
 The following private, current-user routes are implemented by PR07-A. They do

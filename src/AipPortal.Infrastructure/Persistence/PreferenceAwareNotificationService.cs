@@ -52,15 +52,31 @@ public sealed class PreferenceAwareNotificationService(
             logicalKey,
             cancellationToken);
 
-    public Task<Guid> CreateAsync(
+    public async Task<Guid> CreateAsync(
         Guid userId,
         NotificationType type,
         string title,
         string? body,
         string? relatedEntityType,
         Guid? relatedEntityId,
-        CancellationToken cancellationToken = default) =>
-        inner.CreateAsync(userId, type, title, body, relatedEntityType, relatedEntityId, cancellationToken);
+        CancellationToken cancellationToken = default)
+    {
+        if (string.Equals(relatedEntityType, "Message", StringComparison.OrdinalIgnoreCase) &&
+            (!relatedEntityId.HasValue ||
+             !await ShouldDeliverMessageNotificationAsync(userId, relatedEntityId.Value, cancellationToken)))
+        {
+            return Guid.Empty;
+        }
+
+        return await inner.CreateAsync(
+            userId,
+            type,
+            title,
+            body,
+            relatedEntityType,
+            relatedEntityId,
+            cancellationToken);
+    }
 
     public Task<IReadOnlyList<Guid>> CreateManyAsync(
         IReadOnlyCollection<Guid> userIds,
