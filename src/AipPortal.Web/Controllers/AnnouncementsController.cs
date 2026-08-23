@@ -6,7 +6,9 @@ namespace AipPortal.Web.Controllers;
 
 [ApiController]
 [Authorize]
-public sealed class AnnouncementsController(IAnnouncementService announcements) : ControllerBase
+public sealed class AnnouncementsController(
+    IAnnouncementService announcements,
+    IAnnouncementAudienceService audiences) : ControllerBase
 {
     [HttpGet("api/announcements")]
     public async Task<IActionResult> List([FromQuery] AnnouncementListQuery query, CancellationToken cancellationToken)
@@ -14,9 +16,28 @@ public sealed class AnnouncementsController(IAnnouncementService announcements) 
         return ToActionResult(await announcements.ListAsync(query, cancellationToken));
     }
 
+    [HttpGet("api/announcements/audiences")]
+    public async Task<IActionResult> Audiences(CancellationToken cancellationToken)
+    {
+        return ToActionResult(await audiences.ListAsync(cancellationToken));
+    }
+
     [HttpPost("api/announcements")]
     public async Task<IActionResult> Create(CreateAnnouncementRequest request, CancellationToken cancellationToken)
     {
+        // Re-resolve only the selected scope at publication time. This prevents a
+        // stale review from targeting a scope after authorization/lifecycle changes
+        // without re-enumerating every visible Audience and recipient count.
+        var authorization = await audiences.IsAuthorizedAsync(
+            request.WorkspaceId,
+            request.GroupId,
+            request.ChannelId,
+            cancellationToken);
+        if (!authorization.IsSuccess || authorization.Value != true)
+        {
+            return BadRequest(new { error = "Announcement audience is not authorized." });
+        }
+
         return ToActionResult(await announcements.CreateAsync(request, cancellationToken));
     }
 
