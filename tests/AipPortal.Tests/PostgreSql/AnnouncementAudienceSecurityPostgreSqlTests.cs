@@ -49,7 +49,7 @@ public sealed class AnnouncementAudienceSecurityPostgreSqlTests
         await dbContext.SaveChangesAsync();
 
         currentTenant.SetTenant(tenantA.Id, tenantA.Slug);
-        var repository = new AnnouncementRepository(dbContext, new FixedClock(DateTimeOffset.UtcNow));
+        var repository = new AnnouncementRepository(dbContext, new FixedClock(DateTimeOffset.UtcNow), currentTenant);
         var targets = await repository.ListTargetUsersAsync(new Announcement { TenantId = tenantA.Id });
 
         Assert.Contains(targets, target => target.UserId == userA.Id);
@@ -152,7 +152,7 @@ public sealed class AnnouncementAudienceSecurityPostgreSqlTests
         await dbContext.SaveChangesAsync();
         dbContext.ChangeTracker.Clear();
 
-        var repository = new AnnouncementRepository(dbContext, new FixedClock(now));
+        var repository = new AnnouncementRepository(dbContext, new FixedClock(now), currentTenant);
         var targets = await repository.ListTargetUsersAsync(announcement);
         var visible = await repository.IsVisibleToUserAsync(announcement.Id, user.Id, false);
 
