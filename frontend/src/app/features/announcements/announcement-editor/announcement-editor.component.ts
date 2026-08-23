@@ -1,18 +1,20 @@
 import { Component, EventEmitter, Input, OnChanges, Output, signal, SimpleChanges } from '@angular/core';
 import { FormBuilder, ReactiveFormsModule, Validators } from '@angular/forms';
 
+import { AnnouncementPublicationStatusComponent } from '../announcement-publication-status/announcement-publication-status.component';
 import {
   ANNOUNCEMENT_PRIORITY_LABELS,
   AnnouncementAudienceOption,
   AnnouncementEditorDraft,
   AnnouncementEditorSubmission,
-  AnnouncementPriority
+  AnnouncementPriority,
+  AnnouncementPublicationState
 } from '../announcements.types';
 
 @Component({
   selector: 'app-announcement-editor',
   standalone: true,
-  imports: [ReactiveFormsModule],
+  imports: [ReactiveFormsModule, AnnouncementPublicationStatusComponent],
   templateUrl: './announcement-editor.component.html',
   styleUrl: './announcement-editor.component.scss'
 })
@@ -31,6 +33,18 @@ export class AnnouncementEditorComponent implements OnChanges {
     audienceKey: ['', Validators.required],
     requiresReadConfirmation: [false]
   });
+
+  get publicationState(): AnnouncementPublicationState {
+    return this.draft.publicationState ?? 'draft';
+  }
+
+  get canSaveDraft(): boolean {
+    return this.publicationState === 'draft';
+  }
+
+  get canPublish(): boolean {
+    return this.publicationState === 'draft';
+  }
 
   ngOnChanges(changes: SimpleChanges): void {
     if (changes['draft'] && this.draft) {
@@ -63,15 +77,22 @@ export class AnnouncementEditorComponent implements OnChanges {
 
   publish(): void {
     const audience = this.selectedAudience();
-    if (this.form.invalid || audience === null) {
+    if (!this.canPublish || this.form.invalid || audience === null) {
       this.form.markAllAsTouched();
       return;
     }
 
     const value = this.form.getRawValue();
+    const title = value.title.trim();
+    const body = value.body.trim();
+    if (!title || !body) {
+      this.form.markAllAsTouched();
+      return;
+    }
+
     this.publishRequested.emit({
-      title: value.title.trim(),
-      body: value.body.trim(),
+      title,
+      body,
       priority: value.priority,
       audience,
       requiresReadConfirmation: value.requiresReadConfirmation
