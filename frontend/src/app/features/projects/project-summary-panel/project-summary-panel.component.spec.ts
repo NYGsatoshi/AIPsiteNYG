@@ -27,7 +27,7 @@ describe('ProjectSummaryPanelComponent', () => {
     }).compileComponents();
 
     const fixture = TestBed.createComponent(ProjectSummaryPanelComponent);
-    fixture.componentInstance.projects = [project(status)];
+    fixture.componentRef.setInput('projects', [project(status)]);
     fixture.detectChanges();
     return fixture;
   }
@@ -59,9 +59,13 @@ describe('ProjectSummaryPanelComponent', () => {
 
   it('updates the canonical status and timestamp when the project state changes', async () => {
     const fixture = await render('active');
-    fixture.componentInstance.projects = [
-      { ...project('review'), updatedAt: '2026-08-22T12:45:00+09:00' }
-    ];
+    fixture.componentRef.setInput('projects', [
+      {
+        ...project('review'),
+        id: 'project-active',
+        updatedAt: '2026-08-22T12:45:00+09:00'
+      }
+    ]);
     fixture.detectChanges();
 
     const root = fixture.nativeElement as HTMLElement;
