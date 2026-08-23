@@ -13,7 +13,7 @@
       </button>
     }
   </header>
-  @if (vm.message && vm.status === 'ready') {
+  @if (vm.message && (vm.status === 'ready' || vm.status === 'empty')) {
     <p class="announcements-page__state" role="status">{{ vm.message }}</p>
   }
 
@@ -29,7 +29,16 @@
       このお知らせを表示する権限がありません。
     </section>
   } @else if (vm.status === 'empty' || vm.announcements.length === 0) {
-    <section class="announcements-page__state" data-testid="announcements-empty">表示できるお知らせがありません。</section>
+    @if (editorVisible() && vm.editorDraft) {
+      <div class="announcements-page__main">
+        <app-announcement-editor
+          [draft]="vm.editorDraft"
+          (publishRequested)="publishAnnouncement($event)"
+        />
+      </div>
+    } @else {
+      <section class="announcements-page__state" data-testid="announcements-empty">表示できるお知らせがありません。</section>
+    }
   } @else {
     <label class="announcements-page__search">
       <span>このページ内を検索</span>
@@ -56,7 +65,10 @@
             表示できるお知らせがありません。
           </section>
         } @else if (editorVisible() && vm.editorDraft) {
-          <app-announcement-editor [draft]="vm.editorDraft" />
+          <app-announcement-editor
+            [draft]="vm.editorDraft"
+            (publishRequested)="publishAnnouncement($event)"
+          />
         } @else {
           <app-announcement-detail
             [announcement]="selectedAnnouncement()"
