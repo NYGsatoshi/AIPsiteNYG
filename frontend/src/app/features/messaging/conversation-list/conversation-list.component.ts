@@ -1,6 +1,7 @@
-import { Component, Input } from '@angular/core';
+import { Component, inject, Input } from '@angular/core';
 import { RouterLink } from '@angular/router';
 
+import { MessageNavigationStateService } from '../message-navigation-state.service';
 import { MessagingConversationListItem } from '../messaging.types';
 
 @Component({
@@ -16,8 +17,10 @@ import { MessagingConversationListItem } from '../messaging.types';
           [class.conversation-list__item--unread]="isUnread(conversation)"
           [class.conversation-list__item--mention]="conversation.hasMention === true"
           [attr.aria-current]="isSelected(conversation) ? 'page' : null"
+          [attr.data-conversation-id]="conversation.id"
           [routerLink]="conversation.route"
           data-testid="conversation-list-item"
+          (click)="rememberListScrollBeforeNavigate(conversation.id)"
         >
           <span class="conversation-list__title">{{ conversation.title }}</span>
           <span class="conversation-list__meta">{{ conversation.lastActivityLabel }}</span>
@@ -58,8 +61,10 @@ import { MessagingConversationListItem } from '../messaging.types';
   styleUrl: './conversation-list.component.scss'
 })
 export class ConversationListComponent {
+  private readonly navigationState = inject(MessageNavigationStateService);
   @Input({ required: true }) conversations: readonly MessagingConversationListItem[] = [];
   @Input() selectedConversationId: string | null = null;
+  @Input() preserveListScroll = false;
   @Input() showUnreadBadges = true;
 
   isSelected(conversation: MessagingConversationListItem): boolean {
@@ -68,5 +73,11 @@ export class ConversationListComponent {
 
   isUnread(conversation: MessagingConversationListItem): boolean {
     return (conversation.unreadCount ?? 0) > 0;
+  }
+
+  rememberListScrollBeforeNavigate(conversationId: string): void {
+    if (this.preserveListScroll) {
+      this.navigationState.rememberListScroll(conversationId);
+    }
   }
 }

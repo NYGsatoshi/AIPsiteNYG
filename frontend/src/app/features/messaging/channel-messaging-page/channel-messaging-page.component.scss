@@ -12,6 +12,10 @@
   color: var(--aip-color-text-primary);
 }
 
+.messaging-page__back {
+  display: none;
+}
+
 .messaging-page__header {
   display: flex;
   align-items: end;
@@ -34,12 +38,14 @@
   color: var(--aip-color-text-primary);
   font-size: 1.55rem;
   line-height: 1.2;
+  overflow-wrap: anywhere;
 }
 
 .messaging-page__header p:not(.messaging-page__eyebrow) {
   margin-top: 4px;
   color: var(--aip-color-text-secondary);
   font-weight: 700;
+  overflow-wrap: anywhere;
 }
 
 .messaging-page__eyebrow {
@@ -86,9 +92,26 @@
   background: var(--aip-color-bg-surface);
 }
 
-@media (max-width: 760px) {
+@media (max-width: 860px) {
   .messaging-page {
     gap: 12px;
+    min-height: calc(100dvh - 32px);
+  }
+
+  .messaging-page__back {
+    display: inline-flex;
+    width: fit-content;
+    min-height: 44px;
+    align-items: center;
+    border-radius: 6px;
+    color: var(--aip-color-action-primary);
+    font-weight: 900;
+    text-decoration: none;
+  }
+
+  .messaging-page__back:focus-visible {
+    outline: 2px solid var(--aip-color-focus);
+    outline-offset: 2px;
   }
 
   .messaging-page__header,
@@ -110,5 +133,17 @@
 
   .messaging-page__header button {
     width: 100%;
+  }
+
+  .messaging-page__main {
+    min-height: 0;
+    padding: 12px;
+    padding-bottom: max(12px, env(safe-area-inset-bottom));
+  }
+}
+
+@media (max-width: 360px) {
+  .messaging-page__main {
+    padding-inline: 10px;
   }
 }

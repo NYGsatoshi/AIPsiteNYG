@@ -1,10 +1,12 @@
 :host {
   display: block;
+  min-width: 0;
 }
 
 .composer {
   display: grid;
   gap: 10px;
+  min-width: 0;
   border: 1px solid var(--aip-color-border-default);
   border-radius: 10px;
   padding: 12px;
@@ -14,12 +16,15 @@
 label {
   display: grid;
   gap: 6px;
+  min-width: 0;
   color: var(--aip-color-text-secondary);
   font-weight: 900;
 }
 
 textarea {
+  box-sizing: border-box;
   width: 100%;
+  max-width: 100%;
   min-width: 0;
   min-height: 92px;
   resize: vertical;
@@ -47,6 +52,8 @@ textarea:disabled {
 .composer__attachment,
 .composer__disabled {
   margin: 0;
+  min-width: 0;
+  overflow-wrap: anywhere;
 }
 
 .composer__hint {
@@ -58,6 +65,7 @@ textarea:disabled {
 .composer__mention-tools {
   display: grid;
   gap: 6px;
+  min-width: 0;
   padding: 8px 10px;
   border: 1px solid var(--aip-color-border-default);
   border-radius: 8px;
@@ -74,10 +82,12 @@ textarea:disabled {
   display: flex;
   flex-wrap: wrap;
   gap: 6px;
+  min-width: 0;
 }
 
 .composer__mention-candidate {
   min-height: 36px;
+  max-width: 100%;
   border: 1px solid var(--aip-color-border-strong);
   border-radius: 999px;
   padding: 4px 10px;
@@ -86,6 +96,7 @@ textarea:disabled {
   font: inherit;
   font-size: 0.8rem;
   font-weight: 800;
+  overflow-wrap: anywhere;
   cursor: pointer;
 }
 
@@ -111,6 +122,7 @@ textarea:disabled {
 .composer__error {
   display: grid;
   gap: 4px;
+  min-width: 0;
   padding: 10px 12px;
   border: 1px solid currentColor;
   border-radius: 8px;
@@ -118,6 +130,7 @@ textarea:disabled {
   color: var(--aip-color-warning);
   font-size: 0.84rem;
   line-height: 1.45;
+  overflow-wrap: anywhere;
 }
 
 .composer__footer {
@@ -126,6 +139,7 @@ textarea:disabled {
   gap: 8px 12px;
   align-items: end;
   justify-content: space-between;
+  min-width: 0;
 }
 
 .composer__secondary-tools {
@@ -179,6 +193,24 @@ textarea:disabled {
   background: var(--aip-color-bg-surface-subtle);
   color: var(--aip-color-text-muted);
   cursor: not-allowed;
+}
+
+@media (max-width: 860px) {
+  :host {
+    position: sticky;
+    bottom: 0;
+    z-index: 2;
+    padding-bottom: env(safe-area-inset-bottom);
+    background: var(--aip-color-bg-surface);
+  }
+
+  textarea {
+    font-size: 16px;
+  }
+
+  .composer__footer {
+    align-items: stretch;
+  }
 }
 
 @media (max-width: 560px) {
