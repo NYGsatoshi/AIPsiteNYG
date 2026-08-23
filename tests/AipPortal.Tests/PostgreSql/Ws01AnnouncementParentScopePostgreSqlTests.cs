@@ -94,7 +94,7 @@ public sealed class Ws01AnnouncementParentScopePostgreSqlTests
             dbContext.ChangeTracker.Clear();
 
             var clock = new TestClock();
-            var repository = new AnnouncementRepository(dbContext, clock);
+            var repository = new AnnouncementRepository(dbContext, clock, tenantScope);
             var messaging = new MessagingRepository(dbContext);
             var dashboard = new WorkspaceDashboardQuery(dbContext, messaging, clock);
             var search = new DbSearchService(

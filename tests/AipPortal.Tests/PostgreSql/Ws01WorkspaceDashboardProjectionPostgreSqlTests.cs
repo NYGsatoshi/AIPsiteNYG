@@ -55,6 +55,25 @@ public sealed class Ws01WorkspaceDashboardProjectionPostgreSqlTests
                 tenantScope,
                 dashboardQuery: dashboard);
 
+            var persistedReadState = await dbContext.ReadStates
+                .AsNoTracking()
+                .SingleAsync(readState => readState.Id == graph.ReadConversationState.Id);
+            var persistedReadMessage = await dbContext.Messages
+                .AsNoTracking()
+                .SingleAsync(message => message.Id == graph.ReadConversationMessage.Id);
+            var persistedReadMember = await dbContext.ConversationMembers
+                .AsNoTracking()
+                .SingleAsync(member => member.Id == graph.ReadConversationMember.Id);
+            Assert.Equal(ReadScopeType.Conversation, persistedReadState.ScopeType);
+            Assert.Equal(graph.ReadConversation.Id, persistedReadState.ScopeId);
+            Assert.Equal(graph.ReadConversation.Id, persistedReadState.ConversationId);
+            Assert.Equal(persistedReadMessage.Id, persistedReadState.LastReadItemId);
+            Assert.Equal(persistedReadMessage.Id, persistedReadState.LastReadMessageId);
+            Assert.Equal(persistedReadMessage.CreatedAt.UtcTicks, persistedReadState.LastReadSequence);
+            Assert.True(persistedReadState.LastReadAt >= persistedReadMessage.CreatedAt);
+            Assert.Equal(persistedReadState.LastReadMessageId, persistedReadMember.LastReadMessageId);
+            Assert.Equal(persistedReadState.LastReadAt, persistedReadMember.LastReadAt);
+
             commandCounter.Begin();
             var actorResult = await workspaceService.ListAsync();
             var actorCommands = commandCounter.End();
@@ -85,6 +104,7 @@ public sealed class Ws01WorkspaceDashboardProjectionPostgreSqlTests
 
             var readableConversationIds = new MessagingRepository(dbContext)
                 .QueryReadableConversationIds(graph.Actor.Id)!;
+            Assert.True(await readableConversationIds.ContainsAsync(graph.OwnMessageConversation.Id));
             var unreadConversationTitles = await dbContext.Conversations
                 .Where(conversation =>
                     conversation.WorkspaceId == graph.OwnerWorkspace.Id &&
@@ -106,6 +126,8 @@ public sealed class Ws01WorkspaceDashboardProjectionPostgreSqlTests
             Assert.Equal(
                 new[] { "Private visible title", "Unread Workspace Conversation" },
                 unreadConversationTitles);
+            Assert.DoesNotContain("Read Workspace Conversation", unreadConversationTitles);
+            Assert.DoesNotContain("Own Message Only Conversation", unreadConversationTitles);
 
             var ownerCard = Assert.Single(actorItems, item => item.Id == graph.OwnerWorkspace.Id);
             Assert.Equal(2, ownerCard.UnreadAnnouncementCount);
@@ -219,7 +241,7 @@ public sealed class Ws01WorkspaceDashboardProjectionPostgreSqlTests
             tenantScope.SetTenant(graph.TenantA.Id, graph.TenantA.Slug);
             dbContext.ChangeTracker.Clear();
 
-            var repository = new AnnouncementRepository(dbContext, new TestClock());
+            var repository = new AnnouncementRepository(dbContext, new TestClock(), tenantScope);
             var page = await repository.ListVisibleAsync(
                 graph.Actor.Id,
                 isSystemAdmin: false,
@@ -522,6 +544,13 @@ public sealed class Ws01WorkspaceDashboardProjectionPostgreSqlTests
             actor.Id,
             "Read Workspace Conversation",
             ConversationType.WorkspaceChannel);
+        var ownMessageConversation = NewConversation(
+            tenantA.Id,
+            ownerWorkspace.Id,
+            null,
+            actor.Id,
+            "Own Message Only Conversation",
+            ConversationType.WorkspaceChannel);
         var visibleDirectMessage = NewConversation(
             tenantA.Id,
             ownerWorkspace.Id,
@@ -560,17 +589,24 @@ public sealed class Ws01WorkspaceDashboardProjectionPostgreSqlTests
         dbContext.Conversations.AddRange(
             unreadConversation,
             readConversation,
+            ownMessageConversation,
             visibleDirectMessage,
             hiddenDirectMessage,
             removedConversation,
             restrictedProjectConversation,
             staleTenantConversation);
 
+        var readConversationMember = NewConversationMember(
+            tenantA.Id,
+            readConversation.Id,
+            actor.Id);
         dbContext.ConversationMembers.AddRange(
             NewConversationMember(tenantA.Id, unreadConversation.Id, actor.Id),
             NewConversationMember(tenantA.Id, unreadConversation.Id, other.Id),
-            NewConversationMember(tenantA.Id, readConversation.Id, actor.Id),
+            readConversationMember,
             NewConversationMember(tenantA.Id, readConversation.Id, other.Id),
+            NewConversationMember(tenantA.Id, ownMessageConversation.Id, actor.Id),
+            NewConversationMember(tenantA.Id, ownMessageConversation.Id, other.Id),
             NewConversationMember(tenantA.Id, visibleDirectMessage.Id, actor.Id),
             NewConversationMember(tenantA.Id, visibleDirectMessage.Id, other.Id),
             NewConversationMember(tenantA.Id, hiddenDirectMessage.Id, other.Id),
@@ -586,27 +622,45 @@ public sealed class Ws01WorkspaceDashboardProjectionPostgreSqlTests
             NewConversationMember(tenantB.Id, staleTenantConversation.Id, actor.Id),
             NewConversationMember(tenantB.Id, staleTenantConversation.Id, other.Id));
 
+        var readConversationMessage = NewMessage(
+            tenantA.Id,
+            ownerWorkspace.Id,
+            readConversation.Id,
+            other.Id,
+            "Read body",
+            Now.AddMinutes(-5));
         dbContext.Messages.AddRange(
             NewMessage(tenantA.Id, ownerWorkspace.Id, unreadConversation.Id, other.Id, "Unread body one", Now.AddMinutes(-4)),
             NewMessage(tenantA.Id, ownerWorkspace.Id, unreadConversation.Id, other.Id, "Unread body two", Now.AddMinutes(-3)),
-            NewMessage(tenantA.Id, ownerWorkspace.Id, readConversation.Id, other.Id, "Read body", Now.AddMinutes(-5)),
+            readConversationMessage,
+            NewMessage(tenantA.Id, ownerWorkspace.Id, ownMessageConversation.Id, actor.Id, "Own body", Now.AddMinutes(-2)),
             NewMessage(tenantA.Id, ownerWorkspace.Id, visibleDirectMessage.Id, other.Id, "Visible DM body", Now.AddMinutes(-2)),
             NewMessage(tenantA.Id, ownerWorkspace.Id, hiddenDirectMessage.Id, other.Id, "Hidden DM body", Now.AddMinutes(-2)),
             NewMessage(tenantA.Id, ownerWorkspace.Id, removedConversation.Id, other.Id, "Removed body", Now.AddMinutes(-2)),
             NewMessage(tenantA.Id, ownerWorkspace.Id, restrictedProjectConversation.Id, other.Id, "Restricted body", Now.AddMinutes(-2)),
             NewMessage(tenantB.Id, ownerWorkspace.Id, staleTenantConversation.Id, other.Id, "Tenant B body", Now.AddMinutes(-2)));
-        dbContext.ReadStates.Add(new ReadState
+
+        await dbContext.SaveChangesAsync();
+        await dbContext.Entry(readConversationMessage).ReloadAsync();
+
+        var readAt = readConversationMessage.CreatedAt.AddMilliseconds(1);
+        readConversationMember.LastReadMessageId = readConversationMessage.Id;
+        readConversationMember.LastReadAt = readAt;
+        var readConversationState = new ReadState
         {
             TenantId = tenantA.Id,
             UserId = actor.Id,
             ScopeType = ReadScopeType.Conversation,
             ScopeId = readConversation.Id,
             ConversationId = readConversation.Id,
-            LastReadAt = Now.AddDays(1),
-            LastReadSequence = Now.AddDays(1).UtcTicks,
+            LastReadItemId = readConversationMessage.Id,
+            LastReadMessageId = readConversationMessage.Id,
+            LastReadAt = readAt,
+            LastReadSequence = readConversationMessage.CreatedAt.UtcTicks,
             StateVersion = 1,
             CreatedAt = Now
-        });
+        };
+        dbContext.ReadStates.Add(readConversationState);
 
         await dbContext.SaveChangesAsync();
 
@@ -623,6 +677,11 @@ public sealed class Ws01WorkspaceDashboardProjectionPostgreSqlTests
             archivedWorkspace,
             tenantBWorkspace,
             membersOnlyProjectMember,
+            readConversation,
+            ownMessageConversation,
+            readConversationMessage,
+            readConversationMember,
+            readConversationState,
             visibleWorkspaceAnnouncement,
             visibleGroupAnnouncement,
             hiddenGroupAnnouncement,
@@ -859,6 +918,11 @@ public sealed class Ws01WorkspaceDashboardProjectionPostgreSqlTests
         Workspace ArchivedWorkspace,
         Workspace TenantBWorkspace,
         ProjectMember MembersOnlyProjectMember,
+        Conversation ReadConversation,
+        Conversation OwnMessageConversation,
+        Message ReadConversationMessage,
+        ConversationMember ReadConversationMember,
+        ReadState ReadConversationState,
         Announcement VisibleWorkspaceAnnouncement,
         Announcement VisibleGroupAnnouncement,
         Announcement HiddenGroupAnnouncement,

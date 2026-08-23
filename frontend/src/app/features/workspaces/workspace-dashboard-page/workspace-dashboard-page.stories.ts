@@ -1,4 +1,5 @@
 import { applicationConfig, type Meta, type StoryObj } from '@storybook/angular';
+import { provideRouter } from '@angular/router';
 
 import { AIP_WORKSPACES_DASHBOARD_MOCK } from '../workspaces.facade';
 import { WORKSPACE_DASHBOARD_SCENARIOS } from '../workspaces.mock';
@@ -8,13 +9,19 @@ const meta: Meta<WorkspaceDashboardPageComponent> = {
   title: 'Features/Workspaces/DashboardPage',
   component: WorkspaceDashboardPageComponent,
   parameters: {
-    layout: 'fullscreen'
+    layout: 'fullscreen',
   },
   decorators: [
     applicationConfig({
-      providers: [{ provide: AIP_WORKSPACES_DASHBOARD_MOCK, useValue: WORKSPACE_DASHBOARD_SCENARIOS.default }]
-    })
-  ]
+      providers: [
+        provideRouter([]),
+        {
+          provide: AIP_WORKSPACES_DASHBOARD_MOCK,
+          useValue: WORKSPACE_DASHBOARD_SCENARIOS.default,
+        },
+      ],
+    }),
+  ],
 };
 
 export default meta;
@@ -24,9 +31,15 @@ type Story = StoryObj<WorkspaceDashboardPageComponent>;
 const withScenario = (scenario: keyof typeof WORKSPACE_DASHBOARD_SCENARIOS): Story => ({
   decorators: [
     applicationConfig({
-      providers: [{ provide: AIP_WORKSPACES_DASHBOARD_MOCK, useValue: WORKSPACE_DASHBOARD_SCENARIOS[scenario] }]
-    })
-  ]
+      providers: [
+        provideRouter([]),
+        {
+          provide: AIP_WORKSPACES_DASHBOARD_MOCK,
+          useValue: WORKSPACE_DASHBOARD_SCENARIOS[scenario],
+        },
+      ],
+    }),
+  ],
 });
 
 export const Default: Story = {};
@@ -43,13 +56,15 @@ export const ManyWorkspaces: Story = withScenario('many');
 
 export const NoWorkspaceAccess: Story = withScenario('noWorkspaceAccess');
 
-export const PartialSummaryUnavailable: Story = withScenario('partialSummaryUnavailable');
+export const SystemAdminAccess: Story = withScenario('systemAdmin');
+
+export const ZeroCounts: Story = withScenario('zeroCounts');
 
 export const LongWorkspaceNames: Story = withScenario('longWorkspaceNames');
 
 export const Mobile: Story = {
   ...withScenario('default'),
   parameters: {
-    viewport: { defaultViewport: 'mobile1' }
-  }
+    viewport: { defaultViewport: 'mobile1' },
+  },
 };
