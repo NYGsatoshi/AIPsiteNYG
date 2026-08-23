@@ -74,6 +74,48 @@ public sealed class AnnouncementRepository(
 
     public async Task<IReadOnlyList<AnnouncementTargetUser>> ListTargetUsersAsync(Announcement announcement, CancellationToken cancellationToken = default)
     {
+        var userIds = await ResolveTargetUserIdsAsync(announcement, cancellationToken);
+        if (userIds is null)
+        {
+            return [];
+        }
+
+        return await dbContext.Users
+            .Where(user =>
+                userIds.Contains(user.Id) &&
+                user.Status == UserStatus.Active &&
+                user.DeletedAt == null)
+            .Select(user => new AnnouncementTargetUser(
+                user.Id,
+                user.DisplayName,
+                user.Email,
+                dbContext.AnnouncementReads.Any(read => read.AnnouncementId == announcement.Id && read.UserId == user.Id)))
+            .OrderBy(user => user.DisplayName)
+            .ToListAsync(cancellationToken);
+    }
+
+    public async Task<int> CountTargetUsersAsync(Announcement announcement, CancellationToken cancellationToken = default)
+    {
+        var userIds = await ResolveTargetUserIdsAsync(announcement, cancellationToken);
+        if (userIds is null)
+        {
+            return 0;
+        }
+
+        return await dbContext.Users.CountAsync(user =>
+            userIds.Contains(user.Id) &&
+            user.Status == UserStatus.Active &&
+            user.DeletedAt == null,
+            cancellationToken);
+    }
+
+    public Task<int> CountReadsAsync(Guid announcementId, CancellationToken cancellationToken = default)
+    {
+        return dbContext.AnnouncementReads.CountAsync(read => read.AnnouncementId == announcementId, cancellationToken);
+    }
+
+    private async Task<IQueryable<Guid>?> ResolveTargetUserIdsAsync(Announcement announcement, CancellationToken cancellationToken)
+    {
         var activeTenantUserIds = dbContext.TenantUsers
             .Where(member => member.TenantId == announcement.TenantId && member.Status == TenantUserStatus.Active)
             .Select(member => member.UserId);
@@ -94,7 +136,7 @@ public sealed class AnnouncementRepository(
                 announcement.GroupId != channel.GroupId ||
                 announcement.WorkspaceId != channel.WorkspaceId)
             {
-                return [];
+                return null;
             }
 
             var groupIsActive = await dbContext.Groups.AnyAsync(group =>
@@ -112,7 +154,7 @@ public sealed class AnnouncementRepository(
                 cancellationToken);
             if (!groupIsActive || !workspaceIsActive)
             {
-                return [];
+                return null;
             }
 
             if (channel.Type is ChannelType.Public or ChannelType.Announcement)
@@ -154,7 +196,7 @@ public sealed class AnnouncementRepository(
                     cancellationToken);
             if (group is null || announcement.WorkspaceId != group.WorkspaceId)
             {
-                return [];
+                return null;
             }
 
             var workspaceIsActive = await dbContext.Workspaces.AnyAsync(workspace =>
@@ -165,7 +207,7 @@ public sealed class AnnouncementRepository(
                 cancellationToken);
             if (!workspaceIsActive)
             {
-                return [];
+                return null;
             }
 
             userIds = dbContext.GroupMembers
@@ -189,7 +231,7 @@ public sealed class AnnouncementRepository(
                 cancellationToken);
             if (!workspaceIsActive)
             {
-                return [];
+                return null;
             }
 
             userIds = dbContext.WorkspaceMembers
@@ -204,27 +246,9 @@ public sealed class AnnouncementRepository(
             userIds = activeTenantUserIds;
         }
 
-        userIds = userIds
+        return userIds
             .Where(userId => activeTenantUserIds.Contains(userId))
             .Distinct();
-
-        return await dbContext.Users
-            .Where(user =>
-                userIds.Contains(user.Id) &&
-                user.Status == UserStatus.Active &&
-                user.DeletedAt == null)
-            .Select(user => new AnnouncementTargetUser(
-                user.Id,
-                user.DisplayName,
-                user.Email,
-                dbContext.AnnouncementReads.Any(read => read.AnnouncementId == announcement.Id && read.UserId == user.Id)))
-            .OrderBy(user => user.DisplayName)
-            .ToListAsync(cancellationToken);
-    }
-
-    public Task<int> CountReadsAsync(Guid announcementId, CancellationToken cancellationToken = default)
-    {
-        return dbContext.AnnouncementReads.CountAsync(read => read.AnnouncementId == announcementId, cancellationToken);
     }
 
     private IQueryable<Announcement> VisibleAnnouncements(Guid userId, bool isSystemAdmin)
