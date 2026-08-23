@@ -5,6 +5,7 @@ import { DurableRealtimeEvent } from '../../core/realtime/realtime.models';
 
 import {
   AnnouncementAudienceOption,
+  AnnouncementCapability,
   AnnouncementEditorDraft,
   AnnouncementEditorSubmission,
   AnnouncementViewModel,
@@ -73,10 +74,8 @@ export class AnnouncementsFacade {
   createAnnouncement(submission: AnnouncementEditorSubmission): void {
     const authorizedAudience = this.audienceOptions.find((audience) => audience.key === submission.audience.key);
     if (!authorizedAudience) {
-      this.pageState.update((page) => ({
-        ...page,
-        message: '配信対象の権限が変更されました。対象を再読み込みして確認してください。',
-      }));
+      this.preserveSubmissionAsDisabledDraft(submission, '配信対象の権限が変更されました。対象を再読み込みして確認してください。');
+      this.loadAudienceOptions();
       return;
     }
 
@@ -117,10 +116,10 @@ export class AnnouncementsFacade {
           this.editorActive = false;
         },
         error: () => {
-          this.pageState.update((page) => ({
-            ...page,
-            message: '公開できませんでした。配信対象の権限が変更された可能性があります。対象を再確認してください。',
-          }));
+          this.preserveSubmissionAsDisabledDraft(
+            authorizedSubmission,
+            '公開できませんでした。配信対象の権限が変更された可能性があります。対象を再確認してください。',
+          );
           this.loadAudienceOptions();
         },
       });
@@ -184,8 +183,8 @@ export class AnnouncementsFacade {
           this.pageState.update((page) => ({
             ...page,
             pageCapabilities: this.withCreateCapability(page.pageCapabilities, false),
-            editorDraft: undefined,
-            message: page.message ?? '配信対象を安全に取得できないため、新規公開を無効化しました。',
+            editorDraft: page.editorDraft ? this.createDraft([], page.editorDraft) : undefined,
+            message: '配信対象を安全に取得できないため、新規公開を無効化しました。入力内容は保持されています。',
           }));
         },
       });
@@ -300,10 +299,25 @@ export class AnnouncementsFacade {
     };
   }
 
+  private preserveSubmissionAsDisabledDraft(submission: AnnouncementEditorSubmission, message: string): void {
+    this.pageState.update((page) => ({
+      ...page,
+      editorDraft: {
+        title: submission.title,
+        body: submission.body,
+        priority: submission.priority,
+        audienceKey: submission.audience.key,
+        availableAudiences: this.audienceOptions,
+        requiresReadConfirmation: submission.requiresReadConfirmation,
+      },
+      message,
+    }));
+  }
+
   private withCreateCapability(
-    capabilities: readonly AnnouncementsPageViewModel['pageCapabilities'][number][],
+    capabilities: readonly AnnouncementCapability[],
     canCreate: boolean,
-  ): readonly AnnouncementsPageViewModel['pageCapabilities'][number][] {
+  ): readonly AnnouncementCapability[] {
     const withoutCreate = capabilities.filter((capability) => capability !== 'createAnnouncement');
     return canCreate ? [...withoutCreate, 'createAnnouncement'] : withoutCreate;
   }
