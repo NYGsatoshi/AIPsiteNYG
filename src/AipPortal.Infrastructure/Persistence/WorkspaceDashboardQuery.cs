@@ -85,17 +85,7 @@ public sealed class WorkspaceDashboardQuery(
                     ((grant.ScopeType == CapabilityScopeType.Workspace && grant.ScopeId == workspace.Id) ||
                      (grant.ScopeType == CapabilityScopeType.Tenant && grant.ScopeId == workspace.TenantId)) &&
                     grant.RevokedAt == null &&
-                    (!grant.ExpiresAt.HasValue || grant.ExpiresAt > now)),
-                dbContext.GroupMembers.Any(member =>
-                    member.TenantId == workspace.TenantId &&
-                    member.UserId == userId &&
-                    (member.Role == GroupRole.Owner || member.Role == GroupRole.Admin) &&
-                    dbContext.Groups.Any(group =>
-                        group.Id == member.GroupId &&
-                        group.TenantId == workspace.TenantId &&
-                        group.WorkspaceId == workspace.Id &&
-                        group.Status == GroupStatus.Active &&
-                        group.DeletedAt == null))))
+                    (!grant.ExpiresAt.HasValue || grant.ExpiresAt > now))))
             .ToListAsync(cancellationToken);
 
         if (rows.Count == 0)
@@ -178,8 +168,8 @@ public sealed class WorkspaceDashboardQuery(
         int needsReviewProjectCount)
     {
         // Navigation is read-only. Quick-create mutation affordances are projected
-        // separately and must match the production mutation boundaries rather than
-        // being inferred from a readable Workspace card on the client.
+        // separately and must match the ungrouped production create boundary used
+        // by this Quick Create flow rather than a broader read/group authority.
         var hasCurrentWorkspaceReadAccess =
             row.CurrentUserRole.HasValue || row.HasSystemAdminAccess;
         var hasActiveWorkspaceMembership =
@@ -188,9 +178,7 @@ public sealed class WorkspaceDashboardQuery(
             row.CurrentUserRole is WorkspaceRole.Owner or WorkspaceRole.Admin;
         var canCreateProject =
             hasActiveWorkspaceMembership &&
-            (hasWorkspaceGovernanceAuthority ||
-             row.HasDelegatedProjectCreate ||
-             row.ManagesActiveGroup);
+            (hasWorkspaceGovernanceAuthority || row.HasDelegatedProjectCreate);
         var canAddFiles =
             row.HasSystemAdminAccess ||
             (row.HasActiveTenantMembership &&
@@ -234,8 +222,7 @@ public sealed class WorkspaceDashboardQuery(
         WorkspaceRole? CurrentUserRole,
         bool HasSystemAdminAccess,
         bool HasActiveTenantMembership,
-        bool HasDelegatedProjectCreate,
-        bool ManagesActiveGroup);
+        bool HasDelegatedProjectCreate);
 
     private sealed record WorkspaceCount(Guid WorkspaceId, int Count);
 
