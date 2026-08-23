@@ -58,7 +58,7 @@ public sealed class AnnouncementAudienceSecurityPostgreSqlTests
 
     [PostgreSqlFact]
     [Trait("Category", "PostgreSQLIntegration")]
-    public async Task ChannelAudienceAndVisibilityRejectStaleMembershipAfterWorkspaceSuspension()
+    public async Task ScopedAudienceRequiresCurrentTenantAndWorkspaceMembership()
     {
         var options = new DbContextOptionsBuilder<AppDbContext>()
             .UseNpgsql(PostgreSqlTestEnvironment.RequireConnectionString())
@@ -146,18 +146,28 @@ public sealed class AnnouncementAudienceSecurityPostgreSqlTests
         dbContext.Announcements.Add(announcement);
         await dbContext.SaveChangesAsync();
 
-        var membership = await dbContext.WorkspaceMembers.SingleAsync(member =>
+        var repository = new AnnouncementRepository(dbContext, new FixedClock(now), currentTenant);
+
+        var workspaceMembership = await dbContext.WorkspaceMembers.SingleAsync(member =>
             member.WorkspaceId == workspace.Id && member.UserId == user.Id);
-        membership.Status = MembershipStatus.Suspended;
+        workspaceMembership.Status = MembershipStatus.Suspended;
         await dbContext.SaveChangesAsync();
         dbContext.ChangeTracker.Clear();
 
-        var repository = new AnnouncementRepository(dbContext, new FixedClock(now), currentTenant);
-        var targets = await repository.ListTargetUsersAsync(announcement);
-        var visible = await repository.IsVisibleToUserAsync(announcement.Id, user.Id, false);
+        Assert.Empty(await repository.ListTargetUsersAsync(announcement));
+        Assert.False(await repository.IsVisibleToUserAsync(announcement.Id, user.Id, false));
 
-        Assert.Empty(targets);
-        Assert.False(visible);
+        workspaceMembership = await dbContext.WorkspaceMembers.SingleAsync(member =>
+            member.WorkspaceId == workspace.Id && member.UserId == user.Id);
+        workspaceMembership.Status = MembershipStatus.Active;
+        var tenantMembership = await dbContext.TenantUsers.SingleAsync(member =>
+            member.TenantId == tenant.Id && member.UserId == user.Id);
+        tenantMembership.Status = TenantUserStatus.Suspended;
+        await dbContext.SaveChangesAsync();
+        dbContext.ChangeTracker.Clear();
+
+        Assert.Empty(await repository.ListTargetUsersAsync(announcement));
+        Assert.False(await repository.IsVisibleToUserAsync(announcement.Id, user.Id, false));
     }
 
     private static User NewUser(string email, string displayName) => new()
