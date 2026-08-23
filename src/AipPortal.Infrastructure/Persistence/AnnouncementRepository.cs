@@ -7,7 +7,10 @@ using Microsoft.EntityFrameworkCore;
 
 namespace AipPortal.Infrastructure.Persistence;
 
-public sealed class AnnouncementRepository(AppDbContext dbContext, IClock clock) : IAnnouncementRepository
+public sealed class AnnouncementRepository(
+    AppDbContext dbContext,
+    IClock clock,
+    ICurrentTenant currentTenant) : IAnnouncementRepository
 {
     public async Task<PagedResponse<Announcement>> ListVisibleAsync(Guid userId, bool isSystemAdmin, AnnouncementListQuery query, CancellationToken cancellationToken = default)
     {
@@ -45,6 +48,22 @@ public sealed class AnnouncementRepository(AppDbContext dbContext, IClock clock)
 
     public async Task AddAsync(Announcement announcement, CancellationToken cancellationToken = default)
     {
+        if (announcement.TenantId == Guid.Empty)
+        {
+            if (!currentTenant.IsAvailable || currentTenant.IsPlatformScope)
+            {
+                throw new InvalidOperationException("A tenant context is required to create an announcement.");
+            }
+
+            // Stamp before any pre-save audience/invalidation query. AppDbContext
+            // also enforces this tenant again at SaveChanges.
+            announcement.TenantId = currentTenant.TenantId;
+        }
+        else if (currentTenant.IsAvailable && !currentTenant.IsPlatformScope && announcement.TenantId != currentTenant.TenantId)
+        {
+            throw new InvalidOperationException("Announcement TenantId does not match the current tenant context.");
+        }
+
         await dbContext.Announcements.AddAsync(announcement, cancellationToken);
     }
 
