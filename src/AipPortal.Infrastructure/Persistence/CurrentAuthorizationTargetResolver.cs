@@ -72,7 +72,8 @@ public sealed class CurrentAuthorizationTargetResolver(
                     true,
                     true,
                     $"/projects/{target.ProjectId}/tasks/{target.TaskId}",
-                    notification.StateVersion);
+                    notification.StateVersion,
+                    target.WorkspaceId);
         }
 
         if (string.Equals(notification.RelatedEntityType, TaskDeadlineDigestPolicy.RelatedEntityType, StringComparison.Ordinal))
@@ -111,7 +112,8 @@ public sealed class CurrentAuthorizationTargetResolver(
                     true,
                     true,
                     $"/artifacts/{target.ArtifactId}",
-                    notification.StateVersion);
+                    notification.StateVersion,
+                    target.WorkspaceId);
         }
 
         if (string.Equals(notification.RelatedEntityType, "Message", StringComparison.Ordinal))
@@ -132,7 +134,8 @@ public sealed class CurrentAuthorizationTargetResolver(
                     true,
                     true,
                     $"/messages/{target.MessageId}",
-                    notification.StateVersion);
+                    notification.StateVersion,
+                    target.WorkspaceId);
         }
 
         // This endpoint is intentionally narrow.  Legacy and unknown targets

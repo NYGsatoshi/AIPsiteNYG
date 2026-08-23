@@ -451,6 +451,7 @@ public sealed class WpcFinal01CanonicalCompletionPostgreSqlTests
                 authority.ReaderUserId,
                 notification.Id);
             Assert.True(beforeRemoval.IsAvailable);
+            Assert.Equal(authority.WorkspaceId, beforeRemoval.WorkspaceId);
 
             var removed = await scope.Membership.RemoveAsync(projectId, authority.ReaderUserId);
             Assert.True(removed.IsSuccess, removed.Error);

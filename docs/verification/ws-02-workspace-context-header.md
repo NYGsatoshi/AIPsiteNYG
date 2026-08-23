@@ -142,8 +142,9 @@ Local verification on the candidate worktree completed as follows:
 - focused backend Auth/Workspace tests: 34 passed, 0 failed;
 - full backend suite: 873 passed, 237 skipped, 0 failed (1,110 total);
 - focused Workspace/messaging/navigation regression set: 83 passed, 0 failed;
-- focused realtime synchronization regression set: 46 passed, 0 failed;
-- full Angular suite: 62 files / 550 tests passed;
+- focused realtime synchronization regression set: 49 passed, 0 failed;
+- focused notification current-authorization regression set: 34 passed, 0 failed;
+- full Angular suite: 62 files / 553 tests passed;
 - Angular production build: passed (existing bundle/style budget warnings);
 - frontend architecture check: passed;
 - pinned Linux Angular Playwright: 78 passed, 6 intentional skips, with the

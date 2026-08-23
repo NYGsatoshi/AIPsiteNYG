@@ -167,7 +167,9 @@ export class RealtimeFacade {
     }
 
     if (this.isSynchronized()) {
-      void this.authorizeSubscription(request, this.synchronizationEpoch);
+      const authorizationEpoch = this.synchronizationEpoch;
+      void this.authorizeSubscription(request, authorizationEpoch).catch(() =>
+        this.recoverTransportAfterGroupOperationFailure(authorizationEpoch));
     }
     return () => this.removeSubscription(owner, request);
   }
@@ -244,7 +246,7 @@ export class RealtimeFacade {
         this.staleGuards.delete(owner);
       }
       if (this.authorizedSubscriptionKeys.delete(key)) {
-        void this.transport.unsubscribe(entry.request);
+        void this.unsubscribeSafely(entry.request);
       }
     }
 
@@ -574,12 +576,43 @@ export class RealtimeFacade {
   }
 
   private async unsubscribeSafely(request: RealtimeSubscriptionRequest): Promise<void> {
+    const cleanupEpoch = this.synchronizationEpoch;
     try {
       await this.transport.unsubscribe(request);
     } catch {
-      // A stopped transport already discarded its groups. The replacement
-      // epoch still performs a new server authorization before publishing.
+      // A lifecycle stop or a newer synchronization already discarded (or is
+      // replacing) the failed operation's groups. A failure on the still-live
+      // transport is different: the server may have committed a subscribe or
+      // retained an unsubscribe target before the invocation response failed.
+      // Reset that transport so no orphaned resource group can remain active.
+      await this.recoverTransportAfterGroupOperationFailure(cleanupEpoch);
     }
+  }
+
+  private async recoverTransportAfterGroupOperationFailure(operationEpoch: number): Promise<void> {
+    if (!this.isSynchronizationCurrent(operationEpoch)) {
+      return;
+    }
+
+    this.invalidateSynchronization();
+    const recoveryEpoch = this.synchronizationEpoch;
+    const shouldResume = this.canConnect();
+    this.intentionallyStopped = true;
+    this.clearTransportAuthorizationState();
+    this.state.set(this.httpIsLikelyAvailable() ? 'Reconnecting' : 'Offline');
+    await this.stopTransport();
+
+    if (recoveryEpoch !== this.synchronizationEpoch || !shouldResume || !this.canConnect()) {
+      return;
+    }
+
+    this.intentionallyStopped = false;
+    if (!this.httpIsLikelyAvailable()) {
+      this.state.set('Offline');
+      return;
+    }
+
+    await this.connectAndSynchronize();
   }
 
   private async runCatchUpsUntilStable(
@@ -750,7 +783,7 @@ export class RealtimeFacade {
     if (this.authorizedSubscriptionKeys.delete(key) &&
         request.subscriptionType !== 'user' &&
         request.subscriptionType !== 'tenant') {
-      void this.transport.unsubscribe(request);
+      void this.unsubscribeSafely(request);
     }
   }
 

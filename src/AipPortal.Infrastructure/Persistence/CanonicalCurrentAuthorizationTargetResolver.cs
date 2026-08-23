@@ -70,7 +70,8 @@ public sealed class CanonicalCurrentAuthorizationTargetResolver(
                 true,
                 true,
                 $"/projects/{target.ProjectId}/tasks/{target.TaskId}",
-                notification.StateVersion);
+                notification.StateVersion,
+                target.WorkspaceId);
     }
 
     public async Task<bool> CanDeliverCreatedAsync(

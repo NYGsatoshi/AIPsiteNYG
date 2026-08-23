@@ -1,4 +1,4 @@
-import { signal } from '@angular/core';
+import { ErrorHandler, signal } from '@angular/core';
 import { TestBed } from '@angular/core/testing';
 import { Subject } from 'rxjs';
 
@@ -804,6 +804,114 @@ describe('RealtimeFacade', () => {
 
     expect(transport.subscribed.filter((request) => request.subscriptionType === 'project')).toHaveLength(1);
     expect(transport.subscribed.filter((request) => request.subscriptionType === 'user')).toHaveLength(2);
+  });
+
+  it('LogoutAbsorbsAConnectedTimeAuthorizationRejectedByTransportStop', async () => {
+    await enableAndAuthenticate();
+    const handledErrors: unknown[] = [];
+    vi.spyOn(TestBed.inject(ErrorHandler), 'handleError').mockImplementation((error) => {
+      handledErrors.push(error);
+    });
+    let rejectAuthorization!: (reason: Error) => void;
+    let signalAuthorizationStarted!: () => void;
+    const authorizationStarted = new Promise<void>((resolve) => {
+      signalAuthorizationStarted = resolve;
+    });
+    const pendingAuthorization = new Promise<RealtimeSubscriptionResult>((_, reject) => {
+      rejectAuthorization = reject;
+    });
+    const originalSubscribe = transport.subscribe.bind(transport);
+    transport.subscribe = async (request) => {
+      if (request.subscriptionType !== 'project') {
+        return originalSubscribe(request);
+      }
+
+      transport.subscribed.push(request);
+      signalAuthorizationStarted();
+      return pendingAuthorization;
+    };
+
+    facade.registerSubscription('pending-project', {
+      subscriptionType: 'project',
+      resourceId: RESOURCE_ID,
+    });
+    await authorizationStarted;
+    auth.markSessionExpired();
+    rejectAuthorization(new Error('Invocation canceled due to the underlying connection being closed.'));
+    await settle();
+    await settle();
+
+    expect(handledErrors).toEqual([]);
+    expect(transport.startCalls).toBe(1);
+    expect(transport.stopCalls).toBe(1);
+    expect(facade.connectionState()).toBe('Degraded');
+  });
+
+  it('ConnectedTimeAuthorizationFailureResetsAndReauthorizesTheTransport', async () => {
+    await enableAndAuthenticate();
+    const handledErrors: unknown[] = [];
+    vi.spyOn(TestBed.inject(ErrorHandler), 'handleError').mockImplementation((error) => {
+      handledErrors.push(error);
+    });
+    let projectAttempts = 0;
+    const originalSubscribe = transport.subscribe.bind(transport);
+    transport.subscribe = async (request) => {
+      if (request.subscriptionType !== 'project') {
+        return originalSubscribe(request);
+      }
+
+      projectAttempts++;
+      if (projectAttempts === 1) {
+        transport.subscribed.push(request);
+        throw new Error('The connection closed before the authorization response completed.');
+      }
+      return originalSubscribe(request);
+    };
+
+    facade.registerSubscription('recovering-project', {
+      subscriptionType: 'project',
+      resourceId: RESOURCE_ID,
+    });
+
+    await vi.waitFor(() => expect(transport.startCalls).toBe(2));
+    await waitForConnection(facade);
+
+    expect(projectAttempts).toBe(2);
+    expect(transport.subscribed.filter((request) => request.subscriptionType === 'user')).toHaveLength(2);
+    expect(transport.stopCalls).toBe(1);
+    expect(handledErrors).toEqual([]);
+    expect(facade.connectionState()).toBe('Connected');
+  });
+
+  it('ResourceReleaseFailureResetsTheLiveTransportWithoutRestoringTheReleasedGroup', async () => {
+    await enableAndAuthenticate();
+    const handledErrors: unknown[] = [];
+    vi.spyOn(TestBed.inject(ErrorHandler), 'handleError').mockImplementation((error) => {
+      handledErrors.push(error);
+    });
+    transport.unsubscribe = async (request) => {
+      transport.unsubscribed.push(request);
+      throw new Error('Invocation canceled due to the underlying connection being closed.');
+    };
+    const release = facade.registerSubscription('closing-project', {
+      subscriptionType: 'project',
+      resourceId: RESOURCE_ID,
+    });
+    await waitForSubscriptionCount(transport, 'project', 1);
+
+    release();
+    await vi.waitFor(() => expect(transport.startCalls).toBe(2));
+    await waitForConnection(facade);
+
+    expect(transport.unsubscribed).toContainEqual({
+      subscriptionType: 'project',
+      resourceId: RESOURCE_ID,
+    });
+    expect(transport.subscribed.filter((request) => request.subscriptionType === 'project')).toHaveLength(1);
+    expect(transport.subscribed.filter((request) => request.subscriptionType === 'user')).toHaveLength(2);
+    expect(transport.stopCalls).toBe(1);
+    expect(handledErrors).toEqual([]);
+    expect(facade.connectionState()).toBe('Connected');
   });
 
   it('LogoutClearsActiveWorkspaceAndProtectedState', async () => {
