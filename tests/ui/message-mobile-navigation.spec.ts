@@ -48,8 +48,8 @@ test.describe('Issue #351 mobile Message hierarchy', () => {
     });
     expect(rememberedTop).toBeGreaterThan(0);
 
-    await page.getByTestId('conversation-list-item').first().evaluate((element: HTMLAnchorElement) => {
-      element.click();
+    await page.getByTestId('conversation-list-item').first().evaluate((element) => {
+      (element as HTMLAnchorElement).click();
     });
 
     await expect(page).toHaveURL(/\/app\/workspaces\/static-workspace-1\/channels\/mobile-channel-1$/);
