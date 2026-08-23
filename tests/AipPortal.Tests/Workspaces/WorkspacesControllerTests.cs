@@ -15,6 +15,63 @@ namespace AipPortal.Tests.Workspaces;
 public sealed class WorkspacesControllerTests
 {
     [Fact]
+    public async Task ListAuthenticationFailureUsesCanonicalSafeError()
+    {
+        var service = new StubWorkspaceService
+        {
+            ListResult = Result<IReadOnlyList<WorkspaceDashboardListItemResponse>>.Failure(
+                new ApplicationErrorDetail(
+                    "AuthenticationRequired",
+                    "Authentication is required."))
+        };
+        var controller = Controller(service);
+
+        var action = await controller.List(CancellationToken.None);
+
+        var unauthorized = Assert.IsType<UnauthorizedObjectResult>(action);
+        var envelope = Assert.IsType<ApiErrorEnvelope>(unauthorized.Value);
+        Assert.Equal(StatusCodes.Status401Unauthorized, envelope.Status);
+        Assert.Equal("AuthenticationRequired", envelope.Error.Code);
+        Assert.Empty(envelope.Error.Details);
+    }
+
+    [Fact]
+    public async Task ListPreservesArrayShapeAndDashboardProjection()
+    {
+        var value = new WorkspaceDashboardListItemResponse(
+            Guid.NewGuid(),
+            "Workspace",
+            null,
+            null,
+            WorkspaceStatus.Active,
+            DateTimeOffset.UtcNow,
+            DateTimeOffset.UtcNow,
+            null,
+            WorkspaceDashboardAccessSource.SystemAdmin,
+            true,
+            true,
+            true,
+            1,
+            2,
+            3);
+        var service = new StubWorkspaceService
+        {
+            ListResult = Result<IReadOnlyList<WorkspaceDashboardListItemResponse>>.Success([value])
+        };
+        var controller = Controller(service);
+
+        var action = await controller.List(CancellationToken.None);
+
+        var ok = Assert.IsType<OkObjectResult>(action);
+        var items = Assert.IsAssignableFrom<IReadOnlyList<WorkspaceDashboardListItemResponse>>(ok.Value);
+        var item = Assert.Single(items);
+        Assert.Equal(value.Id, item.Id);
+        Assert.Null(item.CurrentUserRole);
+        Assert.Equal(WorkspaceDashboardAccessSource.SystemAdmin, item.AccessSource);
+        Assert.Equal(3, item.InProgressProjectCount);
+    }
+
+    [Fact]
     public async Task CreateForwardsIdempotencyIdentityAndReturnsCreatedResult()
     {
         var value = new WorkspaceDetailResponse(
@@ -207,11 +264,13 @@ public sealed class WorkspacesControllerTests
             Result<WorkspaceDetailResponse>.Failure("Not configured.");
         public Result<WorkspaceCapabilitiesResponse> CapabilityResult { get; init; } =
             Result<WorkspaceCapabilitiesResponse>.Failure("Not configured.");
+        public Result<IReadOnlyList<WorkspaceDashboardListItemResponse>> ListResult { get; init; } =
+            Result<IReadOnlyList<WorkspaceDashboardListItemResponse>>.Failure("Not configured.");
         public Result RestoreResult { get; init; } = Result.Failure("Not configured.");
         public string? ClientRequestIdentity { get; private set; }
 
-        public Task<Result<IReadOnlyList<WorkspaceListItemResponse>>> ListAsync(CancellationToken cancellationToken = default) =>
-            throw new NotSupportedException();
+        public Task<Result<IReadOnlyList<WorkspaceDashboardListItemResponse>>> ListAsync(CancellationToken cancellationToken = default) =>
+            Task.FromResult(ListResult);
 
         public Task<Result<IReadOnlyList<WorkspaceListItemResponse>>> ListArchivedAsync(CancellationToken cancellationToken = default) =>
             throw new NotSupportedException();

@@ -1,26 +1,23 @@
-import { HttpClient, HttpErrorResponse } from '@angular/common/http';
+import { HttpClient } from '@angular/common/http';
 import { inject, Injectable, InjectionToken, signal } from '@angular/core';
 
+import { normalizeApiError } from '../../core/api/api-error.adapter';
 import { AuthSessionFacade } from '../../core/auth/auth-session.facade';
 import { ActiveWorkspaceFacade } from '../../core/workspace/active-workspace.facade';
 import {
+  mapWorkspaceDashboardResponse,
+  mapWorkspacePageCapabilities,
+  WorkspaceCapabilitiesEnvelopeDto,
+} from './workspaces.api';
+import {
   WorkspaceCardViewModel,
   WorkspaceDashboardViewModel,
-  WorkspaceRoleLabel,
+  WorkspacePageCapability,
 } from './workspaces.types';
 
 export const AIP_WORKSPACES_DASHBOARD_MOCK = new InjectionToken<WorkspaceDashboardViewModel>(
   'AIP_WORKSPACES_DASHBOARD_MOCK',
 );
-
-interface WorkspaceListItemDto {
-  readonly id?: unknown;
-  readonly name?: unknown;
-  readonly description?: unknown;
-  readonly status?: unknown;
-  readonly updatedAt?: unknown;
-  readonly createdAt?: unknown;
-}
 
 @Injectable({
   providedIn: 'root',
@@ -33,6 +30,7 @@ export class WorkspacesFacade {
   private readonly dashboardState = signal<WorkspaceDashboardViewModel>(
     this.mockDashboard ?? this.emptyDashboard('loading'),
   );
+  private pageCapabilities: readonly WorkspacePageCapability[] = [];
 
   readonly dashboard = this.dashboardState.asReadonly();
 
@@ -43,18 +41,45 @@ export class WorkspacesFacade {
   }
 
   loadWorkspaces(): void {
+    this.pageCapabilities = [];
+    this.dashboardState.set(this.emptyDashboard('loading'));
+    this.loadCapabilities();
+
+    this.http.get<unknown>('/api/workspaces', { withCredentials: true }).subscribe({
+      next: (workspaces) => this.applyWorkspaceResponse(workspaces),
+      error: (error: unknown) => this.applyWorkspaceError(error),
+    });
+  }
+
+  private loadCapabilities(): void {
     this.http
-      .get<readonly WorkspaceListItemDto[]>('/api/workspaces', { withCredentials: true })
+      .get<WorkspaceCapabilitiesEnvelopeDto>('/api/workspaces/capabilities', {
+        withCredentials: true,
+      })
       .subscribe({
-        next: (workspaces) => this.applyWorkspaceResponse(workspaces),
-        error: (error: unknown) => this.applyWorkspaceError(error),
+        next: (response) => {
+          this.pageCapabilities = mapWorkspacePageCapabilities(response);
+          this.applyPageCapabilities();
+        },
+        error: () => {
+          this.pageCapabilities = [];
+          this.applyPageCapabilities();
+        },
       });
   }
 
-  private applyWorkspaceResponse(workspaces: readonly WorkspaceListItemDto[]): void {
-    const cards = workspaces
-      .map((workspace) => this.toWorkspaceCard(workspace))
-      .filter((workspace) => workspace.id.length > 0);
+  private applyWorkspaceResponse(response: unknown): void {
+    let cards: readonly WorkspaceCardViewModel[];
+    try {
+      cards = mapWorkspaceDashboardResponse(response);
+    } catch {
+      this.activeWorkspace.clearWorkspace();
+      this.dashboardState.set({
+        ...this.emptyDashboard('error'),
+        message: 'Workspace APIの応答形式が正しくありません。',
+      });
+      return;
+    }
 
     this.activeWorkspace.setActiveWorkspace(
       cards[0] ? { id: cards[0].id, label: cards[0].displayName } : null,
@@ -63,6 +88,7 @@ export class WorkspacesFacade {
     if (cards.length === 0) {
       this.dashboardState.set({
         ...this.emptyDashboard('noWorkspaceAccess'),
+        pageCapabilities: this.pageCapabilities,
         message: this.emptyWorkspaceMessage(),
       });
       return;
@@ -71,21 +97,31 @@ export class WorkspacesFacade {
     this.dashboardState.set({
       ...this.emptyDashboard('ready'),
       workspaces: cards,
-      partialSummaryUnavailable: true,
-      message: '一部の集計情報はまだAPI未実装です。',
+      pageCapabilities: this.pageCapabilities,
     });
   }
 
   private applyWorkspaceError(error: unknown): void {
     this.activeWorkspace.clearWorkspace();
-    const httpError = error instanceof HttpErrorResponse ? error : null;
-    const status = httpError?.status;
+    const status = normalizeApiError(error).httpStatus;
     const permissionDenied = status === 401 || status === 403;
 
     this.dashboardState.set({
       ...this.emptyDashboard(permissionDenied ? 'permissionDenied' : 'error'),
       message: workspaceErrorMessage(status),
     });
+  }
+
+  private applyPageCapabilities(): void {
+    const status = this.dashboardState().status;
+    if (status !== 'ready' && status !== 'noWorkspaceAccess') {
+      return;
+    }
+
+    this.dashboardState.update((dashboard) => ({
+      ...dashboard,
+      pageCapabilities: this.pageCapabilities,
+    }));
   }
 
   private emptyWorkspaceMessage(): string {
@@ -106,33 +142,7 @@ export class WorkspacesFacade {
       subtitle: '参加中のWorkspace',
       workspaces: [],
       pageCapabilities: [],
-      partialSummaryUnavailable: false,
     };
-  }
-
-  private toWorkspaceCard(workspace: WorkspaceListItemDto): WorkspaceCardViewModel {
-    const updatedAt = stringValue(workspace.updatedAt) ?? stringValue(workspace.createdAt);
-
-    return {
-      id: stringValue(workspace.id) ?? '',
-      displayName: stringValue(workspace.name) ?? 'Workspace',
-      roleLabel: this.roleLabel(),
-      unreadAnnouncementCount: null,
-      unreadConversationCount: null,
-      activeProjectCount: null,
-      lastUpdatedLabel: updatedAt ? new Date(updatedAt).toLocaleDateString('ja-JP') : null,
-      availability: {
-        unreadAnnouncements: false,
-        unreadConversations: false,
-        activeProjects: false,
-        lastUpdated: updatedAt !== undefined,
-      },
-      capabilities: ['openMembers', 'openProjects'],
-    };
-  }
-
-  private roleLabel(): WorkspaceRoleLabel {
-    return 'メンバー';
   }
 }
 
@@ -158,8 +168,4 @@ function workspaceErrorMessage(status: number | undefined): string {
   }
 
   return 'Workspaceを取得できません。';
-}
-
-function stringValue(value: unknown): string | undefined {
-  return typeof value === 'string' && value.length > 0 ? value : undefined;
 }

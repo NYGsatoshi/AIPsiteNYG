@@ -290,7 +290,7 @@ public sealed class WpcFinal03WorkspaceMembershipBoundaryTests
             return Task.FromResult(AddMemberResult);
         }
 
-        public Task<Result<IReadOnlyList<WorkspaceListItemResponse>>> ListAsync(CancellationToken cancellationToken = default) => throw new NotSupportedException();
+        public Task<Result<IReadOnlyList<WorkspaceDashboardListItemResponse>>> ListAsync(CancellationToken cancellationToken = default) => throw new NotSupportedException();
         public Task<Result<IReadOnlyList<WorkspaceListItemResponse>>> ListArchivedAsync(CancellationToken cancellationToken = default) => throw new NotSupportedException();
         public Task<Result<WorkspaceCapabilitiesResponse>> GetCapabilitiesAsync(CancellationToken cancellationToken = default) => throw new NotSupportedException();
         public Task<Result<WorkspaceDetailResponse>> CreateAsync(CreateWorkspaceRequest request, string? clientRequestIdentity, CancellationToken cancellationToken = default) => throw new NotSupportedException();

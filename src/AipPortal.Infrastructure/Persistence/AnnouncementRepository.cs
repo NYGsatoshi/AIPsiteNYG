@@ -14,7 +14,7 @@ public sealed class AnnouncementRepository(
 {
     public async Task<PagedResponse<Announcement>> ListVisibleAsync(Guid userId, bool isSystemAdmin, AnnouncementListQuery query, CancellationToken cancellationToken = default)
     {
-        var source = VisibleAnnouncements(userId, isSystemAdmin)
+        var source = dbContext.VisibleAnnouncementsFor(userId, isSystemAdmin, clock.UtcNow)
             .Where(announcement =>
                 (!query.WorkspaceId.HasValue || announcement.WorkspaceId == query.WorkspaceId) &&
                 (!query.GroupId.HasValue || announcement.GroupId == query.GroupId) &&
@@ -38,7 +38,8 @@ public sealed class AnnouncementRepository(
 
     public Task<bool> IsVisibleToUserAsync(Guid announcementId, Guid userId, bool isSystemAdmin, CancellationToken cancellationToken = default)
     {
-        return VisibleAnnouncements(userId, isSystemAdmin).AnyAsync(announcement => announcement.Id == announcementId, cancellationToken);
+        return dbContext.VisibleAnnouncementsFor(userId, isSystemAdmin, clock.UtcNow)
+            .AnyAsync(announcement => announcement.Id == announcementId, cancellationToken);
     }
 
     public Task<bool> HasReadAsync(Guid announcementId, Guid userId, CancellationToken cancellationToken = default)
@@ -209,6 +210,7 @@ public sealed class AnnouncementRepository(
             .Distinct();
 
         return await dbContext.Users
+            .AsNoTracking()
             .Where(user =>
                 userIds.Contains(user.Id) &&
                 user.Status == UserStatus.Active &&
@@ -228,101 +230,4 @@ public sealed class AnnouncementRepository(
         return dbContext.AnnouncementReads.CountAsync(read => read.AnnouncementId == announcementId, cancellationToken);
     }
 
-    private IQueryable<Announcement> VisibleAnnouncements(Guid userId, bool isSystemAdmin)
-    {
-        var now = clock.UtcNow;
-        var baseQuery = dbContext.Announcements
-            .AsNoTracking()
-            .Where(announcement =>
-                announcement.DeletedAt == null &&
-                announcement.PublishedAt <= now &&
-                (!announcement.ExpiresAt.HasValue || announcement.ExpiresAt.Value > now));
-
-        if (isSystemAdmin)
-        {
-            return baseQuery;
-        }
-
-        return baseQuery.Where(announcement =>
-            dbContext.TenantUsers.Any(member =>
-                member.TenantId == announcement.TenantId &&
-                member.UserId == userId &&
-                member.Status == TenantUserStatus.Active) &&
-            (
-                (!announcement.ChannelId.HasValue &&
-                 !announcement.GroupId.HasValue &&
-                 !announcement.WorkspaceId.HasValue) ||
-                (announcement.ChannelId.HasValue &&
-                 announcement.GroupId.HasValue &&
-                 announcement.WorkspaceId.HasValue &&
-                 dbContext.Channels.Any(channel =>
-                     channel.Id == announcement.ChannelId.Value &&
-                     channel.TenantId == announcement.TenantId &&
-                     channel.GroupId == announcement.GroupId.Value &&
-                     channel.WorkspaceId == announcement.WorkspaceId.Value &&
-                     channel.DeletedAt == null &&
-                     channel.Status == ChannelStatus.Active &&
-                     dbContext.Groups.Any(group =>
-                         group.Id == channel.GroupId &&
-                         group.TenantId == announcement.TenantId &&
-                         group.WorkspaceId == channel.WorkspaceId &&
-                         group.DeletedAt == null &&
-                         group.Status == GroupStatus.Active) &&
-                     dbContext.Workspaces.Any(workspace =>
-                         workspace.Id == channel.WorkspaceId &&
-                         workspace.TenantId == announcement.TenantId &&
-                         workspace.DeletedAt == null &&
-                         workspace.Status == WorkspaceStatus.Active) &&
-                     dbContext.WorkspaceMembers.Any(workspaceMember =>
-                         workspaceMember.TenantId == announcement.TenantId &&
-                         workspaceMember.WorkspaceId == channel.WorkspaceId &&
-                         workspaceMember.UserId == userId &&
-                         workspaceMember.Status == MembershipStatus.Active) &&
-                     ((channel.Type == ChannelType.Public || channel.Type == ChannelType.Announcement)
-                         ? dbContext.GroupMembers.Any(groupMember =>
-                             groupMember.TenantId == announcement.TenantId &&
-                             groupMember.GroupId == channel.GroupId &&
-                             groupMember.UserId == userId)
-                         : dbContext.ChannelMembers.Any(channelMember =>
-                             channelMember.TenantId == announcement.TenantId &&
-                             channelMember.ChannelId == channel.Id &&
-                             channelMember.UserId == userId)))) ||
-                (!announcement.ChannelId.HasValue &&
-                 announcement.GroupId.HasValue &&
-                 announcement.WorkspaceId.HasValue &&
-                 dbContext.Groups.Any(group =>
-                     group.Id == announcement.GroupId.Value &&
-                     group.TenantId == announcement.TenantId &&
-                     group.WorkspaceId == announcement.WorkspaceId.Value &&
-                     group.DeletedAt == null &&
-                     group.Status == GroupStatus.Active &&
-                     dbContext.Workspaces.Any(workspace =>
-                         workspace.Id == group.WorkspaceId &&
-                         workspace.TenantId == announcement.TenantId &&
-                         workspace.DeletedAt == null &&
-                         workspace.Status == WorkspaceStatus.Active) &&
-                     dbContext.WorkspaceMembers.Any(workspaceMember =>
-                         workspaceMember.TenantId == announcement.TenantId &&
-                         workspaceMember.WorkspaceId == group.WorkspaceId &&
-                         workspaceMember.UserId == userId &&
-                         workspaceMember.Status == MembershipStatus.Active) &&
-                     dbContext.GroupMembers.Any(groupMember =>
-                         groupMember.TenantId == announcement.TenantId &&
-                         groupMember.GroupId == group.Id &&
-                         groupMember.UserId == userId))) ||
-                (!announcement.ChannelId.HasValue &&
-                 !announcement.GroupId.HasValue &&
-                 announcement.WorkspaceId.HasValue &&
-                 dbContext.Workspaces.Any(workspace =>
-                     workspace.Id == announcement.WorkspaceId.Value &&
-                     workspace.TenantId == announcement.TenantId &&
-                     workspace.DeletedAt == null &&
-                     workspace.Status == WorkspaceStatus.Active) &&
-                 dbContext.WorkspaceMembers.Any(member =>
-                     member.TenantId == announcement.TenantId &&
-                     member.WorkspaceId == announcement.WorkspaceId.Value &&
-                     member.UserId == userId &&
-                     member.Status == MembershipStatus.Active))
-            ));
-    }
 }
