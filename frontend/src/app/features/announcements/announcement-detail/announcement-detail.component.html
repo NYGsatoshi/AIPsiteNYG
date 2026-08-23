@@ -2,12 +2,27 @@
   <article class="announcement-detail" data-testid="announcement-detail">
     <header class="announcement-detail__header">
       <div>
-        <p class="announcement-detail__state">{{ announcement.publicationState === 'draft' ? '下書き' : '公開' }}</p>
+        <p class="announcement-detail__state">
+          <app-announcement-publication-status
+            [state]="announcement.publicationState"
+            [scheduledAtLabel]="announcement.scheduledAtLabel"
+            [timeZoneLabel]="announcement.timeZoneLabel"
+          />
+        </p>
         <h2 data-testid="announcement-detail-title">{{ announcement.title }}</h2>
       </div>
 
-      @if (canEdit && announcement.capabilities.includes('editAnnouncement')) {
-        <button class="announcement-detail__edit" type="button" (click)="editRequested.emit(announcement.id)" data-testid="edit-announcement-action">
+      @if (
+        canEdit &&
+        announcement.capabilities.includes('editAnnouncement') &&
+        announcement.publicationState !== 'archived'
+      ) {
+        <button
+          class="announcement-detail__edit"
+          type="button"
+          (click)="editRequested.emit(announcement.id)"
+          data-testid="edit-announcement-action"
+        >
           編集
         </button>
       }
@@ -25,8 +40,17 @@
         <dd><app-announcement-audience-preview [audienceScope]="announcement.audienceScope" /></dd>
       </div>
       <div>
-        <dt>公開日時</dt>
-        <dd>{{ announcement.publishedAtLabel }}</dd>
+        <dt>{{ announcement.publicationState === 'scheduled' ? '公開予定' : '公開日時' }}</dt>
+        <dd>
+          @if (announcement.publicationState === 'scheduled') {
+            <span>{{ announcement.scheduledAtLabel || '未設定' }}</span>
+            @if (announcement.timeZoneLabel) {
+              <span>（{{ announcement.timeZoneLabel }}）</span>
+            }
+          } @else {
+            {{ announcement.publishedAtLabel }}
+          }
+        </dd>
       </div>
       <div>
         <dt>既読確認</dt>
