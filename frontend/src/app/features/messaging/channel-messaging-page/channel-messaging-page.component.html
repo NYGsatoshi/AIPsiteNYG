@@ -44,6 +44,7 @@
           [draft]="vm.draft"
           [disabled]="!canPost()"
           [sending]="vm.sending"
+          [sendState]="vm.sendState"
           [disabledReason]="composerDisabledReason()"
           [attachmentDisabledLabel]="vm.conversation.attachment.label"
           (draftChange)="facade.setDraft($event)"
