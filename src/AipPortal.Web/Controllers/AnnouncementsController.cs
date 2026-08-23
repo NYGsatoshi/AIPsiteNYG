@@ -6,12 +6,20 @@ namespace AipPortal.Web.Controllers;
 
 [ApiController]
 [Authorize]
-public sealed class AnnouncementsController(IAnnouncementService announcements) : ControllerBase
+public sealed class AnnouncementsController(
+    IAnnouncementService announcements,
+    IAnnouncementAudienceService audiences) : ControllerBase
 {
     [HttpGet("api/announcements")]
     public async Task<IActionResult> List([FromQuery] AnnouncementListQuery query, CancellationToken cancellationToken)
     {
         return ToActionResult(await announcements.ListAsync(query, cancellationToken));
+    }
+
+    [HttpGet("api/announcements/audiences")]
+    public async Task<IActionResult> Audiences(CancellationToken cancellationToken)
+    {
+        return ToActionResult(await audiences.ListAsync(cancellationToken));
     }
 
     [HttpPost("api/announcements")]
