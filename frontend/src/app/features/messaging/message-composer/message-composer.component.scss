@@ -62,6 +62,54 @@ textarea:disabled {
   font-weight: 700;
 }
 
+.composer__mention-tools {
+  display: grid;
+  gap: 6px;
+  min-width: 0;
+  padding: 8px 10px;
+  border: 1px solid var(--aip-color-border-default);
+  border-radius: 8px;
+  background: var(--aip-color-bg-surface-subtle);
+}
+
+.composer__mention-label {
+  color: var(--aip-color-text-secondary);
+  font-size: 0.78rem;
+  font-weight: 900;
+}
+
+.composer__mention-candidates {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  min-width: 0;
+}
+
+.composer__mention-candidate {
+  min-height: 36px;
+  max-width: 100%;
+  border: 1px solid var(--aip-color-border-strong);
+  border-radius: 999px;
+  padding: 4px 10px;
+  background: var(--aip-color-bg-surface);
+  color: var(--aip-color-text-primary);
+  font: inherit;
+  font-size: 0.8rem;
+  font-weight: 800;
+  overflow-wrap: anywhere;
+  cursor: pointer;
+}
+
+.composer__mention-candidate:focus-visible {
+  outline: var(--aip-focus-outline);
+  outline-offset: var(--aip-focus-offset);
+}
+
+.composer__mention-candidate[aria-pressed='true'] {
+  border-width: 2px;
+  cursor: default;
+}
+
 .composer__status {
   padding: 8px 10px;
   border-radius: 6px;
