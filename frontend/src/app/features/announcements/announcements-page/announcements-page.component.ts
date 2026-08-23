@@ -6,7 +6,7 @@ import { AnnouncementDetailComponent } from '../announcement-detail/announcement
 import { AnnouncementEditorComponent } from '../announcement-editor/announcement-editor.component';
 import { AnnouncementListComponent } from '../announcement-list/announcement-list.component';
 import { AnnouncementsFacade } from '../announcements.facade';
-import { AnnouncementViewModel } from '../announcements.types';
+import { AnnouncementEditorSubmission, AnnouncementViewModel } from '../announcements.types';
 
 @Component({
   selector: 'app-announcements-page',
@@ -61,9 +61,8 @@ export class AnnouncementsPageComponent implements OnDestroy {
   }
 
   showCreateEditor(): void {
-    if (this.canCreate()) {
+    if (this.canCreate() && this.facade.beginCreate()) {
       this.editorVisible.set(true);
-      this.facade.setEditorActive(true);
     }
   }
 
@@ -72,6 +71,10 @@ export class AnnouncementsPageComponent implements OnDestroy {
       this.editorVisible.set(true);
       this.facade.setEditorActive(true);
     }
+  }
+
+  publishAnnouncement(submission: AnnouncementEditorSubmission): void {
+    this.facade.createAnnouncement(submission);
   }
 
   ngOnDestroy(): void {
