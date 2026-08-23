@@ -166,6 +166,48 @@ describe('AnnouncementsFacade', () => {
     expect(facade.page().announcements[0].audienceScope).toBe('group');
   });
 
+  it('preserves the draft and disables publish when server authorization changes', () => {
+    const workspaceId = '11111111-1111-1111-1111-111111111111';
+    const audienceDto = {
+      key: `workspace:${workspaceId}`,
+      scopeType: 'workspace',
+      workspaceId,
+      groupId: null,
+      channelId: null,
+      displayName: 'School',
+      estimatedRecipientCount: 1248,
+    };
+
+    httpMock.expectOne('/api/announcements').flush({ items: [] });
+    httpMock.expectOne('/api/announcements/audiences').flush([audienceDto]);
+    expect(facade.beginCreate()).toBe(true);
+    const audience = facade.page().editorDraft!.availableAudiences[0];
+
+    facade.createAnnouncement({
+      title: 'Preserved title',
+      body: 'Preserved body',
+      priority: 'critical',
+      audience,
+      requiresReadConfirmation: true,
+    });
+
+    httpMock
+      .expectOne('/api/announcements')
+      .flush({ error: 'not authorized' }, { status: 400, statusText: 'Bad Request' });
+    httpMock.expectOne('/api/announcements/audiences').flush([]);
+
+    expect(facade.page().editorDraft).toEqual({
+      title: 'Preserved title',
+      body: 'Preserved body',
+      priority: 'critical',
+      audienceKey: '',
+      availableAudiences: [],
+      requiresReadConfirmation: true,
+    });
+    expect(facade.page().pageCapabilities).not.toContain('createAnnouncement');
+    expect(facade.page().message).toContain('対象を再確認');
+  });
+
   it('fails closed when authorized audience loading fails', () => {
     httpMock.expectOne('/api/announcements').flush({ items: [] });
     httpMock
