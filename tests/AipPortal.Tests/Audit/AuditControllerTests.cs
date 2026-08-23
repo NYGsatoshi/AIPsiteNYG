@@ -200,9 +200,9 @@ public sealed class AuditControllerTests
     }
 
     private sealed class CapturingAuditQueryService(
-        IReadOnlyCollection<SecurityEventListItemResponse>? securityEvents = null) : IAuditQueryService
+        IReadOnlyList<SecurityEventListItemResponse>? securityEvents = null) : IAuditQueryService
     {
-        private readonly IReadOnlyCollection<SecurityEventListItemResponse> securityEvents = securityEvents ?? [];
+        private readonly IReadOnlyList<SecurityEventListItemResponse> securityEvents = securityEvents ?? [];
 
         public AuditLogQuery? LastGridQuery { get; private set; }
 
