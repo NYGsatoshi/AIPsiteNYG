@@ -197,12 +197,16 @@ describe('AnnouncementsFacade', () => {
     httpMock.expectOne('/api/announcements/audiences').flush([]);
 
     expect(facade.page().editorDraft).toEqual({
+      id: undefined,
       title: 'Preserved title',
       body: 'Preserved body',
       priority: 'critical',
       audienceKey: '',
       availableAudiences: [],
       requiresReadConfirmation: true,
+      publicationState: 'draft',
+      scheduledAtLabel: undefined,
+      timeZoneLabel: undefined,
     });
     expect(facade.page().pageCapabilities).not.toContain('createAnnouncement');
     expect(facade.page().message).toContain('対象を再確認');
