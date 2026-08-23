@@ -73,8 +73,12 @@ export class MessageNavigationStateService {
 
   private effectiveScrollHost(): HTMLElement | null {
     const hosts = this.scrollHosts();
-    const active = hosts.find((host) => host.scrollTop > 0 || host.scrollHeight > host.clientHeight + 1);
-    return active ?? hosts[0] ?? null;
+    return (
+      hosts.find((host) => host.scrollTop > 0) ??
+      hosts.find((host) => host.scrollHeight > host.clientHeight + 1) ??
+      hosts[0] ??
+      null
+    );
   }
 
   private scrollHosts(): HTMLElement[] {
