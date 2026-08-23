@@ -63,6 +63,7 @@ export class AppDataGridComponent<TData extends object> implements OnInit, After
   /** Target-limited internal migration switch; feature code remains vendor-neutral. */
   @Input() migrationTarget?: AppDataGridMigrationTarget;
   @Input() selectionMode: AppDataGridSelectionMode = 'none';
+  @Input() rowHeight?: number;
   @Input() page = 1;
   @Input() error: string | null = null;
   @Input() emptyState: string | null = null;
@@ -107,8 +108,24 @@ export class AppDataGridComponent<TData extends object> implements OnInit, After
         : undefined,
       valueFormatter: column.valueFormatter
         ? (params) => column.valueFormatter?.({ data: params.data, value: params.value })
-        : undefined
+        : undefined,
+      // Existing feature-owned renderers remain authoritative. The generic
+      // vendor-neutral action renderer is only the fallback for columns that
+      // declare action metadata without their own renderer (Files #337).
+      cellRenderer: column.cellRenderer ?? (column.actions
+        ? (params: { data?: TData }) => this.renderActions(column, params.data)
+        : undefined)
     })) as unknown as ColDef<TData>[];
+  }
+
+  get rowSelection(): GridOptions<TData>['rowSelection'] {
+    if (this.selectionMode === 'none') {
+      return undefined;
+    }
+
+    return this.selectionMode === 'multiple'
+      ? { mode: 'multiRow', checkboxes: true, headerCheckbox: true, enableClickSelection: false }
+      : { mode: 'singleRow', checkboxes: true, enableClickSelection: false };
   }
 
   get rowData(): TData[] {
@@ -167,6 +184,49 @@ export class AppDataGridComponent<TData extends object> implements OnInit, After
     this.actionInvoked.emit({ actionId, row: event.data, trigger: actionTarget });
   }
 
+  handleSelectionChanged(event: { api: { getSelectedRows(): TData[] } }): void {
+    if (this.selectionMode === 'none') {
+      return;
+    }
+    this.selectionChanged.emit({ rows: event.api.getSelectedRows() });
+  }
+
+  private renderActions(column: AppDataGridColumnDef<TData>, row: TData | undefined): HTMLElement | string {
+    if (!row || !column.actions) {
+      return '';
+    }
+
+    const actions = column.actions(row);
+    const container = document.createElement('div');
+    container.className = 'app-grid-actions';
+
+    if (actions.length === 0) {
+      const empty = document.createElement('span');
+      empty.className = 'app-grid-actions__empty';
+      empty.textContent = 'No actions';
+      container.append(empty);
+      return container;
+    }
+
+    for (const action of actions) {
+      const button = document.createElement('button');
+      button.type = 'button';
+      button.className = action.destructive
+        ? 'app-grid-actions__button app-grid-actions__button--danger'
+        : 'app-grid-actions__button';
+      button.textContent = action.label;
+      button.dataset['gridAction'] = action.id;
+      button.setAttribute('aria-label', action.label);
+      button.setAttribute('aria-disabled', action.disabled ? 'true' : 'false');
+      if (action.disabledReason) {
+        button.title = action.disabledReason;
+      }
+      container.append(button);
+    }
+
+    return container;
+  }
+
   private async loadSyncfusionAdapter(): Promise<void> {
     if (!this.viewReady || this.syncfusionComponent || !this.syncfusionHost) {
       return;
@@ -207,6 +267,7 @@ export class AppDataGridComponent<TData extends object> implements OnInit, After
     component.setInput('rowIdField', this.rowIdField);
     component.setInput('ariaLabel', this.ariaLabel);
     component.setInput('selectionMode', this.selectionMode);
+    component.setInput('rowHeight', this.rowHeight);
     component.setInput('page', this.page);
     component.setInput('error', this.error);
     component.setInput('emptyState', this.emptyState);
