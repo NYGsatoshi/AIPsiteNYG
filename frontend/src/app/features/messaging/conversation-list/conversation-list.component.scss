@@ -25,9 +25,25 @@
   border-color: var(--aip-color-border-strong);
 }
 
+.conversation-list__item:focus-visible {
+  outline: 3px solid var(--aip-color-action-primary);
+  outline-offset: 3px;
+}
+
+.conversation-list__item--selected {
+  border-width: 2px;
+  border-color: var(--aip-color-border-strong);
+  padding: 11px;
+  box-shadow: inset 4px 0 0 var(--aip-color-action-primary);
+}
+
 .conversation-list__title {
   min-width: 0;
   overflow-wrap: anywhere;
+  font-weight: 700;
+}
+
+.conversation-list__item--unread .conversation-list__title {
   font-weight: 900;
 }
 
@@ -46,14 +62,45 @@
   white-space: nowrap;
 }
 
-.conversation-list__badge {
-  justify-self: end;
-  min-width: 24px;
+.conversation-list__states {
+  grid-column: 1 / -1;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  align-items: center;
+}
+
+.conversation-list__state {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  min-height: 24px;
   border-radius: 999px;
   padding: 2px 8px;
+  font-size: 0.78rem;
+  font-weight: 800;
+  line-height: 1.2;
+}
+
+.conversation-list__state--selected {
+  border: 2px solid var(--aip-color-border-strong);
+  background: var(--aip-color-bg-surface);
+  color: var(--aip-color-text-primary);
+}
+
+.conversation-list__state--unread {
+  color: var(--aip-color-text-primary);
+}
+
+.conversation-list__unread-dot {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: var(--aip-color-action-primary);
+  flex: 0 0 8px;
+}
+
+.conversation-list__state--mention {
   background: var(--aip-color-action-primary);
   color: var(--aip-color-text-inverse);
-  text-align: center;
-  font-size: 0.8rem;
-  font-weight: 900;
 }
