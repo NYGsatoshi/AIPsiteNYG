@@ -1254,7 +1254,10 @@ public sealed class TaskV1Pr05KanbanHostedHttpTests
             CreatedByUserId = owner.Id,
             Name = name,
             Slug = slug,
-            Status = ProjectStatus.Active
+            Status = ProjectStatus.Active,
+            ActivationState = ProjectActivationState.Activated,
+            ActivatedAtUtc = DateTimeOffset.UtcNow,
+            ActivationVersion = 1
         };
 
         private static TaskItem Task(

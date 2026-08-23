@@ -25,7 +25,9 @@ public sealed class FileAuthorizationService(
 
         if (owner.ProjectId.HasValue)
         {
-            return await projects.CanViewProject(userId, owner.ProjectId.Value, cancellationToken);
+            // Project visibility is a read/discovery input. File mutation must
+            // use the explicit Project contribution boundary.
+            return await projects.CanContributeProject(userId, owner.ProjectId.Value, cancellationToken);
         }
 
         if (owner.ConversationId.HasValue)
@@ -84,8 +86,16 @@ public sealed class FileAuthorizationService(
 
     public async Task<bool> CanDeleteAttachment(Guid userId, Attachment attachment, CancellationToken cancellationToken = default)
     {
-        if (attachment.DeletedAt.HasValue)
+        if (attachment.DeletedAt.HasValue || !attachment.OwnerType.HasValue || !attachment.OwnerId.HasValue)
         {
+            return false;
+        }
+
+        var owner = await files.ResolveOwnerAsync(attachment.OwnerType.Value, attachment.OwnerId.Value, cancellationToken);
+        if (owner is null || !await CanMutateOwnerAsync(userId, owner, cancellationToken))
+        {
+            // Historical uploader/owner identity is attribution, not a durable
+            // capability. Current owner-scope authorization is always required.
             return false;
         }
 
@@ -94,13 +104,33 @@ public sealed class FileAuthorizationService(
             return true;
         }
 
-        if (!attachment.OwnerType.HasValue || !attachment.OwnerId.HasValue)
+        // Explicit Project managers may moderate another contributor's
+        // attachment, but Workspace governance alone cannot bypass the current
+        // Project contribution boundary enforced above.
+        return owner.ProjectId.HasValue &&
+               await projects.CanManageProject(userId, owner.ProjectId.Value, cancellationToken);
+    }
+
+    private async Task<bool> CanMutateOwnerAsync(
+        Guid userId,
+        FileOwnerContext owner,
+        CancellationToken cancellationToken)
+    {
+        if (owner.ProjectId.HasValue)
         {
-            return false;
+            return await projects.CanContributeProject(userId, owner.ProjectId.Value, cancellationToken);
         }
 
-        var owner = await files.ResolveOwnerAsync(attachment.OwnerType.Value, attachment.OwnerId.Value, cancellationToken);
-        return owner?.ProjectId.HasValue == true &&
-            await projects.CanManageProject(userId, owner.ProjectId.Value, cancellationToken);
+        if (owner.ConversationId.HasValue)
+        {
+            return await conversations.CanSendMessage(userId, owner.ConversationId.Value, cancellationToken);
+        }
+
+        if (owner.ChannelId.HasValue)
+        {
+            return await channels.CanPostToChannel(userId, owner.ChannelId.Value, cancellationToken);
+        }
+
+        return await workspaces.CanContributeWorkspace(userId, owner.WorkspaceId, cancellationToken);
     }
 }
