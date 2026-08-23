@@ -43,6 +43,13 @@ export const routes: Routes = [
         redirectTo: 'workspaces'
       },
       {
+        path: 'messages/settings',
+        loadComponent: () =>
+          import('./features/messaging/message-settings-page/message-settings-page.component').then(
+            (m) => m.MessageSettingsPageComponent
+          )
+      },
+      {
         path: 'messages',
         loadComponent: () =>
           import('./features/messaging/messages-page/messages-page.component').then(

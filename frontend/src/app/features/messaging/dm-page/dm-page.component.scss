@@ -23,6 +23,12 @@
   gap: 16px;
 }
 
+.dm-page__header-actions {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
 .dm-page__header h1,
 .dm-page__header p {
   margin: 0;
@@ -99,6 +105,10 @@
   .dm-page__header {
     display: grid;
     align-items: stretch;
+  }
+
+  .dm-page__header-actions {
+    display: grid;
   }
 
   .dm-page__header button {

@@ -3,6 +3,8 @@ import { takeUntilDestroyed } from '@angular/core/rxjs-interop';
 import { ActivatedRoute, RouterLink } from '@angular/router';
 
 import { ConversationListComponent } from '../conversation-list/conversation-list.component';
+import { ConversationSettingsPanelComponent } from '../conversation-settings-panel/conversation-settings-panel.component';
+import { MessageGlobalSettingsService } from '../message-global-settings.service';
 import { MessageComposerComponent } from '../message-composer/message-composer.component';
 import { MessageNavigationStateService } from '../message-navigation-state.service';
 import { MessageTimelineComponent } from '../message-timeline/message-timeline.component';
@@ -15,6 +17,7 @@ import { ThreadPreviewComponent } from '../thread-preview/thread-preview.compone
   standalone: true,
   imports: [
     ConversationListComponent,
+    ConversationSettingsPanelComponent,
     MessageComposerComponent,
     MessageTimelineComponent,
     RouterLink,
@@ -26,6 +29,7 @@ import { ThreadPreviewComponent } from '../thread-preview/thread-preview.compone
 export class ChannelMessagingPageComponent {
   readonly facade = inject(MessagingFacade);
   readonly realtime = inject(RealtimeFacade);
+  readonly globalSettings = inject(MessageGlobalSettingsService);
   private readonly route = inject(ActivatedRoute);
   private readonly navigationState = inject(MessageNavigationStateService);
   readonly page = this.facade.page;

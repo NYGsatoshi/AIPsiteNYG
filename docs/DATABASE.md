@@ -87,6 +87,20 @@ provenance from status, audit, workflow, Channel, or child data.
 
 - User, Session, Invite
 
+### Message notification delivery preference
+
+Migration `20260823054500_AddMessageNotificationPreference` adds the non-null
+`tenant_users.MessageNotificationsEnabled` Boolean column with default `true`.
+The additive default preserves existing Message notification behavior until a
+user explicitly disables it for that Tenant membership.
+
+The preference store always predicates reads and updates on Tenant ID, user ID,
+and active membership status. It is intentionally private current-user state;
+it is not projected through general Tenant membership DTOs. Updating it also
+updates the membership row's existing `UpdatedAt` audit timestamp. The Down
+path removes only the new column; values written to it are not retained after
+rollback.
+
 ### Organization and communication
 
 - Workspace, WorkspaceMember

@@ -3164,7 +3164,13 @@ public sealed class HttpTenantIsolationTests
             services.AddScoped<IPasswordHasher, Pbkdf2PasswordHasher>();
             services.AddScoped<ITokenHasher, Sha256TokenHasher>();
             services.AddScoped<IAuditLogger, DbAuditLogger>();
-            services.AddScoped<INotificationService, DbNotificationService>();
+            // The hosted fixture uses EF InMemory, while the production store is
+            // intentionally a PostgreSQL sidecar and has dedicated PostgreSQL
+            // coverage. Keep delivery enabled here so the real preference-aware
+            // wrapper and pre-save Message path are still exercised end to end.
+            services.AddScoped<IMessageNotificationPreferenceStore, EnabledMessageNotificationPreferenceStore>();
+            services.AddScoped<DbNotificationService>();
+            services.AddScoped<INotificationService, PreferenceAwareNotificationService>();
             services.AddScoped<CurrentAuthorizationTargetResolver>();
             services.AddScoped<INotificationTargetResolver>(provider => provider.GetRequiredService<CurrentAuthorizationTargetResolver>());
             services.AddScoped<INotificationOpenService, NotificationOpenService>();
@@ -3173,6 +3179,23 @@ public sealed class HttpTenantIsolationTests
             services.AddSingleton<IClock, AipPortal.Infrastructure.Security.SystemClock>();
             services.AddScoped<IStudentRecordRepository, StudentRecordRepository>();
         }
+    }
+
+    private sealed class EnabledMessageNotificationPreferenceStore : IMessageNotificationPreferenceStore
+    {
+        public Task<bool?> GetEnabledAsync(
+            Guid tenantId,
+            Guid userId,
+            CancellationToken cancellationToken = default) =>
+            Task.FromResult<bool?>(true);
+
+        public Task<bool> SetEnabledAsync(
+            Guid tenantId,
+            Guid userId,
+            bool value,
+            DateTimeOffset updatedAt,
+            CancellationToken cancellationToken = default) =>
+            Task.FromResult(true);
     }
 
     private sealed class NoopWorkspaceInitializationForCoordinatorTests : IWorkspaceRequiredInitialization

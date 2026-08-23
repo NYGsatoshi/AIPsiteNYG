@@ -442,6 +442,11 @@ public sealed class ConversationService(
         }
         var message = new Message
         {
+            // Notification policy is evaluated before the unit-of-work save that
+            // normally stamps tenant-owned entities. Carry the already-authorized
+            // conversation tenant so preference checks can fail closed without
+            // suppressing every newly posted Message notification.
+            TenantId = conversation.TenantId,
             WorkspaceId = conversation.WorkspaceId,
             ConversationId = conversationId,
             AuthorUserId = userId,

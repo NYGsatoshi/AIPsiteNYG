@@ -23,6 +23,12 @@
   gap: 16px;
 }
 
+.messaging-page__header-actions {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
 .messaging-page__header h1,
 .messaging-page__header p {
   margin: 0;
@@ -110,6 +116,10 @@
 
   .messaging-page__header,
   .messaging-page__layout {
+    display: grid;
+  }
+
+  .messaging-page__header-actions {
     display: grid;
   }
 
