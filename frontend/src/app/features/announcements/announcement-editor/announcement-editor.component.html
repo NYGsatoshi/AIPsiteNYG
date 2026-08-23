@@ -81,6 +81,13 @@
 
   <div class="announcement-editor__actions">
     <button type="button">下書き保存</button>
-    <button type="button" class="announcement-editor__primary">公開</button>
+    <button
+      type="button"
+      class="announcement-editor__primary"
+      data-testid="announcement-publish-action"
+      [disabled]="selectedAudience() === null"
+    >
+      公開
+    </button>
   </div>
 </form>
