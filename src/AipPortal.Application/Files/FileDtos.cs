@@ -50,6 +50,7 @@ public sealed record FileListItemResponse(
     Guid UploadedByUserId,
     string? UploadedByDisplayName,
     DateTimeOffset CreatedAt,
+    DateTimeOffset? UpdatedAt,
     DateTimeOffset? DeletedAt);
 
 public sealed record FileObjectResponse(

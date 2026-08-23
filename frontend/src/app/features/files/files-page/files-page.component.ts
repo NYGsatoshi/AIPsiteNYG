@@ -1,4 +1,4 @@
-import { Component, effect, inject } from '@angular/core';
+import { Component, computed, effect, inject, signal } from '@angular/core';
 
 import { FrontendFeatureFlagsService } from '../../../core/feature-flags/frontend-feature-flags.service';
 import { ActiveWorkspaceFacade } from '../../../core/workspace/active-workspace.facade';
@@ -9,7 +9,10 @@ import { AttachmentPickerDialogComponent } from '../attachment-picker-dialog/att
 import { FileQuotaStateComponent } from '../file-quota-state/file-quota-state.component';
 import { FilesFacade } from '../files.facade';
 import { RecentFilesListComponent } from '../recent-files-list/recent-files-list.component';
-import { FileViewModel } from '../files.types';
+import { FILE_SCAN_STATUS_LABELS, FileViewModel } from '../files.types';
+
+type FileListOptionalColumn = 'type' | 'size' | 'scan';
+type FileListDensity = 'comfortable' | 'compact';
 
 @Component({
   selector: 'app-files-page',
@@ -25,14 +28,62 @@ export class FilesPageComponent {
 
   readonly page = this.facade.page;
   readonly syncfusionUploaderEnabled = this.flags.syncfusionUploaderEnabled;
-  readonly columns: readonly AppDataGridColumnDef<FileViewModel>[] = [
-    { field: 'originalFileName', headerName: 'Name', flex: 2, valueFormatter: ({ value }) => String(value ?? '') },
-    { field: 'contentType', headerName: 'Type', flex: 1 },
-    { field: 'sizeBytes', headerName: 'Size', valueFormatter: ({ value }) => `${Math.round(Number(value ?? 0) / 1024)} KB` },
-    { field: 'scanStatus', headerName: 'Scan' },
-    { field: 'createdAtLabel', headerName: 'Created', flex: 1 },
-    { headerName: 'Actions', actions: (row) => [{ id: 'download', label: row.downloadState === 'pending' ? 'Authorizing' : 'Download', row, disabled: row.downloadPolicy !== 'available' || row.scanStatus !== 'allowed' || row.downloadState === 'pending', disabledReason: row.downloadMessage }] },
+  readonly density = signal<FileListDensity>('comfortable');
+  readonly selectedCount = signal(0);
+  readonly totalPages = computed(() => {
+    const page = this.page();
+    return Math.max(1, Math.ceil(page.totalCount / Math.max(1, page.pageSize)));
+  });
+  readonly optionalColumns = [
+    { id: 'type' as const, label: 'Type' },
+    { id: 'size' as const, label: 'Size' },
+    { id: 'scan' as const, label: 'Scan details' },
   ];
+  private readonly visibleOptionalColumns = signal<ReadonlySet<FileListOptionalColumn>>(new Set());
+
+  readonly columns = computed<readonly AppDataGridColumnDef<FileViewModel>[]>(() => {
+    const visible = this.visibleOptionalColumns();
+    const columns: AppDataGridColumnDef<FileViewModel>[] = [
+      {
+        colId: 'name',
+        headerName: 'Name',
+        flex: 2,
+        minWidth: 220,
+        actions: (row) => [{
+          id: 'open',
+          label: row.originalFileName,
+          row,
+          disabled: row.downloadPolicy !== 'available' || row.scanStatus !== 'allowed' || row.downloadState === 'pending',
+          disabledReason: row.downloadMessage,
+        }],
+      },
+      { field: 'modifiedAtLabel', headerName: 'Modified', flex: 1, minWidth: 150 },
+      { field: 'uploadedByDisplay', headerName: 'Owner', flex: 1, minWidth: 140 },
+      {
+        colId: 'status',
+        headerName: 'Status',
+        minWidth: 130,
+        valueGetter: ({ data }) => data ? FILE_SCAN_STATUS_LABELS[data.scanStatus] : '',
+      },
+    ];
+
+    if (visible.has('type')) {
+      columns.push({ field: 'contentType', headerName: 'Type', flex: 1, minWidth: 160 });
+    }
+    if (visible.has('size')) {
+      columns.push({
+        field: 'sizeBytes',
+        headerName: 'Size',
+        minWidth: 100,
+        valueFormatter: ({ value }) => `${Math.round(Number(value ?? 0) / 1024)} KB`,
+      });
+    }
+    if (visible.has('scan')) {
+      columns.push({ field: 'scanStatus', headerName: 'Scan details', minWidth: 130 });
+    }
+
+    return columns;
+  });
 
   constructor() {
     effect(() => {
@@ -59,7 +110,51 @@ export class FilesPageComponent {
     this.facade.downloadFile(fileObjectId);
   }
 
+  isColumnVisible(column: FileListOptionalColumn): boolean {
+    return this.visibleOptionalColumns().has(column);
+  }
+
+  toggleColumn(column: FileListOptionalColumn, visible: boolean): void {
+    this.visibleOptionalColumns.update((current) => {
+      const next = new Set(current);
+      if (visible) {
+        next.add(column);
+      } else {
+        next.delete(column);
+      }
+      return next;
+    });
+  }
+
+  setDensity(density: FileListDensity): void {
+    this.density.set(density);
+  }
+
+  handleSelectionChanged(event: { rows: readonly FileViewModel[] }): void {
+    this.selectedCount.set(event.rows.length);
+  }
+
+  goToPreviousPage(): void {
+    const current = this.page();
+    if (current.page <= 1) {
+      return;
+    }
+    this.selectedCount.set(0);
+    this.facade.goToPage(current.page - 1);
+  }
+
+  goToNextPage(): void {
+    const current = this.page();
+    if (!current.hasMore) {
+      return;
+    }
+    this.selectedCount.set(0);
+    this.facade.goToPage(current.page + 1);
+  }
+
   handleGridAction(event: { actionId: string; row: FileViewModel }): void {
-    if (event.actionId === 'download' && event.row.canonicalFileId) { this.downloadFile(event.row.canonicalFileId); }
+    if ((event.actionId === 'open' || event.actionId === 'download') && event.row.canonicalFileId) {
+      this.downloadFile(event.row.canonicalFileId);
+    }
   }
 }
