@@ -19,39 +19,58 @@ interface MessageScrollHost {
 @Injectable({ providedIn: 'root' })
 export class MessageNavigationStateService {
   private readonly document = inject(DOCUMENT);
+  private storageUnavailable = false;
 
   rememberListScroll(conversationId?: string): void {
     const window = this.document.defaultView;
     const host = this.effectiveScrollHost();
-    if (!window || !host) {
+    const storage = this.storage();
+    if (!window || !host || !storage) {
       return;
     }
 
-    window.sessionStorage.setItem(
-      LIST_SCROLL_STORAGE_KEY,
-      String(Math.max(0, host.element.scrollTop)),
-    );
-    window.sessionStorage.setItem(LIST_SCROLL_HOST_KEY, host.id);
-    window.sessionStorage.setItem(LIST_SCROLL_PENDING_KEY, '1');
-    if (conversationId) {
-      window.sessionStorage.setItem(LIST_FOCUS_CONVERSATION_KEY, conversationId);
-    } else {
-      window.sessionStorage.removeItem(LIST_FOCUS_CONVERSATION_KEY);
+    try {
+      storage.removeItem(LIST_SCROLL_PENDING_KEY);
+      storage.setItem(LIST_SCROLL_STORAGE_KEY, String(Math.max(0, host.element.scrollTop)));
+      storage.setItem(LIST_SCROLL_HOST_KEY, host.id);
+      if (conversationId) {
+        storage.setItem(LIST_FOCUS_CONVERSATION_KEY, conversationId);
+      } else {
+        storage.removeItem(LIST_FOCUS_CONVERSATION_KEY);
+      }
+      storage.setItem(LIST_SCROLL_PENDING_KEY, '1');
+    } catch {
+      this.clearPendingListScroll(storage);
+      this.storageUnavailable = true;
     }
   }
 
   restoreListScroll(): void {
     const window = this.document.defaultView;
-    if (!window || window.sessionStorage.getItem(LIST_SCROLL_PENDING_KEY) !== '1') {
+    const storage = this.storage();
+    if (!window || !storage) {
       return;
     }
 
-    const stored = window.sessionStorage.getItem(LIST_SCROLL_STORAGE_KEY);
-    const storedHostId = this.scrollHostId(window.sessionStorage.getItem(LIST_SCROLL_HOST_KEY));
-    const focusConversationId = window.sessionStorage.getItem(LIST_FOCUS_CONVERSATION_KEY);
+    let stored: string | null;
+    let storedHostId: MessageScrollHostId | null;
+    let focusConversationId: string | null;
+    try {
+      if (storage.getItem(LIST_SCROLL_PENDING_KEY) !== '1') {
+        return;
+      }
+      stored = storage.getItem(LIST_SCROLL_STORAGE_KEY);
+      storedHostId = this.scrollHostId(storage.getItem(LIST_SCROLL_HOST_KEY));
+      focusConversationId = storage.getItem(LIST_FOCUS_CONVERSATION_KEY);
+    } catch {
+      this.clearPendingListScroll(storage);
+      this.storageUnavailable = true;
+      return;
+    }
+
     const target = stored === null ? Number.NaN : Number(stored);
     if (!Number.isFinite(target) || target < 0) {
-      this.clearPendingListScroll();
+      this.clearPendingListScroll(storage);
       return;
     }
 
@@ -59,7 +78,7 @@ export class MessageNavigationStateService {
     const restore = () => {
       const host = this.restoreScrollHost(storedHostId);
       if (!host) {
-        this.clearPendingListScroll();
+        this.clearPendingListScroll(storage);
         return;
       }
 
@@ -68,7 +87,7 @@ export class MessageNavigationStateService {
 
       if (Math.abs(host.element.scrollTop - target) <= 1 || attemptsRemaining <= 0) {
         this.restoreListFocus(focusConversationId);
-        this.clearPendingListScroll();
+        this.clearPendingListScroll(storage);
         return;
       }
 
@@ -157,15 +176,36 @@ export class MessageNavigationStateService {
     target?.focus({ preventScroll: true });
   }
 
-  private clearPendingListScroll(): void {
-    const window = this.document.defaultView;
-    if (!window) {
+  private storage(): Storage | null {
+    if (this.storageUnavailable) {
+      return null;
+    }
+
+    try {
+      return this.document.defaultView?.sessionStorage ?? null;
+    } catch {
+      this.storageUnavailable = true;
+      return null;
+    }
+  }
+
+  private clearPendingListScroll(storage = this.storage()): void {
+    if (!storage) {
       return;
     }
 
-    window.sessionStorage.removeItem(LIST_SCROLL_STORAGE_KEY);
-    window.sessionStorage.removeItem(LIST_SCROLL_HOST_KEY);
-    window.sessionStorage.removeItem(LIST_SCROLL_PENDING_KEY);
-    window.sessionStorage.removeItem(LIST_FOCUS_CONVERSATION_KEY);
+    for (const key of [
+      LIST_SCROLL_STORAGE_KEY,
+      LIST_SCROLL_HOST_KEY,
+      LIST_SCROLL_PENDING_KEY,
+      LIST_FOCUS_CONVERSATION_KEY,
+    ]) {
+      try {
+        storage.removeItem(key);
+      } catch {
+        // Browser privacy settings can deny storage even when the object is exposed.
+        this.storageUnavailable = true;
+      }
+    }
   }
 }

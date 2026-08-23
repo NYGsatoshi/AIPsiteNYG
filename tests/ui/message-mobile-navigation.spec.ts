@@ -86,7 +86,7 @@ test.describe('Issue #351 mobile Message hierarchy', () => {
 
     const viewportContent = await page.locator('meta[name="viewport"]').getAttribute('content');
     expect(viewportContent).toContain('interactive-widget=resizes-content');
-    expect(viewportContent).toContain('viewport-fit=cover');
+    expect(viewportContent).not.toContain('viewport-fit=cover');
 
     const viewportHeight = await page.evaluate(() => window.innerHeight);
     await expect

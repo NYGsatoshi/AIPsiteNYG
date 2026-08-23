@@ -233,6 +233,63 @@ describe('MessageNavigationStateService', () => {
     expect(scrollTo).not.toHaveBeenCalled();
   });
 
+  it('fails closed when session storage rejects a navigation-state write', () => {
+    installScrollHost(384);
+    installDocumentScrollHost(0, false);
+    const service = TestBed.inject(MessageNavigationStateService);
+    const setItem = Storage.prototype.setItem;
+    vi.spyOn(Storage.prototype, 'setItem').mockImplementation(function (key, value) {
+      if (key === 'aip.messaging.list-scroll-host.v1') {
+        throw new DOMException('Storage quota exceeded', 'QuotaExceededError');
+      }
+      setItem.call(this, key, value);
+    });
+
+    expect(() => service.rememberListScroll('conversation-a')).not.toThrow();
+
+    expect(sessionStorage.getItem('aip.messaging.list-scroll-y.v1')).toBeNull();
+    expect(sessionStorage.getItem('aip.messaging.list-scroll-host.v1')).toBeNull();
+    expect(sessionStorage.getItem('aip.messaging.list-scroll-restore-pending.v1')).toBeNull();
+  });
+
+  it('fails closed when session storage rejects navigation-state reads', () => {
+    const { scrollTo } = installScrollHost();
+    installDocumentScrollHost(0, false);
+    const service = TestBed.inject(MessageNavigationStateService);
+    vi.spyOn(Storage.prototype, 'getItem').mockImplementation(() => {
+      throw new DOMException('Storage access denied', 'SecurityError');
+    });
+    runAnimationFramesImmediately();
+
+    expect(() => service.restoreListScroll()).not.toThrow();
+    expect(scrollTo).not.toHaveBeenCalled();
+  });
+
+  it('fails closed when session storage rejects navigation-state removal', () => {
+    const { scrollTo } = installScrollHost(384);
+    installDocumentScrollHost(0, false);
+    const service = TestBed.inject(MessageNavigationStateService);
+    sessionStorage.setItem('aip.messaging.list-scroll-y.v1', '768');
+    sessionStorage.setItem('aip.messaging.list-scroll-host.v1', 'app');
+    sessionStorage.setItem('aip.messaging.list-scroll-restore-pending.v1', '1');
+    const removeItem = Storage.prototype.removeItem;
+    vi.spyOn(Storage.prototype, 'removeItem').mockImplementation(function (key) {
+      if (key === 'aip.messaging.list-scroll-restore-pending.v1') {
+        throw new DOMException('Storage access denied', 'SecurityError');
+      }
+      removeItem.call(this, key);
+    });
+    runAnimationFramesImmediately();
+
+    expect(() => service.rememberListScroll()).not.toThrow();
+    expect(() => service.restoreListScroll()).not.toThrow();
+
+    expect(sessionStorage.getItem('aip.messaging.list-scroll-y.v1')).toBeNull();
+    expect(sessionStorage.getItem('aip.messaging.list-scroll-host.v1')).toBeNull();
+    expect(sessionStorage.getItem('aip.messaging.list-scroll-restore-pending.v1')).toBe('1');
+    expect(scrollTo).not.toHaveBeenCalled();
+  });
+
   it('starts conversation detail at the top of both possible scroll roots', () => {
     const { host: scrollHost, scrollTo: appScrollTo } = installScrollHost(320);
     const { host: pageScroll, scrollTo: pageScrollTo } = installDocumentScrollHost(240);
