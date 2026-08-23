@@ -1,9 +1,29 @@
-export type AnnouncementPriority = 'normal' | 'important' | 'urgent';
+export type AnnouncementPriority = 'normal' | 'important' | 'critical';
+
+export interface AnnouncementPriorityDefinition {
+  readonly label: 'NORMAL' | 'IMPORTANT' | 'CRITICAL';
+  readonly description: string;
+}
+
+export const ANNOUNCEMENT_PRIORITY_DEFINITIONS: Record<AnnouncementPriority, AnnouncementPriorityDefinition> = {
+  normal: {
+    label: 'NORMAL',
+    description: '通常のお知らせです。特別な即時対応は求めません。'
+  },
+  important: {
+    label: 'IMPORTANT',
+    description: '見落としを避ける必要がある重要なお知らせです。'
+  },
+  critical: {
+    label: 'CRITICAL',
+    description: '障害、セキュリティ、期限付き必須対応など、直ちに確認すべき場合に限定して使用します。'
+  }
+};
 
 export const ANNOUNCEMENT_PRIORITY_LABELS: Record<AnnouncementPriority, string> = {
-  normal: '通常',
-  important: '重要',
-  urgent: '至急'
+  normal: ANNOUNCEMENT_PRIORITY_DEFINITIONS.normal.label,
+  important: ANNOUNCEMENT_PRIORITY_DEFINITIONS.important.label,
+  critical: ANNOUNCEMENT_PRIORITY_DEFINITIONS.critical.label
 };
 
 // TODO(API): Verify the exact backend enum names and wire serialization explicitly before replacing mock data.
