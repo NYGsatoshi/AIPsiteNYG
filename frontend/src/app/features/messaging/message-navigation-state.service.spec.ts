@@ -5,12 +5,18 @@ import { MessageNavigationStateService } from './message-navigation-state.servic
 describe('MessageNavigationStateService', () => {
   let host: HTMLElement | null = null;
   let documentHost: HTMLElement | null = null;
+  const originalScrollingElementDescriptor = Object.getOwnPropertyDescriptor(document, 'scrollingElement');
 
   afterEach(() => {
     host?.remove();
     documentHost?.remove();
     host = null;
     documentHost = null;
+    if (originalScrollingElementDescriptor) {
+      Object.defineProperty(document, 'scrollingElement', originalScrollingElementDescriptor);
+    } else {
+      Reflect.deleteProperty(document, 'scrollingElement');
+    }
     sessionStorage.clear();
     vi.restoreAllMocks();
     TestBed.resetTestingModule();
@@ -57,7 +63,10 @@ describe('MessageNavigationStateService', () => {
       configurable: true,
       value: scrollTo,
     });
-    vi.spyOn(document, 'scrollingElement', 'get').mockReturnValue(documentHost);
+    Object.defineProperty(document, 'scrollingElement', {
+      configurable: true,
+      get: () => documentHost,
+    });
     return { host: documentHost, scrollTo };
   }
 
