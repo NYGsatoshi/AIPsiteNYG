@@ -18,6 +18,8 @@ export interface ProjectDto {
   readonly status?: unknown;
   readonly startDate?: unknown;
   readonly endDate?: unknown;
+  readonly createdAt?: unknown;
+  readonly updatedAt?: unknown;
   readonly uiPermissions?: ProjectUiPermissionDto | null;
 }
 
