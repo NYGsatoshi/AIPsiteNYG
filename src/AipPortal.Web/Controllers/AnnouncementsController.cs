@@ -25,6 +25,24 @@ public sealed class AnnouncementsController(
     [HttpPost("api/announcements")]
     public async Task<IActionResult> Create(CreateAnnouncementRequest request, CancellationToken cancellationToken)
     {
+        // Re-resolve the current authorization-filtered Audience at the moment of
+        // publication. A stale review cannot be used to target a scope after the
+        // actor's permissions or the parent resource lifecycle has changed.
+        var currentAudiences = await audiences.ListAsync(cancellationToken);
+        if (!currentAudiences.IsSuccess)
+        {
+            return BadRequest(new { error = "Announcement audience could not be authorized." });
+        }
+
+        var authorized = currentAudiences.Value!.Any(audience =>
+            audience.WorkspaceId == request.WorkspaceId &&
+            audience.GroupId == request.GroupId &&
+            audience.ChannelId == request.ChannelId);
+        if (!authorized)
+        {
+            return BadRequest(new { error = "Announcement audience is not authorized." });
+        }
+
         return ToActionResult(await announcements.CreateAsync(request, cancellationToken));
     }
 
