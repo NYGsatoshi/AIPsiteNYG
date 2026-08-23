@@ -1,21 +1,12 @@
 name: WPC-02D PostgreSQL Acceptance
 
+# TEMPORARY CONTEST MODE: this milestone acceptance duplicates the core
+# backend build/test path on most code PRs. Keep it available on demand.
 on:
   workflow_dispatch:
-  pull_request:
-    branches:
-      - "main"
-    paths-ignore:
-      - "**/*.md"
-      - "docs/**"
-  push:
-    branches: ["main"]
-    paths-ignore:
-      - "**/*.md"
-      - "docs/**"
 
 concurrency:
-  group: wpc02d-postgresql-${{ github.event.pull_request.number || github.ref }}
+  group: wpc02d-postgresql-${{ github.ref }}
   cancel-in-progress: true
 
 permissions:
