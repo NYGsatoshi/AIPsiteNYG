@@ -55,6 +55,24 @@ describe('AnnouncementEditorComponent', () => {
     expect(host.querySelector('[data-testid="announcement-audience-summary"]')?.textContent).toContain('42名');
   });
 
+  it('fails closed when no authorized audience is available', async () => {
+    const fixture = await renderEditor(
+      createDraft({
+        availableAudiences: [],
+      }),
+    );
+
+    const host = fixture.nativeElement as HTMLElement;
+    const select = host.querySelector('[data-testid="announcement-editor-audience"]') as HTMLSelectElement;
+    const publish = host.querySelector('[data-testid="announcement-publish-action"]') as HTMLButtonElement;
+
+    expect(select.options).toHaveLength(0);
+    expect(select.value).toBe('');
+    expect(fixture.componentInstance.form.controls.audienceScope.invalid).toBe(true);
+    expect(fixture.componentInstance.selectedAudience()).toBeNull();
+    expect(publish.disabled).toBe(true);
+  });
+
   it('updates both immediate and review summaries when the selected audience changes', async () => {
     const fixture = await renderEditor(createDraft());
 
