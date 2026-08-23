@@ -4,7 +4,8 @@ import { AuthSessionFacade, AuthSessionSnapshot } from '../../core/auth/auth-ses
 import { ActiveWorkspaceFacade, WorkspaceSummary } from '../../core/workspace/active-workspace.facade';
 import {
   filterNavigationItems,
-  NavigationItem
+  NavigationItem,
+  partitionNavigationItems
 } from '../../shared/navigation/navigation.models';
 import { RightPanelFacade } from '../../shared/right-panel/right-panel.facade';
 import { RightPanelMode } from '../../shared/right-panel/right-panel.types';
@@ -13,6 +14,8 @@ export interface AppShellViewModel {
   readonly session: AuthSessionSnapshot;
   readonly workspace: WorkspaceSummary | null;
   readonly navigationItems: readonly NavigationItem[];
+  readonly primaryNavigationItems: readonly NavigationItem[];
+  readonly pinnedNavigationItems: readonly NavigationItem[];
   readonly rightPanelMode: RightPanelMode;
 }
 
@@ -40,18 +43,6 @@ export const DEFAULT_NAVIGATION_ITEMS: readonly NavigationItem[] = [
     requiredCapability: 'announcements:view'
   },
   {
-    id: 'projects',
-    label: 'Projects',
-    route: '/projects',
-    requiredCapability: 'projects:view'
-  },
-  {
-    id: 'my-tasks',
-    label: 'My Tasks',
-    route: '/tasks',
-    requiredCapability: 'projects:view'
-  },
-  {
     id: 'files',
     label: 'Files',
     route: '/files',
@@ -74,6 +65,20 @@ export const DEFAULT_NAVIGATION_ITEMS: readonly NavigationItem[] = [
     label: 'Invites',
     route: '/admin/invites',
     requiredCapability: 'invite:read'
+  },
+  {
+    id: 'projects',
+    label: 'Projects',
+    route: '/projects',
+    requiredCapability: 'projects:view',
+    placement: 'pinned'
+  },
+  {
+    id: 'my-tasks',
+    label: 'My Tasks',
+    route: '/tasks',
+    requiredCapability: 'projects:view',
+    placement: 'pinned'
   }
 ];
 
@@ -89,11 +94,15 @@ export class AppShellFacade {
   readonly viewModel = computed<AppShellViewModel>(() => {
     const session = this.authSession.session();
     const allItems = this.mockState?.navigationItems ?? DEFAULT_NAVIGATION_ITEMS;
+    const navigationItems = filterNavigationItems(allItems, session.capabilities);
+    const sections = partitionNavigationItems(navigationItems);
 
     return {
       session,
       workspace: this.activeWorkspace.activeWorkspace(),
-      navigationItems: filterNavigationItems(allItems, session.capabilities),
+      navigationItems,
+      primaryNavigationItems: sections.primaryItems,
+      pinnedNavigationItems: sections.pinnedItems,
       rightPanelMode: this.rightPanel.mode()
     };
   });
