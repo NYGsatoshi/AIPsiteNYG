@@ -14,7 +14,6 @@ public sealed class GroupAuthorizationService(
     {
         var group = await groups.GetByIdAsync(groupId, cancellationToken);
         return group is not null &&
-            !group.DeletedAt.HasValue &&
             group.Status == GroupStatus.Active &&
             await workspaceAuthorization.CanViewWorkspace(userId, group.WorkspaceId, cancellationToken);
     }
@@ -22,7 +21,7 @@ public sealed class GroupAuthorizationService(
     public async Task<bool> CanManageGroup(Guid userId, Guid groupId, CancellationToken cancellationToken = default)
     {
         var group = await groups.GetByIdAsync(groupId, cancellationToken);
-        if (group is null || group.DeletedAt.HasValue || group.Status != GroupStatus.Active)
+        if (group is null)
         {
             return false;
         }
@@ -30,11 +29,6 @@ public sealed class GroupAuthorizationService(
         if (await workspaceAuthorization.CanManageWorkspace(userId, group.WorkspaceId, cancellationToken))
         {
             return true;
-        }
-
-        if (!await workspaceAuthorization.CanViewWorkspace(userId, group.WorkspaceId, cancellationToken))
-        {
-            return false;
         }
 
         var member = await groups.GetMemberAsync(groupId, userId, cancellationToken);
