@@ -590,29 +590,39 @@ public sealed class WpcFinal01CanonicalCompletionPostgreSqlTests
             }
         }
 
-        var task = new TaskItem
+        var taskId = Guid.Empty;
+        var taskNotificationId = Guid.Empty;
+        var operationalProject =
+            activationState == ProjectActivationState.Activated &&
+            status is ProjectStatus.Active or ProjectStatus.Review;
+        if (operationalProject)
         {
-            TenantId = authority.TenantId,
-            WorkspaceId = authority.WorkspaceId,
-            ProjectId = project.Id,
-            Title = $"Final01 Task {suffix}",
-            Status = TaskItemStatus.NotStarted,
-            Priority = TaskPriority.Medium,
-            VersionNo = 1,
-            CreatedByUserId = authority.OwnerUserId
-        };
-        var notification = new Notification
-        {
-            TenantId = authority.TenantId,
-            UserId = authority.ReaderUserId,
-            NotificationType = NotificationType.TaskAssigned,
-            Title = "Task assigned",
-            RelatedEntityType = "Task",
-            RelatedEntityId = task.Id,
-            CreatedAt = Now,
-            StateVersion = 1
-        };
-        db.AddRange(task, notification);
+            var task = new TaskItem
+            {
+                TenantId = authority.TenantId,
+                WorkspaceId = authority.WorkspaceId,
+                ProjectId = project.Id,
+                Title = $"Final01 Task {suffix}",
+                Status = TaskItemStatus.NotStarted,
+                Priority = TaskPriority.Medium,
+                VersionNo = 1,
+                CreatedByUserId = authority.OwnerUserId
+            };
+            var notification = new Notification
+            {
+                TenantId = authority.TenantId,
+                UserId = authority.ReaderUserId,
+                NotificationType = NotificationType.TaskAssigned,
+                Title = "Task assigned",
+                RelatedEntityType = "Task",
+                RelatedEntityId = task.Id,
+                CreatedAt = Now,
+                StateVersion = 1
+            };
+            db.AddRange(task, notification);
+            taskId = task.Id;
+            taskNotificationId = notification.Id;
+        }
         await db.SaveChangesAsync();
 
         return new ProjectGraph(
@@ -620,8 +630,8 @@ public sealed class WpcFinal01CanonicalCompletionPostgreSqlTests
             authority.TenantSlug,
             authority.WorkspaceId,
             project.Id,
-            task.Id,
-            notification.Id,
+            taskId,
+            taskNotificationId,
             general?.Id ?? Guid.Empty,
             authority.OwnerUserId,
             authority.ReaderUserId,

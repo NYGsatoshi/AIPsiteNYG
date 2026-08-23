@@ -1,18 +1,20 @@
 import { Component, Input, OnChanges, SimpleChanges } from '@angular/core';
 import { FormBuilder, ReactiveFormsModule, Validators } from '@angular/forms';
 
+import { AnnouncementPublicationStatusComponent } from '../announcement-publication-status/announcement-publication-status.component';
 import {
   ANNOUNCEMENT_AUDIENCE_LABELS,
   ANNOUNCEMENT_PRIORITY_LABELS,
   AnnouncementAudienceScope,
   AnnouncementEditorDraft,
-  AnnouncementPriority
+  AnnouncementPriority,
+  AnnouncementPublicationState
 } from '../announcements.types';
 
 @Component({
   selector: 'app-announcement-editor',
   standalone: true,
-  imports: [ReactiveFormsModule],
+  imports: [ReactiveFormsModule, AnnouncementPublicationStatusComponent],
   templateUrl: './announcement-editor.component.html',
   styleUrl: './announcement-editor.component.scss'
 })
@@ -36,6 +38,18 @@ export class AnnouncementEditorComponent implements OnChanges {
     audienceScope: ['allWorkspaceMembers' as AnnouncementAudienceScope, Validators.required],
     requiresReadConfirmation: [false]
   });
+
+  get publicationState(): AnnouncementPublicationState {
+    return this.draft.publicationState ?? 'draft';
+  }
+
+  get canSaveDraft(): boolean {
+    return this.publicationState === 'draft';
+  }
+
+  get canPublish(): boolean {
+    return this.publicationState === 'draft';
+  }
 
   ngOnChanges(changes: SimpleChanges): void {
     if (changes['draft'] && this.draft) {

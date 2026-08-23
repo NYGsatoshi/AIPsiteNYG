@@ -1049,7 +1049,20 @@ public sealed class TaskCommandService(
         if (!TryActor(out var actor) || task is null || (!includeDeleted && task.DeletedAt.HasValue) || !await projectAuthorization.CanViewProject(actor, task.ProjectId, cancellationToken)) return (null, ("TASK_NOT_FOUND", "Task not found."));
         var project = await projects.GetProjectAsync(task.ProjectId, cancellationToken);
         if (mutate && (project is null || project.DeletedAt.HasValue || project.Status is ProjectStatus.Archived or ProjectStatus.Deleted)) return (null, ("TASK_TRANSITION_GUARD_FAILED", "Project is read-only."));
-        var allowed = requireOverride ? await taskAuthorization.CanOverrideTaskReview(actor, task.Id, cancellationToken) : requireReview ? await taskAuthorization.CanReviewTask(actor, task.Id, cancellationToken) : requireAssign ? await taskAuthorization.CanAssignTask(actor, task.Id, cancellationToken) : !mutate || await taskAuthorization.CanUpdateTask(actor, task.Id, cancellationToken);
+        // Restore is the only command that intentionally authorizes a soft-deleted
+        // Task. Normal assignment/deletion authorization remains fail-closed for
+        // deleted rows; Restore requires both current operational contribution
+        // authority and current Project management authority.
+        var allowed = requireOverride
+            ? await taskAuthorization.CanOverrideTaskReview(actor, task.Id, cancellationToken)
+            : requireReview
+                ? await taskAuthorization.CanReviewTask(actor, task.Id, cancellationToken)
+                : requireAssign
+                    ? includeDeleted
+                        ? await projectAuthorization.CanContributeProject(actor, task.ProjectId, cancellationToken) &&
+                          await projectAuthorization.CanManageProject(actor, task.ProjectId, cancellationToken)
+                        : await taskAuthorization.CanAssignTask(actor, task.Id, cancellationToken)
+                    : !mutate || await taskAuthorization.CanUpdateTask(actor, task.Id, cancellationToken);
         return allowed ? (task, null) : (null, ("TASK_FORBIDDEN", "Task operation is not authorized."));
     }
 
