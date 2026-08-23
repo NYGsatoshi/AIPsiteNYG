@@ -71,6 +71,54 @@ describe('WorkspaceDashboardPageComponent', () => {
     ).not.toBeNull();
   });
 
+  it('renders one primary research action and a separate file action for an authorized Workspace', async () => {
+    const fixture = await renderDashboard({
+      ...WORKSPACE_DASHBOARD_SCENARIOS.default,
+      workspaces: [OWNER_WORKSPACE],
+    });
+
+    const card = workspaceCard(fixture, OWNER_WORKSPACE.displayName);
+    const primaryActions = card.querySelectorAll('[data-testid="start-research-action"]');
+    expect(primaryActions).toHaveLength(1);
+    expect(primaryActions[0]?.textContent?.trim()).toBe('新しいリサーチ');
+    expect(primaryActions[0]?.getAttribute('href')).toBe(
+      '/workspaces/sample-workspace-owner/research/new',
+    );
+
+    const addFiles = card.querySelector<HTMLAnchorElement>('[data-testid="add-files-action"]');
+    expect(addFiles?.textContent?.trim()).toBe('ファイルを追加');
+    expect(addFiles?.getAttribute('href')).toBe('/workspaces/sample-workspace-owner/files#upload');
+  });
+
+  it('does not infer create actions from Workspace read access', async () => {
+    const fixture = await renderDashboard({
+      ...WORKSPACE_DASHBOARD_SCENARIOS.default,
+      workspaces: [{ ...DEFAULT_WORKSPACES[2], capabilities: ['openWorkspace'] }],
+    });
+
+    const card = workspaceCard(fixture, DEFAULT_WORKSPACES[2].displayName);
+    expect(card.querySelector('[data-testid="start-research-action"]')).toBeNull();
+    expect(card.querySelector('[data-testid="add-files-action"]')).toBeNull();
+    expect(card.querySelector('[data-testid="open-members-action"]')).toBeNull();
+    expect(card.querySelector('[data-testid="open-projects-action"]')).toBeNull();
+  });
+
+  it('keeps lower-frequency navigation distinct from create actions', async () => {
+    const fixture = await renderDashboard({
+      ...WORKSPACE_DASHBOARD_SCENARIOS.default,
+      workspaces: [OWNER_WORKSPACE],
+    });
+
+    const card = workspaceCard(fixture, OWNER_WORKSPACE.displayName);
+    expect(card.querySelector('[data-testid="open-projects-action"]')?.textContent?.trim()).toBe(
+      'プロジェクト',
+    );
+    expect(card.querySelector('[data-testid="open-members-action"]')?.textContent?.trim()).toBe(
+      'メンバー',
+    );
+    expect(card.querySelectorAll('[data-testid="start-research-action"]')).toHaveLength(1);
+  });
+
   it('filters only provided mock workspace rows with page-local search', async () => {
     const fixture = await renderDashboard(WORKSPACE_DASHBOARD_SCENARIOS.default);
 
@@ -102,23 +150,6 @@ describe('WorkspaceDashboardPageComponent', () => {
     expect(textContent(fixture)).not.toContain('本文プレビュー');
   });
 
-  it('does not expose hidden member action in mobile layout', async () => {
-    const fixture = await renderDashboard({
-      ...WORKSPACE_DASHBOARD_SCENARIOS.default,
-      workspaces: [{ ...DEFAULT_WORKSPACES[2], capabilities: ['openWorkspace'] }],
-    });
-
-    (fixture.nativeElement as HTMLElement).style.width = '320px';
-    fixture.detectChanges();
-
-    expect(
-      (fixture.nativeElement as HTMLElement).querySelector('[data-testid="open-members-action"]'),
-    ).toBeNull();
-    expect(
-      (fixture.nativeElement as HTMLElement).querySelector('[data-testid="open-workspace-action"]'),
-    ).not.toBeNull();
-  });
-
   it('does not render an action denied by the corresponding backend capability', async () => {
     const fixture = await renderDashboard({
       ...WORKSPACE_DASHBOARD_SCENARIOS.default,
@@ -126,7 +157,8 @@ describe('WorkspaceDashboardPageComponent', () => {
     });
 
     const card = workspaceCard(fixture, READ_ONLY_WORKSPACE.displayName);
-    expect(card.querySelector('[data-testid="open-workspace-action"]')).not.toBeNull();
+    expect(card.querySelector('[data-testid="start-research-action"]')).toBeNull();
+    expect(card.querySelector('[data-testid="add-files-action"]')).toBeNull();
     expect(card.querySelector('[data-testid="open-members-action"]')).toBeNull();
     expect(card.querySelector('[data-testid="open-projects-action"]')).toBeNull();
   });
@@ -191,7 +223,7 @@ describe('WorkspaceDashboardPageComponent', () => {
     ).toBe('未提供');
   });
 
-  it('presents SystemAdmin access without inventing a Workspace membership role', async () => {
+  it('presents SystemAdmin access without inventing a Workspace membership role or Project-create authority', async () => {
     const fixture = await renderDashboard({
       ...WORKSPACE_DASHBOARD_SCENARIOS.systemAdmin,
       workspaces: [SYSTEM_ADMIN_WORKSPACE],
@@ -201,6 +233,8 @@ describe('WorkspaceDashboardPageComponent', () => {
     const role = card.querySelector('[data-testid="workspace-role"]')?.textContent?.trim();
     expect(role).toBe('システム管理者アクセス');
     expect(role).not.toBe('メンバー');
+    expect(card.querySelector('[data-testid="start-research-action"]')).toBeNull();
+    expect(card.querySelector('[data-testid="add-files-action"]')).not.toBeNull();
   });
 
   it('does not show the obsolete API-unimplemented summary message for a complete projection', async () => {
