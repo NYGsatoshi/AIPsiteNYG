@@ -12,7 +12,11 @@ interface ProjectCreateEnvelopeDto {
 export class WorkspaceResearchQuickCreateService {
   private readonly http = inject(HttpClient);
 
-  createResearch(workspaceId: string, title: string): Observable<string> {
+  createResearch(
+    workspaceId: string,
+    title: string,
+    idempotencyKey: string,
+  ): Observable<string> {
     const normalizedWorkspaceId = workspaceId.trim();
     const normalizedTitle = title.trim();
     if (!normalizedWorkspaceId) {
@@ -21,6 +25,9 @@ export class WorkspaceResearchQuickCreateService {
     if (!normalizedTitle) {
       throw new Error('Research title is required.');
     }
+    if (!idempotencyKey.trim()) {
+      throw new Error('Idempotency key is required.');
+    }
 
     return this.http
       .post<unknown>(
@@ -28,7 +35,7 @@ export class WorkspaceResearchQuickCreateService {
         { title: normalizedTitle },
         {
           headers: new HttpHeaders({
-            'Idempotency-Key': createIdempotencyKey(),
+            'Idempotency-Key': idempotencyKey,
           }),
         },
       )
@@ -50,7 +57,7 @@ export function mapCreatedProjectId(response: unknown): string {
   return id;
 }
 
-function createIdempotencyKey(): string {
+export function createQuickResearchIdempotencyKey(): string {
   const randomUuid = globalThis.crypto?.randomUUID?.();
   if (randomUuid) {
     return `workspace-research-${randomUuid}`;
