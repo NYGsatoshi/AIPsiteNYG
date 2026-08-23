@@ -7,7 +7,10 @@ using Microsoft.EntityFrameworkCore;
 
 namespace AipPortal.Infrastructure.Persistence;
 
-public sealed class AnnouncementRepository(AppDbContext dbContext, IClock clock) : IAnnouncementRepository
+public sealed class AnnouncementRepository(
+    AppDbContext dbContext,
+    IClock clock,
+    ICurrentTenant currentTenant) : IAnnouncementRepository
 {
     public async Task<PagedResponse<Announcement>> ListVisibleAsync(Guid userId, bool isSystemAdmin, AnnouncementListQuery query, CancellationToken cancellationToken = default)
     {
@@ -46,6 +49,22 @@ public sealed class AnnouncementRepository(AppDbContext dbContext, IClock clock)
 
     public async Task AddAsync(Announcement announcement, CancellationToken cancellationToken = default)
     {
+        if (announcement.TenantId == Guid.Empty)
+        {
+            if (!currentTenant.IsAvailable || currentTenant.IsPlatformScope)
+            {
+                throw new InvalidOperationException("A tenant context is required to create an announcement.");
+            }
+
+            // Stamp before any pre-save audience/invalidation query. AppDbContext
+            // also enforces this tenant again at SaveChanges.
+            announcement.TenantId = currentTenant.TenantId;
+        }
+        else if (currentTenant.IsAvailable && !currentTenant.IsPlatformScope && announcement.TenantId != currentTenant.TenantId)
+        {
+            throw new InvalidOperationException("Announcement TenantId does not match the current tenant context.");
+        }
+
         await dbContext.Announcements.AddAsync(announcement, cancellationToken);
     }
 
@@ -56,121 +75,153 @@ public sealed class AnnouncementRepository(AppDbContext dbContext, IClock clock)
 
     public async Task<IReadOnlyList<AnnouncementTargetUser>> ListTargetUsersAsync(Announcement announcement, CancellationToken cancellationToken = default)
     {
-        IQueryable<User> users;
+        var activeTenantUserIds = dbContext.TenantUsers
+            .Where(member => member.TenantId == announcement.TenantId && member.Status == TenantUserStatus.Active)
+            .Select(member => member.UserId);
+
+        IQueryable<Guid> userIds;
 
         if (announcement.ChannelId.HasValue)
         {
-            if (!announcement.WorkspaceId.HasValue || !announcement.GroupId.HasValue)
-            {
-                return [];
-            }
-
             var channel = await dbContext.Channels
                 .AsNoTracking()
-                .Where(item =>
+                .FirstOrDefaultAsync(item =>
                     item.Id == announcement.ChannelId.Value &&
-                    item.WorkspaceId == announcement.WorkspaceId.Value &&
-                    item.GroupId == announcement.GroupId.Value &&
+                    item.TenantId == announcement.TenantId &&
                     item.DeletedAt == null &&
-                    item.Status == ChannelStatus.Active &&
-                    dbContext.Groups.Any(group =>
-                        group.Id == item.GroupId &&
-                        group.WorkspaceId == item.WorkspaceId &&
-                        group.DeletedAt == null &&
-                        group.Status == GroupStatus.Active) &&
-                    dbContext.Workspaces.Any(workspace =>
-                        workspace.Id == item.WorkspaceId &&
-                        workspace.DeletedAt == null &&
-                        (workspace.Status == WorkspaceStatus.Active ||
-                         workspace.Status == WorkspaceStatus.Archived)))
-                .Select(item => new { item.Id, item.GroupId, item.WorkspaceId, item.Type })
-                .FirstOrDefaultAsync(cancellationToken);
-            if (channel is null)
+                    item.Status == ChannelStatus.Active,
+                    cancellationToken);
+            if (channel is null ||
+                announcement.GroupId != channel.GroupId ||
+                announcement.WorkspaceId != channel.WorkspaceId)
             {
                 return [];
             }
 
-            var currentWorkspaceUserIds = CurrentWorkspaceUserIds(channel.WorkspaceId);
-            users = channel.Type is ChannelType.Public or ChannelType.Announcement
-                ? dbContext.GroupMembers
+            var groupIsActive = await dbContext.Groups.AnyAsync(group =>
+                group.Id == channel.GroupId &&
+                group.TenantId == announcement.TenantId &&
+                group.WorkspaceId == channel.WorkspaceId &&
+                group.DeletedAt == null &&
+                group.Status == GroupStatus.Active,
+                cancellationToken);
+            var workspaceIsActive = await dbContext.Workspaces.AnyAsync(workspace =>
+                workspace.Id == channel.WorkspaceId &&
+                workspace.TenantId == announcement.TenantId &&
+                workspace.DeletedAt == null &&
+                workspace.Status == WorkspaceStatus.Active,
+                cancellationToken);
+            if (!groupIsActive || !workspaceIsActive)
+            {
+                return [];
+            }
+
+            if (channel.Type is ChannelType.Public or ChannelType.Announcement)
+            {
+                userIds = dbContext.GroupMembers
                     .Where(member =>
+                        member.TenantId == announcement.TenantId &&
                         member.GroupId == channel.GroupId &&
-                        currentWorkspaceUserIds.Contains(member.UserId))
-                    .Select(member => member.User!)
-                : dbContext.ChannelMembers
+                        dbContext.WorkspaceMembers.Any(workspaceMember =>
+                            workspaceMember.TenantId == announcement.TenantId &&
+                            workspaceMember.WorkspaceId == channel.WorkspaceId &&
+                            workspaceMember.UserId == member.UserId &&
+                            workspaceMember.Status == MembershipStatus.Active))
+                    .Select(member => member.UserId);
+            }
+            else
+            {
+                userIds = dbContext.ChannelMembers
                     .Where(member =>
+                        member.TenantId == announcement.TenantId &&
                         member.ChannelId == channel.Id &&
-                        currentWorkspaceUserIds.Contains(member.UserId))
-                    .Select(member => member.User!);
+                        dbContext.WorkspaceMembers.Any(workspaceMember =>
+                            workspaceMember.TenantId == announcement.TenantId &&
+                            workspaceMember.WorkspaceId == channel.WorkspaceId &&
+                            workspaceMember.UserId == member.UserId &&
+                            workspaceMember.Status == MembershipStatus.Active))
+                    .Select(member => member.UserId);
+            }
         }
         else if (announcement.GroupId.HasValue)
         {
-            if (!announcement.WorkspaceId.HasValue)
-            {
-                return [];
-            }
-
             var group = await dbContext.Groups
                 .AsNoTracking()
-                .Where(item =>
+                .FirstOrDefaultAsync(item =>
                     item.Id == announcement.GroupId.Value &&
-                    item.WorkspaceId == announcement.WorkspaceId.Value &&
+                    item.TenantId == announcement.TenantId &&
                     item.DeletedAt == null &&
-                    item.Status == GroupStatus.Active &&
-                    dbContext.Workspaces.Any(workspace =>
-                        workspace.Id == item.WorkspaceId &&
-                        workspace.DeletedAt == null &&
-                        (workspace.Status == WorkspaceStatus.Active ||
-                         workspace.Status == WorkspaceStatus.Archived)))
-                .Select(item => new { item.Id, item.WorkspaceId })
-                .FirstOrDefaultAsync(cancellationToken);
-            if (group is null)
+                    item.Status == GroupStatus.Active,
+                    cancellationToken);
+            if (group is null || announcement.WorkspaceId != group.WorkspaceId)
             {
                 return [];
             }
 
-            var currentWorkspaceUserIds = CurrentWorkspaceUserIds(group.WorkspaceId);
-            users = dbContext.GroupMembers
+            var workspaceIsActive = await dbContext.Workspaces.AnyAsync(workspace =>
+                workspace.Id == group.WorkspaceId &&
+                workspace.TenantId == announcement.TenantId &&
+                workspace.DeletedAt == null &&
+                workspace.Status == WorkspaceStatus.Active,
+                cancellationToken);
+            if (!workspaceIsActive)
+            {
+                return [];
+            }
+
+            userIds = dbContext.GroupMembers
                 .Where(member =>
+                    member.TenantId == announcement.TenantId &&
                     member.GroupId == group.Id &&
-                    currentWorkspaceUserIds.Contains(member.UserId))
-                .Select(member => member.User!);
+                    dbContext.WorkspaceMembers.Any(workspaceMember =>
+                        workspaceMember.TenantId == announcement.TenantId &&
+                        workspaceMember.WorkspaceId == group.WorkspaceId &&
+                        workspaceMember.UserId == member.UserId &&
+                        workspaceMember.Status == MembershipStatus.Active))
+                .Select(member => member.UserId);
         }
         else if (announcement.WorkspaceId.HasValue)
         {
-            var workspaceIsReadable = await dbContext.Workspaces
-                .AsNoTracking()
-                .AnyAsync(workspace =>
-                    workspace.Id == announcement.WorkspaceId.Value &&
-                    workspace.DeletedAt == null &&
-                    (workspace.Status == WorkspaceStatus.Active ||
-                     workspace.Status == WorkspaceStatus.Archived),
-                    cancellationToken);
-            if (!workspaceIsReadable)
+            var workspaceIsActive = await dbContext.Workspaces.AnyAsync(workspace =>
+                workspace.Id == announcement.WorkspaceId.Value &&
+                workspace.TenantId == announcement.TenantId &&
+                workspace.DeletedAt == null &&
+                workspace.Status == WorkspaceStatus.Active,
+                cancellationToken);
+            if (!workspaceIsActive)
             {
                 return [];
             }
 
-            var currentWorkspaceUserIds = CurrentWorkspaceUserIds(announcement.WorkspaceId.Value);
-            users = dbContext.Users.Where(user => currentWorkspaceUserIds.Contains(user.Id));
+            userIds = dbContext.WorkspaceMembers
+                .Where(member =>
+                    member.TenantId == announcement.TenantId &&
+                    member.WorkspaceId == announcement.WorkspaceId.Value &&
+                    member.Status == MembershipStatus.Active)
+                .Select(member => member.UserId);
         }
         else
         {
-            users = dbContext.Users.Where(user =>
-                dbContext.TenantUsers.Any(tenantUser =>
-                    tenantUser.UserId == user.Id &&
-                    tenantUser.Status == TenantUserStatus.Active));
+            userIds = activeTenantUserIds;
         }
 
-        return await users
-            .Where(user => user.Status == UserStatus.Active && user.DeletedAt == null)
+        userIds = userIds
+            .Where(userId => activeTenantUserIds.Contains(userId))
+            .Distinct();
+
+        return await dbContext.Users
+            .AsNoTracking()
+            .Where(user =>
+                userIds.Contains(user.Id) &&
+                user.Status == UserStatus.Active &&
+                user.DeletedAt == null)
             .Select(user => new AnnouncementTargetUser(
                 user.Id,
                 user.DisplayName,
                 user.Email,
                 dbContext.AnnouncementReads.Any(read => read.AnnouncementId == announcement.Id && read.UserId == user.Id)))
-            .Distinct()
             .OrderBy(user => user.DisplayName)
+            .ThenBy(user => user.Id)
             .ToListAsync(cancellationToken);
     }
 
@@ -179,13 +230,4 @@ public sealed class AnnouncementRepository(AppDbContext dbContext, IClock clock)
         return dbContext.AnnouncementReads.CountAsync(read => read.AnnouncementId == announcementId, cancellationToken);
     }
 
-    private IQueryable<Guid> CurrentWorkspaceUserIds(Guid workspaceId) =>
-        dbContext.WorkspaceMembers
-            .Where(member =>
-                member.WorkspaceId == workspaceId &&
-                member.Status == MembershipStatus.Active &&
-                dbContext.TenantUsers.Any(tenantUser =>
-                    tenantUser.UserId == member.UserId &&
-                    tenantUser.Status == TenantUserStatus.Active))
-            .Select(member => member.UserId);
 }

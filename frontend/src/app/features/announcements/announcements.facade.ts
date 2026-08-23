@@ -4,18 +4,25 @@ import { RealtimeFacade } from '../../core/realtime/realtime.facade';
 import { DurableRealtimeEvent } from '../../core/realtime/realtime.models';
 
 import {
+  AnnouncementAudienceOption,
+  AnnouncementCapability,
+  AnnouncementEditorDraft,
+  AnnouncementEditorSubmission,
   AnnouncementViewModel,
   AnnouncementsPageViewModel,
 } from './announcements.types';
 import {
+  AnnouncementAudienceOptionDto,
   AnnouncementDetailDto,
   AnnouncementListItemDto,
+  mapAnnouncementAudienceOption,
   mapAnnouncementDetail,
   mapAnnouncementListItem,
   markAnnouncementDetailLoading,
   markAnnouncementDetailUnavailable,
   markAnnouncementReadConfirmed,
   PagedResponseDto,
+  toCreateAnnouncementRequest,
 } from './announcements.api';
 
 export const AIP_ANNOUNCEMENTS_PAGE_MOCK = new InjectionToken<AnnouncementsPageViewModel>(
@@ -33,6 +40,7 @@ export class AnnouncementsFacade {
     this.mockPage ?? this.emptyPage('loading'),
   );
   private readonly detailRequests = new Set<string>();
+  private audienceOptions: readonly AnnouncementAudienceOption[] = this.mockPage?.editorDraft?.availableAudiences ?? [];
   private editorActive = false;
   private refreshTimer: ReturnType<typeof setTimeout> | null = null;
 
@@ -49,11 +57,77 @@ export class AnnouncementsFacade {
     this.editorActive = active;
   }
 
+  beginCreate(): boolean {
+    if (this.audienceOptions.length === 0) {
+      return false;
+    }
+
+    this.editorActive = true;
+    this.pageState.update((page) => ({
+      ...page,
+      editorDraft: this.createDraft(this.audienceOptions),
+      message: undefined,
+    }));
+    return true;
+  }
+
+  createAnnouncement(submission: AnnouncementEditorSubmission): void {
+    const authorizedAudience = this.audienceOptions.find((audience) => audience.key === submission.audience.key);
+    if (!authorizedAudience) {
+      this.preserveSubmissionAsDisabledDraft(submission, '配信対象の権限が変更されました。対象を再読み込みして確認してください。');
+      this.loadAudienceOptions();
+      return;
+    }
+
+    const authorizedSubmission: AnnouncementEditorSubmission = {
+      ...submission,
+      audience: authorizedAudience,
+    };
+
+    if (this.mockPage) {
+      const created = this.mockCreatedAnnouncement(authorizedSubmission);
+      this.pageState.update((page) => ({
+        ...page,
+        status: 'ready',
+        announcements: [created, ...page.announcements],
+        selectedAnnouncementId: created.id,
+        editorDraft: undefined,
+        message: undefined,
+      }));
+      this.editorActive = false;
+      return;
+    }
+
+    this.http
+      .post<AnnouncementDetailDto>('/api/announcements', toCreateAnnouncementRequest(authorizedSubmission), {
+        withCredentials: true,
+      })
+      .subscribe({
+        next: (response) => {
+          const created = mapAnnouncementDetail(response);
+          this.pageState.update((page) => ({
+            ...page,
+            status: 'ready',
+            announcements: [created, ...page.announcements.filter((announcement) => announcement.id !== created.id)],
+            selectedAnnouncementId: created.id,
+            editorDraft: undefined,
+            message: undefined,
+          }));
+          this.editorActive = false;
+        },
+        error: () => {
+          this.preserveSubmissionAsDisabledDraft(
+            authorizedSubmission,
+            '公開できませんでした。配信対象の権限が変更された可能性があります。対象を再確認してください。',
+          );
+          this.loadAudienceOptions();
+        },
+      });
+  }
+
   private loadAnnouncements(): void {
     this.http
-      .get<
-        PagedResponseDto<AnnouncementListItemDto>
-      >('/api/announcements', { withCredentials: true })
+      .get<PagedResponseDto<AnnouncementListItemDto>>('/api/announcements', { withCredentials: true })
       .subscribe({
         next: (response) => {
           const announcements = (response.items ?? []).map((announcement) =>
@@ -67,8 +141,9 @@ export class AnnouncementsFacade {
             selectedAnnouncementId,
             pageCapabilities: announcements.length > 0 ? ['readAnnouncement'] : [],
             message:
-              announcements.length === 0 ? 'No announcements were returned by the API.' : undefined,
+              announcements.length === 0 ? '表示できるお知らせはまだありません。' : undefined,
           });
+          this.loadAudienceOptions();
           if (selectedAnnouncementId) {
             this.selectAnnouncement(selectedAnnouncementId);
           }
@@ -83,6 +158,34 @@ export class AnnouncementsFacade {
                 ? 'Authentication or announcement permission is required.'
                 : 'Announcement API request failed.',
           });
+        },
+      });
+  }
+
+  private loadAudienceOptions(): void {
+    this.http
+      .get<readonly AnnouncementAudienceOptionDto[]>('/api/announcements/audiences', { withCredentials: true })
+      .subscribe({
+        next: (response) => {
+          this.audienceOptions = response
+            .map((option) => mapAnnouncementAudienceOption(option))
+            .filter((option): option is AnnouncementAudienceOption => option !== null);
+          this.pageState.update((page) => ({
+            ...page,
+            pageCapabilities: this.withCreateCapability(page.pageCapabilities, this.audienceOptions.length > 0),
+            editorDraft: page.editorDraft
+              ? this.createDraft(this.audienceOptions, page.editorDraft)
+              : undefined,
+          }));
+        },
+        error: () => {
+          this.audienceOptions = [];
+          this.pageState.update((page) => ({
+            ...page,
+            pageCapabilities: this.withCreateCapability(page.pageCapabilities, false),
+            editorDraft: page.editorDraft ? this.createDraft([], page.editorDraft) : undefined,
+            message: '配信対象を安全に取得できないため、新規公開を無効化しました。入力内容は保持されています。',
+          }));
         },
       });
   }
@@ -177,6 +280,70 @@ export class AnnouncementsFacade {
           // Keep read state unchanged unless the backend confirms persistence.
         },
       });
+  }
+
+  private createDraft(
+    audiences: readonly AnnouncementAudienceOption[],
+    previous?: AnnouncementEditorDraft,
+  ): AnnouncementEditorDraft {
+    const previousAudienceKey = previous?.audienceKey;
+    const audienceKey =
+      audiences.find((audience) => audience.key === previousAudienceKey)?.key ?? audiences[0]?.key ?? '';
+    return {
+      id: previous?.id,
+      title: previous?.title ?? '',
+      body: previous?.body ?? '',
+      priority: previous?.priority ?? 'normal',
+      audienceKey,
+      availableAudiences: audiences,
+      requiresReadConfirmation: previous?.requiresReadConfirmation ?? false,
+      publicationState: previous?.publicationState ?? 'draft',
+      scheduledAtLabel: previous?.scheduledAtLabel,
+      timeZoneLabel: previous?.timeZoneLabel,
+    };
+  }
+
+  private preserveSubmissionAsDisabledDraft(submission: AnnouncementEditorSubmission, message: string): void {
+    this.pageState.update((page) => ({
+      ...page,
+      editorDraft: {
+        title: submission.title,
+        body: submission.body,
+        priority: submission.priority,
+        audienceKey: submission.audience.key,
+        availableAudiences: this.audienceOptions,
+        requiresReadConfirmation: submission.requiresReadConfirmation,
+      },
+      message,
+    }));
+  }
+
+  private withCreateCapability(
+    capabilities: readonly AnnouncementCapability[],
+    canCreate: boolean,
+  ): readonly AnnouncementCapability[] {
+    const withoutCreate = capabilities.filter((capability) => capability !== 'createAnnouncement');
+    return canCreate ? [...withoutCreate, 'createAnnouncement'] : withoutCreate;
+  }
+
+  private mockCreatedAnnouncement(submission: AnnouncementEditorSubmission): AnnouncementViewModel {
+    return {
+      id: `mock-created-${Date.now()}`,
+      title: submission.title,
+      body: submission.body,
+      detailState: 'loaded',
+      priority: submission.priority,
+      audienceScope: submission.audience.scope,
+      publishedAtLabel: new Date().toLocaleString(),
+      publicationState: 'published',
+      readState: {
+        requiresReadConfirmation: submission.requiresReadConfirmation,
+        isRead: true,
+        confirmedAtLabel: '公開済み',
+      },
+      capabilities: ['readAnnouncement', 'editAnnouncement'],
+      notificationTarget: 'announcementDetail',
+    };
   }
 
   private emptyPage(status: AnnouncementsPageViewModel['status']): AnnouncementsPageViewModel {

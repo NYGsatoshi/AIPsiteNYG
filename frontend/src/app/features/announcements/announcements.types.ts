@@ -26,21 +26,46 @@ export const ANNOUNCEMENT_PRIORITY_LABELS: Record<AnnouncementPriority, string> 
   critical: ANNOUNCEMENT_PRIORITY_DEFINITIONS.critical.label
 };
 
-// TODO(API): Verify the exact backend enum names and wire serialization explicitly before replacing mock data.
-export type AnnouncementAudienceScope = 'allWorkspaceMembers' | 'guardiansOnly' | 'teachersOnly' | 'adminOnly';
+export type AnnouncementAudienceScope = 'global' | 'workspace' | 'group' | 'channel';
 
 export const ANNOUNCEMENT_AUDIENCE_LABELS: Record<AnnouncementAudienceScope, string> = {
-  allWorkspaceMembers: 'ワークスペース全体',
-  guardiansOnly: '保護者',
-  teachersOnly: '教職員',
-  adminOnly: '管理者'
+  global: 'テナント全体',
+  workspace: 'ワークスペース',
+  group: 'グループ',
+  channel: 'チャンネル'
 };
+
+export interface AnnouncementAudienceOption {
+  readonly key: string;
+  readonly scope: AnnouncementAudienceScope;
+  readonly displayName: string;
+  readonly recipientCount?: number;
+  readonly workspaceId?: string;
+  readonly groupId?: string;
+  readonly channelId?: string;
+}
+
+export interface AnnouncementEditorSubmission {
+  readonly title: string;
+  readonly body: string;
+  readonly priority: AnnouncementPriority;
+  readonly audience: AnnouncementAudienceOption;
+  readonly requiresReadConfirmation: boolean;
+}
 
 export type AnnouncementCapability = 'readAnnouncement' | 'createAnnouncement' | 'editAnnouncement';
 
 export type AnnouncementPageStatus = 'ready' | 'loading' | 'empty' | 'error' | 'permissionDenied' | 'recordAccessDenied';
 
-export type AnnouncementPublicationState = 'draft' | 'published';
+export type AnnouncementPublicationState = 'draft' | 'scheduled' | 'published' | 'updated' | 'archived';
+
+export const ANNOUNCEMENT_PUBLICATION_STATE_LABELS: Record<AnnouncementPublicationState, string> = {
+  draft: '下書き',
+  scheduled: '予約済み',
+  published: '公開済み',
+  updated: '更新済み',
+  archived: 'アーカイブ済み'
+};
 
 export type AnnouncementDetailState = 'notLoaded' | 'loading' | 'loaded' | 'unavailable' | 'error';
 
@@ -65,6 +90,8 @@ export interface AnnouncementViewModel {
   readonly audienceScope: AnnouncementAudienceScope;
   readonly publishedAtLabel: string;
   readonly publicationState: AnnouncementPublicationState;
+  readonly scheduledAtLabel?: string;
+  readonly timeZoneLabel?: string;
   readonly readState: AnnouncementReadStateViewModel;
   readonly capabilities: readonly AnnouncementCapability[];
   readonly notificationTarget: 'announcementDetail';
@@ -76,8 +103,12 @@ export interface AnnouncementEditorDraft {
   readonly title: string;
   readonly body: string;
   readonly priority: AnnouncementPriority;
-  readonly audienceScope: AnnouncementAudienceScope;
+  readonly audienceKey: string;
+  readonly availableAudiences: readonly AnnouncementAudienceOption[];
   readonly requiresReadConfirmation: boolean;
+  readonly publicationState?: AnnouncementPublicationState;
+  readonly scheduledAtLabel?: string;
+  readonly timeZoneLabel?: string;
 }
 
 export interface AnnouncementsPageViewModel {

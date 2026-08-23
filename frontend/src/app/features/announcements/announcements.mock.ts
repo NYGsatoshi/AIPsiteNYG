@@ -3,6 +3,10 @@ import { AnnouncementsPageViewModel, AnnouncementViewModel } from './announcemen
 export const LONG_ANNOUNCEMENT_BODY =
   'これは長い本文の表示確認用です。架空の学習予定、持ち物、提出期限をまとめています。'.repeat(12);
 
+const WORKSPACE_ID = '11111111-1111-1111-1111-111111111111';
+const GROUP_ID = '22222222-2222-2222-2222-222222222222';
+const CHANNEL_ID = '33333333-3333-3333-3333-333333333333';
+
 export const DEFAULT_ANNOUNCEMENTS: readonly AnnouncementViewModel[] = [
   {
     id: 'mock-announcement-001',
@@ -10,7 +14,7 @@ export const DEFAULT_ANNOUNCEMENTS: readonly AnnouncementViewModel[] = [
     body: '来週は探究活動のまとめを行います。各自、配付済みの記録用紙を確認してください。',
     detailState: 'loaded',
     priority: 'important',
-    audienceScope: 'allWorkspaceMembers',
+    audienceScope: 'workspace',
     publishedAtLabel: '2026年7月1日 09:00',
     publicationState: 'published',
     readState: {
@@ -26,9 +30,9 @@ export const DEFAULT_ANNOUNCEMENTS: readonly AnnouncementViewModel[] = [
     body: '面談前に共有資料の内容を確認してください。個人情報は含まない架空のサンプル資料です。',
     detailState: 'loaded',
     priority: 'normal',
-    audienceScope: 'guardiansOnly',
+    audienceScope: 'group',
     publishedAtLabel: '2026年6月30日 16:30',
-    publicationState: 'published',
+    publicationState: 'updated',
     readState: {
       requiresReadConfirmation: false,
       isRead: true,
@@ -47,12 +51,46 @@ export const DEFAULT_ANNOUNCEMENTS: readonly AnnouncementViewModel[] = [
     body: 'この下書きは編集状態の確認用です。公開前の安全な架空データのみを使用しています。',
     detailState: 'loaded',
     priority: 'critical',
-    audienceScope: 'teachersOnly',
+    audienceScope: 'channel',
     publishedAtLabel: '下書き',
     publicationState: 'draft',
     readState: {
       requiresReadConfirmation: true,
       isRead: false
+    },
+    capabilities: ['readAnnouncement', 'editAnnouncement'],
+    notificationTarget: 'announcementDetail'
+  },
+  {
+    id: 'mock-announcement-004',
+    title: '予約済み: 来月の行事予定',
+    body: '予約公開状態の表示確認用です。',
+    detailState: 'loaded',
+    priority: 'normal',
+    audienceScope: 'workspace',
+    publishedAtLabel: '未公開',
+    publicationState: 'scheduled',
+    scheduledAtLabel: '2026年9月1日 08:00',
+    timeZoneLabel: 'Asia/Tokyo',
+    readState: {
+      requiresReadConfirmation: false,
+      isRead: false
+    },
+    capabilities: ['readAnnouncement', 'editAnnouncement'],
+    notificationTarget: 'announcementDetail'
+  },
+  {
+    id: 'mock-announcement-005',
+    title: 'アーカイブ済み: 過去のお知らせ',
+    body: 'アーカイブ状態の表示確認用です。',
+    detailState: 'loaded',
+    priority: 'normal',
+    audienceScope: 'global',
+    publishedAtLabel: '2026年5月1日 09:00',
+    publicationState: 'archived',
+    readState: {
+      requiresReadConfirmation: false,
+      isRead: true
     },
     capabilities: ['readAnnouncement', 'editAnnouncement'],
     notificationTarget: 'announcementDetail'
@@ -72,8 +110,36 @@ export const DEFAULT_ANNOUNCEMENTS_PAGE: AnnouncementsPageViewModel = {
     title: '',
     body: '',
     priority: 'normal',
-    audienceScope: 'allWorkspaceMembers',
-    requiresReadConfirmation: false
+    audienceKey: `workspace:${WORKSPACE_ID}`,
+    availableAudiences: [
+      { key: 'global', scope: 'global', displayName: 'テナント全体', recipientCount: 1310 },
+      {
+        key: `workspace:${WORKSPACE_ID}`,
+        scope: 'workspace',
+        displayName: '西大和学園',
+        recipientCount: 1248,
+        workspaceId: WORKSPACE_ID
+      },
+      {
+        key: `group:${GROUP_ID}`,
+        scope: 'group',
+        displayName: '西大和学園 / 教職員',
+        recipientCount: 86,
+        workspaceId: WORKSPACE_ID,
+        groupId: GROUP_ID
+      },
+      {
+        key: `channel:${CHANNEL_ID}`,
+        scope: 'channel',
+        displayName: '西大和学園 / AIP / #announcements',
+        recipientCount: 32,
+        workspaceId: WORKSPACE_ID,
+        groupId: GROUP_ID,
+        channelId: CHANNEL_ID
+      }
+    ],
+    requiresReadConfirmation: false,
+    publicationState: 'draft'
   }
 };
 

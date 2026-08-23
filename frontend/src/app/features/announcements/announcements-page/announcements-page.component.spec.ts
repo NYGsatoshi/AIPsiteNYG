@@ -129,4 +129,15 @@ describe('AnnouncementsPageComponent', () => {
 
     expect((fixture.nativeElement as HTMLElement).querySelector('[data-testid="announcement-editor"]')).not.toBeNull();
   });
+
+  it('shows the create editor even when the authorized announcement list is empty', async () => {
+    const fixture = await renderAnnouncementsPage(ANNOUNCEMENT_PAGE_SCENARIOS.empty);
+
+    expect((fixture.nativeElement as HTMLElement).querySelector('[data-testid="announcements-empty"]')).not.toBeNull();
+    fixture.componentInstance.showCreateEditor();
+    fixture.detectChanges();
+
+    expect((fixture.nativeElement as HTMLElement).querySelector('[data-testid="announcement-editor"]')).not.toBeNull();
+    expect((fixture.nativeElement as HTMLElement).querySelector('[data-testid="announcements-empty"]')).toBeNull();
+  });
 });

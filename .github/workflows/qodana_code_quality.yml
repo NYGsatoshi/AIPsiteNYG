@@ -160,7 +160,7 @@ jobs:
 
   frontend-quality:
     name: Angular / TypeScript / JavaScript / HTML / SCSS / CSS
-    runs-on: [self-hosted, aipsite-ci, general]
+    runs-on: self-hosted
     needs: qodana-dotnet-community
     if: ${{ !cancelled() }}
     timeout-minutes: 90

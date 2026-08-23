@@ -1,7 +1,11 @@
 <form class="announcement-editor" [formGroup]="form" data-testid="announcement-editor">
   <header>
-    <p>下書き</p>
-    <h2>新しいお知らせ</h2>
+    <app-announcement-publication-status
+      [state]="publicationState"
+      [scheduledAtLabel]="draft.scheduledAtLabel"
+      [timeZoneLabel]="draft.timeZoneLabel"
+    />
+    <h2>{{ draft.id ? 'お知らせを編集' : '新しいお知らせ' }}</h2>
   </header>
 
   <label>
@@ -29,21 +33,72 @@
 
     <label>
       <span>対象</span>
-      <select formControlName="audienceScope" data-testid="announcement-editor-audience">
-        @for (audience of audienceOptions; track audience) {
-          <option [value]="audience">{{ audienceLabels[audience] }}</option>
+      <select formControlName="audienceKey" data-testid="announcement-editor-audience">
+        @for (audience of availableAudiences(); track audience.key) {
+          <option [value]="audience.key">{{ audienceOptionLabel(audience) }}</option>
         }
       </select>
     </label>
   </div>
+
+  @if (availableAudiences().length === 0) {
+    <p class="announcement-editor__audience-note" role="alert" data-testid="announcement-audience-unavailable">
+      現在公開できる配信対象がありません。権限を再確認してください。
+    </p>
+  }
+
+  @if (selectedAudience(); as audience) {
+    <section class="announcement-editor__audience-summary" aria-live="polite" data-testid="announcement-audience-summary">
+      <div>
+        <span>配信対象</span>
+        <strong>{{ audience.displayName }}</strong>
+      </div>
+      @if (audience.recipientCount !== undefined) {
+        <p><strong>{{ audience.recipientCount.toLocaleString('ja-JP') }}名</strong> に配信予定</p>
+      } @else {
+        <p>受信者数は公開前の確認時に再計算されます。</p>
+      }
+      <p class="announcement-editor__audience-note">公開時にサーバーで権限と対象を再確認します。</p>
+    </section>
+  }
 
   <label class="announcement-editor__check">
     <input type="checkbox" formControlName="requiresReadConfirmation" />
     <span>既読確認</span>
   </label>
 
+  <section class="announcement-editor__review" data-testid="announcement-review-summary">
+    <h3>公開前の確認</h3>
+    @if (selectedAudience(); as audience) {
+      <dl>
+        <div>
+          <dt>対象</dt>
+          <dd>{{ audience.displayName }}</dd>
+        </div>
+        <div>
+          <dt>予定受信者</dt>
+          <dd>
+            @if (audience.recipientCount !== undefined) {
+              {{ audience.recipientCount.toLocaleString('ja-JP') }}名
+            } @else {
+              未取得
+            }
+          </dd>
+        </div>
+      </dl>
+    }
+  </section>
+
   <div class="announcement-editor__actions">
-    <button type="button">下書き保存</button>
-    <button type="button" class="announcement-editor__primary">公開</button>
+    <button type="button" [disabled]="!canSaveDraft" data-testid="announcement-save-draft-action">下書き保存</button>
+    <button
+      type="button"
+      class="announcement-editor__primary"
+      data-testid="announcement-publish-action"
+      [disabled]="!canPublish || form.invalid || selectedAudience() === null"
+      (click)="publish()"
+    >
+      公開
+    </button>
   </div>
 </form>
