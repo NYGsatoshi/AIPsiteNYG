@@ -50,10 +50,12 @@ public sealed class AnnouncementAudienceSecurityPostgreSqlTests
 
         currentTenant.SetTenant(tenantA.Id, tenantA.Slug);
         var repository = new AnnouncementRepository(dbContext, new FixedClock(DateTimeOffset.UtcNow), currentTenant);
-        var targets = await repository.ListTargetUsersAsync(new Announcement { TenantId = tenantA.Id });
+        var prototype = new Announcement { TenantId = tenantA.Id };
+        var targets = await repository.ListTargetUsersAsync(prototype);
 
         Assert.Contains(targets, target => target.UserId == userA.Id);
         Assert.DoesNotContain(targets, target => target.UserId == userB.Id);
+        Assert.Equal(1, await repository.CountTargetUsersAsync(prototype));
     }
 
     [PostgreSqlFact]
@@ -147,6 +149,8 @@ public sealed class AnnouncementAudienceSecurityPostgreSqlTests
         await dbContext.SaveChangesAsync();
 
         var repository = new AnnouncementRepository(dbContext, new FixedClock(now), currentTenant);
+        Assert.Single(await repository.ListTargetUsersAsync(announcement));
+        Assert.Equal(1, await repository.CountTargetUsersAsync(announcement));
 
         var workspaceMembership = await dbContext.WorkspaceMembers.SingleAsync(member =>
             member.WorkspaceId == workspace.Id && member.UserId == user.Id);
@@ -155,6 +159,7 @@ public sealed class AnnouncementAudienceSecurityPostgreSqlTests
         dbContext.ChangeTracker.Clear();
 
         Assert.Empty(await repository.ListTargetUsersAsync(announcement));
+        Assert.Equal(0, await repository.CountTargetUsersAsync(announcement));
         Assert.False(await repository.IsVisibleToUserAsync(announcement.Id, user.Id, false));
 
         workspaceMembership = await dbContext.WorkspaceMembers.SingleAsync(member =>
@@ -167,6 +172,7 @@ public sealed class AnnouncementAudienceSecurityPostgreSqlTests
         dbContext.ChangeTracker.Clear();
 
         Assert.Empty(await repository.ListTargetUsersAsync(announcement));
+        Assert.Equal(0, await repository.CountTargetUsersAsync(announcement));
         Assert.False(await repository.IsVisibleToUserAsync(announcement.Id, user.Id, false));
     }
 
