@@ -213,12 +213,12 @@ public sealed class AnnouncementRepository(
                 userIds.Contains(user.Id) &&
                 user.Status == UserStatus.Active &&
                 user.DeletedAt == null)
+            .OrderBy(user => user.DisplayName)
             .Select(user => new AnnouncementTargetUser(
                 user.Id,
                 user.DisplayName,
                 user.Email,
                 dbContext.AnnouncementReads.Any(read => read.AnnouncementId == announcement.Id && read.UserId == user.Id)))
-            .OrderBy(user => user.DisplayName)
             .ToListAsync(cancellationToken);
     }
 
