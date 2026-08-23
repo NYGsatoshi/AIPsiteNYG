@@ -20,6 +20,7 @@ export interface FileListItemDto {
   readonly uploadedByUserId?: unknown;
   readonly uploadedByDisplayName?: unknown;
   readonly createdAt?: unknown;
+  readonly updatedAt?: unknown;
   readonly deletedAt?: unknown;
 }
 
@@ -43,6 +44,8 @@ export function mapFileListItem(dto: FileListItemDto): FileViewModel {
   const scanStatus = toScanStatus(dto.scanStatus, dto.status);
   const active = isActiveStatus(dto.status) && !stringValue(dto.deletedAt);
   const canDownload = active && scanStatus === 'allowed' && !!canonicalFileId;
+  const createdAt = stringValue(dto.createdAt);
+  const modifiedAt = stringValue(dto.updatedAt) ?? createdAt;
 
   return {
     id: stringValue(dto.id) ?? canonicalFileId ?? '',
@@ -52,7 +55,8 @@ export function mapFileListItem(dto: FileListItemDto): FileViewModel {
     sizeBytes: numberValue(dto.sizeBytes),
     scanStatus,
     uploadedByDisplay: stringValue(dto.uploadedByDisplayName) ?? 'Unknown user',
-    createdAtLabel: formatDate(dto.createdAt),
+    createdAtLabel: formatDate(createdAt),
+    modifiedAtLabel: formatDate(modifiedAt),
     kind: fileKind(originalFileName, contentType),
     downloadPolicy: canDownload ? 'available' : 'denied',
     capabilities: canDownload ? ['download'] : [],

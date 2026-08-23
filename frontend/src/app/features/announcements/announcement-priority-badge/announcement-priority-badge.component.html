@@ -1,0 +1,20 @@
+<span
+  class="announcement-priority"
+  [class.announcement-priority--important]="priority === 'important'"
+  [class.announcement-priority--critical]="priority === 'critical'"
+  [attr.aria-label]="'優先度: ' + definitions[priority].label + '。' + definitions[priority].description"
+  data-testid="announcement-priority-badge"
+>
+  @switch (priority) {
+    @case ('critical') {
+      <svg lucideTriangleAlert aria-hidden="true"></svg>
+    }
+    @case ('important') {
+      <svg lucideCircleAlert aria-hidden="true"></svg>
+    }
+    @default {
+      <svg lucideCircle aria-hidden="true"></svg>
+    }
+  }
+  <span>{{ definitions[priority].label }}</span>
+</span>
