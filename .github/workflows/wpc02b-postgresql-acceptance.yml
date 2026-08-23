@@ -72,6 +72,22 @@ jobs:
         with:
           persist-credentials: false
 
+      - name: Reset .NET build outputs after checkout
+        shell: bash
+        run: |
+          uid="$(id -u)"
+          gid="$(id -g)"
+          docker run --rm \
+            -v "$GITHUB_WORKSPACE:/workspace" \
+            alpine:3.21 \
+            sh -ec "
+              find /workspace/src /workspace/tests -type d -name bin -prune -exec rm -rf {} +
+              find /workspace/src /workspace/tests -type d -name obj -prune -exec rm -rf {} +
+              chown -R ${uid}:${gid} /workspace
+            "
+          mkdir -p src/AipPortal.Web/obj
+          test -w src/AipPortal.Web/obj
+
       - name: Configure user-local .NET install
         shell: bash
         run: |
