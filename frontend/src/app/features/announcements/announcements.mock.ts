@@ -28,7 +28,7 @@ export const DEFAULT_ANNOUNCEMENTS: readonly AnnouncementViewModel[] = [
     priority: 'normal',
     audienceScope: 'guardiansOnly',
     publishedAtLabel: '2026年6月30日 16:30',
-    publicationState: 'published',
+    publicationState: 'updated',
     readState: {
       requiresReadConfirmation: false,
       isRead: true,
@@ -53,6 +53,40 @@ export const DEFAULT_ANNOUNCEMENTS: readonly AnnouncementViewModel[] = [
     readState: {
       requiresReadConfirmation: true,
       isRead: false
+    },
+    capabilities: ['readAnnouncement', 'editAnnouncement'],
+    notificationTarget: 'announcementDetail'
+  },
+  {
+    id: 'mock-announcement-004',
+    title: '予約済み: 来月の行事予定',
+    body: '予約公開状態の表示確認用です。',
+    detailState: 'loaded',
+    priority: 'normal',
+    audienceScope: 'allWorkspaceMembers',
+    publishedAtLabel: '未公開',
+    publicationState: 'scheduled',
+    scheduledAtLabel: '2026年9月1日 08:00',
+    timeZoneLabel: 'Asia/Tokyo',
+    readState: {
+      requiresReadConfirmation: false,
+      isRead: false
+    },
+    capabilities: ['readAnnouncement', 'editAnnouncement'],
+    notificationTarget: 'announcementDetail'
+  },
+  {
+    id: 'mock-announcement-005',
+    title: 'アーカイブ済み: 過去のお知らせ',
+    body: 'アーカイブ状態の表示確認用です。',
+    detailState: 'loaded',
+    priority: 'normal',
+    audienceScope: 'allWorkspaceMembers',
+    publishedAtLabel: '2026年5月1日 09:00',
+    publicationState: 'archived',
+    readState: {
+      requiresReadConfirmation: false,
+      isRead: true
     },
     capabilities: ['readAnnouncement', 'editAnnouncement'],
     notificationTarget: 'announcementDetail'

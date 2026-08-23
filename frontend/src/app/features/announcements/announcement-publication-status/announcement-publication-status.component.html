@@ -1,0 +1,11 @@
+<span class="announcement-publication-status" [attr.data-state]="state" data-testid="announcement-publication-status">
+  <span class="announcement-publication-status__label">{{ labels[state] }}</span>
+  @if (state === 'scheduled') {
+    <span class="announcement-publication-status__schedule" data-testid="announcement-scheduled-at">
+      {{ scheduledAtLabel || '公開予定日時未設定' }}
+      @if (timeZoneLabel) {
+        <span>（{{ timeZoneLabel }}）</span>
+      }
+    </span>
+  }
+</span>
