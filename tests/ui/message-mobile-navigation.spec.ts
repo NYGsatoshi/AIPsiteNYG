@@ -113,44 +113,56 @@ function skipDesktop(testInfo: TestInfo): void {
 
 async function effectiveScrollTop(page: Page): Promise<number> {
   return page.evaluate(() => {
-    const host = effectiveScrollRoot();
-    return host?.scrollTop ?? 0;
+    const appHost = document.getElementById('app-shell-main-content');
+    const documentHost = document.scrollingElement;
+    const hosts = [appHost, documentHost].filter(
+      (host): host is HTMLElement => host instanceof HTMLElement
+    );
+    const scrollRoot =
+      hosts.find((host) => host.scrollTop > 0) ??
+      hosts.find((host) => host.scrollHeight > host.clientHeight + 1) ??
+      hosts[0] ??
+      null;
+    return scrollRoot?.scrollTop ?? 0;
   });
 }
 
 async function setEffectiveScrollTop(page: Page, requestedTop: number): Promise<number> {
   return page.evaluate((top) => {
-    const host = effectiveScrollRoot();
-    if (!host) {
+    const appHost = document.getElementById('app-shell-main-content');
+    const documentHost = document.scrollingElement;
+    const hosts = [appHost, documentHost].filter(
+      (host): host is HTMLElement => host instanceof HTMLElement
+    );
+    const scrollRoot =
+      hosts.find((host) => host.scrollTop > 0) ??
+      hosts.find((host) => host.scrollHeight > host.clientHeight + 1) ??
+      hosts[0] ??
+      null;
+    if (!scrollRoot) {
       return 0;
     }
 
-    const maxTop = Math.max(0, host.scrollHeight - host.clientHeight);
-    host.scrollTo({ top: Math.min(top, maxTop), left: 0, behavior: 'auto' });
-    return host.scrollTop;
+    const maxTop = Math.max(0, scrollRoot.scrollHeight - scrollRoot.clientHeight);
+    scrollRoot.scrollTo({ top: Math.min(top, maxTop), left: 0, behavior: 'auto' });
+    return scrollRoot.scrollTop;
   }, requestedTop);
 }
 
 async function scrollEffectiveRootToEnd(page: Page): Promise<void> {
   await page.evaluate(() => {
-    const host = effectiveScrollRoot();
-    host?.scrollTo({ top: host.scrollHeight, left: 0, behavior: 'auto' });
+    const appHost = document.getElementById('app-shell-main-content');
+    const documentHost = document.scrollingElement;
+    const hosts = [appHost, documentHost].filter(
+      (host): host is HTMLElement => host instanceof HTMLElement
+    );
+    const scrollRoot =
+      hosts.find((host) => host.scrollTop > 0) ??
+      hosts.find((host) => host.scrollHeight > host.clientHeight + 1) ??
+      hosts[0] ??
+      null;
+    scrollRoot?.scrollTo({ top: scrollRoot.scrollHeight, left: 0, behavior: 'auto' });
   });
-}
-
-function effectiveScrollRoot(): HTMLElement | null {
-  const appHost = document.getElementById('app-shell-main-content');
-  const documentHost = document.scrollingElement;
-  const hosts = [appHost, documentHost].filter(
-    (host): host is HTMLElement => host instanceof HTMLElement
-  );
-
-  return (
-    hosts.find((host) => host.scrollTop > 0) ??
-    hosts.find((host) => host.scrollHeight > host.clientHeight + 1) ??
-    hosts[0] ??
-    null
-  );
 }
 
 async function installMessagingApi(page: Page): Promise<void> {
