@@ -23,6 +23,8 @@ export interface WorkspaceDashboardListItemDto {
   readonly unreadAnnouncementCount?: unknown;
   readonly unreadConversationCount?: unknown;
   readonly inProgressProjectCount?: unknown;
+  readonly runningProjectCount?: unknown;
+  readonly needsReviewProjectCount?: unknown;
 }
 
 export interface WorkspaceCapabilitiesDto {
@@ -73,7 +75,13 @@ export function mapWorkspaceDashboardItem(
   const accessSource = dashboardAccessSource(workspace.accessSource);
   const unreadAnnouncementCount = nonNegativeInteger(workspace.unreadAnnouncementCount);
   const unreadConversationCount = nonNegativeInteger(workspace.unreadConversationCount);
-  const activeProjectCount = nonNegativeInteger(workspace.inProgressProjectCount);
+  const runningProjectCount = nonNegativeInteger(workspace.runningProjectCount);
+  const needsReviewProjectCount = nonNegativeInteger(workspace.needsReviewProjectCount);
+  const activeProjectCount =
+    nonNegativeInteger(workspace.inProgressProjectCount) ??
+    (runningProjectCount !== null && needsReviewProjectCount !== null
+      ? runningProjectCount + needsReviewProjectCount
+      : null);
   const lastUpdatedLabel = dateLabel(workspace.updatedAt) ?? dateLabel(workspace.createdAt);
 
   return {
@@ -85,11 +93,15 @@ export function mapWorkspaceDashboardItem(
     unreadAnnouncementCount,
     unreadConversationCount,
     activeProjectCount,
+    runningProjectCount,
+    needsReviewProjectCount,
     lastUpdatedLabel,
     availability: {
       unreadAnnouncements: unreadAnnouncementCount !== null,
       unreadConversations: unreadConversationCount !== null,
       activeProjects: activeProjectCount !== null,
+      runningProjects: runningProjectCount !== null,
+      needsReviewProjects: needsReviewProjectCount !== null,
       lastUpdated: lastUpdatedLabel !== null,
     },
     capabilities: actionCapabilities(workspace),

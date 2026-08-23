@@ -5,69 +5,56 @@
 
 .top-bar {
   display: grid;
-  grid-template-columns: minmax(0, 1fr) minmax(12rem, 20rem) auto;
+  grid-template-columns: minmax(12rem, 1fr) minmax(12rem, auto) minmax(0, 2fr);
   align-items: center;
   gap: var(--shell-space-3, 12px);
   min-width: 0;
-  height: var(--shell-topbar-height, 64px);
+  min-height: var(--shell-topbar-height, 64px);
   border-bottom: 1px solid var(--aip-color-border-default);
   background: var(--aip-color-bg-shell);
   color: var(--aip-color-text-primary);
-  padding: 0 var(--shell-space-4, 16px);
+  padding: var(--shell-space-2, 8px) var(--shell-space-4, 16px);
 }
 
 .top-bar__workspace,
-.top-bar__search,
+.top-bar__research,
 .top-bar__actions {
   min-width: 0;
 }
 
-.top-bar__workspace {
+.top-bar__workspace,
+.top-bar__research {
   display: grid;
-  gap: 2px;
+  gap: 4px;
 }
 
 .top-bar__label,
-.top-bar__search span {
+.top-bar__selection-status {
   color: var(--aip-color-text-muted);
   font-size: 0.75rem;
   font-weight: 700;
 }
 
-.top-bar__workspace strong {
-  overflow: hidden;
-  color: var(--aip-color-text-primary);
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-
-.top-bar__search {
-  position: relative;
-  display: grid;
-  gap: 4px;
-}
-
-.top-bar__assistive-text {
-  position: absolute;
-  width: 1px;
-  height: 1px;
-  margin: -1px;
-  overflow: hidden;
-  clip: rect(0 0 0 0);
-  white-space: nowrap;
-  border: 0;
-  padding: 0;
-}
-
-.top-bar__search input {
-  width: 100%;
-  min-width: 0;
+.top-bar__workspace select {
+  width: min(100%, 22rem);
   min-height: var(--shell-touch-target, 44px);
   border: 1px solid var(--aip-color-border-default);
   border-radius: var(--shell-radius-md, 6px);
   background: var(--aip-color-bg-control);
   color: var(--aip-color-text-primary);
-  padding: 8px 10px;
+  padding: 0 var(--shell-space-3, 12px);
+}
+
+.top-bar__selection-status,
+.top-bar__research strong {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.top-bar__research strong {
+  color: var(--aip-color-text-primary);
+  font-size: 0.875rem;
 }
 
 .top-bar__actions {
@@ -75,6 +62,7 @@
   align-items: center;
   justify-content: end;
   gap: var(--shell-space-2, 8px);
+  flex-wrap: wrap;
 }
 
 .top-bar__status {
@@ -87,8 +75,22 @@
   color: var(--aip-color-danger);
 }
 
-.top-bar__logout-button,
-.top-bar__panel-button {
+.top-bar__action-group {
+  display: flex;
+  align-items: center;
+  gap: var(--shell-space-2, 8px);
+  min-width: 0;
+}
+
+.top-bar__action-group--global {
+  border-left: 1px solid var(--aip-color-border-default);
+  padding-left: var(--shell-space-3, 12px);
+}
+
+.top-bar__action {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
   min-height: var(--shell-touch-target, 44px);
   min-width: var(--shell-touch-target, 44px);
   border: 1px solid var(--aip-color-border-strong);
@@ -98,27 +100,26 @@
   font-weight: 700;
   cursor: pointer;
   padding: 0 var(--shell-space-3, 12px);
+  text-decoration: none;
 }
 
-.top-bar__logout-button:hover,
-.top-bar__panel-button:hover {
+.top-bar__action:hover {
   background: var(--aip-color-bg-selected);
 }
 
-.top-bar__logout-button {
+.top-bar__action--logout {
   border-color: var(--aip-color-danger);
   color: var(--aip-color-danger);
 }
 
-.top-bar__logout-button:disabled,
-.top-bar__search input[readonly] {
+.top-bar__action:disabled,
+.top-bar__workspace select:disabled {
   cursor: default;
   opacity: 0.68;
 }
 
-.top-bar__logout-button:focus-visible,
-.top-bar__panel-button:focus-visible,
-.top-bar__search input:focus-visible {
+.top-bar__action:focus-visible,
+.top-bar__workspace select:focus-visible {
   outline: var(--aip-focus-outline);
   outline-offset: var(--aip-focus-offset);
 }
@@ -132,5 +133,28 @@
 
   .top-bar__actions {
     justify-content: start;
+  }
+
+  .top-bar__action-group--global {
+    border-left: 0;
+    border-top: 1px solid var(--aip-color-border-default);
+    padding-top: var(--shell-space-2, 8px);
+    padding-left: 0;
+  }
+}
+
+@media (max-width: 420px) {
+  .top-bar__actions,
+  .top-bar__action-group {
+    align-items: stretch;
+    width: 100%;
+  }
+
+  .top-bar__action-group {
+    flex-wrap: wrap;
+  }
+
+  .top-bar__action {
+    flex: 1 1 auto;
   }
 }

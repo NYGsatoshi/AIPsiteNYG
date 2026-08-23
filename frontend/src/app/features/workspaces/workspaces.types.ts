@@ -16,6 +16,8 @@ export interface WorkspaceSummaryAvailability {
   readonly unreadAnnouncements: boolean;
   readonly unreadConversations: boolean;
   readonly activeProjects: boolean;
+  readonly runningProjects: boolean;
+  readonly needsReviewProjects: boolean;
   readonly lastUpdated: boolean;
 }
 
@@ -28,6 +30,8 @@ export interface WorkspaceCardViewModel {
   readonly unreadAnnouncementCount: number | null;
   readonly unreadConversationCount: number | null;
   readonly activeProjectCount: number | null;
+  readonly runningProjectCount: number | null;
+  readonly needsReviewProjectCount: number | null;
   readonly lastUpdatedLabel: string | null;
   readonly availability: WorkspaceSummaryAvailability;
   readonly capabilities: readonly WorkspaceActionCapability[];

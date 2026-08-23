@@ -41,12 +41,16 @@
     <app-top-bar
       data-testid="top-bar-region"
       [workspace]="vm.workspace"
-      [searchValue]="pageSearch()"
+      [workspaceOptions]="vm.workspaceOptions"
+      [workspaceSelectionStatus]="vm.workspaceSelectionStatus"
+      [runningProjectCount]="vm.runningProjectCount"
+      [needsReviewProjectCount]="vm.needsReviewProjectCount"
+      [canOpenWorkspaceMembers]="vm.canOpenWorkspaceMembers"
       [sessionStatus]="vm.session.status"
       [rightPanelMode]="vm.rightPanelMode"
       [logoutPending]="logoutPending()"
       [logoutError]="logoutError()"
-      (searchValueChange)="setPageSearch($event)"
+      (workspaceSelected)="selectWorkspace($event)"
       (logoutRequested)="logout()"
       (rightPanelToggle)="toggleRightPanelFromTopBar($event)"
     />

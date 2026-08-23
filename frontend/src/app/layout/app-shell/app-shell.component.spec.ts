@@ -6,6 +6,8 @@ import {
   AIP_AUTH_SESSION_MOCK,
   DEFAULT_AUTH_SESSION
 } from '../../core/auth/auth-session.facade';
+import { AIP_WORKSPACES_DASHBOARD_MOCK } from '../../features/workspaces/workspaces.facade';
+import { MEMBER_WORKSPACE } from '../../features/workspaces/workspaces.mock';
 import { AppShellComponent } from './app-shell.component';
 
 @Component({
@@ -30,6 +32,16 @@ describe('AppShellComponent', () => {
           useValue: {
             ...DEFAULT_AUTH_SESSION,
             capabilities
+          }
+        },
+        {
+          provide: AIP_WORKSPACES_DASHBOARD_MOCK,
+          useValue: {
+            status: 'ready',
+            title: 'Workspaces',
+            subtitle: 'Authorized Workspaces',
+            workspaces: [MEMBER_WORKSPACE],
+            pageCapabilities: []
           }
         }
       ]
@@ -148,20 +160,20 @@ describe('AppShellComponent', () => {
     expect(desktopPinnedLinks).toEqual(['nav-my-tasks', 'nav-projects']);
   });
 
-  it('clears page-local search on route change', async () => {
+  it('closes mobile navigation on route change', async () => {
     await configure();
 
     const fixture = TestBed.createComponent(AppShellComponent);
     const router = TestBed.inject(Router);
-    fixture.componentInstance.setPageSearch('abc');
+    fixture.componentInstance.openMobileDrawer();
 
     await router.navigateByUrl('/projects');
     fixture.detectChanges();
 
-    expect(fixture.componentInstance.pageSearch()).toBe('');
+    expect(fixture.componentInstance.mobileDrawerOpen()).toBe(false);
   });
 
-  it('shows logout and keeps global search focusable when search is not wired to the page', async () => {
+  it('shows the Workspace context and separate global actions without a fake search control', async () => {
     await configure();
 
     const fixture = TestBed.createComponent(AppShellComponent);
@@ -169,10 +181,14 @@ describe('AppShellComponent', () => {
 
     const element = fixture.nativeElement as HTMLElement;
     expect(element.querySelector('[data-testid="logout-action"]')).not.toBeNull();
+    expect(element.querySelector('[data-testid="workspace-switcher"]')).not.toBeNull();
+    expect(element.querySelector('[data-testid="workspace-members-action"]')).not.toBeNull();
+    expect(element.querySelector('[data-testid="workspace-research-status"]')?.textContent).toContain('0 Running');
+    expect(element.querySelector('[data-testid="workspace-research-status"]')?.textContent).toContain('0 Needs review');
+    expect(element.querySelector('nav[aria-label="Global actions"]')).not.toBeNull();
     expect(element.querySelector('a[href="#app-shell-main-content"]')).not.toBeNull();
     expect(element.querySelector('main#app-shell-main-content')).not.toBeNull();
-    expect(element.querySelector<HTMLInputElement>('[data-testid="page-search"]')?.readOnly).toBe(true);
-    expect(element.querySelector<HTMLInputElement>('[data-testid="page-search"]')?.placeholder).toContain('MVP0');
+    expect(element.querySelector('[data-testid="page-search"]')).toBeNull();
   });
 
   it('renders without backend calls', async () => {

@@ -22,7 +22,9 @@ const staticWorkspace = {
   canOpenProjects: true,
   unreadAnnouncementCount: 2,
   unreadConversationCount: 1,
-  inProgressProjectCount: 3
+  inProgressProjectCount: 3,
+  runningProjectCount: 2,
+  needsReviewProjectCount: 1
 };
 
 function argValue(name) {

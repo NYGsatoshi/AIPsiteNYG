@@ -5,7 +5,10 @@ import { catchError, forkJoin, map, of, switchMap } from 'rxjs';
 import { normalizeApiError } from '../../core/api/api-error.adapter';
 import { FrontendApiError } from '../../core/api/api-error.model';
 import { FrontendFeatureFlagsService } from '../../core/feature-flags/frontend-feature-flags.service';
-import { RealtimeFacade } from '../../core/realtime/realtime.facade';
+import {
+  ProtectedStateClearReason,
+  RealtimeFacade,
+} from '../../core/realtime/realtime.facade';
 import { DurableRealtimeEvent } from '../../core/realtime/realtime.models';
 import {
   AipGanttDependency,
@@ -131,7 +134,10 @@ export class ProjectDetailFacade {
 
   constructor() {
     this.realtime.durableEvents$.subscribe((event) => this.handleRealtimeEvent(event));
-    this.realtime.registerProtectedStateClearer?.(PROJECT_REALTIME_OWNER, () => this.clearProtectedProjectionsForDeniedSubscription());
+    this.realtime.registerProtectedStateClearer?.(
+      PROJECT_REALTIME_OWNER,
+      (reason) => this.clearProtectedState(reason),
+    );
   }
 
   view(): ProjectDetailViewModel {
@@ -953,6 +959,16 @@ export class ProjectDetailFacade {
         feedback: 'Project access was denied during reconnect. Protected schedule data was cleared.'
       }
     });
+  }
+
+  private clearProtectedState(reason: ProtectedStateClearReason): void {
+    this.clearProtectedProjectionsForDeniedSubscription();
+    if (reason !== 'authorization') {
+      // A genuine Workspace/session/Tenant boundary invalidates the mounted
+      // route intent itself. Authorization rechecks preserve it so either the
+      // SignalR catch-up or the degraded HTTP fallback can revalidate it.
+      this.release();
+    }
   }
 
   private releaseRealtime(): void {

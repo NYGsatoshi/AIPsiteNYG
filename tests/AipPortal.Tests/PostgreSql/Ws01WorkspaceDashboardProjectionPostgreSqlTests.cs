@@ -98,6 +98,9 @@ public sealed class Ws01WorkspaceDashboardProjectionPostgreSqlTests
                 Assert.True(item.CanOpenMembers);
                 Assert.True(item.CanOpenProjects);
                 Assert.Equal(item.UpdatedAt, item.UpdatedAt.ToUniversalTime());
+                Assert.Equal(
+                    item.RunningProjectCount + item.NeedsReviewProjectCount,
+                    item.InProgressProjectCount);
             });
             Assert.DoesNotContain(actorItems, item => item.Id == graph.ArchivedWorkspace.Id);
             Assert.DoesNotContain(actorItems, item => item.Id == graph.TenantBWorkspace.Id);
@@ -133,12 +136,16 @@ public sealed class Ws01WorkspaceDashboardProjectionPostgreSqlTests
             Assert.Equal(2, ownerCard.UnreadAnnouncementCount);
             Assert.Equal(2, ownerCard.UnreadConversationCount);
             Assert.Equal(3, ownerCard.InProgressProjectCount);
+            Assert.Equal(2, ownerCard.RunningProjectCount);
+            Assert.Equal(1, ownerCard.NeedsReviewProjectCount);
             Assert.Equal(graph.OwnerWorkspace.UpdatedAt, ownerCard.UpdatedAt);
 
             var zeroCard = Assert.Single(actorItems, item => item.Id == graph.AdminWorkspace.Id);
             Assert.Equal(0, zeroCard.UnreadAnnouncementCount);
             Assert.Equal(0, zeroCard.UnreadConversationCount);
             Assert.Equal(0, zeroCard.InProgressProjectCount);
+            Assert.Equal(0, zeroCard.RunningProjectCount);
+            Assert.Equal(0, zeroCard.NeedsReviewProjectCount);
             Assert.InRange(
                 (graph.AdminWorkspace.CreatedAt - zeroCard.UpdatedAt).Duration(),
                 TimeSpan.Zero,
@@ -181,6 +188,8 @@ public sealed class Ws01WorkspaceDashboardProjectionPostgreSqlTests
             Assert.Equal(WorkspaceDashboardAccessSource.SystemAdmin, systemAdminOnlyCard.AccessSource);
             Assert.Equal(5, systemAdminOnlyCard.UnreadAnnouncementCount);
             Assert.Equal(2, systemAdminOnlyCard.InProgressProjectCount);
+            Assert.Equal(1, systemAdminOnlyCard.RunningProjectCount);
+            Assert.Equal(1, systemAdminOnlyCard.NeedsReviewProjectCount);
             Assert.Equal(0, systemAdminOnlyCard.UnreadConversationCount);
 
             var systemAdminMembershipCard = Assert.Single(
@@ -201,10 +210,12 @@ public sealed class Ws01WorkspaceDashboardProjectionPostgreSqlTests
             dbContext.ChangeTracker.Clear();
 
             var afterProjectRevocation = await dashboard.ListAsync(graph.Actor.Id);
-            Assert.Equal(
-                2,
-                Assert.Single(afterProjectRevocation, item => item.Id == graph.OwnerWorkspace.Id)
-                    .InProgressProjectCount);
+            var afterProjectRevocationOwnerCard = Assert.Single(
+                afterProjectRevocation,
+                item => item.Id == graph.OwnerWorkspace.Id);
+            Assert.Equal(2, afterProjectRevocationOwnerCard.InProgressProjectCount);
+            Assert.Equal(1, afterProjectRevocationOwnerCard.RunningProjectCount);
+            Assert.Equal(1, afterProjectRevocationOwnerCard.NeedsReviewProjectCount);
 
             var ownerMembership = await dbContext.WorkspaceMembers.SingleAsync(member =>
                 member.WorkspaceId == graph.OwnerWorkspace.Id &&

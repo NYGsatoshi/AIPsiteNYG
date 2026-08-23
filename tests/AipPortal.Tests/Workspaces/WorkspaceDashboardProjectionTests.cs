@@ -33,7 +33,9 @@ public sealed class WorkspaceDashboardProjectionTests
             true,
             2,
             3,
-            4);
+            4,
+            3,
+            1);
         var query = new StubDashboardQuery([expected]);
         var service = Service(new TestCurrentUser(userId), tenant, query);
 
@@ -47,6 +49,8 @@ public sealed class WorkspaceDashboardProjectionTests
         Assert.Equal(2, item.UnreadAnnouncementCount);
         Assert.Equal(3, item.UnreadConversationCount);
         Assert.Equal(4, item.InProgressProjectCount);
+        Assert.Equal(3, item.RunningProjectCount);
+        Assert.Equal(1, item.NeedsReviewProjectCount);
     }
 
     [Fact]
@@ -114,6 +118,8 @@ public sealed class WorkspaceDashboardProjectionTests
             true,
             0,
             0,
+            0,
+            0,
             0);
 
         using var json = JsonDocument.Parse(JsonSerializer.Serialize(
@@ -126,6 +132,8 @@ public sealed class WorkspaceDashboardProjectionTests
         Assert.Equal(0, root.GetProperty("unreadAnnouncementCount").GetInt32());
         Assert.Equal(0, root.GetProperty("unreadConversationCount").GetInt32());
         Assert.Equal(0, root.GetProperty("inProgressProjectCount").GetInt32());
+        Assert.Equal(0, root.GetProperty("runningProjectCount").GetInt32());
+        Assert.Equal(0, root.GetProperty("needsReviewProjectCount").GetInt32());
         Assert.False(root.TryGetProperty("activeProjectCount", out _));
 
         var legacyBasicConsumer = JsonSerializer.Deserialize<WorkspaceListItemResponse>(

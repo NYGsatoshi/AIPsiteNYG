@@ -6,7 +6,6 @@ import {
   ElementRef,
   HostListener,
   computed,
-  effect,
   inject,
   signal,
   viewChild
@@ -70,7 +69,6 @@ export class AppShellComponent implements AfterViewChecked {
 
     return [...ordered, ...items.filter((item) => !included.has(item.id))];
   });
-  readonly pageSearch = signal('');
   readonly logoutPending = signal(false);
   readonly logoutError = signal('');
   readonly rightPanelReturnFocus = signal<HTMLElement | null>(null);
@@ -84,19 +82,12 @@ export class AppShellComponent implements AfterViewChecked {
         takeUntilDestroyed(this.destroyRef)
       )
       .subscribe(() => {
-        this.pageSearch.set('');
         this.closeMobileDrawer(false);
       });
-
-    effect(() => {
-      if (this.viewModel().session.status === 'expired') {
-        this.pageSearch.set('');
-      }
-    });
   }
 
-  setPageSearch(value: string): void {
-    this.pageSearch.set(value);
+  selectWorkspace(workspaceId: string): void {
+    void this.facade.selectWorkspace(workspaceId);
   }
 
   setFeatureMenuCollapsed(collapsed: boolean): void {

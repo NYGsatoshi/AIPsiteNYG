@@ -37,10 +37,13 @@ export class FilesFacade {
   /** Task detail owns this independent query; it must never alter Files-page workspace state. */
   private readonly pickerState = signal<TaskFilePickerState>(this.emptyPickerState());
   private pageWorkspaceId: string | null = null;
+  private pageGeneration = 0;
   private pickerWorkspaceId: string | null = null;
   private pickerGeneration = 0;
   private pickerRequest: Subscription | null = null;
   private readonly attachmentDownloads = new Map<string, Subscription>();
+  private readonly fileDownloads = new Map<string, Subscription>();
+  private readonly pageRequests = new Set<Subscription>();
   private readonly loadingWorkspaceIds = new Set<string>();
   private readonly pendingUploads = new Map<string, { file: File; subscription: Subscription }>();
   private refreshAfterMutation = false;
@@ -53,6 +56,9 @@ export class FilesFacade {
 
   constructor() {
     this.realtime.durableEvents$.subscribe((event) => this.handleRealtimeEvent(event));
+    if (!this.mockPage) {
+      this.realtime.registerProtectedStateClearer?.('files', () => this.clearProtectedState());
+    }
   }
 
   /** The Files page opts into its workspace inventory; other consumers must not prefetch it. */
@@ -61,6 +67,7 @@ export class FilesFacade {
       return;
     }
     if (!workspaceId) {
+      this.invalidatePageRequests();
       this.pageWorkspaceId = null;
       this.pageState.set(this.emptyPage('Select a workspace before uploading files.', false));
       return;
@@ -68,6 +75,7 @@ export class FilesFacade {
     if (this.pageWorkspaceId === workspaceId) {
       return;
     }
+    this.invalidatePageRequests();
     this.pageWorkspaceId = workspaceId;
     this.loadFiles(workspaceId, 1, FILES_PAGE_SIZE);
   }
@@ -94,6 +102,7 @@ export class FilesFacade {
 
   uploadFile(file: File): void {
     const workspaceId = this.activeWorkspace.activeWorkspace()?.id;
+    const generation = this.pageGeneration;
     const currentUpload = this.pageState().upload;
     if (!workspaceId || currentUpload.state === 'pending' || currentUpload.state === 'progress') {
       return;
@@ -119,6 +128,7 @@ export class FilesFacade {
       .post<AttachmentUploadResponseDto>('/api/files', formData, { withCredentials: true, observe: 'events', reportProgress: true })
       .subscribe({
         next: (event) => {
+          if (generation !== this.pageGeneration) { return; }
           if (event.type === HttpEventType.Sent) { this.updateQueue({ clientRequestId, fileName: file.name, state: 'uploading' }); return; }
           if (event.type === HttpEventType.UploadProgress) { this.setUpload({ state: 'progress', canUpload: false, selectedFileName: file.name, progressPercent: event.total ? Math.round(event.loaded / event.total * 100) : undefined, message: 'Uploading file to backend.' }); return; }
           if (event.type !== HttpEventType.Response) { return; }
@@ -136,6 +146,7 @@ export class FilesFacade {
           this.reconcileAfterMutation(workspaceId);
         },
         error: (error: unknown) => {
+          if (generation !== this.pageGeneration) { return; }
           this.pendingUploads.delete(clientRequestId);
           const normalized = normalizeApiError(error);
           this.updateQueue({ clientRequestId, fileName: file.name, state: 'failed', message: normalized.message });
@@ -180,22 +191,31 @@ export class FilesFacade {
       downloadMessage: 'Authorizing download.',
     });
 
-    this.http
-      .post<FileDownloadGrantDto>(
+    const generation = this.pageGeneration;
+    const operation = new Subscription();
+    this.fileDownloads.set(fileObjectId, operation);
+    const grantRequest = this.http.post<FileDownloadGrantDto>(
         `/api/files/${fileObjectId}/download-grants`,
         { purpose: 'files-page-download' },
         { withCredentials: true },
       )
       .subscribe({
-        next: (grant) => this.downloadWithGrant(fileObjectId, grant),
+        next: (grant) => {
+          if (!this.isCurrentPageOperation(generation, fileObjectId)) { return; }
+          this.downloadWithGrant(fileObjectId, grant, generation, operation);
+        },
         error: (error: unknown) => {
+          if (!this.isCurrentPageOperation(generation, fileObjectId)) { return; }
           const normalized = normalizeApiError(error);
           this.updateFileDownload(fileObjectId, {
             downloadState: 'failed',
             downloadMessage: normalized.httpStatus === 403 ? 'Download denied.' : normalized.message,
           });
+          operation.unsubscribe();
         },
       });
+    operation.add(grantRequest);
+    operation.add(() => this.fileDownloads.delete(fileObjectId));
   }
 
   loadPickerFilesForWorkspace(workspaceId: string): void {
@@ -298,9 +318,10 @@ export class FilesFacade {
 
     const safePage = Math.max(1, Math.floor(page));
     const safePageSize = Math.max(1, Math.min(Math.floor(pageSize || FILES_PAGE_SIZE), 100));
+    const generation = this.pageGeneration;
     this.loadingWorkspaceIds.add(workspaceId);
     const currentUpload = this.pageState().upload;
-    this.http
+    const request = this.http
       .get<PagedResponseDto<FileListItemDto>>('/api/files', {
         params: { workspaceId, page: safePage, pageSize: safePageSize },
         withCredentials: true,
@@ -308,7 +329,7 @@ export class FilesFacade {
       .subscribe({
         next: (response) => {
           this.loadingWorkspaceIds.delete(workspaceId);
-          if (this.pageWorkspaceId !== workspaceId) {
+          if (generation !== this.pageGeneration || this.pageWorkspaceId !== workspaceId) {
             return;
           }
 
@@ -337,7 +358,7 @@ export class FilesFacade {
         },
         error: (error: unknown) => {
           this.loadingWorkspaceIds.delete(workspaceId);
-          if (this.pageWorkspaceId !== workspaceId) {
+          if (generation !== this.pageGeneration || this.pageWorkspaceId !== workspaceId) {
             return;
           }
           const normalized = normalizeApiError(error);
@@ -350,9 +371,10 @@ export class FilesFacade {
           });
         },
       });
+    this.trackPageRequest(request);
   }
 
-  private downloadWithGrant(fileObjectId: string, grant: FileDownloadGrantDto): void {
+  private downloadWithGrant(fileObjectId: string, grant: FileDownloadGrantDto, generation: number, operation: Subscription): void {
     const grantId = stringValue(grant.fileDownloadGrantId);
     const token = stringValue(grant.token);
     if (!grantId || !token) {
@@ -360,10 +382,11 @@ export class FilesFacade {
         downloadState: 'failed',
         downloadMessage: 'Download grant response was incomplete.',
       });
+      operation.unsubscribe();
       return;
     }
 
-    this.http
+    const request = this.http
       .post(`/api/file-download-grants/${grantId}/download`, { token }, {
         observe: 'response',
         responseType: 'blob',
@@ -371,6 +394,7 @@ export class FilesFacade {
       })
       .subscribe({
         next: (response) => {
+          if (!this.isCurrentPageOperation(generation, fileObjectId)) { return; }
           const fileName = safeFileNameFromHeader(
             response.headers.get('content-disposition'),
             this.findFile(fileObjectId)?.originalFileName ?? 'download',
@@ -380,15 +404,19 @@ export class FilesFacade {
             downloadState: 'succeeded',
             downloadMessage: 'Download started.',
           });
+          operation.unsubscribe();
         },
         error: (error: unknown) => {
+          if (!this.isCurrentPageOperation(generation, fileObjectId)) { return; }
           const normalized = normalizeApiError(error);
           this.updateFileDownload(fileObjectId, {
             downloadState: 'failed',
             downloadMessage: normalized.httpStatus === 403 ? 'Download denied.' : normalized.message,
           });
+          operation.unsubscribe();
         },
       });
+    operation.add(request);
   }
 
   private saveBlob(response: HttpResponse<Blob>, fileName: string): void {
@@ -499,6 +527,41 @@ export class FilesFacade {
 
   private emptyPickerState(workspaceId: string | null = null): TaskFilePickerState {
     return { status: 'idle', workspaceId, files: [], page: 1, pageSize: 20, totalCount: 0, hasMore: false };
+  }
+
+  private trackPageRequest(request: Subscription): void {
+    this.pageRequests.add(request);
+    request.add(() => this.pageRequests.delete(request));
+  }
+
+  private invalidatePageRequests(): void {
+    this.pageGeneration++;
+    for (const request of [...this.pageRequests]) request.unsubscribe();
+    this.pageRequests.clear();
+    this.loadingWorkspaceIds.clear();
+  }
+
+  private isCurrentPageOperation(generation: number, fileObjectId: string): boolean {
+    return generation === this.pageGeneration &&
+      this.pageWorkspaceId !== null &&
+      this.fileDownloads.has(fileObjectId);
+  }
+
+  private clearProtectedState(): void {
+    this.invalidatePageRequests();
+    this.pageWorkspaceId = null;
+    this.clearPickerFiles();
+    for (const pending of [...this.pendingUploads.values()]) pending.subscription.unsubscribe();
+    this.pendingUploads.clear();
+    for (const operation of [...this.fileDownloads.values()]) operation.unsubscribe();
+    this.fileDownloads.clear();
+    this.cancelAttachmentDownloads();
+    if (this.refreshTimer !== null) {
+      clearTimeout(this.refreshTimer);
+      this.refreshTimer = null;
+    }
+    this.refreshAfterMutation = false;
+    this.pageState.set(this.emptyPage('Select a workspace before uploading files.', false));
   }
 
 }

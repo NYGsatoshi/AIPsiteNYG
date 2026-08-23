@@ -113,16 +113,27 @@ public sealed class WorkspaceDashboardQuery(
                 workspaceIds.Contains(project.WorkspaceId) &&
                 (project.Status == ProjectStatus.Active ||
                  project.Status == ProjectStatus.Review))
-            .GroupBy(project => project.WorkspaceId)
-            .Select(group => new WorkspaceCount(group.Key, group.Count()))
-            .ToDictionaryAsync(item => item.WorkspaceId, item => item.Count, cancellationToken);
+            .GroupBy(project => new { project.WorkspaceId, project.Status })
+            .Select(group => new WorkspaceProjectCount(
+                group.Key.WorkspaceId,
+                group.Key.Status,
+                group.Count()))
+            .ToListAsync(cancellationToken);
+
+        var runningProjectCounts = projectCounts
+            .Where(item => item.Status == ProjectStatus.Active)
+            .ToDictionary(item => item.WorkspaceId, item => item.Count);
+        var needsReviewProjectCounts = projectCounts
+            .Where(item => item.Status == ProjectStatus.Review)
+            .ToDictionary(item => item.WorkspaceId, item => item.Count);
 
         return rows
             .Select(row => ToResponse(
                 row,
                 announcementCounts.GetValueOrDefault(row.Id),
                 conversationCounts.GetValueOrDefault(row.Id),
-                projectCounts.GetValueOrDefault(row.Id)))
+                runningProjectCounts.GetValueOrDefault(row.Id),
+                needsReviewProjectCounts.GetValueOrDefault(row.Id)))
             .ToList();
     }
 
@@ -130,7 +141,8 @@ public sealed class WorkspaceDashboardQuery(
         WorkspaceDashboardRow row,
         int unreadAnnouncementCount,
         int unreadConversationCount,
-        int inProgressProjectCount)
+        int runningProjectCount,
+        int needsReviewProjectCount)
     {
         // The current member-list destination uses the same CanViewWorkspace
         // boundary as the card. The current Project surface is also valid for
@@ -156,7 +168,9 @@ public sealed class WorkspaceDashboardQuery(
             hasCurrentWorkspaceReadAccess,
             unreadAnnouncementCount,
             unreadConversationCount,
-            inProgressProjectCount);
+            runningProjectCount + needsReviewProjectCount,
+            runningProjectCount,
+            needsReviewProjectCount);
     }
 
     private sealed record WorkspaceDashboardRow(
@@ -171,4 +185,9 @@ public sealed class WorkspaceDashboardQuery(
         bool HasSystemAdminAccess);
 
     private sealed record WorkspaceCount(Guid WorkspaceId, int Count);
+
+    private sealed record WorkspaceProjectCount(
+        Guid WorkspaceId,
+        ProjectStatus Status,
+        int Count);
 }

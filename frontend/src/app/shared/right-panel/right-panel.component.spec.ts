@@ -6,6 +6,7 @@ import { Subject } from 'rxjs';
 import { vi } from 'vitest';
 
 import { NotificationOpenContextService } from '../../core/notifications/notification-open-context.service';
+import { WorkspaceSelectionFacade } from '../../core/workspace/workspace-selection.facade';
 import { RealtimeFacade } from '../../core/realtime/realtime.facade';
 import { DurableRealtimeEvent } from '../../core/realtime/realtime.models';
 import { NotificationItemComponent } from './notification-item/notification-item.component';
@@ -387,7 +388,7 @@ describe('RightPanelFacade notifications', () => {
 
     expect(clearers).toHaveLength(1);
     clearers[0]!();
-    initial.flush({ items: [notificationDto(5)] });
+    expect(initial.cancelled).toBe(true);
     await flushNotificationPromises();
 
     expect(facade.viewModel().notifications).toEqual([]);
@@ -483,7 +484,7 @@ describe('RightPanelFacade notifications', () => {
     httpMock.verify();
   });
 
-  it('TaskNotificationRequiresAuthorizedOpenEndpoint', () => {
+  it('TaskNotificationRequiresAuthorizedOpenEndpoint', async () => {
     configureLiveRightPanel();
     const facade = TestBed.inject(RightPanelFacade);
     const httpMock = TestBed.inject(HttpTestingController);
@@ -497,7 +498,9 @@ describe('RightPanelFacade notifications', () => {
       outcome: 'Opened',
       route: '/projects/project-1/tasks/task-1',
       stateVersion: 6,
+      context: { workspaceId: 'workspace-1' },
     });
+    await flushNotificationPromises();
 
     expect(navigate).toHaveBeenCalledWith('/projects/project-1/tasks/task-1');
     expect(facade.viewModel().notifications[0].read).toBe(true);
@@ -527,7 +530,7 @@ describe('RightPanelFacade notifications', () => {
     httpMock.verify();
   });
 
-  it('DigestNotificationRequiresAuthorizedOpenEndpoint', () => {
+  it('DigestNotificationRequiresAuthorizedOpenEndpoint', async () => {
     configureLiveRightPanel();
     const facade = TestBed.inject(RightPanelFacade);
     const httpMock = TestBed.inject(HttpTestingController);
@@ -544,6 +547,7 @@ describe('RightPanelFacade notifications', () => {
       stateVersion: 6,
       context: { workspaceId: 'workspace-1' },
     });
+    await flushNotificationPromises();
 
     expect(context.takeDigestWorkspace()).toBe('workspace-1');
     expect(navigate).toHaveBeenCalledWith('/tasks');
@@ -591,6 +595,14 @@ function configureLiveRightPanel(): {
             clearers.push(clear);
             return () => undefined;
           },
+        },
+      },
+      {
+        provide: WorkspaceSelectionFacade,
+        useValue: {
+          selectWorkspace: vi.fn().mockResolvedValue(true),
+          selection: () => ({ status: 'selected', workspaceId: 'workspace-1', source: 'explicit' }),
+          transitionRevision: () => 0,
         },
       },
     ],
