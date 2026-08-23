@@ -1,22 +1,9 @@
 name: NuGet Dependency Submission (Self-Hosted)
 
+# TEMPORARY CONTEST MODE: dependency submission is metadata publication, not a
+# merge-safety gate. Keep it available manually while runner capacity is scarce.
 on:
   workflow_dispatch:
-  push:
-    branches: [main]
-    paths:
-      - '**/*.csproj'
-      - '**/*.props'
-      - '**/*.targets'
-      - '**/*.sln'
-      - '**/*.slnx'
-      - '**/packages.config'
-      - '**/packages.lock.json'
-      - 'global.json'
-      - 'NuGet.Config'
-      - 'nuget.config'
-      - '.config/dotnet-tools.json'
-      - '.github/workflows/nuget-dependency-submission-self-hosted.yml'
 
 permissions:
   contents: write

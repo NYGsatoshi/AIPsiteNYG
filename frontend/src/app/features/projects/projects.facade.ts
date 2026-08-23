@@ -987,6 +987,7 @@ export class ProjectsFacade {
       statusLabel: project.statusLabel,
       startDate: project.startDate,
       dueDate: project.dueDate,
+      updatedAt: project.updatedAt,
       group: project.group,
       taskCounts: {
         total: tasks.length,

@@ -2,9 +2,29 @@ name: npm Security Audit
 
 on:
   pull_request:
+    paths:
+      - "**/package.json"
+      - "**/package-lock.json"
+      - "scripts/ci/verify-npm-lockfile.mjs"
+      - "scripts/ci/check-npm-audit-baseline.mjs"
+      - "scripts/ci/npm-audit-baseline.json"
+      - "scripts/ci/npm-ci-retry.sh"
+      - ".github/workflows/npm-security-audit.yml"
   push:
     branches: ["main"]
+    paths:
+      - "**/package.json"
+      - "**/package-lock.json"
+      - "scripts/ci/verify-npm-lockfile.mjs"
+      - "scripts/ci/check-npm-audit-baseline.mjs"
+      - "scripts/ci/npm-audit-baseline.json"
+      - "scripts/ci/npm-ci-retry.sh"
+      - ".github/workflows/npm-security-audit.yml"
   workflow_dispatch:
+
+concurrency:
+  group: npm-security-audit-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
 
 permissions:
   contents: read
