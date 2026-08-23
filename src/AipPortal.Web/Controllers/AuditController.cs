@@ -15,6 +15,17 @@ public sealed class AuditController(
 {
     private const int AdminAuditGridDefaultPageSize = 100;
 
+    private static readonly FieldAccessPolicySnapshot AuditViewerFieldAccessPolicy =
+        FieldAccessPolicySnapshot.ThroughConfidential;
+
+    private static readonly FieldAccessPolicySnapshot AuditSensitiveFieldAccessPolicy =
+        FieldAccessPolicySnapshot.ThroughRestrictedFields(
+            "metadata",
+            "metadataJson",
+            "details",
+            "ipAddress",
+            "userAgent");
+
     [HttpGet("api/audit/capabilities")]
     public async Task<IActionResult> Capabilities(CancellationToken cancellationToken)
     {
@@ -27,20 +38,29 @@ public sealed class AuditController(
     [HttpGet("api/audit-logs")]
     public async Task<IActionResult> AuditLogs([FromQuery] AuditLogQuery query, CancellationToken cancellationToken)
     {
-        return ToActionResult(await audit.ListAuditLogsAsync(query, cancellationToken), "AuditLogs");
+        return await ToActionResultAsync(
+            await audit.ListAuditLogsAsync(query, cancellationToken),
+            "AuditLogs",
+            cancellationToken);
     }
 
     [HttpGet("api/tenant/audit-logs")]
     public async Task<IActionResult> TenantAuditLogs([FromQuery] AuditLogQuery query, CancellationToken cancellationToken)
     {
-        return ToActionResult(await audit.ListAuditLogsAsync(query, cancellationToken), "AuditLogs");
+        return await ToActionResultAsync(
+            await audit.ListAuditLogsAsync(query, cancellationToken),
+            "AuditLogs",
+            cancellationToken);
     }
 
     [HttpGet("api/platform/audit-logs")]
     [Authorize(Roles = "PlatformAdmin,SystemAdmin")]
     public async Task<IActionResult> PlatformAuditLogs([FromQuery] AuditLogQuery query, CancellationToken cancellationToken)
     {
-        return ToActionResult(await audit.ListAuditLogsAsync(query, cancellationToken), "AuditLogs");
+        return await ToActionResultAsync(
+            await audit.ListAuditLogsAsync(query, cancellationToken),
+            "AuditLogs",
+            cancellationToken);
     }
 
     [HttpGet("api/admin/audit-grid")]
@@ -50,39 +70,56 @@ public sealed class AuditController(
             ? query
             : query with { PageSize = AdminAuditGridDefaultPageSize };
 
-        return ToActionResult(await audit.ListAuditGridAsync(effectiveQuery, cancellationToken), "AuditGrid");
+        return await ToActionResultAsync(
+            await audit.ListAuditGridAsync(effectiveQuery, cancellationToken),
+            "AuditGrid",
+            cancellationToken);
     }
 
     [HttpGet("api/security-events")]
     public async Task<IActionResult> SecurityEvents([FromQuery] SecurityEventQuery query, CancellationToken cancellationToken)
     {
-        return ToActionResult(await audit.ListSecurityEventsAsync(query, cancellationToken), "SecurityEvents");
+        return await ToActionResultAsync(
+            await audit.ListSecurityEventsAsync(query, cancellationToken),
+            "SecurityEvents",
+            cancellationToken);
     }
 
     [HttpGet("api/tenant/security-events")]
     public async Task<IActionResult> TenantSecurityEvents([FromQuery] SecurityEventQuery query, CancellationToken cancellationToken)
     {
-        return ToActionResult(await audit.ListSecurityEventsAsync(query, cancellationToken), "SecurityEvents");
+        return await ToActionResultAsync(
+            await audit.ListSecurityEventsAsync(query, cancellationToken),
+            "SecurityEvents",
+            cancellationToken);
     }
 
     [HttpGet("api/platform/security-events")]
     [Authorize(Roles = "PlatformAdmin,SystemAdmin")]
     public async Task<IActionResult> PlatformSecurityEvents([FromQuery] SecurityEventQuery query, CancellationToken cancellationToken)
     {
-        return ToActionResult(await audit.ListSecurityEventsAsync(query, cancellationToken), "SecurityEvents");
+        return await ToActionResultAsync(
+            await audit.ListSecurityEventsAsync(query, cancellationToken),
+            "SecurityEvents",
+            cancellationToken);
     }
 
-    private IActionResult ToActionResult<T>(Result<T> result, string moduleKey)
+    private async Task<IActionResult> ToActionResultAsync<T>(
+        Result<T> result,
+        string moduleKey,
+        CancellationToken cancellationToken)
     {
         if (result.IsSuccess)
         {
+            var fieldAccessPolicy = await GetAuditFieldAccessPolicyAsync(cancellationToken);
             return Ok(CanonicalRedactionProjection.Apply(
                 HttpContext,
                 result.Value!,
                 RedactionProfile.AuditDisplay,
                 moduleKey,
                 RedactionAuthorizationState.Allowed,
-                RedactionPurpose.SecurityAuditLite));
+                RedactionPurpose.SecurityAuditLite,
+                fieldAccessPolicy: fieldAccessPolicy));
         }
 
         var status = result.ErrorDetail?.Code switch
@@ -98,5 +135,19 @@ public sealed class AuditController(
             result.ErrorDetail,
             result.Error,
             "AuditQueryFailed"));
+    }
+
+    private async Task<FieldAccessPolicySnapshot> GetAuditFieldAccessPolicyAsync(
+        CancellationToken cancellationToken)
+    {
+        if (auditAuthorization is null)
+        {
+            return AuditViewerFieldAccessPolicy;
+        }
+
+        var capabilities = await auditAuthorization.GetCapabilitiesAsync(cancellationToken);
+        return capabilities.CanViewSensitiveMetadata
+            ? AuditSensitiveFieldAccessPolicy
+            : AuditViewerFieldAccessPolicy;
     }
 }
