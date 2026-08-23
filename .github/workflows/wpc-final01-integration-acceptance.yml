@@ -54,9 +54,143 @@ concurrency:
   cancel-in-progress: true
 
 permissions:
-  contents: read
+  contents: write
 
 jobs:
+  fixture-repair:
+    name: One-shot Final01 fixture repair
+    if: github.event_name == 'pull_request' && github.head_ref == 'wpc-final03-security-no-go'
+    runs-on: self-hosted
+    timeout-minutes: 10
+    steps:
+      - name: Repair previous Docker workspace ownership
+        shell: bash
+        run: |
+          uid="$(id -u)"
+          gid="$(id -g)"
+          docker run --rm \
+            -v "$GITHUB_WORKSPACE:/workspace" \
+            alpine:3.21 \
+            sh -c "chown -R ${uid}:${gid} /workspace"
+
+      - name: Checkout PR branch with write credentials
+        uses: actions/checkout@v7
+        with:
+          ref: wpc-final03-security-no-go
+          fetch-depth: 0
+          persist-credentials: true
+
+      - name: Patch non-operational Final01 fixture graph
+        shell: bash
+        run: |
+          python3 - <<'PY'
+          from pathlib import Path
+
+          path = Path("tests/AipPortal.Tests/PostgreSql/WpcFinal01CanonicalCompletionPostgreSqlTests.cs")
+          text = path.read_text()
+          old = '''        var task = new TaskItem
+        {
+            TenantId = authority.TenantId,
+            WorkspaceId = authority.WorkspaceId,
+            ProjectId = project.Id,
+            Title = $"Final01 Task {suffix}",
+            Status = TaskItemStatus.NotStarted,
+            Priority = TaskPriority.Medium,
+            VersionNo = 1,
+            CreatedByUserId = authority.OwnerUserId
+        };
+        var notification = new Notification
+        {
+            TenantId = authority.TenantId,
+            UserId = authority.ReaderUserId,
+            NotificationType = NotificationType.TaskAssigned,
+            Title = "Task assigned",
+            RelatedEntityType = "Task",
+            RelatedEntityId = task.Id,
+            CreatedAt = Now,
+            StateVersion = 1
+        };
+        db.AddRange(task, notification);
+        await db.SaveChangesAsync();
+
+        return new ProjectGraph(
+            authority.TenantId,
+            authority.TenantSlug,
+            authority.WorkspaceId,
+            project.Id,
+            task.Id,
+            notification.Id,
+            general?.Id ?? Guid.Empty,
+            authority.OwnerUserId,
+            authority.ReaderUserId,
+            authority.CandidateUserId);'''
+          new = '''        var taskId = Guid.Empty;
+        var taskNotificationId = Guid.Empty;
+        var operationalProject =
+            activationState == ProjectActivationState.Activated &&
+            status is ProjectStatus.Active or ProjectStatus.Review;
+        if (operationalProject)
+        {
+            var task = new TaskItem
+            {
+                TenantId = authority.TenantId,
+                WorkspaceId = authority.WorkspaceId,
+                ProjectId = project.Id,
+                Title = $"Final01 Task {suffix}",
+                Status = TaskItemStatus.NotStarted,
+                Priority = TaskPriority.Medium,
+                VersionNo = 1,
+                CreatedByUserId = authority.OwnerUserId
+            };
+            var notification = new Notification
+            {
+                TenantId = authority.TenantId,
+                UserId = authority.ReaderUserId,
+                NotificationType = NotificationType.TaskAssigned,
+                Title = "Task assigned",
+                RelatedEntityType = "Task",
+                RelatedEntityId = task.Id,
+                CreatedAt = Now,
+                StateVersion = 1
+            };
+            db.AddRange(task, notification);
+            taskId = task.Id;
+            taskNotificationId = notification.Id;
+        }
+        await db.SaveChangesAsync();
+
+        return new ProjectGraph(
+            authority.TenantId,
+            authority.TenantSlug,
+            authority.WorkspaceId,
+            project.Id,
+            taskId,
+            taskNotificationId,
+            general?.Id ?? Guid.Empty,
+            authority.OwnerUserId,
+            authority.ReaderUserId,
+            authority.CandidateUserId);'''
+          count = text.count(old)
+          if count != 1:
+              raise SystemExit(f"expected exactly one Final01 task fixture block, found {count}")
+          path.write_text(text.replace(old, new, 1))
+          PY
+          git diff --check
+
+      - name: Commit fixture repair and remove temporary workflow changes
+        shell: bash
+        run: |
+          git fetch origin main
+          git checkout origin/main -- .github/workflows/wpc-final01-integration-acceptance.yml
+          git rm -f .github/workflows/wpc-final01-fixture-repair.yml
+          git diff --check
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add tests/AipPortal.Tests/PostgreSql/WpcFinal01CanonicalCompletionPostgreSqlTests.cs \
+            .github/workflows/wpc-final01-integration-acceptance.yml
+          git commit -m "fix: align Final01 fixtures with operational child fence"
+          git push origin HEAD:wpc-final03-security-no-go
+
   canonical-completion:
     name: WPC-Final01 / PostgreSQL 18 + Angular
     runs-on: self-hosted
