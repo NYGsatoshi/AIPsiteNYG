@@ -3,6 +3,7 @@ import { takeUntilDestroyed } from '@angular/core/rxjs-interop';
 import { ActivatedRoute, RouterLink } from '@angular/router';
 
 import { MessageComposerComponent } from '../message-composer/message-composer.component';
+import { MessageNavigationStateService } from '../message-navigation-state.service';
 import { MessageTimelineComponent } from '../message-timeline/message-timeline.component';
 import { MessagingFacade } from '../messaging.facade';
 import { RealtimeFacade } from '../../../core/realtime/realtime.facade';
@@ -18,10 +19,12 @@ export class DmPageComponent {
   readonly facade = inject(MessagingFacade);
   readonly realtime = inject(RealtimeFacade);
   private readonly route = inject(ActivatedRoute);
+  private readonly navigationState = inject(MessageNavigationStateService);
   readonly page = this.facade.page;
 
   constructor() {
     this.route.paramMap.pipe(takeUntilDestroyed()).subscribe((paramMap) => {
+      this.navigationState.resetDetailScroll();
       this.facade.loadConversation(paramMap.get('conversationId'), 'dm');
     });
   }
