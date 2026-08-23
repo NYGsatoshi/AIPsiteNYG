@@ -19,7 +19,7 @@ import {
 export class AnnouncementEditorComponent implements OnChanges {
   @Input({ required: true }) draft!: AnnouncementEditorDraft;
 
-  readonly priorityOptions: readonly AnnouncementPriority[] = ['normal', 'important', 'urgent'];
+  readonly priorityOptions: readonly AnnouncementPriority[] = ['normal', 'important', 'critical'];
   readonly priorityLabels = ANNOUNCEMENT_PRIORITY_LABELS;
   readonly availableAudiences = signal<readonly AnnouncementAudienceOption[]>([]);
 
