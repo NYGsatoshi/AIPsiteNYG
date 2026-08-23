@@ -1,7 +1,8 @@
 # Security Model
 
 Last broad implementation audit: 2026-06-18. WPC-01 security-boundary update
-candidate: 2026-08-13.
+candidate: 2026-08-13. WS-02 active-Workspace client-boundary candidate:
+2026-08-24.
 
 This document separates implemented security controls from intended policy. Root `SECURITY.md` describes vulnerability reporting; `docs/SECURITY.md` contains additional engineering guidance.
 
@@ -89,6 +90,51 @@ persisted. Replay requires the same actor's current active Workspace membership;
 a revoked actor cannot recover protected metadata through the legacy
 Platform/SystemAdmin Workspace-view shortcut.
 
+### WS-02 active Workspace client boundary
+
+The client resolves an active Workspace only from the latest backend-authorized
+active Workspace projection. Candidate IDs are considered in this order:
+
+1. an explicit Workspace ID in the current Workspace route, if that ID is in
+   the authorized projection;
+2. the last-used local preference for the current `{tenantId, userId}`, if it
+   is still in that projection;
+3. the sole authorized active Workspace, when exactly one is available; or
+4. an explicit user selection from the authorized projection.
+
+The client never selects API row zero when multiple Workspaces are available.
+`AuthService` likewise publishes `currentWorkspace` only when exactly one
+authorized active Workspace exists. A stale, archived, revoked, cross-scope,
+or otherwise absent local preference is discarded during reconciliation. An
+invalid route value is not authority and cannot make an unauthorized Workspace
+active.
+
+The browser preference key is partitioned by Tenant and user. It stores only an
+opaque Workspace ID and is UX state, not an authorization grant. Local-storage
+absence or read/write/remove failure fails closed and does not bypass the
+backend list, resource authorization, or current Tenant scope. Header action
+visibility is also presentation only: for example, Members is shown from the
+backend `canOpenMembers` projection, while the destination remains protected by
+server authorization.
+
+Before a different Workspace is activated, the client synchronously clears the
+old active Workspace and registered protected projections. Current owners clear
+Project/Task, Messaging, File/picker/download, notification/right-panel, and
+private per-Workspace settings projections together with old scope IDs and
+in-flight request generations. Workspace-, Project-, and Conversation-scoped
+realtime intents and authorized groups are removed; a late authorization result
+for a removed intent is immediately unsubscribed. The same authenticated
+Tenant/user transport may remain connected, but it cannot retain the old
+resource subscriptions. If navigation away from an old Workspace-specific
+route fails, an explicit switch does not activate the new Workspace.
+
+The dashboard's `runningProjectCount` and `needsReviewProjectCount` are
+backend-authorized aggregate projections for visible `Active` and `Review`
+Projects. The legacy `inProgressProjectCount` is retained as their sum. The
+header distinguishes an authoritative numeric zero from unavailable projection
+data and does not derive Project visibility or Research authorization from the
+counts.
+
 ### WPC-01 Project security status
 
 Canonical Project Visibility is not partially persisted or projected. The
@@ -140,6 +186,23 @@ These controls prevent broad Draft disclosure but do not implement
 The WPC error boundary uses fixed public messages, empty details, masked
 targets, and `redactionApplied`; a canonical cross-module RedactionService
 does not yet exist and remains a dependency blocker.
+
+### Message notification preference boundary
+
+Global Message notification delivery is private state scoped to the current
+authenticated user and active Tenant membership. The API derives both IDs from
+the server request context, and the persistence store includes both IDs plus
+active membership status in every read and update. Cross-Tenant, inactive,
+missing, and platform scope fail closed with the same generic result.
+
+Before an ordinary or mention Message notification row is staged, the server
+rechecks that the Message belongs to the current Tenant and is not deleted,
+that the recipient is a current readable Conversation participant, that the
+Conversation participant is not muted, and that the recipient's global Message
+preference is enabled. These preferences do not grant Conversation access and
+do not suppress Message persistence, unread state, or realtime conversation
+events. Browser unread-badge visibility is presentation-only and is not a
+security control.
 
 ### Immediate Task notification boundary
 

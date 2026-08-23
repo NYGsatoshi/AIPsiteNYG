@@ -1,8 +1,11 @@
 # Frontend API Binding Verification
 
-Updated: 2026-07-03
+Updated: 2026-08-24
 
-Purpose: verify MVP-A P0 Angular screen contracts before live API wiring. This is documentation only. No live API wiring, backend behavior changes, or new endpoints were implemented.
+Purpose: maintain the current MVP-A P0 Angular/API binding record. The WS-02
+entries describe the Issue #328 implementation candidate in the current source
+tree; its exact-final-head verification remains separate evidence in
+`docs/verification/ws-02-workspace-context-header.md`.
 
 ## Verification Rules
 
@@ -19,8 +22,9 @@ Purpose: verify MVP-A P0 Angular screen contracts before live API wiring. This i
 | Readiness | Screens |
 | --- | --- |
 | Ready | CSRF token |
+| Candidate verification pending | Workspace dashboard and active-Workspace context header (WS-02) |
 | Partial | Login/session/current user; Tenant current/switch; Workspace members; Announcements; Channel messaging; DM messaging; Projects/tasks; Notifications; Admin audit |
-| Blocked | Workspace dashboard; Files; Export diagnostics; Invite registration; Account/password/sessions |
+| Blocked | Files; Export diagnostics; Invite registration; Account/password/sessions |
 
 ## P0 Screen Verification
 
@@ -46,7 +50,7 @@ Purpose: verify MVP-A P0 Angular screen contracts before live API wiring. This i
 
 | UI ID | Screen | Angular route | Controller class | Method name | Backend route | HTTP method | Request DTO exact fields | Response DTO exact fields | Enum serialization: numeric/string | Required headers | Auth/cookie requirement | CSRF requirement | Pagination contract | Sort/filter ownership | Error envelope compliance | Authorization policy/source | Known mismatch | Backend issue required if absent or inconsistent | API wiring readiness |
 | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |
-| P0-WORKSPACE-DASH | Workspace dashboard | `/app/workspaces` | `WorkspacesController` | `List`; `Get` | `/api/workspaces`; `/api/workspaces/{workspaceId}` | `GET`; `GET` | None | `WorkspaceListItemResponse[]`: `id`, `name`, `description`, `icon`, `status`, `createdAt`, `updatedAt`; `WorkspaceDetailResponse`: `id`, `name`, `description`, `icon`, `status`, `createdByUserId`, `createdAt`, `updatedAt` | `status` numeric | Auth cookie; tenant context | `[Authorize]` | No CSRF | Unpaged list | Backend owns membership visibility; frontend local search only over loaded authorized rows | Not compliant: failures return `{ error }` | `[Authorize]`; `WorkspaceService.ListAsync` filters by current user membership via repository/service | Current dashboard view model needs role labels, capabilities, unread announcements, active project availability, and no-access state; `List` does not expose current user's role or summary counters | Add backend dashboard/list DTO or companion endpoints for current user's workspace role/capabilities and summary availability | Blocked |
+| P0-WORKSPACE-DASH | Workspace dashboard and active context header | `/app/workspaces`; explicit `/app/workspaces/:workspaceId/*` context | `WorkspacesController` | `List`; `Capabilities`; `Get` | `/api/workspaces`; `/api/workspaces/capabilities`; `/api/workspaces/{workspaceId}` | `GET`; `GET`; `GET` | None | Direct `WorkspaceDashboardListItemResponse[]`: `id`, `name`, `description`, `icon`, `status`, `createdAt`, `updatedAt`, `currentUserRole`, `accessSource`, `canOpenWorkspace`, `canOpenMembers`, `canOpenProjects`, `unreadAnnouncementCount`, `unreadConversationCount`, legacy `inProgressProjectCount`, `runningProjectCount`, `needsReviewProjectCount`; capabilities success envelope: `requestId`, `data.canCreate`, `warnings`; `WorkspaceDetailResponse`: `id`, `name`, `description`, `icon`, `status`, `createdByUserId`, `createdAt`, `updatedAt` | `status` numeric; `currentUserRole` string (`Owner`, `Admin`, `Adviser`, `Member`, `ReadOnly`) or `null`; `accessSource` string (`WorkspaceMembership`, `SystemAdmin`); summary counts are non-negative integers | Auth cookie; active tenant context | `[Authorize]`; active non-platform Tenant required | No CSRF | Unpaged list | Backend owns Workspace visibility, list ordering, capabilities, and aggregate counts. The client never treats API order as active-context priority: it resolves a valid explicit Workspace route, then the current Tenant/user-scoped local preference, then the sole authorized active Workspace, and otherwise requires explicit selection. | WPC error envelope is used; capabilities success is enveloped, while list/detail successes are direct DTOs | `[Authorize]`; `WorkspaceService` requires an authenticated user and active Tenant. The dashboard returns only active authorized Workspaces and computes Announcement, Conversation, and visible Project aggregates through canonical scoped queries. `runningProjectCount` is the visible `Active` count, `needsReviewProjectCount` is the visible `Review` count, and legacy `inProgressProjectCount` remains their sum. Card/header capabilities remain backend projections. | The WS-02 candidate removes the `cards[0]` fallback. Route and local preference IDs are reconciled against the latest authorized dashboard list; stale/revoked preferences are discarded. Local preference is UX state only. Workspace switches clear protected feature projections, old resource subscriptions, and in-flight generations before activating the new scope. The header separates capability-derived Workspace actions from Notifications, Account, and Logout, and presents Running/Needs review as text; unavailable counts are not rendered as zero. | No backend dashboard projection gap remains. Exact-final-head unit, production-build, Playwright, Linux visual, PostgreSQL, and hosted CI evidence is still required before merge. | Candidate; exact-head verification pending |
 
 ### 5. Workspace members
 
@@ -118,7 +122,7 @@ Purpose: verify MVP-A P0 Angular screen contracts before live API wiring. This i
 
 1. Standardize API error envelope and status mapping. Current controllers mix `ErrorResponse(code,message,traceId)` and legacy `{ error }`, and many authorization/not-found failures return `400`.
 2. Decide enum serialization policy. Most enums are numeric in JSON, while `ConversationType` is string. Smoke examples already contain string enum values that are invalid for several DTOs, including `ConversationType` value `"Direct"`.
-3. Add a workspace dashboard API/projection with current user's role/capabilities and summary availability, or reduce the screen live scope.
+3. The current WS-02 candidate implements active Workspace resolution in the order: valid explicit Workspace route, valid Tenant/user-scoped local preference, sole authorized active Workspace, then explicit user selection. It removes the `cards[0]` fallback, discards stale preferences, and clears protected Workspace state before scope activation. Local selection remains UX state rather than authorization; exact-final-head verification is still required before this item is considered merged.
 4. Add paged workspace member query fields for live grid needs, or explicitly limit FE-23 to loaded-row local search only.
 5. Add announcement audience contract and confirm `AnnouncementPriority` numeric vs string mapping before wiring editor forms.
 6. Add messaging idempotency (`clientRequestId`) and canonical attachment ID support. Do not wire retry sends against the current DTO as if idempotency exists.

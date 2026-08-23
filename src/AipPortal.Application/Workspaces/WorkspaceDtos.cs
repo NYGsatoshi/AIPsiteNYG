@@ -1,3 +1,4 @@
+using System.Text.Json.Serialization;
 using AipPortal.Domain.Enums;
 
 namespace AipPortal.Application.Workspaces;
@@ -10,6 +11,33 @@ public sealed record WorkspaceListItemResponse(
     WorkspaceStatus Status,
     DateTimeOffset CreatedAt,
     DateTimeOffset? UpdatedAt);
+
+[JsonConverter(typeof(JsonStringEnumConverter))]
+public enum WorkspaceDashboardAccessSource
+{
+    WorkspaceMembership = 0,
+    SystemAdmin = 1
+}
+
+public sealed record WorkspaceDashboardListItemResponse(
+    Guid Id,
+    string Name,
+    string? Description,
+    string? Icon,
+    WorkspaceStatus Status,
+    DateTimeOffset CreatedAt,
+    DateTimeOffset UpdatedAt,
+    [property: JsonConverter(typeof(JsonStringEnumConverter))]
+    WorkspaceRole? CurrentUserRole,
+    WorkspaceDashboardAccessSource AccessSource,
+    bool CanOpenWorkspace,
+    bool CanOpenMembers,
+    bool CanOpenProjects,
+    int UnreadAnnouncementCount,
+    int UnreadConversationCount,
+    int InProgressProjectCount,
+    int RunningProjectCount,
+    int NeedsReviewProjectCount);
 
 public sealed record WorkspaceDetailResponse(
     Guid Id,

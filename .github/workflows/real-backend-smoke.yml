@@ -70,3 +70,14 @@ jobs:
             playwright-report/
             test-results/
           if-no-files-found: ignore
+
+      - name: Repair final workspace ownership
+        if: always()
+        shell: bash
+        run: |
+          uid="$(id -u)"
+          gid="$(id -g)"
+          docker run --rm \
+            -v "$GITHUB_WORKSPACE:/workspace" \
+            alpine:3.21 \
+            sh -c "chown -R ${uid}:${gid} /workspace"

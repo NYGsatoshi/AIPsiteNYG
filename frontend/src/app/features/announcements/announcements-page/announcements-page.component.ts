@@ -6,7 +6,12 @@ import { AnnouncementDetailComponent } from '../announcement-detail/announcement
 import { AnnouncementEditorComponent } from '../announcement-editor/announcement-editor.component';
 import { AnnouncementListComponent } from '../announcement-list/announcement-list.component';
 import { AnnouncementsFacade } from '../announcements.facade';
-import { AnnouncementViewModel } from '../announcements.types';
+import {
+  ANNOUNCEMENT_PUBLICATION_STATE_LABELS,
+  AnnouncementEditorDraft,
+  AnnouncementEditorSubmission,
+  AnnouncementViewModel
+} from '../announcements.types';
 
 @Component({
   selector: 'app-announcements-page',
@@ -24,8 +29,11 @@ export class AnnouncementsPageComponent implements OnDestroy {
   readonly searchValue = signal('');
   readonly selectedAnnouncementId = signal<string | null>(this.routeAnnouncementId ?? this.page().selectedAnnouncementId);
   readonly editorVisible = signal(false);
+  readonly editingAnnouncementId = signal<string | null>(null);
 
-  readonly filteredAnnouncements = computed(() => this.filterAuthorizedAnnouncements(this.page().announcements, this.searchValue()));
+  readonly filteredAnnouncements = computed(() =>
+    this.filterAuthorizedAnnouncements(this.page().announcements, this.searchValue())
+  );
   readonly selectedAnnouncement = computed(() => {
     const selectedId = this.page().selectedAnnouncementId ?? this.selectedAnnouncementId();
     if (selectedId) {
@@ -38,6 +46,34 @@ export class AnnouncementsPageComponent implements OnDestroy {
   readonly hasReadPermission = computed(() => this.page().pageCapabilities.includes('readAnnouncement'));
   readonly canCreate = computed(() => this.page().pageCapabilities.includes('createAnnouncement'));
   readonly canEdit = computed(() => this.page().pageCapabilities.includes('editAnnouncement'));
+  readonly activeEditorDraft = computed<AnnouncementEditorDraft | null>(() => {
+    const editingId = this.editingAnnouncementId();
+    if (!editingId) {
+      return this.page().editorDraft ?? null;
+    }
+
+    const announcement = this.page().announcements.find((item) => item.id === editingId);
+    if (!announcement) {
+      return null;
+    }
+
+    const availableAudiences = this.page().editorDraft?.availableAudiences ?? [];
+    const matchingAudiences = availableAudiences.filter((audience) => audience.scope === announcement.audienceScope);
+    const audienceKey = matchingAudiences.length === 1 ? matchingAudiences[0].key : '';
+
+    return {
+      id: announcement.id,
+      title: announcement.title,
+      body: announcement.body,
+      priority: announcement.priority,
+      audienceKey,
+      availableAudiences,
+      requiresReadConfirmation: announcement.readState.requiresReadConfirmation,
+      publicationState: announcement.publicationState,
+      scheduledAtLabel: announcement.scheduledAtLabel,
+      timeZoneLabel: announcement.timeZoneLabel
+    };
+  });
 
   constructor() {
     if (this.routeAnnouncementId) {
@@ -48,6 +84,7 @@ export class AnnouncementsPageComponent implements OnDestroy {
   selectAnnouncement(announcementId: string): void {
     this.selectedAnnouncementId.set(announcementId);
     this.editorVisible.set(false);
+    this.editingAnnouncementId.set(null);
     this.facade.setEditorActive(false);
     this.facade.selectAnnouncement(announcementId);
   }
@@ -61,17 +98,28 @@ export class AnnouncementsPageComponent implements OnDestroy {
   }
 
   showCreateEditor(): void {
-    if (this.canCreate()) {
+    if (this.canCreate() && this.facade.beginCreate()) {
+      this.editingAnnouncementId.set(null);
+      this.editorVisible.set(true);
+    }
+  }
+
+  showEditEditor(): void {
+    const selected = this.selectedAnnouncement();
+    if (this.canEdit() && selected && selected.publicationState !== 'archived') {
+      this.editingAnnouncementId.set(selected.id);
       this.editorVisible.set(true);
       this.facade.setEditorActive(true);
     }
   }
 
-  showEditEditor(): void {
-    if (this.canEdit()) {
-      this.editorVisible.set(true);
-      this.facade.setEditorActive(true);
+  publishAnnouncement(submission: AnnouncementEditorSubmission): void {
+    // #377 wires the create/publish path. Existing-announcement mutation remains
+    // a separate contract, so never reinterpret an edit action as a new create.
+    if (this.editingAnnouncementId() !== null) {
+      return;
     }
+    this.facade.createAnnouncement(submission);
   }
 
   ngOnDestroy(): void {
@@ -96,7 +144,9 @@ export class AnnouncementsPageComponent implements OnDestroy {
         announcement.title,
         announcement.body,
         announcement.publishedAtLabel,
-        announcement.publicationState === 'draft' ? '下書き' : '公開'
+        announcement.scheduledAtLabel ?? '',
+        announcement.timeZoneLabel ?? '',
+        ANNOUNCEMENT_PUBLICATION_STATE_LABELS[announcement.publicationState]
       ]
         .join(' ')
         .toLocaleLowerCase('ja-JP')

@@ -1,20 +1,12 @@
 name: WPC-02C PostgreSQL Acceptance
 
+# TEMPORARY CONTEST MODE: this milestone acceptance duplicates the core
+# backend build/test path on most code PRs. Keep it available on demand.
 on:
   workflow_dispatch:
-  pull_request:
-    branches: ["main"]
-    paths-ignore:
-      - "**/*.md"
-      - "docs/**"
-  push:
-    branches: ["main"]
-    paths-ignore:
-      - "**/*.md"
-      - "docs/**"
 
 concurrency:
-  group: wpc02c-postgresql-${{ github.event.pull_request.number || github.ref }}
+  group: wpc02c-postgresql-${{ github.ref }}
   cancel-in-progress: true
 
 permissions:
@@ -72,15 +64,24 @@ jobs:
         with:
           persist-credentials: false
 
-      - name: Configure user-local .NET install
+      - name: Configure user-local .NET install and NuGet isolation
         shell: bash
         run: |
           install_dir="$HOME/.dotnet-ci"
-          mkdir -p "$install_dir"
+          job_temp="$RUNNER_TEMP/dotnet-${GITHUB_JOB}-${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}"
+          mkdir -p \
+            "$install_dir" \
+            "$job_temp/home" \
+            "$job_temp/nuget/scratch" \
+            "$HOME/.nuget/packages"
           {
             echo "DOTNET_INSTALL_DIR=$install_dir"
             echo "DOTNET_ROOT=$install_dir"
             echo "DOTNET_MULTILEVEL_LOOKUP=0"
+            echo "DOTNET_CLI_HOME=$job_temp/home"
+            echo "DOTNET_CLI_WORKLOAD_UPDATE_NOTIFY_DISABLE=1"
+            echo "NUGET_PACKAGES=$HOME/.nuget/packages"
+            echo "NUGET_SCRATCH=$job_temp/nuget/scratch"
           } >> "$GITHUB_ENV"
           echo "$install_dir" >> "$GITHUB_PATH"
 
@@ -90,7 +91,7 @@ jobs:
           global-json-file: global.json
 
       - name: Restore
-        run: dotnet restore AipPortal.slnx --disable-parallel --verbosity normal
+        run: dotnet restore AipPortal.slnx --disable-parallel --disable-build-servers --verbosity normal
 
       - name: Build
         run: dotnet build AipPortal.slnx --configuration Release --no-restore --disable-build-servers -m:1

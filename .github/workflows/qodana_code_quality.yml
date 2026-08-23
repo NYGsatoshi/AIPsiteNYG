@@ -1,22 +1,13 @@
 name: Code Quality
 
+# TEMPORARY CONTEST MODE: keep Qodana available on demand, but do not spend
+# self-hosted runner capacity on every PR/push. Re-enable automatic triggers
+# after the contest window.
 on:
   workflow_dispatch:
-  pull_request:
-    branches:
-      - main
-    paths-ignore:
-      - "**/*.md"
-      - "docs/**"
-  push:
-    branches:
-      - main
-    paths-ignore:
-      - "**/*.md"
-      - "docs/**"
 
 concurrency:
-  group: code-quality-v2-${{ github.event.pull_request.number || github.ref }}
+  group: code-quality-v2-${{ github.ref }}
   cancel-in-progress: true
 
 permissions:
@@ -160,7 +151,7 @@ jobs:
 
   frontend-quality:
     name: Angular / TypeScript / JavaScript / HTML / SCSS / CSS
-    runs-on: [self-hosted, aipsite-ci, general]
+    runs-on: self-hosted
     needs: qodana-dotnet-community
     if: ${{ !cancelled() }}
     timeout-minutes: 90

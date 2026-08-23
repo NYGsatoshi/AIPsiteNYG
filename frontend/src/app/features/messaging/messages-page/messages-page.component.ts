@@ -1,8 +1,10 @@
-import { Component, computed, inject, signal } from '@angular/core';
+import { Component, computed, effect, inject, signal } from '@angular/core';
 import { FormsModule } from '@angular/forms';
-import { Router } from '@angular/router';
+import { Router, RouterLink } from '@angular/router';
 
 import { ConversationListComponent } from '../conversation-list/conversation-list.component';
+import { MessageGlobalSettingsService } from '../message-global-settings.service';
+import { MessageNavigationStateService } from '../message-navigation-state.service';
 import { ConversationRecipientDto, MessagingApi } from '../messaging.api';
 import { MessagingFacade } from '../messaging.facade';
 
@@ -16,7 +18,7 @@ interface RecipientOption {
 @Component({
   selector: 'app-messages-page',
   standalone: true,
-  imports: [ConversationListComponent, FormsModule],
+  imports: [ConversationListComponent, FormsModule, RouterLink],
   template: `
     <section class="messages-page" data-testid="messages-page">
       <header class="messages-page__header">
@@ -24,15 +26,24 @@ interface RecipientOption {
           <p class="messages-page__eyebrow">Messages</p>
           <h1>Conversations</h1>
         </div>
-        <button
-          type="button"
-          class="messages-page__primary"
-          data-testid="new-message-button"
-          aria-label="新しいメッセージを作成"
-          (click)="openCreateDialog()"
-        >
-          新しいメッセージ
-        </button>
+        <div class="messages-page__header-actions">
+          <a
+            routerLink="/messages/settings"
+            data-testid="global-message-settings-link"
+            aria-label="Global message settings. Applies across Messages."
+          >
+            Global message settings
+          </a>
+          <button
+            type="button"
+            class="messages-page__primary"
+            data-testid="new-message-button"
+            aria-label="新しいメッセージを作成"
+            (click)="openCreateDialog()"
+          >
+            新しいメッセージ
+          </button>
+        </div>
       </header>
 
       @if (page().inlineError) {
@@ -53,7 +64,11 @@ interface RecipientOption {
           <button type="button" (click)="facade.manualRefresh()">再試行</button>
         </section>
       } @else if (page().conversations.length > 0) {
-        <app-conversation-list [conversations]="page().conversations" />
+        <app-conversation-list
+          [conversations]="page().conversations"
+          [preserveListScroll]="true"
+          [showUnreadBadges]="globalSettings.showUnreadBadges()"
+        />
       } @else {
         <section class="messages-page__state" data-testid="messages-list-empty">
           <h2>まだ会話はありません</h2>
@@ -153,8 +168,10 @@ interface RecipientOption {
 })
 export class MessagesPageComponent {
   readonly facade = inject(MessagingFacade);
+  readonly globalSettings = inject(MessageGlobalSettingsService);
   private readonly api = inject(MessagingApi);
   private readonly router = inject(Router);
+  private readonly navigationState = inject(MessageNavigationStateService);
   readonly page = this.facade.page;
   readonly createDialogOpen = signal(false);
   readonly recipientQuery = signal('');
@@ -166,6 +183,11 @@ export class MessagesPageComponent {
   readonly canSubmitCreate = computed(() => this.selectedRecipientId() !== null && !this.creating());
 
   constructor() {
+    effect(() => {
+      if (this.page().status !== 'loading') {
+        this.navigationState.restoreListScroll();
+      }
+    });
     this.facade.loadConversationListPage();
   }
 

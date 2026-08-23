@@ -3,7 +3,10 @@ import { Subscription } from 'rxjs';
 
 import { AuthSessionFacade } from '../../core/auth/auth-session.facade';
 import { FrontendFeatureFlagsService } from '../../core/feature-flags/frontend-feature-flags.service';
-import { RealtimeFacade } from '../../core/realtime/realtime.facade';
+import {
+  ProtectedStateClearReason,
+  RealtimeFacade,
+} from '../../core/realtime/realtime.facade';
 import { DurableRealtimeEvent } from '../../core/realtime/realtime.models';
 import { DraftStorageService } from './draft-storage.service';
 import { MessagingApi } from './messaging.api';
@@ -20,10 +23,13 @@ import {
   MessagingPageViewModel,
   MessagingRouteKind
 } from './messaging.types';
+import { MessageNavigationStateService } from './message-navigation-state.service';
 
 export const AIP_MESSAGING_PAGE_MOCK = new InjectionToken<MessagingPageViewModel>(
   'AIP_MESSAGING_PAGE_MOCK'
 );
+
+const MESSAGING_REALTIME_OWNER = 'messaging-route';
 
 @Injectable({ providedIn: 'root' })
 export class MessagingFacade {
@@ -32,6 +38,7 @@ export class MessagingFacade {
   private readonly flags = inject(FrontendFeatureFlagsService);
   private readonly realtime = inject(RealtimeFacade);
   private readonly draftStorage = inject(DraftStorageService);
+  private readonly navigationState = inject(MessageNavigationStateService);
   private readonly mockPage = inject(AIP_MESSAGING_PAGE_MOCK, { optional: true });
   private readonly initialPage = this.mockPage ?? emptyMessagingPage('channel', 'loading');
   private readonly pageState = signal<MessagingPageViewModel>(
@@ -40,14 +47,23 @@ export class MessagingFacade {
   private readonly loadedConversationId = signal<string | null>(
     this.mockPage?.conversation.id ?? null
   );
+  private loadedExpectedWorkspaceId: string | null = null;
   private realtimeSubscriptionCleanup: (() => void) | undefined;
   private realtimeCatchUpCleanup: (() => void) | undefined;
   private readonly durableEvents: Subscription;
+  private readonly protectedRequests = new Set<Subscription>();
+  private requestGeneration = 0;
 
   readonly page = computed(() => this.withSortedMessages(this.pageState()));
 
   constructor() {
     this.durableEvents = this.realtime.durableEvents$.subscribe((event) => this.applyRealtimeEvent(event));
+    if (!this.mockPage) {
+      this.realtime.registerProtectedStateClearer?.(
+        'messaging',
+        (reason) => this.clearProtectedState(reason),
+      );
+    }
   }
 
   loadConversationListPage(routeKind: MessagingRouteKind = 'channel'): void {
@@ -55,70 +71,173 @@ export class MessagingFacade {
       return;
     }
 
+    const generation = this.beginRequestGeneration();
+    this.releaseConversationRealtime();
     this.loadedConversationId.set(null);
     this.pageState.set(emptyMessagingPage(routeKind, 'loading'));
-    this.loadConversationList(routeKind, true);
+    this.realtimeCatchUpCleanup = this.realtime.registerCatchUp(
+      MESSAGING_REALTIME_OWNER,
+      () => this.catchUpConversationList(routeKind),
+    );
+    void this.loadConversationList(routeKind, true, generation);
   }
 
-  loadConversation(conversationId: string | null, routeKind: MessagingRouteKind): void {
+  loadConversation(
+    conversationId: string | null,
+    routeKind: 'channel',
+    expectedWorkspaceId: string | null,
+  ): void;
+  loadConversation(
+    conversationId: string | null,
+    routeKind: 'dm',
+    expectedWorkspaceId?: null,
+  ): void;
+  loadConversation(
+    conversationId: string | null,
+    routeKind: MessagingRouteKind,
+    expectedWorkspaceId: string | null = null,
+  ): void {
     if (this.mockPage) {
       return;
     }
 
-    if (!conversationId) {
+    const routeWorkspaceId = routeKind === 'channel' ? nonEmptyString(expectedWorkspaceId) : null;
+    if (!conversationId || (routeKind === 'channel' && !routeWorkspaceId)) {
+      this.beginRequestGeneration();
+      this.releaseConversationRealtime();
       this.loadedConversationId.set(null);
+      this.loadedExpectedWorkspaceId = null;
       this.pageState.set(
-        emptyMessagingPage(routeKind, 'empty', 'Conversation API route id is missing.')
+        emptyMessagingPage(
+          routeKind,
+          routeKind === 'channel' ? 'permissionDenied' : 'empty',
+          'Conversation route scope is missing.',
+        )
       );
       return;
     }
 
-    if (this.loadedConversationId() === conversationId) {
+    if (
+      this.loadedConversationId() === conversationId &&
+      this.loadedExpectedWorkspaceId === routeWorkspaceId
+    ) {
       return;
     }
 
+    const generation = this.beginRequestGeneration();
+    this.releaseConversationRealtime();
     this.loadedConversationId.set(conversationId);
-    this.registerConversationRealtime(conversationId);
-    this.pageState.set(emptyMessagingPage(routeKind, 'loading'));
-    this.loadConversationList(routeKind, false);
-    this.api.getConversation(conversationId).subscribe({
-      next: (conversation) => {
-        this.api.listMessages(conversationId).subscribe({
-          next: (response) => {
-            const page = mapConversationPage(conversation, response.items ?? [], {
-              currentUserId: this.currentUserId(),
-              currentTenantId: this.currentTenantId(),
-              fallbackRouteKind: routeKind,
-              existingConversations: this.pageState().conversations
-            });
-            this.pageState.set(this.withStoredDraft(page));
-          },
-          error: () => {
-            const page = mapConversationPage(conversation, [], {
-              currentUserId: this.currentUserId(),
-              currentTenantId: this.currentTenantId(),
-              fallbackRouteKind: routeKind,
-              existingConversations: this.pageState().conversations
-            });
-            this.pageState.set({
-              ...this.withStoredDraft(page),
-              inlineError: 'Message API request failed.'
-            });
-          }
-        });
-      },
-      error: (error: { status?: number }) => {
-        this.pageState.set(
-          emptyMessagingPage(
-            routeKind,
-            error.status === 401 || error.status === 403 ? 'permissionDenied' : 'empty',
-            error.status === 401 || error.status === 403
-              ? 'Authentication or conversation permission is required.'
-              : 'Conversation API request failed.'
-          )
-        );
-      }
+    this.loadedExpectedWorkspaceId = routeWorkspaceId;
+    const currentPage = this.pageState();
+    const existingConversations =
+      currentPage.conversation.tenantId === this.currentTenantId()
+        ? currentPage.conversations
+        : [];
+    this.pageState.set({
+      ...emptyMessagingPage(routeKind, 'loading'),
+      conversations: existingConversations
     });
+    void this.loadConversationData(
+      conversationId,
+      routeKind,
+      generation,
+      routeWorkspaceId,
+      true,
+    );
+  }
+
+  private loadConversationData(
+    conversationId: string,
+    routeKind: MessagingRouteKind,
+    generation: number,
+    expectedWorkspaceId: string | null,
+    registerRealtimeAfterValidation: boolean,
+  ): Promise<void> {
+    const listCompletion = this.loadConversationList(routeKind, false, generation);
+    const detailCompletion = new Promise<void>((resolve) => {
+      let messagesStarted = false;
+      let settled = false;
+      const settle = (): void => {
+        if (!settled) {
+          settled = true;
+          resolve();
+        }
+      };
+      const conversationRequest = this.api.getConversation(conversationId).subscribe({
+        next: (conversation) => {
+          if (!this.isCurrentRequest(generation, conversationId)) {
+            settle();
+            return;
+          }
+          if (
+            expectedWorkspaceId !== null &&
+            nonEmptyString(conversation.workspaceId) !== expectedWorkspaceId
+          ) {
+            this.rejectConversationOutsideRouteWorkspace(generation, conversationId, routeKind);
+            settle();
+            return;
+          }
+          if (registerRealtimeAfterValidation) {
+            this.registerConversationRealtime(conversationId);
+          }
+          messagesStarted = true;
+          const messagesRequest = this.api.listMessages(conversationId).subscribe({
+            next: (response) => {
+              if (!this.isCurrentRequest(generation, conversationId)) {
+                return;
+              }
+              const page = mapConversationPage(conversation, response.items ?? [], {
+                currentUserId: this.currentUserId(),
+                currentTenantId: this.currentTenantId(),
+                fallbackRouteKind: routeKind,
+                existingConversations: this.pageState().conversations
+              });
+              this.pageState.set(this.withStoredDraft(page));
+            },
+            error: (error: { status?: number }) => {
+              if (this.isCurrentRequest(generation, conversationId)) {
+                this.rejectIncompleteConversationAggregate(
+                  generation,
+                  conversationId,
+                  routeKind,
+                  error.status,
+                );
+              }
+              settle();
+            },
+            complete: settle,
+          });
+          messagesRequest.add(settle);
+          this.trackProtectedRequest(messagesRequest);
+        },
+        error: (error: { status?: number }) => {
+          if (this.isCurrentRequest(generation, conversationId)) {
+            this.pageState.set(
+              emptyMessagingPage(
+                routeKind,
+                error.status === 401 || error.status === 403 ? 'permissionDenied' : 'empty',
+                error.status === 401 || error.status === 403
+                  ? 'Authentication or conversation permission is required.'
+                  : 'Conversation API request failed.'
+              )
+            );
+          }
+          settle();
+        },
+        complete: () => {
+          if (!messagesStarted) {
+            settle();
+          }
+        },
+      });
+      conversationRequest.add(() => {
+        if (!messagesStarted) {
+          settle();
+        }
+      });
+      this.trackProtectedRequest(conversationRequest);
+    });
+    return Promise.all([listCompletion, detailCompletion]).then(() => undefined);
   }
 
   setDraft(value: string): void {
@@ -130,9 +249,18 @@ export class MessagingFacade {
   manualRefresh(): void {
     if (!this.mockPage) {
       const page = this.pageState();
-      if (page.conversation.id) {
+      const conversationId = page.conversation.id || this.loadedConversationId();
+      if (conversationId) {
         this.loadedConversationId.set(null);
-        this.loadConversation(page.conversation.id, page.routeKind);
+        if (page.routeKind === 'channel') {
+          this.loadConversation(
+            conversationId,
+            'channel',
+            this.loadedExpectedWorkspaceId ?? page.conversation.workspaceId ?? null,
+          );
+        } else {
+          this.loadConversation(conversationId, 'dm');
+        }
       } else {
         this.loadConversationListPage(page.routeKind);
       }
@@ -163,7 +291,7 @@ export class MessagingFacade {
     }));
   }
 
-  sendDraft(): void {
+  sendDraft(mentionedUserIds: readonly string[] = []): void {
     const page = this.pageState();
     const body = page.draft.trim();
     if (!body || page.sending || !this.canPost(page)) {
@@ -179,7 +307,10 @@ export class MessagingFacade {
       return;
     }
 
+    const normalizedMentionedUserIds = [...new Set(mentionedUserIds.filter((userId) => userId.length > 0))];
     const clientRequestId = createClientRequestId();
+    const generation = this.requestGeneration;
+    const conversationId = page.conversation.id;
     const useOptimistic = this.flags.optimisticMessagingEnabled();
     const pendingMessage: MessagingMessageViewModel = {
       id: `pending-${clientRequestId}`,
@@ -190,7 +321,8 @@ export class MessagingFacade {
       body,
       sentAtLabel: 'Sending',
       deliveryState: 'sending',
-      retryAllowed: false
+      retryAllowed: false,
+      mentionedUserIds: normalizedMentionedUserIds
     };
 
     this.pageState.set({
@@ -202,9 +334,16 @@ export class MessagingFacade {
       status: page.status === 'empty' ? 'ready' : page.status
     });
 
-    this.api.sendMessage(page.conversation.id, body, clientRequestId).subscribe({
+    const request = this.api.sendMessage(page.conversation.id, body, clientRequestId, normalizedMentionedUserIds).subscribe({
       next: (message) => {
-        const confirmedMessage = { ...mapMessage(message, this.currentUserId()), clientRequestId };
+        if (!this.isCurrentRequest(generation, conversationId)) {
+          return;
+        }
+        const confirmedMessage = {
+          ...mapMessage(message, this.currentUserId()),
+          clientRequestId,
+          mentionedUserIds: normalizedMentionedUserIds
+        };
         this.draftStorage.clearDraft(this.scopeFor(page));
         this.pageState.update((current) => ({
           ...current,
@@ -216,6 +355,9 @@ export class MessagingFacade {
         }));
       },
       error: (error: { status?: number }) => {
+        if (!this.isCurrentRequest(generation, conversationId)) {
+          return;
+        }
         const message = sendFailureMessage(error.status);
         this.pageState.update((current) => ({
           ...current,
@@ -228,6 +370,7 @@ export class MessagingFacade {
         }));
       }
     });
+    this.trackProtectedRequest(request);
   }
 
   retryMessage(messageId: string): void {
@@ -236,22 +379,35 @@ export class MessagingFacade {
     if (!failed || !failed.clientRequestId || !this.canPost(page) || this.mockPage) {
       return;
     }
+    const generation = this.requestGeneration;
+    const conversationId = page.conversation.id;
     this.pageState.update((current) => ({
       ...current,
       sending: true,
       sendState: { status: 'sending', clientRequestId: failed.clientRequestId },
       messages: current.messages.map((message) => message.id === messageId ? { ...message, deliveryState: 'sending', failureCode: undefined, safeFailureReason: undefined, retryAllowed: false } : message)
     }));
-    this.api.sendMessage(page.conversation.id, failed.body, failed.clientRequestId).subscribe({
+    const request = this.api.sendMessage(page.conversation.id, failed.body, failed.clientRequestId, failed.mentionedUserIds ?? []).subscribe({
       next: (message) => {
-        const confirmed = { ...mapMessage(message, this.currentUserId()), clientRequestId: failed.clientRequestId };
+        if (!this.isCurrentRequest(generation, conversationId)) {
+          return;
+        }
+        const confirmed = {
+          ...mapMessage(message, this.currentUserId()),
+          clientRequestId: failed.clientRequestId,
+          mentionedUserIds: failed.mentionedUserIds
+        };
         this.pageState.update((current) => ({ ...current, sending: false, sendState: { status: 'sent', messageId: confirmed.id }, messages: reconcileMessage(current.messages, confirmed) }));
       },
       error: (error: { status?: number }) => {
+        if (!this.isCurrentRequest(generation, conversationId)) {
+          return;
+        }
         const safeMessage = sendFailureMessage(error.status);
         this.pageState.update((current) => ({ ...current, sending: false, sendState: { status: 'failed', message: safeMessage, requestId: failed.clientRequestId }, messages: current.messages.map((message) => message.id === messageId ? { ...message, deliveryState: 'failed', failureCode: failureCode(error.status), safeFailureReason: safeMessage, retryAllowed: true } : message) }));
       }
     });
+    this.trackProtectedRequest(request);
   }
 
   clearDraftsForSessionBoundary(): void {
@@ -259,9 +415,17 @@ export class MessagingFacade {
     this.pageState.update((page) => ({ ...page, draft: '' }));
   }
 
-  private loadConversationList(routeKind: MessagingRouteKind, listOnly: boolean): void {
-    this.api.listConversations().subscribe({
+  private loadConversationList(
+    routeKind: MessagingRouteKind,
+    listOnly: boolean,
+    generation: number,
+  ): Promise<void> {
+    return new Promise<void>((resolve) => {
+      const request = this.api.listConversations().subscribe({
       next: (response) => {
+        if (generation !== this.requestGeneration) {
+          return;
+        }
         const conversations = (response.items ?? []).map((conversation) =>
           mapConversationListItem(conversation)
         );
@@ -275,6 +439,9 @@ export class MessagingFacade {
         }));
       },
       error: (error: { status?: number }) => {
+        if (generation !== this.requestGeneration) {
+          return;
+        }
         this.pageState.update((page) => ({
           ...page,
           conversations: [],
@@ -285,7 +452,11 @@ export class MessagingFacade {
             : page.status,
           inlineError: 'Conversation list API request failed.'
         }));
-      }
+        },
+        complete: resolve,
+      });
+      request.add(resolve);
+      this.trackProtectedRequest(request);
     });
   }
 
@@ -300,6 +471,7 @@ export class MessagingFacade {
   private scopeFor(page: MessagingPageViewModel): MessagingDraftScope {
     return {
       tenantId: page.conversation.tenantId,
+      userId: this.currentUserId(),
       workspaceId: page.conversation.workspaceId,
       conversationId: page.conversation.id
     };
@@ -317,26 +489,37 @@ export class MessagingFacade {
   }
 
   private registerConversationRealtime(conversationId: string): void {
-    this.realtimeSubscriptionCleanup?.();
-    this.realtimeCatchUpCleanup?.();
+    this.releaseConversationRealtime();
     if (!this.flags.realtimeSignalREnabled()) {
       return;
     }
-    this.realtimeSubscriptionCleanup = this.realtime.registerSubscription('messaging-conversation', { subscriptionType: 'conversation', resourceId: conversationId });
-    this.realtimeCatchUpCleanup = this.realtime.registerCatchUp('messaging-conversation', () => this.catchUpConversation(conversationId));
+    this.realtimeSubscriptionCleanup = this.realtime.registerSubscription(MESSAGING_REALTIME_OWNER, { subscriptionType: 'conversation', resourceId: conversationId });
+    this.realtimeCatchUpCleanup = this.realtime.registerCatchUp(MESSAGING_REALTIME_OWNER, () => this.catchUpConversation(conversationId));
   }
 
-  private async catchUpConversation(conversationId: string): Promise<void> {
+  private catchUpConversation(conversationId: string): Promise<void> | void {
     if (this.loadedConversationId() !== conversationId) {
       return;
     }
-    await new Promise<void>((resolve, reject) => this.api.listMessages(conversationId).subscribe({
-      next: (response) => {
-        this.pageState.update((page) => ({ ...page, messages: mergeMessages(page.messages, (response.items ?? []).map((item) => mapMessage(item, this.currentUserId()))), realtimeDegraded: false }));
-        resolve();
-      },
-      error: reject
-    }));
+    const routeKind = this.pageState().routeKind;
+    const generation = this.beginRequestGeneration();
+    this.pageState.set(emptyMessagingPage(routeKind, 'loading'));
+    return this.loadConversationData(
+      conversationId,
+      routeKind,
+      generation,
+      this.loadedExpectedWorkspaceId,
+      false,
+    );
+  }
+
+  private catchUpConversationList(routeKind: MessagingRouteKind): Promise<void> | void {
+    if (this.loadedConversationId() !== null) {
+      return;
+    }
+    const generation = this.beginRequestGeneration();
+    this.pageState.set(emptyMessagingPage(routeKind, 'loading'));
+    return this.loadConversationList(routeKind, true, generation);
   }
 
   private applyRealtimeEvent(event: DurableRealtimeEvent): void {
@@ -385,6 +568,104 @@ export class MessagingFacade {
   private currentTenantId(): string {
     return this.authSession.currentTenant()?.tenantId ?? '';
   }
+
+  private beginRequestGeneration(): number {
+    this.requestGeneration++;
+    this.cancelProtectedRequests();
+    return this.requestGeneration;
+  }
+
+  private isCurrentRequest(generation: number, conversationId: string): boolean {
+    return generation === this.requestGeneration && this.loadedConversationId() === conversationId;
+  }
+
+  private trackProtectedRequest(request: Subscription): void {
+    this.protectedRequests.add(request);
+    request.add(() => this.protectedRequests.delete(request));
+  }
+
+  private cancelProtectedRequests(): void {
+    for (const request of [...this.protectedRequests]) {
+      request.unsubscribe();
+    }
+    this.protectedRequests.clear();
+  }
+
+  private releaseConversationRealtime(): void {
+    this.realtimeSubscriptionCleanup?.();
+    this.realtimeCatchUpCleanup?.();
+    this.realtimeSubscriptionCleanup = undefined;
+    this.realtimeCatchUpCleanup = undefined;
+  }
+
+  private rejectConversationOutsideRouteWorkspace(
+    generation: number,
+    conversationId: string,
+    routeKind: MessagingRouteKind,
+  ): void {
+    if (!this.isCurrentRequest(generation, conversationId)) {
+      return;
+    }
+    this.beginRequestGeneration();
+    this.releaseConversationRealtime();
+    this.loadedConversationId.set(null);
+    this.loadedExpectedWorkspaceId = null;
+    this.pageState.set(
+      emptyMessagingPage(
+        routeKind,
+        'permissionDenied',
+        'Conversation is not available in this Workspace.',
+      ),
+    );
+  }
+
+  private rejectIncompleteConversationAggregate(
+    generation: number,
+    conversationId: string,
+    routeKind: MessagingRouteKind,
+    status: number | undefined,
+  ): void {
+    if (!this.isCurrentRequest(generation, conversationId)) {
+      return;
+    }
+
+    // Conversation detail alone is not a safe projection: access can be
+    // revoked between the detail and message reads (the backend may surface
+    // that denial as 400). Discard every protected field unless the complete
+    // aggregate loaded successfully.
+    this.beginRequestGeneration();
+    this.releaseConversationRealtime();
+    const accessDenied = status === 400 || status === 401 || status === 403 || status === 404;
+    this.pageState.set(
+      emptyMessagingPage(
+        routeKind,
+        accessDenied ? 'permissionDenied' : 'manualRefreshError',
+        accessDenied
+          ? 'Authentication or conversation permission is required.'
+          : 'Message API request failed.',
+      ),
+    );
+  }
+
+  private clearProtectedState(reason: ProtectedStateClearReason): void {
+    const preserveRouteIntent = reason === 'authorization';
+    const routeKind = this.pageState().routeKind;
+    this.beginRequestGeneration();
+    if (!preserveRouteIntent) {
+      this.releaseConversationRealtime();
+      this.loadedConversationId.set(null);
+      this.loadedExpectedWorkspaceId = null;
+      this.navigationState.clearForWorkspaceBoundary();
+    }
+    if (reason === 'session' || reason === 'tenant') {
+      this.clearDraftsForSessionBoundary();
+    }
+    this.pageState.set(emptyMessagingPage(
+      routeKind,
+      'loading',
+      'Waiting for an active Workspace selection.',
+    ));
+  }
 }
 
 function emptyMessagingPage(
@@ -406,6 +687,7 @@ function emptyMessagingPage(
       viewerWasRemoved: false,
       capabilities: [],
       composerDisabledReason: 'Conversation API data is not loaded.',
+      mentionCandidates: [],
       attachment: {
         mode: 'disabled',
         label: 'Attachments are disabled for MVP0 messaging.'
@@ -425,6 +707,10 @@ function emptyMessagingPage(
       preloadAfter: 0
     }
   };
+}
+
+function nonEmptyString(value: unknown): string | null {
+  return typeof value === 'string' && value.length > 0 ? value : null;
 }
 
 function sendFailureMessage(status: number | undefined): string {
@@ -462,13 +748,6 @@ function reconcileMessage(
     return [...messages, incoming];
   }
   return messages.map((message, index) => index === matchingIndex ? incoming : message);
-}
-
-function mergeMessages(
-  existing: readonly MessagingMessageViewModel[],
-  incoming: readonly MessagingMessageViewModel[]
-): readonly MessagingMessageViewModel[] {
-  return incoming.reduce<readonly MessagingMessageViewModel[]>((merged, message) => reconcileMessage(merged, message), existing);
 }
 
 function mapRealtimeMessage(value: Record<string, unknown>, currentUserId: string): MessagingMessageViewModel {

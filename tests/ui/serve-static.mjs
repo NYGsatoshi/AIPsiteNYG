@@ -11,9 +11,20 @@ const staticWorkspace = {
   id: "static-workspace-1",
   name: "Static Workspace",
   description: "Playwright static workspace",
+  icon: null,
   status: "Active",
   createdAt: "2026-07-06T00:00:00Z",
-  updatedAt: "2026-07-06T00:00:00Z"
+  updatedAt: "2026-07-06T00:00:00Z",
+  currentUserRole: "Member",
+  accessSource: "WorkspaceMembership",
+  canOpenWorkspace: true,
+  canOpenMembers: true,
+  canOpenProjects: true,
+  unreadAnnouncementCount: 2,
+  unreadConversationCount: 1,
+  inProgressProjectCount: 3,
+  runningProjectCount: 2,
+  needsReviewProjectCount: 1
 };
 
 function argValue(name) {
@@ -130,6 +141,16 @@ const server = createServer(async (request, response) => {
   if (pathname === "/api/workspaces") {
     response.writeHead(200, { "content-type": "application/json; charset=utf-8" });
     response.end(JSON.stringify([staticWorkspace]));
+    return;
+  }
+
+  if (pathname === "/api/workspaces/capabilities") {
+    response.writeHead(200, { "content-type": "application/json; charset=utf-8" });
+    response.end(JSON.stringify({
+      requestId: "playwright-workspaces-capabilities",
+      data: { canCreate: false },
+      warnings: []
+    }));
     return;
   }
 

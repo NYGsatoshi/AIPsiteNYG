@@ -1,5 +1,6 @@
 import { HttpClient, HttpParams } from '@angular/common/http';
 import { effect, inject, Injectable, InjectionToken, signal } from '@angular/core';
+import { Router } from '@angular/router';
 import { catchError, forkJoin, of, Subscription } from 'rxjs';
 
 import { normalizeApiError } from '../../core/api/api-error.adapter';
@@ -9,6 +10,7 @@ import { RealtimeFacade } from '../../core/realtime/realtime.facade';
 import { DurableRealtimeEvent } from '../../core/realtime/realtime.models';
 import { NotificationOpenContextService } from '../../core/notifications/notification-open-context.service';
 import { ActiveWorkspaceFacade } from '../../core/workspace/active-workspace.facade';
+import { WorkspaceSelectionFacade } from '../../core/workspace/workspace-selection.facade';
 import { MyTasksCountsDto, MyTasksProjectionPageDto } from './projects.api';
 import { mapMyTaskDtoToProjection } from './projects.mapper';
 import {
@@ -51,7 +53,9 @@ export class MyTasksFacade {
   private readonly realtime = inject(RealtimeFacade);
   private readonly authSession = inject(AuthSessionFacade);
   private readonly activeWorkspace = inject(ActiveWorkspaceFacade);
+  private readonly workspaceSelection = inject(WorkspaceSelectionFacade);
   private readonly notificationOpenContext = inject(NotificationOpenContextService);
+  private readonly router = inject(Router, { optional: true });
   private readonly scenario = inject(AIP_MY_TASKS_MOCK, { optional: true });
   private readonly state = signal<MyTasksState>(this.initialState());
   private hasRequested = false;
@@ -75,9 +79,9 @@ export class MyTasksFacade {
       // The backend open response is the only source that can select this
       // Workspace. Consume it even when this root facade was already created
       // by another Project surface before the notification was opened.
-      this.applyAuthorizedDigestWorkspace(digestWorkspaceId);
+      const selected = this.applyAuthorizedDigestWorkspace(digestWorkspaceId);
       this.notificationOpenContext.clear();
-      if (this.hasRequested && !this.scenario) this.requestMyTasks();
+      if (selected && this.hasRequested && !this.scenario) this.requestMyTasks();
     });
     effect(() => {
       const workspaceId = this.activeWorkspace.activeWorkspace()?.id ?? null;
@@ -130,13 +134,56 @@ export class MyTasksFacade {
   }
 
   setWorkspace(workspaceId: string): void {
-    this.applyAuthorizedDigestWorkspace(workspaceId);
-    this.requestMyTasks();
+    void this.selectWorkspaceAndReturnToTasks(workspaceId);
   }
 
-  private applyAuthorizedDigestWorkspace(workspaceId: string): void {
-    const workspace = this.authSession.session().currentUser?.workspaces.find((item) => item.id === workspaceId);
-    this.activeWorkspace.setActiveWorkspace(workspace ?? { id: workspaceId, label: 'Workspace' });
+  private async selectWorkspaceAndReturnToTasks(workspaceId: string): Promise<void> {
+    const selected = await this.workspaceSelection.selectWorkspace(workspaceId);
+    if (
+      !selected ||
+      this.workspaceSelection.selection().workspaceId !== workspaceId ||
+      !this.router
+    ) {
+      return;
+    }
+
+    const transitionRevision = this.workspaceSelection.transitionRevision();
+    // Selection first neutralizes the old Workspace-scoped route so its
+    // component cannot survive under the new authorization context. This
+    // page-level scope control can then safely remount My Tasks for the newly
+    // selected Workspace. A canceled target navigation leaves the neutral
+    // Workspace dashboard in place rather than restoring stale route state.
+    try {
+      const navigated = await this.router.navigateByUrl('/tasks');
+      if (!navigated) {
+        return;
+      }
+
+      if (
+        this.workspaceSelection.selection().workspaceId !== workspaceId ||
+        this.workspaceSelection.transitionRevision() !== transitionRevision
+      ) {
+        // A newer authorization or Workspace transition superseded this
+        // page-owned continuation while navigation was in flight. Repair only
+        // the route this operation just landed; a newer, different route owns
+        // its own navigation outcome.
+        if (this.router.url === '/tasks') {
+          await this.router.navigateByUrl('/workspaces');
+        }
+      }
+    } catch {
+      // The neutral route is the fail-closed fallback.
+    }
+  }
+
+  private applyAuthorizedDigestWorkspace(workspaceId: string): boolean {
+    // RightPanel completes the neutralize -> activate transaction before
+    // publishing this one-shot digest context. My Tasks may consume that
+    // context, but must never perform a second synchronous scope switch.
+    if (this.workspaceSelection.selection().workspaceId !== workspaceId) {
+      this.clearProtectedState();
+      return false;
+    }
     this.invalidateActiveRequest();
     this.state.update((current) => ({
       ...current,
@@ -147,6 +194,7 @@ export class MyTasksFacade {
       counts: [],
       totalCount: 0
     }));
+    return true;
   }
 
   setProjectFilter(projectId: string): void { this.updateFilter({ projectId: projectId.trim() }); }
@@ -280,6 +328,7 @@ export class MyTasksFacade {
     if (this.scenario || !this.hasRequested) return;
     if (event.eventType === 'Security.AuthorizationStateChanged.v1') {
       this.clearProtectedState();
+      return;
     }
     if (![
       'Projects.TaskChanged.v1',
@@ -347,13 +396,24 @@ export class MyTasksFacade {
   private clearProtectedState(): void {
     const current = this.state();
     this.invalidateActiveRequest();
+    if (this.refreshTimer !== null) {
+      clearTimeout(this.refreshTimer);
+      this.refreshTimer = null;
+    }
+    if (this.searchTimer !== null) {
+      clearTimeout(this.searchTimer);
+      this.searchTimer = null;
+    }
     this.state.set({
       ...current,
+      scope: 'currentWorkspace',
+      workspaceId: null,
+      page: 1,
       tasks: [],
       counts: [],
       totalCount: 0,
       status: 'loading',
-      message: undefined,
+      message: 'Waiting for an active Workspace selection.',
       error: undefined
     });
   }

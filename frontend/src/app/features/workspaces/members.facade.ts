@@ -1,5 +1,11 @@
 import { HttpClient } from '@angular/common/http';
 import { inject, Injectable, InjectionToken, signal } from '@angular/core';
+import { Subscription } from 'rxjs';
+
+import {
+  ProtectedStateClearReason,
+  RealtimeFacade,
+} from '../../core/realtime/realtime.facade';
 
 import {
   WORKSPACE_MEMBERS_DEFAULT_PAGE_SIZE,
@@ -25,23 +31,33 @@ interface WorkspaceMemberDto {
   readonly joinedAt?: unknown;
 }
 
+const WORKSPACE_MEMBERS_REALTIME_OWNER = 'workspace-members';
+
 @Injectable({
   providedIn: 'root',
 })
 export class WorkspaceMembersFacade {
   private readonly http = inject(HttpClient);
+  private readonly realtime = inject(RealtimeFacade);
   private readonly scenario = inject(AIP_WORKSPACE_MEMBERS_MOCK, { optional: true });
   private readonly livePages = signal<Record<string, WorkspaceMembersViewModel>>({});
+  private request: Subscription | null = null;
+  private requestGeneration = 0;
+  private currentWorkspaceId: string | null = null;
+  private realtimeCleanups: (() => void)[] = [];
+
+  constructor() {
+    if (!this.scenario) {
+      this.realtime.registerProtectedStateClearer?.(
+        WORKSPACE_MEMBERS_REALTIME_OWNER,
+        (reason) => this.clearProtectedState(reason),
+      );
+    }
+  }
 
   getPage(workspaceId: string): WorkspaceMembersViewModel {
     if (!this.scenario) {
-      const page = this.livePages()[workspaceId];
-      if (page) {
-        return page;
-      }
-
-      this.loadMembers(workspaceId);
-      return this.emptyPage(workspaceId, 'loading');
+      return this.livePages()[workspaceId] ?? this.emptyPage(workspaceId, 'loading');
     }
 
     const authorizedRows = this.scenario.members
@@ -69,44 +85,121 @@ export class WorkspaceMembersFacade {
     };
   }
 
+  ensureLoaded(workspaceId: string): void {
+    if (!this.scenario) {
+      this.setRouteWorkspace(workspaceId);
+      this.loadMembers(workspaceId);
+    }
+  }
+
   reload(workspaceId: string): void {
+    if (!this.scenario) {
+      this.setRouteWorkspace(workspaceId);
+    }
     this.loadMembers(workspaceId, true);
   }
 
-  private loadMembers(workspaceId: string, force = false): void {
+  private loadMembers(workspaceId: string, force = false): Promise<void> {
     if (!force && this.livePages()[workspaceId]?.status === 'loading') {
+      return Promise.resolve();
+    }
+
+    const generation = ++this.requestGeneration;
+    this.request?.unsubscribe();
+    this.setLivePage(workspaceId, this.emptyPage(workspaceId, 'loading'));
+    return new Promise<void>((resolve) => {
+      let settled = false;
+      const settle = (): void => {
+        if (!settled) {
+          settled = true;
+          resolve();
+        }
+      };
+      const request = this.http
+        .get<
+          readonly WorkspaceMemberDto[]
+        >(`/api/workspaces/${workspaceId}/members`, { withCredentials: true })
+        .subscribe({
+          next: (members) => {
+            if (!this.isCurrentRequest(generation, workspaceId)) {
+              return;
+            }
+            const rows = members.map((member) =>
+              this.toGridRow(this.toMockRecord(member, workspaceId)),
+            );
+            this.setLivePage(workspaceId, {
+              ...this.emptyPage(workspaceId, rows.length === 0 ? 'empty' : 'ready'),
+              rows,
+              message: rows.length === 0 ? 'No members were returned by the API.' : undefined,
+            });
+          },
+          error: (error: { status?: number }) => {
+            if (this.isCurrentRequest(generation, workspaceId)) {
+              this.setLivePage(workspaceId, {
+                ...this.emptyPage(
+                  workspaceId,
+                  error.status === 401 || error.status === 403 ? 'permissionDenied' : 'error',
+                ),
+                message:
+                  error.status === 401 || error.status === 403
+                    ? 'Authentication or member permission is required.'
+                    : 'Workspace member API request failed.',
+              });
+            }
+            settle();
+          },
+          complete: settle,
+        });
+      this.request = request;
+      request.add(() => {
+        if (this.request === request) {
+          this.request = null;
+        }
+        settle();
+      });
+    });
+  }
+
+  private setRouteWorkspace(workspaceId: string): void {
+    if (this.currentWorkspaceId === workspaceId && this.realtimeCleanups.length > 0) {
       return;
     }
 
-    this.setLivePage(workspaceId, this.emptyPage(workspaceId, 'loading'));
-    this.http
-      .get<
-        readonly WorkspaceMemberDto[]
-      >(`/api/workspaces/${workspaceId}/members`, { withCredentials: true })
-      .subscribe({
-        next: (members) => {
-          const rows = members.map((member) =>
-            this.toGridRow(this.toMockRecord(member, workspaceId)),
-          );
-          this.setLivePage(workspaceId, {
-            ...this.emptyPage(workspaceId, rows.length === 0 ? 'empty' : 'ready'),
-            rows,
-            message: rows.length === 0 ? 'No members were returned by the API.' : undefined,
-          });
-        },
-        error: (error: { status?: number }) => {
-          this.setLivePage(workspaceId, {
-            ...this.emptyPage(
-              error.status === 401 || error.status === 403 ? workspaceId : workspaceId,
-              error.status === 401 || error.status === 403 ? 'permissionDenied' : 'error',
-            ),
-            message:
-              error.status === 401 || error.status === 403
-                ? 'Authentication or member permission is required.'
-                : 'Workspace member API request failed.',
-          });
-        },
-      });
+    this.releaseRealtime();
+    this.currentWorkspaceId = workspaceId;
+    this.realtimeCleanups = [
+      this.realtime.registerSubscription(WORKSPACE_MEMBERS_REALTIME_OWNER, {
+        subscriptionType: 'workspace',
+        resourceId: workspaceId,
+      }),
+      this.realtime.registerCatchUp(WORKSPACE_MEMBERS_REALTIME_OWNER, () => {
+        if (this.currentWorkspaceId === workspaceId) {
+          return this.loadMembers(workspaceId, true);
+        }
+        return undefined;
+      }),
+    ];
+  }
+
+  private clearProtectedState(reason: ProtectedStateClearReason): void {
+    this.requestGeneration++;
+    this.request?.unsubscribe();
+    this.request = null;
+    this.livePages.set({});
+    if (reason !== 'authorization') {
+      this.releaseRealtime();
+      this.currentWorkspaceId = null;
+    }
+  }
+
+  private releaseRealtime(): void {
+    for (const cleanup of this.realtimeCleanups.splice(0)) {
+      cleanup();
+    }
+  }
+
+  private isCurrentRequest(generation: number, workspaceId: string): boolean {
+    return generation === this.requestGeneration && this.currentWorkspaceId === workspaceId;
   }
 
   private setLivePage(workspaceId: string, page: WorkspaceMembersViewModel): void {

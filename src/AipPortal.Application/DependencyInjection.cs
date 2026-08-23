@@ -37,7 +37,8 @@ public static class DependencyInjection
         services.AddScoped<CurrentTenantService>();
         services.AddScoped<ICurrentTenant>(provider => provider.GetRequiredService<CurrentTenantService>());
         services.AddScoped<ICurrentTenantAccessor>(provider => provider.GetRequiredService<CurrentTenantService>());
-        services.AddSingleton<IRedactionService, CanonicalRedactionService>();
+        services.AddSingleton<CanonicalRedactionService>();
+        services.AddSingleton<IRedactionService, CanonicalFileMetadataRedactionService>();
         services.AddScoped<ITenantAuthorizationService, TenantAuthorizationService>();
         // AddApplication() is also used by minimal test/utility hosts that do not
         // compose Infrastructure. Keep persistence-backed WPC dependencies fail
@@ -50,6 +51,7 @@ public static class DependencyInjection
         services.AddScoped<IProjectActivationUnitOfWork, UnavailableProjectActivationUnitOfWork>();
         services.AddScoped<ICapabilityGrantEvaluator, CapabilityGrantEvaluator>();
         services.AddScoped<ICapabilityGrantService, CapabilityGrantService>();
+        services.AddScoped<IAuditAuthorizationService, AuditAuthorizationService>();
         services.AddScoped<ITenantService, TenantService>();
         services.AddScoped<ITenantExportService, TenantExportService>();
         services.AddScoped<IFeatureFlagService, FeatureFlagService>();
@@ -83,6 +85,7 @@ public static class DependencyInjection
         services.AddSingleton(new CommunicationSafetyOptions());
         services.AddSingleton<ICommunicationSafetyGuard, InMemoryCommunicationSafetyGuard>();
         services.AddScoped<IAnnouncementService, AnnouncementService>();
+        services.AddScoped<IAnnouncementAudienceService, AnnouncementAudienceService>();
         services.AddScoped<WorkspaceGeneralRequiredInitialization>();
         services.AddScoped<IWorkspaceRequiredInitialization>(provider =>
             provider.GetRequiredService<IDefaultConversationStore>() is UnavailableDefaultConversationStore
@@ -98,11 +101,14 @@ public static class DependencyInjection
         services.AddScoped<IApiTokenValidator>(provider => provider.GetRequiredService<IntegrationService>());
         services.AddScoped<ICanonicalProjectCreateService, CanonicalProjectCreateService>();
         services.AddScoped<IProjectGeneralActivationProvisioner, ProjectGeneralActivationProvisioner>();
+        services.AddScoped<IProjectGeneralMembershipSynchronizer, ProjectGeneralMembershipSynchronizer>();
+        services.AddScoped<IProjectMembershipService, ProjectMembershipService>();
         services.AddScoped<IConfiguredProjectTaskWorkflowSource, NoConfiguredProjectTaskWorkflowSource>();
         services.AddScoped<IProjectTaskWorkflowResolver, ProjectTaskWorkflowResolver>();
         services.AddScoped<IProjectTaskWorkflowActivationProvisioner, ProjectTaskWorkflowActivationProvisioner>();
         services.AddScoped<IProjectActivationService, ProjectActivationService>();
-        services.AddScoped<IProjectService, ProjectService>();
+        services.AddScoped<ProjectService>();
+        services.AddScoped<IProjectService, CanonicalProjectService>();
         // Minimal hosts may register only IUnitOfWork after AddApplication. Reuse that
         // same scoped instance when it also supports the Task-specific save contract.
         // Full Infrastructure registration supplies a later explicit binding and wins.
