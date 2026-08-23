@@ -1,3 +1,4 @@
+using AipPortal.Application.Projects;
 using AipPortal.Application.Security.Redaction;
 using AipPortal.Web.Controllers;
 using Microsoft.AspNetCore.Mvc;
@@ -9,6 +10,9 @@ namespace AipPortal.Web.Security;
 /// ProjectsController has a large compatibility surface. Enforce the canonical
 /// response projection once at the MVC result boundary so individual actions
 /// cannot accidentally return a successful DTO without FieldAccessPolicy.
+/// Task File responses use the stricter FileMetadata profile because filename,
+/// uploader, target label, and classification are independently protected even
+/// after record-level Task authorization succeeds.
 /// </summary>
 public sealed class CanonicalProjectsResponseProjectionFilter : IAsyncResultFilter
 {
@@ -24,13 +28,19 @@ public sealed class CanonicalProjectsResponseProjectionFilter : IAsyncResultFilt
             objectResult.Value = CanonicalRedactionProjection.Apply(
                 context.HttpContext,
                 objectResult.Value,
-                RedactionProfile.UiDetail,
+                ProfileFor(objectResult.Value),
                 "ProjectsController",
                 RedactionAuthorizationState.Allowed);
         }
 
         await next();
     }
+
+    public static RedactionProfile ProfileFor(object value) => value switch
+    {
+        TaskFileAssociationResponse or TaskFileAssociationPage => RedactionProfile.FileMetadata,
+        _ => RedactionProfile.UiDetail
+    };
 
     private static bool IsSuccess(int? statusCode)
     {

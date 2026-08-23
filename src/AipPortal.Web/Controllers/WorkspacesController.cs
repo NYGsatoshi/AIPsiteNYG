@@ -1,5 +1,8 @@
+using AipPortal.Application.Common;
+using AipPortal.Application.Common.Interfaces;
 using AipPortal.Application.Security.Redaction;
 using AipPortal.Application.Workspaces;
+using AipPortal.Domain.Enums;
 using AipPortal.Web.Models;
 using AipPortal.Web.Security;
 using Microsoft.AspNetCore.Authorization;
@@ -9,7 +12,10 @@ namespace AipPortal.Web.Controllers;
 
 [ApiController]
 [Authorize]
-public sealed class WorkspacesController(IWorkspaceService workspaces) : ControllerBase
+public sealed class WorkspacesController(
+    IWorkspaceService workspaces,
+    ITenantRepository? tenants = null,
+    ICurrentTenant? currentTenant = null) : ControllerBase
 {
     [HttpGet("api/workspaces")]
     public async Task<IActionResult> List(CancellationToken cancellationToken)
@@ -59,7 +65,7 @@ public sealed class WorkspacesController(IWorkspaceService workspaces) : Control
     }
 
     private IActionResult ToWpcError(
-        AipPortal.Application.Common.ApplicationErrorDetail? detail,
+        ApplicationErrorDetail? detail,
         string? fallbackError,
         string fallbackMessage)
     {
@@ -146,6 +152,14 @@ public sealed class WorkspacesController(IWorkspaceService workspaces) : Control
     [HttpPost("api/workspaces/{workspaceId:guid}/members")]
     public async Task<IActionResult> AddMember(Guid workspaceId, AddWorkspaceMemberRequest request, CancellationToken cancellationToken)
     {
+        if (!await IsActiveCurrentTenantUserAsync(request.UserId, cancellationToken))
+        {
+            return ToWpcError(
+                new ApplicationErrorDetail("NotFound", "The requested resource was not found."),
+                null,
+                "Workspace member could not be added.");
+        }
+
         var result = await workspaces.AddMemberAsync(workspaceId, request, cancellationToken);
         return result.IsSuccess
             ? Ok(CanonicalRedactionProjection.Apply(HttpContext, result.Value!, RedactionProfile.UiDetail, "WorkspaceMemberUpdate", RedactionAuthorizationState.Allowed))
@@ -168,6 +182,34 @@ public sealed class WorkspacesController(IWorkspaceService workspaces) : Control
         return result.IsSuccess
             ? Ok(new { status = "OK" })
             : ToWpcError(result.ErrorDetail, result.Error, "Workspace member could not be removed.");
+    }
+
+    private async Task<bool> IsActiveCurrentTenantUserAsync(
+        Guid userId,
+        CancellationToken cancellationToken)
+    {
+        if (userId == Guid.Empty ||
+            tenants is null ||
+            currentTenant is not { IsAvailable: true, IsPlatformScope: false } ||
+            currentTenant.TenantId == Guid.Empty)
+        {
+            return false;
+        }
+
+        var membership = await tenants.GetTenantUserAsync(
+            currentTenant.TenantId,
+            userId,
+            cancellationToken);
+        return membership is
+               {
+                   Status: TenantUserStatus.Active,
+                   User: { Status: UserStatus.Active, DeletedAt: null },
+                   Tenant: { Status: TenantStatus.Active, DeletedAt: null }
+               } &&
+               membership.TenantId == currentTenant.TenantId &&
+               membership.UserId == userId &&
+               membership.Tenant.Id == currentTenant.TenantId &&
+               membership.User.Id == userId;
     }
 
     private async Task<IActionResult> ArchiveResult(Guid workspaceId, CancellationToken cancellationToken)
