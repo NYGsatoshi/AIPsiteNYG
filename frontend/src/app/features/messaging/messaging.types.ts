@@ -49,6 +49,12 @@ export interface MessagingConversationListItem {
   readonly safePreviewLabel: string;
   readonly viewerIsParticipant: boolean;
   readonly unreadCount?: number;
+  readonly hasMention?: boolean;
+}
+
+export interface MessagingMentionCandidate {
+  readonly userId: string;
+  readonly displayName: string;
 }
 
 export interface MessagingAttachmentPlaceholder {
@@ -77,6 +83,7 @@ export interface MessagingMessageViewModel {
   readonly safeFailureReason?: string;
   readonly retryAllowed: boolean;
   readonly readState?: MessagingMessageReadState;
+  readonly mentionedUserIds?: readonly string[];
 }
 
 export interface MessagingConversationViewModel {
@@ -90,6 +97,7 @@ export interface MessagingConversationViewModel {
   readonly viewerWasRemoved: boolean;
   readonly capabilities: readonly MessagingCapability[];
   readonly composerDisabledReason?: string;
+  readonly mentionCandidates?: readonly MessagingMentionCandidate[];
   readonly attachment: MessagingAttachmentPlaceholder;
 }
 

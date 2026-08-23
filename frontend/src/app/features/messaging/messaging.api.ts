@@ -29,6 +29,7 @@ export interface ConversationDto {
   readonly rootConversationId?: unknown;
   readonly lastMessage?: MessageDto | null;
   readonly unreadCount?: unknown;
+  readonly hasMention?: unknown;
   readonly isArchived?: unknown;
   readonly isLocked?: unknown;
   readonly updatedAt?: unknown;
@@ -118,10 +119,15 @@ export class MessagingApi {
     });
   }
 
-  sendMessage(conversationId: string, body: string, clientRequestId?: string): Observable<MessageDto> {
+  sendMessage(
+    conversationId: string,
+    body: string,
+    clientRequestId?: string,
+    mentionedUserIds: readonly string[] = []
+  ): Observable<MessageDto> {
     return this.http.post<MessageDto>(
       `/api/conversations/${conversationId}/messages`,
-      { body, clientRequestId },
+      { body, clientRequestId, mentionedUserIds },
       { withCredentials: true }
     );
   }

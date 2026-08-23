@@ -15,7 +15,10 @@
 
   <div class="messaging-page__layout">
     <aside class="messaging-page__rail">
-      <app-conversation-list [conversations]="vm.conversations" />
+      <app-conversation-list
+        [conversations]="vm.conversations"
+        [selectedConversationId]="vm.conversation.id"
+      />
     </aside>
 
     <main class="messaging-page__main" data-testid="conversation-surface">
@@ -44,8 +47,9 @@
           [sendState]="vm.sendState"
           [disabledReason]="composerDisabledReason()"
           [attachmentDisabledLabel]="vm.conversation.attachment.label"
+          [mentionCandidates]="vm.conversation.mentionCandidates ?? []"
           (draftChange)="facade.setDraft($event)"
-          (send)="facade.sendDraft()"
+          (send)="facade.sendDraft($event)"
         />
       }
     </main>

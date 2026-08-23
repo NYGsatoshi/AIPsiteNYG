@@ -10,7 +10,15 @@ import { MessagingConversationListItem } from '../messaging.types';
   template: `
     <nav class="conversation-list" aria-label="会話" data-testid="conversation-list">
       @for (conversation of conversations; track conversation.id) {
-        <a class="conversation-list__item" [routerLink]="conversation.route" data-testid="conversation-list-item">
+        <a
+          class="conversation-list__item"
+          [class.conversation-list__item--selected]="isSelected(conversation)"
+          [class.conversation-list__item--unread]="isUnread(conversation)"
+          [class.conversation-list__item--mention]="conversation.hasMention === true"
+          [attr.aria-current]="isSelected(conversation) ? 'page' : null"
+          [routerLink]="conversation.route"
+          data-testid="conversation-list-item"
+        >
           <span class="conversation-list__title">{{ conversation.title }}</span>
           <span class="conversation-list__meta">{{ conversation.lastActivityLabel }}</span>
           @if (conversation.kind === 'dm') {
@@ -18,8 +26,30 @@ import { MessagingConversationListItem } from '../messaging.types';
           } @else {
             <span class="conversation-list__preview" data-testid="channel-preview">{{ conversation.safePreviewLabel }}</span>
           }
-          @if (conversation.unreadCount) {
-            <span class="conversation-list__badge">{{ conversation.unreadCount }}</span>
+
+          @if (isSelected(conversation) || isUnread(conversation) || conversation.hasMention === true) {
+            <span class="conversation-list__states" data-testid="conversation-state-summary">
+              @if (isSelected(conversation)) {
+                <span class="conversation-list__state conversation-list__state--selected" data-testid="conversation-selected">
+                  選択中
+                </span>
+              }
+              @if (isUnread(conversation)) {
+                <span class="conversation-list__state conversation-list__state--unread" data-testid="conversation-unread">
+                  <span class="conversation-list__unread-dot" aria-hidden="true"></span>
+                  未読 {{ conversation.unreadCount }}件
+                </span>
+              }
+              @if (conversation.hasMention === true) {
+                <span
+                  class="conversation-list__state conversation-list__state--mention"
+                  data-testid="conversation-mention"
+                  aria-label="あなたへのメンションがあります"
+                >
+                  &#64;you
+                </span>
+              }
+            </span>
           }
         </a>
       }
@@ -29,4 +59,13 @@ import { MessagingConversationListItem } from '../messaging.types';
 })
 export class ConversationListComponent {
   @Input({ required: true }) conversations: readonly MessagingConversationListItem[] = [];
+  @Input() selectedConversationId: string | null = null;
+
+  isSelected(conversation: MessagingConversationListItem): boolean {
+    return this.selectedConversationId === conversation.id;
+  }
+
+  isUnread(conversation: MessagingConversationListItem): boolean {
+    return (conversation.unreadCount ?? 0) > 0;
+  }
 }
