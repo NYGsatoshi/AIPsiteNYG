@@ -3,6 +3,10 @@ import { AnnouncementsPageViewModel, AnnouncementViewModel } from './announcemen
 export const LONG_ANNOUNCEMENT_BODY =
   'これは長い本文の表示確認用です。架空の学習予定、持ち物、提出期限をまとめています。'.repeat(12);
 
+const WORKSPACE_ID = '11111111-1111-1111-1111-111111111111';
+const GROUP_ID = '22222222-2222-2222-2222-222222222222';
+const CHANNEL_ID = '33333333-3333-3333-3333-333333333333';
+
 export const DEFAULT_ANNOUNCEMENTS: readonly AnnouncementViewModel[] = [
   {
     id: 'mock-announcement-001',
@@ -10,7 +14,7 @@ export const DEFAULT_ANNOUNCEMENTS: readonly AnnouncementViewModel[] = [
     body: '来週は探究活動のまとめを行います。各自、配付済みの記録用紙を確認してください。',
     detailState: 'loaded',
     priority: 'important',
-    audienceScope: 'allWorkspaceMembers',
+    audienceScope: 'workspace',
     publishedAtLabel: '2026年7月1日 09:00',
     publicationState: 'published',
     readState: {
@@ -26,7 +30,7 @@ export const DEFAULT_ANNOUNCEMENTS: readonly AnnouncementViewModel[] = [
     body: '面談前に共有資料の内容を確認してください。個人情報は含まない架空のサンプル資料です。',
     detailState: 'loaded',
     priority: 'normal',
-    audienceScope: 'guardiansOnly',
+    audienceScope: 'group',
     publishedAtLabel: '2026年6月30日 16:30',
     publicationState: 'published',
     readState: {
@@ -47,7 +51,7 @@ export const DEFAULT_ANNOUNCEMENTS: readonly AnnouncementViewModel[] = [
     body: 'この下書きは編集状態の確認用です。公開前の安全な架空データのみを使用しています。',
     detailState: 'loaded',
     priority: 'critical',
-    audienceScope: 'teachersOnly',
+    audienceScope: 'channel',
     publishedAtLabel: '下書き',
     publicationState: 'draft',
     readState: {
@@ -72,12 +76,33 @@ export const DEFAULT_ANNOUNCEMENTS_PAGE: AnnouncementsPageViewModel = {
     title: '',
     body: '',
     priority: 'normal',
-    audienceScope: 'allWorkspaceMembers',
+    audienceKey: `workspace:${WORKSPACE_ID}`,
     availableAudiences: [
-      { scope: 'allWorkspaceMembers', displayName: '全生徒', recipientCount: 1248 },
-      { scope: 'guardiansOnly', displayName: '保護者', recipientCount: 1162 },
-      { scope: 'teachersOnly', displayName: '教職員', recipientCount: 86 },
-      { scope: 'adminOnly', displayName: '管理者', recipientCount: 12 }
+      { key: 'global', scope: 'global', displayName: 'テナント全体', recipientCount: 1310 },
+      {
+        key: `workspace:${WORKSPACE_ID}`,
+        scope: 'workspace',
+        displayName: '西大和学園',
+        recipientCount: 1248,
+        workspaceId: WORKSPACE_ID
+      },
+      {
+        key: `group:${GROUP_ID}`,
+        scope: 'group',
+        displayName: '西大和学園 / 教職員',
+        recipientCount: 86,
+        workspaceId: WORKSPACE_ID,
+        groupId: GROUP_ID
+      },
+      {
+        key: `channel:${CHANNEL_ID}`,
+        scope: 'channel',
+        displayName: '西大和学園 / AIP / #announcements',
+        recipientCount: 32,
+        workspaceId: WORKSPACE_ID,
+        groupId: GROUP_ID,
+        channelId: CHANNEL_ID
+      }
     ],
     requiresReadConfirmation: false
   }
