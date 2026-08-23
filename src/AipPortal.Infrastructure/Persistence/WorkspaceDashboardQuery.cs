@@ -84,6 +84,8 @@ public sealed class WorkspaceDashboardQuery(
                     grant.CapabilityKey == CapabilityKeys.ProjectCreate &&
                     ((grant.ScopeType == CapabilityScopeType.Workspace && grant.ScopeId == workspace.Id) ||
                      (grant.ScopeType == CapabilityScopeType.Tenant && grant.ScopeId == workspace.TenantId)) &&
+                    grant.VersionNo > 0 &&
+                    grant.GrantedAt <= now &&
                     grant.RevokedAt == null &&
                     (!grant.ExpiresAt.HasValue || grant.ExpiresAt > now))))
             .ToListAsync(cancellationToken);
