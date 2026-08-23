@@ -21,6 +21,7 @@ const conversations = Array.from({ length: 30 }, (_, index) => {
       version: 1
     },
     unreadCount: index % 3,
+    hasMention: index % 5 === 0,
     createdAt: '2026-08-22T00:00:00Z',
     updatedAt: `2026-08-23T00:${String(index).padStart(2, '0')}:00Z`
   };
@@ -40,12 +41,7 @@ test.describe('Issue #351 mobile Message hierarchy', () => {
     await expect(page.getByTestId('conversation-list-item')).toHaveCount(conversations.length);
     await expectNoHorizontalOverflow(page);
 
-    const scrollHost = page.locator('#app-shell-main-content');
-    const rememberedTop = await scrollHost.evaluate((element) => {
-      const host = element as HTMLElement;
-      host.scrollTop = Math.min(420, Math.max(1, host.scrollHeight - host.clientHeight));
-      return host.scrollTop;
-    });
+    const rememberedTop = await setEffectiveScrollTop(page, 420);
     expect(rememberedTop).toBeGreaterThan(0);
 
     await page.getByTestId('conversation-list-item').first().evaluate((element) => {
@@ -56,14 +52,14 @@ test.describe('Issue #351 mobile Message hierarchy', () => {
     await expect(page.getByTestId('channel-messaging-page')).toBeVisible();
     await expect(page.getByTestId('messages-back-link')).toBeVisible();
     await expect(page.locator('.messaging-page__rail')).toBeHidden();
-    await expect.poll(() => scrollHost.evaluate((element) => (element as HTMLElement).scrollTop)).toBe(0);
+    await expect.poll(() => effectiveScrollTop(page)).toBe(0);
     await expectNoHorizontalOverflow(page);
 
     await page.getByTestId('messages-back-link').click();
 
     await expect(page).toHaveURL(/\/app\/messages$/);
     await expect(page.getByTestId('messages-page')).toBeVisible();
-    await expect.poll(() => scrollHost.evaluate((element) => (element as HTMLElement).scrollTop)).toBe(rememberedTop);
+    await expect.poll(() => effectiveScrollTop(page)).toBe(rememberedTop);
   });
 
   test('keeps the composer input and Send reachable in a keyboard-sized viewport', async ({ page }) => {
@@ -76,10 +72,7 @@ test.describe('Issue #351 mobile Message hierarchy', () => {
     await textarea.focus();
 
     await page.setViewportSize({ width: 320, height: 420 });
-    await page.locator('#app-shell-main-content').evaluate((element) => {
-      const host = element as HTMLElement;
-      host.scrollTop = host.scrollHeight;
-    });
+    await scrollEffectiveRootToEnd(page);
 
     await expect(textarea).toBeVisible();
     await expect(send).toBeVisible();
@@ -90,14 +83,22 @@ test.describe('Issue #351 mobile Message hierarchy', () => {
     expect(viewportContent).toContain('viewport-fit=cover');
 
     const viewportHeight = await page.evaluate(() => window.innerHeight);
+    await expect.poll(async () => {
+      const box = await send.boundingBox();
+      return box ? box.y + box.height : Number.POSITIVE_INFINITY;
+    }).toBeLessThanOrEqual(viewportHeight + 1);
+
     const textareaBox = await textarea.boundingBox();
     const sendBox = await send.boundingBox();
     expect(textareaBox).not.toBeNull();
     expect(sendBox).not.toBeNull();
     expect(textareaBox!.x).toBeGreaterThanOrEqual(0);
     expect(textareaBox!.x + textareaBox!.width).toBeLessThanOrEqual(321);
+    expect(textareaBox!.y).toBeGreaterThanOrEqual(-1);
+    expect(textareaBox!.y + textareaBox!.height).toBeLessThanOrEqual(viewportHeight + 1);
     expect(sendBox!.x).toBeGreaterThanOrEqual(0);
     expect(sendBox!.x + sendBox!.width).toBeLessThanOrEqual(321);
+    expect(sendBox!.y).toBeGreaterThanOrEqual(-1);
     expect(sendBox!.y + sendBox!.height).toBeLessThanOrEqual(viewportHeight + 1);
     await expectNoHorizontalOverflow(page);
   });
@@ -107,6 +108,48 @@ function skipDesktop(testInfo: TestInfo): void {
   test.skip(
     testInfo.project.name !== 'chromium-mobile',
     'Issue #351 is a mobile hierarchy and software-keyboard acceptance flow.'
+  );
+}
+
+async function effectiveScrollTop(page: Page): Promise<number> {
+  return page.evaluate(() => {
+    const host = effectiveScrollRoot();
+    return host?.scrollTop ?? 0;
+  });
+}
+
+async function setEffectiveScrollTop(page: Page, requestedTop: number): Promise<number> {
+  return page.evaluate((top) => {
+    const host = effectiveScrollRoot();
+    if (!host) {
+      return 0;
+    }
+
+    const maxTop = Math.max(0, host.scrollHeight - host.clientHeight);
+    host.scrollTo({ top: Math.min(top, maxTop), left: 0, behavior: 'auto' });
+    return host.scrollTop;
+  }, requestedTop);
+}
+
+async function scrollEffectiveRootToEnd(page: Page): Promise<void> {
+  await page.evaluate(() => {
+    const host = effectiveScrollRoot();
+    host?.scrollTo({ top: host.scrollHeight, left: 0, behavior: 'auto' });
+  });
+}
+
+function effectiveScrollRoot(): HTMLElement | null {
+  const appHost = document.getElementById('app-shell-main-content');
+  const documentHost = document.scrollingElement;
+  const hosts = [appHost, documentHost].filter(
+    (host): host is HTMLElement => host instanceof HTMLElement
+  );
+
+  return (
+    hosts.find((host) => host.scrollTop > 0) ??
+    hosts.find((host) => host.scrollHeight > host.clientHeight + 1) ??
+    hosts[0] ??
+    null
   );
 }
 
@@ -188,6 +231,12 @@ async function installMessagingApi(page: Page): Promise<void> {
               canPost: true,
               leftAt: null,
               removedAt: null
+            }
+          ],
+          mentionCandidates: [
+            {
+              userId: 'mock-user-b',
+              displayName: 'Mock User B'
             }
           ]
         })
