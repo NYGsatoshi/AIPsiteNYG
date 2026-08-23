@@ -115,6 +115,33 @@ public sealed class ProjectAuthorizationService(
         };
     }
 
+    public async Task<bool> CanContributeProject(Guid userId, Guid projectId, CancellationToken cancellationToken = default)
+    {
+        var project = await projects.GetProjectAsync(projectId, cancellationToken);
+        if (project is null ||
+            project.DeletedAt.HasValue ||
+            project.ActivationState != ProjectActivationState.Activated ||
+            (project.Status != ProjectStatus.Active && project.Status != ProjectStatus.Review))
+        {
+            return false;
+        }
+
+        // Project visibility is a read/discovery input only. Content mutation
+        // also requires an active contributing Workspace membership and an
+        // explicit non-viewer Project membership.
+        if (!await workspaces.CanContributeWorkspace(userId, project.WorkspaceId, cancellationToken))
+        {
+            return false;
+        }
+
+        var member = await projects.GetMemberAsync(projectId, userId, cancellationToken);
+        return member?.Role is
+            ProjectRole.Owner or
+            ProjectRole.Manager or
+            ProjectRole.Contributor or
+            ProjectRole.Reviewer;
+    }
+
     public async Task<bool> CanCreateProject(Guid userId, Guid workspaceId, Guid groupId, CancellationToken cancellationToken = default)
     {
         if (groupId == Guid.Empty)
@@ -130,13 +157,18 @@ public sealed class ProjectAuthorizationService(
 
     public async Task<bool> CanCreateTask(Guid userId, Guid projectId, CancellationToken cancellationToken = default)
     {
-        if (!await CanUseProjectOperationally(userId, projectId, cancellationToken))
+        if (!await CanUseTaskMutationScopeAsync(userId, projectId, cancellationToken))
         {
             return false;
         }
 
         var member = await projects.GetMemberAsync(projectId, userId, cancellationToken);
-        return member is not null || await CanManageProject(userId, projectId, cancellationToken);
+        if (member is not null && member.Role != ProjectRole.Viewer)
+        {
+            return true;
+        }
+
+        return await CanManageProject(userId, projectId, cancellationToken);
     }
 
     public async Task<bool> CanUpdateTask(Guid userId, Guid taskItemId, CancellationToken cancellationToken = default)
@@ -144,38 +176,65 @@ public sealed class ProjectAuthorizationService(
         var task = await projects.GetTaskAsync(taskItemId, cancellationToken);
         if (task is null ||
             task.DeletedAt.HasValue ||
-            !await CanUseProjectOperationally(userId, task.ProjectId, cancellationToken))
+            !await CanUseTaskMutationScopeAsync(userId, task.ProjectId, cancellationToken))
         {
             return false;
         }
 
-        return await CanManageProject(userId, task.ProjectId, cancellationToken) ||
-               task.CreatedByUserId == userId ||
-               task.PrimaryAssigneeUserId == userId;
+        if (await CanManageProject(userId, task.ProjectId, cancellationToken))
+        {
+            return true;
+        }
+
+        var member = await projects.GetMemberAsync(task.ProjectId, userId, cancellationToken);
+        return member is not null &&
+               member.Role != ProjectRole.Viewer &&
+               (task.CreatedByUserId == userId || task.PrimaryAssigneeUserId == userId);
     }
 
     public async Task<bool> CanAssignTask(Guid userId, Guid taskItemId, CancellationToken cancellationToken = default)
     {
         var task = await projects.GetTaskAsync(taskItemId, cancellationToken);
-        return task is not null && await CanManageProject(userId, task.ProjectId, cancellationToken);
+        // Assignment/delete/override authorization is a live-row capability.
+        // Restore handles its soft-deleted exception explicitly at the command
+        // boundary instead of widening this reusable authorization primitive.
+        return task is not null &&
+               !task.DeletedAt.HasValue &&
+               await CanUseTaskMutationScopeAsync(userId, task.ProjectId, cancellationToken) &&
+               await CanManageProject(userId, task.ProjectId, cancellationToken);
     }
 
-    public Task<bool> CanDeleteTask(Guid userId, Guid taskItemId, CancellationToken cancellationToken = default) => CanAssignTask(userId, taskItemId, cancellationToken);
+    public Task<bool> CanDeleteTask(Guid userId, Guid taskItemId, CancellationToken cancellationToken = default) =>
+        CanAssignTask(userId, taskItemId, cancellationToken);
 
     public async Task<bool> CanReviewTask(Guid userId, Guid taskItemId, CancellationToken cancellationToken = default)
     {
         var task = await projects.GetTaskAsync(taskItemId, cancellationToken);
-        if (task is null || !await CanUseProjectOperationally(userId, task.ProjectId, cancellationToken))
+        if (task is null ||
+            task.DeletedAt.HasValue ||
+            !await CanUseTaskMutationScopeAsync(userId, task.ProjectId, cancellationToken))
         {
             return false;
         }
 
-        return task.ReviewerUserId == userId || await CanManageProject(userId, task.ProjectId, cancellationToken);
+        if (await CanManageProject(userId, task.ProjectId, cancellationToken))
+        {
+            return true;
+        }
+
+        // Reviewer is a narrow relationship authority. It permits review
+        // outcomes but does not imply unrestricted Task-body editing or allow a
+        // Project Viewer to cross the read-only boundary.
+        var member = await projects.GetMemberAsync(task.ProjectId, userId, cancellationToken);
+        return member is not null &&
+               member.Role != ProjectRole.Viewer &&
+               task.ReviewerUserId == userId;
     }
 
-    public Task<bool> CanOverrideTaskReview(Guid userId, Guid taskItemId, CancellationToken cancellationToken = default) => CanAssignTask(userId, taskItemId, cancellationToken);
+    public Task<bool> CanOverrideTaskReview(Guid userId, Guid taskItemId, CancellationToken cancellationToken = default) =>
+        CanAssignTask(userId, taskItemId, cancellationToken);
 
-    private async Task<bool> CanUseProjectOperationally(
+    private async Task<bool> CanUseTaskMutationScopeAsync(
         Guid userId,
         Guid projectId,
         CancellationToken cancellationToken)
@@ -183,8 +242,28 @@ public sealed class ProjectAuthorizationService(
         var project = await projects.GetProjectAsync(projectId, cancellationToken);
         return project is not null &&
                !project.DeletedAt.HasValue &&
+               project.ActivationState == ProjectActivationState.Activated &&
+               (project.Status == ProjectStatus.Active || project.Status == ProjectStatus.Review) &&
                await workspaces.CanContributeWorkspace(userId, project.WorkspaceId, cancellationToken) &&
                await CanViewProject(userId, projectId, cancellationToken);
+    }
+
+    private async Task<bool> CanMutateProjectContentAsync(
+        Guid userId,
+        Guid projectId,
+        CancellationToken cancellationToken)
+    {
+        if (await CanContributeProject(userId, projectId, cancellationToken))
+        {
+            return true;
+        }
+
+        var project = await projects.GetProjectAsync(projectId, cancellationToken);
+        return project is not null &&
+               !project.DeletedAt.HasValue &&
+               project.ActivationState == ProjectActivationState.Activated &&
+               (project.Status == ProjectStatus.Active || project.Status == ProjectStatus.Review) &&
+               await CanManageProject(userId, projectId, cancellationToken);
     }
 
     private async Task<bool> CanViewLegacyUnknownProjectAsync(
@@ -213,17 +292,20 @@ public sealed class ProjectAuthorizationService(
     {
         if (targetType == CommentTargetType.Project)
         {
-            return await CanUseProjectOperationally(userId, targetId, cancellationToken);
+            return await CanMutateProjectContentAsync(userId, targetId, cancellationToken);
         }
         if (targetType == CommentTargetType.TaskItem)
         {
             var task = await projects.GetTaskAsync(targetId, cancellationToken);
-            return task is not null && await CanUseProjectOperationally(userId, task.ProjectId, cancellationToken);
+            return task is not null &&
+                   !task.DeletedAt.HasValue &&
+                   await CanMutateProjectContentAsync(userId, task.ProjectId, cancellationToken);
         }
         if (targetType == CommentTargetType.Milestone)
         {
             var milestone = await projects.GetMilestoneAsync(targetId, cancellationToken);
-            return milestone is not null && await CanUseProjectOperationally(userId, milestone.ProjectId, cancellationToken);
+            return milestone is not null &&
+                   await CanMutateProjectContentAsync(userId, milestone.ProjectId, cancellationToken);
         }
         return false;
     }

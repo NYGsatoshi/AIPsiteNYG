@@ -573,7 +573,8 @@ public sealed class WorkspaceService(
         CancellationToken cancellationToken)
     {
         return generalMemberships?.StageAsync(member, actorUserId, cancellationToken)
-               ?? Task.FromResult(Result.Success());
+               ?? Task.FromResult(Result.Failure(
+                   "Canonical Workspace general membership synchronization is unavailable."));
     }
 
     private bool TryCurrentUser(out Guid userId)

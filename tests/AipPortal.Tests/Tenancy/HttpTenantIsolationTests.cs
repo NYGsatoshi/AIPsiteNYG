@@ -615,7 +615,14 @@ public sealed class HttpTenantIsolationTests
         await AssertOkContainsOnlyAsync(app, data.CrossTenantUser, data.TenantA.Slug, $"/api/conversations/{data.ConversationA.Id}", "ConversationA", "ConversationB");
         await AssertBadRequestAsync(app, data.CrossTenantUser, data.TenantA.Slug, $"/api/conversations/{data.ConversationB.Id}");
 
-        await AssertOkContainsOnlyAsync(app, data.CrossTenantUser, data.TenantA.Slug, $"/api/files/{data.FileA.Id}", data.FileA.OriginalFileName, data.FileB.OriginalFileName);
+        using (var fileMetadata = await app.SendAsync(data.CrossTenantUser, data.TenantA.Slug, $"/api/files/{data.FileA.Id}"))
+        {
+            var fileBody = await fileMetadata.Content.ReadAsStringAsync();
+            Assert.Equal(HttpStatusCode.OK, fileMetadata.StatusCode);
+            Assert.Contains("[redacted:file]", fileBody, StringComparison.Ordinal);
+            Assert.DoesNotContain(data.FileA.OriginalFileName, fileBody, StringComparison.Ordinal);
+            Assert.DoesNotContain(data.FileB.OriginalFileName, fileBody, StringComparison.Ordinal);
+        }
         await AssertStatusAsync(app, data.CrossTenantUser, data.TenantA.Slug, $"/api/files/{data.FileA.Id}/download", HttpStatusCode.OK);
         await AssertBadRequestAsync(app, data.CrossTenantUser, data.TenantA.Slug, $"/api/files/{data.FileB.Id}");
         await AssertBadRequestAsync(app, data.CrossTenantUser, data.TenantA.Slug, $"/api/files/{data.FileB.Id}/download");
@@ -631,7 +638,8 @@ public sealed class HttpTenantIsolationTests
         var allowedBody = await allowedMetadata.Content.ReadAsStringAsync();
 
         Assert.Equal(HttpStatusCode.OK, allowedMetadata.StatusCode);
-        Assert.Contains(data.FileA.OriginalFileName, allowedBody, StringComparison.Ordinal);
+        Assert.Contains("[redacted:file]", allowedBody, StringComparison.Ordinal);
+        Assert.DoesNotContain(data.FileA.OriginalFileName, allowedBody, StringComparison.Ordinal);
         Assert.DoesNotContain("storageKey", allowedBody, StringComparison.OrdinalIgnoreCase);
         Assert.DoesNotContain("storedFileName", allowedBody, StringComparison.OrdinalIgnoreCase);
         Assert.DoesNotContain(data.FileA.StorageKey, allowedBody, StringComparison.Ordinal);
@@ -683,7 +691,8 @@ public sealed class HttpTenantIsolationTests
         var body = await response.Content.ReadAsStringAsync();
 
         Assert.Equal(HttpStatusCode.OK, response.StatusCode);
-        Assert.Contains("secret.txt", body, StringComparison.Ordinal);
+        Assert.Contains("[redacted:file]", body, StringComparison.Ordinal);
+        Assert.DoesNotContain("secret.txt", body, StringComparison.Ordinal);
         Assert.DoesNotContain("..", body, StringComparison.Ordinal);
         Assert.DoesNotContain("storageKey", body, StringComparison.OrdinalIgnoreCase);
         Assert.DoesNotContain("storedFileName", body, StringComparison.OrdinalIgnoreCase);
