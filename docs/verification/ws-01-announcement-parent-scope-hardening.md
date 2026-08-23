@@ -1,70 +1,77 @@
 # WS-01 Announcement parent-scope hardening
 
-Status: implemented on PR #403; final GitHub Actions / PostgreSQL 18 merge evidence remains pending.
+Status: implemented and verified on PostgreSQL 18.6 in draft PR #403.
 
-## Reason for correction
+## Authorization boundary
 
-The first WS-01 candidate made Announcement audience branches mutually exclusive, but Group- and Channel-scoped reads still accepted a retained `GroupMember` or `ChannelMember` row without re-checking current access to the parent Workspace. That could allow stale child membership to survive a suspended Workspace membership.
+The canonical shared `VisibleAnnouncementsFor` relation requires non-SystemAdmin
+actors to retain active current-Tenant membership and valid parent scope:
 
-The canonical Workspace contract requires membership revocation to invalidate active HTTP authorization, search visibility, cached protected state, and future notification routing. The dashboard count must not introduce or preserve a weaker count-only path.
+- persisted Announcement Workspace/Group/Channel IDs must agree with the
+  resolved parent entities;
+- Group and Channel parents must be active and non-deleted;
+- live Group/Channel access requires current active parent Workspace membership;
+- Group announcements and Public/Announcement channels require Group membership;
+- Private/Confidential channels require explicit Channel membership.
 
-## Implementation
+The existing Tenant-filtered SystemAdmin read exception is preserved. Historical
+archived-Workspace reads remain governed by their canonical read relation. Live
+target resolution intentionally requires active parents and cannot use an
+archived Workspace or stale child row as present delivery authority.
 
-`AnnouncementReadScope.VisibleAnnouncementsFor` now requires, for non-SystemAdmin access:
+`AnnouncementRepository.ListTargetUsersAsync` applies the same live parent
+consistency and lifecycle checks. Target IDs are intersected with active
+TenantUser and active Workspace membership before deduplication. A retained
+`GroupMember` or `ChannelMember` therefore cannot remain a read-status, resend,
+notification, or invalidation target after Workspace revocation.
 
-- a non-deleted parent Workspace in `Active` or authorized historical `Archived` state;
-- an active current `WorkspaceMember` for the actor;
-- persisted `Announcement.WorkspaceId`, `GroupId`, and `ChannelId` relationships to agree with the resolved parent objects;
-- an active, non-deleted Group for Group/Channel-scoped announcements;
-- an active, non-deleted Channel for Channel-scoped announcements;
-- the existing audience membership rule after the parent boundary succeeds:
-  - Group membership for Group announcements;
-  - Group membership for Public/Announcement channels;
-  - explicit Channel membership for Private/Confidential channels.
+## PostgreSQL translation repair
 
-The existing SystemAdmin Announcement-read exception is preserved and remains Tenant-filtered by `AppDbContext`.
+At historical PR head `abe99cd20ba6e9f1d086f9d4a4d686d2a2a7274d`,
+EF Core 10/Npgsql failed before SQL execution on the target query shaped as:
 
-`AnnouncementRepository.ListTargetUsersAsync` now applies the same parent-scope consistency and lifecycle rules before resolving targets. Group/Channel audiences are intersected with current active Workspace membership. A stale child membership therefore cannot remain a read-status, resend, notification, or invalidation target after Workspace revocation.
+1. membership relation;
+2. User projection to `AnnouncementTargetUser` with correlated
+   `AnnouncementReads.Any`;
+3. DTO-level `Distinct`;
+4. ordering over the constructed DTO.
 
-## PostgreSQL regression
+Moving `Distinct` to scalar authorized User IDs was necessary. PostgreSQL
+translation additionally required ordering active Users by `DisplayName` and
+`Id` before constructing the DTO. The correlated authorized read-state check
+remains server-side. There is no client-side authorization/filtering boundary.
 
-Added:
+Historical PostgreSQL 18.6 reproduction: 0 passed, 1 failed, 0 skipped.
+Post-repair result: 1 passed, 0 failed, 0 skipped.
 
-`tests/AipPortal.Tests/PostgreSql/Ws01AnnouncementParentScopePostgreSqlTests.cs`
+## Revocation regression
 
-The regression graph deliberately retains both `GroupMember` and `ChannelMember` after changing the actor's `WorkspaceMember.Status` to `Suspended`.
+`Ws01AnnouncementParentScopePostgreSqlTests` deliberately retains the actor's
+physical GroupMember and ChannelMember rows after suspending the parent
+WorkspaceMember. It proves:
 
-The test requires all of the following after revocation:
-
-- Announcement list excludes both Group and Private-Channel announcements;
-- detail visibility predicate returns false;
+- list excludes the Group and Private-Channel announcements;
+- detail visibility returns false;
 - Search returns neither announcement;
-- Workspace dashboard returns no card for the revoked ordinary user;
-- Group target audience excludes the revoked actor;
-- Channel target audience excludes the revoked actor;
-- another current authorized Workspace member remains a valid audience target;
-- the stale child membership rows still exist, proving parent revocation is the denying boundary.
+- dashboard reachability is removed;
+- target resolution excludes the revoked actor;
+- another currently authorized member remains a valid target;
+- the stale child rows remain stored, proving parent revocation is the denying
+  boundary.
 
-## Current evidence
+The combined WS-01 PostgreSQL 18.6 selection passes 3/3, including both
+Workspace dashboard methods and this parent-scope regression. The complete
+backend suite passes 1097/1097 with zero skips, and EF reports no model drift.
 
-Correction commits on `workspace/v1-dashboard-projection`:
+## Identity and merge state
 
-- `ea9fb1cc444842ec172b0e6475325ff87389230b` — harden canonical Announcement read scope;
-- `c6beee497543f8d07fe810cd011dff3b65484d25` — constrain target audiences to current Workspace access;
-- `351bdc806b8c9f27376d860a4c47fde01b748c6d` — add PostgreSQL stale-membership regression.
+- Starting repair head: `abe99cd20ba6e9f1d086f9d4a4d686d2a2a7274d`.
+- Tested implementation correction:
+  `b68773a710cf2b4e0614a4eb193396ebfe9059bd`.
+- Latest `main` integrated while preparing this note:
+  `42dcc9f12fa4b2f7f1dee8eaa7f962690ccc5efa`.
+- PR #324 is merged; PR #403 now targets `main` and remains Draft.
 
-At head `351bdc806b8c9f27376d860a4c47fde01b748c6d`:
-
-- external `buildkite/aipsitenyg` status: success;
-- GitHub Actions checks were queued at the time this evidence note was written;
-- the new PostgreSQL regression has not been claimed as passed until an environment with `POSTGRES_TEST_CONNECTION_STRING` actually executes it.
-
-## Remaining merge gate
-
-PR #403 remains stacked on PR #324. Before merge:
-
-1. PR #324 must satisfy its own merge gate and merge first;
-2. PR #403 must be retargeted/rebased onto current `main`;
-3. final-head standard CI must pass;
-4. the WS-01 PostgreSQL suite, including `Ws01AnnouncementParentScopePostgreSqlTests`, must pass against PostgreSQL 18;
-5. no migration/model-snapshot change may appear after rebase.
+This backend regression is closed. The PR-level merge gate remains open only
+for the exact-head repository frontend/acceptance blockers documented in
+`ws-01-workspace-dashboard-backend-projection.md` and in the live PR body.

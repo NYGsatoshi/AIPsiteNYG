@@ -1,26 +1,37 @@
-# WS-01 Workspace dashboard backend projection
+# WS-01 Workspace dashboard projection verification
+
+Status: the scoped WS-01 implementation is complete on draft PR #403. The
+repository merge gate remains NO-GO until the exact PR head has a green CI
+frontend job. The known blockers are recorded under **Remaining merge gates**.
 
 ## Change identity
 
-- Implementation repository `origin/main` at preflight:
-  `74cca8756bac69061c676d924fcb74a6edf3123b`.
-- Specification repository `origin/main` at preflight:
+- Resolved implementation `origin/main` at the start of this repair:
+  `eb42c46f2994eea9f5f1de06dd0a408763991f6b`.
+- Starting branch/PR head:
+  `abe99cd20ba6e9f1d086f9d4a4d686d2a2a7274d`.
+- Specification repository `main` verified during preflight:
   `38339ba2964587f225c4c4151f643abb5523e862`.
-- PR #324 (`wpc-final03-security-no-go`) was open at preflight at
-  `807dc832e081d96c390a4623d602e848e3de81ec`. Before push its head advanced
-  only by a fixture-repair CI workflow commit; this branch was rebased onto the
-  refreshed exact head, `bae823e8be2bb200d58c02d593ce88d579af85e7`, and the
-  draft PR targets that branch while #324 remains open.
-- Implementation branch: `workspace/v1-dashboard-projection`.
-- No decision conflict was found between the current specifications and the
-  two approved WS-01 product decisions.
+- PR #324 was already merged as
+  `79197305feb9889f7d442797ec3562e6bb5a077a`.
+- The branch was merged normally with the successive live `main` tips. The
+  latest integrated base while this evidence was prepared was
+  `42dcc9f12fa4b2f7f1dee8eaa7f962690ccc5efa`.
+- The complete runtime/test correction was tested at
+  `b68773a710cf2b4e0614a4eb193396ebfe9059bd`. The following integration merge,
+  `07b3d4367101f1fc461cd6ffe6c5cc1b54959b71`, has the same source/test tree and
+  adds the latest `main` ancestry.
+- PR #403 targets `main` and remains Draft. It must not be merged while any
+  required check is red.
 
-## API contract
+The exact live PR head and final GitHub check results are maintained in the PR
+body because an evidence file cannot contain the SHA of the commit that first
+introduces that same file content.
+
+## Canonical API and product decisions
 
 `GET /api/workspaces` remains the raw array of active Workspaces visible to the
-current user in the resolved Tenant. The change is additive; no dashboard route,
-envelope, or paging contract was introduced. Each item is now a
-`WorkspaceDashboardListItemResponse` with these JSON fields:
+current user in the resolved Tenant. The additive item fields are:
 
 - `id`, `name`, `description`, `icon`, `status`, `createdAt`, `updatedAt`;
 - `currentUserRole`, `accessSource`;
@@ -28,217 +39,227 @@ envelope, or paging contract was introduced. Each item is now a
 - `unreadAnnouncementCount`, `unreadConversationCount`,
   `inProgressProjectCount`.
 
-`updatedAt` uses `Workspace.UpdatedAt ?? Workspace.CreatedAt`. It does not claim
-to be cross-resource activity. Existing basic list consumers can ignore the new
-fields and continue deserializing the original fields. The separate
-`GET /api/workspaces/capabilities` endpoint remains the backend authority for
-page-level `canCreate`; Workspace creation was not redesigned.
+The canonical membership roles are `Owner`, `Admin`, `Adviser`, `Member`, and
+`ReadOnly`. `Manager` and `Guest` are not accepted or produced. A SystemAdmin
+without active Workspace membership receives `currentUserRole = null` and
+`accessSource = SystemAdmin`; a real membership wins when both access paths
+exist.
 
-All three numeric metrics are guaranteed by the PostgreSQL projection. A
-provider that cannot compose the canonical authorization relations makes the
-whole list fail with typed `DependencyUnavailable`; it never returns null or
-fabricated zero counts. A successfully evaluated empty aggregate is numeric
-zero.
+Archived Workspaces remain separate from the normal active list.
+`GET /api/workspaces/capabilities` remains the backend authority for page-level
+`canCreate`. WS-01 does not infer create authority from a role label.
 
-## Authorization semantics
+`updatedAt` is `Workspace.UpdatedAt ?? Workspace.CreatedAt`; it does not claim
+cross-resource activity semantics. A successfully evaluated empty aggregate is
+numeric zero. A failed projection fails the list closed rather than fabricating
+zero or a partial card.
 
-### Workspace role and access source
+## Backend authorization and query architecture
 
-- An active `WorkspaceMember` row returns its exact canonical role: `Owner`,
-  `Admin`, `Adviser`, `Member`, or `ReadOnly`.
-- Membership-backed access returns `accessSource = WorkspaceMembership`.
-- An active SystemAdmin who can view an active Workspace through the existing
-  platform exception, but has no active Workspace membership, receives
-  `currentUserRole = null` and `accessSource = SystemAdmin`.
-- If a SystemAdmin also has an active membership, the real membership role wins.
-- Suspended membership is not projected as a current role. An ordinary user
-  loses the card; a SystemAdmin may retain the card only through the existing
-  SystemAdmin read exception.
-- Archived and soft-deleted Workspaces remain outside this endpoint.
+The implementation preserves the existing authorization relations:
 
-### Card navigation capabilities
+- current-Tenant query filters and active Workspace authorization;
+- the distinct SystemAdmin access source;
+- shared SQL-translatable `VisibleAnnouncementsFor` for list, detail, Search,
+  dashboard, and target-resolution parity;
+- canonical `QueryReadableConversationIds` for Conversation visibility;
+- canonical `VisibleProjectsFor` followed by `Active + Review` status filtering;
+- provider capability checks that fail closed outside PostgreSQL;
+- aggregate-only queries that do not select Announcement or Conversation title,
+  body, participant, or author data.
 
-The card relation is produced only after the canonical active-Workspace read
-boundary succeeds. `canOpenWorkspace` and `canOpenMembers` therefore reflect the
-same current read relation used by Workspace detail and member-list endpoints.
-The Project surface is valid for the same authorized active Workspace, while
-each returned Project remains independently filtered through
-`VisibleProjectsFor`. These booleans grant no mutation or child-resource read
-authority. In particular, a `ReadOnly` membership can open the members surface
-while `CanManageWorkspace` still denies member mutation.
+For a non-empty list, `WorkspaceDashboardQuery` executes four sequential EF
+queries on the scoped `AppDbContext`:
 
-### Announcement count
+1. active authorized Workspace cards and exact role/access source;
+2. grouped authorized unread Announcement counts;
+3. grouped authorized unread Conversation counts;
+4. grouped authorized visible Active/Review Project counts.
 
-`unreadAnnouncementCount` is the number of currently published, unexpired,
-non-deleted Announcements in the Workspace that are visible to the actor and do
-not have that actor's `AnnouncementRead` row. List, detail/read-state gating,
-Search, and the dashboard compose the same SQL-translatable
-`VisibleAnnouncementsFor` relation. Its branches are mutually exclusive:
+The command-interceptor regression observes four reader commands for both five
+cards and one card. No parallel EF operation or per-card query is introduced.
 
-- Tenant-global announcements require all three scope IDs to be absent;
-- Workspace-only announcements require active Workspace membership;
-- Group announcements require Group membership;
-- public/announcement Channel announcements require Group membership;
-- private/confidential Channel announcements require explicit Channel
-  membership;
-- the existing SystemAdmin Announcement-list exception is preserved.
+The PostgreSQL graph proves Tenant isolation, all five roles, SystemAdmin with
+and without membership, revoked membership, Announcement read/audience scope,
+Conversation authorization/read state, Project visibility/status, bounded query
+count, and no restricted title/body selection.
 
-The dashboard query selects only grouped IDs and counts. It does not select
-Announcement title, body, author, or email.
+## PostgreSQL regression A: already-read Conversation
 
-### Conversation count
+### Root cause
 
-`unreadConversationCount` counts authorized Conversations with at least one
-non-deleted Message from another user after the current user's canonical
-`ReadState.LastReadAt` (or any such Message when no read state exists). Multiple
-unread Messages in one Conversation still contribute one. The query composes
-`IMessagingRepository.QueryReadableConversationIds`, the same PostgreSQL
-recursive participant/read scope used by the canonical Conversation list and
-Message Search. Removed/left/non-readable participants, unauthorized Project
-Conversations, non-participant DMs, and inconsistent Thread ancestry cannot
-contribute. No Conversation title, participant list, or Message body is selected.
+The original fixture used a fixed `Now` of `2026-08-22T03:00:00Z` and fabricated
+`LastReadAt`/`LastReadSequence` as `Now + 1 day`. `AppDbContext` unconditionally
+stamps the `CreatedAt` of an added Message with the real UTC wall clock during
+`SaveChanges`. Once wall time passed `2026-08-23T03:00:00Z`, the persisted
+"Read Workspace Conversation" Message was later than the fabricated cursor.
+Both the test predicate and the production dashboard therefore correctly
+classified the Message as unread. The integration with `main`, Tenant filters,
+and the production unread predicate were not causal.
 
-### In-progress Project count
+The fixture also omitted the canonical cursor Message IDs and the matching
+`ConversationMember` cursor written by Messaging's `MarkReadAsync`.
 
-`inProgressProjectCount` is exactly `ProjectStatus.Active +
-ProjectStatus.Review`, after composing the existing SQL-translatable
-`VisibleProjectsFor(userId)` relation. Planning, Completed, Suspended, Archived,
-Deleted, soft-deleted, and unauthorized Projects do not contribute.
-MembersOnly and Restricted behavior therefore follows the current Project
-membership/visibility boundary; the dashboard introduces no Workspace-level
-shortcut and no Restricted-Project existence side channel.
+### Correction
 
-## Query architecture and bounded-count evidence
+The fixture now:
 
-`WorkspaceDashboardQuery` executes sequentially on the scoped `AppDbContext`:
+- persists and reloads the read Message before deriving its cursor;
+- stores canonical Conversation scope and both `LastReadItemId` and
+  `LastReadMessageId`;
+- derives `LastReadSequence` from the persisted Message `CreatedAt.UtcTicks`;
+- sets a read time after the persisted Message;
+- updates and asserts the matching `ConversationMember` cursor;
+- proves an authorized own-message-only Conversation remains excluded.
 
-1. one active Workspace plus exact active membership-role/SystemAdmin-source
-   projection;
-2. one grouped authorized unread Announcement count;
-3. one grouped authorized unread Conversation count;
-4. one grouped authorized visible Active/Review Project count.
+The expected unread titles remain exactly "Private visible title" and "Unread
+Workspace Conversation"; the expected card count remains `2`.
 
-An empty Workspace relation stops after query 1. For a non-empty result, an EF
-command interceptor observed exactly four reader commands for five Workspace
-cards and exactly four for one Workspace card. Therefore command count is
-bounded independently of card count. SQL inspection in the same test confirmed
-that none of the four commands selected a `Body` or `Title` column.
+Historical reproduction at exact old head `abe99cd...` on PostgreSQL 18.6:
+1 failed, 0 passed, 0 skipped. The repaired exact test passes 1/1.
 
-All reads are `AsNoTracking` where applicable, aggregates execute in
-PostgreSQL, and no parallel operation is issued against the scoped context.
+## PostgreSQL regression B: Announcement target translation
 
-## PostgreSQL security evidence
+The old query projected `AnnouncementTargetUser`, including the correlated
+`AnnouncementReads.Any`, then applied DTO-level `Distinct` and ordering. EF Core
+10/Npgsql could not translate that shape. One intermediate merge also attempted
+`ThenBy(user => user.Id)` after projection, which was a compile error because the
+DTO exposes `UserId`.
 
-The WS-01 PostgreSQL graph uses only synthetic `example.test` identities and
-contains two Tenants, five canonical Workspace roles, a SystemAdmin with and
-without Workspace membership, revoked memberships, all relevant Project
-lifecycles/visibilities, Announcement audiences/read state, and
-Workspace/Project/DM Conversation combinations.
+The final server-side shape:
 
-The assertions prove:
+1. derives authorized target `UserId` values under active Tenant and parent
+   Workspace/Group/Channel checks;
+2. intersects them with active Tenant users;
+3. applies `Distinct` to scalar IDs;
+4. queries active, non-deleted Users;
+5. orders Users by `DisplayName`, then `Id`;
+6. projects the target DTO and authorized `AnnouncementReads.Any` state.
 
-- Tenant B Workspace rows never appear in the Tenant A response;
-- Tenant B Announcement, Conversation, and Project rows carrying a stale
-  Tenant A Workspace ID do not change Tenant A counts;
-- the SystemAdmin exception remains Tenant-filtered;
-- a hidden Group/private-Channel Announcement does not affect list, detail,
-  Search, or dashboard count;
-- a non-participant DM, removed participant, and Restricted-Project
-  Conversation do not affect the Conversation count;
-- an unread Conversation with two unread Messages counts once;
-- Restricted Project non-membership does not affect the Project count;
-- MembersOnly Project membership adds the count and removal immediately removes
-  it;
-- Workspace membership suspension removes the ordinary user's card;
-- a SystemAdmin-only card has an explicit null role rather than fabricated
-  `Admin`.
+No `AsEnumerable`, unbounded client filtering, stale child-membership authority,
+or authorization bypass is used. Retained Group/Channel membership cannot
+survive parent Workspace revocation. List, detail, Search, dashboard, and target
+resolution remain aligned through the shared visibility relation.
 
-## Verification
+Historical reproduction at exact old head `abe99cd...` on PostgreSQL 18.6:
+1 failed, 0 passed, 0 skipped with the translation exception. The repaired
+parent-scope test passes 1/1.
 
-Local PostgreSQL evidence used a disposable `postgres:16-alpine` container and
-temporary per-test databases. The shared test database was migrated only to run
-one existing search-isolation test that expects a pre-migrated database.
+## Angular Workspace wiring
 
-Commands and results confirmed after rebasing onto the refreshed PR #324 head:
+The active Angular feature now has an AIPsite-owned DTO/mapper boundary. It does
+not bind presentation components directly to backend DTOs.
 
-```powershell
-dotnet restore AipPortal.slnx --configfile .git/ws01-nuget.config /p:RestoreFallbackFolders=
-```
+- Owner/Admin -> `管理者`;
+- Adviser -> `先生`;
+- Member -> `メンバー`;
+- ReadOnly -> `閲覧のみ`;
+- SystemAdmin with no membership -> `システム管理者アクセス`;
+- missing/unknown role data -> explicit unavailable presentation, never Member.
 
-Passed for all five projects. The temporary config only clears a missing local
-Syncfusion NuGet fallback-folder entry and uses nuget.org; it is under `.git`
-and is not part of the change.
+Authoritative zero/non-zero Announcement, Conversation, and Active/Review
+Project counts map to the existing card values. Unavailable remains visually and
+textually distinct from zero. Card actions are derived only from the three
+backend booleans. Page create visibility is derived only from the enveloped
+capability endpoint and fails closed if that request fails. The obsolete
+"API未実装" partial-summary banner is removed from a successful complete
+projection.
+
+The existing first-card active Workspace selection is intentionally unchanged;
+it remains a WS-02 gap.
+
+## Verification on the integrated source tree
+
+PostgreSQL server: PostgreSQL 18.6 (Debian 18.6-1.pgdg13+2).
 
 ```powershell
-dotnet build AipPortal.slnx -c Release --no-restore --nologo
+dotnet restore AipPortal.slnx
 ```
 
-Passed with 0 errors and 6 pre-existing warnings in unrelated WPC test files
-(one `CS8602` and five `xUnit2031`).
+Passed; all five projects were restored/up to date.
 
 ```powershell
-dotnet test tests/AipPortal.Tests/AipPortal.Tests.csproj -c Release --no-build --filter "Category!=PostgreSQLIntegration"
+dotnet build AipPortal.slnx --configuration Release --no-restore --disable-build-servers -m:1
 ```
 
-Passed: 855; failed: 0; skipped: 0. Two initial failures identified the EF
-InMemory HTTP harness's obsolete expectation that `/api/workspaces` could
-produce the canonical PostgreSQL projection. The harness now asserts the typed
-503 fail-closed response and absence of Workspace names. The real PostgreSQL
-tests below remain the projection and Tenant-isolation authority.
+Passed: 0 errors, 6 known warnings in unrelated WPC tests.
 
 ```powershell
-dotnet test AipPortal.slnx -c Release --no-build --logger "console;verbosity=quiet"
+$env:POSTGRES_TEST_CONNECTION_STRING = "<PostgreSQL 18.6 test connection>"
+dotnet test tests/AipPortal.Tests/AipPortal.Tests.csproj `
+  --configuration Release `
+  --no-build `
+  --filter "FullyQualifiedName~Ws01WorkspaceDashboardProjectionPostgreSqlTests|FullyQualifiedName~Ws01AnnouncementParentScopePostgreSqlTests"
 ```
 
-Passed: 855; failed: 0; skipped: 233; total: 1088. The 233 skips are the
-repository's conditional PostgreSQL tests when the connection-string variable
-is absent; they are not treated as PostgreSQL evidence. The security-relevant
-PostgreSQL selection was run separately with a real database as recorded below.
+Passed: 3; failed: 0; skipped: 0.
 
 ```powershell
-$env:POSTGRES_TEST_CONNECTION_STRING = "<disposable local PostgreSQL>"
-dotnet test tests/AipPortal.Tests/AipPortal.Tests.csproj -c Release --no-build --filter "FullyQualifiedName~WorkspaceDashboardProjection|FullyQualifiedName~WorkspacesControllerTests"
+$env:POSTGRES_TEST_CONNECTION_STRING = "<PostgreSQL 18.6 test connection>"
+dotnet test AipPortal.slnx `
+  --configuration Release `
+  --no-build `
+  --disable-build-servers `
+  -m:1 `
+  --verbosity normal
 ```
 
-Passed: 15; failed: 0; skipped: 0. This selection is rerun after every final
-source/test correction.
+Passed: 1097; failed: 0; skipped: 0.
 
 ```powershell
-$env:POSTGRES_TEST_CONNECTION_STRING = "<disposable local PostgreSQL>"
-$filter = "FullyQualifiedName~Ws01WorkspaceDashboardProjectionPostgreSqlTests|FullyQualifiedName~WpcFinal03SecurityPostgreSqlTests|FullyQualifiedName~ActiveGroupedProjectReadBoundaryIsEquivalentAcrossDetailListSearchMessagingAndMyTasks|FullyQualifiedName~RecursiveConversationReadScopeRejectsCyclesAndInconsistentProjectScope|FullyQualifiedName~MessageSearchAuthorizesAllMatchingConversationsBeforeDeterministicLimit|FullyQualifiedName~PlanningProjectDiscoveryRequiresExplicitProjectMembership|FullyQualifiedName~MembersOnlyProjectMemberRemovalRevokesConversationAndTaskNotificationAccess|FullyQualifiedName~RestrictedProjectBlocksTaskNotificationAndRealtimeForWorkspaceOnlyMember|FullyQualifiedName~ArchivedWorkspaceReadScopeRequiresCurrentMembershipEvenForSystemAdmin|FullyQualifiedName~TenantScopedSearchIsolationWorksAgainstPostgreSql"
-dotnet test tests/AipPortal.Tests/AipPortal.Tests.csproj -c Release --no-build --filter $filter --logger "console;verbosity=normal"
+dotnet ef migrations has-pending-model-changes `
+  --project src/AipPortal.Infrastructure `
+  --startup-project src/AipPortal.Web `
+  --configuration Release `
+  --no-build
 ```
 
-Passed: 12; failed: 0; skipped: 0. It includes both WS-01 PostgreSQL tests, both
-PR #324 security tests, active grouped Project read-boundary parity, recursive
-Conversation scope, Message Search authorization-before-limit, Planning
-discovery, MembersOnly revocation, Restricted Project notification/realtime,
-archived Workspace SystemAdmin scope, and existing Tenant-scoped Search.
+Passed: no pending model changes.
 
-The existing Tenant-scoped Search test separately passed 1/1 after the
-disposable shared test database was migrated. This resolved its environment
-precondition; it required no source change.
+Scoped `dotnet format ... whitespace --verify-no-changes` and
+`dotnet format ... analyzers --verify-no-changes` both exited 0 for all changed
+C# files. `git diff --check` also passes.
 
-Scoped `dotnet format` whitespace and analyzer verification covered every
-changed C# file and both commands exited 0. The repository-wide whitespace
-verifier also reports unrelated pre-existing format drift; no unrelated
-formatting was applied.
+Frontend results at the tested implementation commit:
+
+- `npm ci`: passed; `frontend/package-lock.json` remained byte-identical.
+- focused Workspace unit tests: 42 passed, 0 failed, 0 skipped (4 files).
+- production Angular build: passed with existing bundle/style budget warnings.
+- architecture check: passed; architecture node tests 4/4; license tests 4/4.
+- Storybook with `NODE_OPTIONS=--max-old-space-size=4096`: passed.
+- real-backend runner helper tests: 6/6.
+- full Angular unit suite: 438 passed, 2 failed, 0 skipped. One Files timeout
+  passed 6/6 when rerun alone. The deterministic Announcement failure also
+  reproduces on clean current `main` (412 passed, 1 failed), so it is not caused
+  by WS-01.
+- host Playwright: 61 passed, 2 stale snapshot failures, 3 intentionally skipped.
+- pinned Linux diagnostic: 62 passed, 1 stale desktop snapshot failure,
+  3 intentionally skipped.
 
 ## Scope confirmation
 
-- No migration, model snapshot, Domain entity, or schema change.
-- No frontend production, AppShell, route, hosted `wwwroot`, package, lockfile,
-  or CI workflow change.
-- No Workspace creation, Project creation/activation, Messaging write,
-  realtime, file, Task, Kanban, or Gantt behavior change.
-- PR #324's exact-Tenant membership admission and fail-closed Workspace-general
-  synchronization are neither duplicated nor changed.
+- No migration, entity/schema, configuration, or model-snapshot change.
+- No package, dependency, lockfile, hosted `wwwroot`, AppShell, or global
+  navigation change.
+- No Task, Kanban, Gantt, Project creation/activation, Messaging production,
+  realtime, file, WS-02, WS-03, WS-04, or WS-05 implementation.
+- Pre-existing local changes to root package files and `frontend/angular.json`
+  were not staged.
 
-## Remaining work
+## Remaining merge gates
 
-- Frontend WS-01 wiring must consume the additive fields and remove its role,
-  count, and card-capability placeholders.
-- WS-02 active Workspace selection and route preference remain separate.
-- WS-03 member paging/filtering/management UI remains separate.
-- WS-04 Workspace settings remain separate.
-- WS-05 Channel governance remains separate.
+1. The repository-wide Angular suite has a deterministic stale Announcement
+   assertion already present on exact current `main`; it is outside the allowed
+   Workspace feature path.
+2. `tests/ui/serve-static.mjs` still returns the old six-field Workspace fixture
+   and no capabilities response. Its Linux desktop baseline expects the removed
+   fabricated Member role, partial-summary banner, and hard-coded actions.
+   Updating that fixture/baseline is outside the authorized change paths.
+3. The exact final PR head must complete CI, PostgreSQL 18 acceptance, security,
+   frontend, Storybook/Playwright, and Buildkite checks with no unresolved review
+   thread.
+4. WS-02 still owns route/last-used active Workspace selection; `cards[0]`
+   remains intentionally unchanged.
+
+Until the out-of-scope acceptance artifacts are authorized and reconciled, PR
+#403 remains Draft and is not merge-ready.
