@@ -8,6 +8,12 @@ public static class CapabilityKeys
     public const string WorkspaceCreate = "workspace.create";
     public const string ProjectCreate = "project.create";
     public const string ProjectVisibilityManage = "project.visibility.manage";
+
+    public const string AuditView = "audit.view";
+    public const string AuditReview = "audit.review";
+    public const string AuditApprove = "audit.approve";
+    public const string AuditExport = "audit.export";
+    public const string AuditSensitiveMetadataView = "audit.sensitive_metadata.view";
 }
 
 public interface ICapabilityGrantEvaluator
