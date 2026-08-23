@@ -313,7 +313,6 @@ export class AnnouncementsFacade {
         audienceKey: submission.audience.key,
         availableAudiences: this.audienceOptions,
         requiresReadConfirmation: submission.requiresReadConfirmation,
-        publicationState: 'draft',
       },
       message,
     }));
