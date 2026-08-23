@@ -9,6 +9,7 @@ import { AnnouncementsFacade } from '../announcements.facade';
 import {
   ANNOUNCEMENT_PUBLICATION_STATE_LABELS,
   AnnouncementEditorDraft,
+  AnnouncementEditorSubmission,
   AnnouncementViewModel
 } from '../announcements.types';
 
@@ -56,12 +57,17 @@ export class AnnouncementsPageComponent implements OnDestroy {
       return null;
     }
 
+    const availableAudiences = this.page().editorDraft?.availableAudiences ?? [];
+    const matchingAudiences = availableAudiences.filter((audience) => audience.scope === announcement.audienceScope);
+    const audienceKey = matchingAudiences.length === 1 ? matchingAudiences[0].key : '';
+
     return {
       id: announcement.id,
       title: announcement.title,
       body: announcement.body,
       priority: announcement.priority,
-      audienceScope: announcement.audienceScope,
+      audienceKey,
+      availableAudiences,
       requiresReadConfirmation: announcement.readState.requiresReadConfirmation,
       publicationState: announcement.publicationState,
       scheduledAtLabel: announcement.scheduledAtLabel,
@@ -92,10 +98,9 @@ export class AnnouncementsPageComponent implements OnDestroy {
   }
 
   showCreateEditor(): void {
-    if (this.canCreate()) {
+    if (this.canCreate() && this.facade.beginCreate()) {
       this.editingAnnouncementId.set(null);
       this.editorVisible.set(true);
-      this.facade.setEditorActive(true);
     }
   }
 
@@ -106,6 +111,15 @@ export class AnnouncementsPageComponent implements OnDestroy {
       this.editorVisible.set(true);
       this.facade.setEditorActive(true);
     }
+  }
+
+  publishAnnouncement(submission: AnnouncementEditorSubmission): void {
+    // #377 wires the create/publish path. Existing-announcement mutation remains
+    // a separate contract, so never reinterpret an edit action as a new create.
+    if (this.editingAnnouncementId() !== null) {
+      return;
+    }
+    this.facade.createAnnouncement(submission);
   }
 
   ngOnDestroy(): void {

@@ -85,6 +85,7 @@ public static class DependencyInjection
         services.AddSingleton(new CommunicationSafetyOptions());
         services.AddSingleton<ICommunicationSafetyGuard, InMemoryCommunicationSafetyGuard>();
         services.AddScoped<IAnnouncementService, AnnouncementService>();
+        services.AddScoped<IAnnouncementAudienceService, AnnouncementAudienceService>();
         services.AddScoped<WorkspaceGeneralRequiredInitialization>();
         services.AddScoped<IWorkspaceRequiredInitialization>(provider =>
             provider.GetRequiredService<IDefaultConversationStore>() is UnavailableDefaultConversationStore
