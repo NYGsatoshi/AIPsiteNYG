@@ -126,6 +126,7 @@ public sealed class AnnouncementAudienceService(
     {
         var prototype = new Announcement
         {
+            TenantId = currentTenant.TenantId,
             WorkspaceId = workspaceId,
             GroupId = groupId,
             ChannelId = channelId
