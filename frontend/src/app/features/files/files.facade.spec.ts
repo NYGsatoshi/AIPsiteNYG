@@ -8,7 +8,7 @@ import { RealtimeFacade } from '../../core/realtime/realtime.facade';
 import { ActiveWorkspaceFacade } from '../../core/workspace/active-workspace.facade';
 import { FilesFacade } from './files.facade';
 
-describe('FilesFacade task picker query state', () => {
+describe('FilesFacade paging query state', () => {
   let facade: FilesFacade;
   let http: HttpTestingController;
 
@@ -24,7 +24,7 @@ describe('FilesFacade task picker query state', () => {
 
   afterEach(() => { http.verify(); TestBed.resetTestingModule(); });
 
-  it('keeps existing candidates and retries the failed second page', () => {
+  it('keeps existing picker candidates and retries the failed second page', () => {
     facade.loadPickerFilesForWorkspace('workspace-a');
     http.expectOne(request => request.url === '/api/files' && request.params.get('page') === '1').flush({ items: [file('file-1')], page: 1, pageSize: 20, totalCount: 2, hasMore: true });
     facade.loadMorePickerFiles();
@@ -42,5 +42,50 @@ describe('FilesFacade task picker query state', () => {
     expect(facade.pickerStateForTask()).toMatchObject({ status: 'permissionDenied', workspaceId: 'workspace-a', requestId: 'picker-403' });
   });
 
-  function file(id: string) { return { id, originalFileName: `${id}.txt`, contentType: 'text/plain', sizeBytes: 1, scanStatus: 'Allowed', uploadedByDisplay: 'Tester', createdAt: '2026-07-24T00:00:00Z' }; }
+  it('reaches the final server page when the workspace contains more than 1,000 files', () => {
+    facade.loadPageFilesForWorkspace('workspace-a');
+    const first = http.expectOne(request =>
+      request.url === '/api/files' &&
+      request.params.get('workspaceId') === 'workspace-a' &&
+      request.params.get('page') === '1' &&
+      request.params.get('pageSize') === '50'
+    );
+    first.flush({
+      items: Array.from({ length: 50 }, (_, index) => file(`file-${index + 1}`)),
+      page: 1,
+      pageSize: 50,
+      totalCount: 1_001,
+      hasMore: true,
+    });
+
+    expect(facade.page()).toMatchObject({ page: 1, pageSize: 50, totalCount: 1_001, hasMore: true });
+    expect(facade.page().recentFiles).toHaveLength(50);
+
+    facade.goToPage(21);
+    const last = http.expectOne(request =>
+      request.url === '/api/files' &&
+      request.params.get('workspaceId') === 'workspace-a' &&
+      request.params.get('page') === '21' &&
+      request.params.get('pageSize') === '50'
+    );
+    last.flush({ items: [file('file-1001')], page: 21, pageSize: 50, totalCount: 1_001, hasMore: false });
+
+    expect(facade.page()).toMatchObject({ page: 21, pageSize: 50, totalCount: 1_001, hasMore: false });
+    expect(facade.page().recentFiles.map(item => item.id)).toEqual(['file-1001']);
+  });
+
+  function file(id: string) {
+    return {
+      id,
+      fileObjectId: `object-${id}`,
+      originalFileName: `${id}.txt`,
+      contentType: 'text/plain',
+      sizeBytes: 1,
+      status: 'Active',
+      scanStatus: 'Allowed',
+      uploadedByDisplayName: 'Tester',
+      createdAt: '2026-07-24T00:00:00Z',
+      updatedAt: '2026-07-25T00:00:00Z',
+    };
+  }
 });

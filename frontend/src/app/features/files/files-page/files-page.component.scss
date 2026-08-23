@@ -83,6 +83,101 @@
   overflow-wrap: anywhere;
 }
 
+.files-page__list-controls,
+.files-page__density {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.files-page__density button,
+.files-page__columns summary,
+.files-page__pagination button {
+  border: 1px solid var(--aip-color-border-default);
+  border-radius: 7px;
+  padding: 7px 10px;
+  background: var(--aip-color-bg-surface-subtle);
+  color: var(--aip-color-text-primary);
+  font: inherit;
+  font-size: 0.8rem;
+  font-weight: 800;
+  cursor: pointer;
+}
+
+.files-page__density button[aria-pressed='true'] {
+  outline: 2px solid currentColor;
+  outline-offset: 1px;
+}
+
+.files-page__pagination button:disabled {
+  cursor: not-allowed;
+  opacity: 0.55;
+}
+
+.files-page__columns {
+  position: relative;
+}
+
+.files-page__columns summary {
+  list-style: none;
+}
+
+.files-page__columns summary::-webkit-details-marker {
+  display: none;
+}
+
+.files-page__columns-menu {
+  position: absolute;
+  z-index: 4;
+  top: calc(100% + 6px);
+  right: 0;
+  display: grid;
+  gap: 8px;
+  min-width: 180px;
+  border: 1px solid var(--aip-color-border-default);
+  border-radius: 8px;
+  padding: 10px;
+  background: var(--aip-color-bg-surface);
+  box-shadow: 0 8px 24px rgb(0 0 0 / 12%);
+}
+
+.files-page__columns-menu label {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 0.84rem;
+  font-weight: 700;
+}
+
+.files-page__selection-status {
+  margin: 0;
+  color: var(--aip-color-text-secondary);
+  font-size: 0.78rem;
+}
+
+.files-page__pagination {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 10px;
+  min-width: 0;
+  color: var(--aip-color-text-secondary);
+  font-size: 0.82rem;
+  font-weight: 800;
+}
+
+.files-page__pagination span {
+  overflow-wrap: anywhere;
+}
+
+.files-page__desktop-grid {
+  --ag-row-height: 48px;
+}
+
+.files-page__desktop-grid--compact {
+  --ag-row-height: 36px;
+}
+
 .files-page__policy {
   display: grid;
   gap: 6px;
@@ -117,6 +212,13 @@
   .files-page__panel-header {
     display: grid;
     align-items: start;
+  }
+  .files-page__list-controls,
+  .files-page__pagination {
+    flex-wrap: wrap;
+  }
+  .files-page__pagination {
+    justify-content: flex-start;
   }
   .files-page__desktop-grid{display:none}
   .files-page__mobile-list{display:block}
