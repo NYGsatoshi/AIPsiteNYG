@@ -141,6 +141,7 @@ describe('Message settings scope separation', () => {
     const checkbox = root.querySelector<HTMLInputElement>('[data-testid="global-message-notifications"]');
     checkbox!.checked = false;
     checkbox!.dispatchEvent(new Event('change'));
+    fixture.detectChanges();
     root.querySelector<HTMLButtonElement>('[data-testid="save-global-message-settings"]')?.click();
     fixture.detectChanges();
 
