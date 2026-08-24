@@ -7,7 +7,7 @@
   @else if (!vm.task || !vm.editorTask) { <app-empty-state title="Task not found" message="No authorized task detail was returned by the backend." /> }
   @else {
     <nav class="task-detail-page__hierarchy" aria-label="Project and task hierarchy" data-testid="project-task-hierarchy">
-      <a routerLink="/projects">Projects</a><span aria-hidden="true">/</span><a [routerLink]="['/projects', vm.task.projectId]" data-testid="parent-project-link">{{ vm.project?.name ?? vm.task.project }}</a><span aria-hidden="true">/</span><span aria-current="page">{{ vm.task.title }}</span>
+      <a routerLink="/projects">Projects</a><span aria-hidden="true">/</span><a class="task-detail-page__hierarchy-project" [routerLink]="['/projects', vm.task.projectId]" [attr.title]="vm.project?.name ?? vm.task.project" data-testid="parent-project-link">{{ vm.project?.name ?? vm.task.project }}</a><span aria-hidden="true">/</span><span class="task-detail-page__hierarchy-task" aria-current="page" [attr.title]="vm.task.title">{{ vm.task.title }}</span>
     </nav>
     <header class="task-detail-page__header"><div><p class="task-detail-page__scope-label">Task context</p><h1>{{ vm.task.title }}</h1><p>Task-specific settings and execution state</p></div><app-task-status-badge [status]="vm.task.status" [label]="vm.task.statusLabel" /></header>
     <section class="task-detail-page__context-grid" aria-label="Project and task context boundaries">

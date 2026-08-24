@@ -1,7 +1,7 @@
 import { HttpClient, HttpErrorResponse } from '@angular/common/http';
 import { effect, inject, Injectable, InjectionToken, signal } from '@angular/core';
 import { Router } from '@angular/router';
-import { forkJoin, Observable, of, Subscription } from 'rxjs';
+import { forkJoin, Observable, of, Subscription, throwError } from 'rxjs';
 import { catchError, finalize, map, switchMap } from 'rxjs/operators';
 
 import { normalizeApiError } from '../../core/api/api-error.adapter';
@@ -49,6 +49,14 @@ export const AIP_PROJECTS_MOCK = new InjectionToken<ProjectsScenario>('AIP_PROJE
 interface ProjectsLoadResult {
   readonly projects: readonly ProjectMockRecord[];
   readonly tasks: readonly TaskMockRecord[];
+}
+
+interface TaskDetailLoadResult {
+  readonly task: TaskMockRecord;
+  readonly detail: CanonicalTaskDetailDto;
+  readonly parentProject?: ProjectMockRecord;
+  readonly scopeMismatch?: boolean;
+  readonly workspacePending?: boolean;
 }
 
 interface ErrorBody {
@@ -121,8 +129,8 @@ export class ProjectsFacade {
         // no surviving request and must rehydrate the mounted Project route.
         if (previousWorkspaceId !== null || !this.projectsRequest) {
           if (this.activeTaskId && this.activeProjectId) {
-            this.reauthorizeActiveState();
-          } else {
+            this.reauthorizeActiveTaskDetail();
+          } else if (!this.router?.url.includes('/tasks/')) {
             this.loadProjects();
           }
         }
@@ -625,11 +633,20 @@ export class ProjectsFacade {
     const generation = this.detailGeneration;
     if (scope.kind === 'initialLoad') this.setSectionState('detail', { status: 'loading' });
     if (scope.kind === 'sectionRecovery') this.setSectionState(scope.section, { status: 'loading', retryKind: 'aggregate' });
-    this.detailRequest = this.fetchTask(taskId).pipe(finalize(() => {
+    this.detailRequest = this.fetchTaskWithParentProject(taskId, this.activeProjectId).pipe(finalize(() => {
       if (this.isActive(taskId, generation)) this.detailRequest = null;
     })).subscribe({
       next: (response) => {
         if (!this.isAuthorizationCurrent(authorizationGeneration) || !this.isActive(taskId, generation)) return;
+        if (response.scopeMismatch) {
+          this.denyTaskDetail();
+          return;
+        }
+        // A cold direct route can resolve its Task before shell Workspace
+        // hydration. Keep the aggregate undisclosed until the Workspace effect
+        // reauthorizes this exact route against the selected Workspace.
+        if (response.workspacePending) return;
+        if (response.parentProject) this.replaceProject(response.parentProject);
         this.applyAggregate(taskId, response.detail, scope);
         this.replaceTask(response.task);
         if (scope.kind === 'taskBodyReload') {
@@ -667,6 +684,45 @@ export class ProjectsFacade {
         if (scope.kind === 'sectionRecovery' && scope.section !== 'detail') this.setSectionState(scope.section, failure);
       }
     });
+  }
+
+  private fetchTaskWithParentProject(taskId: string, expectedProjectId: string | null): Observable<TaskDetailLoadResult> {
+    return this.fetchTask(taskId).pipe(
+      switchMap((response) => {
+        const projectId = response.task.projectId;
+        if (!expectedProjectId || projectId !== expectedProjectId) {
+          return of({ ...response, scopeMismatch: true });
+        }
+        const activeWorkspaceId = this.activeWorkspace.activeWorkspace()?.id;
+        if (!activeWorkspaceId) return of({ ...response, workspacePending: true });
+        const taskWorkspaceId = (response.detail.task ?? (response.detail as TaskDto)).workspaceId;
+        if (typeof taskWorkspaceId !== 'string' || taskWorkspaceId !== activeWorkspaceId) {
+          return of({ ...response, scopeMismatch: true });
+        }
+        // The broad inventory can contain Projects from multiple Workspaces,
+        // so this shortcut is safe only after the canonical Task has matched
+        // the active Workspace above.
+        if (this.authorizedProjects().some((project) => project.id === projectId)) return of(response);
+
+        return this.http
+          .get<ProjectDto>(`/api/projects/${projectId}`, { withCredentials: true })
+          .pipe(
+            map((project) => {
+              if (project.id !== projectId || typeof project.title !== 'string' || project.title.trim().length === 0) {
+                throw new Error('The parent Project response is invalid.');
+              }
+
+              return { ...response, parentProject: mapProjectDtoToRecord(project) };
+            }),
+            catchError((error: unknown) => {
+              const status = normalizeApiError(error).httpStatus;
+              return status === 401 || status === 403 || status === 404
+                ? of({ ...response, scopeMismatch: true })
+                : throwError(() => error);
+            })
+          );
+      })
+    );
   }
 
   /** Any section draft protects that section's data from an automatic aggregate overwrite. */
@@ -1138,6 +1194,28 @@ export class ProjectsFacade {
         ...projectTasks
       ]
     }));
+  }
+
+  private reauthorizeActiveTaskDetail(): void {
+    const activeTaskId = this.activeTaskId;
+    const activeProjectId = this.activeProjectId;
+    this.authorizationGeneration++;
+    this.clearProtectedTaskState();
+    this.liveState.set(this.emptyScenario('loading'));
+    if (!activeTaskId || !activeProjectId || this.activeTaskId !== activeTaskId || this.activeProjectId !== activeProjectId) return;
+    this.loadTaskDetail(activeTaskId);
+  }
+
+  private replaceProject(project: ProjectMockRecord): void {
+    this.liveState.update((state) => {
+      const exists = state.projects.some((candidate) => candidate.id === project.id);
+      return {
+        ...state,
+        projects: exists
+          ? state.projects.map((candidate) => (candidate.id === project.id ? project : candidate))
+          : [...state.projects, project]
+      };
+    });
   }
 
   private replaceTask(task: TaskMockRecord): void {

@@ -541,6 +541,52 @@ test.describe('MVP-A P0 Angular frontend smoke', () => {
     await expectHealthyAngularPage(page);
   });
 
+  test('keeps long Project and Task context perceivable on a direct route at 320px', async ({ page }) => {
+    const projectId = 'static-project-context';
+    const taskId = 'static-task-context';
+    const projectTitle = 'A very long parent Project title that must remain identifiable on the narrow Task detail hierarchy';
+    const taskTitle = 'A very long current Task title that must remain identifiable on the narrow Task detail hierarchy';
+    const api = await installDirectTaskContextApi(page, { projectId, projectTitle, taskId, taskTitle });
+    await page.setViewportSize({ width: 320, height: 900 });
+
+    await page.goto(`/app/projects/${projectId}/tasks/${taskId}`);
+
+    const hierarchy = page.getByRole('navigation', { name: 'Project and task hierarchy' });
+    const parentProject = page.getByTestId('parent-project-link');
+    const currentTask = hierarchy.locator('[aria-current="page"]');
+    await expect(hierarchy).toBeVisible();
+    await expect(parentProject).toHaveText(projectTitle);
+    await expect(parentProject).toHaveAttribute('title', projectTitle);
+    await expect(parentProject).toHaveAttribute('href', `/app/projects/${projectId}`);
+    await expect(currentTask).toHaveText(taskTitle);
+    await expect(currentTask).toHaveAttribute('title', taskTitle);
+    await expect(page.getByRole('heading', { level: 1, name: taskTitle })).toBeVisible();
+    await expect(page.getByTestId('project-context').getByRole('heading', { name: projectTitle })).toBeVisible();
+
+    const [hierarchyBox, projectBox, taskBox] = await Promise.all([
+      hierarchy.boundingBox(),
+      parentProject.boundingBox(),
+      currentTask.boundingBox()
+    ]);
+    expect(hierarchyBox).not.toBeNull();
+    expect(projectBox).not.toBeNull();
+    expect(taskBox).not.toBeNull();
+    for (const contextBox of [projectBox!, taskBox!]) {
+      expect(contextBox.width).toBeGreaterThan(24);
+      expect(contextBox.x).toBeGreaterThanOrEqual(hierarchyBox!.x - 1);
+      expect(contextBox.x + contextBox.width).toBeLessThanOrEqual(hierarchyBox!.x + hierarchyBox!.width + 1);
+    }
+    expect(taskBox!.y).toBeGreaterThan(projectBox!.y);
+
+    expect(api.projectListRequests()).toBe(0);
+    expect(api.parentProjectRequests()).toBe(1);
+    expect(api.parentProjectAttempts()).toBeGreaterThanOrEqual(1);
+    expect(api.parentProjectAttempts()).toBeLessThanOrEqual(2);
+    await expectNoDocumentHorizontalOverflow(page);
+    await expectNoAccessibilityViolations(page);
+    await expectHealthyAngularPage(page);
+  });
+
   test('uses the canonical Project Kanban for pointer, keyboard, conflict, rollback, and narrow flows', async ({ page }, testInfo) => {
     const api = await installProjectKanbanApi(page);
     if (testInfo.project.name === 'chromium-mobile') {
@@ -1348,6 +1394,120 @@ function ganttCommandDto(item: MockGanttItem) {
     progressPercent: item.progressPercent,
     version: item.version,
     warnings: item.warnings
+  };
+}
+
+async function installDirectTaskContextApi(
+  page: Page,
+  context: { projectId: string; projectTitle: string; taskId: string; taskTitle: string }
+) {
+  let projectListRequests = 0;
+  let parentProjectRequests = 0;
+  let parentProjectAttempts = 0;
+  page.on('requestfinished', (request) => {
+    if (request.method() === 'GET' && new URL(request.url()).pathname === `/api/projects/${context.projectId}`) {
+      parentProjectRequests += 1;
+    }
+  });
+  await page.route('**/api/**', async (route) => {
+    const request = route.request();
+    const path = new URL(request.url()).pathname;
+    if (request.method() !== 'GET') {
+      await route.fallback();
+      return;
+    }
+
+    if (path === `/api/tasks/${context.taskId}`) {
+      await route.fulfill({
+        status: 200,
+        contentType: 'application/json',
+        body: JSON.stringify({
+          task: {
+            id: context.taskId,
+            tenantId: 'mock-tenant',
+            workspaceId: 'static-workspace-1',
+            projectId: context.projectId,
+            kind: 0,
+            parentTaskId: null,
+            milestoneId: null,
+            title: context.taskTitle,
+            description: 'Task-specific direct-route context.',
+            workflowStageId: 'stage-in-progress',
+            workflowStageName: 'In progress',
+            status: 1,
+            stageCategory: 1,
+            isBlocked: false,
+            priority: 'High',
+            plannedStartDate: '2026-08-20',
+            plannedEndDate: '2026-08-27',
+            progressPercent: 40,
+            progressIsDerived: false,
+            primaryAssignee: { userId: 'mock-user-a', displayName: 'Mock User A' },
+            reviewStatus: 0,
+            version: 1,
+            uiPermissions: { canEdit: false, canAssign: false, canChangeStatus: false, canDelete: false, allowedTransitions: [] }
+          },
+          relationships: { primaryAssignee: { userId: 'mock-user-a', displayName: 'Mock User A' }, collaborators: [], reviewer: null, version: 1 },
+          permissions: {
+            canCreateSubtask: false,
+            canCreateChecklistItem: false,
+            canUpdateChecklistItems: false,
+            canDeleteChecklistItems: false,
+            canReorderChecklist: false,
+            canCreateComment: false,
+            canMarkCommentImportant: false,
+            canApplyLabels: false,
+            canManageLabelDefinitions: false,
+            canAssociateFiles: false,
+            canRemoveFiles: false,
+            canChangeWatch: false
+          },
+          checklist: [],
+          labels: [],
+          watchState: { isWatching: false, isExplicitOptOut: false, automaticSources: [], version: 1 },
+          subtasks: { items: [], page: 1, pageSize: 50, totalCount: 0, hasMore: false },
+          comments: { items: [], page: 1, pageSize: 20, totalCount: 0, hasMore: false },
+          files: { items: [], page: 1, pageSize: 20, totalCount: 0, hasMore: false }
+        })
+      });
+      return;
+    }
+
+    if (path === `/api/projects/${context.projectId}`) {
+      parentProjectAttempts += 1;
+      await route.fulfill({
+        status: 200,
+        contentType: 'application/json',
+        body: JSON.stringify({
+          id: context.projectId,
+          title: context.projectTitle,
+          status: 1,
+          startDate: '2026-08-01',
+          endDate: '2026-08-31',
+          updatedAt: '2026-08-24T00:00:00Z',
+          uiPermissions: { canCreateTask: false }
+        })
+      });
+      return;
+    }
+
+    if (path === '/api/projects') {
+      projectListRequests += 1;
+      await route.fulfill({
+        status: 200,
+        contentType: 'application/json',
+        body: JSON.stringify({ items: [], page: 1, pageSize: 50, totalCount: 0, hasMore: false })
+      });
+      return;
+    }
+
+    await route.fallback();
+  });
+
+  return {
+    projectListRequests: () => projectListRequests,
+    parentProjectRequests: () => parentProjectRequests,
+    parentProjectAttempts: () => parentProjectAttempts
   };
 }
 

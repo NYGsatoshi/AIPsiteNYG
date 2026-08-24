@@ -5,6 +5,7 @@
 .task-detail-page__header, .task-detail-page__section-heading, .task-detail-page__comment-meta, .task-detail-page__actions, .task-detail-page__context-heading { display: flex; flex-wrap: wrap; align-items: center; gap: var(--aip-space-2); }
 .task-detail-page__header { align-items: flex-start; justify-content: space-between; }
 .task-detail-page__header h1, .task-detail-page__header p, .task-detail-page__section h2, .task-detail-page__section p, .task-detail-page__context-card h2, .task-detail-page__context-card p { margin: 0; }
+.task-detail-page__header h1, .task-detail-page__context-card h2, .task-detail-page__context-card > strong { overflow-wrap: anywhere; }
 .task-detail-page__header p, .task-detail-page__summary span, .task-detail-page__hint, .task-detail-page__context-card p { color: var(--aip-color-text-secondary); }
 .task-detail-page__scope-label { color: var(--aip-color-text-secondary); font-size: .78rem; font-weight: 800; letter-spacing: .06em; text-transform: uppercase; }
 .task-detail-page__context-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: var(--aip-component-gap); }
@@ -41,9 +42,9 @@
 @media (max-width: 720px) {
   .task-detail-page { padding: var(--aip-space-3); gap: var(--aip-space-4); }
   .task-detail-page__header, .task-detail-page__summary, .task-detail-page__context-grid { display: grid; grid-template-columns: 1fr; }
-  .task-detail-page__hierarchy { flex-wrap: nowrap; overflow: hidden; }
-  .task-detail-page__hierarchy a, .task-detail-page__hierarchy span { flex: 0 0 auto; }
-  .task-detail-page__hierarchy [aria-current='page'] { flex: 1 1 auto; }
+  .task-detail-page__hierarchy { display: grid; grid-template-columns: minmax(0, 1fr); align-items: start; overflow: visible; }
+  .task-detail-page__hierarchy > [aria-hidden='true'] { display: none; }
+  .task-detail-page__hierarchy a, .task-detail-page__hierarchy [aria-current='page'] { display: block; min-width: 0; max-width: 100%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
   .task-detail-page__context-card { padding: var(--aip-space-3); }
   .task-detail-page__section { padding: var(--aip-space-3); }
   .task-detail-page__actions { width: 100%; }
