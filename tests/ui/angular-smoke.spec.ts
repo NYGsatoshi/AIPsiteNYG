@@ -253,6 +253,156 @@ test.describe('MVP-A P0 Angular frontend smoke', () => {
     expect(createRequests[0]?.csrfToken).toBe('csrf-workspace-create');
   });
 
+  test('creates a canonical Draft Project once and activates it only through the explicit command', async ({ page }, testInfo) => {
+    const mobile = testInfo.project.name === 'chromium-mobile';
+    await page.setViewportSize(mobile
+      ? { width: 320, height: 900 }
+      : { width: 1280, height: 900 });
+
+    const workspace: WorkspaceContextFixture = {
+      id: '40900000-0000-4000-8000-000000000001',
+      name: 'U-22 Project Workspace',
+      currentUserRole: 'Owner',
+      canOpenProjectCreate: true,
+      canCreateProject: false,
+      runningProjectCount: 0,
+      needsReviewProjectCount: 0
+    };
+    const projectId = '40900000-0000-4000-8000-000000000002';
+    const groupId = '40900000-0000-4000-8000-000000000003';
+    await installWorkspaceContextApi(page, [workspace], workspace);
+    const api = await installCanonicalProjectCreateActivationApi(page, {
+      workspaceId: workspace.id,
+      projectId,
+      groupId
+    });
+
+    await page.goto(`/app/workspaces/${workspace.id}/projects?create=1`);
+    const dialog = page.getByRole('dialog', { name: 'Create Project' });
+    await expect(dialog).toBeVisible();
+    await expect(page).toHaveURL(`/app/workspaces/${workspace.id}/projects`);
+    await expect(page.getByTestId('project-create-title')).toBeFocused();
+    await expect(page.getByTestId('project-create-group')).toContainText('Evidence Review Group');
+    await expect(dialog).not.toContainText(groupId);
+    await expect(dialog.locator('input[name="groupId"], input[name="workspaceId"], input[name="ownerUserId"]')).toHaveCount(0);
+
+    const title = page.getByTestId('project-create-title');
+    const group = page.getByTestId('project-create-group');
+    const startDate = page.getByTestId('project-create-start-date');
+    const endDate = page.getByTestId('project-create-end-date');
+    for (let index = 0; index < 14; index += 1) {
+      await page.keyboard.press('Tab');
+      await expect.poll(() => dialog.evaluate((element) => element.contains(document.activeElement))).toBe(true);
+    }
+    await title.focus();
+    await title.fill('  U-22 Canonical Project  ');
+    await page.getByTestId('project-create-description').fill('Canonical create and activation browser evidence.');
+    await page.getByTestId('project-create-group-search').fill('Evidence Review');
+    await group.selectOption(groupId);
+    await startDate.fill('2026-09-10');
+    await endDate.fill('2026-09-09');
+
+    const submit = dialog.locator('.aip-dialog__confirm');
+    await expect(submit).toHaveText('Create Project');
+    await submit.click();
+    const errorSummary = page.getByTestId('project-create-error-summary');
+    await expect(errorSummary).toBeFocused();
+    await expect(errorSummary).toContainText('Target end date cannot be before the start date.');
+    expect(api.createRequests).toHaveLength(0);
+    await errorSummary.getByRole('link', { name: 'Target end date cannot be before the start date.' }).click();
+    await expect(endDate).toBeFocused();
+    await endDate.fill('2026-09-20');
+
+    const firstAttempt = page.waitForResponse((response) =>
+      response.request().method() === 'POST' &&
+      new URL(response.url()).pathname === `/api/workspaces/${workspace.id}/projects`
+    );
+    await submit.click();
+    await expect.poll(() => api.createRequests.length).toBe(1);
+    await expect(dialog).toHaveAttribute('aria-busy', 'true');
+    await expect(submit).toBeDisabled();
+    await expect(submit).toContainText('Working');
+    await title.press('Enter');
+    await page.waitForTimeout(100);
+    expect(api.createRequests, 'Enter cannot duplicate an in-flight Project command').toHaveLength(1);
+    api.releaseFirstCreate();
+    expect((await firstAttempt).status()).toBe(503);
+    await expect(errorSummary).toBeFocused();
+    await expect(errorSummary).toContainText('may have been created');
+
+    const secondAttempt = page.waitForResponse((response) =>
+      response.request().method() === 'POST' &&
+      new URL(response.url()).pathname === `/api/workspaces/${workspace.id}/projects`
+    );
+    await submit.click();
+    expect((await secondAttempt).status()).toBe(201);
+
+    await expect(page).toHaveURL(`/app/projects/${projectId}`);
+    await expect(page.getByTestId('project-draft-overview')).toBeVisible();
+    await expect(page.getByRole('heading', { name: 'U-22 Canonical Project' })).toBeVisible();
+    await expect(page.getByRole('tab')).toHaveCount(1);
+    await expect(page.getByRole('tab', { name: 'Overview' })).toHaveAttribute('aria-selected', 'true');
+    await expect.poll(api.projectGetCount).toBeGreaterThanOrEqual(2);
+    await expect.poll(() => api.projectListRequests.filter((request) =>
+      request.workspaceId === workspace.id && request.includesCreatedProject).length)
+      .toBeGreaterThanOrEqual(1);
+
+    expect(api.createRequests).toHaveLength(2);
+    expect(api.createRequests[0]?.body).toEqual({
+      title: 'U-22 Canonical Project',
+      description: 'Canonical create and activation browser evidence.',
+      groupId,
+      visibility: 1,
+      startDate: '2026-09-10',
+      endDate: '2026-09-20'
+    });
+    expect(api.createRequests[1]?.body).toEqual(api.createRequests[0]?.body);
+    expect(api.createRequests[1]?.rawBody).toBe(api.createRequests[0]?.rawBody);
+    expect(api.createRequests[0]?.idempotencyKey).toMatch(/^project-create-/);
+    expect(api.createRequests[1]?.idempotencyKey).toBe(api.createRequests[0]?.idempotencyKey);
+    expect(api.createRequests.every((request) => request.csrfToken === 'csrf-workspace-create')).toBe(true);
+    expect(api.operationalGetPaths).toEqual([]);
+
+    await expectNoDocumentHorizontalOverflow(page);
+    await expectNoAccessibilityViolations(page);
+
+    await page.goto(`/app/workspaces/${workspace.id}/projects`);
+    const createdCard = page.getByTestId('project-summary-card')
+      .filter({ hasText: 'U-22 Canonical Project' });
+    await expect(createdCard).toBeVisible();
+    await expect(createdCard).toContainText('Draft');
+    expect(api.createRequests, 'returning to Projects never repeats the create POST').toHaveLength(2);
+    await createdCard.getByRole('link', { name: 'Open U-22 Canonical Project' }).click();
+    await expect(page).toHaveURL(`/app/projects/${projectId}`);
+    await expect(page.getByTestId('project-draft-overview')).toBeVisible();
+    expect(api.createRequests, 'reopening the created Project never repeats the create POST').toHaveLength(2);
+    expect(api.operationalGetPaths).toEqual([]);
+
+    const activate = page.getByTestId('activate-project');
+    await activate.focus();
+    await expect(activate).toBeFocused();
+    const activationResponse = page.waitForResponse((response) =>
+      response.request().method() === 'POST' &&
+      new URL(response.url()).pathname === `/api/projects/${projectId}/activate`
+    );
+    await page.keyboard.press('Enter');
+    expect((await activationResponse).status()).toBe(200);
+
+    const activationStatus = page.locator('.project-detail-page__activation-status');
+    await expect(activationStatus).toContainText('Project activated. Operational views were loaded from authoritative state.');
+    await expect(activationStatus).toBeFocused();
+    await expect(page.getByTestId('project-draft-overview')).toHaveCount(0);
+    await expect(page.getByRole('tab', { name: 'Tasks' })).toBeVisible();
+    await expect(page.getByRole('tab', { name: 'Schedule' })).toBeVisible();
+    await expect.poll(() => new Set(api.operationalGetPaths).size).toBe(5);
+    expect(api.activationRequests).toEqual([{ expectedVersion: 1 }]);
+    expect(api.activationCsrfTokens).toEqual(['csrf-workspace-create']);
+
+    await expectNoDocumentHorizontalOverflow(page);
+    await expectNoAccessibilityViolations(page);
+    await expectHealthyAngularPage(page);
+  });
+
   test('fails closed when the backend does not grant Workspace creation', async ({ page }) => {
     const api = await installWorkspaceContextApi(
       page,
@@ -703,6 +853,7 @@ test.describe('MVP-A P0 Angular frontend smoke', () => {
     await page.goto('/app/projects/static-project-kanban');
 
     await expect(page.getByTestId('project-detail-page')).toBeVisible();
+    await page.getByRole('tab', { name: 'Tasks', exact: true }).click();
     await expect(page.getByTestId('aip-kanban-board')).toBeVisible();
     await expect(page.getByText('Warning: WIP limit 1 exceeded.')).toBeVisible();
     await expect(page.getByText('Parent summary task')).toBeVisible();
@@ -775,6 +926,7 @@ test.describe('MVP-A P0 Angular frontend smoke', () => {
     const api = await installProjectKanbanApi(page);
     await page.setViewportSize({ width: 1280, height: 900 });
     await page.goto('/app/projects/static-project-kanban');
+    await page.getByRole('tab', { name: 'Tasks', exact: true }).click();
 
     const card = page.locator('[data-kanban-card-id="static-task-kanban"]');
     const todoColumn = page.locator('.aip-kanban__column')
@@ -817,6 +969,7 @@ test.describe('MVP-A P0 Angular frontend smoke', () => {
     const api = await installProjectKanbanApi(page);
 
     await page.goto('/app/projects/static-project-kanban');
+    await page.getByRole('tab', { name: 'Tasks', exact: true }).click();
 
     await expect(page.getByText('Project Kanban is disabled. The maintained Task List remains available.')).toBeVisible();
     const renderer = testInfo.project.name === 'chromium-mobile' ? 'mobile' : 'desktop';
@@ -876,6 +1029,7 @@ test.describe('MVP-A P0 Angular frontend smoke', () => {
       ? { width: 390, height: 844 }
       : { width: 1280, height: 900 });
     await page.goto('/app/projects/static-project-kanban');
+    await page.getByRole('tab', { name: 'Tasks', exact: true }).click();
 
     const card = page.locator('[data-kanban-card-id="static-task-kanban"]');
     await card.getByRole('button', { name: 'Move', exact: true }).click();
@@ -898,6 +1052,7 @@ test.describe('MVP-A P0 Angular frontend smoke', () => {
     const api = await installProjectKanbanApi(page, { denySnapshot: true });
 
     await page.goto('/app/projects/static-project-kanban');
+    await page.getByRole('tab', { name: 'Tasks', exact: true }).click();
 
     await expect(page.getByText('Project Kanban is not available.')).toBeVisible();
     await expect(page.locator('[data-kanban-card-id]')).toHaveCount(0);
@@ -2007,6 +2162,7 @@ interface WorkspaceContextFixture {
   readonly id: string;
   readonly name: string;
   readonly currentUserRole?: string;
+  readonly canOpenProjectCreate?: boolean;
   readonly canCreateProject?: boolean;
   readonly canAddFiles?: boolean;
   readonly runningProjectCount?: number;
@@ -2043,6 +2199,26 @@ interface WorkspaceContextApiOptions {
 interface WorkspaceContextApiHarness {
   readonly createRequests: readonly WorkspaceCreateMockRequest[];
   readonly workspaceListRequests: number;
+}
+
+interface CanonicalProjectCreateMockRequest {
+  readonly body: Record<string, unknown>;
+  readonly rawBody: string;
+  readonly idempotencyKey: string;
+  readonly csrfToken: string;
+}
+
+interface CanonicalProjectCreateActivationHarness {
+  readonly createRequests: readonly CanonicalProjectCreateMockRequest[];
+  readonly activationRequests: readonly Record<string, unknown>[];
+  readonly activationCsrfTokens: readonly string[];
+  readonly operationalGetPaths: readonly string[];
+  readonly projectListRequests: readonly {
+    readonly workspaceId: string | null;
+    readonly includesCreatedProject: boolean;
+  }[];
+  readonly projectGetCount: () => number;
+  readonly releaseFirstCreate: () => void;
 }
 
 function workspaceContextFixtures(): readonly WorkspaceContextFixture[] {
@@ -2084,6 +2260,7 @@ async function installWorkspaceContextApi(
       canOpenWorkspace: true,
       canOpenMembers: true,
       canOpenProjects: true,
+      canOpenProjectCreate: workspace.canOpenProjectCreate === true,
       canCreateProject: workspace.canCreateProject === true,
       canAddFiles: workspace.canAddFiles === true,
       unreadAnnouncementCount: 0,
@@ -2186,6 +2363,316 @@ async function installWorkspaceContextApi(
     get workspaceListRequests() {
       return workspaceListRequests;
     }
+  };
+}
+
+async function installCanonicalProjectCreateActivationApi(
+  page: Page,
+  scope: { workspaceId: string; projectId: string; groupId: string }
+): Promise<CanonicalProjectCreateActivationHarness> {
+  const ownerUserId = '40900000-0000-4000-8000-000000000004';
+  const createRequests: CanonicalProjectCreateMockRequest[] = [];
+  const activationRequests: Record<string, unknown>[] = [];
+  const activationCsrfTokens: string[] = [];
+  const operationalGetPaths: string[] = [];
+  const projectListRequests: {
+    workspaceId: string | null;
+    includesCreatedProject: boolean;
+  }[] = [];
+  let releaseFirstCreate!: () => void;
+  const firstCreateGate = new Promise<void>((resolve) => {
+    releaseFirstCreate = resolve;
+  });
+  let projectGets = 0;
+  let created = false;
+  let activated = false;
+
+  const projectDto = () => ({
+    id: scope.projectId,
+    workspaceId: scope.workspaceId,
+    groupId: scope.groupId,
+    ownerUserId,
+    title: 'U-22 Canonical Project',
+    description: 'Canonical create and activation browser evidence.',
+    status: activated ? 1 : 0,
+    visibility: 1,
+    activationState: activated ? 2 : 1,
+    activatedAtUtc: activated ? '2026-08-24T05:05:00Z' : null,
+    activationVersion: activated ? 1 : null,
+    versionNo: activated ? 2 : 1,
+    startDate: '2026-09-10',
+    endDate: '2026-09-20',
+    createdAt: '2026-08-24T05:00:00Z',
+    updatedAt: activated ? '2026-08-24T05:05:00Z' : null,
+    uiPermissions: {
+      canCreateTask: activated,
+      canActivate: !activated
+    }
+  });
+
+  await page.route('**/api/**', async (route) => {
+    const request = route.request();
+    const url = new URL(request.url());
+    const path = url.pathname;
+    const method = request.method();
+
+    if (
+      path === `/api/workspaces/${scope.workspaceId}/projects/create-options` &&
+      method === 'GET'
+    ) {
+      await route.fulfill({
+        status: 200,
+        contentType: 'application/json; charset=utf-8',
+        body: JSON.stringify({
+          requestId: 'project-options-200',
+          data: {
+            workspaceId: scope.workspaceId,
+            canCreateUngrouped: false,
+            allowedVisibilities: [1],
+            groups: [{ id: scope.groupId, name: 'Evidence Review Group' }]
+          },
+          warnings: []
+        })
+      });
+      return;
+    }
+
+    if (path === `/api/workspaces/${scope.workspaceId}/projects` && method === 'POST') {
+      const recorded: CanonicalProjectCreateMockRequest = {
+        body: request.postDataJSON() as Record<string, unknown>,
+        rawBody: request.postData() ?? '',
+        idempotencyKey: request.headers()['idempotency-key'] ?? '',
+        csrfToken: request.headers()['x-csrf-token'] ?? ''
+      };
+      createRequests.push(recorded);
+      if (createRequests.length === 1) {
+        await firstCreateGate;
+        await route.fulfill({
+          status: 503,
+          contentType: 'application/json; charset=utf-8',
+          body: JSON.stringify({
+            requestId: 'project-create-503',
+            error: {
+              code: 'DependencyUnavailable',
+              message: 'Project creation outcome is temporarily unavailable.',
+              target: 'project',
+              details: [],
+              redactionApplied: false
+            },
+            traceId: 'project-create-503',
+            status: 503
+          })
+        });
+        return;
+      }
+
+      created = true;
+      await route.fulfill({
+        status: 201,
+        contentType: 'application/json; charset=utf-8',
+        body: JSON.stringify({
+          requestId: 'project-create-201',
+          data: {
+            id: scope.projectId,
+            workspaceId: scope.workspaceId,
+            groupId: scope.groupId,
+            ownerUserId,
+            title: 'U-22 Canonical Project',
+            description: 'Canonical create and activation browser evidence.',
+            status: 0,
+            visibility: 1,
+            activationState: 1,
+            startDate: '2026-09-10',
+            endDate: '2026-09-20',
+            versionNo: 1,
+            createdAt: '2026-08-24T05:00:00Z'
+          },
+          warnings: []
+        })
+      });
+      return;
+    }
+
+    if (path === '/api/projects' && method === 'GET') {
+      expect(url.searchParams.get('workspaceId')).toBe(scope.workspaceId);
+      projectListRequests.push({
+        workspaceId: url.searchParams.get('workspaceId'),
+        includesCreatedProject: created
+      });
+      await route.fulfill({
+        status: 200,
+        contentType: 'application/json; charset=utf-8',
+        body: JSON.stringify({
+          items: created ? [projectDto()] : [],
+          page: 1,
+          pageSize: 50,
+          totalCount: created ? 1 : 0,
+          hasMore: false
+        })
+      });
+      return;
+    }
+
+    if (path === `/api/projects/${scope.projectId}` && method === 'GET') {
+      projectGets += 1;
+      await route.fulfill({
+        status: created ? 200 : 404,
+        contentType: 'application/json; charset=utf-8',
+        body: JSON.stringify(created ? projectDto() : { title: 'Not Found', status: 404 })
+      });
+      return;
+    }
+
+    if (path === `/api/projects/${scope.projectId}/activate` && method === 'POST') {
+      activationRequests.push(request.postDataJSON() as Record<string, unknown>);
+      activationCsrfTokens.push(request.headers()['x-csrf-token'] ?? '');
+      activated = true;
+      await route.fulfill({
+        status: 200,
+        contentType: 'application/json; charset=utf-8',
+        body: JSON.stringify({
+          requestId: 'project-activate-200',
+          data: { projectId: scope.projectId },
+          warnings: []
+        })
+      });
+      return;
+    }
+
+    const operationalSuffix = path.startsWith(`/api/projects/${scope.projectId}/`)
+      ? path.slice(`/api/projects/${scope.projectId}`.length)
+      : null;
+    if (
+      method === 'GET' &&
+      operationalSuffix !== null &&
+      ['/tasks', '/kanban', '/gantt', '/workload', '/members'].includes(operationalSuffix)
+    ) {
+      operationalGetPaths.push(operationalSuffix);
+      if (operationalSuffix === '/tasks') {
+        await route.fulfill({
+          status: 200,
+          contentType: 'application/json',
+          body: JSON.stringify({ items: [], page: 1, pageSize: 50, totalCount: 0, hasMore: false })
+        });
+        return;
+      }
+      if (operationalSuffix === '/kanban') {
+        await route.fulfill({
+          status: 200,
+          contentType: 'application/json',
+          body: JSON.stringify(emptyCanonicalKanban(scope.projectId))
+        });
+        return;
+      }
+      if (operationalSuffix === '/gantt') {
+        await route.fulfill({
+          status: 200,
+          contentType: 'application/json',
+          body: JSON.stringify(emptyCanonicalGantt(scope.projectId))
+        });
+        return;
+      }
+      if (operationalSuffix === '/workload') {
+        await route.fulfill({
+          status: 200,
+          contentType: 'application/json',
+          body: JSON.stringify({ members: [] })
+        });
+        return;
+      }
+      await route.fulfill({
+        status: 200,
+        contentType: 'application/json',
+        body: JSON.stringify([{ userId: ownerUserId, displayName: 'Mock User A', role: 'Owner' }])
+      });
+      return;
+    }
+
+    await route.fallback();
+  });
+
+  return {
+    createRequests,
+    activationRequests,
+    activationCsrfTokens,
+    operationalGetPaths,
+    projectListRequests,
+    projectGetCount: () => projectGets,
+    releaseFirstCreate
+  };
+}
+
+function emptyCanonicalKanban(projectId: string) {
+  return {
+    board: {
+      projectId,
+      version: 1,
+      timeZone: 'UTC',
+      defaultSwimlane: 0,
+      selectedSwimlane: 0,
+      supportedSwimlanes: [0, 1, 2, 3, 4],
+      supportedFilters: ['includeOlderCompleted'],
+      includesOlderCompleted: false,
+      doneWindowDays: 30,
+      totalAuthorizedCardCount: 0,
+      isTruncated: false,
+      uiPermissions: { canConfigure: true },
+      warnings: []
+    },
+    columns: [
+      {
+        workflowStageId: '40900000-0000-4000-8000-000000000010',
+        displayName: 'Todo',
+        category: 1,
+        displayOrder: 1000,
+        wipWarningLimit: null,
+        currentAuthorizedCardCount: 0,
+        hasWipWarning: false,
+        uiPermissions: { canConfigure: true }
+      },
+      {
+        workflowStageId: '40900000-0000-4000-8000-000000000011',
+        displayName: 'Done',
+        category: 4,
+        displayOrder: 2000,
+        wipWarningLimit: null,
+        currentAuthorizedCardCount: 0,
+        hasWipWarning: false,
+        uiPermissions: { canConfigure: true }
+      }
+    ],
+    cards: []
+  };
+}
+
+function emptyCanonicalGantt(projectId: string) {
+  const permissions = {
+    canEditSchedule: true,
+    canEditProgress: true,
+    canManageDependencies: true,
+    canClearSchedule: true,
+    canOpen: true
+  };
+  return {
+    projectId,
+    projectTitle: 'U-22 Canonical Project',
+    projectVersion: 2,
+    workflowVersion: 1,
+    calendarVersion: null,
+    calendar: {
+      timeZone: 'UTC',
+      workingDays: ['Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday'],
+      holidaysAvailable: false,
+      limitations: []
+    },
+    scheduledItems: [],
+    unscheduledItems: [],
+    milestones: [],
+    dependencies: [],
+    warnings: [],
+    permissions,
+    maximumItems: 500,
+    totalItems: 0
   };
 }
 

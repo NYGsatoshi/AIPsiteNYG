@@ -321,6 +321,414 @@ test.describe('MVP0 real backend browser smoke', () => {
     }
   });
 
+  test('creates a Draft Project and explicitly activates it through the real backend', async ({ page }, testInfo) => {
+    const evidence: SmokeEvidence = {
+      baseURL: String(testInfo.project.use.baseURL ?? ''),
+      email: smokeEmail,
+      steps: [],
+      pageErrors: [],
+      consoleErrors: [],
+      failedApiResponses: []
+    };
+    const projectTitle = `U22 Draft Activation ${randomUUID().slice(0, 8)}`;
+    const projectDescription = 'Synthetic U-22 canonical Project creation and activation evidence';
+    let workspaceId: string | null = null;
+    let createdProjectId: string | null = null;
+    const projectOperationalRequests: string[] = [];
+
+    page.on('pageerror', (error) => evidence.pageErrors.push(error.message));
+    page.on('console', (message) => {
+      if (message.type() === 'error') evidence.consoleErrors.push(message.text());
+    });
+    page.on('request', (request) => {
+      if (!createdProjectId || request.method() !== 'GET') return;
+      const path = new URL(request.url()).pathname;
+      if ([
+        `/api/projects/${createdProjectId}/tasks`,
+        `/api/projects/${createdProjectId}/kanban`,
+        `/api/projects/${createdProjectId}/gantt`,
+        `/api/projects/${createdProjectId}/workload`,
+        `/api/projects/${createdProjectId}/members`
+      ].includes(path)) {
+        projectOperationalRequests.push(path);
+      }
+    });
+    page.on('response', (response) => recordFailedApiResponse(response, evidence));
+
+    try {
+      await loginAndVerifySession(page, evidence);
+
+      const workspaces = await recordFetchJson(
+        page,
+        evidence,
+        'project-create-workspace-capability',
+        '/api/workspaces',
+        {
+          validate: (body) =>
+            Array.isArray(body) &&
+            body.some((workspace: Record<string, unknown>) =>
+              workspace.name === smokeWorkspaceName &&
+              (workspace.status === 0 || workspace.status === 'Active') &&
+              workspace.canOpenProjectCreate === true)
+        }
+      ) as Record<string, any>[];
+      const primaryWorkspace = workspaces.find((workspace) => workspace.name === smokeWorkspaceName)!;
+      workspaceId = String(primaryWorkspace.id);
+      evidence.workspaceId = workspaceId;
+      expect(workspaceId, 'primary Workspace id').toMatch(/^[0-9a-f-]{36}$/i);
+      expect(primaryWorkspace.canOpenProjectCreate, 'server-projected Project create affordance').toBe(true);
+
+      const directOptions = await recordFetchJson(
+        page,
+        evidence,
+        'project-create-options',
+        `/api/workspaces/${workspaceId}/projects/create-options`,
+        {
+          validate: (body) => {
+            const data = (body as Record<string, any>)?.data;
+            return hasString(body, 'requestId') &&
+              data?.workspaceId === workspaceId &&
+              typeof data?.canCreateUngrouped === 'boolean' &&
+              Array.isArray(data?.allowedVisibilities) &&
+              data.allowedVisibilities.includes(1) &&
+              Array.isArray(data?.groups) &&
+              Array.isArray((body as Record<string, unknown>)?.warnings);
+          }
+        }
+      ) as Record<string, any>;
+      const group = directOptions.data.groups.find(
+        (candidate: Record<string, unknown>) => candidate.name === 'Browser Smoke PR04 Queue'
+      ) ?? directOptions.data.groups[0];
+      expect(group, 'an authorized named Group is available for canonical Project creation').toBeTruthy();
+      expect(group.id, 'authorized Group id').toMatch(/^[0-9a-f-]{36}$/i);
+      expect(group.name, 'authorized Group is presented by name').toBeTruthy();
+
+      await page.goto('/app/workspaces');
+      await expect(page.getByTestId('workspace-dashboard')).toBeVisible();
+      const workspaceSwitcher = page.getByTestId('workspace-switcher');
+      await workspaceSwitcher.selectOption(workspaceId);
+      await expect(workspaceSwitcher).toHaveValue(workspaceId);
+
+      await page.goto('/app/projects');
+      await expect(page.getByTestId('projects-overview-page')).toBeVisible();
+      const createAction = page.getByTestId('projects-create-project');
+      await expect(createAction).toBeVisible();
+      const uiOptionsResponse = waitForApiResponse(
+        page,
+        'GET',
+        `/api/workspaces/${workspaceId}/projects/create-options`
+      );
+      await createAction.click();
+      await recordOkJson(await uiOptionsResponse, evidence, 'project-create-options-ui', (body) =>
+        hasString(body, 'requestId') &&
+        (body as Record<string, any>)?.data?.workspaceId === workspaceId &&
+        Array.isArray((body as Record<string, any>)?.data?.groups)
+      );
+
+      const dialog = page.getByRole('dialog', { name: 'Create Project' });
+      await expect(dialog).toBeVisible();
+      await expect(page.getByTestId('project-create-title')).toBeFocused();
+      await expect(page.getByTestId('project-create-group')).toContainText(String(group.name));
+      await expect(dialog).not.toContainText(String(group.id));
+      await page.getByTestId('project-create-title').fill(projectTitle);
+      await page.getByTestId('project-create-description').fill(projectDescription);
+      await page.getByTestId('project-create-group').selectOption(String(group.id));
+      await page.getByTestId('project-create-visibility').selectOption({ label: 'Members only' });
+      await page.getByTestId('project-create-start-date').fill('2026-09-01');
+      await page.getByTestId('project-create-end-date').fill('2026-09-30');
+
+      const createResponsePromise = waitForApiResponse(
+        page,
+        'POST',
+        `/api/workspaces/${workspaceId}/projects`
+      );
+      await dialog.getByRole('button', { name: 'Create Project' }).click();
+      const createResponse = await createResponsePromise;
+      const createText = await createResponse.text();
+      const createBody = parseJson(createText) as Record<string, any>;
+      const createRequest = createResponse.request();
+      const createHeaders = await createRequest.allHeaders();
+      const createRequestBody = createRequest.postDataJSON() as Record<string, unknown>;
+      createdProjectId = typeof createBody?.data?.id === 'string' ? createBody.data.id : null;
+      evidence.steps.push({
+        name: 'project-create-ui-command',
+        method: createRequest.method(),
+        path: new URL(createResponse.url()).pathname,
+        status: createResponse.status(),
+        body: {
+          request: createRequestBody,
+          idempotencyKeyPresent: Boolean(createHeaders['idempotency-key']),
+          csrfHeaderPresent: Boolean(createHeaders['x-csrf-token'])
+        },
+        bodyPreview: preview(createText)
+      });
+
+      expect(createResponse.status(), `Project create response: ${createText}`).toBe(201);
+      expect(createdProjectId, 'created Project id').toMatch(/^[0-9a-f-]{36}$/i);
+      expect(createRequestBody).toEqual({
+        title: projectTitle,
+        description: projectDescription,
+        groupId: group.id,
+        visibility: 1,
+        startDate: '2026-09-01',
+        endDate: '2026-09-30'
+      });
+      expect(createHeaders['idempotency-key']).toMatch(/^[\x20-\x7e]{8,128}$/u);
+      expect(createHeaders['x-csrf-token'], 'Project create uses the real Angular CSRF interceptor').toBeTruthy();
+      expect(createBody).toMatchObject({
+        data: {
+          id: createdProjectId,
+          workspaceId,
+          groupId: group.id,
+          ownerUserId: evidence.userId,
+          title: projectTitle,
+          description: projectDescription,
+          status: 0,
+          visibility: 1,
+          activationState: 1,
+          startDate: '2026-09-01',
+          endDate: '2026-09-30',
+          versionNo: 1
+        },
+        warnings: []
+      });
+
+      await expect(page).toHaveURL(`/app/projects/${createdProjectId}`);
+      await expect(page.getByTestId('project-draft-overview')).toBeVisible();
+      await expect(page.getByRole('tab')).toHaveCount(1);
+      expect(projectOperationalRequests, 'Draft detail performs zero operational reads').toEqual([]);
+      const draftResourcePaths = await page.evaluate((projectId) =>
+        performance.getEntriesByType('resource')
+          .map((entry) => new URL(entry.name, window.location.href).pathname)
+          .filter((path) => [
+            `/api/projects/${projectId}/tasks`,
+            `/api/projects/${projectId}/kanban`,
+            `/api/projects/${projectId}/gantt`,
+            `/api/projects/${projectId}/workload`,
+            `/api/projects/${projectId}/members`
+          ].includes(path)), createdProjectId);
+      expect(draftResourcePaths, 'browser resource history confirms zero Draft operational reads').toEqual([]);
+
+      const draft = await recordFetchJson(
+        page,
+        evidence,
+        'project-create-authoritative-draft',
+        `/api/projects/${createdProjectId}`,
+        {
+          validate: (body) =>
+            (body as Record<string, any>)?.id === createdProjectId &&
+            (body as Record<string, any>)?.workspaceId === workspaceId &&
+            (body as Record<string, any>)?.status === 0 &&
+            (body as Record<string, any>)?.activationState === 1 &&
+            (body as Record<string, any>)?.versionNo === 1 &&
+            (body as Record<string, any>)?.activatedAtUtc === null &&
+            (body as Record<string, any>)?.uiPermissions?.canActivate === true
+        }
+      ) as Record<string, any>;
+      expect(draft.ownerUserId).toBe(evidence.userId);
+
+      const members = await recordFetchJson(
+        page,
+        evidence,
+        'project-create-owner-membership',
+        `/api/projects/${createdProjectId}/members`,
+        {
+          validate: (body) =>
+            Array.isArray(body) &&
+            body.filter((member: Record<string, unknown>) =>
+              member.userId === evidence.userId && member.role === 0).length === 1
+        }
+      ) as Record<string, unknown>[];
+      expect(members, 'creator is the sole initial Project member').toHaveLength(1);
+
+      const conversationsBeforeActivation = await recordFetchJson(
+        page,
+        evidence,
+        'project-create-no-general-before-activation',
+        '/api/conversations?page=1&pageSize=100',
+        { validate: (body) => isPagedResponse(body) }
+      ) as Record<string, any>;
+      expect(
+        conversationsBeforeActivation.items.filter(
+          (conversation: Record<string, unknown>) => conversation.projectId === createdProjectId
+        ),
+        'Draft has no ProjectGeneral conversation before activation'
+      ).toHaveLength(0);
+
+      const activateAction = page.getByTestId('activate-project');
+      await expect(activateAction).toBeVisible();
+      const activationResponsePromise = waitForApiResponse(
+        page,
+        'POST',
+        `/api/projects/${createdProjectId}/activate`
+      );
+      await activateAction.click();
+      const activationResponse = await activationResponsePromise;
+      const activationText = await activationResponse.text();
+      const activationBody = parseJson(activationText) as Record<string, any>;
+      const activationRequest = activationResponse.request();
+      const activationHeaders = await activationRequest.allHeaders();
+      const activationRequestBody = activationRequest.postDataJSON() as Record<string, unknown>;
+      evidence.steps.push({
+        name: 'project-activate-ui-command',
+        method: activationRequest.method(),
+        path: new URL(activationResponse.url()).pathname,
+        status: activationResponse.status(),
+        body: {
+          request: activationRequestBody,
+          csrfHeaderPresent: Boolean(activationHeaders['x-csrf-token'])
+        },
+        bodyPreview: preview(activationText)
+      });
+      expect(activationResponse.status(), `Project activation response: ${activationText}`).toBe(200);
+      expect(activationRequestBody).toEqual({ expectedVersion: 1 });
+      expect(activationHeaders['x-csrf-token'], 'Project activation uses the real Angular CSRF interceptor').toBeTruthy();
+      expect(activationBody).toMatchObject({
+        data: { projectId: createdProjectId },
+        warnings: []
+      });
+      expect(activationBody.requestId).toEqual(expect.any(String));
+
+      await expect(page.locator('.project-detail-page__activation-status')).toContainText(
+        'Project activated. Operational views were loaded from authoritative state.'
+      );
+      await expect(page.getByTestId('project-draft-overview')).toHaveCount(0);
+      await expect(page.getByRole('tab', { name: 'Tasks' })).toBeVisible();
+
+      const activated = await recordFetchJson(
+        page,
+        evidence,
+        'project-activate-authoritative-state',
+        `/api/projects/${createdProjectId}`,
+        {
+          validate: (body) =>
+            (body as Record<string, any>)?.id === createdProjectId &&
+            (body as Record<string, any>)?.status === 1 &&
+            (body as Record<string, any>)?.activationState === 2 &&
+            (body as Record<string, any>)?.versionNo === 2 &&
+            hasString(body, 'activatedAtUtc') &&
+            (body as Record<string, any>)?.activationVersion === 1 &&
+            (body as Record<string, any>)?.uiPermissions?.canActivate === false
+        }
+      ) as Record<string, any>;
+      expect(activated.ownerUserId).toBe(evidence.userId);
+
+      const kanban = await recordFetchJson(
+        page,
+        evidence,
+        'project-activate-generated-workflow',
+        `/api/projects/${createdProjectId}/kanban`,
+        {
+          validate: (body) =>
+            (body as Record<string, any>)?.board?.projectId === createdProjectId &&
+            typeof (body as Record<string, any>)?.board?.version === 'number' &&
+            Array.isArray((body as Record<string, any>)?.columns) &&
+            (body as Record<string, any>).columns.length > 0 &&
+            (body as Record<string, any>).columns.every(
+              (column: Record<string, unknown>) =>
+                typeof column.workflowStageId === 'string' && typeof column.displayName === 'string'
+            )
+        }
+      ) as Record<string, any>;
+      expect(kanban.columns.length, 'activation generated a readable canonical Task workflow').toBeGreaterThan(0);
+
+      const conversationsAfterActivation = await recordFetchJson(
+        page,
+        evidence,
+        'project-activate-general-conversation',
+        '/api/conversations?page=1&pageSize=100',
+        { validate: (body) => isPagedResponse(body) }
+      ) as Record<string, any>;
+      const projectGeneral = conversationsAfterActivation.items.filter(
+        (conversation: Record<string, unknown>) =>
+          conversation.projectId === createdProjectId &&
+          conversation.workspaceId === workspaceId &&
+          conversation.type === 'ProjectChannel' &&
+          conversation.title === 'general'
+      );
+      expect(projectGeneral, 'activation generated exactly one authorized ProjectGeneral').toHaveLength(1);
+      const generalDetail = await recordFetchJson(
+        page,
+        evidence,
+        'project-activate-general-detail',
+        `/api/conversations/${projectGeneral[0].id}`,
+        {
+          validate: (body) =>
+            (body as Record<string, any>)?.projectId === createdProjectId &&
+            (body as Record<string, any>)?.type === 'ProjectChannel' &&
+            (body as Record<string, any>)?.title === 'general' &&
+            Array.isArray((body as Record<string, any>)?.members) &&
+            (body as Record<string, any>).members.some(
+              (member: Record<string, unknown>) =>
+                member.userId === evidence.userId && member.canRead === true && member.canPost === true
+            )
+        }
+      ) as Record<string, any>;
+      expect(generalDetail.members).toHaveLength(1);
+      const activatedResourcePaths = await page.evaluate((projectId) =>
+        performance.getEntriesByType('resource')
+          .map((entry) => new URL(entry.name, window.location.href).pathname)
+          .filter((path) => path.startsWith(`/api/projects/${projectId}/`)), createdProjectId);
+      expect(
+        activatedResourcePaths.some((path) => path === `/api/projects/${createdProjectId}/tasks`),
+        'operational Task reads start only after activation'
+      ).toBe(true);
+    } finally {
+      if (createdProjectId) {
+        await page.goto('/app/workspaces').catch(() => undefined);
+        const cleanup = await requestWithCsrf(
+          page,
+          'POST',
+          `/api/projects/${createdProjectId}/archive`
+        );
+        evidence.steps.push({
+          name: 'project-create-cleanup-archive',
+          method: 'POST',
+          path: `/api/projects/${createdProjectId}/archive`,
+          status: cleanup.status,
+          bodyPreview: preview(cleanup.text)
+        });
+        expect(cleanup.status, `Project cleanup archive: ${cleanup.text}`).toBe(200);
+        expect(cleanup.csrfHeaderPresent, 'Project cleanup uses a real CSRF token').toBe(true);
+
+        const cleanupWorkspaceId = workspaceId;
+        expect(cleanupWorkspaceId, 'Project cleanup retains its Workspace scope').toMatch(/^[0-9a-f-]{36}$/i);
+        await expect.poll(async () => {
+          const list = await fetchJsonFromPage(
+            page,
+            `/api/projects?workspaceId=${encodeURIComponent(cleanupWorkspaceId!)}`
+          );
+          return list.status === 200 &&
+            isPagedResponse(list.body) &&
+            !list.body.items.some(
+              (project: Record<string, unknown>) => project.id === createdProjectId
+            );
+        }).toBe(true);
+        await recordFetchJson(
+          page,
+          evidence,
+          'project-create-cleanup-scoped-list',
+          `/api/projects?workspaceId=${encodeURIComponent(cleanupWorkspaceId!)}`,
+          {
+            validate: (body) =>
+              isPagedResponse(body) &&
+              !(body as Record<string, any>).items.some(
+                (project: Record<string, unknown>) => project.id === createdProjectId
+              )
+          }
+        );
+      }
+
+      expect(evidence.pageErrors, 'browser page errors').toEqual([]);
+      expectUnexpectedConsoleErrors(evidence);
+      expectUnexpectedApiFailures(evidence);
+      await testInfo.attach('project-create-activation-real-backend-evidence.json', {
+        body: JSON.stringify(evidence, null, 2),
+        contentType: 'application/json'
+      });
+    }
+  });
+
   test('keeps authenticated HTTP requests available when the Hub cannot connect', async ({ page }, testInfo) => {
     await page.addInitScript(() => {
       const nativeFetch = window.fetch.bind(window);

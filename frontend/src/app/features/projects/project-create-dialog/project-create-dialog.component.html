@@ -1,0 +1,290 @@
+<app-aip-dialog
+  [open]="open"
+  title="Create Project"
+  description="Project name is required. Description, Group, and dates are optional when your access allows them."
+  [confirmLabel]="confirmLabel"
+  cancelLabel="Cancel"
+  [busy]="busy"
+  [confirmDisabled]="confirmDisabled"
+  [confirmForm]="navigationPending ? null : formId"
+  [focusReturnFallbackId]="focusReturnTargetId"
+  (confirm)="handleDialogConfirm()"
+  (cancel)="requestCancel()"
+>
+  @if (navigationPending) {
+    <section class="project-create__pending" role="status" data-testid="project-create-pending">
+      <h3>Project created as Draft</h3>
+      <p>
+        The Project was committed, but it could not be opened yet. Open it again without submitting
+        another create request.
+      </p>
+      @if (createState.requestId) {
+        <app-request-id [requestId]="createState.requestId" />
+      }
+    </section>
+  } @else if (optionsState.status === 'loading' || optionsState.status === 'idle') {
+    <p
+      class="project-create__options-status"
+      role="status"
+      data-testid="project-create-options-loading"
+    >
+      Checking the Groups and visibility settings available to you…
+    </p>
+  } @else if (optionsState.status === 'denied') {
+    <section
+      class="project-create__options-error"
+      role="alert"
+      data-testid="project-create-options-denied"
+    >
+      <h3>Project creation is unavailable</h3>
+      <p>{{ optionsState.message }}</p>
+      @if (optionsState.requestId) {
+        <app-request-id [requestId]="optionsState.requestId" />
+      }
+    </section>
+  } @else if (optionsState.status === 'error') {
+    <section
+      class="project-create__options-error"
+      role="alert"
+      data-testid="project-create-options-error"
+    >
+      <h3>Creation options could not be loaded</h3>
+      <p>{{ optionsState.message }}</p>
+      @if (optionsState.requestId) {
+        <app-request-id [requestId]="optionsState.requestId" />
+      }
+      <button type="button" (click)="retryOptions()" data-testid="project-create-options-retry">
+        Retry
+      </button>
+    </section>
+  } @else {
+    <form
+      [id]="formId"
+      class="project-create__form"
+      [formGroup]="form"
+      novalidate
+      (ngSubmit)="submit()"
+      data-testid="project-create-form"
+    >
+      @if (summaryErrors.length > 0 || createState.message) {
+        <section
+          #errorSummary
+          id="project-create-error-summary"
+          class="project-create__summary"
+          role="alert"
+          tabindex="-1"
+          data-testid="project-create-error-summary"
+        >
+          <h3>Check the Project details</h3>
+          @if (createState.message) {
+            <p>{{ createState.message }}</p>
+          }
+          @if (summaryErrors.length > 0) {
+            <ul>
+              @for (error of summaryErrors; track error.field + error.message) {
+                <li>
+                  <a
+                    [href]="
+                      error.field === 'form'
+                        ? '#project-create-error-summary'
+                        : '#' +
+                          (error.field === 'groupId'
+                            ? 'project-create-group'
+                            : 'project-create-' + error.field)
+                    "
+                    (click)="focusField(error.field, $event)"
+                  >
+                    {{ error.message }}
+                  </a>
+                </li>
+              }
+            </ul>
+          }
+          @if (createState.requestId) {
+            <app-request-id [requestId]="createState.requestId" />
+          }
+        </section>
+      }
+
+      <section class="project-create__context" aria-labelledby="project-create-context-heading">
+        <h3 id="project-create-context-heading">Inherited and generated</h3>
+        <dl>
+          <div>
+            <dt>Workspace</dt>
+            <dd>{{ workspaceName }}</dd>
+          </div>
+          <div>
+            <dt>Initial status</dt>
+            <dd><strong>Draft</strong> — not operational until separately activated</dd>
+          </div>
+          <div>
+            <dt>Ownership</dt>
+            <dd>You become the initial Project Owner. Members are added after creation.</dd>
+          </div>
+        </dl>
+        <p>
+          Project General and workflow settings are generated only when an authorized owner
+          activates the Draft.
+        </p>
+      </section>
+
+      <h3 class="project-create__section-heading">Project values</h3>
+
+      <label for="project-create-title">Project name <span aria-hidden="true">*</span></label>
+      <p id="project-create-title-help" class="project-create__help">
+        Required · 200 characters maximum
+      </p>
+      <input
+        #titleInput
+        id="project-create-title"
+        type="text"
+        formControlName="title"
+        autocomplete="off"
+        maxlength="200"
+        required
+        [attr.aria-invalid]="fieldInvalid('title')"
+        [attr.aria-describedby]="
+          fieldInvalid('title')
+            ? 'project-create-title-help project-create-title-errors'
+            : 'project-create-title-help'
+        "
+        data-testid="project-create-title"
+      />
+      <div id="project-create-title-errors">
+        <app-field-error [messages]="fieldErrors('title')" />
+      </div>
+
+      <label for="project-create-description">Description <span>(optional)</span></label>
+      <p id="project-create-description-help" class="project-create__help">
+        Plain text · 4,000 characters maximum
+      </p>
+      <textarea
+        id="project-create-description"
+        formControlName="description"
+        maxlength="4000"
+        rows="4"
+        [attr.aria-invalid]="fieldInvalid('description')"
+        [attr.aria-describedby]="
+          fieldInvalid('description')
+            ? 'project-create-description-help project-create-description-errors'
+            : 'project-create-description-help'
+        "
+        data-testid="project-create-description"
+      ></textarea>
+      <div id="project-create-description-errors">
+        <app-field-error [messages]="fieldErrors('description')" />
+      </div>
+
+      @if ((options?.groups?.length ?? 0) > 0) {
+        <label for="project-create-group-search">Find a Group <span>(optional search)</span></label>
+        <input
+          id="project-create-group-search"
+          type="search"
+          formControlName="groupSearch"
+          autocomplete="off"
+          placeholder="Search by Group name"
+          data-testid="project-create-group-search"
+        />
+
+        <label for="project-create-group">
+          Group
+          @if (groupRequired) {
+            <span aria-hidden="true">*</span>
+          } @else {
+            <span>(optional)</span>
+          }
+        </label>
+        <p id="project-create-group-help" class="project-create__help">
+          Only Groups where you can create a Project are listed. Internal IDs are generated and
+          managed automatically.
+        </p>
+        <select
+          id="project-create-group"
+          formControlName="groupId"
+          [required]="groupRequired"
+          [attr.aria-invalid]="fieldInvalid('groupId')"
+          [attr.aria-describedby]="
+            fieldInvalid('groupId')
+              ? 'project-create-group-help project-create-group-errors'
+              : 'project-create-group-help'
+          "
+          data-testid="project-create-group"
+        >
+          @if (options?.canCreateUngrouped) {
+            <option value="">No Group (Workspace root)</option>
+          } @else {
+            <option value="">Choose a Group</option>
+          }
+          @for (group of filteredGroups; track group.id) {
+            <option [value]="group.id">{{ group.name }}</option>
+          }
+        </select>
+        <div id="project-create-group-errors">
+          <app-field-error [messages]="fieldErrors('groupId')" />
+        </div>
+      } @else {
+        <p class="project-create__no-group">
+          This Project will be created at the Workspace root. Group is optional.
+        </p>
+      }
+
+      <label for="project-create-visibility">Visibility</label>
+      <p id="project-create-visibility-help" class="project-create__help">
+        Members only is the safe default. Only settings available to you are listed.
+      </p>
+      <select
+        id="project-create-visibility"
+        formControlName="visibility"
+        [attr.aria-invalid]="fieldInvalid('visibility')"
+        [attr.aria-describedby]="
+          fieldInvalid('visibility')
+            ? 'project-create-visibility-help project-create-visibility-errors'
+            : 'project-create-visibility-help'
+        "
+        data-testid="project-create-visibility"
+      >
+        @for (visibility of visibilityOptions; track visibility.value) {
+          <option [ngValue]="visibility.value">{{ visibility.label }}</option>
+        }
+      </select>
+      <div id="project-create-visibility-errors">
+        <app-field-error [messages]="fieldErrors('visibility')" />
+      </div>
+
+      <div class="project-create__dates">
+        <div>
+          <label for="project-create-startDate">Start date <span>(optional)</span></label>
+          <input
+            id="project-create-startDate"
+            type="date"
+            formControlName="startDate"
+            [attr.aria-invalid]="fieldInvalid('startDate')"
+            [attr.aria-describedby]="
+              fieldInvalid('startDate') ? 'project-create-startDate-errors' : null
+            "
+            data-testid="project-create-start-date"
+          />
+          <div id="project-create-startDate-errors">
+            <app-field-error [messages]="fieldErrors('startDate')" />
+          </div>
+        </div>
+        <div>
+          <label for="project-create-endDate">Target end date <span>(optional)</span></label>
+          <input
+            id="project-create-endDate"
+            type="date"
+            formControlName="endDate"
+            [attr.aria-invalid]="fieldInvalid('endDate')"
+            [attr.aria-describedby]="
+              fieldInvalid('endDate') ? 'project-create-endDate-errors' : null
+            "
+            data-testid="project-create-end-date"
+          />
+          <div id="project-create-endDate-errors">
+            <app-field-error [messages]="fieldErrors('endDate')" />
+          </div>
+        </div>
+      </div>
+    </form>
+  }
+</app-aip-dialog>

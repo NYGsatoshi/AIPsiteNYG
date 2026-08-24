@@ -21,6 +21,7 @@ export interface WorkspaceDashboardListItemDto {
   readonly canOpenWorkspace?: unknown;
   readonly canOpenMembers?: unknown;
   readonly canOpenProjects?: unknown;
+  readonly canOpenProjectCreate?: unknown;
   readonly canCreateProject?: unknown;
   readonly canAddFiles?: unknown;
   readonly unreadAnnouncementCount?: unknown;
@@ -208,6 +209,9 @@ function actionCapabilities(
   }
   if (workspace.canOpenProjects === true) {
     capabilities.push('openProjects');
+  }
+  if (workspace.canOpenProjectCreate === true) {
+    capabilities.push('openProjectCreate');
   }
   if (workspace.canCreateProject === true) {
     capabilities.push('createProject');

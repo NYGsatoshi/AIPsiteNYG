@@ -114,6 +114,26 @@ and idempotency; WPC-02D owns canonical `ProjectGeneral` provisioning and
 activation-time Task workflow mapping. Clients must use those canonical
 commands; the deprecated unscoped Project-create route remains disabled.
 
+Issue #409 adds `GET
+/api/workspaces/{workspaceId}/projects/create-options`. Its WPC success
+envelope data is `workspaceId`, `canCreateUngrouped`, `allowedVisibilities`,
+and `groups`, where each Group option contains only `id` and `name`. A current
+Workspace member with no available create scope receives a valid 200 with
+`canCreateUngrouped=false` and empty arrays. The response never exposes Groups
+where the actor cannot create. The dashboard separately appends
+`canOpenProjectCreate`; `canCreateProject` remains the ungrouped Quick Create
+capability.
+
+`ProjectListQuery` appends optional `workspaceId`, and the repository applies
+that filter inside the current authorized Project read scope before paging.
+`ProjectResponse.uiPermissions` appends `canActivate`. The full Angular create
+flow accepts only the strict 201 canonical response, confirms the created
+Project with an authoritative GET, and treats later opening failure as
+GET/navigation-only recovery. The Draft Overview performs no operational
+subresource reads. Activation sends only `{ "expectedVersion": versionNo }`,
+accepts only the strict HTTP 200 WPC envelope with the matching `projectId`,
+and refetches Project state before exposing operational views.
+
 ## General Rules
 
 - REST APIs are the source of truth for the bundled frontend.

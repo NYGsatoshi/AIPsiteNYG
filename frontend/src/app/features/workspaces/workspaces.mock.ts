@@ -22,7 +22,7 @@ export const OWNER_WORKSPACE: WorkspaceCardViewModel = {
   needsReviewProjectCount: 2,
   lastUpdatedLabel: '今日 09:40',
   availability: available,
-  capabilities: ['openWorkspace', 'openMembers', 'openProjects', 'createProject', 'addFiles'],
+  capabilities: ['openWorkspace', 'openMembers', 'openProjects', 'openProjectCreate', 'createProject', 'addFiles'],
 };
 
 export const ADMIN_WORKSPACE: WorkspaceCardViewModel = {
@@ -38,7 +38,7 @@ export const ADMIN_WORKSPACE: WorkspaceCardViewModel = {
   needsReviewProjectCount: 0,
   lastUpdatedLabel: '昨日 16:15',
   availability: available,
-  capabilities: ['openWorkspace', 'openMembers', 'openProjects', 'createProject', 'addFiles'],
+  capabilities: ['openWorkspace', 'openMembers', 'openProjects', 'openProjectCreate', 'createProject', 'addFiles'],
 };
 
 export const ADVISER_WORKSPACE: WorkspaceCardViewModel = {

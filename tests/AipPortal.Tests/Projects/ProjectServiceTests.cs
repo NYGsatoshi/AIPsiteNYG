@@ -1160,6 +1160,121 @@ public sealed class ProjectServiceTests
     }
 
     [Fact]
+    public async Task ProjectListFiltersByWorkspaceAndProjectsServerActivationCapability()
+    {
+        var fixture = ProjectFixture.Create();
+        var member = fixture.AddUser();
+        fixture.Current.UserIdValue = member.Id;
+        fixture.AddProjectMember(member.Id, ProjectRole.Owner);
+        fixture.Project.Status = ProjectStatus.Planning;
+        fixture.Project.Visibility = ProjectVisibility.MembersOnly;
+        fixture.Project.ActivationState = ProjectActivationState.NeverActivated;
+        fixture.Project.ActivatedAtUtc = null;
+        fixture.Project.ActivationVersion = null;
+        fixture.Project.VersionNo = 1;
+
+        var otherWorkspace = new Workspace
+        {
+            Name = "Other Workspace",
+            Slug = "other-workspace",
+            CreatedByUserId = member.Id,
+            Status = WorkspaceStatus.Active
+        };
+        fixture.Workspaces.Items[otherWorkspace.Id] = otherWorkspace;
+        fixture.Workspaces.Members.Add(new WorkspaceMember
+        {
+            WorkspaceId = otherWorkspace.Id,
+            UserId = member.Id,
+            Role = WorkspaceRole.Member,
+            Status = MembershipStatus.Active,
+            JoinedAt = fixture.Clock.UtcNow
+        });
+        var otherProject = new Project
+        {
+            WorkspaceId = otherWorkspace.Id,
+            OwnerUserId = member.Id,
+            CreatedByUserId = member.Id,
+            Name = "Other Project",
+            Slug = "other-project",
+            Status = ProjectStatus.Planning
+        };
+        fixture.Projects.ProjectItems[otherProject.Id] = otherProject;
+        fixture.Projects.Members.Add(new ProjectMember
+        {
+            ProjectId = otherProject.Id,
+            UserId = member.Id,
+            User = member,
+            Role = ProjectRole.Owner,
+            JoinedAt = fixture.Clock.UtcNow
+        });
+
+        var result = await fixture.Service.ListAsync(new ProjectListQuery(WorkspaceId: fixture.Workspace.Id));
+
+        Assert.True(result.IsSuccess, result.Error);
+        var item = Assert.Single(result.Value!.Items);
+        Assert.Equal(fixture.Project.Id, item.Id);
+        Assert.True(item.UiPermissions.CanActivate);
+        Assert.DoesNotContain(result.Value.Items, project => project.Id == otherProject.Id);
+        Assert.Equal(1, fixture.Projects.ListActivatableProjectIdsCallCount);
+
+        var workspaceMembership = Assert.Single(fixture.Workspaces.Members, workspaceMember =>
+            workspaceMember.WorkspaceId == fixture.Workspace.Id &&
+            workspaceMember.UserId == member.Id);
+        workspaceMembership.Status = MembershipStatus.Suspended;
+        var afterRevocation = await fixture.Service.ListAsync(new ProjectListQuery(WorkspaceId: fixture.Workspace.Id));
+        Assert.False(Assert.Single(afterRevocation.Value!.Items).UiPermissions.CanActivate);
+        Assert.Equal(2, fixture.Projects.ListActivatableProjectIdsCallCount);
+
+        workspaceMembership.Status = MembershipStatus.Active;
+        fixture.Workspace.Status = WorkspaceStatus.Archived;
+        var inactiveWorkspace = await fixture.Service.ListAsync(new ProjectListQuery(WorkspaceId: fixture.Workspace.Id));
+        Assert.False(Assert.Single(inactiveWorkspace.Value!.Items).UiPermissions.CanActivate);
+        Assert.Equal(3, fixture.Projects.ListActivatableProjectIdsCallCount);
+    }
+
+    [Fact]
+    public async Task ProjectListBatchesActivationEligibilityOnceForTheBoundedPage()
+    {
+        var fixture = ProjectFixture.Create();
+        var member = fixture.AddUser();
+        fixture.Current.UserIdValue = member.Id;
+        fixture.AddProjectMember(member.Id, ProjectRole.Owner);
+        fixture.Project.Status = ProjectStatus.Planning;
+        fixture.Project.Visibility = ProjectVisibility.MembersOnly;
+        fixture.Project.ActivationState = ProjectActivationState.NeverActivated;
+        fixture.Project.VersionNo = 1;
+
+        var secondProject = new Project
+        {
+            WorkspaceId = fixture.Workspace.Id,
+            OwnerUserId = member.Id,
+            CreatedByUserId = member.Id,
+            Name = "Second canonical draft",
+            Slug = "second-canonical-draft",
+            Status = ProjectStatus.Planning,
+            Visibility = ProjectVisibility.MembersOnly,
+            ActivationState = ProjectActivationState.NeverActivated,
+            VersionNo = 1
+        };
+        fixture.Projects.ProjectItems[secondProject.Id] = secondProject;
+        fixture.Projects.Members.Add(new ProjectMember
+        {
+            ProjectId = secondProject.Id,
+            UserId = member.Id,
+            User = member,
+            Role = ProjectRole.Owner,
+            JoinedAt = fixture.Clock.UtcNow
+        });
+
+        var result = await fixture.Service.ListAsync(new ProjectListQuery(WorkspaceId: fixture.Workspace.Id));
+
+        Assert.True(result.IsSuccess, result.Error);
+        Assert.Equal(2, result.Value!.Items.Count);
+        Assert.All(result.Value.Items, project => Assert.True(project.UiPermissions.CanActivate));
+        Assert.Equal(1, fixture.Projects.ListActivatableProjectIdsCallCount);
+    }
+
+    [Fact]
     [Trait("Scope", "TaskV1PR04")]
     public async Task ProjectListSerializesTaskPermissionQueries()
     {
@@ -2118,6 +2233,19 @@ public sealed class ProjectServiceTests
     {
         private ProjectFixture()
         {
+            Projects.ActivationEligibility = (userId, project) =>
+                Workspaces.Items.TryGetValue(project.WorkspaceId, out var workspace) &&
+                workspace.Status == WorkspaceStatus.Active &&
+                !workspace.DeletedAt.HasValue &&
+                Workspaces.Members.Any(member =>
+                    member.WorkspaceId == project.WorkspaceId &&
+                    member.UserId == userId &&
+                    member.Status == MembershipStatus.Active &&
+                    member.TenantId == project.TenantId) &&
+                Projects.Members.Any(member =>
+                    member.ProjectId == project.Id &&
+                    member.UserId == userId &&
+                    member.Role is ProjectRole.Owner or ProjectRole.Manager);
             WorkspaceAuthorization = new WorkspaceAuthorizationService(Users, Workspaces);
             GroupAuthorization = new GroupAuthorizationService(Groups, Workspaces, WorkspaceAuthorization);
             ProjectAuthorization = new ProjectAuthorizationService(Projects, WorkspaceAuthorization, GroupAuthorization, Groups);
@@ -2397,9 +2525,19 @@ public sealed class ProjectServiceTests
         public Task FirstMemberLookupEntered => firstMemberLookupEntered.Task;
         public int MaxConcurrentMemberLookups { get; private set; }
         public int ListTaskIdsWithArtifactsCallCount { get; private set; }
+        public int ListActivatableProjectIdsCallCount { get; private set; }
+        public Func<Guid, Project, bool>? ActivationEligibility { get; set; }
         public void ReleaseMemberLookups() => releaseMemberLookups.TrySetResult();
 
         public Task<IReadOnlyList<Project>> ListVisibleAsync(Guid userId, CancellationToken cancellationToken = default) => Task.FromResult<IReadOnlyList<Project>>(ProjectItems.Values.Where(project => Members.Any(member => member.ProjectId == project.Id && member.UserId == userId)).ToList());
+        public Task<IReadOnlyList<Guid>> ListActivatableProjectIdsAsync(Guid userId, IReadOnlyCollection<Guid> projectIds, CancellationToken cancellationToken = default)
+        {
+            ListActivatableProjectIdsCallCount++;
+            return Task.FromResult<IReadOnlyList<Guid>>(ProjectItems.Values
+                .Where(project => projectIds.Contains(project.Id) && ActivationEligibility?.Invoke(userId, project) == true)
+                .Select(project => project.Id)
+                .ToArray());
+        }
         public Task<IReadOnlyList<Guid>> ListCurrentReaderUserIdsAsync(Guid projectId, CancellationToken cancellationToken = default) =>
             Task.FromResult(CurrentReaderUserIds.TryGetValue(projectId, out var userIds)
                 ? userIds
@@ -2505,6 +2643,7 @@ public sealed class ProjectServiceTests
         public Dictionary<Guid, Group> Items { get; } = [];
         public List<GroupMember> Members { get; } = [];
         public Task<IReadOnlyList<Group>> ListByWorkspaceAsync(Guid workspaceId, CancellationToken cancellationToken = default) => Task.FromResult<IReadOnlyList<Group>>(Items.Values.Where(group => group.WorkspaceId == workspaceId).ToList());
+        public Task<IReadOnlyList<Group>> ListManagedByUserAsync(Guid workspaceId, Guid userId, CancellationToken cancellationToken = default) => Task.FromResult<IReadOnlyList<Group>>(Items.Values.Where(group => group.WorkspaceId == workspaceId && Members.Any(member => member.GroupId == group.Id && member.UserId == userId && member.Role is GroupRole.Owner or GroupRole.Admin)).ToList());
         public Task<Group?> GetByIdAsync(Guid groupId, CancellationToken cancellationToken = default) => Task.FromResult(Items.GetValueOrDefault(groupId));
         public Task<GroupMember?> GetMemberAsync(Guid groupId, Guid userId, CancellationToken cancellationToken = default) => Task.FromResult(Members.FirstOrDefault(member => member.GroupId == groupId && member.UserId == userId));
         public Task<IReadOnlyList<GroupMember>> ListMembersAsync(Guid groupId, CancellationToken cancellationToken = default) => Task.FromResult<IReadOnlyList<GroupMember>>(Members.Where(member => member.GroupId == groupId).ToList());

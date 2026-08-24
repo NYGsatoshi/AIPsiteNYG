@@ -126,7 +126,8 @@ public sealed class WorkspaceDashboardProjectionTests
             0,
             0,
             0,
-            0);
+            0,
+            true);
 
         using var json = JsonDocument.Parse(JsonSerializer.Serialize(
             response,
@@ -136,6 +137,7 @@ public sealed class WorkspaceDashboardProjectionTests
         Assert.Equal("ReadOnly", root.GetProperty("currentUserRole").GetString());
         Assert.Equal("WorkspaceMembership", root.GetProperty("accessSource").GetString());
         Assert.False(root.GetProperty("canCreateProject").GetBoolean());
+        Assert.True(root.GetProperty("canOpenProjectCreate").GetBoolean());
         Assert.False(root.GetProperty("canAddFiles").GetBoolean());
         Assert.Equal(0, root.GetProperty("unreadAnnouncementCount").GetInt32());
         Assert.Equal(0, root.GetProperty("unreadConversationCount").GetInt32());

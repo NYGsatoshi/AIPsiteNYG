@@ -6,13 +6,36 @@
       <p>{{ vm.subtitle }}</p>
       <h1>{{ vm.title }}</h1>
     </div>
-    <a routerLink="/tasks">My tasks</a>
+    <div class="projects-page__header-actions">
+      @if (createState().status === 'committedPendingNavigation') {
+        <button
+          id="projects-resume-created-project"
+          type="button"
+          data-testid="projects-resume-created-project"
+          (click)="resumeCreatedProject()"
+        >
+          Resume opening created Project
+        </button>
+      } @else if (createWorkspace()) {
+        <button
+          id="projects-create-project"
+          type="button"
+          data-testid="projects-create-project"
+          (click)="openCreateDialog()"
+        >
+          Create Project
+        </button>
+      }
+      <a routerLink="/tasks">My tasks</a>
+    </div>
   </header>
 
   @if (vm.status === 'loading') {
     <app-inline-loading label="Loading projects" />
   } @else if (vm.status === 'permissionDenied') {
-    <app-permission-denied [title]="vm.message ?? 'Projects are not available for this workspace.'" />
+    <app-permission-denied
+      [title]="vm.message ?? 'Projects are not available for this workspace.'"
+    />
   } @else if (vm.status === 'error') {
     <section data-testid="projects-load-error">
       @if (vm.error) {
@@ -23,12 +46,30 @@
       <button type="button" data-testid="projects-retry" (click)="retry()">Retry</button>
     </section>
   } @else if (vm.status === 'empty' || vm.projects.length === 0) {
-    <app-empty-state title="No projects" message="No authorized project records were returned by the API." />
+    <app-empty-state
+      title="No projects"
+      message="No authorized project records were returned by the API."
+    />
   } @else if (designSystemV04Enabled()) {
     <app-project-summary-panel [projects]="vm.projects" />
-    <p class="projects-page__discovery-note">Choose a project to view its authorized overview, tasks, schedule, workload, and members.</p>
+    <p class="projects-page__discovery-note">
+      Choose a project to view its authorized overview, tasks, schedule, workload, and members.
+    </p>
   } @else {
     <app-project-summary-panel [projects]="vm.projects" />
-    <p data-testid="projects-legacy-rollback">The previous project overview remains available while this screen rebuild is rolled back.</p>
+    <p data-testid="projects-legacy-rollback">
+      The previous project overview remains available while this screen rebuild is rolled back.
+    </p>
   }
 </section>
+
+<app-project-create-dialog
+  [open]="createDialogOpen()"
+  [workspaceName]="createWorkspace()?.name ?? 'Workspace'"
+  [optionsState]="createOptions()"
+  [createState]="createState()"
+  (submitted)="submitProject($event)"
+  (optionsRetried)="retryCreateOptions()"
+  (navigationRetried)="retryCreatedProjectNavigation()"
+  (cancelled)="cancelCreateDialog()"
+/>

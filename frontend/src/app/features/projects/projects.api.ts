@@ -10,17 +10,122 @@ export interface PagedResponseDto<T> {
 
 export interface ProjectUiPermissionDto {
   readonly canCreateTask?: unknown;
+  readonly canActivate?: unknown;
 }
 
 export interface ProjectDto {
   readonly id?: unknown;
+  readonly workspaceId?: unknown;
+  readonly groupId?: unknown;
+  readonly ownerUserId?: unknown;
   readonly title?: unknown;
+  readonly description?: unknown;
   readonly status?: unknown;
+  readonly visibility?: unknown;
+  readonly activationState?: unknown;
+  readonly activatedAtUtc?: unknown;
+  readonly activationVersion?: unknown;
+  readonly versionNo?: unknown;
   readonly startDate?: unknown;
   readonly endDate?: unknown;
   readonly createdAt?: unknown;
   readonly updatedAt?: unknown;
   readonly uiPermissions?: ProjectUiPermissionDto | null;
+}
+
+export interface ProjectActivationSuccess {
+  readonly requestId: string;
+  readonly data: {
+    readonly projectId: string;
+  };
+  readonly warnings: readonly unknown[];
+}
+
+/**
+ * Marks a nominally successful activation response whose HTTP status or body
+ * cannot establish that the canonical command was accepted. Callers must
+ * reconcile with an authoritative Project GET before offering another POST.
+ */
+export class ProjectActivationResponseError extends Error {
+  constructor(
+    message: string,
+    readonly httpStatus: number,
+    readonly requestId?: string
+  ) {
+    super(message);
+    this.name = 'ProjectActivationResponseError';
+  }
+}
+
+export function mapProjectActivationSuccess(
+  value: unknown,
+  expectedProjectId: string,
+  httpStatus: number
+): ProjectActivationSuccess {
+  const envelope = activationRecord(value, 'Project activation response', httpStatus);
+  const requestId = activationRequiredString(
+    envelope['requestId'],
+    'Project activation response requestId',
+    httpStatus
+  );
+  if (httpStatus !== 200) {
+    throw new ProjectActivationResponseError(
+      'Project activation response must use HTTP 200.',
+      httpStatus,
+      requestId
+    );
+  }
+  if (!Array.isArray(envelope['warnings'])) {
+    throw new ProjectActivationResponseError(
+      'Project activation response warnings must be an array.',
+      httpStatus,
+      requestId
+    );
+  }
+  const data = activationRecord(
+    envelope['data'],
+    'Project activation response data',
+    httpStatus,
+    requestId
+  );
+  const projectId = activationRequiredString(
+    data['projectId'],
+    'Project activation response data.projectId',
+    httpStatus,
+    requestId
+  );
+  if (projectId.toLowerCase() !== expectedProjectId.toLowerCase()) {
+    throw new ProjectActivationResponseError(
+      'Project activation response projectId does not match the requested Project.',
+      httpStatus,
+      requestId
+    );
+  }
+  return { requestId, data: { projectId }, warnings: envelope['warnings'] };
+}
+
+function activationRecord(
+  value: unknown,
+  label: string,
+  httpStatus: number,
+  requestId?: string
+): Record<string, unknown> {
+  if (!value || typeof value !== 'object' || Array.isArray(value)) {
+    throw new ProjectActivationResponseError(`${label} must be an object.`, httpStatus, requestId);
+  }
+  return value as Record<string, unknown>;
+}
+
+function activationRequiredString(
+  value: unknown,
+  label: string,
+  httpStatus: number,
+  requestId?: string
+): string {
+  if (typeof value !== 'string' || value.trim().length === 0) {
+    throw new ProjectActivationResponseError(`${label} is required.`, httpStatus, requestId);
+  }
+  return value.trim();
 }
 
 export interface TaskUiPermissionDto {

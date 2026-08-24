@@ -1,7 +1,8 @@
 import { BreakpointObserver } from '@angular/cdk/layout';
-import { Component, DestroyRef, OnDestroy, computed, inject, signal } from '@angular/core';
+import { Component, DestroyRef, ElementRef, OnDestroy, computed, effect, inject, signal, viewChild } from '@angular/core';
 import { ActivatedRoute, Router } from '@angular/router';
 import { takeUntilDestroyed } from '@angular/core/rxjs-interop';
+import { distinctUntilChanged, map } from 'rxjs';
 
 import { AppEmptyStateComponent } from '../../../shared/empty-state/app-empty-state/app-empty-state.component';
 import { AppErrorBannerComponent } from '../../../shared/error/app-error-banner/app-error-banner.component';
@@ -40,12 +41,30 @@ export class ProjectDetailPageComponent implements OnDestroy {
   private readonly breakpoints = inject(BreakpointObserver);
   private readonly destroyRef = inject(DestroyRef);
   readonly page = computed(() => this.facade.view());
-  readonly tab = signal<ProjectDetailTab>('tasks');
+  readonly tab = signal<ProjectDetailTab>('overview');
   readonly schedulePresentation = signal<'desktop' | 'narrow'>('desktop');
   readonly configOpen = signal(false);
   readonly configColumns = signal<readonly ProjectKanbanColumn[]>([]);
   readonly configSwimlane = signal<ProjectKanbanSwimlane>('none');
-  readonly tabs: readonly { id: ProjectDetailTab; label: string }[] = [{ id: 'overview', label: 'Overview' }, { id: 'tasks', label: 'Tasks' }, { id: 'list', label: 'List' }, { id: 'schedule', label: 'Schedule' }, { id: 'workload', label: 'Workload' }, { id: 'members', label: 'Members' }];
+  private readonly activationAnnouncement = viewChild<ElementRef<HTMLElement>>('activationAnnouncement');
+  private readonly pageFocus = viewChild<ElementRef<HTMLElement>>('pageFocus');
+  private previousActivationStatus = 'idle';
+  private activationCompletionInterrupted = false;
+  private activationInterruptionFallbackFocused = false;
+  private readonly operationalTabs: readonly { id: ProjectDetailTab; label: string }[] = [{ id: 'overview', label: 'Overview' }, { id: 'tasks', label: 'Tasks' }, { id: 'list', label: 'List' }, { id: 'schedule', label: 'Schedule' }, { id: 'workload', label: 'Workload' }, { id: 'members', label: 'Members' }];
+  readonly tabs = computed<readonly { id: ProjectDetailTab; label: string }[]>(() =>
+    this.page().project?.isOperational === true
+      ? this.operationalTabs
+      : this.operationalTabs.slice(0, 1));
+  readonly canActivate = computed(() => {
+    const vm = this.page();
+    return vm.project?.canActivate === true &&
+      Number.isSafeInteger(vm.project.versionNo) &&
+      (vm.project.versionNo ?? 0) > 0 &&
+      ['idle', 'failure', 'conflict'].includes(vm.activation.status);
+  });
+  readonly activationBusy = computed(() =>
+    ['submitting', 'reconciling'].includes(this.page().activation.status));
   readonly swimlanes: readonly { value: ProjectKanbanSwimlane; label: string }[] = [
     { value: 'none', label: 'None' },
     { value: 'primaryAssignee', label: 'Primary assignee' },
@@ -55,11 +74,60 @@ export class ProjectDetailPageComponent implements OnDestroy {
   ];
 
   constructor() {
-    const projectId = this.route.snapshot.paramMap.get('projectId');
-    if (projectId) this.facade.load(projectId);
+    this.route.paramMap.pipe(
+      map((params) => params.get('projectId')?.trim() ?? ''),
+      distinctUntilChanged(),
+      takeUntilDestroyed(this.destroyRef)
+    ).subscribe((projectId) => {
+      this.tab.set('overview');
+      this.configOpen.set(false);
+      this.configColumns.set([]);
+      this.configSwimlane.set('none');
+      this.previousActivationStatus = 'idle';
+      this.activationCompletionInterrupted = false;
+      this.activationInterruptionFallbackFocused = false;
+      if (projectId) this.facade.load(projectId);
+      else this.facade.release();
+    });
     this.breakpoints.observe('(max-width: 40rem)')
       .pipe(takeUntilDestroyed(this.destroyRef))
       .subscribe((result) => this.schedulePresentation.set(result.matches ? 'narrow' : 'desktop'));
+    effect(() => {
+      const view = this.page();
+      const status = view.activation.status;
+      const completed = ['success', 'failure', 'conflict', 'uncertain', 'permissionDenied'].includes(status);
+      const wasBusy = this.previousActivationStatus === 'submitting' ||
+        this.previousActivationStatus === 'reconciling';
+      if (
+        status === 'idle' &&
+        view.status !== 'ready' &&
+        (wasBusy || this.previousActivationStatus === 'success')
+      ) {
+        this.activationCompletionInterrupted = true;
+        this.activationInterruptionFallbackFocused = false;
+      }
+      const outerTerminal = view.status === 'permissionDenied' || view.status === 'error';
+      const focusInterruptedFallback = this.activationCompletionInterrupted &&
+        outerTerminal &&
+        !this.activationInterruptionFallbackFocused;
+      const focusCompletion = completed &&
+        (wasBusy || this.activationCompletionInterrupted);
+      this.previousActivationStatus = status;
+      if (focusCompletion || focusInterruptedFallback) {
+        if (focusInterruptedFallback)
+          this.activationInterruptionFallbackFocused = true;
+        if (completed) {
+          this.activationCompletionInterrupted = false;
+          this.activationInterruptionFallbackFocused = false;
+        }
+        this.tab.set('overview');
+        queueMicrotask(() => {
+          const focusTarget = this.activationAnnouncement()?.nativeElement ??
+            this.pageFocus()?.nativeElement;
+          focusTarget?.focus();
+        });
+      }
+    });
   }
 
   ngOnDestroy(): void { this.facade.release(); }
@@ -75,6 +143,7 @@ export class ProjectDetailPageComponent implements OnDestroy {
   retryKanban(): void { this.facade.retryKanban(); }
   retryTaskList(): void { this.facade.retryTaskList(); }
   retrySchedule(): void { this.facade.retrySchedule(); }
+  activateProject(): void { this.facade.activate(); }
   retryPreservedScheduleIntent(): void { this.facade.retryPreservedScheduleIntent(); }
   clearPreservedScheduleIntent(): void { this.facade.clearPreservedScheduleIntent(); }
   requestGanttEdit(intent: AipGanttEditIntent): void { this.facade.applyGanttEdit(intent); }
