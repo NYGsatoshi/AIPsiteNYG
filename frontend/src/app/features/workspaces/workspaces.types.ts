@@ -45,3 +45,31 @@ export interface WorkspaceDashboardViewModel {
   readonly pageCapabilities: readonly WorkspacePageCapability[];
   readonly message?: string;
 }
+
+export interface WorkspaceCreateInput {
+  readonly name: string;
+  readonly description: string | null;
+  readonly icon: string | null;
+}
+
+export type WorkspaceCreateField = 'name' | 'description' | 'icon' | 'form';
+
+export interface WorkspaceCreateFieldError {
+  readonly field: WorkspaceCreateField;
+  readonly message: string;
+}
+
+export type WorkspaceCreateStatus =
+  | 'idle'
+  | 'submitting'
+  | 'error'
+  | 'committedPendingActivation'
+  | 'succeeded';
+
+export interface WorkspaceCreateViewModel {
+  readonly status: WorkspaceCreateStatus;
+  readonly fieldErrors: readonly WorkspaceCreateFieldError[];
+  readonly message?: string;
+  readonly requestId?: string;
+  readonly createdWorkspaceId?: string;
+}

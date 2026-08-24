@@ -1,0 +1,119 @@
+<app-aip-dialog
+  [open]="open"
+  title="Create Workspace"
+  description="Name is required. Description and icon are optional."
+  [confirmLabel]="confirmLabel"
+  cancelLabel="Cancel"
+  [busy]="busy"
+  [confirmDisabled]="confirmDisabled"
+  [confirmForm]="activationPending ? null : formId"
+  focusReturnFallbackId="workspace-dashboard"
+  (confirm)="handleDialogConfirm()"
+  (cancel)="requestCancel()"
+>
+  @if (activationPending) {
+    <section class="workspace-create__pending" role="status" data-testid="workspace-create-pending">
+      <h3>Workspace created</h3>
+      <p>
+        The Workspace was committed, but the authorized list could not confirm activation yet.
+        Retry activation without creating another Workspace.
+      </p>
+      @if (createState.requestId) {
+        <app-request-id [requestId]="createState.requestId" />
+      }
+    </section>
+  } @else {
+    <form
+      [id]="formId"
+      class="workspace-create__form"
+      [formGroup]="form"
+      novalidate
+      (ngSubmit)="submit()"
+      data-testid="workspace-create-form"
+    >
+      @if (summaryErrors.length > 0 || createState.message) {
+        <section
+          #errorSummary
+          id="workspace-create-error-summary"
+          class="workspace-create__summary"
+          role="alert"
+          tabindex="-1"
+          data-testid="workspace-create-error-summary"
+        >
+          <h3>Check the Workspace details</h3>
+          @if (createState.message) {
+            <p>{{ createState.message }}</p>
+          }
+          @if (summaryErrors.length > 0) {
+            <ul>
+              @for (error of summaryErrors; track error.field + error.message) {
+                <li>
+                  <a [href]="error.field === 'form' ? '#workspace-create-error-summary' : '#workspace-create-' + error.field" (click)="focusField(error.field, $event)">
+                    {{ error.message }}
+                  </a>
+                </li>
+              }
+            </ul>
+          }
+          @if (createState.requestId) {
+            <app-request-id [requestId]="createState.requestId" />
+          }
+        </section>
+      }
+
+      <label for="workspace-create-name">Name <span aria-hidden="true">*</span></label>
+      <p id="workspace-create-name-help" class="workspace-create__help">Required · 160 characters maximum</p>
+      <input
+        id="workspace-create-name"
+        type="text"
+        formControlName="name"
+        autocomplete="organization"
+        maxlength="160"
+        required
+        cdkFocusInitial
+        [attr.aria-invalid]="fieldInvalid('name')"
+        [attr.aria-describedby]="fieldInvalid('name') ? 'workspace-create-name-help workspace-create-name-errors' : 'workspace-create-name-help'"
+        data-testid="workspace-create-name"
+      />
+      <div id="workspace-create-name-errors">
+        <app-field-error [messages]="fieldErrors('name')" />
+      </div>
+
+      <label for="workspace-create-description">Description <span>(optional)</span></label>
+      <p id="workspace-create-description-help" class="workspace-create__help">2,000 characters maximum</p>
+      <textarea
+        id="workspace-create-description"
+        formControlName="description"
+        maxlength="2000"
+        rows="4"
+        [attr.aria-invalid]="fieldInvalid('description')"
+        [attr.aria-describedby]="fieldInvalid('description') ? 'workspace-create-description-help workspace-create-description-errors' : 'workspace-create-description-help'"
+        data-testid="workspace-create-description"
+      ></textarea>
+      <div id="workspace-create-description-errors">
+        <app-field-error [messages]="fieldErrors('description')" />
+      </div>
+
+      <label for="workspace-create-icon">Icon <span>(optional)</span></label>
+      <p id="workspace-create-icon-help" class="workspace-create__help">Choose a built-in icon. The internal Workspace ID is generated automatically.</p>
+      <select
+        id="workspace-create-icon"
+        formControlName="icon"
+        [attr.aria-invalid]="fieldInvalid('icon')"
+        [attr.aria-describedby]="fieldInvalid('icon') ? 'workspace-create-icon-help workspace-create-icon-errors' : 'workspace-create-icon-help'"
+        data-testid="workspace-create-icon"
+      >
+        @for (option of iconOptions; track option.value) {
+          <option [value]="option.value">{{ option.value ? option.value + ' ' : '' }}{{ option.label }}</option>
+        }
+      </select>
+      <div id="workspace-create-icon-errors">
+        <app-field-error [messages]="fieldErrors('icon')" />
+      </div>
+
+      <p class="workspace-create__identity-note">
+        Duplicate display names are allowed. Workspace identity is generated automatically.
+      </p>
+    </form>
+  }
+</app-aip-dialog>
