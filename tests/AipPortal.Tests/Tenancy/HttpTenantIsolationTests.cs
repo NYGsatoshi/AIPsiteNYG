@@ -2254,6 +2254,7 @@ public sealed class HttpTenantIsolationTests
             "POST api/projects/{projectId:guid}/task-labels/{labelId:guid}/archive", "POST api/projects/{projectId:guid}/task-labels/{labelId:guid}/restore",
             "PUT api/tasks/{taskItemId:guid}/labels/{labelId:guid}", "DELETE api/tasks/{taskItemId:guid}/labels/{labelId:guid}",
             "GET api/tasks/{taskItemId:guid}/watch-state", "PUT api/tasks/{taskItemId:guid}/watch", "DELETE api/tasks/{taskItemId:guid}/watch",
+            "GET api/tasks/{taskItemId:guid}/activity",
             "GET api/tasks/{taskItemId:guid}/files", "POST api/tasks/{taskItemId:guid}/files", "DELETE api/tasks/{taskItemId:guid}/files/{associationId:guid}",
             "POST api/attachments/{attachmentId:guid}/download-grants", "POST api/attachment-download-grants/{fileDownloadGrantId:guid}/download"
         };
@@ -2337,6 +2338,68 @@ public sealed class HttpTenantIsolationTests
             Assert.Equal("TASK_COMMENT_RATE_LIMITED", problem.RootElement.GetProperty("code").GetString());
             Assert.True(problem.RootElement.GetProperty("retryAfterSeconds").GetInt32() > 0);
             Assert.DoesNotContain("StackTrace", body, StringComparison.OrdinalIgnoreCase);
+        }
+    }
+
+    [Fact]
+    [Trait("Scope", "Issue369")]
+    public async Task TaskActivityHttpContractIsIndependentBoundedStableAndFailClosed()
+    {
+        await using var app = await HttpTenantIsolationTestApp.CreateAsync();
+        var data = app.Data;
+        var occurredAt = new DateTimeOffset(2026, 8, 24, 3, 0, 0, TimeSpan.Zero);
+        var firstId = Guid.Parse("36900000-0000-0000-0000-000000000001");
+        var secondId = Guid.Parse("36900000-0000-0000-0000-000000000002");
+        var thirdId = Guid.Parse("36900000-0000-0000-0000-000000000003");
+        await app.AddTaskActivityAsync(data.TenantA.Id, data.TenantA.Slug, data.TaskA, data.TenantAOwner.Id, firstId, ActivityLogType.Note, "first activity", occurredAt);
+        await app.AddTaskActivityAsync(data.TenantA.Id, data.TenantA.Slug, data.TaskA, data.TenantAOwner.Id, secondId, ActivityLogType.Issue, "needs attention", occurredAt);
+        await app.AddTaskActivityAsync(data.TenantA.Id, data.TenantA.Slug, data.TaskA, data.TenantAOwner.Id, thirdId, ActivityLogType.StatusUpdate, "status update", occurredAt);
+        await app.AddTaskActivityAsync(data.TenantB.Id, data.TenantB.Slug, data.TaskB, data.CrossTenantUser.Id, Guid.NewGuid(), ActivityLogType.Decision, "tenant B secret", occurredAt.AddMinutes(1));
+
+        using (var detailResponse = await app.SendAsync(data.TenantAOwner, data.TenantA.Slug, $"/api/tasks/{data.TaskA.Id:D}"))
+        {
+            Assert.Equal(HttpStatusCode.OK, detailResponse.StatusCode);
+            using var detail = JsonDocument.Parse(await detailResponse.Content.ReadAsStringAsync());
+            Assert.False(detail.RootElement.TryGetProperty("activity", out _));
+            Assert.True(detail.RootElement.GetProperty("task").TryGetProperty("workflowStageName", out _));
+            Assert.True(detail.RootElement.GetProperty("task").TryGetProperty("stageCategory", out _));
+        }
+
+        using (var pageOneResponse = await app.SendAsync(data.TenantAOwner, data.TenantA.Slug, $"/api/tasks/{data.TaskA.Id:D}/activity?page=1&pageSize=2"))
+        {
+            Assert.Equal(HttpStatusCode.OK, pageOneResponse.StatusCode);
+            using var pageOne = JsonDocument.Parse(await pageOneResponse.Content.ReadAsStringAsync());
+            var root = pageOne.RootElement;
+            Assert.Equal(1, root.GetProperty("page").GetInt32());
+            Assert.Equal(2, root.GetProperty("pageSize").GetInt32());
+            Assert.Equal(3, root.GetProperty("totalCount").GetInt32());
+            Assert.True(root.GetProperty("hasMore").GetBoolean());
+            var items = root.GetProperty("items").EnumerateArray().ToArray();
+            Assert.Equal([thirdId, secondId], items.Select(item => item.GetProperty("id").GetGuid()));
+            Assert.Equal("StatusUpdate", items[0].GetProperty("activityType").GetString());
+            Assert.Equal(data.TenantAOwner.DisplayName, items[0].GetProperty("author").GetProperty("displayName").GetString());
+        }
+
+        using (var pageTwoResponse = await app.SendAsync(data.TenantAOwner, data.TenantA.Slug, $"/api/tasks/{data.TaskA.Id:D}/activity?page=2&pageSize=2"))
+        {
+            Assert.Equal(HttpStatusCode.OK, pageTwoResponse.StatusCode);
+            using var pageTwo = JsonDocument.Parse(await pageTwoResponse.Content.ReadAsStringAsync());
+            Assert.Equal(firstId, Assert.Single(pageTwo.RootElement.GetProperty("items").EnumerateArray()).GetProperty("id").GetGuid());
+            Assert.False(pageTwo.RootElement.GetProperty("hasMore").GetBoolean());
+        }
+
+        using (var unauthenticated = new HttpRequestMessage(HttpMethod.Get, $"/api/tasks/{data.TaskA.Id:D}/activity"))
+        {
+            unauthenticated.Headers.TryAddWithoutValidation("X-Tenant-Slug", data.TenantA.Slug);
+            using var response = await app.Client.SendAsync(unauthenticated);
+            Assert.Equal(HttpStatusCode.Unauthorized, response.StatusCode);
+        }
+
+        using (var crossTenantResponse = await app.SendAsync(data.TenantAOwner, data.TenantA.Slug, $"/api/tasks/{data.TaskB.Id:D}/activity"))
+        {
+            var body = await crossTenantResponse.Content.ReadAsStringAsync();
+            Assert.Equal(HttpStatusCode.NotFound, crossTenantResponse.StatusCode);
+            Assert.DoesNotContain("tenant B secret", body, StringComparison.Ordinal);
         }
     }
 
@@ -3198,6 +3261,34 @@ public sealed class HttpTenantIsolationTests
             dbContext.TaskComments.Add(comment);
             await dbContext.SaveChangesAsync();
             return comment;
+        }
+
+        public async Task AddTaskActivityAsync(
+            Guid tenantId,
+            string tenantSlug,
+            TaskItem task,
+            Guid authorUserId,
+            Guid activityId,
+            ActivityLogType activityType,
+            string body,
+            DateTimeOffset occurredAt)
+        {
+            await using var scope = App.Services.CreateAsyncScope();
+            var currentTenant = scope.ServiceProvider.GetRequiredService<CurrentTenantService>();
+            currentTenant.SetTenant(tenantId, tenantSlug);
+            var dbContext = scope.ServiceProvider.GetRequiredService<AppDbContext>();
+            dbContext.ActivityLogs.Add(new ActivityLog
+            {
+                Id = activityId,
+                TenantId = tenantId,
+                ProjectId = task.ProjectId,
+                TaskItemId = task.Id,
+                AuthorUserId = authorUserId,
+                ActivityType = activityType,
+                Body = body,
+                OccurredAt = occurredAt
+            });
+            await dbContext.SaveChangesAsync();
         }
 
         public async Task<(string Body, bool IsImportant, long Version, DateTimeOffset? UpdatedAt)> GetTaskCommentStateAsync(

@@ -204,6 +204,7 @@ export interface CanonicalTaskDetailDto {
   readonly subtasks?: PagedResponseDto<TaskSubtaskDto> | null;
   readonly comments?: PagedResponseDto<TaskCommentDto> | null;
   readonly files?: PagedResponseDto<TaskFileAssociationDto> | null;
+  readonly activity?: PagedResponseDto<TaskActivityLogDto> | null;
 }
 
 export interface TaskDetailPermissionsDto {
@@ -231,6 +232,7 @@ export interface TaskSubtaskDto { readonly id?: unknown; readonly parentTaskId?:
 export interface TaskCommentMentionDto { readonly userId?: unknown; readonly displayName?: unknown; }
 export interface TaskCommentDto { readonly id?: unknown; readonly taskId?: unknown; readonly author?: TaskPersonSummaryDto | null; readonly bodyPlainText?: unknown; readonly isImportant?: unknown; readonly mentions?: readonly TaskCommentMentionDto[]; readonly createdAt?: unknown; readonly updatedAt?: unknown; readonly deletedAt?: unknown; readonly version?: unknown; readonly canEdit?: unknown; readonly canDelete?: unknown; readonly canMarkImportant?: unknown; }
 export interface TaskFileAssociationDto { readonly id?: unknown; readonly fileObjectId?: unknown; readonly fileName?: unknown; readonly contentType?: unknown; readonly sizeBytes?: unknown; readonly scanStatus?: unknown; readonly createdAt?: unknown; readonly accessState?: unknown; readonly canOpen?: unknown; readonly canRequestDownloadGrant?: unknown; readonly downloadGrantRequired?: unknown; readonly restrictionCode?: unknown; }
+export interface TaskActivityLogDto { readonly id?: unknown; readonly activityType?: unknown; readonly body?: unknown; readonly occurredAt?: unknown; readonly author?: TaskPersonSummaryDto | null; }
 export interface TaskMentionCandidateDto { readonly userId?: unknown; readonly displayName?: unknown; }
 export interface ReorderTaskChecklistRequestDto { readonly orderedItemIds: readonly string[]; readonly expectedTaskVersion: string | number; }
 export interface TaskChecklistOrderResponseDto { readonly items?: readonly TaskChecklistDto[]; readonly taskVersion?: unknown; }

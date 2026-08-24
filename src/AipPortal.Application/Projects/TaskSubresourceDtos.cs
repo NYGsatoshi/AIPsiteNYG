@@ -108,6 +108,13 @@ public sealed record CreateTaskSubtaskRequest(
     string? Goal = null,
     string? Deliverable = null,
     string? Constraints = null);
+public sealed record TaskActivityLogResponse(
+    Guid Id,
+    [property: JsonConverter(typeof(JsonStringEnumConverter))] AipPortal.Domain.Enums.ActivityLogType ActivityType,
+    string Body,
+    DateTimeOffset OccurredAt,
+    TaskPersonSummary Author);
+public sealed record TaskActivityLogPage(IReadOnlyList<TaskActivityLogResponse> Items, int Page, int PageSize, int TotalCount, bool HasMore);
 public sealed record TaskFileAssociationResponse(Guid Id, Guid FileObjectId, string FileName, string ContentType, long SizeBytes, string ScanStatus, DateTimeOffset CreatedAt, string AccessState, bool CanOpen, bool CanRequestDownloadGrant, bool DownloadGrantRequired, string? RestrictionCode);
 public sealed record TaskFileAssociationPage(IReadOnlyList<TaskFileAssociationResponse> Items, int Page, int PageSize, int TotalCount, bool HasMore);
 public sealed record CreateTaskFileAssociationRequest(Guid AttachmentId, long ExpectedVersion);

@@ -370,6 +370,68 @@ metadata contain field names/version hints only, never Brief values. The
 reusable Angular fields are integrated into existing Task detail/edit, but a
 full Task-create/start UI is not present in this issue and remains owned by
 Issue #410.
+## Task progress and Activity detail
+
+The canonical Task detail response continues to carry the current configured
+Workflow Stage ID, display name, and fixed category on `task`. That current
+Stage is the Task-detail phase authority. The Activity projection is separate
+so an Activity dependency failure cannot suppress an otherwise authorized
+current phase.
+
+The read-only Activity route is:
+
+- `GET /api/tasks/{taskItemId}/activity?page=1&pageSize=20`
+
+This route exposes only Task-linked `ActivityLog` records that already exist.
+It does not add an Activity writer, and current Task commands must not be
+interpreted as producing Activity execution history through this change.
+
+The service first resolves the current, non-deleted Task through the existing
+Project read boundary. Missing, cross-Tenant, deleted, and unauthorized Tasks
+use the existing metadata-safe Task-not-found response and do not query
+Activity rows. After authorization, the repository filters by both the
+authorized `ProjectId` and `TaskItemId`, while the normal Tenant query filter
+remains active. Results use `OccurredAt DESC, Id DESC` ordering, `page` is
+normalized to at least 1, and `pageSize` is clamped from 1 through 50.
+
+```json
+{
+  "items": [
+    {
+      "id": "<activity id>",
+      "activityType": "StatusUpdate",
+      "body": "Implementation is ready for review.",
+      "occurredAt": "2026-08-24T03:00:00+00:00",
+      "author": {
+        "userId": "<author id>",
+        "displayName": "Example author"
+      }
+    }
+  ],
+  "page": 1,
+  "pageSize": 20,
+  "totalCount": 1,
+  "hasMore": false
+}
+```
+
+The persisted Activity vocabulary remains `Note`, `StatusUpdate`, `Decision`,
+and `Issue`. `StatusUpdate` receives visual emphasis in the browser, while
+`Issue` is labelled `Needs attention`. Neither value changes the current Task
+Stage. In particular, Task has no `Failed` category: the browser does not map
+an Activity issue or a transport failure to a persisted `Failed` Task state.
+
+The browser requests page one only when the secondary Activity disclosure is
+opened. It preserves independently authorized phase/detail data when an
+Activity request has a transient failure, retains already loaded Activity
+while a later page or refresh fails, and retries the exact failed page. A Task
+realtime event remains only an invalidation hint: after Activity has been
+opened, the browser refetches both canonical detail and Activity page one from
+HTTP with authorization and route-generation guards. A 401/403 reauthorizes
+and clears protected Task state; the Activity route's safe 404 clears it
+immediately. Historical Workflow Stage transitions are not available in the
+current ActivityLog contract and are not synthesized from current state or
+generic Activity rows.
 
 ## TASK-V1-PR07-B hard deadline mutation
 

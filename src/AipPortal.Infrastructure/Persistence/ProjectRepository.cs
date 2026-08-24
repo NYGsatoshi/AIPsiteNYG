@@ -249,6 +249,35 @@ public sealed class ProjectRepository(AppDbContext dbContext) : IProjectReposito
             .FirstOrDefaultAsync(task => task.Id == taskItemId, cancellationToken);
     }
 
+    public async Task<PagedResponse<TaskActivityLogReadModel>> ListTaskActivityLogsPageAsync(
+        Guid projectId,
+        Guid taskItemId,
+        int page,
+        int pageSize,
+        CancellationToken cancellationToken = default)
+    {
+        var query = dbContext.ActivityLogs
+            .AsNoTracking()
+            .Where(log => log.ProjectId == projectId && log.TaskItemId == taskItemId);
+        var totalCount = await query.CountAsync(cancellationToken);
+        var skip = (int)Math.Min((long)Math.Max(0, page - 1) * pageSize, int.MaxValue);
+        var items = await query
+            .OrderByDescending(log => log.OccurredAt)
+            .ThenByDescending(log => log.Id)
+            .Skip(skip)
+            .Take(pageSize)
+            .Select(log => new TaskActivityLogReadModel(
+                log.Id,
+                log.ActivityType,
+                log.Body,
+                log.OccurredAt,
+                log.AuthorUserId,
+                log.AuthorUser!.DisplayName))
+            .ToListAsync(cancellationToken);
+
+        return new PagedResponse<TaskActivityLogReadModel>(items, page, pageSize, totalCount);
+    }
+
     public Task<TaskWorkflowDefinition?> GetWorkflowDefinitionAsync(Guid projectId, CancellationToken cancellationToken = default) =>
         dbContext.TaskWorkflowDefinitions.FirstOrDefaultAsync(definition => definition.ProjectId == projectId, cancellationToken);
 

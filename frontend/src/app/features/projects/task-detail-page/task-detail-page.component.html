@@ -14,10 +14,37 @@
       <article class="task-detail-page__context-card task-detail-page__context-card--project" data-testid="project-context"><div class="task-detail-page__context-heading"><span class="task-detail-page__scope-label">Inherited project context</span><strong>Project</strong></div><h2>{{ vm.project?.name ?? vm.task.project }}</h2><p>@if (vm.project?.group) { Group: {{ vm.project?.group }}. } Project-level instructions, members, files, and shared context are managed on the parent Project.</p><a [routerLink]="['/projects', vm.task.projectId]">Open project context</a></article>
       <article class="task-detail-page__context-card task-detail-page__context-card--task" data-testid="task-context"><div class="task-detail-page__context-heading"><span class="task-detail-page__scope-label">Task-specific context</span><strong>Task</strong></div><strong>{{ vm.task.title }}</strong><p>Priority, assignee, due date, progress, dependencies, and editable task fields below apply to this Task.</p></article>
     </section>
-    <section class="task-detail-page__summary" aria-label="Task-specific summary"><div><span>Priority</span><strong>{{ vm.task.priorityLabel }}</strong></div><div><span>Assignee</span><strong>{{ vm.detail?.relationships?.primaryAssignee ?? vm.task.assignee }}</strong></div><div><span>Version</span><strong data-testid="task-detail-version">{{ vm.detail?.taskVersion }}</strong></div><div><span>Due</span><strong>{{ vm.task.dueDate }}</strong></div><app-task-progress-field [value]="vm.task.progressPercent ?? 0" /></section>
+    <section class="task-detail-page__progress" aria-labelledby="task-progress-heading" data-testid="task-progress-phase">
+      <div class="task-detail-page__section-heading"><h2 id="task-progress-heading">Progress</h2><span>Phase-based</span></div>
+      <div class="task-detail-page__context-grid task-detail-page__progress-grid" aria-live="polite" aria-atomic="true">
+        <div><span>Current phase</span><strong data-testid="task-current-phase">{{ vm.task.workflowStageName || 'Stage unavailable' }}</strong></div>
+        <div><span>Current state</span><app-task-status-badge [status]="vm.task.status" [label]="phaseStateLabel(vm.task.stageCategory, vm.task.status, vm.task.isBlocked)" /></div>
+      </div>
+      <p class="task-detail-page__hint">The configured Workflow Stage is authoritative. Activity volume is not converted into a completion percentage.</p>
+    </section>
+    <section class="task-detail-page__summary" aria-label="Task-specific summary"><div><span>Priority</span><strong>{{ vm.task.priorityLabel }}</strong></div><div><span>Assignee</span><strong>{{ vm.detail?.relationships?.primaryAssignee ?? vm.task.assignee }}</strong></div><div><span>Version</span><strong data-testid="task-detail-version">{{ vm.detail?.taskVersion }}</strong></div><div><span>Due</span><strong>{{ vm.task.dueDate }}</strong></div></section>
     <app-task-editor [task]="vm.editorTask" [capabilities]="vm.capabilities" [state]="vm.detailState" [transitionNote]="vm.transitionNote" [mutationState]="mutationState()" [expectedVersion]="vm.detail?.taskVersion ?? ''" [conflictReloadState]="conflictReloadState()" (save)="saveTask($event)" (cancel)="resetMutationState()" (reloadRequested)="reloadTaskAfterConflict()" (dirtyChange)="taskEditorDirty.set($event)" />
     <app-task-dependencies-readonly [dependencies]="vm.dependencies" />
     @if (vm.detail; as detail) {
+      <details class="task-detail-page__section task-detail-page__activity" data-testid="task-activity-log" (toggle)="loadActivity($event)">
+        <summary><span class="task-detail-page__activity-heading" role="heading" aria-level="2">Activity log</span>@if (sectionState('activity')().status === 'loading') { <span>Loading…</span> } @else if (detail.activity.items.length || sectionState('activity')().status === 'ready' || sectionState('activity')().status === 'empty') { <span>{{ detail.activity.totalCount }} recorded</span> }</summary>
+        <div class="task-detail-page__activity-content">
+          <p class="task-detail-page__hint">Detailed Task-linked events are shown separately from current Progress. Status updates are emphasized; historical Workflow Stage changes are not synthesized.</p>
+          @if (detail.activity.items.length) {
+            <ol class="task-detail-page__comments task-detail-page__activity-list">
+              @for (activity of detail.activity.items; track activity.id) {
+                <li [class.task-detail-page__activity-item--status]="activity.activityType === 'statusUpdate'" [class.task-detail-page__activity-item--issue]="activity.activityType === 'issue'">
+                  <div class="task-detail-page__comment-meta task-detail-page__hint"><strong>{{ activityTypeLabel(activity.activityType) }}</strong><span>{{ activity.authorDisplayName }}</span>@if (activity.occurredAt) { <time [attr.datetime]="activity.occurredAt">{{ activity.occurredAt | date:'medium' }}</time> }</div>
+                  <p class="task-detail-page__comment-body">{{ activity.body }}</p>
+                </li>
+              }
+            </ol>
+          } @else if (activityHasConfirmedEmptyState()) { <p class="task-detail-page__empty">No Task activity has been recorded.</p> }
+          @if (sectionState('activity')().status === 'loading') { <app-inline-loading label="Loading Task activity" /> }
+          @if (sectionState('activity')().status === 'error' || sectionState('activity')().status === 'permissionDenied' || sectionState('activity')().status === 'conflict') { <p role="alert">{{ sectionState('activity')().message }} <button type="button" (click)="retrySection('activity')">{{ sectionState('activity')().status === 'conflict' ? 'Reload' : 'Retry' }}</button></p> }
+          @if (detail.activity.hasMore) { <button type="button" (click)="loadMore('activity')" [disabled]="sectionState('activity')().status === 'loading'">Load more activity</button> }
+        </div>
+      </details>
       <section class="task-detail-page__section" aria-labelledby="subtasks-heading"><div class="task-detail-page__section-heading"><h2 id="subtasks-heading">Subtasks</h2><span>{{ detail.subtasks.totalCount }} direct</span></div>
         @if (detail.subtasks.items.length) { <ul class="task-detail-page__list">@for (subtask of detail.subtasks.items; track subtask.id) { <li><a [routerLink]="['/projects', vm.task.projectId, 'tasks', subtask.id]">{{ subtask.title }}</a><span>{{ subtask.stage }} · {{ subtask.progressPercent }}%</span></li> }</ul> } @else { <p class="task-detail-page__empty">No direct subtasks.</p> }
         @if (detail.permissions.canCreateSubtask) { <form class="task-detail-page__form" (submit)="$event.preventDefault(); createSubtask()"><label for="subtask-title">New subtask</label><input id="subtask-title" maxlength="300" [ngModel]="subtaskTitle()" (ngModelChange)="subtaskTitle.set($event)" name="subtaskTitle" /><button type="submit" [disabled]="!subtaskTitle().trim() || subtaskTitle().trim().length > 300 || sectionState('subtasks')().status === 'submitting'">Create subtask</button>@if (subtaskTitle().trim().length > 300) { <small role="alert">Subtask title must be 300 characters or fewer.</small> }</form> }

@@ -4,6 +4,14 @@ using AipPortal.Domain.Enums;
 
 namespace AipPortal.Application.Common.Interfaces;
 
+public sealed record TaskActivityLogReadModel(
+    Guid Id,
+    ActivityLogType ActivityType,
+    string Body,
+    DateTimeOffset OccurredAt,
+    Guid AuthorUserId,
+    string AuthorDisplayName);
+
 public interface IProjectRepository
 {
     Task<IReadOnlyList<Project>> ListVisibleAsync(Guid userId, CancellationToken cancellationToken = default);
@@ -51,6 +59,13 @@ public interface IProjectRepository
     }
     Task<PagedResponse<TaskItem>> ListDirectSubtasksPageAsync(Guid projectId, Guid parentTaskItemId, int page, int pageSize, CancellationToken cancellationToken = default) => Task.FromResult(new PagedResponse<TaskItem>([], page, pageSize, 0));
     Task<TaskItem?> GetTaskAsync(Guid taskItemId, CancellationToken cancellationToken = default);
+    Task<PagedResponse<TaskActivityLogReadModel>> ListTaskActivityLogsPageAsync(
+        Guid projectId,
+        Guid taskItemId,
+        int page,
+        int pageSize,
+        CancellationToken cancellationToken = default) =>
+        Task.FromResult(new PagedResponse<TaskActivityLogReadModel>([], page, pageSize, 0));
     Task<TaskWorkflowDefinition?> GetWorkflowDefinitionAsync(Guid projectId, CancellationToken cancellationToken = default) => Task.FromResult<TaskWorkflowDefinition?>(null);
     Task<TaskWorkflowStage?> GetWorkflowStageAsync(Guid workflowStageId, CancellationToken cancellationToken = default) => Task.FromResult<TaskWorkflowStage?>(null);
     Task<IReadOnlyList<TaskWorkflowStage>> ListWorkflowStagesAsync(Guid projectId, CancellationToken cancellationToken = default) => Task.FromResult<IReadOnlyList<TaskWorkflowStage>>([]);

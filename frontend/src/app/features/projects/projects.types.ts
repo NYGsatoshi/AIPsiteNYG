@@ -29,7 +29,7 @@ export type TaskMutationState =
 export type TaskConflictReloadState = 'idle' | 'loading' | 'error';
 
 /** State is deliberately scoped: an unrelated Task section must never disable another one. */
-export type TaskDetailSection = 'detail' | 'subtasks' | 'checklist' | 'comments' | 'labels' | 'watch' | 'files';
+export type TaskDetailSection = 'detail' | 'activity' | 'subtasks' | 'checklist' | 'comments' | 'labels' | 'watch' | 'files';
 export type TaskDetailSectionStatus = 'idle' | 'loading' | 'ready' | 'empty' | 'submitting' | 'success' | 'error' | 'permissionDenied' | 'conflict';
 export interface TaskDetailSectionState {
   readonly status: TaskDetailSectionStatus;
@@ -296,6 +296,7 @@ export interface TaskDetailAggregateViewModel {
   readonly subtasks: TaskPageViewModel<TaskSubtaskViewModel>;
   readonly comments: TaskPageViewModel<TaskCommentViewModel>;
   readonly files: TaskPageViewModel<TaskFileAssociationViewModel>;
+  readonly activity: TaskPageViewModel<TaskActivityLogViewModel>;
   readonly watchState: TaskWatchStateViewModel;
 }
 
@@ -311,6 +312,8 @@ export interface TaskCommentMentionViewModel { readonly userId: string; readonly
 export interface TaskCommentViewModel { readonly id: string; readonly taskId: string; readonly author: string | null; readonly body: string | null; readonly isImportant: boolean; readonly mentions: readonly TaskCommentMentionViewModel[]; readonly createdAt: string | null; readonly updatedAt: string | null; readonly deletedAt: string | null; readonly version: string; readonly canEdit: boolean; readonly canDelete: boolean; readonly canMarkImportant: boolean; }
 /** id is the canonical Attachment ID for the Task association. */
 export interface TaskFileAssociationViewModel { readonly id: string; readonly fileObjectId: string; readonly fileName: string; readonly contentType: string; readonly sizeBytes: number; readonly scanStatus: string; readonly createdAt: string | null; readonly accessState: string; readonly canOpen: boolean; readonly canRequestDownloadGrant: boolean; readonly downloadGrantRequired: boolean; readonly restrictionCode: string | null; }
+export type TaskActivityLogType = 'note' | 'statusUpdate' | 'decision' | 'issue' | 'unknown';
+export interface TaskActivityLogViewModel { readonly id: string; readonly activityType: TaskActivityLogType; readonly body: string; readonly occurredAt: string | null; readonly authorUserId: string | null; readonly authorDisplayName: string; }
 export interface TaskWatchStateViewModel { readonly isWatching: boolean; readonly isExplicitOptOut: boolean; readonly automaticSources: readonly string[]; readonly version: string; }
 
 export interface TaskEditorSaveRequest {

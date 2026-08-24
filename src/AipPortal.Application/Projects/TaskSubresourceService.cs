@@ -38,6 +38,13 @@ public sealed class TaskSubresourceService(
         return Result<CanonicalTaskDetailResponse>.Success(new(taskResult.Value!, relationships.Value!, permissions, checklist.Value!, labels, watch.Value!, subtasks.Value!, comments.Value!, filePage.Value!));
     }
 
+    public async Task<Result<TaskActivityLogPage>> ListActivityAsync(Guid taskId, int page = 1, int pageSize = 20, CancellationToken ct = default)
+    {
+        var task = await VisibleTaskAsync(taskId, ct);
+        if (task is null) return Fail<TaskActivityLogPage>("TASK_NOT_FOUND", "Task not found.");
+        return Result<TaskActivityLogPage>.Success(await ReadActivityPageAsync(task, page, pageSize, ct));
+    }
+
     public async Task<Result<TaskFileAssociationPage>> ListFilesAsync(Guid taskId, int page = 1, int pageSize = 20, CancellationToken ct = default)
     {
         var task = await VisibleTaskAsync(taskId, ct); if (task is null) return Fail<TaskFileAssociationPage>("TASK_NOT_FOUND", "Task not found.");
@@ -598,6 +605,22 @@ public sealed class TaskSubresourceService(
         var canOpen = await fileAuthorization.CanViewAttachment(Actor(), x, ct);
         var canRequestDownloadGrant = await fileAuthorization.CanDownloadAttachment(Actor(), x, ct);
         return new(x.Id, x.FileObjectId, x.FileName, x.ContentType, x.SizeBytes, x.ScanStatus.ToString(), x.CreatedAt, canOpen ? "Available" : "AccessRevoked", canOpen, canRequestDownloadGrant, true, canOpen ? null : "ACCESS_REVOKED");
+    }
+
+    private async Task<TaskActivityLogPage> ReadActivityPageAsync(TaskItem task, int page, int pageSize, CancellationToken ct)
+    {
+        page = Math.Max(1, page);
+        pageSize = Math.Clamp(pageSize, 1, 50);
+        var result = await projects.ListTaskActivityLogsPageAsync(task.ProjectId, task.Id, page, pageSize, ct);
+        var items = result.Items
+            .Select(item => new TaskActivityLogResponse(
+                item.Id,
+                item.ActivityType,
+                item.Body,
+                item.OccurredAt,
+                new TaskPersonSummary(item.AuthorUserId, item.AuthorDisplayName)))
+            .ToArray();
+        return new TaskActivityLogPage(items, page, pageSize, result.TotalCount, (long)page * pageSize < result.TotalCount);
     }
     private async Task<IReadOnlyList<TaskCommentResponse>> ToCommentsAsync(IReadOnlyList<TaskComment> comments, Guid actor, bool manager, Guid projectId, CancellationToken ct)
     {

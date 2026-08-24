@@ -91,6 +91,10 @@ public sealed class ProjectsController(IProjectService projects, ITaskCommandSer
     [HttpGet("api/tasks/{taskItemId:guid}")]
     public async Task<IActionResult> GetTask(Guid taskItemId, CancellationToken cancellationToken) => ToTaskActionResult(await taskSubresources.GetDetailAsync(taskItemId, cancellationToken));
 
+    [HttpGet("api/tasks/{taskItemId:guid}/activity")]
+    public async Task<IActionResult> ListTaskActivity(Guid taskItemId, [FromQuery] int page = 1, [FromQuery] int pageSize = 20, CancellationToken cancellationToken = default) =>
+        ToTaskActionResult(await taskSubresources.ListActivityAsync(taskItemId, page, pageSize, cancellationToken));
+
     [HttpPatch("api/tasks/{taskItemId:guid}")]
     public async Task<IActionResult> UpdateTask(Guid taskItemId, TaskUpdateDetailsRequest request, CancellationToken cancellationToken) => ToTaskActionResult(await taskCommands.UpdateDetailsAsync(taskItemId, request, cancellationToken));
 
