@@ -58,6 +58,7 @@ interface ProjectCreateAttempt {
   readonly workspaceId: string;
   readonly payloadKey: string;
   readonly idempotencyKey: string;
+  hasDispatched: boolean;
 }
 
 interface CommittedProjectCreate {
@@ -87,6 +88,7 @@ export class ProjectCreateFacade {
   private optionsCancellation = new Subject<void>();
   private mutationCancellation = new Subject<void>();
   private createAttempt: ProjectCreateAttempt | null = null;
+  private activeCreateAttempt: ProjectCreateAttempt | null = null;
   private committedCreate: CommittedProjectCreate | null = null;
 
   readonly options = this.optionsState.asReadonly();
@@ -178,7 +180,7 @@ export class ProjectCreateFacade {
   }
 
   async createProject(workspaceId: string, input: ProjectCreateInput): Promise<boolean> {
-    if (this.mutationState().status === 'submitting') {
+    if (this.mutationState().status === 'submitting' || this.activeCreateAttempt !== null) {
       return false;
     }
 
@@ -218,6 +220,7 @@ export class ProjectCreateFacade {
     }
 
     const attempt = this.getOrCreateAttempt(identityKey, workspaceId, request);
+    this.activeCreateAttempt = attempt;
     this.cancelMutationRequest();
     const cancellation = this.mutationCancellation;
     const generation = this.scopeGeneration;
@@ -227,7 +230,11 @@ export class ProjectCreateFacade {
     try {
       success = await firstValueFrom(
         this.api
-          .createProject(workspaceId, request, attempt.idempotencyKey)
+          .createProject(workspaceId, request, attempt.idempotencyKey, () => {
+            if (this.activeCreateAttempt === attempt) {
+              attempt.hasDispatched = true;
+            }
+          })
           .pipe(takeUntil(cancellation)),
         { defaultValue: null },
       );
@@ -236,6 +243,10 @@ export class ProjectCreateFacade {
         this.applyCreateError(error);
       }
       return false;
+    } finally {
+      if (this.activeCreateAttempt === attempt) {
+        this.activeCreateAttempt = null;
+      }
     }
 
     if (!success || !this.isScopeCurrent(generation, identityKey, workspaceId)) {
@@ -380,6 +391,7 @@ export class ProjectCreateFacade {
       attempt !== null &&
       attempt.identityKey === this.currentIdentityKey() &&
       attempt.workspaceId === this.scopeWorkspaceId;
+    const attemptWasDispatched = preserveUncertainAttempt && attempt?.hasDispatched === true;
 
     this.scopeGeneration += 1;
     this.cancelOptionsRequest();
@@ -404,12 +416,13 @@ export class ProjectCreateFacade {
     }
 
     if (preserveUncertainAttempt && attempt) {
-      // The server can commit Project creation and publish its authorization
-      // invalidation before the HTTP 201 reaches this client. Treat that
-      // ordering exactly like an uncertain transport result: retain only the
-      // opaque payload hash/key tuple, recheck options, and reuse the same key
-      // for unchanged details. A session, Tenant, or actual Workspace boundary
-      // below still destroys the attempt.
+      // An authorization invalidation always clears the protected projection.
+      // If any request for this key had reached browser dispatch, the server
+      // can have committed before its 201 reached this client. If none had
+      // started, the cancellation prevented every POST, so an explicit retry
+      // after a fresh options read is required without falsely claiming
+      // uncertainty. In either case retain only the opaque canonical payload/key tuple. A
+      // session, Tenant, or actual Workspace boundary below destroys it.
       this.scopeIdentityKey = attempt.identityKey;
       this.scopeWorkspaceId = attempt.workspaceId;
       this.createAttempt = attempt;
@@ -421,8 +434,9 @@ export class ProjectCreateFacade {
       this.mutationState.set({
         status: 'error',
         fieldErrors: [],
-        message:
-          'The Project may have been created. Recheck access and retry the same details so the server can safely reconcile the request.',
+        message: attemptWasDispatched
+          ? 'The Project may have been created. Recheck access and retry the same details so the server can safely reconcile the request.'
+          : 'Project creation was stopped before it was sent. Recheck access and submit the same details after the options reload.',
       });
       return;
     }
@@ -475,6 +489,7 @@ export class ProjectCreateFacade {
       workspaceId,
       payloadKey,
       idempotencyKey: createProjectIdempotencyKey(),
+      hasDispatched: false,
     };
     return this.createAttempt;
   }

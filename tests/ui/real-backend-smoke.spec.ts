@@ -335,14 +335,19 @@ test.describe('MVP0 real backend browser smoke', () => {
     let workspaceId: string | null = null;
     let createdProjectId: string | null = null;
     const projectOperationalRequests: string[] = [];
+    let observedProjectCreatePosts = 0;
 
     page.on('pageerror', (error) => evidence.pageErrors.push(error.message));
     page.on('console', (message) => {
       if (message.type() === 'error') evidence.consoleErrors.push(message.text());
     });
     page.on('request', (request) => {
-      if (!createdProjectId || request.method() !== 'GET') return;
       const path = new URL(request.url()).pathname;
+      if (workspaceId && request.method() === 'POST' && path === `/api/workspaces/${workspaceId}/projects`) {
+        observedProjectCreatePosts += 1;
+      }
+
+      if (!createdProjectId || request.method() !== 'GET') return;
       if ([
         `/api/projects/${createdProjectId}/tasks`,
         `/api/projects/${createdProjectId}/kanban`,
@@ -442,8 +447,43 @@ test.describe('MVP0 real backend browser smoke', () => {
         'POST',
         `/api/workspaces/${workspaceId}/projects`
       );
+      const stoppedBeforeDispatch = page
+        .getByTestId('project-create-create-status')
+        .filter({ hasText: 'stopped before it was sent' })
+        .waitFor({ state: 'visible' })
+        .then(() => ({ kind: 'stopped' as const }));
       await dialog.getByRole('button', { name: 'Create Project' }).click();
-      const createResponse = await createResponsePromise;
+      const firstCreateOutcome = await Promise.race([
+        createResponsePromise.then((response) => ({
+          kind: 'response' as const,
+          response
+        })),
+        stoppedBeforeDispatch
+      ]);
+      let createResponse: PlaywrightResponse;
+      if (firstCreateOutcome.kind === 'stopped') {
+        await expect(page.getByTestId('project-create-create-status')).toContainText(
+          'Project creation was stopped before it was sent.'
+        );
+        expect(observedProjectCreatePosts, 'no Project POST was dispatched before reauthorization').toBe(0);
+
+        const reauthorizedOptions = waitForApiResponse(
+          page,
+          'GET',
+          `/api/workspaces/${workspaceId}/projects/create-options`
+        );
+        await page.getByTestId('project-create-options-retry').click();
+        await expect(page.getByTestId('project-create-form')).toBeVisible();
+        expect(observedProjectCreatePosts, 'options reauthorization never posts automatically').toBe(0);
+        const reauthorizedOptionsResponse = await reauthorizedOptions;
+        expect(reauthorizedOptionsResponse.ok(), 'reauthorized Project create options').toBe(true);
+
+        await dialog.getByRole('button', { name: 'Create Project' }).click();
+        createResponse = await createResponsePromise;
+      } else {
+        createResponse = firstCreateOutcome.response;
+      }
+      expect(observedProjectCreatePosts, 'one explicit Project POST is observed').toBe(1);
       const createText = await createResponse.text();
       const createBody = parseJson(createText) as Record<string, any>;
       const createRequest = createResponse.request();

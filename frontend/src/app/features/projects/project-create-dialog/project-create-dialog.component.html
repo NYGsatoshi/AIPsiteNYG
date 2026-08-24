@@ -50,10 +50,18 @@
     >
       <h3>Creation options could not be loaded</h3>
       <p>{{ optionsState.message }}</p>
+      @if (createState.message) {
+        <p data-testid="project-create-create-status">{{ createState.message }}</p>
+      }
       @if (optionsState.requestId) {
         <app-request-id [requestId]="optionsState.requestId" />
       }
-      <button type="button" (click)="retryOptions()" data-testid="project-create-options-retry">
+      <button
+        #optionsRetry
+        type="button"
+        (click)="retryOptions()"
+        data-testid="project-create-options-retry"
+      >
         Retry
       </button>
     </section>
