@@ -7,6 +7,7 @@ import {
   TaskMockRecord,
   MyTasksLiveTask,
   TaskPriority,
+  TaskStageCategory,
   TaskStatus
 } from './projects.types';
 
@@ -31,10 +32,26 @@ export function mapTaskDtoToRecord(
   task: TaskDto,
   _projects: readonly ProjectMockRecord[]
 ): TaskMockRecord {
-  const status = task.isBlocked === true ? 'blocked' : mapTaskStatus(task.stageCategory ?? task.status);
+  // Project Task lists retain the legacy `status` field and serialize the
+  // additive category as a string.  The older canonical Task-detail contract
+  // has no `status` field and still serializes the category ordinal.  Keep the
+  // two numeric vocabularies separate so Review (canonical 3) can never be
+  // mistaken for legacy Blocked (legacy 3).
+  const canonicalStageCategory = mapTaskStageCategory(
+    task.stageCategory,
+    task.status === undefined || task.status === null
+  );
+  const legacyStatus = mapTaskStatus(task.status);
+  const status = canonicalStageCategory
+    ? taskStatusFromStageCategory(canonicalStageCategory)
+    : legacyStatus;
+  const stageCategory = canonicalStageCategory ?? taskStageCategoryFromStatus(legacyStatus);
+  const isBlocked = task.isBlocked === true ||
+    (task.isBlocked !== false && !canonicalStageCategory && legacyStatus === 'blocked');
   const priority = mapTaskPriority(task.priority);
   const projectId = requiredString(task.projectId, 'task.projectId');
   const allowedTransitions = taskStatusArray(task.uiPermissions?.allowedTransitions);
+  const workflowStageName = stringValue(task.workflowStageName) ?? taskStageCategoryLabel(stageCategory);
 
   return {
     id: requiredString(task.id, 'task.id'),
@@ -43,6 +60,13 @@ export function mapTaskDtoToRecord(
     description: stringValue(task.description) ?? '',
     status,
     statusLabel: taskStatusLabel(status),
+    workflowStageId: stringValue(task.workflowStageId) ?? null,
+    workflowStageName,
+    stageCategory,
+    isBlocked,
+    createdAt: stringValue(task.createdAt) ?? '',
+    updatedAt: stringValue(task.updatedAt) ?? '',
+    hasArtifact: typeof task.hasArtifact === 'boolean' ? task.hasArtifact : undefined,
     priority,
     priorityLabel: taskPriorityLabel(priority),
     assignee: stringValue(task.primaryAssignee?.displayName) ?? 'Unassigned',
@@ -88,7 +112,11 @@ export function mapMyTaskDtoToRecord(task: MyTaskDto): TaskMockRecord {
 
 /** Maps only the PR04 canonical projection.  Legacy TaskMockRecord is never used for live My Tasks state. */
 export function mapMyTaskDtoToProjection(task: MyTaskDto): MyTasksLiveTask {
-  const stage = mapTaskStatus(task.stageCategory);
+  const canonicalStageCategory = mapTaskStageCategory(task.stageCategory);
+  const stage = canonicalStageCategory
+    ? taskStatusFromStageCategory(canonicalStageCategory)
+    : mapTaskStatus(task.status);
+  const stageCategory = canonicalStageCategory ?? taskStageCategoryFromStatus(stage);
   const priority = mapTaskPriority(task.priority);
   const timeGroup = mapTimeGroup(task.timeGroup);
   const permissions = task.quickEditPermissions;
@@ -102,6 +130,7 @@ export function mapMyTaskDtoToProjection(task: MyTaskDto): MyTasksLiveTask {
     title: requiredString(task.title, 'myTask.title'),
     workflowStageId: stringValue(task.workflowStageId) ?? null,
     workflowStageName: stringValue(task.workflowStageName) ?? taskStatusLabel(stage),
+    stageCategory,
     status: stage,
     priority,
     isBlocked: task.isBlocked === true,
@@ -166,6 +195,44 @@ export function mapTaskStatus(value: unknown): TaskStatus {
   return 'notStarted';
 }
 
+/**
+ * Parses the canonical category string. Numeric values are accepted only when
+ * the caller has positively identified the older canonical Task-detail DTO,
+ * which omits the legacy `status` discriminator. Numeric list values belong to
+ * TaskItemStatus and must never be interpreted as category ordinals.
+ */
+export function mapTaskStageCategory(
+  value: unknown,
+  allowCanonicalNumeric = false
+): TaskStageCategory | undefined {
+  if (allowCanonicalNumeric && typeof value === 'number' && Number.isInteger(value)) {
+    switch (value) {
+      case 0: return 'backlog';
+      case 1: return 'todo';
+      case 2: return 'inProgress';
+      case 3: return 'review';
+      case 4: return 'done';
+      case 5: return 'cancelled';
+      default: return undefined;
+    }
+  }
+
+  if (typeof value !== 'string') {
+    return undefined;
+  }
+
+  switch (enumText(value)) {
+    case 'backlog': return 'backlog';
+    case 'todo': return 'todo';
+    case 'inprogress': return 'inProgress';
+    case 'review': return 'review';
+    case 'done': return 'done';
+    case 'cancelled':
+    case 'canceled': return 'cancelled';
+    default: return undefined;
+  }
+}
+
 export function mapTaskPriority(value: unknown): TaskPriority {
   const normalized = enumText(value);
   if (normalized === '0' || normalized === 'low') {
@@ -211,6 +278,32 @@ export function taskStatusLabel(status: TaskStatus): string {
   )[status];
 }
 
+export function taskStageCategoryLabel(category: TaskStageCategory): string {
+  return (
+    {
+      backlog: 'Backlog',
+      todo: 'To do',
+      inProgress: 'In progress',
+      review: 'Needs review',
+      done: 'Done',
+      cancelled: 'Cancelled'
+    } satisfies Record<TaskStageCategory, string>
+  )[category];
+}
+
+export function taskStageWorkStatus(category: TaskStageCategory): WorkStatus {
+  return (
+    {
+      backlog: 'draft',
+      todo: 'ready',
+      inProgress: 'running',
+      review: 'needsReview',
+      done: 'completed',
+      cancelled: 'cancelled'
+    } satisfies Record<TaskStageCategory, WorkStatus>
+  )[category];
+}
+
 export function taskPriorityLabel(priority: TaskPriority): string {
   return (
     {
@@ -246,6 +339,32 @@ function taskStatusArray(value: unknown): readonly TaskStatus[] {
   }
 
   return value.map((item) => mapTaskStatus(item));
+}
+
+function taskStatusFromStageCategory(category: TaskStageCategory): TaskStatus {
+  return (
+    {
+      backlog: 'notStarted',
+      todo: 'notStarted',
+      inProgress: 'inProgress',
+      review: 'review',
+      done: 'done',
+      cancelled: 'cancelled'
+    } satisfies Record<TaskStageCategory, TaskStatus>
+  )[category];
+}
+
+export function taskStageCategoryFromStatus(status: TaskStatus): TaskStageCategory {
+  return (
+    {
+      notStarted: 'todo',
+      inProgress: 'inProgress',
+      blocked: 'todo',
+      review: 'review',
+      done: 'done',
+      cancelled: 'cancelled'
+    } satisfies Record<TaskStatus, TaskStageCategory>
+  )[status];
 }
 
 function stringValue(value: unknown): string | undefined {

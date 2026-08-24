@@ -36,6 +36,101 @@ public sealed class ProjectServiceTests
         Assert.Single(result.Value!.Items);
     }
 
+    [Theory]
+    [InlineData(TaskStageCategory.Backlog)]
+    [InlineData(TaskStageCategory.Todo)]
+    [InlineData(TaskStageCategory.InProgress)]
+    [InlineData(TaskStageCategory.Review)]
+    [InlineData(TaskStageCategory.Done)]
+    [InlineData(TaskStageCategory.Cancelled)]
+    public async Task TaskListProjectsCanonicalStageBlockedTimestampAndArtifactState(
+        TaskStageCategory category)
+    {
+        var fixture = ProjectFixture.Create();
+        var viewer = fixture.AddUser();
+        fixture.Current.UserIdValue = viewer.Id;
+        fixture.AddProjectMember(viewer.Id, ProjectRole.Viewer);
+        var stage = new TaskWorkflowStage
+        {
+            ProjectId = fixture.Project.Id,
+            WorkspaceId = fixture.Workspace.Id,
+            Name = $"Configured {category}",
+            InternalCategory = category,
+            SortKey = 2000
+        };
+        fixture.Projects.Stages[stage.Id] = stage;
+        var createdAt = new DateTimeOffset(2026, 8, 20, 1, 2, 3, TimeSpan.Zero);
+        var updatedAt = createdAt.AddHours(4);
+        var task = fixture.AddTask($"{category} task");
+        task.WorkflowStageId = stage.Id;
+        task.WorkflowStage = stage;
+        task.IsBlocked = true;
+        task.CreatedAt = createdAt;
+        task.UpdatedAt = updatedAt;
+        fixture.Projects.TaskIdsWithArtifacts.Add(task.Id);
+
+        var result = await fixture.Service.ListTasksAsync(
+            fixture.Project.Id,
+            new TaskListQuery());
+
+        Assert.True(result.IsSuccess, result.Error);
+        var response = Assert.Single(result.Value!.Items);
+        Assert.Equal(stage.Id, response.WorkflowStageId);
+        Assert.Equal(stage.Name, response.WorkflowStageName);
+        Assert.Equal(category, response.StageCategory);
+        Assert.True(response.IsBlocked);
+        Assert.True(response.HasArtifact);
+        Assert.Equal(createdAt, response.CreatedAt);
+        Assert.Equal(updatedAt, response.UpdatedAt);
+        Assert.Equal(1, fixture.Projects.ListTaskIdsWithArtifactsCallCount);
+
+        var json = System.Text.Json.JsonSerializer.Serialize(
+            response,
+            new System.Text.Json.JsonSerializerOptions(System.Text.Json.JsonSerializerDefaults.Web));
+        using var document = System.Text.Json.JsonDocument.Parse(json);
+        Assert.Equal(category.ToString(), document.RootElement.GetProperty("stageCategory").GetString());
+    }
+
+    [Fact]
+    public async Task TaskListDoesNotReadArtifactStateBeforeProjectAuthorization()
+    {
+        var fixture = ProjectFixture.Create();
+        var outsider = fixture.AddUser(addWorkspaceMember: false);
+        fixture.Current.UserIdValue = outsider.Id;
+        fixture.AddTask("Private task");
+
+        var result = await fixture.Service.ListTasksAsync(
+            fixture.Project.Id,
+            new TaskListQuery());
+
+        Assert.False(result.IsSuccess);
+        Assert.Equal("Project not found.", result.Error);
+        Assert.Equal(0, fixture.Projects.ListTaskIdsWithArtifactsCallCount);
+    }
+
+    [Fact]
+    public async Task LegacyTaskListUsesReadableCanonicalStageFallback()
+    {
+        var fixture = ProjectFixture.Create();
+        var viewer = fixture.AddUser();
+        fixture.Current.UserIdValue = viewer.Id;
+        fixture.AddProjectMember(viewer.Id, ProjectRole.Viewer);
+        var task = fixture.AddTask("Legacy active task");
+        task.Status = TaskItemStatus.InProgress;
+        task.WorkflowStageId = null;
+        task.WorkflowStage = null;
+
+        var result = await fixture.Service.ListTasksAsync(
+            fixture.Project.Id,
+            new TaskListQuery());
+
+        Assert.True(result.IsSuccess, result.Error);
+        var response = Assert.Single(result.Value!.Items);
+        Assert.Null(response.WorkflowStageId);
+        Assert.Equal("In progress", response.WorkflowStageName);
+        Assert.Equal(TaskStageCategory.InProgress, response.StageCategory);
+    }
+
     [Fact]
     public async Task UserOutsideProjectCannotBeAssigned()
     {
@@ -2288,6 +2383,7 @@ public sealed class ProjectServiceTests
         public Dictionary<Guid, Milestone> Milestones { get; } = [];
         public Dictionary<Guid, TaskItem> Tasks { get; } = [];
         public Dictionary<Guid, TaskWorkflowStage> Stages { get; } = [];
+        public HashSet<Guid> TaskIdsWithArtifacts { get; } = [];
         public List<TaskAssignment> Assignments { get; } = [];
         public List<TaskDependency> Dependencies { get; } = [];
         public List<Comment> Comments { get; } = [];
@@ -2300,6 +2396,7 @@ public sealed class ProjectServiceTests
         public bool BlockMemberLookups { get; set; }
         public Task FirstMemberLookupEntered => firstMemberLookupEntered.Task;
         public int MaxConcurrentMemberLookups { get; private set; }
+        public int ListTaskIdsWithArtifactsCallCount { get; private set; }
         public void ReleaseMemberLookups() => releaseMemberLookups.TrySetResult();
 
         public Task<IReadOnlyList<Project>> ListVisibleAsync(Guid userId, CancellationToken cancellationToken = default) => Task.FromResult<IReadOnlyList<Project>>(ProjectItems.Values.Where(project => Members.Any(member => member.ProjectId == project.Id && member.UserId == userId)).ToList());
@@ -2340,6 +2437,11 @@ public sealed class ProjectServiceTests
         public Task<IReadOnlyList<Milestone>> ListMilestonesAsync(Guid projectId, CancellationToken cancellationToken = default) => Task.FromResult<IReadOnlyList<Milestone>>(Milestones.Values.Where(milestone => milestone.ProjectId == projectId).OrderBy(milestone => milestone.SortOrder).ThenBy(milestone => milestone.DueDate).ToList());
         public Task<Milestone?> GetMilestoneAsync(Guid milestoneId, CancellationToken cancellationToken = default) => Task.FromResult(Milestones.GetValueOrDefault(milestoneId));
         public Task<IReadOnlyList<TaskItem>> ListTasksAsync(Guid projectId, CancellationToken cancellationToken = default) => Task.FromResult<IReadOnlyList<TaskItem>>(Tasks.Values.Where(task => task.ProjectId == projectId).ToList());
+        public Task<IReadOnlyList<Guid>> ListTaskIdsWithArtifactsAsync(Guid projectId, CancellationToken cancellationToken = default)
+        {
+            ListTaskIdsWithArtifactsCallCount++;
+            return Task.FromResult<IReadOnlyList<Guid>>(TaskIdsWithArtifacts.ToArray());
+        }
         public Task<TaskItem?> GetTaskAsync(Guid taskItemId, CancellationToken cancellationToken = default) => Task.FromResult(Tasks.GetValueOrDefault(taskItemId));
         public Task<TaskWorkflowStage?> GetWorkflowStageAsync(Guid workflowStageId, CancellationToken cancellationToken = default) => Task.FromResult(Stages.GetValueOrDefault(workflowStageId));
         public Task<IReadOnlyList<TaskWorkflowStage>> ListWorkflowStagesAsync(Guid projectId, CancellationToken cancellationToken = default) => Task.FromResult<IReadOnlyList<TaskWorkflowStage>>(Stages.Values.Where(stage => stage.ProjectId == projectId).ToList());

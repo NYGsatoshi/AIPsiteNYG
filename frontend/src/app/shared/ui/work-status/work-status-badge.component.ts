@@ -3,6 +3,7 @@ import {
   LucideArchive,
   LucideCircle,
   LucideCircleCheck,
+  LucideCircleX,
   LucideEye,
   LucidePause,
   LucidePlay,
@@ -18,6 +19,7 @@ import { WorkStatus, workStatusLabel } from './work-status';
     LucideArchive,
     LucideCircle,
     LucideCircleCheck,
+    LucideCircleX,
     LucideEye,
     LucidePause,
     LucidePlay,
@@ -47,6 +49,9 @@ import { WorkStatus, workStatusLabel } from './work-status';
         }
         @case ('completed') {
           <svg lucideCircleCheck class="work-status__icon" aria-hidden="true"></svg>
+        }
+        @case ('cancelled') {
+          <svg lucideCircleX class="work-status__icon" aria-hidden="true"></svg>
         }
         @case ('paused') {
           <svg lucidePause class="work-status__icon" aria-hidden="true"></svg>
@@ -113,6 +118,7 @@ import { WorkStatus, workStatusLabel } from './work-status';
       }
 
       .work-status[data-work-status='paused'],
+      .work-status[data-work-status='cancelled'],
       .work-status[data-work-status='archived'] {
         border-color: #cbd5e1;
         background: #f1f5f9;

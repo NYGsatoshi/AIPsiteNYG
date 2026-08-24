@@ -605,9 +605,16 @@ public sealed class ProjectService(
         var timeZone = workspaceId.HasValue && timeZones is not null
             ? await timeZones.ResolveAsync(tasks[0].TenantId, workspaceId.Value, cancellationToken)
             : TimeZoneInfo.Utc;
+        var taskIdsWithArtifacts = (await projects.ListTaskIdsWithArtifactsAsync(projectId, cancellationToken)).ToHashSet();
         var responses = new List<TaskItemResponse>(filtered.Count);
         foreach (var task in filtered)
-            responses.Add(await ToTaskAsync(task, userId, cancellationToken, derivedValues[task.Id], timeZone));
+            responses.Add(await ToTaskAsync(
+                task,
+                userId,
+                cancellationToken,
+                derivedValues[task.Id],
+                timeZone,
+                taskIdsWithArtifacts.Contains(task.Id)));
         return Result<PagedResponse<TaskItemResponse>>.Success(ToPagedResponse(responses, query.SafePage, query.SafePageSize));
     }
 
@@ -1809,7 +1816,13 @@ public sealed class ProjectService(
         return new MilestoneResponse(milestone.Id, milestone.ProjectId, milestone.Name, milestone.Description, milestone.DueDate, milestone.Status, milestone.SortOrder, milestone.CreatedAt, milestone.UpdatedAt, milestone.VersionNo);
     }
 
-    private async Task<TaskItemResponse> ToTaskAsync(TaskItem task, Guid userId, CancellationToken cancellationToken, ParentTaskDerivedValues? derivedOverride = null, TimeZoneInfo? timeZoneOverride = null)
+    private async Task<TaskItemResponse> ToTaskAsync(
+        TaskItem task,
+        Guid userId,
+        CancellationToken cancellationToken,
+        ParentTaskDerivedValues? derivedOverride = null,
+        TimeZoneInfo? timeZoneOverride = null,
+        bool? hasArtifactOverride = null)
     {
         var canEdit = await taskAuthorization.CanUpdateTask(userId, task.Id, cancellationToken);
         var canAssign = await taskAuthorization.CanAssignTask(userId, task.Id, cancellationToken);
@@ -1819,6 +1832,9 @@ public sealed class ProjectService(
         var timeZone = timeZoneOverride ?? (timeZones is null
             ? TimeZoneInfo.Utc
             : await timeZones.ResolveAsync(task.TenantId, task.WorkspaceId, cancellationToken));
+        var hasArtifact = hasArtifactOverride ??
+            (await projects.ListTaskIdsWithArtifactsAsync(task.ProjectId, cancellationToken)).Contains(task.Id);
+        var stageCategory = CategoryOf(task);
         return new TaskItemResponse(
             task.Id,
             task.ProjectId,
@@ -1843,9 +1859,20 @@ public sealed class ProjectService(
             derived.PlannedStartDate,
             derived.PlannedEndDate,
             derived.IsDerived,
-            TaskDeadlineCalculator.IsOverdue(task, CategoryOf(task), timeZone, clock.UtcNow, derived.PlannedEndDate),
-            task.VersionNo);
+            TaskDeadlineCalculator.IsOverdue(task, stageCategory, timeZone, clock.UtcNow, derived.PlannedEndDate),
+            task.VersionNo,
+            task.WorkflowStageId,
+            task.WorkflowStage?.Name ?? StageCategoryDisplayName(stageCategory),
+            stageCategory,
+            task.IsBlocked,
+            hasArtifact);
     }
+
+    private static string StageCategoryDisplayName(TaskStageCategory category) => category switch
+    {
+        TaskStageCategory.InProgress => "In progress",
+        _ => category.ToString()
+    };
 
     private static TaskStageCategory CategoryOf(TaskItem task) => task.WorkflowStage?.InternalCategory ?? task.Status switch
     {

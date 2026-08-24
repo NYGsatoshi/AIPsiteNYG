@@ -3,7 +3,8 @@ import {
   mapProjectDtoToRecord,
   mapTaskDtoToRecord,
   projectStatusLabel,
-  projectWorkStatus
+  projectWorkStatus,
+  taskStageWorkStatus
 } from './projects.mapper';
 
 describe('projects mapper', () => {
@@ -62,6 +63,105 @@ describe('projects mapper', () => {
     expect(task.assignee).toBe('Canonical assignee');
     expect(task.rowVersion).toBe('7');
   });
+
+  it.each([
+    ['Backlog', 'backlog', 'notStarted', 'draft'],
+    ['Todo', 'todo', 'notStarted', 'ready'],
+    ['InProgress', 'inProgress', 'inProgress', 'running'],
+    ['Review', 'review', 'review', 'needsReview'],
+    ['Done', 'done', 'done', 'completed'],
+    ['Cancelled', 'cancelled', 'cancelled', 'cancelled']
+  ] as const)(
+    'maps canonical category %s independently from the legacy numeric status',
+    (apiCategory, category, status, workStatus) => {
+      const task = mapTaskDtoToRecord({
+        id: `task-${category}`,
+        projectId: 'project-1',
+        title: apiCategory,
+        stageCategory: apiCategory,
+        status: 3,
+        priority: 'Medium'
+      }, []);
+
+      expect(task.stageCategory).toBe(category);
+      expect(task.status).toBe(status);
+      expect(taskStageWorkStatus(category)).toBe(workStatus);
+    }
+  );
+
+  it('preserves unknown artifact availability when a compatible Task contract omits the projection', () => {
+    const task = mapTaskDtoToRecord({
+      id: 'task-compatible',
+      projectId: 'project-1',
+      title: 'Compatible task',
+      stageCategory: 2,
+      priority: 'Medium'
+    }, []);
+
+    expect(task.hasArtifact).toBeUndefined();
+  });
+
+  it('keeps Blocked independent and preserves authoritative list metadata', () => {
+    const task = mapTaskDtoToRecord({
+      id: 'task-review',
+      projectId: 'project-1',
+      title: 'Review task',
+      workflowStageId: 'stage-review',
+      workflowStageName: 'Editorial review',
+      stageCategory: 'Review',
+      status: 3,
+      isBlocked: true,
+      priority: 'High',
+      createdAt: '2026-08-20T09:00:00Z',
+      updatedAt: '2026-08-24T10:30:00Z',
+      hasArtifact: true
+    }, []);
+
+    expect(task.status).toBe('review');
+    expect(task.stageCategory).toBe('review');
+    expect(task.isBlocked).toBe(true);
+    expect(task.workflowStageName).toBe('Editorial review');
+    expect(task.createdAt).toBe('2026-08-20T09:00:00Z');
+    expect(task.updatedAt).toBe('2026-08-24T10:30:00Z');
+    expect(task.hasArtifact).toBe(true);
+  });
+
+  it('never interprets a numeric list category as a category ordinal when legacy status is present', () => {
+    const task = mapTaskDtoToRecord({
+      id: 'task-legacy',
+      projectId: 'project-1',
+      title: 'Legacy task',
+      stageCategory: 1,
+      status: 4,
+      priority: 1
+    }, []);
+
+    expect(task.status).toBe('done');
+    expect(task.stageCategory).toBe('done');
+  });
+
+  it.each([
+    [0, 'backlog', 'notStarted'],
+    [1, 'todo', 'notStarted'],
+    [2, 'inProgress', 'inProgress'],
+    [3, 'review', 'review'],
+    [4, 'done', 'done'],
+    [5, 'cancelled', 'cancelled']
+  ] as const)(
+    'maps canonical numeric Task-detail category %s only when legacy status is absent',
+    (apiCategory, category, status) => {
+      const task = mapTaskDtoToRecord({
+        id: `task-detail-${apiCategory}`,
+        projectId: 'project-1',
+        title: 'Canonical detail',
+        stageCategory: apiCategory,
+        priority: 'Medium'
+      }, []);
+
+      expect(task.stageCategory).toBe(category);
+      expect(task.status).toBe(status);
+    }
+  );
 
   it('maps project create permission, canonical work status, and authoritative update time', () => {
     const project = mapProjectDtoToRecord({

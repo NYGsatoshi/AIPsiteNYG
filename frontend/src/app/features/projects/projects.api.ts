@@ -71,6 +71,9 @@ export interface TaskDto {
   readonly subresources?: TaskSubresourceSummaryDto | null;
   readonly uiPermissions?: TaskUiPermissionDto | null;
   readonly version?: unknown;
+  readonly createdAt?: unknown;
+  readonly updatedAt?: unknown;
+  readonly hasArtifact?: unknown;
 }
 
 /** The detail endpoint deliberately wraps compact task command state in a bounded aggregate. */

@@ -246,6 +246,21 @@ do not suppress Message persistence, unread state, or realtime conversation
 events. Browser unread-badge visibility is presentation-only and is not a
 security control.
 
+### Task-list Artifact availability boundary
+
+The Project Task-list endpoint checks the current actor's canonical
+`CanViewProject` predicate before reading Artifact state. After that check, one
+Project-scoped, `AsNoTracking` projection returns distinct Task IDs linked to
+non-deleted Artifacts. Deleted, unlinked, and other-Project rows are excluded.
+The response exposes only `hasArtifact`; it never exposes an Artifact ID,
+name, count, type, status, version, file, or storage field. The browser cannot
+derive or expand this signal, and hiding an indicator is not authorization.
+
+Blocked is independent of Workflow Stage. The API preserves the configured
+Stage display name and serializes the fixed category as one of Backlog, Todo,
+InProgress, Review, Done, or Cancelled. It does not transform a digest-job
+`Failed` state into a Task state.
+
 ### Immediate Task notification boundary
 
 TASK-V1-PR07-B resolves notification recipients only after the mutating actor
