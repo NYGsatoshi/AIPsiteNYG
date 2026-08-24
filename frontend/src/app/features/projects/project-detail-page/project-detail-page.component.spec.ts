@@ -46,10 +46,35 @@ describe('ProjectDetailPageComponent canonical Kanban states', () => {
   });
 
   it('falls back to the maintained Project Task List when the presentation flag is disabled', async () => {
-    const { fixture } = await render({ ...kanbanView('disabled'), snapshot: null, feedback: 'Project Kanban is disabled. The maintained Task List remains available.' });
+    const { fixture, facade } = await render(
+      { ...kanbanView('disabled'), snapshot: null, feedback: 'Project Kanban is disabled. The maintained Task List remains available.' },
+      scheduleView(),
+      { taskListFeedback: 'The Task list could not be synchronized.' }
+    );
 
-    expect((fixture.nativeElement as HTMLElement).textContent).toContain('maintained Task List');
-    expect((fixture.nativeElement as HTMLElement).querySelector('aip-kanban')).toBeNull();
+    const host = fixture.nativeElement as HTMLElement;
+    expect(host.textContent).toContain('maintained Task List');
+    expect(host.querySelector('aip-kanban')).toBeNull();
+    expect(host.querySelector('[role="alert"]')?.textContent).toContain('could not be synchronized');
+    host.querySelector<HTMLButtonElement>('[data-testid="task-list-retry"]')?.click();
+    expect(facade.retryTaskList).toHaveBeenCalledOnce();
+  });
+
+  it('surfaces a transient authoritative Task-list refresh failure and offers a retry', async () => {
+    const { fixture, facade } = await render(
+      kanbanView('ready'),
+      scheduleView(),
+      { taskListFeedback: 'The Task list could not be synchronized. Temporarily unavailable.' }
+    );
+    fixture.componentInstance.tab.set('list');
+    fixture.detectChanges();
+
+    const host = fixture.nativeElement as HTMLElement;
+    expect(host.querySelector('[role="alert"]')?.textContent).toContain('could not be synchronized');
+    const retry = host.querySelector<HTMLButtonElement>('[data-testid="task-list-retry"]');
+    expect(retry).not.toBeNull();
+    retry?.click();
+    expect(facade.retryTaskList).toHaveBeenCalledOnce();
   });
 
   it('renders the canonical narrow Schedule projection with calendar, WorkItem, dependency, warning, and form actions', async () => {
@@ -167,7 +192,8 @@ describe('ProjectDetailPageComponent canonical Kanban states', () => {
 
 async function render(
   kanban: ProjectKanbanViewModel,
-  schedule: ProjectScheduleViewModel = scheduleView()
+  schedule: ProjectScheduleViewModel = scheduleView(),
+  overrides: Partial<ProjectDetailViewModel> = {}
 ) {
   const view: ProjectDetailViewModel = {
     status: 'ready',
@@ -183,16 +209,19 @@ async function render(
       taskCounts: { total: 0, done: 0, blocked: 0 }
     },
     tasks: [],
+    taskListFeedback: null,
     kanban,
     schedule,
     workload: [],
-    members: []
+    members: [],
+    ...overrides
   };
   const facade = {
     view: () => view,
     load: vi.fn(),
     release: vi.fn(),
     retryKanban: vi.fn(),
+    retryTaskList: vi.fn(),
     retrySchedule: vi.fn(),
     retryPreservedScheduleIntent: vi.fn(),
     moveTask: vi.fn(),

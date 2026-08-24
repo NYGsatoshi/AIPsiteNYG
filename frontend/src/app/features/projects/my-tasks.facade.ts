@@ -12,7 +12,7 @@ import { NotificationOpenContextService } from '../../core/notifications/notific
 import { ActiveWorkspaceFacade } from '../../core/workspace/active-workspace.facade';
 import { WorkspaceSelectionFacade } from '../../core/workspace/workspace-selection.facade';
 import { MyTasksCountsDto, MyTasksProjectionPageDto } from './projects.api';
-import { mapMyTaskDtoToProjection } from './projects.mapper';
+import { mapMyTaskDtoToProjection, taskStageCategoryFromStatus } from './projects.mapper';
 import {
   MyTasksCount,
   MyTasksFilters,
@@ -363,6 +363,8 @@ export class MyTasksFacade {
     return {
       id: task.taskId, projectId: task.projectId, title: task.title,
       project: task.projectTitle, status: task.status, statusLabel: task.workflowStageName,
+      workflowStageId: task.workflowStageId, workflowStageName: task.workflowStageName,
+      stageCategory: task.stageCategory, isBlocked: task.isBlocked,
       priority: task.priority, priorityLabel: task.priority[0].toUpperCase() + task.priority.slice(1),
       assignee: task.primaryAssignee, startDate: '', dueDate: task.deadlineAt || task.plannedEndDate,
       progressPercent: task.progressPercent, milestone: '', allowedTransitions: [], rowActions: this.buildActions()
@@ -435,7 +437,8 @@ function scenarioTasks(scenario: ProjectsScenario): readonly MyTasksLiveTask[] {
   return tasks.map((task) => ({
     taskId: task.id, tenantId: 'scenario-tenant', workspaceId: 'scenario-workspace', workspaceTitle: 'Scenario workspace',
     projectId: task.projectId, projectTitle: task.milestone || 'Project', title: task.title, workflowStageId: null,
-    workflowStageName: task.statusLabel, status: task.status, priority: task.priority, isBlocked: task.status === 'blocked',
+    workflowStageName: task.statusLabel, stageCategory: taskStageCategoryFromStatus(task.status),
+    status: task.status, priority: task.priority, isBlocked: task.status === 'blocked',
     plannedEndDate: task.dueDate, deadlineAt: '', progressPercent: task.progressPercent ?? 0, timeGroup: 'noDeadline',
     isOverdue: false, version: task.rowVersion || 'scenario', primaryAssignee: task.assignee, targetGroup: '', reviewer: '', labels: [],
     checklistCompletedCount: 0, checklistTotalCount: 0, canClaim: false, canChangeStage: false, warnings: []

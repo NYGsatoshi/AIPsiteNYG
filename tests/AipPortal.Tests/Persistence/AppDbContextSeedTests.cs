@@ -221,6 +221,14 @@ public sealed class AppDbContextSeedTests
                 grant.CapabilityKey == CapabilityKeys.WorkspaceCreate);
         var firstGrantId = firstGrant.Id;
         var firstGrantedAt = firstGrant.GrantedAt;
+        var firstTaskArtifact = await dbContext.Artifacts.SingleAsync(
+            artifact => artifact.Name == "Browser Smoke Task Artifact");
+        var firstTaskArtifactId = firstTaskArtifact.Id;
+        var seededTask = await dbContext.TaskItems.SingleAsync(
+            task => task.Title == "Browser smoke task");
+        seededTask.IsBlocked = true;
+        seededTask.BlockedReason = "Stale state from a prior browser run.";
+        await dbContext.SaveChangesAsync();
 
         await AppDbContextSeed.SeedBrowserSmokeAsync(
             dbContext,
@@ -249,6 +257,20 @@ public sealed class AppDbContextSeedTests
         Assert.Equal(actor.Id, grant.GrantedByUserId);
         Assert.Null(grant.ExpiresAt);
         Assert.Null(grant.RevokedAt);
+
+        var taskArtifact = Assert.Single(await dbContext.Artifacts
+            .Where(artifact => artifact.Name == "Browser Smoke Task Artifact")
+            .ToListAsync());
+        Assert.Equal(firstTaskArtifactId, taskArtifact.Id);
+        Assert.Equal(tenant.Id, taskArtifact.TenantId);
+        Assert.NotNull(taskArtifact.TaskItemId);
+        Assert.Equal(ArtifactType.Document, taskArtifact.ArtifactType);
+        Assert.Equal(ArtifactStatus.Approved, taskArtifact.Status);
+        Assert.False(taskArtifact.IsDeleted);
+        var artifactTask = await dbContext.TaskItems.SingleAsync(task => task.Id == taskArtifact.TaskItemId);
+        Assert.Equal(taskArtifact.ProjectId, artifactTask.ProjectId);
+        Assert.False(artifactTask.IsBlocked);
+        Assert.Null(artifactTask.BlockedReason);
 
         currentTenant.SetTenant(tenant.Id, tenant.Slug);
         var tenants = new TenantRepository(dbContext);

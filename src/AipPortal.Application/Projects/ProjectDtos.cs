@@ -66,7 +66,33 @@ public sealed record UpdateMilestoneRequest(
 // Compatibility shape retained for the existing project screen.  The appended
 // values mirror the canonical Task detail contract so a list row cannot expose
 // stale parent-derived fields or a different aggregate version.
-public sealed record TaskItemResponse(Guid Id, Guid ProjectId, Guid? MilestoneId, string Title, string? Description, TaskItemStatus Status, TaskPriority Priority, DateOnly? StartDate, DateOnly? DueDate, int ProgressPercent, Guid CreatedByUserId, DateTimeOffset CreatedAt, DateTimeOffset? UpdatedAt, TaskUiPermissionResponse UiPermissions, DateOnly? PlannedStartDate = null, DateOnly? PlannedEndDate = null, bool ProgressIsDerived = false, bool IsOverdue = false, long Version = 0);
+public sealed record TaskItemResponse(
+    Guid Id,
+    Guid ProjectId,
+    Guid? MilestoneId,
+    string Title,
+    string? Description,
+    TaskItemStatus Status,
+    TaskPriority Priority,
+    DateOnly? StartDate,
+    DateOnly? DueDate,
+    int ProgressPercent,
+    Guid CreatedByUserId,
+    DateTimeOffset CreatedAt,
+    DateTimeOffset? UpdatedAt,
+    TaskUiPermissionResponse UiPermissions,
+    DateOnly? PlannedStartDate = null,
+    DateOnly? PlannedEndDate = null,
+    bool ProgressIsDerived = false,
+    bool IsOverdue = false,
+    long Version = 0,
+    Guid? WorkflowStageId = null,
+    string WorkflowStageName = "",
+    [property: System.Text.Json.Serialization.JsonConverter(
+        typeof(System.Text.Json.Serialization.JsonStringEnumConverter))]
+    TaskStageCategory StageCategory = TaskStageCategory.Todo,
+    bool IsBlocked = false,
+    bool HasArtifact = false);
 public sealed record TaskUiPermissionResponse(bool CanEdit, bool CanAssign, bool CanChangeStatus, bool CanDelete, IReadOnlyList<TaskItemStatus> AllowedTransitions, string? RowVersion);
 public sealed record CreateTaskItemRequest(Guid? MilestoneId, string Title, string? Description, TaskPriority Priority, DateOnly? StartDate, DateOnly? DueDate);
 public sealed record UpdateTaskItemRequest(Guid? MilestoneId, string? Title, string? Description, TaskItemStatus? Status, TaskPriority? Priority, DateOnly? StartDate, DateOnly? DueDate, int? ProgressPercent);
