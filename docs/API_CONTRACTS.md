@@ -4,12 +4,12 @@ This document is the active API convention guide. For endpoint examples, use `do
 
 Implementation note: this document describes the intended contract. The current controllers do not consistently follow one error shape or HTTP status mapping. Global exceptions return `ErrorResponse(Code, Message, TraceId)`, while many controller failures return `{ "error": "..." }` and map authorization/not-found failures to `400`. TASK-V1-PR06 adds a narrow safe envelope for Gantt routes. WPC-01 now does the same for Workspace capabilities/create, their authentication/model-binding/CSRF/exception boundary, Project activation-transition conflicts, disabled legacy Project create, and masked Project detail. Neither change resolves the repository-wide mismatch. Track that broader mismatch in `docs/KNOWN_ISSUES.md`; exact controller/service findings are in `docs/BACKEND_LOGIC_AUDIT.md`.
 
-## WPC-01 fail-closed backend foundation
+## WPC-02B canonical Workspace creation
 
-WPC-01 implements the retry-safe Workspace transaction boundary and current
-Tenant Owner/Admin authority, but production Workspace creation is currently
-gated. Canonical success requires the default Workspace `general` Channel,
-and the repository has no safe Conversation-backed provisioner for it.
+WPC-01 established the retry-safe transaction and error boundary. WPC-02B
+completed the production contract with delegated capability evaluation and a
+canonical Conversation-backed `WorkspaceGeneral` initializer. Workspace
+creation is therefore live; it is not a test-only or unavailable route.
 
 `GET /api/workspaces/capabilities` returns the backend-owned current-Tenant
 projection through the canonical success envelope:
@@ -17,14 +17,16 @@ projection through the canonical success envelope:
 ```json
 {
   "requestId": "...",
-  "data": { "canCreate": false },
+  "data": { "canCreate": true },
   "warnings": []
 }
 ```
 
 The value combines current create authority with required-initialization
-availability. Production therefore reports false even for a Tenant Owner/Admin
-until canonical `general` provisioning exists.
+availability. Authority requires an active current-Tenant Owner/Admin
+membership or a current active Tenant-scoped `workspace.create` grant.
+Ordinary Tenant membership and Platform/SystemAdmin alone do not grant the
+command. A missing initializer still fails closed with `canCreate=false`.
 
 `POST /api/workspaces` requires an `Idempotency-Key` containing 8–128
 printable ASCII characters and keeps the approved minimal body:
@@ -37,18 +39,14 @@ printable ASCII characters and keeps the approved minimal body:
 }
 ```
 
-The authenticated actor and current Tenant are server-owned scope. Tenant
-Owner/Admin authority is required; ordinary membership and platform role alone
-do not grant creation. Production returns a full 503
-`DependencyUnavailable` envelope before the idempotency coordinator, so no
-Workspace, Owner, audit, Outbox, idempotency, or partial initialization row is
-committed.
-
-When an explicit test initializer is injected, the coordinator proves one
-transaction containing the claim, Workspace, active creator Owner, required
-initializer, `WorkspaceCreated` audit, and authorization Outbox event. The
-current successful fake is a no-op seam and is not evidence that `general`
-was provisioned. Replaying the same normalized request with the same scoped
+The authenticated actor and current Tenant are server-owned scope. A successful
+command commits one relational transaction containing the idempotency claim,
+active Workspace, active creator Owner membership, canonical
+`WorkspaceGeneral` Conversation with public-within-scope visibility and
+creator participation,
+`WorkspaceCreated` audit, and authorization Outbox events. Initialization or
+Outbox staging failure returns `DependencyUnavailable` without committing a
+partial resource. Replaying the same normalized request with the same scoped
 identity reconciles one logical resource; another actor/Tenant cannot recover
 it, current membership is rechecked, and reuse for another payload is HTTP 409.
 
@@ -71,8 +69,10 @@ Project responses preserve nullable `groupId` and expose `versionNo`.
 returns 503 without mutation because its body-owned Workspace scope, legacy
 authority, required Group, missing Visibility, and missing idempotency cannot
 safely approximate the canonical command.
+WPC-02C and WPC-02D subsequently implemented
 `POST /api/workspaces/{workspaceId}/projects` and
-`POST /api/projects/{projectId}/activate` are not implemented by WPC-01.
+`POST /api/projects/{projectId}/activate`. The deprecated unscoped
+`POST /api/projects` route remains disabled and must not be used as a fallback.
 Generic `Planning -> Active`, `Suspended -> Planning`, and
 `Suspended -> Active` return 409 `InvalidStateTransition`. `Planning -> Suspended`,
 `Suspended -> Archived`, `Active -> Review`, and `Review -> Active` remain
@@ -107,9 +107,12 @@ authoritative recursive readable-Conversation ID query before deterministic
 `CreatedAt DESC, Id ASC` ordering and the final result bound. Tenant, membership,
 Workspace/Project/root consistency, cycle rejection, Project visibility, and
 the 32-level ceiling remain inside the shared relation. Non-PostgreSQL
-providers retain the bounded fail-closed fallback. Lifecycle provenance,
-Visibility/backfill, exact create authority, default Project Channel, and
-activation-time workflow mapping remain explicit decision/dependency blockers.
+providers retain the bounded fail-closed fallback. WPC-02A persists canonical
+Project Visibility and activation provenance while leaving migrated legacy
+rows explicitly unclassified. WPC-02C owns Workspace-scoped create authority
+and idempotency; WPC-02D owns canonical `ProjectGeneral` provisioning and
+activation-time Task workflow mapping. Clients must use those canonical
+commands; the deprecated unscoped Project-create route remains disabled.
 
 ## General Rules
 

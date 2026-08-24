@@ -1,6 +1,8 @@
 import {
+  canonicalizeWorkspaceCreateInput,
   mapWorkspaceDashboardItem,
   mapWorkspaceDashboardResponse,
+  mapWorkspaceCreateSuccess,
   mapWorkspacePageCapabilities,
   WorkspaceDashboardListItemDto,
 } from './workspaces.api';
@@ -20,6 +22,8 @@ const dashboardItem = (
   canOpenWorkspace: true,
   canOpenMembers: true,
   canOpenProjects: true,
+  canCreateProject: false,
+  canAddFiles: false,
   unreadAnnouncementCount: 0,
   unreadConversationCount: 0,
   inProgressProjectCount: 0,
@@ -85,7 +89,7 @@ describe('Workspace dashboard API mapper', () => {
   });
 
   it('maps each backend card capability boolean independently', () => {
-    const all = mapWorkspaceDashboardItem(dashboardItem());
+    const allRead = mapWorkspaceDashboardItem(dashboardItem());
     const membersDenied = mapWorkspaceDashboardItem(dashboardItem({ canOpenMembers: false }));
     const projectsOnly = mapWorkspaceDashboardItem(
       dashboardItem({
@@ -94,10 +98,33 @@ describe('Workspace dashboard API mapper', () => {
         canOpenProjects: true,
       }),
     );
+    const quickCreate = mapWorkspaceDashboardItem(
+      dashboardItem({
+        canCreateProject: true,
+        canAddFiles: true,
+      }),
+    );
 
-    expect(all.capabilities).toEqual(['openWorkspace', 'openMembers', 'openProjects']);
+    expect(allRead.capabilities).toEqual(['openWorkspace', 'openMembers', 'openProjects']);
     expect(membersDenied.capabilities).toEqual(['openWorkspace', 'openProjects']);
     expect(projectsOnly.capabilities).toEqual(['openProjects']);
+    expect(quickCreate.capabilities).toEqual([
+      'openWorkspace',
+      'openMembers',
+      'openProjects',
+      'createProject',
+      'addFiles',
+    ]);
+  });
+
+  it('fails Quick Create mutation affordances closed when capability fields are absent', () => {
+    const card = mapWorkspaceDashboardItem(
+      dashboardItem({ canCreateProject: undefined, canAddFiles: undefined }),
+    );
+
+    expect(card.capabilities).toEqual(['openWorkspace', 'openMembers', 'openProjects']);
+    expect(card.capabilities).not.toContain('createProject');
+    expect(card.capabilities).not.toContain('addFiles');
   });
 
   it('keeps unavailable values distinct instead of fabricating numeric zero or Member', () => {
@@ -159,7 +186,17 @@ describe('Workspace dashboard API mapper', () => {
         warnings: [],
       }),
     ).toEqual(['createWorkspace']);
-    expect(mapWorkspacePageCapabilities({ data: { canCreate: false } })).toEqual([]);
+    expect(
+      mapWorkspacePageCapabilities({
+        requestId: 'request-2',
+        data: { canCreate: false },
+        warnings: [],
+      }),
+    ).toEqual([]);
+    expect(mapWorkspacePageCapabilities({ data: { canCreate: true } })).toEqual([]);
+    expect(
+      mapWorkspacePageCapabilities({ requestId: 'request-3', data: { canCreate: true } }),
+    ).toEqual([]);
     expect(mapWorkspacePageCapabilities({ data: null })).toEqual([]);
     expect(mapWorkspacePageCapabilities(null)).toEqual([]);
   });
@@ -168,5 +205,107 @@ describe('Workspace dashboard API mapper', () => {
     expect(() => mapWorkspaceDashboardResponse({ items: [] })).toThrow(
       'Workspace dashboard response must be an array.',
     );
+  });
+
+  it('canonicalizes the create body without adding client-owned identifiers', () => {
+    expect(
+      canonicalizeWorkspaceCreateInput({
+        name: '  Research Team  ',
+        description: '   ',
+        icon: '  🔬  ',
+      }),
+    ).toEqual({
+      name: 'Research Team',
+      description: null,
+      icon: '🔬',
+    });
+  });
+
+  it('strictly maps the canonical Workspace create envelope', () => {
+    const response = mapWorkspaceCreateSuccess({
+      requestId: 'request-create-1',
+      data: {
+        id: '11111111-1111-4111-8111-111111111111',
+        name: 'Research Team',
+        description: null,
+        icon: '🔬',
+        status: 0,
+        createdByUserId: '22222222-2222-4222-8222-222222222222',
+        createdAt: '2026-08-24T01:02:03.456Z',
+        updatedAt: null,
+      },
+      warnings: [],
+    });
+
+    expect(response).toEqual({
+      requestId: 'request-create-1',
+      data: {
+        id: '11111111-1111-4111-8111-111111111111',
+        name: 'Research Team',
+        description: null,
+        icon: '🔬',
+        status: 0,
+        createdByUserId: '22222222-2222-4222-8222-222222222222',
+        createdAt: '2026-08-24T01:02:03.456Z',
+        updatedAt: null,
+      },
+      warnings: [],
+    });
+  });
+
+  it.each([
+    ['missing data', { requestId: 'request-create-1', warnings: [] }],
+    [
+      'non-UUID resource id',
+      {
+        requestId: 'request-create-1',
+        data: {
+          id: 'workspace-1',
+          name: 'Research Team',
+          description: null,
+          icon: null,
+          status: 0,
+          createdByUserId: '22222222-2222-4222-8222-222222222222',
+          createdAt: '2026-08-24T01:02:03Z',
+          updatedAt: null,
+        },
+        warnings: [],
+      },
+    ],
+    [
+      'non-active status',
+      {
+        requestId: 'request-create-1',
+        data: {
+          id: '11111111-1111-4111-8111-111111111111',
+          name: 'Research Team',
+          description: null,
+          icon: null,
+          status: 1,
+          createdByUserId: '22222222-2222-4222-8222-222222222222',
+          createdAt: '2026-08-24T01:02:03Z',
+          updatedAt: null,
+        },
+        warnings: [],
+      },
+    ],
+    [
+      'missing warnings',
+      {
+        requestId: 'request-create-1',
+        data: {
+          id: '11111111-1111-4111-8111-111111111111',
+          name: 'Research Team',
+          description: null,
+          icon: null,
+          status: 0,
+          createdByUserId: '22222222-2222-4222-8222-222222222222',
+          createdAt: '2026-08-24T01:02:03Z',
+          updatedAt: null,
+        },
+      },
+    ],
+  ])('rejects a successful-looking create response with %s', (_caseName, response) => {
+    expect(() => mapWorkspaceCreateSuccess(response)).toThrow();
   });
 });

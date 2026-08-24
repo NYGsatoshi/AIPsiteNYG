@@ -12,6 +12,11 @@
   color: var(--aip-color-text-primary);
 }
 
+.workspace-dashboard:focus-visible {
+  outline: 3px solid var(--aip-color-focus, #2563eb);
+  outline-offset: 4px;
+}
+
 .workspace-dashboard__header {
   display: flex;
   align-items: end;
@@ -39,7 +44,7 @@ h1 {
 
 .workspace-dashboard__create {
   flex: 0 0 auto;
-  min-height: 40px;
+  min-height: 44px;
   border: 1px solid var(--aip-color-action-primary);
   border-radius: 6px;
   padding: 0 14px;
@@ -52,6 +57,21 @@ h1 {
 
 .workspace-dashboard__create:hover {
   background: var(--aip-color-action-primary-hover);
+}
+
+.workspace-dashboard__create:focus-visible {
+  outline: 3px solid var(--aip-color-focus-ring, #2563eb);
+  outline-offset: 2px;
+}
+
+.workspace-dashboard__announcement {
+  margin: 0;
+  border: 1px solid var(--aip-color-border-default);
+  border-radius: 6px;
+  padding: 10px 12px;
+  background: var(--aip-color-bg-surface-subtle);
+  color: var(--aip-color-text-primary);
+  font-weight: 700;
 }
 
 .workspace-dashboard__search {

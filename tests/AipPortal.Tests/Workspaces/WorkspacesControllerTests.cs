@@ -51,6 +51,8 @@ public sealed class WorkspacesControllerTests
             true,
             true,
             true,
+            false,
+            true,
             1,
             2,
             3,
@@ -70,6 +72,8 @@ public sealed class WorkspacesControllerTests
         Assert.Equal(value.Id, item.Id);
         Assert.Null(item.CurrentUserRole);
         Assert.Equal(WorkspaceDashboardAccessSource.SystemAdmin, item.AccessSource);
+        Assert.False(item.CanCreateProject);
+        Assert.True(item.CanAddFiles);
         Assert.Equal(3, item.InProgressProjectCount);
         Assert.Equal(2, item.RunningProjectCount);
         Assert.Equal(1, item.NeedsReviewProjectCount);

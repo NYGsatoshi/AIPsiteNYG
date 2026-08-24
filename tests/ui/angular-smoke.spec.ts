@@ -148,6 +148,308 @@ test.describe('MVP-A P0 Angular frontend smoke', () => {
     await expect(page.getByTestId('workspace-research-status')).toHaveText(/Status unavailable/);
   });
 
+  test('keeps the canonical Research Quick Create flow accessible and duplicate-safe at 320px', async ({ page }) => {
+    await page.setViewportSize({ width: 320, height: 800 });
+    const workspace: WorkspaceContextFixture = {
+      id: '11111111-1111-4111-8111-111111111111',
+      name: 'Quick Create Workspace',
+      currentUserRole: 'Owner',
+      canCreateProject: true,
+      canAddFiles: true,
+      runningProjectCount: 0,
+      needsReviewProjectCount: 0
+    };
+    const projectId = '22222222-2222-4222-8222-222222222222';
+    const createRequests: WorkspaceProjectCreateMockRequest[] = [];
+    let releaseCreate!: () => void;
+    const createGate = new Promise<void>((resolve) => {
+      releaseCreate = resolve;
+    });
+
+    await installWorkspaceContextApi(page, [workspace], workspace);
+    await page.route(`**/api/workspaces/${workspace.id}/projects`, async (route) => {
+      const request = route.request();
+      createRequests.push({
+        body: request.postDataJSON() as Record<string, unknown>,
+        idempotencyKey: request.headers()['idempotency-key'] ?? '',
+        csrfToken: request.headers()['x-csrf-token'] ?? ''
+      });
+      await createGate;
+      await route.fulfill({
+        status: 201,
+        contentType: 'application/json; charset=utf-8',
+        body: JSON.stringify({
+          requestId: 'project-create-201',
+          data: {
+            id: projectId,
+            workspaceId: workspace.id,
+            groupId: null,
+            ownerUserId: '33333333-3333-4333-8333-333333333333',
+            title: 'U-22 Quick Research',
+            description: null,
+            status: 0,
+            visibility: 1,
+            activationState: 1,
+            startDate: null,
+            endDate: null,
+            versionNo: 1,
+            createdAt: '2026-08-24T05:00:00Z'
+          },
+          warnings: []
+        })
+      });
+    });
+
+    await page.goto('/app/workspaces');
+    await waitForWorkspaceShellReady(page, { mobile: true });
+
+    const createGroup = page.getByRole('group', { name: '作成' });
+    const primary = page.getByTestId('start-research-action');
+    const addFiles = page.getByTestId('add-files-action');
+    await expect(createGroup).toBeVisible();
+    await expect(primary).toHaveCount(1);
+    await expect(addFiles).toHaveAttribute(
+      'href',
+      `/app/workspaces/${workspace.id}/files#upload`
+    );
+    await expect.poll(() => primary.evaluate((element) => element.getBoundingClientRect().height)).toBeGreaterThanOrEqual(44);
+    await expect.poll(() => addFiles.evaluate((element) => element.getBoundingClientRect().height)).toBeGreaterThanOrEqual(44);
+
+    await pressTabUntilFocused(page, primary, 20);
+    await page.keyboard.press('Enter');
+    await expect(page).toHaveURL(`/app/workspaces/${workspace.id}/research/new`);
+    await expect(page.getByText('リサーチはWorkspace内のProjectとして作成されます')).toBeVisible();
+    await expect(page.getByText(/下書き/)).toBeVisible();
+    await expect(page.getByText(/Planning/)).toHaveCount(0);
+    await expect(
+      page.locator('[name="description"], [name="groupId"], [name="startDate"], [name="endDate"]')
+    ).toHaveCount(0);
+
+    const title = page.getByTestId('quick-create-research-title');
+    const submit = page.getByTestId('quick-create-submit');
+    await submit.click();
+    await expect(title).toBeFocused();
+    await expect(title).toHaveAttribute('aria-invalid', 'true');
+    await expect(title).toHaveAttribute('aria-describedby', 'research-title-error');
+    await expectNoDocumentHorizontalOverflow(page);
+    await expectNoAccessibilityViolations(page);
+
+    await title.fill('  U-22 Quick Research  ');
+    const response = page.waitForResponse((candidate) =>
+      candidate.request().method() === 'POST' &&
+      new URL(candidate.url()).pathname === `/api/workspaces/${workspace.id}/projects`
+    );
+    await submit.click();
+    await expect.poll(() => createRequests.length).toBe(1);
+    await page.keyboard.press('Enter');
+    await expect.poll(() => createRequests.length).toBe(1);
+    releaseCreate();
+    expect((await response).status()).toBe(201);
+
+    await expect(page).toHaveURL(`/app/projects/${projectId}`);
+    expect(createRequests).toHaveLength(1);
+    expect(createRequests[0]?.body).toEqual({ title: 'U-22 Quick Research' });
+    expect(createRequests[0]?.idempotencyKey).toMatch(/^workspace-research-/);
+    expect(createRequests[0]?.csrfToken).toBe('csrf-workspace-create');
+  });
+
+  test('fails closed when the backend does not grant Workspace creation', async ({ page }) => {
+    const api = await installWorkspaceContextApi(
+      page,
+      workspaceContextFixtures(),
+      null,
+      { canCreate: false }
+    );
+
+    await page.goto('/app/workspaces');
+    await waitForWorkspaceShellReady(page);
+
+    await expect(page.getByTestId('create-workspace-action')).toHaveCount(0);
+    await expect(page.getByTestId('workspace-empty-create-action')).toHaveCount(0);
+    expect(api.createRequests).toEqual([]);
+  });
+
+  test('opens Workspace creation from the authorized empty state', async ({ page }) => {
+    const api = await installWorkspaceContextApi(page, [], null, { canCreate: true });
+
+    await page.goto('/app/workspaces');
+    await waitForWorkspaceShellReady(page);
+
+    const emptyStateAction = page.getByTestId('workspace-empty-create-action');
+    await expect(page.getByTestId('workspace-empty-state')).toBeVisible();
+    await expect(emptyStateAction).toBeVisible();
+    await emptyStateAction.click();
+    await expect(page.getByRole('dialog', { name: 'Create Workspace' })).toBeVisible();
+    await expect(page.getByTestId('workspace-create-name')).toBeFocused();
+    expect(api.createRequests).toEqual([]);
+
+    await page.getByRole('button', { name: 'Cancel' }).click();
+    await expect(emptyStateAction).toBeFocused();
+    expect(api.createRequests).toEqual([]);
+  });
+
+  test('keeps Workspace creation cancellable, keyboard-contained, and reachable at 320px', async ({ page }) => {
+    await page.setViewportSize({ width: 320, height: 800 });
+    const api = await installWorkspaceContextApi(
+      page,
+      workspaceContextFixtures(),
+      null,
+      { canCreate: true }
+    );
+
+    await page.goto('/app/workspaces');
+    await waitForWorkspaceShellReady(page, { mobile: true });
+
+    const opener = page.getByTestId('create-workspace-action');
+    await opener.click();
+
+    const dialog = page.getByRole('dialog', { name: 'Create Workspace' });
+    const name = page.getByTestId('workspace-create-name');
+    await expect(dialog).toBeVisible();
+    await expect(name).toBeFocused();
+    await expect(page.locator('[name="workspaceId"], [name="id"], [name="slug"]')).toHaveCount(0);
+
+    await page.getByRole('button', { name: 'Create Workspace' }).click();
+    const errorSummary = page.getByTestId('workspace-create-error-summary');
+    await expect(errorSummary).toBeFocused();
+    await expect(errorSummary).toContainText('Enter a Workspace name');
+    await expect(name).toHaveAttribute('aria-invalid', 'true');
+    expect(api.createRequests).toEqual([]);
+
+    await errorSummary.getByRole('link', { name: 'Enter a Workspace name.' }).click();
+    await expect(name).toBeFocused();
+    for (let index = 0; index < 12; index += 1) {
+      await page.keyboard.press('Tab');
+      await expect
+        .poll(() => dialog.evaluate((element) => element.contains(document.activeElement)))
+        .toBe(true);
+    }
+    await expectNoDocumentHorizontalOverflow(page);
+    await expectNoAccessibilityViolations(page);
+
+    await page.keyboard.press('Escape');
+    await expect(dialog).toHaveCount(0);
+    await expect(opener).toBeFocused();
+    expect(api.createRequests).toEqual([]);
+
+    await opener.click();
+    await expect(name).toBeFocused();
+    await page.getByRole('button', { name: 'Cancel' }).click();
+    await expect(dialog).toHaveCount(0);
+    await expect(opener).toBeFocused();
+    expect(api.createRequests).toEqual([]);
+  });
+
+  test('submits Workspace creation once in flight and safely reuses the request identity after a 503', async ({ page }) => {
+    const existingWorkspace = workspaceContextFixtures()[0];
+    const createdWorkspace: WorkspaceContextFixture = {
+      id: 'c68465db-8058-4a2f-ae3e-df457fe69d52',
+      name: 'Evidence Workspace',
+      runningProjectCount: 0,
+      needsReviewProjectCount: 0
+    };
+    let releaseFirstPost!: () => void;
+    const firstPostGate = new Promise<void>((resolve) => {
+      releaseFirstPost = resolve;
+    });
+    const api = await installWorkspaceContextApi(
+      page,
+      [existingWorkspace],
+      existingWorkspace,
+      {
+        canCreate: true,
+        onCreate: async (_request, attempt) => {
+          if (attempt === 1) {
+            await firstPostGate;
+            return {
+              status: 503,
+              body: {
+                requestId: 'workspace-create-503',
+                error: {
+                  code: 'DependencyUnavailable',
+                  message: 'Workspace creation is temporarily unavailable.',
+                  target: 'workspace',
+                  details: [],
+                  redactionApplied: false
+                },
+                traceId: 'workspace-create-503',
+                status: 503
+              }
+            };
+          }
+
+          return {
+            status: 201,
+            workspace: createdWorkspace,
+            body: {
+              requestId: 'workspace-create-201',
+              data: {
+                id: createdWorkspace.id,
+                name: createdWorkspace.name,
+                description: 'Evidence for the U-22 demo',
+                icon: null,
+                status: 0,
+                createdByUserId: 'a7ad8352-2012-4328-8318-7d9c466af46d',
+                createdAt: '2026-08-24T05:00:00Z',
+                updatedAt: null
+              },
+              warnings: []
+            }
+          };
+        }
+      }
+    );
+
+    await page.goto('/app/workspaces');
+    await waitForWorkspaceShellReady(page);
+    await page.getByTestId('create-workspace-action').click();
+    await page.getByTestId('workspace-create-name').fill(`  ${createdWorkspace.name}  `);
+    await page.getByTestId('workspace-create-description').fill('Evidence for the U-22 demo');
+
+    const firstResponse = waitForWorkspaceCreateResponse(page);
+    await page.getByRole('button', { name: 'Create Workspace' }).click();
+    await expect.poll(() => api.createRequests.length).toBe(1);
+    await expect(page.locator('.aip-dialog__confirm')).toBeDisabled();
+
+    // Native submit plus the facade's synchronous busy guard must suppress a
+    // second request even if Enter is pressed while the first response waits.
+    await page.getByTestId('workspace-create-name').press('Enter');
+    await expect.poll(() => api.createRequests.length).toBe(1);
+
+    releaseFirstPost();
+    expect((await firstResponse).status()).toBe(503);
+    await expect(page.getByTestId('workspace-create-error-summary')).toContainText(
+      'The Workspace may have been created. Retry with the same details'
+    );
+
+    const retryResponse = waitForWorkspaceCreateResponse(page);
+    await page.getByRole('button', { name: 'Create Workspace' }).click();
+    expect((await retryResponse).status()).toBe(201);
+
+    await expect(page).toHaveURL(/\/app\/workspaces$/);
+    await expect(page.getByTestId('workspace-card').filter({ hasText: createdWorkspace.name })).toBeVisible();
+    await expect(page.getByTestId('workspace-switcher')).toHaveValue(createdWorkspace.id);
+    await expect(page.getByTestId('workspace-created-announcement')).toContainText(
+      `${createdWorkspace.name} Workspace`
+    );
+    await expect(page.getByTestId('workspace-dashboard')).toBeFocused();
+
+    expect(api.createRequests).toHaveLength(2);
+    const [firstRequest, retryRequest] = api.createRequests;
+    expect(firstRequest.body).toEqual({
+      name: createdWorkspace.name,
+      description: 'Evidence for the U-22 demo',
+      icon: null
+    });
+    expect(retryRequest.body).toEqual(firstRequest.body);
+    expect(retryRequest.rawBody).toBe(firstRequest.rawBody);
+    expect(retryRequest.idempotencyKey).toBe(firstRequest.idempotencyKey);
+    expect(firstRequest.idempotencyKey).toMatch(/^[\x20-\x7e]{8,128}$/u);
+    expect(api.createRequests.every((request) => request.csrfToken === 'csrf-workspace-create')).toBe(true);
+    expect(api.workspaceListRequests).toBeGreaterThanOrEqual(2);
+    await expectHealthyAngularPage(page);
+  });
+
   test('switches and persists the selected light or dark theme', async ({ page }) => {
     await page.addInitScript((storageKey) => {
       if (!globalThis.localStorage.getItem(storageKey)) {
@@ -341,6 +643,52 @@ test.describe('MVP-A P0 Angular frontend smoke', () => {
     await expect(body).not.toContainText('Mock User A');
     await expect(body).not.toContainText('mock-user-a@example.invalid');
     await expect(body).not.toContainText('Support User');
+    await expectHealthyAngularPage(page);
+  });
+
+  test('keeps long Project and Task context perceivable on a direct route at 320px', async ({ page }) => {
+    const projectId = 'static-project-context';
+    const taskId = 'static-task-context';
+    const projectTitle = 'A very long parent Project title that must remain identifiable on the narrow Task detail hierarchy';
+    const taskTitle = 'A very long current Task title that must remain identifiable on the narrow Task detail hierarchy';
+    const api = await installDirectTaskContextApi(page, { projectId, projectTitle, taskId, taskTitle });
+    await page.setViewportSize({ width: 320, height: 900 });
+
+    await page.goto(`/app/projects/${projectId}/tasks/${taskId}`);
+
+    const hierarchy = page.getByRole('navigation', { name: 'Project and task hierarchy' });
+    const parentProject = page.getByTestId('parent-project-link');
+    const currentTask = hierarchy.locator('[aria-current="page"]');
+    await expect(hierarchy).toBeVisible();
+    await expect(parentProject).toHaveText(projectTitle);
+    await expect(parentProject).toHaveAttribute('title', projectTitle);
+    await expect(parentProject).toHaveAttribute('href', `/app/projects/${projectId}`);
+    await expect(currentTask).toHaveText(taskTitle);
+    await expect(currentTask).toHaveAttribute('title', taskTitle);
+    await expect(page.getByRole('heading', { level: 1, name: taskTitle })).toBeVisible();
+    await expect(page.getByTestId('project-context').getByRole('heading', { name: projectTitle })).toBeVisible();
+
+    const [hierarchyBox, projectBox, taskBox] = await Promise.all([
+      hierarchy.boundingBox(),
+      parentProject.boundingBox(),
+      currentTask.boundingBox()
+    ]);
+    expect(hierarchyBox).not.toBeNull();
+    expect(projectBox).not.toBeNull();
+    expect(taskBox).not.toBeNull();
+    for (const contextBox of [projectBox!, taskBox!]) {
+      expect(contextBox.width).toBeGreaterThan(24);
+      expect(contextBox.x).toBeGreaterThanOrEqual(hierarchyBox!.x - 1);
+      expect(contextBox.x + contextBox.width).toBeLessThanOrEqual(hierarchyBox!.x + hierarchyBox!.width + 1);
+    }
+    expect(taskBox!.y).toBeGreaterThan(projectBox!.y);
+
+    expect(api.projectListRequests()).toBe(0);
+    expect(api.parentProjectRequests()).toBe(1);
+    expect(api.parentProjectAttempts()).toBeGreaterThanOrEqual(1);
+    expect(api.parentProjectAttempts()).toBeLessThanOrEqual(2);
+    await expectNoDocumentHorizontalOverflow(page);
+    await expectNoAccessibilityViolations(page);
     await expectHealthyAngularPage(page);
   });
 
@@ -1154,6 +1502,120 @@ function ganttCommandDto(item: MockGanttItem) {
   };
 }
 
+async function installDirectTaskContextApi(
+  page: Page,
+  context: { projectId: string; projectTitle: string; taskId: string; taskTitle: string }
+) {
+  let projectListRequests = 0;
+  let parentProjectRequests = 0;
+  let parentProjectAttempts = 0;
+  page.on('requestfinished', (request) => {
+    if (request.method() === 'GET' && new URL(request.url()).pathname === `/api/projects/${context.projectId}`) {
+      parentProjectRequests += 1;
+    }
+  });
+  await page.route('**/api/**', async (route) => {
+    const request = route.request();
+    const path = new URL(request.url()).pathname;
+    if (request.method() !== 'GET') {
+      await route.fallback();
+      return;
+    }
+
+    if (path === `/api/tasks/${context.taskId}`) {
+      await route.fulfill({
+        status: 200,
+        contentType: 'application/json',
+        body: JSON.stringify({
+          task: {
+            id: context.taskId,
+            tenantId: 'mock-tenant',
+            workspaceId: 'static-workspace-1',
+            projectId: context.projectId,
+            kind: 0,
+            parentTaskId: null,
+            milestoneId: null,
+            title: context.taskTitle,
+            description: 'Task-specific direct-route context.',
+            workflowStageId: 'stage-in-progress',
+            workflowStageName: 'In progress',
+            status: 1,
+            stageCategory: 1,
+            isBlocked: false,
+            priority: 'High',
+            plannedStartDate: '2026-08-20',
+            plannedEndDate: '2026-08-27',
+            progressPercent: 40,
+            progressIsDerived: false,
+            primaryAssignee: { userId: 'mock-user-a', displayName: 'Mock User A' },
+            reviewStatus: 0,
+            version: 1,
+            uiPermissions: { canEdit: false, canAssign: false, canChangeStatus: false, canDelete: false, allowedTransitions: [] }
+          },
+          relationships: { primaryAssignee: { userId: 'mock-user-a', displayName: 'Mock User A' }, collaborators: [], reviewer: null, version: 1 },
+          permissions: {
+            canCreateSubtask: false,
+            canCreateChecklistItem: false,
+            canUpdateChecklistItems: false,
+            canDeleteChecklistItems: false,
+            canReorderChecklist: false,
+            canCreateComment: false,
+            canMarkCommentImportant: false,
+            canApplyLabels: false,
+            canManageLabelDefinitions: false,
+            canAssociateFiles: false,
+            canRemoveFiles: false,
+            canChangeWatch: false
+          },
+          checklist: [],
+          labels: [],
+          watchState: { isWatching: false, isExplicitOptOut: false, automaticSources: [], version: 1 },
+          subtasks: { items: [], page: 1, pageSize: 50, totalCount: 0, hasMore: false },
+          comments: { items: [], page: 1, pageSize: 20, totalCount: 0, hasMore: false },
+          files: { items: [], page: 1, pageSize: 20, totalCount: 0, hasMore: false }
+        })
+      });
+      return;
+    }
+
+    if (path === `/api/projects/${context.projectId}`) {
+      parentProjectAttempts += 1;
+      await route.fulfill({
+        status: 200,
+        contentType: 'application/json',
+        body: JSON.stringify({
+          id: context.projectId,
+          title: context.projectTitle,
+          status: 1,
+          startDate: '2026-08-01',
+          endDate: '2026-08-31',
+          updatedAt: '2026-08-24T00:00:00Z',
+          uiPermissions: { canCreateTask: false }
+        })
+      });
+      return;
+    }
+
+    if (path === '/api/projects') {
+      projectListRequests += 1;
+      await route.fulfill({
+        status: 200,
+        contentType: 'application/json',
+        body: JSON.stringify({ items: [], page: 1, pageSize: 50, totalCount: 0, hasMore: false })
+      });
+      return;
+    }
+
+    await route.fallback();
+  });
+
+  return {
+    projectListRequests: () => projectListRequests,
+    parentProjectRequests: () => parentProjectRequests,
+    parentProjectAttempts: () => parentProjectAttempts
+  };
+}
+
 async function installProjectKanbanApi(
   page: Page,
   options: { denySnapshot?: boolean } = {}
@@ -1380,8 +1842,43 @@ function projectKanbanStageId(value: unknown): ProjectKanbanStageId {
 interface WorkspaceContextFixture {
   readonly id: string;
   readonly name: string;
+  readonly currentUserRole?: string;
+  readonly canCreateProject?: boolean;
+  readonly canAddFiles?: boolean;
   readonly runningProjectCount?: number;
   readonly needsReviewProjectCount?: number;
+}
+
+interface WorkspaceProjectCreateMockRequest {
+  readonly body: Record<string, unknown>;
+  readonly idempotencyKey: string;
+  readonly csrfToken: string;
+}
+
+interface WorkspaceCreateMockRequest {
+  readonly body: Record<string, unknown>;
+  readonly rawBody: string;
+  readonly idempotencyKey: string;
+  readonly csrfToken: string;
+}
+
+interface WorkspaceCreateMockResponse {
+  readonly status: number;
+  readonly body: unknown;
+  readonly workspace?: WorkspaceContextFixture;
+}
+
+interface WorkspaceContextApiOptions {
+  readonly canCreate?: boolean;
+  readonly onCreate?: (
+    request: WorkspaceCreateMockRequest,
+    attempt: number
+  ) => WorkspaceCreateMockResponse | Promise<WorkspaceCreateMockResponse>;
+}
+
+interface WorkspaceContextApiHarness {
+  readonly createRequests: readonly WorkspaceCreateMockRequest[];
+  readonly workspaceListRequests: number;
 }
 
 function workspaceContextFixtures(): readonly WorkspaceContextFixture[] {
@@ -1404,27 +1901,34 @@ function workspaceContextFixtures(): readonly WorkspaceContextFixture[] {
 async function installWorkspaceContextApi(
   page: Page,
   workspaces: readonly WorkspaceContextFixture[],
-  currentWorkspace: WorkspaceContextFixture | null
-): Promise<void> {
-  const dashboardItems = workspaces.map((workspace) => ({
-    ...workspace,
-    description: `${workspace.name} Playwright fixture`,
-    icon: null,
-    status: 'Active',
-    createdAt: '2026-07-06T00:00:00Z',
-    updatedAt: '2026-07-06T00:00:00Z',
-    currentUserRole: 'Member',
-    accessSource: 'WorkspaceMembership',
-    canOpenWorkspace: true,
-    canOpenMembers: true,
-    canOpenProjects: true,
-    unreadAnnouncementCount: 0,
-    unreadConversationCount: 0,
-    inProgressProjectCount:
-      workspace.runningProjectCount === undefined || workspace.needsReviewProjectCount === undefined
-        ? undefined
-        : workspace.runningProjectCount + workspace.needsReviewProjectCount
-  }));
+  currentWorkspace: WorkspaceContextFixture | null,
+  options: WorkspaceContextApiOptions = {}
+): Promise<WorkspaceContextApiHarness> {
+  const authorizedWorkspaces = [...workspaces];
+  const createRequests: WorkspaceCreateMockRequest[] = [];
+  let workspaceListRequests = 0;
+
+  const dashboardItems = () => authorizedWorkspaces.map((workspace) => ({
+      ...workspace,
+      description: `${workspace.name} Playwright fixture`,
+      icon: null,
+      status: 'Active',
+      createdAt: '2026-07-06T00:00:00Z',
+      updatedAt: '2026-07-06T00:00:00Z',
+      currentUserRole: workspace.currentUserRole ?? 'Member',
+      accessSource: 'WorkspaceMembership',
+      canOpenWorkspace: true,
+      canOpenMembers: true,
+      canOpenProjects: true,
+      canCreateProject: workspace.canCreateProject === true,
+      canAddFiles: workspace.canAddFiles === true,
+      unreadAnnouncementCount: 0,
+      unreadConversationCount: 0,
+      inProgressProjectCount:
+        workspace.runningProjectCount === undefined || workspace.needsReviewProjectCount === undefined
+          ? undefined
+          : workspace.runningProjectCount + workspace.needsReviewProjectCount
+    }));
 
   await page.route('**/api/auth/me', async (route) => {
     await route.fulfill({
@@ -1444,12 +1948,88 @@ async function installWorkspaceContextApi(
   });
 
   await page.route('**/api/workspaces', async (route) => {
+    const request = route.request();
+    if (request.method() === 'POST') {
+      const body = request.postDataJSON() as Record<string, unknown>;
+      const record: WorkspaceCreateMockRequest = {
+        body,
+        rawBody: request.postData() ?? '',
+        idempotencyKey: request.headers()['idempotency-key'] ?? '',
+        csrfToken: request.headers()['x-csrf-token'] ?? ''
+      };
+      createRequests.push(record);
+      const result = await options.onCreate?.(record, createRequests.length) ?? {
+        status: 503,
+        body: {
+          requestId: 'workspace-create-unconfigured',
+          error: {
+            code: 'DependencyUnavailable',
+            message: 'Workspace creation is unavailable in this fixture.',
+            target: 'workspace',
+            details: [],
+            redactionApplied: false
+          },
+          traceId: 'workspace-create-unconfigured',
+          status: 503
+        }
+      };
+      if (result.workspace && !authorizedWorkspaces.some((workspace) => workspace.id === result.workspace?.id)) {
+        authorizedWorkspaces.push(result.workspace);
+      }
+      await route.fulfill({
+        status: result.status,
+        contentType: 'application/json; charset=utf-8',
+        body: JSON.stringify(result.body)
+      });
+      return;
+    }
+
+    if (request.method() !== 'GET') {
+      await route.fulfill({ status: 405 });
+      return;
+    }
+
+    workspaceListRequests += 1;
     await route.fulfill({
       status: 200,
       contentType: 'application/json; charset=utf-8',
-      body: JSON.stringify(dashboardItems)
+      body: JSON.stringify(dashboardItems())
     });
   });
+
+  await page.route('**/api/workspaces/capabilities', async (route) => {
+    await route.fulfill({
+      status: 200,
+      contentType: 'application/json; charset=utf-8',
+      body: JSON.stringify({
+        requestId: 'playwright-workspaces-capabilities',
+        data: { canCreate: options.canCreate === true },
+        warnings: []
+      })
+    });
+  });
+
+  await page.route('**/api/security/csrf-token', async (route) => {
+    await route.fulfill({
+      status: 200,
+      contentType: 'application/json; charset=utf-8',
+      body: JSON.stringify({ token: 'csrf-workspace-create', headerName: 'X-CSRF-Token' })
+    });
+  });
+
+  return {
+    createRequests,
+    get workspaceListRequests() {
+      return workspaceListRequests;
+    }
+  };
+}
+
+function waitForWorkspaceCreateResponse(page: Page) {
+  return page.waitForResponse((response) =>
+    response.request().method() === 'POST' &&
+    new URL(response.url()).pathname === '/api/workspaces'
+  );
 }
 
 function ganttItem(page: Page, taskId: string): Locator {

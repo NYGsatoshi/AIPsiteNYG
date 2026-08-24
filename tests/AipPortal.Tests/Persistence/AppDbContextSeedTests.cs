@@ -1,4 +1,9 @@
+using AipPortal.Application.Common;
+using AipPortal.Application.Common.Interfaces;
 using AipPortal.Application.Common.Tenancy;
+using AipPortal.Application.Tenancy;
+using AipPortal.Application.Workspaces;
+using AipPortal.Domain.Entities;
 using AipPortal.Domain.Enums;
 using AipPortal.Infrastructure.Persistence;
 using AipPortal.Infrastructure.Security;
@@ -187,6 +192,82 @@ public sealed class AppDbContextSeedTests
         Assert.Equal(WorkspaceRole.Owner, workspaceMember.Role);
     }
 
+    [Fact]
+    public async Task BrowserSmokeSeedDelegatesWorkspaceCreateToTenantMemberIdempotently()
+    {
+        var currentTenant = new CurrentTenantService();
+        currentTenant.SetPlatformScope();
+        await using var dbContext = CreateDbContext(currentTenant);
+        var tenant = await AppDbContextSeed.SeedDefaultTenantAsync(
+            dbContext,
+            new TenancyOptions { DefaultTenantSlug = "default" });
+        var passwordHasher = new Pbkdf2PasswordHasher();
+        var storage = new MemoryFileStorage();
+
+        await AppDbContextSeed.SeedBrowserSmokeAsync(
+            dbContext,
+            passwordHasher,
+            storage,
+            tenant.Id,
+            "browser-smoke@example.test",
+            "Browser-smoke-password!234");
+
+        var actor = await dbContext.Users.SingleAsync(
+            user => user.Email == "browser-smoke@example.test");
+        var firstGrant = await dbContext.Set<CapabilityGrant>().SingleAsync(
+            grant =>
+                grant.TenantId == tenant.Id &&
+                grant.SubjectUserId == actor.Id &&
+                grant.CapabilityKey == CapabilityKeys.WorkspaceCreate);
+        var firstGrantId = firstGrant.Id;
+        var firstGrantedAt = firstGrant.GrantedAt;
+
+        await AppDbContextSeed.SeedBrowserSmokeAsync(
+            dbContext,
+            passwordHasher,
+            storage,
+            tenant.Id,
+            "browser-smoke@example.test",
+            "Browser-smoke-password!234");
+
+        var tenantMembership = await dbContext.TenantUsers.SingleAsync(
+            membership => membership.TenantId == tenant.Id && membership.UserId == actor.Id);
+        var grant = Assert.Single(await dbContext.Set<CapabilityGrant>()
+            .Where(candidate =>
+                candidate.TenantId == tenant.Id &&
+                candidate.SubjectUserId == actor.Id &&
+                candidate.CapabilityKey == CapabilityKeys.WorkspaceCreate)
+            .ToListAsync());
+
+        Assert.Equal(SystemRole.User, actor.SystemRole);
+        Assert.Equal(TenantUserRole.Member, tenantMembership.Role);
+        Assert.Equal(TenantUserStatus.Active, tenantMembership.Status);
+        Assert.Equal(firstGrantId, grant.Id);
+        Assert.Equal(firstGrantedAt, grant.GrantedAt);
+        Assert.Equal(CapabilityScopeType.Tenant, grant.ScopeType);
+        Assert.Equal(tenant.Id, grant.ScopeId);
+        Assert.Equal(actor.Id, grant.GrantedByUserId);
+        Assert.Null(grant.ExpiresAt);
+        Assert.Null(grant.RevokedAt);
+
+        currentTenant.SetTenant(tenant.Id, tenant.Slug);
+        var tenants = new TenantRepository(dbContext);
+        var workspaces = new WorkspaceRepository(dbContext);
+        var evaluator = new CapabilityGrantEvaluator(
+            new CapabilityGrantRepository(dbContext),
+            tenants,
+            workspaces,
+            currentTenant,
+            new SystemClock());
+        var authorization = new WorkspaceAuthorizationService(
+            new UserRepository(dbContext),
+            workspaces,
+            new TenantAuthorizationService(tenants),
+            evaluator);
+
+        Assert.True(await authorization.CanCreateWorkspace(actor.Id, tenant.Id));
+    }
+
     private static AppDbContext CreateDbContext(CurrentTenantService currentTenant)
     {
         var options = new DbContextOptionsBuilder<AppDbContext>()
@@ -194,5 +275,39 @@ public sealed class AppDbContextSeedTests
             .Options;
 
         return new AppDbContext(options, currentTenant);
+    }
+
+    private sealed class MemoryFileStorage : IFileStorageService
+    {
+        public async Task<Result> SaveAsync(
+            string storageKey,
+            Stream stream,
+            string contentType,
+            CancellationToken cancellationToken = default)
+        {
+            await stream.CopyToAsync(Stream.Null, cancellationToken);
+            return Result.Success();
+        }
+
+        public Task<Stream> OpenReadAsync(
+            string storageKey,
+            CancellationToken cancellationToken = default) =>
+            Task.FromResult<Stream>(Stream.Null);
+
+        public Task DeleteAsync(
+            string storageKey,
+            CancellationToken cancellationToken = default) =>
+            Task.CompletedTask;
+
+        public Task<bool> ExistsAsync(
+            string storageKey,
+            CancellationToken cancellationToken = default) =>
+            Task.FromResult(true);
+
+        public Task<string?> CreateSignedReadUrlAsync(
+            string storageKey,
+            TimeSpan expiresIn,
+            CancellationToken cancellationToken = default) =>
+            Task.FromResult<string?>(null);
     }
 }

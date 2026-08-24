@@ -1,7 +1,8 @@
+import { signal } from '@angular/core';
 import { ComponentFixture, TestBed } from '@angular/core/testing';
 import { provideRouter } from '@angular/router';
 
-import { AIP_WORKSPACES_DASHBOARD_MOCK } from '../workspaces.facade';
+import { AIP_WORKSPACES_DASHBOARD_MOCK, WorkspacesFacade } from '../workspaces.facade';
 import {
   DEFAULT_WORKSPACES,
   LONG_NAME_WORKSPACE,
@@ -10,7 +11,7 @@ import {
   SYSTEM_ADMIN_WORKSPACE,
   WORKSPACE_DASHBOARD_SCENARIOS,
 } from '../workspaces.mock';
-import { WorkspaceDashboardViewModel } from '../workspaces.types';
+import { WorkspaceCreateViewModel, WorkspaceDashboardViewModel } from '../workspaces.types';
 import { WorkspaceDashboardPageComponent } from './workspace-dashboard-page.component';
 
 const renderDashboard = async (
@@ -28,6 +29,30 @@ const renderDashboard = async (
 
 const textContent = (fixture: ComponentFixture<WorkspaceDashboardPageComponent>): string =>
   (fixture.nativeElement as HTMLElement).textContent ?? '';
+
+const renderDashboardWithCreateState = async (
+  dashboard: WorkspaceDashboardViewModel,
+  createState: WorkspaceCreateViewModel,
+) => {
+  const dashboardState = signal(dashboard);
+  const workspaceCreateState = signal(createState);
+  const facade = {
+    dashboard: dashboardState.asReadonly(),
+    workspaceCreate: workspaceCreateState.asReadonly(),
+    resetWorkspaceCreatePresentation: vi.fn(),
+    createWorkspace: vi.fn().mockResolvedValue(false),
+    retryWorkspaceActivation: vi.fn().mockResolvedValue(false),
+  };
+
+  await TestBed.configureTestingModule({
+    imports: [WorkspaceDashboardPageComponent],
+    providers: [provideRouter([]), { provide: WorkspacesFacade, useValue: facade }],
+  }).compileComponents();
+
+  const fixture = TestBed.createComponent(WorkspaceDashboardPageComponent);
+  fixture.detectChanges();
+  return { facade, fixture };
+};
 
 const workspaceCard = (
   fixture: ComponentFixture<WorkspaceDashboardPageComponent>,
@@ -64,11 +89,222 @@ describe('WorkspaceDashboardPageComponent', () => {
   it('shows create action only when the page capability is present', async () => {
     const fixture = await renderDashboard(WORKSPACE_DASHBOARD_SCENARIOS.default);
 
+    const action = (fixture.nativeElement as HTMLElement).querySelector<HTMLButtonElement>(
+      '[data-testid="create-workspace-action"]',
+    );
+    expect(action).not.toBeNull();
+    expect(action?.disabled).toBe(false);
+
+    action?.click();
+    fixture.detectChanges();
     expect(
-      (fixture.nativeElement as HTMLElement).querySelector(
-        '[data-testid="create-workspace-action"]',
-      ),
+      (fixture.nativeElement as HTMLElement).querySelector('[data-testid="workspace-create-form"]'),
     ).not.toBeNull();
+  });
+
+  it('renders one primary research action and a separate file action for an authorized Workspace', async () => {
+    const fixture = await renderDashboard({
+      ...WORKSPACE_DASHBOARD_SCENARIOS.default,
+      workspaces: [OWNER_WORKSPACE],
+    });
+
+    const card = workspaceCard(fixture, OWNER_WORKSPACE.displayName);
+    expect(card.querySelector('[role="group"][aria-label="作成"]')).not.toBeNull();
+    const primaryActions = card.querySelectorAll('[data-testid="start-research-action"]');
+    expect(primaryActions).toHaveLength(1);
+    expect(primaryActions[0]?.textContent?.trim()).toBe('新しいリサーチ');
+    expect(primaryActions[0]?.getAttribute('href')).toBe(
+      '/workspaces/sample-workspace-owner/research/new',
+    );
+
+    const addFiles = card.querySelector<HTMLAnchorElement>('[data-testid="add-files-action"]');
+    expect(addFiles?.textContent?.trim()).toBe('ファイルを追加');
+    expect(addFiles?.getAttribute('href')).toBe('/workspaces/sample-workspace-owner/files#upload');
+  });
+
+  it('does not infer create actions from Workspace read access', async () => {
+    const fixture = await renderDashboard({
+      ...WORKSPACE_DASHBOARD_SCENARIOS.default,
+      workspaces: [{ ...DEFAULT_WORKSPACES[2], capabilities: ['openWorkspace'] }],
+    });
+
+    const card = workspaceCard(fixture, DEFAULT_WORKSPACES[2].displayName);
+    expect(card.querySelector('[data-testid="start-research-action"]')).toBeNull();
+    expect(card.querySelector('[data-testid="add-files-action"]')).toBeNull();
+    expect(card.querySelector('[data-testid="open-members-action"]')).toBeNull();
+    expect(card.querySelector('[data-testid="open-projects-action"]')).toBeNull();
+  });
+
+  it('keeps lower-frequency navigation distinct from create actions', async () => {
+    const fixture = await renderDashboard({
+      ...WORKSPACE_DASHBOARD_SCENARIOS.default,
+      workspaces: [OWNER_WORKSPACE],
+    });
+
+    const card = workspaceCard(fixture, OWNER_WORKSPACE.displayName);
+    expect(card.querySelector('[data-testid="open-projects-action"]')?.textContent?.trim()).toBe(
+      'プロジェクト',
+    );
+    expect(card.querySelector('[data-testid="open-members-action"]')?.textContent?.trim()).toBe(
+      'メンバー',
+    );
+    expect(card.querySelectorAll('[data-testid="start-research-action"]')).toHaveLength(1);
+  });
+
+  it('uses per-card action groups instead of duplicate navigation landmarks', async () => {
+    const duplicateName = '同名Workspace';
+    const fixture = await renderDashboard({
+      ...WORKSPACE_DASHBOARD_SCENARIOS.default,
+      workspaces: [
+        { ...OWNER_WORKSPACE, id: 'duplicate-workspace-a', displayName: duplicateName },
+        { ...OWNER_WORKSPACE, id: 'duplicate-workspace-b', displayName: duplicateName },
+      ],
+    });
+    const root = fixture.nativeElement as HTMLElement;
+
+    expect(root.querySelectorAll('nav.workspace-actions__navigation')).toHaveLength(0);
+    expect(
+      root.querySelectorAll(
+        '.workspace-actions__navigation[role="group"][aria-label="Workspace内を移動"]',
+      ),
+    ).toHaveLength(2);
+  });
+
+  it('uses one capability-gated create action inside the zero-Workspace state', async () => {
+    const fixture = await renderDashboard({
+      ...WORKSPACE_DASHBOARD_SCENARIOS.noWorkspaceAccess,
+      pageCapabilities: ['createWorkspace'],
+    });
+    const root = fixture.nativeElement as HTMLElement;
+
+    expect(root.querySelector('[data-testid="create-workspace-action"]')).toBeNull();
+    const emptyAction = root.querySelector<HTMLButtonElement>(
+      '[data-testid="workspace-empty-create-action"]',
+    );
+    expect(emptyAction).not.toBeNull();
+    emptyAction?.click();
+    fixture.detectChanges();
+    expect(root.querySelector('[data-testid="workspace-create-form"]')).not.toBeNull();
+  });
+
+  it.each([
+    ['dashboard error', WORKSPACE_DASHBOARD_SCENARIOS.error],
+    ['permission denied', WORKSPACE_DASHBOARD_SCENARIOS.permissionDenied],
+    [
+      'no Workspace access',
+      {
+        ...WORKSPACE_DASHBOARD_SCENARIOS.noWorkspaceAccess,
+        pageCapabilities: ['createWorkspace'] as const,
+      },
+    ],
+  ])('keeps committed Workspace activation resumable during %s', async (_label, dashboard) => {
+    const { fixture } = await renderDashboardWithCreateState(dashboard, {
+      status: 'committedPendingActivation',
+      fieldErrors: [],
+      createdWorkspaceId: 'workspace-created',
+      requestId: 'request-created',
+    });
+    const root = fixture.nativeElement as HTMLElement;
+
+    expect(root.querySelector('[data-testid="create-workspace-action"]')).toBeNull();
+    expect(root.querySelector('[data-testid="workspace-empty-create-action"]')).toBeNull();
+    const resume = root.querySelector<HTMLButtonElement>(
+      '[data-testid="resume-workspace-activation-action"]',
+    );
+    expect(resume).not.toBeNull();
+
+    resume?.click();
+    fixture.detectChanges();
+
+    expect(root.querySelector('[data-testid="workspace-create-pending"]')).not.toBeNull();
+    expect(root.querySelector('[data-testid="workspace-create-form"]')).toBeNull();
+  });
+
+  it('closes and reopens committed activation without another create submission', async () => {
+    const { facade, fixture } = await renderDashboardWithCreateState(
+      WORKSPACE_DASHBOARD_SCENARIOS.error,
+      {
+        status: 'committedPendingActivation',
+        fieldErrors: [],
+        createdWorkspaceId: 'workspace-created',
+        requestId: 'request-created',
+      },
+    );
+    const root = fixture.nativeElement as HTMLElement;
+    const createHandler = vi.spyOn(fixture.componentInstance, 'createWorkspace');
+
+    root
+      .querySelector<HTMLButtonElement>('[data-testid="resume-workspace-activation-action"]')
+      ?.click();
+    fixture.detectChanges();
+    root.querySelector<HTMLButtonElement>('.aip-dialog__actions button')?.click();
+    fixture.detectChanges();
+    await fixture.whenStable();
+
+    expect(root.querySelector('[role="dialog"]')).toBeNull();
+    expect(facade.resetWorkspaceCreatePresentation).not.toHaveBeenCalled();
+
+    root
+      .querySelector<HTMLButtonElement>('[data-testid="resume-workspace-activation-action"]')
+      ?.click();
+    fixture.detectChanges();
+    expect(root.querySelector('[data-testid="workspace-create-pending"]')).not.toBeNull();
+    expect(root.querySelector('[data-testid="workspace-create-form"]')).toBeNull();
+
+    root.querySelector<HTMLButtonElement>('.aip-dialog__confirm')?.click();
+    await fixture.whenStable();
+
+    expect(facade.retryWorkspaceActivation).toHaveBeenCalledOnce();
+    expect(createHandler).not.toHaveBeenCalled();
+    expect(facade.createWorkspace).not.toHaveBeenCalled();
+  });
+
+  it('submits the accessible dialog through the facade and announces activation', async () => {
+    const fixture = await renderDashboard(WORKSPACE_DASHBOARD_SCENARIOS.default);
+    const facade = TestBed.inject(WorkspacesFacade);
+    const create = vi.spyOn(facade, 'createWorkspace').mockResolvedValue(true);
+    const root = fixture.nativeElement as HTMLElement;
+    fixture.componentInstance.updateSearch('does not match the new Workspace');
+    root.querySelector<HTMLButtonElement>('[data-testid="create-workspace-action"]')?.click();
+    fixture.detectChanges();
+
+    const name = root.querySelector<HTMLInputElement>('[data-testid="workspace-create-name"]');
+    name!.value = 'U-22 Research';
+    name!.dispatchEvent(new Event('input'));
+    root.querySelector<HTMLSelectElement>('[data-testid="workspace-create-icon"]')!.value = '🚀';
+    root.querySelector<HTMLSelectElement>('[data-testid="workspace-create-icon"]')!.dispatchEvent(
+      new Event('change'),
+    );
+    fixture.detectChanges();
+    root.querySelector<HTMLButtonElement>('.aip-dialog__confirm')?.click();
+    await fixture.whenStable();
+    fixture.detectChanges();
+
+    expect(create).toHaveBeenCalledWith({ name: 'U-22 Research', description: '', icon: '🚀' });
+    expect(root.querySelector('[role="dialog"]')).toBeNull();
+    expect(fixture.componentInstance.searchValue()).toBe('');
+    expect(root.querySelector('[data-testid="workspace-created-announcement"]')?.textContent).toContain(
+      'U-22 Research',
+    );
+  });
+
+  it('cancels without sending a create request and returns focus to the opener', async () => {
+    const fixture = await renderDashboard(WORKSPACE_DASHBOARD_SCENARIOS.default);
+    const facade = TestBed.inject(WorkspacesFacade);
+    const create = vi.spyOn(facade, 'createWorkspace');
+    const root = fixture.nativeElement as HTMLElement;
+    const opener = root.querySelector<HTMLButtonElement>('[data-testid="create-workspace-action"]')!;
+    opener.focus();
+    opener.click();
+    fixture.detectChanges();
+
+    root.querySelector<HTMLButtonElement>('.aip-dialog__actions button')?.click();
+    fixture.detectChanges();
+    await fixture.whenStable();
+
+    expect(create).not.toHaveBeenCalled();
+    expect(root.querySelector('[role="dialog"]')).toBeNull();
+    expect(document.activeElement).toBe(opener);
   });
 
   it('filters only provided mock workspace rows with page-local search', async () => {
@@ -102,23 +338,6 @@ describe('WorkspaceDashboardPageComponent', () => {
     expect(textContent(fixture)).not.toContain('本文プレビュー');
   });
 
-  it('does not expose hidden member action in mobile layout', async () => {
-    const fixture = await renderDashboard({
-      ...WORKSPACE_DASHBOARD_SCENARIOS.default,
-      workspaces: [{ ...DEFAULT_WORKSPACES[2], capabilities: ['openWorkspace'] }],
-    });
-
-    (fixture.nativeElement as HTMLElement).style.width = '320px';
-    fixture.detectChanges();
-
-    expect(
-      (fixture.nativeElement as HTMLElement).querySelector('[data-testid="open-members-action"]'),
-    ).toBeNull();
-    expect(
-      (fixture.nativeElement as HTMLElement).querySelector('[data-testid="open-workspace-action"]'),
-    ).not.toBeNull();
-  });
-
   it('does not render an action denied by the corresponding backend capability', async () => {
     const fixture = await renderDashboard({
       ...WORKSPACE_DASHBOARD_SCENARIOS.default,
@@ -126,7 +345,8 @@ describe('WorkspaceDashboardPageComponent', () => {
     });
 
     const card = workspaceCard(fixture, READ_ONLY_WORKSPACE.displayName);
-    expect(card.querySelector('[data-testid="open-workspace-action"]')).not.toBeNull();
+    expect(card.querySelector('[data-testid="start-research-action"]')).toBeNull();
+    expect(card.querySelector('[data-testid="add-files-action"]')).toBeNull();
     expect(card.querySelector('[data-testid="open-members-action"]')).toBeNull();
     expect(card.querySelector('[data-testid="open-projects-action"]')).toBeNull();
   });
@@ -191,7 +411,7 @@ describe('WorkspaceDashboardPageComponent', () => {
     ).toBe('未提供');
   });
 
-  it('presents SystemAdmin access without inventing a Workspace membership role', async () => {
+  it('presents SystemAdmin access without inventing a Workspace membership role or Project-create authority', async () => {
     const fixture = await renderDashboard({
       ...WORKSPACE_DASHBOARD_SCENARIOS.systemAdmin,
       workspaces: [SYSTEM_ADMIN_WORKSPACE],
@@ -201,6 +421,8 @@ describe('WorkspaceDashboardPageComponent', () => {
     const role = card.querySelector('[data-testid="workspace-role"]')?.textContent?.trim();
     expect(role).toBe('システム管理者アクセス');
     expect(role).not.toBe('メンバー');
+    expect(card.querySelector('[data-testid="start-research-action"]')).toBeNull();
+    expect(card.querySelector('[data-testid="add-files-action"]')).not.toBeNull();
   });
 
   it('does not show the obsolete API-unimplemented summary message for a complete projection', async () => {
