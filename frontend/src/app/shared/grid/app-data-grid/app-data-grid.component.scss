@@ -28,6 +28,14 @@
   --ag-modal-overlay-background-color: var(--aip-color-overlay);
 }
 
+// The retained AG adapter uses its native fixed header with a bounded scroll
+// surface. This avoids relying on CSS sticky inside the horizontal overflow
+// wrapper, which would not remain pinned during a document scroll.
+.app-data-grid__grid--sticky-header {
+  height: min(70vh, 42rem);
+  min-height: 18rem;
+}
+
 .app-data-grid__page-limit {
   margin: 0;
   color: var(--aip-color-text-secondary);

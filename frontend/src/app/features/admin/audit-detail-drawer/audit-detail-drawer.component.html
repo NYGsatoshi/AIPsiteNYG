@@ -1,9 +1,9 @@
-@if (audit; as selectedAudit) {
-  <aside class="admin-drawer" aria-label="Audit detail" data-testid="audit-detail-drawer" tabindex="-1">
+@if (isOpen) {
+  <aside class="admin-drawer" aria-labelledby="audit-detail-title" data-testid="audit-detail-drawer" tabindex="-1">
     <header class="admin-drawer__header">
       <div>
         <p class="admin-drawer__eyebrow">Redacted detail</p>
-        <h2>{{ selectedAudit.action }}</h2>
+        <h2 id="audit-detail-title">{{ audit?.action ?? 'Audit event detail' }}</h2>
       </div>
       <button
         #closeButton
@@ -17,52 +17,64 @@
       </button>
     </header>
 
-    <dl class="admin-drawer__summary">
-      <div>
-        <dt>Created</dt>
-        <dd>{{ selectedAudit.createdAt }}</dd>
-      </div>
-      <div>
-        <dt>Actor</dt>
-        <dd>{{ selectedAudit.actorDisplay }}</dd>
-      </div>
-      <div>
-        <dt>Target</dt>
-        <dd>{{ selectedAudit.targetType }}</dd>
-      </div>
-      <div>
-        <dt>Workspace</dt>
-        <dd>{{ selectedAudit.workspace }}</dd>
-      </div>
-      <div>
-        <dt>Severity</dt>
-        <dd><app-audit-severity-badge [severity]="selectedAudit.severity" [label]="selectedAudit.severityLabel" /></dd>
-      </div>
-      <div>
-        <dt>Result</dt>
-        <dd><app-audit-result-badge [result]="selectedAudit.result" [label]="selectedAudit.resultLabel" /></dd>
-      </div>
-      <div>
-        <dt>Request ID</dt>
-        <dd data-testid="audit-detail-request-id">{{ selectedAudit.requestId }}</dd>
-      </div>
-    </dl>
-
-    <section class="admin-drawer__section">
-      <h3>Summary</h3>
-      <p data-testid="audit-detail-summary">{{ selectedAudit.summary }}</p>
-    </section>
-
-    <section class="admin-drawer__section">
-      <h3>Safe detail fields</h3>
-      <dl class="admin-drawer__redactions">
-        @for (line of selectedAudit.redactedDetails; track line.label) {
-          <div [attr.data-redaction-state]="line.state">
-            <dt>{{ line.label }}</dt>
-            <dd>{{ line.value }}</dd>
-          </div>
-        }
+    @if (status === 'loading') {
+      <p class="admin-drawer__state" role="status" aria-live="polite" data-testid="audit-detail-loading">Loading selected audit event.</p>
+    } @else if (status === 'notFound') {
+      <p class="admin-drawer__state admin-drawer__state--unavailable" role="status" data-testid="audit-detail-unavailable">{{ message ?? 'The selected audit event is unavailable.' }}</p>
+    } @else if (status === 'permissionDenied') {
+      <p class="admin-drawer__state admin-drawer__state--unavailable" role="alert" data-testid="audit-detail-permission-denied">{{ message ?? 'Audit permission is required to view this event.' }}</p>
+    } @else if (status === 'error') {
+      <p class="admin-drawer__state admin-drawer__state--unavailable" role="alert" data-testid="audit-detail-error">{{ message ?? 'The selected audit event could not be loaded.' }}</p>
+    } @else if (audit; as selectedAudit) {
+      <dl class="admin-drawer__summary">
+        <div>
+          <dt>Created</dt>
+          <dd>{{ selectedAudit.createdAt }}</dd>
+        </div>
+        <div>
+          <dt>Actor</dt>
+          <dd>{{ selectedAudit.actorDisplay }}</dd>
+        </div>
+        <div>
+          <dt>Target</dt>
+          <dd>{{ selectedAudit.targetType }}</dd>
+        </div>
+        <div>
+          <dt>Workspace</dt>
+          <dd>{{ selectedAudit.workspace }}</dd>
+        </div>
+        <div>
+          <dt>Severity</dt>
+          <dd><app-audit-severity-badge [severity]="selectedAudit.severity" [label]="selectedAudit.severityLabel" /></dd>
+        </div>
+        <div>
+          <dt>Result</dt>
+          <dd><app-audit-result-badge [result]="selectedAudit.result" [label]="selectedAudit.resultLabel" /></dd>
+        </div>
+        <div>
+          <dt>Request ID</dt>
+          <dd data-testid="audit-detail-request-id">{{ selectedAudit.requestId }}</dd>
+        </div>
       </dl>
-    </section>
+
+      <section class="admin-drawer__section">
+        <h3>Summary</h3>
+        <p data-testid="audit-detail-summary">{{ selectedAudit.summary }}</p>
+      </section>
+
+      @if (selectedAudit.redactedDetails.length > 0) {
+        <section class="admin-drawer__section">
+          <h3>Safe detail fields</h3>
+          <dl class="admin-drawer__redactions">
+            @for (line of selectedAudit.redactedDetails; track line.label) {
+              <div [attr.data-redaction-state]="line.state">
+                <dt>{{ line.label }}</dt>
+                <dd>{{ line.value }}</dd>
+              </div>
+            }
+          </dl>
+        </section>
+      }
+    }
   </aside>
 }

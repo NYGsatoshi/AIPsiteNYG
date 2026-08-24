@@ -210,43 +210,71 @@ public sealed class DbAuditQueryService : IAuditQueryService
             .OrderByDescending(log => log.CreatedAt)
             .Skip((page - 1) * pageSize)
             .Take(pageSize)
-            .Select(log => new
-            {
+            .Select(log => new AuditGridProjection(
                 log.Id,
                 log.CreatedAt,
                 log.Action,
-                ActorDisplayName = log.ActorUser == null ? null : log.ActorUser.DisplayName,
+                log.ActorUser == null ? null : log.ActorUser.DisplayName,
                 log.EntityType,
-                WorkspaceLabel = log.Workspace == null ? null : log.Workspace.Name,
+                log.Workspace == null ? null : log.Workspace.Name,
                 log.WorkspaceId,
                 log.Summary,
-                log.CorrelationId
-            })
+                log.CorrelationId))
             .ToListAsync(cancellationToken);
 
         var canViewSensitiveMetadata = capabilities.CanViewSensitiveMetadata;
         var items = records
-            .Select(log =>
-            {
-                var result = ClassifyResult(log.Action);
-                return new AuditGridRowResponse(
-                    log.Id,
-                    log.CreatedAt,
-                    log.Action,
-                    canViewSensitiveMetadata
-                        ? (string.IsNullOrWhiteSpace(log.ActorDisplayName) ? "Unknown actor" : log.ActorDisplayName)
-                        : "Redacted actor",
-                    log.EntityType,
-                    log.WorkspaceLabel ?? log.WorkspaceId?.ToString("D"),
-                    ClassifySeverity(log.Action, result),
-                    result,
-                    string.IsNullOrWhiteSpace(log.Summary) ? log.Action : log.Summary,
-                    canViewSensitiveMetadata ? log.CorrelationId : null);
-            })
+            .Select(log => ToAuditGridRow(log, canViewSensitiveMetadata))
             .ToList();
 
         return Result<PagedResponse<AuditGridRowResponse>>.Success(
             new PagedResponse<AuditGridRowResponse>(items, page, pageSize, total));
+    }
+
+    public async Task<Result<AuditGridRowResponse>> GetAuditGridRowAsync(
+        Guid auditId,
+        CancellationToken cancellationToken = default)
+    {
+        var capabilities = await auditAuthorization.GetCapabilitiesAsync(cancellationToken);
+        if (!capabilities.CanView)
+        {
+            var denied = await auditAuthorization.AuthorizeAsync(
+                CapabilityKeys.AuditView,
+                "audit.grid.row.read",
+                cancellationToken);
+            return AuthorizationFailure<AuditGridRowResponse>(denied);
+        }
+
+        var scopeError = ValidateQueryScope<AuditGridRowResponse>();
+        if (scopeError is not null)
+        {
+            return scopeError;
+        }
+
+        // Scope before ID comparison so an ID from another Tenant is
+        // indistinguishable from an absent record. Guid.Empty is handled by
+        // the same generic result after authorization, which also keeps an
+        // invalid URL marker from receiving a different resource signal.
+        var record = auditId == Guid.Empty
+            ? null
+            : await ScopeToCurrentTenant(dbContext.AuditLogs.AsNoTracking())
+                .Where(log => log.Id == auditId)
+                .Select(log => new AuditGridProjection(
+                    log.Id,
+                    log.CreatedAt,
+                    log.Action,
+                    log.ActorUser == null ? null : log.ActorUser.DisplayName,
+                    log.EntityType,
+                    log.Workspace == null ? null : log.Workspace.Name,
+                    log.WorkspaceId,
+                    log.Summary,
+                    log.CorrelationId))
+                .SingleOrDefaultAsync(cancellationToken);
+
+        return record is null
+            ? AuditGridRowNotFound()
+            : Result<AuditGridRowResponse>.Success(
+                ToAuditGridRow(record, capabilities.CanViewSensitiveMetadata));
     }
 
     public async Task<Result<PagedResponse<SecurityEventListItemResponse>>> ListSecurityEventsAsync(
@@ -373,6 +401,42 @@ public sealed class DbAuditQueryService : IAuditQueryService
         return Result<T>.Failure(
             denied.Error ?? "The requested Audit operation is not permitted.");
     }
+
+    private static Result<AuditGridRowResponse> AuditGridRowNotFound() =>
+        Result<AuditGridRowResponse>.Failure(new ApplicationErrorDetail(
+            "AuditEventNotFound",
+            "The requested audit event is not available."));
+
+    private static AuditGridRowResponse ToAuditGridRow(
+        AuditGridProjection log,
+        bool canViewSensitiveMetadata)
+    {
+        var result = ClassifyResult(log.Action);
+        return new AuditGridRowResponse(
+            log.Id,
+            log.CreatedAt,
+            log.Action,
+            canViewSensitiveMetadata
+                ? (string.IsNullOrWhiteSpace(log.ActorDisplayName) ? "Unknown actor" : log.ActorDisplayName)
+                : "Redacted actor",
+            log.EntityType,
+            log.WorkspaceLabel ?? log.WorkspaceId?.ToString("D"),
+            ClassifySeverity(log.Action, result),
+            result,
+            string.IsNullOrWhiteSpace(log.Summary) ? log.Action : log.Summary,
+            canViewSensitiveMetadata ? log.CorrelationId : null);
+    }
+
+    private sealed record AuditGridProjection(
+        Guid Id,
+        DateTimeOffset CreatedAt,
+        string Action,
+        string? ActorDisplayName,
+        string EntityType,
+        string? WorkspaceLabel,
+        Guid? WorkspaceId,
+        string? Summary,
+        string? CorrelationId);
 
     private static string ClassifyResult(string action)
     {

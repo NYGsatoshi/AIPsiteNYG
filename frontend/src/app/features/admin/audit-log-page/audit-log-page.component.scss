@@ -41,14 +41,83 @@
 
 .admin-page__layout {
   display: grid;
-  grid-template-columns: minmax(0, 1fr) minmax(18rem, 24rem);
+  grid-template-columns: minmax(0, 1fr);
   gap: 1rem;
   align-items: start;
   min-width: 0;
 }
 
+.admin-page__layout--drawer-open {
+  grid-template-columns: minmax(0, 1fr) minmax(18rem, 24rem);
+}
+
 .admin-page__layout > * {
   min-width: 0;
+}
+
+.admin-page__grid-controls,
+.admin-page__density {
+  display: flex;
+  align-items: center;
+  gap: var(--aip-space-2);
+}
+
+.admin-page__grid-controls {
+  justify-content: flex-end;
+  margin-bottom: var(--aip-space-3);
+}
+
+.admin-page__density button,
+.admin-page__columns summary {
+  border: 1px solid var(--aip-color-border-default);
+  border-radius: var(--aip-radius-sm);
+  background: var(--aip-color-bg-surface-subtle);
+  cursor: pointer;
+  font: inherit;
+  font-size: var(--aip-font-size-sm);
+  font-weight: 700;
+  min-height: var(--aip-control-height);
+  padding: 0.35rem 0.6rem;
+}
+
+.admin-page__density button[aria-pressed='true'] {
+  outline: var(--aip-focus-outline);
+  outline-offset: var(--aip-focus-offset);
+}
+
+.admin-page__columns {
+  position: relative;
+}
+
+.admin-page__columns summary {
+  list-style: none;
+}
+
+.admin-page__columns summary::-webkit-details-marker {
+  display: none;
+}
+
+.admin-page__columns-menu {
+  position: absolute;
+  z-index: var(--aip-z-popover, 20);
+  top: calc(100% + var(--aip-space-2));
+  right: 0;
+  display: grid;
+  gap: var(--aip-space-2);
+  min-width: 11rem;
+  border: 1px solid var(--aip-color-border-default);
+  border-radius: var(--aip-radius-md);
+  background: var(--aip-color-bg-surface);
+  box-shadow: var(--aip-shadow-floating);
+  padding: var(--aip-space-3);
+}
+
+.admin-page__columns-menu label {
+  display: flex;
+  align-items: center;
+  gap: var(--aip-space-2);
+  font-size: var(--aip-font-size-sm);
+  font-weight: 700;
 }
 
 .admin-page__retry {
@@ -66,7 +135,7 @@
   gap: var(--aip-component-gap);
   list-style: decimal;
   margin: 0;
-  padding: 0 0 0 var(--aip-space-5);
+  padding-left: var(--aip-space-5);
 }
 
 .admin-page__mobile-item {

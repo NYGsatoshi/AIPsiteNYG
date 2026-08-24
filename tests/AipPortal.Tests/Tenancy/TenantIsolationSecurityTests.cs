@@ -1,3 +1,4 @@
+using System.Text.Json;
 using AipPortal.Application.Audit;
 using AipPortal.Application.Auth;
 using AipPortal.Application.Common;
@@ -313,6 +314,105 @@ public sealed class TenantIsolationSecurityTests
         Assert.Equal(data.WorkspaceA.Name, rows["workspace.member.view"].WorkspaceLabel);
     }
 
+    [Fact]
+    public async Task TenantAdminAuditGridRowLookupKeepsOtherTenantAndAbsentRowsIndistinguishable()
+    {
+        var (dbContext, currentTenant, data) = await CreateSeededContextAsync();
+        var currentTenantAuditId = await dbContext.AuditLogs.IgnoreQueryFilters()
+            .Where(log => log.TenantId == data.TenantA.Id)
+            .Select(log => log.Id)
+            .SingleAsync();
+        var otherTenantAuditId = await dbContext.AuditLogs.IgnoreQueryFilters()
+            .Where(log => log.TenantId == data.TenantB.Id)
+            .Select(log => log.Id)
+            .SingleAsync();
+        currentTenant.SetTenant(data.TenantA.Id, data.TenantA.Slug);
+        var service = CreateAuditQueryService(dbContext, currentTenant, data.TenantAAdmin);
+
+        var visible = await service.GetAuditGridRowAsync(currentTenantAuditId);
+        var crossTenant = await service.GetAuditGridRowAsync(otherTenantAuditId);
+        var absent = await service.GetAuditGridRowAsync(Guid.NewGuid());
+        var malformed = await service.GetAuditGridRowAsync(Guid.Empty);
+
+        Assert.True(visible.IsSuccess);
+        Assert.Equal(currentTenantAuditId, visible.Value!.Id);
+        Assert.False(crossTenant.IsSuccess);
+        Assert.False(absent.IsSuccess);
+        Assert.False(malformed.IsSuccess);
+        Assert.Equal("AuditEventNotFound", crossTenant.ErrorDetail?.Code);
+        Assert.Equal(absent.ErrorDetail, crossTenant.ErrorDetail);
+        Assert.Equal(absent.Error, crossTenant.Error);
+        Assert.Equal(absent.ErrorDetail, malformed.ErrorDetail);
+        Assert.Equal(absent.Error, malformed.Error);
+    }
+
+    [Fact]
+    public async Task AuditGridRowLookupWithholdsSensitiveFieldsAndNeverReturnsMetadata()
+    {
+        var (dbContext, currentTenant, data) = await CreateSeededContextAsync();
+        currentTenant.SetTenant(data.TenantA.Id, data.TenantA.Slug);
+        const string rawMetadata = "{\"secret\":\"must-not-leave-the-server\"}";
+        var audit = new AuditLog
+        {
+            TenantId = data.TenantA.Id,
+            ActorUserId = data.TenantAAdmin.Id,
+            Action = "audit.detail.read",
+            EntityType = "AuditLog",
+            WorkspaceId = data.WorkspaceA.Id,
+            Summary = "A metadata-safe summary.",
+            CorrelationId = "request-sensitive",
+            MetadataJson = rawMetadata,
+            CreatedAt = DateTimeOffset.UtcNow,
+        };
+        dbContext.AuditLogs.Add(audit);
+        await dbContext.SaveChangesAsync();
+
+        var service = CreateAuditQueryService(
+            dbContext,
+            currentTenant,
+            data.TenantAAdmin,
+            new FixedAuditAuthorizationService(new AuditCapabilityResponse(
+                CanView: true,
+                CanReview: false,
+                CanApprove: false,
+                CanExport: false,
+                CanViewSensitiveMetadata: false)));
+
+        var result = await service.GetAuditGridRowAsync(audit.Id);
+
+        var row = Assert.IsType<AuditGridRowResponse>(result.Value);
+        Assert.Equal("Redacted actor", row.ActorDisplayName);
+        Assert.Null(row.RequestId);
+        var json = JsonSerializer.Serialize(row);
+        Assert.DoesNotContain(rawMetadata, json, StringComparison.Ordinal);
+        Assert.DoesNotContain("MetadataJson", json, StringComparison.OrdinalIgnoreCase);
+        Assert.DoesNotContain("ActorUserId", json, StringComparison.OrdinalIgnoreCase);
+        Assert.DoesNotContain("EntityId", json, StringComparison.OrdinalIgnoreCase);
+    }
+
+    [Fact]
+    public async Task AuditGridRowLookupDeniesBeforeAnyIdentifierCanProduceNotFound()
+    {
+        var (dbContext, currentTenant, data) = await CreateSeededContextAsync();
+        currentTenant.SetTenant(data.TenantA.Id, data.TenantA.Slug);
+        var service = CreateAuditQueryService(
+            dbContext,
+            currentTenant,
+            data.TenantAMember,
+            new FixedAuditAuthorizationService(new AuditCapabilityResponse(
+                CanView: false,
+                CanReview: false,
+                CanApprove: false,
+                CanExport: false,
+                CanViewSensitiveMetadata: false)));
+
+        var result = await service.GetAuditGridRowAsync(Guid.Empty);
+
+        Assert.False(result.IsSuccess);
+        Assert.Equal("CapabilityDenied", result.ErrorDetail?.Code);
+        Assert.NotEqual("AuditEventNotFound", result.ErrorDetail?.Code);
+    }
+
  [Fact]
 public async Task WorkspaceAdminCannotReadAuditLogsForTheirWorkspace()
 {
@@ -417,11 +517,15 @@ public async Task WorkspaceAdminCannotReadAuditLogsForTheirWorkspace()
 
         var result = await service.ListAuditLogsAsync(new AuditLogQuery(WorkspaceId: data.WorkspaceA.Id));
         var gridResult = await service.ListAuditGridAsync(new AuditLogQuery(WorkspaceId: data.WorkspaceA.Id));
+        var rowResult = await service.GetAuditGridRowAsync(
+            await dbContext.AuditLogs.Where(log => log.TenantId == data.TenantA.Id).Select(log => log.Id).SingleAsync());
 
         Assert.False(result.IsSuccess);
         Assert.Equal("You are not allowed to view audit logs.", result.Error);
         Assert.False(gridResult.IsSuccess);
         Assert.Equal("You are not allowed to view audit logs.", gridResult.Error);
+        Assert.False(rowResult.IsSuccess);
+        Assert.Equal("You are not allowed to view audit logs.", rowResult.Error);
     }
 
     [Fact]
@@ -514,13 +618,15 @@ public async Task WorkspaceAdminCannotReadAuditLogsForTheirWorkspace()
       private static DbAuditQueryService CreateAuditQueryService(
     AppDbContext dbContext,
     ICurrentTenant currentTenant,
-    User user)
+    User user,
+    IAuditAuthorizationService? auditAuthorization = null)
 {
     return new DbAuditQueryService(
         dbContext,
         new TestCurrentUser(user),
         currentTenant,
-        new TenantRepository(dbContext));
+        new TenantRepository(dbContext),
+        auditAuthorization);
 }
 
     private sealed class TestCurrentUser(User user) : ICurrentUser
@@ -541,6 +647,28 @@ public async Task WorkspaceAdminCannotReadAuditLogsForTheirWorkspace()
             Entries.Add(entry);
             return Task.CompletedTask;
         }
+    }
+
+    private sealed class FixedAuditAuthorizationService(AuditCapabilityResponse capabilities)
+        : IAuditAuthorizationService
+    {
+        public Task<AuditCapabilityResponse> GetCapabilitiesAsync(
+            CancellationToken cancellationToken = default) => Task.FromResult(capabilities);
+
+        public Task<bool> HasCapabilityAsync(
+            string capabilityKey,
+            CancellationToken cancellationToken = default) =>
+            Task.FromResult(capabilityKey == CapabilityKeys.AuditView && capabilities.CanView);
+
+        public Task<Result> AuthorizeAsync(
+            string capabilityKey,
+            string operation,
+            CancellationToken cancellationToken = default) =>
+            Task.FromResult(capabilities.CanView
+                ? Result.Success()
+                : Result.Failure(new ApplicationErrorDetail(
+                    "CapabilityDenied",
+                    "The requested Audit operation is not permitted.")));
     }
 
     private sealed class FakeUserSessionService : IUserSessionService

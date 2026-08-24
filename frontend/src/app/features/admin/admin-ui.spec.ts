@@ -1,11 +1,14 @@
-import { Component, EventEmitter, Input, Output } from '@angular/core';
+import { Component, EventEmitter, Input, Output, Provider } from '@angular/core';
 import { provideHttpClient } from '@angular/common/http';
 import { HttpTestingController, provideHttpClientTesting } from '@angular/common/http/testing';
 import { ComponentFixture, TestBed } from '@angular/core/testing';
+import { ActivatedRoute, Router, convertToParamMap } from '@angular/router';
+import { BehaviorSubject } from 'rxjs';
 
 import {
   AppDataGridActionEvent,
   AppDataGridColumnDef,
+  AppDataGridRowActivationEvent,
   clampAppDataGridPageSize
 } from '../../shared/grid/app-data-grid/app-data-grid.types';
 import { AppDataGridComponent } from '../../shared/grid/app-data-grid/app-data-grid.component';
@@ -27,6 +30,8 @@ import { ExportDiagnosticsPageComponent } from './export-diagnostics-page/export
   template: `
     <section data-testid="app-data-grid">
       <p data-testid="stub-page-size">{{ defaultPageSize }}/{{ maximumPageSize }}</p>
+      <p data-testid="stub-row-height">{{ rowHeight }}</p>
+      <p data-testid="stub-sticky-header">{{ stickyHeader }}</p>
       @for (column of columns; track column.headerName) {
         <span data-testid="grid-column">{{ column.field }}</span>
       }
@@ -35,7 +40,8 @@ import { ExportDiagnosticsPageComponent } from './export-diagnostics-page/export
           @for (column of columns; track column.headerName) {
             <span [attr.data-testid]="'audit-cell-' + column.field">{{ valueFor(row, column.field) }}</span>
           }
-          <button type="button" data-testid="open-audit-detail" (click)="open(row)">Open detail</button>
+          <button type="button" data-testid="open-audit-detail" [attr.data-grid-row-id]="row.id" (click)="open(row)">Open detail</button>
+          <button type="button" data-testid="activate-audit-row" [attr.data-grid-row-id]="row.id" (click)="activate(row, $any($event.currentTarget))">Activate row</button>
         </article>
       }
     </section>
@@ -46,9 +52,12 @@ class StubAuditDataGridComponent {
   @Input() columns: readonly AppDataGridColumnDef<AuditGridRow>[] = [];
   @Input() defaultPageSize = 0;
   @Input() maximumPageSize = 0;
+  @Input() rowHeight?: number;
+  @Input() stickyHeader = false;
   @Input() rowIdField = 'id';
   @Input() ariaLabel = '';
   @Output() actionInvoked = new EventEmitter<AppDataGridActionEvent<AuditGridRow>>();
+  @Output() rowActivated = new EventEmitter<AppDataGridRowActivationEvent<AuditGridRow>>();
 
   valueFor(row: AuditGridRow, field: (keyof AuditGridRow & string) | undefined): unknown {
     return field ? row[field] : '';
@@ -56,6 +65,10 @@ class StubAuditDataGridComponent {
 
   open(row: AuditGridRow): void {
     this.actionInvoked.emit({ actionId: 'openAuditDetail', row });
+  }
+
+  activate(row: AuditGridRow, trigger: HTMLElement): void {
+    this.rowActivated.emit({ row, trigger });
   }
 }
 
@@ -113,12 +126,47 @@ const query = <T extends HTMLElement, C = unknown>(fixture: ComponentFixture<C>,
 const queryAll = <T extends HTMLElement, C = unknown>(fixture: ComponentFixture<C>, selector: string): T[] =>
   Array.from((fixture.nativeElement as HTMLElement).querySelectorAll<T>(selector));
 
+interface AuditRouteHarness {
+  readonly queryParamMap: BehaviorSubject<ReturnType<typeof convertToParamMap>>;
+  readonly router: { readonly calls: unknown[][]; navigate: (...args: unknown[]) => Promise<boolean> };
+}
+
+const createAuditRouteHarness = (eventId?: string): AuditRouteHarness => {
+  const queryParamMap = new BehaviorSubject(convertToParamMap(eventId ? { event: eventId } : {}));
+  const router = {
+    calls: [] as unknown[][],
+    navigate(...args: unknown[]): Promise<boolean> {
+      this.calls.push(args);
+      return Promise.resolve(true);
+    },
+  };
+
+  return { queryParamMap, router };
+};
+
 const renderAudit = async (
-  scenario: (typeof AUDIT_LOG_SCENARIOS)[keyof typeof AUDIT_LOG_SCENARIOS] = AUDIT_LOG_SCENARIOS.default
+  scenario: (typeof AUDIT_LOG_SCENARIOS)[keyof typeof AUDIT_LOG_SCENARIOS] = AUDIT_LOG_SCENARIOS.default,
+  routeHarness?: AuditRouteHarness,
 ) => {
+  const providers: Provider[] = [{ provide: AIP_ADMIN_AUDIT_MOCK, useValue: scenario }];
+  if (routeHarness) {
+    providers.push(
+      {
+        provide: ActivatedRoute,
+        useValue: {
+          queryParamMap: routeHarness.queryParamMap.asObservable(),
+          get snapshot() {
+            return { queryParamMap: routeHarness.queryParamMap.value };
+          },
+        },
+      },
+      { provide: Router, useValue: routeHarness.router },
+    );
+  }
+
   await TestBed.configureTestingModule({
     imports: [AuditLogPageComponent],
-    providers: [{ provide: AIP_ADMIN_AUDIT_MOCK, useValue: scenario }]
+    providers,
   })
     .overrideComponent(AuditLogPageComponent, {
       remove: { imports: [AppDataGridComponent] },
@@ -129,6 +177,12 @@ const renderAudit = async (
   const fixture = TestBed.createComponent(AuditLogPageComponent);
   fixture.detectChanges();
   return fixture;
+};
+
+const settleAuditRender = async <T>(fixture: ComponentFixture<T>): Promise<void> => {
+  TestBed.flushEffects();
+  fixture.detectChanges();
+  await fixture.whenRenderingDone();
 };
 
 const renderExport = async (
@@ -186,11 +240,9 @@ describe('Admin audit and export mock UI', () => {
       'action',
       'actorDisplay',
       'targetType',
-      'workspace',
       'severity',
       'result',
       'summary',
-      'requestId'
     ]);
     expect(textContent(fixture)).not.toContain(AUDIT_RAW_METADATA_PROBE);
     expect(textContent(fixture)).not.toContain('restricted body must stay hidden');
@@ -198,7 +250,10 @@ describe('Admin audit and export mock UI', () => {
   });
 
   it('redacted audit detail drawer does not show restricted fields', async () => {
-    const fixture = await renderAudit(AUDIT_LOG_SCENARIOS.redactedDetailDrawer);
+    const fixture = await renderAudit(
+      AUDIT_LOG_SCENARIOS.redactedDetailDrawer,
+      createAuditRouteHarness('audit-sample-002'),
+    );
     const text = textContent(fixture);
 
     expect(query(fixture, '[data-testid="audit-detail-drawer"]')).not.toBeNull();
@@ -206,6 +261,7 @@ describe('Admin audit and export mock UI', () => {
     expect(text).toContain('Redacted');
     expect(text).not.toContain('restricted body must stay hidden');
     expect(text).not.toContain('tenant/private/key');
+    expect(text).not.toContain('sample-target-001');
     expect(text).not.toContain('select hidden');
   });
 
@@ -275,6 +331,227 @@ describe('Admin audit and export mock UI', () => {
     expect(rows.map((row) => row.severity)).toEqual(['info', 'warning', 'critical']);
     expect(rows[2].workspace).toBe('');
     httpMock.verify();
+  });
+
+  it('loads a selected live audit row from the redacted row endpoint only', () => {
+    TestBed.configureTestingModule({
+      providers: [provideHttpClient(), provideHttpClientTesting()]
+    });
+    const facade = TestBed.inject(AdminFacade);
+    const httpMock = TestBed.inject(HttpTestingController);
+    httpMock.expectOne('/api/admin/audit-grid').flush({ items: [] });
+
+    facade.selectAuditDetail('audit-live-safe');
+    httpMock.expectOne('/api/admin/audit-grid/audit-live-safe').flush({
+      id: 'audit-live-safe',
+      createdAt: '2026-08-25T08:00:00Z',
+      action: 'audit.detail.read',
+      actorDisplayName: 'Redacted actor',
+      targetType: 'AuditLog',
+      workspaceLabel: 'Workspace A',
+      severity: 'info',
+      result: 'success',
+      summary: 'A safe audit summary.',
+      requestId: null,
+    });
+
+    const detail = facade.getAuditDetail();
+    expect(detail.status).toBe('ready');
+    expect(detail.row?.redactedDetails).toEqual([]);
+    httpMock.verify();
+  });
+
+  it('keeps audit selection in URL state, supports route back/forward, and restores the activation focus', async () => {
+    const routeHarness = createAuditRouteHarness();
+    const fixture = await renderAudit(AUDIT_LOG_SCENARIOS.default, routeHarness);
+    const activation = query<HTMLButtonElement>(fixture, '[data-testid="activate-audit-row"]');
+
+    activation?.click();
+    fixture.detectChanges();
+    expect(query(fixture, '[data-testid="audit-detail-drawer"]')).not.toBeNull();
+    expect(routeHarness.router.calls[0]?.[1]).toEqual({
+      relativeTo: expect.anything(),
+      queryParams: { event: 'audit-sample-001' },
+      queryParamsHandling: 'merge',
+      replaceUrl: false,
+    });
+
+    routeHarness.queryParamMap.next(convertToParamMap({ event: 'audit-sample-001' }));
+    await settleAuditRender(fixture);
+    routeHarness.queryParamMap.next(convertToParamMap({}));
+    await settleAuditRender(fixture);
+    expect(query(fixture, '[data-testid="audit-detail-drawer"]')).toBeNull();
+    expect(document.activeElement).toBe(activation);
+
+    routeHarness.queryParamMap.next(convertToParamMap({ event: 'audit-sample-001' }));
+    await settleAuditRender(fixture);
+    expect(query(fixture, '[data-testid="audit-detail-drawer"]')).not.toBeNull();
+
+    query<HTMLButtonElement>(fixture, '[data-testid="audit-detail-close"]')?.click();
+    await settleAuditRender(fixture);
+    expect(document.activeElement).toBe(activation);
+    expect(routeHarness.router.calls.at(-1)?.[1]).toEqual({
+      relativeTo: expect.anything(),
+      queryParams: { event: null },
+      queryParamsHandling: 'merge',
+      replaceUrl: true,
+    });
+  });
+
+  it('uses the audit heading as a safe focus fallback for a direct URL selection', async () => {
+    const fixture = await renderAudit(
+      AUDIT_LOG_SCENARIOS.default,
+      createAuditRouteHarness('audit-sample-001'),
+    );
+
+    query<HTMLButtonElement>(fixture, '[data-testid="audit-detail-close"]')?.click();
+    await settleAuditRender(fixture);
+
+    expect(document.activeElement).toBe(query(fixture, '[data-testid="audit-log-title"]'));
+  });
+
+  it('uses a same-row focusable replacement when a history return trigger was virtualized away', async () => {
+    const routeHarness = createAuditRouteHarness();
+    const fixture = await renderAudit(AUDIT_LOG_SCENARIOS.default, routeHarness);
+    const activation = query<HTMLButtonElement>(fixture, '[data-testid="activate-audit-row"]');
+    const replacement = query<HTMLButtonElement>(fixture, '[data-testid="open-audit-detail"]');
+
+    activation?.click();
+    activation?.remove();
+    routeHarness.queryParamMap.next(convertToParamMap({ event: 'audit-sample-001' }));
+    await settleAuditRender(fixture);
+    routeHarness.queryParamMap.next(convertToParamMap({}));
+    await settleAuditRender(fixture);
+
+    expect(document.activeElement).toBe(replacement);
+  });
+
+  it('uses the audit heading when no same-row virtualized focus target remains', async () => {
+    const routeHarness = createAuditRouteHarness();
+    const fixture = await renderAudit(AUDIT_LOG_SCENARIOS.default, routeHarness);
+    const activation = query<HTMLButtonElement>(fixture, '[data-testid="activate-audit-row"]');
+
+    activation?.click();
+    for (const target of queryAll(fixture, '[data-grid-row-id="audit-sample-001"]')) {
+      target.remove();
+    }
+    routeHarness.queryParamMap.next(convertToParamMap({ event: 'audit-sample-001' }));
+    await settleAuditRender(fixture);
+    routeHarness.queryParamMap.next(convertToParamMap({}));
+    await settleAuditRender(fixture);
+
+    expect(document.activeElement).toBe(query(fixture, '[data-testid="audit-log-title"]'));
+  });
+
+  it('uses the audit heading instead of a connected recycled grid trigger', async () => {
+    const fixture = await renderAudit(AUDIT_LOG_SCENARIOS.default, createAuditRouteHarness());
+    const activation = query<HTMLButtonElement>(fixture, '[data-testid="activate-audit-row"]');
+
+    activation?.click();
+    fixture.detectChanges();
+    for (const target of queryAll(fixture, '[data-grid-row-id="audit-sample-001"]')) {
+      target.dataset['gridRowId'] = 'audit-sample-002';
+    }
+
+    query<HTMLButtonElement>(fixture, '[data-testid="audit-detail-close"]')?.click();
+    await settleAuditRender(fixture);
+
+    expect(document.activeElement).toBe(query(fixture, '[data-testid="audit-log-title"]'));
+  });
+
+  it('restores shell and bounded-grid scroll positions before returning activation focus', async () => {
+    const scrollHost = document.createElement('main');
+    scrollHost.id = 'app-shell-main-content';
+    scrollHost.scrollLeft = 24;
+    scrollHost.scrollTop = 312;
+    Object.defineProperty(scrollHost, 'scrollHeight', { configurable: true, value: 1200 });
+    Object.defineProperty(scrollHost, 'clientHeight', { configurable: true, value: 400 });
+    Object.defineProperty(scrollHost, 'scrollWidth', { configurable: true, value: 1800 });
+    Object.defineProperty(scrollHost, 'clientWidth', { configurable: true, value: 720 });
+    Object.defineProperty(scrollHost, 'scrollTo', {
+      configurable: true,
+      value: (options: ScrollToOptions) => {
+        scrollHost.scrollLeft = Number(options.left ?? 0);
+        scrollHost.scrollTop = Number(options.top ?? 0);
+      },
+    });
+
+    const gridViewport = document.createElement('div');
+    gridViewport.className = 'ag-center-cols-viewport';
+    gridViewport.scrollLeft = 36;
+    gridViewport.scrollTop = 184;
+    Object.defineProperty(gridViewport, 'scrollHeight', { configurable: true, value: 2400 });
+    Object.defineProperty(gridViewport, 'clientHeight', { configurable: true, value: 360 });
+    Object.defineProperty(gridViewport, 'scrollWidth', { configurable: true, value: 1600 });
+    Object.defineProperty(gridViewport, 'clientWidth', { configurable: true, value: 560 });
+    Object.defineProperty(gridViewport, 'scrollTo', {
+      configurable: true,
+      value: (options: ScrollToOptions) => {
+        gridViewport.scrollLeft = Number(options.left ?? 0);
+        gridViewport.scrollTop = Number(options.top ?? 0);
+      },
+    });
+    scrollHost.append(gridViewport);
+    document.body.append(scrollHost);
+
+    try {
+      const fixture = await renderAudit(AUDIT_LOG_SCENARIOS.default, createAuditRouteHarness());
+      gridViewport.append(fixture.nativeElement);
+      const activation = query<HTMLButtonElement>(fixture, '[data-testid="activate-audit-row"]');
+      activation?.click();
+      fixture.detectChanges();
+      scrollHost.scrollLeft = 0;
+      scrollHost.scrollTop = 0;
+      gridViewport.scrollLeft = 0;
+      gridViewport.scrollTop = 0;
+      query<HTMLButtonElement>(fixture, '[data-testid="audit-detail-close"]')?.click();
+      await settleAuditRender(fixture);
+
+      expect(scrollHost.scrollLeft).toBe(24);
+      expect(scrollHost.scrollTop).toBe(312);
+      expect(gridViewport.scrollLeft).toBe(36);
+      expect(gridViewport.scrollTop).toBe(184);
+      expect(document.activeElement).toBe(activation);
+    } finally {
+      scrollHost.remove();
+    }
+  });
+
+  it('uses the same URL and focus policy when Escape closes the drawer', async () => {
+    const routeHarness = createAuditRouteHarness();
+    const fixture = await renderAudit(AUDIT_LOG_SCENARIOS.default, routeHarness);
+    const activation = query<HTMLButtonElement>(fixture, '[data-testid="activate-audit-row"]');
+
+    activation?.click();
+    fixture.detectChanges();
+    query(fixture, 'app-audit-detail-drawer')?.dispatchEvent(
+      new KeyboardEvent('keydown', { bubbles: true, key: 'Escape' }),
+    );
+    await settleAuditRender(fixture);
+
+    expect(document.activeElement).toBe(activation);
+    expect(routeHarness.router.calls.at(-1)?.[1]).toEqual({
+      relativeTo: expect.anything(),
+      queryParams: { event: null },
+      queryParamsHandling: 'merge',
+      replaceUrl: true,
+    });
+  });
+
+  it('keeps density and optional columns local to the audit grid', async () => {
+    const fixture = await renderAudit();
+    const dense = query<HTMLButtonElement>(fixture, '[data-testid="audit-density-dense"]');
+    const workspace = query<HTMLInputElement>(fixture, '[data-testid="audit-column-workspace"]');
+
+    expect(query(fixture, '[data-testid="stub-sticky-header"]')?.textContent).toContain('true');
+    expect(query(fixture, '[data-testid="stub-row-height"]')?.textContent).toContain('48');
+    dense?.click();
+    workspace?.click();
+    fixture.detectChanges();
+
+    expect(dense?.getAttribute('aria-pressed')).toBe('true');
+    expect(query(fixture, '[data-testid="stub-row-height"]')?.textContent).toContain('36');
+    expect(queryAll(fixture, '[data-testid="grid-column"]').map((element) => element.textContent?.trim())).toContain('workspace');
   });
 
   it('shows export diagnostics as unavailable without a request button or local rows', async () => {
