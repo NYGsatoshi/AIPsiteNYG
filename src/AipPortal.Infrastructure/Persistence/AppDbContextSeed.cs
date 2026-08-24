@@ -581,6 +581,8 @@ public static class AppDbContextSeed
                 task.Restore();
             }
         }
+        task.IsBlocked = false;
+        task.BlockedReason = null;
 
         var taskLabel = await dbContext.ProjectTaskLabels.FirstOrDefaultAsync(
             candidate => candidate.TenantId == tenantId && candidate.ProjectId == project.Id && candidate.Name == taskLabelName,
@@ -719,6 +721,41 @@ public static class AppDbContextSeed
         {
             taskAssignment.AssignedByUserId = user.Id;
             taskAssignment.AssignedAt = taskAssignment.AssignedAt == default ? now : taskAssignment.AssignedAt;
+        }
+
+        const string taskArtifactName = "Browser Smoke Task Artifact";
+        var taskArtifact = await dbContext.Artifacts.FirstOrDefaultAsync(
+            candidate =>
+                candidate.TenantId == tenantId &&
+                candidate.ProjectId == project.Id &&
+                candidate.TaskItemId == task.Id &&
+                candidate.Name == taskArtifactName,
+            cancellationToken);
+        if (taskArtifact is null)
+        {
+            await dbContext.Artifacts.AddAsync(new Artifact
+            {
+                TenantId = tenantId,
+                ProjectId = project.Id,
+                TaskItemId = task.Id,
+                Name = taskArtifactName,
+                Description = "Synthetic Task-linked Artifact for the real-backend Task state-list acceptance.",
+                ArtifactType = ArtifactType.Document,
+                Status = ArtifactStatus.Approved,
+                CreatedByUserId = user.Id
+            }, cancellationToken);
+        }
+        else
+        {
+            taskArtifact.TaskItemId = task.Id;
+            taskArtifact.Description = "Synthetic Task-linked Artifact for the real-backend Task state-list acceptance.";
+            taskArtifact.ArtifactType = ArtifactType.Document;
+            taskArtifact.Status = ArtifactStatus.Approved;
+            taskArtifact.CreatedByUserId = user.Id;
+            if (taskArtifact.IsDeleted)
+            {
+                taskArtifact.Restore();
+            }
         }
 
         await SeedBrowserSmokeMyTasksPr04Async(

@@ -12,7 +12,7 @@ import { ProjectKanbanCard } from './project-kanban.models';
 import { snapshotDto } from './project-kanban.test-data';
 import { ganttSnapshotDto, viewerGanttSnapshotDto } from './project-detail-gantt.test-data';
 import { ProjectDetailFacade } from './project-detail.facade';
-import { ProjectGanttItemDto, ProjectGanttSnapshotDto } from './projects.api';
+import { ProjectGanttItemDto, ProjectGanttSnapshotDto, TaskDto } from './projects.api';
 
 describe('ProjectDetailFacade canonical Kanban', () => {
   let facade: ProjectDetailFacade;
@@ -48,6 +48,12 @@ describe('ProjectDetailFacade canonical Kanban', () => {
   });
 
   afterEach(() => {
+    // Existing Kanban/Gantt-focused cases are not concerned with the new
+    // authoritative Task-list reconciliation request. Dedicated cases below
+    // assert its exact coalescing and stale-response behavior.
+    for (const request of http.match((candidate) =>
+      candidate.method === 'GET' && candidate.url === '/api/projects/project-1/tasks'))
+      request.flush({ items: [] });
     facade.release();
     http.verify();
     TestBed.resetTestingModule();
@@ -82,6 +88,7 @@ describe('ProjectDetailFacade canonical Kanban', () => {
 
     events.next(realtimeEvent(4));
     await Promise.resolve();
+    const reconciledTasks = http.expectOne('/api/projects/project-1/tasks');
     http.expectOne((request) => request.url === '/api/projects/project-1/kanban').flush(
       snapshotDto({ cards: [{ ...snapshotDto().cards![0], version: 4 }] })
     );
@@ -89,7 +96,8 @@ describe('ProjectDetailFacade canonical Kanban', () => {
       withGanttTask(ganttSnapshotDto(), 'task-1', { version: 4 })
     );
 
-    initialTasks.flush({ items: [] });
+    reconciledTasks.flush({ items: [taskListDto({ title: 'Newer reconciled Task', version: 4 })] });
+    initialTasks.flush({ items: [taskListDto({ title: 'Older initial Task', version: 3 })] });
     initialKanban.flush(snapshotDto());
     initialWorkload.flush({ members: [] });
     initialMembers.flush([]);
@@ -98,6 +106,10 @@ describe('ProjectDetailFacade canonical Kanban', () => {
     expect(facade.view().status).toBe('ready');
     expect(facade.view().kanban.snapshot?.cards[0].version).toBe(4);
     expect(facade.view().schedule.snapshot?.scheduledItems[0].version).toBe(4);
+    expect(facade.view().tasks[0]).toEqual(expect.objectContaining({
+      title: 'Newer reconciled Task',
+      rowVersion: '4'
+    }));
   });
 
   it('optimistically updates a schedule, accepts the flat command result, and refetches the authoritative snapshot', () => {
@@ -580,6 +592,285 @@ describe('ProjectDetailFacade canonical Kanban', () => {
     );
     http.expectNone('/api/projects/project-1/gantt');
     expect(facade.view().schedule.snapshot?.scheduledItems[0].version).toBe(5);
+  });
+
+  it('coalesces Task-list invalidations and applies the newest authoritative response', async () => {
+    flushLoad();
+
+    events.next({ ...realtimeEvent(4), eventType: 'Projects.TaskWorkflowChanged.v1' });
+    await Promise.resolve();
+    const firstTaskList = http.expectOne('/api/projects/project-1/tasks');
+    http.expectOne((request) => request.url === '/api/projects/project-1/kanban').flush(
+      snapshotDto({ cards: [{ ...snapshotDto().cards![0], version: 4 }] })
+    );
+    http.expectOne('/api/projects/project-1/gantt').flush(
+      withGanttTask(ganttSnapshotDto(), 'task-1', { version: 4 })
+    );
+
+    events.next({ ...realtimeEvent(5), eventType: 'Projects.TaskWorkflowChanged.v1' });
+    events.next({ ...realtimeEvent(5), eventId: 'duplicate-task-list-event-5', eventType: 'Projects.TaskWorkflowChanged.v1' });
+    await Promise.resolve();
+    http.expectOne((request) => request.url === '/api/projects/project-1/kanban').flush(
+      snapshotDto({ cards: [{ ...snapshotDto().cards![0], version: 5 }] })
+    );
+    http.expectOne('/api/projects/project-1/gantt').flush(
+      withGanttTask(ganttSnapshotDto(), 'task-1', { version: 5 })
+    );
+
+    firstTaskList.flush({ items: [taskListDto({ version: 4, updatedAt: '2026-08-24T09:00:00Z' })] });
+    await Promise.resolve();
+    const followUp = http.expectOne('/api/projects/project-1/tasks');
+    followUp.flush({
+      items: [taskListDto({
+        workflowStageName: 'Editorial review',
+        stageCategory: 'Review',
+        isBlocked: true,
+        hasArtifact: true,
+        version: 5,
+        updatedAt: '2026-08-24T10:30:00Z'
+      })]
+    });
+
+    expect(facade.view().tasks).toEqual([
+      expect.objectContaining({
+        id: 'task-1',
+        workflowStageName: 'Editorial review',
+        stageCategory: 'review',
+        status: 'review',
+        isBlocked: true,
+        hasArtifact: true,
+        updatedAt: '2026-08-24T10:30:00Z',
+        rowVersion: '5'
+      })
+    ]);
+    http.expectNone('/api/projects/project-1/tasks');
+  });
+
+  it('does not strand a dedicated Task-list refresh when Project projections overlap it', async () => {
+    flushLoad();
+    facade.setKanbanInteractionActive(true);
+    facade.setScheduleInteractionActive(true);
+
+    events.next({ ...realtimeEvent(4), eventType: 'Projects.TaskWorkflowChanged.v1' });
+    await Promise.resolve();
+    const dedicatedRefresh = http.expectOne('/api/projects/project-1/tasks');
+
+    catchUp!();
+    const projectionProject = http.expectOne('/api/projects/project-1');
+    events.next({ ...realtimeEvent(5), eventType: 'Projects.TaskWorkflowChanged.v1' });
+    await Promise.resolve();
+
+    dedicatedRefresh.flush({ items: [taskListDto({ version: 4 })] });
+    await Promise.resolve();
+    http.expectOne('/api/projects/project-1/tasks').flush({
+      items: [taskListDto({
+        workflowStageName: 'Editorial review',
+        stageCategory: 'Review',
+        version: 5,
+        updatedAt: '2026-08-24T12:00:00Z'
+      })]
+    });
+
+    projectionProject.flush({
+      id: 'project-1',
+      title: 'Project',
+      status: 1,
+      startDate: null,
+      endDate: null,
+      uiPermissions: { canCreateTask: true }
+    });
+    http.expectOne('/api/projects/project-1/tasks').flush({
+      items: [taskListDto({ version: 4, updatedAt: '2026-08-24T11:00:00Z' })]
+    });
+    http.expectOne('/api/projects/project-1/workload').flush({ members: [] });
+    http.expectOne('/api/projects/project-1/members').flush([]);
+
+    expect(facade.view().tasks[0]).toEqual(expect.objectContaining({
+      workflowStageName: 'Editorial review',
+      stageCategory: 'review',
+      rowVersion: '5'
+    }));
+    http.expectNone('/api/projects/project-1/tasks');
+  });
+
+  it('retains a valid initial Task list when a newer realtime refresh fails and clears visible feedback after retry', async () => {
+    facade.load('project-1');
+    http.expectOne('/api/projects/project-1').flush({
+      id: 'project-1',
+      title: 'Project',
+      status: 1,
+      startDate: null,
+      endDate: null,
+      uiPermissions: { canCreateTask: true }
+    });
+    const initialTasks = http.expectOne('/api/projects/project-1/tasks');
+    const initialKanban = http.expectOne('/api/projects/project-1/kanban');
+    const initialGantt = http.expectOne('/api/projects/project-1/gantt');
+    const initialWorkload = http.expectOne('/api/projects/project-1/workload');
+    const initialMembers = http.expectOne('/api/projects/project-1/members');
+    facade.setKanbanInteractionActive(true);
+    facade.setScheduleInteractionActive(true);
+
+    events.next({ ...realtimeEvent(4), eventType: 'Projects.TaskWorkflowChanged.v1' });
+    await Promise.resolve();
+    http.expectOne('/api/projects/project-1/tasks').flush(
+      { error: { code: 'TASK_LIST_UNAVAILABLE', message: 'Temporarily unavailable.' } },
+      { status: 503, statusText: 'Service Unavailable' }
+    );
+    expect(facade.view().taskListFeedback).toContain('could not be synchronized');
+
+    initialTasks.flush({ items: [taskListDto({ title: 'Initial authoritative Task', version: 3 })] });
+    initialKanban.flush(snapshotDto());
+    initialGantt.flush(ganttSnapshotDto());
+    initialWorkload.flush({ members: [] });
+    initialMembers.flush([]);
+
+    expect(facade.view().status).toBe('ready');
+    expect(facade.view().tasks[0]).toEqual(expect.objectContaining({
+      title: 'Initial authoritative Task',
+      rowVersion: '3'
+    }));
+    expect(facade.view().taskListFeedback).toContain('Temporarily unavailable');
+
+    facade.retryTaskList();
+    await Promise.resolve();
+    http.expectOne('/api/projects/project-1/tasks').flush({
+      items: [taskListDto({ title: 'Retried authoritative Task', version: 5 })]
+    });
+
+    expect(facade.view().tasks[0]).toEqual(expect.objectContaining({
+      title: 'Retried authoritative Task',
+      rowVersion: '5'
+    }));
+    expect(facade.view().taskListFeedback).toBeNull();
+  });
+
+  it('does not apply an old dedicated Task-list response after a same-Project remount', async () => {
+    flushLoad();
+    facade.setKanbanInteractionActive(true);
+    facade.setScheduleInteractionActive(true);
+    events.next({ ...realtimeEvent(4), eventType: 'Projects.TaskWorkflowChanged.v1' });
+    await Promise.resolve();
+    const staleRefresh = http.expectOne('/api/projects/project-1/tasks');
+
+    facade.release();
+    facade.load('project-1');
+    http.expectOne('/api/projects/project-1').flush({
+      id: 'project-1',
+      title: 'Project',
+      status: 1,
+      startDate: null,
+      endDate: null,
+      uiPermissions: { canCreateTask: true }
+    });
+    const currentTasks = http.expectOne('/api/projects/project-1/tasks');
+    const currentKanban = http.expectOne('/api/projects/project-1/kanban');
+    const currentGantt = http.expectOne('/api/projects/project-1/gantt');
+    const currentWorkload = http.expectOne('/api/projects/project-1/workload');
+    const currentMembers = http.expectOne('/api/projects/project-1/members');
+
+    staleRefresh.flush({ items: [taskListDto({ title: 'Stale prior-mount Task', version: 99 })] });
+    expect(facade.view().status).toBe('loading');
+    expect(facade.view().tasks).toEqual([]);
+
+    currentTasks.flush({ items: [taskListDto({ title: 'Current mount Task', version: 1 })] });
+    currentKanban.flush(snapshotDto());
+    currentGantt.flush(ganttSnapshotDto());
+    currentWorkload.flush({ members: [] });
+    currentMembers.flush([]);
+
+    expect(facade.view().tasks[0]?.title).toBe('Current mount Task');
+  });
+
+  it.each(['schedule', 'progress'] as const)(
+    'refetches the authoritative Task list after a successful %s mutation',
+    async (kind) => {
+      flushLoad();
+
+      if (kind === 'schedule') {
+        facade.applyGanttEdit({
+          kind: 'schedule',
+          taskId: 'task-1',
+          plannedStartDate: '2026-07-02',
+          plannedEndDate: '2026-07-11',
+          milestoneDate: null,
+          expectedVersion: 3,
+          source: 'form'
+        });
+      } else {
+        facade.applyGanttEdit({
+          kind: 'progress',
+          taskId: 'task-1',
+          progressPercent: 40,
+          expectedVersion: 3,
+          source: 'form'
+        });
+      }
+
+      http.expectOne(`/api/tasks/task-1/${kind}`).flush({
+        taskId: 'task-1',
+        kind: 'Task',
+        plannedStartDate: kind === 'schedule' ? '2026-07-02' : '2026-07-01',
+        plannedEndDate: kind === 'schedule' ? '2026-07-11' : '2026-07-10',
+        milestoneDate: null,
+        progressPercent: kind === 'progress' ? 40 : 25,
+        version: 4,
+        warnings: []
+      });
+      http.expectOne('/api/projects/project-1/gantt').flush(
+        withGanttTask(ganttSnapshotDto(), 'task-1', { version: 4 })
+      );
+      await Promise.resolve();
+      http.expectOne('/api/projects/project-1/tasks').flush({
+        items: [taskListDto({ version: 4, updatedAt: '2026-08-24T10:45:00Z' })]
+      });
+
+      expect(facade.view().tasks[0]).toEqual(expect.objectContaining({
+        id: 'task-1',
+        updatedAt: '2026-08-24T10:45:00Z',
+        rowVersion: '4'
+      }));
+    }
+  );
+
+  it('refetches the authoritative Task list after a successful board move', async () => {
+    flushLoad();
+    facade.moveTask(moveIntent(facade.view().kanban.snapshot!.cards[0], 'stage-done'));
+    http.expectOne('/api/tasks/task-1/kanban-move').flush({
+      snapshot: snapshotDto({
+        board: { ...snapshotDto().board!, version: 8 },
+        cards: [{ ...snapshotDto().cards![0], workflowStageId: 'stage-done', version: 4 }]
+      }),
+      focusTaskId: 'task-1',
+      warnings: []
+    });
+
+    await Promise.resolve();
+    http.expectOne('/api/projects/project-1/tasks').flush({
+      items: [taskListDto({ stageCategory: 'Done', workflowStageName: 'Complete', version: 4 })]
+    });
+
+    expect(facade.view().tasks[0]).toEqual(expect.objectContaining({
+      stageCategory: 'done',
+      workflowStageName: 'Complete',
+      rowVersion: '4'
+    }));
+  });
+
+  it('does not restore an in-flight Task-list response after authorization is revoked', async () => {
+    flushLoad(true, ganttSnapshotDto(), true);
+    events.next(realtimeEvent(4));
+    await Promise.resolve();
+    const staleTaskList = http.expectOne('/api/projects/project-1/tasks');
+    http.expectOne((request) => request.url === '/api/projects/project-1/kanban').flush(snapshotDto());
+    http.expectOne('/api/projects/project-1/gantt').flush(ganttSnapshotDto());
+
+    events.next({ ...realtimeEvent(8), eventType: 'Security.AuthorizationStateChanged.v1', payload: {} });
+    expect(facade.view().tasks).toEqual([]);
+    staleTaskList.flush({ items: [taskListDto({ title: 'Stale protected Task', version: 4 })] });
+
+    expect(facade.view().tasks).toEqual([]);
+    facade.release();
   });
 
   it('queues schedule invalidation while a schedule form is active and refetches after it closes', async () => {
@@ -1234,6 +1525,26 @@ function realtimeEvent(version: number): DurableRealtimeEvent {
     correlationId: null,
     causationId: null,
     payload: { projectId: 'project-1', taskId: 'task-1', taskVersion: version, requiresRefetch: true }
+  };
+}
+
+function taskListDto(overrides: Partial<TaskDto> = {}): TaskDto {
+  return {
+    id: 'task-1',
+    projectId: 'project-1',
+    title: 'Canonical Task',
+    workflowStageId: 'stage-progress',
+    workflowStageName: 'In progress',
+    stageCategory: 'InProgress',
+    status: 1,
+    isBlocked: false,
+    priority: 'Medium',
+    progressPercent: 25,
+    createdAt: '2026-08-20T09:00:00Z',
+    updatedAt: '2026-08-21T09:00:00Z',
+    hasArtifact: false,
+    version: 3,
+    ...overrides
   };
 }
 

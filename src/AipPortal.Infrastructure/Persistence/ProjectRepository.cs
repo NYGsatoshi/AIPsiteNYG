@@ -66,6 +66,21 @@ public sealed class ProjectRepository(AppDbContext dbContext) : IProjectReposito
             .ToListAsync(cancellationToken);
     }
 
+    public async Task<IReadOnlyList<Guid>> ListTaskIdsWithArtifactsAsync(
+        Guid projectId,
+        CancellationToken cancellationToken = default)
+    {
+        return await dbContext.Artifacts
+            .AsNoTracking()
+            .Where(artifact =>
+                artifact.ProjectId == projectId &&
+                artifact.TaskItemId.HasValue &&
+                !artifact.DeletedAt.HasValue)
+            .Select(artifact => artifact.TaskItemId!.Value)
+            .Distinct()
+            .ToListAsync(cancellationToken);
+    }
+
     public async Task<IReadOnlyList<Guid>> ListCurrentReaderUserIdsAsync(
         Guid projectId,
         CancellationToken cancellationToken = default)

@@ -73,6 +73,7 @@ export class ProjectDetailPageComponent implements OnDestroy {
   }
   setKanbanInteractionActive(active: boolean): void { this.facade.setKanbanInteractionActive(active); }
   retryKanban(): void { this.facade.retryKanban(); }
+  retryTaskList(): void { this.facade.retryTaskList(); }
   retrySchedule(): void { this.facade.retrySchedule(); }
   retryPreservedScheduleIntent(): void { this.facade.retryPreservedScheduleIntent(); }
   clearPreservedScheduleIntent(): void { this.facade.clearPreservedScheduleIntent(); }

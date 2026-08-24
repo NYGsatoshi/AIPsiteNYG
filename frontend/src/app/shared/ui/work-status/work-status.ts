@@ -5,6 +5,7 @@ export const WORK_STATUS_VALUES = [
   'needsReview',
   'needsAttention',
   'completed',
+  'cancelled',
   'paused',
   'archived'
 ] as const;
@@ -18,6 +19,7 @@ const WORK_STATUS_LABELS: Readonly<Record<WorkStatus, string>> = {
   needsReview: 'Needs review',
   needsAttention: 'Needs attention',
   completed: 'Completed',
+  cancelled: 'Cancelled',
   paused: 'Paused',
   archived: 'Archived'
 };

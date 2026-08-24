@@ -3102,11 +3102,19 @@ async function openProjectTaskDetail(page: Page, evidence: SmokeEvidence) {
 
   const tasksBody = await recordFetchJson(page, evidence, 'project-tasks', `/api/projects/${evidence.projectId}/tasks`, {
     validate: (body) =>
-      isPagedResponse(body) && body.items.some((item: unknown) => hasStringValue(item, 'title', smokeTaskTitle))
+      isPagedResponse(body) && body.items.some((item: unknown) =>
+        hasStringValue(item, 'title', smokeTaskTitle) &&
+        hasString(item, 'workflowStageName') &&
+        hasCanonicalTaskStageCategory(item) &&
+        hasString(item, 'createdAt') &&
+        typeof (item as Record<string, unknown>).hasArtifact === 'boolean')
   });
   const task = tasksBody.items.find((item: Record<string, unknown>) => item.title === smokeTaskTitle);
   expect(task, 'seeded task record').toBeTruthy();
   evidence.taskId = String(task!.id);
+  expect(task!.hasArtifact, 'seeded Task-linked Artifact is projected only as availability').toBe(true);
+  expect(task!.isBlocked, 'blocking remains independent of the canonical Stage category').toBe(false);
+  const taskTimestamp = String(task!.updatedAt ?? task!.createdAt);
 
   // The projects overview intentionally lists project summaries only. Follow
   // the real project navigation and select its Task list before asserting a
@@ -3119,6 +3127,13 @@ async function openProjectTaskDetail(page: Page, evidence: SmokeEvidence) {
 
   const taskRow = page.locator('[role="row"]').filter({ hasText: smokeTaskTitle }).first();
   await expect(taskRow).toBeVisible();
+  await expect(page.getByTestId(`task-stage-name-${evidence.taskId}-desktop`))
+    .toHaveText(String(task!.workflowStageName));
+  await expect(page.getByTestId(`task-category-${evidence.taskId}-desktop`)).toBeVisible();
+  await expect(page.getByTestId(`task-blocked-${evidence.taskId}-desktop`)).toHaveText('Not blocked');
+  await expect(page.getByTestId(`task-artifact-${evidence.taskId}-desktop`)).toHaveText('Artifact available');
+  await expect(page.getByTestId(`task-updated-${evidence.taskId}-desktop`).locator('time'))
+    .toHaveAttribute('datetime', taskTimestamp);
   await clickTaskOpenDetail(page, taskRow);
 
   await expect(page.getByTestId('task-detail-page')).toBeVisible();
@@ -3201,7 +3216,7 @@ async function openMyTasksFromNavigation(page: Page, evidence: SmokeEvidence) {
 }
 
 async function clickTaskOpenDetail(page: Page, taskRow: Locator): Promise<void> {
-  const action = taskRow.getByTestId('task-action-openDetail');
+  const action = taskRow.locator('[data-testid^="task-openDetail-"]');
   if (!(await action.isVisible())) {
     await page.locator('.ag-body-horizontal-scroll-viewport').evaluate((viewport) => {
       viewport.scrollLeft = viewport.scrollWidth;
@@ -3637,6 +3652,12 @@ function hasString(body: unknown, key: string): body is Record<string, unknown> 
 
 function hasStringValue(body: unknown, key: string, expected: string): boolean {
   return hasString(body, key) && (body as Record<string, unknown>)[key] === expected;
+}
+
+function hasCanonicalTaskStageCategory(body: unknown): boolean {
+  if (!hasString(body, 'stageCategory')) return false;
+  return ['Backlog', 'Todo', 'InProgress', 'Review', 'Done', 'Cancelled']
+    .includes(String((body as Record<string, unknown>).stageCategory));
 }
 
 function hasCapability(body: unknown, capability: string): boolean {

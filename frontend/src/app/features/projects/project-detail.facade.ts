@@ -48,7 +48,7 @@ import {
   UpdateTaskScheduleRequestDto,
   UpdateProjectKanbanConfigRequestDto
 } from './projects.api';
-import { mapProjectDtoToRecord, mapTaskDtoToRecord, mapTaskStatus } from './projects.mapper';
+import { mapProjectDtoToRecord, mapTaskDtoToRecord } from './projects.mapper';
 import { ProjectSummaryViewModel, ProjectsPageStatus, TaskGridRow, TaskMockRecord } from './projects.types';
 
 export type ProjectDetailTab = 'overview' | 'tasks' | 'list' | 'schedule' | 'workload' | 'members';
@@ -84,6 +84,7 @@ export interface ProjectDetailViewModel {
   readonly status: ProjectsPageStatus;
   readonly project?: ProjectSummaryViewModel;
   readonly tasks: readonly TaskGridRow[];
+  readonly taskListFeedback: string | null;
   readonly kanban: ProjectKanbanViewModel;
   readonly schedule: ProjectScheduleViewModel;
   readonly workload: readonly ProjectWorkloadViewModel[];
@@ -128,6 +129,14 @@ export class ProjectDetailFacade {
   private scheduleRefreshInFlight = false;
   private scheduleRefreshAfterFlight = false;
   private scheduleRefreshAfterFlightFeedback: string | undefined;
+  private taskListRequestGeneration = 0;
+  private taskListAppliedGeneration = 0;
+  private taskListRefreshPending = false;
+  private taskListRefreshInFlight = false;
+  private taskListRefreshAfterFlight = false;
+  private taskListRefreshFlightGeneration = 0;
+  private taskListRefreshFailureGeneration = 0;
+  private taskListRefreshFeedback: string | null = null;
   private pendingDependencySequence = 0;
   private selectedSwimlane: ProjectKanbanSwimlane | null = null;
   private includeOlderCompleted = false;
@@ -144,6 +153,7 @@ export class ProjectDetailFacade {
     const current = this.state();
     return {
       ...current,
+      taskListFeedback: this.taskListRefreshFeedback,
       kanban: {
         ...current.kanban,
         realtimeDegraded: this.realtime.connectionState() !== 'Connected'
@@ -163,10 +173,12 @@ export class ProjectDetailFacade {
     const authorizationGeneration = this.authorizationGeneration;
     const initialKanbanRequestGeneration = ++this.kanbanRequestGeneration;
     const initialScheduleRequestGeneration = ++this.scheduleRequestGeneration;
+    const initialTaskListRequestGeneration = ++this.taskListRequestGeneration;
     this.projectId = projectId;
     this.scheduleRefreshInFlight = false;
     this.scheduleRefreshAfterFlight = false;
     this.scheduleRefreshAfterFlightFeedback = undefined;
+    this.resetTaskListRefreshState();
     this.selectedSwimlane = null;
     this.includeOlderCompleted = false;
     this.releaseRealtime();
@@ -188,22 +200,36 @@ export class ProjectDetailFacade {
           this.loadGeneration === loadGeneration &&
           this.authorizationGeneration === authorizationGeneration) {
         const latest = this.state();
-        this.state.set(view.status === 'ready'
-          ? {
-              ...view,
-              kanban: this.kanbanRequestGeneration === initialKanbanRequestGeneration
-                ? view.kanban
-                : latest.kanban,
-              schedule: this.scheduleRequestGeneration === initialScheduleRequestGeneration
-                ? view.schedule
-                : latest.schedule
-            }
-          : view);
+        if (view.status !== 'ready') {
+          this.state.set(view);
+          return;
+        }
+
+        // A later request that failed must not make a valid initial response
+        // disappear. Only a later successfully applied Task snapshot wins.
+        const applyInitialTasks = initialTaskListRequestGeneration >= this.taskListAppliedGeneration;
+        if (applyInitialTasks)
+          this.taskListAppliedGeneration = initialTaskListRequestGeneration;
+        this.clearTaskListRefreshFeedback(initialTaskListRequestGeneration);
+        this.state.set({
+          ...view,
+          kanban: this.kanbanRequestGeneration === initialKanbanRequestGeneration
+            ? view.kanban
+            : latest.kanban,
+          schedule: this.scheduleRequestGeneration === initialScheduleRequestGeneration
+            ? view.schedule
+            : latest.schedule,
+          tasks: applyInitialTasks ? view.tasks : latest.tasks,
+          project: applyInitialTasks
+            ? view.project
+            : this.withTaskCounts(view.project, latest.tasks)
+        });
       }
     });
   }
 
   retryKanban(): void { this.refreshKanban(true); }
+  retryTaskList(): void { this.queueTaskListRefresh(); }
   retrySchedule(): void { this.refreshSchedule(true, 'Schedule refreshed from authoritative HTTP state.'); }
 
   setScheduleInteractionActive(active: boolean): void {
@@ -593,6 +619,7 @@ export class ProjectDetailFacade {
         error: undefined
       }
     });
+    this.queueTaskListRefresh();
     this.refreshSchedule(true, feedback);
   }
 
@@ -790,6 +817,7 @@ export class ProjectDetailFacade {
               reconciliationQueued: false
             }
           });
+          this.queueTaskListRefresh();
           if (latest.kanban.reconciliationQueued || presentationRefetchRequired)
             this.refreshKanban(true, feedback);
           return;
@@ -901,12 +929,14 @@ export class ProjectDetailFacade {
     this.loadGeneration++;
     this.kanbanRequestGeneration++;
     this.scheduleRequestGeneration++;
+    this.taskListRequestGeneration++;
     this.scheduleCommandGeneration++;
     this.scheduleCommandInFlight = false;
     this.scheduleInteractionActive = false;
     this.scheduleRefreshInFlight = false;
     this.scheduleRefreshAfterFlight = false;
     this.scheduleRefreshAfterFlightFeedback = undefined;
+    this.resetTaskListRefreshState();
   }
 
   private registerRealtime(projectId: string): void {
@@ -938,6 +968,7 @@ export class ProjectDetailFacade {
     this.loadGeneration++;
     this.kanbanRequestGeneration++;
     this.scheduleRequestGeneration++;
+    this.taskListRequestGeneration++;
     this.scheduleCommandGeneration++;
     this.moveInFlight = false;
     this.interactionActive = false;
@@ -946,6 +977,7 @@ export class ProjectDetailFacade {
     this.scheduleRefreshInFlight = false;
     this.scheduleRefreshAfterFlight = false;
     this.scheduleRefreshAfterFlightFeedback = undefined;
+    this.resetTaskListRefreshState();
     this.state.set({
       ...this.loading(),
       status: 'permissionDenied',
@@ -1106,6 +1138,118 @@ export class ProjectDetailFacade {
     queueMicrotask(() => this.refreshSchedule(true, feedback));
   }
 
+  private queueTaskListRefresh(): void {
+    if (this.taskListRefreshPending || !this.projectId)
+      return;
+    this.taskListRefreshPending = true;
+    queueMicrotask(() => {
+      this.taskListRefreshPending = false;
+      this.refreshTaskList();
+    });
+  }
+
+  private refreshTaskList(): void {
+    const projectId = this.projectId;
+    if (!projectId)
+      return;
+    if (this.taskListRefreshInFlight) {
+      this.taskListRefreshAfterFlight = true;
+      return;
+    }
+
+    const requestGeneration = ++this.taskListRequestGeneration;
+    const flightGeneration = ++this.taskListRefreshFlightGeneration;
+    const loadGeneration = this.loadGeneration;
+    const authorizationGeneration = this.authorizationGeneration;
+    this.taskListRefreshInFlight = true;
+    this.http.get<PagedResponseDto<TaskDto>>(
+      `/api/projects/${projectId}/tasks`,
+      { withCredentials: true }
+    ).pipe(
+      map((response) => ({
+        kind: 'success' as const,
+        rows: (response.items ?? []).map((task) => this.toRow(mapTaskDtoToRecord(task, [])))
+      })),
+      catchError((error: unknown) => of({ kind: 'error' as const, error }))
+    ).subscribe((result) => {
+      if (flightGeneration === this.taskListRefreshFlightGeneration)
+        this.taskListRefreshInFlight = false;
+      if (this.projectId !== projectId ||
+          loadGeneration !== this.loadGeneration ||
+          authorizationGeneration !== this.authorizationGeneration) {
+        this.taskListFollowUpRefresh(projectId);
+        return;
+      }
+
+      if (result.kind === 'success') {
+        const current = this.state();
+        const applyRows = requestGeneration >= this.taskListAppliedGeneration;
+        if (applyRows)
+          this.taskListAppliedGeneration = requestGeneration;
+        const feedbackCleared = this.clearTaskListRefreshFeedback(requestGeneration);
+        if (applyRows || feedbackCleared) {
+          this.state.set({
+            ...current,
+            tasks: applyRows ? result.rows : current.tasks,
+            project: applyRows
+              ? this.withTaskCounts(current.project, result.rows)
+              : current.project
+          });
+        }
+        this.taskListFollowUpRefresh(projectId);
+        return;
+      }
+
+      // A response superseded by another Task-list request cannot establish
+      // an authorization decision or replace a newer successful snapshot.
+      if (requestGeneration !== this.taskListRequestGeneration ||
+          requestGeneration < this.taskListAppliedGeneration) {
+        this.taskListFollowUpRefresh(projectId);
+        return;
+      }
+
+      const error = normalizeApiError(result.error);
+      if (error.httpStatus === 401 || error.httpStatus === 403 || error.httpStatus === 404) {
+        this.clearProtectedProjectionsForDeniedSubscription();
+        return;
+      }
+
+      this.taskListRefreshFailureGeneration = requestGeneration;
+      this.taskListRefreshFeedback =
+        `The Task list could not be synchronized. ${error.message}`;
+      this.state.set({ ...this.state() });
+      this.taskListFollowUpRefresh(projectId);
+    });
+  }
+
+  private taskListFollowUpRefresh(projectId: string): void {
+    if (!this.taskListRefreshAfterFlight ||
+        this.taskListRefreshInFlight ||
+        this.projectId !== projectId)
+      return;
+    this.taskListRefreshAfterFlight = false;
+    this.queueTaskListRefresh();
+  }
+
+  private clearTaskListRefreshFeedback(successGeneration: number): boolean {
+    if (!this.taskListRefreshFeedback ||
+        successGeneration < this.taskListRefreshFailureGeneration)
+      return false;
+    this.taskListRefreshFailureGeneration = 0;
+    this.taskListRefreshFeedback = null;
+    return true;
+  }
+
+  private resetTaskListRefreshState(): void {
+    this.taskListRefreshPending = false;
+    this.taskListRefreshInFlight = false;
+    this.taskListRefreshAfterFlight = false;
+    this.taskListRefreshFlightGeneration++;
+    this.taskListAppliedGeneration = 0;
+    this.taskListRefreshFailureGeneration = 0;
+    this.taskListRefreshFeedback = null;
+  }
+
   private refreshKanban(force = false, feedback?: string): void {
     const projectId = this.projectId;
     if (!projectId) return;
@@ -1190,12 +1334,14 @@ export class ProjectDetailFacade {
       this.loadGeneration++;
       this.kanbanRequestGeneration++;
       this.scheduleRequestGeneration++;
+      this.taskListRequestGeneration++;
       this.scheduleCommandGeneration++;
       this.scheduleCommandInFlight = false;
       this.scheduleInteractionActive = false;
       this.scheduleRefreshInFlight = false;
       this.scheduleRefreshAfterFlight = false;
       this.scheduleRefreshAfterFlightFeedback = undefined;
+      this.resetTaskListRefreshState();
       const restartInitialLoad = this.state().status === 'loading';
       const authorizationGeneration = this.authorizationGeneration;
       this.state.set({
@@ -1229,11 +1375,19 @@ export class ProjectDetailFacade {
       return;
     }
 
+    let refreshTaskList = event.eventType === 'Projects.ProjectChanged.v1' ||
+      event.eventType === 'Projects.TaskChanged.v1' ||
+      event.eventType === 'Projects.TaskAssignmentChanged.v1' ||
+      event.eventType === 'Projects.TaskWorkflowChanged.v1';
     let refreshKanban = true;
     let refreshSchedule = true;
     if (event.eventType !== 'Projects.ProjectChanged.v1') {
       const taskId = text(event.payload['taskId']);
       const eventVersion = number(event.payload['taskVersion']);
+      const taskRow = this.state().tasks.find((item) => item.id === taskId);
+      const taskRowVersion = Number(taskRow?.rowVersion ?? Number.NaN);
+      if (taskRow && eventVersion > 0 && Number.isFinite(taskRowVersion) && eventVersion <= taskRowVersion)
+        refreshTaskList = false;
       const card = this.state().kanban.snapshot?.cards.find((item) => item.taskId === taskId);
       if (card && eventVersion > 0 && eventVersion <= card.version)
         refreshKanban = false;
@@ -1272,6 +1426,9 @@ export class ProjectDetailFacade {
         this.refreshSchedule(true);
       });
     }
+
+    if (refreshTaskList)
+      this.queueTaskListRefresh();
   }
 
   private refreshProjectProjections(
@@ -1279,6 +1436,7 @@ export class ProjectDetailFacade {
     authorizationGeneration: number
   ): void {
     const loadGeneration = this.loadGeneration;
+    const taskListRequestGeneration = ++this.taskListRequestGeneration;
     this.http.get<ProjectDto>(`/api/projects/${projectId}`, { withCredentials: true }).pipe(
       switchMap((project) => forkJoin({
         project: of(project),
@@ -1325,12 +1483,21 @@ export class ProjectDetailFacade {
         return;
       }
       const current = this.state();
+      const applyTaskList = taskListRequestGeneration >= this.taskListAppliedGeneration;
+      if (applyTaskList)
+        this.taskListAppliedGeneration = taskListRequestGeneration;
+      this.clearTaskListRefreshFeedback(taskListRequestGeneration);
       this.state.set({
         ...current,
         ...result.value,
+        tasks: applyTaskList ? result.value.tasks : current.tasks,
+        project: applyTaskList
+          ? result.value.project
+          : this.withTaskCounts(result.value.project, current.tasks),
         status: 'ready',
         message: undefined
       });
+      this.taskListFollowUpRefresh(projectId);
     });
   }
 
@@ -1338,6 +1505,7 @@ export class ProjectDetailFacade {
     return {
       status: 'ready',
       ...this.projectProjections(projectDto, taskDtos, workload, members),
+      taskListFeedback: null,
       kanban: this.mapInitialKanban(kanban),
       schedule: this.mapInitialSchedule(gantt)
     };
@@ -1350,6 +1518,7 @@ export class ProjectDetailFacade {
     members: unknown
   ): Pick<ProjectDetailViewModel, 'project' | 'tasks' | 'workload' | 'members'> {
     const record = mapProjectDtoToRecord(projectDto);
+    const taskRecords = taskDtos.map((task) => mapTaskDtoToRecord(task, [record]));
     const project: ProjectSummaryViewModel = {
       id: record.id,
       name: record.name,
@@ -1360,12 +1529,12 @@ export class ProjectDetailFacade {
       group: record.group,
       canCreateTask: record.canCreateTask,
       taskCounts: {
-        total: taskDtos.length,
-        done: taskDtos.filter((task) => mapTaskStatus(task.status) === 'done').length,
-        blocked: taskDtos.filter((task) => mapTaskStatus(task.status) === 'blocked').length
+        total: taskRecords.length,
+        done: taskRecords.filter((task) => task.stageCategory === 'done' || task.status === 'done').length,
+        blocked: taskRecords.filter((task) => task.isBlocked === true || task.status === 'blocked').length
       }
     };
-    const rows = taskDtos.map((task) => this.toRow(mapTaskDtoToRecord(task, [record])));
+    const rows = taskRecords.map((task) => this.toRow(task));
     return {
       project,
       tasks: rows,
@@ -1486,10 +1655,52 @@ export class ProjectDetailFacade {
     return { ...snapshot, cards: without.map((item) => reordered.get(item.taskId) ?? item).concat(reordered.has(card.taskId) ? [reordered.get(card.taskId)!] : []) };
   }
 
-  private toRow(task: TaskMockRecord): TaskGridRow { return { id: task.id, projectId: task.projectId, title: task.title, project: task.milestone || 'Project', status: task.status, statusLabel: task.statusLabel, priority: task.priority, priorityLabel: task.priorityLabel, assignee: task.assignee, startDate: task.startDate, dueDate: task.dueDate, progressPercent: task.progressPercent, milestone: task.milestone, allowedTransitions: task.allowedTransitions, rowActions: [{ id: 'openDetail', label: 'Open', disabled: false }] }; }
+  private withTaskCounts(
+    project: ProjectSummaryViewModel | undefined,
+    tasks: readonly TaskGridRow[]
+  ): ProjectSummaryViewModel | undefined {
+    if (!project)
+      return undefined;
+    return {
+      ...project,
+      taskCounts: {
+        total: tasks.length,
+        done: tasks.filter((task) => task.stageCategory === 'done' || task.status === 'done').length,
+        blocked: tasks.filter((task) => task.isBlocked === true || task.status === 'blocked').length
+      }
+    };
+  }
+
+  private toRow(task: TaskMockRecord): TaskGridRow {
+    return {
+      id: task.id,
+      projectId: task.projectId,
+      title: task.title,
+      project: task.milestone || 'Project',
+      status: task.status,
+      statusLabel: task.statusLabel,
+      workflowStageId: task.workflowStageId,
+      workflowStageName: task.workflowStageName,
+      stageCategory: task.stageCategory,
+      isBlocked: task.isBlocked,
+      createdAt: task.createdAt,
+      updatedAt: task.updatedAt,
+      hasArtifact: task.hasArtifact,
+      rowVersion: task.rowVersion,
+      priority: task.priority,
+      priorityLabel: task.priorityLabel,
+      assignee: task.assignee,
+      startDate: task.startDate,
+      dueDate: task.dueDate,
+      progressPercent: task.progressPercent,
+      milestone: task.milestone,
+      allowedTransitions: task.allowedTransitions,
+      rowActions: [{ id: 'openDetail', label: 'Open', disabled: false }]
+    };
+  }
   private workload(value: unknown): readonly ProjectWorkloadViewModel[] { return array(object(value)['members']).map((item) => { const row = object(item); return { userId: text(row['userId']), displayName: text(row['displayName'], 'Member'), projectRole: text(row['projectRole'], 'Member'), assignedTaskCount: number(row['assignedTaskCount']), overdueTaskCount: number(row['overdueTaskCount']), estimatedHours: number(row['estimatedHours']), actualHours: number(row['actualHours']) }; }); }
   private members(value: unknown): readonly ProjectMemberViewModel[] { return array(value).map((item) => { const row = object(item); return { userId: text(row['userId']), displayName: text(row['displayName'], 'Member'), role: text(row['role'], 'Member') }; }); }
-  private loading(): ProjectDetailViewModel { return { status: 'loading', tasks: [], kanban: this.loadingKanban(), schedule: this.loadingSchedule(), workload: [], members: [] }; }
+  private loading(): ProjectDetailViewModel { return { status: 'loading', tasks: [], taskListFeedback: null, kanban: this.loadingKanban(), schedule: this.loadingSchedule(), workload: [], members: [] }; }
   private loadingKanban(): ProjectKanbanViewModel { return { status: 'loading', snapshot: null, busyTaskId: null, focusTaskId: null, feedback: null, realtimeDegraded: this.realtime.connectionState() !== 'Connected', reconciliationQueued: false }; }
   private loadingSchedule(): ProjectScheduleViewModel { return { status: 'loading', snapshot: null, canonicalEnabled: this.flags.ganttV1Enabled(), busyItemId: null, focusItemId: null, feedback: null, preservedIntent: null, realtimeDegraded: this.realtime.connectionState() !== 'Connected', reconciliationQueued: false }; }
   private disabledKanban(): ProjectKanbanViewModel { return { ...this.loadingKanban(), status: 'disabled', feedback: 'Project Kanban is disabled. The maintained Task List remains available.' }; }

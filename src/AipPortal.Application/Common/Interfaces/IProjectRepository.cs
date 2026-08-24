@@ -18,6 +18,8 @@ public interface IProjectRepository
     Task<IReadOnlyList<Milestone>> ListMilestonesAsync(Guid projectId, CancellationToken cancellationToken = default);
     Task<Milestone?> GetMilestoneAsync(Guid milestoneId, CancellationToken cancellationToken = default);
     Task<IReadOnlyList<TaskItem>> ListTasksAsync(Guid projectId, CancellationToken cancellationToken = default);
+    Task<IReadOnlyList<Guid>> ListTaskIdsWithArtifactsAsync(Guid projectId, CancellationToken cancellationToken = default) =>
+        Task.FromResult<IReadOnlyList<Guid>>([]);
     async Task<IReadOnlyList<TaskItem>> ListTasksBoundedAsync(Guid projectId, int take, CancellationToken cancellationToken = default) =>
         (await ListTasksAsync(projectId, cancellationToken))
             .Where(task => task.Kind == WorkItemKind.Task && !task.DeletedAt.HasValue)

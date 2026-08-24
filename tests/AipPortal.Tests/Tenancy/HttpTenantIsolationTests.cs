@@ -634,6 +634,45 @@ public sealed class HttpTenantIsolationTests
     }
 
     [Fact]
+    public async Task TaskListHttpContractUsesCanonicalStringStateAndBooleanArtifactSignal()
+    {
+        await using var app = await HttpTenantIsolationTestApp.CreateAsync();
+        var data = app.Data;
+        var artifactName = $"private-artifact-{Guid.NewGuid():N}";
+        await app.BlockTaskAndAddArtifactAsync(
+            data.TenantA.Id,
+            data.TenantA.Slug,
+            data.TaskA.Id,
+            data.TenantAOwner.Id,
+            artifactName);
+
+        using var response = await app.SendAsync(
+            data.CrossTenantUser,
+            data.TenantA.Slug,
+            $"/api/projects/{data.ProjectA.Id}/tasks");
+        var body = await response.Content.ReadAsStringAsync();
+
+        Assert.Equal(HttpStatusCode.OK, response.StatusCode);
+        Assert.DoesNotContain(artifactName, body, StringComparison.Ordinal);
+        using var document = JsonDocument.Parse(body);
+        var task = Assert.Single(
+            document.RootElement.GetProperty("items").EnumerateArray(),
+            item => item.GetProperty("id").GetGuid() == data.TaskA.Id);
+        Assert.Equal(JsonValueKind.String, task.GetProperty("stageCategory").ValueKind);
+        Assert.Contains(
+            task.GetProperty("stageCategory").GetString(),
+            new[] { "Backlog", "Todo", "InProgress", "Review", "Done", "Cancelled" });
+        Assert.Contains(
+            task.GetProperty("workflowStageId").ValueKind,
+            new[] { JsonValueKind.Null, JsonValueKind.String });
+        Assert.False(string.IsNullOrWhiteSpace(task.GetProperty("workflowStageName").GetString()));
+        Assert.True(task.GetProperty("isBlocked").GetBoolean());
+        Assert.True(task.GetProperty("hasArtifact").GetBoolean());
+        Assert.Equal(JsonValueKind.String, task.GetProperty("createdAt").ValueKind);
+        Assert.Equal(JsonValueKind.String, task.GetProperty("updatedAt").ValueKind);
+    }
+
+    [Fact]
     public async Task FileMetadataAndDeniedResponsesDoNotExposeStorageIdentifiers()
     {
         await using var app = await HttpTenantIsolationTestApp.CreateAsync();
@@ -2759,6 +2798,30 @@ public sealed class HttpTenantIsolationTests
                 await dbContext.AuditLogs.CountAsync(),
                 await dbContext.OutboxEvents.CountAsync(),
                 await dbContext.IdempotencyRecords.CountAsync());
+        }
+
+        public async Task BlockTaskAndAddArtifactAsync(
+            Guid tenantId,
+            string tenantSlug,
+            Guid taskId,
+            Guid actorUserId,
+            string artifactName)
+        {
+            await using var scope = App.Services.CreateAsyncScope();
+            var currentTenant = scope.ServiceProvider.GetRequiredService<CurrentTenantService>();
+            currentTenant.SetTenant(tenantId, tenantSlug);
+            var dbContext = scope.ServiceProvider.GetRequiredService<AppDbContext>();
+            var task = await dbContext.TaskItems.SingleAsync(item => item.Id == taskId);
+            task.IsBlocked = true;
+            dbContext.Artifacts.Add(new Artifact
+            {
+                TenantId = tenantId,
+                ProjectId = task.ProjectId,
+                TaskItemId = task.Id,
+                Name = artifactName,
+                CreatedByUserId = actorUserId
+            });
+            await dbContext.SaveChangesAsync();
         }
 
         public async Task<PlanningProjectGraph> AddPlanningProjectGraphAsync(

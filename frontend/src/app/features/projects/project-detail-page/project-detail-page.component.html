@@ -13,6 +13,12 @@
         <header><div><h2>Tasks</h2><p>One authoritative Project board. Done shows {{ vm.kanban.snapshot?.doneWindowDays ?? 30 }} recent days unless older completed Tasks are included.</p></div></header>
         @if (vm.kanban.status === 'disabled') {
           <p role="status">{{ vm.kanban.feedback }}</p>
+          @if (vm.taskListFeedback) {
+            <div class="project-detail-page__task-list-alert" role="alert">
+              <p>{{ vm.taskListFeedback }}</p>
+              <button type="button" data-testid="task-list-retry" (click)="retryTaskList()">Retry Task list</button>
+            </div>
+          }
           <app-task-table [rows]="vm.tasks" [defaultPageSize]="50" [maximumPageSize]="100" (actionInvoked)="openTask($event.row)" />
         } @else if (vm.kanban.status === 'loading' && !vm.kanban.snapshot) {
           <app-inline-loading label="Loading Project Kanban" />
@@ -86,7 +92,18 @@
         }
       </section>
     }
-    @if (tab() === 'list') { <section><h2>Task list</h2><app-task-table [rows]="vm.tasks" [defaultPageSize]="50" [maximumPageSize]="100" (actionInvoked)="openTask($event.row)" /></section> }
+    @if (tab() === 'list') {
+      <section class="project-detail-page__task-list">
+        <h2>Task list</h2>
+        @if (vm.taskListFeedback) {
+          <div class="project-detail-page__task-list-alert" role="alert">
+            <p>{{ vm.taskListFeedback }}</p>
+            <button type="button" data-testid="task-list-retry" (click)="retryTaskList()">Retry Task list</button>
+          </div>
+        }
+        <app-task-table [rows]="vm.tasks" [defaultPageSize]="50" [maximumPageSize]="100" (actionInvoked)="openTask($event.row)" />
+      </section>
+    }
     @if (tab() === 'schedule') {
       <section class="project-detail-page__schedule" data-testid="project-schedule">
         <header class="project-detail-page__schedule-header">
