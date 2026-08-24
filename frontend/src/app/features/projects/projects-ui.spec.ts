@@ -2,7 +2,7 @@ import { Component, EventEmitter, Input, Output } from '@angular/core';
 import { ComponentFixture, TestBed } from '@angular/core/testing';
 import { HttpClient } from '@angular/common/http';
 import { ActivatedRoute, convertToParamMap, provideRouter } from '@angular/router';
-import { EMPTY } from 'rxjs';
+import { BehaviorSubject, EMPTY } from 'rxjs';
 
 import { AuthSessionFacade } from '../../core/auth/auth-session.facade';
 import { FrontendApiError } from '../../core/api/api-error.model';
@@ -112,6 +112,7 @@ const scenarioProviders = (scenario: ProjectsScenario) => [
       durableEvents$: EMPTY,
       connectionState: () => 'Degraded',
       registerProtectedStateClearer: () => () => undefined,
+      registerSubscription: () => () => undefined,
       registerCatchUp: () => () => undefined
     }
   },
@@ -165,6 +166,24 @@ const renderMyTasks = async (
   return fixture;
 };
 
+const renderTaskDetail = async (
+  params: BehaviorSubject<ReturnType<typeof convertToParamMap>>,
+  scenario: ProjectsScenario = PROJECTS_SCENARIOS.default
+) => {
+  await TestBed.configureTestingModule({
+    imports: [TaskDetailPageComponent],
+    providers: [
+      provideRouter([]),
+      ...scenarioProviders(scenario),
+      { provide: ActivatedRoute, useValue: { paramMap: params.asObservable() } }
+    ]
+  }).compileComponents();
+
+  const fixture = TestBed.createComponent(TaskDetailPageComponent);
+  fixture.detectChanges();
+  return fixture;
+};
+
 describe('Projects and tasks mock UI', () => {
   afterEach(() => TestBed.resetTestingModule());
 
@@ -197,6 +216,31 @@ describe('Projects and tasks mock UI', () => {
     expect(query(fixture, '[data-testid="project-summary-card"]')).not.toBeNull();
     expect(query(fixture, '[data-testid="task-create-form"]')).toBeNull();
     expect(query(fixture, '[data-testid="stub-task-table"]')).toBeNull();
+  });
+
+  it('renders the authoritative Project and Task hierarchy and updates it after a Task route switch', async () => {
+    const params = new BehaviorSubject(convertToParamMap({
+      projectId: PROJECTS_PRIMARY_PROJECT_ID,
+      taskId: PROJECTS_PRIMARY_TASK_ID
+    }));
+    const fixture = await renderTaskDetail(params);
+
+    const hierarchy = query<HTMLElement>(fixture, '[data-testid="project-task-hierarchy"]');
+    const parentProject = query<HTMLAnchorElement>(fixture, '[data-testid="parent-project-link"]');
+    expect(hierarchy?.textContent).toContain('Sample Project Alpha');
+    expect(query<HTMLElement>(fixture, '[aria-current="page"]')?.textContent?.trim()).toBe('Prepare sample kickoff checklist');
+    expect(parentProject?.getAttribute('href')).toBe(`/projects/${PROJECTS_PRIMARY_PROJECT_ID}`);
+    expect(queryAll<HTMLElement>(fixture, 'h1')).toHaveLength(1);
+
+    params.next(convertToParamMap({
+      projectId: PROJECTS_PRIMARY_PROJECT_ID,
+      taskId: 'task-sample-002'
+    }));
+    fixture.detectChanges();
+
+    expect(query<HTMLElement>(fixture, '[aria-current="page"]')?.textContent?.trim()).toBe('Collect sample project notes');
+    expect(query<HTMLElement>(fixture, 'h1')?.textContent?.trim()).toBe('Collect sample project notes');
+    expect(query<HTMLAnchorElement>(fixture, '[data-testid="parent-project-link"]')?.textContent?.trim()).toBe('Sample Project Alpha');
   });
 
   it('renders Project load failures as retryable errors instead of empty states', async () => {

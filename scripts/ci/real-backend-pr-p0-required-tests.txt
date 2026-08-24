@@ -23,3 +23,4 @@ exercises mandatory authenticated MVP0 flows through ASP.NET Core backend
 keeps authenticated HTTP requests available when the Hub cannot connect
 TASK-V1-PR07-D reauthorizes notification delivery, opens current Task routes, and clears revoked state through the real backend
 TASK-V1-PR03C uses the real backend for task detail, mutations, revocation, and File grant reauthorization
+creates and activates a Workspace through the delegated real-backend capability

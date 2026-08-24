@@ -22,7 +22,7 @@ export const OWNER_WORKSPACE: WorkspaceCardViewModel = {
   needsReviewProjectCount: 2,
   lastUpdatedLabel: '今日 09:40',
   availability: available,
-  capabilities: ['openWorkspace', 'openMembers', 'openProjects'],
+  capabilities: ['openWorkspace', 'openMembers', 'openProjects', 'createProject', 'addFiles'],
 };
 
 export const ADMIN_WORKSPACE: WorkspaceCardViewModel = {
@@ -38,7 +38,7 @@ export const ADMIN_WORKSPACE: WorkspaceCardViewModel = {
   needsReviewProjectCount: 0,
   lastUpdatedLabel: '昨日 16:15',
   availability: available,
-  capabilities: ['openWorkspace', 'openMembers', 'openProjects'],
+  capabilities: ['openWorkspace', 'openMembers', 'openProjects', 'createProject', 'addFiles'],
 };
 
 export const ADVISER_WORKSPACE: WorkspaceCardViewModel = {
@@ -54,7 +54,7 @@ export const ADVISER_WORKSPACE: WorkspaceCardViewModel = {
   needsReviewProjectCount: 1,
   lastUpdatedLabel: '6月30日',
   availability: available,
-  capabilities: ['openWorkspace', 'openProjects'],
+  capabilities: ['openWorkspace', 'openProjects', 'addFiles'],
 };
 
 export const MEMBER_WORKSPACE: WorkspaceCardViewModel = {
@@ -70,7 +70,7 @@ export const MEMBER_WORKSPACE: WorkspaceCardViewModel = {
   needsReviewProjectCount: 0,
   lastUpdatedLabel: '7月1日',
   availability: available,
-  capabilities: ['openWorkspace', 'openMembers', 'openProjects'],
+  capabilities: ['openWorkspace', 'openMembers', 'openProjects', 'addFiles'],
 };
 
 export const READ_ONLY_WORKSPACE: WorkspaceCardViewModel = {
@@ -102,7 +102,7 @@ export const SYSTEM_ADMIN_WORKSPACE: WorkspaceCardViewModel = {
   needsReviewProjectCount: 1,
   lastUpdatedLabel: '7月3日',
   availability: available,
-  capabilities: ['openWorkspace', 'openMembers', 'openProjects'],
+  capabilities: ['openWorkspace', 'openMembers', 'openProjects', 'addFiles'],
 };
 
 export const DEFAULT_WORKSPACES: readonly WorkspaceCardViewModel[] = [
@@ -125,7 +125,7 @@ export const LONG_NAME_WORKSPACE: WorkspaceCardViewModel = {
   runningProjectCount: 5,
   needsReviewProjectCount: 2,
   lastUpdatedLabel: '今日 11:05',
-  capabilities: ['openWorkspace', 'openProjects'],
+  capabilities: ['openWorkspace', 'openProjects', 'addFiles'],
 };
 
 export const MANY_WORKSPACES: readonly WorkspaceCardViewModel[] = Array.from(
@@ -141,7 +141,9 @@ export const MANY_WORKSPACES: readonly WorkspaceCardViewModel[] = Array.from(
     needsReviewProjectCount: 0,
     lastUpdatedLabel: `${index + 1}日前`,
     capabilities:
-      index % 3 === 0 ? (['openWorkspace'] as const) : (['openWorkspace', 'openProjects'] as const),
+      index % 3 === 0
+        ? (['openWorkspace'] as const)
+        : (['openWorkspace', 'openProjects', 'addFiles'] as const),
   }),
 );
 
