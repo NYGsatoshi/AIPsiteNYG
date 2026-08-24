@@ -808,7 +808,7 @@ test.describe('MVP-A P0 Angular frontend smoke', () => {
     expect(api.csrfHeaders).toEqual(['csrf-kanban']);
   });
 
-  test('keeps the maintained Project Task List when tasks.kanbanV1 is disabled', async ({ page }) => {
+  test('keeps the maintained Project Task List when tasks.kanbanV1 is disabled', async ({ page }, testInfo) => {
     await page.addInitScript(() => {
       (window as Window & { __AIP_FEATURE_FLAGS__?: Record<string, boolean> }).__AIP_FEATURE_FLAGS__ = {
         'tasks.kanbanV1': false
@@ -819,7 +819,8 @@ test.describe('MVP-A P0 Angular frontend smoke', () => {
     await page.goto('/app/projects/static-project-kanban');
 
     await expect(page.getByText('Project Kanban is disabled. The maintained Task List remains available.')).toBeVisible();
-    await expect(page.getByText('Canonical card')).toBeVisible();
+    const renderer = testInfo.project.name === 'chromium-mobile' ? 'mobile' : 'desktop';
+    await expect(page.getByTestId(`task-state-${renderer === 'mobile' ? 'card' : 'row'}-static-task-kanban-${renderer}`)).toBeVisible();
     await expect(page.locator('aip-kanban')).toHaveCount(0);
     expect(api.kanbanGetCount()).toBe(0);
   });

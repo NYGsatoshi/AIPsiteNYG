@@ -110,16 +110,16 @@ Completed locally on this candidate so far:
 - production Angular build, architecture check, and Storybook build (the
   Windows Storybook process required a 4 GB Node heap);
 - focused desktop/mobile Playwright: 4/4 passed for state scanning, 320-pixel
-  layout, keyboard/focus, axe, and authoritative post-command refresh; and
+  layout, keyboard/focus, axe, and authoritative post-command refresh;
+- pinned-Linux Playwright parity: 94 passed and 6 intentionally skipped after
+  running the CI helper from an LF-normalized temporary container directory;
+  screenshots, responsive renderers, and axe checks passed; and
 - five browser-smoke seed tests, including idempotent creation of one
   Task-linked synthetic Artifact while the actor remains an ordinary Tenant
   Member.
 
 Still required before merge:
 
-- pinned-Linux Playwright parity (the first local Compose launch stopped before
-  tests because the Windows checkout supplied CRLF to a Bash helper; rerun with
-  an LF-normalized temporary container copy remains required);
 - real-backend browser verification of the JSON string category, timestamps,
   boolean-only Artifact signal, and rendered list;
 - PostgreSQL execution of the Task/Artifact projection test (the local
