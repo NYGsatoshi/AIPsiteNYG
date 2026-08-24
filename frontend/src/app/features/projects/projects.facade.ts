@@ -359,13 +359,17 @@ export class ProjectsFacade {
   loadMoreSubtasks(taskId: string): void { this.loadNextPage(taskId, 'subtasks'); }
   loadMoreComments(taskId: string): void { this.loadNextPage(taskId, 'comments'); }
   loadMoreFiles(taskId: string): void { this.loadNextPage(taskId, 'files'); }
+  loadMoreActivity(taskId: string): void { this.loadNextPage(taskId, 'activity'); }
+  loadActivity(taskId: string): void {
+    if (this.getDetailSectionState('activity').status === 'idle') this.loadActivityFirstPage(taskId);
+  }
   retrySection(taskId: string, section: TaskDetailSection): void {
     const failed = this.getDetailSectionState(section);
     if (section === 'detail' || failed.retryKind === 'aggregate') this.loadTaskDetail(taskId, { kind: 'sectionRecovery', section });
     else if (section === 'labels') {
       const projectId = this.taskDetails()[taskId]?.task?.projectId;
       if (typeof projectId === 'string') this.loadProjectLabelDefinitions(projectId, true);
-    } else if (section === 'subtasks' || section === 'comments' || section === 'files') this.loadNextPage(taskId, section, failed.failedPage);
+    } else if (section === 'activity' || section === 'subtasks' || section === 'comments' || section === 'files') this.loadNextPage(taskId, section, failed.failedPage);
     else this.loadTaskDetail(taskId);
   }
 
@@ -670,6 +674,7 @@ export class ProjectsFacade {
         // reauthorizes this exact route against the selected Workspace.
         if (response.workspacePending) return;
         if (response.parentProject) this.replaceProject(response.parentProject);
+        const refreshActivity = this.getDetailSectionState('activity').status !== 'idle';
         this.applyAggregate(taskId, response.detail, scope);
         this.replaceTask(response.task);
         if (scope.kind === 'taskBodyReload') {
@@ -677,6 +682,7 @@ export class ProjectsFacade {
           this.taskConflictReloadState.set('idle');
         }
         this.taskConflictReloadInProgress = false;
+        if (refreshActivity) this.loadActivityFirstPage(taskId);
         const projectId = response.detail.task?.projectId;
         const permissions = response.detail.permissions;
         if (typeof projectId === 'string' && (permissions?.canApplyLabels === true || permissions?.canManageLabelDefinitions === true)) this.loadProjectLabelDefinitions(projectId);
@@ -847,7 +853,7 @@ export class ProjectsFacade {
     this.trackDetailMutation(operation);
   }
 
-  private loadNextPage(taskId: string, section: 'subtasks' | 'comments' | 'files', retryPage?: number): void {
+  private loadNextPage(taskId: string, section: 'activity' | 'subtasks' | 'comments' | 'files', retryPage?: number): void {
     const detail = this.taskDetails()[taskId];
     if (!detail || !this.isActive(taskId, this.detailGeneration)) return;
     const current = detail[section];
@@ -858,6 +864,7 @@ export class ProjectsFacade {
     const generation = this.detailGeneration;
     const authorizationGeneration = this.authorizationGeneration;
     const page = retryPage ?? currentPage + 1;
+    const replaceItems = section === 'activity' && page === 1;
     const endpoint = `/api/tasks/${taskId}/${section}?page=${page}&pageSize=${pageSize}`;
     this.setSectionState(section, { status: 'loading' });
     const request = this.http.get<PagedResponseDto<unknown>>(endpoint, { withCredentials: true }).pipe(finalize(() => {
@@ -865,7 +872,7 @@ export class ProjectsFacade {
     })).subscribe({
       next: response => {
         if (!this.isAuthorizationCurrent(authorizationGeneration) || !this.isActive(taskId, generation)) return;
-        const existing = current?.items ?? [];
+        const existing = replaceItems ? [] : (current?.items ?? []);
         const incoming = (response.items ?? []) as typeof existing;
         const seen = new Set(existing.map(item => typeof (item as { id?: unknown }).id === 'string' ? (item as { id: string }).id : ''));
         const items = [...existing, ...incoming.filter(item => {
@@ -877,12 +884,24 @@ export class ProjectsFacade {
       },
       error: error => {
         if (!this.isAuthorizationCurrent(authorizationGeneration) || !this.isActive(taskId, generation)) return;
+        const normalized = normalizeApiError(error);
         const failure = { ...toSectionFailure(error, `More ${section} could not be loaded.`), retryKind: 'page' as const, failedPage: page };
         if (failure.status === 'permissionDenied') { this.reauthorizeActiveState(); return; }
+        if (section === 'activity' && normalized.httpStatus === 404) { this.denyTaskDetail(); return; }
         this.setSectionState(section, failure);
       }
     });
     this.pageRequests.set(section, request);
+  }
+
+  /** Refresh Task-linked Activity independently so it can never suppress the authoritative current phase. */
+  private loadActivityFirstPage(taskId: string): void {
+    const pending = this.pageRequests.get('activity');
+    if (pending) {
+      pending.unsubscribe();
+      this.pageRequests.delete('activity');
+    }
+    this.loadNextPage(taskId, 'activity', 1);
   }
 
   private clearProtectedTaskState(): void {
@@ -952,7 +971,8 @@ export class ProjectsFacade {
           watchState: preserve('watch') ? current.watchState : (incoming.watchState ?? current.watchState),
           subtasks: preservePagedSection(current.subtasks, incoming.subtasks, preserve('subtasks')),
           comments: preservePagedSection(current.comments, incoming.comments, preserve('comments')),
-          files: preservePagedSection(current.files, incoming.files, preserve('files'))
+          files: preservePagedSection(current.files, incoming.files, preserve('files')),
+          activity: preservePagedSection(current.activity, incoming.activity, preserve('activity'))
         };
 
     this.taskDetails.update(details => ({ ...details, [taskId]: detail }));
@@ -995,7 +1015,7 @@ export class ProjectsFacade {
   }
 
   private emptySectionStates(): Record<TaskDetailSection, TaskDetailSectionState> {
-    return { detail: { status: 'idle' }, subtasks: { status: 'idle' }, checklist: { status: 'idle' }, comments: { status: 'idle' }, labels: { status: 'idle' }, watch: { status: 'idle' }, files: { status: 'idle' } };
+    return { detail: { status: 'idle' }, activity: { status: 'idle' }, subtasks: { status: 'idle' }, checklist: { status: 'idle' }, comments: { status: 'idle' }, labels: { status: 'idle' }, watch: { status: 'idle' }, files: { status: 'idle' } };
   }
 
   private mapDetail(detail: CanonicalTaskDetailDto): TaskDetailAggregateViewModel {
@@ -1004,6 +1024,14 @@ export class ProjectsFacade {
     const nullableText = (value: unknown) => typeof value === 'string' && value.length > 0 ? value : null;
     const number = (value: unknown) => typeof value === 'number' && Number.isFinite(value) ? value : 0;
     const version = (value: unknown) => typeof value === 'string' || typeof value === 'number' ? String(value) : '0';
+    const activityType = (value: unknown): 'note' | 'statusUpdate' | 'decision' | 'issue' | 'unknown' => {
+      const normalized = typeof value === 'string' ? value.replace(/[\s_-]/g, '').toLowerCase() : value;
+      if (normalized === 0 || normalized === 'note') return 'note';
+      if (normalized === 1 || normalized === 'statusupdate') return 'statusUpdate';
+      if (normalized === 2 || normalized === 'decision') return 'decision';
+      if (normalized === 3 || normalized === 'issue') return 'issue';
+      return 'unknown';
+    };
     const page = <TSource, TView>(source: PagedResponseDto<TSource> | null | undefined, items: readonly TView[]) => ({ items, page: number(source?.page) || 1, pageSize: number(source?.pageSize) || items.length, totalCount: number(source?.totalCount), hasMore: boolean(source?.hasMore) });
     return {
       canonicalTask: {
@@ -1041,6 +1069,7 @@ export class ProjectsFacade {
       subtasks: page(detail.subtasks, (detail.subtasks?.items ?? []).map((item) => ({ id: text(item.id), parentTaskId: text(item.parentTaskId), title: text(item.title), workflowStageId: nullableText(item.workflowStageId), stage: text(item.workflowStageName), stageCategory: text(item.stageCategory), priority: text(item.priority), progressPercent: number(item.progressPercent), primaryAssignee: nullableText(item.primaryAssignee?.displayName), plannedEndDate: nullableText(item.plannedEndDate), deadlineAt: nullableText(item.deadlineAt), isOverdue: boolean(item.isOverdue), version: version(item.version) }))),
       comments: page(detail.comments, (detail.comments?.items ?? []).map((item) => ({ id: text(item.id), taskId: text(item.taskId), author: nullableText(item.author?.displayName), body: nullableText(item.bodyPlainText), isImportant: boolean(item.isImportant), mentions: (item.mentions ?? []).map(mention => ({ userId: text(mention.userId), displayName: text(mention.displayName) })).filter(mention => mention.userId && mention.displayName), createdAt: nullableText(item.createdAt), updatedAt: nullableText(item.updatedAt), deletedAt: nullableText(item.deletedAt), version: version(item.version), canEdit: boolean(item.canEdit), canDelete: boolean(item.canDelete), canMarkImportant: boolean(item.canMarkImportant) }))),
       files: page(detail.files, (detail.files?.items ?? []).map((item) => ({ id: text(item.id), fileObjectId: text(item.fileObjectId), fileName: text(item.fileName), contentType: text(item.contentType), sizeBytes: number(item.sizeBytes), scanStatus: text(item.scanStatus), createdAt: nullableText(item.createdAt), accessState: text(item.accessState), canOpen: boolean(item.canOpen), canRequestDownloadGrant: boolean(item.canRequestDownloadGrant), downloadGrantRequired: boolean(item.downloadGrantRequired), restrictionCode: nullableText(item.restrictionCode) }))),
+      activity: page(detail.activity, (detail.activity?.items ?? []).map((item) => ({ id: text(item.id), activityType: activityType(item.activityType), body: text(item.body), occurredAt: nullableText(item.occurredAt), authorUserId: nullableText(item.author?.userId), authorDisplayName: text(item.author?.displayName) || 'Unknown author' }))),
       watchState: { isWatching: boolean(detail.watchState?.isWatching), isExplicitOptOut: boolean(detail.watchState?.isExplicitOptOut), automaticSources: (detail.watchState?.automaticSources ?? []).filter((source): source is string => typeof source === 'string'), version: version(detail.watchState?.version) }
     };
   }
@@ -1151,6 +1180,13 @@ export class ProjectsFacade {
       project: projectName,
       status: task.status,
       statusLabel: task.statusLabel,
+      workflowStageId: task.workflowStageId,
+      workflowStageName: task.workflowStageName,
+      stageCategory: task.stageCategory,
+      isBlocked: task.isBlocked,
+      createdAt: task.createdAt,
+      updatedAt: task.updatedAt,
+      hasArtifact: task.hasArtifact,
       priority: task.priority,
       priorityLabel: task.priorityLabel,
       assignee: task.assignee,

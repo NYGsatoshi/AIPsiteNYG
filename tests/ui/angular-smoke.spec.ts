@@ -978,6 +978,29 @@ test.describe('MVP-A P0 Angular frontend smoke', () => {
     await expect(page.getByRole('heading', { level: 1, name: taskTitle })).toBeVisible();
     await expect(page.getByTestId('project-context').getByRole('heading', { name: projectTitle })).toBeVisible();
 
+    const progress = page.getByTestId('task-progress-phase');
+    await expect(progress.getByTestId('task-current-phase')).toHaveText('In progress');
+    await expect(progress.getByText('Running', { exact: true })).toBeVisible();
+    await expect(progress).not.toContainText('%');
+    await expect(progress).not.toContainText('Failed');
+
+    const activity = page.getByTestId('task-activity-log');
+    const activitySummary = activity.locator('summary');
+    await expect(activity).not.toHaveAttribute('open', '');
+    expect(api.activityRequests()).toBe(0);
+    await activitySummary.focus();
+    await page.keyboard.press('Enter');
+    await expect(activity).toHaveAttribute('open', '');
+    await expect(activity.getByText('Status update', { exact: true })).toBeVisible();
+    await expect(activity.getByText('Needs attention', { exact: true })).toBeVisible();
+    await expect(activity).not.toContainText('Failed');
+    await expect(activity.locator('li').first()).toHaveClass(/task-detail-page__activity-item--status/);
+    await expect(activity.locator('time').first()).toHaveAttribute('datetime', '2026-08-24T03:00:00Z');
+    expect(api.activityRequests()).toBe(1);
+    await activity.getByRole('button', { name: 'Load more activity' }).click();
+    await expect(activity.getByText('Decision recorded after review.', { exact: true })).toBeVisible();
+    expect(api.activityRequests()).toBe(2);
+
     const [hierarchyBox, projectBox, taskBox] = await Promise.all([
       hierarchy.boundingBox(),
       parentProject.boundingBox(),
@@ -1046,6 +1069,42 @@ test.describe('MVP-A P0 Angular frontend smoke', () => {
     await page.getByTestId('theme-toggle').click();
     await expect(page.locator('html')).toHaveAttribute('data-aip-theme', 'dark');
     await expectNoAccessibilityViolations(page, '[data-testid="task-brief-fields"]');
+    await expectHealthyAngularPage(page);
+  });
+
+  test('keeps Activity errors distinct from confirmed empty state and retains earlier pages', async ({ page }, testInfo) => {
+    const projectId = 'static-project-activity-errors';
+    const taskId = 'static-task-activity-errors';
+    await installDirectTaskContextApi(
+      page,
+      { projectId, projectTitle: 'Activity error Project', taskId, taskTitle: 'Activity error Task' },
+      {
+        failFirstActivityPageOnce: true,
+        failSecondActivityPageOnce: true,
+        activityFailureStatus: testInfo.project.name === 'chromium-mobile' ? 409 : 500
+      }
+    );
+    await page.setViewportSize({ width: 320, height: 900 });
+    await page.goto(`/app/projects/${projectId}/tasks/${taskId}`);
+
+    const activity = page.getByTestId('task-activity-log');
+    await activity.locator('summary').click();
+    let alert = activity.getByRole('alert');
+    await expect(alert).toBeVisible();
+    await expect(activity).not.toContainText('No Task activity has been recorded.');
+    await expect(activity).not.toContainText('0 recorded');
+    await alert.getByRole('button', { name: /Retry|Reload/ }).click();
+
+    await expect(activity.getByText('Status update', { exact: true })).toBeVisible();
+    await activity.getByRole('button', { name: 'Load more activity' }).click();
+    alert = activity.getByRole('alert');
+    await expect(alert).toBeVisible();
+    await expect(activity.getByText('Implementation is ready for review.', { exact: true })).toBeVisible();
+    await expect(activity).not.toContainText('No Task activity has been recorded.');
+    await alert.getByRole('button', { name: /Retry|Reload/ }).click();
+
+    await expect(activity.getByText('Decision recorded after review.', { exact: true })).toBeVisible();
+    await expectNoDocumentHorizontalOverflow(page);
     await expectHealthyAngularPage(page);
   });
 
@@ -1945,7 +2004,12 @@ async function installDirectTaskContextApi(
     goal?: string | null;
     deliverable?: string | null;
     constraints?: string | null;
-  }
+  },
+  options: {
+    failFirstActivityPageOnce?: boolean;
+    failSecondActivityPageOnce?: boolean;
+    activityFailureStatus?: 409 | 500;
+  } = {}
 ) {
   let projectListRequests = 0;
   let parentProjectRequests = 0;
@@ -1986,6 +2050,8 @@ async function installDirectTaskContextApi(
     version,
     uiPermissions: { canEdit: context.canEdit === true, canAssign: false, canChangeStatus: false, canDelete: false, allowedTransitions: [] }
   });
+  let activityRequests = 0;
+  const activityPageAttempts = new Map<number, number>();
   page.on('requestfinished', (request) => {
     if (request.method() === 'GET' && new URL(request.url()).pathname === `/api/projects/${context.projectId}`) {
       parentProjectRequests += 1;
@@ -1993,7 +2059,8 @@ async function installDirectTaskContextApi(
   });
   await page.route('**/api/**', async (route) => {
     const request = route.request();
-    const path = new URL(request.url()).pathname;
+    const url = new URL(request.url());
+    const path = url.pathname;
     if (path === '/api/security/csrf-token' && request.method() === 'GET') {
       await route.fulfill({
         status: 200,
@@ -2058,6 +2125,47 @@ async function installDirectTaskContextApi(
       return;
     }
 
+    if (path === `/api/tasks/${context.taskId}/activity`) {
+      activityRequests += 1;
+      const activityPage = Number(url.searchParams.get('page') ?? '1');
+      const activityPageAttempt = (activityPageAttempts.get(activityPage) ?? 0) + 1;
+      activityPageAttempts.set(activityPage, activityPageAttempt);
+      if (activityPageAttempt === 1 && (activityPage === 1 ? options.failFirstActivityPageOnce : options.failSecondActivityPageOnce)) {
+        const status = options.activityFailureStatus ?? 500;
+        await route.fulfill({
+          status,
+          contentType: 'application/problem+json',
+          body: JSON.stringify({ title: status === 409 ? 'Conflict' : 'Activity unavailable', status, detail: 'Task Activity could not be loaded.' })
+        });
+        return;
+      }
+      await route.fulfill({
+        status: 200,
+        contentType: 'application/json',
+        body: JSON.stringify(activityPage === 1
+          ? {
+              items: [
+                { id: 'activity-status', activityType: 'StatusUpdate', body: 'Implementation is ready for review.', occurredAt: '2026-08-24T03:00:00Z', author: { userId: 'mock-user-a', displayName: 'Mock User A' } },
+                { id: 'activity-issue', activityType: 3, body: 'DependencyNeedsAttentionWithoutBreakingTheNarrowLayout012345678901234567890123456789.', occurredAt: '2026-08-24T02:00:00Z', author: { userId: 'mock-user-b', displayName: 'Mock User B' } }
+              ],
+              page: 1,
+              pageSize: 2,
+              totalCount: 3,
+              hasMore: true
+            }
+          : {
+              items: [
+                { id: 'activity-decision', activityType: 'Decision', body: 'Decision recorded after review.', occurredAt: '2026-08-24T01:00:00Z', author: { userId: 'mock-user-c', displayName: 'Mock User C' } }
+              ],
+              page: 2,
+              pageSize: 2,
+              totalCount: 3,
+              hasMore: false
+            })
+      });
+      return;
+    }
+
     if (path === `/api/projects/${context.projectId}`) {
       parentProjectAttempts += 1;
       await route.fulfill({
@@ -2093,7 +2201,8 @@ async function installDirectTaskContextApi(
     projectListRequests: () => projectListRequests,
     parentProjectRequests: () => parentProjectRequests,
     parentProjectAttempts: () => parentProjectAttempts,
-    patchBodies: () => patchBodies
+    patchBodies: () => patchBodies,
+    activityRequests: () => activityRequests
   };
 }
 

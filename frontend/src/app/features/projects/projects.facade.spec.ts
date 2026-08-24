@@ -237,6 +237,124 @@ describe('ProjectsFacade live API mutations', () => {
     expect(detail.subtasks).toMatchObject({ page: 1, pageSize: 50, totalCount: 0, hasMore: false });
   });
 
+  it('maps standalone Activity wire DTOs and keeps paging stable without fabricating Task state', () => {
+    flushInitialLoad([]);
+    facade.ensureTaskDetail('project-1', 'task-1');
+    httpMock.expectOne('/api/tasks/task-1').flush({
+      task: { ...editableTaskDto, status: undefined, workflowStageName: 'In progress', stageCategory: 2 },
+      checklist: [], labels: [], subtasks: { items: [] }, comments: { items: [] }, files: { items: [] }
+    });
+
+    expect(facade.getDetailSectionState('activity').status).toBe('idle');
+    expect(facade.getTaskDetail('project-1', 'task-1').task?.workflowStageName).toBe('In progress');
+    facade.loadActivity('task-1');
+    httpMock.expectOne('/api/tasks/task-1/activity?page=1&pageSize=20').flush({
+      items: [
+        { id: 'activity-2', activityType: 'StatusUpdate', body: 'Ready for review', occurredAt: '2026-08-24T03:00:00Z', author: { userId: 'user-2', displayName: 'Status author' } },
+        { id: 'activity-1', activityType: 3, body: 'Dependency needs attention', occurredAt: '2026-08-24T02:00:00Z', author: { userId: 'user-1', displayName: 'Issue author' } }
+      ],
+      page: 1, pageSize: 2, totalCount: 3, hasMore: true
+    });
+
+    let activity = facade.getTaskDetail('project-1', 'task-1').detail!.activity;
+    expect(activity.items).toEqual([
+      expect.objectContaining({ id: 'activity-2', activityType: 'statusUpdate', authorUserId: 'user-2', authorDisplayName: 'Status author' }),
+      expect.objectContaining({ id: 'activity-1', activityType: 'issue', authorUserId: 'user-1', authorDisplayName: 'Issue author' })
+    ]);
+
+    facade.loadMoreActivity('task-1');
+    httpMock.expectOne('/api/tasks/task-1/activity?page=2&pageSize=2').flush({
+      items: [
+        { id: 'activity-1', activityType: 'Issue', body: 'duplicate', author: { displayName: 'Duplicate' } },
+        { id: 'activity-0', activityType: 2, body: 'Decision recorded', occurredAt: '2026-08-24T01:00:00Z', author: { userId: 'user-0', displayName: 'Decision author' } }
+      ],
+      page: 2, pageSize: 2, totalCount: 3, hasMore: false
+    });
+
+    activity = facade.getTaskDetail('project-1', 'task-1').detail!.activity;
+    expect(activity.items.map(item => item.id)).toEqual(['activity-2', 'activity-1', 'activity-0']);
+    expect(activity.items[2]).toMatchObject({ activityType: 'decision', authorDisplayName: 'Decision author' });
+    expect(facade.getTaskDetail('project-1', 'task-1').task?.status).toBe('inProgress');
+  });
+
+  it('keeps the authoritative phase and loaded Activity when an independent realtime refresh fails', () => {
+    flushInitialLoad([]);
+    facade.ensureTaskDetail('project-1', 'task-1');
+    httpMock.expectOne('/api/tasks/task-1').flush({
+      task: { ...editableTaskDto, status: undefined, workflowStageName: 'In progress', stageCategory: 2 },
+      checklist: [], labels: [], subtasks: { items: [] }, comments: { items: [] }, files: { items: [] }
+    });
+    facade.loadActivity('task-1');
+    httpMock.expectOne('/api/tasks/task-1/activity?page=1&pageSize=20').flush({
+      items: [{ id: 'activity-old', activityType: 'Note', body: 'Existing history', author: { displayName: 'Author' } }],
+      page: 1, pageSize: 20, totalCount: 1, hasMore: false
+    });
+
+    (facade as unknown as { handleRealtimeEvent(event: unknown): void }).handleRealtimeEvent({ eventId: 'task-refresh', eventType: 'Projects.TaskChanged.v1', aggregateId: 'task-1' });
+    httpMock.expectOne('/api/tasks/task-1').flush({
+      task: { ...editableTaskDto, status: undefined, workflowStageName: 'Review', stageCategory: 3 },
+      checklist: [], labels: [], subtasks: { items: [] }, comments: { items: [] }, files: { items: [] }
+    });
+    const activityRefresh = httpMock.expectOne('/api/tasks/task-1/activity?page=1&pageSize=20');
+
+    expect(facade.getTaskDetail('project-1', 'task-1').task?.workflowStageName).toBe('Review');
+    activityRefresh.flush({ message: 'Activity temporarily unavailable', traceId: 'activity-refresh' }, { status: 500, statusText: 'Server Error' });
+    expect(facade.getTaskDetail('project-1', 'task-1').task?.workflowStageName).toBe('Review');
+    expect(facade.getTaskDetail('project-1', 'task-1').detail?.activity.items.map(item => item.id)).toEqual(['activity-old']);
+    expect(facade.getDetailSectionState('activity')).toMatchObject({ status: 'error', failedPage: 1, retryKind: 'page' });
+
+    facade.retrySection('task-1', 'activity');
+    httpMock.expectOne('/api/tasks/task-1/activity?page=1&pageSize=20').flush({
+      items: [{ id: 'activity-new', activityType: 'StatusUpdate', body: 'Review started', author: { displayName: 'Reviewer' } }],
+      page: 1, pageSize: 20, totalCount: 1, hasMore: false
+    });
+    expect(facade.getTaskDetail('project-1', 'task-1').detail?.activity.items.map(item => item.id)).toEqual(['activity-new']);
+  });
+
+  it('keeps an authorized phase visible when the initial Activity request has a transient error', () => {
+    flushInitialLoad([]);
+    facade.ensureTaskDetail('project-1', 'task-1');
+    httpMock.expectOne('/api/tasks/task-1').flush({
+      task: { ...editableTaskDto, status: undefined, workflowStageName: 'In progress', stageCategory: 2 },
+      checklist: [], labels: [], subtasks: { items: [] }, comments: { items: [] }, files: { items: [] }
+    });
+
+    facade.loadActivity('task-1');
+    httpMock.expectOne('/api/tasks/task-1/activity?page=1&pageSize=20').flush({ message: 'temporary' }, { status: 500, statusText: 'Server Error' });
+
+    const page = facade.getTaskDetail('project-1', 'task-1');
+    expect(page.status).toBe('ready');
+    expect(page.task?.workflowStageName).toBe('In progress');
+    expect(page.detail?.activity.items).toEqual([]);
+    expect(facade.getDetailSectionState('activity').status).toBe('error');
+  });
+
+  it('clears all protected Task data when the standalone Activity endpoint returns a safe 404', () => {
+    flushInitialLoad([]);
+    facade.ensureTaskDetail('project-1', 'task-1');
+    httpMock.expectOne('/api/tasks/task-1').flush({ task: editableTaskDto, checklist: [], labels: [], subtasks: { items: [] }, comments: { items: [] }, files: { items: [] } });
+
+    facade.loadActivity('task-1');
+    httpMock.expectOne('/api/tasks/task-1/activity?page=1&pageSize=20').flush({ error: { code: 'TASK_NOT_FOUND' } }, { status: 404, statusText: 'Not Found' });
+
+    expect(facade.getTaskDetail('project-1', 'task-1').status).toBe('permissionDenied');
+    expect(facade.getTaskDetail('project-1', 'task-1').detail).toBeUndefined();
+    expectNoProjectList();
+  });
+
+  it.each([401, 403])('reauthorizes and clears protected Task data when Activity returns %s', (status) => {
+    flushInitialLoad([]);
+    facade.ensureTaskDetail('project-1', 'task-1');
+    httpMock.expectOne('/api/tasks/task-1').flush({ task: editableTaskDto, checklist: [], labels: [], subtasks: { items: [] }, comments: { items: [] }, files: { items: [] } });
+
+    facade.loadActivity('task-1');
+    httpMock.expectOne('/api/tasks/task-1/activity?page=1&pageSize=20').flush({}, { status, statusText: status === 401 ? 'Unauthorized' : 'Forbidden' });
+    expect(facade.getTaskDetail('project-1', 'task-1').detail).toBeUndefined();
+    expectProjectList().flush({ items: [] });
+    expect(facade.getTaskDetail('project-1', 'task-1').status).toBe('empty');
+    expect(facade.getTaskDetail('project-1', 'task-1').task).toBeUndefined();
+  });
+
   it('drops an obsolete project response after authorization changes and reloads the active task only after reauthorization', () => {
     const firstProjects = expectProjectList();
     (facade as unknown as { handleRealtimeEvent(event: unknown): void }).handleRealtimeEvent(realtimeEvent('Security.AuthorizationStateChanged.v1'));

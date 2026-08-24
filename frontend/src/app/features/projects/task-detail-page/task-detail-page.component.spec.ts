@@ -1,4 +1,4 @@
-import { signal } from '@angular/core';
+import { signal, WritableSignal } from '@angular/core';
 import { ComponentFixture, TestBed } from '@angular/core/testing';
 import { ActivatedRoute, convertToParamMap } from '@angular/router';
 import { BehaviorSubject } from 'rxjs';
@@ -12,19 +12,20 @@ describe('TaskDetailPageComponent local edit state', () => {
   let fixture: ComponentFixture<TaskDetailPageComponent>;
   let component: TaskDetailPageComponent;
   let params: BehaviorSubject<ReturnType<typeof convertToParamMap>>;
+  let sections: WritableSignal<Record<string, { status: string; message?: string }>>;
   const setDetailEditing = vi.fn();
   const reloadTaskAfterConflict = vi.fn();
 
   beforeEach(async () => {
     params = new BehaviorSubject(convertToParamMap({ projectId: 'project-a', taskId: 'task-a' }));
-    const sections = { detail: { status: 'idle' }, subtasks: { status: 'idle' }, checklist: { status: 'idle' }, comments: { status: 'idle' }, labels: { status: 'idle' }, watch: { status: 'idle' }, files: { status: 'idle' } } as const;
+    sections = signal({ detail: { status: 'idle' }, activity: { status: 'idle' }, subtasks: { status: 'idle' }, checklist: { status: 'idle' }, comments: { status: 'idle' }, labels: { status: 'idle' }, watch: { status: 'idle' }, files: { status: 'idle' } });
     await TestBed.configureTestingModule({
       imports: [TaskDetailPageComponent],
       providers: [
         { provide: ActivatedRoute, useValue: { paramMap: params.asObservable() } },
         { provide: ProjectsFacade, useValue: {
-          getTaskDetail: () => ({ status: 'empty', detailState: 'ready', detailSectionState: sections.detail, dependencies: [], capabilities: [], transitionNote: { owner: 'backendAuthoritativeDuringApiWiring', message: '' } }),
-          getTaskMutationState: () => ({ status: 'idle' }), getTaskConflictReloadState: () => 'idle', getDetailSectionState: (section: keyof typeof sections) => sections[section],
+          getTaskDetail: () => ({ status: 'empty', detailState: 'ready', detailSectionState: sections()['detail'], dependencies: [], capabilities: [], transitionNote: { owner: 'backendAuthoritativeDuringApiWiring', message: '' } }),
+          getTaskMutationState: () => ({ status: 'idle' }), getTaskConflictReloadState: () => 'idle', getDetailSectionState: (section: string) => sections()[section],
           setDetailEditing, ensureTaskDetail: vi.fn(), releaseTaskDetail: vi.fn(), clearTaskMutationState: vi.fn(), reloadTaskAfterConflict
         } },
         { provide: FilesFacade, useValue: { pickerStateForTask: signal({ status: 'idle', workspaceId: null, files: [], page: 1, pageSize: 20, totalCount: 0, hasMore: false }), clearPickerFiles: vi.fn(), cancelAttachmentDownloads: vi.fn(), loadPickerFilesForWorkspace: vi.fn(), loadMorePickerFiles: vi.fn(), retryPickerFiles: vi.fn() } }
@@ -78,6 +79,27 @@ describe('TaskDetailPageComponent local edit state', () => {
   it('delegates an explicit conflict reload without changing ordinary cancel behavior', () => {
     component.reloadTaskAfterConflict();
     expect(reloadTaskAfterConflict).toHaveBeenCalledWith('task-a');
+  });
+
+  it('maps canonical Stage categories to phase states without inventing Failed', () => {
+    expect(component.phaseStateLabel('todo', 'notStarted', false)).toBe('Waiting');
+    expect(component.phaseStateLabel('inProgress', 'inProgress', false)).toBe('Running');
+    expect(component.phaseStateLabel('review', 'review', false)).toBe('Needs review');
+    expect(component.phaseStateLabel('done', 'done', false)).toBe('Completed');
+    expect(component.phaseStateLabel('cancelled', 'cancelled', false)).toBe('Cancelled');
+    expect(component.phaseStateLabel('inProgress', 'inProgress', true)).toBe('Blocked');
+    expect(component.activityTypeLabel('issue')).toBe('Needs attention');
+    expect(component.activityTypeLabel('statusUpdate')).toBe('Status update');
+  });
+
+  it('shows the Activity empty message only after a successful confirmed-empty response', () => {
+    for (const status of ['idle', 'loading', 'error', 'permissionDenied', 'conflict']) {
+      sections.update(current => ({ ...current, activity: { status, message: 'Activity unavailable.' } }));
+      expect(component.activityHasConfirmedEmptyState()).toBe(false);
+    }
+
+    sections.update(current => ({ ...current, activity: { status: 'empty' } }));
+    expect(component.activityHasConfirmedEmptyState()).toBe(true);
   });
 
   it('notifies the facade that editing ended on destroy', () => {
