@@ -1,5 +1,7 @@
 using AipPortal.Application.Common.Interfaces;
+using AipPortal.Application.Tenancy;
 using AipPortal.Application.Workspaces;
+using AipPortal.Domain.Entities;
 using AipPortal.Domain.Enums;
 using Microsoft.EntityFrameworkCore;
 
@@ -26,6 +28,7 @@ public sealed class WorkspaceDashboardQuery(
                 "The Workspace dashboard projection requires the PostgreSQL authorization query provider.");
         }
 
+        var now = clock.UtcNow;
         var activeSystemAdminIds = dbContext.Users
             .AsNoTracking()
             .Where(user =>
@@ -62,7 +65,29 @@ public sealed class WorkspaceDashboardQuery(
                         member.Status == MembershipStatus.Active)
                     .Select(member => (WorkspaceRole?)member.Role)
                     .FirstOrDefault(),
-                activeSystemAdminIds.Contains(userId)))
+                activeSystemAdminIds.Contains(userId),
+                dbContext.TenantUsers.Any(tenantUser =>
+                    tenantUser.TenantId == workspace.TenantId &&
+                    tenantUser.UserId == userId &&
+                    tenantUser.Status == TenantUserStatus.Active &&
+                    dbContext.Users.Any(user =>
+                        user.Id == userId &&
+                        user.Status == UserStatus.Active &&
+                        user.DeletedAt == null) &&
+                    dbContext.Tenants.Any(tenant =>
+                        tenant.Id == workspace.TenantId &&
+                        tenant.Status == TenantStatus.Active &&
+                        tenant.DeletedAt == null)),
+                dbContext.Set<CapabilityGrant>().Any(grant =>
+                    grant.TenantId == workspace.TenantId &&
+                    grant.SubjectUserId == userId &&
+                    grant.CapabilityKey == CapabilityKeys.ProjectCreate &&
+                    ((grant.ScopeType == CapabilityScopeType.Workspace && grant.ScopeId == workspace.Id) ||
+                     (grant.ScopeType == CapabilityScopeType.Tenant && grant.ScopeId == workspace.TenantId)) &&
+                    grant.VersionNo > 0 &&
+                    grant.GrantedAt <= now &&
+                    grant.RevokedAt == null &&
+                    (!grant.ExpiresAt.HasValue || grant.ExpiresAt > now))))
             .ToListAsync(cancellationToken);
 
         if (rows.Count == 0)
@@ -144,13 +169,26 @@ public sealed class WorkspaceDashboardQuery(
         int runningProjectCount,
         int needsReviewProjectCount)
     {
-        // The current member-list destination uses the same CanViewWorkspace
-        // boundary as the card. The current Project surface is also valid for
-        // every authorized active Workspace and independently filters its
-        // returned Projects through VisibleProjectsFor. These navigation flags
-        // grant no mutation or child-resource read authority.
+        // Navigation is read-only. Quick-create mutation affordances are projected
+        // separately and must match the ungrouped production create boundary used
+        // by this Quick Create flow rather than a broader read/group authority.
         var hasCurrentWorkspaceReadAccess =
             row.CurrentUserRole.HasValue || row.HasSystemAdminAccess;
+        var hasActiveWorkspaceMembership =
+            row.HasActiveTenantMembership && row.CurrentUserRole.HasValue;
+        var hasWorkspaceGovernanceAuthority =
+            row.CurrentUserRole is WorkspaceRole.Owner or WorkspaceRole.Admin;
+        var canCreateProject =
+            hasActiveWorkspaceMembership &&
+            (hasWorkspaceGovernanceAuthority || row.HasDelegatedProjectCreate);
+        var canAddFiles =
+            row.HasSystemAdminAccess ||
+            (row.HasActiveTenantMembership &&
+             row.CurrentUserRole is WorkspaceRole.Owner or
+                 WorkspaceRole.Admin or
+                 WorkspaceRole.Adviser or
+                 WorkspaceRole.Member);
+
         return new WorkspaceDashboardListItemResponse(
             row.Id,
             row.Name,
@@ -166,6 +204,8 @@ public sealed class WorkspaceDashboardQuery(
             hasCurrentWorkspaceReadAccess,
             hasCurrentWorkspaceReadAccess,
             hasCurrentWorkspaceReadAccess,
+            canCreateProject,
+            canAddFiles,
             unreadAnnouncementCount,
             unreadConversationCount,
             runningProjectCount + needsReviewProjectCount,
@@ -182,7 +222,9 @@ public sealed class WorkspaceDashboardQuery(
         DateTimeOffset CreatedAt,
         DateTimeOffset? UpdatedAt,
         WorkspaceRole? CurrentUserRole,
-        bool HasSystemAdminAccess);
+        bool HasSystemAdminAccess,
+        bool HasActiveTenantMembership,
+        bool HasDelegatedProjectCreate);
 
     private sealed record WorkspaceCount(Guid WorkspaceId, int Count);
 

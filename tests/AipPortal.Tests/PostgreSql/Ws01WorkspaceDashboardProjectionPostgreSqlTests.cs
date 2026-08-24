@@ -102,6 +102,12 @@ public sealed class Ws01WorkspaceDashboardProjectionPostgreSqlTests
                     item.RunningProjectCount + item.NeedsReviewProjectCount,
                     item.InProgressProjectCount);
             });
+            Assert.Equal(
+                new[] { true, true, false, true, false },
+                actorItems.Select(item => item.CanCreateProject));
+            Assert.Equal(
+                new[] { true, true, true, true, false },
+                actorItems.Select(item => item.CanAddFiles));
             Assert.DoesNotContain(actorItems, item => item.Id == graph.ArchivedWorkspace.Id);
             Assert.DoesNotContain(actorItems, item => item.Id == graph.TenantBWorkspace.Id);
 
@@ -191,6 +197,8 @@ public sealed class Ws01WorkspaceDashboardProjectionPostgreSqlTests
             Assert.Equal(1, systemAdminOnlyCard.RunningProjectCount);
             Assert.Equal(1, systemAdminOnlyCard.NeedsReviewProjectCount);
             Assert.Equal(0, systemAdminOnlyCard.UnreadConversationCount);
+            Assert.False(systemAdminOnlyCard.CanCreateProject);
+            Assert.True(systemAdminOnlyCard.CanAddFiles);
 
             var systemAdminMembershipCard = Assert.Single(
                 systemAdminItems,
@@ -199,6 +207,8 @@ public sealed class Ws01WorkspaceDashboardProjectionPostgreSqlTests
             Assert.Equal(
                 WorkspaceDashboardAccessSource.WorkspaceMembership,
                 systemAdminMembershipCard.AccessSource);
+            Assert.False(systemAdminMembershipCard.CanCreateProject);
+            Assert.True(systemAdminMembershipCard.CanAddFiles);
 
             var revokedItems = await dashboard.ListAsync(graph.RevokedUser.Id);
             Assert.Empty(revokedItems);
@@ -349,6 +359,17 @@ public sealed class Ws01WorkspaceDashboardProjectionPostgreSqlTests
             NewWorkspaceMember(tenantA.Id, adminWorkspace.Id, systemAdmin.Id, WorkspaceRole.ReadOnly),
             NewWorkspaceMember(tenantB.Id, tenantBWorkspace.Id, actor.Id, WorkspaceRole.Member),
             NewWorkspaceMember(tenantB.Id, tenantBWorkspace.Id, other.Id, WorkspaceRole.Owner));
+        dbContext.Set<CapabilityGrant>().Add(new CapabilityGrant
+        {
+            TenantId = tenantA.Id,
+            SubjectUserId = actor.Id,
+            CapabilityKey = CapabilityKeys.ProjectCreate,
+            ScopeType = CapabilityScopeType.Workspace,
+            ScopeId = memberWorkspace.Id,
+            GrantedByUserId = actor.Id,
+            GrantedAt = Now.AddHours(-1),
+            VersionNo = 1
+        });
 
         var visibleGroup = NewGroup(tenantA.Id, ownerWorkspace.Id, actor.Id, "Visible Group");
         var hiddenGroup = NewGroup(tenantA.Id, ownerWorkspace.Id, other.Id, "Hidden Group");

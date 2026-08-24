@@ -5,7 +5,12 @@ export type WorkspaceDashboardAccessSource = 'WorkspaceMembership' | 'SystemAdmi
 export type WorkspaceRoleLabel =
   '管理者' | '先生' | 'メンバー' | '閲覧のみ' | 'システム管理者アクセス' | '役割情報なし';
 
-export type WorkspaceActionCapability = 'openWorkspace' | 'openMembers' | 'openProjects';
+export type WorkspaceActionCapability =
+  | 'openWorkspace'
+  | 'openMembers'
+  | 'openProjects'
+  | 'createProject'
+  | 'addFiles';
 
 export type WorkspacePageCapability = 'createWorkspace';
 

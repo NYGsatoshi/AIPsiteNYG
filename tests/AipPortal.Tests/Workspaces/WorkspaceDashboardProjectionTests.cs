@@ -31,6 +31,8 @@ public sealed class WorkspaceDashboardProjectionTests
             true,
             true,
             true,
+            false,
+            true,
             2,
             3,
             4,
@@ -46,6 +48,8 @@ public sealed class WorkspaceDashboardProjectionTests
         var item = Assert.Single(result.Value!);
         Assert.Same(expected, item);
         Assert.Equal(WorkspaceRole.Adviser, item.CurrentUserRole);
+        Assert.False(item.CanCreateProject);
+        Assert.True(item.CanAddFiles);
         Assert.Equal(2, item.UnreadAnnouncementCount);
         Assert.Equal(3, item.UnreadConversationCount);
         Assert.Equal(4, item.InProgressProjectCount);
@@ -101,7 +105,7 @@ public sealed class WorkspaceDashboardProjectionTests
     }
 
     [Fact]
-    public void ContractSerializesCanonicalRoleAndAccessSourceAsStrings()
+    public void ContractSerializesCanonicalRoleAccessSourceAndQuickCreateCapabilities()
     {
         var response = new WorkspaceDashboardListItemResponse(
             Guid.NewGuid(),
@@ -116,6 +120,8 @@ public sealed class WorkspaceDashboardProjectionTests
             true,
             true,
             true,
+            false,
+            false,
             0,
             0,
             0,
@@ -129,6 +135,8 @@ public sealed class WorkspaceDashboardProjectionTests
         var root = json.RootElement;
         Assert.Equal("ReadOnly", root.GetProperty("currentUserRole").GetString());
         Assert.Equal("WorkspaceMembership", root.GetProperty("accessSource").GetString());
+        Assert.False(root.GetProperty("canCreateProject").GetBoolean());
+        Assert.False(root.GetProperty("canAddFiles").GetBoolean());
         Assert.Equal(0, root.GetProperty("unreadAnnouncementCount").GetInt32());
         Assert.Equal(0, root.GetProperty("unreadConversationCount").GetInt32());
         Assert.Equal(0, root.GetProperty("inProgressProjectCount").GetInt32());

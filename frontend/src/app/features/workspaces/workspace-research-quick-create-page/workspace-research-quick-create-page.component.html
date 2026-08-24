@@ -1,0 +1,88 @@
+<section class="research-start" data-testid="workspace-research-quick-create-page">
+  <header class="research-start__header">
+    <a routerLink="/workspaces" class="research-start__back">← Workspaceへ戻る</a>
+    <p class="research-start__eyebrow">{{ workspace()?.displayName ?? 'Workspace' }}</p>
+    <h1>新しいリサーチ</h1>
+    <p>
+      リサーチはWorkspace内のProjectとして作成されます。名前だけで下書きを作成し、公開範囲はWorkspaceメンバー限定、Groupと日付は未設定で開始します。
+    </p>
+  </header>
+
+  @if (!workspace()) {
+    <section
+      class="research-start__notice"
+      role="alert"
+      data-testid="quick-create-workspace-unavailable"
+    >
+      <strong>Workspaceを確認できません。</strong>
+      <span>Workspace一覧へ戻り、現在アクセスできるWorkspaceを選択してください。</span>
+    </section>
+  } @else if (!canCreateResearch()) {
+    <section
+      class="research-start__notice"
+      role="alert"
+      data-testid="quick-create-permission-denied"
+    >
+      <strong>このWorkspaceでは新しいリサーチを作成できません。</strong>
+      <span>作成権限が付与されたWorkspaceから開始してください。</span>
+    </section>
+  } @else {
+    <form class="research-start__form" novalidate (submit)="$event.preventDefault(); submit()">
+      <label for="research-title">
+        <span>リサーチ名</span>
+        <input
+          #titleInput
+          id="research-title"
+          name="researchTitle"
+          type="text"
+          autocomplete="off"
+          maxlength="200"
+          required
+          [value]="title()"
+          [disabled]="busy() || createdProjectId() !== null"
+          [attr.aria-invalid]="titleError() ? 'true' : null"
+          [attr.aria-describedby]="titleError() ? 'research-title-error' : null"
+          (input)="updateTitle($any($event.target).value)"
+          data-testid="quick-create-research-title"
+        />
+      </label>
+
+      @if (titleError()) {
+        <p
+          id="research-title-error"
+          class="research-start__error"
+          role="alert"
+          data-testid="quick-create-title-error"
+        >
+          {{ titleError() }}
+        </p>
+      }
+
+      @if (createdProjectId() && navigating()) {
+        <p class="research-start__status" role="status">作成したリサーチを開いています…</p>
+      }
+
+      @if (errorMessage()) {
+        <p
+          id="research-create-error"
+          class="research-start__error"
+          role="alert"
+          data-testid="quick-create-error"
+        >
+          {{ errorMessage() }}
+        </p>
+      }
+
+      <div class="research-start__actions">
+        <a routerLink="/workspaces" class="research-start__cancel">キャンセル</a>
+        <button type="submit" [disabled]="busy()" data-testid="quick-create-submit">
+          @if (createdProjectId()) {
+            {{ navigating() ? '開いています…' : '作成済みのリサーチを開く' }}
+          } @else {
+            {{ submitting() ? '作成中…' : 'リサーチを作成' }}
+          }
+        </button>
+      </div>
+    </form>
+  }
+</section>

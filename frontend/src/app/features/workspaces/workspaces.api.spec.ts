@@ -22,6 +22,8 @@ const dashboardItem = (
   canOpenWorkspace: true,
   canOpenMembers: true,
   canOpenProjects: true,
+  canCreateProject: false,
+  canAddFiles: false,
   unreadAnnouncementCount: 0,
   unreadConversationCount: 0,
   inProgressProjectCount: 0,
@@ -87,7 +89,7 @@ describe('Workspace dashboard API mapper', () => {
   });
 
   it('maps each backend card capability boolean independently', () => {
-    const all = mapWorkspaceDashboardItem(dashboardItem());
+    const allRead = mapWorkspaceDashboardItem(dashboardItem());
     const membersDenied = mapWorkspaceDashboardItem(dashboardItem({ canOpenMembers: false }));
     const projectsOnly = mapWorkspaceDashboardItem(
       dashboardItem({
@@ -96,10 +98,33 @@ describe('Workspace dashboard API mapper', () => {
         canOpenProjects: true,
       }),
     );
+    const quickCreate = mapWorkspaceDashboardItem(
+      dashboardItem({
+        canCreateProject: true,
+        canAddFiles: true,
+      }),
+    );
 
-    expect(all.capabilities).toEqual(['openWorkspace', 'openMembers', 'openProjects']);
+    expect(allRead.capabilities).toEqual(['openWorkspace', 'openMembers', 'openProjects']);
     expect(membersDenied.capabilities).toEqual(['openWorkspace', 'openProjects']);
     expect(projectsOnly.capabilities).toEqual(['openProjects']);
+    expect(quickCreate.capabilities).toEqual([
+      'openWorkspace',
+      'openMembers',
+      'openProjects',
+      'createProject',
+      'addFiles',
+    ]);
+  });
+
+  it('fails Quick Create mutation affordances closed when capability fields are absent', () => {
+    const card = mapWorkspaceDashboardItem(
+      dashboardItem({ canCreateProject: undefined, canAddFiles: undefined }),
+    );
+
+    expect(card.capabilities).toEqual(['openWorkspace', 'openMembers', 'openProjects']);
+    expect(card.capabilities).not.toContain('createProject');
+    expect(card.capabilities).not.toContain('addFiles');
   });
 
   it('keeps unavailable values distinct instead of fabricating numeric zero or Member', () => {
