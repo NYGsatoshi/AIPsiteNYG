@@ -78,6 +78,28 @@ export const routes: Routes = [
           import('./features/messaging/dm-page/dm-page.component').then((m) => m.DmPageComponent)
       },
       {
+        path: 'workspaces/:workspaceId/research/new',
+        canActivate: [workspaceContextGuard],
+        loadComponent: () =>
+          import(
+            './features/workspaces/workspace-research-quick-create-page/workspace-research-quick-create-page.component'
+          ).then((m) => m.WorkspaceResearchQuickCreatePageComponent)
+      },
+      {
+        path: 'workspaces/:workspaceId/projects',
+        canActivate: [workspaceContextGuard],
+        loadComponent: () =>
+          import('./features/projects/projects-overview-page/projects-overview-page.component').then(
+            (m) => m.ProjectsOverviewPageComponent
+          )
+      },
+      {
+        path: 'workspaces/:workspaceId/files',
+        canActivate: [workspaceContextGuard],
+        loadComponent: () =>
+          import('./features/files/files-page/files-page.component').then((m) => m.FilesPageComponent)
+      },
+      {
         path: 'workspaces/:workspaceId/members',
         canActivate: [workspaceContextGuard],
         loadComponent: () =>

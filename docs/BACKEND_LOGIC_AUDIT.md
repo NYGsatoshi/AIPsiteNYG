@@ -75,8 +75,9 @@ The audit did not modify authentication logic, database schema, application UI, 
 ### BE-002: Project-derived Search authorization parity
 
 - Priority: critical.
-- Status: resolved by the current PR #281 candidate under the current Project read policy; canonical
-  Project Visibility persistence remains a separate WPC decision.
+- Status: resolved under the current canonical Project read policy. WPC-02A
+  persists and enforces canonical Project Visibility; legacy `NULL` remains an
+  explicit compatibility state rather than an inferred classification.
 - Affected pages: Search, Projects, Tasks, Artifacts, and project activity/comment results.
 - Exact files and methods:
   - Historical implementation:

@@ -2,6 +2,7 @@ using AipPortal.Domain.Entities;
 using AipPortal.Domain.Enums;
 using AipPortal.Application.Common.Interfaces;
 using AipPortal.Application.Common.Tenancy;
+using AipPortal.Application.Tenancy;
 using Microsoft.EntityFrameworkCore;
 using System.Text;
 
@@ -266,6 +267,39 @@ public static class AppDbContextSeed
             {
                 tenantUser.JoinedAt = now;
             }
+        }
+
+        var workspaceCreateGrant = await dbContext.Set<CapabilityGrant>().FirstOrDefaultAsync(
+            candidate =>
+                candidate.TenantId == tenantId &&
+                candidate.SubjectUserId == user.Id &&
+                candidate.CapabilityKey == CapabilityKeys.WorkspaceCreate &&
+                candidate.ScopeType == CapabilityScopeType.Tenant &&
+                candidate.ScopeId == tenantId,
+            cancellationToken);
+        if (workspaceCreateGrant is null)
+        {
+            await dbContext.Set<CapabilityGrant>().AddAsync(new CapabilityGrant
+            {
+                TenantId = tenantId,
+                SubjectUserId = user.Id,
+                CapabilityKey = CapabilityKeys.WorkspaceCreate,
+                ScopeType = CapabilityScopeType.Tenant,
+                ScopeId = tenantId,
+                GrantedByUserId = user.Id,
+                GrantedAt = now,
+                VersionNo = 1
+            }, cancellationToken);
+        }
+        else if (workspaceCreateGrant.RevokedAt.HasValue ||
+                 workspaceCreateGrant.ExpiresAt.HasValue ||
+                 workspaceCreateGrant.GrantedAt > now)
+        {
+            workspaceCreateGrant.GrantedByUserId = user.Id;
+            workspaceCreateGrant.GrantedAt = now;
+            workspaceCreateGrant.ExpiresAt = null;
+            workspaceCreateGrant.RevokedAt = null;
+            workspaceCreateGrant.VersionNo++;
         }
 
         var recipientTenantUser = await dbContext.TenantUsers
