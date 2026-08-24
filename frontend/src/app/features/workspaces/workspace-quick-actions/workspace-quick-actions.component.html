@@ -1,5 +1,5 @@
 <div class="workspace-actions" [attr.data-workspace-id]="workspaceId">
-  @if (hasCapability('createProject') || hasCapability('addFiles')) {
+  @if (hasCapability('createProject') || hasCapability('openProjectCreate') || hasCapability('addFiles')) {
     <div class="workspace-actions__create" role="group" aria-label="作成">
       @if (hasCapability('createProject')) {
         <a
@@ -8,6 +8,17 @@
           data-testid="start-research-action"
         >
           新しいリサーチ
+        </a>
+      }
+
+      @if (hasCapability('openProjectCreate')) {
+        <a
+          class="workspace-actions__secondary"
+          [routerLink]="['/workspaces', workspaceId, 'projects']"
+          [queryParams]="{ create: '1' }"
+          data-testid="open-project-create-action"
+        >
+          Set up Project
         </a>
       }
 

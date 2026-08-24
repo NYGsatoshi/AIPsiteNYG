@@ -6,6 +6,8 @@ export const PROJECTS_MAXIMUM_PAGE_SIZE = 100;
 
 export type ProjectsPageStatus = 'ready' | 'loading' | 'empty' | 'permissionDenied' | 'error';
 export type ProjectStatus = 'planning' | 'active' | 'review' | 'atRisk' | 'complete' | 'suspended' | 'archived';
+export type ProjectVisibility = 'workspaceVisible' | 'membersOnly' | 'restricted' | 'unknown';
+export type ProjectActivationState = 'legacyUnknown' | 'neverActivated' | 'activated';
 export type TaskStatus = 'notStarted' | 'inProgress' | 'blocked' | 'review' | 'done' | 'cancelled';
 export type TaskStageCategory = 'backlog' | 'todo' | 'inProgress' | 'review' | 'done' | 'cancelled';
 export type TaskPriority = 'low' | 'medium' | 'high' | 'urgent';
@@ -58,15 +60,25 @@ export interface TaskDependencyViewModel {
 
 export interface ProjectMockRecord {
   readonly id: string;
+  readonly workspaceId?: string | null;
+  readonly groupId?: string | null;
+  readonly ownerUserId?: string | null;
   readonly name: string;
+  readonly description?: string;
   readonly status: ProjectStatus;
   readonly statusLabel: string;
+  readonly visibility?: ProjectVisibility;
+  readonly visibilityLabel?: string;
+  readonly activationState?: ProjectActivationState;
+  readonly versionNo?: number;
+  readonly isOperational?: boolean;
   readonly startDate: string;
   readonly dueDate: string;
   readonly updatedAt: string;
   readonly group: string;
   readonly authorized: boolean;
   readonly canCreateTask: boolean;
+  readonly canActivate?: boolean;
 }
 
 export interface TaskMockRecord {
@@ -100,9 +112,18 @@ export interface TaskMockRecord {
 
 export interface ProjectSummaryViewModel {
   readonly id: string;
+  readonly workspaceId?: string | null;
+  readonly groupId?: string | null;
+  readonly ownerUserId?: string | null;
   readonly name: string;
+  readonly description?: string;
   readonly status: ProjectStatus;
   readonly statusLabel: string;
+  readonly visibility?: ProjectVisibility;
+  readonly visibilityLabel?: string;
+  readonly activationState?: ProjectActivationState;
+  readonly versionNo?: number;
+  readonly isOperational?: boolean;
   readonly startDate: string;
   readonly dueDate: string;
   readonly updatedAt?: string;
@@ -113,6 +134,7 @@ export interface ProjectSummaryViewModel {
       readonly blocked: number;
   };
   readonly canCreateTask: boolean;
+  readonly canActivate?: boolean;
 }
 
 export interface TaskRowAction {

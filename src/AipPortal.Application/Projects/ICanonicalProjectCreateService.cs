@@ -6,6 +6,10 @@ namespace AipPortal.Application.Projects;
 
 public interface ICanonicalProjectCreateService
 {
+    Task<Result<ProjectCreateOptionsResponse>> GetCreateOptionsAsync(
+        Guid workspaceId,
+        CancellationToken cancellationToken = default);
+
     Task<Result<CanonicalProjectCreateResponse>> CreateAsync(
         Guid workspaceId,
         CanonicalCreateProjectRequest request,
@@ -36,3 +40,11 @@ public sealed record CanonicalProjectCreateResponse(
     DateOnly? EndDate,
     long VersionNo,
     DateTimeOffset CreatedAt);
+
+public sealed record ProjectCreateOptionsResponse(
+    Guid WorkspaceId,
+    bool CanCreateUngrouped,
+    IReadOnlyList<ProjectVisibility> AllowedVisibilities,
+    IReadOnlyList<ProjectCreateGroupOptionResponse> Groups);
+
+public sealed record ProjectCreateGroupOptionResponse(Guid Id, string Name);

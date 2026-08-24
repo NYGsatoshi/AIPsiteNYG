@@ -9,6 +9,7 @@ export type WorkspaceActionCapability =
   | 'openWorkspace'
   | 'openMembers'
   | 'openProjects'
+  | 'openProjectCreate'
   | 'createProject'
   | 'addFiles';
 

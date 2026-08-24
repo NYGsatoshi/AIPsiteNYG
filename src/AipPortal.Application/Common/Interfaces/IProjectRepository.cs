@@ -7,6 +7,18 @@ namespace AipPortal.Application.Common.Interfaces;
 public interface IProjectRepository
 {
     Task<IReadOnlyList<Project>> ListVisibleAsync(Guid userId, CancellationToken cancellationToken = default);
+    async Task<IReadOnlyList<Project>> ListVisibleInWorkspaceAsync(
+        Guid userId,
+        Guid workspaceId,
+        CancellationToken cancellationToken = default) =>
+        (await ListVisibleAsync(userId, cancellationToken))
+            .Where(project => project.WorkspaceId == workspaceId)
+            .ToArray();
+    Task<IReadOnlyList<Guid>> ListActivatableProjectIdsAsync(
+        Guid userId,
+        IReadOnlyCollection<Guid> projectIds,
+        CancellationToken cancellationToken = default) =>
+        Task.FromResult<IReadOnlyList<Guid>>([]);
     Task<Project?> GetProjectAsync(Guid projectId, CancellationToken cancellationToken = default);
     Task<ProjectMember?> GetMemberAsync(Guid projectId, Guid userId, CancellationToken cancellationToken = default);
     Task<IReadOnlyList<ProjectMember>> ListMembersAsync(Guid projectId, CancellationToken cancellationToken = default);

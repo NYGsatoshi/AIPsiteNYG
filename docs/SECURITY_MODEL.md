@@ -197,6 +197,26 @@ rows are read-only through generic update. The ordinary Project archive path
 cannot produce a second success side effect; an otherwise-authorized explicit
 Project manager receives the same typed conflict on repetition.
 
+Issue #409 adds presentation projections without moving authority into the
+browser. `GET /api/workspaces/{workspaceId}/projects/create-options` returns
+the exact current Workspace-root create bit, allowed Visibility values, and
+only active Groups where the actor can create. The Workspace dashboard's
+separate `canOpenProjectCreate` bit may expose the full dialog for a
+Group-manager-only actor; the existing `canCreateProject` bit retains its
+ungrouped Quick Create meaning. A false/empty options response is an
+authoritative denial, not malformed data. Every POST re-runs the canonical
+Tenant, Workspace, Group, grant, and Visibility checks.
+
+Project list and detail responses expose `canActivate` only for a canonical
+Planning, `NeverActivated` Project that the current actor can manage inside an
+active Workspace. It is an affordance only: activation independently checks
+the current positive version and all resource authority. The client does not
+load Task, Kanban, Gantt, workload, or membership projections for that Draft.
+It accepts a command result only through the strict WPC envelope and then
+refetches authoritative Project state before enabling operational views. A
+committed create or activation is recorded before any authorization
+invalidation or follow-up read; recovery never repeats the committed mutation.
+
 Project detail, every Project-derived Search category, and the non-Archived
 Project list scope use equivalent current read predicates. Non-deleted Archived history is
 list-only for an active Workspace member who is also an explicit Project

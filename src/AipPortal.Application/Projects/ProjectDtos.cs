@@ -3,7 +3,13 @@ using AipPortal.Domain.Enums;
 
 namespace AipPortal.Application.Projects;
 
-public sealed record ProjectListQuery(bool Archived = false, string? Search = null, ProjectStatus? Status = null, int Page = 1, int PageSize = 50)
+public sealed record ProjectListQuery(
+    bool Archived = false,
+    string? Search = null,
+    ProjectStatus? Status = null,
+    int Page = 1,
+    int PageSize = 50,
+    Guid? WorkspaceId = null)
 {
     public int SafePage => Page < 1 ? 1 : Page;
     public int SafePageSize => PageSize < 1 ? 50 : Math.Min(PageSize, 100);
@@ -29,7 +35,7 @@ public sealed record ProjectResponse(
     int? ActivationVersion = null,
     ProjectStatus? SuspendedFromStatus = null,
     ProjectStatus? ArchivedFromStatus = null);
-public sealed record ProjectUiPermissionResponse(bool CanCreateTask);
+public sealed record ProjectUiPermissionResponse(bool CanCreateTask, bool CanActivate = false);
 public sealed record CreateProjectRequest(Guid WorkspaceId, Guid GroupId, string Title, string? Description, DateOnly? StartDate, DateOnly? EndDate);
 public sealed record UpdateProjectRequest(string? Title, string? Description, ProjectStatus? Status, DateOnly? StartDate, DateOnly? EndDate);
 public sealed record ProjectMemberResponse(Guid UserId, string DisplayName, string Email, ProjectRole Role, DateTimeOffset JoinedAt);

@@ -29,6 +29,68 @@ public sealed class CanonicalProjectCreateService(
     ICreateIdempotencyCoordinator createIdempotency) : ICanonicalProjectCreateService
 {
     private const string ProjectCreateOperation = "Project.Create.v1";
+    private static readonly IReadOnlyList<ProjectVisibility> DefaultAllowedVisibilities =
+        [ProjectVisibility.MembersOnly];
+    private static readonly IReadOnlyList<ProjectVisibility> AllAllowedVisibilities =
+        [ProjectVisibility.WorkspaceVisible, ProjectVisibility.MembersOnly, ProjectVisibility.Restricted];
+
+    public async Task<Result<ProjectCreateOptionsResponse>> GetCreateOptionsAsync(
+        Guid workspaceId,
+        CancellationToken cancellationToken = default)
+    {
+        var scope = await ResolveWorkspaceCreateScopeAsync(workspaceId, cancellationToken);
+        if (scope.Error is not null)
+        {
+            return Result<ProjectCreateOptionsResponse>.Failure(scope.Error);
+        }
+
+        var value = scope.Value!;
+        var hasWorkspaceGovernanceAuthority = value.WorkspaceMembership.Role.CanManage();
+        var hasDelegatedCreate = await HasScopedCapabilityAsync(
+            value.UserId,
+            value.TenantId,
+            workspaceId,
+            CapabilityKeys.ProjectCreate,
+            cancellationToken);
+        var canCreateUngrouped = hasWorkspaceGovernanceAuthority || hasDelegatedCreate;
+
+        var candidateGroups = canCreateUngrouped
+            ? await groups.ListByWorkspaceAsync(workspaceId, cancellationToken)
+            : await groups.ListManagedByUserAsync(workspaceId, value.UserId, cancellationToken);
+        var groupOptions = candidateGroups
+            .Where(group =>
+                group.TenantId == value.TenantId &&
+                group.WorkspaceId == workspaceId &&
+                group.Status == GroupStatus.Active &&
+                !group.DeletedAt.HasValue)
+            .OrderBy(group => group.Name, StringComparer.OrdinalIgnoreCase)
+            .ThenBy(group => group.Id)
+            .Select(group => new ProjectCreateGroupOptionResponse(group.Id, group.Name))
+            .ToArray();
+
+        var hasAnyCreateAuthority = canCreateUngrouped || groupOptions.Length > 0;
+        if (!hasAnyCreateAuthority)
+        {
+            return Result<ProjectCreateOptionsResponse>.Success(new ProjectCreateOptionsResponse(
+                workspaceId,
+                false,
+                [],
+                []));
+        }
+
+        var hasVisibilityAuthority = hasWorkspaceGovernanceAuthority ||
+                                     await HasScopedCapabilityAsync(
+                                         value.UserId,
+                                         value.TenantId,
+                                         workspaceId,
+                                         CapabilityKeys.ProjectVisibilityManage,
+                                         cancellationToken);
+        return Result<ProjectCreateOptionsResponse>.Success(new ProjectCreateOptionsResponse(
+            workspaceId,
+            canCreateUngrouped,
+            hasVisibilityAuthority ? AllAllowedVisibilities : DefaultAllowedVisibilities,
+            groupOptions));
+    }
 
     public async Task<Result<CanonicalProjectCreateResponse>> CreateAsync(
         Guid workspaceId,
@@ -36,60 +98,15 @@ public sealed class CanonicalProjectCreateService(
         string? clientRequestIdentity,
         CancellationToken cancellationToken = default)
     {
-        if (!TryCurrentUser(out var userId))
+        var scope = await ResolveWorkspaceCreateScopeAsync(workspaceId, cancellationToken);
+        if (scope.Error is not null)
         {
-            return Failure("AuthenticationRequired", "Authentication is required.");
+            return Result<CanonicalProjectCreateResponse>.Failure(scope.Error);
         }
 
-        if (currentTenant is not { IsAvailable: true, IsPlatformScope: false } || currentTenant.TenantId == Guid.Empty)
-        {
-            return Failure("TenantMembershipRequired", "An active Tenant membership is required.");
-        }
-
-        var tenantId = currentTenant.TenantId;
-        var tenantMembership = await tenants.GetTenantUserAsync(tenantId, userId, cancellationToken);
-        if (tenantMembership is not { Status: TenantUserStatus.Active })
-        {
-            return Failure("TenantMembershipRequired", "An active Tenant membership is required.");
-        }
-
-        var tenant = tenantMembership.Tenant ?? await tenants.GetTenantAsync(tenantId, cancellationToken);
-        var user = tenantMembership.User ?? await tenants.GetUserAsync(userId, cancellationToken);
-        if (tenant is not { Status: TenantStatus.Active, DeletedAt: null } ||
-            user is not { Status: UserStatus.Active, DeletedAt: null })
-        {
-            return Failure("TenantMembershipRequired", "An active Tenant membership is required.");
-        }
-
-        if (workspaceId == Guid.Empty)
-        {
-            return NotFound();
-        }
-
-        var workspace = await workspaces.GetByIdAsync(workspaceId, cancellationToken);
-        if (workspace is null ||
-            workspace.TenantId != tenantId ||
-            workspace.DeletedAt.HasValue ||
-            workspace.Status == WorkspaceStatus.Deleted)
-        {
-            return NotFound();
-        }
-
-        var workspaceMembership = await workspaces.GetMemberAsync(workspaceId, userId, cancellationToken);
-        if (workspaceMembership is not { Status: MembershipStatus.Active } || workspaceMembership.TenantId != tenantId)
-        {
-            // No platform role, including SystemAdmin, substitutes for current
-            // active Workspace membership on this command.
-            return NotFound();
-        }
-
-        if (workspace.Status != WorkspaceStatus.Active)
-        {
-            return Failure(
-                "InvalidStateTransition",
-                "Archived Workspaces are read-only.",
-                "workspace.status");
-        }
+        var userId = scope.Value!.UserId;
+        var tenantId = scope.Value.TenantId;
+        var workspaceMembership = scope.Value.WorkspaceMembership;
 
         var normalizedTitle = request.Title?.Trim();
         if (string.IsNullOrWhiteSpace(normalizedTitle))
@@ -295,6 +312,78 @@ public sealed class CanonicalProjectCreateService(
         };
     }
 
+    private async Task<WorkspaceCreateScopeResolution> ResolveWorkspaceCreateScopeAsync(
+        Guid workspaceId,
+        CancellationToken cancellationToken)
+    {
+        if (!TryCurrentUser(out var userId))
+        {
+            return WorkspaceCreateScopeResolution.Failed(
+                new ApplicationErrorDetail("AuthenticationRequired", "Authentication is required."));
+        }
+
+        if (currentTenant is not { IsAvailable: true, IsPlatformScope: false } ||
+            currentTenant.TenantId == Guid.Empty)
+        {
+            return WorkspaceCreateScopeResolution.Failed(
+                new ApplicationErrorDetail("TenantMembershipRequired", "An active Tenant membership is required."));
+        }
+
+        var tenantId = currentTenant.TenantId;
+        var tenantMembership = await tenants.GetTenantUserAsync(tenantId, userId, cancellationToken);
+        if (tenantMembership is not { Status: TenantUserStatus.Active })
+        {
+            return WorkspaceCreateScopeResolution.Failed(
+                new ApplicationErrorDetail("TenantMembershipRequired", "An active Tenant membership is required."));
+        }
+
+        var tenant = tenantMembership.Tenant ?? await tenants.GetTenantAsync(tenantId, cancellationToken);
+        var user = tenantMembership.User ?? await tenants.GetUserAsync(userId, cancellationToken);
+        if (tenant is not { Status: TenantStatus.Active, DeletedAt: null } ||
+            user is not { Status: UserStatus.Active, DeletedAt: null })
+        {
+            return WorkspaceCreateScopeResolution.Failed(
+                new ApplicationErrorDetail("TenantMembershipRequired", "An active Tenant membership is required."));
+        }
+
+        if (workspaceId == Guid.Empty)
+        {
+            return WorkspaceCreateScopeResolution.Failed(
+                new ApplicationErrorDetail("NotFound", "The requested resource was not found."));
+        }
+
+        var workspace = await workspaces.GetByIdAsync(workspaceId, cancellationToken);
+        if (workspace is null ||
+            workspace.TenantId != tenantId ||
+            workspace.DeletedAt.HasValue ||
+            workspace.Status == WorkspaceStatus.Deleted)
+        {
+            return WorkspaceCreateScopeResolution.Failed(
+                new ApplicationErrorDetail("NotFound", "The requested resource was not found."));
+        }
+
+        var workspaceMembership = await workspaces.GetMemberAsync(workspaceId, userId, cancellationToken);
+        if (workspaceMembership is not { Status: MembershipStatus.Active } ||
+            workspaceMembership.TenantId != tenantId)
+        {
+            // No platform role, including SystemAdmin, substitutes for current
+            // active Workspace membership on Project creation surfaces.
+            return WorkspaceCreateScopeResolution.Failed(
+                new ApplicationErrorDetail("NotFound", "The requested resource was not found."));
+        }
+
+        if (workspace.Status != WorkspaceStatus.Active)
+        {
+            return WorkspaceCreateScopeResolution.Failed(new ApplicationErrorDetail(
+                "InvalidStateTransition",
+                "Archived Workspaces are read-only.",
+                Target: "workspace.status"));
+        }
+
+        return WorkspaceCreateScopeResolution.Succeeded(
+            new WorkspaceCreateScope(userId, tenantId, workspaceMembership));
+    }
+
     private async Task<bool> HasScopedCapabilityAsync(
         Guid userId,
         Guid tenantId,
@@ -402,4 +491,17 @@ public sealed class CanonicalProjectCreateService(
 
     private static Result<CanonicalProjectCreateResponse> Failure(string code, string message, string? target = null) =>
         Result<CanonicalProjectCreateResponse>.Failure(new ApplicationErrorDetail(code, message, Target: target));
+
+    private sealed record WorkspaceCreateScope(
+        Guid UserId,
+        Guid TenantId,
+        WorkspaceMember WorkspaceMembership);
+
+    private sealed record WorkspaceCreateScopeResolution(
+        WorkspaceCreateScope? Value,
+        ApplicationErrorDetail? Error)
+    {
+        public static WorkspaceCreateScopeResolution Succeeded(WorkspaceCreateScope value) => new(value, null);
+        public static WorkspaceCreateScopeResolution Failed(ApplicationErrorDetail error) => new(null, error);
+    }
 }

@@ -1,4 +1,4 @@
-import { HttpClient, HttpErrorResponse } from '@angular/common/http';
+import { HttpClient, HttpErrorResponse, HttpParams } from '@angular/common/http';
 import { effect, inject, Injectable, InjectionToken, signal } from '@angular/core';
 import { Router } from '@angular/router';
 import { forkJoin, Observable, of, Subscription, throwError } from 'rxjs';
@@ -112,7 +112,7 @@ export class ProjectsFacade {
     // The Task route fetches one protected aggregate itself. Starting the broad
     // overview inventory during that route can race a post-revocation safe 404
     // and probe stale project/File resources.
-    if (!this.scenario && !this.router?.url.includes('/tasks/')) {
+    if (!this.scenario && this.activeWorkspace.activeWorkspace()?.id && !this.router?.url.includes('/tasks/')) {
       this.loadProjects();
     }
     effect(() => {
@@ -489,9 +489,15 @@ export class ProjectsFacade {
 
   private loadProjects(afterAuthorized?: () => void): void {
     const generation = this.authorizationGeneration;
+    const workspaceId = this.activeWorkspace.activeWorkspace()?.id ?? null;
     this.projectsRequest?.unsubscribe();
+    this.projectsRequest = null;
+    if (!workspaceId) {
+      this.liveState.set(this.emptyScenario('loading', 'Choose an authorized Workspace to load its Projects.'));
+      return;
+    }
     this.liveState.set(this.emptyScenario('loading'));
-    this.projectsRequest = this.fetchProjectList()
+    this.projectsRequest = this.fetchProjectList(workspaceId)
       .pipe(
         switchMap((projects) => {
           if (projects.length === 0) {
@@ -501,8 +507,15 @@ export class ProjectsFacade {
             } satisfies ProjectsLoadResult);
           }
 
+          const operationalProjects = projects.filter((project) => project.isOperational !== false);
+          if (operationalProjects.length === 0) {
+            return of({ projects, tasks: [] } satisfies ProjectsLoadResult);
+          }
+
           return forkJoin({
-            taskPages: forkJoin(projects.map((project) => this.fetchProjectTasks(project.id, projects)))
+            // A canonical NeverActivated Draft deliberately has no workflow or
+            // Task mutation surface. Do not probe its operational collection.
+            taskPages: forkJoin(operationalProjects.map((project) => this.fetchProjectTasks(project.id, projects)))
           }).pipe(
             map(({ taskPages }) => ({
               projects,
@@ -513,7 +526,8 @@ export class ProjectsFacade {
       )
       .subscribe({
         next: (result) => {
-          if (!this.isAuthorizationCurrent(generation)) return;
+          if (!this.isAuthorizationCurrent(generation) ||
+              this.activeWorkspace.activeWorkspace()?.id !== workspaceId) return;
           if (result.projects.length === 0) {
             this.liveState.set(
               this.emptyScenario('empty', 'No authorized projects were returned by the API.')
@@ -533,7 +547,8 @@ export class ProjectsFacade {
           afterAuthorized?.();
         },
         error: (error: unknown) => {
-          if (!this.isAuthorizationCurrent(generation)) return;
+          if (!this.isAuthorizationCurrent(generation) ||
+              this.activeWorkspace.activeWorkspace()?.id !== workspaceId) return;
           const normalized = normalizeApiError(error);
           this.liveState.set(
             this.emptyScenario(
@@ -598,9 +613,12 @@ export class ProjectsFacade {
     }, 100);
   }
 
-  private fetchProjectList(): Observable<readonly ProjectMockRecord[]> {
+  private fetchProjectList(workspaceId: string): Observable<readonly ProjectMockRecord[]> {
     return this.http
-      .get<PagedResponseDto<ProjectDto>>('/api/projects', { withCredentials: true })
+      .get<PagedResponseDto<ProjectDto>>('/api/projects', {
+        withCredentials: true,
+        params: new HttpParams().set('workspaceId', workspaceId)
+      })
       .pipe(map((response) => (response.items ?? []).map((project) => mapProjectDtoToRecord(project))));
   }
 
@@ -1090,9 +1108,18 @@ export class ProjectsFacade {
 
     return {
       id: project.id,
+      workspaceId: project.workspaceId,
+      groupId: project.groupId,
+      ownerUserId: project.ownerUserId,
       name: project.name,
+      description: project.description,
       status: project.status,
       statusLabel: project.statusLabel,
+      visibility: project.visibility,
+      visibilityLabel: project.visibilityLabel,
+      activationState: project.activationState,
+      versionNo: project.versionNo,
+      isOperational: project.isOperational,
       startDate: project.startDate,
       dueDate: project.dueDate,
       updatedAt: project.updatedAt,
@@ -1102,7 +1129,8 @@ export class ProjectsFacade {
         done: tasks.filter((task) => task.status === 'done').length,
         blocked: tasks.filter((task) => task.status === 'blocked').length
       },
-      canCreateTask: project.canCreateTask
+      canCreateTask: project.canCreateTask,
+      canActivate: project.canActivate
     };
   }
 

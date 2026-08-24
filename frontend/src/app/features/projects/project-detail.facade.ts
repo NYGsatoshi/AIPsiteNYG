@@ -1,6 +1,6 @@
 import { HttpClient, HttpParams } from '@angular/common/http';
 import { inject, Injectable, signal } from '@angular/core';
-import { catchError, forkJoin, map, of, switchMap } from 'rxjs';
+import { catchError, EMPTY, finalize, forkJoin, map, of, switchMap } from 'rxjs';
 
 import { normalizeApiError } from '../../core/api/api-error.adapter';
 import { FrontendApiError } from '../../core/api/api-error.model';
@@ -36,6 +36,7 @@ import {
   MoveTaskOnKanbanRequestDto,
   AddTaskDependencyRequestDto,
   PagedResponseDto,
+  ProjectActivationResponseError,
   ProjectDto,
   ProjectGanttCommandResponseDto,
   ProjectGanttSnapshotDto,
@@ -46,7 +47,8 @@ import {
   TaskDependencyCommandResponseDto,
   UpdateTaskProgressRequestDto,
   UpdateTaskScheduleRequestDto,
-  UpdateProjectKanbanConfigRequestDto
+  UpdateProjectKanbanConfigRequestDto,
+  mapProjectActivationSuccess
 } from './projects.api';
 import { mapProjectDtoToRecord, mapTaskDtoToRecord } from './projects.mapper';
 import { ProjectSummaryViewModel, ProjectsPageStatus, TaskGridRow, TaskMockRecord } from './projects.types';
@@ -89,7 +91,24 @@ export interface ProjectDetailViewModel {
   readonly schedule: ProjectScheduleViewModel;
   readonly workload: readonly ProjectWorkloadViewModel[];
   readonly members: readonly ProjectMemberViewModel[];
+  readonly activation: ProjectActivationViewModel;
   readonly message?: string;
+}
+
+export type ProjectActivationStatus =
+  | 'idle'
+  | 'submitting'
+  | 'reconciling'
+  | 'success'
+  | 'failure'
+  | 'conflict'
+  | 'uncertain'
+  | 'permissionDenied';
+
+export interface ProjectActivationViewModel {
+  readonly status: ProjectActivationStatus;
+  readonly message: string | null;
+  readonly requestId?: string;
 }
 
 type KanbanLoadOutcome =
@@ -114,8 +133,10 @@ export class ProjectDetailFacade {
   private readonly flags = inject(FrontendFeatureFlagsService);
   private readonly state = signal<ProjectDetailViewModel>(this.loading());
   private projectId: string | null = null;
+  private projectOperational = false;
   private realtimeCleanups: (() => void)[] = [];
   private refreshPending = false;
+  private draftProjectRefreshInFlight = false;
   private interactionActive = false;
   private moveInFlight = false;
   private scheduleInteractionActive = false;
@@ -125,6 +146,8 @@ export class ProjectDetailFacade {
   private kanbanRequestGeneration = 0;
   private scheduleRequestGeneration = 0;
   private authorizationGeneration = 0;
+  private activationGeneration = 0;
+  private activationInFlight = false;
   private scheduleRefreshPending = false;
   private scheduleRefreshInFlight = false;
   private scheduleRefreshAfterFlight = false;
@@ -168,6 +191,8 @@ export class ProjectDetailFacade {
 
   load(projectId: string): void {
     const loadGeneration = ++this.loadGeneration;
+    this.activationGeneration++;
+    this.activationInFlight = false;
     this.scheduleCommandGeneration++;
     this.scheduleCommandInFlight = false;
     const authorizationGeneration = this.authorizationGeneration;
@@ -175,6 +200,11 @@ export class ProjectDetailFacade {
     const initialScheduleRequestGeneration = ++this.scheduleRequestGeneration;
     const initialTaskListRequestGeneration = ++this.taskListRequestGeneration;
     this.projectId = projectId;
+    this.projectOperational = false;
+    this.draftProjectRefreshInFlight = false;
+    this.moveInFlight = false;
+    this.interactionActive = false;
+    this.scheduleInteractionActive = false;
     this.scheduleRefreshInFlight = false;
     this.scheduleRefreshAfterFlight = false;
     this.scheduleRefreshAfterFlightFeedback = undefined;
@@ -185,15 +215,28 @@ export class ProjectDetailFacade {
     this.registerRealtime(projectId);
     this.state.set(this.loading());
     this.http.get<ProjectDto>(`/api/projects/${projectId}`, { withCredentials: true }).pipe(
-      switchMap((project) => forkJoin({
-        project: of(project),
-        tasks: this.http.get<PagedResponseDto<TaskDto>>(`/api/projects/${projectId}/tasks`, { withCredentials: true }),
-        kanban: this.initialKanbanRequest(projectId),
-        gantt: this.initialScheduleRequest(projectId),
-        workload: this.http.get<unknown>(`/api/projects/${projectId}/workload`, { withCredentials: true }),
-        members: this.http.get<unknown>(`/api/projects/${projectId}/members`, { withCredentials: true })
-      })),
-      map((response) => this.ready(response.project, response.tasks.items ?? [], response.kanban, response.gantt, response.workload, response.members)),
+      switchMap((project) => {
+        if (!this.projectRequestIsCurrent(projectId, loadGeneration, authorizationGeneration))
+          return EMPTY;
+        const record = mapProjectDtoToRecord(project);
+        this.projectOperational = record.isOperational === true;
+        if (!record.isOperational)
+          return of(this.draftReady(project));
+        return forkJoin({
+          tasks: this.http.get<PagedResponseDto<TaskDto>>(`/api/projects/${projectId}/tasks`, { withCredentials: true }),
+          kanban: this.initialKanbanRequest(projectId),
+          gantt: this.initialScheduleRequest(projectId),
+          workload: this.http.get<unknown>(`/api/projects/${projectId}/workload`, { withCredentials: true }),
+          members: this.http.get<unknown>(`/api/projects/${projectId}/members`, { withCredentials: true })
+        }).pipe(map((response) => this.ready(
+          project,
+          response.tasks.items ?? [],
+          response.kanban,
+          response.gantt,
+          response.workload,
+          response.members
+        )));
+      }),
       catchError((error: unknown) => of(this.failure(error)))
     ).subscribe((view) => {
       if (this.projectId === projectId &&
@@ -231,6 +274,100 @@ export class ProjectDetailFacade {
   retryKanban(): void { this.refreshKanban(true); }
   retryTaskList(): void { this.queueTaskListRefresh(); }
   retrySchedule(): void { this.refreshSchedule(true, 'Schedule refreshed from authoritative HTTP state.'); }
+
+  activate(): void {
+    const current = this.state();
+    const project = current.project;
+    if (
+      !project ||
+      this.projectId !== project.id ||
+      project.canActivate !== true ||
+      !Number.isSafeInteger(project.versionNo) ||
+      (project.versionNo ?? 0) <= 0 ||
+      this.activationInFlight ||
+      !['idle', 'failure', 'conflict'].includes(current.activation.status)
+    ) return;
+
+    const projectId = project.id;
+    const expectedVersion = project.versionNo!;
+    const generation = ++this.activationGeneration;
+    const loadGeneration = this.loadGeneration;
+    const authorizationGeneration = this.authorizationGeneration;
+    this.activationInFlight = true;
+    this.state.set({
+      ...current,
+      activation: {
+        status: 'submitting',
+        message: 'Activating Project…'
+      }
+    });
+
+    this.http.post<unknown>(
+      `/api/projects/${projectId}/activate`,
+      { expectedVersion },
+      { observe: 'response', withCredentials: true }
+    ).pipe(
+      map((response) => ({
+        kind: 'success' as const,
+        response: mapProjectActivationSuccess(response.body, projectId, response.status)
+      })),
+      catchError((error: unknown) => of({ kind: 'error' as const, error }))
+    ).subscribe((outcome) => {
+      if (!this.activationAttemptIsCurrent(
+        projectId,
+        generation,
+        loadGeneration,
+        authorizationGeneration
+      )) return;
+
+      if (outcome.kind === 'error') {
+        const normalized = normalizeApiError(outcome.error);
+        const responseError = outcome.error instanceof ProjectActivationResponseError
+          ? outcome.error
+          : null;
+        const requestId = responseError?.requestId ?? normalized.requestId;
+        if (
+          normalized.httpStatus === 401 ||
+          normalized.httpStatus === 403 ||
+          normalized.httpStatus === 404
+        ) {
+          this.activationInFlight = false;
+          this.setActivationPermissionDenied(requestId);
+          return;
+        }
+        this.reconcileActivation(
+          projectId,
+          generation,
+          loadGeneration,
+          authorizationGeneration,
+          false,
+          normalized.httpStatus === 409 ? 'conflict' : 'failure',
+          requestId
+        );
+        return;
+      }
+
+      // The command is committed before any navigation or projection refresh.
+      // A later refresh failure must never cause a second activation POST.
+      this.state.set({
+        ...this.state(),
+        activation: {
+          status: 'success',
+          message: 'Activation was accepted. Confirming authoritative Project state…',
+          requestId: outcome.response.requestId
+        }
+      });
+      this.reconcileActivation(
+        projectId,
+        generation,
+        loadGeneration,
+        authorizationGeneration,
+        true,
+        'failure',
+        outcome.response.requestId
+      );
+    });
+  }
 
   setScheduleInteractionActive(active: boolean): void {
     this.scheduleInteractionActive = active;
@@ -926,7 +1063,11 @@ export class ProjectDetailFacade {
   release(): void {
     this.releaseRealtime();
     this.projectId = null;
+    this.projectOperational = false;
+    this.draftProjectRefreshInFlight = false;
     this.loadGeneration++;
+    this.activationGeneration++;
+    this.activationInFlight = false;
     this.kanbanRequestGeneration++;
     this.scheduleRequestGeneration++;
     this.taskListRequestGeneration++;
@@ -939,26 +1080,238 @@ export class ProjectDetailFacade {
     this.resetTaskListRefreshState();
   }
 
+  private reconcileActivation(
+    projectId: string,
+    generation: number,
+    loadGeneration: number,
+    authorizationGeneration: number,
+    committed: boolean,
+    failureStatus: 'failure' | 'conflict',
+    requestId?: string
+  ): void {
+    if (!this.activationAttemptIsCurrent(
+      projectId,
+      generation,
+      loadGeneration,
+      authorizationGeneration
+    )) return;
+
+    this.state.set({
+      ...this.state(),
+      activation: {
+        status: 'reconciling',
+        message: committed
+          ? 'Activation was accepted. Confirming authoritative Project state…'
+          : 'Confirming authoritative Project state before another activation attempt…',
+        requestId
+      }
+    });
+
+    const taskRequestGeneration = ++this.taskListRequestGeneration;
+    const kanbanRequestGeneration = ++this.kanbanRequestGeneration;
+    const scheduleRequestGeneration = ++this.scheduleRequestGeneration;
+    this.http.get<ProjectDto>(`/api/projects/${projectId}`, { withCredentials: true }).pipe(
+      switchMap((project) => {
+        if (!this.activationAttemptIsCurrent(
+          projectId,
+          generation,
+          loadGeneration,
+          authorizationGeneration
+        )) return EMPTY;
+        const record = mapProjectDtoToRecord(project);
+        if (!record.isOperational)
+          return of({ kind: 'draft' as const, project });
+
+        return forkJoin({
+          tasks: this.http.get<PagedResponseDto<TaskDto>>(
+            `/api/projects/${projectId}/tasks`,
+            { withCredentials: true }
+          ),
+          kanban: this.initialKanbanRequest(projectId),
+          gantt: this.initialScheduleRequest(projectId),
+          workload: this.http.get<unknown>(
+            `/api/projects/${projectId}/workload`,
+            { withCredentials: true }
+          ),
+          members: this.http.get<unknown>(
+            `/api/projects/${projectId}/members`,
+            { withCredentials: true }
+          )
+        }).pipe(
+          map((response) => ({
+            kind: 'active' as const,
+            view: this.ready(
+              project,
+              response.tasks.items ?? [],
+              response.kanban,
+              response.gantt,
+              response.workload,
+              response.members
+            )
+          })),
+          catchError((error: unknown) => of({
+            kind: 'activeProjectionError' as const,
+            project,
+            error
+          }))
+        );
+      }),
+      catchError((error: unknown) => of({ kind: 'error' as const, error }))
+    ).subscribe((result) => {
+      if (!this.activationAttemptIsCurrent(
+        projectId,
+        generation,
+        loadGeneration,
+        authorizationGeneration
+      )) return;
+      this.activationInFlight = false;
+
+      if (result.kind === 'active') {
+        this.projectOperational = true;
+        this.taskListAppliedGeneration = taskRequestGeneration;
+        this.state.set({
+          ...result.view,
+          kanban: this.kanbanRequestGeneration === kanbanRequestGeneration
+            ? result.view.kanban
+            : this.state().kanban,
+          schedule: this.scheduleRequestGeneration === scheduleRequestGeneration
+            ? result.view.schedule
+            : this.state().schedule,
+          activation: {
+            status: 'success',
+            message: 'Project activated. Operational views were loaded from authoritative state.',
+            requestId
+          }
+        });
+        return;
+      }
+
+      if (result.kind === 'draft') {
+        this.projectOperational = false;
+        this.state.set({
+          ...this.draftReady(result.project),
+          activation: committed
+            ? {
+                status: 'success',
+                message: 'Activation was accepted, but the authoritative Project is still Draft. Reload before taking further action.',
+                requestId
+              }
+            : {
+                status: failureStatus,
+                message: failureStatus === 'conflict'
+                  ? 'The Project changed before activation. The latest Draft was reloaded; review it before retrying.'
+                  : 'Activation was not confirmed. The latest Draft was reloaded and can be retried.',
+                requestId
+              }
+        });
+        return;
+      }
+
+      if (result.kind === 'activeProjectionError') {
+        this.projectOperational = true;
+        const normalized = normalizeApiError(result.error);
+        if (
+          normalized.httpStatus === 401 ||
+          normalized.httpStatus === 403 ||
+          normalized.httpStatus === 404
+        ) {
+          this.setActivationPermissionDenied(normalized.requestId ?? requestId);
+          return;
+        }
+        this.state.set({
+          ...this.projectOnlyReady(result.project),
+          activation: {
+            status: 'success',
+            message: 'Project is active. Some operational views could not be loaded; refresh them before editing.',
+            requestId
+          }
+        });
+        return;
+      }
+
+      const normalized = normalizeApiError(result.error);
+      if (
+        normalized.httpStatus === 401 ||
+        normalized.httpStatus === 403 ||
+        normalized.httpStatus === 404
+      ) {
+        this.setActivationPermissionDenied(normalized.requestId ?? requestId);
+        return;
+      }
+      const latest = this.state();
+      this.state.set({
+        ...latest,
+        activation: {
+          status: 'uncertain',
+          message: 'Activation outcome could not be confirmed. Retry is disabled until the Project is reloaded.',
+          requestId: normalized.requestId ?? requestId
+        }
+      });
+    });
+  }
+
+  private activationAttemptIsCurrent(
+    projectId: string,
+    generation: number,
+    loadGeneration: number,
+    authorizationGeneration: number
+  ): boolean {
+    return this.projectId === projectId &&
+      this.activationGeneration === generation &&
+      this.loadGeneration === loadGeneration &&
+      this.authorizationGeneration === authorizationGeneration;
+  }
+
+  private projectRequestIsCurrent(
+    projectId: string,
+    loadGeneration: number,
+    authorizationGeneration: number
+  ): boolean {
+    return this.projectId === projectId &&
+      this.loadGeneration === loadGeneration &&
+      this.authorizationGeneration === authorizationGeneration;
+  }
+
+  private setActivationPermissionDenied(requestId?: string): void {
+    this.projectOperational = false;
+    this.draftProjectRefreshInFlight = false;
+    this.state.set({
+      ...this.loading(),
+      status: 'permissionDenied',
+      message: 'Project activation is not available for the current session.',
+      activation: {
+        status: 'permissionDenied',
+        message: 'Project activation is not available for the current session.',
+        requestId
+      }
+    });
+  }
+
   private registerRealtime(projectId: string): void {
     this.realtimeCleanups = [
       this.realtime.registerSubscription(PROJECT_REALTIME_OWNER, { subscriptionType: 'project', resourceId: projectId }),
       this.realtime.registerCatchUp(PROJECT_REALTIME_OWNER, (context) => {
+        const wasOperational = this.projectOperational;
         const denied = context.deniedOwners.has(PROJECT_REALTIME_OWNER);
         if (denied)
           this.clearProtectedProjectionsForDeniedSubscription();
-        this.refreshProjectProjections(projectId, this.authorizationGeneration);
-        this.refreshKanban(
-          false,
-          denied
-            ? 'Project access was denied during reconnect. Protected board data was cleared before authoritative HTTP revalidation.'
-            : 'Project board synchronized from authoritative HTTP state.'
-        );
-        this.refreshSchedule(
-          false,
-          denied
-            ? 'Project access was denied during reconnect. Protected schedule data was cleared before authoritative HTTP revalidation.'
-            : 'Schedule synchronized from authoritative HTTP state.'
-        );
+        this.refreshProjectProjections(projectId, this.authorizationGeneration, !wasOperational);
+        if (wasOperational) {
+          this.refreshKanban(
+            false,
+            denied
+              ? 'Project access was denied during reconnect. Protected board data was cleared before authoritative HTTP revalidation.'
+              : 'Project board synchronized from authoritative HTTP state.',
+            true
+          );
+          this.refreshSchedule(
+            false,
+            denied
+              ? 'Project access was denied during reconnect. Protected schedule data was cleared before authoritative HTTP revalidation.'
+              : 'Schedule synchronized from authoritative HTTP state.',
+            true
+          );
+        }
       })
     ];
   }
@@ -966,6 +1319,10 @@ export class ProjectDetailFacade {
   private clearProtectedProjectionsForDeniedSubscription(): void {
     this.authorizationGeneration++;
     this.loadGeneration++;
+    this.activationGeneration++;
+    this.activationInFlight = false;
+    this.projectOperational = false;
+    this.draftProjectRefreshInFlight = false;
     this.kanbanRequestGeneration++;
     this.scheduleRequestGeneration++;
     this.taskListRequestGeneration++;
@@ -1026,9 +1383,9 @@ export class ProjectDetailFacade {
     );
   }
 
-  private refreshSchedule(force = false, feedback?: string): void {
+  private refreshSchedule(force = false, feedback?: string, allowDuringRevalidation = false): void {
     const projectId = this.projectId;
-    if (!projectId) return;
+    if (!projectId || (!this.projectOperational && !allowDuringRevalidation)) return;
     if (this.scheduleInteractionActive || this.scheduleCommandInFlight) {
       const current = this.state();
       this.state.set({
@@ -1139,7 +1496,7 @@ export class ProjectDetailFacade {
   }
 
   private queueTaskListRefresh(): void {
-    if (this.taskListRefreshPending || !this.projectId)
+    if (this.taskListRefreshPending || !this.projectId || !this.projectOperational)
       return;
     this.taskListRefreshPending = true;
     queueMicrotask(() => {
@@ -1150,7 +1507,7 @@ export class ProjectDetailFacade {
 
   private refreshTaskList(): void {
     const projectId = this.projectId;
-    if (!projectId)
+    if (!projectId || !this.projectOperational)
       return;
     if (this.taskListRefreshInFlight) {
       this.taskListRefreshAfterFlight = true;
@@ -1250,9 +1607,9 @@ export class ProjectDetailFacade {
     this.taskListRefreshFeedback = null;
   }
 
-  private refreshKanban(force = false, feedback?: string): void {
+  private refreshKanban(force = false, feedback?: string, allowDuringRevalidation = false): void {
     const projectId = this.projectId;
-    if (!projectId) return;
+    if (!projectId || (!this.projectOperational && !allowDuringRevalidation)) return;
     if (!this.flags.kanbanV1Enabled()) {
       const current = this.state();
       this.state.set({ ...current, kanban: this.disabledKanban() });
@@ -1330,8 +1687,13 @@ export class ProjectDetailFacade {
       return;
 
     if (event.eventType === 'Security.AuthorizationStateChanged.v1') {
+      const wasOperational = this.projectOperational;
       this.authorizationGeneration++;
       this.loadGeneration++;
+      this.activationGeneration++;
+      this.activationInFlight = false;
+      this.projectOperational = false;
+      this.draftProjectRefreshInFlight = false;
       this.kanbanRequestGeneration++;
       this.scheduleRequestGeneration++;
       this.taskListRequestGeneration++;
@@ -1368,10 +1730,18 @@ export class ProjectDetailFacade {
         }
         this.releaseRealtime();
         this.registerRealtime(projectId);
-        this.refreshProjectProjections(projectId, authorizationGeneration);
-        this.refreshKanban(true, 'Authorization revalidated from authoritative HTTP state.');
-        this.refreshSchedule(true, 'Authorization revalidated from authoritative HTTP state.');
+        this.refreshProjectProjections(projectId, authorizationGeneration, !wasOperational);
+        if (wasOperational) {
+          this.refreshKanban(true, 'Authorization revalidated from authoritative HTTP state.', true);
+          this.refreshSchedule(true, 'Authorization revalidated from authoritative HTTP state.', true);
+        }
       });
+      return;
+    }
+
+    if (!this.projectOperational) {
+      if (event.eventType === 'Projects.ProjectChanged.v1')
+        this.refreshDraftProjectAfterChange();
       return;
     }
 
@@ -1433,36 +1803,45 @@ export class ProjectDetailFacade {
 
   private refreshProjectProjections(
     projectId: string,
-    authorizationGeneration: number
+    authorizationGeneration: number,
+    refreshOperationalViews = true,
+    onSettled?: () => void
   ): void {
     const loadGeneration = this.loadGeneration;
     const taskListRequestGeneration = ++this.taskListRequestGeneration;
     this.http.get<ProjectDto>(`/api/projects/${projectId}`, { withCredentials: true }).pipe(
-      switchMap((project) => forkJoin({
-        project: of(project),
-        tasks: this.http.get<PagedResponseDto<TaskDto>>(
-          `/api/projects/${projectId}/tasks`,
-          { withCredentials: true }
-        ),
-        workload: this.http.get<unknown>(
-          `/api/projects/${projectId}/workload`,
-          { withCredentials: true }
-        ),
-        members: this.http.get<unknown>(
-          `/api/projects/${projectId}/members`,
-          { withCredentials: true }
-        )
-      })),
-      map((response) => ({
-        kind: 'success' as const,
-        value: this.projectProjections(
-          response.project,
-          response.tasks.items ?? [],
-          response.workload,
-          response.members
-        )
-      })),
-      catchError((error: unknown) => of({ kind: 'error' as const, error }))
+      switchMap((project) => {
+        if (!this.projectRequestIsCurrent(projectId, loadGeneration, authorizationGeneration))
+          return EMPTY;
+        const record = mapProjectDtoToRecord(project);
+        this.projectOperational = record.isOperational === true;
+        if (!record.isOperational)
+          return of({ kind: 'draft' as const, project });
+        return forkJoin({
+          tasks: this.http.get<PagedResponseDto<TaskDto>>(
+            `/api/projects/${projectId}/tasks`,
+            { withCredentials: true }
+          ),
+          workload: this.http.get<unknown>(
+            `/api/projects/${projectId}/workload`,
+            { withCredentials: true }
+          ),
+          members: this.http.get<unknown>(
+            `/api/projects/${projectId}/members`,
+            { withCredentials: true }
+          )
+        }).pipe(map((response) => ({
+          kind: 'success' as const,
+          value: this.projectProjections(
+            project,
+            response.tasks.items ?? [],
+            response.workload,
+            response.members
+          )
+        })));
+      }),
+      catchError((error: unknown) => of({ kind: 'error' as const, error })),
+      finalize(() => onSettled?.())
     ).subscribe((result) => {
       if (
         this.projectId !== projectId ||
@@ -1482,7 +1861,19 @@ export class ProjectDetailFacade {
         this.state.set(this.failure(result.error));
         return;
       }
+      if (result.kind === 'draft') {
+        this.projectOperational = false;
+        const previousActivation = this.state().activation;
+        this.state.set({
+          ...this.draftReady(result.project),
+          activation: previousActivation.status === 'permissionDenied'
+            ? { status: 'idle', message: null }
+            : previousActivation
+        });
+        return;
+      }
       const current = this.state();
+      this.projectOperational = true;
       const applyTaskList = taskListRequestGeneration >= this.taskListAppliedGeneration;
       if (applyTaskList)
         this.taskListAppliedGeneration = taskListRequestGeneration;
@@ -1498,6 +1889,24 @@ export class ProjectDetailFacade {
         message: undefined
       });
       this.taskListFollowUpRefresh(projectId);
+      if (refreshOperationalViews) {
+        this.refreshKanban(false, 'Project board synchronized from authoritative HTTP state.');
+        this.refreshSchedule(false, 'Schedule synchronized from authoritative HTTP state.');
+      }
+    });
+  }
+
+  private refreshDraftProjectAfterChange(): void {
+    const projectId = this.projectId;
+    if (!projectId || this.draftProjectRefreshInFlight)
+      return;
+
+    const loadGeneration = this.loadGeneration;
+    const authorizationGeneration = this.authorizationGeneration;
+    this.draftProjectRefreshInFlight = true;
+    this.refreshProjectProjections(projectId, authorizationGeneration, true, () => {
+      if (this.projectRequestIsCurrent(projectId, loadGeneration, authorizationGeneration))
+        this.draftProjectRefreshInFlight = false;
     });
   }
 
@@ -1507,7 +1916,8 @@ export class ProjectDetailFacade {
       ...this.projectProjections(projectDto, taskDtos, workload, members),
       taskListFeedback: null,
       kanban: this.mapInitialKanban(kanban),
-      schedule: this.mapInitialSchedule(gantt)
+      schedule: this.mapInitialSchedule(gantt),
+      activation: { status: 'idle', message: null }
     };
   }
 
@@ -1519,27 +1929,82 @@ export class ProjectDetailFacade {
   ): Pick<ProjectDetailViewModel, 'project' | 'tasks' | 'workload' | 'members'> {
     const record = mapProjectDtoToRecord(projectDto);
     const taskRecords = taskDtos.map((task) => mapTaskDtoToRecord(task, [record]));
-    const project: ProjectSummaryViewModel = {
-      id: record.id,
-      name: record.name,
-      status: record.status,
-      statusLabel: record.statusLabel,
-      startDate: record.startDate,
-      dueDate: record.dueDate,
-      group: record.group,
-      canCreateTask: record.canCreateTask,
-      taskCounts: {
-        total: taskRecords.length,
-        done: taskRecords.filter((task) => task.stageCategory === 'done' || task.status === 'done').length,
-        blocked: taskRecords.filter((task) => task.isBlocked === true || task.status === 'blocked').length
-      }
-    };
+    const project = this.projectSummary(record, taskRecords);
     const rows = taskRecords.map((task) => this.toRow(task));
     return {
       project,
       tasks: rows,
       workload: this.workload(workload),
       members: this.members(members)
+    };
+  }
+
+  private projectSummary(
+    record: ReturnType<typeof mapProjectDtoToRecord>,
+    taskRecords: readonly TaskMockRecord[]
+  ): ProjectSummaryViewModel {
+    return {
+      id: record.id,
+      workspaceId: record.workspaceId ?? null,
+      groupId: record.groupId ?? null,
+      ownerUserId: record.ownerUserId ?? null,
+      name: record.name,
+      description: record.description ?? '',
+      status: record.status,
+      statusLabel: record.statusLabel,
+      visibility: record.visibility ?? 'unknown',
+      visibilityLabel: record.visibilityLabel ?? 'Visibility unavailable',
+      activationState: record.activationState ?? 'legacyUnknown',
+      versionNo: record.versionNo ?? 0,
+      isOperational: record.isOperational === true,
+      startDate: record.startDate,
+      dueDate: record.dueDate,
+      group: record.group,
+      canCreateTask: record.canCreateTask,
+      canActivate: record.canActivate === true,
+      taskCounts: {
+        total: taskRecords.length,
+        done: taskRecords.filter((task) => task.stageCategory === 'done' || task.status === 'done').length,
+        blocked: taskRecords.filter((task) => task.isBlocked === true || task.status === 'blocked').length
+      }
+    };
+  }
+
+  private draftReady(projectDto: ProjectDto): ProjectDetailViewModel {
+    const project = this.projectSummary(mapProjectDtoToRecord(projectDto), []);
+    return {
+      status: 'ready',
+      project,
+      tasks: [],
+      taskListFeedback: null,
+      kanban: {
+        ...this.disabledKanban(),
+        feedback: 'Operational views remain unavailable while this Project is Draft.'
+      },
+      schedule: {
+        ...this.loadingSchedule(),
+        status: 'empty',
+        feedback: 'Operational views remain unavailable while this Project is Draft.'
+      },
+      workload: [],
+      members: [],
+      activation: { status: 'idle', message: null }
+    };
+  }
+
+  private projectOnlyReady(projectDto: ProjectDto): ProjectDetailViewModel {
+    const project = this.projectSummary(mapProjectDtoToRecord(projectDto), []);
+    const error = new Error('Operational Project views could not be loaded.');
+    return {
+      status: 'ready',
+      project,
+      tasks: [],
+      taskListFeedback: 'The Task list could not be synchronized. Refresh before editing.',
+      kanban: this.kanbanFailure(error, null),
+      schedule: this.scheduleFailure(error, null),
+      workload: [],
+      members: [],
+      activation: { status: 'idle', message: null }
     };
   }
 
@@ -1700,7 +2165,7 @@ export class ProjectDetailFacade {
   }
   private workload(value: unknown): readonly ProjectWorkloadViewModel[] { return array(object(value)['members']).map((item) => { const row = object(item); return { userId: text(row['userId']), displayName: text(row['displayName'], 'Member'), projectRole: text(row['projectRole'], 'Member'), assignedTaskCount: number(row['assignedTaskCount']), overdueTaskCount: number(row['overdueTaskCount']), estimatedHours: number(row['estimatedHours']), actualHours: number(row['actualHours']) }; }); }
   private members(value: unknown): readonly ProjectMemberViewModel[] { return array(value).map((item) => { const row = object(item); return { userId: text(row['userId']), displayName: text(row['displayName'], 'Member'), role: text(row['role'], 'Member') }; }); }
-  private loading(): ProjectDetailViewModel { return { status: 'loading', tasks: [], taskListFeedback: null, kanban: this.loadingKanban(), schedule: this.loadingSchedule(), workload: [], members: [] }; }
+  private loading(): ProjectDetailViewModel { return { status: 'loading', tasks: [], taskListFeedback: null, kanban: this.loadingKanban(), schedule: this.loadingSchedule(), workload: [], members: [], activation: { status: 'idle', message: null } }; }
   private loadingKanban(): ProjectKanbanViewModel { return { status: 'loading', snapshot: null, busyTaskId: null, focusTaskId: null, feedback: null, realtimeDegraded: this.realtime.connectionState() !== 'Connected', reconciliationQueued: false }; }
   private loadingSchedule(): ProjectScheduleViewModel { return { status: 'loading', snapshot: null, canonicalEnabled: this.flags.ganttV1Enabled(), busyItemId: null, focusItemId: null, feedback: null, preservedIntent: null, realtimeDegraded: this.realtime.connectionState() !== 'Connected', reconciliationQueued: false }; }
   private disabledKanban(): ProjectKanbanViewModel { return { ...this.loadingKanban(), status: 'disabled', feedback: 'Project Kanban is disabled. The maintained Task List remains available.' }; }
