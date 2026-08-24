@@ -23,12 +23,18 @@
   }
 
   @if (vm.status === 'loading') {
-    <section class="announcements-page__loading" aria-label="読み込み中" data-testid="announcements-loading">
+    <section
+      class="announcements-page__loading"
+      aria-label="読み込み中"
+      data-testid="announcements-loading"
+    >
       <span></span>
       <span></span>
     </section>
   } @else if (vm.status === 'error') {
-    <section class="announcements-page__state" role="alert" data-testid="announcements-error">{{ vm.message }}</section>
+    <section class="announcements-page__state" role="alert" data-testid="announcements-error">
+      {{ vm.message }}
+    </section>
   } @else if (vm.status === 'permissionDenied' || vm.status === 'recordAccessDenied') {
     <section class="announcements-page__state" data-testid="announcement-permission-denied">
       このお知らせを表示する権限がありません。
@@ -38,11 +44,15 @@
       <div class="announcements-page__main">
         <app-announcement-editor
           [draft]="activeEditorDraft()!"
+          [submissionError]="editingAnnouncementId() === null ? vm.editorError : undefined"
+          (draftChanged)="updateAnnouncementDraft($event)"
           (publishRequested)="publishAnnouncement($event)"
         />
       </div>
     } @else {
-      <section class="announcements-page__state" data-testid="announcements-empty">表示できるお知らせがありません。</section>
+      <section class="announcements-page__state" data-testid="announcements-empty">
+        表示できるお知らせがありません。
+      </section>
     }
   } @else {
     <label class="announcements-page__search">
@@ -72,6 +82,8 @@
         } @else if (editorVisible() && activeEditorDraft()) {
           <app-announcement-editor
             [draft]="activeEditorDraft()!"
+            [submissionError]="editingAnnouncementId() === null ? vm.editorError : undefined"
+            (draftChanged)="updateAnnouncementDraft($event)"
             (publishRequested)="publishAnnouncement($event)"
           />
         } @else {

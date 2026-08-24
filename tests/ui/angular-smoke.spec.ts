@@ -253,6 +253,122 @@ test.describe('MVP-A P0 Angular frontend smoke', () => {
     expect(createRequests[0]?.csrfToken).toBe('csrf-workspace-create');
   });
 
+  test('keeps Announcement publish validation and preserved failures accessible at 320px', async ({ page }) => {
+    await page.setViewportSize({ width: 320, height: 800 });
+    const workspace: WorkspaceContextFixture = {
+      id: '38000000-0000-4000-8000-000000000001',
+      name: 'Announcement evidence workspace',
+      runningProjectCount: 0,
+      needsReviewProjectCount: 0
+    };
+    await installWorkspaceContextApi(page, [workspace], workspace);
+    const api = await installAnnouncementEditorApi(page);
+
+    await page.goto('/app/announcements');
+    const create = page.getByTestId('create-announcement-action');
+    await expect(create).toBeVisible();
+    await create.focus();
+    await page.keyboard.press('Enter');
+
+    const title = page.getByTestId('announcement-editor-title');
+    const body = page.getByTestId('announcement-editor-body');
+    const publish = page.getByTestId('announcement-publish-action');
+    await expect(title).toBeVisible();
+    await publish.focus();
+    await page.keyboard.press('Enter');
+
+    const validationSummary = page.getByTestId('announcement-editor-error-summary');
+    await expect(validationSummary).toBeVisible();
+    await expect(title).toBeFocused();
+    await expect(title).toHaveAttribute('aria-invalid', 'true');
+    await expect(title).toHaveAttribute('aria-describedby', /announcement-title-error/);
+    await expect(body).toHaveAttribute('aria-invalid', 'true');
+    await expect(body).toHaveAttribute('aria-describedby', /announcement-body-error/);
+    await validationSummary.getByRole('link', { name: /本文を入力してください/ }).focus();
+    await page.keyboard.press('Enter');
+    await expect(body).toBeFocused();
+    await expectNoDocumentHorizontalOverflow(page);
+    await expectNoAccessibilityViolations(page);
+
+    await title.fill('Accessible announcement');
+    await body.fill('The draft must remain available after an API failure.');
+
+    const failedResponse = page.waitForResponse((response) =>
+      response.request().method() === 'POST' &&
+      new URL(response.url()).pathname === '/api/announcements'
+    );
+    await publish.focus();
+    await page.keyboard.press('Enter');
+    expect((await failedResponse).status()).toBe(503);
+    const submissionError = page.getByTestId('announcement-editor-submission-error');
+    await expect(submissionError).toBeVisible();
+    await expect(submissionError).toHaveAttribute('role', 'alert');
+    await expect(submissionError).toContainText('could not be published right now');
+    await expect(submissionError).not.toContainText('internal upstream detail');
+    await expect(title).toHaveValue('Accessible announcement');
+    await expect(body).toHaveValue('The draft must remain available after an API failure.');
+
+    const succeededResponse = page.waitForResponse((response) =>
+      response.request().method() === 'POST' &&
+      new URL(response.url()).pathname === '/api/announcements'
+    );
+    await publish.focus();
+    await page.keyboard.press('Enter');
+    expect((await succeededResponse).status()).toBe(201);
+    await expect(page.getByText('お知らせを公開しました。')).toBeVisible();
+    expect(api.publishRequests).toHaveLength(2);
+    await expectNoDocumentHorizontalOverflow(page);
+    await expectNoAccessibilityViolations(page);
+  });
+
+  test('keeps live Announcement edits when a reauthorization refresh is delayed', async ({ page }) => {
+    await page.setViewportSize({ width: 320, height: 800 });
+    const workspace: WorkspaceContextFixture = {
+      id: '38000000-0000-4000-8000-000000000001',
+      name: 'Announcement evidence workspace',
+      runningProjectCount: 0,
+      needsReviewProjectCount: 0
+    };
+    await installWorkspaceContextApi(page, [workspace], workspace);
+    const api = await installAnnouncementEditorApi(page, {
+      firstPublishFailure: 'audienceAuthorization',
+      holdAudienceRefresh: true
+    });
+
+    await page.goto('/app/announcements');
+    await page.getByTestId('create-announcement-action').click();
+
+    const title = page.getByTestId('announcement-editor-title');
+    const body = page.getByTestId('announcement-editor-body');
+    const publish = page.getByTestId('announcement-publish-action');
+    await title.fill('Submitted title');
+    await body.fill('Submitted body');
+
+    const failedResponse = page.waitForResponse((response) =>
+      response.request().method() === 'POST' &&
+      new URL(response.url()).pathname === '/api/announcements'
+    );
+    await publish.focus();
+    await page.keyboard.press('Enter');
+    expect((await failedResponse).status()).toBe(400);
+    await api.audienceRefreshRequested;
+
+    const submissionError = page.getByTestId('announcement-editor-submission-error');
+    await expect(submissionError).toContainText('selected audience is no longer authorized');
+    await expect(submissionError).not.toContainText('Announcement audience is not authorized.');
+
+    await title.fill('Live title edited after publish failed');
+    await body.fill('Live body edited after publish failed');
+    api.releaseAudienceRefresh();
+
+    await expect(page.getByTestId('announcement-audience-unavailable')).toBeVisible();
+    await expect(title).toHaveValue('Live title edited after publish failed');
+    await expect(body).toHaveValue('Live body edited after publish failed');
+    await expect(publish).toBeDisabled();
+    await expectNoDocumentHorizontalOverflow(page);
+    await expectNoAccessibilityViolations(page);
+  });
+
   test('creates a canonical Draft Project once and activates it only through the explicit command', async ({ page }, testInfo) => {
     const mobile = testInfo.project.name === 'chromium-mobile';
     await page.setViewportSize(mobile
@@ -2328,6 +2444,17 @@ interface WorkspaceCreateMockResponse {
   readonly workspace?: WorkspaceContextFixture;
 }
 
+interface AnnouncementEditorApiOptions {
+  readonly firstPublishFailure?: 'unavailable' | 'audienceAuthorization';
+  readonly holdAudienceRefresh?: boolean;
+}
+
+interface AnnouncementEditorApiHarness {
+  readonly publishRequests: readonly Record<string, unknown>[];
+  readonly audienceRefreshRequested: Promise<void>;
+  releaseAudienceRefresh(): void;
+}
+
 interface WorkspaceContextApiOptions {
   readonly canCreate?: boolean;
   readonly onCreate?: (
@@ -2504,6 +2631,107 @@ async function installWorkspaceContextApi(
     get workspaceListRequests() {
       return workspaceListRequests;
     }
+  };
+}
+
+async function installAnnouncementEditorApi(
+  page: Page,
+  options: AnnouncementEditorApiOptions = {}
+): Promise<AnnouncementEditorApiHarness> {
+  const workspaceId = '38000000-0000-4000-8000-000000000001';
+  const publishRequests: Record<string, unknown>[] = [];
+  let audienceRequestCount = 0;
+  let releaseAudienceRefresh!: () => void;
+  let notifyAudienceRefreshRequested!: () => void;
+  const audienceRefreshGate = new Promise<void>((resolve) => {
+    releaseAudienceRefresh = resolve;
+  });
+  const audienceRefreshRequested = new Promise<void>((resolve) => {
+    notifyAudienceRefreshRequested = resolve;
+  });
+
+  await page.route('**/api/announcements', async (route) => {
+    const request = route.request();
+    if (request.method() === 'GET') {
+      await route.fulfill({
+        status: 200,
+        contentType: 'application/json; charset=utf-8',
+        body: JSON.stringify({ items: [] })
+      });
+      return;
+    }
+
+    if (request.method() !== 'POST') {
+      await route.fulfill({ status: 405 });
+      return;
+    }
+
+    publishRequests.push(request.postDataJSON() as Record<string, unknown>);
+    if (publishRequests.length === 1) {
+      await route.fulfill({
+        status: options.firstPublishFailure === 'audienceAuthorization' ? 400 : 503,
+        contentType: 'application/json; charset=utf-8',
+        body: JSON.stringify({
+          error: options.firstPublishFailure === 'audienceAuthorization'
+            ? 'Announcement audience is not authorized.'
+            : 'internal upstream detail'
+        })
+      });
+      return;
+    }
+
+    await route.fulfill({
+      status: 201,
+      contentType: 'application/json; charset=utf-8',
+      body: JSON.stringify({
+        id: '38000000-0000-4000-8000-000000000002',
+        workspaceId,
+        groupId: null,
+        channelId: null,
+        title: 'Accessible announcement',
+        body: 'The draft must remain available after an API failure.',
+        priority: 0,
+        requiresReadConfirmation: false,
+        isRead: false,
+        publishedAt: '2026-08-24T10:00:00Z'
+      })
+    });
+  });
+
+  await page.route('**/api/announcements/audiences', async (route) => {
+    audienceRequestCount += 1;
+    if (audienceRequestCount > 1 && options.holdAudienceRefresh) {
+      notifyAudienceRefreshRequested();
+      await audienceRefreshGate;
+      await route.fulfill({
+        status: 200,
+        contentType: 'application/json; charset=utf-8',
+        body: JSON.stringify([])
+      });
+      return;
+    }
+
+    await route.fulfill({
+      status: 200,
+      contentType: 'application/json; charset=utf-8',
+      body: JSON.stringify([
+        {
+          key: 'workspace:' + workspaceId,
+          scopeType: 'workspace',
+          workspaceId,
+          groupId: null,
+          channelId: null,
+          displayName: 'Announcement evidence workspace',
+          estimatedRecipientCount: 24
+        }
+      ])
+    });
+  });
+
+  return {
+    publishRequests,
+    audienceRefreshRequested,
+    releaseAudienceRefresh
   };
 }
 
