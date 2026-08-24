@@ -213,9 +213,14 @@ export class ProjectsFacade {
     const aggregateTask = detail && detail.task
       ? mapTaskDtoToRecord(detail.task as TaskDto, this.authorizedProjects())
       : undefined;
-    const task = scenario.tasks.find(
+    const listedTask = scenario.tasks.find(
       (candidate) => candidate.authorized && candidate.projectId === projectId && candidate.id === taskId
-    ) ?? (aggregateTask?.projectId === projectId ? aggregateTask : undefined);
+    );
+    // Canonical detail is the editor authority. Project/list refreshes use a
+    // deliberately compact Task projection and may omit detail-only fields
+    // such as Brief; preferring that row would silently turn omission into a
+    // clear on the next unrelated save.
+    const task = aggregateTask?.projectId === projectId ? aggregateTask : listedTask;
     const project = task
       ? this.authorizedProjects().find((candidate) => candidate.id === task.projectId)
       : undefined;
@@ -1215,13 +1220,22 @@ export class ProjectsFacade {
   }
 
   private replaceProjectTasks(projectId: string, projectTasks: readonly TaskMockRecord[]): void {
-    this.liveState.update((state) => ({
-      ...state,
-      tasks: [
-        ...state.tasks.filter((task) => task.projectId !== projectId),
-        ...projectTasks
-      ]
-    }));
+    this.liveState.update((state) => {
+      const currentTasks = new Map(state.tasks.map((task) => [task.id, task]));
+      const mergedTasks = projectTasks.map((task) => {
+        const current = currentTasks.get(task.id);
+        return task.brief === undefined && current?.brief !== undefined
+          ? { ...task, brief: current.brief }
+          : task;
+      });
+      return {
+        ...state,
+        tasks: [
+          ...state.tasks.filter((task) => task.projectId !== projectId),
+          ...mergedTasks
+        ]
+      };
+    });
   }
 
   private reauthorizeActiveTaskDetail(): void {

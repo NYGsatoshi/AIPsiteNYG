@@ -13,6 +13,7 @@ import {
 import {
   BackendAuthoritativeTransitionNote,
   ProjectCapability,
+  TASK_BRIEF_FIELD_MAX_LENGTH,
   TASK_STATUS_BACKEND_AUTHORITATIVE_NOTE,
   TaskConflictReloadState,
   TaskDetailState,
@@ -22,6 +23,7 @@ import {
   TaskPriority,
   TaskStatus
 } from '../projects.types';
+import { TaskBriefFieldsComponent } from '../task-brief-fields/task-brief-fields.component';
 
 export const integerRangeValidator = (min: number, max: number): ValidatorFn => {
   return (control: AbstractControl): ValidationErrors | null => {
@@ -46,7 +48,7 @@ export const integerRangeValidator = (min: number, max: number): ValidatorFn => 
 @Component({
   selector: 'app-task-editor',
   standalone: true,
-  imports: [ReactiveFormsModule],
+  imports: [ReactiveFormsModule, TaskBriefFieldsComponent],
   template: `
     @if (task) {
       <form class="task-editor" [formGroup]="form" (ngSubmit)="submit()" data-testid="task-editor">
@@ -135,8 +137,15 @@ export const integerRangeValidator = (min: number, max: number): ValidatorFn => 
           }
         </label>
 
+        <app-task-brief-fields
+          [goalControl]="form.controls.goal"
+          [deliverableControl]="form.controls.deliverable"
+          [constraintsControl]="form.controls.constraints"
+          [readonly]="!canEdit || editingLocked"
+        />
+
         <label>
-          <span>Description</span>
+          <span>Free-form task notes <small>(optional)</small></span>
           <textarea
             formControlName="description"
             rows="4"
@@ -267,12 +276,14 @@ export const integerRangeValidator = (min: number, max: number): ValidatorFn => 
       }
 
       .task-editor label:nth-of-type(2),
+      .task-editor app-task-brief-fields,
       .task-editor__recoverable,
       .task-editor__note,
       .task-editor__error,
       .task-editor__success,
       .task-editor__actions {
         grid-column: 1 / -1;
+        min-width: 0;
       }
 
       .task-editor input,
@@ -361,6 +372,7 @@ export const integerRangeValidator = (min: number, max: number): ValidatorFn => 
         }
 
         .task-editor label:nth-of-type(2),
+        .task-editor app-task-brief-fields,
         .task-editor__recoverable,
         .task-editor__note,
         .task-editor__error,
@@ -407,6 +419,9 @@ export class TaskEditorComponent implements OnChanges, OnInit, OnDestroy {
   readonly form = new FormGroup({
     title: new FormControl('', { nonNullable: true, validators: [Validators.required] }),
     description: new FormControl('', { nonNullable: true }),
+    goal: new FormControl('', { nonNullable: true, validators: [Validators.maxLength(TASK_BRIEF_FIELD_MAX_LENGTH)] }),
+    deliverable: new FormControl('', { nonNullable: true, validators: [Validators.maxLength(TASK_BRIEF_FIELD_MAX_LENGTH)] }),
+    constraints: new FormControl('', { nonNullable: true, validators: [Validators.maxLength(TASK_BRIEF_FIELD_MAX_LENGTH)] }),
     status: new FormControl<TaskStatus>('notStarted', { nonNullable: true }),
     priority: new FormControl<TaskPriority>('medium', { nonNullable: true }),
     dueDate: new FormControl('', { nonNullable: true }),
@@ -469,6 +484,9 @@ export class TaskEditorComponent implements OnChanges, OnInit, OnDestroy {
     this.save.emit({
       title: value.title,
       description: value.description,
+      goal: value.goal,
+      deliverable: value.deliverable,
+      constraints: value.constraints,
       priority: value.priority,
       startDate: value.startDate,
       dueDate: value.dueDate,
@@ -485,6 +503,9 @@ export class TaskEditorComponent implements OnChanges, OnInit, OnDestroy {
     this.form.setValue({
       title: this.task.title,
       description: this.task.description,
+      goal: this.task.brief?.goal.value ?? '',
+      deliverable: this.task.brief?.deliverable.value ?? '',
+      constraints: this.task.brief?.constraints.value ?? '',
       status: this.task.status,
       priority: this.task.priority,
       dueDate: this.task.dueDate,

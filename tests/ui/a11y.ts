@@ -13,7 +13,8 @@ function formatViolations(violations: Awaited<ReturnType<AxeBuilder["analyze"]>>
     .join("\n\n");
 }
 
-export async function expectNoAccessibilityViolations(page: Page) {
-  const results = await new AxeBuilder({ page }).analyze();
+export async function expectNoAccessibilityViolations(page: Page, selector?: string) {
+  const builder = new AxeBuilder({ page });
+  const results = await (selector ? builder.include(selector) : builder).analyze();
   expect(results.violations, formatViolations(results.violations)).toEqual([]);
 }

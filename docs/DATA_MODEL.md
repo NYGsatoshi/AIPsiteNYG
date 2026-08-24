@@ -461,11 +461,18 @@ Attachment links should be represented by scoped join tables when needed, for ex
 
 Use C# class name `ProjectTask` to avoid confusion with `System.Threading.Tasks.Task`; map it to a `Tasks` database table.
 
+Current source retains the established `TaskItem` / `task_items` compatibility
+name. Issue #350 adds only Task-specific structured Brief fields; it does not
+rename the aggregate or table.
+
 - `Id`
 - `ProjectId`
 - `MilestoneId` nullable
 - `Title`
 - `Description`
+- `BriefGoal` nullable, max 4,000 characters
+- `BriefDeliverable` nullable, max 4,000 characters
+- `BriefConstraints` nullable, max 4,000 characters
 - `Status`
 - `Priority`
 - `StartDate`

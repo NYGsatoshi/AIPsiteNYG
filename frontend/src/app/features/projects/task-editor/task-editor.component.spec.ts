@@ -75,4 +75,45 @@ describe('TaskEditorComponent conflict recovery outputs', () => {
     expect((fixture.nativeElement.querySelector('[data-testid="task-title-input"]') as HTMLInputElement).readOnly).toBe(false);
     expect(fixture.nativeElement.querySelector('[data-testid="task-derived-fields-note"]')).not.toBeNull();
   });
+
+  it('loads, reviews, clears, and saves the structured brief without changing free-form notes semantics', () => {
+    component.task = {
+      ...component.task!,
+      description: 'Legacy free-form notes',
+      brief: {
+        goal: { value: 'Existing goal', source: 'taskSpecific' },
+        deliverable: { value: 'Existing deliverable', source: 'taskSpecific' },
+        constraints: { value: null, source: 'notSet' }
+      }
+    };
+    const save = vi.fn();
+    component.save.subscribe(save);
+    component.resetForm();
+    fixture.detectChanges();
+
+    expect(component.form.controls.description.value).toBe('Legacy free-form notes');
+    expect(component.form.controls.goal.value).toBe('Existing goal');
+    component.form.controls.deliverable.setValue('');
+    component.form.controls.constraints.setValue('New constraint');
+    component.submit();
+
+    expect(save).toHaveBeenCalledWith(expect.objectContaining({
+      description: 'Legacy free-form notes',
+      goal: 'Existing goal',
+      deliverable: '',
+      constraints: 'New constraint'
+    }));
+    const reviewText = fixture.nativeElement.querySelector('[data-testid="task-brief-review"]')?.textContent ?? '';
+    expect(reviewText.indexOf('Goal')).toBeLessThan(reviewText.indexOf('Deliverable'));
+    expect(reviewText.indexOf('Deliverable')).toBeLessThan(reviewText.indexOf('Constraints'));
+  });
+
+  it('makes all Task Brief fields read-only without edit authorization', () => {
+    component.capabilities = [];
+    fixture.detectChanges();
+
+    const inputs = [...fixture.nativeElement.querySelectorAll('[data-testid^="task-brief-"][data-testid$="-input"]')] as HTMLTextAreaElement[];
+    expect(inputs).toHaveLength(3);
+    expect(inputs.every((input) => input.readOnly)).toBe(true);
+  });
 });

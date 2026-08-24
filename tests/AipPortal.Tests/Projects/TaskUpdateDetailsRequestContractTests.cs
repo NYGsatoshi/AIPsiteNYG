@@ -18,6 +18,81 @@ public sealed class TaskUpdateDetailsRequestContractTests
     }
 
     [Fact]
+    public void OmittedStructuredBriefMembersAreNotSpecified()
+    {
+        var request = Deserialize("""{"expectedVersion":7}""");
+
+        Assert.False(request.Goal.IsSpecified);
+        Assert.False(request.Deliverable.IsSpecified);
+        Assert.False(request.Constraints.IsSpecified);
+    }
+
+    [Fact]
+    public void LegacyCreateJsonWithoutStructuredBriefRemainsCompatible()
+    {
+        const string json =
+            """{"milestoneId":null,"title":"Legacy","description":"Free-form","priority":1,"startDate":null,"dueDate":null}""";
+
+        var request = JsonSerializer.Deserialize<CreateTaskItemRequest>(json, WebJson);
+
+        Assert.NotNull(request);
+        Assert.Equal("Free-form", request.Description);
+        Assert.Null(request.Goal);
+        Assert.Null(request.Deliverable);
+        Assert.Null(request.Constraints);
+    }
+
+    [Theory]
+    [InlineData("goal")]
+    [InlineData("deliverable")]
+    [InlineData("constraints")]
+    public void ExplicitNullStructuredBriefMemberIsSpecifiedForClear(string propertyName)
+    {
+        var request = Deserialize($$"""{"expectedVersion":7,"{{propertyName}}":null}""");
+        var field = propertyName switch
+        {
+            "goal" => request.Goal,
+            "deliverable" => request.Deliverable,
+            _ => request.Constraints
+        };
+
+        Assert.True(field.IsSpecified);
+        Assert.Null(field.Value);
+    }
+
+    [Theory]
+    [InlineData("goal")]
+    [InlineData("deliverable")]
+    [InlineData("constraints")]
+    public void StructuredBriefStringMemberIsSpecified(string propertyName)
+    {
+        var request = Deserialize($$"""{"expectedVersion":7,"{{propertyName}}":"value"}""");
+        var field = propertyName switch
+        {
+            "goal" => request.Goal,
+            "deliverable" => request.Deliverable,
+            _ => request.Constraints
+        };
+
+        Assert.True(field.IsSpecified);
+        Assert.Equal("value", field.Value);
+    }
+
+    [Fact]
+    public void StructuredBriefProvenanceSerializesWithStableCamelCaseValues()
+    {
+        var response = new TaskBriefResponse(
+            new TaskBriefFieldResponse("Goal", TaskBriefValueSource.TaskSpecific),
+            new TaskBriefFieldResponse(null, TaskBriefValueSource.NotSet),
+            new TaskBriefFieldResponse(null, TaskBriefValueSource.NotSet));
+
+        var json = JsonSerializer.Serialize(response, WebJson);
+
+        Assert.Contains("\"source\":\"taskSpecific\"", json, StringComparison.Ordinal);
+        Assert.Contains("\"source\":\"notSet\"", json, StringComparison.Ordinal);
+    }
+
+    [Fact]
     [Trait("Scope", "TaskV1PR07B")]
     public void ExplicitNullDeadlineIsSpecified()
     {

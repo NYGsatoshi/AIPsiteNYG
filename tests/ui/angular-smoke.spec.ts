@@ -886,6 +886,53 @@ test.describe('MVP-A P0 Angular frontend smoke', () => {
     await expectHealthyAngularPage(page);
   });
 
+  test('edits and reviews the Task Brief in stable order without narrow-screen overflow', async ({ page }) => {
+    await page.addInitScript((storageKey) => globalThis.localStorage.setItem(storageKey, 'light'), themeStorageKey);
+    const projectId = 'static-project-brief';
+    const taskId = 'static-task-brief';
+    const api = await installDirectTaskContextApi(page, {
+      projectId,
+      projectTitle: 'Authorized Project context',
+      taskId,
+      taskTitle: 'Structured Task Brief',
+      canEdit: true,
+      goal: 'Reach editorial review',
+      deliverable: 'Review-ready package',
+      constraints: 'Keep-the-existing-public-URL-stable-without-breaking-long-unspaced-identifiers'
+    });
+    await page.setViewportSize({ width: 320, height: 900 });
+    await page.goto(`/app/projects/${projectId}/tasks/${taskId}`);
+
+    const brief = page.getByTestId('task-brief-fields');
+    await expect(brief).toBeVisible();
+    await expect(page.getByTestId('task-brief-goal-source')).toHaveText('Task-specific');
+    await expect(page.getByTestId('task-brief-deliverable-source')).toHaveText('Task-specific');
+    const reviewLabels = await page.getByTestId('task-brief-review').locator('dt').allTextContents();
+    expect(reviewLabels).toEqual(['Goal', 'Deliverable', 'Constraints']);
+
+    await page.getByTestId('task-brief-goal-input').fill('Reach final approval');
+    await page.getByTestId('task-brief-deliverable-input').fill('');
+    await page.getByTestId('task-brief-constraints-input').fill('Preserve the authorized Project boundary');
+    await expect(page.getByTestId('task-brief-deliverable-source')).toHaveText('Not set');
+    await expect(page.getByTestId('task-brief-review-deliverable')).toContainText('Not set');
+    await page.getByTestId('task-save-button').click();
+
+    await expect.poll(() => api.patchBodies().length).toBe(1);
+    expect(api.patchBodies()[0]).toMatchObject({
+      description: 'Task-specific direct-route context.',
+      goal: 'Reach final approval',
+      deliverable: null,
+      constraints: 'Preserve the authorized Project boundary'
+    });
+    await expect(page.getByTestId('task-save-success')).toBeVisible();
+    await expectNoDocumentHorizontalOverflow(page);
+    await expectNoAccessibilityViolations(page, '[data-testid="task-brief-fields"]');
+    await page.getByTestId('theme-toggle').click();
+    await expect(page.locator('html')).toHaveAttribute('data-aip-theme', 'dark');
+    await expectNoAccessibilityViolations(page, '[data-testid="task-brief-fields"]');
+    await expectHealthyAngularPage(page);
+  });
+
   test('uses the canonical Project Kanban for pointer, keyboard, conflict, rollback, and narrow flows', async ({ page }, testInfo) => {
     const api = await installProjectKanbanApi(page);
     if (testInfo.project.name === 'chromium-mobile') {
@@ -1773,11 +1820,56 @@ function ganttCommandDto(item: MockGanttItem) {
 
 async function installDirectTaskContextApi(
   page: Page,
-  context: { projectId: string; projectTitle: string; taskId: string; taskTitle: string }
+  context: {
+    projectId: string;
+    projectTitle: string;
+    taskId: string;
+    taskTitle: string;
+    canEdit?: boolean;
+    goal?: string | null;
+    deliverable?: string | null;
+    constraints?: string | null;
+  }
 ) {
   let projectListRequests = 0;
   let parentProjectRequests = 0;
   let parentProjectAttempts = 0;
+  let version = 1;
+  let goal = context.goal ?? null;
+  let deliverable = context.deliverable ?? null;
+  let constraints = context.constraints ?? null;
+  const patchBodies: Record<string, unknown>[] = [];
+  const briefField = (value: string | null) => ({ value, source: value === null ? 'notSet' : 'taskSpecific' });
+  const taskDto = () => ({
+    id: context.taskId,
+    tenantId: 'mock-tenant',
+    workspaceId: 'static-workspace-1',
+    projectId: context.projectId,
+    kind: 0,
+    parentTaskId: null,
+    milestoneId: null,
+    title: context.taskTitle,
+    description: 'Task-specific direct-route context.',
+    brief: {
+      goal: briefField(goal),
+      deliverable: briefField(deliverable),
+      constraints: briefField(constraints)
+    },
+    workflowStageId: 'stage-in-progress',
+    workflowStageName: 'In progress',
+    status: 1,
+    stageCategory: 1,
+    isBlocked: false,
+    priority: 'High',
+    plannedStartDate: '2026-08-20',
+    plannedEndDate: '2026-08-27',
+    progressPercent: 40,
+    progressIsDerived: false,
+    primaryAssignee: { userId: 'mock-user-a', displayName: 'Mock User A' },
+    reviewStatus: 0,
+    version,
+    uiPermissions: { canEdit: context.canEdit === true, canAssign: false, canChangeStatus: false, canDelete: false, allowedTransitions: [] }
+  });
   page.on('requestfinished', (request) => {
     if (request.method() === 'GET' && new URL(request.url()).pathname === `/api/projects/${context.projectId}`) {
       parentProjectRequests += 1;
@@ -1786,6 +1878,24 @@ async function installDirectTaskContextApi(
   await page.route('**/api/**', async (route) => {
     const request = route.request();
     const path = new URL(request.url()).pathname;
+    if (path === '/api/security/csrf-token' && request.method() === 'GET') {
+      await route.fulfill({
+        status: 200,
+        contentType: 'application/json',
+        body: JSON.stringify({ token: 'csrf-task-brief', headerName: 'X-CSRF-Token' })
+      });
+      return;
+    }
+    if (path === `/api/tasks/${context.taskId}` && request.method() === 'PATCH' && context.canEdit === true) {
+      const body = request.postDataJSON() as Record<string, unknown>;
+      patchBodies.push(body);
+      if ('goal' in body) goal = typeof body['goal'] === 'string' ? body['goal'] : null;
+      if ('deliverable' in body) deliverable = typeof body['deliverable'] === 'string' ? body['deliverable'] : null;
+      if ('constraints' in body) constraints = typeof body['constraints'] === 'string' ? body['constraints'] : null;
+      version += 1;
+      await route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify(taskDto()) });
+      return;
+    }
     if (request.method() !== 'GET') {
       await route.fallback();
       return;
@@ -1796,32 +1906,8 @@ async function installDirectTaskContextApi(
         status: 200,
         contentType: 'application/json',
         body: JSON.stringify({
-          task: {
-            id: context.taskId,
-            tenantId: 'mock-tenant',
-            workspaceId: 'static-workspace-1',
-            projectId: context.projectId,
-            kind: 0,
-            parentTaskId: null,
-            milestoneId: null,
-            title: context.taskTitle,
-            description: 'Task-specific direct-route context.',
-            workflowStageId: 'stage-in-progress',
-            workflowStageName: 'In progress',
-            status: 1,
-            stageCategory: 1,
-            isBlocked: false,
-            priority: 'High',
-            plannedStartDate: '2026-08-20',
-            plannedEndDate: '2026-08-27',
-            progressPercent: 40,
-            progressIsDerived: false,
-            primaryAssignee: { userId: 'mock-user-a', displayName: 'Mock User A' },
-            reviewStatus: 0,
-            version: 1,
-            uiPermissions: { canEdit: false, canAssign: false, canChangeStatus: false, canDelete: false, allowedTransitions: [] }
-          },
-          relationships: { primaryAssignee: { userId: 'mock-user-a', displayName: 'Mock User A' }, collaborators: [], reviewer: null, version: 1 },
+          task: taskDto(),
+          relationships: { primaryAssignee: { userId: 'mock-user-a', displayName: 'Mock User A' }, collaborators: [], reviewer: null, version },
           permissions: {
             canCreateSubtask: false,
             canCreateChecklistItem: false,
@@ -1843,6 +1929,15 @@ async function installDirectTaskContextApi(
           comments: { items: [], page: 1, pageSize: 20, totalCount: 0, hasMore: false },
           files: { items: [], page: 1, pageSize: 20, totalCount: 0, hasMore: false }
         })
+      });
+      return;
+    }
+
+    if (path === `/api/projects/${context.projectId}/tasks`) {
+      await route.fulfill({
+        status: 200,
+        contentType: 'application/json',
+        body: JSON.stringify({ items: [{ ...taskDto(), brief: undefined }], page: 1, pageSize: 50, totalCount: 1, hasMore: false })
       });
       return;
     }
@@ -1881,7 +1976,8 @@ async function installDirectTaskContextApi(
   return {
     projectListRequests: () => projectListRequests,
     parentProjectRequests: () => parentProjectRequests,
-    parentProjectAttempts: () => parentProjectAttempts
+    parentProjectAttempts: () => parentProjectAttempts,
+    patchBodies: () => patchBodies
   };
 }
 

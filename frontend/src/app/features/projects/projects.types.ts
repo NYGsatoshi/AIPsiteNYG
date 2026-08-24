@@ -86,6 +86,7 @@ export interface TaskMockRecord {
   readonly projectId: string;
   readonly title: string;
   readonly description: string;
+  readonly brief?: TaskBriefViewModel;
   readonly status: TaskStatus;
   readonly statusLabel: string;
   readonly workflowStageId?: string | null;
@@ -315,6 +316,9 @@ export interface TaskWatchStateViewModel { readonly isWatching: boolean; readonl
 export interface TaskEditorSaveRequest {
   readonly title: string;
   readonly description: string;
+  readonly goal?: string;
+  readonly deliverable?: string;
+  readonly constraints?: string;
   readonly priority: TaskPriority;
   readonly startDate: string;
   readonly dueDate: string;
@@ -361,9 +365,24 @@ export interface CreateTaskFormRequest {
   readonly projectId: string;
   readonly title: string;
   readonly description: string;
+  readonly goal?: string;
+  readonly deliverable?: string;
+  readonly constraints?: string;
   readonly priority: TaskPriority;
   readonly startDate: string;
   readonly dueDate: string;
+}
+
+export const TASK_BRIEF_FIELD_MAX_LENGTH = 4000;
+export type TaskBriefValueSource = 'notSet' | 'taskSpecific';
+export interface TaskBriefFieldViewModel {
+  readonly value: string | null;
+  readonly source: TaskBriefValueSource;
+}
+export interface TaskBriefViewModel {
+  readonly goal: TaskBriefFieldViewModel;
+  readonly deliverable: TaskBriefFieldViewModel;
+  readonly constraints: TaskBriefFieldViewModel;
 }
 
 export interface ProjectsScenario {

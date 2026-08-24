@@ -142,7 +142,23 @@ public sealed class TaskSubresourceService(
         if (TaskTransitionEngine.CategoryOf(parent) is TaskStageCategory.Done or TaskStageCategory.Cancelled)
             return Fail<TaskSubtaskResponse>("TASK_TRANSITION_GUARD_FAILED", "Reopen the parent Task before adding a subtask.");
         var title = Text(request.Title, 300); if (title is null) return Fail<TaskSubtaskResponse>("VALIDATION_FAILED", "Subtask title is required.");
-        var subtask = new TaskItem { WorkspaceId = parent.WorkspaceId, ProjectId = parent.ProjectId, ParentTaskItemId = parent.Id, Kind = AipPortal.Domain.Enums.WorkItemKind.Task, Title = title, Description = NullableText(request.Description, 12000), Priority = request.Priority, CreatedByUserId = Actor() };
+        var briefValidation = TaskBriefText.Validate(request.Goal, request.Deliverable, request.Constraints);
+        if (briefValidation is not null)
+            return Result<TaskSubtaskResponse>.Failure(briefValidation);
+        var subtask = new TaskItem
+        {
+            WorkspaceId = parent.WorkspaceId,
+            ProjectId = parent.ProjectId,
+            ParentTaskItemId = parent.Id,
+            Kind = AipPortal.Domain.Enums.WorkItemKind.Task,
+            Title = title,
+            Description = NullableText(request.Description, 12000),
+            BriefGoal = TaskBriefText.Normalize(request.Goal),
+            BriefDeliverable = TaskBriefText.Normalize(request.Deliverable),
+            BriefConstraints = TaskBriefText.Normalize(request.Constraints),
+            Priority = request.Priority,
+            CreatedByUserId = Actor()
+        };
         var placement = await TaskInitialPlacement.ApplyAsync(projects, subtask, ct);
         if (!placement.IsSuccess) return Result<TaskSubtaskResponse>.Failure(placement.Error!);
         await projects.AddTaskAsync(subtask, ct);

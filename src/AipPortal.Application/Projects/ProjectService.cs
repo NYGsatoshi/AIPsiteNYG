@@ -665,6 +665,10 @@ public sealed class ProjectService(
             return Result<TaskItemResponse>.Failure(validation.Error!);
         }
 
+        var briefValidation = TaskBriefText.Validate(request.Goal, request.Deliverable, request.Constraints);
+        if (briefValidation is not null)
+            return Result<TaskItemResponse>.Failure(briefValidation);
+
         var project = await projects.GetProjectAsync(projectId, cancellationToken);
         if (project is null ||
             project.DeletedAt.HasValue ||
@@ -680,6 +684,9 @@ public sealed class ProjectService(
             MilestoneId = request.MilestoneId,
             Title = request.Title.Trim(),
             Description = request.Description?.Trim(),
+            BriefGoal = TaskBriefText.Normalize(request.Goal),
+            BriefDeliverable = TaskBriefText.Normalize(request.Deliverable),
+            BriefConstraints = TaskBriefText.Normalize(request.Constraints),
             Priority = request.Priority,
             StartDate = request.StartDate,
             DueDate = request.DueDate,

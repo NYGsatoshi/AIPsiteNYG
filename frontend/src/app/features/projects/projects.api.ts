@@ -138,6 +138,17 @@ export interface TaskUiPermissionDto {
   readonly canUpdate?: unknown;
 }
 
+export interface TaskBriefFieldDto {
+  readonly value?: unknown;
+  readonly source?: unknown;
+}
+
+export interface TaskBriefDto {
+  readonly goal?: TaskBriefFieldDto | null;
+  readonly deliverable?: TaskBriefFieldDto | null;
+  readonly constraints?: TaskBriefFieldDto | null;
+}
+
 export interface TaskDto {
   readonly id?: unknown;
   readonly tenantId?: unknown;
@@ -148,6 +159,7 @@ export interface TaskDto {
   readonly milestoneId?: unknown;
   readonly title?: unknown;
   readonly description?: unknown;
+  readonly brief?: TaskBriefDto | null;
   readonly workflowStageId?: unknown;
   readonly workflowStageName?: unknown;
   readonly status?: unknown;
@@ -515,6 +527,9 @@ export interface CreateTaskRequestDto {
   readonly milestoneId: string | null;
   readonly title: string;
   readonly description: string | null;
+  readonly goal?: string | null;
+  readonly deliverable?: string | null;
+  readonly constraints?: string | null;
   readonly priority: number;
   readonly startDate: string | null;
   readonly dueDate: string | null;
@@ -523,6 +538,9 @@ export interface CreateTaskRequestDto {
 export interface UpdateTaskRequestDto {
   readonly title: string;
   readonly description: string;
+  readonly goal?: string | null;
+  readonly deliverable?: string | null;
+  readonly constraints?: string | null;
   readonly priority: number;
   readonly plannedStartDate: string | null;
   readonly plannedEndDate: string | null;
@@ -540,6 +558,9 @@ const taskPriorityApiValues: Record<TaskPriority, number> = {
 export function toCreateTaskRequestDto(input: {
   readonly title: string;
   readonly description: string;
+  readonly goal?: string;
+  readonly deliverable?: string;
+  readonly constraints?: string;
   readonly priority: TaskPriority;
   readonly startDate: string;
   readonly dueDate: string;
@@ -548,6 +569,9 @@ export function toCreateTaskRequestDto(input: {
     milestoneId: null,
     title: input.title.trim(),
     description: input.description.trim().length > 0 ? input.description.trim() : null,
+    ...(input.goal !== undefined ? { goal: nullableText(input.goal) } : {}),
+    ...(input.deliverable !== undefined ? { deliverable: nullableText(input.deliverable) } : {}),
+    ...(input.constraints !== undefined ? { constraints: nullableText(input.constraints) } : {}),
     priority: taskPriorityApiValues[input.priority],
     startDate: nullableDate(input.startDate),
     dueDate: nullableDate(input.dueDate)
@@ -557,6 +581,9 @@ export function toCreateTaskRequestDto(input: {
 export function toUpdateTaskRequestDto(input: {
   readonly title: string;
   readonly description: string;
+  readonly goal?: string;
+  readonly deliverable?: string;
+  readonly constraints?: string;
   readonly priority: TaskPriority;
   readonly startDate: string;
   readonly dueDate: string;
@@ -566,6 +593,9 @@ export function toUpdateTaskRequestDto(input: {
   return {
     title: input.title.trim(),
     description: input.description.trim(),
+    ...(input.goal !== undefined ? { goal: nullableText(input.goal) } : {}),
+    ...(input.deliverable !== undefined ? { deliverable: nullableText(input.deliverable) } : {}),
+    ...(input.constraints !== undefined ? { constraints: nullableText(input.constraints) } : {}),
     priority: taskPriorityApiValues[input.priority],
     plannedStartDate: nullableDate(input.startDate),
     plannedEndDate: nullableDate(input.dueDate),
@@ -575,6 +605,11 @@ export function toUpdateTaskRequestDto(input: {
 }
 
 function nullableDate(value: string): string | null {
+  const trimmed = value.trim();
+  return trimmed.length > 0 ? trimmed : null;
+}
+
+function nullableText(value: string): string | null {
   const trimmed = value.trim();
   return trimmed.length > 0 ? trimmed : null;
 }

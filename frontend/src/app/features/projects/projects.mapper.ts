@@ -7,6 +7,8 @@ import {
   ProjectStatus,
   ProjectVisibility,
   TaskMockRecord,
+  TaskBriefFieldViewModel,
+  TaskBriefViewModel,
   MyTasksLiveTask,
   TaskPriority,
   TaskStageCategory,
@@ -124,6 +126,7 @@ export function mapTaskDtoToRecord(
     projectId,
     title: stringValue(task.title) ?? 'Untitled task',
     description: stringValue(task.description) ?? '',
+    ...(task.brief ? { brief: mapTaskBrief(task.brief) } : {}),
     status,
     statusLabel: taskStatusLabel(status),
     workflowStageId: stringValue(task.workflowStageId) ?? null,
@@ -147,6 +150,21 @@ export function mapTaskDtoToRecord(
     authorized: true,
     rowVersion: versionValue(task.uiPermissions?.rowVersion) ?? versionValue(task.version) ?? ''
   };
+}
+
+function mapTaskBrief(brief: TaskDto['brief']): TaskBriefViewModel {
+  return {
+    goal: mapTaskBriefField(brief?.goal),
+    deliverable: mapTaskBriefField(brief?.deliverable),
+    constraints: mapTaskBriefField(brief?.constraints)
+  };
+}
+
+function mapTaskBriefField(field: { readonly value?: unknown; readonly source?: unknown } | null | undefined): TaskBriefFieldViewModel {
+  const value = stringValue(field?.value) ?? null;
+  return field?.source === 'taskSpecific' && value !== null
+    ? { value, source: 'taskSpecific' }
+    : { value: null, source: 'notSet' };
 }
 
 export function mapMyTaskDtoToRecord(task: MyTaskDto): TaskMockRecord {
