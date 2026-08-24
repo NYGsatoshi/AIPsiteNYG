@@ -7,6 +7,7 @@ import {
   AUDIT_TYPED_FIELD_NOTE,
   AdminPageStatus,
   AuditGridRow,
+  AuditDetailViewModel,
   AuditLogScenario,
   AuditLogViewModel,
   AuditMockRecord,
@@ -79,11 +80,13 @@ export class AdminFacade {
   private readonly auditState = signal<AuditLogViewModel>(
     this.auditScenario ? this.auditFromScenario(this.auditScenario) : this.emptyAudit('loading'),
   );
+  private readonly auditDetailState = signal<AuditDetailViewModel>(this.emptyAuditDetail());
   private readonly exportState = signal<ExportDiagnosticsViewModel>(
     this.exportScenario
       ? this.exportFromScenario(this.exportScenario)
       : this.emptyExportDiagnostics(),
   );
+  private auditDetailRequestVersion = 0;
 
   constructor() {
     if (!this.auditScenario) {
@@ -99,6 +102,77 @@ export class AdminFacade {
     if (!this.auditScenario) {
       this.loadAuditLog();
     }
+  }
+
+  getAuditDetail(): AuditDetailViewModel {
+    return this.auditDetailState();
+  }
+
+  selectAuditDetail(auditId: string): void {
+    const current = this.auditDetailState();
+    if (current.auditId === auditId && (current.status === 'loading' || current.status === 'ready')) {
+      return;
+    }
+
+    if (this.auditScenario) {
+      const record = this.auditScenario.auditRecords.find((item) => item.id === auditId);
+      this.auditDetailState.set(record
+        ? { status: 'ready', auditId, row: this.toAuditGridRow(record) }
+        : {
+            status: 'notFound',
+            auditId,
+            row: null,
+            message: 'The selected audit event is unavailable.',
+          });
+      return;
+    }
+
+    const requestVersion = ++this.auditDetailRequestVersion;
+    this.auditDetailState.set({ status: 'loading', auditId, row: null });
+    this.http
+      .get<AuditLogDto>(`/api/admin/audit-grid/${encodeURIComponent(auditId)}`, { withCredentials: true })
+      .subscribe({
+        next: (record) => {
+          if (requestVersion !== this.auditDetailRequestVersion) {
+            return;
+          }
+
+          this.auditDetailState.set({
+            status: 'ready',
+            auditId,
+            row: this.toAuditGridRow(this.toAuditRecord(record)),
+          });
+        },
+        error: (error: { status?: number }) => {
+          if (requestVersion !== this.auditDetailRequestVersion) {
+            return;
+          }
+
+          if (error.status === 404) {
+            this.auditDetailState.set({
+              status: 'notFound',
+              auditId,
+              row: null,
+              message: 'The selected audit event is unavailable.',
+            });
+            return;
+          }
+
+          this.auditDetailState.set({
+            status: error.status === 401 || error.status === 403 ? 'permissionDenied' : 'error',
+            auditId,
+            row: null,
+            message: error.status === 401 || error.status === 403
+              ? 'Audit permission is required to view this event.'
+              : 'The selected audit event could not be loaded.',
+          });
+        },
+      });
+  }
+
+  clearAuditDetail(): void {
+    this.auditDetailRequestVersion += 1;
+    this.auditDetailState.set(this.emptyAuditDetail());
   }
 
   getExportDiagnostics(): ExportDiagnosticsViewModel {
@@ -145,7 +219,6 @@ export class AdminFacade {
         maximumPageSize: ADMIN_MAXIMUM_PAGE_SIZE,
       },
       typedFieldNote: AUDIT_TYPED_FIELD_NOTE,
-      initialSelectedAuditId: scenario.initialSelectedAuditId,
       message: scenario.message,
     };
   }
@@ -181,6 +254,10 @@ export class AdminFacade {
       },
       typedFieldNote: AUDIT_TYPED_FIELD_NOTE,
     };
+  }
+
+  private emptyAuditDetail(): AuditDetailViewModel {
+    return { status: 'idle', auditId: null, row: null };
   }
 
   private emptyExportDiagnostics(): ExportDiagnosticsViewModel {

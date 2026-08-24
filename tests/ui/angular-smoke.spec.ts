@@ -64,6 +64,88 @@ test.describe('MVP-A P0 Angular frontend smoke', () => {
     await expectHealthyAngularPage(page);
   });
 
+  test('keeps the redacted audit drawer deep-linkable, focus-safe, and accessible at 320px', async ({ page }) => {
+    await page.setViewportSize({ width: 320, height: 800 });
+    await installAuditGridApi(page, auditGridFixtures(8));
+
+    const firstAuditId = auditGridFixtureId(0);
+    await page.goto(`/app/admin/audit?event=${firstAuditId}`);
+    const drawer = page.getByTestId('audit-detail-drawer');
+    await expect(drawer).toBeVisible();
+    await expect(drawer).toContainText('Audit row 001 was opened with safe fields.');
+    await page.getByTestId('audit-detail-close').click();
+    await expect(page).toHaveURL(/\/app\/admin\/audit$/);
+    await expect(page.getByTestId('audit-log-title')).toBeFocused();
+
+    await page.goto('/app/admin/audit');
+    const mobileList = page.getByTestId('audit-log-mobile-list');
+    const opener = page.getByTestId('open-audit-mobile-detail').first();
+    await expect(mobileList).toBeVisible();
+    await opener.click();
+
+    await expect(page).toHaveURL(new RegExp(`/app/admin/audit\\?event=${firstAuditId}$`));
+    await expect(drawer).toBeVisible();
+    await expect(drawer).toContainText('Audit row 001 was opened with safe fields.');
+    await expect(drawer).not.toContainText('restricted body must stay hidden');
+    await expect(drawer).not.toContainText('tenant/private/key');
+    await expectNoDocumentHorizontalOverflow(page);
+    await expectNoAccessibilityViolations(page);
+
+    await page.goBack();
+    await expect(drawer).toHaveCount(0);
+    await expect(opener).toBeFocused();
+
+    await page.goForward();
+    await expect(drawer).toBeVisible();
+    await page.getByTestId('audit-detail-close').click();
+    await expect(page).toHaveURL(/\/app\/admin\/audit$/);
+    await expect(opener).toBeFocused();
+  });
+
+  test('keeps the audit header fixed and restores bounded AG scroll context after drawer close', async ({ page }, testInfo) => {
+    test.skip(testInfo.project.name !== 'chromium-desktop', 'The desktop grid is replaced by the mobile audit list.');
+    await installAuditGridApi(page, auditGridFixtures(128));
+    await page.goto('/app/admin/audit');
+
+    const grid = page.locator('ag-grid-angular.app-data-grid__grid--sticky-header');
+    const header = grid.locator('.ag-header');
+    // AG Grid v36 owns the normal-layout scroll on ag-grid-viewport; keep the
+    // older class alternatives for the retained adapter's compatible builds.
+    const bodyViewport = grid.locator('.ag-grid-viewport, .ag-center-cols-viewport, .ag-body-viewport').first();
+    await expect(grid).toBeVisible();
+    await expect(header).toBeVisible();
+    await expect(bodyViewport).toBeVisible();
+    const before = await header.boundingBox();
+    await bodyViewport.evaluate((element) => { element.scrollTop = 500; });
+
+    await expect.poll(async () => (await header.boundingBox())?.y).toBeCloseTo(before?.y ?? 0, 1);
+
+    const openerIndex = await bodyViewport.evaluate((viewport) => {
+      const viewportBounds = viewport.getBoundingClientRect();
+      return Array.from(viewport.querySelectorAll<HTMLButtonElement>('button[data-grid-action="openAuditDetail"]'))
+        .findIndex((button) => {
+          const bounds = button.getBoundingClientRect();
+          return bounds.top >= viewportBounds.top && bounds.bottom <= viewportBounds.bottom;
+        });
+    });
+    expect(openerIndex).toBeGreaterThanOrEqual(0);
+    // Do not let Playwright scroll an offscreen first row back to the top:
+    // activate a row already visible in the bounded viewport we are testing.
+    const opener = bodyViewport.locator('button[data-grid-action="openAuditDetail"]').nth(openerIndex);
+    await expect(opener).toBeVisible();
+    const originalScrollTop = await bodyViewport.evaluate((element) => element.scrollTop);
+    await opener.click();
+    await expect(page.getByTestId('audit-detail-drawer')).toBeVisible();
+
+    // Simulate a user moving the bounded grid while its non-modal inspector
+    // is open. Closing must return to the original virtualized row context.
+    await bodyViewport.evaluate((element) => { element.scrollTop = 0; });
+    await page.getByTestId('audit-detail-close').click();
+
+    await expect.poll(async () => bodyViewport.evaluate((element) => element.scrollTop)).toBeCloseTo(originalScrollTop, 1);
+    await expect(opener).toBeFocused();
+  });
+
   test('requires an explicit Workspace choice when multiple authorized Workspaces have no preference', async ({ page }) => {
     const workspaces = workspaceContextFixtures();
     await installWorkspaceContextApi(page, workspaces, null);
@@ -2613,6 +2695,75 @@ function workspaceContextFixtures(): readonly WorkspaceContextFixture[] {
       needsReviewProjectCount: 0
     }
   ];
+}
+
+interface AuditGridFixture {
+  readonly id: string;
+  readonly createdAt: string;
+  readonly action: string;
+  readonly actorDisplayName: string;
+  readonly targetType: string;
+  readonly workspaceLabel: string;
+  readonly severity: 'info' | 'warning' | 'critical';
+  readonly result: 'success' | 'denied' | 'failed';
+  readonly summary: string;
+  readonly requestId: string | null;
+}
+
+function auditGridFixtures(count: number): readonly AuditGridFixture[] {
+  return Array.from({ length: count }, (_, index) => {
+    const number = String(index + 1).padStart(3, '0');
+    return {
+      id: auditGridFixtureId(index),
+      createdAt: `2026-08-25T08:${String(index % 60).padStart(2, '0')}:00Z`,
+      action: index % 3 === 0 ? 'audit.detail.read' : index % 3 === 1 ? 'file.download.denied' : 'export.request.failed',
+      actorDisplayName: 'Redacted actor',
+      targetType: index % 2 === 0 ? 'AuditLog' : 'File',
+      workspaceLabel: 'Static Workspace',
+      severity: index % 3 === 0 ? 'info' : index % 3 === 1 ? 'warning' : 'critical',
+      result: index % 3 === 0 ? 'success' : index % 3 === 1 ? 'denied' : 'failed',
+      summary: `Audit row ${number} was opened with safe fields.`,
+      requestId: null,
+    };
+  });
+}
+
+function auditGridFixtureId(index: number): string {
+  return `00000000-0000-4000-8000-${String(index + 1).padStart(12, '0')}`;
+}
+
+async function installAuditGridApi(page: Page, rows: readonly AuditGridFixture[]): Promise<void> {
+  await page.route('**/api/admin/audit-grid**', async (route) => {
+    const request = route.request();
+    if (request.method() !== 'GET') {
+      await route.fulfill({ status: 405 });
+      return;
+    }
+
+    const url = new URL(request.url());
+    if (url.pathname === '/api/admin/audit-grid') {
+      await route.fulfill({
+        status: 200,
+        contentType: 'application/json; charset=utf-8',
+        body: JSON.stringify({ items: rows, page: 1, pageSize: 100, totalCount: rows.length }),
+      });
+      return;
+    }
+
+    const auditId = url.pathname.slice('/api/admin/audit-grid/'.length);
+    const row = rows.find((item) => item.id === auditId);
+    await route.fulfill(row
+      ? {
+          status: 200,
+          contentType: 'application/json; charset=utf-8',
+          body: JSON.stringify(row),
+        }
+      : {
+          status: 404,
+          contentType: 'application/json; charset=utf-8',
+          body: JSON.stringify({ error: { code: 'AuditEventNotFound', message: 'The requested audit event is not available.' } }),
+        });
+  });
 }
 
 async function installWorkspaceContextApi(

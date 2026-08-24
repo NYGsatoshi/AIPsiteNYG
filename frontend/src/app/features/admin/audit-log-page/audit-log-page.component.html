@@ -4,12 +4,12 @@
   <header class="admin-page__header">
     <div>
       <p class="admin-page__eyebrow">{{ page.subtitle }}</p>
-      <h1>{{ page.title }}</h1>
+      <h1 data-testid="audit-log-title" tabindex="-1">{{ page.title }}</h1>
     </div>
   </header>
 
   <p class="admin-page__policy" data-testid="audit-typed-field-note">
-    backend/API should own typed severity/result fields for scalable filtering; this UI does not parse raw metadata.
+    This read-only inspector uses server-classified fields only. It does not parse or request raw metadata.
   </p>
 
   @if (page.status === 'loading') {
@@ -22,17 +22,52 @@
   } @else if (page.status === 'empty' || page.rows.length === 0) {
     <app-empty-state title="No audit entries" message="No mock audit entries are available." />
   } @else {
-    <div class="admin-page__layout">
+    <div class="admin-page__layout" [class.admin-page__layout--drawer-open]="drawerOpen()">
       <div class="admin-page__desktop-grid">
+        <div class="admin-page__grid-controls" aria-label="Audit grid settings">
+          <div class="admin-page__density" role="group" aria-label="Audit row density">
+            <button
+              type="button"
+              data-testid="audit-density-default"
+              [attr.aria-pressed]="density() === 'default'"
+              (click)="setDensity('default')"
+            >Default</button>
+            <button
+              type="button"
+              data-testid="audit-density-dense"
+              [attr.aria-pressed]="density() === 'dense'"
+              (click)="setDensity('dense')"
+            >Dense</button>
+          </div>
+          <details class="admin-page__columns">
+            <summary>Columns</summary>
+            <div class="admin-page__columns-menu">
+              @for (option of optionalColumns; track option.id) {
+                <label>
+                  <input
+                    type="checkbox"
+                    [attr.data-testid]="'audit-column-' + option.id"
+                    [checked]="isColumnVisible(option.id)"
+                    (change)="toggleColumn(option.id, $any($event.target).checked)"
+                  />
+                  <span>{{ option.label }}</span>
+                </label>
+              }
+            </div>
+          </details>
+        </div>
         <app-data-grid
-        ariaLabel="Admin audit log"
-        rowIdField="id"
-        migrationTarget="admin-audit-log"
-        [rows]="page.rows"
-        [columns]="page.columns"
-        [defaultPageSize]="page.pageSize.defaultPageSize"
-        [maximumPageSize]="page.pageSize.maximumPageSize"
+          ariaLabel="Admin audit log"
+          rowIdField="id"
+          migrationTarget="admin-audit-log"
+          [rows]="page.rows"
+          [columns]="page.columns"
+          [rowHeight]="density() === 'dense' ? 36 : 48"
+          [stickyHeader]="true"
+          [defaultPageSize]="page.pageSize.defaultPageSize"
+          [maximumPageSize]="page.pageSize.maximumPageSize"
           (actionInvoked)="handleGridAction($event)"
+          (rowActivated)="handleGridRowActivation($event)"
         />
       </div>
 
@@ -50,12 +85,19 @@
               <div><dt>Request ID</dt><dd>{{ row.requestId }}</dd></div>
             </dl>
             <p>{{ row.summary }}</p>
-            <button type="button" data-testid="open-audit-mobile-detail" (click)="openMobileDetail(row, $any($event.currentTarget))">Open detail</button>
+            <button type="button" data-testid="open-audit-mobile-detail" [attr.data-grid-row-id]="row.id" (click)="openMobileDetail(row, $any($event.currentTarget))">Open detail</button>
           </li>
         }
       </ol>
 
-      <app-audit-detail-drawer [audit]="selectedAudit()" [returnFocusTo]="drawerReturnFocus()" (close)="closeDrawer()" />
+      <app-audit-detail-drawer
+        [isOpen]="drawerOpen()"
+        [audit]="selectedAudit()"
+        [status]="auditDetail().status"
+        [message]="auditDetail().message"
+        [selectedAuditId]="selectedAuditId()"
+        (close)="closeDrawer()"
+      />
     </div>
   }
 </section>

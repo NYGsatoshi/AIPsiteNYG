@@ -7,6 +7,15 @@ export interface AppDataGridActionEvent<TData> {
   readonly trigger?: HTMLElement;
 }
 
+/**
+ * A row activation is separate from selection. Adapters provide the focusable
+ * trigger when available so a non-modal inspector can return focus safely.
+ */
+export interface AppDataGridRowActivationEvent<TData> {
+  readonly row: TData;
+  readonly trigger?: HTMLElement;
+}
+
 export type AppDataGridSelectionMode = 'none' | 'single' | 'multiple';
 export type AppDataGridMigrationTarget = 'workspace-members' | 'admin-audit-log' | 'files' | 'admin-invites';
 
