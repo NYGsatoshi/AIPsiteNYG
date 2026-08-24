@@ -106,7 +106,7 @@ Completed locally on 2026-08-24:
 
 - the full backend solution passed 888 tests with zero failures; 240
   environment-conditional tests were skipped;
-- the full Angular suite passed 72 files and 715 tests, and the production
+- the full Angular suite passed 72 files and 720 tests, and the production
   build, architecture boundary check, and architecture script tests passed;
 - Storybook built successfully with a 3 GB Node heap after the default 2 GB
   local attempt exhausted its heap; the successful build emitted only the
@@ -114,10 +114,11 @@ Completed locally on 2026-08-24:
 - focused create, activation, route-reuse, authorization-boundary, idempotency,
   focus, and mapper regressions passed, including 52 Project-detail facade
   tests after the final cross-actor Draft reconciliation change;
-- the pinned Linux Docker runner rebuilt the production Angular application
-  and passed 96 Playwright cases with 6 intentional skips. The new Project
-  create/Draft/activation journey passed on desktop and 320-pixel mobile, and
-  approved screenshot baselines remained unchanged; and
+- the preceding candidate's pinned Linux Docker runner rebuilt the production
+  Angular application and passed 96 Playwright cases with 6 intentional skips;
+  after the authorization-recheck correction, the focused Project
+  create/Draft/activation journey passed again locally on desktop and
+  320-pixel mobile. Exact corrected-head Linux parity remains a hosted gate; and
 - `git diff --check` passed with only expected Windows working-copy line-ending
   notices.
 
@@ -136,6 +137,17 @@ include provider tests and are not PostgreSQL evidence. `SYNCFUSION_LICENSE`
 is also unavailable locally, so the licensed real-backend Compose journey was
 not started. Mocked browser responses are not frontend/backend integration
 evidence.
+
+The first hosted candidate passed PostgreSQL, frontend, security, session,
+My Tasks, and five of six real-backend P0 scenarios. Its Project-create
+scenario exposed a delayed authorization-invalidation race: protected create
+options correctly cleared, but the Projects page also mistook the transient
+Workspace loading interval for a real scope switch and discarded the local
+form before POST. The corrected page now retains only local form values while
+the dashboard is loading, requires a same-Workspace authoritative affordance
+before reloading protected options, and closes on capability loss, no access,
+or a real Workspace change. The corrected exact-head real-backend rerun is
+still mandatory.
 
 ## Scope confirmation
 

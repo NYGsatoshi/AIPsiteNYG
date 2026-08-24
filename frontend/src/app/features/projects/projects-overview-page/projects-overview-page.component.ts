@@ -57,6 +57,7 @@ export class ProjectsOverviewPageComponent {
     () => this.routeWorkspaceId() ?? this.activeWorkspace.activeWorkspace()?.id ?? null,
   );
   private observedWorkspaceScopeId = this.workspaceScopeId();
+  private workspaceScopeRecheckPending = false;
   private handledCreateQuery = false;
 
   readonly page = computed(() => this.facade.getProjectsOverview());
@@ -86,13 +87,65 @@ export class ProjectsOverviewPageComponent {
   constructor() {
     effect(() => {
       const nextWorkspaceScopeId = this.workspaceScopeId();
-      if (nextWorkspaceScopeId === this.observedWorkspaceScopeId) {
+      const dashboard = this.workspaces.dashboard();
+      const createState = this.createState();
+      const committedNavigationInProgress =
+        createState.status === 'committedPendingNavigation' ||
+        (createState.status === 'submitting' && Boolean(createState.createdProjectId));
+
+      if (nextWorkspaceScopeId !== null && nextWorkspaceScopeId !== this.observedWorkspaceScopeId) {
+        // Non-null scope changes are real route/selection transitions, even
+        // when the dashboard happens to be refreshing at the same time. The
+        // canonical Workspace boundary already clears ProjectCreateFacade;
+        // this page only owns destruction of its local dialog/form.
+        this.workspaceScopeRecheckPending = false;
+        this.observedWorkspaceScopeId = nextWorkspaceScopeId;
+        this.createDialogOpen.set(false);
         return;
       }
 
-      this.observedWorkspaceScopeId = nextWorkspaceScopeId;
-      this.createDialogOpen.set(false);
-      this.projectCreate.clearWorkspaceScope();
+      if (dashboard.status === 'loading' || dashboard.status === 'error') {
+        // Authorization rechecks deliberately hide ActiveWorkspace while the
+        // server-owned Workspace list is refreshed. A Workspace-scoped route
+        // still exposes its route ID in this interval, so dashboard state—not
+        // only a null ActiveWorkspace—marks the transient gap. Protected
+        // options are cleared separately; keeping the dialog mounted retains
+        // only the user's local, non-authoritative form values.
+        this.workspaceScopeRecheckPending = this.observedWorkspaceScopeId !== null;
+        return;
+      }
+
+      if (!nextWorkspaceScopeId) {
+        this.workspaceScopeRecheckPending = false;
+        const hadWorkspaceScope = this.observedWorkspaceScopeId !== null;
+        this.observedWorkspaceScopeId = null;
+        if (!committedNavigationInProgress && (hadWorkspaceScope || this.createDialogOpen())) {
+          this.createDialogOpen.set(false);
+        }
+        return;
+      }
+
+      const authoritativeWorkspace =
+        dashboard.status === 'ready'
+          ? dashboard.workspaces.find((workspace) => workspace.id === nextWorkspaceScopeId)
+          : null;
+      if (!authoritativeWorkspace?.capabilities.includes('openProjectCreate')) {
+        // The Workspace list is terminal and either the route was revoked or
+        // the actor no longer has the server-projected full-create affordance.
+        // Preserve only an opaque, already-committed navigation recovery.
+        this.workspaceScopeRecheckPending = false;
+        if (!committedNavigationInProgress) {
+          this.createDialogOpen.set(false);
+        }
+        return;
+      }
+
+      if (this.workspaceScopeRecheckPending) {
+        this.workspaceScopeRecheckPending = false;
+        if (this.createDialogOpen() && !committedNavigationInProgress) {
+          void this.projectCreate.loadOptions(nextWorkspaceScopeId);
+        }
+      }
     });
 
     effect(() => {

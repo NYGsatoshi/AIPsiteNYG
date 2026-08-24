@@ -1,4 +1,4 @@
-import { Component, EventEmitter, Input, Output, signal } from '@angular/core';
+import { Component, EventEmitter, Input, Output, signal, WritableSignal } from '@angular/core';
 import { ComponentFixture, TestBed } from '@angular/core/testing';
 import { HttpClient } from '@angular/common/http';
 import { ActivatedRoute, convertToParamMap, provideRouter, Router } from '@angular/router';
@@ -15,6 +15,8 @@ import {
   EMPTY_PROJECT_CREATE_OPTIONS,
   EMPTY_PROJECT_CREATE_STATE,
   ProjectCreateFacade,
+  ProjectCreateOptionsViewModel,
+  ProjectCreateViewModel,
 } from './project-create.facade';
 import { AIP_PROJECTS_MOCK, ProjectsFacade } from './projects.facade';
 import {
@@ -33,6 +35,7 @@ import {
 import { MyTasksPageComponent } from './my-tasks-page/my-tasks-page.component';
 import { ProjectsOverviewPageComponent } from './projects-overview-page/projects-overview-page.component';
 import { WorkspacesFacade } from '../workspaces/workspaces.facade';
+import { WorkspaceDashboardViewModel } from '../workspaces/workspaces.types';
 import { TaskDependenciesReadonlyComponent } from './task-dependencies-readonly/task-dependencies-readonly.component';
 import { TaskDetailPageComponent } from './task-detail-page/task-detail-page.component';
 import { TaskEditorComponent } from './task-editor/task-editor.component';
@@ -118,6 +121,17 @@ const queryAll = <T extends HTMLElement, C = unknown>(
 // HTTP/realtime/session dependencies so each TestBed is self-contained.
 const PROJECT_CREATE_WORKSPACE_ID = '11111111-1111-4111-8111-111111111111';
 const PROJECT_CREATE_SECOND_WORKSPACE_ID = '99999999-9999-4999-8999-999999999999';
+const PROJECT_CREATE_READY_OPTIONS: ProjectCreateOptionsViewModel = {
+  status: 'ready',
+  workspaceId: PROJECT_CREATE_WORKSPACE_ID,
+  data: {
+    requestId: 'project-create-options-request',
+    workspaceId: PROJECT_CREATE_WORKSPACE_ID,
+    canCreateUngrouped: true,
+    allowedVisibilities: [1],
+    groups: [],
+  },
+};
 
 const scenarioProviders = (
   scenario: ProjectsScenario,
@@ -330,7 +344,181 @@ describe('Projects and tasks mock UI', () => {
     expect(query(fixture, '[data-testid="projects-create-project"]')).toBeNull();
   });
 
-  it('consumes the Workspace quick-action query once and clears reused route scope before opening another Workspace', async () => {
+  it('preserves a filled create flow across a transient Workspace recheck and closes on a real switch', async () => {
+    const fixture = await renderProjectsOverview(PROJECTS_SCENARIOS.default, true);
+    const projectCreate = TestBed.inject(ProjectCreateFacade) as unknown as {
+      options: { set(value: ProjectCreateOptionsViewModel): void };
+      loadOptions: ReturnType<typeof vi.fn>;
+      clearWorkspaceScope: ReturnType<typeof vi.fn>;
+    };
+    const activeWorkspace = TestBed.inject(ActiveWorkspaceFacade);
+    const workspaces = TestBed.inject(WorkspacesFacade) as unknown as {
+      dashboard: WritableSignal<WorkspaceDashboardViewModel>;
+    };
+    const readyDashboard = workspaces.dashboard();
+    projectCreate.options.set(PROJECT_CREATE_READY_OPTIONS);
+    fixture.detectChanges();
+    query<HTMLButtonElement>(fixture, '[data-testid="projects-create-project"]')?.click();
+    fixture.detectChanges();
+
+    const title = query<HTMLInputElement>(fixture, '[data-testid="project-create-title"]');
+    expect(title).not.toBeNull();
+    title!.value = 'Draft retained during reauthorization';
+    title!.dispatchEvent(new Event('input'));
+    fixture.detectChanges();
+    expect(projectCreate.loadOptions).toHaveBeenCalledTimes(1);
+
+    workspaces.dashboard.set({ ...readyDashboard, status: 'loading', workspaces: [] });
+    projectCreate.options.set(EMPTY_PROJECT_CREATE_OPTIONS);
+    activeWorkspace.setActiveWorkspace(null);
+    TestBed.flushEffects();
+    fixture.detectChanges();
+
+    expect(fixture.componentInstance.createDialogOpen()).toBe(true);
+    expect(projectCreate.clearWorkspaceScope).not.toHaveBeenCalled();
+    expect(query(fixture, '[data-testid="project-create-title"]')).toBeNull();
+
+    activeWorkspace.setActiveWorkspace({
+      id: PROJECT_CREATE_WORKSPACE_ID,
+      label: 'Evidence Workspace',
+    });
+    TestBed.flushEffects();
+    workspaces.dashboard.set(readyDashboard);
+    fixture.detectChanges();
+    expect(projectCreate.loadOptions).toHaveBeenCalledTimes(2);
+    expect(projectCreate.loadOptions).toHaveBeenLastCalledWith(PROJECT_CREATE_WORKSPACE_ID);
+
+    projectCreate.options.set(PROJECT_CREATE_READY_OPTIONS);
+    fixture.detectChanges();
+    expect(query<HTMLInputElement>(fixture, '[data-testid="project-create-title"]')?.value).toBe(
+      'Draft retained during reauthorization',
+    );
+
+    activeWorkspace.setActiveWorkspace({
+      id: PROJECT_CREATE_SECOND_WORKSPACE_ID,
+      label: 'Second Workspace',
+    });
+    TestBed.flushEffects();
+    fixture.detectChanges();
+    expect(fixture.componentInstance.createDialogOpen()).toBe(false);
+    expect(projectCreate.clearWorkspaceScope).not.toHaveBeenCalled();
+  });
+
+  it('reauthorizes a filled create flow whose Workspace is fixed by the route', async () => {
+    const paramMap = new BehaviorSubject(
+      convertToParamMap({ workspaceId: PROJECT_CREATE_WORKSPACE_ID }),
+    );
+    const queryParamMap = new BehaviorSubject(convertToParamMap({}));
+    const fixture = await renderProjectsOverview(PROJECTS_SCENARIOS.default, true, false, {
+      paramMap,
+      queryParamMap,
+    });
+    const projectCreate = TestBed.inject(ProjectCreateFacade) as unknown as {
+      options: WritableSignal<ProjectCreateOptionsViewModel>;
+      loadOptions: ReturnType<typeof vi.fn>;
+    };
+    const activeWorkspace = TestBed.inject(ActiveWorkspaceFacade);
+    const workspaces = TestBed.inject(WorkspacesFacade) as unknown as {
+      dashboard: WritableSignal<WorkspaceDashboardViewModel>;
+    };
+    const readyDashboard = workspaces.dashboard();
+
+    projectCreate.options.set(PROJECT_CREATE_READY_OPTIONS);
+    fixture.detectChanges();
+    query<HTMLButtonElement>(fixture, '[data-testid="projects-create-project"]')?.click();
+    fixture.detectChanges();
+    const title = query<HTMLInputElement>(fixture, '[data-testid="project-create-title"]');
+    title!.value = 'Route-owned draft retained';
+    title!.dispatchEvent(new Event('input'));
+
+    workspaces.dashboard.set({ ...readyDashboard, status: 'loading', workspaces: [] });
+    projectCreate.options.set(EMPTY_PROJECT_CREATE_OPTIONS);
+    activeWorkspace.setActiveWorkspace(null);
+    TestBed.flushEffects();
+    fixture.detectChanges();
+    expect(fixture.componentInstance.createDialogOpen()).toBe(true);
+
+    workspaces.dashboard.set(readyDashboard);
+    activeWorkspace.setActiveWorkspace({
+      id: PROJECT_CREATE_WORKSPACE_ID,
+      label: 'Evidence Workspace',
+    });
+    TestBed.flushEffects();
+    fixture.detectChanges();
+    expect(projectCreate.loadOptions).toHaveBeenCalledTimes(2);
+
+    projectCreate.options.set(PROJECT_CREATE_READY_OPTIONS);
+    fixture.detectChanges();
+    expect(query<HTMLInputElement>(fixture, '[data-testid="project-create-title"]')?.value).toBe(
+      'Route-owned draft retained',
+    );
+  });
+
+  it('closes an uncommitted create flow when the same Workspace loses its create affordance', async () => {
+    const fixture = await renderProjectsOverview(PROJECTS_SCENARIOS.default, true);
+    const projectCreate = TestBed.inject(ProjectCreateFacade) as unknown as {
+      clearWorkspaceScope: ReturnType<typeof vi.fn>;
+    };
+    const workspaces = TestBed.inject(WorkspacesFacade) as unknown as {
+      dashboard: WritableSignal<WorkspaceDashboardViewModel>;
+    };
+    const readyDashboard = workspaces.dashboard();
+
+    query<HTMLButtonElement>(fixture, '[data-testid="projects-create-project"]')?.click();
+    fixture.detectChanges();
+    expect(fixture.componentInstance.createDialogOpen()).toBe(true);
+
+    workspaces.dashboard.set({
+      ...readyDashboard,
+      workspaces: readyDashboard.workspaces.map((workspace) =>
+        workspace.id === PROJECT_CREATE_WORKSPACE_ID
+          ? { ...workspace, capabilities: [] }
+          : workspace,
+      ),
+    });
+    TestBed.flushEffects();
+    fixture.detectChanges();
+
+    expect(fixture.componentInstance.createDialogOpen()).toBe(false);
+    expect(projectCreate.clearWorkspaceScope).not.toHaveBeenCalled();
+  });
+
+  it('clears an open create flow when a Workspace recheck ends with no access', async () => {
+    const fixture = await renderProjectsOverview(PROJECTS_SCENARIOS.default, true);
+    const projectCreate = TestBed.inject(ProjectCreateFacade) as unknown as {
+      options: { set(value: ProjectCreateOptionsViewModel): void };
+      clearWorkspaceScope: ReturnType<typeof vi.fn>;
+    };
+    const activeWorkspace = TestBed.inject(ActiveWorkspaceFacade);
+    const workspaces = TestBed.inject(WorkspacesFacade) as unknown as {
+      dashboard: WritableSignal<WorkspaceDashboardViewModel>;
+    };
+    const readyDashboard = workspaces.dashboard();
+
+    query<HTMLButtonElement>(fixture, '[data-testid="projects-create-project"]')?.click();
+    fixture.detectChanges();
+    expect(fixture.componentInstance.createDialogOpen()).toBe(true);
+
+    workspaces.dashboard.set({ ...readyDashboard, status: 'loading', workspaces: [] });
+    projectCreate.options.set(EMPTY_PROJECT_CREATE_OPTIONS);
+    activeWorkspace.setActiveWorkspace(null);
+    TestBed.flushEffects();
+    fixture.detectChanges();
+    expect(fixture.componentInstance.createDialogOpen()).toBe(true);
+    expect(projectCreate.clearWorkspaceScope).not.toHaveBeenCalled();
+
+    workspaces.dashboard.set({
+      ...readyDashboard,
+      status: 'noWorkspaceAccess',
+      workspaces: [],
+    });
+    TestBed.flushEffects();
+    fixture.detectChanges();
+    expect(fixture.componentInstance.createDialogOpen()).toBe(false);
+    expect(projectCreate.clearWorkspaceScope).not.toHaveBeenCalled();
+  });
+
+  it('consumes the Workspace quick-action query once and closes before opening another Workspace', async () => {
     const paramMap = new BehaviorSubject(
       convertToParamMap({ workspaceId: PROJECT_CREATE_WORKSPACE_ID }),
     );
@@ -362,7 +550,7 @@ describe('Projects and tasks mock UI', () => {
     paramMap.next(convertToParamMap({ workspaceId: PROJECT_CREATE_SECOND_WORKSPACE_ID }));
     fixture.detectChanges();
     TestBed.flushEffects();
-    expect(projectCreate.clearWorkspaceScope).toHaveBeenCalledOnce();
+    expect(projectCreate.clearWorkspaceScope).not.toHaveBeenCalled();
     expect(fixture.componentInstance.createDialogOpen()).toBe(false);
 
     queryParamMap.next(convertToParamMap({ create: '1' }));
@@ -374,6 +562,22 @@ describe('Projects and tasks mock UI', () => {
 
   it('offers capability-independent opaque resume after a committed create', async () => {
     const fixture = await renderProjectsOverview(PROJECTS_SCENARIOS.default, false, true);
+    const projectCreate = TestBed.inject(ProjectCreateFacade) as unknown as {
+      createState: WritableSignal<ProjectCreateViewModel>;
+      retryCreatedProjectNavigation: ReturnType<typeof vi.fn>;
+      clearWorkspaceScope: ReturnType<typeof vi.fn>;
+    };
+    let resolveRetry!: (result: boolean) => void;
+    projectCreate.retryCreatedProjectNavigation.mockImplementation(() => {
+      projectCreate.createState.set({
+        status: 'submitting',
+        fieldErrors: [],
+        createdProjectId: 'opaque-created-project',
+      });
+      return new Promise<boolean>((resolve) => {
+        resolveRetry = resolve;
+      });
+    });
     const resume = query<HTMLButtonElement>(
       fixture,
       '[data-testid="projects-resume-created-project"]',
@@ -385,10 +589,21 @@ describe('Projects and tasks mock UI', () => {
     fixture.detectChanges();
     expect(query(fixture, '[data-testid="project-create-pending"]')).not.toBeNull();
     query<HTMLButtonElement>(fixture, '.aip-dialog__confirm')?.click();
-    const projectCreate = TestBed.inject(ProjectCreateFacade) as unknown as {
-      retryCreatedProjectNavigation: ReturnType<typeof vi.fn>;
-    };
+    TestBed.flushEffects();
+    fixture.detectChanges();
     expect(projectCreate.retryCreatedProjectNavigation).toHaveBeenCalledOnce();
+    expect(fixture.componentInstance.createDialogOpen()).toBe(true);
+    expect(projectCreate.clearWorkspaceScope).not.toHaveBeenCalled();
+
+    projectCreate.createState.set({
+      status: 'committedPendingNavigation',
+      fieldErrors: [],
+      message: 'The Project was created as Draft.',
+    });
+    resolveRetry(false);
+    await fixture.whenStable();
+    fixture.detectChanges();
+    expect(query(fixture, '[data-testid="project-create-pending"]')).not.toBeNull();
   });
 
   it('renders the authoritative Project and Task hierarchy and updates it after a Task route switch', async () => {

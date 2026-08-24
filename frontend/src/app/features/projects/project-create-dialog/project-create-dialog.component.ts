@@ -166,11 +166,14 @@ export class ProjectCreateDialogComponent implements OnChanges {
       optionsChange.previousValue?.status !== 'ready'
     ) {
       const available = this.optionsState.data?.allowedVisibilities ?? [];
-      this.form.controls.visibility.setValue(
-        available.includes(PROJECT_VISIBILITY_MEMBERS_ONLY)
-          ? PROJECT_VISIBILITY_MEMBERS_ONLY
-          : (available[0] ?? PROJECT_VISIBILITY_MEMBERS_ONLY),
-      );
+      const currentVisibility = this.form.controls.visibility.value;
+      if (!available.includes(currentVisibility)) {
+        this.form.controls.visibility.setValue(
+          available.includes(PROJECT_VISIBILITY_MEMBERS_ONLY)
+            ? PROJECT_VISIBILITY_MEMBERS_ONLY
+            : (available[0] ?? PROJECT_VISIBILITY_MEMBERS_ONLY),
+        );
+      }
       this.focusAfterRender('title');
     }
 

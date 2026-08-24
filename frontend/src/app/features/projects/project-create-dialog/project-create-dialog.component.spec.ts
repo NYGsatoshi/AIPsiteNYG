@@ -80,6 +80,29 @@ describe('ProjectCreateDialogComponent', () => {
     expect(component.filteredGroups).toEqual([]);
   });
 
+  it('preserves an allowed Visibility when protected options are reauthorized', () => {
+    component.form.controls.visibility.setValue(PROJECT_VISIBILITY_RESTRICTED);
+    fixture.componentRef.setInput('optionsState', { status: 'idle' });
+    fixture.detectChanges();
+    fixture.componentRef.setInput('optionsState', readyOptions);
+    fixture.detectChanges();
+
+    expect(component.form.controls.visibility.value).toBe(PROJECT_VISIBILITY_RESTRICTED);
+
+    fixture.componentRef.setInput('optionsState', { status: 'idle' });
+    fixture.detectChanges();
+    fixture.componentRef.setInput('optionsState', {
+      ...readyOptions,
+      data: {
+        ...options,
+        allowedVisibilities: [PROJECT_VISIBILITY_MEMBERS_ONLY],
+      },
+    } satisfies ProjectCreateOptionsViewModel);
+    fixture.detectChanges();
+
+    expect(component.form.controls.visibility.value).toBe(PROJECT_VISIBILITY_MEMBERS_ONLY);
+  });
+
   it('focuses a linked summary for required name and inverted dates', async () => {
     component.form.patchValue({
       title: '   ',
