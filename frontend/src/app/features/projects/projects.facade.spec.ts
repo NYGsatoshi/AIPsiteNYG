@@ -1,7 +1,11 @@
 import { provideHttpClient } from '@angular/common/http';
 import { HttpTestingController, provideHttpClientTesting } from '@angular/common/http/testing';
 import { TestBed } from '@angular/core/testing';
+import { Router } from '@angular/router';
+import { EMPTY } from 'rxjs';
 
+import { RealtimeFacade } from '../../core/realtime/realtime.facade';
+import { ActiveWorkspaceFacade } from '../../core/workspace/active-workspace.facade';
 import { ProjectsFacade } from './projects.facade';
 import { TaskDto } from './projects.api';
 
@@ -16,6 +20,7 @@ const projectDto = {
 
 const editableTaskDto: TaskDto = {
   id: 'task-1',
+  workspaceId: 'workspace-1',
   projectId: 'project-1',
   title: 'Backend Task',
   description: 'Persisted detail',
@@ -41,6 +46,7 @@ describe('ProjectsFacade live API mutations', () => {
     TestBed.configureTestingModule({
       providers: [provideHttpClient(), provideHttpClientTesting()]
     });
+    TestBed.inject(ActiveWorkspaceFacade).setActiveWorkspace({ id: 'workspace-1', label: 'Workspace 1' });
     facade = TestBed.inject(ProjectsFacade);
     httpMock = TestBed.inject(HttpTestingController);
   });
@@ -70,17 +76,17 @@ describe('ProjectsFacade live API mutations', () => {
     expect(facade.getTaskDetail('project-1', 'task-1').editorTask?.title).toBe('Backend Task');
   });
 
-  it('does not render cached task content when the route project context mismatches the loaded task', () => {
+  it('fails closed when the route Project context mismatches the loaded Task', () => {
     flushInitialLoad([]);
     facade.ensureTaskDetail('wrong-project', 'task-1');
 
     httpMock.expectOne('/api/tasks/task-1').flush({ task: editableTaskDto, checklist: [], labels: [], subtasks: { items: [] }, comments: { items: [] }, files: { items: [] } });
 
     const page = facade.getTaskDetail('wrong-project', 'task-1');
-    expect(page.status).toBe('empty');
+    expect(page.status).toBe('permissionDenied');
     expect(page.task).toBeUndefined();
     expect(page.editorTask).toBeUndefined();
-    expect(page.message).toBe('TASK_DETAIL_PROJECT_MISMATCH');
+    httpMock.expectNone('/api/projects/project-1');
   });
 
   it('cancels and discards an in-flight detail request after leaving the page', () => {
@@ -551,3 +557,207 @@ describe('ProjectsFacade live API mutations', () => {
     return { eventId: 'event-1', eventType, payloadSchemaVersion: 1, occurredAt: '2026-07-24T00:00:00Z', tenantId: 'tenant-1', aggregateType: 'Security', aggregateId: 'security-1', aggregateVersion: null, actor: { actorType: 'System', actorId: null }, correlationId: null, causationId: null, payload: {} };
   }
 });
+
+describe('ProjectsFacade direct Task route parent context', () => {
+  let facade: ProjectsFacade;
+  let httpMock: HttpTestingController;
+  let activeWorkspace: ActiveWorkspaceFacade;
+
+  beforeEach(() => {
+    TestBed.configureTestingModule({
+      providers: [
+        provideHttpClient(),
+        provideHttpClientTesting(),
+        { provide: Router, useValue: { url: '/projects/project-1/tasks/task-1' } },
+        {
+          provide: RealtimeFacade,
+          useValue: {
+            durableEvents$: EMPTY,
+            registerProtectedStateClearer: () => () => undefined,
+            registerSubscription: () => () => undefined,
+            registerCatchUp: () => () => undefined
+          }
+        }
+      ]
+    });
+    facade = TestBed.inject(ProjectsFacade);
+    httpMock = TestBed.inject(HttpTestingController);
+    activeWorkspace = TestBed.inject(ActiveWorkspaceFacade);
+  });
+
+  afterEach(() => {
+    httpMock.verify();
+    TestBed.resetTestingModule();
+  });
+
+  it('loads the authorized parent Project without issuing the broad Project list request', () => {
+    httpMock.expectNone('/api/projects');
+    facade.ensureTaskDetail('project-1', 'task-1');
+    const preSelectionTask = httpMock.expectOne('/api/tasks/task-1');
+
+    activeWorkspace.setActiveWorkspace({ id: 'workspace-1', label: 'Workspace 1' });
+    TestBed.flushEffects();
+    TestBed.flushEffects();
+
+    expect(preSelectionTask.cancelled).toBe(true);
+    httpMock.expectNone('/api/projects');
+
+    httpMock.expectOne('/api/tasks/task-1').flush(taskDetail({ ...editableTaskDto, workspaceId: 'workspace-1' }));
+    expect(facade.getTaskDetail('project-1', 'task-1').detailSectionState.status).toBe('loading');
+
+    const parent = httpMock.expectOne('/api/projects/project-1');
+    expect(parent.request.method).toBe('GET');
+    parent.flush(projectDto);
+
+    const page = facade.getTaskDetail('project-1', 'task-1');
+    expect(page.project?.name).toBe('Backend Project');
+    expect(page.task?.title).toBe('Backend Task');
+    httpMock.expectNone('/api/projects');
+  });
+
+  it('keeps a fast cold-route Task undisclosed until Workspace hydration reauthorizes it', () => {
+    facade.ensureTaskDetail('project-1', 'task-1');
+    httpMock.expectOne('/api/tasks/task-1').flush(taskDetail({ ...editableTaskDto, workspaceId: 'workspace-1' }));
+
+    expect(facade.getTaskDetail('project-1', 'task-1').task).toBeUndefined();
+    expect(facade.getTaskDetail('project-1', 'task-1').detailSectionState.status).toBe('loading');
+    httpMock.expectNone('/api/projects/project-1');
+    httpMock.expectNone('/api/projects');
+
+    activeWorkspace.setActiveWorkspace({ id: 'workspace-1', label: 'Workspace 1' });
+    TestBed.flushEffects();
+    TestBed.flushEffects();
+
+    httpMock.expectOne('/api/tasks/task-1').flush(taskDetail({ ...editableTaskDto, workspaceId: 'workspace-1' }));
+    httpMock.expectOne('/api/projects/project-1').flush(projectDto);
+    expect(facade.getTaskDetail('project-1', 'task-1').project?.name).toBe('Backend Project');
+    httpMock.expectNone('/api/projects');
+  });
+
+  it('does not load parent context for a Task outside the active Workspace', () => {
+    facade.ensureTaskDetail('project-1', 'task-1');
+    const preSelectionTask = httpMock.expectOne('/api/tasks/task-1');
+    activeWorkspace.setActiveWorkspace({ id: 'workspace-1', label: 'Workspace 1' });
+    TestBed.flushEffects();
+    TestBed.flushEffects();
+    expect(preSelectionTask.cancelled).toBe(true);
+
+    httpMock.expectOne('/api/tasks/task-1').flush(taskDetail({ ...editableTaskDto, workspaceId: 'workspace-2' }));
+
+    const page = facade.getTaskDetail('project-1', 'task-1');
+    expect(page.status).toBe('permissionDenied');
+    expect(page.task).toBeUndefined();
+    httpMock.expectNone('/api/projects/project-1');
+    httpMock.expectNone('/api/projects');
+  });
+
+  it('does not let a cached Project bypass the active Workspace boundary', () => {
+    activeWorkspace.setActiveWorkspace({ id: 'workspace-1', label: 'Workspace 1' });
+    TestBed.flushEffects();
+    facade.retryProjects();
+    httpMock.expectOne('/api/projects').flush({ items: [projectDto] });
+    httpMock.expectOne('/api/projects/project-1/tasks').flush({ items: [] });
+
+    facade.ensureTaskDetail('project-1', 'task-1');
+    httpMock.expectOne('/api/tasks/task-1').flush({
+      ...taskDetail({ ...editableTaskDto, workspaceId: 'workspace-2' }),
+      permissions: { canApplyLabels: true, canManageLabelDefinitions: true }
+    });
+
+    expect(facade.getTaskDetail('project-1', 'task-1').status).toBe('permissionDenied');
+    httpMock.expectNone('/api/projects/project-1');
+    httpMock.expectNone('/api/projects/project-1/task-labels?includeArchived=true');
+    httpMock.expectNone('/api/projects');
+  });
+
+  it('cancels a stale parent Project read when the Task route changes', () => {
+    activeWorkspace.setActiveWorkspace({ id: 'workspace-1', label: 'Workspace 1' });
+    TestBed.flushEffects();
+    facade.ensureTaskDetail('project-1', 'task-1');
+    httpMock.expectOne('/api/tasks/task-1').flush(taskDetail({ ...editableTaskDto, workspaceId: 'workspace-1' }));
+    const staleParent = httpMock.expectOne('/api/projects/project-1');
+
+    facade.ensureTaskDetail('project-2', 'task-2');
+    expect(staleParent.cancelled).toBe(true);
+
+    httpMock.expectOne('/api/tasks/task-2').flush(taskDetail({
+      ...editableTaskDto,
+      id: 'task-2',
+      projectId: 'project-2',
+      workspaceId: 'workspace-1',
+      title: 'Task B'
+    }));
+    httpMock.expectOne('/api/projects/project-2').flush({
+      ...projectDto,
+      id: 'project-2',
+      title: 'Project B'
+    });
+
+    const page = facade.getTaskDetail('project-2', 'task-2');
+    expect(page.project?.name).toBe('Project B');
+    expect(page.task?.title).toBe('Task B');
+    expect(facade.getTaskDetail('project-1', 'task-1').detail).toBeUndefined();
+  });
+
+  it('fails closed when the parent Project is no longer readable', () => {
+    activeWorkspace.setActiveWorkspace({ id: 'workspace-1', label: 'Workspace 1' });
+    TestBed.flushEffects();
+    facade.ensureTaskDetail('project-1', 'task-1');
+    httpMock.expectOne('/api/tasks/task-1').flush(taskDetail({ ...editableTaskDto, workspaceId: 'workspace-1' }));
+    httpMock.expectOne('/api/projects/project-1').flush(
+      { error: { code: 'PROJECT_NOT_FOUND' }, requestId: 'masked-parent' },
+      { status: 404, statusText: 'Not Found' }
+    );
+
+    const page = facade.getTaskDetail('project-1', 'task-1');
+    expect(page.status).toBe('permissionDenied');
+    expect(page.task).toBeUndefined();
+    expect(page.project).toBeUndefined();
+    httpMock.expectNone('/api/projects');
+  });
+
+  it('discards a Task whose canonical Project does not match the route before dependent reads', () => {
+    activeWorkspace.setActiveWorkspace({ id: 'workspace-1', label: 'Workspace 1' });
+    TestBed.flushEffects();
+    facade.ensureTaskDetail('project-1', 'task-1');
+    httpMock.expectOne('/api/tasks/task-1').flush({
+      ...taskDetail({ ...editableTaskDto, workspaceId: 'workspace-1', projectId: 'project-2' }),
+      permissions: { canApplyLabels: true, canManageLabelDefinitions: true }
+    });
+
+    const page = facade.getTaskDetail('project-1', 'task-1');
+    expect(page.status).toBe('permissionDenied');
+    expect(page.task).toBeUndefined();
+    httpMock.expectNone('/api/projects/project-2');
+    httpMock.expectNone('/api/projects/project-2/task-labels?includeArchived=true');
+    httpMock.expectNone('/api/projects');
+  });
+
+  it('fails closed without a broad Project request when the parent read is forbidden', () => {
+    activeWorkspace.setActiveWorkspace({ id: 'workspace-1', label: 'Workspace 1' });
+    TestBed.flushEffects();
+    facade.ensureTaskDetail('project-1', 'task-1');
+    httpMock.expectOne('/api/tasks/task-1').flush(taskDetail({ ...editableTaskDto, workspaceId: 'workspace-1' }));
+    httpMock.expectOne('/api/projects/project-1').flush(
+      { error: { code: 'FORBIDDEN' }, requestId: 'masked-parent' },
+      { status: 403, statusText: 'Forbidden' }
+    );
+
+    expect(facade.getTaskDetail('project-1', 'task-1').status).toBe('permissionDenied');
+    httpMock.expectNone('/api/projects');
+  });
+});
+
+function taskDetail(task: TaskDto) {
+  return {
+    task,
+    relationships: {},
+    permissions: {},
+    checklist: [],
+    labels: [],
+    watchState: { isWatching: false, isExplicitOptOut: false, automaticSources: [], version: 1 },
+    subtasks: { items: [], page: 1, pageSize: 50, totalCount: 0, hasMore: false },
+    comments: { items: [], page: 1, pageSize: 20, totalCount: 0, hasMore: false },
+    files: { items: [], page: 1, pageSize: 20, totalCount: 0, hasMore: false }
+  };
+}
