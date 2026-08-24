@@ -181,6 +181,94 @@ public sealed class ProjectServiceTests
     }
 
     [Fact]
+    public async Task TaskCreationPersistsStructuredBriefWithoutReinterpretingLegacyDescriptionOrProjectContext()
+    {
+        var fixture = ProjectFixture.Create();
+        var contributor = fixture.AddUser();
+        fixture.Current.UserIdValue = contributor.Id;
+        fixture.AddProjectMember(contributor.Id, ProjectRole.Contributor);
+        fixture.EnsureProjectOperational();
+        fixture.Project.Description = "Project context must remain separately labelled.";
+
+        var created = await fixture.Service.CreateTaskAsync(
+            fixture.Project.Id,
+            new CreateTaskItemRequest(
+                null,
+                "Structured brief",
+                "  Legacy free-form notes stay here.  ",
+                TaskPriority.Medium,
+                null,
+                null,
+                "  Reach the review-ready state.  ",
+                "  A signed-off package.  ",
+                "  Keep the public URL stable.  "));
+
+        Assert.True(created.IsSuccess);
+        var task = fixture.Projects.Tasks[created.Value!.Id];
+        Assert.Equal("Legacy free-form notes stay here.", task.Description);
+        Assert.Equal("Reach the review-ready state.", task.BriefGoal);
+        Assert.Equal("A signed-off package.", task.BriefDeliverable);
+        Assert.Equal("Keep the public URL stable.", task.BriefConstraints);
+        Assert.NotEqual(fixture.Project.Description, task.BriefGoal);
+    }
+
+    [Fact]
+    public async Task LegacyDescriptionOnlyTaskCreationLeavesStructuredBriefUnset()
+    {
+        var fixture = ProjectFixture.Create();
+        var contributor = fixture.AddUser();
+        fixture.Current.UserIdValue = contributor.Id;
+        fixture.AddProjectMember(contributor.Id, ProjectRole.Contributor);
+        fixture.EnsureProjectOperational();
+        fixture.Project.Description = "Project context is not a Task Brief default.";
+
+        var created = await fixture.Service.CreateTaskAsync(
+            fixture.Project.Id,
+            new CreateTaskItemRequest(null, "Legacy task", "Free-form input", TaskPriority.Low, null, null));
+
+        Assert.True(created.IsSuccess);
+        var task = fixture.Projects.Tasks[created.Value!.Id];
+        Assert.Equal("Free-form input", task.Description);
+        Assert.Null(task.BriefGoal);
+        Assert.Null(task.BriefDeliverable);
+        Assert.Null(task.BriefConstraints);
+    }
+
+    [Theory]
+    [InlineData("goal")]
+    [InlineData("deliverable")]
+    [InlineData("constraints")]
+    public async Task TaskCreationRejectsEachOversizedStructuredBriefFieldWithoutSideEffects(string field)
+    {
+        var fixture = ProjectFixture.Create();
+        var contributor = fixture.AddUser();
+        fixture.Current.UserIdValue = contributor.Id;
+        fixture.AddProjectMember(contributor.Id, ProjectRole.Contributor);
+        fixture.EnsureProjectOperational();
+        var oversized = new string('x', TaskBriefText.MaximumFieldLength + 1);
+
+        var result = await fixture.Service.CreateTaskAsync(
+            fixture.Project.Id,
+            new CreateTaskItemRequest(
+                null,
+                "Rejected brief",
+                "Free-form input",
+                TaskPriority.Medium,
+                null,
+                null,
+                field == "goal" ? oversized : null,
+                field == "deliverable" ? oversized : null,
+                field == "constraints" ? oversized : null));
+
+        Assert.False(result.IsSuccess);
+        Assert.Equal("TASK_BRIEF_FIELD_TOO_LONG", result.ErrorDetail?.Code);
+        Assert.Equal(field, result.ErrorDetail?.Target);
+        Assert.Contains($"Task brief {char.ToUpperInvariant(field[0])}{field[1..]}", result.ErrorDetail?.Message, StringComparison.Ordinal);
+        Assert.Empty(fixture.Projects.Tasks);
+        Assert.Equal(0, fixture.CommandUnitOfWork.SaveCount);
+    }
+
+    [Fact]
     [Trait("Scope", "TaskV1PR06")]
     public async Task RevokedWorkspaceMemberCannotCreateTaskThroughRetainedProjectMembership()
     {

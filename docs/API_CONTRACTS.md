@@ -310,6 +310,67 @@ an authorization, privacy, preference, or dedupe gate. PR07-A introduces no
 Task notification producer, digest worker, notification-open API, SignalR
 route, or Angular preference UI.
 
+## Issue #350 structured Task Brief
+
+The existing Task create, subtask-create, versioned update, and detail
+boundaries support three additive optional Task-specific fields in this fixed
+order: `goal`, `deliverable`, and `constraints`.
+
+- `POST /api/projects/{projectId}/tasks` accepts all three fields.
+- `POST /api/tasks/{taskItemId}/subtasks` accepts all three fields.
+- `PATCH /api/tasks/{taskItemId}` accepts all three fields under the existing
+  `expectedVersion` command boundary.
+- `GET /api/tasks/{taskItemId}` returns them inside canonical `task.brief`.
+
+Each field is plain text, trimmed by the server, nullable, and limited to
+4,000 characters. For PATCH only, omission preserves the current field while
+explicit JSON `null` (or a whitespace-only supplied value) clears it. Older
+clients that send only `description` continue to round-trip their free-form
+Task notes unchanged. `description` is not replaced, parsed, or synthesized
+from the structured fields.
+
+```json
+{
+  "title": "Prepare launch review",
+  "description": "Legacy free-form notes remain supported.",
+  "goal": "The release is ready for an approval decision.",
+  "deliverable": "A review-ready release package.",
+  "constraints": null,
+  "priority": 2,
+  "plannedStartDate": "2026-08-24",
+  "plannedEndDate": "2026-08-28",
+  "progressPercent": 20,
+  "expectedVersion": 7
+}
+```
+
+Canonical detail reports value provenance per field. The only current source
+values are `taskSpecific` and `notSet`:
+
+```json
+{
+  "brief": {
+    "goal": { "value": "The release is ready for review.", "source": "taskSpecific" },
+    "deliverable": { "value": null, "source": "notSet" },
+    "constraints": { "value": null, "source": "notSet" }
+  }
+}
+```
+
+Project context remains a separately authorized parent projection. The server
+does not map `Project.Description` to a Task Brief field and has no Project
+Brief-default contract. Project Task-list responses remain compact and do not
+include Brief bodies. Detail exposure uses the existing Project-read boundary;
+denial returns the same safe Task-not-found behavior and does not disclose a
+Brief value.
+
+An oversized field returns HTTP 400 `TASK_BRIEF_FIELD_TOO_LONG` with the
+specific `goal`, `deliverable`, or `constraints` target. Audit and realtime
+metadata contain field names/version hints only, never Brief values. The
+reusable Angular fields are integrated into existing Task detail/edit, but a
+full Task-create/start UI is not present in this issue and remains owned by
+Issue #410.
+
 ## TASK-V1-PR07-B hard deadline mutation
 
 The existing canonical versioned Task detail mutation is extended in place:

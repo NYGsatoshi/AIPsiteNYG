@@ -100,7 +100,16 @@ public sealed record TaskItemResponse(
     bool IsBlocked = false,
     bool HasArtifact = false);
 public sealed record TaskUiPermissionResponse(bool CanEdit, bool CanAssign, bool CanChangeStatus, bool CanDelete, IReadOnlyList<TaskItemStatus> AllowedTransitions, string? RowVersion);
-public sealed record CreateTaskItemRequest(Guid? MilestoneId, string Title, string? Description, TaskPriority Priority, DateOnly? StartDate, DateOnly? DueDate);
+public sealed record CreateTaskItemRequest(
+    Guid? MilestoneId,
+    string Title,
+    string? Description,
+    TaskPriority Priority,
+    DateOnly? StartDate,
+    DateOnly? DueDate,
+    string? Goal = null,
+    string? Deliverable = null,
+    string? Constraints = null);
 public sealed record UpdateTaskItemRequest(Guid? MilestoneId, string? Title, string? Description, TaskItemStatus? Status, TaskPriority? Priority, DateOnly? StartDate, DateOnly? DueDate, int? ProgressPercent);
 public sealed record TaskAssignmentResponse(Guid Id, Guid TaskItemId, Guid UserId, string DisplayName, TaskAssignmentRole Role, decimal? EstimatedHours, decimal? ActualHours, DateTimeOffset AssignedAt, Guid AssignedByUserId);
 public sealed record AddTaskAssignmentRequest(Guid UserId, TaskAssignmentRole Role, decimal? EstimatedHours);

@@ -126,6 +126,42 @@ describe('ProjectsFacade live API mutations', () => {
     expect(facade.getTaskDetail('project-1', 'task-1').editorTask?.title).toBe('Backend Task');
   });
 
+  it('keeps canonical Task Brief values authoritative across a compact ProjectChanged list refresh', () => {
+    flushInitialLoad();
+    facade.ensureTaskDetail('project-1', 'task-1');
+    httpMock.expectOne('/api/tasks/task-1').flush({
+      task: {
+        ...editableTaskDto,
+        brief: {
+          goal: { value: 'Reach review', source: 'taskSpecific' },
+          deliverable: { value: 'Signed handoff', source: 'taskSpecific' },
+          constraints: { value: null, source: 'notSet' }
+        }
+      },
+      checklist: [], labels: [], subtasks: { items: [] }, comments: { items: [] }, files: { items: [] }
+    });
+
+    vi.useFakeTimers();
+    try {
+      (facade as unknown as { handleRealtimeEvent(event: unknown): void }).handleRealtimeEvent({
+        eventId: 'project-refresh', eventType: 'Projects.ProjectChanged.v1', aggregateId: 'project-1'
+      });
+      vi.advanceTimersByTime(100);
+
+      expect(facade.getTaskDetail('project-1', 'task-1').editorTask?.brief?.goal.value).toBe('Reach review');
+      expectProjectList().flush({ items: [projectDto] });
+      httpMock.expectOne('/api/projects/project-1/tasks').flush({ items: [editableTaskDto] });
+
+      expect(facade.getTaskDetail('project-1', 'task-1').editorTask?.brief).toEqual({
+        goal: { value: 'Reach review', source: 'taskSpecific' },
+        deliverable: { value: 'Signed handoff', source: 'taskSpecific' },
+        constraints: { value: null, source: 'notSet' }
+      });
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
   it('fails closed when the route Project context mismatches the loaded Task', () => {
     flushInitialLoad([]);
     facade.ensureTaskDetail('wrong-project', 'task-1');

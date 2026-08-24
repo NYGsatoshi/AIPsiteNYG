@@ -28,6 +28,35 @@ public sealed class ProjectsControllerTests
         Assert.Equal(StatusCodes.Status409Conflict, Assert.IsType<ObjectResult>(action).StatusCode);
     }
 
+    [Theory]
+    [InlineData("goal", "Goal")]
+    [InlineData("deliverable", "Deliverable")]
+    [InlineData("constraints", "Constraints")]
+    public void TaskBriefValidationMapsToFieldSpecificCanonicalTargets(string target, string label)
+    {
+        var detail = new ApplicationErrorDetail(
+            "TASK_BRIEF_FIELD_TOO_LONG",
+            $"Task brief {label} must be 4000 characters or fewer.",
+            Target: target);
+
+        var taskAction = Assert.IsType<ObjectResult>(InvokeGenericTaskResult(Result<string>.Failure(detail)));
+        var controller = Controller();
+        var createMethod = typeof(ProjectsController)
+            .GetMethods(BindingFlags.Instance | BindingFlags.NonPublic)
+            .Single(candidate => candidate.Name == "ToActionResult" && candidate.IsGenericMethod)
+            .MakeGenericMethod(typeof(string));
+        var createAction = Assert.IsType<ObjectResult>(createMethod.Invoke(controller, [Result<string>.Failure(detail)]));
+
+        foreach (var action in new[] { taskAction, createAction })
+        {
+            Assert.Equal(StatusCodes.Status400BadRequest, action.StatusCode);
+            using var envelope = JsonDocument.Parse(JsonSerializer.Serialize(action.Value));
+            Assert.Equal("TASK_BRIEF_FIELD_TOO_LONG", envelope.RootElement.GetProperty("error").GetProperty("code").GetString());
+            Assert.Equal(target, envelope.RootElement.GetProperty("error").GetProperty("target").GetString());
+            Assert.Contains(label, envelope.RootElement.GetProperty("error").GetProperty("message").GetString(), StringComparison.Ordinal);
+        }
+    }
+
     [Fact]
     [Trait("Scope", "TaskV1PR06")]
     public void ProjectRevisionConflictMapsToSafeHttp409Envelope()

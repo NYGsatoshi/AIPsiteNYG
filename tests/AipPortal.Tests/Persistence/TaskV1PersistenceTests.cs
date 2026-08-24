@@ -1,5 +1,6 @@
 using AipPortal.Application.Common.Tenancy;
 using AipPortal.Application.Common.Interfaces;
+using AipPortal.Application.Projects;
 using AipPortal.Domain.Entities;
 using AipPortal.Domain.Enums;
 using AipPortal.Infrastructure.Persistence;
@@ -9,6 +10,32 @@ namespace AipPortal.Tests.Persistence;
 
 public sealed class TaskV1PersistenceTests
 {
+    [Fact]
+    public void StructuredTaskBriefUsesBoundedNullableColumnsWithoutAddingListIndexes()
+    {
+        using var context = new AppDbContext(
+            new DbContextOptionsBuilder<AppDbContext>()
+                .UseInMemoryDatabase(Guid.NewGuid().ToString("N"))
+                .Options,
+            new CurrentTenantService());
+        var entity = context.Model.FindEntityType(typeof(TaskItem));
+
+        Assert.NotNull(entity);
+        foreach (var propertyName in new[]
+                 {
+                     nameof(TaskItem.BriefGoal),
+                     nameof(TaskItem.BriefDeliverable),
+                     nameof(TaskItem.BriefConstraints)
+                 })
+        {
+            var property = entity!.FindProperty(propertyName);
+            Assert.NotNull(property);
+            Assert.True(property!.IsNullable);
+            Assert.Equal(TaskBriefText.MaximumFieldLength, property.GetMaxLength());
+            Assert.DoesNotContain(entity.GetIndexes(), index => index.Properties.Contains(property));
+        }
+    }
+
     [Fact]
     public async Task CreatingPlanningProjectDoesNotProvisionTaskWorkflowBeforeActivation()
     {

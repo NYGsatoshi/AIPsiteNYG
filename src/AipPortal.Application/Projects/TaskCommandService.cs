@@ -51,6 +51,12 @@ public sealed class TaskCommandService(
         if (!request.ProgressPercent.HasValue || request.ProgressPercent is < 0 or > 100) return Fail<CanonicalTaskResponse>("TASK_INVALID_PROGRESS", "Task progress must be between 0 and 100.");
         if (request.PlannedStartDate.HasValue && request.PlannedEndDate.HasValue && request.PlannedStartDate.Value > request.PlannedEndDate.Value)
             return Fail<CanonicalTaskResponse>("TASK_INVALID_DATE_RANGE", "Planned start date must not be after planned end date.");
+        var briefValidation = TaskBriefText.Validate(
+            request.Goal.IsSpecified ? request.Goal.Value : null,
+            request.Deliverable.IsSpecified ? request.Deliverable.Value : null,
+            request.Constraints.IsSpecified ? request.Constraints.Value : null);
+        if (briefValidation is not null)
+            return Result<CanonicalTaskResponse>.Failure(briefValidation);
 
         var category = CategoryOf(task);
         var projectTasks = await projects.ListTasksAsync(task.ProjectId, cancellationToken);
@@ -80,6 +86,12 @@ public sealed class TaskCommandService(
         task.Title = title;
         task.Description = string.IsNullOrWhiteSpace(description) ? null : description;
         task.Priority = request.Priority.Value;
+        if (request.Goal.IsSpecified)
+            task.BriefGoal = TaskBriefText.Normalize(request.Goal.Value);
+        if (request.Deliverable.IsSpecified)
+            task.BriefDeliverable = TaskBriefText.Normalize(request.Deliverable.Value);
+        if (request.Constraints.IsSpecified)
+            task.BriefConstraints = TaskBriefText.Normalize(request.Constraints.Value);
         // Parent planning fields are derived, but ordinary body fields remain editable.
         if (!derived.IsDerived)
         {
@@ -102,6 +114,12 @@ public sealed class TaskCommandService(
         {
             changedFields.Add("deadlineAt");
         }
+        if (request.Goal.IsSpecified)
+            changedFields.Add("briefGoal");
+        if (request.Deliverable.IsSpecified)
+            changedFields.Add("briefDeliverable");
+        if (request.Constraints.IsSpecified)
+            changedFields.Add("briefConstraints");
 
         var deadlineMetadata = request.DeadlineAt.IsSpecified
             ? new Dictionary<string, object?>
@@ -1250,7 +1268,20 @@ public sealed class TaskCommandService(
         var checklist = await projects.ListChecklistAsync(task.Id, cancellationToken);
         var labels = await projects.ListWorkItemLabelsAsync(task.Id, cancellationToken);
         var subresources = new TaskSubresourceSummary(checklist.Count(x => x.IsCompleted), checklist.Count, await projects.CountTaskCommentsAsync(task.Id, cancellationToken), labels.Count, projectTasks.Count(child => child.ParentTaskItemId == task.Id && !child.DeletedAt.HasValue));
-        return new CanonicalTaskResponse(task.Id, task.TenantId, task.WorkspaceId, task.ProjectId, task.Kind, task.ParentTaskItemId, task.MilestoneId, task.Title, task.Description, task.WorkflowStageId, stage?.Name ?? CategoryOf(task).ToString(), stage?.InternalCategory ?? CategoryOf(task), task.Priority.ToString(), task.IsBlocked, canUpdate || canAssign ? task.BlockedReason : null, start, end, task.DeadlineAt, task.ActualStartAt, task.CompletedAt, progress, derived.IsDerived, task.EstimatedEffortMinutes, relationships.PrimaryAssignee, task.TargetGroupId, relationships.Collaborators.Count, relationships.Reviewer, TaskDeadlineCalculator.IsOverdue(task, CategoryOf(task), timeZone, clock.UtcNow, end), [], task.VersionNo, new TaskCommandPermissions(canUpdate, canAssign, await taskAuthorization.CanDeleteTask(actor, task.Id, cancellationToken), canReview, await taskAuthorization.CanOverrideTaskReview(actor, task.Id, cancellationToken), !task.PrimaryAssigneeUserId.HasValue && task.TargetGroupId.HasValue), categories, task.ReviewStatus, subresources);
+        return new CanonicalTaskResponse(task.Id, task.TenantId, task.WorkspaceId, task.ProjectId, task.Kind, task.ParentTaskItemId, task.MilestoneId, task.Title, task.Description, task.WorkflowStageId, stage?.Name ?? CategoryOf(task).ToString(), stage?.InternalCategory ?? CategoryOf(task), task.Priority.ToString(), task.IsBlocked, canUpdate || canAssign ? task.BlockedReason : null, start, end, task.DeadlineAt, task.ActualStartAt, task.CompletedAt, progress, derived.IsDerived, task.EstimatedEffortMinutes, relationships.PrimaryAssignee, task.TargetGroupId, relationships.Collaborators.Count, relationships.Reviewer, TaskDeadlineCalculator.IsOverdue(task, CategoryOf(task), timeZone, clock.UtcNow, end), [], task.VersionNo, new TaskCommandPermissions(canUpdate, canAssign, await taskAuthorization.CanDeleteTask(actor, task.Id, cancellationToken), canReview, await taskAuthorization.CanOverrideTaskReview(actor, task.Id, cancellationToken), !task.PrimaryAssigneeUserId.HasValue && task.TargetGroupId.HasValue), categories, task.ReviewStatus, subresources, ToBrief(task));
+    }
+
+    private static TaskBriefResponse ToBrief(TaskItem task) => new(
+        ToBriefField(task.BriefGoal),
+        ToBriefField(task.BriefDeliverable),
+        ToBriefField(task.BriefConstraints));
+
+    private static TaskBriefFieldResponse ToBriefField(string? value)
+    {
+        var normalized = TaskBriefText.Normalize(value);
+        return new(
+            normalized,
+            normalized is null ? TaskBriefValueSource.NotSet : TaskBriefValueSource.TaskSpecific);
     }
 
     private async Task<TaskRelationshipsResponse> RelationshipsAsync(TaskItem task, CancellationToken cancellationToken)

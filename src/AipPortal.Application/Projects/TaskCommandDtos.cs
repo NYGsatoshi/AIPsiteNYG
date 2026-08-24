@@ -1,4 +1,5 @@
 using AipPortal.Domain.Enums;
+using AipPortal.Application.Common;
 using AipPortal.Application.Planning;
 using System.Text.Json;
 using System.Text.Json.Serialization;
@@ -16,7 +17,80 @@ public sealed record TaskUpdateDetailsRequest(
     DateOnly? PlannedEndDate,
     int? ProgressPercent,
     long ExpectedVersion,
-    OptionalDateTimeOffset DeadlineAt = default);
+    OptionalDateTimeOffset DeadlineAt = default,
+    OptionalString Goal = default,
+    OptionalString Deliverable = default,
+    OptionalString Constraints = default);
+
+public static class TaskBriefText
+{
+    public const int MaximumFieldLength = 4_000;
+
+    public static bool ExceedsMaximum(string? value) =>
+        value?.Trim().Length > MaximumFieldLength;
+
+    public static string? Normalize(string? value)
+    {
+        var normalized = value?.Trim();
+        return string.IsNullOrWhiteSpace(normalized) ? null : normalized;
+    }
+
+    public static ApplicationErrorDetail? Validate(
+        string? goal,
+        string? deliverable,
+        string? constraints)
+    {
+        if (ExceedsMaximum(goal))
+            return TooLong("Goal", "goal");
+        if (ExceedsMaximum(deliverable))
+            return TooLong("Deliverable", "deliverable");
+        if (ExceedsMaximum(constraints))
+            return TooLong("Constraints", "constraints");
+        return null;
+    }
+
+    private static ApplicationErrorDetail TooLong(string label, string target) => new(
+        "TASK_BRIEF_FIELD_TOO_LONG",
+        $"Task brief {label} must be {MaximumFieldLength} characters or fewer.",
+        Target: target);
+}
+
+[JsonConverter(typeof(TaskBriefValueSourceJsonConverter))]
+public enum TaskBriefValueSource
+{
+    NotSet,
+    TaskSpecific
+}
+
+public sealed class TaskBriefValueSourceJsonConverter : JsonConverter<TaskBriefValueSource>
+{
+    public override TaskBriefValueSource Read(ref Utf8JsonReader reader, Type typeToConvert, JsonSerializerOptions options)
+    {
+        if (reader.TokenType != JsonTokenType.String)
+            throw new JsonException("Task brief value source must be a string.");
+
+        return reader.GetString() switch
+        {
+            "notSet" => TaskBriefValueSource.NotSet,
+            "taskSpecific" => TaskBriefValueSource.TaskSpecific,
+            _ => throw new JsonException("Task brief value source is invalid.")
+        };
+    }
+
+    public override void Write(Utf8JsonWriter writer, TaskBriefValueSource value, JsonSerializerOptions options) =>
+        writer.WriteStringValue(value switch
+        {
+            TaskBriefValueSource.NotSet => "notSet",
+            TaskBriefValueSource.TaskSpecific => "taskSpecific",
+            _ => throw new JsonException("Task brief value source is invalid.")
+        });
+}
+
+public sealed record TaskBriefFieldResponse(string? Value, TaskBriefValueSource Source);
+public sealed record TaskBriefResponse(
+    TaskBriefFieldResponse Goal,
+    TaskBriefFieldResponse Deliverable,
+    TaskBriefFieldResponse Constraints);
 
 /// <summary>Distinguishes an omitted hard-deadline PATCH member from an explicit JSON null.</summary>
 [JsonConverter(typeof(OptionalDateTimeOffsetJsonConverter))]
@@ -135,7 +209,8 @@ public sealed record CanonicalTaskResponse(
     TaskCommandPermissions UiPermissions,
     IReadOnlyList<TaskStageCategory> AllowedTransitions,
     TaskReviewStatus ReviewStatus,
-    TaskSubresourceSummary? Subresources = null);
+    TaskSubresourceSummary? Subresources = null,
+    TaskBriefResponse? Brief = null);
 
 public sealed record TaskCommandPermissions(bool CanUpdate, bool CanAssign, bool CanDelete, bool CanReview, bool CanOverrideReview, bool CanClaim);
 public sealed record TaskCommandResponse(CanonicalTaskResponse Task, IReadOnlyList<string> Warnings, bool OverrideApplied = false);
