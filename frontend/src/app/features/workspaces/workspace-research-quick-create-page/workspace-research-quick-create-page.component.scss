@@ -5,6 +5,7 @@
 
 .research-start {
   width: min(100%, 720px);
+  box-sizing: border-box;
   margin: 0 auto;
   padding: 24px;
 }
@@ -28,6 +29,9 @@
 
 .research-start__back,
 .research-start__cancel {
+  display: inline-flex;
+  align-items: center;
+  min-height: 44px;
   width: fit-content;
   color: var(--aip-color-action-primary);
   font-weight: 700;
@@ -80,10 +84,18 @@
   outline-offset: 2px;
 }
 
-.research-start__error {
+.research-start__error,
+.research-start__status {
   margin: 0;
+}
+
+.research-start__error {
   color: var(--aip-color-danger-text, var(--aip-color-text-primary));
   font-weight: 700;
+}
+
+.research-start__status {
+  color: var(--aip-color-text-secondary);
 }
 
 .research-start__actions {
@@ -127,7 +139,9 @@
   .research-start__actions button,
   .research-start__cancel {
     width: 100%;
+    min-height: 44px;
     justify-content: center;
+    box-sizing: border-box;
     text-align: center;
   }
 }

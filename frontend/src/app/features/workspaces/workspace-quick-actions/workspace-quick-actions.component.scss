@@ -21,6 +21,7 @@
   display: inline-flex;
   align-items: center;
   justify-content: center;
+  box-sizing: border-box;
   min-height: 36px;
   border: 1px solid var(--aip-color-border-default);
   border-radius: 6px;
@@ -78,8 +79,8 @@
     grid-template-columns: 1fr;
   }
 
-  .workspace-actions__create a {
+  .workspace-actions a {
     width: 100%;
-    box-sizing: border-box;
+    min-height: 44px;
   }
 }

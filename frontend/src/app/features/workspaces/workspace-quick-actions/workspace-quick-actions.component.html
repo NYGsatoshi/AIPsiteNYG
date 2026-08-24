@@ -1,6 +1,6 @@
 <div class="workspace-actions" [attr.data-workspace-id]="workspaceId">
   @if (hasCapability('createProject') || hasCapability('addFiles')) {
-    <div class="workspace-actions__create" aria-label="作成">
+    <div class="workspace-actions__create" role="group" aria-label="作成">
       @if (hasCapability('createProject')) {
         <a
           class="workspace-actions__primary"

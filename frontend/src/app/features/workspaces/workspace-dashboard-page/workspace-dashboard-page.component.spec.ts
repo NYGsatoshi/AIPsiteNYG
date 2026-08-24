@@ -109,6 +109,7 @@ describe('WorkspaceDashboardPageComponent', () => {
     });
 
     const card = workspaceCard(fixture, OWNER_WORKSPACE.displayName);
+    expect(card.querySelector('[role="group"][aria-label="作成"]')).not.toBeNull();
     const primaryActions = card.querySelectorAll('[data-testid="start-research-action"]');
     expect(primaryActions).toHaveLength(1);
     expect(primaryActions[0]?.textContent?.trim()).toBe('新しいリサーチ');
