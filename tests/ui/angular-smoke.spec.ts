@@ -148,6 +148,111 @@ test.describe('MVP-A P0 Angular frontend smoke', () => {
     await expect(page.getByTestId('workspace-research-status')).toHaveText(/Status unavailable/);
   });
 
+  test('keeps the canonical Research Quick Create flow accessible and duplicate-safe at 320px', async ({ page }) => {
+    await page.setViewportSize({ width: 320, height: 800 });
+    const workspace: WorkspaceContextFixture = {
+      id: '11111111-1111-4111-8111-111111111111',
+      name: 'Quick Create Workspace',
+      currentUserRole: 'Owner',
+      canCreateProject: true,
+      canAddFiles: true,
+      runningProjectCount: 0,
+      needsReviewProjectCount: 0
+    };
+    const projectId = '22222222-2222-4222-8222-222222222222';
+    const createRequests: WorkspaceProjectCreateMockRequest[] = [];
+    let releaseCreate!: () => void;
+    const createGate = new Promise<void>((resolve) => {
+      releaseCreate = resolve;
+    });
+
+    await installWorkspaceContextApi(page, [workspace], workspace);
+    await page.route(`**/api/workspaces/${workspace.id}/projects`, async (route) => {
+      const request = route.request();
+      createRequests.push({
+        body: request.postDataJSON() as Record<string, unknown>,
+        idempotencyKey: request.headers()['idempotency-key'] ?? '',
+        csrfToken: request.headers()['x-csrf-token'] ?? ''
+      });
+      await createGate;
+      await route.fulfill({
+        status: 201,
+        contentType: 'application/json; charset=utf-8',
+        body: JSON.stringify({
+          requestId: 'project-create-201',
+          data: {
+            id: projectId,
+            workspaceId: workspace.id,
+            groupId: null,
+            ownerUserId: '33333333-3333-4333-8333-333333333333',
+            title: 'U-22 Quick Research',
+            description: null,
+            status: 0,
+            visibility: 1,
+            activationState: 1,
+            startDate: null,
+            endDate: null,
+            versionNo: 1,
+            createdAt: '2026-08-24T05:00:00Z'
+          },
+          warnings: []
+        })
+      });
+    });
+
+    await page.goto('/app/workspaces');
+    await waitForWorkspaceShellReady(page, { mobile: true });
+
+    const createGroup = page.getByRole('group', { name: '作成' });
+    const primary = page.getByTestId('start-research-action');
+    const addFiles = page.getByTestId('add-files-action');
+    await expect(createGroup).toBeVisible();
+    await expect(primary).toHaveCount(1);
+    await expect(addFiles).toHaveAttribute(
+      'href',
+      `/app/workspaces/${workspace.id}/files#upload`
+    );
+    await expect.poll(() => primary.evaluate((element) => element.getBoundingClientRect().height)).toBeGreaterThanOrEqual(44);
+    await expect.poll(() => addFiles.evaluate((element) => element.getBoundingClientRect().height)).toBeGreaterThanOrEqual(44);
+
+    await pressTabUntilFocused(page, primary, 20);
+    await page.keyboard.press('Enter');
+    await expect(page).toHaveURL(`/app/workspaces/${workspace.id}/research/new`);
+    await expect(page.getByText('リサーチはWorkspace内のProjectとして作成されます')).toBeVisible();
+    await expect(page.getByText(/下書き/)).toBeVisible();
+    await expect(page.getByText(/Planning/)).toHaveCount(0);
+    await expect(
+      page.locator('[name="description"], [name="groupId"], [name="startDate"], [name="endDate"]')
+    ).toHaveCount(0);
+
+    const title = page.getByTestId('quick-create-research-title');
+    const submit = page.getByTestId('quick-create-submit');
+    await submit.click();
+    await expect(title).toBeFocused();
+    await expect(title).toHaveAttribute('aria-invalid', 'true');
+    await expect(title).toHaveAttribute('aria-describedby', 'research-title-error');
+    await expectNoDocumentHorizontalOverflow(page);
+    await expectNoAccessibilityViolations(page);
+
+    await title.fill('  U-22 Quick Research  ');
+    const response = page.waitForResponse((candidate) =>
+      candidate.request().method() === 'POST' &&
+      new URL(candidate.url()).pathname === `/api/workspaces/${workspace.id}/projects`
+    );
+    await submit.click();
+    await expect.poll(() => createRequests.length).toBe(1);
+    await page.keyboard.press('Enter');
+    await expect.poll(() => createRequests.length).toBe(1);
+    releaseCreate();
+    expect((await response).status()).toBe(201);
+
+    await expect(page).toHaveURL(`/app/projects/${projectId}`);
+    expect(createRequests).toHaveLength(1);
+    expect(createRequests[0]?.body).toEqual({ title: 'U-22 Quick Research' });
+    expect(createRequests[0]?.idempotencyKey).toMatch(/^workspace-research-/);
+    expect(createRequests[0]?.csrfToken).toBe('csrf-workspace-create');
+  });
+
   test('fails closed when the backend does not grant Workspace creation', async ({ page }) => {
     const api = await installWorkspaceContextApi(
       page,
@@ -1900,8 +2005,17 @@ function projectKanbanStageId(value: unknown): ProjectKanbanStageId {
 interface WorkspaceContextFixture {
   readonly id: string;
   readonly name: string;
+  readonly currentUserRole?: string;
+  readonly canCreateProject?: boolean;
+  readonly canAddFiles?: boolean;
   readonly runningProjectCount?: number;
   readonly needsReviewProjectCount?: number;
+}
+
+interface WorkspaceProjectCreateMockRequest {
+  readonly body: Record<string, unknown>;
+  readonly idempotencyKey: string;
+  readonly csrfToken: string;
 }
 
 interface WorkspaceCreateMockRequest {
@@ -1964,11 +2078,13 @@ async function installWorkspaceContextApi(
       status: 'Active',
       createdAt: '2026-07-06T00:00:00Z',
       updatedAt: '2026-07-06T00:00:00Z',
-      currentUserRole: 'Member',
+      currentUserRole: workspace.currentUserRole ?? 'Member',
       accessSource: 'WorkspaceMembership',
       canOpenWorkspace: true,
       canOpenMembers: true,
       canOpenProjects: true,
+      canCreateProject: workspace.canCreateProject === true,
+      canAddFiles: workspace.canAddFiles === true,
       unreadAnnouncementCount: 0,
       unreadConversationCount: 0,
       inProgressProjectCount:
