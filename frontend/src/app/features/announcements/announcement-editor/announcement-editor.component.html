@@ -1,4 +1,10 @@
-<form class="announcement-editor" [formGroup]="form" data-testid="announcement-editor">
+<form
+  class="announcement-editor"
+  [formGroup]="form"
+  novalidate
+  (ngSubmit)="publish()"
+  data-testid="announcement-editor"
+>
   <header>
     <app-announcement-publication-status
       [state]="publicationState"
@@ -8,53 +14,186 @@
     <h2>{{ draft.id ? 'お知らせを編集' : '新しいお知らせ' }}</h2>
   </header>
 
-  <label>
-    <span>タイトル</span>
-    <input type="text" formControlName="title" data-testid="announcement-editor-title" />
+  @if (summaryErrors.length > 0) {
+    <section
+      id="announcement-editor-error-summary"
+      class="announcement-editor__error-summary"
+      role="alert"
+      tabindex="-1"
+      data-testid="announcement-editor-error-summary"
+    >
+      <h3>入力内容を確認してください。</h3>
+      <ul>
+        @for (error of summaryErrors; track error.field) {
+          <li>
+            <a
+              [href]="'#announcement-' + (error.field === 'audienceKey' ? 'audience' : error.field)"
+              (click)="focusField(error.field, $event)"
+            >
+              {{ error.message }}
+            </a>
+          </li>
+        }
+      </ul>
+    </section>
+  }
+
+  @if (submissionError) {
+    <section
+      class="announcement-editor__submission-error"
+      role="alert"
+      data-testid="announcement-editor-submission-error"
+    >
+      <strong>公開できませんでした。</strong>
+      <p>{{ submissionError }}</p>
+      <p>
+        入力内容はこのフォームに保持されています。内容と配信対象を確認してから、必要な場合だけもう一度公開してください。
+      </p>
+    </section>
+  }
+
+  <label for="announcement-title">
+    <span>タイトル <span aria-hidden="true">*</span></span>
+    <input
+      #titleInput
+      id="announcement-title"
+      type="text"
+      formControlName="title"
+      autocomplete="off"
+      maxlength="200"
+      required
+      [attr.aria-invalid]="fieldError('title') ? 'true' : null"
+      [attr.aria-describedby]="fieldDescribedBy('title', 'announcement-title-help')"
+      data-testid="announcement-editor-title"
+    />
+    <small id="announcement-title-help">必須・200文字以内で入力してください。</small>
+    @if (fieldError('title'); as error) {
+      <small
+        id="announcement-title-error"
+        class="announcement-editor__field-error"
+        role="alert"
+        data-testid="announcement-title-error"
+      >
+        {{ error }}
+      </small>
+    }
   </label>
 
-  <label>
-    <span>本文</span>
-    <textarea rows="7" formControlName="body" data-testid="announcement-editor-body"></textarea>
+  <label for="announcement-body">
+    <span>本文 <span aria-hidden="true">*</span></span>
+    <textarea
+      #bodyInput
+      id="announcement-body"
+      rows="7"
+      formControlName="body"
+      maxlength="20000"
+      required
+      [attr.aria-invalid]="fieldError('body') ? 'true' : null"
+      [attr.aria-describedby]="fieldDescribedBy('body', 'announcement-body-help')"
+      data-testid="announcement-editor-body"
+    ></textarea>
+    <small id="announcement-body-help"
+      >必須・20,000文字以内。本文はプレーンテキストとして表示されます。</small
+    >
+    @if (fieldError('body'); as error) {
+      <small
+        id="announcement-body-error"
+        class="announcement-editor__field-error"
+        role="alert"
+        data-testid="announcement-body-error"
+      >
+        {{ error }}
+      </small>
+    }
   </label>
 
   <div class="announcement-editor__row">
-    <label>
-      <span>優先度</span>
-      <select formControlName="priority" data-testid="announcement-editor-priority" aria-describedby="announcement-priority-help">
+    <label for="announcement-priority">
+      <span>優先度 <span aria-hidden="true">*</span></span>
+      <select
+        #priorityInput
+        id="announcement-priority"
+        formControlName="priority"
+        required
+        [attr.aria-invalid]="fieldError('priority') ? 'true' : null"
+        [attr.aria-describedby]="fieldDescribedBy('priority', 'announcement-priority-help')"
+        data-testid="announcement-editor-priority"
+      >
         @for (priority of priorityOptions; track priority) {
           <option [value]="priority">{{ priorityLabels[priority] }}</option>
         }
       </select>
       <small id="announcement-priority-help">
-        CRITICAL は障害・セキュリティ・期限付き必須対応など、直ちに確認が必要な場合に限定してください。
+        CRITICAL
+        は障害・セキュリティ・期限付き必須対応など、直ちに確認が必要な場合に限定してください。
       </small>
+      @if (fieldError('priority'); as error) {
+        <small
+          id="announcement-priority-error"
+          class="announcement-editor__field-error"
+          role="alert"
+          data-testid="announcement-priority-error"
+        >
+          {{ error }}
+        </small>
+      }
     </label>
 
-    <label>
-      <span>対象</span>
-      <select formControlName="audienceKey" data-testid="announcement-editor-audience">
+    <label for="announcement-audience">
+      <span>対象 <span aria-hidden="true">*</span></span>
+      <select
+        #audienceInput
+        id="announcement-audience"
+        formControlName="audienceKey"
+        required
+        [attr.aria-invalid]="fieldError('audienceKey') ? 'true' : null"
+        [attr.aria-describedby]="fieldDescribedBy('audienceKey', 'announcement-audience-help')"
+        data-testid="announcement-editor-audience"
+      >
         @for (audience of availableAudiences(); track audience.key) {
           <option [value]="audience.key">{{ audienceOptionLabel(audience) }}</option>
         }
       </select>
+      <small id="announcement-audience-help"
+        >公開できる対象だけが表示されます。サーバーが公開時にも権限を再確認します。</small
+      >
+      @if (fieldError('audienceKey'); as error) {
+        <small
+          id="announcement-audience-error"
+          class="announcement-editor__field-error"
+          role="alert"
+          data-testid="announcement-audience-error"
+        >
+          {{ error }}
+        </small>
+      }
     </label>
   </div>
 
   @if (availableAudiences().length === 0) {
-    <p class="announcement-editor__audience-note" role="alert" data-testid="announcement-audience-unavailable">
+    <p
+      class="announcement-editor__audience-note"
+      role="alert"
+      data-testid="announcement-audience-unavailable"
+    >
       現在公開できる配信対象がありません。権限を再確認してください。
     </p>
   }
 
   @if (selectedAudience(); as audience) {
-    <section class="announcement-editor__audience-summary" aria-live="polite" data-testid="announcement-audience-summary">
+    <section
+      class="announcement-editor__audience-summary"
+      aria-live="polite"
+      data-testid="announcement-audience-summary"
+    >
       <div>
         <span>配信対象</span>
         <strong>{{ audience.displayName }}</strong>
       </div>
       @if (audience.recipientCount !== undefined) {
-        <p><strong>{{ audience.recipientCount.toLocaleString('ja-JP') }}名</strong> に配信予定</p>
+        <p>
+          <strong>{{ audience.recipientCount.toLocaleString('ja-JP') }}名</strong> に配信予定
+        </p>
       } @else {
         <p>受信者数は公開前の確認時に再計算されます。</p>
       }
@@ -62,8 +201,12 @@
     </section>
   }
 
-  <label class="announcement-editor__check">
-    <input type="checkbox" formControlName="requiresReadConfirmation" />
+  <label class="announcement-editor__check" for="announcement-read-confirmation">
+    <input
+      id="announcement-read-confirmation"
+      type="checkbox"
+      formControlName="requiresReadConfirmation"
+    />
     <span>既読確認</span>
   </label>
 
@@ -90,13 +233,11 @@
   </section>
 
   <div class="announcement-editor__actions">
-    <button type="button" [disabled]="!canSaveDraft" data-testid="announcement-save-draft-action">下書き保存</button>
     <button
-      type="button"
+      type="submit"
       class="announcement-editor__primary"
       data-testid="announcement-publish-action"
-      [disabled]="!canPublish || form.invalid || selectedAudience() === null"
-      (click)="publish()"
+      [disabled]="!canPublish || selectedAudience() === null"
     >
       公開
     </button>

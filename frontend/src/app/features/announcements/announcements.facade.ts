@@ -1,5 +1,6 @@
 import { HttpClient } from '@angular/common/http';
 import { inject, Injectable, InjectionToken, signal } from '@angular/core';
+import { normalizeApiError } from '../../core/api/api-error.adapter';
 import { RealtimeFacade } from '../../core/realtime/realtime.facade';
 import { DurableRealtimeEvent } from '../../core/realtime/realtime.models';
 
@@ -40,8 +41,10 @@ export class AnnouncementsFacade {
     this.mockPage ?? this.emptyPage('loading'),
   );
   private readonly detailRequests = new Set<string>();
-  private audienceOptions: readonly AnnouncementAudienceOption[] = this.mockPage?.editorDraft?.availableAudiences ?? [];
+  private audienceOptions: readonly AnnouncementAudienceOption[] =
+    this.mockPage?.editorDraft?.availableAudiences ?? [];
   private editorActive = false;
+  private editorDraftRevision = 0;
   private refreshTimer: ReturnType<typeof setTimeout> | null = null;
 
   readonly page = this.pageState.asReadonly();
@@ -57,6 +60,18 @@ export class AnnouncementsFacade {
     this.editorActive = active;
   }
 
+  updateEditorDraft(draft: AnnouncementEditorDraft): void {
+    if (!this.pageState().editorDraft) {
+      return;
+    }
+
+    this.editorDraftRevision += 1;
+    this.pageState.update((page) => ({
+      ...page,
+      editorDraft: this.createDraft(this.audienceOptions, draft),
+    }));
+  }
+
   beginCreate(): boolean {
     if (this.audienceOptions.length === 0) {
       return false;
@@ -67,14 +82,22 @@ export class AnnouncementsFacade {
       ...page,
       editorDraft: this.createDraft(this.audienceOptions),
       message: undefined,
+      editorError: undefined,
     }));
     return true;
   }
 
   createAnnouncement(submission: AnnouncementEditorSubmission): void {
-    const authorizedAudience = this.audienceOptions.find((audience) => audience.key === submission.audience.key);
+    const draftRevisionAtSubmission = this.editorDraftRevision;
+    const authorizedAudience = this.audienceOptions.find(
+      (audience) => audience.key === submission.audience.key,
+    );
     if (!authorizedAudience) {
-      this.preserveSubmissionAsDisabledDraft(submission, '配信対象の権限が変更されました。対象を再読み込みして確認してください。');
+      this.preserveSubmissionAsDraft(
+        submission,
+        audienceAuthorizationChangedMessage,
+        draftRevisionAtSubmission,
+      );
       this.loadAudienceOptions();
       return;
     }
@@ -92,42 +115,63 @@ export class AnnouncementsFacade {
         announcements: [created, ...page.announcements],
         selectedAnnouncementId: created.id,
         editorDraft: undefined,
-        message: undefined,
+        message: 'お知らせを公開しました。',
+        editorError: undefined,
       }));
       this.editorActive = false;
       return;
     }
 
     this.http
-      .post<AnnouncementDetailDto>('/api/announcements', toCreateAnnouncementRequest(authorizedSubmission), {
-        withCredentials: true,
-      })
+      .post<AnnouncementDetailDto>(
+        '/api/announcements',
+        toCreateAnnouncementRequest(authorizedSubmission),
+        {
+          withCredentials: true,
+        },
+      )
       .subscribe({
         next: (response) => {
           const created = mapAnnouncementDetail(response);
           this.pageState.update((page) => ({
             ...page,
             status: 'ready',
-            announcements: [created, ...page.announcements.filter((announcement) => announcement.id !== created.id)],
+            announcements: [
+              created,
+              ...page.announcements.filter((announcement) => announcement.id !== created.id),
+            ],
             selectedAnnouncementId: created.id,
             editorDraft: undefined,
-            message: undefined,
+            message: 'お知らせを公開しました。',
+            editorError: undefined,
           }));
           this.editorActive = false;
         },
-        error: () => {
-          this.preserveSubmissionAsDisabledDraft(
+        error: (error: unknown) => {
+          if (this.isAudienceAuthorizationFailure(error)) {
+            this.preserveSubmissionAsDraft(
+              authorizedSubmission,
+              audienceAuthorizationChangedMessage,
+              draftRevisionAtSubmission,
+            );
+            this.loadAudienceOptions();
+            return;
+          }
+
+          this.preserveSubmissionAsDraft(
             authorizedSubmission,
-            '公開できませんでした。配信対象の権限が変更された可能性があります。対象を再確認してください。',
+            publicationUnavailableMessage,
+            draftRevisionAtSubmission,
           );
-          this.loadAudienceOptions();
         },
       });
   }
 
   private loadAnnouncements(): void {
     this.http
-      .get<PagedResponseDto<AnnouncementListItemDto>>('/api/announcements', { withCredentials: true })
+      .get<PagedResponseDto<AnnouncementListItemDto>>('/api/announcements', {
+        withCredentials: true,
+      })
       .subscribe({
         next: (response) => {
           const announcements = (response.items ?? []).map((announcement) =>
@@ -164,7 +208,9 @@ export class AnnouncementsFacade {
 
   private loadAudienceOptions(): void {
     this.http
-      .get<readonly AnnouncementAudienceOptionDto[]>('/api/announcements/audiences', { withCredentials: true })
+      .get<readonly AnnouncementAudienceOptionDto[]>('/api/announcements/audiences', {
+        withCredentials: true,
+      })
       .subscribe({
         next: (response) => {
           this.audienceOptions = response
@@ -172,7 +218,10 @@ export class AnnouncementsFacade {
             .filter((option): option is AnnouncementAudienceOption => option !== null);
           this.pageState.update((page) => ({
             ...page,
-            pageCapabilities: this.withCreateCapability(page.pageCapabilities, this.audienceOptions.length > 0),
+            pageCapabilities: this.withCreateCapability(
+              page.pageCapabilities,
+              this.audienceOptions.length > 0,
+            ),
             editorDraft: page.editorDraft
               ? this.createDraft(this.audienceOptions, page.editorDraft)
               : undefined,
@@ -184,7 +233,13 @@ export class AnnouncementsFacade {
             ...page,
             pageCapabilities: this.withCreateCapability(page.pageCapabilities, false),
             editorDraft: page.editorDraft ? this.createDraft([], page.editorDraft) : undefined,
-            message: '配信対象を安全に取得できないため、新規公開を無効化しました。入力内容は保持されています。',
+            message: page.editorDraft
+              ? undefined
+              : '配信対象を安全に取得できないため、新規公開を無効化しました。',
+            editorError: page.editorDraft
+              ? (page.editorError ??
+                '配信対象を安全に取得できないため、新規公開を無効化しました。入力内容は保持されています。')
+              : undefined,
           }));
         },
       });
@@ -198,7 +253,8 @@ export class AnnouncementsFacade {
     if (this.editorActive) {
       this.pageState.update((page) => ({
         ...page,
-        message: 'An announcement changed elsewhere. Your draft was preserved; reload before publishing.'
+        message:
+          'An announcement changed elsewhere. Your draft was preserved; reload before publishing.',
       }));
       return;
     }
@@ -262,7 +318,9 @@ export class AnnouncementsFacade {
     if (this.mockPage) {
       const announcement = this.findAnnouncement(announcementId);
       if (announcement) {
-        this.replaceAnnouncement(markAnnouncementReadConfirmed(announcement, new Date().toLocaleString()));
+        this.replaceAnnouncement(
+          markAnnouncementReadConfirmed(announcement, new Date().toLocaleString()),
+        );
       }
       return;
     }
@@ -273,7 +331,9 @@ export class AnnouncementsFacade {
         next: () => {
           const announcement = this.findAnnouncement(announcementId);
           if (announcement) {
-            this.replaceAnnouncement(markAnnouncementReadConfirmed(announcement, new Date().toLocaleString()));
+            this.replaceAnnouncement(
+              markAnnouncementReadConfirmed(announcement, new Date().toLocaleString()),
+            );
           }
         },
         error: () => {
@@ -288,7 +348,9 @@ export class AnnouncementsFacade {
   ): AnnouncementEditorDraft {
     const previousAudienceKey = previous?.audienceKey;
     const audienceKey =
-      audiences.find((audience) => audience.key === previousAudienceKey)?.key ?? audiences[0]?.key ?? '';
+      audiences.find((audience) => audience.key === previousAudienceKey)?.key ??
+      audiences[0]?.key ??
+      '';
     return {
       id: previous?.id,
       title: previous?.title ?? '',
@@ -303,19 +365,38 @@ export class AnnouncementsFacade {
     };
   }
 
-  private preserveSubmissionAsDisabledDraft(submission: AnnouncementEditorSubmission, message: string): void {
-    this.pageState.update((page) => ({
-      ...page,
-      editorDraft: {
-        title: submission.title,
-        body: submission.body,
-        priority: submission.priority,
-        audienceKey: submission.audience.key,
-        availableAudiences: this.audienceOptions,
-        requiresReadConfirmation: submission.requiresReadConfirmation,
-      },
-      message,
-    }));
+  private preserveSubmissionAsDraft(
+    submission: AnnouncementEditorSubmission,
+    message: string,
+    draftRevisionAtSubmission: number,
+  ): void {
+    const submittedDraft: AnnouncementEditorDraft = {
+      title: submission.title,
+      body: submission.body,
+      priority: submission.priority,
+      audienceKey: submission.audience.key,
+      availableAudiences: this.audienceOptions,
+      requiresReadConfirmation: submission.requiresReadConfirmation,
+    };
+    this.pageState.update((page) => {
+      const currentDraft =
+        this.editorDraftRevision > draftRevisionAtSubmission && page.editorDraft
+          ? page.editorDraft
+          : submittedDraft;
+      return {
+        ...page,
+        editorDraft: this.createDraft(this.audienceOptions, currentDraft),
+        editorError: message,
+      };
+    });
+  }
+
+  private isAudienceAuthorizationFailure(error: unknown): boolean {
+    const normalized = normalizeApiError(error);
+    return (
+      normalized.httpStatus === 400 &&
+      normalized.message === 'Announcement audience is not authorized.'
+    );
   }
 
   private withCreateCapability(
@@ -357,7 +438,9 @@ export class AnnouncementsFacade {
   }
 
   private findAnnouncement(announcementId: string): AnnouncementViewModel | undefined {
-    return this.pageState().announcements.find((announcement) => announcement.id === announcementId);
+    return this.pageState().announcements.find(
+      (announcement) => announcement.id === announcementId,
+    );
   }
 
   private replaceAnnouncement(nextAnnouncement: AnnouncementViewModel): void {
@@ -369,3 +452,8 @@ export class AnnouncementsFacade {
     }));
   }
 }
+
+const audienceAuthorizationChangedMessage =
+  'The selected audience is no longer authorized. Review the current audience options before publishing.';
+const publicationUnavailableMessage =
+  'The announcement could not be published right now. Your draft is still available; try again.';

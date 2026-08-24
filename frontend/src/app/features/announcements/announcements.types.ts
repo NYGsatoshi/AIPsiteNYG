@@ -118,5 +118,7 @@ export interface AnnouncementsPageViewModel {
   readonly selectedAnnouncementId: string | null;
   readonly pageCapabilities: readonly AnnouncementCapability[];
   readonly message?: string;
+  /** A mutation failure shown inside the still-editable create form. */
+  readonly editorError?: string;
   readonly editorDraft?: AnnouncementEditorDraft;
 }
