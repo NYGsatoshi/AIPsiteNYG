@@ -31,16 +31,21 @@ Run this before a local demo, internal pilot handoff, or on-prem school demonstr
 8. Confirm tenant admin cannot call `/api/platform/*`.
 9. Confirm a TenantA user cannot access TenantB records by URL or API.
 10. Invite/register a normal user.
-11. Verify production Workspace creation reports `canCreate=false` and returns
-    503 without durable rows while canonical `general` provisioning is
-    unavailable. Verify deprecated Project creation also returns 503 and that
-    no activation route is exposed.
-12. Using explicitly pre-provisioned Workspace/Project data, create or verify a
-    group, channel, post, task, and comment.
-13. Upload a valid file and download it through an authorized user.
-14. Try invalid extension, invalid MIME type, oversized upload, and unauthorized download.
-15. Trigger a notification and verify another user cannot mark it read.
-16. Stop and restart the app; verify login, tenant context, uploaded files, and project/task data persist.
+11. Verify a current Tenant Owner/Admin or an explicitly delegated
+    Tenant-scoped `workspace.create` user receives `canCreate=true` and can
+    create one Workspace. Confirm the creator is its Owner, exactly one
+    canonical `WorkspaceGeneral` Conversation exists, and replaying the same
+    normalized command with the same `Idempotency-Key` does not duplicate it.
+    Confirm an ordinary Member and Platform/SystemAdmin alone remain denied.
+12. Verify canonical Workspace-scoped Project create and explicit Project
+    activation. Confirm deprecated unscoped `POST /api/projects` still returns
+    503 without mutation.
+13. Using authorized Workspace/Project data, create or verify a group, channel,
+    post, task, and comment.
+14. Upload a valid file and download it through an authorized user.
+15. Try invalid extension, invalid MIME type, oversized upload, and unauthorized download.
+16. Trigger a notification and verify another user cannot mark it read.
+17. Stop and restart the app; verify login, tenant context, uploaded files, and project/task data persist.
 
 OnPremSingleTenant checks:
 

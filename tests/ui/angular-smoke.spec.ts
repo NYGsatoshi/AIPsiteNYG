@@ -148,6 +148,203 @@ test.describe('MVP-A P0 Angular frontend smoke', () => {
     await expect(page.getByTestId('workspace-research-status')).toHaveText(/Status unavailable/);
   });
 
+  test('fails closed when the backend does not grant Workspace creation', async ({ page }) => {
+    const api = await installWorkspaceContextApi(
+      page,
+      workspaceContextFixtures(),
+      null,
+      { canCreate: false }
+    );
+
+    await page.goto('/app/workspaces');
+    await waitForWorkspaceShellReady(page);
+
+    await expect(page.getByTestId('create-workspace-action')).toHaveCount(0);
+    await expect(page.getByTestId('workspace-empty-create-action')).toHaveCount(0);
+    expect(api.createRequests).toEqual([]);
+  });
+
+  test('opens Workspace creation from the authorized empty state', async ({ page }) => {
+    const api = await installWorkspaceContextApi(page, [], null, { canCreate: true });
+
+    await page.goto('/app/workspaces');
+    await waitForWorkspaceShellReady(page);
+
+    const emptyStateAction = page.getByTestId('workspace-empty-create-action');
+    await expect(page.getByTestId('workspace-empty-state')).toBeVisible();
+    await expect(emptyStateAction).toBeVisible();
+    await emptyStateAction.click();
+    await expect(page.getByRole('dialog', { name: 'Create Workspace' })).toBeVisible();
+    await expect(page.getByTestId('workspace-create-name')).toBeFocused();
+    expect(api.createRequests).toEqual([]);
+
+    await page.getByRole('button', { name: 'Cancel' }).click();
+    await expect(emptyStateAction).toBeFocused();
+    expect(api.createRequests).toEqual([]);
+  });
+
+  test('keeps Workspace creation cancellable, keyboard-contained, and reachable at 320px', async ({ page }) => {
+    await page.setViewportSize({ width: 320, height: 800 });
+    const api = await installWorkspaceContextApi(
+      page,
+      workspaceContextFixtures(),
+      null,
+      { canCreate: true }
+    );
+
+    await page.goto('/app/workspaces');
+    await waitForWorkspaceShellReady(page, { mobile: true });
+
+    const opener = page.getByTestId('create-workspace-action');
+    await opener.click();
+
+    const dialog = page.getByRole('dialog', { name: 'Create Workspace' });
+    const name = page.getByTestId('workspace-create-name');
+    await expect(dialog).toBeVisible();
+    await expect(name).toBeFocused();
+    await expect(page.locator('[name="workspaceId"], [name="id"], [name="slug"]')).toHaveCount(0);
+
+    await page.getByRole('button', { name: 'Create Workspace' }).click();
+    const errorSummary = page.getByTestId('workspace-create-error-summary');
+    await expect(errorSummary).toBeFocused();
+    await expect(errorSummary).toContainText('Enter a Workspace name');
+    await expect(name).toHaveAttribute('aria-invalid', 'true');
+    expect(api.createRequests).toEqual([]);
+
+    await errorSummary.getByRole('link', { name: 'Enter a Workspace name.' }).click();
+    await expect(name).toBeFocused();
+    for (let index = 0; index < 12; index += 1) {
+      await page.keyboard.press('Tab');
+      await expect
+        .poll(() => dialog.evaluate((element) => element.contains(document.activeElement)))
+        .toBe(true);
+    }
+    await expectNoDocumentHorizontalOverflow(page);
+    await expectNoAccessibilityViolations(page);
+
+    await page.keyboard.press('Escape');
+    await expect(dialog).toHaveCount(0);
+    await expect(opener).toBeFocused();
+    expect(api.createRequests).toEqual([]);
+
+    await opener.click();
+    await expect(name).toBeFocused();
+    await page.getByRole('button', { name: 'Cancel' }).click();
+    await expect(dialog).toHaveCount(0);
+    await expect(opener).toBeFocused();
+    expect(api.createRequests).toEqual([]);
+  });
+
+  test('submits Workspace creation once in flight and safely reuses the request identity after a 503', async ({ page }) => {
+    const existingWorkspace = workspaceContextFixtures()[0];
+    const createdWorkspace: WorkspaceContextFixture = {
+      id: 'c68465db-8058-4a2f-ae3e-df457fe69d52',
+      name: 'Evidence Workspace',
+      runningProjectCount: 0,
+      needsReviewProjectCount: 0
+    };
+    let releaseFirstPost!: () => void;
+    const firstPostGate = new Promise<void>((resolve) => {
+      releaseFirstPost = resolve;
+    });
+    const api = await installWorkspaceContextApi(
+      page,
+      [existingWorkspace],
+      existingWorkspace,
+      {
+        canCreate: true,
+        onCreate: async (_request, attempt) => {
+          if (attempt === 1) {
+            await firstPostGate;
+            return {
+              status: 503,
+              body: {
+                requestId: 'workspace-create-503',
+                error: {
+                  code: 'DependencyUnavailable',
+                  message: 'Workspace creation is temporarily unavailable.',
+                  target: 'workspace',
+                  details: [],
+                  redactionApplied: false
+                },
+                traceId: 'workspace-create-503',
+                status: 503
+              }
+            };
+          }
+
+          return {
+            status: 201,
+            workspace: createdWorkspace,
+            body: {
+              requestId: 'workspace-create-201',
+              data: {
+                id: createdWorkspace.id,
+                name: createdWorkspace.name,
+                description: 'Evidence for the U-22 demo',
+                icon: null,
+                status: 0,
+                createdByUserId: 'a7ad8352-2012-4328-8318-7d9c466af46d',
+                createdAt: '2026-08-24T05:00:00Z',
+                updatedAt: null
+              },
+              warnings: []
+            }
+          };
+        }
+      }
+    );
+
+    await page.goto('/app/workspaces');
+    await waitForWorkspaceShellReady(page);
+    await page.getByTestId('create-workspace-action').click();
+    await page.getByTestId('workspace-create-name').fill(`  ${createdWorkspace.name}  `);
+    await page.getByTestId('workspace-create-description').fill('Evidence for the U-22 demo');
+
+    const firstResponse = waitForWorkspaceCreateResponse(page);
+    await page.getByRole('button', { name: 'Create Workspace' }).click();
+    await expect.poll(() => api.createRequests.length).toBe(1);
+    await expect(page.locator('.aip-dialog__confirm')).toBeDisabled();
+
+    // Native submit plus the facade's synchronous busy guard must suppress a
+    // second request even if Enter is pressed while the first response waits.
+    await page.getByTestId('workspace-create-name').press('Enter');
+    await expect.poll(() => api.createRequests.length).toBe(1);
+
+    releaseFirstPost();
+    expect((await firstResponse).status()).toBe(503);
+    await expect(page.getByTestId('workspace-create-error-summary')).toContainText(
+      'The Workspace may have been created. Retry with the same details'
+    );
+
+    const retryResponse = waitForWorkspaceCreateResponse(page);
+    await page.getByRole('button', { name: 'Create Workspace' }).click();
+    expect((await retryResponse).status()).toBe(201);
+
+    await expect(page).toHaveURL(/\/app\/workspaces$/);
+    await expect(page.getByTestId('workspace-card').filter({ hasText: createdWorkspace.name })).toBeVisible();
+    await expect(page.getByTestId('workspace-switcher')).toHaveValue(createdWorkspace.id);
+    await expect(page.getByTestId('workspace-created-announcement')).toContainText(
+      `${createdWorkspace.name} Workspace`
+    );
+    await expect(page.getByTestId('workspace-dashboard')).toBeFocused();
+
+    expect(api.createRequests).toHaveLength(2);
+    const [firstRequest, retryRequest] = api.createRequests;
+    expect(firstRequest.body).toEqual({
+      name: createdWorkspace.name,
+      description: 'Evidence for the U-22 demo',
+      icon: null
+    });
+    expect(retryRequest.body).toEqual(firstRequest.body);
+    expect(retryRequest.rawBody).toBe(firstRequest.rawBody);
+    expect(retryRequest.idempotencyKey).toBe(firstRequest.idempotencyKey);
+    expect(firstRequest.idempotencyKey).toMatch(/^[\x20-\x7e]{8,128}$/u);
+    expect(api.createRequests.every((request) => request.csrfToken === 'csrf-workspace-create')).toBe(true);
+    expect(api.workspaceListRequests).toBeGreaterThanOrEqual(2);
+    await expectHealthyAngularPage(page);
+  });
+
   test('switches and persists the selected light or dark theme', async ({ page }) => {
     await page.addInitScript((storageKey) => {
       if (!globalThis.localStorage.getItem(storageKey)) {
@@ -1384,6 +1581,32 @@ interface WorkspaceContextFixture {
   readonly needsReviewProjectCount?: number;
 }
 
+interface WorkspaceCreateMockRequest {
+  readonly body: Record<string, unknown>;
+  readonly rawBody: string;
+  readonly idempotencyKey: string;
+  readonly csrfToken: string;
+}
+
+interface WorkspaceCreateMockResponse {
+  readonly status: number;
+  readonly body: unknown;
+  readonly workspace?: WorkspaceContextFixture;
+}
+
+interface WorkspaceContextApiOptions {
+  readonly canCreate?: boolean;
+  readonly onCreate?: (
+    request: WorkspaceCreateMockRequest,
+    attempt: number
+  ) => WorkspaceCreateMockResponse | Promise<WorkspaceCreateMockResponse>;
+}
+
+interface WorkspaceContextApiHarness {
+  readonly createRequests: readonly WorkspaceCreateMockRequest[];
+  readonly workspaceListRequests: number;
+}
+
 function workspaceContextFixtures(): readonly WorkspaceContextFixture[] {
   return [
     {
@@ -1404,27 +1627,32 @@ function workspaceContextFixtures(): readonly WorkspaceContextFixture[] {
 async function installWorkspaceContextApi(
   page: Page,
   workspaces: readonly WorkspaceContextFixture[],
-  currentWorkspace: WorkspaceContextFixture | null
-): Promise<void> {
-  const dashboardItems = workspaces.map((workspace) => ({
-    ...workspace,
-    description: `${workspace.name} Playwright fixture`,
-    icon: null,
-    status: 'Active',
-    createdAt: '2026-07-06T00:00:00Z',
-    updatedAt: '2026-07-06T00:00:00Z',
-    currentUserRole: 'Member',
-    accessSource: 'WorkspaceMembership',
-    canOpenWorkspace: true,
-    canOpenMembers: true,
-    canOpenProjects: true,
-    unreadAnnouncementCount: 0,
-    unreadConversationCount: 0,
-    inProgressProjectCount:
-      workspace.runningProjectCount === undefined || workspace.needsReviewProjectCount === undefined
-        ? undefined
-        : workspace.runningProjectCount + workspace.needsReviewProjectCount
-  }));
+  currentWorkspace: WorkspaceContextFixture | null,
+  options: WorkspaceContextApiOptions = {}
+): Promise<WorkspaceContextApiHarness> {
+  const authorizedWorkspaces = [...workspaces];
+  const createRequests: WorkspaceCreateMockRequest[] = [];
+  let workspaceListRequests = 0;
+
+  const dashboardItems = () => authorizedWorkspaces.map((workspace) => ({
+      ...workspace,
+      description: `${workspace.name} Playwright fixture`,
+      icon: null,
+      status: 'Active',
+      createdAt: '2026-07-06T00:00:00Z',
+      updatedAt: '2026-07-06T00:00:00Z',
+      currentUserRole: 'Member',
+      accessSource: 'WorkspaceMembership',
+      canOpenWorkspace: true,
+      canOpenMembers: true,
+      canOpenProjects: true,
+      unreadAnnouncementCount: 0,
+      unreadConversationCount: 0,
+      inProgressProjectCount:
+        workspace.runningProjectCount === undefined || workspace.needsReviewProjectCount === undefined
+          ? undefined
+          : workspace.runningProjectCount + workspace.needsReviewProjectCount
+    }));
 
   await page.route('**/api/auth/me', async (route) => {
     await route.fulfill({
@@ -1444,12 +1672,88 @@ async function installWorkspaceContextApi(
   });
 
   await page.route('**/api/workspaces', async (route) => {
+    const request = route.request();
+    if (request.method() === 'POST') {
+      const body = request.postDataJSON() as Record<string, unknown>;
+      const record: WorkspaceCreateMockRequest = {
+        body,
+        rawBody: request.postData() ?? '',
+        idempotencyKey: request.headers()['idempotency-key'] ?? '',
+        csrfToken: request.headers()['x-csrf-token'] ?? ''
+      };
+      createRequests.push(record);
+      const result = await options.onCreate?.(record, createRequests.length) ?? {
+        status: 503,
+        body: {
+          requestId: 'workspace-create-unconfigured',
+          error: {
+            code: 'DependencyUnavailable',
+            message: 'Workspace creation is unavailable in this fixture.',
+            target: 'workspace',
+            details: [],
+            redactionApplied: false
+          },
+          traceId: 'workspace-create-unconfigured',
+          status: 503
+        }
+      };
+      if (result.workspace && !authorizedWorkspaces.some((workspace) => workspace.id === result.workspace?.id)) {
+        authorizedWorkspaces.push(result.workspace);
+      }
+      await route.fulfill({
+        status: result.status,
+        contentType: 'application/json; charset=utf-8',
+        body: JSON.stringify(result.body)
+      });
+      return;
+    }
+
+    if (request.method() !== 'GET') {
+      await route.fulfill({ status: 405 });
+      return;
+    }
+
+    workspaceListRequests += 1;
     await route.fulfill({
       status: 200,
       contentType: 'application/json; charset=utf-8',
-      body: JSON.stringify(dashboardItems)
+      body: JSON.stringify(dashboardItems())
     });
   });
+
+  await page.route('**/api/workspaces/capabilities', async (route) => {
+    await route.fulfill({
+      status: 200,
+      contentType: 'application/json; charset=utf-8',
+      body: JSON.stringify({
+        requestId: 'playwright-workspaces-capabilities',
+        data: { canCreate: options.canCreate === true },
+        warnings: []
+      })
+    });
+  });
+
+  await page.route('**/api/security/csrf-token', async (route) => {
+    await route.fulfill({
+      status: 200,
+      contentType: 'application/json; charset=utf-8',
+      body: JSON.stringify({ token: 'csrf-workspace-create', headerName: 'X-CSRF-Token' })
+    });
+  });
+
+  return {
+    createRequests,
+    get workspaceListRequests() {
+      return workspaceListRequests;
+    }
+  };
+}
+
+function waitForWorkspaceCreateResponse(page: Page) {
+  return page.waitForResponse((response) =>
+    response.request().method() === 'POST' &&
+    new URL(response.url()).pathname === '/api/workspaces'
+  );
 }
 
 function ganttItem(page: Page, taskId: string): Locator {

@@ -29,6 +29,38 @@ const workspaceDto = {
   needsReviewProjectCount: 1,
 };
 
+const createdWorkspaceId = '11111111-1111-4111-8111-111111111111';
+const creatorUserId = '22222222-2222-4222-8222-222222222222';
+
+const workspaceCreateEnvelope = {
+  requestId: 'request-create-1',
+  data: {
+    id: createdWorkspaceId,
+    name: 'Created Workspace',
+    description: null,
+    icon: '🔬',
+    status: 0,
+    createdByUserId: creatorUserId,
+    createdAt: '2026-08-24T01:02:03Z',
+    updatedAt: null,
+  },
+  warnings: [],
+};
+
+const createdWorkspaceDashboardDto = {
+  ...workspaceDto,
+  id: createdWorkspaceId,
+  name: 'Created Workspace',
+};
+
+function workspaceCapabilities(canCreate: boolean) {
+  return {
+    requestId: 'request-capabilities',
+    data: { canCreate },
+    warnings: [],
+  };
+}
+
 describe('WorkspacesFacade live dashboard projection', () => {
   let facade: WorkspacesFacade;
   let http: HttpTestingController;
@@ -38,12 +70,26 @@ describe('WorkspacesFacade live dashboard projection', () => {
     markUnavailable: ReturnType<typeof vi.fn>;
     markAuthorizationPending: ReturnType<typeof vi.fn>;
     markTransientFailure: ReturnType<typeof vi.fn>;
+    selectWorkspace: ReturnType<typeof vi.fn>;
+    transitionRevision: WritableSignal<number>;
+    selection: WritableSignal<{
+      status: 'selected' | 'loading' | 'selectionRequired' | 'unavailable';
+      workspaceId: string | null;
+      source: 'explicit' | 'single' | 'route' | 'preference' | null;
+    }>;
   };
+  let authSessionState: WritableSignal<Record<string, unknown>>;
   let realtimeState: WritableSignal<'Connected' | 'Reconnecting' | 'Degraded'>;
   let authorizationRevision: WritableSignal<number>;
   let catchUp: (() => Promise<void> | void) | null;
 
   beforeEach(() => {
+    const selectionState = signal<{
+      status: 'selected' | 'loading' | 'selectionRequired' | 'unavailable';
+      workspaceId: string | null;
+      source: 'explicit' | 'single' | 'route' | 'preference' | null;
+    }>({ status: 'selected', workspaceId: 'workspace-1', source: 'single' });
+    const transitionRevisionState = signal(0);
     workspaceSelection = {
       beginLoading: vi.fn(),
       reconcileAuthorizedWorkspaces: vi.fn(() => ({
@@ -54,9 +100,24 @@ describe('WorkspacesFacade live dashboard projection', () => {
       markUnavailable: vi.fn(),
       markAuthorizationPending: vi.fn(),
       markTransientFailure: vi.fn(),
+      selectWorkspace: vi.fn().mockImplementation(async (workspaceId: string) => {
+        if (selectionState().workspaceId !== workspaceId) {
+          transitionRevisionState.update((revision) => revision + 1);
+        }
+        selectionState.set({ status: 'selected', workspaceId, source: 'explicit' });
+        return true;
+      }),
+      transitionRevision: transitionRevisionState,
+      selection: selectionState,
     };
     realtimeState = signal<'Connected' | 'Reconnecting' | 'Degraded'>('Connected');
     authorizationRevision = signal(0);
+    authSessionState = signal({
+      isAuthenticated: true,
+      currentTenant: { tenantId: 'tenant-a' },
+      currentUser: { userId: 'user-a' },
+      capabilities: [],
+    });
     catchUp = null;
     TestBed.configureTestingModule({
       providers: [
@@ -79,12 +140,7 @@ describe('WorkspacesFacade live dashboard projection', () => {
         {
           provide: AuthSessionFacade,
           useValue: {
-            session: signal({
-              isAuthenticated: true,
-              currentTenant: { tenantId: 'tenant-a' },
-              currentUser: { userId: 'user-a' },
-              capabilities: [],
-            }),
+            session: authSessionState,
           },
         },
       ],
@@ -169,6 +225,7 @@ describe('WorkspacesFacade live dashboard projection', () => {
       status: 'noWorkspaceAccess',
       workspaces: [],
       pageCapabilities: ['createWorkspace'],
+      message: '最初のWorkspaceを作成して、リサーチを始められます。',
     });
     expect(workspaceSelection.reconcileAuthorizedWorkspaces).toHaveBeenCalledWith(
       [],
@@ -201,7 +258,7 @@ describe('WorkspacesFacade live dashboard projection', () => {
         { requestId: 'request-failed', error: { code: 'DependencyUnavailable' } },
         { status: 503, statusText: 'Service Unavailable' },
       );
-    http.expectOne('/api/workspaces/capabilities').flush({ data: { canCreate: true } });
+    http.expectOne('/api/workspaces/capabilities').flush(workspaceCapabilities(true));
 
     expect(facade.dashboard()).toMatchObject({
       status: 'error',
@@ -250,7 +307,7 @@ describe('WorkspacesFacade live dashboard projection', () => {
     currentCapabilities.flush({ data: { canCreate: false } });
     currentList.flush([{ ...workspaceDto, id: 'workspace-current', name: 'Current' }]);
 
-    firstCapabilities.flush({ data: { canCreate: true } });
+    firstCapabilities.flush(workspaceCapabilities(true));
     expect(firstList.cancelled).toBe(true);
 
     expect(facade.dashboard().pageCapabilities).toEqual([]);
@@ -408,5 +465,417 @@ describe('WorkspacesFacade live dashboard projection', () => {
 
     expect(settled).toBe(true);
     expect(facade.dashboard().workspaces[0].id).toBe('workspace-fallback-current');
+  });
+
+  it('canonicalizes the POST body, supplies a printable idempotency key, and blocks double submit', async () => {
+    http.expectOne('/api/workspaces/capabilities').flush(workspaceCapabilities(true));
+    http.expectOne('/api/workspaces').flush([workspaceDto]);
+
+    const first = facade.createWorkspace({
+      name: '  Research Team  ',
+      description: '   ',
+      icon: '  🔬  ',
+    });
+    const post = http.expectOne(
+      (request) => request.url === '/api/workspaces' && request.method === 'POST',
+    );
+    expect(post.request.withCredentials).toBe(true);
+    expect(post.request.body).toEqual({
+      name: 'Research Team',
+      description: null,
+      icon: '🔬',
+    });
+    expect(post.request.body).not.toHaveProperty('id');
+    expect(post.request.headers.get('Idempotency-Key')).toMatch(
+      /^[\x20-\x7e]{8,128}$/u,
+    );
+
+    await expect(
+      facade.createWorkspace({ name: 'Research Team', description: null, icon: '🔬' }),
+    ).resolves.toBe(false);
+    http.expectNone(
+      (request) => request.url === '/api/workspaces' && request.method === 'POST' && request !== post.request,
+    );
+
+    post.flush(
+      { requestId: 'request-unavailable', error: { code: 'DependencyUnavailable' } },
+      { status: 503, statusText: 'Service Unavailable' },
+    );
+    await expect(first).resolves.toBe(false);
+    expect(facade.workspaceCreate().status).toBe('error');
+  });
+
+  it('reuses the same key for an unchanged uncertain retry and rotates it only when payload changes', async () => {
+    http.expectOne('/api/workspaces/capabilities').flush(workspaceCapabilities(true));
+    http.expectOne('/api/workspaces').flush([workspaceDto]);
+
+    const first = facade.createWorkspace({
+      name: 'Research Team',
+      description: null,
+      icon: null,
+    });
+    const firstPost = http.expectOne(
+      (request) => request.url === '/api/workspaces' && request.method === 'POST',
+    );
+    const firstKey = firstPost.request.headers.get('Idempotency-Key');
+    firstPost.flush(null, { status: 503, statusText: 'Service Unavailable' });
+    await first;
+
+    facade.resetWorkspaceCreatePresentation();
+    const second = facade.createWorkspace({
+      name: '  Research Team ',
+      description: '  ',
+      icon: null,
+    });
+    const secondPost = http.expectOne(
+      (request) => request.url === '/api/workspaces' && request.method === 'POST',
+    );
+    expect(secondPost.request.headers.get('Idempotency-Key')).toBe(firstKey);
+    secondPost.flush(null, { status: 503, statusText: 'Service Unavailable' });
+    await second;
+
+    facade.resetWorkspaceCreatePresentation();
+    const changed = facade.createWorkspace({
+      name: 'Different Team',
+      description: null,
+      icon: null,
+    });
+    const changedPost = http.expectOne(
+      (request) => request.url === '/api/workspaces' && request.method === 'POST',
+    );
+    expect(changedPost.request.headers.get('Idempotency-Key')).not.toBe(firstKey);
+    changedPost.flush(null, { status: 503, statusText: 'Service Unavailable' });
+    await changed;
+  });
+
+  it('keeps the idempotency key after a malformed HTTP 201 response', async () => {
+    http.expectOne('/api/workspaces/capabilities').flush(workspaceCapabilities(true));
+    http.expectOne('/api/workspaces').flush([workspaceDto]);
+
+    const first = facade.createWorkspace({
+      name: 'Research Team',
+      description: null,
+      icon: null,
+    });
+    const firstPost = http.expectOne(
+      (request) => request.url === '/api/workspaces' && request.method === 'POST',
+    );
+    const firstKey = firstPost.request.headers.get('Idempotency-Key');
+    firstPost.flush(
+      { requestId: 'request-create-1', warnings: [] },
+      { status: 201, statusText: 'Created' },
+    );
+    await expect(first).resolves.toBe(false);
+    expect(facade.workspaceCreate()).toMatchObject({ status: 'error' });
+
+    facade.resetWorkspaceCreatePresentation();
+    const retry = facade.createWorkspace({
+      name: 'Research Team',
+      description: null,
+      icon: null,
+    });
+    const retryPost = http.expectOne(
+      (request) => request.url === '/api/workspaces' && request.method === 'POST',
+    );
+    expect(retryPost.request.headers.get('Idempotency-Key')).toBe(firstKey);
+    retryPost.flush(null, { status: 503, statusText: 'Service Unavailable' });
+    await retry;
+  });
+
+  it('treats a 201 response delivered through the HTTP error channel as uncertain', async () => {
+    http.expectOne('/api/workspaces/capabilities').flush(workspaceCapabilities(true));
+    http.expectOne('/api/workspaces').flush([workspaceDto]);
+
+    const first = facade.createWorkspace({
+      name: 'Research Team',
+      description: null,
+      icon: null,
+    });
+    const firstPost = http.expectOne(
+      (request) => request.url === '/api/workspaces' && request.method === 'POST',
+    );
+    const firstKey = firstPost.request.headers.get('Idempotency-Key');
+    firstPost.error(new ProgressEvent('error'), { status: 201, statusText: 'Created' });
+
+    await expect(first).resolves.toBe(false);
+    expect(facade.workspaceCreate()).toMatchObject({
+      status: 'error',
+      message: expect.stringContaining('may have been created'),
+    });
+
+    facade.resetWorkspaceCreatePresentation();
+    const retry = facade.createWorkspace({
+      name: 'Research Team',
+      description: null,
+      icon: null,
+    });
+    const retryPost = http.expectOne(
+      (request) => request.url === '/api/workspaces' && request.method === 'POST',
+    );
+    expect(retryPost.request.headers.get('Idempotency-Key')).toBe(firstKey);
+    retryPost.flush(null, { status: 503, statusText: 'Service Unavailable' });
+    await retry;
+  });
+
+  it('activates only after the committed Workspace appears in the authoritative list', async () => {
+    const router = TestBed.inject(Router);
+    vi.spyOn(router, 'url', 'get').mockReturnValue('/workspaces');
+    http.expectOne('/api/workspaces/capabilities').flush(workspaceCapabilities(true));
+    http.expectOne('/api/workspaces').flush([workspaceDto]);
+
+    const result = facade.createWorkspace({
+      name: 'Created Workspace',
+      description: null,
+      icon: '🔬',
+    });
+    http
+      .expectOne((request) => request.url === '/api/workspaces' && request.method === 'POST')
+      .flush(workspaceCreateEnvelope, { status: 201, statusText: 'Created' });
+    await Promise.resolve();
+    expect(facade.workspaceCreate()).toMatchObject({
+      status: 'submitting',
+      createdWorkspaceId,
+    });
+    http.expectOne('/api/workspaces/capabilities').flush(workspaceCapabilities(true));
+    http.expectOne('/api/workspaces').flush([workspaceDto, createdWorkspaceDashboardDto]);
+
+    await expect(result).resolves.toBe(true);
+    expect(workspaceSelection.selectWorkspace).toHaveBeenCalledWith(
+      createdWorkspaceId,
+      expect.any(Function),
+    );
+    expect(
+      workspaceSelection.reconcileAuthorizedWorkspaces.mock.invocationCallOrder.at(-1),
+    ).toBeLessThan(workspaceSelection.selectWorkspace.mock.invocationCallOrder[0]);
+    expect(facade.workspaceCreate()).toMatchObject({
+      status: 'succeeded',
+      requestId: 'request-create-1',
+      createdWorkspaceId,
+    });
+  });
+
+  it('uses GET/selection-only recovery when a committed Workspace is initially absent', async () => {
+    const router = TestBed.inject(Router);
+    vi.spyOn(router, 'url', 'get').mockReturnValue('/workspaces');
+    http.expectOne('/api/workspaces/capabilities').flush(workspaceCapabilities(true));
+    http.expectOne('/api/workspaces').flush([workspaceDto]);
+
+    const create = facade.createWorkspace({
+      name: 'Created Workspace',
+      description: null,
+      icon: '🔬',
+    });
+    http
+      .expectOne((request) => request.url === '/api/workspaces' && request.method === 'POST')
+      .flush(workspaceCreateEnvelope, { status: 201, statusText: 'Created' });
+    await Promise.resolve();
+    http.expectOne('/api/workspaces/capabilities').flush(workspaceCapabilities(true));
+    http.expectOne('/api/workspaces').flush([workspaceDto]);
+    await expect(create).resolves.toBe(false);
+    expect(facade.workspaceCreate()).toMatchObject({
+      status: 'committedPendingActivation',
+      createdWorkspaceId,
+    });
+    expect(workspaceSelection.selectWorkspace).not.toHaveBeenCalled();
+
+    await expect(
+      facade.createWorkspace({
+        name: 'Created Workspace',
+        description: null,
+        icon: '🔬',
+      }),
+    ).resolves.toBe(false);
+    http.expectNone((request) => request.url === '/api/workspaces' && request.method === 'POST');
+
+    const retry = facade.retryWorkspaceActivation();
+    http.expectOne('/api/workspaces/capabilities').flush(workspaceCapabilities(true));
+    http.expectOne('/api/workspaces').flush([workspaceDto, createdWorkspaceDashboardDto]);
+    await expect(retry).resolves.toBe(true);
+    http.expectNone((request) => request.url === '/api/workspaces' && request.method === 'POST');
+    expect(workspaceSelection.selectWorkspace).toHaveBeenCalledOnce();
+  });
+
+  it('keeps a committed Workspace pending after list failure and never re-posts it', async () => {
+    http.expectOne('/api/workspaces/capabilities').flush(workspaceCapabilities(true));
+    http.expectOne('/api/workspaces').flush([workspaceDto]);
+
+    const create = facade.createWorkspace({
+      name: 'Created Workspace',
+      description: null,
+      icon: '🔬',
+    });
+    http
+      .expectOne((request) => request.url === '/api/workspaces' && request.method === 'POST')
+      .flush(workspaceCreateEnvelope, { status: 201, statusText: 'Created' });
+    await Promise.resolve();
+    http.expectOne('/api/workspaces/capabilities').flush(workspaceCapabilities(true));
+    http
+      .expectOne('/api/workspaces')
+      .flush(null, { status: 503, statusText: 'Service Unavailable' });
+    await expect(create).resolves.toBe(false);
+
+    const retry = facade.retryWorkspaceActivation();
+    http.expectOne('/api/workspaces/capabilities').flush(workspaceCapabilities(true));
+    http
+      .expectOne('/api/workspaces')
+      .flush(null, { status: 503, statusText: 'Service Unavailable' });
+    await expect(retry).resolves.toBe(false);
+    http.expectNone((request) => request.url === '/api/workspaces' && request.method === 'POST');
+    expect(facade.workspaceCreate().status).toBe('committedPendingActivation');
+  });
+
+  it('follows an authorization-revision replacement list during post-create reconciliation', async () => {
+    const router = TestBed.inject(Router);
+    vi.spyOn(router, 'url', 'get').mockReturnValue('/workspaces');
+    http.expectOne('/api/workspaces/capabilities').flush(workspaceCapabilities(true));
+    http.expectOne('/api/workspaces').flush([workspaceDto]);
+
+    const create = facade.createWorkspace({
+      name: 'Created Workspace',
+      description: null,
+      icon: '🔬',
+    });
+    http
+      .expectOne((request) => request.url === '/api/workspaces' && request.method === 'POST')
+      .flush(workspaceCreateEnvelope, { status: 201, statusText: 'Created' });
+    await Promise.resolve();
+    const obsoleteCapabilities = http.expectOne('/api/workspaces/capabilities');
+    const obsoleteList = http.expectOne('/api/workspaces');
+
+    authorizationRevision.set(1);
+    TestBed.flushEffects();
+    expect(obsoleteList.cancelled).toBe(true);
+    obsoleteCapabilities.flush(workspaceCapabilities(true));
+    await Promise.resolve();
+    await Promise.resolve();
+
+    http.expectOne('/api/workspaces/capabilities').flush(workspaceCapabilities(true));
+    http.expectOne('/api/workspaces').flush([workspaceDto, createdWorkspaceDashboardDto]);
+    await expect(create).resolves.toBe(true);
+    expect(workspaceSelection.selectWorkspace).toHaveBeenCalledWith(
+      createdWorkspaceId,
+      expect.any(Function),
+    );
+  });
+
+  it('drops a late create response when the authenticated identity changes', async () => {
+    http.expectOne('/api/workspaces/capabilities').flush(workspaceCapabilities(true));
+    http.expectOne('/api/workspaces').flush([workspaceDto]);
+
+    const create = facade.createWorkspace({
+      name: 'Created Workspace',
+      description: null,
+      icon: '🔬',
+    });
+    const post = http.expectOne(
+      (request) => request.url === '/api/workspaces' && request.method === 'POST',
+    );
+
+    authSessionState.set({
+      isAuthenticated: true,
+      currentTenant: { tenantId: 'tenant-a' },
+      currentUser: { userId: 'user-b' },
+      capabilities: [],
+    });
+    TestBed.flushEffects();
+    http.expectOne('/api/workspaces/capabilities').flush({ data: { canCreate: false } });
+    http.expectOne('/api/workspaces').flush([workspaceDto]);
+
+    post.flush(workspaceCreateEnvelope, { status: 201, statusText: 'Created' });
+    await expect(create).resolves.toBe(false);
+    expect(workspaceSelection.selectWorkspace).not.toHaveBeenCalled();
+    expect(facade.workspaceCreate().status).toBe('idle');
+  });
+
+  it('fails create closed without backend capability and refreshes it after a 403', async () => {
+    http.expectOne('/api/workspaces/capabilities').flush({ data: { canCreate: false } });
+    http.expectOne('/api/workspaces').flush([workspaceDto]);
+    await expect(
+      facade.createWorkspace({ name: 'Denied', description: null, icon: null }),
+    ).resolves.toBe(false);
+    http.expectNone((request) => request.url === '/api/workspaces' && request.method === 'POST');
+
+    void facade.loadWorkspaces();
+    http.expectOne('/api/workspaces/capabilities').flush(workspaceCapabilities(true));
+    http.expectOne('/api/workspaces').flush([workspaceDto]);
+    facade.resetWorkspaceCreatePresentation();
+    const denied = facade.createWorkspace({ name: 'Denied', description: null, icon: null });
+    const deniedPost = http.expectOne(
+      (request) => request.url === '/api/workspaces' && request.method === 'POST',
+    );
+
+    // A concurrent list refresh may already have a capability response in
+    // flight when the command proves that authority was denied. That older
+    // response must not re-enable the action after the denial refresh.
+    void facade.loadWorkspaces();
+    const staleCapability = http.expectOne('/api/workspaces/capabilities');
+    const concurrentList = http.expectOne('/api/workspaces');
+    deniedPost.flush(
+        {
+          requestId: 'request-denied',
+          error: {
+            code: 'CapabilityDenied',
+            message: 'You are not allowed to create workspaces.',
+            target: 'workspace',
+            details: [],
+            redactionApplied: false,
+          },
+          status: 403,
+        },
+        { status: 403, statusText: 'Forbidden' },
+      );
+    await expect(denied).resolves.toBe(false);
+    expect(facade.dashboard().pageCapabilities).toEqual([]);
+    http.expectOne('/api/workspaces/capabilities').flush({ data: { canCreate: false } });
+    staleCapability.flush(workspaceCapabilities(true));
+    concurrentList.flush([workspaceDto]);
+    expect(facade.dashboard().pageCapabilities).toEqual([]);
+    expect(facade.workspaceCreate()).toMatchObject({
+      status: 'error',
+      requestId: 'request-denied',
+    });
+  });
+
+  it('maps safe validation targets and does not send invalid local fields', async () => {
+    http.expectOne('/api/workspaces/capabilities').flush(workspaceCapabilities(true));
+    http.expectOne('/api/workspaces').flush([workspaceDto]);
+
+    await expect(
+      facade.createWorkspace({ name: '   ', description: null, icon: null }),
+    ).resolves.toBe(false);
+    expect(facade.workspaceCreate().fieldErrors).toEqual([
+      { field: 'name', message: 'Enter a Workspace name.' },
+    ]);
+    http.expectNone((request) => request.url === '/api/workspaces' && request.method === 'POST');
+
+    facade.resetWorkspaceCreatePresentation();
+    const serverValidation = facade.createWorkspace({
+      name: 'Valid locally',
+      description: null,
+      icon: null,
+    });
+    http
+      .expectOne((request) => request.url === '/api/workspaces' && request.method === 'POST')
+      .flush(
+        {
+          requestId: 'request-validation',
+          error: {
+            code: 'ValidationFailed',
+            message: 'Internal validation text is not presentation authority.',
+            target: 'body.name',
+            details: [],
+            redactionApplied: false,
+          },
+          status: 400,
+        },
+        { status: 400, statusText: 'Bad Request' },
+      );
+    await serverValidation;
+    expect(facade.workspaceCreate()).toMatchObject({
+      status: 'error',
+      requestId: 'request-validation',
+      fieldErrors: [{ field: 'name', message: 'Review the Workspace name.' }],
+      message: 'Review the highlighted fields and try again.',
+    });
   });
 });

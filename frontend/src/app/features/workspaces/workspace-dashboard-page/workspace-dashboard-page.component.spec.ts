@@ -1,7 +1,8 @@
+import { signal } from '@angular/core';
 import { ComponentFixture, TestBed } from '@angular/core/testing';
 import { provideRouter } from '@angular/router';
 
-import { AIP_WORKSPACES_DASHBOARD_MOCK } from '../workspaces.facade';
+import { AIP_WORKSPACES_DASHBOARD_MOCK, WorkspacesFacade } from '../workspaces.facade';
 import {
   DEFAULT_WORKSPACES,
   LONG_NAME_WORKSPACE,
@@ -10,7 +11,7 @@ import {
   SYSTEM_ADMIN_WORKSPACE,
   WORKSPACE_DASHBOARD_SCENARIOS,
 } from '../workspaces.mock';
-import { WorkspaceDashboardViewModel } from '../workspaces.types';
+import { WorkspaceCreateViewModel, WorkspaceDashboardViewModel } from '../workspaces.types';
 import { WorkspaceDashboardPageComponent } from './workspace-dashboard-page.component';
 
 const renderDashboard = async (
@@ -28,6 +29,30 @@ const renderDashboard = async (
 
 const textContent = (fixture: ComponentFixture<WorkspaceDashboardPageComponent>): string =>
   (fixture.nativeElement as HTMLElement).textContent ?? '';
+
+const renderDashboardWithCreateState = async (
+  dashboard: WorkspaceDashboardViewModel,
+  createState: WorkspaceCreateViewModel,
+) => {
+  const dashboardState = signal(dashboard);
+  const workspaceCreateState = signal(createState);
+  const facade = {
+    dashboard: dashboardState.asReadonly(),
+    workspaceCreate: workspaceCreateState.asReadonly(),
+    resetWorkspaceCreatePresentation: vi.fn(),
+    createWorkspace: vi.fn().mockResolvedValue(false),
+    retryWorkspaceActivation: vi.fn().mockResolvedValue(false),
+  };
+
+  await TestBed.configureTestingModule({
+    imports: [WorkspaceDashboardPageComponent],
+    providers: [provideRouter([]), { provide: WorkspacesFacade, useValue: facade }],
+  }).compileComponents();
+
+  const fixture = TestBed.createComponent(WorkspaceDashboardPageComponent);
+  fixture.detectChanges();
+  return { facade, fixture };
+};
 
 const workspaceCard = (
   fixture: ComponentFixture<WorkspaceDashboardPageComponent>,
@@ -64,10 +89,16 @@ describe('WorkspaceDashboardPageComponent', () => {
   it('shows create action only when the page capability is present', async () => {
     const fixture = await renderDashboard(WORKSPACE_DASHBOARD_SCENARIOS.default);
 
+    const action = (fixture.nativeElement as HTMLElement).querySelector<HTMLButtonElement>(
+      '[data-testid="create-workspace-action"]',
+    );
+    expect(action).not.toBeNull();
+    expect(action?.disabled).toBe(false);
+
+    action?.click();
+    fixture.detectChanges();
     expect(
-      (fixture.nativeElement as HTMLElement).querySelector(
-        '[data-testid="create-workspace-action"]',
-      ),
+      (fixture.nativeElement as HTMLElement).querySelector('[data-testid="workspace-create-form"]'),
     ).not.toBeNull();
   });
 
@@ -117,6 +148,143 @@ describe('WorkspaceDashboardPageComponent', () => {
       'メンバー',
     );
     expect(card.querySelectorAll('[data-testid="start-research-action"]')).toHaveLength(1);
+  });
+
+  it('uses one capability-gated create action inside the zero-Workspace state', async () => {
+    const fixture = await renderDashboard({
+      ...WORKSPACE_DASHBOARD_SCENARIOS.noWorkspaceAccess,
+      pageCapabilities: ['createWorkspace'],
+    });
+    const root = fixture.nativeElement as HTMLElement;
+
+    expect(root.querySelector('[data-testid="create-workspace-action"]')).toBeNull();
+    const emptyAction = root.querySelector<HTMLButtonElement>(
+      '[data-testid="workspace-empty-create-action"]',
+    );
+    expect(emptyAction).not.toBeNull();
+    emptyAction?.click();
+    fixture.detectChanges();
+    expect(root.querySelector('[data-testid="workspace-create-form"]')).not.toBeNull();
+  });
+
+  it.each([
+    ['dashboard error', WORKSPACE_DASHBOARD_SCENARIOS.error],
+    ['permission denied', WORKSPACE_DASHBOARD_SCENARIOS.permissionDenied],
+    [
+      'no Workspace access',
+      {
+        ...WORKSPACE_DASHBOARD_SCENARIOS.noWorkspaceAccess,
+        pageCapabilities: ['createWorkspace'] as const,
+      },
+    ],
+  ])('keeps committed Workspace activation resumable during %s', async (_label, dashboard) => {
+    const { fixture } = await renderDashboardWithCreateState(dashboard, {
+      status: 'committedPendingActivation',
+      fieldErrors: [],
+      createdWorkspaceId: 'workspace-created',
+      requestId: 'request-created',
+    });
+    const root = fixture.nativeElement as HTMLElement;
+
+    expect(root.querySelector('[data-testid="create-workspace-action"]')).toBeNull();
+    expect(root.querySelector('[data-testid="workspace-empty-create-action"]')).toBeNull();
+    const resume = root.querySelector<HTMLButtonElement>(
+      '[data-testid="resume-workspace-activation-action"]',
+    );
+    expect(resume).not.toBeNull();
+
+    resume?.click();
+    fixture.detectChanges();
+
+    expect(root.querySelector('[data-testid="workspace-create-pending"]')).not.toBeNull();
+    expect(root.querySelector('[data-testid="workspace-create-form"]')).toBeNull();
+  });
+
+  it('closes and reopens committed activation without another create submission', async () => {
+    const { facade, fixture } = await renderDashboardWithCreateState(
+      WORKSPACE_DASHBOARD_SCENARIOS.error,
+      {
+        status: 'committedPendingActivation',
+        fieldErrors: [],
+        createdWorkspaceId: 'workspace-created',
+        requestId: 'request-created',
+      },
+    );
+    const root = fixture.nativeElement as HTMLElement;
+    const createHandler = vi.spyOn(fixture.componentInstance, 'createWorkspace');
+
+    root
+      .querySelector<HTMLButtonElement>('[data-testid="resume-workspace-activation-action"]')
+      ?.click();
+    fixture.detectChanges();
+    root.querySelector<HTMLButtonElement>('.aip-dialog__actions button')?.click();
+    fixture.detectChanges();
+    await fixture.whenStable();
+
+    expect(root.querySelector('[role="dialog"]')).toBeNull();
+    expect(facade.resetWorkspaceCreatePresentation).not.toHaveBeenCalled();
+
+    root
+      .querySelector<HTMLButtonElement>('[data-testid="resume-workspace-activation-action"]')
+      ?.click();
+    fixture.detectChanges();
+    expect(root.querySelector('[data-testid="workspace-create-pending"]')).not.toBeNull();
+    expect(root.querySelector('[data-testid="workspace-create-form"]')).toBeNull();
+
+    root.querySelector<HTMLButtonElement>('.aip-dialog__confirm')?.click();
+    await fixture.whenStable();
+
+    expect(facade.retryWorkspaceActivation).toHaveBeenCalledOnce();
+    expect(createHandler).not.toHaveBeenCalled();
+    expect(facade.createWorkspace).not.toHaveBeenCalled();
+  });
+
+  it('submits the accessible dialog through the facade and announces activation', async () => {
+    const fixture = await renderDashboard(WORKSPACE_DASHBOARD_SCENARIOS.default);
+    const facade = TestBed.inject(WorkspacesFacade);
+    const create = vi.spyOn(facade, 'createWorkspace').mockResolvedValue(true);
+    const root = fixture.nativeElement as HTMLElement;
+    fixture.componentInstance.updateSearch('does not match the new Workspace');
+    root.querySelector<HTMLButtonElement>('[data-testid="create-workspace-action"]')?.click();
+    fixture.detectChanges();
+
+    const name = root.querySelector<HTMLInputElement>('[data-testid="workspace-create-name"]');
+    name!.value = 'U-22 Research';
+    name!.dispatchEvent(new Event('input'));
+    root.querySelector<HTMLSelectElement>('[data-testid="workspace-create-icon"]')!.value = '🚀';
+    root.querySelector<HTMLSelectElement>('[data-testid="workspace-create-icon"]')!.dispatchEvent(
+      new Event('change'),
+    );
+    fixture.detectChanges();
+    root.querySelector<HTMLButtonElement>('.aip-dialog__confirm')?.click();
+    await fixture.whenStable();
+    fixture.detectChanges();
+
+    expect(create).toHaveBeenCalledWith({ name: 'U-22 Research', description: '', icon: '🚀' });
+    expect(root.querySelector('[role="dialog"]')).toBeNull();
+    expect(fixture.componentInstance.searchValue()).toBe('');
+    expect(root.querySelector('[data-testid="workspace-created-announcement"]')?.textContent).toContain(
+      'U-22 Research',
+    );
+  });
+
+  it('cancels without sending a create request and returns focus to the opener', async () => {
+    const fixture = await renderDashboard(WORKSPACE_DASHBOARD_SCENARIOS.default);
+    const facade = TestBed.inject(WorkspacesFacade);
+    const create = vi.spyOn(facade, 'createWorkspace');
+    const root = fixture.nativeElement as HTMLElement;
+    const opener = root.querySelector<HTMLButtonElement>('[data-testid="create-workspace-action"]')!;
+    opener.focus();
+    opener.click();
+    fixture.detectChanges();
+
+    root.querySelector<HTMLButtonElement>('.aip-dialog__actions button')?.click();
+    fixture.detectChanges();
+    await fixture.whenStable();
+
+    expect(create).not.toHaveBeenCalled();
+    expect(root.querySelector('[role="dialog"]')).toBeNull();
+    expect(document.activeElement).toBe(opener);
   });
 
   it('filters only provided mock workspace rows with page-local search', async () => {

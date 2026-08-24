@@ -1,19 +1,33 @@
 @let vm = dashboard();
 
-<section class="workspace-dashboard" data-testid="workspace-dashboard">
+<div
+  id="workspace-dashboard"
+  class="workspace-dashboard"
+  aria-labelledby="workspace-dashboard-title"
+  tabindex="-1"
+  data-testid="workspace-dashboard"
+>
   <header class="workspace-dashboard__header">
     <div>
       <p class="workspace-dashboard__eyebrow">{{ vm.title }}</p>
-      <h1>{{ vm.subtitle }}</h1>
+      <h1 id="workspace-dashboard-title">{{ vm.subtitle }}</h1>
     </div>
 
-    @if (canCreateWorkspace()) {
+    @if (hasPendingWorkspaceActivation()) {
+      <button
+        class="workspace-dashboard__create"
+        type="button"
+        data-testid="resume-workspace-activation-action"
+        (click)="resumeWorkspaceActivation()"
+      >
+        Workspace選択を再開
+      </button>
+    } @else if (canCreateWorkspace() && vm.status === 'ready') {
       <button
         class="workspace-dashboard__create"
         type="button"
         data-testid="create-workspace-action"
-        disabled
-        title="Workspace作成画面は未実装です。"
+        (click)="openCreateDialog()"
       >
         Workspace作成
       </button>
@@ -44,6 +58,8 @@
     <app-workspace-empty-state
       title="表示できるWorkspaceがありません"
       [message]="vm.message ?? 'Workspaceの作成または招待が必要です。'"
+      [actionLabel]="canCreateWorkspace() && !hasPendingWorkspaceActivation() ? 'Workspace作成' : null"
+      (action)="openCreateDialog()"
     />
   } @else {
     @if (vm.workspaces.length > 0) {
@@ -66,4 +82,19 @@
       <app-workspace-empty-state />
     }
   }
-</section>
+
+  @if (createdAnnouncement()) {
+    <p class="workspace-dashboard__announcement" role="status" data-testid="workspace-created-announcement">
+      {{ createdAnnouncement() }}
+    </p>
+  }
+</div>
+
+<app-workspace-create-dialog
+  [open]="createDialogOpen()"
+  [canCreate]="canCreateWorkspace()"
+  [createState]="workspaceCreate()"
+  (submitted)="createWorkspace($event)"
+  (retryActivation)="retryWorkspaceActivation()"
+  (cancelled)="closeCreateDialog()"
+/>

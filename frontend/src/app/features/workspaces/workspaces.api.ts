@@ -5,6 +5,7 @@ import {
   WorkspaceMembershipRole,
   WorkspacePageCapability,
   WorkspaceRoleLabel,
+  WorkspaceCreateInput,
 } from './workspaces.types';
 
 export interface WorkspaceDashboardListItemDto {
@@ -39,6 +40,79 @@ export interface WorkspaceCapabilitiesEnvelopeDto {
   readonly warnings?: readonly unknown[];
 }
 
+export interface WorkspaceCreateRequestDto {
+  readonly name: string;
+  readonly description: string | null;
+  readonly icon: string | null;
+}
+
+export interface WorkspaceCreatedDto {
+  readonly id: string;
+  readonly name: string;
+  readonly description: string | null;
+  readonly icon: string | null;
+  readonly status: 0;
+  readonly createdByUserId: string;
+  readonly createdAt: string;
+  readonly updatedAt: string | null;
+}
+
+export interface WorkspaceCreateSuccess {
+  readonly requestId: string;
+  readonly data: WorkspaceCreatedDto;
+  readonly warnings: readonly unknown[];
+}
+
+export function canonicalizeWorkspaceCreateInput(
+  input: WorkspaceCreateInput,
+): WorkspaceCreateRequestDto {
+  return {
+    name: input.name.trim(),
+    description: optionalString(input.description),
+    icon: optionalString(input.icon),
+  };
+}
+
+/**
+ * Maps only the canonical HTTP 201 Workspace-create body. A successful HTTP
+ * status with an incomplete or incompatible body is uncertain delivery, not a
+ * resource the client may fabricate or activate.
+ */
+export function mapWorkspaceCreateSuccess(value: unknown): WorkspaceCreateSuccess {
+  const envelope = recordValue(value, 'Workspace create response');
+  const requestId = requiredString(envelope['requestId'], 'requestId');
+  if (!Array.isArray(envelope['warnings'])) {
+    throw new Error('Workspace create response warnings must be an array.');
+  }
+
+  const data = recordValue(envelope['data'], 'Workspace create response data');
+  const id = requiredUuid(data['id'], 'data.id');
+  const name = requiredString(data['name'], 'data.name');
+  const description = nullableString(data['description'], 'data.description');
+  const icon = nullableString(data['icon'], 'data.icon');
+  if (data['status'] !== 0) {
+    throw new Error('Workspace create response data.status must be Active.');
+  }
+  const createdByUserId = requiredUuid(data['createdByUserId'], 'data.createdByUserId');
+  const createdAt = requiredTimestamp(data['createdAt'], 'data.createdAt');
+  const updatedAt = nullableTimestamp(data['updatedAt'], 'data.updatedAt');
+
+  return {
+    requestId,
+    data: {
+      id,
+      name,
+      description,
+      icon,
+      status: 0,
+      createdByUserId,
+      createdAt,
+      updatedAt,
+    },
+    warnings: envelope['warnings'],
+  };
+}
+
 export function mapWorkspaceDashboardResponse(value: unknown): readonly WorkspaceCardViewModel[] {
   if (!Array.isArray(value)) {
     throw new Error('Workspace dashboard response must be an array.');
@@ -61,6 +135,18 @@ export function mapWorkspacePageCapabilities(
   }
 
   const envelope = response as WorkspaceCapabilitiesEnvelopeDto;
+  if (
+    typeof envelope.requestId !== 'string' ||
+    envelope.requestId.trim().length === 0 ||
+    !envelope.data ||
+    typeof envelope.data !== 'object' ||
+    Array.isArray(envelope.data) ||
+    typeof envelope.data.canCreate !== 'boolean' ||
+    !Array.isArray(envelope.warnings)
+  ) {
+    return [];
+  }
+
   return envelope.data?.canCreate === true ? ['createWorkspace'] : [];
 }
 
@@ -185,4 +271,61 @@ function dateLabel(value: unknown): string | null {
 
 function stringValue(value: unknown): string | null {
   return typeof value === 'string' && value.trim().length > 0 ? value : null;
+}
+
+function optionalString(value: string | null): string | null {
+  const normalized = value?.trim() ?? '';
+  return normalized.length > 0 ? normalized : null;
+}
+
+function recordValue(value: unknown, label: string): Record<string, unknown> {
+  if (!value || typeof value !== 'object' || Array.isArray(value)) {
+    throw new Error(`${label} must be an object.`);
+  }
+
+  return value as Record<string, unknown>;
+}
+
+function requiredString(value: unknown, path: string): string {
+  if (typeof value !== 'string' || value.trim().length === 0) {
+    throw new Error(`Workspace create response ${path} must be a non-empty string.`);
+  }
+
+  return value;
+}
+
+function nullableString(value: unknown, path: string): string | null {
+  if (value === null) {
+    return null;
+  }
+  if (typeof value === 'string') {
+    return value;
+  }
+
+  throw new Error(`Workspace create response ${path} must be a string or null.`);
+}
+
+function requiredUuid(value: unknown, path: string): string {
+  const uuid = requiredString(value, path);
+  if (
+    !/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/iu.test(uuid) ||
+    uuid === '00000000-0000-0000-0000-000000000000'
+  ) {
+    throw new Error(`Workspace create response ${path} must be a UUID.`);
+  }
+
+  return uuid;
+}
+
+function requiredTimestamp(value: unknown, path: string): string {
+  const timestamp = requiredString(value, path);
+  if (!/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(?:\.\d+)?(?:Z|[+-]\d{2}:\d{2})$/u.test(timestamp) || Number.isNaN(Date.parse(timestamp))) {
+    throw new Error(`Workspace create response ${path} must be an ISO 8601 timestamp.`);
+  }
+
+  return timestamp;
+}
+
+function nullableTimestamp(value: unknown, path: string): string | null {
+  return value === null ? null : requiredTimestamp(value, path);
 }

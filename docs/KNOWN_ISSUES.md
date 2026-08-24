@@ -1,47 +1,30 @@
 # Known Issues
 
-Last WPC-01 remediation audit: 2026-08-14.
+Last WPC creation remediation audit: 2026-08-24.
 
 This list records confirmed implementation/documentation mismatches and major unknowns. It is not limited to defects already filed in GitHub.
 
-## WPC-01 canonical creation blockers
+## WPC canonical creation status
 
-The WPC-01 branch implements only the independent safe Workspace-create
-foundation. The following canonical blockers remain and prevent WPC-02/WPC-03
-from treating the backend as complete:
+The original WPC-01 items are no longer active backend blockers:
 
-- **WPC-01-001, blocking decision:** no specification rule safely maps existing
-  Projects to `WorkspaceVisible`, `MembersOnly`, or `Restricted`. The current
-  Project detail/Search/subordinate predicates and the non-Archived list scope
-  are aligned. Archived history remains list-only for current Workspace members
-  who are explicit Project members. These current rules do not select a
-  canonical persisted Visibility value; a migration default could still
-  broaden or remove access.
-- **WPC-01-002, blocking decision:** the canonical authority for creating a
-  Workspace-root Project is not resolved. The deprecated Group-scoped
-  compatibility command returns 503 without mutation and cannot be treated as
-  canonical authority precedent.
-- **WPC-01-003, blocking dependency:** no persisted/evaluated delegated
-  `workspace.create` capability boundary exists. Tenant Owner/Admin is enforced;
-  delegation fails closed.
-- **WPC-01-004, blocking dependency:** canonical Conversation persistence has
-  no unambiguous Workspace/Project default-channel provisioning boundary.
-  Legacy Channel/Post is not an acceptable substitute.
-- **WPC-01-005, blocking lifecycle/data-integrity dependency:** atomic Project
-  activation cannot be implemented until Visibility, canonical default Channel,
-  and Task workflow attachment semantics are resolved. Draft activation bypass
-  is closed: generic `Planning -> Active` is denied. `Planning -> Suspended`
-  remains allowed, but once Suspended, recovery to either Planning or Active is
-  gated because persistence cannot distinguish a never-activated Project from a
-  previously operational one. Both transitions return 409
-  `InvalidStateTransition` with target `body.status` and no metadata/lifecycle
-  mutation, success audit, ProjectChanged or authorization invalidation, or
-  save. `Suspended -> Archived` remains available. `Review -> Active` remains
-  the ordinary return from a state whose production inbound path proves prior
-  operation. Archived/Deleted recovery also fails closed without guessing
-  provenance. Every missing lifecycle edge in `ProjectService.UpdateAsync`
-  uses the same fixed safe typed conflict. Do not expose activation UI until
-  the explicit atomic command and its dependencies are implemented.
+- **WPC-01-001 resolved by WPC-02A:** canonical Project Visibility and
+  activation provenance are persisted. Legacy rows remain explicitly unknown;
+  no migration inferred or broadened their authorization.
+- **WPC-01-002 resolved by WPC-02C:** Workspace-scoped Project creation has an
+  explicit server-authorized, idempotent command. The deprecated unscoped
+  compatibility route remains disabled.
+- **WPC-01-003 and WPC-01-004 resolved by WPC-02B:** current Tenant-scoped
+  `workspace.create` grants are persisted and evaluated, and Workspace create
+  atomically provisions the canonical `WorkspaceGeneral` Conversation.
+- **WPC-01-005 resolved by WPC-02D:** the explicit activation command owns
+  ProjectGeneral and Task-workflow provisioning under one guarded persistence
+  boundary. Generic lifecycle update remains unable to bypass activation.
+
+The provider-backed WPC-Final01 through Final03 verification records remain
+the source of truth for those merged backend boundaries. Frontend integration
+Issues such as Workspace create (#408) and Project create/activation (#409)
+must consume them without duplicating authority in the browser.
 
 ## Backend application logic audit findings
 

@@ -2,9 +2,10 @@ import { HttpClient } from '@angular/common/http';
 import { DestroyRef, effect, inject, Injectable, InjectionToken, signal } from '@angular/core';
 import { takeUntilDestroyed } from '@angular/core/rxjs-interop';
 import { NavigationEnd, Router } from '@angular/router';
-import { filter, Subscription } from 'rxjs';
+import { filter, firstValueFrom, Subscription } from 'rxjs';
 
 import { normalizeApiError } from '../../core/api/api-error.adapter';
+import { FrontendApiError } from '../../core/api/api-error.model';
 import { AuthSessionFacade } from '../../core/auth/auth-session.facade';
 import { RealtimeFacade } from '../../core/realtime/realtime.facade';
 import {
@@ -13,12 +14,20 @@ import {
   workspaceIdFromRoute,
 } from '../../core/workspace/workspace-selection.facade';
 import {
+  canonicalizeWorkspaceCreateInput,
   mapWorkspaceDashboardResponse,
+  mapWorkspaceCreateSuccess,
   mapWorkspacePageCapabilities,
   WorkspaceCapabilitiesEnvelopeDto,
+  WorkspaceCreateRequestDto,
+  WorkspaceCreateSuccess,
 } from './workspaces.api';
 import {
   WorkspaceCardViewModel,
+  WorkspaceCreateField,
+  WorkspaceCreateFieldError,
+  WorkspaceCreateInput,
+  WorkspaceCreateViewModel,
   WorkspaceDashboardViewModel,
   WorkspacePageCapability,
 } from './workspaces.types';
@@ -26,6 +35,22 @@ import {
 export const AIP_WORKSPACES_DASHBOARD_MOCK = new InjectionToken<WorkspaceDashboardViewModel>(
   'AIP_WORKSPACES_DASHBOARD_MOCK',
 );
+
+const INITIAL_CREATE_STATE: WorkspaceCreateViewModel = {
+  status: 'idle',
+  fieldErrors: [],
+};
+
+interface WorkspaceCreateAttempt {
+  readonly identityKey: string;
+  readonly payloadKey: string;
+  readonly idempotencyKey: string;
+}
+
+interface CommittedWorkspaceCreate {
+  readonly identityKey: string;
+  readonly success: WorkspaceCreateSuccess;
+}
 
 @Injectable({
   providedIn: 'root',
@@ -43,6 +68,7 @@ export class WorkspacesFacade {
   );
   private pageCapabilities: readonly WorkspacePageCapability[] = [];
   private loadGeneration = 0;
+  private capabilityLoadGeneration = 0;
   private observedIdentityKey: string | null;
   private observedAuthorizationRevision: number;
   private reloadStartedAuthorizationRevision: number;
@@ -51,8 +77,13 @@ export class WorkspacesFacade {
   private workspaceListRequest: Subscription | null = null;
   private workspaceListCompletion: (() => void) | null = null;
   private workspaceListInFlight: Promise<void> | null = null;
+  private readonly workspaceCreateState = signal<WorkspaceCreateViewModel>(INITIAL_CREATE_STATE);
+  private createAttempt: WorkspaceCreateAttempt | null = null;
+  private committedCreate: CommittedWorkspaceCreate | null = null;
+  private createOperationGeneration = 0;
 
   readonly dashboard = this.dashboardState.asReadonly();
+  readonly workspaceCreate = this.workspaceCreateState.asReadonly();
 
   constructor() {
     const initialIdentity = this.currentIdentity();
@@ -81,6 +112,7 @@ export class WorkspacesFacade {
       }
 
       this.observedIdentityKey = nextIdentityKey;
+      this.resetCreateScope();
       this.initializeForIdentity(identity);
     });
 
@@ -172,6 +204,119 @@ export class WorkspacesFacade {
     return completionPromise;
   }
 
+  async createWorkspace(input: WorkspaceCreateInput): Promise<boolean> {
+    if (this.workspaceCreateState().status === 'submitting') {
+      return false;
+    }
+
+    const identity = this.currentIdentity();
+    const currentIdentityKey = identityKey(identity);
+    if (!identity || !currentIdentityKey || !this.http) {
+      this.setCreateError('Workspace creation is unavailable in the current session.');
+      return false;
+    }
+
+    if (this.committedCreate?.identityKey === currentIdentityKey) {
+      this.markCommittedPendingActivation(this.committedCreate.success);
+      return false;
+    }
+
+    if (!this.pageCapabilities.includes('createWorkspace')) {
+      this.setCreateError('You do not currently have permission to create a Workspace.');
+      return false;
+    }
+
+    const payload = canonicalizeWorkspaceCreateInput(input);
+    const validationErrors = validateWorkspaceCreatePayload(payload);
+    if (validationErrors.length > 0) {
+      this.workspaceCreateState.set({
+        status: 'error',
+        fieldErrors: validationErrors,
+        message: 'Review the highlighted fields and try again.',
+      });
+      return false;
+    }
+
+    const attempt = this.getOrCreateAttempt(currentIdentityKey, payload);
+    const operationGeneration = ++this.createOperationGeneration;
+    this.workspaceCreateState.set({ status: 'submitting', fieldErrors: [] });
+
+    let response;
+    try {
+      response = await firstValueFrom(
+        this.http.post<unknown>('/api/workspaces', payload, {
+          headers: { 'Idempotency-Key': attempt.idempotencyKey },
+          observe: 'response',
+          withCredentials: true,
+        }),
+      );
+    } catch (error: unknown) {
+      if (this.isCreateOperationCurrent(operationGeneration, currentIdentityKey)) {
+        const normalized = normalizeApiError(error);
+        if (normalized.httpStatus >= 200 && normalized.httpStatus < 300) {
+          // HttpClient reports an invalid JSON body on an otherwise successful
+          // response through its error channel. The server may already have
+          // committed the command, so preserve the key and present uncertainty.
+          this.applyMalformedCreateSuccess();
+        } else {
+          this.applyCreateError(normalized);
+        }
+      }
+      return false;
+    }
+
+    if (!this.isCreateOperationCurrent(operationGeneration, currentIdentityKey)) {
+      return false;
+    }
+
+    if (response.status !== 201) {
+      this.applyMalformedCreateSuccess();
+      return false;
+    }
+
+    let success: WorkspaceCreateSuccess;
+    try {
+      success = mapWorkspaceCreateSuccess(response.body);
+    } catch {
+      this.applyMalformedCreateSuccess();
+      return false;
+    }
+
+    // A canonical 201 proves that this key has been consumed. Activation may
+    // still fail, but it must recover through GET/selection and never by
+    // posting the create command again.
+    this.createAttempt = null;
+    this.committedCreate = { identityKey: currentIdentityKey, success };
+    this.markActivationSubmitting(success);
+    return this.activateCommittedWorkspace(operationGeneration, currentIdentityKey);
+  }
+
+  async retryWorkspaceActivation(): Promise<boolean> {
+    if (this.workspaceCreateState().status === 'submitting') {
+      return false;
+    }
+
+    const identity = this.currentIdentity();
+    const currentIdentityKey = identityKey(identity);
+    const committed = this.committedCreate;
+    if (!identity || !currentIdentityKey || committed?.identityKey !== currentIdentityKey) {
+      return false;
+    }
+
+    const operationGeneration = ++this.createOperationGeneration;
+    this.markActivationSubmitting(committed.success);
+    return this.activateCommittedWorkspace(operationGeneration, currentIdentityKey);
+  }
+
+  resetWorkspaceCreatePresentation(): void {
+    const status = this.workspaceCreateState().status;
+    if (status === 'submitting' || status === 'committedPendingActivation') {
+      return;
+    }
+
+    this.workspaceCreateState.set(INITIAL_CREATE_STATE);
+  }
+
   private initializeForIdentity(identity: WorkspaceSelectionIdentity | null): void {
     if (!identity) {
       this.loadGeneration += 1;
@@ -183,6 +328,211 @@ export class WorkspacesFacade {
     }
 
     void this.loadWorkspaces();
+  }
+
+  private async activateCommittedWorkspace(
+    operationGeneration: number,
+    expectedIdentityKey: string,
+  ): Promise<boolean> {
+    const committed = this.committedCreate;
+    if (
+      !committed ||
+      committed.identityKey !== expectedIdentityKey ||
+      !this.isCreateOperationCurrent(operationGeneration, expectedIdentityKey)
+    ) {
+      return false;
+    }
+
+    const createdWorkspaceId = committed.success.data.id;
+    const isListed = await this.reloadCreatedWorkspace(
+      createdWorkspaceId,
+      operationGeneration,
+      expectedIdentityKey,
+    );
+    if (!isListed || !this.isCreateOperationCurrent(operationGeneration, expectedIdentityKey)) {
+      if (this.isCreateOperationCurrent(operationGeneration, expectedIdentityKey)) {
+        this.markCommittedPendingActivation(committed.success);
+      }
+      return false;
+    }
+
+    const expectedAuthorizationRevision = this.realtime.authorizationRevision();
+    const expectedTransitionRevision = this.selection.transitionRevision();
+    const selectionGuard = (): boolean =>
+      this.isCreateOperationCurrent(operationGeneration, expectedIdentityKey) &&
+      this.realtime.authorizationRevision() === expectedAuthorizationRevision &&
+      this.selection.transitionRevision() === expectedTransitionRevision &&
+      this.dashboardState().workspaces.some((workspace) => workspace.id === createdWorkspaceId);
+
+    const selected = await this.selection.selectWorkspace(createdWorkspaceId, selectionGuard);
+    const selectedWorkspaceIsCurrent = (): boolean =>
+      this.isCreateOperationCurrent(operationGeneration, expectedIdentityKey) &&
+      this.realtime.authorizationRevision() === expectedAuthorizationRevision &&
+      this.selection.selection().workspaceId === createdWorkspaceId &&
+      this.dashboardState().workspaces.some((workspace) => workspace.id === createdWorkspaceId);
+    if (!selected || !selectedWorkspaceIsCurrent()) {
+      if (this.isCreateOperationCurrent(operationGeneration, expectedIdentityKey)) {
+        this.markCommittedPendingActivation(committed.success);
+      }
+      return false;
+    }
+
+    const activatedTransitionRevision = this.selection.transitionRevision();
+    if (this.router && routePath(this.router.url) !== '/workspaces') {
+      try {
+        const navigated = await this.router.navigateByUrl('/workspaces');
+        if (
+          !navigated ||
+          !selectedWorkspaceIsCurrent() ||
+          this.selection.transitionRevision() !== activatedTransitionRevision
+        ) {
+          this.markCommittedPendingActivation(committed.success);
+          return false;
+        }
+      } catch {
+        if (this.isCreateOperationCurrent(operationGeneration, expectedIdentityKey)) {
+          this.markCommittedPendingActivation(committed.success);
+        }
+        return false;
+      }
+    }
+
+    this.committedCreate = null;
+    this.workspaceCreateState.set({
+      status: 'succeeded',
+      fieldErrors: [],
+      requestId: committed.success.requestId,
+      createdWorkspaceId,
+    });
+    return true;
+  }
+
+  private async reloadCreatedWorkspace(
+    createdWorkspaceId: string,
+    operationGeneration: number,
+    expectedIdentityKey: string,
+  ): Promise<boolean> {
+    let pending = this.loadWorkspaces();
+
+    // A WorkspaceCreated authorization invalidation can cancel the list that
+    // this flow just started. Follow the replacement request, or initiate the
+    // authoritative replacement ourselves while the catch-up is pending.
+    for (let pass = 0; pass < 4; pass += 1) {
+      await pending;
+      await Promise.resolve();
+      if (!this.isCreateOperationCurrent(operationGeneration, expectedIdentityKey)) {
+        return false;
+      }
+
+      const replacement = this.workspaceListInFlight;
+      if (replacement && replacement !== pending) {
+        pending = replacement;
+        continue;
+      }
+
+      const dashboard = this.dashboardState();
+      if (dashboard.status === 'loading' && this.authorizationRecheckPending) {
+        pending = this.loadWorkspaces();
+        continue;
+      }
+
+      return (
+        dashboard.status === 'ready' &&
+        dashboard.workspaces.some((workspace) => workspace.id === createdWorkspaceId)
+      );
+    }
+
+    return false;
+  }
+
+  private getOrCreateAttempt(
+    currentIdentityKey: string,
+    payload: WorkspaceCreateRequestDto,
+  ): WorkspaceCreateAttempt {
+    const payloadKey = JSON.stringify(payload);
+    if (
+      this.createAttempt?.identityKey === currentIdentityKey &&
+      this.createAttempt.payloadKey === payloadKey
+    ) {
+      return this.createAttempt;
+    }
+
+    this.createAttempt = {
+      identityKey: currentIdentityKey,
+      payloadKey,
+      idempotencyKey: createIdempotencyKey(),
+    };
+    return this.createAttempt;
+  }
+
+  private applyCreateError(error: FrontendApiError): void {
+    if (error.httpStatus === 401 || error.httpStatus === 403) {
+      this.pageCapabilities = [];
+      this.applyPageCapabilities();
+      this.loadCapabilities(this.loadGeneration);
+    }
+
+    const fieldErrors = createFieldErrors(error);
+    this.workspaceCreateState.set({
+      status: 'error',
+      fieldErrors,
+      message: createErrorMessage(error),
+      requestId: error.requestId,
+    });
+  }
+
+  private applyMalformedCreateSuccess(): void {
+    this.workspaceCreateState.set({
+      status: 'error',
+      fieldErrors: [{ field: 'form', message: 'The server response could not be verified.' }],
+      message:
+        'The Workspace may have been created. Retry with the same details so the server can safely reconcile the request.',
+    });
+  }
+
+  private setCreateError(message: string): void {
+    this.workspaceCreateState.set({
+      status: 'error',
+      fieldErrors: [{ field: 'form', message }],
+      message,
+    });
+  }
+
+  private markCommittedPendingActivation(success: WorkspaceCreateSuccess): void {
+    this.workspaceCreateState.set({
+      status: 'committedPendingActivation',
+      fieldErrors: [],
+      message:
+        'The Workspace was created, but it could not yet be activated. Retry activation without submitting the form again.',
+      requestId: success.requestId,
+      createdWorkspaceId: success.data.id,
+    });
+  }
+
+  private markActivationSubmitting(success: WorkspaceCreateSuccess): void {
+    this.workspaceCreateState.set({
+      status: 'submitting',
+      fieldErrors: [],
+      requestId: success.requestId,
+      createdWorkspaceId: success.data.id,
+    });
+  }
+
+  private isCreateOperationCurrent(
+    operationGeneration: number,
+    expectedIdentityKey: string,
+  ): boolean {
+    return (
+      operationGeneration === this.createOperationGeneration &&
+      identityKey(this.currentIdentity()) === expectedIdentityKey
+    );
+  }
+
+  private resetCreateScope(): void {
+    this.createOperationGeneration += 1;
+    this.createAttempt = null;
+    this.committedCreate = null;
+    this.workspaceCreateState.set(INITIAL_CREATE_STATE);
   }
 
   private invalidateForAuthorizationRecheck(): void {
@@ -222,13 +572,17 @@ export class WorkspacesFacade {
   }
 
   private loadCapabilities(generation: number): void {
+    const capabilityGeneration = ++this.capabilityLoadGeneration;
     this.http
       ?.get<WorkspaceCapabilitiesEnvelopeDto>('/api/workspaces/capabilities', {
         withCredentials: true,
       })
       .subscribe({
         next: (response) => {
-          if (!this.isCurrentGeneration(generation)) {
+          if (
+            !this.isCurrentGeneration(generation) ||
+            capabilityGeneration !== this.capabilityLoadGeneration
+          ) {
             return;
           }
 
@@ -236,7 +590,10 @@ export class WorkspacesFacade {
           this.applyPageCapabilities();
         },
         error: () => {
-          if (!this.isCurrentGeneration(generation)) {
+          if (
+            !this.isCurrentGeneration(generation) ||
+            capabilityGeneration !== this.capabilityLoadGeneration
+          ) {
             return;
           }
 
@@ -321,6 +678,10 @@ export class WorkspacesFacade {
     this.dashboardState.update((dashboard) => ({
       ...dashboard,
       pageCapabilities: this.pageCapabilities,
+      message:
+        dashboard.status === 'noWorkspaceAccess'
+          ? this.emptyWorkspaceMessage()
+          : dashboard.message,
     }));
   }
 
@@ -392,9 +753,13 @@ export class WorkspacesFacade {
   }
 
   private emptyWorkspaceMessage(): string {
+    if (this.pageCapabilities.includes('createWorkspace')) {
+      return '最初のWorkspaceを作成して、リサーチを始められます。';
+    }
+
     const capabilities = this.authSession.session().capabilities;
     if (capabilities.includes('admin:access')) {
-      return 'Workspaceがまだ作成されていません。起動時seedまたは管理画面からDefault Workspaceを作成してください。';
+      return '作成権限がありません。権限のあるTenant管理者に依頼してください。';
     }
 
     return 'Workspaceに所属していません。管理者に招待を依頼してください。';
@@ -446,4 +811,129 @@ function workspaceErrorMessage(status: number | undefined): string {
   }
 
   return 'Workspaceを取得できません。';
+}
+
+function validateWorkspaceCreatePayload(
+  payload: WorkspaceCreateRequestDto,
+): readonly WorkspaceCreateFieldError[] {
+  const errors: WorkspaceCreateFieldError[] = [];
+  if (payload.name.length === 0) {
+    errors.push({ field: 'name', message: 'Enter a Workspace name.' });
+  } else if (payload.name.length > 160) {
+    errors.push({ field: 'name', message: 'Workspace name must be 160 characters or fewer.' });
+  }
+
+  if (payload.description !== null && payload.description.length > 2000) {
+    errors.push({ field: 'description', message: 'Description must be 2,000 characters or fewer.' });
+  }
+
+  if (payload.icon !== null && payload.icon.length > 120) {
+    errors.push({ field: 'icon', message: 'Icon must be 120 characters or fewer.' });
+  }
+
+  return errors;
+}
+
+function createFieldErrors(error: FrontendApiError): readonly WorkspaceCreateFieldError[] {
+  const fields = new Set<WorkspaceCreateField>();
+  const addTarget = (target: string | undefined): void => {
+    const field = createFieldFromTarget(target);
+    if (field) {
+      fields.add(field);
+    }
+  };
+  addTarget(error.target);
+  error.details.forEach((detail) => addTarget(detail.target));
+
+  if (fields.size === 0 && error.code === 'ValidationFailed') {
+    fields.add('form');
+  }
+
+  return [...fields].map((field) => ({
+    field,
+    message: fieldValidationMessage(field),
+  }));
+}
+
+function createFieldFromTarget(target: string | undefined): WorkspaceCreateField | null {
+  const normalized = target?.trim().toLowerCase();
+  if (!normalized) {
+    return null;
+  }
+
+  if (normalized === 'body.name' || normalized === 'name' || normalized === '$.name') {
+    return 'name';
+  }
+  if (
+    normalized === 'body.description' ||
+    normalized === 'description' ||
+    normalized === '$.description'
+  ) {
+    return 'description';
+  }
+  if (normalized === 'body.icon' || normalized === 'icon' || normalized === '$.icon') {
+    return 'icon';
+  }
+
+  return null;
+}
+
+function fieldValidationMessage(field: WorkspaceCreateField): string {
+  switch (field) {
+    case 'name':
+      return 'Review the Workspace name.';
+    case 'description':
+      return 'Review the Workspace description.';
+    case 'icon':
+      return 'Review the Workspace icon.';
+    default:
+      return 'Review the form values.';
+  }
+}
+
+function createErrorMessage(error: FrontendApiError): string {
+  if (error.httpStatus === 0) {
+    return 'The server could not be reached. Retry with the same details.';
+  }
+  if (error.httpStatus === 401) {
+    return 'Your session is no longer available. Sign in again before creating a Workspace.';
+  }
+  if (error.httpStatus === 403 || error.code === 'CapabilityDenied') {
+    return 'You do not currently have permission to create a Workspace.';
+  }
+  if (error.code === 'IdempotencyConflict' || error.httpStatus === 409) {
+    return 'This create request conflicts with server state. Review the details before retrying.';
+  }
+  if (error.httpStatus >= 500) {
+    return 'The Workspace may have been created. Retry with the same details so the server can safely reconcile the request.';
+  }
+  if (error.code === 'ValidationFailed' || error.httpStatus === 400) {
+    return 'Review the highlighted fields and try again.';
+  }
+
+  return 'The Workspace could not be created.';
+}
+
+function createIdempotencyKey(): string {
+  const cryptoApi = globalThis.crypto;
+  if (cryptoApi && typeof cryptoApi.randomUUID === 'function') {
+    return cryptoApi.randomUUID();
+  }
+
+  const bytes = new Uint8Array(16);
+  if (cryptoApi && typeof cryptoApi.getRandomValues === 'function') {
+    cryptoApi.getRandomValues(bytes);
+  } else {
+    for (let index = 0; index < bytes.length; index += 1) {
+      bytes[index] = Math.floor(Math.random() * 256);
+    }
+  }
+  bytes[6] = (bytes[6] & 0x0f) | 0x40;
+  bytes[8] = (bytes[8] & 0x3f) | 0x80;
+  const hex = [...bytes].map((value) => value.toString(16).padStart(2, '0')).join('');
+  return `${hex.slice(0, 8)}-${hex.slice(8, 12)}-${hex.slice(12, 16)}-${hex.slice(16, 20)}-${hex.slice(20)}`;
+}
+
+function routePath(url: string): string {
+  return url.split(/[?#]/u, 1)[0];
 }
