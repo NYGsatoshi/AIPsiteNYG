@@ -4,12 +4,13 @@ import {
   HttpErrorResponse,
   HttpHandlerFn,
   HttpInterceptorFn,
-  HttpRequest
+  HttpRequest,
 } from '@angular/common/http';
 import { inject } from '@angular/core';
 import { catchError, map, Observable, of, switchMap, throwError } from 'rxjs';
 
 import { normalizeApiError } from '../api/api-error.adapter';
+import { HTTP_REQUEST_DISPATCH_SIGNAL } from '../api/http-request-dispatch.context';
 import { AuthSessionFacade } from './auth-session.facade';
 import { CsrfTokenService } from './csrf-token.service';
 
@@ -30,7 +31,7 @@ export const authSessionInterceptor: HttpInterceptorFn = (request, next) => {
 
   if (!isUnsafeMethod(cookieRequest.method)) {
     return next(cookieRequest).pipe(
-      catchError((error) => handleApiError(error, cookieRequest, next, authSession, csrfTokens))
+      catchError((error) => handleApiError(error, cookieRequest, next, authSession, csrfTokens)),
     );
   }
 
@@ -38,16 +39,16 @@ export const authSessionInterceptor: HttpInterceptorFn = (request, next) => {
     map((csrfToken) =>
       cookieRequest.clone({
         setHeaders: {
-          [csrfToken.headerName]: csrfToken.token
-        }
-      })
+          [csrfToken.headerName]: csrfToken.token,
+        },
+      }),
     ),
     catchError((error) => throwError(() => normalizeApiError(error))),
     switchMap((csrfRequest) =>
-      next(csrfRequest).pipe(
-        catchError((error) => handleApiError(error, csrfRequest, next, authSession, csrfTokens))
-      )
-    )
+      dispatchAfterTransportSubscription(csrfRequest, next).pipe(
+        catchError((error) => handleApiError(error, csrfRequest, next, authSession, csrfTokens)),
+      ),
+    ),
   );
 };
 
@@ -56,7 +57,7 @@ function handleApiError(
   request: HttpRequest<unknown>,
   next: HttpHandlerFn,
   authSession: AuthSessionFacade,
-  csrfTokens: CsrfTokenService
+  csrfTokens: CsrfTokenService,
 ): Observable<HttpEvent<unknown>> {
   const normalized = normalizeApiError(error);
 
@@ -70,11 +71,14 @@ function handleApiError(
         csrfTokens.clearToken();
         authSession.handleTerminal401();
         return throwError(() => normalized);
-      })
+      }),
     );
   }
 
-  if (isRetryableCsrfStatus(normalized.httpStatus) && isLikelyCsrfFailure(error, normalized.message)) {
+  if (
+    isRetryableCsrfStatus(normalized.httpStatus) &&
+    isLikelyCsrfFailure(error, normalized.message)
+  ) {
     csrfTokens.clearToken();
 
     if (isUnsafeMethod(request.method) && !request.context.get(RETRIED_CSRF_FAILURE)) {
@@ -83,17 +87,32 @@ function handleApiError(
           request.clone({
             context: request.context.set(RETRIED_CSRF_FAILURE, true),
             setHeaders: {
-              [csrfToken.headerName]: csrfToken.token
-            }
-          })
+              [csrfToken.headerName]: csrfToken.token,
+            },
+          }),
         ),
-        switchMap((retryRequest) => next(retryRequest)),
-        catchError((retryError) => throwError(() => normalizeApiError(retryError)))
+        switchMap((retryRequest) => dispatchAfterTransportSubscription(retryRequest, next)),
+        catchError((retryError) => throwError(() => normalizeApiError(retryError))),
       );
     }
   }
 
   return throwError(() => normalized);
+}
+
+function dispatchAfterTransportSubscription(
+  request: HttpRequest<unknown>,
+  next: HttpHandlerFn,
+): Observable<HttpEvent<unknown>> {
+  const signal = request.context.get(HTTP_REQUEST_DISPATCH_SIGNAL);
+  if (!signal) {
+    return next(request);
+  }
+
+  return new Observable<HttpEvent<unknown>>((subscriber) => {
+    signal.notify();
+    return next(request).subscribe(subscriber);
+  });
 }
 
 function isUnsafeMethod(method: string): boolean {
@@ -107,7 +126,7 @@ function getRequestInfo(url: string): { readonly isFirstPartyApi: boolean } {
   const isApiPath = parsedUrl.pathname === '/api' || parsedUrl.pathname.startsWith('/api/');
 
   return {
-    isFirstPartyApi: isSameOrigin && isApiPath
+    isFirstPartyApi: isSameOrigin && isApiPath,
   };
 }
 

@@ -313,29 +313,69 @@ test.describe('MVP-A P0 Angular frontend smoke', () => {
     await expect(endDate).toBeFocused();
     await endDate.fill('2026-09-20');
 
-    const firstAttempt = page.waitForResponse((response) =>
-      response.request().method() === 'POST' &&
-      new URL(response.url()).pathname === `/api/workspaces/${workspace.id}/projects`
-    );
     await submit.click();
-    await expect.poll(() => api.createRequests.length).toBe(1);
-    await expect(dialog).toHaveAttribute('aria-busy', 'true');
-    await expect(submit).toBeDisabled();
-    await expect(submit).toContainText('Working');
-    await title.press('Enter');
-    await page.waitForTimeout(100);
-    expect(api.createRequests, 'Enter cannot duplicate an in-flight Project command').toHaveLength(1);
-    api.releaseFirstCreate();
-    expect((await firstAttempt).status()).toBe(503);
-    await expect(errorSummary).toBeFocused();
-    await expect(errorSummary).toContainText('may have been created');
+    await expect
+      .poll(
+        async () => {
+          if (api.createRequests.length === 1) {
+            return 'posted';
+          }
 
-    const secondAttempt = page.waitForResponse((response) =>
-      response.request().method() === 'POST' &&
-      new URL(response.url()).pathname === `/api/workspaces/${workspace.id}/projects`
-    );
-    await submit.click();
-    expect((await secondAttempt).status()).toBe(201);
+          const recoveryText = await page
+            .getByTestId('project-create-create-status')
+            .evaluateAll((nodes) => nodes.map((node) => node.textContent ?? '').join(' '));
+          return recoveryText.includes('stopped before it was sent') ? 'stopped' : 'pending';
+        },
+        { timeout: 10_000 }
+      )
+      .not.toBe('pending');
+
+    const stoppedBeforeDispatch = api.createRequests.length === 0;
+    if (stoppedBeforeDispatch) {
+      // The registered authorization clearer can win before browser dispatch.
+      // The original form stays local, but the next POST is only user-led
+      // after the authoritative options endpoint is rechecked.
+      expect(api.createRequests).toHaveLength(0);
+      await expect(page.getByTestId('project-create-create-status')).toContainText('stopped before it was sent');
+      await page.getByTestId('project-create-options-retry').click();
+      await expect(title).toBeVisible();
+      expect(api.createRequests, 'reauthorizing options never auto-repeats the create POST').toHaveLength(0);
+
+      const recoveredAttempt = page.waitForResponse((response) =>
+        response.request().method() === 'POST' &&
+        new URL(response.url()).pathname === `/api/workspaces/${workspace.id}/projects`
+      );
+      api.allowFirstCreateSuccess();
+      await submit.click();
+      expect((await recoveredAttempt).status()).toBe(201);
+    } else {
+      // The fixture deterministically holds the first actual POST so this
+      // remains the posted/in-flight duplicate-command regression.
+      await expect.poll(() => api.createRequests.length).toBe(1);
+      const firstAttempt = page.waitForResponse((response) =>
+        response.request().method() === 'POST' &&
+        new URL(response.url()).pathname === `/api/workspaces/${workspace.id}/projects`
+      );
+      await expect(dialog).toHaveAttribute('aria-busy', 'true');
+      await expect(submit).toBeDisabled();
+      await expect(submit).toContainText('Working');
+      await title.press('Enter');
+      await page.waitForTimeout(100);
+      expect(api.createRequests, 'Enter cannot duplicate an in-flight Project command').toHaveLength(1);
+      api.releaseFirstCreate();
+      expect((await firstAttempt).status()).toBe(503);
+      await expect(errorSummary).toBeFocused();
+      await expect(errorSummary).toContainText('may have been created');
+
+      const secondAttempt = page.waitForResponse((response) =>
+        response.request().method() === 'POST' &&
+        new URL(response.url()).pathname === `/api/workspaces/${workspace.id}/projects`
+      );
+      await submit.click();
+      expect((await secondAttempt).status()).toBe(201);
+    }
+
+    const expectedCreateRequestCount = stoppedBeforeDispatch ? 1 : 2;
 
     await expect(page).toHaveURL(`/app/projects/${projectId}`);
     await expect(page.getByTestId('project-draft-overview')).toBeVisible();
@@ -347,19 +387,23 @@ test.describe('MVP-A P0 Angular frontend smoke', () => {
       request.workspaceId === workspace.id && request.includesCreatedProject).length)
       .toBeGreaterThanOrEqual(1);
 
-    expect(api.createRequests).toHaveLength(2);
-    expect(api.createRequests[0]?.body).toEqual({
+    const expectedCreateBody = {
       title: 'U-22 Canonical Project',
       description: 'Canonical create and activation browser evidence.',
       groupId,
       visibility: 1,
       startDate: '2026-09-10',
       endDate: '2026-09-20'
-    });
-    expect(api.createRequests[1]?.body).toEqual(api.createRequests[0]?.body);
-    expect(api.createRequests[1]?.rawBody).toBe(api.createRequests[0]?.rawBody);
+    };
+    expect(api.createRequests).toHaveLength(expectedCreateRequestCount);
+    for (const request of api.createRequests) {
+      expect(request.body).toEqual(expectedCreateBody);
+    }
     expect(api.createRequests[0]?.idempotencyKey).toMatch(/^project-create-/);
-    expect(api.createRequests[1]?.idempotencyKey).toBe(api.createRequests[0]?.idempotencyKey);
+    if (!stoppedBeforeDispatch) {
+      expect(api.createRequests[1]?.rawBody).toBe(api.createRequests[0]?.rawBody);
+      expect(api.createRequests[1]?.idempotencyKey).toBe(api.createRequests[0]?.idempotencyKey);
+    }
     expect(api.createRequests.every((request) => request.csrfToken === 'csrf-workspace-create')).toBe(true);
     expect(api.operationalGetPaths).toEqual([]);
 
@@ -371,11 +415,11 @@ test.describe('MVP-A P0 Angular frontend smoke', () => {
       .filter({ hasText: 'U-22 Canonical Project' });
     await expect(createdCard).toBeVisible();
     await expect(createdCard).toContainText('Draft');
-    expect(api.createRequests, 'returning to Projects never repeats the create POST').toHaveLength(2);
+    expect(api.createRequests, 'returning to Projects never repeats the create POST').toHaveLength(expectedCreateRequestCount);
     await createdCard.getByRole('link', { name: 'Open U-22 Canonical Project' }).click();
     await expect(page).toHaveURL(`/app/projects/${projectId}`);
     await expect(page.getByTestId('project-draft-overview')).toBeVisible();
-    expect(api.createRequests, 'reopening the created Project never repeats the create POST').toHaveLength(2);
+    expect(api.createRequests, 'reopening the created Project never repeats the create POST').toHaveLength(expectedCreateRequestCount);
     expect(api.operationalGetPaths).toEqual([]);
 
     const activate = page.getByTestId('activate-project');
@@ -2219,6 +2263,7 @@ interface CanonicalProjectCreateActivationHarness {
   }[];
   readonly projectGetCount: () => number;
   readonly releaseFirstCreate: () => void;
+  readonly allowFirstCreateSuccess: () => void;
 }
 
 function workspaceContextFixtures(): readonly WorkspaceContextFixture[] {
@@ -2383,6 +2428,7 @@ async function installCanonicalProjectCreateActivationApi(
   const firstCreateGate = new Promise<void>((resolve) => {
     releaseFirstCreate = resolve;
   });
+  let firstCreateShouldFail = true;
   let projectGets = 0;
   let created = false;
   let activated = false;
@@ -2445,25 +2491,27 @@ async function installCanonicalProjectCreateActivationApi(
         csrfToken: request.headers()['x-csrf-token'] ?? ''
       };
       createRequests.push(recorded);
-      if (createRequests.length === 1) {
+      if (createRequests.length === 1 && firstCreateShouldFail) {
         await firstCreateGate;
-        await route.fulfill({
-          status: 503,
-          contentType: 'application/json; charset=utf-8',
-          body: JSON.stringify({
-            requestId: 'project-create-503',
-            error: {
-              code: 'DependencyUnavailable',
-              message: 'Project creation outcome is temporarily unavailable.',
-              target: 'project',
-              details: [],
-              redactionApplied: false
-            },
-            traceId: 'project-create-503',
-            status: 503
-          })
-        });
-        return;
+        if (firstCreateShouldFail) {
+          await route.fulfill({
+            status: 503,
+            contentType: 'application/json; charset=utf-8',
+            body: JSON.stringify({
+              requestId: 'project-create-503',
+              error: {
+                code: 'DependencyUnavailable',
+                message: 'Project creation outcome is temporarily unavailable.',
+                target: 'project',
+                details: [],
+                redactionApplied: false
+              },
+              traceId: 'project-create-503',
+              status: 503
+            })
+          });
+          return;
+        }
       }
 
       created = true;
@@ -2598,7 +2646,11 @@ async function installCanonicalProjectCreateActivationApi(
     operationalGetPaths,
     projectListRequests,
     projectGetCount: () => projectGets,
-    releaseFirstCreate
+    releaseFirstCreate,
+    allowFirstCreateSuccess: () => {
+      firstCreateShouldFail = false;
+      releaseFirstCreate();
+    }
   };
 }
 

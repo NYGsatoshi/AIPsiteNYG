@@ -1,6 +1,11 @@
-import { HttpClient, HttpHeaders } from '@angular/common/http';
+import { HttpClient, HttpContext, HttpHeaders } from '@angular/common/http';
 import { inject, Injectable } from '@angular/core';
 import { map, Observable } from 'rxjs';
+
+import {
+  HttpRequestDispatchSignal,
+  HTTP_REQUEST_DISPATCH_SIGNAL,
+} from '../../core/api/http-request-dispatch.context';
 
 export type ProjectVisibility = 0 | 1 | 2;
 
@@ -96,6 +101,7 @@ export class ProjectCreateApi {
     workspaceId: string,
     request: ProjectCreateRequestDto,
     idempotencyKey: string,
+    onDispatch?: () => void,
   ): Observable<ProjectCreateSuccess> {
     const expectedWorkspaceId = requiredInputUuid(workspaceId, 'Workspace');
     if (!idempotencyKey.trim()) {
@@ -108,6 +114,12 @@ export class ProjectCreateApi {
         request,
         {
           headers: new HttpHeaders({ 'Idempotency-Key': idempotencyKey }),
+          context: onDispatch
+            ? new HttpContext().set(
+                HTTP_REQUEST_DISPATCH_SIGNAL,
+                new HttpRequestDispatchSignal(onDispatch),
+              )
+            : undefined,
           observe: 'response',
           withCredentials: true,
         },

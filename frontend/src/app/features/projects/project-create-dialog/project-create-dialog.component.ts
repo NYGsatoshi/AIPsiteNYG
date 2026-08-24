@@ -60,6 +60,7 @@ export class ProjectCreateDialogComponent implements OnChanges {
 
   @ViewChild('errorSummary') private errorSummary?: ElementRef<HTMLElement>;
   @ViewChild('titleInput') private titleInput?: ElementRef<HTMLInputElement>;
+  @ViewChild('optionsRetry') private optionsRetry?: ElementRef<HTMLButtonElement>;
 
   private readonly injector = inject(Injector);
   private invalidSubmission = false;
@@ -162,6 +163,13 @@ export class ProjectCreateDialogComponent implements OnChanges {
     const optionsChange = changes['optionsState'];
     if (
       this.open &&
+      optionsChange?.currentValue?.status === 'error' &&
+      optionsChange.previousValue?.status !== 'error'
+    ) {
+      this.focusAfterRender('optionsRetry');
+    }
+    if (
+      this.open &&
       optionsChange?.currentValue?.status === 'ready' &&
       optionsChange.previousValue?.status !== 'ready'
     ) {
@@ -183,7 +191,7 @@ export class ProjectCreateDialogComponent implements OnChanges {
       createChange?.currentValue?.status === 'error' &&
       createChange.previousValue?.status !== 'error'
     ) {
-      this.focusAfterRender('summary');
+      this.focusAfterRender(this.optionsState.status === 'error' ? 'optionsRetry' : 'summary');
     }
   }
 
@@ -314,17 +322,22 @@ export class ProjectCreateDialogComponent implements OnChanges {
     }
   }
 
-  private focusAfterRender(target: 'summary' | 'title'): void {
+  private focusAfterRender(target: 'summary' | 'title' | 'optionsRetry'): void {
     afterNextRender(
       {
         write: () => {
           if (!this.open) {
             return;
           }
-          if (target === 'summary') {
-            this.errorSummary?.nativeElement.focus();
-          } else {
-            this.titleInput?.nativeElement.focus();
+          switch (target) {
+            case 'summary':
+              (this.errorSummary?.nativeElement ?? this.optionsRetry?.nativeElement)?.focus();
+              return;
+            case 'optionsRetry':
+              (this.optionsRetry?.nativeElement ?? this.errorSummary?.nativeElement)?.focus();
+              return;
+            case 'title':
+              this.titleInput?.nativeElement.focus();
           }
         },
       },

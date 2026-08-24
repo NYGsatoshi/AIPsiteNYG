@@ -1,13 +1,20 @@
-import { provideHttpClient } from '@angular/common/http';
+import { provideHttpClient, withInterceptors } from '@angular/common/http';
 import { HttpTestingController, provideHttpClientTesting } from '@angular/common/http/testing';
 import { signal, WritableSignal } from '@angular/core';
 import { TestBed } from '@angular/core/testing';
 import { Router } from '@angular/router';
+import { Observable, of } from 'rxjs';
 
 import { AuthSessionFacade } from '../../core/auth/auth-session.facade';
+import { authSessionInterceptor } from '../../core/auth/auth-session.interceptor';
+import { CsrfToken, CsrfTokenService } from '../../core/auth/csrf-token.service';
 import { RealtimeFacade } from '../../core/realtime/realtime.facade';
 import { ActiveWorkspaceFacade } from '../../core/workspace/active-workspace.facade';
-import { ProjectCreateInput, PROJECT_VISIBILITY_MEMBERS_ONLY } from './project-create.api';
+import {
+  ProjectCreateApi,
+  ProjectCreateInput,
+  PROJECT_VISIBILITY_MEMBERS_ONLY,
+} from './project-create.api';
 import { ProjectCreateFacade } from './project-create.facade';
 import { ProjectsFacade } from './projects.facade';
 
@@ -73,6 +80,10 @@ describe('ProjectCreateFacade', () => {
     ((reason: 'session' | 'tenant' | 'authorization' | 'workspace') => void) | null;
   let router: { navigate: ReturnType<typeof vi.fn> };
   let projects: { retryProjects: ReturnType<typeof vi.fn> };
+  let csrfTokens: {
+    ensureToken: ReturnType<typeof vi.fn>;
+    clearToken: ReturnType<typeof vi.fn>;
+  };
 
   beforeEach(() => {
     authSession = signal({
@@ -84,15 +95,34 @@ describe('ProjectCreateFacade', () => {
     protectedClearer = null;
     router = { navigate: vi.fn().mockResolvedValue(true) };
     projects = { retryProjects: vi.fn() };
+    csrfTokens = {
+      ensureToken: vi.fn(() =>
+        of<CsrfToken>({
+          token: 'csrf-project-create',
+          headerName: 'X-CSRF-Token',
+          cacheKey: 'tenant-a',
+        }),
+      ),
+      clearToken: vi.fn(),
+    };
 
     TestBed.configureTestingModule({
       providers: [
-        provideHttpClient(),
+        provideHttpClient(withInterceptors([authSessionInterceptor])),
         provideHttpClientTesting(),
         ProjectCreateFacade,
         { provide: Router, useValue: router },
         { provide: ProjectsFacade, useValue: projects },
-        { provide: AuthSessionFacade, useValue: { session: authSession } },
+        {
+          provide: AuthSessionFacade,
+          useValue: {
+            session: authSession,
+            csrfCacheKey: () => 'tenant-a',
+            refreshCurrentUser: () => of(null),
+            handleTerminal401: vi.fn(),
+          },
+        },
+        { provide: CsrfTokenService, useValue: csrfTokens },
         { provide: ActiveWorkspaceFacade, useValue: { activeWorkspace } },
         {
           provide: RealtimeFacade,
@@ -335,12 +365,15 @@ describe('ProjectCreateFacade', () => {
     expect(firstPost.cancelled).toBe(true);
     expect(facade.options().status).toBe('error');
     expect(facade.createState().message).toContain('may have been created');
+    expect(router.navigate).not.toHaveBeenCalled();
 
     const optionsReload = facade.loadOptions(workspaceId);
-    http
-      .expectOne(`/api/workspaces/${workspaceId}/projects/create-options`)
-      .flush(optionsEnvelope);
+    http.expectOne(`/api/workspaces/${workspaceId}/projects/create-options`).flush(optionsEnvelope);
     await expect(optionsReload).resolves.toBe(true);
+    http.expectNone(
+      (request) =>
+        request.url === `/api/workspaces/${workspaceId}/projects` && request.method === 'POST',
+    );
 
     const retry = facade.createProject(workspaceId, { ...input, title: ` ${input.title} ` });
     const retryPost = http.expectOne(`/api/workspaces/${workspaceId}/projects`);
@@ -349,6 +382,131 @@ describe('ProjectCreateFacade', () => {
     await Promise.resolve();
     http.expectOne(`/api/projects/${projectId}`).flush(projectConfirmation);
     await expect(retry).resolves.toBe(true);
+  });
+
+  it('requires options reauthorization when the registered authorization clearer stops create during a delayed CSRF preflight', async () => {
+    await loadOptions();
+
+    const api = TestBed.inject(ProjectCreateApi);
+    const createSpy = vi.spyOn(api, 'createProject');
+    let releaseDelayedCsrf!: () => void;
+    csrfTokens.ensureToken.mockReturnValueOnce(
+      new Observable<CsrfToken>((subscriber) => {
+        releaseDelayedCsrf = () => {
+          subscriber.next({
+            token: 'csrf-project-create',
+            headerName: 'X-CSRF-Token',
+            cacheKey: 'tenant-a',
+          });
+          subscriber.complete();
+        };
+      }),
+    );
+
+    const scheduled = facade.createProject(workspaceId, input);
+    expect(createSpy).toHaveBeenCalledOnce();
+    expect(csrfTokens.ensureToken).toHaveBeenCalledWith('tenant-a');
+    const scheduledKey = createSpy.mock.calls[0]?.[2];
+    expect(scheduledKey).toMatch(/^project-create-[\x20-\x7e]+$/u);
+
+    // This invokes the production registration while the intercepted POST is
+    // still waiting for its cold CSRF preflight. Releasing that preflight
+    // later must not cause a browser POST.
+    protectedClearer?.('authorization');
+    await expect(scheduled).resolves.toBe(false);
+    expect(facade.options()).toMatchObject({ status: 'error', workspaceId });
+    expect(facade.createState().message).toContain('stopped before it was sent');
+    expect(facade.createState().message).not.toContain('may have been created');
+    http.expectNone(
+      (request) =>
+        request.url === `/api/workspaces/${workspaceId}/projects` && request.method === 'POST',
+    );
+    releaseDelayedCsrf();
+    http.expectNone(
+      (request) =>
+        request.url === `/api/workspaces/${workspaceId}/projects` && request.method === 'POST',
+    );
+
+    // The preserved canonical attempt can only continue after an
+    // authoritative options refresh and an explicit same-details submission.
+    const optionsReload = facade.loadOptions(workspaceId);
+    http.expectOne(`/api/workspaces/${workspaceId}/projects/create-options`).flush(optionsEnvelope);
+    await expect(optionsReload).resolves.toBe(true);
+    facade.resetCreatePresentation();
+
+    const retry = facade.createProject(workspaceId, { ...input, title: ` ${input.title} ` });
+    const post = http.expectOne(`/api/workspaces/${workspaceId}/projects`);
+    expect(createSpy).toHaveBeenCalledTimes(2);
+    expect(post.request.headers.get('Idempotency-Key')).toBe(scheduledKey);
+    expect(post.request.body).toEqual({
+      title: input.title,
+      description: input.description,
+      groupId: input.groupId,
+      visibility: input.visibility,
+      startDate: input.startDate,
+      endDate: input.endDate,
+    });
+    post.flush(successEnvelope, { status: 201, statusText: 'Created' });
+    await Promise.resolve();
+    http.expectOne(`/api/projects/${projectId}`).flush(projectConfirmation);
+    await expect(retry).resolves.toBe(true);
+    http.expectNone(
+      (request) =>
+        request.url === `/api/workspaces/${workspaceId}/projects` && request.method === 'POST',
+    );
+  });
+
+  it('does not downgrade a previously dispatched key when a later retry is stopped during CSRF preflight', async () => {
+    await loadOptions();
+
+    const first = facade.createProject(workspaceId, input);
+    const firstPost = http.expectOne(`/api/workspaces/${workspaceId}/projects`);
+    const firstKey = firstPost.request.headers.get('Idempotency-Key');
+    protectedClearer?.('authorization');
+    await expect(first).resolves.toBe(false);
+    expect(firstPost.cancelled).toBe(true);
+    expect(facade.createState().message).toContain('may have been created');
+
+    const firstOptionsReload = facade.loadOptions(workspaceId);
+    http.expectOne(`/api/workspaces/${workspaceId}/projects/create-options`).flush(optionsEnvelope);
+    await expect(firstOptionsReload).resolves.toBe(true);
+
+    let releaseDelayedCsrf!: () => void;
+    csrfTokens.ensureToken.mockReturnValueOnce(
+      new Observable<CsrfToken>((subscriber) => {
+        releaseDelayedCsrf = () => {
+          subscriber.next({
+            token: 'csrf-project-create',
+            headerName: 'X-CSRF-Token',
+            cacheKey: 'tenant-a',
+          });
+          subscriber.complete();
+        };
+      }),
+    );
+
+    const stoppedRetry = facade.createProject(workspaceId, input);
+    protectedClearer?.('authorization');
+    await expect(stoppedRetry).resolves.toBe(false);
+    releaseDelayedCsrf();
+    http.expectNone(
+      (request) =>
+        request.url === `/api/workspaces/${workspaceId}/projects` && request.method === 'POST',
+    );
+    expect(facade.createState().message).toContain('may have been created');
+    expect(facade.createState().message).not.toContain('stopped before it was sent');
+
+    const finalOptionsReload = facade.loadOptions(workspaceId);
+    http.expectOne(`/api/workspaces/${workspaceId}/projects/create-options`).flush(optionsEnvelope);
+    await expect(finalOptionsReload).resolves.toBe(true);
+
+    const finalRetry = facade.createProject(workspaceId, input);
+    const finalPost = http.expectOne(`/api/workspaces/${workspaceId}/projects`);
+    expect(finalPost.request.headers.get('Idempotency-Key')).toBe(firstKey);
+    finalPost.flush(successEnvelope, { status: 201, statusText: 'Created' });
+    await Promise.resolve();
+    http.expectOne(`/api/projects/${projectId}`).flush(projectConfirmation);
+    await expect(finalRetry).resolves.toBe(true);
   });
 
   it('preserves an authorization-race commit even if another clearer already hid ActiveWorkspace, then destroys it on the actual Workspace boundary', async () => {

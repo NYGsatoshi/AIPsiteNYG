@@ -117,6 +117,15 @@ selection boundary. If that post-commit list or selection step fails, the
 `committedPendingActivation` recovery path performs GET/reconciliation and
 selection only; it never repeats the create POST.
 
+An authorization-state invalidation is never delayed or dropped. It clears the
+create projection immediately. If it wins before browser POST dispatch, no
+create outcome is claimed: the user must re-read authorized create options and
+explicitly resubmit the same canonical payload, retaining the original opaque
+key. If it wins after dispatch but before the accepted response, the outcome is
+treated as uncertain and the same key is retained for user-led reconciliation.
+Neither path automatically repeats the POST. Session, Tenant, and Workspace
+boundaries discard the attempt rather than resuming it.
+
 ### WS-02 active Workspace client boundary
 
 The client resolves an active Workspace only from the latest backend-authorized

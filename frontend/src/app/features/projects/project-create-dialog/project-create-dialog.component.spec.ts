@@ -210,6 +210,32 @@ describe('ProjectCreateDialogComponent', () => {
     );
   });
 
+  it('keeps an unsent authorization-clear recovery visible and focuses Retry while options are rechecked', async () => {
+    fixture.componentRef.setInput('optionsState', {
+      status: 'error',
+      workspaceId,
+      message: 'Project creation options changed and must be checked again.',
+    } satisfies ProjectCreateOptionsViewModel);
+    fixture.componentRef.setInput('createState', {
+      status: 'error',
+      fieldErrors: [],
+      message:
+        'Project creation was stopped before it was sent. Recheck access and submit the same details after the options reload.',
+    } satisfies ProjectCreateViewModel);
+    fixture.detectChanges();
+    await fixture.whenStable();
+
+    const root = fixture.nativeElement as HTMLElement;
+    expect(
+      root.querySelector('[data-testid="project-create-create-status"]')?.textContent,
+    ).toContain('stopped before it was sent');
+    const retry = root.querySelector<HTMLButtonElement>(
+      '[data-testid="project-create-options-retry"]',
+    );
+    expect(retry).not.toBeNull();
+    expect(document.activeElement).toBe(retry);
+  });
+
   it('suppresses Escape cancellation while the create request is busy', () => {
     const cancelled = vi.fn();
     component.cancelled.subscribe(cancelled);
