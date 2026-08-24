@@ -3216,7 +3216,7 @@ async function openMyTasksFromNavigation(page: Page, evidence: SmokeEvidence) {
 }
 
 async function clickTaskOpenDetail(page: Page, taskRow: Locator): Promise<void> {
-  const action = taskRow.getByTestId('task-action-openDetail');
+  const action = taskRow.locator('[data-testid^="task-openDetail-"]');
   if (!(await action.isVisible())) {
     await page.locator('.ag-body-horizontal-scroll-viewport').evaluate((viewport) => {
       viewport.scrollLeft = viewport.scrollWidth;
