@@ -106,14 +106,15 @@ Completed locally on 2026-08-24:
 
 - the full backend solution passed 888 tests with zero failures; 240
   environment-conditional tests were skipped;
-- the full Angular suite passed 72 files and 720 tests, and the production
+- the full Angular suite passed 72 files and 729 tests, and the production
   build, architecture boundary check, and architecture script tests passed;
 - Storybook built successfully with a 3 GB Node heap after the default 2 GB
   local attempt exhausted its heap; the successful build emitted only the
   repository's existing size warnings;
 - focused create, activation, route-reuse, authorization-boundary, idempotency,
-  focus, and mapper regressions passed, including 52 Project-detail facade
-  tests after the final cross-actor Draft reconciliation change;
+  focus, and mapper regressions passed as 254 tests across 10 files. The final
+  Project-detail facade/page subset passed 74 tests, including the production
+  protected-clearer/catch-up order and interrupted live-region focus recovery;
 - the preceding candidate's pinned Linux Docker runner rebuilt the production
   Angular application and passed 96 Playwright cases with 6 intentional skips;
   after the authorization-recheck correction, the focused Project
@@ -143,11 +144,23 @@ My Tasks, and five of six real-backend P0 scenarios. Its Project-create
 scenario exposed a delayed authorization-invalidation race: protected create
 options correctly cleared, but the Projects page also mistook the transient
 Workspace loading interval for a real scope switch and discarded the local
-form before POST. The corrected page now retains only local form values while
-the dashboard is loading, requires a same-Workspace authoritative affordance
+form before POST. The corrected page retains only local form values while the
+dashboard is loading, requires a same-Workspace authoritative affordance
 before reloading protected options, and closes on capability loss, no access,
-or a real Workspace change. The corrected exact-head real-backend rerun is
-still mandatory.
+or a real Workspace change.
+
+That corrected candidate reached the later activation assertions: canonical
+create returned 201, the Draft/owner checks passed, activation returned 200,
+authoritative operational projections loaded, and cleanup succeeded. A delayed
+Project-grant authorization event then cleared the transient activation live
+region after the Project was already Running. The final correction keeps a
+correlated, non-sensitive activation outcome across authorization-only
+revalidation while protected Project data remains cleared. An authoritative
+same-Project Active read restores the completion announcement; Draft keeps a
+pending command non-repeatable; denial remains fail-closed; Workspace, Tenant,
+session, and route boundaries destroy the marker. Interrupted completion also
+returns keyboard focus to the restored live region or stable page fallback.
+The next exact-head real-backend rerun remains mandatory.
 
 ## Scope confirmation
 

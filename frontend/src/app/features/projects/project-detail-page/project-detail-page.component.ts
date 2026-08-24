@@ -49,6 +49,8 @@ export class ProjectDetailPageComponent implements OnDestroy {
   private readonly activationAnnouncement = viewChild<ElementRef<HTMLElement>>('activationAnnouncement');
   private readonly pageFocus = viewChild<ElementRef<HTMLElement>>('pageFocus');
   private previousActivationStatus = 'idle';
+  private activationCompletionInterrupted = false;
+  private activationInterruptionFallbackFocused = false;
   private readonly operationalTabs: readonly { id: ProjectDetailTab; label: string }[] = [{ id: 'overview', label: 'Overview' }, { id: 'tasks', label: 'Tasks' }, { id: 'list', label: 'List' }, { id: 'schedule', label: 'Schedule' }, { id: 'workload', label: 'Workload' }, { id: 'members', label: 'Members' }];
   readonly tabs = computed<readonly { id: ProjectDetailTab; label: string }[]>(() =>
     this.page().project?.isOperational === true
@@ -82,6 +84,8 @@ export class ProjectDetailPageComponent implements OnDestroy {
       this.configColumns.set([]);
       this.configSwimlane.set('none');
       this.previousActivationStatus = 'idle';
+      this.activationCompletionInterrupted = false;
+      this.activationInterruptionFallbackFocused = false;
       if (projectId) this.facade.load(projectId);
       else this.facade.release();
     });
@@ -89,12 +93,33 @@ export class ProjectDetailPageComponent implements OnDestroy {
       .pipe(takeUntilDestroyed(this.destroyRef))
       .subscribe((result) => this.schedulePresentation.set(result.matches ? 'narrow' : 'desktop'));
     effect(() => {
-      const status = this.page().activation.status;
+      const view = this.page();
+      const status = view.activation.status;
       const completed = ['success', 'failure', 'conflict', 'uncertain', 'permissionDenied'].includes(status);
       const wasBusy = this.previousActivationStatus === 'submitting' ||
         this.previousActivationStatus === 'reconciling';
+      if (
+        status === 'idle' &&
+        view.status !== 'ready' &&
+        (wasBusy || this.previousActivationStatus === 'success')
+      ) {
+        this.activationCompletionInterrupted = true;
+        this.activationInterruptionFallbackFocused = false;
+      }
+      const outerTerminal = view.status === 'permissionDenied' || view.status === 'error';
+      const focusInterruptedFallback = this.activationCompletionInterrupted &&
+        outerTerminal &&
+        !this.activationInterruptionFallbackFocused;
+      const focusCompletion = completed &&
+        (wasBusy || this.activationCompletionInterrupted);
       this.previousActivationStatus = status;
-      if (completed && wasBusy) {
+      if (focusCompletion || focusInterruptedFallback) {
+        if (focusInterruptedFallback)
+          this.activationInterruptionFallbackFocused = true;
+        if (completed) {
+          this.activationCompletionInterrupted = false;
+          this.activationInterruptionFallbackFocused = false;
+        }
         this.tab.set('overview');
         queueMicrotask(() => {
           const focusTarget = this.activationAnnouncement()?.nativeElement ??

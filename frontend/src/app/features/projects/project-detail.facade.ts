@@ -111,6 +111,13 @@ export interface ProjectActivationViewModel {
   readonly requestId?: string;
 }
 
+interface ProjectActivationNotice {
+  readonly projectId: string;
+  readonly generation: number;
+  readonly outcome: 'pending' | 'accepted' | 'failure' | 'conflict';
+  readonly requestId?: string;
+}
+
 type KanbanLoadOutcome =
   | { readonly kind: 'disabled' }
   | { readonly kind: 'success'; readonly dto: ProjectKanbanSnapshotDto }
@@ -148,6 +155,7 @@ export class ProjectDetailFacade {
   private authorizationGeneration = 0;
   private activationGeneration = 0;
   private activationInFlight = false;
+  private activationNotice: ProjectActivationNotice | null = null;
   private scheduleRefreshPending = false;
   private scheduleRefreshInFlight = false;
   private scheduleRefreshAfterFlight = false;
@@ -190,6 +198,8 @@ export class ProjectDetailFacade {
   }
 
   load(projectId: string): void {
+    if (this.projectId !== projectId)
+      this.activationNotice = null;
     const loadGeneration = ++this.loadGeneration;
     this.activationGeneration++;
     this.activationInFlight = false;
@@ -265,7 +275,12 @@ export class ProjectDetailFacade {
           tasks: applyInitialTasks ? view.tasks : latest.tasks,
           project: applyInitialTasks
             ? view.project
-            : this.withTaskCounts(view.project, latest.tasks)
+            : this.withTaskCounts(view.project, latest.tasks),
+          activation: this.activationForAuthorizedProjection(
+            projectId,
+            view.project?.isOperational === true,
+            view.activation
+          )
         });
       }
     });
@@ -294,6 +309,7 @@ export class ProjectDetailFacade {
     const loadGeneration = this.loadGeneration;
     const authorizationGeneration = this.authorizationGeneration;
     this.activationInFlight = true;
+    this.activationNotice = { projectId, generation, outcome: 'pending' };
     this.state.set({
       ...current,
       activation: {
@@ -313,12 +329,85 @@ export class ProjectDetailFacade {
       })),
       catchError((error: unknown) => of({ kind: 'error' as const, error }))
     ).subscribe((outcome) => {
+      const noticeMatchesAttempt =
+        this.activationNotice?.projectId === projectId &&
+        this.activationNotice.generation === generation;
+      let activationDenied = false;
+      let deniedRequestId: string | undefined;
+
+      if (outcome.kind === 'success' && noticeMatchesAttempt) {
+        this.activationNotice = {
+          projectId,
+          generation,
+          outcome: 'accepted',
+          requestId: outcome.response.requestId
+        };
+      } else if (outcome.kind === 'error' && noticeMatchesAttempt) {
+        const normalized = normalizeApiError(outcome.error);
+        const responseError = outcome.error instanceof ProjectActivationResponseError
+          ? outcome.error
+          : null;
+        const requestId = responseError?.requestId ?? normalized.requestId;
+        if (
+          normalized.httpStatus === 401 ||
+          normalized.httpStatus === 403 ||
+          normalized.httpStatus === 404
+        ) {
+          activationDenied = true;
+          deniedRequestId = requestId;
+          this.activationNotice = null;
+        } else {
+          this.activationNotice = {
+            projectId,
+            generation,
+            outcome: normalized.httpStatus === 409 ? 'conflict' : 'failure',
+            requestId
+          };
+        }
+      }
+
       if (!this.activationAttemptIsCurrent(
         projectId,
         generation,
         loadGeneration,
         authorizationGeneration
-      )) return;
+      )) {
+        if (
+          noticeMatchesAttempt &&
+          activationDenied &&
+          this.projectId === projectId
+        ) {
+          this.activationInFlight = false;
+          this.setActivationPermissionDenied(deniedRequestId);
+          return;
+        }
+        if (
+          noticeMatchesAttempt &&
+          this.activationNotice?.projectId === projectId &&
+          this.activationNotice.generation === generation &&
+          this.projectId === projectId &&
+          this.state().status === 'ready'
+        ) {
+          const current = this.state();
+          if (current.project?.id === projectId && current.project.isOperational) {
+            this.state.set({
+              ...current,
+              activation: this.activationForAuthorizedProjection(
+                projectId,
+                true,
+                current.activation
+              )
+            });
+          } else {
+            this.refreshProjectProjections(
+              projectId,
+              this.authorizationGeneration,
+              true
+            );
+          }
+        }
+        return;
+      }
 
       if (outcome.kind === 'error') {
         const normalized = normalizeApiError(outcome.error);
@@ -332,6 +421,7 @@ export class ProjectDetailFacade {
           normalized.httpStatus === 404
         ) {
           this.activationInFlight = false;
+          this.activationNotice = null;
           this.setActivationPermissionDenied(requestId);
           return;
         }
@@ -1068,6 +1158,7 @@ export class ProjectDetailFacade {
     this.loadGeneration++;
     this.activationGeneration++;
     this.activationInFlight = false;
+    this.activationNotice = null;
     this.kanbanRequestGeneration++;
     this.scheduleRequestGeneration++;
     this.taskListRequestGeneration++;
@@ -1169,6 +1260,15 @@ export class ProjectDetailFacade {
       if (result.kind === 'active') {
         this.projectOperational = true;
         this.taskListAppliedGeneration = taskRequestGeneration;
+        const activation = this.activationForAuthorizedProjection(
+          projectId,
+          true,
+          {
+            status: 'success',
+            message: 'Project activated. Operational views were loaded from authoritative state.',
+            requestId
+          }
+        );
         this.state.set({
           ...result.view,
           kanban: this.kanbanRequestGeneration === kanbanRequestGeneration
@@ -1177,20 +1277,19 @@ export class ProjectDetailFacade {
           schedule: this.scheduleRequestGeneration === scheduleRequestGeneration
             ? result.view.schedule
             : this.state().schedule,
-          activation: {
-            status: 'success',
-            message: 'Project activated. Operational views were loaded from authoritative state.',
-            requestId
-          }
+          activation
         });
         return;
       }
 
       if (result.kind === 'draft') {
         this.projectOperational = false;
-        this.state.set({
-          ...this.draftReady(result.project),
-          activation: committed
+        if (!committed)
+          this.activationNotice = null;
+        const activation = this.activationForAuthorizedProjection(
+          projectId,
+          false,
+          committed
             ? {
                 status: 'success',
                 message: 'Activation was accepted, but the authoritative Project is still Draft. Reload before taking further action.',
@@ -1203,6 +1302,10 @@ export class ProjectDetailFacade {
                   : 'Activation was not confirmed. The latest Draft was reloaded and can be retried.',
                 requestId
               }
+        );
+        this.state.set({
+          ...this.draftReady(result.project),
+          activation
         });
         return;
       }
@@ -1218,6 +1321,7 @@ export class ProjectDetailFacade {
           this.setActivationPermissionDenied(normalized.requestId ?? requestId);
           return;
         }
+        this.activationForAuthorizedProjection(projectId, true, this.state().activation);
         this.state.set({
           ...this.projectOnlyReady(result.project),
           activation: {
@@ -1864,11 +1968,17 @@ export class ProjectDetailFacade {
       if (result.kind === 'draft') {
         this.projectOperational = false;
         const previousActivation = this.state().activation;
+        const fallbackActivation: ProjectActivationViewModel =
+          previousActivation.status === 'permissionDenied'
+            ? { status: 'idle', message: null }
+            : previousActivation;
         this.state.set({
           ...this.draftReady(result.project),
-          activation: previousActivation.status === 'permissionDenied'
-            ? { status: 'idle', message: null }
-            : previousActivation
+          activation: this.activationForAuthorizedProjection(
+            projectId,
+            false,
+            fallbackActivation
+          )
         });
         return;
       }
@@ -1885,6 +1995,11 @@ export class ProjectDetailFacade {
         project: applyTaskList
           ? result.value.project
           : this.withTaskCounts(result.value.project, current.tasks),
+        activation: this.activationForAuthorizedProjection(
+          projectId,
+          true,
+          current.activation
+        ),
         status: 'ready',
         message: undefined
       });
@@ -1908,6 +2023,56 @@ export class ProjectDetailFacade {
       if (this.projectRequestIsCurrent(projectId, loadGeneration, authorizationGeneration))
         this.draftProjectRefreshInFlight = false;
     });
+  }
+
+  private activationForAuthorizedProjection(
+    projectId: string,
+    operational: boolean,
+    fallback: ProjectActivationViewModel
+  ): ProjectActivationViewModel {
+    const notice = this.activationNotice;
+    if (!notice || notice.projectId !== projectId)
+      return fallback;
+
+    if (operational) {
+      const requestId = notice.requestId ?? fallback.requestId;
+      this.activationNotice = {
+        projectId,
+        generation: notice.generation,
+        outcome: 'accepted',
+        requestId
+      };
+      return {
+        status: 'success',
+        message: 'Project activated. Operational views were loaded from authoritative state.',
+        requestId
+      };
+    }
+
+    if (notice.outcome === 'accepted') {
+      return {
+        status: 'success',
+        message: 'Activation was accepted, but the authoritative Project is still Draft. Reload before taking further action.',
+        requestId: notice.requestId
+      };
+    }
+
+    if (notice.outcome === 'pending') {
+      return {
+        status: 'reconciling',
+        message: 'Activation is still being confirmed after authorization changed. Another activation attempt is disabled.'
+      };
+    }
+
+    const result: ProjectActivationViewModel = {
+      status: notice.outcome,
+      message: notice.outcome === 'conflict'
+        ? 'The Project changed before activation. The latest Draft was reloaded; review it before retrying.'
+        : 'Activation was not confirmed. The latest Draft was reloaded and can be retried.',
+      requestId: notice.requestId ?? fallback.requestId
+    };
+    this.activationNotice = null;
+    return result;
   }
 
   private ready(projectDto: ProjectDto, taskDtos: readonly TaskDto[], kanban: KanbanLoadOutcome, gantt: ScheduleLoadOutcome, workload: unknown, members: unknown): ProjectDetailViewModel {

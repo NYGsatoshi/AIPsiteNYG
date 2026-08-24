@@ -5,7 +5,11 @@ import { TestBed } from '@angular/core/testing';
 import { Subject } from 'rxjs';
 
 import { FrontendFeatureFlagsService } from '../../core/feature-flags/frontend-feature-flags.service';
-import { RealtimeCatchUpContext, RealtimeFacade } from '../../core/realtime/realtime.facade';
+import {
+  ProtectedStateClearReason,
+  RealtimeCatchUpContext,
+  RealtimeFacade
+} from '../../core/realtime/realtime.facade';
 import { DurableRealtimeEvent } from '../../core/realtime/realtime.models';
 import { AipKanbanMoveRequest } from '../../shared/ui/contracts/aip-complex-adapter.contracts';
 import { ProjectKanbanCard } from './project-kanban.models';
@@ -20,11 +24,13 @@ describe('ProjectDetailFacade canonical Kanban', () => {
   let flags: FrontendFeatureFlagsService;
   let events: Subject<DurableRealtimeEvent>;
   let catchUp: ((context?: RealtimeCatchUpContext) => void) | undefined;
+  let clearProtectedState: ((reason: ProtectedStateClearReason) => void) | undefined;
   let connectionState: WritableSignal<'Connected' | 'Degraded'>;
 
   beforeEach(() => {
     events = new Subject<DurableRealtimeEvent>();
     catchUp = undefined;
+    clearProtectedState = undefined;
     connectionState = signal<'Connected' | 'Degraded'>('Connected');
     const realtime = {
       durableEvents$: events.asObservable(),
@@ -33,6 +39,13 @@ describe('ProjectDetailFacade canonical Kanban', () => {
       registerCatchUp: (_owner: string, callback: (context: RealtimeCatchUpContext) => void) => {
         catchUp = (context = { deniedOwners: new Set<string>() }) => callback(context);
         return () => { catchUp = undefined; };
+      },
+      registerProtectedStateClearer: (
+        _owner: string,
+        clear: (reason: ProtectedStateClearReason) => void
+      ) => {
+        clearProtectedState = clear;
+        return () => { clearProtectedState = undefined; };
       }
     };
     TestBed.configureTestingModule({
@@ -1562,6 +1575,146 @@ describe('ProjectDetailFacade canonical Kanban', () => {
     }));
     http.expectNone('/api/projects/project-1/activate');
   });
+
+  it('restores the committed activation announcement after delayed authorization revalidation', () => {
+    flushDraftLoad();
+    facade.activate();
+    http.expectOne('/api/projects/project-1/activate').flush({
+      requestId: 'request-activate-revalidated',
+      data: { projectId: 'project-1' },
+      warnings: []
+    });
+    http.expectOne('/api/projects/project-1').flush(activeProjectDto());
+    flushOperationalRequests();
+
+    expect(facade.view().activation).toEqual(expect.objectContaining({
+      status: 'success',
+      message: 'Project activated. Operational views were loaded from authoritative state.',
+      requestId: 'request-activate-revalidated'
+    }));
+
+    clearProtectedState?.('authorization');
+
+    expect(facade.view().project).toBeUndefined();
+    expect(facade.view().activation.message).toBeNull();
+    catchUp?.();
+    flushAuthorizedProjectProjections();
+    http.expectOne((request) => request.url === '/api/projects/project-1/kanban')
+      .flush(snapshotDto());
+    http.expectOne('/api/projects/project-1/gantt').flush(ganttSnapshotDto());
+
+    expect(facade.view().activation).toEqual(expect.objectContaining({
+      status: 'success',
+      message: 'Project activated. Operational views were loaded from authoritative state.',
+      requestId: 'request-activate-revalidated'
+    }));
+  });
+
+  it('derives activation completion when authorization changes before the command response resumes', () => {
+    flushDraftLoad();
+    facade.activate();
+    const activation = http.expectOne('/api/projects/project-1/activate');
+
+    clearProtectedState?.('authorization');
+    catchUp?.();
+    http.expectOne('/api/projects/project-1').flush(draftProjectDto());
+
+    expect(facade.view().activation).toEqual(expect.objectContaining({
+      status: 'reconciling',
+      message: 'Activation is still being confirmed after authorization changed. Another activation attempt is disabled.'
+    }));
+    facade.activate();
+    http.expectNone('/api/projects/project-1/activate');
+
+    activation.flush({
+      requestId: 'request-activate-stale-continuation',
+      data: { projectId: 'project-1' },
+      warnings: []
+    });
+
+    http.expectOne('/api/projects/project-1').flush(activeProjectDto());
+    http.expectOne('/api/projects/project-1/tasks').flush({ items: [] });
+    http.expectOne('/api/projects/project-1/workload').flush({ members: [] });
+    http.expectOne('/api/projects/project-1/members').flush([]);
+    http.expectOne((request) => request.url === '/api/projects/project-1/kanban')
+      .flush(snapshotDto());
+    http.expectOne('/api/projects/project-1/gantt').flush(ganttSnapshotDto());
+
+    expect(facade.view().activation).toEqual(expect.objectContaining({
+      status: 'success',
+      message: 'Project activated. Operational views were loaded from authoritative state.',
+      requestId: 'request-activate-stale-continuation'
+    }));
+  });
+
+  it('fails closed when a pre-reauthorization activation response is denied', () => {
+    flushDraftLoad();
+    facade.activate();
+    const activation = http.expectOne('/api/projects/project-1/activate');
+
+    clearProtectedState?.('authorization');
+    catchUp?.();
+    http.expectOne('/api/projects/project-1').flush(draftProjectDto());
+    expect(facade.view().activation.status).toBe('reconciling');
+
+    activation.flush(
+      {
+        requestId: 'request-activate-denied-after-recheck',
+        error: { code: 'CapabilityDenied', message: 'Denied.' }
+      },
+      { status: 403, statusText: 'Forbidden' }
+    );
+
+    expect(facade.view().status).toBe('permissionDenied');
+    expect(facade.view().project).toBeUndefined();
+    expect(facade.view().activation).toEqual(expect.objectContaining({
+      status: 'permissionDenied',
+      requestId: 'request-activate-denied-after-recheck'
+    }));
+    http.expectNone('/api/projects/project-1');
+  });
+
+  it('keeps activation feedback hidden when catch-up denies the Project', () => {
+    flushDraftLoad();
+    facade.activate();
+    http.expectOne('/api/projects/project-1/activate').flush({
+      requestId: 'request-activate-before-denial',
+      data: { projectId: 'project-1' },
+      warnings: []
+    });
+    http.expectOne('/api/projects/project-1').flush(activeProjectDto());
+    flushOperationalRequests();
+
+    clearProtectedState?.('authorization');
+    catchUp?.({ deniedOwners: new Set(['project-detail']) });
+    flushDeniedProjectProjection();
+
+    expect(facade.view().status).toBe('permissionDenied');
+    expect(facade.view().project).toBeUndefined();
+    expect(facade.view().activation.message).toBeNull();
+  });
+
+  it.each(['workspace', 'tenant', 'session'] as const)(
+    'destroys retained activation feedback at the %s boundary',
+    (reason) => {
+      flushDraftLoad();
+      facade.activate();
+      http.expectOne('/api/projects/project-1/activate').flush({
+        requestId: `request-activate-${reason}`,
+        data: { projectId: 'project-1' },
+        warnings: []
+      });
+      http.expectOne('/api/projects/project-1').flush(activeProjectDto());
+      flushOperationalRequests();
+
+      clearProtectedState?.(reason);
+      facade.load('project-1');
+      http.expectOne('/api/projects/project-1').flush(activeProjectDto());
+      flushOperationalRequests();
+
+      expect(facade.view().activation).toEqual({ status: 'idle', message: null });
+    }
+  );
 
   it.each([
     ['mismatched success', 200, { requestId: 'request-mismatch', data: { projectId: 'project-2' }, warnings: [] }, 'failure'],

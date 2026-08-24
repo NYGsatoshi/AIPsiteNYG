@@ -265,6 +265,75 @@ describe('ProjectDetailPageComponent canonical Kanban states', () => {
     expect((rendered.fixture.nativeElement as HTMLElement).querySelector('[data-testid="activate-project"]')).toBeNull();
   });
 
+  it('restores focus to activation completion after authorization temporarily removes the live region', async () => {
+    const rendered = await render(
+      { ...kanbanView('disabled'), snapshot: null },
+      scheduleView({ status: 'empty', snapshot: null }),
+      {
+        project: draftProject(),
+        activation: { status: 'submitting', message: 'Activating Project…' }
+      }
+    );
+
+    rendered.setView({
+      status: 'loading',
+      project: undefined,
+      activation: { status: 'idle', message: null }
+    });
+    rendered.fixture.detectChanges();
+    expect((rendered.fixture.nativeElement as HTMLElement)
+      .querySelector('.project-detail-page__activation-status')).toBeNull();
+
+    rendered.setView({
+      status: 'ready',
+      project: {
+        ...draftProject(),
+        status: 'active',
+        statusLabel: 'Running',
+        activationState: 'activated',
+        isOperational: true,
+        canActivate: false
+      },
+      activation: {
+        status: 'success',
+        message: 'Project activated. Operational views were loaded from authoritative state.'
+      }
+    });
+    rendered.fixture.detectChanges();
+    await rendered.fixture.whenStable();
+    await Promise.resolve();
+
+    const announcement = (rendered.fixture.nativeElement as HTMLElement)
+      .querySelector<HTMLElement>('.project-detail-page__activation-status');
+    expect(announcement).toBe(document.activeElement);
+  });
+
+  it('focuses the persistent page target when authorization clearing ends in denial', async () => {
+    const rendered = await render(
+      { ...kanbanView('disabled'), snapshot: null },
+      scheduleView({ status: 'empty', snapshot: null }),
+      {
+        project: draftProject(),
+        activation: { status: 'submitting', message: 'Activating Project…' }
+      }
+    );
+
+    rendered.setView({
+      status: 'permissionDenied',
+      project: undefined,
+      activation: { status: 'idle', message: null }
+    });
+    rendered.fixture.detectChanges();
+    await rendered.fixture.whenStable();
+    await Promise.resolve();
+
+    const host = (rendered.fixture.nativeElement as HTMLElement)
+      .querySelector<HTMLElement>('[data-testid="project-detail-page"]');
+    expect(host).toBe(document.activeElement);
+    expect((rendered.fixture.nativeElement as HTMLElement)
+      .querySelector('.project-detail-page__activation-status')).toBeNull();
+  });
+
   it('moves focus to the persistent page target when activation authorization is denied', async () => {
     const rendered = await render(
       { ...kanbanView('disabled'), snapshot: null },
