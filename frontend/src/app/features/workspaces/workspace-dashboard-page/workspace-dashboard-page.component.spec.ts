@@ -151,6 +151,25 @@ describe('WorkspaceDashboardPageComponent', () => {
     expect(card.querySelectorAll('[data-testid="start-research-action"]')).toHaveLength(1);
   });
 
+  it('uses per-card action groups instead of duplicate navigation landmarks', async () => {
+    const duplicateName = '同名Workspace';
+    const fixture = await renderDashboard({
+      ...WORKSPACE_DASHBOARD_SCENARIOS.default,
+      workspaces: [
+        { ...OWNER_WORKSPACE, id: 'duplicate-workspace-a', displayName: duplicateName },
+        { ...OWNER_WORKSPACE, id: 'duplicate-workspace-b', displayName: duplicateName },
+      ],
+    });
+    const root = fixture.nativeElement as HTMLElement;
+
+    expect(root.querySelectorAll('nav.workspace-actions__navigation')).toHaveLength(0);
+    expect(
+      root.querySelectorAll(
+        '.workspace-actions__navigation[role="group"][aria-label="Workspace内を移動"]',
+      ),
+    ).toHaveLength(2);
+  });
+
   it('uses one capability-gated create action inside the zero-Workspace state', async () => {
     const fixture = await renderDashboard({
       ...WORKSPACE_DASHBOARD_SCENARIOS.noWorkspaceAccess,
