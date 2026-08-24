@@ -13,7 +13,7 @@ import { MyTasksFacade } from './my-tasks.facade';
 const task = {
   taskId: 'task-2', tenantId: 'tenant-1', workspaceId: 'workspace-1', workspaceTitle: 'Backend workspace',
   projectId: 'project-1', projectTitle: 'Backend Project', title: 'Assigned Backend Task',
-  workflowStageName: 'Todo', stageCategory: 'Todo', priority: 'Medium', isBlocked: false,
+  workflowStageName: 'Product backlog', stageCategory: 'Backlog', priority: 'Medium', isBlocked: true,
   progressPercent: 0, timeGroup: 'Today', isOverdue: false, version: 1,
   checklistCompletedCount: 0, checklistTotalCount: 0, labels: [], quickEditPermissions: { canClaim: false, canChangeStage: true }, warnings: []
 };
@@ -68,6 +68,13 @@ describe('MyTasksFacade', () => {
     const page = facade.getMyTasks();
     expect(page.status).toBe('ready');
     expect(page.tasks[0].workspaceTitle).toBe('Backend workspace');
+    expect(page.tasks[0].stageCategory).toBe('backlog');
+    expect(page.rows[0]).toEqual(expect.objectContaining({
+      stageCategory: 'backlog',
+      isBlocked: true,
+      workflowStageName: 'Product backlog'
+    }));
+    expect(page.rows[0].hasArtifact).toBeUndefined();
     expect(page.counts.find((item) => item.key === 'assigned')?.count).toBe(1);
     expect(page.counts.find((item) => item.key === 'today')?.count).toBe(1);
   });

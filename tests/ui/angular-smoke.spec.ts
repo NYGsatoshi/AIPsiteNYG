@@ -719,6 +719,75 @@ test.describe('MVP-A P0 Angular frontend smoke', () => {
     expect(api.kanbanGetCount()).toBe(0);
   });
 
+  test('makes canonical Task state, update time, blocking, and Artifact availability scannable at 320px', async ({ page }, testInfo) => {
+    const api = await installProjectKanbanApi(page);
+    const mobile = testInfo.project.name === 'chromium-mobile';
+    await page.setViewportSize(mobile ? { width: 320, height: 900 } : { width: 1280, height: 900 });
+
+    await page.goto('/app/projects/static-project-kanban');
+    await page.getByRole('tab', { name: 'List', exact: true }).click();
+
+    const suffix = mobile ? 'mobile' : 'desktop';
+    await expect(page.getByTestId('task-state-list')).toBeVisible();
+    await expect(page.getByTestId(`task-stage-name-static-task-running-${suffix}`)).toContainText('Investigating');
+    await expect(page.getByTestId(`task-category-static-task-running-${suffix}`)).toContainText('Running');
+    await expect(page.getByTestId(`task-category-static-task-review-${suffix}`)).toContainText('Needs review');
+    await expect(page.getByTestId(`task-category-static-task-completed-${suffix}`)).toContainText('Completed');
+    await expect(page.getByTestId(`task-category-static-task-cancelled-${suffix}`)).toContainText('Cancelled');
+    await expect(page.getByTestId(`task-blocked-static-task-kanban-${suffix}`)).toContainText('Blocked');
+    await expect(page.getByTestId(`task-artifact-static-task-review-${suffix}`)).toContainText('Artifact available');
+    await expect(page.getByTestId(`task-artifact-static-task-running-${suffix}`)).toContainText('No artifact');
+    await expect(page.getByTestId(`task-updated-static-task-running-${suffix}`).locator('time'))
+      .toHaveAttribute('datetime', '2026-08-21T08:15:00Z');
+    await expect(page.getByTestId(`task-updated-static-task-review-${suffix}`).locator('time'))
+      .toHaveAttribute('datetime', '2026-08-24T02:45:00Z');
+
+    const openAction = page.getByTestId(`task-openDetail-static-task-review-${suffix}`);
+    await expect(openAction).toBeVisible();
+    await openAction.focus();
+    await expect(openAction).toBeFocused();
+    expect(api.taskListGetCount()).toBe(1);
+
+    if (mobile) {
+      const card = page.getByTestId('task-state-card-static-task-review-mobile');
+      const cardBox = await card.boundingBox();
+      const actionBox = await openAction.boundingBox();
+      expect(cardBox).not.toBeNull();
+      expect(actionBox).not.toBeNull();
+      expect(cardBox!.x).toBeGreaterThanOrEqual(0);
+      expect(cardBox!.x + cardBox!.width).toBeLessThanOrEqual(320);
+      expect(actionBox!.height).toBeGreaterThanOrEqual(44);
+    }
+
+    await expectNoDocumentHorizontalOverflow(page);
+    await expectNoAccessibilityViolations(page);
+    await expectHealthyAngularPage(page);
+  });
+
+  test('refreshes the Task state list from authoritative HTTP after a stage change', async ({ page }, testInfo) => {
+    const api = await installProjectKanbanApi(page);
+    await page.setViewportSize(testInfo.project.name === 'chromium-mobile'
+      ? { width: 390, height: 844 }
+      : { width: 1280, height: 900 });
+    await page.goto('/app/projects/static-project-kanban');
+
+    const card = page.locator('[data-kanban-card-id="static-task-kanban"]');
+    await card.getByRole('button', { name: 'Move', exact: true }).click();
+    await card.getByLabel('Target stage').selectOption('stage-done');
+    await card.getByRole('button', { name: 'Apply move' }).click();
+    await expect(page.getByText('Move saved.', { exact: true })).toBeVisible();
+
+    await expect.poll(api.taskListGetCount).toBeGreaterThan(1);
+    await page.getByRole('tab', { name: 'List', exact: true }).click();
+    const suffix = testInfo.project.name === 'chromium-mobile' ? 'mobile' : 'desktop';
+    await expect(page.getByTestId(`task-stage-name-static-task-kanban-${suffix}`)).toContainText('Complete');
+    await expect(page.getByTestId(`task-category-static-task-kanban-${suffix}`)).toContainText('Completed');
+    await expect(page.getByTestId(`task-updated-static-task-kanban-${suffix}`).locator('time'))
+      .toHaveAttribute('datetime', '2026-08-24T10:15:00Z');
+    await expect(page.getByTestId(`task-artifact-static-task-kanban-${suffix}`)).toContainText('Artifact available');
+    await expectHealthyAngularPage(page);
+  });
+
   test('does not render protected Kanban data after an authorization denial', async ({ page }) => {
     const api = await installProjectKanbanApi(page, { denySnapshot: true });
 
@@ -1516,10 +1585,12 @@ async function installProjectKanbanApi(
   options: { denySnapshot?: boolean } = {}
 ) {
   let kanbanGets = 0;
+  let taskListGets = 0;
   let moveCount = 0;
   const moveBodies: Record<string, unknown>[] = [];
   const csrfHeaders: string[] = [];
   let authoritativeSnapshot = projectKanbanSnapshot('stage-todo', 7, 3);
+  let authoritativeTasks = projectTaskListDtos();
 
   await page.route('**/api/**', async (route) => {
     const request = route.request();
@@ -1553,23 +1624,13 @@ async function installProjectKanbanApi(
     }
 
     if (path === '/api/projects/static-project-kanban/tasks' && method === 'GET') {
+      taskListGets += 1;
       await route.fulfill({
         status: 200,
         contentType: 'application/json',
         body: JSON.stringify({
-          items: [{
-            id: 'static-task-kanban',
-            projectId: 'static-project-kanban',
-            title: 'Canonical card',
-            status: 'Todo',
-            stageCategory: 'Todo',
-            priority: 'High',
-            isBlocked: true,
-            primaryAssignee: { userId: 'user-1', displayName: 'Ada' },
-            version: 3,
-            uiPermissions: { canUpdate: true, rowVersion: '3' }
-          }],
-          totalCount: 1,
+          items: authoritativeTasks,
+          totalCount: authoritativeTasks.length,
           hasMore: false
         })
       });
@@ -1609,7 +1670,22 @@ async function installProjectKanbanApi(
       moveBodies.push(moveBody);
       csrfHeaders.push(request.headers()['x-csrf-token'] ?? '');
       if (moveCount === 1) {
-        authoritativeSnapshot = projectKanbanSnapshot(projectKanbanStageId(moveBody['targetWorkflowStageId']), 8, 4);
+        const targetStage = projectKanbanStageId(moveBody['targetWorkflowStageId']);
+        authoritativeSnapshot = projectKanbanSnapshot(targetStage, 8, 4);
+        if (targetStage === 'stage-done') {
+          authoritativeTasks = authoritativeTasks.map((task) => task.id === 'static-task-kanban'
+            ? {
+                ...task,
+                workflowStageId: 'stage-done',
+                workflowStageName: 'Complete',
+                status: 'Completed',
+                stageCategory: 'Done',
+                updatedAt: '2026-08-24T10:15:00Z',
+                version: 4,
+                uiPermissions: { canUpdate: true, rowVersion: '4' }
+              }
+            : task);
+        }
         await route.fulfill({
           status: 200,
           contentType: 'application/json',
@@ -1637,8 +1713,95 @@ async function installProjectKanbanApi(
   return {
     moveBodies,
     csrfHeaders,
-    kanbanGetCount: () => kanbanGets
+    kanbanGetCount: () => kanbanGets,
+    taskListGetCount: () => taskListGets
   };
+}
+
+function projectTaskListDtos() {
+  const common = {
+    projectId: 'static-project-kanban',
+    priority: 'High',
+    primaryAssignee: { userId: 'user-1', displayName: 'Ada' }
+  };
+
+  return [
+    {
+      ...common,
+      id: 'static-task-kanban',
+      title: 'Canonical card',
+      workflowStageId: 'stage-todo',
+      workflowStageName: 'Ready for research',
+      status: 'NotStarted',
+      stageCategory: 'Todo',
+      isBlocked: true,
+      hasArtifact: true,
+      createdAt: '2026-08-20T09:00:00Z',
+      updatedAt: '2026-08-23T12:30:00Z',
+      version: 3,
+      uiPermissions: { canUpdate: true, rowVersion: '3' }
+    },
+    {
+      ...common,
+      id: 'static-task-running',
+      title: 'Running analysis',
+      workflowStageId: 'stage-in-progress',
+      workflowStageName: 'Investigating',
+      status: 'InProgress',
+      stageCategory: 'InProgress',
+      isBlocked: false,
+      hasArtifact: false,
+      createdAt: '2026-08-21T08:15:00Z',
+      updatedAt: null,
+      version: 2,
+      uiPermissions: { canUpdate: true, rowVersion: '2' }
+    },
+    {
+      ...common,
+      id: 'static-task-review',
+      title: 'Review evidence',
+      workflowStageId: 'stage-review',
+      workflowStageName: 'Evidence review',
+      status: 'WaitingReview',
+      stageCategory: 'Review',
+      isBlocked: false,
+      hasArtifact: true,
+      createdAt: '2026-08-19T05:30:00Z',
+      updatedAt: '2026-08-24T02:45:00Z',
+      version: 7,
+      uiPermissions: { canUpdate: true, rowVersion: '7' }
+    },
+    {
+      ...common,
+      id: 'static-task-completed',
+      title: 'Completed report',
+      workflowStageId: 'stage-done',
+      workflowStageName: 'Published',
+      status: 'Completed',
+      stageCategory: 'Done',
+      isBlocked: false,
+      hasArtifact: true,
+      createdAt: '2026-08-18T01:00:00Z',
+      updatedAt: '2026-08-22T03:00:00Z',
+      version: 5,
+      uiPermissions: { canUpdate: true, rowVersion: '5' }
+    },
+    {
+      ...common,
+      id: 'static-task-cancelled',
+      title: 'Cancelled follow-up',
+      workflowStageId: 'stage-cancelled',
+      workflowStageName: 'Cancelled',
+      status: 'Cancelled',
+      stageCategory: 'Cancelled',
+      isBlocked: false,
+      hasArtifact: false,
+      createdAt: '2026-08-17T04:00:00Z',
+      updatedAt: '2026-08-21T04:00:00Z',
+      version: 4,
+      uiPermissions: { canUpdate: true, rowVersion: '4' }
+    }
+  ];
 }
 
 type ProjectKanbanStageId = 'stage-todo' | 'stage-done' | 'stage-cancelled';

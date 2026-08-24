@@ -6,6 +6,10 @@
 .project-detail-page__records { display: grid; gap: var(--aip-space-2); margin: 0; padding: 0; list-style: none; }
 .project-detail-page__records li { display: grid; gap: var(--aip-space-1); padding: var(--aip-space-3); border: 1px solid var(--aip-color-border-default); border-radius: var(--aip-radius-md); }
 .project-detail-page__kanban { display: grid; gap: var(--aip-space-3); }
+.project-detail-page__task-list { display: grid; gap: var(--aip-space-3); min-width: 0; }
+.project-detail-page__task-list-alert { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: var(--aip-space-2); padding: var(--aip-space-2); border: 1px solid var(--aip-color-warning); border-radius: var(--aip-radius-md); }
+.project-detail-page__task-list-alert p { margin: 0; }
+.project-detail-page__task-list-alert button { min-height: 2.75rem; }
 .project-detail-page__schedule { display: grid; gap: var(--aip-space-3); min-width: 0; }
 .project-detail-page__schedule-header { display: flex; flex-wrap: wrap; align-items: end; justify-content: space-between; gap: var(--aip-space-3); }
 .project-detail-page__schedule-header > div { display: grid; gap: var(--aip-space-1); }
