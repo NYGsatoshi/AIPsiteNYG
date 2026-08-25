@@ -92,6 +92,6 @@ public sealed class DbSessionCookieAuthenticationEvents(
 
     private static bool IsWpcPath(string? path)
     {
-        return ApiEnvelope.IsWorkspaceCreationPath(path);
+        return ApiEnvelope.IsCanonicalCreatePath(path);
     }
 }

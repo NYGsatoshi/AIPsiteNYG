@@ -34,7 +34,7 @@ public sealed class WpcApiContractMiddleware(RequestDelegate next)
             return ApiEnvelope.IsProjectVisibilityPath(path);
         }
 
-        if (!HttpMethods.IsPost(method) || !ApiEnvelope.IsWorkspaceCreationPath(path))
+        if (!HttpMethods.IsPost(method) || !ApiEnvelope.IsCanonicalCreatePath(path))
         {
             return false;
         }

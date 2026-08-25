@@ -41,10 +41,12 @@ Goal, Deliverable, Constraints review, remains keyboard/read-only capable,
 and collapses without horizontal overflow at 320 pixels. Free-form Task notes
 remain a separate control.
 
-There is no integrated Task-create/start screen in current source. This issue
-prepares the create/subtask API contract and reusable Brief component, while
-Issue #410 owns the full Project-aware create/start orchestration. This issue
-does not claim that launch surface.
+Issue #410 now integrates the same reusable Brief component into its
+Project-aware Task-create candidate. That separate canonical create boundary
+stores an optional Task Brief with the Task; it does not supply Project Brief
+defaults, start a runtime, create an execution run, or change this Issue #350
+contract. See `docs/verification/p0-task-create.md` for its separate candidate
+evidence and limits.
 
 ## Security and validation
 

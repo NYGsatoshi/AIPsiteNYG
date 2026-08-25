@@ -363,6 +363,22 @@ describe('ProjectDetailPageComponent canonical Kanban states', () => {
       .querySelector('.project-detail-page__activation-status')).toBeNull();
   });
 
+  it('offers New Task only from an operational Project with server create authority', async () => {
+    const rendered = await render(kanbanView('ready'));
+    const router = TestBed.inject(Router);
+    const navigate = vi.spyOn(router, 'navigate').mockResolvedValue(true);
+    const host = rendered.fixture.nativeElement as HTMLElement;
+    const create = host.querySelector<HTMLButtonElement>('[data-testid="project-create-task"]');
+
+    expect(create).not.toBeNull();
+    create?.click();
+    expect(navigate).toHaveBeenCalledWith(['/projects', 'project-1', 'tasks', 'new']);
+
+    rendered.setView({ project: { ...rendered.fixture.componentInstance.page().project!, canCreateTask: false } });
+    rendered.fixture.detectChanges();
+    expect(host.querySelector('[data-testid="project-create-task"]')).toBeNull();
+  });
+
   it('reloads a reused detail page for each distinct route Project and resets local tabs', async () => {
     const rendered = await render(kanbanView('ready'));
     expect(rendered.facade.load).toHaveBeenCalledWith('project-1');

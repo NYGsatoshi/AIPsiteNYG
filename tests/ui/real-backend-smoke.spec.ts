@@ -95,6 +95,7 @@ test.describe('MVP0 real backend browser smoke', () => {
       await createDirectMessageAndVerifyPersistence(page, evidence);
       await openAnnouncementDetail(page, evidence);
       await openProjectTaskDetail(page, evidence);
+      await createProjectTaskThroughUi(page, evidence);
       await submitInvalidPasswordChange(page, evidence);
       await logoutAndVerifyAccessRevoked(page, evidence);
 
@@ -3695,6 +3696,156 @@ async function openProjectTaskDetail(page: Page, evidence: SmokeEvidence) {
   });
 
   await openMyTasksFromNavigation(page, evidence);
+}
+
+async function createProjectTaskThroughUi(page: Page, evidence: SmokeEvidence): Promise<void> {
+  const projectId = evidence.projectId;
+  expect(projectId, 'the seeded Project id is available for Task creation').toMatch(/^[0-9a-f-]{36}$/i);
+
+  const optionsPath = `/api/projects/${projectId}/tasks/create-options`;
+  const directOptions = await recordFetchJson(page, evidence, 'task-create-options-direct', optionsPath, {
+    validate: (body) => {
+      const data = (body as Record<string, any>)?.data;
+      return hasString(body, 'requestId') &&
+        data?.projectId === projectId &&
+        typeof data?.workspaceId === 'string' &&
+        typeof data?.projectTitle === 'string' &&
+        data?.canCreateTask === true &&
+        typeof data?.canManageProject === 'boolean' &&
+        Array.isArray(data?.milestones) &&
+        Array.isArray(data?.assignees) &&
+        typeof data?.projectScope?.policy?.webEnabled === 'boolean' &&
+        typeof data?.projectScope?.policy?.projectFilesEnabled === 'boolean' &&
+        Number.isSafeInteger(data?.projectScope?.version) &&
+        typeof data?.projectScope?.canSetTaskOverride === 'boolean' &&
+        Array.isArray((body as Record<string, unknown>)?.warnings);
+    },
+  }) as Record<string, any>;
+  const options = directOptions.data as Record<string, any>;
+  evidence.workspaceId = String(options.workspaceId);
+
+  await page.goto(`/app/projects/${projectId}`);
+  await expect(page.getByTestId('project-detail-page')).toBeVisible();
+  const newTask = page.getByTestId('project-create-task');
+  await expect(newTask).toBeVisible();
+  const uiOptionsResponse = waitForApiResponse(page, 'GET', optionsPath);
+  await newTask.click();
+  await recordOkJson(await uiOptionsResponse, evidence, 'task-create-options-ui', (body) =>
+    (body as Record<string, any>)?.data?.projectId === projectId &&
+    (body as Record<string, any>)?.data?.workspaceId === options.workspaceId &&
+    Array.isArray((body as Record<string, any>)?.data?.milestones) &&
+    Array.isArray((body as Record<string, any>)?.data?.assignees),
+  );
+
+  await expect(page).toHaveURL(`/app/projects/${projectId}/tasks/new`);
+  const title = `Browser smoke canonical Task ${randomUUID().slice(0, 8)}`;
+  const goal = 'Review the server-authorized source scope.';
+  const deliverable = 'A concise Task creation decision.';
+  const constraints = 'No source retrieval or runtime start.';
+  await expect(page.getByTestId('task-create-title')).toBeFocused();
+  await expect(page.getByTestId('task-create-page')).toContainText('does not start a runtime or retrieve sources');
+  await expect(page.getByRole('button', { name: 'Start', exact: true })).toHaveCount(0);
+  await expect(page.locator('[name="webUrl"], [name="provider"], [name="projectId"], [name="workspaceId"]')).toHaveCount(0);
+  await page.getByTestId('task-create-title').fill(`  ${title}  `);
+  await page.getByTestId('task-brief-goal-input').fill(goal);
+  await page.getByTestId('task-brief-deliverable-input').fill(deliverable);
+  await page.getByTestId('task-brief-constraints-input').fill(constraints);
+
+  const firstMilestone = Array.isArray(options.milestones) ? options.milestones[0] : null;
+  if (firstMilestone) {
+    await expect(page.getByTestId('task-create-milestone')).toContainText(String(firstMilestone.title));
+    await page.getByTestId('task-create-milestone').selectOption(String(firstMilestone.id));
+  }
+  const firstAssignee = Array.isArray(options.assignees) ? options.assignees[0] : null;
+  if (firstAssignee) {
+    await expect(page.getByTestId('task-create-primary-assignee')).toContainText(String(firstAssignee.displayName));
+  }
+  await expect(page.locator('#task-create-sourceScopeMode-inherit')).toBeChecked();
+  await expect(page.locator('#task-create-sourceScopeMode-override')).toHaveCount(
+    options.canManageProject && options.projectScope.canSetTaskOverride ? 1 : 0,
+  );
+
+  const createPath = `/api/projects/${projectId}/tasks/create`;
+  const createResponsePromise = waitForApiResponse(page, 'POST', createPath);
+  await page.getByTestId('task-create-submit').click();
+  const createResponse = await createResponsePromise;
+  const createText = await createResponse.text();
+  const createBody = parseJson(createText) as Record<string, any>;
+  const createRequest = createResponse.request();
+  const requestHeaders = await createRequest.allHeaders();
+  const requestBody = createRequest.postDataJSON() as Record<string, unknown>;
+  const createdTaskId = typeof createBody?.data?.taskId === 'string' ? createBody.data.taskId : '';
+  evidence.steps.push({
+    name: 'task-create-ui-command',
+    method: createRequest.method(),
+    path: new URL(createResponse.url()).pathname,
+    status: createResponse.status(),
+    body: {
+      request: requestBody,
+      idempotencyKeyPresent: Boolean(requestHeaders['idempotency-key']),
+      csrfHeaderPresent: Boolean(requestHeaders['x-csrf-token']),
+    },
+    bodyPreview: preview(createText),
+  });
+
+  expect(createResponse.status(), `Task create response: ${createText}`).toBe(201);
+  expect(createdTaskId, 'created Task id').toMatch(/^[0-9a-f-]{36}$/i);
+  expect(createBody).toMatchObject({
+    data: {
+      taskId: createdTaskId,
+      projectId,
+      workspaceId: options.workspaceId,
+      title,
+      priority: 1,
+      sourceScopeMode: 'Inherit',
+      taskOverridePolicy: null,
+    },
+    warnings: [],
+  });
+  const expectedRequest: Record<string, unknown> = {
+    title,
+    priority: 1,
+    goal,
+    deliverable,
+    constraints,
+    sourceScopeMode: 'Inherit',
+  };
+  if (firstMilestone) {
+    expectedRequest['milestoneId'] = String(firstMilestone.id);
+  }
+  expect(requestBody).toEqual(expectedRequest);
+  expect(requestBody).not.toHaveProperty('taskOverridePolicy');
+  expect(requestBody).not.toHaveProperty('webUrl');
+  expect(requestBody).not.toHaveProperty('provider');
+  expect(requestHeaders['idempotency-key']).toMatch(/^task-create-[\x20-\x7e]+$/u);
+  expect(requestHeaders['x-csrf-token'], 'Task create uses the real Angular CSRF interceptor').toBeTruthy();
+
+  await expect(page).toHaveURL(`/app/projects/${projectId}/tasks/${createdTaskId}`);
+  await expect(page.getByTestId('task-detail-page')).toBeVisible();
+  const persisted = await recordFetchJson(page, evidence, 'task-create-authoritative-detail', `/api/tasks/${createdTaskId}`, {
+    validate: (body) => {
+      const task = (body as Record<string, any>)?.task;
+      return task?.id === createdTaskId &&
+        task?.projectId === projectId &&
+        task?.workspaceId === options.workspaceId &&
+        task?.title === title &&
+        // The canonical create response serializes the request enum as a
+        // number, while the established Task-detail projection exposes the
+        // human-readable priority string.
+        task?.priority === 'Medium' &&
+        task?.brief?.goal?.value === goal &&
+        task?.brief?.deliverable?.value === deliverable &&
+        task?.brief?.constraints?.value === constraints;
+    },
+  }) as Record<string, any>;
+  expect(persisted.task.milestoneId ?? null).toBe(firstMilestone ? String(firstMilestone.id) : null);
+  const runtimeRequests = await page.evaluate((id) =>
+    performance.getEntriesByType('resource')
+      .map((entry) => new URL(entry.name, window.location.href).pathname)
+      .filter((path) => path === `/api/tasks/${id}/execution-runs`),
+    createdTaskId,
+  );
+  expect(runtimeRequests, 'Task creation does not request a runtime').toEqual([]);
 }
 
 async function openPr03cTaskDetail(page: Page, evidence: SmokeEvidence) {

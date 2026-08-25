@@ -299,6 +299,18 @@ changes, and immutable run requests; a browser role, Task assignee state, or
 hidden control is never authority. Missing, cross-Tenant, deleted, and denied
 Project/Task identities return the generic not-found result.
 
+Issue #410 reuses that boundary only to create a Task and, when a current
+Project manager chooses it, to persist a complete Task override atomically
+with that Task. It does not widen Issue #357 into execution. The canonical
+create command rechecks the actor's current Task-create authority and all
+mutable Project/Milestone/member selections inside the idempotency-owned
+transaction; create-options data and hidden browser controls are advisory
+only. A Task creator without management authority may create an unassigned
+inheriting Task, but cannot choose an initial primary assignee or source-scope
+override. A same-key replay also rechecks current Task-create authority and
+returns the current authorized resource, rather than disclosing a historical
+Task after the actor has lost access.
+
 Only the effective two-boolean policy (`WebEnabled` and
 `ProjectFilesEnabled`), its origin/version, and a safe latest policy snapshot
 are projected. The API, audit metadata, realtime invalidations, and runtime

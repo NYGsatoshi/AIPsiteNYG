@@ -367,9 +367,103 @@ Brief value.
 An oversized field returns HTTP 400 `TASK_BRIEF_FIELD_TOO_LONG` with the
 specific `goal`, `deliverable`, or `constraints` target. Audit and realtime
 metadata contain field names/version hints only, never Brief values. The
-reusable Angular fields are integrated into existing Task detail/edit, but a
-full Task-create/start UI is not present in this issue and remains owned by
-Issue #410.
+reusable Angular fields are integrated into existing Task detail/edit and the
+Issue #410 canonical Task-create candidate. The create boundary records a Task
+and never starts a runtime.
+
+## Issue #410 canonical Task create
+
+The legacy compatibility command remains unchanged:
+
+- `POST /api/projects/{projectId}/tasks`
+
+The Project-aware browser create flow instead uses these canonical,
+side-by-side routes:
+
+- `GET /api/projects/{projectId}/tasks/create-options`
+- `POST /api/projects/{projectId}/tasks/create`
+
+Both routes use the canonical `{ requestId, data, warnings }` envelope and
+the ordinary authenticated Project-read / Task-create boundaries. The GET
+response is an authorized, advisory projection; it returns the Project and Workspace IDs and
+title, `canCreateTask`, `canManageProject`, current non-deleted Milestone
+options, manager-visible eligible-assignee options, and the Project source
+scope:
+
+```json
+{
+  "projectId": "<project id>",
+  "workspaceId": "<workspace id>",
+  "projectTitle": "Launch",
+  "canCreateTask": true,
+  "canManageProject": true,
+  "milestones": [{ "id": "<milestone id>", "title": "MVP" }],
+  "assignees": [{ "userId": "<user id>", "displayName": "Example User" }],
+  "projectScope": {
+    "policy": { "webEnabled": false, "projectFilesEnabled": false },
+    "version": 0,
+    "canSetTaskOverride": true
+  }
+}
+```
+
+When no Project policy row exists, the scope projection is the fail-closed
+`false`/`false` default with version `0`; it is not a stored Task override or
+source inventory. Assignee choices are omitted for a non-manager. The GET
+response never grants authority to POST.
+
+The POST requires a printable ASCII `Idempotency-Key` header of 8 through 128
+characters, CSRF protection under cookie authentication, and a strict JSON
+body. `title` and string `sourceScopeMode` (`Inherit` or `TaskOverride`) are
+required. The optional Task data are `description`, numeric `priority`,
+`milestoneId`, `startDate`, `dueDate`, `goal`, `deliverable`, `constraints`,
+and `primaryAssigneeUserId`.
+
+```json
+{
+  "title": "Prepare launch review",
+  "description": "Optional free-form notes.",
+  "priority": 1,
+  "milestoneId": null,
+  "startDate": "2026-08-25",
+  "dueDate": "2026-08-29",
+  "goal": "Reach an approval decision.",
+  "deliverable": "A review-ready release package.",
+  "constraints": null,
+  "primaryAssigneeUserId": null,
+  "sourceScopeMode": "Inherit",
+  "taskOverridePolicy": null
+}
+```
+
+Unknown members are rejected. `taskOverridePolicy` is forbidden for `Inherit`
+and required for `TaskOverride`; when present it is the complete two-boolean
+object `{ "webEnabled": false, "projectFilesEnabled": false }`. The request
+contains neither server-owned scope/version identifiers nor a run, source,
+provider, or URL field.
+
+The server rechecks the current Project, Task-create capability, selected
+Milestone, and selected member at the transaction's creation boundary. A
+current Task creator may create an unassigned inheriting Task. Only a current
+Project manager may select an initial primary assignee or a Task override. A
+missing, cross-Tenant, deleted, unreadable, or wrong-Project resource uses the
+same safe not-found behavior rather than revealing its existence.
+
+The idempotency-owned transaction stages the Task and initial workflow
+placement, automatic watches, optional complete Task override, required audit
+entries, durable invalidations, and any initial-assignment notification. A
+successful create returns HTTP 201 with `data.taskId`, Project/Workspace and
+selection IDs, title, priority, status, workflow stage ID, version,
+`sourceScopeMode`, and the optional complete override policy. It does not
+create a `TaskExecutionRun`, capture a run snapshot, or invoke a runtime.
+
+The same key and normalized request recheck current Task-create authority and
+return the current authoritative persisted Task response. A later mutable Task
+or override change therefore need not match the original request fields. A
+different normalized request under the same key returns the safe HTTP 409
+idempotency conflict. All other canonical validation, authorization, and
+availability failures use the standard safe envelope.
+
 ## Task progress and Activity detail
 
 The canonical Task detail response continues to carry the current configured

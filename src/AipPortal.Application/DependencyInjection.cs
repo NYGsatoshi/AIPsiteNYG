@@ -100,6 +100,7 @@ public static class DependencyInjection
         services.AddScoped<IIntegrationService>(provider => provider.GetRequiredService<IntegrationService>());
         services.AddScoped<IApiTokenValidator>(provider => provider.GetRequiredService<IntegrationService>());
         services.AddScoped<ICanonicalProjectCreateService, CanonicalProjectCreateService>();
+        services.AddScoped<ICanonicalTaskCreateService, CanonicalTaskCreateService>();
         services.AddScoped<IProjectGeneralActivationProvisioner, ProjectGeneralActivationProvisioner>();
         services.AddScoped<IProjectGeneralMembershipSynchronizer, ProjectGeneralMembershipSynchronizer>();
         services.AddScoped<IProjectMembershipService, ProjectMembershipService>();

@@ -103,6 +103,36 @@ it cannot prove an outbound-Web or source-material workflow. See
 `docs/verification/p0-task-execution-scope-foundation.md` for the current
 candidate evidence and limitations.
 
+### Issue #410 canonical Task create
+
+The focused backend selection covers strict canonical request binding,
+required idempotency, safe tenant/resource hiding, manager-only initial
+assignee and Task-override authority, member/Milestone eligibility, atomic
+audit/invalidation staging, and replay after mutable Task, override,
+Milestone, and assignee changes. The recorded local run passed 9 tests. The
+broader backend suite recorded 951 passed with 242 conditional PostgreSQL
+tests skipped because `POSTGRES_TEST_CONNECTION_STRING` was unavailable.
+
+Focused Angular evidence recorded 6 spec files / 38 tests passing under Node
+24.19.0. The production Angular build passed after compacting the new
+Task-create stylesheet; the Task-create budget warning is gone, while the
+repository's pre-existing bundle and unrelated style-budget warnings remain.
+A focused 320-pixel Chromium static test passed 1/1 against fresh production
+output. It checks keyboard entry, horizontal-overflow absence, strict
+canonical body plus CSRF/idempotency headers, and the absence of Start,
+runtime, raw-provider, and raw-source controls. Static responses are mocked;
+they do not establish browser-to-ASP.NET Core compatibility.
+
+The existing mandatory MVP0 real-backend scenario has source coverage for the
+canonical Project Detail-to-Task-create flow, including the exact POST body,
+CSRF/idempotency headers, HTTP 201, persisted Task/Brief detail, and no
+execution-run request. A local Compose attempt stopped during the Docker
+frontend build because `SYNCFUSION_LICENSE` was not configured; no application
+container or Playwright assertion ran, and scoped cleanup completed. This is
+an environmental startup limitation, not a P0 assertion failure or
+real-backend evidence. See `docs/verification/p0-task-create.md` for scope and
+limits.
+
 ### TASK-V1-PR07-B immediate notification tests
 
 PR07-B adds focused service/contract tests for the exact recipient matrix,
