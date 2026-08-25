@@ -3829,7 +3829,10 @@ async function createProjectTaskThroughUi(page: Page, evidence: SmokeEvidence): 
         task?.projectId === projectId &&
         task?.workspaceId === options.workspaceId &&
         task?.title === title &&
-        task?.priority === 1 &&
+        // The canonical create response serializes the request enum as a
+        // number, while the established Task-detail projection exposes the
+        // human-readable priority string.
+        task?.priority === 'Medium' &&
         task?.brief?.goal?.value === goal &&
         task?.brief?.deliverable?.value === deliverable &&
         task?.brief?.constraints?.value === constraints;
