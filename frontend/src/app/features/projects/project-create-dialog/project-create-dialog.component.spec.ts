@@ -80,6 +80,59 @@ describe('ProjectCreateDialogComponent', () => {
     expect(component.filteredGroups).toEqual([]);
   });
 
+  it('retains the Project name when reauthorization starts during input before a named Group is selected', () => {
+    const root = fixture.nativeElement as HTMLElement;
+    const title = root.querySelector<HTMLInputElement>('[data-testid="project-create-title"]');
+
+    title!.addEventListener(
+      'input',
+      () => {
+        fixture.componentRef.setInput('optionsState', { status: 'loading', workspaceId });
+        fixture.detectChanges();
+      },
+      { capture: true, once: true },
+    );
+    title!.value = 'Evidence Project';
+    title!.dispatchEvent(new Event('input', { bubbles: true }));
+    expect(
+      (fixture.nativeElement as HTMLElement).querySelector<HTMLFormElement>(
+        '[data-testid="project-create-form"]',
+      )?.hidden,
+    ).toBe(true);
+    expect(component.confirmDisabled).toBe(true);
+    expect(
+      (fixture.nativeElement as HTMLElement).querySelector(
+        '[data-testid="project-create-options-loading"]',
+      ),
+    ).not.toBeNull();
+
+    fixture.componentRef.setInput('optionsState', readyOptions);
+    fixture.detectChanges();
+
+    const reauthorizedRoot = fixture.nativeElement as HTMLElement;
+    const reauthorizedDescription = reauthorizedRoot.querySelector<HTMLTextAreaElement>(
+      '[data-testid="project-create-description"]',
+    );
+    const reauthorizedGroup = reauthorizedRoot.querySelector<HTMLSelectElement>(
+      '[data-testid="project-create-group"]',
+    );
+
+    reauthorizedDescription!.value = 'Retained description';
+    reauthorizedDescription!.dispatchEvent(new Event('input', { bubbles: true }));
+    reauthorizedGroup!.value = groupId;
+    reauthorizedGroup!.dispatchEvent(new Event('change', { bubbles: true }));
+    fixture.detectChanges();
+
+    expect(component.form.getRawValue()).toMatchObject({
+      title: 'Evidence Project',
+      description: 'Retained description',
+      groupId,
+    });
+    expect(
+      reauthorizedRoot.querySelector<HTMLInputElement>('[data-testid="project-create-title"]')?.value,
+    ).toBe('Evidence Project');
+  });
+
   it('preserves an allowed Visibility when protected options are reauthorized', () => {
     component.form.controls.visibility.setValue(PROJECT_VISIBILITY_RESTRICTED);
     fixture.componentRef.setInput('optionsState', { status: 'idle' });
