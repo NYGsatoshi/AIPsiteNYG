@@ -33,6 +33,16 @@ capability.
 - Activity failure does not erase current phase, and current phase is not
   derived from Activity count or ordering.
 
+## Test-only demonstration fixture
+
+When a selected baseline includes the fixture, [demo-data.md](demo-data.md)
+is the authoritative setup and safety record. It supplies a deterministic
+synthetic Project and Task only in the Test environment with explicit
+browser-smoke seed opt-in and a loopback-only Compose overlay. Its stored
+Brief, policy, current phase, and one labelled synthetic Activity record make
+the presentation repeatable; they do not evidence a real user action, source
+consumption, runtime execution, or phase transition.
+
 ## Open issue boundaries
 
 ### Issue #357: source scope remains non-closing
@@ -65,3 +75,11 @@ Focused unit, static browser, and production-build checks are useful evidence,
 but they do not replace real ASP.NET Core/PostgreSQL execution. The final
 baseline must record exact-head PostgreSQL, real-backend P0, authorization, and
 U-22 journey evidence in [submission-checklist.md](submission-checklist.md).
+
+## Development process disclosure
+
+The U-22 preparation was performed under repository-owner direction with
+AI/Codex-assisted development. Suggested changes and documentation were
+reviewed against current source and verification evidence; the repository
+owner remains responsible for approval, credentials, release decisions, and
+all submission claims.

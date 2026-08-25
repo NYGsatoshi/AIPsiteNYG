@@ -27,6 +27,8 @@ commit SHA, release identifier, dates, and links to final evidence.
   and issue boundaries.
 - [install-or-access-instructions.md](install-or-access-instructions.md):
   contributor, verifier, and test-demo setup.
+- [demo-data.md](demo-data.md): test-only, deterministic U-22 fixture and
+  loopback-demo safety boundary.
 - [oss-and-third-party-inventory.md](oss-and-third-party-inventory.md):
   component inventory and license-review procedure.
 - [known-limitations.md](known-limitations.md): product and release limits.

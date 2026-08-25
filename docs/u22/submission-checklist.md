@@ -108,6 +108,9 @@ corresponding required real execution.
   Activity.
 - [ ] Architecture, implementation, setup, inventory, limitations, and this
   checklist have been reviewed against the exact final source.
+- [ ] The implementation summary truthfully discloses AI/Codex-assisted
+  development and retains repository-owner responsibility for approval and
+  submission claims.
 - [ ] Third-party and repository-license review status is recorded in the
   inventory; commercial components have an approved entitlement path.
 
