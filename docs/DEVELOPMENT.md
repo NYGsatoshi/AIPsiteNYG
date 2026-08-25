@@ -162,9 +162,13 @@ See [README.dev-env.md](../README.dev-env.md) for the lightweight mode, the opti
 - an explicit initial administrator when `AIP_SEED_ADMIN_ENABLED=true`;
 - a development-only local administrator when `LocalAdmin:SeedOnStartup=true` in Development;
 - optional UI-shell modules, panels, commands, and radial profiles.
-- deterministic synthetic browser-smoke data only in the `Test` environment and
-  only when `AIP_BROWSER_SMOKE_SEED_ENABLED=true`, including a test user,
-  workspace, announcement, project, task, and required memberships.
+- deterministic synthetic browser-smoke data only in the `Test` environment
+  with an explicit browser-smoke seed opt-in. The U-22 demo uses
+  `AIP_BROWSER_SMOKE_SEED_ENABLED=true`; the host also supports
+  `BrowserSmokeSeed:Enabled=true`. The fixture includes a test user,
+  workspace, announcement, Projects, Tasks, and required memberships, plus one
+  U-22-specific synthetic Project/Task only for the loopback Test-demo flow
+  documented in `docs/u22/demo-data.md`.
 
 The administrator seed uses the existing password hasher and creates or updates a platform administrator with owner membership in the default tenant. `AIP_SEED_ADMIN_USERNAME` is stored as the display name because the current user model uses email for login and has no username column.
 
@@ -173,7 +177,8 @@ The legacy `LocalAdmin:*` compatibility path is separate from the explicit `AIP_
 Without the explicit browser-smoke flag, it does not create workspaces, groups,
 channels, projects, demo data, or invite links.
 
-Do not document seeded demo users unless code is added.
+The U-22 test-only credentials and fixture boundary are documented in
+`docs/u22/demo-data.md`. Do not use them outside that explicit Test-only flow.
 
 ## Tests
 
