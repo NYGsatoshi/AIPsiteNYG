@@ -23,6 +23,7 @@
       <p class="task-detail-page__hint">The configured Workflow Stage is authoritative. Activity volume is not converted into a completion percentage.</p>
     </section>
     <section class="task-detail-page__summary" aria-label="Task-specific summary"><div><span>Priority</span><strong>{{ vm.task.priorityLabel }}</strong></div><div><span>Assignee</span><strong>{{ vm.detail?.relationships?.primaryAssignee ?? vm.task.assignee }}</strong></div><div><span>Version</span><strong data-testid="task-detail-version">{{ vm.detail?.taskVersion }}</strong></div><div><span>Due</span><strong>{{ vm.task.dueDate }}</strong></div></section>
+    <app-task-execution-scope [projectId]="vm.task.projectId" [taskId]="vm.task.id" />
     <app-task-editor [task]="vm.editorTask" [capabilities]="vm.capabilities" [state]="vm.detailState" [transitionNote]="vm.transitionNote" [mutationState]="mutationState()" [expectedVersion]="vm.detail?.taskVersion ?? ''" [conflictReloadState]="conflictReloadState()" (save)="saveTask($event)" (cancel)="resetMutationState()" (reloadRequested)="reloadTaskAfterConflict()" (dirtyChange)="taskEditorDirty.set($event)" />
     <app-task-dependencies-readonly [dependencies]="vm.dependencies" />
     @if (vm.detail; as detail) {

@@ -36,6 +36,7 @@ public sealed class Project : SoftDeletableEntity, ITenantEntity
     public ICollection<Milestone> Milestones { get; } = new List<Milestone>();
     public ICollection<TaskItem> Tasks { get; } = new List<TaskItem>();
     public ICollection<TaskWorkflowDefinition> TaskWorkflowDefinitions { get; } = new List<TaskWorkflowDefinition>();
+    public ProjectExecutionScope? ExecutionScope { get; set; }
 }
 
 public sealed class ProjectMember : AuditableEntity, ITenantEntity
@@ -124,6 +125,8 @@ public sealed class TaskItem : SoftDeletableEntity, ITenantEntity
     public ICollection<TaskComment> TaskComments { get; } = new List<TaskComment>();
     public ICollection<WorkItemWatchState> WatchStates { get; } = new List<WorkItemWatchState>();
     public ICollection<WorkItemLabel> Labels { get; } = new List<WorkItemLabel>();
+    public TaskExecutionScopeOverride? ExecutionScopeOverride { get; set; }
+    public ICollection<TaskExecutionRun> ExecutionRuns { get; } = new List<TaskExecutionRun>();
 }
 
 public sealed class TaskChecklistItem : Entity, ITenantEntity

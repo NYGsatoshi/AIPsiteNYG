@@ -54,6 +54,29 @@ public sealed class DbAuditLoggerPrivacyTests
         Assert.False(metadata.RootElement.TryGetProperty("licenseKey", out _));
     }
 
+    [Fact]
+    [Trait("Scope", "Issue357")]
+    public async Task ExecutionScopeAuditActionsFailClosedWhenAuditStagingIsUnavailable()
+    {
+        var tenantId = Guid.NewGuid();
+        var actorId = Guid.NewGuid();
+        var tenant = new CurrentTenantService();
+        tenant.SetTenant(tenantId, $"tenant-{tenantId:N}");
+        var db = new AppDbContext(
+            new DbContextOptionsBuilder<AppDbContext>()
+                .UseInMemoryDatabase(Guid.NewGuid().ToString("N"))
+                .Options,
+            tenant);
+        var logger = new DbAuditLogger(db, FixedClock.Instance, new CurrentUser(actorId), tenant);
+        await db.DisposeAsync();
+
+        await Assert.ThrowsAsync<ObjectDisposedException>(() => logger.LogAsync(new AuditLogEntry(
+            actorId,
+            "TaskExecutionRunRequested",
+            "TaskExecutionRun",
+            Guid.NewGuid())));
+    }
+
     private sealed class FixedClock : IClock
     {
         public static FixedClock Instance { get; } = new();

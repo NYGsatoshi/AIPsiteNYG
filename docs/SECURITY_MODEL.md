@@ -290,6 +290,29 @@ Stage display name and serializes the fixed category as one of Backlog, Todo,
 InProgress, Review, Done, or Cancelled. It does not transform a digest-job
 `Failed` state into a Task state.
 
+### Task execution source-scope foundation boundary
+
+Issue #357's Task execution foundation is not an execution or retrieval
+feature. The current Project-read boundary protects scope reads. The current
+Project-management boundary protects Project default changes, Task override
+changes, and immutable run requests; a browser role, Task assignee state, or
+hidden control is never authority. Missing, cross-Tenant, deleted, and denied
+Project/Task identities return the generic not-found result.
+
+Only the effective two-boolean policy (`WebEnabled` and
+`ProjectFilesEnabled`), its origin/version, and a safe latest policy snapshot
+are projected. The API, audit metadata, realtime invalidations, and runtime
+handle exclude URLs/hosts, source or file IDs/names/counts, raw source/file
+content, credentials, storage keys, prompts, provider configuration, and
+outputs. Required audit staging is fail-closed, and the database guards copied
+Tenant/Workspace/Project scope plus append-only immutable run snapshots.
+
+The only runtime port is deterministic unavailable/no-I/O. It cannot make an
+outbound request or access file material. Web egress, redirect/IP/SSRF policy,
+content retention, revocation, source capture, provider selection, and output
+authorization remain unapproved future work; the foundation must not be used
+to imply their security controls exist.
+
 ### Immediate Task notification boundary
 
 TASK-V1-PR07-B resolves notification recipients only after the mutating actor

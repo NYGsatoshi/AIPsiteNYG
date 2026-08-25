@@ -1,0 +1,121 @@
+<section class="task-execution-scope" aria-labelledby="task-execution-scope-heading" data-testid="task-execution-scope">
+  <header class="task-execution-scope__header">
+    <div>
+      <p class="task-execution-scope__eyebrow">Task execution policy</p>
+      <h2 id="task-execution-scope-heading">Active source scope</h2>
+      <p class="task-execution-scope__intro">The server decides which source policy is active for this Task.</p>
+    </div>
+    @if (canManageAnything()) {
+      <a class="task-execution-scope__editor-link" href="#task-execution-scope-editor">Change source settings</a>
+    }
+  </header>
+
+  @if (scope(); as current) {
+    <dl class="task-execution-scope__summary" data-testid="task-execution-scope-summary">
+      <div>
+        <dt>Scope origin</dt>
+        <dd data-testid="task-execution-scope-origin">{{ scopeOriginLabel(current.task.origin) }}</dd>
+      </div>
+      <div>
+        <dt>Web</dt>
+        <dd data-testid="task-execution-scope-web">{{ sourceEligibility(current.task.effectivePolicy.webEnabled) }}</dd>
+      </div>
+      <div>
+        <dt>Project files</dt>
+        <dd data-testid="task-execution-scope-files">{{ sourceEligibility(current.task.effectivePolicy.projectFilesEnabled) }}</dd>
+      </div>
+    </dl>
+
+    <p class="task-execution-scope__notice" data-testid="task-execution-scope-future-only">
+      Changes apply to future run requests only. A run policy snapshot is locked when the request is accepted.
+    </p>
+    <p class="task-execution-scope__runtime-notice" data-testid="task-execution-runtime-unavailable">
+      No execution runtime is configured in this release. No Web request can be sent from this screen.
+    </p>
+
+    @if (current.task.latestRun; as latestRun) {
+      <section class="task-execution-scope__snapshot" aria-labelledby="task-execution-snapshot-heading" data-testid="task-execution-snapshot">
+        <h3 id="task-execution-snapshot-heading">Most recent policy snapshot</h3>
+        <dl>
+          <div><dt>Scope at request</dt><dd>{{ scopeOriginLabel(latestRun.snapshotScopeOrigin) }}</dd></div>
+          <div><dt>Web at request</dt><dd>{{ sourceEligibility(latestRun.snapshotWebEnabled) }}</dd></div>
+          <div><dt>Project files at request</dt><dd>{{ sourceEligibility(latestRun.snapshotProjectFilesEnabled) }}</dd></div>
+          <div><dt>Runtime result</dt><dd>{{ runStatusLabel(latestRun.status) }}</dd></div>
+        </dl>
+      </section>
+    }
+
+    @if (activeRead()) {
+      <p class="task-execution-scope__refreshing" role="status">Refreshing source-scope settings...</p>
+    }
+  } @else if (activeRead()) {
+    <p class="task-execution-scope__loading" role="status">Loading source-scope settings...</p>
+  }
+
+  @if (loadError(); as error) {
+    <p class="task-execution-scope__error" role="alert">{{ error }} <button type="button" (click)="retry()">Retry</button></p>
+  }
+  @if (mutationError(); as error) {
+    <p class="task-execution-scope__error" role="alert">{{ error }} <button type="button" (click)="retry()">Reload settings</button></p>
+  }
+  @if (feedback(); as message) {
+    <p #scopeFeedback class="task-execution-scope__feedback" data-testid="task-execution-scope-feedback" tabindex="-1" role="status" aria-live="polite">{{ message }}</p>
+  }
+
+  @if (scope(); as current) {
+    @if (canManageAnything()) {
+      <section class="task-execution-scope__editor" id="task-execution-scope-editor" aria-labelledby="task-execution-scope-editor-heading">
+        <h3 id="task-execution-scope-editor-heading">Source settings</h3>
+        <p>Controls are displayed only after the server grants Project-management authority. The server verifies every save again.</p>
+
+        @if (canManageProject()) {
+          <form class="task-execution-scope__form" (submit)="$event.preventDefault(); saveProjectDefault()">
+            <fieldset [disabled]="saving() !== null">
+              <legend>Project default</legend>
+              <p>Used by Tasks that inherit the Project default.</p>
+              <label class="task-execution-scope__toggle">
+                <input type="checkbox" [checked]="projectWebEnabled()" (change)="setProjectWebEnabled($event)" />
+                <span><strong>Allow Web as a future source</strong><small>Enables policy only. This release cannot retrieve from the Web.</small></span>
+              </label>
+              <label class="task-execution-scope__toggle">
+                <input type="checkbox" [checked]="projectFilesEnabled()" (change)="setProjectFilesEnabled($event)" />
+                <span><strong>Allow authorized Project files as a future source</strong><small>Does not reveal file names, counts, or content.</small></span>
+              </label>
+              <button type="submit" [disabled]="saving() !== null">{{ saving() === 'project' ? 'Saving project default...' : 'Save project default' }}</button>
+            </fieldset>
+          </form>
+        }
+
+        @if (canManageTask()) {
+          <form class="task-execution-scope__form" (submit)="$event.preventDefault(); saveTaskScope()">
+            <fieldset [disabled]="saving() !== null">
+              <legend>Task source setting</legend>
+              <p>A Task override replaces the Project default completely; it is not merged with it.</p>
+              <label class="task-execution-scope__choice">
+                <input type="radio" name="task-execution-scope-origin" [checked]="taskEditorMode() === 'inherit'" (change)="setTaskEditorMode('inherit')" />
+                <span><strong>Inherit Project default</strong><small>Current Project default version: {{ current.task.projectDefaultVersion }}.</small></span>
+              </label>
+              <label class="task-execution-scope__choice">
+                <input type="radio" name="task-execution-scope-origin" [checked]="taskEditorMode() === 'override'" (change)="setTaskEditorMode('override')" />
+                <span><strong>Use a complete Task override</strong><small>Choose both source policies below for this Task.</small></span>
+              </label>
+              @if (taskEditorMode() === 'override') {
+                <div class="task-execution-scope__override-options">
+                  <label class="task-execution-scope__toggle">
+                    <input type="checkbox" [checked]="overrideWebEnabled()" (change)="setOverrideWebEnabled($event)" />
+                    <span><strong>Allow Web as a future source</strong><small>Policy only; no Web retrieval is enabled.</small></span>
+                  </label>
+                  <label class="task-execution-scope__toggle">
+                    <input type="checkbox" [checked]="overrideProjectFilesEnabled()" (change)="setOverrideProjectFilesEnabled($event)" />
+                    <span><strong>Allow authorized Project files as a future source</strong><small>Policy only; no file inventory is displayed.</small></span>
+                  </label>
+                </div>
+              }
+              <button type="submit" [disabled]="saving() !== null">{{ saving() === 'task' ? 'Saving Task setting...' : 'Save Task source setting' }}</button>
+            </fieldset>
+          </form>
+        }
+      </section>
+    }
+  }
+</section>

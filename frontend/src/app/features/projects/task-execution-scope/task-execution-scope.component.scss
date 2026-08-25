@@ -1,0 +1,25 @@
+:host { display: block; min-width: 0; }
+.task-execution-scope { display: grid; gap: var(--aip-space-3); min-width: 0; padding: var(--aip-space-4); border: 1px solid var(--aip-color-border-default); border-inline-start: 4px solid var(--aip-color-info); border-radius: var(--aip-radius-lg); background: var(--aip-color-bg-surface); color: var(--aip-color-text-primary); }
+.task-execution-scope__header { display: flex; flex-wrap: wrap; align-items: flex-start; justify-content: space-between; gap: var(--aip-space-3); }
+.task-execution-scope h2, .task-execution-scope h3, .task-execution-scope p { margin: 0; }
+.task-execution-scope__eyebrow, .task-execution-scope__intro, .task-execution-scope small { color: var(--aip-color-text-secondary); }
+.task-execution-scope__eyebrow { font-size: .78rem; font-weight: 800; text-transform: uppercase; }
+.task-execution-scope__editor-link, .task-execution-scope button { min-height: var(--aip-touch-target); padding: 0 var(--aip-space-3); border: 1px solid var(--aip-color-border-strong); border-radius: var(--aip-radius-md); background: var(--aip-color-bg-control); font-weight: 700; }
+.task-execution-scope button:disabled { cursor: not-allowed; opacity: .65; }
+.task-execution-scope__summary, .task-execution-scope__snapshot dl { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: var(--aip-component-gap); margin: 0; }
+.task-execution-scope__summary > div, .task-execution-scope__snapshot dl > div { display: grid; gap: var(--aip-space-1); min-width: 0; padding: var(--aip-space-3); border-radius: var(--aip-radius-md); background: var(--aip-color-bg-surface-subtle); }
+.task-execution-scope dt { color: var(--aip-color-text-secondary); font-size: .875rem; }
+.task-execution-scope dd { margin: 0; overflow-wrap: anywhere; font-weight: 700; }
+.task-execution-scope__notice, .task-execution-scope__runtime-notice, .task-execution-scope__error, .task-execution-scope__feedback { padding: var(--aip-space-3); border: 1px solid var(--aip-color-border-default); border-radius: var(--aip-radius-md); background: var(--aip-color-bg-surface-subtle); }
+.task-execution-scope__runtime-notice { border-color: var(--aip-color-warning); background: var(--aip-color-warning-subtle); }
+.task-execution-scope__error { border-color: var(--aip-color-danger); background: var(--aip-color-danger-subtle); color: var(--aip-color-danger); }
+.task-execution-scope__feedback { border-color: var(--aip-color-info); background: var(--aip-color-bg-selected); }
+.task-execution-scope__snapshot, .task-execution-scope__editor { display: grid; gap: var(--aip-space-3); }
+.task-execution-scope__snapshot dl { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+.task-execution-scope__form { display: grid; gap: var(--aip-space-2); }
+.task-execution-scope fieldset { display: grid; gap: var(--aip-space-3); min-width: 0; margin: 0; }
+.task-execution-scope legend { font-weight: 750; }
+.task-execution-scope__toggle, .task-execution-scope__choice { display: grid; grid-template-columns: auto minmax(0, 1fr); gap: var(--aip-space-2); min-width: 0; }
+.task-execution-scope__toggle span, .task-execution-scope__choice span, .task-execution-scope__override-options { display: grid; gap: var(--aip-space-1); min-width: 0; }
+.task-execution-scope a:focus-visible, .task-execution-scope button:focus-visible, .task-execution-scope input:focus-visible, .task-execution-scope__feedback:focus-visible { outline: var(--aip-focus-outline); outline-offset: var(--aip-focus-offset); }
+@media (max-width: 720px) { .task-execution-scope { padding: var(--aip-space-3); } .task-execution-scope__header, .task-execution-scope__summary, .task-execution-scope__snapshot dl { display: grid; grid-template-columns: 1fr; } .task-execution-scope__editor-link, .task-execution-scope button { width: 100%; } }

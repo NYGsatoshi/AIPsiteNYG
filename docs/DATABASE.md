@@ -26,11 +26,11 @@ Use these in order:
 
 ## Migration history
 
-There are forty-eight timestamped EF migration classes in the current source,
+There are forty-nine timestamped EF migration classes in the current source,
 from:
 
 - `20260606135558_InitialCreate`
-- through `20260824220000_AddStructuredTaskBrief`
+- through `20260825081645_AddTaskExecutionScopeFoundation`
 
 Migration files live in `src/AipPortal.Infrastructure/Persistence/Migrations/`.
 
@@ -147,6 +147,33 @@ detail and are not a list filter, join key, ordering key, or current Search
 input. The Down path removes only the three new columns; values written to
 them are not retained after rollback. Existing `Description` data is left
 unchanged in both directions.
+
+### Issue #357 Task execution source-scope foundation
+
+Migration `20260825081645_AddTaskExecutionScopeFoundation` adds three purpose-
+specific tables:
+
+- `project_execution_scopes`: exactly one default two-boolean policy for every
+  Project;
+- `task_execution_scope_overrides`: an optional complete policy replacement for
+  one Task; and
+- `task_execution_runs`: append-only immutable policy snapshots for accepted
+  run requests.
+
+Existing Projects are backfilled with a disabled `WebEnabled` and disabled
+`ProjectFilesEnabled` default at version 1. New Projects receive the same
+default through the normal persistence boundary. The migration uses uniqueness,
+foreign keys, and PostgreSQL guards to require the copied Tenant/Workspace/
+Project scope to match the owning Project/Task. It prevents deletion of a
+Project default and deletion or snapshot-field mutation of a Task execution
+run. Lifecycle result fields remain deliberately mutable for a future approved
+runtime.
+
+These tables preserve policy metadata only: versions, booleans, origin,
+requester, and timestamps. They contain no URLs, hosts, file identifiers or
+names, source bytes, credentials, provider configuration, prompt, or output.
+The migration creates no retrieval queue, worker, provider, or source-content
+store.
 
 ### TASK-V1-PR05 Project Kanban
 

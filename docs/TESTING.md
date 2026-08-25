@@ -82,6 +82,27 @@ When the variable is absent locally, they are explicitly reported as skipped at 
 when `CI=true` or `GITHUB_ACTIONS=true`, the missing variable is a test failure. This
 prevents an unconfigured PostgreSQL suite from being reported as a pass.
 
+### Issue #357 Task execution source-scope foundation
+
+The focused backend selection is tagged `Scope=Issue357`. It covers the
+Project-default/complete-Task-override inheritance rule, version and
+first-override conflict behavior, same-key replay after later policy edits,
+immutable run-policy snapshots, safe tenant/authorization hiding, required
+audit failure, default and append-only direct-EF guards, controller mapping,
+strict JSON, and CSRF-protected mutation. The focused Angular component tests
+cover the authorized Task panel/editor, safe errors, protected-state clear,
+and HTTP refresh after metadata-only Project/Task invalidations. Static
+Playwright coverage is a frontend behavior check only; its API responses are
+mocked.
+
+The `TaskExecutionScopeFoundation` migration's PostgreSQL backfill, scope
+triggers, and immutable snapshot guards require a configured
+`POSTGRES_TEST_CONNECTION_STRING` or authoritative CI evidence. The real
+Compose browser smoke does not run an execution provider because none exists;
+it cannot prove an outbound-Web or source-material workflow. See
+`docs/verification/p0-task-execution-scope-foundation.md` for the current
+candidate evidence and limitations.
+
 ### TASK-V1-PR07-B immediate notification tests
 
 PR07-B adds focused service/contract tests for the exact recipient matrix,
@@ -333,8 +354,10 @@ npm.cmd run test:ui:angular
 `npm test`, `npm run test:ui`, and `npm run test:ui:angular` run
 `angular-smoke.spec.ts`, `message-mobile-navigation.spec.ts`,
 `message-actions.spec.ts`, and `app.spec.ts` against the static Angular test
-server. Their API responses are mocked. They intentionally do not discover or
-execute `real-backend-smoke.spec.ts`.
+server. The Issue #357 responsive Task execution-scope scenario is included in
+`angular-smoke.spec.ts`, so it runs in both desktop and 320-pixel mobile
+projects. Their API responses are mocked. They intentionally do not discover
+or execute `real-backend-smoke.spec.ts`.
 
 ### MVP0 real-backend browser smoke
 

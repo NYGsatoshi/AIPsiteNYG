@@ -46,6 +46,11 @@ MVP rules:
 - API request metering middleware.
 - Full-text search engine.
 - OAuth provider flows and outbound webhook delivery.
+- Task automation, outbound Web retrieval, source materialization, and a
+  provider/egress contract. Issue #357's Project/Task policy and immutable
+  next-run snapshot foundation deliberately does not implement these; canonical
+  specification promotion and an explicit security-reviewed provider contract
+  are required before execution work starts.
 - Advanced Gantt drag editing and advanced resource planning.
 - Live streaming, voice/video calls, and end-to-end encrypted messaging.
 - Full billing/payment integration.
