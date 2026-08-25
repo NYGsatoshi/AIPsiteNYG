@@ -11,6 +11,7 @@ import { ProjectsFacade } from '../projects.facade';
 import { TASK_LABEL_DESCRIPTION_MAX_LENGTH, TASK_LABEL_NAME_MAX_LENGTH, TaskActivityLogType, TaskDetailSection, TaskDetailSectionState, TaskEditorSaveRequest, TaskStageCategory, TaskStatus } from '../projects.types';
 import { TaskDependenciesReadonlyComponent } from '../task-dependencies-readonly/task-dependencies-readonly.component';
 import { TaskEditorComponent } from '../task-editor/task-editor.component';
+import { TaskExecutionScopeComponent } from '../task-execution-scope/task-execution-scope.component';
 import { TaskStatusBadgeComponent } from '../task-status-badge/task-status-badge.component';
 import { AppMentionInputComponent } from '../../../shared/mention-input/app-mention-input.component';
 import { FilesFacade } from '../../files/files.facade';
@@ -28,6 +29,7 @@ import { AttachmentPickerDialogComponent } from '../../files/attachment-picker-d
     AppPermissionDeniedComponent,
     TaskDependenciesReadonlyComponent,
     TaskEditorComponent,
+    TaskExecutionScopeComponent,
     TaskStatusBadgeComponent,
     AppMentionInputComponent,
     AttachmentPickerDialogComponent

@@ -84,7 +84,12 @@ public sealed class DbAuditLogger(AppDbContext dbContext, IClock clock, ICurrent
                     "ProjectVisibilityChanged" or
                     "ProjectMemberAdded" or
                     "ProjectMemberUpdated" or
-                    "ProjectMemberRemoved")
+                    "ProjectMemberRemoved" or
+                    "ProjectExecutionScopeChanged" or
+                    "TaskExecutionScopeOverrideSet" or
+                    "TaskExecutionScopeOverrideCleared" or
+                    "TaskExecutionRunRequested" or
+                    "TaskExecutionRuntimeUnavailable")
             {
                 throw;
             }

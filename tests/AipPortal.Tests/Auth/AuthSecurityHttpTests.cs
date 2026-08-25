@@ -91,6 +91,7 @@ public sealed class AuthSecurityHttpTests
 
 
     [Theory]
+    [Trait("Scope", "Issue357")]
     [InlineData("POST", "/api/auth/logout")]
     [InlineData("PATCH", "/api/admin/users/00000000-0000-0000-0000-000000000000")]
     [InlineData("DELETE", "/api/files/00000000-0000-0000-0000-000000000000")]
@@ -98,6 +99,7 @@ public sealed class AuthSecurityHttpTests
     [InlineData("POST", "/api/invites/accept")]
     [InlineData("POST", "/api/workspaces")]
     [InlineData("PUT", "/api/projects/00000000-0000-0000-0000-000000000000/kanban/config")]
+    [InlineData("PUT", "/api/projects/00000000-0000-0000-0000-000000000000/execution-scope")]
     [InlineData("POST", "/api/tasks/00000000-0000-0000-0000-000000000000/kanban-move")]
     public async Task UnsafeCookieAuthFlowsWithoutCsrfTokenAreRejected(string method, string path)
     {
@@ -433,6 +435,7 @@ public sealed class AuthSecurityHttpTests
             services.AddScoped<IChannelRepository, ChannelRepository>();
             services.AddScoped<IMessagingRepository, MessagingRepository>();
             services.AddScoped<IProjectRepository, ProjectRepository>();
+            services.AddScoped<ITaskExecutionScopeRepository, TaskExecutionScopeRepository>();
             services.AddScoped<IEventRepository, EventRepository>();
             services.AddScoped<IFormRepository, FormRepository>();
             services.AddScoped<IFileRepository, FileRepository>();
@@ -446,6 +449,7 @@ public sealed class AuthSecurityHttpTests
             services.AddScoped<AipPortal.Application.Realtime.IOutboxEventRepository, OutboxEventRepository>();
             services.AddScoped<AipPortal.Application.Realtime.ITransactionalOutbox, AipPortal.Application.Realtime.TransactionalOutbox>();
             services.AddScoped<IUnitOfWork, EfUnitOfWork>();
+            services.AddScoped<ICreateIdempotencyCoordinator, EfCreateIdempotencyCoordinator>();
             services.AddScoped<IFileUploadPolicy, ConfiguredFileUploadPolicy>();
             services.AddScoped<IFileStorageService, LocalFileStorageService>();
             services.AddScoped<IPasswordHasher, Pbkdf2PasswordHasher>();

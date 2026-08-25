@@ -8,6 +8,7 @@ using AipPortal.Application.Common;
 using AipPortal.Application.Common.Interfaces;
 using AipPortal.Application.Common.Tenancy;
 using AipPortal.Application.Notifications;
+using AipPortal.Application.Projects;
 using AipPortal.Application.Workspaces;
 using AipPortal.Domain.Entities;
 using AipPortal.Domain.Enums;
@@ -2357,6 +2358,100 @@ public sealed class HttpTenantIsolationTests
     }
 
     [Fact]
+    [Trait("Scope", "Issue357")]
+    public async Task TaskExecutionScopeHttpContractUsesStrictJsonAndTheManagerOnlySafeBoundary()
+    {
+        await using var app = await HttpTenantIsolationTestApp.CreateAsync();
+        var data = app.Data;
+        var projectPath = $"/api/projects/{data.ProjectA.Id:D}/execution-scope";
+        var taskPath = $"/api/tasks/{data.TaskA.Id:D}/execution-scope";
+
+        var expectedRoutes = new[]
+        {
+            "GET api/projects/{projectId:guid}/execution-scope",
+            "PUT api/projects/{projectId:guid}/execution-scope",
+            "GET api/tasks/{taskItemId:guid}/execution-scope",
+            "PUT api/tasks/{taskItemId:guid}/execution-scope-override",
+            "DELETE api/tasks/{taskItemId:guid}/execution-scope-override",
+            "POST api/tasks/{taskItemId:guid}/execution-runs"
+        };
+        Assert.All(expectedRoutes, route => Assert.Contains(route, app.GetHttpRoutes()));
+
+        using (var anonymous = new HttpRequestMessage(HttpMethod.Get, taskPath))
+        {
+            anonymous.Headers.TryAddWithoutValidation("X-Tenant-Slug", data.TenantA.Slug);
+            using var response = await app.Client.SendAsync(anonymous);
+            Assert.Equal(HttpStatusCode.Unauthorized, response.StatusCode);
+        }
+
+        using (var denied = await app.SendAsync(
+                   data.TenantAMember,
+                   data.TenantA.Slug,
+                   projectPath,
+                   HttpMethod.Put,
+                   JsonContent("""{"webEnabled":true,"projectFilesEnabled":true,"expectedVersion":1}""")))
+        {
+            var body = await denied.Content.ReadAsStringAsync();
+            Assert.Equal(HttpStatusCode.NotFound, denied.StatusCode);
+            Assert.Contains("TASK_EXECUTION_NOT_FOUND", body, StringComparison.Ordinal);
+            Assert.Contains("\"redactionApplied\":true", body, StringComparison.Ordinal);
+            Assert.DoesNotContain(data.TaskA.Title, body, StringComparison.Ordinal);
+        }
+
+        using (var crossTenant = await app.SendAsync(
+                   data.CrossTenantUser,
+                   data.TenantA.Slug,
+                   $"/api/tasks/{data.TaskB.Id:D}/execution-scope"))
+        {
+            var body = await crossTenant.Content.ReadAsStringAsync();
+            Assert.Equal(HttpStatusCode.NotFound, crossTenant.StatusCode);
+            Assert.DoesNotContain(data.TaskB.Title, body, StringComparison.Ordinal);
+            Assert.DoesNotContain(data.FileB.StorageKey, body, StringComparison.Ordinal);
+        }
+
+        using (var unknownMember = await app.SendAsync(
+                   data.TenantAOwner,
+                   data.TenantA.Slug,
+                   projectPath,
+                   HttpMethod.Put,
+                   JsonContent("""{"webEnabled":true,"projectFilesEnabled":false,"expectedVersion":1,"unapprovedSourceSelector":"never"}""")))
+        {
+            Assert.Equal(HttpStatusCode.BadRequest, unknownMember.StatusCode);
+        }
+
+        using (var managerUpdate = await app.SendAsync(
+                   data.TenantAOwner,
+                   data.TenantA.Slug,
+                   projectPath,
+                   HttpMethod.Put,
+                   JsonContent("""{"webEnabled":true,"projectFilesEnabled":false,"expectedVersion":1}""")))
+        using (var document = JsonDocument.Parse(await managerUpdate.Content.ReadAsStringAsync()))
+        {
+            Assert.Equal(HttpStatusCode.OK, managerUpdate.StatusCode);
+            Assert.True(document.RootElement.GetProperty("policy").GetProperty("webEnabled").GetBoolean());
+            Assert.False(document.RootElement.GetProperty("policy").GetProperty("projectFilesEnabled").GetBoolean());
+            Assert.Equal(2, document.RootElement.GetProperty("version").GetInt64());
+            Assert.True(document.RootElement.GetProperty("canManage").GetBoolean());
+        }
+
+        using (var inherited = await app.SendAsync(data.TenantAOwner, data.TenantA.Slug, taskPath))
+        {
+            var body = await inherited.Content.ReadAsStringAsync();
+            using var document = JsonDocument.Parse(body);
+            Assert.Equal(HttpStatusCode.OK, inherited.StatusCode);
+            Assert.Equal("ProjectDefault", document.RootElement.GetProperty("origin").GetString());
+            Assert.Equal(2, document.RootElement.GetProperty("projectDefaultVersion").GetInt64());
+            Assert.Equal(JsonValueKind.Null, document.RootElement.GetProperty("taskOverrideVersion").ValueKind);
+            Assert.True(document.RootElement.GetProperty("effectivePolicy").GetProperty("webEnabled").GetBoolean());
+            Assert.False(document.RootElement.GetProperty("effectivePolicy").GetProperty("projectFilesEnabled").GetBoolean());
+            Assert.Equal("nextRun", document.RootElement.GetProperty("changesApplyTo").GetString());
+            Assert.Equal(JsonValueKind.Null, document.RootElement.GetProperty("latestRun").ValueKind);
+            Assert.DoesNotContain("storageKey", body, StringComparison.OrdinalIgnoreCase);
+            Assert.DoesNotContain("signedUrl", body, StringComparison.OrdinalIgnoreCase);
+        }
+    }
+
+    [Fact]
     [Trait("Scope", "Issue369")]
     public async Task TaskActivityHttpContractIsIndependentBoundedStableAndFailClosed()
     {
@@ -3459,6 +3554,7 @@ public sealed class HttpTenantIsolationTests
             services.AddScoped<IChannelRepository, ChannelRepository>();
             services.AddScoped<IMessagingRepository, MessagingRepository>();
             services.AddScoped<IProjectRepository, ProjectRepository>();
+            services.AddScoped<ITaskExecutionScopeRepository, TaskExecutionScopeRepository>();
             services.AddScoped<IEventRepository, EventRepository>();
             services.AddScoped<IFormRepository, FormRepository>();
             services.AddScoped<IFileRepository, FileRepository>();

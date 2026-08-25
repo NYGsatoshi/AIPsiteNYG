@@ -1182,6 +1182,72 @@ test.describe('MVP-A P0 Angular frontend smoke', () => {
     await expectHealthyAngularPage(page);
   });
 
+  test('keeps the server-authorized Task execution policy responsive without offering a runtime action', async ({ page }) => {
+    const projectId = 'static-project-execution-scope';
+    const taskId = 'static-task-execution-scope';
+    await installDirectTaskContextApi(page, {
+      projectId,
+      projectTitle: 'Execution policy Project',
+      taskId,
+      taskTitle: 'Execution policy Task',
+    });
+    const executionScopeApi = await installTaskExecutionScopeApi(page, {
+      projectId,
+      taskId,
+      projectPolicy: { webEnabled: false, projectFilesEnabled: true, version: 8, canManage: true },
+      taskPolicy: {
+        origin: 'TaskOverride',
+        webEnabled: true,
+        projectFilesEnabled: false,
+        overrideVersion: 5,
+        canManage: true,
+        latestRun: {
+          status: 'RuntimeUnavailable',
+          snapshotScopeOrigin: 'ProjectDefault',
+          snapshotWebEnabled: false,
+          snapshotProjectFilesEnabled: true,
+        },
+      },
+    });
+    await page.setViewportSize({ width: 320, height: 900 });
+
+    await page.goto(`/app/projects/${projectId}/tasks/${taskId}`);
+
+    const scope = page.getByTestId('task-execution-scope');
+    await expect(scope).toBeVisible();
+    await expect(scope.getByTestId('task-execution-scope-origin')).toHaveText('Task override');
+    await expect(scope.getByTestId('task-execution-scope-web')).toHaveText('Enabled for a future approved runtime');
+    await expect(scope.getByTestId('task-execution-scope-files')).toHaveText('Disabled');
+    await expect(scope.getByTestId('task-execution-scope-future-only')).toContainText('future run requests only');
+    await expect(scope.getByTestId('task-execution-runtime-unavailable')).toContainText('No Web request can be sent from this screen.');
+    await expect(scope.getByTestId('task-execution-snapshot')).toContainText('Project default');
+    await expect(scope.getByTestId('task-execution-snapshot')).toContainText('Unavailable - no execution was started.');
+    await expect(scope.getByRole('heading', { name: 'Source settings' })).toBeVisible();
+
+    // This remains a policy-only UI. It deliberately has no source inventory,
+    // provider picker, URL input, execution action, or runtime request route.
+    await expect(scope.getByRole('button', { name: /start|run|execute/i })).toHaveCount(0);
+    await expect(scope.locator('a[href^="http"]')).toHaveCount(0);
+    await expect(scope.locator('input[type="url"], input[type="text"], textarea, select')).toHaveCount(0);
+    await expect(scope).not.toContainText('provider');
+
+    const projectWebPolicy = scope.getByLabel(/Allow Web as a future source/).first();
+    await projectWebPolicy.check();
+    await scope.getByRole('button', { name: 'Save project default' }).click();
+    await expect(scope.getByTestId('task-execution-scope-feedback')).toContainText('Project default source settings saved.');
+    expect(executionScopeApi.projectDefaultUpdates()).toEqual([
+      { webEnabled: true, projectFilesEnabled: true, expectedVersion: 8 },
+    ]);
+    expect(executionScopeApi.runtimeRequests()).toEqual([]);
+    await expect(scope.getByTestId('task-execution-scope-origin')).toHaveText('Task override');
+    await expect(scope.getByTestId('task-execution-scope-web')).toHaveText('Enabled for a future approved runtime');
+    await expect(scope.getByTestId('task-execution-scope-files')).toHaveText('Disabled');
+
+    await expectNoDocumentHorizontalOverflow(page);
+    await expectNoAccessibilityViolations(page, '[data-testid="task-execution-scope"]');
+    await expectHealthyAngularPage(page);
+  });
+
   test('edits and reviews the Task Brief in stable order without narrow-screen overflow', async ({ page }) => {
     await page.addInitScript((storageKey) => globalThis.localStorage.setItem(storageKey, 'light'), themeStorageKey);
     const projectId = 'static-project-brief';
@@ -2360,6 +2426,128 @@ async function installDirectTaskContextApi(
     parentProjectAttempts: () => parentProjectAttempts,
     patchBodies: () => patchBodies,
     activityRequests: () => activityRequests
+  };
+}
+
+type TaskExecutionScopeApiProjectPolicy = {
+  webEnabled: boolean;
+  projectFilesEnabled: boolean;
+  version: number;
+  canManage: boolean;
+};
+
+type TaskExecutionScopeApiLatestRun = {
+  status: 'Prepared' | 'RuntimeUnavailable';
+  snapshotScopeOrigin: 'ProjectDefault' | 'TaskOverride';
+  snapshotWebEnabled: boolean;
+  snapshotProjectFilesEnabled: boolean;
+};
+
+type TaskExecutionScopeApiTaskPolicy = {
+  origin: 'ProjectDefault' | 'TaskOverride';
+  webEnabled: boolean;
+  projectFilesEnabled: boolean;
+  overrideVersion: number | null;
+  canManage: boolean;
+  latestRun: TaskExecutionScopeApiLatestRun | null;
+};
+
+/**
+ * Registered after the direct Task fixture so it owns only the additive
+ * execution-policy routes and falls back to that existing Task fixture.
+ */
+async function installTaskExecutionScopeApi(
+  page: Page,
+  fixture: {
+    projectId: string;
+    taskId: string;
+    projectPolicy: TaskExecutionScopeApiProjectPolicy;
+    taskPolicy: TaskExecutionScopeApiTaskPolicy;
+  },
+) {
+  let projectPolicy = { ...fixture.projectPolicy };
+  const taskPolicy = { ...fixture.taskPolicy };
+  const projectDefaultUpdates: Record<string, unknown>[] = [];
+  const runtimeRequests: { method: string; path: string }[] = [];
+
+  const projectResponse = () => ({
+    policy: {
+      webEnabled: projectPolicy.webEnabled,
+      projectFilesEnabled: projectPolicy.projectFilesEnabled,
+    },
+    version: projectPolicy.version,
+    canManage: projectPolicy.canManage,
+  });
+  const taskResponse = () => {
+    const overridePolicy = taskPolicy.origin === 'TaskOverride'
+      ? {
+          webEnabled: taskPolicy.webEnabled,
+          projectFilesEnabled: taskPolicy.projectFilesEnabled,
+        }
+      : null;
+    return {
+      effectivePolicy: overridePolicy ?? {
+        webEnabled: projectPolicy.webEnabled,
+        projectFilesEnabled: projectPolicy.projectFilesEnabled,
+      },
+      origin: taskPolicy.origin,
+      projectDefaultVersion: projectPolicy.version,
+      taskOverrideVersion: taskPolicy.origin === 'TaskOverride' ? taskPolicy.overrideVersion : null,
+      taskOverridePolicy: overridePolicy,
+      canManage: taskPolicy.canManage,
+      latestRun: taskPolicy.latestRun,
+    };
+  };
+
+  await page.route('**/api/**', async (route) => {
+    const request = route.request();
+    const path = new URL(request.url()).pathname;
+    const method = request.method();
+
+    if (path === `/api/projects/${fixture.projectId}/execution-scope`) {
+      if (method === 'GET') {
+        await route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify(projectResponse()) });
+        return;
+      }
+
+      if (method === 'PUT') {
+        const body = request.postDataJSON() as Record<string, unknown>;
+        if (
+          typeof body['webEnabled'] !== 'boolean' ||
+          typeof body['projectFilesEnabled'] !== 'boolean' ||
+          body['expectedVersion'] !== projectPolicy.version
+        ) {
+          throw new Error('Unexpected Project execution-scope policy request.');
+        }
+
+        projectDefaultUpdates.push(body);
+        projectPolicy = {
+          ...projectPolicy,
+          webEnabled: body['webEnabled'],
+          projectFilesEnabled: body['projectFilesEnabled'],
+          version: projectPolicy.version + 1,
+        };
+        await route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify(projectResponse()) });
+        return;
+      }
+    }
+
+    if (path === `/api/tasks/${fixture.taskId}/execution-scope` && method === 'GET') {
+      await route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify(taskResponse()) });
+      return;
+    }
+
+    if (path === `/api/tasks/${fixture.taskId}/execution-runs`) {
+      runtimeRequests.push({ method, path });
+      throw new Error('The Issue #357 foundation UI must not request an execution runtime.');
+    }
+
+    await route.fallback();
+  });
+
+  return {
+    projectDefaultUpdates: () => projectDefaultUpdates,
+    runtimeRequests: () => runtimeRequests,
   };
 }
 

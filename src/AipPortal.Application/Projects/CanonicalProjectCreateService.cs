@@ -220,8 +220,21 @@ public sealed class CanonicalProjectCreateService(
             StartDate = request.StartDate,
             DueDate = request.EndDate,
             VersionNo = 1,
-            CreatedByUserId = userId
+            CreatedByUserId = userId,
+            // The execution-policy foundation starts fail closed. A later
+            // Project manager may enable either source kind explicitly; no
+            // provider or outbound work is activated by this default.
+            ExecutionScope = new ProjectExecutionScope
+            {
+                TenantId = tenantId,
+                WorkspaceId = workspaceId,
+                WebEnabled = false,
+                ProjectFilesEnabled = false,
+                VersionNo = 1,
+                UpdatedByUserId = userId
+            }
         };
+        project.ExecutionScope.ProjectId = project.Id;
         project.Slug = CreateProjectSlug(normalizedTitle, project.Id);
 
         IdempotentCreateResult<Project> idempotency;
