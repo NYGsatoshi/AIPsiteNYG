@@ -185,6 +185,44 @@ export class TaskCreatePageComponent {
     return this.form.controls.sourceScopeMode.value;
   }
 
+  /**
+   * A local, advisory pre-create review. It deliberately mirrors only values
+   * already present in the canonical create form: no new required fields,
+   * inferred project Brief, or execution/runtime state is introduced here.
+   */
+  get qualityChecklist(): readonly TaskCreateQualityItem[] {
+    this.formRevision();
+    const controls = this.form.controls;
+    const usesTaskOverride =
+      controls.sourceScopeMode.value === 'TaskOverride' && this.canManageTaskScope;
+    const sourcePolicy = usesTaskOverride
+      ? {
+          webEnabled: controls.webEnabled.value,
+          projectFilesEnabled: controls.projectFilesEnabled.value,
+        }
+      : this.options?.projectScope.policy ?? {
+          webEnabled: false,
+          projectFilesEnabled: false,
+        };
+    const sourcePolicyLabel = usesTaskOverride ? 'Task-specific policy' : 'Project default policy';
+    return [
+      briefQualityItem('goal', 'Goal', controls.goal.value),
+      briefQualityItem('deliverable', 'Deliverable', controls.deliverable.value),
+      briefQualityItem('constraints', 'Constraints', controls.constraints.value),
+      {
+        id: 'sourceScopeMode',
+        label: 'Source scope',
+        status: 'complete',
+        detail: `${sourcePolicyLabel}: Web ${sourcePolicy.webEnabled ? 'enabled' : 'disabled'}; Project files ${sourcePolicy.projectFilesEnabled ? 'enabled' : 'disabled'}.`,
+        actionLabel: null,
+      },
+    ];
+  }
+
+  get qualityChecklistCompletedCount(): number {
+    return this.qualityChecklist.filter((item) => item.status === 'complete').length;
+  }
+
   submit(): void {
     if (this.busy || this.navigationPending || !this.options) {
       return;
@@ -311,6 +349,14 @@ export class TaskCreatePageComponent {
 
   focusField(field: TaskCreateField, event: Event): void {
     event.preventDefault();
+    this.focusTaskCreateField(field);
+  }
+
+  focusQualityItem(itemId: TaskCreateQualityItemId): void {
+    this.focusTaskCreateField(itemId);
+  }
+
+  private focusTaskCreateField(field: TaskCreateField): void {
     if (field === 'form') {
       this.errorSummary()?.nativeElement.focus();
       return;
@@ -525,6 +571,41 @@ export class TaskCreatePageComponent {
 
 function nonWhitespaceValidator(control: AbstractControl<string>): ValidationErrors | null {
   return control.value.trim().length > 0 ? null : { whitespace: true };
+}
+
+type TaskCreateQualityItemId = 'goal' | 'deliverable' | 'constraints' | 'sourceScopeMode';
+
+interface TaskCreateQualityItem {
+  readonly id: TaskCreateQualityItemId;
+  readonly label: string;
+  readonly status: 'complete' | 'missing';
+  readonly detail: string;
+  readonly actionLabel: string | null;
+}
+
+function briefQualityItem(
+  id: Exclude<TaskCreateQualityItemId, 'sourceScopeMode'>,
+  label: string,
+  value: string,
+): TaskCreateQualityItem {
+  const includedDetail = id === 'constraints'
+    ? 'Constraints are included in this Task Brief.'
+    : `${label} is included in this Task Brief.`;
+  return value.trim().length > 0
+    ? {
+        id,
+        label,
+        status: 'complete',
+        detail: includedDetail,
+        actionLabel: null,
+      }
+    : {
+        id,
+        label,
+        status: 'missing',
+        detail: `Add ${label.toLowerCase()} to make the Task easier to review before creation.`,
+        actionLabel: `Add ${label}`,
+      };
 }
 
 function fieldElementId(field: Exclude<TaskCreateField, 'form'>): string {

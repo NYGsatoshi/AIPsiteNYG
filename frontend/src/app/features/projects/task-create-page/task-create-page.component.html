@@ -292,6 +292,39 @@
         <app-field-error id="task-create-sourceScopeMode-errors" [messages]="fieldErrors('sourceScopeMode')" />
       </fieldset>
 
+      <section
+        class="task-create-page__draft"
+        aria-labelledby="task-create-quality-title"
+        data-testid="task-create-quality-checklist"
+      >
+        <header>
+          <h2 id="task-create-quality-title">Pre-create quality checklist</h2>
+          <p class="task-create-page__help">
+            Advisory only: {{ qualityChecklistCompletedCount }} of {{ qualityChecklist.length }} items are covered. You can still create this Task with items missing.
+          </p>
+        </header>
+        <ul class="task-create-page__quality-list">
+          @for (item of qualityChecklist; track item.id) {
+            <li
+              class="task-create-page__quality-item"
+              [class.task-create-page__quality-item--complete]="item.status === 'complete'"
+              [class.task-create-page__quality-item--missing]="item.status === 'missing'"
+              [attr.data-testid]="'task-create-quality-' + item.id"
+            >
+              <div>
+                <strong>{{ item.label }}</strong>
+                <p>{{ item.detail }}</p>
+              </div>
+              @if (item.status === 'complete') {
+                <span class="task-create-page__quality-status" aria-label="Covered">Covered</span>
+              } @else {
+                <button type="button" (click)="focusQualityItem(item.id)">{{ item.actionLabel }}</button>
+              }
+            </li>
+          }
+        </ul>
+      </section>
+
       <section class="task-create-page__draft" aria-live="polite" data-testid="task-create-unsent-draft">
         @if (unsentDraft) {
           <strong>Unsent draft</strong>

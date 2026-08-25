@@ -744,17 +744,30 @@ test.describe('MVP-A P0 Angular frontend smoke', () => {
 
     const title = page.getByTestId('task-create-title');
     const goal = page.getByTestId('task-brief-goal-input');
+    const deliverable = page.getByTestId('task-brief-deliverable-input');
+    const constraints = page.getByTestId('task-brief-constraints-input');
     const milestone = page.getByTestId('task-create-milestone');
     const assignee = page.getByTestId('task-create-primary-assignee');
     const submit = page.getByTestId('task-create-submit');
+    const qualityChecklist = page.getByTestId('task-create-quality-checklist');
     await expect(title).toBeFocused();
     await expect(page.getByTestId('task-create-page')).toContainText('does not start a runtime or retrieve sources');
     await expect(page.getByRole('button', { name: 'Start' })).toHaveCount(0);
     await expect(page.locator('[name="webUrl"], [name="provider"], [name="projectId"], [name="workspaceId"]')).toHaveCount(0);
+    await expect(qualityChecklist).toContainText('Advisory only: 1 of 4 items are covered.');
+    await expect(qualityChecklist).toContainText('Project default policy: Web disabled; Project files enabled.');
+    const addGoal = page.getByTestId('task-create-quality-goal').getByRole('button', { name: 'Add Goal' });
+    await pressTabUntilFocused(page, addGoal, 24);
+    await page.keyboard.press('Enter');
+    await expect(goal).toBeFocused();
     await title.fill('  Accessible evidence Task  ');
     await goal.fill('Review the immutable source-scope choice.');
+    await deliverable.fill('A reviewable task record.');
+    await constraints.fill('Use only the authorized Project policy.');
     await milestone.selectOption(api.milestoneId);
     await assignee.selectOption(api.assigneeId);
+    await expect(qualityChecklist).toContainText('Advisory only: 4 of 4 items are covered.');
+    await expect(qualityChecklist.getByRole('button')).toHaveCount(0);
     await expectNoDocumentHorizontalOverflow(page);
     await expectNoAccessibilityViolations(page);
 
@@ -772,6 +785,8 @@ test.describe('MVP-A P0 Angular frontend smoke', () => {
       milestoneId: api.milestoneId,
       primaryAssigneeUserId: api.assigneeId,
       goal: 'Review the immutable source-scope choice.',
+      deliverable: 'A reviewable task record.',
+      constraints: 'Use only the authorized Project policy.',
       sourceScopeMode: 'Inherit',
     });
     expect(api.createRequests[0]?.csrfToken).toBe('csrf-workspace-create');

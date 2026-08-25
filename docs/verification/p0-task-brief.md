@@ -48,6 +48,12 @@ defaults, start a runtime, create an execution run, or change this Issue #350
 contract. See `docs/verification/p0-task-create.md` for its separate candidate
 evidence and limits.
 
+Issue #354 adds a local advisory review beside those same Task-create fields.
+It can focus an empty Goal, Deliverable, or Constraints control, but it does
+not make any Brief value required or infer one from Project context. See
+`docs/verification/p0-task-quality-checklist.md` for that distinct UI-only
+candidate evidence.
+
 ## Security and validation
 
 All mutations reuse existing server-side Task create/update authorization,

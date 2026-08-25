@@ -3742,14 +3742,25 @@ async function createProjectTaskThroughUi(page: Page, evidence: SmokeEvidence): 
   const goal = 'Review the server-authorized source scope.';
   const deliverable = 'A concise Task creation decision.';
   const constraints = 'No source retrieval or runtime start.';
+  const sourceWeb = options.projectScope.policy.webEnabled ? 'enabled' : 'disabled';
+  const sourceProjectFiles = options.projectScope.policy.projectFilesEnabled ? 'enabled' : 'disabled';
+  const sourcePolicyText = `Project default policy: Web ${sourceWeb}; Project files ${sourceProjectFiles}.`;
   await expect(page.getByTestId('task-create-title')).toBeFocused();
   await expect(page.getByTestId('task-create-page')).toContainText('does not start a runtime or retrieve sources');
   await expect(page.getByRole('button', { name: 'Start', exact: true })).toHaveCount(0);
   await expect(page.locator('[name="webUrl"], [name="provider"], [name="projectId"], [name="workspaceId"]')).toHaveCount(0);
+  const qualityChecklist = page.getByTestId('task-create-quality-checklist');
+  await expect(qualityChecklist).toContainText('Advisory only: 1 of 4 items are covered.');
+  await expect(qualityChecklist).toContainText(sourcePolicyText);
+  const addGoal = page.getByTestId('task-create-quality-goal').getByRole('button', { name: 'Add Goal' });
+  await addGoal.focus();
+  await page.keyboard.press('Enter');
+  await expect(page.getByTestId('task-brief-goal-input')).toBeFocused();
   await page.getByTestId('task-create-title').fill(`  ${title}  `);
   await page.getByTestId('task-brief-goal-input').fill(goal);
   await page.getByTestId('task-brief-deliverable-input').fill(deliverable);
   await page.getByTestId('task-brief-constraints-input').fill(constraints);
+  await expect(qualityChecklist).toContainText('Advisory only: 4 of 4 items are covered.');
 
   const firstMilestone = Array.isArray(options.milestones) ? options.milestones[0] : null;
   if (firstMilestone) {

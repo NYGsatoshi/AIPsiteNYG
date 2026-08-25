@@ -121,6 +121,98 @@ describe('TaskCreatePageComponent', () => {
     expect(root.querySelector('[data-testid="task-create-primary-assignee"]')).toBeNull();
     expect(root.textContent).toContain('created unassigned');
     expect(root.textContent).toContain('Only a Project manager can choose a Task-specific policy.');
+    expect(root.querySelector('[data-testid="task-create-quality-sourceScopeMode"]')?.textContent).toContain(
+      'Project default policy: Web disabled; Project files enabled.',
+    );
+  });
+
+  it('shows missing Brief items, retains a fail-closed inherited source policy, and moves focus to editable fields', async () => {
+    facade.options.set({
+      status: 'ready',
+      projectId,
+      data: {
+        ...options,
+        projectScope: {
+          ...options.projectScope,
+          policy: { webEnabled: false, projectFilesEnabled: false },
+        },
+      },
+    });
+    fixture.detectChanges();
+    await fixture.whenStable();
+    fixture.detectChanges();
+
+    const root = fixture.nativeElement as HTMLElement;
+    const checklist = root.querySelector<HTMLElement>('[data-testid="task-create-quality-checklist"]');
+    expect(checklist?.textContent).toContain('Advisory only: 1 of 4 items are covered.');
+    expect(root.querySelectorAll('li[data-testid^="task-create-quality-"]')).toHaveLength(4);
+    expect(root.querySelector('[data-testid="task-create-quality-sourceScopeMode"]')?.textContent).toContain(
+      'Project default policy: Web disabled; Project files disabled.',
+    );
+    expect(root.querySelector('[data-testid="task-create-quality-sourceScopeMode"]')?.textContent).toContain('Covered');
+
+    [...root.querySelectorAll<HTMLButtonElement>('[data-testid="task-create-quality-goal"] button')][0]?.click();
+    expect(document.activeElement).toBe(root.querySelector('#task-create-goal'));
+    [...root.querySelectorAll<HTMLButtonElement>('[data-testid="task-create-quality-deliverable"] button')][0]?.click();
+    expect(document.activeElement).toBe(root.querySelector('#task-create-deliverable'));
+    [...root.querySelectorAll<HTMLButtonElement>('[data-testid="task-create-quality-constraints"] button')][0]?.click();
+    expect(document.activeElement).toBe(root.querySelector('#task-create-constraints'));
+    expect(root.querySelector('[data-testid="task-create-quality-sourceScopeMode"] button')).toBeNull();
+  });
+
+  it('reflects the effective inherited or Task-specific source policy in the advisory review', () => {
+    const root = fixture.nativeElement as HTMLElement;
+    expect(root.querySelector('[data-testid="task-create-quality-sourceScopeMode"]')?.textContent).toContain(
+      'Project default policy: Web disabled; Project files enabled.',
+    );
+    expect(root.querySelector('[data-testid="task-create-quality-sourceScopeMode"]')?.textContent).toContain('Covered');
+
+    component.setSourceScopeMode('TaskOverride');
+    component.form.controls.webEnabled.setValue(false);
+    component.form.controls.projectFilesEnabled.setValue(false);
+    fixture.detectChanges();
+
+    expect(root.querySelector('[data-testid="task-create-quality-sourceScopeMode"]')?.textContent).toContain(
+      'Task-specific policy: Web disabled; Project files disabled.',
+    );
+    expect(root.querySelector('[data-testid="task-create-quality-sourceScopeMode"]')?.textContent).toContain('Covered');
+
+    component.form.controls.webEnabled.setValue(true);
+    component.form.controls.goal.setValue('Clarify the outcome');
+    component.form.controls.deliverable.setValue('A reviewable result');
+    component.form.controls.constraints.setValue('Stay within the approved policy');
+    fixture.detectChanges();
+    expect(root.querySelector('[data-testid="task-create-quality-sourceScopeMode"]')?.textContent).toContain(
+      'Task-specific policy: Web enabled; Project files disabled.',
+    );
+    expect(root.querySelector('[data-testid="task-create-quality-goal"]')?.textContent).toContain(
+      'Goal is included in this Task Brief.',
+    );
+    expect(root.querySelector('[data-testid="task-create-quality-deliverable"]')?.textContent).toContain(
+      'Deliverable is included in this Task Brief.',
+    );
+    expect(root.querySelector('[data-testid="task-create-quality-constraints"]')?.textContent).toContain(
+      'Constraints are included in this Task Brief.',
+    );
+    expect(root.querySelector('[data-testid="task-create-quality-checklist"]')?.textContent).toContain(
+      'Advisory only: 4 of 4 items are covered.',
+    );
+  });
+
+  it('keeps the quality checklist advisory when optional information is missing', () => {
+    component.form.controls.title.setValue('Task with an incomplete review');
+
+    component.submit();
+
+    expect(facade.createTask).toHaveBeenCalledWith(
+      expect.objectContaining({
+        title: 'Task with an incomplete review',
+        goal: '',
+        deliverable: '',
+        constraints: '',
+        sourceScopeMode: 'Inherit',
+      }),
+    );
   });
 
   it('focuses linked Milestone, reusable Brief, and source-scope errors on real controls', async () => {

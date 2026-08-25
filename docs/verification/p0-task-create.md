@@ -67,6 +67,16 @@ controls. The source-scope selection is visible only when the server projects
 the appropriate manager capability; other Task creators can view the Project
 policy summary but inherit it.
 
+Issue #354 adds a local advisory review to this same form. It marks trimmed
+Goal, Deliverable, and Constraints values as covered when present and offers
+native focus actions for missing optional Brief fields. It also reports the
+effective inherited Project policy or current manager-selected complete Task
+override. A `false`/`false` policy is shown as an explicit fail-closed policy,
+not as a missing source scope. The review never blocks Create, supplies no
+Project Brief default, changes the create body, or claims source retrieval or
+runtime behavior. See `docs/verification/p0-task-quality-checklist.md` for
+its dedicated candidate evidence.
+
 An unsent form exists only in the current browser tab. Cancel/discard confirms
 when it is dirty and sends no mutation; the draft is not stored in local or
 session storage. The client keeps an unchanged idempotency key for an uncertain
