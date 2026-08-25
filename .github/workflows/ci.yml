@@ -363,6 +363,7 @@ jobs:
           docker compose -f docker-compose.dev.yml config --quiet
           docker compose -f docker-compose.playwright.yml config --quiet
           docker compose -p aipsite-real-backend-smoke-ci-config -f docker-compose.real-backend-smoke.yml config --quiet
+          docker compose -p aipsite-u22-demo-ci-config -f docker-compose.real-backend-smoke.yml -f docker-compose.u22-demo.yml config --quiet
           docker compose config --quiet
           docker compose -f docker-compose.local.yml config --quiet
           docker compose -f docker-compose.onprem.yml config --quiet
