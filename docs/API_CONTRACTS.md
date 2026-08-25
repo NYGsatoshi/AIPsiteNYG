@@ -464,6 +464,23 @@ different normalized request under the same key returns the safe HTTP 409
 idempotency conflict. All other canonical validation, authorization, and
 availability failures use the standard safe envelope.
 
+## Issue #354 advisory pre-create quality checklist
+
+Issue #354 adds no request or response contract. The maintained Task-create
+browser form locally reviews the optional trimmed `goal`, `deliverable`, and
+`constraints` values already bound to the canonical create command, plus the
+effective authorized source policy already returned by create-options or
+selected as a manager-authorized complete Task override.
+
+The checklist is advisory only: an empty optional Brief field remains valid,
+and selecting its missing-item action only moves focus to the matching existing
+form control. It does not change the strict POST body, `Idempotency-Key`, CSRF,
+server validation, or whether the actor can create a Task. A fail-closed
+effective policy with both `webEnabled` and `projectFilesEnabled` set to false
+is an explicit covered policy, not an absent source-scope value. The checklist
+does not infer a Brief default from `Project.Description` and adds no runtime,
+provider, Web, source-content, or source-inventory contract.
+
 ## Task progress and Activity detail
 
 The canonical Task detail response continues to carry the current configured

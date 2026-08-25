@@ -133,6 +133,29 @@ an environmental startup limitation, not a P0 assertion failure or
 real-backend evidence. See `docs/verification/p0-task-create.md` for scope and
 limits.
 
+### Issue #354 advisory Task-create quality checklist
+
+The focused Task-create page component suite covers missing optional Brief
+items, native focus movement to Goal/Deliverable/Constraints, complete trimmed
+Brief values, inherited and manager-selected effective source-policy display,
+and non-blocking create with optional values absent. The recorded focused run
+passed 11 tests under Node 24.19.0; application and spec TypeScript
+compilation also passed.
+
+The production Angular build passed without adding a Task-create component
+style-budget warning. The existing forced-320-pixel Task-create Playwright
+scenario passed in Chromium desktop and mobile. It keyboard-activates a missing
+Goal action, verifies focus, fills the Brief, verifies the compact 4/4 review,
+and retains its no-horizontal-overflow and axe checks. Static responses remain
+mocked and cannot prove server authorization or persistence.
+
+The mandatory real-backend MVP0 scenario is extended in source to inspect the
+server-returned effective policy, exercise the native focus action, verify the
+4/4 advisory state, and then persist the canonical Task/Brief. It remains
+subject to the protected Compose/CI real-backend gate; it must never be treated
+as proof of a Web/provider/runtime workflow. See
+`docs/verification/p0-task-quality-checklist.md` for scope and limitations.
+
 ### TASK-V1-PR07-B immediate notification tests
 
 PR07-B adds focused service/contract tests for the exact recipient matrix,

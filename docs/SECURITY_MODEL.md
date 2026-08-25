@@ -311,6 +311,15 @@ override. A same-key replay also rechecks current Task-create authority and
 returns the current authorized resource, rather than disclosing a historical
 Task after the actor has lost access.
 
+Issue #354 adds no API, persistence, capability, or authorization surface.
+Its browser-only pre-create checklist reads only the already-authorized
+Task-create form values: optional Task Brief text and the effective Project
+default or manager-authorized complete Task source policy. It never derives a
+Brief from `Project.Description`, sends a mutation, changes whether Create is
+allowed, enables an otherwise disabled source type, or exposes source
+identifiers, content, providers, or runtime state. A missing-item action only
+focuses the matching existing browser form control.
+
 Only the effective two-boolean policy (`WebEnabled` and
 `ProjectFilesEnabled`), its origin/version, and a safe latest policy snapshot
 are projected. The API, audit metadata, realtime invalidations, and runtime
