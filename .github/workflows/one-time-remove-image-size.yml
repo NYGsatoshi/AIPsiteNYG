@@ -27,38 +27,41 @@ jobs:
       - name: Pin npm
         run: npm install --global npm@11.17.0
 
-      - name: Run npm audits
-        shell: bash
-        run: |
-          set -euo pipefail
-          npm --prefix frontend audit --json > "$RUNNER_TEMP/frontend-audit.json" || true
-          npm --prefix aipsite-frontend audit --json > "$RUNNER_TEMP/aipsite-frontend-audit.json" || true
-
-      - name: Verify image-size findings are gone
+      - name: Prove image-size is absent from lockfiles
         shell: bash
         run: |
           set -euo pipefail
           node <<'NODE'
           const fs = require('node:fs')
-          const path = require('node:path')
-          const reports = [
-            ['frontend', path.join(process.env.RUNNER_TEMP, 'frontend-audit.json')],
-            ['aipsite-frontend', path.join(process.env.RUNNER_TEMP, 'aipsite-frontend-audit.json')],
-          ]
-          for (const [name, file] of reports) {
-            const report = JSON.parse(fs.readFileSync(file, 'utf8'))
-            const vulnerabilities = report.vulnerabilities ?? {}
-            if (vulnerabilities['image-size']) {
-              throw new Error(`${name}: npm audit still reports image-size`)
+          for (const file of ['frontend/package-lock.json', 'aipsite-frontend/package-lock.json']) {
+            const lock = JSON.parse(fs.readFileSync(file, 'utf8'))
+            const packages = lock.packages ?? {}
+            const paths = Object.keys(packages).filter(p => p === 'node_modules/image-size' || p.endsWith('/node_modules/image-size'))
+            if (paths.length) throw new Error(`${file}: image-size remains at ${paths.join(', ')}`)
+            for (const [pkgPath, meta] of Object.entries(packages)) {
+              for (const field of ['dependencies', 'optionalDependencies']) {
+                if (meta?.[field]?.['image-size'] !== undefined) {
+                  throw new Error(`${file}: ${pkgPath || '<root>'} still references image-size via ${field}`)
+                }
+              }
             }
-            const rows = Object.entries(vulnerabilities)
-              .map(([pkg, value]) => ({
-                package: pkg,
-                severity: value.severity,
-                via: (value.via ?? []).map(item => typeof item === 'string' ? `dependency:${item}` : `advisory:${item.source}`),
-              }))
-              .sort((a, b) => a.package.localeCompare(b.package))
-            console.log(`${name} vulnerabilities:`)
-            console.log(JSON.stringify(rows, null, 2))
+            const less = Object.entries(packages)
+              .filter(([p]) => p === 'node_modules/less' || p.endsWith('/node_modules/less'))
+              .map(([p, meta]) => `${p}=${meta.version}`)
+            if (!less.length || less.some(value => !value.endsWith('=4.9.0'))) {
+              throw new Error(`${file}: unexpected Less resolution: ${less.join(', ')}`)
+            }
+            console.log(`${file}: ${less.join(', ')}; image-size absent`)
           }
           NODE
+
+      - name: Run npm audits
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p "$RUNNER_TEMP/npm-audit"
+          npm --prefix frontend audit --json > "$RUNNER_TEMP/npm-audit/frontend.json" || true
+          npm --prefix aipsite-frontend audit --json > "$RUNNER_TEMP/npm-audit/aipsite-frontend.json" || true
+
+      - name: Verify reviewed High and Critical baseline
+        run: node scripts/ci/check-npm-audit-baseline.mjs "$RUNNER_TEMP/npm-audit" scripts/ci/npm-audit-baseline.json
