@@ -56,12 +56,10 @@ jobs:
           if [[ -n "$base_sha" ]]; then
             git diff --name-only --diff-filter=ACMR "$base_sha" "$GITHUB_SHA" -- \
               '*.md' \
-              'docs/**' \
               '.github/workflows/documentation_ci.yml'
           else
             git ls-files \
               '*.md' \
-              'docs/**' \
               '.github/workflows/documentation_ci.yml'
           fi | sort -u > "$RUNNER_TEMP/documentation-files.txt"
 
