@@ -9,6 +9,11 @@
   min-width: 0;
 }
 
+.timeline:focus-visible {
+  outline: 3px solid var(--aip-color-focus, #79a9ff);
+  outline-offset: 4px;
+}
+
 .timeline__actions {
   display: flex;
   gap: 8px;
@@ -41,6 +46,16 @@
   background: var(--aip-color-danger-subtle);
   color: var(--aip-color-danger);
   font-weight: 800;
+}
+
+.timeline__action-feedback {
+  margin: 0;
+  border: 1px solid var(--aip-color-action-primary);
+  border-radius: 6px;
+  padding: 10px 12px;
+  background: var(--aip-color-bg-selected);
+  color: var(--aip-color-text-primary);
+  font-weight: 700;
 }
 
 .timeline__messages {

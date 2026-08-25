@@ -105,7 +105,7 @@ export class AipDialogComponent implements OnChanges {
 
   ngOnChanges(changes: SimpleChanges): void {
     const openChange = changes['open'];
-    if (!openChange || openChange.previousValue === openChange.currentValue) {
+    if (!openChange || openChange.firstChange || openChange.previousValue === openChange.currentValue) {
       return;
     }
 

@@ -152,6 +152,28 @@ export class MessagingApi {
     );
   }
 
+  updateMessage(messageId: string, body: string): Observable<MessageDto> {
+    return this.http.patch<MessageDto>(
+      `/api/messages/${messageId}`,
+      { body },
+      { withCredentials: true }
+    );
+  }
+
+  deleteMessage(messageId: string): Observable<unknown> {
+    return this.http.delete(`/api/messages/${messageId}`, {
+      withCredentials: true
+    });
+  }
+
+  reportMessage(messageId: string, reasonCode: string): Observable<unknown> {
+    return this.http.post(
+      `/api/messages/${messageId}/report`,
+      { reasonCode },
+      { withCredentials: true }
+    );
+  }
+
   getParticipantState(conversationId: string): Observable<ParticipantStateDto> {
     return this.http.get<ParticipantStateDto>(`/api/conversations/${conversationId}/state`, {
       withCredentials: true
