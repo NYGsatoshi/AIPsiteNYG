@@ -214,6 +214,12 @@ public sealed class AppDbContextSeedTests
 
         var actor = await dbContext.Users.SingleAsync(
             user => user.Email == "browser-smoke@example.test");
+        var recipient = await dbContext.Users.SingleAsync(
+            user => user.Email == "browser-smoke-recipient@example.test");
+        var smokeAnnouncement = await dbContext.Announcements.SingleAsync(
+            announcement =>
+                announcement.TenantId == tenant.Id &&
+                announcement.Title == "Browser smoke announcement");
         var firstGrant = await dbContext.Set<CapabilityGrant>().SingleAsync(
             grant =>
                 grant.TenantId == tenant.Id &&
@@ -228,6 +234,21 @@ public sealed class AppDbContextSeedTests
             task => task.Title == "Browser smoke task");
         seededTask.IsBlocked = true;
         seededTask.BlockedReason = "Stale state from a prior browser run.";
+        dbContext.AnnouncementReads.AddRange(
+            new AnnouncementRead
+            {
+                TenantId = tenant.Id,
+                AnnouncementId = smokeAnnouncement.Id,
+                UserId = actor.Id,
+                ReadAt = DateTimeOffset.UtcNow
+            },
+            new AnnouncementRead
+            {
+                TenantId = tenant.Id,
+                AnnouncementId = smokeAnnouncement.Id,
+                UserId = recipient.Id,
+                ReadAt = DateTimeOffset.UtcNow
+            });
         await dbContext.SaveChangesAsync();
 
         await AppDbContextSeed.SeedBrowserSmokeAsync(
@@ -271,6 +292,17 @@ public sealed class AppDbContextSeedTests
         Assert.Equal(taskArtifact.ProjectId, artifactTask.ProjectId);
         Assert.False(artifactTask.IsBlocked);
         Assert.Null(artifactTask.BlockedReason);
+
+        var reseededAnnouncement = await dbContext.Announcements.SingleAsync(
+            announcement => announcement.Id == smokeAnnouncement.Id);
+        Assert.True(reseededAnnouncement.RequiresReadConfirmation);
+        var remainingAnnouncementReads = await dbContext.AnnouncementReads
+            .Where(read =>
+                read.TenantId == tenant.Id &&
+                read.AnnouncementId == smokeAnnouncement.Id)
+            .ToListAsync();
+        Assert.DoesNotContain(remainingAnnouncementReads, read => read.UserId == actor.Id);
+        Assert.Contains(remainingAnnouncementReads, read => read.UserId == recipient.Id);
 
         currentTenant.SetTenant(tenant.Id, tenant.Slug);
         var tenants = new TenantRepository(dbContext);

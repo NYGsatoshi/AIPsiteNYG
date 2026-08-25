@@ -113,7 +113,11 @@ export class WorkspacesFacade {
 
       this.observedIdentityKey = nextIdentityKey;
       this.resetCreateScope();
-      this.initializeForIdentity(identity);
+      // A tenant or session identity change has already cleared protected
+      // projections. Let the newly authenticated Workspace HTTP response be
+      // the authority that permits feature catch-ups, including in HTTP-only
+      // mode where SignalR never reconnects.
+      this.initializeForIdentity(identity, true);
     });
 
     effect(() => {
@@ -317,7 +321,10 @@ export class WorkspacesFacade {
     this.workspaceCreateState.set(INITIAL_CREATE_STATE);
   }
 
-  private initializeForIdentity(identity: WorkspaceSelectionIdentity | null): void {
+  private initializeForIdentity(
+    identity: WorkspaceSelectionIdentity | null,
+    recoverProtectedState = false,
+  ): void {
     if (!identity) {
       this.loadGeneration += 1;
       this.cancelWorkspaceListRequest();
@@ -327,7 +334,7 @@ export class WorkspacesFacade {
       return;
     }
 
-    void this.loadWorkspaces();
+    void this.loadWorkspaces(recoverProtectedState);
   }
 
   private async activateCommittedWorkspace(

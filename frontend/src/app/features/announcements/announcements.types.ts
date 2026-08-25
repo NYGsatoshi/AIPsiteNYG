@@ -72,7 +72,10 @@ export type AnnouncementDetailState = 'notLoaded' | 'loading' | 'loaded' | 'unav
 export interface AnnouncementReadStateViewModel {
   readonly requiresReadConfirmation: boolean;
   readonly isRead: boolean;
-  readonly confirmedAtLabel?: string;
+  /** The command is in flight; the persisted state remains unchanged until the server confirms it. */
+  readonly isMarkingRead: boolean;
+  /** A generic, local retry message. API error details are never rendered here. */
+  readonly markReadError?: string;
 }
 
 export interface AnnouncementAttachmentViewModel {
@@ -89,6 +92,10 @@ export interface AnnouncementViewModel {
   readonly priority: AnnouncementPriority;
   readonly audienceScope: AnnouncementAudienceScope;
   readonly publishedAtLabel: string;
+  /** Raw server value retained for semantic time rendering when an expiry is present. */
+  readonly expiresAt?: string;
+  /** Human-readable expiry, not an action deadline. */
+  readonly expiresAtLabel?: string;
   readonly publicationState: AnnouncementPublicationState;
   readonly scheduledAtLabel?: string;
   readonly timeZoneLabel?: string;

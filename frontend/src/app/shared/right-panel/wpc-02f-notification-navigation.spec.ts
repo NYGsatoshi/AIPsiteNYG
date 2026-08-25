@@ -361,6 +361,7 @@ function configure(): void {
           durableEvents$: events.asObservable(),
           connectionState: () => 'Connected',
           registerCatchUp: () => () => undefined,
+          runAuthoritativeHttpCatchUps: vi.fn().mockResolvedValue(undefined),
           registerProtectedStateClearer: (owner: string, clear: (reason: 'workspace') => void) => {
             protectedStateClearers.set(owner, clear);
             return () => protectedStateClearers.delete(owner);
