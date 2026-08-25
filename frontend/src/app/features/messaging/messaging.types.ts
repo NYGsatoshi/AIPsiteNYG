@@ -18,6 +18,25 @@ export type MessagingCapability =
 
 export type MessageDeliveryState = 'confirmed' | 'sending' | 'failed';
 
+export type MessagingMessageActionMode = 'idle' | 'editing' | 'confirmDelete' | 'confirmReport';
+
+export type MessagingMessageActionPending = 'edit' | 'delete' | 'report';
+
+export interface MessagingMessageActionFeedback {
+  readonly id: number;
+  readonly message: string;
+  readonly focusTimeline: boolean;
+}
+
+export interface MessagingMessageActionState {
+  readonly messageId: string | null;
+  readonly mode: MessagingMessageActionMode;
+  readonly draft: string;
+  readonly pending: MessagingMessageActionPending | null;
+  readonly error?: string;
+  readonly feedback?: MessagingMessageActionFeedback;
+}
+
 export type MessageFailureCode = 'network' | 'permissionDenied' | 'sessionExpired' | 'validation';
 
 export type MessageSendState =
@@ -76,7 +95,9 @@ export interface MessagingMessageViewModel {
   readonly authorRoleLabel: string;
   readonly isOwnMessage: boolean;
   readonly body: string;
+  readonly isDeleted: boolean;
   readonly createdAt?: string;
+  readonly editedAt?: string;
   readonly version?: number;
   readonly sentAtLabel: string;
   readonly deliveryState: MessageDeliveryState;

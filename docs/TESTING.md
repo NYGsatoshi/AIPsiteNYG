@@ -330,8 +330,9 @@ Run the frontend/static suite with:
 npm.cmd run test:ui:angular
 ```
 
-`npm test`, `npm run test:ui`, and `npm run test:ui:angular` all run only
-`angular-smoke.spec.ts` and `app.spec.ts` against the static Angular test
+`npm test`, `npm run test:ui`, and `npm run test:ui:angular` run
+`angular-smoke.spec.ts`, `message-mobile-navigation.spec.ts`,
+`message-actions.spec.ts`, and `app.spec.ts` against the static Angular test
 server. Their API responses are mocked. They intentionally do not discover or
 execute `real-backend-smoke.spec.ts`.
 

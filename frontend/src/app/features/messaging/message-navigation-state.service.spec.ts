@@ -324,6 +324,32 @@ describe('MessageNavigationStateService', () => {
     expect(document.activeElement).toBe(focusTarget);
   });
 
+  it('focuses the mobile Back link after the detail view renders on a later frame', () => {
+    installScrollHost(320);
+    installDocumentScrollHost(240);
+    const frames: FrameRequestCallback[] = [];
+    vi.spyOn(window, 'requestAnimationFrame').mockImplementation((callback: FrameRequestCallback) => {
+      frames.push(callback);
+      return frames.length;
+    });
+    const service = TestBed.inject(MessageNavigationStateService);
+    setMobileHierarchy(true);
+
+    service.resetDetailScroll();
+
+    expect(frames).toHaveLength(1);
+    frames.shift()?.(0);
+    expect(frames).toHaveLength(1);
+
+    focusTarget = document.createElement('a');
+    focusTarget.id = 'messages-mobile-back-link';
+    focusTarget.tabIndex = 0;
+    document.body.append(focusTarget);
+    frames.shift()?.(16);
+
+    expect(document.activeElement).toBe(focusTarget);
+  });
+
   it('does not reset the shared page scroll when desktop split view changes route', () => {
     const { host: scrollHost, scrollTo: appScrollTo } = installScrollHost(320);
     const { host: pageScroll, scrollTo: pageScrollTo } = installDocumentScrollHost(240);

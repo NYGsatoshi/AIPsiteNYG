@@ -53,7 +53,11 @@ async function configureHttpTest(
   return TestBed.inject(HttpTestingController);
 }
 
-function flushConversationOpen(httpMock: HttpTestingController, conversationId = 'conversation-a'): void {
+function flushConversationOpen(
+  httpMock: HttpTestingController,
+  conversationId = 'conversation-a',
+  includeOwnMessage = false,
+): void {
   httpMock.expectOne('/api/conversations').flush({
     items: [
       {
@@ -99,9 +103,101 @@ function flushConversationOpen(httpMock: HttpTestingController, conversationId =
         attachments: [],
         createdAt: '2026-07-09T01:00:00Z',
         isDeleted: false
-      }
+      },
+      ...(includeOwnMessage ? [{
+        id: 'message-own',
+        workspaceId: 'workspace-a',
+        conversationId,
+        authorUserId: currentUserId,
+        authorDisplayName: 'Mock User A',
+        body: 'My editable backend message',
+        attachments: [],
+        createdAt: '2026-07-09T01:01:00Z',
+        isDeleted: false,
+        version: 1
+      }] : [])
     ]
   });
+}
+
+async function configureRealtimeActionFacade(events: Subject<DurableRealtimeEvent>): Promise<HttpTestingController> {
+  await TestBed.configureTestingModule({
+    providers: [
+      provideHttpClient(),
+      provideHttpClientTesting(),
+      { provide: AIP_AUTH_SESSION_MOCK, useValue: DEFAULT_AUTH_SESSION },
+      {
+        provide: FrontendFeatureFlagsService,
+        useValue: {
+          realtimeSignalREnabled: () => false,
+          optimisticMessagingEnabled: () => true,
+        },
+      },
+      {
+        provide: RealtimeFacade,
+        useValue: {
+          connectionState: signal('Connected'),
+          durableEvents$: events.asObservable(),
+          registerProtectedStateClearer: () => () => undefined,
+        },
+      },
+    ],
+  }).compileComponents();
+  return TestBed.inject(HttpTestingController);
+}
+
+async function configureRealtimeActionPage(events: Subject<DurableRealtimeEvent>): Promise<HttpTestingController> {
+  await TestBed.configureTestingModule({
+    imports: [ChannelMessagingPageComponent],
+    providers: [
+      provideRouter([]),
+      provideHttpClient(),
+      provideHttpClientTesting(),
+      { provide: AIP_AUTH_SESSION_MOCK, useValue: DEFAULT_AUTH_SESSION },
+      {
+        provide: ActivatedRoute,
+        useValue: {
+          paramMap: of(convertToParamMap({ workspaceId: 'workspace-a', conversationId: 'conversation-a' }))
+        }
+      },
+      {
+        provide: FrontendFeatureFlagsService,
+        useValue: {
+          realtimeSignalREnabled: () => false,
+          optimisticMessagingEnabled: () => true,
+        },
+      },
+      {
+        provide: RealtimeFacade,
+        useValue: {
+          connectionState: signal('Connected'),
+          durableEvents$: events.asObservable(),
+          registerProtectedStateClearer: () => () => undefined,
+        },
+      },
+    ],
+  }).compileComponents();
+  return TestBed.inject(HttpTestingController);
+}
+
+function messageRealtimeEvent(
+  eventType: 'Messaging.MessageUpdated.v1' | 'Messaging.MessageDeleted.v1',
+  payload: Record<string, unknown>,
+): DurableRealtimeEvent {
+  return {
+    eventId: `event-${eventType}`,
+    eventType,
+    payloadSchemaVersion: 1,
+    occurredAt: '2026-07-09T01:03:00Z',
+    tenantId: 'tenant-a',
+    aggregateType: 'Message',
+    aggregateId: 'message-own',
+    aggregateVersion: typeof payload['messageVersion'] === 'number' ? payload['messageVersion'] : null,
+    actor: { actorType: 'User', actorId: 'other-user' },
+    correlationId: null,
+    causationId: null,
+    payload,
+  };
 }
 
 describe('Messaging MVP0 backend wiring', () => {
@@ -266,6 +362,260 @@ describe('Messaging MVP0 backend wiring', () => {
     expect(root.querySelector('[data-testid="conversation-surface"]')).not.toBeNull();
     expect(root.textContent).toContain('General');
     expect(root.textContent).toContain('Existing backend message');
+  });
+
+  it('uses the current server-supported message action contracts and redacts a generic denial', async () => {
+    const httpMock = await configureHttpTest([ChannelMessagingPageComponent]);
+    const fixture = TestBed.createComponent(ChannelMessagingPageComponent);
+    flushConversationOpen(httpMock, 'conversation-a', true);
+    fixture.detectChanges();
+
+    const root = fixture.nativeElement as HTMLElement;
+    const more = root.querySelector<HTMLButtonElement>('[data-testid="message-more-actions-message-own"]');
+    more!.click();
+    fixture.detectChanges();
+    root.querySelector<HTMLButtonElement>('[data-testid="edit-message-message-own"]')!.click();
+    fixture.detectChanges();
+
+    const editInput = root.querySelector<HTMLTextAreaElement>('[data-testid="message-edit-input-message-own"]');
+    editInput!.value = 'Updated through PATCH';
+    editInput.dispatchEvent(new Event('input'));
+    fixture.detectChanges();
+    root.querySelector<HTMLButtonElement>('[data-testid="save-message-edit-message-own"]')!.click();
+
+    const editRequest = httpMock.expectOne('/api/messages/message-own');
+    expect(editRequest.request.method).toBe('PATCH');
+    expect(editRequest.request.withCredentials).toBe(true);
+    expect(editRequest.request.body).toEqual({ body: 'Updated through PATCH' });
+    editRequest.flush({
+      id: 'message-own',
+      workspaceId: 'workspace-a',
+      conversationId: 'conversation-a',
+      authorUserId: currentUserId,
+      authorDisplayName: 'Mock User A',
+      body: 'Updated through PATCH',
+      createdAt: '2026-07-09T01:01:00Z',
+      editedAt: '2026-07-09T01:02:00Z',
+      isDeleted: false,
+      version: 2
+    });
+    fixture.detectChanges();
+
+    expect(root.querySelector('[data-testid="message-edited-marker"]')?.textContent).toContain('Edited');
+    expect(root.querySelector('[data-testid="message-action-status"]')?.textContent).toContain('Message updated.');
+
+    root.querySelector<HTMLButtonElement>('[data-testid="message-more-actions-message-own"]')!.click();
+    fixture.detectChanges();
+    root.querySelector<HTMLButtonElement>('[data-testid="report-message-message-own"]')!.click();
+    fixture.detectChanges();
+    const reportDialog = root.querySelector<HTMLElement>('[role="dialog"]');
+    expect(reportDialog?.textContent).toContain('Report message');
+    const reportConfirm = [...root.querySelectorAll<HTMLButtonElement>('button')]
+      .find((button) => button.textContent?.includes('Record report request'));
+    reportConfirm!.click();
+
+    const deniedReport = httpMock.expectOne('/api/messages/message-own/report');
+    expect(deniedReport.request.method).toBe('POST');
+    expect(deniedReport.request.withCredentials).toBe(true);
+    expect(deniedReport.request.body).toEqual({ reasonCode: 'reported' });
+    deniedReport.flush(
+      { error: 'SECRET_ACTION_DENIAL_DO_NOT_RENDER' },
+      { status: 400, statusText: 'Bad Request' }
+    );
+    fixture.detectChanges();
+
+    expect(root.textContent).not.toContain('SECRET_ACTION_DENIAL_DO_NOT_RENDER');
+    expect(root.querySelector('[role="dialog"]')?.textContent)
+      .toContain('This message action is no longer available.');
+
+    reportConfirm!.click();
+    const acceptedReport = httpMock.expectOne('/api/messages/message-own/report');
+    acceptedReport.flush({ status: 'OK' });
+    fixture.detectChanges();
+    expect(root.querySelector('[data-testid="message-action-status"]')?.textContent)
+      .toContain('Report request recorded.');
+  });
+
+  it('does not delete before confirmation and removes the current list row after success', async () => {
+    const httpMock = await configureHttpTest([ChannelMessagingPageComponent]);
+    const fixture = TestBed.createComponent(ChannelMessagingPageComponent);
+    flushConversationOpen(httpMock, 'conversation-a', true);
+    fixture.detectChanges();
+
+    const root = fixture.nativeElement as HTMLElement;
+    root.querySelector<HTMLButtonElement>('[data-testid="message-more-actions-message-own"]')!.click();
+    fixture.detectChanges();
+    root.querySelector<HTMLButtonElement>('[data-testid="delete-message-message-own"]')!.click();
+    fixture.detectChanges();
+
+    expect(root.querySelector('[role="dialog"]')?.textContent).toContain('Delete message?');
+    httpMock.expectNone('/api/messages/message-own');
+    const deleteConfirm = [...root.querySelectorAll<HTMLButtonElement>('button')]
+      .find((button) => button.textContent?.includes('Delete message'));
+    deleteConfirm!.click();
+
+    const deleteRequest = httpMock.expectOne('/api/messages/message-own');
+    expect(deleteRequest.request.method).toBe('DELETE');
+    expect(deleteRequest.request.withCredentials).toBe(true);
+    deleteRequest.flush({ status: 'OK' });
+    fixture.detectChanges();
+
+    expect(root.querySelector('#message-message-own')).toBeNull();
+    expect(root.querySelector('[data-testid="message-action-status"]')?.textContent).toContain('Message deleted.');
+  });
+
+  it('does not replace an active edit with an action from another message', async () => {
+    const httpMock = await configureHttpTest([ChannelMessagingPageComponent]);
+    TestBed.createComponent(ChannelMessagingPageComponent);
+    flushConversationOpen(httpMock, 'conversation-a', true);
+    const facade = TestBed.inject(MessagingFacade);
+
+    facade.beginMessageEdit('message-own');
+    facade.requestMessageReport('message-a');
+    facade.requestMessageDelete('message-own');
+
+    expect(facade.messageAction()).toMatchObject({
+      messageId: 'message-own',
+      mode: 'editing',
+      draft: 'My editable backend message',
+      pending: null
+    });
+  });
+
+  it('cancels in-flight message mutations and resets action state at a protected Workspace boundary', async () => {
+    const httpMock = await configureHttpTest([ChannelMessagingPageComponent]);
+    TestBed.createComponent(ChannelMessagingPageComponent);
+    flushConversationOpen(httpMock, 'conversation-a', true);
+    const facade = TestBed.inject(MessagingFacade);
+    const realtime = TestBed.inject(RealtimeFacade);
+
+    facade.beginMessageEdit('message-own');
+    facade.updateMessageEditDraft('message-own', 'Boundary PATCH');
+    facade.saveMessageEdit('message-own');
+    const patch = httpMock.expectOne('/api/messages/message-own');
+    realtime.clearForWorkspaceBoundary();
+    expect(patch.cancelled).toBe(true);
+    expect(facade.messageAction().mode).toBe('idle');
+
+    facade.loadConversation('conversation-a', 'channel', 'workspace-a');
+    flushConversationOpen(httpMock, 'conversation-a', true);
+    facade.requestMessageDelete('message-own');
+    facade.confirmMessageDelete('message-own');
+    const deleteRequest = httpMock.expectOne('/api/messages/message-own');
+    realtime.clearForWorkspaceBoundary();
+    expect(deleteRequest.cancelled).toBe(true);
+    expect(facade.messageAction().mode).toBe('idle');
+
+    facade.loadConversation('conversation-a', 'channel', 'workspace-a');
+    flushConversationOpen(httpMock, 'conversation-a', true);
+    facade.requestMessageReport('message-a');
+    facade.confirmMessageReport('message-a', 'reported');
+    const reportRequest = httpMock.expectOne('/api/messages/message-a/report');
+    realtime.clearForWorkspaceBoundary();
+    expect(reportRequest.cancelled).toBe(true);
+    expect(facade.messageAction().mode).toBe('idle');
+  });
+
+  it('does not revive a row when a late PATCH success follows realtime deletion', async () => {
+    const events = new Subject<DurableRealtimeEvent>();
+    const httpMock = await configureRealtimeActionFacade(events);
+    const facade = TestBed.inject(MessagingFacade);
+    facade.loadConversation('conversation-a', 'channel', 'workspace-a');
+    flushConversationOpen(httpMock, 'conversation-a', true);
+
+    facade.beginMessageEdit('message-own');
+    facade.updateMessageEditDraft('message-own', 'Late PATCH body');
+    facade.saveMessageEdit('message-own');
+    const patch = httpMock.expectOne('/api/messages/message-own');
+
+    events.next(messageRealtimeEvent('Messaging.MessageDeleted.v1', {
+      conversationId: 'conversation-a',
+      messageId: 'message-own',
+      messageVersion: 3,
+    }));
+    patch.flush({
+      id: 'message-own',
+      workspaceId: 'workspace-a',
+      conversationId: 'conversation-a',
+      authorUserId: currentUserId,
+      authorDisplayName: 'Mock User A',
+      body: 'Late PATCH body',
+      createdAt: '2026-07-09T01:01:00Z',
+      editedAt: '2026-07-09T01:02:00Z',
+      isDeleted: false,
+      version: 2,
+    });
+
+    expect(facade.page().messages.find((message) => message.id === 'message-own')).toBeUndefined();
+    expect(facade.messageAction().feedback).toMatchObject({ message: 'Message was removed.', focusTimeline: true });
+  });
+
+  it('preserves a newer realtime update when a PATCH response is older', async () => {
+    const events = new Subject<DurableRealtimeEvent>();
+    const httpMock = await configureRealtimeActionFacade(events);
+    const facade = TestBed.inject(MessagingFacade);
+    facade.loadConversation('conversation-a', 'channel', 'workspace-a');
+    flushConversationOpen(httpMock, 'conversation-a', true);
+
+    facade.beginMessageEdit('message-own');
+    facade.updateMessageEditDraft('message-own', 'Late PATCH body');
+    facade.saveMessageEdit('message-own');
+    const patch = httpMock.expectOne('/api/messages/message-own');
+
+    events.next(messageRealtimeEvent('Messaging.MessageUpdated.v1', {
+      conversationId: 'conversation-a',
+      messageId: 'message-own',
+      messageVersion: 3,
+      body: 'Newer realtime body',
+      updatedAt: '2026-07-09T01:03:00Z',
+    }));
+    patch.flush({
+      id: 'message-own',
+      workspaceId: 'workspace-a',
+      conversationId: 'conversation-a',
+      authorUserId: currentUserId,
+      authorDisplayName: 'Mock User A',
+      body: 'Late PATCH body',
+      createdAt: '2026-07-09T01:01:00Z',
+      editedAt: '2026-07-09T01:02:00Z',
+      isDeleted: false,
+      version: 2,
+    });
+
+    expect(facade.page().messages.find((message) => message.id === 'message-own')).toMatchObject({
+      body: 'Newer realtime body',
+      editedAt: '2026-07-09T01:03:00Z',
+      version: 3,
+    });
+    expect(facade.messageAction().feedback).toMatchObject({
+      message: 'Message changed. Refresh the conversation before trying again.',
+      focusTimeline: true,
+    });
+  });
+
+  it('moves focus to the timeline when realtime deletion removes an active editor', async () => {
+    const events = new Subject<DurableRealtimeEvent>();
+    const httpMock = await configureRealtimeActionPage(events);
+    const fixture = TestBed.createComponent(ChannelMessagingPageComponent);
+    flushConversationOpen(httpMock, 'conversation-a', true);
+    const facade = TestBed.inject(MessagingFacade);
+    facade.beginMessageEdit('message-own');
+    fixture.detectChanges();
+
+    const root = fixture.nativeElement as HTMLElement;
+    const editor = root.querySelector<HTMLTextAreaElement>('[data-testid="message-edit-input-message-own"]');
+    editor!.focus();
+    expect(document.activeElement).toBe(editor);
+
+    events.next(messageRealtimeEvent('Messaging.MessageDeleted.v1', {
+      conversationId: 'conversation-a',
+      messageId: 'message-own',
+      messageVersion: 3,
+    }));
+    fixture.detectChanges();
+    await Promise.resolve();
+
+    expect(document.activeElement).toBe(root.querySelector('#message-timeline'));
   });
 
   it('opens a legacy notification conversation route in the canonical active Workspace', async () => {

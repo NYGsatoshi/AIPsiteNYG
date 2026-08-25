@@ -18,6 +18,7 @@ import {
 import {
   MessagingDraftScope,
   MessageFailureCode,
+  MessagingMessageActionState,
   MessagingMessageViewModel,
   MessagingPageStatus,
   MessagingPageViewModel,
@@ -30,6 +31,12 @@ export const AIP_MESSAGING_PAGE_MOCK = new InjectionToken<MessagingPageViewModel
 );
 
 const MESSAGING_REALTIME_OWNER = 'messaging-route';
+const EMPTY_MESSAGE_ACTION: MessagingMessageActionState = {
+  messageId: null,
+  mode: 'idle',
+  draft: '',
+  pending: null
+};
 
 @Injectable({ providedIn: 'root' })
 export class MessagingFacade {
@@ -44,6 +51,7 @@ export class MessagingFacade {
   private readonly pageState = signal<MessagingPageViewModel>(
     this.withStoredDraft(this.initialPage)
   );
+  private readonly messageActionState = signal<MessagingMessageActionState>(EMPTY_MESSAGE_ACTION);
   private readonly loadedConversationId = signal<string | null>(
     this.mockPage?.conversation.id ?? null
   );
@@ -53,8 +61,10 @@ export class MessagingFacade {
   private readonly durableEvents: Subscription;
   private readonly protectedRequests = new Set<Subscription>();
   private requestGeneration = 0;
+  private messageActionFeedbackId = 0;
 
   readonly page = computed(() => this.withSortedMessages(this.pageState()));
+  readonly messageAction = this.messageActionState.asReadonly();
 
   constructor() {
     this.durableEvents = this.realtime.durableEvents$.subscribe((event) => this.applyRealtimeEvent(event));
@@ -319,6 +329,7 @@ export class MessagingFacade {
       authorRoleLabel: 'member',
       isOwnMessage: true,
       body,
+      isDeleted: false,
       sentAtLabel: 'Sending',
       deliveryState: 'sending',
       retryAllowed: false,
@@ -410,6 +421,200 @@ export class MessagingFacade {
     this.trackProtectedRequest(request);
   }
 
+  beginMessageEdit(messageId: string): void {
+    const message = this.messageActionTarget(messageId, true);
+    if (!message || !this.canPost(this.pageState()) || this.messageActionState().mode !== 'idle' || this.mockPage) {
+      return;
+    }
+
+    this.messageActionState.set({
+      messageId,
+      mode: 'editing',
+      draft: message.body,
+      pending: null
+    });
+  }
+
+  updateMessageEditDraft(messageId: string, draft: string): void {
+    const action = this.messageActionState();
+    if (action.messageId !== messageId || action.mode !== 'editing' || action.pending) {
+      return;
+    }
+    this.messageActionState.set({ ...action, draft, error: undefined });
+  }
+
+  saveMessageEdit(messageId: string): void {
+    const action = this.messageActionState();
+    const message = this.messageActionTarget(messageId, true);
+    const body = action.draft.trim();
+    if (
+      action.messageId !== messageId ||
+      action.mode !== 'editing' ||
+      action.pending ||
+      !message ||
+      !this.canPost(this.pageState()) ||
+      this.mockPage
+    ) {
+      return;
+    }
+    if (!body) {
+      this.messageActionState.set({ ...action, error: 'Enter a message before saving.' });
+      return;
+    }
+
+    const generation = this.requestGeneration;
+    const conversationId = this.pageState().conversation.id;
+    this.messageActionState.set({ ...action, pending: 'edit', error: undefined });
+    const request = this.api.updateMessage(messageId, body).subscribe({
+      next: (updated) => {
+        if (!this.isCurrentRequest(generation, conversationId)) {
+          return;
+        }
+        const activeAction = this.messageActionState();
+        const currentMessage = this.pageState().messages.find((current) => current.id === messageId);
+        if (
+          activeAction.messageId !== messageId ||
+          activeAction.mode !== 'editing' ||
+          activeAction.pending !== 'edit' ||
+          !currentMessage
+        ) {
+          return;
+        }
+        const mapped = mapMessage(updated, this.currentUserId());
+        if (
+          currentMessage.version !== undefined &&
+          (mapped.version === undefined || mapped.version < currentMessage.version)
+        ) {
+          this.setMessageActionFeedback('Message changed. Refresh the conversation before trying again.', true);
+          return;
+        }
+        this.pageState.update((page) => ({
+          ...page,
+          messages: page.messages.map((current) => current.id === messageId
+            ? { ...mapped, readState: current.readState, mentionedUserIds: current.mentionedUserIds }
+            : current)
+        }));
+        this.setMessageActionFeedback('Message updated.', true);
+      },
+      error: (error: { status?: number; httpStatus?: number }) => {
+        if (this.isCurrentRequest(generation, conversationId)) {
+          this.messageActionState.update((current) => current.messageId === messageId && current.mode === 'editing'
+            ? { ...current, pending: null, error: messageActionFailureMessage(httpStatus(error)) }
+            : current);
+        }
+      }
+    });
+    this.trackProtectedRequest(request);
+  }
+
+  requestMessageDelete(messageId: string): void {
+    const message = this.messageActionTarget(messageId, true);
+    if (!message || this.messageActionState().mode !== 'idle' || this.mockPage) {
+      return;
+    }
+    this.messageActionState.set({
+      messageId,
+      mode: 'confirmDelete',
+      draft: '',
+      pending: null
+    });
+  }
+
+  confirmMessageDelete(messageId: string): void {
+    const action = this.messageActionState();
+    const message = this.messageActionTarget(messageId, true);
+    if (
+      action.messageId !== messageId ||
+      action.mode !== 'confirmDelete' ||
+      action.pending ||
+      !message ||
+      this.mockPage
+    ) {
+      return;
+    }
+
+    const generation = this.requestGeneration;
+    const conversationId = this.pageState().conversation.id;
+    this.messageActionState.set({ ...action, pending: 'delete', error: undefined });
+    const request = this.api.deleteMessage(messageId).subscribe({
+      next: () => {
+        if (!this.isCurrentRequest(generation, conversationId)) {
+          return;
+        }
+        // The current list endpoint omits DeletedAt rows, so reconcile a
+        // successful delete by removing it rather than inventing a durable tombstone.
+        this.pageState.update((page) => ({
+          ...page,
+          messages: page.messages.filter((current) => current.id !== messageId),
+          status: page.messages.length <= 1 ? 'empty' : page.status
+        }));
+        this.setMessageActionFeedback('Message deleted.', true);
+      },
+      error: (error: { status?: number; httpStatus?: number }) => {
+        if (this.isCurrentRequest(generation, conversationId)) {
+          this.messageActionState.update((current) => current.messageId === messageId && current.mode === 'confirmDelete'
+            ? { ...current, pending: null, error: messageActionFailureMessage(httpStatus(error)) }
+            : current);
+        }
+      }
+    });
+    this.trackProtectedRequest(request);
+  }
+
+  requestMessageReport(messageId: string): void {
+    const message = this.messageActionTarget(messageId);
+    if (!message || this.messageActionState().mode !== 'idle' || this.mockPage) {
+      return;
+    }
+    this.messageActionState.set({
+      messageId,
+      mode: 'confirmReport',
+      draft: '',
+      pending: null
+    });
+  }
+
+  confirmMessageReport(messageId: string, reasonCode: string): void {
+    const action = this.messageActionState();
+    const message = this.messageActionTarget(messageId);
+    if (
+      action.messageId !== messageId ||
+      action.mode !== 'confirmReport' ||
+      action.pending ||
+      !message ||
+      !reasonCode ||
+      this.mockPage
+    ) {
+      return;
+    }
+
+    const generation = this.requestGeneration;
+    const conversationId = this.pageState().conversation.id;
+    this.messageActionState.set({ ...action, pending: 'report', error: undefined });
+    const request = this.api.reportMessage(messageId, reasonCode).subscribe({
+      next: () => {
+        if (!this.isCurrentRequest(generation, conversationId)) {
+          return;
+        }
+        this.setMessageActionFeedback('Report request recorded.');
+      },
+      error: (error: { status?: number; httpStatus?: number }) => {
+        if (this.isCurrentRequest(generation, conversationId)) {
+          this.messageActionState.update((current) => current.messageId === messageId && current.mode === 'confirmReport'
+            ? { ...current, pending: null, error: messageActionFailureMessage(httpStatus(error)) }
+            : current);
+        }
+      }
+    });
+    this.trackProtectedRequest(request);
+  }
+
+  cancelMessageAction(): void {
+    if (!this.messageActionState().pending) {
+      this.messageActionState.set(EMPTY_MESSAGE_ACTION);
+    }
+  }
+
   clearDraftsForSessionBoundary(): void {
     this.draftStorage.clearAllDrafts();
     this.pageState.update((page) => ({ ...page, draft: '' }));
@@ -466,6 +671,31 @@ export class MessagingFacade {
       !page.conversation.viewerWasRemoved &&
       page.conversation.capabilities.includes('postMessage')
     );
+  }
+
+  private messageActionTarget(messageId: string, ownMessageOnly = false): MessagingMessageViewModel | null {
+    const message = this.pageState().messages.find((current) => current.id === messageId);
+    if (
+      !message ||
+      message.deliveryState !== 'confirmed' ||
+      message.isDeleted ||
+      (ownMessageOnly && !message.isOwnMessage)
+    ) {
+      return null;
+    }
+    return message;
+  }
+
+  private setMessageActionFeedback(message: string, focusTimeline = false): void {
+    this.messageActionFeedbackId += 1;
+    this.messageActionState.set({
+      ...EMPTY_MESSAGE_ACTION,
+      feedback: {
+        id: this.messageActionFeedbackId,
+        message,
+        focusTimeline
+      }
+    });
   }
 
   private scopeFor(page: MessagingPageViewModel): MessagingDraftScope {
@@ -534,7 +764,7 @@ export class MessagingFacade {
       }
       return;
     }
-    const payload = event.payload as { conversationId?: unknown; message?: unknown; messageId?: unknown; messageVersion?: unknown; body?: unknown; deletionMode?: unknown };
+    const payload = event.payload as { conversationId?: unknown; message?: unknown; messageId?: unknown; messageVersion?: unknown; body?: unknown; updatedAt?: unknown; deletionMode?: unknown };
     if (payload.conversationId !== page.conversation.id && (payload.message as { conversationId?: unknown } | undefined)?.conversationId !== page.conversation.id) {
       return;
     }
@@ -546,12 +776,29 @@ export class MessagingFacade {
     if (event.eventType === 'Messaging.MessageUpdated.v1' || event.eventType === 'Messaging.MessageDeleted.v1') {
       const messageId = typeof payload.messageId === 'string' ? payload.messageId : '';
       const version = typeof payload.messageVersion === 'number' ? payload.messageVersion : undefined;
+      if (event.eventType === 'Messaging.MessageDeleted.v1') {
+        this.pageState.update((current) => {
+          const messages = current.messages.filter((message) => message.id !== messageId);
+          return {
+            ...current,
+            messages,
+            status: messages.length === 0 ? 'empty' : current.status
+          };
+        });
+        if (this.messageActionState().messageId === messageId) {
+          this.setMessageActionFeedback('Message was removed.', true);
+        }
+        return;
+      }
       this.pageState.update((current) => ({
         ...current,
         messages: current.messages.map((message) => message.id === messageId && (version === undefined || (message.version ?? 0) < version)
-          ? event.eventType === 'Messaging.MessageDeleted.v1'
-            ? { ...message, body: '', version, deliveryState: 'confirmed' }
-            : { ...message, body: typeof payload.body === 'string' ? payload.body : message.body, version }
+          ? {
+              ...message,
+              body: typeof payload.body === 'string' ? payload.body : message.body,
+              editedAt: typeof payload.updatedAt === 'string' ? payload.updatedAt : message.editedAt,
+              version
+            }
           : message)
       }));
     }
@@ -572,6 +819,7 @@ export class MessagingFacade {
   private beginRequestGeneration(): number {
     this.requestGeneration++;
     this.cancelProtectedRequests();
+    this.messageActionState.set(EMPTY_MESSAGE_ACTION);
     return this.requestGeneration;
   }
 
@@ -719,6 +967,20 @@ function sendFailureMessage(status: number | undefined): string {
     : 'Message API request failed.';
 }
 
+function messageActionFailureMessage(status: number | undefined): string {
+  if (status === 401) {
+    return 'Your session has ended. Sign in again before trying this message action.';
+  }
+  if (status === 400 || status === 403 || status === 404) {
+    return 'This message action is no longer available. Refresh the conversation and try again.';
+  }
+  return 'The message action could not be completed. Try again.';
+}
+
+function httpStatus(error: { readonly status?: number; readonly httpStatus?: number }): number | undefined {
+  return error.httpStatus ?? error.status;
+}
+
 function failureCode(status: number | undefined): MessageFailureCode {
   if (status === 401) {
     return 'sessionExpired';
@@ -761,6 +1023,7 @@ function mapRealtimeMessage(value: Record<string, unknown>, currentUserId: strin
     authorRoleLabel: 'member',
     isOwnMessage: authorUserId !== '' && authorUserId === currentUserId,
     body: typeof value['body'] === 'string' ? value['body'] : '',
+    isDeleted: false,
     createdAt: typeof value['createdAt'] === 'string' ? value['createdAt'] : undefined,
     version: typeof value['version'] === 'number' ? value['version'] : undefined,
     sentAtLabel: typeof value['createdAt'] === 'string' ? new Date(value['createdAt']).toLocaleString() : '',

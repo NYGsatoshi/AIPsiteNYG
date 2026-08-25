@@ -48,9 +48,141 @@
   line-height: 1.62;
 }
 
+.message__edited {
+  color: var(--aip-color-text-secondary);
+  font-size: 0.78rem;
+  font-weight: 700;
+}
+
+.message__actions,
+.message__edit-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  align-items: center;
+}
+
+.message__overflow {
+  position: relative;
+}
+
+.message__overflow-panel {
+  position: absolute;
+  z-index: 2;
+  top: calc(100% + 4px);
+  right: 0;
+  display: grid;
+  min-width: 10rem;
+  gap: 4px;
+  padding: 4px;
+  border: 1px solid var(--aip-color-border-default);
+  border-radius: 8px;
+  background: var(--aip-color-bg-surface);
+  box-shadow: 0 8px 20px rgb(0 0 0 / 18%);
+}
+
+.message__action-button,
+.message__edit-actions button {
+  display: inline-flex;
+  min-width: 44px;
+  min-height: 44px;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  border: 1px solid var(--aip-color-border-default);
+  border-radius: 6px;
+  padding: 8px 10px;
+  background: var(--aip-color-bg-surface-subtle);
+  color: var(--aip-color-text-primary);
+  font: inherit;
+  font-weight: 700;
+  cursor: pointer;
+}
+
+.message__action-button svg {
+  width: 18px;
+  height: 18px;
+}
+
+.message__action-button:focus-visible,
+.message__edit-actions button:focus-visible,
+.message__edit-form textarea:focus-visible,
+.message__edit-form select:focus-visible {
+  outline: 3px solid var(--aip-color-focus, #79a9ff);
+  outline-offset: 2px;
+}
+
+.message__action-button:disabled,
+.message__edit-actions button:disabled {
+  cursor: not-allowed;
+  opacity: 0.58;
+}
+
+.message__action-button--danger {
+  border-color: var(--aip-color-danger, #b13a3a);
+  color: var(--aip-color-danger, #b13a3a);
+}
+
+.message__edit-form {
+  display: grid;
+  gap: 8px;
+}
+
+.message__edit-form textarea,
+.message__edit-form select {
+  width: 100%;
+  box-sizing: border-box;
+  border: 1px solid var(--aip-color-border-default);
+  border-radius: 6px;
+  padding: 9px;
+  background: var(--aip-color-bg-surface);
+  color: var(--aip-color-text-primary);
+  font: inherit;
+}
+
+.message__edit-form textarea {
+  min-height: 6rem;
+  resize: vertical;
+}
+
+.message__action-error {
+  margin: 0;
+  color: var(--aip-color-danger, #b13a3a);
+  font-weight: 700;
+}
+
 .message__read {
   margin: 0;
   color: var(--aip-color-text-secondary);
   font-size: 0.82rem;
   font-weight: 700;
+}
+
+@media (max-width: 30rem) {
+  .message {
+    padding: 12px;
+  }
+
+  .message__actions {
+    align-items: stretch;
+  }
+
+  .message__action-button {
+    flex: 1 1 auto;
+  }
+
+  .message__overflow {
+    flex: 1 1 auto;
+  }
+
+  .message__more-button {
+    width: 100%;
+  }
+
+  .message__overflow-panel {
+    position: static;
+    width: 100%;
+    box-sizing: border-box;
+    margin-top: 4px;
+  }
 }

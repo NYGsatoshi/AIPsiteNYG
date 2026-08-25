@@ -3482,6 +3482,11 @@ async function createDirectMessageAndVerifyPersistence(page: Page, evidence: Smo
   await page.reload();
   await expect(page.getByTestId('dm-page')).toBeVisible();
   await expect(page.getByTestId('confirmed-message').filter({ hasText: messageBody })).toBeVisible();
+  // Conversation registration performs an authoritative realtime catch-up after reload.
+  // Wait for that stable projection before opening local message actions.
+  await expect(page.getByTestId('realtime-connection-state')).toContainText('Realtime updates connected.', {
+    timeout: 30_000
+  });
 
   await recordFetchJson(page, evidence, 'message-list-after-reload', `/api/conversations/${evidence.conversationId}/messages`, {
     validate: (body) =>
@@ -3490,6 +3495,68 @@ async function createDirectMessageAndVerifyPersistence(page: Page, evidence: Smo
         hasStringValue(item, 'id', evidence.messageId ?? '') &&
         hasStringValue(item, 'body', messageBody)
       )
+  });
+
+  const messageRow = page.locator(`#message-${evidence.messageId}`);
+  const more = page.getByTestId(`message-more-actions-${evidence.messageId}`);
+  await more.click();
+  await page.getByTestId(`report-message-${evidence.messageId}`).click();
+  const [reportResponse] = await Promise.all([
+    waitForApiResponse(page, 'POST', `/api/messages/${evidence.messageId}/report`),
+    page.getByRole('button', { name: 'Record report request' }).click()
+  ]);
+  expect(reportResponse.request().headers()['x-csrf-token'], 'message report CSRF header').toBeTruthy();
+  expect(reportResponse.request().postDataJSON(), 'message report request DTO').toEqual({ reasonCode: 'reported' });
+  await recordOkJson(reportResponse, evidence, 'message-report', (body) =>
+    hasStringValue(body, 'status', 'OK')
+  );
+  await expect(page.getByTestId('message-action-status')).toContainText('Report request recorded.');
+
+  const editedMessageBody = `${messageBody} edited`;
+  await more.click();
+  await page.getByTestId(`edit-message-${evidence.messageId}`).click();
+  await expect(page.getByTestId(`message-edit-input-${evidence.messageId}`)).toBeFocused();
+  await page.getByTestId(`message-edit-input-${evidence.messageId}`).fill(editedMessageBody);
+  const [editResponse] = await Promise.all([
+    waitForApiResponse(page, 'PATCH', `/api/messages/${evidence.messageId}`),
+    page.getByTestId(`save-message-edit-${evidence.messageId}`).click()
+  ]);
+  expect(editResponse.request().headers()['x-csrf-token'], 'message edit CSRF header').toBeTruthy();
+  expect(editResponse.request().postDataJSON(), 'message edit request DTO').toEqual({ body: editedMessageBody });
+  await recordOkJson(editResponse, evidence, 'message-edit', (body) =>
+    hasStringValue(body, 'id', evidence.messageId ?? '') &&
+    hasStringValue(body, 'body', editedMessageBody) &&
+    hasString(body, 'editedAt')
+  );
+  await expect(messageRow).toContainText(editedMessageBody);
+  await expect(messageRow.getByTestId('message-edited-marker')).toBeVisible();
+  await page.reload();
+  await expect(page.getByTestId('dm-page')).toBeVisible();
+  await expect(page.getByTestId('confirmed-message').filter({ hasText: editedMessageBody })).toBeVisible();
+  // Do not open the local overflow until the follow-up catch-up has settled either.
+  await expect(page.getByTestId('realtime-connection-state')).toContainText('Realtime updates connected.', {
+    timeout: 30_000
+  });
+
+  const reloadedMore = page.getByTestId(`message-more-actions-${evidence.messageId}`);
+  await reloadedMore.click();
+  await page.getByTestId(`delete-message-${evidence.messageId}`).click();
+  await expect(page.getByRole('dialog', { name: 'Delete message?' })).toBeVisible();
+  const [deleteResponse] = await Promise.all([
+    waitForApiResponse(page, 'DELETE', `/api/messages/${evidence.messageId}`),
+    page.getByRole('button', { name: 'Delete message' }).click()
+  ]);
+  expect(deleteResponse.request().headers()['x-csrf-token'], 'message delete CSRF header').toBeTruthy();
+  await recordOkJson(deleteResponse, evidence, 'message-delete', (body) =>
+    hasStringValue(body, 'status', 'OK')
+  );
+  await expect(page.locator(`#message-${evidence.messageId}`)).toHaveCount(0);
+  await page.reload();
+  await expect(page.getByTestId('dm-page')).toBeVisible();
+  await recordFetchJson(page, evidence, 'message-list-after-delete', `/api/conversations/${evidence.conversationId}/messages`, {
+    validate: (body) =>
+      isPagedResponse(body) &&
+      body.items.every((item: unknown) => !hasStringValue(item, 'id', evidence.messageId ?? ''))
   });
 }
 

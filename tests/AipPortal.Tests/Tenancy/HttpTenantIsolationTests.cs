@@ -1731,6 +1731,13 @@ public sealed class HttpTenantIsolationTests
         using var editContent = JsonContent("""{"body":"B-10 edited body"}""");
         var edit = await app.SendAsync(data.TenantAMember, data.TenantA.Slug, $"/api/messages/{data.MessageA.Id}", HttpMethod.Patch, editContent);
         Assert.Equal(HttpStatusCode.OK, edit.StatusCode);
+        using (var editDocument = JsonDocument.Parse(await edit.Content.ReadAsStringAsync()))
+        {
+            Assert.Equal(data.MessageA.Id, editDocument.RootElement.GetProperty("id").GetGuid());
+            Assert.Equal("B-10 edited body", editDocument.RootElement.GetProperty("body").GetString());
+            Assert.True(editDocument.RootElement.GetProperty("editedAt").GetDateTimeOffset() > DateTimeOffset.MinValue);
+            Assert.True(editDocument.RootElement.GetProperty("version").GetInt64() > 0);
+        }
 
         using var deniedEditContent = JsonContent("""{"body":"B-10 non-author edit body"}""");
         var deniedEdit = await app.SendAsync(data.CrossTenantUser, data.TenantA.Slug, $"/api/messages/{data.MessageA.Id}", HttpMethod.Patch, deniedEditContent);
@@ -1742,6 +1749,10 @@ public sealed class HttpTenantIsolationTests
         using var reportContent = JsonContent("""{"reasonCode":"abuse","reason":"raw report text token storage/path DM body"}""");
         var report = await app.SendAsync(data.CrossTenantUser, data.TenantA.Slug, $"/api/messages/{data.MessageA.Id}/report", HttpMethod.Post, reportContent);
         Assert.Equal(HttpStatusCode.OK, report.StatusCode);
+        using (var reportDocument = JsonDocument.Parse(await report.Content.ReadAsStringAsync()))
+        {
+            Assert.Equal("OK", reportDocument.RootElement.GetProperty("status").GetString());
+        }
 
         using var deniedReportContent = JsonContent("""{"reasonCode":"abuse","reason":"raw report text token storage/path DM body"}""");
         var deniedReport = await app.SendAsync(data.TenantAAdmin, data.TenantA.Slug, $"/api/messages/{data.MessageA.Id}/report", HttpMethod.Post, deniedReportContent);
@@ -1772,6 +1783,10 @@ public sealed class HttpTenantIsolationTests
 
         var deleteResponse = await app.SendAsync(data.CrossTenantUser, data.TenantA.Slug, $"/api/messages/{data.MessageA.Id}", HttpMethod.Delete);
         Assert.Equal(HttpStatusCode.OK, deleteResponse.StatusCode);
+        using (var deleteDocument = JsonDocument.Parse(await deleteResponse.Content.ReadAsStringAsync()))
+        {
+            Assert.Equal("OK", deleteDocument.RootElement.GetProperty("status").GetString());
+        }
 
         var deletedRead = await app.SendAsync(data.CrossTenantUser, data.TenantA.Slug, $"/api/conversations/{data.ConversationA.Id}/messages");
         var deletedReadBody = await deletedRead.Content.ReadAsStringAsync();
