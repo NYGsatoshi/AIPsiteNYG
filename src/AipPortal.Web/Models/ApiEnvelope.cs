@@ -128,6 +128,28 @@ public static class ApiEnvelope
                 segments[3].Equals("visibility", StringComparison.OrdinalIgnoreCase));
     }
 
+    /// <summary>
+    /// Identifies the Project-scoped canonical Task-create read/command
+    /// surfaces.  Keep this separate from the older Workspace classifier so
+    /// compatibility Task CRUD endpoints do not acquire a new envelope by
+    /// accident.
+    /// </summary>
+    public static bool IsCanonicalTaskCreatePath(string? path)
+    {
+        var normalized = path?.TrimEnd('/') ?? string.Empty;
+        var segments = normalized.Split('/', StringSplitOptions.RemoveEmptyEntries);
+        return segments.Length == 5 &&
+               segments[0].Equals("api", StringComparison.OrdinalIgnoreCase) &&
+               segments[1].Equals("projects", StringComparison.OrdinalIgnoreCase) &&
+               Guid.TryParse(segments[2], out _) &&
+               segments[3].Equals("tasks", StringComparison.OrdinalIgnoreCase) &&
+               (segments[4].Equals("create", StringComparison.OrdinalIgnoreCase) ||
+                segments[4].Equals("create-options", StringComparison.OrdinalIgnoreCase));
+    }
+
+    public static bool IsCanonicalCreatePath(string? path) =>
+        IsWorkspaceCreationPath(path) || IsCanonicalTaskCreatePath(path);
+
     public static bool IsProjectVisibilityPath(string? path)
     {
         var normalized = path?.TrimEnd('/') ?? string.Empty;

@@ -18,7 +18,7 @@ public sealed class WpcAuthorizationMiddlewareResultHandler : IAuthorizationMidd
         AuthorizationPolicy policy,
         PolicyAuthorizationResult authorizeResult)
     {
-        if (!ApiEnvelope.IsWorkspaceCreationPath(context.Request.Path.Value) || authorizeResult.Succeeded)
+        if (!ApiEnvelope.IsCanonicalCreatePath(context.Request.Path.Value) || authorizeResult.Succeeded)
         {
             await _fallback.HandleAsync(next, context, policy, authorizeResult);
             return;

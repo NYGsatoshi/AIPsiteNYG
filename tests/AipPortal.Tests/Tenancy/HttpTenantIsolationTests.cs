@@ -272,6 +272,50 @@ public sealed class HttpTenantIsolationTests
     }
 
     [Fact]
+    [Trait("Scope", "Issue410")]
+    public async Task CanonicalTaskCreateRoutesResolveThroughTheInProcessHostAndPreserveSafeTenantBoundaries()
+    {
+        await using var app = await HttpTenantIsolationTestApp.CreateAsync();
+        var data = app.Data;
+        var optionsPath = $"/api/projects/{data.ProjectA.Id}/tasks/create-options";
+        var createPath = $"/api/projects/{data.ProjectA.Id}/tasks/create";
+
+        Assert.Contains("GET api/projects/{projectId:guid}/tasks/create-options", app.GetHttpRoutes());
+        Assert.Contains("POST api/projects/{projectId:guid}/tasks/create", app.GetHttpRoutes());
+
+        using (var options = await app.SendAsync(data.TenantAMember, data.TenantA.Slug, optionsPath))
+        using (var document = JsonDocument.Parse(await options.Content.ReadAsStringAsync()))
+        {
+            Assert.Equal(HttpStatusCode.OK, options.StatusCode);
+            var payload = document.RootElement.GetProperty("data");
+            Assert.Equal(data.ProjectA.Id, payload.GetProperty("projectId").GetGuid());
+            Assert.Equal(data.WorkspaceA.Id, payload.GetProperty("workspaceId").GetGuid());
+            Assert.True(payload.GetProperty("canCreateTask").GetBoolean());
+            Assert.False(payload.GetProperty("canManageProject").GetBoolean());
+            Assert.Empty(payload.GetProperty("assignees").EnumerateArray());
+            Assert.False(payload.GetProperty("projectScope").GetProperty("canSetTaskOverride").GetBoolean());
+        }
+
+        using (var missingKey = await app.SendAsync(
+                   data.TenantAMember,
+                   data.TenantA.Slug,
+                   createPath,
+                   HttpMethod.Post,
+                   JsonContent("""{"title":"Task through host","sourceScopeMode":"Inherit"}""")))
+        using (var document = JsonDocument.Parse(await missingKey.Content.ReadAsStringAsync()))
+        {
+            Assert.Equal(HttpStatusCode.BadRequest, missingKey.StatusCode);
+            AssertCompleteErrorEnvelope(document.RootElement, 400, "MissingIdempotencyKey", "header.Idempotency-Key");
+        }
+
+        using var crossTenant = await app.SendAsync(data.TenantBOwner, data.TenantB.Slug, optionsPath);
+        var crossTenantBody = await crossTenant.Content.ReadAsStringAsync();
+        Assert.Equal(HttpStatusCode.NotFound, crossTenant.StatusCode);
+        Assert.DoesNotContain(data.ProjectA.Name, crossTenantBody, StringComparison.Ordinal);
+        Assert.DoesNotContain(data.TenantA.Slug, crossTenantBody, StringComparison.Ordinal);
+    }
+
+    [Fact]
     [Trait("Scope", "WPC01")]
     public async Task WorkspaceCreateFailsClosedThroughCanonicalEnvelopeWhenGeneralIsUnavailable()
     {

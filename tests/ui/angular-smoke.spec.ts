@@ -720,6 +720,69 @@ test.describe('MVP-A P0 Angular frontend smoke', () => {
     await expectHealthyAngularPage(page);
   });
 
+  test('keeps Project New Task keyboard-accessible and horizontal-overflow-free at 320px without a Start action', async ({ page }) => {
+    const workspace: WorkspaceContextFixture = {
+      id: '41000000-0000-4000-8000-000000000001',
+      name: 'Task creation evidence workspace',
+      currentUserRole: 'Owner',
+      canCreateProject: true,
+      runningProjectCount: 1,
+      needsReviewProjectCount: 0,
+    };
+    const projectId = '41000000-0000-4000-8000-000000000002';
+    const taskId = '41000000-0000-4000-8000-000000000003';
+    await page.setViewportSize({ width: 320, height: 900 });
+    await installWorkspaceContextApi(page, [workspace], workspace);
+    const api = await installTaskCreateStaticApi(page, { workspaceId: workspace.id, projectId, taskId });
+
+    await page.goto(`/app/projects/${projectId}`);
+    const create = page.getByTestId('project-create-task');
+    await expect(create).toBeVisible();
+    await pressTabUntilFocused(page, create, 24);
+    await page.keyboard.press('Enter');
+    await expect(page).toHaveURL(`/app/projects/${projectId}/tasks/new`);
+
+    const title = page.getByTestId('task-create-title');
+    const goal = page.getByTestId('task-brief-goal-input');
+    const milestone = page.getByTestId('task-create-milestone');
+    const assignee = page.getByTestId('task-create-primary-assignee');
+    const submit = page.getByTestId('task-create-submit');
+    await expect(title).toBeFocused();
+    await expect(page.getByTestId('task-create-page')).toContainText('does not start a runtime or retrieve sources');
+    await expect(page.getByRole('button', { name: 'Start' })).toHaveCount(0);
+    await expect(page.locator('[name="webUrl"], [name="provider"], [name="projectId"], [name="workspaceId"]')).toHaveCount(0);
+    await title.fill('  Accessible evidence Task  ');
+    await goal.fill('Review the immutable source-scope choice.');
+    await milestone.selectOption(api.milestoneId);
+    await assignee.selectOption(api.assigneeId);
+    await expectNoDocumentHorizontalOverflow(page);
+    await expectNoAccessibilityViolations(page);
+
+    const created = page.waitForResponse((response) =>
+      response.request().method() === 'POST' &&
+      new URL(response.url()).pathname === `/api/projects/${projectId}/tasks/create`,
+    );
+    await submit.click();
+    expect((await created).status()).toBe(201);
+    await expect(page).toHaveURL(`/app/projects/${projectId}/tasks/${taskId}`);
+    expect(api.createRequests).toHaveLength(1);
+    expect(api.createRequests[0]?.body).toEqual({
+      title: 'Accessible evidence Task',
+      priority: 1,
+      milestoneId: api.milestoneId,
+      primaryAssigneeUserId: api.assigneeId,
+      goal: 'Review the immutable source-scope choice.',
+      sourceScopeMode: 'Inherit',
+    });
+    expect(api.createRequests[0]?.csrfToken).toBe('csrf-workspace-create');
+    expect(api.createRequests[0]?.idempotencyKey).toMatch(/^task-create-/u);
+    expect(api.createRequests[0]?.body).not.toHaveProperty('projectId');
+    expect(api.createRequests[0]?.body).not.toHaveProperty('workspaceId');
+    expect(api.createRequests[0]?.body).not.toHaveProperty('webUrl');
+    expect(api.createRequests[0]?.body).not.toHaveProperty('provider');
+    expect(api.createRequests[0]?.body).not.toHaveProperty('taskOverridePolicy');
+  });
+
   test('fails closed when the backend does not grant Workspace creation', async ({ page }) => {
     const api = await installWorkspaceContextApi(
       page,
@@ -3612,6 +3675,208 @@ async function installCanonicalProjectCreateActivationApi(
       releaseFirstCreate();
     }
   };
+}
+
+async function installTaskCreateStaticApi(
+  page: Page,
+  scope: { workspaceId: string; projectId: string; taskId: string },
+) {
+  const milestoneId = '41000000-0000-4000-8000-000000000004';
+  const assigneeId = '41000000-0000-4000-8000-000000000005';
+  const workflowStageId = '41000000-0000-4000-8000-000000000006';
+  const createRequests: {
+    body: Record<string, unknown>;
+    idempotencyKey: string;
+    csrfToken: string;
+  }[] = [];
+  const project = {
+    id: scope.projectId,
+    workspaceId: scope.workspaceId,
+    groupId: null,
+    ownerUserId: assigneeId,
+    title: 'Task creation evidence Project',
+    description: 'Static browser fixture for Task creation.',
+    status: 1,
+    visibility: 1,
+    activationState: 2,
+    activatedAtUtc: '2026-08-24T00:00:00Z',
+    activationVersion: 1,
+    versionNo: 1,
+    startDate: null,
+    endDate: null,
+    createdAt: '2026-08-24T00:00:00Z',
+    updatedAt: '2026-08-24T00:00:00Z',
+    uiPermissions: { canCreateTask: true, canActivate: false },
+  };
+
+  await page.route('**/api/**', async (route) => {
+    const request = route.request();
+    const url = new URL(request.url());
+    const path = url.pathname;
+    const method = request.method();
+
+    if (path === `/api/projects/${scope.projectId}` && method === 'GET') {
+      await route.fulfill({
+        status: 200,
+        contentType: 'application/json; charset=utf-8',
+        body: JSON.stringify(project),
+      });
+      return;
+    }
+    if (path === `/api/projects/${scope.projectId}/tasks/create-options` && method === 'GET') {
+      await route.fulfill({
+        status: 200,
+        contentType: 'application/json; charset=utf-8',
+        body: JSON.stringify({
+          requestId: 'task-create-options-200',
+          data: {
+            projectId: scope.projectId,
+            workspaceId: scope.workspaceId,
+            projectTitle: project.title,
+            canCreateTask: true,
+            canManageProject: true,
+            milestones: [{ id: milestoneId, title: 'Named evidence milestone' }],
+            assignees: [{ userId: assigneeId, displayName: 'Named project member' }],
+            projectScope: {
+              policy: { webEnabled: false, projectFilesEnabled: true },
+              version: 1,
+              canSetTaskOverride: true,
+            },
+          },
+          warnings: [],
+        }),
+      });
+      return;
+    }
+    if (path === `/api/projects/${scope.projectId}/tasks/create` && method === 'POST') {
+      const body = request.postDataJSON() as Record<string, unknown>;
+      createRequests.push({
+        body,
+        idempotencyKey: request.headers()['idempotency-key'] ?? '',
+        csrfToken: request.headers()['x-csrf-token'] ?? '',
+      });
+      await route.fulfill({
+        status: 201,
+        contentType: 'application/json; charset=utf-8',
+        body: JSON.stringify({
+          requestId: 'task-create-201',
+          data: {
+            taskId: scope.taskId,
+            projectId: scope.projectId,
+            workspaceId: scope.workspaceId,
+            milestoneId: body['milestoneId'] ?? null,
+            primaryAssigneeUserId: body['primaryAssigneeUserId'] ?? null,
+            title: body['title'],
+            priority: body['priority'],
+            status: 0,
+            workflowStageId,
+            version: 1,
+            sourceScopeMode: body['sourceScopeMode'],
+            taskOverridePolicy: body['taskOverridePolicy'] ?? null,
+          },
+          warnings: [],
+        }),
+      });
+      return;
+    }
+    if (path === `/api/projects/${scope.projectId}/tasks` && method === 'GET') {
+      await route.fulfill({
+        status: 200,
+        contentType: 'application/json; charset=utf-8',
+        body: JSON.stringify({ items: [], page: 1, pageSize: 50, totalCount: 0, hasMore: false }),
+      });
+      return;
+    }
+    if (path === `/api/projects/${scope.projectId}/kanban` && method === 'GET') {
+      await route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify(emptyCanonicalKanban(scope.projectId)) });
+      return;
+    }
+    if (path === `/api/projects/${scope.projectId}/gantt` && method === 'GET') {
+      await route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify(emptyCanonicalGantt(scope.projectId)) });
+      return;
+    }
+    if (path === `/api/projects/${scope.projectId}/workload` && method === 'GET') {
+      await route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify({ members: [] }) });
+      return;
+    }
+    if (path === `/api/projects/${scope.projectId}/members` && method === 'GET') {
+      await route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify([]) });
+      return;
+    }
+    if (path === `/api/tasks/${scope.taskId}` && method === 'GET') {
+      const created = createRequests.at(-1)?.body ?? {};
+      await route.fulfill({
+        status: 200,
+        contentType: 'application/json; charset=utf-8',
+        body: JSON.stringify({
+          task: {
+            id: scope.taskId,
+            tenantId: 'static-tenant',
+            workspaceId: scope.workspaceId,
+            projectId: scope.projectId,
+            kind: 0,
+            parentTaskId: null,
+            milestoneId: created['milestoneId'] ?? null,
+            title: created['title'] ?? 'Accessible evidence Task',
+            description: created['description'] ?? '',
+            brief: {
+              goal: { value: created['goal'] ?? null, source: 'taskSpecific' },
+              deliverable: { value: created['deliverable'] ?? null, source: 'taskSpecific' },
+              constraints: { value: created['constraints'] ?? null, source: 'taskSpecific' },
+            },
+            workflowStageId,
+            workflowStageName: 'Todo',
+            status: 0,
+            stageCategory: 0,
+            isBlocked: false,
+            priority: created['priority'] ?? 1,
+            plannedStartDate: created['startDate'] ?? null,
+            plannedEndDate: created['dueDate'] ?? null,
+            progressPercent: 0,
+            progressIsDerived: false,
+            primaryAssignee: created['primaryAssigneeUserId']
+              ? { userId: created['primaryAssigneeUserId'], displayName: 'Named project member' }
+              : null,
+            reviewStatus: 0,
+            version: 1,
+            uiPermissions: {
+              canEdit: true,
+              canAssign: true,
+              canChangeStatus: true,
+              canDelete: false,
+              allowedTransitions: [],
+            },
+          },
+          relationships: { primaryAssignee: null, collaborators: [], reviewer: null, version: 1 },
+          permissions: {
+            canCreateSubtask: false,
+            canCreateChecklistItem: false,
+            canUpdateChecklistItems: false,
+            canDeleteChecklistItems: false,
+            canReorderChecklist: false,
+            canCreateComment: false,
+            canMarkCommentImportant: false,
+            canApplyLabels: false,
+            canManageLabelDefinitions: false,
+            canAssociateFiles: false,
+            canRemoveFiles: false,
+            canChangeWatch: false,
+          },
+          checklist: [],
+          labels: [],
+          watchState: { isWatching: false, isExplicitOptOut: false, automaticSources: [], version: 1 },
+          subtasks: { items: [], page: 1, pageSize: 50, totalCount: 0, hasMore: false },
+          comments: { items: [], page: 1, pageSize: 20, totalCount: 0, hasMore: false },
+          files: { items: [], page: 1, pageSize: 20, totalCount: 0, hasMore: false },
+        }),
+      });
+      return;
+    }
+
+    await route.fallback();
+  });
+
+  return { milestoneId, assigneeId, createRequests };
 }
 
 function emptyCanonicalKanban(projectId: string) {
