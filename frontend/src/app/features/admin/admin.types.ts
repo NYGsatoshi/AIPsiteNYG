@@ -4,6 +4,7 @@ export const ADMIN_DEFAULT_PAGE_SIZE = 50;
 export const ADMIN_MAXIMUM_PAGE_SIZE = 100;
 
 export type AdminPageStatus = 'ready' | 'loading' | 'empty' | 'error' | 'permissionDenied';
+export type AuditDetailStatus = 'idle' | 'loading' | 'ready' | 'notFound' | 'permissionDenied' | 'error';
 export type AuditSeverity = 'info' | 'warning' | 'critical';
 export type AuditResult = 'success' | 'denied' | 'failed';
 export type ExportJobStatus = 'pending' | 'running' | 'succeeded' | 'failed';
@@ -71,7 +72,18 @@ export interface AuditLogViewModel {
   readonly columns: readonly AppDataGridColumnDef<AuditGridRow>[];
   readonly pageSize: AdminPageSizePolicy;
   readonly typedFieldNote: typeof AUDIT_TYPED_FIELD_NOTE;
-  readonly initialSelectedAuditId?: string;
+  readonly message?: string;
+}
+
+/**
+ * The drawer deliberately reuses the audit-grid projection. It does not model
+ * raw audit metadata, IDs, duration, Claims, Evidence, or a writable event
+ * history that the current backend does not authorize or expose.
+ */
+export interface AuditDetailViewModel {
+  readonly status: AuditDetailStatus;
+  readonly auditId: string | null;
+  readonly row: AuditGridRow | null;
   readonly message?: string;
 }
 
@@ -80,7 +92,6 @@ export interface AuditLogScenario {
   readonly title: string;
   readonly subtitle: string;
   readonly auditRecords: readonly AuditMockRecord[];
-  readonly initialSelectedAuditId?: string;
   readonly message?: string;
 }
 

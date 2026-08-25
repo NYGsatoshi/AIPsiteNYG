@@ -101,7 +101,20 @@ public sealed record TaskLabelAssociationRequest(long ExpectedVersion);
 public sealed record TaskSubresourceSummary(int ChecklistCompletedCount, int ChecklistTotalCount, int CommentCount, int LabelCount, int SubtaskCount);
 public sealed record TaskSubtaskResponse(Guid Id, Guid ParentTaskId, string Title, Guid? WorkflowStageId, string WorkflowStageName, string StageCategory, string Priority, int ProgressPercent, TaskPersonSummary? PrimaryAssignee, DateOnly? PlannedEndDate, DateTimeOffset? DeadlineAt, bool IsOverdue, long Version);
 public sealed record TaskSubtaskPage(IReadOnlyList<TaskSubtaskResponse> Items, int Page, int PageSize, int TotalCount, bool HasMore);
-public sealed record CreateTaskSubtaskRequest(string Title, string? Description, AipPortal.Domain.Enums.TaskPriority Priority = AipPortal.Domain.Enums.TaskPriority.Medium);
+public sealed record CreateTaskSubtaskRequest(
+    string Title,
+    string? Description,
+    AipPortal.Domain.Enums.TaskPriority Priority = AipPortal.Domain.Enums.TaskPriority.Medium,
+    string? Goal = null,
+    string? Deliverable = null,
+    string? Constraints = null);
+public sealed record TaskActivityLogResponse(
+    Guid Id,
+    [property: JsonConverter(typeof(JsonStringEnumConverter))] AipPortal.Domain.Enums.ActivityLogType ActivityType,
+    string Body,
+    DateTimeOffset OccurredAt,
+    TaskPersonSummary Author);
+public sealed record TaskActivityLogPage(IReadOnlyList<TaskActivityLogResponse> Items, int Page, int PageSize, int TotalCount, bool HasMore);
 public sealed record TaskFileAssociationResponse(Guid Id, Guid FileObjectId, string FileName, string ContentType, long SizeBytes, string ScanStatus, DateTimeOffset CreatedAt, string AccessState, bool CanOpen, bool CanRequestDownloadGrant, bool DownloadGrantRequired, string? RestrictionCode);
 public sealed record TaskFileAssociationPage(IReadOnlyList<TaskFileAssociationResponse> Items, int Page, int PageSize, int TotalCount, bool HasMore);
 public sealed record CreateTaskFileAssociationRequest(Guid AttachmentId, long ExpectedVersion);

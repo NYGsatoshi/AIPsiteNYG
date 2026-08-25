@@ -73,6 +73,27 @@ public sealed class GroupRepository(AppDbContext dbContext) : IGroupRepository
             .ToListAsync(cancellationToken);
     }
 
+    public async Task<IReadOnlyList<Group>> ListManagedByUserAsync(
+        Guid workspaceId,
+        Guid userId,
+        CancellationToken cancellationToken = default)
+    {
+        return await dbContext.Groups
+            .AsNoTracking()
+            .Where(group =>
+                group.WorkspaceId == workspaceId &&
+                group.Status == GroupStatus.Active &&
+                group.DeletedAt == null &&
+                dbContext.GroupMembers.Any(member =>
+                    member.TenantId == group.TenantId &&
+                    member.GroupId == group.Id &&
+                    member.UserId == userId &&
+                    (member.Role == GroupRole.Owner || member.Role == GroupRole.Admin)))
+            .OrderBy(group => group.Name)
+            .ThenBy(group => group.Id)
+            .ToListAsync(cancellationToken);
+    }
+
     public Task<Group?> GetByIdAsync(Guid groupId, CancellationToken cancellationToken = default)
     {
         return dbContext.Groups.FirstOrDefaultAsync(group => group.Id == groupId, cancellationToken);

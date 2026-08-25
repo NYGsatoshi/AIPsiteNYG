@@ -2,9 +2,13 @@ import { WorkStatus, workStatusLabel } from '../../shared/ui/work-status/work-st
 import { MyTaskDto, ProjectDto, TaskDto } from './projects.api';
 import {
   ProjectCapability,
+  ProjectActivationState,
   ProjectMockRecord,
   ProjectStatus,
+  ProjectVisibility,
   TaskMockRecord,
+  TaskBriefFieldViewModel,
+  TaskBriefViewModel,
   MyTasksLiveTask,
   TaskPriority,
   TaskStageCategory,
@@ -13,19 +17,83 @@ import {
 
 export function mapProjectDtoToRecord(project: ProjectDto): ProjectMockRecord {
   const status = mapProjectStatus(project.status);
+  const activationState = mapProjectActivationState(project.activationState);
+  const visibility = mapProjectVisibility(project.visibility);
+  const versionNo = positiveSafeInteger(project.versionNo) ?? 0;
+  const hasCanonicalDraftLifecycle = activationState === 'neverActivated' && status === 'planning';
+  const hasCanonicalDraftProvenance = project.activatedAtUtc === null &&
+    project.activationVersion === null;
+  const isCanonicalDraft = hasCanonicalDraftLifecycle &&
+    visibility !== 'unknown' &&
+    hasCanonicalDraftProvenance;
+  // Canonical creation introduces one explicit non-operational shape. Existing
+  // readable Projects (including Review and migrated LegacyUnknown records)
+  // retain their established projections until the backend says otherwise.
+  const isOperational = !hasCanonicalDraftLifecycle;
 
   return {
     id: requiredString(project.id, 'project.id'),
+    workspaceId: nullableIdentifier(project.workspaceId),
+    groupId: nullableIdentifier(project.groupId),
+    ownerUserId: nullableIdentifier(project.ownerUserId),
     name: stringValue(project.title) ?? 'Untitled project',
+    description: typeof project.description === 'string' ? project.description : '',
     status,
     statusLabel: projectStatusLabel(status),
+    visibility,
+    visibilityLabel: projectVisibilityLabel(visibility),
+    activationState,
+    versionNo,
+    isOperational,
     startDate: stringValue(project.startDate) ?? '',
     dueDate: stringValue(project.endDate) ?? '',
     updatedAt: stringValue(project.updatedAt) ?? stringValue(project.createdAt) ?? '',
-    group: 'Group not shown by API',
+    group: nullableIdentifier(project.groupId) ? 'Assigned Group' : 'No Group',
     authorized: true,
-    canCreateTask: project.uiPermissions?.canCreateTask === true
+    canCreateTask: isOperational && project.uiPermissions?.canCreateTask === true,
+    canActivate:
+      project.uiPermissions?.canActivate === true &&
+      isCanonicalDraft &&
+      versionNo > 0
   };
+}
+
+export function mapProjectVisibility(value: unknown): ProjectVisibility {
+  switch (enumText(value)) {
+    case '0':
+    case 'workspacevisible':
+      return 'workspaceVisible';
+    case '1':
+    case 'membersonly':
+      return 'membersOnly';
+    case '2':
+    case 'restricted':
+      return 'restricted';
+    default:
+      return 'unknown';
+  }
+}
+
+export function projectVisibilityLabel(visibility: ProjectVisibility): string {
+  switch (visibility) {
+    case 'workspaceVisible': return 'Workspace visible';
+    case 'membersOnly': return 'Members only';
+    case 'restricted': return 'Restricted';
+    default: return 'Visibility unavailable';
+  }
+}
+
+export function mapProjectActivationState(value: unknown): ProjectActivationState {
+  switch (enumText(value)) {
+    case '1':
+    case 'neveractivated':
+      return 'neverActivated';
+    case '2':
+    case 'activated':
+      return 'activated';
+    default:
+      return 'legacyUnknown';
+  }
 }
 
 export function mapTaskDtoToRecord(
@@ -58,6 +126,7 @@ export function mapTaskDtoToRecord(
     projectId,
     title: stringValue(task.title) ?? 'Untitled task',
     description: stringValue(task.description) ?? '',
+    ...(task.brief ? { brief: mapTaskBrief(task.brief) } : {}),
     status,
     statusLabel: taskStatusLabel(status),
     workflowStageId: stringValue(task.workflowStageId) ?? null,
@@ -81,6 +150,21 @@ export function mapTaskDtoToRecord(
     authorized: true,
     rowVersion: versionValue(task.uiPermissions?.rowVersion) ?? versionValue(task.version) ?? ''
   };
+}
+
+function mapTaskBrief(brief: TaskDto['brief']): TaskBriefViewModel {
+  return {
+    goal: mapTaskBriefField(brief?.goal),
+    deliverable: mapTaskBriefField(brief?.deliverable),
+    constraints: mapTaskBriefField(brief?.constraints)
+  };
+}
+
+function mapTaskBriefField(field: { readonly value?: unknown; readonly source?: unknown } | null | undefined): TaskBriefFieldViewModel {
+  const value = stringValue(field?.value) ?? null;
+  return field?.source === 'taskSpecific' && value !== null
+    ? { value, source: 'taskSpecific' }
+    : { value: null, source: 'notSet' };
 }
 
 export function mapMyTaskDtoToRecord(task: MyTaskDto): TaskMockRecord {
@@ -390,6 +474,16 @@ function requiredString(value: unknown, fieldName: string): string {
 
 function numberValue(value: unknown): number | undefined {
   return typeof value === 'number' && Number.isFinite(value) ? value : undefined;
+}
+
+function positiveSafeInteger(value: unknown): number | undefined {
+  return typeof value === 'number' && Number.isSafeInteger(value) && value > 0
+    ? value
+    : undefined;
+}
+
+function nullableIdentifier(value: unknown): string | null {
+  return typeof value === 'string' && value.trim().length > 0 ? value : null;
 }
 
 function enumText(value: unknown): string {

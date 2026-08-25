@@ -1,11 +1,14 @@
 import {
+  mapProjectActivationState,
   mapMyTaskDtoToRecord,
   mapProjectDtoToRecord,
+  mapProjectVisibility,
   mapTaskDtoToRecord,
   projectStatusLabel,
   projectWorkStatus,
   taskStageWorkStatus
 } from './projects.mapper';
+import { mapProjectActivationSuccess } from './projects.api';
 
 describe('projects mapper', () => {
   it('maps numeric and string task enums from backend DTOs', () => {
@@ -193,6 +196,112 @@ describe('projects mapper', () => {
 
     expect(project.updatedAt).toBe('2026-08-20T09:00:00Z');
     expect(project.statusLabel).toBe('Draft');
+  });
+
+  it('maps the canonical Draft projection and fails closed for activation affordances', () => {
+    const project = mapProjectDtoToRecord({
+      id: 'project-1',
+      workspaceId: 'workspace-1',
+      groupId: 'group-1',
+      ownerUserId: 'owner-1',
+      title: 'Canonical Draft',
+      description: 'Draft description',
+      status: 'Planning',
+      visibility: 'MembersOnly',
+      activationState: 'NeverActivated',
+      activatedAtUtc: null,
+      activationVersion: null,
+      versionNo: 7,
+      uiPermissions: { canCreateTask: true, canActivate: true }
+    });
+
+    expect(project).toEqual(expect.objectContaining({
+      workspaceId: 'workspace-1',
+      groupId: 'group-1',
+      ownerUserId: 'owner-1',
+      description: 'Draft description',
+      statusLabel: 'Draft',
+      visibility: 'membersOnly',
+      visibilityLabel: 'Members only',
+      activationState: 'neverActivated',
+      versionNo: 7,
+      isOperational: false,
+      canCreateTask: false,
+      canActivate: true
+    }));
+  });
+
+  it.each([
+    [{ versionNo: 0 }, 'invalid version'],
+    [{ activationState: 'Unexpected' }, 'unknown activation state'],
+    [{ status: 'Active', activationState: 'Activated' }, 'already active'],
+    [{ uiPermissions: { canActivate: 'true' } }, 'non-boolean permission'],
+    [{ visibility: null }, 'unknown visibility'],
+    [{ activatedAtUtc: '2026-08-24T00:00:00Z' }, 'existing activation timestamp'],
+    [{ activationVersion: 1 }, 'existing activation version']
+  ])('does not expose activation for %s (%s)', (overrides, _case) => {
+    const project = mapProjectDtoToRecord({
+      id: 'project-1',
+      title: 'Project',
+      status: 'Planning',
+      visibility: 'MembersOnly',
+      activationState: 'NeverActivated',
+      activatedAtUtc: null,
+      activationVersion: null,
+      versionNo: 2,
+      uiPermissions: { canActivate: true },
+      ...overrides
+    });
+    expect(project.canActivate).toBe(false);
+    if (project.status === 'planning' && project.activationState === 'neverActivated')
+      expect(project.isOperational).toBe(false);
+  });
+
+  it('maps only supported visibility and activation vocabularies', () => {
+    expect(mapProjectVisibility(0)).toBe('workspaceVisible');
+    expect(mapProjectVisibility('Restricted')).toBe('restricted');
+    expect(mapProjectVisibility('unexpected')).toBe('unknown');
+    expect(mapProjectActivationState(2)).toBe('activated');
+    expect(mapProjectActivationState('unexpected')).toBe('legacyUnknown');
+  });
+
+  it.each([
+    ['Review', 'Activated'],
+    ['Completed', 'Activated'],
+    ['Suspended', 'Activated'],
+    ['Active', 'LegacyUnknown']
+  ])('preserves established operational projections for %s / %s', (status, activationState) => {
+    const project = mapProjectDtoToRecord({
+      id: 'project-1',
+      title: 'Existing Project',
+      status,
+      activationState,
+      uiPermissions: { canCreateTask: true }
+    });
+
+    expect(project.isOperational).toBe(true);
+    expect(project.canCreateTask).toBe(true);
+  });
+
+  it('strictly maps the exact Project activation envelope', () => {
+    expect(mapProjectActivationSuccess({
+      requestId: 'request-activate-1',
+      data: { projectId: 'project-1' },
+      warnings: []
+    }, 'project-1', 200)).toEqual({
+      requestId: 'request-activate-1',
+      data: { projectId: 'project-1' },
+      warnings: []
+    });
+  });
+
+  it.each([
+    ['wrong status', { requestId: 'request-1', data: { projectId: 'project-1' }, warnings: [] }, 201],
+    ['missing request id', { data: { projectId: 'project-1' }, warnings: [] }, 200],
+    ['missing warnings', { requestId: 'request-1', data: { projectId: 'project-1' } }, 200],
+    ['mismatched Project', { requestId: 'request-1', data: { projectId: 'project-2' }, warnings: [] }, 200]
+  ])('rejects an activation success with %s', (_case, response, status) => {
+    expect(() => mapProjectActivationSuccess(response, 'project-1', status)).toThrow();
   });
 
   it('maps my-task rows without fake progress', () => {

@@ -17,6 +17,7 @@ public interface IWorkspaceRepository
 public interface IGroupRepository
 {
     Task<IReadOnlyList<Group>> ListByWorkspaceAsync(Guid workspaceId, CancellationToken cancellationToken = default);
+    Task<IReadOnlyList<Group>> ListManagedByUserAsync(Guid workspaceId, Guid userId, CancellationToken cancellationToken = default);
     Task<Group?> GetByIdAsync(Guid groupId, CancellationToken cancellationToken = default);
     Task<GroupMember?> GetMemberAsync(Guid groupId, Guid userId, CancellationToken cancellationToken = default);
     Task<IReadOnlyList<GroupMember>> ListMembersAsync(Guid groupId, CancellationToken cancellationToken = default);

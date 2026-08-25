@@ -10,17 +10,122 @@ export interface PagedResponseDto<T> {
 
 export interface ProjectUiPermissionDto {
   readonly canCreateTask?: unknown;
+  readonly canActivate?: unknown;
 }
 
 export interface ProjectDto {
   readonly id?: unknown;
+  readonly workspaceId?: unknown;
+  readonly groupId?: unknown;
+  readonly ownerUserId?: unknown;
   readonly title?: unknown;
+  readonly description?: unknown;
   readonly status?: unknown;
+  readonly visibility?: unknown;
+  readonly activationState?: unknown;
+  readonly activatedAtUtc?: unknown;
+  readonly activationVersion?: unknown;
+  readonly versionNo?: unknown;
   readonly startDate?: unknown;
   readonly endDate?: unknown;
   readonly createdAt?: unknown;
   readonly updatedAt?: unknown;
   readonly uiPermissions?: ProjectUiPermissionDto | null;
+}
+
+export interface ProjectActivationSuccess {
+  readonly requestId: string;
+  readonly data: {
+    readonly projectId: string;
+  };
+  readonly warnings: readonly unknown[];
+}
+
+/**
+ * Marks a nominally successful activation response whose HTTP status or body
+ * cannot establish that the canonical command was accepted. Callers must
+ * reconcile with an authoritative Project GET before offering another POST.
+ */
+export class ProjectActivationResponseError extends Error {
+  constructor(
+    message: string,
+    readonly httpStatus: number,
+    readonly requestId?: string
+  ) {
+    super(message);
+    this.name = 'ProjectActivationResponseError';
+  }
+}
+
+export function mapProjectActivationSuccess(
+  value: unknown,
+  expectedProjectId: string,
+  httpStatus: number
+): ProjectActivationSuccess {
+  const envelope = activationRecord(value, 'Project activation response', httpStatus);
+  const requestId = activationRequiredString(
+    envelope['requestId'],
+    'Project activation response requestId',
+    httpStatus
+  );
+  if (httpStatus !== 200) {
+    throw new ProjectActivationResponseError(
+      'Project activation response must use HTTP 200.',
+      httpStatus,
+      requestId
+    );
+  }
+  if (!Array.isArray(envelope['warnings'])) {
+    throw new ProjectActivationResponseError(
+      'Project activation response warnings must be an array.',
+      httpStatus,
+      requestId
+    );
+  }
+  const data = activationRecord(
+    envelope['data'],
+    'Project activation response data',
+    httpStatus,
+    requestId
+  );
+  const projectId = activationRequiredString(
+    data['projectId'],
+    'Project activation response data.projectId',
+    httpStatus,
+    requestId
+  );
+  if (projectId.toLowerCase() !== expectedProjectId.toLowerCase()) {
+    throw new ProjectActivationResponseError(
+      'Project activation response projectId does not match the requested Project.',
+      httpStatus,
+      requestId
+    );
+  }
+  return { requestId, data: { projectId }, warnings: envelope['warnings'] };
+}
+
+function activationRecord(
+  value: unknown,
+  label: string,
+  httpStatus: number,
+  requestId?: string
+): Record<string, unknown> {
+  if (!value || typeof value !== 'object' || Array.isArray(value)) {
+    throw new ProjectActivationResponseError(`${label} must be an object.`, httpStatus, requestId);
+  }
+  return value as Record<string, unknown>;
+}
+
+function activationRequiredString(
+  value: unknown,
+  label: string,
+  httpStatus: number,
+  requestId?: string
+): string {
+  if (typeof value !== 'string' || value.trim().length === 0) {
+    throw new ProjectActivationResponseError(`${label} is required.`, httpStatus, requestId);
+  }
+  return value.trim();
 }
 
 export interface TaskUiPermissionDto {
@@ -33,6 +138,17 @@ export interface TaskUiPermissionDto {
   readonly canUpdate?: unknown;
 }
 
+export interface TaskBriefFieldDto {
+  readonly value?: unknown;
+  readonly source?: unknown;
+}
+
+export interface TaskBriefDto {
+  readonly goal?: TaskBriefFieldDto | null;
+  readonly deliverable?: TaskBriefFieldDto | null;
+  readonly constraints?: TaskBriefFieldDto | null;
+}
+
 export interface TaskDto {
   readonly id?: unknown;
   readonly tenantId?: unknown;
@@ -43,6 +159,7 @@ export interface TaskDto {
   readonly milestoneId?: unknown;
   readonly title?: unknown;
   readonly description?: unknown;
+  readonly brief?: TaskBriefDto | null;
   readonly workflowStageId?: unknown;
   readonly workflowStageName?: unknown;
   readonly status?: unknown;
@@ -87,6 +204,7 @@ export interface CanonicalTaskDetailDto {
   readonly subtasks?: PagedResponseDto<TaskSubtaskDto> | null;
   readonly comments?: PagedResponseDto<TaskCommentDto> | null;
   readonly files?: PagedResponseDto<TaskFileAssociationDto> | null;
+  readonly activity?: PagedResponseDto<TaskActivityLogDto> | null;
 }
 
 export interface TaskDetailPermissionsDto {
@@ -114,6 +232,7 @@ export interface TaskSubtaskDto { readonly id?: unknown; readonly parentTaskId?:
 export interface TaskCommentMentionDto { readonly userId?: unknown; readonly displayName?: unknown; }
 export interface TaskCommentDto { readonly id?: unknown; readonly taskId?: unknown; readonly author?: TaskPersonSummaryDto | null; readonly bodyPlainText?: unknown; readonly isImportant?: unknown; readonly mentions?: readonly TaskCommentMentionDto[]; readonly createdAt?: unknown; readonly updatedAt?: unknown; readonly deletedAt?: unknown; readonly version?: unknown; readonly canEdit?: unknown; readonly canDelete?: unknown; readonly canMarkImportant?: unknown; }
 export interface TaskFileAssociationDto { readonly id?: unknown; readonly fileObjectId?: unknown; readonly fileName?: unknown; readonly contentType?: unknown; readonly sizeBytes?: unknown; readonly scanStatus?: unknown; readonly createdAt?: unknown; readonly accessState?: unknown; readonly canOpen?: unknown; readonly canRequestDownloadGrant?: unknown; readonly downloadGrantRequired?: unknown; readonly restrictionCode?: unknown; }
+export interface TaskActivityLogDto { readonly id?: unknown; readonly activityType?: unknown; readonly body?: unknown; readonly occurredAt?: unknown; readonly author?: TaskPersonSummaryDto | null; }
 export interface TaskMentionCandidateDto { readonly userId?: unknown; readonly displayName?: unknown; }
 export interface ReorderTaskChecklistRequestDto { readonly orderedItemIds: readonly string[]; readonly expectedTaskVersion: string | number; }
 export interface TaskChecklistOrderResponseDto { readonly items?: readonly TaskChecklistDto[]; readonly taskVersion?: unknown; }
@@ -410,6 +529,9 @@ export interface CreateTaskRequestDto {
   readonly milestoneId: string | null;
   readonly title: string;
   readonly description: string | null;
+  readonly goal?: string | null;
+  readonly deliverable?: string | null;
+  readonly constraints?: string | null;
   readonly priority: number;
   readonly startDate: string | null;
   readonly dueDate: string | null;
@@ -418,6 +540,9 @@ export interface CreateTaskRequestDto {
 export interface UpdateTaskRequestDto {
   readonly title: string;
   readonly description: string;
+  readonly goal?: string | null;
+  readonly deliverable?: string | null;
+  readonly constraints?: string | null;
   readonly priority: number;
   readonly plannedStartDate: string | null;
   readonly plannedEndDate: string | null;
@@ -435,6 +560,9 @@ const taskPriorityApiValues: Record<TaskPriority, number> = {
 export function toCreateTaskRequestDto(input: {
   readonly title: string;
   readonly description: string;
+  readonly goal?: string;
+  readonly deliverable?: string;
+  readonly constraints?: string;
   readonly priority: TaskPriority;
   readonly startDate: string;
   readonly dueDate: string;
@@ -443,6 +571,9 @@ export function toCreateTaskRequestDto(input: {
     milestoneId: null,
     title: input.title.trim(),
     description: input.description.trim().length > 0 ? input.description.trim() : null,
+    ...(input.goal !== undefined ? { goal: nullableText(input.goal) } : {}),
+    ...(input.deliverable !== undefined ? { deliverable: nullableText(input.deliverable) } : {}),
+    ...(input.constraints !== undefined ? { constraints: nullableText(input.constraints) } : {}),
     priority: taskPriorityApiValues[input.priority],
     startDate: nullableDate(input.startDate),
     dueDate: nullableDate(input.dueDate)
@@ -452,6 +583,9 @@ export function toCreateTaskRequestDto(input: {
 export function toUpdateTaskRequestDto(input: {
   readonly title: string;
   readonly description: string;
+  readonly goal?: string;
+  readonly deliverable?: string;
+  readonly constraints?: string;
   readonly priority: TaskPriority;
   readonly startDate: string;
   readonly dueDate: string;
@@ -461,6 +595,9 @@ export function toUpdateTaskRequestDto(input: {
   return {
     title: input.title.trim(),
     description: input.description.trim(),
+    ...(input.goal !== undefined ? { goal: nullableText(input.goal) } : {}),
+    ...(input.deliverable !== undefined ? { deliverable: nullableText(input.deliverable) } : {}),
+    ...(input.constraints !== undefined ? { constraints: nullableText(input.constraints) } : {}),
     priority: taskPriorityApiValues[input.priority],
     plannedStartDate: nullableDate(input.startDate),
     plannedEndDate: nullableDate(input.dueDate),
@@ -470,6 +607,11 @@ export function toUpdateTaskRequestDto(input: {
 }
 
 function nullableDate(value: string): string | null {
+  const trimmed = value.trim();
+  return trimmed.length > 0 ? trimmed : null;
+}
+
+function nullableText(value: string): string | null {
   const trimmed = value.trim();
   return trimmed.length > 0 ? trimmed : null;
 }

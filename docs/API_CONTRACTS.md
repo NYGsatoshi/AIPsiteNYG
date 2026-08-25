@@ -114,6 +114,26 @@ and idempotency; WPC-02D owns canonical `ProjectGeneral` provisioning and
 activation-time Task workflow mapping. Clients must use those canonical
 commands; the deprecated unscoped Project-create route remains disabled.
 
+Issue #409 adds `GET
+/api/workspaces/{workspaceId}/projects/create-options`. Its WPC success
+envelope data is `workspaceId`, `canCreateUngrouped`, `allowedVisibilities`,
+and `groups`, where each Group option contains only `id` and `name`. A current
+Workspace member with no available create scope receives a valid 200 with
+`canCreateUngrouped=false` and empty arrays. The response never exposes Groups
+where the actor cannot create. The dashboard separately appends
+`canOpenProjectCreate`; `canCreateProject` remains the ungrouped Quick Create
+capability.
+
+`ProjectListQuery` appends optional `workspaceId`, and the repository applies
+that filter inside the current authorized Project read scope before paging.
+`ProjectResponse.uiPermissions` appends `canActivate`. The full Angular create
+flow accepts only the strict 201 canonical response, confirms the created
+Project with an authoritative GET, and treats later opening failure as
+GET/navigation-only recovery. The Draft Overview performs no operational
+subresource reads. Activation sends only `{ "expectedVersion": versionNo }`,
+accepts only the strict HTTP 200 WPC envelope with the matching `projectId`,
+and refetches Project state before exposing operational views.
+
 ## General Rules
 
 - REST APIs are the source of truth for the bundled frontend.
@@ -289,6 +309,129 @@ The default-disabled `tasks.notificationsV1` registry key is deliberately not
 an authorization, privacy, preference, or dedupe gate. PR07-A introduces no
 Task notification producer, digest worker, notification-open API, SignalR
 route, or Angular preference UI.
+
+## Issue #350 structured Task Brief
+
+The existing Task create, subtask-create, versioned update, and detail
+boundaries support three additive optional Task-specific fields in this fixed
+order: `goal`, `deliverable`, and `constraints`.
+
+- `POST /api/projects/{projectId}/tasks` accepts all three fields.
+- `POST /api/tasks/{taskItemId}/subtasks` accepts all three fields.
+- `PATCH /api/tasks/{taskItemId}` accepts all three fields under the existing
+  `expectedVersion` command boundary.
+- `GET /api/tasks/{taskItemId}` returns them inside canonical `task.brief`.
+
+Each field is plain text, trimmed by the server, nullable, and limited to
+4,000 characters. For PATCH only, omission preserves the current field while
+explicit JSON `null` (or a whitespace-only supplied value) clears it. Older
+clients that send only `description` continue to round-trip their free-form
+Task notes unchanged. `description` is not replaced, parsed, or synthesized
+from the structured fields.
+
+```json
+{
+  "title": "Prepare launch review",
+  "description": "Legacy free-form notes remain supported.",
+  "goal": "The release is ready for an approval decision.",
+  "deliverable": "A review-ready release package.",
+  "constraints": null,
+  "priority": 2,
+  "plannedStartDate": "2026-08-24",
+  "plannedEndDate": "2026-08-28",
+  "progressPercent": 20,
+  "expectedVersion": 7
+}
+```
+
+Canonical detail reports value provenance per field. The only current source
+values are `taskSpecific` and `notSet`:
+
+```json
+{
+  "brief": {
+    "goal": { "value": "The release is ready for review.", "source": "taskSpecific" },
+    "deliverable": { "value": null, "source": "notSet" },
+    "constraints": { "value": null, "source": "notSet" }
+  }
+}
+```
+
+Project context remains a separately authorized parent projection. The server
+does not map `Project.Description` to a Task Brief field and has no Project
+Brief-default contract. Project Task-list responses remain compact and do not
+include Brief bodies. Detail exposure uses the existing Project-read boundary;
+denial returns the same safe Task-not-found behavior and does not disclose a
+Brief value.
+
+An oversized field returns HTTP 400 `TASK_BRIEF_FIELD_TOO_LONG` with the
+specific `goal`, `deliverable`, or `constraints` target. Audit and realtime
+metadata contain field names/version hints only, never Brief values. The
+reusable Angular fields are integrated into existing Task detail/edit, but a
+full Task-create/start UI is not present in this issue and remains owned by
+Issue #410.
+## Task progress and Activity detail
+
+The canonical Task detail response continues to carry the current configured
+Workflow Stage ID, display name, and fixed category on `task`. That current
+Stage is the Task-detail phase authority. The Activity projection is separate
+so an Activity dependency failure cannot suppress an otherwise authorized
+current phase.
+
+The read-only Activity route is:
+
+- `GET /api/tasks/{taskItemId}/activity?page=1&pageSize=20`
+
+This route exposes only Task-linked `ActivityLog` records that already exist.
+It does not add an Activity writer, and current Task commands must not be
+interpreted as producing Activity execution history through this change.
+
+The service first resolves the current, non-deleted Task through the existing
+Project read boundary. Missing, cross-Tenant, deleted, and unauthorized Tasks
+use the existing metadata-safe Task-not-found response and do not query
+Activity rows. After authorization, the repository filters by both the
+authorized `ProjectId` and `TaskItemId`, while the normal Tenant query filter
+remains active. Results use `OccurredAt DESC, Id DESC` ordering, `page` is
+normalized to at least 1, and `pageSize` is clamped from 1 through 50.
+
+```json
+{
+  "items": [
+    {
+      "id": "<activity id>",
+      "activityType": "StatusUpdate",
+      "body": "Implementation is ready for review.",
+      "occurredAt": "2026-08-24T03:00:00+00:00",
+      "author": {
+        "userId": "<author id>",
+        "displayName": "Example author"
+      }
+    }
+  ],
+  "page": 1,
+  "pageSize": 20,
+  "totalCount": 1,
+  "hasMore": false
+}
+```
+
+The persisted Activity vocabulary remains `Note`, `StatusUpdate`, `Decision`,
+and `Issue`. `StatusUpdate` receives visual emphasis in the browser, while
+`Issue` is labelled `Needs attention`. Neither value changes the current Task
+Stage. In particular, Task has no `Failed` category: the browser does not map
+an Activity issue or a transport failure to a persisted `Failed` Task state.
+
+The browser requests page one only when the secondary Activity disclosure is
+opened. It preserves independently authorized phase/detail data when an
+Activity request has a transient failure, retains already loaded Activity
+while a later page or refresh fails, and retries the exact failed page. A Task
+realtime event remains only an invalidation hint: after Activity has been
+opened, the browser refetches both canonical detail and Activity page one from
+HTTP with authorization and route-generation guards. A 401/403 reauthorizes
+and clears protected Task state; the Activity route's safe 404 clears it
+immediately. Historical Workflow Stage transitions are not available in the
+current ActivityLog contract and are not synthesized from current state or
+generic Activity rows.
 
 ## TASK-V1-PR07-B hard deadline mutation
 

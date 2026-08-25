@@ -10,7 +10,7 @@ export const AUDIT_RAW_METADATA_PROBE =
   '{"body":"restricted body must stay hidden","secret":"hidden","storageKey":"tenant/private/key","sql":"select hidden","stackTrace":"hidden"}';
 
 const redactedAuditDetails: readonly RedactedDetailLine[] = [
-  { label: 'Target identifier', value: 'sample-target-001', state: 'shown' },
+  { label: 'Target identifier', value: 'Redacted', state: 'redacted' },
   { label: 'Content payload', value: 'Suppressed', state: 'suppressed' },
   { label: 'Sensitive values', value: 'Redacted', state: 'redacted' },
   { label: 'Internal diagnostics', value: 'Suppressed', state: 'suppressed' }
@@ -130,8 +130,7 @@ export const AUDIT_LOG_SCENARIOS = {
     status: 'ready',
     title: 'Admin audit log',
     subtitle: 'Mock metadata-safe audit grid',
-    auditRecords: DEFAULT_AUDIT_RECORDS,
-    initialSelectedAuditId: DEFAULT_AUDIT_RECORDS[1].id
+    auditRecords: DEFAULT_AUDIT_RECORDS
   }
 } satisfies Record<string, AuditLogScenario>;
 

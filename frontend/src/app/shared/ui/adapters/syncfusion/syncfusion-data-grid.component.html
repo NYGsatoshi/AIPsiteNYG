@@ -19,6 +19,7 @@
       [allowSelection]="selectionMode !== 'none'"
       [allowKeyboard]="true"
       [rowHeight]="rowHeight ?? 36"
+      [enableStickyHeader]="stickyHeader"
       [pageSettings]="pageSettings"
       [selectionSettings]="selectionSettings"
       [enableHover]="true"
@@ -59,6 +60,7 @@
                       [attr.aria-label]="action.label"
                       [attr.title]="action.disabledReason ?? null"
                       [attr.data-grid-action]="action.id"
+                      [attr.data-grid-row-id]="getRowIdValue(row)"
                       (click)="invokeAction(action.id, row, $event)"
                     >{{ action.label }}</button>
                   }

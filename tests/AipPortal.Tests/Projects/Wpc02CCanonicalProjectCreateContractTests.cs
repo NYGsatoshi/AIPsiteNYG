@@ -1,6 +1,7 @@
 using System.Reflection;
 using System.Text.Json;
 using AipPortal.Application.Projects;
+using AipPortal.Domain.Enums;
 using AipPortal.Web.Controllers;
 using AipPortal.Web.Models;
 using Microsoft.AspNetCore.Authorization;
@@ -52,7 +53,10 @@ public sealed class Wpc02CCanonicalProjectCreateContractTests
 
         Assert.True(ApiEnvelope.IsWorkspaceCreationPath($"/api/workspaces/{workspaceId}/projects"));
         Assert.True(ApiEnvelope.IsWorkspaceCreationPath($"/api/workspaces/{workspaceId}/projects/"));
+        Assert.True(ApiEnvelope.IsWorkspaceCreationPath($"/api/workspaces/{workspaceId}/projects/create-options"));
+        Assert.True(ApiEnvelope.IsWorkspaceCreationPath($"/api/workspaces/{workspaceId}/projects/create-options/"));
         Assert.False(ApiEnvelope.IsWorkspaceCreationPath("/api/workspaces/not-a-guid/projects"));
+        Assert.False(ApiEnvelope.IsWorkspaceCreationPath("/api/workspaces/not-a-guid/projects/create-options"));
         Assert.False(ApiEnvelope.IsWorkspaceCreationPath($"/api/workspaces/{workspaceId}/projects/extra"));
         Assert.False(ApiEnvelope.IsWorkspaceCreationPath($"/api/workspaces/{workspaceId}/project"));
     }
@@ -74,5 +78,32 @@ public sealed class Wpc02CCanonicalProjectCreateContractTests
         var idempotencyParameter = Assert.Single(parameters.Where(parameter => parameter.Name == "idempotencyKey"));
         var fromHeader = Assert.Single(idempotencyParameter.GetCustomAttributes<FromHeaderAttribute>());
         Assert.Equal("Idempotency-Key", fromHeader.Name);
+
+        var createOptions = controllerType.GetMethod(nameof(WorkspaceProjectsController.GetCreateOptions));
+        Assert.NotNull(createOptions);
+        var get = Assert.Single(createOptions.GetCustomAttributes<HttpGetAttribute>());
+        Assert.Equal("api/workspaces/{workspaceId:guid}/projects/create-options", get.Template);
+    }
+
+    [Fact]
+    public void CreateOptionsContractUsesNumericVisibilityAndMinimalGroupShape()
+    {
+        var workspaceId = Guid.NewGuid();
+        var groupId = Guid.NewGuid();
+        var response = new ProjectCreateOptionsResponse(
+            workspaceId,
+            true,
+            [ProjectVisibility.WorkspaceVisible, ProjectVisibility.MembersOnly, ProjectVisibility.Restricted],
+            [new ProjectCreateGroupOptionResponse(groupId, "Createable Group")]);
+
+        using var document = JsonDocument.Parse(JsonSerializer.Serialize(response, WebJson));
+        var root = document.RootElement;
+        Assert.Equal(workspaceId, root.GetProperty("workspaceId").GetGuid());
+        Assert.True(root.GetProperty("canCreateUngrouped").GetBoolean());
+        Assert.Equal(new[] { 0, 1, 2 }, root.GetProperty("allowedVisibilities").EnumerateArray().Select(item => item.GetInt32()));
+        var group = Assert.Single(root.GetProperty("groups").EnumerateArray());
+        Assert.Equal(groupId, group.GetProperty("id").GetGuid());
+        Assert.Equal("Createable Group", group.GetProperty("name").GetString());
+        Assert.Equal(2, group.EnumerateObject().Count());
     }
 }

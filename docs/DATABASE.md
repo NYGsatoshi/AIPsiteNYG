@@ -26,11 +26,11 @@ Use these in order:
 
 ## Migration history
 
-There are forty-seven timestamped EF migration classes in the current source,
+There are forty-eight timestamped EF migration classes in the current source,
 from:
 
 - `20260606135558_InitialCreate`
-- through `20260823054500_AddMessageNotificationPreference`
+- through `20260824220000_AddStructuredTaskBrief`
 
 Migration files live in `src/AipPortal.Infrastructure/Persistence/Migrations/`.
 
@@ -125,6 +125,28 @@ rollback.
 - ActivityLog, Comment, Feedback
 - Artifact, ArtifactVersion
 - FileObject, Attachment, FileScanResult
+
+### Issue #350 structured Task Brief
+
+Migration `20260824220000_AddStructuredTaskBrief` adds three nullable
+`character varying(4000)` columns to `task_items`:
+
+- `BriefGoal`;
+- `BriefDeliverable`; and
+- `BriefConstraints`.
+
+The migration is additive and performs no data backfill. In particular, it
+does not reinterpret `TaskItem.Description` or `Project.Description`, and it
+does not manufacture inherited values for existing Tasks. Null means the
+Task-specific value is not set. The fields are ordinary Task-body data under
+the existing Task version/concurrency and Tenant/Project authorization
+boundaries.
+
+No index is added: these nullable text fields are returned on authorized Task
+detail and are not a list filter, join key, ordering key, or current Search
+input. The Down path removes only the three new columns; values written to
+them are not retained after rollback. Existing `Description` data is left
+unchanged in both directions.
 
 ### TASK-V1-PR05 Project Kanban
 

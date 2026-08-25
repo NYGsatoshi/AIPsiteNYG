@@ -91,6 +91,10 @@ public sealed class ProjectsController(IProjectService projects, ITaskCommandSer
     [HttpGet("api/tasks/{taskItemId:guid}")]
     public async Task<IActionResult> GetTask(Guid taskItemId, CancellationToken cancellationToken) => ToTaskActionResult(await taskSubresources.GetDetailAsync(taskItemId, cancellationToken));
 
+    [HttpGet("api/tasks/{taskItemId:guid}/activity")]
+    public async Task<IActionResult> ListTaskActivity(Guid taskItemId, [FromQuery] int page = 1, [FromQuery] int pageSize = 20, CancellationToken cancellationToken = default) =>
+        ToTaskActionResult(await taskSubresources.ListActivityAsync(taskItemId, page, pageSize, cancellationToken));
+
     [HttpPatch("api/tasks/{taskItemId:guid}")]
     public async Task<IActionResult> UpdateTask(Guid taskItemId, TaskUpdateDetailsRequest request, CancellationToken cancellationToken) => ToTaskActionResult(await taskCommands.UpdateDetailsAsync(taskItemId, request, cancellationToken));
 
@@ -303,6 +307,8 @@ public sealed class ProjectsController(IProjectService projects, ITaskCommandSer
                 StatusCodes.Status503ServiceUnavailable,
                 "DependencyUnavailable",
                 "Project creation is temporarily unavailable."));
+        if (result.ErrorDetail?.Code == "TASK_BRIEF_FIELD_TOO_LONG")
+            return TaskBriefValidationError(result.ErrorDetail);
         return BadRequest(ToErrorResponse(result.Error));
     }
 
@@ -349,6 +355,8 @@ public sealed class ProjectsController(IProjectService projects, ITaskCommandSer
                 StatusCodes.Status503ServiceUnavailable,
                 "DependencyUnavailable",
                 "Project creation is temporarily unavailable."));
+        if (result.ErrorDetail?.Code == "TASK_BRIEF_FIELD_TOO_LONG")
+            return TaskBriefValidationError(result.ErrorDetail);
         return BadRequest(ToErrorResponse(result.Error));
     }
 
@@ -382,8 +390,8 @@ public sealed class ProjectsController(IProjectService projects, ITaskCommandSer
     {
         if (result.IsSuccess) return Ok(result.Value);
         var parts = (result.Error ?? "TASK_TRANSITION_GUARD_FAILED|The request could not be completed.").Split('|', 2);
-        var code = parts[0];
-        var message = parts.Length == 2 ? parts[1] : "The request could not be completed.";
+        var code = result.ErrorDetail?.Code ?? parts[0];
+        var message = result.ErrorDetail?.Message ?? (parts.Length == 2 ? parts[1] : "The request could not be completed.");
         var status = code switch
         {
             "TASK_NOT_FOUND" or "TASK_CHECKLIST_ITEM_NOT_FOUND" or "TASK_FILE_ASSOCIATION_NOT_FOUND" or "TASK_LABEL_NOT_FOUND" => StatusCodes.Status404NotFound,
@@ -403,8 +411,22 @@ public sealed class ProjectsController(IProjectService projects, ITaskCommandSer
             problem.Extensions["requestId"] = HttpContext.TraceIdentifier;
             return StatusCode(status, problem);
         }
-        return StatusCode(status, new { requestId = HttpContext.TraceIdentifier, error = new { code, message, target = (string?)null, details = Array.Empty<object>(), redactionApplied = false } });
+        return StatusCode(status, new { requestId = HttpContext.TraceIdentifier, error = new { code, message, target = result.ErrorDetail?.Target, details = Array.Empty<object>(), redactionApplied = false } });
     }
+
+    private IActionResult TaskBriefValidationError(AipPortal.Application.Common.ApplicationErrorDetail detail) =>
+        StatusCode(StatusCodes.Status400BadRequest, new
+        {
+            requestId = HttpContext.TraceIdentifier,
+            error = new
+            {
+                code = detail.Code,
+                message = detail.Message,
+                target = detail.Target,
+                details = Array.Empty<object>(),
+                redactionApplied = false
+            }
+        });
     private IActionResult ToTaskActionResult(AipPortal.Application.Common.Result result)
     {
         if (result.IsSuccess) return Ok(new { status = "OK" });

@@ -76,6 +76,9 @@ public sealed class TaskItem : SoftDeletableEntity, ITenantEntity
     public WorkItemKind Kind { get; set; } = WorkItemKind.Task;
     public string Title { get; set; } = string.Empty;
     public string? Description { get; set; }
+    public string? BriefGoal { get; set; }
+    public string? BriefDeliverable { get; set; }
+    public string? BriefConstraints { get; set; }
     public TaskItemStatus Status { get; set; } = TaskItemStatus.NotStarted;
     public TaskPriority Priority { get; set; } = TaskPriority.Medium;
     public DateOnly? StartDate { get; set; }

@@ -12,6 +12,24 @@ namespace AipPortal.Web.Controllers;
 [Authorize]
 public sealed class WorkspaceProjectsController(ICanonicalProjectCreateService projectCreate) : ControllerBase
 {
+    [HttpGet("api/workspaces/{workspaceId:guid}/projects/create-options")]
+    public async Task<IActionResult> GetCreateOptions(
+        Guid workspaceId,
+        CancellationToken cancellationToken)
+    {
+        var result = await projectCreate.GetCreateOptionsAsync(workspaceId, cancellationToken);
+        return result.IsSuccess
+            ? Ok(ApiEnvelope.Success(
+                HttpContext,
+                CanonicalRedactionProjection.Apply(
+                    HttpContext,
+                    result.Value!,
+                    RedactionProfile.UiDetail,
+                    "ProjectCreateOptions",
+                    RedactionAuthorizationState.Allowed)))
+            : ToWpcError(result.ErrorDetail, result.Error, "Project create options could not be evaluated.");
+    }
+
     [HttpPost("api/workspaces/{workspaceId:guid}/projects")]
     public async Task<IActionResult> Create(
         Guid workspaceId,

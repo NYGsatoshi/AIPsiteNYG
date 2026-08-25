@@ -89,6 +89,20 @@
   gap: 0.5rem;
 }
 
+.admin-drawer__state {
+  margin: 0;
+  border: 1px solid var(--aip-color-border-default);
+  border-radius: var(--aip-radius-sm);
+  background: var(--aip-color-bg-surface-subtle);
+  color: var(--aip-color-text-primary);
+  padding: var(--aip-space-3);
+}
+
+.admin-drawer__state--unavailable {
+  border-color: var(--aip-color-danger);
+  color: var(--aip-color-danger);
+}
+
 [data-redaction-state='redacted'] dd,
 [data-redaction-state='suppressed'] dd {
   color: var(--aip-color-danger);

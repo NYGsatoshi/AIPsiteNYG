@@ -1,0 +1,171 @@
+:host {
+  display: contents;
+}
+
+.project-create__form {
+  display: grid;
+  gap: 0.45rem;
+  min-width: 0;
+}
+
+.project-create__form > label,
+.project-create__dates label {
+  margin-top: 0.65rem;
+  font-weight: 800;
+}
+
+label span,
+.project-create__help,
+.project-create__context p,
+.project-create__no-group {
+  color: var(--aip-color-text-secondary, #b8c0cc);
+  font-weight: 400;
+}
+
+.project-create__help,
+.project-create__context p,
+.project-create__no-group,
+.project-create__summary p,
+.project-create__pending p,
+.project-create__options-status,
+.project-create__options-error p {
+  margin: 0;
+}
+
+input,
+textarea,
+select {
+  box-sizing: border-box;
+  min-width: 0;
+  width: 100%;
+  min-height: 2.75rem;
+  border: 1px solid var(--aip-color-border-strong, #687282);
+  border-radius: 0.5rem;
+  padding: 0.65rem 0.75rem;
+  background: var(--aip-color-bg-control, #242b35);
+  color: var(--aip-color-text-primary, inherit);
+  font: inherit;
+}
+
+textarea {
+  min-height: 6.5rem;
+  resize: vertical;
+}
+
+button {
+  min-height: 2.75rem;
+  border: 1px solid var(--aip-color-border-strong, #687282);
+  border-radius: 0.5rem;
+  padding: 0.5rem 0.9rem;
+  background: var(--aip-color-bg-control, #242b35);
+  color: var(--aip-color-text-primary, inherit);
+  font: inherit;
+  font-weight: 700;
+}
+
+input:focus-visible,
+textarea:focus-visible,
+select:focus-visible,
+button:focus-visible,
+.project-create__summary:focus-visible,
+.project-create__summary a:focus-visible {
+  outline: 3px solid var(--aip-color-focus, #79a9ff);
+  outline-offset: 2px;
+}
+
+[aria-invalid='true'] {
+  border-color: var(--aip-color-danger, #e26565);
+}
+
+.project-create__summary,
+.project-create__pending,
+.project-create__options-error,
+.project-create__context {
+  display: grid;
+  gap: 0.65rem;
+  min-width: 0;
+  border: 1px solid var(--aip-color-danger, #e26565);
+  border-radius: 0.5rem;
+  padding: 0.85rem;
+  overflow-wrap: anywhere;
+}
+
+.project-create__pending,
+.project-create__context {
+  border-color: var(--aip-color-action-primary, #5794ff);
+}
+
+.project-create__context {
+  background: var(--aip-color-bg-surface, #202630);
+}
+
+.project-create__summary h3,
+.project-create__pending h3,
+.project-create__options-error h3,
+.project-create__context h3,
+.project-create__context dl,
+.project-create__context dd,
+.project-create__summary ul,
+.project-create__section-heading {
+  margin: 0;
+}
+
+.project-create__context dl {
+  display: grid;
+  gap: 0.55rem;
+}
+
+.project-create__context dl div {
+  display: grid;
+  grid-template-columns: minmax(6rem, 0.35fr) minmax(0, 1fr);
+  gap: 0.75rem;
+}
+
+.project-create__context dt {
+  color: var(--aip-color-text-secondary, #b8c0cc);
+  font-weight: 700;
+}
+
+.project-create__summary ul {
+  display: grid;
+  gap: 0.35rem;
+  padding-left: 1.25rem;
+}
+
+.project-create__summary a {
+  color: inherit;
+}
+
+.project-create__section-heading {
+  margin-top: 0.75rem;
+}
+
+.project-create__dates {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 0.75rem;
+}
+
+.project-create__dates > div {
+  display: grid;
+  gap: 0.45rem;
+  min-width: 0;
+}
+
+@media (max-width: 520px) {
+  .project-create__form {
+    gap: 0.35rem;
+  }
+
+  .project-create__dates,
+  .project-create__context dl div {
+    grid-template-columns: minmax(0, 1fr);
+    gap: 0.25rem;
+  }
+
+  input,
+  textarea,
+  select {
+    font-size: 1rem;
+  }
+}
