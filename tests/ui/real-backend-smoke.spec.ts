@@ -770,6 +770,469 @@ test.describe('MVP0 real backend browser smoke', () => {
     }
   });
 
+  test('U-22 completes the same-lineage Workspace, Project, and Task journey through the real backend', async ({ page }, testInfo) => {
+    const evidence: SmokeEvidence = {
+      baseURL: String(testInfo.project.use.baseURL ?? ''),
+      email: smokeEmail,
+      steps: [],
+      pageErrors: [],
+      consoleErrors: [],
+      failedApiResponses: []
+    };
+    const suffix = randomUUID().slice(0, 8);
+    const workspaceName = `U22 Journey Workspace ${suffix}`;
+    const workspaceDescription = 'Synthetic U-22 same-lineage Workspace evidence';
+    const projectTitle = `U22 Journey Project ${suffix}`;
+    const projectDescription = 'Synthetic U-22 ungrouped Project evidence';
+    const taskTitle = `U22 Journey Task ${suffix}`;
+    const taskDescription = 'A real-backend Task created from its active Project.';
+    const goal = 'Document the requested U-22 outcome.';
+    const deliverable = 'A concise, reviewable U-22 Task result.';
+    const constraints = 'Remain policy-only; do not start a runtime or retrieve sources.';
+    const startDate = '2026-09-10';
+    const dueDate = '2026-09-20';
+    let createdWorkspaceId: string | null = null;
+    let createdProjectId: string | null = null;
+    let createdTaskId: string | null = null;
+    let observedProjectCreatePosts = 0;
+    let observedTaskCreatePosts = 0;
+    const executionRunRequests: string[] = [];
+
+    page.on('pageerror', (error) => evidence.pageErrors.push(error.message));
+    page.on('console', (message) => {
+      if (message.type() === 'error') evidence.consoleErrors.push(message.text());
+    });
+    page.on('request', (request) => {
+      const path = new URL(request.url()).pathname;
+      if (createdWorkspaceId && request.method() === 'POST' && path === `/api/workspaces/${createdWorkspaceId}/projects`) {
+        observedProjectCreatePosts += 1;
+      }
+      if (createdProjectId && request.method() === 'POST' && path === `/api/projects/${createdProjectId}/tasks/create`) {
+        observedTaskCreatePosts += 1;
+      }
+      if (createdTaskId && path === `/api/tasks/${createdTaskId}/execution-runs`) {
+        executionRunRequests.push(`${request.method()} ${path}`);
+      }
+    });
+    page.on('response', (response) => recordFailedApiResponse(response, evidence));
+
+    try {
+      await loginAndVerifySession(page, evidence);
+
+      await page.goto('/app/workspaces');
+      await expect(page.getByTestId('workspace-dashboard')).toBeVisible();
+      await page.getByTestId('create-workspace-action').click();
+      const workspaceDialog = page.getByRole('dialog', { name: 'Create Workspace' });
+      await expect(workspaceDialog).toBeVisible();
+      await page.getByTestId('workspace-create-name').fill(workspaceName);
+      await page.getByTestId('workspace-create-description').fill(workspaceDescription);
+
+      const workspaceCreateResponsePromise = waitForApiResponse(page, 'POST', '/api/workspaces');
+      await workspaceDialog.getByRole('button', { name: 'Create Workspace' }).click();
+      const workspaceCreateResponse = await workspaceCreateResponsePromise;
+      const workspaceCreateText = await workspaceCreateResponse.text();
+      const workspaceCreateBody = parseJson(workspaceCreateText) as Record<string, any>;
+      const workspaceCreateRequest = workspaceCreateResponse.request();
+      const workspaceCreateHeaders = await workspaceCreateRequest.allHeaders();
+      const workspaceCreateRequestBody = workspaceCreateRequest.postDataJSON() as Record<string, unknown>;
+      createdWorkspaceId = typeof workspaceCreateBody?.data?.id === 'string' ? workspaceCreateBody.data.id : null;
+      evidence.workspaceId = createdWorkspaceId ?? undefined;
+      evidence.steps.push({
+        name: 'u22-journey-workspace-create-ui-command',
+        method: workspaceCreateRequest.method(),
+        path: new URL(workspaceCreateResponse.url()).pathname,
+        status: workspaceCreateResponse.status(),
+        body: {
+          request: workspaceCreateRequestBody,
+          idempotencyKeyPresent: Boolean(workspaceCreateHeaders['idempotency-key']),
+          csrfHeaderPresent: Boolean(workspaceCreateHeaders['x-csrf-token'])
+        },
+        bodyPreview: preview(workspaceCreateText)
+      });
+      expect(workspaceCreateResponse.status(), `U-22 Workspace create response: ${workspaceCreateText}`).toBe(201);
+      expect(createdWorkspaceId, 'U-22 created Workspace id').toMatch(/^[0-9a-f-]{36}$/i);
+      expect(workspaceCreateRequestBody).toEqual({ name: workspaceName, description: workspaceDescription, icon: null });
+      expect(workspaceCreateHeaders['idempotency-key'], 'Workspace create idempotency key').toMatch(/^[\x20-\x7e]{8,128}$/u);
+      expect(workspaceCreateHeaders['x-csrf-token'], 'Workspace create uses the real Angular CSRF interceptor').toBeTruthy();
+      expect(workspaceCreateBody).toMatchObject({
+        data: { id: createdWorkspaceId, name: workspaceName, description: workspaceDescription, status: 0, createdByUserId: evidence.userId },
+        warnings: []
+      });
+      await expect(page.getByTestId('workspace-switcher')).toHaveValue(createdWorkspaceId!);
+      await expect(page.getByTestId('workspace-card').filter({ hasText: workspaceName })).toBeVisible();
+
+      const projectOptionsPath = `/api/workspaces/${createdWorkspaceId}/projects/create-options`;
+      await recordFetchJson(
+        page,
+        evidence,
+        'u22-journey-project-create-options',
+        projectOptionsPath,
+        {
+          validate: (body) => {
+            const data = (body as Record<string, any>)?.data;
+            return hasString(body, 'requestId') &&
+              data?.workspaceId === createdWorkspaceId &&
+              data?.canCreateUngrouped === true &&
+              Array.isArray(data?.allowedVisibilities) &&
+              data.allowedVisibilities.includes(1) &&
+              Array.isArray(data?.groups) &&
+              Array.isArray((body as Record<string, unknown>)?.warnings);
+          }
+        }
+      );
+
+      await page.goto('/app/projects');
+      await expect(page.getByTestId('projects-overview-page')).toBeVisible();
+      const projectOptionsResponsePromise = waitForApiResponse(page, 'GET', projectOptionsPath);
+      await page.getByTestId('projects-create-project').click();
+      await recordOkJson(await projectOptionsResponsePromise, evidence, 'u22-journey-project-create-options-ui', (body) =>
+        (body as Record<string, any>)?.data?.workspaceId === createdWorkspaceId &&
+        (body as Record<string, any>)?.data?.canCreateUngrouped === true
+      );
+
+      const projectDialog = page.getByRole('dialog', { name: 'Create Project' });
+      await expect(projectDialog).toBeVisible();
+      await expect(page.getByTestId('project-create-title')).toBeFocused();
+      await page.getByTestId('project-create-title').fill(projectTitle);
+      await page.getByTestId('project-create-description').fill(projectDescription);
+      // A newly created Workspace has no Groups. The selector is intentionally
+      // absent in that server-authorized empty-options state, and the canonical
+      // Project contract permits creation at the Workspace root.
+      const projectGroup = page.getByTestId('project-create-group');
+      if (await projectGroup.count()) {
+        await projectGroup.selectOption('');
+      }
+      await page.getByTestId('project-create-visibility').selectOption({ label: 'Members only' });
+
+      const projectCreateResponsePromise = waitForApiResponse(
+        page,
+        'POST',
+        `/api/workspaces/${createdWorkspaceId}/projects`
+      );
+      const projectCreateStoppedBeforeDispatch = page
+        .getByTestId('project-create-create-status')
+        .filter({ hasText: 'stopped before it was sent' })
+        .waitFor({ state: 'visible' })
+        .then(() => ({ kind: 'stopped' as const }));
+      await projectDialog.getByRole('button', { name: 'Create Project' }).click();
+      const projectCreateOutcome = await Promise.race([
+        projectCreateResponsePromise.then((response) => ({ kind: 'response' as const, response })),
+        projectCreateStoppedBeforeDispatch
+      ]);
+      let projectCreateResponse: PlaywrightResponse;
+      if (projectCreateOutcome.kind === 'stopped') {
+        await expect(page.getByTestId('project-create-create-status')).toContainText('Project creation was stopped before it was sent.');
+        expect(observedProjectCreatePosts, 'project create has not been retried automatically').toBe(0);
+        const reauthorizedOptionsResponse = waitForApiResponse(page, 'GET', projectOptionsPath);
+        await page.getByTestId('project-create-options-retry').click();
+        await expect(page.getByTestId('project-create-form')).toBeVisible();
+        await recordOkJson(await reauthorizedOptionsResponse, evidence, 'u22-journey-project-create-options-reauthorized', (body) =>
+          (body as Record<string, any>)?.data?.workspaceId === createdWorkspaceId &&
+          (body as Record<string, any>)?.data?.canCreateUngrouped === true
+        );
+        await projectDialog.getByRole('button', { name: 'Create Project' }).click();
+        projectCreateResponse = await projectCreateResponsePromise;
+      } else {
+        projectCreateResponse = projectCreateOutcome.response;
+      }
+
+      const projectCreateText = await projectCreateResponse.text();
+      const projectCreateBody = parseJson(projectCreateText) as Record<string, any>;
+      const projectCreateRequest = projectCreateResponse.request();
+      const projectCreateHeaders = await projectCreateRequest.allHeaders();
+      const projectCreateRequestBody = projectCreateRequest.postDataJSON() as Record<string, unknown>;
+      createdProjectId = typeof projectCreateBody?.data?.id === 'string' ? projectCreateBody.data.id : null;
+      evidence.projectId = createdProjectId ?? undefined;
+      evidence.steps.push({
+        name: 'u22-journey-project-create-ui-command',
+        method: projectCreateRequest.method(),
+        path: new URL(projectCreateResponse.url()).pathname,
+        status: projectCreateResponse.status(),
+        body: {
+          request: projectCreateRequestBody,
+          idempotencyKeyPresent: Boolean(projectCreateHeaders['idempotency-key']),
+          csrfHeaderPresent: Boolean(projectCreateHeaders['x-csrf-token'])
+        },
+        bodyPreview: preview(projectCreateText)
+      });
+      expect(observedProjectCreatePosts, 'one explicit ungrouped Project create is observed').toBe(1);
+      expect(projectCreateResponse.status(), `U-22 Project create response: ${projectCreateText}`).toBe(201);
+      expect(createdProjectId, 'U-22 created Project id').toMatch(/^[0-9a-f-]{36}$/i);
+      expect(projectCreateRequestBody).toEqual({
+        title: projectTitle,
+        description: projectDescription,
+        groupId: null,
+        visibility: 1,
+        startDate: null,
+        endDate: null
+      });
+      expect(projectCreateHeaders['idempotency-key'], 'Project create idempotency key').toMatch(/^[\x20-\x7e]{8,128}$/u);
+      expect(projectCreateHeaders['x-csrf-token'], 'Project create uses the real Angular CSRF interceptor').toBeTruthy();
+      expect(projectCreateBody).toMatchObject({
+        data: {
+          id: createdProjectId,
+          workspaceId: createdWorkspaceId,
+          groupId: null,
+          ownerUserId: evidence.userId,
+          title: projectTitle,
+          description: projectDescription,
+          status: 0,
+          visibility: 1,
+          activationState: 1,
+          versionNo: 1
+        },
+        warnings: []
+      });
+      await expect(page).toHaveURL(`/app/projects/${createdProjectId}`);
+      await expect(page.getByTestId('project-draft-overview')).toBeVisible();
+
+      const projectActivationResponsePromise = waitForApiResponse(page, 'POST', `/api/projects/${createdProjectId}/activate`);
+      await page.getByTestId('activate-project').click();
+      const projectActivationResponse = await projectActivationResponsePromise;
+      const projectActivationText = await projectActivationResponse.text();
+      const projectActivationBody = parseJson(projectActivationText) as Record<string, any>;
+      const projectActivationRequest = projectActivationResponse.request();
+      const projectActivationHeaders = await projectActivationRequest.allHeaders();
+      evidence.steps.push({
+        name: 'u22-journey-project-activate-ui-command',
+        method: projectActivationRequest.method(),
+        path: new URL(projectActivationResponse.url()).pathname,
+        status: projectActivationResponse.status(),
+        body: {
+          request: projectActivationRequest.postDataJSON(),
+          csrfHeaderPresent: Boolean(projectActivationHeaders['x-csrf-token'])
+        },
+        bodyPreview: preview(projectActivationText)
+      });
+      expect(projectActivationResponse.status(), `U-22 Project activation response: ${projectActivationText}`).toBe(200);
+      expect(projectActivationRequest.postDataJSON()).toEqual({ expectedVersion: 1 });
+      expect(projectActivationHeaders['x-csrf-token'], 'Project activation uses the real Angular CSRF interceptor').toBeTruthy();
+      expect(projectActivationBody).toMatchObject({ data: { projectId: createdProjectId }, warnings: [] });
+      await expect(page.getByRole('tab', { name: 'Tasks' })).toBeVisible();
+      await recordFetchJson(page, evidence, 'u22-journey-project-activated', `/api/projects/${createdProjectId}`, {
+        validate: (body) =>
+          (body as Record<string, any>)?.id === createdProjectId &&
+          (body as Record<string, any>)?.workspaceId === createdWorkspaceId &&
+          (body as Record<string, any>)?.groupId === null &&
+          (body as Record<string, any>)?.status === 1 &&
+          (body as Record<string, any>)?.activationState === 2 &&
+          (body as Record<string, any>)?.uiPermissions?.canCreateTask === true
+      });
+
+      const taskOptionsPath = `/api/projects/${createdProjectId}/tasks/create-options`;
+      const taskOptionsResponse = await recordFetchJson(page, evidence, 'u22-journey-task-create-options', taskOptionsPath, {
+        validate: (body) => {
+          const data = (body as Record<string, any>)?.data;
+          return hasString(body, 'requestId') &&
+            data?.projectId === createdProjectId &&
+            data?.workspaceId === createdWorkspaceId &&
+            data?.projectTitle === projectTitle &&
+            data?.canCreateTask === true &&
+            data?.canManageProject === true &&
+            Array.isArray(data?.milestones) &&
+            Array.isArray(data?.assignees) &&
+            data?.projectScope?.policy?.webEnabled === false &&
+            data?.projectScope?.policy?.projectFilesEnabled === false &&
+            data?.projectScope?.version === 1 &&
+            data?.projectScope?.canSetTaskOverride === true &&
+            Array.isArray((body as Record<string, unknown>)?.warnings);
+        }
+      }) as Record<string, any>;
+      expect(taskOptionsResponse.data.milestones, 'fresh U-22 Project has no Milestone selected').toEqual([]);
+
+      const taskOptionsUiResponsePromise = waitForApiResponse(page, 'GET', taskOptionsPath);
+      await page.getByTestId('project-create-task').click();
+      await recordOkJson(await taskOptionsUiResponsePromise, evidence, 'u22-journey-task-create-options-ui', (body) =>
+        (body as Record<string, any>)?.data?.projectId === createdProjectId &&
+        (body as Record<string, any>)?.data?.projectScope?.policy?.webEnabled === false &&
+        (body as Record<string, any>)?.data?.projectScope?.policy?.projectFilesEnabled === false
+      );
+      await expect(page).toHaveURL(`/app/projects/${createdProjectId}/tasks/new`);
+      await expect(page.getByTestId('task-create-title')).toBeFocused();
+      await expect(page.getByTestId('task-create-page')).toContainText('does not start a runtime or retrieve sources');
+      await expect(page.getByRole('button', { name: 'Start', exact: true })).toHaveCount(0);
+      await expect(page.locator('[name="webUrl"], [name="provider"], [name="projectId"], [name="workspaceId"]')).toHaveCount(0);
+      await expect(page.locator('#task-create-sourceScopeMode-inherit')).toBeChecked();
+
+      const qualityChecklist = page.getByTestId('task-create-quality-checklist');
+      await expect(qualityChecklist).toContainText('Advisory only: 1 of 4 items are covered.');
+      await expect(qualityChecklist).toContainText('Project default policy: Web disabled; Project files disabled.');
+      const addGoal = page.getByTestId('task-create-quality-goal').getByRole('button', { name: 'Add Goal' });
+      await addGoal.focus();
+      await page.keyboard.press('Enter');
+      await expect(page.getByTestId('task-brief-goal-input')).toBeFocused();
+
+      await page.getByTestId('task-create-title').fill(`  ${taskTitle}  `);
+      await page.getByTestId('task-create-description').fill(taskDescription);
+      await page.getByTestId('task-create-priority').selectOption('high');
+      await page.getByTestId('task-create-start-date').fill(startDate);
+      await page.getByTestId('task-create-due-date').fill(dueDate);
+      await page.getByTestId('task-brief-goal-input').fill(goal);
+      await page.getByTestId('task-brief-deliverable-input').fill(deliverable);
+      await page.getByTestId('task-brief-constraints-input').fill(constraints);
+      await expect(qualityChecklist).toContainText('Advisory only: 4 of 4 items are covered.');
+
+      const taskCreatePath = `/api/projects/${createdProjectId}/tasks/create`;
+      const taskCreateResponsePromise = waitForApiResponse(page, 'POST', taskCreatePath);
+      await page.getByTestId('task-create-submit').click();
+      const taskCreateResponse = await taskCreateResponsePromise;
+      const taskCreateText = await taskCreateResponse.text();
+      const taskCreateBody = parseJson(taskCreateText) as Record<string, any>;
+      const taskCreateRequest = taskCreateResponse.request();
+      const taskCreateHeaders = await taskCreateRequest.allHeaders();
+      const taskCreateRequestBody = taskCreateRequest.postDataJSON() as Record<string, unknown>;
+      createdTaskId = typeof taskCreateBody?.data?.taskId === 'string' ? taskCreateBody.data.taskId : null;
+      evidence.taskId = createdTaskId ?? undefined;
+      evidence.steps.push({
+        name: 'u22-journey-task-create-ui-command',
+        method: taskCreateRequest.method(),
+        path: new URL(taskCreateResponse.url()).pathname,
+        status: taskCreateResponse.status(),
+        body: {
+          request: taskCreateRequestBody,
+          idempotencyKeyPresent: Boolean(taskCreateHeaders['idempotency-key']),
+          csrfHeaderPresent: Boolean(taskCreateHeaders['x-csrf-token'])
+        },
+        bodyPreview: preview(taskCreateText)
+      });
+      expect(observedTaskCreatePosts, 'one explicit canonical Task create is observed').toBe(1);
+      expect(taskCreateResponse.status(), `U-22 Task create response: ${taskCreateText}`).toBe(201);
+      expect(createdTaskId, 'U-22 created Task id').toMatch(/^[0-9a-f-]{36}$/i);
+      expect(taskCreateRequestBody).toEqual({
+        title: taskTitle,
+        description: taskDescription,
+        priority: 2,
+        startDate,
+        dueDate,
+        goal,
+        deliverable,
+        constraints,
+        sourceScopeMode: 'Inherit'
+      });
+      expect(taskCreateHeaders['idempotency-key'], 'Task create idempotency key').toMatch(/^task-create-[\x20-\x7e]+$/u);
+      expect(taskCreateHeaders['x-csrf-token'], 'Task create uses the real Angular CSRF interceptor').toBeTruthy();
+      expect(taskCreateBody).toMatchObject({
+        data: {
+          taskId: createdTaskId,
+          projectId: createdProjectId,
+          workspaceId: createdWorkspaceId,
+          milestoneId: null,
+          primaryAssigneeUserId: null,
+          title: taskTitle,
+          priority: 2,
+          status: 0,
+          workflowStageId: expect.stringMatching(/^[0-9a-f-]{36}$/i),
+          version: 1,
+          sourceScopeMode: 'Inherit',
+          taskOverridePolicy: null
+        },
+        warnings: []
+      });
+
+      await expect(page).toHaveURL(`/app/projects/${createdProjectId}/tasks/${createdTaskId}`);
+      await expect(page.getByTestId('task-detail-page')).toBeVisible();
+      await expect(page.getByRole('heading', { name: taskTitle })).toBeVisible();
+      const progress = page.getByTestId('task-progress-phase');
+      await expect(progress.getByTestId('task-current-phase')).toHaveText('Backlog');
+      await expect(progress.getByText('Waiting', { exact: true })).toBeVisible();
+      const sourceScope = page.getByTestId('task-execution-scope');
+      await expect(sourceScope).toBeVisible();
+      await expect(sourceScope.getByTestId('task-execution-scope-origin')).toHaveText('Project default');
+      await expect(sourceScope.getByTestId('task-execution-scope-web')).toHaveText('Disabled');
+      await expect(sourceScope.getByTestId('task-execution-scope-files')).toHaveText('Disabled');
+      await expect(sourceScope.getByTestId('task-execution-runtime-unavailable'))
+        .toContainText('No Web request can be sent from this screen.');
+      await expect(sourceScope.getByRole('button', { name: 'Start', exact: true })).toHaveCount(0);
+
+      await recordFetchJson(page, evidence, 'u22-journey-task-authoritative-detail', `/api/tasks/${createdTaskId}`, {
+        validate: (body) => {
+          const task = (body as Record<string, any>)?.task;
+          return task?.id === createdTaskId &&
+            task?.workspaceId === createdWorkspaceId &&
+            task?.projectId === createdProjectId &&
+            task?.title === taskTitle &&
+            task?.description === taskDescription &&
+            task?.priority === 'High' &&
+            task?.workflowStageName === 'Backlog' &&
+            task?.stageCategory === 0 &&
+            task?.progressPercent === 0 &&
+            task?.brief?.goal?.value === goal &&
+            task?.brief?.deliverable?.value === deliverable &&
+            task?.brief?.constraints?.value === constraints;
+        }
+      });
+
+      const activityPath = `/api/tasks/${createdTaskId}/activity`;
+      const activityResponsePromise = waitForApiResponse(page, 'GET', activityPath);
+      const activity = page.getByTestId('task-activity-log');
+      await activity.locator('summary').click();
+      await recordOkJson(await activityResponsePromise, evidence, 'u22-journey-task-activity-confirmed-empty', (body) =>
+        Array.isArray(body?.items) &&
+        body.items.length === 0 &&
+        body.page === 1 &&
+        body.pageSize === 20 &&
+        body.totalCount === 0 &&
+        body.hasMore === false
+      );
+      await expect(activity.locator('summary')).toContainText('0 recorded');
+      await expect(activity).toContainText('No Task activity has been recorded.');
+
+      await page.reload();
+      await expect(page.getByTestId('task-detail-page')).toBeVisible();
+      await expect(page.getByRole('heading', { name: taskTitle })).toBeVisible();
+      await expect(page.getByTestId('task-current-phase')).toHaveText('Backlog');
+      expect(executionRunRequests, 'U-22 policy-only Task detail never requests an execution run').toEqual([]);
+      await expect(page.getByTestId('task-progress-phase').getByText('Waiting', { exact: true })).toBeVisible();
+
+      await page.goto(`/app/projects/${createdProjectId}/tasks/${createdTaskId}`);
+      await expect(page.getByTestId('task-detail-page')).toBeVisible();
+      await expect(page.getByRole('heading', { name: taskTitle })).toBeVisible();
+      await expect(page.getByTestId('task-current-phase')).toHaveText('Backlog');
+    } finally {
+      if (createdProjectId) {
+        // Leave the Task route before archiving its Project so the browser does
+        // not legitimately refetch a resource that this test is removing.
+        await page.goto('/app/workspaces').catch(() => undefined);
+        const projectCleanup = await requestWithCsrf(page, 'POST', `/api/projects/${createdProjectId}/archive`);
+        evidence.steps.push({
+          name: 'u22-journey-project-cleanup-archive',
+          method: 'POST',
+          path: `/api/projects/${createdProjectId}/archive`,
+          status: projectCleanup.status,
+          bodyPreview: preview(projectCleanup.text)
+        });
+        expect(projectCleanup.status, `U-22 Project cleanup archive: ${projectCleanup.text}`).toBe(200);
+        expect(projectCleanup.csrfHeaderPresent, 'U-22 Project cleanup uses a real CSRF token').toBe(true);
+      }
+      if (createdWorkspaceId) {
+        const workspaceCleanup = await requestWithCsrf(page, 'POST', `/api/workspaces/${createdWorkspaceId}/archive`);
+        evidence.steps.push({
+          name: 'u22-journey-workspace-cleanup-archive',
+          method: 'POST',
+          path: `/api/workspaces/${createdWorkspaceId}/archive`,
+          status: workspaceCleanup.status,
+          bodyPreview: preview(workspaceCleanup.text)
+        });
+        expect(workspaceCleanup.status, `U-22 Workspace cleanup archive: ${workspaceCleanup.text}`).toBe(200);
+        expect(workspaceCleanup.csrfHeaderPresent, 'U-22 Workspace cleanup uses a real CSRF token').toBe(true);
+        await expect.poll(async () => {
+          const list = await fetchJsonFromPage(page, '/api/workspaces');
+          return list.status === 200 &&
+            Array.isArray(list.body) &&
+            !list.body.some((workspace: Record<string, unknown>) => workspace.id === createdWorkspaceId);
+        }).toBe(true);
+      }
+
+      expect(evidence.pageErrors, 'browser page errors').toEqual([]);
+      expectUnexpectedConsoleErrors(evidence);
+      expectUnexpectedApiFailures(evidence);
+      await testInfo.attach('u22-same-lineage-real-backend-evidence.json', {
+        body: JSON.stringify(evidence, null, 2),
+        contentType: 'application/json'
+      });
+    }
+  });
+
   test('keeps authenticated HTTP requests available when the Hub cannot connect', async ({ page }, testInfo) => {
     await page.addInitScript(() => {
       const nativeFetch = window.fetch.bind(window);
