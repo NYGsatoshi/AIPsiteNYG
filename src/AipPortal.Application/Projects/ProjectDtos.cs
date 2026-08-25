@@ -3,7 +3,13 @@ using AipPortal.Domain.Enums;
 
 namespace AipPortal.Application.Projects;
 
-public sealed record ProjectListQuery(bool Archived = false, string? Search = null, ProjectStatus? Status = null, int Page = 1, int PageSize = 50)
+public sealed record ProjectListQuery(
+    bool Archived = false,
+    string? Search = null,
+    ProjectStatus? Status = null,
+    int Page = 1,
+    int PageSize = 50,
+    Guid? WorkspaceId = null)
 {
     public int SafePage => Page < 1 ? 1 : Page;
     public int SafePageSize => PageSize < 1 ? 50 : Math.Min(PageSize, 100);
@@ -29,7 +35,7 @@ public sealed record ProjectResponse(
     int? ActivationVersion = null,
     ProjectStatus? SuspendedFromStatus = null,
     ProjectStatus? ArchivedFromStatus = null);
-public sealed record ProjectUiPermissionResponse(bool CanCreateTask);
+public sealed record ProjectUiPermissionResponse(bool CanCreateTask, bool CanActivate = false);
 public sealed record CreateProjectRequest(Guid WorkspaceId, Guid GroupId, string Title, string? Description, DateOnly? StartDate, DateOnly? EndDate);
 public sealed record UpdateProjectRequest(string? Title, string? Description, ProjectStatus? Status, DateOnly? StartDate, DateOnly? EndDate);
 public sealed record ProjectMemberResponse(Guid UserId, string DisplayName, string Email, ProjectRole Role, DateTimeOffset JoinedAt);
@@ -66,9 +72,44 @@ public sealed record UpdateMilestoneRequest(
 // Compatibility shape retained for the existing project screen.  The appended
 // values mirror the canonical Task detail contract so a list row cannot expose
 // stale parent-derived fields or a different aggregate version.
-public sealed record TaskItemResponse(Guid Id, Guid ProjectId, Guid? MilestoneId, string Title, string? Description, TaskItemStatus Status, TaskPriority Priority, DateOnly? StartDate, DateOnly? DueDate, int ProgressPercent, Guid CreatedByUserId, DateTimeOffset CreatedAt, DateTimeOffset? UpdatedAt, TaskUiPermissionResponse UiPermissions, DateOnly? PlannedStartDate = null, DateOnly? PlannedEndDate = null, bool ProgressIsDerived = false, bool IsOverdue = false, long Version = 0);
+public sealed record TaskItemResponse(
+    Guid Id,
+    Guid ProjectId,
+    Guid? MilestoneId,
+    string Title,
+    string? Description,
+    TaskItemStatus Status,
+    TaskPriority Priority,
+    DateOnly? StartDate,
+    DateOnly? DueDate,
+    int ProgressPercent,
+    Guid CreatedByUserId,
+    DateTimeOffset CreatedAt,
+    DateTimeOffset? UpdatedAt,
+    TaskUiPermissionResponse UiPermissions,
+    DateOnly? PlannedStartDate = null,
+    DateOnly? PlannedEndDate = null,
+    bool ProgressIsDerived = false,
+    bool IsOverdue = false,
+    long Version = 0,
+    Guid? WorkflowStageId = null,
+    string WorkflowStageName = "",
+    [property: System.Text.Json.Serialization.JsonConverter(
+        typeof(System.Text.Json.Serialization.JsonStringEnumConverter))]
+    TaskStageCategory StageCategory = TaskStageCategory.Todo,
+    bool IsBlocked = false,
+    bool HasArtifact = false);
 public sealed record TaskUiPermissionResponse(bool CanEdit, bool CanAssign, bool CanChangeStatus, bool CanDelete, IReadOnlyList<TaskItemStatus> AllowedTransitions, string? RowVersion);
-public sealed record CreateTaskItemRequest(Guid? MilestoneId, string Title, string? Description, TaskPriority Priority, DateOnly? StartDate, DateOnly? DueDate);
+public sealed record CreateTaskItemRequest(
+    Guid? MilestoneId,
+    string Title,
+    string? Description,
+    TaskPriority Priority,
+    DateOnly? StartDate,
+    DateOnly? DueDate,
+    string? Goal = null,
+    string? Deliverable = null,
+    string? Constraints = null);
 public sealed record UpdateTaskItemRequest(Guid? MilestoneId, string? Title, string? Description, TaskItemStatus? Status, TaskPriority? Priority, DateOnly? StartDate, DateOnly? DueDate, int? ProgressPercent);
 public sealed record TaskAssignmentResponse(Guid Id, Guid TaskItemId, Guid UserId, string DisplayName, TaskAssignmentRole Role, decimal? EstimatedHours, decimal? ActualHours, DateTimeOffset AssignedAt, Guid AssignedByUserId);
 public sealed record AddTaskAssignmentRequest(Guid UserId, TaskAssignmentRole Role, decimal? EstimatedHours);

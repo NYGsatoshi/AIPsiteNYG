@@ -87,7 +87,17 @@ public sealed class WorkspaceDashboardQuery(
                     grant.VersionNo > 0 &&
                     grant.GrantedAt <= now &&
                     grant.RevokedAt == null &&
-                    (!grant.ExpiresAt.HasValue || grant.ExpiresAt > now))))
+                    (!grant.ExpiresAt.HasValue || grant.ExpiresAt > now)),
+                dbContext.Groups.Any(group =>
+                    group.TenantId == workspace.TenantId &&
+                    group.WorkspaceId == workspace.Id &&
+                    group.Status == GroupStatus.Active &&
+                    group.DeletedAt == null &&
+                    dbContext.GroupMembers.Any(member =>
+                        member.TenantId == workspace.TenantId &&
+                        member.GroupId == group.Id &&
+                        member.UserId == userId &&
+                        (member.Role == GroupRole.Owner || member.Role == GroupRole.Admin)))))
             .ToListAsync(cancellationToken);
 
         if (rows.Count == 0)
@@ -181,6 +191,11 @@ public sealed class WorkspaceDashboardQuery(
         var canCreateProject =
             hasActiveWorkspaceMembership &&
             (hasWorkspaceGovernanceAuthority || row.HasDelegatedProjectCreate);
+        var canOpenProjectCreate =
+            hasActiveWorkspaceMembership &&
+            (hasWorkspaceGovernanceAuthority ||
+             row.HasDelegatedProjectCreate ||
+             row.HasManagedActiveGroup);
         var canAddFiles =
             row.HasSystemAdminAccess ||
             (row.HasActiveTenantMembership &&
@@ -210,7 +225,8 @@ public sealed class WorkspaceDashboardQuery(
             unreadConversationCount,
             runningProjectCount + needsReviewProjectCount,
             runningProjectCount,
-            needsReviewProjectCount);
+            needsReviewProjectCount,
+            canOpenProjectCreate);
     }
 
     private sealed record WorkspaceDashboardRow(
@@ -224,7 +240,8 @@ public sealed class WorkspaceDashboardQuery(
         WorkspaceRole? CurrentUserRole,
         bool HasSystemAdminAccess,
         bool HasActiveTenantMembership,
-        bool HasDelegatedProjectCreate);
+        bool HasDelegatedProjectCreate,
+        bool HasManagedActiveGroup);
 
     private sealed record WorkspaceCount(Guid WorkspaceId, int Count);
 

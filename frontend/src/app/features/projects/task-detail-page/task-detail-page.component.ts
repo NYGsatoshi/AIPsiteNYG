@@ -1,3 +1,4 @@
+import { DatePipe } from '@angular/common';
 import { Component, computed, effect, inject, OnDestroy, Signal, signal } from '@angular/core';
 import { FormsModule } from '@angular/forms';
 import { ActivatedRoute, RouterLink } from '@angular/router';
@@ -7,10 +8,9 @@ import { AppEmptyStateComponent } from '../../../shared/empty-state/app-empty-st
 import { AppInlineLoadingComponent } from '../../../shared/loading/app-inline-loading/app-inline-loading.component';
 import { AppPermissionDeniedComponent } from '../../../shared/permission/app-permission-denied/app-permission-denied.component';
 import { ProjectsFacade } from '../projects.facade';
-import { TASK_LABEL_DESCRIPTION_MAX_LENGTH, TASK_LABEL_NAME_MAX_LENGTH, TaskDetailSection, TaskDetailSectionState, TaskEditorSaveRequest } from '../projects.types';
+import { TASK_LABEL_DESCRIPTION_MAX_LENGTH, TASK_LABEL_NAME_MAX_LENGTH, TaskActivityLogType, TaskDetailSection, TaskDetailSectionState, TaskEditorSaveRequest, TaskStageCategory, TaskStatus } from '../projects.types';
 import { TaskDependenciesReadonlyComponent } from '../task-dependencies-readonly/task-dependencies-readonly.component';
 import { TaskEditorComponent } from '../task-editor/task-editor.component';
-import { TaskProgressFieldComponent } from '../task-progress-field/task-progress-field.component';
 import { TaskStatusBadgeComponent } from '../task-status-badge/task-status-badge.component';
 import { AppMentionInputComponent } from '../../../shared/mention-input/app-mention-input.component';
 import { FilesFacade } from '../../files/files.facade';
@@ -22,12 +22,12 @@ import { AttachmentPickerDialogComponent } from '../../files/attachment-picker-d
   imports: [
     RouterLink,
     FormsModule,
+    DatePipe,
     AppEmptyStateComponent,
     AppInlineLoadingComponent,
     AppPermissionDeniedComponent,
     TaskDependenciesReadonlyComponent,
     TaskEditorComponent,
-    TaskProgressFieldComponent,
     TaskStatusBadgeComponent,
     AppMentionInputComponent,
     AttachmentPickerDialogComponent
@@ -53,6 +53,7 @@ export class TaskDetailPageComponent implements OnDestroy {
   readonly conflictReloadState = computed(() => this.facade.getTaskConflictReloadState());
   private readonly sectionStateSignals: Record<TaskDetailSection, Signal<TaskDetailSectionState>> = {
     detail: computed(() => this.facade.getDetailSectionState('detail')),
+    activity: computed(() => this.facade.getDetailSectionState('activity')),
     subtasks: computed(() => this.facade.getDetailSectionState('subtasks')),
     checklist: computed(() => this.facade.getDetailSectionState('checklist')),
     comments: computed(() => this.facade.getDetailSectionState('comments')),
@@ -147,7 +148,33 @@ export class TaskDetailPageComponent implements OnDestroy {
 
   retry(): void { const taskId = this.taskId(); if (taskId) this.facade.retryTaskDetail(taskId); }
   retrySection(section: TaskDetailSection): void { const taskId = this.taskId(); if (taskId) this.facade.retrySection(taskId, section); }
-  loadMore(section: 'subtasks' | 'comments' | 'files'): void { const taskId = this.taskId(); if (!taskId) return; if (section === 'subtasks') this.facade.loadMoreSubtasks(taskId); else if (section === 'comments') this.facade.loadMoreComments(taskId); else this.facade.loadMoreFiles(taskId); }
+  loadActivity(event: Event): void {
+    const taskId = this.taskId();
+    if (taskId && (event.currentTarget as HTMLDetailsElement | null)?.open) this.facade.loadActivity(taskId);
+  }
+  loadMore(section: 'activity' | 'subtasks' | 'comments' | 'files'): void { const taskId = this.taskId(); if (!taskId) return; if (section === 'activity') this.facade.loadMoreActivity(taskId); else if (section === 'subtasks') this.facade.loadMoreSubtasks(taskId); else if (section === 'comments') this.facade.loadMoreComments(taskId); else this.facade.loadMoreFiles(taskId); }
+  phaseStateLabel(category: TaskStageCategory | undefined, status: TaskStatus, isBlocked: boolean | undefined): string {
+    if (isBlocked) return 'Blocked';
+    switch (category) {
+      case 'backlog':
+      case 'todo': return 'Waiting';
+      case 'inProgress': return 'Running';
+      case 'review': return 'Needs review';
+      case 'done': return 'Completed';
+      case 'cancelled': return 'Cancelled';
+      default: return status === 'inProgress' ? 'Running' : status === 'review' ? 'Needs review' : status === 'done' ? 'Completed' : status === 'cancelled' ? 'Cancelled' : status === 'blocked' ? 'Blocked' : 'Waiting';
+    }
+  }
+  activityTypeLabel(type: TaskActivityLogType): string {
+    switch (type) {
+      case 'statusUpdate': return 'Status update';
+      case 'decision': return 'Decision';
+      case 'issue': return 'Needs attention';
+      case 'note': return 'Activity';
+      default: return 'Recorded activity';
+    }
+  }
+  activityHasConfirmedEmptyState(): boolean { return this.sectionState('activity')().status === 'empty'; }
   createSubtask(): void { const vm = this.page(); const title = this.subtaskTitle().trim(); if (vm.task && vm.detail?.permissions.canCreateSubtask && title.length <= 300) { this.facade.createSubtask(vm.task.id, title, () => this.subtaskTitle.set('')); } }
   createChecklist(): void { const vm = this.page(); const text = this.checklistText().trim(); if (vm.task && text && text.length <= 1000 && vm.detail?.permissions.canCreateChecklistItem) { this.facade.createChecklist(vm.task.id, text, () => this.checklistText.set('')); } }
   toggleChecklist(item: { id: string; text: string; isCompleted: boolean; version: string }): void { const vm = this.page(); if (vm.task) this.facade.updateChecklist(vm.task.id, item.id, item.text, !item.isCompleted, item.version); }

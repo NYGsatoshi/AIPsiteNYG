@@ -1,11 +1,31 @@
 .project-detail-page { display: grid; gap: var(--aip-space-4); }
 .project-detail-page header p { margin: 0; color: var(--aip-color-text-secondary); }
 .project-detail-page h1, .project-detail-page h2 { margin: 0; }
+.project-detail-page__overview,
+.project-detail-page__draft,
+.project-detail-page__generated { display: grid; gap: var(--aip-space-3); }
+.project-detail-page__activation-status:not(:empty) { padding: var(--aip-space-2); border: 1px solid var(--aip-color-border-default); border-radius: var(--aip-radius-md); }
+.project-detail-page__draft { padding: var(--aip-space-4); border: 1px solid var(--aip-color-border-default); border-radius: var(--aip-radius-lg); background: var(--aip-color-bg-surface); }
+.project-detail-page__draft dl,
+.project-detail-page__counts { display: grid; grid-template-columns: repeat(auto-fit, minmax(9rem, 1fr)); gap: var(--aip-space-3); margin: 0; }
+.project-detail-page__draft dl > div,
+.project-detail-page__counts > div { display: grid; gap: var(--aip-space-1); }
+.project-detail-page__draft dt,
+.project-detail-page__counts dt { color: var(--aip-color-text-secondary); }
+.project-detail-page__draft dd,
+.project-detail-page__counts dd { margin: 0; font-weight: 700; }
+.project-detail-page__generated { padding: var(--aip-space-3); border-inline-start: 0.25rem solid var(--aip-color-border-default); }
+.project-detail-page__generated ul { padding-inline-start: var(--aip-space-5); }
+.project-detail-page__activate { min-height: 2.75rem; justify-self: start; }
 .project-detail-page__tabs { display: flex; flex-wrap: wrap; gap: var(--aip-space-2); }
 .project-detail-page__tabs button[aria-selected='true'] { background: var(--aip-color-bg-selected); color: var(--aip-color-text-primary); }
 .project-detail-page__records { display: grid; gap: var(--aip-space-2); margin: 0; padding: 0; list-style: none; }
 .project-detail-page__records li { display: grid; gap: var(--aip-space-1); padding: var(--aip-space-3); border: 1px solid var(--aip-color-border-default); border-radius: var(--aip-radius-md); }
 .project-detail-page__kanban { display: grid; gap: var(--aip-space-3); }
+.project-detail-page__task-list { display: grid; gap: var(--aip-space-3); min-width: 0; }
+.project-detail-page__task-list-alert { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: var(--aip-space-2); padding: var(--aip-space-2); border: 1px solid var(--aip-color-warning); border-radius: var(--aip-radius-md); }
+.project-detail-page__task-list-alert p { margin: 0; }
+.project-detail-page__task-list-alert button { min-height: 2.75rem; }
 .project-detail-page__schedule { display: grid; gap: var(--aip-space-3); min-width: 0; }
 .project-detail-page__schedule-header { display: flex; flex-wrap: wrap; align-items: end; justify-content: space-between; gap: var(--aip-space-3); }
 .project-detail-page__schedule-header > div { display: grid; gap: var(--aip-space-1); }
@@ -25,4 +45,5 @@
 @media (max-width: 40rem) {
   .project-detail-page__schedule-header { align-items: stretch; }
   .project-detail-page__schedule-header button { width: 100%; }
+  .project-detail-page__activate { width: 100%; }
 }

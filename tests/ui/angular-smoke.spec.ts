@@ -64,6 +64,88 @@ test.describe('MVP-A P0 Angular frontend smoke', () => {
     await expectHealthyAngularPage(page);
   });
 
+  test('keeps the redacted audit drawer deep-linkable, focus-safe, and accessible at 320px', async ({ page }) => {
+    await page.setViewportSize({ width: 320, height: 800 });
+    await installAuditGridApi(page, auditGridFixtures(8));
+
+    const firstAuditId = auditGridFixtureId(0);
+    await page.goto(`/app/admin/audit?event=${firstAuditId}`);
+    const drawer = page.getByTestId('audit-detail-drawer');
+    await expect(drawer).toBeVisible();
+    await expect(drawer).toContainText('Audit row 001 was opened with safe fields.');
+    await page.getByTestId('audit-detail-close').click();
+    await expect(page).toHaveURL(/\/app\/admin\/audit$/);
+    await expect(page.getByTestId('audit-log-title')).toBeFocused();
+
+    await page.goto('/app/admin/audit');
+    const mobileList = page.getByTestId('audit-log-mobile-list');
+    const opener = page.getByTestId('open-audit-mobile-detail').first();
+    await expect(mobileList).toBeVisible();
+    await opener.click();
+
+    await expect(page).toHaveURL(new RegExp(`/app/admin/audit\\?event=${firstAuditId}$`));
+    await expect(drawer).toBeVisible();
+    await expect(drawer).toContainText('Audit row 001 was opened with safe fields.');
+    await expect(drawer).not.toContainText('restricted body must stay hidden');
+    await expect(drawer).not.toContainText('tenant/private/key');
+    await expectNoDocumentHorizontalOverflow(page);
+    await expectNoAccessibilityViolations(page);
+
+    await page.goBack();
+    await expect(drawer).toHaveCount(0);
+    await expect(opener).toBeFocused();
+
+    await page.goForward();
+    await expect(drawer).toBeVisible();
+    await page.getByTestId('audit-detail-close').click();
+    await expect(page).toHaveURL(/\/app\/admin\/audit$/);
+    await expect(opener).toBeFocused();
+  });
+
+  test('keeps the audit header fixed and restores bounded AG scroll context after drawer close', async ({ page }, testInfo) => {
+    test.skip(testInfo.project.name !== 'chromium-desktop', 'The desktop grid is replaced by the mobile audit list.');
+    await installAuditGridApi(page, auditGridFixtures(128));
+    await page.goto('/app/admin/audit');
+
+    const grid = page.locator('ag-grid-angular.app-data-grid__grid--sticky-header');
+    const header = grid.locator('.ag-header');
+    // AG Grid v36 owns the normal-layout scroll on ag-grid-viewport; keep the
+    // older class alternatives for the retained adapter's compatible builds.
+    const bodyViewport = grid.locator('.ag-grid-viewport, .ag-center-cols-viewport, .ag-body-viewport').first();
+    await expect(grid).toBeVisible();
+    await expect(header).toBeVisible();
+    await expect(bodyViewport).toBeVisible();
+    const before = await header.boundingBox();
+    await bodyViewport.evaluate((element) => { element.scrollTop = 500; });
+
+    await expect.poll(async () => (await header.boundingBox())?.y).toBeCloseTo(before?.y ?? 0, 1);
+
+    const openerIndex = await bodyViewport.evaluate((viewport) => {
+      const viewportBounds = viewport.getBoundingClientRect();
+      return Array.from(viewport.querySelectorAll<HTMLButtonElement>('button[data-grid-action="openAuditDetail"]'))
+        .findIndex((button) => {
+          const bounds = button.getBoundingClientRect();
+          return bounds.top >= viewportBounds.top && bounds.bottom <= viewportBounds.bottom;
+        });
+    });
+    expect(openerIndex).toBeGreaterThanOrEqual(0);
+    // Do not let Playwright scroll an offscreen first row back to the top:
+    // activate a row already visible in the bounded viewport we are testing.
+    const opener = bodyViewport.locator('button[data-grid-action="openAuditDetail"]').nth(openerIndex);
+    await expect(opener).toBeVisible();
+    const originalScrollTop = await bodyViewport.evaluate((element) => element.scrollTop);
+    await opener.click();
+    await expect(page.getByTestId('audit-detail-drawer')).toBeVisible();
+
+    // Simulate a user moving the bounded grid while its non-modal inspector
+    // is open. Closing must return to the original virtualized row context.
+    await bodyViewport.evaluate((element) => { element.scrollTop = 0; });
+    await page.getByTestId('audit-detail-close').click();
+
+    await expect.poll(async () => bodyViewport.evaluate((element) => element.scrollTop)).toBeCloseTo(originalScrollTop, 1);
+    await expect(opener).toBeFocused();
+  });
+
   test('requires an explicit Workspace choice when multiple authorized Workspaces have no preference', async ({ page }) => {
     const workspaces = workspaceContextFixtures();
     await installWorkspaceContextApi(page, workspaces, null);
@@ -251,6 +333,316 @@ test.describe('MVP-A P0 Angular frontend smoke', () => {
     expect(createRequests[0]?.body).toEqual({ title: 'U-22 Quick Research' });
     expect(createRequests[0]?.idempotencyKey).toMatch(/^workspace-research-/);
     expect(createRequests[0]?.csrfToken).toBe('csrf-workspace-create');
+  });
+
+  test('keeps Announcement publish validation and preserved failures accessible at 320px', async ({ page }) => {
+    await page.setViewportSize({ width: 320, height: 800 });
+    const workspace: WorkspaceContextFixture = {
+      id: '38000000-0000-4000-8000-000000000001',
+      name: 'Announcement evidence workspace',
+      runningProjectCount: 0,
+      needsReviewProjectCount: 0
+    };
+    await installWorkspaceContextApi(page, [workspace], workspace);
+    const api = await installAnnouncementEditorApi(page);
+
+    await page.goto('/app/announcements');
+    const create = page.getByTestId('create-announcement-action');
+    await expect(create).toBeVisible();
+    await create.focus();
+    await page.keyboard.press('Enter');
+
+    const title = page.getByTestId('announcement-editor-title');
+    const body = page.getByTestId('announcement-editor-body');
+    const publish = page.getByTestId('announcement-publish-action');
+    await expect(title).toBeVisible();
+    await publish.focus();
+    await page.keyboard.press('Enter');
+
+    const validationSummary = page.getByTestId('announcement-editor-error-summary');
+    await expect(validationSummary).toBeVisible();
+    await expect(title).toBeFocused();
+    await expect(title).toHaveAttribute('aria-invalid', 'true');
+    await expect(title).toHaveAttribute('aria-describedby', /announcement-title-error/);
+    await expect(body).toHaveAttribute('aria-invalid', 'true');
+    await expect(body).toHaveAttribute('aria-describedby', /announcement-body-error/);
+    await validationSummary.getByRole('link', { name: /本文を入力してください/ }).focus();
+    await page.keyboard.press('Enter');
+    await expect(body).toBeFocused();
+    await expectNoDocumentHorizontalOverflow(page);
+    await expectNoAccessibilityViolations(page);
+
+    await title.fill('Accessible announcement');
+    await body.fill('The draft must remain available after an API failure.');
+
+    const failedResponse = page.waitForResponse((response) =>
+      response.request().method() === 'POST' &&
+      new URL(response.url()).pathname === '/api/announcements'
+    );
+    await publish.focus();
+    await page.keyboard.press('Enter');
+    expect((await failedResponse).status()).toBe(503);
+    const submissionError = page.getByTestId('announcement-editor-submission-error');
+    await expect(submissionError).toBeVisible();
+    await expect(submissionError).toHaveAttribute('role', 'alert');
+    await expect(submissionError).toContainText('could not be published right now');
+    await expect(submissionError).not.toContainText('internal upstream detail');
+    await expect(title).toHaveValue('Accessible announcement');
+    await expect(body).toHaveValue('The draft must remain available after an API failure.');
+
+    const succeededResponse = page.waitForResponse((response) =>
+      response.request().method() === 'POST' &&
+      new URL(response.url()).pathname === '/api/announcements'
+    );
+    await publish.focus();
+    await page.keyboard.press('Enter');
+    expect((await succeededResponse).status()).toBe(201);
+    await expect(page.getByText('お知らせを公開しました。')).toBeVisible();
+    expect(api.publishRequests).toHaveLength(2);
+    await expectNoDocumentHorizontalOverflow(page);
+    await expectNoAccessibilityViolations(page);
+  });
+
+  test('keeps live Announcement edits when a reauthorization refresh is delayed', async ({ page }) => {
+    await page.setViewportSize({ width: 320, height: 800 });
+    const workspace: WorkspaceContextFixture = {
+      id: '38000000-0000-4000-8000-000000000001',
+      name: 'Announcement evidence workspace',
+      runningProjectCount: 0,
+      needsReviewProjectCount: 0
+    };
+    await installWorkspaceContextApi(page, [workspace], workspace);
+    const api = await installAnnouncementEditorApi(page, {
+      firstPublishFailure: 'audienceAuthorization',
+      holdAudienceRefresh: true
+    });
+
+    await page.goto('/app/announcements');
+    await page.getByTestId('create-announcement-action').click();
+
+    const title = page.getByTestId('announcement-editor-title');
+    const body = page.getByTestId('announcement-editor-body');
+    const publish = page.getByTestId('announcement-publish-action');
+    await title.fill('Submitted title');
+    await body.fill('Submitted body');
+
+    const failedResponse = page.waitForResponse((response) =>
+      response.request().method() === 'POST' &&
+      new URL(response.url()).pathname === '/api/announcements'
+    );
+    await publish.focus();
+    await page.keyboard.press('Enter');
+    expect((await failedResponse).status()).toBe(400);
+    await api.audienceRefreshRequested;
+
+    const submissionError = page.getByTestId('announcement-editor-submission-error');
+    await expect(submissionError).toContainText('selected audience is no longer authorized');
+    await expect(submissionError).not.toContainText('Announcement audience is not authorized.');
+
+    await title.fill('Live title edited after publish failed');
+    await body.fill('Live body edited after publish failed');
+    api.releaseAudienceRefresh();
+
+    await expect(page.getByTestId('announcement-audience-unavailable')).toBeVisible();
+    await expect(title).toHaveValue('Live title edited after publish failed');
+    await expect(body).toHaveValue('Live body edited after publish failed');
+    await expect(publish).toBeDisabled();
+    await expectNoDocumentHorizontalOverflow(page);
+    await expectNoAccessibilityViolations(page);
+  });
+
+  test('creates a canonical Draft Project once and activates it only through the explicit command', async ({ page }, testInfo) => {
+    const mobile = testInfo.project.name === 'chromium-mobile';
+    await page.setViewportSize(mobile
+      ? { width: 320, height: 900 }
+      : { width: 1280, height: 900 });
+
+    const workspace: WorkspaceContextFixture = {
+      id: '40900000-0000-4000-8000-000000000001',
+      name: 'U-22 Project Workspace',
+      currentUserRole: 'Owner',
+      canOpenProjectCreate: true,
+      canCreateProject: false,
+      runningProjectCount: 0,
+      needsReviewProjectCount: 0
+    };
+    const projectId = '40900000-0000-4000-8000-000000000002';
+    const groupId = '40900000-0000-4000-8000-000000000003';
+    await installWorkspaceContextApi(page, [workspace], workspace);
+    const api = await installCanonicalProjectCreateActivationApi(page, {
+      workspaceId: workspace.id,
+      projectId,
+      groupId
+    });
+
+    await page.goto(`/app/workspaces/${workspace.id}/projects?create=1`);
+    const dialog = page.getByRole('dialog', { name: 'Create Project' });
+    await expect(dialog).toBeVisible();
+    await expect(page).toHaveURL(`/app/workspaces/${workspace.id}/projects`);
+    await expect(page.getByTestId('project-create-title')).toBeFocused();
+    await expect(page.getByTestId('project-create-group')).toContainText('Evidence Review Group');
+    await expect(dialog).not.toContainText(groupId);
+    await expect(dialog.locator('input[name="groupId"], input[name="workspaceId"], input[name="ownerUserId"]')).toHaveCount(0);
+
+    const title = page.getByTestId('project-create-title');
+    const group = page.getByTestId('project-create-group');
+    const startDate = page.getByTestId('project-create-start-date');
+    const endDate = page.getByTestId('project-create-end-date');
+    for (let index = 0; index < 14; index += 1) {
+      await page.keyboard.press('Tab');
+      await expect.poll(() => dialog.evaluate((element) => element.contains(document.activeElement))).toBe(true);
+    }
+    await title.focus();
+    await title.fill('  U-22 Canonical Project  ');
+    await page.getByTestId('project-create-description').fill('Canonical create and activation browser evidence.');
+    await page.getByTestId('project-create-group-search').fill('Evidence Review');
+    await group.selectOption(groupId);
+    await startDate.fill('2026-09-10');
+    await endDate.fill('2026-09-09');
+
+    const submit = dialog.locator('.aip-dialog__confirm');
+    await expect(submit).toHaveText('Create Project');
+    await submit.click();
+    const errorSummary = page.getByTestId('project-create-error-summary');
+    await expect(errorSummary).toBeFocused();
+    await expect(errorSummary).toContainText('Target end date cannot be before the start date.');
+    expect(api.createRequests).toHaveLength(0);
+    await errorSummary.getByRole('link', { name: 'Target end date cannot be before the start date.' }).click();
+    await expect(endDate).toBeFocused();
+    await endDate.fill('2026-09-20');
+
+    await submit.click();
+    await expect
+      .poll(
+        async () => {
+          if (api.createRequests.length === 1) {
+            return 'posted';
+          }
+
+          const recoveryText = await page
+            .getByTestId('project-create-create-status')
+            .evaluateAll((nodes) => nodes.map((node) => node.textContent ?? '').join(' '));
+          return recoveryText.includes('stopped before it was sent') ? 'stopped' : 'pending';
+        },
+        { timeout: 10_000 }
+      )
+      .not.toBe('pending');
+
+    const stoppedBeforeDispatch = api.createRequests.length === 0;
+    if (stoppedBeforeDispatch) {
+      // The registered authorization clearer can win before browser dispatch.
+      // The original form stays local, but the next POST is only user-led
+      // after the authoritative options endpoint is rechecked.
+      expect(api.createRequests).toHaveLength(0);
+      await expect(page.getByTestId('project-create-create-status')).toContainText('stopped before it was sent');
+      await page.getByTestId('project-create-options-retry').click();
+      await expect(title).toBeVisible();
+      expect(api.createRequests, 'reauthorizing options never auto-repeats the create POST').toHaveLength(0);
+
+      const recoveredAttempt = page.waitForResponse((response) =>
+        response.request().method() === 'POST' &&
+        new URL(response.url()).pathname === `/api/workspaces/${workspace.id}/projects`
+      );
+      api.allowFirstCreateSuccess();
+      await submit.click();
+      expect((await recoveredAttempt).status()).toBe(201);
+    } else {
+      // The fixture deterministically holds the first actual POST so this
+      // remains the posted/in-flight duplicate-command regression.
+      await expect.poll(() => api.createRequests.length).toBe(1);
+      const firstAttempt = page.waitForResponse((response) =>
+        response.request().method() === 'POST' &&
+        new URL(response.url()).pathname === `/api/workspaces/${workspace.id}/projects`
+      );
+      await expect(dialog).toHaveAttribute('aria-busy', 'true');
+      await expect(submit).toBeDisabled();
+      await expect(submit).toContainText('Working');
+      await title.press('Enter');
+      await page.waitForTimeout(100);
+      expect(api.createRequests, 'Enter cannot duplicate an in-flight Project command').toHaveLength(1);
+      api.releaseFirstCreate();
+      expect((await firstAttempt).status()).toBe(503);
+      await expect(errorSummary).toBeFocused();
+      await expect(errorSummary).toContainText('may have been created');
+
+      const secondAttempt = page.waitForResponse((response) =>
+        response.request().method() === 'POST' &&
+        new URL(response.url()).pathname === `/api/workspaces/${workspace.id}/projects`
+      );
+      await submit.click();
+      expect((await secondAttempt).status()).toBe(201);
+    }
+
+    const expectedCreateRequestCount = stoppedBeforeDispatch ? 1 : 2;
+
+    await expect(page).toHaveURL(`/app/projects/${projectId}`);
+    await expect(page.getByTestId('project-draft-overview')).toBeVisible();
+    await expect(page.getByRole('heading', { name: 'U-22 Canonical Project' })).toBeVisible();
+    await expect(page.getByRole('tab')).toHaveCount(1);
+    await expect(page.getByRole('tab', { name: 'Overview' })).toHaveAttribute('aria-selected', 'true');
+    await expect.poll(api.projectGetCount).toBeGreaterThanOrEqual(2);
+    await expect.poll(() => api.projectListRequests.filter((request) =>
+      request.workspaceId === workspace.id && request.includesCreatedProject).length)
+      .toBeGreaterThanOrEqual(1);
+
+    const expectedCreateBody = {
+      title: 'U-22 Canonical Project',
+      description: 'Canonical create and activation browser evidence.',
+      groupId,
+      visibility: 1,
+      startDate: '2026-09-10',
+      endDate: '2026-09-20'
+    };
+    expect(api.createRequests).toHaveLength(expectedCreateRequestCount);
+    for (const request of api.createRequests) {
+      expect(request.body).toEqual(expectedCreateBody);
+    }
+    expect(api.createRequests[0]?.idempotencyKey).toMatch(/^project-create-/);
+    if (!stoppedBeforeDispatch) {
+      expect(api.createRequests[1]?.rawBody).toBe(api.createRequests[0]?.rawBody);
+      expect(api.createRequests[1]?.idempotencyKey).toBe(api.createRequests[0]?.idempotencyKey);
+    }
+    expect(api.createRequests.every((request) => request.csrfToken === 'csrf-workspace-create')).toBe(true);
+    expect(api.operationalGetPaths).toEqual([]);
+
+    await expectNoDocumentHorizontalOverflow(page);
+    await expectNoAccessibilityViolations(page);
+
+    await page.goto(`/app/workspaces/${workspace.id}/projects`);
+    const createdCard = page.getByTestId('project-summary-card')
+      .filter({ hasText: 'U-22 Canonical Project' });
+    await expect(createdCard).toBeVisible();
+    await expect(createdCard).toContainText('Draft');
+    expect(api.createRequests, 'returning to Projects never repeats the create POST').toHaveLength(expectedCreateRequestCount);
+    await createdCard.getByRole('link', { name: 'Open U-22 Canonical Project' }).click();
+    await expect(page).toHaveURL(`/app/projects/${projectId}`);
+    await expect(page.getByTestId('project-draft-overview')).toBeVisible();
+    expect(api.createRequests, 'reopening the created Project never repeats the create POST').toHaveLength(expectedCreateRequestCount);
+    expect(api.operationalGetPaths).toEqual([]);
+
+    const activate = page.getByTestId('activate-project');
+    await activate.focus();
+    await expect(activate).toBeFocused();
+    const activationResponse = page.waitForResponse((response) =>
+      response.request().method() === 'POST' &&
+      new URL(response.url()).pathname === `/api/projects/${projectId}/activate`
+    );
+    await page.keyboard.press('Enter');
+    expect((await activationResponse).status()).toBe(200);
+
+    const activationStatus = page.locator('.project-detail-page__activation-status');
+    await expect(activationStatus).toContainText('Project activated. Operational views were loaded from authoritative state.');
+    await expect(activationStatus).toBeFocused();
+    await expect(page.getByTestId('project-draft-overview')).toHaveCount(0);
+    await expect(page.getByRole('tab', { name: 'Tasks' })).toBeVisible();
+    await expect(page.getByRole('tab', { name: 'Schedule' })).toBeVisible();
+    await expect.poll(() => new Set(api.operationalGetPaths).size).toBe(5);
+    expect(api.activationRequests).toEqual([{ expectedVersion: 1 }]);
+    expect(api.activationCsrfTokens).toEqual(['csrf-workspace-create']);
+
+    await expectNoDocumentHorizontalOverflow(page);
+    await expectNoAccessibilityViolations(page);
+    await expectHealthyAngularPage(page);
   });
 
   test('fails closed when the backend does not grant Workspace creation', async ({ page }) => {
@@ -668,6 +1060,29 @@ test.describe('MVP-A P0 Angular frontend smoke', () => {
     await expect(page.getByRole('heading', { level: 1, name: taskTitle })).toBeVisible();
     await expect(page.getByTestId('project-context').getByRole('heading', { name: projectTitle })).toBeVisible();
 
+    const progress = page.getByTestId('task-progress-phase');
+    await expect(progress.getByTestId('task-current-phase')).toHaveText('In progress');
+    await expect(progress.getByText('Running', { exact: true })).toBeVisible();
+    await expect(progress).not.toContainText('%');
+    await expect(progress).not.toContainText('Failed');
+
+    const activity = page.getByTestId('task-activity-log');
+    const activitySummary = activity.locator('summary');
+    await expect(activity).not.toHaveAttribute('open', '');
+    expect(api.activityRequests()).toBe(0);
+    await activitySummary.focus();
+    await page.keyboard.press('Enter');
+    await expect(activity).toHaveAttribute('open', '');
+    await expect(activity.getByText('Status update', { exact: true })).toBeVisible();
+    await expect(activity.getByText('Needs attention', { exact: true })).toBeVisible();
+    await expect(activity).not.toContainText('Failed');
+    await expect(activity.locator('li').first()).toHaveClass(/task-detail-page__activity-item--status/);
+    await expect(activity.locator('time').first()).toHaveAttribute('datetime', '2026-08-24T03:00:00Z');
+    expect(api.activityRequests()).toBe(1);
+    await activity.getByRole('button', { name: 'Load more activity' }).click();
+    await expect(activity.getByText('Decision recorded after review.', { exact: true })).toBeVisible();
+    expect(api.activityRequests()).toBe(2);
+
     const [hierarchyBox, projectBox, taskBox] = await Promise.all([
       hierarchy.boundingBox(),
       parentProject.boundingBox(),
@@ -692,6 +1107,89 @@ test.describe('MVP-A P0 Angular frontend smoke', () => {
     await expectHealthyAngularPage(page);
   });
 
+  test('edits and reviews the Task Brief in stable order without narrow-screen overflow', async ({ page }) => {
+    await page.addInitScript((storageKey) => globalThis.localStorage.setItem(storageKey, 'light'), themeStorageKey);
+    const projectId = 'static-project-brief';
+    const taskId = 'static-task-brief';
+    const api = await installDirectTaskContextApi(page, {
+      projectId,
+      projectTitle: 'Authorized Project context',
+      taskId,
+      taskTitle: 'Structured Task Brief',
+      canEdit: true,
+      goal: 'Reach editorial review',
+      deliverable: 'Review-ready package',
+      constraints: 'Keep-the-existing-public-URL-stable-without-breaking-long-unspaced-identifiers'
+    });
+    await page.setViewportSize({ width: 320, height: 900 });
+    await page.goto(`/app/projects/${projectId}/tasks/${taskId}`);
+
+    const brief = page.getByTestId('task-brief-fields');
+    await expect(brief).toBeVisible();
+    await expect(page.getByTestId('task-brief-goal-source')).toHaveText('Task-specific');
+    await expect(page.getByTestId('task-brief-deliverable-source')).toHaveText('Task-specific');
+    const reviewLabels = await page.getByTestId('task-brief-review').locator('dt').allTextContents();
+    expect(reviewLabels).toEqual(['Goal', 'Deliverable', 'Constraints']);
+
+    await page.getByTestId('task-brief-goal-input').fill('Reach final approval');
+    await page.getByTestId('task-brief-deliverable-input').fill('');
+    await page.getByTestId('task-brief-constraints-input').fill('Preserve the authorized Project boundary');
+    await expect(page.getByTestId('task-brief-deliverable-source')).toHaveText('Not set');
+    await expect(page.getByTestId('task-brief-review-deliverable')).toContainText('Not set');
+    await page.getByTestId('task-save-button').click();
+
+    await expect.poll(() => api.patchBodies().length).toBe(1);
+    expect(api.patchBodies()[0]).toMatchObject({
+      description: 'Task-specific direct-route context.',
+      goal: 'Reach final approval',
+      deliverable: null,
+      constraints: 'Preserve the authorized Project boundary'
+    });
+    await expect(page.getByTestId('task-save-success')).toBeVisible();
+    await expectNoDocumentHorizontalOverflow(page);
+    await expectNoAccessibilityViolations(page, '[data-testid="task-brief-fields"]');
+    await page.getByTestId('theme-toggle').click();
+    await expect(page.locator('html')).toHaveAttribute('data-aip-theme', 'dark');
+    await expectNoAccessibilityViolations(page, '[data-testid="task-brief-fields"]');
+    await expectHealthyAngularPage(page);
+  });
+
+  test('keeps Activity errors distinct from confirmed empty state and retains earlier pages', async ({ page }, testInfo) => {
+    const projectId = 'static-project-activity-errors';
+    const taskId = 'static-task-activity-errors';
+    await installDirectTaskContextApi(
+      page,
+      { projectId, projectTitle: 'Activity error Project', taskId, taskTitle: 'Activity error Task' },
+      {
+        failFirstActivityPageOnce: true,
+        failSecondActivityPageOnce: true,
+        activityFailureStatus: testInfo.project.name === 'chromium-mobile' ? 409 : 500
+      }
+    );
+    await page.setViewportSize({ width: 320, height: 900 });
+    await page.goto(`/app/projects/${projectId}/tasks/${taskId}`);
+
+    const activity = page.getByTestId('task-activity-log');
+    await activity.locator('summary').click();
+    let alert = activity.getByRole('alert');
+    await expect(alert).toBeVisible();
+    await expect(activity).not.toContainText('No Task activity has been recorded.');
+    await expect(activity).not.toContainText('0 recorded');
+    await alert.getByRole('button', { name: /Retry|Reload/ }).click();
+
+    await expect(activity.getByText('Status update', { exact: true })).toBeVisible();
+    await activity.getByRole('button', { name: 'Load more activity' }).click();
+    alert = activity.getByRole('alert');
+    await expect(alert).toBeVisible();
+    await expect(activity.getByText('Implementation is ready for review.', { exact: true })).toBeVisible();
+    await expect(activity).not.toContainText('No Task activity has been recorded.');
+    await alert.getByRole('button', { name: /Retry|Reload/ }).click();
+
+    await expect(activity.getByText('Decision recorded after review.', { exact: true })).toBeVisible();
+    await expectNoDocumentHorizontalOverflow(page);
+    await expectHealthyAngularPage(page);
+  });
+
   test('uses the canonical Project Kanban for pointer, keyboard, conflict, rollback, and narrow flows', async ({ page }, testInfo) => {
     const api = await installProjectKanbanApi(page);
     if (testInfo.project.name === 'chromium-mobile') {
@@ -703,6 +1201,7 @@ test.describe('MVP-A P0 Angular frontend smoke', () => {
     await page.goto('/app/projects/static-project-kanban');
 
     await expect(page.getByTestId('project-detail-page')).toBeVisible();
+    await page.getByRole('tab', { name: 'Tasks', exact: true }).click();
     await expect(page.getByTestId('aip-kanban-board')).toBeVisible();
     await expect(page.getByText('Warning: WIP limit 1 exceeded.')).toBeVisible();
     await expect(page.getByText('Parent summary task')).toBeVisible();
@@ -775,6 +1274,7 @@ test.describe('MVP-A P0 Angular frontend smoke', () => {
     const api = await installProjectKanbanApi(page);
     await page.setViewportSize({ width: 1280, height: 900 });
     await page.goto('/app/projects/static-project-kanban');
+    await page.getByRole('tab', { name: 'Tasks', exact: true }).click();
 
     const card = page.locator('[data-kanban-card-id="static-task-kanban"]');
     const todoColumn = page.locator('.aip-kanban__column')
@@ -808,7 +1308,7 @@ test.describe('MVP-A P0 Angular frontend smoke', () => {
     expect(api.csrfHeaders).toEqual(['csrf-kanban']);
   });
 
-  test('keeps the maintained Project Task List when tasks.kanbanV1 is disabled', async ({ page }) => {
+  test('keeps the maintained Project Task List when tasks.kanbanV1 is disabled', async ({ page }, testInfo) => {
     await page.addInitScript(() => {
       (window as Window & { __AIP_FEATURE_FLAGS__?: Record<string, boolean> }).__AIP_FEATURE_FLAGS__ = {
         'tasks.kanbanV1': false
@@ -817,17 +1317,90 @@ test.describe('MVP-A P0 Angular frontend smoke', () => {
     const api = await installProjectKanbanApi(page);
 
     await page.goto('/app/projects/static-project-kanban');
+    await page.getByRole('tab', { name: 'Tasks', exact: true }).click();
 
     await expect(page.getByText('Project Kanban is disabled. The maintained Task List remains available.')).toBeVisible();
-    await expect(page.getByText('Canonical card')).toBeVisible();
+    const renderer = testInfo.project.name === 'chromium-mobile' ? 'mobile' : 'desktop';
+    await expect(page.getByTestId(`task-state-${renderer === 'mobile' ? 'card' : 'row'}-static-task-kanban-${renderer}`)).toBeVisible();
     await expect(page.locator('aip-kanban')).toHaveCount(0);
     expect(api.kanbanGetCount()).toBe(0);
+  });
+
+  test('makes canonical Task state, update time, blocking, and Artifact availability scannable at 320px', async ({ page }, testInfo) => {
+    const api = await installProjectKanbanApi(page);
+    const mobile = testInfo.project.name === 'chromium-mobile';
+    await page.setViewportSize(mobile ? { width: 320, height: 900 } : { width: 1280, height: 900 });
+
+    await page.goto('/app/projects/static-project-kanban');
+    await page.getByRole('tab', { name: 'List', exact: true }).click();
+
+    const suffix = mobile ? 'mobile' : 'desktop';
+    await expect(page.getByTestId('task-state-list')).toBeVisible();
+    await expect(page.getByTestId(`task-stage-name-static-task-running-${suffix}`)).toContainText('Investigating');
+    await expect(page.getByTestId(`task-category-static-task-running-${suffix}`)).toContainText('Running');
+    await expect(page.getByTestId(`task-category-static-task-review-${suffix}`)).toContainText('Needs review');
+    await expect(page.getByTestId(`task-category-static-task-completed-${suffix}`)).toContainText('Completed');
+    await expect(page.getByTestId(`task-category-static-task-cancelled-${suffix}`)).toContainText('Cancelled');
+    await expect(page.getByTestId(`task-blocked-static-task-kanban-${suffix}`)).toContainText('Blocked');
+    await expect(page.getByTestId(`task-artifact-static-task-review-${suffix}`)).toContainText('Artifact available');
+    await expect(page.getByTestId(`task-artifact-static-task-running-${suffix}`)).toContainText('No artifact');
+    await expect(page.getByTestId(`task-updated-static-task-running-${suffix}`).locator('time'))
+      .toHaveAttribute('datetime', '2026-08-21T08:15:00Z');
+    await expect(page.getByTestId(`task-updated-static-task-review-${suffix}`).locator('time'))
+      .toHaveAttribute('datetime', '2026-08-24T02:45:00Z');
+
+    const openAction = page.getByTestId(`task-openDetail-static-task-review-${suffix}`);
+    await expect(openAction).toBeVisible();
+    await openAction.focus();
+    await expect(openAction).toBeFocused();
+    expect(api.taskListGetCount()).toBe(1);
+
+    if (mobile) {
+      const card = page.getByTestId('task-state-card-static-task-review-mobile');
+      const cardBox = await card.boundingBox();
+      const actionBox = await openAction.boundingBox();
+      expect(cardBox).not.toBeNull();
+      expect(actionBox).not.toBeNull();
+      expect(cardBox!.x).toBeGreaterThanOrEqual(0);
+      expect(cardBox!.x + cardBox!.width).toBeLessThanOrEqual(320);
+      expect(actionBox!.height).toBeGreaterThanOrEqual(44);
+    }
+
+    await expectNoDocumentHorizontalOverflow(page);
+    await expectNoAccessibilityViolations(page);
+    await expectHealthyAngularPage(page);
+  });
+
+  test('refreshes the Task state list from authoritative HTTP after a stage change', async ({ page }, testInfo) => {
+    const api = await installProjectKanbanApi(page);
+    await page.setViewportSize(testInfo.project.name === 'chromium-mobile'
+      ? { width: 390, height: 844 }
+      : { width: 1280, height: 900 });
+    await page.goto('/app/projects/static-project-kanban');
+    await page.getByRole('tab', { name: 'Tasks', exact: true }).click();
+
+    const card = page.locator('[data-kanban-card-id="static-task-kanban"]');
+    await card.getByRole('button', { name: 'Move', exact: true }).click();
+    await card.getByLabel('Target stage').selectOption('stage-done');
+    await card.getByRole('button', { name: 'Apply move' }).click();
+    await expect(page.getByText('Move saved.', { exact: true })).toBeVisible();
+
+    await expect.poll(api.taskListGetCount).toBeGreaterThan(1);
+    await page.getByRole('tab', { name: 'List', exact: true }).click();
+    const suffix = testInfo.project.name === 'chromium-mobile' ? 'mobile' : 'desktop';
+    await expect(page.getByTestId(`task-stage-name-static-task-kanban-${suffix}`)).toContainText('Complete');
+    await expect(page.getByTestId(`task-category-static-task-kanban-${suffix}`)).toContainText('Completed');
+    await expect(page.getByTestId(`task-updated-static-task-kanban-${suffix}`).locator('time'))
+      .toHaveAttribute('datetime', '2026-08-24T10:15:00Z');
+    await expect(page.getByTestId(`task-artifact-static-task-kanban-${suffix}`)).toContainText('Artifact available');
+    await expectHealthyAngularPage(page);
   });
 
   test('does not render protected Kanban data after an authorization denial', async ({ page }) => {
     const api = await installProjectKanbanApi(page, { denySnapshot: true });
 
     await page.goto('/app/projects/static-project-kanban');
+    await page.getByRole('tab', { name: 'Tasks', exact: true }).click();
 
     await expect(page.getByText('Project Kanban is not available.')).toBeVisible();
     await expect(page.locator('[data-kanban-card-id]')).toHaveCount(0);
@@ -1504,11 +2077,63 @@ function ganttCommandDto(item: MockGanttItem) {
 
 async function installDirectTaskContextApi(
   page: Page,
-  context: { projectId: string; projectTitle: string; taskId: string; taskTitle: string }
+  context: {
+    projectId: string;
+    projectTitle: string;
+    taskId: string;
+    taskTitle: string;
+    canEdit?: boolean;
+    goal?: string | null;
+    deliverable?: string | null;
+    constraints?: string | null;
+  },
+  options: {
+    failFirstActivityPageOnce?: boolean;
+    failSecondActivityPageOnce?: boolean;
+    activityFailureStatus?: 409 | 500;
+  } = {}
 ) {
   let projectListRequests = 0;
   let parentProjectRequests = 0;
   let parentProjectAttempts = 0;
+  let version = 1;
+  let goal = context.goal ?? null;
+  let deliverable = context.deliverable ?? null;
+  let constraints = context.constraints ?? null;
+  const patchBodies: Record<string, unknown>[] = [];
+  const briefField = (value: string | null) => ({ value, source: value === null ? 'notSet' : 'taskSpecific' });
+  const taskDto = () => ({
+    id: context.taskId,
+    tenantId: 'mock-tenant',
+    workspaceId: 'static-workspace-1',
+    projectId: context.projectId,
+    kind: 0,
+    parentTaskId: null,
+    milestoneId: null,
+    title: context.taskTitle,
+    description: 'Task-specific direct-route context.',
+    brief: {
+      goal: briefField(goal),
+      deliverable: briefField(deliverable),
+      constraints: briefField(constraints)
+    },
+    workflowStageId: 'stage-in-progress',
+    workflowStageName: 'In progress',
+    status: 1,
+    stageCategory: 1,
+    isBlocked: false,
+    priority: 'High',
+    plannedStartDate: '2026-08-20',
+    plannedEndDate: '2026-08-27',
+    progressPercent: 40,
+    progressIsDerived: false,
+    primaryAssignee: { userId: 'mock-user-a', displayName: 'Mock User A' },
+    reviewStatus: 0,
+    version,
+    uiPermissions: { canEdit: context.canEdit === true, canAssign: false, canChangeStatus: false, canDelete: false, allowedTransitions: [] }
+  });
+  let activityRequests = 0;
+  const activityPageAttempts = new Map<number, number>();
   page.on('requestfinished', (request) => {
     if (request.method() === 'GET' && new URL(request.url()).pathname === `/api/projects/${context.projectId}`) {
       parentProjectRequests += 1;
@@ -1516,7 +2141,26 @@ async function installDirectTaskContextApi(
   });
   await page.route('**/api/**', async (route) => {
     const request = route.request();
-    const path = new URL(request.url()).pathname;
+    const url = new URL(request.url());
+    const path = url.pathname;
+    if (path === '/api/security/csrf-token' && request.method() === 'GET') {
+      await route.fulfill({
+        status: 200,
+        contentType: 'application/json',
+        body: JSON.stringify({ token: 'csrf-task-brief', headerName: 'X-CSRF-Token' })
+      });
+      return;
+    }
+    if (path === `/api/tasks/${context.taskId}` && request.method() === 'PATCH' && context.canEdit === true) {
+      const body = request.postDataJSON() as Record<string, unknown>;
+      patchBodies.push(body);
+      if ('goal' in body) goal = typeof body['goal'] === 'string' ? body['goal'] : null;
+      if ('deliverable' in body) deliverable = typeof body['deliverable'] === 'string' ? body['deliverable'] : null;
+      if ('constraints' in body) constraints = typeof body['constraints'] === 'string' ? body['constraints'] : null;
+      version += 1;
+      await route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify(taskDto()) });
+      return;
+    }
     if (request.method() !== 'GET') {
       await route.fallback();
       return;
@@ -1527,32 +2171,8 @@ async function installDirectTaskContextApi(
         status: 200,
         contentType: 'application/json',
         body: JSON.stringify({
-          task: {
-            id: context.taskId,
-            tenantId: 'mock-tenant',
-            workspaceId: 'static-workspace-1',
-            projectId: context.projectId,
-            kind: 0,
-            parentTaskId: null,
-            milestoneId: null,
-            title: context.taskTitle,
-            description: 'Task-specific direct-route context.',
-            workflowStageId: 'stage-in-progress',
-            workflowStageName: 'In progress',
-            status: 1,
-            stageCategory: 1,
-            isBlocked: false,
-            priority: 'High',
-            plannedStartDate: '2026-08-20',
-            plannedEndDate: '2026-08-27',
-            progressPercent: 40,
-            progressIsDerived: false,
-            primaryAssignee: { userId: 'mock-user-a', displayName: 'Mock User A' },
-            reviewStatus: 0,
-            version: 1,
-            uiPermissions: { canEdit: false, canAssign: false, canChangeStatus: false, canDelete: false, allowedTransitions: [] }
-          },
-          relationships: { primaryAssignee: { userId: 'mock-user-a', displayName: 'Mock User A' }, collaborators: [], reviewer: null, version: 1 },
+          task: taskDto(),
+          relationships: { primaryAssignee: { userId: 'mock-user-a', displayName: 'Mock User A' }, collaborators: [], reviewer: null, version },
           permissions: {
             canCreateSubtask: false,
             canCreateChecklistItem: false,
@@ -1574,6 +2194,56 @@ async function installDirectTaskContextApi(
           comments: { items: [], page: 1, pageSize: 20, totalCount: 0, hasMore: false },
           files: { items: [], page: 1, pageSize: 20, totalCount: 0, hasMore: false }
         })
+      });
+      return;
+    }
+
+    if (path === `/api/projects/${context.projectId}/tasks`) {
+      await route.fulfill({
+        status: 200,
+        contentType: 'application/json',
+        body: JSON.stringify({ items: [{ ...taskDto(), brief: undefined }], page: 1, pageSize: 50, totalCount: 1, hasMore: false })
+      });
+      return;
+    }
+
+    if (path === `/api/tasks/${context.taskId}/activity`) {
+      activityRequests += 1;
+      const activityPage = Number(url.searchParams.get('page') ?? '1');
+      const activityPageAttempt = (activityPageAttempts.get(activityPage) ?? 0) + 1;
+      activityPageAttempts.set(activityPage, activityPageAttempt);
+      if (activityPageAttempt === 1 && (activityPage === 1 ? options.failFirstActivityPageOnce : options.failSecondActivityPageOnce)) {
+        const status = options.activityFailureStatus ?? 500;
+        await route.fulfill({
+          status,
+          contentType: 'application/problem+json',
+          body: JSON.stringify({ title: status === 409 ? 'Conflict' : 'Activity unavailable', status, detail: 'Task Activity could not be loaded.' })
+        });
+        return;
+      }
+      await route.fulfill({
+        status: 200,
+        contentType: 'application/json',
+        body: JSON.stringify(activityPage === 1
+          ? {
+              items: [
+                { id: 'activity-status', activityType: 'StatusUpdate', body: 'Implementation is ready for review.', occurredAt: '2026-08-24T03:00:00Z', author: { userId: 'mock-user-a', displayName: 'Mock User A' } },
+                { id: 'activity-issue', activityType: 3, body: 'DependencyNeedsAttentionWithoutBreakingTheNarrowLayout012345678901234567890123456789.', occurredAt: '2026-08-24T02:00:00Z', author: { userId: 'mock-user-b', displayName: 'Mock User B' } }
+              ],
+              page: 1,
+              pageSize: 2,
+              totalCount: 3,
+              hasMore: true
+            }
+          : {
+              items: [
+                { id: 'activity-decision', activityType: 'Decision', body: 'Decision recorded after review.', occurredAt: '2026-08-24T01:00:00Z', author: { userId: 'mock-user-c', displayName: 'Mock User C' } }
+              ],
+              page: 2,
+              pageSize: 2,
+              totalCount: 3,
+              hasMore: false
+            })
       });
       return;
     }
@@ -1612,7 +2282,9 @@ async function installDirectTaskContextApi(
   return {
     projectListRequests: () => projectListRequests,
     parentProjectRequests: () => parentProjectRequests,
-    parentProjectAttempts: () => parentProjectAttempts
+    parentProjectAttempts: () => parentProjectAttempts,
+    patchBodies: () => patchBodies,
+    activityRequests: () => activityRequests
   };
 }
 
@@ -1621,10 +2293,12 @@ async function installProjectKanbanApi(
   options: { denySnapshot?: boolean } = {}
 ) {
   let kanbanGets = 0;
+  let taskListGets = 0;
   let moveCount = 0;
   const moveBodies: Record<string, unknown>[] = [];
   const csrfHeaders: string[] = [];
   let authoritativeSnapshot = projectKanbanSnapshot('stage-todo', 7, 3);
+  let authoritativeTasks = projectTaskListDtos();
 
   await page.route('**/api/**', async (route) => {
     const request = route.request();
@@ -1658,23 +2332,13 @@ async function installProjectKanbanApi(
     }
 
     if (path === '/api/projects/static-project-kanban/tasks' && method === 'GET') {
+      taskListGets += 1;
       await route.fulfill({
         status: 200,
         contentType: 'application/json',
         body: JSON.stringify({
-          items: [{
-            id: 'static-task-kanban',
-            projectId: 'static-project-kanban',
-            title: 'Canonical card',
-            status: 'Todo',
-            stageCategory: 'Todo',
-            priority: 'High',
-            isBlocked: true,
-            primaryAssignee: { userId: 'user-1', displayName: 'Ada' },
-            version: 3,
-            uiPermissions: { canUpdate: true, rowVersion: '3' }
-          }],
-          totalCount: 1,
+          items: authoritativeTasks,
+          totalCount: authoritativeTasks.length,
           hasMore: false
         })
       });
@@ -1714,7 +2378,22 @@ async function installProjectKanbanApi(
       moveBodies.push(moveBody);
       csrfHeaders.push(request.headers()['x-csrf-token'] ?? '');
       if (moveCount === 1) {
-        authoritativeSnapshot = projectKanbanSnapshot(projectKanbanStageId(moveBody['targetWorkflowStageId']), 8, 4);
+        const targetStage = projectKanbanStageId(moveBody['targetWorkflowStageId']);
+        authoritativeSnapshot = projectKanbanSnapshot(targetStage, 8, 4);
+        if (targetStage === 'stage-done') {
+          authoritativeTasks = authoritativeTasks.map((task) => task.id === 'static-task-kanban'
+            ? {
+                ...task,
+                workflowStageId: 'stage-done',
+                workflowStageName: 'Complete',
+                status: 'Completed',
+                stageCategory: 'Done',
+                updatedAt: '2026-08-24T10:15:00Z',
+                version: 4,
+                uiPermissions: { canUpdate: true, rowVersion: '4' }
+              }
+            : task);
+        }
         await route.fulfill({
           status: 200,
           contentType: 'application/json',
@@ -1742,8 +2421,95 @@ async function installProjectKanbanApi(
   return {
     moveBodies,
     csrfHeaders,
-    kanbanGetCount: () => kanbanGets
+    kanbanGetCount: () => kanbanGets,
+    taskListGetCount: () => taskListGets
   };
+}
+
+function projectTaskListDtos() {
+  const common = {
+    projectId: 'static-project-kanban',
+    priority: 'High',
+    primaryAssignee: { userId: 'user-1', displayName: 'Ada' }
+  };
+
+  return [
+    {
+      ...common,
+      id: 'static-task-kanban',
+      title: 'Canonical card',
+      workflowStageId: 'stage-todo',
+      workflowStageName: 'Ready for research',
+      status: 'NotStarted',
+      stageCategory: 'Todo',
+      isBlocked: true,
+      hasArtifact: true,
+      createdAt: '2026-08-20T09:00:00Z',
+      updatedAt: '2026-08-23T12:30:00Z',
+      version: 3,
+      uiPermissions: { canUpdate: true, rowVersion: '3' }
+    },
+    {
+      ...common,
+      id: 'static-task-running',
+      title: 'Running analysis',
+      workflowStageId: 'stage-in-progress',
+      workflowStageName: 'Investigating',
+      status: 'InProgress',
+      stageCategory: 'InProgress',
+      isBlocked: false,
+      hasArtifact: false,
+      createdAt: '2026-08-21T08:15:00Z',
+      updatedAt: null,
+      version: 2,
+      uiPermissions: { canUpdate: true, rowVersion: '2' }
+    },
+    {
+      ...common,
+      id: 'static-task-review',
+      title: 'Review evidence',
+      workflowStageId: 'stage-review',
+      workflowStageName: 'Evidence review',
+      status: 'WaitingReview',
+      stageCategory: 'Review',
+      isBlocked: false,
+      hasArtifact: true,
+      createdAt: '2026-08-19T05:30:00Z',
+      updatedAt: '2026-08-24T02:45:00Z',
+      version: 7,
+      uiPermissions: { canUpdate: true, rowVersion: '7' }
+    },
+    {
+      ...common,
+      id: 'static-task-completed',
+      title: 'Completed report',
+      workflowStageId: 'stage-done',
+      workflowStageName: 'Published',
+      status: 'Completed',
+      stageCategory: 'Done',
+      isBlocked: false,
+      hasArtifact: true,
+      createdAt: '2026-08-18T01:00:00Z',
+      updatedAt: '2026-08-22T03:00:00Z',
+      version: 5,
+      uiPermissions: { canUpdate: true, rowVersion: '5' }
+    },
+    {
+      ...common,
+      id: 'static-task-cancelled',
+      title: 'Cancelled follow-up',
+      workflowStageId: 'stage-cancelled',
+      workflowStageName: 'Cancelled',
+      status: 'Cancelled',
+      stageCategory: 'Cancelled',
+      isBlocked: false,
+      hasArtifact: false,
+      createdAt: '2026-08-17T04:00:00Z',
+      updatedAt: '2026-08-21T04:00:00Z',
+      version: 4,
+      uiPermissions: { canUpdate: true, rowVersion: '4' }
+    }
+  ];
 }
 
 type ProjectKanbanStageId = 'stage-todo' | 'stage-done' | 'stage-cancelled';
@@ -1843,6 +2609,7 @@ interface WorkspaceContextFixture {
   readonly id: string;
   readonly name: string;
   readonly currentUserRole?: string;
+  readonly canOpenProjectCreate?: boolean;
   readonly canCreateProject?: boolean;
   readonly canAddFiles?: boolean;
   readonly runningProjectCount?: number;
@@ -1868,6 +2635,17 @@ interface WorkspaceCreateMockResponse {
   readonly workspace?: WorkspaceContextFixture;
 }
 
+interface AnnouncementEditorApiOptions {
+  readonly firstPublishFailure?: 'unavailable' | 'audienceAuthorization';
+  readonly holdAudienceRefresh?: boolean;
+}
+
+interface AnnouncementEditorApiHarness {
+  readonly publishRequests: readonly Record<string, unknown>[];
+  readonly audienceRefreshRequested: Promise<void>;
+  releaseAudienceRefresh(): void;
+}
+
 interface WorkspaceContextApiOptions {
   readonly canCreate?: boolean;
   readonly onCreate?: (
@@ -1879,6 +2657,27 @@ interface WorkspaceContextApiOptions {
 interface WorkspaceContextApiHarness {
   readonly createRequests: readonly WorkspaceCreateMockRequest[];
   readonly workspaceListRequests: number;
+}
+
+interface CanonicalProjectCreateMockRequest {
+  readonly body: Record<string, unknown>;
+  readonly rawBody: string;
+  readonly idempotencyKey: string;
+  readonly csrfToken: string;
+}
+
+interface CanonicalProjectCreateActivationHarness {
+  readonly createRequests: readonly CanonicalProjectCreateMockRequest[];
+  readonly activationRequests: readonly Record<string, unknown>[];
+  readonly activationCsrfTokens: readonly string[];
+  readonly operationalGetPaths: readonly string[];
+  readonly projectListRequests: readonly {
+    readonly workspaceId: string | null;
+    readonly includesCreatedProject: boolean;
+  }[];
+  readonly projectGetCount: () => number;
+  readonly releaseFirstCreate: () => void;
+  readonly allowFirstCreateSuccess: () => void;
 }
 
 function workspaceContextFixtures(): readonly WorkspaceContextFixture[] {
@@ -1896,6 +2695,75 @@ function workspaceContextFixtures(): readonly WorkspaceContextFixture[] {
       needsReviewProjectCount: 0
     }
   ];
+}
+
+interface AuditGridFixture {
+  readonly id: string;
+  readonly createdAt: string;
+  readonly action: string;
+  readonly actorDisplayName: string;
+  readonly targetType: string;
+  readonly workspaceLabel: string;
+  readonly severity: 'info' | 'warning' | 'critical';
+  readonly result: 'success' | 'denied' | 'failed';
+  readonly summary: string;
+  readonly requestId: string | null;
+}
+
+function auditGridFixtures(count: number): readonly AuditGridFixture[] {
+  return Array.from({ length: count }, (_, index) => {
+    const number = String(index + 1).padStart(3, '0');
+    return {
+      id: auditGridFixtureId(index),
+      createdAt: `2026-08-25T08:${String(index % 60).padStart(2, '0')}:00Z`,
+      action: index % 3 === 0 ? 'audit.detail.read' : index % 3 === 1 ? 'file.download.denied' : 'export.request.failed',
+      actorDisplayName: 'Redacted actor',
+      targetType: index % 2 === 0 ? 'AuditLog' : 'File',
+      workspaceLabel: 'Static Workspace',
+      severity: index % 3 === 0 ? 'info' : index % 3 === 1 ? 'warning' : 'critical',
+      result: index % 3 === 0 ? 'success' : index % 3 === 1 ? 'denied' : 'failed',
+      summary: `Audit row ${number} was opened with safe fields.`,
+      requestId: null,
+    };
+  });
+}
+
+function auditGridFixtureId(index: number): string {
+  return `00000000-0000-4000-8000-${String(index + 1).padStart(12, '0')}`;
+}
+
+async function installAuditGridApi(page: Page, rows: readonly AuditGridFixture[]): Promise<void> {
+  await page.route('**/api/admin/audit-grid**', async (route) => {
+    const request = route.request();
+    if (request.method() !== 'GET') {
+      await route.fulfill({ status: 405 });
+      return;
+    }
+
+    const url = new URL(request.url());
+    if (url.pathname === '/api/admin/audit-grid') {
+      await route.fulfill({
+        status: 200,
+        contentType: 'application/json; charset=utf-8',
+        body: JSON.stringify({ items: rows, page: 1, pageSize: 100, totalCount: rows.length }),
+      });
+      return;
+    }
+
+    const auditId = url.pathname.slice('/api/admin/audit-grid/'.length);
+    const row = rows.find((item) => item.id === auditId);
+    await route.fulfill(row
+      ? {
+          status: 200,
+          contentType: 'application/json; charset=utf-8',
+          body: JSON.stringify(row),
+        }
+      : {
+          status: 404,
+          contentType: 'application/json; charset=utf-8',
+          body: JSON.stringify({ error: { code: 'AuditEventNotFound', message: 'The requested audit event is not available.' } }),
+        });
+  });
 }
 
 async function installWorkspaceContextApi(
@@ -1920,6 +2788,7 @@ async function installWorkspaceContextApi(
       canOpenWorkspace: true,
       canOpenMembers: true,
       canOpenProjects: true,
+      canOpenProjectCreate: workspace.canOpenProjectCreate === true,
       canCreateProject: workspace.canCreateProject === true,
       canAddFiles: workspace.canAddFiles === true,
       unreadAnnouncementCount: 0,
@@ -2022,6 +2891,424 @@ async function installWorkspaceContextApi(
     get workspaceListRequests() {
       return workspaceListRequests;
     }
+  };
+}
+
+async function installAnnouncementEditorApi(
+  page: Page,
+  options: AnnouncementEditorApiOptions = {}
+): Promise<AnnouncementEditorApiHarness> {
+  const workspaceId = '38000000-0000-4000-8000-000000000001';
+  const publishRequests: Record<string, unknown>[] = [];
+  let audienceRequestCount = 0;
+  let releaseAudienceRefresh!: () => void;
+  let notifyAudienceRefreshRequested!: () => void;
+  const audienceRefreshGate = new Promise<void>((resolve) => {
+    releaseAudienceRefresh = resolve;
+  });
+  const audienceRefreshRequested = new Promise<void>((resolve) => {
+    notifyAudienceRefreshRequested = resolve;
+  });
+
+  await page.route('**/api/announcements', async (route) => {
+    const request = route.request();
+    if (request.method() === 'GET') {
+      await route.fulfill({
+        status: 200,
+        contentType: 'application/json; charset=utf-8',
+        body: JSON.stringify({ items: [] })
+      });
+      return;
+    }
+
+    if (request.method() !== 'POST') {
+      await route.fulfill({ status: 405 });
+      return;
+    }
+
+    publishRequests.push(request.postDataJSON() as Record<string, unknown>);
+    if (publishRequests.length === 1) {
+      await route.fulfill({
+        status: options.firstPublishFailure === 'audienceAuthorization' ? 400 : 503,
+        contentType: 'application/json; charset=utf-8',
+        body: JSON.stringify({
+          error: options.firstPublishFailure === 'audienceAuthorization'
+            ? 'Announcement audience is not authorized.'
+            : 'internal upstream detail'
+        })
+      });
+      return;
+    }
+
+    await route.fulfill({
+      status: 201,
+      contentType: 'application/json; charset=utf-8',
+      body: JSON.stringify({
+        id: '38000000-0000-4000-8000-000000000002',
+        workspaceId,
+        groupId: null,
+        channelId: null,
+        title: 'Accessible announcement',
+        body: 'The draft must remain available after an API failure.',
+        priority: 0,
+        requiresReadConfirmation: false,
+        isRead: false,
+        publishedAt: '2026-08-24T10:00:00Z'
+      })
+    });
+  });
+
+  await page.route('**/api/announcements/audiences', async (route) => {
+    audienceRequestCount += 1;
+    if (audienceRequestCount > 1 && options.holdAudienceRefresh) {
+      notifyAudienceRefreshRequested();
+      await audienceRefreshGate;
+      await route.fulfill({
+        status: 200,
+        contentType: 'application/json; charset=utf-8',
+        body: JSON.stringify([])
+      });
+      return;
+    }
+
+    await route.fulfill({
+      status: 200,
+      contentType: 'application/json; charset=utf-8',
+      body: JSON.stringify([
+        {
+          key: 'workspace:' + workspaceId,
+          scopeType: 'workspace',
+          workspaceId,
+          groupId: null,
+          channelId: null,
+          displayName: 'Announcement evidence workspace',
+          estimatedRecipientCount: 24
+        }
+      ])
+    });
+  });
+
+  return {
+    publishRequests,
+    audienceRefreshRequested,
+    releaseAudienceRefresh
+  };
+}
+
+async function installCanonicalProjectCreateActivationApi(
+  page: Page,
+  scope: { workspaceId: string; projectId: string; groupId: string }
+): Promise<CanonicalProjectCreateActivationHarness> {
+  const ownerUserId = '40900000-0000-4000-8000-000000000004';
+  const createRequests: CanonicalProjectCreateMockRequest[] = [];
+  const activationRequests: Record<string, unknown>[] = [];
+  const activationCsrfTokens: string[] = [];
+  const operationalGetPaths: string[] = [];
+  const projectListRequests: {
+    workspaceId: string | null;
+    includesCreatedProject: boolean;
+  }[] = [];
+  let releaseFirstCreate!: () => void;
+  const firstCreateGate = new Promise<void>((resolve) => {
+    releaseFirstCreate = resolve;
+  });
+  let firstCreateShouldFail = true;
+  let projectGets = 0;
+  let created = false;
+  let activated = false;
+
+  const projectDto = () => ({
+    id: scope.projectId,
+    workspaceId: scope.workspaceId,
+    groupId: scope.groupId,
+    ownerUserId,
+    title: 'U-22 Canonical Project',
+    description: 'Canonical create and activation browser evidence.',
+    status: activated ? 1 : 0,
+    visibility: 1,
+    activationState: activated ? 2 : 1,
+    activatedAtUtc: activated ? '2026-08-24T05:05:00Z' : null,
+    activationVersion: activated ? 1 : null,
+    versionNo: activated ? 2 : 1,
+    startDate: '2026-09-10',
+    endDate: '2026-09-20',
+    createdAt: '2026-08-24T05:00:00Z',
+    updatedAt: activated ? '2026-08-24T05:05:00Z' : null,
+    uiPermissions: {
+      canCreateTask: activated,
+      canActivate: !activated
+    }
+  });
+
+  await page.route('**/api/**', async (route) => {
+    const request = route.request();
+    const url = new URL(request.url());
+    const path = url.pathname;
+    const method = request.method();
+
+    if (
+      path === `/api/workspaces/${scope.workspaceId}/projects/create-options` &&
+      method === 'GET'
+    ) {
+      await route.fulfill({
+        status: 200,
+        contentType: 'application/json; charset=utf-8',
+        body: JSON.stringify({
+          requestId: 'project-options-200',
+          data: {
+            workspaceId: scope.workspaceId,
+            canCreateUngrouped: false,
+            allowedVisibilities: [1],
+            groups: [{ id: scope.groupId, name: 'Evidence Review Group' }]
+          },
+          warnings: []
+        })
+      });
+      return;
+    }
+
+    if (path === `/api/workspaces/${scope.workspaceId}/projects` && method === 'POST') {
+      const recorded: CanonicalProjectCreateMockRequest = {
+        body: request.postDataJSON() as Record<string, unknown>,
+        rawBody: request.postData() ?? '',
+        idempotencyKey: request.headers()['idempotency-key'] ?? '',
+        csrfToken: request.headers()['x-csrf-token'] ?? ''
+      };
+      createRequests.push(recorded);
+      if (createRequests.length === 1 && firstCreateShouldFail) {
+        await firstCreateGate;
+        if (firstCreateShouldFail) {
+          await route.fulfill({
+            status: 503,
+            contentType: 'application/json; charset=utf-8',
+            body: JSON.stringify({
+              requestId: 'project-create-503',
+              error: {
+                code: 'DependencyUnavailable',
+                message: 'Project creation outcome is temporarily unavailable.',
+                target: 'project',
+                details: [],
+                redactionApplied: false
+              },
+              traceId: 'project-create-503',
+              status: 503
+            })
+          });
+          return;
+        }
+      }
+
+      created = true;
+      await route.fulfill({
+        status: 201,
+        contentType: 'application/json; charset=utf-8',
+        body: JSON.stringify({
+          requestId: 'project-create-201',
+          data: {
+            id: scope.projectId,
+            workspaceId: scope.workspaceId,
+            groupId: scope.groupId,
+            ownerUserId,
+            title: 'U-22 Canonical Project',
+            description: 'Canonical create and activation browser evidence.',
+            status: 0,
+            visibility: 1,
+            activationState: 1,
+            startDate: '2026-09-10',
+            endDate: '2026-09-20',
+            versionNo: 1,
+            createdAt: '2026-08-24T05:00:00Z'
+          },
+          warnings: []
+        })
+      });
+      return;
+    }
+
+    if (path === '/api/projects' && method === 'GET') {
+      expect(url.searchParams.get('workspaceId')).toBe(scope.workspaceId);
+      projectListRequests.push({
+        workspaceId: url.searchParams.get('workspaceId'),
+        includesCreatedProject: created
+      });
+      await route.fulfill({
+        status: 200,
+        contentType: 'application/json; charset=utf-8',
+        body: JSON.stringify({
+          items: created ? [projectDto()] : [],
+          page: 1,
+          pageSize: 50,
+          totalCount: created ? 1 : 0,
+          hasMore: false
+        })
+      });
+      return;
+    }
+
+    if (path === `/api/projects/${scope.projectId}` && method === 'GET') {
+      projectGets += 1;
+      await route.fulfill({
+        status: created ? 200 : 404,
+        contentType: 'application/json; charset=utf-8',
+        body: JSON.stringify(created ? projectDto() : { title: 'Not Found', status: 404 })
+      });
+      return;
+    }
+
+    if (path === `/api/projects/${scope.projectId}/activate` && method === 'POST') {
+      activationRequests.push(request.postDataJSON() as Record<string, unknown>);
+      activationCsrfTokens.push(request.headers()['x-csrf-token'] ?? '');
+      activated = true;
+      await route.fulfill({
+        status: 200,
+        contentType: 'application/json; charset=utf-8',
+        body: JSON.stringify({
+          requestId: 'project-activate-200',
+          data: { projectId: scope.projectId },
+          warnings: []
+        })
+      });
+      return;
+    }
+
+    const operationalSuffix = path.startsWith(`/api/projects/${scope.projectId}/`)
+      ? path.slice(`/api/projects/${scope.projectId}`.length)
+      : null;
+    if (
+      method === 'GET' &&
+      operationalSuffix !== null &&
+      ['/tasks', '/kanban', '/gantt', '/workload', '/members'].includes(operationalSuffix)
+    ) {
+      operationalGetPaths.push(operationalSuffix);
+      if (operationalSuffix === '/tasks') {
+        await route.fulfill({
+          status: 200,
+          contentType: 'application/json',
+          body: JSON.stringify({ items: [], page: 1, pageSize: 50, totalCount: 0, hasMore: false })
+        });
+        return;
+      }
+      if (operationalSuffix === '/kanban') {
+        await route.fulfill({
+          status: 200,
+          contentType: 'application/json',
+          body: JSON.stringify(emptyCanonicalKanban(scope.projectId))
+        });
+        return;
+      }
+      if (operationalSuffix === '/gantt') {
+        await route.fulfill({
+          status: 200,
+          contentType: 'application/json',
+          body: JSON.stringify(emptyCanonicalGantt(scope.projectId))
+        });
+        return;
+      }
+      if (operationalSuffix === '/workload') {
+        await route.fulfill({
+          status: 200,
+          contentType: 'application/json',
+          body: JSON.stringify({ members: [] })
+        });
+        return;
+      }
+      await route.fulfill({
+        status: 200,
+        contentType: 'application/json',
+        body: JSON.stringify([{ userId: ownerUserId, displayName: 'Mock User A', role: 'Owner' }])
+      });
+      return;
+    }
+
+    await route.fallback();
+  });
+
+  return {
+    createRequests,
+    activationRequests,
+    activationCsrfTokens,
+    operationalGetPaths,
+    projectListRequests,
+    projectGetCount: () => projectGets,
+    releaseFirstCreate,
+    allowFirstCreateSuccess: () => {
+      firstCreateShouldFail = false;
+      releaseFirstCreate();
+    }
+  };
+}
+
+function emptyCanonicalKanban(projectId: string) {
+  return {
+    board: {
+      projectId,
+      version: 1,
+      timeZone: 'UTC',
+      defaultSwimlane: 0,
+      selectedSwimlane: 0,
+      supportedSwimlanes: [0, 1, 2, 3, 4],
+      supportedFilters: ['includeOlderCompleted'],
+      includesOlderCompleted: false,
+      doneWindowDays: 30,
+      totalAuthorizedCardCount: 0,
+      isTruncated: false,
+      uiPermissions: { canConfigure: true },
+      warnings: []
+    },
+    columns: [
+      {
+        workflowStageId: '40900000-0000-4000-8000-000000000010',
+        displayName: 'Todo',
+        category: 1,
+        displayOrder: 1000,
+        wipWarningLimit: null,
+        currentAuthorizedCardCount: 0,
+        hasWipWarning: false,
+        uiPermissions: { canConfigure: true }
+      },
+      {
+        workflowStageId: '40900000-0000-4000-8000-000000000011',
+        displayName: 'Done',
+        category: 4,
+        displayOrder: 2000,
+        wipWarningLimit: null,
+        currentAuthorizedCardCount: 0,
+        hasWipWarning: false,
+        uiPermissions: { canConfigure: true }
+      }
+    ],
+    cards: []
+  };
+}
+
+function emptyCanonicalGantt(projectId: string) {
+  const permissions = {
+    canEditSchedule: true,
+    canEditProgress: true,
+    canManageDependencies: true,
+    canClearSchedule: true,
+    canOpen: true
+  };
+  return {
+    projectId,
+    projectTitle: 'U-22 Canonical Project',
+    projectVersion: 2,
+    workflowVersion: 1,
+    calendarVersion: null,
+    calendar: {
+      timeZone: 'UTC',
+      workingDays: ['Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday'],
+      holidaysAvailable: false,
+      limitations: []
+    },
+    scheduledItems: [],
+    unscheduledItems: [],
+    milestones: [],
+    dependencies: [],
+    warnings: [],
+    permissions,
+    maximumItems: 500,
+    totalItems: 0
   };
 }
 

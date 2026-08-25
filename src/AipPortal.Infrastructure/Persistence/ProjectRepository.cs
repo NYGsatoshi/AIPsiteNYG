@@ -15,6 +15,108 @@ public sealed class ProjectRepository(AppDbContext dbContext) : IProjectReposito
             .ToListAsync(cancellationToken);
     }
 
+    public async Task<IReadOnlyList<Project>> ListVisibleInWorkspaceAsync(
+        Guid userId,
+        Guid workspaceId,
+        CancellationToken cancellationToken = default)
+    {
+        return await dbContext.ListableProjectsFor(userId)
+            .Where(project => project.WorkspaceId == workspaceId)
+            .OrderBy(project => project.Name)
+            .ToListAsync(cancellationToken);
+    }
+
+    public async Task<IReadOnlyList<Guid>> ListActivatableProjectIdsAsync(
+        Guid userId,
+        IReadOnlyCollection<Guid> projectIds,
+        CancellationToken cancellationToken = default)
+    {
+        if (userId == Guid.Empty || projectIds.Count == 0)
+        {
+            return [];
+        }
+
+        var candidateIds = projectIds.Distinct().ToArray();
+        var activeSystemAdminIds = dbContext.Users
+            .AsNoTracking()
+            .Where(user =>
+                user.Id == userId &&
+                user.SystemRole == SystemRole.SystemAdmin &&
+                user.Status == UserStatus.Active &&
+                user.DeletedAt == null)
+            .Select(user => user.Id);
+
+        return await dbContext.Projects
+            .AsNoTracking()
+            .Where(project =>
+                candidateIds.Contains(project.Id) &&
+                project.DeletedAt == null &&
+                project.VersionNo > 0 &&
+                project.Visibility.HasValue &&
+                project.ActivationState == ProjectActivationState.NeverActivated &&
+                project.Status == ProjectStatus.Planning &&
+                project.ActivatedAtUtc == null &&
+                project.ActivationVersion == null &&
+                dbContext.Tenants.Any(tenant =>
+                    tenant.Id == project.TenantId &&
+                    tenant.Status == TenantStatus.Active &&
+                    tenant.DeletedAt == null) &&
+                dbContext.Users.Any(user =>
+                    user.Id == userId &&
+                    user.Status == UserStatus.Active &&
+                    user.DeletedAt == null) &&
+                dbContext.TenantUsers.Any(member =>
+                    member.TenantId == project.TenantId &&
+                    member.UserId == userId &&
+                    member.Status == TenantUserStatus.Active) &&
+                dbContext.Workspaces.Any(workspace =>
+                    workspace.Id == project.WorkspaceId &&
+                    workspace.TenantId == project.TenantId &&
+                    workspace.Status == WorkspaceStatus.Active &&
+                    workspace.DeletedAt == null) &&
+                dbContext.WorkspaceMembers.Any(member =>
+                    member.TenantId == project.TenantId &&
+                    member.WorkspaceId == project.WorkspaceId &&
+                    member.UserId == userId &&
+                    member.Status == MembershipStatus.Active) &&
+                (activeSystemAdminIds.Contains(userId) ||
+                 dbContext.WorkspaceMembers.Any(member =>
+                     member.TenantId == project.TenantId &&
+                     member.WorkspaceId == project.WorkspaceId &&
+                     member.UserId == userId &&
+                     member.Status == MembershipStatus.Active &&
+                     (member.Role == WorkspaceRole.Owner ||
+                      member.Role == WorkspaceRole.Admin ||
+                      member.Role == WorkspaceRole.Adviser ||
+                      member.Role == WorkspaceRole.Member))) &&
+                (dbContext.ProjectMembers.Any(member =>
+                     member.TenantId == project.TenantId &&
+                     member.ProjectId == project.Id &&
+                     member.UserId == userId &&
+                     (member.Role == ProjectRole.Owner || member.Role == ProjectRole.Manager)) ||
+                 (project.Visibility == ProjectVisibility.WorkspaceVisible &&
+                  (activeSystemAdminIds.Contains(userId) ||
+                   dbContext.WorkspaceMembers.Any(member =>
+                       member.TenantId == project.TenantId &&
+                       member.WorkspaceId == project.WorkspaceId &&
+                       member.UserId == userId &&
+                       member.Status == MembershipStatus.Active &&
+                       (member.Role == WorkspaceRole.Owner || member.Role == WorkspaceRole.Admin)) ||
+                   (project.GroupId.HasValue &&
+                    dbContext.Groups.Any(group =>
+                        group.Id == project.GroupId.Value &&
+                        group.TenantId == project.TenantId &&
+                        group.WorkspaceId == project.WorkspaceId &&
+                        group.DeletedAt == null &&
+                        dbContext.GroupMembers.Any(member =>
+                            member.TenantId == project.TenantId &&
+                            member.GroupId == group.Id &&
+                            member.UserId == userId &&
+                            (member.Role == GroupRole.Owner || member.Role == GroupRole.Admin))))))))
+            .Select(project => project.Id)
+            .ToListAsync(cancellationToken);
+    }
+
     public Task<Project?> GetProjectAsync(Guid projectId, CancellationToken cancellationToken = default)
     {
         return dbContext.Projects.FirstOrDefaultAsync(project => project.Id == projectId, cancellationToken);
@@ -63,6 +165,21 @@ public sealed class ProjectRepository(AppDbContext dbContext) : IProjectReposito
             .ThenBy(task => task.SortOrder)
             .ThenBy(task => task.DueDate)
             .ThenBy(task => task.Title)
+            .ToListAsync(cancellationToken);
+    }
+
+    public async Task<IReadOnlyList<Guid>> ListTaskIdsWithArtifactsAsync(
+        Guid projectId,
+        CancellationToken cancellationToken = default)
+    {
+        return await dbContext.Artifacts
+            .AsNoTracking()
+            .Where(artifact =>
+                artifact.ProjectId == projectId &&
+                artifact.TaskItemId.HasValue &&
+                !artifact.DeletedAt.HasValue)
+            .Select(artifact => artifact.TaskItemId!.Value)
+            .Distinct()
             .ToListAsync(cancellationToken);
     }
 
@@ -130,6 +247,35 @@ public sealed class ProjectRepository(AppDbContext dbContext) : IProjectReposito
             .Include(task => task.WorkflowStage)
             .Include(task => task.Collaborators)
             .FirstOrDefaultAsync(task => task.Id == taskItemId, cancellationToken);
+    }
+
+    public async Task<PagedResponse<TaskActivityLogReadModel>> ListTaskActivityLogsPageAsync(
+        Guid projectId,
+        Guid taskItemId,
+        int page,
+        int pageSize,
+        CancellationToken cancellationToken = default)
+    {
+        var query = dbContext.ActivityLogs
+            .AsNoTracking()
+            .Where(log => log.ProjectId == projectId && log.TaskItemId == taskItemId);
+        var totalCount = await query.CountAsync(cancellationToken);
+        var skip = (int)Math.Min((long)Math.Max(0, page - 1) * pageSize, int.MaxValue);
+        var items = await query
+            .OrderByDescending(log => log.OccurredAt)
+            .ThenByDescending(log => log.Id)
+            .Skip(skip)
+            .Take(pageSize)
+            .Select(log => new TaskActivityLogReadModel(
+                log.Id,
+                log.ActivityType,
+                log.Body,
+                log.OccurredAt,
+                log.AuthorUserId,
+                log.AuthorUser!.DisplayName))
+            .ToListAsync(cancellationToken);
+
+        return new PagedResponse<TaskActivityLogReadModel>(items, page, pageSize, totalCount);
     }
 
     public Task<TaskWorkflowDefinition?> GetWorkflowDefinitionAsync(Guid projectId, CancellationToken cancellationToken = default) =>

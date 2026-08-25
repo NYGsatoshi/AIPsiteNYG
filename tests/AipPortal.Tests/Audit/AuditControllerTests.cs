@@ -46,6 +46,79 @@ public sealed class AuditControllerTests
     }
 
     [Fact]
+    public async Task AdminAuditGridRow_UsesGenericNotFoundForMalformedOrUnavailableIdentifiers()
+    {
+        var audit = new CapturingAuditQueryService(
+            gridRowResult: Result<AuditGridRowResponse>.Failure(new ApplicationErrorDetail(
+                "AuditEventNotFound",
+                "The requested audit event is not available.")));
+        var controller = CreateController(audit);
+
+        var result = await controller.AdminAuditGridRow("not-an-audit-id", CancellationToken.None);
+
+        var notFound = Assert.IsType<ObjectResult>(result);
+        Assert.Equal(StatusCodes.Status404NotFound, notFound.StatusCode);
+        Assert.Equal(Guid.Empty, audit.LastGridRowId);
+        var payload = JsonSerializer.Serialize(notFound.Value);
+        Assert.Contains("AuditEventNotFound", payload, StringComparison.Ordinal);
+        Assert.DoesNotContain("The requested audit event is not available.", payload, StringComparison.Ordinal);
+        Assert.DoesNotContain("not-an-audit-id", payload, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public async Task AdminAuditGridRow_ReturnsCapabilityDenialBeforeIdentifierLookup()
+    {
+        var audit = new CapturingAuditQueryService(
+            gridRowResult: Result<AuditGridRowResponse>.Failure(new ApplicationErrorDetail(
+                "CapabilityDenied",
+                "The requested Audit operation is not permitted.")));
+        var controller = CreateController(audit);
+
+        var result = await controller.AdminAuditGridRow(Guid.NewGuid().ToString("D"), CancellationToken.None);
+
+        var forbidden = Assert.IsType<ObjectResult>(result);
+        Assert.Equal(StatusCodes.Status403Forbidden, forbidden.StatusCode);
+        Assert.Equal("CapabilityDenied", audit.LastGridRowResult?.ErrorDetail?.Code);
+    }
+
+    [Fact]
+    public async Task AdminAuditGridRow_ResponseBoundaryReturnsOnlyTheGridRowContract()
+    {
+        var row = new AuditGridRowResponse(
+            Guid.NewGuid(),
+            DateTimeOffset.UtcNow,
+            "audit.detail.read",
+            "Redacted actor",
+            "AuditLog",
+            "Workspace A",
+            "info",
+            "success",
+            "A metadata-safe summary.",
+            null);
+        var audit = new CapturingAuditQueryService(
+            gridRowResult: Result<AuditGridRowResponse>.Success(row));
+        var controller = CreateController(
+            audit,
+            capabilities: new AuditCapabilityResponse(
+                CanView: true,
+                CanReview: false,
+                CanApprove: false,
+                CanExport: false,
+                CanViewSensitiveMetadata: false));
+
+        var result = await controller.AdminAuditGridRow(row.Id.ToString("D"), CancellationToken.None);
+
+        var payload = SerializeOk(result);
+        Assert.Contains("A metadata-safe summary.", payload, StringComparison.Ordinal);
+        Assert.DoesNotContain("MetadataJson", payload, StringComparison.OrdinalIgnoreCase);
+        Assert.DoesNotContain("ActorUserId", payload, StringComparison.OrdinalIgnoreCase);
+        Assert.DoesNotContain("EntityId", payload, StringComparison.OrdinalIgnoreCase);
+        Assert.DoesNotContain("Claims", payload, StringComparison.OrdinalIgnoreCase);
+        Assert.DoesNotContain("Evidence", payload, StringComparison.OrdinalIgnoreCase);
+        Assert.DoesNotContain("Duration", payload, StringComparison.OrdinalIgnoreCase);
+    }
+
+    [Fact]
     public async Task SecurityEvents_ResponseBoundaryRedactsRestrictedFieldsWithoutSensitiveCapability()
     {
         const string ipAddress = "203.0.113.42";
@@ -200,11 +273,18 @@ public sealed class AuditControllerTests
     }
 
     private sealed class CapturingAuditQueryService(
-        IReadOnlyList<SecurityEventListItemResponse>? securityEvents = null) : IAuditQueryService
+        IReadOnlyList<SecurityEventListItemResponse>? securityEvents = null,
+        Result<AuditGridRowResponse>? gridRowResult = null) : IAuditQueryService
     {
         private readonly IReadOnlyList<SecurityEventListItemResponse> securityEvents = securityEvents ?? [];
+        private readonly Result<AuditGridRowResponse> gridRowResult = gridRowResult ??
+            Result<AuditGridRowResponse>.Failure(new ApplicationErrorDetail(
+                "AuditEventNotFound",
+                "The requested audit event is not available."));
 
         public AuditLogQuery? LastGridQuery { get; private set; }
+        public Guid? LastGridRowId { get; private set; }
+        public Result<AuditGridRowResponse>? LastGridRowResult { get; private set; }
 
         public Task<Result<PagedResponse<AuditLogListItemResponse>>> ListAuditLogsAsync(
             AuditLogQuery query,
@@ -229,6 +309,15 @@ public sealed class AuditControllerTests
                     query.Page,
                     query.PageSize,
                     0)));
+        }
+
+        public Task<Result<AuditGridRowResponse>> GetAuditGridRowAsync(
+            Guid auditId,
+            CancellationToken cancellationToken = default)
+        {
+            LastGridRowId = auditId;
+            LastGridRowResult = gridRowResult;
+            return Task.FromResult(gridRowResult);
         }
 
         public Task<Result<PagedResponse<SecurityEventListItemResponse>>> ListSecurityEventsAsync(

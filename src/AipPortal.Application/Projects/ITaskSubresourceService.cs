@@ -5,6 +5,7 @@ namespace AipPortal.Application.Projects;
 public interface ITaskSubresourceService
 {
     Task<Result<CanonicalTaskDetailResponse>> GetDetailAsync(Guid taskId, CancellationToken cancellationToken = default);
+    Task<Result<TaskActivityLogPage>> ListActivityAsync(Guid taskId, int page = 1, int pageSize = 20, CancellationToken cancellationToken = default);
     Task<Result<TaskSubtaskPage>> ListSubtasksAsync(Guid taskId, int page = 1, int pageSize = 50, CancellationToken cancellationToken = default);
     Task<Result<TaskSubtaskResponse>> CreateSubtaskAsync(Guid taskId, CreateTaskSubtaskRequest request, CancellationToken cancellationToken = default);
     Task<Result<TaskFileAssociationPage>> ListFilesAsync(Guid taskId, int page = 1, int pageSize = 20, CancellationToken cancellationToken = default);

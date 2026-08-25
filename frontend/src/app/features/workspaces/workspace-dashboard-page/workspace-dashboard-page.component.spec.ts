@@ -102,7 +102,7 @@ describe('WorkspaceDashboardPageComponent', () => {
     ).not.toBeNull();
   });
 
-  it('renders one primary research action and a separate file action for an authorized Workspace', async () => {
+  it('renders one primary research action with separate full-Project and file actions for an authorized Workspace', async () => {
     const fixture = await renderDashboard({
       ...WORKSPACE_DASHBOARD_SCENARIOS.default,
       workspaces: [OWNER_WORKSPACE],
@@ -115,6 +115,12 @@ describe('WorkspaceDashboardPageComponent', () => {
     expect(primaryActions[0]?.textContent?.trim()).toBe('新しいリサーチ');
     expect(primaryActions[0]?.getAttribute('href')).toBe(
       '/workspaces/sample-workspace-owner/research/new',
+    );
+
+    const fullCreate = card.querySelector<HTMLAnchorElement>('[data-testid="open-project-create-action"]');
+    expect(fullCreate?.textContent?.trim()).toBe('Set up Project');
+    expect(fullCreate?.getAttribute('href')).toBe(
+      '/workspaces/sample-workspace-owner/projects?create=1',
     );
 
     const addFiles = card.querySelector<HTMLAnchorElement>('[data-testid="add-files-action"]');
@@ -130,6 +136,7 @@ describe('WorkspaceDashboardPageComponent', () => {
 
     const card = workspaceCard(fixture, DEFAULT_WORKSPACES[2].displayName);
     expect(card.querySelector('[data-testid="start-research-action"]')).toBeNull();
+    expect(card.querySelector('[data-testid="open-project-create-action"]')).toBeNull();
     expect(card.querySelector('[data-testid="add-files-action"]')).toBeNull();
     expect(card.querySelector('[data-testid="open-members-action"]')).toBeNull();
     expect(card.querySelector('[data-testid="open-projects-action"]')).toBeNull();
@@ -346,6 +353,7 @@ describe('WorkspaceDashboardPageComponent', () => {
 
     const card = workspaceCard(fixture, READ_ONLY_WORKSPACE.displayName);
     expect(card.querySelector('[data-testid="start-research-action"]')).toBeNull();
+    expect(card.querySelector('[data-testid="open-project-create-action"]')).toBeNull();
     expect(card.querySelector('[data-testid="add-files-action"]')).toBeNull();
     expect(card.querySelector('[data-testid="open-members-action"]')).toBeNull();
     expect(card.querySelector('[data-testid="open-projects-action"]')).toBeNull();

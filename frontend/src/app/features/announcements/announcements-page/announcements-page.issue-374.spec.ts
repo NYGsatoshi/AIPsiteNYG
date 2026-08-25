@@ -7,11 +7,11 @@ import { AnnouncementsPageViewModel } from '../announcements.types';
 import { AnnouncementsPageComponent } from './announcements-page.component';
 
 const renderAnnouncementsPage = async (
-  page: AnnouncementsPageViewModel
+  page: AnnouncementsPageViewModel,
 ): Promise<ComponentFixture<AnnouncementsPageComponent>> => {
   await TestBed.configureTestingModule({
     imports: [AnnouncementsPageComponent],
-    providers: [provideRouter([]), { provide: AIP_ANNOUNCEMENTS_PAGE_MOCK, useValue: page }]
+    providers: [provideRouter([]), { provide: AIP_ANNOUNCEMENTS_PAGE_MOCK, useValue: page }],
   }).compileComponents();
 
   const fixture = TestBed.createComponent(AnnouncementsPageComponent);
@@ -41,7 +41,7 @@ describe('AnnouncementsPageComponent issue #374 publication status', () => {
   it('uses the same scheduled status vocabulary in detail and edit views', async () => {
     const fixture = await renderAnnouncementsPage({
       ...ANNOUNCEMENT_PAGE_SCENARIOS.default,
-      selectedAnnouncementId: 'mock-announcement-004'
+      selectedAnnouncementId: 'mock-announcement-004',
     });
 
     const detail = rootElement(fixture).querySelector('[data-testid="announcement-detail"]');
@@ -58,34 +58,35 @@ describe('AnnouncementsPageComponent issue #374 publication status', () => {
     expect(editor?.textContent).toContain('Asia/Tokyo');
   });
 
-  it('prevents inconsistent publish and draft-save actions for a scheduled announcement', async () => {
+  it('does not expose an unimplemented draft-save action and disables publication for a scheduled announcement', async () => {
     const fixture = await renderAnnouncementsPage({
       ...ANNOUNCEMENT_PAGE_SCENARIOS.default,
-      selectedAnnouncementId: 'mock-announcement-004'
+      selectedAnnouncementId: 'mock-announcement-004',
     });
 
     fixture.componentInstance.showEditEditor();
     fixture.detectChanges();
 
-    const saveDraft = rootElement(fixture).querySelector<HTMLButtonElement>(
-      '[data-testid="announcement-save-draft-action"]'
-    );
     const publish = rootElement(fixture).querySelector<HTMLButtonElement>(
-      '[data-testid="announcement-publish-action"]'
+      '[data-testid="announcement-publish-action"]',
     );
 
-    expect(saveDraft?.disabled).toBe(true);
+    expect(
+      rootElement(fixture).querySelector('[data-testid="announcement-save-draft-action"]'),
+    ).toBeNull();
     expect(publish?.disabled).toBe(true);
   });
 
   it('does not expose or enter edit mode for an archived announcement', async () => {
     const fixture = await renderAnnouncementsPage({
       ...ANNOUNCEMENT_PAGE_SCENARIOS.default,
-      selectedAnnouncementId: 'mock-announcement-005'
+      selectedAnnouncementId: 'mock-announcement-005',
     });
 
     expect(rootElement(fixture).textContent).toContain('アーカイブ済み');
-    expect(rootElement(fixture).querySelector('[data-testid="edit-announcement-action"]')).toBeNull();
+    expect(
+      rootElement(fixture).querySelector('[data-testid="edit-announcement-action"]'),
+    ).toBeNull();
 
     fixture.componentInstance.showEditEditor();
     fixture.detectChanges();

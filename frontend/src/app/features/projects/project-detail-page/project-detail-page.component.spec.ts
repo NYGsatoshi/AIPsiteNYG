@@ -1,6 +1,8 @@
 import { By } from '@angular/platform-browser';
+import { signal } from '@angular/core';
 import { TestBed } from '@angular/core/testing';
 import { ActivatedRoute, convertToParamMap, provideRouter, Router } from '@angular/router';
+import { BehaviorSubject } from 'rxjs';
 import { vi } from 'vitest';
 
 import { mapProjectKanbanSnapshot } from '../project-kanban.models';
@@ -18,6 +20,8 @@ import { ProjectDetailPageComponent } from './project-detail-page.component';
 describe('ProjectDetailPageComponent canonical Kanban states', () => {
   it('renders WIP, hierarchy, blocked, priority, recent-Done, and narrow-layout meaning as text', async () => {
     const { fixture } = await render(kanbanView('ready'));
+    fixture.componentInstance.tab.set('tasks');
+    fixture.detectChanges();
     const text = (fixture.nativeElement as HTMLElement).textContent ?? '';
 
     expect(text).toContain('Done shows 30 recent days');
@@ -37,19 +41,50 @@ describe('ProjectDetailPageComponent canonical Kanban states', () => {
   it('renders an authorized empty board separately from permission denial', async () => {
     const emptySnapshot = { ...mapProjectKanbanSnapshot(snapshotDto()), cards: [] };
     const { fixture: emptyFixture } = await render({ ...kanbanView('empty'), snapshot: emptySnapshot });
+    emptyFixture.componentInstance.tab.set('tasks');
+    emptyFixture.detectChanges();
     expect((emptyFixture.nativeElement as HTMLElement).textContent).toContain('No authorized Tasks match');
     emptyFixture.destroy();
     TestBed.resetTestingModule();
 
     const { fixture: deniedFixture } = await render({ ...kanbanView('permissionDenied'), snapshot: null });
+    deniedFixture.componentInstance.tab.set('tasks');
+    deniedFixture.detectChanges();
     expect((deniedFixture.nativeElement as HTMLElement).textContent).toContain('Project Kanban is not available');
   });
 
   it('falls back to the maintained Project Task List when the presentation flag is disabled', async () => {
-    const { fixture } = await render({ ...kanbanView('disabled'), snapshot: null, feedback: 'Project Kanban is disabled. The maintained Task List remains available.' });
+    const { fixture, facade } = await render(
+      { ...kanbanView('disabled'), snapshot: null, feedback: 'Project Kanban is disabled. The maintained Task List remains available.' },
+      scheduleView(),
+      { taskListFeedback: 'The Task list could not be synchronized.' }
+    );
+    fixture.componentInstance.tab.set('tasks');
+    fixture.detectChanges();
 
-    expect((fixture.nativeElement as HTMLElement).textContent).toContain('maintained Task List');
-    expect((fixture.nativeElement as HTMLElement).querySelector('aip-kanban')).toBeNull();
+    const host = fixture.nativeElement as HTMLElement;
+    expect(host.textContent).toContain('maintained Task List');
+    expect(host.querySelector('aip-kanban')).toBeNull();
+    expect(host.querySelector('[role="alert"]')?.textContent).toContain('could not be synchronized');
+    host.querySelector<HTMLButtonElement>('[data-testid="task-list-retry"]')?.click();
+    expect(facade.retryTaskList).toHaveBeenCalledOnce();
+  });
+
+  it('surfaces a transient authoritative Task-list refresh failure and offers a retry', async () => {
+    const { fixture, facade } = await render(
+      kanbanView('ready'),
+      scheduleView(),
+      { taskListFeedback: 'The Task list could not be synchronized. Temporarily unavailable.' }
+    );
+    fixture.componentInstance.tab.set('list');
+    fixture.detectChanges();
+
+    const host = fixture.nativeElement as HTMLElement;
+    expect(host.querySelector('[role="alert"]')?.textContent).toContain('could not be synchronized');
+    const retry = host.querySelector<HTMLButtonElement>('[data-testid="task-list-retry"]');
+    expect(retry).not.toBeNull();
+    retry?.click();
+    expect(facade.retryTaskList).toHaveBeenCalledOnce();
   });
 
   it('renders the canonical narrow Schedule projection with calendar, WorkItem, dependency, warning, and form actions', async () => {
@@ -163,37 +198,234 @@ describe('ProjectDetailPageComponent canonical Kanban states', () => {
     expect(facade.retryPreservedScheduleIntent).toHaveBeenCalledOnce();
     expect(facade.clearPreservedScheduleIntent).toHaveBeenCalledOnce();
   });
+
+  it('opens on Overview and renders only the canonical Draft explanation before activation', async () => {
+    const { fixture, facade } = await render(
+      { ...kanbanView('disabled'), snapshot: null },
+      scheduleView({ status: 'empty', snapshot: null }),
+      {
+        project: draftProject(),
+        activation: { status: 'idle', message: null }
+      }
+    );
+    const host = fixture.nativeElement as HTMLElement;
+
+    expect(fixture.componentInstance.tab()).toBe('overview');
+    expect([...host.querySelectorAll('[role="tab"]')].map((tab) => tab.textContent?.trim())).toEqual(['Overview']);
+    expect(host.textContent).toContain('saved as Draft');
+    expect(host.textContent).toContain('sole Project Owner');
+    expect(host.textContent).toContain('Project General and the Task workflow');
+    expect(host.textContent).toContain('Members only');
+    expect(host.textContent).not.toContain('project-1');
+
+    host.querySelector<HTMLButtonElement>('[data-testid="activate-project"]')?.click();
+    expect(facade.activate).toHaveBeenCalledOnce();
+  });
+
+  it('does not expose activation when the backend affordance is absent', async () => {
+    const { fixture } = await render(
+      { ...kanbanView('disabled'), snapshot: null },
+      scheduleView({ status: 'empty', snapshot: null }),
+      {
+        project: { ...draftProject(), canActivate: false },
+        activation: { status: 'idle', message: null }
+      }
+    );
+
+    expect((fixture.nativeElement as HTMLElement).querySelector('[data-testid="activate-project"]')).toBeNull();
+  });
+
+  it('moves focus to the stable Overview announcement when activation removes the button', async () => {
+    const rendered = await render(
+      { ...kanbanView('disabled'), snapshot: null },
+      scheduleView({ status: 'empty', snapshot: null }),
+      {
+        project: draftProject(),
+        activation: { status: 'submitting', message: 'Activating Project…' }
+      }
+    );
+    rendered.setView({
+      project: {
+        ...draftProject(),
+        status: 'active',
+        statusLabel: 'Running',
+        activationState: 'activated',
+        isOperational: true,
+        canActivate: false
+      },
+      activation: { status: 'success', message: 'Project activated.' }
+    });
+    rendered.fixture.detectChanges();
+    await rendered.fixture.whenStable();
+    await Promise.resolve();
+
+    const announcement = (rendered.fixture.nativeElement as HTMLElement)
+      .querySelector<HTMLElement>('.project-detail-page__activation-status');
+    expect(announcement).toBe(document.activeElement);
+    expect((rendered.fixture.nativeElement as HTMLElement).querySelector('[data-testid="activate-project"]')).toBeNull();
+  });
+
+  it('restores focus to activation completion after authorization temporarily removes the live region', async () => {
+    const rendered = await render(
+      { ...kanbanView('disabled'), snapshot: null },
+      scheduleView({ status: 'empty', snapshot: null }),
+      {
+        project: draftProject(),
+        activation: { status: 'submitting', message: 'Activating Project…' }
+      }
+    );
+
+    rendered.setView({
+      status: 'loading',
+      project: undefined,
+      activation: { status: 'idle', message: null }
+    });
+    rendered.fixture.detectChanges();
+    expect((rendered.fixture.nativeElement as HTMLElement)
+      .querySelector('.project-detail-page__activation-status')).toBeNull();
+
+    rendered.setView({
+      status: 'ready',
+      project: {
+        ...draftProject(),
+        status: 'active',
+        statusLabel: 'Running',
+        activationState: 'activated',
+        isOperational: true,
+        canActivate: false
+      },
+      activation: {
+        status: 'success',
+        message: 'Project activated. Operational views were loaded from authoritative state.'
+      }
+    });
+    rendered.fixture.detectChanges();
+    await rendered.fixture.whenStable();
+    await Promise.resolve();
+
+    const announcement = (rendered.fixture.nativeElement as HTMLElement)
+      .querySelector<HTMLElement>('.project-detail-page__activation-status');
+    expect(announcement).toBe(document.activeElement);
+  });
+
+  it('focuses the persistent page target when authorization clearing ends in denial', async () => {
+    const rendered = await render(
+      { ...kanbanView('disabled'), snapshot: null },
+      scheduleView({ status: 'empty', snapshot: null }),
+      {
+        project: draftProject(),
+        activation: { status: 'submitting', message: 'Activating Project…' }
+      }
+    );
+
+    rendered.setView({
+      status: 'permissionDenied',
+      project: undefined,
+      activation: { status: 'idle', message: null }
+    });
+    rendered.fixture.detectChanges();
+    await rendered.fixture.whenStable();
+    await Promise.resolve();
+
+    const host = (rendered.fixture.nativeElement as HTMLElement)
+      .querySelector<HTMLElement>('[data-testid="project-detail-page"]');
+    expect(host).toBe(document.activeElement);
+    expect((rendered.fixture.nativeElement as HTMLElement)
+      .querySelector('.project-detail-page__activation-status')).toBeNull();
+  });
+
+  it('moves focus to the persistent page target when activation authorization is denied', async () => {
+    const rendered = await render(
+      { ...kanbanView('disabled'), snapshot: null },
+      scheduleView({ status: 'empty', snapshot: null }),
+      {
+        project: draftProject(),
+        activation: { status: 'submitting', message: 'Activating Project…' }
+      }
+    );
+
+    rendered.setView({
+      status: 'permissionDenied',
+      project: undefined,
+      activation: {
+        status: 'permissionDenied',
+        message: 'Project activation is not available for the current session.'
+      }
+    });
+    rendered.fixture.detectChanges();
+    await rendered.fixture.whenStable();
+    await Promise.resolve();
+
+    const host = (rendered.fixture.nativeElement as HTMLElement)
+      .querySelector<HTMLElement>('[data-testid="project-detail-page"]');
+    expect(host).toBe(document.activeElement);
+    expect((rendered.fixture.nativeElement as HTMLElement)
+      .querySelector('.project-detail-page__activation-status')).toBeNull();
+  });
+
+  it('reloads a reused detail page for each distinct route Project and resets local tabs', async () => {
+    const rendered = await render(kanbanView('ready'));
+    expect(rendered.facade.load).toHaveBeenCalledWith('project-1');
+
+    rendered.fixture.componentInstance.tab.set('tasks');
+    rendered.setProjectId('project-2');
+    rendered.fixture.detectChanges();
+
+    expect(rendered.facade.load).toHaveBeenNthCalledWith(2, 'project-2');
+    expect(rendered.fixture.componentInstance.tab()).toBe('overview');
+
+    rendered.setProjectId('project-2');
+    expect(rendered.facade.load).toHaveBeenCalledTimes(2);
+  });
 });
 
 async function render(
   kanban: ProjectKanbanViewModel,
-  schedule: ProjectScheduleViewModel = scheduleView()
+  schedule: ProjectScheduleViewModel = scheduleView(),
+  overrides: Partial<ProjectDetailViewModel> = {}
 ) {
   const view: ProjectDetailViewModel = {
     status: 'ready',
     project: {
       id: 'project-1',
+      workspaceId: 'workspace-1',
+      groupId: null,
+      ownerUserId: 'owner-1',
       name: 'Project',
+      description: '',
       status: 'active',
       statusLabel: 'Active',
+      visibility: 'membersOnly',
+      visibilityLabel: 'Members only',
+      activationState: 'activated',
+      versionNo: 3,
+      isOperational: true,
       startDate: '',
       dueDate: '',
       group: 'Group',
       canCreateTask: true,
+      canActivate: false,
       taskCounts: { total: 0, done: 0, blocked: 0 }
     },
     tasks: [],
+    taskListFeedback: null,
     kanban,
     schedule,
     workload: [],
-    members: []
+    members: [],
+    activation: { status: 'idle', message: null },
+    ...overrides
   };
+  const viewState = signal(view);
+  const routeParams = new BehaviorSubject(convertToParamMap({ projectId: 'project-1' }));
   const facade = {
-    view: () => view,
+    view: () => viewState(),
     load: vi.fn(),
     release: vi.fn(),
     retryKanban: vi.fn(),
+    retryTaskList: vi.fn(),
     retrySchedule: vi.fn(),
+    activate: vi.fn(),
     retryPreservedScheduleIntent: vi.fn(),
     moveTask: vi.fn(),
     applyGanttEdit: vi.fn(),
@@ -210,12 +442,47 @@ async function render(
     providers: [
       provideRouter([]),
       { provide: ProjectDetailFacade, useValue: facade },
-      { provide: ActivatedRoute, useValue: { snapshot: { paramMap: convertToParamMap({ projectId: 'project-1' }) } } }
+      {
+        provide: ActivatedRoute,
+        useValue: {
+          paramMap: routeParams.asObservable(),
+          snapshot: { paramMap: routeParams.value }
+        }
+      }
     ]
   }).compileComponents();
   const fixture = TestBed.createComponent(ProjectDetailPageComponent);
   fixture.detectChanges();
-  return { fixture, facade };
+  return {
+    fixture,
+    facade,
+    setView: (changes: Partial<ProjectDetailViewModel>) => viewState.set({ ...viewState(), ...changes }),
+    setProjectId: (projectId: string) => routeParams.next(convertToParamMap({ projectId }))
+  };
+}
+
+function draftProject(): NonNullable<ProjectDetailViewModel['project']> {
+  return {
+    id: 'project-1',
+    workspaceId: 'workspace-1',
+    groupId: null,
+    ownerUserId: 'owner-1',
+    name: 'Draft Project',
+    description: 'A canonical Draft.',
+    status: 'planning',
+    statusLabel: 'Draft',
+    visibility: 'membersOnly',
+    visibilityLabel: 'Members only',
+    activationState: 'neverActivated',
+    versionNo: 3,
+    isOperational: false,
+    startDate: '',
+    dueDate: '',
+    group: 'No Group',
+    canCreateTask: false,
+    canActivate: true,
+    taskCounts: { total: 0, done: 0, blocked: 0 }
+  };
 }
 
 function kanbanView(status: ProjectKanbanViewModel['status']): ProjectKanbanViewModel {

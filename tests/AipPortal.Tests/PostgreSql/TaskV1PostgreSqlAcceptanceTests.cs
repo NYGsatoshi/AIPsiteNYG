@@ -1,5 +1,6 @@
 using AipPortal.Application.Common.Interfaces;
 using AipPortal.Application.Common.Tenancy;
+using AipPortal.Application.Projects;
 using AipPortal.Domain.Entities;
 using AipPortal.Domain.Enums;
 using AipPortal.Infrastructure.Persistence;
@@ -18,6 +19,32 @@ namespace AipPortal.Tests.PostgreSql;
 [Collection("PostgreSqlTaskV1")]
 public sealed class TaskV1PostgreSqlAcceptanceTests
 {
+    [PostgreSqlFact]
+    [Trait("Category", "PostgreSQLIntegration")]
+    public async Task StructuredTaskBriefColumnsRoundTripAtTheirPostgreSqlLimit()
+    {
+        var connectionString = PostgreSqlTestEnvironment.RequireConnectionString();
+        var graph = await SeedAsync(connectionString);
+        var goal = new string('g', TaskBriefText.MaximumFieldLength);
+
+        await using (var writer = CreateContext(connectionString, graph.Tenant))
+        {
+            var task = await writer.TaskItems.SingleAsync(item => item.Id == graph.Task.Id);
+            task.Description = "Legacy free-form notes";
+            task.BriefGoal = goal;
+            task.BriefDeliverable = "Deliverable";
+            task.BriefConstraints = "Constraints";
+            await writer.SaveChangesAsync();
+        }
+
+        await using var verify = CreateContext(connectionString, graph.Tenant);
+        var persisted = await verify.TaskItems.AsNoTracking().SingleAsync(item => item.Id == graph.Task.Id);
+        Assert.Equal("Legacy free-form notes", persisted.Description);
+        Assert.Equal(goal, persisted.BriefGoal);
+        Assert.Equal("Deliverable", persisted.BriefDeliverable);
+        Assert.Equal("Constraints", persisted.BriefConstraints);
+    }
+
     [PostgreSqlFact]
     [Trait("Category", "PostgreSQLIntegration")]
     public async Task ConcurrentTaskWritesPersistOnlyTheWinnerAndClearTheLoser()

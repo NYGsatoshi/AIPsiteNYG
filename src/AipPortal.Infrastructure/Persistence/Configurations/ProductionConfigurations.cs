@@ -114,6 +114,9 @@ public sealed class TaskItemConfiguration : IEntityTypeConfiguration<TaskItem>
 
         builder.Property(task => task.Title).HasMaxLength(240).IsRequired();
         builder.Property(task => task.Description).HasMaxLength(8000);
+        builder.Property(task => task.BriefGoal).HasMaxLength(4_000);
+        builder.Property(task => task.BriefDeliverable).HasMaxLength(4_000);
+        builder.Property(task => task.BriefConstraints).HasMaxLength(4_000);
         builder.Property(task => task.Status).HasEnumStringConversion().IsRequired();
         builder.Property(task => task.Priority).HasEnumStringConversion().IsRequired();
         builder.Property(task => task.Kind).HasEnumStringConversion().IsRequired();

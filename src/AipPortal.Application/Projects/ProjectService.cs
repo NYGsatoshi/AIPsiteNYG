@@ -38,21 +38,47 @@ public sealed class ProjectService(
             return Result<PagedResponse<ProjectResponse>>.Failure("Authentication is required.");
         }
 
-        var items = await projects.ListVisibleAsync(userId, cancellationToken);
+        var items = query.WorkspaceId.HasValue
+            ? await projects.ListVisibleInWorkspaceAsync(userId, query.WorkspaceId.Value, cancellationToken)
+            : await projects.ListVisibleAsync(userId, cancellationToken);
         var filtered = items
             .Where(project => !project.DeletedAt.HasValue)
+            .Where(project => !query.WorkspaceId.HasValue || project.WorkspaceId == query.WorkspaceId.Value)
             .Where(project => query.Archived ? project.Status == ProjectStatus.Archived : project.Status is not ProjectStatus.Archived and not ProjectStatus.Deleted)
             .Where(project => !query.Status.HasValue || project.Status == query.Status.Value)
             .Where(project => MatchesSearch(project.Name, project.Description, query.Search))
             .ToList();
 
-        var responses = new List<ProjectResponse>(filtered.Count);
-        foreach (var project in filtered)
+        var pageItems = filtered
+            .Skip((query.SafePage - 1) * query.SafePageSize)
+            .Take(query.SafePageSize)
+            .ToList();
+        var activationCandidateIds = pageItems
+            .Where(IsCanonicalActivationCandidate)
+            .Select(project => project.Id)
+            .ToArray();
+        HashSet<Guid> activatableProjectIds = activationCandidateIds.Length == 0
+            ? []
+            : (await projects.ListActivatableProjectIdsAsync(
+                userId,
+                activationCandidateIds,
+                cancellationToken)).ToHashSet();
+
+        var responses = new List<ProjectResponse>(pageItems.Count);
+        foreach (var project in pageItems)
         {
-            responses.Add(await ToProjectAsync(project, userId, cancellationToken));
+            responses.Add(await ToProjectAsync(
+                project,
+                userId,
+                activatableProjectIds.Contains(project.Id),
+                cancellationToken));
         }
 
-        return Result<PagedResponse<ProjectResponse>>.Success(ToPagedResponse(responses, query.SafePage, query.SafePageSize));
+        return Result<PagedResponse<ProjectResponse>>.Success(new PagedResponse<ProjectResponse>(
+            responses,
+            query.SafePage,
+            query.SafePageSize,
+            filtered.Count));
     }
 
     public async Task<Result<ProjectResponse>> CreateAsync(CreateProjectRequest request, CancellationToken cancellationToken = default)
@@ -77,7 +103,11 @@ public sealed class ProjectService(
         var project = await projects.GetProjectAsync(projectId, cancellationToken);
         return project is null || project.DeletedAt.HasValue
             ? ProjectNotFound<ProjectResponse>()
-            : Result<ProjectResponse>.Success(await ToProjectAsync(project, userId, cancellationToken));
+            : Result<ProjectResponse>.Success(await ToProjectAsync(
+                project,
+                userId,
+                await CanActivateProjectAsync(project, userId, cancellationToken),
+                cancellationToken));
     }
 
     private async Task<bool> CanReceiveTerminalLifecycleErrorAsync(
@@ -197,7 +227,11 @@ public sealed class ProjectService(
             cancellationToken);
         if (!await SaveProjectMutationAsync(cancellationToken))
             return ProjectConflict<ProjectResponse>();
-        return Result<ProjectResponse>.Success(await ToProjectAsync(project, userId, cancellationToken));
+        return Result<ProjectResponse>.Success(await ToProjectAsync(
+            project,
+            userId,
+            await CanActivateProjectAsync(project, userId, cancellationToken),
+            cancellationToken));
     }
 
     public async Task<Result> ArchiveAsync(Guid projectId, CancellationToken cancellationToken = default)
@@ -605,9 +639,16 @@ public sealed class ProjectService(
         var timeZone = workspaceId.HasValue && timeZones is not null
             ? await timeZones.ResolveAsync(tasks[0].TenantId, workspaceId.Value, cancellationToken)
             : TimeZoneInfo.Utc;
+        var taskIdsWithArtifacts = (await projects.ListTaskIdsWithArtifactsAsync(projectId, cancellationToken)).ToHashSet();
         var responses = new List<TaskItemResponse>(filtered.Count);
         foreach (var task in filtered)
-            responses.Add(await ToTaskAsync(task, userId, cancellationToken, derivedValues[task.Id], timeZone));
+            responses.Add(await ToTaskAsync(
+                task,
+                userId,
+                cancellationToken,
+                derivedValues[task.Id],
+                timeZone,
+                taskIdsWithArtifacts.Contains(task.Id)));
         return Result<PagedResponse<TaskItemResponse>>.Success(ToPagedResponse(responses, query.SafePage, query.SafePageSize));
     }
 
@@ -624,6 +665,10 @@ public sealed class ProjectService(
             return Result<TaskItemResponse>.Failure(validation.Error!);
         }
 
+        var briefValidation = TaskBriefText.Validate(request.Goal, request.Deliverable, request.Constraints);
+        if (briefValidation is not null)
+            return Result<TaskItemResponse>.Failure(briefValidation);
+
         var project = await projects.GetProjectAsync(projectId, cancellationToken);
         if (project is null ||
             project.DeletedAt.HasValue ||
@@ -639,6 +684,9 @@ public sealed class ProjectService(
             MilestoneId = request.MilestoneId,
             Title = request.Title.Trim(),
             Description = request.Description?.Trim(),
+            BriefGoal = TaskBriefText.Normalize(request.Goal),
+            BriefDeliverable = TaskBriefText.Normalize(request.Deliverable),
+            BriefConstraints = TaskBriefText.Normalize(request.Constraints),
             Priority = request.Priority,
             StartDate = request.StartDate,
             DueDate = request.DueDate,
@@ -1775,8 +1823,13 @@ public sealed class ProjectService(
         return new PagedResponse<T>(items.Skip((page - 1) * pageSize).Take(pageSize).ToList(), page, pageSize, items.Count);
     }
 
-    private async Task<ProjectResponse> ToProjectAsync(Project project, Guid userId, CancellationToken cancellationToken)
+    private async Task<ProjectResponse> ToProjectAsync(
+        Project project,
+        Guid userId,
+        bool canActivate,
+        CancellationToken cancellationToken)
     {
+        var canCreateTask = await taskAuthorization.CanCreateTask(userId, project.Id, cancellationToken);
         return new ProjectResponse(
             project.Id,
             project.WorkspaceId,
@@ -1790,7 +1843,7 @@ public sealed class ProjectService(
             project.VersionNo,
             project.CreatedAt,
             project.UpdatedAt,
-            new ProjectUiPermissionResponse(await taskAuthorization.CanCreateTask(userId, project.Id, cancellationToken)),
+            new ProjectUiPermissionResponse(canCreateTask, canActivate),
             project.Visibility,
             project.ActivationState,
             project.ActivatedAtUtc,
@@ -1798,6 +1851,31 @@ public sealed class ProjectService(
             project.SuspendedFromStatus,
             project.ArchivedFromStatus);
     }
+
+    private async Task<bool> CanActivateProjectAsync(
+        Project project,
+        Guid userId,
+        CancellationToken cancellationToken)
+    {
+        if (!IsCanonicalActivationCandidate(project))
+        {
+            return false;
+        }
+
+        return (await projects.ListActivatableProjectIdsAsync(
+                userId,
+                [project.Id],
+                cancellationToken))
+            .Contains(project.Id);
+    }
+
+    private static bool IsCanonicalActivationCandidate(Project project) =>
+        project.VersionNo > 0 &&
+        project.Visibility.HasValue &&
+        project.ActivationState == ProjectActivationState.NeverActivated &&
+        project.Status == ProjectStatus.Planning &&
+        !project.ActivatedAtUtc.HasValue &&
+        !project.ActivationVersion.HasValue;
 
     private static ProjectMemberResponse ToProjectMember(ProjectMember member)
     {
@@ -1809,7 +1887,13 @@ public sealed class ProjectService(
         return new MilestoneResponse(milestone.Id, milestone.ProjectId, milestone.Name, milestone.Description, milestone.DueDate, milestone.Status, milestone.SortOrder, milestone.CreatedAt, milestone.UpdatedAt, milestone.VersionNo);
     }
 
-    private async Task<TaskItemResponse> ToTaskAsync(TaskItem task, Guid userId, CancellationToken cancellationToken, ParentTaskDerivedValues? derivedOverride = null, TimeZoneInfo? timeZoneOverride = null)
+    private async Task<TaskItemResponse> ToTaskAsync(
+        TaskItem task,
+        Guid userId,
+        CancellationToken cancellationToken,
+        ParentTaskDerivedValues? derivedOverride = null,
+        TimeZoneInfo? timeZoneOverride = null,
+        bool? hasArtifactOverride = null)
     {
         var canEdit = await taskAuthorization.CanUpdateTask(userId, task.Id, cancellationToken);
         var canAssign = await taskAuthorization.CanAssignTask(userId, task.Id, cancellationToken);
@@ -1819,6 +1903,9 @@ public sealed class ProjectService(
         var timeZone = timeZoneOverride ?? (timeZones is null
             ? TimeZoneInfo.Utc
             : await timeZones.ResolveAsync(task.TenantId, task.WorkspaceId, cancellationToken));
+        var hasArtifact = hasArtifactOverride ??
+            (await projects.ListTaskIdsWithArtifactsAsync(task.ProjectId, cancellationToken)).Contains(task.Id);
+        var stageCategory = CategoryOf(task);
         return new TaskItemResponse(
             task.Id,
             task.ProjectId,
@@ -1843,9 +1930,20 @@ public sealed class ProjectService(
             derived.PlannedStartDate,
             derived.PlannedEndDate,
             derived.IsDerived,
-            TaskDeadlineCalculator.IsOverdue(task, CategoryOf(task), timeZone, clock.UtcNow, derived.PlannedEndDate),
-            task.VersionNo);
+            TaskDeadlineCalculator.IsOverdue(task, stageCategory, timeZone, clock.UtcNow, derived.PlannedEndDate),
+            task.VersionNo,
+            task.WorkflowStageId,
+            task.WorkflowStage?.Name ?? StageCategoryDisplayName(stageCategory),
+            stageCategory,
+            task.IsBlocked,
+            hasArtifact);
     }
+
+    private static string StageCategoryDisplayName(TaskStageCategory category) => category switch
+    {
+        TaskStageCategory.InProgress => "In progress",
+        _ => category.ToString()
+    };
 
     private static TaskStageCategory CategoryOf(TaskItem task) => task.WorkflowStage?.InternalCategory ?? task.Status switch
     {

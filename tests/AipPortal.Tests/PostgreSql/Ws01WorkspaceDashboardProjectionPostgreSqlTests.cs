@@ -107,6 +107,9 @@ public sealed class Ws01WorkspaceDashboardProjectionPostgreSqlTests
                 actorItems.Select(item => item.CanCreateProject));
             Assert.Equal(
                 new[] { true, true, true, true, false },
+                actorItems.Select(item => item.CanOpenProjectCreate));
+            Assert.Equal(
+                new[] { true, true, true, true, false },
                 actorItems.Select(item => item.CanAddFiles));
             Assert.DoesNotContain(actorItems, item => item.Id == graph.ArchivedWorkspace.Id);
             Assert.DoesNotContain(actorItems, item => item.Id == graph.TenantBWorkspace.Id);
@@ -198,6 +201,7 @@ public sealed class Ws01WorkspaceDashboardProjectionPostgreSqlTests
             Assert.Equal(1, systemAdminOnlyCard.NeedsReviewProjectCount);
             Assert.Equal(0, systemAdminOnlyCard.UnreadConversationCount);
             Assert.False(systemAdminOnlyCard.CanCreateProject);
+            Assert.False(systemAdminOnlyCard.CanOpenProjectCreate);
             Assert.True(systemAdminOnlyCard.CanAddFiles);
 
             var systemAdminMembershipCard = Assert.Single(
@@ -208,6 +212,7 @@ public sealed class Ws01WorkspaceDashboardProjectionPostgreSqlTests
                 WorkspaceDashboardAccessSource.WorkspaceMembership,
                 systemAdminMembershipCard.AccessSource);
             Assert.False(systemAdminMembershipCard.CanCreateProject);
+            Assert.False(systemAdminMembershipCard.CanOpenProjectCreate);
             Assert.True(systemAdminMembershipCard.CanAddFiles);
 
             var revokedItems = await dashboard.ListAsync(graph.RevokedUser.Id);
@@ -373,11 +378,13 @@ public sealed class Ws01WorkspaceDashboardProjectionPostgreSqlTests
 
         var visibleGroup = NewGroup(tenantA.Id, ownerWorkspace.Id, actor.Id, "Visible Group");
         var hiddenGroup = NewGroup(tenantA.Id, ownerWorkspace.Id, other.Id, "Hidden Group");
-        dbContext.Groups.AddRange(visibleGroup, hiddenGroup);
+        var managedAdviserGroup = NewGroup(tenantA.Id, adviserWorkspace.Id, actor.Id, "Managed Adviser Group");
+        dbContext.Groups.AddRange(visibleGroup, hiddenGroup, managedAdviserGroup);
         dbContext.GroupMembers.AddRange(
             NewGroupMember(tenantA.Id, visibleGroup.Id, actor.Id),
             NewGroupMember(tenantA.Id, visibleGroup.Id, other.Id),
-            NewGroupMember(tenantA.Id, hiddenGroup.Id, other.Id));
+            NewGroupMember(tenantA.Id, hiddenGroup.Id, other.Id),
+            NewGroupMember(tenantA.Id, managedAdviserGroup.Id, actor.Id, GroupRole.Owner));
 
         var privateChannel = NewChannel(
             tenantA.Id,
@@ -793,12 +800,16 @@ public sealed class Ws01WorkspaceDashboardProjectionPostgreSqlTests
         CreatedAt = Now.AddDays(-1)
     };
 
-    private static GroupMember NewGroupMember(Guid tenantId, Guid groupId, Guid userId) => new()
+    private static GroupMember NewGroupMember(
+        Guid tenantId,
+        Guid groupId,
+        Guid userId,
+        GroupRole role = GroupRole.Member) => new()
     {
         TenantId = tenantId,
         GroupId = groupId,
         UserId = userId,
-        Role = GroupRole.Member,
+        Role = role,
         JoinedAt = Now.AddDays(-1),
         CreatedAt = Now.AddDays(-1)
     };

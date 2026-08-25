@@ -6,7 +6,10 @@ export const PROJECTS_MAXIMUM_PAGE_SIZE = 100;
 
 export type ProjectsPageStatus = 'ready' | 'loading' | 'empty' | 'permissionDenied' | 'error';
 export type ProjectStatus = 'planning' | 'active' | 'review' | 'atRisk' | 'complete' | 'suspended' | 'archived';
+export type ProjectVisibility = 'workspaceVisible' | 'membersOnly' | 'restricted' | 'unknown';
+export type ProjectActivationState = 'legacyUnknown' | 'neverActivated' | 'activated';
 export type TaskStatus = 'notStarted' | 'inProgress' | 'blocked' | 'review' | 'done' | 'cancelled';
+export type TaskStageCategory = 'backlog' | 'todo' | 'inProgress' | 'review' | 'done' | 'cancelled';
 export type TaskPriority = 'low' | 'medium' | 'high' | 'urgent';
 export type TaskRowActionId = 'openDetail' | 'edit' | 'assign' | 'changeStatus';
 export type TaskDetailState = 'ready' | 'rowVersionConflict' | 'invalidStateTransition';
@@ -26,7 +29,7 @@ export type TaskMutationState =
 export type TaskConflictReloadState = 'idle' | 'loading' | 'error';
 
 /** State is deliberately scoped: an unrelated Task section must never disable another one. */
-export type TaskDetailSection = 'detail' | 'subtasks' | 'checklist' | 'comments' | 'labels' | 'watch' | 'files';
+export type TaskDetailSection = 'detail' | 'activity' | 'subtasks' | 'checklist' | 'comments' | 'labels' | 'watch' | 'files';
 export type TaskDetailSectionStatus = 'idle' | 'loading' | 'ready' | 'empty' | 'submitting' | 'success' | 'error' | 'permissionDenied' | 'conflict';
 export interface TaskDetailSectionState {
   readonly status: TaskDetailSectionStatus;
@@ -57,15 +60,25 @@ export interface TaskDependencyViewModel {
 
 export interface ProjectMockRecord {
   readonly id: string;
+  readonly workspaceId?: string | null;
+  readonly groupId?: string | null;
+  readonly ownerUserId?: string | null;
   readonly name: string;
+  readonly description?: string;
   readonly status: ProjectStatus;
   readonly statusLabel: string;
+  readonly visibility?: ProjectVisibility;
+  readonly visibilityLabel?: string;
+  readonly activationState?: ProjectActivationState;
+  readonly versionNo?: number;
+  readonly isOperational?: boolean;
   readonly startDate: string;
   readonly dueDate: string;
   readonly updatedAt: string;
   readonly group: string;
   readonly authorized: boolean;
   readonly canCreateTask: boolean;
+  readonly canActivate?: boolean;
 }
 
 export interface TaskMockRecord {
@@ -73,8 +86,16 @@ export interface TaskMockRecord {
   readonly projectId: string;
   readonly title: string;
   readonly description: string;
+  readonly brief?: TaskBriefViewModel;
   readonly status: TaskStatus;
   readonly statusLabel: string;
+  readonly workflowStageId?: string | null;
+  readonly workflowStageName?: string;
+  readonly stageCategory?: TaskStageCategory;
+  readonly isBlocked?: boolean;
+  readonly createdAt?: string;
+  readonly updatedAt?: string;
+  readonly hasArtifact?: boolean;
   readonly priority: TaskPriority;
   readonly priorityLabel: string;
   readonly assignee: string;
@@ -92,9 +113,18 @@ export interface TaskMockRecord {
 
 export interface ProjectSummaryViewModel {
   readonly id: string;
+  readonly workspaceId?: string | null;
+  readonly groupId?: string | null;
+  readonly ownerUserId?: string | null;
   readonly name: string;
+  readonly description?: string;
   readonly status: ProjectStatus;
   readonly statusLabel: string;
+  readonly visibility?: ProjectVisibility;
+  readonly visibilityLabel?: string;
+  readonly activationState?: ProjectActivationState;
+  readonly versionNo?: number;
+  readonly isOperational?: boolean;
   readonly startDate: string;
   readonly dueDate: string;
   readonly updatedAt?: string;
@@ -105,6 +135,7 @@ export interface ProjectSummaryViewModel {
       readonly blocked: number;
   };
   readonly canCreateTask: boolean;
+  readonly canActivate?: boolean;
 }
 
 export interface TaskRowAction {
@@ -122,6 +153,14 @@ export interface TaskGridRow {
   readonly project: string;
   readonly status: TaskStatus;
   readonly statusLabel: string;
+  readonly workflowStageId?: string | null;
+  readonly workflowStageName?: string;
+  readonly stageCategory?: TaskStageCategory;
+  readonly isBlocked?: boolean;
+  readonly createdAt?: string;
+  readonly updatedAt?: string;
+  readonly hasArtifact?: boolean;
+  readonly rowVersion?: string;
   readonly priority: TaskPriority;
   readonly priorityLabel: string;
   readonly assignee: string;
@@ -159,6 +198,7 @@ export interface MyTasksLiveTask {
   readonly title: string;
   readonly workflowStageId: string | null;
   readonly workflowStageName: string;
+  readonly stageCategory: TaskStageCategory;
   readonly status: TaskStatus;
   readonly priority: TaskPriority;
   readonly isBlocked: boolean;
@@ -256,6 +296,7 @@ export interface TaskDetailAggregateViewModel {
   readonly subtasks: TaskPageViewModel<TaskSubtaskViewModel>;
   readonly comments: TaskPageViewModel<TaskCommentViewModel>;
   readonly files: TaskPageViewModel<TaskFileAssociationViewModel>;
+  readonly activity: TaskPageViewModel<TaskActivityLogViewModel>;
   readonly watchState: TaskWatchStateViewModel;
 }
 
@@ -271,11 +312,16 @@ export interface TaskCommentMentionViewModel { readonly userId: string; readonly
 export interface TaskCommentViewModel { readonly id: string; readonly taskId: string; readonly author: string | null; readonly body: string | null; readonly isImportant: boolean; readonly mentions: readonly TaskCommentMentionViewModel[]; readonly createdAt: string | null; readonly updatedAt: string | null; readonly deletedAt: string | null; readonly version: string; readonly canEdit: boolean; readonly canDelete: boolean; readonly canMarkImportant: boolean; }
 /** id is the canonical Attachment ID for the Task association. */
 export interface TaskFileAssociationViewModel { readonly id: string; readonly fileObjectId: string; readonly fileName: string; readonly contentType: string; readonly sizeBytes: number; readonly scanStatus: string; readonly createdAt: string | null; readonly accessState: string; readonly canOpen: boolean; readonly canRequestDownloadGrant: boolean; readonly downloadGrantRequired: boolean; readonly restrictionCode: string | null; }
+export type TaskActivityLogType = 'note' | 'statusUpdate' | 'decision' | 'issue' | 'unknown';
+export interface TaskActivityLogViewModel { readonly id: string; readonly activityType: TaskActivityLogType; readonly body: string; readonly occurredAt: string | null; readonly authorUserId: string | null; readonly authorDisplayName: string; }
 export interface TaskWatchStateViewModel { readonly isWatching: boolean; readonly isExplicitOptOut: boolean; readonly automaticSources: readonly string[]; readonly version: string; }
 
 export interface TaskEditorSaveRequest {
   readonly title: string;
   readonly description: string;
+  readonly goal?: string;
+  readonly deliverable?: string;
+  readonly constraints?: string;
   readonly priority: TaskPriority;
   readonly startDate: string;
   readonly dueDate: string;
@@ -322,9 +368,24 @@ export interface CreateTaskFormRequest {
   readonly projectId: string;
   readonly title: string;
   readonly description: string;
+  readonly goal?: string;
+  readonly deliverable?: string;
+  readonly constraints?: string;
   readonly priority: TaskPriority;
   readonly startDate: string;
   readonly dueDate: string;
+}
+
+export const TASK_BRIEF_FIELD_MAX_LENGTH = 4000;
+export type TaskBriefValueSource = 'notSet' | 'taskSpecific';
+export interface TaskBriefFieldViewModel {
+  readonly value: string | null;
+  readonly source: TaskBriefValueSource;
+}
+export interface TaskBriefViewModel {
+  readonly goal: TaskBriefFieldViewModel;
+  readonly deliverable: TaskBriefFieldViewModel;
+  readonly constraints: TaskBriefFieldViewModel;
 }
 
 export interface ProjectsScenario {

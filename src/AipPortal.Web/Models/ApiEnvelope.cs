@@ -110,6 +110,16 @@ public static class ApiEnvelope
             return true;
         }
 
+        if (segments.Length == 5 &&
+            segments[0].Equals("api", StringComparison.OrdinalIgnoreCase) &&
+            segments[1].Equals("workspaces", StringComparison.OrdinalIgnoreCase) &&
+            Guid.TryParse(segments[2], out _) &&
+            segments[3].Equals("projects", StringComparison.OrdinalIgnoreCase) &&
+            segments[4].Equals("create-options", StringComparison.OrdinalIgnoreCase))
+        {
+            return true;
+        }
+
         return segments.Length == 4 &&
                segments[0].Equals("api", StringComparison.OrdinalIgnoreCase) &&
                segments[1].Equals("projects", StringComparison.OrdinalIgnoreCase) &&

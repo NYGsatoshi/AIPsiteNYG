@@ -1,3 +1,4 @@
+using AipPortal.Application.Common;
 using AipPortal.Application.Common.Interfaces;
 using AipPortal.Application.Messaging;
 using AipPortal.Application.Projects;
@@ -9,6 +10,63 @@ namespace AipPortal.Tests.Projects;
 
 public sealed class TaskSubresourceServiceTests
 {
+    [Fact]
+    [Trait("Scope", "Issue369")]
+    public async Task ActivityReadUsesTheAuthorizedTaskProjectAndBoundedPaging()
+    {
+        var fixture = new Fixture();
+        var authorId = Guid.NewGuid();
+        fixture.Projects.ActivityLogs =
+        [
+            new TaskActivityLogReadModel(
+                Guid.NewGuid(),
+                ActivityLogType.StatusUpdate,
+                "Implementation is ready for review.",
+                new DateTimeOffset(2026, 8, 24, 1, 2, 3, TimeSpan.Zero),
+                authorId,
+                "Activity author")
+        ];
+        fixture.Projects.ActivityTotalCount = 51;
+
+        var result = await fixture.Service.ListActivityAsync(fixture.Task.Id, page: 0, pageSize: 500);
+
+        Assert.True(result.IsSuccess, result.Error);
+        var query = Assert.Single(fixture.Projects.ActivityQueries);
+        Assert.Equal((fixture.Task.ProjectId, fixture.Task.Id, 1, 50), query);
+        var item = Assert.Single(result.Value!.Items);
+        Assert.Equal(ActivityLogType.StatusUpdate, item.ActivityType);
+        Assert.Equal("Activity author", item.Author.DisplayName);
+        Assert.True(result.Value.HasMore);
+    }
+
+    [Fact]
+    [Trait("Scope", "Issue369")]
+    public async Task ActivityReadDoesNotQueryRowsAfterProjectAuthorizationIsDenied()
+    {
+        var fixture = new Fixture();
+        fixture.ProjectAuthorization.ViewAllowed = false;
+
+        var result = await fixture.Service.ListActivityAsync(fixture.Task.Id);
+
+        Assert.False(result.IsSuccess);
+        Assert.Equal("TASK_NOT_FOUND|Task not found.", result.Error);
+        Assert.Empty(fixture.Projects.ActivityQueries);
+    }
+
+    [Fact]
+    [Trait("Scope", "Issue369")]
+    public async Task ActivityReadDoesNotQueryRowsForADeletedTask()
+    {
+        var fixture = new Fixture();
+        fixture.Task.MarkDeleted(new DateTimeOffset(2026, 8, 24, 0, 0, 0, TimeSpan.Zero));
+
+        var result = await fixture.Service.ListActivityAsync(fixture.Task.Id);
+
+        Assert.False(result.IsSuccess);
+        Assert.Equal("TASK_NOT_FOUND|Task not found.", result.Error);
+        Assert.Empty(fixture.Projects.ActivityQueries);
+    }
+
     [Fact]
     [Trait("Scope", "TaskV1PR07B")]
     public async Task OrdinaryCommentStagesBothInvalidationsWithoutNotificationIntent()
@@ -706,9 +764,18 @@ public sealed class TaskSubresourceServiceTests
         public Dictionary<Guid, TaskComment> Comments { get; } = [];
         public Dictionary<Guid, User> EligibleMentionUsers { get; } = [];
         public Dictionary<Guid, User> MentionCandidates { get; } = [];
+        public IReadOnlyList<TaskActivityLogReadModel> ActivityLogs { get; set; } = [];
+        public int ActivityTotalCount { get; set; }
+        public List<(Guid ProjectId, Guid TaskItemId, int Page, int PageSize)> ActivityQueries { get; } = [];
 
         public Task<TaskItem?> GetTaskAsync(Guid taskItemId, CancellationToken cancellationToken = default) =>
             Task.FromResult(Tasks.GetValueOrDefault(taskItemId));
+
+        public Task<PagedResponse<TaskActivityLogReadModel>> ListTaskActivityLogsPageAsync(Guid projectId, Guid taskItemId, int page, int pageSize, CancellationToken cancellationToken = default)
+        {
+            ActivityQueries.Add((projectId, taskItemId, page, pageSize));
+            return Task.FromResult(new PagedResponse<TaskActivityLogReadModel>(ActivityLogs, page, pageSize, ActivityTotalCount));
+        }
 
         public Task<TaskComment?> GetTaskCommentAsync(Guid commentId, CancellationToken cancellationToken = default) =>
             Task.FromResult(Comments.GetValueOrDefault(commentId));

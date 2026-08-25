@@ -39,7 +39,8 @@ public sealed record WorkspaceDashboardListItemResponse(
     int UnreadConversationCount,
     int InProgressProjectCount,
     int RunningProjectCount,
-    int NeedsReviewProjectCount);
+    int NeedsReviewProjectCount,
+    bool CanOpenProjectCreate = false);
 
 public sealed record WorkspaceDetailResponse(
     Guid Id,

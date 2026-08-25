@@ -36,6 +36,101 @@ public sealed class ProjectServiceTests
         Assert.Single(result.Value!.Items);
     }
 
+    [Theory]
+    [InlineData(TaskStageCategory.Backlog)]
+    [InlineData(TaskStageCategory.Todo)]
+    [InlineData(TaskStageCategory.InProgress)]
+    [InlineData(TaskStageCategory.Review)]
+    [InlineData(TaskStageCategory.Done)]
+    [InlineData(TaskStageCategory.Cancelled)]
+    public async Task TaskListProjectsCanonicalStageBlockedTimestampAndArtifactState(
+        TaskStageCategory category)
+    {
+        var fixture = ProjectFixture.Create();
+        var viewer = fixture.AddUser();
+        fixture.Current.UserIdValue = viewer.Id;
+        fixture.AddProjectMember(viewer.Id, ProjectRole.Viewer);
+        var stage = new TaskWorkflowStage
+        {
+            ProjectId = fixture.Project.Id,
+            WorkspaceId = fixture.Workspace.Id,
+            Name = $"Configured {category}",
+            InternalCategory = category,
+            SortKey = 2000
+        };
+        fixture.Projects.Stages[stage.Id] = stage;
+        var createdAt = new DateTimeOffset(2026, 8, 20, 1, 2, 3, TimeSpan.Zero);
+        var updatedAt = createdAt.AddHours(4);
+        var task = fixture.AddTask($"{category} task");
+        task.WorkflowStageId = stage.Id;
+        task.WorkflowStage = stage;
+        task.IsBlocked = true;
+        task.CreatedAt = createdAt;
+        task.UpdatedAt = updatedAt;
+        fixture.Projects.TaskIdsWithArtifacts.Add(task.Id);
+
+        var result = await fixture.Service.ListTasksAsync(
+            fixture.Project.Id,
+            new TaskListQuery());
+
+        Assert.True(result.IsSuccess, result.Error);
+        var response = Assert.Single(result.Value!.Items);
+        Assert.Equal(stage.Id, response.WorkflowStageId);
+        Assert.Equal(stage.Name, response.WorkflowStageName);
+        Assert.Equal(category, response.StageCategory);
+        Assert.True(response.IsBlocked);
+        Assert.True(response.HasArtifact);
+        Assert.Equal(createdAt, response.CreatedAt);
+        Assert.Equal(updatedAt, response.UpdatedAt);
+        Assert.Equal(1, fixture.Projects.ListTaskIdsWithArtifactsCallCount);
+
+        var json = System.Text.Json.JsonSerializer.Serialize(
+            response,
+            new System.Text.Json.JsonSerializerOptions(System.Text.Json.JsonSerializerDefaults.Web));
+        using var document = System.Text.Json.JsonDocument.Parse(json);
+        Assert.Equal(category.ToString(), document.RootElement.GetProperty("stageCategory").GetString());
+    }
+
+    [Fact]
+    public async Task TaskListDoesNotReadArtifactStateBeforeProjectAuthorization()
+    {
+        var fixture = ProjectFixture.Create();
+        var outsider = fixture.AddUser(addWorkspaceMember: false);
+        fixture.Current.UserIdValue = outsider.Id;
+        fixture.AddTask("Private task");
+
+        var result = await fixture.Service.ListTasksAsync(
+            fixture.Project.Id,
+            new TaskListQuery());
+
+        Assert.False(result.IsSuccess);
+        Assert.Equal("Project not found.", result.Error);
+        Assert.Equal(0, fixture.Projects.ListTaskIdsWithArtifactsCallCount);
+    }
+
+    [Fact]
+    public async Task LegacyTaskListUsesReadableCanonicalStageFallback()
+    {
+        var fixture = ProjectFixture.Create();
+        var viewer = fixture.AddUser();
+        fixture.Current.UserIdValue = viewer.Id;
+        fixture.AddProjectMember(viewer.Id, ProjectRole.Viewer);
+        var task = fixture.AddTask("Legacy active task");
+        task.Status = TaskItemStatus.InProgress;
+        task.WorkflowStageId = null;
+        task.WorkflowStage = null;
+
+        var result = await fixture.Service.ListTasksAsync(
+            fixture.Project.Id,
+            new TaskListQuery());
+
+        Assert.True(result.IsSuccess, result.Error);
+        var response = Assert.Single(result.Value!.Items);
+        Assert.Null(response.WorkflowStageId);
+        Assert.Equal("In progress", response.WorkflowStageName);
+        Assert.Equal(TaskStageCategory.InProgress, response.StageCategory);
+    }
+
     [Fact]
     public async Task UserOutsideProjectCannotBeAssigned()
     {
@@ -83,6 +178,94 @@ public sealed class ProjectServiceTests
         Assert.Equal(TaskPriority.Critical, updated.Value.Priority);
         Assert.Equal(35, updated.Value.ProgressPercent);
         Assert.Equal(2, fixture.Projects.Tasks[created.Value.Id].VersionNo);
+    }
+
+    [Fact]
+    public async Task TaskCreationPersistsStructuredBriefWithoutReinterpretingLegacyDescriptionOrProjectContext()
+    {
+        var fixture = ProjectFixture.Create();
+        var contributor = fixture.AddUser();
+        fixture.Current.UserIdValue = contributor.Id;
+        fixture.AddProjectMember(contributor.Id, ProjectRole.Contributor);
+        fixture.EnsureProjectOperational();
+        fixture.Project.Description = "Project context must remain separately labelled.";
+
+        var created = await fixture.Service.CreateTaskAsync(
+            fixture.Project.Id,
+            new CreateTaskItemRequest(
+                null,
+                "Structured brief",
+                "  Legacy free-form notes stay here.  ",
+                TaskPriority.Medium,
+                null,
+                null,
+                "  Reach the review-ready state.  ",
+                "  A signed-off package.  ",
+                "  Keep the public URL stable.  "));
+
+        Assert.True(created.IsSuccess);
+        var task = fixture.Projects.Tasks[created.Value!.Id];
+        Assert.Equal("Legacy free-form notes stay here.", task.Description);
+        Assert.Equal("Reach the review-ready state.", task.BriefGoal);
+        Assert.Equal("A signed-off package.", task.BriefDeliverable);
+        Assert.Equal("Keep the public URL stable.", task.BriefConstraints);
+        Assert.NotEqual(fixture.Project.Description, task.BriefGoal);
+    }
+
+    [Fact]
+    public async Task LegacyDescriptionOnlyTaskCreationLeavesStructuredBriefUnset()
+    {
+        var fixture = ProjectFixture.Create();
+        var contributor = fixture.AddUser();
+        fixture.Current.UserIdValue = contributor.Id;
+        fixture.AddProjectMember(contributor.Id, ProjectRole.Contributor);
+        fixture.EnsureProjectOperational();
+        fixture.Project.Description = "Project context is not a Task Brief default.";
+
+        var created = await fixture.Service.CreateTaskAsync(
+            fixture.Project.Id,
+            new CreateTaskItemRequest(null, "Legacy task", "Free-form input", TaskPriority.Low, null, null));
+
+        Assert.True(created.IsSuccess);
+        var task = fixture.Projects.Tasks[created.Value!.Id];
+        Assert.Equal("Free-form input", task.Description);
+        Assert.Null(task.BriefGoal);
+        Assert.Null(task.BriefDeliverable);
+        Assert.Null(task.BriefConstraints);
+    }
+
+    [Theory]
+    [InlineData("goal")]
+    [InlineData("deliverable")]
+    [InlineData("constraints")]
+    public async Task TaskCreationRejectsEachOversizedStructuredBriefFieldWithoutSideEffects(string field)
+    {
+        var fixture = ProjectFixture.Create();
+        var contributor = fixture.AddUser();
+        fixture.Current.UserIdValue = contributor.Id;
+        fixture.AddProjectMember(contributor.Id, ProjectRole.Contributor);
+        fixture.EnsureProjectOperational();
+        var oversized = new string('x', TaskBriefText.MaximumFieldLength + 1);
+
+        var result = await fixture.Service.CreateTaskAsync(
+            fixture.Project.Id,
+            new CreateTaskItemRequest(
+                null,
+                "Rejected brief",
+                "Free-form input",
+                TaskPriority.Medium,
+                null,
+                null,
+                field == "goal" ? oversized : null,
+                field == "deliverable" ? oversized : null,
+                field == "constraints" ? oversized : null));
+
+        Assert.False(result.IsSuccess);
+        Assert.Equal("TASK_BRIEF_FIELD_TOO_LONG", result.ErrorDetail?.Code);
+        Assert.Equal(field, result.ErrorDetail?.Target);
+        Assert.Contains($"Task brief {char.ToUpperInvariant(field[0])}{field[1..]}", result.ErrorDetail?.Message, StringComparison.Ordinal);
+        Assert.Empty(fixture.Projects.Tasks);
+        Assert.Equal(0, fixture.CommandUnitOfWork.SaveCount);
     }
 
     [Fact]
@@ -1065,6 +1248,121 @@ public sealed class ProjectServiceTests
     }
 
     [Fact]
+    public async Task ProjectListFiltersByWorkspaceAndProjectsServerActivationCapability()
+    {
+        var fixture = ProjectFixture.Create();
+        var member = fixture.AddUser();
+        fixture.Current.UserIdValue = member.Id;
+        fixture.AddProjectMember(member.Id, ProjectRole.Owner);
+        fixture.Project.Status = ProjectStatus.Planning;
+        fixture.Project.Visibility = ProjectVisibility.MembersOnly;
+        fixture.Project.ActivationState = ProjectActivationState.NeverActivated;
+        fixture.Project.ActivatedAtUtc = null;
+        fixture.Project.ActivationVersion = null;
+        fixture.Project.VersionNo = 1;
+
+        var otherWorkspace = new Workspace
+        {
+            Name = "Other Workspace",
+            Slug = "other-workspace",
+            CreatedByUserId = member.Id,
+            Status = WorkspaceStatus.Active
+        };
+        fixture.Workspaces.Items[otherWorkspace.Id] = otherWorkspace;
+        fixture.Workspaces.Members.Add(new WorkspaceMember
+        {
+            WorkspaceId = otherWorkspace.Id,
+            UserId = member.Id,
+            Role = WorkspaceRole.Member,
+            Status = MembershipStatus.Active,
+            JoinedAt = fixture.Clock.UtcNow
+        });
+        var otherProject = new Project
+        {
+            WorkspaceId = otherWorkspace.Id,
+            OwnerUserId = member.Id,
+            CreatedByUserId = member.Id,
+            Name = "Other Project",
+            Slug = "other-project",
+            Status = ProjectStatus.Planning
+        };
+        fixture.Projects.ProjectItems[otherProject.Id] = otherProject;
+        fixture.Projects.Members.Add(new ProjectMember
+        {
+            ProjectId = otherProject.Id,
+            UserId = member.Id,
+            User = member,
+            Role = ProjectRole.Owner,
+            JoinedAt = fixture.Clock.UtcNow
+        });
+
+        var result = await fixture.Service.ListAsync(new ProjectListQuery(WorkspaceId: fixture.Workspace.Id));
+
+        Assert.True(result.IsSuccess, result.Error);
+        var item = Assert.Single(result.Value!.Items);
+        Assert.Equal(fixture.Project.Id, item.Id);
+        Assert.True(item.UiPermissions.CanActivate);
+        Assert.DoesNotContain(result.Value.Items, project => project.Id == otherProject.Id);
+        Assert.Equal(1, fixture.Projects.ListActivatableProjectIdsCallCount);
+
+        var workspaceMembership = Assert.Single(fixture.Workspaces.Members, workspaceMember =>
+            workspaceMember.WorkspaceId == fixture.Workspace.Id &&
+            workspaceMember.UserId == member.Id);
+        workspaceMembership.Status = MembershipStatus.Suspended;
+        var afterRevocation = await fixture.Service.ListAsync(new ProjectListQuery(WorkspaceId: fixture.Workspace.Id));
+        Assert.False(Assert.Single(afterRevocation.Value!.Items).UiPermissions.CanActivate);
+        Assert.Equal(2, fixture.Projects.ListActivatableProjectIdsCallCount);
+
+        workspaceMembership.Status = MembershipStatus.Active;
+        fixture.Workspace.Status = WorkspaceStatus.Archived;
+        var inactiveWorkspace = await fixture.Service.ListAsync(new ProjectListQuery(WorkspaceId: fixture.Workspace.Id));
+        Assert.False(Assert.Single(inactiveWorkspace.Value!.Items).UiPermissions.CanActivate);
+        Assert.Equal(3, fixture.Projects.ListActivatableProjectIdsCallCount);
+    }
+
+    [Fact]
+    public async Task ProjectListBatchesActivationEligibilityOnceForTheBoundedPage()
+    {
+        var fixture = ProjectFixture.Create();
+        var member = fixture.AddUser();
+        fixture.Current.UserIdValue = member.Id;
+        fixture.AddProjectMember(member.Id, ProjectRole.Owner);
+        fixture.Project.Status = ProjectStatus.Planning;
+        fixture.Project.Visibility = ProjectVisibility.MembersOnly;
+        fixture.Project.ActivationState = ProjectActivationState.NeverActivated;
+        fixture.Project.VersionNo = 1;
+
+        var secondProject = new Project
+        {
+            WorkspaceId = fixture.Workspace.Id,
+            OwnerUserId = member.Id,
+            CreatedByUserId = member.Id,
+            Name = "Second canonical draft",
+            Slug = "second-canonical-draft",
+            Status = ProjectStatus.Planning,
+            Visibility = ProjectVisibility.MembersOnly,
+            ActivationState = ProjectActivationState.NeverActivated,
+            VersionNo = 1
+        };
+        fixture.Projects.ProjectItems[secondProject.Id] = secondProject;
+        fixture.Projects.Members.Add(new ProjectMember
+        {
+            ProjectId = secondProject.Id,
+            UserId = member.Id,
+            User = member,
+            Role = ProjectRole.Owner,
+            JoinedAt = fixture.Clock.UtcNow
+        });
+
+        var result = await fixture.Service.ListAsync(new ProjectListQuery(WorkspaceId: fixture.Workspace.Id));
+
+        Assert.True(result.IsSuccess, result.Error);
+        Assert.Equal(2, result.Value!.Items.Count);
+        Assert.All(result.Value.Items, project => Assert.True(project.UiPermissions.CanActivate));
+        Assert.Equal(1, fixture.Projects.ListActivatableProjectIdsCallCount);
+    }
+
+    [Fact]
     [Trait("Scope", "TaskV1PR04")]
     public async Task ProjectListSerializesTaskPermissionQueries()
     {
@@ -2023,6 +2321,19 @@ public sealed class ProjectServiceTests
     {
         private ProjectFixture()
         {
+            Projects.ActivationEligibility = (userId, project) =>
+                Workspaces.Items.TryGetValue(project.WorkspaceId, out var workspace) &&
+                workspace.Status == WorkspaceStatus.Active &&
+                !workspace.DeletedAt.HasValue &&
+                Workspaces.Members.Any(member =>
+                    member.WorkspaceId == project.WorkspaceId &&
+                    member.UserId == userId &&
+                    member.Status == MembershipStatus.Active &&
+                    member.TenantId == project.TenantId) &&
+                Projects.Members.Any(member =>
+                    member.ProjectId == project.Id &&
+                    member.UserId == userId &&
+                    member.Role is ProjectRole.Owner or ProjectRole.Manager);
             WorkspaceAuthorization = new WorkspaceAuthorizationService(Users, Workspaces);
             GroupAuthorization = new GroupAuthorizationService(Groups, Workspaces, WorkspaceAuthorization);
             ProjectAuthorization = new ProjectAuthorizationService(Projects, WorkspaceAuthorization, GroupAuthorization, Groups);
@@ -2288,6 +2599,7 @@ public sealed class ProjectServiceTests
         public Dictionary<Guid, Milestone> Milestones { get; } = [];
         public Dictionary<Guid, TaskItem> Tasks { get; } = [];
         public Dictionary<Guid, TaskWorkflowStage> Stages { get; } = [];
+        public HashSet<Guid> TaskIdsWithArtifacts { get; } = [];
         public List<TaskAssignment> Assignments { get; } = [];
         public List<TaskDependency> Dependencies { get; } = [];
         public List<Comment> Comments { get; } = [];
@@ -2300,9 +2612,20 @@ public sealed class ProjectServiceTests
         public bool BlockMemberLookups { get; set; }
         public Task FirstMemberLookupEntered => firstMemberLookupEntered.Task;
         public int MaxConcurrentMemberLookups { get; private set; }
+        public int ListTaskIdsWithArtifactsCallCount { get; private set; }
+        public int ListActivatableProjectIdsCallCount { get; private set; }
+        public Func<Guid, Project, bool>? ActivationEligibility { get; set; }
         public void ReleaseMemberLookups() => releaseMemberLookups.TrySetResult();
 
         public Task<IReadOnlyList<Project>> ListVisibleAsync(Guid userId, CancellationToken cancellationToken = default) => Task.FromResult<IReadOnlyList<Project>>(ProjectItems.Values.Where(project => Members.Any(member => member.ProjectId == project.Id && member.UserId == userId)).ToList());
+        public Task<IReadOnlyList<Guid>> ListActivatableProjectIdsAsync(Guid userId, IReadOnlyCollection<Guid> projectIds, CancellationToken cancellationToken = default)
+        {
+            ListActivatableProjectIdsCallCount++;
+            return Task.FromResult<IReadOnlyList<Guid>>(ProjectItems.Values
+                .Where(project => projectIds.Contains(project.Id) && ActivationEligibility?.Invoke(userId, project) == true)
+                .Select(project => project.Id)
+                .ToArray());
+        }
         public Task<IReadOnlyList<Guid>> ListCurrentReaderUserIdsAsync(Guid projectId, CancellationToken cancellationToken = default) =>
             Task.FromResult(CurrentReaderUserIds.TryGetValue(projectId, out var userIds)
                 ? userIds
@@ -2340,6 +2663,11 @@ public sealed class ProjectServiceTests
         public Task<IReadOnlyList<Milestone>> ListMilestonesAsync(Guid projectId, CancellationToken cancellationToken = default) => Task.FromResult<IReadOnlyList<Milestone>>(Milestones.Values.Where(milestone => milestone.ProjectId == projectId).OrderBy(milestone => milestone.SortOrder).ThenBy(milestone => milestone.DueDate).ToList());
         public Task<Milestone?> GetMilestoneAsync(Guid milestoneId, CancellationToken cancellationToken = default) => Task.FromResult(Milestones.GetValueOrDefault(milestoneId));
         public Task<IReadOnlyList<TaskItem>> ListTasksAsync(Guid projectId, CancellationToken cancellationToken = default) => Task.FromResult<IReadOnlyList<TaskItem>>(Tasks.Values.Where(task => task.ProjectId == projectId).ToList());
+        public Task<IReadOnlyList<Guid>> ListTaskIdsWithArtifactsAsync(Guid projectId, CancellationToken cancellationToken = default)
+        {
+            ListTaskIdsWithArtifactsCallCount++;
+            return Task.FromResult<IReadOnlyList<Guid>>(TaskIdsWithArtifacts.ToArray());
+        }
         public Task<TaskItem?> GetTaskAsync(Guid taskItemId, CancellationToken cancellationToken = default) => Task.FromResult(Tasks.GetValueOrDefault(taskItemId));
         public Task<TaskWorkflowStage?> GetWorkflowStageAsync(Guid workflowStageId, CancellationToken cancellationToken = default) => Task.FromResult(Stages.GetValueOrDefault(workflowStageId));
         public Task<IReadOnlyList<TaskWorkflowStage>> ListWorkflowStagesAsync(Guid projectId, CancellationToken cancellationToken = default) => Task.FromResult<IReadOnlyList<TaskWorkflowStage>>(Stages.Values.Where(stage => stage.ProjectId == projectId).ToList());
@@ -2403,6 +2731,7 @@ public sealed class ProjectServiceTests
         public Dictionary<Guid, Group> Items { get; } = [];
         public List<GroupMember> Members { get; } = [];
         public Task<IReadOnlyList<Group>> ListByWorkspaceAsync(Guid workspaceId, CancellationToken cancellationToken = default) => Task.FromResult<IReadOnlyList<Group>>(Items.Values.Where(group => group.WorkspaceId == workspaceId).ToList());
+        public Task<IReadOnlyList<Group>> ListManagedByUserAsync(Guid workspaceId, Guid userId, CancellationToken cancellationToken = default) => Task.FromResult<IReadOnlyList<Group>>(Items.Values.Where(group => group.WorkspaceId == workspaceId && Members.Any(member => member.GroupId == group.Id && member.UserId == userId && member.Role is GroupRole.Owner or GroupRole.Admin)).ToList());
         public Task<Group?> GetByIdAsync(Guid groupId, CancellationToken cancellationToken = default) => Task.FromResult(Items.GetValueOrDefault(groupId));
         public Task<GroupMember?> GetMemberAsync(Guid groupId, Guid userId, CancellationToken cancellationToken = default) => Task.FromResult(Members.FirstOrDefault(member => member.GroupId == groupId && member.UserId == userId));
         public Task<IReadOnlyList<GroupMember>> ListMembersAsync(Guid groupId, CancellationToken cancellationToken = default) => Task.FromResult<IReadOnlyList<GroupMember>>(Members.Where(member => member.GroupId == groupId).ToList());

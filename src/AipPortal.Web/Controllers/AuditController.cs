@@ -76,6 +76,22 @@ public sealed class AuditController(
             cancellationToken);
     }
 
+    [HttpGet("api/admin/audit-grid/{auditId}")]
+    public async Task<IActionResult> AdminAuditGridRow(
+        string auditId,
+        CancellationToken cancellationToken)
+    {
+        // Route parsing must not turn a malformed URL marker into a distinct
+        // observable outcome. The service authorizes first, then uses the
+        // same generic not-found result for invalid, absent, and cross-tenant
+        // identifiers.
+        var parsedAuditId = Guid.TryParse(auditId, out var value) ? value : Guid.Empty;
+        return await ToActionResultAsync(
+            await audit.GetAuditGridRowAsync(parsedAuditId, cancellationToken),
+            "AuditGrid",
+            cancellationToken);
+    }
+
     [HttpGet("api/security-events")]
     public async Task<IActionResult> SecurityEvents([FromQuery] SecurityEventQuery query, CancellationToken cancellationToken)
     {
@@ -126,6 +142,7 @@ public sealed class AuditController(
         {
             "AuthenticationRequired" => StatusCodes.Status401Unauthorized,
             "CapabilityDenied" or "TenantMembershipRequired" => StatusCodes.Status403Forbidden,
+            "AuditEventNotFound" => StatusCodes.Status404NotFound,
             _ => StatusCodes.Status400BadRequest
         };
 

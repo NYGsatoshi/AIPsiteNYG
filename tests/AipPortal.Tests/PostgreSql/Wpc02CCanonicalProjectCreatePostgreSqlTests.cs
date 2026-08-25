@@ -176,6 +176,165 @@ public sealed class Wpc02CCanonicalProjectCreatePostgreSqlTests
 
     [PostgreSqlFact]
     [Trait("Category", "PostgreSQLIntegration")]
+    [Trait("Scope", "Issue409")]
+    public async Task CreateOptionsUseCanonicalAuthorityWithoutDisclosingOtherGroups()
+    {
+        var connectionString = PostgreSqlTestEnvironment.RequireConnectionString();
+        await PostgreSqlMigrationTestDatabase.WithTemporaryDatabaseAsync(connectionString, async database =>
+        {
+            await PostgreSqlMigrationTestDatabase.MigrateAsync(database);
+            var graph = await SeedAuthorityAsync(database, "create-options", grantProjectCreate: true);
+            Guid otherActiveGroupId;
+            Guid archivedGroupId;
+            await using (var seed = CreateTenantContext(database, graph))
+            {
+                var otherActive = new Group
+                {
+                    TenantId = graph.TenantId,
+                    WorkspaceId = graph.WorkspaceId,
+                    Name = "Other active Group",
+                    Slug = $"other-active-{Guid.NewGuid():N}",
+                    GroupType = GroupType.Team,
+                    Status = GroupStatus.Active,
+                    CreatedByUserId = graph.OwnerUserId
+                };
+                var archived = new Group
+                {
+                    TenantId = graph.TenantId,
+                    WorkspaceId = graph.WorkspaceId,
+                    Name = "Archived Group",
+                    Slug = $"archived-{Guid.NewGuid():N}",
+                    GroupType = GroupType.Team,
+                    Status = GroupStatus.Archived,
+                    CreatedByUserId = graph.OwnerUserId
+                };
+                otherActiveGroupId = otherActive.Id;
+                archivedGroupId = archived.Id;
+                seed.Groups.AddRange(otherActive, archived);
+                await seed.SaveChangesAsync();
+            }
+
+            await using (var owner = CreateServiceScope(database, graph, graph.OwnerUserId, SystemRole.NormalUser))
+            {
+                var result = await owner.Service.GetCreateOptionsAsync(graph.WorkspaceId);
+                Assert.True(result.IsSuccess, result.Error);
+                Assert.Equal(graph.WorkspaceId, result.Value!.WorkspaceId);
+                Assert.True(result.Value.CanCreateUngrouped);
+                Assert.Equal(
+                    new[] { ProjectVisibility.WorkspaceVisible, ProjectVisibility.MembersOnly, ProjectVisibility.Restricted },
+                    result.Value.AllowedVisibilities);
+                Assert.Equal(
+                    new[] { graph.GroupId, otherActiveGroupId }.Order(),
+                    result.Value.Groups.Select(group => group.Id).Order());
+                Assert.DoesNotContain(result.Value.Groups, group => group.Id == archivedGroupId);
+            }
+
+            await using (var groupManager = CreateServiceScope(database, graph, graph.GroupManagerUserId, SystemRole.NormalUser))
+            {
+                var result = await groupManager.Service.GetCreateOptionsAsync(graph.WorkspaceId);
+                Assert.True(result.IsSuccess, result.Error);
+                Assert.False(result.Value!.CanCreateUngrouped);
+                Assert.Equal(new[] { ProjectVisibility.MembersOnly }, result.Value.AllowedVisibilities);
+                Assert.Equal(graph.GroupId, Assert.Single(result.Value.Groups).Id);
+                Assert.DoesNotContain(result.Value.Groups, group => group.Id == otherActiveGroupId);
+            }
+
+            await using (var delegated = CreateServiceScope(database, graph, graph.DelegatedUserId, SystemRole.NormalUser))
+            {
+                var result = await delegated.Service.GetCreateOptionsAsync(graph.WorkspaceId);
+                Assert.True(result.IsSuccess, result.Error);
+                Assert.True(result.Value!.CanCreateUngrouped);
+                Assert.Equal(new[] { ProjectVisibility.MembersOnly }, result.Value.AllowedVisibilities);
+                Assert.Equal(2, result.Value.Groups.Count);
+            }
+
+            await using (var systemAdmin = CreateServiceScope(database, graph, graph.SystemAdminUserId, SystemRole.SystemAdmin))
+            {
+                var result = await systemAdmin.Service.GetCreateOptionsAsync(graph.WorkspaceId);
+                Assert.False(result.IsSuccess);
+                Assert.Equal("NotFound", result.ErrorDetail?.Code);
+            }
+        });
+    }
+
+    [PostgreSqlFact]
+    [Trait("Category", "PostgreSQLIntegration")]
+    [Trait("Scope", "Issue409")]
+    public async Task ActivationPermissionBatchFailsClosedAfterMembershipOrWorkspaceRevocation()
+    {
+        var connectionString = PostgreSqlTestEnvironment.RequireConnectionString();
+        await PostgreSqlMigrationTestDatabase.WithTemporaryDatabaseAsync(connectionString, async database =>
+        {
+            await PostgreSqlMigrationTestDatabase.MigrateAsync(database);
+            var graph = await SeedAuthorityAsync(database, "activation-permission");
+            Guid projectId;
+            await using (var seed = CreateTenantContext(database, graph))
+            {
+                var project = new Project
+                {
+                    TenantId = graph.TenantId,
+                    WorkspaceId = graph.WorkspaceId,
+                    OwnerUserId = graph.OwnerUserId,
+                    CreatedByUserId = graph.OwnerUserId,
+                    Name = "Activation permission draft",
+                    Slug = $"activation-permission-{Guid.NewGuid():N}",
+                    Status = ProjectStatus.Planning,
+                    Visibility = ProjectVisibility.MembersOnly,
+                    ActivationState = ProjectActivationState.NeverActivated,
+                    VersionNo = 1
+                };
+                projectId = project.Id;
+                seed.Projects.Add(project);
+                seed.ProjectMembers.AddRange(
+                    new ProjectMember
+                    {
+                        TenantId = graph.TenantId,
+                        ProjectId = project.Id,
+                        UserId = graph.OwnerUserId,
+                        Role = ProjectRole.Owner,
+                        JoinedAt = graph.Now
+                    },
+                    new ProjectMember
+                    {
+                        TenantId = graph.TenantId,
+                        ProjectId = project.Id,
+                        UserId = graph.SystemAdminUserId,
+                        Role = ProjectRole.Owner,
+                        JoinedAt = graph.Now
+                    });
+                await seed.SaveChangesAsync();
+            }
+
+            await using var verification = CreateTenantContext(database, graph);
+            var repository = new ProjectRepository(verification);
+            Assert.Contains(
+                await repository.ListVisibleInWorkspaceAsync(graph.OwnerUserId, graph.WorkspaceId),
+                project => project.Id == projectId);
+            Assert.Empty(await repository.ListVisibleInWorkspaceAsync(graph.OwnerUserId, Guid.NewGuid()));
+            Assert.Equal(
+                new[] { projectId },
+                await repository.ListActivatableProjectIdsAsync(graph.OwnerUserId, [projectId]));
+            Assert.Empty(await repository.ListActivatableProjectIdsAsync(
+                graph.SystemAdminUserId,
+                [projectId]));
+
+            var membership = await verification.WorkspaceMembers.SingleAsync(member =>
+                member.WorkspaceId == graph.WorkspaceId &&
+                member.UserId == graph.OwnerUserId);
+            membership.Status = MembershipStatus.Suspended;
+            await verification.SaveChangesAsync();
+            Assert.Empty(await repository.ListActivatableProjectIdsAsync(graph.OwnerUserId, [projectId]));
+
+            membership.Status = MembershipStatus.Active;
+            var workspace = await verification.Workspaces.SingleAsync(item => item.Id == graph.WorkspaceId);
+            workspace.Status = WorkspaceStatus.Archived;
+            await verification.SaveChangesAsync();
+            Assert.Empty(await repository.ListActivatableProjectIdsAsync(graph.OwnerUserId, [projectId]));
+        });
+    }
+
+    [PostgreSqlFact]
+    [Trait("Category", "PostgreSQLIntegration")]
     public async Task ConcurrentRetryCommitsOneProjectMembershipAuditAndAuthorizationEvent()
     {
         var connectionString = PostgreSqlTestEnvironment.RequireConnectionString();

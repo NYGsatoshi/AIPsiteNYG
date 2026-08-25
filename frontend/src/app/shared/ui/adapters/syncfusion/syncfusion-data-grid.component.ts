@@ -15,6 +15,7 @@ import {
   AppDataGridColumnDef,
   AppDataGridFilterChange,
   AppDataGridPageChange,
+  AppDataGridRowActivationEvent,
   AppDataGridSelectionChange,
   AppDataGridSelectionMode,
   AppDataGridSortChange,
@@ -53,12 +54,13 @@ export class SyncfusionDataGridComponent<TData extends object> {
   @Input() ariaLabel = 'Data grid';
   @Input() selectionMode: AppDataGridSelectionMode = 'none';
   @Input() rowHeight?: number;
+  @Input() stickyHeader = false;
   @Input() page = 1;
   @Input() error: string | null = null;
   @Input() emptyState: string | null = null;
   @Input() permissionDenied = false;
   @Output() actionInvoked = new EventEmitter<AppDataGridActionEvent<TData>>();
-  @Output() rowActivated = new EventEmitter<TData>();
+  @Output() rowActivated = new EventEmitter<AppDataGridRowActivationEvent<TData>>();
   @Output() selectionChanged = new EventEmitter<AppDataGridSelectionChange<TData>>();
   @Output() pageChanged = new EventEmitter<AppDataGridPageChange>();
   @Output() sortChanged = new EventEmitter<AppDataGridSortChange>();
@@ -92,6 +94,11 @@ export class SyncfusionDataGridComponent<TData extends object> {
 
   getColumnField(column: AppDataGridColumnDef<TData>): string {
     return column.field ?? this.getColumnId(column);
+  }
+
+  getRowIdValue(row: TData): string {
+    const value = row[this.rowIdField];
+    return value === null || value === undefined ? '' : String(value);
   }
 
   getCellClass(column: AppDataGridColumnDef<TData>): string {
@@ -128,7 +135,10 @@ export class SyncfusionDataGridComponent<TData extends object> {
 
     const row = (event.rowData ?? event.data) as TData | undefined;
     if (row) {
-      this.rowActivated.emit(row);
+      this.rowActivated.emit({
+        row,
+        trigger: target?.closest<HTMLElement>('.e-rowcell') ?? target ?? undefined,
+      });
     }
   }
 

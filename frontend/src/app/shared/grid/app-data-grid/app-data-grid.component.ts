@@ -33,6 +33,7 @@ import {
   AppDataGridFilterChange,
   AppDataGridMigrationTarget,
   AppDataGridPageChange,
+  AppDataGridRowActivationEvent,
   AppDataGridSelectionChange,
   AppDataGridSelectionMode,
   AppDataGridSortChange,
@@ -64,12 +65,14 @@ export class AppDataGridComponent<TData extends object> implements OnInit, After
   @Input() migrationTarget?: AppDataGridMigrationTarget;
   @Input() selectionMode: AppDataGridSelectionMode = 'none';
   @Input() rowHeight?: number;
+  /** Adapter-neutral request for a sticky header in long, in-page grids. */
+  @Input() stickyHeader = false;
   @Input() page = 1;
   @Input() error: string | null = null;
   @Input() emptyState: string | null = null;
   @Input() permissionDenied = false;
   @Output() actionInvoked = new EventEmitter<AppDataGridActionEvent<TData>>();
-  @Output() rowActivated = new EventEmitter<TData>();
+  @Output() rowActivated = new EventEmitter<AppDataGridRowActivationEvent<TData>>();
   @Output() selectionChanged = new EventEmitter<AppDataGridSelectionChange<TData>>();
   @Output() pageChanged = new EventEmitter<AppDataGridPageChange>();
   @Output() sortChanged = new EventEmitter<AppDataGridSortChange>();
@@ -89,7 +92,10 @@ export class AppDataGridComponent<TData extends object> implements OnInit, After
     wrapHeaderText: true,
     autoHeaderHeight: true
   };
-  readonly gridOptions: GridOptions<TData> = {
+  // Keep these references stable. Recreating GridOptions on every Angular
+  // change-detection pass causes AG Grid to reprocess its configuration while
+  // a feature updates unrelated local state such as density or columns.
+  private readonly autoHeightGridOptions: GridOptions<TData> = {
     theme: 'legacy',
     rowModelType: 'clientSide',
     domLayout: 'autoHeight',
@@ -99,6 +105,18 @@ export class AppDataGridComponent<TData extends object> implements OnInit, After
     ensureDomOrder: true,
     suppressCsvExport: true
   };
+  private readonly stickyHeaderGridOptions: GridOptions<TData> = {
+    ...this.autoHeightGridOptions,
+    // A sticky audit header needs a bounded adapter scroll surface. With
+    // autoHeight, an overflow-x ancestor prevents CSS sticky from following
+    // document scroll; normal layout keeps the native AG header fixed while
+    // its rows scroll beneath it instead.
+    domLayout: 'normal',
+  };
+
+  get gridOptions(): GridOptions<TData> {
+    return this.stickyHeader ? this.stickyHeaderGridOptions : this.autoHeightGridOptions;
+  }
 
   get columnDefs(): ColDef<TData>[] {
     return this.columns.map((column) => ({
@@ -177,11 +195,15 @@ export class AppDataGridComponent<TData extends object> implements OnInit, After
 
     const actionTarget = target.closest<HTMLElement>('[data-grid-action]');
     const actionId = actionTarget?.dataset['gridAction'];
-    if (!actionId || actionTarget?.getAttribute('aria-disabled') === 'true') {
+    if (actionTarget) {
+      if (actionId && actionTarget.getAttribute('aria-disabled') !== 'true') {
+        this.actionInvoked.emit({ actionId, row: event.data, trigger: actionTarget });
+      }
       return;
     }
 
-    this.actionInvoked.emit({ actionId, row: event.data, trigger: actionTarget });
+    const trigger = target.closest<HTMLElement>('.ag-cell') ?? target;
+    this.rowActivated.emit({ row: event.data, trigger });
   }
 
   handleSelectionChanged(event: { api: { getSelectedRows(): TData[] } }): void {
@@ -241,7 +263,7 @@ export class AppDataGridComponent<TData extends object> implements OnInit, After
       const component = this.syncfusionHost.createComponent(SyncfusionDataGridComponent) as unknown as ComponentRef<SyncfusionDataGridComponent<TData>>;
       this.syncfusionComponent = component;
       this.syncfusionComponent.instance.actionInvoked.subscribe((event) => this.actionInvoked.emit(event));
-      this.syncfusionComponent.instance.rowActivated.subscribe((row) => this.rowActivated.emit(row));
+      this.syncfusionComponent.instance.rowActivated.subscribe((event) => this.rowActivated.emit(event));
       this.syncfusionComponent.instance.selectionChanged.subscribe((event) => this.selectionChanged.emit(event));
       this.syncfusionComponent.instance.pageChanged.subscribe((event) => this.pageChanged.emit(event));
       this.syncfusionComponent.instance.sortChanged.subscribe((event) => this.sortChanged.emit(event));
@@ -268,6 +290,7 @@ export class AppDataGridComponent<TData extends object> implements OnInit, After
     component.setInput('ariaLabel', this.ariaLabel);
     component.setInput('selectionMode', this.selectionMode);
     component.setInput('rowHeight', this.rowHeight);
+    component.setInput('stickyHeader', this.stickyHeader);
     component.setInput('page', this.page);
     component.setInput('error', this.error);
     component.setInput('emptyState', this.emptyState);

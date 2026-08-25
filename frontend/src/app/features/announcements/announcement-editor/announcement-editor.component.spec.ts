@@ -20,7 +20,9 @@ const teacherGroupAudience = {
   groupId: '22222222-2222-2222-2222-222222222222',
 };
 
-const createDraft = (overrides: Partial<AnnouncementEditorDraft> = {}): AnnouncementEditorDraft => ({
+const createDraft = (
+  overrides: Partial<AnnouncementEditorDraft> = {},
+): AnnouncementEditorDraft => ({
   title: 'School update',
   body: 'Announcement body',
   priority: 'normal',
@@ -30,7 +32,9 @@ const createDraft = (overrides: Partial<AnnouncementEditorDraft> = {}): Announce
   ...overrides,
 });
 
-const renderEditor = async (draft: AnnouncementEditorDraft): Promise<ComponentFixture<AnnouncementEditorComponent>> => {
+const renderEditor = async (
+  draft: AnnouncementEditorDraft,
+): Promise<ComponentFixture<AnnouncementEditorComponent>> => {
   await TestBed.configureTestingModule({
     imports: [AnnouncementEditorComponent],
   }).compileComponents();
@@ -55,15 +59,23 @@ describe('AnnouncementEditorComponent', () => {
     );
 
     const host = fixture.nativeElement as HTMLElement;
-    const select = host.querySelector('[data-testid="announcement-editor-audience"]') as HTMLSelectElement;
+    const select = host.querySelector(
+      '[data-testid="announcement-editor-audience"]',
+    ) as HTMLSelectElement;
     const options = Array.from(select.options);
 
     expect(options).toHaveLength(1);
     expect(options.map((option) => option.value)).toEqual([teacherGroupAudience.key]);
-    expect(options.map((option) => option.textContent?.trim())).toEqual(['School Workspace / Teachers — 86名']);
+    expect(options.map((option) => option.textContent?.trim())).toEqual([
+      'School Workspace / Teachers — 86名',
+    ]);
     expect(select.value).toBe(teacherGroupAudience.key);
-    expect(host.querySelector('[data-testid="announcement-audience-summary"]')?.textContent).toContain('School Workspace / Teachers');
-    expect(host.querySelector('[data-testid="announcement-audience-summary"]')?.textContent).toContain('86名');
+    expect(
+      host.querySelector('[data-testid="announcement-audience-summary"]')?.textContent,
+    ).toContain('School Workspace / Teachers');
+    expect(
+      host.querySelector('[data-testid="announcement-audience-summary"]')?.textContent,
+    ).toContain('86名');
   });
 
   it('fails closed when no authorized audience is available', async () => {
@@ -75,8 +87,12 @@ describe('AnnouncementEditorComponent', () => {
     );
 
     const host = fixture.nativeElement as HTMLElement;
-    const select = host.querySelector('[data-testid="announcement-editor-audience"]') as HTMLSelectElement;
-    const publish = host.querySelector('[data-testid="announcement-publish-action"]') as HTMLButtonElement;
+    const select = host.querySelector(
+      '[data-testid="announcement-editor-audience"]',
+    ) as HTMLSelectElement;
+    const publish = host.querySelector(
+      '[data-testid="announcement-publish-action"]',
+    ) as HTMLButtonElement;
 
     expect(select.options).toHaveLength(0);
     expect(select.value).toBe('');
@@ -93,8 +109,10 @@ describe('AnnouncementEditorComponent', () => {
     fixture.detectChanges();
 
     const host = fixture.nativeElement as HTMLElement;
-    const immediateSummary = host.querySelector('[data-testid="announcement-audience-summary"]')?.textContent ?? '';
-    const reviewSummary = host.querySelector('[data-testid="announcement-review-summary"]')?.textContent ?? '';
+    const immediateSummary =
+      host.querySelector('[data-testid="announcement-audience-summary"]')?.textContent ?? '';
+    const reviewSummary =
+      host.querySelector('[data-testid="announcement-review-summary"]')?.textContent ?? '';
 
     expect(immediateSummary).toContain('School Workspace / Teachers');
     expect(immediateSummary).toContain('86名');
@@ -116,7 +134,9 @@ describe('AnnouncementEditorComponent', () => {
       priority: 'important',
       requiresReadConfirmation: true,
     });
-    fixture.componentInstance.publish();
+    (fixture.nativeElement as HTMLElement)
+      .querySelector('form')
+      ?.dispatchEvent(new Event('submit', { bubbles: true, cancelable: true }));
 
     expect(emitted).toEqual({
       title: 'Safety update',
@@ -125,6 +145,55 @@ describe('AnnouncementEditorComponent', () => {
       audience: teacherGroupAudience,
       requiresReadConfirmation: true,
     });
+  });
+
+  it('links field errors to invalid inputs and focuses the first invalid field after publish is requested', async () => {
+    const fixture = await renderEditor(createDraft());
+    fixture.componentInstance.form.patchValue({ title: '   ', body: ' ' });
+
+    fixture.componentInstance.publish();
+    fixture.detectChanges();
+    await fixture.whenStable();
+
+    const host = fixture.nativeElement as HTMLElement;
+    const title = host.querySelector<HTMLInputElement>('[data-testid="announcement-editor-title"]');
+    const body = host.querySelector<HTMLTextAreaElement>(
+      '[data-testid="announcement-editor-body"]',
+    );
+    const summary = host.querySelector<HTMLElement>(
+      '[data-testid="announcement-editor-error-summary"]',
+    );
+
+    expect(summary?.getAttribute('role')).toBe('alert');
+    expect(summary?.textContent).toContain(
+      'タイトルを入力してください。空白だけでは公開できません。',
+    );
+    expect(summary?.textContent).toContain('本文を入力してください。空白だけでは公開できません。');
+    expect(title?.getAttribute('aria-invalid')).toBe('true');
+    expect(title?.getAttribute('aria-describedby')).toBe(
+      'announcement-title-help announcement-title-error',
+    );
+    expect(body?.getAttribute('aria-invalid')).toBe('true');
+    expect(body?.getAttribute('aria-describedby')).toBe(
+      'announcement-body-help announcement-body-error',
+    );
+    expect(document.activeElement).toBe(title);
+
+    (summary?.querySelector('a[href="#announcement-body"]') as HTMLAnchorElement).click();
+    expect(document.activeElement).toBe(body);
+  });
+
+  it('announces a preserved submission failure inside the form', async () => {
+    const fixture = await renderEditor(createDraft());
+    fixture.componentRef.setInput('submissionError', '配信対象を再確認してください。');
+    fixture.detectChanges();
+
+    const error = (fixture.nativeElement as HTMLElement).querySelector<HTMLElement>(
+      '[data-testid="announcement-editor-submission-error"]',
+    );
+    expect(error?.getAttribute('role')).toBe('alert');
+    expect(error?.textContent).toContain('公開できませんでした。');
+    expect(error?.textContent).toContain('入力内容はこのフォームに保持されています。');
   });
 
   it('uses the non-leaking count fallback when the authorized projection has no recipient estimate', async () => {
@@ -136,10 +205,75 @@ describe('AnnouncementEditorComponent', () => {
     );
 
     const host = fixture.nativeElement as HTMLElement;
-    const immediateSummary = host.querySelector('[data-testid="announcement-audience-summary"]')?.textContent ?? '';
-    const reviewSummary = host.querySelector('[data-testid="announcement-review-summary"]')?.textContent ?? '';
+    const immediateSummary =
+      host.querySelector('[data-testid="announcement-audience-summary"]')?.textContent ?? '';
+    const reviewSummary =
+      host.querySelector('[data-testid="announcement-review-summary"]')?.textContent ?? '';
 
     expect(immediateSummary).toContain('受信者数は公開前の確認時に再計算されます。');
     expect(reviewSummary).toContain('未取得');
+  });
+
+  it('keeps live edits when a refreshed draft changes the authorized audience options', async () => {
+    const fixture = await renderEditor(createDraft());
+    let latestDraft: AnnouncementEditorDraft | undefined;
+    fixture.componentInstance.draftChanged.subscribe((draft) => {
+      latestDraft = draft;
+    });
+
+    fixture.componentInstance.form.patchValue({
+      title: 'Live title edited after publish failed',
+      body: 'Live body edited after publish failed',
+    });
+    fixture.componentInstance.form.markAsDirty();
+
+    expect(latestDraft).toMatchObject({
+      title: 'Live title edited after publish failed',
+      body: 'Live body edited after publish failed',
+      audienceKey: workspaceAudience.key,
+    });
+
+    fixture.componentRef.setInput(
+      'draft',
+      createDraft({
+        title: 'Stale submitted title',
+        body: 'Stale submitted body',
+        audienceKey: teacherGroupAudience.key,
+        availableAudiences: [teacherGroupAudience],
+      }),
+    );
+    fixture.detectChanges();
+
+    expect(fixture.componentInstance.form.getRawValue()).toMatchObject({
+      title: 'Live title edited after publish failed',
+      body: 'Live body edited after publish failed',
+      audienceKey: teacherGroupAudience.key,
+    });
+    expect(fixture.componentInstance.selectedAudience()).toEqual(teacherGroupAudience);
+  });
+
+  it('uses the authoritative announcement limits and omits the unimplemented draft-save action', async () => {
+    const fixture = await renderEditor(createDraft());
+    const host = fixture.nativeElement as HTMLElement;
+    const title = host.querySelector<HTMLInputElement>('[data-testid="announcement-editor-title"]');
+    const body = host.querySelector<HTMLTextAreaElement>(
+      '[data-testid="announcement-editor-body"]',
+    );
+
+    expect(title?.maxLength).toBe(200);
+    expect(body?.maxLength).toBe(20_000);
+    expect(host.querySelector('[data-testid="announcement-save-draft-action"]')).toBeNull();
+
+    fixture.componentInstance.form.controls.title.setValue('a'.repeat(201));
+    fixture.componentInstance.form.controls.title.markAsTouched();
+    fixture.componentInstance.form.controls.body.setValue('b'.repeat(20_001));
+    fixture.componentInstance.form.controls.body.markAsTouched();
+
+    expect(fixture.componentInstance.fieldError('title')).toBe(
+      'タイトルは200文字以内で入力してください。',
+    );
+    expect(fixture.componentInstance.fieldError('body')).toBe(
+      '本文は20,000文字以内で入力してください。',
+    );
   });
 });

@@ -10,6 +10,153 @@ namespace AipPortal.Tests.Projects;
 public sealed class TaskCommandServiceTests
 {
     [Fact]
+    public async Task StructuredBriefPatchPreservesOmittedFieldsClearsExplicitNullAndReturnsPerFieldProvenance()
+    {
+        var fixture = Fixture.Create();
+        var task = fixture.AddTask("brief");
+        task.Description = "Legacy free-form notes";
+        task.BriefGoal = "Old goal";
+        task.BriefDeliverable = "Existing deliverable";
+        task.BriefConstraints = "Old constraints";
+
+        var result = await fixture.Service.UpdateDetailsAsync(
+            task.Id,
+            new TaskUpdateDetailsRequest(
+                task.Title,
+                task.Description,
+                task.Priority,
+                null,
+                null,
+                0,
+                task.VersionNo,
+                Goal: "  Updated goal  ",
+                Deliverable: default,
+                Constraints: new OptionalString(true, null)));
+
+        Assert.True(result.IsSuccess);
+        Assert.Equal("Legacy free-form notes", task.Description);
+        Assert.Equal("Updated goal", task.BriefGoal);
+        Assert.Equal("Existing deliverable", task.BriefDeliverable);
+        Assert.Null(task.BriefConstraints);
+        Assert.Equal(TaskBriefValueSource.TaskSpecific, result.Value!.Brief!.Goal.Source);
+        Assert.Equal("Updated goal", result.Value.Brief.Goal.Value);
+        Assert.Equal(TaskBriefValueSource.TaskSpecific, result.Value.Brief.Deliverable.Source);
+        Assert.Equal("Existing deliverable", result.Value.Brief.Deliverable.Value);
+        Assert.Equal(TaskBriefValueSource.NotSet, result.Value.Brief.Constraints.Source);
+        Assert.Null(result.Value.Brief.Constraints.Value);
+
+        var semantic = Assert.Single(fixture.Invalidations.TaskChanges);
+        Assert.Contains("briefGoal", semantic.ChangedFields);
+        Assert.Contains("briefConstraints", semantic.ChangedFields);
+        Assert.DoesNotContain("briefDeliverable", semantic.ChangedFields);
+        Assert.DoesNotContain(semantic.ChangedFields, field => field.Contains("Updated goal", StringComparison.Ordinal));
+        Assert.DoesNotContain(fixture.Audit.Entries, entry =>
+            entry.Metadata?.Values.Any(value => string.Equals(value?.ToString(), "Updated goal", StringComparison.Ordinal)) == true);
+    }
+
+    [Theory]
+    [InlineData("goal")]
+    [InlineData("deliverable")]
+    [InlineData("constraints")]
+    public async Task EachStructuredBriefFieldRejectsOverLimitTextWithoutMutationOrSideEffects(string field)
+    {
+        var fixture = Fixture.Create();
+        var task = fixture.AddTask("brief");
+        task.BriefGoal = "goal";
+        task.BriefDeliverable = "deliverable";
+        task.BriefConstraints = "constraints";
+        var oversized = new string('x', TaskBriefText.MaximumFieldLength + 1);
+
+        var result = await fixture.Service.UpdateDetailsAsync(
+            task.Id,
+            new TaskUpdateDetailsRequest(
+                task.Title,
+                null,
+                task.Priority,
+                null,
+                null,
+                0,
+                task.VersionNo,
+                Goal: field == "goal" ? oversized : default(OptionalString),
+                Deliverable: field == "deliverable" ? oversized : default(OptionalString),
+                Constraints: field == "constraints" ? oversized : default(OptionalString)));
+
+        Assert.False(result.IsSuccess);
+        Assert.StartsWith("TASK_BRIEF_FIELD_TOO_LONG|", result.Error);
+        Assert.Equal("goal", task.BriefGoal);
+        Assert.Equal("deliverable", task.BriefDeliverable);
+        Assert.Equal("constraints", task.BriefConstraints);
+        Assert.Equal(1, task.VersionNo);
+        Assert.Empty(fixture.Audit.Entries);
+        Assert.Empty(fixture.Invalidations.TaskChanges);
+        Assert.Equal(0, fixture.UnitOfWork.SaveCount);
+    }
+
+    [Fact]
+    public async Task DescriptionOnlyUpdateRoundTripsWithAllStructuredBriefSourcesNotSet()
+    {
+        var fixture = Fixture.Create();
+        var task = fixture.AddTask("legacy");
+
+        var result = await fixture.Service.UpdateDetailsAsync(
+            task.Id,
+            new TaskUpdateDetailsRequest(task.Title, "  free-form notes  ", task.Priority, null, null, 0, task.VersionNo));
+
+        Assert.True(result.IsSuccess);
+        Assert.Equal("free-form notes", task.Description);
+        Assert.Null(task.BriefGoal);
+        Assert.Null(task.BriefDeliverable);
+        Assert.Null(task.BriefConstraints);
+        Assert.All(
+            new[] { result.Value!.Brief!.Goal, result.Value.Brief.Deliverable, result.Value.Brief.Constraints },
+            field =>
+            {
+                Assert.Null(field.Value);
+                Assert.Equal(TaskBriefValueSource.NotSet, field.Source);
+            });
+    }
+
+    [Fact]
+    public async Task UnauthorizedCanonicalDetailDoesNotRevealStructuredBriefValues()
+    {
+        var fixture = Fixture.Create();
+        var task = fixture.AddTask("restricted");
+        task.BriefGoal = "Sensitive task-specific goal";
+        var service = new TaskCommandService(
+            fixture.Projects,
+            new FakeGroups(),
+            fixture.Users,
+            new DeniedProjectAuthorization(),
+            new AllowedTaskAuthorization(),
+            new FakeCurrentUser(fixture.Actor),
+            new FixedClock(),
+            fixture.Audit,
+            fixture.Invalidations,
+            fixture.UnitOfWork,
+            new UtcTimeZoneResolver());
+
+        var result = await service.GetAsync(task.Id);
+
+        Assert.False(result.IsSuccess);
+        Assert.Equal("TASK_NOT_FOUND|Task not found.", result.Error);
+        Assert.DoesNotContain("Sensitive", result.Error, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public async Task CanonicalDetailTreatsLegacyBlankBriefStorageAsNotSet()
+    {
+        var fixture = Fixture.Create();
+        var task = fixture.AddTask("legacy blank");
+        task.BriefGoal = "   ";
+
+        var result = await fixture.Service.GetAsync(task.Id);
+
+        Assert.True(result.IsSuccess);
+        Assert.Null(result.Value!.Brief!.Goal.Value);
+        Assert.Equal(TaskBriefValueSource.NotSet, result.Value.Brief.Goal.Source);
+    }
+
+    [Fact]
     public async Task CollaboratorCommandsReconcileAgainstTheirEffectiveRelationshipSet()
     {
         var fixture = Fixture.Create();
@@ -391,11 +538,21 @@ public sealed class TaskCommandServiceTests
 
         var result = await fixture.Subresources.CreateSubtaskAsync(
             parent.Id,
-            new CreateTaskSubtaskRequest("child", "description", TaskPriority.High));
+            new CreateTaskSubtaskRequest(
+                "child",
+                "description",
+                TaskPriority.High,
+                "  Child goal  ",
+                "  Child deliverable  ",
+                "  Child constraints  "));
 
         Assert.True(result.IsSuccess);
         var child = Assert.Single(fixture.Projects.Tasks.Values, task => task.ParentTaskItemId == parent.Id);
         Assert.Equal(parent.Id, child.ParentTaskItemId);
+        Assert.Equal("description", child.Description);
+        Assert.Equal("Child goal", child.BriefGoal);
+        Assert.Equal("Child deliverable", child.BriefDeliverable);
+        Assert.Equal("Child constraints", child.BriefConstraints);
         Assert.Equal(fixture.Projects.Stages.Values.Single(stage => stage.IsInitialStage).Id, child.WorkflowStageId);
         Assert.Equal(1000, child.SortKey);
         var watch = Assert.Single(fixture.Projects.Watches);
@@ -409,6 +566,29 @@ public sealed class TaskCommandServiceTests
         Assert.Contains(fixture.Invalidations.TaskChanges, change => change.TaskId == parent.Id && change.Change == "subtasksChanged");
         Assert.Equal(2, parent.VersionNo);
         Assert.Equal(1, fixture.UnitOfWork.SaveCount);
+    }
+
+    [Fact]
+    public async Task OversizedSubtaskBriefIsRejectedBeforeChildOrParentSideEffects()
+    {
+        var fixture = Fixture.Create();
+        var parent = fixture.AddTask("parent");
+
+        var result = await fixture.Subresources.CreateSubtaskAsync(
+            parent.Id,
+            new CreateTaskSubtaskRequest(
+                "child",
+                null,
+                TaskPriority.Medium,
+                Goal: new string('x', TaskBriefText.MaximumFieldLength + 1)));
+
+        Assert.False(result.IsSuccess);
+        Assert.StartsWith("TASK_BRIEF_FIELD_TOO_LONG|", result.Error);
+        Assert.Single(fixture.Projects.Tasks);
+        Assert.Equal(1, parent.VersionNo);
+        Assert.Empty(fixture.Audit.Entries);
+        Assert.Empty(fixture.Invalidations.TaskChanges);
+        Assert.Equal(0, fixture.UnitOfWork.SaveCount);
     }
 
     [Fact]
@@ -1454,6 +1634,7 @@ public sealed class TaskCommandServiceTests
     private sealed class FakeGroups : IGroupRepository
     {
         public Task<IReadOnlyList<Group>> ListByWorkspaceAsync(Guid workspaceId, CancellationToken cancellationToken = default) => Task.FromResult<IReadOnlyList<Group>>([]);
+        public Task<IReadOnlyList<Group>> ListManagedByUserAsync(Guid workspaceId, Guid userId, CancellationToken cancellationToken = default) => Task.FromResult<IReadOnlyList<Group>>([]);
         public Task<Group?> GetByIdAsync(Guid groupId, CancellationToken cancellationToken = default) => Task.FromResult<Group?>(null);
         public Task<GroupMember?> GetMemberAsync(Guid groupId, Guid userId, CancellationToken cancellationToken = default) => Task.FromResult<GroupMember?>(null);
         public Task<IReadOnlyList<GroupMember>> ListMembersAsync(Guid groupId, CancellationToken cancellationToken = default) => Task.FromResult<IReadOnlyList<GroupMember>>([]);
@@ -1484,6 +1665,13 @@ public sealed class TaskCommandServiceTests
         public Task<bool> CanViewProject(Guid userId, Guid projectId, CancellationToken cancellationToken = default) => Task.FromResult(true);
         public Task<bool> CanManageProject(Guid userId, Guid projectId, CancellationToken cancellationToken = default) => Task.FromResult(true);
         public Task<bool> CanCreateProject(Guid userId, Guid workspaceId, Guid groupId, CancellationToken cancellationToken = default) => Task.FromResult(true);
+    }
+
+    private sealed class DeniedProjectAuthorization : IProjectAuthorizationService
+    {
+        public Task<bool> CanViewProject(Guid userId, Guid projectId, CancellationToken cancellationToken = default) => Task.FromResult(false);
+        public Task<bool> CanManageProject(Guid userId, Guid projectId, CancellationToken cancellationToken = default) => Task.FromResult(false);
+        public Task<bool> CanCreateProject(Guid userId, Guid workspaceId, Guid groupId, CancellationToken cancellationToken = default) => Task.FromResult(false);
     }
 
     private sealed class AllowedTaskAuthorization : ITaskAuthorizationService
@@ -1532,10 +1720,10 @@ public sealed class TaskCommandServiceTests
     }
     private sealed class FakeInvalidations : IBusinessInvalidationPublisher
     {
-        public List<(Guid TaskId, string Change, IReadOnlyList<Guid> AffectedUserIds)> TaskChanges { get; } = [];
+        public List<(Guid TaskId, string Change, IReadOnlyList<string> ChangedFields, IReadOnlyList<Guid> AffectedUserIds)> TaskChanges { get; } = [];
         public List<(Guid TaskId, string Change, IReadOnlyList<Guid> AffectedUserIds)> TaskAssignmentChanges { get; } = [];
         public List<(Guid ProjectId, string Change)> ProjectChanges { get; } = [];
-        public Task TaskChangedAsync(TaskItem task, Guid actorUserId, string change, IEnumerable<string>? changedFields = null, IEnumerable<Guid>? affectedUserIds = null, CancellationToken cancellationToken = default) { TaskChanges.Add((task.Id, change, (affectedUserIds ?? []).Distinct().ToArray())); return Task.CompletedTask; }
+        public Task TaskChangedAsync(TaskItem task, Guid actorUserId, string change, IEnumerable<string>? changedFields = null, IEnumerable<Guid>? affectedUserIds = null, CancellationToken cancellationToken = default) { TaskChanges.Add((task.Id, change, (changedFields ?? []).Distinct(StringComparer.Ordinal).ToArray(), (affectedUserIds ?? []).Distinct().ToArray())); return Task.CompletedTask; }
         public Task TaskAssignmentChangedAsync(TaskItem task, Guid actorUserId, string change, IEnumerable<Guid>? affectedUserIds = null, CancellationToken cancellationToken = default)
         {
             TaskAssignmentChanges.Add((task.Id, change, (affectedUserIds ?? []).Distinct().ToArray()));

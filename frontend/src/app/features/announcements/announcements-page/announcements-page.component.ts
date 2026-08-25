@@ -10,15 +10,20 @@ import {
   ANNOUNCEMENT_PUBLICATION_STATE_LABELS,
   AnnouncementEditorDraft,
   AnnouncementEditorSubmission,
-  AnnouncementViewModel
+  AnnouncementViewModel,
 } from '../announcements.types';
 
 @Component({
   selector: 'app-announcements-page',
   standalone: true,
-  imports: [FormsModule, AnnouncementDetailComponent, AnnouncementEditorComponent, AnnouncementListComponent],
+  imports: [
+    FormsModule,
+    AnnouncementDetailComponent,
+    AnnouncementEditorComponent,
+    AnnouncementListComponent,
+  ],
   templateUrl: './announcements-page.component.html',
-  styleUrl: './announcements-page.component.scss'
+  styleUrl: './announcements-page.component.scss',
 })
 export class AnnouncementsPageComponent implements OnDestroy {
   private readonly facade = inject(AnnouncementsFacade);
@@ -27,23 +32,29 @@ export class AnnouncementsPageComponent implements OnDestroy {
 
   readonly page = this.facade.page;
   readonly searchValue = signal('');
-  readonly selectedAnnouncementId = signal<string | null>(this.routeAnnouncementId ?? this.page().selectedAnnouncementId);
+  readonly selectedAnnouncementId = signal<string | null>(
+    this.routeAnnouncementId ?? this.page().selectedAnnouncementId,
+  );
   readonly editorVisible = signal(false);
   readonly editingAnnouncementId = signal<string | null>(null);
 
   readonly filteredAnnouncements = computed(() =>
-    this.filterAuthorizedAnnouncements(this.page().announcements, this.searchValue())
+    this.filterAuthorizedAnnouncements(this.page().announcements, this.searchValue()),
   );
   readonly selectedAnnouncement = computed(() => {
     const selectedId = this.page().selectedAnnouncementId ?? this.selectedAnnouncementId();
     if (selectedId) {
-      return this.filteredAnnouncements().find((announcement) => announcement.id === selectedId) ?? null;
+      return (
+        this.filteredAnnouncements().find((announcement) => announcement.id === selectedId) ?? null
+      );
     }
 
     return this.filteredAnnouncements()[0] ?? null;
   });
 
-  readonly hasReadPermission = computed(() => this.page().pageCapabilities.includes('readAnnouncement'));
+  readonly hasReadPermission = computed(() =>
+    this.page().pageCapabilities.includes('readAnnouncement'),
+  );
   readonly canCreate = computed(() => this.page().pageCapabilities.includes('createAnnouncement'));
   readonly canEdit = computed(() => this.page().pageCapabilities.includes('editAnnouncement'));
   readonly activeEditorDraft = computed<AnnouncementEditorDraft | null>(() => {
@@ -58,7 +69,9 @@ export class AnnouncementsPageComponent implements OnDestroy {
     }
 
     const availableAudiences = this.page().editorDraft?.availableAudiences ?? [];
-    const matchingAudiences = availableAudiences.filter((audience) => audience.scope === announcement.audienceScope);
+    const matchingAudiences = availableAudiences.filter(
+      (audience) => audience.scope === announcement.audienceScope,
+    );
     const audienceKey = matchingAudiences.length === 1 ? matchingAudiences[0].key : '';
 
     return {
@@ -71,7 +84,7 @@ export class AnnouncementsPageComponent implements OnDestroy {
       requiresReadConfirmation: announcement.readState.requiresReadConfirmation,
       publicationState: announcement.publicationState,
       scheduledAtLabel: announcement.scheduledAtLabel,
-      timeZoneLabel: announcement.timeZoneLabel
+      timeZoneLabel: announcement.timeZoneLabel,
     };
   });
 
@@ -122,16 +135,22 @@ export class AnnouncementsPageComponent implements OnDestroy {
     this.facade.createAnnouncement(submission);
   }
 
+  updateAnnouncementDraft(draft: AnnouncementEditorDraft): void {
+    if (this.editingAnnouncementId() === null) {
+      this.facade.updateEditorDraft(draft);
+    }
+  }
+
   ngOnDestroy(): void {
     this.facade.setEditorActive(false);
   }
 
   private filterAuthorizedAnnouncements(
     announcements: readonly AnnouncementViewModel[],
-    searchValue: string
+    searchValue: string,
   ): readonly AnnouncementViewModel[] {
     const readableAnnouncements = announcements.filter((announcement) =>
-      announcement.capabilities.includes('readAnnouncement')
+      announcement.capabilities.includes('readAnnouncement'),
     );
     const query = searchValue.trim().toLocaleLowerCase('ja-JP');
 
@@ -146,11 +165,11 @@ export class AnnouncementsPageComponent implements OnDestroy {
         announcement.publishedAtLabel,
         announcement.scheduledAtLabel ?? '',
         announcement.timeZoneLabel ?? '',
-        ANNOUNCEMENT_PUBLICATION_STATE_LABELS[announcement.publicationState]
+        ANNOUNCEMENT_PUBLICATION_STATE_LABELS[announcement.publicationState],
       ]
         .join(' ')
         .toLocaleLowerCase('ja-JP')
-        .includes(query)
+        .includes(query),
     );
   }
 }

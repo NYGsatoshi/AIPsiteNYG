@@ -100,6 +100,7 @@ describe('Workspace dashboard API mapper', () => {
     );
     const quickCreate = mapWorkspaceDashboardItem(
       dashboardItem({
+        canOpenProjectCreate: true,
         canCreateProject: true,
         canAddFiles: true,
       }),
@@ -112,6 +113,7 @@ describe('Workspace dashboard API mapper', () => {
       'openWorkspace',
       'openMembers',
       'openProjects',
+      'openProjectCreate',
       'createProject',
       'addFiles',
     ]);
@@ -119,12 +121,25 @@ describe('Workspace dashboard API mapper', () => {
 
   it('fails Quick Create mutation affordances closed when capability fields are absent', () => {
     const card = mapWorkspaceDashboardItem(
-      dashboardItem({ canCreateProject: undefined, canAddFiles: undefined }),
+      dashboardItem({ canOpenProjectCreate: undefined, canCreateProject: undefined, canAddFiles: undefined }),
     );
 
     expect(card.capabilities).toEqual(['openWorkspace', 'openMembers', 'openProjects']);
     expect(card.capabilities).not.toContain('createProject');
+    expect(card.capabilities).not.toContain('openProjectCreate');
     expect(card.capabilities).not.toContain('addFiles');
+  });
+
+  it('keeps full Project setup independent from the ungrouped Quick Create authority', () => {
+    const card = mapWorkspaceDashboardItem(
+      dashboardItem({
+        canOpenProjectCreate: true,
+        canCreateProject: false,
+      }),
+    );
+
+    expect(card.capabilities).toContain('openProjectCreate');
+    expect(card.capabilities).not.toContain('createProject');
   });
 
   it('keeps unavailable values distinct instead of fabricating numeric zero or Member', () => {
