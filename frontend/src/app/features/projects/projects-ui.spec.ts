@@ -376,7 +376,9 @@ describe('Projects and tasks mock UI', () => {
 
     expect(fixture.componentInstance.createDialogOpen()).toBe(true);
     expect(projectCreate.clearWorkspaceScope).not.toHaveBeenCalled();
-    expect(query(fixture, '[data-testid="project-create-title"]')).toBeNull();
+    expect(
+      query<HTMLFormElement>(fixture, '[data-testid="project-create-form"]')?.hidden,
+    ).toBe(true);
 
     activeWorkspace.setActiveWorkspace({
       id: PROJECT_CREATE_WORKSPACE_ID,

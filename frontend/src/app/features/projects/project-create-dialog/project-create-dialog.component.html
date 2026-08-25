@@ -22,14 +22,6 @@
         <app-request-id [requestId]="createState.requestId" />
       }
     </section>
-  } @else if (optionsState.status === 'loading' || optionsState.status === 'idle') {
-    <p
-      class="project-create__options-status"
-      role="status"
-      data-testid="project-create-options-loading"
-    >
-      Checking the Groups and visibility settings available to you…
-    </p>
   } @else if (optionsState.status === 'denied') {
     <section
       class="project-create__options-error"
@@ -66,10 +58,20 @@
       </button>
     </section>
   } @else {
+    @if (optionsState.status === 'loading' || optionsState.status === 'idle') {
+      <p
+        class="project-create__options-status"
+        role="status"
+        data-testid="project-create-options-loading"
+      >
+        Checking the Groups and visibility settings available to you…
+      </p>
+    }
     <form
       [id]="formId"
       class="project-create__form"
       [formGroup]="form"
+      [hidden]="optionsState.status === 'loading' || optionsState.status === 'idle'"
       novalidate
       (ngSubmit)="submit()"
       data-testid="project-create-form"
