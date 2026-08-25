@@ -82,6 +82,7 @@
     "body-parser": "1.20.6",
     "hono": "4.13.1",
     "postcss": "8.5.23",
-    "webpack-dev-server": "5.2.6"
+    "webpack-dev-server": "5.2.6",
+    "less": "4.9.0"
   }
 }
