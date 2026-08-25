@@ -3584,6 +3584,8 @@ async function openAnnouncementDetail(page: Page, evidence: SmokeEvidence) {
   });
   const announcement = listBody.items.find((item: Record<string, unknown>) => item.title === smokeAnnouncementTitle);
   expect(announcement, 'seeded announcement record').toBeTruthy();
+  expect(announcement?.requiresReadConfirmation, 'seeded announcement requires recipient read confirmation').toBe(true);
+  expect(announcement?.isRead, 'seeded smoke user begins unread').toBe(false);
   evidence.announcementId = String(announcement!.id);
 
   const announcementItem = page.getByTestId('announcement-list-item').filter({ hasText: smokeAnnouncementTitle }).first();
@@ -3593,12 +3595,46 @@ async function openAnnouncementDetail(page: Page, evidence: SmokeEvidence) {
   await expect(page.getByTestId('announcement-detail-title')).toContainText(smokeAnnouncementTitle);
   await expect(page.getByTestId('announcement-body-text')).toContainText('Synthetic announcement body');
 
+  const markReadAction = page.getByTestId('announcement-mark-read-action');
+  await expect(markReadAction).toBeVisible();
+  const markReadResponse = waitForApiResponse(
+    page,
+    'POST',
+    `/api/announcements/${evidence.announcementId}/read`,
+  );
+  await markReadAction.click();
+  const markRead = await markReadResponse;
+  expect(markRead.request().postDataJSON(), 'mark-read request body').toEqual({});
+  expect(markRead.request().headers()['x-csrf-token'], 'mark-read CSRF header').toBeTruthy();
+  await recordOkJson(markRead, evidence, 'announcement-mark-read', (body) =>
+    hasStringValue(body, 'status', 'OK'),
+  );
+  await expect(markReadAction).toHaveCount(0);
+  await expect(page.getByTestId('announcement-read-status')).toHaveAttribute('role', 'status');
+  await expect(page.getByTestId('announcement-read-status')).toBeFocused();
+
   await recordFetchJson(page, evidence, 'announcement-detail', `/api/announcements/${evidence.announcementId}`, {
     validate: (body) =>
       hasStringValue(body, 'id', evidence.announcementId ?? '') &&
       hasStringValue(body, 'title', smokeAnnouncementTitle) &&
-      hasString(body, 'body')
+      hasString(body, 'body') &&
+      (body as Record<string, unknown>).isRead === true
   });
+
+  await page.reload();
+  await expect(page.getByTestId('announcement-detail-title')).toContainText(smokeAnnouncementTitle);
+  const reloadedList = await recordFetchJson(page, evidence, 'announcements-list-after-read', '/api/announcements', {
+    validate: (body) =>
+      isPagedResponse(body) &&
+      body.items.some((item: unknown) =>
+        hasStringValue(item, 'id', evidence.announcementId ?? '') &&
+        (item as Record<string, unknown>).isRead === true,
+      )
+  });
+  expect(
+    reloadedList.items.find((item: Record<string, unknown>) => item.id === evidence.announcementId)?.isRead,
+    'mark-read persists in the reloaded list projection',
+  ).toBe(true);
 }
 
 async function openProjectTaskDetail(page: Page, evidence: SmokeEvidence) {

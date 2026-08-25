@@ -403,6 +403,81 @@ test.describe('MVP-A P0 Angular frontend smoke', () => {
     await expectNoAccessibilityViolations(page);
   });
 
+  test('keeps recipient announcement detail navigable, readable, and confirmable at 320px', async ({ page }) => {
+    await page.setViewportSize({ width: 320, height: 800 });
+    const workspace: WorkspaceContextFixture = {
+      id: '38500000-0000-4000-8000-000000000001',
+      name: 'Announcement mobile detail workspace',
+      runningProjectCount: 0,
+      needsReviewProjectCount: 0
+    };
+    await installWorkspaceContextApi(page, [workspace], workspace);
+    const api = await installAnnouncementMobileDetailApi(page, workspace.id);
+
+    await page.goto('/app/announcements');
+    const listRow = page.getByTestId('announcement-list-item').filter({ hasText: 'Mobile recipient detail' });
+    await expect(listRow).toBeVisible();
+    await page.evaluate(() => { document.scrollingElement!.scrollTop = 160; });
+    await expect.poll(() => page.evaluate(() => document.scrollingElement!.scrollTop)).toBe(160);
+    await listRow.scrollIntoViewIfNeeded();
+    const originScrollTop = await page.evaluate(() => document.scrollingElement!.scrollTop);
+    expect(originScrollTop).toBeGreaterThan(0);
+    await listRow.click();
+
+    await expect(page).toHaveURL(new RegExp(`/app/announcements/${api.id}$`));
+    await expect(page.getByTestId('announcement-detail-title')).toBeFocused();
+    await expect.poll(() => page.evaluate(() => document.scrollingElement!.scrollTop)).toBe(0);
+
+    const priority = page.getByTestId('announcement-priority-label');
+    const title = page.getByTestId('announcement-detail-title');
+    const published = page.getByTestId('announcement-published-at');
+    const expiry = page.getByTestId('announcement-expires-at');
+    const audience = page.getByTestId('announcement-audience-label');
+    const positions = await Promise.all(
+      [priority, title, published, expiry, audience].map((locator) =>
+        locator.evaluate((element) => element.getBoundingClientRect().top),
+      ),
+    );
+    expect(positions[0]!).toBeLessThan(positions[1]!);
+    expect(positions[1]!).toBeLessThan(positions[2]!);
+    expect(positions[2]!).toBeLessThan(positions[3]!);
+    expect(positions[3]!).toBeLessThan(positions[4]!);
+    await expect(expiry).toBeVisible();
+    await expect(page.getByTestId('announcement-body-text')).toContainText('long recipient-facing body');
+    const action = page.getByTestId('announcement-mark-read-action');
+    await expect(action).toBeVisible();
+    await expect.poll(() => action.evaluate((element) => element.getBoundingClientRect().height)).toBeGreaterThanOrEqual(44);
+    await page.evaluate(() => { document.scrollingElement!.scrollTop = 480; });
+    await expect.poll(() => action.evaluate((element) => {
+      const bounds = element.getBoundingClientRect();
+      return bounds.top >= 0 && bounds.bottom <= window.innerHeight;
+    })).toBe(true);
+    await expect(page.locator('app-message-composer')).toHaveCount(0);
+    await expectNoDocumentHorizontalOverflow(page);
+    await expectNoAccessibilityViolations(page);
+
+    const readResponse = page.waitForResponse((response) =>
+      response.request().method() === 'POST' &&
+      new URL(response.url()).pathname === `/api/announcements/${api.id}/read`,
+    );
+    await action.click();
+    expect((await readResponse).status()).toBe(200);
+    expect(api.readRequests).toEqual([{ body: {}, csrfToken: 'csrf-announcement-read' }]);
+    await expect(action).toHaveCount(0);
+    await expect(page.getByTestId('announcement-read-status')).toBeFocused();
+
+    await page.evaluate(() => { document.scrollingElement!.scrollTop = 0; });
+    await expect.poll(() => page.evaluate(() => document.scrollingElement!.scrollTop)).toBe(0);
+    await page.getByTestId('announcement-mobile-back').click();
+    await expect(page).toHaveURL(/\/app\/announcements$/);
+    await expect.poll(() => page.evaluate(() => document.scrollingElement!.scrollTop)).toBe(originScrollTop);
+    await expect(listRow).toBeFocused();
+    await page.goBack();
+    await expect(page).toHaveURL(/\/app\/announcements$/);
+    await page.goForward();
+    await expect(page).toHaveURL(/\/app\/announcements$/);
+  });
+
   test('keeps live Announcement edits when a reauthorization refresh is delayed', async ({ page }) => {
     await page.setViewportSize({ width: 320, height: 800 });
     const workspace: WorkspaceContextFixture = {
@@ -2892,6 +2967,119 @@ async function installWorkspaceContextApi(
       return workspaceListRequests;
     }
   };
+}
+
+async function installAnnouncementMobileDetailApi(
+  page: Page,
+  workspaceId: string,
+): Promise<{
+  id: string;
+  readRequests: { body: Record<string, unknown>; csrfToken: string }[];
+}> {
+  const id = '38500000-0000-4000-8000-000000000002';
+  const readRequests: { body: Record<string, unknown>; csrfToken: string }[] = [];
+  let isRead = false;
+  const listItem = () => ({
+    id,
+    workspaceId,
+    groupId: null,
+    channelId: null,
+    title: 'Mobile recipient detail',
+    priority: 1,
+    isPinned: true,
+    requiresReadConfirmation: true,
+    isRead,
+    publishedAt: '2026-08-25T09:00:00Z',
+    expiresAt: '2026-09-01T09:00:00Z',
+  });
+  const listItems = () => [
+    ...Array.from({ length: 3 }, (_, index) => ({
+      id: `38500000-0000-4000-8000-0000000001${String(index).padStart(2, '0')}`,
+      workspaceId,
+      groupId: null,
+      channelId: null,
+      title: `Mobile list context ${index + 1}`,
+      priority: 0,
+      isPinned: false,
+      requiresReadConfirmation: false,
+      isRead: true,
+      publishedAt: '2026-08-25T09:00:00Z',
+      expiresAt: null,
+    })),
+    listItem(),
+    ...Array.from({ length: 20 }, (_, index) => ({
+      id: `38500000-0000-4000-8000-0000000002${String(index).padStart(2, '0')}`,
+      workspaceId,
+      groupId: null,
+      channelId: null,
+      title: `Mobile list context ${index + 4}`,
+      priority: 0,
+      isPinned: false,
+      requiresReadConfirmation: false,
+      isRead: true,
+      publishedAt: '2026-08-25T09:00:00Z',
+      expiresAt: null,
+    })),
+  ];
+
+  await page.route('**/api/security/csrf-token', async (route) => {
+    await route.fulfill({
+      status: 200,
+      contentType: 'application/json; charset=utf-8',
+      body: JSON.stringify({ token: 'csrf-announcement-read', headerName: 'X-CSRF-Token' }),
+    });
+  });
+  await page.route('**/api/announcements**', async (route) => {
+    const request = route.request();
+    const pathname = new URL(request.url()).pathname;
+    if (pathname === '/api/announcements/audiences' && request.method() === 'GET') {
+      await route.fulfill({
+        status: 200,
+        contentType: 'application/json; charset=utf-8',
+        body: JSON.stringify([]),
+      });
+      return;
+    }
+    if (pathname === '/api/announcements' && request.method() === 'GET') {
+      await route.fulfill({
+        status: 200,
+        contentType: 'application/json; charset=utf-8',
+        body: JSON.stringify({ items: listItems() }),
+      });
+      return;
+    }
+    const listedDetail = listItems().find((item) => pathname === `/api/announcements/${item.id}`);
+    if (listedDetail && request.method() === 'GET') {
+      await route.fulfill({
+        status: 200,
+        contentType: 'application/json; charset=utf-8',
+        body: JSON.stringify({
+          ...listedDetail,
+          body: listedDetail.id === id ? 'A long recipient-facing body. '.repeat(48) : 'List context body.',
+          createdAt: '2026-08-25T08:55:00Z',
+          updatedAt: '2026-08-25T08:55:00Z',
+        }),
+      });
+      return;
+    }
+    if (pathname === `/api/announcements/${id}/read` && request.method() === 'POST') {
+      readRequests.push({
+        body: request.postDataJSON() as Record<string, unknown>,
+        csrfToken: request.headers()['x-csrf-token'] ?? '',
+      });
+      isRead = true;
+      await route.fulfill({
+        status: 200,
+        contentType: 'application/json; charset=utf-8',
+        body: JSON.stringify({ status: 'OK' }),
+      });
+      return;
+    }
+
+    await route.fulfill({ status: 405 });
+  });
+
+  return { id, readRequests };
 }
 
 async function installAnnouncementEditorApi(

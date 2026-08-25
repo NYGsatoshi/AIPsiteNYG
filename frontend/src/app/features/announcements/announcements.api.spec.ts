@@ -15,6 +15,7 @@ describe('announcement API adapters', () => {
       requiresReadConfirmation: true,
       isRead: false,
       publishedAt: '2026-07-07T00:00:00Z',
+      expiresAt: '2026-07-08T00:00:00Z',
     });
 
     expect(announcement.id).toBe('announcement-1');
@@ -25,6 +26,9 @@ describe('announcement API adapters', () => {
     expect(announcement.detailState).toBe('notLoaded');
     expect(announcement.capabilities).toEqual(['readAnnouncement']);
     expect(announcement.readState.requiresReadConfirmation).toBe(true);
+    expect(announcement.expiresAt).toBe('2026-07-08T00:00:00Z');
+    expect(announcement.expiresAtLabel).toBeTruthy();
+    expect(announcement.readState).not.toHaveProperty('confirmedAtLabel');
   });
 
   it('uses the most specific backend scope for channel, group, workspace, and global announcements', () => {

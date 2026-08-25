@@ -1,5 +1,6 @@
 import { ComponentFixture, TestBed } from '@angular/core/testing';
-import { provideRouter } from '@angular/router';
+import { ActivatedRoute, convertToParamMap, ParamMap, Router } from '@angular/router';
+import { BehaviorSubject } from 'rxjs';
 
 import { AIP_ANNOUNCEMENTS_PAGE_MOCK } from '../announcements.facade';
 import {
@@ -12,11 +13,26 @@ import { AnnouncementsPageViewModel } from '../announcements.types';
 import { AnnouncementsPageComponent } from './announcements-page.component';
 
 const renderAnnouncementsPage = async (
-  page: AnnouncementsPageViewModel
+  page: AnnouncementsPageViewModel,
+  announcementId: string | null = null,
 ): Promise<ComponentFixture<AnnouncementsPageComponent>> => {
+  routeParams = new BehaviorSubject<ParamMap>(
+    convertToParamMap(announcementId ? { announcementId } : {}),
+  );
+  routerNavigate = vi.fn(async () => true);
   await TestBed.configureTestingModule({
     imports: [AnnouncementsPageComponent],
-    providers: [provideRouter([]), { provide: AIP_ANNOUNCEMENTS_PAGE_MOCK, useValue: page }]
+    providers: [
+      { provide: AIP_ANNOUNCEMENTS_PAGE_MOCK, useValue: page },
+      {
+        provide: ActivatedRoute,
+        useValue: {
+          snapshot: { paramMap: routeParams.value },
+          paramMap: routeParams,
+        } as unknown as Partial<ActivatedRoute>,
+      },
+      { provide: Router, useValue: { navigate: routerNavigate } },
+    ]
   }).compileComponents();
 
   const fixture = TestBed.createComponent(AnnouncementsPageComponent);
@@ -24,11 +40,24 @@ const renderAnnouncementsPage = async (
   return fixture;
 };
 
+let routeParams: BehaviorSubject<ParamMap>;
+let routerNavigate: ReturnType<typeof vi.fn>;
+const originalMatchMediaDescriptor = Object.getOwnPropertyDescriptor(window, 'matchMedia');
+
 const textContent = (fixture: ComponentFixture<AnnouncementsPageComponent>): string =>
   (fixture.nativeElement as HTMLElement).textContent ?? '';
 
 describe('AnnouncementsPageComponent', () => {
-  afterEach(() => TestBed.resetTestingModule());
+  afterEach(() => {
+    document.getElementById('app-shell-main-content')?.remove();
+    if (originalMatchMediaDescriptor) {
+      Object.defineProperty(window, 'matchMedia', originalMatchMediaDescriptor);
+    } else {
+      Reflect.deleteProperty(window, 'matchMedia');
+    }
+    vi.restoreAllMocks();
+    TestBed.resetTestingModule();
+  });
 
   it('hides create button without capability', async () => {
     const fixture = await renderAnnouncementsPage(ANNOUNCEMENT_PAGE_SCENARIOS.noCreatePermission);
@@ -119,6 +148,109 @@ describe('AnnouncementsPageComponent', () => {
 
     expect((fixture.nativeElement as HTMLElement).querySelector('[data-testid="create-announcement-action"]')).toBeNull();
     expect((fixture.nativeElement as HTMLElement).querySelector('[data-testid="edit-announcement-action"]')).toBeNull();
+  });
+
+  it('uses the mobile list/detail route hierarchy, resets AppShell scroll, and restores the origin row after Back', async () => {
+    Object.defineProperty(window, 'matchMedia', {
+      configurable: true,
+      value: (query: string) => ({ matches: query === '(max-width: 860px)' }) as MediaQueryList,
+    });
+    vi.spyOn(window, 'requestAnimationFrame').mockImplementation((callback: FrameRequestCallback) => {
+      callback(0);
+      return 1;
+    });
+    const appScrollHost = document.createElement('main');
+    appScrollHost.id = 'app-shell-main-content';
+    appScrollHost.scrollTop = 384;
+    Object.defineProperty(appScrollHost, 'scrollTo', {
+      configurable: true,
+      value: vi.fn((options: ScrollToOptions) => {
+        appScrollHost.scrollTop = Number(options.top ?? 0);
+      }),
+    });
+    document.body.append(appScrollHost);
+
+    const fixture = await renderAnnouncementsPage(ANNOUNCEMENT_PAGE_SCENARIOS.default);
+    const component = fixture.componentInstance;
+    const announcementId = DEFAULT_ANNOUNCEMENTS[0].id;
+
+    component.selectAnnouncement(announcementId);
+    expect(routerNavigate).toHaveBeenCalledWith(['/announcements', announcementId]);
+
+    routeParams.next(convertToParamMap({ announcementId }));
+    fixture.detectChanges();
+    await Promise.resolve();
+
+    expect(appScrollHost.scrollTop).toBe(0);
+    expect(document.activeElement).toBe(
+      (fixture.nativeElement as HTMLElement).querySelector('[data-testid="announcement-detail-title"]'),
+    );
+
+    const back = (fixture.nativeElement as HTMLElement).querySelector<HTMLButtonElement>(
+      '[data-testid="announcement-mobile-back"]',
+    );
+    back?.click();
+    expect(routerNavigate).toHaveBeenLastCalledWith(['/announcements'], { replaceUrl: true });
+
+    routeParams.next(convertToParamMap({}));
+    fixture.detectChanges();
+    await Promise.resolve();
+
+    const returnedRow = (fixture.nativeElement as HTMLElement).querySelector<HTMLElement>(
+      `[data-announcement-id="${announcementId}"]`,
+    );
+    expect(appScrollHost.scrollTop).toBe(384);
+    expect(document.activeElement).toBe(returnedRow);
+  });
+
+  it('uses the list heading as the safe Back focus fallback for an unavailable direct route', async () => {
+    Object.defineProperty(window, 'matchMedia', {
+      configurable: true,
+      value: (query: string) => ({ matches: query === '(max-width: 860px)' }) as MediaQueryList,
+    });
+    vi.spyOn(window, 'requestAnimationFrame').mockImplementation((callback: FrameRequestCallback) => {
+      callback(0);
+      return 1;
+    });
+
+    const fixture = await renderAnnouncementsPage(
+      ANNOUNCEMENT_PAGE_SCENARIOS.default,
+      'unavailable-announcement',
+    );
+    const root = fixture.nativeElement as HTMLElement;
+    expect(root.querySelector('[data-testid="announcement-detail-empty"]')).not.toBeNull();
+
+    root.querySelector<HTMLButtonElement>('[data-testid="announcement-mobile-back"]')?.click();
+    expect(routerNavigate).toHaveBeenLastCalledWith(['/announcements'], { replaceUrl: true });
+    routeParams.next(convertToParamMap({}));
+    fixture.detectChanges();
+    await Promise.resolve();
+
+    expect(document.activeElement).toBe(root.querySelector('[data-testid="announcement-list-heading"]'));
+  });
+
+  it('focuses the valid direct-detail title after the first mobile route parameter emission', async () => {
+    Object.defineProperty(window, 'matchMedia', {
+      configurable: true,
+      value: (query: string) => ({ matches: query === '(max-width: 860px)' }) as MediaQueryList,
+    });
+    vi.spyOn(window, 'requestAnimationFrame').mockImplementation((callback: FrameRequestCallback) => {
+      callback(0);
+      return 1;
+    });
+
+    const fixture = await renderAnnouncementsPage(
+      ANNOUNCEMENT_PAGE_SCENARIOS.default,
+      DEFAULT_ANNOUNCEMENTS[0].id,
+    );
+    fixture.detectChanges();
+    await Promise.resolve();
+
+    const root = fixture.nativeElement as HTMLElement;
+    const title = root.querySelector('[data-testid="announcement-detail-title"]');
+    expect(root.querySelector('.announcements-page__content--detail-route')).not.toBeNull();
+    expect(title?.textContent).toContain(DEFAULT_ANNOUNCEMENTS[0].title);
+    expect(document.activeElement).toBe(title);
   });
 
   it('shows the reactive editor when create is allowed', async () => {

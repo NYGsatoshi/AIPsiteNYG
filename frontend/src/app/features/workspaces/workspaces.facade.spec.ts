@@ -440,6 +440,43 @@ describe('WorkspacesFacade live dashboard projection', () => {
     expect(TestBed.inject(RealtimeFacade).runAuthoritativeHttpCatchUps).toHaveBeenCalledOnce();
   });
 
+  it('rehydrates protected HTTP state after a tenant identity change while realtime is disabled', () => {
+    http.expectOne('/api/workspaces/capabilities').flush({ data: { canCreate: false } });
+    http.expectOne('/api/workspaces').flush([workspaceDto]);
+    const realtime = TestBed.inject(RealtimeFacade) as unknown as {
+      runAuthoritativeHttpCatchUps: ReturnType<typeof vi.fn>;
+    };
+    realtime.runAuthoritativeHttpCatchUps.mockClear();
+
+    // The disabled rollout keeps the transport degraded, so no SignalR
+    // reconnection will invoke feature catch-ups. The new Tenant's fresh
+    // Workspace HTTP response must be the recovery authority instead.
+    realtimeState.set('Degraded');
+    authSessionState.set({
+      isAuthenticated: true,
+      currentTenant: { tenantId: 'tenant-b' },
+      currentUser: { userId: 'user-b' },
+      capabilities: [],
+    });
+    TestBed.flushEffects();
+
+    const refreshedCapabilities = http.expectOne('/api/workspaces/capabilities');
+    const refreshedList = http.expectOne('/api/workspaces');
+    refreshedCapabilities.flush({ data: { canCreate: false } });
+    expect(realtime.runAuthoritativeHttpCatchUps).not.toHaveBeenCalled();
+    refreshedList.flush([{ ...workspaceDto, id: 'workspace-tenant-b' }]);
+
+    expect(facade.dashboard().workspaces.map((workspace) => workspace.id)).toEqual([
+      'workspace-tenant-b',
+    ]);
+    expect(workspaceSelection.reconcileAuthorizedWorkspaces).toHaveBeenLastCalledWith(
+      [{ id: 'workspace-tenant-b', label: 'Backend Workspace' }],
+      { tenantId: 'tenant-b', userId: 'user-b' },
+      null,
+    );
+    expect(realtime.runAuthoritativeHttpCatchUps).toHaveBeenCalledOnce();
+  });
+
   it('keeps reconnect catch-up pending on the same revision until a degraded fallback settles', async () => {
     http.expectOne('/api/workspaces/capabilities').flush({ data: { canCreate: false } });
     http.expectOne('/api/workspaces').flush([workspaceDto]);

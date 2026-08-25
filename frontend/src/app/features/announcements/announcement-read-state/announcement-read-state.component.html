@@ -1,6 +1,6 @@
 <span class="announcement-read-state" [class.announcement-read-state--pending]="readState.requiresReadConfirmation && !readState.isRead">
   @if (readState.requiresReadConfirmation) {
-    既読確認: {{ readState.isRead ? readState.confirmedAtLabel ?? '確認済み' : '未確認' }}
+    既読確認: {{ readState.isRead ? '確認済み' : readState.isMarkingRead ? '確認中' : '未確認' }}
   } @else {
     既読確認なし
   }

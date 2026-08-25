@@ -1,7 +1,22 @@
 @if (announcement) {
   <article class="announcement-detail" data-testid="announcement-detail">
+    <button
+      #mobileBackAction
+      type="button"
+      class="announcement-detail__mobile-back"
+      data-testid="announcement-mobile-back"
+      (click)="backRequested.emit()"
+    >
+      <svg lucideChevronLeft aria-hidden="true"></svg>
+      <span>お知らせ一覧に戻る</span>
+    </button>
+
     <header class="announcement-detail__header">
       <div>
+        <p class="announcement-detail__priority" data-testid="announcement-priority-label">
+          <app-announcement-priority-badge [priority]="announcement.priority" />
+        </p>
+        <h2 #detailTitle tabindex="-1" data-testid="announcement-detail-title">{{ announcement.title }}</h2>
         <p class="announcement-detail__state">
           <app-announcement-publication-status
             [state]="announcement.publicationState"
@@ -9,7 +24,6 @@
             [timeZoneLabel]="announcement.timeZoneLabel"
           />
         </p>
-        <h2 data-testid="announcement-detail-title">{{ announcement.title }}</h2>
       </div>
 
       @if (
@@ -28,20 +42,10 @@
       }
     </header>
 
-    <dl class="announcement-detail__meta">
-      <div>
-        <dt>優先度</dt>
-        <dd data-testid="announcement-priority-label">
-          <app-announcement-priority-badge [priority]="announcement.priority" />
-        </dd>
-      </div>
-      <div>
-        <dt>対象</dt>
-        <dd><app-announcement-audience-preview [audienceScope]="announcement.audienceScope" /></dd>
-      </div>
+    <dl class="announcement-detail__meta" data-testid="announcement-detail-key-facts">
       <div>
         <dt>{{ announcement.publicationState === 'scheduled' ? '公開予定' : '公開日時' }}</dt>
-        <dd>
+        <dd data-testid="announcement-published-at">
           @if (announcement.publicationState === 'scheduled') {
             <span>{{ announcement.scheduledAtLabel || '未設定' }}</span>
             @if (announcement.timeZoneLabel) {
@@ -52,11 +56,56 @@
           }
         </dd>
       </div>
+      @if (announcement.expiresAtLabel) {
+        <div>
+          <dt>表示期限</dt>
+          <dd data-testid="announcement-expires-at">
+            <time [attr.datetime]="announcement.expiresAt">{{ announcement.expiresAtLabel }}</time>
+          </dd>
+        </div>
+      }
+      <div>
+        <dt>対象</dt>
+        <dd data-testid="announcement-audience-label">
+          <app-announcement-audience-preview [audienceScope]="announcement.audienceScope" />
+        </dd>
+      </div>
       <div>
         <dt>既読確認</dt>
-        <dd><app-announcement-read-state [readState]="announcement.readState" /></dd>
+        <dd>
+          <span
+            #readStateStatus
+            class="announcement-detail__read-status"
+            tabindex="-1"
+            role="status"
+            aria-live="polite"
+            data-testid="announcement-read-status"
+          >
+            <app-announcement-read-state [readState]="announcement.readState" />
+          </span>
+        </dd>
       </div>
     </dl>
+
+    @if (announcement.readState.requiresReadConfirmation && !announcement.readState.isRead) {
+      <div class="announcement-detail__read-action">
+        @if (announcement.readState.markReadError) {
+          <p class="announcement-detail__read-error" role="alert" data-testid="announcement-mark-read-error">
+            {{ announcement.readState.markReadError }}
+          </p>
+        }
+        <button
+          type="button"
+          class="announcement-detail__mark-read"
+          data-testid="announcement-mark-read-action"
+          [disabled]="announcement.readState.isMarkingRead"
+          [attr.aria-busy]="announcement.readState.isMarkingRead"
+          (click)="requestMarkRead()"
+        >
+          {{ announcement.readState.isMarkingRead ? '確認中…' : '既読にする' }}
+        </button>
+      </div>
+    }
 
     @if (announcement.detailState === 'loaded') {
       <p class="announcement-detail__body" data-testid="announcement-body-text">{{ announcement.body }}</p>
@@ -64,17 +113,6 @@
       <p class="announcement-detail__body" data-testid="announcement-detail-message">
         {{ announcement.detailMessage }}
       </p>
-    }
-
-    @if (announcement.readState.requiresReadConfirmation && !announcement.readState.isRead) {
-      <button
-        type="button"
-        class="announcement-detail__edit"
-        data-testid="announcement-mark-read-action"
-        (click)="markReadRequested.emit(announcement.id)"
-      >
-        既読にする
-      </button>
     }
 
     @if (announcement.attachment) {
@@ -85,6 +123,17 @@
   </article>
 } @else {
   <section class="announcement-detail announcement-detail--empty" data-testid="announcement-detail-empty">
-    表示できるお知らせがありません。
+    <button
+      #mobileBackAction
+      type="button"
+      class="announcement-detail__mobile-back"
+      data-testid="announcement-mobile-back"
+      (click)="backRequested.emit()"
+    >
+      <svg lucideChevronLeft aria-hidden="true"></svg>
+      <span>お知らせ一覧に戻る</span>
+    </button>
+    <h2 #detailEmptyHeading tabindex="-1">お知らせを表示できません</h2>
+    <p>表示できるお知らせがありません。</p>
   </section>
 }

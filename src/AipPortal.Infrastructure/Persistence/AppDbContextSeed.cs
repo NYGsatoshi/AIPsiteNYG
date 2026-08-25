@@ -436,7 +436,7 @@ public static class AppDbContextSeed
                 Body = "Synthetic announcement body for the real-backend browser smoke test.",
                 Priority = AnnouncementPriority.Important,
                 IsPinned = true,
-                RequiresReadConfirmation = false,
+                RequiresReadConfirmation = true,
                 PublishedAt = now.AddMinutes(-5)
             };
             await dbContext.Announcements.AddAsync(announcement, cancellationToken);
@@ -447,7 +447,7 @@ public static class AppDbContextSeed
             announcement.Body = "Synthetic announcement body for the real-backend browser smoke test.";
             announcement.Priority = AnnouncementPriority.Important;
             announcement.IsPinned = true;
-            announcement.RequiresReadConfirmation = false;
+            announcement.RequiresReadConfirmation = true;
             announcement.PublishedAt = now.AddMinutes(-5);
             announcement.ExpiresAt = null;
             if (announcement.IsDeleted)
@@ -455,6 +455,14 @@ public static class AppDbContextSeed
                 announcement.Restore();
             }
         }
+
+        var smokeUserAnnouncementReads = await dbContext.AnnouncementReads
+            .Where(candidate =>
+                candidate.TenantId == tenantId &&
+                candidate.AnnouncementId == announcement.Id &&
+                candidate.UserId == user.Id)
+            .ToListAsync(cancellationToken);
+        dbContext.AnnouncementReads.RemoveRange(smokeUserAnnouncementReads);
 
         var project = await dbContext.Projects.FirstOrDefaultAsync(
             candidate => candidate.TenantId == tenantId && candidate.WorkspaceId == workspace.Id && candidate.Slug == projectSlug,

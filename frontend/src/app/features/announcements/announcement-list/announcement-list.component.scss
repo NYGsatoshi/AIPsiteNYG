@@ -9,10 +9,18 @@
   min-width: 0;
 }
 
+.announcement-list__heading {
+  margin: 0;
+  color: var(--aip-color-text-primary);
+  font-size: 1rem;
+  line-height: 1.3;
+}
+
 .announcement-list__item {
   display: grid;
   gap: 8px;
   width: 100%;
+  min-height: 44px;
   min-width: 0;
   border: 1px solid var(--aip-color-border-default);
   border-radius: 8px;
@@ -52,4 +60,10 @@
   color: var(--aip-color-text-secondary);
   font-size: 0.84rem;
   font-weight: 700;
+}
+
+@media (max-width: 860px) {
+  .announcement-list__item {
+    padding: 14px;
+  }
 }
