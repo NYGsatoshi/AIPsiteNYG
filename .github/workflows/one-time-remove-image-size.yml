@@ -1,0 +1,100 @@
+name: One-time remove image-size
+
+on:
+  push:
+    branches:
+      - fix/remove-image-size-transitive
+
+permissions:
+  contents: write
+
+jobs:
+  regenerate-lockfiles:
+    if: github.actor != 'github-actions[bot]'
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+
+    steps:
+      - name: Check out branch
+        uses: actions/checkout@v7
+        with:
+          fetch-depth: 0
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v7
+        with:
+          node-version: '24'
+
+      - name: Pin npm
+        run: npm install --global npm@11.17.0
+
+      - name: Regenerate npm lockfiles
+        shell: bash
+        run: |
+          set -euo pipefail
+          npm --prefix frontend install --package-lock-only --ignore-scripts --no-audit --no-fund
+          npm --prefix aipsite-frontend install --package-lock-only --ignore-scripts --no-audit --no-fund
+
+      - name: Prove image-size is absent
+        shell: bash
+        run: |
+          set -euo pipefail
+          node <<'NODE'
+          const fs = require('node:fs')
+          const lockfiles = ['frontend/package-lock.json', 'aipsite-frontend/package-lock.json']
+          for (const file of lockfiles) {
+            const lock = JSON.parse(fs.readFileSync(file, 'utf8'))
+            const packages = lock.packages ?? {}
+            const imagePackagePaths = Object.keys(packages).filter(path => path === 'node_modules/image-size' || path.endsWith('/node_modules/image-size'))
+            if (imagePackagePaths.length) {
+              throw new Error(`${file}: image-size package remains at ${imagePackagePaths.join(', ')}`)
+            }
+            for (const [path, meta] of Object.entries(packages)) {
+              for (const field of ['dependencies', 'optionalDependencies']) {
+                if (meta?.[field]?.['image-size'] !== undefined) {
+                  throw new Error(`${file}: ${path || '<root>'} still references image-size via ${field}`)
+                }
+              }
+            }
+            const lessPackages = Object.entries(packages)
+              .filter(([path]) => path === 'node_modules/less' || path.endsWith('/node_modules/less'))
+              .map(([path, meta]) => `${path}=${meta.version}`)
+            if (!lessPackages.length) {
+              throw new Error(`${file}: expected Angular tooling to retain Less, but no Less package was resolved`)
+            }
+            if (lessPackages.some(value => !value.endsWith('=4.9.0'))) {
+              throw new Error(`${file}: Less override did not fully converge: ${lessPackages.join(', ')}`)
+            }
+            console.log(`${file}: ${lessPackages.join(', ')}; image-size absent`)
+          }
+          NODE
+
+      - name: Install active frontend
+        run: npm --prefix frontend ci --no-audit --no-fund
+
+      - name: Build active frontend
+        run: npm --prefix frontend run build
+
+      - name: Test active frontend
+        run: npm --prefix frontend test
+
+      - name: Install legacy frontend
+        run: npm --prefix aipsite-frontend ci --no-audit --no-fund
+
+      - name: Build legacy frontend
+        run: npm --prefix aipsite-frontend run build
+
+      - name: Commit regenerated lockfiles
+        shell: bash
+        run: |
+          set -euo pipefail
+          git diff --check
+          git add frontend/package-lock.json aipsite-frontend/package-lock.json
+          if git diff --cached --quiet; then
+            echo 'No lockfile changes were produced.' >&2
+            exit 1
+          fi
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git commit -m 'chore(deps): regenerate lockfiles without image-size'
+          git push origin HEAD:fix/remove-image-size-transitive
