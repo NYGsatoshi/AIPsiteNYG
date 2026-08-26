@@ -26,3 +26,4 @@ TASK-V1-PR03C uses the real backend for task detail, mutations, revocation, and 
 creates and activates a Workspace through the delegated real-backend capability
 creates a Draft Project and explicitly activates it through the real backend
 U-22 completes the same-lineage Workspace, Project, and Task journey through the real backend
+Issue #378 confirms immediate publication against the real backend and rejects a revoked selected audience
