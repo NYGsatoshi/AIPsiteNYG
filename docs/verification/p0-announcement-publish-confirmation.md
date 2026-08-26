@@ -60,6 +60,25 @@ scheduling or retry feature requires a separately approved persistent server
 contract and cannot be inferred from optional backend timestamp fields or UI
 view-model labels.
 
+## Recorded local verification
+
+- Focused Angular editor, facade, and API-adapter suites passed: 3 files / 32
+  tests under Node 24.19.0. They cover the review-before-POST boundary,
+  confirmation single-flight, command-settled recovery, preserved values,
+  selected-audience refresh, and exact immediate request mapping.
+- The production Angular build passed. This candidate introduces no new
+  Announcement-editor style-budget warning; existing repository bundle and
+  unrelated component-style warnings remain.
+- The focused static Playwright announcement scenario passed in Chromium
+  desktop and mobile at a forced 320-pixel viewport. It exercises validation,
+  the confirmation review, Escape/focus return, failure-preserved values,
+  successful HTTP-200 handling, no horizontal overflow, and axe checks. Its
+  API responses are mocked.
+- The real-backend P0 manifest/discovery verification passed locally and
+  selects the new Issue #378 title. It has not been executed locally because
+  the Compose frontend build requires the externally supplied Syncfusion
+  license secret; no credential was written or bypassed.
+
 ## Required final-head verification
 
 No real-backend confirmation result is recorded by this documentation patch.
