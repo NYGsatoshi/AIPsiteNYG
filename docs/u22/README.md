@@ -13,8 +13,11 @@ The submission scope is the authenticated Workspace -> Project -> Task path:
 4. inspect the Task's current state, current phase, and available Activity.
 
 Read [submission-checklist.md](submission-checklist.md) before declaring a
-baseline. The final freeze must replace its recording fields with the exact
-commit SHA, release identifier, dates, and links to final evidence.
+baseline. The final freeze records the raw commit SHA, release identifier,
+date, and final evidence in the annotated `u22-2026-submission` tag and its
+matching GitHub Release. The tag target is deliberately not copied into the
+same commit's Markdown because that would be self-referential; use the raw SHA
+in the annotation and release metadata as the immutable identity.
 
 ## Contents
 
