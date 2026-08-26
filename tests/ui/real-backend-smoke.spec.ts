@@ -3331,6 +3331,8 @@ test.describe('MVP0 real backend browser smoke', () => {
     const revokedWorkspaceName = `Issue 378 revoked audience ${randomUUID().slice(0, 8)}`;
     const revokedTitle = `Issue 378 revoked publication ${randomUUID().slice(0, 8)}`;
     const revokedBody = 'This draft must remain editable when its selected audience loses authorization.';
+    let temporaryWorkspaceId: string | null = null;
+    let temporaryWorkspaceMembershipRevoked = false;
 
     page.on('pageerror', (error) => evidence.pageErrors.push(error.message));
     page.on('console', (message) => { if (message.type() === 'error') evidence.consoleErrors.push(message.text()); });
@@ -3448,7 +3450,7 @@ test.describe('MVP0 real backend browser smoke', () => {
       expect(temporaryWorkspace.status, temporaryWorkspace.text).toBe(201);
       expect(temporaryWorkspace.csrfHeaderPresent, 'temporary Workspace create CSRF header').toBe(true);
       const temporaryWorkspaceBody = parseJson(temporaryWorkspace.text) as Record<string, any>;
-      const temporaryWorkspaceId = String(temporaryWorkspaceBody?.data?.id ?? '');
+      temporaryWorkspaceId = String(temporaryWorkspaceBody?.data?.id ?? '');
       expect(temporaryWorkspaceId, 'temporary Workspace id').toMatch(/^[0-9a-f-]{36}$/i);
 
       const audiencesAfterWorkspaceCreate = await recordFetchJson(
@@ -3494,6 +3496,7 @@ test.describe('MVP0 real backend browser smoke', () => {
       });
       expect(membershipRevocation.status, membershipRevocation.text).toBe(200);
       expect(membershipRevocation.csrfHeaderPresent, 'selected audience revocation CSRF header').toBe(true);
+      temporaryWorkspaceMembershipRevoked = true;
 
       const revokedPublicationResponse = waitForApiResponse(page, 'POST', '/api/announcements');
       await confirmationDialog.getByRole('button', {
@@ -3528,6 +3531,28 @@ test.describe('MVP0 real backend browser smoke', () => {
       expectUnexpectedConsoleErrors(evidence, [expectedRevokedAudienceFailure]);
       expectUnexpectedApiFailures(evidence, [expectedRevokedAudienceFailure]);
     } finally {
+      // The success path deliberately revokes this user before confirming the
+      // selected-scope denial. If a preceding assertion fails, archive the
+      // still-owned disposable Workspace so later shared-fixture tests start
+      // with their intended Workspace set.
+      if (temporaryWorkspaceId && !temporaryWorkspaceMembershipRevoked) {
+        try {
+          const cleanup = await requestWithCsrf(page, 'POST', `/api/workspaces/${temporaryWorkspaceId}/archive`);
+          evidence.steps.push({
+            name: 'issue-378-failed-path-temporary-workspace-cleanup',
+            method: 'POST',
+            path: `/api/workspaces/${temporaryWorkspaceId}/archive`,
+            status: cleanup.status,
+          });
+        } catch {
+          evidence.steps.push({
+            name: 'issue-378-failed-path-temporary-workspace-cleanup',
+            method: 'POST',
+            path: `/api/workspaces/${temporaryWorkspaceId}/archive`,
+            status: 0,
+          });
+        }
+      }
       await testInfo.attach('issue-378-announcement-publication-real-backend-evidence.json', {
         body: JSON.stringify(evidence, null, 2),
         contentType: 'application/json'
@@ -4603,6 +4628,17 @@ async function openPr03cTaskDetail(page: Page, evidence: SmokeEvidence) {
   });
   evidence.workspaceId = String((detail as Record<string, any>).task.workspaceId);
   expect(evidence.workspaceId, 'task workspaceId is part of the canonical Task DTO').toMatch(/^[0-9a-f-]{36}$/i);
+
+  // The direct Task route remains tenant/workspace-authorized. Establish the
+  // seeded Task's Workspace explicitly instead of relying on another serial
+  // smoke scenario's local selection or list ordering.
+  const workspaceSwitcher = page.getByTestId('workspace-switcher');
+  await expect(workspaceSwitcher).toBeVisible();
+  await expect(workspaceSwitcher.locator(`option[value="${evidence.workspaceId}"]`)).toHaveCount(1);
+  if (await workspaceSwitcher.inputValue() !== evidence.workspaceId) {
+    await workspaceSwitcher.selectOption(evidence.workspaceId);
+    await expect(workspaceSwitcher).toHaveValue(evidence.workspaceId);
+  }
 
   await page.goto(`/app/projects/${evidence.projectId}/tasks/${evidence.taskId}`);
   await expect(page.getByTestId('task-detail-page')).toBeVisible();

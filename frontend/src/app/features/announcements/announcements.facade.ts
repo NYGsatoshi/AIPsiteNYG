@@ -222,6 +222,12 @@ export class AnnouncementsFacade {
           if (!this.isCurrentProtectedGeneration(generation)) {
             return;
           }
+          // A refresh can have started immediately before the user opened the
+          // editor. Its authoritative list data is still safe to apply, but
+          // it must never replace that local, unsubmitted create draft.
+          const activeDraft = this.editorActive ? this.pageState().editorDraft : undefined;
+          const activeEditorError = activeDraft ? this.pageState().editorError : undefined;
+          const isPublishing = activeDraft ? this.pageState().isPublishing : false;
           const listedAnnouncements = (response.items ?? []).map((announcement) =>
             this.reconcileReadActionState(mapAnnouncementListItem(announcement)),
           );
@@ -245,6 +251,9 @@ export class AnnouncementsFacade {
             ...this.emptyPage(announcements.length === 0 ? 'empty' : 'ready'),
             announcements,
             selectedAnnouncementId,
+            editorDraft: activeDraft,
+            editorError: activeEditorError,
+            isPublishing,
             pageCapabilities: announcements.length > 0 ? ['readAnnouncement'] : [],
             message:
               announcements.length === 0 ? '表示できるお知らせはまだありません。' : undefined,
@@ -344,6 +353,20 @@ export class AnnouncementsFacade {
       if (!this.isCurrentProtectedGeneration(generation)) {
         return;
       }
+
+      // The event may have arrived just before a user opened the editor. Do
+      // not let the deferred list response replace that new, local draft.
+      // The editor is already told that it needs a fresh review before the
+      // one immediate publication command is sent.
+      if (this.editorActive) {
+        this.pageState.update((page) => ({
+          ...page,
+          message:
+            'An announcement changed elsewhere. Your draft was preserved; reload before publishing.',
+        }));
+        return;
+      }
+
       this.loadAnnouncements();
     }, 100);
   }
