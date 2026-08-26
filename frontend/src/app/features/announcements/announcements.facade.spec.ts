@@ -2,6 +2,7 @@ import { provideHttpClient } from '@angular/common/http';
 import { HttpTestingController, provideHttpClientTesting } from '@angular/common/http/testing';
 import { TestBed } from '@angular/core/testing';
 import { Subject } from 'rxjs';
+import { vi } from 'vitest';
 
 import {
   ProtectedStateClearReason,
@@ -408,6 +409,53 @@ describe('AnnouncementsFacade', () => {
     expect(facade.page().announcements[0].audienceScope).toBe('group');
   });
 
+  it('keeps immediate publication single-flight while the authoritative response is pending', () => {
+    const workspaceId = '11111111-1111-1111-1111-111111111111';
+    const audienceDto = {
+      key: `workspace:${workspaceId}`,
+      scopeType: 'workspace',
+      workspaceId,
+      groupId: null,
+      channelId: null,
+      displayName: 'School',
+      estimatedRecipientCount: 1248,
+    };
+
+    httpMock.expectOne('/api/announcements').flush({ items: [] });
+    httpMock.expectOne('/api/announcements/audiences').flush([audienceDto]);
+    expect(facade.beginCreate()).toBe(true);
+    const audience = facade.page().editorDraft!.availableAudiences[0]!;
+    const submission = {
+      title: 'One authoritative publication',
+      body: 'The browser must not post this twice.',
+      priority: 'normal' as const,
+      audience,
+      requiresReadConfirmation: false,
+    };
+
+    facade.createAnnouncement(submission);
+    facade.createAnnouncement(submission);
+
+    const requests = httpMock.match((request) =>
+      request.url === '/api/announcements' && request.method === 'POST',
+    );
+    expect(requests).toHaveLength(1);
+    expect(facade.page().isPublishing).toBe(true);
+    requests[0]!.flush({
+      id: 'announcement-created-once',
+      workspaceId,
+      groupId: null,
+      channelId: null,
+      title: submission.title,
+      body: submission.body,
+      priority: 0,
+      requiresReadConfirmation: false,
+      isRead: false,
+      publishedAt: '2026-08-26T12:00:00Z',
+    });
+    expect(facade.page().isPublishing).toBe(false);
+  });
+
   it('preserves the draft and disables publish after a confirmed audience authorization change', () => {
     const workspaceId = '11111111-1111-1111-1111-111111111111';
     const audienceDto = {
@@ -595,6 +643,119 @@ describe('AnnouncementsFacade', () => {
     });
     expect(facade.page().editorError).toContain('could not be published right now');
     expect(facade.page().editorError).not.toContain('upstream service detail');
+  });
+
+  it('does not let a deferred announcement refresh discard a newly opened editor', () => {
+    const workspaceId = '11111111-1111-1111-1111-111111111111';
+    const audienceDto = {
+      key: `workspace:${workspaceId}`,
+      scopeType: 'workspace',
+      workspaceId,
+      groupId: null,
+      channelId: null,
+      displayName: 'School',
+      estimatedRecipientCount: 1248,
+    };
+
+    httpMock.expectOne('/api/announcements').flush({ items: [] });
+    httpMock.expectOne('/api/announcements/audiences').flush([audienceDto]);
+
+    vi.useFakeTimers();
+    try {
+      // The durable event queues a refresh while no editor is active. A user
+      // can legitimately open the editor before that short debounce fires.
+      realtimeEvents.next({
+        eventId: 'announcement-changed-1',
+        eventType: 'Announcements.AnnouncementChanged.v1',
+        payloadSchemaVersion: 1,
+        occurredAt: '2026-08-27T00:00:00Z',
+        tenantId: 'tenant-1',
+        aggregateType: 'Announcement',
+        aggregateId: 'announcement-1',
+        aggregateVersion: 1,
+        actor: { actorType: 'System', actorId: null },
+        correlationId: null,
+        causationId: null,
+        payload: {},
+      });
+
+      expect(facade.beginCreate()).toBe(true);
+      facade.updateEditorDraft({
+        ...facade.page().editorDraft!,
+        title: 'Preserved title',
+        body: 'Preserved body',
+      });
+
+      vi.advanceTimersByTime(100);
+      httpMock.expectNone('/api/announcements');
+    } finally {
+      vi.useRealTimers();
+    }
+
+    expect(facade.page().editorDraft).toMatchObject({
+      title: 'Preserved title',
+      body: 'Preserved body',
+      availableAudiences: [
+        expect.objectContaining({ key: audienceDto.key }),
+      ],
+    });
+    expect(facade.page().message).toContain('Your draft was preserved');
+  });
+
+  it('retains an active editor when an earlier refresh response arrives after it opens', () => {
+    const workspaceId = '22222222-2222-2222-2222-222222222222';
+    const audienceDto = {
+      key: `workspace:${workspaceId}`,
+      scopeType: 'workspace',
+      workspaceId,
+      groupId: null,
+      channelId: null,
+      displayName: 'School',
+      estimatedRecipientCount: 1248,
+    };
+
+    httpMock.expectOne('/api/announcements').flush({ items: [] });
+    httpMock.expectOne('/api/announcements/audiences').flush([audienceDto]);
+
+    vi.useFakeTimers();
+    try {
+      realtimeEvents.next({
+        eventId: 'announcement-changed-2',
+        eventType: 'Announcements.AnnouncementChanged.v1',
+        payloadSchemaVersion: 1,
+        occurredAt: '2026-08-27T00:00:00Z',
+        tenantId: 'tenant-1',
+        aggregateType: 'Announcement',
+        aggregateId: 'announcement-2',
+        aggregateVersion: 1,
+        actor: { actorType: 'System', actorId: null },
+        correlationId: null,
+        causationId: null,
+        payload: {},
+      });
+      vi.advanceTimersByTime(100);
+      const delayedRefresh = httpMock.expectOne('/api/announcements');
+
+      expect(facade.beginCreate()).toBe(true);
+      facade.updateEditorDraft({
+        ...facade.page().editorDraft!,
+        title: 'Preserved while refresh completes',
+        body: 'The response started before the user opened the editor.',
+      });
+
+      delayedRefresh.flush({ items: [] });
+      httpMock.expectOne('/api/announcements/audiences').flush([audienceDto]);
+    } finally {
+      vi.useRealTimers();
+    }
+
+    expect(facade.page().editorDraft).toMatchObject({
+      title: 'Preserved while refresh completes',
+      body: 'The response started before the user opened the editor.',
+      availableAudiences: [
+        expect.objectContaining({ key: audienceDto.key }),
+      ],
+    });
   });
 
   it('fails closed when authorized audience loading fails', () => {

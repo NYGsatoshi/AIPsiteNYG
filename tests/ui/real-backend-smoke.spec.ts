@@ -983,7 +983,50 @@ test.describe('MVP0 real backend browser smoke', () => {
         },
         warnings: []
       });
-      await expect(page).toHaveURL(`/app/projects/${createdProjectId}`);
+      // Creating a Workspace can deliver its own authorization invalidation
+      // immediately after this Project POST. The Project-create facade treats
+      // that boundary fail-closed: it retains only the committed identity and
+      // offers a GET/navigation-only recovery instead of assuming the old
+      // authorization projection remains valid. Either automatic navigation
+      // or that explicit recovery is a valid product outcome, but neither may
+      // send a second create command.
+      let projectOpenState: 'opened' | 'pending' | 'waiting' = 'waiting';
+      await expect
+        .poll(
+          async () => {
+            if (page.url().endsWith(`/app/projects/${createdProjectId}`)) {
+              projectOpenState = 'opened';
+              return projectOpenState;
+            }
+
+            projectOpenState = (await page.getByTestId('project-create-pending').isVisible())
+              ? 'pending'
+              : 'waiting';
+            return projectOpenState;
+          },
+          { timeout: 15_000 },
+        )
+        .not.toBe('waiting');
+
+      if (projectOpenState === 'pending') {
+        await expect(page.getByTestId('project-create-pending')).toBeVisible();
+        expect(observedProjectCreatePosts, 'navigation recovery does not repeat Project create').toBe(1);
+        const recoveryConfirmation = waitForApiResponse(
+          page,
+          'GET',
+          `/api/projects/${createdProjectId}`,
+        );
+        await projectDialog.getByRole('button', { name: 'Open Project' }).click();
+        await recordOkJson(
+          await recoveryConfirmation,
+          evidence,
+          'u22-journey-project-create-navigation-recovery',
+          (body) =>
+            (body as Record<string, unknown>)?.['id'] === createdProjectId &&
+            (body as Record<string, unknown>)?.['workspaceId'] === createdWorkspaceId,
+        );
+        await expect(page).toHaveURL(`/app/projects/${createdProjectId}`);
+      }
       await expect(page.getByTestId('project-draft-overview')).toBeVisible();
 
       const projectActivationResponsePromise = waitForApiResponse(page, 'POST', `/api/projects/${createdProjectId}/activate`);
@@ -3274,6 +3317,249 @@ test.describe('MVP0 real backend browser smoke', () => {
     }
   });
 
+  test('Issue #378 confirms immediate publication against the real backend and rejects a revoked selected audience', async ({ page }, testInfo) => {
+    const evidence: SmokeEvidence = {
+      baseURL: String(testInfo.project.use.baseURL ?? ''),
+      email: smokeEmail,
+      steps: [],
+      pageErrors: [],
+      consoleErrors: [],
+      failedApiResponses: []
+    };
+    const immediateTitle = `Issue 378 immediate publication ${randomUUID().slice(0, 8)}`;
+    const immediateBody = 'This synthetic announcement proves the confirmed immediate publication path.';
+    const revokedWorkspaceName = `Issue 378 revoked audience ${randomUUID().slice(0, 8)}`;
+    const revokedTitle = `Issue 378 revoked publication ${randomUUID().slice(0, 8)}`;
+    const revokedBody = 'This draft must remain editable when its selected audience loses authorization.';
+    let temporaryWorkspaceId: string | null = null;
+    let temporaryWorkspaceMembershipRevoked = false;
+
+    page.on('pageerror', (error) => evidence.pageErrors.push(error.message));
+    page.on('console', (message) => { if (message.type() === 'error') evidence.consoleErrors.push(message.text()); });
+    page.on('response', (response) => recordFailedApiResponse(response, evidence));
+
+    try {
+      await loginAndVerifySession(page, evidence);
+      const currentUserId = evidence.userId!;
+      expect(currentUserId, 'authenticated smoke user id').toMatch(/^[0-9a-f-]{36}$/i);
+
+      const audienceOptions = await recordFetchJson(page, evidence, 'issue-378-authorized-audiences', '/api/announcements/audiences', {
+        validate: (body) => Array.isArray(body) && body.some((candidate: unknown) =>
+          isWorkspaceAnnouncementAudience(candidate, smokeWorkspaceName))
+      }) as readonly unknown[];
+      const primaryAudience = audienceOptions.find((candidate) =>
+        isWorkspaceAnnouncementAudience(candidate, smokeWorkspaceName));
+      expect(primaryAudience, 'seeded Workspace is a server-authorized announcement audience').toBeTruthy();
+
+      const primaryWorkspaceId = primaryAudience!.workspaceId;
+      const primaryAudienceKey = primaryAudience!.key;
+      const primaryRecipientCount = primaryAudience!.estimatedRecipientCount;
+
+      await page.goto('/app/announcements');
+      await expect(page.getByTestId('announcements-page')).toBeVisible();
+      await expect(page.getByTestId('create-announcement-action')).toBeVisible();
+      await page.getByTestId('create-announcement-action').click();
+
+      const editor = page.getByTestId('announcement-editor');
+      await expect(editor).toBeVisible();
+      await editor.getByTestId('announcement-editor-title').fill(immediateTitle);
+      await editor.getByTestId('announcement-editor-body').fill(immediateBody);
+      await editor.getByTestId('announcement-editor-priority').selectOption('critical');
+      await editor.getByTestId('announcement-editor-audience').selectOption(primaryAudienceKey);
+      await editor.locator('#announcement-read-confirmation').check();
+
+      let immediatePublishRequestsBeforeConfirmation = 0;
+      const observeImmediatePublishBeforeConfirmation = (request: { method(): string; url(): string }) => {
+        if (request.method() === 'POST' && new URL(request.url()).pathname === '/api/announcements') {
+          immediatePublishRequestsBeforeConfirmation += 1;
+        }
+      };
+      page.on('request', observeImmediatePublishBeforeConfirmation);
+      await editor.getByTestId('announcement-publish-action').click();
+      const confirmationDialog = page.getByRole('dialog', { name: 'Confirm publication' });
+      await expect(confirmationDialog).toBeVisible();
+      await expect(confirmationDialog).toHaveAttribute('aria-modal', 'true');
+      await expect(confirmationDialog.getByTestId('announcement-confirmation-title')).toHaveText(immediateTitle);
+      await expect(confirmationDialog.getByTestId('announcement-confirmation-body')).toHaveText(immediateBody);
+      await expect(confirmationDialog.getByTestId('announcement-confirmation-audience')).toHaveText(smokeWorkspaceName);
+      await expect(confirmationDialog.getByTestId('announcement-confirmation-recipient-count'))
+        .toContainText(String(primaryRecipientCount));
+      await expect(confirmationDialog.getByTestId('announcement-confirmation-priority')).toHaveText('CRITICAL');
+      await expect(confirmationDialog.getByTestId('announcement-confirmation-delivery')).toHaveText('Publish immediately');
+      expect(immediatePublishRequestsBeforeConfirmation, 'review opens before the real publication request').toBe(0);
+      page.off('request', observeImmediatePublishBeforeConfirmation);
+
+      const immediatePublicationResponse = waitForApiResponse(page, 'POST', '/api/announcements');
+      await confirmationDialog.getByRole('button', {
+        name: new RegExp(`^Publish to ${primaryRecipientCount} recipients now$`)
+      }).click();
+      const immediatePublication = await immediatePublicationResponse;
+      const immediateRequest = immediatePublication.request().postDataJSON() as Record<string, unknown>;
+      const immediateHeaders = await immediatePublication.request().allHeaders();
+      expect(immediatePublication.status(), 'confirmed immediate publication response').toBe(200);
+      expect(immediateHeaders['x-csrf-token'], 'confirmed immediate publication CSRF header').toBeTruthy();
+      expect(immediateRequest, 'confirmed immediate publication request').toEqual({
+        workspaceId: primaryWorkspaceId,
+        groupId: null,
+        channelId: null,
+        title: immediateTitle,
+        body: immediateBody,
+        priority: 2,
+        isPinned: false,
+        requiresReadConfirmation: true
+      });
+      const immediateCreated = await recordOkJson(immediatePublication, evidence, 'issue-378-confirmed-immediate-publication', (body) =>
+        hasString(body, 'id') &&
+        hasStringValue(body, 'title', immediateTitle) &&
+        hasStringValue(body, 'body', immediateBody) &&
+        body.priority === 2 &&
+        body.workspaceId === primaryWorkspaceId &&
+        body.groupId === null &&
+        body.channelId === null &&
+        body.requiresReadConfirmation === true
+      ) as Record<string, unknown>;
+      const immediateAnnouncementId = String(immediateCreated.id);
+      expect(immediateAnnouncementId, 'confirmed immediate publication id').toMatch(/^[0-9a-f-]{36}$/i);
+      await expect(page.getByTestId('announcement-list-item').filter({ hasText: immediateTitle })).toBeVisible();
+      await recordFetchJson(page, evidence, 'issue-378-confirmed-publication-persists', `/api/announcements/${immediateAnnouncementId}`, {
+        validate: (body) =>
+          hasStringValue(body, 'id', immediateAnnouncementId) &&
+          hasStringValue(body, 'title', immediateTitle) &&
+          hasStringValue(body, 'body', immediateBody) &&
+          body.priority === 2 &&
+          body.workspaceId === primaryWorkspaceId &&
+          body.requiresReadConfirmation === true
+      });
+
+      const temporaryWorkspace = await requestWithCsrf(
+        page,
+        'POST',
+        '/api/workspaces',
+        {
+          name: revokedWorkspaceName,
+          description: 'Synthetic isolated audience for Issue #378 authorization revalidation.'
+        },
+        { 'Idempotency-Key': randomUUID() }
+      );
+      evidence.steps.push({
+        name: 'issue-378-create-isolated-revocation-workspace',
+        method: 'POST',
+        path: '/api/workspaces',
+        status: temporaryWorkspace.status
+      });
+      expect(temporaryWorkspace.status, temporaryWorkspace.text).toBe(201);
+      expect(temporaryWorkspace.csrfHeaderPresent, 'temporary Workspace create CSRF header').toBe(true);
+      const temporaryWorkspaceBody = parseJson(temporaryWorkspace.text) as Record<string, any>;
+      temporaryWorkspaceId = String(temporaryWorkspaceBody?.data?.id ?? '');
+      expect(temporaryWorkspaceId, 'temporary Workspace id').toMatch(/^[0-9a-f-]{36}$/i);
+
+      const audiencesAfterWorkspaceCreate = await recordFetchJson(
+        page,
+        evidence,
+        'issue-378-authorized-audiences-after-workspace-create',
+        '/api/announcements/audiences',
+        {
+          validate: (body) => Array.isArray(body) && body.some((candidate: unknown) =>
+            isWorkspaceAnnouncementAudience(candidate, revokedWorkspaceName))
+        }
+      ) as readonly unknown[];
+      const revokedAudience = audiencesAfterWorkspaceCreate.find((candidate) =>
+        isWorkspaceAnnouncementAudience(candidate, revokedWorkspaceName));
+      expect(revokedAudience, 'newly created Workspace is initially a server-authorized audience').toBeTruthy();
+      expect(revokedAudience!.workspaceId).toBe(temporaryWorkspaceId);
+
+      await page.goto('/app/announcements');
+      await expect(page.getByTestId('announcements-page')).toBeVisible();
+      await expect(page.getByTestId('create-announcement-action')).toBeVisible();
+      await page.getByTestId('create-announcement-action').click();
+      await expect(editor).toBeVisible();
+      await editor.getByTestId('announcement-editor-title').fill(revokedTitle);
+      await editor.getByTestId('announcement-editor-body').fill(revokedBody);
+      await editor.getByTestId('announcement-editor-audience').selectOption(revokedAudience!.key);
+      await editor.getByTestId('announcement-publish-action').click();
+      await expect(confirmationDialog).toBeVisible();
+      await expect(confirmationDialog.getByTestId('announcement-confirmation-audience')).toHaveText(revokedWorkspaceName);
+      await expect(confirmationDialog.getByTestId('announcement-confirmation-recipient-count'))
+        .toContainText(String(revokedAudience!.estimatedRecipientCount));
+      await expect(confirmationDialog.getByTestId('announcement-confirmation-delivery')).toHaveText('Publish immediately');
+
+      const membershipRevocation = await requestWithCsrf(
+        page,
+        'DELETE',
+        `/api/workspaces/${temporaryWorkspaceId}/members/${currentUserId}`
+      );
+      evidence.steps.push({
+        name: 'issue-378-revoke-selected-workspace-audience',
+        method: 'DELETE',
+        path: `/api/workspaces/${temporaryWorkspaceId}/members/${currentUserId}`,
+        status: membershipRevocation.status
+      });
+      expect(membershipRevocation.status, membershipRevocation.text).toBe(200);
+      expect(membershipRevocation.csrfHeaderPresent, 'selected audience revocation CSRF header').toBe(true);
+      temporaryWorkspaceMembershipRevoked = true;
+
+      const revokedPublicationResponse = waitForApiResponse(page, 'POST', '/api/announcements');
+      await confirmationDialog.getByRole('button', {
+        name: new RegExp(`^Publish to ${revokedAudience!.estimatedRecipientCount} recipients now$`)
+      }).click();
+      const revokedPublication = await revokedPublicationResponse;
+      const expectedRevokedAudienceFailure: SmokeFailedApiResponse = {
+        method: 'POST',
+        path: '/api/announcements',
+        status: 400
+      };
+      const revokedPublicationBody = await recordFailureJson(
+        revokedPublication,
+        evidence,
+        'issue-378-revoked-selected-audience-publication',
+        400,
+        (body) => hasStringValue(body, 'error', 'Announcement audience is not authorized.')
+      ) as Record<string, unknown>;
+      expect(JSON.stringify(revokedPublicationBody), 'revoked audience response must not disclose the selected Workspace')
+        .not.toContain(revokedWorkspaceName);
+      await expect(confirmationDialog).toHaveCount(0);
+      await expect(editor.getByTestId('announcement-editor-submission-error')).toContainText(
+        'The selected audience is no longer authorized.'
+      );
+      await expect(editor.getByTestId('announcement-editor-title')).toHaveValue(revokedTitle);
+      await expect(editor.getByTestId('announcement-editor-body')).toHaveValue(revokedBody);
+      await expect(editor.getByTestId('announcement-editor-audience').locator('option', {
+        hasText: revokedWorkspaceName
+      })).toHaveCount(0);
+
+      expect(evidence.pageErrors, 'Issue #378 browser page errors').toEqual([]);
+      expectUnexpectedConsoleErrors(evidence, [expectedRevokedAudienceFailure]);
+      expectUnexpectedApiFailures(evidence, [expectedRevokedAudienceFailure]);
+    } finally {
+      // The success path deliberately revokes this user before confirming the
+      // selected-scope denial. If a preceding assertion fails, archive the
+      // still-owned disposable Workspace so later shared-fixture tests start
+      // with their intended Workspace set.
+      if (temporaryWorkspaceId && !temporaryWorkspaceMembershipRevoked) {
+        try {
+          const cleanup = await requestWithCsrf(page, 'POST', `/api/workspaces/${temporaryWorkspaceId}/archive`);
+          evidence.steps.push({
+            name: 'issue-378-failed-path-temporary-workspace-cleanup',
+            method: 'POST',
+            path: `/api/workspaces/${temporaryWorkspaceId}/archive`,
+            status: cleanup.status,
+          });
+        } catch {
+          evidence.steps.push({
+            name: 'issue-378-failed-path-temporary-workspace-cleanup',
+            method: 'POST',
+            path: `/api/workspaces/${temporaryWorkspaceId}/archive`,
+            status: 0,
+          });
+        }
+      }
+      await testInfo.attach('issue-378-announcement-publication-real-backend-evidence.json', {
+        body: JSON.stringify(evidence, null, 2),
+        contentType: 'application/json'
+      });
+    }
+  });
+
   test('TASK-V1-PR03C uses the real backend for task detail, mutations, revocation, and File grant reauthorization', async ({ page }, testInfo) => {
     const evidence: SmokeEvidence = {
       baseURL: String(testInfo.project.use.baseURL ?? ''), email: smokeEmail, steps: [], pageErrors: [], consoleErrors: [], failedApiResponses: []
@@ -4343,6 +4629,17 @@ async function openPr03cTaskDetail(page: Page, evidence: SmokeEvidence) {
   evidence.workspaceId = String((detail as Record<string, any>).task.workspaceId);
   expect(evidence.workspaceId, 'task workspaceId is part of the canonical Task DTO').toMatch(/^[0-9a-f-]{36}$/i);
 
+  // The direct Task route remains tenant/workspace-authorized. Establish the
+  // seeded Task's Workspace explicitly instead of relying on another serial
+  // smoke scenario's local selection or list ordering.
+  const workspaceSwitcher = page.getByTestId('workspace-switcher');
+  await expect(workspaceSwitcher).toBeVisible();
+  await expect(workspaceSwitcher.locator(`option[value="${evidence.workspaceId}"]`)).toHaveCount(1);
+  if (await workspaceSwitcher.inputValue() !== evidence.workspaceId) {
+    await workspaceSwitcher.selectOption(evidence.workspaceId);
+    await expect(workspaceSwitcher).toHaveValue(evidence.workspaceId);
+  }
+
   await page.goto(`/app/projects/${evidence.projectId}/tasks/${evidence.taskId}`);
   await expect(page.getByTestId('task-detail-page')).toBeVisible();
   await expect(page.getByRole('heading', { name: smokeTaskTitle })).toBeVisible();
@@ -4655,12 +4952,16 @@ async function requestWithCsrf(
   page: Page,
   method: 'POST' | 'PATCH' | 'DELETE',
   path: string,
-  body?: unknown
+  body?: unknown,
+  additionalHeaders: Readonly<Record<string, string>> = {}
 ): Promise<{ status: number; text: string; csrfHeaderPresent: boolean }> {
-  return page.evaluate(async ({ method, path, body }) => {
+  return page.evaluate(async ({ method, path, body, additionalHeaders }) => {
     const csrfResponse = await fetch('/api/security/csrf-token', { credentials: 'include' });
     const csrf = await csrfResponse.json() as { token?: string; headerName?: string };
-    const headers: Record<string, string> = { 'Content-Type': 'application/json' };
+    const headers: Record<string, string> = {
+      'Content-Type': 'application/json',
+      ...additionalHeaders
+    };
     if (csrf.token && csrf.headerName) headers[csrf.headerName] = csrf.token;
     const response = await fetch(path, {
       method,
@@ -4673,7 +4974,7 @@ async function requestWithCsrf(
       text: await response.text(),
       csrfHeaderPresent: Boolean(csrf.token && csrf.headerName && headers[csrf.headerName])
     };
-  }, { method, path, body });
+  }, { method, path, body, additionalHeaders });
 }
 
 function recordFailedApiResponse(response: PlaywrightResponse, evidence: SmokeEvidence) {
@@ -4828,6 +5129,27 @@ function hasString(body: unknown, key: string): body is Record<string, unknown> 
 
 function hasStringValue(body: unknown, key: string, expected: string): boolean {
   return hasString(body, key) && (body as Record<string, unknown>)[key] === expected;
+}
+
+function isWorkspaceAnnouncementAudience(
+  value: unknown,
+  displayName: string
+): value is {
+  key: string;
+  workspaceId: string;
+  displayName: string;
+  estimatedRecipientCount: number;
+} {
+  const recipientCount = (value as Record<string, unknown>)?.estimatedRecipientCount;
+  return (
+    hasStringValue(value, 'scopeType', 'workspace') &&
+    hasStringValue(value, 'displayName', displayName) &&
+    hasString(value, 'key') &&
+    hasString(value, 'workspaceId') &&
+    typeof recipientCount === 'number' &&
+    Number.isInteger(recipientCount) &&
+    recipientCount >= 0
+  );
 }
 
 function hasCanonicalTaskStageCategory(body: unknown): boolean {

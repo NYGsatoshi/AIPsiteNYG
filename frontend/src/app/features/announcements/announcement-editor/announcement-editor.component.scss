@@ -160,6 +160,10 @@
   font-weight: 800;
 }
 
+.announcement-editor__confirmation-body {
+  white-space: pre-wrap;
+}
+
 .announcement-editor__check {
   grid-template-columns: auto minmax(0, 1fr);
   align-items: center;

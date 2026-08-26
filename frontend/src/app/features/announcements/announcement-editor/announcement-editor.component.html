@@ -228,6 +228,14 @@
             }
           </dd>
         </div>
+        <div>
+          <dt>Priority</dt>
+          <dd>{{ priorityLabels[form.controls.priority.value] }}</dd>
+        </div>
+        <div>
+          <dt>Delivery</dt>
+          <dd>{{ publicationTimingLabel() }}</dd>
+        </div>
       </dl>
     }
   </section>
@@ -237,9 +245,68 @@
       type="submit"
       class="announcement-editor__primary"
       data-testid="announcement-publish-action"
-      [disabled]="!canPublish || selectedAudience() === null"
+      [disabled]="!canPublish || selectedAudience() === null || publishing"
     >
-      公開
+      Review publication
     </button>
   </div>
 </form>
+
+<app-aip-dialog
+  [open]="publicationReviewOpen()"
+  title="Confirm publication"
+  description="Review the authorized audience and delivery before publishing."
+  [confirmLabel]="confirmationLabel()"
+  cancelLabel="Back to editing"
+  [busy]="publicationConfirming() || publishing"
+  focusReturnFallbackId="announcement-publish-action"
+  (confirm)="confirmPublication()"
+  (cancel)="cancelPublicationReview()"
+>
+  @if (publicationReview(); as review) {
+    <section
+      class="announcement-editor__review announcement-editor__confirmation"
+      data-testid="announcement-publication-confirmation"
+      aria-label="Publication review"
+    >
+      <dl>
+        <div>
+          <dt>Title</dt>
+          <dd data-testid="announcement-confirmation-title">{{ review.title }}</dd>
+        </div>
+        <div>
+          <dt>Message</dt>
+          <dd class="announcement-editor__confirmation-body" data-testid="announcement-confirmation-body">
+            {{ review.body }}
+          </dd>
+        </div>
+        <div>
+          <dt>Audience</dt>
+          <dd data-testid="announcement-confirmation-audience">{{ review.audience.displayName }}</dd>
+        </div>
+        <div>
+          <dt>Recipients</dt>
+          <dd data-testid="announcement-confirmation-recipient-count">
+            @if (review.audience.recipientCount !== undefined) {
+              {{ review.audience.recipientCount.toLocaleString('ja-JP') }} recipients
+            } @else {
+              Recipient estimate unavailable
+            }
+          </dd>
+        </div>
+        <div>
+          <dt>Priority</dt>
+          <dd data-testid="announcement-confirmation-priority">{{ priorityLabels[review.priority] }}</dd>
+        </div>
+        <div>
+          <dt>Delivery</dt>
+          <dd data-testid="announcement-confirmation-delivery">{{ publicationTimingLabel() }}</dd>
+        </div>
+      </dl>
+      <p class="announcement-editor__audience-note">
+        The server rechecks this selected audience when publication is confirmed. This form publishes now;
+        scheduled delivery, saved drafts, and preview are not available here.
+      </p>
+    </section>
+  }
+</app-aip-dialog>

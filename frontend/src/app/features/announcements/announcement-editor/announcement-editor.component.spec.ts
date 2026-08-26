@@ -120,7 +120,7 @@ describe('AnnouncementEditorComponent', () => {
     expect(reviewSummary).toContain('86名');
   });
 
-  it('emits the exact authorized audience object when publishing', async () => {
+  it('requires an explicit confirmation before emitting the exact authorized publication', async () => {
     const fixture = await renderEditor(createDraft());
     let emitted: AnnouncementEditorSubmission | undefined;
     fixture.componentInstance.publishRequested.subscribe((value) => {
@@ -137,6 +137,19 @@ describe('AnnouncementEditorComponent', () => {
     (fixture.nativeElement as HTMLElement)
       .querySelector('form')
       ?.dispatchEvent(new Event('submit', { bubbles: true, cancelable: true }));
+
+    fixture.detectChanges();
+
+    const confirmation = (fixture.nativeElement as HTMLElement).querySelector<HTMLElement>(
+      '[data-testid="announcement-publication-confirmation"]',
+    );
+    expect(emitted).toBeUndefined();
+    expect(confirmation?.textContent).toContain('School Workspace / Teachers');
+    expect(confirmation?.textContent).toContain('86 recipients');
+    expect(confirmation?.textContent).toContain('IMPORTANT');
+    expect(confirmation?.textContent).toContain('Publish immediately');
+
+    fixture.componentInstance.confirmPublication();
 
     expect(emitted).toEqual({
       title: 'Safety update',
@@ -275,5 +288,72 @@ describe('AnnouncementEditorComponent', () => {
     expect(fixture.componentInstance.fieldError('body')).toBe(
       '本文は20,000文字以内で入力してください。',
     );
+  });
+
+  it('returns from a confirmation without changing the editable form values', async () => {
+    const fixture = await renderEditor(createDraft());
+    fixture.componentInstance.form.patchValue({
+      title: 'Review before publication',
+      body: 'Keep this draft after returning to edit.',
+      priority: 'critical',
+      audienceKey: teacherGroupAudience.key,
+    });
+
+    fixture.componentInstance.publish();
+    fixture.detectChanges();
+    expect(fixture.componentInstance.publicationReviewOpen()).toBe(true);
+
+    fixture.componentInstance.cancelPublicationReview();
+    fixture.detectChanges();
+
+    expect(fixture.componentInstance.publicationReviewOpen()).toBe(false);
+    expect(fixture.componentInstance.publicationReview()).toBeNull();
+    expect(fixture.componentInstance.form.getRawValue()).toEqual({
+      title: 'Review before publication',
+      body: 'Keep this draft after returning to edit.',
+      priority: 'critical',
+      audienceKey: teacherGroupAudience.key,
+      requiresReadConfirmation: false,
+    });
+  });
+
+  it('keeps confirmation single-flight and returns to the preserved draft after a failed response', async () => {
+    const fixture = await renderEditor(createDraft());
+    let publishCount = 0;
+    fixture.componentInstance.publishRequested.subscribe(() => {
+      publishCount += 1;
+    });
+
+    fixture.componentInstance.publish();
+    fixture.componentInstance.confirmPublication();
+    fixture.componentInstance.confirmPublication();
+
+    expect(publishCount).toBe(1);
+    expect(fixture.componentInstance.publicationConfirming()).toBe(true);
+
+    fixture.componentRef.setInput('submissionError', 'Publication was not confirmed.');
+    fixture.detectChanges();
+
+    expect(fixture.componentInstance.publicationConfirming()).toBe(false);
+    expect(fixture.componentInstance.publicationReviewOpen()).toBe(false);
+    expect(fixture.componentInstance.form.controls.title.value).toBe('School update');
+    expect(fixture.componentInstance.form.controls.body.value).toBe('Announcement body');
+  });
+
+  it('clears the busy confirmation state when the authoritative publishing command settles', async () => {
+    const fixture = await renderEditor(createDraft());
+
+    fixture.componentInstance.publish();
+    fixture.componentInstance.confirmPublication();
+    expect(fixture.componentInstance.publicationConfirming()).toBe(true);
+
+    fixture.componentRef.setInput('publishing', true);
+    fixture.detectChanges();
+    fixture.componentRef.setInput('publishing', false);
+    fixture.detectChanges();
+
+    expect(fixture.componentInstance.publicationConfirming()).toBe(false);
+    expect(fixture.componentInstance.publicationReviewOpen()).toBe(false);
+    expect(fixture.componentInstance.form.controls.title.value).toBe('School update');
   });
 });

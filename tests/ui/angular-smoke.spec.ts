@@ -375,12 +375,33 @@ test.describe('MVP-A P0 Angular frontend smoke', () => {
     await title.fill('Accessible announcement');
     await body.fill('The draft must remain available after an API failure.');
 
+    await publish.focus();
+    await page.keyboard.press('Enter');
+    const confirmation = page.getByTestId('announcement-publication-confirmation');
+    const dialog = page.getByRole('dialog', { name: 'Confirm publication' });
+    await expect(confirmation).toBeVisible();
+    await expect(dialog).toHaveAttribute('aria-modal', 'true');
+    await expect(confirmation).toContainText('Announcement evidence workspace');
+    await expect(confirmation).toContainText('24 recipients');
+    await expect(confirmation).toContainText('NORMAL');
+    await expect(confirmation).toContainText('Publish immediately');
+    await expectNoDocumentHorizontalOverflow(page);
+    await expectNoAccessibilityViolations(page);
+
+    await page.keyboard.press('Escape');
+    await expect(dialog).toBeHidden();
+    await expect(publish).toBeFocused();
+    await expect(title).toHaveValue('Accessible announcement');
+    await expect(body).toHaveValue('The draft must remain available after an API failure.');
+
+    await page.keyboard.press('Enter');
+    await expect(dialog).toBeVisible();
+
     const failedResponse = page.waitForResponse((response) =>
       response.request().method() === 'POST' &&
       new URL(response.url()).pathname === '/api/announcements'
     );
-    await publish.focus();
-    await page.keyboard.press('Enter');
+    await dialog.getByRole('button', { name: /Publish to 24 recipients now/ }).click();
     expect((await failedResponse).status()).toBe(503);
     const submissionError = page.getByTestId('announcement-editor-submission-error');
     await expect(submissionError).toBeVisible();
@@ -390,13 +411,15 @@ test.describe('MVP-A P0 Angular frontend smoke', () => {
     await expect(title).toHaveValue('Accessible announcement');
     await expect(body).toHaveValue('The draft must remain available after an API failure.');
 
+    await publish.focus();
+    await page.keyboard.press('Enter');
+    await expect(dialog).toBeVisible();
     const succeededResponse = page.waitForResponse((response) =>
       response.request().method() === 'POST' &&
       new URL(response.url()).pathname === '/api/announcements'
     );
-    await publish.focus();
-    await page.keyboard.press('Enter');
-    expect((await succeededResponse).status()).toBe(201);
+    await dialog.getByRole('button', { name: /Publish to 24 recipients now/ }).click();
+    expect((await succeededResponse).status()).toBe(200);
     await expect(page.getByText('お知らせを公開しました。')).toBeVisible();
     expect(api.publishRequests).toHaveLength(2);
     await expectNoDocumentHorizontalOverflow(page);
@@ -501,12 +524,15 @@ test.describe('MVP-A P0 Angular frontend smoke', () => {
     await title.fill('Submitted title');
     await body.fill('Submitted body');
 
+    await publish.focus();
+    await page.keyboard.press('Enter');
+    const confirmationDialog = page.getByRole('dialog', { name: 'Confirm publication' });
+    await expect(confirmationDialog).toBeVisible();
     const failedResponse = page.waitForResponse((response) =>
       response.request().method() === 'POST' &&
       new URL(response.url()).pathname === '/api/announcements'
     );
-    await publish.focus();
-    await page.keyboard.press('Enter');
+    await confirmationDialog.getByRole('button', { name: /Publish to 24 recipients now/ }).click();
     expect((await failedResponse).status()).toBe(400);
     await api.audienceRefreshRequested;
 
@@ -3395,7 +3421,7 @@ async function installAnnouncementEditorApi(
     }
 
     await route.fulfill({
-      status: 201,
+      status: 200,
       contentType: 'application/json; charset=utf-8',
       body: JSON.stringify({
         id: '38000000-0000-4000-8000-000000000002',

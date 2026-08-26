@@ -59,6 +59,8 @@ export class AnnouncementsFacade {
   private audienceOptions: readonly AnnouncementAudienceOption[] =
     this.mockPage?.editorDraft?.availableAudiences ?? [];
   private editorActive = false;
+  /** A publication has no idempotency contract, so one browser editor permits one in-flight POST. */
+  private publicationInFlight = false;
   private editorDraftRevision = 0;
   private refreshTimer: ReturnType<typeof setTimeout> | null = null;
 
@@ -103,6 +105,7 @@ export class AnnouncementsFacade {
       editorDraft: this.createDraft(this.audienceOptions),
       message: undefined,
       editorError: undefined,
+      isPublishing: false,
     }));
     return true;
   }
@@ -122,6 +125,13 @@ export class AnnouncementsFacade {
       return;
     }
 
+    if (this.publicationInFlight) {
+      return;
+    }
+
+    this.publicationInFlight = true;
+    this.pageState.update((page) => ({ ...page, isPublishing: true }));
+
     const authorizedSubmission: AnnouncementEditorSubmission = {
       ...submission,
       audience: authorizedAudience,
@@ -129,6 +139,7 @@ export class AnnouncementsFacade {
 
     if (this.mockPage) {
       const created = this.mockCreatedAnnouncement(authorizedSubmission);
+      this.publicationInFlight = false;
       this.pageState.update((page) => ({
         ...page,
         status: 'ready',
@@ -137,6 +148,7 @@ export class AnnouncementsFacade {
         editorDraft: undefined,
         message: 'お知らせを公開しました。',
         editorError: undefined,
+        isPublishing: false,
       }));
       this.editorActive = false;
       return;
@@ -156,6 +168,7 @@ export class AnnouncementsFacade {
           if (!this.isCurrentProtectedGeneration(generation)) {
             return;
           }
+          this.publicationInFlight = false;
           const created = mapAnnouncementDetail(response);
           this.pageState.update((page) => ({
             ...page,
@@ -168,6 +181,7 @@ export class AnnouncementsFacade {
             editorDraft: undefined,
             message: 'お知らせを公開しました。',
             editorError: undefined,
+            isPublishing: false,
           }));
           this.editorActive = false;
         },
@@ -175,6 +189,8 @@ export class AnnouncementsFacade {
           if (!this.isCurrentProtectedGeneration(generation)) {
             return;
           }
+          this.publicationInFlight = false;
+          this.pageState.update((page) => ({ ...page, isPublishing: false }));
           if (this.isAudienceAuthorizationFailure(error)) {
             this.preserveSubmissionAsDraft(
               authorizedSubmission,
@@ -206,6 +222,12 @@ export class AnnouncementsFacade {
           if (!this.isCurrentProtectedGeneration(generation)) {
             return;
           }
+          // A refresh can have started immediately before the user opened the
+          // editor. Its authoritative list data is still safe to apply, but
+          // it must never replace that local, unsubmitted create draft.
+          const activeDraft = this.editorActive ? this.pageState().editorDraft : undefined;
+          const activeEditorError = activeDraft ? this.pageState().editorError : undefined;
+          const isPublishing = activeDraft ? this.pageState().isPublishing : false;
           const listedAnnouncements = (response.items ?? []).map((announcement) =>
             this.reconcileReadActionState(mapAnnouncementListItem(announcement)),
           );
@@ -229,6 +251,9 @@ export class AnnouncementsFacade {
             ...this.emptyPage(announcements.length === 0 ? 'empty' : 'ready'),
             announcements,
             selectedAnnouncementId,
+            editorDraft: activeDraft,
+            editorError: activeEditorError,
+            isPublishing,
             pageCapabilities: announcements.length > 0 ? ['readAnnouncement'] : [],
             message:
               announcements.length === 0 ? '表示できるお知らせはまだありません。' : undefined,
@@ -328,6 +353,20 @@ export class AnnouncementsFacade {
       if (!this.isCurrentProtectedGeneration(generation)) {
         return;
       }
+
+      // The event may have arrived just before a user opened the editor. Do
+      // not let the deferred list response replace that new, local draft.
+      // The editor is already told that it needs a fresh review before the
+      // one immediate publication command is sent.
+      if (this.editorActive) {
+        this.pageState.update((page) => ({
+          ...page,
+          message:
+            'An announcement changed elsewhere. Your draft was preserved; reload before publishing.',
+        }));
+        return;
+      }
+
       this.loadAnnouncements();
     }, 100);
   }
@@ -536,6 +575,7 @@ export class AnnouncementsFacade {
       announcements: [],
       selectedAnnouncementId: null,
       pageCapabilities: [],
+      isPublishing: false,
     };
   }
 
@@ -614,6 +654,7 @@ export class AnnouncementsFacade {
     this.detailOnlyIds.clear();
     this.audienceOptions = [];
     this.editorActive = false;
+    this.publicationInFlight = false;
     this.editorDraftRevision += 1;
     this.pageState.set(this.emptyPage('loading'));
   }
