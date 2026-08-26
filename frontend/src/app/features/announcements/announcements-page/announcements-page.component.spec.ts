@@ -47,6 +47,23 @@ const originalMatchMediaDescriptor = Object.getOwnPropertyDescriptor(window, 'ma
 const textContent = (fixture: ComponentFixture<AnnouncementsPageComponent>): string =>
   (fixture.nativeElement as HTMLElement).textContent ?? '';
 
+const setMobileMatchMedia = (): void => {
+  Object.defineProperty(window, 'matchMedia', {
+    configurable: true,
+    value: (query: string) =>
+      ({
+        matches: query === '(max-width: 860px)',
+        media: query,
+        onchange: null,
+        addListener: vi.fn(),
+        removeListener: vi.fn(),
+        addEventListener: vi.fn(),
+        removeEventListener: vi.fn(),
+        dispatchEvent: vi.fn(() => true),
+      }) as MediaQueryList,
+  });
+};
+
 describe('AnnouncementsPageComponent', () => {
   afterEach(() => {
     document.getElementById('app-shell-main-content')?.remove();
@@ -151,10 +168,7 @@ describe('AnnouncementsPageComponent', () => {
   });
 
   it('uses the mobile list/detail route hierarchy, resets AppShell scroll, and restores the origin row after Back', async () => {
-    Object.defineProperty(window, 'matchMedia', {
-      configurable: true,
-      value: (query: string) => ({ matches: query === '(max-width: 860px)' }) as MediaQueryList,
-    });
+    setMobileMatchMedia();
     vi.spyOn(window, 'requestAnimationFrame').mockImplementation((callback: FrameRequestCallback) => {
       callback(0);
       return 1;
@@ -204,10 +218,7 @@ describe('AnnouncementsPageComponent', () => {
   });
 
   it('uses the list heading as the safe Back focus fallback for an unavailable direct route', async () => {
-    Object.defineProperty(window, 'matchMedia', {
-      configurable: true,
-      value: (query: string) => ({ matches: query === '(max-width: 860px)' }) as MediaQueryList,
-    });
+    setMobileMatchMedia();
     vi.spyOn(window, 'requestAnimationFrame').mockImplementation((callback: FrameRequestCallback) => {
       callback(0);
       return 1;
@@ -230,10 +241,7 @@ describe('AnnouncementsPageComponent', () => {
   });
 
   it('focuses the valid direct-detail title after the first mobile route parameter emission', async () => {
-    Object.defineProperty(window, 'matchMedia', {
-      configurable: true,
-      value: (query: string) => ({ matches: query === '(max-width: 860px)' }) as MediaQueryList,
-    });
+    setMobileMatchMedia();
     vi.spyOn(window, 'requestAnimationFrame').mockImplementation((callback: FrameRequestCallback) => {
       callback(0);
       return 1;

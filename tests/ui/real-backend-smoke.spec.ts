@@ -983,7 +983,50 @@ test.describe('MVP0 real backend browser smoke', () => {
         },
         warnings: []
       });
-      await expect(page).toHaveURL(`/app/projects/${createdProjectId}`);
+      // Creating a Workspace can deliver its own authorization invalidation
+      // immediately after this Project POST. The Project-create facade treats
+      // that boundary fail-closed: it retains only the committed identity and
+      // offers a GET/navigation-only recovery instead of assuming the old
+      // authorization projection remains valid. Either automatic navigation
+      // or that explicit recovery is a valid product outcome, but neither may
+      // send a second create command.
+      let projectOpenState: 'opened' | 'pending' | 'waiting' = 'waiting';
+      await expect
+        .poll(
+          async () => {
+            if (page.url().endsWith(`/app/projects/${createdProjectId}`)) {
+              projectOpenState = 'opened';
+              return projectOpenState;
+            }
+
+            projectOpenState = (await page.getByTestId('project-create-pending').isVisible())
+              ? 'pending'
+              : 'waiting';
+            return projectOpenState;
+          },
+          { timeout: 15_000 },
+        )
+        .not.toBe('waiting');
+
+      if (projectOpenState === 'pending') {
+        await expect(page.getByTestId('project-create-pending')).toBeVisible();
+        expect(observedProjectCreatePosts, 'navigation recovery does not repeat Project create').toBe(1);
+        const recoveryConfirmation = waitForApiResponse(
+          page,
+          'GET',
+          `/api/projects/${createdProjectId}`,
+        );
+        await projectDialog.getByRole('button', { name: 'Open Project' }).click();
+        await recordOkJson(
+          await recoveryConfirmation,
+          evidence,
+          'u22-journey-project-create-navigation-recovery',
+          (body) =>
+            (body as Record<string, unknown>)?.['id'] === createdProjectId &&
+            (body as Record<string, unknown>)?.['workspaceId'] === createdWorkspaceId,
+        );
+        await expect(page).toHaveURL(`/app/projects/${createdProjectId}`);
+      }
       await expect(page.getByTestId('project-draft-overview')).toBeVisible();
 
       const projectActivationResponsePromise = waitForApiResponse(page, 'POST', `/api/projects/${createdProjectId}/activate`);
