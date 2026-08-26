@@ -408,6 +408,53 @@ describe('AnnouncementsFacade', () => {
     expect(facade.page().announcements[0].audienceScope).toBe('group');
   });
 
+  it('keeps immediate publication single-flight while the authoritative response is pending', () => {
+    const workspaceId = '11111111-1111-1111-1111-111111111111';
+    const audienceDto = {
+      key: `workspace:${workspaceId}`,
+      scopeType: 'workspace',
+      workspaceId,
+      groupId: null,
+      channelId: null,
+      displayName: 'School',
+      estimatedRecipientCount: 1248,
+    };
+
+    httpMock.expectOne('/api/announcements').flush({ items: [] });
+    httpMock.expectOne('/api/announcements/audiences').flush([audienceDto]);
+    expect(facade.beginCreate()).toBe(true);
+    const audience = facade.page().editorDraft!.availableAudiences[0]!;
+    const submission = {
+      title: 'One authoritative publication',
+      body: 'The browser must not post this twice.',
+      priority: 'normal' as const,
+      audience,
+      requiresReadConfirmation: false,
+    };
+
+    facade.createAnnouncement(submission);
+    facade.createAnnouncement(submission);
+
+    const requests = httpMock.match((request) =>
+      request.url === '/api/announcements' && request.method === 'POST',
+    );
+    expect(requests).toHaveLength(1);
+    expect(facade.page().isPublishing).toBe(true);
+    requests[0]!.flush({
+      id: 'announcement-created-once',
+      workspaceId,
+      groupId: null,
+      channelId: null,
+      title: submission.title,
+      body: submission.body,
+      priority: 0,
+      requiresReadConfirmation: false,
+      isRead: false,
+      publishedAt: '2026-08-26T12:00:00Z',
+    });
+    expect(facade.page().isPublishing).toBe(false);
+  });
+
   it('preserves the draft and disables publish after a confirmed audience authorization change', () => {
     const workspaceId = '11111111-1111-1111-1111-111111111111';
     const audienceDto = {

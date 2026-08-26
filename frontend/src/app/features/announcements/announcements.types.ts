@@ -128,4 +128,6 @@ export interface AnnouncementsPageViewModel {
   /** A mutation failure shown inside the still-editable create form. */
   readonly editorError?: string;
   readonly editorDraft?: AnnouncementEditorDraft;
+  /** Local command state only; it never represents a persisted publication status. */
+  readonly isPublishing?: boolean;
 }

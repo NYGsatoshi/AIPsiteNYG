@@ -59,6 +59,8 @@ export class AnnouncementsFacade {
   private audienceOptions: readonly AnnouncementAudienceOption[] =
     this.mockPage?.editorDraft?.availableAudiences ?? [];
   private editorActive = false;
+  /** A publication has no idempotency contract, so one browser editor permits one in-flight POST. */
+  private publicationInFlight = false;
   private editorDraftRevision = 0;
   private refreshTimer: ReturnType<typeof setTimeout> | null = null;
 
@@ -103,6 +105,7 @@ export class AnnouncementsFacade {
       editorDraft: this.createDraft(this.audienceOptions),
       message: undefined,
       editorError: undefined,
+      isPublishing: false,
     }));
     return true;
   }
@@ -122,6 +125,13 @@ export class AnnouncementsFacade {
       return;
     }
 
+    if (this.publicationInFlight) {
+      return;
+    }
+
+    this.publicationInFlight = true;
+    this.pageState.update((page) => ({ ...page, isPublishing: true }));
+
     const authorizedSubmission: AnnouncementEditorSubmission = {
       ...submission,
       audience: authorizedAudience,
@@ -129,6 +139,7 @@ export class AnnouncementsFacade {
 
     if (this.mockPage) {
       const created = this.mockCreatedAnnouncement(authorizedSubmission);
+      this.publicationInFlight = false;
       this.pageState.update((page) => ({
         ...page,
         status: 'ready',
@@ -137,6 +148,7 @@ export class AnnouncementsFacade {
         editorDraft: undefined,
         message: 'お知らせを公開しました。',
         editorError: undefined,
+        isPublishing: false,
       }));
       this.editorActive = false;
       return;
@@ -156,6 +168,7 @@ export class AnnouncementsFacade {
           if (!this.isCurrentProtectedGeneration(generation)) {
             return;
           }
+          this.publicationInFlight = false;
           const created = mapAnnouncementDetail(response);
           this.pageState.update((page) => ({
             ...page,
@@ -168,6 +181,7 @@ export class AnnouncementsFacade {
             editorDraft: undefined,
             message: 'お知らせを公開しました。',
             editorError: undefined,
+            isPublishing: false,
           }));
           this.editorActive = false;
         },
@@ -175,6 +189,8 @@ export class AnnouncementsFacade {
           if (!this.isCurrentProtectedGeneration(generation)) {
             return;
           }
+          this.publicationInFlight = false;
+          this.pageState.update((page) => ({ ...page, isPublishing: false }));
           if (this.isAudienceAuthorizationFailure(error)) {
             this.preserveSubmissionAsDraft(
               authorizedSubmission,
@@ -536,6 +552,7 @@ export class AnnouncementsFacade {
       announcements: [],
       selectedAnnouncementId: null,
       pageCapabilities: [],
+      isPublishing: false,
     };
   }
 
@@ -614,6 +631,7 @@ export class AnnouncementsFacade {
     this.detailOnlyIds.clear();
     this.audienceOptions = [];
     this.editorActive = false;
+    this.publicationInFlight = false;
     this.editorDraftRevision += 1;
     this.pageState.set(this.emptyPage('loading'));
   }

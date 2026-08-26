@@ -30,11 +30,12 @@ import {
   AnnouncementPriority,
   AnnouncementPublicationState,
 } from '../announcements.types';
+import { AipDialogComponent } from '../../../shared/ui/aip-dialog/aip-dialog.component';
 
 @Component({
   selector: 'app-announcement-editor',
   standalone: true,
-  imports: [ReactiveFormsModule, AnnouncementPublicationStatusComponent],
+  imports: [ReactiveFormsModule, AnnouncementPublicationStatusComponent, AipDialogComponent],
   templateUrl: './announcement-editor.component.html',
   styleUrl: './announcement-editor.component.scss',
 })
@@ -46,12 +47,16 @@ export class AnnouncementEditorComponent implements OnChanges, OnInit, OnDestroy
 
   @Input({ required: true }) draft!: AnnouncementEditorDraft;
   @Input() submissionError: string | undefined;
+  @Input() publishing = false;
   @Output() readonly draftChanged = new EventEmitter<AnnouncementEditorDraft>();
   @Output() readonly publishRequested = new EventEmitter<AnnouncementEditorSubmission>();
 
   readonly priorityOptions: readonly AnnouncementPriority[] = ['normal', 'important', 'critical'];
   readonly priorityLabels = ANNOUNCEMENT_PRIORITY_LABELS;
   readonly availableAudiences = signal<readonly AnnouncementAudienceOption[]>([]);
+  readonly publicationReviewOpen = signal(false);
+  readonly publicationConfirming = signal(false);
+  readonly publicationReview = signal<AnnouncementEditorSubmission | null>(null);
   private submissionAttempted = false;
   private formInitialized = false;
   private formChanges?: Subscription;
@@ -108,6 +113,19 @@ export class AnnouncementEditorComponent implements OnChanges, OnInit, OnDestroy
   }
 
   ngOnChanges(changes: SimpleChanges): void {
+    const submissionErrorChange = changes['submissionError'];
+    const publishingChange = changes['publishing'];
+    if (
+      submissionErrorChange?.currentValue ||
+      (publishingChange?.previousValue === true && publishingChange.currentValue === false)
+    ) {
+      // A failed authoritative request leaves the draft editable. Return from the
+      // busy confirmation state before the inline, preserved-draft error renders.
+      this.publicationConfirming.set(false);
+      this.publicationReviewOpen.set(false);
+      this.publicationReview.set(null);
+    }
+
     if (!changes['draft'] || !this.draft) {
       return;
     }
@@ -210,13 +228,45 @@ export class AnnouncementEditorComponent implements OnChanges, OnInit, OnDestroy
       return;
     }
 
-    this.publishRequested.emit({
+    this.publicationReview.set({
       title,
       body,
       priority: value.priority,
       audience,
       requiresReadConfirmation: value.requiresReadConfirmation,
     });
+    this.publicationReviewOpen.set(true);
+  }
+
+  cancelPublicationReview(): void {
+    if (this.publicationConfirming() || this.publishing) {
+      return;
+    }
+
+    this.publicationReviewOpen.set(false);
+    this.publicationReview.set(null);
+  }
+
+  confirmPublication(): void {
+    const submission = this.publicationReview();
+    if (!submission || this.publicationConfirming() || this.publishing) {
+      return;
+    }
+
+    this.publicationConfirming.set(true);
+    this.publishRequested.emit(submission);
+  }
+
+  publicationTimingLabel(): string {
+    // The create command has no approved scheduled-delivery contract.
+    return 'Publish immediately';
+  }
+
+  confirmationLabel(): string {
+    const recipientCount = this.publicationReview()?.audience.recipientCount;
+    return recipientCount === undefined
+      ? 'Publish now'
+      : `Publish to ${recipientCount.toLocaleString('ja-JP')} recipients now`;
   }
 
   private authorizedAudienceKey(preferredAudienceKey: string): string {

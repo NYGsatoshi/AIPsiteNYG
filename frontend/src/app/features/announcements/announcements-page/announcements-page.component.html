@@ -49,6 +49,7 @@
         <app-announcement-editor
           [draft]="activeEditorDraft()!"
           [submissionError]="editingAnnouncementId() === null ? vm.editorError : undefined"
+          [publishing]="editingAnnouncementId() === null && vm.isPublishing === true"
           (draftChanged)="updateAnnouncementDraft($event)"
           (publishRequested)="publishAnnouncement($event)"
         />
@@ -103,6 +104,7 @@
           <app-announcement-editor
             [draft]="activeEditorDraft()!"
             [submissionError]="editingAnnouncementId() === null ? vm.editorError : undefined"
+            [publishing]="editingAnnouncementId() === null && vm.isPublishing === true"
             (draftChanged)="updateAnnouncementDraft($event)"
             (publishRequested)="publishAnnouncement($event)"
           />
