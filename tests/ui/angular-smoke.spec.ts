@@ -524,12 +524,15 @@ test.describe('MVP-A P0 Angular frontend smoke', () => {
     await title.fill('Submitted title');
     await body.fill('Submitted body');
 
+    await publish.focus();
+    await page.keyboard.press('Enter');
+    const confirmationDialog = page.getByRole('dialog', { name: 'Confirm publication' });
+    await expect(confirmationDialog).toBeVisible();
     const failedResponse = page.waitForResponse((response) =>
       response.request().method() === 'POST' &&
       new URL(response.url()).pathname === '/api/announcements'
     );
-    await publish.focus();
-    await page.keyboard.press('Enter');
+    await confirmationDialog.getByRole('button', { name: /Publish to 24 recipients now/ }).click();
     expect((await failedResponse).status()).toBe(400);
     await api.audienceRefreshRequested;
 
