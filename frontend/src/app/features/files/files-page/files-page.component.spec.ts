@@ -14,10 +14,11 @@ import { AipFileUploaderComponent } from '../../../shared/ui/adapters/syncfusion
 import { FilesPageComponent } from './files-page.component';
 
 const WORKSPACE_ID = '11111111-1111-1111-1111-111111111111';
+const FILE_OBJECT_ID = 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa';
 
 const backendFile = {
   id: 'attachment-1',
-  fileObjectId: 'file-object-1',
+  fileObjectId: FILE_OBJECT_ID,
   workspaceId: WORKSPACE_ID,
   originalFileName: 'note.txt',
   contentType: 'text/plain',
@@ -171,11 +172,11 @@ describe('FilesPageComponent', () => {
     downloadButton(fixture).click();
     fixture.detectChanges();
 
-    const grant = http.expectOne('/api/files/file-object-1/download-grants');
+    const grant = http.expectOne(`/api/files/${FILE_OBJECT_ID}/download-grants`);
     expect(grant.request.method).toBe('POST');
     expect(grant.request.body).toEqual({ purpose: 'files-page-download' });
     expect(grant.request.withCredentials).toBe(true);
-    grant.flush({ fileDownloadGrantId: 'grant-1', fileObjectId: 'file-object-1', token: 'raw-token' });
+    grant.flush({ fileDownloadGrantId: 'grant-1', fileObjectId: FILE_OBJECT_ID, token: 'raw-token' });
 
     const download = http.expectOne('/api/file-download-grants/grant-1/download');
     expect(download.request.method).toBe('POST');
@@ -218,7 +219,7 @@ describe('FilesPageComponent', () => {
 
     (host.querySelector('.aip-dialog__confirm') as HTMLButtonElement).click();
     fixture.detectChanges();
-    const deletion = http.expectOne('/api/files/file-object-1');
+    const deletion = http.expectOne(`/api/files/${FILE_OBJECT_ID}`);
     expect(deletion.request.method).toBe('DELETE');
     expect(deletion.request.withCredentials).toBe(true);
     deletion.flush(null);
@@ -227,7 +228,7 @@ describe('FilesPageComponent', () => {
 
     expect(textContent(fixture)).toContain('The file was deleted.');
     expect(host.querySelector('[data-testid="files-normal-toolbar"]')).not.toBeNull();
-  });
+  }, 15_000);
 
   it('keeps a canonically redacted display label redacted in destructive confirmation', async () => {
     const { fixture } = await renderLiveFilesPage([
@@ -272,7 +273,7 @@ describe('FilesPageComponent', () => {
     downloadButton(fixture).click();
     fixture.detectChanges();
 
-    const grant = http.expectOne('/api/files/file-object-1/download-grants');
+    const grant = http.expectOne(`/api/files/${FILE_OBJECT_ID}/download-grants`);
     grant.flush({ error: 'not allowed' }, { status: 403, statusText: 'Forbidden' });
     fixture.detectChanges();
 

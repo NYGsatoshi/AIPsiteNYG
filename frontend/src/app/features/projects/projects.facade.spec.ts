@@ -6,6 +6,7 @@ import { EMPTY } from 'rxjs';
 
 import { RealtimeFacade } from '../../core/realtime/realtime.facade';
 import { ActiveWorkspaceFacade } from '../../core/workspace/active-workspace.facade';
+import { ContinueWorkingHistoryService } from '../../shared/continue-working/continue-working-history.service';
 import { ProjectsFacade } from './projects.facade';
 import { TaskDto } from './projects.api';
 
@@ -42,10 +43,16 @@ describe('ProjectsFacade live API mutations', () => {
   let facade: ProjectsFacade;
   let httpMock: HttpTestingController;
   let activeWorkspace: ActiveWorkspaceFacade;
+  const continueWorkingHistory = { touchProject: vi.fn() };
 
   beforeEach(() => {
+    continueWorkingHistory.touchProject.mockReset();
     TestBed.configureTestingModule({
-      providers: [provideHttpClient(), provideHttpClientTesting()]
+      providers: [
+        provideHttpClient(),
+        provideHttpClientTesting(),
+        { provide: ContinueWorkingHistoryService, useValue: continueWorkingHistory }
+      ]
     });
     activeWorkspace = TestBed.inject(ActiveWorkspaceFacade);
     activeWorkspace.setActiveWorkspace({ id: 'workspace-1', label: 'Workspace 1' });
@@ -124,6 +131,8 @@ describe('ProjectsFacade live API mutations', () => {
     httpMock.expectOne('/api/tasks/task-1').flush(editableTaskDto);
 
     expect(facade.getTaskDetail('project-1', 'task-1').editorTask?.title).toBe('Backend Task');
+    expect(continueWorkingHistory.touchProject).toHaveBeenCalledWith('project-1', 'workspace-1');
+    expect(continueWorkingHistory.touchProject).toHaveBeenCalledTimes(1);
   });
 
   it('keeps canonical Task Brief values authoritative across a compact ProjectChanged list refresh', () => {
