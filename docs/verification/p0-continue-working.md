@@ -72,7 +72,7 @@ These are presentation gates only; direct routes and APIs remain authoritative.
 Completed locally on the candidate:
 
 - application and spec TypeScript compilation passed;
-- six focused Continue-working and integration Angular files passed 140/140;
+- six focused Continue-working and integration Angular files passed 145/145;
 - production Angular build passed with only existing repository bundle and
   unrelated stylesheet budget warnings;
 - architecture source check and architecture test suite passed; and
@@ -80,12 +80,12 @@ Completed locally on the candidate:
   and mobile projects for exact hydration, redaction, no Task request, Download,
   opaque storage, empty actions, horizontal containment, and axe.
 
-The broader Angular run passed 905/907; two pre-existing Files-page upload specs
-hit the global five-second timeout under full-suite contention. The unchanged
-Files-page file then passed 14/14 in isolation, including both timed-out cases.
-This is recorded as baseline timing evidence, not a green full-suite claim;
-exact-head CI remains authoritative. Final PR-head CI status is recorded in the
-pull request.
+The broader Angular run before the final focused security regressions passed
+905/907; two pre-existing Files-page upload specs hit the global five-second
+timeout under full-suite contention. The Files-page file passed 14/14 in the
+final focused run, including both timed-out cases. This is recorded as baseline
+timing evidence, not a green full-suite claim; exact-head CI remains
+authoritative. Final PR-head CI status is recorded in the pull request.
 The Playwright API is mocked and therefore is not frontend/backend integration
 or authorization evidence. This browser-local feature has no database change;
 no PostgreSQL execution is claimed or required for a new persistence contract.

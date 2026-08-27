@@ -395,8 +395,14 @@ export class FilesFacade {
   downloadAttachment(attachmentId: string, fallbackFileName: string, context: AttachmentDownloadContext = {}): Subscription | null {
     if (!attachmentId || this.mockPage || this.attachmentDownloads.has(attachmentId)) return null;
     const operationWorkspaceId = context.workspaceId;
-    const expectedFileObjectId = context.fileObjectId;
+    const expectedFileObjectId = fileObjectIdentity(context.fileObjectId);
     if (operationWorkspaceId && this.activeWorkspace.activeWorkspace()?.id !== operationWorkspaceId) return null;
+    if (!expectedFileObjectId) {
+      if (context.isCurrent?.() !== false) {
+        context.onState?.('failed', 'Download is unavailable because its authorized file identity is missing.');
+      }
+      return null;
+    }
     const operation = new Subscription();
     this.attachmentDownloads.set(attachmentId, operation);
     const operationIsCurrent = () => context.isCurrent?.() !== false &&
@@ -410,15 +416,15 @@ export class FilesFacade {
       next: grant => {
         if (!operationIsCurrent()) { operation.unsubscribe(); return; }
         const grantId = stringValue(grant.fileDownloadGrantId);
-        const fileObjectId = stringValue(grant.fileObjectId);
+        const fileObjectId = fileObjectIdentity(grant.fileObjectId);
         const token = stringValue(grant.token);
-        if (!grantId || !fileObjectId || !token || (expectedFileObjectId && fileObjectId !== expectedFileObjectId)) { report('failed', 'Download grant response was incomplete or mismatched.'); operation.unsubscribe(); return; }
+        if (!grantId || !fileObjectId || !token || fileObjectId !== expectedFileObjectId) { report('failed', 'Download grant response was incomplete or mismatched.'); operation.unsubscribe(); return; }
         const downloadRequest = this.http.post(`/api/attachment-download-grants/${grantId}/download`, { token }, { observe: 'response', responseType: 'blob', withCredentials: true }).subscribe({
           next: response => {
             if (!operationIsCurrent()) { operation.unsubscribe(); return; }
             const downloaded = this.saveBlob(response, safeFileNameFromHeader(response.headers.get('content-disposition'), fallbackFileName));
             if (downloaded && operationWorkspaceId) {
-              this.continueWorkingHistory.touchFile(fileObjectId, operationWorkspaceId);
+              this.continueWorkingHistory.touchFile(expectedFileObjectId, operationWorkspaceId);
             }
             report('succeeded', 'Download started.');
             operation.unsubscribe();
@@ -517,12 +523,14 @@ export class FilesFacade {
   }
 
   private downloadWithGrant(fileObjectId: string, grant: FileDownloadGrantDto, generation: number, operation: Subscription): void {
+    const expectedFileObjectId = fileObjectIdentity(fileObjectId);
     const grantId = stringValue(grant.fileDownloadGrantId);
+    const grantedFileObjectId = fileObjectIdentity(grant.fileObjectId);
     const token = stringValue(grant.token);
-    if (!grantId || !token) {
+    if (!expectedFileObjectId || !grantId || !grantedFileObjectId || grantedFileObjectId !== expectedFileObjectId || !token) {
       this.updateFileDownload(fileObjectId, {
         downloadState: 'failed',
-        downloadMessage: 'Download grant response was incomplete.',
+        downloadMessage: 'Download grant response was incomplete or mismatched.',
       });
       operation.unsubscribe();
       return;
@@ -543,7 +551,7 @@ export class FilesFacade {
           );
           const downloaded = this.saveBlob(response, fileName);
           if (downloaded) {
-            this.continueWorkingHistory.touchFile(fileObjectId, this.pageWorkspaceId);
+            this.continueWorkingHistory.touchFile(expectedFileObjectId, this.pageWorkspaceId);
           }
           this.updateFileDownload(fileObjectId, {
             downloadState: 'succeeded',
@@ -729,3 +737,11 @@ function numberValue(value: unknown): number | undefined { return typeof value =
 function stringValue(value: unknown): string | undefined {
   return typeof value === 'string' && value.length > 0 ? value : undefined;
 }
+
+function fileObjectIdentity(value: unknown): string | undefined {
+  if (typeof value !== 'string') return undefined;
+  const normalized = value.trim().toLowerCase();
+  return fileObjectIdPattern.test(normalized) ? normalized : undefined;
+}
+
+const fileObjectIdPattern = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/u;
