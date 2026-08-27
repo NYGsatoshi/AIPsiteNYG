@@ -3571,7 +3571,7 @@ test.describe('MVP0 real backend browser smoke', () => {
       expectUnexpectedConsoleErrors(evidence);
       expectUnexpectedApiFailures(evidence);
       expect(staleEvidence.pageErrors, 'Issue #378 stale-review browser page errors').toEqual([]);
-      expectOnlyExpectedSyntheticHubConsoleErrors(staleEvidence);
+      expectOnlyExpectedSyntheticHubConsoleErrors(staleEvidence, [expectedRevokedAudienceFailure]);
       expectUnexpectedApiFailures(staleEvidence, [expectedRevokedAudienceFailure]);
     } finally {
       // The success path deliberately revokes this user before confirming the
@@ -5104,11 +5104,33 @@ function expectSafeProjectDetailDenial(
   return body;
 }
 
-function expectOnlyExpectedSyntheticHubConsoleErrors(evidence: SmokeEvidence) {
-  const unexpected = evidence.consoleErrors.filter((message) =>
-    !/Synthetic (?:PR06|Issue 378) Hub unavailability|Failed to complete negotiation with the server|Failed to start the connection/i
-      .test(message)
-  );
+function expectOnlyExpectedSyntheticHubConsoleErrors(
+  evidence: SmokeEvidence,
+  scenarioExpectedFailures: readonly SmokeFailedApiResponse[] = []
+) {
+  const expectedNetworkFailures = new Map<number, number>();
+  const remainingScenarioExpected = [...scenarioExpectedFailures];
+  for (const failure of evidence.failedApiResponses) {
+    const expectedIndex = remainingScenarioExpected.findIndex((candidate) => sameFailure(failure, candidate));
+    if (expectedIndex < 0) continue;
+    remainingScenarioExpected.splice(expectedIndex, 1);
+    expectedNetworkFailures.set(failure.status, (expectedNetworkFailures.get(failure.status) ?? 0) + 1);
+  }
+
+  const unexpected = evidence.consoleErrors.filter((message) => {
+    if (/Synthetic (?:PR06|Issue 378) Hub unavailability|Failed to complete negotiation with the server|Failed to start the connection/i
+      .test(message)) {
+      return false;
+    }
+
+    const match = /Failed to load resource:.*status of (\d{3})/i.exec(message);
+    if (!match) return true;
+    const status = Number(match[1]);
+    const remaining = expectedNetworkFailures.get(status) ?? 0;
+    if (remaining === 0) return true;
+    expectedNetworkFailures.set(status, remaining - 1);
+    return false;
+  });
   expect(unexpected, 'unexpected SignalR-degraded browser console errors').toEqual([]);
 }
 
