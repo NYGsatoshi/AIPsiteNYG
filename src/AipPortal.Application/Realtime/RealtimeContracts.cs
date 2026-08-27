@@ -15,6 +15,7 @@ public static class RealtimeEventCatalog
         "Messaging.MessageCreated.v1",
         "Messaging.MessageUpdated.v1",
         "Messaging.MessageDeleted.v1",
+        "Messaging.ThreadChanged.v1",
         "Messaging.ConversationUnreadChanged.v1",
         "Notifications.NotificationCreated.v1",
         "Notifications.NotificationReadStateChanged.v1",

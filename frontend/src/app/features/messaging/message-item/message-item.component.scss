@@ -82,7 +82,8 @@
 }
 
 .message__action-button,
-.message__edit-actions button {
+.message__edit-actions button,
+.message__thread-entry {
   display: inline-flex;
   min-width: 44px;
   min-height: 44px;
@@ -104,7 +105,18 @@
   height: 18px;
 }
 
+.message__thread-entry {
+  width: fit-content;
+  color: var(--aip-color-action-primary);
+}
+
+.message__thread-entry svg {
+  width: 17px;
+  height: 17px;
+}
+
 .message__action-button:focus-visible,
+.message__thread-entry:focus-visible,
 .message__edit-actions button:focus-visible,
 .message__edit-form textarea:focus-visible,
 .message__edit-form select:focus-visible {

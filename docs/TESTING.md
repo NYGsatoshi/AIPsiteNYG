@@ -133,6 +133,34 @@ an environmental startup limitation, not a P0 assertion failure or
 real-backend evidence. See `docs/verification/p0-task-create.md` for scope and
 limits.
 
+### Issue #362 same-Conversation Message threads
+
+Backend tests tagged `Scope=Issue362` cover the exact read/post routes,
+root/reply projection, deterministic 100-reply bound, truthful `hasMore`, main
+timeline exclusion, first-reply `CanCreateThread`, later posting authority,
+read-only access, removed/nonparticipant/admin/cross-Tenant/cross-Workspace/
+Project-scope/revoked-membership denial without body/count/name leakage,
+idempotency target isolation, metadata-only audit and realtime payloads,
+deleted reply/root tombstones, and application rejection of cross-Conversation/
+cross-Tenant links.
+
+Conditional PostgreSQL coverage applies the additive migration over a legacy
+Message, verifies its column/index/check/foreign key and Down/reapply paths,
+and runs the production query against canonical, corrupt cross-scope, and
+deleted rows. It requires `POSTGRES_TEST_CONNECTION_STRING`; absence outside CI
+is an explicit environment limitation, not PostgreSQL pass evidence.
+
+Focused Angular coverage validates strict bounded DTO mapping, separate main
+and thread drafts, stable retry identity, reply-event timeline exclusion,
+authoritative participant-summary refetch with out-of-order protection,
+protected-state clearing, channel/DM wiring, durable tombstones, keyboard
+operation, and trigger focus return. The dedicated static Playwright scenario
+uses a 320-pixel viewport and checks the mobile pane, horizontal overflow,
+keyboard post/close, CSRF/body shape, draft isolation, and axe. Its API is
+mocked and therefore does not replace the HTTP or PostgreSQL tests. See
+`docs/verification/p1-message-thread-context.md` for the exact current run
+record and environmental limits.
+
 ### Issue #354 advisory Task-create quality checklist
 
 The focused Task-create page component suite covers missing optional Brief
@@ -406,8 +434,9 @@ npm.cmd run test:ui:angular
 
 `npm test`, `npm run test:ui`, and `npm run test:ui:angular` run
 `angular-smoke.spec.ts`, `message-mobile-navigation.spec.ts`,
-`message-actions.spec.ts`, and `app.spec.ts` against the static Angular test
-server. The Issue #357 responsive Task execution-scope scenario is included in
+`message-actions.spec.ts`, `message-thread-context.spec.ts`, and `app.spec.ts`
+against the static Angular test server. The Issue #357 responsive Task
+execution-scope scenario is included in
 `angular-smoke.spec.ts`, so it runs in both desktop and 320-pixel mobile
 projects. Their API responses are mocked. They intentionally do not discover
 or execute `real-backend-smoke.spec.ts`.

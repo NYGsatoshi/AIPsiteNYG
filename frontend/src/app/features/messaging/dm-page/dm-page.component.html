@@ -31,41 +31,61 @@
     </div>
   </header>
 
-  <main class="dm-page__main" data-testid="dm-route-surface">
-    <app-message-timeline
-      [messages]="vm.messages"
-      [status]="vm.status"
-      [canReadBody]="canReadBody()"
-      [canEditOwnMessages]="canPost()"
-      [canViewOthersPreciseReadTimestamps]="false"
-      [hasNewMessagesWhileReading]="vm.hasNewMessagesWhileReading"
-      [inlineError]="vm.inlineError ?? ''"
-      [messageAction]="facade.messageAction()"
-      (retry)="facade.retryMessage($event)"
-      (loadOlder)="facade.loadOlder()"
-      (loadNewer)="facade.loadNewer()"
-      (acknowledgeNewMessages)="facade.acknowledgeNewMessages()"
-      (startEdit)="facade.beginMessageEdit($event)"
-      (editDraftChange)="facade.updateMessageEditDraft($event.messageId, $event.draft)"
-      (saveEditRequested)="facade.saveMessageEdit($event)"
-      (cancelAction)="facade.cancelMessageAction()"
-      (requestDelete)="facade.requestMessageDelete($event)"
-      (confirmDelete)="facade.confirmMessageDelete($event)"
-      (requestReport)="facade.requestMessageReport($event)"
-      (confirmReport)="facade.confirmMessageReport($event.messageId, $event.reasonCode)"
-    />
+  <main
+    class="dm-page__main"
+    [class.dm-page__main--thread-open]="threadOpen()"
+    data-testid="dm-route-surface"
+  >
+    <section class="dm-page__conversation" data-testid="dm-conversation-surface">
+      <app-message-timeline
+        [messages]="vm.messages"
+        [status]="vm.status"
+        [canReadBody]="canReadBody()"
+        [canEditOwnMessages]="canPost()"
+        [canOpenThreads]="canReadBody()"
+        [canViewOthersPreciseReadTimestamps]="false"
+        [hasNewMessagesWhileReading]="vm.hasNewMessagesWhileReading"
+        [inlineError]="vm.inlineError ?? ''"
+        [messageAction]="facade.messageAction()"
+        (retry)="facade.retryMessage($event)"
+        (loadOlder)="facade.loadOlder()"
+        (loadNewer)="facade.loadNewer()"
+        (acknowledgeNewMessages)="facade.acknowledgeNewMessages()"
+        (startEdit)="facade.beginMessageEdit($event)"
+        (editDraftChange)="facade.updateMessageEditDraft($event.messageId, $event.draft)"
+        (saveEditRequested)="facade.saveMessageEdit($event)"
+        (cancelAction)="facade.cancelMessageAction()"
+        (requestDelete)="facade.requestMessageDelete($event)"
+        (confirmDelete)="facade.confirmMessageDelete($event)"
+        (requestReport)="facade.requestMessageReport($event)"
+        (confirmReport)="facade.confirmMessageReport($event.messageId, $event.reasonCode)"
+        (openThread)="facade.openThread($event.messageId, $event.triggerElementId)"
+      />
 
-    @if (showComposer()) {
-      <app-message-composer
-        [draft]="vm.draft"
-        [disabled]="!canPost()"
-        [sending]="vm.sending"
-        [sendState]="vm.sendState"
-        [disabledReason]="composerDisabledReason()"
-        [attachmentDisabledLabel]="vm.conversation.attachment.label"
+      @if (showComposer()) {
+        <app-message-composer
+          [draft]="vm.draft"
+          [disabled]="!canPost()"
+          [sending]="vm.sending"
+          [sendState]="vm.sendState"
+          [disabledReason]="composerDisabledReason()"
+          [attachmentDisabledLabel]="vm.conversation.attachment.label"
+          [mentionCandidates]="vm.conversation.mentionCandidates ?? []"
+          (draftChange)="facade.setDraft($event)"
+          (send)="facade.sendDraft($event)"
+        />
+      }
+    </section>
+
+    @if (threadOpen()) {
+      <app-thread-preview
+        [thread]="facade.thread()"
+        [canPost]="canPost()"
+        [canCreateThread]="canCreateThread()"
         [mentionCandidates]="vm.conversation.mentionCandidates ?? []"
-        (draftChange)="facade.setDraft($event)"
-        (send)="facade.sendDraft($event)"
+        (close)="facade.closeThread()"
+        (draftChange)="facade.setThreadDraft($event)"
+        (send)="facade.sendThreadDraft($event)"
       />
     }
   </main>

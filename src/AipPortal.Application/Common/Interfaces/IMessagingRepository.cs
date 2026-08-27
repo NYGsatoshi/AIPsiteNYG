@@ -1,4 +1,5 @@
 using AipPortal.Application.Common;
+using AipPortal.Application.Messaging;
 using AipPortal.Domain.Entities;
 
 namespace AipPortal.Application.Common.Interfaces;
@@ -21,6 +22,9 @@ public interface IMessagingRepository
     Task<ConversationMember?> GetMemberAsync(Guid conversationId, Guid userId, CancellationToken cancellationToken = default);
     Task<IReadOnlyList<ConversationMember>> ListMembersAsync(Guid conversationId, CancellationToken cancellationToken = default);
     Task<PagedResponse<Message>> ListMessagesAsync(Guid conversationId, int limit, DateTimeOffset? before, CancellationToken cancellationToken = default);
+    Task<PagedResponse<Message>> ListThreadRepliesAsync(Guid conversationId, Guid threadRootMessageId, int limit, DateTimeOffset? before, CancellationToken cancellationToken = default);
+    Task<IReadOnlyDictionary<Guid, MessageThreadSummaryResponse>> GetThreadSummariesAsync(Guid conversationId, IReadOnlyCollection<Guid> threadRootMessageIds, int participantLimit, CancellationToken cancellationToken = default);
+    Task<MessageThreadSummaryResponse> GetThreadSummaryAsync(Guid conversationId, Guid threadRootMessageId, int participantLimit, CancellationToken cancellationToken = default);
     Task<int> CountUnreadMessagesAsync(Guid conversationId, Guid userId, DateTimeOffset? lastReadAt, CancellationToken cancellationToken = default);
     Task<Message?> GetMessageAsync(Guid messageId, CancellationToken cancellationToken = default);
     Task<Message?> FindMessageByClientRequestIdAsync(Guid conversationId, Guid authorUserId, Guid clientRequestId, CancellationToken cancellationToken = default);

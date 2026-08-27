@@ -242,6 +242,61 @@ The browser-only unread-badge display setting is not part of this API. It is
 namespaced by Tenant and user in local storage and has no authorization or
 delivery effect.
 
+## Same-Conversation Message threads
+
+The canonical Message-thread routes are:
+
+- `GET /api/messages/{messageId}/thread`
+- `POST /api/messages/{messageId}/thread/messages`
+
+`messageId` is the canonical root Message, not a legacy Thread Conversation.
+The root must have no `threadRootMessageId`, and every reply stores that root ID
+while remaining in the root's Conversation. `ConversationType.Thread` and
+`ParentConversationId` remain supported by their existing APIs only; the
+service never guesses a Message anchor for them. Main Conversation Message
+lists return roots only and attach an authorized summary when replies exist.
+
+GET inherits the current Conversation read boundary before projecting any
+body, count, timestamp, or display name. It returns the pinned root, the latest
+at most 100 replies in stable chronological order, the exact durable reply
+count, latest reply timestamp, at most three distinct display names, `hasMore`,
+and `maximumReplies: 100`. There is no older-reply cursor in this version;
+`hasMore: true` explicitly means older replies were not loaded. Deleted roots
+and replies are bodyless/attachment-free tombstones; deleted replies remain in
+the order and count.
+
+The existing main Conversation list still omits all deleted Messages. A root
+deleted while its panel is open remains available from the exact thread GET as
+the pinned bodyless tombstone, but it cannot currently be rediscovered or
+reopened from the main timeline. General main-timeline tombstone presentation
+remains outside this Issue #362 slice with the broader Message actions work.
+
+POST accepts only:
+
+```json
+{
+  "body": "Reply text",
+  "clientRequestId": "00000000-0000-4000-8000-000000000001",
+  "mentionedUserIds": []
+}
+```
+
+Unknown properties are rejected. Current posting authority is always
+required, and the first durable reply additionally requires the member's
+current `CanCreateThread`; later replies do not. A deleted root cannot receive
+a reply. Idempotent replay is scoped to the same current Conversation, author,
+and root target: a `clientRequestId` previously used for a main-timeline
+Message or another root is rejected rather than retargeted.
+
+Successful creation emits the ordinary `Messaging.MessageCreated.v1` with
+`threadRootMessageId` so consumers keep it out of the main timeline, plus a
+metadata-only `Messaging.ThreadChanged.v1`. The latter contains the root ID,
+count/latest metadata, change kind, and `requiresRefetch: true`; it contains no
+Message body or participant names. Clients must invalidate/refetch the
+authorized projection so participant summaries cannot become stale or leak.
+Thread reply audit metadata records identifiers and decisions only, never the
+reply body.
+
 ## TASK-V1-PR07-A task notification preferences
 
 The following private, current-user routes are implemented by PR07-A. They do

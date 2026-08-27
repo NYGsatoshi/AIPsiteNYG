@@ -1,7 +1,7 @@
 # Database
 
 Last broad implementation audit: 2026-08-02. WPC-02A/B/D schema status
-update: 2026-08-24.
+update: 2026-08-24. Issue #362 Message-thread schema update: 2026-08-28.
 
 ## Technology
 
@@ -26,11 +26,11 @@ Use these in order:
 
 ## Migration history
 
-There are forty-nine timestamped EF migration classes in the current source,
+There are fifty timestamped EF migration classes in the current source,
 from:
 
 - `20260606135558_InitialCreate`
-- through `20260825081645_AddTaskExecutionScopeFoundation`
+- through `20260827154230_AddMessageThreadRootContext`
 
 Migration files live in `src/AipPortal.Infrastructure/Persistence/Migrations/`.
 
@@ -100,6 +100,29 @@ it is not projected through general Tenant membership DTOs. Updating it also
 updates the membership row's existing `UpdatedAt` audit timestamp. The Down
 path removes only the new column; values written to it are not retained after
 rollback.
+
+### Issue #362 same-Conversation Message threads
+
+Migration `20260827154230_AddMessageThreadRootContext` adds nullable UUID
+`messages.ThreadRootMessageId` as a restricted self-foreign key. Existing
+Message rows remain `NULL`; there is no legacy backfill and no attempt to infer
+an anchor from `ConversationType.Thread` or `ParentConversationId`.
+
+`CK_messages_thread_root_not_self` rejects a Message that points to itself.
+The application and repository additionally require a reply's current Tenant
+and Conversation to match the authorized canonical root because a simple
+self-foreign key cannot express that composite invariant. The deterministic
+reply lookup index is
+`(TenantId, ConversationId, ThreadRootMessageId, CreatedAt, Id)`; EF also adds
+the ordinary single-column foreign-key index.
+
+Deletion is restricted while replies reference a root. Current Message delete
+operations retain rows as tombstones, so deleted replies remain ordered and
+counted while their body and attachments are not projected. A deleted root may
+be read as a pinned bodyless tombstone through the authorized thread endpoint,
+but cannot receive new replies. The additive Down path removes only the
+foreign key, indexes, check, and nullable column; rollback discards thread
+links but does not remove Message rows.
 
 ### Organization and communication
 

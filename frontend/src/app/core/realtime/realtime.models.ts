@@ -37,6 +37,7 @@ export type RealtimeEventType =
   | 'Messaging.MessageCreated.v1'
   | 'Messaging.MessageUpdated.v1'
   | 'Messaging.MessageDeleted.v1'
+  | 'Messaging.ThreadChanged.v1'
   | 'Messaging.ConversationUnreadChanged.v1'
   | 'Notifications.NotificationCreated.v1'
   | 'Notifications.NotificationReadStateChanged.v1'
@@ -65,6 +66,7 @@ export const REALTIME_EVENT_TYPES: ReadonlySet<string> = new Set([
   'Messaging.MessageCreated.v1',
   'Messaging.MessageUpdated.v1',
   'Messaging.MessageDeleted.v1',
+  'Messaging.ThreadChanged.v1',
   'Messaging.ConversationUnreadChanged.v1',
   'Notifications.NotificationCreated.v1',
   'Notifications.NotificationReadStateChanged.v1',

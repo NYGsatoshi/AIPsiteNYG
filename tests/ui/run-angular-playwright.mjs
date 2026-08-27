@@ -15,6 +15,7 @@ const staticSuiteFiles = [
   'tests/ui/angular-smoke.spec.ts',
   'tests/ui/message-mobile-navigation.spec.ts',
   'tests/ui/message-actions.spec.ts',
+  'tests/ui/message-thread-context.spec.ts',
   'tests/ui/app.spec.ts'
 ];
 let server = null;

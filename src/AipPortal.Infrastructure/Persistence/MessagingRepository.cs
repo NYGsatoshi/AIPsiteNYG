@@ -1,5 +1,6 @@
 using AipPortal.Application.Common;
 using AipPortal.Application.Common.Interfaces;
+using AipPortal.Application.Messaging;
 using AipPortal.Domain.Entities;
 using AipPortal.Domain.Enums;
 using Microsoft.EntityFrameworkCore;
@@ -484,11 +485,139 @@ public sealed class MessagingRepository(AppDbContext dbContext) : IMessagingRepo
             .Include(m => m.AuthorUser)
             .Include(m => m.Attachments)
             .ThenInclude(a => a.Attachment)
-            .Where(m => m.ConversationId == conversationId && m.DeletedAt == null);
+            .Where(m =>
+                m.ConversationId == conversationId &&
+                m.ThreadRootMessageId == null &&
+                m.DeletedAt == null);
         if (before.HasValue) query = query.Where(m => m.CreatedAt < before.Value);
         var total = await query.CountAsync(cancellationToken);
         var items = await query.OrderByDescending(m => m.CreatedAt).Take(limit).ToListAsync(cancellationToken);
         return new PagedResponse<Message>(items, 1, limit, total);
+    }
+
+    public async Task<PagedResponse<Message>> ListThreadRepliesAsync(
+        Guid conversationId,
+        Guid threadRootMessageId,
+        int limit,
+        DateTimeOffset? before,
+        CancellationToken cancellationToken = default)
+    {
+        limit = Math.Clamp(limit, 1, 100);
+        var query = dbContext.Messages
+            .AsNoTracking()
+            .Include(message => message.AuthorUser)
+            .Include(message => message.Attachments)
+            .ThenInclude(link => link.Attachment)
+            .Where(message =>
+                message.ConversationId == conversationId &&
+                message.ThreadRootMessageId == threadRootMessageId);
+        if (before.HasValue)
+        {
+            query = query.Where(message => message.CreatedAt < before.Value);
+        }
+
+        var total = await query.CountAsync(cancellationToken);
+        var items = await query
+            .OrderByDescending(message => message.CreatedAt)
+            .ThenByDescending(message => message.Id)
+            .Take(limit)
+            .ToListAsync(cancellationToken);
+        return new PagedResponse<Message>(items, 1, limit, total);
+    }
+
+    public async Task<IReadOnlyDictionary<Guid, MessageThreadSummaryResponse>> GetThreadSummariesAsync(
+        Guid conversationId,
+        IReadOnlyCollection<Guid> threadRootMessageIds,
+        int participantLimit,
+        CancellationToken cancellationToken = default)
+    {
+        var rootIds = threadRootMessageIds
+            .Where(id => id != Guid.Empty)
+            .Distinct()
+            .Take(100)
+            .ToArray();
+        if (rootIds.Length == 0)
+        {
+            return new Dictionary<Guid, MessageThreadSummaryResponse>();
+        }
+
+        participantLimit = Math.Clamp(participantLimit, 0, 5);
+        var replyQuery = dbContext.Messages
+            .AsNoTracking()
+            .Where(message =>
+                message.ConversationId == conversationId &&
+                message.ThreadRootMessageId.HasValue &&
+                rootIds.Contains(message.ThreadRootMessageId.Value));
+        var aggregates = await replyQuery
+            .GroupBy(message => message.ThreadRootMessageId!.Value)
+            .Select(group => new
+            {
+                RootId = group.Key,
+                ReplyCount = group.Count(),
+                LatestReplyAt = group.Max(message => message.CreatedAt)
+            })
+            .ToListAsync(cancellationToken);
+
+        var participants = await replyQuery
+            .Where(message => message.AuthorUser != null)
+            .Select(message => new
+            {
+                RootId = message.ThreadRootMessageId!.Value,
+                DisplayName = message.AuthorUser!.DisplayName
+            })
+            .Distinct()
+            .OrderBy(item => item.RootId)
+            .ThenBy(item => item.DisplayName)
+            .ToListAsync(cancellationToken);
+        var participantsByRoot = participants
+            .GroupBy(item => item.RootId)
+            .ToDictionary(
+                group => group.Key,
+                group => (IReadOnlyList<string>)group
+                    .Select(item => item.DisplayName)
+                    .Where(displayName => !string.IsNullOrWhiteSpace(displayName))
+                    .Take(participantLimit)
+                    .ToList());
+
+        return aggregates.ToDictionary(
+            item => item.RootId,
+            item => new MessageThreadSummaryResponse(
+                item.RootId,
+                item.ReplyCount,
+                item.LatestReplyAt,
+                participantsByRoot.GetValueOrDefault(item.RootId) ?? []));
+    }
+
+    public async Task<MessageThreadSummaryResponse> GetThreadSummaryAsync(
+        Guid conversationId,
+        Guid threadRootMessageId,
+        int participantLimit,
+        CancellationToken cancellationToken = default)
+    {
+        participantLimit = Math.Clamp(participantLimit, 0, 5);
+        var query = dbContext.Messages
+            .AsNoTracking()
+            .Where(message =>
+                message.ConversationId == conversationId &&
+                message.ThreadRootMessageId == threadRootMessageId);
+        var replyCount = await query.CountAsync(cancellationToken);
+        var latestReplyAt = await query
+            .OrderByDescending(message => message.CreatedAt)
+            .Select(message => (DateTimeOffset?)message.CreatedAt)
+            .FirstOrDefaultAsync(cancellationToken);
+        var participantDisplayNames = await query
+            .Where(message => message.AuthorUser != null)
+            .Select(message => message.AuthorUser!.DisplayName)
+            .Where(displayName => displayName != string.Empty)
+            .Distinct()
+            .OrderBy(displayName => displayName)
+            .Take(participantLimit)
+            .ToListAsync(cancellationToken);
+        return new MessageThreadSummaryResponse(
+            threadRootMessageId,
+            replyCount,
+            latestReplyAt,
+            participantDisplayNames);
     }
 
     public Task<int> CountUnreadMessagesAsync(Guid conversationId, Guid userId, DateTimeOffset? lastReadAt, CancellationToken cancellationToken = default)
