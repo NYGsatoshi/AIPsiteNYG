@@ -281,6 +281,39 @@ describe('TaskCreatePageComponent', () => {
     ).toContain('Primary assignee');
   });
 
+  it('preserves the local draft and restores title focus after same-route authorization recovery', async () => {
+    component.form.controls.title.setValue('Local Task recovery evidence');
+    component.form.controls.goal.setValue('Keep a browser-local draft only.');
+    fixture.detectChanges();
+
+    facade.options.set({ status: 'idle' });
+    fixture.detectChanges();
+    await fixture.whenStable();
+    expect((fixture.nativeElement as HTMLElement).querySelector('[data-testid="task-create-form"]')).toBeNull();
+
+    facade.options.set({
+      status: 'ready',
+      projectId,
+      data: {
+        ...options,
+        canManageProject: false,
+        assignees: [],
+      },
+      requestId: 'task-create-options-reauthorized',
+    });
+    fixture.detectChanges();
+    await fixture.whenStable();
+    fixture.detectChanges();
+    await fixture.whenStable();
+
+    const root = fixture.nativeElement as HTMLElement;
+    const title = root.querySelector<HTMLInputElement>('#task-create-title');
+    expect(component.form.controls.title.value).toBe('Local Task recovery evidence');
+    expect(component.form.controls.goal.value).toBe('Keep a browser-local draft only.');
+    expect(root.querySelector('[data-testid="task-create-primary-assignee"]')).toBeNull();
+    expect(document.activeElement).toBe(title);
+  });
+
   it('does not duplicate a submit while the authoritative create state is pending', () => {
     component.form.controls.title.setValue('Evidence review');
     facade.createState.set({ status: 'submitting', fieldErrors: [] });

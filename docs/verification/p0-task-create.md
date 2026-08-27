@@ -85,6 +85,16 @@ obsolete mutable-field parity, records a strict HTTP 201 before follow-up
 work, and uses navigation-only Task-detail recovery. Returning to the same
 Project clears committed create state so a subsequent New Task form is usable.
 
+On a same-route authorization reset with no committed or uncertain create, the
+browser discards every prior server-owned options projection, capability,
+request ID, and mutation state. It retains only opaque route intent for the
+same authenticated identity, then waits for the existing Project subscription
+catch-up to obtain fresh server-authorized options. It never reuses prior
+authority or submits automatically. Local current-tab text remains
+browser-local; after an allowed refresh restores the form, focus returns to
+Title. A denied subscription shows the existing generic unavailable state and
+does not issue a create request.
+
 ## Recorded local verification
 
 - Focused backend service/HTTP selection: 9 passed, 0 failed. It covers the
@@ -96,6 +106,11 @@ Project clears committed create state so a subsequent New Task form is usable.
   configured.
 - Focused Angular tests: 6 spec files / 38 tests passed under Node 24.19.0,
   including committed-recovery return/reopen behavior.
+- Focused authorization-recovery Angular suites: 2 spec files / 22 tests
+  passed under Node 24.19.0. They cover a cancelled pre-reset options GET,
+  empty protected state until a fresh allowed catch-up response, generic denied
+  subscription handling, no restore after a Workspace boundary, and
+  same-route local-draft/title-focus recovery.
 - App and spec TypeScript compilation passed. The production Angular build
   passed in 16.94 seconds under Node 24.19.0 after Task-create stylesheet
   compaction; it added no Task-create budget warning. Existing unrelated

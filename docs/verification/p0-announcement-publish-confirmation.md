@@ -45,6 +45,14 @@ performs its existing create validation and persistence. The browser must not
 treat a prior audience list or the confirmation dialog as an authorization
 decision.
 
+A connected client that receives an authorization-state invalidation correctly
+clears protected editor and review state before it can submit. The
+real-backend stale-client regression deliberately prevents only the Hub
+transport in an isolated browser context; cookie, CSRF, DELETE, audience GET,
+and POST requests remain real. The final POST must independently reauthorize
+the selected scope, reject it without protected-name/count disclosure, and
+refresh the editor's authorized audience list.
+
 ## Explicit exclusions and Issue status
 
 Issue #378 remains open. This candidate has no:
@@ -91,6 +99,9 @@ Before promoting this candidate, run and record on its exact integrated head:
 - a Compose-backed real-browser check against ASP.NET Core and PostgreSQL for
   cookie/CSRF handling, selected-scope reauthorization, the actual HTTP 200
   create response, and persisted immediate publication;
+- the stale-client revocation proof with only `/hubs/app` transport
+  unavailable; it must not suppress server reauthorization or replace the
+  real POST with a mock;
 - relevant server authorization regression evidence for stale or revoked
   Workspace, Group, and Channel scopes.
 

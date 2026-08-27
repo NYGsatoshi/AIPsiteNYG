@@ -54,6 +54,7 @@ export class TaskCreatePageComponent {
   private currentProjectId = '';
   private invalidSubmission = false;
   private previousCreateStatus: TaskCreateStatus = 'idle';
+  private focusTitleAfterOptionsRecovery = false;
 
   readonly optionsState = this.facade.options;
   readonly createState = this.facade.createState;
@@ -130,8 +131,25 @@ export class TaskCreatePageComponent {
 
     effect(() => {
       const optionsState = this.optionsState();
+      if (
+        optionsState.status === 'idle' &&
+        this.currentProjectId !== '' &&
+        this.initializedProjectId() === this.currentProjectId
+      ) {
+        this.focusTitleAfterOptionsRecovery = true;
+      }
       if (optionsState.status === 'ready' && optionsState.data) {
+        const restoreTitleFocus =
+          this.focusTitleAfterOptionsRecovery &&
+          this.currentProjectId === optionsState.data.projectId &&
+          this.initializedProjectId() === optionsState.data.projectId;
         this.synchronizeAuthorizedOptions(optionsState.data.projectId);
+        if (restoreTitleFocus) {
+          this.focusTitleAfterOptionsRecovery = false;
+          this.focusAfterRender('title');
+        }
+      } else if (optionsState.status === 'denied' || optionsState.status === 'error') {
+        this.focusTitleAfterOptionsRecovery = false;
       }
 
       const createState = this.createState();
@@ -441,6 +459,7 @@ export class TaskCreatePageComponent {
   private resetForRoute(): void {
     this.initializedProjectId.set(null);
     this.invalidSubmission = false;
+    this.focusTitleAfterOptionsRecovery = false;
     this.discardConfirmationVisible.set(false);
     this.optionsChangedNotice.set(null);
     this.previousCreateStatus = 'idle';

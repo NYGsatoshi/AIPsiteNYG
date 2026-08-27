@@ -11,6 +11,7 @@ Task-create and #354 advisory quality-checklist candidate updates:
 **2026-08-26**. Announcement audience-contract and #378 immediate-publish
 confirmation candidate update: **2026-08-26**.
 Audit UI keyboard/focus/status candidate update: **2026-08-27**.
+P0 authorization-recovery candidate update: **2026-08-27**.
 
 ## Documentation authority
 
@@ -95,6 +96,20 @@ Project references enforce a conventional dependency direction. See `docs/ARCHIT
 | UI shell data model | Foundation only | Modules/panels/layouts/commands/radial-menu APIs exist; radial UI control is disabled |
 | SignalR and transactional Outbox | Messaging, Project Kanban, and PR06 Schedule integration implemented; exact final-HEAD PR06 real-transport Gate pending | Authenticated `/hubs/app`, server-authorized subscriptions, durable Outbox persistence, dispatcher retry/dead-letter/retention, diagnostics, and Angular reconnect/catch-up exist. PR05 uses committed Task/Project invalidations for Kanban. PR06 transactionally queues Task/Project schedule invalidations and treats them as version hints for authoritative Gantt HTTP refetch, including active-edit queuing, reconnect, degraded HTTP behavior, and synchronous protected Kanban/Gantt clear plus generation invalidation when Project subscription reauthorization is denied. Historical exact `2fc5910` licensed smoke run `30639800642` passed all six scenarios with 0 failed/skipped; it is not final evidence after latest-main integration and scope cleanup. |
 | Billing/payments, SSO/MFA, general-purpose/external job orchestration | Planned | In-process Outbox and PR07-C digest hosted workers exist; no general-purpose external job runner was found |
+
+### Current P0 authorization-recovery candidate
+
+- On the existing #410 Task-create route, a same-route authorization reset
+  clears all server-owned options, capabilities, request IDs, and mutation
+  state. It retains only opaque route intent for the same identity, then
+  requires a fresh authorized options response before restoring the form or
+  allowing a create command; it never reuses authority or submits
+  automatically.
+- A connected #378 Announcement client correctly clears protected editor and
+  review state on an authorization invalidation. The stale-client P0 proof
+  delays only Hub transport in an isolated browser context; cookie, CSRF,
+  audience GET, membership DELETE, and final POST remain real and the server
+  still independently reauthorizes the selected scope.
 
 ## Status groups
 
