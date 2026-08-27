@@ -1,5 +1,6 @@
 import {
   Component,
+  computed,
   ElementRef,
   EventEmitter,
   Input,
@@ -21,12 +22,14 @@ import {
 } from '@angular/forms';
 import { Subscription } from 'rxjs';
 
+import { AnnouncementLocalPreviewComponent } from '../announcement-local-preview/announcement-local-preview.component';
 import { AnnouncementPublicationStatusComponent } from '../announcement-publication-status/announcement-publication-status.component';
 import {
   ANNOUNCEMENT_PRIORITY_LABELS,
   AnnouncementAudienceOption,
   AnnouncementEditorDraft,
   AnnouncementEditorSubmission,
+  AnnouncementLocalPreview,
   AnnouncementPriority,
   AnnouncementPublicationState,
 } from '../announcements.types';
@@ -35,7 +38,12 @@ import { AipDialogComponent } from '../../../shared/ui/aip-dialog/aip-dialog.com
 @Component({
   selector: 'app-announcement-editor',
   standalone: true,
-  imports: [ReactiveFormsModule, AnnouncementPublicationStatusComponent, AipDialogComponent],
+  imports: [
+    ReactiveFormsModule,
+    AnnouncementPublicationStatusComponent,
+    AnnouncementLocalPreviewComponent,
+    AipDialogComponent,
+  ],
   templateUrl: './announcement-editor.component.html',
   styleUrl: './announcement-editor.component.scss',
 })
@@ -44,6 +52,8 @@ export class AnnouncementEditorComponent implements OnChanges, OnInit, OnDestroy
   @ViewChild('bodyInput') private bodyInput?: ElementRef<HTMLTextAreaElement>;
   @ViewChild('priorityInput') private priorityInput?: ElementRef<HTMLSelectElement>;
   @ViewChild('audienceInput') private audienceInput?: ElementRef<HTMLSelectElement>;
+  @ViewChild(AnnouncementLocalPreviewComponent)
+  private previewComponent?: AnnouncementLocalPreviewComponent;
 
   @Input({ required: true }) draft!: AnnouncementEditorDraft;
   @Input() submissionError: string | undefined;
@@ -54,9 +64,11 @@ export class AnnouncementEditorComponent implements OnChanges, OnInit, OnDestroy
   readonly priorityOptions: readonly AnnouncementPriority[] = ['normal', 'important', 'critical'];
   readonly priorityLabels = ANNOUNCEMENT_PRIORITY_LABELS;
   readonly availableAudiences = signal<readonly AnnouncementAudienceOption[]>([]);
+  readonly previewOpen = signal(false);
   readonly publicationReviewOpen = signal(false);
   readonly publicationConfirming = signal(false);
   readonly publicationReview = signal<AnnouncementEditorSubmission | null>(null);
+  private readonly previewRevision = signal(0);
   private submissionAttempted = false;
   private formInitialized = false;
   private formChanges?: Subscription;
@@ -81,6 +93,29 @@ export class AnnouncementEditorComponent implements OnChanges, OnInit, OnDestroy
     priority: ['normal' as AnnouncementPriority, Validators.required],
     audienceKey: ['', Validators.required],
     requiresReadConfirmation: [false],
+  });
+
+  /**
+   * This is intentionally a local rendering model, not a DTO or an alternate
+   * publication command. The audience is resolved from the current
+   * server-authorized options on every change, so a revoked display name/count
+   * cannot survive an audience refresh.
+   */
+  readonly preview = computed<AnnouncementLocalPreview | null>(() => {
+    this.previewRevision();
+    const audience = this.selectedAudience();
+    if (audience === null) {
+      return null;
+    }
+
+    const value = this.form.getRawValue();
+    return {
+      title: value.title.trim(),
+      body: value.body.trim(),
+      priority: value.priority,
+      audience,
+      requiresReadConfirmation: value.requiresReadConfirmation,
+    };
   });
 
   get publicationState(): AnnouncementPublicationState {
@@ -139,6 +174,13 @@ export class AnnouncementEditorComponent implements OnChanges, OnInit, OnDestroy
     if (this.formInitialized && this.form.dirty) {
       if (currentAudienceKey !== authorizedAudienceKey) {
         this.form.controls.audienceKey.setValue(authorizedAudienceKey, { emitEvent: false });
+        this.previewRevision.update((revision) => revision + 1);
+        // The editor received a new authoritative audience projection. Do not
+        // keep an already-open view that might have displayed the revoked
+        // audience's name or recipient estimate.
+        if (this.previewOpen()) {
+          this.closePreview();
+        }
       }
       return;
     }
@@ -155,6 +197,11 @@ export class AnnouncementEditorComponent implements OnChanges, OnInit, OnDestroy
     );
     this.submissionAttempted = false;
     this.formInitialized = true;
+    this.previewRevision.update((revision) => revision + 1);
+
+    if (this.previewOpen() && currentAudienceKey !== authorizedAudienceKey) {
+      this.closePreview();
+    }
   }
 
   selectedAudience(): AnnouncementAudienceOption | null {
@@ -209,6 +256,33 @@ export class AnnouncementEditorComponent implements OnChanges, OnInit, OnDestroy
   focusField(field: AnnouncementEditorField, event: Event): void {
     event.preventDefault();
     this.focusControl(field);
+  }
+
+  openPreview(): void {
+    if (this.preview() === null) {
+      this.focusControl('audienceKey');
+      return;
+    }
+
+    this.previewOpen.set(true);
+    // The preview child is created by this state change. Wait for Angular to
+    // attach that view before asking its heading to receive keyboard focus.
+    setTimeout(() => {
+      if (this.previewOpen()) {
+        this.previewComponent?.focusHeading();
+      }
+    });
+  }
+
+  closePreview(restoreFocus = true): void {
+    this.previewOpen.set(false);
+    if (restoreFocus) {
+      setTimeout(() => {
+        if (!this.previewOpen()) {
+          this.focusControl('title');
+        }
+      });
+    }
   }
 
   publish(): void {
@@ -279,6 +353,7 @@ export class AnnouncementEditorComponent implements OnChanges, OnInit, OnDestroy
   }
 
   private emitDraftChange(): void {
+    this.previewRevision.update((revision) => revision + 1);
     const value = this.form.getRawValue();
     this.draftChanged.emit({
       id: this.draft.id,

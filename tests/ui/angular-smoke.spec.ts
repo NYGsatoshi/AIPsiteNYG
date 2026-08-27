@@ -1,4 +1,4 @@
-import { expect, type Locator, type Page, type TestInfo, test } from '@playwright/test';
+import { expect, type Locator, type Page, type Request, type TestInfo, test } from '@playwright/test';
 import { expectNoAccessibilityViolations } from './a11y';
 
 const coreResponsiveRoutes = [
@@ -524,6 +524,53 @@ test.describe('MVP-A P0 Angular frontend smoke', () => {
 
     await title.fill('Accessible announcement');
     await body.fill('The draft must remain available after an API failure.');
+
+    const previewAction = page.getByTestId('announcement-preview-action');
+    const editAction = page.getByTestId('announcement-edit-action');
+    const previewSideEffects: string[] = [];
+    const collectPreviewSideEffects = (request: Request) => {
+      const pathname = new URL(request.url()).pathname;
+      if (
+        request.method() === 'POST' &&
+        (pathname === '/api/announcements' || pathname.endsWith('/read'))
+      ) {
+        previewSideEffects.push(`${request.method()} ${pathname}`);
+      }
+    };
+    page.on('request', collectPreviewSideEffects);
+
+    await page.getByTestId('announcement-editor-priority').selectOption('critical');
+    await page.getByTestId('announcement-editor-read-confirmation').check();
+    await previewAction.focus();
+    await page.keyboard.press('Enter');
+
+    const localPreview = page.getByTestId('announcement-local-preview');
+    await expect(localPreview).toBeVisible();
+    await expect(page.getByTestId('announcement-preview-heading')).toBeFocused();
+    await expect(localPreview).toContainText('Accessible announcement');
+    await expect(localPreview).toContainText('The draft must remain available after an API failure.');
+    await expect(localPreview).toContainText('CRITICAL');
+    await expect(localPreview).toContainText('Announcement evidence workspace');
+    await expect(localPreview).toContainText('24 recipients');
+    await expect(page.getByTestId('announcement-preview-cta-inert')).toBeVisible();
+    await expect(page.getByTestId('announcement-mark-read-action')).toHaveCount(0);
+    expect(api.publishRequests).toHaveLength(0);
+    expect(previewSideEffects).toEqual([]);
+    await expectNoDocumentHorizontalOverflow(page);
+    await expectNoAccessibilityViolations(page);
+
+    await editAction.focus();
+    await page.keyboard.press('Enter');
+    await expect(localPreview).toHaveCount(0);
+    await expect(title).toBeFocused();
+    await expect(title).toHaveValue('Accessible announcement');
+    await expect(body).toHaveValue('The draft must remain available after an API failure.');
+    await expect(page.getByTestId('announcement-editor-priority')).toHaveValue('critical');
+    expect(previewSideEffects).toEqual([]);
+    page.off('request', collectPreviewSideEffects);
+
+    await page.getByTestId('announcement-editor-priority').selectOption('normal');
+    await page.getByTestId('announcement-editor-read-confirmation').uncheck();
 
     await publish.focus();
     await page.keyboard.press('Enter');

@@ -53,6 +53,18 @@ export interface AnnouncementEditorSubmission {
   readonly requiresReadConfirmation: boolean;
 }
 
+/**
+ * Current-tab presentation only. It is not persisted, routed, or sent as an
+ * Announcement API command.
+ */
+export interface AnnouncementLocalPreview {
+  readonly title: string;
+  readonly body: string;
+  readonly priority: AnnouncementPriority;
+  readonly audience: AnnouncementAudienceOption;
+  readonly requiresReadConfirmation: boolean;
+}
+
 export type AnnouncementCapability = 'readAnnouncement' | 'createAnnouncement' | 'editAnnouncement';
 
 export type AnnouncementPageStatus = 'ready' | 'loading' | 'empty' | 'error' | 'permissionDenied' | 'recordAccessDenied';

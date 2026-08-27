@@ -2,7 +2,9 @@
 
 Status: Issue #378 non-closing implementation candidate. This record covers
 only an explicit review and confirmation of an immediate Announcement create.
-It is not a scheduling, saved-draft, preview, or delivery-worker design.
+It is not a scheduling, saved-draft, or delivery-worker design. The separate
+local-only editor preview is recorded in
+`docs/verification/p1-announcement-local-preview.md`.
 
 ## Candidate boundary
 
@@ -59,7 +61,7 @@ Issue #378 remains open. This candidate has no:
 
 - schedule picker, timezone input, or approved scheduled-publication contract;
 - persistent or saved drafts; the retained editor state is current-tab only;
-- standalone content preview; the confirmation review is not a preview feature;
+- a server-backed or delivery-capable content preview; the confirmation review is not itself a preview feature;
 - `Idempotency-Key`, replay response, automatic retry, or unknown-outcome recovery;
 - scheduler, worker, deferred-delivery behavior, or delivery completion contract.
 
