@@ -60,6 +60,7 @@
 
 .aip-syncfusion-grid__action {
   min-height: var(--aip-control-height);
+  min-inline-size: 1.5rem;
   border: 1px solid var(--aip-color-border-default);
   border-radius: var(--aip-radius-sm);
   background: var(--aip-color-bg-elevated);

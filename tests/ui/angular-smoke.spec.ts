@@ -81,10 +81,16 @@ test.describe('MVP-A P0 Angular frontend smoke', () => {
     const mobileList = page.getByTestId('audit-log-mobile-list');
     const opener = page.getByTestId('open-audit-mobile-detail').first();
     await expect(mobileList).toBeVisible();
-    await opener.click();
+    await expect(page.getByTestId('audit-log-status')).toContainText('Showing 8 audit entries.');
+    await expect(mobileList).toContainText('Warning');
+    await expect(mobileList).toContainText('Critical');
+    await expect(mobileList).toContainText('Failed');
+    await opener.focus();
+    await page.keyboard.press('Enter');
 
     await expect(page).toHaveURL(new RegExp(`/app/admin/audit\\?event=${firstAuditId}$`));
     await expect(drawer).toBeVisible();
+    await expect(page.getByTestId('audit-detail-close')).toBeFocused();
     await expect(drawer).toContainText('Audit row 001 was opened with safe fields.');
     await expect(drawer).not.toContainText('restricted body must stay hidden');
     await expect(drawer).not.toContainText('tenant/private/key');
@@ -97,7 +103,7 @@ test.describe('MVP-A P0 Angular frontend smoke', () => {
 
     await page.goForward();
     await expect(drawer).toBeVisible();
-    await page.getByTestId('audit-detail-close').click();
+    await page.keyboard.press('Escape');
     await expect(page).toHaveURL(/\/app\/admin\/audit$/);
     await expect(opener).toBeFocused();
   });
@@ -115,6 +121,18 @@ test.describe('MVP-A P0 Angular frontend smoke', () => {
     await expect(grid).toBeVisible();
     await expect(header).toBeVisible();
     await expect(bodyViewport).toBeVisible();
+    await expect(grid.locator('.ag-header-cell-text')).toHaveText([
+      'Created',
+      'Action',
+      'Actor',
+      'Target',
+      'Severity',
+      'Result',
+      'Summary',
+    ]);
+    for (const name of ['Created', 'Action', 'Actor', 'Target', 'Severity', 'Result', 'Summary']) {
+      await expect(grid.getByRole('columnheader', { name })).toBeVisible();
+    }
     const before = await header.boundingBox();
     await bodyViewport.evaluate((element) => { element.scrollTop = 500; });
 
@@ -133,9 +151,15 @@ test.describe('MVP-A P0 Angular frontend smoke', () => {
     // activate a row already visible in the bounded viewport we are testing.
     const opener = bodyViewport.locator('button[data-grid-action="openAuditDetail"]').nth(openerIndex);
     await expect(opener).toBeVisible();
+    const openerBounds = await opener.boundingBox();
+    const headerBounds = await header.boundingBox();
+    expect(openerBounds?.width ?? 0).toBeGreaterThanOrEqual(24);
+    expect(openerBounds?.height ?? 0).toBeGreaterThanOrEqual(24);
+    expect(openerBounds?.top ?? 0).toBeGreaterThanOrEqual(headerBounds?.bottom ?? 0);
     const originalScrollTop = await bodyViewport.evaluate((element) => element.scrollTop);
     await opener.click();
     await expect(page.getByTestId('audit-detail-drawer')).toBeVisible();
+    await expect(page.getByTestId('audit-detail-close')).toBeFocused();
 
     // Simulate a user moving the bounded grid while its non-modal inspector
     // is open. Closing must return to the original virtualized row context.
@@ -144,6 +168,62 @@ test.describe('MVP-A P0 Angular frontend smoke', () => {
 
     await expect.poll(async () => bodyViewport.evaluate((element) => element.scrollTop)).toBeCloseTo(originalScrollTop, 1);
     await expect(opener).toBeFocused();
+
+    await page.getByTestId('audit-density-dense').click();
+    const denseOpener = bodyViewport.locator('button[data-grid-action="openAuditDetail"]').nth(openerIndex);
+    await expect(denseOpener).toBeVisible();
+    const denseOpenerBounds = await denseOpener.boundingBox();
+    expect(denseOpenerBounds?.width ?? 0).toBeGreaterThanOrEqual(24);
+    expect(denseOpenerBounds?.height ?? 0).toBeGreaterThanOrEqual(24);
+  });
+
+  test('keeps the audit detail action keyboard-accessible through the flagged Syncfusion adapter', async ({ page }, testInfo) => {
+    test.skip(testInfo.project.name !== 'chromium-desktop', 'The mobile Audit route uses the audited card list.');
+    await page.addInitScript(() => {
+      window.__AIP_FEATURE_FLAGS__ = { 'frontend.syncfusionGrid': true };
+    });
+    const rows = auditGridFixtures(8);
+    await installAuditGridApi(page, rows);
+    let detailRequests = 0;
+    page.on('request', (request) => {
+      const url = new URL(request.url());
+      if (request.method() === 'GET' && url.pathname === `/api/admin/audit-grid/${rows[0].id}`) {
+        detailRequests += 1;
+      }
+    });
+    await page.goto('/app/admin/audit');
+
+    const grid = page.locator('[data-grid-implementation="syncfusion"]');
+    const content = grid.locator('.e-gridcontent .e-content');
+    const horizontalViewport = grid.locator('xpath=ancestor::section[contains(@class, "app-data-grid")]');
+    await expect(grid).toBeVisible();
+    for (const name of ['Created', 'Action', 'Actor', 'Target', 'Severity', 'Result', 'Summary']) {
+      await expect(grid.getByRole('columnheader', { name })).toBeVisible();
+    }
+    await horizontalViewport.evaluate((element) => { element.scrollLeft = element.scrollWidth; });
+    await expect.poll(() => horizontalViewport.evaluate((element) => element.scrollLeft)).toBeGreaterThan(0);
+
+    const action = content.locator(`button[data-grid-action="openAuditDetail"][data-grid-row-id="${rows[0].id}"]`);
+    await expect(action).toBeVisible();
+    await action.focus();
+    await expect(action).toBeFocused();
+    const actionBounds = await action.boundingBox();
+    expect(actionBounds?.width ?? 0).toBeGreaterThanOrEqual(24);
+    expect(actionBounds?.height ?? 0).toBeGreaterThanOrEqual(24);
+
+    await page.keyboard.press('Enter');
+    await expect(page.getByTestId('audit-detail-drawer')).toBeVisible();
+    expect(detailRequests).toBe(1);
+    await expect(page.getByTestId('audit-detail-close')).toBeFocused();
+    await page.keyboard.press('Escape');
+    await expect(page.getByTestId('audit-detail-drawer')).toHaveCount(0);
+    await expect(action).toBeFocused();
+
+    await page.keyboard.press('Space');
+    await expect(page.getByTestId('audit-detail-drawer')).toBeVisible();
+    expect(detailRequests).toBe(2);
+    await page.keyboard.press('Escape');
+    await expect(action).toBeFocused();
   });
 
   test('requires an explicit Workspace choice when multiple authorized Workspaces have no preference', async ({ page }) => {

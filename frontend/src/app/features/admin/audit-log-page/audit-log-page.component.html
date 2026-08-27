@@ -11,16 +11,19 @@
   <p class="admin-page__policy" data-testid="audit-typed-field-note">
     This read-only inspector uses server-classified fields only. It does not parse or request raw metadata.
   </p>
+  <p class="admin-page__status" role="status" aria-live="polite" aria-atomic="true" data-testid="audit-log-status">
+    {{ accessibilityStatus() }}
+  </p>
 
   @if (page.status === 'loading') {
     <app-inline-loading label="Loading audit log" />
   } @else if (page.status === 'permissionDenied') {
-    <app-permission-denied [title]="page.message ?? 'Audit log access is unavailable.'" />
+    <app-permission-denied title="Audit log access is unavailable." />
   } @else if (page.status === 'error') {
-    <app-empty-state title="Audit log could not be loaded" [message]="page.message ?? 'Try again.'" />
+    <app-empty-state title="Audit log could not be loaded" message="Try again." />
     <button type="button" class="admin-page__retry" data-testid="audit-log-retry" (click)="retry()">Retry</button>
   } @else if (page.status === 'empty' || page.rows.length === 0) {
-    <app-empty-state title="No audit entries" message="No mock audit entries are available." />
+    <app-empty-state title="No audit entries" message="No audit entries are available for the current authorized scope." />
   } @else {
     <div class="admin-page__layout" [class.admin-page__layout--drawer-open]="drawerOpen()">
       <div class="admin-page__desktop-grid">

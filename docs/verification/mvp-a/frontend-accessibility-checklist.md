@@ -27,6 +27,9 @@ Use this checklist with Desktop Chrome, Desktop Edge, Chromebook Chrome, iPad Sa
 
 - Grid toolbar and pagination controls are keyboard reachable.
 - Row action buttons are keyboard reachable and visibly focused.
+- The Audit route uses readable column-header names, text-plus-color severity/result states, and a persistent fixed polite status message that never includes raw errors, request IDs, actor labels, or unrecognized server enum text.
+- Audit detail actions have at least a 24 by 24 CSS-pixel target. Keyboard activation moves focus to the non-modal drawer Close control; Escape or Close returns it to the same action without losing its bounded-grid scroll context.
+- The active AG Audit grid has 320px axe coverage. The disabled-by-default Syncfusion adapter has a separate rendered header/action/keyboard smoke; do not treat that optional vendor DOM as a substitute for the active-grid axe gate.
 - Context menus remain disabled unless a keyboard-open path, Escape close, outside-click close, route-change close, and scroll-close behavior are implemented.
 - AG Grid Enterprise is not installed or used.
 
