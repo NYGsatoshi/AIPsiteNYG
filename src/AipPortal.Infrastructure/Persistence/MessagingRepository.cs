@@ -482,7 +482,6 @@ public sealed class MessagingRepository(AppDbContext dbContext) : IMessagingRepo
     {
         var query = dbContext.Messages
             .AsNoTracking()
-            .Include(m => m.AuthorUser)
             .Include(m => m.Attachments)
             .ThenInclude(a => a.Attachment)
             .Where(m =>
@@ -498,6 +497,7 @@ public sealed class MessagingRepository(AppDbContext dbContext) : IMessagingRepo
             .ThenByDescending(m => m.Id)
             .Take(limit)
             .ToListAsync(cancellationToken);
+        await HydrateAuthorizedConversationAuthorsAsync(items, conversationId, cancellationToken);
         return new PagedResponse<Message>(items, 1, limit, total);
     }
 
@@ -511,7 +511,6 @@ public sealed class MessagingRepository(AppDbContext dbContext) : IMessagingRepo
         limit = Math.Clamp(limit, 1, 100);
         var query = dbContext.Messages
             .AsNoTracking()
-            .Include(message => message.AuthorUser)
             .Include(message => message.Attachments)
             .ThenInclude(link => link.Attachment)
             .Where(message =>
@@ -528,6 +527,7 @@ public sealed class MessagingRepository(AppDbContext dbContext) : IMessagingRepo
             .ThenByDescending(message => message.Id)
             .Take(limit)
             .ToListAsync(cancellationToken);
+        await HydrateAuthorizedConversationAuthorsAsync(items, conversationId, cancellationToken);
         return new PagedResponse<Message>(items, 1, limit, total);
     }
 
@@ -585,6 +585,13 @@ public sealed class MessagingRepository(AppDbContext dbContext) : IMessagingRepo
                             SELECT DISTINCT reply."ThreadRootMessageId", author."DisplayName"
                             FROM messages AS reply
                             INNER JOIN users AS author ON author."Id" = reply."AuthorUserId"
+                            INNER JOIN tenant_users AS author_tenant
+                                ON author_tenant."TenantId" = {{tenantId.Value}}
+                               AND author_tenant."UserId" = author."Id"
+                            INNER JOIN conversation_members AS author_conversation
+                                ON author_conversation."TenantId" = {{tenantId.Value}}
+                               AND author_conversation."ConversationId" = {{conversationId}}
+                               AND author_conversation."UserId" = author."Id"
                             WHERE reply."TenantId" = {{tenantId.Value}}
                               AND reply."ConversationId" = {{conversationId}}
                               AND reply."ThreadRootMessageId" = ANY({{rootIds}})
@@ -595,16 +602,20 @@ public sealed class MessagingRepository(AppDbContext dbContext) : IMessagingRepo
                     ORDER BY ranked."ThreadRootMessageId", ranked."DisplayName"
                     """).ToListAsync(cancellationToken);
             }
-            else
+            else if (tenantId.HasValue)
             {
                 // Non-PostgreSQL test providers have no window-function path.
                 // Keep their materialized result bounded with a provider Take
                 // for each already-bounded root instead of loading every author.
+                var authorizedAuthorIds = AuthorizedConversationAuthorIds(tenantId.Value, conversationId);
                 var boundedParticipants = new List<ThreadParticipantRow>(rootIds.Length * participantLimit);
                 foreach (var rootId in rootIds)
                 {
                     var displayNames = await replyQuery
-                        .Where(message => message.ThreadRootMessageId == rootId && message.AuthorUser != null)
+                        .Where(message =>
+                            message.ThreadRootMessageId == rootId &&
+                            message.AuthorUser != null &&
+                            authorizedAuthorIds.Contains(message.AuthorUserId))
                         .Select(message => message.AuthorUser!.DisplayName)
                         .Where(displayName => displayName != string.Empty)
                         .Distinct()
@@ -656,14 +667,22 @@ public sealed class MessagingRepository(AppDbContext dbContext) : IMessagingRepo
             .OrderByDescending(message => message.CreatedAt)
             .Select(message => (DateTimeOffset?)message.CreatedAt)
             .FirstOrDefaultAsync(cancellationToken);
-        var participantDisplayNames = await query
-            .Where(message => message.AuthorUser != null)
-            .Select(message => message.AuthorUser!.DisplayName)
-            .Where(displayName => displayName != string.Empty)
-            .Distinct()
-            .OrderBy(displayName => displayName)
-            .Take(participantLimit)
-            .ToListAsync(cancellationToken);
+        var tenantId = dbContext.ActiveTenantId;
+        var authorizedAuthorIds = tenantId.HasValue
+            ? AuthorizedConversationAuthorIds(tenantId.Value, conversationId)
+            : null;
+        var participantDisplayNames = authorizedAuthorIds is not null && participantLimit > 0
+            ? await query
+                .Where(message =>
+                    message.AuthorUser != null &&
+                    authorizedAuthorIds.Contains(message.AuthorUserId))
+                .Select(message => message.AuthorUser!.DisplayName)
+                .Where(displayName => displayName != string.Empty)
+                .Distinct()
+                .OrderBy(displayName => displayName)
+                .Take(participantLimit)
+                .ToListAsync(cancellationToken)
+            : [];
         return new MessageThreadSummaryResponse(
             threadRootMessageId,
             replyCount,
@@ -682,15 +701,22 @@ public sealed class MessagingRepository(AppDbContext dbContext) : IMessagingRepo
         return query.CountAsync(cancellationToken);
     }
 
-    public Task<Message?> GetMessageAsync(Guid messageId, CancellationToken cancellationToken = default)
+    public async Task<Message?> GetMessageAsync(Guid messageId, CancellationToken cancellationToken = default)
     {
-        return dbContext.Messages.Include(m => m.AuthorUser).Include(m => m.Attachments).ThenInclude(a => a.Attachment).FirstOrDefaultAsync(m => m.Id == messageId, cancellationToken);
+        var message = await dbContext.Messages
+            .Include(m => m.Attachments)
+            .ThenInclude(a => a.Attachment)
+            .FirstOrDefaultAsync(m => m.Id == messageId, cancellationToken);
+        if (message is not null)
+        {
+            await HydrateAuthorizedConversationAuthorsAsync([message], message.ConversationId, cancellationToken);
+        }
+        return message;
     }
 
-    public Task<Message?> FindMessageByClientRequestIdAsync(Guid conversationId, Guid authorUserId, Guid clientRequestId, CancellationToken cancellationToken = default)
+    public async Task<Message?> FindMessageByClientRequestIdAsync(Guid conversationId, Guid authorUserId, Guid clientRequestId, CancellationToken cancellationToken = default)
     {
-        return dbContext.Messages
-            .Include(m => m.AuthorUser)
+        var message = await dbContext.Messages
             .Include(m => m.Attachments)
             .ThenInclude(a => a.Attachment)
             .FirstOrDefaultAsync(m =>
@@ -698,6 +724,11 @@ public sealed class MessagingRepository(AppDbContext dbContext) : IMessagingRepo
                 m.AuthorUserId == authorUserId &&
                 m.ClientRequestId == clientRequestId,
                 cancellationToken);
+        if (message is not null)
+        {
+            await HydrateAuthorizedConversationAuthorsAsync([message], conversationId, cancellationToken);
+        }
+        return message;
     }
 
     public Task<ReadState?> GetReadStateAsync(Guid conversationId, Guid userId, CancellationToken cancellationToken = default)
@@ -714,6 +745,47 @@ public sealed class MessagingRepository(AppDbContext dbContext) : IMessagingRepo
     {
         await dbContext.Attachments.AddAsync(attachment, cancellationToken);
         await dbContext.MessageAttachments.AddAsync(link, cancellationToken);
+    }
+
+    private IQueryable<Guid> AuthorizedConversationAuthorIds(Guid tenantId, Guid conversationId)
+    {
+        // Historical names remain visible for authors who left, were removed,
+        // or changed lifecycle state. The disclosure proof is structural: the
+        // user belonged to this Tenant and this exact Conversation.
+        return dbContext.TenantUsers
+            .AsNoTracking()
+            .Where(tenantUser =>
+                tenantUser.TenantId == tenantId &&
+                dbContext.ConversationMembers.Any(member =>
+                    member.TenantId == tenantId &&
+                    member.ConversationId == conversationId &&
+                    member.UserId == tenantUser.UserId))
+            .Select(tenantUser => tenantUser.UserId)
+            .Distinct();
+    }
+
+    private async Task HydrateAuthorizedConversationAuthorsAsync(
+        IReadOnlyCollection<Message> messages,
+        Guid conversationId,
+        CancellationToken cancellationToken)
+    {
+        var tenantId = dbContext.ActiveTenantId;
+        if (!tenantId.HasValue || messages.Count == 0)
+        {
+            return;
+        }
+
+        var authorIds = messages.Select(message => message.AuthorUserId).Distinct().ToArray();
+        var authorizedAuthorIds = await AuthorizedConversationAuthorIds(tenantId.Value, conversationId)
+            .Where(authorId => authorIds.Contains(authorId))
+            .ToArrayAsync(cancellationToken);
+        var authors = await dbContext.Users
+            .Where(user => authorIds.Contains(user.Id) && authorizedAuthorIds.Contains(user.Id))
+            .ToDictionaryAsync(user => user.Id, cancellationToken);
+        foreach (var message in messages)
+        {
+            message.AuthorUser = authors.GetValueOrDefault(message.AuthorUserId);
+        }
     }
 
     private sealed class ThreadParticipantRow

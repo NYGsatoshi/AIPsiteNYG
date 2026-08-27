@@ -92,6 +92,7 @@ export interface MessagingMessageReadState {
 export interface MessagingMessageViewModel {
   readonly id: string;
   readonly clientRequestId?: string;
+  readonly authorUserId?: string;
   readonly authorLabel: string;
   readonly authorRoleLabel: string;
   readonly isOwnMessage: boolean;

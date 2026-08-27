@@ -303,8 +303,11 @@ export class MessagingFacade {
     const triggerElementId = this.threadState().triggerElementId;
     this.threadRequestGeneration++;
     this.threadState.set(EMPTY_THREAD);
-    if (returnFocus && triggerElementId) {
-      queueMicrotask(() => document.getElementById(triggerElementId)?.focus());
+    if (returnFocus) {
+      queueMicrotask(() => {
+        const trigger = triggerElementId ? document.getElementById(triggerElementId) : null;
+        (trigger ?? document.getElementById('message-timeline'))?.focus();
+      });
     }
   }
 
@@ -370,6 +373,13 @@ export class MessagingFacade {
           this.failThreadLoad(rootMessageId, active.triggerElementId, undefined);
           return;
         }
+        // A validation-400 revalidation may still be in flight when a same-key
+        // retry succeeds. Invalidate that older projection without preventing
+        // a subsequent ThreadChanged event from starting a newer refresh.
+        this.threadRefreshGenerations.set(
+          rootMessageId,
+          (this.threadRefreshGenerations.get(rootMessageId) ?? 0) + 1
+        );
         this.threadState.set({
           ...active,
           replies: reconcileMessage(active.replies, message),
@@ -484,6 +494,7 @@ export class MessagingFacade {
     const pendingMessage: MessagingMessageViewModel = {
       id: `pending-${clientRequestId}`,
       clientRequestId,
+      authorUserId: this.currentUserId(),
       authorLabel: this.currentUserDisplayName(),
       authorRoleLabel: 'member',
       isOwnMessage: true,
@@ -1029,9 +1040,16 @@ export class MessagingFacade {
           return;
         }
 
+        const authoritativeRoot = deletedMessageTombstone(
+          mapped.rootMessage,
+          maximumMessageVersion(mapped.rootMessage.version, version)
+        );
         const deletedProjection = {
           ...mapped,
-          rootMessage: deletedMessageTombstone(mapped.rootMessage, version),
+          rootMessage: deletedMessageTombstone(
+            authoritativeRoot,
+            maximumMessageVersion(active.rootMessage?.version, authoritativeRoot.version)
+          ),
           draft: active.rootMessageId === messageId ? active.draft : mapped.draft,
           sending: false,
           pendingClientRequestId: active.rootMessageId === messageId
@@ -1039,7 +1057,17 @@ export class MessagingFacade {
             : mapped.pendingClientRequestId
         };
         if (mapped.summary.replyCount > 0) {
-          this.updateRootThreadSummary(messageId, mapped.summary);
+          this.pageState.update((current) => ({
+            ...current,
+            messages: current.messages.map((message) => message.id === messageId
+              ? {
+                  ...authoritativeRoot,
+                  readState: message.readState,
+                  thread: mapped.summary,
+                  version: maximumMessageVersion(message.version, authoritativeRoot.version)
+                }
+              : message)
+          }));
         } else {
           this.removeTimelineMessage(messageId);
         }
@@ -1212,6 +1240,11 @@ export class MessagingFacade {
     }
     if (event.eventType === 'Messaging.MessageCreated.v1' && payload.message && typeof payload.message === 'object') {
       const message = mapRealtimeMessage(payload.message as Record<string, unknown>, this.currentUserId());
+      if (this.hasDeletedMessageIdentity(message)) {
+        // Deletion is terminal even when an older create event arrives late or
+        // reconciles through the same client-request identity.
+        return;
+      }
       if (message.threadRootMessageId) {
         // A reply belongs only to the thread timeline. HTTP reconciliation also
         // updates the root count and participant summary for out-of-order events.
@@ -1225,6 +1258,18 @@ export class MessagingFacade {
       const messageId = typeof payload.messageId === 'string' ? payload.messageId : '';
       const version = typeof payload.messageVersion === 'number' ? payload.messageVersion : undefined;
       const threadRootMessageId = nonEmptyString(payload.threadRootMessageId);
+      if (event.eventType === 'Messaging.MessageUpdated.v1') {
+        const thread = this.threadState();
+        const alreadyDeleted = this.pageState().messages.some((message) =>
+          message.id === messageId && message.isDeleted) ||
+          (thread.rootMessage?.id === messageId && thread.rootMessage.isDeleted) ||
+          thread.replies.some((reply) => reply.id === messageId && reply.isDeleted);
+        if (alreadyDeleted) {
+          // Deletion is terminal. Late or corrupt update events must never
+          // restore a body after an authoritative tombstone was observed.
+          return;
+        }
+      }
       if (threadRootMessageId) {
         this.refreshThreadProjection(threadRootMessageId);
         return;
@@ -1238,7 +1283,7 @@ export class MessagingFacade {
       }
       this.pageState.update((current) => ({
         ...current,
-        messages: current.messages.map((message) => message.id === messageId && (version === undefined || (message.version ?? 0) < version)
+        messages: current.messages.map((message) => message.id === messageId && !message.isDeleted && (version === undefined || (message.version ?? 0) < version)
           ? {
               ...message,
               body: typeof payload.body === 'string' ? payload.body : message.body,
@@ -1255,6 +1300,15 @@ export class MessagingFacade {
 
   private currentUserId(): string {
     return this.authSession.currentUser()?.userId ?? '';
+  }
+
+  private hasDeletedMessageIdentity(incoming: MessagingMessageViewModel): boolean {
+    const thread = this.threadState();
+    return [
+      ...this.pageState().messages,
+      ...(thread.rootMessage ? [thread.rootMessage] : []),
+      ...thread.replies
+    ].some((message) => message.isDeleted && sameMessageIdentity(message, incoming));
   }
 
   private currentUserDisplayName(): string {
@@ -1464,18 +1518,31 @@ function deletedMessageTombstone(
   };
 }
 
+function maximumMessageVersion(...versions: readonly (number | undefined)[]): number | undefined {
+  const knownVersions = versions.filter((version): version is number => version !== undefined);
+  return knownVersions.length > 0 ? Math.max(...knownVersions) : undefined;
+}
+
 function reconcileMessage(
   messages: readonly MessagingMessageViewModel[],
   incoming: MessagingMessageViewModel
 ): readonly MessagingMessageViewModel[] {
-  const matchingIndex = messages.findIndex((message) =>
-    message.id === incoming.id ||
-    (!!incoming.clientRequestId && message.clientRequestId === incoming.clientRequestId)
-  );
+  const matchingIndex = messages.findIndex((message) => sameMessageIdentity(message, incoming));
   if (matchingIndex < 0) {
     return [...messages, incoming];
   }
   return messages.map((message, index) => index === matchingIndex ? incoming : message);
+}
+
+function sameMessageIdentity(
+  existing: MessagingMessageViewModel,
+  incoming: MessagingMessageViewModel
+): boolean {
+  return existing.id === incoming.id ||
+    (!!incoming.clientRequestId &&
+      existing.clientRequestId === incoming.clientRequestId &&
+      !!incoming.authorUserId &&
+      existing.authorUserId === incoming.authorUserId);
 }
 
 function mapRealtimeMessage(value: Record<string, unknown>, currentUserId: string): MessagingMessageViewModel {
@@ -1485,6 +1552,7 @@ function mapRealtimeMessage(value: Record<string, unknown>, currentUserId: strin
   return {
     id,
     clientRequestId: typeof value['clientRequestId'] === 'string' ? value['clientRequestId'] : undefined,
+    authorUserId: authorUserId || undefined,
     authorLabel: typeof sender?.['displayName'] === 'string' ? sender['displayName'] : 'Unknown user',
     authorRoleLabel: 'member',
     isOwnMessage: authorUserId !== '' && authorUserId === currentUserId,

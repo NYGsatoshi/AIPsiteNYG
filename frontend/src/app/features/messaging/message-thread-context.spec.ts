@@ -140,6 +140,47 @@ describe('Issue 362 message thread contract', () => {
     expect(facade.page().messages[0].thread).toBeUndefined();
   });
 
+  it('does not let a pre-retry 400 revalidation overwrite an accepted same-key retry', async () => {
+    const events = new Subject<DurableRealtimeEvent>();
+    const { httpMock, facade } = await configureFacade(events);
+    openConversation(httpMock, facade);
+    openThread(httpMock, facade);
+    facade.setThreadDraft('Retry this reply');
+    facade.sendThreadDraft();
+
+    const rejectedPost = httpMock.expectOne('/api/messages/root-a/thread/messages');
+    const clientRequestId = rejectedPost.request.body.clientRequestId as string;
+    rejectedPost.flush({}, { status: 400, statusText: 'Bad Request' });
+    const staleRevalidation = httpMock.expectOne('/api/messages/root-a/thread');
+
+    facade.sendThreadDraft();
+    const retryPost = httpMock.expectOne('/api/messages/root-a/thread/messages');
+    expect(retryPost.request.body.clientRequestId).toBe(clientRequestId);
+    retryPost.flush({
+      message: threadReply('reply-retry', 'Retry this reply', clientRequestId),
+      summary: threadSummary(2, ['Mock User B', 'Mock User A'])
+    });
+    staleRevalidation.flush(threadDto());
+
+    expect(facade.thread()).toMatchObject({
+      draft: '',
+      pendingClientRequestId: undefined,
+      summary: { replyCount: 2 }
+    });
+    expect(facade.thread().replies.map((reply) => reply.id)).toEqual(['reply-a', 'reply-retry']);
+
+    events.next(realtimeEvent('Messaging.ThreadChanged.v1', {
+      conversationId: 'conversation-a',
+      threadRootMessageId: 'root-a',
+      requiresRefetch: true
+    }));
+    httpMock.expectOne('/api/messages/root-a/thread').flush(threadDto({
+      replies: [threadReply('reply-a'), threadReply('reply-retry'), threadReply('reply-later')],
+      summary: threadSummary(3, ['Mock User B', 'Mock User A'])
+    }));
+    expect(facade.thread().summary?.replyCount).toBe(3);
+  });
+
   it('keeps reply events out of the main timeline and reconciles names through ordered authorized refetches', async () => {
     const events = new Subject<DurableRealtimeEvent>();
     const { httpMock, facade } = await configureFacade(events);
@@ -237,12 +278,14 @@ describe('Issue 362 message thread contract', () => {
     expect(facade.thread().replies.map((reply) => reply.id)).toEqual(['reply-a', 'reply-newer']);
   });
 
-  it('keeps a locally deleted threaded root as a bodyless anchor and reopens its disabled thread', async () => {
-    const { httpMock, facade } = await configureFacade();
+  it('keeps an authoritative local-delete tombstone terminal across delayed update events', async () => {
+    const events = new Subject<DurableRealtimeEvent>();
+    const { httpMock, facade } = await configureFacade(events);
     openConversation(httpMock, facade, {
       authorUserId: currentUserId,
       authorDisplayName: 'Mock User A',
-      body: 'Local root secret'
+      body: 'Local root secret',
+      clientRequestId: 'delete-root-key'
     });
 
     facade.requestMessageDelete('root-a');
@@ -258,23 +301,67 @@ describe('Issue 362 message thread contract', () => {
       thread: { replyCount: 1 }
     });
     expect(JSON.stringify(facade.page().messages[0])).not.toContain('Local root secret');
-    httpMock.expectOne('/api/messages/root-a/thread').flush(threadDto({
-      rootMessage: deletedRootMessage({
-        authorUserId: currentUserId,
-        authorDisplayName: 'Mock User A'
-      })
+    for (const [id, clientRequestId] of [
+      ['root-a', undefined],
+      ['late-created-same-key', 'delete-root-key']
+    ] as const) {
+      events.next(realtimeEvent('Messaging.MessageCreated.v1', {
+        conversationId: 'conversation-a',
+        message: {
+          id,
+          conversationId: 'conversation-a',
+          clientRequestId,
+          body: `Late create secret ${id}`,
+          createdAt: '2026-08-27T03:30:00Z',
+          version: 2,
+          sender: { userId: currentUserId, displayName: 'Mock User A' }
+        }
+      }));
+    }
+    expect(facade.page().messages).toHaveLength(1);
+    expect(facade.page().messages[0]).toMatchObject({ id: 'root-a', body: '', isDeleted: true });
+    expect(JSON.stringify(facade.page().messages[0])).not.toContain('Late create secret');
+    events.next(realtimeEvent('Messaging.MessageCreated.v1', {
+      conversationId: 'conversation-a',
+      message: {
+        id: 'other-author-same-key',
+        conversationId: 'conversation-a',
+        clientRequestId: 'delete-root-key',
+        body: 'Another author may reuse this key',
+        createdAt: '2026-08-27T03:31:00Z',
+        version: 1,
+        sender: { userId: 'mock-user-b', displayName: 'Mock User B' }
+      }
     }));
+    expect(facade.page().messages.map((message) => message.id)).toEqual([
+      'root-a',
+      'other-author-same-key'
+    ]);
+    const authoritativeRoot = deletedRootMessage({
+      authorUserId: currentUserId,
+      authorDisplayName: 'Mock User A',
+      version: 3
+    });
+    httpMock.expectOne('/api/messages/root-a/thread').flush(threadDto({ rootMessage: authoritativeRoot }));
+
+    expect(facade.page().messages[0]).toMatchObject({ body: '', isDeleted: true, version: 3 });
+    for (const delayedVersion of [2, 4]) {
+      events.next(realtimeEvent('Messaging.MessageUpdated.v1', {
+        conversationId: 'conversation-a',
+        messageId: 'root-a',
+        messageVersion: delayedVersion,
+        body: `Delayed restored secret v${delayedVersion}`,
+        updatedAt: '2026-08-27T04:00:00Z'
+      }));
+    }
+    expect(facade.page().messages[0]).toMatchObject({ body: '', isDeleted: true, version: 3 });
+    expect(JSON.stringify(facade.page().messages[0])).not.toContain('Delayed restored secret');
 
     facade.openThread('root-a', 'thread-trigger-root-a');
-    httpMock.expectOne('/api/messages/root-a/thread').flush(threadDto({
-      rootMessage: deletedRootMessage({
-        authorUserId: currentUserId,
-        authorDisplayName: 'Mock User A'
-      })
-    }));
+    httpMock.expectOne('/api/messages/root-a/thread').flush(threadDto({ rootMessage: authoritativeRoot }));
     expect(facade.thread()).toMatchObject({
       status: 'ready',
-      rootMessage: { id: 'root-a', body: '', isDeleted: true },
+      rootMessage: { id: 'root-a', body: '', isDeleted: true, version: 3 },
       summary: { replyCount: 1 }
     });
   });
@@ -329,6 +416,27 @@ describe('Issue 362 message thread contract', () => {
       realtimeDegraded: true,
       messages: [{ id: 'root-a', body: '', isDeleted: true }]
     });
+
+    events.next(realtimeEvent('Messaging.MessageCreated.v1', {
+      conversationId: 'conversation-a',
+      message: {
+        id: 'root-a',
+        conversationId: 'conversation-a',
+        body: 'Late create during degraded refresh',
+        createdAt: '2026-08-27T03:30:00Z',
+        version: 3,
+        sender: { userId: 'mock-user-b', displayName: 'Mock User B' }
+      }
+    }));
+    events.next(realtimeEvent('Messaging.MessageUpdated.v1', {
+      conversationId: 'conversation-a',
+      messageId: 'root-a',
+      messageVersion: 99,
+      body: 'Late update during degraded refresh',
+      updatedAt: '2026-08-27T03:31:00Z'
+    }));
+    expect(facade.page().messages[0]).toMatchObject({ id: 'root-a', body: '', isDeleted: true, version: 2 });
+    expect(JSON.stringify(facade.page().messages[0])).not.toContain('during degraded refresh');
 
     events.next(realtimeEvent('Messaging.ThreadChanged.v1', {
       conversationId: 'conversation-a',
@@ -501,6 +609,28 @@ describe('ThreadPreviewComponent', () => {
 
     expect(document.activeElement).toBe(control);
     pendingFixture.destroy();
+  });
+
+  it('keeps keyboard focus inside the panel when deletion disables the focused reply draft', async () => {
+    await Promise.resolve();
+    const root = fixture.nativeElement as HTMLElement;
+    const textarea = root.querySelector<HTMLTextAreaElement>('[data-testid="thread-reply-draft"]')!;
+    const back = root.querySelector<HTMLButtonElement>('[data-testid="thread-back"]')!;
+    const close = vi.spyOn(fixture.componentInstance.close, 'emit');
+    textarea.focus();
+    expect(document.activeElement).toBe(textarea);
+
+    const current = threadViewModel();
+    fixture.componentRef.setInput('thread', {
+      ...current,
+      rootMessage: { ...current.rootMessage!, isDeleted: true, body: '', version: 3 }
+    });
+    fixture.detectChanges();
+    await Promise.resolve();
+
+    expect(document.activeElement).toBe(back);
+    back.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true, cancelable: true }));
+    expect(close).toHaveBeenCalledTimes(1);
   });
 
   it('renders durable reply tombstones and disables posting to a deleted parent', () => {

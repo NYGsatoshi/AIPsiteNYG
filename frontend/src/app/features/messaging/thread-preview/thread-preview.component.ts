@@ -1,4 +1,14 @@
-import { AfterViewChecked, Component, ElementRef, EventEmitter, Input, Output, ViewChild } from '@angular/core';
+import {
+  AfterViewChecked,
+  Component,
+  ElementRef,
+  EventEmitter,
+  Input,
+  OnChanges,
+  Output,
+  SimpleChanges,
+  ViewChild
+} from '@angular/core';
 import { LucideArrowLeft, LucideX } from '@lucide/angular';
 
 import {
@@ -21,6 +31,7 @@ import {
     >
       <header class="thread__header">
         <button
+          #backControl
           type="button"
           class="thread__back"
           data-testid="thread-back"
@@ -103,6 +114,7 @@ import {
             Replying in thread to {{ thread.rootMessage.authorLabel }}
           </label>
           <textarea
+            #replyDraft
             id="thread-reply-draft"
             rows="3"
             data-testid="thread-reply-draft"
@@ -135,8 +147,10 @@ import {
   `,
   styleUrl: './thread-preview.component.scss'
 })
-export class ThreadPreviewComponent implements AfterViewChecked {
+export class ThreadPreviewComponent implements AfterViewChecked, OnChanges {
   @ViewChild('panel') private panel?: ElementRef<HTMLElement>;
+  @ViewChild('backControl') private backControl?: ElementRef<HTMLButtonElement>;
+  @ViewChild('replyDraft') private replyDraft?: ElementRef<HTMLTextAreaElement>;
   @Input({ required: true }) thread!: MessagingThreadViewModel;
   @Input() canPost = false;
   @Input() canCreateThread = false;
@@ -147,6 +161,7 @@ export class ThreadPreviewComponent implements AfterViewChecked {
 
   composing = false;
   private focusedKey: string | null = null;
+  private focusBackAfterRootDeletion = false;
 
   get canReply(): boolean {
     return this.thread.status === 'ready' &&
@@ -200,7 +215,31 @@ export class ThreadPreviewComponent implements AfterViewChecked {
     this.close.emit();
   }
 
+  ngOnChanges(changes: SimpleChanges): void {
+    const threadChange = changes['thread'];
+    if (!threadChange || threadChange.firstChange) {
+      return;
+    }
+    const previous = threadChange.previousValue as MessagingThreadViewModel;
+    const current = threadChange.currentValue as MessagingThreadViewModel;
+    if (
+      previous.rootMessageId === current.rootMessageId &&
+      previous.rootMessage?.isDeleted !== true &&
+      current.rootMessage?.isDeleted === true &&
+      this.replyDraft?.nativeElement === document.activeElement
+    ) {
+      // Disabling a focused textarea moves browser focus to BODY. Capture the
+      // deletion transition before Angular applies `disabled`, then keep focus
+      // on a stable control inside the still-open thread panel.
+      this.focusBackAfterRootDeletion = true;
+    }
+  }
+
   ngAfterViewChecked(): void {
+    if (this.focusBackAfterRootDeletion) {
+      this.focusBackAfterRootDeletion = false;
+      queueMicrotask(() => this.backControl?.nativeElement.focus());
+    }
     const key = this.thread.status === 'closed'
       ? null
       : this.thread.rootMessageId ?? 'unknown';

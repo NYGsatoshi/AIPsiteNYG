@@ -140,10 +140,14 @@ SELECT COUNT(*) FROM messages WHERE "Id" = @messageId AND "ThreadRootMessageId" 
             var canonicalReplyId = Guid.NewGuid();
             var now = new DateTimeOffset(2026, 8, 28, 1, 0, 0, TimeSpan.Zero);
             await PostgreSqlMigrationTestDatabase.ExecuteAsync(database, """
+INSERT INTO tenant_users ("Id", "TenantId", "UserId", "Role", "Status", "JoinedAt", "CreatedAt")
+VALUES (@tenantUserAId, @tenantA, @userA, 'Member', 'Active', @now, @now);
 INSERT INTO conversations ("Id", "TenantId", "WorkspaceId", "Type", "Title", "IsArchived", "IsLocked", "CreatedByUserId", "CreatedAt") VALUES
 (@conversationA, @tenantA, @workspaceA, 'DirectMessage', 'A', false, false, @userA, @now),
 (@conversationOther, @tenantA, @workspaceA, 'DirectMessage', 'A other', false, false, @userA, @now),
 (@conversationB, @tenantB, @workspaceB, 'DirectMessage', 'B', false, false, @userB, @now);
+INSERT INTO conversation_members ("Id", "TenantId", "ConversationId", "UserId", "Role", "CanRead", "CanPost", "CanManageMembers", "CanCreateThread", "JoinedAt", "IsMuted", "IsArchived", "CreatedAt")
+VALUES (@conversationMemberAId, @tenantA, @conversationA, @userA, 'Member', true, true, false, true, @now, false, false, @now);
 INSERT INTO messages ("Id", "TenantId", "WorkspaceId", "ConversationId", "AuthorUserId", "Body", "Version", "CreatedAt", "DeletedAt", "DeletedByUserId", "DeleteReason") VALUES
 (@rootId, @tenantA, @workspaceA, @conversationA, @userA, 'deleted root secret', 1, @now, @deletedAt, @userA, 'author_delete'),
 (@ordinaryDeletedId, @tenantA, @workspaceA, @conversationA, @userA, 'ordinary deleted secret', 1, @ordinaryAt, @deletedAt, @userA, 'author_delete');
@@ -155,6 +159,7 @@ INSERT INTO messages ("Id", "TenantId", "WorkspaceId", "ConversationId", "Author
                 ("conversationA", conversationA), ("conversationOther", conversationOther), ("conversationB", conversationB),
                 ("tenantA", graphA.TenantId), ("workspaceA", graphA.WorkspaceId), ("userA", graphA.UserId),
                 ("tenantB", graphB.TenantId), ("workspaceB", graphB.WorkspaceId), ("userB", graphB.UserId),
+                ("tenantUserAId", Guid.NewGuid()), ("conversationMemberAId", Guid.NewGuid()),
                 ("rootId", rootId), ("ordinaryDeletedId", ordinaryDeletedId), ("canonicalReplyId", canonicalReplyId),
                 ("crossConversationReplyId", Guid.NewGuid()), ("crossTenantReplyId", Guid.NewGuid()),
                 ("now", now), ("ordinaryAt", now.AddMinutes(-1)),
@@ -208,12 +213,23 @@ INSERT INTO messages ("Id", "TenantId", "WorkspaceId", "ConversationId", "Author
             await PostgreSqlMigrationTestDatabase.ExecuteAsync(database, """
 INSERT INTO conversations ("Id", "TenantId", "WorkspaceId", "Type", "Title", "IsArchived", "IsLocked", "CreatedByUserId", "CreatedAt")
 VALUES (@conversationId, @tenantId, @workspaceId, 'DirectMessage', 'Bounded participants', false, false, @userId, @now);
+INSERT INTO tenant_users ("Id", "TenantId", "UserId", "Role", "Status", "JoinedAt", "CreatedAt")
+VALUES (@tenantUserId, @tenantId, @userId, 'Member', 'Active', @now, @now);
 INSERT INTO messages ("Id", "TenantId", "WorkspaceId", "ConversationId", "AuthorUserId", "Body", "Version", "CreatedAt") VALUES
 (@rootA, @tenantId, @workspaceId, @conversationId, @userId, 'root A', 1, @now),
 (@rootB, @tenantId, @workspaceId, @conversationId, @userId, 'root B', 1, @now);
 """, ("conversationId", conversationId), ("tenantId", graph.TenantId),
                 ("workspaceId", graph.WorkspaceId), ("userId", graph.UserId),
-                ("rootA", rootIds[0]), ("rootB", rootIds[1]), ("now", now));
+                ("tenantUserId", Guid.NewGuid()), ("rootA", rootIds[0]), ("rootB", rootIds[1]), ("now", now));
+
+            foreach (var authorId in authorIds)
+            {
+                await PostgreSqlMigrationTestDatabase.ExecuteAsync(database, """
+INSERT INTO conversation_members ("Id", "TenantId", "ConversationId", "UserId", "Role", "CanRead", "CanPost", "CanManageMembers", "CanCreateThread", "JoinedAt", "IsMuted", "IsArchived", "CreatedAt")
+VALUES (@id, @tenantId, @conversationId, @userId, 'Member', true, true, false, true, @now, false, false, @now);
+""", ("id", Guid.NewGuid()), ("tenantId", graph.TenantId), ("conversationId", conversationId),
+                    ("userId", authorId), ("now", now));
+            }
 
             foreach (var rootId in rootIds)
             {
@@ -239,6 +255,70 @@ VALUES (@id, @tenantId, @workspaceId, @conversationId, @authorUserId, @body, 1, 
             Assert.Equal(rootIds, summaries.Keys.OrderBy(id => Array.IndexOf(rootIds, id)));
             Assert.All(summaries.Values, summary => Assert.Equal(3, summary.ParticipantDisplayNames.Count));
             Assert.Equal(rootIds.Length * 3, summaries.Values.Sum(summary => summary.ParticipantDisplayNames.Count));
+        });
+    }
+
+    [PostgreSqlFact]
+    [Trait("Category", "PostgreSQLIntegration")]
+    public async Task ThreadAuthorNamesRequireHistoricalTenantAndConversationProof()
+    {
+        var connectionString = PostgreSqlTestEnvironment.RequireConnectionString();
+        await PostgreSqlMigrationTestDatabase.WithTemporaryDatabaseAsync(connectionString, async database =>
+        {
+            await PostgreSqlMigrationTestDatabase.MigrateAsync(database);
+            var graphA = await TaskV1MigrationRawSqlSeed.CreateGraphAsync(database, $"thread-author-a-{Guid.NewGuid():N}");
+            var graphB = await TaskV1MigrationRawSqlSeed.CreateGraphAsync(database, $"thread-author-b-{Guid.NewGuid():N}");
+            var conversationId = Guid.NewGuid();
+            var rootId = Guid.NewGuid();
+            var historicalReplyId = Guid.NewGuid();
+            var corruptReplyId = Guid.NewGuid();
+            var now = new DateTimeOffset(2026, 8, 28, 2, 30, 0, TimeSpan.Zero);
+            await PostgreSqlMigrationTestDatabase.ExecuteAsync(database, """
+UPDATE users SET "DisplayName" = 'Historical tenant A author', "Status" = 'Archived', "DeletedAt" = @now
+WHERE "Id" = @userA;
+UPDATE users SET "DisplayName" = 'TENANT B SECRET AUTHOR'
+WHERE "Id" = @userB;
+INSERT INTO tenant_users ("Id", "TenantId", "UserId", "Role", "Status", "JoinedAt", "CreatedAt") VALUES
+(@tenantUserAId, @tenantA, @userA, 'Member', 'Left', @now, @now),
+(@tenantUserBId, @tenantB, @userB, 'Member', 'Active', @now, @now);
+INSERT INTO conversations ("Id", "TenantId", "WorkspaceId", "Type", "Title", "IsArchived", "IsLocked", "CreatedByUserId", "CreatedAt")
+VALUES (@conversationId, @tenantA, @workspaceA, 'DirectMessage', 'Historical author proof', false, false, @userA, @now);
+INSERT INTO conversation_members ("Id", "TenantId", "ConversationId", "UserId", "Role", "CanRead", "CanPost", "CanManageMembers", "CanCreateThread", "JoinedAt", "LeftAt", "IsMuted", "IsArchived", "CreatedAt")
+VALUES (@memberAId, @tenantA, @conversationId, @userA, 'Member', true, false, false, false, @joinedAt, @now, false, false, @joinedAt);
+INSERT INTO messages ("Id", "TenantId", "WorkspaceId", "ConversationId", "AuthorUserId", "Body", "Version", "CreatedAt")
+VALUES (@rootId, @tenantA, @workspaceA, @conversationId, @userB, 'corrupt-author root', 1, @now);
+INSERT INTO messages ("Id", "TenantId", "WorkspaceId", "ConversationId", "AuthorUserId", "Body", "Version", "CreatedAt", "ThreadRootMessageId") VALUES
+(@historicalReplyId, @tenantA, @workspaceA, @conversationId, @userA, 'historical reply', 1, @historicalAt, @rootId),
+(@corruptReplyId, @tenantA, @workspaceA, @conversationId, @userB, 'corrupt-author reply', 1, @corruptAt, @rootId);
+""",
+                ("tenantA", graphA.TenantId), ("workspaceA", graphA.WorkspaceId), ("userA", graphA.UserId),
+                ("tenantB", graphB.TenantId), ("userB", graphB.UserId),
+                ("tenantUserAId", Guid.NewGuid()), ("tenantUserBId", Guid.NewGuid()),
+                ("conversationId", conversationId), ("memberAId", Guid.NewGuid()),
+                ("rootId", rootId), ("historicalReplyId", historicalReplyId), ("corruptReplyId", corruptReplyId),
+                ("joinedAt", now.AddDays(-10)), ("historicalAt", now.AddMinutes(1)),
+                ("corruptAt", now.AddMinutes(2)), ("now", now));
+
+            var currentTenant = new CurrentTenantService();
+            currentTenant.SetTenant(graphA.TenantId, "thread-author-proof-tenant");
+            await using var context = new AppDbContext(
+                new DbContextOptionsBuilder<AppDbContext>().UseNpgsql(database).Options,
+                currentTenant);
+            var repository = new MessagingRepository(context);
+
+            var root = await repository.GetMessageAsync(rootId);
+            var replies = await repository.ListThreadRepliesAsync(conversationId, rootId, 100, before: null);
+            var summary = await repository.GetThreadSummaryAsync(conversationId, rootId, participantLimit: 3);
+            var summaries = await repository.GetThreadSummariesAsync(conversationId, [rootId], participantLimit: 3);
+
+            Assert.NotNull(root);
+            Assert.Null(root.AuthorUser);
+            Assert.Equal("Historical tenant A author", Assert.Single(replies.Items, item => item.Id == historicalReplyId).AuthorUser?.DisplayName);
+            Assert.Null(Assert.Single(replies.Items, item => item.Id == corruptReplyId).AuthorUser);
+            Assert.Equal(2, summary.ReplyCount);
+            Assert.Equal(new[] { "Historical tenant A author" }, summary.ParticipantDisplayNames);
+            Assert.Equal(summary.ParticipantDisplayNames, summaries[rootId].ParticipantDisplayNames);
+            Assert.DoesNotContain("TENANT B SECRET AUTHOR", summary.ParticipantDisplayNames);
         });
     }
 

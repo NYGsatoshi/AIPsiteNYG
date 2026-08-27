@@ -57,6 +57,7 @@ function flushConversationOpen(
   httpMock: HttpTestingController,
   conversationId = 'conversation-a',
   includeOwnMessage = false,
+  canCreateThread = false,
 ): void {
   httpMock.expectOne('/api/conversations').flush({
     items: [
@@ -84,6 +85,7 @@ function flushConversationOpen(
         displayName: 'Mock User A',
         canRead: true,
         canPost: true,
+        canCreateThread,
         removedAt: null,
         leftAt: null
       }
@@ -622,6 +624,44 @@ describe('Messaging MVP0 backend wiring', () => {
     expect(document.activeElement).toBe(root.querySelector('#message-timeline'));
   });
 
+  it('keeps deletion focus in the thread, then falls back to the timeline when its trigger is removed', async () => {
+    const events = new Subject<DurableRealtimeEvent>();
+    const httpMock = await configureRealtimeActionPage(events);
+    const fixture = TestBed.createComponent(ChannelMessagingPageComponent);
+    flushConversationOpen(httpMock, 'conversation-a', true, true);
+    fixture.detectChanges();
+
+    const root = fixture.nativeElement as HTMLElement;
+    const trigger = root.querySelector<HTMLButtonElement>('[data-testid="open-message-thread-message-own"]')!;
+    trigger.click();
+    httpMock.expectOne('/api/messages/message-own/thread').flush(liveZeroReplyThread('message-own'));
+    fixture.detectChanges();
+    await Promise.resolve();
+
+    const textarea = root.querySelector<HTMLTextAreaElement>('[data-testid="thread-reply-draft"]')!;
+    textarea.focus();
+    expect(document.activeElement).toBe(textarea);
+
+    events.next(messageRealtimeEvent('Messaging.MessageDeleted.v1', {
+      conversationId: 'conversation-a',
+      messageId: 'message-own',
+      messageVersion: 3,
+    }));
+    httpMock.expectOne('/api/messages/message-own/thread').flush(deletedZeroReplyThread('message-own'));
+    fixture.detectChanges();
+    await Promise.resolve();
+
+    expect(root.querySelector('[data-testid="open-message-thread-message-own"]')).toBeNull();
+    const back = root.querySelector<HTMLButtonElement>('[data-testid="thread-back"]')!;
+    expect(document.activeElement).toBe(back);
+    back.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true, cancelable: true }));
+    fixture.detectChanges();
+    await Promise.resolve();
+
+    expect(root.querySelector('[data-testid="thread-preview"]')).toBeNull();
+    expect(document.activeElement).toBe(root.querySelector('#message-timeline'));
+  });
+
   it('opens a legacy notification conversation route in the canonical active Workspace', async () => {
     const httpMock = await configureHttpTest(
       [ChannelMessagingPageComponent],
@@ -1146,5 +1186,18 @@ function deletedZeroReplyThread(messageId: string): Record<string, unknown> {
     },
     hasMore: false,
     maximumReplies: 100
+  };
+}
+
+function liveZeroReplyThread(messageId: string): Record<string, unknown> {
+  const thread = deletedZeroReplyThread(messageId);
+  return {
+    ...thread,
+    rootMessage: {
+      ...(thread['rootMessage'] as Record<string, unknown>),
+      body: 'My editable backend message',
+      isDeleted: false,
+      version: 1
+    }
   };
 }

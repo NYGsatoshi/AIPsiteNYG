@@ -123,6 +123,7 @@ export function mapConversationListItem(
 export function mapMessage(message: MessageDto, currentUserId: string): MessagingMessageViewModel {
   return {
     id: stringValue(message.id) ?? `message-${Date.now()}`,
+    authorUserId: stringValue(message.authorUserId),
     authorLabel: stringValue(message.authorDisplayName) ?? 'Unknown user',
     authorRoleLabel: 'member',
     isOwnMessage: stringValue(message.authorUserId) === currentUserId,

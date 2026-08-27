@@ -20,15 +20,26 @@ Status: candidate implementation on `feat/362-message-thread-context`.
   `threadRootMessageId`;
 - channel and DM routes share a separate-draft thread surface, using a
   contextual desktop panel and dedicated pane at the existing 860-pixel mobile
-  breakpoint, with native buttons, Escape, and trigger focus return.
+  breakpoint, with native buttons, Escape, and focus return to the trigger or
+  the focusable Message timeline when reconciliation removed that trigger.
 
 Participant display names are capped per root inside one PostgreSQL windowed
 query before materialization. Concurrent same-key Message commits reconcile
 only the exact filtered unique-index race, return the one committed Message,
 and roll back the losing audit/notification/outbox unit. A POST 400 retains the
 thread draft and retry key while an authorized GET revalidates the projection;
-only an explicit or revalidated access failure clears it. Panel focus is set
-once when a root opens and is not reset by loading/ready/error transitions.
+only an explicit or revalidated access failure clears it. An accepted same-key
+retry invalidates an older 400 revalidation response without blocking later
+ThreadChanged refreshes. Panel focus is set once when a root opens and is not
+reset by loading/ready/error transitions; if deletion disables the focused
+reply draft, focus moves to the in-panel Back control before keyboard close.
+
+Every projected root/reply author name and participant-summary name requires
+both a same-Tenant `TenantUser` row and a historical same-Conversation
+`ConversationMember` row. Lifecycle status, departure, removal, and soft
+deletion do not erase a legitimate historical author name. A corrupt Message
+that points at another Tenant's global User therefore projects no author name
+and contributes no participant name.
 
 Delete reconciliation clears the rendered body immediately and revalidates
 the exact thread through the authorized GET. Per-root generations prevent an
@@ -36,6 +47,10 @@ overtaken summary response from removing or reviving the anchor. An authorized
 zero-reply projection removes an ordinary tombstone; explicit access failure
 clears it, while a transient failure retains only the neutral bodyless state
 until catch-up or reload can settle the durable reply count.
+Authoritative deletion also advances the retained root version. Once any
+tombstone is present, delayed Created events (including same-author
+client-request reconciliation) and Updated events cannot restore its body,
+including while deletion revalidation is transiently degraded.
 
 Legacy `ConversationType.Thread` / `ParentConversationId` data and APIs are
 unchanged and compatibility-only. This change performs no anchor backfill,
@@ -57,7 +72,7 @@ payload assertions reject Message bodies and participant names.
 
 ## Local verification record
 
-- `dotnet test tests/AipPortal.Tests/AipPortal.Tests.csproj --filter Scope=Issue362 --no-restore`: 4 passed, 4 environment-skipped PostgreSQL cases, 0 failed;
+- `dotnet test tests/AipPortal.Tests/AipPortal.Tests.csproj --filter Scope=Issue362 --no-build`: 4 passed, 5 environment-skipped PostgreSQL cases, 0 failed;
 - backend test project compilation, including all application references:
   passed with seven pre-existing warnings and no Issue #362 error;
 - `dotnet ef migrations has-pending-model-changes`: no pending model changes;
@@ -67,7 +82,7 @@ payload assertions reject Message bodies and participant names.
 - frontend architecture check and its four-rule Node test suite: passed;
 - `git diff --check`: no whitespace error.
 
-Four `PostgreSqlFact` cases compile but were not executed locally because
+Five `PostgreSqlFact` cases compile but were not executed locally because
 `POSTGRES_TEST_CONNECTION_STRING` is unavailable. The local Windows Angular
 unit runner also remained in transform/runner startup before test collection:
 the complete focused file, a split pure-mapper file, and direct single-worker
