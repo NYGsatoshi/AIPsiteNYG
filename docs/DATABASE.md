@@ -116,6 +116,21 @@ reply lookup index is
 `(TenantId, ConversationId, ThreadRootMessageId, CreatedAt, Id)`; EF also adds
 the ordinary single-column foreign-key index.
 
+The main-timeline summary query ranks distinct participant display names with
+PostgreSQL `ROW_NUMBER()` partitioned by root and applies the three-name limit
+inside the provider query. No more than `root count * 3` participant rows are
+materialized. This query still runs only after the Conversation read boundary.
+
+The existing filtered unique index
+`IX_messages_TenantId_ConversationId_AuthorUserId_ClientRequest~` (the exact
+63-byte PostgreSQL name persisted by migration `20260718125541`) is the
+concurrent idempotency boundary for Message writes. The Infrastructure commit
+coordinator reconciles only an Npgsql unique violation naming that exact
+constraint; PostgreSQL rolls back all staged audit, notification, and Outbox
+rows before the losing context is cleared and reloads the committed winner.
+Unrelated database exceptions are propagated. This repair does not rename the
+live index or add a migration.
+
 Deletion is restricted while replies reference a root. Current Message delete
 operations retain rows as tombstones, so deleted replies remain ordered and
 counted while their body and attachments are not projected. A deleted root may

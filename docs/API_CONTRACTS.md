@@ -286,7 +286,13 @@ required, and the first durable reply additionally requires the member's
 current `CanCreateThread`; later replies do not. A deleted root cannot receive
 a reply. Idempotent replay is scoped to the same current Conversation, author,
 and root target: a `clientRequestId` previously used for a main-timeline
-Message or another root is rejected rather than retargeted.
+Message or another root is rejected rather than retargeted. The PostgreSQL
+client-request unique constraint is also the concurrent commit boundary. If
+two independent contexts race with the same key, one transaction commits and
+the exact losing constraint violation reloads that Message after clearing its
+rolled-back audit/notification/outbox work. Other database errors are not
+reconciled. The caller then rechecks the committed root target before returning
+it.
 
 Successful creation emits the ordinary `Messaging.MessageCreated.v1` with
 `threadRootMessageId` so consumers keep it out of the main timeline, plus a
@@ -294,6 +300,9 @@ metadata-only `Messaging.ThreadChanged.v1`. The latter contains the root ID,
 count/latest metadata, change kind, and `requiresRefetch: true`; it contains no
 Message body or participant names. Clients must invalidate/refetch the
 authorized projection so participant summaries cannot become stale or leak.
+Its `aggregateVersion` is null because reply count is not a durable monotonic
+thread version (updates, deletes, and concurrent creates can share a count).
+The realtime stale guard therefore delivers every ThreadChanged refetch hint.
 Thread reply audit metadata records identifiers and decisions only, never the
 reply body.
 

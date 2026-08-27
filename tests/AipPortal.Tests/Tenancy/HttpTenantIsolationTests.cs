@@ -1413,6 +1413,7 @@ public sealed class HttpTenantIsolationTests
         Assert.Contains(data.MessageA.Id.ToString("D"), messageCreated.PayloadJson, StringComparison.OrdinalIgnoreCase);
         var threadChanged = Assert.Single(outbox, item =>
             item.EventType == "Messaging.ThreadChanged.v1" && item.AggregateId == data.MessageA.Id);
+        Assert.Null(threadChanged.AggregateVersion);
         Assert.Contains("\"replyCount\":1", threadChanged.PayloadJson, StringComparison.OrdinalIgnoreCase);
         Assert.Contains("\"requiresRefetch\":true", threadChanged.PayloadJson, StringComparison.OrdinalIgnoreCase);
         Assert.DoesNotContain(replyBody, threadChanged.PayloadJson, StringComparison.Ordinal);

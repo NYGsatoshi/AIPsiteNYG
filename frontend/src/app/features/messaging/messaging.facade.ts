@@ -390,16 +390,26 @@ export class MessagingFacade {
         ) {
           return;
         }
-        if (isProtectedLoadFailure(error.status)) {
+        if (isExplicitThreadAccessFailure(error.status)) {
           this.failThreadLoad(rootMessageId, active.triggerElementId, error.status);
           return;
         }
-        this.threadState.set({
+        const rejectedState: MessagingThreadViewModel = {
           ...active,
           sending: false,
           pendingClientRequestId: clientRequestId,
-          error: 'Thread reply could not be sent. Your draft is still available.'
-        });
+          error: error.status === 400
+            ? 'Thread reply was rejected. Your draft is still available.'
+            : 'Thread reply could not be sent. Your draft is still available.'
+        };
+        this.threadState.set(rejectedState);
+        // The controller intentionally represents validation, safety, and
+        // idempotency-target failures as 400. A POST 400 is therefore not an
+        // authorization signal: retain the draft/retry identity and revalidate
+        // the protected projection through its authoritative GET boundary.
+        if (error.status === 400) {
+          this.refreshThreadProjection(rootMessageId, true);
+        }
       }
     });
     this.trackProtectedRequest(request);
@@ -861,7 +871,7 @@ export class MessagingFacade {
     this.trackProtectedRequest(request);
   }
 
-  private refreshThreadProjection(rootMessageId: string): void {
+  private refreshThreadProjection(rootMessageId: string, preserveComposerError = false): void {
     if (this.mockPage || !this.pageState().conversation.id) {
       return;
     }
@@ -899,7 +909,7 @@ export class MessagingFacade {
             draft: active.draft,
             sending: active.sending,
             pendingClientRequestId: active.pendingClientRequestId,
-            error: active.sending ? active.error : undefined
+            error: preserveComposerError || active.sending ? active.error : undefined
           });
         }
       },
@@ -1367,4 +1377,8 @@ function mapRealtimeMessage(value: Record<string, unknown>, currentUserId: strin
 
 function isProtectedLoadFailure(status: number | undefined): boolean {
   return status === 400 || status === 401 || status === 403 || status === 404;
+}
+
+function isExplicitThreadAccessFailure(status: number | undefined): boolean {
+  return status === 401 || status === 403 || status === 404;
 }

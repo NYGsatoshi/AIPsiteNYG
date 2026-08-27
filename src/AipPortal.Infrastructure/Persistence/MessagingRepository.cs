@@ -558,19 +558,64 @@ public sealed class MessagingRepository(AppDbContext dbContext) : IMessagingRepo
             })
             .ToListAsync(cancellationToken);
 
-        var participants = await replyQuery
-            .Where(message => message.AuthorUser != null)
-            .Select(message => new
+        IReadOnlyList<ThreadParticipantRow> participants = [];
+        if (participantLimit > 0)
+        {
+            var tenantId = dbContext.ActiveTenantId;
+            if (UsesPostgreSql() && tenantId.HasValue)
             {
-                RootId = message.ThreadRootMessageId!.Value,
-                DisplayName = message.AuthorUser!.DisplayName
-            })
-            .Distinct()
-            .OrderBy(item => item.RootId)
-            .ThenBy(item => item.DisplayName)
-            .ToListAsync(cancellationToken);
+                // Rank distinct names inside PostgreSQL and apply the per-root
+                // bound before materialization. At most rootIds.Length *
+                // participantLimit rows cross the provider boundary.
+                participants = await dbContext.Database.SqlQuery<ThreadParticipantRow>($$"""
+                    SELECT ranked."ThreadRootMessageId", ranked."DisplayName"
+                    FROM (
+                        SELECT distinct_names."ThreadRootMessageId",
+                               distinct_names."DisplayName",
+                               ROW_NUMBER() OVER (
+                                   PARTITION BY distinct_names."ThreadRootMessageId"
+                                   ORDER BY distinct_names."DisplayName") AS "ParticipantOrdinal"
+                        FROM (
+                            SELECT DISTINCT reply."ThreadRootMessageId", author."DisplayName"
+                            FROM messages AS reply
+                            INNER JOIN users AS author ON author."Id" = reply."AuthorUserId"
+                            WHERE reply."TenantId" = {{tenantId.Value}}
+                              AND reply."ConversationId" = {{conversationId}}
+                              AND reply."ThreadRootMessageId" = ANY({{rootIds}})
+                              AND BTRIM(author."DisplayName") <> ''
+                        ) AS distinct_names
+                    ) AS ranked
+                    WHERE ranked."ParticipantOrdinal" <= {{participantLimit}}
+                    ORDER BY ranked."ThreadRootMessageId", ranked."DisplayName"
+                    """).ToListAsync(cancellationToken);
+            }
+            else
+            {
+                // Non-PostgreSQL test providers have no window-function path.
+                // Keep their materialized result bounded with a provider Take
+                // for each already-bounded root instead of loading every author.
+                var boundedParticipants = new List<ThreadParticipantRow>(rootIds.Length * participantLimit);
+                foreach (var rootId in rootIds)
+                {
+                    var displayNames = await replyQuery
+                        .Where(message => message.ThreadRootMessageId == rootId && message.AuthorUser != null)
+                        .Select(message => message.AuthorUser!.DisplayName)
+                        .Where(displayName => displayName != string.Empty)
+                        .Distinct()
+                        .OrderBy(displayName => displayName)
+                        .Take(participantLimit)
+                        .ToListAsync(cancellationToken);
+                    boundedParticipants.AddRange(displayNames.Select(displayName => new ThreadParticipantRow
+                    {
+                        ThreadRootMessageId = rootId,
+                        DisplayName = displayName
+                    }));
+                }
+                participants = boundedParticipants;
+            }
+        }
         var participantsByRoot = participants
-            .GroupBy(item => item.RootId)
+            .GroupBy(item => item.ThreadRootMessageId)
             .ToDictionary(
                 group => group.Key,
                 group => (IReadOnlyList<string>)group
@@ -663,5 +708,11 @@ public sealed class MessagingRepository(AppDbContext dbContext) : IMessagingRepo
     {
         await dbContext.Attachments.AddAsync(attachment, cancellationToken);
         await dbContext.MessageAttachments.AddAsync(link, cancellationToken);
+    }
+
+    private sealed class ThreadParticipantRow
+    {
+        public Guid ThreadRootMessageId { get; set; }
+        public string DisplayName { get; set; } = string.Empty;
     }
 }

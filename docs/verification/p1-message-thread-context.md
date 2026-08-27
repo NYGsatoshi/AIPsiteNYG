@@ -14,10 +14,20 @@ Status: candidate implementation on `feat/362-message-thread-context`.
   durable summary; a deleted root remains readable as a pinned tombstone but
   rejects new replies;
 - `Messaging.ThreadChanged.v1` is metadata-only and forces authoritative HTTP
-  reconciliation; reply `MessageCreated` events carry `threadRootMessageId`;
+  reconciliation. It deliberately has no aggregate version because reply
+  count is not monotonic; reply `MessageCreated` events carry
+  `threadRootMessageId`;
 - channel and DM routes share a separate-draft thread surface, using a
   contextual desktop panel and dedicated pane at the existing 860-pixel mobile
   breakpoint, with native buttons, Escape, and trigger focus return.
+
+Participant display names are capped per root inside one PostgreSQL windowed
+query before materialization. Concurrent same-key Message commits reconcile
+only the exact filtered unique-index race, return the one committed Message,
+and roll back the losing audit/notification/outbox unit. A POST 400 retains the
+thread draft and retry key while an authorized GET revalidates the projection;
+only an explicit or revalidated access failure clears it. Panel focus is set
+once when a root opens and is not reset by loading/ready/error transitions.
 
 Legacy `ConversationType.Thread` / `ParentConversationId` data and APIs are
 unchanged and compatibility-only. This change performs no anchor backfill,
@@ -41,7 +51,7 @@ payload assertions reject Message bodies and participant names.
 
 ## Local verification record
 
-- `dotnet test tests/AipPortal.Tests/AipPortal.Tests.csproj --filter Scope=Issue362 --no-restore`: 4 passed, 2 environment-skipped PostgreSQL cases, 0 failed;
+- `dotnet test tests/AipPortal.Tests/AipPortal.Tests.csproj --filter Scope=Issue362 --no-restore`: 4 passed, 4 environment-skipped PostgreSQL cases, 0 failed;
 - backend test project/full solution compilation: passed with seven pre-existing warnings and no Issue #362 error;
 - `dotnet ef migrations has-pending-model-changes`: no pending model changes;
 - app Angular compiler `ngc -p tsconfig.app.json --noEmit`: passed;
@@ -50,7 +60,7 @@ payload assertions reject Message bodies and participant names.
 - frontend architecture check and its four-rule Node test suite: passed;
 - `git diff --check`: no whitespace error.
 
-Two `PostgreSqlFact` cases compile but were not executed locally because
+Four `PostgreSqlFact` cases compile but were not executed locally because
 `POSTGRES_TEST_CONNECTION_STRING` is unavailable. The local Windows Angular
 unit runner also remained in transform/runner startup before test collection:
 the complete focused file, a split pure-mapper file, and direct single-worker

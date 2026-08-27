@@ -23,6 +23,7 @@ public sealed class ConversationService(
     INotificationService notifications,
     ITransactionalOutbox outbox,
     ICurrentTenant currentTenant,
+    IMessageIdempotencyCommitCoordinator messageIdempotency,
     IUnitOfWork unitOfWork) : IConversationService
 {
     private const long MaxAttachmentBytes = 25 * 1024 * 1024;
@@ -548,8 +549,21 @@ public sealed class ConversationService(
                 return Result<MessageResponse>.Failure(threadChanged.Error!);
             }
         }
-        await unitOfWork.SaveChangesAsync(cancellationToken);
-        return Result<MessageResponse>.Success(ToMessage(message));
+        var committedMessage = message;
+        if (request.ClientRequestId.HasValue)
+        {
+            var commitResult = await messageIdempotency.CommitAsync(message, cancellationToken);
+            committedMessage = commitResult.Message;
+            if (committedMessage.ThreadRootMessageId != threadRootMessageId)
+            {
+                return Result<MessageResponse>.Failure("Client request identity is already used for another message target.");
+            }
+        }
+        else
+        {
+            await unitOfWork.SaveChangesAsync(cancellationToken);
+        }
+        return Result<MessageResponse>.Success(ToMessage(committedMessage));
     }
 
     public async Task<Result<MessageThreadResponse>> GetMessageThreadAsync(
@@ -1453,7 +1467,7 @@ public sealed class ConversationService(
             "Messaging.ThreadChanged.v1",
             "MessageThread",
             threadRootMessageId,
-            Math.Max(0, replyCount),
+            aggregateVersion: null,
             actorUserId,
             null,
             payload,
@@ -1467,7 +1481,7 @@ public sealed class ConversationService(
         return EnqueueMessagingEventAsync("Messaging.ConversationUnreadChanged.v1", "ConversationReadState", state.Id, state.StateVersion, userId, null, payload, [new RealtimeRoutingTarget(RealtimeSubscriptionType.User, userId)], cancellationToken);
     }
 
-    private Task<Result<Guid>> EnqueueMessagingEventAsync(string eventType, string aggregateType, Guid aggregateId, long aggregateVersion, Guid actorUserId, string? causationId, JsonElement payload, IReadOnlyCollection<RealtimeRoutingTarget> routingTargets, CancellationToken cancellationToken)
+    private Task<Result<Guid>> EnqueueMessagingEventAsync(string eventType, string aggregateType, Guid aggregateId, long? aggregateVersion, Guid actorUserId, string? causationId, JsonElement payload, IReadOnlyCollection<RealtimeRoutingTarget> routingTargets, CancellationToken cancellationToken)
     {
         var tenantId = conversationTenantId();
         if (tenantId == Guid.Empty)

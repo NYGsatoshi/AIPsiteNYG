@@ -1206,6 +1206,58 @@ describe('RealtimeFacade', () => {
     expect(received).toHaveLength(1);
   });
 
+  it('delivers every unversioned MessageThread refetch invalidation through the aggregate stale guard', async () => {
+    const received: DurableRealtimeEvent[] = [];
+    const diagnostics: string[] = [];
+    facade.durableEvents$.subscribe((value) => received.push(value));
+    facade.diagnostics$.subscribe((value) => diagnostics.push(value.code));
+    await enableAndAuthenticate();
+
+    // Seed the real aggregate-version cache with a higher legacy value. Null
+    // must still bypass that cache because ThreadChanged is a refetch hint,
+    // not a versioned aggregate snapshot.
+    transport.events.next(event({
+      eventId: '36200000-0000-4000-8000-000000000099',
+      eventType: 'Messaging.ThreadChanged.v1',
+      aggregateType: 'MessageThread',
+      aggregateId: '36200000-0000-4000-8000-000000000010',
+      aggregateVersion: 99,
+      payload: {
+        conversationId: '36200000-0000-4000-8000-000000000020',
+        threadRootMessageId: '36200000-0000-4000-8000-000000000010',
+        replyCount: 2,
+        change: 'legacySeed',
+        requiresRefetch: true
+      }
+    }));
+    received.length = 0;
+
+    for (const [index, change] of ['replyUpdated', 'replyDeleted', 'replyCreated', 'replyCreated'].entries()) {
+      transport.events.next(event({
+        eventId: `36200000-0000-4000-8000-00000000000${index}`,
+        eventType: 'Messaging.ThreadChanged.v1',
+        aggregateType: 'MessageThread',
+        aggregateId: '36200000-0000-4000-8000-000000000010',
+        aggregateVersion: null,
+        payload: {
+          conversationId: '36200000-0000-4000-8000-000000000020',
+          threadRootMessageId: '36200000-0000-4000-8000-000000000010',
+          replyCount: 2,
+          change,
+          requiresRefetch: true
+        }
+      }));
+    }
+
+    expect(received.map((value) => value.payload['change'])).toEqual([
+      'replyUpdated',
+      'replyDeleted',
+      'replyCreated',
+      'replyCreated'
+    ]);
+    expect(diagnostics).not.toContain('StaleEvent');
+  });
+
   it('falls back to degraded mode when the connection cannot start while preserving session state', async () => {
     transport.start = async () => { throw new Error('network unavailable'); };
     flags.setForTesting({ 'realtime.signalR': true });

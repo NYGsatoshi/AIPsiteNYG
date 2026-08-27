@@ -80,6 +80,66 @@ describe('Issue 362 message thread contract', () => {
     expect(facade.thread().replies.map((reply) => reply.id)).toEqual(['reply-a', 'reply-b']);
   });
 
+  it('retains the protected projection, oversized draft, and retry key after a POST 400 revalidates successfully', async () => {
+    const { httpMock, facade } = await configureFacade();
+    openConversation(httpMock, facade);
+    openThread(httpMock, facade);
+    const oversizedDraft = 'x'.repeat(12_001);
+    facade.setThreadDraft(oversizedDraft);
+    facade.sendThreadDraft();
+
+    const rejectedPost = httpMock.expectOne('/api/messages/root-a/thread/messages');
+    const clientRequestId = rejectedPost.request.body.clientRequestId as string;
+    rejectedPost.flush({}, { status: 400, statusText: 'Bad Request' });
+
+    expect(facade.thread()).toMatchObject({
+      status: 'ready',
+      rootMessage: { id: 'root-a', body: 'Pinned parent body' },
+      draft: oversizedDraft,
+      sending: false,
+      pendingClientRequestId: clientRequestId
+    });
+    httpMock.expectOne('/api/messages/root-a/thread').flush(threadDto());
+    expect(facade.thread()).toMatchObject({
+      status: 'ready',
+      rootMessage: { id: 'root-a', body: 'Pinned parent body' },
+      draft: oversizedDraft,
+      pendingClientRequestId: clientRequestId
+    });
+
+    facade.sendThreadDraft();
+    const retryPost = httpMock.expectOne('/api/messages/root-a/thread/messages');
+    expect(retryPost.request.body.clientRequestId).toBe(clientRequestId);
+    retryPost.flush({}, { status: 503, statusText: 'Unavailable' });
+  });
+
+  it('clears all protected thread state when POST 400 revalidation is denied', async () => {
+    const { httpMock, facade } = await configureFacade();
+    openConversation(httpMock, facade);
+    openThread(httpMock, facade);
+    facade.setThreadDraft('Rejected reply');
+    facade.sendThreadDraft();
+
+    httpMock.expectOne('/api/messages/root-a/thread/messages').flush(
+      {},
+      { status: 400, statusText: 'Bad Request' }
+    );
+    httpMock.expectOne('/api/messages/root-a/thread').flush(
+      {},
+      { status: 403, statusText: 'Forbidden' }
+    );
+
+    expect(facade.thread()).toMatchObject({
+      status: 'permissionDenied',
+      rootMessage: undefined,
+      summary: undefined,
+      replies: [],
+      draft: '',
+      pendingClientRequestId: undefined
+    });
+    expect(facade.page().messages[0].thread).toBeUndefined();
+  });
+
   it('keeps reply events out of the main timeline and reconciles names through ordered authorized refetches', async () => {
     const events = new Subject<DurableRealtimeEvent>();
     const { httpMock, facade } = await configureFacade(events);
@@ -297,6 +357,31 @@ describe('ThreadPreviewComponent', () => {
     back.click();
     closeButton.click();
     expect(close).toHaveBeenCalledTimes(3);
+  });
+
+  it.each(['thread-back', 'thread-close'])('does not steal focus from %s when loading completes', async (testId) => {
+    const pendingFixture = TestBed.createComponent(ThreadPreviewComponent);
+    pendingFixture.componentRef.setInput('thread', {
+      ...threadViewModel(),
+      status: 'loading',
+      rootMessage: undefined,
+      replies: [],
+      summary: undefined
+    });
+    pendingFixture.componentRef.setInput('canPost', true);
+    pendingFixture.componentRef.setInput('canCreateThread', true);
+    pendingFixture.detectChanges();
+    await Promise.resolve();
+    const control = (pendingFixture.nativeElement as HTMLElement)
+      .querySelector<HTMLButtonElement>(`[data-testid="${testId}"]`)!;
+    control.focus();
+
+    pendingFixture.componentRef.setInput('thread', threadViewModel());
+    pendingFixture.detectChanges();
+    await Promise.resolve();
+
+    expect(document.activeElement).toBe(control);
+    pendingFixture.destroy();
   });
 
   it('renders durable reply tombstones and disables posting to a deleted parent', () => {

@@ -203,7 +203,7 @@ export class ThreadPreviewComponent implements AfterViewChecked {
   ngAfterViewChecked(): void {
     const key = this.thread.status === 'closed'
       ? null
-      : `${this.thread.rootMessageId ?? 'unknown'}:${this.thread.status}`;
+      : this.thread.rootMessageId ?? 'unknown';
     if (!key || key === this.focusedKey) {
       if (!key) {
         this.focusedKey = null;

@@ -66,6 +66,7 @@ public static class DependencyInjection
         services.AddScoped<IGroupAuthorizationService, GroupAuthorizationService>();
         services.AddScoped<IChannelAuthorizationService, ChannelAuthorizationService>();
         services.AddScoped<IConversationAuthorizationService, ConversationAuthorizationService>();
+        services.AddScoped<IMessageIdempotencyCommitCoordinator, UnitOfWorkMessageIdempotencyCommitCoordinator>();
         services.AddScoped<ProjectAuthorizationService>();
         services.AddScoped<IProjectAuthorizationService>(provider => provider.GetRequiredService<ProjectAuthorizationService>());
         services.AddScoped<ITaskAuthorizationService>(provider => provider.GetRequiredService<ProjectAuthorizationService>());
