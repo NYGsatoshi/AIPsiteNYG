@@ -531,6 +531,52 @@ describe('Issue 362 message thread contract', () => {
     expect(facade.thread().status).toBe('closed');
     expect(document.activeElement).toBe(trigger);
   });
+
+  it('retries focus against the rendered trigger when the mobile close render replaces it', async () => {
+    const { httpMock, facade } = await configureFacade();
+    openConversation(httpMock, facade);
+    const hiddenTrigger = document.createElement('button');
+    hiddenTrigger.id = 'thread-trigger-root-a';
+    const timeline = document.createElement('section');
+    timeline.id = 'message-timeline';
+    timeline.tabIndex = -1;
+    document.body.append(hiddenTrigger, timeline);
+    openThread(httpMock, facade, hiddenTrigger.id);
+
+    const animationFrames: FrameRequestCallback[] = [];
+    const originalRequestAnimationFrame = window.requestAnimationFrame;
+    const originalHiddenTriggerFocus = hiddenTrigger.focus.bind(hiddenTrigger);
+    const originalTimelineFocus = timeline.focus.bind(timeline);
+    window.requestAnimationFrame = (callback: FrameRequestCallback): number => {
+      animationFrames.push(callback);
+      return animationFrames.length;
+    };
+    hiddenTrigger.focus = () => undefined;
+    timeline.focus = () => undefined;
+
+    try {
+      facade.closeThread();
+      await Promise.resolve();
+
+      expect(animationFrames).toHaveLength(1);
+      const renderedTrigger = document.createElement('button');
+      renderedTrigger.id = hiddenTrigger.id;
+      hiddenTrigger.remove();
+      document.body.append(renderedTrigger);
+
+      animationFrames.shift()?.(0);
+
+      expect(document.activeElement).toBe(renderedTrigger);
+      expect(animationFrames).toEqual([]);
+      renderedTrigger.remove();
+    } finally {
+      window.requestAnimationFrame = originalRequestAnimationFrame;
+      hiddenTrigger.focus = originalHiddenTriggerFocus;
+      timeline.focus = originalTimelineFocus;
+      hiddenTrigger.remove();
+      timeline.remove();
+    }
+  });
 });
 
 describe('ThreadPreviewComponent', () => {

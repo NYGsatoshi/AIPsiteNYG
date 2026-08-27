@@ -301,13 +301,15 @@ export class MessagingFacade {
 
   closeThread(returnFocus = true): void {
     const triggerElementId = this.threadState().triggerElementId;
-    this.threadRequestGeneration++;
+    const closeGeneration = ++this.threadRequestGeneration;
     this.threadState.set(EMPTY_THREAD);
     if (returnFocus) {
-      queueMicrotask(() => {
-        const trigger = triggerElementId ? document.getElementById(triggerElementId) : null;
-        (trigger ?? document.getElementById('message-timeline'))?.focus();
-      });
+      // On the dedicated mobile pane the conversation remains display:none
+      // until Angular renders the closed state. The correct trigger therefore
+      // exists during this microtask but cannot accept focus yet. Verify the
+      // focus result and retry after at most two render frames, re-querying the
+      // current DOM each time so a replaced trigger is never captured stale.
+      queueMicrotask(() => this.restoreClosedThreadFocus(triggerElementId, closeGeneration, 2));
     }
   }
 
@@ -1300,6 +1302,41 @@ export class MessagingFacade {
 
   private currentUserId(): string {
     return this.authSession.currentUser()?.userId ?? '';
+  }
+
+  private restoreClosedThreadFocus(
+    triggerElementId: string | undefined,
+    closeGeneration: number,
+    remainingAnimationFrames: number
+  ): void {
+    if (
+      closeGeneration !== this.threadRequestGeneration ||
+      this.threadState().status !== 'closed'
+    ) {
+      return;
+    }
+
+    const trigger = triggerElementId ? document.getElementById(triggerElementId) : null;
+    if (this.tryFocusElement(trigger)) {
+      return;
+    }
+    if (this.tryFocusElement(document.getElementById('message-timeline'))) {
+      return;
+    }
+    if (remainingAnimationFrames <= 0 || typeof window.requestAnimationFrame !== 'function') {
+      return;
+    }
+
+    window.requestAnimationFrame(() => this.restoreClosedThreadFocus(
+      triggerElementId,
+      closeGeneration,
+      remainingAnimationFrames - 1
+    ));
+  }
+
+  private tryFocusElement(element: HTMLElement | null): boolean {
+    element?.focus();
+    return !!element && document.activeElement === element;
   }
 
   private hasDeletedMessageIdentity(incoming: MessagingMessageViewModel): boolean {

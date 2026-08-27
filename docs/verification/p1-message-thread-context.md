@@ -73,12 +73,14 @@ payload assertions reject Message bodies and participant names.
 ## Local verification record
 
 - `dotnet test tests/AipPortal.Tests/AipPortal.Tests.csproj --filter Scope=Issue362 --no-build`: 4 passed, 5 environment-skipped PostgreSQL cases, 0 failed;
-- backend test project compilation, including all application references:
+- solution compilation, including all application references:
   passed with seven pre-existing warnings and no Issue #362 error;
 - `dotnet ef migrations has-pending-model-changes`: no pending model changes;
-- app Angular compiler `ngc -p tsconfig.app.json --noEmit`: passed;
+- app Angular compiler `ngc -p tsconfig.app.json`: passed;
 - frontend spec TypeScript `tsc -p tsconfig.spec.json --noEmit`: passed;
 - focused Playwright spec standalone TypeScript compilation: passed;
+- Linux Docker production build plus the exact Issue #362 320-pixel Playwright/axe
+  scenario: 2 passed across `chromium-desktop` and `chromium-mobile`, 0 failed;
 - frontend architecture check and its four-rule Node test suite: passed;
 - `git diff --check`: no whitespace error.
 
@@ -89,9 +91,10 @@ the complete focused file, a split pure-mapper file, and direct single-worker
 Vitest attempts all exceeded their bounded timeouts without an assertion or
 compile failure. Authoritative Linux CI must supply their execution result.
 
-The branch was synchronized to main `3df839e23033b8aeeee6d8474356127c3bbbeeef`
+The branch was synchronized to main `aa51e7882a1b8069b020acffd71ab72013d05921`
 and the focused backend, pending-model, Angular/spec TypeScript, Playwright
-TypeScript, and architecture checks above were rerun at that base. The
-production Angular build, static 320-pixel browser scenario, and Angular unit
-assertions were not executed locally; exact-head Linux CI must supply those
-gates, and no browser/axe pass is inferred from source or TypeScript checks.
+TypeScript, architecture, production-build, and focused Docker browser checks
+above were rerun at that base. The complete static browser suite and Angular
+unit assertions were not executed locally; exact-head Linux CI must supply
+those remaining gates. Only the explicit two-project focused browser/axe pass
+above is claimed locally.
