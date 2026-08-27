@@ -141,14 +141,17 @@ timeline exclusion, first-reply `CanCreateThread`, later posting authority,
 read-only access, removed/nonparticipant/admin/cross-Tenant/cross-Workspace/
 Project-scope/revoked-membership denial without body/count/name leakage,
 idempotency target isolation, metadata-only audit and realtime payloads,
-deleted reply/root tombstones, and application rejection of cross-Conversation/
+deleted reply/root tombstones, deleted-root list continuity with body and
+attachment redaction, and application rejection of cross-Conversation/
 cross-Tenant links.
 
 Conditional PostgreSQL coverage applies the additive migration over a legacy
 Message, verifies its column/index/check/foreign key and Down/reapply paths,
 and runs the production query against canonical, corrupt cross-scope, and
-deleted rows. It also proves that the provider caps participant rows at three
-per root and that concurrent independent-context same-key commits return one
+deleted rows. The provider query retains a deleted root with a durable
+same-Conversation reply while omitting an ordinary deleted Message. It also
+proves that the provider caps participant rows at three per root and that
+concurrent independent-context same-key commits return one
 Message while rolling back the loser's audit/notification/outbox rows; an
 unrelated database constraint still propagates. It requires
 `POSTGRES_TEST_CONNECTION_STRING`; absence outside CI is an explicit
@@ -158,7 +161,9 @@ Focused Angular coverage validates strict bounded DTO mapping, separate main
 and thread drafts, stable retry identity, reply-event timeline exclusion,
 authoritative participant-summary refetch with out-of-order protection,
 protected-state clearing, channel/DM wiring, durable tombstones, keyboard
-operation, trigger focus return, no focus theft across load completion, and
+operation, trigger focus return, no focus theft across load completion,
+local/realtime/reload deleted-root continuity, out-of-order delete/summary
+reconciliation, transient revalidation safety, and
 POST-400 draft/retry preservation followed by an authorized GET revalidation.
 A denied revalidation clears the full protected projection. The dedicated
 static Playwright scenario

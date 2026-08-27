@@ -458,6 +458,7 @@ describe('Messaging MVP0 backend wiring', () => {
     expect(deleteRequest.request.method).toBe('DELETE');
     expect(deleteRequest.request.withCredentials).toBe(true);
     deleteRequest.flush({ status: 'OK' });
+    httpMock.expectOne('/api/messages/message-own/thread').flush(deletedZeroReplyThread('message-own'));
     fixture.detectChanges();
 
     expect(root.querySelector('#message-message-own')).toBeNull();
@@ -533,6 +534,7 @@ describe('Messaging MVP0 backend wiring', () => {
       messageId: 'message-own',
       messageVersion: 3,
     }));
+    const deletionRevalidation = httpMock.expectOne('/api/messages/message-own/thread');
     patch.flush({
       id: 'message-own',
       workspaceId: 'workspace-a',
@@ -545,6 +547,7 @@ describe('Messaging MVP0 backend wiring', () => {
       isDeleted: false,
       version: 2,
     });
+    deletionRevalidation.flush(deletedZeroReplyThread('message-own'));
 
     expect(facade.page().messages.find((message) => message.id === 'message-own')).toBeUndefined();
     expect(facade.messageAction().feedback).toMatchObject({ message: 'Message was removed.', focusTimeline: true });
@@ -612,6 +615,7 @@ describe('Messaging MVP0 backend wiring', () => {
       messageId: 'message-own',
       messageVersion: 3,
     }));
+    httpMock.expectOne('/api/messages/message-own/thread').flush(deletedZeroReplyThread('message-own'));
     fixture.detectChanges();
     await Promise.resolve();
 
@@ -1117,4 +1121,30 @@ describe('Messaging MVP0 backend wiring', () => {
 
 function texts(root: HTMLElement, selector: string): readonly string[] {
   return Array.from(root.querySelectorAll(selector)).map((element) => element.textContent ?? '');
+}
+
+function deletedZeroReplyThread(messageId: string): Record<string, unknown> {
+  return {
+    rootMessage: {
+      id: messageId,
+      workspaceId: 'workspace-a',
+      conversationId: 'conversation-a',
+      authorUserId: currentUserId,
+      authorDisplayName: 'Mock User A',
+      body: '',
+      attachments: [],
+      createdAt: '2026-07-09T01:01:00Z',
+      isDeleted: true,
+      version: 3
+    },
+    replies: [],
+    summary: {
+      threadRootMessageId: messageId,
+      replyCount: 0,
+      latestReplyAt: null,
+      participantDisplayNames: []
+    },
+    hasMore: false,
+    maximumReplies: 100
+  };
 }

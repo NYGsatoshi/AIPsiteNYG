@@ -265,11 +265,14 @@ and `maximumReplies: 100`. There is no older-reply cursor in this version;
 and replies are bodyless/attachment-free tombstones; deleted replies remain in
 the order and count.
 
-The existing main Conversation list still omits all deleted Messages. A root
-deleted while its panel is open remains available from the exact thread GET as
-the pinned bodyless tombstone, but it cannot currently be rediscovered or
-reopened from the main timeline. General main-timeline tombstone presentation
-remains outside this Issue #362 slice with the broader Message actions work.
+The main Conversation list retains a deleted main-timeline root only while it
+has at least one durable same-Conversation reply. That root is projected as a
+bodyless, attachment-free tombstone with its authorized summary, keeps its
+timeline ordering, and can reopen the exact thread GET; its reply composer is
+disabled. Deleted replies continue to count, so deleting every visible reply
+does not remove the anchor. An ordinary deleted Message with no durable replies
+remains omitted. This is the narrow thread-continuity rule; general zero-reply
+main-timeline tombstone presentation remains outside Issue #362.
 
 POST accepts only:
 

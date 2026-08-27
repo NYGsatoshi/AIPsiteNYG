@@ -1734,6 +1734,25 @@ public sealed class HttpTenantIsolationTests
             Assert.Equal(1, document.RootElement.GetProperty("summary").GetProperty("replyCount").GetInt32());
         }
 
+        using (var tombstoneTimeline = await app.SendAsync(
+                   data.TenantAMember,
+                   data.TenantA.Slug,
+                   $"/api/conversations/{data.ConversationA.Id:D}/messages"))
+        using (var document = JsonDocument.Parse(await tombstoneTimeline.Content.ReadAsStringAsync()))
+        {
+            Assert.Equal(HttpStatusCode.OK, tombstoneTimeline.StatusCode);
+            var root = Assert.Single(
+                document.RootElement.GetProperty("items").EnumerateArray(),
+                item => item.GetProperty("id").GetGuid() == data.MessageA.Id);
+            Assert.True(root.GetProperty("isDeleted").GetBoolean());
+            Assert.Equal(string.Empty, root.GetProperty("body").GetString());
+            Assert.Empty(root.GetProperty("attachments").EnumerateArray());
+            Assert.Equal(1, root.GetProperty("thread").GetProperty("replyCount").GetInt32());
+            Assert.DoesNotContain(
+                document.RootElement.GetProperty("items").EnumerateArray(),
+                item => item.GetProperty("id").GetGuid() == replyId);
+        }
+
         using var deniedContent = JsonContent("""{"body":"cannot reply to deleted root"}""");
         using var denied = await app.SendAsync(
             data.CrossTenantUser,

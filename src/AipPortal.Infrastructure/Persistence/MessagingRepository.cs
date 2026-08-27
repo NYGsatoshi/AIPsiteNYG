@@ -488,10 +488,16 @@ public sealed class MessagingRepository(AppDbContext dbContext) : IMessagingRepo
             .Where(m =>
                 m.ConversationId == conversationId &&
                 m.ThreadRootMessageId == null &&
-                m.DeletedAt == null);
+                (m.DeletedAt == null || dbContext.Messages.Any(reply =>
+                    reply.ConversationId == m.ConversationId &&
+                    reply.ThreadRootMessageId == m.Id)));
         if (before.HasValue) query = query.Where(m => m.CreatedAt < before.Value);
         var total = await query.CountAsync(cancellationToken);
-        var items = await query.OrderByDescending(m => m.CreatedAt).Take(limit).ToListAsync(cancellationToken);
+        var items = await query
+            .OrderByDescending(m => m.CreatedAt)
+            .ThenByDescending(m => m.Id)
+            .Take(limit)
+            .ToListAsync(cancellationToken);
         return new PagedResponse<Message>(items, 1, limit, total);
     }
 

@@ -6,6 +6,7 @@ const workspaceId = 'static-workspace-362';
 const conversationId = 'thread-dm-362';
 const rootMessageId = 'thread-root-362';
 const zeroReplyRootId = 'thread-empty-root-362';
+const deletedRootMessageId = 'thread-deleted-root-362';
 const currentUserId = 'mock-user-a';
 
 test.describe('Issue #362 mobile Message thread context', () => {
@@ -20,9 +21,12 @@ test.describe('Issue #362 mobile Message thread context', () => {
     await expect(page.getByTestId('dm-page')).toBeVisible();
     const populatedEntry = page.getByTestId(`open-message-thread-${rootMessageId}`);
     const emptyEntry = page.getByTestId(`open-message-thread-${zeroReplyRootId}`);
+    const deletedEntry = page.getByTestId(`open-message-thread-${deletedRootMessageId}`);
     await expect(populatedEntry).toContainText('↳');
     await expect(populatedEntry).toContainText('1 reply');
     await expect(emptyEntry).toContainText('Reply in thread');
+    await expect(page.getByTestId('message-tombstone')).toContainText('Message deleted');
+    await expect(deletedEntry).toContainText('1 reply');
 
     const mainDraft = page.getByTestId('message-draft');
     await mainDraft.fill('Keep this main-timeline draft');
@@ -62,6 +66,22 @@ test.describe('Issue #362 mobile Message thread context', () => {
     await expect(page.getByTestId('dm-conversation-surface')).toBeVisible();
     await expect(mainDraft).toHaveValue('Keep this main-timeline draft');
     await expectNoHorizontalOverflow(page);
+
+    await deletedEntry.focus();
+    await deletedEntry.press('Enter');
+    const deletedThread = page.getByTestId('thread-preview');
+    await expect(deletedThread).toBeVisible();
+    await expect(deletedThread).toBeFocused();
+    await expect(page.getByTestId('thread-root-message')).toContainText('Message deleted');
+    await expect(page.getByTestId('thread-reply-draft')).toBeDisabled();
+    await expect(page.getByTestId('thread-composer-disabled')).toContainText('parent message was deleted');
+    await expect(page.getByText('Deleted parent secret')).toHaveCount(0);
+    await expectNoHorizontalOverflow(page);
+    await expectNoAccessibilityViolations(page, '[data-testid="thread-preview"]');
+
+    await deletedThread.press('Escape');
+    await expect(deletedThread).toHaveCount(0);
+    await expect(deletedEntry).toBeFocused();
   });
 });
 
@@ -87,6 +107,21 @@ async function installThreadApi(page: Page): Promise<void> {
         status: 200,
         contentType: 'application/json',
         body: JSON.stringify(threadProjection(replies))
+      });
+      return;
+    }
+
+    if (threadMatch && request.method() === 'GET' && threadMatch[1] === deletedRootMessageId) {
+      await route.fulfill({
+        status: 200,
+        contentType: 'application/json',
+        body: JSON.stringify({
+          rootMessage: rootMessage(deletedRootMessageId, 'Deleted parent secret', true),
+          replies: [threadReply('thread-deleted-root-reply-362', 'Durable reply', undefined, deletedRootMessageId)],
+          summary: threadSummary(1, deletedRootMessageId),
+          hasMore: false,
+          maximumReplies: 100
+        })
       });
       return;
     }
@@ -144,7 +179,11 @@ async function installThreadApi(page: Page): Promise<void> {
         body: JSON.stringify({
           items: [
             { ...rootMessage(rootMessageId, 'Pinned parent body'), thread: threadSummary(replies.length) },
-            rootMessage(zeroReplyRootId, 'Root without replies')
+            rootMessage(zeroReplyRootId, 'Root without replies'),
+            {
+              ...rootMessage(deletedRootMessageId, 'Deleted parent secret', true),
+              thread: threadSummary(1, deletedRootMessageId)
+            }
           ]
         })
       });
@@ -202,16 +241,16 @@ function threadProjection(replies: readonly Record<string, unknown>[]): Record<s
   };
 }
 
-function threadSummary(replyCount: number): Record<string, unknown> {
+function threadSummary(replyCount: number, threadRootMessageId = rootMessageId): Record<string, unknown> {
   return {
-    threadRootMessageId: rootMessageId,
+    threadRootMessageId,
     replyCount,
     latestReplyAt: replyCount > 0 ? '2026-08-27T02:00:00Z' : null,
     participantDisplayNames: replyCount > 1 ? ['Mock User B', 'Mock User A'] : ['Mock User B']
   };
 }
 
-function rootMessage(id: string, body: string): Record<string, unknown> {
+function rootMessage(id: string, body: string, isDeleted = false): Record<string, unknown> {
   return {
     id,
     workspaceId,
@@ -221,12 +260,17 @@ function rootMessage(id: string, body: string): Record<string, unknown> {
     body,
     attachments: [],
     createdAt: '2026-08-27T01:00:00Z',
-    isDeleted: false,
+    isDeleted,
     version: 1
   };
 }
 
-function threadReply(id: string, body: string, clientRequestId?: string): Record<string, unknown> {
+function threadReply(
+  id: string,
+  body: string,
+  clientRequestId?: string,
+  threadRootMessageId = rootMessageId
+): Record<string, unknown> {
   return {
     id,
     workspaceId,
@@ -239,7 +283,7 @@ function threadReply(id: string, body: string, clientRequestId?: string): Record
     isDeleted: false,
     version: 1,
     clientRequestId,
-    threadRootMessageId: rootMessageId
+    threadRootMessageId
   };
 }
 

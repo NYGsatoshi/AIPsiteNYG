@@ -237,6 +237,125 @@ describe('Issue 362 message thread contract', () => {
     expect(facade.thread().replies.map((reply) => reply.id)).toEqual(['reply-a', 'reply-newer']);
   });
 
+  it('keeps a locally deleted threaded root as a bodyless anchor and reopens its disabled thread', async () => {
+    const { httpMock, facade } = await configureFacade();
+    openConversation(httpMock, facade, {
+      authorUserId: currentUserId,
+      authorDisplayName: 'Mock User A',
+      body: 'Local root secret'
+    });
+
+    facade.requestMessageDelete('root-a');
+    facade.confirmMessageDelete('root-a');
+    const deleteRequest = httpMock.expectOne('/api/messages/root-a');
+    expect(deleteRequest.request.method).toBe('DELETE');
+    deleteRequest.flush({ status: 'OK' });
+
+    expect(facade.page().messages[0]).toMatchObject({
+      id: 'root-a',
+      body: '',
+      isDeleted: true,
+      thread: { replyCount: 1 }
+    });
+    expect(JSON.stringify(facade.page().messages[0])).not.toContain('Local root secret');
+    httpMock.expectOne('/api/messages/root-a/thread').flush(threadDto({
+      rootMessage: deletedRootMessage({
+        authorUserId: currentUserId,
+        authorDisplayName: 'Mock User A'
+      })
+    }));
+
+    facade.openThread('root-a', 'thread-trigger-root-a');
+    httpMock.expectOne('/api/messages/root-a/thread').flush(threadDto({
+      rootMessage: deletedRootMessage({
+        authorUserId: currentUserId,
+        authorDisplayName: 'Mock User A'
+      })
+    }));
+    expect(facade.thread()).toMatchObject({
+      status: 'ready',
+      rootMessage: { id: 'root-a', body: '', isDeleted: true },
+      summary: { replyCount: 1 }
+    });
+  });
+
+  it('retains and authoritatively reconciles a realtime tombstone when deletion overtakes its thread summary', async () => {
+    const events = new Subject<DurableRealtimeEvent>();
+    const { httpMock, facade } = await configureFacade(events);
+    openConversation(httpMock, facade, {}, 0);
+
+    events.next(realtimeEvent('Messaging.ThreadChanged.v1', {
+      conversationId: 'conversation-a',
+      threadRootMessageId: 'root-a',
+      requiresRefetch: true
+    }));
+    const overtakenSummary = httpMock.expectOne('/api/messages/root-a/thread');
+    events.next(realtimeEvent('Messaging.MessageDeleted.v1', {
+      conversationId: 'conversation-a',
+      messageId: 'root-a',
+      messageVersion: 2
+    }));
+    const deletionRevalidation = httpMock.expectOne('/api/messages/root-a/thread');
+
+    expect(facade.page().messages[0]).toMatchObject({ body: '', isDeleted: true });
+    overtakenSummary.flush(threadDto({ summary: threadSummary(1, ['Stale participant']) }));
+    deletionRevalidation.flush(threadDto({ rootMessage: deletedRootMessage() }));
+
+    expect(facade.page().messages[0]).toMatchObject({
+      id: 'root-a',
+      body: '',
+      isDeleted: true,
+      version: 2,
+      thread: { replyCount: 1, participantDisplayNames: ['Mock User B'] }
+    });
+    expect(JSON.stringify(facade.page().messages[0])).not.toContain('Pinned parent body');
+  });
+
+  it('does not treat a transient deletion revalidation failure as proof of zero replies', async () => {
+    const events = new Subject<DurableRealtimeEvent>();
+    const { httpMock, facade } = await configureFacade(events);
+    openConversation(httpMock, facade, {}, 0);
+
+    events.next(realtimeEvent('Messaging.MessageDeleted.v1', {
+      conversationId: 'conversation-a',
+      messageId: 'root-a',
+      messageVersion: 2
+    }));
+    httpMock.expectOne('/api/messages/root-a/thread').flush(
+      {},
+      { status: 503, statusText: 'Unavailable' }
+    );
+    expect(facade.page()).toMatchObject({
+      realtimeDegraded: true,
+      messages: [{ id: 'root-a', body: '', isDeleted: true }]
+    });
+
+    events.next(realtimeEvent('Messaging.ThreadChanged.v1', {
+      conversationId: 'conversation-a',
+      threadRootMessageId: 'root-a',
+      requiresRefetch: true
+    }));
+    httpMock.expectOne('/api/messages/root-a/thread').flush(threadDto({
+      rootMessage: deletedRootMessage(),
+      replies: [],
+      summary: threadSummary(0, [])
+    }));
+    expect(facade.page().messages).toEqual([]);
+  });
+
+  it('maps a deleted threaded root returned by a conversation reload without restoring its body', async () => {
+    const { httpMock, facade } = await configureFacade();
+    openConversation(httpMock, facade, { isDeleted: true, body: 'Deleted reload secret' });
+
+    expect(facade.page().messages[0]).toMatchObject({
+      id: 'root-a',
+      body: '',
+      isDeleted: true,
+      thread: { replyCount: 1 }
+    });
+    expect(JSON.stringify(facade.page().messages[0])).not.toContain('Deleted reload secret');
+  });
+
   it('rejects a malformed reply identity from the authoritative POST projection', async () => {
     const { httpMock, facade } = await configureFacade();
     openConversation(httpMock, facade);
@@ -440,6 +559,28 @@ describe('Message thread route wiring', () => {
     expect(root.querySelector('[data-testid="thread-preview"]')).toBeNull();
     expect(document.activeElement).toBe(trigger);
   });
+
+  it('keeps a deleted threaded parent readable and keyboard-reopenable without rendering its body', async () => {
+    const fixture = await renderRouteThread(DmPageComponent, 'dm', 1, true);
+    const root = fixture.nativeElement as HTMLElement;
+    const trigger = root.querySelector<HTMLButtonElement>('[data-testid="open-message-thread-root-a"]')!;
+
+    expect(root.querySelector('[data-testid="message-tombstone"]')?.textContent).toContain('Message deleted');
+    expect(root.textContent).not.toContain('Pinned parent body');
+    expect(trigger.textContent).toContain('1 reply');
+    trigger.focus();
+    trigger.click();
+    fixture.detectChanges();
+    await Promise.resolve();
+    const panel = root.querySelector<HTMLElement>('[data-testid="thread-preview"]')!;
+    expect(panel).not.toBeNull();
+    panel.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true, cancelable: true }));
+    fixture.detectChanges();
+    await Promise.resolve();
+
+    expect(root.querySelector('[data-testid="thread-preview"]')).toBeNull();
+    expect(document.activeElement).toBe(trigger);
+  });
 });
 
 async function configureFacade(events = new Subject<DurableRealtimeEvent>()): Promise<{
@@ -475,7 +616,12 @@ async function configureFacade(events = new Subject<DurableRealtimeEvent>()): Pr
   };
 }
 
-function openConversation(httpMock: HttpTestingController, facade: MessagingFacade): void {
+function openConversation(
+  httpMock: HttpTestingController,
+  facade: MessagingFacade,
+  rootOverrides: Record<string, unknown> = {},
+  replyCount = 1
+): void {
   facade.loadConversation('conversation-a', 'channel', 'workspace-a');
   httpMock.expectOne('/api/conversations').flush({ items: [] });
   httpMock.expectOne('/api/conversations/conversation-a').flush({
@@ -498,7 +644,8 @@ function openConversation(httpMock: HttpTestingController, facade: MessagingFaca
   httpMock.expectOne('/api/conversations/conversation-a/messages').flush({
     items: [{
       ...rootMessage(),
-      thread: threadSummary(1, ['Mock User B'])
+      ...rootOverrides,
+      thread: replyCount > 0 ? threadSummary(replyCount, ['Mock User B']) : undefined
     }]
   });
 }
@@ -538,6 +685,17 @@ function rootMessage(): Record<string, unknown> {
     createdAt: '2026-08-27T01:00:00Z',
     isDeleted: false,
     version: 1
+  };
+}
+
+function deletedRootMessage(overrides: Record<string, unknown> = {}): Record<string, unknown> {
+  return {
+    ...rootMessage(),
+    body: '',
+    attachments: [],
+    isDeleted: true,
+    version: 2,
+    ...overrides
   };
 }
 
@@ -633,7 +791,8 @@ function messageViewModel(
 async function renderRouteThread<T>(
   component: Type<T>,
   routeKind: 'channel' | 'dm',
-  replyCount: number
+  replyCount: number,
+  isDeleted = false
 ): Promise<ComponentFixture<T>> {
   const events = new Subject<DurableRealtimeEvent>();
   const routeParams = routeKind === 'channel'
@@ -646,7 +805,7 @@ async function renderRouteThread<T>(
       provideHttpClient(),
       provideHttpClientTesting(),
       { provide: AIP_AUTH_SESSION_MOCK, useValue: DEFAULT_AUTH_SESSION },
-      { provide: AIP_MESSAGING_PAGE_MOCK, useValue: routePage(routeKind, replyCount) },
+      { provide: AIP_MESSAGING_PAGE_MOCK, useValue: routePage(routeKind, replyCount, isDeleted) },
       {
         provide: ActivatedRoute,
         useValue: { paramMap: of(convertToParamMap(routeParams)) }
@@ -675,7 +834,11 @@ async function renderRouteThread<T>(
   return fixture;
 }
 
-function routePage(routeKind: 'channel' | 'dm', replyCount: number): MessagingPageViewModel {
+function routePage(
+  routeKind: 'channel' | 'dm',
+  replyCount: number,
+  isDeleted = false
+): MessagingPageViewModel {
   return {
     routeKind,
     status: 'ready',
@@ -695,7 +858,8 @@ function routePage(routeKind: 'channel' | 'dm', replyCount: number): MessagingPa
     },
     conversations: [],
     messages: [{
-      ...messageViewModel('root-a', 'Pinned parent body'),
+      ...messageViewModel('root-a', isDeleted ? '' : 'Pinned parent body'),
+      isDeleted,
       thread: replyCount > 0
         ? {
             threadRootMessageId: 'root-a',

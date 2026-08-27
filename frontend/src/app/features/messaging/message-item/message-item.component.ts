@@ -115,21 +115,23 @@ import { MessagingMessageActionState, MessagingMessageViewModel } from '../messa
             </div>
           </div>
         }
+      } @else {
+        <p class="message__tombstone" data-testid="message-tombstone">Message deleted</p>
+      }
 
-        @if (canShowThreadEntry) {
-          <button
-            type="button"
-            class="message__thread-entry"
-            [attr.id]="threadButtonId"
-            [attr.data-testid]="'open-message-thread-' + message.id"
-            [attr.aria-label]="threadEntryAriaLabel"
-            (click)="openThread.emit({ messageId: message.id, triggerElementId: threadButtonId })"
-          >
-            <svg lucideMessageSquare aria-hidden="true"></svg>
-            <span aria-hidden="true">&#x21B3;</span>
-            <span>{{ threadEntryLabel }}</span>
-          </button>
-        }
+      @if (canShowThreadEntry) {
+        <button
+          type="button"
+          class="message__thread-entry"
+          [attr.id]="threadButtonId"
+          [attr.data-testid]="'open-message-thread-' + message.id"
+          [attr.aria-label]="threadEntryAriaLabel"
+          (click)="openThread.emit({ messageId: message.id, triggerElementId: threadButtonId })"
+        >
+          <svg lucideMessageSquare aria-hidden="true"></svg>
+          <span aria-hidden="true">&#x21B3;</span>
+          <span>{{ threadEntryLabel }}</span>
+        </button>
       }
 
       @if (message.readState?.ownReadLabel) {
@@ -230,8 +232,8 @@ export class MessageItemComponent implements AfterViewChecked {
   get canShowThreadEntry(): boolean {
     return this.canOpenThreads &&
       this.message.deliveryState === 'confirmed' &&
-      !this.message.isDeleted &&
-      !this.message.threadRootMessageId;
+      !this.message.threadRootMessageId &&
+      (!this.message.isDeleted || (this.message.thread?.replyCount ?? 0) > 0);
   }
 
   get threadEntryLabel(): string {

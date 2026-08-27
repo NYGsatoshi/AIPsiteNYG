@@ -133,11 +133,14 @@ live index or add a migration.
 
 Deletion is restricted while replies reference a root. Current Message delete
 operations retain rows as tombstones, so deleted replies remain ordered and
-counted while their body and attachments are not projected. A deleted root may
-be read as a pinned bodyless tombstone through the authorized thread endpoint,
-but cannot receive new replies. The additive Down path removes only the
-foreign key, indexes, check, and nullable column; rollback discards thread
-links but does not remove Message rows.
+counted while their body and attachments are not projected. The main Message
+query keeps a deleted root only when an explicitly same-Conversation reply
+exists; the global Tenant filter and same-Conversation predicate prevent a
+corrupt cross-scope link from making it visible. It remains a pinned bodyless
+tombstone with its summary and ordering, but cannot receive new replies.
+Ordinary deleted Messages with no replies remain omitted. The additive Down
+path removes only the foreign key, indexes, check, and nullable column;
+rollback discards thread links but does not remove Message rows.
 
 ### Organization and communication
 

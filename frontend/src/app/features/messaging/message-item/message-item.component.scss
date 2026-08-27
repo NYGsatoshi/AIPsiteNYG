@@ -48,6 +48,12 @@
   line-height: 1.62;
 }
 
+.message__tombstone {
+  margin: 0;
+  color: var(--aip-color-text-secondary);
+  font-style: italic;
+}
+
 .message__edited {
   color: var(--aip-color-text-secondary);
   font-size: 0.78rem;

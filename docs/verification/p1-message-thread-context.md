@@ -11,8 +11,9 @@ Status: candidate implementation on `feat/362-message-thread-context`.
   latest 100 replies, truthful `hasMore`, a three-name summary, strict first-
   reply creation authority, and target-isolated idempotency;
 - deleted replies remain stable bodyless tombstones and count toward the
-  durable summary; a deleted root remains readable as a pinned tombstone but
-  rejects new replies;
+  durable summary; a deleted root with durable replies remains ordered and
+  discoverable as a pinned bodyless tombstone, while ordinary deleted
+  zero-reply Messages remain omitted and no deleted root accepts new replies;
 - `Messaging.ThreadChanged.v1` is metadata-only and forces authoritative HTTP
   reconciliation. It deliberately has no aggregate version because reply
   count is not monotonic; reply `MessageCreated` events carry
@@ -29,16 +30,21 @@ thread draft and retry key while an authorized GET revalidates the projection;
 only an explicit or revalidated access failure clears it. Panel focus is set
 once when a root opens and is not reset by loading/ready/error transitions.
 
+Delete reconciliation clears the rendered body immediately and revalidates
+the exact thread through the authorized GET. Per-root generations prevent an
+overtaken summary response from removing or reviving the anchor. An authorized
+zero-reply projection removes an ordinary tombstone; explicit access failure
+clears it, while a transient failure retains only the neutral bodyless state
+until catch-up or reload can settle the durable reply count.
+
 Legacy `ConversationType.Thread` / `ParentConversationId` data and APIs are
 unchanged and compatibility-only. This change performs no anchor backfill,
 attachment work, quoted reply, reactions, unread cursor, lock UI, or broader
 Issue #343 action work.
 
-Known boundary: the pre-existing main Conversation list omits every deleted
-Message. If an open root is deleted, the thread GET/panel continues to render
-its pinned bodyless tombstone, but the root cannot be rediscovered or reopened
-from the main timeline. General main-timeline tombstone presentation remains
-part of the broader Message actions work, not this Issue #362 slice.
+Known boundary: general zero-reply main-timeline tombstone presentation remains
+part of the broader Message actions work, not this Issue #362 slice. Issue #362
+retains only deleted canonical roots with at least one durable reply.
 
 ## Security evidence
 
@@ -52,7 +58,8 @@ payload assertions reject Message bodies and participant names.
 ## Local verification record
 
 - `dotnet test tests/AipPortal.Tests/AipPortal.Tests.csproj --filter Scope=Issue362 --no-restore`: 4 passed, 4 environment-skipped PostgreSQL cases, 0 failed;
-- backend test project/full solution compilation: passed with seven pre-existing warnings and no Issue #362 error;
+- backend test project compilation, including all application references:
+  passed with seven pre-existing warnings and no Issue #362 error;
 - `dotnet ef migrations has-pending-model-changes`: no pending model changes;
 - app Angular compiler `ngc -p tsconfig.app.json --noEmit`: passed;
 - frontend spec TypeScript `tsc -p tsconfig.spec.json --noEmit`: passed;

@@ -136,6 +136,7 @@ SELECT COUNT(*) FROM messages WHERE "Id" = @messageId AND "ThreadRootMessageId" 
             var conversationOther = Guid.NewGuid();
             var conversationB = Guid.NewGuid();
             var rootId = Guid.NewGuid();
+            var ordinaryDeletedId = Guid.NewGuid();
             var canonicalReplyId = Guid.NewGuid();
             var now = new DateTimeOffset(2026, 8, 28, 1, 0, 0, TimeSpan.Zero);
             await PostgreSqlMigrationTestDatabase.ExecuteAsync(database, """
@@ -143,8 +144,9 @@ INSERT INTO conversations ("Id", "TenantId", "WorkspaceId", "Type", "Title", "Is
 (@conversationA, @tenantA, @workspaceA, 'DirectMessage', 'A', false, false, @userA, @now),
 (@conversationOther, @tenantA, @workspaceA, 'DirectMessage', 'A other', false, false, @userA, @now),
 (@conversationB, @tenantB, @workspaceB, 'DirectMessage', 'B', false, false, @userB, @now);
-INSERT INTO messages ("Id", "TenantId", "WorkspaceId", "ConversationId", "AuthorUserId", "Body", "Version", "CreatedAt")
-VALUES (@rootId, @tenantA, @workspaceA, @conversationA, @userA, 'authorized root', 1, @now);
+INSERT INTO messages ("Id", "TenantId", "WorkspaceId", "ConversationId", "AuthorUserId", "Body", "Version", "CreatedAt", "DeletedAt", "DeletedByUserId", "DeleteReason") VALUES
+(@rootId, @tenantA, @workspaceA, @conversationA, @userA, 'deleted root secret', 1, @now, @deletedAt, @userA, 'author_delete'),
+(@ordinaryDeletedId, @tenantA, @workspaceA, @conversationA, @userA, 'ordinary deleted secret', 1, @ordinaryAt, @deletedAt, @userA, 'author_delete');
 INSERT INTO messages ("Id", "TenantId", "WorkspaceId", "ConversationId", "AuthorUserId", "Body", "Version", "CreatedAt", "ThreadRootMessageId", "DeletedAt", "DeletedByUserId", "DeleteReason") VALUES
 (@canonicalReplyId, @tenantA, @workspaceA, @conversationA, @userA, '', 1, @replyAt, @rootId, @deletedAt, @userA, 'author_delete'),
 (@crossConversationReplyId, @tenantA, @workspaceA, @conversationOther, @userA, 'cross conversation secret', 1, @replyAt, @rootId, NULL, NULL, NULL),
@@ -153,9 +155,10 @@ INSERT INTO messages ("Id", "TenantId", "WorkspaceId", "ConversationId", "Author
                 ("conversationA", conversationA), ("conversationOther", conversationOther), ("conversationB", conversationB),
                 ("tenantA", graphA.TenantId), ("workspaceA", graphA.WorkspaceId), ("userA", graphA.UserId),
                 ("tenantB", graphB.TenantId), ("workspaceB", graphB.WorkspaceId), ("userB", graphB.UserId),
-                ("rootId", rootId), ("canonicalReplyId", canonicalReplyId),
+                ("rootId", rootId), ("ordinaryDeletedId", ordinaryDeletedId), ("canonicalReplyId", canonicalReplyId),
                 ("crossConversationReplyId", Guid.NewGuid()), ("crossTenantReplyId", Guid.NewGuid()),
-                ("now", now), ("replyAt", now.AddMinutes(1)), ("deletedAt", now.AddMinutes(2)));
+                ("now", now), ("ordinaryAt", now.AddMinutes(-1)),
+                ("replyAt", now.AddMinutes(1)), ("deletedAt", now.AddMinutes(2)));
 
             var currentTenant = new CurrentTenantService();
             currentTenant.SetTenant(graphA.TenantId, $"message-thread-a-{Guid.NewGuid():N}");
@@ -176,7 +179,10 @@ INSERT INTO messages ("Id", "TenantId", "WorkspaceId", "ConversationId", "Author
             Assert.Equal(1, summary.ReplyCount);
             Assert.Equal(now.AddMinutes(1), summary.LatestReplyAt);
             Assert.Equal(new[] { "Migration user" }, summary.ParticipantDisplayNames);
-            Assert.Equal(rootId, Assert.Single(timeline.Items).Id);
+            var timelineRoot = Assert.Single(timeline.Items);
+            Assert.Equal(rootId, timelineRoot.Id);
+            Assert.NotNull(timelineRoot.DeletedAt);
+            Assert.DoesNotContain(timeline.Items, message => message.Id == ordinaryDeletedId);
             Assert.Equal(1, timeline.TotalCount);
         });
     }
