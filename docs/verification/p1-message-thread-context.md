@@ -67,7 +67,7 @@ the complete focused file, a split pure-mapper file, and direct single-worker
 Vitest attempts all exceeded their bounded timeouts without an assertion or
 compile failure. Authoritative Linux CI must supply their execution result.
 
-The branch was synchronized to main `dea7f12be12085f22536456c6fcfeb027ee04555`
+The branch was synchronized to main `3df839e23033b8aeeee6d8474356127c3bbbeeef`
 and the focused backend, pending-model, Angular/spec TypeScript, Playwright
 TypeScript, and architecture checks above were rerun at that base. The
 production Angular build, static 320-pixel browser scenario, and Angular unit
