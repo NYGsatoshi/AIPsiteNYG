@@ -6,18 +6,24 @@ import { Subject } from 'rxjs';
 
 import { RealtimeFacade } from '../../core/realtime/realtime.facade';
 import { ActiveWorkspaceFacade } from '../../core/workspace/active-workspace.facade';
+import { ContinueWorkingHistoryService } from '../../shared/continue-working/continue-working-history.service';
 import { FilesFacade } from './files.facade';
 
 describe('FilesFacade paging query state', () => {
   let facade: FilesFacade;
   let http: HttpTestingController;
   let clearProtectedState: (() => void) | undefined;
+  let activeWorkspaceState: ReturnType<typeof signal<{ readonly id: string; readonly label: string } | null>>;
+  const continueWorkingHistory = { touchFile: vi.fn() };
 
   beforeEach(() => {
     clearProtectedState = undefined;
+    activeWorkspaceState = signal<{ readonly id: string; readonly label: string } | null>(null);
+    continueWorkingHistory.touchFile.mockReset();
     TestBed.configureTestingModule({ providers: [
       provideHttpClient(), provideHttpClientTesting(),
-      { provide: ActiveWorkspaceFacade, useValue: { activeWorkspace: signal(null) } },
+      { provide: ActiveWorkspaceFacade, useValue: { activeWorkspace: activeWorkspaceState } },
+      { provide: ContinueWorkingHistoryService, useValue: continueWorkingHistory },
       {
         provide: RealtimeFacade,
         useValue: {
@@ -158,6 +164,101 @@ describe('FilesFacade paging query state', () => {
 
     expect(facade.deleteState()).toMatchObject({ state: 'failed', succeededCount: 0, failedCount: 1 });
     http.expectNone(request => request.method === 'DELETE');
+  });
+
+  it('rejects a Task attachment grant whose FileObject does not match the authorized Task projection', () => {
+    activeWorkspaceState.set({ id: 'workspace-a', label: 'Workspace A' });
+    facade.downloadAttachment('attachment-a', 'evidence.pdf', {
+      workspaceId: 'workspace-a',
+      fileObjectId: 'file-a',
+    });
+
+    http.expectOne('/api/attachments/attachment-a/download-grants').flush({
+      fileDownloadGrantId: 'grant-a',
+      fileObjectId: 'file-b',
+      token: 'raw-token',
+    });
+
+    http.expectNone(request => request.url.includes('/api/attachment-download-grants/'));
+    expect(continueWorkingHistory.touchFile).not.toHaveBeenCalled();
+  });
+
+  it('does not touch another Workspace bucket when the active Workspace changes before an attachment Blob completes', () => {
+    activeWorkspaceState.set({ id: 'workspace-a', label: 'Workspace A' });
+    const onState = vi.fn();
+    const onPermissionDenied = vi.fn();
+    facade.downloadAttachment('attachment-a', 'evidence.pdf', {
+      workspaceId: 'workspace-a',
+      fileObjectId: 'file-a',
+      isCurrent: () => true,
+      onState,
+      onPermissionDenied,
+    });
+    http.expectOne('/api/attachments/attachment-a/download-grants').flush({
+      fileDownloadGrantId: 'grant-a',
+      fileObjectId: 'file-a',
+      token: 'raw-token',
+    });
+    const download = http.expectOne('/api/attachment-download-grants/grant-a/download');
+    onState.mockClear();
+
+    activeWorkspaceState.set({ id: 'workspace-b', label: 'Workspace B' });
+    download.flush(
+      new Blob([JSON.stringify({ message: 'denied' })], { type: 'application/json' }),
+      { status: 403, statusText: 'Forbidden' },
+    );
+
+    expect(continueWorkingHistory.touchFile).not.toHaveBeenCalled();
+    expect(onState).not.toHaveBeenCalled();
+    expect(onPermissionDenied).not.toHaveBeenCalled();
+  });
+
+  it('ignores a late attachment grant denial after the active Workspace changes', () => {
+    activeWorkspaceState.set({ id: 'workspace-a', label: 'Workspace A' });
+    const onState = vi.fn();
+    const onPermissionDenied = vi.fn();
+    facade.downloadAttachment('attachment-a', 'evidence.pdf', {
+      workspaceId: 'workspace-a',
+      fileObjectId: 'file-a',
+      isCurrent: () => true,
+      onState,
+      onPermissionDenied,
+    });
+    const grant = http.expectOne('/api/attachments/attachment-a/download-grants');
+    onState.mockClear();
+
+    activeWorkspaceState.set({ id: 'workspace-b', label: 'Workspace B' });
+    grant.flush({ message: 'denied' }, { status: 403, statusText: 'Forbidden' });
+
+    expect(onState).not.toHaveBeenCalled();
+    expect(onPermissionDenied).not.toHaveBeenCalled();
+    expect(continueWorkingHistory.touchFile).not.toHaveBeenCalled();
+  });
+
+  it('touches the exact captured Task Workspace only after an attachment Blob download succeeds', () => {
+    activeWorkspaceState.set({ id: 'workspace-a', label: 'Workspace A' });
+    const click = vi.spyOn(HTMLAnchorElement.prototype, 'click').mockImplementation(() => undefined);
+    vi.spyOn(URL, 'createObjectURL').mockReturnValue('blob:attachment');
+    vi.spyOn(URL, 'revokeObjectURL').mockImplementation(() => undefined);
+    facade.downloadAttachment('attachment-a', 'evidence.pdf', {
+      workspaceId: 'workspace-a',
+      fileObjectId: 'file-a',
+      isCurrent: () => true,
+    });
+    http.expectOne('/api/attachments/attachment-a/download-grants').flush({
+      fileDownloadGrantId: 'grant-a',
+      fileObjectId: 'file-a',
+      token: 'raw-token',
+    });
+
+    expect(continueWorkingHistory.touchFile).not.toHaveBeenCalled();
+    http.expectOne('/api/attachment-download-grants/grant-a/download').flush(
+      new Blob(['evidence'], { type: 'application/pdf' }),
+      { headers: { 'content-disposition': 'attachment; filename="evidence.pdf"' } },
+    );
+
+    expect(click).toHaveBeenCalled();
+    expect(continueWorkingHistory.touchFile).toHaveBeenCalledWith('file-a', 'workspace-a');
   });
 
   function file(id: string, canDelete = false) {

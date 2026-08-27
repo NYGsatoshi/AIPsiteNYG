@@ -12,6 +12,7 @@ import {
 } from '../../core/realtime/realtime.facade';
 import { DurableRealtimeEvent } from '../../core/realtime/realtime.models';
 import { AipKanbanMoveRequest } from '../../shared/ui/contracts/aip-complex-adapter.contracts';
+import { ContinueWorkingHistoryService } from '../../shared/continue-working/continue-working-history.service';
 import { ProjectKanbanCard } from './project-kanban.models';
 import { snapshotDto } from './project-kanban.test-data';
 import { ganttSnapshotDto, viewerGanttSnapshotDto } from './project-detail-gantt.test-data';
@@ -26,12 +27,14 @@ describe('ProjectDetailFacade canonical Kanban', () => {
   let catchUp: ((context?: RealtimeCatchUpContext) => void) | undefined;
   let clearProtectedState: ((reason: ProtectedStateClearReason) => void) | undefined;
   let connectionState: WritableSignal<'Connected' | 'Degraded'>;
+  const continueWorkingHistory = { touchProject: vi.fn() };
 
   beforeEach(() => {
     events = new Subject<DurableRealtimeEvent>();
     catchUp = undefined;
     clearProtectedState = undefined;
     connectionState = signal<'Connected' | 'Degraded'>('Connected');
+    continueWorkingHistory.touchProject.mockReset();
     const realtime = {
       durableEvents$: events.asObservable(),
       connectionState,
@@ -52,7 +55,8 @@ describe('ProjectDetailFacade canonical Kanban', () => {
       providers: [
         provideHttpClient(),
         provideHttpClientTesting(),
-        { provide: RealtimeFacade, useValue: realtime }
+        { provide: RealtimeFacade, useValue: realtime },
+        { provide: ContinueWorkingHistoryService, useValue: continueWorkingHistory }
       ]
     });
     flags = TestBed.inject(FrontendFeatureFlagsService);
@@ -81,6 +85,16 @@ describe('ProjectDetailFacade canonical Kanban', () => {
     expect(facade.view().schedule.status).toBe('ready');
     expect(facade.view().schedule.snapshot?.calendar.timeZone).toBe('Asia/Tokyo');
     expect(facade.view().schedule.snapshot?.unscheduledItems[0].taskId).toBe('task-3');
+  });
+
+  it('records only the parent Research after its authorized Project detail is applied', () => {
+    facade.load('project-1');
+    expect(continueWorkingHistory.touchProject).not.toHaveBeenCalled();
+
+    http.expectOne('/api/projects/project-1').flush(draftProjectDto());
+
+    expect(facade.view().status).toBe('ready');
+    expect(continueWorkingHistory.touchProject).toHaveBeenCalledWith('project-1', 'workspace-1');
   });
 
   it('does not start stale Project subresource reads after the route switches to a Draft', async () => {

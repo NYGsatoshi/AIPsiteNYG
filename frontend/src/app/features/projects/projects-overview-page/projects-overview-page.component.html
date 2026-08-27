@@ -30,6 +30,14 @@
     </div>
   </header>
 
+  @if (continueWorkingWorkspaceId(); as workspaceId) {
+    <app-continue-working-panel
+      [workspaceId]="workspaceId"
+      [canCreateResearch]="canCreateResearch()"
+      [canBrowseFiles]="canBrowseFiles()"
+    />
+  }
+
   @if (vm.status === 'loading') {
     <app-inline-loading label="Loading projects" />
   } @else if (vm.status === 'permissionDenied') {
