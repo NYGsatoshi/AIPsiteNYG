@@ -974,7 +974,9 @@ export class MessagingFacade {
   private reconcileDeletedTimelineMessage(messageId: string, version?: number): void {
     const page = this.pageState();
     const target = page.messages.find((message) => message.id === messageId);
-    if (!target || target.threadRootMessageId) {
+    const activeThread = this.threadState();
+    const hasPinnedActiveRoot = activeThread.rootMessageId === messageId && !!activeThread.rootMessage;
+    if (target?.threadRootMessageId || (!target && !hasPinnedActiveRoot)) {
       return;
     }
 
@@ -996,7 +998,7 @@ export class MessagingFacade {
       : thread);
 
     if (this.mockPage || !pageConversationId) {
-      if ((target.thread?.replyCount ?? 0) === 0) {
+      if ((target?.thread?.replyCount ?? 0) === 0) {
         this.removeTimelineMessage(messageId);
       }
       return;
