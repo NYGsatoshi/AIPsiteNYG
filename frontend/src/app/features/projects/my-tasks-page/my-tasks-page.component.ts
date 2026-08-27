@@ -1,4 +1,4 @@
-import { Component, computed, inject } from '@angular/core';
+import { Component, ElementRef, ViewChild, computed, inject } from '@angular/core';
 import { Router } from '@angular/router';
 
 import { AppDataGridActionEvent } from '../../../shared/grid/app-data-grid/app-data-grid.types';
@@ -7,7 +7,7 @@ import { AppErrorBannerComponent } from '../../../shared/error/app-error-banner/
 import { AppInlineLoadingComponent } from '../../../shared/loading/app-inline-loading/app-inline-loading.component';
 import { AppPermissionDeniedComponent } from '../../../shared/permission/app-permission-denied/app-permission-denied.component';
 import { FrontendFeatureFlagsService } from '../../../core/feature-flags/frontend-feature-flags.service';
-import { MyTasksFacade } from '../my-tasks.facade';
+import { MyTasksBuiltinFilter, MyTasksFacade } from '../my-tasks.facade';
 import {
   MyTasksBlockedFilter,
   MyTasksPriorityFilter,
@@ -26,6 +26,7 @@ import { TaskTableComponent } from '../task-table/task-table.component';
   templateUrl: './my-tasks-page.component.html', styleUrl: './my-tasks-page.component.scss'
 })
 export class MyTasksPageComponent {
+  @ViewChild('savedFilterNameInput') private savedFilterNameInput?: ElementRef<HTMLInputElement>;
   private readonly facade = inject(MyTasksFacade);
   private readonly router = inject(Router);
   private readonly flags = inject(FrontendFeatureFlagsService);
@@ -39,6 +40,7 @@ export class MyTasksPageComponent {
   readonly groups: readonly { readonly id: MyTasksUrgencyGroup; readonly label: string }[] = [
     { id: 'overdue', label: 'Overdue' }, { id: 'today', label: 'Today' }, { id: 'next7Days', label: 'Next 7 Days' }, { id: 'later', label: 'Later' }, { id: 'noDeadline', label: 'No Deadline' }
   ];
+  savedFilterName = '';
 
   constructor() { this.facade.load(); }
   retry(): void { this.facade.retry(); }
@@ -52,6 +54,20 @@ export class MyTasksPageComponent {
   setBlockedFilter(value: string): void { this.facade.setBlockedFilter(value as MyTasksBlockedFilter); }
   setTimeGroupFilter(value: string): void { this.facade.setTimeGroupFilter(value ? value as MyTasksUrgencyGroup : null); }
   setSearchFilter(value: string): void { this.facade.setSearchFilter(value); }
+  applyBuiltinFilter(filter: MyTasksBuiltinFilter): void { this.facade.applyBuiltinFilter(filter); }
+  setSavedFilterName(value: string): void { this.savedFilterName = value; }
+  saveCurrentFilter(event?: Event): void {
+    event?.preventDefault();
+    if (!this.facade.saveCurrentFilter(this.savedFilterName)) return;
+    this.savedFilterName = '';
+    queueMicrotask(() => this.savedFilterNameInput?.nativeElement.focus());
+  }
+  applySavedFilter(filterId: string): void { this.facade.applySavedFilter(filterId); }
+  deleteSavedFilter(filterId: string): void {
+    if (!this.facade.deleteSavedFilter(filterId)) return;
+    queueMicrotask(() => this.savedFilterNameInput?.nativeElement.focus());
+  }
+  clearAllFilters(): void { this.facade.clearAllFilters(); }
   previousPage(): void { this.facade.previousPage(); }
   nextPage(): void { this.facade.nextPage(); }
   setPageSize(value: string): void { this.facade.setPageSize(Number(value)); }

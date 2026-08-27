@@ -249,6 +249,26 @@ an arbitrary Conversation subset first. Delayed
 `Messaging.ConversationUnreadChanged.v1` delivery parses its Conversation
 identity and rechecks current Conversation/Project authorization.
 
+Issue #346's My Tasks saved filters are browser presentation state, not an
+authorization cache. A strict, versioned local record is keyed by the resolved
+active Tenant, authenticated user, and `my-tasks` screen. An unresolved
+identity reads and writes nothing. The payload contains only approved query
+inputs; it excludes Task rows/counts/titles, Workspace or Project labels,
+permissions, capabilities, and authorization results. Malformed records,
+unknown versions/enums, duplicate identities, and unexpected fields are
+discarded. Storage failure leaves filtering usable and is announced without
+making an unpersisted record appear saved.
+
+Applying a saved opaque Project ID always calls both canonical My Tasks
+endpoints, which recheck current Project/Workspace/Tenant access. A stale,
+revoked, or cross-Tenant ID therefore produces the established denied,
+not-found, or authorized-empty behavior with no row, count, title, or snippet
+leak. The browser does not resolve or show
+a cached Project label or raw saved ID; it presents only a generic active
+Project condition. Authorization invalidation synchronously clears active
+filter execution and protected results while harmless namespaced saved-filter
+descriptors may remain available for a later server-authorized query.
+
 WPC-02A persists `WorkspaceVisible`, `MembersOnly`, and `Restricted` and the
 current Project read boundary enforces those values. Pre-migration `NULL`
 Visibility remains an explicit legacy compatibility state; it is never
