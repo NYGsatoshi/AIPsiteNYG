@@ -5,6 +5,7 @@ import { catchError, EMPTY, finalize, forkJoin, map, of, switchMap } from 'rxjs'
 import { normalizeApiError } from '../../core/api/api-error.adapter';
 import { FrontendApiError } from '../../core/api/api-error.model';
 import { FrontendFeatureFlagsService } from '../../core/feature-flags/frontend-feature-flags.service';
+import { ContinueWorkingHistoryService } from '../../shared/continue-working/continue-working-history.service';
 import {
   ProtectedStateClearReason,
   RealtimeFacade,
@@ -138,6 +139,7 @@ export class ProjectDetailFacade {
   private readonly http = inject(HttpClient);
   private readonly realtime = inject(RealtimeFacade);
   private readonly flags = inject(FrontendFeatureFlagsService);
+  private readonly continueWorkingHistory = inject(ContinueWorkingHistoryService);
   private readonly state = signal<ProjectDetailViewModel>(this.loading());
   private projectId: string | null = null;
   private projectOperational = false;
@@ -282,6 +284,10 @@ export class ProjectDetailFacade {
             view.activation
           )
         });
+        const appliedProject = this.state().project;
+        if (appliedProject) {
+          this.continueWorkingHistory.touchProject(appliedProject.id, appliedProject.workspaceId);
+        }
       }
     });
   }

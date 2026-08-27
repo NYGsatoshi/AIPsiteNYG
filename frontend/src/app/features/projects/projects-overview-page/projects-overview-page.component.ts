@@ -8,6 +8,7 @@ import { AppEmptyStateComponent } from '../../../shared/empty-state/app-empty-st
 import { AppErrorBannerComponent } from '../../../shared/error/app-error-banner/app-error-banner.component';
 import { AppInlineLoadingComponent } from '../../../shared/loading/app-inline-loading/app-inline-loading.component';
 import { AppPermissionDeniedComponent } from '../../../shared/permission/app-permission-denied/app-permission-denied.component';
+import { ContinueWorkingPanelComponent } from '../../../shared/continue-working/continue-working-panel.component';
 import { WorkspacesFacade } from '../../workspaces/workspaces.facade';
 import { ProjectCreateInput } from '../project-create.api';
 import { ProjectCreateDialogComponent } from '../project-create-dialog/project-create-dialog.component';
@@ -25,6 +26,7 @@ import { FrontendFeatureFlagsService } from '../../../core/feature-flags/fronten
     AppErrorBannerComponent,
     AppInlineLoadingComponent,
     AppPermissionDeniedComponent,
+    ContinueWorkingPanelComponent,
     ProjectCreateDialogComponent,
     ProjectSummaryPanelComponent,
   ],
@@ -83,6 +85,16 @@ export class ProjectsOverviewPageComponent {
 
     return { id: workspace.id, name: workspace.displayName };
   });
+  readonly continueWorkingWorkspaceId = computed(() => this.scopedWorkspace()?.id ?? null);
+  readonly canCreateResearch = computed(() =>
+    this.scopedWorkspace()?.capabilities.includes('openProjectCreate') === true,
+  );
+  readonly canBrowseFiles = computed(() =>
+    // Workspace File inventory uses the same server CanViewWorkspace policy
+    // as this dashboard-owned openWorkspace projection. addFiles is a
+    // separate mutation bit and is intentionally not consulted here.
+    this.scopedWorkspace()?.capabilities.includes('openWorkspace') === true,
+  );
 
   constructor() {
     effect(() => {

@@ -269,6 +269,44 @@ Project condition. Authorization invalidation synchronously clears active
 filter execution and protected results while harmless namespaced saved-filter
 descriptors may remain available for a later server-authorized query.
 
+### Continue-working history boundary
+
+Issue #330's Continue-working history is local presentation state, never an
+authorization or synchronization source. Its strict versioned record is
+partitioned by the resolved active Tenant, authenticated user, and exact active
+Workspace. Each item has exactly a `project` or `file` kind, one resource UUID,
+and a local `lastOpenedUtc`; it excludes titles, filenames, statuses, snippets,
+counts, capabilities, permissions, grants, raw tokens, Blob content, and
+authorization results. Malformed, oversized, unknown-version, or unexpected
+records are discarded. At most eight opaque records are stored.
+
+Before rendering, the browser reauthorizes each candidate through its exact
+Project or File detail route with at most three requests in flight and validates
+both returned resource ID and Workspace ID. Only current response labels,
+statuses, and timestamps are rendered. Denied, deleted, or mismatched records
+are hidden and pruned. A transient response retains only its opaque record for a
+manual retry and never renders cached protected metadata. At most six cards are
+shown. A canonically redacted filename remains the generic `File` label.
+
+Authentication, Tenant, user, active-Workspace, and same-session authorization
+invalidation boundaries synchronously clear rendered cards, cancel hydration
+and downloads, and generation-guard late responses. A realtime catch-up can
+only start the same authoritative detail reads again. Project detail touches a
+Project after its authorized response is applied; authorized Task detail may
+touch only its parent Project and never creates a Task card. File history is
+touched only after a short-lived grant and Blob download both succeed. The
+captured Task Workspace and FileObject must still match through grant and Blob
+completion; a late response after a Workspace change produces no download
+state, retry, or history side effect. Grant tokens remain request-local and are
+never written to browser state.
+
+Empty-state actions consume existing server projections: New Research requires
+`canOpenProjectCreate`; Browse Files uses the read-equivalent `canOpenWorkspace`
+projection because Workspace File inventory uses the same current
+`CanViewWorkspace` policy. The separate `canAddFiles` mutation capability does
+not authorize Browse. Server endpoints remain authoritative for every direct
+read or download.
+
 WPC-02A persists `WorkspaceVisible`, `MembersOnly`, and `Restricted` and the
 current Project read boundary enforces those values. Pre-migration `NULL`
 Visibility remains an explicit legacy compatibility state; it is never

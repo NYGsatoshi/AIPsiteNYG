@@ -206,7 +206,7 @@ export class TaskDetailPageComponent implements OnDestroy {
   setSelectedAttachment(id: string | null): void { this.selectedAttachmentId.set(id ?? ''); }
   associateSelectedFile(): void { const vm = this.page(); const attachmentId = this.selectedAttachmentId(); if (vm.task && vm.detail && attachmentId) this.facade.associateFile(vm.task.id, attachmentId, vm.detail.taskVersion, () => this.selectedAttachmentId.set('')); }
   loadPickerFiles(): void { const vm = this.page(); if (vm.detail?.permissions.canAssociateFiles && vm.detail.workspaceId) this.files.loadPickerFilesForWorkspace(vm.detail.workspaceId); }
-  downloadFile(attachmentId: string, fileName: string): void { const taskId = this.taskId(); const projectId = this.projectId(); if (!taskId) return; this.files.downloadAttachment(attachmentId, fileName, { isCurrent: () => this.taskId() === taskId && this.projectId() === projectId, onState: (_, message) => this.fileDownloadMessage.set(message), onPermissionDenied: () => this.facade.retryTaskDetail(taskId) }); }
+  downloadFile(attachmentId: string, fileObjectId: string, fileName: string): void { const taskId = this.taskId(); const projectId = this.projectId(); const workspaceId = this.page().detail?.workspaceId; if (!taskId || !workspaceId) return; this.files.downloadAttachment(attachmentId, fileName, { workspaceId, fileObjectId, isCurrent: () => this.taskId() === taskId && this.projectId() === projectId, onState: (_, message) => this.fileDownloadMessage.set(message), onPermissionDenied: () => this.facade.retryTaskDetail(taskId) }); }
   loadMorePickerFiles(): void { this.files.loadMorePickerFiles(); }
   retryPickerFiles(): void { this.files.retryPickerFiles(); }
 

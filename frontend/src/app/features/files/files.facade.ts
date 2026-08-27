@@ -6,6 +6,7 @@ import { normalizeApiError } from '../../core/api/api-error.adapter';
 import { ActiveWorkspaceFacade } from '../../core/workspace/active-workspace.facade';
 import { RealtimeFacade } from '../../core/realtime/realtime.facade';
 import { DurableRealtimeEvent } from '../../core/realtime/realtime.models';
+import { ContinueWorkingHistoryService } from '../../shared/continue-working/continue-working-history.service';
 import {
   AttachmentUploadResponseDto,
   FileDownloadGrantDto,
@@ -31,6 +32,10 @@ const FILES_PAGE_SIZE = 50;
 export interface AttachmentDownloadContext {
   /** Prevent an obsolete Task route from receiving a completion callback. */
   readonly isCurrent?: () => boolean;
+  /** Exact authorized Task aggregate scope captured before grant dispatch. */
+  readonly workspaceId?: string;
+  /** Exact FileObject projected by the authorized Task aggregate. */
+  readonly fileObjectId?: string;
   readonly onState?: (state: FileDownloadState, message: string) => void;
   readonly onPermissionDenied?: () => void;
 }
@@ -40,6 +45,7 @@ export class FilesFacade {
   private readonly http = inject(HttpClient);
   private readonly activeWorkspace = inject(ActiveWorkspaceFacade);
   private readonly realtime = inject(RealtimeFacade);
+  private readonly continueWorkingHistory = inject(ContinueWorkingHistoryService);
   private readonly mockPage = inject(AIP_FILES_PAGE_MOCK, { optional: true });
   private readonly pageState = signal<FilesPageViewModel>(this.mockPage ?? this.emptyPage('Loading files from backend.'));
   private readonly deleteStateSignal = signal<FileDeleteViewModel>(this.emptyDeleteState());
@@ -388,30 +394,58 @@ export class FilesFacade {
   /** Uses the canonical attachment grant boundary; grant tokens never enter signal state. */
   downloadAttachment(attachmentId: string, fallbackFileName: string, context: AttachmentDownloadContext = {}): Subscription | null {
     if (!attachmentId || this.mockPage || this.attachmentDownloads.has(attachmentId)) return null;
+    const operationWorkspaceId = context.workspaceId;
+    const expectedFileObjectId = fileObjectIdentity(context.fileObjectId);
+    if (operationWorkspaceId && this.activeWorkspace.activeWorkspace()?.id !== operationWorkspaceId) return null;
+    if (!expectedFileObjectId) {
+      if (context.isCurrent?.() !== false) {
+        context.onState?.('failed', 'Download is unavailable because its authorized file identity is missing.');
+      }
+      return null;
+    }
     const operation = new Subscription();
     this.attachmentDownloads.set(attachmentId, operation);
+    const operationIsCurrent = () => context.isCurrent?.() !== false &&
+      (!operationWorkspaceId || this.activeWorkspace.activeWorkspace()?.id === operationWorkspaceId);
     const report = (state: FileDownloadState, message: string) => {
-      if (context.isCurrent?.() !== false) context.onState?.(state, message);
+      if (operationIsCurrent()) context.onState?.(state, message);
     };
-    const denied = () => { if (context.isCurrent?.() !== false) context.onPermissionDenied?.(); };
+    const denied = () => { if (operationIsCurrent()) context.onPermissionDenied?.(); };
     report('pending', 'Authorizing download.');
     const grantRequest = this.http.post<FileDownloadGrantDto>(`/api/attachments/${attachmentId}/download-grants`, { purpose: 'task-detail-download' }, { withCredentials: true }).subscribe({
       next: grant => {
+        if (!operationIsCurrent()) { operation.unsubscribe(); return; }
         const grantId = stringValue(grant.fileDownloadGrantId);
+        const fileObjectId = fileObjectIdentity(grant.fileObjectId);
         const token = stringValue(grant.token);
-        if (!grantId || !token) { report('failed', 'Download grant response was incomplete.'); operation.unsubscribe(); return; }
+        if (!grantId || !fileObjectId || !token || fileObjectId !== expectedFileObjectId) { report('failed', 'Download grant response was incomplete or mismatched.'); operation.unsubscribe(); return; }
         const downloadRequest = this.http.post(`/api/attachment-download-grants/${grantId}/download`, { token }, { observe: 'response', responseType: 'blob', withCredentials: true }).subscribe({
           next: response => {
-            if (context.isCurrent?.() === false) return;
-            this.saveBlob(response, safeFileNameFromHeader(response.headers.get('content-disposition'), fallbackFileName));
+            if (!operationIsCurrent()) { operation.unsubscribe(); return; }
+            const downloaded = this.saveBlob(response, safeFileNameFromHeader(response.headers.get('content-disposition'), fallbackFileName));
+            if (downloaded && operationWorkspaceId) {
+              this.continueWorkingHistory.touchFile(expectedFileObjectId, operationWorkspaceId);
+            }
             report('succeeded', 'Download started.');
             operation.unsubscribe();
           },
-          error: error => { const normalized = normalizeApiError(error); if (normalized.httpStatus === 401 || normalized.httpStatus === 403) denied(); report('failed', normalized.httpStatus === 403 ? 'Download denied.' : normalized.message); operation.unsubscribe(); }
+          error: error => {
+            if (!operationIsCurrent()) { operation.unsubscribe(); return; }
+            const normalized = normalizeApiError(error);
+            if (normalized.httpStatus === 401 || normalized.httpStatus === 403) denied();
+            report('failed', normalized.httpStatus === 403 ? 'Download denied.' : normalized.message);
+            operation.unsubscribe();
+          }
         });
         operation.add(downloadRequest);
       },
-      error: error => { const normalized = normalizeApiError(error); if (normalized.httpStatus === 401 || normalized.httpStatus === 403) denied(); report('failed', normalized.httpStatus === 403 ? 'Download denied.' : normalized.message); operation.unsubscribe(); }
+      error: error => {
+        if (!operationIsCurrent()) { operation.unsubscribe(); return; }
+        const normalized = normalizeApiError(error);
+        if (normalized.httpStatus === 401 || normalized.httpStatus === 403) denied();
+        report('failed', normalized.httpStatus === 403 ? 'Download denied.' : normalized.message);
+        operation.unsubscribe();
+      }
     });
     operation.add(grantRequest);
     operation.add(() => this.attachmentDownloads.delete(attachmentId));
@@ -489,12 +523,14 @@ export class FilesFacade {
   }
 
   private downloadWithGrant(fileObjectId: string, grant: FileDownloadGrantDto, generation: number, operation: Subscription): void {
+    const expectedFileObjectId = fileObjectIdentity(fileObjectId);
     const grantId = stringValue(grant.fileDownloadGrantId);
+    const grantedFileObjectId = fileObjectIdentity(grant.fileObjectId);
     const token = stringValue(grant.token);
-    if (!grantId || !token) {
+    if (!expectedFileObjectId || !grantId || !grantedFileObjectId || grantedFileObjectId !== expectedFileObjectId || !token) {
       this.updateFileDownload(fileObjectId, {
         downloadState: 'failed',
-        downloadMessage: 'Download grant response was incomplete.',
+        downloadMessage: 'Download grant response was incomplete or mismatched.',
       });
       operation.unsubscribe();
       return;
@@ -513,7 +549,10 @@ export class FilesFacade {
             response.headers.get('content-disposition'),
             this.findFile(fileObjectId)?.originalFileName ?? 'download',
           );
-          this.saveBlob(response, fileName);
+          const downloaded = this.saveBlob(response, fileName);
+          if (downloaded) {
+            this.continueWorkingHistory.touchFile(expectedFileObjectId, this.pageWorkspaceId);
+          }
           this.updateFileDownload(fileObjectId, {
             downloadState: 'succeeded',
             downloadMessage: 'Download started.',
@@ -533,10 +572,10 @@ export class FilesFacade {
     operation.add(request);
   }
 
-  private saveBlob(response: HttpResponse<Blob>, fileName: string): void {
+  private saveBlob(response: HttpResponse<Blob>, fileName: string): boolean {
     const blob = response.body;
     if (!blob || typeof URL === 'undefined' || typeof URL.createObjectURL !== 'function') {
-      return;
+      return false;
     }
 
     const objectUrl = URL.createObjectURL(blob);
@@ -548,6 +587,7 @@ export class FilesFacade {
     anchor.click();
     anchor.remove();
     URL.revokeObjectURL(objectUrl);
+    return true;
   }
 
   private setUpload(upload: FileUploadViewModel): void {
@@ -697,3 +737,11 @@ function numberValue(value: unknown): number | undefined { return typeof value =
 function stringValue(value: unknown): string | undefined {
   return typeof value === 'string' && value.length > 0 ? value : undefined;
 }
+
+function fileObjectIdentity(value: unknown): string | undefined {
+  if (typeof value !== 'string') return undefined;
+  const normalized = value.trim().toLowerCase();
+  return fileObjectIdPattern.test(normalized) ? normalized : undefined;
+}
+
+const fileObjectIdPattern = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/u;

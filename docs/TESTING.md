@@ -103,6 +103,34 @@ it cannot prove an outbound-Web or source-material workflow. See
 `docs/verification/p0-task-execution-scope-foundation.md` for the current
 candidate evidence and limitations.
 
+### Issue #330 Workspace Continue working
+
+Focused Angular coverage validates the strict versioned opaque history schema,
+Tenant/user/Workspace partitioning, deduplication and caps, exact Project/File
+reauthorization, three-request hydration concurrency, server-only metadata,
+redaction, status mapping, revoked/mismatched pruning, transient retention with
+no stale rendering, storage failure, realtime authorization clearing, catch-up,
+generation cancellation, and late-response rejection. Integration specs also
+cover Project-detail and parent-Project Task touches plus Files-page and
+Task-attachment download timing.
+
+Download tests prove that neither metadata reads nor grant issuance advance File
+recency; only successful Blob handoff does. Grant FileObject mismatch is
+rejected, raw tokens never enter history or signal state, and grant/Blob success
+or denial after a Workspace switch cannot touch another bucket or invoke an
+obsolete Task-detail retry. The focused built-app Playwright scenario uses
+mocked API responses to check exact Project/File reads, absence of Task reads,
+redacted File presentation, grant-backed download, strict stored fields,
+capability-gated empty actions, axe, and horizontal containment at 320 pixels.
+It proves frontend behavior only, not ASP.NET Core integration.
+
+No schema, migration, API, or provider-backed behavior is introduced. The
+candidate reuses existing Project/File detail and download-grant contracts, so
+conditional PostgreSQL execution and a new real-backend mutation scenario are
+not applicable to the local browser-history behavior. See
+`docs/verification/p0-continue-working.md` for exact candidate results and
+remaining exact-head gates.
+
 ### Issue #410 canonical Task create
 
 The focused backend selection covers strict canonical request binding,
