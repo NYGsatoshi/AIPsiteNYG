@@ -14,6 +14,7 @@ export const DEFAULT_FILES: readonly FileViewModel[] = [
     kind: 'pdf',
     downloadPolicy: 'available',
     capabilities: ['download'],
+    canDelete: true,
     internalStorageKey: 'tenant-a/private/raw/sanitized-project-note.pdf',
     internalPath: '/var/lib/aipsite/private/raw/sanitized-project-note.pdf',
     rawScanMetadata: 'engine=mock;signature=private-debug-value',
@@ -31,6 +32,7 @@ export const DEFAULT_FILES: readonly FileViewModel[] = [
     kind: 'image',
     downloadPolicy: 'available',
     capabilities: ['download'],
+    canDelete: true,
   },
   {
     id: 'attachment-003',
@@ -45,6 +47,7 @@ export const DEFAULT_FILES: readonly FileViewModel[] = [
     kind: 'zip',
     downloadPolicy: 'adminOverrideRequired',
     capabilities: ['adminOverrideBlockedDownload'],
+    canDelete: false,
     safeStatusLabel: 'Admin override requires a backend path.',
   },
   {
@@ -60,6 +63,7 @@ export const DEFAULT_FILES: readonly FileViewModel[] = [
     kind: 'svg',
     downloadPolicy: 'denied',
     capabilities: [],
+    canDelete: false,
     safeStatusLabel: 'Canonical file ID is required.',
   },
   {
@@ -75,6 +79,7 @@ export const DEFAULT_FILES: readonly FileViewModel[] = [
     kind: 'video',
     downloadPolicy: 'denied',
     capabilities: [],
+    canDelete: false,
     safeStatusLabel: 'You do not have permission to download this file.',
   },
 ];

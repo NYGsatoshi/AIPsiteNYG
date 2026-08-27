@@ -153,8 +153,17 @@ public sealed class FileService(
         var safePage = Math.Max(page, 1);
         var safePageSize = Math.Clamp(pageSize, 1, MaxFileListPageSize);
         var result = await files.ListWorkspaceFileObjectsAsync(workspaceId, safePage, safePageSize, cancellationToken);
+        var deletableAttachmentIds = await authorization.GetDeletableWorkspaceAttachmentIdsAsync(
+            userId,
+            workspaceId,
+            result.Items,
+            cancellationToken);
         return Result<PagedResponse<FileListItemResponse>>.Success(new PagedResponse<FileListItemResponse>(
-            result.Items.Select(ToFileListItemResponse).ToList(),
+            result.Items
+                .Select(attachment => ToFileListItemResponse(
+                    attachment,
+                    deletableAttachmentIds.Contains(attachment.Id)))
+                .ToList(),
             result.Page,
             result.PageSize,
             result.TotalCount));
@@ -839,7 +848,7 @@ public sealed class FileService(
             fileObject.DeletedAt);
     }
 
-    private static FileListItemResponse ToFileListItemResponse(Attachment attachment)
+    private static FileListItemResponse ToFileListItemResponse(Attachment attachment, bool canDelete)
     {
         var fileObject = attachment.FileObject ?? throw new InvalidOperationException("Listed attachment must include a file object.");
         return new FileListItemResponse(
@@ -855,6 +864,7 @@ public sealed class FileService(
             fileObject.UploadedByUser?.DisplayName ?? attachment.UploadedByUser?.DisplayName,
             fileObject.CreatedAt,
             fileObject.UpdatedAt,
-            fileObject.DeletedAt ?? attachment.DeletedAt);
+            fileObject.DeletedAt ?? attachment.DeletedAt,
+            canDelete);
     }
 }

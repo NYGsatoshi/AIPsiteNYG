@@ -13,5 +13,11 @@ public interface IFileAuthorizationService
 
     Task<bool> CanDownloadAttachment(Guid userId, Attachment attachment, CancellationToken cancellationToken = default);
 
+    Task<IReadOnlySet<Guid>> GetDeletableWorkspaceAttachmentIdsAsync(
+        Guid userId,
+        Guid workspaceId,
+        IReadOnlyCollection<Attachment> attachments,
+        CancellationToken cancellationToken = default);
+
     Task<bool> CanDeleteAttachment(Guid userId, Attachment attachment, CancellationToken cancellationToken = default);
 }

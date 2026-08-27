@@ -28,6 +28,7 @@ const backendFile = {
   uploadedByDisplayName: 'Fixture User',
   createdAt: '2026-07-08T00:00:00Z',
   updatedAt: '2026-07-09T00:00:00Z',
+  canDelete: true,
 };
 
 const renderMockFilesPage = async (page: FilesPageViewModel): Promise<ComponentFixture<FilesPageComponent>> => {
@@ -189,6 +190,80 @@ describe('FilesPageComponent', () => {
     expect(createObjectUrlSpy).toHaveBeenCalled();
     expect(revokeObjectUrlSpy).toHaveBeenCalledWith('blob:fixture');
     expect(textContent(fixture)).toContain('Download started.');
+  });
+
+  it('switches to authorized contextual actions and confirms the named delete target', async () => {
+    const { fixture, http } = await renderLiveFilesPage([backendFile]);
+    const component = fixture.componentInstance;
+    const file = component.page().recentFiles[0];
+    if (!file) {
+      throw new Error('Expected a listed file.');
+    }
+
+    expect((fixture.nativeElement as HTMLElement).querySelector('[data-testid="files-normal-toolbar"]')).not.toBeNull();
+    expect((fixture.nativeElement as HTMLElement).querySelector('[data-testid="files-selected-delete"]')).toBeNull();
+
+    component.handleSelectionChanged({ rows: [file] });
+    fixture.detectChanges();
+
+    const host = fixture.nativeElement as HTMLElement;
+    expect(host.querySelector('[data-testid="files-normal-toolbar"]')).toBeNull();
+    expect(host.querySelector('[data-testid="files-selected-download"]')).not.toBeNull();
+    const deleteButton = host.querySelector('[data-testid="files-selected-delete"]') as HTMLButtonElement;
+    expect(deleteButton).not.toBeNull();
+
+    deleteButton.click();
+    fixture.detectChanges();
+    expect(textContent(fixture)).toContain('Delete note.txt?');
+
+    (host.querySelector('.aip-dialog__confirm') as HTMLButtonElement).click();
+    fixture.detectChanges();
+    const deletion = http.expectOne('/api/files/file-object-1');
+    expect(deletion.request.method).toBe('DELETE');
+    expect(deletion.request.withCredentials).toBe(true);
+    deletion.flush(null);
+    flushFileList(http, []);
+    fixture.detectChanges();
+
+    expect(textContent(fixture)).toContain('The file was deleted.');
+    expect(host.querySelector('[data-testid="files-normal-toolbar"]')).not.toBeNull();
+  });
+
+  it('keeps a canonically redacted display label redacted in destructive confirmation', async () => {
+    const { fixture } = await renderLiveFilesPage([
+      { ...backendFile, originalFileName: '[redacted:file]' },
+    ]);
+    const component = fixture.componentInstance;
+    const file = component.page().recentFiles[0];
+    if (!file) {
+      throw new Error('Expected a listed file.');
+    }
+
+    component.handleSelectionChanged({ rows: [file] });
+    fixture.detectChanges();
+
+    const host = fixture.nativeElement as HTMLElement;
+    (host.querySelector('[data-testid="files-selected-delete"]') as HTMLButtonElement).click();
+    fixture.detectChanges();
+
+    expect(textContent(fixture)).toContain('Delete [redacted:file]?');
+    expect(textContent(fixture)).not.toContain('note.txt');
+  });
+
+  it('does not render a delete control when the server capability is absent', async () => {
+    const { fixture } = await renderLiveFilesPage([{ ...backendFile, canDelete: undefined }]);
+    const component = fixture.componentInstance;
+    const file = component.page().recentFiles[0];
+    if (!file) {
+      throw new Error('Expected a listed file.');
+    }
+
+    component.handleSelectionChanged({ rows: [file] });
+    fixture.detectChanges();
+
+    const host = fixture.nativeElement as HTMLElement;
+    expect(host.querySelector('[data-testid="files-selected-delete"]')).toBeNull();
+    expect(host.querySelector('[data-testid="files-selected-download"]')).not.toBeNull();
   });
 
   it('shows a safe denied state when download grant issuance is denied', async () => {

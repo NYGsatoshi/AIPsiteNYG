@@ -12,7 +12,9 @@ import { FileViewModel } from '../files.types';
 })
 export class FileRowComponent {
   @Input({ required: true }) file!: FileViewModel;
+  @Input() selected = false;
   @Output() readonly downloadRequested = new EventEmitter<string>();
+  @Output() readonly selectionChanged = new EventEmitter<{ file: FileViewModel; selected: boolean }>();
   @Output() readonly adminOverrideRequested = new EventEmitter<{ fileId: string; reason: string }>();
 
   readonly auditReason = signal('');
@@ -58,6 +60,10 @@ export class FileRowComponent {
     if (this.canDownload() && this.file.canonicalFileId) {
       this.downloadRequested.emit(this.file.canonicalFileId);
     }
+  }
+
+  updateSelection(selected: boolean): void {
+    this.selectionChanged.emit({ file: this.file, selected });
   }
 
   requestAdminOverride(): void {

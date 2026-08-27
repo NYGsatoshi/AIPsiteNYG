@@ -26,8 +26,22 @@ public sealed class FileWorkspaceWorkflowTests
         Assert.Equal("workspace-note.txt", item.OriginalFileName);
         Assert.Equal("Skipped", item.ScanStatus);
         Assert.Equal("Fixture User", item.UploadedByDisplayName);
+        Assert.True(item.CanDelete);
         Assert.Single(fixture.Files.FileObjects);
         Assert.Single(fixture.Files.Attachments);
+    }
+
+    [Fact]
+    public async Task WorkspaceFileListProjectsServerAuthoritativeDeleteCapability()
+    {
+        var fixture = new Fixture();
+        await fixture.UploadTextAsync("workspace-note.txt", "hello");
+        fixture.Authorization.CanDeleteResult = false;
+
+        var list = await fixture.Service.ListFileObjectsAsync(fixture.WorkspaceId, 1, 20);
+
+        Assert.True(list.IsSuccess);
+        Assert.False(Assert.Single(list.Value!.Items).CanDelete);
     }
 
     [Fact]
@@ -195,6 +209,7 @@ public sealed class FileWorkspaceWorkflowTests
     {
         public bool CanUploadResult { get; set; } = true;
         public bool CanViewWorkspaceFilesResult { get; set; } = true;
+        public bool CanDeleteResult { get; set; } = true;
 
         public Task<bool> CanUploadAttachment(Guid userId, AttachmentOwnerType ownerType, Guid ownerId, CancellationToken cancellationToken = default) =>
             Task.FromResult(CanUploadResult);
@@ -208,8 +223,17 @@ public sealed class FileWorkspaceWorkflowTests
         public Task<bool> CanDownloadAttachment(Guid userId, Attachment attachment, CancellationToken cancellationToken = default) =>
             Task.FromResult(true);
 
+        public Task<IReadOnlySet<Guid>> GetDeletableWorkspaceAttachmentIdsAsync(
+            Guid userId,
+            Guid workspaceId,
+            IReadOnlyCollection<Attachment> attachments,
+            CancellationToken cancellationToken = default) =>
+            Task.FromResult<IReadOnlySet<Guid>>(CanDeleteResult
+                ? attachments.Select(attachment => attachment.Id).ToHashSet()
+                : new HashSet<Guid>());
+
         public Task<bool> CanDeleteAttachment(Guid userId, Attachment attachment, CancellationToken cancellationToken = default) =>
-            Task.FromResult(true);
+            Task.FromResult(CanDeleteResult);
     }
 
     private sealed class FakeStorage : IFileStorageService

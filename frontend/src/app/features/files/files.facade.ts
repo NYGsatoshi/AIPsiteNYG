@@ -1,6 +1,6 @@
 import { HttpClient, HttpEventType, HttpResponse } from '@angular/common/http';
 import { Injectable, InjectionToken, inject, signal } from '@angular/core';
-import { finalize, Subscription } from 'rxjs';
+import { catchError, concatMap, finalize, from, map, of, Subscription, toArray } from 'rxjs';
 
 import { normalizeApiError } from '../../core/api/api-error.adapter';
 import { ActiveWorkspaceFacade } from '../../core/workspace/active-workspace.facade';
@@ -14,7 +14,15 @@ import {
   PagedResponseDto,
   safeFileNameFromHeader,
 } from './files.api';
-import { FileDownloadState, FilesPageViewModel, FileUploadQueueItem, FileUploadViewModel, FileViewModel, TaskFilePickerState } from './files.types';
+import {
+  FileDeleteViewModel,
+  FileDownloadState,
+  FilesPageViewModel,
+  FileUploadQueueItem,
+  FileUploadViewModel,
+  FileViewModel,
+  TaskFilePickerState,
+} from './files.types';
 
 export const AIP_FILES_PAGE_MOCK = new InjectionToken<FilesPageViewModel>('AIP_FILES_PAGE_MOCK');
 
@@ -34,6 +42,8 @@ export class FilesFacade {
   private readonly realtime = inject(RealtimeFacade);
   private readonly mockPage = inject(AIP_FILES_PAGE_MOCK, { optional: true });
   private readonly pageState = signal<FilesPageViewModel>(this.mockPage ?? this.emptyPage('Loading files from backend.'));
+  private readonly deleteStateSignal = signal<FileDeleteViewModel>(this.emptyDeleteState());
+  private readonly inventoryRevisionSignal = signal(0);
   /** Task detail owns this independent query; it must never alter Files-page workspace state. */
   private readonly pickerState = signal<TaskFilePickerState>(this.emptyPickerState());
   private pageWorkspaceId: string | null = null;
@@ -46,10 +56,14 @@ export class FilesFacade {
   private readonly pageRequests = new Set<Subscription>();
   private readonly loadingWorkspaceIds = new Set<string>();
   private readonly pendingUploads = new Map<string, { file: File; subscription: Subscription }>();
+  private deleteRequest: Subscription | null = null;
   private refreshAfterMutation = false;
   private refreshTimer: ReturnType<typeof setTimeout> | null = null;
 
   readonly page = this.pageState.asReadonly();
+  readonly deleteState = this.deleteStateSignal.asReadonly();
+  /** Changes only when the server inventory is replaced or protected state is cleared. */
+  readonly inventoryRevision = this.inventoryRevisionSignal.asReadonly();
   readonly pickerStateForTask = this.pickerState.asReadonly();
   /** Compatibility projection for existing consumers; Task detail must consume pickerStateForTask. */
   readonly pickerFiles = () => this.pickerState().files;
@@ -67,14 +81,17 @@ export class FilesFacade {
       return;
     }
     if (!workspaceId) {
+      this.cancelDeleteOperation();
       this.invalidatePageRequests();
       this.pageWorkspaceId = null;
       this.pageState.set(this.emptyPage('Select a workspace before uploading files.', false));
+      this.inventoryRevisionSignal.update((revision) => revision + 1);
       return;
     }
     if (this.pageWorkspaceId === workspaceId) {
       return;
     }
+    this.cancelDeleteOperation();
     this.invalidatePageRequests();
     this.pageWorkspaceId = workspaceId;
     this.loadFiles(workspaceId, 1, FILES_PAGE_SIZE);
@@ -218,6 +235,101 @@ export class FilesFacade {
     operation.add(() => this.fileDownloads.delete(fileObjectId));
   }
 
+  /**
+   * Uses the existing single-file mutation contract. Requests are intentionally
+   * serial and independent; callers must never present this as an atomic batch.
+   */
+  deleteFiles(files: readonly FileViewModel[], onComplete?: () => void): void {
+    if (this.mockPage || this.deleteRequest || !this.pageWorkspaceId || files.length === 0) {
+      return;
+    }
+
+    const uniqueFiles = [...new Map(files.map((file) => [file.canonicalFileId, file])).values()]
+      .filter((file): file is FileViewModel & { canonicalFileId: string } =>
+        typeof file.canonicalFileId === 'string' && file.canonicalFileId.length > 0);
+    if (uniqueFiles.length !== files.length || uniqueFiles.some((file) => file.canDelete !== true)) {
+      this.deleteStateSignal.set({
+        state: 'failed',
+        message: 'The selected files are not authorized for deletion.',
+        succeededCount: 0,
+        failedCount: files.length,
+      });
+      return;
+    }
+
+    const workspaceId = this.pageWorkspaceId;
+    const generation = this.pageGeneration;
+    this.deleteStateSignal.set({
+      state: 'pending',
+      message: uniqueFiles.length === 1
+        ? 'Deleting the selected file.'
+        : `Deleting ${uniqueFiles.length} files one at a time.`,
+      succeededCount: 0,
+      failedCount: 0,
+    });
+
+    const request = from(uniqueFiles).pipe(
+      concatMap((file) => this.http
+        .delete<void>(`/api/files/${file.canonicalFileId}`, { withCredentials: true })
+        .pipe(
+          map(() => ({ file, succeeded: true as const })),
+          catchError(() => of({ file, succeeded: false as const })),
+        )),
+      toArray(),
+    ).subscribe((results) => {
+      if (generation !== this.pageGeneration || workspaceId !== this.pageWorkspaceId) {
+        return;
+      }
+
+      const succeeded = results.filter((result) => result.succeeded);
+      const failedCount = results.length - succeeded.length;
+      const succeededIds = new Set(succeeded.map((result) => result.file.canonicalFileId));
+      if (succeededIds.size > 0) {
+        this.pageState.update((page) => ({
+          ...page,
+          recentFiles: page.recentFiles.filter((file) => !file.canonicalFileId || !succeededIds.has(file.canonicalFileId)),
+          pickerFiles: page.pickerFiles.filter((file) => !file.canonicalFileId || !succeededIds.has(file.canonicalFileId)),
+          totalCount: Math.max(0, page.totalCount - succeededIds.size),
+        }));
+      }
+
+      if (failedCount === 0) {
+        this.deleteStateSignal.set({
+          state: 'succeeded',
+          message: results.length === 1
+            ? 'The file was deleted.'
+            : `${results.length} files were deleted one at a time.`,
+          succeededCount: results.length,
+          failedCount: 0,
+        });
+      } else if (succeeded.length > 0) {
+        this.deleteStateSignal.set({
+          state: 'partial',
+          message: `${succeeded.length} of ${results.length} files were deleted. ${failedCount} could not be deleted. Each deletion was processed separately; this was not an atomic batch.`,
+          succeededCount: succeeded.length,
+          failedCount,
+        });
+      } else {
+        this.deleteStateSignal.set({
+          state: 'failed',
+          message: 'No files were deleted. The server did not authorize or complete any selected deletion.',
+          succeededCount: 0,
+          failedCount,
+        });
+      }
+
+      onComplete?.();
+      const current = this.pageState();
+      this.loadFiles(workspaceId, current.page, current.pageSize);
+    });
+    this.deleteRequest = request;
+    request.add(() => {
+      if (this.deleteRequest === request) {
+        this.deleteRequest = null;
+      }
+    });
+  }
+
   loadPickerFilesForWorkspace(workspaceId: string): void {
     if (!workspaceId || this.mockPage) { this.clearPickerFiles(); return; }
     if (this.pickerWorkspaceId === workspaceId && (this.pickerRequest || this.pickerState().status !== 'idle')) return;
@@ -339,7 +451,7 @@ export class FilesFacade {
           const totalCount = numberValue(response.totalCount) ?? files.length;
           const totalPages = Math.max(1, Math.ceil(totalCount / Math.max(1, responsePageSize)));
 
-          if (files.length === 0 && totalCount > 0 && responsePage > totalPages) {
+          if (files.length === 0 && responsePage > totalPages) {
             this.loadFiles(workspaceId, totalPages, responsePageSize);
             return;
           }
@@ -355,6 +467,7 @@ export class FilesFacade {
             totalCount,
             hasMore: response.hasMore === true || responsePage * responsePageSize < totalCount,
           });
+          this.inventoryRevisionSignal.update((revision) => revision + 1);
         },
         error: (error: unknown) => {
           this.loadingWorkspaceIds.delete(workspaceId);
@@ -369,6 +482,7 @@ export class FilesFacade {
             page: safePage,
             pageSize: safePageSize,
           });
+          this.inventoryRevisionSignal.update((revision) => revision + 1);
         },
       });
     this.trackPageRequest(request);
@@ -529,6 +643,16 @@ export class FilesFacade {
     return { status: 'idle', workspaceId, files: [], page: 1, pageSize: 20, totalCount: 0, hasMore: false };
   }
 
+  private emptyDeleteState(): FileDeleteViewModel {
+    return { state: 'idle', succeededCount: 0, failedCount: 0 };
+  }
+
+  private cancelDeleteOperation(): void {
+    this.deleteRequest?.unsubscribe();
+    this.deleteRequest = null;
+    this.deleteStateSignal.set(this.emptyDeleteState());
+  }
+
   private trackPageRequest(request: Subscription): void {
     this.pageRequests.add(request);
     request.add(() => this.pageRequests.delete(request));
@@ -548,6 +672,7 @@ export class FilesFacade {
   }
 
   private clearProtectedState(): void {
+    this.cancelDeleteOperation();
     this.invalidatePageRequests();
     this.pageWorkspaceId = null;
     this.clearPickerFiles();
@@ -562,6 +687,7 @@ export class FilesFacade {
     }
     this.refreshAfterMutation = false;
     this.pageState.set(this.emptyPage('Select a workspace before uploading files.', false));
+    this.inventoryRevisionSignal.update((revision) => revision + 1);
   }
 
 }

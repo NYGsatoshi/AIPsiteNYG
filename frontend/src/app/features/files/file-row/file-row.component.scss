@@ -15,6 +15,23 @@
   color: var(--aip-color-text-primary);
 }
 
+.file-row__selection {
+  grid-column: 1 / -1;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  width: fit-content;
+  color: var(--aip-color-text-secondary);
+  font-size: 0.82rem;
+  font-weight: 800;
+  cursor: pointer;
+}
+
+.file-row__selection input {
+  width: 18px;
+  height: 18px;
+}
+
 .file-row__main,
 .file-row__actions,
 .file-row__override {

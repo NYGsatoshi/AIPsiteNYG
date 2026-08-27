@@ -1,4 +1,14 @@
 <article class="file-row" data-testid="file-row">
+  <label class="file-row__selection">
+    <input
+      type="checkbox"
+      [checked]="selected"
+      [attr.aria-label]="'Select ' + file.originalFileName"
+      (change)="updateSelection($any($event.target).checked)"
+      data-testid="mobile-file-selection"
+    />
+    <span>Select file</span>
+  </label>
   <div class="file-row__main">
     <div class="file-row__title-line">
       <h3 data-testid="file-name">{{ file.originalFileName }}</h3>

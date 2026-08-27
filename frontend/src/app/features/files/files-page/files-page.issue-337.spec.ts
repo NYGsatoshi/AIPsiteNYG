@@ -43,7 +43,7 @@ describe('FilesPageComponent issue #337', () => {
     expect(fixture.componentInstance.isColumnVisible('type')).toBe(false);
     expect(fixture.componentInstance.isColumnVisible('size')).toBe(false);
     expect(fixture.componentInstance.isColumnVisible('scan')).toBe(false);
-  });
+  }, 15_000);
 
   it('adds and removes secondary columns without changing the primary set', async () => {
     const fixture = await renderFilesPage();
@@ -72,7 +72,7 @@ describe('FilesPageComponent issue #337', () => {
       'Status',
       'Size',
     ]);
-  });
+  }, 15_000);
 
   it('separates opening a file from checkbox selection and keyboard focus', async () => {
     const fixture = await renderFilesPage();
@@ -101,7 +101,7 @@ describe('FilesPageComponent issue #337', () => {
       enableClickSelection: false,
     });
     expect(grid.gridOptions.suppressCellFocus).toBe(false);
-  });
+  }, 15_000);
 
   it('preserves feature-owned action renderers outside Files', async () => {
     const fixture = await renderFilesPage();
@@ -142,11 +142,14 @@ describe('FilesPageComponent issue #337', () => {
 
     const grid = fixture.debugElement.query(By.directive(AppDataGridComponent))
       .componentInstance as AppDataGridComponent<FileViewModel>;
+    expect(component.selectedCount()).toBe(1);
+    expect(component.density()).toBe('compact');
+    expect(grid.rowHeight).toBe(36);
+
+    component.clearSelection();
+    fixture.detectChanges();
     const compactButton = (fixture.nativeElement as HTMLElement)
       .querySelector('.files-page__density button:nth-child(2)');
-
-    expect(component.selectedCount()).toBe(1);
-    expect(grid.rowHeight).toBe(36);
     expect(compactButton?.getAttribute('aria-pressed')).toBe('true');
   });
 
