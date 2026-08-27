@@ -370,6 +370,8 @@ public sealed class FileDownloadGrantBoundaryTests
         public Task<bool> CanViewWorkspaceFiles(Guid userId, Guid workspaceId, CancellationToken cancellationToken = default) => Task.FromResult(CanDownload);
         public Task<bool> CanViewAttachment(Guid userId, Attachment attachment, CancellationToken cancellationToken = default) => Task.FromResult(CanDownload);
         public Task<bool> CanDownloadAttachment(Guid userId, Attachment attachment, CancellationToken cancellationToken = default) => Task.FromResult(CanDownload);
+        public Task<IReadOnlySet<Guid>> GetDeletableWorkspaceAttachmentIdsAsync(Guid userId, Guid workspaceId, IReadOnlyCollection<Attachment> attachments, CancellationToken cancellationToken = default) =>
+            Task.FromResult<IReadOnlySet<Guid>>(CanDownload ? attachments.Select(attachment => attachment.Id).ToHashSet() : new HashSet<Guid>());
         public Task<bool> CanDeleteAttachment(Guid userId, Attachment attachment, CancellationToken cancellationToken = default) => Task.FromResult(CanDownload);
     }
 

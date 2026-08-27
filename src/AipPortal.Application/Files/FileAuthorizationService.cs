@@ -84,6 +84,33 @@ public sealed class FileAuthorizationService(
         return CanViewAttachment(userId, attachment, cancellationToken);
     }
 
+    public async Task<IReadOnlySet<Guid>> GetDeletableWorkspaceAttachmentIdsAsync(
+        Guid userId,
+        Guid workspaceId,
+        IReadOnlyCollection<Attachment> attachments,
+        CancellationToken cancellationToken = default)
+    {
+        if (workspaceId == Guid.Empty || attachments.Count == 0 ||
+            !await workspaces.CanContributeWorkspace(userId, workspaceId, cancellationToken))
+        {
+            return new HashSet<Guid>();
+        }
+
+        // The Workspace inventory contains only Workspace-owned attachments.
+        // Evaluate the shared current-owner boundary once, then preserve the
+        // per-record identity rule used by CanDeleteAttachment. The mutation
+        // command still performs its own complete reauthorization.
+        return attachments
+            .Where(attachment =>
+                !attachment.DeletedAt.HasValue &&
+                attachment.WorkspaceId == workspaceId &&
+                attachment.OwnerType == AttachmentOwnerType.Workspace &&
+                attachment.OwnerId == workspaceId &&
+                (attachment.UploadedByUserId == userId || attachment.OwnerUserId == userId))
+            .Select(attachment => attachment.Id)
+            .ToHashSet();
+    }
+
     public async Task<bool> CanDeleteAttachment(Guid userId, Attachment attachment, CancellationToken cancellationToken = default)
     {
         if (attachment.DeletedAt.HasValue || !attachment.OwnerType.HasValue || !attachment.OwnerId.HasValue)

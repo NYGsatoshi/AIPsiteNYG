@@ -22,6 +22,7 @@ export interface FileListItemDto {
   readonly createdAt?: unknown;
   readonly updatedAt?: unknown;
   readonly deletedAt?: unknown;
+  readonly canDelete?: unknown;
 }
 
 export interface AttachmentUploadResponseDto {
@@ -60,6 +61,7 @@ export function mapFileListItem(dto: FileListItemDto): FileViewModel {
     kind: fileKind(originalFileName, contentType),
     downloadPolicy: canDownload ? 'available' : 'denied',
     capabilities: canDownload ? ['download'] : [],
+    canDelete: active && !!canonicalFileId && dto.canDelete === true,
     downloadState: 'idle',
   };
 }

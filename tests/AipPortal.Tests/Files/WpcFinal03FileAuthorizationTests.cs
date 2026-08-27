@@ -2,6 +2,7 @@ using AipPortal.Application.Common;
 using AipPortal.Application.Common.Interfaces;
 using AipPortal.Application.Files;
 using AipPortal.Application.Projects;
+using AipPortal.Application.Workspaces;
 using AipPortal.Domain.Entities;
 using AipPortal.Domain.Enums;
 
@@ -106,6 +107,55 @@ public sealed class WpcFinal03FileAuthorizationTests
         Assert.Equal(1, projectAuthorization.ManageCalls);
     }
 
+    [Fact]
+    public async Task WorkspaceListDeleteCapabilitiesEvaluateContributionOnceAndPreserveOwnerIdentity()
+    {
+        var userId = Guid.NewGuid();
+        var workspaceId = Guid.NewGuid();
+        var workspaceAuthorization = new WorkspaceAuthorizationStub { CanContributeResult = true };
+        var service = new FileAuthorizationService(
+            new FileRepositoryStub(new FileOwnerContext(workspaceId)),
+            null!,
+            null!,
+            null!,
+            workspaceAuthorization);
+        var owned = NewWorkspaceAttachment(workspaceId, userId, Guid.NewGuid());
+        var ownedByTarget = NewWorkspaceAttachment(workspaceId, Guid.NewGuid(), userId);
+        var otherUsers = NewWorkspaceAttachment(workspaceId, Guid.NewGuid(), Guid.NewGuid());
+        var wrongOwner = NewWorkspaceAttachment(workspaceId, userId, Guid.NewGuid());
+        wrongOwner.OwnerId = Guid.NewGuid();
+
+        var allowedIds = await service.GetDeletableWorkspaceAttachmentIdsAsync(
+            userId,
+            workspaceId,
+            [owned, ownedByTarget, otherUsers, wrongOwner]);
+
+        Assert.Equal(1, workspaceAuthorization.ContributeCalls);
+        Assert.True(allowedIds.SetEquals([owned.Id, ownedByTarget.Id]));
+    }
+
+    [Fact]
+    public async Task WorkspaceListDeleteCapabilitiesFailClosedWithoutCurrentContribution()
+    {
+        var userId = Guid.NewGuid();
+        var workspaceId = Guid.NewGuid();
+        var workspaceAuthorization = new WorkspaceAuthorizationStub { CanContributeResult = false };
+        var service = new FileAuthorizationService(
+            new FileRepositoryStub(new FileOwnerContext(workspaceId)),
+            null!,
+            null!,
+            null!,
+            workspaceAuthorization);
+
+        var allowedIds = await service.GetDeletableWorkspaceAttachmentIdsAsync(
+            userId,
+            workspaceId,
+            [NewWorkspaceAttachment(workspaceId, userId, userId)]);
+
+        Assert.Empty(allowedIds);
+        Assert.Equal(1, workspaceAuthorization.ContributeCalls);
+    }
+
     private static FileAuthorizationService CreateService(
         Guid projectId,
         IProjectAuthorizationService projectAuthorization) =>
@@ -133,6 +183,26 @@ public sealed class WpcFinal03FileAuthorizationTests
         SizeBytes = 8,
         StorageProvider = "test",
         StorageKey = "internal/evidence.txt",
+        ScanStatus = FileScanStatus.Clean
+    };
+
+    private static Attachment NewWorkspaceAttachment(Guid workspaceId, Guid uploadedByUserId, Guid ownerUserId) => new()
+    {
+        TenantId = Guid.NewGuid(),
+        FileObjectId = Guid.NewGuid(),
+        WorkspaceId = workspaceId,
+        OwnerType = AttachmentOwnerType.Workspace,
+        OwnerId = workspaceId,
+        OwnerUserId = ownerUserId,
+        UploadedByUserId = uploadedByUserId,
+        FileName = "workspace-file.txt",
+        StoredFileName = "stored.txt",
+        FilePath = "internal/workspace-file.txt",
+        ContentType = "text/plain",
+        Extension = ".txt",
+        SizeBytes = 8,
+        StorageProvider = "test",
+        StorageKey = "internal/workspace-file.txt",
         ScanStatus = FileScanStatus.Clean
     };
 
@@ -196,5 +266,26 @@ public sealed class WpcFinal03FileAuthorizationTests
 
         public Task AddAttachmentAsync(Attachment attachment, CancellationToken cancellationToken = default) =>
             throw new NotSupportedException();
+    }
+
+    private sealed class WorkspaceAuthorizationStub : IWorkspaceAuthorizationService
+    {
+        public bool CanContributeResult { get; init; }
+        public int ContributeCalls { get; private set; }
+
+        public Task<bool> CanViewWorkspace(Guid userId, Guid workspaceId, CancellationToken cancellationToken = default) =>
+            Task.FromResult(false);
+
+        public Task<bool> CanContributeWorkspace(Guid userId, Guid workspaceId, CancellationToken cancellationToken = default)
+        {
+            ContributeCalls++;
+            return Task.FromResult(CanContributeResult);
+        }
+
+        public Task<bool> CanManageWorkspace(Guid userId, Guid workspaceId, CancellationToken cancellationToken = default) =>
+            Task.FromResult(false);
+
+        public Task<bool> CanCreateWorkspace(Guid userId, Guid tenantId, CancellationToken cancellationToken = default) =>
+            Task.FromResult(false);
     }
 }

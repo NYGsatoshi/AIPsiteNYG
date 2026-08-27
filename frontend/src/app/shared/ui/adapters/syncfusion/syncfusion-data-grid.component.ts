@@ -162,6 +162,10 @@ export class SyncfusionDataGridComponent<TData extends object> implements OnChan
     this.selectionChanged.emit({ rows });
   }
 
+  clearSelection(): void {
+    this.grid?.clearSelection();
+  }
+
   handleActionComplete(event: SyncfusionGridEvent<TData>): void {
     if (event.requestType === 'paging') {
       this.pageChanged.emit({ page: event.currentPage ?? this.page, pageSize: this.boundedPageSize });

@@ -109,7 +109,58 @@ describe('FilesFacade paging query state', () => {
     });
   });
 
-  function file(id: string) {
+  it('deletes selected files serially and reports a non-atomic partial outcome', () => {
+    facade.loadPageFilesForWorkspace('workspace-a');
+    http.expectOne(request => request.url === '/api/files' && request.method === 'GET').flush({
+      items: [file('file-1', true), file('file-2', true)],
+      page: 1,
+      pageSize: 50,
+      totalCount: 2,
+      hasMore: false,
+    });
+
+    facade.deleteFiles(facade.page().recentFiles);
+
+    const first = http.expectOne('/api/files/object-file-1');
+    expect(first.request.method).toBe('DELETE');
+    expect(first.request.withCredentials).toBe(true);
+    http.expectNone('/api/files/object-file-2');
+    first.flush(null);
+
+    const second = http.expectOne('/api/files/object-file-2');
+    expect(second.request.method).toBe('DELETE');
+    second.flush({ message: 'denied' }, { status: 403, statusText: 'Forbidden' });
+
+    expect(facade.deleteState()).toMatchObject({ state: 'partial', succeededCount: 1, failedCount: 1 });
+    expect(facade.deleteState().message).toContain('not an atomic batch');
+    expect(facade.page().recentFiles.map((item) => item.id)).toEqual(['file-2']);
+
+    http.expectOne(request => request.url === '/api/files' && request.method === 'GET').flush({
+      items: [file('file-2', true)],
+      page: 1,
+      pageSize: 50,
+      totalCount: 1,
+      hasMore: false,
+    });
+  });
+
+  it('does not issue a delete when the projected capability is false', () => {
+    facade.loadPageFilesForWorkspace('workspace-a');
+    http.expectOne(request => request.url === '/api/files' && request.method === 'GET').flush({
+      items: [file('file-1', false)],
+      page: 1,
+      pageSize: 50,
+      totalCount: 1,
+      hasMore: false,
+    });
+
+    facade.deleteFiles(facade.page().recentFiles);
+
+    expect(facade.deleteState()).toMatchObject({ state: 'failed', succeededCount: 0, failedCount: 1 });
+    http.expectNone(request => request.method === 'DELETE');
+  });
+
+  function file(id: string, canDelete = false) {
     return {
       id,
       fileObjectId: `object-${id}`,
@@ -121,6 +172,7 @@ describe('FilesFacade paging query state', () => {
       uploadedByDisplayName: 'Tester',
       createdAt: '2026-07-24T00:00:00Z',
       updatedAt: '2026-07-25T00:00:00Z',
+      canDelete,
     };
   }
 });

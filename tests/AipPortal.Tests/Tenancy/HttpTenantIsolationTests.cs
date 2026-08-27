@@ -904,6 +904,114 @@ public sealed class HttpTenantIsolationTests
     }
 
     [Fact]
+    [Trait("Scope", "Issue345")]
+    public async Task WorkspaceFileDeleteCapabilityAndDirectMutationRemainOwnerScoped()
+    {
+        await using var app = await HttpTenantIsolationTestApp.CreateAsync();
+        var data = app.Data;
+        var privateName = $"owner-only-{Guid.NewGuid():N}.txt";
+        Guid fileObjectId;
+
+        using (var upload = new MultipartFormDataContent
+               {
+                   { new StringContent(AttachmentOwnerType.Workspace.ToString()), "OwnerType" },
+                   { new StringContent(data.WorkspaceB.Id.ToString("D")), "OwnerId" }
+               })
+        {
+            var file = new ByteArrayContent("file"u8.ToArray());
+            file.Headers.ContentType = new System.Net.Http.Headers.MediaTypeHeaderValue("text/plain");
+            upload.Add(file, "File", privateName);
+            using var response = await app.SendAsync(
+                data.TenantBOwner,
+                data.TenantB.Slug,
+                "/api/files",
+                HttpMethod.Post,
+                upload);
+            Assert.Equal(HttpStatusCode.OK, response.StatusCode);
+            using var document = JsonDocument.Parse(await response.Content.ReadAsStringAsync());
+            fileObjectId = document.RootElement.GetProperty("fileObjectId").GetGuid();
+        }
+
+        using (var ownerList = await app.SendAsync(
+                   data.TenantBOwner,
+                   data.TenantB.Slug,
+                   $"/api/files?workspaceId={data.WorkspaceB.Id:D}&page=1&pageSize=20"))
+        using (var document = JsonDocument.Parse(await ownerList.Content.ReadAsStringAsync()))
+        {
+            Assert.Equal(HttpStatusCode.OK, ownerList.StatusCode);
+            var item = Assert.Single(
+                document.RootElement.GetProperty("items").EnumerateArray(),
+                candidate => candidate.GetProperty("fileObjectId").GetGuid() == fileObjectId);
+            Assert.True(item.GetProperty("canDelete").GetBoolean());
+            Assert.Equal("[redacted:file]", item.GetProperty("originalFileName").GetString());
+            Assert.DoesNotContain(privateName, document.RootElement.GetRawText(), StringComparison.Ordinal);
+        }
+
+        using (var otherContributorList = await app.SendAsync(
+                   data.CrossTenantUser,
+                   data.TenantB.Slug,
+                   $"/api/files?workspaceId={data.WorkspaceB.Id:D}&page=1&pageSize=20"))
+        using (var document = JsonDocument.Parse(await otherContributorList.Content.ReadAsStringAsync()))
+        {
+            Assert.Equal(HttpStatusCode.OK, otherContributorList.StatusCode);
+            var item = Assert.Single(
+                document.RootElement.GetProperty("items").EnumerateArray(),
+                candidate => candidate.GetProperty("fileObjectId").GetGuid() == fileObjectId);
+            Assert.False(item.GetProperty("canDelete").GetBoolean());
+            Assert.Equal("[redacted:file]", item.GetProperty("originalFileName").GetString());
+            Assert.DoesNotContain(privateName, document.RootElement.GetRawText(), StringComparison.Ordinal);
+        }
+
+        using (var denied = await app.SendAsync(
+                   data.CrossTenantUser,
+                   data.TenantB.Slug,
+                   $"/api/files/{fileObjectId:D}",
+                   HttpMethod.Delete))
+        {
+            var body = await denied.Content.ReadAsStringAsync();
+            Assert.Equal(HttpStatusCode.BadRequest, denied.StatusCode);
+            Assert.DoesNotContain(privateName, body, StringComparison.Ordinal);
+        }
+
+        using (var crossWorkspace = await app.SendAsync(
+                   data.TenantBOwner,
+                   data.TenantB.Slug,
+                   $"/api/files/{data.FileA.Id:D}",
+                   HttpMethod.Delete))
+        {
+            var body = await crossWorkspace.Content.ReadAsStringAsync();
+            Assert.Equal(HttpStatusCode.BadRequest, crossWorkspace.StatusCode);
+            Assert.DoesNotContain(data.FileA.OriginalFileName, body, StringComparison.Ordinal);
+            Assert.DoesNotContain(data.FileA.StorageKey, body, StringComparison.Ordinal);
+        }
+
+        using (var stillAvailable = await app.SendAsync(
+                   data.TenantBOwner,
+                   data.TenantB.Slug,
+                   $"/api/files/{fileObjectId:D}"))
+        {
+            Assert.Equal(HttpStatusCode.OK, stillAvailable.StatusCode);
+        }
+
+        using (var deleted = await app.SendAsync(
+                   data.TenantBOwner,
+                   data.TenantB.Slug,
+                   $"/api/files/{fileObjectId:D}",
+                   HttpMethod.Delete))
+        {
+            Assert.Equal(HttpStatusCode.OK, deleted.StatusCode);
+        }
+
+        using (var deletedRead = await app.SendAsync(
+                   data.TenantBOwner,
+                   data.TenantB.Slug,
+                   $"/api/files/{fileObjectId:D}"))
+        {
+            Assert.Equal(HttpStatusCode.BadRequest, deletedRead.StatusCode);
+        }
+    }
+
+    [Fact]
     public async Task AuthenticatedHttpNotificationsStayUserAndTenantScoped()
     {
         await using var app = await HttpTenantIsolationTestApp.CreateAsync();
