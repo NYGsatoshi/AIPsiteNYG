@@ -4,6 +4,12 @@ export const ADMIN_DEFAULT_PAGE_SIZE = 50;
 export const ADMIN_MAXIMUM_PAGE_SIZE = 100;
 
 export type AdminPageStatus = 'ready' | 'loading' | 'empty' | 'error' | 'permissionDenied';
+/**
+ * Kept local to the read-only Audit list. It distinguishes first render from
+ * a guarded, manual retry without inventing paging, filtering, or stale-data
+ * semantics that the current endpoint does not expose.
+ */
+export type AuditLogLoadPhase = 'idle' | 'initial' | 'retry';
 export type AuditDetailStatus = 'idle' | 'loading' | 'ready' | 'notFound' | 'permissionDenied' | 'error';
 export type AuditSeverity = 'info' | 'warning' | 'critical';
 export type AuditResult = 'success' | 'denied' | 'failed';
@@ -73,6 +79,8 @@ export interface AuditGridRow {
 
 export interface AuditLogViewModel {
   readonly status: AdminPageStatus;
+  readonly loadPhase: AuditLogLoadPhase;
+  readonly canRetry: boolean;
   readonly title: string;
   readonly subtitle: string;
   readonly rows: readonly AuditGridRow[];
@@ -96,6 +104,8 @@ export interface AuditDetailViewModel {
 
 export interface AuditLogScenario {
   readonly status: AdminPageStatus;
+  readonly loadPhase?: AuditLogLoadPhase;
+  readonly canRetry?: boolean;
   readonly title: string;
   readonly subtitle: string;
   readonly auditRecords: readonly AuditMockRecord[];

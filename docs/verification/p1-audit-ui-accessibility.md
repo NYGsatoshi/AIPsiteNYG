@@ -1,6 +1,6 @@
 # P1 Audit UI accessibility hardening (Issue #386)
 
-Status: implementation candidate; intentionally non-closing.
+Status: merged non-closing slice; Issue #386 remains open.
 
 ## Scope
 
@@ -58,8 +58,10 @@ Local candidate evidence on 2026-08-27 JST:
 
 The optional Syncfusion path stays disabled by default. Its isolated smoke
 checks the adapter-owned rendering and keyboard contract; the active AG path
-is the page-level axe gate. Exact-head CI and the existing real API
-authorization regression remain required before promoting this candidate.
+is the page-level axe gate. PR #436 passed its exact-head CI and real-backend
+P0 acceptance before merging. The corresponding main CI/security/onboarding
+gates also passed after the merge; #386 intentionally remains open for its
+separate contract gaps below.
 
 ## Deliberate exclusions
 

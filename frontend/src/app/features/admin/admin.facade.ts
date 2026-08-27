@@ -88,11 +88,13 @@ export class AdminFacade {
       ? this.exportFromScenario(this.exportScenario)
       : this.emptyExportDiagnostics(),
   );
+  private auditLogRequestVersion = 0;
+  private auditLogRequestInFlight = false;
   private auditDetailRequestVersion = 0;
 
   constructor() {
     if (!this.auditScenario) {
-      this.loadAuditLog();
+      this.loadAuditLog('initial');
     }
   }
 
@@ -101,8 +103,9 @@ export class AdminFacade {
   }
 
   reloadAuditLog(): void {
-    if (!this.auditScenario) {
-      this.loadAuditLog();
+    const current = this.auditState();
+    if (!this.auditScenario && !this.auditLogRequestInFlight && current.status === 'error' && current.canRetry) {
+      this.loadAuditLog('retry');
     }
   }
 
@@ -181,11 +184,26 @@ export class AdminFacade {
     return this.exportState();
   }
 
-  private loadAuditLog(): void {
+  private loadAuditLog(loadPhase: Extract<AuditLogViewModel['loadPhase'], 'initial' | 'retry'>): void {
+    if (this.auditLogRequestInFlight) {
+      return;
+    }
+
+    const requestVersion = ++this.auditLogRequestVersion;
+    this.auditLogRequestInFlight = true;
+    this.auditState.set({
+      ...this.emptyAudit('loading'),
+      loadPhase,
+    });
     this.http
       .get<PagedResponseDto<AuditLogDto>>('/api/admin/audit-grid', { withCredentials: true })
       .subscribe({
         next: (response) => {
+          if (requestVersion !== this.auditLogRequestVersion) {
+            return;
+          }
+
+          this.auditLogRequestInFlight = false;
           const rows = (response.items ?? []).map((record) =>
             this.toAuditGridRow(this.toAuditRecord(record)),
           );
@@ -196,12 +214,19 @@ export class AdminFacade {
           });
         },
         error: (error: { status?: number }) => {
+          if (requestVersion !== this.auditLogRequestVersion) {
+            return;
+          }
+
+          this.auditLogRequestInFlight = false;
+          const permissionDenied = error.status === 401 || error.status === 403;
           this.auditState.set({
             ...this.emptyAudit(
-              error.status === 401 || error.status === 403 ? 'permissionDenied' : 'error',
+              permissionDenied ? 'permissionDenied' : 'error',
             ),
+            canRetry: !permissionDenied && isRetryableAuditListError(error.status),
             message:
-              error.status === 401 || error.status === 403
+              permissionDenied
                 ? 'Authentication or audit permission is required.'
                 : 'Audit log API request failed.',
           });
@@ -212,6 +237,8 @@ export class AdminFacade {
   private auditFromScenario(scenario: AuditLogScenario): AuditLogViewModel {
     return {
       status: scenario.status,
+      loadPhase: scenario.loadPhase ?? (scenario.status === 'loading' ? 'initial' : 'idle'),
+      canRetry: scenario.canRetry ?? false,
       title: scenario.title,
       subtitle: scenario.subtitle,
       rows: scenario.auditRecords.map((record) => this.toAuditGridRow(record)),
@@ -246,6 +273,8 @@ export class AdminFacade {
   private emptyAudit(status: AdminPageStatus): AuditLogViewModel {
     return {
       status,
+      loadPhase: status === 'loading' ? 'initial' : 'idle',
+      canRetry: false,
       title: 'Audit log',
       subtitle: 'Live API data',
       rows: [],
@@ -350,4 +379,8 @@ function toAuditResult(value: unknown): AuditResultDisplay {
   return value === 'success' || value === 'denied' || value === 'failed'
     ? value
     : 'unclassified';
+}
+
+function isRetryableAuditListError(status: number | undefined): boolean {
+  return status === undefined || status === 0 || status === 408 || status === 429 || (status >= 500 && status <= 599);
 }

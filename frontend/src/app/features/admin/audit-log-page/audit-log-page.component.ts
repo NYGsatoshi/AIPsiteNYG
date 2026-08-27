@@ -11,7 +11,7 @@ import {
 } from '../../../shared/grid/app-data-grid/app-data-grid.types';
 import { AppDataGridComponent } from '../../../shared/grid/app-data-grid/app-data-grid.component';
 import { AppEmptyStateComponent } from '../../../shared/empty-state/app-empty-state/app-empty-state.component';
-import { AppInlineLoadingComponent } from '../../../shared/loading/app-inline-loading/app-inline-loading.component';
+import { AppSkeletonComponent } from '../../../shared/loading/app-skeleton/app-skeleton.component';
 import { AppPermissionDeniedComponent } from '../../../shared/permission/app-permission-denied/app-permission-denied.component';
 import { AdminFacade } from '../admin.facade';
 import { AuditDetailDrawerComponent } from '../audit-detail-drawer/audit-detail-drawer.component';
@@ -38,7 +38,7 @@ interface DrawerReturnContext {
   imports: [
     AppDataGridComponent,
     AppEmptyStateComponent,
-    AppInlineLoadingComponent,
+    AppSkeletonComponent,
     AppPermissionDeniedComponent,
     AuditDetailDrawerComponent
   ],
@@ -62,6 +62,7 @@ export class AuditLogPageComponent {
     : signal<string | null>(null);
   private routeSelectionInitialized = false;
   private readonly selectedAuditId = signal<string | null>(null);
+  private retryFocusRestorePending = false;
   private readonly visibleOptionalColumns = signal<ReadonlySet<AuditGridOptionalColumn>>(new Set());
   // This is retained across a Back -> Forward round trip for the same event.
   // That lets an explicit Close after Forward return to the original row while
@@ -86,6 +87,30 @@ export class AuditLogPageComponent {
       const eventId = this.routeEventId();
       untracked(() => this.syncSelectionFromRoute(eventId));
     });
+
+    effect(() => {
+      const page = this.vm();
+      if (!this.retryFocusRestorePending || page.loadPhase === 'retry') {
+        return;
+      }
+
+      this.retryFocusRestorePending = false;
+      afterNextRender(
+        {
+          write: () => {
+            queueMicrotask(() => {
+              const retry = this.document.querySelector<HTMLElement>('[data-testid="audit-log-retry"]');
+              if (retry === this.document.activeElement) {
+                return;
+              }
+
+              this.focusPageTitle();
+            });
+          },
+        },
+        { injector: this.injector },
+      );
+    });
   }
 
   handleGridAction(event: AppDataGridActionEvent<AuditGridRow>): void {
@@ -103,7 +128,17 @@ export class AuditLogPageComponent {
   }
 
   retry(): void {
+    const page = this.vm();
+    if (!page.canRetry || page.loadPhase === 'retry') {
+      return;
+    }
+
+    this.retryFocusRestorePending = this.document.activeElement
+      === this.document.querySelector<HTMLElement>('[data-testid="audit-log-retry"]');
     this.facade.reloadAuditLog();
+    if (this.vm().loadPhase !== 'retry') {
+      this.retryFocusRestorePending = false;
+    }
   }
 
   closeDrawer(): void {
@@ -319,7 +354,7 @@ export class AuditLogPageComponent {
     if (preserveForHistory && context && this.drawerReturnContext() === context) {
       this.drawerReturnContext.set(null);
     }
-    this.focusDrawerFallback();
+    this.focusPageTitle();
   }
 
   private resolveReturnFocusTarget(context: DrawerReturnContext): HTMLElement | null {
@@ -369,7 +404,7 @@ export class AuditLogPageComponent {
     return target.closest<HTMLElement>('[data-grid-row-id]')?.dataset['gridRowId'] === auditId;
   }
 
-  private focusDrawerFallback(): void {
+  private focusPageTitle(): void {
     this.document
       .querySelector<HTMLElement>('[data-testid="audit-log-title"]')
       ?.focus({ preventScroll: true });
@@ -388,7 +423,7 @@ export class AuditLogPageComponent {
     visibleColumns: ReadonlySet<AuditGridOptionalColumn>,
   ): string {
     if (page.status === 'loading') {
-      return 'Loading audit log.';
+      return page.loadPhase === 'retry' ? 'Retrying audit log.' : 'Loading audit log.';
     }
     if (page.status === 'permissionDenied') {
       return 'Audit log access is unavailable.';

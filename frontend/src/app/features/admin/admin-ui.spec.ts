@@ -179,6 +179,22 @@ const renderAudit = async (
   return fixture;
 };
 
+const renderLiveAudit = async () => {
+  await TestBed.configureTestingModule({
+    imports: [AuditLogPageComponent],
+    providers: [provideHttpClient(), provideHttpClientTesting()],
+  })
+    .overrideComponent(AuditLogPageComponent, {
+      remove: { imports: [AppDataGridComponent] },
+      add: { imports: [StubAuditDataGridComponent] },
+    })
+    .compileComponents();
+
+  const fixture = TestBed.createComponent(AuditLogPageComponent);
+  fixture.detectChanges();
+  return { fixture, httpMock: TestBed.inject(HttpTestingController) };
+};
+
 const settleAuditRender = async <T>(fixture: ComponentFixture<T>): Promise<void> => {
   TestBed.flushEffects();
   fixture.detectChanges();
@@ -279,6 +295,19 @@ describe('Admin audit and export mock UI', () => {
     expect(status?.textContent).toContain('Workspace shown');
   });
 
+  it('keeps structural audit loading out of the accessibility tree while announcing the initial load once', async () => {
+    const fixture = await renderAudit(AUDIT_LOG_SCENARIOS.loading);
+    const content = query<HTMLElement>(fixture, '[data-testid="audit-log-content"]');
+    const skeleton = query<HTMLElement>(fixture, '[data-testid="audit-log-skeleton"]');
+    const status = query<HTMLElement>(fixture, '[data-testid="audit-log-status"]');
+
+    expect(content?.getAttribute('aria-busy')).toBe('true');
+    expect(skeleton?.getAttribute('aria-hidden')).toBe('true');
+    expect(queryAll(fixture, 'app-skeleton .skeleton__line')).toHaveLength(5);
+    expect(query(fixture, 'app-inline-loading')).toBeNull();
+    expect(status?.textContent?.trim()).toBe('Loading audit log.');
+  });
+
   it('announces fixed empty and error states without exposing response details', async () => {
     const emptyFixture = await renderAudit(AUDIT_LOG_SCENARIOS.empty);
     const emptyStatus = query<HTMLParagraphElement>(emptyFixture, '[data-testid="audit-log-status"]');
@@ -299,6 +328,89 @@ describe('Admin audit and export mock UI', () => {
     expect(errorStatus?.textContent?.trim()).toBe('Audit log could not be loaded.');
     expect(errorStatus?.textContent).not.toContain('sensitive upstream response detail');
     expect(textContent(errorFixture)).not.toContain('sensitive upstream response detail');
+  });
+
+  it('keeps keyboard retry focused, blocks duplicate requests, and recovers only from a transient audit failure', async () => {
+    const { fixture, httpMock } = await renderLiveAudit();
+    const initial = httpMock.expectOne('/api/admin/audit-grid');
+
+    initial.flush({ error: 'internal detail must not render' }, { status: 503, statusText: 'Unavailable' });
+    fixture.detectChanges();
+    const retry = query<HTMLButtonElement>(fixture, '[data-testid="audit-log-retry"]');
+    expect(retry).not.toBeNull();
+    expect(retry?.textContent?.trim()).toBe('Retry');
+    retry?.focus();
+
+    retry?.click();
+    fixture.detectChanges();
+
+    expect(retry?.getAttribute('aria-disabled')).toBe('true');
+    expect(retry?.textContent?.trim()).toBe('Retrying...');
+    expect(document.activeElement).toBe(retry);
+    expect(query(fixture, '[data-testid="audit-log-skeleton"]')).not.toBeNull();
+    expect(query(fixture, '[data-testid="audit-log-status"]')?.textContent?.trim()).toBe('Retrying audit log.');
+
+    const retryRequest = httpMock.expectOne('/api/admin/audit-grid');
+    retry?.click();
+    httpMock.expectNone('/api/admin/audit-grid');
+
+    retryRequest.flush({ items: [] });
+    fixture.detectChanges();
+    await settleAuditRender(fixture);
+    expect(query(fixture, '[data-testid="audit-log-retry"]')).toBeNull();
+    expect(query(fixture, '[data-testid="audit-log-status"]')?.textContent?.trim())
+      .toBe('No audit entries are available for the current authorized scope.');
+    expect(document.activeElement).toBe(query(fixture, '[data-testid="audit-log-title"]'));
+    httpMock.verify();
+  });
+
+  it('does not offer retry for a non-transient audit-list failure', async () => {
+    const { fixture, httpMock } = await renderLiveAudit();
+
+    httpMock.expectOne('/api/admin/audit-grid').flush({}, { status: 400, statusText: 'Bad Request' });
+    fixture.detectChanges();
+    expect(query(fixture, '[data-testid="audit-log-retry"]')).toBeNull();
+    expect(query(fixture, '[data-testid="audit-log-status"]')?.textContent?.trim())
+      .toBe('Audit log could not be loaded.');
+
+    TestBed.inject(AdminFacade).reloadAuditLog();
+    httpMock.expectNone('/api/admin/audit-grid');
+    httpMock.verify();
+  });
+
+  it('returns keyboard focus to the Audit title when retry ends with lost permission', async () => {
+    const { fixture, httpMock } = await renderLiveAudit();
+    httpMock.expectOne('/api/admin/audit-grid').flush({}, { status: 503, statusText: 'Unavailable' });
+    fixture.detectChanges();
+
+    const retry = query<HTMLButtonElement>(fixture, '[data-testid="audit-log-retry"]');
+    retry?.focus();
+    retry?.click();
+    const retryRequest = httpMock.expectOne('/api/admin/audit-grid');
+
+    retryRequest.flush({}, { status: 403, statusText: 'Forbidden' });
+    fixture.detectChanges();
+    await settleAuditRender(fixture);
+
+    expect(query(fixture, '[data-testid="audit-log-retry"]')).toBeNull();
+    expect(query(fixture, '[data-testid="audit-log-status"]')?.textContent?.trim())
+      .toBe('Audit log access is unavailable.');
+    expect(document.activeElement).toBe(query(fixture, '[data-testid="audit-log-title"]'));
+    httpMock.verify();
+  });
+
+  it('does not offer retry after audit permission is lost', async () => {
+    const { fixture, httpMock } = await renderLiveAudit();
+
+    httpMock.expectOne('/api/admin/audit-grid').flush({}, { status: 403, statusText: 'Forbidden' });
+    fixture.detectChanges();
+    expect(query(fixture, '[data-testid="audit-log-retry"]')).toBeNull();
+    expect(query(fixture, '[data-testid="audit-log-status"]')?.textContent?.trim())
+      .toBe('Audit log access is unavailable.');
+
+    TestBed.inject(AdminFacade).reloadAuditLog();
+    httpMock.expectNone('/api/admin/audit-grid');
+    httpMock.verify();
   });
 
   it('redacted audit detail drawer does not show restricted fields', async () => {

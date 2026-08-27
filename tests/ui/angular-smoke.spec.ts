@@ -177,6 +177,76 @@ test.describe('MVP-A P0 Angular frontend smoke', () => {
     expect(denseOpenerBounds?.height ?? 0).toBeGreaterThanOrEqual(24);
   });
 
+  test('keeps the Audit initial-load skeleton and transient Retry path structural, safe, and keyboard-stable', async ({ page }) => {
+    const rows = auditGridFixtures(1);
+    let listRequests = 0;
+    let releaseInitialFailure: (() => void) | undefined;
+    let releaseRetrySuccess: (() => void) | undefined;
+    const initialFailure = new Promise<void>((resolve) => { releaseInitialFailure = resolve; });
+    const retrySuccess = new Promise<void>((resolve) => { releaseRetrySuccess = resolve; });
+
+    await page.route('**/api/admin/audit-grid**', async (route) => {
+      const request = route.request();
+      const url = new URL(request.url());
+      if (request.method() !== 'GET' || url.pathname !== '/api/admin/audit-grid') {
+        await route.fulfill({ status: 405 });
+        return;
+      }
+
+      listRequests += 1;
+      if (listRequests === 1) {
+        await initialFailure;
+        await route.fulfill({
+          status: 503,
+          contentType: 'application/json; charset=utf-8',
+          body: JSON.stringify({ error: 'sensitive upstream error body must stay hidden' }),
+        });
+        return;
+      }
+
+      await retrySuccess;
+      await route.fulfill({
+        status: 200,
+        contentType: 'application/json; charset=utf-8',
+        body: JSON.stringify({ items: rows, page: 1, pageSize: 100, totalCount: rows.length }),
+      });
+    });
+
+    await page.goto('/app/admin/audit');
+    const content = page.getByTestId('audit-log-content');
+    const status = page.getByTestId('audit-log-status');
+    const skeleton = page.getByTestId('audit-log-skeleton');
+    await expect(skeleton).toBeVisible();
+    await expect(content).toHaveAttribute('aria-busy', 'true');
+    await expect(status).toHaveText('Loading audit log.');
+    await expectNoDocumentHorizontalOverflow(page);
+    await expectNoAccessibilityViolations(page);
+
+    releaseInitialFailure?.();
+    const retry = page.getByTestId('audit-log-retry');
+    await expect(retry).toBeVisible();
+    await expect(retry).toHaveText('Retry');
+    await expect(page.getByText('sensitive upstream error body must stay hidden')).toHaveCount(0);
+    await retry.focus();
+    await page.keyboard.press('Enter');
+    await expect.poll(() => listRequests).toBe(2);
+    await expect(retry).toBeFocused();
+    await expect(retry).toHaveAttribute('aria-disabled', 'true');
+    await expect(retry).toHaveText('Retrying...');
+    await expect(status).toHaveText('Retrying audit log.');
+    await expect(skeleton).toBeVisible();
+    await page.keyboard.press('Enter');
+    await expect.poll(() => listRequests).toBe(2);
+    await expectNoDocumentHorizontalOverflow(page);
+
+    releaseRetrySuccess?.();
+    await expect(page.getByTestId('audit-log-mobile-list')).toContainText('Audit row 001 was opened with safe fields.');
+    await expect(status).toContainText('Showing 1 audit entry.');
+    await expect(retry).toHaveCount(0);
+    await expect(content).not.toHaveAttribute('aria-busy', 'true');
+    await expect(page.getByTestId('audit-log-title')).toBeFocused();
+  });
+
   test('keeps the audit detail action keyboard-accessible through the flagged Syncfusion adapter', async ({ page }, testInfo) => {
     test.skip(testInfo.project.name !== 'chromium-desktop', 'The mobile Audit route uses the audited card list.');
     await page.addInitScript(() => {

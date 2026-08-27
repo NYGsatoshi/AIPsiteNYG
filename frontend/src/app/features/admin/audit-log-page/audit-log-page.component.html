@@ -1,6 +1,9 @@
 @let page = vm();
 
-<section class="admin-page" data-testid="audit-log-page">
+<section
+  class="admin-page"
+  data-testid="audit-log-page"
+>
   <header class="admin-page__header">
     <div>
       <p class="admin-page__eyebrow">{{ page.subtitle }}</p>
@@ -15,13 +18,19 @@
     {{ accessibilityStatus() }}
   </p>
 
+  <div
+    class="admin-page__content"
+    data-testid="audit-log-content"
+    [attr.aria-busy]="page.status === 'loading' ? 'true' : null"
+  >
   @if (page.status === 'loading') {
-    <app-inline-loading label="Loading audit log" />
+    <div class="admin-page__skeleton" data-testid="audit-log-skeleton" aria-hidden="true">
+      <app-skeleton [lines]="5" label="Loading audit log" />
+    </div>
   } @else if (page.status === 'permissionDenied') {
     <app-permission-denied title="Audit log access is unavailable." />
   } @else if (page.status === 'error') {
     <app-empty-state title="Audit log could not be loaded" message="Try again." />
-    <button type="button" class="admin-page__retry" data-testid="audit-log-retry" (click)="retry()">Retry</button>
   } @else if (page.status === 'empty' || page.rows.length === 0) {
     <app-empty-state title="No audit entries" message="No audit entries are available for the current authorized scope." />
   } @else {
@@ -102,5 +111,16 @@
         (close)="closeDrawer()"
       />
     </div>
+  }
+  </div>
+
+  @if (page.canRetry || page.loadPhase === 'retry') {
+    <button
+      type="button"
+      class="admin-page__retry"
+      data-testid="audit-log-retry"
+      [attr.aria-disabled]="page.loadPhase === 'retry' ? 'true' : null"
+      (click)="retry()"
+    >{{ page.loadPhase === 'retry' ? 'Retrying...' : 'Retry' }}</button>
   }
 </section>
