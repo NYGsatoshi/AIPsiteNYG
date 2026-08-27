@@ -129,14 +129,15 @@ describe('Issue 362 message thread contract', () => {
       { status: 403, statusText: 'Forbidden' }
     );
 
-    expect(facade.thread()).toMatchObject({
+    const deniedThread = facade.thread();
+    expect(deniedThread).toMatchObject({
       status: 'permissionDenied',
-      rootMessage: undefined,
-      summary: undefined,
       replies: [],
-      draft: '',
-      pendingClientRequestId: undefined
+      draft: ''
     });
+    expect(deniedThread.rootMessage).toBeUndefined();
+    expect(deniedThread.summary).toBeUndefined();
+    expect(deniedThread.pendingClientRequestId).toBeUndefined();
     expect(facade.page().messages[0].thread).toBeUndefined();
   });
 
@@ -476,12 +477,13 @@ describe('Issue 362 message thread contract', () => {
       summary: threadSummary(2, ['Mock User B'])
     });
 
-    expect(facade.thread()).toMatchObject({
+    const failedThread = facade.thread();
+    expect(failedThread).toMatchObject({
       status: 'error',
-      rootMessage: undefined,
-      summary: undefined,
       replies: []
     });
+    expect(failedThread.rootMessage).toBeUndefined();
+    expect(failedThread.summary).toBeUndefined();
     expect(facade.page().messages[0].thread).toBeUndefined();
   });
 
@@ -503,12 +505,13 @@ describe('Issue 362 message thread contract', () => {
       { status: 403, statusText: 'Forbidden' }
     );
 
-    expect(facade.thread()).toMatchObject({
+    const deniedThread = facade.thread();
+    expect(deniedThread).toMatchObject({
       status: 'permissionDenied',
-      rootMessage: undefined,
-      summary: undefined,
       replies: []
     });
+    expect(deniedThread.rootMessage).toBeUndefined();
+    expect(deniedThread.summary).toBeUndefined();
     expect(facade.page().messages[0].thread).toBeUndefined();
     expect(JSON.stringify(facade.thread())).not.toContain('Mock User B');
     expect(JSON.stringify(facade.thread())).not.toContain('Pinned parent body');
