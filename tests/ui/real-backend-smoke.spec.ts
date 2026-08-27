@@ -2737,7 +2737,7 @@ test.describe('MVP0 real backend browser smoke', () => {
         isPr06GanttSnapshot
       );
       expect(degradedEvidence.pageErrors, 'SignalR-degraded browser page errors').toEqual([]);
-      expectOnlyExpectedPr06HubConsoleErrors(degradedEvidence);
+      expectOnlyExpectedSyntheticHubConsoleErrors(degradedEvidence);
       expectUnexpectedApiFailures(degradedEvidence);
       evidence.degradedHttp = {
         connectionState: 'delayed',
@@ -3317,7 +3317,7 @@ test.describe('MVP0 real backend browser smoke', () => {
     }
   });
 
-  test('Issue #378 confirms immediate publication against the real backend and rejects a revoked selected audience', async ({ page }, testInfo) => {
+  test('Issue #378 confirms immediate publication against the real backend and rejects a revoked selected audience', async ({ page, browser }, testInfo) => {
     const evidence: SmokeEvidence = {
       baseURL: String(testInfo.project.use.baseURL ?? ''),
       email: smokeEmail,
@@ -3333,6 +3333,9 @@ test.describe('MVP0 real backend browser smoke', () => {
     const revokedBody = 'This draft must remain editable when its selected audience loses authorization.';
     let temporaryWorkspaceId: string | null = null;
     let temporaryWorkspaceMembershipRevoked = false;
+    let staleContext: Awaited<ReturnType<typeof browser.newContext>> | null = null;
+    let stalePage: Page | null = null;
+    let staleEvidence: SmokeEvidence | null = null;
 
     page.on('pageerror', (error) => evidence.pageErrors.push(error.message));
     page.on('console', (message) => { if (message.type() === 'error') evidence.consoleErrors.push(message.text()); });
@@ -3431,8 +3434,43 @@ test.describe('MVP0 real backend browser smoke', () => {
           body.requiresReadConfirmation === true
       });
 
+      // The revocation proof must model a stale browser without suppressing
+      // the production fail-closed authorization invalidation on connected
+      // clients. This isolated context rejects only the Hub transport; every
+      // HTTP request below (including CSRF, DELETE, POST, and GET) is real.
+      staleContext = await browser.newContext({ baseURL: evidence.baseURL });
+      await staleContext.addInitScript(() => {
+        const nativeFetch = window.fetch.bind(window);
+        window.fetch = (input: RequestInfo | URL, init?: RequestInit) => {
+          const url = typeof input === 'string' ? input : input instanceof URL ? input.href : input.url;
+          if (new URL(url, window.location.href).pathname.startsWith('/hubs/app')) {
+            return Promise.reject(new TypeError('Synthetic Issue 378 Hub unavailability'));
+          }
+          return nativeFetch(input, init);
+        };
+      });
+      stalePage = await staleContext.newPage();
+      staleEvidence = {
+        baseURL: evidence.baseURL,
+        email: smokeEmail,
+        steps: [],
+        pageErrors: [],
+        consoleErrors: [],
+        failedApiResponses: [],
+      };
+      stalePage.on('pageerror', (error) => staleEvidence!.pageErrors.push(error.message));
+      stalePage.on('console', (message) => {
+        if (message.type() === 'error') staleEvidence!.consoleErrors.push(message.text());
+      });
+      stalePage.on('response', (response) => recordFailedApiResponse(response, staleEvidence!));
+
+      await loginAndVerifySession(stalePage, staleEvidence);
+      await expect(stalePage.getByTestId('realtime-connection-state')).toContainText('Realtime updates are delayed');
+      const staleCurrentUserId = staleEvidence.userId!;
+      expect(staleCurrentUserId, 'stale-review context preserves the authenticated user').toBe(currentUserId);
+
       const temporaryWorkspace = await requestWithCsrf(
-        page,
+        stalePage,
         'POST',
         '/api/workspaces',
         {
@@ -3441,7 +3479,7 @@ test.describe('MVP0 real backend browser smoke', () => {
         },
         { 'Idempotency-Key': randomUUID() }
       );
-      evidence.steps.push({
+      staleEvidence.steps.push({
         name: 'issue-378-create-isolated-revocation-workspace',
         method: 'POST',
         path: '/api/workspaces',
@@ -3454,8 +3492,8 @@ test.describe('MVP0 real backend browser smoke', () => {
       expect(temporaryWorkspaceId, 'temporary Workspace id').toMatch(/^[0-9a-f-]{36}$/i);
 
       const audiencesAfterWorkspaceCreate = await recordFetchJson(
-        page,
-        evidence,
+        stalePage,
+        staleEvidence,
         'issue-378-authorized-audiences-after-workspace-create',
         '/api/announcements/audiences',
         {
@@ -3468,38 +3506,40 @@ test.describe('MVP0 real backend browser smoke', () => {
       expect(revokedAudience, 'newly created Workspace is initially a server-authorized audience').toBeTruthy();
       expect(revokedAudience!.workspaceId).toBe(temporaryWorkspaceId);
 
-      await page.goto('/app/announcements');
-      await expect(page.getByTestId('announcements-page')).toBeVisible();
-      await expect(page.getByTestId('create-announcement-action')).toBeVisible();
-      await page.getByTestId('create-announcement-action').click();
-      await expect(editor).toBeVisible();
-      await editor.getByTestId('announcement-editor-title').fill(revokedTitle);
-      await editor.getByTestId('announcement-editor-body').fill(revokedBody);
-      await editor.getByTestId('announcement-editor-audience').selectOption(revokedAudience!.key);
-      await editor.getByTestId('announcement-publish-action').click();
-      await expect(confirmationDialog).toBeVisible();
-      await expect(confirmationDialog.getByTestId('announcement-confirmation-audience')).toHaveText(revokedWorkspaceName);
-      await expect(confirmationDialog.getByTestId('announcement-confirmation-recipient-count'))
+      await stalePage.goto('/app/announcements');
+      await expect(stalePage.getByTestId('announcements-page')).toBeVisible();
+      await expect(stalePage.getByTestId('create-announcement-action')).toBeVisible();
+      await stalePage.getByTestId('create-announcement-action').click();
+      const staleEditor = stalePage.getByTestId('announcement-editor');
+      const staleConfirmationDialog = stalePage.getByRole('dialog', { name: 'Confirm publication' });
+      await expect(staleEditor).toBeVisible();
+      await staleEditor.getByTestId('announcement-editor-title').fill(revokedTitle);
+      await staleEditor.getByTestId('announcement-editor-body').fill(revokedBody);
+      await staleEditor.getByTestId('announcement-editor-audience').selectOption(revokedAudience!.key);
+      await staleEditor.getByTestId('announcement-publish-action').click();
+      await expect(staleConfirmationDialog).toBeVisible();
+      await expect(staleConfirmationDialog.getByTestId('announcement-confirmation-audience')).toHaveText(revokedWorkspaceName);
+      await expect(staleConfirmationDialog.getByTestId('announcement-confirmation-recipient-count'))
         .toContainText(String(revokedAudience!.estimatedRecipientCount));
-      await expect(confirmationDialog.getByTestId('announcement-confirmation-delivery')).toHaveText('Publish immediately');
+      await expect(staleConfirmationDialog.getByTestId('announcement-confirmation-delivery')).toHaveText('Publish immediately');
 
       const membershipRevocation = await requestWithCsrf(
-        page,
+        stalePage,
         'DELETE',
-        `/api/workspaces/${temporaryWorkspaceId}/members/${currentUserId}`
+        `/api/workspaces/${temporaryWorkspaceId}/members/${staleCurrentUserId}`
       );
-      evidence.steps.push({
+      staleEvidence.steps.push({
         name: 'issue-378-revoke-selected-workspace-audience',
         method: 'DELETE',
-        path: `/api/workspaces/${temporaryWorkspaceId}/members/${currentUserId}`,
+        path: `/api/workspaces/${temporaryWorkspaceId}/members/${staleCurrentUserId}`,
         status: membershipRevocation.status
       });
       expect(membershipRevocation.status, membershipRevocation.text).toBe(200);
       expect(membershipRevocation.csrfHeaderPresent, 'selected audience revocation CSRF header').toBe(true);
       temporaryWorkspaceMembershipRevoked = true;
 
-      const revokedPublicationResponse = waitForApiResponse(page, 'POST', '/api/announcements');
-      await confirmationDialog.getByRole('button', {
+      const revokedPublicationResponse = waitForApiResponse(stalePage, 'POST', '/api/announcements');
+      await staleConfirmationDialog.getByRole('button', {
         name: new RegExp(`^Publish to ${revokedAudience!.estimatedRecipientCount} recipients now$`)
       }).click();
       const revokedPublication = await revokedPublicationResponse;
@@ -3510,48 +3550,58 @@ test.describe('MVP0 real backend browser smoke', () => {
       };
       const revokedPublicationBody = await recordFailureJson(
         revokedPublication,
-        evidence,
+        staleEvidence,
         'issue-378-revoked-selected-audience-publication',
         400,
         (body) => hasStringValue(body, 'error', 'Announcement audience is not authorized.')
       ) as Record<string, unknown>;
       expect(JSON.stringify(revokedPublicationBody), 'revoked audience response must not disclose the selected Workspace')
         .not.toContain(revokedWorkspaceName);
-      await expect(confirmationDialog).toHaveCount(0);
-      await expect(editor.getByTestId('announcement-editor-submission-error')).toContainText(
+      await expect(staleConfirmationDialog).toHaveCount(0);
+      await expect(staleEditor.getByTestId('announcement-editor-submission-error')).toContainText(
         'The selected audience is no longer authorized.'
       );
-      await expect(editor.getByTestId('announcement-editor-title')).toHaveValue(revokedTitle);
-      await expect(editor.getByTestId('announcement-editor-body')).toHaveValue(revokedBody);
-      await expect(editor.getByTestId('announcement-editor-audience').locator('option', {
+      await expect(staleEditor.getByTestId('announcement-editor-title')).toHaveValue(revokedTitle);
+      await expect(staleEditor.getByTestId('announcement-editor-body')).toHaveValue(revokedBody);
+      await expect(staleEditor.getByTestId('announcement-editor-audience').locator('option', {
         hasText: revokedWorkspaceName
       })).toHaveCount(0);
 
-      expect(evidence.pageErrors, 'Issue #378 browser page errors').toEqual([]);
-      expectUnexpectedConsoleErrors(evidence, [expectedRevokedAudienceFailure]);
-      expectUnexpectedApiFailures(evidence, [expectedRevokedAudienceFailure]);
+      expect(evidence.pageErrors, 'Issue #378 immediate publication browser page errors').toEqual([]);
+      expectUnexpectedConsoleErrors(evidence);
+      expectUnexpectedApiFailures(evidence);
+      expect(staleEvidence.pageErrors, 'Issue #378 stale-review browser page errors').toEqual([]);
+      expectOnlyExpectedSyntheticHubConsoleErrors(staleEvidence, [expectedRevokedAudienceFailure]);
+      expectUnexpectedApiFailures(staleEvidence, [expectedRevokedAudienceFailure]);
     } finally {
       // The success path deliberately revokes this user before confirming the
       // selected-scope denial. If a preceding assertion fails, archive the
       // still-owned disposable Workspace so later shared-fixture tests start
       // with their intended Workspace set.
-      if (temporaryWorkspaceId && !temporaryWorkspaceMembershipRevoked) {
+      if (temporaryWorkspaceId && !temporaryWorkspaceMembershipRevoked && stalePage) {
         try {
-          const cleanup = await requestWithCsrf(page, 'POST', `/api/workspaces/${temporaryWorkspaceId}/archive`);
-          evidence.steps.push({
+          const cleanup = await requestWithCsrf(stalePage, 'POST', `/api/workspaces/${temporaryWorkspaceId}/archive`);
+          staleEvidence?.steps.push({
             name: 'issue-378-failed-path-temporary-workspace-cleanup',
             method: 'POST',
             path: `/api/workspaces/${temporaryWorkspaceId}/archive`,
             status: cleanup.status,
           });
         } catch {
-          evidence.steps.push({
+          staleEvidence?.steps.push({
             name: 'issue-378-failed-path-temporary-workspace-cleanup',
             method: 'POST',
             path: `/api/workspaces/${temporaryWorkspaceId}/archive`,
             status: 0,
           });
         }
+      }
+      await staleContext?.close();
+      if (staleEvidence) {
+        await testInfo.attach('issue-378-announcement-stale-review-real-backend-evidence.json', {
+          body: JSON.stringify(staleEvidence, null, 2),
+          contentType: 'application/json'
+        });
       }
       await testInfo.attach('issue-378-announcement-publication-real-backend-evidence.json', {
         body: JSON.stringify(evidence, null, 2),
@@ -5054,11 +5104,33 @@ function expectSafeProjectDetailDenial(
   return body;
 }
 
-function expectOnlyExpectedPr06HubConsoleErrors(evidence: SmokeEvidence) {
-  const unexpected = evidence.consoleErrors.filter((message) =>
-    !/Synthetic PR06 Hub unavailability|Failed to complete negotiation with the server|Failed to start the connection/i
-      .test(message)
-  );
+function expectOnlyExpectedSyntheticHubConsoleErrors(
+  evidence: SmokeEvidence,
+  scenarioExpectedFailures: readonly SmokeFailedApiResponse[] = []
+) {
+  const expectedNetworkFailures = new Map<number, number>();
+  const remainingScenarioExpected = [...scenarioExpectedFailures];
+  for (const failure of evidence.failedApiResponses) {
+    const expectedIndex = remainingScenarioExpected.findIndex((candidate) => sameFailure(failure, candidate));
+    if (expectedIndex < 0) continue;
+    remainingScenarioExpected.splice(expectedIndex, 1);
+    expectedNetworkFailures.set(failure.status, (expectedNetworkFailures.get(failure.status) ?? 0) + 1);
+  }
+
+  const unexpected = evidence.consoleErrors.filter((message) => {
+    if (/Synthetic (?:PR06|Issue 378) Hub unavailability|Failed to complete negotiation with the server|Failed to start the connection/i
+      .test(message)) {
+      return false;
+    }
+
+    const match = /Failed to load resource:.*status of (\d{3})/i.exec(message);
+    if (!match) return true;
+    const status = Number(match[1]);
+    const remaining = expectedNetworkFailures.get(status) ?? 0;
+    if (remaining === 0) return true;
+    expectedNetworkFailures.set(status, remaining - 1);
+    return false;
+  });
   expect(unexpected, 'unexpected SignalR-degraded browser console errors').toEqual([]);
 }
 

@@ -402,7 +402,11 @@ export class TaskCreateFacade {
       });
       return false;
     } finally {
-      if (this.scopeProjectId === projectId) {
+      if (
+        this.optionsCancellation === cancellation &&
+        generation === this.scopeGeneration &&
+        this.scopeProjectId === projectId
+      ) {
         this.refreshInFlight = false;
         if (this.refreshQueued) {
           this.refreshQueued = false;
@@ -425,6 +429,11 @@ export class TaskCreateFacade {
         }
         if (context.deniedOwners.has(TASK_CREATE_REALTIME_OWNER)) {
           this.clearProtectedState('authorization');
+          this.optionsState.set({
+            status: 'denied',
+            projectId,
+            message: 'Task creation is not available for this Project.',
+          });
           return;
         }
         await this.refreshFromRealtime();
@@ -483,6 +492,17 @@ export class TaskCreateFacade {
       attempt.identityKey === this.currentIdentityKey() &&
       attempt.projectId === this.scopeProjectId &&
       attempt.workspaceId === this.scopeWorkspaceId;
+    const routeIntent =
+      reason === 'authorization' &&
+      committed === null &&
+      attempt === null &&
+      this.scopeIdentityKey === this.currentIdentityKey() &&
+      this.scopeProjectId !== null
+        ? {
+            identityKey: this.scopeIdentityKey,
+            projectId: this.scopeProjectId,
+          }
+        : null;
     const attemptWasDispatched = preserveUncertainAttempt && attempt?.hasDispatched === true;
 
     this.scopeGeneration += 1;
@@ -525,6 +545,23 @@ export class TaskCreateFacade {
           ? 'The Task may have been created. Recheck access and retry the same details so the server can safely reconcile the request.'
           : 'Task creation was stopped before it was sent. Recheck access and submit the same details after the options reload.',
       });
+      return;
+    }
+
+    if (routeIntent) {
+      // A route identifier is not a protected projection. Keep only that
+      // opaque intent so the existing realtime subscription can perform a
+      // fresh, server-authorized catch-up after a global authorization reset.
+      // No prior options, named choices, policy, permission, request id, or
+      // create attempt survives this boundary.
+      this.scopeIdentityKey = routeIntent.identityKey;
+      this.scopeProjectId = routeIntent.projectId;
+      this.scopeWorkspaceId = null;
+      this.createAttempt = null;
+      this.activeCreateAttempt = null;
+      this.committedCreate = null;
+      this.optionsState.set(EMPTY_TASK_CREATE_OPTIONS);
+      this.mutationState.set(EMPTY_TASK_CREATE_STATE);
       return;
     }
 
