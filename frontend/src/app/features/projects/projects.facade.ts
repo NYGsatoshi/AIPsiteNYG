@@ -174,6 +174,8 @@ export class ProjectsFacade {
         tasks: [], selectedTab: 'assigned', scope: 'currentWorkspace', workspaceId: null, workspaceOptions: [], counts: [], totalCount: 0,
         page: 1, selectedPageSize: PROJECTS_DEFAULT_PAGE_SIZE, lastPage: 1,
         filters: { projectId: '', stageCategory: '', priority: '', blocked: '', search: '', timeGroup: null },
+        projectFilterInputValue: '', savedFilters: [], savedFiltersAvailable: false, canPersistSavedFilters: false,
+        filterConditions: [{ id: 'relationship', label: 'Relationship: Assigned to Me' }], filterAnnouncement: '',
         realtimeDegraded: false
       };
     }
@@ -190,6 +192,8 @@ export class ProjectsFacade {
         tasks: [], selectedTab: 'assigned', scope: 'currentWorkspace', workspaceId: null, workspaceOptions: [], counts: [], totalCount: 0,
         page: 1, selectedPageSize: PROJECTS_DEFAULT_PAGE_SIZE, lastPage: 1,
         filters: { projectId: '', stageCategory: '', priority: '', blocked: '', search: '', timeGroup: null },
+        projectFilterInputValue: '', savedFilters: [], savedFiltersAvailable: false, canPersistSavedFilters: false,
+        filterConditions: [{ id: 'relationship', label: 'Relationship: Assigned to Me' }], filterAnnouncement: '',
         realtimeDegraded: false
     };
   }

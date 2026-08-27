@@ -1,4 +1,4 @@
-import { Component, EventEmitter, Input, Output, signal, WritableSignal } from '@angular/core';
+import { Component, EventEmitter, Input, Output, Provider, signal, WritableSignal } from '@angular/core';
 import { ComponentFixture, TestBed } from '@angular/core/testing';
 import { HttpClient } from '@angular/common/http';
 import { ActivatedRoute, convertToParamMap, provideRouter, Router } from '@angular/router';
@@ -33,6 +33,7 @@ import {
   TaskGridRow,
 } from './projects.types';
 import { MyTasksPageComponent } from './my-tasks-page/my-tasks-page.component';
+import { AIP_WORK_VIEW_PREFERENCE_STORAGE } from './work-view-preference.service';
 import { ProjectsOverviewPageComponent } from './projects-overview-page/projects-overview-page.component';
 import { WorkspacesFacade } from '../workspaces/workspaces.facade';
 import { WorkspaceDashboardViewModel } from '../workspaces/workspaces.types';
@@ -184,7 +185,13 @@ const scenarioProviders = (
     },
     {
       provide: AuthSessionFacade,
-      useValue: { session: () => ({ currentUser: { workspaces: [] } }) },
+      useValue: {
+        session: () => ({
+          status: 'active', isAuthenticated: true,
+          currentUser: { userId: 'scenario-user', workspaces: [] },
+          currentTenant: { tenantId: 'scenario-tenant', isAvailable: true, isPlatformScope: false }
+        })
+      },
     },
     {
       provide: ActiveWorkspaceFacade,
@@ -255,10 +262,10 @@ const renderProjectsOverview = async (
   return fixture;
 };
 
-const renderMyTasks = async (scenario: ProjectsScenario = PROJECTS_SCENARIOS.default) => {
+const renderMyTasks = async (scenario: ProjectsScenario = PROJECTS_SCENARIOS.default, extraProviders: readonly Provider[] = []) => {
   await TestBed.configureTestingModule({
     imports: [MyTasksPageComponent],
-    providers: [provideRouter([]), ...scenarioProviders(scenario)],
+    providers: [provideRouter([]), ...scenarioProviders(scenario), ...extraProviders],
   })
     .overrideComponent(MyTasksPageComponent, {
       remove: { imports: [TaskTableComponent] },
@@ -290,7 +297,8 @@ const renderTaskDetail = async (
 };
 
 describe('Projects and tasks mock UI', () => {
-  afterEach(() => TestBed.resetTestingModule());
+  beforeEach(() => localStorage.clear());
+  afterEach(() => { localStorage.clear(); TestBed.resetTestingModule(); });
 
   it('route pages do not directly use AgGridAngular', () => {
     const routePageDependencies = [
@@ -706,6 +714,86 @@ describe('Projects and tasks mock UI', () => {
       'List is the canonical cross-Project My Tasks projection',
     );
     expect(textContent(fixture)).toContain('Project Kanban is available from Project Detail');
+  });
+
+  it('offers one-action presets and announces the exact applied relationship and Stage', async () => {
+    const fixture = await renderMyTasks();
+    TestBed.flushEffects();
+    fixture.detectChanges();
+
+    query<HTMLButtonElement>(fixture, '[data-testid="my-tasks-preset-completed"]')?.click();
+    fixture.detectChanges();
+
+    expect(textContent(fixture)).toContain('Relationship: Completed');
+    expect(textContent(fixture)).toContain('Stage: Done');
+    expect(query(fixture, '[data-testid="my-tasks-filter-announcement"]')?.textContent).toContain('Completed preset applied');
+  });
+
+  it('saves, applies, and deletes a combined filter through keyboard-native controls and safe chips', async () => {
+    const fixture = await renderMyTasks();
+    TestBed.flushEffects();
+    fixture.detectChanges();
+    const projectId = '55555555-5555-4555-8555-555555555555';
+
+    const project = query<HTMLInputElement>(fixture, '[data-testid="my-tasks-project-filter"]')!;
+    project.value = projectId;
+    project.dispatchEvent(new Event('change'));
+    const stage = query<HTMLSelectElement>(fixture, '[data-testid="my-tasks-stage-filter"]')!;
+    stage.value = 'review';
+    stage.dispatchEvent(new Event('change'));
+    const priority = query<HTMLSelectElement>(fixture, '[data-testid="my-tasks-priority-filter"]')!;
+    priority.value = 'high';
+    priority.dispatchEvent(new Event('change'));
+    fixture.detectChanges();
+
+    const name = query<HTMLInputElement>(fixture, '[data-testid="my-tasks-saved-filter-name"]')!;
+    name.value = 'Review queue';
+    name.dispatchEvent(new Event('input'));
+    fixture.detectChanges();
+    name.focus();
+    name.closest('form')?.requestSubmit();
+    fixture.detectChanges();
+    await fixture.whenStable();
+    fixture.detectChanges();
+
+    expect(textContent(fixture)).toContain('Review queue');
+    expect(query(fixture, '[data-testid="my-tasks-filter-announcement"]')?.textContent).toContain('Saved filter Review queue');
+    expect(document.activeElement).toBe(name);
+    const stored = localStorage.getItem('aipsite.work-view.saved-filters.v1:scenario-tenant:scenario-user:my-tasks') ?? '';
+    expect(stored).toContain(projectId);
+    expect(stored).not.toMatch(/Sample Project|Prepare sample|rows|counts|permissions/iu);
+
+    query<HTMLButtonElement>(fixture, '[data-testid="my-tasks-clear-filters"]')?.click();
+    fixture.detectChanges();
+    queryAll<HTMLButtonElement>(fixture, 'button').find((button) => button.getAttribute('aria-label') === 'Apply saved filter Review queue')?.click();
+    fixture.detectChanges();
+
+    expect(textContent(fixture)).toContain('Project filter active');
+    expect(textContent(fixture)).toContain('Stage: Review');
+    expect(textContent(fixture)).toContain('Priority: High');
+    expect(query<HTMLInputElement>(fixture, '[data-testid="my-tasks-project-filter"]')?.value).toBe('');
+    expect(query<HTMLInputElement>(fixture, '[data-testid="my-tasks-project-filter"]')?.placeholder).toBe('Saved Project condition is active');
+    expect(textContent(fixture)).not.toContain(projectId);
+
+    queryAll<HTMLButtonElement>(fixture, 'button').find((button) => button.getAttribute('aria-label') === 'Delete saved filter Review queue')?.click();
+    fixture.detectChanges();
+    await fixture.whenStable();
+    expect(textContent(fixture)).toContain('No custom filters saved');
+    expect(document.activeElement).toBe(name);
+  });
+
+  it('truthfully disables custom persistence when storage is unavailable while keeping presets usable', async () => {
+    const fixture = await renderMyTasks(PROJECTS_SCENARIOS.default, [
+      { provide: AIP_WORK_VIEW_PREFERENCE_STORAGE, useValue: null }
+    ]);
+    TestBed.flushEffects();
+    fixture.detectChanges();
+
+    expect(query(fixture, '[data-testid="my-tasks-saved-filters-unavailable"]')?.textContent).toContain('Current filters and frequent presets still work');
+    expect(query(fixture, '[data-testid="my-tasks-saved-filter-name"]')).toBeNull();
+    expect(query(fixture, '[data-testid="my-tasks-save-filter"]')).toBeNull();
+    expect(query(fixture, '[data-testid="my-tasks-preset-running"]')).not.toBeNull();
+    expect(query(fixture, '[data-testid="my-tasks-filter-announcement"]')?.textContent).toContain('Saved filters are unavailable');
   });
 });
 

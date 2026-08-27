@@ -64,6 +64,119 @@ test.describe('MVP-A P0 Angular frontend smoke', () => {
     await expectHealthyAngularPage(page);
   });
 
+  test('saves and reapplies My Tasks filters accessibly without exposing an opaque Project ID at 320px', async ({ page }) => {
+    await page.setViewportSize({ width: 320, height: 800 });
+    const projectId = '34600000-0000-4000-8000-000000000001';
+    await page.route('**/api/me/tasks**', async (route) => {
+      const url = new URL(route.request().url());
+      if (url.pathname === '/api/me/tasks/counts') {
+        await route.fulfill({
+          status: 200,
+          contentType: 'application/json; charset=utf-8',
+          body: JSON.stringify({
+            views: [{ view: 'Assigned', count: 1 }, { view: 'Completed', count: 1 }],
+            timeGroups: [{ timeGroup: 'Today', count: 1 }]
+          })
+        });
+        return;
+      }
+      await route.fulfill({
+        status: 200,
+        contentType: 'application/json; charset=utf-8',
+        body: JSON.stringify({
+          items: [{
+            taskId: '34600000-0000-4000-8000-000000000002',
+            tenantId: 'mock-tenant',
+            workspaceId: 'static-workspace-1',
+            workspaceTitle: 'Static Workspace',
+            projectId,
+            projectTitle: 'Authorized Project',
+            title: 'Saved filter evidence task',
+            workflowStageName: 'Done',
+            stageCategory: 'Done',
+            priority: 'High',
+            isBlocked: false,
+            progressPercent: 100,
+            timeGroup: 'Today',
+            isOverdue: false,
+            version: 1,
+            checklistCompletedCount: 0,
+            checklistTotalCount: 0,
+            labels: [],
+            quickEditPermissions: { canClaim: false, canChangeStage: false },
+            warnings: []
+          }],
+          page: 1,
+          pageSize: 50,
+          totalCount: 1
+        })
+      });
+    });
+
+    await page.goto('/app/tasks');
+    await expect(page.getByTestId('my-tasks-page')).toBeVisible();
+    await expect(page.getByTestId('my-tasks-saved-filters')).toBeVisible();
+
+    const completedRequest = page.waitForRequest((request) => {
+      const url = new URL(request.url());
+      return url.pathname === '/api/me/tasks' && url.searchParams.get('view') === 'completed';
+    });
+    const completed = page.getByTestId('my-tasks-preset-completed');
+    await completed.focus();
+    await page.keyboard.press('Enter');
+    let requestUrl = new URL((await completedRequest).url());
+    expect(requestUrl.searchParams.get('stageCategory')).toBe('done');
+    await expect(page.getByTestId('my-tasks-filter-summary')).toContainText('Relationship: Completed');
+    await expect(page.getByTestId('my-tasks-filter-summary')).toContainText('Stage: Done');
+
+    const projectRequest = page.waitForRequest((request) => new URL(request.url()).pathname === '/api/me/tasks' && new URL(request.url()).searchParams.get('projectId') === projectId);
+    await page.getByTestId('my-tasks-project-filter').fill(projectId);
+    await page.getByTestId('my-tasks-project-filter').press('Tab');
+    await projectRequest;
+    const priorityRequest = page.waitForRequest((request) => new URL(request.url()).pathname === '/api/me/tasks' && new URL(request.url()).searchParams.get('priority') === 'high');
+    await page.getByTestId('my-tasks-priority-filter').selectOption('high');
+    await priorityRequest;
+
+    const name = page.getByTestId('my-tasks-saved-filter-name');
+    await name.fill('Completed evidence');
+    await name.press('Enter');
+    await expect(page.getByRole('button', { name: 'Apply saved filter Completed evidence' })).toBeVisible();
+    await expect(page.getByTestId('my-tasks-filter-announcement')).toContainText('Saved filter Completed evidence');
+    const stored = await page.evaluate(() => globalThis.localStorage.getItem('aipsite.work-view.saved-filters.v1:mock-tenant:mock-user-a:my-tasks'));
+    expect(stored).toContain(projectId);
+    expect(stored).not.toMatch(/Authorized Project|Saved filter evidence task|rows|counts|permissions/iu);
+
+    const clearRequest = page.waitForRequest((request) => {
+      const url = new URL(request.url());
+      return url.pathname === '/api/me/tasks' && url.searchParams.get('view') === 'assigned' && !url.searchParams.has('projectId');
+    });
+    const clear = page.getByTestId('my-tasks-clear-filters');
+    await clear.focus();
+    await page.keyboard.press('Enter');
+    requestUrl = new URL((await clearRequest).url());
+    expect(requestUrl.searchParams.get('scope')).toBe('currentWorkspace');
+    expect(requestUrl.searchParams.get('workspaceId')).toBe('static-workspace-1');
+
+    const applyRequest = page.waitForRequest((request) => {
+      const url = new URL(request.url());
+      return url.pathname === '/api/me/tasks' && url.searchParams.get('projectId') === projectId && url.searchParams.get('view') === 'completed';
+    });
+    const apply = page.getByRole('button', { name: 'Apply saved filter Completed evidence' });
+    await apply.focus();
+    await page.keyboard.press('Enter');
+    requestUrl = new URL((await applyRequest).url());
+    expect(requestUrl.searchParams.get('stageCategory')).toBe('done');
+    expect(requestUrl.searchParams.get('priority')).toBe('high');
+    await expect(page.getByTestId('my-tasks-project-filter')).toHaveValue('');
+    await expect(page.getByTestId('my-tasks-project-filter')).toHaveAttribute('placeholder', 'Saved Project condition is active');
+    await expect(page.getByTestId('my-tasks-filter-summary')).toContainText('Project filter active');
+    await expect(page.locator('body')).not.toContainText(projectId);
+
+    await expectNoDocumentHorizontalOverflow(page);
+    await expectNoAccessibilityViolations(page);
+    await expectHealthyAngularPage(page);
+  });
+
   test('keeps the redacted audit drawer deep-linkable, focus-safe, and accessible at 320px', async ({ page }) => {
     await page.setViewportSize({ width: 320, height: 800 });
     await installAuditGridApi(page, auditGridFixtures(8));

@@ -188,6 +188,21 @@ export interface MyTasksFilters {
   readonly timeGroup: MyTasksUrgencyGroup | null;
 }
 
+export interface MyTasksSavedFilterSnapshot extends MyTasksFilters {
+  readonly selectedTab: MyTasksTab;
+}
+
+export interface MyTasksSavedFilter {
+  readonly id: string;
+  readonly name: string;
+  readonly snapshot: MyTasksSavedFilterSnapshot;
+}
+
+export interface MyTasksFilterCondition {
+  readonly id: string;
+  readonly label: string;
+}
+
 export interface MyTasksLiveTask {
   readonly taskId: string;
   readonly tenantId: string;
@@ -262,6 +277,12 @@ export interface MyTasksViewModel {
   readonly selectedPageSize: number;
   readonly lastPage: number;
   readonly filters: MyTasksFilters;
+  readonly projectFilterInputValue: string;
+  readonly savedFilters: readonly MyTasksSavedFilter[];
+  readonly savedFiltersAvailable: boolean;
+  readonly canPersistSavedFilters: boolean;
+  readonly filterConditions: readonly MyTasksFilterCondition[];
+  readonly filterAnnouncement: string;
   readonly realtimeDegraded: boolean;
 }
 

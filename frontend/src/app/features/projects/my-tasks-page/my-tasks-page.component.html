@@ -8,6 +8,7 @@
   @if (vm.realtimeDegraded) {
     <p class="my-tasks-page__degraded" role="status">Live updates are unavailable. HTTP filters and manual refresh remain available.</p>
   }
+  <p class="my-tasks-page__sr-only" aria-live="polite" aria-atomic="true" data-testid="my-tasks-filter-announcement">{{ vm.filterAnnouncement }}</p>
   @if (vm.status === 'loading') {
     <app-inline-loading label="Loading tasks" />
   } @else if (vm.status === 'permissionDenied') {
@@ -17,6 +18,44 @@
   } @else if (!myTasksV1Enabled()) {
     <app-task-table [rows]="vm.rows" [defaultPageSize]="vm.pageSize.defaultPageSize" [maximumPageSize]="vm.pageSize.maximumPageSize" (actionInvoked)="handleTaskAction($event)" />
   } @else {
+    <section class="my-tasks-page__saved-filters" aria-labelledby="my-tasks-saved-filters-heading" data-testid="my-tasks-saved-filters">
+      <div class="my-tasks-page__section-heading">
+        <div><h2 id="my-tasks-saved-filters-heading">Saved filters</h2><p>{{ vm.savedFiltersAvailable ? 'Reusable in this browser for your current Tenant account.' : 'Frequent filters remain available without browser storage.' }}</p></div>
+      </div>
+      <div class="my-tasks-page__presets" aria-label="Frequent filters">
+        <button type="button" data-testid="my-tasks-preset-running" (click)="applyBuiltinFilter('running')">Running</button>
+        <button type="button" data-testid="my-tasks-preset-needs-review" (click)="applyBuiltinFilter('needsReview')">Needs review</button>
+        <button type="button" data-testid="my-tasks-preset-completed" (click)="applyBuiltinFilter('completed')">Completed</button>
+      </div>
+      @if (vm.savedFiltersAvailable) {
+        @if (vm.canPersistSavedFilters) {
+          <form class="my-tasks-page__save-filter" (submit)="saveCurrentFilter($event)">
+            <label for="my-tasks-saved-filter-name">Filter name</label>
+            <input #savedFilterNameInput id="my-tasks-saved-filter-name" data-testid="my-tasks-saved-filter-name" type="text" maxlength="80" autocomplete="off" [value]="savedFilterName" (input)="setSavedFilterName($any($event.target).value)" />
+            <button type="submit" data-testid="my-tasks-save-filter" [disabled]="!savedFilterName.trim()">Save current</button>
+          </form>
+        } @else {
+          <p role="status" data-testid="my-tasks-saved-filter-write-unavailable">Saved-filter changes are unavailable. Existing filters can still be applied.</p>
+        }
+        @if (vm.savedFilters.length > 0) {
+          <ul class="my-tasks-page__saved-filter-list">
+            @for (filter of vm.savedFilters; track filter.id) {
+              <li>
+                <span>{{ filter.name }}</span>
+                <span class="my-tasks-page__saved-filter-actions">
+                  <button type="button" [attr.aria-label]="'Apply saved filter ' + filter.name" (click)="applySavedFilter(filter.id)">Apply</button>
+                  @if (vm.canPersistSavedFilters) { <button type="button" [attr.aria-label]="'Delete saved filter ' + filter.name" (click)="deleteSavedFilter(filter.id)">Delete</button> }
+                </span>
+              </li>
+            }
+          </ul>
+        } @else {
+          <p>No custom filters saved.</p>
+        }
+      } @else {
+        <p role="status" data-testid="my-tasks-saved-filters-unavailable">Custom saved filters are unavailable. Current filters and frequent presets still work.</p>
+      }
+    </section>
     <fieldset class="my-tasks-page__views" aria-label="My Tasks relationship view"><legend>Relationship view</legend>
       <div role="tablist" aria-label="My Tasks relationship view">
         @for (tab of tabs; track tab.id; let tabIndex = $index) {
@@ -39,7 +78,7 @@
     </fieldset>
     <section class="my-tasks-page__filters" aria-label="My Tasks filters">
       <label>Search<input type="search" data-testid="my-tasks-search" [value]="vm.filters.search" (input)="setSearchFilter($any($event.target).value)" /></label>
-      <label>Project ID<input type="text" data-testid="my-tasks-project-filter" [value]="vm.filters.projectId" (change)="setProjectFilter($any($event.target).value)" /></label>
+      <label>Project ID<input type="text" data-testid="my-tasks-project-filter" [value]="vm.projectFilterInputValue" [attr.placeholder]="vm.filters.projectId && !vm.projectFilterInputValue ? 'Saved Project condition is active' : null" aria-describedby="my-tasks-project-filter-help" (change)="setProjectFilter($any($event.target).value)" /><span id="my-tasks-project-filter-help" class="my-tasks-page__sr-only">A saved Project condition is shown generically until you replace or clear it. The server authorizes every query.</span></label>
       <label>Stage
         <select data-testid="my-tasks-stage-filter" [value]="vm.filters.stageCategory" (change)="setStageCategoryFilter($any($event.target).value)">
           <option value="">All stages</option><option value="backlog">Backlog</option><option value="todo">Todo</option><option value="inProgress">In progress</option><option value="review">Review</option><option value="done">Done</option><option value="cancelled">Cancelled</option>
@@ -61,6 +100,12 @@
           @for (group of groups; track group.id) { <option [value]="group.id">{{ group.label }} ({{ count(vm, group.id) }})</option> }
         </select>
       </label>
+    </section>
+    <section class="my-tasks-page__filter-summary" aria-labelledby="my-tasks-filter-summary-heading" data-testid="my-tasks-filter-summary">
+      <div class="my-tasks-page__section-heading"><h2 id="my-tasks-filter-summary-heading">Applied conditions</h2><button type="button" data-testid="my-tasks-clear-filters" (click)="clearAllFilters()">Clear all</button></div>
+      <ul aria-label="Applied filter conditions">
+        @for (condition of vm.filterConditions; track condition.id) { <li>{{ condition.label }}</li> }
+      </ul>
     </section>
     <p class="my-tasks-page__canonical-note">List is the canonical cross-Project My Tasks projection. Project Kanban is available from Project Detail.</p>
     @if (vm.status === 'empty' || vm.tasks.length === 0) {
