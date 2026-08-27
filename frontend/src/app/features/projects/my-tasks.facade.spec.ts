@@ -3,7 +3,7 @@ import { HttpTestingController, provideHttpClientTesting } from '@angular/common
 import { TestBed } from '@angular/core/testing';
 import { Router } from '@angular/router';
 
-import { AIP_AUTH_SESSION_MOCK, DEFAULT_AUTH_SESSION } from '../../core/auth/auth-session.facade';
+import { AIP_AUTH_SESSION_MOCK, AuthSessionFacade, AuthSessionSnapshot, DEFAULT_AUTH_SESSION } from '../../core/auth/auth-session.facade';
 import { NotificationOpenContextService } from '../../core/notifications/notification-open-context.service';
 import { RealtimeFacade } from '../../core/realtime/realtime.facade';
 import { ActiveWorkspaceFacade } from '../../core/workspace/active-workspace.facade';
@@ -25,6 +25,7 @@ describe('MyTasksFacade', () => {
   let router: { url: string; navigateByUrl: ReturnType<typeof vi.fn> };
 
   beforeEach(() => {
+    localStorage.clear();
     router = {
       url: '/workspaces',
       navigateByUrl: vi.fn(async (url: string) => {
@@ -58,6 +59,7 @@ describe('MyTasksFacade', () => {
   afterEach(() => {
     vi.useRealTimers();
     httpMock.verify();
+    localStorage.clear();
     TestBed.resetTestingModule();
   });
 
@@ -77,6 +79,37 @@ describe('MyTasksFacade', () => {
     expect(page.rows[0].hasArtifact).toBeUndefined();
     expect(page.counts.find((item) => item.key === 'assigned')?.count).toBe(1);
     expect(page.counts.find((item) => item.key === 'today')?.count).toBe(1);
+  });
+
+  it.each(['success', 'error'] as const)('preserves asynchronously hydrated saved filters after a delayed initial %s response', (outcome) => {
+    localStorage.setItem('aipsite.work-view.saved-filters.v1:mock-tenant:mock-user-a:my-tasks', JSON.stringify({
+      version: 1,
+      filters: [{
+        id: 'saved-12345678', name: 'Hydrated view',
+        snapshot: { selectedTab: 'completed', projectId: '', stageCategory: 'done', priority: '', blocked: '', search: '', timeGroup: null }
+      }]
+    }));
+    facade.load();
+    const requests = pendingProjectionRequests();
+
+    TestBed.flushEffects();
+    expect(facade.getMyTasks().savedFilters.map((filter) => filter.name)).toEqual(['Hydrated view']);
+    expect(facade.getMyTasks().savedFiltersAvailable).toBe(true);
+    expect(facade.getMyTasks().canPersistSavedFilters).toBe(true);
+
+    if (outcome === 'success') {
+      completeProjectionRequests(requests);
+    } else {
+      requests.find((request) => request.request.url === '/api/me/tasks')!.flush(
+        { error: { code: 'MY_TASKS_PROJECT_NOT_FOUND', message: 'Project is unavailable.' } },
+        { status: 404, statusText: 'Not Found' }
+      );
+      expect(requests.find((request) => request.request.url === '/api/me/tasks/counts')?.cancelled).toBe(true);
+    }
+
+    expect(facade.getMyTasks().savedFilters.map((filter) => filter.name)).toEqual(['Hydrated view']);
+    expect(facade.getMyTasks().savedFiltersAvailable).toBe(true);
+    expect(facade.getMyTasks().canPersistSavedFilters).toBe(true);
   });
 
   it('cancels/replaces the active query when the relationship tab changes', () => {
@@ -249,6 +282,210 @@ describe('MyTasksFacade', () => {
     requests[1].flush({ views: [], timeGroups: [] });
   });
 
+  it('applies the Running and Needs review presets as exact relationship/stage pairs', () => {
+    facade.load();
+    flush({ items: [], page: 1, pageSize: 50, totalCount: 0 }, { views: [], timeGroups: [] });
+
+    facade.applyBuiltinFilter('running');
+    let requests = pendingProjectionRequests();
+    expect(requests.every((request) => request.request.params.get('view') === 'assigned')).toBe(true);
+    expect(requests.every((request) => request.request.params.get('stageCategory') === 'inProgress')).toBe(true);
+    completeProjectionRequests(requests);
+
+    facade.applyBuiltinFilter('needsReview');
+    requests = pendingProjectionRequests();
+    expect(requests.every((request) => request.request.params.get('view') === 'reviews')).toBe(true);
+    expect(requests.every((request) => request.request.params.get('stageCategory') === 'review')).toBe(true);
+    completeProjectionRequests(requests);
+  });
+
+  it('atomically applies Completed, retains optional filters, and cancels a pending debounced search', () => {
+    vi.useFakeTimers();
+    const projectId = '11111111-1111-4111-8111-111111111111';
+    facade.load();
+    flush({ items: [], page: 1, pageSize: 50, totalCount: 0 }, { views: [], timeGroups: [] });
+
+    facade.setProjectFilter(projectId);
+    completeProjectionRequests(pendingProjectionRequests());
+    facade.setPriorityFilter('critical');
+    completeProjectionRequests(pendingProjectionRequests());
+    facade.setBlockedFilter('true');
+    completeProjectionRequests(pendingProjectionRequests());
+    facade.setTimeGroupFilter('today');
+    completeProjectionRequests(pendingProjectionRequests());
+
+    facade.setSearchFilter('  retained search  ');
+    httpMock.expectNone('/api/me/tasks');
+    facade.applyBuiltinFilter('completed');
+
+    const requests = pendingProjectionRequests();
+    for (const request of requests) {
+      const params = request.request.params;
+      expect(params.get('view')).toBe('completed');
+      expect(params.get('stageCategory')).toBe('done');
+      expect(params.get('projectId')).toBe(projectId);
+      expect(params.get('priority')).toBe('critical');
+      expect(params.get('blocked')).toBe('true');
+      expect(params.get('timeGroup')).toBe('today');
+      expect(params.get('search')).toBe('retained search');
+      expect(params.get('page')).toBe('1');
+    }
+    completeProjectionRequests(requests);
+    vi.advanceTimersByTime(300);
+    httpMock.expectNone('/api/me/tasks');
+    httpMock.expectNone('/api/me/tasks/counts');
+  });
+
+  it('round-trips a combined custom filter through one request pair and masks its opaque Project ID', () => {
+    const projectId = '22222222-2222-4222-8222-222222222222';
+    facade.load();
+    flush({ items: [], page: 1, pageSize: 50, totalCount: 0 }, { views: [], timeGroups: [] });
+    facade.setTab('reviews');
+    completeProjectionRequests(pendingProjectionRequests());
+    facade.setProjectFilter(projectId);
+    completeProjectionRequests(pendingProjectionRequests());
+    facade.setStageCategoryFilter('review');
+    completeProjectionRequests(pendingProjectionRequests());
+    facade.setPriorityFilter('high');
+    completeProjectionRequests(pendingProjectionRequests());
+    facade.setBlockedFilter('false');
+    completeProjectionRequests(pendingProjectionRequests());
+    facade.setTimeGroupFilter('next7Days');
+    completeProjectionRequests(pendingProjectionRequests());
+
+    expect(facade.saveCurrentFilter('Review queue')).toBe(true);
+    const filterId = facade.getMyTasks().savedFilters[0].id;
+    facade.clearAllFilters();
+    completeProjectionRequests(pendingProjectionRequests());
+
+    facade.applySavedFilter(filterId);
+    const requests = pendingProjectionRequests();
+    for (const request of requests) {
+      expect(request.request.params.get('view')).toBe('reviews');
+      expect(request.request.params.get('projectId')).toBe(projectId);
+      expect(request.request.params.get('stageCategory')).toBe('review');
+      expect(request.request.params.get('priority')).toBe('high');
+      expect(request.request.params.get('blocked')).toBe('false');
+      expect(request.request.params.get('timeGroup')).toBe('next7Days');
+      expect(request.request.params.get('page')).toBe('1');
+    }
+    expect(facade.getMyTasks().projectFilterInputValue).toBe('');
+    expect(facade.getMyTasks().filterConditions).toContainEqual({ id: 'project', label: 'Project filter active' });
+    expect(JSON.stringify(facade.getMyTasks().filterConditions)).not.toContain(projectId);
+    completeProjectionRequests(requests);
+  });
+
+  it.each([403, 404] as const)('fails closed for a stale or cross-Tenant saved Project after HTTP %s without rendering its ID or cached task metadata', (httpStatus) => {
+    const staleProjectId = '66666666-6666-4666-8666-666666666666';
+    facade.load();
+    flush({ items: [task], page: 1, pageSize: 50, totalCount: 1 }, { views: [], timeGroups: [] });
+    facade.setProjectFilter(staleProjectId);
+    completeProjectionRequests(pendingProjectionRequests());
+    expect(facade.saveCurrentFilter('Stale scope')).toBe(true);
+    const filterId = facade.getMyTasks().savedFilters[0].id;
+    facade.clearAllFilters();
+    completeProjectionRequests(pendingProjectionRequests());
+
+    facade.applySavedFilter(filterId);
+    const requests = pendingProjectionRequests();
+    requests.find((request) => request.request.url === '/api/me/tasks')!.flush(
+      { error: { code: httpStatus === 403 ? 'FORBIDDEN' : 'MY_TASKS_PROJECT_NOT_FOUND', message: 'Project is unavailable.' } },
+      { status: httpStatus, statusText: httpStatus === 403 ? 'Forbidden' : 'Not Found' }
+    );
+
+    const vm = facade.getMyTasks();
+    expect(vm.status).toBe(httpStatus === 403 ? 'permissionDenied' : 'error');
+    expect(vm.tasks).toEqual([]);
+    expect(vm.counts).toEqual([]);
+    expect(vm.rows).toEqual([]);
+    expect(vm.projectFilterInputValue).toBe('');
+    expect(vm.filterConditions).toContainEqual({ id: 'project', label: 'Project filter active' });
+    expect(vm.filterConditions.some((condition) => condition.label.includes(staleProjectId))).toBe(false);
+    expect(vm.message).toBe(httpStatus === 403
+      ? 'Authentication or workspace permission is required.'
+      : 'The selected Project is not available.');
+    expect(requests.find((request) => request.request.url === '/api/me/tasks/counts')?.cancelled).toBe(true);
+  });
+
+  it('clears relationship and optional filters without silently changing explicit All Workspaces scope', () => {
+    facade.load();
+    flush({ items: [], page: 1, pageSize: 50, totalCount: 0 }, { views: [], timeGroups: [] });
+    facade.setScope('allWorkspaces');
+    completeProjectionRequests(pendingProjectionRequests());
+    facade.setPriorityFilter('high');
+    completeProjectionRequests(pendingProjectionRequests());
+
+    facade.clearAllFilters();
+    const requests = pendingProjectionRequests();
+    for (const request of requests) {
+      expect(request.request.params.get('scope')).toBe('allWorkspaces');
+      expect(request.request.params.has('workspaceId')).toBe(false);
+      expect(request.request.params.get('view')).toBe('assigned');
+      expect(request.request.params.has('priority')).toBe(false);
+      expect(request.request.params.get('page')).toBe('1');
+    }
+    expect(facade.getMyTasks().scope).toBe('allWorkspaces');
+    completeProjectionRequests(requests);
+  });
+
+  it('clears active filter execution on authorization invalidation while retaining harmless saved descriptors', () => {
+    vi.useFakeTimers();
+    facade.load();
+    flush({ items: [task], page: 1, pageSize: 50, totalCount: 1 }, { views: [], timeGroups: [] });
+    facade.setProjectFilter('33333333-3333-4333-8333-333333333333');
+    completeProjectionRequests(pendingProjectionRequests());
+    facade.setSearchFilter('protected query');
+    expect(facade.saveCurrentFilter('Reusable condition')).toBe(true);
+
+    const handleRealtimeEvent = (facade as unknown as { handleRealtimeEvent(event: unknown): void }).handleRealtimeEvent.bind(facade);
+    handleRealtimeEvent({ eventType: 'Security.AuthorizationStateChanged.v1' });
+
+    const vm = facade.getMyTasks();
+    expect(vm.tasks).toEqual([]);
+    expect(vm.counts).toEqual([]);
+    expect(vm.filters).toEqual({ projectId: '', stageCategory: '', priority: '', blocked: '', search: '', timeGroup: null });
+    expect(vm.selectedTab).toBe('assigned');
+    expect(vm.savedFilters.map((filter) => filter.name)).toEqual(['Reusable condition']);
+    vi.advanceTimersByTime(300);
+    httpMock.expectNone('/api/me/tasks');
+  });
+
+  it('resets old filter state and loads only the new namespace after logout then another login', () => {
+    vi.useFakeTimers();
+    facade.load();
+    flush({ items: [], page: 1, pageSize: 50, totalCount: 0 }, { views: [], timeGroups: [] });
+    facade.setProjectFilter('44444444-4444-4444-8444-444444444444');
+    completeProjectionRequests(pendingProjectionRequests());
+    facade.setSearchFilter('old account query');
+    expect(facade.saveCurrentFilter('Old account')).toBe(true);
+
+    const auth = TestBed.inject(AuthSessionFacade);
+    auth.logoutLocally();
+    TestBed.flushEffects();
+    localStorage.setItem('aipsite.work-view.saved-filters.v1:tenant-b:user-b:my-tasks', JSON.stringify({
+      version: 1,
+      filters: [{
+        id: 'saved-87654321', name: 'New account',
+        snapshot: { selectedTab: 'completed', projectId: '', stageCategory: 'done', priority: '', blocked: '', search: '', timeGroup: null }
+      }]
+    }));
+    const newSession: AuthSessionSnapshot = {
+      ...DEFAULT_AUTH_SESSION,
+      currentUser: { ...DEFAULT_AUTH_SESSION.currentUser!, userId: 'user-b', email: 'user-b@example.test', displayName: 'User B' },
+      currentTenant: { ...DEFAULT_AUTH_SESSION.currentTenant!, tenantId: 'tenant-b' }
+    };
+    (auth as unknown as { sessionState: { set(value: AuthSessionSnapshot): void } }).sessionState.set(newSession);
+    TestBed.flushEffects();
+
+    const vm = facade.getMyTasks();
+    expect(vm.filters).toEqual({ projectId: '', stageCategory: '', priority: '', blocked: '', search: '', timeGroup: null });
+    expect(vm.selectedTab).toBe('assigned');
+    expect(vm.savedFilters.map((filter) => filter.name)).toEqual(['New account']);
+    expect(JSON.stringify(vm)).not.toContain('old account query');
+    vi.advanceTimersByTime(300);
+    httpMock.expectNone('/api/me/tasks');
+  });
+
   it('coalesces TaskChanged realtime events into one My Tasks refetch', () => {
     vi.useFakeTimers();
     facade.load();
@@ -280,5 +517,18 @@ describe('MyTasksFacade', () => {
     expect(taskRequest.request.params.get('workspaceId')).toBe('workspace-1');
     taskRequest.flush(page);
     requests.find((request) => request.request.url === '/api/me/tasks/counts')!.flush(counts);
+  }
+
+  function pendingProjectionRequests() {
+    const requests = httpMock.match((request) => request.url === '/api/me/tasks' || request.url === '/api/me/tasks/counts');
+    expect(requests).toHaveLength(2);
+    return requests;
+  }
+
+  function completeProjectionRequests(requests: ReturnType<typeof pendingProjectionRequests>): void {
+    requests.find((request) => request.request.url === '/api/me/tasks')!
+      .flush({ items: [], page: 1, pageSize: 50, totalCount: 0 });
+    requests.find((request) => request.request.url === '/api/me/tasks/counts')!
+      .flush({ views: [], timeGroups: [] });
   }
 });

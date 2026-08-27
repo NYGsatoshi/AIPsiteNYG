@@ -17,3 +17,20 @@ Current urgency comparison uses the persisted UTC deadline and date-only planned
 ## Frontend rollout
 
 The `/tasks` route keeps its current URL. `tasks.myTasksV1` gates the canonical grouped list in the browser; it is not authorization. Kanban is intentionally unavailable until PR05. SignalR events coalesce into an HTTP refresh and an authorization-state event clears cached protected rows before refetching.
+
+## Post-U22 saved filters
+
+Issue #346 adds browser-local saved filter snapshots to the canonical `/tasks`
+surface. The versioned record is partitioned by `{tenantId,userId,screenId}`
+and stores only the relationship tab plus Project ID, Stage, Priority, Blocked,
+urgency, and search inputs. It stores no Task rows, counts, titles, Workspace
+labels, permissions, or authorization state and adds no server preference
+entity.
+
+Running maps to `assigned` plus `inProgress`, Needs review maps to `reviews`
+plus `review`, and Completed maps to `completed` plus `done`. Applying a preset
+retains other optional filters; applying a custom snapshot or clearing filters
+updates the query atomically at page 1 and issues one list/count request pair.
+Clear all retains the user's explicit Workspace scope. Every opaque Project ID
+is reauthorized by the existing My Tasks endpoints; saved IDs have no authority
+and are presented generically rather than as stale local labels.
