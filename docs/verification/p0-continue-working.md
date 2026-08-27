@@ -86,6 +86,9 @@ timeout under full-suite contention. The Files-page file passed 14/14 in the
 final focused run, including both timed-out cases. This is recorded as baseline
 timing evidence, not a green full-suite claim; exact-head CI remains
 authoritative. Final PR-head CI status is recorded in the pull request.
+The heavy contextual-selection/delete case uses the same bounded 15-second
+timeout already established for Files-page integration tests; its assertions
+and authorization checks are unchanged.
 The Playwright API is mocked and therefore is not frontend/backend integration
 or authorization evidence. This browser-local feature has no database change;
 no PostgreSQL execution is claimed or required for a new persistence contract.

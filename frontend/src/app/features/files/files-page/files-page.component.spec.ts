@@ -228,7 +228,7 @@ describe('FilesPageComponent', () => {
 
     expect(textContent(fixture)).toContain('The file was deleted.');
     expect(host.querySelector('[data-testid="files-normal-toolbar"]')).not.toBeNull();
-  });
+  }, 15_000);
 
   it('keeps a canonically redacted display label redacted in destructive confirmation', async () => {
     const { fixture } = await renderLiveFilesPage([
