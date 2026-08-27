@@ -1,4 +1,4 @@
-import { Component, EventEmitter, Input, Output, ViewChild } from '@angular/core';
+import { Component, EventEmitter, Input, OnChanges, Output, SimpleChanges, ViewChild } from '@angular/core';
 import {
   FilterService,
   GridComponent,
@@ -42,7 +42,7 @@ type SyncfusionGridEvent<TData> = {
   templateUrl: './syncfusion-data-grid.component.html',
   styleUrl: './syncfusion-data-grid.component.scss'
 })
-export class SyncfusionDataGridComponent<TData extends object> {
+export class SyncfusionDataGridComponent<TData extends object> implements OnChanges {
   @ViewChild('grid') private grid?: GridComponent;
 
   @Input() rows: readonly TData[] = [];
@@ -66,6 +66,9 @@ export class SyncfusionDataGridComponent<TData extends object> {
   @Output() sortChanged = new EventEmitter<AppDataGridSortChange>();
   @Output() filterChanged = new EventEmitter<AppDataGridFilterChange>();
 
+  pageSettings = this.createPageSettings();
+  selectionSettings = this.createSelectionSettings();
+
   get boundedPageSize(): number {
     return clampAppDataGridPageSize(this.defaultPageSize, this.maximumPageSize);
   }
@@ -76,12 +79,13 @@ export class SyncfusionDataGridComponent<TData extends object> {
       .filter((size, index, values) => values.indexOf(size) === index);
   }
 
-  get pageSettings(): { currentPage: number; pageSize: number; pageSizes: readonly number[] } {
-    return { currentPage: Math.max(1, this.page), pageSize: this.boundedPageSize, pageSizes: this.pageSizeOptions };
-  }
-
-  get selectionSettings(): { type: 'Single' | 'Multiple'; mode: 'Row'; checkboxOnly: boolean } {
-    return { type: this.selectionMode === 'multiple' ? 'Multiple' : 'Single', mode: 'Row', checkboxOnly: true };
+  ngOnChanges(changes: SimpleChanges): void {
+    if (changes['page'] || changes['defaultPageSize'] || changes['maximumPageSize']) {
+      this.pageSettings = this.createPageSettings();
+    }
+    if (changes['selectionMode']) {
+      this.selectionSettings = this.createSelectionSettings();
+    }
   }
 
   get filteringEnabled(): boolean {
@@ -125,6 +129,13 @@ export class SyncfusionDataGridComponent<TData extends object> {
     event.stopPropagation();
     const trigger = event.currentTarget instanceof HTMLElement ? event.currentTarget : undefined;
     this.actionInvoked.emit({ actionId, row, trigger });
+  }
+
+  handleActionKeydown(actionId: string, row: TData, event: KeyboardEvent): void {
+    // Syncfusion handles grid key events at its host. Keep native button activation
+    // local so Enter and Space cannot be consumed before the adapter emits its intent.
+    event.preventDefault();
+    this.invokeAction(actionId, row, event);
   }
 
   handleRecordClick(event: SyncfusionGridEvent<TData>): void {
@@ -172,5 +183,13 @@ export class SyncfusionDataGridComponent<TData extends object> {
         value: filter?.value === undefined || filter?.value === null ? null : String(filter.value)
       });
     }
+  }
+
+  private createPageSettings(): { currentPage: number; pageSize: number; pageSizes: readonly number[] } {
+    return { currentPage: Math.max(1, this.page), pageSize: this.boundedPageSize, pageSizes: this.pageSizeOptions };
+  }
+
+  private createSelectionSettings(): { type: 'Single' | 'Multiple'; mode: 'Row'; checkboxOnly: boolean } {
+    return { type: this.selectionMode === 'multiple' ? 'Multiple' : 'Single', mode: 'Row', checkboxOnly: true };
   }
 }

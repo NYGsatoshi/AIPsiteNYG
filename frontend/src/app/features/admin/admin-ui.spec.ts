@@ -20,7 +20,7 @@ import {
   AUDIT_RAW_METADATA_PROBE,
   EXPORT_DIAGNOSTICS_SCENARIOS
 } from './admin.mock';
-import { AuditGridRow, ExportJobGridRow } from './admin.types';
+import { AuditGridRow, AuditLogScenario, ExportJobGridRow } from './admin.types';
 import { AuditLogPageComponent } from './audit-log-page/audit-log-page.component';
 import { ExportDiagnosticsPageComponent } from './export-diagnostics-page/export-diagnostics-page.component';
 
@@ -145,7 +145,7 @@ const createAuditRouteHarness = (eventId?: string): AuditRouteHarness => {
 };
 
 const renderAudit = async (
-  scenario: (typeof AUDIT_LOG_SCENARIOS)[keyof typeof AUDIT_LOG_SCENARIOS] = AUDIT_LOG_SCENARIOS.default,
+  scenario: AuditLogScenario = AUDIT_LOG_SCENARIOS.default,
   routeHarness?: AuditRouteHarness,
 ) => {
   const providers: Provider[] = [{ provide: AIP_ADMIN_AUDIT_MOCK, useValue: scenario }];
@@ -244,9 +244,61 @@ describe('Admin audit and export mock UI', () => {
       'result',
       'summary',
     ]);
+    expect(fixture.componentInstance.vm().columns.map((column) => column.headerName)).toEqual([
+      'Created',
+      'Action',
+      'Actor',
+      'Target',
+      'Severity',
+      'Result',
+      'Summary',
+    ]);
     expect(textContent(fixture)).not.toContain(AUDIT_RAW_METADATA_PROBE);
     expect(textContent(fixture)).not.toContain('restricted body must stay hidden');
     expect(textContent(fixture)).not.toContain('tenant/private/key');
+  });
+
+  it('announces safe audit counts and local grid presentation changes', async () => {
+    const fixture = await renderAudit();
+    const status = query<HTMLParagraphElement>(fixture, '[data-testid="audit-log-status"]');
+    const dense = query<HTMLButtonElement>(fixture, '[data-testid="audit-density-dense"]');
+    const workspace = query<HTMLInputElement>(fixture, '[data-testid="audit-column-workspace"]');
+
+    expect(status?.getAttribute('role')).toBe('status');
+    expect(status?.getAttribute('aria-live')).toBe('polite');
+    expect(status?.textContent).toContain('Showing 3 audit entries.');
+    expect(status?.textContent).toContain('Default density.');
+    expect(status?.textContent).toContain('Workspace hidden');
+    expect(status?.textContent).not.toContain(AUDIT_RAW_METADATA_PROBE);
+
+    dense?.click();
+    workspace?.click();
+    fixture.detectChanges();
+
+    expect(status?.textContent).toContain('Dense density.');
+    expect(status?.textContent).toContain('Workspace shown');
+  });
+
+  it('announces fixed empty and error states without exposing response details', async () => {
+    const emptyFixture = await renderAudit(AUDIT_LOG_SCENARIOS.empty);
+    const emptyStatus = query<HTMLParagraphElement>(emptyFixture, '[data-testid="audit-log-status"]');
+
+    expect(emptyStatus?.textContent?.trim()).toBe('No audit entries are available for the current authorized scope.');
+    expect(textContent(emptyFixture)).not.toContain('mock audit entries');
+
+    TestBed.resetTestingModule();
+    const errorFixture = await renderAudit({
+      status: 'error',
+      title: 'Admin audit log',
+      subtitle: 'Live API data',
+      auditRecords: [],
+      message: 'sensitive upstream response detail',
+    });
+    const errorStatus = query<HTMLParagraphElement>(errorFixture, '[data-testid="audit-log-status"]');
+
+    expect(errorStatus?.textContent?.trim()).toBe('Audit log could not be loaded.');
+    expect(errorStatus?.textContent).not.toContain('sensitive upstream response detail');
+    expect(textContent(errorFixture)).not.toContain('sensitive upstream response detail');
   });
 
   it('redacted audit detail drawer does not show restricted fields', async () => {
@@ -330,6 +382,38 @@ describe('Admin audit and export mock UI', () => {
     expect(rows.map((row) => row.result)).toEqual(['success', 'denied', 'failed']);
     expect(rows.map((row) => row.severity)).toEqual(['info', 'warning', 'critical']);
     expect(rows[2].workspace).toBe('');
+    httpMock.verify();
+  });
+
+  it('shows a neutral explicit label when live audit classifications are unexpected', () => {
+    TestBed.configureTestingModule({
+      providers: [provideHttpClient(), provideHttpClientTesting()]
+    });
+    const facade = TestBed.inject(AdminFacade);
+    const httpMock = TestBed.inject(HttpTestingController);
+
+    httpMock.expectOne('/api/admin/audit-grid').flush({
+      items: [{
+        id: 'audit-live-unclassified',
+        createdAt: '2026-07-02T09:14:00Z',
+        action: 'workspace.member.view',
+        actorDisplayName: 'Live Admin',
+        targetType: 'WorkspaceMember',
+        workspaceLabel: 'Live Workspace',
+        severity: 'unexpected-severity',
+        result: 'unexpected-result',
+        summary: 'Member list opened.',
+        requestId: 'req-live-unclassified'
+      }]
+    });
+
+    const row = facade.getAuditLog().rows[0];
+    expect(row.severity).toBe('unclassified');
+    expect(row.severityLabel).toBe('Unrecognized severity');
+    expect(row.result).toBe('unclassified');
+    expect(row.resultLabel).toBe('Unrecognized result');
+    expect(row.severityLabel).not.toContain('unexpected-severity');
+    expect(row.resultLabel).not.toContain('unexpected-result');
     httpMock.verify();
   });
 

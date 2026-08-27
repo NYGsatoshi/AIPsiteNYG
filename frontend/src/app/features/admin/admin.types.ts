@@ -7,6 +7,13 @@ export type AdminPageStatus = 'ready' | 'loading' | 'empty' | 'error' | 'permiss
 export type AuditDetailStatus = 'idle' | 'loading' | 'ready' | 'notFound' | 'permissionDenied' | 'error';
 export type AuditSeverity = 'info' | 'warning' | 'critical';
 export type AuditResult = 'success' | 'denied' | 'failed';
+/**
+ * The API contract currently classifies these values as `AuditSeverity` and
+ * `AuditResult`. Keep an explicit, neutral display state for an unexpected
+ * wire value so the audit UI never renders a blank or color-only status.
+ */
+export type AuditSeverityDisplay = AuditSeverity | 'unclassified';
+export type AuditResultDisplay = AuditResult | 'unclassified';
 export type ExportJobStatus = 'pending' | 'running' | 'succeeded' | 'failed';
 export type ExportJobResult = 'notReady' | 'available' | 'failed' | 'suppressed';
 
@@ -40,8 +47,8 @@ export interface AuditMockRecord {
   readonly actorDisplay: string;
   readonly targetType: string;
   readonly workspace: string;
-  readonly severity: AuditSeverity;
-  readonly result: AuditResult;
+  readonly severity: AuditSeverityDisplay;
+  readonly result: AuditResultDisplay;
   readonly summary: string;
   readonly requestId: string;
   readonly redactedDetails: readonly RedactedDetailLine[];
@@ -55,9 +62,9 @@ export interface AuditGridRow {
   readonly actorDisplay: string;
   readonly targetType: string;
   readonly workspace: string;
-  readonly severity: AuditSeverity;
+  readonly severity: AuditSeverityDisplay;
   readonly severityLabel: string;
-  readonly result: AuditResult;
+  readonly result: AuditResultDisplay;
   readonly resultLabel: string;
   readonly summary: string;
   readonly requestId: string;

@@ -77,6 +77,9 @@ export class AuditLogPageComponent {
   readonly auditDetail = computed(() => this.facade.getAuditDetail());
   readonly selectedAudit = computed(() => this.auditDetail().row);
   readonly drawerOpen = computed(() => this.selectedAuditId() !== null);
+  readonly accessibilityStatus = computed(() =>
+    this.describeAuditStatus(this.vm(), this.density(), this.visibleOptionalColumns()),
+  );
 
   constructor() {
     effect(() => {
@@ -143,13 +146,13 @@ export class AuditLogPageComponent {
   private get columns(): readonly AppDataGridColumnDef<AuditGridRow>[] {
     const visible = this.visibleOptionalColumns();
     const columns: AppDataGridColumnDef<AuditGridRow>[] = [
-    { field: 'createdAt', headerName: 'createdAt', minWidth: 150, flex: 0.8, sortable: true },
-    { field: 'action', headerName: 'action', minWidth: 190, flex: 1.1, sortable: true, wrapText: true, autoHeight: true },
-    { field: 'actorDisplay', headerName: 'actorDisplay', minWidth: 160, flex: 0.9, sortable: true },
-    { field: 'targetType', headerName: 'targetType', minWidth: 140, flex: 0.8, sortable: true },
+    { field: 'createdAt', headerName: 'Created', minWidth: 150, flex: 0.8, sortable: true },
+    { field: 'action', headerName: 'Action', minWidth: 190, flex: 1.1, sortable: true, wrapText: true, autoHeight: true },
+    { field: 'actorDisplay', headerName: 'Actor', minWidth: 160, flex: 0.9, sortable: true },
+    { field: 'targetType', headerName: 'Target', minWidth: 140, flex: 0.8, sortable: true },
     {
       field: 'severity',
-      headerName: 'severity',
+      headerName: 'Severity',
       minWidth: 120,
       flex: 0.7,
       sortable: true,
@@ -158,7 +161,7 @@ export class AuditLogPageComponent {
     },
     {
       field: 'result',
-      headerName: 'result',
+      headerName: 'Result',
       minWidth: 120,
       flex: 0.7,
       sortable: true,
@@ -167,7 +170,7 @@ export class AuditLogPageComponent {
     },
     {
       field: 'summary',
-      headerName: 'summary',
+      headerName: 'Summary',
       minWidth: 260,
       flex: 1.5,
       sortable: false,
@@ -179,10 +182,10 @@ export class AuditLogPageComponent {
     ];
 
     if (visible.has('workspace')) {
-      columns.splice(4, 0, { field: 'workspace', headerName: 'workspace', minWidth: 180, flex: 1, sortable: true, wrapText: true });
+      columns.splice(4, 0, { field: 'workspace', headerName: 'Workspace', minWidth: 180, flex: 1, sortable: true, wrapText: true });
     }
     if (visible.has('requestId')) {
-      columns.push({ field: 'requestId', headerName: 'requestId', minWidth: 160, flex: 0.9, sortable: true, wrapText: true });
+      columns.push({ field: 'requestId', headerName: 'Request ID', minWidth: 160, flex: 0.9, sortable: true, wrapText: true });
     }
 
     return columns;
@@ -375,8 +378,33 @@ export class AuditLogPageComponent {
   private renderBadge(label: string): HTMLElement {
     const badge = document.createElement('span');
     badge.className = 'admin-grid-badge';
-    badge.textContent = label;
+    badge.textContent = label.trim() || 'Unrecognized audit classification';
     return badge;
+  }
+
+  private describeAuditStatus(
+    page: AuditLogViewModel,
+    density: AuditGridDensity,
+    visibleColumns: ReadonlySet<AuditGridOptionalColumn>,
+  ): string {
+    if (page.status === 'loading') {
+      return 'Loading audit log.';
+    }
+    if (page.status === 'permissionDenied') {
+      return 'Audit log access is unavailable.';
+    }
+    if (page.status === 'error') {
+      return 'Audit log could not be loaded.';
+    }
+    if (page.status === 'empty' || page.rows.length === 0) {
+      return 'No audit entries are available for the current authorized scope.';
+    }
+
+    const count = page.rows.length;
+    const optionalColumnStatus = this.optionalColumns
+      .map((column) => `${column.label} ${visibleColumns.has(column.id) ? 'shown' : 'hidden'}`)
+      .join('; ');
+    return `Showing ${count} audit ${count === 1 ? 'entry' : 'entries'}. ${density === 'dense' ? 'Dense' : 'Default'} density. Optional columns: ${optionalColumnStatus}.`;
   }
 
   private renderDetailButton(row: AuditGridRow | undefined): HTMLElement {

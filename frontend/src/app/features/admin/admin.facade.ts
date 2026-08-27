@@ -11,8 +11,8 @@ import {
   AuditLogScenario,
   AuditLogViewModel,
   AuditMockRecord,
-  AuditResult,
-  AuditSeverity,
+  AuditResultDisplay,
+  AuditSeverityDisplay,
   EXPORT_AUTHORIZATION_NOTE,
   ExportDiagnosticsScenario,
   ExportDiagnosticsViewModel,
@@ -27,16 +27,18 @@ export const AIP_EXPORT_DIAGNOSTICS_MOCK = new InjectionToken<ExportDiagnosticsS
   'AIP_EXPORT_DIAGNOSTICS_MOCK',
 );
 
-const severityLabels: Record<AuditSeverity, string> = {
+const severityLabels: Record<AuditSeverityDisplay, string> = {
   info: 'Info',
   warning: 'Warning',
   critical: 'Critical',
+  unclassified: 'Unrecognized severity',
 };
 
-const resultLabels: Record<AuditResult, string> = {
+const resultLabels: Record<AuditResultDisplay, string> = {
   success: 'Success',
   denied: 'Denied',
   failed: 'Failed',
+  unclassified: 'Unrecognized result',
 };
 
 const statusLabels: Record<ExportJobStatus, string> = {
@@ -64,8 +66,8 @@ interface AuditLogDto {
   readonly actorDisplayName: string;
   readonly targetType: string;
   readonly workspaceLabel?: string | null;
-  readonly severity: AuditSeverity;
-  readonly result: AuditResult;
+  readonly severity: unknown;
+  readonly result: unknown;
   readonly summary: string;
   readonly requestId?: string | null;
 }
@@ -319,8 +321,8 @@ export class AdminFacade {
       actorDisplay: record.actorDisplayName,
       targetType: record.targetType,
       workspace: record.workspaceLabel ?? '',
-      severity: record.severity,
-      result: record.result,
+      severity: toAuditSeverity(record.severity),
+      result: toAuditResult(record.result),
       summary: record.summary,
       requestId: record.requestId ?? '',
       redactedDetails: [],
@@ -336,4 +338,16 @@ function stringValue(value: unknown): string | undefined {
 function formatDate(value: unknown): string {
   const raw = stringValue(value);
   return raw ? new Date(raw).toLocaleString() : '';
+}
+
+function toAuditSeverity(value: unknown): AuditSeverityDisplay {
+  return value === 'info' || value === 'warning' || value === 'critical'
+    ? value
+    : 'unclassified';
+}
+
+function toAuditResult(value: unknown): AuditResultDisplay {
+  return value === 'success' || value === 'denied' || value === 'failed'
+    ? value
+    : 'unclassified';
 }
