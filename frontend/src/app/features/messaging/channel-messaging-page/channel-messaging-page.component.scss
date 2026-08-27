@@ -84,8 +84,20 @@
 
 .messaging-page__main {
   display: grid;
+  grid-template-columns: minmax(0, 1fr);
   gap: 12px;
   align-content: start;
+}
+
+.messaging-page__main--thread-open {
+  grid-template-columns: minmax(0, 1fr) minmax(300px, 380px);
+  align-items: start;
+}
+
+.messaging-page__conversation {
+  display: grid;
+  min-width: 0;
+  gap: 12px;
   border: 1px solid var(--aip-color-border-default);
   border-radius: 8px;
   padding: 14px;
@@ -136,7 +148,15 @@
   }
 
   .messaging-page__main {
+    grid-template-columns: minmax(0, 1fr);
     min-height: 0;
+  }
+
+  .messaging-page__main--thread-open .messaging-page__conversation {
+    display: none;
+  }
+
+  .messaging-page__conversation {
     padding: 12px;
     padding-bottom: max(12px, env(safe-area-inset-bottom));
   }

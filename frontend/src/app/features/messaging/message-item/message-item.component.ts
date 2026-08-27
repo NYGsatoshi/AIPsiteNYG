@@ -2,6 +2,7 @@ import { AfterViewChecked, Component, ElementRef, EventEmitter, Input, Output, V
 import {
   LucideEllipsis,
   LucideFlag,
+  LucideMessageSquare,
   LucidePencil,
   LucideTrash2
 } from '@lucide/angular';
@@ -12,7 +13,7 @@ import { MessagingMessageActionState, MessagingMessageViewModel } from '../messa
 @Component({
   selector: 'app-message-item',
   standalone: true,
-  imports: [AipDialogComponent, LucideEllipsis, LucideFlag, LucidePencil, LucideTrash2],
+  imports: [AipDialogComponent, LucideEllipsis, LucideFlag, LucideMessageSquare, LucidePencil, LucideTrash2],
   template: `
     <article
       class="message"
@@ -114,6 +115,23 @@ import { MessagingMessageActionState, MessagingMessageViewModel } from '../messa
             </div>
           </div>
         }
+      } @else {
+        <p class="message__tombstone" data-testid="message-tombstone">Message deleted</p>
+      }
+
+      @if (canShowThreadEntry) {
+        <button
+          type="button"
+          class="message__thread-entry"
+          [attr.id]="threadButtonId"
+          [attr.data-testid]="'open-message-thread-' + message.id"
+          [attr.aria-label]="threadEntryAriaLabel"
+          (click)="openThread.emit({ messageId: message.id, triggerElementId: threadButtonId })"
+        >
+          <svg lucideMessageSquare aria-hidden="true"></svg>
+          <span aria-hidden="true">&#x21B3;</span>
+          <span>{{ threadEntryLabel }}</span>
+        </button>
       }
 
       @if (message.readState?.ownReadLabel) {
@@ -169,6 +187,7 @@ export class MessageItemComponent implements AfterViewChecked {
   @Input({ required: true }) messageAction!: MessagingMessageActionState;
   @Input() canEditOwnMessages = false;
   @Input() canViewOthersPreciseReadTimestamps = false;
+  @Input() canOpenThreads = false;
 
   @Output() readonly startEdit = new EventEmitter<string>();
   @Output() readonly editDraftChange = new EventEmitter<{ readonly messageId: string; readonly draft: string }>();
@@ -178,6 +197,10 @@ export class MessageItemComponent implements AfterViewChecked {
   @Output() readonly confirmDelete = new EventEmitter<string>();
   @Output() readonly requestReport = new EventEmitter<string>();
   @Output() readonly confirmReport = new EventEmitter<{ readonly messageId: string; readonly reasonCode: string }>();
+  @Output() readonly openThread = new EventEmitter<{
+    readonly messageId: string;
+    readonly triggerElementId: string;
+  }>();
 
   overflowOpen = false;
   private focusedEditorKey: string | null = null;
@@ -200,6 +223,26 @@ export class MessageItemComponent implements AfterViewChecked {
 
   get overflowPanelId(): string {
     return `message-action-overflow-${this.safeId}`;
+  }
+
+  get threadButtonId(): string {
+    return `open-message-thread-${this.safeId}`;
+  }
+
+  get canShowThreadEntry(): boolean {
+    return this.canOpenThreads &&
+      this.message.deliveryState === 'confirmed' &&
+      !this.message.threadRootMessageId &&
+      (!this.message.isDeleted || (this.message.thread?.replyCount ?? 0) > 0);
+  }
+
+  get threadEntryLabel(): string {
+    const count = this.message.thread?.replyCount ?? 0;
+    return count > 0 ? `${count} ${count === 1 ? 'reply' : 'replies'}` : 'Reply in thread';
+  }
+
+  get threadEntryAriaLabel(): string {
+    return `${this.threadEntryLabel} for message from ${this.message.authorLabel}`;
   }
 
   get isEditing(): boolean {

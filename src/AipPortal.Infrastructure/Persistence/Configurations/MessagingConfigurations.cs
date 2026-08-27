@@ -135,7 +135,12 @@ public sealed class MessageConfiguration : IEntityTypeConfiguration<Message>
 {
     public void Configure(EntityTypeBuilder<Message> builder)
     {
-        builder.ToTable("messages");
+        builder.ToTable("messages", table =>
+        {
+            table.HasCheckConstraint(
+                "CK_messages_thread_root_not_self",
+                "\"ThreadRootMessageId\" IS NULL OR \"ThreadRootMessageId\" <> \"Id\"");
+        });
         builder.ConfigureSoftDeletableEntity();
 
         builder.Property(message => message.Body).HasMaxLength(12000).IsRequired();
@@ -148,6 +153,8 @@ public sealed class MessageConfiguration : IEntityTypeConfiguration<Message>
         builder.HasIndex(message => new { message.ConversationId, message.CreatedAt });
         builder.HasIndex(message => new { message.TenantId, message.WorkspaceId, message.CreatedAt });
         builder.HasIndex(message => new { message.TenantId, message.ConversationId, message.CreatedAt });
+        builder.HasIndex(message => new { message.TenantId, message.ConversationId, message.ThreadRootMessageId, message.CreatedAt, message.Id })
+            .HasDatabaseName("IX_messages_thread_replies");
         builder.HasIndex(message => new { message.TenantId, message.ConversationId, message.AuthorUserId, message.ClientRequestId })
             .IsUnique()
             .HasFilter("\"ClientRequestId\" IS NOT NULL");
@@ -168,6 +175,12 @@ public sealed class MessageConfiguration : IEntityTypeConfiguration<Message>
             .HasOne(message => message.AuthorUser)
             .WithMany()
             .HasForeignKey(message => message.AuthorUserId)
+            .OnDelete(DeleteBehavior.Restrict);
+
+        builder
+            .HasOne(message => message.ThreadRootMessage)
+            .WithMany(message => message.ThreadReplies)
+            .HasForeignKey(message => message.ThreadRootMessageId)
             .OnDelete(DeleteBehavior.Restrict);
     }
 }

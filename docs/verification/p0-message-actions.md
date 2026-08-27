@@ -9,9 +9,10 @@ Status: implementation candidate; explicitly non-closing for Issue #343.
   request is exactly `{ "body": string }`; the returned `MessageResponse`
   reconciles the current row and renders its existing `editedAt` marker.
 - Existing `DELETE /api/messages/{messageId}` is available as an own-message
-  usability affordance after an accessible destructive confirmation. Current
-  list reads filter deleted rows, so success removes the row rather than
-  inventing a durable client tombstone.
+  usability affordance after an accessible destructive confirmation. An
+  ordinary deleted zero-reply row is removed after authorized thread
+  revalidation. Issue #362 separately retains a bodyless deleted root when it
+  has durable replies so its canonical thread remains discoverable.
 - Existing `POST /api/messages/{messageId}/report` is available for a visible
   confirmed row. The client sends the deliberately generic `{ "reasonCode":
   "reported" }` request and accurately says only that the current service
@@ -33,7 +34,7 @@ This candidate does **not** close Issue #343. It does not provide Reply,
 Save/bookmark, React/reactions, Copy, a moderator capability projection, a new
 message endpoint, or an altered authentication contract. The current source
 also lacks canonical version-token edit preconditions/history, the 24-hour
-sender-delete rule, durable tombstone retention on list reload, quoted replies,
+sender-delete rule, general zero-reply tombstone retention on list reload, quoted replies,
 emoji reactions, and report evidence scope/case workflow. The external
 messaging product contract must be completed through separately authorized
 backend and product work before those behavior claims can be made.

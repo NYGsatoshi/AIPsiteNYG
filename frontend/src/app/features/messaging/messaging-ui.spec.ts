@@ -57,6 +57,7 @@ function flushConversationOpen(
   httpMock: HttpTestingController,
   conversationId = 'conversation-a',
   includeOwnMessage = false,
+  canCreateThread = false,
 ): void {
   httpMock.expectOne('/api/conversations').flush({
     items: [
@@ -84,6 +85,7 @@ function flushConversationOpen(
         displayName: 'Mock User A',
         canRead: true,
         canPost: true,
+        canCreateThread,
         removedAt: null,
         leftAt: null
       }
@@ -458,6 +460,7 @@ describe('Messaging MVP0 backend wiring', () => {
     expect(deleteRequest.request.method).toBe('DELETE');
     expect(deleteRequest.request.withCredentials).toBe(true);
     deleteRequest.flush({ status: 'OK' });
+    httpMock.expectOne('/api/messages/message-own/thread').flush(deletedZeroReplyThread('message-own'));
     fixture.detectChanges();
 
     expect(root.querySelector('#message-message-own')).toBeNull();
@@ -533,6 +536,7 @@ describe('Messaging MVP0 backend wiring', () => {
       messageId: 'message-own',
       messageVersion: 3,
     }));
+    const deletionRevalidation = httpMock.expectOne('/api/messages/message-own/thread');
     patch.flush({
       id: 'message-own',
       workspaceId: 'workspace-a',
@@ -545,6 +549,7 @@ describe('Messaging MVP0 backend wiring', () => {
       isDeleted: false,
       version: 2,
     });
+    deletionRevalidation.flush(deletedZeroReplyThread('message-own'));
 
     expect(facade.page().messages.find((message) => message.id === 'message-own')).toBeUndefined();
     expect(facade.messageAction().feedback).toMatchObject({ message: 'Message was removed.', focusTimeline: true });
@@ -612,9 +617,48 @@ describe('Messaging MVP0 backend wiring', () => {
       messageId: 'message-own',
       messageVersion: 3,
     }));
+    httpMock.expectOne('/api/messages/message-own/thread').flush(deletedZeroReplyThread('message-own'));
     fixture.detectChanges();
     await Promise.resolve();
 
+    expect(document.activeElement).toBe(root.querySelector('#message-timeline'));
+  });
+
+  it('keeps deletion focus in the thread, then falls back to the timeline when its trigger is removed', async () => {
+    const events = new Subject<DurableRealtimeEvent>();
+    const httpMock = await configureRealtimeActionPage(events);
+    const fixture = TestBed.createComponent(ChannelMessagingPageComponent);
+    flushConversationOpen(httpMock, 'conversation-a', true, true);
+    fixture.detectChanges();
+
+    const root = fixture.nativeElement as HTMLElement;
+    const trigger = root.querySelector<HTMLButtonElement>('[data-testid="open-message-thread-message-own"]')!;
+    trigger.click();
+    httpMock.expectOne('/api/messages/message-own/thread').flush(liveZeroReplyThread('message-own'));
+    fixture.detectChanges();
+    await Promise.resolve();
+
+    const textarea = root.querySelector<HTMLTextAreaElement>('[data-testid="thread-reply-draft"]')!;
+    textarea.focus();
+    expect(document.activeElement).toBe(textarea);
+
+    events.next(messageRealtimeEvent('Messaging.MessageDeleted.v1', {
+      conversationId: 'conversation-a',
+      messageId: 'message-own',
+      messageVersion: 3,
+    }));
+    httpMock.expectOne('/api/messages/message-own/thread').flush(deletedZeroReplyThread('message-own'));
+    fixture.detectChanges();
+    await Promise.resolve();
+
+    expect(root.querySelector('[data-testid="open-message-thread-message-own"]')).toBeNull();
+    const back = root.querySelector<HTMLButtonElement>('[data-testid="thread-back"]')!;
+    expect(document.activeElement).toBe(back);
+    back.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true, cancelable: true }));
+    fixture.detectChanges();
+    await Promise.resolve();
+
+    expect(root.querySelector('[data-testid="thread-preview"]')).toBeNull();
     expect(document.activeElement).toBe(root.querySelector('#message-timeline'));
   });
 
@@ -1117,4 +1161,43 @@ describe('Messaging MVP0 backend wiring', () => {
 
 function texts(root: HTMLElement, selector: string): readonly string[] {
   return Array.from(root.querySelectorAll(selector)).map((element) => element.textContent ?? '');
+}
+
+function deletedZeroReplyThread(messageId: string): Record<string, unknown> {
+  return {
+    rootMessage: {
+      id: messageId,
+      workspaceId: 'workspace-a',
+      conversationId: 'conversation-a',
+      authorUserId: currentUserId,
+      authorDisplayName: 'Mock User A',
+      body: '',
+      attachments: [],
+      createdAt: '2026-07-09T01:01:00Z',
+      isDeleted: true,
+      version: 3
+    },
+    replies: [],
+    summary: {
+      threadRootMessageId: messageId,
+      replyCount: 0,
+      latestReplyAt: null,
+      participantDisplayNames: []
+    },
+    hasMore: false,
+    maximumReplies: 100
+  };
+}
+
+function liveZeroReplyThread(messageId: string): Record<string, unknown> {
+  const thread = deletedZeroReplyThread(messageId);
+  return {
+    ...thread,
+    rootMessage: {
+      ...(thread['rootMessage'] as Record<string, unknown>),
+      body: 'My editable backend message',
+      isDeleted: false,
+      version: 1
+    }
+  };
 }

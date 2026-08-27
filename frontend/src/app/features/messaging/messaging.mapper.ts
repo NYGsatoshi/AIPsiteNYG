@@ -1,7 +1,9 @@
 import {
   ConversationDetailDto,
   ConversationDto,
-  MessageDto
+  MessageDto,
+  MessageThreadDto,
+  MessageThreadSummaryDto
 } from './messaging.api';
 import {
   MessagingCapability,
@@ -10,7 +12,9 @@ import {
   MessagingMessageViewModel,
   MessagingPageStatus,
   MessagingPageViewModel,
-  MessagingRouteKind
+  MessagingRouteKind,
+  MessagingThreadSummaryViewModel,
+  MessagingThreadViewModel
 } from './messaging.types';
 
 export interface MessagingMapperContext {
@@ -44,6 +48,10 @@ export function mapConversationPage(
 
   if (canPost) {
     capabilities.push('postMessage');
+  }
+
+  if (canRead && viewer?.canCreateThread === true && conversation.isLocked !== true && conversation.isArchived !== true) {
+    capabilities.push('createThread');
   }
 
   const status: MessagingPageStatus = viewerWasRemoved || viewerLeft
@@ -115,6 +123,7 @@ export function mapConversationListItem(
 export function mapMessage(message: MessageDto, currentUserId: string): MessagingMessageViewModel {
   return {
     id: stringValue(message.id) ?? `message-${Date.now()}`,
+    authorUserId: stringValue(message.authorUserId),
     authorLabel: stringValue(message.authorDisplayName) ?? 'Unknown user',
     authorRoleLabel: 'member',
     isOwnMessage: stringValue(message.authorUserId) === currentUserId,
@@ -126,7 +135,84 @@ export function mapMessage(message: MessageDto, currentUserId: string): Messagin
     clientRequestId: stringValue(message.clientRequestId),
     sentAtLabel: formatDate(message.createdAt),
     deliveryState: 'confirmed',
-    retryAllowed: false
+    retryAllowed: false,
+    threadRootMessageId: stringValue(message.threadRootMessageId),
+    thread: mapThreadSummary(message.thread)
+  };
+}
+
+export function mapThreadSummary(
+  summary: MessageThreadSummaryDto | null | undefined
+): MessagingThreadSummaryViewModel | undefined {
+  const threadRootMessageId = strictIdentity(summary?.threadRootMessageId);
+  const replyCount = nonNegativeInteger(summary?.replyCount);
+  if (!threadRootMessageId || replyCount === undefined) {
+    return undefined;
+  }
+  return {
+    threadRootMessageId,
+    replyCount,
+    latestReplyAt: stringValue(summary?.latestReplyAt),
+    participantDisplayNames: (summary?.participantDisplayNames ?? [])
+      .filter((value): value is string => typeof value === 'string' && value.length > 0)
+      .slice(0, 3)
+  };
+}
+
+export function mapMessageThread(
+  value: MessageThreadDto,
+  currentUserId: string,
+  triggerElementId?: string
+): MessagingThreadViewModel | null {
+  if (!value.rootMessage || !value.summary || !Array.isArray(value.replies)) {
+    return null;
+  }
+  const rootMessageId = strictIdentity(value.rootMessage.id);
+  const rootConversationId = strictIdentity(value.rootMessage.conversationId);
+  const maximumReplies = positiveInteger(value.maximumReplies);
+  if (!rootMessageId || !rootConversationId || maximumReplies === undefined) {
+    return null;
+  }
+  const rootMessage = mapMessage(value.rootMessage, currentUserId);
+  const summary = mapThreadSummary(value.summary);
+  if (
+    !summary ||
+    rootMessage.threadRootMessageId ||
+    summary.threadRootMessageId !== rootMessageId ||
+    typeof value.hasMore !== 'boolean'
+  ) {
+    return null;
+  }
+  const replyIds = value.replies.map((reply) => strictIdentity(reply.id));
+  if (
+    replyIds.some((replyId) => !replyId) ||
+    new Set(replyIds).size !== replyIds.length ||
+    value.replies.some((reply) =>
+      strictIdentity(reply.threadRootMessageId) !== rootMessageId ||
+      strictIdentity(reply.conversationId) !== rootConversationId
+    )
+  ) {
+    return null;
+  }
+  if (
+    value.replies.length > maximumReplies ||
+    summary.replyCount < value.replies.length ||
+    (value.hasMore ? summary.replyCount <= value.replies.length : summary.replyCount !== value.replies.length)
+  ) {
+    return null;
+  }
+  const replies = value.replies.map((reply) => mapMessage(reply, currentUserId));
+  return {
+    status: 'ready',
+    rootMessageId,
+    rootMessage,
+    replies,
+    summary,
+    hasMore: value.hasMore,
+    maximumReplies,
+    draft: '',
+    sending: false,
+    triggerElementId
   };
 }
 
@@ -183,6 +269,22 @@ function stringValue(value: unknown): string | undefined {
 
 function numberValue(value: unknown): number | undefined {
   return typeof value === 'number' && Number.isFinite(value) ? value : undefined;
+}
+
+function nonNegativeInteger(value: unknown): number | undefined {
+  return typeof value === 'number' && Number.isSafeInteger(value) && value >= 0
+    ? value
+    : undefined;
+}
+
+function positiveInteger(value: unknown): number | undefined {
+  return typeof value === 'number' && Number.isSafeInteger(value) && value > 0
+    ? value
+    : undefined;
+}
+
+function strictIdentity(value: unknown): string | undefined {
+  return typeof value === 'string' && value.trim().length > 0 ? value : undefined;
 }
 
 function booleanValue(value: unknown): boolean | undefined {

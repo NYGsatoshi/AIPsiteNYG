@@ -50,6 +50,7 @@ import { NewMessageBannerComponent } from '../new-message-banner/new-message-ban
                 [messageAction]="messageAction"
                 [canEditOwnMessages]="canEditOwnMessages"
                 [canViewOthersPreciseReadTimestamps]="canViewOthersPreciseReadTimestamps"
+                [canOpenThreads]="canOpenThreads"
                 (startEdit)="startEdit.emit($event)"
                 (editDraftChange)="editDraftChange.emit($event)"
                 (saveEditRequested)="saveEditRequested.emit($event)"
@@ -58,6 +59,7 @@ import { NewMessageBannerComponent } from '../new-message-banner/new-message-ban
                 (confirmDelete)="confirmDelete.emit($event)"
                 (requestReport)="requestReport.emit($event)"
                 (confirmReport)="confirmReport.emit($event)"
+                (openThread)="openThread.emit($event)"
               />
             }
           }
@@ -74,6 +76,7 @@ export class MessageTimelineComponent implements AfterViewChecked {
   @Input() canReadBody = true;
   @Input() canEditOwnMessages = false;
   @Input() canViewOthersPreciseReadTimestamps = false;
+  @Input() canOpenThreads = false;
   @Input() hasNewMessagesWhileReading = false;
   @Input() inlineError = '';
   @Input() messageAction: MessagingMessageActionState = {
@@ -94,6 +97,10 @@ export class MessageTimelineComponent implements AfterViewChecked {
   @Output() readonly confirmDelete = new EventEmitter<string>();
   @Output() readonly requestReport = new EventEmitter<string>();
   @Output() readonly confirmReport = new EventEmitter<{ readonly messageId: string; readonly reasonCode: string }>();
+  @Output() readonly openThread = new EventEmitter<{
+    readonly messageId: string;
+    readonly triggerElementId: string;
+  }>();
 
   private focusedFeedbackId: number | null = null;
 

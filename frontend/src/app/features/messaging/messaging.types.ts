@@ -12,6 +12,7 @@ export type MessagingPageStatus =
 export type MessagingCapability =
   | 'readBody'
   | 'postMessage'
+  | 'createThread'
   | 'retryMessage'
   | 'viewOwnReadMarker'
   | 'viewOthersPreciseReadTimestamps';
@@ -91,6 +92,7 @@ export interface MessagingMessageReadState {
 export interface MessagingMessageViewModel {
   readonly id: string;
   readonly clientRequestId?: string;
+  readonly authorUserId?: string;
   readonly authorLabel: string;
   readonly authorRoleLabel: string;
   readonly isOwnMessage: boolean;
@@ -106,6 +108,32 @@ export interface MessagingMessageViewModel {
   readonly retryAllowed: boolean;
   readonly readState?: MessagingMessageReadState;
   readonly mentionedUserIds?: readonly string[];
+  readonly threadRootMessageId?: string;
+  readonly thread?: MessagingThreadSummaryViewModel;
+}
+
+export interface MessagingThreadSummaryViewModel {
+  readonly threadRootMessageId: string;
+  readonly replyCount: number;
+  readonly latestReplyAt?: string;
+  readonly participantDisplayNames: readonly string[];
+}
+
+export type MessagingThreadStatus = 'closed' | 'loading' | 'ready' | 'permissionDenied' | 'error';
+
+export interface MessagingThreadViewModel {
+  readonly status: MessagingThreadStatus;
+  readonly rootMessageId: string | null;
+  readonly rootMessage?: MessagingMessageViewModel;
+  readonly replies: readonly MessagingMessageViewModel[];
+  readonly summary?: MessagingThreadSummaryViewModel;
+  readonly hasMore: boolean;
+  readonly maximumReplies: number;
+  readonly draft: string;
+  readonly sending: boolean;
+  readonly pendingClientRequestId?: string;
+  readonly triggerElementId?: string;
+  readonly error?: string;
 }
 
 export interface MessagingConversationViewModel {

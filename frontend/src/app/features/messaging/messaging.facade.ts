@@ -13,7 +13,9 @@ import { MessagingApi } from './messaging.api';
 import {
   mapConversationListItem,
   mapConversationPage,
-  mapMessage
+  mapMessage,
+  mapMessageThread,
+  mapThreadSummary
 } from './messaging.mapper';
 import {
   MessagingDraftScope,
@@ -22,7 +24,8 @@ import {
   MessagingMessageViewModel,
   MessagingPageStatus,
   MessagingPageViewModel,
-  MessagingRouteKind
+  MessagingRouteKind,
+  MessagingThreadViewModel
 } from './messaging.types';
 import { MessageNavigationStateService } from './message-navigation-state.service';
 
@@ -36,6 +39,15 @@ const EMPTY_MESSAGE_ACTION: MessagingMessageActionState = {
   mode: 'idle',
   draft: '',
   pending: null
+};
+const EMPTY_THREAD: MessagingThreadViewModel = {
+  status: 'closed',
+  rootMessageId: null,
+  replies: [],
+  hasMore: false,
+  maximumReplies: 100,
+  draft: '',
+  sending: false
 };
 
 @Injectable({ providedIn: 'root' })
@@ -52,6 +64,7 @@ export class MessagingFacade {
     this.withStoredDraft(this.initialPage)
   );
   private readonly messageActionState = signal<MessagingMessageActionState>(EMPTY_MESSAGE_ACTION);
+  private readonly threadState = signal<MessagingThreadViewModel>(EMPTY_THREAD);
   private readonly loadedConversationId = signal<string | null>(
     this.mockPage?.conversation.id ?? null
   );
@@ -62,9 +75,12 @@ export class MessagingFacade {
   private readonly protectedRequests = new Set<Subscription>();
   private requestGeneration = 0;
   private messageActionFeedbackId = 0;
+  private threadRequestGeneration = 0;
+  private readonly threadRefreshGenerations = new Map<string, number>();
 
   readonly page = computed(() => this.withSortedMessages(this.pageState()));
   readonly messageAction = this.messageActionState.asReadonly();
+  readonly thread = this.threadState.asReadonly();
 
   constructor() {
     this.durableEvents = this.realtime.durableEvents$.subscribe((event) => this.applyRealtimeEvent(event));
@@ -256,6 +272,161 @@ export class MessagingFacade {
     this.pageState.set({ ...page, draft: value });
   }
 
+  openThread(messageId: string, triggerElementId: string): void {
+    const page = this.pageState();
+    const root = page.messages.find((message) => message.id === messageId);
+    if (
+      !root ||
+      root.threadRootMessageId ||
+      (root.isDeleted && (root.thread?.replyCount ?? 0) === 0) ||
+      root.deliveryState !== 'confirmed' ||
+      !page.conversation.capabilities.includes('readBody') ||
+      !page.conversation.viewerIsParticipant ||
+      page.conversation.viewerWasRemoved
+    ) {
+      return;
+    }
+    if (this.mockPage) {
+      this.threadState.set({
+        ...EMPTY_THREAD,
+        status: 'error',
+        rootMessageId: messageId,
+        triggerElementId,
+        error: 'Thread loading requires the backend API.'
+      });
+      return;
+    }
+    this.loadThread(messageId, triggerElementId);
+  }
+
+  closeThread(returnFocus = true): void {
+    const triggerElementId = this.threadState().triggerElementId;
+    const closeGeneration = ++this.threadRequestGeneration;
+    this.threadState.set(EMPTY_THREAD);
+    if (returnFocus) {
+      // On the dedicated mobile pane the conversation remains display:none
+      // until Angular renders the closed state. The correct trigger therefore
+      // exists during this microtask but cannot accept focus yet. Verify the
+      // focus result and retry after at most two render frames, re-querying the
+      // current DOM each time so a replaced trigger is never captured stale.
+      queueMicrotask(() => this.restoreClosedThreadFocus(triggerElementId, closeGeneration, 2));
+    }
+  }
+
+  setThreadDraft(value: string): void {
+    this.threadState.update((thread) => thread.status === 'ready'
+      ? { ...thread, draft: value, pendingClientRequestId: undefined, error: undefined }
+      : thread);
+  }
+
+  sendThreadDraft(mentionedUserIds: readonly string[] = []): void {
+    const page = this.pageState();
+    const thread = this.threadState();
+    const body = thread.draft.trim();
+    if (
+      this.mockPage ||
+      thread.status !== 'ready' ||
+      !thread.rootMessageId ||
+      !body ||
+      thread.sending ||
+      !this.canReplyToThread(page, thread)
+    ) {
+      return;
+    }
+
+    const generation = this.threadRequestGeneration;
+    const rootMessageId = thread.rootMessageId;
+    const clientRequestId = thread.pendingClientRequestId ?? createClientRequestId();
+    const normalizedMentionedUserIds = [...new Set(mentionedUserIds.filter((userId) => userId.length > 0))];
+    this.threadState.set({
+      ...thread,
+      sending: true,
+      pendingClientRequestId: clientRequestId,
+      error: undefined
+    });
+    const request = this.api.sendThreadMessage(
+      rootMessageId,
+      body,
+      clientRequestId,
+      normalizedMentionedUserIds
+    ).subscribe({
+      next: (response) => {
+        const active = this.threadState();
+        if (
+          generation !== this.threadRequestGeneration ||
+          active.status !== 'ready' ||
+          active.rootMessageId !== rootMessageId ||
+          !response.message ||
+          !response.summary
+        ) {
+          return;
+        }
+        const responseMessageId = nonEmptyString(response.message.id);
+        const message = mapMessage(response.message, this.currentUserId());
+        const summary = mapThreadSummary(response.summary);
+        if (
+          !responseMessageId ||
+          message.id !== responseMessageId ||
+          message.threadRootMessageId !== rootMessageId ||
+          nonEmptyString(response.message.conversationId) !== page.conversation.id ||
+          !summary ||
+          summary.threadRootMessageId !== rootMessageId
+        ) {
+          this.failThreadLoad(rootMessageId, active.triggerElementId, undefined);
+          return;
+        }
+        // A validation-400 revalidation may still be in flight when a same-key
+        // retry succeeds. Invalidate that older projection without preventing
+        // a subsequent ThreadChanged event from starting a newer refresh.
+        this.threadRefreshGenerations.set(
+          rootMessageId,
+          (this.threadRefreshGenerations.get(rootMessageId) ?? 0) + 1
+        );
+        this.threadState.set({
+          ...active,
+          replies: reconcileMessage(active.replies, message),
+          summary,
+          draft: '',
+          sending: false,
+          pendingClientRequestId: undefined,
+          error: undefined
+        });
+        this.updateRootThreadSummary(rootMessageId, summary);
+      },
+      error: (error: { status?: number }) => {
+        const active = this.threadState();
+        if (
+          generation !== this.threadRequestGeneration ||
+          active.status !== 'ready' ||
+          active.rootMessageId !== rootMessageId
+        ) {
+          return;
+        }
+        if (isExplicitThreadAccessFailure(error.status)) {
+          this.failThreadLoad(rootMessageId, active.triggerElementId, error.status);
+          return;
+        }
+        const rejectedState: MessagingThreadViewModel = {
+          ...active,
+          sending: false,
+          pendingClientRequestId: clientRequestId,
+          error: error.status === 400
+            ? 'Thread reply was rejected. Your draft is still available.'
+            : 'Thread reply could not be sent. Your draft is still available.'
+        };
+        this.threadState.set(rejectedState);
+        // The controller intentionally represents validation, safety, and
+        // idempotency-target failures as 400. A POST 400 is therefore not an
+        // authorization signal: retain the draft/retry identity and revalidate
+        // the protected projection through its authoritative GET boundary.
+        if (error.status === 400) {
+          this.refreshThreadProjection(rootMessageId, true);
+        }
+      }
+    });
+    this.trackProtectedRequest(request);
+  }
+
   manualRefresh(): void {
     if (!this.mockPage) {
       const page = this.pageState();
@@ -325,6 +496,7 @@ export class MessagingFacade {
     const pendingMessage: MessagingMessageViewModel = {
       id: `pending-${clientRequestId}`,
       clientRequestId,
+      authorUserId: this.currentUserId(),
       authorLabel: this.currentUserDisplayName(),
       authorRoleLabel: 'member',
       isOwnMessage: true,
@@ -541,13 +713,7 @@ export class MessagingFacade {
         if (!this.isCurrentRequest(generation, conversationId)) {
           return;
         }
-        // The current list endpoint omits DeletedAt rows, so reconcile a
-        // successful delete by removing it rather than inventing a durable tombstone.
-        this.pageState.update((page) => ({
-          ...page,
-          messages: page.messages.filter((current) => current.id !== messageId),
-          status: page.messages.length <= 1 ? 'empty' : page.status
-        }));
+        this.reconcileDeletedTimelineMessage(messageId);
         this.setMessageActionFeedback('Message deleted.', true);
       },
       error: (error: { status?: number; httpStatus?: number }) => {
@@ -665,6 +831,292 @@ export class MessagingFacade {
     });
   }
 
+  private loadThread(rootMessageId: string, triggerElementId: string): void {
+    const page = this.pageState();
+    const generation = ++this.threadRequestGeneration;
+    const refreshGeneration = (this.threadRefreshGenerations.get(rootMessageId) ?? 0) + 1;
+    this.threadRefreshGenerations.set(rootMessageId, refreshGeneration);
+    this.threadState.set({
+      ...EMPTY_THREAD,
+      status: 'loading',
+      rootMessageId,
+      triggerElementId
+    });
+    const request = this.api.getMessageThread(rootMessageId).subscribe({
+      next: (response) => {
+        if (
+          generation !== this.threadRequestGeneration ||
+          this.threadRefreshGenerations.get(rootMessageId) !== refreshGeneration ||
+          this.pageState().conversation.id !== page.conversation.id
+        ) {
+          return;
+        }
+        const mapped = mapMessageThread(response, this.currentUserId(), triggerElementId);
+        if (
+          !mapped ||
+          mapped.rootMessageId !== rootMessageId ||
+          nonEmptyString(response.rootMessage?.conversationId) !== page.conversation.id
+        ) {
+          this.failThreadLoad(rootMessageId, triggerElementId, undefined);
+          return;
+        }
+        this.threadState.set(mapped);
+        this.updateRootThreadSummary(rootMessageId, mapped.summary);
+      },
+      error: (error: { status?: number }) => {
+        if (
+          generation === this.threadRequestGeneration &&
+          this.threadRefreshGenerations.get(rootMessageId) === refreshGeneration
+        ) {
+          this.failThreadLoad(rootMessageId, triggerElementId, error.status);
+        }
+      }
+    });
+    this.trackProtectedRequest(request);
+  }
+
+  private refreshThreadProjection(rootMessageId: string, preserveComposerError = false): void {
+    if (this.mockPage || !this.pageState().conversation.id) {
+      return;
+    }
+    const pageConversationId = this.pageState().conversation.id;
+    const refreshGeneration = (this.threadRefreshGenerations.get(rootMessageId) ?? 0) + 1;
+    this.threadRefreshGenerations.set(rootMessageId, refreshGeneration);
+    const request = this.api.getMessageThread(rootMessageId).subscribe({
+      next: (response) => {
+        if (
+          this.threadRefreshGenerations.get(rootMessageId) !== refreshGeneration ||
+          this.pageState().conversation.id !== pageConversationId
+        ) {
+          return;
+        }
+        const active = this.threadState();
+        const timelineRootIsDeleted = this.pageState().messages.some((message) =>
+          message.id === rootMessageId && message.isDeleted
+        );
+        const mapped = mapMessageThread(response, this.currentUserId(), active.rootMessageId === rootMessageId
+          ? active.triggerElementId
+          : undefined);
+        if (
+          !mapped ||
+          mapped.rootMessageId !== rootMessageId ||
+          nonEmptyString(response.rootMessage?.conversationId) !== pageConversationId
+        ) {
+          if (timelineRootIsDeleted) {
+            this.removeTimelineMessage(rootMessageId);
+          }
+          if (active.rootMessageId === rootMessageId) {
+            this.failThreadLoad(rootMessageId, active.triggerElementId, undefined);
+          } else {
+            this.updateRootThreadSummary(rootMessageId, undefined);
+          }
+          return;
+        }
+        if (timelineRootIsDeleted && mapped.summary.replyCount === 0) {
+          this.removeTimelineMessage(rootMessageId);
+        } else {
+          this.updateRootThreadSummary(rootMessageId, mapped.summary);
+        }
+        if (active.rootMessageId === rootMessageId && active.status !== 'closed') {
+          this.threadState.set({
+            ...mapped,
+            rootMessage: timelineRootIsDeleted && mapped.rootMessage
+              ? deletedMessageTombstone(mapped.rootMessage)
+              : mapped.rootMessage,
+            draft: active.draft,
+            sending: active.sending,
+            pendingClientRequestId: active.pendingClientRequestId,
+            error: preserveComposerError || active.sending ? active.error : undefined
+          });
+        }
+      },
+      error: (error: { status?: number }) => {
+        if (
+          this.threadRefreshGenerations.get(rootMessageId) !== refreshGeneration ||
+          this.pageState().conversation.id !== pageConversationId
+        ) {
+          return;
+        }
+        const active = this.threadState();
+        const timelineRootIsDeleted = this.pageState().messages.some((message) =>
+          message.id === rootMessageId && message.isDeleted
+        );
+        if (timelineRootIsDeleted && isProtectedLoadFailure(error.status)) {
+          this.removeTimelineMessage(rootMessageId);
+        }
+        if (active.rootMessageId === rootMessageId) {
+          this.failThreadLoad(rootMessageId, active.triggerElementId, error.status);
+        } else {
+          this.updateRootThreadSummary(rootMessageId, undefined);
+        }
+      }
+    });
+    this.trackProtectedRequest(request);
+  }
+
+  private failThreadLoad(
+    rootMessageId: string,
+    triggerElementId: string | undefined,
+    status: number | undefined
+  ): void {
+    this.threadRequestGeneration++;
+    this.updateRootThreadSummary(rootMessageId, undefined);
+    this.threadState.set({
+      ...EMPTY_THREAD,
+      status: isProtectedLoadFailure(status) ? 'permissionDenied' : 'error',
+      rootMessageId,
+      triggerElementId,
+      error: isProtectedLoadFailure(status)
+        ? 'This thread is no longer available.'
+        : 'Thread data could not be loaded.'
+    });
+  }
+
+  private updateRootThreadSummary(
+    rootMessageId: string,
+    summary: MessagingMessageViewModel['thread']
+  ): void {
+    this.pageState.update((page) => ({
+      ...page,
+      messages: page.messages.map((message) => message.id === rootMessageId
+        ? { ...message, thread: summary }
+        : message)
+    }));
+  }
+
+  private reconcileDeletedTimelineMessage(messageId: string, version?: number): void {
+    const page = this.pageState();
+    const target = page.messages.find((message) => message.id === messageId);
+    const activeThread = this.threadState();
+    const hasPinnedActiveRoot = activeThread.rootMessageId === messageId && !!activeThread.rootMessage;
+    if (target?.threadRootMessageId || (!target && !hasPinnedActiveRoot)) {
+      return;
+    }
+
+    const pageConversationId = page.conversation.id;
+    const refreshGeneration = (this.threadRefreshGenerations.get(messageId) ?? 0) + 1;
+    this.threadRefreshGenerations.set(messageId, refreshGeneration);
+    this.pageState.update((current) => ({
+      ...current,
+      messages: current.messages.map((message) => message.id === messageId
+        ? deletedMessageTombstone(message, version)
+        : message)
+    }));
+    this.threadState.update((thread) => thread.rootMessageId === messageId && thread.rootMessage
+      ? {
+          ...thread,
+          rootMessage: deletedMessageTombstone(thread.rootMessage, version),
+          sending: false
+        }
+      : thread);
+
+    if (this.mockPage || !pageConversationId) {
+      if ((target?.thread?.replyCount ?? 0) === 0) {
+        this.removeTimelineMessage(messageId);
+      }
+      return;
+    }
+
+    const request = this.api.getMessageThread(messageId).subscribe({
+      next: (response) => {
+        if (
+          this.threadRefreshGenerations.get(messageId) !== refreshGeneration ||
+          this.pageState().conversation.id !== pageConversationId
+        ) {
+          return;
+        }
+        const active = this.threadState();
+        const mapped = mapMessageThread(response, this.currentUserId(), active.rootMessageId === messageId
+          ? active.triggerElementId
+          : undefined);
+        if (
+          !mapped ||
+          mapped.rootMessageId !== messageId ||
+          nonEmptyString(response.rootMessage?.conversationId) !== pageConversationId ||
+          !mapped.rootMessage
+        ) {
+          this.removeTimelineMessage(messageId);
+          if (active.rootMessageId === messageId) {
+            this.failThreadLoad(messageId, active.triggerElementId, undefined);
+          }
+          return;
+        }
+
+        const authoritativeRoot = deletedMessageTombstone(
+          mapped.rootMessage,
+          maximumMessageVersion(mapped.rootMessage.version, version)
+        );
+        const deletedProjection = {
+          ...mapped,
+          rootMessage: deletedMessageTombstone(
+            authoritativeRoot,
+            maximumMessageVersion(active.rootMessage?.version, authoritativeRoot.version)
+          ),
+          draft: active.rootMessageId === messageId ? active.draft : mapped.draft,
+          sending: false,
+          pendingClientRequestId: active.rootMessageId === messageId
+            ? active.pendingClientRequestId
+            : mapped.pendingClientRequestId
+        };
+        if (mapped.summary.replyCount > 0) {
+          this.pageState.update((current) => ({
+            ...current,
+            messages: current.messages.map((message) => message.id === messageId
+              ? {
+                  ...authoritativeRoot,
+                  readState: message.readState,
+                  thread: mapped.summary,
+                  version: maximumMessageVersion(message.version, authoritativeRoot.version)
+                }
+              : message)
+          }));
+        } else {
+          this.removeTimelineMessage(messageId);
+        }
+        if (active.rootMessageId === messageId && active.status !== 'closed') {
+          this.threadState.set(deletedProjection);
+        }
+      },
+      error: (error: { status?: number; httpStatus?: number }) => {
+        if (
+          this.threadRefreshGenerations.get(messageId) !== refreshGeneration ||
+          this.pageState().conversation.id !== pageConversationId
+        ) {
+          return;
+        }
+        if (isProtectedLoadFailure(httpStatus(error))) {
+          const active = this.threadState();
+          this.removeTimelineMessage(messageId);
+          if (active.rootMessageId === messageId) {
+            this.failThreadLoad(messageId, active.triggerElementId, httpStatus(error));
+          }
+          return;
+        }
+        // A transient failure cannot prove that the deleted root has no durable
+        // replies. Retain only the neutral tombstone until catch-up or reload.
+        this.pageState.update((current) => ({ ...current, realtimeDegraded: true }));
+      }
+    });
+    this.trackProtectedRequest(request);
+  }
+
+  private removeTimelineMessage(messageId: string): void {
+    this.pageState.update((page) => {
+      const messages = page.messages.filter((message) => message.id !== messageId);
+      return {
+        ...page,
+        messages,
+        status: messages.length === 0 ? 'empty' : page.status
+      };
+    });
+  }
+
+  private canReplyToThread(page: MessagingPageViewModel, thread: MessagingThreadViewModel): boolean {
+    return this.canPost(page) &&
+      thread.rootMessage?.isDeleted !== true &&
+      ((thread.summary?.replyCount ?? 0) > 0 || page.conversation.capabilities.includes('createThread'));
+  }
+
   private canPost(page: MessagingPageViewModel): boolean {
     return (
       page.conversation.viewerIsParticipant &&
@@ -764,27 +1216,68 @@ export class MessagingFacade {
       }
       return;
     }
-    const payload = event.payload as { conversationId?: unknown; message?: unknown; messageId?: unknown; messageVersion?: unknown; body?: unknown; updatedAt?: unknown; deletionMode?: unknown };
+    const payload = event.payload as {
+      conversationId?: unknown;
+      message?: unknown;
+      messageId?: unknown;
+      messageVersion?: unknown;
+      body?: unknown;
+      updatedAt?: unknown;
+      deletionMode?: unknown;
+      threadRootMessageId?: unknown;
+      requiresRefetch?: unknown;
+    };
     if (payload.conversationId !== page.conversation.id && (payload.message as { conversationId?: unknown } | undefined)?.conversationId !== page.conversation.id) {
+      return;
+    }
+    if (event.eventType === 'Messaging.ThreadChanged.v1') {
+      const rootMessageId = nonEmptyString(payload.threadRootMessageId);
+      if (rootMessageId) {
+        // The event is intentionally metadata-only and carries no participant
+        // names. Always reconcile from the authorized bounded HTTP projection;
+        // per-root generations prevent late responses from replacing newer data.
+        this.refreshThreadProjection(rootMessageId);
+      }
       return;
     }
     if (event.eventType === 'Messaging.MessageCreated.v1' && payload.message && typeof payload.message === 'object') {
       const message = mapRealtimeMessage(payload.message as Record<string, unknown>, this.currentUserId());
+      if (this.hasDeletedMessageIdentity(message)) {
+        // Deletion is terminal even when an older create event arrives late or
+        // reconciles through the same client-request identity.
+        return;
+      }
+      if (message.threadRootMessageId) {
+        // A reply belongs only to the thread timeline. HTTP reconciliation also
+        // updates the root count and participant summary for out-of-order events.
+        this.refreshThreadProjection(message.threadRootMessageId);
+        return;
+      }
       this.pageState.update((current) => ({ ...current, messages: reconcileMessage(current.messages, message), hasNewMessagesWhileReading: !message.isOwnMessage, realtimeDegraded: false }));
       return;
     }
     if (event.eventType === 'Messaging.MessageUpdated.v1' || event.eventType === 'Messaging.MessageDeleted.v1') {
       const messageId = typeof payload.messageId === 'string' ? payload.messageId : '';
       const version = typeof payload.messageVersion === 'number' ? payload.messageVersion : undefined;
+      const threadRootMessageId = nonEmptyString(payload.threadRootMessageId);
+      if (event.eventType === 'Messaging.MessageUpdated.v1') {
+        const thread = this.threadState();
+        const alreadyDeleted = this.pageState().messages.some((message) =>
+          message.id === messageId && message.isDeleted) ||
+          (thread.rootMessage?.id === messageId && thread.rootMessage.isDeleted) ||
+          thread.replies.some((reply) => reply.id === messageId && reply.isDeleted);
+        if (alreadyDeleted) {
+          // Deletion is terminal. Late or corrupt update events must never
+          // restore a body after an authoritative tombstone was observed.
+          return;
+        }
+      }
+      if (threadRootMessageId) {
+        this.refreshThreadProjection(threadRootMessageId);
+        return;
+      }
       if (event.eventType === 'Messaging.MessageDeleted.v1') {
-        this.pageState.update((current) => {
-          const messages = current.messages.filter((message) => message.id !== messageId);
-          return {
-            ...current,
-            messages,
-            status: messages.length === 0 ? 'empty' : current.status
-          };
-        });
+        this.reconcileDeletedTimelineMessage(messageId, version);
         if (this.messageActionState().messageId === messageId) {
           this.setMessageActionFeedback('Message was removed.', true);
         }
@@ -792,7 +1285,7 @@ export class MessagingFacade {
       }
       this.pageState.update((current) => ({
         ...current,
-        messages: current.messages.map((message) => message.id === messageId && (version === undefined || (message.version ?? 0) < version)
+        messages: current.messages.map((message) => message.id === messageId && !message.isDeleted && (version === undefined || (message.version ?? 0) < version)
           ? {
               ...message,
               body: typeof payload.body === 'string' ? payload.body : message.body,
@@ -801,11 +1294,58 @@ export class MessagingFacade {
             }
           : message)
       }));
+      if (this.threadState().rootMessageId === messageId) {
+        this.refreshThreadProjection(messageId);
+      }
     }
   }
 
   private currentUserId(): string {
     return this.authSession.currentUser()?.userId ?? '';
+  }
+
+  private restoreClosedThreadFocus(
+    triggerElementId: string | undefined,
+    closeGeneration: number,
+    remainingAnimationFrames: number
+  ): void {
+    if (
+      closeGeneration !== this.threadRequestGeneration ||
+      this.threadState().status !== 'closed'
+    ) {
+      return;
+    }
+
+    const trigger = triggerElementId ? document.getElementById(triggerElementId) : null;
+    if (this.tryFocusElement(trigger)) {
+      return;
+    }
+    if (this.tryFocusElement(document.getElementById('message-timeline'))) {
+      return;
+    }
+    if (remainingAnimationFrames <= 0 || typeof window.requestAnimationFrame !== 'function') {
+      return;
+    }
+
+    window.requestAnimationFrame(() => this.restoreClosedThreadFocus(
+      triggerElementId,
+      closeGeneration,
+      remainingAnimationFrames - 1
+    ));
+  }
+
+  private tryFocusElement(element: HTMLElement | null): boolean {
+    element?.focus();
+    return !!element && document.activeElement === element;
+  }
+
+  private hasDeletedMessageIdentity(incoming: MessagingMessageViewModel): boolean {
+    const thread = this.threadState();
+    return [
+      ...this.pageState().messages,
+      ...(thread.rootMessage ? [thread.rootMessage] : []),
+      ...thread.replies
+    ].some((message) => message.isDeleted && sameMessageIdentity(message, incoming));
   }
 
   private currentUserDisplayName(): string {
@@ -818,8 +1358,11 @@ export class MessagingFacade {
 
   private beginRequestGeneration(): number {
     this.requestGeneration++;
+    this.threadRequestGeneration++;
+    this.threadRefreshGenerations.clear();
     this.cancelProtectedRequests();
     this.messageActionState.set(EMPTY_MESSAGE_ACTION);
+    this.threadState.set(EMPTY_THREAD);
     return this.requestGeneration;
   }
 
@@ -998,18 +1541,45 @@ function createClientRequestId(): string {
   return `00000000-0000-4000-8000-${Date.now().toString(16).padStart(12, '0').slice(-12)}`;
 }
 
+function deletedMessageTombstone(
+  message: MessagingMessageViewModel,
+  version?: number
+): MessagingMessageViewModel {
+  return {
+    ...message,
+    body: '',
+    isDeleted: true,
+    editedAt: undefined,
+    mentionedUserIds: undefined,
+    version: version ?? message.version
+  };
+}
+
+function maximumMessageVersion(...versions: readonly (number | undefined)[]): number | undefined {
+  const knownVersions = versions.filter((version): version is number => version !== undefined);
+  return knownVersions.length > 0 ? Math.max(...knownVersions) : undefined;
+}
+
 function reconcileMessage(
   messages: readonly MessagingMessageViewModel[],
   incoming: MessagingMessageViewModel
 ): readonly MessagingMessageViewModel[] {
-  const matchingIndex = messages.findIndex((message) =>
-    message.id === incoming.id ||
-    (!!incoming.clientRequestId && message.clientRequestId === incoming.clientRequestId)
-  );
+  const matchingIndex = messages.findIndex((message) => sameMessageIdentity(message, incoming));
   if (matchingIndex < 0) {
     return [...messages, incoming];
   }
   return messages.map((message, index) => index === matchingIndex ? incoming : message);
+}
+
+function sameMessageIdentity(
+  existing: MessagingMessageViewModel,
+  incoming: MessagingMessageViewModel
+): boolean {
+  return existing.id === incoming.id ||
+    (!!incoming.clientRequestId &&
+      existing.clientRequestId === incoming.clientRequestId &&
+      !!incoming.authorUserId &&
+      existing.authorUserId === incoming.authorUserId);
 }
 
 function mapRealtimeMessage(value: Record<string, unknown>, currentUserId: string): MessagingMessageViewModel {
@@ -1019,6 +1589,7 @@ function mapRealtimeMessage(value: Record<string, unknown>, currentUserId: strin
   return {
     id,
     clientRequestId: typeof value['clientRequestId'] === 'string' ? value['clientRequestId'] : undefined,
+    authorUserId: authorUserId || undefined,
     authorLabel: typeof sender?.['displayName'] === 'string' ? sender['displayName'] : 'Unknown user',
     authorRoleLabel: 'member',
     isOwnMessage: authorUserId !== '' && authorUserId === currentUserId,
@@ -1028,6 +1599,15 @@ function mapRealtimeMessage(value: Record<string, unknown>, currentUserId: strin
     version: typeof value['version'] === 'number' ? value['version'] : undefined,
     sentAtLabel: typeof value['createdAt'] === 'string' ? new Date(value['createdAt']).toLocaleString() : '',
     deliveryState: 'confirmed',
-    retryAllowed: false
+    retryAllowed: false,
+    threadRootMessageId: nonEmptyString(value['threadRootMessageId']) ?? undefined
   };
+}
+
+function isProtectedLoadFailure(status: number | undefined): boolean {
+  return status === 400 || status === 401 || status === 403 || status === 404;
+}
+
+function isExplicitThreadAccessFailure(status: number | undefined): boolean {
+  return status === 401 || status === 403 || status === 404;
 }

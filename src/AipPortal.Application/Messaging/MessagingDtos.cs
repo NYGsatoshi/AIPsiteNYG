@@ -1,5 +1,6 @@
 using AipPortal.Application.Common;
 using AipPortal.Domain.Enums;
+using System.Text.Json.Serialization;
 
 namespace AipPortal.Application.Messaging;
 
@@ -77,13 +78,51 @@ public sealed record AttachmentMetadataRequest(string FileName, string StoredFil
 
 public sealed record AttachmentResponse(Guid Id, string FileName, string ContentType, long FileSize);
 
-public sealed record MessageResponse(Guid Id, Guid WorkspaceId, Guid ConversationId, Guid AuthorUserId, string AuthorDisplayName, string Body, IReadOnlyList<AttachmentResponse> Attachments, DateTimeOffset CreatedAt, DateTimeOffset? UpdatedAt, DateTimeOffset? EditedAt, bool IsDeleted, Guid? ClientRequestId = null, long Version = 1);
+public sealed record MessageResponse(
+    Guid Id,
+    Guid WorkspaceId,
+    Guid ConversationId,
+    Guid AuthorUserId,
+    string AuthorDisplayName,
+    string Body,
+    IReadOnlyList<AttachmentResponse> Attachments,
+    DateTimeOffset CreatedAt,
+    DateTimeOffset? UpdatedAt,
+    DateTimeOffset? EditedAt,
+    bool IsDeleted,
+    Guid? ClientRequestId = null,
+    long Version = 1,
+    Guid? ThreadRootMessageId = null,
+    MessageThreadSummaryResponse? Thread = null);
 
 public sealed record SendMessageRequest(
     string? Body,
     IReadOnlyList<AttachmentMetadataRequest>? Attachments = null,
     Guid? ClientRequestId = null,
     IReadOnlyList<Guid>? MentionedUserIds = null);
+
+[JsonUnmappedMemberHandling(JsonUnmappedMemberHandling.Disallow)]
+public sealed record SendThreadMessageRequest(
+    string? Body,
+    Guid? ClientRequestId = null,
+    IReadOnlyList<Guid>? MentionedUserIds = null);
+
+public sealed record MessageThreadSummaryResponse(
+    Guid ThreadRootMessageId,
+    int ReplyCount,
+    DateTimeOffset? LatestReplyAt,
+    IReadOnlyList<string> ParticipantDisplayNames);
+
+public sealed record MessageThreadResponse(
+    MessageResponse RootMessage,
+    IReadOnlyList<MessageResponse> Replies,
+    MessageThreadSummaryResponse Summary,
+    bool HasMore,
+    int MaximumReplies);
+
+public sealed record ThreadMessageCreatedResponse(
+    MessageResponse Message,
+    MessageThreadSummaryResponse Summary);
 
 public sealed record UpdateMessageRequest(string Body);
 

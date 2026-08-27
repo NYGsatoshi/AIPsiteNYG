@@ -75,6 +75,28 @@ export interface MessageDto {
   readonly isDeleted?: unknown;
   readonly clientRequestId?: unknown;
   readonly version?: unknown;
+  readonly threadRootMessageId?: unknown;
+  readonly thread?: MessageThreadSummaryDto | null;
+}
+
+export interface MessageThreadSummaryDto {
+  readonly threadRootMessageId?: unknown;
+  readonly replyCount?: unknown;
+  readonly latestReplyAt?: unknown;
+  readonly participantDisplayNames?: readonly unknown[];
+}
+
+export interface MessageThreadDto {
+  readonly rootMessage?: MessageDto;
+  readonly replies?: readonly MessageDto[];
+  readonly summary?: MessageThreadSummaryDto;
+  readonly hasMore?: unknown;
+  readonly maximumReplies?: unknown;
+}
+
+export interface ThreadMessageCreatedDto {
+  readonly message?: MessageDto;
+  readonly summary?: MessageThreadSummaryDto;
 }
 
 export interface ConversationRecipientDto {
@@ -147,6 +169,25 @@ export class MessagingApi {
   ): Observable<MessageDto> {
     return this.http.post<MessageDto>(
       `/api/conversations/${conversationId}/messages`,
+      { body, clientRequestId, mentionedUserIds },
+      { withCredentials: true }
+    );
+  }
+
+  getMessageThread(messageId: string): Observable<MessageThreadDto> {
+    return this.http.get<MessageThreadDto>(`/api/messages/${messageId}/thread`, {
+      withCredentials: true
+    });
+  }
+
+  sendThreadMessage(
+    messageId: string,
+    body: string,
+    clientRequestId?: string,
+    mentionedUserIds: readonly string[] = []
+  ): Observable<ThreadMessageCreatedDto> {
+    return this.http.post<ThreadMessageCreatedDto>(
+      `/api/messages/${messageId}/thread/messages`,
       { body, clientRequestId, mentionedUserIds },
       { withCredentials: true }
     );
