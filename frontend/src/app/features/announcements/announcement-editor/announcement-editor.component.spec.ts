@@ -32,6 +32,11 @@ const createDraft = (
   ...overrides,
 });
 
+const nextRenderTick = (): Promise<void> =>
+  new Promise((resolve) => {
+    setTimeout(resolve);
+  });
+
 const renderEditor = async (
   draft: AnnouncementEditorDraft,
 ): Promise<ComponentFixture<AnnouncementEditorComponent>> => {
@@ -160,6 +165,116 @@ describe('AnnouncementEditorComponent', () => {
     });
   });
 
+  it('renders a local-only live preview and returns to the preserved editor values', async () => {
+    const fixture = await renderEditor(createDraft());
+    let publishCount = 0;
+    fixture.componentInstance.publishRequested.subscribe(() => {
+      publishCount += 1;
+    });
+
+    fixture.componentInstance.form.patchValue({
+      title: 'Preview this title',
+      body: 'Preview this body without publishing it.',
+      priority: 'critical',
+      audienceKey: teacherGroupAudience.key,
+      requiresReadConfirmation: true,
+    });
+    fixture.detectChanges();
+
+    const host = fixture.nativeElement as HTMLElement;
+    const previewAction = host.querySelector<HTMLButtonElement>(
+      '[data-testid="announcement-preview-action"]',
+    );
+    expect(previewAction?.type).toBe('button');
+    previewAction?.click();
+    fixture.detectChanges();
+    await fixture.whenStable();
+    await nextRenderTick();
+
+    const preview = host.querySelector<HTMLElement>('[data-testid="announcement-local-preview"]');
+    expect(preview?.textContent).toContain('Preview this title');
+    expect(preview?.textContent).toContain('Preview this body without publishing it.');
+    expect(preview?.textContent).toContain('CRITICAL');
+    expect(preview?.textContent).toContain('School Workspace / Teachers');
+    expect(preview?.textContent).toContain('86 recipients');
+    expect(preview?.textContent).toContain('Required after publication');
+    expect(host.querySelector('[data-testid="announcement-preview-cta-inert"]')).toBeTruthy();
+    expect(host.querySelector('[data-testid="announcement-mark-read-action"]')).toBeNull();
+    expect(publishCount).toBe(0);
+    expect(document.activeElement).toBe(
+      host.querySelector('[data-testid="announcement-preview-heading"]'),
+    );
+
+    const editAction = host.querySelector<HTMLButtonElement>(
+      '[data-testid="announcement-edit-action"]',
+    );
+    expect(editAction?.type).toBe('button');
+    editAction?.click();
+    fixture.detectChanges();
+    await fixture.whenStable();
+    await nextRenderTick();
+
+    expect(host.querySelector('[data-testid="announcement-local-preview"]')).toBeNull();
+    expect(fixture.componentInstance.form.getRawValue()).toEqual({
+      title: 'Preview this title',
+      body: 'Preview this body without publishing it.',
+      priority: 'critical',
+      audienceKey: teacherGroupAudience.key,
+      requiresReadConfirmation: true,
+    });
+    expect(document.activeElement).toBe(
+      host.querySelector('[data-testid="announcement-editor-title"]'),
+    );
+    expect(publishCount).toBe(0);
+
+    fixture.componentInstance.form.controls.body.setValue('Updated after returning to edit.');
+    fixture.componentInstance.openPreview();
+    fixture.detectChanges();
+    await nextRenderTick();
+
+    expect(host.querySelector('[data-testid="announcement-preview-body"]')?.textContent).toContain(
+      'Updated after returning to edit.',
+    );
+    expect(publishCount).toBe(0);
+  });
+
+  it('closes an open preview without retaining revoked audience details', async () => {
+    const fixture = await renderEditor(createDraft());
+    fixture.componentInstance.form.patchValue({
+      title: 'Local draft survives a revoked audience',
+      body: 'The protected audience projection must not survive.',
+    });
+    fixture.componentInstance.form.markAsDirty();
+    fixture.componentInstance.openPreview();
+    fixture.detectChanges();
+
+    const host = fixture.nativeElement as HTMLElement;
+    expect(host.querySelector('[data-testid="announcement-local-preview"]')?.textContent).toContain(
+      'School Workspace',
+    );
+
+    fixture.componentRef.setInput(
+      'draft',
+      createDraft({
+        availableAudiences: [],
+      }),
+    );
+    fixture.detectChanges();
+    await fixture.whenStable();
+    await nextRenderTick();
+
+    expect(fixture.componentInstance.previewOpen()).toBe(false);
+    expect(host.querySelector('[data-testid="announcement-local-preview"]')).toBeNull();
+    expect(host.textContent).not.toContain('School Workspace');
+    expect(host.textContent).not.toContain('1,248');
+    expect(fixture.componentInstance.form.controls.title.value).toBe(
+      'Local draft survives a revoked audience',
+    );
+    expect(document.activeElement).toBe(
+      host.querySelector('[data-testid="announcement-editor-title"]'),
+    );
+  });
+
   it('links field errors to invalid inputs and focuses the first invalid field after publish is requested', async () => {
     const fixture = await renderEditor(createDraft());
     fixture.componentInstance.form.patchValue({ title: '   ', body: ' ' });
@@ -265,7 +380,7 @@ describe('AnnouncementEditorComponent', () => {
     expect(fixture.componentInstance.selectedAudience()).toEqual(teacherGroupAudience);
   });
 
-  it('uses the authoritative announcement limits and omits the unimplemented draft-save action', async () => {
+  it('uses the authoritative announcement limits, local preview, and omits the unimplemented draft-save action', async () => {
     const fixture = await renderEditor(createDraft());
     const host = fixture.nativeElement as HTMLElement;
     const title = host.querySelector<HTMLInputElement>('[data-testid="announcement-editor-title"]');
@@ -275,6 +390,7 @@ describe('AnnouncementEditorComponent', () => {
 
     expect(title?.maxLength).toBe(200);
     expect(body?.maxLength).toBe(20_000);
+    expect(host.querySelector('[data-testid="announcement-preview-action"]')).toBeTruthy();
     expect(host.querySelector('[data-testid="announcement-save-draft-action"]')).toBeNull();
 
     fixture.componentInstance.form.controls.title.setValue('a'.repeat(201));

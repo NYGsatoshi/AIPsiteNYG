@@ -12,8 +12,34 @@
       [timeZoneLabel]="draft.timeZoneLabel"
     />
     <h2>{{ draft.id ? 'お知らせを編集' : '新しいお知らせ' }}</h2>
+    <div class="announcement-editor__actions" role="group" aria-label="Announcement editor mode">
+      <button
+        type="button"
+        [class.announcement-editor__primary]="!previewOpen()"
+        [attr.aria-pressed]="!previewOpen()"
+        (click)="closePreview()"
+        data-testid="announcement-edit-action"
+      >
+        Edit
+      </button>
+      <button
+        type="button"
+        [class.announcement-editor__primary]="previewOpen()"
+        [attr.aria-pressed]="previewOpen()"
+        [disabled]="preview() === null"
+        (click)="openPreview()"
+        data-testid="announcement-preview-action"
+      >
+        Preview
+      </button>
+    </div>
   </header>
 
+  @if (previewOpen()) {
+    @if (preview(); as localPreview) {
+      <app-announcement-local-preview [preview]="localPreview" />
+    }
+  } @else {
   @if (summaryErrors.length > 0) {
     <section
       id="announcement-editor-error-summary"
@@ -206,6 +232,7 @@
       id="announcement-read-confirmation"
       type="checkbox"
       formControlName="requiresReadConfirmation"
+      data-testid="announcement-editor-read-confirmation"
     />
     <span>既読確認</span>
   </label>
@@ -250,6 +277,7 @@
       Review publication
     </button>
   </div>
+  }
 </form>
 
 <app-aip-dialog
@@ -305,7 +333,7 @@
       </dl>
       <p class="announcement-editor__audience-note">
         The server rechecks this selected audience when publication is confirmed. This form publishes now;
-        scheduled delivery, saved drafts, and preview are not available here.
+        scheduled delivery and saved drafts are not available here.
       </p>
     </section>
   }
