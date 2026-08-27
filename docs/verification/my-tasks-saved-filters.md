@@ -50,16 +50,24 @@ input and summarized only as `Project filter active`; no locally cached label
 is resolved. Denied, not-found, or authorized-empty results cannot restore a
 Task row, count, title, snippet, or Workspace label.
 
+HTTP completion merges result fields into the latest local presentation state,
+so a delayed initial list/count response cannot erase asynchronously hydrated
+saved-filter descriptors or availability. Request generation and the captured
+query snapshot remain authoritative for rejecting superseded responses.
+
 ## Accessibility and narrow-width behavior
 
 The canonical `/tasks` List provides native-button frequent presets, a native
 save form, Apply/Delete controls, visible applied-condition chips, Clear all,
-and a polite atomic live region. Storage-unavailable state truthfully disables
-custom persistence while keeping current filters and built-in presets usable.
-Keyboard submission and focus return are covered. The representative built-app
-smoke runs the complete save/apply/clear interaction at 320 pixels, checks for
-horizontal overflow, runs axe, and confirms the opaque Project ID is absent
-from rendered text.
+and a polite atomic live region. Those controls remain mounted while only the
+result region changes among loading, denied, error, empty, and ready states, so
+a failed saved filter remains recoverable and focused controls are not replaced.
+Storage-unavailable state truthfully disables custom persistence while keeping
+current filters and built-in presets usable. Keyboard submission and focus
+return are covered. The representative built-app smoke runs save, delayed
+reload/hydration, apply, stale-Project denial, delete, and clear recovery at 320
+pixels, checks focus and horizontal overflow, runs axe, and confirms the opaque
+Project ID is absent from rendered text.
 
 ## Issue #346 acceptance mapping
 
@@ -76,7 +84,7 @@ from rendered text.
 
 Completed on this candidate:
 
-- focused Angular saved-preference/facade/UI tests: 3 files / 63 tests passed;
+- focused Angular saved-preference/facade/UI tests: 3 files / 66 tests passed;
 - exact isolated reproduction of the unrelated full-suite timeout: 1 file / 5
   tests passed;
 - Angular production build: passed, with only pre-existing initial-bundle and

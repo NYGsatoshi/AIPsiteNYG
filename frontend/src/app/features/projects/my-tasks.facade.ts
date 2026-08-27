@@ -431,13 +431,13 @@ export class MyTasksFacade {
     }).pipe(catchError((error: unknown) => of({ error }))).subscribe((response) => {
       if (generation !== this.requestGeneration) return;
       if ('error' in response) {
-        this.state.set(this.toErrorState(response.error, current));
+        this.state.update((latest) => this.toErrorState(response.error, latest));
         return;
       }
       try {
         const tasks = (response.page.items ?? []).map((task) => mapMyTaskDtoToProjection(task));
-        this.state.set({
-          ...current,
+        this.state.update((latest) => ({
+          ...latest,
           status: tasks.length > 0 ? 'ready' : 'empty',
           tasks,
           page: numeric(response.page.page, current.page),
@@ -445,10 +445,11 @@ export class MyTasksFacade {
           totalCount: numeric(response.page.totalCount, 0),
           counts: toCounts(response.counts),
           realtimeDegraded: false,
-          message: tasks.length > 0 ? undefined : 'No tasks match this relationship view and scope.'
-        });
+          message: tasks.length > 0 ? undefined : 'No tasks match this relationship view and scope.',
+          error: undefined
+        }));
       } catch (error: unknown) {
-        this.state.set(this.toErrorState(error, current));
+        this.state.update((latest) => this.toErrorState(error, latest));
       }
     });
   }

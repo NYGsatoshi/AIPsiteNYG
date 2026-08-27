@@ -81,6 +81,37 @@ describe('MyTasksFacade', () => {
     expect(page.counts.find((item) => item.key === 'today')?.count).toBe(1);
   });
 
+  it.each(['success', 'error'] as const)('preserves asynchronously hydrated saved filters after a delayed initial %s response', (outcome) => {
+    localStorage.setItem('aipsite.work-view.saved-filters.v1:mock-tenant:mock-user-a:my-tasks', JSON.stringify({
+      version: 1,
+      filters: [{
+        id: 'saved-12345678', name: 'Hydrated view',
+        snapshot: { selectedTab: 'completed', projectId: '', stageCategory: 'done', priority: '', blocked: '', search: '', timeGroup: null }
+      }]
+    }));
+    facade.load();
+    const requests = pendingProjectionRequests();
+
+    TestBed.flushEffects();
+    expect(facade.getMyTasks().savedFilters.map((filter) => filter.name)).toEqual(['Hydrated view']);
+    expect(facade.getMyTasks().savedFiltersAvailable).toBe(true);
+    expect(facade.getMyTasks().canPersistSavedFilters).toBe(true);
+
+    if (outcome === 'success') {
+      completeProjectionRequests(requests);
+    } else {
+      requests.find((request) => request.request.url === '/api/me/tasks')!.flush(
+        { error: { code: 'MY_TASKS_PROJECT_NOT_FOUND', message: 'Project is unavailable.' } },
+        { status: 404, statusText: 'Not Found' }
+      );
+      expect(requests.find((request) => request.request.url === '/api/me/tasks/counts')?.cancelled).toBe(true);
+    }
+
+    expect(facade.getMyTasks().savedFilters.map((filter) => filter.name)).toEqual(['Hydrated view']);
+    expect(facade.getMyTasks().savedFiltersAvailable).toBe(true);
+    expect(facade.getMyTasks().canPersistSavedFilters).toBe(true);
+  });
+
   it('cancels/replaces the active query when the relationship tab changes', () => {
     facade.load();
     flush({ items: [], page: 1, pageSize: 50, totalCount: 0 }, { views: [], timeGroups: [] });

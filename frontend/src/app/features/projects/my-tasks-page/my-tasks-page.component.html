@@ -9,14 +9,16 @@
     <p class="my-tasks-page__degraded" role="status">Live updates are unavailable. HTTP filters and manual refresh remain available.</p>
   }
   <p class="my-tasks-page__sr-only" aria-live="polite" aria-atomic="true" data-testid="my-tasks-filter-announcement">{{ vm.filterAnnouncement }}</p>
-  @if (vm.status === 'loading') {
-    <app-inline-loading label="Loading tasks" />
-  } @else if (vm.status === 'permissionDenied') {
-    <app-permission-denied [title]="vm.message ?? 'Tasks are not available for this workspace.'" />
-  } @else if (vm.status === 'error') {
-    <section data-testid="my-tasks-load-error">@if (vm.error) { <app-error-banner [error]="vm.error" title="My Tasks could not be loaded" /> } @else { <p role="alert">{{ vm.message }}</p> } <button type="button" data-testid="my-tasks-retry" (click)="retry()">Retry</button></section>
-  } @else if (!myTasksV1Enabled()) {
-    <app-task-table [rows]="vm.rows" [defaultPageSize]="vm.pageSize.defaultPageSize" [maximumPageSize]="vm.pageSize.maximumPageSize" (actionInvoked)="handleTaskAction($event)" />
+  @if (!myTasksV1Enabled()) {
+    @if (vm.status === 'loading') {
+      <app-inline-loading label="Loading tasks" />
+    } @else if (vm.status === 'permissionDenied') {
+      <app-permission-denied [title]="vm.message ?? 'Tasks are not available for this workspace.'" />
+    } @else if (vm.status === 'error') {
+      <section data-testid="my-tasks-load-error">@if (vm.error) { <app-error-banner [error]="vm.error" title="My Tasks could not be loaded" /> } @else { <p role="alert">{{ vm.message }}</p> } <button type="button" data-testid="my-tasks-retry" (click)="retry()">Retry</button></section>
+    } @else {
+      <app-task-table [rows]="vm.rows" [defaultPageSize]="vm.pageSize.defaultPageSize" [maximumPageSize]="vm.pageSize.maximumPageSize" (actionInvoked)="handleTaskAction($event)" />
+    }
   } @else {
     <section class="my-tasks-page__saved-filters" aria-labelledby="my-tasks-saved-filters-heading" data-testid="my-tasks-saved-filters">
       <div class="my-tasks-page__section-heading">
@@ -108,7 +110,14 @@
       </ul>
     </section>
     <p class="my-tasks-page__canonical-note">List is the canonical cross-Project My Tasks projection. Project Kanban is available from Project Detail.</p>
-    @if (vm.status === 'empty' || vm.tasks.length === 0) {
+    <section class="my-tasks-page__results" aria-label="My Tasks results" [attr.aria-busy]="vm.status === 'loading'" data-testid="my-tasks-results">
+    @if (vm.status === 'loading') {
+      <app-inline-loading label="Loading tasks" />
+    } @else if (vm.status === 'permissionDenied') {
+      <app-permission-denied [title]="vm.message ?? 'Tasks are not available for this workspace.'" />
+    } @else if (vm.status === 'error') {
+      <section data-testid="my-tasks-load-error">@if (vm.error) { <app-error-banner [error]="vm.error" title="My Tasks could not be loaded" /> } @else { <p role="alert">{{ vm.message }}</p> } <button type="button" data-testid="my-tasks-retry" (click)="retry()">Retry</button></section>
+    } @else if (vm.status === 'empty' || vm.tasks.length === 0) {
       <app-empty-state title="No tasks" [message]="vm.message ?? 'No tasks match this relationship view and scope.'" />
     } @else if (!designSystemV04Enabled()) {
       <app-task-table [rows]="vm.rows" [defaultPageSize]="vm.pageSize.defaultPageSize" [maximumPageSize]="vm.pageSize.maximumPageSize" (actionInvoked)="handleTaskAction($event)" />
@@ -123,6 +132,8 @@
         }
       }
     }
+    </section>
+    @if (vm.status === 'ready' || vm.status === 'empty') {
     <nav class="my-tasks-page__paging" aria-label="My Tasks pages">
       <button type="button" data-testid="my-tasks-previous-page" [disabled]="vm.page <= 1" (click)="previousPage()">Previous</button>
       <span aria-live="polite">Page {{ vm.page }} of {{ vm.lastPage }} · {{ vm.totalCount }} tasks</span>
@@ -133,5 +144,6 @@
         </select>
       </label>
     </nav>
+    }
   }
 </section>

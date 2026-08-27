@@ -10,7 +10,7 @@ import { NotificationOpenContextService } from '../../core/notifications/notific
 import { RealtimeFacade } from '../../core/realtime/realtime.facade';
 import { ActiveWorkspaceFacade } from '../../core/workspace/active-workspace.facade';
 import { AppDataGridActionEvent } from '../../shared/grid/app-data-grid/app-data-grid.types';
-import { AIP_MY_TASKS_MOCK } from './my-tasks.facade';
+import { AIP_MY_TASKS_MOCK, MyTasksFacade } from './my-tasks.facade';
 import {
   EMPTY_PROJECT_CREATE_OPTIONS,
   EMPTY_PROJECT_CREATE_STATE,
@@ -780,6 +780,53 @@ describe('Projects and tasks mock UI', () => {
     await fixture.whenStable();
     expect(textContent(fixture)).toContain('No custom filters saved');
     expect(document.activeElement).toBe(name);
+  });
+
+  it('keeps saved-filter recovery controls mounted through a stale Project error', async () => {
+    const projectId = '77777777-7777-4777-8777-777777777777';
+    localStorage.setItem('aipsite.work-view.saved-filters.v1:scenario-tenant:scenario-user:my-tasks', JSON.stringify({
+      version: 1,
+      filters: [{
+        id: 'saved-77777777', name: 'Stale Project view',
+        snapshot: { selectedTab: 'completed', projectId, stageCategory: 'done', priority: '', blocked: '', search: '', timeGroup: null }
+      }]
+    }));
+    const fixture = await renderMyTasks({
+      ...PROJECTS_SCENARIOS.default,
+      myTasksStatus: 'error',
+      myTasks: [],
+      myTasksMessage: 'The selected Project is not available.',
+      myTasksError: { ...normalizedError('stale-project'), httpStatus: 404 }
+    } satisfies ProjectsScenario);
+    TestBed.flushEffects();
+    fixture.detectChanges();
+
+    expect(query(fixture, '[data-testid="my-tasks-load-error"]')).not.toBeNull();
+    expect(query(fixture, '[data-testid="my-tasks-saved-filters"]')).not.toBeNull();
+    expect(query(fixture, '[data-testid="my-tasks-filter-summary"]')).not.toBeNull();
+    const apply = queryAll<HTMLButtonElement>(fixture, 'button')
+      .find((button) => button.getAttribute('aria-label') === 'Apply saved filter Stale Project view')!;
+    apply.focus();
+    apply.click();
+    fixture.detectChanges();
+    expect(document.activeElement).toBe(apply);
+    expect(textContent(fixture)).toContain('Project filter active');
+    expect(textContent(fixture)).not.toContain(projectId);
+
+    const clear = query<HTMLButtonElement>(fixture, '[data-testid="my-tasks-clear-filters"]')!;
+    clear.focus();
+    clear.click();
+    fixture.detectChanges();
+    expect(document.activeElement).toBe(clear);
+    expect(TestBed.inject(MyTasksFacade).getMyTasks().selectedTab).toBe('assigned');
+    expect(TestBed.inject(MyTasksFacade).getMyTasks().filters.projectId).toBe('');
+
+    queryAll<HTMLButtonElement>(fixture, 'button')
+      .find((button) => button.getAttribute('aria-label') === 'Delete saved filter Stale Project view')?.click();
+    fixture.detectChanges();
+    await fixture.whenStable();
+    fixture.detectChanges();
+    expect(textContent(fixture)).toContain('No custom filters saved');
   });
 
   it('truthfully disables custom persistence when storage is unavailable while keeping presets usable', async () => {
