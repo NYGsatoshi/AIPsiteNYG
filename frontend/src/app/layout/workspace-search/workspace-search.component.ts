@@ -66,7 +66,7 @@ const TYPE_PAGE_SIZE = 8;
             placeholder="Search files, Research, Projects"
             aria-keyshortcuts="Control+K Meta+K"
             aria-describedby="workspace-search-scope workspace-search-status"
-            aria-controls="workspace-search-results"
+            [attr.aria-controls]="status() === 'ready' ? 'workspace-search-results' : null"
             [disabled]="!workspaceId"
             [value]="query()"
             (input)="updateQuery($event)"
