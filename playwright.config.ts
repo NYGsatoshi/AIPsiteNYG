@@ -9,6 +9,19 @@ const snapshotPathTemplate = process.env.CI
   ? "{testDir}/__angular_snapshots__/linux/{testFilePath}/{arg}{ext}"
   : "{testDir}/__angular_snapshots__/{testFilePath}/{arg}{ext}";
 
+// Existing Playwright acceptance assertions and screenshot baselines are English.
+// Pin that locale explicitly so the product's Japanese default does not rewrite
+// unrelated acceptance contracts; locale-specific behavior is tested separately.
+const deterministicUiStorageState = {
+  cookies: [],
+  origins: [
+    {
+      origin: new URL(baseURL).origin,
+      localStorage: [{ name: "aip.locale", value: "en" }]
+    }
+  ]
+};
+
 export default defineConfig({
   testDir: "./tests/ui",
   snapshotPathTemplate,
@@ -27,6 +40,7 @@ export default defineConfig({
   ],
   use: {
     baseURL,
+    storageState: deterministicUiStorageState,
     trace: "retain-on-failure",
     screenshot: "only-on-failure",
     video: "retain-on-failure"
