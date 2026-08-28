@@ -32,8 +32,10 @@ describe('WorkspaceSearchComponent', () => {
   it('keeps the search entry disabled until a Workspace is selected', async () => {
     const fixture = await createFixture(null);
     const root = fixture.nativeElement as HTMLElement;
+    const input = root.querySelector<HTMLInputElement>('[data-testid="workspace-search-input"]');
 
-    expect(root.querySelector<HTMLInputElement>('[data-testid="workspace-search-input"]')?.disabled).toBe(true);
+    expect(input?.disabled).toBe(true);
+    expect(input?.getAttribute('aria-controls')).toBeNull();
     expect(root.textContent).toContain('Select a Workspace to search');
   });
 
@@ -92,7 +94,8 @@ describe('WorkspaceSearchComponent', () => {
     });
     fixture.detectChanges();
 
-    const text = (fixture.nativeElement as HTMLElement).textContent ?? '';
+    const root = fixture.nativeElement as HTMLElement;
+    const text = root.textContent ?? '';
     expect(text).toContain('Authorized Research');
     expect(text).toContain('authorized.pdf');
     expect(text).toContain('Research / Project');
@@ -100,6 +103,10 @@ describe('WorkspaceSearchComponent', () => {
     expect(text).not.toContain('Wrong Workspace');
     expect(text).not.toContain('snippet');
     expect(component.results().length).toBe(2);
+    expect(root.querySelector('[data-testid="workspace-search-results"]')).not.toBeNull();
+    expect(root.querySelector('[data-testid="workspace-search-input"]')?.getAttribute('aria-controls')).toBe(
+      'workspace-search-results',
+    );
   });
 
   it('cancels stale reads and clears protected results when the Workspace changes', async () => {
@@ -120,6 +127,11 @@ describe('WorkspaceSearchComponent', () => {
     expect(component.query()).toBe('');
     expect(component.results()).toEqual([]);
     expect(component.status()).toBe('idle');
+    expect(
+      (fixture.nativeElement as HTMLElement)
+        .querySelector('[data-testid="workspace-search-input"]')
+        ?.getAttribute('aria-controls'),
+    ).toBeNull();
   });
 
   it('renders a fixed retry-safe error without exposing a response body', async () => {
