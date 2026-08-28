@@ -143,7 +143,7 @@ import { I18nService } from '../../core/i18n/i18n.service';
                           [disabled]="index === 0"
                           (click)="requestPinnedMove(item.id, 'up')"
                         >
-                          {{ i18n.translate('featureMenu.moveUp', { item: label(item) }) }}
+                          <span aria-hidden="true">↑</span>
                         </button>
                         <button
                           type="button"
@@ -153,7 +153,7 @@ import { I18nService } from '../../core/i18n/i18n.service';
                           [disabled]="index === pinnedItems.length - 1"
                           (click)="requestPinnedMove(item.id, 'down')"
                         >
-                          {{ i18n.translate('featureMenu.moveDown', { item: label(item) }) }}
+                          <span aria-hidden="true">↓</span>
                         </button>
                       </div>
                     }
