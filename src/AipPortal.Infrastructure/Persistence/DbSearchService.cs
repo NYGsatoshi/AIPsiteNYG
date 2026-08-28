@@ -390,7 +390,7 @@ public sealed class DbSearchService(
 
         if (!string.IsNullOrWhiteSpace(q))
         {
-            query = query.Where(attachment => EF.Functions.ILike(attachment.OriginalFileName, $"%{q}%"));
+            query = query.Where(attachment => EF.Functions.ILike(attachment.FileObject!.OriginalFileName, $"%{q}%"));
         }
 
         if (request.AuthorUserId.HasValue)
@@ -408,13 +408,13 @@ public sealed class DbSearchService(
             .Select(attachment => new SearchResultItemResponse(
                 SearchResultType.File,
                 attachment.FileObjectId,
-                attachment.OriginalFileName,
+                attachment.FileObject!.OriginalFileName,
                 null,
                 $"/workspaces/{workspaceId}/files",
                 workspaceId,
                 null,
                 null,
-                attachment.FileObject!.CreatedAt,
+                attachment.FileObject.CreatedAt,
                 attachment.UploadedByUser!.DisplayName))
             .Take(100)
             .ToListAsync(cancellationToken);
