@@ -1,12 +1,14 @@
-import { Component, Input } from '@angular/core';
+import { Component, inject, Input } from '@angular/core';
+
+import { I18nService } from '../../core/i18n/i18n.service';
 
 @Component({
   selector: 'app-account-rail',
   standalone: true,
   template: `
-    <aside class="account-rail" aria-label="Account switcher">
+    <aside class="account-rail" [attr.aria-label]="i18n.translate('shell.accountSwitcher')">
       <div class="account-rail__brand" aria-hidden="true">A</div>
-      <div class="account-rail__users" aria-label="Signed-in users">
+      <div class="account-rail__users" [attr.aria-label]="i18n.translate('shell.signedInUsers')">
         <span class="account-rail__avatar account-rail__avatar--active">{{ initials(displayName) }}</span>
         @for (user of supportingUsers; track user) {
           <span class="account-rail__avatar">{{ initials(user) }}</span>
@@ -17,6 +19,7 @@ import { Component, Input } from '@angular/core';
   styleUrl: './account-rail.component.scss'
 })
 export class AccountRailComponent {
+  readonly i18n = inject(I18nService);
   @Input({ required: true }) displayName = '';
   @Input() supportingUsers: readonly string[] = [];
 

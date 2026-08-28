@@ -49,6 +49,7 @@ describe('AppShellComponent', () => {
   }
 
   afterEach(() => {
+    window.localStorage.removeItem('aip.locale');
     TestBed.resetTestingModule();
   });
 
@@ -183,9 +184,9 @@ describe('AppShellComponent', () => {
     expect(element.querySelector('[data-testid="logout-action"]')).not.toBeNull();
     expect(element.querySelector('[data-testid="workspace-switcher"]')).not.toBeNull();
     expect(element.querySelector('[data-testid="workspace-members-action"]')).not.toBeNull();
-    expect(element.querySelector('[data-testid="workspace-research-status"]')?.textContent).toContain('0 Running');
-    expect(element.querySelector('[data-testid="workspace-research-status"]')?.textContent).toContain('0 Needs review');
-    expect(element.querySelector('nav[aria-label="Global actions"]')).not.toBeNull();
+    expect(element.querySelector('[data-testid="workspace-research-status"]')?.textContent).toContain('0 進行中');
+    expect(element.querySelector('[data-testid="workspace-research-status"]')?.textContent).toContain('0 要レビュー');
+    expect(element.querySelector('nav[aria-label="共通の操作"]')).not.toBeNull();
     expect(element.querySelector('a[href="#app-shell-main-content"]')).not.toBeNull();
     expect(element.querySelector('main#app-shell-main-content')).not.toBeNull();
     expect(element.querySelector('[data-testid="page-search"]')).toBeNull();
@@ -199,7 +200,7 @@ describe('AppShellComponent', () => {
     fixture.detectChanges();
 
     expect(fixture.nativeElement.textContent).toContain('メニュー');
-    expect(fixture.nativeElement.textContent).toContain('Pinned');
+    expect(fixture.nativeElement.textContent).toContain('ピン留め');
     expect(fetchSpy).not.toHaveBeenCalled();
 
     fetchSpy.mockRestore();

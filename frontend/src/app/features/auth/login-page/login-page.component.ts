@@ -4,6 +4,7 @@ import { Router } from '@angular/router';
 import { finalize, take } from 'rxjs';
 
 import { AuthSessionFacade } from '../../../core/auth/auth-session.facade';
+import { I18nService } from '../../../core/i18n/i18n.service';
 
 @Component({
   selector: 'app-login-page',
@@ -14,6 +15,7 @@ import { AuthSessionFacade } from '../../../core/auth/auth-session.facade';
 })
 export class LoginPageComponent {
   private readonly authSession = inject(AuthSessionFacade);
+  readonly i18n = inject(I18nService);
   private readonly router = inject(Router);
 
   readonly isSubmitting = signal(false);
@@ -49,7 +51,7 @@ export class LoginPageComponent {
           void this.router.navigateByUrl('/workspaces');
         },
         error: () => {
-          this.errorMessage.set('メールアドレスまたはパスワードを確認してください。');
+          this.errorMessage.set(this.i18n.translate('login.failure'));
         }
       });
   }

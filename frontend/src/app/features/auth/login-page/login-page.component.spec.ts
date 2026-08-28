@@ -22,6 +22,7 @@ describe('LoginPageComponent', () => {
 
   afterEach(() => {
     TestBed.inject(HttpTestingController).verify();
+    window.localStorage.removeItem('aip.locale');
     TestBed.resetTestingModule();
   });
 
