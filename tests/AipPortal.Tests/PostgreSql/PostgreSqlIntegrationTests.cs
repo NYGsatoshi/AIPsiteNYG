@@ -132,6 +132,7 @@ public sealed class PostgreSqlIntegrationTests
 
     [PostgreSqlFact]
     [Trait("Category", "PostgreSQLIntegration")]
+    [Trait("Scope", "Issue329")]
     public async Task TenantScopedSearchIsolationWorksAgainstPostgreSql()
     {
         var connectionString = PostgreSqlTestEnvironment.RequireConnectionString();
@@ -200,15 +201,55 @@ public sealed class PostgreSqlIntegrationTests
         AssertSearchDoesNotContain(items, SearchResultType.Task, tenantBData.Task.Id, "Tenant A search leaked Tenant B task.");
         AssertSearchDoesNotContain(items, SearchResultType.Artifact, tenantBData.Artifact.Id, "Tenant A search leaked Tenant B artifact.");
 
-        foreach (var type in new[] { SearchResultType.Workspace, SearchResultType.Group, SearchResultType.Channel, SearchResultType.Post, SearchResultType.Message, SearchResultType.Project, SearchResultType.Task, SearchResultType.Artifact })
+        var workspaceFileResult = await search.SearchAsync(new SearchRequest(
+            "securesearchneedle",
+            SearchResultType.File,
+            WorkspaceId: tenantAData.Workspace.Id,
+            PageSize: 50));
+        Assert.True(workspaceFileResult.IsSuccess, workspaceFileResult.Error);
+        var fileItem = Assert.Single(workspaceFileResult.Value!.Items);
+        Assert.Equal(SearchResultType.File, fileItem.Type);
+        Assert.Equal(tenantAData.FileObject.Id, fileItem.Id);
+        Assert.Equal(tenantAData.FileObject.OriginalFileName, fileItem.Title);
+        Assert.Null(fileItem.Snippet);
+        Assert.Equal(tenantAData.Workspace.Id, fileItem.WorkspaceId);
+        Assert.Equal($"/workspaces/{tenantAData.Workspace.Id}/files", fileItem.Route);
+        Assert.DoesNotContain(tenantBData.FileObject.Id, workspaceFileResult.Value.Items.Select(item => item.Id));
+
+        foreach (var type in new[] { SearchResultType.Workspace, SearchResultType.Group, SearchResultType.Channel, SearchResultType.Post, SearchResultType.Message, SearchResultType.Project, SearchResultType.Task, SearchResultType.Artifact, SearchResultType.File })
         {
             var scopedResult = await search.SearchAsync(new SearchRequest("securesearchneedle", type, WorkspaceId: tenantBData.Workspace.Id, PageSize: 50));
             Assert.True(scopedResult.IsSuccess, scopedResult.Error);
             Assert.Empty(scopedResult.Value!.Items);
         }
+
+        var membership = await dbContext.WorkspaceMembers.SingleAsync(member =>
+            member.WorkspaceId == tenantAData.Workspace.Id && member.UserId == userA.Id);
+        membership.Status = MembershipStatus.Suspended;
+        await dbContext.SaveChangesAsync();
+        dbContext.ChangeTracker.Clear();
+
+        var revokedFileResult = await search.SearchAsync(new SearchRequest(
+            "securesearchneedle",
+            SearchResultType.File,
+            WorkspaceId: tenantAData.Workspace.Id,
+            PageSize: 50));
+        Assert.True(revokedFileResult.IsSuccess, revokedFileResult.Error);
+        Assert.Empty(revokedFileResult.Value!.Items);
     }
 
-    private sealed record SearchGraph(Workspace Workspace, Group Group, Channel Channel, Post Post, Conversation Conversation, Message Message, Project Project, TaskItem Task, Artifact Artifact);
+    private sealed record SearchGraph(
+        Workspace Workspace,
+        Group Group,
+        Channel Channel,
+        Post Post,
+        Conversation Conversation,
+        Message Message,
+        Project Project,
+        TaskItem Task,
+        Artifact Artifact,
+        FileObject FileObject,
+        Attachment Attachment);
 
     private static async Task<SearchGraph> SeedSearchGraphAsync(AppDbContext dbContext, CurrentTenantService currentTenant, Tenant tenant, User user, string runId, string prefix, DateTimeOffset now)
     {
@@ -222,6 +263,37 @@ public sealed class PostgreSqlIntegrationTests
         var conversation = new Conversation { TenantId = tenant.Id, WorkspaceId = workspace.Id, Title = $"{prefix} conversation", CreatedByUserId = user.Id, Type = ConversationType.DirectMessage, CreatedAt = now };
         var post = new Post { TenantId = tenant.Id, ChannelId = channel.Id, AuthorUserId = user.Id, Body = $"{prefix} SeCuReSearchNeedle post body", CreatedAt = now };
         var message = new Message { TenantId = tenant.Id, WorkspaceId = workspace.Id, ConversationId = conversation.Id, AuthorUserId = user.Id, Body = $"{prefix} SeCuReSearchNeedle message body", CreatedAt = now };
+        var fileObject = new FileObject
+        {
+            TenantId = tenant.Id,
+            WorkspaceId = workspace.Id,
+            UploadedByUserId = user.Id,
+            OriginalFileName = $"{prefix}-SeCuReSearchNeedle-evidence.pdf",
+            StorageKey = $"search/{runId}/{prefix.ToLowerInvariant()}-evidence.pdf",
+            ContentType = "application/pdf",
+            SizeBytes = 256,
+            Status = FileObjectStatus.Active,
+            CreatedAt = now
+        };
+        var attachment = new Attachment
+        {
+            TenantId = tenant.Id,
+            FileObjectId = fileObject.Id,
+            WorkspaceId = workspace.Id,
+            OwnerType = AttachmentOwnerType.Workspace,
+            OwnerId = workspace.Id,
+            OwnerUserId = user.Id,
+            UploadedByUserId = user.Id,
+            FileName = fileObject.OriginalFileName,
+            StoredFileName = $"{fileObject.Id:D}.pdf",
+            FilePath = $"/search/{fileObject.Id:D}.pdf",
+            ContentType = fileObject.ContentType,
+            Extension = ".pdf",
+            SizeBytes = fileObject.SizeBytes,
+            StorageProvider = "test",
+            StorageKey = fileObject.StorageKey,
+            CreatedAt = now
+        };
 
         dbContext.TenantUsers.Add(new TenantUser { TenantId = tenant.Id, UserId = user.Id, Role = TenantUserRole.Member, Status = TenantUserStatus.Active, JoinedAt = now });
         dbContext.Workspaces.Add(workspace);
@@ -238,8 +310,10 @@ public sealed class PostgreSqlIntegrationTests
         dbContext.ConversationMembers.Add(new ConversationMember { TenantId = tenant.Id, ConversationId = conversation.Id, UserId = user.Id, Role = ConversationMemberRole.Admin, JoinedAt = now });
         dbContext.Posts.Add(post);
         dbContext.Messages.Add(message);
+        dbContext.FileObjects.Add(fileObject);
+        dbContext.Attachments.Add(attachment);
         await dbContext.SaveChangesAsync();
-        return new SearchGraph(workspace, group, channel, post, conversation, message, project, task, artifact);
+        return new SearchGraph(workspace, group, channel, post, conversation, message, project, task, artifact, fileObject, attachment);
     }
 
     private static User NewUser(string email, string displayName) => new()
