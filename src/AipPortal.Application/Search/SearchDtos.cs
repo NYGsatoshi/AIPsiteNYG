@@ -14,7 +14,8 @@ public enum SearchResultType
     Artifact = 9,
     ActivityLog = 10,
     Comment = 11,
-    Workspace = 12
+    Workspace = 12,
+    File = 13
 }
 
 public sealed record SearchRequest(
