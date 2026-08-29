@@ -78,6 +78,32 @@ export interface FileViewModel {
   readonly rawScanMetadata?: string;
 }
 
+export type FileSearchKindFilter = 'all' | 'document' | 'image' | 'pdf' | 'video' | 'archive';
+export type FileSearchModifiedFilter = 'any' | 'last7Days' | 'last30Days' | 'last90Days';
+export type FileSearchOwnerFilter = 'any' | 'me';
+
+export interface FileSearchFilters {
+  readonly query: string;
+  readonly kind: FileSearchKindFilter;
+  readonly modified: FileSearchModifiedFilter;
+  readonly owner: FileSearchOwnerFilter;
+}
+
+export interface FileSearchPage {
+  readonly files: readonly FileViewModel[];
+  readonly page: number;
+  readonly pageSize: number;
+  readonly totalCount: number;
+  readonly hasMore: boolean;
+}
+
+export interface FileSearchViewModel extends FileSearchPage {
+  readonly status: 'idle' | 'loading' | 'ready' | 'empty' | 'invalid' | 'error';
+  readonly workspaceId: string | null;
+  readonly filters: FileSearchFilters;
+  readonly message: string;
+}
+
 /** Query state owned by the Task-detail attachment picker, never by the Files page. */
 export interface TaskFilePickerState {
   readonly status: 'idle' | 'loading' | 'ready' | 'empty' | 'permissionDenied' | 'error';

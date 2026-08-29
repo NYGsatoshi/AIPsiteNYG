@@ -757,6 +757,95 @@ test.describe('MVP-A P0 Angular frontend smoke', () => {
     expect(createRequests[0]?.csrfToken).toBe('csrf-workspace-create');
   });
 
+  test('keeps scoped Files search and removable filter chips keyboard-accessible at 320px', async ({ page }) => {
+    await page.setViewportSize({ width: 320, height: 800 });
+    const workspace: WorkspaceContextFixture = {
+      id: '34100000-0000-4000-8000-000000000001',
+      name: 'Files Search Workspace',
+      runningProjectCount: 0,
+      needsReviewProjectCount: 0,
+    };
+    const fileId = '34100000-0000-4000-8000-000000000002';
+    const searchRequests: URL[] = [];
+    await installWorkspaceContextApi(page, [workspace], workspace);
+    await page.route('**/api/files?**', async (route) => {
+      await route.fulfill({
+        status: 200,
+        contentType: 'application/json; charset=utf-8',
+        body: JSON.stringify({ items: [], page: 1, pageSize: 50, totalCount: 0, hasMore: false }),
+      });
+    });
+    await page.route('**/api/search?**', async (route) => {
+      const url = new URL(route.request().url());
+      searchRequests.push(url);
+      await route.fulfill({
+        status: 200,
+        contentType: 'application/json; charset=utf-8',
+        body: JSON.stringify({
+          page: 1,
+          pageSize: 50,
+          totalCount: 1,
+          items: [{
+            type: 13,
+            id: fileId,
+            title: 'authorized-report.pdf',
+            workspaceId: workspace.id,
+            createdAt: '2026-08-20T00:00:00Z',
+            updatedAt: '2026-08-28T00:00:00Z',
+            authorDisplayName: 'Mock User A',
+            contentType: 'application/pdf',
+            sizeBytes: 2048,
+            status: 'Active',
+            scanStatus: 'Allowed',
+            snippet: 'restricted body snippet must stay hidden',
+            storageKey: 'tenant/private/authorized-report.pdf',
+          }],
+        }),
+      });
+    });
+
+    await page.goto(`/app/workspaces/${workspace.id}/files`);
+    const surface = page.getByTestId('files-search-surface');
+    await expect(surface).toBeVisible();
+    await expect(surface).toContainText('Scope: Files Search Workspace');
+    await page.getByTestId('files-search-input').fill('report');
+    await page.getByTestId('files-filter-type').selectOption('pdf');
+    await page.getByTestId('files-filter-modified').selectOption('last30Days');
+    await page.getByTestId('files-filter-owner').selectOption('me');
+
+    const submit = page.getByTestId('files-search-submit');
+    await submit.focus();
+    await page.keyboard.press('Enter');
+    await expect.poll(() => searchRequests.length).toBe(1);
+    expect(searchRequests[0]?.searchParams.get('type')).toBe('File');
+    expect(searchRequests[0]?.searchParams.get('workspaceId')).toBe(workspace.id);
+    expect(searchRequests[0]?.searchParams.get('q')).toBe('report');
+    expect(searchRequests[0]?.searchParams.get('fileKind')).toBe('Pdf');
+    expect(searchRequests[0]?.searchParams.get('fromDate')).toBeTruthy();
+    expect(searchRequests[0]?.searchParams.get('authorUserId')).toBe('mock-user-a');
+
+    await expect(page.getByTestId('files-filter-chips')).toContainText('Type: PDF');
+    await expect(page.getByTestId('files-filter-chips')).toContainText('Modified: Last 30 days');
+    await expect(page.getByTestId('files-filter-chips')).toContainText('Owner: Uploaded by me');
+    await expect(page.getByTestId('files-search-status')).toContainText('1 currently authorized file matches.');
+    await expect(page.getByTestId('preview-action')).toHaveText('authorized-report.pdf');
+    await expect(page.getByText('restricted body snippet must stay hidden')).toHaveCount(0);
+    await expect(page.getByText('tenant/private/authorized-report.pdf')).toHaveCount(0);
+
+    const removeType = page.getByRole('button', { name: 'Remove filter Type: PDF' });
+    await removeType.focus();
+    await page.keyboard.press('Enter');
+    await expect.poll(() => searchRequests.length).toBe(2);
+    expect(searchRequests[1]?.searchParams.has('fileKind')).toBe(false);
+    await expect(removeType).toHaveCount(0);
+    await expect(page.getByRole('button', { name: 'Remove filter Modified: Last 30 days' })).toBeVisible();
+    await expect(page.getByRole('button', { name: 'Remove filter Owner: Uploaded by me' })).toBeVisible();
+
+    await expectNoDocumentHorizontalOverflow(page);
+    await expectNoAccessibilityViolations(page);
+    await expectHealthyAngularPage(page);
+  });
+
   test('keeps Announcement publish validation and preserved failures accessible at 320px', async ({ page }) => {
     await page.setViewportSize({ width: 320, height: 800 });
     const workspace: WorkspaceContextFixture = {

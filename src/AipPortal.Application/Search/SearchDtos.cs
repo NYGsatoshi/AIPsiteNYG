@@ -18,6 +18,16 @@ public enum SearchResultType
     File = 13
 }
 
+public enum FileSearchKind
+{
+    All = 0,
+    Document = 1,
+    Image = 2,
+    Pdf = 3,
+    Video = 4,
+    Archive = 5
+}
+
 public sealed record SearchRequest(
     string? Q = null,
     SearchResultType Type = SearchResultType.All,
@@ -28,7 +38,8 @@ public sealed record SearchRequest(
     DateTimeOffset? FromDate = null,
     DateTimeOffset? ToDate = null,
     int Page = 1,
-    int PageSize = 20);
+    int PageSize = 20,
+    FileSearchKind FileKind = FileSearchKind.All);
 
 public sealed record SearchResultItemResponse(
     SearchResultType Type,
@@ -40,7 +51,12 @@ public sealed record SearchResultItemResponse(
     Guid? GroupId,
     Guid? ProjectId,
     DateTimeOffset CreatedAt,
-    string? AuthorDisplayName);
+    string? AuthorDisplayName,
+    string? ContentType = null,
+    long? SizeBytes = null,
+    string? Status = null,
+    string? ScanStatus = null,
+    DateTimeOffset? UpdatedAt = null);
 
 public sealed record SearchResponse(
     string? Query,

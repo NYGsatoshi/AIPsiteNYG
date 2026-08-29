@@ -15,6 +15,7 @@ import {
   PagedResponseDto,
   safeFileNameFromHeader,
 } from './files.api';
+import { fileSearchParams, mapFileSearchResponse } from './files-search.api';
 import {
   FileDeleteViewModel,
   FileDownloadState,
@@ -22,12 +23,20 @@ import {
   FileUploadQueueItem,
   FileUploadViewModel,
   FileViewModel,
+  FileSearchFilters,
+  FileSearchViewModel,
   TaskFilePickerState,
 } from './files.types';
 
 export const AIP_FILES_PAGE_MOCK = new InjectionToken<FilesPageViewModel>('AIP_FILES_PAGE_MOCK');
 
 const FILES_PAGE_SIZE = 50;
+const EMPTY_FILE_SEARCH_FILTERS: FileSearchFilters = {
+  query: '',
+  kind: 'all',
+  modified: 'any',
+  owner: 'any',
+};
 
 export interface AttachmentDownloadContext {
   /** Prevent an obsolete Task route from receiving a completion callback. */
@@ -50,6 +59,8 @@ export class FilesFacade {
   private readonly pageState = signal<FilesPageViewModel>(this.mockPage ?? this.emptyPage('Loading files from backend.'));
   private readonly deleteStateSignal = signal<FileDeleteViewModel>(this.emptyDeleteState());
   private readonly inventoryRevisionSignal = signal(0);
+  private readonly searchState = signal<FileSearchViewModel>(this.emptySearchState());
+  private readonly searchRevisionSignal = signal(0);
   /** Task detail owns this independent query; it must never alter Files-page workspace state. */
   private readonly pickerState = signal<TaskFilePickerState>(this.emptyPickerState());
   private pageWorkspaceId: string | null = null;
@@ -63,6 +74,9 @@ export class FilesFacade {
   private readonly loadingWorkspaceIds = new Set<string>();
   private readonly pendingUploads = new Map<string, { file: File; subscription: Subscription }>();
   private deleteRequest: Subscription | null = null;
+  private searchRequest: Subscription | null = null;
+  private searchGeneration = 0;
+  private searchCurrentUserId: string | null = null;
   private refreshAfterMutation = false;
   private refreshTimer: ReturnType<typeof setTimeout> | null = null;
 
@@ -70,6 +84,8 @@ export class FilesFacade {
   readonly deleteState = this.deleteStateSignal.asReadonly();
   /** Changes only when the server inventory is replaced or protected state is cleared. */
   readonly inventoryRevision = this.inventoryRevisionSignal.asReadonly();
+  readonly search = this.searchState.asReadonly();
+  readonly searchRevision = this.searchRevisionSignal.asReadonly();
   readonly pickerStateForTask = this.pickerState.asReadonly();
   /** Compatibility projection for existing consumers; Task detail must consume pickerStateForTask. */
   readonly pickerFiles = () => this.pickerState().files;
@@ -90,6 +106,7 @@ export class FilesFacade {
       this.cancelDeleteOperation();
       this.invalidatePageRequests();
       this.pageWorkspaceId = null;
+      this.clearFileSearch();
       this.pageState.set(this.emptyPage('Select a workspace before uploading files.', false));
       this.inventoryRevisionSignal.update((revision) => revision + 1);
       return;
@@ -100,7 +117,127 @@ export class FilesFacade {
     this.cancelDeleteOperation();
     this.invalidatePageRequests();
     this.pageWorkspaceId = workspaceId;
+    this.clearFileSearch();
     this.loadFiles(workspaceId, 1, FILES_PAGE_SIZE);
+  }
+
+  searchFilesForWorkspace(
+    workspaceId: string,
+    filters: FileSearchFilters,
+    currentUserId: string | null,
+    page = 1,
+  ): void {
+    if (this.mockPage) {
+      return;
+    }
+
+    const normalized: FileSearchFilters = { ...filters, query: filters.query.trim() };
+    const hasFacet = normalized.kind !== 'all' || normalized.modified !== 'any' || normalized.owner !== 'any';
+    if (!normalized.query && !hasFacet) {
+      this.clearFileSearch();
+      return;
+    }
+    if (
+      !workspaceId ||
+      workspaceId !== this.pageWorkspaceId ||
+      workspaceId !== this.activeWorkspace.activeWorkspace()?.id ||
+      (normalized.query.length > 0 && normalized.query.length < 2) ||
+      (normalized.owner === 'me' && !currentUserId)
+    ) {
+      this.cancelSearchRequest();
+      this.searchState.set({
+        ...this.emptySearchState(workspaceId || null),
+        status: 'invalid',
+        filters: normalized,
+        message: normalized.query.length === 1
+          ? 'Enter at least 2 characters, or clear the search text.'
+          : 'The active Workspace and current user are required for this filter.',
+      });
+      this.searchRevisionSignal.update((revision) => revision + 1);
+      return;
+    }
+
+    const safePage = Math.max(1, Math.floor(page));
+    const generation = ++this.searchGeneration;
+    this.searchRequest?.unsubscribe();
+    this.searchRequest = null;
+    this.searchCurrentUserId = currentUserId;
+    this.searchState.set({
+      ...this.emptySearchState(workspaceId),
+      status: 'loading',
+      filters: normalized,
+      page: safePage,
+      message: 'Searching currently authorized files in this Workspace.',
+    });
+    this.searchRevisionSignal.update((revision) => revision + 1);
+
+    const request = this.http.get<unknown>('/api/search', {
+      params: fileSearchParams(workspaceId, normalized, safePage, FILES_PAGE_SIZE, currentUserId),
+      withCredentials: true,
+    }).subscribe({
+      next: (response) => {
+        if (!this.isCurrentSearch(generation, workspaceId)) {
+          return;
+        }
+        this.searchRequest = null;
+        const pageResult = mapFileSearchResponse(response, workspaceId);
+        if (!pageResult) {
+          this.searchState.set({
+            ...this.emptySearchState(workspaceId),
+            status: 'error',
+            filters: normalized,
+            message: 'Search returned an invalid or mismatched response.',
+          });
+          this.searchRevisionSignal.update((revision) => revision + 1);
+          return;
+        }
+        this.searchState.set({
+          ...pageResult,
+          status: pageResult.files.length > 0 ? 'ready' : 'empty',
+          workspaceId,
+          filters: normalized,
+          message: pageResult.files.length > 0
+            ? pageResult.totalCount === 1
+              ? '1 currently authorized file matches.'
+              : `${pageResult.totalCount} currently authorized files match.`
+            : 'No currently authorized files match.',
+        });
+        this.searchRevisionSignal.update((revision) => revision + 1);
+      },
+      error: () => {
+        if (!this.isCurrentSearch(generation, workspaceId)) {
+          return;
+        }
+        this.searchRequest = null;
+        this.searchState.set({
+          ...this.emptySearchState(workspaceId),
+          status: 'error',
+          filters: normalized,
+          message: 'File search is unavailable. Try again.',
+        });
+        this.searchRevisionSignal.update((revision) => revision + 1);
+      },
+    });
+    this.searchRequest = request;
+  }
+
+  goToSearchPage(page: number): void {
+    const state = this.searchState();
+    if (!state.workspaceId || state.status === 'idle' || state.status === 'loading') {
+      return;
+    }
+    const totalPages = Math.max(1, Math.ceil(state.totalCount / Math.max(1, state.pageSize)));
+    const target = Math.max(1, Math.min(Math.floor(page), totalPages));
+    if (target !== state.page) {
+      this.searchFilesForWorkspace(state.workspaceId, state.filters, this.searchCurrentUserId, target);
+    }
+  }
+
+  clearFileSearch(): void {
+    this.cancelSearchRequest();
+    this.searchCurrentUserId = null;
+    this.searchState.set(this.emptySearchState(this.pageWorkspaceId));
+    this.searchRevisionSignal.update((revision) => revision + 1);
   }
 
   goToPage(page: number): void {
@@ -607,6 +744,11 @@ export class FilesFacade {
         ),
       };
     });
+    this.searchState.update((search) => ({
+      ...search,
+      files: search.files.map((file) =>
+        file.canonicalFileId === fileObjectId ? { ...file, ...patch } : file),
+    }));
   }
 
   private handleRealtimeEvent(event: DurableRealtimeEvent): void {
@@ -637,6 +779,10 @@ export class FilesFacade {
     }
     this.refreshTimer = setTimeout(() => {
       this.refreshTimer = null;
+      const search = this.searchState();
+      if (search.workspaceId === workspaceId && search.status !== 'idle' && search.status !== 'invalid') {
+        this.searchFilesForWorkspace(workspaceId, search.filters, this.searchCurrentUserId, search.page);
+      }
       const state = this.pageState();
       this.loadFiles(workspaceId, state.page, state.pageSize);
     }, 100);
@@ -647,7 +793,8 @@ export class FilesFacade {
   }
 
   private findFile(fileObjectId: string): FileViewModel | undefined {
-    return this.pageState().recentFiles.find((file) => file.canonicalFileId === fileObjectId);
+    return this.searchState().files.find((file) => file.canonicalFileId === fileObjectId) ??
+      this.pageState().recentFiles.find((file) => file.canonicalFileId === fileObjectId);
   }
 
   private emptyPage(subtitle: string, canUpload = true): FilesPageViewModel {
@@ -683,6 +830,20 @@ export class FilesFacade {
     return { status: 'idle', workspaceId, files: [], page: 1, pageSize: 20, totalCount: 0, hasMore: false };
   }
 
+  private emptySearchState(workspaceId: string | null = null): FileSearchViewModel {
+    return {
+      status: 'idle',
+      workspaceId,
+      filters: EMPTY_FILE_SEARCH_FILTERS,
+      files: [],
+      page: 1,
+      pageSize: FILES_PAGE_SIZE,
+      totalCount: 0,
+      hasMore: false,
+      message: '',
+    };
+  }
+
   private emptyDeleteState(): FileDeleteViewModel {
     return { state: 'idle', succeededCount: 0, failedCount: 0 };
   }
@@ -705,6 +866,18 @@ export class FilesFacade {
     this.loadingWorkspaceIds.clear();
   }
 
+  private cancelSearchRequest(): void {
+    this.searchGeneration++;
+    this.searchRequest?.unsubscribe();
+    this.searchRequest = null;
+  }
+
+  private isCurrentSearch(generation: number, workspaceId: string): boolean {
+    return generation === this.searchGeneration &&
+      this.pageWorkspaceId === workspaceId &&
+      this.activeWorkspace.activeWorkspace()?.id === workspaceId;
+  }
+
   private isCurrentPageOperation(generation: number, fileObjectId: string): boolean {
     return generation === this.pageGeneration &&
       this.pageWorkspaceId !== null &&
@@ -715,6 +888,7 @@ export class FilesFacade {
     this.cancelDeleteOperation();
     this.invalidatePageRequests();
     this.pageWorkspaceId = null;
+    this.clearFileSearch();
     this.clearPickerFiles();
     for (const pending of [...this.pendingUploads.values()]) pending.subscription.unsubscribe();
     this.pendingUploads.clear();
