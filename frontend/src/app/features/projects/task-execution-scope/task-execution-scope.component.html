@@ -11,72 +11,97 @@
   </header>
 
   @if (scope(); as current) {
-    <dl class="task-execution-scope__summary" data-testid="task-execution-scope-summary">
-      <div>
-        <dt>Scope origin</dt>
-        <dd data-testid="task-execution-scope-origin">{{ scopeOriginLabel(current.task.origin) }}</dd>
-      </div>
-      <div>
-        <dt>Web</dt>
-        <dd data-testid="task-execution-scope-web">{{ current.task.effectivePolicy.webEnabled ? 'Enabled' : 'Disabled' }}</dd>
-        <dd data-testid="task-execution-scope-web-policy">{{ current.task.effectivePolicy.webEnabled ? 'Allow — eligible under this Task scope' : 'Exclude — not eligible under this Task scope' }}</dd>
-      </div>
-      <div>
-        <dt>Project files</dt>
-        <dd data-testid="task-execution-scope-files">{{ current.task.effectivePolicy.projectFilesEnabled ? 'Enabled' : 'Disabled' }}</dd>
-        <dd data-testid="task-execution-scope-files-policy">{{ current.task.effectivePolicy.projectFilesEnabled ? 'Allow — eligible under this Task scope' : 'Exclude — not eligible under this Task scope' }}</dd>
-      </div>
-      <div>
-        <dt>Specific sites</dt>
-        <dd data-testid="task-execution-scope-sites">Not available in the current source-scope contract</dd>
-      </div>
-      <div>
-        <dt>Connected apps</dt>
-        <dd data-testid="task-execution-scope-apps">Not available in the current source-scope contract</dd>
-      </div>
-    </dl>
+    <button
+      type="button"
+      class="task-execution-scope__context-summary task-execution-scope__major-state"
+      [attr.aria-controls]="detailsId"
+      (click)="focusScopeDetails()"
+      data-testid="task-context-summary"
+    >
+      <span class="task-execution-scope__eyebrow">Context summary</span>
+      <strong data-testid="task-context-summary-count">{{ allowedSourceKindCount() }} of 2 source kinds allowed</strong>
+      <span data-testid="task-context-summary-origin">Origin: {{ scopeOriginLabel(current.task.origin) }}</span>
+      <span data-testid="task-context-summary-web">Web: <strong>{{ current.task.effectivePolicy.webEnabled ? 'Allow' : 'Exclude' }}</strong></span>
+      <span data-testid="task-context-summary-files">Project files: <strong>{{ current.task.effectivePolicy.projectFilesEnabled ? 'Allow' : 'Exclude' }}</strong></span>
+      <span class="task-execution-scope__context-note">Policy eligibility only — not a file, site, or app inventory count.</span>
+      <strong class="task-execution-scope__context-action">View context details</strong>
+    </button>
 
-    <section class="task-execution-scope__snapshot" aria-labelledby="task-execution-scope-terms-heading" data-testid="task-execution-scope-terms">
-      <h3 id="task-execution-scope-terms-heading">Scope terms</h3>
-      <dl>
+    <section
+      #scopeDetails
+      class="task-execution-scope__details task-execution-scope__snapshot"
+      [id]="detailsId"
+      tabindex="-1"
+      aria-label="Context details"
+      data-testid="task-context-details"
+    >
+      <dl class="task-execution-scope__summary" data-testid="task-execution-scope-summary">
         <div>
-          <dt>Allow</dt>
-          <dd>The source kind is eligible under the active scope.</dd>
+          <dt>Scope origin</dt>
+          <dd data-testid="task-execution-scope-origin">{{ scopeOriginLabel(current.task.origin) }}</dd>
         </div>
         <div>
-          <dt>Restrict</dt>
-          <dd>Only explicitly named members of a broader source kind would be eligible.</dd>
+          <dt>Web</dt>
+          <dd data-testid="task-execution-scope-web">{{ current.task.effectivePolicy.webEnabled ? 'Enabled' : 'Disabled' }}</dd>
+          <dd data-testid="task-execution-scope-web-policy">{{ current.task.effectivePolicy.webEnabled ? 'Allow — eligible under this Task scope' : 'Exclude — not eligible under this Task scope' }}</dd>
         </div>
         <div>
-          <dt>Prioritize</dt>
-          <dd>Named members would be preferred while the broader allowed source remains eligible.</dd>
+          <dt>Project files</dt>
+          <dd data-testid="task-execution-scope-files">{{ current.task.effectivePolicy.projectFilesEnabled ? 'Enabled' : 'Disabled' }}</dd>
+          <dd data-testid="task-execution-scope-files-policy">{{ current.task.effectivePolicy.projectFilesEnabled ? 'Allow — eligible under this Task scope' : 'Exclude — not eligible under this Task scope' }}</dd>
+        </div>
+        <div>
+          <dt>Specific sites</dt>
+          <dd data-testid="task-execution-scope-sites">Not available in the current source-scope contract</dd>
+        </div>
+        <div>
+          <dt>Connected apps</dt>
+          <dd data-testid="task-execution-scope-apps">Not available in the current source-scope contract</dd>
         </div>
       </dl>
-      <p class="task-execution-scope__intro" data-testid="task-execution-scope-rule-limit">Restrict and Prioritize rules are not configured by the current source-scope contract; current configurable source kinds use Allow or Exclude.</p>
-    </section>
 
-    <p class="task-execution-scope__notice" data-testid="task-execution-scope-future-only">
-      This summary is the current next-run policy. Changes apply to future run requests only; a run policy snapshot is locked when that request is accepted.
-    </p>
-    <p class="task-execution-scope__runtime-notice" data-testid="task-execution-runtime-unavailable">
-      Execution provider: None. No execution runtime is configured in this release; a run request can record an immutable policy snapshot, but no Web or Project-file I/O starts and the run finishes unavailable. No Web request can be sent from this screen.
-    </p>
-
-    @if (current.task.latestRun; as latestRun) {
-      <section class="task-execution-scope__snapshot" aria-labelledby="task-execution-snapshot-heading" data-testid="task-execution-snapshot">
-        <h3 id="task-execution-snapshot-heading">Most recent execution</h3>
-        <p class="task-execution-scope__major-state" role="status" aria-live="polite" aria-atomic="true" data-testid="task-execution-major-state-status">
-          <span>Execution state</span>
-          <strong data-testid="task-execution-major-state">{{ majorStateLabel(latestRun.majorState) }}</strong>
-        </p>
+      <section class="task-execution-scope__snapshot" aria-labelledby="task-execution-scope-terms-heading" data-testid="task-execution-scope-terms">
+        <h3 id="task-execution-scope-terms-heading">Scope terms</h3>
         <dl>
-          <div><dt>Scope at request</dt><dd>{{ scopeOriginLabel(latestRun.snapshotScopeOrigin) }}</dd></div>
-          <div><dt>Web at request</dt><dd>{{ latestRun.snapshotWebEnabled ? 'Allow' : 'Exclude' }}</dd></div>
-          <div><dt>Project files at request</dt><dd>{{ latestRun.snapshotProjectFilesEnabled ? 'Allow' : 'Exclude' }}</dd></div>
-          <div><dt>Runtime detail</dt><dd>{{ runStatusLabel(latestRun.status) }}</dd></div>
+          <div>
+            <dt>Allow</dt>
+            <dd>The source kind is eligible under the active scope.</dd>
+          </div>
+          <div>
+            <dt>Restrict</dt>
+            <dd>Only explicitly named members of a broader source kind would be eligible.</dd>
+          </div>
+          <div>
+            <dt>Prioritize</dt>
+            <dd>Named members would be preferred while the broader allowed source remains eligible.</dd>
+          </div>
         </dl>
+        <p class="task-execution-scope__intro" data-testid="task-execution-scope-rule-limit">Restrict and Prioritize rules are not configured by the current source-scope contract; current configurable source kinds use Allow or Exclude.</p>
       </section>
-    }
+
+      <p class="task-execution-scope__notice" data-testid="task-execution-scope-future-only">
+        This summary is the current next-run policy. Changes apply to future run requests only; a run policy snapshot is locked when that request is accepted.
+      </p>
+      <p class="task-execution-scope__runtime-notice" data-testid="task-execution-runtime-unavailable">
+        Execution provider: None. No execution runtime is configured in this release; a run request can record an immutable policy snapshot, but no Web or Project-file I/O starts and the run finishes unavailable. No Web request can be sent from this screen.
+      </p>
+
+      @if (current.task.latestRun; as latestRun) {
+        <section class="task-execution-scope__snapshot" aria-labelledby="task-execution-snapshot-heading" data-testid="task-execution-snapshot">
+          <h3 id="task-execution-snapshot-heading">Most recent execution</h3>
+          <p class="task-execution-scope__major-state" role="status" aria-live="polite" aria-atomic="true" data-testid="task-execution-major-state-status">
+            <span>Execution state</span>
+            <strong data-testid="task-execution-major-state">{{ majorStateLabel(latestRun.majorState) }}</strong>
+          </p>
+          <dl>
+            <div><dt>Scope at request</dt><dd>{{ scopeOriginLabel(latestRun.snapshotScopeOrigin) }}</dd></div>
+            <div><dt>Web at request</dt><dd>{{ latestRun.snapshotWebEnabled ? 'Allow' : 'Exclude' }}</dd></div>
+            <div><dt>Project files at request</dt><dd>{{ latestRun.snapshotProjectFilesEnabled ? 'Allow' : 'Exclude' }}</dd></div>
+            <div><dt>Runtime detail</dt><dd>{{ runStatusLabel(latestRun.status) }}</dd></div>
+          </dl>
+        </section>
+      }
+    </section>
 
     @if (activeRead()) {
       <p class="task-execution-scope__refreshing" role="status">Refreshing source-scope settings...</p>

@@ -1964,6 +1964,16 @@ test.describe('MVP-A P0 Angular frontend smoke', () => {
 
     const scope = page.getByTestId('task-execution-scope');
     await expect(scope).toBeVisible();
+    const contextSummary = scope.getByTestId('task-context-summary');
+    await expect(contextSummary).toBeVisible();
+    await expect(contextSummary).toContainText('1 of 2 source kinds allowed');
+    await expect(contextSummary.getByTestId('task-context-summary-origin')).toContainText('Task override');
+    await expect(contextSummary.getByTestId('task-context-summary-web')).toHaveText('Web: Allow');
+    await expect(contextSummary.getByTestId('task-context-summary-files')).toHaveText('Project files: Exclude');
+    await expect(contextSummary).toContainText('not a file, site, or app inventory count');
+    await contextSummary.focus();
+    await page.keyboard.press('Enter');
+    await expect(scope.getByTestId('task-context-details')).toBeFocused();
     await expect(scope.getByTestId('task-execution-scope-origin')).toHaveText('Task override');
     await expect(scope.getByTestId('task-execution-scope-web')).toHaveText('Enabled');
     await expect(scope.getByTestId('task-execution-scope-web-policy')).toHaveText('Allow — eligible under this Task scope');

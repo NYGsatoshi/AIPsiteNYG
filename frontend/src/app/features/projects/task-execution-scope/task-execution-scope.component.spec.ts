@@ -77,8 +77,34 @@ describe('TaskExecutionScopeComponent', () => {
     expect(native.querySelector('[data-testid="task-execution-scope-files"]')?.textContent).toContain('Disabled');
     expect(native.querySelector('[data-testid="task-execution-scope-future-only"]')?.textContent).toContain('future run requests only');
     expect(native.querySelector('[data-testid="task-execution-runtime-unavailable"]')?.textContent).toContain('No execution runtime is configured');
-    expect(native.querySelectorAll('button').length).toBe(0);
+    expect(native.querySelectorAll('button').length).toBe(1);
+    expect(native.querySelector('[data-testid="task-context-summary-count"]')?.textContent).toContain('0 of 2 source kinds allowed');
     expect(native.textContent).not.toContain('Start execution');
+  });
+
+  it('summarizes only authorized source kinds and moves keyboard focus to the detailed context', () => {
+    flushScope(expectScopeReads(http), {
+      taskOrigin: 'TaskOverride',
+      taskOverrideVersion: 2,
+      taskWebEnabled: true,
+      taskFilesEnabled: false,
+    });
+    fixture.detectChanges();
+
+    const native = fixture.nativeElement as HTMLElement;
+    const summary = native.querySelector<HTMLButtonElement>('[data-testid="task-context-summary"]');
+    const details = native.querySelector<HTMLElement>('[data-testid="task-context-details"]');
+    expect(summary).not.toBeNull();
+    expect(summary?.getAttribute('aria-controls')).toBe(details?.id);
+    expect(native.querySelector('[data-testid="task-context-summary-count"]')?.textContent).toContain('1 of 2 source kinds allowed');
+    expect(native.querySelector('[data-testid="task-context-summary-origin"]')?.textContent).toContain('Task override');
+    expect(native.querySelector('[data-testid="task-context-summary-web"]')?.textContent).toContain('Web: Allow');
+    expect(native.querySelector('[data-testid="task-context-summary-files"]')?.textContent).toContain('Project files: Exclude');
+    expect(summary?.textContent).toContain('not a file, site, or app inventory count');
+
+    summary?.click();
+
+    expect(document.activeElement).toBe(details);
   });
 
   it('saves the Project default with the server version and refreshes the Task-effective projection', () => {
@@ -238,6 +264,7 @@ describe('TaskExecutionScopeComponent', () => {
 
     expect(component.scope()).toBeNull();
     expect((fixture.nativeElement as HTMLElement).textContent).toContain('unavailable in the current session');
+    expect((fixture.nativeElement as HTMLElement).querySelector('[data-testid="task-context-summary"]')).toBeNull();
     expect((fixture.nativeElement as HTMLElement).querySelector('[data-testid="task-execution-scope-summary"]')).toBeNull();
   });
 
@@ -271,6 +298,7 @@ describe('TaskExecutionScopeComponent', () => {
     const native = fixture.nativeElement as HTMLElement;
     expect(component.scope()).toBeNull();
     expect(component.canManageAnything()).toBe(false);
+    expect(native.querySelector('[data-testid="task-context-summary"]')).toBeNull();
     expect(native.querySelector('[data-testid="task-execution-scope-summary"]')).toBeNull();
     expect(native.textContent).toContain('unavailable in the current session');
     expect(native.textContent).not.toContain('authorization details');
@@ -291,6 +319,7 @@ describe('TaskExecutionScopeComponent', () => {
     });
     fixture.detectChanges();
     expect(component.scope()?.task.effectivePolicy.webEnabled).toBe(true);
+    expect((fixture.nativeElement as HTMLElement).querySelector('[data-testid="task-context-summary-count"]')?.textContent).toContain('1 of 2 source kinds allowed');
 
     realtimeEvents.next(realtimeEvent('Projects.TaskChanged.v1', TASK_ID));
     flushScope(expectScopeReads(http), {
@@ -303,6 +332,7 @@ describe('TaskExecutionScopeComponent', () => {
     });
     fixture.detectChanges();
     expect(component.scope()?.task.effectivePolicy.projectFilesEnabled).toBe(true);
+    expect((fixture.nativeElement as HTMLElement).querySelector('[data-testid="task-context-summary-count"]')?.textContent).toContain('2 of 2 source kinds allowed');
   });
 });
 

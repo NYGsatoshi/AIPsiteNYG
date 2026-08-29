@@ -60,6 +60,10 @@ describe('TaskExecutionScopeComponent canonical source-scope presentation', () =
     fixture.detectChanges();
 
     const native = fixture.nativeElement as HTMLElement;
+    expect(native.querySelector('[data-testid="task-context-summary-count"]')?.textContent).toContain('1 of 2 source kinds allowed');
+    expect(native.querySelector('[data-testid="task-context-summary-origin"]')?.textContent).toContain('Task override');
+    expect(native.querySelector('[data-testid="task-context-summary-web"]')?.textContent).toContain('Web: Allow');
+    expect(native.querySelector('[data-testid="task-context-summary-files"]')?.textContent).toContain('Project files: Exclude');
     expect(native.querySelector('[data-testid="task-execution-scope-origin"]')?.textContent).toContain('Task override');
     expect(native.querySelector('[data-testid="task-execution-scope-web"]')?.textContent).toBe('Enabled');
     expect(native.querySelector('[data-testid="task-execution-scope-web-policy"]')?.textContent).toContain('Allow');
@@ -116,6 +120,8 @@ describe('TaskExecutionScopeComponent canonical source-scope presentation', () =
     expect(text).not.toContain('private.example');
     expect(text).not.toContain('file-123');
     expect(text).not.toContain('3 sources');
+    expect(native.querySelector('[data-testid="task-context-summary-count"]')?.textContent).toContain('0 of 2 source kinds allowed');
+    expect(native.querySelector('[data-testid="task-context-summary"]')?.textContent).toContain('not a file, site, or app inventory count');
     expect(native.querySelector('.task-execution-scope__editor-link')).toBeNull();
   });
 });
