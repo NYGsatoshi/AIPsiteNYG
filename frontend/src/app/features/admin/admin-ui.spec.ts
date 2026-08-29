@@ -1,10 +1,12 @@
-import { Component, EventEmitter, Input, Output, Provider } from '@angular/core';
+import { Component, EnvironmentProviders, EventEmitter, Input, Output, Provider } from '@angular/core';
 import { provideHttpClient } from '@angular/common/http';
 import { HttpTestingController, provideHttpClientTesting } from '@angular/common/http/testing';
 import { ComponentFixture, TestBed } from '@angular/core/testing';
 import { ActivatedRoute, Router, convertToParamMap } from '@angular/router';
 import { BehaviorSubject } from 'rxjs';
 
+import { AIP_AUTH_SESSION_MOCK, DEFAULT_AUTH_SESSION } from '../../core/auth/auth-session.facade';
+import { RealtimeFacade } from '../../core/realtime/realtime.facade';
 import {
   AppDataGridActionEvent,
   AppDataGridColumnDef,
@@ -131,8 +133,9 @@ interface AuditRouteHarness {
   readonly router: { readonly calls: unknown[][]; navigate: (...args: unknown[]) => Promise<boolean> };
 }
 
-const createAuditRouteHarness = (eventId?: string): AuditRouteHarness => {
-  const queryParamMap = new BehaviorSubject(convertToParamMap(eventId ? { event: eventId } : {}));
+const createAuditRouteHarness = (initial?: string | Record<string, string>): AuditRouteHarness => {
+  const params = typeof initial === 'string' ? { event: initial } : initial ?? {};
+  const queryParamMap = new BehaviorSubject(convertToParamMap(params));
   const router = {
     calls: [] as unknown[][],
     navigate(...args: unknown[]): Promise<boolean> {
@@ -179,10 +182,23 @@ const renderAudit = async (
   return fixture;
 };
 
-const renderLiveAudit = async () => {
+const renderLiveAudit = async (routeHarness?: AuditRouteHarness) => {
+  const providers: Array<Provider | EnvironmentProviders> = [provideHttpClient(), provideHttpClientTesting()];
+  if (routeHarness) {
+    providers.push(
+      {
+        provide: ActivatedRoute,
+        useValue: {
+          queryParamMap: routeHarness.queryParamMap.asObservable(),
+          get snapshot() { return { queryParamMap: routeHarness.queryParamMap.value }; },
+        },
+      },
+      { provide: Router, useValue: routeHarness.router },
+    );
+  }
   await TestBed.configureTestingModule({
     imports: [AuditLogPageComponent],
-    providers: [provideHttpClient(), provideHttpClientTesting()],
+    providers,
   })
     .overrideComponent(AuditLogPageComponent, {
       remove: { imports: [AppDataGridComponent] },
@@ -219,7 +235,10 @@ const renderExport = async (
 };
 
 describe('Admin audit and export mock UI', () => {
-  afterEach(() => TestBed.resetTestingModule());
+  afterEach(() => {
+    vi.restoreAllMocks();
+    TestBed.resetTestingModule();
+  });
 
   it('registers target admin routes', () => {
     const appRoute = routes.find((route) => route.path === '' && route.children);
@@ -413,6 +432,91 @@ describe('Admin audit and export mock UI', () => {
     httpMock.verify();
   });
 
+  it('restores every audit facet from a shareable URL and sends only server filter parameters', async () => {
+    const routeHarness = createAuditRouteHarness({
+      q: 'retention',
+      severity: 'critical',
+      type: 'file.export.failed',
+      actor: 'Audit Admin',
+      source: 'ExportJob',
+      status: 'failed',
+      range: '7d',
+    });
+    const { fixture, httpMock } = await renderLiveAudit(routeHarness);
+    const supersededDefault = httpMock.expectOne('/api/admin/audit-grid');
+    expect(supersededDefault.cancelled).toBe(true);
+    const request = httpMock.expectOne((candidate) =>
+      candidate.url === '/api/admin/audit-grid' &&
+      candidate.params.get('q') === 'retention' &&
+      candidate.params.get('severity') === 'critical' &&
+      candidate.params.get('action') === 'file.export.failed' &&
+      candidate.params.get('actor') === 'Audit Admin' &&
+      candidate.params.get('entityType') === 'ExportJob' &&
+      candidate.params.get('result') === 'failed' &&
+      candidate.params.has('fromDate'));
+    expect(request.request.params.keys().sort()).toEqual(
+      ['action', 'actor', 'entityType', 'fromDate', 'q', 'result', 'severity'].sort(),
+    );
+    request.flush({ items: [], page: 1, pageSize: 100, totalCount: 0 });
+    fixture.detectChanges();
+
+    expect(queryAll(fixture, '[data-testid="filter-chip"]')).toHaveLength(7);
+    expect(query(fixture, '[data-testid="audit-result-count"]')?.textContent).toContain('0 authorized results');
+    expect(query(fixture, '[data-testid="audit-zero-results"]')).not.toBeNull();
+    expect(textContent(fixture)).not.toContain('unauthorized response detail');
+    httpMock.verify();
+  });
+
+  it('retries a relative time filter with the same concrete UTC boundary', async () => {
+    const initialNow = Date.parse('2026-08-30T08:00:00.000Z');
+    const now = vi.spyOn(Date, 'now').mockReturnValue(initialNow);
+    const { fixture, httpMock } = await renderLiveAudit(createAuditRouteHarness({ range: '24h' }));
+    expect(httpMock.expectOne('/api/admin/audit-grid').cancelled).toBe(true);
+    const initial = httpMock.expectOne((request) =>
+      request.url === '/api/admin/audit-grid' && request.params.has('fromDate'));
+    const appliedFromDate = initial.request.params.get('fromDate');
+    expect(appliedFromDate).toBe('2026-08-29T08:00:00.000Z');
+    initial.flush({}, { status: 503, statusText: 'Unavailable' });
+    fixture.detectChanges();
+
+    now.mockReturnValue(initialNow + 60 * 60 * 1000);
+    TestBed.inject(AdminFacade).reloadAuditLog();
+    const retry = httpMock.expectOne((request) => request.url === '/api/admin/audit-grid');
+    expect(retry.request.params.get('fromDate')).toBe(appliedFromDate);
+    retry.flush({ items: [], totalCount: 0 });
+    httpMock.verify();
+  });
+
+  it('applies a filter, exposes a keyboard-removable canonical chip, and recovers from zero results', async () => {
+    const routeHarness = createAuditRouteHarness();
+    const { fixture, httpMock } = await renderLiveAudit(routeHarness);
+    httpMock.expectOne('/api/admin/audit-grid').flush({ items: [], totalCount: 0 });
+    fixture.detectChanges();
+
+    const search = query<HTMLInputElement>(fixture, '[data-testid="audit-filter-search"]')!;
+    search.value = 'blocked export';
+    search.dispatchEvent(new Event('input'));
+    fixture.detectChanges();
+    query<HTMLButtonElement>(fixture, '[data-testid="audit-apply-filters"]')?.click();
+    const filtered = httpMock.expectOne((request) =>
+      request.url === '/api/admin/audit-grid' && request.params.get('q') === 'blocked export');
+    filtered.flush({ items: [], totalCount: 0 });
+    fixture.detectChanges();
+
+    const remove = query<HTMLButtonElement>(fixture, '[aria-label="Remove filter Search: blocked export"]');
+    expect(remove).not.toBeNull();
+    remove?.focus();
+    remove?.click();
+    const cleared = httpMock.expectOne((request) =>
+      request.url === '/api/admin/audit-grid' && request.params.keys().length === 0);
+    cleared.flush({ items: [], totalCount: 0 });
+    fixture.detectChanges();
+
+    expect(query(fixture, '[data-testid="audit-filter-chips"]')).toBeNull();
+    expect(routeHarness.router.calls.length).toBeGreaterThanOrEqual(2);
+    httpMock.verify();
+  });
+
   it('redacted audit detail drawer does not show restricted fields', async () => {
     const fixture = await renderAudit(
       AUDIT_LOG_SCENARIOS.redactedDetailDrawer,
@@ -487,7 +591,8 @@ describe('Admin audit and export mock UI', () => {
           summary: 'Export failed.',
           requestId: null
         }
-      ]
+      ],
+      totalCount: 12,
     });
 
     const rows = facade.getAuditLog().rows;
@@ -495,6 +600,7 @@ describe('Admin audit and export mock UI', () => {
     expect(rows.map((row) => row.result)).toEqual(['success', 'denied', 'failed']);
     expect(rows.map((row) => row.severity)).toEqual(['info', 'warning', 'critical']);
     expect(rows[2].workspace).toBe('');
+    expect(facade.getAuditLog().totalCount).toBe(12);
     httpMock.verify();
   });
 
@@ -528,6 +634,35 @@ describe('Admin audit and export mock UI', () => {
     expect(row.severityLabel).not.toContain('unexpected-severity');
     expect(row.resultLabel).not.toContain('unexpected-result');
     httpMock.verify();
+  });
+
+  it('cancels list state and clears counts before an authorization invalidation can render a late response', () => {
+    let clearProtectedState: (() => void) | undefined;
+    TestBed.configureTestingModule({
+      providers: [
+        provideHttpClient(),
+        provideHttpClientTesting(),
+        { provide: AIP_AUTH_SESSION_MOCK, useValue: DEFAULT_AUTH_SESSION },
+        {
+          provide: RealtimeFacade,
+          useValue: {
+            registerProtectedStateClearer: (_owner: string, clear: () => void) => {
+              clearProtectedState = clear;
+              return () => undefined;
+            },
+          },
+        },
+      ],
+    });
+    const facade = TestBed.inject(AdminFacade);
+    const request = TestBed.inject(HttpTestingController).expectOne('/api/admin/audit-grid');
+
+    clearProtectedState?.();
+
+    expect(request.cancelled).toBe(true);
+    expect(facade.getAuditLog().status).toBe('permissionDenied');
+    expect(facade.getAuditLog().rows).toEqual([]);
+    expect(facade.getAuditLog().totalCount).toBe(0);
   });
 
   it('loads a selected live audit row from the redacted row endpoint only', () => {

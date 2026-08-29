@@ -312,6 +312,62 @@ test.describe('MVP-A P0 Angular frontend smoke', () => {
     await expect(opener).toBeFocused();
   });
 
+  test('keeps Audit filters, chips, URL state, and saved views keyboard-accessible at 320px', async ({ page }) => {
+    await page.setViewportSize({ width: 320, height: 900 });
+    await installAuditGridApi(page, auditGridFixtures(8), { applyListFilters: true });
+    await page.goto('/app/admin/audit');
+
+    const search = page.getByTestId('audit-filter-search');
+    const severity = page.getByTestId('audit-filter-severity');
+    const apply = page.getByTestId('audit-apply-filters');
+    await search.fill('Audit row 002');
+    await severity.selectOption('warning');
+    await apply.focus();
+    await page.keyboard.press('Enter');
+
+    await expect.poll(() => {
+      const url = new URL(page.url());
+      return `${url.searchParams.get('q')}|${url.searchParams.get('severity')}`;
+    }).toBe('Audit row 002|warning');
+    await expect(page.getByTestId('audit-result-count')).toContainText('1 authorized result');
+    await expect(page.getByTestId('audit-log-mobile-list')).toContainText('Audit row 002 was opened with safe fields.');
+    await expect(page.getByLabel('Remove filter Search: Audit row 002')).toBeVisible();
+    await expect(page.getByLabel('Remove filter Severity: Warning')).toBeVisible();
+
+    const name = page.getByTestId('audit-saved-view-name');
+    const save = page.getByTestId('audit-save-view');
+    await name.fill('Warning row evidence');
+    await save.focus();
+    await page.keyboard.press('Enter');
+    await expect(page.getByTestId('audit-saved-view-select')).toContainText('Warning row evidence');
+
+    const removeSearch = page.getByLabel('Remove filter Search: Audit row 002');
+    await removeSearch.focus();
+    await page.keyboard.press('Enter');
+    await expect(removeSearch).toHaveCount(0);
+    await expect.poll(() => new URL(page.url()).searchParams.has('q')).toBe(false);
+    await expect(page.getByTestId('audit-result-count')).toContainText('3 authorized results');
+
+    await page.getByTestId('audit-clear-all').focus();
+    await page.keyboard.press('Enter');
+    await expect(page).toHaveURL(/\/app\/admin\/audit$/);
+    await expect(page.getByTestId('audit-result-count')).toContainText('8 authorized results');
+
+    await page.getByTestId('audit-saved-view-select').selectOption({ label: 'Warning row evidence' });
+    const applySaved = page.getByTestId('audit-apply-saved-view');
+    await applySaved.focus();
+    await page.keyboard.press('Enter');
+    await expect(page.getByTestId('audit-result-count')).toContainText('1 authorized result');
+    await expect.poll(() => new URL(page.url()).searchParams.get('q')).toBe('Audit row 002');
+
+    await page.reload();
+    await expect(page.getByTestId('audit-result-count')).toContainText('1 authorized result');
+    await expect(page.getByTestId('audit-saved-view-select')).toContainText('Warning row evidence');
+    await expectNoDocumentHorizontalOverflow(page);
+    await expectNoAccessibilityViolations(page);
+    await expectHealthyAngularPage(page);
+  });
+
   test('keeps the audit header fixed and restores bounded AG scroll context after drawer close', async ({ page }, testInfo) => {
     test.skip(testInfo.project.name !== 'chromium-desktop', 'The desktop grid is replaced by the mobile audit list.');
     await installAuditGridApi(page, auditGridFixtures(128));
@@ -3674,6 +3730,7 @@ interface AuditGridApiOptions {
   readonly canViewSensitiveMetadata?: boolean;
   readonly sensitiveMetadata?: Readonly<Record<string, Readonly<Record<string, unknown>>>>;
   readonly redactionApplied?: boolean;
+  readonly applyListFilters?: boolean;
 }
 
 function auditGridFixtures(count: number): readonly AuditGridFixture[] {
@@ -3726,10 +3783,11 @@ async function installAuditGridApi(
 
     const url = new URL(request.url());
     if (url.pathname === '/api/admin/audit-grid') {
+      const filteredRows = options.applyListFilters ? applyAuditFixtureFilters(rows, url.searchParams) : rows;
       await route.fulfill({
         status: 200,
         contentType: 'application/json; charset=utf-8',
-        body: JSON.stringify({ items: rows, page: 1, pageSize: 100, totalCount: rows.length }),
+        body: JSON.stringify({ items: filteredRows, page: 1, pageSize: 100, totalCount: filteredRows.length }),
       });
       return;
     }
@@ -3772,6 +3830,26 @@ async function installAuditGridApi(
           body: JSON.stringify({ error: { code: 'AuditEventNotFound', message: 'The requested audit event is not available.' } }),
         });
   });
+}
+
+function applyAuditFixtureFilters(
+  rows: readonly AuditGridFixture[],
+  params: URLSearchParams,
+): readonly AuditGridFixture[] {
+  const q = params.get('q')?.toLowerCase();
+  const action = params.get('action')?.toLowerCase();
+  const actor = params.get('actor')?.toLowerCase();
+  const entityType = params.get('entityType')?.toLowerCase();
+  const severity = params.get('severity');
+  const result = params.get('result');
+  return rows.filter((row) =>
+    (!q || [row.action, row.targetType, row.workspaceLabel, row.summary]
+      .some((value) => value.toLowerCase().includes(q))) &&
+    (!action || row.action.toLowerCase() === action) &&
+    (!actor || row.actorDisplayName.toLowerCase().includes(actor)) &&
+    (!entityType || row.targetType.toLowerCase() === entityType) &&
+    (!severity || row.severity === severity) &&
+    (!result || row.result === result));
 }
 
 async function installWorkspaceContextApi(

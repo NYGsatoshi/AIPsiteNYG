@@ -315,6 +315,144 @@ public sealed class TenantIsolationSecurityTests
     }
 
     [Fact]
+    public async Task AuditGridFiltersAndCountsOnlyAuthorizedTenantRows()
+    {
+        var (dbContext, currentTenant, data) = await CreateSeededContextAsync();
+        currentTenant.SetPlatformScope();
+        var now = new DateTimeOffset(2026, 8, 30, 8, 0, 0, TimeSpan.Zero);
+        dbContext.AuditLogs.AddRange(
+            new AuditLog
+            {
+                TenantId = data.TenantA.Id,
+                ActorUserId = data.TenantAAdmin.Id,
+                Action = "file.export.failed",
+                EntityType = "ExportJob",
+                WorkspaceId = data.WorkspaceA.Id,
+                Summary = "Neptune retention export failed.",
+                CreatedAt = now,
+            },
+            new AuditLog
+            {
+                TenantId = data.TenantA.Id,
+                ActorUserId = data.TenantAAdmin.Id,
+                Action = "file.export.completed",
+                EntityType = "ExportJob",
+                WorkspaceId = data.WorkspaceA.Id,
+                Summary = "Neptune retention export completed.",
+                CreatedAt = now,
+            },
+            new AuditLog
+            {
+                TenantId = data.TenantB.Id,
+                ActorUserId = data.TenantBOwner.Id,
+                Action = "file.export.failed",
+                EntityType = "ExportJob",
+                WorkspaceId = data.WorkspaceB.Id,
+                Summary = "Neptune retention export failed in another Tenant.",
+                CreatedAt = now,
+            });
+        await dbContext.SaveChangesAsync();
+        currentTenant.SetTenant(data.TenantA.Id, data.TenantA.Slug);
+        var service = CreateAuditQueryService(
+            dbContext,
+            currentTenant,
+            data.TenantAAdmin,
+            new FixedAuditAuthorizationService(new AuditCapabilityResponse(true, true, false, false, true)));
+
+        var result = await service.ListAuditGridAsync(new AuditLogQuery(
+            Action: " FILE.EXPORT.FAILED ",
+            EntityType: " exportjob ",
+            FromDate: now.AddMinutes(-1),
+            ToDate: now.AddMinutes(1),
+            Page: 1,
+            PageSize: 100,
+            Q: " Neptune ",
+            Actor: "tenantaadmin",
+            Severity: "CRITICAL",
+            Result: "FAILED"));
+
+        Assert.True(result.IsSuccess);
+        var row = Assert.Single(result.Value!.Items);
+        Assert.Equal("file.export.failed", row.Action);
+        Assert.Equal(data.WorkspaceA.Name, row.WorkspaceLabel);
+        Assert.Equal(1, result.Value.TotalCount);
+    }
+
+    [Fact]
+    public async Task AuditGridActorFacetIsDeniedBeforeRowsOrCountsWithoutSensitiveCapability()
+    {
+        var (dbContext, currentTenant, data) = await CreateSeededContextAsync();
+        currentTenant.SetTenant(data.TenantA.Id, data.TenantA.Slug);
+        var service = CreateAuditQueryService(
+            dbContext,
+            currentTenant,
+            data.TenantAAdmin,
+            new FixedAuditAuthorizationService(new AuditCapabilityResponse(true, true, false, false, false)));
+
+        var result = await service.ListAuditGridAsync(new AuditLogQuery(Actor: data.TenantAAdmin.DisplayName));
+
+        Assert.False(result.IsSuccess);
+        Assert.Equal("CapabilityDenied", result.ErrorDetail?.Code);
+        Assert.Null(result.Value);
+    }
+
+    [Fact]
+    public async Task AuditGridGlobalSearchDoesNotUseActorNamesWithoutSensitiveCapability()
+    {
+        var (dbContext, currentTenant, data) = await CreateSeededContextAsync();
+        currentTenant.SetTenant(data.TenantA.Id, data.TenantA.Slug);
+        var withoutSensitiveCapability = CreateAuditQueryService(
+            dbContext,
+            currentTenant,
+            data.TenantAAdmin,
+            new FixedAuditAuthorizationService(new AuditCapabilityResponse(true, true, false, false, false)));
+        var withSensitiveCapability = CreateAuditQueryService(
+            dbContext,
+            currentTenant,
+            data.TenantAAdmin,
+            new FixedAuditAuthorizationService(new AuditCapabilityResponse(true, true, false, false, true)));
+
+        var redacted = await withoutSensitiveCapability.ListAuditGridAsync(
+            new AuditLogQuery(Q: data.TenantAAdmin.DisplayName, PageSize: 100));
+        var disclosed = await withSensitiveCapability.ListAuditGridAsync(
+            new AuditLogQuery(Q: data.TenantAAdmin.DisplayName, PageSize: 100));
+
+        Assert.True(redacted.IsSuccess);
+        Assert.Empty(redacted.Value!.Items);
+        Assert.Equal(0, redacted.Value.TotalCount);
+        Assert.True(disclosed.IsSuccess);
+        Assert.NotEmpty(disclosed.Value!.Items);
+        Assert.Equal(disclosed.Value.Items.Count, disclosed.Value.TotalCount);
+    }
+
+    [Theory]
+    [InlineData("severity", "urgent")]
+    [InlineData("result", "pending")]
+    [InlineData("q", "overlong")]
+    [InlineData("dates", "reversed")]
+    public async Task AuditGridRejectsInvalidFilterContracts(string filter, string value)
+    {
+        var (dbContext, currentTenant, data) = await CreateSeededContextAsync();
+        currentTenant.SetTenant(data.TenantA.Id, data.TenantA.Slug);
+        var query = filter switch
+        {
+            "severity" => new AuditLogQuery(Severity: value),
+            "result" => new AuditLogQuery(Result: value),
+            "q" => new AuditLogQuery(Q: new string('x', 201)),
+            _ => new AuditLogQuery(
+                FromDate: new DateTimeOffset(2026, 8, 31, 0, 0, 0, TimeSpan.Zero),
+                ToDate: new DateTimeOffset(2026, 8, 30, 0, 0, 0, TimeSpan.Zero)),
+        };
+        var service = CreateAuditQueryService(dbContext, currentTenant, data.TenantAAdmin);
+
+        var result = await service.ListAuditGridAsync(query);
+
+        Assert.False(result.IsSuccess);
+        Assert.Equal("AuditFilterInvalid", result.ErrorDetail?.Code);
+        Assert.Null(result.Value);
+    }
+
+    [Fact]
     public async Task TenantAdminAuditGridRowLookupKeepsOtherTenantAndAbsentRowsIndistinguishable()
     {
         var (dbContext, currentTenant, data) = await CreateSeededContextAsync();

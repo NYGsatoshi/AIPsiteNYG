@@ -13,7 +13,11 @@ public sealed record AuditLogQuery(
     DateTimeOffset? FromDate = null,
     DateTimeOffset? ToDate = null,
     int Page = 1,
-    int PageSize = 20);
+    int PageSize = 20,
+    string? Q = null,
+    string? Actor = null,
+    string? Severity = null,
+    string? Result = null);
 
 public sealed record AuditLogListItemResponse(
     Guid Id,

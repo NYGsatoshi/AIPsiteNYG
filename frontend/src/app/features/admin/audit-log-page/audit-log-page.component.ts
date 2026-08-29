@@ -1,7 +1,8 @@
 import { DOCUMENT } from '@angular/common';
 import { afterNextRender, Component, computed, effect, inject, Injector, signal, untracked } from '@angular/core';
 import { toSignal } from '@angular/core/rxjs-interop';
-import { ActivatedRoute, Router } from '@angular/router';
+import { FormsModule } from '@angular/forms';
+import { ActivatedRoute, ParamMap, Router } from '@angular/router';
 import { distinctUntilChanged, map } from 'rxjs';
 
 import {
@@ -13,9 +14,23 @@ import { AppDataGridComponent } from '../../../shared/grid/app-data-grid/app-dat
 import { AppEmptyStateComponent } from '../../../shared/empty-state/app-empty-state/app-empty-state.component';
 import { AppSkeletonComponent } from '../../../shared/loading/app-skeleton/app-skeleton.component';
 import { AppPermissionDeniedComponent } from '../../../shared/permission/app-permission-denied/app-permission-denied.component';
+import { AipFilterChipComponent } from '../../../shared/ui/aip-filter-chip/aip-filter-chip.component';
 import { AdminFacade } from '../admin.facade';
 import { AuditDetailDrawerComponent } from '../audit-detail-drawer/audit-detail-drawer.component';
-import { AuditGridRow, AuditLogViewModel } from '../admin.types';
+import {
+  AuditFilterSnapshot,
+  AuditGridRow,
+  AuditLogViewModel,
+  AuditSavedView,
+  AuditSeverityFilter,
+  AuditStatusFilter,
+  AuditTimeRange,
+  EMPTY_AUDIT_FILTERS,
+} from '../admin.types';
+import {
+  AuditViewPreferenceService,
+  normalizeAuditFilterSnapshot,
+} from '../audit-view-preference.service';
 
 type AuditGridOptionalColumn = 'workspace' | 'requestId';
 type AuditGridDensity = 'default' | 'dense';
@@ -40,13 +55,16 @@ interface DrawerReturnContext {
     AppEmptyStateComponent,
     AppSkeletonComponent,
     AppPermissionDeniedComponent,
-    AuditDetailDrawerComponent
+    AuditDetailDrawerComponent,
+    AipFilterChipComponent,
+    FormsModule,
   ],
   templateUrl: './audit-log-page.component.html',
   styleUrl: './audit-log-page.component.scss'
 })
 export class AuditLogPageComponent {
   private readonly facade = inject(AdminFacade);
+  private readonly viewPreferences = inject(AuditViewPreferenceService);
   private readonly document = inject(DOCUMENT);
   private readonly injector = inject(Injector);
   private readonly route = inject(ActivatedRoute, { optional: true });
@@ -60,7 +78,14 @@ export class AuditLogPageComponent {
         { initialValue: this.route.snapshot.queryParamMap.get('event') },
       )
     : signal<string | null>(null);
+  private readonly routeFilters = this.route
+    ? toSignal(
+        this.route.queryParamMap.pipe(map((params) => auditFiltersFromParams(params))),
+        { initialValue: auditFiltersFromParams(this.route.snapshot.queryParamMap) },
+      )
+    : signal<AuditFilterSnapshot>(EMPTY_AUDIT_FILTERS);
   private routeSelectionInitialized = false;
+  private routeFilterSignature = '';
   private readonly selectedAuditId = signal<string | null>(null);
   private retryFocusRestorePending = false;
   private readonly visibleOptionalColumns = signal<ReadonlySet<AuditGridOptionalColumn>>(new Set());
@@ -69,6 +94,17 @@ export class AuditLogPageComponent {
   // still refusing to focus an element that was virtualized away.
   private readonly drawerReturnContext = signal<DrawerReturnContext | null>(null);
   readonly density = signal<AuditGridDensity>('default');
+  readonly savedViews = signal<readonly AuditSavedView[]>([]);
+  readonly filterMessage = signal('');
+  searchDraft = '';
+  severityDraft: AuditSeverityFilter = '';
+  typeDraft = '';
+  actorDraft = '';
+  sourceDraft = '';
+  statusDraft: AuditStatusFilter = '';
+  rangeDraft: AuditTimeRange = '';
+  savedViewName = '';
+  selectedSavedViewId = '';
   readonly optionalColumns = [
     { id: 'workspace' as const, label: 'Workspace' },
     { id: 'requestId' as const, label: 'Request ID' },
@@ -80,14 +116,47 @@ export class AuditLogPageComponent {
   readonly sensitiveMetadata = computed(() => this.facade.getAuditSensitiveMetadata());
   readonly selectedAudit = computed(() => this.auditDetail().row);
   readonly drawerOpen = computed(() => this.selectedAuditId() !== null);
+  readonly activeFilterChips = computed(() => describeAuditFilterChips(this.vm().appliedFilters));
+  readonly hasActiveFilters = computed(() => this.activeFilterChips().length > 0);
   readonly accessibilityStatus = computed(() =>
     this.describeAuditStatus(this.vm(), this.density(), this.visibleOptionalColumns()),
   );
 
   constructor() {
+    const initialFilters = this.routeFilters();
+    this.routeFilterSignature = JSON.stringify(initialFilters);
+    this.setDraftFilters(initialFilters);
+    this.facade.initializeAuditLog(initialFilters);
+
     effect(() => {
       const eventId = this.routeEventId();
       untracked(() => this.syncSelectionFromRoute(eventId));
+    });
+
+    effect(() => {
+      const filters = this.routeFilters();
+      const signature = JSON.stringify(filters);
+      untracked(() => {
+        if (signature === this.routeFilterSignature) return;
+        this.routeFilterSignature = signature;
+        this.setDraftFilters(filters);
+        this.facade.applyAuditFilters(filters);
+      });
+    });
+
+    effect(() => {
+      this.viewPreferences.identityKey();
+      untracked(() => this.reloadSavedViews());
+    });
+
+    effect(() => {
+      const page = this.vm();
+      if (page.status !== 'permissionDenied' || describeAuditFilterChips(page.appliedFilters).length > 0) return;
+      untracked(() => {
+        this.setDraftFilters(EMPTY_AUDIT_FILTERS);
+        this.routeFilterSignature = JSON.stringify(EMPTY_AUDIT_FILTERS);
+        void this.updateRouteFilters(EMPTY_AUDIT_FILTERS);
+      });
     });
 
     effect(() => {
@@ -119,6 +188,125 @@ export class AuditLogPageComponent {
     if (event.actionId === 'openAuditDetail') {
       this.openAuditDetail(event.row.id, event.trigger ?? null);
     }
+  }
+
+  applyFilters(): void {
+    const snapshot = normalizeAuditFilterSnapshot(this.draftFilters());
+    if (!snapshot) {
+      this.filterMessage.set('Check the filter lengths and try again.');
+      return;
+    }
+    this.setDraftFilters(snapshot);
+    this.filterMessage.set('Filters applied. Results were reauthorized by the server.');
+    this.routeFilterSignature = JSON.stringify(snapshot);
+    this.facade.applyAuditFilters(snapshot);
+    void this.updateRouteFilters(snapshot);
+  }
+
+  removeFilter(key: keyof AuditFilterSnapshot): void {
+    switch (key) {
+      case 'q': this.searchDraft = ''; break;
+      case 'severity': this.severityDraft = ''; break;
+      case 'type': this.typeDraft = ''; break;
+      case 'actor': this.actorDraft = ''; break;
+      case 'source': this.sourceDraft = ''; break;
+      case 'status': this.statusDraft = ''; break;
+      case 'range': this.rangeDraft = ''; break;
+    }
+    this.applyFilters();
+  }
+
+  clearAllFilters(): void {
+    this.setDraftFilters(EMPTY_AUDIT_FILTERS);
+    this.applyFilters();
+  }
+
+  saveCurrentView(): void {
+    const snapshot = normalizeAuditFilterSnapshot(this.vm().appliedFilters);
+    if (!snapshot) {
+      this.filterMessage.set('Check the filter lengths before saving this view.');
+      return;
+    }
+    const result = this.viewPreferences.save(this.savedViewName, snapshot);
+    this.savedViews.set(result.views);
+    if (result.status === 'ready') {
+      this.savedViewName = '';
+      this.filterMessage.set('Saved view updated. Applying it will reauthorize the query.');
+      return;
+    }
+    this.filterMessage.set(savedViewStatusMessage(result.status));
+  }
+
+  applySelectedView(): void {
+    const view = this.savedViews().find((candidate) => candidate.id === this.selectedSavedViewId);
+    if (!view) {
+      this.filterMessage.set('Choose a saved view first.');
+      return;
+    }
+    this.setDraftFilters(view.snapshot);
+    this.filterMessage.set(`Applied saved view ${view.name}. Results were reauthorized by the server.`);
+    this.routeFilterSignature = JSON.stringify(view.snapshot);
+    this.facade.applyAuditFilters(view.snapshot);
+    void this.updateRouteFilters(view.snapshot);
+  }
+
+  deleteSelectedView(): void {
+    if (!this.selectedSavedViewId) return;
+    const result = this.viewPreferences.delete(this.selectedSavedViewId);
+    this.savedViews.set(result.views);
+    if (result.status === 'ready') {
+      this.selectedSavedViewId = '';
+      this.filterMessage.set('Saved view deleted.');
+      return;
+    }
+    this.filterMessage.set(savedViewStatusMessage(result.status));
+  }
+
+  private draftFilters(): AuditFilterSnapshot {
+    return {
+      q: this.searchDraft,
+      severity: this.severityDraft,
+      type: this.typeDraft,
+      actor: this.actorDraft,
+      source: this.sourceDraft,
+      status: this.statusDraft,
+      range: this.rangeDraft,
+    };
+  }
+
+  private setDraftFilters(filters: AuditFilterSnapshot): void {
+    this.searchDraft = filters.q;
+    this.severityDraft = filters.severity;
+    this.typeDraft = filters.type;
+    this.actorDraft = filters.actor;
+    this.sourceDraft = filters.source;
+    this.statusDraft = filters.status;
+    this.rangeDraft = filters.range;
+  }
+
+  private reloadSavedViews(): void {
+    const result = this.viewPreferences.load();
+    this.savedViews.set(result.views);
+    if (result.status === 'discarded') {
+      this.filterMessage.set('An invalid saved-view record was discarded.');
+    }
+  }
+
+  private async updateRouteFilters(filters: AuditFilterSnapshot): Promise<void> {
+    if (!this.router || !this.route) return;
+    await this.router.navigate([], {
+      relativeTo: this.route,
+      queryParams: {
+        q: filters.q || null,
+        severity: filters.severity || null,
+        type: filters.type || null,
+        actor: filters.actor || null,
+        source: filters.source || null,
+        status: filters.status || null,
+        range: filters.range || null,
+      },
+      queryParamsHandling: 'merge',
+    });
   }
 
   handleGridRowActivation(event: AppDataGridRowActivationEvent<AuditGridRow>): void {
@@ -449,14 +637,17 @@ export class AuditLogPageComponent {
       return 'Audit log could not be loaded.';
     }
     if (page.status === 'empty' || page.rows.length === 0) {
-      return 'No audit entries are available for the current authorized scope.';
+      return this.hasActiveFilters()
+        ? 'No authorized audit entries match the applied filters. Clear or change a filter to recover.'
+        : 'No audit entries are available for the current authorized scope.';
     }
 
-    const count = page.rows.length;
+    const count = page.totalCount;
     const optionalColumnStatus = this.optionalColumns
       .map((column) => `${column.label} ${visibleColumns.has(column.id) ? 'shown' : 'hidden'}`)
       .join('; ');
-    return `Showing ${count} audit ${count === 1 ? 'entry' : 'entries'}. ${density === 'dense' ? 'Dense' : 'Default'} density. Optional columns: ${optionalColumnStatus}.`;
+    const shown = page.rows.length === count ? '' : ` Showing the first ${page.rows.length}.`;
+    return `Showing ${count} audit ${count === 1 ? 'entry' : 'entries'}. Current authorized scope.${shown} ${density === 'dense' ? 'Dense' : 'Default'} density. Optional columns: ${optionalColumnStatus}.`;
   }
 
   private renderDetailButton(row: AuditGridRow | undefined): HTMLElement {
@@ -470,4 +661,68 @@ export class AuditLogPageComponent {
     button.textContent = row?.summary ?? 'Open detail';
     return button;
   }
+}
+
+interface AuditFilterChipDescription {
+  readonly key: keyof AuditFilterSnapshot;
+  readonly label: string;
+  readonly value: string;
+}
+
+function describeAuditFilterChips(filters: AuditFilterSnapshot): readonly AuditFilterChipDescription[] {
+  const chips: AuditFilterChipDescription[] = [];
+  if (filters.q) chips.push({ key: 'q', label: 'Search', value: filters.q });
+  if (filters.severity) chips.push({ key: 'severity', label: 'Severity', value: capitalize(filters.severity) });
+  if (filters.type) chips.push({ key: 'type', label: 'Type', value: filters.type });
+  if (filters.actor) chips.push({ key: 'actor', label: 'Actor', value: filters.actor });
+  if (filters.source) chips.push({ key: 'source', label: 'Source', value: filters.source });
+  if (filters.status) chips.push({ key: 'status', label: 'Status', value: capitalize(filters.status) });
+  if (filters.range) chips.push({ key: 'range', label: 'Time range', value: timeRangeLabel(filters.range) });
+  return chips;
+}
+
+function auditFiltersFromParams(params: ParamMap): AuditFilterSnapshot {
+  const candidate: AuditFilterSnapshot = {
+    q: boundedParam(params.get('q'), 200),
+    severity: toSeverityFilter(params.get('severity')),
+    type: boundedParam(params.get('type'), 160),
+    actor: boundedParam(params.get('actor'), 200),
+    source: boundedParam(params.get('source'), 80),
+    status: toStatusFilter(params.get('status')),
+    range: toTimeRange(params.get('range')),
+  };
+  return normalizeAuditFilterSnapshot(candidate) ?? EMPTY_AUDIT_FILTERS;
+}
+
+function boundedParam(value: string | null, maximum: number): string {
+  const normalized = value?.trim() ?? '';
+  return normalized.length <= maximum ? normalized : '';
+}
+
+function toSeverityFilter(value: string | null): AuditSeverityFilter {
+  return value === 'info' || value === 'warning' || value === 'critical' ? value : '';
+}
+
+function toStatusFilter(value: string | null): AuditStatusFilter {
+  return value === 'success' || value === 'denied' || value === 'failed' ? value : '';
+}
+
+function toTimeRange(value: string | null): AuditTimeRange {
+  return value === '24h' || value === '7d' || value === '30d' ? value : '';
+}
+
+function timeRangeLabel(value: AuditTimeRange): string {
+  return value === '24h' ? 'Last 24 hours' : value === '7d' ? 'Last 7 days' : 'Last 30 days';
+}
+
+function capitalize(value: string): string {
+  return value.length > 0 ? `${value[0]!.toUpperCase()}${value.slice(1)}` : value;
+}
+
+function savedViewStatusMessage(status: string): string {
+  return status === 'identityUnavailable'
+    ? 'Sign in to an active Tenant or platform scope to use saved views.'
+    : status === 'storageUnavailable'
+      ? 'Saved-view storage is unavailable in this browser.'
+      : 'Enter a unique name of 1 to 80 characters. Up to 20 views are supported.';
 }

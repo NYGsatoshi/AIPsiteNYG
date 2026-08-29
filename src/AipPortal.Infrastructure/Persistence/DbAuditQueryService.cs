@@ -11,6 +11,10 @@ namespace AipPortal.Infrastructure.Persistence;
 public sealed class DbAuditQueryService : IAuditQueryService
 {
     private const int MaxPageSize = 100;
+    private const int MaxSearchLength = 200;
+    private const int MaxActorFilterLength = 200;
+    private const int MaxActionLength = 160;
+    private const int MaxEntityTypeLength = 80;
 
     private readonly AppDbContext dbContext;
     private readonly ICurrentTenant currentTenant;
@@ -146,7 +150,8 @@ public sealed class DbAuditQueryService : IAuditQueryService
             return AuthorizationFailure<PagedResponse<AuditGridRowResponse>>(denied);
         }
 
-        if (query.ActorUserId.HasValue && !capabilities.CanViewSensitiveMetadata)
+        if ((query.ActorUserId.HasValue || !string.IsNullOrWhiteSpace(query.Actor)) &&
+            !capabilities.CanViewSensitiveMetadata)
         {
             var denied = await auditAuthorization.AuthorizeAsync(
                 CapabilityKeys.AuditSensitiveMetadataView,
@@ -161,23 +166,42 @@ public sealed class DbAuditQueryService : IAuditQueryService
             return scopeError;
         }
 
+        var normalizedQuery = NormalizeAuditGridQuery(query);
+        if (!normalizedQuery.IsSuccess)
+        {
+            return Result<PagedResponse<AuditGridRowResponse>>.Failure(
+                normalizedQuery.ErrorDetail ?? new ApplicationErrorDetail(
+                    "AuditFilterInvalid",
+                    "The audit filter is invalid."));
+        }
+        query = normalizedQuery.Value!;
+
         var page = Math.Max(1, query.Page);
         var pageSize = Math.Clamp(query.PageSize, 1, MaxPageSize);
         var source = ScopeToCurrentTenant(dbContext.AuditLogs.AsNoTracking());
 
         if (!string.IsNullOrWhiteSpace(query.Action))
         {
-            source = source.Where(log => log.Action == query.Action);
+            var action = query.Action.ToLowerInvariant();
+            source = source.Where(log => log.Action.ToLower() == action);
         }
 
         if (!string.IsNullOrWhiteSpace(query.EntityType))
         {
-            source = source.Where(log => log.EntityType == query.EntityType);
+            var entityType = query.EntityType.ToLowerInvariant();
+            source = source.Where(log => log.EntityType.ToLower() == entityType);
         }
 
         if (query.ActorUserId.HasValue)
         {
             source = source.Where(log => log.ActorUserId == query.ActorUserId);
+        }
+
+        if (!string.IsNullOrWhiteSpace(query.Actor))
+        {
+            var actor = query.Actor.ToLowerInvariant();
+            source = source.Where(log =>
+                log.ActorUser != null && log.ActorUser.DisplayName.ToLower().Contains(actor));
         }
 
         if (query.WorkspaceId.HasValue)
@@ -203,6 +227,28 @@ public sealed class DbAuditQueryService : IAuditQueryService
         if (query.ToDate.HasValue)
         {
             source = source.Where(log => log.CreatedAt <= query.ToDate.Value);
+        }
+
+        if (!string.IsNullOrWhiteSpace(query.Q))
+        {
+            var search = query.Q.ToLowerInvariant();
+            var canSearchActor = capabilities.CanViewSensitiveMetadata;
+            source = source.Where(log =>
+                log.Action.ToLower().Contains(search) ||
+                log.EntityType.ToLower().Contains(search) ||
+                (log.Summary != null && log.Summary.ToLower().Contains(search)) ||
+                (log.Workspace != null && log.Workspace.Name.ToLower().Contains(search)) ||
+                (canSearchActor && log.ActorUser != null && log.ActorUser.DisplayName.ToLower().Contains(search)));
+        }
+
+        if (!string.IsNullOrWhiteSpace(query.Result))
+        {
+            source = ApplyResultFilter(source, query.Result);
+        }
+
+        if (!string.IsNullOrWhiteSpace(query.Severity))
+        {
+            source = ApplySeverityFilter(source, query.Severity);
         }
 
         var total = await source.CountAsync(cancellationToken);
@@ -458,6 +504,123 @@ public sealed class DbAuditQueryService : IAuditQueryService
         Result<AuditSensitiveMetadataResponse>.Failure(new ApplicationErrorDetail(
             "AuditEventNotFound",
             "The requested audit event is not available."));
+
+    private static Result<AuditLogQuery> NormalizeAuditGridQuery(AuditLogQuery query)
+    {
+        var q = NormalizeFilterValue(query.Q);
+        var action = NormalizeFilterValue(query.Action);
+        var entityType = NormalizeFilterValue(query.EntityType);
+        var actor = NormalizeFilterValue(query.Actor);
+        var severity = NormalizeFilterValue(query.Severity)?.ToLowerInvariant();
+        var result = NormalizeFilterValue(query.Result)?.ToLowerInvariant();
+
+        if (q?.Length > MaxSearchLength || actor?.Length > MaxActorFilterLength ||
+            action?.Length > MaxActionLength || entityType?.Length > MaxEntityTypeLength ||
+            (severity is not null && severity is not ("info" or "warning" or "critical")) ||
+            (result is not null && result is not ("success" or "denied" or "failed")) ||
+            (query.FromDate.HasValue && query.ToDate.HasValue && query.FromDate > query.ToDate))
+        {
+            return Result<AuditLogQuery>.Failure(new ApplicationErrorDetail(
+                "AuditFilterInvalid",
+                "The audit filter is invalid."));
+        }
+
+        return Result<AuditLogQuery>.Success(query with
+        {
+            Q = q,
+            Action = action,
+            EntityType = entityType,
+            Actor = actor,
+            Severity = severity,
+            Result = result,
+        });
+    }
+
+    private static string? NormalizeFilterValue(string? value)
+    {
+        var normalized = value?.Trim();
+        return string.IsNullOrEmpty(normalized) ? null : normalized;
+    }
+
+    private static IQueryable<AuditLog> ApplyResultFilter(IQueryable<AuditLog> source, string result)
+    {
+        return result switch
+        {
+            "denied" => source.Where(log =>
+                log.Action.ToLower().Contains("denied") ||
+                log.Action.ToLower().Contains("unauthorized") ||
+                log.Action.ToLower().Contains("forbidden") ||
+                log.Action.ToLower().Contains("rejected")),
+            "failed" => source.Where(log =>
+                !(log.Action.ToLower().Contains("denied") ||
+                  log.Action.ToLower().Contains("unauthorized") ||
+                  log.Action.ToLower().Contains("forbidden") ||
+                  log.Action.ToLower().Contains("rejected")) &&
+                (log.Action.ToLower().Contains("failed") ||
+                 log.Action.ToLower().Contains("failure") ||
+                 log.Action.ToLower().Contains("error") ||
+                 log.Action.ToLower().Contains("exception") ||
+                 log.Action.ToLower().Contains("lockout"))),
+            _ => source.Where(log =>
+                !(log.Action.ToLower().Contains("denied") ||
+                  log.Action.ToLower().Contains("unauthorized") ||
+                  log.Action.ToLower().Contains("forbidden") ||
+                  log.Action.ToLower().Contains("rejected")) &&
+                !(log.Action.ToLower().Contains("failed") ||
+                  log.Action.ToLower().Contains("failure") ||
+                  log.Action.ToLower().Contains("error") ||
+                  log.Action.ToLower().Contains("exception") ||
+                  log.Action.ToLower().Contains("lockout"))),
+        };
+    }
+
+    private static IQueryable<AuditLog> ApplySeverityFilter(IQueryable<AuditLog> source, string severity)
+    {
+        return severity switch
+        {
+            "critical" => source.Where(log =>
+                log.Action.ToLower().Contains("critical") ||
+                log.Action.ToLower().Contains("failed") ||
+                log.Action.ToLower().Contains("lockout") ||
+                log.Action.ToLower().Contains("suspicious") ||
+                log.Action.ToLower().Contains("infected") ||
+                log.Action.ToLower().Contains("quarantine")),
+            "warning" => source.Where(log =>
+                !(log.Action.ToLower().Contains("critical") ||
+                  log.Action.ToLower().Contains("failed") ||
+                  log.Action.ToLower().Contains("lockout") ||
+                  log.Action.ToLower().Contains("suspicious") ||
+                  log.Action.ToLower().Contains("infected") ||
+                  log.Action.ToLower().Contains("quarantine")) &&
+                (log.Action.ToLower().Contains("denied") ||
+                 log.Action.ToLower().Contains("unauthorized") ||
+                 log.Action.ToLower().Contains("forbidden") ||
+                 log.Action.ToLower().Contains("rejected") ||
+                 log.Action.ToLower().Contains("failure") ||
+                 log.Action.ToLower().Contains("warning") ||
+                 log.Action.ToLower().Contains("rate") ||
+                 log.Action.ToLower().Contains("revoked") ||
+                 log.Action.ToLower().Contains("expired") ||
+                 log.Action.ToLower().Contains("blocked"))),
+            _ => source.Where(log =>
+                !(log.Action.ToLower().Contains("critical") ||
+                  log.Action.ToLower().Contains("failed") ||
+                  log.Action.ToLower().Contains("lockout") ||
+                  log.Action.ToLower().Contains("suspicious") ||
+                  log.Action.ToLower().Contains("infected") ||
+                  log.Action.ToLower().Contains("quarantine")) &&
+                !(log.Action.ToLower().Contains("denied") ||
+                  log.Action.ToLower().Contains("unauthorized") ||
+                  log.Action.ToLower().Contains("forbidden") ||
+                  log.Action.ToLower().Contains("rejected") ||
+                  log.Action.ToLower().Contains("failure") ||
+                  log.Action.ToLower().Contains("warning") ||
+                  log.Action.ToLower().Contains("rate") ||
+                  log.Action.ToLower().Contains("revoked") ||
+                  log.Action.ToLower().Contains("expired") ||
+                  log.Action.ToLower().Contains("blocked"))),
+        };
+    }
 
     private static AuditGridRowResponse ToAuditGridRow(
         AuditGridProjection log,
