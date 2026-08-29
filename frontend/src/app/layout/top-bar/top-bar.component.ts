@@ -5,11 +5,12 @@ import { AuthSessionStatus } from '../../core/auth/auth-session.facade';
 import { I18nService } from '../../core/i18n/i18n.service';
 import { WorkspaceSummary } from '../../core/workspace/active-workspace.facade';
 import { RightPanelMode } from '../../shared/right-panel/right-panel.types';
+import { WorkspaceSearchComponent } from '../workspace-search/workspace-search.component';
 
 @Component({
   selector: 'app-top-bar',
   standalone: true,
-  imports: [RouterLink],
+  imports: [RouterLink, WorkspaceSearchComponent],
   template: `
     <header class="top-bar" data-testid="top-bar" [attr.aria-label]="i18n.translate('topBar.primaryHeader')">
       <section class="top-bar__workspace" aria-labelledby="workspace-context-label">
@@ -56,6 +57,12 @@ import { RightPanelMode } from '../../shared/right-panel/right-panel.types';
           }
         </strong>
       </section>
+
+      <app-workspace-search
+        class="top-bar__search"
+        [workspaceId]="workspace?.id ?? null"
+        [workspaceLabel]="workspace?.label ?? ''"
+      />
 
       <div class="top-bar__actions">
         @if (sessionStatus === 'expired') {

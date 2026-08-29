@@ -1,3 +1,5 @@
+import { provideHttpClient } from '@angular/common/http';
+import { provideHttpClientTesting } from '@angular/common/http/testing';
 import { TestBed } from '@angular/core/testing';
 import { provideRouter } from '@angular/router';
 
@@ -7,7 +9,7 @@ describe('TopBarComponent', () => {
   async function createComponent() {
     await TestBed.configureTestingModule({
       imports: [TopBarComponent],
-      providers: [provideRouter([])]
+      providers: [provideRouter([]), provideHttpClient(), provideHttpClientTesting()]
     }).compileComponents();
 
     const fixture = TestBed.createComponent(TopBarComponent);
@@ -38,6 +40,7 @@ describe('TopBarComponent', () => {
     expect(element.querySelector('nav[aria-label="共通の操作"]')?.textContent).toContain('アカウント');
     expect(element.querySelector('[data-testid="workspace-research-status"]')?.textContent).toContain('2 進行中');
     expect(element.querySelector('[data-testid="workspace-research-status"]')?.textContent).toContain('1 要レビュー');
+    expect(element.querySelector('[data-testid="workspace-search-input"]')).not.toBeNull();
     expect(element.querySelector('[data-testid="page-search"]')).toBeNull();
   });
 

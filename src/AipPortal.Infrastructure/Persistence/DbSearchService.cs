@@ -79,6 +79,11 @@ public sealed class DbSearchService(
             items.AddRange(await SearchProjectsAsync(userId, q, request, cancellationToken));
         }
 
+        if (ShouldInclude(request.Type, SearchResultType.File))
+        {
+            items.AddRange(await SearchFilesAsync(userId, isSystemAdmin, q, request, cancellationToken));
+        }
+
         if (ShouldInclude(request.Type, SearchResultType.Task))
         {
             items.AddRange(await SearchTasksAsync(userId, q, request, cancellationToken));
@@ -340,6 +345,77 @@ public sealed class DbSearchService(
         query = ApplyDateFilters(query, request, project => project.CreatedAt);
         return await query
             .Select(project => new SearchResultItemResponse(SearchResultType.Project, project.Id, project.Name, project.Description, $"/projects/{project.Id}", project.WorkspaceId, project.GroupId, project.Id, project.CreatedAt, project.CreatedByUser!.DisplayName))
+            .Take(100)
+            .ToListAsync(cancellationToken);
+    }
+
+    private async Task<IReadOnlyList<SearchResultItemResponse>> SearchFilesAsync(
+        Guid userId,
+        bool isSystemAdmin,
+        string? q,
+        SearchRequest request,
+        CancellationToken cancellationToken)
+    {
+        if (!request.WorkspaceId.HasValue || request.GroupId.HasValue || request.ProjectId.HasValue)
+        {
+            return [];
+        }
+
+        var workspaceId = request.WorkspaceId.Value;
+        var canViewWorkspace = await dbContext.Workspaces
+            .AsNoTracking()
+            .AnyAsync(workspace =>
+                workspace.Id == workspaceId &&
+                workspace.Status == WorkspaceStatus.Active &&
+                !workspace.DeletedAt.HasValue &&
+                (isSystemAdmin || workspace.Members.Any(member =>
+                    member.UserId == userId &&
+                    member.Status == MembershipStatus.Active)),
+                cancellationToken);
+        if (!canViewWorkspace)
+        {
+            return [];
+        }
+
+        var query = dbContext.Attachments
+            .AsNoTracking()
+            .Where(attachment =>
+                attachment.WorkspaceId == workspaceId &&
+                attachment.OwnerType == AttachmentOwnerType.Workspace &&
+                attachment.OwnerId == workspaceId &&
+                !attachment.DeletedAt.HasValue &&
+                attachment.FileObject != null &&
+                !attachment.FileObject.DeletedAt.HasValue &&
+                attachment.FileObject.Status != FileObjectStatus.Deleted);
+
+        if (!string.IsNullOrWhiteSpace(q))
+        {
+            query = query.Where(attachment => EF.Functions.ILike(attachment.FileObject!.OriginalFileName, $"%{q}%"));
+        }
+
+        if (request.AuthorUserId.HasValue)
+        {
+            query = query.Where(attachment => attachment.UploadedByUserId == request.AuthorUserId.Value);
+        }
+
+        query = query.Where(attachment =>
+            (!request.FromDate.HasValue || attachment.FileObject!.CreatedAt >= request.FromDate.Value) &&
+            (!request.ToDate.HasValue || attachment.FileObject!.CreatedAt <= request.ToDate.Value));
+
+        return await query
+            .OrderByDescending(attachment => attachment.FileObject!.CreatedAt)
+            .ThenBy(attachment => attachment.FileObjectId)
+            .Select(attachment => new SearchResultItemResponse(
+                SearchResultType.File,
+                attachment.FileObjectId,
+                attachment.FileObject!.OriginalFileName,
+                null,
+                $"/workspaces/{workspaceId}/files",
+                workspaceId,
+                null,
+                null,
+                attachment.FileObject.CreatedAt,
+                attachment.UploadedByUser!.DisplayName))
             .Take(100)
             .ToListAsync(cancellationToken);
     }
