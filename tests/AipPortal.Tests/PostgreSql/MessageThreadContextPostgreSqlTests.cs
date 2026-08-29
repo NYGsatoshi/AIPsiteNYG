@@ -194,6 +194,68 @@ INSERT INTO messages ("Id", "TenantId", "WorkspaceId", "ConversationId", "Author
 
     [PostgreSqlFact]
     [Trait("Category", "PostgreSQLIntegration")]
+    [Trait("Scope", "Issue368")]
+    public async Task ExactReplyContextIncludesAnAnchorOutsideTheLatestHundredWithoutIncreasingTheBound()
+    {
+        var connectionString = PostgreSqlTestEnvironment.RequireConnectionString();
+        await PostgreSqlMigrationTestDatabase.WithTemporaryDatabaseAsync(connectionString, async database =>
+        {
+            await PostgreSqlMigrationTestDatabase.MigrateAsync(database);
+            var graph = await TaskV1MigrationRawSqlSeed.CreateGraphAsync(database, $"thread-anchor-{Guid.NewGuid():N}");
+            var conversationId = Guid.NewGuid();
+            var rootId = Guid.NewGuid();
+            var oldestReplyId = Guid.NewGuid();
+            var now = new DateTimeOffset(2026, 8, 29, 12, 0, 0, TimeSpan.Zero);
+            await PostgreSqlMigrationTestDatabase.ExecuteAsync(database, """
+INSERT INTO tenant_users ("Id", "TenantId", "UserId", "Role", "Status", "JoinedAt", "CreatedAt")
+VALUES (@tenantUserId, @tenantId, @userId, 'Member', 'Active', @now, @now);
+INSERT INTO conversations ("Id", "TenantId", "WorkspaceId", "Type", "Title", "IsArchived", "IsLocked", "CreatedByUserId", "CreatedAt")
+VALUES (@conversationId, @tenantId, @workspaceId, 'DirectMessage', 'Exact reply context', false, false, @userId, @now);
+INSERT INTO conversation_members ("Id", "TenantId", "ConversationId", "UserId", "Role", "CanRead", "CanPost", "CanManageMembers", "CanCreateThread", "JoinedAt", "IsMuted", "IsArchived", "CreatedAt")
+VALUES (@memberId, @tenantId, @conversationId, @userId, 'Member', true, true, false, true, @now, false, false, @now);
+INSERT INTO messages ("Id", "TenantId", "WorkspaceId", "ConversationId", "AuthorUserId", "Body", "Version", "CreatedAt")
+VALUES (@rootId, @tenantId, @workspaceId, @conversationId, @userId, 'root', 1, @now);
+INSERT INTO messages ("Id", "TenantId", "WorkspaceId", "ConversationId", "AuthorUserId", "Body", "Version", "CreatedAt", "ThreadRootMessageId")
+VALUES (@oldestReplyId, @tenantId, @workspaceId, @conversationId, @userId, 'anchored oldest reply', 1, @now + INTERVAL '1 second', @rootId);
+INSERT INTO messages ("Id", "TenantId", "WorkspaceId", "ConversationId", "AuthorUserId", "Body", "Version", "CreatedAt", "ThreadRootMessageId")
+SELECT gen_random_uuid(), @tenantId, @workspaceId, @conversationId, @userId,
+       'bounded reply ' || series.value, 1,
+       @now + (series.value * INTERVAL '1 second'), @rootId
+FROM generate_series(2, 101) AS series(value);
+""",
+                ("tenantUserId", Guid.NewGuid()), ("memberId", Guid.NewGuid()),
+                ("tenantId", graph.TenantId), ("workspaceId", graph.WorkspaceId),
+                ("userId", graph.UserId), ("conversationId", conversationId),
+                ("rootId", rootId), ("oldestReplyId", oldestReplyId), ("now", now));
+
+            var currentTenant = new CurrentTenantService();
+            currentTenant.SetTenant(graph.TenantId, "thread-anchor-tenant");
+            await using var context = new AppDbContext(
+                new DbContextOptionsBuilder<AppDbContext>().UseNpgsql(database).Options,
+                currentTenant);
+            var page = await new MessagingRepository(context).ListThreadReplyContextAsync(
+                conversationId,
+                rootId,
+                oldestReplyId,
+                100);
+
+            Assert.Equal(101, page.TotalCount);
+            Assert.Equal(100, page.Items.Count);
+            Assert.Equal(oldestReplyId, page.Items[0].Id);
+            Assert.Equal("anchored oldest reply", page.Items[0].Body);
+            Assert.Contains(page.Items, message => message.Body == "bounded reply 101");
+            Assert.DoesNotContain(page.Items, message => message.Body == "bounded reply 2");
+            Assert.Equal(
+                page.Items.Select(message => message.Id),
+                page.Items
+                    .OrderBy(message => message.CreatedAt)
+                    .ThenBy(message => message.Id)
+                    .Select(message => message.Id));
+        });
+    }
+
+    [PostgreSqlFact]
+    [Trait("Category", "PostgreSQLIntegration")]
     public async Task ThreadParticipantProjectionBoundsRowsPerRootInsidePostgreSql()
     {
         var connectionString = PostgreSqlTestEnvironment.RequireConnectionString();

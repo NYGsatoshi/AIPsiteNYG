@@ -645,6 +645,32 @@ preference state before it reauthorizes subscriptions or starts HTTP catch-up.
 This clear-before-reauthorize ordering prevents a revoked browser from keeping
 a protected projection visible.
 
+## Saved Message follow-up boundary
+
+`message_follow_ups` is current-user private state. Tenant filtering and the
+unique Tenant/user/Message identity prevent another participant from reading,
+completing, or overwriting a marker. Server-side save and complete operations
+reauthorize the target Message through the same recursive current Conversation
+read boundary before looking up or changing the marker; an inaccessible target
+and a nonexistent marker are non-disclosing.
+
+List authorization occurs before totals and paging. A durable marker may remain
+after membership or Project/Workspace access is revoked, but its Message body,
+author, title, timestamps, existence, and contribution to counts are all
+suppressed until the target is readable again. Deleted Messages are likewise
+excluded. Audit rows record only bounded identifiers, operation, decision, and
+state kind; they never copy Message bodies. The browser clears the saved list
+on malformed/error responses and uses HTTP anchor/thread reads as the source of
+truth for navigation. A saved thread reply is reauthorized as a current,
+non-deleted reply in the exact route-root Conversation before the bounded
+thread projection includes it with at most 99 recent peers. Missing, deleted,
+mismatched-root, cross-Conversation, and cross-Tenant reply anchors share the
+same generic failure and disclose no body, count, or target metadata. UI
+visibility and a saved route are never authority.
+The saved-message facade registers with the common protected-state boundary,
+cancels in-flight list/mutation requests, and clears all rows before a session,
+Tenant, Workspace, or authorization transition can reuse the surface.
+
 ## Tenant isolation
 
 Implemented controls:

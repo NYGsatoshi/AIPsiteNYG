@@ -589,6 +589,54 @@ public sealed class MessagingRepository(AppDbContext dbContext) : IMessagingRepo
         return new PagedResponse<Message>(items, 1, limit, total);
     }
 
+    public async Task<PagedResponse<Message>> ListMessageContextAsync(
+        Guid conversationId,
+        Guid anchorMessageId,
+        int limit,
+        CancellationToken cancellationToken = default)
+    {
+        limit = Math.Clamp(limit, 1, 100);
+        var query = dbContext.Messages
+            .AsNoTracking()
+            .Include(message => message.Attachments)
+            .ThenInclude(link => link.Attachment)
+            .Where(message =>
+                message.ConversationId == conversationId &&
+                message.ThreadRootMessageId == null &&
+                (message.DeletedAt == null || dbContext.Messages.Any(reply =>
+                    reply.ConversationId == message.ConversationId &&
+                    reply.ThreadRootMessageId == message.Id)));
+        var anchor = await query.FirstOrDefaultAsync(message => message.Id == anchorMessageId, cancellationToken);
+        if (anchor is null)
+        {
+            return new PagedResponse<Message>([], 1, limit, 0);
+        }
+
+        var total = await query.CountAsync(cancellationToken);
+        var recent = await query
+            .Where(message => message.Id != anchorMessageId)
+            .OrderByDescending(message => message.CreatedAt)
+            .ThenByDescending(message => message.Id)
+            .Take(Math.Max(0, limit - 1))
+            .ToListAsync(cancellationToken);
+        recent.Add(anchor);
+        await HydrateAuthorizedConversationAuthorsAsync(recent, conversationId, cancellationToken);
+        return new PagedResponse<Message>(recent, 1, limit, total);
+    }
+
+    public async Task HydrateAuthorizedMessageAuthorsAsync(
+        IReadOnlyCollection<Message> messages,
+        CancellationToken cancellationToken = default)
+    {
+        foreach (var group in messages.GroupBy(message => message.ConversationId))
+        {
+            await HydrateAuthorizedConversationAuthorsAsync(
+                group.ToArray(),
+                group.Key,
+                cancellationToken);
+        }
+    }
+
     public async Task<PagedResponse<Message>> ListThreadRepliesAsync(
         Guid conversationId,
         Guid threadRootMessageId,
@@ -615,6 +663,45 @@ public sealed class MessagingRepository(AppDbContext dbContext) : IMessagingRepo
             .ThenByDescending(message => message.Id)
             .Take(limit)
             .ToListAsync(cancellationToken);
+        await HydrateAuthorizedConversationAuthorsAsync(items, conversationId, cancellationToken);
+        return new PagedResponse<Message>(items, 1, limit, total);
+    }
+
+    public async Task<PagedResponse<Message>> ListThreadReplyContextAsync(
+        Guid conversationId,
+        Guid threadRootMessageId,
+        Guid anchorReplyMessageId,
+        int limit,
+        CancellationToken cancellationToken = default)
+    {
+        limit = Math.Clamp(limit, 1, 100);
+        var query = dbContext.Messages
+            .AsNoTracking()
+            .Include(message => message.Attachments)
+            .ThenInclude(link => link.Attachment)
+            .Where(message =>
+                message.ConversationId == conversationId &&
+                message.ThreadRootMessageId == threadRootMessageId);
+        var anchor = await query.FirstOrDefaultAsync(
+            message => message.Id == anchorReplyMessageId && message.DeletedAt == null,
+            cancellationToken);
+        if (anchor is null)
+        {
+            return new PagedResponse<Message>([], 1, limit, 0);
+        }
+
+        var total = await query.CountAsync(cancellationToken);
+        var items = await query
+            .Where(message => message.Id != anchorReplyMessageId)
+            .OrderByDescending(message => message.CreatedAt)
+            .ThenByDescending(message => message.Id)
+            .Take(Math.Max(0, limit - 1))
+            .ToListAsync(cancellationToken);
+        items.Add(anchor);
+        items = items
+            .OrderBy(message => message.CreatedAt)
+            .ThenBy(message => message.Id)
+            .ToList();
         await HydrateAuthorizedConversationAuthorsAsync(items, conversationId, cancellationToken);
         return new PagedResponse<Message>(items, 1, limit, total);
     }

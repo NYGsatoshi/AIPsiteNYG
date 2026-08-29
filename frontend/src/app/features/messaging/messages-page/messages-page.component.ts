@@ -27,6 +27,7 @@ interface RecipientOption {
           <h1>Conversations</h1>
         </div>
         <div class="messages-page__header-actions">
+          <a routerLink="/messages/saved" data-testid="saved-messages-link">Saved messages</a>
           <a
             routerLink="/messages/settings"
             data-testid="global-message-settings-link"

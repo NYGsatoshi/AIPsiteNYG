@@ -146,6 +146,31 @@ export interface MessageSearchResponseDto {
   readonly items?: unknown;
 }
 
+export interface MessageFollowUpListItemDto {
+  readonly messageId?: unknown;
+  readonly conversationId?: unknown;
+  readonly workspaceId?: unknown;
+  readonly conversationType?: unknown;
+  readonly conversationTitle?: unknown;
+  readonly threadRootMessageId?: unknown;
+  readonly authorDisplayName?: unknown;
+  readonly body?: unknown;
+  readonly messageCreatedAt?: unknown;
+  readonly savedAt?: unknown;
+}
+
+export interface MessageFollowUpListResponseDto extends PagedResponseDto<MessageFollowUpListItemDto> {
+  readonly page?: unknown;
+  readonly pageSize?: unknown;
+  readonly totalCount?: unknown;
+}
+
+export interface MessageFollowUpStateDto {
+  readonly messageId?: unknown;
+  readonly isSaved?: unknown;
+  readonly savedAt?: unknown;
+}
+
 @Injectable({ providedIn: 'root' })
 export class MessagingApi {
   private readonly http = inject(HttpClient);
@@ -190,9 +215,33 @@ export class MessagingApi {
     });
   }
 
-  listMessages(conversationId: string, before?: string): Observable<PagedResponseDto<MessageDto>> {
+  listMessages(conversationId: string, before?: string, anchorMessageId?: string): Observable<PagedResponseDto<MessageDto>> {
     return this.http.get<PagedResponseDto<MessageDto>>(`/api/conversations/${conversationId}/messages`, {
-      params: before ? { before } : undefined,
+      params: {
+        ...(before ? { before } : {}),
+        ...(anchorMessageId ? { anchorMessageId } : {})
+      },
+      withCredentials: true
+    });
+  }
+
+  listMessageFollowUps(page = 1, pageSize = 20): Observable<MessageFollowUpListResponseDto> {
+    return this.http.get<MessageFollowUpListResponseDto>('/api/me/message-follow-ups', {
+      params: { page: String(page), pageSize: String(pageSize) },
+      withCredentials: true
+    });
+  }
+
+  saveMessageFollowUp(messageId: string): Observable<MessageFollowUpStateDto> {
+    return this.http.put<MessageFollowUpStateDto>(
+      `/api/me/message-follow-ups/${messageId}`,
+      {},
+      { withCredentials: true }
+    );
+  }
+
+  removeMessageFollowUp(messageId: string): Observable<MessageFollowUpStateDto> {
+    return this.http.delete<MessageFollowUpStateDto>(`/api/me/message-follow-ups/${messageId}`, {
       withCredentials: true
     });
   }
@@ -210,9 +259,10 @@ export class MessagingApi {
     );
   }
 
-  getMessageThread(messageId: string): Observable<MessageThreadDto> {
+  getMessageThread(messageId: string, anchorReplyMessageId?: string): Observable<MessageThreadDto> {
     return this.http.get<MessageThreadDto>(`/api/messages/${messageId}/thread`, {
-      withCredentials: true
+      withCredentials: true,
+      params: anchorReplyMessageId ? { anchorReplyMessageId } : {}
     });
   }
 

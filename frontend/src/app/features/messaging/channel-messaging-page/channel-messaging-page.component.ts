@@ -37,10 +37,14 @@ export class ChannelMessagingPageComponent {
   private readonly routeContext = signal<{
     readonly conversationId: string | null;
     readonly workspaceId: string | null;
-  }>({ conversationId: null, workspaceId: null });
+    readonly focusMessageId: string | null;
+    readonly threadRootMessageId: string | null;
+  }>({ conversationId: null, workspaceId: null, focusMessageId: null, threadRootMessageId: null });
   private hasObservedActiveWorkspace = false;
   private lastLoadKey: string | null = null;
+  private openedFollowUpThreadKey: string | null = null;
   readonly page = this.facade.page;
+  readonly focusMessageId = computed(() => this.routeContext().focusMessageId);
 
   constructor() {
     this.route.paramMap.pipe(takeUntilDestroyed()).subscribe((paramMap) => {
@@ -48,7 +52,10 @@ export class ChannelMessagingPageComponent {
       this.routeContext.set({
         conversationId: paramMap.get('conversationId'),
         workspaceId: paramMap.get('workspaceId'),
+        focusMessageId: this.route.snapshot?.queryParamMap.get('focusMessageId') ?? null,
+        threadRootMessageId: this.route.snapshot?.queryParamMap.get('threadRootMessageId') ?? null,
       });
+      this.openedFollowUpThreadKey = null;
       this.loadForCommittedScope();
     });
 
@@ -56,6 +63,27 @@ export class ChannelMessagingPageComponent {
       this.routeContext();
       this.activeWorkspace.activeWorkspace();
       this.loadForCommittedScope();
+    });
+
+    effect(() => {
+      const context = this.routeContext();
+      const page = this.page();
+      const key = context.focusMessageId && context.threadRootMessageId
+        ? `${context.focusMessageId}:${context.threadRootMessageId}`
+        : null;
+      if (
+        !key ||
+        key === this.openedFollowUpThreadKey ||
+        !page.messages.some((message) => message.id === context.threadRootMessageId)
+      ) {
+        return;
+      }
+      this.openedFollowUpThreadKey = key;
+      this.facade.openThread(
+        context.threadRootMessageId!,
+        `message-${safeElementId(context.threadRootMessageId!)}`,
+        context.focusMessageId!
+      );
     });
   }
 
@@ -78,7 +106,7 @@ export class ChannelMessagingPageComponent {
     }
 
     const expectedWorkspaceId = context.workspaceId ?? activeWorkspaceId;
-    const loadKey = `${context.conversationId ?? ''}:${expectedWorkspaceId ?? ''}`;
+    const loadKey = `${context.conversationId ?? ''}:${expectedWorkspaceId ?? ''}:${context.focusMessageId ?? ''}`;
     if (loadKey === this.lastLoadKey) {
       return;
     }
@@ -87,6 +115,7 @@ export class ChannelMessagingPageComponent {
       context.conversationId,
       'channel',
       expectedWorkspaceId,
+      context.focusMessageId,
     );
   }
 
@@ -132,4 +161,8 @@ export class ChannelMessagingPageComponent {
   readonly canViewOthersPreciseReadTimestamps = computed(() =>
     this.page().conversation.capabilities.includes('viewOthersPreciseReadTimestamps'),
   );
+}
+
+function safeElementId(value: string): string {
+  return value.replace(/[^a-zA-Z0-9_-]/g, '-');
 }

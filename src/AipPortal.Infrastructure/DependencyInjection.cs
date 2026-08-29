@@ -46,7 +46,9 @@ public static class DependencyInjection
         services.AddScoped<IGroupRepository, GroupRepository>();
         services.AddScoped<IChannelRepository, ChannelRepository>();
         services.AddScoped<IMessagingRepository, MessagingRepository>();
+        services.AddScoped<IMessageFollowUpRepository, MessageFollowUpRepository>();
         services.AddScoped<IMessageIdempotencyCommitCoordinator, EfMessageIdempotencyCommitCoordinator>();
+        services.AddScoped<IMessageFollowUpCommitCoordinator, EfMessageFollowUpCommitCoordinator>();
         services.AddScoped<IDefaultConversationStore, DefaultConversationStore>();
         services.AddScoped<IProjectRepository, ProjectRepository>();
         services.AddScoped<ITaskExecutionScopeRepository, TaskExecutionScopeRepository>();

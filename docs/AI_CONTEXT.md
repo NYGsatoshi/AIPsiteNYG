@@ -148,6 +148,22 @@ adds no API, source inventory, execution provider, or runtime behavior. See
 `docs/decisions/issue-339-task-context-summary.md` and
 `docs/verification/p1-task-context-summary.md`.
 
+### Issue #368 saved Message follow-up candidate
+
+Saved Messages are now participant-private work state, independent from both
+`ConversationMember.IsLater` and every read cursor. A unique
+`(TenantId, UserId, MessageId)` row supports idempotent save/complete through
+`/api/me/message-follow-ups`; list counts and rows compose the current canonical
+readable-Conversation relation before paging, so revoked, removed, deleted, or
+cross-Tenant targets disclose neither bodies nor metadata. The Angular
+`/messages/saved` surface links to an authorized anchor-message load and focuses
+the exact Message (or its exact thread reply after opening the root with the
+authorized bounded `anchorReplyMessageId` projection, even outside the ordinary
+latest 100 replies). No
+read-state route is called by save, open, or complete. Reminder scheduling is
+explicitly absent because the repository has no Message reminder scheduler or
+delivery contract. See `docs/verification/p2-message-follow-ups.md`.
+
 ### Current P0 authorization-recovery candidate
 
 - On the existing #410 Task-create route, a same-route authorization reset

@@ -112,3 +112,18 @@ public sealed class MessageAttachment : Entity, ITenantEntity
     public Message? Message { get; set; }
     public Attachment? Attachment { get; set; }
 }
+
+/// <summary>
+/// A participant-private work marker for a Message. This state is deliberately
+/// independent from ConversationMember/ReadState so saving a message never
+/// changes unread cursors.
+/// </summary>
+public sealed class MessageFollowUp : AuditableEntity, ITenantEntity
+{
+    public Guid TenantId { get; set; }
+    public Guid UserId { get; set; }
+    public Guid MessageId { get; set; }
+
+    public User? User { get; set; }
+    public Message? Message { get; set; }
+}

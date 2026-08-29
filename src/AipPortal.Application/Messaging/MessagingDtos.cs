@@ -180,7 +180,30 @@ public sealed record UpdateParticipantStateRequest(
     bool? IsArchived = null,
     bool? IsLater = null);
 
-public sealed record MessageListQuery(int Limit = 50, DateTimeOffset? Before = null)
+public sealed record MessageListQuery(int Limit = 50, DateTimeOffset? Before = null, Guid? AnchorMessageId = null)
 {
     public int SafeLimit => Math.Clamp(Limit, 1, 100);
 }
+
+public sealed record MessageFollowUpListQuery(int Page = 1, int PageSize = 20)
+{
+    public int SafePage => Page < 1 ? 1 : Page;
+    public int SafePageSize => Math.Clamp(PageSize, 1, 50);
+}
+
+public sealed record MessageFollowUpListItemResponse(
+    Guid MessageId,
+    Guid ConversationId,
+    Guid WorkspaceId,
+    ConversationType ConversationType,
+    string ConversationTitle,
+    Guid? ThreadRootMessageId,
+    string AuthorDisplayName,
+    string Body,
+    DateTimeOffset MessageCreatedAt,
+    DateTimeOffset SavedAt);
+
+public sealed record MessageFollowUpStateResponse(
+    Guid MessageId,
+    bool IsSaved,
+    DateTimeOffset? SavedAt);

@@ -44,6 +44,13 @@ export const routes: Routes = [
         redirectTo: 'workspaces'
       },
       {
+        path: 'messages/saved',
+        loadComponent: () =>
+          import('./features/messaging/message-follow-ups-page/message-follow-ups-page.component').then(
+            (m) => m.MessageFollowUpsPageComponent
+          )
+      },
+      {
         path: 'messages/settings',
         loadComponent: () =>
           import('./features/messaging/message-settings-page/message-settings-page.component').then(
