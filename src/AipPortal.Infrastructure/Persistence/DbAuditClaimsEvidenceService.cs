@@ -87,7 +87,7 @@ public sealed class DbAuditClaimsEvidenceService(
             ? new HashSet<Guid>()
             : (await dbContext.AuditLogs
                 .AsNoTracking()
-                .Where(log => candidateEventIds.Contains(log.Id))
+                .Where(log => log.TenantId == version.TenantId && candidateEventIds.Contains(log.Id))
                 .Select(log => log.Id)
                 .ToListAsync(cancellationToken))
                 .ToHashSet();
